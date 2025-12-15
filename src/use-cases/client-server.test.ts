@@ -6,13 +6,13 @@ import { s } from 'tosijs-schema'
 describe('Use Case: Client-Server', () => {
   const VM = new AgentVM()
   let server: any
-  const PORT = 3099
-  const URL = `http://localhost:${PORT}`
+  let URL = ''
 
   beforeAll(() => {
     server = Bun.serve({
-      port: PORT,
+      port: 0,
       async fetch(req) {
+        // console.log(`[Server] ${req.method} ${req.url}`)
         if (req.method === 'POST') {
           try {
             const body = await req.json()
@@ -38,9 +38,12 @@ describe('Use Case: Client-Server', () => {
             })
           }
         }
-        return new Response('Not Found', { status: 404 })
+        return new Response(`Not Found: ${req.method} ${req.url}`, {
+          status: 404,
+        })
       },
     })
+    URL = `http://127.0.0.1:${server.port}/`
   })
 
   it('should execute an agent sent over HTTP', async () => {
@@ -64,7 +67,15 @@ describe('Use Case: Client-Server', () => {
       }),
     })
 
-    const data = await response.json()
+    const text = await response.text()
+    let data
+    try {
+      data = JSON.parse(text)
+    } catch (e) {
+      console.error('Failed to parse JSON:', text)
+      console.error('Failed request status:', response.status)
+      throw e
+    }
 
     // 3. Verify
     // store.get('secret_id') -> 'Server Value for secret_id'
@@ -99,7 +110,14 @@ describe('Use Case: Client-Server', () => {
             args: { key: req.key },
           }),
         })
-        const data = await response.json()
+        const text = await response.text()
+        let data
+        try {
+          data = JSON.parse(text)
+        } catch (e) {
+          console.error('Failed to parse concurrent response:', text)
+          return { status: 500, result: text }
+        }
         return {
           status: response.status,
           result: data.result?.response,

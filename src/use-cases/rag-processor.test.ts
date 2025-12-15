@@ -22,7 +22,7 @@ describe('Use Case: RAG Processor', () => {
         set: mock(async () => {
           // noop
         }),
-        vectorSearch: mock(async (vector) => {
+        vectorSearch: mock(async (collection, vector) => {
           // Verify vector passed
           if (vector[0] === 0.1) {
             return [
@@ -163,7 +163,7 @@ describe('Use Case: RAG Processor', () => {
         set: mock(async () => {
           // noop
         }),
-        vectorSearch: mock(async (vector) => {
+        vectorSearch: mock(async (collection, vector) => {
           if (vector[0] === 0.1)
             return [{ id: 'doc1', content: 'Paris is a city.' }]
           if (vector[0] === 0.4)
@@ -193,7 +193,7 @@ describe('Use Case: RAG Processor', () => {
     const rag = A99.take(s.object({ query: s.string }))
       .step({ op: 'llmEmbed', text: A99.args('query') })
       .as('vector')
-      .storeVectorSearch({ vector: 'vector' })
+      .storeVectorSearch({ collection: 'default', vector: 'vector' })
       .as('docs')
       .jsonStringify({ value: 'docs' })
       .as('contextStr')

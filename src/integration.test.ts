@@ -96,12 +96,12 @@ describe('Agent99 Integration (Mocked Pipeline)', () => {
 
   it('should handle capability errors gracefully', async () => {
     const logic = A99.take(s.object({}))
-      .httpFetch({ url: 'https://google.com' }) // Needs fetch capability
+      .llmPredict({ prompt: 'foo' }) // Needs llm capability (fetch has a default now)
       .return(s.object({}))
 
     const ast = logic.toJSON()
 
     // Run without capabilities
-    expect(VM.run(ast, {})).rejects.toThrow("Capability 'fetch' missing")
+    expect(VM.run(ast, {})).rejects.toThrow("Capability 'llm.predict' missing")
   })
 })

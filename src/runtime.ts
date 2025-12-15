@@ -12,7 +12,7 @@ export interface Capabilities {
     get: (key: string) => Promise<any>
     set: (key: string, value: any) => Promise<void>
     query?: (query: any) => Promise<any[]>
-    vectorSearch?: (vector: number[]) => Promise<any[]>
+    vectorSearch?: (collection: string, vector: number[], k?: number, filter?: any) => Promise<any[]>
   }
   llm?: {
     predict: (prompt: string, options?: any) => Promise<string>
@@ -45,7 +45,7 @@ export interface AtomDef {
   exec: AtomExec
   docs?: string
   timeoutMs?: number
-  cost?: number
+  cost?: number | ((input: any, ctx: RuntimeContext) => number)
 }
 
 // eslint-disable-next-line @typescript-eslint/no-unused-vars
@@ -56,7 +56,7 @@ export interface Atom<I, O> extends AtomDef {
 export interface AtomOptions {
   docs?: string
   timeoutMs?: number
-  cost?: number
+  cost?: number | ((input: any, ctx: RuntimeContext) => number)
 }
 
 export interface RunResult {
@@ -77,13 +77,25 @@ function createChildScope(ctx: RuntimeContext): RuntimeContext {
   }
 }
 
-function resolveValue(val: any, ctx: RuntimeContext): any {
+export function resolveValue(val: any, ctx: RuntimeContext): any {
   if (val && typeof val === 'object' && val.$kind === 'arg') {
     return ctx.args[val.path]
   }
   if (typeof val === 'string') {
     if (val.startsWith('args.')) {
       return ctx.args[val.replace('args.', '')]
+    }
+    // Dot notation support
+    if (val.includes('.')) {
+      const parts = val.split('.')
+      let current = ctx.state[parts[0]]
+      // If root variable exists, try to traverse
+      if (current !== undefined) {
+        for (let i = 1; i < parts.length; i++) {
+          current = current?.[parts[i]]
+        }
+        return current
+      }
     }
     // Simple state lookup (not an expression, just key)
     const v = ctx.state[val]
@@ -193,16 +205,16 @@ export function defineAtom<I extends Record<string, any>, O = any>(
     typeof options === 'string' ? { docs: options } : options
 
   const exec: AtomExec = async (step: any, ctx: RuntimeContext) => {
-    // 1. Deduct Fuel
-    if ((ctx.fuel -= cost) <= 0) throw new Error('Out of Fuel')
-
-    // 2. Validation (Strip metadata before validation)
-    // eslint-disable-next-line @typescript-eslint/no-unused-vars
+    // 1. Validation (Strip metadata before validation)
     const { op: _op, result: _res, ...inputData } = step
     if (inputSchema && !validate(inputSchema, inputData)) {
       // In production: detailed diagnostics
       throw new Error(`Atom '${op}' validation failed: ${JSON.stringify(inputData)}`)
     }
+
+    // 2. Deduct Fuel
+    const currentCost = typeof cost === 'function' ? cost(inputData, ctx) : cost
+    if ((ctx.fuel -= currentCost) <= 0) throw new Error('Out of Fuel')
 
     // 3. Execution with Timeout
     let timer: any
@@ -263,7 +275,7 @@ export const iff = defineAtom('if', s.object({ condition: s.string, vars: s.reco
 export const whileLoop = defineAtom('while', s.object({ condition: s.string, vars: s.record(s.any), body: s.array(s.any) }), undefined, async (step, ctx) => {
   // eslint-disable-next-line no-constant-condition
   while (true) {
-    if (ctx.fuel <= 0) throw new Error('Out of Fuel')
+    if ((ctx.fuel -= 0.1) <= 0) throw new Error('Out of Fuel')
     const vars: Record<string, any> = {}
     for (const [k, v] of Object.entries(step.vars)) vars[k] = resolveValue(v, ctx)
 
@@ -400,24 +412,39 @@ export const fetch = defineAtom('httpFetch', s.object({ url: s.string, method: s
     return res.text()
   }
   throw new Error("Capability 'fetch' missing and no global fetch available")
-}, { docs: 'HTTP Fetch', cost: 1 })
+}, { docs: 'HTTP Fetch', cost: 5 })
 
 // 9. Store
 export const storeGet = defineAtom('storeGet', s.object({ key: s.string }), s.any, async ({ key }, ctx) => {
   const k = resolveValue(key, ctx)
   return ctx.capabilities.store?.get(k)
-}, { docs: 'Store Get', cost: 1 })
+}, { docs: 'Store Get', cost: 5 })
 
 export const storeSet = defineAtom('storeSet', s.object({ key: s.string, value: s.any }), undefined, async ({ key, value }, ctx) => {
   const k = resolveValue(key, ctx)
   const v = resolveValue(value, ctx)
   return ctx.capabilities.store?.set(k, v)
-}, { docs: 'Store Set', cost: 1 })
+}, { docs: 'Store Set', cost: 5 })
 
-export const storeQuery = defineAtom('storeQuery', s.object({ query: s.any }), s.array(s.any), async ({ query }, ctx) => ctx.capabilities.store?.query?.(resolveValue(query, ctx)) ?? [], { docs: 'Store Query', cost: 1 })
-export const vectorSearch = defineAtom('storeVectorSearch', s.object({ vector: s.array(s.number) }), s.array(s.any), async ({ vector }, ctx) => ctx.capabilities.store?.vectorSearch?.(resolveValue(vector, ctx)) ?? [], { docs: 'Vector Search', cost: 1 })
+export const storeQuery = defineAtom('storeQuery', s.object({ query: s.any }), s.array(s.any), async ({ query }, ctx) => ctx.capabilities.store?.query?.(resolveValue(query, ctx)) ?? [], { docs: 'Store Query', cost: 5 })
+export const vectorSearch = defineAtom(
+  'storeVectorSearch',
+  s.object({ collection: s.string, vector: s.array(s.number), k: s.number.optional }),
+  s.array(s.any),
+  async ({ collection, vector, k }, ctx) =>
+    ctx.capabilities.store?.vectorSearch?.(
+      resolveValue(collection, ctx),
+      resolveValue(vector, ctx),
+      resolveValue(k, ctx)
+    ) ?? [],
+  {
+    docs: 'Vector Search',
+    cost: (input, ctx) => 5 + (resolveValue(input.k, ctx) ?? 5),
+  }
+)
 
-// 10. Agent (Cost 1)
+
+// 10. Agent
 export const llmPredict = defineAtom('llmPredict', s.object({ prompt: s.string, options: s.any.optional }), s.string, async ({ prompt, options }, ctx) => {
   if (!ctx.capabilities.llm?.predict) throw new Error("Capability 'llm.predict' missing")
   return ctx.capabilities.llm.predict(resolveValue(prompt, ctx), resolveValue(options, ctx))

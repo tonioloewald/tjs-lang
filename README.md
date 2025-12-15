@@ -97,6 +97,31 @@ Agent99 uses a **Capability-Based Security** model. The VM cannot access the net
 
 In production, you should inject secure, instrumented, or cloud-native implementations (e.g., restricted fetch, Postgres, Redis).
 
+## Batteries Included (AI & Vector Search)
+
+For local AI development, Agent99 provides a standard library of "Batteries" that enable Vector Search and LLM features without external API keys.
+
+*   **Vector:** Local embeddings via `@xenova/transformers`.
+*   **Store:** In-memory Vector Store via `@orama/orama`.
+*   **LLM:** Bridge to LM Studio (`http://localhost:1234`).
+
+### Usage
+
+To use the batteries, register the atoms and provide the capabilities:
+
+```typescript
+import { AgentVM, batteries } from 'agent-99'
+import { storeVectorize, storeSearch, llmPredictBattery } from 'agent-99'
+
+const vm = new AgentVM({
+  storeVectorize,
+  storeSearch,
+  llmPredictBattery
+})
+
+await vm.run(ast, args, { capabilities: batteries })
+```
+
 ### Implementing Real-World Atoms
 
 To enable custom capabilities like Database Access or Web Scraping, you inject them into the `VM.run` call.
