@@ -382,17 +382,38 @@ export const keys = defineAtom('keys', s.object({ obj: s.record(s.any) }), s.arr
 
 // 8. IO (Cost 1)
 export const fetch = defineAtom('httpFetch', s.object({ url: s.string, method: s.string.optional, headers: s.record(s.string).optional, body: s.any.optional }), s.any, async (step, ctx) => {
-  if (!ctx.capabilities.fetch) throw new Error("Capability 'fetch' missing")
   const url = resolveValue(step.url, ctx)
   const method = resolveValue(step.method, ctx)
   const headers = resolveValue(step.headers, ctx)
   const body = resolveValue(step.body, ctx)
-  return ctx.capabilities.fetch(url, { method, headers, body })
+  if (ctx.capabilities.fetch) {
+    return ctx.capabilities.fetch(url, { method, headers, body })
+  }
+  // Default: global fetch
+  if (typeof globalThis.fetch === 'function') {
+    const res = await globalThis.fetch(url, { method, headers, body: body ? JSON.stringify(body) : undefined })
+    // Try to parse JSON if content-type says so, else text
+    const contentType = res.headers.get('content-type')
+    if (contentType && contentType.includes('application/json')) {
+      return res.json()
+    }
+    return res.text()
+  }
+  throw new Error("Capability 'fetch' missing and no global fetch available")
 }, { docs: 'HTTP Fetch', cost: 1 })
 
-// 9. Store (Cost 1)
-export const storeGet = defineAtom('storeGet', s.object({ key: s.string }), s.any, async ({ key }, ctx) => ctx.capabilities.store?.get(resolveValue(key, ctx)), { docs: 'Store Get', cost: 1 })
-export const storeSet = defineAtom('storeSet', s.object({ key: s.string, value: s.any }), undefined, async ({ key, value }, ctx) => ctx.capabilities.store?.set(resolveValue(key, ctx), resolveValue(value, ctx)), { docs: 'Store Set', cost: 1 })
+// 9. Store
+export const storeGet = defineAtom('storeGet', s.object({ key: s.string }), s.any, async ({ key }, ctx) => {
+  const k = resolveValue(key, ctx)
+  return ctx.capabilities.store?.get(k)
+}, { docs: 'Store Get', cost: 1 })
+
+export const storeSet = defineAtom('storeSet', s.object({ key: s.string, value: s.any }), undefined, async ({ key, value }, ctx) => {
+  const k = resolveValue(key, ctx)
+  const v = resolveValue(value, ctx)
+  return ctx.capabilities.store?.set(k, v)
+}, { docs: 'Store Set', cost: 1 })
+
 export const storeQuery = defineAtom('storeQuery', s.object({ query: s.any }), s.array(s.any), async ({ query }, ctx) => ctx.capabilities.store?.query?.(resolveValue(query, ctx)) ?? [], { docs: 'Store Query', cost: 1 })
 export const vectorSearch = defineAtom('storeVectorSearch', s.object({ vector: s.array(s.number) }), s.array(s.any), async ({ vector }, ctx) => ctx.capabilities.store?.vectorSearch?.(resolveValue(vector, ctx)) ?? [], { docs: 'Vector Search', cost: 1 })
 
@@ -516,11 +537,24 @@ export class AgentVM {
 
   async run(ast: BaseNode, args: Record<string, any> = {}, options: { fuel?: number, capabilities?: Capabilities } = {}): Promise<RunResult> {
     const startFuel = options.fuel ?? 1000
+    
+    // Default Capabilities
+    const capabilities = options.capabilities ?? {}
+    
+    // Default In-Memory Store if none provided
+    if (!capabilities.store) {
+      const memoryStore = new Map<string, any>()
+      capabilities.store = {
+        get: async (key) => memoryStore.get(key),
+        set: async (key, value) => { memoryStore.set(key, value) }
+      }
+    }
+
     const ctx: RuntimeContext = {
       fuel: startFuel,
       args,
       state: {},
-      capabilities: options.capabilities ?? {},
+      capabilities,
       resolver: (op) => this.resolve(op),
       output: undefined
     }

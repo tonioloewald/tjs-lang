@@ -57,9 +57,11 @@ console.log(JSON.stringify(ast, null, 2))
 Run the AST in the VM. The VM is stateless and isolated.
 
 ```typescript
-import { VM } from 'agent-99'
+import { AgentVM } from 'agent-99'
 
-const result = await VM.run(
+const vm = new AgentVM()
+
+const result = await vm.run(
   ast,
   { price: 100, taxRate: 0.2 }, // Input Args
   { fuel: 1000 } // Execution Options
@@ -82,12 +84,18 @@ The standard library includes essential primitives:
 | **IO** | `httpFetch` | HTTP requests. |
 | **Store** | `storeGet`, `storeSet` | Key-Value storage. |
 | **AI** | `llmPredict`, `agentRun` | LLM calls and sub-agent recursion. |
+| **Utils** | `random`, `uuid` | Random generation (Crypto-secure if available). |
 
 ## Capabilities & Security
 
 Agent99 uses a **Capability-Based Security** model. The VM cannot access the network, file system, or database unless provided with a Capability.
 
-Local defaults are provided for rapid development (e.g. `fetch` wrapper, in-memory/IndexedDB storage, and an LM Studio bridge for AI), but in production you inject secure, instrumented, or cloud-native implementations.
+**Zero Config Defaults:** The runtime provides sensible defaults for local development:
+*   `httpFetch` uses the global `fetch`.
+*   `store` uses an in-memory `Map` (ephemeral).
+*   `random`/`uuid` use `crypto` or `Math`.
+
+In production, you should inject secure, instrumented, or cloud-native implementations (e.g., restricted fetch, Postgres, Redis).
 
 ### Implementing Real-World Atoms
 
@@ -96,7 +104,9 @@ To enable custom capabilities like Database Access or Web Scraping, you inject t
 #### Example: Providing a Database
 
 ```typescript
-import { VM } from 'agent-99'
+import { AgentVM } from 'agent-99'
+
+const vm = new AgentVM()
 
 const capabilities = {
   store: {
@@ -110,7 +120,7 @@ const capabilities = {
   },
 }
 
-await VM.run(ast, args, { capabilities })
+await vm.run(ast, args, { capabilities })
 ```
 
 #### Example: Web Scraping Agent
