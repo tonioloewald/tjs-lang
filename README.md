@@ -16,8 +16,9 @@ Agent99 allows you to define complex logic chains, agents, and data pipelines—
 
 Agent99 solves fundamental problems in distributed computing:
 
-- **Safe "Useful Mining":** Allows distributed nodes to execute productive, arbitrary work safely (sandboxed & gas-limited).
+- **Safe "Useful Mining":** Allows distributed nodes to execute productive, arbitrary work safely (sandboxed & gas-limited) — e.g. replacing Proof-of-Work with distributed data processing.
 - **Code is Data:** Logic is defined as a portable AST, making execution language-agnostic and portable.
+- **True Network Agents:** Write code that travels to the data, rather than moving petabytes of data to the code.
 - **Type-Safe Composition:** Build robust pipelines where inputs and outputs are strictly validated at every step.
 
 ## Comparison: Agent99 vs LangChain
@@ -82,6 +83,7 @@ const calculateTotal = A99.take(
   .mathCalc({
     expr: 'price * (1 + taxRate)',
     vars: {
+      // A99.args creates a pointer to the runtime value, ensuring the AST remains static while data is dynamic
       price: A99.args('price'),
       taxRate: A99.args('taxRate'),
     },
