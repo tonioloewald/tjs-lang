@@ -125,7 +125,7 @@ describe('Simple Examples', () => {
       .return(s.object({ filtered: s.array(s.any) }))
 
     // Adjust Mock
-    caps.xml.parse = mock(async () => ([{ id: '1', name: 'Alice', role: 'admin' }]))
+    caps.xml.parse = mock(async () => ([{ id: '1', name: 'Alice', role: 'admin' }])) as any
 
     const result = await VM.run(
       logic.toJSON(),

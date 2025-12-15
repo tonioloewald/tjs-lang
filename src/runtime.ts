@@ -424,6 +424,62 @@ export const xmlParse = defineAtom('xmlParse', s.object({ str: s.string }), s.an
   return ctx.capabilities.xml.parse(resolveValue(str, ctx))
 }, { docs: 'Parse XML', cost: 1 })
 
+// 12. Utils
+export const random = defineAtom('random', s.object({ 
+  min: s.number.optional, 
+  max: s.number.optional, 
+  format: s.string.optional, 
+  length: s.number.optional 
+}), s.any, async ({ min, max, format, length }, ctx) => {
+  const f = resolveValue(format, ctx) ?? 'float'
+  const len = resolveValue(length, ctx) ?? 10
+  const mn = resolveValue(min, ctx) ?? 0
+  const mx = resolveValue(max, ctx) ?? 1
+
+  if (f === 'base36') {
+    const chars = '0123456789abcdefghijklmnopqrstuvwxyz'
+    let result = ''
+    if (typeof crypto !== 'undefined' && crypto.getRandomValues) {
+      const values = new Uint8Array(len)
+      crypto.getRandomValues(values)
+      for (let i = 0; i < len; i++) {
+        result += chars[values[i] % 36]
+      }
+    } else {
+      for (let i = 0; i < len; i++) {
+        result += chars.charAt(Math.floor(Math.random() * 36))
+      }
+    }
+    return result
+  }
+
+  let val = Math.random()
+  if (typeof crypto !== 'undefined' && crypto.getRandomValues) {
+    const arr = new Uint32Array(1)
+    crypto.getRandomValues(arr)
+    val = arr[0] / (0xffffffff + 1)
+  }
+
+  const range = mx - mn
+  const result = (val * range) + mn
+
+  if (f === 'integer') {
+    return Math.floor(result)
+  }
+  return result
+}, { docs: 'Generate Random', cost: 1 })
+
+export const uuid = defineAtom('uuid', undefined, s.string, async () => {
+  if (typeof crypto !== 'undefined' && crypto.randomUUID) {
+    return crypto.randomUUID()
+  }
+  return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, (c) => {
+    const r = (Math.random() * 16) | 0
+    const v = c === 'x' ? r : (r & 0x3) | 0x8
+    return v.toString(16)
+  })
+}, { docs: 'Generate UUID', cost: 1 })
+
 
 // --- Exports ---
 
@@ -438,7 +494,8 @@ export const coreAtoms = {
   httpFetch: fetch,
   storeGet, storeSet, storeQuery, storeVectorSearch: vectorSearch,
   llmPredict, agentRun,
-  jsonParse, jsonStringify, xmlParse
+  jsonParse, jsonStringify, xmlParse,
+  random, uuid
 }
 
 // --- VM ---

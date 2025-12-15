@@ -18,6 +18,8 @@ describe('Use Case: RAG Processor', () => {
         }),
       },
       store: {
+        get: mock(async () => null),
+        set: mock(async () => {}),
         vectorSearch: mock(async (vector) => {
           // Verify vector passed
           if (vector[0] === 0.1) {
@@ -155,6 +157,8 @@ describe('Use Case: RAG Processor', () => {
         }),
       },
       store: {
+        get: mock(async () => null),
+        set: mock(async () => {}),
         vectorSearch: mock(async (vector) => {
           if (vector[0] === 0.1)
             return [{ id: 'doc1', content: 'Paris is a city.' }]

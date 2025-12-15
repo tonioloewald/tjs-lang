@@ -30,7 +30,8 @@ type AtomInput<T> = T extends Atom<infer I, any> ? I : never
 
 // The Builder instance type with dynamic methods inferred from AtomMap
 type BuilderMethods<M extends Record<string, Atom<any, any>>> = {
-  [K in keyof M as M[K]['op']]: (input: AtomInput<M[K]>) => BuilderType<M>
+  // input is optional to allow atoms like uuid() that take no arguments
+  [K in keyof M as M[K]['op']]: (input?: AtomInput<M[K]>) => BuilderType<M>
 }
 
 // Control Flow Extensions (Custom signatures)
