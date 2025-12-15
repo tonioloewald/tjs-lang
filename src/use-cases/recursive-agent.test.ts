@@ -120,4 +120,56 @@ describe('Use Case: Recursive Agent', () => {
       VM.run(factorial.toJSON(), { n: 10 }, { capabilities: caps })
     ).rejects.toThrow('Out of Fuel')
   })
+
+  it('should handle concurrent recursive agents', async () => {
+    // 5! = 120, 6! = 720
+    const inputs = [5, 6, 5, 6]
+    const factorial = A99.take(s.object({ n: s.number }))
+      .varSet({ key: 'n', value: A99.args('n') })
+      .if(
+        'n <= 1',
+        { n: 'n' },
+        (b) => b.varSet({ key: 'result', value: 1 }).return(s.object({ result: s.number })),
+        (b) =>
+          b
+            .mathCalc({ expr: 'n - 1', vars: { n: 'n' } })
+            .as('nMinus1')
+            .agentRun({ agentId: 'factorial', input: { n: 'nMinus1' } })
+            .as('subResult')
+            .mathCalc({
+              expr: 'n * subResult.result',
+              vars: { n: 'n', subResult: 'subResult' },
+            })
+            .as('result')
+            .return(s.object({ result: s.number }))
+      )
+
+    const ast = factorial.toJSON()
+
+    // We need a caps factory or ensure caps are concurrency-safe
+    // Since our simple mock logic is stateless (except recursion which creates new VM), it should be fine.
+    const caps = {
+      agent: {
+        run: async (agentId: string, input: any) => {
+          if (agentId === 'factorial') {
+            const res = await VM.run(ast, input, {
+              capabilities: caps,
+              fuel: 1000,
+            })
+            return res.result
+          }
+          throw new Error(`Unknown agent ${agentId}`)
+        },
+      },
+    }
+
+    const results = await Promise.all(
+      inputs.map((n) =>
+        VM.run(ast, { n }, { capabilities: caps, fuel: 1000 })
+      )
+    )
+
+    const values = results.map((r) => r.result.result)
+    expect(values).toEqual([120, 720, 120, 720])
+  })
 })

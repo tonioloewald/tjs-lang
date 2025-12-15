@@ -55,6 +55,11 @@ interface ControlFlow<M extends Record<string, Atom<any, any>>> {
     as: string,
     steps: (b: BuilderType<M>) => BuilderType<M>
   ): BuilderType<M>
+
+  try(branches: {
+    try: (b: BuilderType<M>) => BuilderType<M>
+    catch?: (b: BuilderType<M>) => BuilderType<M>
+  }): BuilderType<M>
 }
 
 export class TypedBuilder<M extends Record<string, Atom<any, any>>> {
@@ -189,6 +194,29 @@ export class TypedBuilder<M extends Record<string, Atom<any, any>>> {
         items,
         as,
         steps: stepsB.steps,
+      })
+    )
+  }
+
+  try(branches: {
+    try: (b: BuilderType<M>) => BuilderType<M>
+    catch?: (b: BuilderType<M>) => BuilderType<M>
+  }) {
+    const tryB = new TypedBuilder(this.atoms)
+    branches.try(tryB as any)
+
+    let catchSteps
+    if (branches.catch) {
+      const catchB = new TypedBuilder(this.atoms)
+      branches.catch(catchB as any)
+      catchSteps = catchB.steps
+    }
+
+    const tryAtom = this.atoms['try']
+    return this.add(
+      tryAtom.create({
+        try: tryB.steps,
+        catch: catchSteps,
       })
     )
   }

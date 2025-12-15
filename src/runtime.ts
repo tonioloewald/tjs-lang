@@ -144,6 +144,12 @@ function evaluateJsep(node: any, context: Record<string, any>): any {
       const prop = node.computed 
         ? evaluateJsep(node.property, context)
         : node.property.name
+        
+      // Security Check: Block prototype access
+      if (prop === '__proto__' || prop === 'constructor' || prop === 'prototype') {
+        throw new Error(`Security Error: Access to '${prop}' is forbidden`)
+      }
+      
       return obj?.[prop]
     }
 

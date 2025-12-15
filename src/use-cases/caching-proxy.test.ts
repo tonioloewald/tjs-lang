@@ -82,4 +82,42 @@ describe('Use Case: Caching Proxy', () => {
     expect(caps.fetch).not.toHaveBeenCalled()
     expect(resHit.result.result).toEqual({ data: 'cached' })
   })
+
+  it('should handle concurrent requests', async () => {
+    const refinedProxy = A99.take(s.object({ url: s.string }))
+      .storeGet({ key: 'args.url' })
+      .as('cached')
+      .if(
+        'cached != null',
+        { cached: 'cached' },
+        (b) =>
+          b
+            .varSet({ key: 'result', value: 'cached' })
+            .return(s.object({ result: s.any }))
+      )
+      .httpFetch({ url: A99.args('url') })
+      .as('fetched')
+      .storeSet({ key: A99.args('url'), value: 'fetched' })
+      .varSet({ key: 'result', value: 'fetched' })
+      .return(s.object({ result: s.any }))
+
+    const ast = refinedProxy.toJSON()
+    const caps = {
+      store: {
+        get: mock(async () => null),
+        set: mock(async () => {}),
+      },
+      fetch: mock(async (url) => ({ data: `fresh for ${url}` })),
+    }
+
+    const urls = Array.from({ length: 10 }, (_, i) => `http://site-${i}.com`)
+    const results = await Promise.all(
+      urls.map((url) => VM.run(ast, { url }, { capabilities: caps }))
+    )
+
+    results.forEach((res, i) => {
+      expect(res.result.result).toEqual({ data: `fresh for ${urls[i]}` })
+    })
+    expect(caps.store.set).toHaveBeenCalledTimes(10)
+  })
 })

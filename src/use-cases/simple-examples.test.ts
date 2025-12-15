@@ -134,6 +134,33 @@ describe('Simple Examples', () => {
     )
     expect(result.result.filtered).toEqual([{ name: 'Alice', role: 'admin' }])
   })
+
+  it('should execute examples in parallel', async () => {
+    const fibLogic = A99.take(s.object({ n: s.number }))
+      .varSet({ key: 'n', value: A99.args('n') })
+      .varSet({ key: 'a', value: 0 })
+      .varSet({ key: 'b', value: 1 })
+      .while('n > 0', { n: 'n' }, (loop) =>
+        loop
+          .mathCalc({ expr: 'a + b', vars: { a: 'a', b: 'b' } })
+          .as('temp')
+          .varSet({ key: 'a', value: 'b' })
+          .varSet({ key: 'b', value: 'temp' })
+          .mathCalc({ expr: 'n - 1', vars: { n: 'n' } })
+          .as('n')
+      )
+      .varSet({ key: 'result', value: 'a' })
+      .return(s.object({ result: s.number }))
+
+    const ast = fibLogic.toJSON()
+    const inputs = [5, 10, 15, 20]
+    // fib(5)=5, fib(10)=55, fib(15)=610, fib(20)=6765
+
+    const results = await Promise.all(inputs.map((n) => VM.run(ast, { n })))
+
+    const values = results.map((r) => r.result.result)
+    expect(values).toEqual([5, 55, 610, 6765])
+  })
 })
 
 // Export artifacts for Torture Test
