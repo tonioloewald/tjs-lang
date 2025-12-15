@@ -81,7 +81,8 @@ function resolveValue(val: any, ctx: RuntimeContext): any {
       return ctx.args[val.replace('args.', '')]
     }
     // Simple state lookup (not an expression, just key)
-    return ctx.state[val] ?? val
+    const v = ctx.state[val]
+    return v !== undefined ? v : val
   }
   return val
 }
@@ -388,7 +389,19 @@ export const llmPredict = defineAtom('llm.predict', s.object({ prompt: s.string,
 
 export const agentRun = defineAtom('agent.run', s.object({ agentId: s.string, input: s.any }), s.any, async ({ agentId, input }, ctx) => {
   if (!ctx.capabilities.agent?.run) throw new Error("Capability 'agent.run' missing")
-  return ctx.capabilities.agent.run(resolveValue(agentId, ctx), resolveValue(input, ctx))
+  
+  const resolvedId = resolveValue(agentId, ctx)
+  const rawInput = resolveValue(input, ctx)
+  
+  let resolvedInput = rawInput
+  if (rawInput && typeof rawInput === 'object' && !Array.isArray(rawInput)) {
+    resolvedInput = {}
+    for (const k in rawInput) {
+      resolvedInput[k] = resolveValue(rawInput[k], ctx)
+    }
+  }
+
+  return ctx.capabilities.agent.run(resolvedId, resolvedInput)
 }, 'Run Sub-Agent')
 
 // 11. Parsing
