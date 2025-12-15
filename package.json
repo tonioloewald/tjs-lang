@@ -27,6 +27,7 @@
     "latest": "rm -rf node_modules && bun install"
   },
   "dependencies": {
+    "jsep": "^1.4.0",
     "tosijs-schema": "1.0.1"
   }
 }

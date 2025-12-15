@@ -1,5 +1,6 @@
 import { s, type Infer, validate } from 'tosijs-schema'
 import type { BaseNode } from './builder'
+import jsep from 'jsep'
 
 // --- Types ---
 
@@ -16,6 +17,12 @@ export interface Capabilities {
   llm?: {
     predict: (prompt: string, options?: any) => Promise<string>
     embed?: (text: string) => Promise<number[]>
+  }
+  agent?: {
+    run: (agentId: string, input: any) => Promise<any>
+  }
+  xml?: {
+    parse: (xml: string) => Promise<any>
   }
   [key: string]: any
 }
@@ -62,6 +69,9 @@ function createChildScope(ctx: RuntimeContext): RuntimeContext {
   }
 }
 
+/**
+ * Resolves a value from args, state, or ArgRef.
+ */
 function resolveValue(val: any, ctx: RuntimeContext): any {
   if (val && typeof val === 'object' && val.$kind === 'arg') {
     return ctx.args[val.path]
@@ -70,71 +80,92 @@ function resolveValue(val: any, ctx: RuntimeContext): any {
     if (val.startsWith('args.')) {
       return ctx.args[val.replace('args.', '')]
     }
+    // Simple state lookup (not an expression, just key)
     return ctx.state[val] ?? val
   }
   return val
 }
 
-// Safe Eval (Math & Logic)
-function evaluateExpression(expr: string, vars: Record<string, any>): number {
-  // Simple tokenizer for MVP
-  const tokens = expr.match(
-    new RegExp(
-      '(\\d+(\\.\\d+)?)|([a-zA-Z_]\\w*)|(>=|<=|==|!=|[+\\-*/()><])',
-      'g'
-    )
-  )
-  if (!tokens) return 0
+// --- JSEP Evaluator ---
 
-  const ops: string[] = []
-  const values: number[] = []
+// Add binary ops
+jsep.addBinaryOp('and', 1)
+jsep.addBinaryOp('or', 1)
+jsep.addBinaryOp('eq', 6)
+jsep.addBinaryOp('neq', 6)
+jsep.addBinaryOp('gt', 7)
+jsep.addBinaryOp('lt', 7)
+jsep.addBinaryOp('ge', 7)
+jsep.addBinaryOp('le', 7)
 
-  const precedence: Record<string, number> = {
-    '*': 3, '/': 3,
-    '+': 2, '-': 2,
-    '>': 1, '<': 1, '>=': 1, '<=': 1, '==': 1, '!=': 1,
-  }
+function evaluateJsep(node: any, context: Record<string, any>): any {
+  switch (node.type) {
+    case 'Literal':
+      return node.value
 
-  const applyOp = () => {
-    const b = values.pop()
-    const a = values.pop()
-    const op = ops.pop()
-    if (a === undefined || b === undefined || !op) throw new Error(`Expr: Invalid op`)
+    case 'Identifier':
+      return context[node.name]
 
-    switch (op) {
-      case '+': values.push(a + b); break
-      case '-': values.push(a - b); break
-      case '*': values.push(a * b); break
-      case '/': values.push(a / b); break
-      case '>': values.push(a > b ? 1 : 0); break
-      case '<': values.push(a < b ? 1 : 0); break
-      case '>=': values.push(a >= b ? 1 : 0); break
-      case '<=': values.push(a <= b ? 1 : 0); break
-      case '==': values.push(a === b ? 1 : 0); break
-      case '!=': values.push(a !== b ? 1 : 0); break
+    case 'UnaryExpression': {
+      const arg = evaluateJsep(node.argument, context)
+      if (node.operator === '!') return !arg
+      if (node.operator === '-') return -arg
+      throw new Error(`Unknown unary operator: ${node.operator}`)
     }
-  }
 
-  for (const token of tokens) {
-    if (!isNaN(parseFloat(token))) {
-      values.push(parseFloat(token))
-    } else if (token === '(') {
-      ops.push(token)
-    } else if (token === ')') {
-      while (ops.length > 0 && ops[ops.length - 1] !== '(') applyOp()
-      ops.pop()
-    } else if (precedence[token]) {
-      while (ops.length > 0 && ops[ops.length - 1] !== '(' && precedence[ops[ops.length - 1]] >= precedence[token]) {
-        applyOp()
+    case 'BinaryExpression': {
+      const left = evaluateJsep(node.left, context)
+      const right = evaluateJsep(node.right, context)
+      switch (node.operator) {
+        case '+': return left + right
+        case '-': return left - right
+        case '*': return left * right
+        case '/': return left / right
+        case '%': return left % right
+        case '>': return left > right
+        case '<': return left < right
+        case '>=': case 'ge': return left >= right
+        case '<=': case 'le': return left <= right
+        case '==': case 'eq': return left == right
+        case '!=': case 'neq': return left != right
+        case '&&': case 'and': return left && right
+        case '||': case 'or': return left || right
+        default: throw new Error(`Unknown binary operator: ${node.operator}`)
       }
-      ops.push(token)
-    } else {
-      const val = Number(vars[token] ?? 0)
-      values.push(isNaN(val) ? 0 : val)
     }
+
+    case 'MemberExpression': {
+      const obj = evaluateJsep(node.object, context)
+      const prop = node.computed 
+        ? evaluateJsep(node.property, context)
+        : node.property.name
+      return obj?.[prop]
+    }
+
+    case 'ArrayExpression':
+      return node.elements.map((el: any) => evaluateJsep(el, context))
+
+    case 'CallExpression':
+      // Basic function support if needed, or throw
+      // For now, no function calls allowed in expressions for safety
+      throw new Error('Function calls not supported in expressions')
+
+    default:
+      throw new Error(`Unknown node type: ${node.type}`)
   }
-  while (ops.length > 0) applyOp()
-  return values[0] ?? 0
+}
+
+/**
+ * Evaluates a JSEP-compatible expression string against a context object.
+ */
+function evaluateExpression(expr: string, vars: Record<string, any>): any {
+  if (!expr || expr.trim() === '') return undefined
+  try {
+    const ast = jsep(expr)
+    return evaluateJsep(ast, vars)
+  } catch (e: any) {
+    throw new Error(`Expression error "${expr}": ${e.message}`)
+  }
 }
 
 // --- Atom Factory ---
@@ -206,7 +237,8 @@ export const iff = defineAtom('if', s.object({ condition: s.string, vars: s.reco
   for (const [k, v] of Object.entries(step.vars)) {
      vars[k] = resolveValue(v, ctx)
   }
-  if (evaluateExpression(step.condition, vars) !== 0) {
+  // JSEP returns any type, but if needs boolean
+  if (evaluateExpression(step.condition, vars)) {
     await seq.exec({ op: 'seq', steps: step.then } as any, ctx)
   } else if (step.else) {
     await seq.exec({ op: 'seq', steps: step.else } as any, ctx)
@@ -219,7 +251,7 @@ export const whileLoop = defineAtom('while', s.object({ condition: s.string, var
     const vars: Record<string, any> = {}
     for (const [k, v] of Object.entries(step.vars)) vars[k] = resolveValue(v, ctx)
     
-    if (evaluateExpression(step.condition, vars) === 0) break
+    if (!evaluateExpression(step.condition, vars)) break
     await seq.exec({ op: 'seq', steps: step.body } as any, ctx)
     if (ctx.output !== undefined) return
   }
@@ -251,11 +283,7 @@ export const tryCatch = defineAtom('try', s.object({ try: s.array(s.any), catch:
 
 // 2. State
 export const varSet = defineAtom('var.set', s.object({ key: s.string, value: s.any }), undefined, async ({ key, value }, ctx) => {
-  // Value could be a reference? For now assumes literal or resolved by builder?
-  // If we want dynamic set from another variable:
-  // "value" property in AST usually carries the literal or special object. 
-  // Builder usually resolves inputs.
-  ctx.state[key] = value
+  ctx.state[key] = resolveValue(value, ctx)
 }, 'Set Variable')
 
 export const varGet = defineAtom('var.get', s.object({ key: s.string }), s.any, async ({ key }, ctx) => {
@@ -271,7 +299,7 @@ export const scope = defineAtom('scope', s.object({ steps: s.array(s.any) }), un
 
 // 3. Logic (Basic boolean ops)
 const binaryLogic = (op: string, fn: (a: any, b: any) => boolean) => 
-  defineAtom(op, s.object({ a: s.any, b: s.any }), s.boolean, async ({ a, b }, ctx) => fn(a, b), 'Logic')
+  defineAtom(op, s.object({ a: s.any, b: s.any }), s.boolean, async ({ a, b }, ctx) => fn(resolveValue(a, ctx), resolveValue(b, ctx)), 'Logic')
 
 export const eq = binaryLogic('eq', (a, b) => a == b)
 export const neq = binaryLogic('neq', (a, b) => a != b)
@@ -279,7 +307,7 @@ export const gt = binaryLogic('gt', (a, b) => a > b)
 export const lt = binaryLogic('lt', (a, b) => a < b)
 export const and = binaryLogic('and', (a, b) => !!(a && b))
 export const or = binaryLogic('or', (a, b) => !!(a || b))
-export const not = defineAtom('not', s.object({ value: s.any }), s.boolean, async ({ value }) => !value, 'Not')
+export const not = defineAtom('not', s.object({ value: s.any }), s.boolean, async ({ value }, ctx) => !resolveValue(value, ctx), 'Not')
 
 // 4. Math
 export const calc = defineAtom('math.calc', s.object({ expr: s.string, vars: s.record(s.any) }), s.number, async ({ expr, vars }, ctx) => {
@@ -291,70 +319,85 @@ export const calc = defineAtom('math.calc', s.object({ expr: s.string, vars: s.r
 // 5. List
 export const map = defineAtom('map', s.object({ items: s.array(s.any), as: s.string, steps: s.array(s.any) }), s.array(s.any), async ({ items, as, steps }, ctx) => {
   const results = []
-  for (const item of items) {
+  const resolvedItems = resolveValue(items, ctx)
+  if (!Array.isArray(resolvedItems)) throw new Error('map: items is not an array')
+  for (const item of resolvedItems) {
     const scopedCtx = createChildScope(ctx)
     scopedCtx.state[as] = item
     await seq.exec({ op: 'seq', steps } as any, scopedCtx)
-    // Assume last step result is the map result? Or specific return? 
-    // Agent99 pattern: result of last step is usually implicit return of block if captured?
-    // For now, let's assume we capture a variable named 'result' from scope? 
-    // Or simpler: map returns the state of the scope?
-    // Let's rely on explicit 'result' variable in scope for now.
     results.push(scopedCtx.state['result'] ?? null)
   }
   return results
 }, { docs: 'Map Array', timeoutMs: 0 })
 
-export const push = defineAtom('push', s.object({ list: s.array(s.any), item: s.any }), s.array(s.any), async ({ list, item }) => {
-  // Note: this mutates the list if it's a reference in state
-  list.push(item)
-  return list
+export const push = defineAtom('push', s.object({ list: s.array(s.any), item: s.any }), s.array(s.any), async ({ list, item }, ctx) => {
+  const resolvedList = resolveValue(list, ctx)
+  const resolvedItem = resolveValue(item, ctx)
+  if (Array.isArray(resolvedList)) resolvedList.push(resolvedItem)
+  return resolvedList
 }, 'Push to Array')
 
-export const len = defineAtom('len', s.object({ list: s.any }), s.number, async ({ list }) => {
-  return Array.isArray(list) || typeof list === 'string' ? list.length : 0
+export const len = defineAtom('len', s.object({ list: s.any }), s.number, async ({ list }, ctx) => {
+  const val = resolveValue(list, ctx)
+  return Array.isArray(val) || typeof val === 'string' ? val.length : 0
 }, 'Length')
 
 // 6. String
-export const split = defineAtom('split', s.object({ str: s.string, sep: s.string }), s.array(s.string), async ({ str, sep }) => str.split(sep), 'Split String')
-export const join = defineAtom('join', s.object({ list: s.array(s.string), sep: s.string }), s.string, async ({ list, sep }) => list.join(sep), 'Join String')
-export const template = defineAtom('template', s.object({ tmpl: s.string, vars: s.record(s.any) }), s.string, async ({ tmpl, vars }: { tmpl: string, vars: Record<string, any> }) => {
-  return tmpl.replace(/\{\{(\w+)\}\}/g, (_: string, key: string) => String(vars[key] ?? ''))
+export const split = defineAtom('split', s.object({ str: s.string, sep: s.string }), s.array(s.string), async ({ str, sep }, ctx) => resolveValue(str, ctx).split(resolveValue(sep, ctx)), 'Split String')
+export const join = defineAtom('join', s.object({ list: s.array(s.string), sep: s.string }), s.string, async ({ list, sep }, ctx) => resolveValue(list, ctx).join(resolveValue(sep, ctx)), 'Join String')
+export const template = defineAtom('template', s.object({ tmpl: s.string, vars: s.record(s.any) }), s.string, async ({ tmpl, vars }: { tmpl: string, vars: Record<string, any> }, ctx) => {
+  const resolvedTmpl = resolveValue(tmpl, ctx)
+  return resolvedTmpl.replace(/\{\{(\w+)\}\}/g, (_: string, key: string) => String(resolveValue(vars[key], ctx) ?? ''))
 }, 'String Template')
 
 // 7. Object
-export const pick = defineAtom('pick', s.object({ obj: s.record(s.any), keys: s.array(s.string) }), s.record(s.any), async ({ obj, keys }: { obj: Record<string, any>, keys: string[] }) => {
+export const pick = defineAtom('pick', s.object({ obj: s.record(s.any), keys: s.array(s.string) }), s.record(s.any), async ({ obj, keys }: { obj: Record<string, any>, keys: string[] }, ctx) => {
+  const resolvedObj = resolveValue(obj, ctx)
+  const resolvedKeys = resolveValue(keys, ctx)
   const res: any = {}
-  keys.forEach((k: string) => res[k] = obj[k])
+  if (resolvedObj && Array.isArray(resolvedKeys)) {
+    resolvedKeys.forEach((k: string) => res[k] = resolvedObj[k])
+  }
   return res
 }, 'Pick Keys')
 
-export const merge = defineAtom('merge', s.object({ a: s.record(s.any), b: s.record(s.any) }), s.record(s.any), async ({ a, b }) => ({ ...a, ...b }), 'Merge Objects')
-export const keys = defineAtom('keys', s.object({ obj: s.record(s.any) }), s.array(s.string), async ({ obj }) => Object.keys(obj), 'Object Keys')
+export const merge = defineAtom('merge', s.object({ a: s.record(s.any), b: s.record(s.any) }), s.record(s.any), async ({ a, b }, ctx) => ({ ...resolveValue(a, ctx), ...resolveValue(b, ctx) }), 'Merge Objects')
+export const keys = defineAtom('keys', s.object({ obj: s.record(s.any) }), s.array(s.string), async ({ obj }, ctx) => Object.keys(resolveValue(obj, ctx) ?? {}), 'Object Keys')
 
 // 8. IO
 export const fetch = defineAtom('http.fetch', s.object({ url: s.string, method: s.string.optional, headers: s.record(s.string).optional, body: s.any.optional }), s.any, async (step, ctx) => {
   if (!ctx.capabilities.fetch) throw new Error("Capability 'fetch' missing")
-  return ctx.capabilities.fetch(step.url, { method: step.method, headers: step.headers, body: step.body })
+  const url = resolveValue(step.url, ctx)
+  const method = resolveValue(step.method, ctx)
+  const headers = resolveValue(step.headers, ctx)
+  const body = resolveValue(step.body, ctx)
+  return ctx.capabilities.fetch(url, { method, headers, body })
 }, 'HTTP Fetch')
 
 // 9. Store
-export const storeGet = defineAtom('store.get', s.object({ key: s.string }), s.any, async ({ key }, ctx) => ctx.capabilities.store?.get(key), 'Store Get')
-export const storeSet = defineAtom('store.set', s.object({ key: s.string, value: s.any }), undefined, async ({ key, value }, ctx) => ctx.capabilities.store?.set(key, value), 'Store Set')
-export const storeQuery = defineAtom('store.query', s.object({ query: s.any }), s.array(s.any), async ({ query }, ctx) => ctx.capabilities.store?.query?.(query) ?? [], 'Store Query')
-export const vectorSearch = defineAtom('store.vectorSearch', s.object({ vector: s.array(s.number) }), s.array(s.any), async ({ vector }, ctx) => ctx.capabilities.store?.vectorSearch?.(vector) ?? [], 'Vector Search')
+export const storeGet = defineAtom('store.get', s.object({ key: s.string }), s.any, async ({ key }, ctx) => ctx.capabilities.store?.get(resolveValue(key, ctx)), 'Store Get')
+export const storeSet = defineAtom('store.set', s.object({ key: s.string, value: s.any }), undefined, async ({ key, value }, ctx) => ctx.capabilities.store?.set(resolveValue(key, ctx), resolveValue(value, ctx)), 'Store Set')
+export const storeQuery = defineAtom('store.query', s.object({ query: s.any }), s.array(s.any), async ({ query }, ctx) => ctx.capabilities.store?.query?.(resolveValue(query, ctx)) ?? [], 'Store Query')
+export const vectorSearch = defineAtom('store.vectorSearch', s.object({ vector: s.array(s.number) }), s.array(s.any), async ({ vector }, ctx) => ctx.capabilities.store?.vectorSearch?.(resolveValue(vector, ctx)) ?? [], 'Vector Search')
 
 // 10. Agent
 export const llmPredict = defineAtom('llm.predict', s.object({ prompt: s.string, options: s.any.optional }), s.string, async ({ prompt, options }, ctx) => {
   if (!ctx.capabilities.llm?.predict) throw new Error("Capability 'llm.predict' missing")
-  return ctx.capabilities.llm.predict(prompt, options)
+  return ctx.capabilities.llm.predict(resolveValue(prompt, ctx), resolveValue(options, ctx))
 }, 'LLM Predict')
 
 export const agentRun = defineAtom('agent.run', s.object({ agentId: s.string, input: s.any }), s.any, async ({ agentId, input }, ctx) => {
-  // Recursive agent call? Needs capability or just running a sub-vm?
-  // Stub for now.
-  return { error: 'Not implemented' }
+  if (!ctx.capabilities.agent?.run) throw new Error("Capability 'agent.run' missing")
+  return ctx.capabilities.agent.run(resolveValue(agentId, ctx), resolveValue(input, ctx))
 }, 'Run Sub-Agent')
+
+// 11. Parsing
+export const jsonParse = defineAtom('json.parse', s.object({ str: s.string }), s.any, async ({ str }, ctx) => JSON.parse(resolveValue(str, ctx)), 'Parse JSON')
+export const jsonStringify = defineAtom('json.stringify', s.object({ value: s.any }), s.string, async ({ value }, ctx) => JSON.stringify(resolveValue(value, ctx)), 'Stringify JSON')
+export const xmlParse = defineAtom('xml.parse', s.object({ str: s.string }), s.any, async ({ str }, ctx) => {
+  if (!ctx.capabilities.xml?.parse) throw new Error("Capability 'xml.parse' missing")
+  return ctx.capabilities.xml.parse(resolveValue(str, ctx))
+}, 'Parse XML')
 
 
 // --- Exports ---
@@ -369,7 +412,8 @@ export const coreAtoms = {
   pick, merge, keys,
   'http.fetch': fetch,
   'store.get': storeGet, 'store.set': storeSet, 'store.query': storeQuery, 'store.vectorSearch': vectorSearch,
-  'llm.predict': llmPredict, 'agent.run': agentRun
+  'llm.predict': llmPredict, 'agent.run': agentRun,
+  'json.parse': jsonParse, 'json.stringify': jsonStringify, 'xml.parse': xmlParse
 }
 
 // --- VM ---

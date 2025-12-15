@@ -49,6 +49,12 @@ interface ControlFlow<M extends Record<string, Atom<any, any>>> {
   ): BuilderType<M>
 
   scope(steps: (b: BuilderType<M>) => BuilderType<M>): BuilderType<M>
+
+  map(
+    items: any,
+    as: string,
+    steps: (b: BuilderType<M>) => BuilderType<M>
+  ): BuilderType<M>
 }
 
 export class TypedBuilder<M extends Record<string, Atom<any, any>>> {
@@ -155,6 +161,34 @@ export class TypedBuilder<M extends Record<string, Atom<any, any>>> {
         condition,
         vars,
         body: bodyB.steps,
+      })
+    )
+  }
+
+  scope(steps: (b: BuilderType<M>) => BuilderType<M>) {
+    const scopeB = new TypedBuilder(this.atoms)
+    steps(scopeB as any)
+    const scopeAtom = this.atoms['scope']
+    return this.add(
+      scopeAtom.create({
+        steps: scopeB.steps,
+      })
+    )
+  }
+
+  map(
+    items: any,
+    as: string,
+    steps: (b: BuilderType<M>) => BuilderType<M>
+  ) {
+    const stepsB = new TypedBuilder(this.atoms)
+    steps(stepsB as any)
+    const mapAtom = this.atoms['map']
+    return this.add(
+      mapAtom.create({
+        items,
+        as,
+        steps: stepsB.steps,
       })
     )
   }
