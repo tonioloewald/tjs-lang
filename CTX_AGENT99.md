@@ -62,12 +62,13 @@ const result = await A99.run(calculateTotal, { price: 100, taxRate: 0.2 })
 2.  **Runtime & Core Atoms:** Implement the VM and core control flow atoms (`seq`, `if`, etc.) with mock capabilities.
 3.  **Mocked Integration Tests:** Validate the full cycle (Builder -> AST -> Runtime) using mocked atoms for IO/DB.
 4.  **Real World Atoms:** Implement concrete atoms for:
-    *   **Browser:** DOM interaction, LocalStorage.
-    *   **Server/Cloud:** Firebase, generic HTTP.
-    *   **AI:** Agent delegates using LM Studio (Client) or Gemini (Server).
+    - **Browser:** DOM interaction, LocalStorage.
+    - **Server/Cloud:** Firebase, generic HTTP.
+    - **AI:** Agent delegates using LM Studio (Client) or Gemini (Server).
 5.  **Extensibility:** Ensure the atom system allows users to easily plug in custom providers (Supabase, AWS, etc.).
 
 ## 4. The Agent99 Instruction Set (Standard Library)
+
 _The Runtime must implement these core Atoms to be Turing Complete and usable:_
 
 | Category   | Atoms                                                         | Notes                                                                                     |
@@ -100,10 +101,11 @@ _The Runtime must implement these core Atoms to be Turing Complete and usable:_
 - _Includes "Red Team" tests ensuring path traversal and resource exhaustion are blocked._
 
 ## 7. Security Architecture
-* **Capability-Based Access Control:**
-* **Factories:** Tools are created via Factories (e.g., `File.scope('/tmp/').read()`).
-* **No Global Scopes:** Agents never access raw IO primitives.
-* **Pragmatic Security (Taint & Trace):**
-* **Explicit Unsafe Mode:** Users can mount unsafe tools, but the Runtime marks the session as "Tainted".
-* **Forensic Logging:** The Runtime produces a **Cryptographically Signed Execution Log** (Black Box Recorder).
-* **Identity Headers:** Outgoing requests inject `X-Agent99-Signature`.
+
+- **Capability-Based Access Control:**
+- **Factories:** Tools are created via Factories (e.g., `File.scope('/tmp/').read()`).
+- **No Global Scopes:** Agents never access raw IO primitives.
+- **Pragmatic Security (Taint & Trace):**
+- **Explicit Unsafe Mode:** Users can mount unsafe tools, but the Runtime marks the session as "Tainted".
+- **Forensic Logging:** The Runtime produces a **Cryptographically Signed Execution Log** (Black Box Recorder).
+- **Identity Headers:** Outgoing requests inject `X-Agent99-Signature`.

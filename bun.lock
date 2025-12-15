@@ -4,6 +4,9 @@
   "workspaces": {
     "": {
       "name": "create-xinjs-blueprint",
+      "dependencies": {
+        "tosijs-schema": "1.0.1",
+      },
       "devDependencies": {
         "@types/bun": "latest",
         "@types/jsdom": "^21.1.7",
@@ -275,6 +278,8 @@
     "to-regex-range": ["to-regex-range@5.0.1", "", { "dependencies": { "is-number": "^7.0.0" } }, "sha512-65P7iz6X5yEr1cwcgvQxbbIw7Uk3gOy5dIdtZ4rDveLqhrdJP+Li/Hx6tyK0NEb+2GCyneCMJiGqrADCSNk8sQ=="],
 
     "tosijs": ["tosijs@1.0.10", "", {}, "sha512-qD2Jyo4wQoGcHoYnYAfcIQcDymJLiodBvHgG6EK440Z9bPiv0262pqTwrjGm8yzMsHH/sOONjFT1jSH3liu37g=="],
+
+    "tosijs-schema": ["tosijs-schema@1.0.1", "", {}, "sha512-xbV1ucuXYl5MRJ9XYJb5GQbmghKxHdOHhDZg/HBYcBiKpzxIuaEFvmmzt/gz7Bejlh5KBCOolxMzL/mjZtHkZg=="],
 
     "tslib": ["tslib@1.14.1", "", {}, "sha512-Xni35NKzjgMrwevysHTCArtLDpPvye8zV/0E4EyYn43P7/7qvQwPh9BGkHewbMulVntbigmcT7rdX3BNo9wRJg=="],
 

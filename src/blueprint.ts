@@ -1,175 +1,171 @@
 /*!
-# agent-99
+# Agent99 Blueprint
 
-Information about the `<agent-99>` component blueprint.
+This blueprint exports the Agent99 Runtime and Builder, along with a demo component
+that visualizes an agent execution in the browser.
 */
 
-import type { XinBlueprint, PartsMap } from 'tosijs'
-import { compareSemanticVersion } from './compare-semantic-version'
-interface ToggleParts extends PartsMap {
-  valueHolder: HTMLInputElement
-}
-
-// v0.8.5 required for async blueprints
-const REQUIRED_VERSION = '0.8.5'
+import type { XinBlueprint } from 'tosijs'
+import { A99 } from './builder'
+import { VM } from './runtime'
+import { s } from 'tosijs-schema'
+import { createBrowserCapabilities } from './atoms/browser'
 
 export const blueprint: XinBlueprint = async (tag, factory) => {
-  const { Component, elements, vars, version } = factory
-  const { input, label, div, slot } = elements
+  const { Component, elements, vars } = factory
+  const { div, h3, button, pre, input, span } = elements
 
-  if (compareSemanticVersion(REQUIRED_VERSION, version) < 0) {
-    throw new Error(`blueprint requires xinjs ${REQUIRED_VERSION}`)
-  }
+  class Agent99Demo extends Component {
+    // State
+    logs: string[] = []
+    result: any = null
+    fuel = 100
 
-  class WebComponent extends Component {
-    value = false
-    disabled = false
-
-    get checked(): boolean {
-      return this.value
-    }
-
-    set checked(value: boolean) {
-      this.value = value
-    }
+    // Demo Agent Logic
+    // Reads a number from the input, adds tax, and returns it.
+    private agentLogic = A99.take(s.object({ inputVal: s.number }))
+      // 1. Calculate Tax
+      .calc('inputVal * 0.2', { inputVal: A99.args('inputVal') })
+      .as('tax')
+      // 2. Calculate Total
+      .calc('inputVal + tax', {
+        inputVal: A99.args('inputVal'),
+        tax: A99.val('tax'),
+      })
+      .as('total')
+      // 3. Return
+      .return(s.object({ total: s.number, tax: s.number }))
 
     constructor() {
       super()
-
-      this.initAttributes('disabled')
+      this.initAttributes('fuel')
     }
 
-    static styleSpec = {
-      ':host': {
-        display: 'inline-block',
-      },
+    async runAgent() {
+      this.logs = ['Starting Agent...']
+      this.result = null
+      this.queueRender()
 
-      ':host label': {
-        display: 'inline-flex',
-        gap: vars.toggleGap,
-        alignItems: 'center',
-      },
+      try {
+        // 1. Get Input Value from DOM manually to simulate "World State"
+        // In a real app, the agent might use 'dom.value' atom, but here we just pass it as args.
+        const inputEl = this.parts.input as HTMLInputElement
+        const val = parseFloat(inputEl.value) || 0
 
-      ':host::part(container)': {
-        display: 'block',
-        height: vars.toggleKnobSize,
-        lineHeight: vars.toggleKnobSize,
-        position: 'relative',
-      },
+        this.logs.push(`Input: ${val}`)
 
-      '[part=track]': {
-        transition: vars.toggleTransition,
-        margin: vars.toggleTrackInset,
-        height: vars.toggleTrackHeight,
-        width: vars.toggleTrackWidth,
-        borderRadius: vars.toggleTrackRadius,
-        background: vars.toggleTrackColor,
-        boxShadow: vars.toggleTrackShadow,
-      },
+        // 2. Run VM
+        const start = performance.now()
+        const res = await VM.run(
+          this.agentLogic.toJSON(),
+          { inputVal: val },
+          {
+            fuel: this.fuel,
+            capabilities: createBrowserCapabilities(),
+          }
+        )
+        const duration = (performance.now() - start).toFixed(2)
 
-      'input:checked + div > [part=track]': {
-        background: vars.toggleTrackOnColor,
-      },
-
-      '[part=knob]': {
-        transition: vars.toggleTransition,
-        height: vars.toggleKnobSize,
-        width: vars.toggleKnobSize,
-        borderRadius: vars.toggleKnobRadius,
-        top: 0,
-        left: 0,
-        position: 'absolute',
-        background: vars.toggleOffColor,
-        boxShadow: vars.toggleKnobShadow,
-      },
-
-      'input:checked + div > [part=knob]': {
-        left: `calc(${vars.toggleTrackWidth} + ${vars.toggleTrackInset200} - ${vars.toggleKnobSize})`,
-        background: vars.toggleOnColor,
-      },
-
-      'input:not(:checked) + * + * > [name=on], input:checked + * + * > [name=off]':
-        {
-          display: 'none',
-        },
-    }
-
-    setChecked = () => {
-      const { input } = this.parts as { input: HTMLInputElement }
-      this.value = input.checked
-    }
-
-    toggleChecked = (event: KeyboardEvent) => {
-      if (!this.disabled && event.code === 'Space') {
-        this.value = !this.value
-        event.preventDefault()
-        event.stopPropagation()
-        this.queueRender(true)
+        // 3. Update State
+        this.result = res
+        this.logs.push(`Success (${duration}ms)`)
+        this.logs.push(`Fuel Remaining: ${this.fuel} (approx)`) // Fuel isn't returned yet by VM run, checking options
+      } catch (e: any) {
+        this.logs.push(`Error: ${e.message}`)
+        console.error(e)
       }
+      this.queueRender()
     }
 
     content = () =>
-      label(
-        input({
-          hidden: true,
-          type: 'checkbox',
-          part: 'valueHolder',
-        }),
+      div(
+        {
+          style: {
+            padding: '1rem',
+            border: '1px solid #ccc',
+            borderRadius: '8px',
+            maxWidth: '400px',
+          },
+        },
+        h3('Agent99 Runtime Demo'),
+
         div(
-          { part: 'container' },
-          div({ part: 'track' }),
-          div({ part: 'knob' })
+          { style: { marginBottom: '1rem' } },
+          span('Enter Amount: '),
+          input({
+            part: 'input',
+            type: 'number',
+            value: '100',
+            style: { marginLeft: '0.5rem', padding: '4px' },
+          })
         ),
-        div(slot({ name: 'on' }), slot({ name: 'off' }))
+
+        div(
+          { style: { display: 'flex', gap: '0.5rem', marginBottom: '1rem' } },
+          button(
+            {
+              onClick: this.runAgent,
+              style: {
+                padding: '8px 16px',
+                cursor: 'pointer',
+                background: vars.primaryColor || '#007bff',
+                color: 'white',
+                border: 'none',
+                borderRadius: '4px',
+              },
+            },
+            'Run Calculation Agent'
+          )
+        ),
+
+        // Logs Area
+        div(
+          {
+            style: {
+              background: '#f5f5f5',
+              padding: '0.5rem',
+              borderRadius: '4px',
+              fontSize: '0.85rem',
+            },
+          },
+          div(
+            { style: { fontWeight: 'bold', marginBottom: '4px' } },
+            'Execution Logs:'
+          ),
+          div(...this.logs.map((l) => div(l)))
+        ),
+
+        // Result Area
+        this.result
+          ? div(
+              {
+                style: {
+                  marginTop: '1rem',
+                  padding: '0.5rem',
+                  borderLeft: '4px solid #28a745',
+                  background: '#e6fffa',
+                },
+              },
+              pre(JSON.stringify(this.result, null, 2))
+            )
+          : null
       )
-
-    connectedCallback() {
-      super.connectedCallback()
-
-      this.value = this.hasAttribute('checked')
-      this.parts.valueHolder.addEventListener('change', this.setChecked)
-      this.addEventListener('keydown', this.toggleChecked)
-      this.setAttribute('tabindex', '0')
-    }
-
-    role = 'checkbox'
-
-    render() {
-      super.render()
-
-      const { valueHolder } = this.parts as ToggleParts
-      valueHolder.checked = this.value
-      this.toggleAttribute('checked', this.value)
-    }
   }
 
   return {
-    type: WebComponent as typeof Component,
+    type: Agent99Demo,
     styleSpec: {
-      ':root': {
-        _toggleTrackColor: 'lightgray',
-        _toggleTrackOnColor: vars.toggleTrackColor,
-        _toggleOffColor: 'gray',
-        _toggleOnColor: 'limegreen',
-        _toggleKnobSize: '24px',
-        _toggleKnobRadius: vars.toggleKnobSize50,
-        _toggleTransition: 'ease-in-out 0.2s',
-        _toggleTrackWidth: '32px',
-        _toggleTrackInset: '8px',
-        _toggleTrackHeight: `calc(${vars.toggleKnobSize} - ${vars.toggleTrackInset200})`,
-        _toggleTrackRadius: vars.toggleTrackHeight50,
-        _toggleDisabledOpacity: '0.5',
-        _toggleKnobShadow:
-          'inset 0 1px 1px #fff8, inset 0 -1px 1px #0004, 0 2px 4px #0006',
-        _toggleTrackShadow: 'inset 0 1px 2px #0004',
-        _toggleGap: '8px',
-      },
-      ':host[disabled]': {
-        pointerEvents: 'none',
-        opacity: vars.toggleDisabledOpacity,
+      ':host': {
+        display: 'block',
+        fontFamily: 'system-ui, sans-serif',
       },
     },
   }
 }
+
+// Re-export Core Logic for Consumers
+export * from './builder'
+export * from './runtime'
+export * from './atoms/browser'
 
 export default blueprint

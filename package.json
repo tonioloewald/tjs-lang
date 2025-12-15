@@ -24,5 +24,8 @@
     "format": "bun eslint src --fix && bun prettier --write .",
     "make": "bun build ./src/blueprint.ts --outfile=dist/blueprint.js --minify",
     "latest": "rm -rf node_modules && bun install"
+  },
+  "dependencies": {
+    "tosijs-schema": "1.0.1"
   }
 }
