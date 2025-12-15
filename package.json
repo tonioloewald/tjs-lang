@@ -1,0 +1,28 @@
+{
+  "name": "agent-99",
+  "version": "0.0.1",
+  "main": "./dist/blueprint.js",
+  "exports": "./dist/blueprint.js",
+  "type": "module",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/tonioloewald/agent-99.git"
+  },
+  "devDependencies": {
+    "@types/bun": "latest",
+    "@types/jsdom": "^21.1.7",
+    "@typescript-eslint/eslint-plugin": "^5.62.0",
+    "@typescript-eslint/parser": "^5.62.0",
+    "chokidar": "^4.0.3",
+    "eslint": "^8.57.1",
+    "prettier": "^2.8.8",
+    "typescript": "^5.6.2",
+    "tosijs": "^1.0.10"
+  },
+  "scripts": {
+    "start": "bun format && bun dev.ts",
+    "format": "bun eslint src --fix && bun prettier --write .",
+    "make": "bun build ./src/blueprint.ts --outfile=dist/blueprint.js --minify",
+    "latest": "rm -rf node_modules && bun install"
+  }
+}

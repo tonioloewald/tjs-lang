@@ -1,0 +1,14 @@
+@import url('https://fonts.googleapis.com/css2?family=Roboto+Slab:wght@100..900&display=swap');
+body {
+  font-family: 'Roboto Slab', serif;
+  font-optical-sizing: auto;
+  font-weight: <weight>;
+  font-style: normal;
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+header > :first-child,
+section > :first-child {
+  margin-top: 0;
+}

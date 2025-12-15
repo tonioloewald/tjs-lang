@@ -1,0 +1,80 @@
+<!DOCTYPE html>
+<title>agent-99</title>
+<script type="module">
+  import {
+    blueprint,
+    blueprintLoader,
+    elements,
+  } from 'https://cdn.jsdelivr.net/npm/xinjs@0.8.8/dist/module.js'
+  const { protocol, host } = window.location
+
+  ;(async () => {
+    const response = await fetch('./package.json')
+    const data = await response.json()
+
+    document.title = data.name
+    const header = document.querySelector('header')
+    const { h1, div, a } = elements
+    header.append(
+      h1(data.name),
+      div(
+        a({ href: data.repository.url }, 'repo'),
+        ' | ',
+        a({ href: `https://www.npmjs.com/package/${data.name}` }, 'npm')
+      )
+    )
+  })()
+
+  // blueprintLoader
+  document.body.append(
+    blueprintLoader(
+      blueprint({
+        tag: 'agent-99',
+        src:
+          host === 'tonioloewald.github.io'
+            ? // live demo
+              `https://tonioloewald.github.io/agent-99/dist/blueprint.js`
+            : // local test
+              `${protocol}//${host}/dist/blueprint.js`,
+      }),
+      blueprint({
+        tag: 'xin-test',
+        src: 'https://tonioloewald.github.io/xin-test/dist/blueprint.js',
+      })
+    )
+  )
+</script>
+<link href="style.css" rel="stylesheet" />
+<style>
+  .custom {
+    --toggle-track-height: 24px;
+    --toggle-track-radius: 12px;
+    --toggle-track-inset: -2px;
+    --toggle-knob-size: 20px;
+    --toggle-track-width: 48px;
+    --toggle-track-on-color: limegreen;
+    --toggle-on-color: gray;
+    --toggle-knob-shadow: none;
+  }
+</style>
+<header></header>
+
+<section style="display: flex; flex-direction: column">
+  <label>
+    <agent-99 id="basic" checked>
+      <div slot="on">on</div>
+      <div slot="off">off</div>
+    </agent-99>
+    <span>Basic Example</span>
+  </label>
+</section>
+
+<section>
+  <h2>Tests</h2>
+  <xin-test description="agent-99 registered" delay="100">
+    return ( document.querySelector('agent-99').constructor !== HTMLElement )
+  </xin-test>
+  <xin-test description="basic element value is true" delay="100">
+    return document.querySelector('#basic').value
+  </xin-test>
+</section>
