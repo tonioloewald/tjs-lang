@@ -121,16 +121,16 @@ console.log(result.fuelUsed) // Gas consumed
 
 The standard library includes essential primitives:
 
-| Category         | Atoms                                 | Description                                     |
-| ---------------- | ------------------------------------- | ----------------------------------------------- |
-| **Flow**         | `seq`, `if`, `while`, `return`, `try` | Control flow and loops.                         |
-| **State**        | `varSet`, `varGet`, `scope`           | variable management.                            |
-| **Math**         | `mathCalc`                            | Safe expression evaluation (e.g. `"a + b"`).    |
-| **Logic**        | `eq`, `gt`, `and`, `not`, ...         | Boolean logic.                                  |
-| **IO**           | `httpFetch`                           | HTTP requests.                                  |
-| **Store**        | `storeGet`, `storeSet`                | Key-Value storage.                              |
-| **AI**           | `llmPredict`, `agentRun`              | LLM calls and sub-agent recursion.              |
-| **Utils**        | `random`, `uuid`, `hash`              | Random generation, UUIDs, and hashing.          |
+| Category         | Atoms                                 | Description                                                                                                 |
+| ---------------- | ------------------------------------- | ----------------------------------------------------------------------------------------------------------- |
+| **Flow**         | `seq`, `if`, `while`, `return`, `try` | Control flow and loops.                                                                                     |
+| **State**        | `varSet`, `varGet`, `scope`           | variable management.                                                                                        |
+| **Math**         | `mathCalc`                            | Safe expression evaluation (e.g. `"a + b"`).                                                                |
+| **Logic**        | `eq`, `gt`, `and`, `not`, ...         | Boolean logic.                                                                                              |
+| **IO**           | `httpFetch`                           | HTTP requests.                                                                                              |
+| **Store**        | `storeGet`, `storeSet`                | Key-Value storage.                                                                                          |
+| **AI**           | `llmPredict`, `agentRun`              | LLM calls and sub-agent recursion.                                                                          |
+| **Utils**        | `random`, `uuid`, `hash`              | Random generation, UUIDs, and hashing.                                                                      |
 | **Optimization** | `memoize`, `cache`                    | In-memory memoization and persistent caching. Keys are optional and will be auto-generated if not provided. |
 
 ## Capabilities & Security
@@ -295,12 +295,16 @@ const logic = builder
 
 ## Control Flow
 
+Atoms like `if`, `while`, and `mathCalc` evaluate expression strings. For security and predictability, these expressions are not granted access to the full agent state. Instead, you must use the `vars` parameter to explicitly pass in any state variables that the expression needs.
+
+This mapping allows you to alias variables, making your expressions cleaner and more readable.
+
 ### If / Else
 
 ```typescript
 chain.if(
-  'price > 100',
-  { price: 'price' }, // Map variables for expression
+  'p > 100 && itemsLeft > 0',
+  { p: 'product.price', itemsLeft: 'inventory.stockCount' }, // Map state to expression variables
   (then) => then.varSet({ key: 'discount', value: true }),
   (elseBranch) => elseBranch.varSet({ key: 'discount', value: false })
 )
@@ -309,8 +313,9 @@ chain.if(
 ### While Loop
 
 ```typescript
-chain.while('n > 0', { n: 'n' }, (loop) =>
-  loop.mathCalc({ expr: 'n - 1', vars: { n: 'n' } }).as('n')
+// The `vars` map works identically here, creating a scope for the condition.
+chain.while('n > 0', { n: 'counter' }, (loop) =>
+  loop.mathCalc({ expr: 'n - 1', vars: { n: 'n' } }).as('counter')
 )
 ```
 

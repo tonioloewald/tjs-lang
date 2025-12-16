@@ -314,7 +314,7 @@ export const iff = defineAtom(
   undefined,
   async (step, ctx) => {
     // Resolve vars from state if they are strings pointing to keys, or use literals
-    const vars: Record<string, any> = { ...ctx.state }
+    const vars: Record<string, any> = {}
     if (step.vars) {
       for (const [k, v] of Object.entries(step.vars)) {
         vars[k] = resolveValue(v, ctx)
@@ -341,7 +341,7 @@ export const whileLoop = defineAtom(
     // eslint-disable-next-line no-constant-condition
     while (true) {
       if ((ctx.fuel.current -= 0.1) <= 0) throw new Error('Out of Fuel')
-      const vars: Record<string, any> = { ...ctx.state }
+      const vars: Record<string, any> = {}
       if (step.vars) {
         for (const [k, v] of Object.entries(step.vars))
           vars[k] = resolveValue(v, ctx)
@@ -455,7 +455,7 @@ export const calc = defineAtom(
   s.object({ expr: s.string, vars: s.record(s.any).optional }),
   s.number,
   async ({ expr, vars }, ctx) => {
-    const resolved: Record<string, any> = { ...ctx.state }
+    const resolved: Record<string, any> = {}
     if (vars) {
       for (const [k, v] of Object.entries(vars))
         resolved[k] = resolveValue(v, ctx)
@@ -891,10 +891,12 @@ export const hash = defineAtom(
     algorithm: s.string.optional, // e.g., 'SHA-256'
   }),
   s.string,
-  async ({ value, algorithm }) => {
+  async ({ value, algorithm }, ctx) => {
     const str =
-      typeof value === 'string' ? value : JSON.stringify(resolveValue(value))
-    const algo = algorithm || 'SHA-256'
+      typeof value === 'string'
+        ? value
+        : JSON.stringify(resolveValue(value, ctx))
+    const algo = resolveValue(algorithm, ctx) || 'SHA-256'
 
     if (typeof crypto !== 'undefined' && crypto.subtle) {
       const encoder = new TextEncoder()

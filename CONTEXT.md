@@ -62,7 +62,7 @@ The standard library (Core Atoms) provides essential primitives. All atom names 
 | `storeGet`, `storeSet`         | KV Store (Zero-config defaults to `Map`).               | 5.0  |
 | `llmPredict`                   | LLM Inference (Requires `llm` capability).              | 1.0  |
 | `agentRun`                     | Recursive sub-agent call (Requires `agent` capability). | 1.0  |
-| `random`, `uuid`, `hash`     | Random generation & hashing.                            | 1.0  |
+| `random`, `uuid`, `hash`       | Random generation & hashing.                            | 1.0  |
 | `memoize`                      | Memoize step result in memory (key optional).           | 0.1  |
 | `cache`                        | Cache step result in Store (key optional).              | 5.0  |
 
@@ -104,6 +104,8 @@ const myAtom = defineAtom(
 ## 5. Expression Syntax (JSEP)
 
 Expressions in `mathCalc`, `if`, and `while` use a safe subset of JavaScript via `jsep`.
+
+For security, these expressions are sandboxed and cannot directly access the agent's state. You must explicitly pass any required variables from the state into the expression using the `vars` parameter. This parameter maps local variable names (for use in the expression) to values in the agent's state (using dot notation, e.g., `'product.price'`).
 
 - **Supported:** Binary ops (`+`, `-`, `*`, `/`, `%`), Logic (`&&`, `||`, `!`), Comparison (`==`, `!=`, `>`, `<`, `>=`), Member Access (`obj.prop`, `arr[0]`).
 - **Forbidden:** Function calls, `new`, `this`, global access (except `Math` via atoms).
