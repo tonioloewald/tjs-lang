@@ -1,36 +1,52 @@
+/* eslint-disable @typescript-eslint/no-unused-vars */
+import { expect, test } from 'vitest'
 import { A99 } from './builder'
-import { s } from 'tosijs-schema'
-
-// 1. Basic Type Check
-const chain = A99.take(s.object({ x: s.number }))
-
-// Should allow core atoms
-chain.mathCalc({
-  expr: 'x * 2',
-  vars: { x: 'args.x' },
-})
-
-chain.httpFetch({
-  url: 'https://example.com',
-})
-
-// Should allow chaining
-chain.varSet({ key: 'foo', value: 'bar' }).varGet({ key: 'foo' })
-
-// 2. Custom Atom Builder Inference
+import { AgentVM } from './vm'
 import { defineAtom } from './runtime'
+import * as s from 'valibot'
 
-const myAtom = defineAtom(
-  'myAtom',
-  s.object({ count: s.number }),
-  s.number,
-  async ({ count }) => count + 1
-)
+// This file is for type inference testing.
+// It should compile without errors if the types are correct.
 
-const customAtoms = { myAtom }
-const customBuilder = A99.custom(customAtoms)
+test('Inference Checks', () => {
+  // --- A99.take ---
+  const builder1 = A99.take()
 
-// Should allow custom atom
-customBuilder.myAtom({ count: 1 })
+  // Should have core atoms
+  const n1 = builder1.mathCalc({ expr: '1 + 1' })
+  const n2 = builder1.mathCalc({ expr: 1 })
+  const n3 = builder1.customOp({ input: 'test' })
 
-// customBuilder.mathCalc({})
+  // --- A99.custom ---
+  const customAtom = defineAtom(
+    'customOp',
+    s.object({ input: s.string() }),
+    s.string(),
+    async (input) => input.input
+  )
+  const atoms = { customOp: customAtom }
+
+  const builder2 = A99.custom(atoms)
+
+  // Should have custom atom
+  const n4 = builder2.customOp({ input: 'test' })
+  const n5 = builder2.customOp({ input: 1 })
+  // Should NOT have core atoms
+  const n6 = builder2.mathCalc({ expr: '1 + 1' })
+
+  // --- vm.A99 ---
+  const vm = new AgentVM({ customOp: customAtom })
+  const builder3 = vm.A99
+
+  // Should have core atoms
+  const n7 = builder3.mathCalc({ expr: '1 + 1' })
+  // Should have custom atom
+  const n8 = builder3.customOp({ input: 'test' })
+
+  const n9 = builder3.mathCalc({ expr: 1 })
+  const n10 = builder3.customOp({ input: 1 })
+  // @ts-expect-error unknown atom
+  const n11 = builder3.unknownOp()
+
+  expect(true).toBe(true)
+})

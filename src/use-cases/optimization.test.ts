@@ -1,6 +1,6 @@
 import { describe, it, expect, mock } from 'bun:test'
 import { A99 } from '../builder'
-import { AgentVM } from '../runtime'
+import { AgentVM } from '../vm'
 import { s } from 'tosijs-schema'
 
 describe('Use Case: Optimization', () => {
@@ -21,11 +21,11 @@ describe('Use Case: Optimization', () => {
     }
 
     const customVM = new AgentVM({ expensive: expensiveAtom })
-    const builder = A99.custom({ ...customVM['atoms'] })
+    const builder = customVM.A99
 
     const logic = builder
-      .memoize('myKey', (b) => b.step({ op: 'expensive' }).as('res1'))
-      .memoize('myKey', (b) => b.step({ op: 'expensive' }).as('res2'))
+      .memoize((b) => b.step({ op: 'expensive' }).as('res1'), 'myKey')
+      .memoize((b) => b.step({ op: 'expensive' }).as('res2'), 'myKey')
       .return(s.object({}))
 
     await customVM.run(logic.toJSON(), {})
@@ -50,10 +50,12 @@ describe('Use Case: Optimization', () => {
 
     const vm = new AgentVM()
     const logic = A99.take(s.object({}))
-      .cache('persistentKey', (b) =>
-        b
-          .varSet({ key: 'res', value: 'computed' }) // Should not run if cached
-          .as('res')
+      .cache(
+        (b) =>
+          b
+            .varSet({ key: 'res', value: 'computed' }) // Should not run if cached
+            .as('res'),
+        'persistentKey'
       )
       .as('result')
       .return(s.object({ result: s.string }))
@@ -81,11 +83,13 @@ describe('Use Case: Optimization', () => {
 
     const vm = new AgentVM()
     const logic = A99.take(s.object({}))
-      .cache('missKey', (b) =>
-        b
-          .varSet({ key: 'res', value: 'computed' })
-          .varSet({ key: 'result', value: 'computed' })
-          .as('res')
+      .cache(
+        (b) =>
+          b
+            .varSet({ key: 'res', value: 'computed' })
+            .varSet({ key: 'result', value: 'computed' })
+            .as('res'),
+        'missKey'
       )
       .as('result')
       .return(s.object({ result: s.string }))
@@ -136,7 +140,6 @@ describe('Use Case: Optimization', () => {
         (b) =>
           b
             .cache(
-              'fib_{{n}}', // Dynamic key template? No, cache key is string. We need template first.
               (c) =>
                 c
                   .mathCalc({ expr: 'n - 1', vars: { n: 'n' } })
@@ -151,7 +154,8 @@ describe('Use Case: Optimization', () => {
                     expr: 'r1.result + r2.result',
                     vars: { r1: 'r1', r2: 'r2' },
                   })
-                  .as('result')
+                  .as('result'),
+              'fib_{{n}}' // Dynamic key template? No, cache key is string. We need template first.
             )
             .as('result')
       )
@@ -172,21 +176,23 @@ describe('Use Case: Optimization', () => {
           b
             .template({ tmpl: 'fib_{{n}}', vars: { n: 'n' } })
             .as('cacheKey')
-            .cache('cacheKey', (c) =>
-              c
-                .mathCalc({ expr: 'n - 1', vars: { n: 'n' } })
-                .as('n1')
-                .agentRun({ agentId: 'fib', input: { n: 'n1' } })
-                .as('r1')
-                .mathCalc({ expr: 'n - 2', vars: { n: 'n' } })
-                .as('n2')
-                .agentRun({ agentId: 'fib', input: { n: 'n2' } })
-                .as('r2')
-                .mathCalc({
-                  expr: 'r1.result + r2.result',
-                  vars: { r1: 'r1', r2: 'r2' },
-                })
-                .as('result')
+            .cache(
+              (c) =>
+                c
+                  .mathCalc({ expr: 'n - 1', vars: { n: 'n' } })
+                  .as('n1')
+                  .agentRun({ agentId: 'fib', input: { n: 'n1' } })
+                  .as('r1')
+                  .mathCalc({ expr: 'n - 2', vars: { n: 'n' } })
+                  .as('n2')
+                  .agentRun({ agentId: 'fib', input: { n: 'n2' } })
+                  .as('r2')
+                  .mathCalc({
+                    expr: 'r1.result + r2.result',
+                    vars: { r1: 'r1', r2: 'r2' },
+                  })
+                  .as('result'),
+              'cacheKey'
             )
             .as('result')
       )
@@ -236,5 +242,56 @@ describe('Use Case: Optimization', () => {
     )
     // fib(20) = 6765
     expect(runBig.result.result).toBe(6765)
+  })
+
+  it('should memoize without a key', async () => {
+    let calls = 0
+    const expensiveAtom = {
+      op: 'expensive',
+      inputSchema: s.any,
+      create: (input: any) => ({ op: 'expensive', ...input }),
+      exec: async (step: any, ctx: any) => {
+        calls++
+        ctx.state[step.result] = 'done'
+      },
+    }
+
+    const customVM = new AgentVM({ expensive: expensiveAtom })
+    const builder = customVM.A99
+
+    const logic = builder
+      .memoize((b) => b.step({ op: 'expensive' }).as('res1'))
+      .memoize((b) => b.step({ op: 'expensive' }).as('res2'))
+      .return(s.object({}))
+
+    await customVM.run(logic.toJSON(), {})
+
+    expect(calls).toBe(1)
+  })
+
+  it('should cache without a key', async () => {
+    const store = new Map<string, any>()
+    const caps = {
+      store: {
+        get: mock(async (key) => store.get(key)),
+        set: mock(async (key, value) => store.set(key, value)),
+      },
+    }
+
+    const vm = new AgentVM()
+    const logic = A99.take(s.object({}))
+      .cache((b) =>
+        b
+          .varSet({ key: 'res', value: 'computed' })
+          .varSet({ key: 'result', value: 'computed' })
+          .as('res')
+      )
+      .as('result')
+      .return(s.object({ result: s.string }))
+
+    await vm.run(logic.toJSON(), {}, { capabilities: caps as any })
+    await vm.run(logic.toJSON(), {}, { capabilities: caps as any })
+
+    expect(caps.store.set).toHaveBeenCalledTimes(1)
   })
 })

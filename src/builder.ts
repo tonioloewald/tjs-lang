@@ -57,13 +57,13 @@ interface ControlFlow<M extends Record<string, Atom<any, any>>> {
   ): BuilderType<M>
 
   memoize(
-    key: string,
-    steps: (b: BuilderType<M>) => BuilderType<M>
+    steps: (b: BuilderType<M>) => BuilderType<M>,
+    key?: string
   ): BuilderType<M>
 
   cache(
-    key: string,
     steps: (b: BuilderType<M>) => BuilderType<M>,
+    key?: string,
     ttlMs?: number
   ): BuilderType<M>
 
@@ -207,7 +207,7 @@ export class TypedBuilder<M extends Record<string, Atom<any, any>>> {
     )
   }
 
-  memoize(key: string, steps: (b: BuilderType<M>) => BuilderType<M>) {
+  memoize(steps: (b: BuilderType<M>) => BuilderType<M>, key?: string) {
     const stepsB = new TypedBuilder(this.atoms)
     steps(stepsB as any)
     const memoAtom = this.atoms['memoize']
@@ -220,8 +220,8 @@ export class TypedBuilder<M extends Record<string, Atom<any, any>>> {
   }
 
   cache(
-    key: string,
     steps: (b: BuilderType<M>) => BuilderType<M>,
+    key?: string,
     ttlMs?: number
   ) {
     const stepsB = new TypedBuilder(this.atoms)

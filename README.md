@@ -128,8 +128,8 @@ The standard library includes essential primitives:
 | **IO**           | `httpFetch`                           | HTTP requests.                                  |
 | **Store**        | `storeGet`, `storeSet`                | Key-Value storage.                              |
 | **AI**           | `llmPredict`, `agentRun`              | LLM calls and sub-agent recursion.              |
-| **Utils**        | `random`, `uuid`                      | Random generation (Crypto-secure if available). |
-| **Optimization** | `memoize`, `cache`                    | In-memory memoization and persistent caching.   |
+| **Utils**        | `random`, `uuid`, `hash`              | Random generation, UUIDs, and hashing.          |
+| **Optimization** | `memoize`, `cache`                    | In-memory memoization and persistent caching. Keys are optional and will be auto-generated if not provided. |
 
 ## Capabilities & Security
 
@@ -165,7 +165,11 @@ const vm = new AgentVM({
   llmPredictBattery,
 })
 
-await vm.run(ast, args, { capabilities: batteries })
+// Get builder from VM to access battery atoms
+const b = vm.A99
+const logic = b.storeVectorize({ text: 'Hello' }).as('vector')
+
+await vm.run(logic.toJSON(), args, { capabilities: batteries })
 ```
 
 ### Structured Outputs
@@ -173,7 +177,7 @@ await vm.run(ast, args, { capabilities: batteries })
 You can request structured JSON responses (e.g., JSON Schema) using `responseFormat`:
 
 ```typescript
-const logic = builder.llmPredictBattery({
+const logic = vm.A99.llmPredictBattery({
   system: 'Extract data.',
   user: 'John Doe, 30',
   responseFormat: {
@@ -276,8 +280,10 @@ const myScraper = defineAtom(
 // 2. Register with Custom VM
 const myVM = new AgentVM({ scrape: myScraper })
 
-// 3. Use in Builder (via .step or A99.custom)
-const builder = A99.custom({ ...myVM['atoms'] })
+// 3. Use in Builder (Types are inferred!)
+// The `vm.A99` property is the recommended way to get a builder
+// that includes any custom atoms you have registered.
+const builder = myVM.A99
 
 const logic = builder
   .scrape({ url: 'https://example.com' })

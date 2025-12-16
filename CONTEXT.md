@@ -8,13 +8,20 @@
 
 A fluent TypeScript API that generates a portable JSON AST. It uses a `Proxy` to dynamically infer methods from the registered Atoms, providing a strongly-typed developer experience.
 
-```typescript
-import { A99, s } from 'agent-99'
+You can access the builder via `A99` (for core atoms) or `vm.A99` (the recommended way to access both core and any custom atoms registered with the VM instance).
 
+```typescript
+import { A99, s, AgentVM } from 'agent-99'
+
+// Global Builder (Core Atoms)
 const logic = A99.take(s.object({ input: s.string }))
   .mathCalc({ expr: '1 + 1', vars: {} })
-  .as('result')
-  .return(s.object({ result: s.number }))
+
+// VM Builder (Custom Atoms)
+const vm = new AgentVM({ myAtom })
+const customLogic = vm.A99
+  .myAtom({ ... })
+  .mathCalc({ ... })
 ```
 
 ### The Runtime (`AgentVM`)
@@ -55,9 +62,9 @@ The standard library (Core Atoms) provides essential primitives. All atom names 
 | `storeGet`, `storeSet`         | KV Store (Zero-config defaults to `Map`).               | 5.0  |
 | `llmPredict`                   | LLM Inference (Requires `llm` capability).              | 1.0  |
 | `agentRun`                     | Recursive sub-agent call (Requires `agent` capability). | 1.0  |
-| `random`, `uuid`               | Random generation (Crypto-secure if available).         | 1.0  |
-| `memoize`                      | Memoize step result in memory.                          | 0.1  |
-| `cache`                        | Cache step result in Store (Requires `store`).          | 5.0  |
+| `random`, `uuid`, `hash`     | Random generation & hashing.                            | 1.0  |
+| `memoize`                      | Memoize step result in memory (key optional).           | 0.1  |
+| `cache`                        | Cache step result in Store (key optional).              | 5.0  |
 
 ## 3. Batteries Included (Local AI & Vectors)
 
@@ -69,8 +76,13 @@ Agent99 includes a set of "Batteries" for local development:
 
 ```typescript
 import { AgentVM, batteries, storeVectorize } from 'agent-99'
+
 const vm = new AgentVM({ storeVectorize })
-await vm.run(ast, args, { capabilities: batteries })
+
+// Use vm.A99 to access battery atoms
+const logic = vm.A99.storeVectorize({ text: 'Hello' })
+
+await vm.run(logic.toJSON(), args, { capabilities: batteries })
 ```
 
 ## 4. Extending Agent99

@@ -1,6 +1,7 @@
 import { describe, it, expect, mock } from 'bun:test'
 import { A99 } from '../builder'
-import { AgentVM, defineAtom, resolveValue } from '../runtime'
+import { defineAtom, resolveValue } from '../runtime'
+import { AgentVM } from '../vm'
 import { s } from 'tosijs-schema'
 import { llmPredictBattery } from '../atoms/batteries'
 

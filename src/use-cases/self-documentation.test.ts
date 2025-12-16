@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'bun:test'
-import { AgentVM, defineAtom } from '../runtime'
+import { defineAtom } from '../runtime'
+import { AgentVM } from '../vm'
 import { s } from 'tosijs-schema'
 
 describe('Use Case: Self-Documentation', () => {
@@ -25,9 +26,12 @@ describe('Use Case: Self-Documentation', () => {
       type: 'object',
       properties: {
         expr: { type: 'string' },
-        vars: { type: 'object', additionalProperties: {} },
+        vars: {
+          type: ['object', 'null'],
+          additionalProperties: {},
+        },
       },
-      required: ['expr', 'vars'],
+      required: ['expr'],
       additionalProperties: false,
     })
 

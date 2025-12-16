@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'bun:test'
-import { defineAtom, AgentVM } from './runtime'
+import { defineAtom } from './runtime'
+import { AgentVM } from './vm'
 import { A99 } from './builder'
 import { s } from 'tosijs-schema'
 

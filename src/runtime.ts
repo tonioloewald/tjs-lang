@@ -1,5 +1,4 @@
 import { s, validate } from 'tosijs-schema'
-import type { BaseNode } from './builder'
 import jsep from 'jsep'
 
 // --- Types ---
@@ -735,13 +734,15 @@ export const xmlParse = defineAtom(
 // 12. Optimization
 export const memoize = defineAtom(
   'memoize',
-  s.object({ key: s.string, steps: s.array(s.any) }),
+  s.object({ key: s.string.optional, steps: s.array(s.any) }),
   s.any,
   async ({ key, steps }, ctx) => {
     // In-memory memoization scoped to VM run
     if (!ctx.memo) ctx.memo = new Map()
 
-    const k = resolveValue(key, ctx)
+    const k =
+      resolveValue(key, ctx) ??
+      (await hash.exec({ value: steps, algorithm: 'SHA-256' }, ctx))
 
     // Check if result exists
     if (ctx.memo.has(k)) {
@@ -766,7 +767,7 @@ export const memoize = defineAtom(
 export const cache = defineAtom(
   'cache',
   s.object({
-    key: s.string,
+    key: s.string.optional,
     steps: s.array(s.any),
     ttlMs: s.number.optional,
   }),
@@ -775,7 +776,9 @@ export const cache = defineAtom(
     if (!ctx.capabilities.store)
       throw new Error("Capability 'store' missing for caching")
 
-    const k = resolveValue(key, ctx)
+    const k =
+      resolveValue(key, ctx) ??
+      (await hash.exec({ value: steps, algorithm: 'SHA-256' }, ctx))
 
     // Check cache
     const cacheKey = `cache:${k}`
@@ -881,6 +884,38 @@ export const uuid = defineAtom(
   { docs: 'Generate UUID', cost: 1 }
 )
 
+export const hash = defineAtom(
+  'hash',
+  s.object({
+    value: s.any,
+    algorithm: s.string.optional, // e.g., 'SHA-256'
+  }),
+  s.string,
+  async ({ value, algorithm }) => {
+    const str =
+      typeof value === 'string' ? value : JSON.stringify(resolveValue(value))
+    const algo = algorithm || 'SHA-256'
+
+    if (typeof crypto !== 'undefined' && crypto.subtle) {
+      const encoder = new TextEncoder()
+      const data = encoder.encode(str)
+      const hashBuffer = await crypto.subtle.digest(algo, data)
+      const hashArray = Array.from(new Uint8Array(hashBuffer))
+      return hashArray.map((b) => b.toString(16).padStart(2, '0')).join('')
+    }
+
+    // Fallback for environments without crypto.subtle
+    let hash = 0
+    for (let i = 0; i < str.length; i++) {
+      const char = str.charCodeAt(i)
+      hash = (hash << 5) - hash + char
+      hash |= 0 // Convert to 32bit integer
+    }
+    return String(hash)
+  },
+  { docs: 'Hash a value', cost: 1 }
+)
+
 // --- Exports ---
 
 export const coreAtoms = {
@@ -923,88 +958,5 @@ export const coreAtoms = {
   cache,
   random,
   uuid,
-}
-
-// --- VM ---
-
-export class AgentVM {
-  private atoms: Record<string, Atom<any, any>>
-
-  constructor(customAtoms: Record<string, Atom<any, any>> = {}) {
-    this.atoms = { ...coreAtoms, ...customAtoms }
-  }
-
-  resolve(op: string) {
-    return this.atoms[op]
-  }
-
-  getTools(filter: 'flow' | 'all' | string[] = 'all') {
-    let targetAtoms = Object.values(this.atoms)
-
-    if (Array.isArray(filter)) {
-      targetAtoms = targetAtoms.filter((a) => filter.includes(a.op))
-    } else if (filter === 'flow') {
-      const flowOps = [
-        'seq',
-        'if',
-        'while',
-        'return',
-        'try',
-        'varSet',
-        'varGet',
-        'scope',
-      ]
-      targetAtoms = targetAtoms.filter((a) => flowOps.includes(a.op))
-    }
-
-    return targetAtoms.map((atom) => ({
-      type: 'function',
-      function: {
-        name: atom.op,
-        description: atom.docs,
-        parameters: atom.inputSchema?.schema ?? {},
-      },
-    }))
-  }
-
-  async run(
-    ast: BaseNode,
-    args: Record<string, any> = {},
-    options: { fuel?: number; capabilities?: Capabilities } = {}
-  ): Promise<RunResult> {
-    const startFuel = options.fuel ?? 1000
-
-    // Default Capabilities
-    const capabilities = options.capabilities ?? {}
-
-    // Default In-Memory Store if none provided
-    if (!capabilities.store) {
-      const memoryStore = new Map<string, any>()
-      capabilities.store = {
-        get: async (key) => memoryStore.get(key),
-        set: async (key, value) => {
-          memoryStore.set(key, value)
-        },
-      }
-    }
-
-    const ctx: RuntimeContext = {
-      fuel: { current: startFuel },
-      args,
-      state: {},
-      capabilities,
-      resolver: (op) => this.resolve(op),
-      output: undefined,
-    }
-
-    if (ast.op !== 'seq') throw new Error("Root AST must be 'seq'")
-
-    // Boot
-    await this.resolve('seq')?.exec(ast, ctx)
-
-    return {
-      result: ctx.output,
-      fuelUsed: startFuel - ctx.fuel.current,
-    }
-  }
+  hash,
 }

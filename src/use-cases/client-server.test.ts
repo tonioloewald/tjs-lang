@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeAll, afterAll } from 'bun:test'
 import { A99 } from '../builder'
-import { AgentVM } from '../runtime'
+import { AgentVM } from '../vm'
 import { s } from 'tosijs-schema'
 
 describe('Use Case: Client-Server', () => {
