@@ -13,7 +13,7 @@
     "allowSyntheticDefaultImports": true,
     "forceConsistentCasingInFileNames": true,
     "allowJs": true,
-    "noEmit": true,
+    "declaration": true,
     "types": [
       "bun-types", // add Bun global
       "@types/jsdom"
