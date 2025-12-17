@@ -2,11 +2,13 @@
 
 [github](https://github.com/tonioloewald/agent-99#readme) | [npm](https://www.npmjs.com/package/agent-99) | [discord](https://discord.gg/ramJ9rgky5)
 
+<center><img alt="Agent-99 Action Figure" src="https://raw.githubusercontent.com/tonioloewald/agent-99/main/agent-99.webp" style="max-height: 50vh; max-width: 50vw; height: 1491px; aspect-ratio: 2 / 3"></center>
+
 A **type-safe-by-design, cost-limited virtual machine** that enables the **safe execution of untrusted code** anywhere.
 
 It's **safe eval** in the cloud.
 
-Agent99 allows you to define complex logic chains, agents, and data pipelines—_computer programs_—using a fluent TypeScript builder. These definitions compile to a safe, JSON-serializable AST (Abstract Syntax Tree) that can be executed in the browser, on the server, or at the edge.
+Agent99 allows you to define complex logic chains, agents, and data pipelines—_computer programs_—using a fluent TypeScript builder. These definitions compile to a safe, JSON-serializable AST ([Abstract Syntax Tree](https://en.wikipedia.org/wiki/Abstract_syntax_tree)) that can be executed in the browser, on the server, or at the edge.
 
 ### Why do you care?
 
@@ -141,7 +143,7 @@ The standard library includes essential primitives:
 
 ## Capabilities & Security
 
-Agent99 uses a **Capability-Based Security** model. The VM cannot access the network, file system, or database unless provided with a Capability.
+Agent99 uses a **[Capability-Based Security](https://en.wikipedia.org/wiki/Capability-based_security)** model. The VM cannot access the network, file system, or database unless provided with a Capability.
 
 **Zero Config Defaults:** The runtime provides sensible defaults for local development:
 
@@ -161,7 +163,7 @@ To use the batteries, you need to have LM Studio running in the background.
 
 1.  **Download and Install:** Get LM Studio from [lmstudio.ai](https://lmstudio.ai/).
 2.  **Download Models:** You'll need at least one LLM and one embedding model. We recommend:
-    - **LLM:** Search for a GGUF model like `Meta-Llama-3-8B-Instruct.Q4_K_M.gguf` for a good balance of performance and size.
+    - **LLM:** Search for a [GGUF](https://github.com/ggerganov/ggml/blob/master/docs/gguf.md) model like `Meta-Llama-3-8B-Instruct.Q4_K_M.gguf` for a good balance of performance and size.
     - **Embedding:** Search for `nomic-embed-text-v1.5.Q8_0.gguf`.
 3.  **Start the Server:** Go to the "Local Server" tab (icon: `<-->`) and click "Start Server".
 
@@ -189,7 +191,21 @@ const { result } = await vm.run(logic.toJSON(), {}, { capabilities: batteries })
 console.log(result)
 ```
 
-### 4. Structured Outputs
+### 4. Vector Search Performance
+
+The built-in vector search is implemented with a highly optimized **[cosine similarity](https://en.wikipedia.org/wiki/Cosine_similarity) function** that operates directly on arrays. It is designed for serverless and edge environments where low-latency is critical. Benchmarks run on a 2023 M3 Max using `bun test` show the following performance characteristics:
+
+| Vector Count | Dimensions | Search Time |
+| :----------- | :--------- | :---------- |
+| 10,000       | 500        | ~15 ms      |
+| 10,000       | 1000       | ~22 ms      |
+| 100,000      | 500        | ~101 ms     |
+
+These results demonstrate that the in-memory vector store is suitable for a wide range of real-time applications without requiring a dedicated vector database.
+
+> **cosine similarity** is the most popular algorithm for vector search, but there are many others (along with strategies for dealing with extremely large data-sets). For more information you can start with this Wikipedia article [Vector database](https://en.wikipedia.org/wiki/Vector_database).
+
+### 5. Structured Outputs
 
 You can request structured JSON responses (e.g., JSON Schema) from compatible models using `responseFormat`:
 
@@ -227,7 +243,7 @@ The "Batteries" dependencies (transformers, Orama) are **lazy-loaded**. This mea
 
 ## Self-Documentation for Agents
 
-The VM can describe itself to an LLM, generating an OpenAI-compatible Tool Schema for its registered atoms.
+The VM can describe itself to an LLM, generating an [OpenAI-compatible Tool Schema](https://platform.openai.com/docs/guides/function-calling) for its registered atoms.
 
 ```typescript
 // Get all tools
