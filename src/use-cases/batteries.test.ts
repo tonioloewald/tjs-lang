@@ -1,4 +1,4 @@
-import { describe, it, expect, mock } from 'bun:test'
+import { describe, it, expect, mock, afterEach } from 'bun:test'
 import { A99 } from '../builder'
 import { AgentVM } from '../vm'
 import { s } from 'tosijs-schema'
@@ -9,6 +9,7 @@ import {
   llmPredictBattery,
 } from '../atoms/batteries'
 
+// Store Mocks
 mock.module('@orama/orama', () => {
   const db: any[] = []
   return {
@@ -17,43 +18,52 @@ mock.module('@orama/orama', () => {
       inst.data.push(doc)
       return 'id'
     },
-    search: async (inst: any, _params: any) => {
-      // Simple mock search returning all docs
-      return {
-        hits: inst.data.map((doc: any) => ({ document: doc })),
-      }
-    },
+    search: async (inst: any, _params: any) => ({
+      hits: inst.data.map((doc: any) => ({ document: doc })),
+    }),
   }
 })
 
-// Mock fetch for LLM Capability
-// We intercept requests to the LLM endpoint (defaulting to localhost:1234)
-// and return a fixed response. This verifies the battery correctly formats
-// the request and parses the response without needing a real LLM server.
+// --- Test Setup ---
+
+// Keep a reference to the original fetch to restore it later
 const originalFetch = globalThis.fetch
-globalThis.fetch = mock(
-  async (url: string | URL | Request, init?: RequestInit) => {
-    const u = url.toString()
-    if (u.includes('/chat/completions')) {
-      return new Response(
-        JSON.stringify({
-          choices: [{ message: { content: 'Mock LLM Response' } }],
-        })
-      )
-    } else if (u.includes('/embeddings')) {
-      // Return a 768-dim vector
-      return new Response(
-        JSON.stringify({
-          data: [{ embedding: Array(768).fill(0.1) }],
-        })
-      )
+
+// This factory creates a mock LLM battery with a specific fetch mock.
+// This avoids global state and allows each test to define its required fetch behavior.
+const createMockLLMBattery = (fetchMock: any) => ({
+  predict: async (
+    system: string,
+    user: string,
+    tools?: any[],
+    responseFormat?: any
+  ) => {
+    const body: any = {
+      model: 'mock-model',
+      messages: [
+        { role: 'system', content: system },
+        { role: 'user', content: user },
+      ],
     }
-    return originalFetch(url, init)
-  }
-) as any
+    if (tools) body.tools = tools
+    if (responseFormat) body.response_format = responseFormat
+
+    // Use the provided fetch mock for the network call
+    const res = await fetchMock('http://localhost:1234/v1/chat/completions', {
+      method: 'POST',
+      body: JSON.stringify(body),
+    })
+    const data = await res.json()
+    return data.choices[0].message
+  },
+})
+
+// After each test, restore the original fetch to prevent test pollution.
+afterEach(() => {
+  globalThis.fetch = originalFetch
+})
 
 describe('Batteries Included', () => {
-  // Create a VM with the Battery Atoms
   const batteryVM = new AgentVM({
     storeVectorize,
     storeSearch,
@@ -61,43 +71,38 @@ describe('Batteries Included', () => {
   })
 
   it('should use Vector Battery to embed text', async () => {
-    // 1. Build Agent
+    globalThis.fetch = mock(async (url: any) => {
+      if (url.toString().includes('/embeddings')) {
+        return new Response(
+          JSON.stringify({ data: [{ embedding: Array(768).fill(0.1) }] })
+        )
+      }
+      return new Response('{}')
+    })
+
     const agent = A99.custom({ ...batteryVM['atoms'] })
       .step({ op: 'storeVectorize', text: 'Hello World' })
       .as('vector')
       .return(s.object({ vector: s.array(s.number) }))
 
-    // 2. Run with Batteries
     const result = await batteryVM.run(
       agent.toJSON(),
       {},
       { capabilities: batteries }
     )
 
-    // 3. Verify
     expect(result.result.vector).toBeArray()
     expect(result.result.vector.length).toBe(768)
   })
 
   it('should use Store Battery (Orama) to create collection and search', async () => {
-    // 1. Setup Collection directly via capability (since atoms for create aren't standard yet)
-    // Or we can assume lazy create? Battery store requires explicit createCollection?
-    // Let's check store battery implementation.
-    // getStoreCapability returns object with createCollection.
-    // But 'storeSet' atom calls 'set' (KV).
-    // 'storeSearch' atom calls 'vectorSearch'.
-    // We need to create collection first.
-    // Since we don't have an atom for 'createCollection', we call it on capability directly in setup.
     await batteries.store.createCollection('notes')
-
-    // 2. Add Doc (using vectorAdd directly for setup)
     await batteries.store.vectorAdd('notes', {
       id: '1',
       content: 'Important Note',
       embedding: [0.1, 0.2, 0.3],
     })
 
-    // 3. Build Agent to Search
     const agent = A99.custom({ ...batteryVM['atoms'] })
       .step({
         op: 'storeSearch',
@@ -107,7 +112,6 @@ describe('Batteries Included', () => {
       .as('hits')
       .return(s.object({ hits: s.array(s.any) }))
 
-    // 4. Run
     const result = await batteryVM.run(
       agent.toJSON(),
       {},
@@ -119,51 +123,53 @@ describe('Batteries Included', () => {
   })
 
   it('should use LLM Battery to predict', async () => {
-    // The result 'Mock LLM Response' comes from the fetch mock defined at top of file
+    const fetchMock = mock(async () => {
+      return new Response(
+        JSON.stringify({
+          choices: [{ message: { content: 'Mock LLM Response' } }],
+        })
+      )
+    })
+
+    const testCaps = {
+      ...batteries,
+      llmBattery: createMockLLMBattery(fetchMock),
+    }
+
     const agent = A99.custom({ ...batteryVM['atoms'] })
-      .step({
-        op: 'llmPredictBattery',
-        system: 'Sys',
-        user: 'User',
-      })
+      .step({ op: 'llmPredictBattery', system: 'Sys', user: 'User' })
       .as('response')
       .return(s.object({ response: s.string }))
 
     const result = await batteryVM.run(
       agent.toJSON(),
       {},
-      { capabilities: batteries }
+      { capabilities: testCaps }
     )
 
     expect(result.result.response.content).toBe('Mock LLM Response')
   })
 
   it('should pass response_format to LLM Battery', async () => {
-    const mockFetch = globalThis.fetch as any
-    mockFetch.mockImplementation(
-      async (url: string | URL | Request, init?: RequestInit) => {
-        const u = url.toString()
-        if (u.includes('/chat/completions')) {
-          const body = JSON.parse((init?.body as string) || '{}')
-          if (body.response_format) {
-            return new Response(
-              JSON.stringify({
-                choices: [
-                  {
-                    message: {
-                      content: JSON.stringify({
-                        format: body.response_format,
-                      }),
-                    },
-                  },
-                ],
-              })
-            )
-          }
-        }
-        return originalFetch(url, init)
-      }
-    )
+    const fetchMock = mock(async (_url: any, init?: RequestInit) => {
+      const body = JSON.parse((init?.body as string) || '{}')
+      return new Response(
+        JSON.stringify({
+          choices: [
+            {
+              message: {
+                content: JSON.stringify({ format: body.response_format }),
+              },
+            },
+          ],
+        })
+      )
+    })
+
+    const testCaps = {
+      ...batteries,
+      llmBattery: createMockLLMBattery(fetchMock),
+    }
 
     const agent = A99.custom({ ...batteryVM['atoms'] })
       .step({
@@ -178,7 +184,7 @@ describe('Batteries Included', () => {
     const result = await batteryVM.run(
       agent.toJSON(),
       {},
-      { capabilities: batteries }
+      { capabilities: testCaps }
     )
 
     const content = JSON.parse(result.result.response.content)
@@ -186,43 +192,35 @@ describe('Batteries Included', () => {
   })
 
   it('should pass tools to LLM Battery and handle tool calls', async () => {
-    // 1. Setup Mock for Tool Response
-    const mockFetch = globalThis.fetch as any
-    mockFetch.mockImplementation(
-      async (url: string | URL | Request, init?: RequestInit) => {
-        const u = url.toString()
-        if (u.includes('/chat/completions')) {
-          // Inspect request body to verify tools
-          // const req = url instanceof Request ? url : new Request(url, { method: 'POST' }) // Wait, fetch mock passed args?
-          // Actually, we can spy on the mock calls later.
-          // For now, return a tool call response.
-          return new Response(
-            JSON.stringify({
-              choices: [
-                {
-                  message: {
-                    content: null,
-                    tool_calls: [
-                      {
-                        id: 'call_123',
-                        type: 'function',
-                        function: {
-                          name: 'get_weather',
-                          arguments: '{"city":"Paris"}',
-                        },
-                      },
-                    ],
+    const fetchMock = mock(async () => {
+      return new Response(
+        JSON.stringify({
+          choices: [
+            {
+              message: {
+                content: null,
+                tool_calls: [
+                  {
+                    id: 'call_123',
+                    type: 'function',
+                    function: {
+                      name: 'get_weather',
+                      arguments: '{"city":"Paris"}',
+                    },
                   },
-                },
-              ],
-            })
-          )
-        }
-        return originalFetch(url, init)
-      }
-    )
+                ],
+              },
+            },
+          ],
+        })
+      )
+    })
 
-    // 2. Build Agent with Tools
+    const testCaps = {
+      ...batteries,
+      llmBattery: createMockLLMBattery(fetchMock),
+    }
+
     const agent = A99.custom({ ...batteryVM['atoms'] })
       .step({
         op: 'llmPredictBattery',
@@ -245,14 +243,12 @@ describe('Batteries Included', () => {
       .as('response')
       .return(s.object({ response: s.any }))
 
-    // 3. Run
     const result = await batteryVM.run(
       agent.toJSON(),
       {},
-      { capabilities: batteries }
+      { capabilities: testCaps }
     )
 
-    // 4. Verify
     const msg = result.result.response
     expect(msg.content).toBeNull()
     expect(msg.tool_calls).toHaveLength(1)

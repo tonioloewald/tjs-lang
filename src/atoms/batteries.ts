@@ -149,9 +149,9 @@ export const llmPredictBattery = defineAtom(
     tool_calls: s.array(s.any).optional,
   }),
   async ({ system, user, tools, responseFormat }, ctx) => {
-    const llmCap = ctx.capabilities.llm as unknown as LLMBattery
+    const llmCap = ctx.capabilities.llmBattery as unknown as LLMBattery
     if (!llmCap?.predict)
-      throw new Error("Capability 'llm' missing or invalid.")
+      throw new Error("Capability 'llmBattery' missing or invalid.")
 
     const resolvedSystem =
       resolveValue(system, ctx) ?? 'You are a helpful agent.'

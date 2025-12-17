@@ -13,19 +13,6 @@ const searchAtom = defineAtom(
   async (step, ctx) => ctx.capabilities.search(resolveValue(step.query, ctx))
 )
 
-// Define a specific type for the capabilities used in this test,
-// as the battery-powered `llm.predict` has a different signature.
-type BatteryTestCapabilities = {
-  search: (query: string) => Promise<string>
-  llm: {
-    predict: (
-      system: string,
-      user: string
-    ) => Promise<{ content: string;[key: string]: any }>
-  }
-  [key: string]: any
-}
-
 describe('Use Case: Comparison (Honed API)', () => {
   it('should implement Research Agent with honed syntax', async () => {
     // 1. Setup Custom VM
@@ -66,9 +53,9 @@ describe('Use Case: Comparison (Honed API)', () => {
       .return(s.object({ refinedSummary: s.any }))
 
     // 3. Mock Capabilities
-    const caps: BatteryTestCapabilities = {
+    const caps: Capabilities = {
       search: mock(async (query) => `Results for ${query}`),
-      llm: {
+      llmBattery: {
         predict: mock(async (sys: string, user: string) => {
           if (sys.includes('Summarize'))
             return { content: `Summary of ${user}` }
@@ -82,7 +69,7 @@ describe('Use Case: Comparison (Honed API)', () => {
     const result = await vm.run(
       researchAgent.toJSON(),
       { topic: 'AI' },
-      { capabilities: caps as Capabilities }
+      { capabilities: caps }
     )
 
     // 5. Verify

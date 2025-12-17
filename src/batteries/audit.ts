@@ -211,7 +211,7 @@ export async function auditModels(baseUrl: string): Promise<ModelAudit[]> {
         structured = structRes.ok
         statusMsg = structured ? structRes.msg! : `Fail: ${structRes.msg}`
       } else {
-        statusMsg = 'LL-M Fail'
+        statusMsg = 'LLM Fail'
       }
     }
 

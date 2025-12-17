@@ -6,7 +6,11 @@
 interface StoreCapability {
   get(key: string): Promise<any>
   set(key: string, val: any): Promise<void>
-  createCollection(name: string): Promise<void>
+  createCollection(
+    name: string,
+    schema?: any,
+    dimension?: number
+  ): Promise<void>
   vectorAdd(collection: string, doc: any): Promise<void>
   vectorSearch(collection: string, vector: number[], k?: number): Promise<any[]>
 }
@@ -46,7 +50,7 @@ export function getStoreCapability(): StoreCapability {
       kvStore.set(key, val)
     },
 
-    async createCollection(name: string) {
+    async createCollection(name: string, _schema?: any, _dimension?: number) {
       if (collections.has(name)) {
         console.warn(`Collection '${name}' already exists. Overwriting.`)
       }

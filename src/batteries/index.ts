@@ -10,7 +10,7 @@ const llm = getLLMCapability(localModels)
 export const batteries = {
   vector: { embed: llm.embed },
   store: getStoreCapabilityDefault(),
-  llm,
+  llmBattery: llm,
   models: localModels,
 }
 
@@ -18,7 +18,7 @@ export function getStandardCapabilities() {
   return {
     vector: { embed: llm.embed },
     store: getStoreCapabilityDefault(),
-    llm,
+    llmBattery: llm,
     models: localModels,
   }
 }
