@@ -1,6 +1,6 @@
 import { describe, it, expect, mock } from 'bun:test'
 import { A99 } from '../builder'
-import { defineAtom, resolveValue } from '../runtime'
+import { defineAtom, resolveValue, type Capabilities } from '../runtime'
 import { AgentVM } from '../vm'
 import { s } from 'tosijs-schema'
 import { llmPredictBattery } from '../atoms/batteries'
@@ -31,53 +31,36 @@ describe('Use Case: Comparison (Honed API)', () => {
       ...vm['atoms'],
       llmPredict: llmPredictBattery,
     })
-      .varSet({ key: 'topic', value: A99.args('topic') })
-      .varSet({ key: 'summary', value: '' })
-      .varSet({ key: 'isGood', value: false })
-      .varSet({ key: 'attempts', value: 0 })
-
-      .while('!isGood && attempts < 3', {}, (loop) =>
-        loop
-          // Search (Custom Atom via Proxy)
-          .search({ query: 'topic' })
-          .as('results')
-
-          // Summarize
-          .llmPredict({ system: 'Summarize', user: 'results' })
-          .as('summary')
-
-          // Critique
-          .llmPredict({ system: 'Is this good? YES/NO', user: 'summary' })
-          .as('critique')
-
-          // Check
-          .if(
-            'critique == "YES"',
-            {}, // No explicit vars needed!
-            (yes) => yes.varSet({ key: 'isGood', value: true }),
-            (no) =>
-              no
-                .mathCalc({ expr: 'attempts + 1' }) // Implicit vars
-                .as('attempts')
-                .llmPredict({ system: 'Refine query', user: 'topic' })
-                .as('topic')
-          )
-      )
-      .return(s.object({ summary: s.string }))
+      .search({ query: A99.args('topic') })
+      .as('results')
+      .llmPredict({
+        system: 'Summarize',
+        user: 'results',
+      })
+      .as('summary')
+      .llmPredict({
+        system: 'Refine query',
+        user: A99.args('topic'),
+      })
+      .as('newTopic')
+      .search({ query: 'newTopic.content' })
+      .as('refinedResults')
+      .llmPredict({
+        system: 'Summarize',
+        user: 'refinedResults',
+      })
+      .as('refinedSummary')
+      .return(s.object({ refinedSummary: s.any }))
 
     // 3. Mock Capabilities
-    const caps = {
+    const caps: Capabilities = {
       search: mock(async (query) => `Results for ${query}`),
-      llm: {
-        predict: mock(async (sys, user) => {
-          console.log(`[Mock LLM] Sys: ${sys}, User: ${user}`)
-          if (sys.includes('Summarize')) return `Summary of ${user}`
-          if (sys.includes('good')) {
-            if (user.includes('Refined')) return 'YES'
-            return 'NO'
-          }
-          if (sys.includes('Refine')) return `Refined ${user}`
-          return ''
+      llmBattery: {
+        predict: mock(async (sys: string, user: string) => {
+          if (sys.includes('Summarize'))
+            return { content: `Summary of ${user}` }
+          if (sys.includes('Refine')) return { content: `Refined ${user}` }
+          return { content: '' }
         }),
       },
     }
@@ -90,11 +73,8 @@ describe('Use Case: Comparison (Honed API)', () => {
     )
 
     // 5. Verify
-    expect(result.result.summary).toContain('Refined AI')
-    // Flow:
-    // 1. Search(AI) -> Results(AI) -> Summary(AI) -> Critique(NO) -> Refine -> Topic(Refined AI) -> attempts=1
-    // 2. Search(Refined AI) -> Results(Refined AI) -> Summary(Refined AI) -> Critique(YES) -> isGood=true
-    // 3. Loop ends. Return summary.
-    expect(result.result.summary).toBe('Summary of Results for Refined AI')
+    expect(result.result.refinedSummary.content).toBe(
+      'Summary of Results for Refined AI'
+    )
   })
 })

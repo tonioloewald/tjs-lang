@@ -2,11 +2,15 @@
 
 [github](https://github.com/tonioloewald/agent-99#readme) | [npm](https://www.npmjs.com/package/agent-99) | [discord](https://discord.gg/ramJ9rgky5)
 
+<div style="text-align: center;"><img alt="Agent-99 Action Figure" src="https://raw.githubusercontent.com/tonioloewald/agent-99/main/agent-99.webp" style="max-height: 50vh; max-width: 50vw; height: 1491px; aspect-ratio: 2 / 3"></div>
+
 A **type-safe-by-design, cost-limited virtual machine** that enables the **safe execution of untrusted code** anywhere.
 
 It's **safe eval** in the cloud.
 
-Agent99 allows you to define complex logic chains, agents, and data pipelines—_computer programs_—using a fluent TypeScript builder. These definitions compile to a safe, JSON-serializable AST (Abstract Syntax Tree) that can be executed in the browser, on the server, or at the edge.
+And it's **tiny**, ~8kB gzipped.
+
+Agent99 allows you to define complex logic chains, agents, and data pipelines—_computer programs_—using a fluent TypeScript builder. These definitions compile to a safe, JSON-serializable AST ([Abstract Syntax Tree](https://en.wikipedia.org/wiki/Abstract_syntax_tree)) that can be executed in the browser, on the server, or at the edge.
 
 ### Why do you care?
 
@@ -56,6 +60,12 @@ const agent = A99.take(s.object({ topic: s.string })).while(
       )
 )
 ```
+
+## Example Project
+
+To see a complete, working example of how to build an agent with a simple UI, check out the official playground project:
+
+**[https://github.com/brainsnorkel/agent99-playground](https://github.com/brainsnorkel/agent99-playground)**
 
 ## Installation
 
@@ -135,7 +145,7 @@ The standard library includes essential primitives:
 
 ## Capabilities & Security
 
-Agent99 uses a **Capability-Based Security** model. The VM cannot access the network, file system, or database unless provided with a Capability.
+Agent99 uses a **[Capability-Based Security](https://en.wikipedia.org/wiki/Capability-based_security)** model. The VM cannot access the network, file system, or database unless provided with a Capability.
 
 **Zero Config Defaults:** The runtime provides sensible defaults for local development:
 
@@ -145,38 +155,61 @@ Agent99 uses a **Capability-Based Security** model. The VM cannot access the net
 
 In production, you should inject secure, instrumented, or cloud-native implementations (e.g., restricted fetch, Postgres, Redis).
 
-## Batteries Included (AI & Vector Search)
+## Batteries Included (Zero-Dependency Local AI)
 
-For local AI development, Agent99 provides a standard library of "Batteries" that enable Vector Search and LLM features without external API keys.
+For local AI development, Agent99 provides a "Batteries Included" setup that runs out-of-the-box with **zero external dependencies or API keys**. It features a built-in vector search and connects to [LM Studio](https://lmstudio.ai/) for local model inference.
 
-- **Vector:** Local embeddings via `@xenova/transformers`.
-- **Store:** In-memory Vector Store via `@orama/orama`.
-- **LLM:** Bridge to LM Studio (`http://localhost:1234`).
+### 1. Setup LM Studio
 
-### Usage
+To use the batteries, you need to have LM Studio running in the background.
 
-To use the batteries, register the atoms and provide the capabilities:
+1.  **Download and Install:** Get LM Studio from [lmstudio.ai](https://lmstudio.ai/).
+2.  **Download Models:** You'll need at least one LLM and one embedding model. We recommend:
+    - **LLM:** Search for a [GGUF](https://github.com/ggerganov/ggml/blob/master/docs/gguf.md) model like `Meta-Llama-3-8B-Instruct.Q4_K_M.gguf` for a good balance of performance and size.
+    - **Embedding:** Search for `nomic-embed-text-v1.5.Q8_0.gguf`.
+3.  **Start the Server:** Go to the "Local Server" tab (icon: `<-->`) and click "Start Server".
+
+### 2. How it Works
+
+When you first import the `batteries` from `agent-99`, the runtime performs a one-time audit of the models available on your LM Studio server. It automatically detects which models are for embeddings and which are for chat, and caches the results to avoid re-auditing during the same session.
+
+This allows Agent99 to automatically select the correct models for different tasks without any configuration. The cache uses `localStorage` if available (in a browser environment), or a simple in-memory cache otherwise.
+
+### 3. Usage
+
+The `batteries` export contains the necessary capabilities. To use them, register the `batteryAtoms` with the `AgentVM` and pass the `batteries` object to the `run` method's capabilities.
 
 ```typescript
-import { AgentVM, batteries } from 'agent-99'
-import { storeVectorize, storeSearch, llmPredictBattery } from 'agent-99'
+import { AgentVM, batteries, batteryAtoms, A99 } from 'agent-99'
 
-const vm = new AgentVM({
-  storeVectorize,
-  storeSearch,
-  llmPredictBattery,
-})
+// Register the battery atoms
+const vm = new AgentVM(batteryAtoms)
 
-// Get builder from VM to access battery atoms
-const b = vm.A99
-const logic = b.storeVectorize({ text: 'Hello' }).as('vector')
+// The batteries are audited on import.
+const logic = vm.A99.storeVectorize({ text: 'Hello' }).as('vector')
 
-await vm.run(logic.toJSON(), args, { capabilities: batteries })
+const { result } = await vm.run(logic.toJSON(), {}, { capabilities: batteries })
+
+console.log(result)
 ```
 
-### Structured Outputs
+### 4. Vector Search Performance
 
-You can request structured JSON responses (e.g., JSON Schema) using `responseFormat`:
+The built-in vector search is implemented with a highly optimized **[cosine similarity](https://en.wikipedia.org/wiki/Cosine_similarity) function** that operates directly on arrays. It is designed for serverless and edge environments where low-latency is critical. Benchmarks run on a 2023 M3 Max using `bun test` show the following performance characteristics:
+
+| Vector Count | Dimensions | Search Time |
+| :----------- | :--------- | :---------- |
+| 10,000       | 500        | ~15 ms      |
+| 10,000       | 1000       | ~22 ms      |
+| 100,000      | 500        | ~101 ms     |
+
+These results demonstrate that the in-memory vector store is suitable for a wide range of real-time applications without requiring a dedicated vector database.
+
+> **cosine similarity** is the most popular algorithm for vector search, but there are many others (along with strategies for dealing with extremely large data-sets). For more information you can start with this Wikipedia article [Vector database](https://en.wikipedia.org/wiki/Vector_database).
+
+### 5. Structured Outputs
+
+You can request structured JSON responses (e.g., JSON Schema) from compatible models using `responseFormat`:
 
 ```typescript
 const logic = vm.A99.llmPredictBattery({
@@ -199,15 +232,14 @@ const logic = vm.A99.llmPredictBattery({
 })
 ```
 
-### Performance & Tree Shaking
+### 5. Troubleshooting
 
-The core Agent99 runtime is extremely lightweight (~7KB gzipped).
-
-The "Batteries" dependencies (transformers, Orama) are **lazy-loaded**. This means the heavy dependencies are only downloaded or bundled if you explicitly import and use the battery capabilities. If you only use the core runtime, your application bundle remains small.
+- **Connection Error:** If you see an error like `Failed to connect to LM Studio`, make sure the LM Studio server is running on the default port (`1234`).
+- **No Models Found:** Ensure you have downloaded compatible GGUF models and they are loaded in LM Studio. The audit process will warn you if it cannot find suitable LLM or embedding models.
 
 ## Self-Documentation for Agents
 
-The VM can describe itself to an LLM, generating an OpenAI-compatible Tool Schema for its registered atoms.
+The VM can describe itself to an LLM, generating an [OpenAI-compatible Tool Schema](https://platform.openai.com/docs/guides/function-calling) for its registered atoms.
 
 ```typescript
 // Get all tools
@@ -330,9 +362,16 @@ chain.try({
 
 ## Development
 
+### Testing
+
+The test suite includes performance benchmarks for the in-memory vector search. These benchmarks can be sensitive to the performance of the host machine and may fail in slower CI/CD environments. To avoid this, you can skip the benchmark tests by setting the `AGENT99_TESTS_SKIP_BENCHMARKS` environment variable.
+
 ```bash
 # Run tests
 bun test
+
+# Skip benchmark tests
+AGENT99_TESTS_SKIP_BENCHMARKS=1 bun test
 
 # Type check
 bun run typecheck

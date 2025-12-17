@@ -8,6 +8,12 @@ interface VectorBattery {
 }
 
 interface StoreBattery {
+  createCollection(
+    name: string,
+    schema?: any,
+    dimension?: number
+  ): Promise<void>
+  vectorAdd(collection: string, doc: any): Promise<void>
   vectorSearch(
     collection: string,
     vector: number[],
@@ -46,6 +52,52 @@ export const storeVectorize = defineAtom(
     return vectorCap.embed(resolvedText)
   },
   { docs: 'Generate embeddings using vector battery', cost: 20 }
+)
+
+// store.createCollection
+export const storeCreateCollection = defineAtom(
+  'storeCreateCollection',
+  s.object({
+    collection: s.string,
+    dimension: s.number.optional,
+  }),
+  undefined,
+  async ({ collection, dimension }, ctx) => {
+    const storeCap = ctx.capabilities.store as unknown as StoreBattery
+    if (!storeCap?.createCollection)
+      throw new Error(
+        "Capability 'store' missing or does not support createCollection."
+      )
+
+    const resolvedColl = resolveValue(collection, ctx)
+    const resolvedDim = resolveValue(dimension, ctx)
+
+    return storeCap.createCollection(resolvedColl, undefined, resolvedDim)
+  },
+  { docs: 'Create a vector store collection', cost: 5 }
+)
+
+// store.vectorAdd
+export const storeVectorAdd = defineAtom(
+  'storeVectorAdd',
+  s.object({
+    collection: s.string,
+    doc: s.any,
+  }),
+  undefined,
+  async ({ collection, doc }, ctx) => {
+    const storeCap = ctx.capabilities.store as unknown as StoreBattery
+    if (!storeCap?.vectorAdd)
+      throw new Error(
+        "Capability 'store' missing or does not support vectorAdd."
+      )
+
+    const resolvedColl = resolveValue(collection, ctx)
+    const resolvedDoc = resolveValue(doc, ctx)
+
+    return storeCap.vectorAdd(resolvedColl, resolvedDoc)
+  },
+  { docs: 'Add a document to a vector store collection', cost: 5 }
 )
 
 // store.search (Vector Search)
@@ -97,9 +149,9 @@ export const llmPredictBattery = defineAtom(
     tool_calls: s.array(s.any).optional,
   }),
   async ({ system, user, tools, responseFormat }, ctx) => {
-    const llmCap = ctx.capabilities.llm as unknown as LLMBattery
+    const llmCap = ctx.capabilities.llmBattery as unknown as LLMBattery
     if (!llmCap?.predict)
-      throw new Error("Capability 'llm' missing or invalid.")
+      throw new Error("Capability 'llmBattery' missing or invalid.")
 
     const resolvedSystem =
       resolveValue(system, ctx) ?? 'You are a helpful agent.'

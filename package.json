@@ -35,8 +35,6 @@
     "latest": "rm -rf node_modules && bun install"
   },
   "dependencies": {
-    "@orama/orama": "^3.1.17",
-    "@xenova/transformers": "^2.17.2",
     "jsep": "^1.4.0",
     "tosijs-schema": "1.0.1"
   }

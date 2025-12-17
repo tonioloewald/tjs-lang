@@ -1,17 +1,24 @@
-import { getVectorCapability } from './vector'
-import { getStoreCapability } from './store'
+import { getStoreCapability as getStoreCapabilityDefault } from './store'
 import { getLLMCapability } from './llm'
+import { LocalModels } from './models'
+
+const localModels = new LocalModels()
+await localModels.audit()
+
+const llm = getLLMCapability(localModels)
 
 export const batteries = {
-  vector: getVectorCapability(),
-  store: getStoreCapability(),
-  llm: getLLMCapability(),
+  vector: { embed: llm.embed },
+  store: getStoreCapabilityDefault(),
+  llmBattery: llm,
+  models: localModels,
 }
 
 export function getStandardCapabilities() {
   return {
-    vector: getVectorCapability(),
-    store: getStoreCapability(),
-    llm: getLLMCapability(),
+    vector: { embed: llm.embed },
+    store: getStoreCapabilityDefault(),
+    llmBattery: llm,
+    models: localModels,
   }
 }

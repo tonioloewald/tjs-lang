@@ -24,7 +24,7 @@ const mockBatteries = {
       { id: '1', content: 'Secret Server Doc' },
     ]),
   },
-  llm: {
+  llmBattery: {
     predict: mock(async (sys, user) => ({ content: 'Server says: ' + user })),
   },
 }
@@ -52,7 +52,7 @@ describe('Use Case: Asymmetric Client-Server', () => {
 
             // Execute using Server VM + Server Capabilities
             const result = await serverVM.run(ast, args, {
-              capabilities: mockBatteries as any,
+              capabilities: mockBatteries,
             })
 
             return new Response(JSON.stringify(result), {
@@ -143,7 +143,7 @@ describe('Use Case: Asymmetric Client-Server', () => {
     // Verify Server Capabilities were used
     expect(mockBatteries.vector.embed).toHaveBeenCalled()
     expect(mockBatteries.store.vectorSearch).toHaveBeenCalled()
-    expect(mockBatteries.llm.predict).toHaveBeenCalled()
+    expect(mockBatteries.llmBattery.predict).toHaveBeenCalled()
   })
 
   it('should fail if client tries to run locally without capabilities', async () => {

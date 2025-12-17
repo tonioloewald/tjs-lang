@@ -1,9 +1,11 @@
+import { LocalModels } from './models'
+
 /**
  * LLM Capability Battery
  * Bridges to local LM Studio instance via HTTP.
  */
 
-interface LLMCapability {
+export interface LLMCapability {
   predict(
     system: string,
     user: string,
@@ -15,7 +17,10 @@ interface LLMCapability {
 
 const DEFAULT_BASE_URL = 'http://localhost:1234/v1'
 
-export function getLLMCapability(baseUrl = DEFAULT_BASE_URL): LLMCapability {
+export function getLLMCapability(
+  models: LocalModels,
+  baseUrl = DEFAULT_BASE_URL
+): LLMCapability {
   return {
     async predict(
       system: string,
@@ -24,6 +29,9 @@ export function getLLMCapability(baseUrl = DEFAULT_BASE_URL): LLMCapability {
       responseFormat?: any
     ): Promise<any> {
       try {
+        const model = responseFormat
+          ? models.getStructuredLLM()
+          : models.getLLM()
         const messages = [
           { role: 'system', content: system },
           { role: 'user', content: user },
@@ -33,6 +41,7 @@ export function getLLMCapability(baseUrl = DEFAULT_BASE_URL): LLMCapability {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
+            model: model.id,
             messages,
             temperature: 0.7,
             tools,
@@ -60,10 +69,12 @@ export function getLLMCapability(baseUrl = DEFAULT_BASE_URL): LLMCapability {
 
     async embed(text: string): Promise<number[]> {
       try {
+        const model = models.getEmbedding()
         const response = await fetch(`${baseUrl}/embeddings`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
+            model: model.id,
             input: text,
           }),
         })

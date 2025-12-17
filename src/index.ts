@@ -1,6 +1,5 @@
 export * from './builder'
 export * from './runtime'
-export * from './atoms/browser'
-export * from './atoms/batteries'
+export * from './atoms'
 export * from './batteries'
 export * from './vm'

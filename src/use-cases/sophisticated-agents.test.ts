@@ -64,7 +64,7 @@ describe('Use Case: Sophisticated Agents', () => {
     // Call 2: "A" (Valid)
     let callCount = 0
     const caps = {
-      llm: {
+      llmBattery: {
         predict: mock(async (_sys, _user) => {
           callCount++
           if (callCount === 1) return { content: 'Paris' }
@@ -72,7 +72,7 @@ describe('Use Case: Sophisticated Agents', () => {
           return { content: 'C' }
         }),
       },
-    } as any
+    }
 
     const vm = new AgentVM({ llmPredictBattery })
     const result = await vm.run(
@@ -86,7 +86,7 @@ describe('Use Case: Sophisticated Agents', () => {
     // Attempt 1: "A" (Valid) -> success
     // So attempts variable ends at 1.
     expect(result.result.attempts).toBe(1)
-    expect(caps.llm.predict).toHaveBeenCalledTimes(2)
+    expect(caps.llmBattery.predict).toHaveBeenCalledTimes(2)
   })
 
   it('should implement Iterative RAG (Refinement Loop)', async () => {
@@ -174,7 +174,7 @@ describe('Use Case: Sophisticated Agents', () => {
 
     // Mock Capabilities
     const caps = {
-      llm: {
+      llmBattery: {
         predict: mock(async (sys, user) => {
           if (sys.includes('Judge')) {
             // If docs contain "Fruit", say NO.
@@ -196,13 +196,17 @@ describe('Use Case: Sophisticated Agents', () => {
         }),
       },
       store: {
+        get: mock(async (_key) => null),
+        set: mock(async (_key, _value) => {
+          // noop
+        }),
         vectorSearch: mock(async (_coll, vec) => {
           if (vec[0] === 0.1) return [{ content: 'Apples are a Fruit.' }]
           if (vec[0] === 0.9) return [{ content: 'Apple is a Tech company.' }]
           return []
         }),
       },
-    } as any
+    }
 
     const vm = new AgentVM({
       llmPredictBattery,
