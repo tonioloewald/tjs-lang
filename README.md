@@ -362,9 +362,16 @@ chain.try({
 
 ## Development
 
+### Testing
+
+The test suite includes performance benchmarks for the in-memory vector search. These benchmarks can be sensitive to the performance of the host machine and may fail in slower CI/CD environments. To avoid this, you can skip the benchmark tests by setting the `AGENT99_TESTS_SKIP_BENCHMARKS` environment variable.
+
 ```bash
 # Run tests
 bun test
+
+# Skip benchmark tests
+AGENT99_TESTS_SKIP_BENCHMARKS=1 bun test
 
 # Type check
 bun run typecheck

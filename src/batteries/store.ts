@@ -20,7 +20,7 @@ const kvStore = new Map<string, any>()
 // In-memory Vector store fallback
 const collections = new Map<string, any[]>()
 
-function cosineSimilarity(vecA: number[], vecB: number[]): number {
+export function cosineSimilarity(vecA: number[], vecB: number[]): number {
   if (vecA.length !== vecB.length) {
     throw new Error('Vectors must have the same length for cosine similarity.')
   }

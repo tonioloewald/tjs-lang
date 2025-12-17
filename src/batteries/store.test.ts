@@ -1,27 +1,5 @@
 import { describe, it, expect, beforeAll } from 'vitest'
-import { getStoreCapability } from './store'
-
-// This is the function we want to test, but it's not exported from store.ts
-// So, we'll copy it here for direct testing.
-function cosineSimilarity(vecA: number[], vecB: number[]): number {
-  if (vecA.length !== vecB.length) {
-    return -Infinity // Or throw an error
-  }
-  let dotProduct = 0
-  let magA = 0
-  let magB = 0
-  for (let i = 0; i < vecA.length; i++) {
-    dotProduct += vecA[i] * vecB[i]
-    magA += vecA[i] * vecA[i]
-    magB += vecB[i] * vecB[i]
-  }
-  magA = Math.sqrt(magA)
-  magB = Math.sqrt(magB)
-  if (magA === 0 || magB === 0) {
-    return 0
-  }
-  return dotProduct / (magA * magB)
-}
+import { getStoreCapability, cosineSimilarity } from './store'
 
 describe('Vector Store', () => {
   const store = getStoreCapability()
@@ -91,10 +69,12 @@ describe('cosineSimilarity calculation', () => {
     expect(cosineSimilarity(vecA, vecB)).toBeCloseTo(0)
   })
 
-  it('should return -Infinity for vectors of different lengths', () => {
+  it('should throw an error for vectors of different lengths', () => {
     const vecA = [1, 2]
     const vecB = [1, 2, 3]
-    expect(cosineSimilarity(vecA, vecB)).toBe(-Infinity)
+    expect(() => cosineSimilarity(vecA, vecB)).toThrow(
+      'Vectors must have the same length for cosine similarity.'
+    )
   })
 
   it('should return 0 for zero vectors', () => {
@@ -104,121 +84,130 @@ describe('cosineSimilarity calculation', () => {
   })
 })
 
-describe('Vector Search Benchmark (10k x 500dim)', () => {
-  const store = getStoreCapability()
-  const VECTOR_DIMENSION = 500
-  const NUM_VECTORS = 10000
-  const COLLECTION_NAME = 'benchmark'
+describe.skipIf(process.env.AGENT99_TESTS_SKIP_BENCHMARKS)(
+  'Vector Search Benchmark (10k x 500dim)',
+  () => {
+    const store = getStoreCapability()
+    const VECTOR_DIMENSION = 500
+    const NUM_VECTORS = 10000
+    const COLLECTION_NAME = 'benchmark'
 
-  beforeAll(async () => {
-    await store.createCollection(COLLECTION_NAME)
-    const vectors = Array.from({ length: NUM_VECTORS }, () =>
-      Array.from({ length: VECTOR_DIMENSION }, () => Math.random() * 2 - 1)
-    )
+    beforeAll(async () => {
+      await store.createCollection(COLLECTION_NAME)
+      const vectors = Array.from({ length: NUM_VECTORS }, () =>
+        Array.from({ length: VECTOR_DIMENSION }, () => Math.random() * 2 - 1)
+      )
 
-    for (let i = 0; i < NUM_VECTORS; i++) {
-      await store.vectorAdd(COLLECTION_NAME, {
-        id: `vec_${i}`,
-        embedding: vectors[i],
-      })
-    }
-  }, 30000) // Increase timeout for setup
+      for (let i = 0; i < NUM_VECTORS; i++) {
+        await store.vectorAdd(COLLECTION_NAME, {
+          id: `vec_${i}`,
+          embedding: vectors[i],
+        })
+      }
+    }, 30000) // Increase timeout for setup
 
-  it('should perform a vector search reasonably fast', async () => {
-    const queryVector = Array.from(
-      { length: VECTOR_DIMENSION },
-      () => Math.random() * 2 - 1
-    )
+    it('should perform a vector search reasonably fast', async () => {
+      const queryVector = Array.from(
+        { length: VECTOR_DIMENSION },
+        () => Math.random() * 2 - 1
+      )
 
-    const startTime = Date.now()
-    await store.vectorSearch(COLLECTION_NAME, queryVector, 5)
-    const endTime = Date.now()
+      const startTime = Date.now()
+      await store.vectorSearch(COLLECTION_NAME, queryVector, 5)
+      const endTime = Date.now()
 
-    const duration = endTime - startTime
-    console.log(
-      `\nVector search benchmark with ${NUM_VECTORS} vectors took ${duration} ms.`
-    )
+      const duration = endTime - startTime
+      console.log(
+        `\nVector search benchmark with ${NUM_VECTORS} vectors took ${duration} ms.`
+      )
 
-    // This is a baseline to catch major performance regressions.
-    // It might need adjustment based on the machine running the test.
-    expect(duration).toBeLessThan(2000) // e.g., less than 2 seconds
-  })
-})
+      // This is a baseline to catch major performance regressions.
+      // It might need adjustment based on the machine running the test.
+      expect(duration).toBeLessThan(2000) // e.g., less than 2 seconds
+    })
+  }
+)
 
-describe('Vector Search Benchmark (10k x 1000dim)', () => {
-  const store = getStoreCapability()
-  const VECTOR_DIMENSION = 1000
-  const NUM_VECTORS = 10000
-  const COLLECTION_NAME = 'benchmark_10k_1000'
+describe.skipIf(process.env.AGENT99_TESTS_SKIP_BENCHMARKS)(
+  'Vector Search Benchmark (10k x 1000dim)',
+  () => {
+    const store = getStoreCapability()
+    const VECTOR_DIMENSION = 1000
+    const NUM_VECTORS = 10000
+    const COLLECTION_NAME = 'benchmark_10k_1000'
 
-  beforeAll(async () => {
-    await store.createCollection(COLLECTION_NAME)
-    const vectors = Array.from({ length: NUM_VECTORS }, () =>
-      Array.from({ length: VECTOR_DIMENSION }, () => Math.random() * 2 - 1)
-    )
+    beforeAll(async () => {
+      await store.createCollection(COLLECTION_NAME)
+      const vectors = Array.from({ length: NUM_VECTORS }, () =>
+        Array.from({ length: VECTOR_DIMENSION }, () => Math.random() * 2 - 1)
+      )
 
-    for (let i = 0; i < NUM_VECTORS; i++) {
-      await store.vectorAdd(COLLECTION_NAME, {
-        id: `vec_${i}`,
-        embedding: vectors[i],
-      })
-    }
-  }, 30000)
+      for (let i = 0; i < NUM_VECTORS; i++) {
+        await store.vectorAdd(COLLECTION_NAME, {
+          id: `vec_${i}`,
+          embedding: vectors[i],
+        })
+      }
+    }, 30000)
 
-  it('should perform a vector search reasonably fast', async () => {
-    const queryVector = Array.from(
-      { length: VECTOR_DIMENSION },
-      () => Math.random() * 2 - 1
-    )
+    it('should perform a vector search reasonably fast', async () => {
+      const queryVector = Array.from(
+        { length: VECTOR_DIMENSION },
+        () => Math.random() * 2 - 1
+      )
 
-    const startTime = Date.now()
-    await store.vectorSearch(COLLECTION_NAME, queryVector, 5)
-    const endTime = Date.now()
+      const startTime = Date.now()
+      await store.vectorSearch(COLLECTION_NAME, queryVector, 5)
+      const endTime = Date.now()
 
-    const duration = endTime - startTime
-    console.log(
-      `\n[Benchmark 10k x 1000dim] Vector search took ${duration} ms.`
-    )
+      const duration = endTime - startTime
+      console.log(
+        `\n[Benchmark 10k x 1000dim] Vector search took ${duration} ms.`
+      )
 
-    expect(duration).toBeLessThan(4000)
-  })
-})
+      expect(duration).toBeLessThan(4000)
+    })
+  }
+)
 
-describe('Vector Search Benchmark (100k x 500dim)', () => {
-  const store = getStoreCapability()
-  const VECTOR_DIMENSION = 500
-  const NUM_VECTORS = 100000
-  const COLLECTION_NAME = 'benchmark_100k_500'
+describe.skipIf(process.env.AGENT99_TESTS_SKIP_BENCHMARKS)(
+  'Vector Search Benchmark (100k x 500dim)',
+  () => {
+    const store = getStoreCapability()
+    const VECTOR_DIMENSION = 500
+    const NUM_VECTORS = 100000
+    const COLLECTION_NAME = 'benchmark_100k_500'
 
-  beforeAll(async () => {
-    await store.createCollection(COLLECTION_NAME)
-    const vectors = Array.from({ length: NUM_VECTORS }, () =>
-      Array.from({ length: VECTOR_DIMENSION }, () => Math.random() * 2 - 1)
-    )
+    beforeAll(async () => {
+      await store.createCollection(COLLECTION_NAME)
+      const vectors = Array.from({ length: NUM_VECTORS }, () =>
+        Array.from({ length: VECTOR_DIMENSION }, () => Math.random() * 2 - 1)
+      )
 
-    for (let i = 0; i < NUM_VECTORS; i++) {
-      await store.vectorAdd(COLLECTION_NAME, {
-        id: `vec_${i}`,
-        embedding: vectors[i],
-      })
-    }
-  }, 60000) // Increase timeout for setup
+      for (let i = 0; i < NUM_VECTORS; i++) {
+        await store.vectorAdd(COLLECTION_NAME, {
+          id: `vec_${i}`,
+          embedding: vectors[i],
+        })
+      }
+    }, 60000) // Increase timeout for setup
 
-  it('should perform a vector search reasonably fast', async () => {
-    const queryVector = Array.from(
-      { length: VECTOR_DIMENSION },
-      () => Math.random() * 2 - 1
-    )
+    it('should perform a vector search reasonably fast', async () => {
+      const queryVector = Array.from(
+        { length: VECTOR_DIMENSION },
+        () => Math.random() * 2 - 1
+      )
 
-    const startTime = Date.now()
-    await store.vectorSearch(COLLECTION_NAME, queryVector, 5)
-    const endTime = Date.now()
+      const startTime = Date.now()
+      await store.vectorSearch(COLLECTION_NAME, queryVector, 5)
+      const endTime = Date.now()
 
-    const duration = endTime - startTime
-    console.log(
-      `\n[Benchmark 100k x 500dim] Vector search took ${duration} ms.`
-    )
+      const duration = endTime - startTime
+      console.log(
+        `\n[Benchmark 100k x 500dim] Vector search took ${duration} ms.`
+      )
 
-    expect(duration).toBeLessThan(20000)
-  })
-})
+      expect(duration).toBeLessThan(20000)
+    })
+  }
+)

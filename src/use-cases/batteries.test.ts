@@ -1,4 +1,4 @@
-import { describe, it, expect, mock, afterEach } from 'bun:test'
+import { describe, it, expect, mock } from 'bun:test'
 import { A99 } from '../builder'
 import { AgentVM } from '../vm'
 import { s } from 'tosijs-schema'
@@ -25,9 +25,6 @@ mock.module('@orama/orama', () => {
 })
 
 // --- Test Setup ---
-
-// Keep a reference to the original fetch to restore it later
-const originalFetch = globalThis.fetch
 
 // This factory creates a mock LLM battery with a specific fetch mock.
 // This avoids global state and allows each test to define its required fetch behavior.
@@ -56,11 +53,17 @@ const createMockLLMBattery = (fetchMock: any) => ({
     const data = await res.json()
     return data.choices[0].message
   },
-})
-
-// After each test, restore the original fetch to prevent test pollution.
-afterEach(() => {
-  globalThis.fetch = originalFetch
+  embed: async (text: string) => {
+    const res = await fetchMock('http://localhost:1234/v1/embeddings', {
+      method: 'POST',
+      body: JSON.stringify({
+        model: 'mock-model',
+        input: text,
+      }),
+    })
+    const data = await res.json()
+    return data.data[0].embedding
+  },
 })
 
 describe('Batteries Included', () => {
@@ -71,7 +74,7 @@ describe('Batteries Included', () => {
   })
 
   it('should use Vector Battery to embed text', async () => {
-    globalThis.fetch = mock(async (url: any) => {
+    const fetchMock = mock(async (url: any) => {
       if (url.toString().includes('/embeddings')) {
         return new Response(
           JSON.stringify({ data: [{ embedding: Array(768).fill(0.1) }] })
@@ -79,6 +82,11 @@ describe('Batteries Included', () => {
       }
       return new Response('{}')
     })
+
+    const testCaps = {
+      ...batteries,
+      llmBattery: createMockLLMBattery(fetchMock),
+    }
 
     const agent = A99.custom({ ...batteryVM['atoms'] })
       .step({ op: 'storeVectorize', text: 'Hello World' })
@@ -88,7 +96,7 @@ describe('Batteries Included', () => {
     const result = await batteryVM.run(
       agent.toJSON(),
       {},
-      { capabilities: batteries }
+      { capabilities: testCaps }
     )
 
     expect(result.result.vector).toBeArray()
