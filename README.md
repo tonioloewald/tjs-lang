@@ -2,7 +2,7 @@
 
 [github](https://github.com/tonioloewald/agent-99#readme) | [npm](https://www.npmjs.com/package/agent-99) | [discord](https://discord.gg/ramJ9rgky5)
 
-<div style="text-align: center;"><img alt="Agent-99 Action Figure" src="https://raw.githubusercontent.com/tonioloewald/agent-99/main/agent-99.webp" style="max-height: 50vh; max-width: 50vw; height: 1491px; aspect-ratio: 2 / 3"></div>
+<div style="text-align: center;"><img alt="Agent-99 Action Figure" src="https://raw.githubusercontent.com/tonioloewald/agent-99/main/agent-99.webp" style="max-height: 50vh; max-width: 50vw; height: 900px; aspect-ratio: 2 / 3"></div>
 
 A **type-safe-by-design, cost-limited virtual machine** that enables the **safe execution of untrusted code** anywhere.
 
