@@ -1,35 +1,39 @@
 /**
  * Store Capability Battery
- * Provides Key-Value storage and Vector Search using Orama.
- * Lazy-loaded to minimize startup impact.
+ * Provides Key-Value storage and lightweight in-memory Vector Search.
  */
 
 interface StoreCapability {
   get(key: string): Promise<any>
   set(key: string, val: any): Promise<void>
-  createCollection(name: string, schema?: any): Promise<void>
+  createCollection(name: string): Promise<void>
   vectorAdd(collection: string, doc: any): Promise<void>
-  vectorSearch(
-    collection: string,
-    vector: number[],
-    k?: number,
-    filter?: any
-  ): Promise<any[]>
+  vectorSearch(collection: string, vector: number[], k?: number): Promise<any[]>
 }
 
 // In-memory KV store fallback
 const kvStore = new Map<string, any>()
+// In-memory Vector store fallback
+const collections = new Map<string, any[]>()
 
-// Orama instances cache
-const collections = new Map<string, any>()
-
-let oramaLib: any = null
-
-async function getOrama() {
-  if (oramaLib) return oramaLib
-  // Dynamic import
-  oramaLib = await import('@orama/orama')
-  return oramaLib
+function cosineSimilarity(vecA: number[], vecB: number[]): number {
+  if (vecA.length !== vecB.length) {
+    return -Infinity // Or throw an error
+  }
+  let dotProduct = 0
+  let magA = 0
+  let magB = 0
+  for (let i = 0; i < vecA.length; i++) {
+    dotProduct += vecA[i] * vecB[i]
+    magA += vecA[i] * vecA[i]
+    magB += vecB[i] * vecB[i]
+  }
+  magA = Math.sqrt(magA)
+  magB = Math.sqrt(magB)
+  if (magA === 0 || magB === 0) {
+    return 0
+  }
+  return dotProduct / (magA * magB)
 }
 
 export function getStoreCapability(): StoreCapability {
@@ -42,62 +46,42 @@ export function getStoreCapability(): StoreCapability {
       kvStore.set(key, val)
     },
 
-    async createCollection(name: string, schema: any = {}) {
-      const { create } = await getOrama()
-      // Default schema if none provided, but Orama requires a schema for vector search usually
-      // For generic vector store usage, we define a standard schema with an embedding field
-      const defaultSchema = {
-        id: 'string',
-        content: 'string',
-        embedding: 'vector[384]', // Default dimension for MiniLM-L6-v2
-        meta: 'string', // JSON stringified metadata
-        ...schema,
+    async createCollection(name: string) {
+      if (collections.has(name)) {
+        console.warn(`Collection '${name}' already exists. Overwriting.`)
       }
-
-      const db = await create({
-        schema: defaultSchema,
-      })
-      collections.set(name, db)
+      collections.set(name, [])
     },
 
     async vectorAdd(collection: string, doc: any) {
-      const { insert } = await getOrama()
       const db = collections.get(collection)
       if (!db)
         throw new Error(
           `Collection '${collection}' not found. Create it first.`
         )
-
-      // We expect doc to contain the vector in 'embedding' field if schema requires it
-      // or we just insert raw doc and hope schema matches.
-      await insert(db, doc)
+      if (!doc.embedding || !Array.isArray(doc.embedding)) {
+        throw new Error(
+          "Document must have an 'embedding' property that is an array of numbers."
+        )
+      }
+      db.push(doc)
     },
 
-    async vectorSearch(
-      collection: string,
-      vector: number[],
-      k = 5,
-      filter?: any
-    ) {
-      const { search } = await getOrama()
+    async vectorSearch(collection: string, vector: number[], k = 5) {
       const db = collections.get(collection)
       if (!db)
         throw new Error(
           `Collection '${collection}' not found. Create it first.`
         )
 
-      const results = await search(db, {
-        mode: 'vector',
-        vector: {
-          value: vector,
-          property: 'embedding',
-        },
-        limit: k,
-        where: filter,
-      })
+      const scoredDocs = db.map((doc) => ({
+        doc,
+        score: cosineSimilarity(vector, doc.embedding),
+      }))
 
-      // Map results back to simpler format
-      return results.hits.map((hit: any) => hit.document)
+      scoredDocs.sort((a, b) => b.score - a.score)
+
+      return scoredDocs.slice(0, k).map((item) => item.doc)
     },
   }
 }

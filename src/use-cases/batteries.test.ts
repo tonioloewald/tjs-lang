@@ -9,20 +9,6 @@ import {
   llmPredictBattery,
 } from '../atoms/batteries'
 
-// Mock the heavy dependencies BEFORE they are loaded
-mock.module('@xenova/transformers', () => {
-  return {
-    pipeline: async (_task: string, _model: string) => {
-      // Mock Embedder Function
-      return async (_text: string) => {
-        return {
-          data: [0.1, 0.2, 0.3], // Mock vector
-        }
-      }
-    },
-  }
-})
-
 mock.module('@orama/orama', () => {
   const db: any[] = []
   return {
@@ -54,6 +40,13 @@ globalThis.fetch = mock(
           choices: [{ message: { content: 'Mock LLM Response' } }],
         })
       )
+    } else if (u.includes('/embeddings')) {
+      // Return a 768-dim vector
+      return new Response(
+        JSON.stringify({
+          data: [{ embedding: Array(768).fill(0.1) }],
+        })
+      )
     }
     return originalFetch(url, init)
   }
@@ -67,7 +60,7 @@ describe('Batteries Included', () => {
     llmPredictBattery,
   })
 
-  it('should use Vector Battery (Xenova) to embed text', async () => {
+  it('should use Vector Battery to embed text', async () => {
     // 1. Build Agent
     const agent = A99.custom({ ...batteryVM['atoms'] })
       .step({ op: 'storeVectorize', text: 'Hello World' })
@@ -82,7 +75,8 @@ describe('Batteries Included', () => {
     )
 
     // 3. Verify
-    expect(result.result.vector).toEqual([0.1, 0.2, 0.3])
+    expect(result.result.vector).toBeArray()
+    expect(result.result.vector.length).toBe(768)
   })
 
   it('should use Store Battery (Orama) to create collection and search', async () => {

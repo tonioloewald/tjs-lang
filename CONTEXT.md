@@ -68,20 +68,22 @@ The standard library (Core Atoms) provides essential primitives. All atom names 
 
 ## 3. Batteries Included (Local AI & Vectors)
 
-Agent99 includes a set of "Batteries" for local development:
+Agent99 includes a "Batteries Included" setup for local development that uses [LM Studio](https://lmstudio.ai/) for model inference and has a built-in, zero-dependency vector search. This replaces the previous reliance on `@xenova/transformers` and `@orama/orama`.
 
-- **`storeVectorize`**: Local embeddings via `@xenova/transformers` (Cost: 20).
-- **`storeSearch`**: In-memory vector search via `@orama/orama` (Cost: 5 + k).
-- **`llmPredictBattery`**: Bridge to local LM Studio (Cost: 100).
+On initial import, the `batteries` module audits the available models on the LM Studio server (`http://localhost:1234`) and caches the results for the current session to avoid redundant checks. The cache uses `localStorage` in browser environments and a temporary in-memory store elsewhere. It automatically selects appropriate models for embedding and LLM tasks.
+
+To use the batteries, register the `batteryAtoms` with the `AgentVM` and provide the `batteries` capabilities object during execution.
 
 ```typescript
-import { AgentVM, batteries, storeVectorize } from 'agent-99'
+import { AgentVM, batteries, batteryAtoms } from 'agent-99'
 
-const vm = new AgentVM({ storeVectorize })
+// Register battery-specific atoms
+const vm = new AgentVM(batteryAtoms)
 
 // Use vm.A99 to access battery atoms
 const logic = vm.A99.storeVectorize({ text: 'Hello' })
 
+// Pass the battery capabilities to the run command
 await vm.run(logic.toJSON(), args, { capabilities: batteries })
 ```
 
