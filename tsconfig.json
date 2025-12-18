@@ -15,7 +15,7 @@
     "allowJs": true,
     "declaration": true,
     "types": [
-      "bun-types", // add Bun global
+      "bun-types",
       "@types/jsdom"
     ]
   }

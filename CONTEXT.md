@@ -10,6 +10,11 @@
 
 A fluent TypeScript API that generates a portable JSON AST. It uses a `Proxy` to dynamically infer methods from the registered Atoms, providing a strongly-typed developer experience.
 
+**Usage Pattern:**
+- All logic chains **must** start with `A99.take()` to define the input schema for the agent.
+- Subsequent atom calls are chained together fluently (e.g., `.varSet(...)`, `.httpFetch(...)`). This creates an implicit `seq` (sequence) of operations.
+- The chain is terminated by calling `.toJSON()` to produce the serializable AST.
+
 You can access the builder via `A99` (for core atoms) or `vm.A99` (the recommended way to access both core and any custom atoms registered with the VM instance).
 
 ```typescript
