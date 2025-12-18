@@ -8,7 +8,7 @@ A **type-safe-by-design, cost-limited virtual machine** that enables the **safe 
 
 It's **safe eval** in the cloud.
 
-And it's **tiny**, ~8kB gzipped.
+And it's **tiny**, ![bundlejs bundle including dependencies](https://deno.bundlejs.com/badge?q=agent-99).
 
 Agent99 allows you to define complex logic chains, agents, and data pipelines—_computer programs_—using a fluent TypeScript builder. These definitions compile to a safe, JSON-serializable AST ([Abstract Syntax Tree](https://en.wikipedia.org/wiki/Abstract_syntax_tree)) that can be executed in the browser, on the server, or at the edge.
 
