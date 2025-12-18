@@ -74,6 +74,8 @@ Agent99 includes a "Batteries Included" setup for local development that provide
 
 This approach replaces the previous reliance on heavy client-side libraries like `@xenova/transformers` and `@orama/orama`. On initial import, the `batteries` module audits the available models on the LM Studio server and caches the results to avoid redundant checks.
 
+**API Change:** The battery atoms, previously exported individually, are now grouped into a single `batteryAtoms` object for streamlined registration with the `AgentVM`. The `batteries` export remains separate and contains the runtime capabilities.
+
 ## 4. Expression Syntax (JSEP)
 
 Expressions in `mathCalc`, `if`, and `while` use a safe subset of JavaScript via `jsep`.

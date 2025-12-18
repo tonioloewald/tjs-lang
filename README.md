@@ -179,6 +179,20 @@ This allows Agent99 to automatically select the correct models for different tas
 
 The `batteries` export contains the necessary capabilities. To use them, register the `batteryAtoms` with the `AgentVM` and pass the `batteries` object to the `run` method's capabilities.
 
+> **Note on Breaking Change:** Previously, battery atoms were exported individually. They are now consolidated into a single `batteryAtoms` object. This simplifies registration with the `AgentVM`.
+>
+> **Old Way:**
+> ```typescript
+> import { AgentVM, batteries, storeVectorize, storeSearch } from 'agent-99'
+> const vm = new AgentVM({ storeVectorize, storeSearch, ... })
+> ```
+>
+> **New Way:**
+> ```typescript
+> import { AgentVM, batteries, batteryAtoms } from 'agent-99'
+> const vm = new AgentVM(batteryAtoms)
+> ```
+
 ```typescript
 import { AgentVM, batteries, batteryAtoms, A99 } from 'agent-99'
 
