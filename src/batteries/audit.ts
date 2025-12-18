@@ -199,20 +199,23 @@ export async function auditModels(baseUrl: string): Promise<ModelAudit[]> {
     let statusMsg = ''
     let dimension: number | undefined = undefined
 
-    const dim = await checkEmbedding(baseUrl, model.id)
+    const isLLM = await checkLLM(baseUrl, model.id);
+    const dim = await checkEmbedding(baseUrl, model.id);
+
     if (dim) {
-      type = 'Embedding'
-      statusMsg = `OK (Dim: ${dim})`
-      dimension = dim
+      dimension = dim;
+    }
+
+    if (isLLM) {
+      type = 'LLM';
+      const structRes = await checkStructured(baseUrl, model.id);
+      structured = structRes.ok;
+      statusMsg = structured ? structRes.msg! : `Fail: ${structRes.msg}`;
+    } else if (dim) {
+      type = 'Embedding';
+      statusMsg = `OK (Dim: ${dim})`;
     } else {
-      if (await checkLLM(baseUrl, model.id)) {
-        type = 'LLM'
-        const structRes = await checkStructured(baseUrl, model.id)
-        structured = structRes.ok
-        statusMsg = structured ? structRes.msg! : `Fail: ${structRes.msg}`
-      } else {
-        statusMsg = 'LLM Fail'
-      }
+      statusMsg = 'LLM Fail';
     }
 
     results.push({

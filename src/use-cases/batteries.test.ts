@@ -10,19 +10,6 @@ import {
 } from '../atoms/batteries'
 
 // Store Mocks
-mock.module('@orama/orama', () => {
-  const db: any[] = []
-  return {
-    create: async ({ schema }: any) => ({ schema, data: db }),
-    insert: async (inst: any, doc: any) => {
-      inst.data.push(doc)
-      return 'id'
-    },
-    search: async (inst: any, _params: any) => ({
-      hits: inst.data.map((doc: any) => ({ document: doc })),
-    }),
-  }
-})
 
 // --- Test Setup ---
 

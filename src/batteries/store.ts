@@ -3,7 +3,7 @@
  * Provides Key-Value storage and lightweight in-memory Vector Search.
  */
 
-interface StoreCapability {
+export interface StoreCapability {
   get(key: string): Promise<any>
   set(key: string, val: any): Promise<void>
   createCollection(

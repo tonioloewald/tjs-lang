@@ -2,7 +2,10 @@
   "name": "agent-99",
   "version": "0.0.3",
   "main": "./dist/index.js",
-  "exports": "./dist/index.js",
+  "exports": {
+    ".": "./dist/index.js",
+    "./src": "./src/index.ts"
+  },
   "type": "module",
   "files": [
     "dist",
@@ -29,7 +32,7 @@
     "test": "bun test",
     "format": "bun eslint src --fix && bun prettier --write .",
     "lint": "eslint src",
-    "make": "bun format && bun typecheck && bun build ./src/index.ts --outdir=dist --minify --sourcemap=external --external @xenova/transformers --external @orama/orama --external jsep --external tosijs-schema && bun run show-size",
+    "make": "rm -rf dist && bun format && tsc --emitDeclarationOnly --outDir dist && bun build ./src/index.ts --outdir=dist --minify --sourcemap=external --external jsep --external tosijs-schema && bun run show-size",
     "show-size": "gzip -c dist/index.js | wc -c",
     "typecheck": "tsc --noEmit",
     "latest": "rm -rf node_modules && bun install"

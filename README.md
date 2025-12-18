@@ -8,7 +8,7 @@ A **type-safe-by-design, cost-limited virtual machine** that enables the **safe 
 
 It's **safe eval** in the cloud.
 
-And it's **tiny**, ~8kB gzipped.
+And it's **tiny**, ![bundlejs bundle including dependencies](https://deno.bundlejs.com/badge?q=agent-99).
 
 Agent99 allows you to define complex logic chains, agents, and data pipelines—_computer programs_—using a fluent TypeScript builder. These definitions compile to a safe, JSON-serializable AST ([Abstract Syntax Tree](https://en.wikipedia.org/wiki/Abstract_syntax_tree)) that can be executed in the browser, on the server, or at the edge.
 
@@ -178,6 +178,20 @@ This allows Agent99 to automatically select the correct models for different tas
 ### 3. Usage
 
 The `batteries` export contains the necessary capabilities. To use them, register the `batteryAtoms` with the `AgentVM` and pass the `batteries` object to the `run` method's capabilities.
+
+> **Note on Breaking Change:** Previously, battery atoms were exported individually. They are now consolidated into a single `batteryAtoms` object. This simplifies registration with the `AgentVM`.
+>
+> **Old Way:**
+> ```typescript
+> import { AgentVM, batteries, storeVectorize, storeSearch } from 'agent-99'
+> const vm = new AgentVM({ storeVectorize, storeSearch, ... })
+> ```
+>
+> **New Way:**
+> ```typescript
+> import { AgentVM, batteries, batteryAtoms } from 'agent-99'
+> const vm = new AgentVM(batteryAtoms)
+> ```
 
 ```typescript
 import { AgentVM, batteries, batteryAtoms, A99 } from 'agent-99'
