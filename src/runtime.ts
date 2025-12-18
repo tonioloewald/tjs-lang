@@ -412,6 +412,60 @@ export const varGet = defineAtom(
   { docs: 'Get Variable', cost: 0.1 }
 )
 
+export const varSetList = defineAtom(
+  'varSetList',
+  s.object({ keys: s.array(s.string) }),
+  undefined,
+  async ({ keys }, ctx) => {
+    for (const key of keys) {
+      ctx.state[key] = resolveValue({ $kind: 'arg', path: key }, ctx)
+    }
+  },
+  { docs: 'Set Multiple Variables from args', cost: 0.2 }
+)
+
+export const varSetMap = defineAtom(
+  'varSetMap',
+  s.object({ vars: s.record(s.any) }),
+  undefined,
+  async ({ vars }, ctx) => {
+    for (const key in vars) {
+      ctx.state[key] = resolveValue(vars[key], ctx)
+    }
+  },
+  { docs: 'Set Multiple Variables from a map', cost: 0.2 }
+)
+
+export const varGetList = defineAtom(
+  'varGetList',
+  s.object({ keys: s.array(s.string) }),
+  s.record(s.any),
+  async ({ keys }, ctx) => {
+    const result: Record<string, any> = {}
+    for (const key of keys) {
+      result[key] = resolveValue(key, ctx)
+    }
+    return result
+  },
+  { docs: 'Get Multiple Variables', cost: 0.2 }
+)
+
+export const varGetMap = defineAtom(
+  'varGetMap',
+  s.object({
+    keys: s.record(s.string),
+  }),
+  s.record(s.any),
+  async ({ keys }, ctx) => {
+    const result: Record<string, any> = {}
+    for (const [alias, path] of Object.entries(keys)) {
+      result[alias] = resolveValue(path, ctx)
+    }
+    return result
+  },
+  { docs: 'Get Multiple Variables with renaming', cost: 0.2 }
+)
+
 export const scope = defineAtom(
   'scope',
   s.object({ steps: s.array(s.any) }),
@@ -538,6 +592,24 @@ export const template = defineAtom(
     )
   },
   { docs: 'String Template', cost: 1 }
+)
+
+export const regexMatch = defineAtom(
+  'regexMatch',
+  s.object({
+    pattern: s.string,
+    value: s.any,
+  }),
+  s.boolean,
+  async ({ pattern, value }, ctx: RuntimeContext) => {
+    const resolvedValue = resolveValue(value, ctx)
+    const p = new RegExp(pattern)
+    return p.test(resolvedValue)
+  },
+  {
+    docs: 'Returns true if the value matches the regex pattern.',
+    cost: 2,
+  }
 )
 
 // 7. Object (Cost 1)
@@ -928,6 +1000,10 @@ export const coreAtoms = {
   try: tryCatch,
   varSet,
   varGet,
+  varSetList,
+  varSetMap,
+  varGetList,
+  varGetMap,
   scope,
   eq,
   neq,
@@ -943,6 +1019,7 @@ export const coreAtoms = {
   split,
   join,
   template,
+  regexMatch,
   pick,
   merge,
   keys,

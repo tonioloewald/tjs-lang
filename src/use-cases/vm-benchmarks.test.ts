@@ -2,7 +2,6 @@ import { describe, it, expect } from 'bun:test'
 import { A99 } from '../builder'
 import { AgentVM } from '../vm'
 import { s } from 'tosijs-schema'
-import { regexMatch } from '../atoms/regex'
 
 // To skip benchmarks, run with a filter that excludes them
 // bun test --except-filter=benchmark
@@ -40,11 +39,10 @@ function generateRecords(n: number) {
 benchmarks('VM Benchmarks ($run)', ({ run }) => {
   const benchmark = run ? it : it.skip
 
-  const VM = new AgentVM({ regexMatch })
+  const VM = new AgentVM()
   it('should have a basic test runner working', async () => {
     const ast = A99.take(s.object({ a: s.number, b: s.number }))
-      .varSet({ key: 'a', value: A99.args('a') })
-      .varSet({ key: 'b', value: A99.args('b') })
+      .varSetList({ keys: ['a', 'b'] })
       .mathCalc({ expr: 'a + b', vars: { a: 'a', b: 'b' } })
       .as('result')
       .return(s.object({ result: s.number }))
@@ -60,16 +58,19 @@ benchmarks('VM Benchmarks ($run)', ({ run }) => {
       const expectedPrimes = generatePrimes(n)
 
       const ast = A99.take(s.object({ n: s.number }))
-        .varSet({ key: 'n', value: A99.args('n') })
-        .varSet({ key: 'primes', value: [] })
-        .varSet({ key: 'i', value: 2 }) // Start checking from 2
+        .varSetList({ keys: ['n'] })
+        .varSetMap({
+          vars: {
+            primes: [],
+            i: 2, // Start checking from 2
+          },
+        })
         .while(
           'i <= n',
           { i: 'i', n: 'n' },
           b =>
             b
-              .varSet({ key: 'isPrime', value: true })
-              .varSet({ key: 'j', value: 2 })
+              .varSetMap({ vars: { isPrime: true, j: 2 } })
               .while(
                 'j * j <= i',
                 { j: 'j', i: 'i' },
