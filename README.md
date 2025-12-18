@@ -134,7 +134,7 @@ The standard library includes essential primitives:
 | Category         | Atoms                                 | Description                                                                                                 |
 | ---------------- | ------------------------------------- | ----------------------------------------------------------------------------------------------------------- |
 | **Flow**         | `seq`, `if`, `while`, `return`, `try` | Control flow and loops.                                                                                     |
-| **State**        | `varSet`, `varGet`, `scope`           | variable management.                                                                                        |
+| **State**        | `varSet`, `varGet`, `varSetList`, `varSetMap`, `varGetList`, `varGetMap`, `scope` | Variable management, including batch operations for setting and getting multiple variables at once. |
 | **Math**         | `mathCalc`                            | Safe expression evaluation (e.g. `"a + b"`).                                                                |
 | **Logic**        | `eq`, `gt`, `and`, `not`, ...         | Boolean logic.                                                                                              |
 | **IO**           | `httpFetch`                           | HTTP requests.                                                                                              |

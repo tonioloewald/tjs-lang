@@ -10,6 +10,8 @@
 
 A fluent TypeScript API that generates a portable JSON AST. It uses a `Proxy` to dynamically infer methods from the registered Atoms, providing a strongly-typed developer experience.
 
+It is important to understand that the builder is only for constructing the AST; it does not contain any of the actual implementation logic for the atoms. All execution is handled by the Runtime.
+
 **Usage Pattern:**
 - All logic chains **must** start with `A99.take()` to define the input schema for the agent.
 - Subsequent atom calls are chained together fluently (e.g., `.varSet(...)`, `.httpFetch(...)`). This creates an implicit `seq` (sequence) of operations.
@@ -33,7 +35,7 @@ const customLogic = vm.A99
 
 ### The Runtime (`AgentVM`)
 
-A stateless Virtual Machine that executes the AST.
+A stateless Virtual Machine that executes the AST. The runtime contains all the actual implementation logic for the atoms.
 
 - **Sandboxed:** No `eval()`. Math/Logic is parsed safely via `jsep`.
 - **Resource Limited:** Enforces `fuel` (gas) limits and execution timeouts per atom.
@@ -59,7 +61,12 @@ The standard library (Core Atoms) provides essential primitives. All atom names 
 | `while`                        | Loop while condition is true.                           | 0.1  |
 | `try`                          | Try/Catch block.                                        | 0.1  |
 | `return`                       | Return data from state.                                 | 0.1  |
-| `varSet` / `varGet`            | Set/Get variables in state scope.                       | 0.1  |
+| `varSet`                       | Set a variable in the current state scope.              | 0.1  |
+| `varGet`                       | Get a variable from the current state scope.            | 0.1  |
+| `varSetList`                   | Set multiple variables from args into state.            | 0.1  |
+| `varSetMap`                    | Set multiple variables into state from a map.           | 0.1  |
+| `varGetList`                   | Get multiple variables from state into a map.           | 0.1  |
+| `varGetMap`                    | Get and rename multiple variables from state.           | 0.1  |
 | `mathCalc`                     | Evaluate math expression (e.g. `a * b`).                | 1.0  |
 | `eq`, `gt`, `lt`, `and`, `not` | Boolean logic.                                          | 0.1  |
 | `map`, `push`, `len`           | Array operations.                                       | 1.0  |
