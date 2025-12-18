@@ -63,7 +63,7 @@ export class LocalModels {
     this._setDefaultModel(
       modelId,
       'defaultEmbedding',
-      (m) => m.type === 'Embedding',
+      (m) => m.dimension !== undefined,
       'an embedding model'
     )
   }
