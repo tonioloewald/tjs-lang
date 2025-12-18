@@ -455,15 +455,16 @@ export const varGetMap = defineAtom(
   s.object({
     keys: s.record(s.string),
   }),
-  s.record(s.any),
+  undefined,
   async ({ keys }, ctx) => {
-    const result: Record<string, any> = {}
     for (const [alias, path] of Object.entries(keys)) {
-      result[alias] = resolveValue(path, ctx)
+      ctx.state[alias] = resolveValue(path, ctx)
     }
-    return result
   },
-  { docs: 'Get Multiple Variables with renaming', cost: 0.2 }
+  {
+    docs: 'Get Multiple Variables with renaming and set them in the current scope',
+    cost: 0.2,
+  }
 )
 
 export const scope = defineAtom(
