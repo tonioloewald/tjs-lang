@@ -251,4 +251,74 @@ benchmarks('VM Benchmarks ($run)', ({ run }) => {
     },
     { timeout: 60000 }
   )
+
+  benchmark(
+    'benchmark: torture test for filter and remap (concurrent)',
+    async () => {
+      const n = 1000
+      const records = generateRecords(n)
+
+      const keysToPick = [
+        'id',
+        's0',
+        's5',
+        's10',
+        's15',
+        's20',
+        'n0',
+        'n5',
+        'n10',
+        'n15',
+        'n20',
+      ]
+
+      // Calculate expected result for one run
+      const expectedRecords = records
+        .filter(r => (r.s10 as string).includes('record-5'))
+        .map(r => {
+          const newR: Record<string, any> = {}
+          for (const key of keysToPick) {
+            newR[key] = r[key]
+          }
+          return newR
+        })
+      const expectedCount = expectedRecords.length
+
+      const ast = VM.A99.varSet({ key: 'data', value: A99.args('records') })
+        .map('data', 'item', b =>
+          b
+            .regexMatch({ pattern: 'record-5', value: 'item.s10' })
+            .as('match')
+            .if('match == true', { match: 'match' }, b =>
+              b.pick({ obj: 'item', keys: keysToPick }).as('result')
+            )
+        )
+        .as('mapped')
+        // Filter out nulls from map
+        .varSet({ key: 'filtered', value: [] })
+        .map('mapped', 'item', b =>
+          b.if('item != null', { item: 'item' }, b =>
+            b.push({ list: 'filtered', item: 'item' })
+          )
+        )
+        .return(s.object({ filtered: s.array(s.any) }))
+        .toJSON()
+
+      const promises = Array.from({ length: 10 }).map(() =>
+        new AgentVM().run(JSON.parse(JSON.stringify(ast)), { records }, { fuel: 5_000_000 })
+      )
+
+      const results = await Promise.all(promises)
+
+      for (const { result } of results) {
+        const finalResult = result.filtered
+        expect(finalResult.length).toBe(expectedCount)
+        if (finalResult.length > 0) {
+          expect(Object.keys(finalResult[0]).length).toBe(keysToPick.length)
+          expect(finalResult).toEqual(expectedRecords)
+        }
+      }
+    },
+    { timeout: 120000 }
+  )
 })
