@@ -63,10 +63,9 @@ The standard library (Core Atoms) provides essential primitives. All atom names 
 | `return`                       | Return data from state.                                 | 0.1  |
 | `varSet`                       | Set a variable in the current state scope.              | 0.1  |
 | `varGet`                       | Get a variable from the current state scope.            | 0.1  |
-| `varSetList`                   | Set multiple variables from args into state.            | 0.1  |
-| `varSetMap`                    | Set multiple variables into state from a map.           | 0.1  |
-| `varGetList`                   | Get multiple variables from state into a map.           | 0.1  |
-| `varGetMap`                    | Get and rename multiple variables from state.           | 0.1  |
+| `varsLet`                      | Initialize a set of variables in the current scope.     | 0.1  |
+| `varsImport`                   | Import variables from args into state (array or map).   | 0.2  |
+| `varsExport`                   | Export variables from state as a result (array or map). | 0.2  |
 | `mathCalc`                     | Evaluate math expression (e.g. `a * b`).                | 1.0  |
 | `eq`, `gt`, `lt`, `and`, `not` | Boolean logic.                                          | 0.1  |
 | `map`, `push`, `len`           | Array operations.                                       | 1.0  |

@@ -35,10 +35,8 @@ type BuilderMethods<M extends Record<string, Atom<any, any>>> = {
 
 // Control Flow Extensions (Custom signatures)
 interface ControlFlow<M extends Record<string, Atom<any, any>>> {
-  varSetList(keys: string[]): BuilderType<M>
-  varSetMap(vars: Record<string, any>): BuilderType<M>
-  varGetList(keys: string[]): BuilderType<M>
-  varGetMap(keys: Record<string, string>): BuilderType<M>
+  varsImport(keys: string[] | Record<string, string>): BuilderType<M>
+  varsExport(keys: string[] | Record<string, string>): BuilderType<M>
 
   if(
     condition: string,
@@ -143,20 +141,12 @@ export class TypedBuilder<M extends Record<string, Atom<any, any>>> {
 
   // --- Custom Overloads ---
 
-  varSetList(keys: string[]) {
-    return this.add(this.atoms['varSetList'].create({ keys }))
+  varsImport(keys: string[] | Record<string, string>) {
+    return this.add(this.atoms['varsImport'].create({ keys }))
   }
 
-  varSetMap(vars: Record<string, any>) {
-    return this.add(this.atoms['varSetMap'].create({ vars }))
-  }
-
-  varGetList(keys: string[]) {
-    return this.add(this.atoms['varGetList'].create({ keys }))
-  }
-
-  varGetMap(keys: Record<string, string>) {
-    return this.add(this.atoms['varGetMap'].create({ keys }))
+  varsExport(keys: string[] | Record<string, string>) {
+    return this.add(this.atoms['varsExport'].create({ keys }))
   }
 
   // --- Control Flow Helpers ---

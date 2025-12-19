@@ -412,57 +412,66 @@ export const varGet = defineAtom(
   { docs: 'Get Variable', cost: 0.1 }
 )
 
-export const varSetList = defineAtom(
-  'varSetList',
-  s.object({ keys: s.array(s.string) }),
-  undefined,
-  async ({ keys }, ctx) => {
-    for (const key of keys) {
-      ctx.state[key] = resolveValue({ $kind: 'arg', path: key }, ctx)
-    }
-  },
-  { docs: 'Set Multiple Variables from args', cost: 0.2 }
-)
-
-export const varSetMap = defineAtom(
-  'varSetMap',
-  s.object({ vars: s.record(s.any) }),
-  undefined,
-  async ({ vars }, ctx) => {
-    for (const key in vars) {
-      ctx.state[key] = resolveValue(vars[key], ctx)
-    }
-  },
-  { docs: 'Set Multiple Variables from a map', cost: 0.2 }
-)
-
-export const varGetList = defineAtom(
-  'varGetList',
-  s.object({ keys: s.array(s.string) }),
-  s.record(s.any),
-  async ({ keys }, ctx) => {
-    const result: Record<string, any> = {}
-    for (const key of keys) {
-      result[key] = resolveValue(key, ctx)
-    }
-    return result
-  },
-  { docs: 'Get Multiple Variables', cost: 0.2 }
-)
-
-export const varGetMap = defineAtom(
-  'varGetMap',
+export const varsImport = defineAtom(
+  'varsImport',
   s.object({
-    keys: s.record(s.string),
+    keys: s.union([s.array(s.string), s.record(s.string)]),
   }),
   undefined,
   async ({ keys }, ctx) => {
-    for (const [alias, path] of Object.entries(keys)) {
-      ctx.state[alias] = resolveValue(path, ctx)
+    if (Array.isArray(keys)) {
+      for (const key of keys) {
+        ctx.state[key] = resolveValue({ $kind: 'arg', path: key }, ctx)
+      }
+    } else {
+      for (const [alias, path] of Object.entries(keys)) {
+        ctx.state[alias] = resolveValue({ $kind: 'arg', path: path }, ctx)
+      }
     }
   },
   {
-    docs: 'Get Multiple Variables with renaming and set them in the current scope',
+    docs: 'Import variables from args into the current scope, with optional renaming.',
+    cost: 0.2,
+  }
+)
+
+export const varsLet = defineAtom(
+  'varsLet',
+  s.record(s.any),
+  undefined,
+  async (step, ctx) => {
+    for (const key of Object.keys(step)) {
+      if (key === 'op' || key === 'result') continue
+      ctx.state[key] = resolveValue(step[key], ctx)
+    }
+  },
+  {
+    docs: 'Initialize a set of variables in the current scope from the step object properties.',
+    cost: 0.1,
+  }
+)
+
+export const varsExport = defineAtom(
+  'varsExport',
+  s.object({
+    keys: s.union([s.array(s.string), s.record(s.string)]),
+  }),
+  s.record(s.any),
+  async ({ keys }, ctx) => {
+    const result: Record<string, any> = {}
+    if (Array.isArray(keys)) {
+      for (const key of keys) {
+        result[key] = resolveValue(key, ctx)
+      }
+    } else {
+      for (const [alias, path] of Object.entries(keys)) {
+        result[alias] = resolveValue(path, ctx)
+      }
+    }
+    return result
+  },
+  {
+    docs: 'Export variables from the current scope, with optional renaming.',
     cost: 0.2,
   }
 )
@@ -510,7 +519,7 @@ export const calc = defineAtom(
   s.object({ expr: s.string, vars: s.record(s.any).optional }),
   s.number,
   async ({ expr, vars }, ctx) => {
-    const resolved: Record<string, any> = {}
+    const resolved: Record<string, any> = { ...ctx.state }
     if (vars) {
       for (const [k, v] of Object.entries(vars))
         resolved[k] = resolveValue(v, ctx)
@@ -1001,10 +1010,9 @@ export const coreAtoms = {
   try: tryCatch,
   varSet,
   varGet,
-  varSetList,
-  varSetMap,
-  varGetList,
-  varGetMap,
+  varsImport,
+  varsLet,
+  varsExport,
   scope,
   eq,
   neq,

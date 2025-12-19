@@ -42,7 +42,7 @@ benchmarks('VM Benchmarks ($run)', ({ run }) => {
   const VM = new AgentVM()
   it('should have a basic test runner working', async () => {
     const ast = A99.take(s.object({ a: s.number, b: s.number }))
-      .varSetList(['a', 'b'])
+      .varsImport(['a', 'b'])
       .mathCalc({ expr: 'a + b', vars: { a: 'a', b: 'b' } })
       .as('result')
       .return(s.object({ result: s.number }))
@@ -58,8 +58,8 @@ benchmarks('VM Benchmarks ($run)', ({ run }) => {
       const expectedPrimes = generatePrimes(n)
 
       const ast = A99.take(s.object({ n: s.number }))
-        .varSetList(['n'])
-        .varSetMap({
+        .varsImport(['n'])
+        .varsLet({
           primes: [],
           i: 2, // Start checking from 2
         })
@@ -68,7 +68,7 @@ benchmarks('VM Benchmarks ($run)', ({ run }) => {
           { i: 'i', n: 'n' },
           b =>
             b
-              .varSetMap({ isPrime: true, j: 2 })
+              .varsLet({ isPrime: true, j: 2 })
               .while(
                 'j * j <= i',
                 { j: 'j', i: 'i' },

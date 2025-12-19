@@ -382,29 +382,32 @@ describe('Simple Examples', () => {
     expect(result.result.b_after_scope).toBe('b')
   })
 
-  it('should handle var list and map operations', async () => {
-    const listMap = A99.take(s.object({ a: s.number, b: s.number, c: s.number, d: s.number }))
-      .varSetList(['a', 'b'])
-      .varSetMap({
-        x: A99.args('c'),
-        y: A99.args('d')
+  it('should handle varsImport and varsExport operations', async () => {
+    const listMap = A99.take(
+      s.object({ a: s.number, b: s.number, c: s.number, d: s.number })
+    )
+      .varsImport(['a', 'b'])
+      .varsImport({
+        x: 'c',
+        y: 'd',
       })
-      .varGetList(['x', 'y'])
-      .varGetMap({
+      .varsExport(['x', 'y'])
+      .as('exportedDirect')
+      .varsExport({
         u: 'a',
-        v: 'b'
+        v: 'b',
       })
+      .as('exportedMapped')
       .return(
         s.object({
-          u: s.number,
-          v: s.number,
-          x: s.number,
-          y: s.number
+          exportedDirect: s.any,
+          exportedMapped: s.any,
         })
       )
 
-    const result = await VM.run(listMap.toJSON(), { a: 17, b: 0, c:  -5, d: 10 })
-    expect(result.result).toEqual({ u: 17, v: 0, x: -5, y: 10 })
+    const result = await VM.run(listMap.toJSON(), { a: 17, b: 0, c: -5, d: 10 })
+    expect(result.result.exportedDirect).toEqual({ x: -5, y: 10 })
+    expect(result.result.exportedMapped).toEqual({ u: 17, v: 0 })
   })
 })
 
