@@ -412,6 +412,70 @@ export const varGet = defineAtom(
   { docs: 'Get Variable', cost: 0.1 }
 )
 
+export const varsImport = defineAtom(
+  'varsImport',
+  s.object({
+    keys: s.union([s.array(s.string), s.record(s.string)]),
+  }),
+  undefined,
+  async ({ keys }, ctx) => {
+    if (Array.isArray(keys)) {
+      for (const key of keys) {
+        ctx.state[key] = resolveValue({ $kind: 'arg', path: key }, ctx)
+      }
+    } else {
+      for (const [alias, path] of Object.entries(keys)) {
+        ctx.state[alias] = resolveValue({ $kind: 'arg', path: path }, ctx)
+      }
+    }
+  },
+  {
+    docs: 'Import variables from args into the current scope, with optional renaming.',
+    cost: 0.2,
+  }
+)
+
+export const varsLet = defineAtom(
+  'varsLet',
+  s.record(s.any),
+  undefined,
+  async (step, ctx) => {
+    for (const key of Object.keys(step)) {
+      if (key === 'op' || key === 'result') continue
+      ctx.state[key] = resolveValue(step[key], ctx)
+    }
+  },
+  {
+    docs: 'Initialize a set of variables in the current scope from the step object properties.',
+    cost: 0.1,
+  }
+)
+
+export const varsExport = defineAtom(
+  'varsExport',
+  s.object({
+    keys: s.union([s.array(s.string), s.record(s.string)]),
+  }),
+  s.record(s.any),
+  async ({ keys }, ctx) => {
+    const result: Record<string, any> = {}
+    if (Array.isArray(keys)) {
+      for (const key of keys) {
+        result[key] = resolveValue(key, ctx)
+      }
+    } else {
+      for (const [alias, path] of Object.entries(keys)) {
+        result[alias] = resolveValue(path, ctx)
+      }
+    }
+    return result
+  },
+  {
+    docs: 'Export variables from the current scope, with optional renaming.',
+    cost: 0.2,
+  }
+)
+
 export const scope = defineAtom(
   'scope',
   s.object({ steps: s.array(s.any) }),
@@ -455,7 +519,7 @@ export const calc = defineAtom(
   s.object({ expr: s.string, vars: s.record(s.any).optional }),
   s.number,
   async ({ expr, vars }, ctx) => {
-    const resolved: Record<string, any> = {}
+    const resolved: Record<string, any> = { ...ctx.state }
     if (vars) {
       for (const [k, v] of Object.entries(vars))
         resolved[k] = resolveValue(v, ctx)
@@ -538,6 +602,24 @@ export const template = defineAtom(
     )
   },
   { docs: 'String Template', cost: 1 }
+)
+
+export const regexMatch = defineAtom(
+  'regexMatch',
+  s.object({
+    pattern: s.string,
+    value: s.any,
+  }),
+  s.boolean,
+  async ({ pattern, value }, ctx: RuntimeContext) => {
+    const resolvedValue = resolveValue(value, ctx)
+    const p = new RegExp(pattern)
+    return p.test(resolvedValue)
+  },
+  {
+    docs: 'Returns true if the value matches the regex pattern.',
+    cost: 2,
+  }
 )
 
 // 7. Object (Cost 1)
@@ -928,6 +1010,9 @@ export const coreAtoms = {
   try: tryCatch,
   varSet,
   varGet,
+  varsImport,
+  varsLet,
+  varsExport,
   scope,
   eq,
   neq,
@@ -943,6 +1028,7 @@ export const coreAtoms = {
   split,
   join,
   template,
+  regexMatch,
   pick,
   merge,
   keys,

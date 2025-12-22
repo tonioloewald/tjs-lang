@@ -35,6 +35,9 @@ type BuilderMethods<M extends Record<string, Atom<any, any>>> = {
 
 // Control Flow Extensions (Custom signatures)
 interface ControlFlow<M extends Record<string, Atom<any, any>>> {
+  varsImport(keys: string[] | Record<string, string>): BuilderType<M>
+  varsExport(keys: string[] | Record<string, string>): BuilderType<M>
+
   if(
     condition: string,
     vars: Record<string, any>,
@@ -134,6 +137,16 @@ export class TypedBuilder<M extends Record<string, Atom<any, any>>> {
       op: 'seq',
       steps: [...this.steps],
     }
+  }
+
+  // --- Custom Overloads ---
+
+  varsImport(keys: string[] | Record<string, string>) {
+    return this.add(this.atoms['varsImport'].create({ keys }))
+  }
+
+  varsExport(keys: string[] | Record<string, string>) {
+    return this.add(this.atoms['varsExport'].create({ keys }))
   }
 
   // --- Control Flow Helpers ---

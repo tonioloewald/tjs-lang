@@ -147,4 +147,20 @@ describe('Agent99 Runtime (VM)', () => {
 
     expect(vm.run(ast, {})).rejects.toThrow("Atom 'testSlow' timed out")
   })
+
+  it('should set multiple variables with varsLet', async () => {
+    const logic = A99.take()
+      .varsLet({ a: 10, b: 20, c: 'hello' })
+      .mathCalc({ expr: 'a + b' })
+      .as('calcResult')
+      .return(s.object({ calcResult: s.number, a: s.number, c: s.string }))
+
+    const ast = logic.toJSON()
+    const result = await vm.run(ast, {})
+
+    expect(result.result).toBeDefined()
+    expect(result.result.calcResult).toBe(30)
+    expect(result.result.a).toBe(10)
+    expect(result.result.c).toBe('hello')
+  })
 })
