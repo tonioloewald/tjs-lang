@@ -34,8 +34,7 @@ export interface Capabilities {
 export interface TraceEvent {
   op: string
   input: any
-  stateBefore: any
-  stateAfter: any
+  stateDiff: Record<string, any>
   result?: any
   error?: string
   fuelBefore: number
@@ -94,6 +93,29 @@ function createChildScope(ctx: RuntimeContext): RuntimeContext {
     ...ctx,
     state: Object.create(ctx.state),
   }
+}
+
+/**
+ * Computes a shallow diff between two objects, returning the changes.
+ */
+function diffObjects(
+  before: Record<string, any>,
+  after: Record<string, any>
+): Record<string, any> {
+  const diff: Record<string, any> = {}
+  const allKeys = new Set([...Object.keys(before), ...Object.keys(after)])
+
+  for (const key of allKeys) {
+    const beforeVal = before[key]
+    const afterVal = after[key]
+
+    if (afterVal !== beforeVal) {
+      // For simplicity in tracing, we'll just show the new value.
+      // A more complex diff could show { before: ..., after: ... }.
+      diff[key] = afterVal
+    }
+  }
+  return diff
 }
 
 export function resolveValue(val: any, ctx: RuntimeContext): any {
@@ -261,7 +283,7 @@ export function defineAtom<I extends Record<string, any>, O = any>(
     }
 
     // --- Tracing Start ---
-    const stateBefore = ctx.trace ? JSON.parse(JSON.stringify(ctx.state)) : null
+    const stateBefore = ctx.trace ? { ...ctx.state } : null
     const fuelBefore = ctx.fuel.current
     let result: any
     let error: string | undefined
@@ -299,13 +321,12 @@ export function defineAtom<I extends Record<string, any>, O = any>(
       throw e
     } finally {
       // --- Tracing End ---
-      if (ctx.trace) {
-        const stateAfter = JSON.parse(JSON.stringify(ctx.state))
+      if (ctx.trace && stateBefore) {
+        const stateDiff = diffObjects(stateBefore, ctx.state)
         ctx.trace.push({
           op,
           input: inputData,
-          stateBefore,
-          stateAfter,
+          stateDiff,
           result,
           error,
           fuelBefore,
