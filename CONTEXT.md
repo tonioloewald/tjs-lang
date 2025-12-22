@@ -13,6 +13,7 @@ A fluent TypeScript API that generates a portable JSON AST. It uses a `Proxy` to
 It is important to understand that the builder is only for constructing the AST; it does not contain any of the actual implementation logic for the atoms. All execution is handled by the Runtime.
 
 **Usage Pattern:**
+
 - All logic chains **must** start with `A99.take()` to define the input schema for the agent.
 - Subsequent atom calls are chained together fluently (e.g., `.varSet(...)`, `.httpFetch(...)`). This creates an implicit `seq` (sequence) of operations.
 - The chain is terminated by calling `.toJSON()` to produce the serializable AST.
@@ -50,44 +51,7 @@ const { result, fuelUsed } = await vm.run(ast, args, {
 })
 ```
 
-## 2. Core Atoms
-
-The standard library (Core Atoms) provides essential primitives. All atom names are **camelCase**.
-
-| Atom                           | Description                                             | Cost |
-| ------------------------------ | ------------------------------------------------------- | ---- |
-| `seq`                          | Execute steps sequentially.                             | 0.1  |
-| `if`                           | Conditional branching.                                  | 0.1  |
-| `while`                        | Loop while condition is true.                           | 0.1  |
-| `try`                          | Try/Catch block.                                        | 0.1  |
-| `return`                       | Return data from state.                                 | 0.1  |
-| `varSet`                       | Set a variable in the current state scope.              | 0.1  |
-| `varGet`                       | Get a variable from the current state scope.            | 0.1  |
-| `varsLet`                      | Initialize a set of variables in the current scope.     | 0.1  |
-| `varsImport`                   | Import variables from args into state (array or map).   | 0.2  |
-| `varsExport`                   | Export variables from state as a result (array or map). | 0.2  |
-| `mathCalc`                     | Evaluate math expression (e.g. `a * b`).                | 1.0  |
-| `eq`, `gt`, `lt`, `and`, `not` | Boolean logic.                                          | 0.1  |
-| `map`, `push`, `len`           | Array operations.                                       | 1.0  |
-| `split`, `join`, `template`    | String operations.                                      | 1.0  |
-| `pick`, `merge`, `keys`        | Object operations.                                      | 1.0  |
-| `httpFetch`                    | HTTP Request (Zero-config defaults to `fetch`).         | 5.0  |
-| `storeGet`, `storeSet`         | KV Store (Zero-config defaults to `Map`).               | 5.0  |
-| `llmPredict`                   | LLM Inference (Requires `llm` capability).              | 1.0  |
-| `agentRun`                     | Recursive sub-agent call (Requires `agent` capability). | 1.0  |
-| `random`, `uuid`, `hash`       | Random generation & hashing.                            | 1.0  |
-| `memoize`                      | Memoize step result in memory (key optional).           | 0.1  |
-| `cache`                        | Cache step result in Store (key optional).              | 5.0  |
-
-## 3. Batteries Included (Local AI & Vectors)
-
-Agent99 includes a "Batteries Included" setup for local development that provides zero-dependency vector search and local model inference via [LM Studio](https://lmstudio.ai/). For setup and usage details, see the [Batteries Included section in README.md](./README.md#batteries-included-zero-dependency-local-ai).
-
-This approach replaces the previous reliance on heavy client-side libraries like `@xenova/transformers` and `@orama/orama`. On initial import, the `batteries` module audits the available models on the LM Studio server and caches the results to avoid redundant checks.
-
-**API Change:** The battery atoms, previously exported individually, are now grouped into a single `batteryAtoms` object for streamlined registration with the `AgentVM`. The `batteries` export remains separate and contains the runtime capabilities.
-
-## 4. Expression Syntax (JSEP)
+## 2. Expression Syntax (JSEP)
 
 Expressions in `mathCalc`, `if`, and `while` use a safe subset of JavaScript via `jsep`.
 
@@ -97,16 +61,9 @@ For security, these expressions are sandboxed and cannot directly access the age
 - **Forbidden:** Function calls, `new`, `this`, global access (except `Math` via atoms).
 - **Security:** Prototype access (`__proto__`, `constructor`) is strictly blocked.
 
-## 5. Security Model
+## 3. Security Model
 
 - **Capabilities:** The VM has no default IO. You must provide `fetch`, `store`, etc., allowing you to mock, proxy, or limit access.
 - **Fuel:** Every atom consumes "fuel". Execution aborts if fuel reaches 0.
 - **Timeouts:** Atoms have a default timeout (1s) to prevent hangs.
 - **State Isolation:** Each run creates a fresh context. Scopes (loops/maps) use prototype inheritance to isolate local variables.
-
-## 6. Development & Validation
-
-After making changes to the codebase, it's important to run both the test suite and the type checker to ensure correctness and maintain type safety.
-
-- **Run Tests:** `bun test`
-- **Check Types:** `bun typecheck`

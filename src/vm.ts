@@ -59,7 +59,11 @@ export class AgentVM<M extends Record<string, Atom<any, any>>> {
   async run(
     ast: BaseNode,
     args: Record<string, any> = {},
-    options: { fuel?: number; capabilities?: Capabilities } = {}
+    options: {
+      fuel?: number
+      capabilities?: Capabilities
+      trace?: boolean
+    } = {}
   ): Promise<RunResult> {
     const startFuel = options.fuel ?? 1000
 
@@ -86,6 +90,10 @@ export class AgentVM<M extends Record<string, Atom<any, any>>> {
       output: undefined,
     }
 
+    if (options.trace) {
+      ctx.trace = []
+    }
+
     if (ast.op !== 'seq') throw new Error("Root AST must be 'seq'")
 
     // Boot
@@ -94,6 +102,7 @@ export class AgentVM<M extends Record<string, Atom<any, any>>> {
     return {
       result: ctx.output,
       fuelUsed: startFuel - ctx.fuel.current,
+      trace: ctx.trace,
     }
   }
 }

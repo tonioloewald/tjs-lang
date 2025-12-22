@@ -31,6 +31,18 @@ export interface Capabilities {
   [key: string]: any
 }
 
+export interface TraceEvent {
+  op: string
+  input: any
+  stateBefore: any
+  stateAfter: any
+  result?: any
+  error?: string
+  fuelBefore: number
+  fuelAfter: number
+  timestamp: string
+}
+
 export interface RuntimeContext {
   fuel: { current: number }
   args: Record<string, any>
@@ -39,6 +51,7 @@ export interface RuntimeContext {
   resolver: (op: string) => Atom<any, any> | undefined
   output?: any
   memo?: Map<string, any>
+  trace?: TraceEvent[]
 }
 
 export type AtomExec = (step: any, ctx: RuntimeContext) => Promise<void>
@@ -67,6 +80,7 @@ export interface AtomOptions {
 export interface RunResult {
   result: any
   fuelUsed: number
+  trace?: TraceEvent[]
 }
 
 // --- Helpers ---
@@ -237,39 +251,68 @@ export function defineAtom<I extends Record<string, any>, O = any>(
   } = typeof options === 'string' ? { docs: options } : options
 
   const exec: AtomExec = async (step: any, ctx: RuntimeContext) => {
-    // 1. Validation (Strip metadata before validation)
     const { op: _op, result: _res, ...inputData } = step
+
+    // 1. Validation
     if (inputSchema && !validate(inputSchema, inputData)) {
-      // In production: detailed diagnostics
       throw new Error(
         `Atom '${op}' validation failed: ${JSON.stringify(inputData)}`
       )
     }
 
-    // 2. Deduct Fuel
-    const currentCost = typeof cost === 'function' ? cost(inputData, ctx) : cost
-    if ((ctx.fuel.current -= currentCost) <= 0) throw new Error('Out of Fuel')
+    // --- Tracing Start ---
+    const stateBefore = ctx.trace ? JSON.parse(JSON.stringify(ctx.state)) : null
+    const fuelBefore = ctx.fuel.current
+    let result: any
+    let error: string | undefined
 
-    // 3. Execution with Timeout
-    let timer: any
-    const execute = async () => fn(step as I, ctx)
+    try {
+      // 2. Deduct Fuel
+      const currentCost =
+        typeof cost === 'function' ? cost(inputData, ctx) : cost
+      if ((ctx.fuel.current -= currentCost) <= 0) throw new Error('Out of Fuel')
 
-    const result =
-      timeoutMs > 0
-        ? await Promise.race([
-            execute(),
-            new Promise<never>((_, reject) => {
-              timer = setTimeout(
-                () => reject(new Error(`Atom '${op}' timed out`)),
-                timeoutMs
-              )
-            }),
-          ]).finally(() => clearTimeout(timer))
-        : await execute()
+      // 3. Execution with Timeout
+      let timer: any
+      const execute = async () => fn(step as I, ctx)
 
-    // 4. Result
-    if (step.result && result !== undefined) {
-      ctx.state[step.result] = result
+      result =
+        timeoutMs > 0
+          ? await Promise.race([
+              execute(),
+              new Promise<never>((_, reject) => {
+                timer = setTimeout(
+                  () => reject(new Error(`Atom '${op}' timed out`)),
+                  timeoutMs
+                )
+              }),
+            ]).finally(() => clearTimeout(timer))
+          : await execute()
+
+      // 4. Result
+      if (step.result && result !== undefined) {
+        ctx.state[step.result] = result
+      }
+    } catch (e: any) {
+      error = e.message || String(e)
+      // Re-throw the error to be handled by try/catch blocks in the agent logic
+      throw e
+    } finally {
+      // --- Tracing End ---
+      if (ctx.trace) {
+        const stateAfter = JSON.parse(JSON.stringify(ctx.state))
+        ctx.trace.push({
+          op,
+          input: inputData,
+          stateBefore,
+          stateAfter,
+          result,
+          error,
+          fuelBefore,
+          fuelAfter: ctx.fuel.current,
+          timestamp: new Date().toISOString(),
+        })
+      }
     }
   }
 

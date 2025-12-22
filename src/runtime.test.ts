@@ -163,4 +163,44 @@ describe('Agent99 Runtime (VM)', () => {
     expect(result.result.a).toBe(10)
     expect(result.result.c).toBe('hello')
   })
+
+  it('should generate a trace when trace mode is enabled', async () => {
+    const logic = A99.take(s.object({ val: s.number }))
+      .varSet({ key: 'x', value: 10 })
+      .mathCalc({
+        expr: 'x + val',
+        vars: {
+          val: A99.args('val'),
+        },
+      })
+      .as('res')
+
+    const ast = logic.toJSON()
+    const { result, trace /* , fuelUsed */ } = await vm.run(
+      ast,
+      { val: 5 },
+      { trace: true }
+    )
+
+    expect(result).toBeUndefined() // No return op
+    expect(trace).toBeDefined()
+    expect(trace).toHaveLength(3)
+    if (!trace) throw new Error('Trace is missing')
+
+    // The trace is in post-order traversal, so seq is last.
+    // 1. varSet
+    expect(trace[0].op).toBe('varSet')
+    expect(trace[0].input).toEqual({ key: 'x', value: 10 })
+    expect(trace[0].stateBefore).toEqual({})
+    expect(trace[0].stateAfter).toEqual({ x: 10 })
+
+    // 2. mathCalc
+    expect(trace[1].op).toBe('mathCalc')
+    expect(trace[1].stateBefore).toEqual({ x: 10 })
+    expect(trace[1].stateAfter).toEqual({ x: 10, res: 15 })
+    expect(trace[1].result).toBe(15)
+
+    // 3. seq
+    expect(trace[2].op).toBe('seq')
+  })
 })

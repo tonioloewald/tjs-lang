@@ -5,7 +5,9 @@ import { s } from 'tosijs-schema'
 
 // To skip benchmarks, run with a filter that excludes them
 // bun test --except-filter=benchmark
-const benchmarks = describe.each([{ run: process.env.RUN_BENCHMARKS !== 'false' }])
+const benchmarks = describe.each([
+  { run: process.env.RUN_BENCHMARKS !== 'false' },
+])
 
 function generatePrimes(n: number): number[] {
   const primes: number[] = []
@@ -35,7 +37,6 @@ function generateRecords(n: number) {
   return records
 }
 
-
 benchmarks('VM Benchmarks ($run)', ({ run }) => {
   const benchmark = run ? it : it.skip
 
@@ -63,28 +64,22 @@ benchmarks('VM Benchmarks ($run)', ({ run }) => {
           primes: [],
           i: 2, // Start checking from 2
         })
-        .while(
-          'i <= n',
-          { i: 'i', n: 'n' },
-          b =>
-            b
-              .varsLet({ isPrime: true, j: 2 })
-              .while(
-                'j * j <= i',
-                { j: 'j', i: 'i' },
-                b =>
-                  b
-                    .if('i % j == 0', { i: 'i', j: 'j' }, b =>
-                      b.varSet({ key: 'isPrime', value: false })
-                    )
-                    .mathCalc({ expr: 'j + 1', vars: { j: 'j' } })
-                    .as('j')
-              )
-              .if('isPrime', { isPrime: 'isPrime' }, b =>
-                b.push({ list: 'primes', item: 'i' })
-              )
-              .mathCalc({ expr: 'i + 1', vars: { i: 'i' } })
-              .as('i')
+        .while('i <= n', { i: 'i', n: 'n' }, (b) =>
+          b
+            .varsLet({ isPrime: true, j: 2 })
+            .while('j * j <= i', { j: 'j', i: 'i' }, (b) =>
+              b
+                .if('i % j == 0', { i: 'i', j: 'j' }, (b) =>
+                  b.varSet({ key: 'isPrime', value: false })
+                )
+                .mathCalc({ expr: 'j + 1', vars: { j: 'j' } })
+                .as('j')
+            )
+            .if('isPrime', { isPrime: 'isPrime' }, (b) =>
+              b.push({ list: 'primes', item: 'i' })
+            )
+            .mathCalc({ expr: 'i + 1', vars: { i: 'i' } })
+            .as('i')
         )
         .return(s.object({ primes: s.array(s.number) }))
         .toJSON()
@@ -100,16 +95,16 @@ benchmarks('VM Benchmarks ($run)', ({ run }) => {
     async () => {
       const n = 1000
       const records = generateRecords(n)
-      const expectedCount = records.filter(r =>
+      const expectedCount = records.filter((r) =>
         (r.s10 as string).includes('record-5')
       ).length
 
       const ast = VM.A99.varSet({ key: 'data', value: A99.args('records') })
-        .map('data', 'item', b =>
+        .map('data', 'item', (b) =>
           b
             .regexMatch({ pattern: 'record-5', value: 'item.s10' })
             .as('match')
-            .if('match == true', { match: 'match' }, b =>
+            .if('match == true', { match: 'match' }, (b) =>
               b
                 .pick({
                   obj: 'item',
@@ -142,19 +137,15 @@ benchmarks('VM Benchmarks ($run)', ({ run }) => {
         .as('mapped')
         // Filter out nulls from map
         .varSet({ key: 'filtered', value: [] })
-        .map('mapped', 'item', b =>
-          b.if('item != null', { item: 'item' }, b =>
+        .map('mapped', 'item', (b) =>
+          b.if('item != null', { item: 'item' }, (b) =>
             b.push({ list: 'filtered', item: 'item' })
           )
         )
         .return(s.object({ filtered: s.array(s.any) }))
         .toJSON()
 
-      const { result } = await VM.run(
-        ast,
-        { records },
-        { fuel: 5_000_000 }
-      )
+      const { result } = await VM.run(ast, { records }, { fuel: 5_000_000 })
 
       const finalResult = result.filtered
 
@@ -169,28 +160,24 @@ benchmarks('VM Benchmarks ($run)', ({ run }) => {
     async () => {
       const n = 1000
       const records = generateRecords(n)
-      const expectedCount = records.filter(r =>
+      const expectedCount = records.filter((r) =>
         (r.s10 as string).includes('record-5')
       ).length
 
       const ast = VM.A99.varSet({ key: 'data', value: A99.args('records') })
         .varSet({ key: 'filtered', value: [] })
-        .map('data', 'item', b =>
+        .map('data', 'item', (b) =>
           b
             .regexMatch({ pattern: 'record-5', value: 'item.s10' })
             .as('match')
-            .if('match == true', { match: 'match' }, b =>
+            .if('match == true', { match: 'match' }, (b) =>
               b.push({ list: 'filtered', item: 'item' })
             )
         )
         .return(s.object({ filtered: s.array(s.any) }))
         .toJSON()
 
-      const { result } = await VM.run(
-        ast,
-        { records },
-        { fuel: 5_000_000 }
-      )
+      const { result } = await VM.run(ast, { records }, { fuel: 5_000_000 })
 
       const finalResult = result.filtered
       expect(finalResult.length).toBe(expectedCount)
@@ -205,7 +192,7 @@ benchmarks('VM Benchmarks ($run)', ({ run }) => {
       const records = generateRecords(n)
 
       const ast = VM.A99.varSet({ key: 'data', value: A99.args('records') })
-        .map('data', 'item', b =>
+        .map('data', 'item', (b) =>
           b
             .pick({
               obj: 'item',
@@ -238,11 +225,7 @@ benchmarks('VM Benchmarks ($run)', ({ run }) => {
         .return(s.object({ remapped: s.array(s.any) }))
         .toJSON()
 
-      const { result } = await VM.run(
-        ast,
-        { records },
-        { fuel: 5_000_000 }
-      )
+      const { result } = await VM.run(ast, { records }, { fuel: 5_000_000 })
 
       const finalResult = result.remapped
 
@@ -274,8 +257,8 @@ benchmarks('VM Benchmarks ($run)', ({ run }) => {
 
       // Calculate expected result for one run
       const expectedRecords = records
-        .filter(r => (r.s10 as string).includes('record-5'))
-        .map(r => {
+        .filter((r) => (r.s10 as string).includes('record-5'))
+        .map((r) => {
           const newR: Record<string, any> = {}
           for (const key of keysToPick) {
             newR[key] = r[key]
@@ -285,19 +268,19 @@ benchmarks('VM Benchmarks ($run)', ({ run }) => {
       const expectedCount = expectedRecords.length
 
       const ast = VM.A99.varSet({ key: 'data', value: A99.args('records') })
-        .map('data', 'item', b =>
+        .map('data', 'item', (b) =>
           b
             .regexMatch({ pattern: 'record-5', value: 'item.s10' })
             .as('match')
-            .if('match == true', { match: 'match' }, b =>
+            .if('match == true', { match: 'match' }, (b) =>
               b.pick({ obj: 'item', keys: keysToPick }).as('result')
             )
         )
         .as('mapped')
         // Filter out nulls from map
         .varSet({ key: 'filtered', value: [] })
-        .map('mapped', 'item', b =>
-          b.if('item != null', { item: 'item' }, b =>
+        .map('mapped', 'item', (b) =>
+          b.if('item != null', { item: 'item' }, (b) =>
             b.push({ list: 'filtered', item: 'item' })
           )
         )
@@ -305,7 +288,11 @@ benchmarks('VM Benchmarks ($run)', ({ run }) => {
         .toJSON()
 
       const promises = Array.from({ length: 10 }).map(() =>
-        new AgentVM().run(JSON.parse(JSON.stringify(ast)), { records }, { fuel: 5_000_000 })
+        new AgentVM().run(
+          JSON.parse(JSON.stringify(ast)),
+          { records },
+          { fuel: 5_000_000 }
+        )
       )
 
       const results = await Promise.all(promises)

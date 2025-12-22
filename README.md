@@ -12,6 +12,8 @@ And it's **tiny**, ![bundlejs bundle including dependencies](https://deno.bundle
 
 Agent99 allows you to define complex logic chains, agents, and data pipelines—_computer programs_—using a fluent TypeScript builder. These definitions compile to a safe, JSON-serializable AST ([Abstract Syntax Tree](https://en.wikipedia.org/wiki/Abstract_syntax_tree)) that can be executed in the browser, on the server, or at the edge.
 
+For a deeper dive into the architecture and security model, see the [Technical Context](./CONTEXT.md).
+
 ### Why do you care?
 
 - **Service-as-a-Service:** Define a complete backend service—including database fetches, API calls, and logic—entirely as data, and execute it safely on a server.
@@ -127,21 +129,51 @@ console.log(result.result) // { total: 120 }
 console.log(result.fuelUsed) // Gas consumed
 ```
 
+## Tracing and Debugging
+
+For debugging and testing, you can enable trace mode to get a detailed log of the agent's execution path.
+
+```typescript
+const { result, trace } = await vm.run(
+  ast,
+  { price: 100, taxRate: 0.2 },
+  { trace: true } // Enable trace mode
+)
+
+console.log(trace)
+```
+
+The `trace` output is an array of `TraceEvent` objects, where each event records the state of the agent before and after an atom's execution, along with the inputs, outputs, and fuel consumption.
+
+```typescript
+interface TraceEvent {
+  op: string
+  input: any
+  stateBefore: any
+  stateAfter: any
+  result?: any
+  error?: string
+  fuelBefore: number
+  fuelAfter: number
+  timestamp: string
+}
+```
+
 ## Core Atoms
 
 The standard library includes essential primitives:
 
-| Category         | Atoms                                 | Description                                                                                                 |
-| ---------------- | ------------------------------------- | ----------------------------------------------------------------------------------------------------------- |
-| **Flow**         | `seq`, `if`, `while`, `return`, `try` | Control flow and loops.                                                                                     |
+| Category         | Atoms                                                              | Description                                                                                                           |
+| ---------------- | ------------------------------------------------------------------ | --------------------------------------------------------------------------------------------------------------------- |
+| **Flow**         | `seq`, `if`, `while`, `return`, `try`                              | Control flow and loops.                                                                                               |
 | **State**        | `varSet`, `varGet`, `varsLet`, `varsImport`, `varsExport`, `scope` | Variable management, including batch operations for importing variables from arguments and exporting them as results. |
-| **Math**         | `mathCalc`                            | Safe expression evaluation (e.g. `"a + b"`).                                                                |
-| **Logic**        | `eq`, `gt`, `and`, `not`, ...         | Boolean logic.                                                                                              |
-| **IO**           | `httpFetch`                           | HTTP requests.                                                                                              |
-| **Store**        | `storeGet`, `storeSet`                | Key-Value storage.                                                                                          |
-| **AI**           | `llmPredict`, `agentRun`              | LLM calls and sub-agent recursion.                                                                          |
-| **Utils**        | `random`, `uuid`, `hash`              | Random generation, UUIDs, and hashing.                                                                      |
-| **Optimization** | `memoize`, `cache`                    | In-memory memoization and persistent caching. Keys are optional and will be auto-generated if not provided. |
+| **Math**         | `mathCalc`                                                         | Safe expression evaluation (e.g. `"a + b"`).                                                                          |
+| **Logic**        | `eq`, `gt`, `and`, `not`, ...                                      | Boolean logic.                                                                                                        |
+| **IO**           | `httpFetch`                                                        | HTTP requests.                                                                                                        |
+| **Store**        | `storeGet`, `storeSet`                                             | Key-Value storage.                                                                                                    |
+| **AI**           | `llmPredict`, `agentRun`                                           | LLM calls and sub-agent recursion.                                                                                    |
+| **Utils**        | `random`, `uuid`, `hash`                                           | Random generation, UUIDs, and hashing.                                                                                |
+| **Optimization** | `memoize`, `cache`                                                 | In-memory memoization and persistent caching. Keys are optional and will be auto-generated if not provided.           |
 
 ## Capabilities & Security
 
@@ -182,12 +214,14 @@ The `batteries` export contains the necessary capabilities. To use them, registe
 > **Note on Breaking Change:** Previously, battery atoms were exported individually. They are now consolidated into a single `batteryAtoms` object. This simplifies registration with the `AgentVM`.
 >
 > **Old Way:**
+>
 > ```typescript
 > import { AgentVM, batteries, storeVectorize, storeSearch } from 'agent-99'
 > const vm = new AgentVM({ storeVectorize, storeSearch, ... })
 > ```
 >
 > **New Way:**
+>
 > ```typescript
 > import { AgentVM, batteries, batteryAtoms } from 'agent-99'
 > const vm = new AgentVM(batteryAtoms)
