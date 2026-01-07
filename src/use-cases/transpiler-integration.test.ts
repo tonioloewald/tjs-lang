@@ -621,4 +621,76 @@ describe('Transpiler Integration', () => {
       expect(result.result.doubled).toEqual([2, 4, 6])
     })
   })
+
+  describe('Optional chaining', () => {
+    it('should return undefined for null object with ?.', async () => {
+      const ast = js(`
+        function test({ user }) {
+          let name = user?.name
+          return { name }
+        }
+      `)
+
+      const vm = new AgentVM()
+      const result = await vm.run(ast, { user: null })
+
+      expect(result.result.name).toBeUndefined()
+    })
+
+    it('should return property value for non-null object with ?.', async () => {
+      const ast = js(`
+        function test({ user }) {
+          let name = user?.name
+          return { name }
+        }
+      `)
+
+      const vm = new AgentVM()
+      const result = await vm.run(ast, { user: { name: 'Alice' } })
+
+      expect(result.result.name).toBe('Alice')
+    })
+
+    it('should handle nested optional chaining', async () => {
+      const ast = js(`
+        function test({ user }) {
+          let city = user?.address?.city
+          return { city }
+        }
+      `)
+
+      const vm = new AgentVM()
+
+      // Full path exists
+      const result1 = await vm.run(ast, {
+        user: { address: { city: 'NYC' } },
+      })
+      expect(result1.result.city).toBe('NYC')
+
+      // Intermediate is null
+      const result2 = await vm.run(ast, { user: { address: null } })
+      expect(result2.result.city).toBeUndefined()
+
+      // Root is null
+      const result3 = await vm.run(ast, { user: null })
+      expect(result3.result.city).toBeUndefined()
+    })
+
+    it('should handle optional method calls', async () => {
+      const ast = js(`
+        function test({ str }) {
+          let upper = str?.toUpperCase()
+          return { upper }
+        }
+      `)
+
+      const vm = new AgentVM()
+
+      const result1 = await vm.run(ast, { str: 'hello' })
+      expect(result1.result.upper).toBe('HELLO')
+
+      const result2 = await vm.run(ast, { str: null })
+      expect(result2.result.upper).toBeUndefined()
+    })
+  })
 })

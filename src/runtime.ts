@@ -195,7 +195,13 @@ export function resolveValue(val: any, ctx: RuntimeContext): any {
 export type ExprNode =
   | { $expr: 'literal'; value: any }
   | { $expr: 'ident'; name: string }
-  | { $expr: 'member'; object: ExprNode; property: string; computed?: boolean }
+  | {
+      $expr: 'member'
+      object: ExprNode
+      property: string
+      computed?: boolean
+      optional?: boolean
+    }
   | { $expr: 'binary'; op: string; left: ExprNode; right: ExprNode }
   | { $expr: 'unary'; op: string; argument: ExprNode }
   | { $expr: 'logical'; op: '&&' | '||'; left: ExprNode; right: ExprNode }
@@ -213,6 +219,7 @@ export type ExprNode =
       object: ExprNode
       method: string
       arguments: ExprNode[]
+      optional?: boolean
     }
 
 // --- Built-in Objects (Proxy-based) ---
@@ -488,6 +495,12 @@ export function evaluateExpr(node: ExprNode, ctx: RuntimeContext): any {
 
     case 'member': {
       const obj = evaluateExpr(node.object, ctx)
+
+      // Short-circuit for optional chaining
+      if (node.optional && (obj === null || obj === undefined)) {
+        return undefined
+      }
+
       const prop = node.property
 
       // Security: Block prototype access
@@ -612,6 +625,12 @@ export function evaluateExpr(node: ExprNode, ctx: RuntimeContext): any {
     case 'methodCall': {
       // Method call on an object (e.g., Math.floor(x), arr.length, str.toUpperCase())
       const obj = evaluateExpr(node.object, ctx)
+
+      // Short-circuit for optional chaining
+      if (node.optional && (obj === null || obj === undefined)) {
+        return undefined
+      }
+
       const method = node.method
 
       // Security: Block prototype access

@@ -448,4 +448,62 @@ describe('Transpiler', () => {
       expect(ast.steps[1].initial).toBe(0)
     })
   })
+
+  describe('Optional chaining', () => {
+    it('should transform obj?.prop to member with optional flag', () => {
+      const { ast } = transpile(`
+        function test({ user }) {
+          let name = user?.name
+          return { name }
+        }
+      `)
+      // steps[0] is varsImport, steps[1] is varSet
+      expect(ast.steps[1].op).toBe('varSet')
+      expect(ast.steps[1].value.$expr).toBe('member')
+      expect(ast.steps[1].value.optional).toBe(true)
+      expect(ast.steps[1].value.property).toBe('name')
+    })
+
+    it('should transform obj?.nested?.prop to nested optional members', () => {
+      const { ast } = transpile(`
+        function test({ user }) {
+          let city = user?.address?.city
+          return { city }
+        }
+      `)
+      expect(ast.steps[1].op).toBe('varSet')
+      const outer = ast.steps[1].value
+      expect(outer.$expr).toBe('member')
+      expect(outer.optional).toBe(true)
+      expect(outer.property).toBe('city')
+      // Inner member access
+      expect(outer.object.$expr).toBe('member')
+      expect(outer.object.optional).toBe(true)
+      expect(outer.object.property).toBe('address')
+    })
+
+    it('should transform obj?.method() to methodCall with optional flag', () => {
+      const { ast } = transpile(`
+        function test({ str }) {
+          let upper = str?.toUpperCase()
+          return { upper }
+        }
+      `)
+      expect(ast.steps[1].op).toBe('varSet')
+      expect(ast.steps[1].value.$expr).toBe('methodCall')
+      expect(ast.steps[1].value.optional).toBe(true)
+      expect(ast.steps[1].value.method).toBe('toUpperCase')
+    })
+
+    it('should use string path optimization for regular member access', () => {
+      const { ast } = transpile(`
+        function test({ user }) {
+          let name = user.name
+          return { name }
+        }
+      `)
+      // Regular member access uses string path optimization, not ExprNode
+      expect(ast.steps[1].value).toBe('user.name')
+    })
+  })
 })

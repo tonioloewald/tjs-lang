@@ -821,6 +821,20 @@ function transformExpressionToStep(
   isConst?: boolean
 ): { step: BaseNode | null; resultVar: any } {
   const varOp = isConst ? 'constSet' : 'varSet'
+
+  // Unwrap ChainExpression (optional chaining wrapper)
+  if (expr.type === 'ChainExpression') {
+    const chain = expr as any
+    // The inner expression has optional: true on the relevant nodes
+    // Just recurse with the unwrapped expression
+    return transformExpressionToStep(
+      chain.expression as Expression,
+      ctx,
+      resultVar,
+      isConst
+    )
+  }
+
   // Check for unsupported builtins first and give helpful error
   if (expr.type === 'CallExpression') {
     const unsupportedError = getUnsupportedBuiltinError(expr as CallExpression)
@@ -1305,6 +1319,7 @@ function expressionToExprNode(
     case 'MemberExpression': {
       const mem = expr as MemberExpression
       const obj = expressionToExprNode(mem.object as Expression, ctx)
+      const isOptional = (mem as any).optional === true
 
       if (mem.computed) {
         // arr[0] or obj[key] - computed access
@@ -1316,6 +1331,7 @@ function expressionToExprNode(
             object: obj,
             property: String((prop as Literal).value),
             computed: true,
+            ...(isOptional && { optional: true }),
           }
         }
         // For computed with variable, we'd need more complex handling
@@ -1332,7 +1348,15 @@ function expressionToExprNode(
         $expr: 'member',
         object: obj,
         property: propName,
+        ...(isOptional && { optional: true }),
       }
+    }
+
+    case 'ChainExpression': {
+      // ChainExpression wraps optional chaining (?.)
+      // Just unwrap to the inner expression which will have optional: true
+      const chain = expr as any
+      return expressionToExprNode(chain.expression as Expression, ctx)
     }
 
     case 'BinaryExpression': {
@@ -1415,6 +1439,10 @@ function expressionToExprNode(
             ? (member.property as Identifier).name
             : String((member.property as Literal).value)
 
+        // Check for optional chaining: obj?.method() or obj.method?.()
+        const isOptional =
+          (member as any).optional === true || (call as any).optional === true
+
         return {
           $expr: 'methodCall',
           object: expressionToExprNode(member.object as Expression, ctx),
@@ -1422,6 +1450,7 @@ function expressionToExprNode(
           arguments: call.arguments.map((arg) =>
             expressionToExprNode(arg as Expression, ctx)
           ),
+          ...(isOptional && { optional: true }),
         }
       }
 
@@ -1478,7 +1507,28 @@ function expressionToValue(expr: Expression, ctx: TransformContext): any {
 
     case 'MemberExpression': {
       const mem = expr as MemberExpression
+      const isOptional = (mem as any).optional === true
+
+      // If optional chaining, we need an ExprNode for proper runtime handling
+      if (isOptional) {
+        return expressionToExprNode(expr, ctx)
+      }
+
       const objValue = expressionToValue(mem.object as Expression, ctx)
+
+      // If the object resolved to an ExprNode (e.g., from nested optional chaining),
+      // we need to build an ExprNode for this access too
+      if (objValue && typeof objValue === 'object' && objValue.$expr) {
+        const prop = mem.computed
+          ? String((mem.property as Literal).value)
+          : (mem.property as Identifier).name
+        return {
+          $expr: 'member',
+          object: objValue,
+          property: prop,
+          ...(mem.computed && { computed: true }),
+        }
+      }
 
       if (mem.computed) {
         // arr[0] - would need runtime evaluation
@@ -1501,6 +1551,12 @@ function expressionToValue(expr: Expression, ctx: TransformContext): any {
       }
 
       return `${objValue}.${prop}`
+    }
+
+    case 'ChainExpression': {
+      // Unwrap ChainExpression and process the inner expression
+      const chain = expr as any
+      return expressionToValue(chain.expression as Expression, ctx)
     }
 
     case 'ArrayExpression':
