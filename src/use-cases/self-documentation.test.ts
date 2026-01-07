@@ -18,20 +18,20 @@ describe('Use Case: Self-Documentation', () => {
     expect(firstTool.function).toHaveProperty('description')
     expect(firstTool.function).toHaveProperty('parameters')
 
-    // 2. Verify specific atom (e.g. mathCalc)
-    const calcTool = tools.find((t) => t.function.name === 'mathCalc')
-    expect(calcTool).toBeDefined()
-    expect(calcTool?.function.description).toBe('Math Calc')
-    expect(calcTool?.function.parameters).toEqual({
+    // 2. Verify specific atom (e.g. template)
+    const templateTool = tools.find((t) => t.function.name === 'template')
+    expect(templateTool).toBeDefined()
+    expect(templateTool?.function.description).toBe('String Template')
+    expect(templateTool?.function.parameters).toEqual({
       type: 'object',
       properties: {
-        expr: { type: 'string' },
+        tmpl: { type: 'string' },
         vars: {
-          type: ['object', 'null'],
+          type: 'object',
           additionalProperties: {},
         },
       },
-      required: ['expr'],
+      required: ['tmpl', 'vars'],
       additionalProperties: false,
     })
 
@@ -69,13 +69,13 @@ describe('Use Case: Self-Documentation', () => {
     const flowOps = flowTools.map((t) => t.function.name)
     expect(flowOps).toContain('seq')
     expect(flowOps).toContain('if')
-    expect(flowOps).not.toContain('mathCalc')
+    expect(flowOps).not.toContain('template')
 
     // 2. Explicit List Filter
-    const specificTools = vm.getTools(['mathCalc', 'httpFetch'])
+    const specificTools = vm.getTools(['template', 'httpFetch'])
     const specificOps = specificTools.map((t) => t.function.name)
     expect(specificOps).toHaveLength(2)
-    expect(specificOps).toContain('mathCalc')
+    expect(specificOps).toContain('template')
     expect(specificOps).toContain('httpFetch')
     expect(specificOps).not.toContain('seq')
   })

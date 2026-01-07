@@ -32,14 +32,13 @@
     "test": "bun test",
     "format": "bun eslint src --fix && bun prettier --write .",
     "lint": "eslint src",
-    "make": "rm -rf dist && bun format && tsc --emitDeclarationOnly --outDir dist && bun build ./src/index.ts --outdir=dist --minify --sourcemap=external --external jsep --external tosijs-schema && bun run show-size",
+    "make": "rm -rf dist && bun format && tsc -p tsconfig.build.json && bun build ./src/index.ts --outdir=dist --minify --sourcemap=external --external acorn --external tosijs-schema && bun run show-size",
     "show-size": "gzip -c dist/index.js | wc -c",
     "typecheck": "tsc --noEmit",
     "latest": "rm -rf node_modules && bun install"
   },
   "dependencies": {
     "acorn": "^8.15.0",
-    "jsep": "^1.4.0",
     "tosijs-schema": "1.0.1"
   }
 }

@@ -13,8 +13,8 @@ test('Inference Checks', () => {
   const builder1 = A99.take()
 
   // Should have core atoms
-  const n1 = builder1.mathCalc({ expr: '1 + 1' })
-  const n2 = builder1.mathCalc({ expr: 1 })
+  const n1 = builder1.varSet({ key: 'x', value: 1 })
+  const n2 = builder1.template({ tmpl: 'hello', vars: {} })
   const n3 = builder1.customOp({ input: 'test' })
 
   // --- A99.custom ---
@@ -32,18 +32,18 @@ test('Inference Checks', () => {
   const n4 = builder2.customOp({ input: 'test' })
   const n5 = builder2.customOp({ input: 1 })
   // Should NOT have core atoms
-  const n6 = builder2.mathCalc({ expr: '1 + 1' })
+  const n6 = builder2.varSet({ key: 'x', value: 1 })
 
   // --- vm.A99 ---
   const vm = new AgentVM({ customOp: customAtom })
   const builder3 = vm.A99
 
   // Should have core atoms
-  const n7 = builder3.mathCalc({ expr: '1 + 1' })
+  const n7 = builder3.varSet({ key: 'x', value: 1 })
   // Should have custom atom
   const n8 = builder3.customOp({ input: 'test' })
 
-  const n9 = builder3.mathCalc({ expr: 1 })
+  const n9 = builder3.template({ tmpl: 'hello', vars: {} })
   const n10 = builder3.customOp({ input: 1 })
   // @ts-expect-error unknown atom
   const n11 = builder3.unknownOp()

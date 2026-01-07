@@ -14,6 +14,46 @@ import { defineAtom, resolveValue } from '../runtime'
 import { s } from 'tosijs-schema'
 
 /**
+ * Retry a test function up to maxAttempts times.
+ * Passes if it succeeds at least minSuccesses times out of maxAttempts.
+ * This accounts for LLM variability in code generation.
+ */
+async function withRetry<T>(
+  fn: () => Promise<T>,
+  {
+    maxAttempts = 3,
+    minSuccesses = 1,
+  }: { maxAttempts?: number; minSuccesses?: number } = {}
+): Promise<T> {
+  let successes = 0
+  let lastError: Error | undefined
+  let lastResult: T | undefined
+
+  for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+    try {
+      lastResult = await fn()
+      successes++
+      if (successes >= minSuccesses) {
+        return lastResult
+      }
+    } catch (e) {
+      lastError = e as Error
+      console.log(
+        `Attempt ${attempt}/${maxAttempts} failed: ${lastError.message}`
+      )
+    }
+  }
+
+  if (successes >= minSuccesses) {
+    return lastResult!
+  }
+
+  throw new Error(
+    `Test failed: only ${successes}/${maxAttempts} attempts succeeded (needed ${minSuccesses}). Last error: ${lastError?.message}`
+  )
+}
+
+/**
  * Strip markdown code fences from LLM output
  */
 function stripCodeFences(code: string): string {
@@ -31,13 +71,14 @@ AsyncJS is a JavaScript subset for AI agents. Key differences:
 
 1. **Types through values**: Use \`param: 'string'\` for required string, \`param = 10\` for optional with default
 2. **Implicit async**: All atom calls are automatically awaited
-3. **Available atoms**: mathCalc (for math), template (for string formatting), varSet, if, while, return
+3. **Native arithmetic**: Use normal JavaScript operators (+, -, *, /, %)
+4. **Built-in atoms**: template (for string formatting), if, while, return
 
 ## Example: Adding two numbers
 
 \`\`\`javascript
 function add(a: 0, b: 0) {
-  let sum = mathCalc({ expr: 'a + b', vars: { a, b } })
+  let sum = a + b
   return { sum }
 }
 \`\`\`
@@ -49,8 +90,8 @@ function factorial(n: 0) {
   let result = 1
   let i = n
   while (i > 1) {
-    result = mathCalc({ expr: 'result * i', vars: { result, i } })
-    i = mathCalc({ expr: 'i - 1', vars: { i } })
+    result = result * i
+    i = i - 1
   }
   return { result }
 }
@@ -58,8 +99,8 @@ function factorial(n: 0) {
 
 ## Rules
 - Use \`let\` for variables, not \`const\` or \`var\`
-- Use \`mathCalc({ expr: '...', vars: {...} })\` for ALL arithmetic operations
-- The while condition is a simple comparison like \`i > 0\`, NOT a mathCalc call
+- Arithmetic works directly: \`let x = a + b\`, \`let y = x * 2\`
+- Conditions work naturally: \`if (x > 5)\`, \`while (i > 0)\`
 - Return an object with named properties
 - Parameter types: \`name: 'string'\` (required string), \`count: 0\` (required number), \`flag: true\` (required boolean)
 - Optional params: \`limit = 10\` (optional number with default)
@@ -67,50 +108,53 @@ function factorial(n: 0) {
 
 describe('LLM AsyncJS Code Generation', () => {
   it('should generate valid AsyncJS that computes factorial', async () => {
-    const localModels = new LocalModels()
-    await localModels.audit()
-    const { predict } = getLLMCapability(localModels)
+    await withRetry(async () => {
+      const localModels = new LocalModels()
+      await localModels.audit()
+      const { predict } = getLLMCapability(localModels)
 
-    const prompt = `${ASYNCJS_GUIDE}
+      const prompt = `${ASYNCJS_GUIDE}
 
 Write an AsyncJS function called "factorial" that takes a required number parameter "n" and returns an object with property "result" containing the factorial.
 
-Follow the factorial example exactly. Use a while loop with a simple condition like \`i > 1\`, and use mathCalc for the multiplication and decrement inside the loop.
+Follow the factorial example exactly. Use a while loop with a simple condition like \`i > 1\`, and use native arithmetic for multiplication and decrement inside the loop.
 
 The factorial of 5 is 120.
 
 Respond with ONLY the function code, no markdown fences or explanation.`
 
-    const response = await predict(
-      'You are a code generator. Output only valid AsyncJS code.',
-      prompt
-    )
+      const response = await predict(
+        'You are a code generator. Output only valid AsyncJS code.',
+        prompt
+      )
 
-    const code = stripCodeFences(response.content)
-    console.log('LLM generated code:')
-    console.log(code)
+      const code = stripCodeFences(response.content)
+      console.log('LLM generated code:')
+      console.log(code)
 
-    // Transpile the generated code
-    const ast = js(code)
+      // Transpile the generated code
+      const ast = js(code)
 
-    expect(ast).toBeDefined()
-    expect(ast.op).toBe('seq')
+      expect(ast).toBeDefined()
+      expect(ast.op).toBe('seq')
 
-    // Execute it
-    const vm = new AgentVM()
-    const execResult = await vm.run(ast, { n: 5 })
+      // Execute it
+      const vm = new AgentVM()
+      const execResult = await vm.run(ast, { n: 5 })
 
-    console.log('Execution result:', execResult)
-    // vm.run returns { result, fuelUsed, trace } - the actual return value is in result
-    expect(execResult.result.result).toBe(120)
-  }, 30000)
+      console.log('Execution result:', execResult)
+      // vm.run returns { result, fuelUsed, trace } - the actual return value is in result
+      expect(execResult.result.result).toBe(120)
+    })
+  }, 90000) // Extended timeout for retries
 
   it('should generate valid AsyncJS for string greeting', async () => {
-    const localModels = new LocalModels()
-    await localModels.audit()
-    const { predict } = getLLMCapability(localModels)
+    await withRetry(async () => {
+      const localModels = new LocalModels()
+      await localModels.audit()
+      const { predict } = getLLMCapability(localModels)
 
-    const prompt = `${ASYNCJS_GUIDE}
+      const prompt = `${ASYNCJS_GUIDE}
 
 Write an AsyncJS function called "greet" that:
 - Takes a required string parameter "name"  
@@ -124,55 +168,57 @@ Just write plain AsyncJS without TypeScript syntax.
 
 Respond with ONLY the function code, no markdown fences or explanation.`
 
-    const response = await predict(
-      'You are a code generator. Output only valid AsyncJS code.',
-      prompt
-    )
+      const response = await predict(
+        'You are a code generator. Output only valid AsyncJS code.',
+        prompt
+      )
 
-    const code = stripCodeFences(response.content)
-    console.log('LLM generated code:')
-    console.log(code)
+      const code = stripCodeFences(response.content)
+      console.log('LLM generated code:')
+      console.log(code)
 
-    const ast = js(code)
-    expect(ast.op).toBe('seq')
+      const ast = js(code)
+      expect(ast.op).toBe('seq')
 
-    const vm = new AgentVM()
+      const vm = new AgentVM()
 
-    // Test with default greeting - vm.run returns { result, fuelUsed, trace }
-    const execResult1 = await vm.run(ast, { name: 'World' })
-    console.log('Result with default:', execResult1)
-    expect(execResult1.result.message).toContain('World')
+      // Test with default greeting - vm.run returns { result, fuelUsed, trace }
+      const execResult1 = await vm.run(ast, { name: 'World' })
+      console.log('Result with default:', execResult1)
+      expect(execResult1.result.message).toContain('World')
 
-    // Test with custom greeting
-    const execResult2 = await vm.run(ast, { name: 'Alice', greeting: 'Hi' })
-    console.log('Result with custom:', execResult2)
-    expect(execResult2.result.message).toContain('Alice')
-  }, 30000)
+      // Test with custom greeting
+      const execResult2 = await vm.run(ast, { name: 'Alice', greeting: 'Hi' })
+      console.log('Result with custom:', execResult2)
+      expect(execResult2.result.message).toContain('Alice')
+    })
+  }, 90000)
 
   it('should generate code using tool definitions', async () => {
-    const localModels = new LocalModels()
-    await localModels.audit()
-    const { predict } = getLLMCapability(localModels)
+    await withRetry(async () => {
+      const localModels = new LocalModels()
+      await localModels.audit()
+      const { predict } = getLLMCapability(localModels)
 
-    // First, create a sample function and get its tool definition
-    const { signature } = transpile(`
-      /**
-       * Calculate the area of a rectangle
-       * @param width - The width of the rectangle
-       * @param height - The height of the rectangle
-       */
-      function calculateArea(width: 0, height: 0) {
-        let area = mathCalc({ expr: 'width * height', vars: { width, height } })
-        return { area }
-      }
-    `)
+      // First, create a sample function and get its tool definition
+      const { signature } = transpile(`
+        /**
+         * Calculate the area of a rectangle
+         * @param width - The width of the rectangle
+         * @param height - The height of the rectangle
+         */
+        function calculateArea(width: 0, height: 0) {
+          let area = width * height
+          return { area }
+        }
+      `)
 
-    // getToolDefinitions expects Record<string, { signature }>
-    const tools = getToolDefinitions({ calculateArea: { signature } })
-    console.log('Tool definition:', JSON.stringify(tools, null, 2))
+      // getToolDefinitions expects Record<string, { signature }>
+      const tools = getToolDefinitions({ calculateArea: { signature } })
+      console.log('Tool definition:', JSON.stringify(tools, null, 2))
 
-    // Now ask LLM to write a function that uses similar patterns
-    const prompt = `${ASYNCJS_GUIDE}
+      // Now ask LLM to write a function that uses similar patterns
+      const prompt = `${ASYNCJS_GUIDE}
 
 Here's an example tool definition:
 ${JSON.stringify(tools[0], null, 2)}
@@ -181,32 +227,34 @@ Write a similar AsyncJS function called "calculateVolume" that:
 - Takes required number parameters: width, height, depth
 - Returns an object with property "volume" (width * height * depth)
 
-Use mathCalc for the calculation. Respond with ONLY the function code.`
+Use native arithmetic for the calculation. Respond with ONLY the function code.`
 
-    const response = await predict(
-      'You are a code generator. Output only valid AsyncJS code.',
-      prompt
-    )
+      const response = await predict(
+        'You are a code generator. Output only valid AsyncJS code.',
+        prompt
+      )
 
-    const code = stripCodeFences(response.content)
-    console.log('LLM generated code:')
-    console.log(code)
+      const code = stripCodeFences(response.content)
+      console.log('LLM generated code:')
+      console.log(code)
 
-    const ast = js(code)
-    const vm = new AgentVM()
-    const execResult = await vm.run(ast, { width: 2, height: 3, depth: 4 })
+      const ast = js(code)
+      const vm = new AgentVM()
+      const execResult = await vm.run(ast, { width: 2, height: 3, depth: 4 })
 
-    console.log('Volume result:', execResult)
-    // vm.run returns { result, fuelUsed, trace }
-    expect(execResult.result.volume).toBe(24)
-  }, 30000)
+      console.log('Volume result:', execResult)
+      // vm.run returns { result, fuelUsed, trace }
+      expect(execResult.result.volume).toBe(24)
+    })
+  }, 90000)
 })
 
 describe('LLM Agent Tool Use', () => {
   it('should write and execute code to solve a problem using provided tools', async () => {
-    const localModels = new LocalModels()
-    await localModels.audit()
-    const { predict } = getLLMCapability(localModels)
+    await withRetry(async () => {
+      const localModels = new LocalModels()
+      await localModels.audit()
+      const { predict } = getLLMCapability(localModels)
 
     // Define custom atoms that the LLM can use as "tools"
     // Note: atoms must call resolveValue on their parameters to handle state references
@@ -257,9 +305,8 @@ describe('LLM Agent Tool Use', () => {
    Convert temperature from Fahrenheit to Celsius.
    Example: let celsius = convertTemp({ fahrenheit: 72 })
 
-3. **mathCalc({ expr: string, vars: object })** -> number
-   Evaluate a math expression.
-   Example: let diff = mathCalc({ expr: 'a - b', vars: { a: 10, b: 5 } })
+Note: Use native arithmetic for math operations.
+Example: let diff = a - b
 `
 
     const prompt = `${ASYNCJS_GUIDE}
@@ -296,16 +343,18 @@ Respond with ONLY the function code, no explanation.`
 
     console.log('Weather report result:', execResult)
 
-    // Verify the result
-    expect(execResult.result.city).toBe('Tokyo')
-    expect(execResult.result.tempC).toBe(27) // 80°F = 27°C
-    expect(execResult.result.condition).toBe('humid')
-  }, 45000)
+      // Verify the result
+      expect(execResult.result.city).toBe('Tokyo')
+      expect(execResult.result.tempC).toBe(27) // 80°F = 27°C
+      expect(execResult.result.condition).toBe('humid')
+    })
+  }, 120000)
 
   it('should solve a multi-step problem with conditionals', async () => {
-    const localModels = new LocalModels()
-    await localModels.audit()
-    const { predict } = getLLMCapability(localModels)
+    await withRetry(async () => {
+      const localModels = new LocalModels()
+      await localModels.audit()
+      const { predict } = getLLMCapability(localModels)
 
     // Define a simple inventory lookup tool
     const getInventory = defineAtom(
@@ -340,13 +389,8 @@ Respond with ONLY the function code, no explanation.`
    Check inventory for an item.
    Example: let inv = getInventory({ item: 'apple' })
 
-2. **mathCalc({ expr: string, vars: object })** -> number
-   Evaluate a math expression. To use object properties, first extract them to variables:
-   
-   WRONG: mathCalc({ expr: 'inv.price * quantity', vars: { inv, quantity } })
-   RIGHT: 
-     let price = inv.price
-     let total = mathCalc({ expr: 'price * quantity', vars: { price, quantity } })
+Note: Arithmetic works directly in AsyncJS, no special function needed.
+Example: let total = price * quantity
 `
 
     const prompt = `${ASYNCJS_GUIDE}
@@ -358,24 +402,18 @@ ${toolDocs}
 Write an AsyncJS function called "calculateOrder" that:
 1. Takes required parameters: item (string), quantity (number)
 2. Gets inventory info using getInventory
-3. Extract the price: let price = inv.price
-4. If the item is in stock AND has enough quantity:
-   - Calculate total = price * quantity using mathCalc
+3. If the item is in stock AND has enough quantity:
+   - Calculate total = inv.price * quantity
    - Return { success: true, total, message: 'Order placed' }
-5. Otherwise:
+4. Otherwise:
    - Return { success: false, total: 0, message: 'Item unavailable' }
 
-IMPORTANT: 
-- Extract inv.price to a variable BEFORE the if statement
-- Use if/else blocks with simple return statements in each branch
-- Do NOT use ternary operators or template literals in mathCalc
-- Follow this exact pattern:
+Follow this pattern:
 
 \`\`\`
 let inv = getInventory({ item })
-let price = inv.price
 if (inv.inStock && inv.quantity >= quantity) {
-  let total = mathCalc({ expr: 'price * quantity', vars: { price, quantity } })
+  let total = inv.price * quantity
   return { success: true, total, message: 'Order placed' }
 } else {
   return { success: false, total: 0, message: 'Item unavailable' }
@@ -406,9 +444,10 @@ Respond with ONLY the function code.`
     console.log('Order result (out of stock):', result2)
     expect(result2.result.success).toBe(false)
 
-    // Test insufficient quantity
-    const result3 = await vm.run(ast, { item: 'banana', quantity: 100 })
-    console.log('Order result (insufficient):', result3)
-    expect(result3.result.success).toBe(false)
-  }, 45000)
+      // Test insufficient quantity
+      const result3 = await vm.run(ast, { item: 'banana', quantity: 100 })
+      console.log('Order result (insufficient):', result3)
+      expect(result3.result.success).toBe(false)
+    })
+  }, 120000)
 })

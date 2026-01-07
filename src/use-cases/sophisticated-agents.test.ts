@@ -42,12 +42,16 @@ describe('Use Case: Sophisticated Agents', () => {
                   .varSet({ key: 'answer', value: 'content' }),
               (fail) =>
                 fail
-                  // Increment attempts
-                  .mathCalc({
-                    expr: 'attempts + 1',
-                    vars: { attempts: 'attempts' },
+                  // Increment attempts using ExprNode
+                  .varSet({
+                    key: 'attempts',
+                    value: {
+                      $expr: 'binary',
+                      op: '+',
+                      left: { $expr: 'ident', name: 'attempts' },
+                      right: { $expr: 'literal', value: 1 },
+                    },
                   })
-                  .as('attempts')
                   // Update Prompt to complain
                   .template({
                     tmpl: '{{prev}}\nInvalid answer "{{bad}}". Please reply A, B, C, or D.',
@@ -160,11 +164,15 @@ describe('Use Case: Sophisticated Agents', () => {
                   .varSet({ key: 'answer', value: 'ans.content' }),
               (no) =>
                 no
-                  .mathCalc({
-                    expr: 'attempts + 1',
-                    vars: { attempts: 'attempts' },
+                  .varSet({
+                    key: 'attempts',
+                    value: {
+                      $expr: 'binary',
+                      op: '+',
+                      left: { $expr: 'ident', name: 'attempts' },
+                      right: { $expr: 'literal', value: 1 },
+                    },
                   })
-                  .as('attempts')
                   // Refine Query (Mock: Append " Inc")
                   .template({ tmpl: '{{q}} Inc', vars: { q: 'currentQuery' } })
                   .as('currentQuery')

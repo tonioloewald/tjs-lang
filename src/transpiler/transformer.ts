@@ -28,6 +28,7 @@ import type {
   ObjectExpression,
 } from 'acorn'
 import type { BaseNode } from '../builder'
+import type { ExprNode } from '../runtime'
 import type {
   TransformContext,
   TranspileOptions,
@@ -36,12 +37,7 @@ import type {
   TypeDescriptor,
   TranspileWarning,
 } from './types'
-import {
-  TranspileError,
-  getLocation,
-  createChildContext,
-  lookupVariable,
-} from './types'
+import { TranspileError, getLocation, createChildContext } from './types'
 import {
   parseParameter,
   inferTypeFromValue,
@@ -371,8 +367,8 @@ function transformIfStatement(
   stmt: IfStatement,
   ctx: TransformContext
 ): BaseNode {
-  // Extract condition and variables used in it
-  const { condition, vars } = extractCondition(stmt.test, ctx)
+  // Convert condition to ExprNode
+  const condition = expressionToExprNode(stmt.test, ctx)
 
   // Transform then branch
   const thenSteps =
@@ -402,7 +398,6 @@ function transformIfStatement(
   return {
     op: 'if',
     condition,
-    vars,
     then: thenSteps,
     ...(elseSteps && { else: elseSteps }),
   }
@@ -415,7 +410,7 @@ function transformWhileStatement(
   stmt: WhileStatement,
   ctx: TransformContext
 ): BaseNode {
-  const { condition, vars } = extractCondition(stmt.test, ctx)
+  const condition = expressionToExprNode(stmt.test, ctx)
 
   const body =
     stmt.body.type === 'BlockStatement'
@@ -425,7 +420,6 @@ function transformWhileStatement(
   return {
     op: 'while',
     condition,
-    vars,
     body,
   }
 }
@@ -627,21 +621,28 @@ function transformExpressionToStep(
     return transformTemplateLiteral(expr as TemplateLiteral, ctx, resultVar)
   }
 
-  // Binary/logical expression that needs computation
-  if (expr.type === 'BinaryExpression' || expr.type === 'LogicalExpression') {
-    // For simple value contexts, extract the expression string
-    const exprStr = expressionToConditionString(expr, ctx)
-    const vars = extractVariablesFromExpression(expr, ctx)
+  // Binary/logical/unary expression - convert to ExprNode
+  if (
+    expr.type === 'BinaryExpression' ||
+    expr.type === 'LogicalExpression' ||
+    expr.type === 'UnaryExpression'
+  ) {
+    const exprNode = expressionToExprNode(expr, ctx)
 
-    return {
-      step: {
-        op: 'mathCalc',
-        expr: exprStr,
-        vars,
-        ...(resultVar && { result: resultVar }),
-      },
-      resultVar: resultVar || exprStr,
+    // If we need to store the result, emit a varSet with the expression node as value
+    if (resultVar) {
+      return {
+        step: {
+          op: 'varSet',
+          key: resultVar,
+          value: exprNode,
+        },
+        resultVar,
+      }
     }
+
+    // No storage needed, just return the expression node as the result
+    return { step: null, resultVar: exprNode as any }
   }
 
   // Simple value - no step needed
@@ -778,7 +779,7 @@ function transformMethodCall(
       break
 
     case 'slice':
-      // TODO: Could map to a slice atom or mathCalc
+      // TODO: Could map to a slice atom
       break
 
     case 'push':
@@ -868,132 +869,149 @@ function transformTemplateLiteral(
 }
 
 /**
- * Extract condition string and variables from an expression
+ * Convert an Acorn expression to an ExprNode for direct VM evaluation.
+ * This replaces the string-based condition system.
  */
-function extractCondition(
+function expressionToExprNode(
   expr: Expression,
   ctx: TransformContext
-): { condition: string; vars: Record<string, any> } {
-  const condition = expressionToConditionString(expr, ctx)
-  const vars = extractVariablesFromExpression(expr, ctx)
-  return { condition, vars }
-}
-
-/**
- * Convert an expression to a condition string
- */
-function expressionToConditionString(
-  expr: Expression,
-  ctx: TransformContext
-): string {
+): ExprNode {
   switch (expr.type) {
     case 'Literal': {
       const lit = expr as Literal
-      if (typeof lit.value === 'string') return `"${lit.value}"`
-      return String(lit.value)
-    }
-    case 'Identifier':
-      return (expr as Identifier).name
-
-    case 'BinaryExpression':
-    case 'LogicalExpression': {
-      const bin = expr as BinaryExpression | LogicalExpression
-      const left = expressionToConditionString(bin.left as Expression, ctx)
-      const right = expressionToConditionString(bin.right as Expression, ctx)
-      return `${left} ${bin.operator} ${right}`
+      return { $expr: 'literal', value: lit.value }
     }
 
-    case 'UnaryExpression': {
-      const un = expr as any
-      const arg = expressionToConditionString(un.argument, ctx)
-      return `${un.operator}${arg}`
+    case 'Identifier': {
+      const id = expr as Identifier
+      return { $expr: 'ident', name: id.name }
     }
 
     case 'MemberExpression': {
       const mem = expr as MemberExpression
-      const obj = expressionToConditionString(mem.object as Expression, ctx)
+      const obj = expressionToExprNode(mem.object as Expression, ctx)
+
       if (mem.computed) {
-        const prop = expressionToConditionString(
-          mem.property as Expression,
-          ctx
+        // arr[0] or obj[key] - computed access
+        // For now, only support literal indices
+        const prop = mem.property as Expression
+        if (prop.type === 'Literal') {
+          return {
+            $expr: 'member',
+            object: obj,
+            property: String((prop as Literal).value),
+            computed: true,
+          }
+        }
+        // For computed with variable, we'd need more complex handling
+        throw new TranspileError(
+          'Computed member access with variables not yet supported',
+          getLocation(expr),
+          ctx.source,
+          ctx.filename
         )
-        return `${obj}[${prop}]`
       }
-      const prop = (mem.property as Identifier).name
-      return `${obj}.${prop}`
+
+      const propName = (mem.property as Identifier).name
+      return {
+        $expr: 'member',
+        object: obj,
+        property: propName,
+      }
+    }
+
+    case 'BinaryExpression': {
+      const bin = expr as BinaryExpression
+      return {
+        $expr: 'binary',
+        op: bin.operator,
+        left: expressionToExprNode(bin.left as Expression, ctx),
+        right: expressionToExprNode(bin.right as Expression, ctx),
+      }
+    }
+
+    case 'LogicalExpression': {
+      const log = expr as LogicalExpression
+      return {
+        $expr: 'logical',
+        op: log.operator as '&&' | '||',
+        left: expressionToExprNode(log.left as Expression, ctx),
+        right: expressionToExprNode(log.right as Expression, ctx),
+      }
+    }
+
+    case 'UnaryExpression': {
+      const un = expr as any
+      return {
+        $expr: 'unary',
+        op: un.operator,
+        argument: expressionToExprNode(un.argument as Expression, ctx),
+      }
+    }
+
+    case 'ConditionalExpression': {
+      const cond = expr as any
+      return {
+        $expr: 'conditional',
+        test: expressionToExprNode(cond.test as Expression, ctx),
+        consequent: expressionToExprNode(cond.consequent as Expression, ctx),
+        alternate: expressionToExprNode(cond.alternate as Expression, ctx),
+      }
+    }
+
+    case 'ArrayExpression': {
+      const arr = expr as ArrayExpression
+      return {
+        $expr: 'array',
+        elements: arr.elements
+          .filter((el): el is Expression => el !== null)
+          .map((el) => expressionToExprNode(el, ctx)),
+      }
+    }
+
+    case 'ObjectExpression': {
+      const obj = expr as ObjectExpression
+      const properties: { key: string; value: ExprNode }[] = []
+
+      for (const prop of obj.properties) {
+        if (prop.type === 'Property') {
+          const key =
+            prop.key.type === 'Identifier'
+              ? (prop.key as Identifier).name
+              : String((prop.key as Literal).value)
+          properties.push({
+            key,
+            value: expressionToExprNode(prop.value as Expression, ctx),
+          })
+        }
+      }
+
+      return { $expr: 'object', properties }
     }
 
     case 'CallExpression': {
-      // Function calls in conditions are tricky - we might need to compute first
-      ctx.warnings.push({
-        message: 'Function call in condition may need refactoring',
-        line: getLocation(expr).line,
-        column: getLocation(expr).column,
-      })
-      return 'true' // Placeholder
+      // This shouldn't happen for conditions, but handle it
+      throw new TranspileError(
+        'Function calls in expressions should be lifted to statements',
+        getLocation(expr),
+        ctx.source,
+        ctx.filename
+      )
     }
 
     default:
-      return 'true'
+      throw new TranspileError(
+        `Unsupported expression type in condition: ${expr.type}`,
+        getLocation(expr),
+        ctx.source,
+        ctx.filename
+      )
   }
 }
 
-/**
- * Extract variables used in an expression for the vars map
- */
-function extractVariablesFromExpression(
-  expr: Expression,
-  ctx: TransformContext
-): Record<string, any> {
-  const vars: Record<string, any> = {}
-
-  function walk(node: Expression) {
-    switch (node.type) {
-      case 'Identifier': {
-        const name = (node as Identifier).name
-        // Check if it's a known variable or parameter (traverse scope chain)
-        if (lookupVariable(name, ctx) !== undefined) {
-          vars[name] = name
-        }
-        break
-      }
-
-      case 'MemberExpression': {
-        const mem = node as MemberExpression
-        // Get the root identifier
-        let root = mem.object
-        while (root.type === 'MemberExpression') {
-          root = (root as MemberExpression).object
-        }
-        if (root.type === 'Identifier') {
-          const name = (root as Identifier).name
-          // Check if root is a known variable (traverse scope chain)
-          if (lookupVariable(name, ctx) !== undefined) {
-            // Only include the root object - JSEP handles member access itself
-            vars[name] = name
-          }
-        }
-        break
-      }
-
-      case 'BinaryExpression':
-      case 'LogicalExpression': {
-        const bin = node as BinaryExpression | LogicalExpression
-        walk(bin.left as Expression)
-        walk(bin.right as Expression)
-        break
-      }
-
-      case 'UnaryExpression': {
-        walk((node as any).argument)
-        break
-      }
-    }
-  }
-
-  walk(expr)
-  return vars
-}
+// Note: extractCondition, expressionToConditionString, and extractVariablesFromExpression
+// have been removed. Use expressionToExprNode instead - it converts Acorn AST directly
+// to ExprNode format, eliminating the need for JSEP string parsing at runtime.
 
 /**
  * Convert an expression to a runtime value (for varSet, etc.)

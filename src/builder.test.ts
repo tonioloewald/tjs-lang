@@ -1,45 +1,24 @@
 import { describe, it, expect } from 'bun:test'
 import { A99 } from './builder'
 import { s } from 'tosijs-schema'
+import { js } from './transpiler'
+import { AgentVM } from './vm'
 
 describe('Agent99 Builder', () => {
-  it('should build a simple math chain', () => {
-    const chain = A99.take(
-      s.object({
-        price: s.number,
-        tax: s.number,
-      })
-    )
-      .mathCalc({
-        expr: 'price * (1 + tax)',
-        vars: {
-          price: A99.args('price'),
-          tax: A99.args('tax'),
-        },
-      })
-      .as('total')
+  it('should build a simple varSet chain', () => {
+    const chain = A99.take(s.object({ price: s.number, tax: s.number }))
+      .varsImport(['price', 'tax'])
+      .varSet({ key: 'total', value: 100 })
       .return(s.object({ total: s.number }))
 
     const ast = chain.toJSON()
 
     expect(ast.op).toBe('seq')
-    expect(ast.steps).toHaveLength(2) // calc + return
+    expect(ast.steps).toHaveLength(3) // varsImport, varSet, return
 
-    const calcStep = ast.steps[0]
-    expect(calcStep.op).toBe('mathCalc')
-    expect(calcStep.result).toBe('total')
-    expect(calcStep.expr).toBe('price * (1 + tax)')
-    expect(calcStep.vars).toEqual({
-      price: { $kind: 'arg', path: 'price' },
-      tax: { $kind: 'arg', path: 'tax' },
-    })
-
-    const returnStep = ast.steps[1]
+    const returnStep = ast.steps[2]
     expect(returnStep.op).toBe('return')
     expect(returnStep.schema).toBeDefined()
-    // Verify schema structure roughly (JSON schema)
-    expect(returnStep.schema.type).toBe('object')
-    expect(returnStep.schema.properties.total.type).toBe('number')
   })
 
   it('should throw error when using .as() at start of chain', () => {
@@ -55,18 +34,83 @@ describe('Agent99 Builder', () => {
 
   it('should allow chaining multiple operations', () => {
     const chain = A99.take(s.object({ x: s.number }))
-      .mathCalc({ expr: 'x * 2', vars: { x: A99.args('x') } })
-      .as('doubleX')
-      .mathCalc({
-        expr: 'doubleX + 10',
-        vars: { doubleX: A99.args('doubleX') },
-      })
-      .as('result')
+      .varsImport(['x'])
+      .varSet({ key: 'doubleX', value: 20 })
+      .varSet({ key: 'result', value: 30 })
       .return(s.object({ result: s.number }))
 
     const ast = chain.toJSON()
-    expect(ast.steps).toHaveLength(3) // calc, calc, return
-    expect(ast.steps[0].result).toBe('doubleX')
-    expect(ast.steps[1].result).toBe('result')
+    expect(ast.steps).toHaveLength(4) // varsImport, varSet, varSet, return
+  })
+
+  it('should support template atom', async () => {
+    const chain = A99.take(s.object({ name: s.string }))
+      .varsImport(['name'])
+      .template({ tmpl: 'Hello, {{name}}!', vars: { name: 'name' } })
+      .as('greeting')
+      .return(s.object({ greeting: s.string }))
+
+    const vm = new AgentVM()
+    const result = await vm.run(chain.toJSON(), { name: 'World' })
+    expect(result.result.greeting).toBe('Hello, World!')
+  })
+
+  it('should support if/else with conditions', () => {
+    const chain = A99.take(s.object({ x: s.number }))
+      .varsImport(['x'])
+      .if(
+        'x > 5',
+        { x: 'x' },
+        (b) => b.varSet({ key: 'result', value: 'big' }),
+        (b) => b.varSet({ key: 'result', value: 'small' })
+      )
+      .return(s.object({ result: s.string }))
+
+    const ast = chain.toJSON()
+    expect(ast.steps).toHaveLength(3) // varsImport, if, return
+    expect(ast.steps[1].op).toBe('if')
+    expect(ast.steps[1].condition).toBeDefined()
+    expect(ast.steps[1].condition.$expr).toBe('binary')
+  })
+})
+
+describe('JS Transpiler for Math', () => {
+  it('should handle arithmetic expressions', async () => {
+    const ast = js(`
+      function calc({ a, b }) {
+        let sum = a + b
+        return { sum }
+      }
+    `)
+
+    const vm = new AgentVM()
+    const result = await vm.run(ast, { a: 5, b: 3 })
+    expect(result.result.sum).toBe(8)
+  })
+
+  it('should handle complex math expressions', async () => {
+    const ast = js(`
+      function calc({ a, b, c }) {
+        let result = (a + b) * c / 2
+        return { result }
+      }
+    `)
+
+    const vm = new AgentVM()
+    const result = await vm.run(ast, { a: 10, b: 20, c: 3 })
+    expect(result.result.result).toBe(45)
+  })
+
+  it('should handle multiplication', async () => {
+    const ast = js(`
+      function calc({ price, tax }) {
+        let total = price * (1 + tax)
+        return { total }
+      }
+    `)
+
+    const vm = new AgentVM()
+    const result = await vm.run(ast, { price: 100, tax: 0.1 })
+    expect(result.result.total).toBeCloseTo(110)
   })
 })

@@ -10,7 +10,7 @@ describe('Use Case: Malicious Actor', () => {
   it('should terminate infinite loops via Fuel limit', async () => {
     // Malicious Agent: Infinite Loop
     const infinite = A99.take(s.object({}))
-      .while('1 == 1', {}, (b) => b.mathCalc({ expr: '1 + 1', vars: {} }))
+      .while('1 == 1', {}, (b) => b.varSet({ key: 'x', value: 1 }))
       .return(s.object({}))
 
     const ast = infinite.toJSON()
@@ -24,52 +24,44 @@ describe('Use Case: Malicious Actor', () => {
   })
 
   it('should prevent access to prototype/constructor (Sandbox)', async () => {
-    // Malicious Agent: Try to access constructor of an object
+    // Malicious Agent: Try to access constructor of an object via ExprNode
     // {}.constructor -> Function -> ...
     const exploit = A99.take(s.object({}))
       .varSet({ key: 'obj', value: {} })
-      .varSet({ key: 'proto', value: 'obj.constructor' }) // JSEP handles dot access?
-      // Our JSEP evaluator handles MemberExpression.
-      // But context lookup is `ctx.state[val]`.
-      // If we use mathCalc to evaluate expression?
-      .mathCalc({ expr: 'obj.constructor', vars: { obj: 'obj' } })
-      .as('leak')
+      // Try to access obj.constructor via ExprNode
+      .varSet({
+        key: 'leak',
+        value: {
+          $expr: 'member',
+          object: { $expr: 'ident', name: 'obj' },
+          property: 'constructor',
+        },
+      })
       .return(s.object({ leak: s.any }))
 
     const ast = exploit.toJSON()
 
     // It should evaluate to undefined or throw, or return the function if unsafe?
-    // JSEP access: obj['constructor'].
-    // If our sandbox allows it, we get Function.
-    // Safe sandbox should probably block access to __proto__, constructor, prototype.
-
-    // For now, let's verify what happens. If it returns [Function: Object], it's unsafe.
-    // If it returns undefined, it's safe-ish.
-
-    // NOTE: This test asserts CURRENT behavior. If we haven't hardened JSEP evaluator yet,
-    // this test might "fail" (i.e. successfully exploit).
-    // Agent99 goals include "Sandboxing".
-    // We should implement blocking if it exploits.
+    // Safe sandbox should block access to __proto__, constructor, prototype.
 
     await expect(VM.run(ast, {})).rejects.toThrow(/Security Error/)
   })
 
   it('should prevent access to global process/Bun (Sandbox)', async () => {
-    // Attempt to access global variable 'process' or 'Bun' via evaluation
-    // Since our evaluator only resolves from 'vars' passed to it, and 'vars' are resolved from state...
+    // Attempt to access global variable 'process' via evaluation
+    // Since our evaluator only resolves from state/args...
     // The only way to access globals is if 'state' has them or prototype chain leaks.
 
     const exploit = A99.take(s.object({}))
-      .mathCalc({ expr: 'process', vars: {} }) // 'process' not in vars
-      .as('leak')
+      .varSet({
+        key: 'leak',
+        value: { $expr: 'ident', name: 'process' },
+      })
       .return(s.object({ leak: s.any }))
 
     const ast = exploit.toJSON()
 
-    // 'process' should be undefined (0 in math calc usually, or undefined if strict)
-    // Our math calc converts missing vars to 0 for math ops, but returns result directly?
-    // evaluateExpression returns values.
-
+    // 'process' should be undefined since it's not in state or args
     const result = await VM.run(ast, {})
     expect(result.result.leak).toBeUndefined()
   })

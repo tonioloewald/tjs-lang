@@ -43,8 +43,7 @@ describe('Agent99 Integration (Mocked Pipeline)', () => {
         // THEN: Deny
         (b: any) =>
           b
-            .mathCalc({ expr: '0', vars: {} })
-            .as('approved') // 0 = false
+            .varSet({ key: 'approved', value: 0 }) // 0 = false
             .httpFetch({
               url: 'https://api.bank.com/log-denial',
               method: 'POST',
@@ -52,8 +51,7 @@ describe('Agent99 Integration (Mocked Pipeline)', () => {
         // ELSE: Approve
         (b: any) =>
           b
-            .mathCalc({ expr: '1', vars: {} })
-            .as('approved') // 1 = true
+            .varSet({ key: 'approved', value: 1 }) // 1 = true
             .httpFetch({
               url: 'https://api.bank.com/log-approval',
               method: 'POST',

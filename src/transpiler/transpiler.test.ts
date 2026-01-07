@@ -159,7 +159,9 @@ describe('Transpiler', () => {
       `)
       // steps[0] is varsImport for parameters
       expect(ast.steps[1].op).toBe('if')
-      expect(ast.steps[1].condition).toContain('>')
+      // Condition is now an ExprNode
+      expect(ast.steps[1].condition.$expr).toBe('binary')
+      expect(ast.steps[1].condition.op).toBe('>')
     })
 
     it('should handle while loops', () => {

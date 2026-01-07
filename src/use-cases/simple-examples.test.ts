@@ -2,78 +2,31 @@ import { describe, it, expect, mock } from 'bun:test'
 import { A99 } from '../builder'
 import { AgentVM } from '../vm'
 import { s } from 'tosijs-schema'
+import { js } from '../transpiler'
 
 describe('Simple Examples', () => {
   const VM = new AgentVM()
 
-  it('should compute Nth Fibonacci Number (Recursive/Iterative)', async () => {
-    // We implement iterative for simplicity without recursion support yet
-    // fib(n):
-    //   a = 0, b = 1
-    //   while n > 0:
-    //     temp = a + b
-    //     a = b
-    //     b = temp
-    //     n = n - 1
-    //   return a
+  it('should compute Nth Fibonacci Number (using .ajs)', async () => {
+    const fibAst = js(`
+      function fib({ n }) {
+        let a = 0
+        let b = 1
+        let count = n
+        
+        while (count > 0) {
+          let temp = a + b
+          a = b
+          b = temp
+          count = count - 1
+        }
+        
+        let result = a
+        return { result }
+      }
+    `)
 
-    // const fib = A99.take(s.object({ n: s.number }))
-    A99.take(s.object({ n: s.number }))
-      .varSet({ key: 'a', value: 0 })
-      .varSet({ key: 'b', value: 1 })
-      .while('n > 0', { n: 'args.n' }, (loop) =>
-        loop
-          .mathCalc({ expr: 'a + b', vars: { a: 'a', b: 'b' } })
-          .as('temp')
-          .varSet({ key: 'a', value: 'b' })
-          .varSet({ key: 'b', value: 'temp' })
-          .mathCalc({ expr: 'n - 1', vars: { n: 'args.n' } })
-          .as('args.n')
-      ) // Mutate args.n? Or local n? args are immutable in standard interpretation usually?
-    // Our runtime allows referencing args. but not setting args explicitly via var.set easily unless key handles dot?
-    // var.set key is string. "args.n".
-    // Our runtime resolveVar checks "args." prefix. ctx.state[key] = value.
-    // If we set "args.n", it sets a state key "args.n", but reads might prioritize ctx.args.
-    // Let's use local variables.
-
-    // const fibIterative = A99.take(s.object({ n: s.number }))
-    A99.take(s.object({ n: s.number }))
-      .varSet({ key: 'currentN', value: A99.args('n') })
-      .varSet({ key: 'a', value: 0 })
-      .varSet({ key: 'b', value: 1 })
-      .while('currentN > 0', { currentN: 'currentN' }, (loop) =>
-        loop
-          .mathCalc({ expr: 'a + b', vars: { a: 'a', b: 'b' } })
-          .as('temp')
-          .varSet({ key: 'a', value: 'b' })
-          .varSet({ key: 'b', value: 'temp' })
-          .mathCalc({ expr: 'currentN - 1', vars: { currentN: 'currentN' } })
-          .as('currentN')
-      )
-      .return(s.object({ result: s.any }))
-
-    // Fix return: returns object with result from state 'a'
-    // But 'a' is in state. return atom maps schema keys to state.
-    // So we need 'result' in state.
-    // Let's modify the builder to map 'a' to 'result' at the end.
-
-    const fibFinal = A99.take(s.object({ n: s.number }))
-      .varSet({ key: 'n', value: A99.args('n') })
-      .varSet({ key: 'a', value: 0 })
-      .varSet({ key: 'b', value: 1 })
-      .while('n > 0', { n: 'n' }, (loop) =>
-        loop
-          .mathCalc({ expr: 'a + b', vars: { a: 'a', b: 'b' } })
-          .as('temp')
-          .varSet({ key: 'a', value: 'b' })
-          .varSet({ key: 'b', value: 'temp' })
-          .mathCalc({ expr: 'n - 1', vars: { n: 'n' } })
-          .as('n')
-      )
-      .varSet({ key: 'result', value: 'a' })
-      .return(s.object({ result: s.number }))
-
-    const result = await VM.run(fibFinal.toJSON(), { n: 10 })
+    const result = await VM.run(fibAst, { n: 10 })
     // fib(10) = 55
     expect(result.result.result).toBe(55)
   })
@@ -145,28 +98,29 @@ describe('Simple Examples', () => {
     expect(result.result.filtered).toEqual([{ name: 'Alice', role: 'admin' }])
   })
 
-  it('should execute examples in parallel', async () => {
-    const fibLogic = A99.take(s.object({ n: s.number }))
-      .varSet({ key: 'n', value: A99.args('n') })
-      .varSet({ key: 'a', value: 0 })
-      .varSet({ key: 'b', value: 1 })
-      .while('n > 0', { n: 'n' }, (loop) =>
-        loop
-          .mathCalc({ expr: 'a + b', vars: { a: 'a', b: 'b' } })
-          .as('temp')
-          .varSet({ key: 'a', value: 'b' })
-          .varSet({ key: 'b', value: 'temp' })
-          .mathCalc({ expr: 'n - 1', vars: { n: 'n' } })
-          .as('n')
-      )
-      .varSet({ key: 'result', value: 'a' })
-      .return(s.object({ result: s.number }))
+  it('should execute examples in parallel (using .ajs)', async () => {
+    const fibAst = js(`
+      function fib({ n }) {
+        let a = 0
+        let b = 1
+        let count = n
+        
+        while (count > 0) {
+          let temp = a + b
+          a = b
+          b = temp
+          count = count - 1
+        }
+        
+        let result = a
+        return { result }
+      }
+    `)
 
-    const ast = fibLogic.toJSON()
     const inputs = [5, 10, 15, 20]
     // fib(5)=5, fib(10)=55, fib(15)=610, fib(20)=6765
 
-    const results = await Promise.all(inputs.map((n) => VM.run(ast, { n })))
+    const results = await Promise.all(inputs.map((n) => VM.run(fibAst, { n })))
 
     const values = results.map((r) => r.result.result)
     expect(values).toEqual([5, 55, 610, 6765])

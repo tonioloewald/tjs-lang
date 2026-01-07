@@ -4,6 +4,8 @@
 
 **Agent99** is a secure, environment-agnostic runtime for executing AI agents and logic chains defined as JSON ASTs.
 
+**Bundle Size:** ~17KB gzipped. Expressions are evaluated via lightweight AST nodes at runtime, eliminating the need for a parser library (the previous JSEP-based approach was ~50KB gzipped).
+
 ## 1. Architecture
 
 ### The Builder (`TypedBuilder`)
@@ -25,20 +27,20 @@ import { A99, s, AgentVM } from 'agent-99'
 
 // Global Builder (Core Atoms)
 const logic = A99.take(s.object({ input: s.string }))
-  .mathCalc({ expr: '1 + 1', vars: {} })
+  .varSet({ key: 'sum', value: { $expr: 'binary', op: '+', left: { $expr: 'literal', value: 1 }, right: { $expr: 'literal', value: 1 } } })
 
 // VM Builder (Custom Atoms)
 const vm = new AgentVM({ myAtom })
 const customLogic = vm.A99
   .myAtom({ ... })
-  .mathCalc({ ... })
+  .varSet({ ... })
 ```
 
 ### The Runtime (`AgentVM`)
 
 A stateless Virtual Machine that executes the AST. The runtime contains all the actual implementation logic for the atoms.
 
-- **Sandboxed:** No `eval()`. Math/Logic is parsed safely via `jsep`.
+- **Sandboxed:** No `eval()`. Math/Logic is evaluated safely via AST expression nodes.
 - **Resource Limited:** Enforces `fuel` (gas) limits and execution timeouts per atom.
 - **Capability-Based:** All IO (Network, DB, AI) must be injected via `capabilities` object.
 
@@ -51,15 +53,36 @@ const { result, fuelUsed } = await vm.run(ast, args, {
 })
 ```
 
-## 2. Expression Syntax (JSEP)
+## 2. Expression Syntax (ExprNode)
 
-Expressions in `mathCalc`, `if`, and `while` use a safe subset of JavaScript via `jsep`.
+Expressions use AST expression nodes (`$expr`) for safe, sandboxed evaluation. Conditions in `if` and `while` atoms use expression strings that are parsed at transpile time.
 
-For security, these expressions are sandboxed and cannot directly access the agent's state. You must explicitly pass any required variables from the state into the expression using the `vars` parameter. This parameter maps local variable names (for use in the expression) to values in the agent's state (using dot notation, e.g., `'product.price'`).
+For security, expressions are sandboxed and cannot directly access the agent's state. Use the `vars` parameter to explicitly pass variables from state into the expression scope.
 
-- **Supported:** Binary ops (`+`, `-`, `*`, `/`, `%`), Logic (`&&`, `||`, `!`), Comparison (`==`, `!=`, `>`, `<`, `>=`), Member Access (`obj.prop`, `arr[0]`).
-- **Forbidden:** Function calls, `new`, `this`, global access (except `Math` via atoms).
-- **Security:** Prototype access (`__proto__`, `constructor`) is strictly blocked.
+### ExprNode Types
+
+- **literal:** `{ $expr: 'literal', value: 5 }` - A constant value
+- **ident:** `{ $expr: 'ident', name: 'x' }` - A variable reference
+- **member:** `{ $expr: 'member', object: {...}, property: 'foo' }` - Property access
+- **binary:** `{ $expr: 'binary', op: '+', left: {...}, right: {...} }` - Binary operations
+- **unary:** `{ $expr: 'unary', op: '-', argument: {...} }` - Unary operations
+- **conditional:** `{ $expr: 'conditional', test: {...}, consequent: {...}, alternate: {...} }` - Ternary
+
+### Supported Operators
+
+- **Binary ops:** `+`, `-`, `*`, `/`, `%`, `**`
+- **Logic:** `&&`, `||`
+- **Comparison:** `==`, `!=`, `>`, `<`, `>=`, `<=`
+- **Member Access:** `obj.prop`, `arr[0]`
+
+### Security
+
+- **Forbidden:** Function calls, `new`, `this`, global access
+- **Blocked:** Prototype access (`__proto__`, `constructor`)
+
+### Fuel Consumption
+
+Each expression node evaluation consumes **0.01 fuel**. This prevents deeply nested or recursive expressions from running unchecked. A simple `a + b` costs ~0.03 fuel (two identifiers + one binary op), while complex nested expressions accumulate cost proportionally.
 
 ## 3. Security Model
 

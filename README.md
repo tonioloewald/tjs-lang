@@ -93,16 +93,21 @@ const calculateTotal = A99.take(
     taxRate: s.number,
   })
 )
-  // Atoms use camelCase names
-  .mathCalc({
-    expr: 'price * (1 + taxRate)',
-    vars: {
-      // A99.args creates a pointer to the runtime value, ensuring the AST remains static while data is dynamic
-      price: A99.args('price'),
-      taxRate: A99.args('taxRate'),
+  // Use varSet with expression nodes for arithmetic
+  .varSet({
+    key: 'total',
+    value: {
+      $expr: 'binary',
+      op: '*',
+      left: A99.args('price'),
+      right: {
+        $expr: 'binary',
+        op: '+',
+        left: { $expr: 'literal', value: 1 },
+        right: A99.args('taxRate'),
+      },
     },
   })
-  .as('total')
   .return(s.object({ total: s.number }))
 
 // Compile to JSON AST
@@ -167,7 +172,7 @@ The standard library includes essential primitives:
 | ---------------- | ------------------------------------------------------------------ | --------------------------------------------------------------------------------------------------------------------- |
 | **Flow**         | `seq`, `if`, `while`, `return`, `try`                              | Control flow and loops.                                                                                               |
 | **State**        | `varSet`, `varGet`, `varsLet`, `varsImport`, `varsExport`, `scope` | Variable management, including batch operations for importing variables from arguments and exporting them as results. |
-| **Math**         | `mathCalc`                                                         | Safe expression evaluation (e.g. `"a + b"`).                                                                          |
+| **Expressions**  | ExprNode (`$expr`)                                                 | Safe expression evaluation via AST nodes (binary, unary, member, etc.).                                               |
 | **Logic**        | `eq`, `gt`, `and`, `not`, ...                                      | Boolean logic.                                                                                                        |
 | **IO**           | `httpFetch`                                                        | HTTP requests.                                                                                                        |
 | **Store**        | `storeGet`, `storeSet`                                             | Key-Value storage.                                                                                                    |
@@ -297,7 +302,7 @@ const tools = vm.getTools()
 const flowTools = vm.getTools('flow')
 
 // Get specific tools
-const myTools = vm.getTools(['httpFetch', 'mathCalc'])
+const myTools = vm.getTools(['httpFetch', 'template'])
 ```
 
 ## Implementing Real-World Atoms
@@ -375,7 +380,7 @@ const logic = builder
 
 ## Control Flow
 
-Atoms like `if`, `while`, and `mathCalc` evaluate expression strings. For security and predictability, these expressions are not granted access to the full agent state. Instead, you must use the `vars` parameter to explicitly pass in any state variables that the expression needs.
+Atoms like `if` and `while` evaluate expression strings. For security and predictability, these expressions are not granted access to the full agent state. Instead, you must use the `vars` parameter to explicitly pass in any state variables that the expression needs.
 
 This mapping allows you to alias variables, making your expressions cleaner and more readable.
 
@@ -394,8 +399,17 @@ chain.if(
 
 ```typescript
 // The `vars` map works identically here, creating a scope for the condition.
+// Use ExprNode for arithmetic operations
 chain.while('n > 0', { n: 'counter' }, (loop) =>
-  loop.mathCalc({ expr: 'n - 1', vars: { n: 'n' } }).as('counter')
+  loop.varSet({
+    key: 'counter',
+    value: {
+      $expr: 'binary',
+      op: '-',
+      left: { $expr: 'ident', name: 'counter' },
+      right: { $expr: 'literal', value: 1 },
+    },
+  })
 )
 ```
 

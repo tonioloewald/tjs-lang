@@ -2,6 +2,7 @@ import { describe, it, expect } from 'bun:test'
 import { A99 } from '../builder'
 import { AgentVM } from '../vm'
 import { s } from 'tosijs-schema'
+import { js } from '../transpiler'
 
 // To skip benchmarks, run with a filter that excludes them
 // bun test --except-filter=benchmark
@@ -41,48 +42,49 @@ benchmarks('VM Benchmarks ($run)', ({ run }) => {
   const benchmark = run ? it : it.skip
 
   const VM = new AgentVM()
+
   it('should have a basic test runner working', async () => {
-    const ast = A99.take(s.object({ a: s.number, b: s.number }))
-      .varsImport(['a', 'b'])
-      .mathCalc({ expr: 'a + b', vars: { a: 'a', b: 'b' } })
-      .as('result')
-      .return(s.object({ result: s.number }))
-      .toJSON()
+    const ast = js(`
+      function add({ a, b }) {
+        let result = a + b
+        return { result }
+      }
+    `)
     const { result } = await VM.run(ast, { a: 2, b: 3 })
     expect(result.result).toBe(5)
   })
 
   benchmark(
-    'benchmark: first n primes',
+    'benchmark: first n primes (using .ajs)',
     async () => {
       const n = 1000
       const expectedPrimes = generatePrimes(n)
 
-      const ast = A99.take(s.object({ n: s.number }))
-        .varsImport(['n'])
-        .varsLet({
-          primes: [],
-          i: 2, // Start checking from 2
-        })
-        .while('i <= n', { i: 'i', n: 'n' }, (b) =>
-          b
-            .varsLet({ isPrime: true, j: 2 })
-            .while('j * j <= i', { j: 'j', i: 'i' }, (b) =>
-              b
-                .if('i % j == 0', { i: 'i', j: 'j' }, (b) =>
-                  b.varSet({ key: 'isPrime', value: false })
-                )
-                .mathCalc({ expr: 'j + 1', vars: { j: 'j' } })
-                .as('j')
-            )
-            .if('isPrime', { isPrime: 'isPrime' }, (b) =>
-              b.push({ list: 'primes', item: 'i' })
-            )
-            .mathCalc({ expr: 'i + 1', vars: { i: 'i' } })
-            .as('i')
-        )
-        .return(s.object({ primes: s.array(s.number) }))
-        .toJSON()
+      const ast = js(`
+        function findPrimes({ n }) {
+          let primes = []
+          let i = 2
+          
+          while (i <= n) {
+            let isPrime = true
+            let j = 2
+            
+            while (j * j <= i) {
+              if (i % j == 0) {
+                isPrime = false
+              }
+              j = j + 1
+            }
+            
+            if (isPrime) {
+              push({ list: primes, item: i })
+            }
+            i = i + 1
+          }
+          
+          return { primes }
+        }
+      `)
 
       const { result } = await VM.run(ast, { n }, { fuel: 1_000_000 })
       expect(result.primes).toEqual(expectedPrimes)

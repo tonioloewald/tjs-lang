@@ -3,6 +3,26 @@ import { A99 } from '../builder'
 import { AgentVM } from '../vm'
 import { s } from 'tosijs-schema'
 
+// Helper to create ExprNode for n - 1
+const exprMinus1 = (varName: string) => ({
+  $expr: 'binary' as const,
+  op: '-',
+  left: { $expr: 'ident' as const, name: varName },
+  right: { $expr: 'literal' as const, value: 1 },
+})
+
+// Helper to create ExprNode for n * subResult.result
+const exprMultiplyMember = (var1: string, obj: string, prop: string) => ({
+  $expr: 'binary' as const,
+  op: '*',
+  left: { $expr: 'ident' as const, name: var1 },
+  right: {
+    $expr: 'member' as const,
+    object: { $expr: 'ident' as const, name: obj },
+    property: prop,
+  },
+})
+
 describe('Use Case: Recursive Agent', () => {
   const VM = new AgentVM()
   it('should implement a recursive factorial agent', async () => {
@@ -22,19 +42,15 @@ describe('Use Case: Recursive Agent', () => {
             .return(s.object({ result: s.number })),
         (b) =>
           b
-            .mathCalc({ expr: 'n - 1', vars: { n: 'n' } })
-            .as('nMinus1')
+            .varSet({ key: 'nMinus1', value: exprMinus1('n') })
             .agentRun({ agentId: 'factorial', input: { n: 'nMinus1' } })
             .as('subResult')
             // subResult is { result: ... }
-            // Extract result property from subResult
-            // 'math.calc' can access properties via JSEP!
-            // 'n * subResult.result'
-            .mathCalc({
-              expr: 'n * subResult.result',
-              vars: { n: 'n', subResult: 'subResult' },
+            // Extract result property from subResult using ExprNode
+            .varSet({
+              key: 'result',
+              value: exprMultiplyMember('n', 'subResult', 'result'),
             })
-            .as('result')
             .return(s.object({ result: s.number }))
       )
 
@@ -92,8 +108,7 @@ describe('Use Case: Recursive Agent', () => {
         (b) => b.varSet({ key: 'result', value: 1 }).return(s.object({})),
         (b) =>
           b
-            .mathCalc({ expr: 'n - 1', vars: { n: 'n' } })
-            .as('nMinus1')
+            .varSet({ key: 'nMinus1', value: exprMinus1('n') })
             .agentRun({ agentId: 'factorial', input: { n: 'nMinus1' } })
             .as('subResult')
       )
@@ -101,10 +116,10 @@ describe('Use Case: Recursive Agent', () => {
     const caps = {
       agent: {
         run: async (agentId: string, input: any) => {
-          // Decrease fuel dramatically
+          // Decrease fuel dramatically - must be less than cost of one if/varSet cycle
           return VM.run(factorial.toJSON(), input, {
             capabilities: caps,
-            fuel: 2, // Very low fuel for children
+            fuel: 0.5, // Extremely low fuel for children
           })
         },
       },
@@ -112,8 +127,8 @@ describe('Use Case: Recursive Agent', () => {
 
     // Run deep recursion
     // n=10. Depth will be 10.
-    // Each step costs ~5 fuel.
-    // If child gets only 2 fuel, it should fail immediately.
+    // With ExprNodes, each step costs less than with mathCalc.
+    // If child gets only 0.5 fuel, it should fail immediately.
     expect(
       VM.run(factorial.toJSON(), { n: 10 }, { capabilities: caps })
     ).rejects.toThrow('Out of Fuel')
@@ -133,15 +148,13 @@ describe('Use Case: Recursive Agent', () => {
             .return(s.object({ result: s.number })),
         (b) =>
           b
-            .mathCalc({ expr: 'n - 1', vars: { n: 'n' } })
-            .as('nMinus1')
+            .varSet({ key: 'nMinus1', value: exprMinus1('n') })
             .agentRun({ agentId: 'factorial', input: { n: 'nMinus1' } })
             .as('subResult')
-            .mathCalc({
-              expr: 'n * subResult.result',
-              vars: { n: 'n', subResult: 'subResult' },
+            .varSet({
+              key: 'result',
+              value: exprMultiplyMember('n', 'subResult', 'result'),
             })
-            .as('result')
             .return(s.object({ result: s.number }))
       )
 

@@ -3,6 +3,35 @@ import { A99 } from '../builder'
 import { AgentVM } from '../vm'
 import { s } from 'tosijs-schema'
 
+// Helper to create ExprNode for n - offset
+const exprMinus = (varName: string, offset: number) => ({
+  $expr: 'binary' as const,
+  op: '-',
+  left: { $expr: 'ident' as const, name: varName },
+  right: { $expr: 'literal' as const, value: offset },
+})
+
+// Helper to create ExprNode for a + b using member access
+const exprAddMembers = (
+  obj1: string,
+  prop1: string,
+  obj2: string,
+  prop2: string
+) => ({
+  $expr: 'binary' as const,
+  op: '+',
+  left: {
+    $expr: 'member' as const,
+    object: { $expr: 'ident' as const, name: obj1 },
+    property: prop1,
+  },
+  right: {
+    $expr: 'member' as const,
+    object: { $expr: 'ident' as const, name: obj2 },
+    property: prop2,
+  },
+})
+
 describe('Use Case: Optimization', () => {
   it('should memoize expensive operations within a run', async () => {
     // Logic: Expensive calc called twice with same key
@@ -142,19 +171,16 @@ describe('Use Case: Optimization', () => {
             .cache(
               (c) =>
                 c
-                  .mathCalc({ expr: 'n - 1', vars: { n: 'n' } })
-                  .as('n1')
+                  .varSet({ key: 'n1', value: exprMinus('n', 1) })
                   .agentRun({ agentId: 'fib', input: { n: 'n1' } })
                   .as('r1')
-                  .mathCalc({ expr: 'n - 2', vars: { n: 'n' } })
-                  .as('n2')
+                  .varSet({ key: 'n2', value: exprMinus('n', 2) })
                   .agentRun({ agentId: 'fib', input: { n: 'n2' } })
                   .as('r2')
-                  .mathCalc({
-                    expr: 'r1.result + r2.result',
-                    vars: { r1: 'r1', r2: 'r2' },
-                  })
-                  .as('result'),
+                  .varSet({
+                    key: 'result',
+                    value: exprAddMembers('r1', 'result', 'r2', 'result'),
+                  }),
               'fib_{{n}}' // Dynamic key template? No, cache key is string. We need template first.
             )
             .as('result')
@@ -179,19 +205,16 @@ describe('Use Case: Optimization', () => {
             .cache(
               (c) =>
                 c
-                  .mathCalc({ expr: 'n - 1', vars: { n: 'n' } })
-                  .as('n1')
+                  .varSet({ key: 'n1', value: exprMinus('n', 1) })
                   .agentRun({ agentId: 'fib', input: { n: 'n1' } })
                   .as('r1')
-                  .mathCalc({ expr: 'n - 2', vars: { n: 'n' } })
-                  .as('n2')
+                  .varSet({ key: 'n2', value: exprMinus('n', 2) })
                   .agentRun({ agentId: 'fib', input: { n: 'n2' } })
                   .as('r2')
-                  .mathCalc({
-                    expr: 'r1.result + r2.result',
-                    vars: { r1: 'r1', r2: 'r2' },
-                  })
-                  .as('result'),
+                  .varSet({
+                    key: 'result',
+                    value: exprAddMembers('r1', 'result', 'r2', 'result'),
+                  }),
               'cacheKey'
             )
             .as('result')

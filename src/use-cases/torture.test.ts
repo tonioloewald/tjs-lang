@@ -3,6 +3,30 @@ import { A99 } from '../builder'
 import { AgentVM } from '../vm'
 import { s } from 'tosijs-schema'
 
+// Helper to create ExprNode for a + b
+const exprAdd = (a: string, b: string) => ({
+  $expr: 'binary' as const,
+  op: '+',
+  left: { $expr: 'ident' as const, name: a },
+  right: { $expr: 'ident' as const, name: b },
+})
+
+// Helper to create ExprNode for n - 1
+const exprMinus1 = (varName: string) => ({
+  $expr: 'binary' as const,
+  op: '-',
+  left: { $expr: 'ident' as const, name: varName },
+  right: { $expr: 'literal' as const, value: 1 },
+})
+
+// Helper to create ExprNode for attempts + 1
+const exprIncrement = (varName: string) => ({
+  $expr: 'binary' as const,
+  op: '+',
+  left: { $expr: 'ident' as const, name: varName },
+  right: { $expr: 'literal' as const, value: 1 },
+})
+
 // --- Generators ---
 
 const createFib = () =>
@@ -12,12 +36,10 @@ const createFib = () =>
     .varSet({ key: 'b', value: 1 })
     .while('n > 0', { n: 'n' }, (loop) =>
       loop
-        .mathCalc({ expr: 'a + b', vars: { a: 'a', b: 'b' } })
-        .as('temp')
+        .varSet({ key: 'temp', value: exprAdd('a', 'b') })
         .varSet({ key: 'a', value: 'b' })
         .varSet({ key: 'b', value: 'temp' })
-        .mathCalc({ expr: 'n - 1', vars: { n: 'n' } })
-        .as('n')
+        .varSet({ key: 'n', value: exprMinus1('n') })
     )
     .varSet({ key: 'result', value: 'a' })
     .return(s.object({ result: s.number }))
@@ -41,12 +63,7 @@ const createOrchestrator = () =>
                   .varSet({ key: 'result', value: 'res' })
                   .varSet({ key: 'success', value: true }),
               catch: (c) =>
-                c
-                  .mathCalc({
-                    expr: 'attempts + 1',
-                    vars: { attempts: 'attempts' },
-                  })
-                  .as('attempts'),
+                c.varSet({ key: 'attempts', value: exprIncrement('attempts') }),
             })
         )
     )

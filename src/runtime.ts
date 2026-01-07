@@ -1,5 +1,4 @@
 import { s, validate } from 'tosijs-schema'
-import jsep from 'jsep'
 
 // --- Types ---
 
@@ -122,6 +121,10 @@ export function resolveValue(val: any, ctx: RuntimeContext): any {
   if (val && typeof val === 'object' && val.$kind === 'arg') {
     return ctx.args[val.path]
   }
+  // Expression nodes - evaluate directly
+  if (val && typeof val === 'object' && val.$expr) {
+    return evaluateExpr(val, ctx)
+  }
   if (typeof val === 'string') {
     if (val.startsWith('args.')) {
       return ctx.args[val.replace('args.', '')]
@@ -149,81 +152,71 @@ export function resolveValue(val: any, ctx: RuntimeContext): any {
   return val
 }
 
-// --- JSEP Evaluator ---
+// --- Expression Node Types ---
 
-// Add binary ops
-jsep.addBinaryOp('and', 1)
-jsep.addBinaryOp('or', 1)
-jsep.addBinaryOp('eq', 6)
-jsep.addBinaryOp('neq', 6)
-jsep.addBinaryOp('gt', 7)
-jsep.addBinaryOp('lt', 7)
-jsep.addBinaryOp('ge', 7)
-jsep.addBinaryOp('le', 7)
+export type ExprNode =
+  | { $expr: 'literal'; value: any }
+  | { $expr: 'ident'; name: string }
+  | { $expr: 'member'; object: ExprNode; property: string; computed?: boolean }
+  | { $expr: 'binary'; op: string; left: ExprNode; right: ExprNode }
+  | { $expr: 'unary'; op: string; argument: ExprNode }
+  | { $expr: 'logical'; op: '&&' | '||'; left: ExprNode; right: ExprNode }
+  | {
+      $expr: 'conditional'
+      test: ExprNode
+      consequent: ExprNode
+      alternate: ExprNode
+    }
+  | { $expr: 'array'; elements: ExprNode[] }
+  | { $expr: 'object'; properties: { key: string; value: ExprNode }[] }
+  | { $expr: 'call'; callee: string; arguments: ExprNode[] }
 
-function evaluateJsep(node: any, context: Record<string, any>): any {
-  switch (node.type) {
-    case 'Literal':
+/** Fuel cost per expression node evaluation */
+const EXPR_FUEL_COST = 0.01
+
+/**
+ * Evaluates an expression node against the runtime context.
+ * This replaces JSEP for new code - expressions are already parsed by Acorn.
+ * Each node evaluation consumes a small amount of fuel to prevent runaway expressions.
+ */
+export function evaluateExpr(node: ExprNode, ctx: RuntimeContext): any {
+  // Handle non-expression values (literals passed directly)
+  if (node === null || node === undefined) {
+    return node
+  }
+  if (typeof node !== 'object' || !('$expr' in node)) {
+    // It's a literal value, not an expression node
+    return node
+  }
+
+  // Consume fuel for each expression node evaluation
+  if (ctx.fuel) {
+    ctx.fuel.current -= EXPR_FUEL_COST
+    if (ctx.fuel.current <= 0) {
+      throw new Error('Out of Fuel')
+    }
+  }
+
+  switch (node.$expr) {
+    case 'literal':
       return node.value
 
-    case 'Identifier':
-      return context[node.name]
-
-    case 'UnaryExpression': {
-      const arg = evaluateJsep(node.argument, context)
-      if (node.operator === '!') return !arg
-      if (node.operator === '-') return -arg
-      throw new Error(`Unknown unary operator: ${node.operator}`)
-    }
-
-    case 'BinaryExpression': {
-      const left = evaluateJsep(node.left, context)
-      const right = evaluateJsep(node.right, context)
-      switch (node.operator) {
-        case '+':
-          return left + right
-        case '-':
-          return left - right
-        case '*':
-          return left * right
-        case '/':
-          return left / right
-        case '%':
-          return left % right
-        case '>':
-          return left > right
-        case '<':
-          return left < right
-        case '>=':
-        case 'ge':
-          return left >= right
-        case '<=':
-        case 'le':
-          return left <= right
-        case '==':
-        case 'eq':
-          return left == right
-        case '!=':
-        case 'neq':
-          return left != right
-        case '&&':
-        case 'and':
-          return left && right
-        case '||':
-        case 'or':
-          return left || right
-        default:
-          throw new Error(`Unknown binary operator: ${node.operator}`)
+    case 'ident': {
+      // Look up in state first, then args
+      if (node.name in ctx.state) {
+        return ctx.state[node.name]
       }
+      if (node.name in ctx.args) {
+        return ctx.args[node.name]
+      }
+      return undefined
     }
 
-    case 'MemberExpression': {
-      const obj = evaluateJsep(node.object, context)
-      const prop = node.computed
-        ? evaluateJsep(node.property, context)
-        : node.property.name
+    case 'member': {
+      const obj = evaluateExpr(node.object, ctx)
+      const prop = node.property
 
-      // Security Check: Block prototype access
+      // Security: Block prototype access
       if (
         prop === '__proto__' ||
         prop === 'constructor' ||
@@ -235,29 +228,103 @@ function evaluateJsep(node: any, context: Record<string, any>): any {
       return obj?.[prop]
     }
 
-    case 'ArrayExpression':
-      return node.elements.map((el: any) => evaluateJsep(el, context))
+    case 'binary': {
+      const left = evaluateExpr(node.left, ctx)
+      const right = evaluateExpr(node.right, ctx)
 
-    case 'CallExpression':
-      // Basic function support if needed, or throw
-      // For now, no function calls allowed in expressions for safety
-      throw new Error('Function calls not supported in expressions')
+      switch (node.op) {
+        case '+':
+          return left + right
+        case '-':
+          return left - right
+        case '*':
+          return left * right
+        case '/':
+          return left / right
+        case '%':
+          return left % right
+        case '**':
+          return left ** right
+        case '>':
+          return left > right
+        case '<':
+          return left < right
+        case '>=':
+          return left >= right
+        case '<=':
+          return left <= right
+        case '==':
+          return left == right
+        case '!=':
+          return left != right
+        case '===':
+          return left === right
+        case '!==':
+          return left !== right
+        default:
+          throw new Error(`Unknown binary operator: ${node.op}`)
+      }
+    }
+
+    case 'unary': {
+      const arg = evaluateExpr(node.argument, ctx)
+      switch (node.op) {
+        case '!':
+          return !arg
+        case '-':
+          return -arg
+        case '+':
+          return +arg
+        case 'typeof':
+          return typeof arg
+        default:
+          throw new Error(`Unknown unary operator: ${node.op}`)
+      }
+    }
+
+    case 'logical': {
+      // Short-circuit evaluation
+      const left = evaluateExpr(node.left, ctx)
+      if (node.op === '&&') {
+        return left ? evaluateExpr(node.right, ctx) : left
+      } else {
+        return left ? left : evaluateExpr(node.right, ctx)
+      }
+    }
+
+    case 'conditional': {
+      const test = evaluateExpr(node.test, ctx)
+      return test
+        ? evaluateExpr(node.consequent, ctx)
+        : evaluateExpr(node.alternate, ctx)
+    }
+
+    case 'array':
+      return node.elements.map((el) => evaluateExpr(el, ctx))
+
+    case 'object': {
+      const result: Record<string, any> = {}
+      for (const prop of node.properties) {
+        result[prop.key] = evaluateExpr(prop.value, ctx)
+      }
+      return result
+    }
+
+    case 'call': {
+      // For atom calls within expressions
+      const atom = ctx.resolver(node.callee)
+      if (!atom) {
+        throw new Error(`Unknown function: ${node.callee}`)
+      }
+      // This is synchronous evaluation - atom calls need special handling
+      // For now, throw - atom calls should be lifted to statements
+      throw new Error(
+        `Atom calls in expressions not yet supported: ${node.callee}`
+      )
+    }
 
     default:
-      throw new Error(`Unknown node type: ${node.type}`)
-  }
-}
-
-/**
- * Evaluates a JSEP-compatible expression string against a context object.
- */
-function evaluateExpression(expr: string, vars: Record<string, any>): any {
-  if (!expr || expr.trim() === '') return undefined
-  try {
-    const ast = jsep(expr)
-    return evaluateJsep(ast, vars)
-  } catch (e: any) {
-    throw new Error(`Expression error "${expr}": ${e.message}`)
+      throw new Error(`Unknown expression type: ${(node as any).$expr}`)
   }
 }
 
@@ -374,21 +441,13 @@ export const seq = defineAtom(
 export const iff = defineAtom(
   'if',
   s.object({
-    condition: s.string,
-    vars: s.record(s.any),
+    condition: s.any, // ExprNode
     then: s.array(s.any),
     else: s.array(s.any).optional,
   }),
   undefined,
   async (step, ctx) => {
-    // Resolve vars from state if they are strings pointing to keys, or use literals
-    const vars: Record<string, any> = {}
-    if (step.vars) {
-      for (const [k, v] of Object.entries(step.vars)) {
-        vars[k] = resolveValue(v, ctx)
-      }
-    }
-    if (evaluateExpression(step.condition, vars)) {
+    if (evaluateExpr(step.condition, ctx)) {
       await seq.exec({ op: 'seq', steps: step.then } as any, ctx)
     } else if (step.else) {
       await seq.exec({ op: 'seq', steps: step.else } as any, ctx)
@@ -400,22 +459,13 @@ export const iff = defineAtom(
 export const whileLoop = defineAtom(
   'while',
   s.object({
-    condition: s.string,
-    vars: s.record(s.any).optional,
+    condition: s.any, // ExprNode
     body: s.array(s.any),
   }),
   undefined,
   async (step, ctx) => {
-    // eslint-disable-next-line no-constant-condition
-    while (true) {
+    while (evaluateExpr(step.condition, ctx)) {
       if ((ctx.fuel.current -= 0.1) <= 0) throw new Error('Out of Fuel')
-      const vars: Record<string, any> = {}
-      if (step.vars) {
-        for (const [k, v] of Object.entries(step.vars))
-          vars[k] = resolveValue(v, ctx)
-      }
-
-      if (!evaluateExpression(step.condition, vars)) break
       await seq.exec({ op: 'seq', steps: step.body } as any, ctx)
       if (ctx.output !== undefined) return
     }
@@ -581,23 +631,7 @@ export const not = defineAtom(
   { docs: 'Not', cost: 0.1 }
 )
 
-// 4. Math (Cost 1)
-export const calc = defineAtom(
-  'mathCalc',
-  s.object({ expr: s.string, vars: s.record(s.any).optional }),
-  s.number,
-  async ({ expr, vars }, ctx) => {
-    const resolved: Record<string, any> = { ...ctx.state }
-    if (vars) {
-      for (const [k, v] of Object.entries(vars))
-        resolved[k] = resolveValue(v, ctx)
-    }
-    return evaluateExpression(expr, resolved)
-  },
-  { docs: 'Math Calc', cost: 1 }
-)
-
-// 5. List (Cost 1)
+// 4. List (Cost 1)
 export const map = defineAtom(
   'map',
   s.object({ items: s.array(s.any), as: s.string, steps: s.array(s.any) }),
@@ -1089,7 +1123,6 @@ export const coreAtoms = {
   and,
   or,
   not,
-  mathCalc: calc,
   map,
   push,
   len,

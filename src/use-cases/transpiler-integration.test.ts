@@ -21,8 +21,8 @@ describe('Transpiler Integration', () => {
     it('should handle math calculations', async () => {
       const ast = js(`
         function calculate({ a, b }) {
-          let sum = mathCalc({ expr: 'a + b', vars: { a, b } })
-          let product = mathCalc({ expr: 'a * b', vars: { a, b } })
+          let sum = a + b
+          let product = a * b
           return { sum, product }
         }
       `)
@@ -62,8 +62,8 @@ describe('Transpiler Integration', () => {
           let count = n
           let iterations = 0
           while (count > 0) {
-            count = mathCalc({ expr: 'count - 1', vars: { count } })
-            iterations = mathCalc({ expr: 'iterations + 1', vars: { iterations } })
+            count = count - 1
+            iterations = iterations + 1
           }
           return { count, iterations }
         }
@@ -290,7 +290,7 @@ describe('Transpiler Integration', () => {
           
           while (!valid && tries < 3) {
             answer = llmPredict({ prompt: question })
-            tries = mathCalc({ expr: 'tries + 1', vars: { tries } })
+            tries = tries + 1
             
             if (answer == 'A' || answer == 'B' || answer == 'C' || answer == 'D') {
               valid = true

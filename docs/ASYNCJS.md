@@ -326,7 +326,7 @@ import { js } from 'agent-99'
 
 const ast = js(`
   function add(a: 0, b: 0) {
-    let sum = mathCalc({ expr: 'a + b', vars: { a, b } })
+    let sum = a + b
     return { sum }
   }
 `)

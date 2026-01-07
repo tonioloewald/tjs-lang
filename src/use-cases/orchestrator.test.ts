@@ -75,12 +75,16 @@ describe('Use Case: Orchestrator', () => {
                       .varSet({ key: 'success', value: true }),
                   catch: (c) =>
                     c
-                      // Increment attempts
-                      .mathCalc({
-                        expr: 'attempts + 1',
-                        vars: { attempts: 'attempts' },
+                      // Increment attempts using ExprNode
+                      .varSet({
+                        key: 'attempts',
+                        value: {
+                          $expr: 'binary',
+                          op: '+',
+                          left: { $expr: 'ident', name: 'attempts' },
+                          right: { $expr: 'literal', value: 1 },
+                        },
                       })
-                      .as('attempts')
                       // Wait before retry
                       .step({ op: 'sleep', ms: 100 }),
                 })

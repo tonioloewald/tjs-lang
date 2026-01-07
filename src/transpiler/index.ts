@@ -18,7 +18,7 @@
  * // Tagged template
  * const ast2 = agent`
  *   function add({ a, b }) {
- *     let sum = mathCalc({ expr: 'a + b', vars: { a, b } })
+ *     let sum = a + b
  *     return { sum }
  *   }
  * `
