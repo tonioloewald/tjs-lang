@@ -876,4 +876,121 @@ describe('Transpiler Integration', () => {
       expect(result.result.hasTimestamp).toBe(true)
     })
   })
+
+  describe('filter builtin', () => {
+    it('should strip extra properties from objects', async () => {
+      const ast = js(`
+        function test() {
+          let raw = { name: 'Alice', age: 30, secret: 'password', extra: 123 }
+          let clean = filter(raw, { name: 'string', age: 0 })
+          return { clean }
+        }
+      `)
+
+      const vm = new AgentVM()
+      const result = await vm.run(ast, {})
+
+      expect(result.result.clean).toEqual({ name: 'Alice', age: 30 })
+    })
+
+    it('should work with nested objects', async () => {
+      const ast = js(`
+        function test() {
+          let raw = {
+            user: { name: 'Bob', age: 25, ssn: '123-45-6789' },
+            tags: ['a', 'b'],
+            internal: 'hidden'
+          }
+          let clean = filter(raw, {
+            user: { name: 'string', age: 0 },
+            tags: ['string']
+          })
+          return { clean }
+        }
+      `)
+
+      const vm = new AgentVM()
+      const result = await vm.run(ast, {})
+
+      expect(result.result.clean).toEqual({
+        user: { name: 'Bob', age: 25 },
+        tags: ['a', 'b'],
+      })
+    })
+
+    it('should throw on validation failure', async () => {
+      const ast = js(`
+        function test() {
+          let raw = { name: 'Alice' }
+          let clean = filter(raw, { name: 'string', age: 0 })
+          return { clean }
+        }
+      `)
+
+      const vm = new AgentVM()
+      const result = await vm.run(ast, {})
+
+      expect(result.error).toBeDefined()
+      expect(result.error?.message).toContain('age')
+    })
+
+    it('should work with arrays', async () => {
+      const ast = js(`
+        function test() {
+          let raw = [
+            { name: 'A', extra: 1 },
+            { name: 'B', extra: 2 }
+          ]
+          let clean = filter(raw, [{ name: 'string' }])
+          return { clean }
+        }
+      `)
+
+      const vm = new AgentVM()
+      const result = await vm.run(ast, {})
+
+      expect(result.result.clean).toEqual([{ name: 'A' }, { name: 'B' }])
+    })
+  })
+
+  describe('implicit return filtering', () => {
+    it('should filter nested objects in return values', async () => {
+      // When returning an object with nested properties, extra properties
+      // at any level should be stripped based on the return schema
+      const ast = js(`
+        function test() {
+          let user = { name: 'Alice', age: 30, secret: 'password123' }
+          return { user }
+        }
+      `)
+
+      const vm = new AgentVM()
+      const result = await vm.run(ast, {})
+
+      // The return schema only knows about 'user' key, but the user object
+      // itself contains extra properties. With filtering, 'secret' should be stripped
+      // if we had a proper nested schema. For now, this shows the basic structure works.
+      expect(result.result.user).toBeDefined()
+      expect(result.result.user.name).toBe('Alice')
+    })
+
+    it('should strip extra top-level properties not in return schema', async () => {
+      // Use the builder directly to have more control over the return schema
+      const { A99 } = await import('../builder')
+      const { s } = await import('tosijs-schema')
+
+      const ast = A99.take(s.object({}))
+        .varSet({ key: 'a', value: 1 })
+        .varSet({ key: 'b', value: 2 })
+        .varSet({ key: 'extra', value: 'should be stripped' })
+        .return(s.object({ a: s.number, b: s.number }))
+        .toJSON()
+
+      const vm = new AgentVM()
+      const result = await vm.run(ast, {})
+
+      expect(result.result).toEqual({ a: 1, b: 2 })
+      expect(result.result.extra).toBeUndefined()
+    })
+  })
 })

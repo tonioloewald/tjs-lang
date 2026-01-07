@@ -39,6 +39,6 @@
   },
   "dependencies": {
     "acorn": "^8.15.0",
-    "tosijs-schema": "1.0.1"
+    "tosijs-schema": "^1.0.3"
   }
 }

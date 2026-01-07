@@ -650,6 +650,7 @@ const BUILTIN_GLOBALS = new Set([
   'decodeURIComponent',
   'Set', // Factory function for set-like objects
   'Date', // Factory function for date-like objects
+  'filter', // Schema-based object filtering
 ])
 
 const UNSUPPORTED_BUILTINS = new Set([

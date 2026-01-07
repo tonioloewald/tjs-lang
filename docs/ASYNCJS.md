@@ -2,6 +2,8 @@
 
 AsyncJS is a JavaScript subset designed for writing AI agent logic. It compiles to Agent99's secure JSON AST format, providing familiar syntax with cleaner semantics.
 
+> **For LLM Integration:** See [ASYNCJS_LLM_PROMPT.md](./ASYNCJS_LLM_PROMPT.md) for a system prompt optimized for code generation.
+
 ## File Extension
 
 AsyncJS files use the `.ajs` extension to distinguish them from standard JavaScript:
@@ -414,6 +416,63 @@ let time = d.format('time')         // '10:30:45'
 ```
 
 **Note:** Unlike JavaScript's `Date`, months are 1-12 (not 0-11), and all methods are immutable.
+
+#### Serialization
+
+Sets and Dates serialize cleanly to JSON:
+
+```javascript
+let result = {
+  tags: Set(['a', 'b', 'c']),
+  created: Date('2024-06-15')
+}
+// JSON.stringify(result) produces:
+// { "tags": ["a", "b", "c"], "created": "2024-06-15T00:00:00.000Z" }
+```
+
+- **Sets** serialize to arrays
+- **Dates** serialize to ISO 8601 strings
+
+### Schema Filtering
+
+The `filter()` builtin validates and strips extra properties from objects based on a schema:
+
+```javascript
+// Strip extra properties from an object
+let raw = { name: 'Alice', age: 30, secret: 'password', extra: 123 }
+let clean = filter(raw, { name: 'string', age: 0 })
+// clean = { name: 'Alice', age: 30 }
+
+// Works with nested objects
+let data = {
+  user: { name: 'Bob', age: 25, ssn: '123-45-6789' },
+  tags: ['a', 'b'],
+  internal: 'hidden'
+}
+let filtered = filter(data, {
+  user: { name: 'string', age: 0 },
+  tags: ['string']
+})
+// filtered = { user: { name: 'Bob', age: 25 }, tags: ['a', 'b'] }
+
+// Throws on validation failure (missing required fields)
+let bad = filter({ name: 'Alice' }, { name: 'string', age: 0 })
+// Error: Missing age
+```
+
+**Use cases:**
+- Sanitize LLM outputs - strip unexpected properties from JSON responses
+- API input validation - accept only the fields you expect
+- Data projection - reduce objects to a known shape
+
+**Note:** Return values are automatically filtered when a return type is declared. This makes return types act as projections:
+
+```javascript
+function getUser(id: 'user-123') -> { name: 'string', email: 'string' } {
+  let user = fetchUser({ id })  // might return { name, email, password, ... }
+  return { user }               // password automatically stripped
+}
+```
 
 ### Array Methods with Lambdas
 

@@ -1,4 +1,4 @@
-import { s, validate } from 'tosijs-schema'
+import { s, validate, filter as schemaFilter } from 'tosijs-schema'
 
 // --- Monadic Error Type ---
 
@@ -266,6 +266,89 @@ function createBuiltinProxy(
 }
 
 /**
+ * Convert an example-value schema (AsyncJS style) to JSON Schema.
+ * Examples:
+ *   'string' or 'hello' -> { type: 'string' }
+ *   0 or 42 -> { type: 'number' }
+ *   true/false -> { type: 'boolean' }
+ *   ['string'] -> { type: 'array', items: { type: 'string' } }
+ *   { name: 'string', age: 0 } -> { type: 'object', properties: {...}, required: [...] }
+ */
+function convertExampleToSchema(example: any): any {
+  if (example === null) {
+    return { type: 'null' }
+  }
+
+  if (example === undefined) {
+    return {}
+  }
+
+  // Already a JSON Schema object (has 'type' property)
+  if (
+    typeof example === 'object' &&
+    example !== null &&
+    'type' in example &&
+    typeof example.type === 'string'
+  ) {
+    return example
+  }
+
+  // tosijs-schema builder object (has 'schema' property)
+  if (
+    typeof example === 'object' &&
+    example !== null &&
+    'schema' in example &&
+    typeof example.schema === 'object'
+  ) {
+    return example.schema
+  }
+
+  const type = typeof example
+
+  if (type === 'string') {
+    return { type: 'string' }
+  }
+
+  if (type === 'number') {
+    return Number.isInteger(example) ? { type: 'integer' } : { type: 'number' }
+  }
+
+  if (type === 'boolean') {
+    return { type: 'boolean' }
+  }
+
+  if (Array.isArray(example)) {
+    if (example.length === 0) {
+      return { type: 'array' }
+    }
+    // Use first element as item schema
+    return {
+      type: 'array',
+      items: convertExampleToSchema(example[0]),
+    }
+  }
+
+  if (type === 'object') {
+    const properties: Record<string, any> = {}
+    const required: string[] = []
+
+    for (const [key, value] of Object.entries(example)) {
+      properties[key] = convertExampleToSchema(value)
+      required.push(key)
+    }
+
+    return {
+      type: 'object',
+      properties,
+      required,
+    }
+  }
+
+  // Fallback - accept anything
+  return {}
+}
+
+/**
  * Built-in objects available in expressions.
  * These are Proxy objects that provide JS-like APIs mapped to safe implementations.
  */
@@ -433,6 +516,18 @@ export const builtins: Record<string, any> = {
   NaN: NaN,
   Infinity: Infinity,
 
+  // Schema-based filtering - strips extra properties, validates structure
+  // Returns filtered data or throws on validation failure
+  filter: (data: any, schema: any): any => {
+    // Convert example-value schema to JSON Schema if needed
+    const jsonSchema = convertExampleToSchema(schema)
+    const result = schemaFilter(data, jsonSchema)
+    if (result instanceof Error) {
+      throw result
+    }
+    return result
+  },
+
   // Set factory - creates a set-like object backed by an array
   Set: (items: any[] = []) => {
     const data = [...new globalThis.Set(items)] // dedupe initial items
@@ -487,6 +582,10 @@ export const builtins: Record<string, any> = {
       },
       filter(fn: (item: any) => boolean) {
         return builtins.Set(data.filter(fn))
+      },
+      // Serialization - Sets serialize to arrays
+      toJSON() {
+        return [...data]
       },
     }
   },
@@ -606,6 +705,10 @@ export const builtins: Record<string, any> = {
       },
       // String representation
       toString() {
+        return d.toISOString()
+      },
+      // Serialization - Dates serialize to ISO strings
+      toJSON() {
         return d.toISOString()
       },
     })
@@ -1025,12 +1128,22 @@ export const ret = defineAtom(
       return ctx.error
     }
 
-    const res: any = {}
+    let res: any = {}
     // If schema provided, extract subset of state. Else return null/void?
     // Current pattern: schema defines output shape matching state keys
     if (step.schema?.properties) {
       for (const key of Object.keys(step.schema.properties)) {
         res[key] = ctx.state[key]
+      }
+
+      // If schema has nested structure, filter to strip extra properties
+      // This makes return types act as projections
+      if (step.filter !== false) {
+        const filterResult = schemaFilter(res, step.schema)
+        if (!(filterResult instanceof Error)) {
+          res = filterResult
+        }
+        // If filter fails, keep original result (validation already passed above)
       }
     }
     ctx.output = res
