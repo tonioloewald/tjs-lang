@@ -247,6 +247,11 @@ obj.property
 obj.nested.property
 arr[0]
 
+// Optional chaining (safe access)
+obj?.property
+obj?.nested?.value
+arr?.[0]
+
 // Template literals
 `Hello ${name}!`
 
@@ -334,6 +339,81 @@ let has = arr.includes(4)           // true
 let idx = arr.indexOf(1)            // 1
 let sliced = arr.slice(1, 3)        // [1, 4]
 ```
+
+### Set and Date Builtins
+
+AsyncJS provides `Set()` and `Date()` as factory functions - no `new` keyword needed.
+
+#### Set
+
+Create sets with `Set([items])`. Sets have both mutable operations (modify in place) and immutable set algebra (return new sets):
+
+```javascript
+// Create a Set
+let tags = Set(['javascript', 'typescript', 'rust'])
+let empty = Set()
+
+// Mutable operations (modify the set, return this for chaining)
+tags.add('go')                      // Add item
+tags.remove('rust')                 // Remove item  
+tags.clear()                        // Remove all items
+
+// Query operations
+let has = tags.has('typescript')    // true/false
+let count = tags.size               // Number of items
+let arr = tags.toArray()            // Convert to array
+
+// Immutable set algebra (return NEW sets)
+let a = Set([1, 2, 3])
+let b = Set([2, 3, 4])
+
+let union = a.union(b)              // Set([1, 2, 3, 4])
+let inter = a.intersection(b)       // Set([2, 3])
+let diff = a.diff(b)                // Set([1]) - items in a but not b
+```
+
+#### Date
+
+Create dates with `Date()` or `Date(initializer)`. Date objects are **immutable** - methods like `add()` return new Date objects:
+
+```javascript
+// Create a Date
+let now = Date()                    // Current date/time
+let specific = Date('2024-06-15')   // From ISO string
+let fromTs = Date(1718409600000)    // From timestamp
+
+// Static methods
+let timestamp = Date.now()          // Current timestamp (number)
+let parsed = Date.parse('2024-06-15T10:30:00Z')  // Parse to Date object
+
+// Component accessors (read-only)
+let d = Date('2024-06-15T10:30:45Z')
+d.year        // 2024
+d.month       // 6 (1-12, not 0-11 like JS!)
+d.day         // 15
+d.hours       // 10
+d.minutes     // 30
+d.seconds     // 45
+d.timestamp   // Unix timestamp in ms
+d.value       // ISO string
+
+// Immutable arithmetic (returns NEW Date)
+let later = d.add({ days: 5, hours: 3 })
+let earlier = d.add({ months: -1 })
+// Supported: years, months, days, hours, minutes, seconds
+
+// Comparison
+let before = d.isBefore(later)      // true
+let after = later.isAfter(d)        // true
+let diffDays = d.diff(later, 'days') // -5
+
+// Formatting
+let formatted = d.format('date')    // '2024-06-15'
+let iso = d.format('iso')           // '2024-06-15T10:30:45.000Z'
+let time = d.format('time')         // '10:30:45'
+```
+
+**Note:** Unlike JavaScript's `Date`, months are 1-12 (not 0-11), and all methods are immutable.
 
 ### Array Methods with Lambdas
 
@@ -525,26 +605,32 @@ These common JavaScript APIs are **not available** in AsyncJS. The transpiler wi
 
 | Feature | Error Message | Alternative |
 |---------|---------------|-------------|
-| `Date` | Use the `timestamp` atom | `timestamp()` returns current time |
 | `setTimeout` | Use the `delay` atom | `delay({ ms: 1000 })` |
 | `setInterval` | Use while loops with delay | `while (cond) { delay({ ms: 1000 }) }` |
 | `fetch` | Use the `httpFetch` atom | `httpFetch({ url })` |
 | `RegExp` | Use string methods | `str.match()`, `str.replace()` |
 | `Promise` | Implicit async | All calls are automatically awaited |
-| `Set/Map` | Use arrays/objects | Arrays with filter, plain objects |
+| `Map` | Use plain objects | `{ key: value }` |
 | `require/import` | Register atoms with VM | `new AgentVM({ customAtom })` |
 
 ### The `new` Keyword
 
-The `new` keyword is not supported. AsyncJS uses functional patterns:
+The `new` keyword is not supported. AsyncJS provides factory functions instead:
 
 ```javascript
-// DON'T DO THIS
-let date = new Date()           // Error: 'new' is not supported
+// DON'T DO THIS - the transpiler catches these with helpful errors:
+let date = new Date()     // Error: Use Date() or Date('2024-01-15') instead
+let set = new Set([1,2])  // Error: Use Set([items]) instead
+let arr = new Array(5)    // Error: Use array literals like [1, 2, 3] instead
 
-// DO THIS INSTEAD
-let time = timestamp()           // Use the timestamp atom
+// DO THIS INSTEAD - no 'new' needed:
+let date = Date()                    // Current date/time
+let date2 = Date('2024-06-15')       // Specific date
+let set = Set([1, 2, 3])             // Create a Set
+let arr = [1, 2, 3, 4, 5]            // Array literal
 ```
+
+See [Set and Date Builtins](#set-and-date-builtins) for full documentation.
 
 ### No `this` or Classes
 
@@ -575,14 +661,23 @@ let same = a == b    // false (reference comparison)
 let equal = JSON.stringify(a) == JSON.stringify(b)  // true
 ```
 
-### No Null Coalescing or Optional Chaining (Yet)
+### Optional Chaining (`?.`)
 
-While these are planned, currently you need to use explicit checks:
+Optional chaining is fully supported for safe property access:
 
 ```javascript
-// Instead of: let x = obj?.nested?.value ?? 'default'
-// Do this:
-let x = obj && obj.nested && obj.nested.value
+let x = obj?.nested?.value      // Returns null if any step is null/undefined
+let result = user?.profile?.name
+
+// Works with method calls too
+let len = items?.length
+let upper = str?.toUpperCase()
+```
+
+**Note:** Nullish coalescing (`??`) is not yet supported. Use explicit checks:
+
+```javascript
+let x = obj?.nested?.value
 if (x == null) {
   x = 'default'
 }
