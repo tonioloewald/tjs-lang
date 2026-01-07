@@ -119,13 +119,30 @@ export interface RunResult {
   trace?: TraceEvent[]
 }
 
+// --- Security ---
+
+/**
+ * Properties that are forbidden to access for security reasons.
+ * Accessing these could allow prototype pollution or sandbox escape.
+ */
+const FORBIDDEN_PROPERTIES = new Set(['__proto__', 'constructor', 'prototype'])
+
+/**
+ * Throws if the property name is forbidden for security reasons.
+ */
+function assertSafeProperty(prop: string): void {
+  if (FORBIDDEN_PROPERTIES.has(prop)) {
+    throw new Error(`Security Error: Access to '${prop}' is forbidden`)
+  }
+}
+
 // --- Helpers ---
 
 /**
  * Creates a child scope for the context.
  * Uses prototype inheritance so reads fall through to parent, but writes stay local.
  */
-function createChildScope(ctx: RuntimeContext): RuntimeContext {
+export function createChildScope(ctx: RuntimeContext): RuntimeContext {
   return {
     ...ctx,
     state: Object.create(ctx.state),
@@ -502,15 +519,7 @@ export function evaluateExpr(node: ExprNode, ctx: RuntimeContext): any {
       }
 
       const prop = node.property
-
-      // Security: Block prototype access
-      if (
-        prop === '__proto__' ||
-        prop === 'constructor' ||
-        prop === 'prototype'
-      ) {
-        throw new Error(`Security Error: Access to '${prop}' is forbidden`)
-      }
+      assertSafeProperty(prop)
 
       return obj?.[prop]
     }
@@ -632,15 +641,7 @@ export function evaluateExpr(node: ExprNode, ctx: RuntimeContext): any {
       }
 
       const method = node.method
-
-      // Security: Block prototype access
-      if (
-        method === '__proto__' ||
-        method === 'constructor' ||
-        method === 'prototype'
-      ) {
-        throw new Error(`Security Error: Access to '${method}' is forbidden`)
-      }
+      assertSafeProperty(method)
 
       if (obj === null || obj === undefined) {
         throw new Error(`Cannot call method '${method}' on ${obj}`)
