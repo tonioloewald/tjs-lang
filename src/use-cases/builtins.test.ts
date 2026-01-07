@@ -165,18 +165,6 @@ describe('Builtins', () => {
     expect(result.result.d).toBe(9007199254740991)
   })
 
-  test('Unsupported builtins give helpful transpile errors - Date', () => {
-    // Date should fail at transpile time with a helpful message
-    expect(() => {
-      js(`
-        function testDate() {
-          let d = Date.now()
-          return { d }
-        }
-      `)
-    }).toThrow('Date is not available')
-  })
-
   test('Unsupported builtins give helpful transpile errors', () => {
     // setTimeout should fail at transpile time with a helpful message
     expect(() => {
@@ -187,5 +175,62 @@ describe('Builtins', () => {
         }
       `)
     }).toThrow('setTimeout is not available')
+  })
+
+  test("'new' keyword is caught at transpile time with helpful error for Date", () => {
+    expect(() => {
+      js(`
+        function test() {
+          let d = new Date()
+          return { d }
+        }
+      `)
+    }).toThrow("The 'new' keyword is not supported")
+    expect(() => {
+      js(`
+        function test() {
+          let d = new Date()
+          return { d }
+        }
+      `)
+    }).toThrow("Use Date() or Date('2024-01-15')")
+  })
+
+  test("'new' keyword is caught at transpile time with helpful error for Set", () => {
+    expect(() => {
+      js(`
+        function test() {
+          let s = new Set([1, 2, 3])
+          return { s }
+        }
+      `)
+    }).toThrow("The 'new' keyword is not supported")
+    expect(() => {
+      js(`
+        function test() {
+          let s = new Set([1, 2, 3])
+          return { s }
+        }
+      `)
+    }).toThrow('Use Set([items])')
+  })
+
+  test("'new' keyword is caught for unknown constructors", () => {
+    expect(() => {
+      js(`
+        function test() {
+          let x = new SomeClass()
+          return { x }
+        }
+      `)
+    }).toThrow("The 'new' keyword is not supported")
+    expect(() => {
+      js(`
+        function test() {
+          let x = new SomeClass()
+          return { x }
+        }
+      `)
+    }).toThrow('Use factory functions or object literals')
   })
 })

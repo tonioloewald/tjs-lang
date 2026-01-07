@@ -432,14 +432,206 @@ export const builtins: Record<string, any> = {
   null: null,
   NaN: NaN,
   Infinity: Infinity,
+
+  // Set factory - creates a set-like object backed by an array
+  Set: (items: any[] = []) => {
+    const data = [...new globalThis.Set(items)] // dedupe initial items
+    return {
+      // Mutable operations
+      add(item: any) {
+        if (!data.includes(item)) {
+          data.push(item)
+        }
+        return this
+      },
+      remove(item: any) {
+        const idx = data.indexOf(item)
+        if (idx !== -1) {
+          data.splice(idx, 1)
+        }
+        return this
+      },
+      clear() {
+        data.length = 0
+        return this
+      },
+      // Query operations
+      has(item: any) {
+        return data.includes(item)
+      },
+      get size() {
+        return data.length
+      },
+      toArray() {
+        return [...data]
+      },
+      // Set operations - return new sets
+      union(other: any) {
+        const otherItems = other?.toArray?.() ?? other ?? []
+        return builtins.Set([...data, ...otherItems])
+      },
+      intersection(other: any) {
+        const otherItems = other?.toArray?.() ?? other ?? []
+        return builtins.Set(data.filter((x: any) => otherItems.includes(x)))
+      },
+      diff(other: any) {
+        const otherItems = other?.toArray?.() ?? other ?? []
+        return builtins.Set(data.filter((x: any) => !otherItems.includes(x)))
+      },
+      // Iteration
+      forEach(fn: (item: any) => void) {
+        data.forEach(fn)
+      },
+      map(fn: (item: any) => any) {
+        return builtins.Set(data.map(fn))
+      },
+      filter(fn: (item: any) => boolean) {
+        return builtins.Set(data.filter(fn))
+      },
+    }
+  },
+
+  // Date factory - creates a date-like object
+  // Also supports Date.now() for compatibility
+  Date: (() => {
+    const createDate = (d: globalThis.Date): any => ({
+      // Get the underlying value
+      get value() {
+        return d.toISOString()
+      },
+      get timestamp() {
+        return d.getTime()
+      },
+      // Components
+      get year() {
+        return d.getFullYear()
+      },
+      get month() {
+        return d.getMonth() + 1 // 1-indexed
+      },
+      get day() {
+        return d.getDate()
+      },
+      get hours() {
+        return d.getHours()
+      },
+      get minutes() {
+        return d.getMinutes()
+      },
+      get seconds() {
+        return d.getSeconds()
+      },
+      get dayOfWeek() {
+        return d.getDay()
+      },
+      // Arithmetic - returns new Date
+      add({
+        years = 0,
+        months = 0,
+        days = 0,
+        hours = 0,
+        minutes = 0,
+        seconds = 0,
+        ms = 0,
+      }: {
+        years?: number
+        months?: number
+        days?: number
+        hours?: number
+        minutes?: number
+        seconds?: number
+        ms?: number
+      } = {}) {
+        const newDate = new globalThis.Date(d.getTime())
+        if (years) newDate.setFullYear(newDate.getFullYear() + years)
+        if (months) newDate.setMonth(newDate.getMonth() + months)
+        if (days) newDate.setDate(newDate.getDate() + days)
+        if (hours) newDate.setHours(newDate.getHours() + hours)
+        if (minutes) newDate.setMinutes(newDate.getMinutes() + minutes)
+        if (seconds) newDate.setSeconds(newDate.getSeconds() + seconds)
+        if (ms) newDate.setMilliseconds(newDate.getMilliseconds() + ms)
+        return createDate(newDate)
+      },
+      // Difference
+      diff(
+        other: any,
+        unit: 'ms' | 'seconds' | 'minutes' | 'hours' | 'days' = 'ms'
+      ) {
+        const otherTime =
+          typeof other === 'object' && other.timestamp
+            ? other.timestamp
+            : new globalThis.Date(other).getTime()
+        const diffMs = d.getTime() - otherTime
+        switch (unit) {
+          case 'seconds':
+            return diffMs / 1000
+          case 'minutes':
+            return diffMs / (1000 * 60)
+          case 'hours':
+            return diffMs / (1000 * 60 * 60)
+          case 'days':
+            return diffMs / (1000 * 60 * 60 * 24)
+          default:
+            return diffMs
+        }
+      },
+      // Formatting
+      format(fmt = 'ISO') {
+        if (fmt === 'ISO') return d.toISOString()
+        if (fmt === 'date') return d.toISOString().split('T')[0]
+        if (fmt === 'time') return d.toISOString().split('T')[1].split('.')[0]
+        // Simple format substitution
+        return fmt
+          .replace('YYYY', String(d.getFullYear()))
+          .replace('MM', String(d.getMonth() + 1).padStart(2, '0'))
+          .replace('DD', String(d.getDate()).padStart(2, '0'))
+          .replace('HH', String(d.getHours()).padStart(2, '0'))
+          .replace('mm', String(d.getMinutes()).padStart(2, '0'))
+          .replace('ss', String(d.getSeconds()).padStart(2, '0'))
+      },
+      // Comparison
+      isBefore(other: any) {
+        const otherTime =
+          typeof other === 'object' && other.timestamp
+            ? other.timestamp
+            : new globalThis.Date(other).getTime()
+        return d.getTime() < otherTime
+      },
+      isAfter(other: any) {
+        const otherTime =
+          typeof other === 'object' && other.timestamp
+            ? other.timestamp
+            : new globalThis.Date(other).getTime()
+        return d.getTime() > otherTime
+      },
+      // String representation
+      toString() {
+        return d.toISOString()
+      },
+    })
+
+    // The Date factory function
+    const DateFactory = (init?: string | number) => {
+      const date =
+        init !== undefined ? new globalThis.Date(init) : new globalThis.Date()
+      if (isNaN(date.getTime())) {
+        throw new Error(`Invalid date: ${init}`)
+      }
+      return createDate(date)
+    }
+
+    // Static methods (for Date.now() compatibility)
+    DateFactory.now = () => globalThis.Date.now()
+    DateFactory.parse = (str: string) => createDate(new globalThis.Date(str))
+
+    return DateFactory
+  })(),
 }
 
 // Built-ins that are NOT available with helpful messages
 const unsupportedBuiltins: Record<string, string> = {
-  Date: 'Date is not available. Use the timestamp atom for current time.',
-  RegExp: 'RegExp is not available. Use string methods or the match atom.',
+  RegExp: 'RegExp is not available. Use string methods or the regexMatch atom.',
   Promise: 'Promise is not needed. All operations are implicitly async.',
-  Set: 'Set is not available. Use arrays with filter for unique values.',
   Map: 'Map is not available. Use plain objects instead.',
   WeakSet: 'WeakSet is not available.',
   WeakMap: 'WeakMap is not available.',

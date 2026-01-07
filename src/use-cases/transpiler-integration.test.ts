@@ -693,4 +693,187 @@ describe('Transpiler Integration', () => {
       expect(result2.result.upper).toBeUndefined()
     })
   })
+
+  describe('Set builtin', () => {
+    it('should create a Set and use has/size', async () => {
+      const ast = js(`
+        function test() {
+          let s = Set(['a', 'b', 'c'])
+          let hasA = s.has('a')
+          let hasZ = s.has('z')
+          let size = s.size
+          return { hasA, hasZ, size }
+        }
+      `)
+
+      const vm = new AgentVM()
+      const result = await vm.run(ast, {})
+
+      expect(result.result.hasA).toBe(true)
+      expect(result.result.hasZ).toBe(false)
+      expect(result.result.size).toBe(3)
+    })
+
+    it('should mutate Set with add/remove', async () => {
+      const ast = js(`
+        function test() {
+          let s = Set(['a', 'b'])
+          s.add('c')
+          s.remove('a')
+          let arr = s.toArray()
+          return { arr }
+        }
+      `)
+
+      const vm = new AgentVM()
+      const result = await vm.run(ast, {})
+
+      expect(result.result.arr).toEqual(['b', 'c'])
+    })
+
+    it('should create new Sets with union/intersection/diff', async () => {
+      const ast = js(`
+        function test() {
+          let a = Set([1, 2, 3])
+          let b = Set([2, 3, 4])
+          let unionArr = a.union(b).toArray()
+          let interArr = a.intersection(b).toArray()
+          let diffArr = a.diff(b).toArray()
+          return { unionArr, interArr, diffArr }
+        }
+      `)
+
+      const vm = new AgentVM()
+      const result = await vm.run(ast, {})
+
+      expect(result.result.unionArr.sort()).toEqual([1, 2, 3, 4])
+      expect(result.result.interArr.sort()).toEqual([2, 3])
+      expect(result.result.diffArr).toEqual([1])
+    })
+
+    it('should deduplicate initial items', async () => {
+      const ast = js(`
+        function test() {
+          let s = Set([1, 2, 2, 3, 3, 3])
+          return { size: s.size, arr: s.toArray() }
+        }
+      `)
+
+      const vm = new AgentVM()
+      const result = await vm.run(ast, {})
+
+      expect(result.result.size).toBe(3)
+      expect(result.result.arr).toEqual([1, 2, 3])
+    })
+  })
+
+  describe('Date builtin', () => {
+    it('should create a Date and access components', async () => {
+      const ast = js(`
+        function test() {
+          let d = Date('2024-06-15T10:30:00Z')
+          return { 
+            year: d.year, 
+            month: d.month, 
+            day: d.day,
+            hours: d.hours,
+            minutes: d.minutes
+          }
+        }
+      `)
+
+      const vm = new AgentVM()
+      const result = await vm.run(ast, {})
+
+      expect(result.result.year).toBe(2024)
+      expect(result.result.month).toBe(6)
+      expect(result.result.day).toBe(15)
+    })
+
+    it('should add time to Date', async () => {
+      const ast = js(`
+        function test() {
+          let d = Date('2024-01-15T00:00:00Z')
+          let later = d.add({ days: 5, hours: 3 })
+          return { original: d.format('date'), later: later.format('date') }
+        }
+      `)
+
+      const vm = new AgentVM()
+      const result = await vm.run(ast, {})
+
+      expect(result.result.original).toBe('2024-01-15')
+      expect(result.result.later).toBe('2024-01-20')
+    })
+
+    it('should calculate diff between Dates', async () => {
+      const ast = js(`
+        function test() {
+          let a = Date('2024-01-15T00:00:00Z')
+          let b = Date('2024-01-10T00:00:00Z')
+          let diffDays = a.diff(b, 'days')
+          return { diffDays }
+        }
+      `)
+
+      const vm = new AgentVM()
+      const result = await vm.run(ast, {})
+
+      expect(result.result.diffDays).toBe(5)
+    })
+
+    it('should format Dates', async () => {
+      const ast = js(`
+        function test() {
+          let d = Date('2024-06-15T14:30:45Z')
+          return { 
+            iso: d.format('ISO'),
+            date: d.format('date'),
+            custom: d.format('YYYY-MM-DD')
+          }
+        }
+      `)
+
+      const vm = new AgentVM()
+      const result = await vm.run(ast, {})
+
+      expect(result.result.iso).toContain('2024-06-15')
+      expect(result.result.date).toBe('2024-06-15')
+      expect(result.result.custom).toBe('2024-06-15')
+    })
+
+    it('should compare Dates', async () => {
+      const ast = js(`
+        function test() {
+          let a = Date('2024-01-15')
+          let b = Date('2024-01-20')
+          return { 
+            aBeforeB: a.isBefore(b),
+            aAfterB: a.isAfter(b)
+          }
+        }
+      `)
+
+      const vm = new AgentVM()
+      const result = await vm.run(ast, {})
+
+      expect(result.result.aBeforeB).toBe(true)
+      expect(result.result.aAfterB).toBe(false)
+    })
+
+    it('should create Date() with no args for current time', async () => {
+      const ast = js(`
+        function test() {
+          let now = Date()
+          return { hasValue: now.value.length > 0, hasTimestamp: now.timestamp > 0 }
+        }
+      `)
+
+      const vm = new AgentVM()
+      const result = await vm.run(ast, {})
+
+      expect(result.result.hasValue).toBe(true)
+      expect(result.result.hasTimestamp).toBe(true)
+    })
+  })
 })

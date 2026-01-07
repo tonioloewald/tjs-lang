@@ -328,8 +328,20 @@ function transformExpressionStatement(
 
   // Function call (side effect)
   if (expr.type === 'CallExpression') {
-    const { step } = transformExpressionToStep(expr, ctx)
-    return step
+    const { step, resultVar } = transformExpressionToStep(expr, ctx)
+    if (step) {
+      return step
+    }
+    // If no step but we got an expression (e.g., method call on builtin),
+    // we still need to evaluate it for side effects (like s.add(x))
+    if (resultVar) {
+      return {
+        op: 'varSet',
+        key: '_',
+        value: resultVar,
+      }
+    }
+    return null
   }
 
   // Other expressions (e.g., just a value) - no-op
@@ -624,6 +636,7 @@ const BUILTIN_OBJECTS = new Set([
   'String',
   'Number',
   'console',
+  'Date', // Date factory with static methods like Date.now()
 ])
 
 const BUILTIN_GLOBALS = new Set([
@@ -635,13 +648,13 @@ const BUILTIN_GLOBALS = new Set([
   'decodeURI',
   'encodeURIComponent',
   'decodeURIComponent',
+  'Set', // Factory function for set-like objects
+  'Date', // Factory function for date-like objects
 ])
 
 const UNSUPPORTED_BUILTINS = new Set([
-  'Date',
   'RegExp',
   'Promise',
-  'Set',
   'Map',
   'WeakSet',
   'WeakMap',
@@ -706,6 +719,20 @@ const INSTANCE_METHODS = new Set([
   'some',
   'forEach',
   // Note: map, filter, find, reduce are handled specially as atoms for lambda support
+  // Set methods (from Set() builtin)
+  'add',
+  'remove',
+  'has',
+  'clear',
+  'toArray',
+  'union',
+  'intersection',
+  'diff',
+  // Date methods (from Date() builtin)
+  'format',
+  'isBefore',
+  'isAfter',
+  // Note: Date.add and Date.diff are method calls that return new values
 ])
 
 /**
@@ -756,10 +783,8 @@ function isBuiltinMemberAccess(expr: MemberExpression): boolean {
 
 // Error messages for unsupported builtins
 const UNSUPPORTED_BUILTIN_MESSAGES: Record<string, string> = {
-  Date: 'Date is not available. Use the timestamp atom for current time.',
-  RegExp: 'RegExp is not available. Use string methods or the match atom.',
+  RegExp: 'RegExp is not available. Use string methods or the regexMatch atom.',
   Promise: 'Promise is not needed. All operations are implicitly async.',
-  Set: 'Set is not available. Use arrays with filter for unique values.',
   Map: 'Map is not available. Use plain objects instead.',
   WeakSet: 'WeakSet is not available.',
   WeakMap: 'WeakMap is not available.',
@@ -812,6 +837,28 @@ function getUnsupportedBuiltinError(expr: CallExpression): string | null {
 }
 
 /**
+ * Get helpful suggestion for 'new' expression alternatives
+ */
+function getNewExpressionSuggestion(constructorName: string): string {
+  const suggestions: Record<string, string> = {
+    Date: " Use Date() or Date('2024-01-15') instead - no 'new' needed.",
+    Set: " Use Set([items]) instead - no 'new' needed.",
+    Map: ' Use plain objects instead of Map.',
+    Array: ' Use array literals like [1, 2, 3] instead.',
+    Object: ' Use object literals like { key: value } instead.',
+    Error: " Return an error object like { error: 'message' } instead.",
+    RegExp: ' Use string methods or the regexMatch atom.',
+    Promise: ' Not needed - all operations are implicitly async.',
+    WeakSet: ' WeakSet is not available.',
+    WeakMap: ' WeakMap is not available.',
+  }
+  return (
+    suggestions[constructorName] ||
+    ' Use factory functions or object literals instead.'
+  )
+}
+
+/**
  * Transform an expression, potentially into a step with a result variable
  */
 function transformExpressionToStep(
@@ -832,6 +879,22 @@ function transformExpressionToStep(
       ctx,
       resultVar,
       isConst
+    )
+  }
+
+  // Check for 'new' keyword - not supported in AsyncJS
+  if (expr.type === 'NewExpression') {
+    const newExpr = expr as any
+    let constructorName = 'constructor'
+    if (newExpr.callee.type === 'Identifier') {
+      constructorName = newExpr.callee.name
+    }
+    const suggestion = getNewExpressionSuggestion(constructorName)
+    throw new TranspileError(
+      `The 'new' keyword is not supported in AsyncJS.${suggestion}`,
+      getLocation(expr),
+      ctx.source,
+      ctx.filename
     )
   }
 
@@ -1475,6 +1538,21 @@ function expressionToExprNode(
       )
     }
 
+    case 'NewExpression': {
+      const newExpr = expr as any
+      let constructorName = 'constructor'
+      if (newExpr.callee.type === 'Identifier') {
+        constructorName = newExpr.callee.name
+      }
+      const suggestion = getNewExpressionSuggestion(constructorName)
+      throw new TranspileError(
+        `The 'new' keyword is not supported in AsyncJS.${suggestion}`,
+        getLocation(expr),
+        ctx.source,
+        ctx.filename
+      )
+    }
+
     default:
       throw new TranspileError(
         `Unsupported expression type in condition: ${expr.type}`,
@@ -1582,6 +1660,17 @@ function expressionToValue(expr: Expression, ctx: TransformContext): any {
       // For template literals as values, we'd need to evaluate them
       // For now, return a placeholder
       return '__template__'
+
+    case 'CallExpression':
+      // Method calls like s.toArray() used as values need to be ExprNodes
+      return expressionToExprNode(expr, ctx)
+
+    case 'BinaryExpression':
+    case 'LogicalExpression':
+    case 'UnaryExpression':
+    case 'ConditionalExpression':
+      // Complex expressions need to be ExprNodes for runtime evaluation
+      return expressionToExprNode(expr, ctx)
 
     default:
       return null
