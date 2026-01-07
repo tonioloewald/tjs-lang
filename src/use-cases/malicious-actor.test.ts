@@ -15,8 +15,10 @@ describe('Use Case: Malicious Actor', () => {
 
     const ast = infinite.toJSON()
 
-    // 1. Run with limited fuel -> Should throw
-    await expect(VM.run(ast, {}, { fuel: 10 })).rejects.toThrow('Out of Fuel')
+    // 1. Run with limited fuel -> Should return error monadically
+    const result = await VM.run(ast, {}, { fuel: 10 })
+    expect(result.error).toBeDefined()
+    expect(result.error?.message).toBe('Out of Fuel')
 
     // 2. Run with enough fuel (simulated) -> Should fail eventually or return if limited loops
     // In this case condition is always true, so it loops forever.
@@ -44,7 +46,9 @@ describe('Use Case: Malicious Actor', () => {
     // It should evaluate to undefined or throw, or return the function if unsafe?
     // Safe sandbox should block access to __proto__, constructor, prototype.
 
-    await expect(VM.run(ast, {})).rejects.toThrow(/Security Error/)
+    const result = await VM.run(ast, {})
+    expect(result.error).toBeDefined()
+    expect(result.error?.message).toMatch(/Security Error/)
   })
 
   it('should prevent access to global process/Bun (Sandbox)', async () => {
@@ -98,8 +102,8 @@ describe('Use Case: Malicious Actor', () => {
       .as('content')
       .return(s.object({ content: s.any }))
 
-    await expect(
-      vm.run(exploit.toJSON(), {}, { capabilities: caps })
-    ).rejects.toThrow('Access Denied')
+    const result = await vm.run(exploit.toJSON(), {}, { capabilities: caps })
+    expect(result.error).toBeDefined()
+    expect(result.error?.message).toBe('Access Denied')
   })
 })

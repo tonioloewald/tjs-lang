@@ -120,8 +120,14 @@ export function inferTypeFromValue(node: Expression): TypeDescriptor {
 
 /**
  * Parse a parameter and extract its type and default value
+ *
+ * @param param - The AST node for the parameter
+ * @param requiredParams - Optional set of parameter names that are required (from colon syntax)
  */
-export function parseParameter(param: Pattern): ParameterDescriptor {
+export function parseParameter(
+  param: Pattern,
+  requiredParams?: Set<string>
+): ParameterDescriptor {
   // Simple identifier: function foo(x) - required, any type
   if (param.type === 'Identifier') {
     return {
@@ -144,29 +150,18 @@ export function parseParameter(param: Pattern): ParameterDescriptor {
 
     const name = left.name
 
-    // Check for null && type pattern (required parameter with type)
-    if (right.type === 'LogicalExpression' && right.operator === '&&') {
-      if (right.left.type === 'Literal' && right.left.value === null) {
-        // This is: param = null && type -> required param of that type
-        const type = inferTypeFromValue(right.right)
-        return {
-          name,
-          type,
-          required: true,
-          default: null,
-        }
-      }
-    }
+    // Check if this parameter was marked as required via colon syntax
+    const isRequired = requiredParams?.has(name) ?? false
 
-    // Regular default value: param = value -> optional with that type
+    // Infer type from the example value
     const type = inferTypeFromValue(right)
     const defaultValue = extractLiteralValue(right)
 
     return {
       name,
       type,
-      required: false,
-      default: defaultValue,
+      required: isRequired,
+      default: isRequired ? null : defaultValue,
     }
   }
 

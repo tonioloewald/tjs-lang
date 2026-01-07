@@ -1,5 +1,40 @@
 import { s, validate } from 'tosijs-schema'
 
+// --- Monadic Error Type ---
+
+/**
+ * AgentError wraps errors as values for monadic error flow.
+ * When an atom fails, it stores an AgentError instead of throwing.
+ * Subsequent atoms check for errors and pass them through without executing.
+ */
+export class AgentError {
+  readonly $error = true as const
+  readonly message: string
+  readonly op: string
+  readonly cause?: Error
+
+  constructor(message: string, op: string, cause?: Error) {
+    this.message = message
+    this.op = op
+    this.cause = cause
+  }
+
+  toString(): string {
+    return `AgentError[${this.op}]: ${this.message}`
+  }
+
+  toJSON(): { $error: true; message: string; op: string } {
+    return { $error: true, message: this.message, op: this.op }
+  }
+}
+
+/**
+ * Check if a value is an AgentError
+ */
+export function isAgentError(value: any): value is AgentError {
+  return value instanceof AgentError || (value && value.$error === true)
+}
+
 // --- Types ---
 
 export type OpCode = string
@@ -45,9 +80,11 @@ export interface RuntimeContext {
   fuel: { current: number }
   args: Record<string, any>
   state: Record<string, any> // Current scope state
+  consts: Set<string> // Variables declared with const (immutable)
   capabilities: Capabilities
   resolver: (op: string) => Atom<any, any> | undefined
   output?: any
+  error?: AgentError // Monadic error - when set, subsequent atoms are skipped
   memo?: Map<string, any>
   trace?: TraceEvent[]
 }
@@ -77,6 +114,7 @@ export interface AtomOptions {
 
 export interface RunResult {
   result: any
+  error?: AgentError
   fuelUsed: number
   trace?: TraceEvent[]
 }
@@ -170,6 +208,234 @@ export type ExprNode =
   | { $expr: 'array'; elements: ExprNode[] }
   | { $expr: 'object'; properties: { key: string; value: ExprNode }[] }
   | { $expr: 'call'; callee: string; arguments: ExprNode[] }
+  | {
+      $expr: 'methodCall'
+      object: ExprNode
+      method: string
+      arguments: ExprNode[]
+    }
+
+// --- Built-in Objects (Proxy-based) ---
+
+/**
+ * Create a proxy that provides helpful error messages for unsupported methods
+ */
+function createBuiltinProxy(
+  name: string,
+  supported: Record<string, any>,
+  alternatives?: Record<string, string>
+): any {
+  return new Proxy(supported, {
+    get(target, prop: string) {
+      if (prop in target) {
+        return target[prop]
+      }
+      const alt = alternatives?.[prop]
+      if (alt) {
+        throw new Error(`${name}.${prop} is not available. ${alt}`)
+      }
+      throw new Error(
+        `${name}.${prop} is not supported in AsyncJS. Check docs for available ${name} methods.`
+      )
+    },
+  })
+}
+
+/**
+ * Built-in objects available in expressions.
+ * These are Proxy objects that provide JS-like APIs mapped to safe implementations.
+ */
+export const builtins: Record<string, any> = {
+  // Math - most methods are safe pure functions
+  Math: createBuiltinProxy('Math', {
+    // Constants
+    PI: Math.PI,
+    E: Math.E,
+    LN2: Math.LN2,
+    LN10: Math.LN10,
+    LOG2E: Math.LOG2E,
+    LOG10E: Math.LOG10E,
+    SQRT2: Math.SQRT2,
+    SQRT1_2: Math.SQRT1_2,
+
+    // Safe pure functions
+    abs: Math.abs,
+    ceil: Math.ceil,
+    floor: Math.floor,
+    round: Math.round,
+    trunc: Math.trunc,
+    sign: Math.sign,
+    sqrt: Math.sqrt,
+    cbrt: Math.cbrt,
+    pow: Math.pow,
+    exp: Math.exp,
+    expm1: Math.expm1,
+    log: Math.log,
+    log2: Math.log2,
+    log10: Math.log10,
+    log1p: Math.log1p,
+    sin: Math.sin,
+    cos: Math.cos,
+    tan: Math.tan,
+    asin: Math.asin,
+    acos: Math.acos,
+    atan: Math.atan,
+    atan2: Math.atan2,
+    sinh: Math.sinh,
+    cosh: Math.cosh,
+    tanh: Math.tanh,
+    asinh: Math.asinh,
+    acosh: Math.acosh,
+    atanh: Math.atanh,
+    hypot: Math.hypot,
+    min: Math.min,
+    max: Math.max,
+    clz32: Math.clz32,
+    imul: Math.imul,
+    fround: Math.fround,
+
+    // Random - use crypto when available
+    random: () => {
+      if (typeof crypto !== 'undefined' && crypto.getRandomValues) {
+        const arr = new Uint32Array(1)
+        crypto.getRandomValues(arr)
+        return arr[0] / (0xffffffff + 1)
+      }
+      return Math.random()
+    },
+  }),
+
+  // JSON - parse and stringify
+  JSON: createBuiltinProxy('JSON', {
+    parse: (text: string) => JSON.parse(text),
+    stringify: (value: any, replacer?: any, space?: number) =>
+      JSON.stringify(value, replacer, space),
+  }),
+
+  // console - maps to trace/logging
+  console: createBuiltinProxy(
+    'console',
+    {
+      log: (..._args: any[]) => {
+        // In expression context, we can't access trace easily
+        // This is a no-op in expressions, but works in atom context
+        // The transpiler should lift console.log to a trace atom call
+        return undefined
+      },
+      warn: (..._args: any[]) => undefined,
+      error: (..._args: any[]) => undefined,
+      info: (..._args: any[]) => undefined,
+    },
+    {
+      table: 'Use console.log with JSON.stringify for structured data.',
+      dir: 'Use console.log instead.',
+      trace: 'Stack traces are not available in AsyncJS.',
+    }
+  ),
+
+  // Array static methods
+  Array: createBuiltinProxy(
+    'Array',
+    {
+      isArray: (value: any) => Array.isArray(value),
+      from: (iterable: any, mapFn?: any, thisArg?: any) =>
+        Array.from(iterable, mapFn, thisArg),
+      of: (...items: any[]) => Array.of(...items),
+    },
+    {
+      prototype: 'Prototype access is not allowed.',
+    }
+  ),
+
+  // Object static methods
+  Object: createBuiltinProxy(
+    'Object',
+    {
+      keys: (obj: any) => Object.keys(obj),
+      values: (obj: any) => Object.values(obj),
+      entries: (obj: any) => Object.entries(obj),
+      fromEntries: (entries: any) => Object.fromEntries(entries),
+      assign: (target: any, ...sources: any[]) =>
+        Object.assign({}, target, ...sources),
+      hasOwn: (obj: any, prop: string) => Object.hasOwn(obj, prop),
+    },
+    {
+      prototype: 'Prototype access is not allowed.',
+      create: 'Use object literals instead.',
+      defineProperty: 'Property descriptors are not supported.',
+      getPrototypeOf: 'Prototype access is not allowed.',
+      setPrototypeOf: 'Prototype modification is not allowed.',
+    }
+  ),
+
+  // String static methods
+  String: createBuiltinProxy('String', {
+    fromCharCode: (...codes: number[]) => String.fromCharCode(...codes),
+    fromCodePoint: (...codePoints: number[]) =>
+      String.fromCodePoint(...codePoints),
+  }),
+
+  // Number static methods and constants
+  Number: createBuiltinProxy('Number', {
+    isNaN: Number.isNaN,
+    isFinite: Number.isFinite,
+    isInteger: Number.isInteger,
+    isSafeInteger: Number.isSafeInteger,
+    parseFloat: parseFloat,
+    parseInt: parseInt,
+    MAX_VALUE: Number.MAX_VALUE,
+    MIN_VALUE: Number.MIN_VALUE,
+    MAX_SAFE_INTEGER: Number.MAX_SAFE_INTEGER,
+    MIN_SAFE_INTEGER: Number.MIN_SAFE_INTEGER,
+    POSITIVE_INFINITY: Number.POSITIVE_INFINITY,
+    NEGATIVE_INFINITY: Number.NEGATIVE_INFINITY,
+    NaN: Number.NaN,
+    EPSILON: Number.EPSILON,
+  }),
+
+  // Global functions
+  parseInt: parseInt,
+  parseFloat: parseFloat,
+  isNaN: isNaN,
+  isFinite: isFinite,
+  encodeURI: encodeURI,
+  decodeURI: decodeURI,
+  encodeURIComponent: encodeURIComponent,
+  decodeURIComponent: decodeURIComponent,
+
+  // Constants
+  undefined: undefined,
+  null: null,
+  NaN: NaN,
+  Infinity: Infinity,
+}
+
+// Built-ins that are NOT available with helpful messages
+const unsupportedBuiltins: Record<string, string> = {
+  Date: 'Date is not available. Use the timestamp atom for current time.',
+  RegExp: 'RegExp is not available. Use string methods or the match atom.',
+  Promise: 'Promise is not needed. All operations are implicitly async.',
+  Set: 'Set is not available. Use arrays with filter for unique values.',
+  Map: 'Map is not available. Use plain objects instead.',
+  WeakSet: 'WeakSet is not available.',
+  WeakMap: 'WeakMap is not available.',
+  Symbol: 'Symbol is not available.',
+  Proxy: 'Proxy is not available.',
+  Reflect: 'Reflect is not available.',
+  Function: 'Function constructor is not available. Define functions normally.',
+  eval: 'eval is not available. Code is compiled, not evaluated.',
+  setTimeout: 'setTimeout is not available. Use the delay atom.',
+  setInterval: 'setInterval is not available. Use while loops with delay.',
+  fetch: 'fetch is not available. Use the httpFetch atom.',
+  require: 'require is not available. Atoms must be registered with the VM.',
+  import: 'import is not available. Atoms must be registered with the VM.',
+  process: 'process is not available. AsyncJS runs in a sandboxed environment.',
+  window: 'window is not available. AsyncJS runs in a sandboxed environment.',
+  document:
+    'document is not available. AsyncJS runs in a sandboxed environment.',
+  global: 'global is not available. AsyncJS runs in a sandboxed environment.',
+  globalThis: 'globalThis is not available. Use builtins directly.',
+}
 
 /** Fuel cost per expression node evaluation */
 const EXPR_FUEL_COST = 0.01
@@ -202,12 +468,20 @@ export function evaluateExpr(node: ExprNode, ctx: RuntimeContext): any {
       return node.value
 
     case 'ident': {
-      // Look up in state first, then args
+      // Look up in state first, then args, then builtins
       if (node.name in ctx.state) {
         return ctx.state[node.name]
       }
       if (node.name in ctx.args) {
         return ctx.args[node.name]
+      }
+      // Check builtins (Math, JSON, Array, etc.)
+      if (node.name in builtins) {
+        return builtins[node.name]
+      }
+      // Check for unsupported builtins and give helpful error
+      if (node.name in unsupportedBuiltins) {
+        throw new Error(unsupportedBuiltins[node.name])
       }
       return undefined
     }
@@ -311,9 +585,21 @@ export function evaluateExpr(node: ExprNode, ctx: RuntimeContext): any {
     }
 
     case 'call': {
+      // Check if this is a builtin global function (parseInt, parseFloat, etc.)
+      if (node.callee in builtins) {
+        const fn = builtins[node.callee]
+        if (typeof fn === 'function') {
+          const args = node.arguments.map((arg) => evaluateExpr(arg, ctx))
+          return fn(...args)
+        }
+      }
       // For atom calls within expressions
       const atom = ctx.resolver(node.callee)
       if (!atom) {
+        // Check unsupported builtins
+        if (node.callee in unsupportedBuiltins) {
+          throw new Error(unsupportedBuiltins[node.callee])
+        }
         throw new Error(`Unknown function: ${node.callee}`)
       }
       // This is synchronous evaluation - atom calls need special handling
@@ -321,6 +607,33 @@ export function evaluateExpr(node: ExprNode, ctx: RuntimeContext): any {
       throw new Error(
         `Atom calls in expressions not yet supported: ${node.callee}`
       )
+    }
+
+    case 'methodCall': {
+      // Method call on an object (e.g., Math.floor(x), arr.length, str.toUpperCase())
+      const obj = evaluateExpr(node.object, ctx)
+      const method = node.method
+
+      // Security: Block prototype access
+      if (
+        method === '__proto__' ||
+        method === 'constructor' ||
+        method === 'prototype'
+      ) {
+        throw new Error(`Security Error: Access to '${method}' is forbidden`)
+      }
+
+      if (obj === null || obj === undefined) {
+        throw new Error(`Cannot call method '${method}' on ${obj}`)
+      }
+
+      const fn = obj[method]
+      if (typeof fn !== 'function') {
+        throw new Error(`'${method}' is not a function`)
+      }
+
+      const args = node.arguments.map((arg) => evaluateExpr(arg, ctx))
+      return fn.apply(obj, args)
     }
 
     default:
@@ -346,11 +659,16 @@ export function defineAtom<I extends Record<string, any>, O = any>(
   const exec: AtomExec = async (step: any, ctx: RuntimeContext) => {
     const { op: _op, result: _res, ...inputData } = step
 
+    // Skip if already in error state (monadic flow)
+    if (ctx.error) return
+
     // 1. Validation
     if (inputSchema && !validate(inputSchema, inputData)) {
-      throw new Error(
-        `Atom '${op}' validation failed: ${JSON.stringify(inputData)}`
+      ctx.error = new AgentError(
+        `Validation failed: ${JSON.stringify(inputData)}`,
+        op
       )
+      return
     }
 
     // --- Tracing Start ---
@@ -363,7 +681,10 @@ export function defineAtom<I extends Record<string, any>, O = any>(
       // 2. Deduct Fuel
       const currentCost =
         typeof cost === 'function' ? cost(inputData, ctx) : cost
-      if ((ctx.fuel.current -= currentCost) <= 0) throw new Error('Out of Fuel')
+      if ((ctx.fuel.current -= currentCost) <= 0) {
+        ctx.error = new AgentError('Out of Fuel', op)
+        return
+      }
 
       // 3. Execution with Timeout
       let timer: any
@@ -384,12 +705,19 @@ export function defineAtom<I extends Record<string, any>, O = any>(
 
       // 4. Result
       if (step.result && result !== undefined) {
+        if (ctx.consts.has(step.result)) {
+          throw new Error(`Cannot reassign const variable '${step.result}'`)
+        }
         ctx.state[step.result] = result
+        // Mark as const if resultConst is set
+        if (step.resultConst) {
+          ctx.consts.add(step.result)
+        }
       }
     } catch (e: any) {
       error = e.message || String(e)
-      // Re-throw the error to be handled by try/catch blocks in the agent logic
-      throw e
+      // Convert exception to monadic error
+      ctx.error = new AgentError(error!, op, e)
     } finally {
       // --- Tracing End ---
       if (ctx.trace && stateBefore) {
@@ -430,6 +758,7 @@ export const seq = defineAtom(
   async ({ steps }, ctx) => {
     for (const step of steps) {
       if (ctx.output !== undefined) return // Return check
+      if (ctx.error) return // Monadic error - skip remaining steps
       const atom = ctx.resolver(step.op)
       if (!atom) throw new Error(`Unknown Atom: ${step.op}`)
       await atom.exec(step, ctx)
@@ -478,6 +807,12 @@ export const ret = defineAtom(
   undefined,
   s.any,
   async (step: any, ctx) => {
+    // If in error state, propagate the error as the output
+    if (ctx.error) {
+      ctx.output = ctx.error
+      return ctx.error
+    }
+
     const res: any = {}
     // If schema provided, extract subset of state. Else return null/void?
     // Current pattern: schema defines output shape matching state keys
@@ -497,13 +832,20 @@ export const tryCatch = defineAtom(
   s.object({ try: s.array(s.any), catch: s.array(s.any).optional }),
   undefined,
   async (step, ctx) => {
-    try {
-      await seq.exec({ op: 'seq', steps: step.try } as any, ctx)
-    } catch (e: any) {
-      if (step.catch) {
-        ctx.state['error'] = e.message || String(e)
-        await seq.exec({ op: 'seq', steps: step.catch } as any, ctx)
-      }
+    // Execute try block
+    await seq.exec({ op: 'seq', steps: step.try } as any, ctx)
+
+    // If an error occurred and we have a catch block, handle it
+    if (ctx.error && step.catch) {
+      // Store error message in state for catch block to access
+      ctx.state['error'] = ctx.error.message
+      ctx.state['errorOp'] = ctx.error.op
+      // Clear the error - catch block handles it
+      ctx.error = undefined
+      // Execute catch block
+      await seq.exec({ op: 'seq', steps: step.catch } as any, ctx)
+      // If catch block didn't set a new error, we're recovered
+      // If it did, that error propagates
     }
   },
   { docs: 'Try/Catch', timeoutMs: 0, cost: 0.1 }
@@ -515,9 +857,29 @@ export const varSet = defineAtom(
   s.object({ key: s.string, value: s.any }),
   undefined,
   async ({ key, value }, ctx) => {
+    if (ctx.consts.has(key)) {
+      throw new Error(`Cannot reassign const variable '${key}'`)
+    }
     ctx.state[key] = resolveValue(value, ctx)
   },
   { docs: 'Set Variable', cost: 0.1 }
+)
+
+export const constSet = defineAtom(
+  'constSet',
+  s.object({ key: s.string, value: s.any }),
+  undefined,
+  async ({ key, value }, ctx) => {
+    if (ctx.consts.has(key)) {
+      throw new Error(`Cannot reassign const variable '${key}'`)
+    }
+    if (key in ctx.state) {
+      throw new Error(`Cannot redeclare variable '${key}' as const`)
+    }
+    ctx.state[key] = resolveValue(value, ctx)
+    ctx.consts.add(key)
+  },
+  { docs: 'Set Const Variable (immutable)', cost: 0.1 }
 )
 
 export const varGet = defineAtom(
@@ -650,6 +1012,86 @@ export const map = defineAtom(
     return results
   },
   { docs: 'Map Array', timeoutMs: 0, cost: 1 }
+)
+
+export const filter = defineAtom(
+  'filter',
+  s.object({
+    items: s.array(s.any),
+    as: s.string,
+    condition: s.any, // ExprNode that evaluates to boolean
+  }),
+  s.array(s.any),
+  async ({ items, as, condition }, ctx) => {
+    const results = []
+    const resolvedItems = resolveValue(items, ctx)
+    if (!Array.isArray(resolvedItems))
+      throw new Error('filter: items is not an array')
+    for (const item of resolvedItems) {
+      const scopedCtx = createChildScope(ctx)
+      scopedCtx.state[as] = item
+      const passes = evaluateExpr(condition, scopedCtx)
+      if (passes) {
+        results.push(item)
+      }
+    }
+    return results
+  },
+  { docs: 'Filter Array', timeoutMs: 0, cost: 1 }
+)
+
+export const reduce = defineAtom(
+  'reduce',
+  s.object({
+    items: s.array(s.any),
+    as: s.string,
+    accumulator: s.string,
+    initial: s.any,
+    steps: s.array(s.any),
+  }),
+  s.any,
+  async ({ items, as, accumulator, initial, steps }, ctx) => {
+    const resolvedItems = resolveValue(items, ctx)
+    const resolvedInitial = resolveValue(initial, ctx)
+    if (!Array.isArray(resolvedItems))
+      throw new Error('reduce: items is not an array')
+
+    let acc = resolvedInitial
+    for (const item of resolvedItems) {
+      const scopedCtx = createChildScope(ctx)
+      scopedCtx.state[as] = item
+      scopedCtx.state[accumulator] = acc
+      await seq.exec({ op: 'seq', steps } as any, scopedCtx)
+      acc = scopedCtx.state['result'] ?? acc
+    }
+    return acc
+  },
+  { docs: 'Reduce Array', timeoutMs: 0, cost: 1 }
+)
+
+export const find = defineAtom(
+  'find',
+  s.object({
+    items: s.array(s.any),
+    as: s.string,
+    condition: s.any, // ExprNode that evaluates to boolean
+  }),
+  s.any,
+  async ({ items, as, condition }, ctx) => {
+    const resolvedItems = resolveValue(items, ctx)
+    if (!Array.isArray(resolvedItems))
+      throw new Error('find: items is not an array')
+    for (const item of resolvedItems) {
+      const scopedCtx = createChildScope(ctx)
+      scopedCtx.state[as] = item
+      const matches = evaluateExpr(condition, scopedCtx)
+      if (matches) {
+        return item
+      }
+    }
+    return null
+  },
+  { docs: 'Find in Array', timeoutMs: 0, cost: 1 }
 )
 
 export const push = defineAtom(
@@ -883,7 +1325,23 @@ export const agentRun = defineAtom(
       }
     }
 
-    return ctx.capabilities.agent.run(resolvedId, resolvedInput)
+    const result = await ctx.capabilities.agent.run(resolvedId, resolvedInput)
+
+    // Check if this is a RunResult (has fuelUsed property) - unwrap it
+    if (
+      result &&
+      typeof result === 'object' &&
+      'fuelUsed' in result &&
+      typeof result.fuelUsed === 'number'
+    ) {
+      // It's a RunResult - check for error and propagate
+      if (result.error) {
+        throw new Error(result.error.message || 'Sub-agent failed')
+      }
+      return result.result
+    }
+
+    return result
   },
   { docs: 'Run Sub-Agent', cost: 1 }
 )
@@ -1033,11 +1491,14 @@ export const random = defineAtom(
       return result
     }
 
-    let val = Math.random()
+    // Prefer cryptographically secure random when available
+    let val: number
     if (typeof crypto !== 'undefined' && crypto.getRandomValues) {
       const arr = new Uint32Array(1)
       crypto.getRandomValues(arr)
       val = arr[0] / (0xffffffff + 1)
+    } else {
+      val = Math.random()
     }
 
     const range = mx - mn
@@ -1056,9 +1517,25 @@ export const uuid = defineAtom(
   undefined,
   s.string,
   async () => {
+    // Prefer crypto.randomUUID when available
     if (typeof crypto !== 'undefined' && crypto.randomUUID) {
       return crypto.randomUUID()
     }
+    // Fallback using crypto.getRandomValues if available
+    if (typeof crypto !== 'undefined' && crypto.getRandomValues) {
+      const bytes = new Uint8Array(16)
+      crypto.getRandomValues(bytes)
+      bytes[6] = (bytes[6] & 0x0f) | 0x40 // version 4
+      bytes[8] = (bytes[8] & 0x3f) | 0x80 // variant 10
+      const hex = Array.from(bytes, (b) =>
+        b.toString(16).padStart(2, '0')
+      ).join('')
+      return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(
+        12,
+        16
+      )}-${hex.slice(16, 20)}-${hex.slice(20)}`
+    }
+    // Last resort fallback (insecure, for legacy environments only)
     return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, (c) => {
       const r = (Math.random() * 16) | 0
       const v = c === 'x' ? r : (r & 0x3) | 0x8
@@ -1111,6 +1588,7 @@ export const coreAtoms = {
   return: ret,
   try: tryCatch,
   varSet,
+  constSet,
   varGet,
   varsImport,
   varsLet,
@@ -1124,6 +1602,9 @@ export const coreAtoms = {
   or,
   not,
   map,
+  filter,
+  reduce,
+  find,
   push,
   len,
   split,

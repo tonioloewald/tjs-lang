@@ -52,7 +52,8 @@ export function transformFunction(
   func: FunctionDeclaration,
   source: string,
   returnTypeAnnotation: string | undefined,
-  options: TranspileOptions = {}
+  options: TranspileOptions = {},
+  requiredParamsFromPreprocess?: Set<string>
 ): {
   ast: BaseNode
   signature: FunctionSignature
@@ -65,7 +66,7 @@ export function transformFunction(
   const parameters = new Map<string, ParameterDescriptor>()
 
   for (const param of func.params) {
-    const parsed = parseParameter(param)
+    const parsed = parseParameter(param, requiredParamsFromPreprocess)
 
     // Handle destructured parameters - expand into individual params
     if (
@@ -244,13 +245,15 @@ export function transformStatement(
 }
 
 /**
- * Transform variable declaration: let x = value
+ * Transform variable declaration: let x = value or const x = value
  */
 function transformVariableDeclaration(
   decl: VariableDeclaration,
   ctx: TransformContext
 ): BaseNode[] {
   const steps: BaseNode[] = []
+  const isConst = decl.kind === 'const'
+  const opName = isConst ? 'constSet' : 'varSet'
 
   for (const declarator of decl.declarations) {
     if (declarator.id.type !== 'Identifier') {
@@ -269,7 +272,8 @@ function transformVariableDeclaration(
       const { step, resultVar } = transformExpressionToStep(
         declarator.init,
         ctx,
-        name
+        name,
+        isConst
       )
 
       if (step) {
@@ -277,7 +281,7 @@ function transformVariableDeclaration(
       } else if (resultVar !== name) {
         // Simple value assignment
         steps.push({
-          op: 'varSet',
+          op: opName,
           key: name,
           value: resultVar,
         })
@@ -287,7 +291,15 @@ function transformVariableDeclaration(
       const type = inferTypeFromValue(declarator.init as Expression)
       ctx.locals.set(name, type)
     } else {
-      // Uninitialized variable
+      // Uninitialized variable (only valid for let, not const)
+      if (isConst) {
+        throw new TranspileError(
+          'const declarations must be initialized',
+          getLocation(declarator),
+          ctx.source,
+          ctx.filename
+        )
+      }
       steps.push({
         op: 'varSet',
         key: name,
@@ -603,22 +615,283 @@ function transformReturnStatement(
   return { op: 'seq', steps }
 }
 
+// Known builtins that should be evaluated as expressions, not atom calls
+const BUILTIN_OBJECTS = new Set([
+  'Math',
+  'JSON',
+  'Array',
+  'Object',
+  'String',
+  'Number',
+  'console',
+])
+
+const BUILTIN_GLOBALS = new Set([
+  'parseInt',
+  'parseFloat',
+  'isNaN',
+  'isFinite',
+  'encodeURI',
+  'decodeURI',
+  'encodeURIComponent',
+  'decodeURIComponent',
+])
+
+const UNSUPPORTED_BUILTINS = new Set([
+  'Date',
+  'RegExp',
+  'Promise',
+  'Set',
+  'Map',
+  'WeakSet',
+  'WeakMap',
+  'Symbol',
+  'Proxy',
+  'Reflect',
+  'Function',
+  'eval',
+  'setTimeout',
+  'setInterval',
+  'fetch',
+  'require',
+  'import',
+  'process',
+  'window',
+  'document',
+  'global',
+  'globalThis',
+])
+
+// Instance methods that should be evaluated as expressions, not atom calls
+// These are methods on values (strings, arrays, etc.) that have native implementations
+const INSTANCE_METHODS = new Set([
+  // String methods
+  'toUpperCase',
+  'toLowerCase',
+  'trim',
+  'trimStart',
+  'trimEnd',
+  'charAt',
+  'charCodeAt',
+  'codePointAt',
+  'concat',
+  'includes',
+  'indexOf',
+  'lastIndexOf',
+  'startsWith',
+  'endsWith',
+  'slice',
+  'substring',
+  'substr',
+  'replace',
+  'replaceAll',
+  'match',
+  'search',
+  'padStart',
+  'padEnd',
+  'repeat',
+  'normalize',
+  'localeCompare',
+  'toString',
+  'valueOf',
+  'at',
+  // Array methods (that don't need special atom handling)
+  'reverse',
+  'sort',
+  'fill',
+  'copyWithin',
+  'flat',
+  'flatMap',
+  'every',
+  'some',
+  'forEach',
+  // Note: map, filter, find, reduce are handled specially as atoms for lambda support
+])
+
+/**
+ * Check if a CallExpression is a builtin call (Math.floor, JSON.parse, etc.)
+ * or an instance method call (str.toUpperCase(), arr.includes(), etc.)
+ */
+function isBuiltinCall(expr: CallExpression): boolean {
+  // Check for global functions like parseInt()
+  if (expr.callee.type === 'Identifier') {
+    const name = (expr.callee as Identifier).name
+    return BUILTIN_GLOBALS.has(name) || UNSUPPORTED_BUILTINS.has(name)
+  }
+
+  // Check for method calls
+  if (expr.callee.type === 'MemberExpression') {
+    const member = expr.callee as MemberExpression
+
+    // Check for method calls on builtin objects like Math.floor()
+    if (member.object.type === 'Identifier') {
+      const objName = (member.object as Identifier).name
+      if (BUILTIN_OBJECTS.has(objName) || UNSUPPORTED_BUILTINS.has(objName)) {
+        return true
+      }
+    }
+
+    // Check for instance method calls like str.toUpperCase()
+    if (member.property.type === 'Identifier') {
+      const methodName = (member.property as Identifier).name
+      if (INSTANCE_METHODS.has(methodName)) {
+        return true
+      }
+    }
+  }
+
+  return false
+}
+
+/**
+ * Check if a MemberExpression is accessing a builtin object (Math.PI, Number.MAX_VALUE, etc.)
+ */
+function isBuiltinMemberAccess(expr: MemberExpression): boolean {
+  if (expr.object.type === 'Identifier') {
+    const objName = (expr.object as Identifier).name
+    return BUILTIN_OBJECTS.has(objName) || UNSUPPORTED_BUILTINS.has(objName)
+  }
+  return false
+}
+
+// Error messages for unsupported builtins
+const UNSUPPORTED_BUILTIN_MESSAGES: Record<string, string> = {
+  Date: 'Date is not available. Use the timestamp atom for current time.',
+  RegExp: 'RegExp is not available. Use string methods or the match atom.',
+  Promise: 'Promise is not needed. All operations are implicitly async.',
+  Set: 'Set is not available. Use arrays with filter for unique values.',
+  Map: 'Map is not available. Use plain objects instead.',
+  WeakSet: 'WeakSet is not available.',
+  WeakMap: 'WeakMap is not available.',
+  Symbol: 'Symbol is not available.',
+  Proxy: 'Proxy is not available.',
+  Reflect: 'Reflect is not available.',
+  Function: 'Function constructor is not available. Define functions normally.',
+  eval: 'eval is not available. Code is compiled, not evaluated.',
+  setTimeout: 'setTimeout is not available. Use the delay atom.',
+  setInterval: 'setInterval is not available. Use while loops with delay.',
+  fetch: 'fetch is not available. Use the httpFetch atom.',
+  require: 'require is not available. Atoms must be registered with the VM.',
+  import: 'import is not available. Atoms must be registered with the VM.',
+  process: 'process is not available. AsyncJS runs in a sandboxed environment.',
+  window: 'window is not available. AsyncJS runs in a sandboxed environment.',
+  document:
+    'document is not available. AsyncJS runs in a sandboxed environment.',
+  global: 'global is not available. AsyncJS runs in a sandboxed environment.',
+  globalThis: 'globalThis is not available. Use builtins directly.',
+}
+
+/**
+ * Check if expression uses an unsupported builtin and return error message if so
+ */
+function getUnsupportedBuiltinError(expr: CallExpression): string | null {
+  if (expr.callee.type === 'Identifier') {
+    const name = (expr.callee as Identifier).name
+    if (UNSUPPORTED_BUILTINS.has(name)) {
+      return (
+        UNSUPPORTED_BUILTIN_MESSAGES[name] ||
+        `${name} is not available in AsyncJS.`
+      )
+    }
+  }
+
+  if (expr.callee.type === 'MemberExpression') {
+    const member = expr.callee as MemberExpression
+    if (member.object.type === 'Identifier') {
+      const objName = (member.object as Identifier).name
+      if (UNSUPPORTED_BUILTINS.has(objName)) {
+        return (
+          UNSUPPORTED_BUILTIN_MESSAGES[objName] ||
+          `${objName} is not available in AsyncJS.`
+        )
+      }
+    }
+  }
+
+  return null
+}
+
 /**
  * Transform an expression, potentially into a step with a result variable
  */
 function transformExpressionToStep(
   expr: Expression,
   ctx: TransformContext,
-  resultVar?: string
+  resultVar?: string,
+  isConst?: boolean
 ): { step: BaseNode | null; resultVar: any } {
+  const varOp = isConst ? 'constSet' : 'varSet'
+  // Check for unsupported builtins first and give helpful error
+  if (expr.type === 'CallExpression') {
+    const unsupportedError = getUnsupportedBuiltinError(expr as CallExpression)
+    if (unsupportedError) {
+      throw new TranspileError(
+        unsupportedError,
+        getLocation(expr),
+        ctx.source,
+        ctx.filename
+      )
+    }
+  }
+
+  // Check if this is a builtin call (Math.floor, JSON.parse, parseInt, etc.)
+  // Builtins are evaluated as expressions, not atom calls
+  if (expr.type === 'CallExpression' && isBuiltinCall(expr as CallExpression)) {
+    const exprNode = expressionToExprNode(expr, ctx)
+
+    if (resultVar) {
+      return {
+        step: {
+          op: varOp,
+          key: resultVar,
+          value: exprNode,
+        },
+        resultVar,
+      }
+    }
+
+    return { step: null, resultVar: exprNode as any }
+  }
+
+  // Check if this is a builtin member access (Math.PI, Number.MAX_SAFE_INTEGER, etc.)
+  if (
+    expr.type === 'MemberExpression' &&
+    isBuiltinMemberAccess(expr as MemberExpression)
+  ) {
+    const exprNode = expressionToExprNode(expr, ctx)
+
+    if (resultVar) {
+      return {
+        step: {
+          op: varOp,
+          key: resultVar,
+          value: exprNode,
+        },
+        resultVar,
+      }
+    }
+
+    return { step: null, resultVar: exprNode as any }
+  }
+
   // Function call -> atom invocation
   if (expr.type === 'CallExpression') {
-    return transformCallExpression(expr as CallExpression, ctx, resultVar)
+    return transformCallExpression(
+      expr as CallExpression,
+      ctx,
+      resultVar,
+      isConst
+    )
   }
 
   // Template literal -> template atom
   if (expr.type === 'TemplateLiteral') {
-    return transformTemplateLiteral(expr as TemplateLiteral, ctx, resultVar)
+    return transformTemplateLiteral(
+      expr as TemplateLiteral,
+      ctx,
+      resultVar,
+      isConst
+    )
   }
 
   // Binary/logical/unary expression - convert to ExprNode
@@ -629,11 +902,11 @@ function transformExpressionToStep(
   ) {
     const exprNode = expressionToExprNode(expr, ctx)
 
-    // If we need to store the result, emit a varSet with the expression node as value
+    // If we need to store the result, emit a varSet/constSet with the expression node as value
     if (resultVar) {
       return {
         step: {
-          op: 'varSet',
+          op: varOp,
           key: resultVar,
           value: exprNode,
         },
@@ -656,7 +929,8 @@ function transformExpressionToStep(
 function transformCallExpression(
   expr: CallExpression,
   ctx: TransformContext,
-  resultVar?: string
+  resultVar?: string,
+  isConst?: boolean
 ): { step: BaseNode; resultVar: string | undefined } {
   // Get the function name
   let funcName: string
@@ -695,7 +969,8 @@ function transformCallExpression(
       receiver,
       expr.arguments as Expression[],
       ctx,
-      resultVar
+      resultVar,
+      isConst
     )
   }
 
@@ -716,6 +991,7 @@ function transformCallExpression(
       op: funcName,
       ...args,
       ...(resultVar && { result: resultVar }),
+      ...(resultVar && isConst && { resultConst: true }),
     },
     resultVar,
   }
@@ -729,7 +1005,8 @@ function transformMethodCall(
   receiver: any,
   args: Expression[],
   ctx: TransformContext,
-  resultVar?: string
+  resultVar?: string,
+  isConst?: boolean
 ): { step: BaseNode; resultVar: string | undefined } {
   switch (method) {
     case 'map':
@@ -768,6 +1045,7 @@ function transformMethodCall(
             as: paramName,
             steps,
             ...(resultVar && { result: resultVar }),
+            ...(resultVar && isConst && { resultConst: true }),
           },
           resultVar,
         }
@@ -775,7 +1053,138 @@ function transformMethodCall(
       break
 
     case 'filter':
-      // TODO: Implement filter
+      // arr.filter(x => condition) -> filter atom
+      if (
+        args.length > 0 &&
+        (args[0].type === 'ArrowFunctionExpression' ||
+          args[0].type === 'FunctionExpression')
+      ) {
+        const callback = args[0] as any
+        const param = callback.params[0]
+        const paramName = param?.type === 'Identifier' ? param.name : 'item'
+
+        const childCtx = createChildContext(ctx)
+        childCtx.locals.set(paramName, { kind: 'any' })
+
+        // For filter, the callback should return a boolean expression
+        // Convert the body to an ExprNode
+        let condition: any
+        if (callback.body.type === 'BlockStatement') {
+          // Block body - look for return statement
+          throw new TranspileError(
+            'filter callback must be an expression, not a block',
+            getLocation(args[0]),
+            ctx.source,
+            ctx.filename
+          )
+        } else {
+          // Expression body: x => x > 5
+          condition = expressionToExprNode(callback.body, childCtx)
+        }
+
+        return {
+          step: {
+            op: 'filter',
+            items: receiver,
+            as: paramName,
+            condition,
+            ...(resultVar && { result: resultVar }),
+            ...(resultVar && isConst && { resultConst: true }),
+          },
+          resultVar,
+        }
+      }
+      break
+
+    case 'find':
+      // arr.find(x => condition) -> find atom
+      if (
+        args.length > 0 &&
+        (args[0].type === 'ArrowFunctionExpression' ||
+          args[0].type === 'FunctionExpression')
+      ) {
+        const callback = args[0] as any
+        const param = callback.params[0]
+        const paramName = param?.type === 'Identifier' ? param.name : 'item'
+
+        const childCtx = createChildContext(ctx)
+        childCtx.locals.set(paramName, { kind: 'any' })
+
+        let condition: any
+        if (callback.body.type === 'BlockStatement') {
+          throw new TranspileError(
+            'find callback must be an expression, not a block',
+            getLocation(args[0]),
+            ctx.source,
+            ctx.filename
+          )
+        } else {
+          condition = expressionToExprNode(callback.body, childCtx)
+        }
+
+        return {
+          step: {
+            op: 'find',
+            items: receiver,
+            as: paramName,
+            condition,
+            ...(resultVar && { result: resultVar }),
+            ...(resultVar && isConst && { resultConst: true }),
+          },
+          resultVar,
+        }
+      }
+      break
+
+    case 'reduce':
+      // arr.reduce((acc, x) => expr, initial) -> reduce atom
+      if (
+        args.length >= 2 &&
+        (args[0].type === 'ArrowFunctionExpression' ||
+          args[0].type === 'FunctionExpression')
+      ) {
+        const callback = args[0] as any
+        const accParam = callback.params[0]
+        const itemParam = callback.params[1]
+        const accName = accParam?.type === 'Identifier' ? accParam.name : 'acc'
+        const itemName =
+          itemParam?.type === 'Identifier' ? itemParam.name : 'item'
+
+        const childCtx = createChildContext(ctx)
+        childCtx.locals.set(accName, { kind: 'any' })
+        childCtx.locals.set(itemName, { kind: 'any' })
+
+        let steps: BaseNode[]
+        if (callback.body.type === 'BlockStatement') {
+          steps = transformBlock(callback.body, childCtx)
+        } else {
+          // Expression body: (acc, x) => acc + x
+          const { step, resultVar: exprResult } = transformExpressionToStep(
+            callback.body,
+            childCtx,
+            'result'
+          )
+          steps = step
+            ? [step]
+            : [{ op: 'varSet', key: 'result', value: exprResult }]
+        }
+
+        const initial = expressionToValue(args[1], ctx)
+
+        return {
+          step: {
+            op: 'reduce',
+            items: receiver,
+            as: itemName,
+            accumulator: accName,
+            initial,
+            steps,
+            ...(resultVar && { result: resultVar }),
+            ...(resultVar && isConst && { resultConst: true }),
+          },
+          resultVar,
+        }
+      }
       break
 
     case 'slice':
@@ -789,6 +1198,7 @@ function transformMethodCall(
           list: receiver,
           item: expressionToValue(args[0], ctx),
           ...(resultVar && { result: resultVar }),
+          ...(resultVar && isConst && { resultConst: true }),
         },
         resultVar,
       }
@@ -800,6 +1210,7 @@ function transformMethodCall(
           list: receiver,
           sep: args.length > 0 ? expressionToValue(args[0], ctx) : '',
           ...(resultVar && { result: resultVar }),
+          ...(resultVar && isConst && { resultConst: true }),
         },
         resultVar,
       }
@@ -811,6 +1222,7 @@ function transformMethodCall(
           str: receiver,
           sep: args.length > 0 ? expressionToValue(args[0], ctx) : '',
           ...(resultVar && { result: resultVar }),
+          ...(resultVar && isConst && { resultConst: true }),
         },
         resultVar,
       }
@@ -829,6 +1241,7 @@ function transformMethodCall(
       receiver,
       args: args.map((a) => expressionToValue(a, ctx)),
       ...(resultVar && { result: resultVar }),
+      ...(resultVar && isConst && { resultConst: true }),
     },
     resultVar,
   }
@@ -840,7 +1253,8 @@ function transformMethodCall(
 function transformTemplateLiteral(
   expr: TemplateLiteral,
   ctx: TransformContext,
-  resultVar?: string
+  resultVar?: string,
+  isConst?: boolean
 ): { step: BaseNode; resultVar: string | undefined } {
   // Build template string with {{var}} placeholders
   let tmpl = ''
@@ -863,6 +1277,7 @@ function transformTemplateLiteral(
       tmpl,
       vars,
       ...(resultVar && { result: resultVar }),
+      ...(resultVar && isConst && { resultConst: true }),
     },
     resultVar,
   }
@@ -990,9 +1405,41 @@ function expressionToExprNode(
     }
 
     case 'CallExpression': {
-      // This shouldn't happen for conditions, but handle it
+      const call = expr as CallExpression
+
+      // Handle method calls (e.g., Math.floor(x), str.toUpperCase(), arr.push(x))
+      if (call.callee.type === 'MemberExpression') {
+        const member = call.callee as MemberExpression
+        const method =
+          member.property.type === 'Identifier'
+            ? (member.property as Identifier).name
+            : String((member.property as Literal).value)
+
+        return {
+          $expr: 'methodCall',
+          object: expressionToExprNode(member.object as Expression, ctx),
+          method,
+          arguments: call.arguments.map((arg) =>
+            expressionToExprNode(arg as Expression, ctx)
+          ),
+        }
+      }
+
+      // Handle global function calls (e.g., parseInt(x), parseFloat(x))
+      if (call.callee.type === 'Identifier') {
+        const funcName = (call.callee as Identifier).name
+        return {
+          $expr: 'call',
+          callee: funcName,
+          arguments: call.arguments.map((arg) =>
+            expressionToExprNode(arg as Expression, ctx)
+          ),
+        }
+      }
+
+      // Other call types not supported in expressions
       throw new TranspileError(
-        'Function calls in expressions should be lifted to statements',
+        'Complex function calls in expressions should be lifted to statements',
         getLocation(expr),
         ctx.source,
         ctx.filename

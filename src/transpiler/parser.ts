@@ -21,22 +21,23 @@ export interface ParseOptions {
  * Preprocess source to handle custom syntax extensions
  *
  * Transforms:
- *   function foo(x: 'string') { }
+ *   function foo(x: 'example') { }
  * Into:
- *   function foo(x = null && 'string') { }
+ *   function foo(x = 'example') { }
+ * And tracks that 'x' is a required parameter.
  *
- * And:
- *   function foo(x: 'string') -> { result: 'string' } { }
- * Into:
- *   function foo(x = null && 'string') { /* __RETURN_TYPE__: { result: 'string' } * / }
+ * Also handles return type annotation:
+ *   function foo(x: 'example') -> { result: 'string' } { }
  */
 export function preprocess(source: string): {
   source: string
   returnType?: string
   originalSource: string
+  requiredParams: Set<string>
 } {
   const originalSource = source
   let returnType: string | undefined
+  const requiredParams = new Set<string>()
 
   // Handle return type annotation: ) -> Type {
   // Match balanced braces for object types
@@ -51,27 +52,94 @@ export function preprocess(source: string): {
     source = source.replace(pattern, ') $1')
   }
 
-  // Handle colon shorthand in parameters: (x: type) -> (x = null && type)
-  // Find the function parameter list specifically (after 'function name')
+  // Handle colon shorthand in parameters: (x: type) -> (x = type)
+  // Track which params used colon syntax (they're required)
+  // Also validate: no duplicates, no required after optional
   source = source.replace(
     /function\s+(\w+)\s*\(([^)]*)\)/g,
     (match, funcName, params) => {
       // Don't process empty params
       if (!params.trim()) return match
 
+      const seenParams = new Set<string>()
+      let sawOptional = false
+
       // Split parameters carefully, respecting nested structures
       const processed = splitParameters(params)
         .map((param: string) => {
           param = param.trim()
+
+          // Skip destructuring patterns for now
+          if (param.startsWith('{')) {
+            return param
+          }
 
           // Check for colon shorthand: name: type (but not inside objects)
           // Only match if the colon is directly after an identifier at the start
           const colonMatch = param.match(/^(\w+)\s*:\s*(.+)$/)
           if (colonMatch) {
             const [, name, type] = colonMatch
+
+            // Check for duplicate parameter
+            if (seenParams.has(name)) {
+              throw new SyntaxError(
+                `Duplicate parameter name '${name}'`,
+                { line: 1, column: 0 },
+                originalSource
+              )
+            }
+            seenParams.add(name)
+
             // Don't transform if it already has = (it's a default value context)
             if (!type.includes('=')) {
-              return `${name} = null && ${type}`
+              // This is a required parameter - check ordering
+              if (sawOptional) {
+                throw new SyntaxError(
+                  `Required parameter '${name}' cannot follow optional parameter`,
+                  { line: 1, column: 0 },
+                  originalSource
+                )
+              }
+              // Track this as a required parameter
+              requiredParams.add(name)
+              // Transform to standard default syntax
+              return `${name} = ${type}`
+            }
+          }
+
+          // Check for regular assignment (optional param): name = value
+          const assignMatch = param.match(/^(\w+)\s*=/)
+          if (assignMatch) {
+            const name = assignMatch[1]
+            if (seenParams.has(name)) {
+              throw new SyntaxError(
+                `Duplicate parameter name '${name}'`,
+                { line: 1, column: 0 },
+                originalSource
+              )
+            }
+            seenParams.add(name)
+            sawOptional = true
+          }
+
+          // Check for plain identifier (required param without type)
+          const plainMatch = param.match(/^(\w+)$/)
+          if (plainMatch) {
+            const name = plainMatch[1]
+            if (seenParams.has(name)) {
+              throw new SyntaxError(
+                `Duplicate parameter name '${name}'`,
+                { line: 1, column: 0 },
+                originalSource
+              )
+            }
+            seenParams.add(name)
+            if (sawOptional) {
+              throw new SyntaxError(
+                `Required parameter '${name}' cannot follow optional parameter`,
+                { line: 1, column: 0 },
+                originalSource
+              )
             }
           }
 
@@ -83,7 +151,7 @@ export function preprocess(source: string): {
     }
   )
 
-  return { source, returnType, originalSource }
+  return { source, returnType, originalSource, requiredParams }
 }
 
 /**
@@ -126,6 +194,7 @@ export function parse(
   ast: Program
   returnType?: string
   originalSource: string
+  requiredParams: Set<string>
 } {
   const { filename = '<source>', colonShorthand = true } = options
 
@@ -134,9 +203,15 @@ export function parse(
     source: processedSource,
     returnType,
     originalSource,
+    requiredParams,
   } = colonShorthand
     ? preprocess(source)
-    : { source, returnType: undefined, originalSource: source }
+    : {
+        source,
+        returnType: undefined,
+        originalSource: source,
+        requiredParams: new Set<string>(),
+      }
 
   try {
     const ast = acorn.parse(processedSource, {
@@ -146,7 +221,7 @@ export function parse(
       allowReturnOutsideFunction: false,
     })
 
-    return { ast, returnType, originalSource }
+    return { ast, returnType, originalSource, requiredParams }
   } catch (e: any) {
     // Convert Acorn error to our error type
     const loc = e.loc || { line: 1, column: 0 }

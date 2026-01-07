@@ -85,6 +85,7 @@ export class AgentVM<M extends Record<string, Atom<any, any>>> {
       fuel: { current: startFuel },
       args,
       state: {},
+      consts: new Set(),
       capabilities,
       resolver: (op) => this.resolve(op),
       output: undefined,
@@ -99,8 +100,14 @@ export class AgentVM<M extends Record<string, Atom<any, any>>> {
     // Boot
     await this.resolve('seq')?.exec(ast, ctx)
 
+    // If there's an error but no output was set, set the error as output
+    if (ctx.error && ctx.output === undefined) {
+      ctx.output = ctx.error
+    }
+
     return {
       result: ctx.output,
+      error: ctx.error,
       fuelUsed: startFuel - ctx.fuel.current,
       trace: ctx.trace,
     }

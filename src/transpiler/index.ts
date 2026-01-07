@@ -78,6 +78,7 @@ export function transpile(
     ast: program,
     returnType,
     originalSource,
+    requiredParams,
   } = parse(source, {
     filename: options.filename,
     colonShorthand: true,
@@ -91,7 +92,8 @@ export function transpile(
     func,
     originalSource,
     returnType,
-    options
+    options,
+    requiredParams
   )
 
   return {

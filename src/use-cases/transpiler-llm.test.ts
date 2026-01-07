@@ -256,45 +256,47 @@ describe('LLM Agent Tool Use', () => {
       await localModels.audit()
       const { predict } = getLLMCapability(localModels)
 
-    // Define custom atoms that the LLM can use as "tools"
-    // Note: atoms must call resolveValue on their parameters to handle state references
-    const getWeather = defineAtom(
-      'getWeather',
-      s.object({ city: s.string }),
-      s.object({ temp: s.number, condition: s.string }),
-      async ({ city }, ctx) => {
-        const resolvedCity = resolveValue(city, ctx)
-        // Simulated weather data
-        const weatherData: Record<string, { temp: number; condition: string }> =
-          {
+      // Define custom atoms that the LLM can use as "tools"
+      // Note: atoms must call resolveValue on their parameters to handle state references
+      const getWeather = defineAtom(
+        'getWeather',
+        s.object({ city: s.string }),
+        s.object({ temp: s.number, condition: s.string }),
+        async ({ city }, ctx) => {
+          const resolvedCity = resolveValue(city, ctx)
+          // Simulated weather data
+          const weatherData: Record<
+            string,
+            { temp: number; condition: string }
+          > = {
             'New York': { temp: 72, condition: 'sunny' },
             London: { temp: 58, condition: 'cloudy' },
             Tokyo: { temp: 80, condition: 'humid' },
             Paris: { temp: 65, condition: 'rainy' },
           }
-        return weatherData[resolvedCity] || { temp: 0, condition: 'unknown' }
-      },
-      {
-        docs: 'Get current weather for a city. Returns temp (Fahrenheit) and condition.',
-      }
-    )
+          return weatherData[resolvedCity] || { temp: 0, condition: 'unknown' }
+        },
+        {
+          docs: 'Get current weather for a city. Returns temp (Fahrenheit) and condition.',
+        }
+      )
 
-    const convertTemp = defineAtom(
-      'convertTemp',
-      s.object({ fahrenheit: s.number }),
-      s.number,
-      async ({ fahrenheit }, ctx) => {
-        const resolvedFahrenheit = resolveValue(fahrenheit, ctx)
-        return Math.round(((resolvedFahrenheit - 32) * 5) / 9)
-      },
-      { docs: 'Convert temperature from Fahrenheit to Celsius.' }
-    )
+      const convertTemp = defineAtom(
+        'convertTemp',
+        s.object({ fahrenheit: s.number }),
+        s.number,
+        async ({ fahrenheit }, ctx) => {
+          const resolvedFahrenheit = resolveValue(fahrenheit, ctx)
+          return Math.round(((resolvedFahrenheit - 32) * 5) / 9)
+        },
+        { docs: 'Convert temperature from Fahrenheit to Celsius.' }
+      )
 
-    // Create VM with custom atoms
-    const vm = new AgentVM({ getWeather, convertTemp })
+      // Create VM with custom atoms
+      const vm = new AgentVM({ getWeather, convertTemp })
 
-    // Tool descriptions for the LLM
-    const toolDocs = `
+      // Tool descriptions for the LLM
+      const toolDocs = `
 ## Available Tools (atoms)
 
 1. **getWeather({ city: 'string' })** -> { temp: number, condition: string }
@@ -309,7 +311,7 @@ Note: Use native arithmetic for math operations.
 Example: let diff = a - b
 `
 
-    const prompt = `${ASYNCJS_GUIDE}
+      const prompt = `${ASYNCJS_GUIDE}
 
 ${toolDocs}
 
@@ -328,20 +330,20 @@ Remember:
 
 Respond with ONLY the function code, no explanation.`
 
-    const response = await predict(
-      'You are a code generator. Output only valid AsyncJS code.',
-      prompt
-    )
+      const response = await predict(
+        'You are a code generator. Output only valid AsyncJS code.',
+        prompt
+      )
 
-    const code = stripCodeFences(response.content)
-    console.log('LLM generated code:')
-    console.log(code)
+      const code = stripCodeFences(response.content)
+      console.log('LLM generated code:')
+      console.log(code)
 
-    // Transpile and execute
-    const ast = js(code)
-    const execResult = await vm.run(ast, { city: 'Tokyo' })
+      // Transpile and execute
+      const ast = js(code)
+      const execResult = await vm.run(ast, { city: 'Tokyo' })
 
-    console.log('Weather report result:', execResult)
+      console.log('Weather report result:', execResult)
 
       // Verify the result
       expect(execResult.result.city).toBe('Tokyo')
@@ -356,33 +358,33 @@ Respond with ONLY the function code, no explanation.`
       await localModels.audit()
       const { predict } = getLLMCapability(localModels)
 
-    // Define a simple inventory lookup tool
-    const getInventory = defineAtom(
-      'getInventory',
-      s.object({ item: s.string }),
-      s.object({ inStock: s.boolean, quantity: s.number, price: s.number }),
-      async ({ item }, ctx) => {
-        const resolvedItem = resolveValue(item, ctx)
-        const inventory: Record<
-          string,
-          { inStock: boolean; quantity: number; price: number }
-        > = {
-          apple: { inStock: true, quantity: 50, price: 1.5 },
-          banana: { inStock: true, quantity: 30, price: 0.75 },
-          orange: { inStock: false, quantity: 0, price: 2.0 },
+      // Define a simple inventory lookup tool
+      const getInventory = defineAtom(
+        'getInventory',
+        s.object({ item: s.string }),
+        s.object({ inStock: s.boolean, quantity: s.number, price: s.number }),
+        async ({ item }, ctx) => {
+          const resolvedItem = resolveValue(item, ctx)
+          const inventory: Record<
+            string,
+            { inStock: boolean; quantity: number; price: number }
+          > = {
+            apple: { inStock: true, quantity: 50, price: 1.5 },
+            banana: { inStock: true, quantity: 30, price: 0.75 },
+            orange: { inStock: false, quantity: 0, price: 2.0 },
+          }
+          return (
+            inventory[resolvedItem] || { inStock: false, quantity: 0, price: 0 }
+          )
+        },
+        {
+          docs: 'Check inventory for an item. Returns inStock, quantity, and price.',
         }
-        return (
-          inventory[resolvedItem] || { inStock: false, quantity: 0, price: 0 }
-        )
-      },
-      {
-        docs: 'Check inventory for an item. Returns inStock, quantity, and price.',
-      }
-    )
+      )
 
-    const vm = new AgentVM({ getInventory })
+      const vm = new AgentVM({ getInventory })
 
-    const toolDocs = `
+      const toolDocs = `
 ## Available Tools
 
 1. **getInventory({ item: 'string' })** -> { inStock: boolean, quantity: number, price: number }
@@ -393,7 +395,7 @@ Note: Arithmetic works directly in AsyncJS, no special function needed.
 Example: let total = price * quantity
 `
 
-    const prompt = `${ASYNCJS_GUIDE}
+      const prompt = `${ASYNCJS_GUIDE}
 
 ${toolDocs}
 
@@ -422,27 +424,27 @@ if (inv.inStock && inv.quantity >= quantity) {
 
 Respond with ONLY the function code.`
 
-    const response = await predict(
-      'You are a code generator. Output only valid AsyncJS code.',
-      prompt
-    )
+      const response = await predict(
+        'You are a code generator. Output only valid AsyncJS code.',
+        prompt
+      )
 
-    const code = stripCodeFences(response.content)
-    console.log('LLM generated code:')
-    console.log(code)
+      const code = stripCodeFences(response.content)
+      console.log('LLM generated code:')
+      console.log(code)
 
-    const ast = js(code)
+      const ast = js(code)
 
-    // Test successful order
-    const result1 = await vm.run(ast, { item: 'apple', quantity: 10 })
-    console.log('Order result (success):', result1)
-    expect(result1.result.success).toBe(true)
-    expect(result1.result.total).toBe(15) // 10 * 1.50
+      // Test successful order
+      const result1 = await vm.run(ast, { item: 'apple', quantity: 10 })
+      console.log('Order result (success):', result1)
+      expect(result1.result.success).toBe(true)
+      expect(result1.result.total).toBe(15) // 10 * 1.50
 
-    // Test out of stock
-    const result2 = await vm.run(ast, { item: 'orange', quantity: 5 })
-    console.log('Order result (out of stock):', result2)
-    expect(result2.result.success).toBe(false)
+      // Test out of stock
+      const result2 = await vm.run(ast, { item: 'orange', quantity: 5 })
+      console.log('Order result (out of stock):', result2)
+      expect(result2.result.success).toBe(false)
 
       // Test insufficient quantity
       const result3 = await vm.run(ast, { item: 'banana', quantity: 100 })

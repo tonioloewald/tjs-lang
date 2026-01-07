@@ -129,9 +129,13 @@ describe('Use Case: Recursive Agent', () => {
     // n=10. Depth will be 10.
     // With ExprNodes, each step costs less than with mathCalc.
     // If child gets only 0.5 fuel, it should fail immediately.
-    expect(
-      VM.run(factorial.toJSON(), { n: 10 }, { capabilities: caps })
-    ).rejects.toThrow('Out of Fuel')
+    const result = await VM.run(
+      factorial.toJSON(),
+      { n: 10 },
+      { capabilities: caps }
+    )
+    expect(result.error).toBeDefined()
+    expect(result.error?.message).toBe('Out of Fuel')
   })
 
   it('should handle concurrent recursive agents', async () => {

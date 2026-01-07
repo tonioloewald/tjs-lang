@@ -16,10 +16,8 @@ search-tool.ajs
 | Problem with JavaScript | AsyncJS Solution |
 |------------------------|------------------|
 | `async/await` boilerplate | All calls are implicitly async |
-| `null` vs `undefined` confusion | Just `null` |
-| `==` vs `===` confusion | `==` does deep equality, `===` is reference |
+| Complex error handling | Monadic error flow - errors propagate as values |
 | No built-in type safety | Types through example values |
-| Complex error handling | Monadic error flow |
 | Security concerns with `eval` | Compiles to sandboxed VM |
 
 ## Quick Example
@@ -33,7 +31,7 @@ search-tool.ajs
  * @param maxResults - Maximum number of results
  */
 function searchAgent(
-  topic: 'string',
+  topic: 'climate change',
   maxResults = 5
 ) {
   let results = search({ query: topic, limit: maxResults })
@@ -59,7 +57,7 @@ All function calls that invoke atoms are automatically awaited. No `async/await`
 
 ```javascript
 // AsyncJS - clean and simple
-function agent(topic: 'string') {
+function agent(topic: 'machine learning') {
   let results = search({ query: topic })
   let summary = summarize({ text: results })
   return { summary }
@@ -73,69 +71,68 @@ function agent(topic: 'string') {
 // }
 ```
 
-### 2. Types Through Values
+### 2. Types Through Example Values
 
-Types are expressed as example values, not annotations. No TypeScript needed.
-
-```javascript
-// Required parameters: null && type
-function agent(
-  name: 'string',                    // required string (colon shorthand)
-  age = null && 0,                   // required number (explicit form)
-  tags = null && ['string'],         // required array of strings
-  user = null && { name: 'string', age: 0 }  // required object shape
-) { ... }
-
-// Optional parameters: just provide a default
-function agent(
-  limit = 10,                        // optional number, defaults to 10
-  includeImages = false              // optional boolean, defaults to false
-) { ... }
-
-// Nullable parameters
-function agent(
-  filter = null && ('string' || null),  // required, but can be null
-  id = null && ('string' || 0)          // required string-or-number union
-) { ... }
-```
-
-### 3. Simplified Equality
+Types are inferred from example values. The example shows both the type AND a realistic value:
 
 ```javascript
-// == does deep value comparison
-{ a: 1 } == { a: 1 }  // true (compares values)
-
-// === is reference identity  
-let x = { a: 1 }
-let y = x
-x === y  // true (same reference)
-```
-
-### 4. No null/undefined Split
-
-There is only `null`. Accessing missing properties returns `null`, not `undefined`.
-
-```javascript
-let obj = { name: 'Alice' }
-obj.age      // null (not undefined)
-obj.name     // 'Alice'
-```
-
-### 5. Monadic Error Flow
-
-Errors propagate automatically. No try/catch needed for most cases.
-
-```javascript
-function pipeline(topic: 'string') {
-  let results = search({ query: topic })      // might return Error
-  let summary = summarize({ text: results })  // if Error, passes through
-  let formatted = format({ content: summary }) // if Error, passes through
-  return formatted                             // Error or result
+function greet(
+  name: 'Anne Example',              // required string
+  age: 21,                           // required number  
+  greeting = 'Hello'                 // optional string, defaults to 'Hello'
+) {
+  // ...
 }
-// If search() fails, the Error flows through without executing subsequent steps
 ```
 
-### 6. Function Introspection
+- **Colon (`:`)** = required parameter, example shows the type
+- **Equals (`=`)** = optional parameter with default value
+
+The example value IS the type. `age: 21` means "required number". `name: 'Anne'` means "required string".
+
+### 3. Monadic Error Flow
+
+Errors propagate automatically as values. When an atom fails, subsequent steps are skipped and the error flows through to the result.
+
+```javascript
+function pipeline(topic: 'quantum computing') {
+  let results = search({ query: topic })      // might fail
+  let summary = summarize({ text: results })  // skipped if search fails
+  let formatted = format({ content: summary }) // skipped if any above fails
+  return { formatted }
+}
+// If search() fails, the error flows through without executing subsequent steps
+// The result will have an `error` property containing the AgentError
+```
+
+The VM returns a `RunResult` with both `result` and `error` fields:
+
+```typescript
+const { result, error, fuelUsed } = await vm.run(ast, args)
+
+if (error) {
+  console.log('Failed:', error.message)
+  console.log('Failed at atom:', error.op)
+} else {
+  console.log('Success:', result)
+}
+```
+
+Use `try/catch` to recover from errors:
+
+```javascript
+function resilientPipeline(topic: 'neural networks') {
+  let data = null
+  try {
+    data = fetchData({ topic })
+  } catch (e) {
+    data = fallbackData({ topic })
+  }
+  return { data }
+}
+```
+
+### 4. Function Introspection
 
 Every function has a `.signature` property for self-documentation:
 
@@ -146,9 +143,9 @@ Every function has a `.signature` property for self-documentation:
  * @param limit - Max results to return
  */
 function search(
-  query: 'string',
+  query: 'example query',
   limit = 10
-) -> [{ title: 'string', url: 'string' }] {
+) -> [{ title: 'Example Title', url: 'https://example.com' }] {
   // implementation
 }
 
@@ -166,43 +163,32 @@ search.signature = {
 
 ## Type System Reference
 
-### Type Patterns
+### Parameter Types
 
-| Pattern | Meaning | Example |
-|---------|---------|---------|
-| `param: 'string'` | Required string | `name: 'string'` |
-| `param: 0` | Required number | `age: 0` |
-| `param: true` | Required boolean | `active: true` |
-| `param: ['string']` | Required string array | `tags: ['string']` |
-| `param: { k: 'v' }` | Required object shape | `user: { name: 'string' }` |
-| `param = value` | Optional with default | `limit = 10` |
-| `param: 'type' \|\| null` | Nullable | `filter: 'string' \|\| null` |
-| `param: 'string' \|\| 0` | Union type | `id: 'string' \|\| 0` |
-
-### Colon Shorthand
-
-The colon syntax is sugar for `null && type`:
-
-```javascript
-// These are equivalent:
-function agent(topic: 'string') { }
-function agent(topic = null && 'string') { }
-```
+| Syntax | Meaning | Example |
+|--------|---------|---------|
+| `name: 'Anne'` | Required string | The example value shows the type |
+| `age: 21` | Required number | |
+| `active: true` | Required boolean | |
+| `tags: ['a', 'b']` | Required array | |
+| `user: { name: 'Bob' }` | Required object | |
+| `limit = 10` | Optional number | Defaults to 10 |
+| `query = 'default'` | Optional string | Defaults to 'default' |
 
 ### Return Types
 
-Specify return types with arrow syntax:
+Return types can be specified with arrow syntax:
 
 ```javascript
-function search(query: 'string') -> [{ title: 'string' }] {
-  // Must return array of objects with title property
+function search(query: 'search term') -> { results: [], count: 0 } {
+  // Must return object with results array and count number
 }
 ```
 
-Or let them be inferred from the return statement:
+Or inferred from the return statement:
 
 ```javascript
-function search(query: 'string') {
+function search(query: 'search term') {
   return { results: [], count: 0 }  // Return type inferred
 }
 ```
@@ -261,9 +247,6 @@ obj.property
 obj.nested.property
 arr[0]
 
-// Optional chaining
-obj?.property?.nested
-
 // Template literals
 `Hello ${name}!`
 
@@ -271,14 +254,123 @@ obj?.property?.nested
 atomName({ param1: value1, param2: value2 })
 ```
 
-### Array Methods
+### Built-in Objects
+
+AsyncJS provides safe implementations of common JavaScript built-in objects:
+
+#### Math
+
+All standard Math methods and constants are available:
 
 ```javascript
-items.map(x => transform(x))    // Becomes map atom
-items.push(newItem)             // Becomes push atom
-items.filter(x => x.active)     // Becomes filter atom
-str.split(',')                  // Becomes split atom
-parts.join('-')                 // Becomes join atom
+let floor = Math.floor(3.7)       // 3
+let ceil = Math.ceil(3.2)         // 4
+let abs = Math.abs(-5)            // 5
+let max = Math.max(1, 5, 3)       // 5
+let sqrt = Math.sqrt(16)          // 4
+let pi = Math.PI                  // 3.14159...
+let random = Math.random()        // Cryptographically secure when available
+```
+
+**Note:** `Math.random()` uses `crypto.getRandomValues()` when available for cryptographically secure random numbers.
+
+#### JSON
+
+```javascript
+let obj = { name: 'test', value: 42 }
+let str = JSON.stringify(obj)     // '{"name":"test","value":42}'
+let parsed = JSON.parse(str)      // { name: 'test', value: 42 }
+```
+
+#### Array Static Methods
+
+```javascript
+let isArr = Array.isArray([1,2,3])  // true
+let arr = Array.from([1,2,3])       // Creates new array
+let created = Array.of(1, 2, 3)     // [1, 2, 3]
+```
+
+#### Object Static Methods
+
+```javascript
+let obj = { a: 1, b: 2, c: 3 }
+let keys = Object.keys(obj)         // ['a', 'b', 'c']
+let values = Object.values(obj)     // [1, 2, 3]
+let entries = Object.entries(obj)   // [['a',1], ['b',2], ['c',3]]
+```
+
+#### Number Static Methods
+
+```javascript
+let isInt = Number.isInteger(5)     // true
+let isNan = Number.isNaN(NaN)       // true
+let max = Number.MAX_SAFE_INTEGER   // 9007199254740991
+```
+
+#### Global Functions
+
+```javascript
+let n = parseInt('42')              // 42
+let f = parseFloat('3.14')          // 3.14
+let encoded = encodeURIComponent('hello world')  // 'hello%20world'
+```
+
+#### String Instance Methods
+
+```javascript
+let str = 'hello world'
+let upper = str.toUpperCase()       // 'HELLO WORLD'
+let parts = str.split(' ')          // ['hello', 'world']
+let trimmed = '  padded  '.trim()   // 'padded'
+let replaced = str.replace('world', 'there')  // 'hello there'
+```
+
+#### Array Instance Methods
+
+```javascript
+let arr = [3, 1, 4, 1, 5]
+let joined = arr.join('-')          // '3-1-4-1-5'
+let has = arr.includes(4)           // true
+let idx = arr.indexOf(1)            // 1
+let sliced = arr.slice(1, 3)        // [1, 4]
+```
+
+### Array Methods with Lambdas
+
+```javascript
+// Map - transform each element
+items.map(x => x * 2)
+items.map(x => {
+  let doubled = x * 2
+  return doubled
+})
+
+// Filter - keep elements matching condition
+items.filter(x => x > 5)
+items.filter(x => x % 2 == 0)
+
+// Find - get first matching element
+items.find(x => x.id == targetId)
+users.find(u => u.age >= 18)
+
+// Reduce - accumulate to single value
+items.reduce((acc, x) => acc + x, 0)
+items.reduce((sum, item) => sum + item.price, 0)
+
+// Other array operations
+items.push(newItem)           // Add to array
+str.split(',')                // Split string to array
+parts.join('-')               // Join array to string
+```
+
+Lambdas support closures - they can access variables from the outer scope:
+
+```javascript
+function processItems({ items, threshold }) {
+  let above = items.filter(x => x >= threshold)  // threshold from outer scope
+  let scaled = above.map(x => x * threshold)     // still accessible
+  return { scaled }
+}
 ```
 
 ## Unsupported Constructs
@@ -307,7 +399,7 @@ Full transpilation with signature and metadata:
 import { transpile } from 'agent-99'
 
 const { ast, signature, warnings } = transpile(`
-  function greet(name: 'string') {
+  function greet(name: 'World') {
     let msg = template({ tmpl: 'Hello {{name}}!', vars: { name } })
     return { msg }
   }
@@ -325,7 +417,7 @@ Convenience function returning just the AST:
 import { js } from 'agent-99'
 
 const ast = js(`
-  function add(a: 0, b: 0) {
+  function add(a: 5, b: 3) {
     let sum = a + b
     return { sum }
   }
@@ -334,7 +426,7 @@ const ast = js(`
 // Execute with VM
 const vm = new AgentVM()
 const result = await vm.run(ast, { a: 5, b: 3 })
-console.log(result.sum)  // 8
+console.log(result.result.sum)  // 8
 ```
 
 ### agent\`\`
@@ -345,7 +437,7 @@ Tagged template for inline definitions:
 import { agent } from 'agent-99'
 
 const searchAST = agent`
-  function search(query: 'string', limit = 10) {
+  function search(query: 'example search', limit = 10) {
     let results = storeSearch({ query, limit })
     return { results }
   }
@@ -373,6 +465,201 @@ const tools = getToolDefinitions([signature])
 // }]
 ```
 
+## Error Handling
+
+### Monadic Error Flow
+
+Agent99 uses monadic error flow - when an atom fails, the error becomes a value that propagates through the pipeline:
+
+```typescript
+const { result, error, fuelUsed } = await vm.run(ast, args)
+
+if (error) {
+  // error is an AgentError with:
+  // - message: string - the error message
+  // - op: string - the atom that failed
+  // - cause?: Error - the original exception
+  console.log(`Error in ${error.op}: ${error.message}`)
+} else {
+  // Success - use result
+  console.log(result)
+}
+```
+
+### Checking for Errors
+
+```typescript
+import { isAgentError } from 'agent-99'
+
+const { result, error } = await vm.run(ast, args)
+
+if (isAgentError(result)) {
+  // result itself is the error (when error occurs before return)
+}
+```
+
+### Recovery with try/catch
+
+Use `try/catch` in your AsyncJS code to handle errors gracefully:
+
+```javascript
+function resilientAgent({ query }) {
+  let result = null
+  
+  try {
+    result = riskyOperation({ query })
+  } catch (e) {
+    // e contains the error message
+    result = safeDefault({ error: e })
+  }
+  
+  return { result }
+}
+```
+
+## Gotchas and Common Pitfalls
+
+### Unavailable JavaScript Features
+
+These common JavaScript APIs are **not available** in AsyncJS. The transpiler will catch these and provide helpful error messages:
+
+| Feature | Error Message | Alternative |
+|---------|---------------|-------------|
+| `Date` | Use the `timestamp` atom | `timestamp()` returns current time |
+| `setTimeout` | Use the `delay` atom | `delay({ ms: 1000 })` |
+| `setInterval` | Use while loops with delay | `while (cond) { delay({ ms: 1000 }) }` |
+| `fetch` | Use the `httpFetch` atom | `httpFetch({ url })` |
+| `RegExp` | Use string methods | `str.match()`, `str.replace()` |
+| `Promise` | Implicit async | All calls are automatically awaited |
+| `Set/Map` | Use arrays/objects | Arrays with filter, plain objects |
+| `require/import` | Register atoms with VM | `new AgentVM({ customAtom })` |
+
+### The `new` Keyword
+
+The `new` keyword is not supported. AsyncJS uses functional patterns:
+
+```javascript
+// DON'T DO THIS
+let date = new Date()           // Error: 'new' is not supported
+
+// DO THIS INSTEAD
+let time = timestamp()           // Use the timestamp atom
+```
+
+### No `this` or Classes
+
+AsyncJS is purely functional. There's no `this`, no classes, no prototypes:
+
+```javascript
+// DON'T DO THIS
+class Agent {
+  constructor(name) { this.name = name }
+}
+
+// DO THIS INSTEAD
+function createAgent(name: 'Agent Smith') {
+  return { name }
+}
+```
+
+### Equality Semantics
+
+AsyncJS uses JavaScript's standard equality (`==` and `===`). There is no special deep equality:
+
+```javascript
+let a = { x: 1 }
+let b = { x: 1 }
+let same = a == b    // false (reference comparison)
+
+// For deep comparison, use JSON.stringify or write a comparison function
+let equal = JSON.stringify(a) == JSON.stringify(b)  // true
+```
+
+### No Null Coalescing or Optional Chaining (Yet)
+
+While these are planned, currently you need to use explicit checks:
+
+```javascript
+// Instead of: let x = obj?.nested?.value ?? 'default'
+// Do this:
+let x = obj && obj.nested && obj.nested.value
+if (x == null) {
+  x = 'default'
+}
+```
+
+### Atom Calls vs Built-in Methods
+
+Atoms use object parameter syntax, while built-ins use normal function syntax:
+
+```javascript
+// Atom call - object parameter
+let result = search({ query: 'hello', limit: 10 })
+
+// Built-in method - normal parameters
+let floor = Math.floor(3.7)
+let upper = str.toUpperCase()
+```
+
+### Async Is Implicit
+
+All atom calls are automatically awaited. Don't use `async/await`:
+
+```javascript
+// DON'T DO THIS
+async function search(query) {
+  let result = await fetch(query)  // Error: async/await not supported
+}
+
+// DO THIS INSTEAD
+function search(query: 'https://api.example.com') {
+  let result = httpFetch({ url: query })  // Automatically awaited
+  return { result }
+}
+```
+
+### Error Propagation
+
+Errors propagate monadically - if one step fails, subsequent steps are skipped:
+
+```javascript
+function pipeline(input: 'raw data') {
+  let a = stepOne({ input })      // If this fails...
+  let b = stepTwo({ data: a })    // ...this is skipped
+  let c = stepThree({ data: b })  // ...and this too
+  return { c }                    // Result contains the error
+}
+```
+
+Use `try/catch` to recover from expected errors:
+
+```javascript
+function resilient(input: 'user input') {
+  let result = null
+  try {
+    result = riskyStep({ input })
+  } catch (e) {
+    result = fallback({ error: e })
+  }
+  return { result }
+}
+```
+
+### Fuel Limits
+
+All operations consume fuel. Complex operations may hit limits:
+
+```javascript
+// This might run out of fuel for large arrays
+function processLarge({ items }) {
+  let mapped = items.map(x => complexOperation({ x }))
+  return { mapped }
+}
+
+// Run with higher fuel limit
+const result = await vm.run(ast, args, { fuel: 10000 })
+```
+
 ## Security Model
 
 AsyncJS compiles to Agent99's JSON AST, which executes in a completely sandboxed VM:
@@ -380,10 +667,22 @@ AsyncJS compiles to Agent99's JSON AST, which executes in a completely sandboxed
 - **No file system access** - unless explicitly provided via atoms
 - **No network access** - unless explicitly provided via atoms  
 - **No global state** - each execution is isolated
-- **Fuel-limited execution** - prevents infinite loops
+- **Fuel-limited execution** - prevents infinite loops and runaway expressions
 - **Type-checked at runtime** - invalid operations fail safely
+- **Prototype access blocked** - `__proto__`, `constructor`, `prototype` are forbidden
 
 The transpiler is permissive because security is enforced at the VM level, not the language level. Even if malicious code somehow made it through, the VM cannot execute dangerous operations unless atoms for those operations are registered.
+
+### Fuel System
+
+Every operation consumes fuel. When fuel runs out, execution stops with an `Out of Fuel` error:
+
+```typescript
+const result = await vm.run(ast, args, { fuel: 100 })
+// Limits total computation to prevent infinite loops
+```
+
+Expression evaluation also consumes fuel (0.01 per node), preventing deeply nested or recursive expressions from running unchecked.
 
 ## Migration from TypedBuilder
 
@@ -391,19 +690,18 @@ If you have existing TypedBuilder code, here's how to convert:
 
 ```typescript
 // Before: TypedBuilder
-const ast = new TypedBuilder('searchAgent')
-  .varSet({ key: 'results', value: { $kind: 'call', atom: 'search', args: { query: { $kind: 'arg', path: 'topic' } } } })
-  .if({
-    condition: 'len > 0',
-    vars: { len: 'results.length' },
-    then: (b) => b.varSet({ key: 'summary', value: { $kind: 'call', atom: 'summarize', args: { text: 'results' } } })
-  })
-  .return({ schema: { properties: { results: {}, summary: {} } } })
-  .build()
+const ast = A99.take()
+  .varsImport(['topic'])
+  .step({ op: 'search', query: 'topic', result: 'results' })
+  .if('results.length > 0', { results: 'results' },
+    (b) => b.step({ op: 'summarize', text: 'results', result: 'summary' })
+  )
+  .return({ properties: { results: {}, summary: {} } })
+  .toJSON()
 
 // After: AsyncJS
 const ast = js(`
-  function searchAgent(topic: 'string') {
+  function searchAgent(topic: 'climate change') {
     let results = search({ query: topic })
     if (results.length > 0) {
       let summary = summarize({ text: results })
@@ -420,3 +718,5 @@ const ast = js(`
 3. **Keep functions small** - Each function should do one thing
 4. **Use meaningful variable names** - The VM state is inspectable during debugging
 5. **Return structured objects** - Makes output types clear and composable
+6. **Handle errors appropriately** - Use try/catch for expected failures, let others propagate
+7. **Set appropriate fuel limits** - Balance between allowing complex operations and preventing abuse

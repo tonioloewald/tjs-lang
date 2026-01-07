@@ -99,7 +99,9 @@ describe('Agent99 Integration (Mocked Pipeline)', () => {
 
     const ast = logic.toJSON()
 
-    // Run without capabilities
-    expect(VM.run(ast, {})).rejects.toThrow("Capability 'llm.predict' missing")
+    // Run without capabilities - error flows monadically
+    const result = await VM.run(ast, {})
+    expect(result.error).toBeDefined()
+    expect(result.error?.message).toBe("Capability 'llm.predict' missing")
   })
 })

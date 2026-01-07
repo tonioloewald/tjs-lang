@@ -312,6 +312,28 @@ interface ControlFlow<M extends Record<string, Atom<any, any>>> {
     steps: (b: BuilderType<M>) => BuilderType<M>
   ): BuilderType<M>
 
+  filter(
+    items: any,
+    as: string,
+    condition: string,
+    vars?: Record<string, any>
+  ): BuilderType<M>
+
+  find(
+    items: any,
+    as: string,
+    condition: string,
+    vars?: Record<string, any>
+  ): BuilderType<M>
+
+  reduce(
+    items: any,
+    as: string,
+    accumulator: string,
+    initial: any,
+    steps: (b: BuilderType<M>) => BuilderType<M>
+  ): BuilderType<M>
+
   memoize(
     steps: (b: BuilderType<M>) => BuilderType<M>,
     key?: string
@@ -472,6 +494,61 @@ export class TypedBuilder<M extends Record<string, Atom<any, any>>> {
       mapAtom.create({
         items,
         as,
+        steps: stepsB.steps,
+      })
+    )
+  }
+
+  filter(
+    items: any,
+    as: string,
+    condition: string,
+    vars: Record<string, any> = {}
+  ) {
+    const conditionExpr = parseCondition(condition, vars)
+    const filterAtom = this.atoms['filter']
+    return this.add(
+      filterAtom.create({
+        items,
+        as,
+        condition: conditionExpr,
+      })
+    )
+  }
+
+  find(
+    items: any,
+    as: string,
+    condition: string,
+    vars: Record<string, any> = {}
+  ) {
+    const conditionExpr = parseCondition(condition, vars)
+    const findAtom = this.atoms['find']
+    return this.add(
+      findAtom.create({
+        items,
+        as,
+        condition: conditionExpr,
+      })
+    )
+  }
+
+  reduce(
+    items: any,
+    as: string,
+    accumulator: string,
+    initial: any,
+    steps: (b: BuilderType<M>) => BuilderType<M>
+  ) {
+    const stepsB = new TypedBuilder(this.atoms)
+    steps(stepsB as any)
+    const reduceAtom = this.atoms['reduce']
+    return this.add(
+      reduceAtom.create({
+        items,
+        as,
+        accumulator,
+        initial,
         steps: stepsB.steps,
       })
     )

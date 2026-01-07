@@ -79,7 +79,9 @@ describe('Agent99 Runtime (VM)', () => {
     // Step 1: Fuel 0.2 -> 0.1. OK.
     // Step 2: Fuel 0.1 -> 0. OK.
     // Step 3: Fuel 0. Error.
-    expect(vm.run(ast, {}, { fuel: 0.2 })).rejects.toThrow('Out of Fuel')
+    const result = await vm.run(ast, {}, { fuel: 0.2 })
+    expect(result.error).toBeDefined()
+    expect(result.error?.message).toBe('Out of Fuel')
   })
 
   it('should return strict subsets of state based on schema', async () => {
@@ -115,7 +117,9 @@ describe('Agent99 Runtime (VM)', () => {
       steps: [{ op: 'testSlow' }],
     } as any
 
-    expect(vm.run(ast, {})).rejects.toThrow("Atom 'testSlow' timed out")
+    const result = await vm.run(ast, {})
+    expect(result.error).toBeDefined()
+    expect(result.error?.message).toBe("Atom 'testSlow' timed out")
   })
 
   it('should set multiple variables with varsLet and compute expressions', async () => {

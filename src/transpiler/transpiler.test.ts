@@ -4,9 +4,10 @@ import { preprocess } from './parser'
 
 describe('Transpiler', () => {
   describe('Parser preprocessing', () => {
-    it('should transform colon shorthand to null && pattern', () => {
+    it('should transform colon shorthand to default syntax and track required params', () => {
       const result = preprocess(`function foo(x: 'string') { }`)
-      expect(result.source).toContain(`x = null && 'string'`)
+      expect(result.source).toContain(`x = 'string'`)
+      expect(result.requiredParams.has('x')).toBe(true)
     })
 
     it('should extract return type annotation', () => {
@@ -19,16 +20,31 @@ describe('Transpiler', () => {
 
     it('should handle multiple parameters', () => {
       const result = preprocess(`function foo(a: 'string', b: 0, c = 10) { }`)
-      expect(result.source).toContain(`a = null && 'string'`)
-      expect(result.source).toContain(`b = null && 0`)
+      expect(result.source).toContain(`a = 'string'`)
+      expect(result.source).toContain(`b = 0`)
       expect(result.source).toContain(`c = 10`)
+      expect(result.requiredParams.has('a')).toBe(true)
+      expect(result.requiredParams.has('b')).toBe(true)
+      expect(result.requiredParams.has('c')).toBe(false)
+    })
+
+    it('should reject duplicate parameter names', () => {
+      expect(() => preprocess(`function foo(a: 'string', a: 0) { }`)).toThrow(
+        "Duplicate parameter name 'a'"
+      )
+    })
+
+    it('should reject required params after optional params', () => {
+      expect(() => preprocess(`function foo(a = 10, b: 'string') { }`)).toThrow(
+        "Required parameter 'b' cannot follow optional parameter"
+      )
     })
   })
 
   describe('Type inference', () => {
-    it('should infer string type from literal', () => {
+    it('should infer string type from literal with colon syntax', () => {
       const { signature } = transpile(`
-        function test(name = null && 'string') {
+        function test(name: 'Anne Example') {
           return { name }
         }
       `)
@@ -36,9 +52,9 @@ describe('Transpiler', () => {
       expect(signature.parameters.name.required).toBe(true)
     })
 
-    it('should infer number type from literal', () => {
+    it('should infer number type from literal with colon syntax', () => {
       const { signature } = transpile(`
-        function test(count = null && 0) {
+        function test(count: 42) {
           return { count }
         }
       `)
@@ -57,9 +73,9 @@ describe('Transpiler', () => {
       expect(signature.parameters.limit.default).toBe(10)
     })
 
-    it('should handle nullable types', () => {
+    it('should handle nullable types with colon syntax', () => {
       const { signature } = transpile(`
-        function test(filter = null && ('string' || null)) {
+        function test(filter: 'default' || null) {
           return { filter }
         }
       `)
@@ -67,9 +83,9 @@ describe('Transpiler', () => {
       expect(signature.parameters.filter.type.nullable).toBe(true)
     })
 
-    it('should handle union types', () => {
+    it('should handle union types with colon syntax', () => {
       const { signature } = transpile(`
-        function test(id = null && ('string' || 0)) {
+        function test(id: 'abc123' || 42) {
           return { id }
         }
       `)
@@ -77,9 +93,9 @@ describe('Transpiler', () => {
       expect(signature.parameters.id.type.members).toHaveLength(2)
     })
 
-    it('should handle object shape types', () => {
+    it('should handle object shape types with colon syntax', () => {
       const { signature } = transpile(`
-        function test(user = null && { name: 'string', age: 0 }) {
+        function test(user: { name: 'Anne', age: 25 }) {
           return { user }
         }
       `)
@@ -88,9 +104,9 @@ describe('Transpiler', () => {
       expect(signature.parameters.user.type.shape?.age.kind).toBe('number')
     })
 
-    it('should handle array types', () => {
+    it('should handle array types with colon syntax', () => {
       const { signature } = transpile(`
-        function test(tags = null && ['string']) {
+        function test(tags: ['technology', 'science']) {
           return { tags }
         }
       `)
@@ -98,9 +114,9 @@ describe('Transpiler', () => {
       expect(signature.parameters.tags.type.items?.kind).toBe('string')
     })
 
-    it('should use colon shorthand', () => {
+    it('should distinguish required (colon) from optional (equals)', () => {
       const { signature } = transpile(`
-        function test(name: 'string', count: 0) {
+        function test(name: 'Anne Example', count: 0, limit = 10) {
           return { name, count }
         }
       `)
@@ -108,6 +124,8 @@ describe('Transpiler', () => {
       expect(signature.parameters.name.required).toBe(true)
       expect(signature.parameters.count.type.kind).toBe('number')
       expect(signature.parameters.count.required).toBe(true)
+      expect(signature.parameters.limit.type.kind).toBe('number')
+      expect(signature.parameters.limit.required).toBe(false)
     })
   })
 
@@ -134,6 +152,31 @@ describe('Transpiler', () => {
       expect(ast.steps[1].op).toBe('varSet')
       expect(ast.steps[1].key).toBe('x')
       expect(ast.steps[1].value).toBe(5)
+    })
+
+    it('should handle const declarations', () => {
+      const { ast } = transpile(`
+        function test({ input }) {
+          const x = 5
+          return { x }
+        }
+      `)
+      expect(ast.steps[0].op).toBe('varsImport')
+      expect(ast.steps[1].op).toBe('constSet')
+      expect(ast.steps[1].key).toBe('x')
+      expect(ast.steps[1].value).toBe(5)
+    })
+
+    it('should handle const with atom calls', () => {
+      const { ast } = transpile(`
+        function test({ query }) {
+          const results = search({ query })
+          return { results }
+        }
+      `)
+      expect(ast.steps[1].op).toBe('search')
+      expect(ast.steps[1].result).toBe('results')
+      expect(ast.steps[1].resultConst).toBe(true)
     })
 
     it('should handle function calls as atom invocations', () => {
@@ -195,7 +238,7 @@ describe('Transpiler', () => {
       const { ast } = transpile(`
         function test({ url }) {
           try {
-            let data = fetch({ url })
+            let data = httpFetch({ url })
           } catch (e) {
             let error = e
           }
@@ -366,6 +409,43 @@ describe('Transpiler', () => {
       `)
       // steps[0] is varsImport for parameters
       expect(ast.steps[1].op).toBe('join')
+    })
+
+    it('should transform arr.filter() to filter atom', () => {
+      const { ast } = transpile(`
+        function test({ items }) {
+          let evens = items.filter(x => x % 2 == 0)
+          return { evens }
+        }
+      `)
+      expect(ast.steps[1].op).toBe('filter')
+      expect(ast.steps[1].as).toBe('x')
+      expect(ast.steps[1].condition.$expr).toBe('binary')
+    })
+
+    it('should transform arr.find() to find atom', () => {
+      const { ast } = transpile(`
+        function test({ items }) {
+          let found = items.find(x => x > 5)
+          return { found }
+        }
+      `)
+      expect(ast.steps[1].op).toBe('find')
+      expect(ast.steps[1].as).toBe('x')
+      expect(ast.steps[1].condition.$expr).toBe('binary')
+    })
+
+    it('should transform arr.reduce() to reduce atom', () => {
+      const { ast } = transpile(`
+        function test({ items }) {
+          let sum = items.reduce((acc, x) => acc + x, 0)
+          return { sum }
+        }
+      `)
+      expect(ast.steps[1].op).toBe('reduce')
+      expect(ast.steps[1].as).toBe('x')
+      expect(ast.steps[1].accumulator).toBe('acc')
+      expect(ast.steps[1].initial).toBe(0)
     })
   })
 })

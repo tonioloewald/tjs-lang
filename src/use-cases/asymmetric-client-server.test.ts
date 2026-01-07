@@ -160,9 +160,9 @@ describe('Use Case: Asymmetric Client-Server', () => {
       .step({ op: 'storeVectorize', text: 'fail' })
       .return(s.object({}))
 
-    // Run locally without caps
-    expect(clientVM.run(logic.toJSON(), {})).rejects.toThrow(
-      "Capability 'vector' missing"
-    )
+    // Run locally without caps - error flows monadically
+    const result = await clientVM.run(logic.toJSON(), {})
+    expect(result.error).toBeDefined()
+    expect(result.error?.message).toContain("Capability 'vector' missing")
   })
 })
