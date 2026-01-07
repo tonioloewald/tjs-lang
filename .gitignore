@@ -136,3 +136,8 @@ dist
 .pnp.*
 .models.cache.json
 .DS_Store
+
+# Generated files that shouldn't be in src/
+src/**/*.js
+src/**/*.d.ts
+src/**/*.d.ts.map

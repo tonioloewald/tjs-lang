@@ -1,7 +1,6 @@
-let memoryCache: ModelAudit[] | null = null
-
 const TIMEOUT_MS = 60000
-const CACHE_KEY = '.models.cache.json'
+const CACHE_FILE = '.models.cache.json'
+const CACHE_TTL_MS = 24 * 60 * 60 * 1000 // 24 hours
 
 export interface ModelAudit {
   id: string
@@ -11,16 +10,40 @@ export interface ModelAudit {
   status: string
 }
 
+interface CacheData {
+  timestamp: number
+  baseUrl: string
+  models: ModelAudit[]
+}
+
 const isBrowser =
   typeof window !== 'undefined' && typeof window.localStorage !== 'undefined'
 
-async function readCache(): Promise<ModelAudit[] | null> {
+async function readCache(baseUrl: string): Promise<ModelAudit[] | null> {
   try {
     if (isBrowser) {
-      const cached = window.localStorage.getItem(CACHE_KEY)
-      return cached ? JSON.parse(cached) : null
+      const cached = window.localStorage.getItem(CACHE_FILE)
+      if (!cached) return null
+      const data: CacheData = JSON.parse(cached)
+      // Check TTL and baseUrl match
+      if (data.baseUrl !== baseUrl) return null
+      if (Date.now() - data.timestamp > CACHE_TTL_MS) return null
+      return data.models
     } else {
-      return memoryCache
+      // Node.js: read from file
+      const fs = await import('node:fs/promises')
+      const path = await import('node:path')
+      const cacheFile = path.join(process.cwd(), CACHE_FILE)
+      try {
+        const content = await fs.readFile(cacheFile, 'utf-8')
+        const data: CacheData = JSON.parse(content)
+        // Check TTL and baseUrl match
+        if (data.baseUrl !== baseUrl) return null
+        if (Date.now() - data.timestamp > CACHE_TTL_MS) return null
+        return data.models
+      } catch {
+        return null // File doesn't exist or can't be read
+      }
     }
   } catch (e) {
     console.warn('⚠️ Error reading model cache:', e)
@@ -28,12 +51,24 @@ async function readCache(): Promise<ModelAudit[] | null> {
   }
 }
 
-async function writeCache(data: ModelAudit[]): Promise<void> {
+async function writeCache(
+  baseUrl: string,
+  models: ModelAudit[]
+): Promise<void> {
+  const data: CacheData = {
+    timestamp: Date.now(),
+    baseUrl,
+    models,
+  }
   try {
     if (isBrowser) {
-      window.localStorage.setItem(CACHE_KEY, JSON.stringify(data))
+      window.localStorage.setItem(CACHE_FILE, JSON.stringify(data))
     } else {
-      memoryCache = data
+      // Node.js: write to file
+      const fs = await import('node:fs/promises')
+      const path = await import('node:path')
+      const cacheFile = path.join(process.cwd(), CACHE_FILE)
+      await fs.writeFile(cacheFile, JSON.stringify(data, null, 2))
     }
   } catch (e) {
     console.error('❌ Error writing model cache:', e)
@@ -155,7 +190,10 @@ async function checkEmbedding(
 }
 
 export async function auditModels(baseUrl: string): Promise<ModelAudit[]> {
-  // 1. Get current model list from server
+  // 1. Try to load from cache first (file-based with 24h TTL)
+  const cachedData = await readCache(baseUrl)
+
+  // 2. Get current model list from server
   let serverModelIds: string[] = []
   try {
     const res = await fetch(`${baseUrl}/models`)
@@ -163,12 +201,16 @@ export async function auditModels(baseUrl: string): Promise<ModelAudit[]> {
     const data = (await res.json()) as { data: { id: string }[] }
     serverModelIds = data.data.map((m) => m.id).sort()
   } catch (e) {
+    // If we have cache and server is unavailable, use cache
+    if (cachedData) {
+      console.log('⚠️ LM Studio unavailable, using cached model audit.')
+      return cachedData
+    }
     console.error('❌ Failed to connect to LM Studio.')
     return []
   }
 
-  // 2. Try to load from cache
-  const cachedData = await readCache()
+  // 3. Check if cache is still valid (same models)
   if (cachedData) {
     const cachedModelIds = cachedData.map((m) => m.id).sort()
     if (JSON.stringify(serverModelIds) === JSON.stringify(cachedModelIds)) {
@@ -178,7 +220,7 @@ export async function auditModels(baseUrl: string): Promise<ModelAudit[]> {
     console.log('🔍 Model list changed. Re-running audit...')
   }
 
-  // 3. Run full audit
+  // 4. Run full audit
   console.log('🔍 Scanning models (this may take a moment)...')
   const results: ModelAudit[] = []
   const modelList = serverModelIds.map((id) => ({ id }))
@@ -234,8 +276,8 @@ export async function auditModels(baseUrl: string): Promise<ModelAudit[]> {
   console.log('\n')
   console.table(results)
 
-  // 4. Save to cache
-  await writeCache(results)
+  // 5. Save to cache
+  await writeCache(baseUrl, results)
   console.log(`📝 Audit results saved to cache.`)
 
   return results

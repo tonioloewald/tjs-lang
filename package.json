@@ -38,6 +38,7 @@
     "latest": "rm -rf node_modules && bun install"
   },
   "dependencies": {
+    "acorn": "^8.15.0",
     "jsep": "^1.4.0",
     "tosijs-schema": "1.0.1"
   }

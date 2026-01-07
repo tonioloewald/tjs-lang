@@ -139,8 +139,12 @@ export function resolveValue(val: any, ctx: RuntimeContext): any {
       }
     }
     // Simple state lookup (not an expression, just key)
-    const v = ctx.state[val]
-    return v !== undefined ? v : val
+    // Check if the key exists in state (even if value is undefined)
+    if (val in ctx.state) {
+      return ctx.state[val]
+    }
+    // Key doesn't exist in state - return the literal string
+    return val
   }
   return val
 }

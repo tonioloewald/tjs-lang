@@ -15,5 +15,6 @@
     "allowJs": true,
     "declaration": true,
     "types": ["bun-types", "@types/jsdom"]
-  }
+  },
+  "exclude": ["**/*.test.ts", "**/*.test.tsx"]
 }
