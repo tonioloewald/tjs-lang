@@ -218,6 +218,18 @@ export function resolveValue(val: any, ctx: RuntimeContext): any {
     // Key doesn't exist in state - return the literal string
     return val
   }
+  // Recursively resolve plain object values (but not arrays or special objects)
+  if (val && typeof val === 'object' && !Array.isArray(val) && val.constructor === Object) {
+    const result: Record<string, any> = {}
+    for (const key of Object.keys(val)) {
+      result[key] = resolveValue(val[key], ctx)
+    }
+    return result
+  }
+  // Recursively resolve array elements
+  if (Array.isArray(val)) {
+    return val.map((item) => resolveValue(item, ctx))
+  }
   return val
 }
 
@@ -1618,7 +1630,7 @@ export const fetch = defineAtom(
     }
     throw new Error("Capability 'fetch' missing and no global fetch available")
   },
-  { docs: 'HTTP Fetch', cost: 5 }
+  { docs: 'HTTP Fetch', timeoutMs: 30000, cost: 5 }
 )
 
 // 9. Store
@@ -1686,7 +1698,7 @@ export const llmPredict = defineAtom(
       resolveValue(options, ctx)
     )
   },
-  { docs: 'LLM Predict', cost: 1 }
+  { docs: 'LLM Predict', timeoutMs: 120000, cost: 1 }
 )
 
 export const agentRun = defineAtom(

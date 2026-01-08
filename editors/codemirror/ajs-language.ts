@@ -67,7 +67,113 @@ const forbiddenMark = Decoration.mark({
 })
 
 /**
+ * Find all string and comment regions in the document
+ * Returns array of [start, end] ranges to skip
+ */
+function findSkipRegions(doc: string): [number, number][] {
+  const regions: [number, number][] = []
+  const len = doc.length
+  let i = 0
+
+  while (i < len) {
+    const ch = doc[i]
+    const next = doc[i + 1]
+
+    // Single-line comment
+    if (ch === '/' && next === '/') {
+      const start = i
+      i += 2
+      while (i < len && doc[i] !== '\n') i++
+      regions.push([start, i])
+      continue
+    }
+
+    // Multi-line comment
+    if (ch === '/' && next === '*') {
+      const start = i
+      i += 2
+      while (i < len - 1 && !(doc[i] === '*' && doc[i + 1] === '/')) i++
+      i += 2 // skip */
+      regions.push([start, i])
+      continue
+    }
+
+    // Template literal - skip string parts but NOT ${...} expressions
+    if (ch === '`') {
+      let stringStart = i
+      i++
+      while (i < len) {
+        if (doc[i] === '\\') {
+          i += 2 // skip escaped char
+          continue
+        }
+        if (doc[i] === '`') {
+          // End of template - add final string region
+          regions.push([stringStart, i + 1])
+          i++
+          break
+        }
+        if (doc[i] === '$' && doc[i + 1] === '{') {
+          // Add string region before ${
+          regions.push([stringStart, i])
+          i += 2 // skip ${
+          // Skip the expression inside ${...} (don't add to regions - it's code!)
+          let braceDepth = 1
+          while (i < len && braceDepth > 0) {
+            if (doc[i] === '{') braceDepth++
+            else if (doc[i] === '}') braceDepth--
+            if (braceDepth > 0) i++
+          }
+          i++ // skip closing }
+          stringStart = i // next string region starts here
+          continue
+        }
+        i++
+      }
+      continue
+    }
+
+    // Single or double quoted string
+    if (ch === '"' || ch === "'") {
+      const quote = ch
+      const start = i
+      i++
+      while (i < len) {
+        if (doc[i] === '\\') {
+          i += 2 // skip escaped char
+          continue
+        }
+        if (doc[i] === quote) {
+          i++
+          break
+        }
+        if (doc[i] === '\n') break // unterminated string
+        i++
+      }
+      regions.push([start, i])
+      continue
+    }
+
+    i++
+  }
+
+  return regions
+}
+
+/**
+ * Check if a position is inside any skip region
+ */
+function isInSkipRegion(pos: number, regions: [number, number][]): boolean {
+  for (const [start, end] of regions) {
+    if (pos >= start && pos < end) return true
+    if (start > pos) break // regions are sorted, no need to check further
+  }
+  return false
+}
+
+/**
  * Plugin that highlights forbidden keywords as errors
+ * (but not inside strings or comments)
  */
 const forbiddenHighlighter = ViewPlugin.fromClass(
   class {
@@ -86,6 +192,7 @@ const forbiddenHighlighter = ViewPlugin.fromClass(
     buildDecorations(view: EditorView): DecorationSet {
       const builder = new RangeSetBuilder<Decoration>()
       const doc = view.state.doc.toString()
+      const skipRegions = findSkipRegions(doc)
 
       // Match word boundaries for forbidden keywords
       const pattern = new RegExp(
@@ -95,7 +202,10 @@ const forbiddenHighlighter = ViewPlugin.fromClass(
 
       let match
       while ((match = pattern.exec(doc)) !== null) {
-        builder.add(match.index, match.index + match[0].length, forbiddenMark)
+        // Skip if inside string or comment
+        if (!isInSkipRegion(match.index, skipRegions)) {
+          builder.add(match.index, match.index + match[0].length, forbiddenMark)
+        }
       }
 
       return builder.finish()
@@ -131,7 +241,7 @@ const ajsHighlightStyle = HighlightStyle.define([
  * @param config Optional configuration
  * @returns Extension array for CodeMirror
  */
-export function ajs(
+export function ajsEditorExtension(
   config: { jsx?: boolean; typescript?: boolean } = {}
 ): Extension {
   return [
@@ -141,6 +251,9 @@ export function ajs(
     syntaxHighlighting(ajsHighlightStyle),
   ]
 }
+
+// Alias for backwards compatibility
+export { ajsEditorExtension as ajs }
 
 /**
  * AsyncJS language support wrapped as LanguageSupport

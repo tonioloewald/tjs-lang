@@ -53,7 +53,7 @@
     "latest": "rm -rf node_modules && bun install",
     "docs": "node bin/docs.js",
     "dev": "bun run bin/dev.ts",
-    "build:demo": "bun run docs && bun build ./demo/src/index.ts --outdir=docs --minify --sourcemap=external --target=browser && cp demo/index.html demo/static/favicon.svg docs/",
+    "build:demo": "bun run docs && bun build ./demo/src/index.ts --outdir=docs --minify --sourcemap=external --target=browser && cp demo/index.html demo/static/favicon.svg docs/ && cp -r demo/static/texts docs/",
     "start": "bun run build:demo && bun run dev"
   },
   "dependencies": {

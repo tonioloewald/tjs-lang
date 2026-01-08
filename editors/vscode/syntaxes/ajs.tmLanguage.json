@@ -4,11 +4,11 @@
   "scopeName": "source.ajs",
   "patterns": [
     { "include": "#comments" },
+    { "include": "#strings" },
     { "include": "#function-def" },
     { "include": "#forbidden" },
     { "include": "#keywords" },
     { "include": "#type-parameters" },
-    { "include": "#strings" },
     { "include": "#numbers" },
     { "include": "#operators" }
   ],
@@ -93,6 +93,31 @@
           "end": "\"",
           "patterns": [
             { "name": "constant.character.escape.ajs", "match": "\\\\." }
+          ]
+        },
+        {
+          "name": "string.template.ajs",
+          "begin": "`",
+          "end": "`",
+          "patterns": [
+            { "name": "constant.character.escape.ajs", "match": "\\\\." },
+            {
+              "name": "meta.template.expression.ajs",
+              "begin": "\\$\\{",
+              "end": "\\}",
+              "beginCaptures": {
+                "0": { "name": "punctuation.definition.template-expression.begin.ajs" }
+              },
+              "endCaptures": {
+                "0": { "name": "punctuation.definition.template-expression.end.ajs" }
+              },
+              "patterns": [
+                { "include": "#forbidden" },
+                { "include": "#keywords" },
+                { "include": "#numbers" },
+                { "include": "#operators" }
+              ]
+            }
           ]
         }
       ]
