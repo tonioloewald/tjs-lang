@@ -25,13 +25,20 @@
     "url": "https://github.com/tonioloewald/tosijs-agent.git"
   },
   "devDependencies": {
+    "@codemirror/lang-javascript": "^6.2.4",
+    "@codemirror/state": "^6.5.3",
+    "@codemirror/view": "^6.39.9",
     "@types/bun": "latest",
     "@types/jsdom": "^21.1.7",
     "@typescript-eslint/eslint-plugin": "^5.62.0",
     "@typescript-eslint/parser": "^5.62.0",
     "chokidar": "^4.0.3",
+    "codemirror": "^6.0.2",
     "eslint": "^8.57.1",
+    "marked": "^9.1.6",
     "prettier": "^2.8.8",
+    "tosijs": "^1.0.0",
+    "tosijs-ui": "^1.0.0",
     "typescript": "^5.6.2",
     "valibot": "^0.36.0",
     "vitest": "^2.0.5"
@@ -43,7 +50,11 @@
     "make": "rm -rf dist && bun format && tsc -p tsconfig.build.json && bun build ./src/index.ts --outdir=dist --minify --sourcemap=external --external acorn --external tosijs-schema && bun run show-size",
     "show-size": "gzip -c dist/index.js | wc -c | awk '{printf \"%d bytes (%.2f kB)\\n\", $1, $1/1024}'",
     "typecheck": "tsc --noEmit",
-    "latest": "rm -rf node_modules && bun install"
+    "latest": "rm -rf node_modules && bun install",
+    "docs": "node bin/docs.js",
+    "dev": "bun run bin/dev.ts",
+    "build:demo": "bun run docs && bun build ./demo/src/index.ts --outdir=docs --minify --sourcemap=external --target=browser && cp demo/index.html demo/static/favicon.svg docs/",
+    "start": "bun run build:demo && bun run dev"
   },
   "dependencies": {
     "acorn": "^8.15.0",

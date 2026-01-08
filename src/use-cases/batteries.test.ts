@@ -70,9 +70,11 @@ describe('Batteries Included', () => {
       return new Response('{}')
     })
 
+    const mockLLMBattery = createMockLLMBattery(fetchMock)
     const testCaps = {
       ...batteries,
-      llmBattery: createMockLLMBattery(fetchMock),
+      llmBattery: mockLLMBattery,
+      vector: { embed: mockLLMBattery.embed },
     }
 
     const agent = Agent.custom({ ...batteryVM['atoms'] })

@@ -15,12 +15,12 @@ search-tool.ajs
 
 ## Why AsyncJS?
 
-| Problem with JavaScript | AsyncJS Solution |
-|------------------------|------------------|
-| `async/await` boilerplate | All calls are implicitly async |
-| Complex error handling | Monadic error flow - errors propagate as values |
-| No built-in type safety | Types through example values |
-| Security concerns with `eval` | Compiles to sandboxed VM |
+| Problem with JavaScript       | AsyncJS Solution                                |
+| ----------------------------- | ----------------------------------------------- |
+| `async/await` boilerplate     | All calls are implicitly async                  |
+| Complex error handling        | Monadic error flow - errors propagate as values |
+| No built-in type safety       | Types through example values                    |
+| Security concerns with `eval` | Compiles to sandboxed VM                        |
 
 ## Quick Example
 
@@ -32,21 +32,18 @@ search-tool.ajs
  * @param topic - The topic to research
  * @param maxResults - Maximum number of results
  */
-function searchAgent(
-  topic: 'climate change',
-  maxResults = 5
-) {
+function searchAgent(topic: 'climate change', maxResults = 5) {
   let results = search({ query: topic, limit: maxResults })
-  
+
   if (results.length == 0) {
     return { summary: 'No results found', sources: [] }
   }
-  
+
   let summary = llmPredict({
     system: 'Summarize these search results concisely',
-    user: results
+    user: results,
   })
-  
+
   return { summary, sources: results }
 }
 ```
@@ -79,9 +76,9 @@ Types are inferred from example values. The example shows both the type AND a re
 
 ```javascript
 function greet(
-  name: 'Anne Example',              // required string
-  age: 21,                           // required number  
-  greeting = 'Hello'                 // optional string, defaults to 'Hello'
+  name: 'Anne Example', // required string
+  age: 21, // required number
+  greeting = 'Hello' // optional string, defaults to 'Hello'
 ) {
   // ...
 }
@@ -98,8 +95,8 @@ Errors propagate automatically as values. When an atom fails, subsequent steps a
 
 ```javascript
 function pipeline(topic: 'quantum computing') {
-  let results = search({ query: topic })      // might fail
-  let summary = summarize({ text: results })  // skipped if search fails
+  let results = search({ query: topic }) // might fail
+  let summary = summarize({ text: results }) // skipped if search fails
   let formatted = format({ content: summary }) // skipped if any above fails
   return { formatted }
 }
@@ -167,15 +164,46 @@ search.signature = {
 
 ### Parameter Types
 
-| Syntax | Meaning | Example |
-|--------|---------|---------|
-| `name: 'Anne'` | Required string | The example value shows the type |
-| `age: 21` | Required number | |
-| `active: true` | Required boolean | |
-| `tags: ['a', 'b']` | Required array | |
-| `user: { name: 'Bob' }` | Required object | |
-| `limit = 10` | Optional number | Defaults to 10 |
-| `query = 'default'` | Optional string | Defaults to 'default' |
+| Syntax                  | Meaning          | Example                          |
+| ----------------------- | ---------------- | -------------------------------- |
+| `name: 'Anne'`          | Required string  | The example value shows the type |
+| `age: 21`               | Required number  |                                  |
+| `active: true`          | Required boolean |                                  |
+| `tags: ['a', 'b']`      | Required array   |                                  |
+| `user: { name: 'Bob' }` | Required object  |                                  |
+| `limit = 10`            | Optional number  | Defaults to 10                   |
+| `query = 'default'`     | Optional string  | Defaults to 'default'            |
+
+### Destructured Parameter Defaults
+
+AsyncJS supports default values in destructured object parameters. Unlike JavaScript/TypeScript where destructuring defaults can be tricky, AsyncJS makes them work reliably:
+
+```javascript
+function calculate({ a = 10, b = 5 }) {
+  return { sum: a + b, product: a * b }
+}
+
+// Called with no arguments - uses defaults
+calculate({})  // { sum: 15, product: 50 }
+
+// Called with partial arguments - missing ones use defaults
+calculate({ a: 20 })  // { sum: 25, product: 100 }
+
+// Called with all arguments - no defaults used
+calculate({ a: 3, b: 7 })  // { sum: 10, product: 21 }
+```
+
+This works seamlessly with type annotations too:
+
+```javascript
+function greet({ name: 'World', greeting = 'Hello' }) {
+  return { message: `${greeting}, ${name}!` }
+}
+
+greet({})  // { message: "Hello, World!" }
+greet({ name: 'Alice' })  // { message: "Hello, Alice!" }
+greet({ greeting: 'Hi' })  // { message: "Hi, World!" }
+```
 
 ### Return Types
 
@@ -191,7 +219,7 @@ Or inferred from the return statement:
 
 ```javascript
 function search(query: 'search term') {
-  return { results: [], count: 0 }  // Return type inferred
+  return { results: [], count: 0 } // Return type inferred
 }
 ```
 
@@ -200,9 +228,9 @@ function search(query: 'search term') {
 ### Variables
 
 ```javascript
-let x = 5           // Variable declaration
-x = 10              // Assignment
-let { a, b } = obj  // Destructuring (limited)
+let x = 5 // Variable declaration
+x = 10 // Assignment
+let { a, b } = obj // Destructuring (limited)
 ```
 
 ### Control Flow
@@ -270,13 +298,13 @@ AsyncJS provides safe implementations of common JavaScript built-in objects:
 All standard Math methods and constants are available:
 
 ```javascript
-let floor = Math.floor(3.7)       // 3
-let ceil = Math.ceil(3.2)         // 4
-let abs = Math.abs(-5)            // 5
-let max = Math.max(1, 5, 3)       // 5
-let sqrt = Math.sqrt(16)          // 4
-let pi = Math.PI                  // 3.14159...
-let random = Math.random()        // Cryptographically secure when available
+let floor = Math.floor(3.7) // 3
+let ceil = Math.ceil(3.2) // 4
+let abs = Math.abs(-5) // 5
+let max = Math.max(1, 5, 3) // 5
+let sqrt = Math.sqrt(16) // 4
+let pi = Math.PI // 3.14159...
+let random = Math.random() // Cryptographically secure when available
 ```
 
 **Note:** `Math.random()` uses `crypto.getRandomValues()` when available for cryptographically secure random numbers.
@@ -285,61 +313,61 @@ let random = Math.random()        // Cryptographically secure when available
 
 ```javascript
 let obj = { name: 'test', value: 42 }
-let str = JSON.stringify(obj)     // '{"name":"test","value":42}'
-let parsed = JSON.parse(str)      // { name: 'test', value: 42 }
+let str = JSON.stringify(obj) // '{"name":"test","value":42}'
+let parsed = JSON.parse(str) // { name: 'test', value: 42 }
 ```
 
 #### Array Static Methods
 
 ```javascript
-let isArr = Array.isArray([1,2,3])  // true
-let arr = Array.from([1,2,3])       // Creates new array
-let created = Array.of(1, 2, 3)     // [1, 2, 3]
+let isArr = Array.isArray([1, 2, 3]) // true
+let arr = Array.from([1, 2, 3]) // Creates new array
+let created = Array.of(1, 2, 3) // [1, 2, 3]
 ```
 
 #### Object Static Methods
 
 ```javascript
 let obj = { a: 1, b: 2, c: 3 }
-let keys = Object.keys(obj)         // ['a', 'b', 'c']
-let values = Object.values(obj)     // [1, 2, 3]
-let entries = Object.entries(obj)   // [['a',1], ['b',2], ['c',3]]
+let keys = Object.keys(obj) // ['a', 'b', 'c']
+let values = Object.values(obj) // [1, 2, 3]
+let entries = Object.entries(obj) // [['a',1], ['b',2], ['c',3]]
 ```
 
 #### Number Static Methods
 
 ```javascript
-let isInt = Number.isInteger(5)     // true
-let isNan = Number.isNaN(NaN)       // true
-let max = Number.MAX_SAFE_INTEGER   // 9007199254740991
+let isInt = Number.isInteger(5) // true
+let isNan = Number.isNaN(NaN) // true
+let max = Number.MAX_SAFE_INTEGER // 9007199254740991
 ```
 
 #### Global Functions
 
 ```javascript
-let n = parseInt('42')              // 42
-let f = parseFloat('3.14')          // 3.14
-let encoded = encodeURIComponent('hello world')  // 'hello%20world'
+let n = parseInt('42') // 42
+let f = parseFloat('3.14') // 3.14
+let encoded = encodeURIComponent('hello world') // 'hello%20world'
 ```
 
 #### String Instance Methods
 
 ```javascript
 let str = 'hello world'
-let upper = str.toUpperCase()       // 'HELLO WORLD'
-let parts = str.split(' ')          // ['hello', 'world']
-let trimmed = '  padded  '.trim()   // 'padded'
-let replaced = str.replace('world', 'there')  // 'hello there'
+let upper = str.toUpperCase() // 'HELLO WORLD'
+let parts = str.split(' ') // ['hello', 'world']
+let trimmed = '  padded  '.trim() // 'padded'
+let replaced = str.replace('world', 'there') // 'hello there'
 ```
 
 #### Array Instance Methods
 
 ```javascript
 let arr = [3, 1, 4, 1, 5]
-let joined = arr.join('-')          // '3-1-4-1-5'
-let has = arr.includes(4)           // true
-let idx = arr.indexOf(1)            // 1
-let sliced = arr.slice(1, 3)        // [1, 4]
+let joined = arr.join('-') // '3-1-4-1-5'
+let has = arr.includes(4) // true
+let idx = arr.indexOf(1) // 1
+let sliced = arr.slice(1, 3) // [1, 4]
 ```
 
 ### Set and Date Builtins
@@ -356,22 +384,22 @@ let tags = Set(['javascript', 'typescript', 'rust'])
 let empty = Set()
 
 // Mutable operations (modify the set, return this for chaining)
-tags.add('go')                      // Add item
-tags.remove('rust')                 // Remove item  
-tags.clear()                        // Remove all items
+tags.add('go') // Add item
+tags.remove('rust') // Remove item
+tags.clear() // Remove all items
 
 // Query operations
-let has = tags.has('typescript')    // true/false
-let count = tags.size               // Number of items
-let arr = tags.toArray()            // Convert to array
+let has = tags.has('typescript') // true/false
+let count = tags.size // Number of items
+let arr = tags.toArray() // Convert to array
 
 // Immutable set algebra (return NEW sets)
 let a = Set([1, 2, 3])
 let b = Set([2, 3, 4])
 
-let union = a.union(b)              // Set([1, 2, 3, 4])
-let inter = a.intersection(b)       // Set([2, 3])
-let diff = a.diff(b)                // Set([1]) - items in a but not b
+let union = a.union(b) // Set([1, 2, 3, 4])
+let inter = a.intersection(b) // Set([2, 3])
+let diff = a.diff(b) // Set([1]) - items in a but not b
 ```
 
 #### Date
@@ -380,24 +408,24 @@ Create dates with `Date()` or `Date(initializer)`. Date objects are **immutable*
 
 ```javascript
 // Create a Date
-let now = Date()                    // Current date/time
-let specific = Date('2024-06-15')   // From ISO string
-let fromTs = Date(1718409600000)    // From timestamp
+let now = Date() // Current date/time
+let specific = Date('2024-06-15') // From ISO string
+let fromTs = Date(1718409600000) // From timestamp
 
 // Static methods
-let timestamp = Date.now()          // Current timestamp (number)
-let parsed = Date.parse('2024-06-15T10:30:00Z')  // Parse to Date object
+let timestamp = Date.now() // Current timestamp (number)
+let parsed = Date.parse('2024-06-15T10:30:00Z') // Parse to Date object
 
 // Component accessors (read-only)
 let d = Date('2024-06-15T10:30:45Z')
-d.year        // 2024
-d.month       // 6 (1-12, not 0-11 like JS!)
-d.day         // 15
-d.hours       // 10
-d.minutes     // 30
-d.seconds     // 45
-d.timestamp   // Unix timestamp in ms
-d.value       // ISO string
+d.year // 2024
+d.month // 6 (1-12, not 0-11 like JS!)
+d.day // 15
+d.hours // 10
+d.minutes // 30
+d.seconds // 45
+d.timestamp // Unix timestamp in ms
+d.value // ISO string
 
 // Immutable arithmetic (returns NEW Date)
 let later = d.add({ days: 5, hours: 3 })
@@ -405,14 +433,14 @@ let earlier = d.add({ months: -1 })
 // Supported: years, months, days, hours, minutes, seconds
 
 // Comparison
-let before = d.isBefore(later)      // true
-let after = later.isAfter(d)        // true
+let before = d.isBefore(later) // true
+let after = later.isAfter(d) // true
 let diffDays = d.diff(later, 'days') // -5
 
 // Formatting
-let formatted = d.format('date')    // '2024-06-15'
-let iso = d.format('iso')           // '2024-06-15T10:30:45.000Z'
-let time = d.format('time')         // '10:30:45'
+let formatted = d.format('date') // '2024-06-15'
+let iso = d.format('iso') // '2024-06-15T10:30:45.000Z'
+let time = d.format('time') // '10:30:45'
 ```
 
 **Note:** Unlike JavaScript's `Date`, months are 1-12 (not 0-11), and all methods are immutable.
@@ -424,7 +452,7 @@ Sets and Dates serialize cleanly to JSON:
 ```javascript
 let result = {
   tags: Set(['a', 'b', 'c']),
-  created: Date('2024-06-15')
+  created: Date('2024-06-15'),
 }
 // JSON.stringify(result) produces:
 // { "tags": ["a", "b", "c"], "created": "2024-06-15T00:00:00.000Z" }
@@ -447,11 +475,11 @@ let clean = filter(raw, { name: 'string', age: 0 })
 let data = {
   user: { name: 'Bob', age: 25, ssn: '123-45-6789' },
   tags: ['a', 'b'],
-  internal: 'hidden'
+  internal: 'hidden',
 }
 let filtered = filter(data, {
   user: { name: 'string', age: 0 },
-  tags: ['string']
+  tags: ['string'],
 })
 // filtered = { user: { name: 'Bob', age: 25 }, tags: ['a', 'b'] }
 
@@ -461,6 +489,7 @@ let bad = filter({ name: 'Alice' }, { name: 'string', age: 0 })
 ```
 
 **Use cases:**
+
 - Sanitize LLM outputs - strip unexpected properties from JSON responses
 - API input validation - accept only the fields you expect
 - Data projection - reduce objects to a known shape
@@ -478,36 +507,36 @@ function getUser(id: 'user-123') -> { name: 'string', email: 'string' } {
 
 ```javascript
 // Map - transform each element
-items.map(x => x * 2)
-items.map(x => {
+items.map((x) => x * 2)
+items.map((x) => {
   let doubled = x * 2
   return doubled
 })
 
 // Filter - keep elements matching condition
-items.filter(x => x > 5)
-items.filter(x => x % 2 == 0)
+items.filter((x) => x > 5)
+items.filter((x) => x % 2 == 0)
 
 // Find - get first matching element
-items.find(x => x.id == targetId)
-users.find(u => u.age >= 18)
+items.find((x) => x.id == targetId)
+users.find((u) => u.age >= 18)
 
 // Reduce - accumulate to single value
 items.reduce((acc, x) => acc + x, 0)
 items.reduce((sum, item) => sum + item.price, 0)
 
 // Other array operations
-items.push(newItem)           // Add to array
-str.split(',')                // Split string to array
-parts.join('-')               // Join array to string
+items.push(newItem) // Add to array
+str.split(',') // Split string to array
+parts.join('-') // Join array to string
 ```
 
 Lambdas support closures - they can access variables from the outer scope:
 
 ```javascript
 function processItems({ items, threshold }) {
-  let above = items.filter(x => x >= threshold)  // threshold from outer scope
-  let scaled = above.map(x => x * threshold)     // still accessible
+  let above = items.filter((x) => x >= threshold) // threshold from outer scope
+  let scaled = above.map((x) => x * threshold) // still accessible
   return { scaled }
 }
 ```
@@ -516,17 +545,17 @@ function processItems({ items, threshold }) {
 
 These JavaScript features are intentionally not supported:
 
-| Feature | Reason | Alternative |
-|---------|--------|-------------|
-| `class` | Use functional composition | Plain functions |
-| `this` | Implicit state is confusing | Explicit parameters |
-| `new` | Classes not supported | Factory functions |
-| `import/require` | Atoms must be registered | Register with VM |
-| `async/await` | Implicit async | Just call functions |
-| `yield/generators` | Complex control flow | Use `map`/`while` |
-| `eval` | Security (though VM is safe) | Use transpiler |
-| `with` | Deprecated | Explicit references |
-| `var` | Scoping issues | Use `let` |
+| Feature            | Reason                       | Alternative         |
+| ------------------ | ---------------------------- | ------------------- |
+| `class`            | Use functional composition   | Plain functions     |
+| `this`             | Implicit state is confusing  | Explicit parameters |
+| `new`              | Classes not supported        | Factory functions   |
+| `import/require`   | Atoms must be registered     | Register with VM    |
+| `async/await`      | Implicit async               | Just call functions |
+| `yield/generators` | Complex control flow         | Use `map`/`while`   |
+| `eval`             | Security (though VM is safe) | Use transpiler      |
+| `with`             | Deprecated                   | Explicit references |
+| `var`              | Scoping issues               | Use `let`           |
 
 ## API Usage
 
@@ -544,8 +573,8 @@ const { ast, signature, warnings } = transpile(`
   }
 `)
 
-console.log(signature.parameters.name.type)  // 'string'
-console.log(signature.parameters.name.required)  // true
+console.log(signature.parameters.name.type) // 'string'
+console.log(signature.parameters.name.required) // true
 ```
 
 ### ajs()
@@ -565,7 +594,7 @@ const ast = ajs(`
 // Execute with VM
 const vm = new AgentVM()
 const result = await vm.run(ast, { a: 5, b: 3 })
-console.log(result.result.sum)  // 8
+console.log(result.result.sum) // 8
 ```
 
 ### agent\`\`
@@ -644,17 +673,76 @@ Use `try/catch` in your AsyncJS code to handle errors gracefully:
 ```javascript
 function resilientAgent({ query }) {
   let result = null
-  
+
   try {
     result = riskyOperation({ query })
   } catch (e) {
     // e contains the error message
     result = safeDefault({ error: e })
   }
-  
+
   return { result }
 }
 ```
+
+### Triggering Errors with Error()
+
+Use the `Error()` built-in to trigger monadic error flow from your AsyncJS code:
+
+```javascript
+function validateInput({ value }) {
+  if (value < 0) {
+    Error('Value must be non-negative')
+    // Execution stops here - subsequent code is skipped
+  }
+  
+  return { validated: value }
+}
+```
+
+When `Error()` is called:
+- The error message is stored in the context
+- Subsequent operations are skipped (monadic error flow)
+- The error can be caught with `try/catch` or returned to the caller
+
+```javascript
+function safeDivide({ a, b }) {
+  if (b === 0) {
+    Error('Division by zero')
+  }
+  return { result: a / b }
+}
+
+function calculate({ x, y }) {
+  let result = null
+  
+  try {
+    result = safeDivide({ a: x, b: y })
+  } catch (e) {
+    result = { result: 0, error: e }
+  }
+  
+  return result
+}
+```
+
+### Why No `throw` Statement?
+
+AsyncJS intentionally does not support the `throw` statement. Instead, use `Error()`:
+
+```javascript
+// DON'T DO THIS - throw is not supported:
+if (invalid) {
+  throw new Error('Something went wrong')  // Transpiler error!
+}
+
+// DO THIS INSTEAD:
+if (invalid) {
+  Error('Something went wrong')  // Triggers monadic error flow
+}
+```
+
+The `throw` keyword will show as an error in your editor (red underline) and the transpiler will provide a helpful error message pointing you to use `Error()` instead.
 
 ## Gotchas and Common Pitfalls
 
@@ -662,15 +750,15 @@ function resilientAgent({ query }) {
 
 These common JavaScript APIs are **not available** in AsyncJS. The transpiler will catch these and provide helpful error messages:
 
-| Feature | Error Message | Alternative |
-|---------|---------------|-------------|
-| `setTimeout` | Use the `delay` atom | `delay({ ms: 1000 })` |
-| `setInterval` | Use while loops with delay | `while (cond) { delay({ ms: 1000 }) }` |
-| `fetch` | Use the `httpFetch` atom | `httpFetch({ url })` |
-| `RegExp` | Use string methods | `str.match()`, `str.replace()` |
-| `Promise` | Implicit async | All calls are automatically awaited |
-| `Map` | Use plain objects | `{ key: value }` |
-| `require/import` | Register atoms with VM | `new AgentVM({ customAtom })` |
+| Feature          | Error Message              | Alternative                            |
+| ---------------- | -------------------------- | -------------------------------------- |
+| `setTimeout`     | Use the `delay` atom       | `delay({ ms: 1000 })`                  |
+| `setInterval`    | Use while loops with delay | `while (cond) { delay({ ms: 1000 }) }` |
+| `fetch`          | Use the `httpFetch` atom   | `httpFetch({ url })`                   |
+| `RegExp`         | Use string methods         | `str.match()`, `str.replace()`         |
+| `Promise`        | Implicit async             | All calls are automatically awaited    |
+| `Map`            | Use plain objects          | `{ key: value }`                       |
+| `require/import` | Register atoms with VM     | `new AgentVM({ customAtom })`          |
 
 ### The `new` Keyword
 
@@ -678,15 +766,15 @@ The `new` keyword is not supported. AsyncJS provides factory functions instead:
 
 ```javascript
 // DON'T DO THIS - the transpiler catches these with helpful errors:
-let date = new Date()     // Error: Use Date() or Date('2024-01-15') instead
-let set = new Set([1,2])  // Error: Use Set([items]) instead
-let arr = new Array(5)    // Error: Use array literals like [1, 2, 3] instead
+let date = new Date() // Error: Use Date() or Date('2024-01-15') instead
+let set = new Set([1, 2]) // Error: Use Set([items]) instead
+let arr = new Array(5) // Error: Use array literals like [1, 2, 3] instead
 
 // DO THIS INSTEAD - no 'new' needed:
-let date = Date()                    // Current date/time
-let date2 = Date('2024-06-15')       // Specific date
-let set = Set([1, 2, 3])             // Create a Set
-let arr = [1, 2, 3, 4, 5]            // Array literal
+let date = Date() // Current date/time
+let date2 = Date('2024-06-15') // Specific date
+let set = Set([1, 2, 3]) // Create a Set
+let arr = [1, 2, 3, 4, 5] // Array literal
 ```
 
 See [Set and Date Builtins](#set-and-date-builtins) for full documentation.
@@ -698,7 +786,9 @@ AsyncJS is purely functional. There's no `this`, no classes, no prototypes:
 ```javascript
 // DON'T DO THIS
 class Agent {
-  constructor(name) { this.name = name }
+  constructor(name) {
+    this.name = name
+  }
 }
 
 // DO THIS INSTEAD
@@ -714,10 +804,10 @@ AsyncJS uses JavaScript's standard equality (`==` and `===`). There is no specia
 ```javascript
 let a = { x: 1 }
 let b = { x: 1 }
-let same = a == b    // false (reference comparison)
+let same = a == b // false (reference comparison)
 
 // For deep comparison, use JSON.stringify or write a comparison function
-let equal = JSON.stringify(a) == JSON.stringify(b)  // true
+let equal = JSON.stringify(a) == JSON.stringify(b) // true
 ```
 
 ### Optional Chaining (`?.`)
@@ -725,7 +815,7 @@ let equal = JSON.stringify(a) == JSON.stringify(b)  // true
 Optional chaining is fully supported for safe property access:
 
 ```javascript
-let x = obj?.nested?.value      // Returns null if any step is null/undefined
+let x = obj?.nested?.value // Returns null if any step is null/undefined
 let result = user?.profile?.name
 
 // Works with method calls too
@@ -762,12 +852,12 @@ All atom calls are automatically awaited. Don't use `async/await`:
 ```javascript
 // DON'T DO THIS
 async function search(query) {
-  let result = await fetch(query)  // Error: async/await not supported
+  let result = await fetch(query) // Error: async/await not supported
 }
 
 // DO THIS INSTEAD
 function search(query: 'https://api.example.com') {
-  let result = httpFetch({ url: query })  // Automatically awaited
+  let result = httpFetch({ url: query }) // Automatically awaited
   return { result }
 }
 ```
@@ -778,10 +868,10 @@ Errors propagate monadically - if one step fails, subsequent steps are skipped:
 
 ```javascript
 function pipeline(input: 'raw data') {
-  let a = stepOne({ input })      // If this fails...
-  let b = stepTwo({ data: a })    // ...this is skipped
-  let c = stepThree({ data: b })  // ...and this too
-  return { c }                    // Result contains the error
+  let a = stepOne({ input }) // If this fails...
+  let b = stepTwo({ data: a }) // ...this is skipped
+  let c = stepThree({ data: b }) // ...and this too
+  return { c } // Result contains the error
 }
 ```
 
@@ -806,7 +896,7 @@ All operations consume fuel. Complex operations may hit limits:
 ```javascript
 // This might run out of fuel for large arrays
 function processLarge({ items }) {
-  let mapped = items.map(x => complexOperation({ x }))
+  let mapped = items.map((x) => complexOperation({ x }))
   return { mapped }
 }
 
@@ -819,7 +909,7 @@ const result = await vm.run(ast, args, { fuel: 10000 })
 AsyncJS compiles to Agent99's JSON AST, which executes in a completely sandboxed VM:
 
 - **No file system access** - unless explicitly provided via atoms
-- **No network access** - unless explicitly provided via atoms  
+- **No network access** - unless explicitly provided via atoms
 - **No global state** - each execution is isolated
 - **Fuel-limited execution** - prevents infinite loops and runaway expressions
 - **Type-checked at runtime** - invalid operations fail safely
@@ -847,8 +937,8 @@ If you have existing TypedBuilder code, here's how to convert:
 const ast = Agent.take()
   .varsImport(['topic'])
   .step({ op: 'search', query: 'topic', result: 'results' })
-  .if('results.length > 0', { results: 'results' },
-    (b) => b.step({ op: 'summarize', text: 'results', result: 'summary' })
+  .if('results.length > 0', { results: 'results' }, (b) =>
+    b.step({ op: 'summarize', text: 'results', result: 'summary' })
   )
   .return({ properties: { results: {}, summary: {} } })
   .toJSON()

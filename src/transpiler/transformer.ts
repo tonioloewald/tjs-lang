@@ -72,13 +72,13 @@ export function transformFunction(
     if (
       parsed.name === '__destructured__' &&
       parsed.type.kind === 'object' &&
-      parsed.type.shape
+      parsed.type.destructuredParams
     ) {
-      for (const [key, type] of Object.entries(parsed.type.shape)) {
+      for (const [key, paramDesc] of Object.entries(
+        parsed.type.destructuredParams
+      )) {
         parameters.set(key, {
-          name: key,
-          type,
-          required: true, // Destructured params are required by default
+          ...(paramDesc as any),
           description: jsdoc.params[key],
         })
       }
@@ -143,8 +143,12 @@ export function transformFunction(
     // If null/undefined, set the default
     steps.push({
       op: 'if',
-      condition: `${name} == null`,
-      vars: { [name]: name },
+      condition: {
+        $expr: 'binary',
+        op: '==',
+        left: { $expr: 'ident', name },
+        right: { $expr: 'literal', value: null },
+      },
       then: [
         {
           op: 'varSet',
@@ -223,6 +227,14 @@ export function transformStatement(
 
     case 'ReturnStatement':
       return transformReturnStatement(stmt as ReturnStatement, ctx)
+
+    case 'ThrowStatement':
+      throw new TranspileError(
+        `'throw' is not supported in AsyncJS. Use Error('message') to trigger error flow`,
+        getLocation(stmt),
+        ctx.source,
+        ctx.filename
+      )
 
     case 'BlockStatement':
       // Nested block creates a scope
@@ -512,11 +524,13 @@ function transformTryStatement(
   const trySteps = transformBlock(stmt.block, createChildContext(ctx))
 
   let catchSteps: BaseNode[] | undefined
+  let catchParam: string | undefined
   if (stmt.handler) {
     const catchCtx = createChildContext(ctx)
     // Add error variable to scope if named
     if (stmt.handler.param?.type === 'Identifier') {
-      catchCtx.locals.set((stmt.handler.param as Identifier).name, {
+      catchParam = (stmt.handler.param as Identifier).name
+      catchCtx.locals.set(catchParam, {
         kind: 'any',
       })
     }
@@ -527,6 +541,7 @@ function transformTryStatement(
     op: 'try',
     try: trySteps,
     ...(catchSteps && { catch: catchSteps }),
+    ...(catchParam && { catchParam }),
   }
 }
 

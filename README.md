@@ -1,6 +1,10 @@
+<!--{"pin": "top"}-->
+
 # tosijs-agent
 
 [github](https://github.com/tonioloewald/tosijs-agent#readme) | [npm](https://www.npmjs.com/package/tosijs-agent) | [discord](https://discord.gg/ramJ9rgky5)
+
+![tosijs-agent logo](/tosijs-agent.svg)
 
 A **type-safe-by-design, cost-limited virtual machine** that enables the **safe execution of untrusted code** anywhere.
 

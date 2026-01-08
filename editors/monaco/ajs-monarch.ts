@@ -67,7 +67,6 @@ export const monarchLanguage: Monaco.languages.IMonarchLanguage = {
     'try',
     'catch',
     'finally',
-    'throw',
     'let',
     'const',
     'true',
@@ -92,6 +91,7 @@ export const monarchLanguage: Monaco.languages.IMonarchLanguage = {
     'import',
     'export',
     'require',
+    'throw',
   ],
 
   // Built-in type constructors used as factories

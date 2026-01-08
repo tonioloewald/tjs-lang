@@ -168,9 +168,11 @@ export function parseParameter(
   // Destructuring pattern: function foo({ a, b })
   if (param.type === 'ObjectPattern') {
     // For destructuring, we create a synthetic "args" parameter
-    // The individual properties become required fields in an object type
+    // The individual properties become fields with their own defaults
     const properties = (param as any).properties as any[]
     const shape: Record<string, TypeDescriptor> = {}
+    // Store full parameter descriptors for destructured properties
+    const destructuredParams: Record<string, ParameterDescriptor> = {}
 
     for (const prop of properties) {
       if (prop.type === 'Property') {
@@ -182,17 +184,28 @@ export function parseParameter(
         if (prop.value.type === 'Identifier') {
           // { name } - required, any type
           shape[key] = { kind: 'any' }
+          destructuredParams[key] = {
+            name: key,
+            type: { kind: 'any' },
+            required: true,
+          }
         } else if (prop.value.type === 'AssignmentPattern') {
-          // { name = default } - optional with type
+          // { name = default } - optional with default
           const innerParam = parseParameter(prop.value)
           shape[key] = innerParam.type
+          destructuredParams[key] = {
+            name: key,
+            type: innerParam.type,
+            required: false,
+            default: innerParam.default,
+          }
         }
       }
     }
 
     return {
       name: '__destructured__',
-      type: { kind: 'object', shape },
+      type: { kind: 'object', shape, destructuredParams },
       required: true,
     }
   }

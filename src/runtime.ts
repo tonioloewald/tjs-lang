@@ -916,6 +916,14 @@ export function evaluateExpr(node: ExprNode, ctx: RuntimeContext): any {
     }
 
     case 'call': {
+      // Special case: Error() triggers monadic error flow
+      if (node.callee === 'Error') {
+        const args = node.arguments.map((arg) => evaluateExpr(arg, ctx))
+        const message = typeof args[0] === 'string' ? args[0] : 'Error'
+        ctx.error = new AgentError(message, 'Error')
+        return undefined // Error triggered, subsequent operations will be skipped
+      }
+
       // Check if this is a builtin global function (parseInt, parseFloat, etc.)
       if (node.callee in builtins) {
         const fn = builtins[node.callee]
@@ -1172,7 +1180,11 @@ export const ret = defineAtom(
 
 export const tryCatch = defineAtom(
   'try',
-  s.object({ try: s.array(s.any), catch: s.array(s.any).optional }),
+  s.object({
+    try: s.array(s.any),
+    catch: s.array(s.any).optional,
+    catchParam: s.string.optional,
+  }),
   undefined,
   async (step, ctx) => {
     // Execute try block
@@ -1181,7 +1193,9 @@ export const tryCatch = defineAtom(
     // If an error occurred and we have a catch block, handle it
     if (ctx.error && step.catch) {
       // Store error message in state for catch block to access
-      ctx.state['error'] = ctx.error.message
+      // Use the catch parameter name if provided, otherwise 'error'
+      const paramName = step.catchParam || 'error'
+      ctx.state[paramName] = ctx.error.message
       ctx.state['errorOp'] = ctx.error.op
       // Clear the error - catch block handles it
       ctx.error = undefined
@@ -1192,6 +1206,17 @@ export const tryCatch = defineAtom(
     }
   },
   { docs: 'Try/Catch', timeoutMs: 0, cost: 0.1 }
+)
+
+export const errorAtom = defineAtom(
+  'Error',
+  s.object({ args: s.array(s.any).optional }),
+  undefined,
+  async (step, ctx) => {
+    const message = step.args?.[0] ?? 'Error'
+    ctx.error = new AgentError(String(message), 'Error')
+  },
+  { docs: 'Trigger error flow', cost: 0.1 }
 )
 
 // 2. State (Low cost: 0.1)
@@ -1945,6 +1970,7 @@ export const coreAtoms = {
   while: whileLoop,
   return: ret,
   try: tryCatch,
+  Error: errorAtom,
   varSet,
   constSet,
   varGet,

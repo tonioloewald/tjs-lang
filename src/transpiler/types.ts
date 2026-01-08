@@ -27,6 +27,8 @@ export interface TypeDescriptor {
   shape?: Record<string, TypeDescriptor>
   /** For unions: the member types */
   members?: TypeDescriptor[]
+  /** For destructured parameters: full parameter descriptors */
+  destructuredParams?: Record<string, ParameterDescriptor>
 }
 
 /** Describes a function parameter */

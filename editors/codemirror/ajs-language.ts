@@ -56,6 +56,7 @@ const FORBIDDEN_KEYWORDS = new Set([
   'import',
   'export',
   'require',
+  'throw',
 ])
 
 /**

@@ -1,0 +1,100 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>tosijs-agent | Secure Agent Runtime</title>
+    <meta
+      name="description"
+      content="A type-safe virtual machine for executing untrusted agent code safely. Build, run, and deploy AI agents with confidence."
+    />
+
+    <!-- Favicon -->
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+
+    <!-- Preload critical resources -->
+    <link rel="modulepreload" href="/index.js" />
+
+    <style>
+      /* Critical CSS - prevents flash of unstyled content */
+      :root {
+        --brand-color: #6366f1;
+        --brand-text-color: white;
+        --background: #ffffff;
+        --text-color: #1f2937;
+        --spacing: 10px;
+        --darkmode: false;
+      }
+
+      @media (prefers-color-scheme: dark) {
+        :root {
+          --background: #111827;
+          --text-color: #f3f4f6;
+          --darkmode: true;
+        }
+      }
+
+      * {
+        box-sizing: border-box;
+      }
+
+      html,
+      body {
+        margin: 0;
+        padding: 0;
+        height: 100%;
+        font-family: system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI',
+          Roboto, sans-serif;
+        background: var(--background);
+        color: var(--text-color);
+      }
+
+      body {
+        display: flex;
+        flex-direction: column;
+      }
+
+      main {
+        flex: 1;
+        display: flex;
+        flex-direction: column;
+        overflow: hidden;
+      }
+
+      /* Loading state */
+      .loading {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        height: 100%;
+        font-size: 1.2em;
+        color: var(--text-color);
+        opacity: 0.6;
+      }
+
+      .loading::after {
+        content: '';
+        width: 20px;
+        height: 20px;
+        margin-left: 10px;
+        border: 2px solid var(--brand-color);
+        border-top-color: transparent;
+        border-radius: 50%;
+        animation: spin 1s linear infinite;
+      }
+
+      @keyframes spin {
+        to {
+          transform: rotate(360deg);
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <main>
+      <div class="loading">Loading tosijs-agent</div>
+    </main>
+
+    <script type="module" src="/index.js"></script>
+  </body>
+</html>

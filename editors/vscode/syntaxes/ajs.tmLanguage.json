@@ -58,7 +58,7 @@
     "forbidden": {
       "patterns": [
         {
-          "match": "\\b(new|class|async|await|var|this|super|extends|implements|interface|type|yield|import|export|require)\\b",
+          "match": "\\b(new|class|async|await|var|this|super|extends|implements|interface|type|yield|import|export|require|throw)\\b",
           "name": "invalid.illegal.forbidden.ajs"
         }
       ]
@@ -67,7 +67,7 @@
     "keywords": {
       "patterns": [
         {
-          "match": "\\b(function|return|if|else|while|for|of|in|try|catch|finally|throw|let|const)\\b",
+          "match": "\\b(function|return|if|else|while|for|of|in|try|catch|finally|let|const)\\b",
           "name": "keyword.control.ajs"
         },
         {

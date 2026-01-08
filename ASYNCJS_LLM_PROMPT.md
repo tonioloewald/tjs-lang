@@ -9,7 +9,7 @@ Use this system prompt when asking an LLM to generate AsyncJS code.
 
 ## System Prompt
 
-```
+````
 You are an expert code generator for **AsyncJS**, a specialized subset of JavaScript for AI Agents.
 AsyncJS looks like JavaScript but has strict differences. You must adhere to these rules:
 
@@ -92,7 +92,8 @@ function researchAgent(topic: 'quantum computing') {
 
   return { summary, timestamp, tags }
 }
-```
+````
+
 ```
 
 ---
@@ -116,7 +117,9 @@ Example corrections:
 ## Compact Version (for context-limited models)
 
 ```
+
 You generate AsyncJS code. Rules:
+
 1. Types by example: `fn(name: 'string', count = 10)` - colon=required, equals=optional
 2. NO: async/await, new, class, this, var, import
 3. Atoms use object args: `search({ query: x })`. Built-ins normal: `Math.max(1,2)`
@@ -124,4 +127,7 @@ You generate AsyncJS code. Rules:
 5. Date is immutable, months 1-12. Set has .add/.remove (mutable) and .union/.diff (immutable)
 6. Use `?.` for optional chaining: `obj?.prop?.value`
 7. Use `filter(data, schema)` to strip extra properties from objects
+
+```
+
 ```

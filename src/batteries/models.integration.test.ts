@@ -1,6 +1,11 @@
 import { describe, it, expect } from 'bun:test'
 import { LocalModels } from './models'
 import { getLLMCapability } from './llm'
+import { getBatteries } from './index'
+import { AgentVM, coreAtoms } from '../index'
+import { Agent } from '../builder'
+import { storeVectorize } from '../atoms/batteries'
+import { s } from 'tosijs-schema'
 
 describe('LocalModels Integration Test', () => {
   it('should audit models from a live server and classify them correctly', async () => {
@@ -86,5 +91,34 @@ describe('LocalModels Integration Test', () => {
     expect(parsed).toHaveProperty('b')
     expect(typeof parsed.a).toBe('number')
     expect(typeof parsed.b).toBe('number')
+  }, 10000)
+
+  it('should use storeVectorize atom with real batteries', async () => {
+    const batteries = await getBatteries()
+    
+    // Skip if no vector capability (LM Studio not running)
+    if (!batteries.vector) {
+      console.log('Skipping: No vector capability available')
+      return
+    }
+
+    const vm = new AgentVM({ ...coreAtoms, storeVectorize })
+
+    const agent = Agent.custom({ ...coreAtoms, storeVectorize })
+      .step({ op: 'storeVectorize', text: 'Hello World' })
+      .as('vector')
+      .return(s.object({ vector: s.array(s.number) }))
+
+    const result = await vm.run(
+      agent.toJSON(),
+      {},
+      { capabilities: batteries }
+    )
+
+    expect(result.error).toBeUndefined()
+    expect(result.result.vector).toBeArray()
+    expect(result.result.vector.length).toBeGreaterThan(100)
+    expect(typeof result.result.vector[0]).toBe('number')
+    console.log('storeVectorize returned vector of length:', result.result.vector.length)
   }, 10000)
 })
