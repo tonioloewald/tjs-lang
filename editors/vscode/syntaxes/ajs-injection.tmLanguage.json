@@ -1,0 +1,107 @@
+{
+  "$schema": "https://raw.githubusercontent.com/martinring/tmlanguage/master/tmlanguage.json",
+  "name": "AsyncJS Injection",
+  "scopeName": "inline.ajs.injection",
+  "injectionSelector": "L:source.js, L:source.ts, L:source.tsx, L:source.jsx",
+  "patterns": [
+    {
+      "begin": "(ajs|transpile)\\s*(`)",
+      "beginCaptures": {
+        "1": { "name": "entity.name.function.tagged-template.js" },
+        "2": { "name": "punctuation.definition.string.template.begin.js" }
+      },
+      "end": "(`)",
+      "endCaptures": {
+        "1": { "name": "punctuation.definition.string.template.end.js" }
+      },
+      "contentName": "meta.embedded.block.ajs",
+      "patterns": [
+        { "include": "#template-substitution" },
+        { "include": "#ajs-content" }
+      ]
+    }
+  ],
+  "repository": {
+    "template-substitution": {
+      "begin": "(\\$\\{)",
+      "beginCaptures": {
+        "1": { "name": "punctuation.definition.template-expression.begin.js" }
+      },
+      "end": "(\\})",
+      "endCaptures": {
+        "1": { "name": "punctuation.definition.template-expression.end.js" }
+      },
+      "contentName": "meta.template.expression.js",
+      "patterns": [{ "include": "source.ts" }]
+    },
+    "ajs-content": {
+      "patterns": [
+        { "include": "#forbidden" },
+        { "include": "#function-def" },
+        { "include": "#keywords" },
+        { "include": "#strings" },
+        { "include": "#numbers" },
+        { "include": "#comments" },
+        { "include": "#operators" }
+      ]
+    },
+    "forbidden": {
+      "patterns": [
+        {
+          "match": "\\b(new|class|async|await|var|this|super|extends|implements|interface|type|yield|import|export|require)\\b",
+          "name": "invalid.illegal.ajs"
+        },
+        {
+          "comment": "Ternary operator ? - not supported (but allow ?. optional chaining)",
+          "match": "\\?(?![.:])",
+          "name": "invalid.illegal.ajs"
+        }
+      ]
+    },
+    "function-def": {
+      "match": "\\b(function)\\s+([a-zA-Z_$][a-zA-Z0-9_$]*)",
+      "captures": {
+        "1": { "name": "storage.type.function.js" },
+        "2": { "name": "entity.name.function.js" }
+      }
+    },
+    "keywords": {
+      "match": "\\b(function|return|if|else|while|for|of|in|try|catch|finally|throw|let|const|true|false|null)\\b",
+      "name": "keyword.control.js"
+    },
+    "strings": {
+      "patterns": [
+        {
+          "begin": "'",
+          "end": "'",
+          "name": "string.quoted.single.js",
+          "patterns": [
+            { "match": "\\\\.", "name": "constant.character.escape.js" }
+          ]
+        },
+        {
+          "begin": "\"",
+          "end": "\"",
+          "name": "string.quoted.double.js",
+          "patterns": [
+            { "match": "\\\\.", "name": "constant.character.escape.js" }
+          ]
+        }
+      ]
+    },
+    "numbers": {
+      "match": "\\b\\d+(\\.\\d+)?\\b",
+      "name": "constant.numeric.js"
+    },
+    "comments": {
+      "patterns": [
+        { "match": "//.*$", "name": "comment.line.double-slash.js" },
+        { "begin": "/\\*", "end": "\\*/", "name": "comment.block.js" }
+      ]
+    },
+    "operators": {
+      "match": "=>|&&|\\|\\||===?|!==?|>=?|<=?|[+\\-*/%=]",
+      "name": "keyword.operator.js"
+    }
+  }
+}

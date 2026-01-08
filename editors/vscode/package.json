@@ -1,0 +1,65 @@
+{
+  "name": "tosijs-agent-ajs",
+  "displayName": "AsyncJS (tosijs-agent)",
+  "description": "Syntax highlighting for AsyncJS - ajs`...` template literals and .ajs files",
+  "version": "0.1.0",
+  "publisher": "tosijs",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/tonioloewald/tosijs-agent"
+  },
+  "engines": {
+    "vscode": "^1.75.0"
+  },
+  "categories": [
+    "Programming Languages"
+  ],
+  "contributes": {
+    "configurationDefaults": {
+      "editor.tokenColorCustomizations": {
+        "textMateRules": [
+          {
+            "scope": "invalid.illegal.ajs",
+            "settings": {
+              "foreground": "#ff0000",
+              "fontStyle": "bold underline"
+            }
+          }
+        ]
+      }
+    },
+    "languages": [
+      {
+        "id": "ajs",
+        "aliases": [
+          "AsyncJS",
+          "ajs"
+        ],
+        "extensions": [
+          ".ajs"
+        ],
+        "configuration": "./language-configuration.json"
+      }
+    ],
+    "grammars": [
+      {
+        "language": "ajs",
+        "scopeName": "source.ajs",
+        "path": "./syntaxes/ajs.tmLanguage.json"
+      },
+      {
+        "scopeName": "inline.ajs.injection",
+        "path": "./syntaxes/ajs-injection.tmLanguage.json",
+        "injectTo": [
+          "source.js",
+          "source.ts",
+          "source.tsx",
+          "source.jsx"
+        ],
+        "embeddedLanguages": {
+          "meta.embedded.block.ajs": "javascript"
+        }
+      }
+    ]
+  }
+}

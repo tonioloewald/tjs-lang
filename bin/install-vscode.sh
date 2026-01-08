@@ -1,0 +1,71 @@
+#!/bin/bash
+#
+# Install AsyncJS syntax highlighting for VS Code
+#
+# Usage: npx ajs-install-vscode
+#    or: ./node_modules/.bin/ajs-install-vscode
+
+set -e
+
+# Find the real package directory (resolve symlinks for npx compatibility)
+SCRIPT_PATH="${BASH_SOURCE[0]}"
+# Follow symlinks to get the real path
+while [ -L "$SCRIPT_PATH" ]; do
+  SCRIPT_DIR="$(cd "$(dirname "$SCRIPT_PATH")" && pwd)"
+  SCRIPT_PATH="$(readlink "$SCRIPT_PATH")"
+  # Handle relative symlinks
+  [[ $SCRIPT_PATH != /* ]] && SCRIPT_PATH="$SCRIPT_DIR/$SCRIPT_PATH"
+done
+SCRIPT_DIR="$(cd "$(dirname "$SCRIPT_PATH")" && pwd)"
+PACKAGE_DIR="$(dirname "$SCRIPT_DIR")"
+EXTENSION_SRC="$PACKAGE_DIR/editors/vscode"
+
+# Determine VS Code extensions directory
+if [[ "$OSTYPE" == "darwin"* ]]; then
+  VSCODE_EXT_DIR="$HOME/.vscode/extensions"
+elif [[ "$OSTYPE" == "linux-gnu"* ]]; then
+  VSCODE_EXT_DIR="$HOME/.vscode/extensions"
+elif [[ "$OSTYPE" == "msys" ]] || [[ "$OSTYPE" == "cygwin" ]] || [[ "$OSTYPE" == "win32" ]]; then
+  VSCODE_EXT_DIR="$APPDATA/Code/User/extensions"
+else
+  echo "Unknown OS: $OSTYPE"
+  echo "Please manually copy $EXTENSION_SRC to your VS Code extensions directory"
+  exit 1
+fi
+
+TARGET_DIR="$VSCODE_EXT_DIR/tosijs-ajs-0.1.0"
+
+echo "Installing AsyncJS syntax highlighting for VS Code..."
+echo "  Source: $EXTENSION_SRC"
+echo "  Target: $TARGET_DIR"
+
+# Check source exists
+if [ ! -d "$EXTENSION_SRC" ]; then
+  echo "Error: Extension source not found at $EXTENSION_SRC"
+  echo ""
+  echo "If you installed via npm/npx, try running from your project directory:"
+  echo "  ./node_modules/tosijs-agent/bin/install-vscode.sh"
+  exit 1
+fi
+
+# Create extensions directory if needed
+mkdir -p "$VSCODE_EXT_DIR"
+
+# Remove old version if exists
+if [ -d "$TARGET_DIR" ]; then
+  echo "  Removing old version..."
+  rm -rf "$TARGET_DIR"
+fi
+
+# Copy extension
+cp -r "$EXTENSION_SRC" "$TARGET_DIR"
+
+echo ""
+echo "Installation complete!"
+echo ""
+echo "Please restart VS Code to enable AsyncJS syntax highlighting."
+echo ""
+echo "Features:"
+echo "  - Syntax highlighting for .ajs files"
+echo "  - Embedded highlighting in ajs\`...\` template literals"
+echo "  - Error highlighting for forbidden syntax (new, class, async, etc.)"

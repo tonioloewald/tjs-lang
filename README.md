@@ -512,6 +512,48 @@ chain.try({
 })
 ```
 
+## Editor Support
+
+tosijs-agent includes syntax highlighting for AsyncJS (the JavaScript subset used by `ajs` template literals).
+
+### Quick Install
+
+```bash
+# VS Code
+npx ajs-install-vscode
+
+# Cursor
+npx ajs-install-cursor
+```
+
+Features:
+
+- Syntax highlighting for `.ajs` files
+- Embedded highlighting inside `ajs`...`` template literals
+- Error highlighting for forbidden syntax (`new`, `class`, `async`, etc.)
+
+### Web Editors
+
+**Monaco:**
+
+```typescript
+import { registerAjsLanguage } from 'tosijs-agent/editors/monaco'
+registerAjsLanguage(monaco)
+```
+
+**CodeMirror 6:**
+
+```typescript
+import { ajs } from 'tosijs-agent/editors/codemirror'
+// Use ajs() in your extensions
+```
+
+### Tree-sitter Editors (Zed, Nova, Helix)
+
+Associate `.ajs` files with JavaScript syntax in your editor config. See [editors/README.md](./editors/README.md) for details.
+
+> **Note:** If you modify AsyncJS syntax (e.g., adding/removing forbidden keywords), update the grammar files in `editors/` to match. See [editors/README.md](./editors/README.md) for grammar locations.
+
 ## Development
 
 ### Testing
