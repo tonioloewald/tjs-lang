@@ -44,8 +44,27 @@ import * as agent from '../../src'
 import * as tosijs from 'tosijs'
 import * as tosijsui from 'tosijs-ui'
 
+// Import capabilities builder for live examples
+import { buildCapabilities, getSettings } from './capabilities'
+
+// Create a demo runtime that uses settings-based capabilities
+const demoRuntime = {
+  // Wraps vm.run with capabilities from settings
+  async run(ast: any, args: any, options: any = {}) {
+    const vm = new agent.AgentVM()
+    const caps = buildCapabilities(getSettings())
+    return vm.run(ast, args, {
+      ...options,
+      capabilities: {
+        ...options.capabilities,
+        llm: caps.llm,
+      },
+    })
+  },
+}
+
 // Make available globally for debugging
-Object.assign(window, { agent, tosijs, tosijsui })
+Object.assign(window, { agent, tosijs, tosijsui, demoRuntime })
 
 // Load documentation
 import docs from '../docs.json'
@@ -91,17 +110,21 @@ const { app, prefs } = tosi({
   prefs: {
     theme: 'system',
     highContrast: false,
-    // LLM API keys (stored in localStorage)
+    // LLM settings (stored in localStorage)
+    preferredProvider: localStorage.getItem('preferredProvider') || 'auto',
     openaiKey: localStorage.getItem('openaiKey') || '',
     anthropicKey: localStorage.getItem('anthropicKey') || '',
+    deepseekKey: localStorage.getItem('deepseekKey') || '',
     customLlmUrl: localStorage.getItem('customLlmUrl') || '',
   },
 })
 
 // Persist preferences
 const savePrefs = () => {
+  localStorage.setItem('preferredProvider', prefs.preferredProvider.valueOf())
   localStorage.setItem('openaiKey', prefs.openaiKey.valueOf())
   localStorage.setItem('anthropicKey', prefs.anthropicKey.valueOf())
+  localStorage.setItem('deepseekKey', prefs.deepseekKey.valueOf())
   localStorage.setItem('customLlmUrl', prefs.customLlmUrl.valueOf())
 }
 
@@ -268,13 +291,17 @@ if (main) {
                   action: () => {
                     showSettingsDialog(
                       {
+                        preferredProvider: prefs.preferredProvider.valueOf() as any,
                         openaiKey: prefs.openaiKey.valueOf(),
                         anthropicKey: prefs.anthropicKey.valueOf(),
+                        deepseekKey: prefs.deepseekKey.valueOf(),
                         customLlmUrl: prefs.customLlmUrl.valueOf(),
                       },
                       (settings) => {
+                        prefs.preferredProvider = settings.preferredProvider
                         prefs.openaiKey = settings.openaiKey
                         prefs.anthropicKey = settings.anthropicKey
+                        prefs.deepseekKey = settings.deepseekKey
                         prefs.customLlmUrl = settings.customLlmUrl
                         savePrefs()
                       }
@@ -435,6 +462,7 @@ if (main) {
                         agent,
                         tosijs,
                         'tosijs-ui': tosijsui,
+                        demoRuntime,
                       })
                     },
                   })

@@ -6,7 +6,8 @@
     ".": "./dist/index.js",
     "./src": "./src/index.ts",
     "./editors/monaco": "./editors/monaco/ajs-monarch.js",
-    "./editors/codemirror": "./editors/codemirror/ajs-language.js"
+    "./editors/codemirror": "./editors/codemirror/ajs-language.js",
+    "./editors/ace": "./editors/ace/ajs-mode.js"
   },
   "bin": {
     "ajs-install-vscode": "./bin/install-vscode.sh",

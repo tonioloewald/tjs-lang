@@ -169,6 +169,48 @@ CodeMirror 6 uses Lezer grammars (compiled parsers). Rather than creating a full
 
 This gives you full JS syntax highlighting with AsyncJS-specific error marking.
 
+## Ace Editor (Web)
+
+The `ace/` directory contains a custom mode for the Ace Editor.
+
+### Usage (ES Module)
+
+```typescript
+import ace from 'ace-builds'
+import { registerAjsMode } from 'tosijs-agent/editors/ace/ajs-mode'
+
+// Register the mode
+registerAjsMode(ace)
+
+// Create an editor with AsyncJS
+const editor = ace.edit('editor')
+editor.session.setMode('ace/mode/ajs')
+editor.setValue(`function agent(topic: 'string') {
+  let results = storeSearch({ query: topic })
+  return { results }
+}`)
+```
+
+### Usage (Browser CDN)
+
+```html
+<script src="https://cdnjs.cloudflare.com/ajax/libs/ace/1.32.2/ace.js"></script>
+<script src="path/to/ajs-mode.js"></script>
+<script>
+  // Mode auto-registers when ace is global
+  const editor = ace.edit('editor')
+  editor.session.setMode('ace/mode/ajs')
+</script>
+```
+
+### Features
+
+- Full JavaScript syntax highlighting
+- Forbidden keywords (`new`, `class`, `async`, etc.) highlighted as errors
+- Template literal support with embedded expression highlighting
+- Auto-indent and brace matching
+- Code folding
+
 ## Tree-sitter Editors (Zed, Nova, Helix)
 
 These editors use Tree-sitter grammars, which require compiled C/WASM parsers. Since AsyncJS is a JavaScript subset, we recommend:

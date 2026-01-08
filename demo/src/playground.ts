@@ -14,263 +14,7 @@ import { ajsEditorExtension } from '../../editors/codemirror/ajs-language'
 import { examples, type Example } from './examples'
 import { AgentVM, transpile, type TranspileResult } from '../../src'
 import { getStoreCapabilityDefault } from '../../src/batteries'
-
-// Build LLM capability from settings (simple predict interface)
-function buildLLMCapability(settings: {
-  openaiKey: string
-  anthropicKey: string
-  customLlmUrl: string
-}) {
-  const { openaiKey, anthropicKey, customLlmUrl } = settings
-
-  // Determine which provider to use
-  const hasCustomUrl = customLlmUrl && customLlmUrl.trim() !== ''
-  const hasOpenAI = openaiKey && openaiKey.trim() !== ''
-  const hasAnthropic = anthropicKey && anthropicKey.trim() !== ''
-
-  if (!hasCustomUrl && !hasOpenAI && !hasAnthropic) {
-    return null
-  }
-
-  return {
-    async predict(prompt: string, options?: any): Promise<string> {
-      // Prefer custom URL (LM Studio), then OpenAI, then Anthropic
-      if (hasCustomUrl) {
-        try {
-          const response = await fetch(`${customLlmUrl}/chat/completions`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-              model: options?.model || 'local-model',
-              messages: [{ role: 'user', content: prompt }],
-              temperature: options?.temperature ?? 0.7,
-            }),
-          })
-          if (!response.ok) {
-            throw new Error(
-              `LLM Error: ${response.status} - Check that LM Studio is running at ${customLlmUrl}`
-            )
-          }
-          const data = await response.json()
-          return data.choices?.[0]?.message?.content ?? ''
-        } catch (e: any) {
-          if (e.message?.includes('Failed to fetch') || e.name === 'TypeError') {
-            throw new Error(
-              `Cannot connect to LM Studio at ${customLlmUrl}. Make sure LM Studio is running and CORS is enabled (Server settings → Enable CORS).`
-            )
-          }
-          throw e
-        }
-      }
-
-      if (hasOpenAI) {
-        const response = await fetch(
-          'https://api.openai.com/v1/chat/completions',
-          {
-            method: 'POST',
-            headers: {
-              'Content-Type': 'application/json',
-              Authorization: `Bearer ${openaiKey}`,
-            },
-            body: JSON.stringify({
-              model: options?.model || 'gpt-4o-mini',
-              messages: [{ role: 'user', content: prompt }],
-              temperature: options?.temperature ?? 0.7,
-            }),
-          }
-        )
-        if (!response.ok) {
-          const error = await response.json().catch(() => ({}))
-          throw new Error(
-            `OpenAI Error: ${response.status} - ${error.error?.message || 'Check your API key'}`
-          )
-        }
-        const data = await response.json()
-        return data.choices?.[0]?.message?.content ?? ''
-      }
-
-      if (hasAnthropic) {
-        const response = await fetch('https://api.anthropic.com/v1/messages', {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            'x-api-key': anthropicKey,
-            'anthropic-version': '2023-06-01',
-            'anthropic-dangerous-direct-browser-access': 'true',
-          },
-          body: JSON.stringify({
-            model: options?.model || 'claude-3-haiku-20240307',
-            max_tokens: options?.maxTokens || 1024,
-            messages: [{ role: 'user', content: prompt }],
-          }),
-        })
-        if (!response.ok) {
-          const error = await response.json().catch(() => ({}))
-          throw new Error(
-            `Anthropic Error: ${response.status} - ${error.error?.message || 'Check your API key'}`
-          )
-        }
-        const data = await response.json()
-        return data.content?.[0]?.text ?? ''
-      }
-
-      throw new Error('No LLM provider configured')
-    },
-  }
-}
-
-// Build LLM Battery capability (supports system/user, tools, responseFormat)
-function buildLLMBattery(settings: {
-  openaiKey: string
-  anthropicKey: string
-  customLlmUrl: string
-}) {
-  const { openaiKey, anthropicKey, customLlmUrl } = settings
-
-  const hasCustomUrl = customLlmUrl && customLlmUrl.trim() !== ''
-  const hasOpenAI = openaiKey && openaiKey.trim() !== ''
-  const hasAnthropic = anthropicKey && anthropicKey.trim() !== ''
-
-  if (!hasCustomUrl && !hasOpenAI && !hasAnthropic) {
-    return null
-  }
-
-  return {
-    async predict(
-      system: string,
-      user: string,
-      tools?: any[],
-      responseFormat?: any
-    ): Promise<{ content?: string; tool_calls?: any[] }> {
-      const messages = [
-        { role: 'system', content: system },
-        { role: 'user', content: user },
-      ]
-
-      if (hasCustomUrl) {
-        try {
-          const response = await fetch(`${customLlmUrl}/chat/completions`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-              model: 'local-model',
-              messages,
-              temperature: 0.7,
-              tools,
-              response_format: responseFormat,
-            }),
-          })
-          if (!response.ok) {
-            throw new Error(
-              `LLM Error: ${response.status} - Check that LM Studio is running`
-            )
-          }
-          const data = await response.json()
-          return data.choices?.[0]?.message ?? { content: '' }
-        } catch (e: any) {
-          if (e.message?.includes('Failed to fetch') || e.name === 'TypeError') {
-            throw new Error(
-              `Cannot connect to LM Studio at ${customLlmUrl}. Make sure LM Studio is running and CORS is enabled.`
-            )
-          }
-          throw e
-        }
-      }
-
-      if (hasOpenAI) {
-        const body: any = {
-          model: 'gpt-4o-mini',
-          messages,
-          temperature: 0.7,
-        }
-        if (tools?.length) body.tools = tools
-        if (responseFormat) body.response_format = responseFormat
-
-        const response = await fetch(
-          'https://api.openai.com/v1/chat/completions',
-          {
-            method: 'POST',
-            headers: {
-              'Content-Type': 'application/json',
-              Authorization: `Bearer ${openaiKey}`,
-            },
-            body: JSON.stringify(body),
-          }
-        )
-        if (!response.ok) {
-          const error = await response.json().catch(() => ({}))
-          throw new Error(
-            `OpenAI Error: ${response.status} - ${error.error?.message || 'Check your API key'}`
-          )
-        }
-        const data = await response.json()
-        return data.choices?.[0]?.message ?? { content: '' }
-      }
-
-      if (hasAnthropic) {
-        // Anthropic has different tool format, simplified here
-        const response = await fetch('https://api.anthropic.com/v1/messages', {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            'x-api-key': anthropicKey,
-            'anthropic-version': '2023-06-01',
-            'anthropic-dangerous-direct-browser-access': 'true',
-          },
-          body: JSON.stringify({
-            model: 'claude-3-haiku-20240307',
-            max_tokens: 1024,
-            system,
-            messages: [{ role: 'user', content: user }],
-          }),
-        })
-        if (!response.ok) {
-          const error = await response.json().catch(() => ({}))
-          throw new Error(
-            `Anthropic Error: ${response.status} - ${error.error?.message || 'Check your API key'}`
-          )
-        }
-        const data = await response.json()
-        return { content: data.content?.[0]?.text ?? '' }
-      }
-
-      throw new Error('No LLM provider configured')
-    },
-
-    async embed(text: string): Promise<number[]> {
-      // Embedding support for custom URL only (LM Studio)
-      if (hasCustomUrl) {
-        try {
-          const response = await fetch(`${customLlmUrl}/embeddings`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-              model: 'text-embedding-model',
-              input: text,
-            }),
-          })
-          if (!response.ok) {
-            throw new Error(`Embedding Error: ${response.status}`)
-          }
-          const data = await response.json()
-          return data.data?.[0]?.embedding ?? []
-        } catch {
-          throw new Error('Embedding not available')
-        }
-      }
-      throw new Error('Embedding requires LM Studio endpoint')
-    },
-  }
-}
-
-// Get settings from localStorage
-function getSettings() {
-  return {
-    openaiKey: localStorage.getItem('openaiKey') || '',
-    anthropicKey: localStorage.getItem('anthropicKey') || '',
-    customLlmUrl: localStorage.getItem('customLlmUrl') || '',
-  }
-}
+import { buildLLMCapability, buildLLMBattery, getSettings, type LLMProvider } from './capabilities'
 
 // Default LM Studio URL
 const DEFAULT_LM_STUDIO_URL = 'http://localhost:1234/v1'
@@ -294,6 +38,13 @@ const { div, button, span, select, option, optgroup, input } = elements
 
 // localStorage key for custom examples
 const STORAGE_KEY = 'agent-playground-examples'
+
+// Default code for new examples
+const NEW_EXAMPLE_CODE = `// Write your AsyncJS code here
+function myFunction({ name = 'World' }) {
+  let message = template({ tmpl: 'Hello, {{name}}!', vars: { name } })
+  return { message }
+}`
 
 // Load custom examples from localStorage
 function loadCustomExamples(): Example[] {
@@ -320,7 +71,7 @@ interface PlaygroundParts extends PartsMap {
   tabTrace: HTMLButtonElement
   copyBtn: HTMLButtonElement
   runBtn: HTMLButtonElement
-  clearBtn: HTMLButtonElement
+  newBtn: HTMLButtonElement
   saveBtn: HTMLButtonElement
   deleteBtn: HTMLButtonElement
   exampleSelect: HTMLSelectElement
@@ -334,6 +85,8 @@ export class Playground extends Component<PlaygroundParts> {
   private lastAst: TranspileResult | null = null
   private lastError: string | null = null
   private isRunning = false
+  private customExamples: Example[] = loadCustomExamples()
+  private currentExampleIndex: number = -1 // -1 = new/unsaved
 
   // Use Shadow DOM styles (static styleSpec)
   static styleSpec = {
@@ -537,11 +290,30 @@ export class Playground extends Component<PlaygroundParts> {
 
         button(
           {
-            part: 'clearBtn',
+            part: 'newBtn',
             class: 'iconic',
-            title: 'Clear',
+            title: 'New',
           },
-          icons.x()
+          icons.plus()
+        ),
+
+        button(
+          {
+            part: 'saveBtn',
+            class: 'iconic',
+            title: 'Save Example',
+          },
+          icons.save()
+        ),
+
+        button(
+          {
+            part: 'deleteBtn',
+            class: 'iconic',
+            title: 'Delete Custom Example',
+            style: { display: 'none' },
+          },
+          icons.trash()
         ),
 
         span({ style: { flex: '1' } }),
@@ -551,13 +323,7 @@ export class Playground extends Component<PlaygroundParts> {
             part: 'exampleSelect',
             style: { padding: '4px 8px', borderRadius: '4px' },
           },
-          option({ value: '' }, '-- Load Example --'),
-          ...examples.map((ex, i) =>
-            option(
-              { value: i.toString() },
-              ex.requiresApi ? `${ex.name} 🔑` : ex.name
-            )
-          )
+          option({ value: 'new' }, '-- New --')
         )
       ),
 
@@ -597,7 +363,9 @@ export class Playground extends Component<PlaygroundParts> {
 
     // Bind event handlers manually for Shadow DOM
     this.parts.runBtn.addEventListener('click', this.runCode)
-    this.parts.clearBtn.addEventListener('click', this.clearEditor)
+    this.parts.newBtn.addEventListener('click', this.newExample)
+    this.parts.saveBtn.addEventListener('click', this.saveExample)
+    this.parts.deleteBtn.addEventListener('click', this.deleteExample)
     this.parts.exampleSelect.addEventListener('change', this.loadExample)
     this.parts.tabResult.addEventListener('click', () =>
       this.switchTab('result')
@@ -611,36 +379,83 @@ export class Playground extends Component<PlaygroundParts> {
 
     // Initialize CodeMirror after hydration
     this.initEditor()
+    
+    // Populate the example select
+    this.rebuildExampleSelect()
   }
 
   disconnectedCallback() {
     window.removeEventListener('hashchange', this.handleHashChange)
   }
 
+  // Get all examples (built-in + custom)
+  getAllExamples(): Example[] {
+    return [...examples, ...this.customExamples]
+  }
+
+  // Rebuild the example select dropdown
+  rebuildExampleSelect() {
+    const sel = this.parts.exampleSelect
+    sel.innerHTML = ''
+    
+    // New option
+    sel.appendChild(option({ value: 'new' }, '-- New --'))
+    
+    // Built-in examples
+    const builtInGroup = optgroup({ label: 'Built-in Examples' })
+    examples.forEach((ex, i) => {
+      builtInGroup.appendChild(
+        option(
+          { value: `builtin:${i}` },
+          ex.requiresApi ? `${ex.name} 🔑` : ex.name
+        )
+      )
+    })
+    sel.appendChild(builtInGroup)
+    
+    // Custom examples (if any)
+    if (this.customExamples.length > 0) {
+      const customGroup = optgroup({ label: 'My Examples' })
+      this.customExamples.forEach((ex, i) => {
+        customGroup.appendChild(
+          option({ value: `custom:${i}` }, ex.name)
+        )
+      })
+      sel.appendChild(customGroup)
+    }
+  }
+
   // Get example index from hash (e.g., #example=2 or #example=Hello%20World)
-  getExampleFromHash(): number {
+  getExampleFromHash(): { type: 'new' | 'builtin' | 'custom'; index: number } {
     const hash = window.location.hash.slice(1)
     const params = new URLSearchParams(hash)
     const value = params.get('example')
-    if (value === null) return 0
+    if (value === null || value === 'new') return { type: 'new', index: -1 }
 
-    // Try parsing as number first
-    const idx = parseInt(value, 10)
-    if (!isNaN(idx) && idx >= 0 && idx < examples.length) {
-      return idx
-    }
-
-    // Try matching by name
+    // Try matching by name in built-in examples
     const decodedName = decodeURIComponent(value).toLowerCase()
-    const nameIdx = examples.findIndex(
+    const builtinIdx = examples.findIndex(
       (ex) => ex.name.toLowerCase() === decodedName
     )
-    return nameIdx >= 0 ? nameIdx : 0
+    if (builtinIdx >= 0) return { type: 'builtin', index: builtinIdx }
+
+    // Try matching in custom examples
+    const customIdx = this.customExamples.findIndex(
+      (ex) => ex.name.toLowerCase() === decodedName
+    )
+    if (customIdx >= 0) return { type: 'custom', index: customIdx }
+
+    return { type: 'builtin', index: 0 }
   }
 
   // Update hash when example changes
-  setHashForExample(idx: number) {
-    const example = examples[idx]
+  setHashForExample(type: 'new' | 'builtin' | 'custom', idx: number) {
+    if (type === 'new') {
+      history.replaceState(null, '', '#example=new')
+      return
+    }
+    const allExamples = type === 'builtin' ? examples : this.customExamples
+    const example = allExamples[idx]
     if (example) {
       const hash = `example=${encodeURIComponent(example.name)}`
       history.replaceState(null, '', `#${hash}`)
@@ -648,8 +463,8 @@ export class Playground extends Component<PlaygroundParts> {
   }
 
   handleHashChange = () => {
-    const idx = this.getExampleFromHash()
-    this.loadExampleByIndex(idx)
+    const { type, index } = this.getExampleFromHash()
+    this.loadExampleByTypeAndIndex(type, index)
   }
 
   initEditor() {
@@ -662,10 +477,14 @@ export class Playground extends Component<PlaygroundParts> {
       ajsEditorExtension(),
     ]
 
-    // Get initial example from hash or default to first
-    const initialIdx = this.getExampleFromHash()
-    const startDoc =
-      examples[initialIdx]?.code || '// Write your AsyncJS code here\n'
+    // Get initial example from hash or default to first built-in
+    const { type, index } = this.getExampleFromHash()
+    let startDoc = NEW_EXAMPLE_CODE
+    if (type === 'builtin' && index >= 0) {
+      startDoc = examples[index]?.code || startDoc
+    } else if (type === 'custom' && index >= 0) {
+      startDoc = this.customExamples[index]?.code || startDoc
+    }
 
     this.editor = new EditorView({
       state: EditorState.create({
@@ -675,47 +494,137 @@ export class Playground extends Component<PlaygroundParts> {
       parent: container,
     })
 
-    // Sync the select to show current example
-    this.parts.exampleSelect.selectedIndex = initialIdx + 1
+    // Update current example tracking
+    this.currentExampleIndex = index
+    this.updateDeleteButtonVisibility(type, index)
 
     // Set hash if not already set
     if (!window.location.hash.includes('example=')) {
-      this.setHashForExample(initialIdx)
+      this.setHashForExample(type, index)
     }
   }
 
-  loadExampleByIndex(idx: number) {
-    if (idx >= 0 && idx < examples.length && this.editor) {
-      const example = examples[idx]
-      this.editor.dispatch({
-        changes: {
-          from: 0,
-          to: this.editor.state.doc.length,
-          insert: example.code,
-        },
-      })
-      // Sync select
-      this.parts.exampleSelect.selectedIndex = idx + 1
-      // Update hash
-      this.setHashForExample(idx)
+  loadExampleByTypeAndIndex(type: 'new' | 'builtin' | 'custom', idx: number) {
+    if (!this.editor) return
+
+    let code = NEW_EXAMPLE_CODE
+    if (type === 'builtin' && idx >= 0 && idx < examples.length) {
+      code = examples[idx].code
+    } else if (type === 'custom' && idx >= 0 && idx < this.customExamples.length) {
+      code = this.customExamples[idx].code
     }
+
+    this.editor.dispatch({
+      changes: {
+        from: 0,
+        to: this.editor.state.doc.length,
+        insert: code,
+      },
+    })
+
+    this.currentExampleIndex = idx
+    this.updateDeleteButtonVisibility(type, idx)
+    this.setHashForExample(type, idx)
+    
+    // Clear results
+    this.parts.resultContainer.textContent = '// Run code to see results'
+    this.parts.statusBar.textContent = 'Ready'
+  }
+
+  updateDeleteButtonVisibility(type: 'new' | 'builtin' | 'custom', idx: number) {
+    // Only show delete button for custom examples
+    const showDelete = type === 'custom' && idx >= 0
+    this.parts.deleteBtn.style.display = showDelete ? '' : 'none'
   }
 
   loadExample = (e: Event) => {
-    const idx = (e.target as HTMLSelectElement).selectedIndex - 1
-    if (idx >= 0) {
-      this.loadExampleByIndex(idx)
+    const value = (e.target as HTMLSelectElement).value
+    if (value === 'new') {
+      this.loadExampleByTypeAndIndex('new', -1)
+      return
+    }
+    
+    const [type, idxStr] = value.split(':')
+    const idx = parseInt(idxStr, 10)
+    if (type === 'builtin' || type === 'custom') {
+      this.loadExampleByTypeAndIndex(type, idx)
     }
   }
 
-  clearEditor = () => {
+  newExample = () => {
     if (this.editor) {
       this.editor.dispatch({
-        changes: { from: 0, to: this.editor.state.doc.length, insert: '' },
+        changes: { from: 0, to: this.editor.state.doc.length, insert: NEW_EXAMPLE_CODE },
       })
     }
-    this.parts.resultContainer.textContent = ''
+    this.currentExampleIndex = -1
+    this.parts.exampleSelect.value = 'new'
+    this.updateDeleteButtonVisibility('new', -1)
+    this.setHashForExample('new', -1)
+    this.parts.resultContainer.textContent = '// Run code to see results'
     this.parts.statusBar.textContent = 'Ready'
+  }
+
+  saveExample = () => {
+    if (!this.editor) return
+    
+    const code = this.editor.state.doc.toString()
+    if (!code.trim()) {
+      alert('Cannot save empty example')
+      return
+    }
+
+    // Try to extract function name from code
+    const funcMatch = code.match(/function\s+([a-zA-Z_$][a-zA-Z0-9_$]*)\s*\(/)
+    const defaultName = funcMatch ? funcMatch[1] : 'My Example'
+    
+    const name = prompt('Enter a name for this example:', defaultName)
+    if (!name) return
+    
+    // Check for duplicate names
+    const existingIdx = this.customExamples.findIndex(
+      (ex) => ex.name.toLowerCase() === name.toLowerCase()
+    )
+    
+    if (existingIdx >= 0) {
+      if (!confirm(`An example named "${name}" already exists. Overwrite it?`)) {
+        return
+      }
+      this.customExamples[existingIdx] = { name, description: '', code }
+    } else {
+      this.customExamples.push({ name, description: '', code })
+    }
+    
+    saveCustomExamples(this.customExamples)
+    this.rebuildExampleSelect()
+    
+    // Select the saved example
+    const newIdx = existingIdx >= 0 ? existingIdx : this.customExamples.length - 1
+    this.currentExampleIndex = newIdx
+    this.parts.exampleSelect.value = `custom:${newIdx}`
+    this.updateDeleteButtonVisibility('custom', newIdx)
+    this.setHashForExample('custom', newIdx)
+    
+    this.parts.statusBar.textContent = `Saved "${name}"`
+  }
+
+  deleteExample = () => {
+    const value = this.parts.exampleSelect.value
+    if (!value.startsWith('custom:')) return
+    
+    const idx = parseInt(value.split(':')[1], 10)
+    if (idx < 0 || idx >= this.customExamples.length) return
+    
+    const name = this.customExamples[idx].name
+    if (!confirm(`Delete "${name}"?`)) return
+    
+    this.customExamples.splice(idx, 1)
+    saveCustomExamples(this.customExamples)
+    this.rebuildExampleSelect()
+    
+    // Go to new
+    this.newExample()
+    this.parts.statusBar.textContent = `Deleted "${name}"`
   }
 
   copyOutput = async () => {

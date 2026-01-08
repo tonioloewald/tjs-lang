@@ -65,6 +65,109 @@ const agent = Agent.take(s.object({ topic: s.string })).while(
 )
 ```
 
+## Interactive Example: Cover Version Finder
+
+This example shows the complete loop: a UI form captures user input, AsyncJS code processes it (calling an API and using an LLM to analyze results), and displays the output.
+
+```html
+<!-- HTML: Simple search form -->
+<form id="cover-search">
+  <input type="text" id="song" placeholder="Song name" value="Yesterday" />
+  <input type="text" id="artist" placeholder="Original artist" value="Beatles" />
+  <button type="submit">Find Covers</button>
+</form>
+<div id="results"></div>
+```
+```js
+// Wire up the form to AsyncJS
+// Uses demoRuntime which gets LLM settings from the Settings dialog
+import { ajs } from 'tosijs-agent'
+
+// The AsyncJS code - searches iTunes and uses LLM to find covers
+const findCovers = ajs`
+  function findCovers({ song, artist }) {
+    let query = song + ' ' + artist
+    let url = \`https://itunes.apple.com/search?term=\${query}&limit=25&media=music\`
+    let response = httpFetch({ url, cache: 3600 })
+    
+    let results = response.results || []
+    let tracks = results.map(x => \`"\${x.trackName}" by \${x.artistName} (\${x.collectionName})\`)
+    let trackList = tracks.join('\\n')
+    
+    // Define schema for structured output - guarantees valid JSON
+    let schema = {
+      type: 'json_schema',
+      json_schema: {
+        name: 'cover_versions',
+        strict: true,
+        schema: {
+          type: 'object',
+          properties: {
+            covers: {
+              type: 'array',
+              items: {
+                type: 'object',
+                properties: {
+                  track: { type: 'string' },
+                  artist: { type: 'string' },
+                  album: { type: 'string' }
+                },
+                required: ['track', 'artist', 'album'],
+                additionalProperties: false
+              }
+            }
+          },
+          required: ['covers'],
+          additionalProperties: false
+        }
+      }
+    }
+    
+    let prompt = \`Search results for "\${song}" by \${artist}:
+
+\${trackList}
+
+List cover versions (tracks NOT by \${artist}).\`
+
+    let llmResponse = llmPredict({ prompt, options: { responseFormat: schema } })
+    let parsed = JSON.parse(llmResponse)
+    return { song, artist, covers: parsed.covers }
+  }
+`
+
+// Handle form submission
+document.getElementById('cover-search').onsubmit = async (e) => {
+  e.preventDefault()
+  const resultsDiv = document.getElementById('results')
+  resultsDiv.textContent = 'Searching...'
+
+  // demoRuntime uses API keys from Settings dialog
+  const { result, error } = await demoRuntime.run(
+    findCovers,
+    {
+      song: document.getElementById('song').value,
+      artist: document.getElementById('artist').value,
+    },
+    { fuel: 1000 }
+  )
+
+  if (error) {
+    resultsDiv.textContent = `Error: ${error.message}`
+  } else if (result.covers.length === 0) {
+    resultsDiv.textContent = 'No cover versions found.'
+  } else {
+    resultsDiv.innerHTML = `<h3>Cover versions of "${result.song}":</h3><ul>` +
+      result.covers.map(c => `<li>"${c.track}" by ${c.artist} (${c.album})</li>`).join('') +
+      '</ul>'
+  }
+}
+```
+
+This demonstrates:
+- **Safe execution**: The AsyncJS code runs in a sandboxed VM with fuel limits
+- **Capability injection**: LLM access is provided by the host, not the untrusted code
+- **Portable logic**: The `findCovers` AST could be sent to a server for execution instead
+
 ## Example Project
 
 To see a complete, working example of how to build an agent with a simple UI, check out the official playground project:

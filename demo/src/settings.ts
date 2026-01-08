@@ -6,7 +6,7 @@ import { elements, vars, Component, StyleSheet } from 'tosijs'
 
 import { icons } from 'tosijs-ui'
 
-const { div, button, span, label, input, h2, p } = elements
+const { div, button, span, label, input, h2, p, select, option } = elements
 
 // Settings dialog styles
 StyleSheet('settings-styles', {
@@ -118,9 +118,13 @@ StyleSheet('settings-styles', {
   },
 })
 
+export type LLMProvider = 'auto' | 'custom' | 'openai' | 'anthropic' | 'deepseek'
+
 export interface SettingsData {
+  preferredProvider: LLMProvider
   openaiKey: string
   anthropicKey: string
+  deepseekKey: string
   customLlmUrl: string
 }
 
@@ -130,16 +134,34 @@ export function showSettingsDialog(
 ): void {
   const overlay = div({ class: 'settings-overlay' })
 
+  const providerSelect = select(
+    { style: { width: '100%', padding: '8px 12px', borderRadius: '6px' } },
+    option({ value: 'auto', selected: currentSettings.preferredProvider === 'auto' }, 'First Available'),
+    option({ value: 'custom', selected: currentSettings.preferredProvider === 'custom' }, 'Custom Endpoint (LM Studio, Ollama)'),
+    option({ value: 'openai', selected: currentSettings.preferredProvider === 'openai' }, 'OpenAI'),
+    option({ value: 'anthropic', selected: currentSettings.preferredProvider === 'anthropic' }, 'Anthropic'),
+    option({ value: 'deepseek', selected: currentSettings.preferredProvider === 'deepseek' }, 'Deepseek'),
+  )
+
   const openaiInput = input({
     type: 'password',
     placeholder: 'sk-...',
     value: currentSettings.openaiKey,
+    autocomplete: 'off',
   })
 
   const anthropicInput = input({
     type: 'password',
     placeholder: 'sk-ant-...',
     value: currentSettings.anthropicKey,
+    autocomplete: 'off',
+  })
+
+  const deepseekInput = input({
+    type: 'password',
+    placeholder: 'sk-...',
+    value: currentSettings.deepseekKey,
+    autocomplete: 'off',
   })
 
   const customUrlInput = input({
@@ -154,8 +176,10 @@ export function showSettingsDialog(
 
   const save = () => {
     onSave({
+      preferredProvider: (providerSelect as HTMLSelectElement).value as LLMProvider,
       openaiKey: (openaiInput as HTMLInputElement).value,
       anthropicKey: (anthropicInput as HTMLInputElement).value,
+      deepseekKey: (deepseekInput as HTMLInputElement).value,
       customLlmUrl: (customUrlInput as HTMLInputElement).value,
     })
     close()
@@ -182,11 +206,34 @@ export function showSettingsDialog(
         { class: 'settings-section' },
         div(
           { style: { fontWeight: 600, marginBottom: '10px' } },
-          'LLM API Keys'
+          'LLM Settings'
         ),
         p(
           { style: { fontSize: '0.85em', opacity: 0.8, marginBottom: '15px' } },
           'API keys are stored locally in your browser and never sent to any server except the respective API provider.'
+        ),
+
+        div(
+          { class: 'settings-field' },
+          label('Preferred Provider'),
+          providerSelect,
+          div({ class: 'hint' }, '"First Available" uses the first configured provider in order below')
+        ),
+
+        div(
+          { class: 'settings-field' },
+          label('Custom LLM Endpoint'),
+          customUrlInput,
+          div(
+            { class: 'hint' },
+            'OpenAI-compatible endpoint (e.g., LM Studio, Ollama). ',
+            window.location.protocol === 'https:'
+              ? span(
+                  { style: { color: '#dc2626' } },
+                  'Note: Local endpoints require HTTP.'
+                )
+              : ''
+          )
         ),
 
         div(
@@ -205,18 +252,9 @@ export function showSettingsDialog(
 
         div(
           { class: 'settings-field' },
-          label('Custom LLM Endpoint'),
-          customUrlInput,
-          div(
-            { class: 'hint' },
-            'OpenAI-compatible endpoint (e.g., LM Studio, Ollama). ',
-            window.location.protocol === 'https:'
-              ? span(
-                  { style: { color: '#dc2626' } },
-                  'Note: Local endpoints require HTTP. Use http://localhost:8699 for local LLMs.'
-                )
-              : 'Local endpoints work on HTTP.'
-          )
+          label('Deepseek API Key'),
+          deepseekInput,
+          div({ class: 'hint' }, 'For Deepseek models (cheap & capable)')
         )
       ),
 

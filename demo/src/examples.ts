@@ -158,14 +158,31 @@ export const examples: Example[] = [
     description: 'Get structured JSON from LLM (requires llm capability)',
     requiresApi: true,
     code: `function extractInfo({ text = 'John Smith is a 35-year-old software engineer from San Francisco who loves hiking and photography.' }) {
-  let prompt = \`Extract person info from this text as JSON with fields: name, age, occupation, location, hobbies (array).
-
-Text: \${text}
-
-Respond ONLY with valid JSON, no other text.\`
-  let response = llmPredict({ prompt })
-  let parsed = JSON.parse(response)
-  return { person: parsed }
+  // Define JSON schema for structured output
+  let schema = {
+    type: 'json_schema',
+    json_schema: {
+      name: 'person_info',
+      strict: true,
+      schema: {
+        type: 'object',
+        properties: {
+          name: { type: 'string' },
+          age: { type: 'number' },
+          occupation: { type: 'string' },
+          location: { type: 'string' },
+          hobbies: { type: 'array', items: { type: 'string' } }
+        },
+        required: ['name', 'age', 'occupation', 'location', 'hobbies'],
+        additionalProperties: false
+      }
+    }
+  }
+  
+  let prompt = \`Extract person info from this text: \${text}\`
+  let response = llmPredict({ prompt, options: { responseFormat: schema } })
+  let person = JSON.parse(response)
+  return { person }
 }`,
   },
   {
@@ -183,18 +200,44 @@ Respond ONLY with valid JSON, no other text.\`
   let tracks = results.map(x => \`"\${x.trackName}" by \${x.artistName} (\${x.collectionName})\`)
   let trackList = tracks.join('\\n')
   
+  // Define schema for structured array output
+  let schema = {
+    type: 'json_schema',
+    json_schema: {
+      name: 'cover_versions',
+      strict: true,
+      schema: {
+        type: 'object',
+        properties: {
+          covers: {
+            type: 'array',
+            items: {
+              type: 'object',
+              properties: {
+                track: { type: 'string' },
+                artist: { type: 'string' },
+                album: { type: 'string' }
+              },
+              required: ['track', 'artist', 'album'],
+              additionalProperties: false
+            }
+          }
+        },
+        required: ['covers'],
+        additionalProperties: false
+      }
+    }
+  }
+  
   let prompt = \`Search results for "\${song}" by \${artist}:
 
 \${trackList}
 
-List cover versions (tracks NOT by \${artist}) as a JSON array.
-Format: [{"track":"...","artist":"...","album":"..."}]
-If no covers found, return: []
-RESPOND WITH ONLY THE JSON ARRAY, NO OTHER TEXT.\`
+List cover versions (tracks NOT by \${artist}).\`
 
-  let llmResponse = llmPredict({ prompt })
-  let covers = JSON.parse(llmResponse)
-  return { originalArtist: artist, song, covers }
+  let llmResponse = llmPredict({ prompt, options: { responseFormat: schema } })
+  let parsed = JSON.parse(llmResponse)
+  return { originalArtist: artist, song, covers: parsed.covers }
 }`,
   },
   {
