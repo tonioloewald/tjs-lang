@@ -38,14 +38,9 @@ export const styleSpec = {
     _linkColor: '#818cf8',
   },
 
-  // High contrast mode
+  // High contrast mode - uses filter for comprehensive contrast boost
   '.high-contrast': {
-    _textColor: '#000000',
-    _background: '#ffffff',
-  },
-  '.darkmode.high-contrast': {
-    _textColor: '#ffffff',
-    _background: '#000000',
+    filter: 'contrast(1.4)',
   },
 
   // Base styles

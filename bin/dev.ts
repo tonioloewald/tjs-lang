@@ -17,6 +17,7 @@ const PORT = 8699 // Homage to Agent-99
 const DEMO_DIR = './demo'
 const DOCS_DIR = './docs'
 const SRC_DIR = './src'
+const ROOT_DIR = '.'
 
 // Build the demo
 async function buildDemo() {
@@ -33,6 +34,10 @@ async function buildDemo() {
     sourcemap: 'external',
     target: 'browser',
   })
+
+  // Copy static files
+  await $`cp demo/index.html demo/static/favicon.svg tosijs-agent.svg docs/`
+  await $`cp -r demo/static/texts docs/`
 
   console.log('Build complete!')
 }
@@ -54,6 +59,14 @@ const demoWatcher = watch(
     await buildDemo()
   }
 )
+
+// Watch for markdown file changes in root
+const mdWatcher = watch(ROOT_DIR, { recursive: false }, async (event, filename) => {
+  if (filename && filename.endsWith('.md')) {
+    console.log(`\nMarkdown file changed: ${filename}`)
+    await buildDemo()
+  }
+})
 
 // Serve the docs directory
 const server = Bun.serve({
@@ -111,6 +124,7 @@ console.log(`
   Watching for changes in:
   - ${SRC_DIR}/
   - ${DEMO_DIR}/src/
+  - *.md (root directory)
   
   Press Ctrl+C to stop
 `)
@@ -120,6 +134,7 @@ process.on('SIGINT', () => {
   console.log('\nShutting down...')
   watcher.close()
   demoWatcher.close()
+  mdWatcher.close()
   server.stop()
   process.exit(0)
 })

@@ -4,7 +4,7 @@
 
 [github](https://github.com/tonioloewald/tosijs-agent#readme) | [npm](https://www.npmjs.com/package/tosijs-agent) | [discord](https://discord.gg/ramJ9rgky5)
 
-![tosijs-agent logo](/tosijs-agent.svg)
+<img src="/tosijs-agent.svg" alt="tosijs-agent logo" width="300" height="300">
 
 A **type-safe-by-design, cost-limited virtual machine** that enables the **safe execution of untrusted code** anywhere.
 
@@ -67,16 +67,30 @@ const agent = Agent.take(s.object({ topic: s.string })).while(
 
 ## Interactive Example: Cover Version Finder
 
-This example shows the complete loop: a UI form captures user input, AsyncJS code processes it (calling an API and using an LLM to analyze results), and displays the output.
+This example shows the complete loop: a UI form captures user input, AsyncJS code processes it (calling an API and using an LLM to analyze results), and displays the output with album artwork.
 
+```css
+.cover-finder { padding: 16px; display: flex; flex-direction: column; height: 100%; box-sizing: border-box; }
+.cover-finder form { display: flex; gap: 8px; margin-bottom: 16px; flex-wrap: wrap; flex-shrink: 0; }
+.cover-finder input { padding: 8px 12px; border: 1px solid #ccc; border-radius: 4px; flex: 1; min-width: 120px; }
+.cover-finder button { padding: 8px 20px; background: #6366f1; color: white; border: none; border-radius: 4px; cursor: pointer; }
+.cover-finder #results { flex: 1; overflow-y: auto; min-height: 0; }
+.cover-finder .cover-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); gap: 16px; }
+.cover-finder .cover-card { background: #f5f5f5; border-radius: 8px; overflow: hidden; display: flex; flex-direction: column; }
+.cover-finder .cover-card img { width: 100%; aspect-ratio: 1; object-fit: cover; }
+.cover-finder .cover-card .info { padding: 10px; flex: 1; }
+.cover-finder .cover-card .track { font-weight: bold; font-size: 0.9em; margin-bottom: 4px; line-height: 1.2; }
+.cover-finder .cover-card .artist { color: #666; font-size: 0.85em; line-height: 1.2; }
+```
 ```html
-<!-- HTML: Simple search form -->
+<div class="cover-finder">
 <form id="cover-search">
   <input type="text" id="song" placeholder="Song name" value="Yesterday" />
   <input type="text" id="artist" placeholder="Original artist" value="Beatles" />
   <button type="submit">Find Covers</button>
 </form>
 <div id="results"></div>
+</div>
 ```
 ```js
 // Wire up the form to AsyncJS
@@ -88,13 +102,21 @@ const findCovers = ajs`
   function findCovers({ song, artist }) {
     let query = song + ' ' + artist
     let url = \`https://itunes.apple.com/search?term=\${query}&limit=25&media=music\`
-    let response = httpFetch({ url, cache: 3600 })
+    let raw = httpFetch({ url, cache: 3600 })
+    let itunesData = JSON.parse(raw)
     
-    let results = response.results || []
-    let tracks = results.map(x => \`"\${x.trackName}" by \${x.artistName} (\${x.collectionName})\`)
+    let results = itunesData.results || []
+    
+    // Build track list with indices for the LLM
+    let tracks = []
+    let i = 0
+    for (let x of results) {
+      tracks.push(\`[\${i}] "\${x.trackName}" by \${x.artistName} (\${x.collectionName})\`)
+      i = i + 1
+    }
     let trackList = tracks.join('\\n')
     
-    // Define schema for structured output - guarantees valid JSON
+    // Schema includes index to match back to artwork
     let schema = {
       type: 'json_schema',
       json_schema: {
@@ -108,11 +130,12 @@ const findCovers = ajs`
               items: {
                 type: 'object',
                 properties: {
+                  index: { type: 'number' },
                   track: { type: 'string' },
                   artist: { type: 'string' },
                   album: { type: 'string' }
                 },
-                required: ['track', 'artist', 'album'],
+                required: ['index', 'track', 'artist', 'album'],
                 additionalProperties: false
               }
             }
@@ -127,11 +150,13 @@ const findCovers = ajs`
 
 \${trackList}
 
-List cover versions (tracks NOT by \${artist}).\`
+List cover versions (tracks NOT by \${artist}). Include the index number.\`
 
     let llmResponse = llmPredict({ prompt, options: { responseFormat: schema } })
     let parsed = JSON.parse(llmResponse)
-    return { song, artist, covers: parsed.covers }
+    
+    // Return covers with itunesData for artwork lookup in JS
+    return { song, artist, covers: parsed.covers, itunesData }
   }
 `
 
@@ -148,7 +173,7 @@ document.getElementById('cover-search').onsubmit = async (e) => {
       song: document.getElementById('song').value,
       artist: document.getElementById('artist').value,
     },
-    { fuel: 1000 }
+    { fuel: 5000 }
   )
 
   if (error) {
@@ -156,15 +181,38 @@ document.getElementById('cover-search').onsubmit = async (e) => {
   } else if (result.covers.length === 0) {
     resultsDiv.textContent = 'No cover versions found.'
   } else {
-    resultsDiv.innerHTML = `<h3>Cover versions of "${result.song}":</h3><ul>` +
-      result.covers.map(c => `<li>"${c.track}" by ${c.artist} (${c.album})</li>`).join('') +
-      '</ul>'
+    const itunesResults = result.itunesData?.results || []
+    // Match covers to artwork using index from results
+    const covers = result.covers.map(c => {
+      const source = itunesResults[c.index]
+      return {
+        ...c,
+        artwork: source?.artworkUrl100?.replace('100x100', '200x200')
+      }
+    })
+    resultsDiv.innerHTML = `<h3>Cover versions of "${result.song}":</h3>
+      <div class="cover-grid">${covers.map(c => c.artwork ? `
+        <div class="cover-card">
+          <img src="${c.artwork}" alt="${c.album || 'Album art'}">
+          <div class="info">
+            <div class="track">${c.track || 'Unknown track'}</div>
+            <div class="artist">${c.artist || 'Unknown artist'}</div>
+          </div>
+        </div>` : `
+        <div class="cover-card">
+          <div class="info" style="padding-top:60px">
+            <div class="track">${c.track || 'Unknown track'}</div>
+            <div class="artist">${c.artist || 'Unknown artist'}</div>
+          </div>
+        </div>`).join('')}
+      </div>`
   }
 }
 ```
 
 This demonstrates:
 - **Safe execution**: The AsyncJS code runs in a sandboxed VM with fuel limits
+- **Structured output**: JSON schema guarantees valid response format from the LLM
 - **Capability injection**: LLM access is provided by the host, not the untrusted code
 - **Portable logic**: The `findCovers` AST could be sent to a server for execution instead
 
