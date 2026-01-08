@@ -613,7 +613,7 @@ export type BuilderType<M extends Record<string, Atom<any, any>>> =
 
 // --- API Surface ---
 
-export const A99 = {
+export const Agent = {
   // Create a builder with default core atoms
   take(_schema?: any): BuilderType<typeof coreAtoms> {
     return new TypedBuilder(coreAtoms) as any
@@ -632,3 +632,6 @@ export const A99 = {
     return path
   },
 }
+
+/** @deprecated Use `Agent` instead */
+export const A99 = Agent

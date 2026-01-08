@@ -1,5 +1,5 @@
 import { describe, it, expect, mock } from 'bun:test'
-import { A99 } from '../builder'
+import { Agent } from '../builder'
 import { AgentVM } from '../vm'
 import { s } from 'tosijs-schema'
 
@@ -50,7 +50,7 @@ describe('Use Case: Optimization', () => {
     }
 
     const customVM = new AgentVM({ expensive: expensiveAtom })
-    const builder = customVM.A99
+    const builder = customVM.Agent
 
     const logic = builder
       .memoize((b) => b.step({ op: 'expensive' }).as('res1'), 'myKey')
@@ -78,7 +78,7 @@ describe('Use Case: Optimization', () => {
     }
 
     const vm = new AgentVM()
-    const logic = A99.take(s.object({}))
+    const logic = Agent.take(s.object({}))
       .cache(
         (b) =>
           b
@@ -111,7 +111,7 @@ describe('Use Case: Optimization', () => {
     }
 
     const vm = new AgentVM()
-    const logic = A99.take(s.object({}))
+    const logic = Agent.take(s.object({}))
       .cache(
         (b) =>
           b
@@ -160,8 +160,8 @@ describe('Use Case: Optimization', () => {
 
     const vm = new AgentVM()
 
-    const fibLogic = A99.take(s.object({ n: s.number }))
-      .varSet({ key: 'n', value: A99.args('n') })
+    const fibLogic = Agent.take(s.object({ n: s.number }))
+      .varSet({ key: 'n', value: Agent.args('n') })
       .if(
         'n < 2',
         { n: 'n' },
@@ -192,8 +192,8 @@ describe('Use Case: Optimization', () => {
     // My previous fix `const k = resolveValue(key, ctx)` allows variable reference.
     // So we can compute the key into a variable first.
 
-    const fibWithKey = A99.take(s.object({ n: s.number }))
-      .varSet({ key: 'n', value: A99.args('n') })
+    const fibWithKey = Agent.take(s.object({ n: s.number }))
+      .varSet({ key: 'n', value: Agent.args('n') })
       .if(
         'n < 2',
         { n: 'n' },
@@ -280,7 +280,7 @@ describe('Use Case: Optimization', () => {
     }
 
     const customVM = new AgentVM({ expensive: expensiveAtom })
-    const builder = customVM.A99
+    const builder = customVM.Agent
 
     const logic = builder
       .memoize((b) => b.step({ op: 'expensive' }).as('res1'))
@@ -302,7 +302,7 @@ describe('Use Case: Optimization', () => {
     }
 
     const vm = new AgentVM()
-    const logic = A99.take(s.object({}))
+    const logic = Agent.take(s.object({}))
       .cache((b) =>
         b
           .varSet({ key: 'res', value: 'computed' })

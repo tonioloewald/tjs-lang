@@ -1,5 +1,5 @@
 import { describe, it, expect, mock } from 'bun:test'
-import { A99 } from '../builder'
+import { Agent } from '../builder'
 import { defineAtom } from '../runtime'
 import { AgentVM } from '../vm'
 import { s } from 'tosijs-schema'
@@ -47,9 +47,9 @@ describe('Use Case: Orchestrator', () => {
     // Input: { items: string[] }
     // Output: { results: any[] }
 
-    const logic = A99.custom({ ...vm['atoms'] })
+    const logic = Agent.custom({ ...vm['atoms'] })
       .varSet({ key: 'results', value: [] })
-      .varSet({ key: 'items', value: A99.args('items') })
+      .varSet({ key: 'items', value: Agent.args('items') })
 
       // Iterate over items
       .map(

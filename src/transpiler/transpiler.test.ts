@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'bun:test'
-import { transpile, js, agent } from './index'
+import { transpile, ajs } from './index'
 import { preprocess } from './parser'
 
 describe('Transpiler', () => {
@@ -254,7 +254,7 @@ describe('Transpiler', () => {
 
   describe('js() convenience function', () => {
     it('should return just the AST', () => {
-      const ast = js(`
+      const ast = ajs(`
         function test({ x }) {
           return { x }
         }
@@ -263,9 +263,9 @@ describe('Transpiler', () => {
     })
   })
 
-  describe('agent template tag', () => {
+  describe('ajs template tag', () => {
     it('should transpile tagged template', () => {
-      const ast = agent`
+      const ast = ajs`
         function test({ x }) {
           return { x }
         }
@@ -275,7 +275,7 @@ describe('Transpiler', () => {
 
     it('should handle interpolation', () => {
       const varName = 'result'
-      const ast = agent`
+      const ast = ajs`
         function test({ x }) {
           return { ${varName}: x }
         }

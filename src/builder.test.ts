@@ -1,12 +1,12 @@
 import { describe, it, expect } from 'bun:test'
-import { A99 } from './builder'
+import { Agent } from './builder'
 import { s } from 'tosijs-schema'
-import { js } from './transpiler'
+import { ajs } from './transpiler'
 import { AgentVM } from './vm'
 
 describe('Agent99 Builder', () => {
   it('should build a simple varSet chain', () => {
-    const chain = A99.take(s.object({ price: s.number, tax: s.number }))
+    const chain = Agent.take(s.object({ price: s.number, tax: s.number }))
       .varsImport(['price', 'tax'])
       .varSet({ key: 'total', value: 100 })
       .return(s.object({ total: s.number }))
@@ -23,17 +23,17 @@ describe('Agent99 Builder', () => {
 
   it('should throw error when using .as() at start of chain', () => {
     expect(() => {
-      A99.take(s.object({})).as('fail')
+      Agent.take(s.object({})).as('fail')
     }).toThrow('No step to capture')
   })
 
   it('should generate arg references correctly', () => {
-    const arg = A99.args('user.id')
+    const arg = Agent.args('user.id')
     expect(arg).toEqual({ $kind: 'arg', path: 'user.id' })
   })
 
   it('should allow chaining multiple operations', () => {
-    const chain = A99.take(s.object({ x: s.number }))
+    const chain = Agent.take(s.object({ x: s.number }))
       .varsImport(['x'])
       .varSet({ key: 'doubleX', value: 20 })
       .varSet({ key: 'result', value: 30 })
@@ -44,7 +44,7 @@ describe('Agent99 Builder', () => {
   })
 
   it('should support template atom', async () => {
-    const chain = A99.take(s.object({ name: s.string }))
+    const chain = Agent.take(s.object({ name: s.string }))
       .varsImport(['name'])
       .template({ tmpl: 'Hello, {{name}}!', vars: { name: 'name' } })
       .as('greeting')
@@ -56,7 +56,7 @@ describe('Agent99 Builder', () => {
   })
 
   it('should support if/else with conditions', () => {
-    const chain = A99.take(s.object({ x: s.number }))
+    const chain = Agent.take(s.object({ x: s.number }))
       .varsImport(['x'])
       .if(
         'x > 5',
@@ -76,7 +76,7 @@ describe('Agent99 Builder', () => {
 
 describe('JS Transpiler for Math', () => {
   it('should handle arithmetic expressions', async () => {
-    const ast = js(`
+    const ast = ajs(`
       function calc({ a, b }) {
         let sum = a + b
         return { sum }
@@ -89,7 +89,7 @@ describe('JS Transpiler for Math', () => {
   })
 
   it('should handle complex math expressions', async () => {
-    const ast = js(`
+    const ast = ajs(`
       function calc({ a, b, c }) {
         let result = (a + b) * c / 2
         return { result }
@@ -102,7 +102,7 @@ describe('JS Transpiler for Math', () => {
   })
 
   it('should handle multiplication', async () => {
-    const ast = js(`
+    const ast = ajs(`
       function calc({ price, tax }) {
         let total = price * (1 + tax)
         return { total }

@@ -535,7 +535,7 @@ These JavaScript features are intentionally not supported:
 Full transpilation with signature and metadata:
 
 ```typescript
-import { transpile } from 'agent-99'
+import { transpile } from 'tosijs-agent'
 
 const { ast, signature, warnings } = transpile(`
   function greet(name: 'World') {
@@ -548,14 +548,14 @@ console.log(signature.parameters.name.type)  // 'string'
 console.log(signature.parameters.name.required)  // true
 ```
 
-### js()
+### ajs()
 
-Convenience function returning just the AST:
+Convenience function returning just the AST (works as both a function and tagged template literal):
 
 ```typescript
-import { js } from 'agent-99'
+import { ajs } from 'tosijs-agent'
 
-const ast = js(`
+const ast = ajs(`
   function add(a: 5, b: 3) {
     let sum = a + b
     return { sum }
@@ -573,7 +573,7 @@ console.log(result.result.sum)  // 8
 Tagged template for inline definitions:
 
 ```typescript
-import { agent } from 'agent-99'
+import { agent } from 'tosijs-agent'
 
 const searchAST = agent`
   function search(query: 'example search', limit = 10) {
@@ -588,7 +588,7 @@ const searchAST = agent`
 Generate OpenAI-compatible tool schemas for LLM integration:
 
 ```typescript
-import { getToolDefinitions, transpile } from 'agent-99'
+import { getToolDefinitions, transpile } from 'tosijs-agent'
 
 const { signature } = transpile(source)
 const tools = getToolDefinitions([signature])
@@ -628,7 +628,7 @@ if (error) {
 ### Checking for Errors
 
 ```typescript
-import { isAgentError } from 'agent-99'
+import { isAgentError } from 'tosijs-agent'
 
 const { result, error } = await vm.run(ast, args)
 
@@ -844,7 +844,7 @@ If you have existing TypedBuilder code, here's how to convert:
 
 ```typescript
 // Before: TypedBuilder
-const ast = A99.take()
+const ast = Agent.take()
   .varsImport(['topic'])
   .step({ op: 'search', query: 'topic', result: 'results' })
   .if('results.length > 0', { results: 'results' },
@@ -854,7 +854,7 @@ const ast = A99.take()
   .toJSON()
 
 // After: AsyncJS
-const ast = js(`
+const ast = ajs(`
   function searchAgent(topic: 'climate change') {
     let results = search({ query: topic })
     if (results.length > 0) {

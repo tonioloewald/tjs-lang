@@ -1,8 +1,8 @@
 import { describe, it, expect } from 'bun:test'
-import { A99 } from '../builder'
+import { Agent } from '../builder'
 import { AgentVM } from '../vm'
 import { s } from 'tosijs-schema'
-import { js } from '../transpiler'
+import { ajs } from '../transpiler'
 
 // To skip benchmarks, run with a filter that excludes them
 // bun test --except-filter=benchmark
@@ -44,7 +44,7 @@ benchmarks('VM Benchmarks ($run)', ({ run }) => {
   const VM = new AgentVM()
 
   it('should have a basic test runner working', async () => {
-    const ast = js(`
+    const ast = ajs(`
       function add({ a, b }) {
         let result = a + b
         return { result }
@@ -60,7 +60,7 @@ benchmarks('VM Benchmarks ($run)', ({ run }) => {
       const n = 1000
       const expectedPrimes = generatePrimes(n)
 
-      const ast = js(`
+      const ast = ajs(`
         function findPrimes({ n }) {
           let primes = []
           let i = 2
@@ -101,7 +101,7 @@ benchmarks('VM Benchmarks ($run)', ({ run }) => {
         (r.s10 as string).includes('record-5')
       ).length
 
-      const ast = VM.A99.varSet({ key: 'data', value: A99.args('records') })
+      const ast = VM.Agent.varSet({ key: 'data', value: Agent.args('records') })
         .map('data', 'item', (b) =>
           b
             .regexMatch({ pattern: 'record-5', value: 'item.s10' })
@@ -166,7 +166,7 @@ benchmarks('VM Benchmarks ($run)', ({ run }) => {
         (r.s10 as string).includes('record-5')
       ).length
 
-      const ast = VM.A99.varSet({ key: 'data', value: A99.args('records') })
+      const ast = VM.Agent.varSet({ key: 'data', value: Agent.args('records') })
         .varSet({ key: 'filtered', value: [] })
         .map('data', 'item', (b) =>
           b
@@ -193,7 +193,7 @@ benchmarks('VM Benchmarks ($run)', ({ run }) => {
       const n = 1000
       const records = generateRecords(n)
 
-      const ast = VM.A99.varSet({ key: 'data', value: A99.args('records') })
+      const ast = VM.Agent.varSet({ key: 'data', value: Agent.args('records') })
         .map('data', 'item', (b) =>
           b
             .pick({
@@ -269,7 +269,7 @@ benchmarks('VM Benchmarks ($run)', ({ run }) => {
         })
       const expectedCount = expectedRecords.length
 
-      const ast = VM.A99.varSet({ key: 'data', value: A99.args('records') })
+      const ast = VM.Agent.varSet({ key: 'data', value: Agent.args('records') })
         .map('data', 'item', (b) =>
           b
             .regexMatch({ pattern: 'record-5', value: 'item.s10' })

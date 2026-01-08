@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeAll, afterAll, mock } from 'bun:test'
-import { A99 } from '../builder'
+import { Agent } from '../builder'
 import { AgentVM } from '../vm'
 import { s } from 'tosijs-schema'
 import {
@@ -84,7 +84,7 @@ describe('Use Case: Asymmetric Client-Server', () => {
     // Here we reuse the atom definitions from 'batteries.ts' for the builder schema.
     // eslint-disable-next-line @typescript-eslint/no-var-requires
     const { coreAtoms } = require('../runtime')
-    const clientBuilder = A99.custom({
+    const clientBuilder = Agent.custom({
       ...coreAtoms,
       storeVectorize,
       storeSearch,
@@ -110,7 +110,7 @@ describe('Use Case: Asymmetric Client-Server', () => {
         user: 'Found: {{docs}}', // Pass docs to LLM? Wait, template atom needed first.
       }) // We skipped template atom for brevity, let's assume LLM user prompt handles simple vars or we add template.
       // Let's add template for correctness.
-      // Does clientBuilder have core atoms? Yes, A99.custom merges core.
+      // Does clientBuilder have core atoms? Yes, Agent.custom merges core.
       .template({ tmpl: 'Analyze: {{docs}}', vars: { docs: 'docsStr' } })
       .as('prompt')
       .step({
@@ -156,7 +156,7 @@ describe('Use Case: Asymmetric Client-Server', () => {
 
     // eslint-disable-next-line @typescript-eslint/no-var-requires
     const { coreAtoms } = require('../runtime')
-    const logic = A99.custom({ ...coreAtoms, storeVectorize })
+    const logic = Agent.custom({ ...coreAtoms, storeVectorize })
       .step({ op: 'storeVectorize', text: 'fail' })
       .return(s.object({}))
 

@@ -87,6 +87,7 @@ export interface RuntimeContext {
   error?: AgentError // Monadic error - when set, subsequent atoms are skipped
   memo?: Map<string, any>
   trace?: TraceEvent[]
+  signal?: AbortSignal // External abort signal for timeout enforcement
 }
 
 export type AtomExec = (step: any, ctx: RuntimeContext) => Promise<void>
@@ -1109,6 +1110,8 @@ export const whileLoop = defineAtom(
   undefined,
   async (step, ctx) => {
     while (evaluateExpr(step.condition, ctx)) {
+      // Check abort signal for clean cancellation
+      if (ctx.signal?.aborted) throw new Error('Execution aborted')
       if ((ctx.fuel.current -= 0.1) <= 0) throw new Error('Out of Fuel')
       await seq.exec({ op: 'seq', steps: step.body } as any, ctx)
       if (ctx.output !== undefined) return
@@ -1329,6 +1332,8 @@ export const map = defineAtom(
     if (!Array.isArray(resolvedItems))
       throw new Error('map: items is not an array')
     for (const item of resolvedItems) {
+      // Check abort signal for clean cancellation
+      if (ctx.signal?.aborted) throw new Error('Execution aborted')
       const scopedCtx = createChildScope(ctx)
       scopedCtx.state[as] = item
       await seq.exec({ op: 'seq', steps } as any, scopedCtx)
@@ -1353,6 +1358,8 @@ export const filter = defineAtom(
     if (!Array.isArray(resolvedItems))
       throw new Error('filter: items is not an array')
     for (const item of resolvedItems) {
+      // Check abort signal for clean cancellation
+      if (ctx.signal?.aborted) throw new Error('Execution aborted')
       const scopedCtx = createChildScope(ctx)
       scopedCtx.state[as] = item
       const passes = evaluateExpr(condition, scopedCtx)
@@ -1383,6 +1390,8 @@ export const reduce = defineAtom(
 
     let acc = resolvedInitial
     for (const item of resolvedItems) {
+      // Check abort signal for clean cancellation
+      if (ctx.signal?.aborted) throw new Error('Execution aborted')
       const scopedCtx = createChildScope(ctx)
       scopedCtx.state[as] = item
       scopedCtx.state[accumulator] = acc
@@ -1407,6 +1416,8 @@ export const find = defineAtom(
     if (!Array.isArray(resolvedItems))
       throw new Error('find: items is not an array')
     for (const item of resolvedItems) {
+      // Check abort signal for clean cancellation
+      if (ctx.signal?.aborted) throw new Error('Execution aborted')
       const scopedCtx = createChildScope(ctx)
       scopedCtx.state[as] = item
       const matches = evaluateExpr(condition, scopedCtx)
@@ -1542,14 +1553,21 @@ export const fetch = defineAtom(
     const headers = resolveValue(step.headers, ctx)
     const body = resolveValue(step.body, ctx)
     if (ctx.capabilities.fetch) {
-      return ctx.capabilities.fetch(url, { method, headers, body })
+      // Pass signal to custom fetch capability if available
+      return ctx.capabilities.fetch(url, {
+        method,
+        headers,
+        body,
+        signal: ctx.signal,
+      })
     }
-    // Default: global fetch
+    // Default: global fetch with abort signal
     if (typeof globalThis.fetch === 'function') {
       const res = await globalThis.fetch(url, {
         method,
         headers,
         body: body ? JSON.stringify(body) : undefined,
+        signal: ctx.signal, // Pass abort signal for cancellation
       })
       // Try to parse JSON if content-type says so, else text
       const contentType = res.headers.get('content-type')

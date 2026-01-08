@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'bun:test'
-import { A99 } from '../builder'
+import { Agent } from '../builder'
 import { AgentVM } from '../vm'
 import { s } from 'tosijs-schema'
 
@@ -31,8 +31,8 @@ describe('Use Case: Recursive Agent', () => {
     // if n <= 1 return 1
     // else return n * Factorial(n - 1)
 
-    const factorial = A99.take(s.object({ n: s.number }))
-      .varSet({ key: 'n', value: A99.args('n') })
+    const factorial = Agent.take(s.object({ n: s.number }))
+      .varSet({ key: 'n', value: Agent.args('n') })
       .if(
         'n <= 1',
         { n: 'n' },
@@ -100,8 +100,8 @@ describe('Use Case: Recursive Agent', () => {
     // For this test, we accept that standard recursion resets fuel per stack frame unless managed by orchestrator.
     // But we can simulate "out of fuel" by passing low fuel to recursive call.
 
-    const factorial = A99.take(s.object({ n: s.number }))
-      .varSet({ key: 'n', value: A99.args('n') })
+    const factorial = Agent.take(s.object({ n: s.number }))
+      .varSet({ key: 'n', value: Agent.args('n') })
       .if(
         'n <= 1',
         { n: 'n' },
@@ -141,8 +141,8 @@ describe('Use Case: Recursive Agent', () => {
   it('should handle concurrent recursive agents', async () => {
     // 5! = 120, 6! = 720
     const inputs = [5, 6, 5, 6]
-    const factorial = A99.take(s.object({ n: s.number }))
-      .varSet({ key: 'n', value: A99.args('n') })
+    const factorial = Agent.take(s.object({ n: s.number }))
+      .varSet({ key: 'n', value: Agent.args('n') })
       .if(
         'n <= 1',
         { n: 'n' },

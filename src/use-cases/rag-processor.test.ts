@@ -1,5 +1,5 @@
 import { describe, it, expect, mock } from 'bun:test'
-import { A99 } from '../builder'
+import { Agent } from '../builder'
 import { AgentVM } from '../vm'
 import { s } from 'tosijs-schema'
 
@@ -37,7 +37,7 @@ describe('Use Case: RAG Processor', () => {
 
     // 2. Build Logic
     // Input: { query: string }
-    const rag = A99.take(s.object({ query: s.string }))
+    const rag = Agent.take(s.object({ query: s.string }))
       // A. Embed Query
       // We don't have explicit 'llm.embed' atom in coreAtoms map yet?
       // runtime.ts has 'llm.predict'.
@@ -50,12 +50,12 @@ describe('Use Case: RAG Processor', () => {
       // Given I can't edit runtime.ts in this turn, I will use a custom atom definition in the test VM.
 
       // But wait, the prompt asked me to write the file. I can't modify runtime.ts.
-      // So I will define 'llm.embed' locally and use A99.custom() or mix it in.
-      // But A99 builder relies on 'coreAtoms'.
+      // So I will define 'llm.embed' locally and use Agent.custom() or mix it in.
+      // But Agent builder relies on 'coreAtoms'.
       // I can use `builder.step()` with a manual node?
-      // Or I can use `defineAtom` and pass it to `A99.custom()`.
+      // Or I can use `defineAtom` and pass it to `Agent.custom()`.
 
-      // Let's assume I use A99.custom() pattern.
+      // Let's assume I use Agent.custom() pattern.
 
       // B. Vector Search
       // 'store.vectorSearch' IS in coreAtoms.
@@ -64,7 +64,7 @@ describe('Use Case: RAG Processor', () => {
       // 'llm.predict' IS in coreAtoms.
 
       // Let's build the flow.
-      .step({ op: 'llmEmbed', text: A99.args('query') })
+      .step({ op: 'llmEmbed', text: Agent.args('query') })
       .as('vector')
 
       .storeVectorSearch({ vector: 'vector' })
@@ -79,7 +79,7 @@ describe('Use Case: RAG Processor', () => {
 
       .template({
         tmpl: 'Context: {{context}}\nQuery: {{query}}',
-        vars: { context: 'contextStr', query: A99.args('query') },
+        vars: { context: 'contextStr', query: Agent.args('query') },
       })
       .as('prompt')
 
@@ -101,7 +101,7 @@ describe('Use Case: RAG Processor', () => {
         // We need robust resolve?
         // Since we can't import resolveValue, we rely on ctx.capabilities.llm.embed
         // But wait, 'text' in step might be 'args.query' string if resolved by builder?
-        // Builder: A99.args('query') -> { $kind: 'arg', path: 'query' }
+        // Builder: Agent.args('query') -> { $kind: 'arg', path: 'query' }
         // So step.text is that object.
         // We need resolveValue logic.
         // But I can't import resolveValue.
@@ -190,8 +190,8 @@ describe('Use Case: RAG Processor', () => {
     const customVM = new AgentVM({ llmEmbed: embedAtom })
 
     // Build Logic
-    const rag = A99.take(s.object({ query: s.string }))
-      .step({ op: 'llmEmbed', text: A99.args('query') })
+    const rag = Agent.take(s.object({ query: s.string }))
+      .step({ op: 'llmEmbed', text: Agent.args('query') })
       .as('vector')
       .storeVectorSearch({ collection: 'default', vector: 'vector' })
       .as('docs')
@@ -199,7 +199,7 @@ describe('Use Case: RAG Processor', () => {
       .as('contextStr')
       .template({
         tmpl: 'Context: {{context}}\nQuery: {{query}}',
-        vars: { context: 'contextStr', query: A99.args('query') },
+        vars: { context: 'contextStr', query: Agent.args('query') },
       })
       .as('prompt')
       .llmPredict({ prompt: 'prompt' })

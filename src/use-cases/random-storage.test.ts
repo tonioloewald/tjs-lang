@@ -1,5 +1,5 @@
 import { describe, it, expect, mock } from 'bun:test'
-import { A99 } from '../builder'
+import { Agent } from '../builder'
 import { AgentVM } from '../vm'
 import { s } from 'tosijs-schema'
 
@@ -22,10 +22,10 @@ describe('Use Case: Random ID Storage', () => {
     //   id = random({ format: 'base36', length: 8 })
     //   store.set(id, input.data)
     //   return { id }
-    const createRecord = A99.take(s.object({ data: s.any }))
+    const createRecord = Agent.take(s.object({ data: s.any }))
       .random({ format: 'base36', length: 8 })
       .as('id')
-      .storeSet({ key: 'id', value: A99.args('data') })
+      .storeSet({ key: 'id', value: Agent.args('data') })
       .return(s.object({ id: s.string }))
 
     // Execute Creation
@@ -44,8 +44,8 @@ describe('Use Case: Random ID Storage', () => {
     // Logic:
     //   record = store.get(id)
     //   return { record }
-    const getRecord = A99.take(s.object({ id: s.string }))
-      .storeGet({ key: A99.args('id') })
+    const getRecord = Agent.take(s.object({ id: s.string }))
+      .storeGet({ key: Agent.args('id') })
       .as('record')
       .return(s.object({ record: s.any }))
 
@@ -61,7 +61,7 @@ describe('Use Case: Random ID Storage', () => {
   })
 
   it('should use UUID atom correctly', async () => {
-    const uuidAgent = A99.take(s.object({}))
+    const uuidAgent = Agent.take(s.object({}))
       .uuid({})
       .as('uuid')
       .return(s.object({ uuid: s.string }))
@@ -73,7 +73,7 @@ describe('Use Case: Random ID Storage', () => {
   })
 
   it('should handle concurrent random generation uniquely', async () => {
-    const genAgent = A99.take(s.object({}))
+    const genAgent = Agent.take(s.object({}))
       .random({ format: 'base36', length: 12 })
       .as('val')
       .return(s.object({ val: s.string }))

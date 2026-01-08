@@ -1,5 +1,5 @@
 import { describe, it, expect, mock } from 'bun:test'
-import { A99 } from '../builder'
+import { Agent } from '../builder'
 import { AgentVM } from '../vm'
 import { s } from 'tosijs-schema'
 import { batteries } from '../batteries'
@@ -75,7 +75,7 @@ describe('Batteries Included', () => {
       llmBattery: createMockLLMBattery(fetchMock),
     }
 
-    const agent = A99.custom({ ...batteryVM['atoms'] })
+    const agent = Agent.custom({ ...batteryVM['atoms'] })
       .step({ op: 'storeVectorize', text: 'Hello World' })
       .as('vector')
       .return(s.object({ vector: s.array(s.number) }))
@@ -98,7 +98,7 @@ describe('Batteries Included', () => {
       embedding: [0.1, 0.2, 0.3],
     })
 
-    const agent = A99.custom({ ...batteryVM['atoms'] })
+    const agent = Agent.custom({ ...batteryVM['atoms'] })
       .step({
         op: 'storeSearch',
         collection: 'notes',
@@ -131,7 +131,7 @@ describe('Batteries Included', () => {
       llmBattery: createMockLLMBattery(fetchMock),
     }
 
-    const agent = A99.custom({ ...batteryVM['atoms'] })
+    const agent = Agent.custom({ ...batteryVM['atoms'] })
       .step({ op: 'llmPredictBattery', system: 'Sys', user: 'User' })
       .as('response')
       .return(s.object({ response: s.string }))
@@ -166,7 +166,7 @@ describe('Batteries Included', () => {
       llmBattery: createMockLLMBattery(fetchMock),
     }
 
-    const agent = A99.custom({ ...batteryVM['atoms'] })
+    const agent = Agent.custom({ ...batteryVM['atoms'] })
       .step({
         op: 'llmPredictBattery',
         system: 'Sys',
@@ -216,7 +216,7 @@ describe('Batteries Included', () => {
       llmBattery: createMockLLMBattery(fetchMock),
     }
 
-    const agent = A99.custom({ ...batteryVM['atoms'] })
+    const agent = Agent.custom({ ...batteryVM['atoms'] })
       .step({
         op: 'llmPredictBattery',
         system: 'Sys',

@@ -1,11 +1,11 @@
 import { describe, test, expect } from 'bun:test'
-import { js, AgentVM } from '..'
+import { ajs, AgentVM } from '..'
 
 describe('Builtins', () => {
   const vm = new AgentVM()
 
   test('Math methods work', async () => {
-    const ast = js(`
+    const ast = ajs(`
       function testMath() {
         let a = Math.floor(3.7)
         let b = Math.ceil(3.2)
@@ -27,7 +27,7 @@ describe('Builtins', () => {
   })
 
   test('Math.random uses crypto when available', async () => {
-    const ast = js(`
+    const ast = ajs(`
       function testRandom() {
         let a = Math.random()
         let b = Math.random()
@@ -43,7 +43,7 @@ describe('Builtins', () => {
   })
 
   test('JSON methods work', async () => {
-    const ast = js(`
+    const ast = ajs(`
       function testJSON() {
         let obj = { name: 'test', value: 42 }
         let str = JSON.stringify(obj)
@@ -58,7 +58,7 @@ describe('Builtins', () => {
   })
 
   test('Array static methods work', async () => {
-    const ast = js(`
+    const ast = ajs(`
       function testArray() {
         let arr = [1, 2, 3]
         let isArr = Array.isArray(arr)
@@ -75,7 +75,7 @@ describe('Builtins', () => {
   })
 
   test('Object static methods work', async () => {
-    const ast = js(`
+    const ast = ajs(`
       function testObject() {
         let obj = { a: 1, b: 2, c: 3 }
         let keys = Object.keys(obj)
@@ -90,7 +90,7 @@ describe('Builtins', () => {
   })
 
   test('Global functions work', async () => {
-    const ast = js(`
+    const ast = ajs(`
       function testGlobals() {
         let a = parseInt('42')
         let b = parseFloat('3.14')
@@ -110,7 +110,7 @@ describe('Builtins', () => {
   })
 
   test('String instance methods work', async () => {
-    const ast = js(`
+    const ast = ajs(`
       function testStringMethods() {
         let str = 'hello world'
         let upper = str.toUpperCase()
@@ -129,7 +129,7 @@ describe('Builtins', () => {
   })
 
   test('Array instance methods work', async () => {
-    const ast = js(`
+    const ast = ajs(`
       function testArrayMethods() {
         let arr = [3, 1, 4, 1, 5]
         let joined = arr.join('-')
@@ -148,7 +148,7 @@ describe('Builtins', () => {
   })
 
   test('Number static methods work', async () => {
-    const ast = js(`
+    const ast = ajs(`
       function testNumber() {
         let a = Number.isInteger(5)
         let b = Number.isInteger(5.5)
@@ -168,7 +168,7 @@ describe('Builtins', () => {
   test('Unsupported builtins give helpful transpile errors', () => {
     // setTimeout should fail at transpile time with a helpful message
     expect(() => {
-      js(`
+      ajs(`
         function testSetTimeout() {
           let x = setTimeout(() => {}, 100)
           return { x }
@@ -179,7 +179,7 @@ describe('Builtins', () => {
 
   test("'new' keyword is caught at transpile time with helpful error for Date", () => {
     expect(() => {
-      js(`
+      ajs(`
         function test() {
           let d = new Date()
           return { d }
@@ -187,7 +187,7 @@ describe('Builtins', () => {
       `)
     }).toThrow("The 'new' keyword is not supported")
     expect(() => {
-      js(`
+      ajs(`
         function test() {
           let d = new Date()
           return { d }
@@ -198,7 +198,7 @@ describe('Builtins', () => {
 
   test("'new' keyword is caught at transpile time with helpful error for Set", () => {
     expect(() => {
-      js(`
+      ajs(`
         function test() {
           let s = new Set([1, 2, 3])
           return { s }
@@ -206,7 +206,7 @@ describe('Builtins', () => {
       `)
     }).toThrow("The 'new' keyword is not supported")
     expect(() => {
-      js(`
+      ajs(`
         function test() {
           let s = new Set([1, 2, 3])
           return { s }
@@ -217,7 +217,7 @@ describe('Builtins', () => {
 
   test("'new' keyword is caught for unknown constructors", () => {
     expect(() => {
-      js(`
+      ajs(`
         function test() {
           let x = new SomeClass()
           return { x }
@@ -225,7 +225,7 @@ describe('Builtins', () => {
       `)
     }).toThrow("The 'new' keyword is not supported")
     expect(() => {
-      js(`
+      ajs(`
         function test() {
           let x = new SomeClass()
           return { x }

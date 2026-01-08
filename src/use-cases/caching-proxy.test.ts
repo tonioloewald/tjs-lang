@@ -1,5 +1,5 @@
 import { describe, it, expect, mock } from 'bun:test'
-import { A99 } from '../builder'
+import { Agent } from '../builder'
 import { AgentVM } from '../vm'
 import { s } from 'tosijs-schema'
 
@@ -17,7 +17,7 @@ describe('Use Case: Caching Proxy', () => {
       fetch: mock(async () => ({ data: 'fresh' })),
     }
 
-    const refinedProxy = A99.take(s.object({ url: s.string }))
+    const refinedProxy = Agent.take(s.object({ url: s.string }))
       .storeGet({ key: 'args.url' }) // Use URL as key directly
       .as('cached')
       .if('cached != null', { cached: 'cached' }, (b) =>
@@ -25,9 +25,9 @@ describe('Use Case: Caching Proxy', () => {
           .varSet({ key: 'result', value: 'cached' })
           .return(s.object({ result: s.any }))
       )
-      .httpFetch({ url: A99.args('url') })
+      .httpFetch({ url: Agent.args('url') })
       .as('fetched')
-      .storeSet({ key: A99.args('url'), value: 'fetched' })
+      .storeSet({ key: Agent.args('url'), value: 'fetched' })
       .varSet({ key: 'result', value: 'fetched' })
       .return(s.object({ result: s.any }))
 
@@ -57,7 +57,7 @@ describe('Use Case: Caching Proxy', () => {
       fetch: mock(async () => ({ data: 'fresh' })),
     }
 
-    const refinedProxy = A99.take(s.object({ url: s.string }))
+    const refinedProxy = Agent.take(s.object({ url: s.string }))
       .storeGet({ key: 'args.url' })
       .as('cached')
       .if('cached != null', { cached: 'cached' }, (b) =>
@@ -65,7 +65,7 @@ describe('Use Case: Caching Proxy', () => {
           .varSet({ key: 'result', value: 'cached' })
           .return(s.object({ result: s.any }))
       )
-      .httpFetch({ url: A99.args('url') }) // Should not reach here
+      .httpFetch({ url: Agent.args('url') }) // Should not reach here
       .as('fetched')
       .varSet({ key: 'result', value: 'fetched' })
       .return(s.object({ result: s.any }))
@@ -83,7 +83,7 @@ describe('Use Case: Caching Proxy', () => {
   })
 
   it('should handle concurrent requests', async () => {
-    const refinedProxy = A99.take(s.object({ url: s.string }))
+    const refinedProxy = Agent.take(s.object({ url: s.string }))
       .storeGet({ key: 'args.url' })
       .as('cached')
       .if('cached != null', { cached: 'cached' }, (b) =>
@@ -91,9 +91,9 @@ describe('Use Case: Caching Proxy', () => {
           .varSet({ key: 'result', value: 'cached' })
           .return(s.object({ result: s.any }))
       )
-      .httpFetch({ url: A99.args('url') })
+      .httpFetch({ url: Agent.args('url') })
       .as('fetched')
-      .storeSet({ key: A99.args('url'), value: 'fetched' })
+      .storeSet({ key: Agent.args('url'), value: 'fetched' })
       .varSet({ key: 'result', value: 'fetched' })
       .return(s.object({ result: s.any }))
 

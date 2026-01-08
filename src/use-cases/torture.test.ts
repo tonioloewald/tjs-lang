@@ -1,5 +1,5 @@
 import { describe, it, expect, mock } from 'bun:test'
-import { A99 } from '../builder'
+import { Agent } from '../builder'
 import { AgentVM } from '../vm'
 import { s } from 'tosijs-schema'
 
@@ -30,8 +30,8 @@ const exprIncrement = (varName: string) => ({
 // --- Generators ---
 
 const createFib = () =>
-  A99.take(s.object({ n: s.number }))
-    .varSet({ key: 'n', value: A99.args('n') })
+  Agent.take(s.object({ n: s.number }))
+    .varSet({ key: 'n', value: Agent.args('n') })
     .varSet({ key: 'a', value: 0 })
     .varSet({ key: 'b', value: 1 })
     .while('n > 0', { n: 'n' }, (loop) =>
@@ -45,7 +45,7 @@ const createFib = () =>
     .return(s.object({ result: s.number }))
 
 const createOrchestrator = () =>
-  A99.take(s.object({ items: s.array(s.string) }))
+  Agent.take(s.object({ items: s.array(s.string) }))
     .varSet({ key: 'results', value: [] })
     .map('args.items', 'item', (b) =>
       b

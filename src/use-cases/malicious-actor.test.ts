@@ -1,5 +1,5 @@
 import { describe, it, expect, mock } from 'bun:test'
-import { A99 } from '../builder'
+import { Agent } from '../builder'
 import { defineAtom } from '../runtime'
 import { AgentVM } from '../vm'
 import { s } from 'tosijs-schema'
@@ -9,7 +9,7 @@ describe('Use Case: Malicious Actor', () => {
 
   it('should terminate infinite loops via Fuel limit', async () => {
     // Malicious Agent: Infinite Loop
-    const infinite = A99.take(s.object({}))
+    const infinite = Agent.take(s.object({}))
       .while('1 == 1', {}, (b) => b.varSet({ key: 'x', value: 1 }))
       .return(s.object({}))
 
@@ -28,7 +28,7 @@ describe('Use Case: Malicious Actor', () => {
   it('should prevent access to prototype/constructor (Sandbox)', async () => {
     // Malicious Agent: Try to access constructor of an object via ExprNode
     // {}.constructor -> Function -> ...
-    const exploit = A99.take(s.object({}))
+    const exploit = Agent.take(s.object({}))
       .varSet({ key: 'obj', value: {} })
       // Try to access obj.constructor via ExprNode
       .varSet({
@@ -56,7 +56,7 @@ describe('Use Case: Malicious Actor', () => {
     // Since our evaluator only resolves from state/args...
     // The only way to access globals is if 'state' has them or prototype chain leaks.
 
-    const exploit = A99.take(s.object({}))
+    const exploit = Agent.take(s.object({}))
       .varSet({
         key: 'leak',
         value: { $expr: 'ident', name: 'process' },
@@ -96,7 +96,7 @@ describe('Use Case: Malicious Actor', () => {
 
     const vm = new AgentVM({ fileRead })
 
-    const builder = A99.custom({ ...vm['atoms'] })
+    const builder = Agent.custom({ ...vm['atoms'] })
     const exploit = builder
       .step({ op: 'fileRead', path: '../../etc/passwd' }) // Use step or typed if we updated types
       .as('content')

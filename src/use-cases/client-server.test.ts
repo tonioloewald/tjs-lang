@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeAll, afterAll } from 'bun:test'
-import { A99 } from '../builder'
+import { Agent } from '../builder'
 import { AgentVM } from '../vm'
 import { s } from 'tosijs-schema'
 
@@ -49,8 +49,8 @@ describe('Use Case: Client-Server', () => {
   it('should execute an agent sent over HTTP', async () => {
     // 1. Define Logic (Client Side)
     // Logic: Get value from server store, uppercase it, return.
-    const logic = A99.take(s.object({ key: s.string }))
-      .storeGet({ key: A99.args('key') })
+    const logic = Agent.take(s.object({ key: s.string }))
+      .storeGet({ key: Agent.args('key') })
       .as('val')
       .varSet({ key: 'valUpper', value: 'val' }) // Placeholder for logic
       // Let's use template to prove computation
@@ -94,8 +94,8 @@ describe('Use Case: Client-Server', () => {
       expected: `Echo: Server Value for req_${i}`,
     }))
 
-    const logic = A99.take(s.object({ key: s.string }))
-      .storeGet({ key: A99.args('key') })
+    const logic = Agent.take(s.object({ key: s.string }))
+      .storeGet({ key: Agent.args('key') })
       .as('val')
       .template({ tmpl: 'Echo: {{val}}', vars: { val: 'val' } })
       .as('response')

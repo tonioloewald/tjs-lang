@@ -1,8 +1,8 @@
-# Agent99 Technical Context
+# tosijs-agent Technical Context
 
-**Note:** This document provides a technical deep-dive into Agent99's architecture and security model. For a general overview, installation instructions, and usage examples, please refer to the main [README.md](./README.md).
+**Note:** This document provides a technical deep-dive into tosijs-agent's architecture and security model. For a general overview, installation instructions, and usage examples, please refer to the main [README.md](./README.md).
 
-**Agent99** is a secure, environment-agnostic runtime for executing AI agents and logic chains defined as JSON ASTs.
+**tosijs-agent** is a secure, environment-agnostic runtime for executing AI agents and logic chains defined as JSON ASTs.
 
 **Bundle Size:** ~17KB gzipped. Expressions are evaluated via lightweight AST nodes at runtime, eliminating the need for a parser library (the previous JSEP-based approach was ~50KB gzipped).
 
@@ -16,22 +16,22 @@ It is important to understand that the builder is only for constructing the AST;
 
 **Usage Pattern:**
 
-- All logic chains **must** start with `A99.take()` to define the input schema for the agent.
+- All logic chains **must** start with `Agent.take()` to define the input schema for the agent.
 - Subsequent atom calls are chained together fluently (e.g., `.varSet(...)`, `.httpFetch(...)`). This creates an implicit `seq` (sequence) of operations.
 - The chain is terminated by calling `.toJSON()` to produce the serializable AST.
 
-You can access the builder via `A99` (for core atoms) or `vm.A99` (the recommended way to access both core and any custom atoms registered with the VM instance).
+You can access the builder via `Agent` (for core atoms) or `vm.Agent` (the recommended way to access both core and any custom atoms registered with the VM instance).
 
 ```typescript
-import { A99, s, AgentVM } from 'agent-99'
+import { Agent, s, AgentVM } from 'tosijs-agent'
 
 // Global Builder (Core Atoms)
-const logic = A99.take(s.object({ input: s.string }))
+const logic = Agent.take(s.object({ input: s.string }))
   .varSet({ key: 'sum', value: { $expr: 'binary', op: '+', left: { $expr: 'literal', value: 1 }, right: { $expr: 'literal', value: 1 } } })
 
 // VM Builder (Custom Atoms)
 const vm = new AgentVM({ myAtom })
-const customLogic = vm.A99
+const customLogic = vm.Agent
   .myAtom({ ... })
   .varSet({ ... })
 ```
@@ -45,7 +45,7 @@ A stateless Virtual Machine that executes the AST. The runtime contains all the 
 - **Capability-Based:** All IO (Network, DB, AI) must be injected via `capabilities` object.
 
 ```typescript
-import { AgentVM } from 'agent-99'
+import { AgentVM } from 'tosijs-agent'
 const vm = new AgentVM()
 const { result, fuelUsed } = await vm.run(ast, args, {
   capabilities,
@@ -88,5 +88,46 @@ Each expression node evaluation consumes **0.01 fuel**. This prevents deeply nes
 
 - **Capabilities:** The VM has no default IO. You must provide `fetch`, `store`, etc., allowing you to mock, proxy, or limit access.
 - **Fuel:** Every atom consumes "fuel". Execution aborts if fuel reaches 0.
-- **Timeouts:** Atoms have a default timeout (1s) to prevent hangs.
+- **Execution Timeout:** The VM enforces a global timeout based on fuel budget (see below).
+- **Atom Timeouts:** Individual atoms have a default timeout (1s) to prevent hangs.
 - **State Isolation:** Each run creates a fresh context. Scopes (loops/maps) use prototype inheritance to isolate local variables.
+
+### Execution Timeout
+
+The VM enforces a hard timeout on execution to prevent hung agents—safeguarding against code that effectively halts by waiting on slow or non-responsive IO.
+
+**How it works:**
+
+1. **Automatic Safety Net:** By default, timeout = `fuel × 10ms`. So 1000 fuel = 10 seconds. _For IO-heavy agents with low fuel costs, explicitly set `timeoutMs` to prevent premature timeouts._
+2. **Explicit SLA:** Pass `timeoutMs` to enforce a strict time limit regardless of fuel.
+3. **External Cancellation:** Pass an `AbortSignal` to integrate with external controllers (user cancellation, HTTP timeouts, etc.).
+
+```typescript
+// Default: 1000 fuel = 10 second timeout
+await vm.run(ast, args, { fuel: 1000 })
+
+// Explicit timeout: 5 seconds regardless of fuel
+await vm.run(ast, args, { fuel: 10000, timeoutMs: 5000 })
+
+// External abort signal
+const controller = new AbortController()
+setTimeout(() => controller.abort(), 3000) // Cancel after 3s
+await vm.run(ast, args, { signal: controller.signal })
+```
+
+**Resource Cleanup:** When a timeout occurs, the VM passes the abort signal to the currently executing atom via `ctx.signal`. Loop atoms (`while`, `map`, `filter`, `reduce`, `find`) check the signal between iterations. `httpFetch` passes the signal to `fetch` for immediate request cancellation.
+
+**Timeout vs Fuel:**
+
+- **Fuel** protects against CPU-bound abuse (tight loops burning compute)
+- **Timeout** protects against IO-bound abuse (slow network calls, hung promises)
+
+Both work together to ensure the VM cannot be held hostage by untrusted code.
+
+**Trust Boundary:** The sandbox protects against malicious _agents_ (untrusted AST), not malicious _atom implementations_. Atoms are registered by the host and are trusted to:
+
+1. Be non-blocking (no synchronous CPU-heavy work)
+2. Respect `ctx.signal` for cancellation
+3. Clean up resources when aborted
+
+If you write custom atoms, ensure they check `ctx.signal?.aborted` in loops and pass `ctx.signal` to any async operations like `fetch`.

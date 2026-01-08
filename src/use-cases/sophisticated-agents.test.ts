@@ -1,5 +1,5 @@
 import { describe, it, expect, mock } from 'bun:test'
-import { A99 } from '../builder'
+import { Agent } from '../builder'
 import { AgentVM } from '../vm'
 import { s } from 'tosijs-schema'
 import {
@@ -11,8 +11,8 @@ import {
 describe('Use Case: Sophisticated Agents', () => {
   it('should implement a Robust MCQ Agent (Retry on Invalid Output)', async () => {
     // Logic: Ask question. Validate 'A','B','C','D'. Retry if invalid.
-    const mcqAgent = A99.take(s.object({ question: s.string }))
-      .varSet({ key: 'prompt', value: A99.args('question') })
+    const mcqAgent = Agent.take(s.object({ question: s.string }))
+      .varSet({ key: 'prompt', value: Agent.args('question') })
       .varSet({ key: 'attempts', value: 0 })
       .varSet({ key: 'valid', value: false })
       .varSet({ key: 'answer', value: '' })
@@ -100,8 +100,8 @@ describe('Use Case: Sophisticated Agents', () => {
     // 3. If No: Refine query and loop.
     // 4. If Yes: Answer.
 
-    const iterativeRag = A99.take(s.object({ query: s.string }))
-      .varSet({ key: 'currentQuery', value: A99.args('query') })
+    const iterativeRag = Agent.take(s.object({ query: s.string }))
+      .varSet({ key: 'currentQuery', value: Agent.args('query') })
       .varSet({ key: 'found', value: false })
       .varSet({ key: 'attempts', value: 0 })
       .varSet({ key: 'finalAnswer', value: '' })

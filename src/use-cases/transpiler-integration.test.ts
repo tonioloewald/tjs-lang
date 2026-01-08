@@ -1,11 +1,11 @@
 import { describe, it, expect, mock } from 'bun:test'
 import { AgentVM } from '../vm'
-import { js, transpile, createAgent, getToolDefinitions } from '../transpiler'
+import { ajs, transpile, createAgent, getToolDefinitions } from '../transpiler'
 
 describe('Transpiler Integration', () => {
   describe('End-to-end execution', () => {
     it('should transpile and execute a simple function', async () => {
-      const ast = js(`
+      const ast = ajs(`
         function greet({ name }) {
           let greeting = template({ tmpl: 'Hello, {{name}}!', vars: { name } })
           return { greeting }
@@ -19,7 +19,7 @@ describe('Transpiler Integration', () => {
     })
 
     it('should handle math calculations', async () => {
-      const ast = js(`
+      const ast = ajs(`
         function calculate({ a, b }) {
           let sum = a + b
           let product = a * b
@@ -35,7 +35,7 @@ describe('Transpiler Integration', () => {
     })
 
     it('should handle conditionals', async () => {
-      const ast = js(`
+      const ast = ajs(`
         function checkAge({ age }) {
           let status = 'unknown'
           if (age >= 18) {
@@ -57,7 +57,7 @@ describe('Transpiler Integration', () => {
     })
 
     it('should handle loops', async () => {
-      const ast = js(`
+      const ast = ajs(`
         function countdown({ n }) {
           let count = n
           let iterations = 0
@@ -77,7 +77,7 @@ describe('Transpiler Integration', () => {
     })
 
     it('should handle for...of with map', async () => {
-      const ast = js(`
+      const ast = ajs(`
         function processItems({ items }) {
           let results = []
           for (const item of items) {
@@ -94,7 +94,7 @@ describe('Transpiler Integration', () => {
     })
 
     it('should handle try/catch', async () => {
-      const ast = js(`
+      const ast = ajs(`
         function safeFetch({ url }) {
           let data = null
           let error = null
@@ -243,7 +243,7 @@ describe('Transpiler Integration', () => {
 
   describe('Array methods with lambdas', () => {
     it('should execute filter with lambda', async () => {
-      const ast = js(`
+      const ast = ajs(`
         function filterEvens({ items }) {
           let evens = items.filter(x => x % 2 == 0)
           return { evens }
@@ -257,7 +257,7 @@ describe('Transpiler Integration', () => {
     })
 
     it('should execute find with lambda', async () => {
-      const ast = js(`
+      const ast = ajs(`
         function findFirst({ items, threshold }) {
           let found = items.find(x => x > threshold)
           return { found }
@@ -271,7 +271,7 @@ describe('Transpiler Integration', () => {
     })
 
     it('should execute reduce with lambda', async () => {
-      const ast = js(`
+      const ast = ajs(`
         function sumItems({ items }) {
           let sum = items.reduce((acc, x) => acc + x, 0)
           return { sum }
@@ -285,7 +285,7 @@ describe('Transpiler Integration', () => {
     })
 
     it('should chain filter, map, and reduce', async () => {
-      const ast = js(`
+      const ast = ajs(`
         function processItems({ items }) {
           let evens = items.filter(x => x % 2 == 0)
           let doubled = evens.map(x => x * 2)
@@ -302,7 +302,7 @@ describe('Transpiler Integration', () => {
     })
 
     it('should access outer scope in lambda (closure)', async () => {
-      const ast = js(`
+      const ast = ajs(`
         function filterByThreshold({ items, min }) {
           let above = items.filter(x => x >= min)
           return { above }
@@ -316,7 +316,7 @@ describe('Transpiler Integration', () => {
     })
 
     it('should handle object properties in lambda', async () => {
-      const ast = js(`
+      const ast = ajs(`
         function findUser({ users, targetAge }) {
           let user = users.find(u => u.age == targetAge)
           return { user }
@@ -347,7 +347,7 @@ describe('Transpiler Integration', () => {
         return 'Generic response'
       })
 
-      const ast = js(`
+      const ast = ajs(`
         function research({ topic }) {
           let query = template({ tmpl: 'Research about {{topic}}', vars: { topic } })
           let response = llmPredict({ prompt: query })
@@ -378,7 +378,7 @@ describe('Transpiler Integration', () => {
         return attempts === 1 ? 'invalid' : 'A'
       })
 
-      const ast = js(`
+      const ast = ajs(`
         function validateAnswer({ question }) {
           let answer = ''
           let valid = false
@@ -450,7 +450,7 @@ describe('Transpiler Integration', () => {
 
       const vm = new AgentVM({ step1, step2, step3 } as any)
 
-      const ast = js(`
+      const ast = ajs(`
         function test() {
           let a = step1({})
           let b = step2({})
@@ -492,7 +492,7 @@ describe('Transpiler Integration', () => {
 
       const vm = new AgentVM({ failingStep, recoveryStep } as any)
 
-      const ast = js(`
+      const ast = ajs(`
         function test() {
           let result = 'initial'
           try {
@@ -523,7 +523,7 @@ describe('Transpiler Integration', () => {
 
       const vm = new AgentVM({ failingStep } as any)
 
-      const ast = js(`
+      const ast = ajs(`
         function test() {
           let x = failingStep({})
           return { x }
@@ -541,7 +541,7 @@ describe('Transpiler Integration', () => {
 
   describe('const support', () => {
     it('should allow const declarations', async () => {
-      const ast = js(`
+      const ast = ajs(`
         function test({ x }) {
           const doubled = x * 2
           return { doubled }
@@ -555,7 +555,7 @@ describe('Transpiler Integration', () => {
     })
 
     it('should prevent reassignment of const variables', async () => {
-      const ast = js(`
+      const ast = ajs(`
         function test({ x }) {
           const value = x
           let dummy = value + 1
@@ -608,7 +608,7 @@ describe('Transpiler Integration', () => {
     })
 
     it('should handle const with atom result', async () => {
-      const ast = js(`
+      const ast = ajs(`
         function test({ items }) {
           const doubled = items.map(x => x * 2)
           return { doubled }
@@ -624,7 +624,7 @@ describe('Transpiler Integration', () => {
 
   describe('Optional chaining', () => {
     it('should return undefined for null object with ?.', async () => {
-      const ast = js(`
+      const ast = ajs(`
         function test({ user }) {
           let name = user?.name
           return { name }
@@ -638,7 +638,7 @@ describe('Transpiler Integration', () => {
     })
 
     it('should return property value for non-null object with ?.', async () => {
-      const ast = js(`
+      const ast = ajs(`
         function test({ user }) {
           let name = user?.name
           return { name }
@@ -652,7 +652,7 @@ describe('Transpiler Integration', () => {
     })
 
     it('should handle nested optional chaining', async () => {
-      const ast = js(`
+      const ast = ajs(`
         function test({ user }) {
           let city = user?.address?.city
           return { city }
@@ -677,7 +677,7 @@ describe('Transpiler Integration', () => {
     })
 
     it('should handle optional method calls', async () => {
-      const ast = js(`
+      const ast = ajs(`
         function test({ str }) {
           let upper = str?.toUpperCase()
           return { upper }
@@ -696,7 +696,7 @@ describe('Transpiler Integration', () => {
 
   describe('Set builtin', () => {
     it('should create a Set and use has/size', async () => {
-      const ast = js(`
+      const ast = ajs(`
         function test() {
           let s = Set(['a', 'b', 'c'])
           let hasA = s.has('a')
@@ -715,7 +715,7 @@ describe('Transpiler Integration', () => {
     })
 
     it('should mutate Set with add/remove', async () => {
-      const ast = js(`
+      const ast = ajs(`
         function test() {
           let s = Set(['a', 'b'])
           s.add('c')
@@ -732,7 +732,7 @@ describe('Transpiler Integration', () => {
     })
 
     it('should create new Sets with union/intersection/diff', async () => {
-      const ast = js(`
+      const ast = ajs(`
         function test() {
           let a = Set([1, 2, 3])
           let b = Set([2, 3, 4])
@@ -752,7 +752,7 @@ describe('Transpiler Integration', () => {
     })
 
     it('should deduplicate initial items', async () => {
-      const ast = js(`
+      const ast = ajs(`
         function test() {
           let s = Set([1, 2, 2, 3, 3, 3])
           return { size: s.size, arr: s.toArray() }
@@ -769,7 +769,7 @@ describe('Transpiler Integration', () => {
 
   describe('Date builtin', () => {
     it('should create a Date and access components', async () => {
-      const ast = js(`
+      const ast = ajs(`
         function test() {
           let d = Date('2024-06-15T10:30:00Z')
           return { 
@@ -791,7 +791,7 @@ describe('Transpiler Integration', () => {
     })
 
     it('should add time to Date', async () => {
-      const ast = js(`
+      const ast = ajs(`
         function test() {
           let d = Date('2024-01-15T00:00:00Z')
           let later = d.add({ days: 5, hours: 3 })
@@ -807,7 +807,7 @@ describe('Transpiler Integration', () => {
     })
 
     it('should calculate diff between Dates', async () => {
-      const ast = js(`
+      const ast = ajs(`
         function test() {
           let a = Date('2024-01-15T00:00:00Z')
           let b = Date('2024-01-10T00:00:00Z')
@@ -823,7 +823,7 @@ describe('Transpiler Integration', () => {
     })
 
     it('should format Dates', async () => {
-      const ast = js(`
+      const ast = ajs(`
         function test() {
           let d = Date('2024-06-15T14:30:45Z')
           return { 
@@ -843,7 +843,7 @@ describe('Transpiler Integration', () => {
     })
 
     it('should compare Dates', async () => {
-      const ast = js(`
+      const ast = ajs(`
         function test() {
           let a = Date('2024-01-15')
           let b = Date('2024-01-20')
@@ -862,7 +862,7 @@ describe('Transpiler Integration', () => {
     })
 
     it('should create Date() with no args for current time', async () => {
-      const ast = js(`
+      const ast = ajs(`
         function test() {
           let now = Date()
           return { hasValue: now.value.length > 0, hasTimestamp: now.timestamp > 0 }
@@ -879,7 +879,7 @@ describe('Transpiler Integration', () => {
 
   describe('filter builtin', () => {
     it('should strip extra properties from objects', async () => {
-      const ast = js(`
+      const ast = ajs(`
         function test() {
           let raw = { name: 'Alice', age: 30, secret: 'password', extra: 123 }
           let clean = filter(raw, { name: 'string', age: 0 })
@@ -894,7 +894,7 @@ describe('Transpiler Integration', () => {
     })
 
     it('should work with nested objects', async () => {
-      const ast = js(`
+      const ast = ajs(`
         function test() {
           let raw = {
             user: { name: 'Bob', age: 25, ssn: '123-45-6789' },
@@ -919,7 +919,7 @@ describe('Transpiler Integration', () => {
     })
 
     it('should throw on validation failure', async () => {
-      const ast = js(`
+      const ast = ajs(`
         function test() {
           let raw = { name: 'Alice' }
           let clean = filter(raw, { name: 'string', age: 0 })
@@ -935,7 +935,7 @@ describe('Transpiler Integration', () => {
     })
 
     it('should work with arrays', async () => {
-      const ast = js(`
+      const ast = ajs(`
         function test() {
           let raw = [
             { name: 'A', extra: 1 },
@@ -957,7 +957,7 @@ describe('Transpiler Integration', () => {
     it('should filter nested objects in return values', async () => {
       // When returning an object with nested properties, extra properties
       // at any level should be stripped based on the return schema
-      const ast = js(`
+      const ast = ajs(`
         function test() {
           let user = { name: 'Alice', age: 30, secret: 'password123' }
           return { user }
@@ -976,10 +976,10 @@ describe('Transpiler Integration', () => {
 
     it('should strip extra top-level properties not in return schema', async () => {
       // Use the builder directly to have more control over the return schema
-      const { A99 } = await import('../builder')
+      const { Agent } = await import('../builder')
       const { s } = await import('tosijs-schema')
 
-      const ast = A99.take(s.object({}))
+      const ast = Agent.take(s.object({}))
         .varSet({ key: 'a', value: 1 })
         .varSet({ key: 'b', value: 2 })
         .varSet({ key: 'extra', value: 'should be stripped' })

@@ -1,14 +1,14 @@
 import { describe, it, expect, mock } from 'bun:test'
-import { A99 } from '../builder'
+import { Agent } from '../builder'
 import { AgentVM } from '../vm'
 import { s } from 'tosijs-schema'
-import { js } from '../transpiler'
+import { ajs } from '../transpiler'
 
 describe('Simple Examples', () => {
   const VM = new AgentVM()
 
   it('should compute Nth Fibonacci Number (using .ajs)', async () => {
-    const fibAst = js(`
+    const fibAst = ajs(`
       function fib({ n }) {
         let a = 0
         let b = 1
@@ -32,10 +32,10 @@ describe('Simple Examples', () => {
   })
 
   it('should concatenate strings', async () => {
-    const concat = A99.take(s.object({ a: s.string, b: s.string }))
+    const concat = Agent.take(s.object({ a: s.string, b: s.string }))
       .template({
         tmpl: '{{a}} {{b}}!',
-        vars: { a: A99.args('a'), b: A99.args('b') },
+        vars: { a: Agent.args('a'), b: Agent.args('b') },
       })
       .as('greeting')
       .return(s.object({ greeting: s.string }))
@@ -60,8 +60,8 @@ describe('Simple Examples', () => {
       },
     }
 
-    const logic = A99.take(s.object({ url: s.string }))
-      .httpFetch({ url: A99.args('url') })
+    const logic = Agent.take(s.object({ url: s.string }))
+      .httpFetch({ url: Agent.args('url') })
       .as('rawXml')
       .xmlParse({ str: 'rawXml' })
       .as('json')
@@ -99,7 +99,7 @@ describe('Simple Examples', () => {
   })
 
   it('should execute examples in parallel (using .ajs)', async () => {
-    const fibAst = js(`
+    const fibAst = ajs(`
       function fib({ n }) {
         let a = 0
         let b = 1
@@ -127,10 +127,10 @@ describe('Simple Examples', () => {
   })
 
   it('should handle conditional logic with iff', async () => {
-    const logic = A99.take(s.object({ a: s.number, b: s.number }))
+    const logic = Agent.take(s.object({ a: s.number, b: s.number }))
       .if(
         'a > b',
-        { a: A99.args('a'), b: A99.args('b') },
+        { a: Agent.args('a'), b: Agent.args('b') },
         (then) => then.varSet({ key: 'result', value: 'a is greater' }),
         (otherwise) =>
           otherwise.varSet({ key: 'result', value: 'b is greater or equal' })
@@ -145,10 +145,10 @@ describe('Simple Examples', () => {
   })
 
   it('should handle various boolean operators', async () => {
-    const logic = A99.take(s.object({ a: s.number, b: s.number }))
+    const logic = Agent.take(s.object({ a: s.number, b: s.number }))
       .if(
         'a == 10 && b < 20',
-        { a: A99.args('a'), b: A99.args('b') },
+        { a: Agent.args('a'), b: Agent.args('b') },
         (then) => then.varSet({ key: 'result', value: 'Condition met' }),
         (otherwise) =>
           otherwise.varSet({ key: 'result', value: 'Condition not met' })
@@ -166,10 +166,10 @@ describe('Simple Examples', () => {
   })
 
   it('should handle not operator', async () => {
-    const logic = A99.take(s.object({ a: s.number }))
+    const logic = Agent.take(s.object({ a: s.number }))
       .if(
         '!(a == 10)',
-        { a: A99.args('a') },
+        { a: Agent.args('a') },
         (then) => then.varSet({ key: 'result', value: 'Condition met' }),
         (otherwise) =>
           otherwise.varSet({ key: 'result', value: 'Condition not met' })
@@ -184,7 +184,7 @@ describe('Simple Examples', () => {
   })
 
   it('should get a variable from state', async () => {
-    const logic = A99.take(s.object({}))
+    const logic = Agent.take(s.object({}))
       .varSet({ key: 'myVar', value: 'hello' })
       .varGet({ key: 'myVar' })
       .as('result')
@@ -198,8 +198,8 @@ describe('Simple Examples', () => {
     const data = { name: 'John', age: 30 }
     const jsonString = JSON.stringify(data)
 
-    const logic = A99.take(s.object({ json: s.string }))
-      .jsonParse({ str: A99.args('json') })
+    const logic = Agent.take(s.object({ json: s.string }))
+      .jsonParse({ str: Agent.args('json') })
       .as('parsed')
       .varSet({ key: 'name', value: 'parsed.name' }) // this dot notation needs to work.
       .jsonStringify({ value: 'parsed' })
@@ -212,7 +212,7 @@ describe('Simple Examples', () => {
   })
 
   it('should perform list operations', async () => {
-    const logic = A99.take(s.object({}))
+    const logic = Agent.take(s.object({}))
       .varSet({ key: 'myList', value: [1, 2, 3] })
       .len({ list: 'myList' })
       .as('initialLength')
@@ -240,7 +240,7 @@ describe('Simple Examples', () => {
   })
 
   it('should perform object operations (merge, keys)', async () => {
-    const logic = A99.take(s.object({}))
+    const logic = Agent.take(s.object({}))
       .varSet({ key: 'objA', value: { a: 1, b: 2 } })
       .varSet({ key: 'objB', value: { b: 3, c: 4 } })
       .merge({ a: 'objA', b: 'objB' })
@@ -260,7 +260,7 @@ describe('Simple Examples', () => {
   })
 
   it('should handle errors with try/catch', async () => {
-    const logic = A99.take(s.object({}))
+    const logic = Agent.take(s.object({}))
       .try({
         try: (b) =>
           b
@@ -275,7 +275,7 @@ describe('Simple Examples', () => {
   })
 
   it('should match regex', async () => {
-    const logic = A99.take(s.object({}))
+    const logic = Agent.take(s.object({}))
       .regexMatch({ pattern: '(\\w+)', value: 'hello world' })
       .as('matches')
       .return(s.object({ matches: s.boolean }))
@@ -285,7 +285,7 @@ describe('Simple Examples', () => {
   })
 
   it('should support crypto and random atoms', async () => {
-    const logic = A99.take(s.object({}))
+    const logic = Agent.take(s.object({}))
       .random({})
       .as('randomNumber')
       .uuid({})
@@ -315,7 +315,7 @@ describe('Simple Examples', () => {
   })
 
   it('should handle scoped variables', async () => {
-    const logic = A99.take(s.object({}))
+    const logic = Agent.take(s.object({}))
       .varSet({ key: 'a', value: 1 })
       .scope((b) =>
         b.varSet({ key: 'a', value: 2 }).varSet({ key: 'b', value: 3 })
@@ -337,7 +337,7 @@ describe('Simple Examples', () => {
   })
 
   it('should handle varsImport and varsExport operations', async () => {
-    const listMap = A99.take(
+    const listMap = Agent.take(
       s.object({ a: s.number, b: s.number, c: s.number, d: s.number })
     )
       .varsImport(['a', 'b'])

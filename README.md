@@ -1,16 +1,14 @@
-# Agent99
+# tosijs-agent
 
-[github](https://github.com/tonioloewald/agent-99#readme) | [npm](https://www.npmjs.com/package/agent-99) | [discord](https://discord.gg/ramJ9rgky5)
-
-<div style="text-align: center;"><img alt="Agent-99 Action Figure" src="https://raw.githubusercontent.com/tonioloewald/agent-99/main/agent-99.webp" style="max-height: 50vh; max-width: 50vw; height: 900px; aspect-ratio: 2 / 3"></div>
+[github](https://github.com/tonioloewald/tosijs-agent#readme) | [npm](https://www.npmjs.com/package/tosijs-agent) | [discord](https://discord.gg/ramJ9rgky5)
 
 A **type-safe-by-design, cost-limited virtual machine** that enables the **safe execution of untrusted code** anywhere.
 
 It's **safe eval** in the cloud.
 
-And it's **tiny**, ![bundlejs bundle including dependencies](https://deno.bundlejs.com/badge?q=agent-99).
+And it's **tiny**, ![bundlejs bundle including dependencies](https://deno.bundlejs.com/badge?q=tosijs-agent).
 
-Agent99 allows you to define complex logic chains, agents, and data pipelines—_computer programs_—using a fluent TypeScript builder. These definitions compile to a safe, JSON-serializable AST ([Abstract Syntax Tree](https://en.wikipedia.org/wiki/Abstract_syntax_tree)) that can be executed in the browser, on the server, or at the edge.
+tosijs-agent allows you to define complex logic chains, agents, and data pipelines—_computer programs_—using a fluent TypeScript builder. These definitions compile to a safe, JSON-serializable AST ([Abstract Syntax Tree](https://en.wikipedia.org/wiki/Abstract_syntax_tree)) that can be executed in the browser, on the server, or at the edge.
 
 For a deeper dive into the architecture and security model, see the [Technical Context](./CONTEXT.md).
 
@@ -22,14 +20,14 @@ For a deeper dive into the architecture and security model, see the [Technical C
 
 ### The Holy Grail
 
-Agent99 solves fundamental problems in distributed computing:
+tosijs-agent solves fundamental problems in distributed computing:
 
 - **Safe "Useful Mining":** Allows distributed nodes to execute productive, arbitrary work safely (sandboxed & gas-limited) — e.g. replacing Proof-of-Work with distributed data processing.
 - **Code is Data:** Logic is defined as a portable AST, making execution language-agnostic and portable.
 - **True Network Agents:** Write code that travels to the data, rather than moving petabytes of data to the code.
 - **Type-Safe Composition:** Build robust pipelines where inputs and outputs are strictly validated at every step.
 
-## Comparison: Agent99 vs LangChain
+## Comparison: tosijs-agent vs LangChain
 
 Consider building a "Research Agent" that searches for a topic, summarizes it, critiques the summary, and refines the search if needed.
 
@@ -37,13 +35,13 @@ Consider building a "Research Agent" that searches for a topic, summarizes it, c
 
 Requires defining Tools, PromptTemplates, Chains (or Graph nodes), and wiring them up with complex state management classes. To refine the logic, you must redeploy the application code.
 
-### Agent99
+### tosijs-agent
 
 The entire logic is a single, fluent expression that compiles to JSON. You can refine the agent's behavior by simply sending a new JSON payload to the server—no deployment required.
 
 ```typescript
 // Research Agent: Search -> Summarize -> Critique -> Loop
-const agent = A99.take(s.object({ topic: s.string })).while(
+const agent = Agent.take(s.object({ topic: s.string })).while(
   '!good && tries < 3',
   {},
   (loop) =>
@@ -72,9 +70,9 @@ To see a complete, working example of how to build an agent with a simple UI, ch
 ## Installation
 
 ```bash
-bun add agent-99
+bun add tosijs-agent
 # or
-npm install agent-99
+npm install tosijs-agent
 ```
 
 ## Quick Start
@@ -84,10 +82,10 @@ npm install agent-99
 Use the fluent builder to create a logic chain.
 
 ```typescript
-import { A99, s } from 'agent-99'
+import { Agent, s } from 'tosijs-agent'
 
 // Define a simple calculation agent
-const calculateTotal = A99.take(
+const calculateTotal = Agent.take(
   s.object({
     price: s.number,
     taxRate: s.number,
@@ -99,12 +97,12 @@ const calculateTotal = A99.take(
     value: {
       $expr: 'binary',
       op: '*',
-      left: A99.args('price'),
+      left: Agent.args('price'),
       right: {
         $expr: 'binary',
         op: '+',
         left: { $expr: 'literal', value: 1 },
-        right: A99.args('taxRate'),
+        right: Agent.args('taxRate'),
       },
     },
   })
@@ -120,7 +118,7 @@ console.log(JSON.stringify(ast, null, 2))
 Run the AST in the VM. The VM is stateless and isolated.
 
 ```typescript
-import { AgentVM } from 'agent-99'
+import { AgentVM } from 'tosijs-agent'
 
 const vm = new AgentVM()
 
@@ -182,7 +180,7 @@ The standard library includes essential primitives:
 
 ## Capabilities & Security
 
-Agent99 uses a **[Capability-Based Security](https://en.wikipedia.org/wiki/Capability-based_security)** model. The VM cannot access the network, file system, or database unless provided with a Capability.
+tosijs-agent uses a **[Capability-Based Security](https://en.wikipedia.org/wiki/Capability-based_security)** model. The VM cannot access the network, file system, or database unless provided with a Capability.
 
 **Zero Config Defaults:** The runtime provides sensible defaults for local development:
 
@@ -191,6 +189,33 @@ Agent99 uses a **[Capability-Based Security](https://en.wikipedia.org/wiki/Capab
 - `random`/`uuid` use `crypto` or `Math`.
 
 In production, you should inject secure, instrumented, or cloud-native implementations (e.g., restricted fetch, Postgres, Redis).
+
+### Execution Timeout
+
+The VM enforces a hard timeout to prevent hung agents—safeguarding against code that effectively halts by waiting on slow or non-responsive IO.
+
+- **Automatic Safety Net:** Defaults to `fuel × 10ms` (e.g., 1000 fuel ≈ 10s budget). _Note: For IO-heavy agents with low fuel costs, explicitly set `timeoutMs` to prevent premature timeouts._
+- **Explicit Control:** Pass `timeoutMs` to enforce a strict Service Level Agreement (SLA).
+- **Cancellation:** Pass an `AbortSignal` to integrate with external cancellation controllers (e.g., user cancellation buttons or HTTP request timeouts).
+
+**Resource Cleanup:** When a timeout occurs, the VM passes the abort signal to the currently executing atom (via `ctx.signal`). Atoms implementing cancellation (like `httpFetch`) will abort their network requests immediately.
+
+```typescript
+// 1. Default Safety Net (good for compute-heavy logic)
+await vm.run(ast, args, { fuel: 1000 })
+
+// 2. SLA Enforcement: "This agent must finish in 5s or we drop it"
+await vm.run(ast, args, { fuel: 5000, timeoutMs: 5000 })
+
+// 3. User Cancellation: connect UI "Stop" button to the Agent
+const controller = new AbortController()
+stopButton.onClick(() => controller.abort())
+await vm.run(ast, args, { signal: controller.signal })
+```
+
+**Fuel vs Timeout:** Fuel protects against CPU-bound abuse (tight loops). Timeout protects against IO-bound abuse (slow network calls). Together they ensure the VM cannot be held hostage.
+
+**Security Note:** The sandbox protects against malicious _agents_, not malicious _atom implementations_. Atoms are registered by the host and are trusted to be non-blocking and to respect `ctx.signal` for cancellation.
 
 ## Batteries Included (Zero-Dependency Local AI)
 
@@ -208,7 +233,7 @@ To use the batteries, you need to have LM Studio running in the background.
 
 ### 2. How it Works
 
-When you first import the `batteries` from `agent-99`, the runtime performs a one-time audit of the models available on your LM Studio server. It automatically detects which models are for embeddings and which are for chat, and caches the results to avoid re-auditing during the same session.
+When you first import the `batteries` from `tosijs-agent`, the runtime performs a one-time audit of the models available on your LM Studio server. It automatically detects which models are for embeddings and which are for chat, and caches the results to avoid re-auditing during the same session.
 
 This allows Agent99 to automatically select the correct models for different tasks without any configuration. The cache uses `localStorage` if available (in a browser environment), or a simple in-memory cache otherwise.
 
@@ -221,25 +246,25 @@ The `batteries` export contains the necessary capabilities. To use them, registe
 > **Old Way:**
 >
 > ```typescript
-> import { AgentVM, batteries, storeVectorize, storeSearch } from 'agent-99'
+> import { AgentVM, batteries, storeVectorize, storeSearch } from 'tosijs-agent'
 > const vm = new AgentVM({ storeVectorize, storeSearch, ... })
 > ```
 >
 > **New Way:**
 >
 > ```typescript
-> import { AgentVM, batteries, batteryAtoms } from 'agent-99'
+> import { AgentVM, batteries, batteryAtoms } from 'tosijs-agent'
 > const vm = new AgentVM(batteryAtoms)
 > ```
 
 ```typescript
-import { AgentVM, batteries, batteryAtoms, A99 } from 'agent-99'
+import { AgentVM, batteries, batteryAtoms, Agent } from 'tosijs-agent'
 
 // Register the battery atoms
 const vm = new AgentVM(batteryAtoms)
 
 // The batteries are audited on import.
-const logic = vm.A99.storeVectorize({ text: 'Hello' }).as('vector')
+const logic = vm.Agent.storeVectorize({ text: 'Hello' }).as('vector')
 
 const { result } = await vm.run(logic.toJSON(), {}, { capabilities: batteries })
 
@@ -265,7 +290,7 @@ These results demonstrate that the in-memory vector store is suitable for a wide
 You can request structured JSON responses (e.g., JSON Schema) from compatible models using `responseFormat`:
 
 ```typescript
-const logic = vm.A99.llmPredictBattery({
+const logic = vm.Agent.llmPredictBattery({
   system: 'Extract data.',
   user: 'John Doe, 30',
   responseFormat: {
@@ -312,7 +337,7 @@ To enable custom capabilities like Database Access or Web Scraping, you inject t
 #### Example: Providing a Database
 
 ```typescript
-import { AgentVM } from 'agent-99'
+import { AgentVM } from 'tosijs-agent'
 
 const vm = new AgentVM()
 
@@ -349,7 +374,7 @@ const capabilities = {
 You can extend the runtime with your own atomic operations.
 
 ```typescript
-import { defineAtom, AgentVM, s, A99 } from 'agent-99'
+import { defineAtom, AgentVM, s, Agent } from 'tosijs-agent'
 
 // 1. Define the Atom
 const myScraper = defineAtom(
@@ -368,9 +393,9 @@ const myScraper = defineAtom(
 const myVM = new AgentVM({ scrape: myScraper })
 
 // 3. Use in Builder (Types are inferred!)
-// The `vm.A99` property is the recommended way to get a builder
+// The `vm.Agent` property is the recommended way to get a builder
 // that includes any custom atoms you have registered.
-const builder = myVM.A99
+const builder = myVM.Agent
 
 const logic = builder
   .scrape({ url: 'https://example.com' })

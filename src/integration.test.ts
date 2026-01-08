@@ -1,5 +1,5 @@
 import { describe, it, expect, mock } from 'bun:test'
-import { A99 } from './builder'
+import { Agent } from './builder'
 import { AgentVM } from './vm'
 import { s } from 'tosijs-schema'
 
@@ -23,7 +23,7 @@ describe('Agent99 Integration (Mocked Pipeline)', () => {
     }
 
     // --- 2. Build The Logic ---
-    const logic = A99.take(
+    const logic = Agent.take(
       s.object({
         userId: s.string,
         amount: s.number,
@@ -37,8 +37,8 @@ describe('Agent99 Integration (Mocked Pipeline)', () => {
       .if(
         'amount > limit',
         {
-          amount: A99.args('amount'),
-          limit: A99.val('limit'),
+          amount: Agent.args('amount'),
+          limit: Agent.val('limit'),
         },
         // THEN: Deny
         (b: any) =>
@@ -93,7 +93,7 @@ describe('Agent99 Integration (Mocked Pipeline)', () => {
   })
 
   it('should handle capability errors gracefully', async () => {
-    const logic = A99.take(s.object({}))
+    const logic = Agent.take(s.object({}))
       .llmPredict({ prompt: 'foo' }) // Needs llm capability (fetch has a default now)
       .return(s.object({}))
 

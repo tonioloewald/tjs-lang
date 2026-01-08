@@ -1,5 +1,5 @@
 import { describe, it, expect, mock } from 'bun:test'
-import { A99 } from '../builder'
+import { Agent } from '../builder'
 import { defineAtom, resolveValue, type Capabilities } from '../runtime'
 import { AgentVM } from '../vm'
 import { s } from 'tosijs-schema'
@@ -27,11 +27,11 @@ describe('Use Case: Comparison (Honed API)', () => {
     // - Custom atoms via builder proxy
     // - .set() helper (simulated via varSet for now, assuming user meant honing the API surface in builder)
 
-    const researchAgent = A99.custom({
+    const researchAgent = Agent.custom({
       ...vm['atoms'],
       llmPredict: llmPredictBattery,
     })
-      .search({ query: A99.args('topic') })
+      .search({ query: Agent.args('topic') })
       .as('results')
       .llmPredict({
         system: 'Summarize',
@@ -40,7 +40,7 @@ describe('Use Case: Comparison (Honed API)', () => {
       .as('summary')
       .llmPredict({
         system: 'Refine query',
-        user: A99.args('topic'),
+        user: Agent.args('topic'),
       })
       .as('newTopic')
       .search({ query: 'newTopic.content' })

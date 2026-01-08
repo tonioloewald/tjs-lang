@@ -8,7 +8,7 @@
 import { describe, it, expect } from 'bun:test'
 import { LocalModels } from '../batteries/models'
 import { getLLMCapability } from '../batteries/llm'
-import { js, transpile, getToolDefinitions } from '../transpiler'
+import { ajs, transpile, getToolDefinitions } from '../transpiler'
 import { AgentVM } from '../vm'
 import { defineAtom, resolveValue } from '../runtime'
 import { s } from 'tosijs-schema'
@@ -133,7 +133,7 @@ Respond with ONLY the function code, no markdown fences or explanation.`
       console.log(code)
 
       // Transpile the generated code
-      const ast = js(code)
+      const ast = ajs(code)
 
       expect(ast).toBeDefined()
       expect(ast.op).toBe('seq')
@@ -177,7 +177,7 @@ Respond with ONLY the function code, no markdown fences or explanation.`
       console.log('LLM generated code:')
       console.log(code)
 
-      const ast = js(code)
+      const ast = ajs(code)
       expect(ast.op).toBe('seq')
 
       const vm = new AgentVM()
@@ -238,7 +238,7 @@ Use native arithmetic for the calculation. Respond with ONLY the function code.`
       console.log('LLM generated code:')
       console.log(code)
 
-      const ast = js(code)
+      const ast = ajs(code)
       const vm = new AgentVM()
       const execResult = await vm.run(ast, { width: 2, height: 3, depth: 4 })
 
@@ -340,7 +340,7 @@ Respond with ONLY the function code, no explanation.`
       console.log(code)
 
       // Transpile and execute
-      const ast = js(code)
+      const ast = ajs(code)
       const execResult = await vm.run(ast, { city: 'Tokyo' })
 
       console.log('Weather report result:', execResult)
@@ -433,7 +433,7 @@ Respond with ONLY the function code.`
       console.log('LLM generated code:')
       console.log(code)
 
-      const ast = js(code)
+      const ast = ajs(code)
 
       // Test successful order
       const result1 = await vm.run(ast, { item: 'apple', quantity: 10 })

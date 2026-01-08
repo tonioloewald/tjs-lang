@@ -1,27 +1,19 @@
 /**
- * Agent99 JavaScript Transpiler
+ * AsyncJS Transpiler
  *
- * Transforms "Better JavaScript" into Agent99 AST.
+ * Transforms AsyncJS ("Better JavaScript") into tosijs-agent AST.
  *
  * @example
  * ```typescript
- * import { js, agent, transpile } from 'agent-99'
+ * import { ajs, transpile } from 'tosijs-agent'
  *
  * // Simple function
- * const ast = js(`
+ * const ast = ajs(`
  *   function greet({ name }) {
  *     let msg = template({ tmpl: 'Hello {{name}}', vars: { name } })
  *     return { msg }
  *   }
  * `)
- *
- * // Tagged template
- * const ast2 = agent`
- *   function add({ a, b }) {
- *     let sum = a + b
- *     return { sum }
- *   }
- * `
  *
  * // Execute
  * const vm = new AgentVM()
@@ -104,31 +96,21 @@ export function transpile(
 }
 
 /**
- * Convenience function: transpile and return just the AST
- *
- * @param source - JavaScript source code
- * @returns The Agent99 AST
+ * Transpile AsyncJS source and return just the AST.
+ * Works as both a function and a tagged template literal.
  *
  * @example
  * ```typescript
- * const ast = js(`
+ * // As a function
+ * const ast = ajs(`
  *   function agent({ topic }) {
  *     let results = search({ query: topic })
  *     return { results }
  *   }
  * `)
- * ```
- */
-export function js(source: string): SeqNode {
-  return transpile(source).ast
-}
-
-/**
- * Tagged template literal for inline transpilation
  *
- * @example
- * ```typescript
- * const ast = agent`
+ * // As a tagged template literal
+ * const ast2 = ajs`
  *   function greet({ name }) {
  *     let msg = template({ tmpl: 'Hello {{name}}', vars: { name } })
  *     return { msg }
@@ -136,17 +118,22 @@ export function js(source: string): SeqNode {
  * `
  * ```
  */
-export function agent(
-  strings: TemplateStringsArray,
+export function ajs(strings: TemplateStringsArray, ...values: any[]): SeqNode
+export function ajs(source: string): SeqNode
+export function ajs(
+  sourceOrStrings: string | TemplateStringsArray,
   ...values: any[]
 ): SeqNode {
-  // Reconstruct source from template parts
-  const source = strings.reduce(
+  if (typeof sourceOrStrings === 'string') {
+    return transpile(sourceOrStrings).ast
+  }
+  // Tagged template literal
+  const source = sourceOrStrings.reduce(
     (acc, str, i) =>
       acc + str + (values[i] !== undefined ? String(values[i]) : ''),
     ''
   )
-  return js(source)
+  return transpile(source).ast
 }
 
 /**
