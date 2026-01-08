@@ -76,6 +76,11 @@ export interface TraceEvent {
   timestamp: string
 }
 
+/** Cost override: static number or dynamic function */
+export type CostOverride =
+  | number
+  | ((input: any, ctx: RuntimeContext) => number)
+
 export interface RuntimeContext {
   fuel: { current: number }
   args: Record<string, any>
@@ -88,6 +93,7 @@ export interface RuntimeContext {
   memo?: Map<string, any>
   trace?: TraceEvent[]
   signal?: AbortSignal // External abort signal for timeout enforcement
+  costOverrides?: Record<string, CostOverride> // Per-atom cost overrides
 }
 
 export type AtomExec = (step: any, ctx: RuntimeContext) => Promise<void>
@@ -994,9 +1000,11 @@ export function defineAtom<I extends Record<string, any>, O = any>(
     let error: string | undefined
 
     try {
-      // 2. Deduct Fuel
+      // 2. Deduct Fuel (check for cost overrides first)
+      const overrideCost = ctx.costOverrides?.[op]
+      const baseCost = overrideCost !== undefined ? overrideCost : cost
       const currentCost =
-        typeof cost === 'function' ? cost(inputData, ctx) : cost
+        typeof baseCost === 'function' ? baseCost(inputData, ctx) : baseCost
       if ((ctx.fuel.current -= currentCost) <= 0) {
         ctx.error = new AgentError('Out of Fuel', op)
         return

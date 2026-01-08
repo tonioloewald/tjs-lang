@@ -215,6 +215,32 @@ await vm.run(ast, args, { signal: controller.signal })
 
 **Fuel vs Timeout:** Fuel protects against CPU-bound abuse (tight loops). Timeout protects against IO-bound abuse (slow network calls). Together they ensure the VM cannot be held hostage.
 
+### Cost Overrides
+
+Default fuel costs are context-agnostic guesses. In production, you'll want to tune costs for your specific deployment—an LLM call to a local model vs OpenAI has very different resource implications.
+
+```typescript
+// Static overrides
+await vm.run(ast, args, {
+  fuel: 1000,
+  costOverrides: {
+    httpFetch: 50, // We pay per API request
+    llmPredict: 500, // LLM calls are expensive
+    storeGet: 0.5, // Redis is cheap
+  },
+})
+
+// Dynamic overrides based on input
+await vm.run(ast, args, {
+  costOverrides: {
+    llmPredict: (input) => (input.model?.includes('gpt-4') ? 1000 : 100),
+    storeSet: (input) => JSON.stringify(input.value).length * 0.001,
+  },
+})
+```
+
+This lets operators tune fuel costs for their reality rather than relying on universal defaults.
+
 **Security Note:** The sandbox protects against malicious _agents_, not malicious _atom implementations_. Atoms are registered by the host and are trusted to be non-blocking and to respect `ctx.signal` for cancellation.
 
 ## Batteries Included (Zero-Dependency Local AI)

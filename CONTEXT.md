@@ -131,3 +131,28 @@ Both work together to ensure the VM cannot be held hostage by untrusted code.
 3. Clean up resources when aborted
 
 If you write custom atoms, ensure they check `ctx.signal?.aborted` in loops and pass `ctx.signal` to any async operations like `fetch`.
+
+### Cost Overrides
+
+Default atom costs are guesses. Override them per-run to match your deployment reality:
+
+```typescript
+await vm.run(ast, args, {
+  costOverrides: {
+    // Static: fixed cost per invocation
+    httpFetch: 50,
+    llmPredict: 500,
+
+    // Dynamic: cost based on input
+    storeSet: (input) => JSON.stringify(input.value).length * 0.001,
+    llmPredict: (input) => (input.model?.includes('gpt-4') ? 1000 : 100),
+  },
+})
+```
+
+Use cases:
+
+- **API rate limits:** Make external API calls expensive to stay under quota
+- **Metered billing:** Reflect actual dollar costs in fuel consumption
+- **Resource protection:** Make database writes cost more than reads
+- **Testing:** Set all costs to 0 to focus on logic, not budgeting

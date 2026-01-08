@@ -3,6 +3,7 @@ import {
   type Capabilities,
   type RunResult,
   type RuntimeContext,
+  type CostOverride,
   coreAtoms,
   AgentError,
 } from './runtime'
@@ -74,6 +75,7 @@ export class AgentVM<M extends Record<string, Atom<any, any>>> {
       trace?: boolean
       timeoutMs?: number // Override automatic timeout (fuel * FUEL_TO_MS)
       signal?: AbortSignal // External abort signal (e.g., from caller)
+      costOverrides?: Record<string, CostOverride> // Per-atom fuel cost overrides
     } = {}
   ): Promise<RunResult> {
     const startFuel = options.fuel ?? 1000
@@ -114,6 +116,7 @@ export class AgentVM<M extends Record<string, Atom<any, any>>> {
       resolver: (op) => this.resolve(op),
       output: undefined,
       signal: controller.signal,
+      costOverrides: options.costOverrides,
     }
 
     if (options.trace) {
