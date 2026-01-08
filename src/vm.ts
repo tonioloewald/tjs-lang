@@ -76,6 +76,7 @@ export class AgentVM<M extends Record<string, Atom<any, any>>> {
       timeoutMs?: number // Override automatic timeout (fuel * FUEL_TO_MS)
       signal?: AbortSignal // External abort signal (e.g., from caller)
       costOverrides?: Record<string, CostOverride> // Per-atom fuel cost overrides
+      context?: Record<string, any> // Request-scoped metadata (auth, permissions, etc.)
     } = {}
   ): Promise<RunResult> {
     const startFuel = options.fuel ?? 1000
@@ -117,6 +118,7 @@ export class AgentVM<M extends Record<string, Atom<any, any>>> {
       output: undefined,
       signal: controller.signal,
       costOverrides: options.costOverrides,
+      context: options.context,
     }
 
     if (options.trace) {

@@ -241,6 +241,45 @@ await vm.run(ast, args, {
 
 This lets operators tune fuel costs for their reality rather than relying on universal defaults.
 
+### Request Context
+
+For production deployments, you often need to pass request-scoped metadata (auth, permissions, request IDs) to atoms. The `context` option provides a clean mechanism for this.
+
+```typescript
+// Pass auth/permissions from your request handler
+await vm.run(ast, args, {
+  context: {
+    userId: 'user-123',
+    permissions: ['read:data', 'fetch:external'],
+    requestId: crypto.randomUUID(),
+  },
+})
+```
+
+Atoms access context via `ctx.context`:
+
+```typescript
+const secureFetch = defineAtom(
+  'secureFetch',
+  s.object({ url: s.string }),
+  s.any,
+  async (input, ctx) => {
+    const permissions = ctx.context?.permissions ?? []
+    if (!permissions.includes('fetch:external')) {
+      throw new Error('Not authorized for external fetch')
+    }
+    return ctx.capabilities.fetch(input.url)
+  }
+)
+```
+
+Use cases:
+
+- **Authorization:** Check user permissions before executing sensitive operations
+- **Multi-tenancy:** Route storage/database calls to tenant-specific resources
+- **Audit logging:** Include request IDs in all log entries
+- **Dynamic costs:** Combine with `costOverrides` for user-tier-based pricing
+
 **Security Note:** The sandbox protects against malicious _agents_, not malicious _atom implementations_. Atoms are registered by the host and are trusted to be non-blocking and to respect `ctx.signal` for cancellation.
 
 ## Batteries Included (Zero-Dependency Local AI)

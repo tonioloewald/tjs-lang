@@ -156,3 +156,210 @@ Use cases:
 - **Metered billing:** Reflect actual dollar costs in fuel consumption
 - **Resource protection:** Make database writes cost more than reads
 - **Testing:** Set all costs to 0 to focus on logic, not budgeting
+
+### Request Context
+
+The `context` option passes request-scoped metadata to atoms. Unlike `args` (agent input) or `capabilities` (IO implementations), context carries ambient data like auth, permissions, and request tracing.
+
+```typescript
+await vm.run(ast, args, {
+  context: {
+    userId: 'user-123',
+    role: 'admin',
+    permissions: ['read:data', 'write:data', 'fetch:external'],
+    requestId: 'req-abc-123',
+  },
+})
+```
+
+Atoms access it via `ctx.context`:
+
+```typescript
+const secureFetch = defineAtom(
+  'secureFetch',
+  s.object({ url: s.string }),
+  s.any,
+  async (input, ctx) => {
+    // Check permissions
+    if (!ctx.context?.permissions?.includes('fetch:external')) {
+      throw new Error('Not authorized for external fetch')
+    }
+    return ctx.capabilities.fetch(input.url)
+  }
+)
+```
+
+**Design rationale:**
+
+- **Immutable:** Context is read-only; agents cannot modify their own permissions
+- **Separate from args:** Auth data doesn't pollute the agent's input schema
+- **Separate from capabilities:** Same capability implementation, different authorization
+- **Composable:** Works with cost overrides for user-tier-based fuel costs
+
+**Production patterns:**
+
+```typescript
+// Firebase/Express integration
+app.post('/run-agent', async (req, res) => {
+  const ast = req.body.ast
+  const args = req.body.args
+
+  // Extract auth from request
+  const user = await verifyToken(req.headers.authorization)
+
+  const result = await vm.run(ast, args, {
+    context: {
+      userId: user.id,
+      role: user.role,
+      permissions: user.permissions,
+      requestId: req.id,
+    },
+    // User-tier-based costs
+    costOverrides: {
+      llmPredict: user.tier === 'premium' ? 10 : 100,
+    },
+  })
+
+  res.json(result)
+})
+```
+
+## 4. Production Considerations
+
+### Recursive Agent Fuel
+
+When an agent calls sub-agents via `agentRun`, each sub-agent gets its own fuel budget (passed via the capability). Fuel is **not shared** across the call tree by default.
+
+**Why:** The `agentRun` atom delegates to `ctx.capabilities.agent.run`, which the host implements. This gives operators full control over sub-agent resource allocation.
+
+**Patterns for shared fuel:**
+
+```typescript
+// Option 1: Pass remaining fuel to children
+const sharedFuel = { current: 1000 }
+
+const caps = {
+  agent: {
+    run: async (agentId, input) => {
+      if (sharedFuel.current <= 0) throw new Error('Out of shared fuel')
+      const result = await vm.run(agents[agentId], input, {
+        fuel: sharedFuel.current,
+        capabilities: caps,
+      })
+      sharedFuel.current -= result.fuelUsed
+      return result.result
+    },
+  },
+}
+
+// Option 2: Fixed budget per recursion depth
+const caps = {
+  agent: {
+    run: async (agentId, input) => {
+      // Each child gets 10% of parent's budget
+      return vm.run(agents[agentId], input, {
+        fuel: 100, // Fixed small budget
+        capabilities: caps,
+      })
+    },
+  },
+}
+```
+
+### Streaming and Long-Running Agents
+
+The VM returns results only after complete execution. For long-running agents:
+
+- Use `timeoutMs` to enforce SLAs
+- Use `AbortSignal` for user-initiated cancellation
+- Use `trace: true` for post-hoc debugging
+
+**For real-time streaming**, implement a custom atom that emits intermediate results:
+
+```typescript
+const streamingAtom = defineAtom(
+  'streamChunk',
+  s.object({ data: s.any }),
+  s.null,
+  async ({ data }, ctx) => {
+    // ctx.context contains your streaming callback
+    await ctx.context?.onChunk?.(data)
+    return null
+  }
+)
+
+// Usage
+await vm.run(ast, args, {
+  context: {
+    onChunk: (data) => res.write(JSON.stringify(data) + '\n'),
+  },
+})
+```
+
+### Condition String Syntax
+
+The condition parser in `if`/`while` atoms supports a subset of expression syntax:
+
+| Supported     | Example                           |
+| ------------- | --------------------------------- |
+| Comparisons   | `a > b`, `x == 'hello'`, `n != 0` |
+| Logical       | `a && b`, `a \|\| b`, `!a`        |
+| Arithmetic    | `a + b * c`, `(a + b) / c`        |
+| Member access | `obj.foo.bar`                     |
+| Literals      | `42`, `"string"`, `true`, `null`  |
+
+| **Unsupported**        | Alternative                        |
+| ---------------------- | ---------------------------------- |
+| Ternary `a ? b : c`    | Use nested `if` atoms              |
+| Array index `a[0]`     | Use ExprNode with `computed: true` |
+| Function calls `fn(x)` | Use atoms                          |
+| Chained `a > b > c`    | Use `a > b && b > c`               |
+
+Unsupported syntax now throws a clear error at build time with suggestions.
+
+### State Semantics
+
+Agents are **not transactional**. If an atom fails mid-execution:
+
+- Previous state changes persist
+- No automatic rollback
+- Error is captured in monadic flow (`ctx.error`)
+
+This is by design—agents are stateful pipelines, not database transactions. If you need atomicity, implement checkpoint/restore in your capabilities:
+
+```typescript
+const caps = {
+  store: {
+    set: async (key, value) => {
+      await db.runTransaction(async (tx) => {
+        await tx.set(key, value)
+      })
+    },
+  },
+}
+```
+
+### Error Handling Granularity
+
+The `try/catch` atom catches all errors in the try block. There's no selective catch by error type.
+
+**Pattern for error type handling:**
+
+```typescript
+Agent.take(s.object({})).try({
+  try: (b) => b.httpFetch({ url: '...' }).as('response'),
+  catch: (b) =>
+    b
+      .varSet({ key: 'errorType', value: 'unknown' })
+      // Check error message patterns
+      .if(
+        'msg.includes("timeout")',
+        { msg: 'error.message' },
+        (then) => then.varSet({ key: 'errorType', value: 'timeout' }),
+        (el) =>
+          el.if('msg.includes("404")', { msg: 'error.message' }, (then) =>
+            then.varSet({ key: 'errorType', value: 'not_found' })
+          )
+      ),
+})
+```

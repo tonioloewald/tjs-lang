@@ -94,6 +94,7 @@ export interface RuntimeContext {
   trace?: TraceEvent[]
   signal?: AbortSignal // External abort signal for timeout enforcement
   costOverrides?: Record<string, CostOverride> // Per-atom cost overrides
+  context?: Record<string, any> // Immutable request-scoped metadata (auth, permissions, etc.)
 }
 
 export type AtomExec = (step: any, ctx: RuntimeContext) => Promise<void>
@@ -194,6 +195,12 @@ export function resolveValue(val: any, ctx: RuntimeContext): any {
     // Dot notation support
     if (val.includes('.')) {
       const parts = val.split('.')
+      // Security: check each property name for forbidden access
+      for (const part of parts) {
+        if (FORBIDDEN_PROPERTIES.has(part)) {
+          throw new Error(`Security Error: Access to '${part}' is forbidden`)
+        }
+      }
       let current = ctx.state[parts[0]]
       // If root variable exists, try to traverse
       if (current !== undefined) {

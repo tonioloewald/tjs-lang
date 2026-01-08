@@ -9,6 +9,11 @@ type _AtomMap = typeof coreAtoms
  * Parse a simple condition string into an ExprNode.
  * Supports: identifiers, member access, binary/logical ops, literals
  * Uses the vars map to know which identifiers are state references.
+ *
+ * Unsupported syntax (will throw):
+ * - Ternary: a ? b : c (use nested if atoms instead)
+ * - Array index: a[0] (use ExprNode with computed member access)
+ * - Function calls: fn(x) (use atoms)
  */
 function parseCondition(
   condition: string,
@@ -16,6 +21,16 @@ function parseCondition(
 ): ExprNode {
   const tokens = tokenize(condition)
   const result = parseExpression(tokens, 0, vars)
+
+  // Error if there are unconsumed tokens - indicates unsupported syntax
+  if (result.pos < tokens.length) {
+    const remaining = tokens.slice(result.pos).join(' ')
+    throw new Error(
+      `Unsupported condition syntax near '${remaining}' in: ${condition}\n` +
+        `Supported: comparisons, &&, ||, !, arithmetic, member access (a.b), literals`
+    )
+  }
+
   return result.node
 }
 
@@ -51,8 +66,8 @@ function tokenize(expr: string): string[] {
       continue
     }
 
-    // Single-char operators
-    if ('+-*/%><!().'.includes(expr[i])) {
+    // Single-char operators (includes unsupported ?:[] for error reporting)
+    if ('+-*/%><!().?:[]'.includes(expr[i])) {
       tokens.push(expr[i])
       i++
       continue
