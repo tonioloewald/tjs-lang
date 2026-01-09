@@ -363,6 +363,31 @@ describe('Simple Examples', () => {
     expect(result.result.exportedDirect).toEqual({ x: -5, y: 10 })
     expect(result.result.exportedMapped).toEqual({ u: 17, v: 0 })
   })
+
+  it('should handle null coalescing operator (??)', async () => {
+    const ast = ajs(`
+      function test({ a = null, b = 0, c = '' }) {
+        let resultA = a ?? 'fallback'
+        let resultB = b ?? 'fallback'
+        let resultC = c ?? 'fallback'
+        return { resultA, resultB, resultC }
+      }
+    `)
+
+    // null ?? 'fallback' -> 'fallback' (null is nullish)
+    // 0 ?? 'fallback' -> 0 (0 is NOT nullish, just falsy)
+    // '' ?? 'fallback' -> '' (empty string is NOT nullish, just falsy)
+    const result = await VM.run(ast, { a: null, b: 0, c: '' })
+    expect(result.result.resultA).toBe('fallback')
+    expect(result.result.resultB).toBe(0)
+    expect(result.result.resultC).toBe('')
+
+    // With actual values
+    const result2 = await VM.run(ast, { a: 'value', b: 42, c: 'text' })
+    expect(result2.result.resultA).toBe('value')
+    expect(result2.result.resultB).toBe(42)
+    expect(result2.result.resultC).toBe('text')
+  })
 })
 
 // Export artifacts for Torture Test

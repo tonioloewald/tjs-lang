@@ -318,7 +318,12 @@ export type ExprNode =
     }
   | { $expr: 'binary'; op: string; left: ExprNode; right: ExprNode }
   | { $expr: 'unary'; op: string; argument: ExprNode }
-  | { $expr: 'logical'; op: '&&' | '||'; left: ExprNode; right: ExprNode }
+  | {
+      $expr: 'logical'
+      op: '&&' | '||' | '??'
+      left: ExprNode
+      right: ExprNode
+    }
   | {
       $expr: 'conditional'
       test: ExprNode
@@ -1012,7 +1017,11 @@ export function evaluateExpr(node: ExprNode, ctx: RuntimeContext): any {
       const left = evaluateExpr(node.left, ctx)
       if (node.op === '&&') {
         return left ? evaluateExpr(node.right, ctx) : left
+      } else if (node.op === '??') {
+        // Nullish coalescing: only use right if left is null/undefined
+        return left ?? evaluateExpr(node.right, ctx)
       } else {
+        // || operator
         return left ? left : evaluateExpr(node.right, ctx)
       }
     }

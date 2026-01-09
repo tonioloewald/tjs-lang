@@ -91,6 +91,12 @@ export function inferTypeFromValue(node: Expression): TypeDescriptor {
         return rightType
       }
 
+      if (operator === '??') {
+        // Nullish coalescing: left ?? right - type is the right side (fallback)
+        const rightType = inferTypeFromValue(right)
+        return rightType
+      }
+
       return { kind: 'any' }
     }
 
@@ -256,6 +262,11 @@ export function extractLiteralValue(node: Expression): any {
       }
       if (operator === '||') {
         // value || fallback - return left if truthy
+        const leftVal = extractLiteralValue(left)
+        return leftVal ?? extractLiteralValue(right)
+      }
+      if (operator === '??') {
+        // value ?? fallback - return left if not null/undefined
         const leftVal = extractLiteralValue(left)
         return leftVal ?? extractLiteralValue(right)
       }

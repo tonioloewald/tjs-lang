@@ -1453,7 +1453,7 @@ function expressionToExprNode(
       const log = expr as LogicalExpression
       return {
         $expr: 'logical',
-        op: log.operator as '&&' | '||',
+        op: log.operator as '&&' | '||' | '??',
         left: expressionToExprNode(log.left as Expression, ctx),
         right: expressionToExprNode(log.right as Expression, ctx),
       }

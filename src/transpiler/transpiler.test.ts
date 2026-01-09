@@ -506,4 +506,20 @@ describe('Transpiler', () => {
       expect(ast.steps[1].value).toBe('user.name')
     })
   })
+
+  describe('Null coalescing operator (??)', () => {
+    it('should transpile nullish coalescing to logical ExprNode', () => {
+      const { ast } = transpile(`
+        function test({ value = null }) {
+          let result = value ?? 'default'
+          return { result }
+        }
+      `)
+      // Step 0: varsImport, Step 1: if (default handling), Step 2: varSet with ??
+      const varSetStep = ast.steps[2]
+      expect(varSetStep.op).toBe('varSet')
+      expect(varSetStep.value.$expr).toBe('logical')
+      expect(varSetStep.value.op).toBe('??')
+    })
+  })
 })
