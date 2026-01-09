@@ -182,3 +182,104 @@ describe('Agent99 Runtime (VM)', () => {
     expect(trace[2].stateDiff).toEqual({ x: 10, res: 15 })
   })
 })
+
+describe('Edge Cases', () => {
+  const vm = new AgentVM()
+
+  it('should handle division by zero (returns Infinity)', async () => {
+    const ast = ajs(`
+      function test({ n = 10 }) {
+        let result = n / 0
+        return { result }
+      }
+    `)
+    const result = await vm.run(ast, { n: 10 })
+    expect(result.result.result).toBe(Infinity)
+
+    const result2 = await vm.run(ast, { n: -5 })
+    expect(result2.result.result).toBe(-Infinity)
+
+    const result3 = await vm.run(ast, { n: 0 })
+    expect(Number.isNaN(result3.result.result)).toBe(true)
+  })
+
+  it('should handle zero fuel (immediate exhaustion)', async () => {
+    const ast = ajs(`
+      function test({ x = 1 }) {
+        let y = x + 1
+        return { y }
+      }
+    `)
+    const result = await vm.run(ast, { x: 1 }, { fuel: 0 })
+    expect(result.error).toBeDefined()
+    expect(result.error?.message).toBe('Out of Fuel')
+  })
+
+  it('should handle unicode in state keys', async () => {
+    const ast = ajs(`
+      function test({ emoji = '🚀' }) {
+        let result = emoji
+        return { result }
+      }
+    `)
+    const result = await vm.run(ast, { emoji: '🎉' })
+    expect(result.result.result).toBe('🎉')
+  })
+
+  it('should handle nested try/catch', async () => {
+    const ast = ajs(`
+      function test({ shouldFail = false }) {
+        let outerResult = 'initial'
+        try {
+          try {
+            if (shouldFail) {
+              outerResult = Error('inner error')
+            }
+            outerResult = 'inner success'
+          } catch (innerErr) {
+            outerResult = 'caught inner'
+          }
+        } catch (outerErr) {
+          outerResult = 'caught outer'
+        }
+        return { outerResult }
+      }
+    `)
+    const result = await vm.run(ast, { shouldFail: false })
+    expect(result.result.outerResult).toBe('inner success')
+  })
+
+  it('should handle complex optional chaining', async () => {
+    const ast = ajs(`
+      function test({ obj = null }) {
+        let a = obj?.level1?.level2?.value
+        let b = obj?.missing?.also?.missing
+        return { a, b }
+      }
+    `)
+
+    // With null input
+    const result1 = await vm.run(ast, { obj: null })
+    expect(result1.result.a).toBeUndefined()
+    expect(result1.result.b).toBeUndefined()
+
+    // With nested object
+    const result2 = await vm.run(ast, {
+      obj: { level1: { level2: { value: 42 } } },
+    })
+    expect(result2.result.a).toBe(42)
+    expect(result2.result.b).toBeUndefined()
+  })
+
+  it('should handle deeply nested expressions', async () => {
+    const ast = ajs(`
+      function test({ x = 1 }) {
+        let result = ((((x + 1) * 2) - 3) / 2) + 10
+        return { result }
+      }
+    `)
+    // ((((1 + 1) * 2) - 3) / 2) + 10 = (((2 * 2) - 3) / 2) + 10 = ((4 - 3) / 2) + 10 = (1 / 2) + 10 = 10.5
+    const result = await vm.run(ast, { x: 1 })
+    expect(result.result.result).toBe(10.5)
+  })
+})
