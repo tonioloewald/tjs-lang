@@ -1,21 +1,20 @@
-import { describe, it, expect, mock } from 'bun:test'
+import { describe, it, expect } from 'bun:test'
 import { Agent } from '../builder'
 import { AgentVM } from '../vm'
 import { s } from 'tosijs-schema'
+import {
+  createMockStore,
+  createMockFetch,
+  createMockFetchWithRoutes,
+} from '../test-utils'
 
 describe('Use Case: Caching Proxy', () => {
   const VM = new AgentVM()
 
   it('should fetch from source on cache miss and cache the result', async () => {
-    const caps = {
-      store: {
-        get: mock(async () => null), // Cache Miss
-        set: mock(async () => {
-          // noop
-        }),
-      },
-      fetch: mock(async () => ({ data: 'fresh' })),
-    }
+    const store = createMockStore()
+    const fetch = createMockFetch({ data: 'fresh' })
+    const caps = { store, fetch }
 
     const refinedProxy = Agent.take(s.object({ url: s.string }))
       .storeGet({ key: 'args.url' }) // Use URL as key directly
@@ -38,24 +37,21 @@ describe('Use Case: Caching Proxy', () => {
       { capabilities: caps }
     )
 
-    expect(caps.store.get).toHaveBeenCalled()
-    expect(caps.fetch).toHaveBeenCalled()
-    expect(caps.store.set).toHaveBeenCalledWith('http://api.data', {
+    expect(store.get).toHaveBeenCalled()
+    expect(fetch).toHaveBeenCalled()
+    expect(store.set).toHaveBeenCalledWith('http://api.data', {
       data: 'fresh',
     })
     expect(resMiss.result.result).toEqual({ data: 'fresh' })
   })
 
   it('should return cached value on cache hit without fetching', async () => {
-    const caps = {
-      store: {
-        get: mock(async () => ({ data: 'cached' })), // Cache Hit
-        set: mock(async () => {
-          // noop
-        }),
-      },
-      fetch: mock(async () => ({ data: 'fresh' })),
-    }
+    const store = createMockStore(
+      {},
+      { getOverride: () => ({ data: 'cached' }) }
+    )
+    const fetch = createMockFetch({ data: 'fresh' })
+    const caps = { store, fetch }
 
     const refinedProxy = Agent.take(s.object({ url: s.string }))
       .storeGet({ key: 'args.url' })
@@ -77,8 +73,8 @@ describe('Use Case: Caching Proxy', () => {
       { capabilities: caps }
     )
 
-    expect(caps.store.get).toHaveBeenCalled()
-    expect(caps.fetch).not.toHaveBeenCalled()
+    expect(store.get).toHaveBeenCalled()
+    expect(fetch).not.toHaveBeenCalled()
     expect(resHit.result.result).toEqual({ data: 'cached' })
   })
 
@@ -98,15 +94,11 @@ describe('Use Case: Caching Proxy', () => {
       .return(s.object({ result: s.any }))
 
     const ast = refinedProxy.toJSON()
-    const caps = {
-      store: {
-        get: mock(async () => null),
-        set: mock(async () => {
-          // noop
-        }),
-      },
-      fetch: mock(async (url) => ({ data: `fresh for ${url}` })),
-    }
+    const store = createMockStore()
+    const fetch = createMockFetchWithRoutes({}, (url: string) => ({
+      data: `fresh for ${url}`,
+    }))
+    const caps = { store, fetch }
 
     const urls = Array.from({ length: 10 }, (_, i) => `http://site-${i}.com`)
     const results = await Promise.all(
@@ -116,6 +108,6 @@ describe('Use Case: Caching Proxy', () => {
     results.forEach((res, i) => {
       expect(res.result.result).toEqual({ data: `fresh for ${urls[i]}` })
     })
-    expect(caps.store.set).toHaveBeenCalledTimes(10)
+    expect(store.set).toHaveBeenCalledTimes(10)
   })
 })
