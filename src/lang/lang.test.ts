@@ -859,4 +859,72 @@ describe('TypeScript to TJS Transpiler', () => {
       expect(result.types?.add.params.b.type.kind).toBe('number')
     })
   })
+
+  describe('End-to-end execution', () => {
+    it('should produce executable JS from TypeScript', () => {
+      const tsSource = `
+        function add(a: number, b: number): number {
+          return a + b
+        }
+      `
+      const result = fromTS(tsSource)
+
+      // Execute the generated JS
+      const fn = new Function(`${result.code}; return add(2, 3);`)
+      expect(fn()).toBe(5)
+    })
+
+    it('should produce executable JS with correct metadata', () => {
+      const tsSource = `
+        function greet(name: string, excited?: boolean): string {
+          return excited ? \`Hello, \${name}!\` : \`Hello, \${name}\`
+        }
+      `
+      const result = fromTS(tsSource)
+
+      // Execute and check result
+      const fn = new Function(`${result.code}; return greet('World', true);`)
+      expect(fn()).toBe('Hello, World!')
+
+      // Also verify metadata is attached
+      const metaFn = new Function(`${result.code}; return greet.__tjs;`)
+      const meta = metaFn()
+      expect(meta.params.name.type).toBe('string')
+      expect(meta.params.name.required).toBe(true)
+      expect(meta.params.excited.required).toBe(false)
+      expect(meta.returns.type).toBe('string')
+    })
+
+    it('should handle arrow functions end-to-end', () => {
+      const tsSource = `
+        const multiply = (a: number, b: number): number => a * b
+      `
+      const result = fromTS(tsSource)
+
+      // Execute
+      const fn = new Function(`${result.code}; return multiply(4, 5);`)
+      expect(fn()).toBe(20)
+
+      // Check metadata
+      const metaFn = new Function(`${result.code}; return multiply.__tjs;`)
+      const meta = metaFn()
+      expect(meta.params.a.type).toBe('number')
+      expect(meta.params.b.type).toBe('number')
+    })
+
+    it('should handle complex types end-to-end', () => {
+      const tsSource = `
+        function processUser(user: { name: string, age: number }): string {
+          return \`\${user.name} is \${user.age} years old\`
+        }
+      `
+      const result = fromTS(tsSource)
+
+      // Execute
+      const fn = new Function(
+        `${result.code}; return processUser({ name: 'Alice', age: 30 });`
+      )
+      expect(fn()).toBe('Alice is 30 years old')
+    })
+  })
 })
