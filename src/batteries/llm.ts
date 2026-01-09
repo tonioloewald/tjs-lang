@@ -5,14 +5,43 @@ import { LocalModels } from './models'
  * Bridges to local LM Studio instance via HTTP.
  */
 
+/**
+ * User content can be a simple string or multimodal with images.
+ * Images should be URLs or data URIs (data:image/...;base64,...)
+ */
+export type UserContent = string | { text: string; images?: string[] }
+
 export interface LLMCapability {
   predict(
     system: string,
-    user: string,
+    user: UserContent,
     tools?: any[],
     responseFormat?: any
   ): Promise<any>
   embed(text: string): Promise<number[]>
+}
+
+/**
+ * Build user message content - supports text-only or multimodal (text + images)
+ */
+function buildUserMessage(user: UserContent): { role: string; content: any } {
+  if (typeof user === 'string') {
+    return { role: 'user', content: user }
+  }
+
+  // Multimodal: array of content blocks (OpenAI vision format)
+  const content: any[] = [{ type: 'text', text: user.text }]
+
+  for (const img of user.images || []) {
+    content.push({
+      type: 'image_url',
+      image_url: {
+        url: img, // Can be URL or data:image/...;base64,...
+      },
+    })
+  }
+
+  return { role: 'user', content }
 }
 
 const DEFAULT_BASE_URL = 'http://localhost:1234/v1'
@@ -24,7 +53,7 @@ export function getLLMCapability(
   return {
     async predict(
       system: string,
-      user: string,
+      user: UserContent,
       tools?: any[],
       responseFormat?: any
     ): Promise<any> {
@@ -34,7 +63,7 @@ export function getLLMCapability(
           : models.getLLM()
         const messages = [
           { role: 'system', content: system },
-          { role: 'user', content: user },
+          buildUserMessage(user),
         ]
 
         const response = await fetch(`${baseUrl}/chat/completions`, {

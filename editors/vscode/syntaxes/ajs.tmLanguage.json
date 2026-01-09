@@ -106,10 +106,14 @@
               "begin": "\\$\\{",
               "end": "\\}",
               "beginCaptures": {
-                "0": { "name": "punctuation.definition.template-expression.begin.ajs" }
+                "0": {
+                  "name": "punctuation.definition.template-expression.begin.ajs"
+                }
               },
               "endCaptures": {
-                "0": { "name": "punctuation.definition.template-expression.end.ajs" }
+                "0": {
+                  "name": "punctuation.definition.template-expression.end.ajs"
+                }
               },
               "patterns": [
                 { "include": "#forbidden" },

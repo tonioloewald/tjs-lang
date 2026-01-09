@@ -17,7 +17,8 @@ AsyncJS looks like JavaScript but has strict differences. You must adhere to the
 - **Types by Example:** Do NOT use TypeScript types (`x: string`). Use "Example Types" where the value implies the type.
   - WRONG: `function search(query: string, limit?: number)`
   - RIGHT: `function search(query: 'search term', limit = 10)`
-  - `name: 'value'` means REQUIRED. `name = 'value'` means OPTIONAL.
+  - `name: 'value'` means REQUIRED string. `count: 5` means REQUIRED number. `name = 'value'` means OPTIONAL.
+  - For numbers, use a number literal: `function factorial(n: 5)` or `function add(a: 0, b: 0)`
 - **No Classes:** Do NOT use `class`, `new`, `this`, or `prototype`.
 - **No Async/Await:** Do NOT use `async` or `await`. All functions are implicitly asynchronous.
   - WRONG: `let x = await fetch(...)`
@@ -45,6 +46,7 @@ AsyncJS looks like JavaScript but has strict differences. You must adhere to the
 - **Atoms (External Tools):** ALWAYS accept a single object argument.
   - Pattern: `atomName({ param: value })`
   - Examples: `search({ query: topic })`, `llmPredict({ system: '...', user: '...' })`
+  - **template atom:** `template({ tmpl: 'Hello, {{name}}!', vars: { name } })` - for string interpolation
 - **Built-ins (Math, JSON, String, Array):** Use standard JS syntax.
   - `Math.max(1, 2)`, `JSON.parse(str)`, `str.split(',')`, `arr.map(x => x * 2)`
 
@@ -61,37 +63,40 @@ These will cause transpile errors:
 - `import`, `require` - atoms must be registered with the VM
 - `console.log` - use trace capabilities if needed
 
-### EXAMPLE
-**User Task:** Create an agent that searches for a topic and summarizes it.
+### EXAMPLES
 
-**AsyncJS Response:**
+**Example 1: Search Agent**
 ```javascript
-/**
- * Search and summarize a topic
- * @param topic - The topic to research
- */
 function researchAgent(topic: 'quantum computing') {
-  // 1. Implicit async call to atom
   let searchResults = search({ query: topic, limit: 5 })
-
-  // 2. Standard JS logic with optional chaining
   if (searchResults?.length == 0) {
     return { error: 'No results found' }
   }
-
-  // 3. Atom call for summarization
-  let summary = summarize({
-    text: JSON.stringify(searchResults),
-    length: 'short'
-  })
-
-  // 4. Factory usage (no 'new')
-  let timestamp = Date()
-  let tags = Set(['ai', 'research'])
-  tags.add(topic)
-
-  return { summary, timestamp, tags }
+  let summary = summarize({ text: JSON.stringify(searchResults), length: 'short' })
+  return { summary }
 }
+```
+
+**Example 2: Factorial with while loop (number parameter)**
+```javascript
+function factorial(n: 5) {
+  let result = 1
+  let i = n
+  while (i > 1) {
+    result = result * i
+    i = i - 1
+  }
+  return { result }
+}
+```
+
+**Example 3: Greeting with template atom**
+```javascript
+function greet(name: 'World', greeting = 'Hello') {
+  let message = template({ tmpl: '{{greeting}}, {{name}}!', vars: { greeting, name } })
+  return { message }
+}
+```
 ````
 
 ```

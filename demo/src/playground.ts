@@ -12,9 +12,20 @@ import { syntaxHighlighting, defaultHighlightStyle } from '@codemirror/language'
 import { ajsEditorExtension } from '../../editors/codemirror/ajs-language'
 
 import { examples, type Example } from './examples'
-import { AgentVM, transpile, type TranspileResult } from '../../src'
+import {
+  AgentVM,
+  transpile,
+  type TranspileResult,
+  coreAtoms,
+  batteryAtoms,
+} from '../../src'
 import { getStoreCapabilityDefault } from '../../src/batteries'
-import { buildLLMCapability, buildLLMBattery, getSettings, type LLMProvider } from './capabilities'
+import {
+  buildLLMCapability,
+  buildLLMBattery,
+  getSettings,
+  type LLMProvider,
+} from './capabilities'
 
 // Default LM Studio URL
 const DEFAULT_LM_STUDIO_URL = 'http://localhost:1234/v1'
@@ -23,7 +34,7 @@ const DEFAULT_LM_STUDIO_URL = 'http://localhost:1234/v1'
 function initLLMDefaults() {
   const existingUrl = localStorage.getItem('customLlmUrl')
   const hasExistingUrl = existingUrl && existingUrl.trim() !== ''
-  
+
   // On HTTP, default to LM Studio URL if nothing is configured
   if (!hasExistingUrl && window.location.protocol === 'http:') {
     localStorage.setItem('customLlmUrl', DEFAULT_LM_STUDIO_URL)
@@ -79,7 +90,7 @@ interface PlaygroundParts extends PartsMap {
 
 export class Playground extends Component<PlaygroundParts> {
   private editor: EditorView | null = null
-  private vm = new AgentVM()
+  private vm = new AgentVM({ ...coreAtoms, ...batteryAtoms })
   private currentTab = 'result'
   private lastResult: any = null
   private lastAst: TranspileResult | null = null
@@ -157,8 +168,6 @@ export class Playground extends Component<PlaygroundParts> {
       outline: 'none',
       fontFamily: "Menlo, Monaco, Consolas, 'Courier New', monospace",
     },
-
-
 
     '.playground-output': {
       flex: '1 1 50%',
@@ -344,7 +353,11 @@ export class Playground extends Component<PlaygroundParts> {
             button({ part: 'tabTrace', class: 'playground-tab' }, 'Trace'),
             span({ class: 'elastic' }),
             button(
-              { part: 'copyBtn', class: 'copy-btn', title: 'Copy to clipboard' },
+              {
+                part: 'copyBtn',
+                class: 'copy-btn',
+                title: 'Copy to clipboard',
+              },
               icons.copy({ size: 16 })
             )
           ),
@@ -377,11 +390,11 @@ export class Playground extends Component<PlaygroundParts> {
     // Listen for hash changes
     window.addEventListener('hashchange', this.handleHashChange)
 
+    // Populate the example select BEFORE initEditor (so select value can be set)
+    this.rebuildExampleSelect()
+
     // Initialize CodeMirror after hydration
     this.initEditor()
-    
-    // Populate the example select
-    this.rebuildExampleSelect()
   }
 
   disconnectedCallback() {
@@ -397,10 +410,10 @@ export class Playground extends Component<PlaygroundParts> {
   rebuildExampleSelect() {
     const sel = this.parts.exampleSelect
     sel.innerHTML = ''
-    
+
     // New option
     sel.appendChild(option({ value: 'new' }, '-- New --'))
-    
+
     // Built-in examples
     const builtInGroup = optgroup({ label: 'Built-in Examples' })
     examples.forEach((ex, i) => {
@@ -412,14 +425,12 @@ export class Playground extends Component<PlaygroundParts> {
       )
     })
     sel.appendChild(builtInGroup)
-    
+
     // Custom examples (if any)
     if (this.customExamples.length > 0) {
       const customGroup = optgroup({ label: 'My Examples' })
       this.customExamples.forEach((ex, i) => {
-        customGroup.appendChild(
-          option({ value: `custom:${i}` }, ex.name)
-        )
+        customGroup.appendChild(option({ value: `custom:${i}` }, ex.name))
       })
       sel.appendChild(customGroup)
     }
@@ -498,6 +509,15 @@ export class Playground extends Component<PlaygroundParts> {
     this.currentExampleIndex = index
     this.updateDeleteButtonVisibility(type, index)
 
+    // Update select to match the loaded example
+    if (type === 'new') {
+      this.parts.exampleSelect.value = 'new'
+    } else if (type === 'builtin') {
+      this.parts.exampleSelect.value = `builtin:${index}`
+    } else if (type === 'custom') {
+      this.parts.exampleSelect.value = `custom:${index}`
+    }
+
     // Set hash if not already set
     if (!window.location.hash.includes('example=')) {
       this.setHashForExample(type, index)
@@ -510,7 +530,11 @@ export class Playground extends Component<PlaygroundParts> {
     let code = NEW_EXAMPLE_CODE
     if (type === 'builtin' && idx >= 0 && idx < examples.length) {
       code = examples[idx].code
-    } else if (type === 'custom' && idx >= 0 && idx < this.customExamples.length) {
+    } else if (
+      type === 'custom' &&
+      idx >= 0 &&
+      idx < this.customExamples.length
+    ) {
       code = this.customExamples[idx].code
     }
 
@@ -525,13 +549,25 @@ export class Playground extends Component<PlaygroundParts> {
     this.currentExampleIndex = idx
     this.updateDeleteButtonVisibility(type, idx)
     this.setHashForExample(type, idx)
-    
+
+    // Update select to match the loaded example
+    if (type === 'new') {
+      this.parts.exampleSelect.value = 'new'
+    } else if (type === 'builtin') {
+      this.parts.exampleSelect.value = `builtin:${idx}`
+    } else if (type === 'custom') {
+      this.parts.exampleSelect.value = `custom:${idx}`
+    }
+
     // Clear results
     this.parts.resultContainer.textContent = '// Run code to see results'
     this.parts.statusBar.textContent = 'Ready'
   }
 
-  updateDeleteButtonVisibility(type: 'new' | 'builtin' | 'custom', idx: number) {
+  updateDeleteButtonVisibility(
+    type: 'new' | 'builtin' | 'custom',
+    idx: number
+  ) {
     // Only show delete button for custom examples
     const showDelete = type === 'custom' && idx >= 0
     this.parts.deleteBtn.style.display = showDelete ? '' : 'none'
@@ -543,7 +579,7 @@ export class Playground extends Component<PlaygroundParts> {
       this.loadExampleByTypeAndIndex('new', -1)
       return
     }
-    
+
     const [type, idxStr] = value.split(':')
     const idx = parseInt(idxStr, 10)
     if (type === 'builtin' || type === 'custom') {
@@ -554,7 +590,11 @@ export class Playground extends Component<PlaygroundParts> {
   newExample = () => {
     if (this.editor) {
       this.editor.dispatch({
-        changes: { from: 0, to: this.editor.state.doc.length, insert: NEW_EXAMPLE_CODE },
+        changes: {
+          from: 0,
+          to: this.editor.state.doc.length,
+          insert: NEW_EXAMPLE_CODE,
+        },
       })
     }
     this.currentExampleIndex = -1
@@ -567,7 +607,7 @@ export class Playground extends Component<PlaygroundParts> {
 
   saveExample = () => {
     if (!this.editor) return
-    
+
     const code = this.editor.state.doc.toString()
     if (!code.trim()) {
       alert('Cannot save empty example')
@@ -577,51 +617,54 @@ export class Playground extends Component<PlaygroundParts> {
     // Try to extract function name from code
     const funcMatch = code.match(/function\s+([a-zA-Z_$][a-zA-Z0-9_$]*)\s*\(/)
     const defaultName = funcMatch ? funcMatch[1] : 'My Example'
-    
+
     const name = prompt('Enter a name for this example:', defaultName)
     if (!name) return
-    
+
     // Check for duplicate names
     const existingIdx = this.customExamples.findIndex(
       (ex) => ex.name.toLowerCase() === name.toLowerCase()
     )
-    
+
     if (existingIdx >= 0) {
-      if (!confirm(`An example named "${name}" already exists. Overwrite it?`)) {
+      if (
+        !confirm(`An example named "${name}" already exists. Overwrite it?`)
+      ) {
         return
       }
       this.customExamples[existingIdx] = { name, description: '', code }
     } else {
       this.customExamples.push({ name, description: '', code })
     }
-    
+
     saveCustomExamples(this.customExamples)
     this.rebuildExampleSelect()
-    
+
     // Select the saved example
-    const newIdx = existingIdx >= 0 ? existingIdx : this.customExamples.length - 1
+    const newIdx =
+      existingIdx >= 0 ? existingIdx : this.customExamples.length - 1
     this.currentExampleIndex = newIdx
     this.parts.exampleSelect.value = `custom:${newIdx}`
     this.updateDeleteButtonVisibility('custom', newIdx)
     this.setHashForExample('custom', newIdx)
-    
+
     this.parts.statusBar.textContent = `Saved "${name}"`
   }
 
   deleteExample = () => {
     const value = this.parts.exampleSelect.value
     if (!value.startsWith('custom:')) return
-    
+
     const idx = parseInt(value.split(':')[1], 10)
     if (idx < 0 || idx >= this.customExamples.length) return
-    
+
     const name = this.customExamples[idx].name
     if (!confirm(`Delete "${name}"?`)) return
-    
+
     this.customExamples.splice(idx, 1)
     saveCustomExamples(this.customExamples)
     this.rebuildExampleSelect()
-    
+
     // Go to new
     this.newExample()
     this.parts.statusBar.textContent = `Deleted "${name}"`
@@ -703,12 +746,13 @@ export class Playground extends Component<PlaygroundParts> {
 
     const code = this.editor.state.doc.toString()
     const startTime = performance.now()
-    
+
     // Show loading state
     this.parts.resultContainer.className = 'playground-result'
-    this.parts.resultContainer.innerHTML = '<span class="loading-spinner"></span> Running...'
+    this.parts.resultContainer.innerHTML =
+      '<span class="loading-spinner"></span> Running...'
     this.parts.statusBar.textContent = 'Transpiling...'
-    
+
     // Update elapsed time while running
     const updateTimer = setInterval(() => {
       const elapsed = ((performance.now() - startTime) / 1000).toFixed(1)
@@ -757,6 +801,22 @@ export class Playground extends Component<PlaygroundParts> {
         capabilities: {
           fetch: async (url: string, options?: any) => {
             const response = await fetch(url, options)
+
+            // Handle dataUrl response type for vision/image fetching
+            if (options?.responseType === 'dataUrl') {
+              const buffer = await response.arrayBuffer()
+              const bytes = new Uint8Array(buffer)
+              let binary = ''
+              for (let i = 0; i < bytes.length; i++) {
+                binary += String.fromCharCode(bytes[i])
+              }
+              const base64 = btoa(binary)
+              const ct =
+                response.headers.get('content-type') ||
+                'application/octet-stream'
+              return `data:${ct};base64,${base64}`
+            }
+
             const contentType = response.headers.get('content-type')
             if (contentType && contentType.includes('application/json')) {
               return response.json()
@@ -780,7 +840,9 @@ export class Playground extends Component<PlaygroundParts> {
       this.lastResult = result
       clearInterval(updateTimer)
       const elapsed = ((performance.now() - startTime) / 1000).toFixed(2)
-      this.parts.statusBar.textContent = `Done in ${elapsed}s (${result.fuelUsed.toFixed(1)} fuel)`
+      this.parts.statusBar.textContent = `Done in ${elapsed}s (${result.fuelUsed.toFixed(
+        1
+      )} fuel)`
     } catch (e: any) {
       clearInterval(updateTimer)
       const elapsed = ((performance.now() - startTime) / 1000).toFixed(2)

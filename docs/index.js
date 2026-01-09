@@ -29927,26 +29927,14 @@ var examples = [
     description: "Get structured JSON from LLM (requires llm capability)",
     requiresApi: true,
     code: `function extractInfo({ text = 'John Smith is a 35-year-old software engineer from San Francisco who loves hiking and photography.' }) {
-  // Define JSON schema for structured output
-  let schema = {
-    type: 'json_schema',
-    json_schema: {
-      name: 'person_info',
-      strict: true,
-      schema: {
-        type: 'object',
-        properties: {
-          name: { type: 'string' },
-          age: { type: 'number' },
-          occupation: { type: 'string' },
-          location: { type: 'string' },
-          hobbies: { type: 'array', items: { type: 'string' } }
-        },
-        required: ['name', 'age', 'occupation', 'location', 'hobbies'],
-        additionalProperties: false
-      }
-    }
-  }
+  // Schema.response builds responseFormat from an example
+  let schema = Schema.response('person_info', {
+    name: '',
+    age: 0,
+    occupation: '',
+    location: '',
+    hobbies: ['']
+  })
   
   let prompt = \`Extract person info from this text: \${text}\`
   let response = llmPredict({ prompt, options: { responseFormat: schema } })
@@ -29969,34 +29957,10 @@ var examples = [
   let tracks = results.map(x => \`"\${x.trackName}" by \${x.artistName} (\${x.collectionName})\`)
   let trackList = tracks.join('\\n')
   
-  // Define schema for structured array output
-  let schema = {
-    type: 'json_schema',
-    json_schema: {
-      name: 'cover_versions',
-      strict: true,
-      schema: {
-        type: 'object',
-        properties: {
-          covers: {
-            type: 'array',
-            items: {
-              type: 'object',
-              properties: {
-                track: { type: 'string' },
-                artist: { type: 'string' },
-                album: { type: 'string' }
-              },
-              required: ['track', 'artist', 'album'],
-              additionalProperties: false
-            }
-          }
-        },
-        required: ['covers'],
-        additionalProperties: false
-      }
-    }
-  }
+  // Schema.response from example - much cleaner!
+  let schema = Schema.response('cover_versions', {
+    covers: [{ track: '', artist: '', album: '' }]
+  })
   
   let prompt = \`Search results for "\${song}" by \${artist}:
 
@@ -30081,6 +30045,57 @@ Format: "Suggestion: [your suggestion]\\n\\nImproved: [improved text]"\`
     i = i + 1
   }
   return { counter }
+}`
+  },
+  {
+    name: "Vision: OCR",
+    description: "Extract text from an image (requires vision model)",
+    requiresApi: true,
+    code: `function extractText({ imageUrl = '/photo-2.jpg' }) {
+  // Fetch image as data URL for vision model
+  let image = httpFetch({ url: imageUrl, responseType: 'dataUrl' })
+  
+  // Use Schema.response for structured output
+  let schema = Schema.response('ocr_result', {
+    text: '',
+    items: [{ description: '', amount: '' }]
+  })
+  
+  let result = llmVision({
+    prompt: 'Extract all text from this image. If it is a receipt, list the items and amounts.',
+    images: [image],
+    responseFormat: schema
+  })
+  
+  let parsed = JSON.parse(result.content)
+  return { imageUrl, extracted: parsed }
+}`
+  },
+  {
+    name: "Vision: Classification",
+    description: "Classify and describe an image (requires vision model)",
+    requiresApi: true,
+    code: `function classifyImage({ imageUrl = '/photo-1.jpg' }) {
+  // Fetch image as data URL
+  let image = httpFetch({ url: imageUrl, responseType: 'dataUrl' })
+  
+  // Schema for classification result
+  let schema = Schema.response('image_classification', {
+    category: '',
+    subject: '',
+    description: '',
+    tags: [''],
+    confidence: ''
+  })
+  
+  let result = llmVision({
+    prompt: 'Classify this image. Identify the main subject, provide a brief description, and list relevant tags.',
+    images: [image],
+    responseFormat: schema
+  })
+  
+  let parsed = JSON.parse(result.content)
+  return { imageUrl, classification: parsed }
 }`
   }
 ];
@@ -30768,6 +30783,27 @@ var builtins = {
       throw result;
     }
     return result;
+  },
+  Schema: {
+    ...e,
+    response: (name2, schemaOrExample) => {
+      const jsonSchema = schemaOrExample?.schema != null ? schemaOrExample.schema : convertExampleToSchema(schemaOrExample);
+      return {
+        type: "json_schema",
+        json_schema: {
+          name: name2,
+          strict: true,
+          schema: jsonSchema
+        }
+      };
+    },
+    fromExample: (example) => convertExampleToSchema(example),
+    isValid: (data, schemaOrExample) => {
+      if (schemaOrExample?.schema != null) {
+        return G3(data, schemaOrExample);
+      }
+      return G3(data, convertExampleToSchema(schemaOrExample));
+    }
   },
   Set: (items = []) => {
     const data = [...new globalThis.Set(items)];
@@ -31460,18 +31496,21 @@ var fetch2 = defineAtom("httpFetch", e.object({
   url: e.string,
   method: e.string.optional,
   headers: e.record(e.string).optional,
-  body: e.any.optional
+  body: e.any.optional,
+  responseType: e.string.optional
 }), e.any, async (step, ctx) => {
   const url = resolveValue(step.url, ctx);
   const method = resolveValue(step.method, ctx);
   const headers = resolveValue(step.headers, ctx);
   const body = resolveValue(step.body, ctx);
+  const responseType = resolveValue(step.responseType, ctx);
   if (ctx.capabilities.fetch) {
     return ctx.capabilities.fetch(url, {
       method,
       headers,
       body,
-      signal: ctx.signal
+      signal: ctx.signal,
+      responseType
     });
   }
   if (typeof globalThis.fetch === "function") {
@@ -31481,8 +31520,19 @@ var fetch2 = defineAtom("httpFetch", e.object({
       body: body ? JSON.stringify(body) : undefined,
       signal: ctx.signal
     });
+    if (responseType === "dataUrl") {
+      const buffer = await res.arrayBuffer();
+      const bytes = new Uint8Array(buffer);
+      let binary = "";
+      for (let i2 = 0;i2 < bytes.length; i2++) {
+        binary += String.fromCharCode(bytes[i2]);
+      }
+      const base64 = btoa(binary);
+      const contentType2 = res.headers.get("content-type") || "application/octet-stream";
+      return `data:${contentType2};base64,${base64}`;
+    }
     const contentType = res.headers.get("content-type");
-    if (contentType && contentType.includes("application/json")) {
+    if (responseType === "json" || contentType && contentType.includes("application/json")) {
       return res.json();
     }
     return res.text();
@@ -32123,6 +32173,24 @@ var llmPredictBattery = defineAtom("llmPredictBattery", e.object({
   const resolvedFormat = resolveValue(responseFormat, ctx);
   return llmCap.predict(resolvedSystem, resolvedUser, resolvedTools, resolvedFormat);
 }, { docs: "Generate completion using LLM battery", cost: 100 });
+var llmVision = defineAtom("llmVision", e.object({
+  system: e.string.optional,
+  prompt: e.string,
+  images: e.array(e.string),
+  responseFormat: e.any.optional
+}), e.object({
+  content: e.string.optional,
+  tool_calls: e.array(e.any).optional
+}), async ({ system, prompt: prompt2, images, responseFormat }, ctx) => {
+  const llmCap = ctx.capabilities.llmBattery;
+  if (!llmCap?.predict)
+    throw new Error("Capability 'llmBattery' missing or invalid.");
+  const resolvedSystem = resolveValue(system, ctx) ?? "You analyze images accurately and concisely.";
+  const resolvedPrompt = resolveValue(prompt2, ctx);
+  const resolvedImages = resolveValue(images, ctx) ?? [];
+  const resolvedFormat = resolveValue(responseFormat, ctx);
+  return llmCap.predict(resolvedSystem, { text: resolvedPrompt, images: resolvedImages }, undefined, resolvedFormat);
+}, { docs: "Analyze images using a vision model", timeoutMs: 120000, cost: 150 });
 
 // src/atoms/index.ts
 var batteryAtoms = {
@@ -32130,7 +32198,8 @@ var batteryAtoms = {
   storeSearch,
   storeVectorAdd,
   storeVectorize,
-  llmPredictBattery
+  llmPredictBattery,
+  llmVision
 };
 // src/batteries/store.ts
 var kvStore = new Map;
@@ -32192,6 +32261,21 @@ function getStoreCapability() {
 }
 
 // src/batteries/llm.ts
+function buildUserMessage(user) {
+  if (typeof user === "string") {
+    return { role: "user", content: user };
+  }
+  const content2 = [{ type: "text", text: user.text }];
+  for (const img of user.images || []) {
+    content2.push({
+      type: "image_url",
+      image_url: {
+        url: img
+      }
+    });
+  }
+  return { role: "user", content: content2 };
+}
 var DEFAULT_BASE_URL = "http://localhost:1234/v1";
 function getLLMCapability(models, baseUrl = DEFAULT_BASE_URL) {
   return {
@@ -32200,7 +32284,7 @@ function getLLMCapability(models, baseUrl = DEFAULT_BASE_URL) {
         const model = responseFormat ? models.getStructuredLLM() : models.getLLM();
         const messages = [
           { role: "system", content: system },
-          { role: "user", content: user }
+          buildUserMessage(user)
         ];
         const response = await fetch(`${baseUrl}/chat/completions`, {
           method: "POST",
@@ -32409,6 +32493,31 @@ async function checkEmbedding(baseUrl, modelId) {
     return null;
   }
 }
+var TINY_TEST_IMAGE = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8DwHwAFBQIAX8jx0gAAAABJRU5ErkJggg==";
+async function checkVision(baseUrl, modelId) {
+  try {
+    const res = await fetchWithTimeout(`${baseUrl}/chat/completions`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        model: modelId,
+        messages: [
+          {
+            role: "user",
+            content: [
+              { type: "text", text: "What color is this?" },
+              { type: "image_url", image_url: { url: TINY_TEST_IMAGE } }
+            ]
+          }
+        ],
+        max_tokens: 10
+      })
+    });
+    return res.ok;
+  } catch {
+    return false;
+  }
+}
 async function auditModels(baseUrl) {
   const cachedData = await readCache(baseUrl);
   let serverModelIds = [];
@@ -32449,6 +32558,7 @@ async function auditModels(baseUrl) {
     }
     let type = "Unknown";
     let structured = false;
+    let vision = false;
     let statusMsg = "";
     let dimension = undefined;
     const isLLM = await checkLLM(baseUrl, model.id);
@@ -32460,7 +32570,10 @@ async function auditModels(baseUrl) {
       type = "LLM";
       const structRes = await checkStructured(baseUrl, model.id);
       structured = structRes.ok;
+      vision = await checkVision(baseUrl, model.id);
       statusMsg = structured ? structRes.msg : `Fail: ${structRes.msg}`;
+      if (vision)
+        statusMsg += " +Vision";
     } else if (dim) {
       type = "Embedding";
       statusMsg = `OK (Dim: ${dim})`;
@@ -32471,6 +32584,7 @@ async function auditModels(baseUrl) {
       id: model.id,
       type,
       structuredOutput: structured,
+      vision,
       dimension,
       status: statusMsg
     });
@@ -38809,7 +38923,8 @@ var BUILTIN_OBJECTS = new Set([
   "String",
   "Number",
   "console",
-  "Date"
+  "Date",
+  "Schema"
 ]);
 var BUILTIN_GLOBALS = new Set([
   "parseInt",
@@ -39605,6 +39720,90 @@ function typeDescriptorToJsonSchema(type) {
   }
 }
 // demo/src/capabilities.ts
+var cachedLocalModels = new Map;
+var loadStatus = new Map;
+var LOAD_CHECK_INTERVAL = 5000;
+var LOAD_CHECK_TIMEOUT = 2000;
+async function checkServerLoad(url) {
+  const now = Date.now();
+  const status = loadStatus.get(url);
+  if (status && now - status.lastCheck < LOAD_CHECK_INTERVAL) {
+    return !status.isLoaded;
+  }
+  try {
+    const controller = new AbortController;
+    const timeout = setTimeout(() => controller.abort(), LOAD_CHECK_TIMEOUT);
+    const start = Date.now();
+    await fetch(`${url}/models`, { signal: controller.signal });
+    clearTimeout(timeout);
+    const elapsed = Date.now() - start;
+    const isLoaded = elapsed > LOAD_CHECK_TIMEOUT * 0.8;
+    loadStatus.set(url, {
+      isLoaded,
+      lastCheck: now,
+      pendingRequests: status?.pendingRequests || 0
+    });
+    if (isLoaded) {
+      console.log(`⏳ LM Studio at ${url} is under load (${elapsed}ms response)`);
+    }
+    return !isLoaded;
+  } catch (e2) {
+    if (e2.name === "AbortError") {
+      console.log(`⏳ LM Studio at ${url} is under heavy load (timeout)`);
+      loadStatus.set(url, {
+        isLoaded: true,
+        lastCheck: now,
+        pendingRequests: status?.pendingRequests || 0
+      });
+      return false;
+    }
+    return false;
+  }
+}
+function trackRequest(url, delta) {
+  const status = loadStatus.get(url) || {
+    isLoaded: false,
+    lastCheck: 0,
+    pendingRequests: 0
+  };
+  status.pendingRequests = Math.max(0, status.pendingRequests + delta);
+  loadStatus.set(url, status);
+  return status.pendingRequests;
+}
+function getPendingRequests(url) {
+  return loadStatus.get(url)?.pendingRequests || 0;
+}
+var verifiedVisionModels = new Map;
+async function rescanLocalModels(customLlmUrl) {
+  const url = customLlmUrl || localStorage.getItem("customLlmUrl") || "";
+  if (!url) {
+    console.log("⚠️ No custom LLM URL configured");
+    return [];
+  }
+  try {
+    const response = await fetch(`${url}/models`);
+    if (response.ok) {
+      const data2 = await response.json();
+      const models = data2.data?.map((m) => m.id) || [];
+      cachedLocalModels.set(url, models);
+      console.log(`✅ Found ${models.length} models at ${url}:`, models);
+      return models;
+    }
+  } catch (e2) {
+    console.error("❌ Failed to fetch models:", e2);
+  }
+  cachedLocalModels.set(url, []);
+  return [];
+}
+async function getLocalModels(customLlmUrl) {
+  const url = customLlmUrl || localStorage.getItem("customLlmUrl") || "";
+  if (!url)
+    return [];
+  const cached = cachedLocalModels.get(url);
+  if (cached !== undefined)
+    return cached;
+  return rescanLocalModels(url);
+}
 function getSettings() {
   return {
     preferredProvider: localStorage.getItem("preferredProvider") || "auto",
@@ -39615,7 +39814,13 @@ function getSettings() {
   };
 }
 function buildLLMCapability(settings) {
-  const { preferredProvider, openaiKey, anthropicKey, deepseekKey, customLlmUrl } = settings;
+  const {
+    preferredProvider,
+    openaiKey,
+    anthropicKey,
+    deepseekKey,
+    customLlmUrl
+  } = settings;
   const hasCustomUrl = customLlmUrl && customLlmUrl.trim() !== "";
   const hasOpenAI = openaiKey && openaiKey.trim() !== "";
   const hasAnthropic = anthropicKey && anthropicKey.trim() !== "";
@@ -39631,15 +39836,22 @@ function buildLLMCapability(settings) {
     };
     if (options2?.responseFormat)
       body.response_format = options2.responseFormat;
+    const pending = trackRequest(customLlmUrl, 1);
+    if (pending > 1) {
+      console.log(`⏳ LM Studio: ${pending} requests pending`);
+    }
     try {
+      const startTime = Date.now();
       const response = await fetch(`${customLlmUrl}/chat/completions`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(body)
       });
+      const elapsed = Date.now() - startTime;
       if (!response.ok) {
         throw new Error(`LLM Error: ${response.status} - Check that LM Studio is running at ${customLlmUrl}`);
       }
+      console.log(`✅ LM Studio response in ${elapsed}ms`);
       const data2 = await response.json();
       return data2.choices?.[0]?.message?.content ?? "";
     } catch (e2) {
@@ -39647,6 +39859,8 @@ function buildLLMCapability(settings) {
         throw new Error(`Cannot connect to LM Studio at ${customLlmUrl}. Make sure LM Studio is running and CORS is enabled (Server settings → Enable CORS).`);
       }
       throw e2;
+    } finally {
+      trackRequest(customLlmUrl, -1);
     }
   };
   const callOpenAI = async (prompt2, options2) => {
@@ -39748,8 +39962,29 @@ function buildLLMCapability(settings) {
     }
   };
 }
+function buildUserContent(user) {
+  if (typeof user === "string") {
+    return user;
+  }
+  const content2 = [{ type: "text", text: user.text }];
+  for (const img of user.images || []) {
+    content2.push({
+      type: "image_url",
+      image_url: {
+        url: img
+      }
+    });
+  }
+  return content2;
+}
 function buildLLMBattery(settings) {
-  const { preferredProvider, openaiKey, anthropicKey, deepseekKey, customLlmUrl } = settings;
+  const {
+    preferredProvider,
+    openaiKey,
+    anthropicKey,
+    deepseekKey,
+    customLlmUrl
+  } = settings;
   const hasCustomUrl = customLlmUrl && customLlmUrl.trim() !== "";
   const hasOpenAI = openaiKey && openaiKey.trim() !== "";
   const hasAnthropic = anthropicKey && anthropicKey.trim() !== "";
@@ -39757,26 +39992,171 @@ function buildLLMBattery(settings) {
   if (!hasCustomUrl && !hasOpenAI && !hasAnthropic && !hasDeepseek) {
     return null;
   }
-  const callCustom = async (system, user, tools, responseFormat) => {
-    const messages = [
-      { role: "system", content: system },
-      { role: "user", content: user }
-    ];
+  const getTestImage = async () => {
+    if (typeof document !== "undefined" && typeof document.createElement === "function") {
+      try {
+        const canvas = document.createElement("canvas");
+        canvas.width = 200;
+        canvas.height = 200;
+        const ctx = canvas.getContext("2d");
+        if (ctx) {
+          ctx.fillStyle = "white";
+          ctx.fillRect(0, 0, 200, 200);
+          ctx.fillStyle = "#3366cc";
+          ctx.beginPath();
+          ctx.arc(60, 100, 40, 0, Math.PI * 2);
+          ctx.fill();
+          ctx.fillStyle = "#cc3333";
+          ctx.fillRect(100, 60, 80, 80);
+          return canvas.toDataURL("image/jpeg", 0.9);
+        }
+      } catch {}
+    }
     try {
+      const fs2 = await import("fs");
+      const path = await Promise.resolve().then(() => (init_path(), exports_path));
+      const imagePath = path.join(process.cwd(), "test-data/test-shapes.jpg");
+      const buffer = fs2.readFileSync(imagePath);
+      const base64 = buffer.toString("base64");
+      return `data:image/jpeg;base64,${base64}`;
+    } catch {}
+    return null;
+  };
+  const testVisionCapability = async (model) => {
+    try {
+      const testImage = await getTestImage();
+      if (!testImage) {
+        console.log(`\uD83E\uDDEA Vision test for ${model}: test image not available`);
+        return false;
+      }
       const response = await fetch(`${customLlmUrl}/chat/completions`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          model: "local-model",
-          messages,
-          temperature: 0.7,
-          tools,
-          response_format: responseFormat
+          model,
+          messages: [
+            {
+              role: "user",
+              content: [
+                {
+                  type: "text",
+                  text: "What shapes do you see? Reply briefly."
+                },
+                { type: "image_url", image_url: { url: testImage } }
+              ]
+            }
+          ],
+          max_tokens: 30,
+          temperature: 0
         })
       });
       if (!response.ok) {
-        throw new Error(`LLM Error: ${response.status} - Check that LM Studio is running`);
+        const errorText = await response.text().catch(() => "");
+        console.log(`\uD83E\uDDEA Vision test for ${model}: HTTP ${response.status} - ${errorText.slice(0, 100)}`);
+        return false;
       }
+      const data2 = await response.json();
+      const answer = (data2.choices?.[0]?.message?.content || "").toLowerCase();
+      const isCorrect = answer.includes("circle") || answer.includes("square") || answer.includes("red");
+      console.log(`\uD83E\uDDEA Vision test for ${model}: "${answer}" - ${isCorrect ? "✓" : "✗"}`);
+      return isCorrect;
+    } catch (e2) {
+      console.log(`\uD83E\uDDEA Vision test for ${model}: failed - ${e2}`);
+      return false;
+    }
+  };
+  const findVisionModel = async () => {
+    const cacheKey = customLlmUrl;
+    if (verifiedVisionModels.has(cacheKey)) {
+      return verifiedVisionModels.get(cacheKey) || null;
+    }
+    const models = await getLocalModels(customLlmUrl);
+    const candidates = [
+      ...models.filter((id2) => id2.includes("-vl") || id2.includes("vl-") || id2.includes("llava")),
+      ...models.filter((id2) => id2.includes("vision")),
+      ...models.filter((id2) => id2.includes("gemma-3") || id2.includes("gemma3"))
+    ];
+    const uniqueCandidates = [...new Set(candidates)];
+    for (const model of uniqueCandidates) {
+      console.log(`\uD83D\uDD0D Testing vision capability: ${model}`);
+      if (await testVisionCapability(model)) {
+        verifiedVisionModels.set(cacheKey, model);
+        return model;
+      }
+    }
+    verifiedVisionModels.set(cacheKey, null);
+    return null;
+  };
+  const callCustom = async (system, user, tools, responseFormat) => {
+    const messages = [
+      { role: "system", content: system },
+      { role: "user", content: buildUserContent(user) }
+    ];
+    const isMultimodal = typeof user !== "string" && user.images?.length;
+    let model = "local-model";
+    if (isMultimodal) {
+      const visionModel = await findVisionModel();
+      if (visionModel) {
+        model = visionModel;
+        console.log(`\uD83D\uDD0D Using vision model: ${visionModel}`);
+      } else {
+        console.warn("⚠️ No vision model found, using default");
+      }
+      const images = user.images || [];
+      console.log(`\uD83D\uDCF7 Sending ${images.length} image(s), first image length: ${images[0]?.length || 0}`);
+    }
+    const pending = trackRequest(customLlmUrl, 1);
+    if (pending > 1) {
+      console.log(`⏳ LM Studio: ${pending} requests pending (including this one)`);
+    }
+    try {
+      const requestBody = {
+        model,
+        messages,
+        temperature: 0.7,
+        tools,
+        response_format: responseFormat
+      };
+      if (isMultimodal) {
+        const debugMessages = messages.map((m) => {
+          if (Array.isArray(m.content)) {
+            return {
+              role: m.role,
+              content: m.content.map((c2) => {
+                if (c2.type === "image_url") {
+                  return {
+                    type: "image_url",
+                    url_length: c2.image_url?.url?.length
+                  };
+                }
+                return c2;
+              })
+            };
+          }
+          return m;
+        });
+        console.log("\uD83D\uDCE4 Request structure:", JSON.stringify({ model, messages: debugMessages }, null, 2));
+      }
+      const startTime = Date.now();
+      const response = await fetch(`${customLlmUrl}/chat/completions`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(requestBody)
+      });
+      const elapsed = Date.now() - startTime;
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({}));
+        const errorMsg = errorData.error?.message || "";
+        if (response.status === 400 && isMultimodal) {
+          const hasVisionModel = model !== "local-model";
+          if (!hasVisionModel) {
+            throw new Error(`LLM Error: ${response.status} - No vision model found in LM Studio. Load a vision model (e.g., llava, qwen-vl) or use OpenAI/Anthropic.`);
+          }
+          throw new Error(`LLM Error: ${response.status} - Vision request failed with model '${model}'. ${errorMsg}`);
+        }
+        throw new Error(`LLM Error: ${response.status} - ${errorMsg || "Check that LM Studio is running"}`);
+      }
+      console.log(`✅ LM Studio response in ${elapsed}ms`);
       const data2 = await response.json();
       return data2.choices?.[0]?.message ?? { content: "" };
     } catch (e2) {
@@ -39784,12 +40164,14 @@ function buildLLMBattery(settings) {
         throw new Error(`Cannot connect to LM Studio at ${customLlmUrl}. Make sure LM Studio is running and CORS is enabled.`);
       }
       throw e2;
+    } finally {
+      trackRequest(customLlmUrl, -1);
     }
   };
   const callOpenAI = async (system, user, tools, responseFormat) => {
     const messages = [
       { role: "system", content: system },
-      { role: "user", content: user }
+      { role: "user", content: buildUserContent(user) }
     ];
     const body = {
       model: "gpt-4o-mini",
@@ -39816,6 +40198,25 @@ function buildLLMBattery(settings) {
     return data2.choices?.[0]?.message ?? { content: "" };
   };
   const callAnthropic = async (system, user, _tools, _responseFormat) => {
+    let userContent;
+    if (typeof user === "string") {
+      userContent = user;
+    } else {
+      userContent = [{ type: "text", text: user.text }];
+      for (const img of user.images || []) {
+        const match = img.match(/^data:([^;]+);base64,(.+)$/);
+        if (match) {
+          userContent.push({
+            type: "image",
+            source: {
+              type: "base64",
+              media_type: match[1],
+              data: match[2]
+            }
+          });
+        }
+      }
+    }
     const response = await fetch("https://api.anthropic.com/v1/messages", {
       method: "POST",
       headers: {
@@ -39828,7 +40229,7 @@ function buildLLMBattery(settings) {
         model: "claude-3-haiku-20240307",
         max_tokens: 1024,
         system,
-        messages: [{ role: "user", content: user }]
+        messages: [{ role: "user", content: userContent }]
       })
     });
     if (!response.ok) {
@@ -39841,7 +40242,7 @@ function buildLLMBattery(settings) {
   const callDeepseek = async (system, user, tools, responseFormat) => {
     const messages = [
       { role: "system", content: system },
-      { role: "user", content: user }
+      { role: "user", content: buildUserContent(user) }
     ];
     const body = {
       model: "deepseek-chat",
@@ -39962,7 +40363,7 @@ function saveCustomExamples(customExamples) {
 
 class Playground extends F {
   editor = null;
-  vm = new AgentVM;
+  vm = new AgentVM({ ...coreAtoms, ...batteryAtoms });
   currentTab = "result";
   lastResult = null;
   lastAst = null;
@@ -40147,7 +40548,11 @@ class Playground extends F {
     }, c.trash()), span({ style: { flex: "1" } }), select({
       part: "exampleSelect",
       style: { padding: "4px 8px", borderRadius: "4px" }
-    }, option({ value: "new" }, "-- New --"))), div({ class: "playground-main" }, div({ part: "editorContainer", class: "playground-editor" }), div({ class: "playground-output" }, div({ class: "playground-tabs" }, button({ part: "tabResult", class: "playground-tab active" }, "Result"), button({ part: "tabAst", class: "playground-tab" }, "AST"), button({ part: "tabTrace", class: "playground-tab" }, "Trace"), span({ class: "elastic" }), button({ part: "copyBtn", class: "copy-btn", title: "Copy to clipboard" }, c.copy({ size: 16 }))), div({ part: "resultContainer", class: "playground-result" }, "// Run code to see results"), div({ part: "statusBar", class: "playground-status" }, "Ready"))))
+    }, option({ value: "new" }, "-- New --"))), div({ class: "playground-main" }, div({ part: "editorContainer", class: "playground-editor" }), div({ class: "playground-output" }, div({ class: "playground-tabs" }, button({ part: "tabResult", class: "playground-tab active" }, "Result"), button({ part: "tabAst", class: "playground-tab" }, "AST"), button({ part: "tabTrace", class: "playground-tab" }, "Trace"), span({ class: "elastic" }), button({
+      part: "copyBtn",
+      class: "copy-btn",
+      title: "Copy to clipboard"
+    }, c.copy({ size: 16 }))), div({ part: "resultContainer", class: "playground-result" }, "// Run code to see results"), div({ part: "statusBar", class: "playground-status" }, "Ready"))))
   ];
   connectedCallback() {
     super.connectedCallback();
@@ -40161,8 +40566,8 @@ class Playground extends F {
     this.parts.tabTrace.addEventListener("click", () => this.switchTab("trace"));
     this.parts.copyBtn.addEventListener("click", this.copyOutput);
     window.addEventListener("hashchange", this.handleHashChange);
-    this.initEditor();
     this.rebuildExampleSelect();
+    this.initEditor();
   }
   disconnectedCallback() {
     window.removeEventListener("hashchange", this.handleHashChange);
@@ -40243,6 +40648,13 @@ class Playground extends F {
     });
     this.currentExampleIndex = index;
     this.updateDeleteButtonVisibility(type, index);
+    if (type === "new") {
+      this.parts.exampleSelect.value = "new";
+    } else if (type === "builtin") {
+      this.parts.exampleSelect.value = `builtin:${index}`;
+    } else if (type === "custom") {
+      this.parts.exampleSelect.value = `custom:${index}`;
+    }
     if (!window.location.hash.includes("example=")) {
       this.setHashForExample(type, index);
     }
@@ -40266,6 +40678,13 @@ class Playground extends F {
     this.currentExampleIndex = idx;
     this.updateDeleteButtonVisibility(type, idx);
     this.setHashForExample(type, idx);
+    if (type === "new") {
+      this.parts.exampleSelect.value = "new";
+    } else if (type === "builtin") {
+      this.parts.exampleSelect.value = `builtin:${idx}`;
+    } else if (type === "custom") {
+      this.parts.exampleSelect.value = `custom:${idx}`;
+    }
     this.parts.resultContainer.textContent = "// Run code to see results";
     this.parts.statusBar.textContent = "Ready";
   }
@@ -40288,7 +40707,11 @@ class Playground extends F {
   newExample = () => {
     if (this.editor) {
       this.editor.dispatch({
-        changes: { from: 0, to: this.editor.state.doc.length, insert: NEW_EXAMPLE_CODE }
+        changes: {
+          from: 0,
+          to: this.editor.state.doc.length,
+          insert: NEW_EXAMPLE_CODE
+        }
       });
     }
     this.currentExampleIndex = -1;
@@ -40441,6 +40864,17 @@ class Playground extends F {
         capabilities: {
           fetch: async (url, options2) => {
             const response = await fetch(url, options2);
+            if (options2?.responseType === "dataUrl") {
+              const buffer = await response.arrayBuffer();
+              const bytes = new Uint8Array(buffer);
+              let binary = "";
+              for (let i3 = 0;i3 < bytes.length; i3++) {
+                binary += String.fromCharCode(bytes[i3]);
+              }
+              const base64 = btoa(binary);
+              const ct = response.headers.get("content-type") || "application/octet-stream";
+              return `data:${ct};base64,${base64}`;
+            }
             const contentType = response.headers.get("content-type");
             if (contentType && contentType.includes("application/json")) {
               return response.json();
@@ -40581,7 +41015,19 @@ jn("settings-styles", {
 });
 function showSettingsDialog(currentSettings, onSave) {
   const overlay = div2({ class: "settings-overlay" });
-  const providerSelect = select2({ style: { width: "100%", padding: "8px 12px", borderRadius: "6px" } }, option2({ value: "auto", selected: currentSettings.preferredProvider === "auto" }, "First Available"), option2({ value: "custom", selected: currentSettings.preferredProvider === "custom" }, "Custom Endpoint (LM Studio, Ollama)"), option2({ value: "openai", selected: currentSettings.preferredProvider === "openai" }, "OpenAI"), option2({ value: "anthropic", selected: currentSettings.preferredProvider === "anthropic" }, "Anthropic"), option2({ value: "deepseek", selected: currentSettings.preferredProvider === "deepseek" }, "Deepseek"));
+  const providerSelect = select2({ style: { width: "100%", padding: "8px 12px", borderRadius: "6px" } }, option2({ value: "auto", selected: currentSettings.preferredProvider === "auto" }, "First Available"), option2({
+    value: "custom",
+    selected: currentSettings.preferredProvider === "custom"
+  }, "Custom Endpoint (LM Studio, Ollama)"), option2({
+    value: "openai",
+    selected: currentSettings.preferredProvider === "openai"
+  }, "OpenAI"), option2({
+    value: "anthropic",
+    selected: currentSettings.preferredProvider === "anthropic"
+  }, "Anthropic"), option2({
+    value: "deepseek",
+    selected: currentSettings.preferredProvider === "deepseek"
+  }, "Deepseek"));
   const openaiInput = input2({
     type: "password",
     placeholder: "sk-...",
@@ -40621,7 +41067,67 @@ function showSettingsDialog(currentSettings, onSave) {
   overlay.append(div2({ class: "settings-dialog" }, div2({ class: "settings-header" }, h2("Settings"), button2({
     class: "iconic",
     onClick: close
-  }, c.x())), div2({ class: "settings-section" }, div2({ style: { fontWeight: 600, marginBottom: "10px" } }, "LLM Settings"), p({ style: { fontSize: "0.85em", opacity: 0.8, marginBottom: "15px" } }, "API keys are stored locally in your browser and never sent to any server except the respective API provider."), div2({ class: "settings-field" }, label("Preferred Provider"), providerSelect, div2({ class: "hint" }, '"First Available" uses the first configured provider in order below')), div2({ class: "settings-field" }, label("Custom LLM Endpoint"), customUrlInput, div2({ class: "hint" }, "OpenAI-compatible endpoint (e.g., LM Studio, Ollama). ", window.location.protocol === "https:" ? span2({ style: { color: "#dc2626" } }, "Note: Local endpoints require HTTP.") : "")), div2({ class: "settings-field" }, label("OpenAI API Key"), openaiInput, div2({ class: "hint" }, "For GPT-4, GPT-3.5, etc.")), div2({ class: "settings-field" }, label("Anthropic API Key"), anthropicInput, div2({ class: "hint" }, "For Claude models")), div2({ class: "settings-field" }, label("Deepseek API Key"), deepseekInput, div2({ class: "hint" }, "For Deepseek models (cheap & capable)"))), div2({ class: "settings-actions" }, button2({
+  }, c.x())), div2({ class: "settings-section" }, div2({ style: { fontWeight: 600, marginBottom: "10px" } }, "LLM Settings"), p({ style: { fontSize: "0.85em", opacity: 0.8, marginBottom: "15px" } }, "API keys are stored locally in your browser and never sent to any server except the respective API provider."), div2({ class: "settings-field" }, label("Preferred Provider"), providerSelect, div2({ class: "hint" }, '"First Available" uses the first configured provider in order below')), div2({ class: "settings-field" }, label("Custom LLM Endpoint"), customUrlInput, div2({ class: "hint" }, "OpenAI-compatible endpoint (e.g., LM Studio, Ollama). ", window.location.protocol === "https:" ? span2({ style: { color: "#dc2626" } }, "Note: Local endpoints require HTTP.") : ""), div2({
+    style: {
+      marginTop: "8px",
+      display: "flex",
+      alignItems: "center",
+      gap: "10px",
+      flexWrap: "wrap"
+    }
+  }, button2({
+    class: "settings-btn secondary",
+    style: { padding: "4px 10px", fontSize: "0.85em" },
+    onClick: async (e2) => {
+      const btn = e2.target;
+      const container = btn.parentElement;
+      const statusEl = container.querySelector(".status-text");
+      btn.disabled = true;
+      btn.textContent = "Scanning...";
+      statusEl.textContent = "";
+      const url = customUrlInput.value;
+      const models = await rescanLocalModels(url);
+      btn.disabled = false;
+      btn.textContent = "Rescan Models";
+      if (models.length > 0) {
+        const visionModels = models.filter((m) => m.includes("-vl") || m.includes("vl-") || m.includes("vision") || m.includes("llava") || m.includes("gemma-3") || m.includes("gemma3"));
+        statusEl.textContent = `Found ${models.length} model(s)` + (visionModels.length > 0 ? ` (${visionModels.length} vision)` : "");
+        statusEl.style.color = "#16a34a";
+      } else {
+        statusEl.textContent = "No models found";
+        statusEl.style.color = "#dc2626";
+      }
+    }
+  }, "Rescan Models"), button2({
+    class: "settings-btn secondary",
+    style: { padding: "4px 10px", fontSize: "0.85em" },
+    onClick: async (e2) => {
+      const btn = e2.target;
+      const container = btn.parentElement;
+      const statusEl = container.querySelector(".status-text");
+      btn.disabled = true;
+      btn.textContent = "Checking...";
+      const url = customUrlInput.value;
+      if (!url) {
+        statusEl.textContent = "No URL configured";
+        statusEl.style.color = "#dc2626";
+        btn.disabled = false;
+        btn.textContent = "Check Status";
+        return;
+      }
+      const isResponsive = await checkServerLoad(url);
+      const pending = getPendingRequests(url);
+      btn.disabled = false;
+      btn.textContent = "Check Status";
+      if (isResponsive) {
+        statusEl.textContent = pending > 0 ? `Ready (${pending} pending)` : "Ready";
+        statusEl.style.color = "#16a34a";
+      } else {
+        statusEl.textContent = pending > 0 ? `Under load (${pending} pending)` : "Under load or unreachable";
+        statusEl.style.color = "#f59e0b";
+      }
+    }
+  }, "Check Status"), span2({ class: "status-text", style: { fontSize: "0.85em" } }, ""))), div2({ class: "settings-field" }, label("OpenAI API Key"), openaiInput, div2({ class: "hint" }, "For GPT-4, GPT-3.5, etc.")), div2({ class: "settings-field" }, label("Anthropic API Key"), anthropicInput, div2({ class: "hint" }, "For Claude models")), div2({ class: "settings-field" }, label("Deepseek API Key"), deepseekInput, div2({ class: "hint" }, "For Deepseek models (cheap & capable)"))), div2({ class: "settings-actions" }, button2({
     class: "settings-btn secondary",
     onClick: close
   }, "Cancel"), button2({
@@ -40718,28 +41224,90 @@ const agent = Agent.take(s.object({ topic: s.string })).while(
 This example shows the complete loop: a UI form captures user input, AsyncJS code processes it (calling an API and using an LLM to analyze results), and displays the output with album artwork.
 
 \`\`\`css
-.cover-finder { padding: 16px; display: flex; flex-direction: column; height: 100%; box-sizing: border-box; }
-.cover-finder form { display: flex; gap: 8px; margin-bottom: 16px; flex-wrap: wrap; flex-shrink: 0; }
-.cover-finder input { padding: 8px 12px; border: 1px solid #ccc; border-radius: 4px; flex: 1; min-width: 120px; }
-.cover-finder button { padding: 8px 20px; background: #6366f1; color: white; border: none; border-radius: 4px; cursor: pointer; }
-.cover-finder #results { flex: 1; overflow-y: auto; min-height: 0; }
-.cover-finder .cover-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); gap: 16px; }
-.cover-finder .cover-card { background: #f5f5f5; border-radius: 8px; overflow: hidden; display: flex; flex-direction: column; }
-.cover-finder .cover-card img { width: 100%; aspect-ratio: 1; object-fit: cover; }
-.cover-finder .cover-card .info { padding: 10px; flex: 1; }
-.cover-finder .cover-card .track { font-weight: bold; font-size: 0.9em; margin-bottom: 4px; line-height: 1.2; }
-.cover-finder .cover-card .artist { color: #666; font-size: 0.85em; line-height: 1.2; }
+.cover-finder {
+  padding: 16px;
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  box-sizing: border-box;
+}
+.cover-finder form {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 16px;
+  flex-wrap: wrap;
+  flex-shrink: 0;
+}
+.cover-finder input {
+  padding: 8px 12px;
+  border: 1px solid #ccc;
+  border-radius: 4px;
+  flex: 1;
+  min-width: 120px;
+}
+.cover-finder button {
+  padding: 8px 20px;
+  background: #6366f1;
+  color: white;
+  border: none;
+  border-radius: 4px;
+  cursor: pointer;
+}
+.cover-finder #results {
+  flex: 1;
+  overflow-y: auto;
+  min-height: 0;
+}
+.cover-finder .cover-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
+  gap: 16px;
+}
+.cover-finder .cover-card {
+  background: #f5f5f5;
+  border-radius: 8px;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
+.cover-finder .cover-card img {
+  width: 100%;
+  aspect-ratio: 1;
+  object-fit: cover;
+}
+.cover-finder .cover-card .info {
+  padding: 10px;
+  flex: 1;
+}
+.cover-finder .cover-card .track {
+  font-weight: bold;
+  font-size: 0.9em;
+  margin-bottom: 4px;
+  line-height: 1.2;
+}
+.cover-finder .cover-card .artist {
+  color: #666;
+  font-size: 0.85em;
+  line-height: 1.2;
+}
 \`\`\`
+
 \`\`\`html
 <div class="cover-finder">
-<form id="cover-search">
-  <input type="text" id="song" placeholder="Song name" value="Yesterday" />
-  <input type="text" id="artist" placeholder="Original artist" value="Beatles" />
-  <button type="submit">Find Covers</button>
-</form>
-<div id="results"></div>
+  <form id="cover-search">
+    <input type="text" id="song" placeholder="Song name" value="Yesterday" />
+    <input
+      type="text"
+      id="artist"
+      placeholder="Original artist"
+      value="Beatles"
+    />
+    <button type="submit">Find Covers</button>
+  </form>
+  <div id="results"></div>
 </div>
 \`\`\`
+
 \`\`\`js
 // Wire up the form to AsyncJS
 // Uses demoRuntime which gets LLM settings from the Settings dialog
@@ -40764,35 +41332,10 @@ const findCovers = ajs\`
     }
     let trackList = tracks.join('\\\\n')
     
-    // Schema includes index to match back to artwork
-    let schema = {
-      type: 'json_schema',
-      json_schema: {
-        name: 'cover_versions',
-        strict: true,
-        schema: {
-          type: 'object',
-          properties: {
-            covers: {
-              type: 'array',
-              items: {
-                type: 'object',
-                properties: {
-                  index: { type: 'number' },
-                  track: { type: 'string' },
-                  artist: { type: 'string' },
-                  album: { type: 'string' }
-                },
-                required: ['index', 'track', 'artist', 'album'],
-                additionalProperties: false
-              }
-            }
-          },
-          required: ['covers'],
-          additionalProperties: false
-        }
-      }
-    }
+    // Schema.response builds the responseFormat structure from an example
+    let schema = Schema.response('cover_versions', {
+      covers: [{ index: 0, track: '', artist: '', album: '' }]
+    })
     
     let prompt = \\\`Search results for "\\\${song}" by \\\${artist}:
 
@@ -40831,34 +41374,41 @@ document.getElementById('cover-search').onsubmit = async (e) => {
   } else {
     const itunesResults = result.itunesData?.results || []
     // Match covers to artwork using index from results
-    const covers = result.covers.map(c => {
+    const covers = result.covers.map((c) => {
       const source = itunesResults[c.index]
       return {
         ...c,
-        artwork: source?.artworkUrl100?.replace('100x100', '200x200')
+        artwork: source?.artworkUrl100?.replace('100x100', '200x200'),
       }
     })
     resultsDiv.innerHTML = \`<h3>Cover versions of "\${result.song}":</h3>
-      <div class="cover-grid">\${covers.map(c => c.artwork ? \`
+      <div class="cover-grid">\${covers
+        .map((c) =>
+          c.artwork
+            ? \`
         <div class="cover-card">
           <img src="\${c.artwork}" alt="\${c.album || 'Album art'}">
           <div class="info">
             <div class="track">\${c.track || 'Unknown track'}</div>
             <div class="artist">\${c.artist || 'Unknown artist'}</div>
           </div>
-        </div>\` : \`
+        </div>\`
+            : \`
         <div class="cover-card">
           <div class="info" style="padding-top:60px">
             <div class="track">\${c.track || 'Unknown track'}</div>
             <div class="artist">\${c.artist || 'Unknown artist'}</div>
           </div>
-        </div>\`).join('')}
+        </div>\`
+        )
+        .join('')}
       </div>\`
   }
 }
 \`\`\`
 
 This demonstrates:
+
 - **Safe execution**: The AsyncJS code runs in a sandboxed VM with fuel limits
 - **Structured output**: JSON schema guarantees valid response format from the LLM
 - **Capability injection**: LLM access is provided by the host, not the untrusted code
@@ -40980,6 +41530,54 @@ The standard library includes essential primitives:
 | **AI**           | \`llmPredict\`, \`agentRun\`                                           | LLM calls and sub-agent recursion.                                                                                    |
 | **Utils**        | \`random\`, \`uuid\`, \`hash\`                                           | Random generation, UUIDs, and hashing.                                                                                |
 | **Optimization** | \`memoize\`, \`cache\`                                                 | In-memory memoization and persistent caching. Keys are optional and will be auto-generated if not provided.           |
+
+## Expression Builtins
+
+AsyncJS expressions have access to safe built-in objects:
+
+| Builtin  | Description                                                                 |
+| -------- | --------------------------------------------------------------------------- |
+| \`Math\`   | All standard math functions (\`abs\`, \`floor\`, \`sqrt\`, \`sin\`, \`random\`, etc.) |
+| \`JSON\`   | \`parse()\` and \`stringify()\`                                                 |
+| \`Array\`  | \`isArray()\`, \`from()\`, \`of()\`                                               |
+| \`Object\` | \`keys()\`, \`values()\`, \`entries()\`, \`fromEntries()\`, \`assign()\`              |
+| \`String\` | \`fromCharCode()\`, \`fromCodePoint()\`                                         |
+| \`Number\` | Constants and type checks (\`MAX_VALUE\`, \`isNaN\`, \`isFinite\`, etc.)          |
+| \`Set\`    | Set-like operations with \`add\`, \`remove\`, \`union\`, \`intersection\`, \`diff\`   |
+| \`Date\`   | Date factory with arithmetic and formatting                                 |
+| \`Schema\` | Schema builder for structured LLM responses (see below)                     |
+| \`filter\` | Schema-based data filtering                                                 |
+
+### Schema Builder
+
+The \`Schema\` builtin exposes [tosijs-schema](https://github.com/nicholascross/tosijs-schema)'s fluent API for building JSON Schemas. This is especially useful for LLM structured outputs.
+
+\`\`\`javascript
+// Simple: build responseFormat from an example object
+let schema = Schema.response('person', { name: '', age: 0 })
+
+// With constraints: use the fluent API
+let schema = Schema.response(
+  'user',
+  Schema.object({
+    email: Schema.string.email,
+    age: Schema.number.int.min(0).max(150).optional,
+    role: Schema.enum(['admin', 'user', 'guest']),
+  })
+)
+\`\`\`
+
+**Available methods:**
+
+| Category        | Methods                                                                   |
+| --------------- | ------------------------------------------------------------------------- |
+| **Primitives**  | \`string\`, \`number\`, \`integer\`, \`boolean\`, \`any\`                           |
+| **String**      | \`.min(n)\`, \`.max(n)\`, \`.pattern(regex)\`, \`.email\`, \`.url\`, \`.uuid\`        |
+| **Number**      | \`.min(n)\`, \`.max(n)\`, \`.step(n)\`, \`.int\`                                  |
+| **Combinators** | \`array(items)\`, \`object(props)\`, \`record(value)\`, \`tuple(items)\`          |
+| **Union/Enum**  | \`union([...])\`, \`enum([...])\`, \`const(value)\`                             |
+| **Metadata**    | \`.title(s)\`, \`.describe(s)\`, \`.default(v)\`, \`.optional\`                   |
+| **Helpers**     | \`response(name, schema)\`, \`fromExample(example)\`, \`isValid(data, schema)\` |
 
 ## Capabilities & Security
 
@@ -41569,13 +42167,13 @@ function calculate({ a = 10, b = 5 }) {
 }
 
 // Called with no arguments - uses defaults
-calculate({})  // { sum: 15, product: 50 }
+calculate({}) // { sum: 15, product: 50 }
 
 // Called with partial arguments - missing ones use defaults
-calculate({ a: 20 })  // { sum: 25, product: 100 }
+calculate({ a: 20 }) // { sum: 25, product: 100 }
 
 // Called with all arguments - no defaults used
-calculate({ a: 3, b: 7 })  // { sum: 10, product: 21 }
+calculate({ a: 3, b: 7 }) // { sum: 10, product: 21 }
 \`\`\`
 
 This works seamlessly with type annotations too:
@@ -42080,12 +42678,13 @@ function validateInput({ value }) {
     Error('Value must be non-negative')
     // Execution stops here - subsequent code is skipped
   }
-  
+
   return { validated: value }
 }
 \`\`\`
 
 When \`Error()\` is called:
+
 - The error message is stored in the context
 - Subsequent operations are skipped (monadic error flow)
 - The error can be caught with \`try/catch\` or returned to the caller
@@ -42100,13 +42699,13 @@ function safeDivide({ a, b }) {
 
 function calculate({ x, y }) {
   let result = null
-  
+
   try {
     result = safeDivide({ a: x, b: y })
   } catch (e) {
     result = { result: 0, error: e }
   }
-  
+
   return result
 }
 \`\`\`
@@ -42118,12 +42717,12 @@ AsyncJS intentionally does not support the \`throw\` statement. Instead, use \`E
 \`\`\`javascript
 // DON'T DO THIS - throw is not supported:
 if (invalid) {
-  throw new Error('Something went wrong')  // Transpiler error!
+  throw new Error('Something went wrong') // Transpiler error!
 }
 
 // DO THIS INSTEAD:
 if (invalid) {
-  Error('Something went wrong')  // Triggers monadic error flow
+  Error('Something went wrong') // Triggers monadic error flow
 }
 \`\`\`
 
@@ -42355,7 +42954,7 @@ const ast = ajs(\`
     path: "ASYNCJS.md"
   },
   {
-    text: "# AsyncJS LLM System Prompt\n\n> **Maintenance Note:** This prompt must be updated when [ASYNCJS.md](./ASYNCJS.md) changes.\n> Key areas to sync: type syntax, built-ins (Set/Date), control flow, and forbidden constructs.\n\nUse this system prompt when asking an LLM to generate AsyncJS code.\n\n---\n\n## System Prompt\n\n````\nYou are an expert code generator for **AsyncJS**, a specialized subset of JavaScript for AI Agents.\nAsyncJS looks like JavaScript but has strict differences. You must adhere to these rules:\n\n### 1. SYNTAX & TYPES\n- **Types by Example:** Do NOT use TypeScript types (`x: string`). Use \"Example Types\" where the value implies the type.\n  - WRONG: `function search(query: string, limit?: number)`\n  - RIGHT: `function search(query: 'search term', limit = 10)`\n  - `name: 'value'` means REQUIRED. `name = 'value'` means OPTIONAL.\n- **No Classes:** Do NOT use `class`, `new`, `this`, or `prototype`.\n- **No Async/Await:** Do NOT use `async` or `await`. All functions are implicitly asynchronous.\n  - WRONG: `let x = await fetch(...)`\n  - RIGHT: `let x = httpFetch({ url: '...' })`\n\n### 2. BUILT-INS & FACTORIES\n- **No `new` Keyword:** Never use `new`. Use factory functions.\n  - WRONG: `new Date()`, `new Set()`, `new Array()`\n  - RIGHT: `Date()`, `Set([1,2])`, `['a','b']`\n- **Date Objects:** `Date()` returns an **immutable** object.\n  - Months are 1-indexed (1=Jan, not 0=Jan).\n  - Methods like `.add({ days: 5 })` return a NEW Date object.\n  - Access components: `.year`, `.month`, `.day`, `.hours`, `.minutes`, `.seconds`\n  - Format: `.format('date')`, `.format('iso')`, `.format('YYYY-MM-DD')`\n- **Set Objects:** `Set([items])` returns an object with:\n  - Mutable: `.add(x)`, `.remove(x)`, `.clear()`\n  - Immutable algebra: `.union(other)`, `.intersection(other)`, `.diff(other)` - return NEW Sets\n  - Query: `.has(x)`, `.size`, `.toArray()`\n- **Optional Chaining:** Use `?.` for safe property access: `obj?.nested?.value`\n- **Schema Filtering:** `filter(data, schema)` strips extra properties:\n  - `filter({ a: 1, b: 2, extra: 3 }, { a: 0, b: 0 })` returns `{ a: 1, b: 2 }`\n  - Useful for sanitizing LLM outputs or API responses\n\n### 3. ATOMS VS. BUILT-INS\n- **Atoms (External Tools):** ALWAYS accept a single object argument.\n  - Pattern: `atomName({ param: value })`\n  - Examples: `search({ query: topic })`, `llmPredict({ system: '...', user: '...' })`\n- **Built-ins (Math, JSON, String, Array):** Use standard JS syntax.\n  - `Math.max(1, 2)`, `JSON.parse(str)`, `str.split(',')`, `arr.map(x => x * 2)`\n\n### 4. ERROR HANDLING\n- Errors propagate automatically (Monadic flow). If one step fails, subsequent steps are skipped.\n- Only use `try/catch` if you need to recover from a failure and continue.\n\n### 5. FORBIDDEN CONSTRUCTS\nThese will cause transpile errors:\n- `async`, `await` - not needed, all calls are implicitly async\n- `new` - use factory functions instead\n- `class`, `this` - use plain functions and objects\n- `var` - use `let` instead\n- `import`, `require` - atoms must be registered with the VM\n- `console.log` - use trace capabilities if needed\n\n### EXAMPLE\n**User Task:** Create an agent that searches for a topic and summarizes it.\n\n**AsyncJS Response:**\n```javascript\n/**\n * Search and summarize a topic\n * @param topic - The topic to research\n */\nfunction researchAgent(topic: 'quantum computing') {\n  // 1. Implicit async call to atom\n  let searchResults = search({ query: topic, limit: 5 })\n\n  // 2. Standard JS logic with optional chaining\n  if (searchResults?.length == 0) {\n    return { error: 'No results found' }\n  }\n\n  // 3. Atom call for summarization\n  let summary = summarize({\n    text: JSON.stringify(searchResults),\n    length: 'short'\n  })\n\n  // 4. Factory usage (no 'new')\n  let timestamp = Date()\n  let tags = Set(['ai', 'research'])\n  tags.add(topic)\n\n  return { summary, timestamp, tags }\n}\n````\n\n```\n\n---\n\n## Self-Correction Loop\n\nWhen testing with local LLMs, implement error feedback:\n\n1. Run the LLM with this prompt\n2. If output contains `async`, `await`, `new`, `class`, or `this`, feed back:\n   > \"Error: You used '[keyword]'. AsyncJS forbids '[keyword]'. [Alternative].\"\n3. The model typically fixes it on the second attempt\n\nExample corrections:\n- `new Date()` → \"Use `Date()` factory function instead\"\n- `await fetch()` → \"Remove `await`, use `httpFetch({ url })` - all calls are implicitly async\"\n- `class Agent` → \"Use plain functions, AsyncJS is purely functional\"\n\n---\n\n## Compact Version (for context-limited models)\n\n```\n\nYou generate AsyncJS code. Rules:\n\n1. Types by example: `fn(name: 'string', count = 10)` - colon=required, equals=optional\n2. NO: async/await, new, class, this, var, import\n3. Atoms use object args: `search({ query: x })`. Built-ins normal: `Math.max(1,2)`\n4. Factories: `Date()`, `Set([1,2])` - no `new` keyword\n5. Date is immutable, months 1-12. Set has .add/.remove (mutable) and .union/.diff (immutable)\n6. Use `?.` for optional chaining: `obj?.prop?.value`\n7. Use `filter(data, schema)` to strip extra properties from objects\n\n```\n\n```\n",
+    text: "# AsyncJS LLM System Prompt\n\n> **Maintenance Note:** This prompt must be updated when [ASYNCJS.md](./ASYNCJS.md) changes.\n> Key areas to sync: type syntax, built-ins (Set/Date), control flow, and forbidden constructs.\n\nUse this system prompt when asking an LLM to generate AsyncJS code.\n\n---\n\n## System Prompt\n\n````\nYou are an expert code generator for **AsyncJS**, a specialized subset of JavaScript for AI Agents.\nAsyncJS looks like JavaScript but has strict differences. You must adhere to these rules:\n\n### 1. SYNTAX & TYPES\n- **Types by Example:** Do NOT use TypeScript types (`x: string`). Use \"Example Types\" where the value implies the type.\n  - WRONG: `function search(query: string, limit?: number)`\n  - RIGHT: `function search(query: 'search term', limit = 10)`\n  - `name: 'value'` means REQUIRED string. `count: 5` means REQUIRED number. `name = 'value'` means OPTIONAL.\n  - For numbers, use a number literal: `function factorial(n: 5)` or `function add(a: 0, b: 0)`\n- **No Classes:** Do NOT use `class`, `new`, `this`, or `prototype`.\n- **No Async/Await:** Do NOT use `async` or `await`. All functions are implicitly asynchronous.\n  - WRONG: `let x = await fetch(...)`\n  - RIGHT: `let x = httpFetch({ url: '...' })`\n\n### 2. BUILT-INS & FACTORIES\n- **No `new` Keyword:** Never use `new`. Use factory functions.\n  - WRONG: `new Date()`, `new Set()`, `new Array()`\n  - RIGHT: `Date()`, `Set([1,2])`, `['a','b']`\n- **Date Objects:** `Date()` returns an **immutable** object.\n  - Months are 1-indexed (1=Jan, not 0=Jan).\n  - Methods like `.add({ days: 5 })` return a NEW Date object.\n  - Access components: `.year`, `.month`, `.day`, `.hours`, `.minutes`, `.seconds`\n  - Format: `.format('date')`, `.format('iso')`, `.format('YYYY-MM-DD')`\n- **Set Objects:** `Set([items])` returns an object with:\n  - Mutable: `.add(x)`, `.remove(x)`, `.clear()`\n  - Immutable algebra: `.union(other)`, `.intersection(other)`, `.diff(other)` - return NEW Sets\n  - Query: `.has(x)`, `.size`, `.toArray()`\n- **Optional Chaining:** Use `?.` for safe property access: `obj?.nested?.value`\n- **Schema Filtering:** `filter(data, schema)` strips extra properties:\n  - `filter({ a: 1, b: 2, extra: 3 }, { a: 0, b: 0 })` returns `{ a: 1, b: 2 }`\n  - Useful for sanitizing LLM outputs or API responses\n\n### 3. ATOMS VS. BUILT-INS\n- **Atoms (External Tools):** ALWAYS accept a single object argument.\n  - Pattern: `atomName({ param: value })`\n  - Examples: `search({ query: topic })`, `llmPredict({ system: '...', user: '...' })`\n  - **template atom:** `template({ tmpl: 'Hello, {{name}}!', vars: { name } })` - for string interpolation\n- **Built-ins (Math, JSON, String, Array):** Use standard JS syntax.\n  - `Math.max(1, 2)`, `JSON.parse(str)`, `str.split(',')`, `arr.map(x => x * 2)`\n\n### 4. ERROR HANDLING\n- Errors propagate automatically (Monadic flow). If one step fails, subsequent steps are skipped.\n- Only use `try/catch` if you need to recover from a failure and continue.\n\n### 5. FORBIDDEN CONSTRUCTS\nThese will cause transpile errors:\n- `async`, `await` - not needed, all calls are implicitly async\n- `new` - use factory functions instead\n- `class`, `this` - use plain functions and objects\n- `var` - use `let` instead\n- `import`, `require` - atoms must be registered with the VM\n- `console.log` - use trace capabilities if needed\n\n### EXAMPLES\n\n**Example 1: Search Agent**\n```javascript\nfunction researchAgent(topic: 'quantum computing') {\n  let searchResults = search({ query: topic, limit: 5 })\n  if (searchResults?.length == 0) {\n    return { error: 'No results found' }\n  }\n  let summary = summarize({ text: JSON.stringify(searchResults), length: 'short' })\n  return { summary }\n}\n```\n\n**Example 2: Factorial with while loop (number parameter)**\n```javascript\nfunction factorial(n: 5) {\n  let result = 1\n  let i = n\n  while (i > 1) {\n    result = result * i\n    i = i - 1\n  }\n  return { result }\n}\n```\n\n**Example 3: Greeting with template atom**\n```javascript\nfunction greet(name: 'World', greeting = 'Hello') {\n  let message = template({ tmpl: '{{greeting}}, {{name}}!', vars: { greeting, name } })\n  return { message }\n}\n```\n````\n\n```\n\n---\n\n## Self-Correction Loop\n\nWhen testing with local LLMs, implement error feedback:\n\n1. Run the LLM with this prompt\n2. If output contains `async`, `await`, `new`, `class`, or `this`, feed back:\n   > \"Error: You used '[keyword]'. AsyncJS forbids '[keyword]'. [Alternative].\"\n3. The model typically fixes it on the second attempt\n\nExample corrections:\n- `new Date()` → \"Use `Date()` factory function instead\"\n- `await fetch()` → \"Remove `await`, use `httpFetch({ url })` - all calls are implicitly async\"\n- `class Agent` → \"Use plain functions, AsyncJS is purely functional\"\n\n---\n\n## Compact Version (for context-limited models)\n\n```\n\nYou generate AsyncJS code. Rules:\n\n1. Types by example: `fn(name: 'string', count = 10)` - colon=required, equals=optional\n2. NO: async/await, new, class, this, var, import\n3. Atoms use object args: `search({ query: x })`. Built-ins normal: `Math.max(1,2)`\n4. Factories: `Date()`, `Set([1,2])` - no `new` keyword\n5. Date is immutable, months 1-12. Set has .add/.remove (mutable) and .union/.diff (immutable)\n6. Use `?.` for optional chaining: `obj?.prop?.value`\n7. Use `filter(data, schema)` to strip extra properties from objects\n\n```\n\n```\n",
     title: "AsyncJS LLM System Prompt",
     filename: "ASYNCJS_LLM_PROMPT.md",
     path: "ASYNCJS_LLM_PROMPT.md"
@@ -43039,4 +43638,4 @@ if (main) {
 }
 console.log(`%c tosijs-agent %c v${VERSION} `, "background: #6366f1; color: white; padding: 2px 6px; border-radius: 3px 0 0 3px;", "background: #374151; color: white; padding: 2px 6px; border-radius: 0 3px 3px 0;");
 
-//# debugId=B9FE5CA3F2EEF1AF64756E2164756E21
+//# debugId=FF4153C9A805A32D64756E2164756E21

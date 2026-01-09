@@ -56,6 +56,8 @@ export { LocalModels, getLLMCapability, getStoreCapabilityDefault }
 export const batteries = {
   store: getStoreCapabilityDefault(),
   llmBattery: null as ReturnType<typeof getLLMCapability> | null,
-  vector: undefined as { embed: (text: string) => Promise<number[]> } | undefined,
+  vector: undefined as
+    | { embed: (text: string) => Promise<number[]> }
+    | undefined,
   models: null as LocalModels | null,
 }

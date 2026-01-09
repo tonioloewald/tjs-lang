@@ -6,6 +6,7 @@ export interface ModelAudit {
   id: string
   type: 'LLM' | 'Embedding' | 'Unknown'
   structuredOutput: boolean
+  vision: boolean
   dimension?: number
   status: string
 }
@@ -189,6 +190,36 @@ async function checkEmbedding(
   }
 }
 
+// Tiny 1x1 red PNG as base64 for vision testing
+const TINY_TEST_IMAGE =
+  'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8DwHwAFBQIAX8jx0gAAAABJRU5ErkJggg=='
+
+async function checkVision(baseUrl: string, modelId: string): Promise<boolean> {
+  try {
+    const res = await fetchWithTimeout(`${baseUrl}/chat/completions`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        model: modelId,
+        messages: [
+          {
+            role: 'user',
+            content: [
+              { type: 'text', text: 'What color is this?' },
+              { type: 'image_url', image_url: { url: TINY_TEST_IMAGE } },
+            ],
+          },
+        ],
+        max_tokens: 10,
+      }),
+    })
+    // If the model accepts the multimodal format without error, it supports vision
+    return res.ok
+  } catch {
+    return false
+  }
+}
+
 export async function auditModels(baseUrl: string): Promise<ModelAudit[]> {
   // 1. Try to load from cache first (file-based with 24h TTL)
   const cachedData = await readCache(baseUrl)
@@ -238,6 +269,7 @@ export async function auditModels(baseUrl: string): Promise<ModelAudit[]> {
     }
     let type: ModelAudit['type'] = 'Unknown'
     let structured = false
+    let vision = false
     let statusMsg = ''
     let dimension: number | undefined = undefined
 
@@ -252,7 +284,9 @@ export async function auditModels(baseUrl: string): Promise<ModelAudit[]> {
       type = 'LLM'
       const structRes = await checkStructured(baseUrl, model.id)
       structured = structRes.ok
+      vision = await checkVision(baseUrl, model.id)
       statusMsg = structured ? structRes.msg! : `Fail: ${structRes.msg}`
+      if (vision) statusMsg += ' +Vision'
     } else if (dim) {
       type = 'Embedding'
       statusMsg = `OK (Dim: ${dim})`
@@ -264,6 +298,7 @@ export async function auditModels(baseUrl: string): Promise<ModelAudit[]> {
       id: model.id,
       type,
       structuredOutput: structured,
+      vision,
       dimension,
       status: statusMsg,
     })

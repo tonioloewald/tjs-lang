@@ -4,6 +4,7 @@ import {
   storeVectorAdd,
   storeVectorize,
   llmPredictBattery,
+  llmVision,
 } from './batteries'
 import { coreAtoms } from '../runtime'
 
@@ -13,6 +14,7 @@ export const batteryAtoms = {
   storeVectorAdd,
   storeVectorize,
   llmPredictBattery,
+  llmVision,
 }
 
 export { coreAtoms }

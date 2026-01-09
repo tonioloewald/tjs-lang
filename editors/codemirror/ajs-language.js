@@ -126,11 +126,11 @@ function findSkipRegions(doc) {
   const regions = []
   const len = doc.length
   let i = 0
-  
+
   while (i < len) {
     const ch = doc[i]
     const next = doc[i + 1]
-    
+
     // Single-line comment
     if (ch === '/' && next === '/') {
       const start = i
@@ -139,7 +139,7 @@ function findSkipRegions(doc) {
       regions.push([start, i])
       continue
     }
-    
+
     // Multi-line comment
     if (ch === '/' && next === '*') {
       const start = i
@@ -149,7 +149,7 @@ function findSkipRegions(doc) {
       regions.push([start, i])
       continue
     }
-    
+
     // Template literal - skip string parts but NOT ${...} expressions
     if (ch === '`') {
       let stringStart = i
@@ -184,7 +184,7 @@ function findSkipRegions(doc) {
       }
       continue
     }
-    
+
     // Single or double quoted string
     if (ch === '"' || ch === "'") {
       const quote = ch
@@ -205,10 +205,10 @@ function findSkipRegions(doc) {
       regions.push([start, i])
       continue
     }
-    
+
     i++
   }
-  
+
   return regions
 }
 
@@ -225,12 +225,12 @@ function isInSkipRegion(pos, regions) {
 
 /**
  * Ready-to-use AsyncJS language extension for CodeMirror 6
- * 
+ *
  * Returns an array of extensions that provide:
  * - JavaScript syntax highlighting
  * - Red underline highlighting for forbidden keywords (new, class, async, etc.)
  *   but NOT inside strings or comments
- * 
+ *
  * @returns {import('@codemirror/state').Extension[]}
  */
 export function ajsEditorExtension() {
@@ -261,7 +261,11 @@ export function ajsEditorExtension() {
         while ((match = pattern.exec(doc)) !== null) {
           // Skip if inside string or comment
           if (!isInSkipRegion(match.index, skipRegions)) {
-            builder.add(match.index, match.index + match[0].length, forbiddenMark)
+            builder.add(
+              match.index,
+              match.index + match[0].length,
+              forbiddenMark
+            )
           }
         }
 

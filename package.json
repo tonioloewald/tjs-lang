@@ -29,6 +29,7 @@
     "@codemirror/lang-javascript": "^6.2.4",
     "@codemirror/state": "^6.5.3",
     "@codemirror/view": "^6.39.9",
+    "@happy-dom/global-registrator": "^20.1.0",
     "@types/bun": "latest",
     "@types/jsdom": "^21.1.7",
     "@typescript-eslint/eslint-plugin": "^5.62.0",
@@ -45,7 +46,7 @@
     "vitest": "^2.0.5"
   },
   "scripts": {
-    "test": "bun test",
+    "test": "bun test --max-concurrency 1",
     "format": "bun eslint src --fix && bun prettier --write .",
     "lint": "eslint src",
     "make": "rm -rf dist && bun format && tsc -p tsconfig.build.json && bun build ./src/index.ts --outdir=dist --minify --sourcemap=external --external acorn --external tosijs-schema && bun run show-size",
@@ -54,7 +55,7 @@
     "latest": "rm -rf node_modules && bun install",
     "docs": "node bin/docs.js",
     "dev": "bun run bin/dev.ts",
-    "build:demo": "bun run docs && bun build ./demo/src/index.ts --outdir=docs --minify --sourcemap=external --target=browser && cp demo/index.html demo/static/favicon.svg tosijs-agent.svg docs/ && cp -r demo/static/texts docs/",
+    "build:demo": "bun run docs && bun build ./demo/src/index.ts --outdir=docs --minify --sourcemap=external --target=browser && cp demo/index.html demo/static/favicon.svg demo/static/photo-*.jpg tosijs-agent.svg docs/ && cp -r demo/static/texts docs/",
     "start": "bun run build:demo && bun run dev"
   },
   "dependencies": {

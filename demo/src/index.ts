@@ -291,7 +291,8 @@ if (main) {
                   action: () => {
                     showSettingsDialog(
                       {
-                        preferredProvider: prefs.preferredProvider.valueOf() as any,
+                        preferredProvider:
+                          prefs.preferredProvider.valueOf() as any,
                         openaiKey: prefs.openaiKey.valueOf(),
                         anthropicKey: prefs.anthropicKey.valueOf(),
                         deepseekKey: prefs.deepseekKey.valueOf(),

@@ -219,7 +219,12 @@ export function resolveValue(val: any, ctx: RuntimeContext): any {
     return val
   }
   // Recursively resolve plain object values (but not arrays or special objects)
-  if (val && typeof val === 'object' && !Array.isArray(val) && val.constructor === Object) {
+  if (
+    val &&
+    typeof val === 'object' &&
+    !Array.isArray(val) &&
+    val.constructor === Object
+  ) {
     const result: Record<string, any> = {}
     for (const key of Object.keys(val)) {
       result[key] = resolveValue(val[key], ctx)
@@ -552,6 +557,43 @@ export const builtins: Record<string, any> = {
       throw result
     }
     return result
+  },
+
+  // Schema builder - exposes tosijs-schema's fluent API for building JSON Schemas
+  // Usage: Schema.object({ name: Schema.string, age: Schema.number.int.min(0) })
+  // Usage: Schema.response('my_schema', Schema.object({ ... })) for LLM responseFormat
+  Schema: {
+    // Re-export all of tosijs-schema's `s` object
+    ...s,
+
+    // Convenience: wrap schema in OpenAI responseFormat structure
+    // Accepts either a tosijs-schema builder or a plain example object
+    response: (name: string, schemaOrExample: any) => {
+      const jsonSchema =
+        schemaOrExample?.schema != null
+          ? schemaOrExample.schema
+          : convertExampleToSchema(schemaOrExample)
+
+      return {
+        type: 'json_schema',
+        json_schema: {
+          name,
+          strict: true,
+          schema: jsonSchema,
+        },
+      }
+    },
+
+    // Convert example value to JSON Schema (for simple cases)
+    fromExample: (example: any) => convertExampleToSchema(example),
+
+    // Validation: returns boolean
+    isValid: (data: any, schemaOrExample: any): boolean => {
+      if (schemaOrExample?.schema != null) {
+        return validate(data, schemaOrExample)
+      }
+      return validate(data, convertExampleToSchema(schemaOrExample))
+    },
   },
 
   // Set factory - creates a set-like object backed by an array
@@ -1597,6 +1639,7 @@ export const fetch = defineAtom(
     method: s.string.optional,
     headers: s.record(s.string).optional,
     body: s.any.optional,
+    responseType: s.string.optional, // 'json' | 'text' | 'dataUrl'
   }),
   s.any,
   async (step, ctx) => {
@@ -1604,13 +1647,16 @@ export const fetch = defineAtom(
     const method = resolveValue(step.method, ctx)
     const headers = resolveValue(step.headers, ctx)
     const body = resolveValue(step.body, ctx)
+    const responseType = resolveValue(step.responseType, ctx)
+
     if (ctx.capabilities.fetch) {
-      // Pass signal to custom fetch capability if available
+      // Pass signal and responseType to custom fetch capability if available
       return ctx.capabilities.fetch(url, {
         method,
         headers,
         body,
         signal: ctx.signal,
+        responseType,
       })
     }
     // Default: global fetch with abort signal
@@ -1621,9 +1667,27 @@ export const fetch = defineAtom(
         body: body ? JSON.stringify(body) : undefined,
         signal: ctx.signal, // Pass abort signal for cancellation
       })
+
+      // Handle dataUrl response type - converts binary to data URI
+      if (responseType === 'dataUrl') {
+        const buffer = await res.arrayBuffer()
+        const bytes = new Uint8Array(buffer)
+        let binary = ''
+        for (let i = 0; i < bytes.length; i++) {
+          binary += String.fromCharCode(bytes[i])
+        }
+        const base64 = btoa(binary)
+        const contentType =
+          res.headers.get('content-type') || 'application/octet-stream'
+        return `data:${contentType};base64,${base64}`
+      }
+
       // Try to parse JSON if content-type says so, else text
       const contentType = res.headers.get('content-type')
-      if (contentType && contentType.includes('application/json')) {
+      if (
+        responseType === 'json' ||
+        (contentType && contentType.includes('application/json'))
+      ) {
         return res.json()
       }
       return res.text()

@@ -184,13 +184,13 @@ function calculate({ a = 10, b = 5 }) {
 }
 
 // Called with no arguments - uses defaults
-calculate({})  // { sum: 15, product: 50 }
+calculate({}) // { sum: 15, product: 50 }
 
 // Called with partial arguments - missing ones use defaults
-calculate({ a: 20 })  // { sum: 25, product: 100 }
+calculate({ a: 20 }) // { sum: 25, product: 100 }
 
 // Called with all arguments - no defaults used
-calculate({ a: 3, b: 7 })  // { sum: 10, product: 21 }
+calculate({ a: 3, b: 7 }) // { sum: 10, product: 21 }
 ```
 
 This works seamlessly with type annotations too:
@@ -695,12 +695,13 @@ function validateInput({ value }) {
     Error('Value must be non-negative')
     // Execution stops here - subsequent code is skipped
   }
-  
+
   return { validated: value }
 }
 ```
 
 When `Error()` is called:
+
 - The error message is stored in the context
 - Subsequent operations are skipped (monadic error flow)
 - The error can be caught with `try/catch` or returned to the caller
@@ -715,13 +716,13 @@ function safeDivide({ a, b }) {
 
 function calculate({ x, y }) {
   let result = null
-  
+
   try {
     result = safeDivide({ a: x, b: y })
   } catch (e) {
     result = { result: 0, error: e }
   }
-  
+
   return result
 }
 ```
@@ -733,12 +734,12 @@ AsyncJS intentionally does not support the `throw` statement. Instead, use `Erro
 ```javascript
 // DON'T DO THIS - throw is not supported:
 if (invalid) {
-  throw new Error('Something went wrong')  // Transpiler error!
+  throw new Error('Something went wrong') // Transpiler error!
 }
 
 // DO THIS INSTEAD:
 if (invalid) {
-  Error('Something went wrong')  // Triggers monadic error flow
+  Error('Something went wrong') // Triggers monadic error flow
 }
 ```
 

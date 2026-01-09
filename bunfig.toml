@@ -1,0 +1,3 @@
+[test.run]
+# Run tests sequentially to avoid overwhelming LM Studio
+concurrency = 1

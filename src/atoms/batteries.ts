@@ -168,3 +168,48 @@ export const llmPredictBattery = defineAtom(
   },
   { docs: 'Generate completion using LLM battery', cost: 100 }
 )
+
+// Vision battery interface (multimodal)
+interface VisionBattery {
+  predict(
+    system: string,
+    user: { text: string; images?: string[] },
+    tools?: any[],
+    responseFormat?: any
+  ): Promise<any>
+}
+
+// llm.vision - Analyze images using a vision-capable model
+export const llmVision = defineAtom(
+  'llmVision',
+  s.object({
+    system: s.string.optional,
+    prompt: s.string,
+    images: s.array(s.string), // URLs or data URIs (data:image/...;base64,...)
+    responseFormat: s.any.optional,
+  }),
+  s.object({
+    content: s.string.optional,
+    tool_calls: s.array(s.any).optional,
+  }),
+  async ({ system, prompt, images, responseFormat }, ctx) => {
+    const llmCap = ctx.capabilities.llmBattery as unknown as VisionBattery
+    if (!llmCap?.predict)
+      throw new Error("Capability 'llmBattery' missing or invalid.")
+
+    const resolvedSystem =
+      resolveValue(system, ctx) ??
+      'You analyze images accurately and concisely.'
+    const resolvedPrompt = resolveValue(prompt, ctx)
+    const resolvedImages = resolveValue(images, ctx) ?? []
+    const resolvedFormat = resolveValue(responseFormat, ctx)
+
+    return llmCap.predict(
+      resolvedSystem,
+      { text: resolvedPrompt, images: resolvedImages },
+      undefined,
+      resolvedFormat
+    )
+  },
+  { docs: 'Analyze images using a vision model', timeoutMs: 120000, cost: 150 }
+)

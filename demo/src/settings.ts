@@ -6,6 +6,12 @@ import { elements, vars, Component, StyleSheet } from 'tosijs'
 
 import { icons } from 'tosijs-ui'
 
+import {
+  rescanLocalModels,
+  checkServerLoad,
+  getPendingRequests,
+} from './capabilities'
+
 const { div, button, span, label, input, h2, p, select, option } = elements
 
 // Settings dialog styles
@@ -118,7 +124,12 @@ StyleSheet('settings-styles', {
   },
 })
 
-export type LLMProvider = 'auto' | 'custom' | 'openai' | 'anthropic' | 'deepseek'
+export type LLMProvider =
+  | 'auto'
+  | 'custom'
+  | 'openai'
+  | 'anthropic'
+  | 'deepseek'
 
 export interface SettingsData {
   preferredProvider: LLMProvider
@@ -136,11 +147,38 @@ export function showSettingsDialog(
 
   const providerSelect = select(
     { style: { width: '100%', padding: '8px 12px', borderRadius: '6px' } },
-    option({ value: 'auto', selected: currentSettings.preferredProvider === 'auto' }, 'First Available'),
-    option({ value: 'custom', selected: currentSettings.preferredProvider === 'custom' }, 'Custom Endpoint (LM Studio, Ollama)'),
-    option({ value: 'openai', selected: currentSettings.preferredProvider === 'openai' }, 'OpenAI'),
-    option({ value: 'anthropic', selected: currentSettings.preferredProvider === 'anthropic' }, 'Anthropic'),
-    option({ value: 'deepseek', selected: currentSettings.preferredProvider === 'deepseek' }, 'Deepseek'),
+    option(
+      { value: 'auto', selected: currentSettings.preferredProvider === 'auto' },
+      'First Available'
+    ),
+    option(
+      {
+        value: 'custom',
+        selected: currentSettings.preferredProvider === 'custom',
+      },
+      'Custom Endpoint (LM Studio, Ollama)'
+    ),
+    option(
+      {
+        value: 'openai',
+        selected: currentSettings.preferredProvider === 'openai',
+      },
+      'OpenAI'
+    ),
+    option(
+      {
+        value: 'anthropic',
+        selected: currentSettings.preferredProvider === 'anthropic',
+      },
+      'Anthropic'
+    ),
+    option(
+      {
+        value: 'deepseek',
+        selected: currentSettings.preferredProvider === 'deepseek',
+      },
+      'Deepseek'
+    )
   )
 
   const openaiInput = input({
@@ -176,7 +214,8 @@ export function showSettingsDialog(
 
   const save = () => {
     onSave({
-      preferredProvider: (providerSelect as HTMLSelectElement).value as LLMProvider,
+      preferredProvider: (providerSelect as HTMLSelectElement)
+        .value as LLMProvider,
       openaiKey: (openaiInput as HTMLInputElement).value,
       anthropicKey: (anthropicInput as HTMLInputElement).value,
       deepseekKey: (deepseekInput as HTMLInputElement).value,
@@ -217,7 +256,10 @@ export function showSettingsDialog(
           { class: 'settings-field' },
           label('Preferred Provider'),
           providerSelect,
-          div({ class: 'hint' }, '"First Available" uses the first configured provider in order below')
+          div(
+            { class: 'hint' },
+            '"First Available" uses the first configured provider in order below'
+          )
         ),
 
         div(
@@ -233,6 +275,105 @@ export function showSettingsDialog(
                   'Note: Local endpoints require HTTP.'
                 )
               : ''
+          ),
+          div(
+            {
+              style: {
+                marginTop: '8px',
+                display: 'flex',
+                alignItems: 'center',
+                gap: '10px',
+                flexWrap: 'wrap',
+              },
+            },
+            button(
+              {
+                class: 'settings-btn secondary',
+                style: { padding: '4px 10px', fontSize: '0.85em' },
+                onClick: async (e: Event) => {
+                  const btn = e.target as HTMLButtonElement
+                  const container = btn.parentElement as HTMLElement
+                  const statusEl = container.querySelector(
+                    '.status-text'
+                  ) as HTMLElement
+                  btn.disabled = true
+                  btn.textContent = 'Scanning...'
+                  statusEl.textContent = ''
+
+                  const url = (customUrlInput as HTMLInputElement).value
+                  const models = await rescanLocalModels(url)
+
+                  btn.disabled = false
+                  btn.textContent = 'Rescan Models'
+
+                  if (models.length > 0) {
+                    const visionModels = models.filter(
+                      (m) =>
+                        m.includes('-vl') ||
+                        m.includes('vl-') ||
+                        m.includes('vision') ||
+                        m.includes('llava') ||
+                        m.includes('gemma-3') ||
+                        m.includes('gemma3')
+                    )
+                    statusEl.textContent =
+                      `Found ${models.length} model(s)` +
+                      (visionModels.length > 0
+                        ? ` (${visionModels.length} vision)`
+                        : '')
+                    statusEl.style.color = '#16a34a'
+                  } else {
+                    statusEl.textContent = 'No models found'
+                    statusEl.style.color = '#dc2626'
+                  }
+                },
+              },
+              'Rescan Models'
+            ),
+            button(
+              {
+                class: 'settings-btn secondary',
+                style: { padding: '4px 10px', fontSize: '0.85em' },
+                onClick: async (e: Event) => {
+                  const btn = e.target as HTMLButtonElement
+                  const container = btn.parentElement as HTMLElement
+                  const statusEl = container.querySelector(
+                    '.status-text'
+                  ) as HTMLElement
+                  btn.disabled = true
+                  btn.textContent = 'Checking...'
+
+                  const url = (customUrlInput as HTMLInputElement).value
+                  if (!url) {
+                    statusEl.textContent = 'No URL configured'
+                    statusEl.style.color = '#dc2626'
+                    btn.disabled = false
+                    btn.textContent = 'Check Status'
+                    return
+                  }
+
+                  const isResponsive = await checkServerLoad(url)
+                  const pending = getPendingRequests(url)
+
+                  btn.disabled = false
+                  btn.textContent = 'Check Status'
+
+                  if (isResponsive) {
+                    statusEl.textContent =
+                      pending > 0 ? `Ready (${pending} pending)` : 'Ready'
+                    statusEl.style.color = '#16a34a'
+                  } else {
+                    statusEl.textContent =
+                      pending > 0
+                        ? `Under load (${pending} pending)`
+                        : 'Under load or unreachable'
+                    statusEl.style.color = '#f59e0b'
+                  }
+                },
+              },
+              'Check Status'
+            ),
+            span({ class: 'status-text', style: { fontSize: '0.85em' } }, '')
           )
         ),
 

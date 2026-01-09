@@ -61,14 +61,26 @@ const KEYWORDS = [
 const CONSTANTS = ['true', 'false', 'null']
 
 // Built-in type constructors
-const BUILTINS = ['Date', 'Set', 'Map', 'Array', 'Object', 'String', 'Number', 'Math', 'JSON']
+const BUILTINS = [
+  'Date',
+  'Set',
+  'Map',
+  'Array',
+  'Object',
+  'String',
+  'Number',
+  'Math',
+  'JSON',
+]
 
 /**
  * Create the AsyncJS highlight rules for Ace
  */
 function createAjsHighlightRules(ace) {
   const oop = ace.require('ace/lib/oop')
-  const TextHighlightRules = ace.require('ace/mode/text_highlight_rules').TextHighlightRules
+  const TextHighlightRules = ace.require(
+    'ace/mode/text_highlight_rules'
+  ).TextHighlightRules
 
   function AjsHighlightRules() {
     const keywordMapper = this.createKeywordMapper(
@@ -236,8 +248,12 @@ function createAjsHighlightRules(ace) {
 function createAjsMode(ace) {
   const oop = ace.require('ace/lib/oop')
   const TextMode = ace.require('ace/mode/text').Mode
-  const MatchingBraceOutdent = ace.require('ace/mode/matching_brace_outdent').MatchingBraceOutdent
-  const CstyleBehaviour = ace.require('ace/mode/behaviour/cstyle').CstyleBehaviour
+  const MatchingBraceOutdent = ace.require(
+    'ace/mode/matching_brace_outdent'
+  ).MatchingBraceOutdent
+  const CstyleBehaviour = ace.require(
+    'ace/mode/behaviour/cstyle'
+  ).CstyleBehaviour
   const CStyleFoldMode = ace.require('ace/mode/folding/cstyle').FoldMode
 
   const AjsHighlightRules = createAjsHighlightRules(ace)
@@ -250,7 +266,6 @@ function createAjsMode(ace) {
   }
 
   oop.inherits(AjsMode, TextMode)
-
   ;(function () {
     this.lineCommentStart = '//'
     this.blockComment = { start: '/*', end: '*/' }
@@ -287,9 +302,13 @@ function createAjsMode(ace) {
  */
 export function registerAjsMode(ace) {
   const AjsMode = createAjsMode(ace)
-  ace.define('ace/mode/ajs', ['require', 'exports', 'module'], function (require, exports) {
-    exports.Mode = AjsMode
-  })
+  ace.define(
+    'ace/mode/ajs',
+    ['require', 'exports', 'module'],
+    function (require, exports) {
+      exports.Mode = AjsMode
+    }
+  )
 }
 
 // Auto-register if Ace is available globally
@@ -299,5 +318,11 @@ if (typeof window !== 'undefined' && window.ace) {
 
 // Export for CommonJS/AMD
 if (typeof module !== 'undefined' && module.exports) {
-  module.exports = { registerAjsMode, FORBIDDEN_KEYWORDS, KEYWORDS, CONSTANTS, BUILTINS }
+  module.exports = {
+    registerAjsMode,
+    FORBIDDEN_KEYWORDS,
+    KEYWORDS,
+    CONSTANTS,
+    BUILTINS,
+  }
 }

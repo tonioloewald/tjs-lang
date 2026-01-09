@@ -70,28 +70,90 @@ const agent = Agent.take(s.object({ topic: s.string })).while(
 This example shows the complete loop: a UI form captures user input, AsyncJS code processes it (calling an API and using an LLM to analyze results), and displays the output with album artwork.
 
 ```css
-.cover-finder { padding: 16px; display: flex; flex-direction: column; height: 100%; box-sizing: border-box; }
-.cover-finder form { display: flex; gap: 8px; margin-bottom: 16px; flex-wrap: wrap; flex-shrink: 0; }
-.cover-finder input { padding: 8px 12px; border: 1px solid #ccc; border-radius: 4px; flex: 1; min-width: 120px; }
-.cover-finder button { padding: 8px 20px; background: #6366f1; color: white; border: none; border-radius: 4px; cursor: pointer; }
-.cover-finder #results { flex: 1; overflow-y: auto; min-height: 0; }
-.cover-finder .cover-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); gap: 16px; }
-.cover-finder .cover-card { background: #f5f5f5; border-radius: 8px; overflow: hidden; display: flex; flex-direction: column; }
-.cover-finder .cover-card img { width: 100%; aspect-ratio: 1; object-fit: cover; }
-.cover-finder .cover-card .info { padding: 10px; flex: 1; }
-.cover-finder .cover-card .track { font-weight: bold; font-size: 0.9em; margin-bottom: 4px; line-height: 1.2; }
-.cover-finder .cover-card .artist { color: #666; font-size: 0.85em; line-height: 1.2; }
+.cover-finder {
+  padding: 16px;
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  box-sizing: border-box;
+}
+.cover-finder form {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 16px;
+  flex-wrap: wrap;
+  flex-shrink: 0;
+}
+.cover-finder input {
+  padding: 8px 12px;
+  border: 1px solid #ccc;
+  border-radius: 4px;
+  flex: 1;
+  min-width: 120px;
+}
+.cover-finder button {
+  padding: 8px 20px;
+  background: #6366f1;
+  color: white;
+  border: none;
+  border-radius: 4px;
+  cursor: pointer;
+}
+.cover-finder #results {
+  flex: 1;
+  overflow-y: auto;
+  min-height: 0;
+}
+.cover-finder .cover-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
+  gap: 16px;
+}
+.cover-finder .cover-card {
+  background: #f5f5f5;
+  border-radius: 8px;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
+.cover-finder .cover-card img {
+  width: 100%;
+  aspect-ratio: 1;
+  object-fit: cover;
+}
+.cover-finder .cover-card .info {
+  padding: 10px;
+  flex: 1;
+}
+.cover-finder .cover-card .track {
+  font-weight: bold;
+  font-size: 0.9em;
+  margin-bottom: 4px;
+  line-height: 1.2;
+}
+.cover-finder .cover-card .artist {
+  color: #666;
+  font-size: 0.85em;
+  line-height: 1.2;
+}
 ```
+
 ```html
 <div class="cover-finder">
-<form id="cover-search">
-  <input type="text" id="song" placeholder="Song name" value="Yesterday" />
-  <input type="text" id="artist" placeholder="Original artist" value="Beatles" />
-  <button type="submit">Find Covers</button>
-</form>
-<div id="results"></div>
+  <form id="cover-search">
+    <input type="text" id="song" placeholder="Song name" value="Yesterday" />
+    <input
+      type="text"
+      id="artist"
+      placeholder="Original artist"
+      value="Beatles"
+    />
+    <button type="submit">Find Covers</button>
+  </form>
+  <div id="results"></div>
 </div>
 ```
+
 ```js
 // Wire up the form to AsyncJS
 // Uses demoRuntime which gets LLM settings from the Settings dialog
@@ -116,35 +178,10 @@ const findCovers = ajs`
     }
     let trackList = tracks.join('\\n')
     
-    // Schema includes index to match back to artwork
-    let schema = {
-      type: 'json_schema',
-      json_schema: {
-        name: 'cover_versions',
-        strict: true,
-        schema: {
-          type: 'object',
-          properties: {
-            covers: {
-              type: 'array',
-              items: {
-                type: 'object',
-                properties: {
-                  index: { type: 'number' },
-                  track: { type: 'string' },
-                  artist: { type: 'string' },
-                  album: { type: 'string' }
-                },
-                required: ['index', 'track', 'artist', 'album'],
-                additionalProperties: false
-              }
-            }
-          },
-          required: ['covers'],
-          additionalProperties: false
-        }
-      }
-    }
+    // Schema.response builds the responseFormat structure from an example
+    let schema = Schema.response('cover_versions', {
+      covers: [{ index: 0, track: '', artist: '', album: '' }]
+    })
     
     let prompt = \`Search results for "\${song}" by \${artist}:
 
@@ -183,34 +220,41 @@ document.getElementById('cover-search').onsubmit = async (e) => {
   } else {
     const itunesResults = result.itunesData?.results || []
     // Match covers to artwork using index from results
-    const covers = result.covers.map(c => {
+    const covers = result.covers.map((c) => {
       const source = itunesResults[c.index]
       return {
         ...c,
-        artwork: source?.artworkUrl100?.replace('100x100', '200x200')
+        artwork: source?.artworkUrl100?.replace('100x100', '200x200'),
       }
     })
     resultsDiv.innerHTML = `<h3>Cover versions of "${result.song}":</h3>
-      <div class="cover-grid">${covers.map(c => c.artwork ? `
+      <div class="cover-grid">${covers
+        .map((c) =>
+          c.artwork
+            ? `
         <div class="cover-card">
           <img src="${c.artwork}" alt="${c.album || 'Album art'}">
           <div class="info">
             <div class="track">${c.track || 'Unknown track'}</div>
             <div class="artist">${c.artist || 'Unknown artist'}</div>
           </div>
-        </div>` : `
+        </div>`
+            : `
         <div class="cover-card">
           <div class="info" style="padding-top:60px">
             <div class="track">${c.track || 'Unknown track'}</div>
             <div class="artist">${c.artist || 'Unknown artist'}</div>
           </div>
-        </div>`).join('')}
+        </div>`
+        )
+        .join('')}
       </div>`
   }
 }
 ```
 
 This demonstrates:
+
 - **Safe execution**: The AsyncJS code runs in a sandboxed VM with fuel limits
 - **Structured output**: JSON schema guarantees valid response format from the LLM
 - **Capability injection**: LLM access is provided by the host, not the untrusted code
@@ -332,6 +376,54 @@ The standard library includes essential primitives:
 | **AI**           | `llmPredict`, `agentRun`                                           | LLM calls and sub-agent recursion.                                                                                    |
 | **Utils**        | `random`, `uuid`, `hash`                                           | Random generation, UUIDs, and hashing.                                                                                |
 | **Optimization** | `memoize`, `cache`                                                 | In-memory memoization and persistent caching. Keys are optional and will be auto-generated if not provided.           |
+
+## Expression Builtins
+
+AsyncJS expressions have access to safe built-in objects:
+
+| Builtin  | Description                                                                 |
+| -------- | --------------------------------------------------------------------------- |
+| `Math`   | All standard math functions (`abs`, `floor`, `sqrt`, `sin`, `random`, etc.) |
+| `JSON`   | `parse()` and `stringify()`                                                 |
+| `Array`  | `isArray()`, `from()`, `of()`                                               |
+| `Object` | `keys()`, `values()`, `entries()`, `fromEntries()`, `assign()`              |
+| `String` | `fromCharCode()`, `fromCodePoint()`                                         |
+| `Number` | Constants and type checks (`MAX_VALUE`, `isNaN`, `isFinite`, etc.)          |
+| `Set`    | Set-like operations with `add`, `remove`, `union`, `intersection`, `diff`   |
+| `Date`   | Date factory with arithmetic and formatting                                 |
+| `Schema` | Schema builder for structured LLM responses (see below)                     |
+| `filter` | Schema-based data filtering                                                 |
+
+### Schema Builder
+
+The `Schema` builtin exposes [tosijs-schema](https://github.com/nicholascross/tosijs-schema)'s fluent API for building JSON Schemas. This is especially useful for LLM structured outputs.
+
+```javascript
+// Simple: build responseFormat from an example object
+let schema = Schema.response('person', { name: '', age: 0 })
+
+// With constraints: use the fluent API
+let schema = Schema.response(
+  'user',
+  Schema.object({
+    email: Schema.string.email,
+    age: Schema.number.int.min(0).max(150).optional,
+    role: Schema.enum(['admin', 'user', 'guest']),
+  })
+)
+```
+
+**Available methods:**
+
+| Category        | Methods                                                                   |
+| --------------- | ------------------------------------------------------------------------- |
+| **Primitives**  | `string`, `number`, `integer`, `boolean`, `any`                           |
+| **String**      | `.min(n)`, `.max(n)`, `.pattern(regex)`, `.email`, `.url`, `.uuid`        |
+| **Number**      | `.min(n)`, `.max(n)`, `.step(n)`, `.int`                                  |
+| **Combinators** | `array(items)`, `object(props)`, `record(value)`, `tuple(items)`          |
+| **Union/Enum**  | `union([...])`, `enum([...])`, `const(value)`                             |
+| **Metadata**    | `.title(s)`, `.describe(s)`, `.default(v)`, `.optional`                   |
+| **Helpers**     | `response(name, schema)`, `fromExample(example)`, `isValid(data, schema)` |
 
 ## Capabilities & Security
 

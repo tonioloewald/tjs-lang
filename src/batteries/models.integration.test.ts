@@ -40,7 +40,7 @@ describe('LocalModels Integration Test', () => {
     if (aKnownEmbeddingModel) {
       expect(aKnownEmbeddingModel.dimension).toBeGreaterThan(0)
     }
-  }, 20000) // Increase timeout for network requests
+  }, 120000) // Increase timeout for model loading and network requests
 
   it('should be able to make a simple prediction', async () => {
     const localModels = new LocalModels()
@@ -49,7 +49,7 @@ describe('LocalModels Integration Test', () => {
     const res = await predict('the color of the sky is', 'test')
     expect(typeof res.content).toBe('string')
     expect(res.content.length).toBeGreaterThan(5)
-  }, 10000)
+  }, 120000) // LM Studio may need to load/swap models
 
   it('should be able to get a vector embedding', async () => {
     const localModels = new LocalModels()
@@ -59,7 +59,7 @@ describe('LocalModels Integration Test', () => {
     expect(Array.isArray(res)).toBe(true)
     expect(res.length).toBeGreaterThan(100)
     expect(typeof res[0]).toBe('number')
-  }, 10000)
+  }, 120000) // LM Studio may need to load/swap models
 
   it('should be able to do a structured query', async () => {
     const localModels = new LocalModels()
@@ -91,11 +91,11 @@ describe('LocalModels Integration Test', () => {
     expect(parsed).toHaveProperty('b')
     expect(typeof parsed.a).toBe('number')
     expect(typeof parsed.b).toBe('number')
-  }, 10000)
+  }, 120000) // LM Studio may need to load/swap models
 
   it('should use storeVectorize atom with real batteries', async () => {
     const batteries = await getBatteries()
-    
+
     // Skip if no vector capability (LM Studio not running)
     if (!batteries.vector) {
       console.log('Skipping: No vector capability available')
@@ -109,16 +109,15 @@ describe('LocalModels Integration Test', () => {
       .as('vector')
       .return(s.object({ vector: s.array(s.number) }))
 
-    const result = await vm.run(
-      agent.toJSON(),
-      {},
-      { capabilities: batteries }
-    )
+    const result = await vm.run(agent.toJSON(), {}, { capabilities: batteries })
 
     expect(result.error).toBeUndefined()
     expect(result.result.vector).toBeArray()
     expect(result.result.vector.length).toBeGreaterThan(100)
     expect(typeof result.result.vector[0]).toBe('number')
-    console.log('storeVectorize returned vector of length:', result.result.vector.length)
-  }, 10000)
+    console.log(
+      'storeVectorize returned vector of length:',
+      result.result.vector.length
+    )
+  }, 120000) // LM Studio may need to load/swap models
 })

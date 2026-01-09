@@ -64,47 +64,22 @@ function stripCodeFences(code: string): string {
     .trim()
 }
 
-const ASYNCJS_GUIDE = `
-# AsyncJS Quick Reference
+import { readFileSync } from 'fs'
+import { join } from 'path'
 
-AsyncJS is a JavaScript subset for AI agents. Key differences:
+// Load the actual LLM prompt that users get - tests should match real usage
+const ASYNCJS_LLM_PROMPT = readFileSync(
+  join(import.meta.dir, '../../ASYNCJS_LLM_PROMPT.md'),
+  'utf-8'
+)
 
-1. **Types through values**: Use \`param: 'string'\` for required string, \`param = 10\` for optional with default
-2. **Implicit async**: All atom calls are automatically awaited
-3. **Native arithmetic**: Use normal JavaScript operators (+, -, *, /, %)
-4. **Built-in atoms**: template (for string formatting), if, while, return
-
-## Example: Adding two numbers
-
-\`\`\`javascript
-function add(a: 0, b: 0) {
-  let sum = a + b
-  return { sum }
+// Extract just the system prompt section (between the triple backticks after "## System Prompt")
+function extractSystemPrompt(markdown: string): string {
+  const match = markdown.match(/## System Prompt\s+````\s*([\s\S]*?)````/)
+  return match ? match[1].trim() : markdown
 }
-\`\`\`
 
-## Example: Factorial with while loop
-
-\`\`\`javascript
-function factorial(n: 0) {
-  let result = 1
-  let i = n
-  while (i > 1) {
-    result = result * i
-    i = i - 1
-  }
-  return { result }
-}
-\`\`\`
-
-## Rules
-- Use \`let\` for variables, not \`const\` or \`var\`
-- Arithmetic works directly: \`let x = a + b\`, \`let y = x * 2\`
-- Conditions work naturally: \`if (x > 5)\`, \`while (i > 0)\`
-- Return an object with named properties
-- Parameter types: \`name: 'string'\` (required string), \`count: 0\` (required number), \`flag: true\` (required boolean)
-- Optional params: \`limit = 10\` (optional number with default)
-`
+const ASYNCJS_GUIDE = extractSystemPrompt(ASYNCJS_LLM_PROMPT)
 
 describe('LLM AsyncJS Code Generation', () => {
   it('should generate valid AsyncJS that computes factorial', async () => {
@@ -156,15 +131,15 @@ Respond with ONLY the function code, no markdown fences or explanation.`
 
       const prompt = `${ASYNCJS_GUIDE}
 
-Write an AsyncJS function called "greet" that:
-- Takes a required string parameter "name"  
-- Takes an optional string parameter "greeting" with default "Hello"
-- Returns an object with property "message" containing the greeting
+Write an AsyncJS function called "greet" following the greeting example above exactly.
 
-Use the template atom: template({ tmpl: '{{greeting}}, {{name}}!', vars: { greeting, name } })
+The function should:
+- Take a required string parameter "name" (use example value like 'World')
+- Take an optional string parameter "greeting" with default "Hello"
+- Use template to format the message
+- Return an object with property "message"
 
-IMPORTANT: Do NOT use TypeScript return type annotations like ": { message: string }". 
-Just write plain AsyncJS without TypeScript syntax.
+Follow the "Greeting with optional parameter" example pattern exactly.
 
 Respond with ONLY the function code, no markdown fences or explanation.`
 

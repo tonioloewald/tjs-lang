@@ -158,26 +158,14 @@ export const examples: Example[] = [
     description: 'Get structured JSON from LLM (requires llm capability)',
     requiresApi: true,
     code: `function extractInfo({ text = 'John Smith is a 35-year-old software engineer from San Francisco who loves hiking and photography.' }) {
-  // Define JSON schema for structured output
-  let schema = {
-    type: 'json_schema',
-    json_schema: {
-      name: 'person_info',
-      strict: true,
-      schema: {
-        type: 'object',
-        properties: {
-          name: { type: 'string' },
-          age: { type: 'number' },
-          occupation: { type: 'string' },
-          location: { type: 'string' },
-          hobbies: { type: 'array', items: { type: 'string' } }
-        },
-        required: ['name', 'age', 'occupation', 'location', 'hobbies'],
-        additionalProperties: false
-      }
-    }
-  }
+  // Schema.response builds responseFormat from an example
+  let schema = Schema.response('person_info', {
+    name: '',
+    age: 0,
+    occupation: '',
+    location: '',
+    hobbies: ['']
+  })
   
   let prompt = \`Extract person info from this text: \${text}\`
   let response = llmPredict({ prompt, options: { responseFormat: schema } })
@@ -200,34 +188,10 @@ export const examples: Example[] = [
   let tracks = results.map(x => \`"\${x.trackName}" by \${x.artistName} (\${x.collectionName})\`)
   let trackList = tracks.join('\\n')
   
-  // Define schema for structured array output
-  let schema = {
-    type: 'json_schema',
-    json_schema: {
-      name: 'cover_versions',
-      strict: true,
-      schema: {
-        type: 'object',
-        properties: {
-          covers: {
-            type: 'array',
-            items: {
-              type: 'object',
-              properties: {
-                track: { type: 'string' },
-                artist: { type: 'string' },
-                album: { type: 'string' }
-              },
-              required: ['track', 'artist', 'album'],
-              additionalProperties: false
-            }
-          }
-        },
-        required: ['covers'],
-        additionalProperties: false
-      }
-    }
-  }
+  // Schema.response from example - much cleaner!
+  let schema = Schema.response('cover_versions', {
+    covers: [{ track: '', artist: '', album: '' }]
+  })
   
   let prompt = \`Search results for "\${song}" by \${artist}:
 
@@ -312,6 +276,57 @@ Format: "Suggestion: [your suggestion]\\n\\nImproved: [improved text]"\`
     i = i + 1
   }
   return { counter }
+}`,
+  },
+  {
+    name: 'Vision: OCR',
+    description: 'Extract text from an image (requires vision model)',
+    requiresApi: true,
+    code: `function extractText({ imageUrl = '/photo-2.jpg' }) {
+  // Fetch image as data URL for vision model
+  let image = httpFetch({ url: imageUrl, responseType: 'dataUrl' })
+  
+  // Use Schema.response for structured output
+  let schema = Schema.response('ocr_result', {
+    text: '',
+    items: [{ description: '', amount: '' }]
+  })
+  
+  let result = llmVision({
+    prompt: 'Extract all text from this image. If it is a receipt, list the items and amounts.',
+    images: [image],
+    responseFormat: schema
+  })
+  
+  let parsed = JSON.parse(result.content)
+  return { imageUrl, extracted: parsed }
+}`,
+  },
+  {
+    name: 'Vision: Classification',
+    description: 'Classify and describe an image (requires vision model)',
+    requiresApi: true,
+    code: `function classifyImage({ imageUrl = '/photo-1.jpg' }) {
+  // Fetch image as data URL
+  let image = httpFetch({ url: imageUrl, responseType: 'dataUrl' })
+  
+  // Schema for classification result
+  let schema = Schema.response('image_classification', {
+    category: '',
+    subject: '',
+    description: '',
+    tags: [''],
+    confidence: ''
+  })
+  
+  let result = llmVision({
+    prompt: 'Classify this image. Identify the main subject, provide a brief description, and list relevant tags.',
+    images: [image],
+    responseFormat: schema
+  })
+  
+  let parsed = JSON.parse(result.content)
+  return { imageUrl, classification: parsed }
 }`,
   },
 ]

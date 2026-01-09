@@ -36,7 +36,7 @@ async function buildDemo() {
   })
 
   // Copy static files
-  await $`cp demo/index.html demo/static/favicon.svg tosijs-agent.svg docs/`
+  await $`cp demo/index.html demo/static/favicon.svg demo/static/photo-*.jpg tosijs-agent.svg docs/`
   await $`cp -r demo/static/texts docs/`
 
   console.log('Build complete!')
@@ -61,12 +61,16 @@ const demoWatcher = watch(
 )
 
 // Watch for markdown file changes in root
-const mdWatcher = watch(ROOT_DIR, { recursive: false }, async (event, filename) => {
-  if (filename && filename.endsWith('.md')) {
-    console.log(`\nMarkdown file changed: ${filename}`)
-    await buildDemo()
+const mdWatcher = watch(
+  ROOT_DIR,
+  { recursive: false },
+  async (event, filename) => {
+    if (filename && filename.endsWith('.md')) {
+      console.log(`\nMarkdown file changed: ${filename}`)
+      await buildDemo()
+    }
   }
-})
+)
 
 // Serve the docs directory
 const server = Bun.serve({
@@ -94,6 +98,10 @@ const server = Bun.serve({
         json: 'application/json',
         svg: 'image/svg+xml',
         png: 'image/png',
+        jpg: 'image/jpeg',
+        jpeg: 'image/jpeg',
+        webp: 'image/webp',
+        gif: 'image/gif',
         ico: 'image/x-icon',
         map: 'application/json',
       }

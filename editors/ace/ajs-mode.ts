@@ -53,7 +53,17 @@ export const KEYWORDS = [
 export const CONSTANTS = ['true', 'false', 'null']
 
 // Built-in type constructors
-export const BUILTINS = ['Date', 'Set', 'Map', 'Array', 'Object', 'String', 'Number', 'Math', 'JSON']
+export const BUILTINS = [
+  'Date',
+  'Set',
+  'Map',
+  'Array',
+  'Object',
+  'String',
+  'Number',
+  'Math',
+  'JSON',
+]
 
 type AceEditor = typeof import('ace-builds')
 
@@ -62,7 +72,9 @@ type AceEditor = typeof import('ace-builds')
  */
 function createAjsHighlightRules(ace: AceEditor) {
   const oop = ace.require('ace/lib/oop')
-  const TextHighlightRules = ace.require('ace/mode/text_highlight_rules').TextHighlightRules
+  const TextHighlightRules = ace.require(
+    'ace/mode/text_highlight_rules'
+  ).TextHighlightRules
 
   function AjsHighlightRules(this: any) {
     const keywordMapper = this.createKeywordMapper(
@@ -230,8 +242,12 @@ function createAjsHighlightRules(ace: AceEditor) {
 function createAjsMode(ace: AceEditor) {
   const oop = ace.require('ace/lib/oop')
   const TextMode = ace.require('ace/mode/text').Mode
-  const MatchingBraceOutdent = ace.require('ace/mode/matching_brace_outdent').MatchingBraceOutdent
-  const CstyleBehaviour = ace.require('ace/mode/behaviour/cstyle').CstyleBehaviour
+  const MatchingBraceOutdent = ace.require(
+    'ace/mode/matching_brace_outdent'
+  ).MatchingBraceOutdent
+  const CstyleBehaviour = ace.require(
+    'ace/mode/behaviour/cstyle'
+  ).CstyleBehaviour
   const CStyleFoldMode = ace.require('ace/mode/folding/cstyle').FoldMode
 
   const AjsHighlightRules = createAjsHighlightRules(ace)
@@ -244,12 +260,15 @@ function createAjsMode(ace: AceEditor) {
   }
 
   oop.inherits(AjsMode, TextMode)
-
   ;(function (this: any) {
     this.lineCommentStart = '//'
     this.blockComment = { start: '/*', end: '*/' }
 
-    this.getNextLineIndent = function (state: string, line: string, tab: string) {
+    this.getNextLineIndent = function (
+      state: string,
+      line: string,
+      tab: string
+    ) {
       let indent = this.$getIndent(line)
       if (state === 'start') {
         const match = line.match(/^.*[{(\[]\s*$/)
@@ -281,10 +300,11 @@ function createAjsMode(ace: AceEditor) {
  */
 export function registerAjsMode(ace: AceEditor): void {
   const AjsMode = createAjsMode(ace)
-  ace.define('ace/mode/ajs', ['require', 'exports', 'module'], function (
-    _require: any,
-    exports: any
-  ) {
-    exports.Mode = AjsMode
-  })
+  ace.define(
+    'ace/mode/ajs',
+    ['require', 'exports', 'module'],
+    function (_require: any, exports: any) {
+      exports.Mode = AjsMode
+    }
+  )
 }

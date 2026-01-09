@@ -652,6 +652,7 @@ const BUILTIN_OBJECTS = new Set([
   'Number',
   'console',
   'Date', // Date factory with static methods like Date.now()
+  'Schema', // tosijs-schema fluent API for building JSON Schemas
 ])
 
 const BUILTIN_GLOBALS = new Set([
