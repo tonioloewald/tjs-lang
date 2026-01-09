@@ -840,5 +840,23 @@ describe('TypeScript to TJS Transpiler', () => {
       expect(result.code).toContain('foo.__tjs')
       expect(result.code).toContain('bar.__tjs')
     })
+
+    it('should handle arrow functions', () => {
+      const result = fromTS(
+        `const greet = (name: string): string => \`Hello, \${name}!\``
+      )
+      expect(result.types?.greet).toBeDefined()
+      expect(result.types?.greet.params.name.type.kind).toBe('string')
+      expect(result.types?.greet.returns?.kind).toBe('string')
+    })
+
+    it('should handle const function expressions', () => {
+      const result = fromTS(
+        `const add = function(a: number, b: number): number { return a + b }`
+      )
+      expect(result.types?.add).toBeDefined()
+      expect(result.types?.add.params.a.type.kind).toBe('number')
+      expect(result.types?.add.params.b.type.kind).toBe('number')
+    })
   })
 })

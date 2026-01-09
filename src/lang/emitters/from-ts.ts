@@ -310,7 +310,8 @@ function typeToInfo(type: ts.TypeNode | undefined): TypeInfo {
  */
 function transformFunctionToTJS(
   node: ts.FunctionDeclaration | ts.ArrowFunction | ts.FunctionExpression,
-  sourceFile: ts.SourceFile
+  sourceFile: ts.SourceFile,
+  explicitName?: string
 ): string {
   const params: string[] = []
 
@@ -333,9 +334,10 @@ function transformFunctionToTJS(
   }
 
   const funcName =
-    ts.isFunctionDeclaration(node) && node.name
+    explicitName ||
+    (ts.isFunctionDeclaration(node) && node.name
       ? node.name.getText(sourceFile)
-      : ''
+      : '')
   const returnExample = node.type ? typeToExample(node.type) : ''
   const returnAnnotation =
     returnExample && returnExample !== 'undefined' ? ` -> ${returnExample}` : ''
@@ -421,6 +423,7 @@ export function fromTS(
 
   // Walk the AST
   function visit(node: ts.Node) {
+    // Handle: function foo() {}
     if (ts.isFunctionDeclaration(node) && node.name) {
       const funcName = node.name.getText(sourceFile)
 
@@ -428,6 +431,31 @@ export function fromTS(
         tjsFunctions.push(transformFunctionToTJS(node, sourceFile))
       } else {
         metadata[funcName] = extractFunctionMetadata(node, sourceFile)
+      }
+    }
+
+    // Handle: const foo = () => {} or const foo = function() {}
+    if (ts.isVariableStatement(node)) {
+      for (const decl of node.declarationList.declarations) {
+        if (
+          ts.isIdentifier(decl.name) &&
+          decl.initializer &&
+          (ts.isArrowFunction(decl.initializer) ||
+            ts.isFunctionExpression(decl.initializer))
+        ) {
+          const funcName = decl.name.getText(sourceFile)
+          const funcNode = decl.initializer
+
+          if (emitTJS) {
+            tjsFunctions.push(
+              transformFunctionToTJS(funcNode, sourceFile, funcName)
+            )
+          } else {
+            const info = extractFunctionMetadata(funcNode, sourceFile)
+            info.name = funcName
+            metadata[funcName] = info
+          }
+        }
       }
     }
 
