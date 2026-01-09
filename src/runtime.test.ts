@@ -410,13 +410,17 @@ describe('Edge Cases', () => {
 
     // Provide the code.transpile capability
     const { transpile } = await import('./transpiler')
-    const result = await vm.run(ast, { multiplier: 2 }, {
-      capabilities: {
-        code: {
-          transpile: (source: string) => transpile(source).ast,
+    const result = await vm.run(
+      ast,
+      { multiplier: 2 },
+      {
+        capabilities: {
+          code: {
+            transpile: (source: string) => transpile(source).ast,
+          },
         },
-      },
-    })
+      }
+    )
 
     expect(result.result.dynamicResult).toBe(35) // 5 * 7
     expect(result.result.final).toBe(70) // 35 * 2
@@ -435,14 +439,18 @@ describe('Edge Cases', () => {
     `)
 
     const { transpile } = await import('./transpiler')
-    const result = await vm.run(ast, {}, {
-      fuel: 500,
-      capabilities: {
-        code: {
-          transpile: (source: string) => transpile(source).ast,
+    const result = await vm.run(
+      ast,
+      {},
+      {
+        fuel: 500,
+        capabilities: {
+          code: {
+            transpile: (source: string) => transpile(source).ast,
+          },
         },
-      },
-    })
+      }
+    )
 
     expect(result.result.result).toBe(100)
     // The loop should have consumed fuel (while loop + iterations)
@@ -459,9 +467,13 @@ describe('Edge Cases', () => {
       }
     `)
 
-    const result = await vm.run(ast, {}, {
-      capabilities: {}, // No code capability
-    })
+    const result = await vm.run(
+      ast,
+      {},
+      {
+        capabilities: {}, // No code capability
+      }
+    )
 
     expect(result.error).toBeDefined()
     expect(result.error?.message).toContain('code.transpile')
@@ -479,13 +491,17 @@ describe('Edge Cases', () => {
     `)
 
     const { transpile } = await import('./transpiler')
-    const result = await vm.run(ast, {}, {
-      capabilities: {
-        code: {
-          transpile: (source: string) => transpile(source).ast,
+    const result = await vm.run(
+      ast,
+      {},
+      {
+        capabilities: {
+          code: {
+            transpile: (source: string) => transpile(source).ast,
+          },
         },
-      },
-    })
+      }
+    )
 
     expect(result.result.ast).toBeDefined()
     expect(result.result.ast.op).toBe('seq')
@@ -505,15 +521,19 @@ describe('Edge Cases', () => {
     `)
 
     const { transpile } = await import('./transpiler')
-    
+
     // This should work - only 2 levels deep
-    const result = await vm.run(ast, {}, {
-      capabilities: {
-        code: {
-          transpile: (source: string) => transpile(source).ast,
+    const result = await vm.run(
+      ast,
+      {},
+      {
+        capabilities: {
+          code: {
+            transpile: (source: string) => transpile(source).ast,
+          },
         },
-      },
-    })
+      }
+    )
 
     // The nested runCode should succeed (2 levels is fine)
     expect(result.result.result.x.v).toBe(1)

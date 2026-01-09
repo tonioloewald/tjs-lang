@@ -1832,7 +1832,46 @@ const posted = fetch("https://api.example.com/items", {
 ```
 
 Response types: `"json"` (default for JSON content-type), `"text"`, `"dataUrl"` (for images)
+
+Security:
+- Requires `ctx.context.allowedFetchDomains` allowlist OR restricts to localhost
+- Automatically adds `X-Agent-Depth` header to prevent recursive agent loops
+- Custom fetch capability can override all restrictions
 */
+
+/** Maximum agent request depth to prevent recursive loops */
+const MAX_AGENT_DEPTH = 10
+
+/** Header name for tracking agent request depth */
+const AGENT_DEPTH_HEADER = 'X-Agent-Depth'
+
+/**
+ * Check if a URL's domain is in the allowlist.
+ * Supports exact matches and wildcard subdomains (*.example.com)
+ */
+function isDomainAllowed(urlString: string, allowedDomains: string[]): boolean {
+  try {
+    const url = new URL(urlString)
+    const host = url.hostname.toLowerCase()
+
+    for (const pattern of allowedDomains) {
+      const p = pattern.toLowerCase()
+      if (p.startsWith('*.')) {
+        // Wildcard: *.example.com matches sub.example.com and example.com
+        const suffix = p.slice(1) // .example.com
+        if (host.endsWith(suffix) || host === p.slice(2)) {
+          return true
+        }
+      } else if (host === p) {
+        return true
+      }
+    }
+    return false
+  } catch {
+    return false
+  }
+}
+
 export const fetch = defineAtom(
   'httpFetch',
   s.object({
@@ -1846,33 +1885,80 @@ export const fetch = defineAtom(
   async (step, ctx) => {
     const url = resolveValue(step.url, ctx)
     const method = resolveValue(step.method, ctx)
-    const headers = resolveValue(step.headers, ctx)
+    const headers = resolveValue(step.headers, ctx) || {}
     const body = resolveValue(step.body, ctx)
     const responseType = resolveValue(step.responseType, ctx)
 
+    // Get current depth from context (set by receiving endpoint)
+    const currentDepth: number = ctx.context?.requestDepth ?? 0
+
+    // Check depth limit
+    if (currentDepth >= MAX_AGENT_DEPTH) {
+      throw new Error(
+        `Agent request depth exceeded (max ${MAX_AGENT_DEPTH}). This prevents recursive agent loops.`
+      )
+    }
+
     if (ctx.capabilities.fetch) {
       // Custom fetch capability handles its own validation
+      // Pass depth info so it can add the header
       return ctx.capabilities.fetch(url, {
         method,
-        headers,
+        headers: {
+          ...headers,
+          [AGENT_DEPTH_HEADER]: String(currentDepth + 1),
+        },
         body,
         signal: ctx.signal,
         responseType,
       })
     }
 
-    // SSRF protection for default fetch
-    if (isBlockedUrl(url)) {
-      throw new Error(
-        `Blocked URL: private/internal addresses not allowed in default fetch`
-      )
+    // Check allowlist - if configured, it controls what's allowed
+    const allowedDomains: string[] | undefined =
+      ctx.context?.allowedFetchDomains
+    if (allowedDomains) {
+      // Allowlist mode: only allow domains in the list
+      if (!isDomainAllowed(url, allowedDomains)) {
+        throw new Error(
+          `Fetch blocked: domain not in allowlist. Allowed: ${allowedDomains.join(
+            ', '
+          )}`
+        )
+      }
+      // Domain is in allowlist - skip SSRF check (allowlist takes precedence)
+    } else {
+      // No allowlist configured - use SSRF protection + localhost-only
+      if (isBlockedUrl(url)) {
+        throw new Error(
+          `Blocked URL: private/internal addresses not allowed in default fetch`
+        )
+      }
+      
+      // Additionally restrict to localhost when no allowlist
+      try {
+        const parsed = new URL(url)
+        const host = parsed.hostname.toLowerCase()
+        if (host !== 'localhost' && host !== '127.0.0.1' && host !== '[::1]') {
+          throw new Error(
+            `Fetch blocked: no allowedFetchDomains configured. ` +
+              `Set ctx.context.allowedFetchDomains or provide a custom fetch capability.`
+          )
+        }
+      } catch (e: any) {
+        if (e.message.includes('allowedFetchDomains')) throw e
+        throw new Error(`Invalid URL: ${url}`)
+      }
     }
 
-    // Default: global fetch with abort signal
+    // Default: global fetch with abort signal and depth header
     if (typeof globalThis.fetch === 'function') {
       const res = await globalThis.fetch(url, {
         method,
-        headers,
+        headers: {
+          ...headers,
+          [AGENT_DEPTH_HEADER]: String(currentDepth + 1),
+        },
         body: body ? JSON.stringify(body) : undefined,
         signal: ctx.signal, // Pass abort signal for cancellation
       })

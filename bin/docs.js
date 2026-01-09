@@ -131,7 +131,9 @@ function dedupeByPath(docs) {
 }
 
 // Find all documentation and dedupe
-const markdownFiles = dedupeByPath(findMarkdownFiles(directoriesToSearch, ignore))
+const markdownFiles = dedupeByPath(
+  findMarkdownFiles(directoriesToSearch, ignore)
+)
 
 // Save to demo/docs.json
 const outputPath = './demo/docs.json'

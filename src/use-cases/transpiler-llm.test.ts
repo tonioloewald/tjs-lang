@@ -81,14 +81,16 @@ function extractSystemPrompt(markdown: string): string {
 
 const ASYNCJS_GUIDE = extractSystemPrompt(ASYNCJS_LLM_PROMPT)
 
-describe.skipIf(process.env.SKIP_LLM_TESTS)('LLM AsyncJS Code Generation', () => {
-  it('should generate valid AsyncJS that computes factorial', async () => {
-    await withRetry(async () => {
-      const localModels = new LocalModels()
-      await localModels.audit()
-      const { predict } = getLLMCapability(localModels)
+describe.skipIf(process.env.SKIP_LLM_TESTS)(
+  'LLM AsyncJS Code Generation',
+  () => {
+    it('should generate valid AsyncJS that computes factorial', async () => {
+      await withRetry(async () => {
+        const localModels = new LocalModels()
+        await localModels.audit()
+        const { predict } = getLLMCapability(localModels)
 
-      const prompt = `${ASYNCJS_GUIDE}
+        const prompt = `${ASYNCJS_GUIDE}
 
 Write an AsyncJS function called "factorial" that takes a required number parameter "n" and returns an object with property "result" containing the factorial.
 
@@ -98,38 +100,38 @@ The factorial of 5 is 120.
 
 Respond with ONLY the function code, no markdown fences or explanation.`
 
-      const response = await predict(
-        'You are a code generator. Output only valid AsyncJS code.',
-        prompt
-      )
+        const response = await predict(
+          'You are a code generator. Output only valid AsyncJS code.',
+          prompt
+        )
 
-      const code = stripCodeFences(response.content)
-      console.log('LLM generated code:')
-      console.log(code)
+        const code = stripCodeFences(response.content)
+        console.log('LLM generated code:')
+        console.log(code)
 
-      // Transpile the generated code
-      const ast = ajs(code)
+        // Transpile the generated code
+        const ast = ajs(code)
 
-      expect(ast).toBeDefined()
-      expect(ast.op).toBe('seq')
+        expect(ast).toBeDefined()
+        expect(ast.op).toBe('seq')
 
-      // Execute it
-      const vm = new AgentVM()
-      const execResult = await vm.run(ast, { n: 5 })
+        // Execute it
+        const vm = new AgentVM()
+        const execResult = await vm.run(ast, { n: 5 })
 
-      console.log('Execution result:', execResult)
-      // vm.run returns { result, fuelUsed, trace } - the actual return value is in result
-      expect(execResult.result.result).toBe(120)
-    })
-  }, 90000) // Extended timeout for retries
+        console.log('Execution result:', execResult)
+        // vm.run returns { result, fuelUsed, trace } - the actual return value is in result
+        expect(execResult.result.result).toBe(120)
+      })
+    }, 90000) // Extended timeout for retries
 
-  it('should generate valid AsyncJS for string greeting', async () => {
-    await withRetry(async () => {
-      const localModels = new LocalModels()
-      await localModels.audit()
-      const { predict } = getLLMCapability(localModels)
+    it('should generate valid AsyncJS for string greeting', async () => {
+      await withRetry(async () => {
+        const localModels = new LocalModels()
+        await localModels.audit()
+        const { predict } = getLLMCapability(localModels)
 
-      const prompt = `${ASYNCJS_GUIDE}
+        const prompt = `${ASYNCJS_GUIDE}
 
 Write an AsyncJS function called "greet" following the greeting example above exactly.
 
@@ -143,40 +145,40 @@ Follow the "Greeting with optional parameter" example pattern exactly.
 
 Respond with ONLY the function code, no markdown fences or explanation.`
 
-      const response = await predict(
-        'You are a code generator. Output only valid AsyncJS code.',
-        prompt
-      )
+        const response = await predict(
+          'You are a code generator. Output only valid AsyncJS code.',
+          prompt
+        )
 
-      const code = stripCodeFences(response.content)
-      console.log('LLM generated code:')
-      console.log(code)
+        const code = stripCodeFences(response.content)
+        console.log('LLM generated code:')
+        console.log(code)
 
-      const ast = ajs(code)
-      expect(ast.op).toBe('seq')
+        const ast = ajs(code)
+        expect(ast.op).toBe('seq')
 
-      const vm = new AgentVM()
+        const vm = new AgentVM()
 
-      // Test with default greeting - vm.run returns { result, fuelUsed, trace }
-      const execResult1 = await vm.run(ast, { name: 'World' })
-      console.log('Result with default:', execResult1)
-      expect(execResult1.result.message).toContain('World')
+        // Test with default greeting - vm.run returns { result, fuelUsed, trace }
+        const execResult1 = await vm.run(ast, { name: 'World' })
+        console.log('Result with default:', execResult1)
+        expect(execResult1.result.message).toContain('World')
 
-      // Test with custom greeting
-      const execResult2 = await vm.run(ast, { name: 'Alice', greeting: 'Hi' })
-      console.log('Result with custom:', execResult2)
-      expect(execResult2.result.message).toContain('Alice')
-    })
-  }, 90000)
+        // Test with custom greeting
+        const execResult2 = await vm.run(ast, { name: 'Alice', greeting: 'Hi' })
+        console.log('Result with custom:', execResult2)
+        expect(execResult2.result.message).toContain('Alice')
+      })
+    }, 90000)
 
-  it('should generate code using tool definitions', async () => {
-    await withRetry(async () => {
-      const localModels = new LocalModels()
-      await localModels.audit()
-      const { predict } = getLLMCapability(localModels)
+    it('should generate code using tool definitions', async () => {
+      await withRetry(async () => {
+        const localModels = new LocalModels()
+        await localModels.audit()
+        const { predict } = getLLMCapability(localModels)
 
-      // First, create a sample function and get its tool definition
-      const { signature } = transpile(`
+        // First, create a sample function and get its tool definition
+        const { signature } = transpile(`
         /**
          * Calculate the area of a rectangle
          * @param width - The width of the rectangle
@@ -188,12 +190,12 @@ Respond with ONLY the function code, no markdown fences or explanation.`
         }
       `)
 
-      // getToolDefinitions expects Record<string, { signature }>
-      const tools = getToolDefinitions({ calculateArea: { signature } })
-      console.log('Tool definition:', JSON.stringify(tools, null, 2))
+        // getToolDefinitions expects Record<string, { signature }>
+        const tools = getToolDefinitions({ calculateArea: { signature } })
+        console.log('Tool definition:', JSON.stringify(tools, null, 2))
 
-      // Now ask LLM to write a function that uses similar patterns
-      const prompt = `${ASYNCJS_GUIDE}
+        // Now ask LLM to write a function that uses similar patterns
+        const prompt = `${ASYNCJS_GUIDE}
 
 Here's an example tool definition:
 ${JSON.stringify(tools[0], null, 2)}
@@ -204,25 +206,26 @@ Write a similar AsyncJS function called "calculateVolume" that:
 
 Use native arithmetic for the calculation. Respond with ONLY the function code.`
 
-      const response = await predict(
-        'You are a code generator. Output only valid AsyncJS code.',
-        prompt
-      )
+        const response = await predict(
+          'You are a code generator. Output only valid AsyncJS code.',
+          prompt
+        )
 
-      const code = stripCodeFences(response.content)
-      console.log('LLM generated code:')
-      console.log(code)
+        const code = stripCodeFences(response.content)
+        console.log('LLM generated code:')
+        console.log(code)
 
-      const ast = ajs(code)
-      const vm = new AgentVM()
-      const execResult = await vm.run(ast, { width: 2, height: 3, depth: 4 })
+        const ast = ajs(code)
+        const vm = new AgentVM()
+        const execResult = await vm.run(ast, { width: 2, height: 3, depth: 4 })
 
-      console.log('Volume result:', execResult)
-      // vm.run returns { result, fuelUsed, trace }
-      expect(execResult.result.volume).toBe(24)
-    })
-  }, 90000)
-})
+        console.log('Volume result:', execResult)
+        // vm.run returns { result, fuelUsed, trace }
+        expect(execResult.result.volume).toBe(24)
+      })
+    }, 90000)
+  }
+)
 
 describe.skipIf(process.env.SKIP_LLM_TESTS)('LLM Agent Tool Use', () => {
   it('should write and execute code to solve a problem using provided tools', async () => {

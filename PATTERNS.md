@@ -19,6 +19,7 @@ This document covers common patterns and workarounds for features not directly s
 **Status:** Not supported
 
 AsyncJS executes sequentially by design. This is intentional for:
+
 - Predictable fuel consumption
 - Deterministic execution order
 - Simpler debugging and tracing
@@ -29,8 +30,8 @@ AsyncJS executes sequentially by design. This is intentional for:
 // Capability that handles parallelism
 const parallelFetch = {
   fetchAll: async (urls) => {
-    return Promise.all(urls.map(url => fetch(url).then(r => r.json())))
-  }
+    return Promise.all(urls.map((url) => fetch(url).then((r) => r.json())))
+  },
 }
 
 // AsyncJS code calls the capability
@@ -54,7 +55,7 @@ let success = false
 
 while (attempts < 3 && !success) {
   attempts = attempts + 1
-  
+
   try {
     result = fetch(url)
     success = true
@@ -68,12 +69,71 @@ while (attempts < 3 && !success) {
 }
 
 if (!success) {
-  console.error("Failed after 3 attempts")
+  console.error('Failed after 3 attempts')
 }
 return result
 ```
 
 **Note:** The `sleep` capability must be injected. AsyncJS doesn't include timing primitives to keep the VM deterministic.
+
+---
+
+## Fetch Security
+
+**Status:** Capability responsibility
+
+### The Problem: Recursive Agent Attacks
+
+A malicious or buggy agent could use `fetch` to call other agent endpoints, creating:
+
+- **Amplification attacks** - One request triggers many downstream requests
+- **Ping-pong loops** - Two endpoints repeatedly calling each other
+- **Resource exhaustion** - Consuming compute/tokens across multiple services
+
+Fuel budgets only protect the _current_ VM, not downstream services. SSRF protection blocks private IPs but not public agent endpoints.
+
+### The Solution: Capability-Level Enforcement
+
+Since agents are untrusted code, security must be enforced at the **capability layer**:
+
+1. **Depth tracking** - The fetch capability (not the agent) adds/increments an `X-Agent-Depth` header
+2. **Domain allowlist** - Fetch only works for explicitly allowed domains
+3. **Receiving endpoints** - Check depth headers and reject requests that are too deep
+
+```typescript
+// Host provides a secure fetch capability
+capabilities: {
+  fetch: createSecureFetch({
+    allowedDomains: ['api.weather.com', 'api.github.com'],
+    maxDepth: 5,
+    currentDepth: requestDepth, // From incoming request header
+  })
+}
+```
+
+The agent cannot bypass this because:
+
+- It only has access to the capability, not raw `fetch`
+- The capability is trusted code provided by the host
+- Headers are added automatically - the agent can't see or modify them
+
+### Why This Can't Be Solved in Agent Code
+
+- **Agent honors depth?** - A malicious agent would just not increment it
+- **Agent checks allowlist?** - A malicious agent would skip the check
+- **Request budget in agent?** - Agent could ignore or reset it
+
+The **capability is the trust boundary**. Agent code is untrusted; capabilities are trusted code injected by the host.
+
+### Built-in Fetch Behavior
+
+The default fetch atom:
+
+- Requires a domain allowlist OR restricts to localhost only
+- Automatically adds `X-Agent-Depth` header based on `ctx.context.requestDepth`
+- Rejects requests exceeding `MAX_AGENT_DEPTH` (default: 10)
+
+For production, always provide a custom fetch capability with appropriate restrictions.
 
 ---
 
@@ -87,13 +147,13 @@ Rate limiting should be implemented in the capability layer, not in AsyncJS:
 // Inject a rate-limited fetch capability
 const rateLimitedFetch = createRateLimitedFetch({
   requestsPerSecond: 10,
-  burstSize: 5
+  burstSize: 5,
 })
 
 const result = await runAgent(ast, {
   capabilities: {
-    fetch: rateLimitedFetch
-  }
+    fetch: rateLimitedFetch,
+  },
 })
 ```
 
@@ -128,7 +188,7 @@ for (const item of items) {
 }
 
 // Or use filter to pre-process:
-const toProcess = items.filter(item => item.shouldProcess)
+const toProcess = items.filter((item) => item.shouldProcess)
 for (const item of toProcess) {
   processItem(item)
 }
@@ -145,27 +205,27 @@ Use chained if/else:
 ```javascript
 // Instead of switch(action):
 let result
-if (action === "create") {
+if (action === 'create') {
   result = handleCreate(data)
-} else if (action === "update") {
+} else if (action === 'update') {
   result = handleUpdate(data)
-} else if (action === "delete") {
+} else if (action === 'delete') {
   result = handleDelete(data)
 } else {
-  result = { error: "Unknown action" }
+  result = { error: 'Unknown action' }
 }
 
 // For many cases, consider a lookup object:
 const handlers = {
   create: () => handleCreate(data),
   update: () => handleUpdate(data),
-  delete: () => handleDelete(data)
+  delete: () => handleDelete(data),
 }
 const handler = handlers[action]
 if (handler) {
   result = handler()
 } else {
-  result = { error: "Unknown action" }
+  result = { error: 'Unknown action' }
 }
 ```
 
@@ -179,12 +239,12 @@ AsyncJS uses monadic error handling. When an error occurs, subsequent atoms are 
 
 ```javascript
 try {
-  const data = fetch(url)           // If this fails...
-  const parsed = JSON.parse(data)   // ...this is skipped
-  storeSet("data", parsed)          // ...this is skipped too
+  const data = fetch(url) // If this fails...
+  const parsed = JSON.parse(data) // ...this is skipped
+  storeSet('data', parsed) // ...this is skipped too
 } catch (err) {
-  console.warn("Fetch failed, using cached data")
-  const cached = storeGet("data")
+  console.warn('Fetch failed, using cached data')
+  const cached = storeGet('data')
   return cached ?? { fallback: true }
 }
 ```
@@ -197,11 +257,11 @@ Use `try/catch` with fallbacks:
 let result
 
 try {
-  result = llmPredict(prompt, { model: "gpt-4" })
+  result = llmPredict(prompt, { model: 'gpt-4' })
 } catch (err) {
   // Fall back to simpler model
   try {
-    result = llmPredict(prompt, { model: "gpt-3.5-turbo" })
+    result = llmPredict(prompt, { model: 'gpt-3.5-turbo' })
   } catch (err2) {
     // Fall back to static response
     result = "I'm unable to process your request right now."
@@ -232,7 +292,7 @@ for (const item of items) {
 return {
   results: results,
   errors: errors,
-  success: errors.length === 0
+  success: errors.length === 0,
 }
 ```
 
@@ -242,17 +302,17 @@ return {
 
 These JavaScript features are intentionally not supported:
 
-| Feature | Reason | Alternative |
-|---------|--------|-------------|
-| `async/await` | All atoms are already async | Direct calls work |
-| `class` | OOP not needed for agent logic | Use plain objects |
-| `this` | No object context | Pass data explicitly |
-| `new` | No constructors | Use factory functions |
-| `import/export` | Single-file execution | Use capabilities |
-| `eval` | Security | N/A |
-| `throw` | Use monadic errors | `console.error()` |
-| `typeof` | Limited runtime type info | Use Schema validation |
-| `instanceof` | No classes | Use duck typing |
+| Feature         | Reason                         | Alternative           |
+| --------------- | ------------------------------ | --------------------- |
+| `async/await`   | All atoms are already async    | Direct calls work     |
+| `class`         | OOP not needed for agent logic | Use plain objects     |
+| `this`          | No object context              | Pass data explicitly  |
+| `new`           | No constructors                | Use factory functions |
+| `import/export` | Single-file execution          | Use capabilities      |
+| `eval`          | Security                       | N/A                   |
+| `throw`         | Use monadic errors             | `console.error()`     |
+| `typeof`        | Limited runtime type info      | Use Schema validation |
+| `instanceof`    | No classes                     | Use duck typing       |
 
 ---
 
@@ -264,11 +324,10 @@ Use the built-in `memoize` atom for expensive operations:
 
 ```javascript
 // Builder API
-Agent.take()
-  .memoize(b => b
-    .llmPredict({ prompt: expensivePrompt })
-    .as('result')
-  , 'expensive-key')
+Agent.take().memoize(
+  (b) => b.llmPredict({ prompt: expensivePrompt }).as('result'),
+  'expensive-key'
+)
 
 // Results are cached by key within the execution
 ```
@@ -279,8 +338,8 @@ Use `cache` atom with TTL for persistence across executions:
 
 ```javascript
 // Cache for 1 hour
-const result = cache("weather-" + city, 3600000, () => {
-  return fetch("https://api.weather.com/" + city)
+const result = cache('weather-' + city, 3600000, () => {
+  return fetch('https://api.weather.com/' + city)
 })
 ```
 
@@ -291,8 +350,8 @@ Monitor and limit computation:
 ```javascript
 // Check remaining fuel before expensive operation
 if (fuel.current < 100) {
-  console.warn("Low fuel, using cached result")
-  return storeGet("cached-result")
+  console.warn('Low fuel, using cached result')
+  return storeGet('cached-result')
 }
 
 // Proceed with expensive operation
@@ -306,11 +365,15 @@ const result = complexComputation()
 ### Mock Capabilities
 
 ```typescript
-import { createMockStore, createMockLLM, createCapabilities } from 'tosijs-agent/test-utils'
+import {
+  createMockStore,
+  createMockLLM,
+  createCapabilities,
+} from 'tosijs-agent/test-utils'
 
 const caps = createCapabilities({
   store: createMockStore({ key: 'value' }),
-  llm: createMockLLM('mocked response')
+  llm: createMockLLM('mocked response'),
 })
 
 const result = await runAgent(ast, { capabilities: caps })
@@ -333,13 +396,11 @@ expect(ast).toMatchSnapshot()
 ```typescript
 const result = await runAgent(ast, {
   trace: true,
-  capabilities: caps
+  capabilities: caps,
 })
 
 // Inspect execution trace
-expect(result.trace).toContainEqual(
-  expect.objectContaining({ op: 'storeGet' })
-)
+expect(result.trace).toContainEqual(expect.objectContaining({ op: 'storeGet' }))
 ```
 
 ---
@@ -357,11 +418,11 @@ Template literals work at statement level but not inside other expressions:
 const greeting = `Hello, ${name}!`
 
 // Does NOT work - nested in object
-const obj = { msg: `Hello, ${name}!` }  // Error
+const obj = { msg: `Hello, ${name}!` } // Error
 
 // Workaround - assign first
 const msg = `Hello, ${name}!`
-const obj = { msg: msg }  // Works
+const obj = { msg: msg } // Works
 ```
 
 ### Computed Member Access
@@ -374,12 +435,12 @@ const first = items[0]
 const name = user.name
 
 // Does NOT work - variable index
-const key = "name"
-const value = obj[key]  // Error
+const key = 'name'
+const value = obj[key] // Error
 
 // Workaround - use Object.entries or restructure
 const entries = Object.entries(obj)
-const found = entries.find(e => e[0] === key)
+const found = entries.find((e) => e[0] === key)
 const value = found ? found[1] : null
 ```
 
@@ -389,7 +450,7 @@ Atom/function calls that produce side effects cannot be embedded in expressions:
 
 ```javascript
 // Does NOT work - call inside expression
-const result = items.map(x => fetch(url + x))  // Error
+const result = items.map((x) => fetch(url + x)) // Error
 
 // Workaround - use explicit loop
 const results = []

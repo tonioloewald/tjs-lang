@@ -255,7 +255,10 @@ const mockLLM = {
 }`
     }
     // LLM Code Generator - return code without execution
-    if (prompt.includes('Write an AsyncJS function') && prompt.includes('factorial')) {
+    if (
+      prompt.includes('Write an AsyncJS function') &&
+      prompt.includes('factorial')
+    ) {
       return JSON.stringify({
         code: `function factorial(n: 5) {
   let result = 1
@@ -423,7 +426,9 @@ describe('Playground Examples', () => {
             })
 
             if (runResult.error) {
-              throw new Error(runResult.error.message || String(runResult.error))
+              throw new Error(
+                runResult.error.message || String(runResult.error)
+              )
             }
             expect(runResult.result).toBeDefined()
           } finally {

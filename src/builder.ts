@@ -607,7 +607,11 @@ export class TypedBuilder<M extends Record<string, Atom<any, any>>> {
     )
   }
 
-  map(items: ItemsRef, as: string, steps: (b: BuilderType<M>) => BuilderType<M>) {
+  map(
+    items: ItemsRef,
+    as: string,
+    steps: (b: BuilderType<M>) => BuilderType<M>
+  ) {
     const stepsB = new TypedBuilder(this.atoms)
     steps(stepsB as any)
     const mapAtom = this.atoms['map']
@@ -637,12 +641,7 @@ export class TypedBuilder<M extends Record<string, Atom<any, any>>> {
     )
   }
 
-  find(
-    items: ItemsRef,
-    as: string,
-    condition: string,
-    vars: VarMapping = {}
-  ) {
+  find(items: ItemsRef, as: string, condition: string, vars: VarMapping = {}) {
     const conditionExpr = parseCondition(condition, vars)
     const findAtom = this.atoms['find']
     return this.add(

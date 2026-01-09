@@ -5,9 +5,7 @@ import { s } from 'tosijs-schema'
 import { ajs } from '../transpiler'
 
 // To skip benchmarks: SKIP_BENCHMARKS=1 bun test
-const benchmarks = describe.each([
-  { run: !process.env.SKIP_BENCHMARKS },
-])
+const benchmarks = describe.each([{ run: !process.env.SKIP_BENCHMARKS }])
 
 function generatePrimes(n: number): number[] {
   const primes: number[] = []

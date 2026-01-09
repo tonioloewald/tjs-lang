@@ -331,7 +331,8 @@ Format: "Suggestion: [your suggestion]\\n\\nImproved: [improved text]"\`
   },
   {
     name: 'LLM Code Solver',
-    description: 'LLM writes and runs code to solve a problem (requires llm capability)',
+    description:
+      'LLM writes and runs code to solve a problem (requires llm capability)',
     requiresApi: true,
     code: `function solveWithCode({ problem = 'Calculate the 10th Fibonacci number' }) {
   // System prompt with AsyncJS rules and example
@@ -397,7 +398,8 @@ Write a function called "solve" that: \${problem}\`
   },
   {
     name: 'LLM Code Generator',
-    description: 'LLM writes AsyncJS code from a description (requires llm capability)',
+    description:
+      'LLM writes AsyncJS code from a description (requires llm capability)',
     requiresApi: true,
     code: `function generateCode({ task = 'Calculate the factorial of n' }) {
   // System prompt with AsyncJS rules and complete example

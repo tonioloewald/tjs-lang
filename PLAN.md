@@ -109,6 +109,7 @@ Added `/*# markdown */` documentation to key atoms in runtime.ts. Fixed docs.js 
 ### 3.1 Missing Agent Patterns - DONE
 
 Created `PATTERNS.md` documenting:
+
 - Parallel execution (not supported, capability workaround)
 - Retry/backoff (manual while loop pattern)
 - Rate limiting (capability responsibility)
@@ -122,6 +123,7 @@ Created `PATTERNS.md` documenting:
 ### 3.2 Half-Implemented Features - DONE
 
 Documented as limitations in PATTERNS.md:
+
 - Template literals in expressions (now throws helpful error instead of `'__template__'`)
 - Computed member access (`obj[variable]`) not supported
 - Atom calls in expressions not supported
@@ -137,6 +139,7 @@ Tested implicitly via integration tests. Mock-based unit tests are low priority.
 ### 3.4 Builtin Object Test Coverage - DONE
 
 Added tests for:
+
 - Date factory and methods (creation, properties, format, add, diff, comparison)
 - Set factory and methods (has, size, add, union, intersection, diff)
 
@@ -173,6 +176,7 @@ Added tests for:
 ## Summary
 
 All P0-P3 items have been addressed. The codebase now has:
+
 - Improved type safety in Builder API
 - Comprehensive documentation (PATTERNS.md, inline docs)
 - Better error messages for unsupported syntax
