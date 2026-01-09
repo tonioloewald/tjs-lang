@@ -73,7 +73,7 @@ export const Schema: SchemaCallable = new Proxy(schemaCallable as any, {
   apply(target, thisArg, args) {
     // Make it callable - Schema(value) infers schema
     return infer(args[0])
-  }
+  },
 })
 
 // Re-export useful types from tosijs-schema

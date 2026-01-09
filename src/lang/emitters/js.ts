@@ -143,8 +143,6 @@ export function transpileToJS(
   return { code, types, warnings: warnings.length > 0 ? warnings : undefined }
 }
 
-
-
 /**
  * Find the main function in the AST
  */

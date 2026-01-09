@@ -33,8 +33,9 @@ import {
 import { styleSpec } from './style'
 StyleSheet('demo-style', styleSpec)
 
-// Import playground component
+// Import playground components
 import { playground } from './playground'
+import { tjsPlayground } from './tjs-playground'
 
 // Import settings dialog
 import { showSettingsDialog } from './settings'
@@ -69,17 +70,25 @@ Object.assign(window, { agent, tosijs, tosijsui, demoRuntime })
 // Load documentation
 import docs from '../docs.json'
 
-// Add playground as a special page
-const playgroundDoc = {
-  title: '▶ Playground',
+// Add playgrounds as special pages
+const ajsPlaygroundDoc = {
+  title: '▶ AJS Playground',
   filename: 'playground',
-  text: '', // Not used - playground renders custom component
-  isPlayground: true,
+  text: '',
+  isPlayground: 'ajs',
   pin: 'top',
 }
 
-// Insert playground after pinned docs
-const allDocs = [playgroundDoc, ...docs]
+const tjsPlaygroundDoc = {
+  title: '▶ TJS Playground',
+  filename: 'tjs-playground',
+  text: '',
+  isPlayground: 'tjs',
+  pin: 'top',
+}
+
+// Insert playgrounds at top
+const allDocs = [ajsPlaygroundDoc, tjsPlaygroundDoc, ...docs]
 
 const PROJECT = 'tosijs-agent'
 const VERSION = '0.1.0' // TODO: import from package.json
@@ -434,9 +443,19 @@ if (main) {
           binding: {
             toDOM(element: HTMLElement, doc: any) {
               element.innerHTML = ''
-              if (doc.isPlayground) {
+              if (doc.isPlayground === 'ajs') {
                 element.append(
                   playground({
+                    style: {
+                      display: 'block',
+                      height: '100%',
+                      padding: 10,
+                    },
+                  })
+                )
+              } else if (doc.isPlayground === 'tjs') {
+                element.append(
+                  tjsPlayground({
                     style: {
                       display: 'block',
                       height: '100%',

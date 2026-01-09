@@ -61,6 +61,9 @@
     "start": "bun run build:demo && bun run dev"
   },
   "dependencies": {
+    "@codemirror/lang-css": "^6.3.1",
+    "@codemirror/lang-html": "^6.4.11",
+    "@codemirror/lang-markdown": "^6.5.0",
     "acorn": "^8.15.0",
     "tosijs-schema": "^1.1.3"
   }

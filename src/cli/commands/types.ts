@@ -13,7 +13,7 @@ export async function types(file: string): Promise<void> {
   // Output the type information as JSON
   const typeInfo = {
     file,
-    ...result.types
+    ...result.types,
   }
 
   console.log(JSON.stringify(typeInfo, null, 2))

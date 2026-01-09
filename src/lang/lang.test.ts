@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'bun:test'
 import { transpile, ajs, tjs, transpileToJS, fromTS } from './index'
 import { preprocess } from './parser'
+import { Schema } from './schema'
 
 describe('Transpiler', () => {
   describe('Parser preprocessing', () => {
@@ -930,8 +931,6 @@ describe('TypeScript to TJS Transpiler', () => {
 })
 // Schema callable tests
 describe('Schema callable', () => {
-  const { Schema } = require('./schema')
-
   describe('Schema(value) inference', () => {
     it('should infer string schema', () => {
       const schema = Schema('hello')
@@ -1039,7 +1038,7 @@ describe('Schema callable', () => {
     it('should have Schema.object()', () => {
       const schema = Schema.object({
         name: Schema.string,
-        age: Schema.number.optional
+        age: Schema.number.optional,
       })
       expect(schema.validate({ name: 'Anne' })).toBe(true)
       expect(schema.validate({ name: 'Anne', age: 30 })).toBe(true)

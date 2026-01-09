@@ -244,7 +244,7 @@ function transformTryWithoutCatch(source: string): string {
 
       // Check what comes after the closing brace
       const afterTry = source.slice(j).match(/^\s*(catch|finally)\b/)
-      
+
       if (afterTry) {
         // Has catch or finally - leave it alone, copy the try block as-is
         result += source.slice(i, j)
