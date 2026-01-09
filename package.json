@@ -46,7 +46,6 @@
     "vitest": "^2.0.5"
   },
   "scripts": {
-    "test": "bun test --max-concurrency 1",
     "format": "bun eslint src --fix && bun prettier --write .",
     "lint": "eslint src",
     "make": "rm -rf dist && bun format && tsc -p tsconfig.build.json && bun build ./src/index.ts --outdir=dist --minify --sourcemap=external --external acorn --external tosijs-schema && bun run show-size",
