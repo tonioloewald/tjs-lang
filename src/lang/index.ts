@@ -33,6 +33,7 @@ import { transformFunction } from './emitters/ast'
 export * from './types'
 export { parse, preprocess } from './parser'
 export { transformFunction } from './emitters/ast'
+export { transpileToJS, type TJSTranspileOptions, type TJSTranspileResult, type TJSTypeInfo } from './emitters/js'
 export * from './inference'
 
 /**
@@ -134,6 +135,50 @@ export function ajs(
     ''
   )
   return transpile(source).ast
+}
+
+/**
+ * Transpile TJS source to JavaScript with type metadata.
+ * Works as both a function and a tagged template literal.
+ *
+ * @example
+ * ```typescript
+ * // As a function
+ * const result = tjs(`
+ *   function greet(name: 'world') -> '' {
+ *     return \`Hello, \${name}!\`
+ *   }
+ * `)
+ * console.log(result.code)
+ * // function greet(name = 'world') { return \`Hello, \${name}!\` }
+ * // greet.__tjs = { params: { name: { type: 'string', required: true } }, returns: { type: 'string' } }
+ *
+ * // As a tagged template literal
+ * const result2 = tjs`
+ *   function add(a: 0, b: 0) -> 0 {
+ *     return a + b
+ *   }
+ * `
+ * ```
+ */
+import { transpileToJS, type TJSTranspileResult } from './emitters/js'
+
+export function tjs(strings: TemplateStringsArray, ...values: any[]): TJSTranspileResult
+export function tjs(source: string): TJSTranspileResult
+export function tjs(
+  sourceOrStrings: string | TemplateStringsArray,
+  ...values: any[]
+): TJSTranspileResult {
+  if (typeof sourceOrStrings === 'string') {
+    return transpileToJS(sourceOrStrings)
+  }
+  // Tagged template literal
+  const source = sourceOrStrings.reduce(
+    (acc, str, i) =>
+      acc + str + (values[i] !== undefined ? String(values[i]) : ''),
+    ''
+  )
+  return transpileToJS(source)
 }
 
 /**

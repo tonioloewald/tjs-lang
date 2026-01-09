@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'bun:test'
-import { transpile, ajs } from './index'
+import { transpile, ajs, tjs, transpileToJS } from './index'
 import { preprocess } from './parser'
 
 describe('Transpiler', () => {
@@ -562,6 +562,177 @@ describe('Transpiler', () => {
       expect(varSetStep.op).toBe('varSet')
       expect(varSetStep.value.$expr).toBe('logical')
       expect(varSetStep.value.op).toBe('??')
+    })
+  })
+})
+
+describe('TJS Emitter', () => {
+  describe('transpileToJS', () => {
+    it('should transpile a simple function to JavaScript', () => {
+      const result = transpileToJS(`
+        function greet(name: 'world') {
+          return \`Hello, \${name}!\`
+        }
+      `)
+      expect(result.code).toContain('function greet')
+      expect(result.code).toContain('greet.__tjs')
+      expect(result.types.name).toBe('greet')
+      expect(result.types.params.name).toBeDefined()
+      expect(result.types.params.name.type.kind).toBe('string')
+    })
+
+    it('should preserve return type annotation in metadata', () => {
+      const result = transpileToJS(`
+        function add(a: 0, b: 0) -> 0 {
+          return a + b
+        }
+      `)
+      expect(result.code).not.toContain('->')
+      expect(result.types.returns).toBeDefined()
+      expect(result.types.returns?.kind).toBe('number')
+    })
+
+    it('should mark parameters as required when using colon syntax', () => {
+      const result = transpileToJS(`
+        function test(required: 'value', optional = 'default') {
+          return required
+        }
+      `)
+      expect(result.types.params.required.required).toBe(true)
+      expect(result.types.params.optional.required).toBe(false)
+    })
+
+    it('should convert colon syntax to default values in output', () => {
+      const result = transpileToJS(`
+        function greet(name: 'world') {
+          return name
+        }
+      `)
+      expect(result.code).toContain("name = 'world'")
+      expect(result.code).not.toContain("name: 'world'")
+    })
+
+    it('should handle object type annotations', () => {
+      const result = transpileToJS(`
+        function process(user: { name: 'Anne', age: 25 }) {
+          return user.name
+        }
+      `)
+      expect(result.types.params.user.type.kind).toBe('object')
+      expect(result.types.params.user.type.shape?.name.kind).toBe('string')
+      expect(result.types.params.user.type.shape?.age.kind).toBe('number')
+    })
+
+    it('should handle array type annotations', () => {
+      const result = transpileToJS(`
+        function sum(numbers: [1, 2, 3]) {
+          return numbers.reduce((a, b) => a + b, 0)
+        }
+      `)
+      expect(result.types.params.numbers.type.kind).toBe('array')
+      expect(result.types.params.numbers.type.items?.kind).toBe('number')
+    })
+
+    it('should generate __tjs metadata object', () => {
+      const result = transpileToJS(`
+        function greet(name: 'world') -> '' {
+          return \`Hello, \${name}!\`
+        }
+      `)
+      expect(result.code).toContain('greet.__tjs = {')
+      expect(result.code).toContain('"params"')
+      expect(result.code).toContain('"name"')
+      expect(result.code).toContain('"returns"')
+    })
+
+    it('should extract JSDoc descriptions', () => {
+      const result = transpileToJS(`
+        /**
+         * Greet a user by name
+         * @param name - The name to greet
+         */
+        function greet(name: 'world') {
+          return \`Hello, \${name}!\`
+        }
+      `)
+      expect(result.types.description).toBe('Greet a user by name')
+      expect(result.types.params.name.description).toBe('The name to greet')
+    })
+  })
+
+  describe('tjs() convenience function', () => {
+    it('should return transpiled result', () => {
+      const result = tjs(`
+        function test(x: 0) {
+          return x * 2
+        }
+      `)
+      expect(result.code).toContain('function test')
+      expect(result.types.name).toBe('test')
+    })
+
+    it('should work as tagged template literal', () => {
+      const result = tjs`
+        function double(n: 0) {
+          return n * 2
+        }
+      `
+      expect(result.code).toContain('function double')
+      expect(result.types.params.n.type.kind).toBe('number')
+    })
+
+    it('should handle interpolation in tagged template', () => {
+      const funcName = 'myFunc'
+      const result = tjs`
+        function ${funcName}(x: 0) {
+          return x
+        }
+      `
+      expect(result.code).toContain('function myFunc')
+    })
+  })
+
+  describe('Edge cases', () => {
+    it('should handle function with no parameters', () => {
+      const result = transpileToJS(`
+        function noArgs() {
+          return 42
+        }
+      `)
+      expect(result.code).toContain('function noArgs()')
+      expect(Object.keys(result.types.params)).toHaveLength(0)
+    })
+
+    it('should handle multiple parameters', () => {
+      const result = transpileToJS(`
+        function calc(a: 0, b: 0, c = 1) {
+          return a + b + c
+        }
+      `)
+      expect(result.types.params.a.required).toBe(true)
+      expect(result.types.params.b.required).toBe(true)
+      expect(result.types.params.c.required).toBe(false)
+    })
+
+    it('should handle boolean types', () => {
+      const result = transpileToJS(`
+        function toggle(enabled: true) {
+          return !enabled
+        }
+      `)
+      expect(result.types.params.enabled.type.kind).toBe('boolean')
+    })
+
+    it('should handle object return type', () => {
+      // Object types are valid return types
+      const result = transpileToJS(`
+        function test(x: 0) -> { result: 0 } {
+          return { result: x }
+        }
+      `)
+      expect(result.types.returns).toBeDefined()
+      expect(result.types.returns?.kind).toBe('object')
+      expect(result.types.returns?.shape?.result.kind).toBe('number')
     })
   })
 })
