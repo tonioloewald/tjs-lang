@@ -30148,6 +30148,126 @@ Format: "Suggestion: [your suggestion]\\n\\nImproved: [improved text]"\`
   let parsed = JSON.parse(result.content)
   return { imageUrl, classification: parsed }
 }`
+  },
+  {
+    name: "LLM Code Solver",
+    description: "LLM writes and runs code to solve a problem (requires llm capability)",
+    requiresApi: true,
+    code: `function solveWithCode({ problem = 'Calculate the 10th Fibonacci number' }) {
+  // System prompt with AsyncJS rules and example
+  let systemContext = \`You write AsyncJS code. AsyncJS is a JavaScript subset.
+
+RULES:
+- NO: async, await, new, class, this, var, for loops
+- Use let for variables, while for loops
+- Return an object: return { result }
+
+EXAMPLE (factorial):
+function solve() {
+  let result = 1
+  let i = 5
+  while (i > 1) {
+    result = result * i
+    i = i - 1
+  }
+  return { result }
+}
+
+Return ONLY the function code, nothing else.\`
+  
+  let prompt = \`\${systemContext}
+
+Write a function called "solve" that: \${problem}\`
+
+  let response = llmPredict({ prompt })
+  
+  // Clean up code - remove markdown fences, fix escapes, extract function
+  let code = response
+  code = code.replace(/\`\`\`(?:javascript|js|asyncjs)?\\n?/g, '')
+  code = code.replace(/\\n?\`\`\`/g, '')
+  code = code.replace(/\\\\n/g, '\\n')
+  code = code.replace(/\\\\t/g, '\\t')
+  code = code.replace(/\\\\"/g, '"')
+  code = code.trim()
+  
+  // Try to extract just the function if there's extra text
+  let funcMatch = code.match(/function\\s+solve\\s*\\([^)]*\\)\\s*\\{[\\s\\S]*\\}/)
+  if (funcMatch) {
+    code = funcMatch[0]
+  }
+  
+  // Validate it looks like a function before running
+  if (!code.startsWith('function')) {
+    return {
+      problem,
+      error: 'LLM did not generate valid code',
+      rawResponse: response
+    }
+  }
+  
+  // Execute the generated code
+  let output = runCode({ code, args: {} })
+  
+  return {
+    problem,
+    generatedCode: code,
+    result: output.result
+  }
+}`
+  },
+  {
+    name: "LLM Code Generator",
+    description: "LLM writes AsyncJS code from a description (requires llm capability)",
+    requiresApi: true,
+    code: `function generateCode({ task = 'Calculate the factorial of n' }) {
+  // System prompt with AsyncJS rules and complete example
+  let systemContext = \`You write AsyncJS code. AsyncJS is a subset of JavaScript.
+
+RULES:
+- Types by example: fn(n: 5) means required number param with example value 5
+- NO: async, await, new, class, this, var, for, generator functions (function*)
+- Use let for variables, while for loops
+- Return an object: return { result }
+
+EXAMPLE - calculating sum of 1 to n:
+function sumTo(n: 10) {
+  let sum = 0
+  let i = 1
+  while (i <= n) {
+    sum = sum + i
+    i = i + 1
+  }
+  return { result: sum }
+}\`
+
+  let schema = Schema.response('generated_code', {
+    code: '',
+    description: ''
+  })
+  
+  let prompt = \`\${systemContext}
+
+Write an AsyncJS function for: \${task}
+
+Return ONLY valid AsyncJS code in the code field. Must start with "function" and use while loops (not for loops).\`
+
+  let response = llmPredict({ prompt, options: { responseFormat: schema } })
+  let result = JSON.parse(response)
+  
+  // Clean up any markdown fences and fix escaped newlines
+  let code = result.code
+  code = code.replace(/\`\`\`(?:javascript|js)?\\n?/g, '')
+  code = code.replace(/\\n?\`\`\`/g, '')
+  code = code.replace(/\\\\n/g, '\\n')
+  code = code.replace(/\\\\t/g, '\\t')
+  code = code.trim()
+  
+  return {
+    task,
+    code,
+    description: result.description
+  }
+}`
   }
 ];
 
@@ -30165,6 +30285,7 @@ __export(exports_src, {
   uuid: () => uuid,
   typeToString: () => typeToString,
   tryCatch: () => tryCatch,
+  transpileCode: () => transpileCode,
   transpile: () => transpile,
   transformFunction: () => transformFunction,
   template: () => template,
@@ -30174,6 +30295,7 @@ __export(exports_src, {
   split: () => split,
   seq: () => seq,
   scope: () => scope,
+  runCode: () => runCode,
   ret: () => ret,
   resolveValue: () => resolveValue,
   regexMatch: () => regexMatch,
@@ -31671,6 +31793,53 @@ var agentRun = defineAtom("agentRun", e.object({ agentId: e.string, input: e.any
   }
   return result;
 }, { docs: "Run Sub-Agent", cost: 1 });
+var transpileCode = defineAtom("transpileCode", e.object({
+  code: e.string
+}), e.any, async ({ code: code2 }, ctx) => {
+  if (!ctx.capabilities.code?.transpile) {
+    throw new Error("Capability 'code.transpile' missing. Enable code transpilation by providing the code capability.");
+  }
+  const resolvedCode = resolveValue(code2, ctx);
+  try {
+    return ctx.capabilities.code.transpile(resolvedCode);
+  } catch (e2) {
+    throw new Error(`Code transpilation failed: ${e2.message}`);
+  }
+}, { docs: "Transpile AsyncJS code to AST", cost: 1 });
+var MAX_RUNCODE_DEPTH = 10;
+var runCode = defineAtom("runCode", e.object({
+  code: e.string,
+  args: e.record(e.any).optional
+}), e.any, async ({ code: code2, args }, ctx) => {
+  const currentDepth = ctx.runCodeDepth ?? 0;
+  if (currentDepth >= MAX_RUNCODE_DEPTH) {
+    throw new Error(`runCode recursion limit exceeded (max ${MAX_RUNCODE_DEPTH}). ` + "This prevents infinite loops from dynamically generated code calling runCode.");
+  }
+  if (!ctx.capabilities.code?.transpile) {
+    throw new Error("Capability 'code.transpile' missing. Enable dynamic code execution by providing the code capability.");
+  }
+  const resolvedCode = resolveValue(code2, ctx);
+  const resolvedArgs = args ? resolveValue(args, ctx) : {};
+  let ast;
+  try {
+    ast = ctx.capabilities.code.transpile(resolvedCode);
+  } catch (e2) {
+    throw new Error(`Code transpilation failed: ${e2.message}`);
+  }
+  if (ast.op !== "seq") {
+    throw new Error("Transpiled code must be a seq node");
+  }
+  const childCtx = createChildScope(ctx);
+  childCtx.args = resolvedArgs;
+  childCtx.output = undefined;
+  childCtx.runCodeDepth = currentDepth + 1;
+  await seq.exec(ast, childCtx);
+  if (childCtx.error) {
+    ctx.error = childCtx.error;
+    return;
+  }
+  return childCtx.output;
+}, { docs: "Run dynamically generated AsyncJS code", cost: 1 });
 var jsonParse = defineAtom("jsonParse", e.object({ str: e.string }), e.any, async ({ str }, ctx) => JSON.parse(resolveValue(str, ctx)), { docs: "Parse JSON", cost: 1 });
 var jsonStringify = defineAtom("jsonStringify", e.object({ value: e.any }), e.string, async ({ value }, ctx) => JSON.stringify(resolveValue(value, ctx)), { docs: "Stringify JSON", cost: 1 });
 var xmlParse = defineAtom("xmlParse", e.object({ str: e.string }), e.any, async ({ str }, ctx) => {
@@ -31869,6 +32038,8 @@ var coreAtoms = {
   storeVectorSearch: vectorSearch,
   llmPredict,
   agentRun,
+  transpileCode,
+  runCode,
   jsonParse,
   jsonStringify,
   xmlParse,
@@ -41062,6 +41233,9 @@ class Playground extends F {
           llmBattery: llmBattery || {
             predict: () => noLLMError(),
             embed: () => noLLMError()
+          },
+          code: {
+            transpile: (source) => transpile(source).ast
           }
         }
       });
@@ -43909,6 +44083,49 @@ const structured = llmPredict(prompt, {
 
 ---
 
+## transpileCode (Code to AST)
+
+Transpiles AsyncJS code to an AST without executing it.
+Useful for generating agents to send to other services via fetch.
+
+\`\`\`javascript
+// Generate an agent and send it to a worker
+let code = llmPredict({ prompt: 'Write an AsyncJS data processor' })
+let ast = transpileCode({ code })
+let result = httpFetch({ 
+  url: 'https://worker.example.com/run',
+  method: 'POST',
+  body: JSON.stringify({ ast, args: { data: myData } })
+})
+\`\`\`
+
+Security: Only available when the \`code.transpile\` capability is provided.
+
+---
+
+## runCode (Dynamic Code Execution)
+
+Transpiles and executes AsyncJS code at runtime. The generated code
+runs in the same context, sharing fuel budget, capabilities, and trace.
+
+This enables agents to write and execute code to solve problems.
+
+\`\`\`javascript
+// Agent writes code to solve a problem
+let code = llmPredict({ prompt: 'Write AsyncJS to calculate fibonacci(10)' })
+let result = runCode({ code, args: {} })
+return { answer: result }
+\`\`\`
+
+The code must be a valid AsyncJS function. The function's return value
+becomes the result of runCode.
+
+Security: Only available when the \`code.transpile\` capability is provided.
+The transpiled code runs with the same permissions as the parent.
+Recursion depth is limited to prevent stack overflow.
+
+---
+
 ## memoize
 
 In-memory caching within a single execution. Same key returns cached result.
@@ -44625,4 +44842,4 @@ if (main) {
 }
 console.log(`%c tosijs-agent %c v${VERSION} `, "background: #6366f1; color: white; padding: 2px 6px; border-radius: 3px 0 0 3px;", "background: #374151; color: white; padding: 2px 6px; border-radius: 0 3px 3px 0;");
 
-//# debugId=2BFFD11221A6ECF464756E2164756E21
+//# debugId=37A02CF8D5D7740564756E2164756E21

@@ -329,4 +329,124 @@ Format: "Suggestion: [your suggestion]\\n\\nImproved: [improved text]"\`
   return { imageUrl, classification: parsed }
 }`,
   },
+  {
+    name: 'LLM Code Solver',
+    description: 'LLM writes and runs code to solve a problem (requires llm capability)',
+    requiresApi: true,
+    code: `function solveWithCode({ problem = 'Calculate the 10th Fibonacci number' }) {
+  // System prompt with AsyncJS rules and example
+  let systemContext = \`You write AsyncJS code. AsyncJS is a JavaScript subset.
+
+RULES:
+- NO: async, await, new, class, this, var, for loops
+- Use let for variables, while for loops
+- Return an object: return { result }
+
+EXAMPLE (factorial):
+function solve() {
+  let result = 1
+  let i = 5
+  while (i > 1) {
+    result = result * i
+    i = i - 1
+  }
+  return { result }
+}
+
+Return ONLY the function code, nothing else.\`
+  
+  let prompt = \`\${systemContext}
+
+Write a function called "solve" that: \${problem}\`
+
+  let response = llmPredict({ prompt })
+  
+  // Clean up code - remove markdown fences, fix escapes, extract function
+  let code = response
+  code = code.replace(/\`\`\`(?:javascript|js|asyncjs)?\\n?/g, '')
+  code = code.replace(/\\n?\`\`\`/g, '')
+  code = code.replace(/\\\\n/g, '\\n')
+  code = code.replace(/\\\\t/g, '\\t')
+  code = code.replace(/\\\\"/g, '"')
+  code = code.trim()
+  
+  // Try to extract just the function if there's extra text
+  let funcMatch = code.match(/function\\s+solve\\s*\\([^)]*\\)\\s*\\{[\\s\\S]*\\}/)
+  if (funcMatch) {
+    code = funcMatch[0]
+  }
+  
+  // Validate it looks like a function before running
+  if (!code.startsWith('function')) {
+    return {
+      problem,
+      error: 'LLM did not generate valid code',
+      rawResponse: response
+    }
+  }
+  
+  // Execute the generated code
+  let output = runCode({ code, args: {} })
+  
+  return {
+    problem,
+    generatedCode: code,
+    result: output.result
+  }
+}`,
+  },
+  {
+    name: 'LLM Code Generator',
+    description: 'LLM writes AsyncJS code from a description (requires llm capability)',
+    requiresApi: true,
+    code: `function generateCode({ task = 'Calculate the factorial of n' }) {
+  // System prompt with AsyncJS rules and complete example
+  let systemContext = \`You write AsyncJS code. AsyncJS is a subset of JavaScript.
+
+RULES:
+- Types by example: fn(n: 5) means required number param with example value 5
+- NO: async, await, new, class, this, var, for, generator functions (function*)
+- Use let for variables, while for loops
+- Return an object: return { result }
+
+EXAMPLE - calculating sum of 1 to n:
+function sumTo(n: 10) {
+  let sum = 0
+  let i = 1
+  while (i <= n) {
+    sum = sum + i
+    i = i + 1
+  }
+  return { result: sum }
+}\`
+
+  let schema = Schema.response('generated_code', {
+    code: '',
+    description: ''
+  })
+  
+  let prompt = \`\${systemContext}
+
+Write an AsyncJS function for: \${task}
+
+Return ONLY valid AsyncJS code in the code field. Must start with "function" and use while loops (not for loops).\`
+
+  let response = llmPredict({ prompt, options: { responseFormat: schema } })
+  let result = JSON.parse(response)
+  
+  // Clean up any markdown fences and fix escaped newlines
+  let code = result.code
+  code = code.replace(/\`\`\`(?:javascript|js)?\\n?/g, '')
+  code = code.replace(/\\n?\`\`\`/g, '')
+  code = code.replace(/\\\\n/g, '\\n')
+  code = code.replace(/\\\\t/g, '\\t')
+  code = code.trim()
+  
+  return {
+    task,
+    code,
+    description: result.description
+  }
+}`,
+  },
 ]

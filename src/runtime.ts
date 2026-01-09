@@ -62,6 +62,10 @@ export interface Capabilities {
   xml?: {
     parse: (xml: string) => Promise<any>
   }
+  code?: {
+    /** Transpile AsyncJS source to AST */
+    transpile: (source: string) => { op: string; steps: any[] }
+  }
   [key: string]: any
 }
 
@@ -96,6 +100,7 @@ export interface RuntimeContext {
   signal?: AbortSignal // External abort signal for timeout enforcement
   costOverrides?: Record<string, CostOverride> // Per-atom cost overrides
   context?: Record<string, any> // Immutable request-scoped metadata (auth, permissions, etc.)
+  runCodeDepth?: number // Track nested runCode calls to prevent infinite recursion
 }
 
 export type AtomExec = (step: any, ctx: RuntimeContext) => Promise<void>
@@ -2042,6 +2047,134 @@ export const agentRun = defineAtom(
   { docs: 'Run Sub-Agent', cost: 1 }
 )
 
+/*#
+## transpileCode (Code to AST)
+
+Transpiles AsyncJS code to an AST without executing it.
+Useful for generating agents to send to other services via fetch.
+
+```javascript
+// Generate an agent and send it to a worker
+let code = llmPredict({ prompt: 'Write an AsyncJS data processor' })
+let ast = transpileCode({ code })
+let result = httpFetch({ 
+  url: 'https://worker.example.com/run',
+  method: 'POST',
+  body: JSON.stringify({ ast, args: { data: myData } })
+})
+```
+
+Security: Only available when the `code.transpile` capability is provided.
+*/
+export const transpileCode = defineAtom(
+  'transpileCode',
+  s.object({
+    code: s.string,
+  }),
+  s.any,
+  async ({ code }, ctx) => {
+    if (!ctx.capabilities.code?.transpile) {
+      throw new Error(
+        "Capability 'code.transpile' missing. Enable code transpilation by providing the code capability."
+      )
+    }
+
+    const resolvedCode = resolveValue(code, ctx)
+
+    try {
+      return ctx.capabilities.code.transpile(resolvedCode)
+    } catch (e: any) {
+      throw new Error(`Code transpilation failed: ${e.message}`)
+    }
+  },
+  { docs: 'Transpile AsyncJS code to AST', cost: 1 }
+)
+
+/*#
+## runCode (Dynamic Code Execution)
+
+Transpiles and executes AsyncJS code at runtime. The generated code
+runs in the same context, sharing fuel budget, capabilities, and trace.
+
+This enables agents to write and execute code to solve problems.
+
+```javascript
+// Agent writes code to solve a problem
+let code = llmPredict({ prompt: 'Write AsyncJS to calculate fibonacci(10)' })
+let result = runCode({ code, args: {} })
+return { answer: result }
+```
+
+The code must be a valid AsyncJS function. The function's return value
+becomes the result of runCode.
+
+Security: Only available when the `code.transpile` capability is provided.
+The transpiled code runs with the same permissions as the parent.
+Recursion depth is limited to prevent stack overflow.
+*/
+/** Maximum nesting depth for runCode to prevent infinite recursion */
+const MAX_RUNCODE_DEPTH = 10
+
+export const runCode = defineAtom(
+  'runCode',
+  s.object({
+    code: s.string,
+    args: s.record(s.any).optional,
+  }),
+  s.any,
+  async ({ code, args }, ctx) => {
+    // Check recursion depth
+    const currentDepth = ctx.runCodeDepth ?? 0
+    if (currentDepth >= MAX_RUNCODE_DEPTH) {
+      throw new Error(
+        `runCode recursion limit exceeded (max ${MAX_RUNCODE_DEPTH}). ` +
+          'This prevents infinite loops from dynamically generated code calling runCode.'
+      )
+    }
+
+    if (!ctx.capabilities.code?.transpile) {
+      throw new Error(
+        "Capability 'code.transpile' missing. Enable dynamic code execution by providing the code capability."
+      )
+    }
+
+    const resolvedCode = resolveValue(code, ctx)
+    const resolvedArgs = args ? resolveValue(args, ctx) : {}
+
+    // Transpile the code to AST
+    let ast: { op: string; steps: any[] }
+    try {
+      ast = ctx.capabilities.code.transpile(resolvedCode)
+    } catch (e: any) {
+      throw new Error(`Code transpilation failed: ${e.message}`)
+    }
+
+    if (ast.op !== 'seq') {
+      throw new Error('Transpiled code must be a seq node')
+    }
+
+    // Create a child scope for the dynamic code execution
+    // This isolates its variables but shares fuel, capabilities, trace
+    const childCtx = createChildScope(ctx)
+    childCtx.args = resolvedArgs
+    childCtx.output = undefined
+    childCtx.runCodeDepth = currentDepth + 1 // Increment depth for nested calls
+
+    // Execute the transpiled code in the child context
+    await seq.exec(ast as any, childCtx)
+
+    // Propagate any error from child to parent
+    if (childCtx.error) {
+      ctx.error = childCtx.error
+      return
+    }
+
+    // Return the output from the dynamic code
+    return childCtx.output
+  },
+  { docs: 'Run dynamically generated AsyncJS code', cost: 1 }
+)
+
 // 11. Parsing (Cost 1)
 export const jsonParse = defineAtom(
   'jsonParse',
@@ -2412,6 +2545,8 @@ export const coreAtoms = {
   storeVectorSearch: vectorSearch,
   llmPredict,
   agentRun,
+  transpileCode,
+  runCode,
   jsonParse,
   jsonStringify,
   xmlParse,

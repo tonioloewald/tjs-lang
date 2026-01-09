@@ -8,6 +8,46 @@ import { mock } from 'bun:test'
 import type { Capabilities } from './runtime'
 
 /**
+ * Retry a test function up to maxAttempts times.
+ * Passes if it succeeds at least minSuccesses times out of maxAttempts.
+ * This accounts for LLM variability in code generation.
+ */
+export async function withRetry<T>(
+  fn: () => Promise<T>,
+  {
+    maxAttempts = 3,
+    minSuccesses = 1,
+  }: { maxAttempts?: number; minSuccesses?: number } = {}
+): Promise<T> {
+  let successes = 0
+  let lastError: Error | undefined
+  let lastResult: T | undefined
+
+  for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+    try {
+      lastResult = await fn()
+      successes++
+      if (successes >= minSuccesses) {
+        return lastResult
+      }
+    } catch (e) {
+      lastError = e as Error
+      console.log(
+        `Attempt ${attempt}/${maxAttempts} failed: ${lastError.message}`
+      )
+    }
+  }
+
+  if (successes >= minSuccesses) {
+    return lastResult!
+  }
+
+  throw new Error(
+    `Test failed: only ${successes}/${maxAttempts} attempts succeeded (needed ${minSuccesses}). Last error: ${lastError?.message}`
+  )
+}
+
+/**
  * Creates a mock in-memory store capability
  * @param initialData - Optional initial data keyed by string
  * @param options.getOverride - Optional function to override get behavior

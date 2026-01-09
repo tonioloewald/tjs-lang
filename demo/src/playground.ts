@@ -834,6 +834,9 @@ export class Playground extends Component<PlaygroundParts> {
             predict: () => noLLMError(),
             embed: () => noLLMError(),
           },
+          code: {
+            transpile: (source: string) => transpile(source).ast,
+          },
         },
       })
 

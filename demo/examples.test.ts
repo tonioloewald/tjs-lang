@@ -29,6 +29,7 @@ function trackTestEnd() {
 }
 import { examples } from './src/examples'
 import { AgentVM, transpile, coreAtoms, batteryAtoms } from '../src'
+import { withRetry } from '../src/test-utils'
 import {
   buildLLMCapability,
   buildLLMBattery,
@@ -238,6 +239,36 @@ const mockLLM = {
       return 'This is a well-written paragraph.'
     if (prompt.includes('editor agent'))
       return 'Suggestion: Add more detail.\n\nImproved: Better paragraph.'
+    // LLM Code Solver - generate valid AsyncJS code (Fibonacci)
+    if (prompt.includes('function called "solve"')) {
+      return `function solve() {
+  let a = 0
+  let b = 1
+  let i = 0
+  while (i < 10) {
+    let temp = a + b
+    a = b
+    b = temp
+    i = i + 1
+  }
+  return { result: a }
+}`
+    }
+    // LLM Code Generator - return code without execution
+    if (prompt.includes('Write an AsyncJS function') && prompt.includes('factorial')) {
+      return JSON.stringify({
+        code: `function factorial(n: 5) {
+  let result = 1
+  let i = n
+  while (i > 1) {
+    result = result * i
+    i = i - 1
+  }
+  return { result }
+}`,
+        description: 'Calculates the factorial of n using iteration.',
+      })
+    }
     return 'Mock LLM response'
   },
 }
@@ -291,6 +322,8 @@ describe('Playground Examples', () => {
   for (const example of examples) {
     const isVision = example.name.startsWith('Vision:')
     const shouldFail = example.name === 'Fuel Exhaustion'
+    // Examples that generate and run code need retry due to LLM variability
+    const needsRetry = example.code.includes('runCode(')
 
     it(`${example.name} - transpiles correctly`, () => {
       const result = transpile(example.code)
@@ -346,6 +379,9 @@ describe('Playground Examples', () => {
               fetch: httpFetch,
               llm: llmCapability || mockLLM,
               llmBattery: llmBattery || mockLLMBattery,
+              code: {
+                transpile: (source: string) => transpile(source).ast,
+              },
             },
           })
 
@@ -355,6 +391,46 @@ describe('Playground Examples', () => {
           trackTestEnd()
         }
       }, 120000)
+    } else if (needsRetry) {
+      // Examples that use runCode need retry due to LLM variability
+      it(`${example.name} - runs successfully`, async () => {
+        await withRetry(async () => {
+          trackTestStart()
+          try {
+            const result = transpile(example.code)
+
+            const args: Record<string, any> = {}
+            if (result.signature?.parameters) {
+              for (const [key, param] of Object.entries(
+                result.signature.parameters
+              )) {
+                if ('default' in param) {
+                  args[key] = param.default
+                }
+              }
+            }
+
+            const runResult = await vm.run(result.ast, args, {
+              fuel: 100000,
+              capabilities: {
+                fetch: httpFetch,
+                llm: llmCapability || mockLLM,
+                llmBattery: llmBattery || mockLLMBattery,
+                code: {
+                  transpile: (source: string) => transpile(source).ast,
+                },
+              },
+            })
+
+            if (runResult.error) {
+              throw new Error(runResult.error.message || String(runResult.error))
+            }
+            expect(runResult.result).toBeDefined()
+          } finally {
+            trackTestEnd()
+          }
+        })
+      }, 360000) // 3 attempts * 120s each
     } else {
       it(`${example.name} - runs successfully`, async () => {
         trackTestStart()
@@ -379,6 +455,9 @@ describe('Playground Examples', () => {
               fetch: httpFetch,
               llm: llmCapability || mockLLM,
               llmBattery: llmBattery || mockLLMBattery,
+              code: {
+                transpile: (source: string) => transpile(source).ast,
+              },
             },
           })
 

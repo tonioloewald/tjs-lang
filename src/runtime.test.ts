@@ -394,4 +394,128 @@ describe('Edge Cases', () => {
     expect(result.error).toBeDefined()
     expect(result.error?.message).toBe('Fatal error occurred')
   })
+
+  it('should execute dynamically generated code with runCode', async () => {
+    const vm = new AgentVM()
+
+    // Code that generates and runs another piece of code
+    const ast = ajs(`
+      function dynamicExec({ multiplier = 3 }) {
+        let code = 'function calc() { let x = 5 * 7; return { result: x } }'
+        let output = runCode({ code, args: {} })
+        let final = output.result * multiplier
+        return { dynamicResult: output.result, final }
+      }
+    `)
+
+    // Provide the code.transpile capability
+    const { transpile } = await import('./transpiler')
+    const result = await vm.run(ast, { multiplier: 2 }, {
+      capabilities: {
+        code: {
+          transpile: (source: string) => transpile(source).ast,
+        },
+      },
+    })
+
+    expect(result.result.dynamicResult).toBe(35) // 5 * 7
+    expect(result.result.final).toBe(70) // 35 * 2
+  })
+
+  it('should share fuel budget between parent and runCode', async () => {
+    const vm = new AgentVM()
+
+    // Code that runs a loop in dynamic code - should consume shared fuel
+    const ast = ajs(`
+      function fuelTest() {
+        let code = 'function loop() { let i = 0; while (i < 100) { i = i + 1 }; return { count: i } }'
+        let output = runCode({ code, args: {} })
+        return { result: output.count }
+      }
+    `)
+
+    const { transpile } = await import('./transpiler')
+    const result = await vm.run(ast, {}, {
+      fuel: 500,
+      capabilities: {
+        code: {
+          transpile: (source: string) => transpile(source).ast,
+        },
+      },
+    })
+
+    expect(result.result.result).toBe(100)
+    // The loop should have consumed fuel (while loop + iterations)
+    expect(result.fuelUsed).toBeGreaterThan(10)
+  })
+
+  it('should fail gracefully when code.transpile capability is missing', async () => {
+    const vm = new AgentVM()
+
+    const ast = ajs(`
+      function noCapability() {
+        let output = runCode({ code: 'function x() { return { y: 1 } }', args: {} })
+        return { output }
+      }
+    `)
+
+    const result = await vm.run(ast, {}, {
+      capabilities: {}, // No code capability
+    })
+
+    expect(result.error).toBeDefined()
+    expect(result.error?.message).toContain('code.transpile')
+  })
+
+  it('should transpile code without executing via transpileCode', async () => {
+    const vm = new AgentVM()
+
+    const ast = ajs(`
+      function getAst() {
+        let code = 'function add(a: 1, b: 2) { return { sum: a + b } }'
+        let ast = transpileCode({ code })
+        return { ast }
+      }
+    `)
+
+    const { transpile } = await import('./transpiler')
+    const result = await vm.run(ast, {}, {
+      capabilities: {
+        code: {
+          transpile: (source: string) => transpile(source).ast,
+        },
+      },
+    })
+
+    expect(result.result.ast).toBeDefined()
+    expect(result.result.ast.op).toBe('seq')
+    expect(result.result.ast.steps).toBeDefined()
+  })
+
+  it('should limit runCode recursion depth', async () => {
+    const vm = new AgentVM()
+
+    // Code that tries to recursively call runCode
+    const ast = ajs(`
+      function recursiveCode() {
+        let code = 'function inner() { let x = runCode({ code: "function f() { return { v: 1 } }", args: {} }); return { x } }'
+        let result = runCode({ code, args: {} })
+        return { result }
+      }
+    `)
+
+    const { transpile } = await import('./transpiler')
+    
+    // This should work - only 2 levels deep
+    const result = await vm.run(ast, {}, {
+      capabilities: {
+        code: {
+          transpile: (source: string) => transpile(source).ast,
+        },
+      },
+    })
+
+    // The nested runCode should succeed (2 levels is fine)
+    expect(result.result.result.x.v).toBe(1)
+  })
 })
