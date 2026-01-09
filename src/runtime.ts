@@ -144,6 +144,72 @@ function assertSafeProperty(prop: string): void {
   }
 }
 
+/**
+ * SSRF Protection: Block requests to private/internal addresses.
+ * Only applies to default fetch; custom capabilities handle their own validation.
+ */
+const BLOCKED_HOSTS = new Set([
+  'localhost',
+  '127.0.0.1',
+  '0.0.0.0',
+  '[::1]',
+  'metadata.google.internal',
+])
+
+function isBlockedUrl(urlString: string): boolean {
+  try {
+    const url = new URL(urlString)
+
+    // Block non-http(s) protocols
+    if (url.protocol !== 'http:' && url.protocol !== 'https:') {
+      return true
+    }
+
+    const host = url.hostname.toLowerCase()
+
+    // Block known dangerous hosts
+    if (BLOCKED_HOSTS.has(host)) return true
+
+    // Block internal suffixes
+    if (host.endsWith('.internal') || host.endsWith('.local')) return true
+
+    // Block AWS/cloud metadata IP
+    if (host === '169.254.169.254') return true
+
+    // Block private IP ranges
+    if (
+      /^10\./.test(host) ||
+      /^192\.168\./.test(host) ||
+      /^172\.(1[6-9]|2\d|3[01])\./.test(host)
+    ) {
+      return true
+    }
+
+    return false
+  } catch {
+    return true // Invalid URL = blocked
+  }
+}
+
+/**
+ * ReDoS Protection: Detect regex patterns likely to cause catastrophic backtracking.
+ * Patterns with nested quantifiers on overlapping character classes are dangerous.
+ */
+function isSuspiciousRegex(pattern: string): boolean {
+  // Nested quantifiers: (a+)+ or (a*)* or (a+)*
+  if (/\([^)]*[+*][^)]*\)[+*]/.test(pattern)) return true
+
+  // Overlapping alternation with quantifiers: (a|a)+
+  if (/\(([^|)]+)\|\1\)[+*]/.test(pattern)) return true
+
+  // Common ReDoS patterns
+  if (/\(\.\*\)\+/.test(pattern)) return true // (.*)+
+  if (/\(\.\+\)\+/.test(pattern)) return true // (.+)+
+  if (/\(\[.*\]\+\)\+/.test(pattern)) return true // ([...]+)+
+
+  return false
+}
+
 // --- Helpers ---
 
 /**
@@ -1586,6 +1652,12 @@ export const regexMatch = defineAtom(
   }),
   s.boolean,
   async ({ pattern, value }, ctx: RuntimeContext) => {
+    // ReDoS protection: reject patterns likely to cause catastrophic backtracking
+    if (isSuspiciousRegex(pattern)) {
+      throw new Error(
+        `Suspicious regex pattern rejected (potential ReDoS): ${pattern}`
+      )
+    }
     const resolvedValue = resolveValue(value, ctx)
     const p = new RegExp(pattern)
     return p.test(resolvedValue)
@@ -1650,7 +1722,7 @@ export const fetch = defineAtom(
     const responseType = resolveValue(step.responseType, ctx)
 
     if (ctx.capabilities.fetch) {
-      // Pass signal and responseType to custom fetch capability if available
+      // Custom fetch capability handles its own validation
       return ctx.capabilities.fetch(url, {
         method,
         headers,
@@ -1659,6 +1731,14 @@ export const fetch = defineAtom(
         responseType,
       })
     }
+
+    // SSRF protection for default fetch
+    if (isBlockedUrl(url)) {
+      throw new Error(
+        `Blocked URL: private/internal addresses not allowed in default fetch`
+      )
+    }
+
     // Default: global fetch with abort signal
     if (typeof globalThis.fetch === 'function') {
       const res = await globalThis.fetch(url, {

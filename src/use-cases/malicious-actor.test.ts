@@ -136,4 +136,105 @@ describe('Use Case: Malicious Actor', () => {
     expect(result.error).toBeDefined()
     expect(result.error?.message).toBe('Access Denied')
   })
+
+  it('should block SSRF attempts to localhost/private IPs (default fetch)', async () => {
+    const VM = new AgentVM()
+
+    // Test various SSRF attack vectors
+    const ssrfUrls = [
+      'http://localhost:6379/', // Redis
+      'http://127.0.0.1:8080/', // Loopback
+      'http://169.254.169.254/latest/meta-data/', // AWS metadata
+      'http://10.0.0.1/', // Private class A
+      'http://192.168.1.1/', // Private class C
+      'http://172.16.0.1/', // Private class B
+      'file:///etc/passwd', // File protocol
+      'http://metadata.google.internal/', // GCP metadata
+      'http://evil.internal/', // Internal suffix
+    ]
+
+    for (const url of ssrfUrls) {
+      const agent = Agent.take(s.object({}))
+        .httpFetch({ url })
+        .as('response')
+        .return(s.object({ response: s.any }))
+
+      // No custom fetch capability = uses default with SSRF protection
+      const result = await VM.run(agent.toJSON(), {}, {})
+      expect(result.error).toBeDefined()
+      expect(result.error?.message).toMatch(/Blocked URL/)
+    }
+  })
+
+  it('should allow SSRF-like URLs when custom fetch capability is provided', async () => {
+    const VM = new AgentVM()
+
+    // Custom fetch that allows localhost (user's responsibility)
+    const customFetch = mock(async () => ({ ok: true }))
+
+    const agent = Agent.take(s.object({}))
+      .httpFetch({ url: 'http://localhost:8080/api' })
+      .as('response')
+      .return(s.object({ response: s.any }))
+
+    const result = await VM.run(
+      agent.toJSON(),
+      {},
+      { capabilities: { fetch: customFetch } }
+    )
+
+    // Should succeed because custom capability bypasses SSRF check
+    expect(result.error).toBeUndefined()
+    expect(customFetch).toHaveBeenCalled()
+  })
+
+  it('should reject ReDoS patterns in regexMatch', async () => {
+    const VM = new AgentVM()
+
+    // Classic ReDoS patterns
+    const redosPatterns = [
+      '(a+)+b', // Nested quantifiers
+      '(.*)+', // Dot-star with quantifier
+      '(.+)+', // Dot-plus with quantifier
+      '([a-z]+)+', // Character class with nested quantifiers
+    ]
+
+    for (const pattern of redosPatterns) {
+      const agent = Agent.take(s.object({ input: s.string }))
+        .regexMatch({ pattern, value: 'args.input' })
+        .as('matched')
+        .return(s.object({ matched: s.boolean }))
+
+      const result = await VM.run(agent.toJSON(), {
+        input: 'aaaaaaaaaaaaaaaaaaaaaaaaaaaa!',
+      })
+
+      expect(result.error).toBeDefined()
+      expect(result.error?.message).toMatch(/Suspicious regex pattern rejected/)
+    }
+  })
+
+  it('should allow safe regex patterns', async () => {
+    const VM = new AgentVM()
+
+    // Safe patterns that should work
+    const safePatterns = [
+      '^[a-z]+$', // Simple character class
+      '\\d{3}-\\d{4}', // Phone number pattern
+      '^hello.*world$', // Simple wildcards
+      '[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+', // Email-like (simplified)
+    ]
+
+    for (const pattern of safePatterns) {
+      const agent = Agent.take(s.object({ input: s.string }))
+        .regexMatch({ pattern, value: 'args.input' })
+        .as('matched')
+        .return(s.object({ matched: s.boolean }))
+
+      const result = await VM.run(agent.toJSON(), { input: 'hello world' })
+
+      expect(result.error).toBeUndefined()
+      expect(typeof result.result.matched).toBe('boolean')
+    }
+  })
 })

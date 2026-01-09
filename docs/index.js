@@ -30526,6 +30526,47 @@ function assertSafeProperty(prop) {
     throw new Error(`Security Error: Access to '${prop}' is forbidden`);
   }
 }
+var BLOCKED_HOSTS = new Set([
+  "localhost",
+  "127.0.0.1",
+  "0.0.0.0",
+  "[::1]",
+  "metadata.google.internal"
+]);
+function isBlockedUrl(urlString) {
+  try {
+    const url = new URL(urlString);
+    if (url.protocol !== "http:" && url.protocol !== "https:") {
+      return true;
+    }
+    const host = url.hostname.toLowerCase();
+    if (BLOCKED_HOSTS.has(host))
+      return true;
+    if (host.endsWith(".internal") || host.endsWith(".local"))
+      return true;
+    if (host === "169.254.169.254")
+      return true;
+    if (/^10\./.test(host) || /^192\.168\./.test(host) || /^172\.(1[6-9]|2\d|3[01])\./.test(host)) {
+      return true;
+    }
+    return false;
+  } catch {
+    return true;
+  }
+}
+function isSuspiciousRegex(pattern) {
+  if (/\([^)]*[+*][^)]*\)[+*]/.test(pattern))
+    return true;
+  if (/\(([^|)]+)\|\1\)[+*]/.test(pattern))
+    return true;
+  if (/\(\.\*\)\+/.test(pattern))
+    return true;
+  if (/\(\.\+\)\+/.test(pattern))
+    return true;
+  if (/\(\[.*\]\+\)\+/.test(pattern))
+    return true;
+  return false;
+}
 function createChildScope(ctx) {
   return {
     ...ctx,
@@ -31471,6 +31512,9 @@ var regexMatch = defineAtom("regexMatch", e.object({
   pattern: e.string,
   value: e.any
 }), e.boolean, async ({ pattern, value }, ctx) => {
+  if (isSuspiciousRegex(pattern)) {
+    throw new Error(`Suspicious regex pattern rejected (potential ReDoS): ${pattern}`);
+  }
   const resolvedValue = resolveValue(value, ctx);
   const p = new RegExp(pattern);
   return p.test(resolvedValue);
@@ -31512,6 +31556,9 @@ var fetch2 = defineAtom("httpFetch", e.object({
       signal: ctx.signal,
       responseType
     });
+  }
+  if (isBlockedUrl(url)) {
+    throw new Error(`Blocked URL: private/internal addresses not allowed in default fetch`);
   }
   if (typeof globalThis.fetch === "function") {
     const res = await globalThis.fetch(url, {
@@ -43638,4 +43685,4 @@ if (main) {
 }
 console.log(`%c tosijs-agent %c v${VERSION} `, "background: #6366f1; color: white; padding: 2px 6px; border-radius: 3px 0 0 3px;", "background: #374151; color: white; padding: 2px 6px; border-radius: 0 3px 3px 0;");
 
-//# debugId=FF4153C9A805A32D64756E2164756E21
+//# debugId=D3B787B69745668864756E2164756E21
