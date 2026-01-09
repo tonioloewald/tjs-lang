@@ -29618,25 +29618,76 @@ var autoCloseTags = /* @__PURE__ */ EditorView.inputHandler.of((view, from, to2,
   return true;
 });
 
-// editors/codemirror/ajs-language.ts
-var FORBIDDEN_KEYWORDS = new Set([
+// editors/ajs-syntax.ts
+var KEYWORDS = [
+  "function",
+  "return",
+  "if",
+  "else",
+  "while",
+  "for",
+  "of",
+  "in",
+  "try",
+  "catch",
+  "finally",
+  "let",
+  "const",
+  "true",
+  "false",
+  "null",
+  "undefined"
+];
+var FORBIDDEN_KEYWORDS = [
   "new",
   "class",
-  "async",
-  "await",
-  "var",
-  "this",
-  "super",
   "extends",
+  "super",
+  "this",
   "implements",
   "interface",
-  "type",
+  "abstract",
+  "static",
+  "private",
+  "protected",
+  "public",
+  "async",
+  "await",
   "yield",
   "import",
   "export",
   "require",
-  "throw"
-]);
+  "module",
+  "var",
+  "throw",
+  "switch",
+  "case",
+  "default",
+  "with",
+  "delete",
+  "void",
+  "typeof",
+  "instanceof",
+  "debugger",
+  "eval",
+  "type",
+  "enum",
+  "namespace",
+  "declare",
+  "readonly",
+  "as",
+  "is",
+  "keyof",
+  "infer",
+  "never",
+  "unknown"
+];
+var FORBIDDEN_SET = new Set(FORBIDDEN_KEYWORDS);
+var KEYWORDS_SET = new Set(KEYWORDS);
+var FORBIDDEN_PATTERN = new RegExp(`\\b(${FORBIDDEN_KEYWORDS.join("|")})\\b`, "g");
+
+// editors/codemirror/ajs-language.ts
+var FORBIDDEN_KEYWORDS2 = new Set(FORBIDDEN_KEYWORDS);
 var forbiddenMark = Decoration.mark({
   class: "cm-ajs-forbidden"
 });
@@ -29746,7 +29797,7 @@ var forbiddenHighlighter = ViewPlugin.fromClass(class {
     const builder = new RangeSetBuilder;
     const doc2 = view.state.doc.toString();
     const skipRegions = findSkipRegions(doc2);
-    const pattern = new RegExp(`\\b(${Array.from(FORBIDDEN_KEYWORDS).join("|")})\\b`, "g");
+    const pattern = new RegExp(FORBIDDEN_PATTERN.source, "g");
     let match;
     while ((match = pattern.exec(doc2)) !== null) {
       if (!isInSkipRegion(match.index, skipRegions)) {
@@ -30134,13 +30185,9 @@ __export(exports_src, {
   parseReturnType: () => parseReturnType,
   parseParameter: () => parseParameter,
   parse: () => parse5,
-  or: () => or,
-  not: () => not,
-  neq: () => neq,
   merge: () => merge,
   memoize: () => memoize,
   map: () => map,
-  lt: () => lt3,
   lookupVariable: () => lookupVariable,
   llmPredict: () => llmPredict,
   len: () => len,
@@ -30152,7 +30199,6 @@ __export(exports_src, {
   inferTypeFromValue: () => inferTypeFromValue,
   iff: () => iff,
   hash: () => hash,
-  gt: () => gt2,
   getToolDefinitions: () => getToolDefinitions,
   getStoreCapabilityDefault: () => getStoreCapability,
   getStandardCapabilities: () => getStandardCapabilities,
@@ -30165,7 +30211,6 @@ __export(exports_src, {
   extractLiteralValue: () => extractLiteralValue,
   evaluateExpr: () => evaluateExpr,
   errorAtom: () => errorAtom,
-  eq: () => eq,
   defineAtom: () => defineAtom,
   createChildScope: () => createChildScope,
   createChildContext: () => createChildContext,
@@ -30180,7 +30225,6 @@ __export(exports_src, {
   builtins: () => builtins,
   batteryAtoms: () => batteryAtoms,
   batteries: () => batteries,
-  and: () => and,
   ajs: () => ajs,
   agentRun: () => agentRun,
   TypedBuilder: () => TypedBuilder,
@@ -31409,14 +31453,6 @@ var scope = defineAtom("scope", e.object({ steps: e.array(e.any) }), undefined, 
   if (scopedCtx.output !== undefined)
     ctx.output = scopedCtx.output;
 }, { docs: "Create new scope", timeoutMs: 0, cost: 0.1 });
-var binaryLogic = (op, fn2) => defineAtom(op, e.object({ a: e.any, b: e.any }), e.boolean, async ({ a: a2, b: b3 }, ctx) => fn2(resolveValue(a2, ctx), resolveValue(b3, ctx)), { docs: "Logic", cost: 0.1 });
-var eq = binaryLogic("eq", (a2, b3) => a2 == b3);
-var neq = binaryLogic("neq", (a2, b3) => a2 != b3);
-var gt2 = binaryLogic("gt", (a2, b3) => a2 > b3);
-var lt3 = binaryLogic("lt", (a2, b3) => a2 < b3);
-var and = binaryLogic("and", (a2, b3) => !!(a2 && b3));
-var or = binaryLogic("or", (a2, b3) => !!(a2 || b3));
-var not = defineAtom("not", e.object({ value: e.any }), e.boolean, async ({ value }, ctx) => !resolveValue(value, ctx), { docs: "Not", cost: 0.1 });
 var map = defineAtom("map", e.object({ items: e.array(e.any), as: e.string, steps: e.array(e.any) }), e.array(e.any), async ({ items, as, steps }, ctx) => {
   const results = [];
   const resolvedItems = resolveValue(items, ctx);
@@ -31813,13 +31849,6 @@ var coreAtoms = {
   varsLet,
   varsExport,
   scope,
-  eq,
-  neq,
-  gt: gt2,
-  lt: lt3,
-  and,
-  or,
-  not,
   map,
   filter,
   reduce,
@@ -31854,7 +31883,31 @@ var coreAtoms = {
 };
 
 // src/builder.ts
+var RESERVED_WORDS = new Set([
+  "true",
+  "false",
+  "null",
+  "undefined",
+  "and",
+  "or",
+  "not"
+]);
+function warnMissingVars(condition, vars) {
+  const withoutStrings = condition.replace(/"[^"]*"/g, '""').replace(/'[^']*'/g, "''");
+  const identifiers = [];
+  const regex = /(?<![.])\b([a-zA-Z_][a-zA-Z0-9_]*)\b/g;
+  let match;
+  while ((match = regex.exec(withoutStrings)) !== null) {
+    identifiers.push(match[1]);
+  }
+  const uniqueIds = [...new Set(identifiers)];
+  const missing = uniqueIds.filter((id2) => !RESERVED_WORDS.has(id2) && !(id2 in vars) && !new RegExp(`\\b${id2}\\s*\\(`).test(withoutStrings));
+  if (missing.length > 0) {
+    console.warn(`[Agent99 Builder] Condition "${condition}" references variables not in vars mapping: ${missing.join(", ")}. ` + `Add them to vars or use AsyncJS syntax (ajs\`...\`) which handles this automatically.`);
+  }
+}
 function parseCondition(condition, vars) {
+  warnMissingVars(condition, vars);
   const tokens = tokenize(condition);
   const result = parseExpression(tokens, 0, vars);
   if (result.pos < tokens.length) {
@@ -44113,4 +44166,4 @@ if (main) {
 }
 console.log(`%c tosijs-agent %c v${VERSION} `, "background: #6366f1; color: white; padding: 2px 6px; border-radius: 3px 0 0 3px;", "background: #374151; color: white; padding: 2px 6px; border-radius: 0 3px 3px 0;");
 
-//# debugId=2CA424925B3FF18164756E2164756E21
+//# debugId=FA40377F6C41676E64756E2164756E21

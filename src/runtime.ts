@@ -1468,31 +1468,9 @@ export const scope = defineAtom(
   { docs: 'Create new scope', timeoutMs: 0, cost: 0.1 }
 )
 
-// 3. Logic (Basic boolean ops - Low cost 0.1)
-const binaryLogic = (op: string, fn: (a: any, b: any) => boolean) =>
-  defineAtom(
-    op,
-    s.object({ a: s.any, b: s.any }),
-    s.boolean,
-    async ({ a, b }, ctx) => fn(resolveValue(a, ctx), resolveValue(b, ctx)),
-    { docs: 'Logic', cost: 0.1 }
-  )
-
-export const eq = binaryLogic('eq', (a, b) => a == b)
-export const neq = binaryLogic('neq', (a, b) => a != b)
-export const gt = binaryLogic('gt', (a, b) => a > b)
-export const lt = binaryLogic('lt', (a, b) => a < b)
-export const and = binaryLogic('and', (a, b) => !!(a && b))
-export const or = binaryLogic('or', (a, b) => !!(a || b))
-export const not = defineAtom(
-  'not',
-  s.object({ value: s.any }),
-  s.boolean,
-  async ({ value }, ctx) => !resolveValue(value, ctx),
-  { docs: 'Not', cost: 0.1 }
-)
-
-// 4. List (Cost 1)
+// 3. List (Cost 1)
+// Note: Logic operations (eq, neq, gt, lt, and, or, not) were removed.
+// Use ExprNode expressions instead: { $expr: 'binary', op: '==', left, right }
 export const map = defineAtom(
   'map',
   s.object({ items: s.array(s.any), as: s.string, steps: s.array(s.any) }),
@@ -2215,13 +2193,6 @@ export const coreAtoms = {
   varsLet,
   varsExport,
   scope,
-  eq,
-  neq,
-  gt,
-  lt,
-  and,
-  or,
-  not,
   map,
   filter,
   reduce,

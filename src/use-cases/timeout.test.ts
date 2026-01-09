@@ -19,7 +19,7 @@ describe('Execution Timeout', () => {
 
     // Loop with delays - each iteration takes 20ms but minimal fuel
     const ast = vm.Agent.varSet({ key: 'x', value: 0 })
-      .while('x < 100', {}, (b) =>
+      .while('x < 100', { x: 'x' }, (b) =>
         b
           .step({ op: 'delay', ms: 20 }) // 20ms delay per iteration
           .varSet({
@@ -125,7 +125,7 @@ describe('Execution Timeout', () => {
 
     // Loop with delays
     const ast = vm.Agent.varSet({ key: 'x', value: 0 })
-      .while('x < 100', {}, (b) =>
+      .while('x < 100', { x: 'x' }, (b) =>
         b.step({ op: 'delay', ms: 20 }).varSet({
           key: 'x',
           value: {
@@ -158,7 +158,7 @@ describe('Execution Timeout', () => {
 
     // With low fuel, fuel exhaustion is the backstop
     const ast = vm.Agent.varSet({ key: 'x', value: 0 })
-      .while('x >= 0', {}, (b) =>
+      .while('x >= 0', { x: 'x' }, (b) =>
         b.varSet({
           key: 'x',
           value: {

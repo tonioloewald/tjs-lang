@@ -15,10 +15,62 @@ type _AtomMap = typeof coreAtoms
  * - Array index: a[0] (use ExprNode with computed member access)
  * - Function calls: fn(x) (use atoms)
  */
+// Reserved words that shouldn't be treated as variable references
+const RESERVED_WORDS = new Set([
+  'true',
+  'false',
+  'null',
+  'undefined',
+  'and',
+  'or',
+  'not', // sometimes used as aliases
+])
+
+/**
+ * Warn if condition references identifiers not present in vars mapping.
+ * This helps catch common mistakes when using the Builder API.
+ */
+function warnMissingVars(condition: string, vars: Record<string, any>): void {
+  // Remove string literals before scanning for identifiers
+  const withoutStrings = condition
+    .replace(/"[^"]*"/g, '""')
+    .replace(/'[^']*'/g, "''")
+
+  // Extract root identifiers only (not property accesses like obj.prop)
+  // Match identifiers that are NOT preceded by a dot
+  const identifiers: string[] = []
+  const regex = /(?<![.])\b([a-zA-Z_][a-zA-Z0-9_]*)\b/g
+  let match
+  while ((match = regex.exec(withoutStrings)) !== null) {
+    identifiers.push(match[1])
+  }
+  const uniqueIds = [...new Set(identifiers)]
+
+  const missing = uniqueIds.filter(
+    (id) =>
+      !RESERVED_WORDS.has(id) &&
+      !(id in vars) &&
+      // Ignore if it looks like a method call (followed by '(')
+      !new RegExp(`\\b${id}\\s*\\(`).test(withoutStrings)
+  )
+
+  if (missing.length > 0) {
+    console.warn(
+      `[Agent99 Builder] Condition "${condition}" references variables not in vars mapping: ${missing.join(
+        ', '
+      )}. ` +
+        `Add them to vars or use AsyncJS syntax (ajs\`...\`) which handles this automatically.`
+    )
+  }
+}
+
 function parseCondition(
   condition: string,
   vars: Record<string, any>
 ): ExprNode {
+  // Warn about potential missing variable mappings
+  warnMissingVars(condition, vars)
+
   const tokens = tokenize(condition)
   const result = parseExpression(tokens, 0, vars)
 
