@@ -39,7 +39,7 @@ __export(exports_path, {
   resolve: () => resolve,
   relative: () => relative,
   posix: () => posix,
-  parse: () => parse,
+  parse: () => parse5,
   normalize: () => normalize,
   join: () => join2,
   isAbsolute: () => isAbsolute,
@@ -57,17 +57,17 @@ function assertPath(path) {
 }
 function normalizeStringPosix(path, allowAboveRoot) {
   var res = "", lastSegmentLength = 0, lastSlash = -1, dots = 0, code2;
-  for (var i2 = 0;i2 <= path.length; ++i2) {
-    if (i2 < path.length)
-      code2 = path.charCodeAt(i2);
+  for (var i3 = 0;i3 <= path.length; ++i3) {
+    if (i3 < path.length)
+      code2 = path.charCodeAt(i3);
     else if (code2 === 47)
       break;
     else
       code2 = 47;
     if (code2 === 47) {
-      if (lastSlash === i2 - 1 || dots === 1)
+      if (lastSlash === i3 - 1 || dots === 1)
         ;
-      else if (lastSlash !== i2 - 1 && dots === 2) {
+      else if (lastSlash !== i3 - 1 && dots === 2) {
         if (res.length < 2 || lastSegmentLength !== 2 || res.charCodeAt(res.length - 1) !== 46 || res.charCodeAt(res.length - 2) !== 46) {
           if (res.length > 2) {
             var lastSlashIndex = res.lastIndexOf("/");
@@ -76,11 +76,11 @@ function normalizeStringPosix(path, allowAboveRoot) {
                 res = "", lastSegmentLength = 0;
               else
                 res = res.slice(0, lastSlashIndex), lastSegmentLength = res.length - 1 - res.lastIndexOf("/");
-              lastSlash = i2, dots = 0;
+              lastSlash = i3, dots = 0;
               continue;
             }
           } else if (res.length === 2 || res.length === 1) {
-            res = "", lastSegmentLength = 0, lastSlash = i2, dots = 0;
+            res = "", lastSegmentLength = 0, lastSlash = i3, dots = 0;
             continue;
           }
         }
@@ -93,12 +93,12 @@ function normalizeStringPosix(path, allowAboveRoot) {
         }
       } else {
         if (res.length > 0)
-          res += "/" + path.slice(lastSlash + 1, i2);
+          res += "/" + path.slice(lastSlash + 1, i3);
         else
-          res = path.slice(lastSlash + 1, i2);
-        lastSegmentLength = i2 - lastSlash - 1;
+          res = path.slice(lastSlash + 1, i3);
+        lastSegmentLength = i3 - lastSlash - 1;
       }
-      lastSlash = i2, dots = 0;
+      lastSlash = i3, dots = 0;
     } else if (code2 === 46 && dots !== -1)
       ++dots;
     else
@@ -116,10 +116,10 @@ function _format(sep, pathObject) {
 }
 function resolve() {
   var resolvedPath = "", resolvedAbsolute = false, cwd;
-  for (var i2 = arguments.length - 1;i2 >= -1 && !resolvedAbsolute; i2--) {
+  for (var i3 = arguments.length - 1;i3 >= -1 && !resolvedAbsolute; i3--) {
     var path;
-    if (i2 >= 0)
-      path = arguments[i2];
+    if (i3 >= 0)
+      path = arguments[i3];
     else {
       if (cwd === undefined)
         cwd = process.cwd();
@@ -158,8 +158,8 @@ function join2() {
   if (arguments.length === 0)
     return ".";
   var joined;
-  for (var i2 = 0;i2 < arguments.length; ++i2) {
-    var arg = arguments[i2];
+  for (var i3 = 0;i3 < arguments.length; ++i3) {
+    var arg = arguments[i3];
     if (assertPath(arg), arg.length > 0)
       if (joined === undefined)
         joined = arg;
@@ -183,31 +183,31 @@ function relative(from, to2) {
   for (;toStart < to2.length; ++toStart)
     if (to2.charCodeAt(toStart) !== 47)
       break;
-  var toEnd = to2.length, toLen = toEnd - toStart, length = fromLen < toLen ? fromLen : toLen, lastCommonSep = -1, i2 = 0;
-  for (;i2 <= length; ++i2) {
-    if (i2 === length) {
+  var toEnd = to2.length, toLen = toEnd - toStart, length = fromLen < toLen ? fromLen : toLen, lastCommonSep = -1, i3 = 0;
+  for (;i3 <= length; ++i3) {
+    if (i3 === length) {
       if (toLen > length) {
-        if (to2.charCodeAt(toStart + i2) === 47)
-          return to2.slice(toStart + i2 + 1);
-        else if (i2 === 0)
-          return to2.slice(toStart + i2);
+        if (to2.charCodeAt(toStart + i3) === 47)
+          return to2.slice(toStart + i3 + 1);
+        else if (i3 === 0)
+          return to2.slice(toStart + i3);
       } else if (fromLen > length) {
-        if (from.charCodeAt(fromStart + i2) === 47)
-          lastCommonSep = i2;
-        else if (i2 === 0)
+        if (from.charCodeAt(fromStart + i3) === 47)
+          lastCommonSep = i3;
+        else if (i3 === 0)
           lastCommonSep = 0;
       }
       break;
     }
-    var fromCode = from.charCodeAt(fromStart + i2), toCode = to2.charCodeAt(toStart + i2);
+    var fromCode = from.charCodeAt(fromStart + i3), toCode = to2.charCodeAt(toStart + i3);
     if (fromCode !== toCode)
       break;
     else if (fromCode === 47)
-      lastCommonSep = i2;
+      lastCommonSep = i3;
   }
   var out = "";
-  for (i2 = fromStart + lastCommonSep + 1;i2 <= fromEnd; ++i2)
-    if (i2 === fromEnd || from.charCodeAt(i2) === 47)
+  for (i3 = fromStart + lastCommonSep + 1;i3 <= fromEnd; ++i3)
+    if (i3 === fromEnd || from.charCodeAt(i3) === 47)
       if (out.length === 0)
         out += "..";
       else
@@ -227,10 +227,10 @@ function dirname(path) {
   if (assertPath(path), path.length === 0)
     return ".";
   var code2 = path.charCodeAt(0), hasRoot = code2 === 47, end = -1, matchedSlash = true;
-  for (var i2 = path.length - 1;i2 >= 1; --i2)
-    if (code2 = path.charCodeAt(i2), code2 === 47) {
+  for (var i3 = path.length - 1;i3 >= 1; --i3)
+    if (code2 = path.charCodeAt(i3), code2 === 47) {
       if (!matchedSlash) {
-        end = i2;
+        end = i3;
         break;
       }
     } else
@@ -245,25 +245,25 @@ function basename(path, ext) {
   if (ext !== undefined && typeof ext !== "string")
     throw TypeError('"ext" argument must be a string');
   assertPath(path);
-  var start = 0, end = -1, matchedSlash = true, i2;
+  var start = 0, end = -1, matchedSlash = true, i3;
   if (ext !== undefined && ext.length > 0 && ext.length <= path.length) {
     if (ext.length === path.length && ext === path)
       return "";
     var extIdx = ext.length - 1, firstNonSlashEnd = -1;
-    for (i2 = path.length - 1;i2 >= 0; --i2) {
-      var code2 = path.charCodeAt(i2);
+    for (i3 = path.length - 1;i3 >= 0; --i3) {
+      var code2 = path.charCodeAt(i3);
       if (code2 === 47) {
         if (!matchedSlash) {
-          start = i2 + 1;
+          start = i3 + 1;
           break;
         }
       } else {
         if (firstNonSlashEnd === -1)
-          matchedSlash = false, firstNonSlashEnd = i2 + 1;
+          matchedSlash = false, firstNonSlashEnd = i3 + 1;
         if (extIdx >= 0)
           if (code2 === ext.charCodeAt(extIdx)) {
             if (--extIdx === -1)
-              end = i2;
+              end = i3;
           } else
             extIdx = -1, end = firstNonSlashEnd;
       }
@@ -274,14 +274,14 @@ function basename(path, ext) {
       end = path.length;
     return path.slice(start, end);
   } else {
-    for (i2 = path.length - 1;i2 >= 0; --i2)
-      if (path.charCodeAt(i2) === 47) {
+    for (i3 = path.length - 1;i3 >= 0; --i3)
+      if (path.charCodeAt(i3) === 47) {
         if (!matchedSlash) {
-          start = i2 + 1;
+          start = i3 + 1;
           break;
         }
       } else if (end === -1)
-        matchedSlash = false, end = i2 + 1;
+        matchedSlash = false, end = i3 + 1;
     if (end === -1)
       return "";
     return path.slice(start, end);
@@ -290,20 +290,20 @@ function basename(path, ext) {
 function extname(path) {
   assertPath(path);
   var startDot = -1, startPart = 0, end = -1, matchedSlash = true, preDotState = 0;
-  for (var i2 = path.length - 1;i2 >= 0; --i2) {
-    var code2 = path.charCodeAt(i2);
+  for (var i3 = path.length - 1;i3 >= 0; --i3) {
+    var code2 = path.charCodeAt(i3);
     if (code2 === 47) {
       if (!matchedSlash) {
-        startPart = i2 + 1;
+        startPart = i3 + 1;
         break;
       }
       continue;
     }
     if (end === -1)
-      matchedSlash = false, end = i2 + 1;
+      matchedSlash = false, end = i3 + 1;
     if (code2 === 46) {
       if (startDot === -1)
-        startDot = i2;
+        startDot = i3;
       else if (preDotState !== 1)
         preDotState = 1;
     } else if (startDot !== -1)
@@ -318,7 +318,7 @@ function format(pathObject) {
     throw TypeError('The "pathObject" argument must be of type Object. Received type ' + typeof pathObject);
   return _format("/", pathObject);
 }
-function parse(path) {
+function parse5(path) {
   assertPath(path);
   var ret2 = { root: "", dir: "", base: "", ext: "", name: "" };
   if (path.length === 0)
@@ -328,20 +328,20 @@ function parse(path) {
     ret2.root = "/", start = 1;
   else
     start = 0;
-  var startDot = -1, startPart = 0, end = -1, matchedSlash = true, i2 = path.length - 1, preDotState = 0;
-  for (;i2 >= start; --i2) {
-    if (code2 = path.charCodeAt(i2), code2 === 47) {
+  var startDot = -1, startPart = 0, end = -1, matchedSlash = true, i3 = path.length - 1, preDotState = 0;
+  for (;i3 >= start; --i3) {
+    if (code2 = path.charCodeAt(i3), code2 === 47) {
       if (!matchedSlash) {
-        startPart = i2 + 1;
+        startPart = i3 + 1;
         break;
       }
       continue;
     }
     if (end === -1)
-      matchedSlash = false, end = i2 + 1;
+      matchedSlash = false, end = i3 + 1;
     if (code2 === 46) {
       if (startDot === -1)
-        startDot = i2;
+        startDot = i3;
       else if (preDotState !== 1)
         preDotState = 1;
     } else if (startDot !== -1)
@@ -368,7 +368,7 @@ function parse(path) {
 }
 var sep = "/", delimiter = ":", posix, path_default;
 var init_path = __esm(() => {
-  posix = ((p) => (p.posix = p, p))({ resolve, normalize, isAbsolute, join: join2, relative, _makeLong, dirname, basename, extname, format, parse, sep, delimiter, win32: null, posix: null });
+  posix = ((p) => (p.posix = p, p))({ resolve, normalize, isAbsolute, join: join2, relative, _makeLong, dirname, basename, extname, format, parse: parse5, sep, delimiter, win32: null, posix: null });
   path_default = posix;
 });
 
@@ -30306,7 +30306,7 @@ __export(exports_src, {
   pick: () => pick,
   parseReturnType: () => parseReturnType,
   parseParameter: () => parseParameter,
-  parse: () => parse5,
+  parse: () => parse4,
   merge: () => merge,
   memoize: () => memoize,
   map: () => map,
@@ -30360,2852 +30360,6 @@ __export(exports_src, {
   A99: () => A99
 });
 
-// node_modules/tosijs-schema/dist/index.js
-var d2 = (n) => ({ schema: n, _type: null, validate: (i2, c2) => G3(i2, n, c2), get optional() {
-  return d2({ ...n, type: Array.isArray(n.type) ? [...n.type, "null"] : [n.type, "null"] });
-}, title: (i2) => d2({ ...n, title: i2 }), describe: (i2) => d2({ ...n, description: i2 }), default: (i2) => d2({ ...n, default: i2 }), meta: (i2) => d2({ ...n, ...i2 }), min: (i2) => {
-  let c2 = n.type === "string" ? "minLength" : n.type === "array" ? "minItems" : n.type === "object" ? "minProperties" : "minimum";
-  return d2({ ...n, [c2]: i2 });
-}, max: (i2) => {
-  let c2 = n.type === "string" ? "maxLength" : n.type === "array" ? "maxItems" : n.type === "object" ? "maxProperties" : "maximum";
-  return d2({ ...n, [c2]: i2 });
-}, pattern: (i2) => d2({ ...n, pattern: typeof i2 === "string" ? i2 : i2.source }), get email() {
-  return d2({ ...n, format: "email" });
-}, get uuid() {
-  return d2({ ...n, format: "uuid" });
-}, get ipv4() {
-  return d2({ ...n, format: "ipv4" });
-}, get url() {
-  return d2({ ...n, format: "uri" });
-}, get datetime() {
-  return d2({ ...n, format: "date-time" });
-}, get emoji() {
-  return d2({ ...n, pattern: "^\\p{Extended_Pictographic}+$", format: "emoji" });
-}, get int() {
-  return d2({ ...n, type: "integer" });
-}, step: (i2) => d2({ ...n, multipleOf: i2 }) });
-var E3 = { get email() {
-  return d2({ type: "string", format: "email" });
-}, get uuid() {
-  return d2({ type: "string", format: "uuid" });
-}, get ipv4() {
-  return d2({ type: "string", format: "ipv4" });
-}, get url() {
-  return d2({ type: "string", format: "uri" });
-}, get datetime() {
-  return d2({ type: "string", format: "date-time" });
-}, get emoji() {
-  return d2({ type: "string", pattern: "^\\p{Extended_Pictographic}+$", format: "emoji" });
-}, get any() {
-  return d2({});
-}, pattern: (n) => d2({ type: "string", pattern: typeof n === "string" ? n : n.source }), union: (n) => d2({ anyOf: n.map((i2) => i2.schema) }), enum: (n) => {
-  if (n.length === 0)
-    return console.warn("s.enum() called with empty array - schema will never match"), d2({ enum: [] });
-  return d2({ type: typeof n[0], enum: n });
-}, const: (n) => d2({ const: n }), array: (n) => d2({ type: "array", items: n.schema }), tuple: (n) => d2({ type: "array", items: n.map((i2) => i2.schema), minItems: n.length, maxItems: n.length }), object: (n) => {
-  let i2 = {}, c2 = [];
-  for (let R2 in n)
-    if (i2[R2] = n[R2].schema, !Array.isArray(i2[R2].type) || !i2[R2].type.includes("null"))
-      c2.push(R2);
-  return d2({ type: "object", properties: i2, required: c2, additionalProperties: false });
-}, record: (n) => d2({ type: "object", additionalProperties: n.schema }) };
-var e = new Proxy(E3, { get(n, i2) {
-  if (i2 in n)
-    return n[i2];
-  if (i2 === "string" || i2 === "number" || i2 === "boolean" || i2 === "integer") {
-    let c2 = d2({ type: i2 });
-    return n[i2] = c2, c2;
-  }
-  return;
-} });
-var w2 = { email: (n) => /^\S+@\S+\.\S+$/.test(n), uuid: (n) => /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(n), uri: (n) => {
-  try {
-    return new URL(n), true;
-  } catch {
-    return false;
-  }
-}, ipv4: (n) => /^(?:(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\.){3}(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)$/.test(n), "date-time": (n) => !isNaN(Date.parse(n)), emoji: (n) => new RegExp("\\p{Extended_Pictographic}", "u").test(n) };
-function G3(n, i2, c2) {
-  let R2 = i2?.schema || i2, g3 = typeof c2 === "function" ? c2 : c2?.onError, I3 = typeof c2 === "object" ? c2?.fullScan : false, y = [], o = (f2) => {
-    if (g3)
-      g3(y.join(".") || "root", f2);
-    return false;
-  }, O2 = (f2, u) => {
-    if (u.anyOf) {
-      for (let x of u.anyOf)
-        if (G3(f2, x))
-          return true;
-      return o("Union mismatch");
-    }
-    if (u.const !== undefined)
-      return f2 === u.const || o("Const mismatch");
-    if (f2 === null || f2 === undefined)
-      return !u.type || Array.isArray(u.type) && u.type.includes("null") || o("Expected value");
-    let m = Array.isArray(u.type) ? u.type[0] : u.type;
-    if (u.enum && !u.enum.includes(f2))
-      return o("Enum mismatch");
-    if (m === "integer") {
-      if (typeof f2 !== "number" || !Number.isInteger(f2))
-        return o("Expected integer");
-    } else if (m === "array") {
-      if (!Array.isArray(f2))
-        return o("Expected array");
-    } else if (m === "object") {
-      if (typeof f2 !== "object" || Array.isArray(f2))
-        return o("Expected object");
-    } else if (m && typeof f2 !== m)
-      return o(`Expected ${m}`);
-    if (typeof f2 === "number") {
-      if (u.minimum !== undefined && f2 < u.minimum)
-        return o("Value < min");
-      if (u.maximum !== undefined && f2 > u.maximum)
-        return o("Value > max");
-      if (u.multipleOf !== undefined && f2 % u.multipleOf !== 0)
-        return o("Value not step");
-    }
-    if (typeof f2 === "string") {
-      if (u.minLength !== undefined && f2.length < u.minLength)
-        return o("Len < min");
-      if (u.maxLength !== undefined && f2.length > u.maxLength)
-        return o("Len > max");
-      if (u.pattern && !new RegExp(u.pattern, u.format === "emoji" ? "u" : "").test(f2))
-        return o("Pattern mismatch");
-      if (u.format && w2[u.format] && !w2[u.format](f2))
-        return o("Format invalid");
-    }
-    if (m === "object") {
-      if (u.minProperties !== undefined) {
-        let x = 0;
-        for (let P3 in f2)
-          if (Object.prototype.hasOwnProperty.call(f2, P3))
-            x++;
-        if (x < u.minProperties)
-          return o("Too few props");
-      }
-      if (u.required) {
-        for (let x of u.required)
-          if (!(x in f2))
-            return o(`Missing ${x}`);
-      }
-      if (u.properties) {
-        for (let x in u.properties)
-          if (x in f2) {
-            y.push(x);
-            let P3 = O2(f2[x], u.properties[x]);
-            if (y.pop(), !P3)
-              return false;
-          }
-      }
-      if (u.additionalProperties === false)
-        for (let x in f2) {
-          if (u.properties && x in u.properties)
-            continue;
-          return o(`Extra prop ${x}`);
-        }
-      else if (u.additionalProperties) {
-        let x = 0;
-        for (let P3 in f2) {
-          if (u.properties && P3 in u.properties)
-            continue;
-          if (!I3) {
-            if (x++, x % 97 !== 0)
-              continue;
-          }
-          y.push(P3);
-          let $2 = O2(f2[P3], u.additionalProperties);
-          if (y.pop(), !$2)
-            return false;
-        }
-      }
-      return true;
-    }
-    if (m === "array" && u.items) {
-      let x = f2.length;
-      if (u.minItems !== undefined && x < u.minItems)
-        return o("Array too short");
-      if (u.maxItems !== undefined && x > u.maxItems)
-        return o("Array too long");
-      if (Array.isArray(u.items)) {
-        for (let $2 = 0;$2 < u.items.length; $2++) {
-          if (y.push(String($2)), !O2(f2[$2], u.items[$2]))
-            return y.pop(), false;
-          y.pop();
-        }
-        return true;
-      }
-      let P3 = I3 || x <= 97 ? 1 : Math.floor(x / 97);
-      for (let $2 = 0;$2 < x; $2 += P3) {
-        let t2 = P3 > 1 && $2 > x - 1 - P3 ? x - 1 : $2;
-        y.push(String(t2));
-        let _2 = O2(f2[t2], u.items);
-        if (y.pop(), !_2)
-          return false;
-        if (t2 === x - 1)
-          break;
-      }
-      return true;
-    }
-    return true;
-  };
-  return O2(n, R2);
-}
-function H2(n, i2) {
-  let c2 = i2?.schema || i2, R2 = [], g3 = (I3, y) => {
-    let o = R2.join(".") || "root";
-    if (y.anyOf) {
-      for (let f2 of y.anyOf) {
-        let u = g3(I3, f2);
-        if (!(u instanceof Error))
-          return u;
-      }
-      return Error(`Union mismatch at ${o}`);
-    }
-    if (y.const !== undefined)
-      return I3 === y.const ? I3 : Error(`Const mismatch at ${o}`);
-    if (I3 === null || I3 === undefined) {
-      if (!y.type || Array.isArray(y.type) && y.type.includes("null"))
-        return I3;
-      return Error(`Expected value at ${o}`);
-    }
-    let O2 = Array.isArray(y.type) ? y.type[0] : y.type;
-    if (y.enum && !y.enum.includes(I3))
-      return Error(`Enum mismatch at ${o}`);
-    if (O2 === "integer") {
-      if (typeof I3 !== "number" || !Number.isInteger(I3))
-        return Error(`Expected integer at ${o}`);
-    } else if (O2 === "array") {
-      if (!Array.isArray(I3))
-        return Error(`Expected array at ${o}`);
-    } else if (O2 === "object") {
-      if (typeof I3 !== "object" || Array.isArray(I3))
-        return Error(`Expected object at ${o}`);
-    } else if (O2 && typeof I3 !== O2)
-      return Error(`Expected ${O2} at ${o}`);
-    if (typeof I3 === "number") {
-      if (y.minimum !== undefined && I3 < y.minimum)
-        return Error(`Value < min at ${o}`);
-      if (y.maximum !== undefined && I3 > y.maximum)
-        return Error(`Value > max at ${o}`);
-      if (y.multipleOf !== undefined && I3 % y.multipleOf !== 0)
-        return Error(`Value not step at ${o}`);
-    }
-    if (typeof I3 === "string") {
-      if (y.minLength !== undefined && I3.length < y.minLength)
-        return Error(`Len < min at ${o}`);
-      if (y.maxLength !== undefined && I3.length > y.maxLength)
-        return Error(`Len > max at ${o}`);
-      if (y.pattern && !new RegExp(y.pattern, y.format === "emoji" ? "u" : "").test(I3))
-        return Error(`Pattern mismatch at ${o}`);
-      if (y.format && w2[y.format] && !w2[y.format](I3))
-        return Error(`Format invalid at ${o}`);
-    }
-    if (O2 === "object") {
-      let f2 = {};
-      if (y.minProperties !== undefined) {
-        let u = 0;
-        for (let m in I3)
-          if (Object.prototype.hasOwnProperty.call(I3, m))
-            u++;
-        if (u < y.minProperties)
-          return Error(`Too few props at ${o}`);
-      }
-      if (y.required) {
-        for (let u of y.required)
-          if (!(u in I3))
-            return Error(`Missing ${u} at ${o}`);
-      }
-      if (y.properties) {
-        for (let u in y.properties)
-          if (u in I3) {
-            R2.push(u);
-            let m = g3(I3[u], y.properties[u]);
-            if (R2.pop(), m instanceof Error)
-              return m;
-            f2[u] = m;
-          }
-      }
-      if (y.additionalProperties && typeof y.additionalProperties === "object")
-        for (let u in I3) {
-          if (y.properties && u in y.properties)
-            continue;
-          R2.push(u);
-          let m = g3(I3[u], y.additionalProperties);
-          if (R2.pop(), m instanceof Error)
-            return m;
-          f2[u] = m;
-        }
-      return f2;
-    }
-    if (O2 === "array" && y.items) {
-      let f2 = I3.length;
-      if (y.minItems !== undefined && f2 < y.minItems)
-        return Error(`Array too short at ${o}`);
-      if (y.maxItems !== undefined && f2 > y.maxItems)
-        return Error(`Array too long at ${o}`);
-      if (Array.isArray(y.items)) {
-        let m = [];
-        for (let x = 0;x < y.items.length; x++) {
-          R2.push(String(x));
-          let P3 = g3(I3[x], y.items[x]);
-          if (R2.pop(), P3 instanceof Error)
-            return P3;
-          m.push(P3);
-        }
-        return m;
-      }
-      let u = [];
-      for (let m = 0;m < f2; m++) {
-        R2.push(String(m));
-        let x = g3(I3[m], y.items);
-        if (R2.pop(), x instanceof Error)
-          return x;
-        u.push(x);
-      }
-      return u;
-    }
-    return I3;
-  };
-  return g3(n, c2);
-}
-
-// src/runtime.ts
-class AgentError {
-  $error = true;
-  message;
-  op;
-  cause;
-  constructor(message, op, cause) {
-    this.message = message;
-    this.op = op;
-    this.cause = cause;
-  }
-  toString() {
-    return `AgentError[${this.op}]: ${this.message}`;
-  }
-  toJSON() {
-    return { $error: true, message: this.message, op: this.op };
-  }
-}
-function isAgentError(value) {
-  return value instanceof AgentError || value && value.$error === true;
-}
-var FORBIDDEN_PROPERTIES = new Set(["__proto__", "constructor", "prototype"]);
-function assertSafeProperty(prop) {
-  if (FORBIDDEN_PROPERTIES.has(prop)) {
-    throw new Error(`Security Error: Access to '${prop}' is forbidden`);
-  }
-}
-var BLOCKED_HOSTS = new Set([
-  "localhost",
-  "127.0.0.1",
-  "0.0.0.0",
-  "[::1]",
-  "metadata.google.internal"
-]);
-function isBlockedUrl(urlString) {
-  try {
-    const url = new URL(urlString);
-    if (url.protocol !== "http:" && url.protocol !== "https:") {
-      return true;
-    }
-    const host = url.hostname.toLowerCase();
-    if (BLOCKED_HOSTS.has(host))
-      return true;
-    if (host.endsWith(".internal") || host.endsWith(".local"))
-      return true;
-    if (host === "169.254.169.254")
-      return true;
-    if (/^10\./.test(host) || /^192\.168\./.test(host) || /^172\.(1[6-9]|2\d|3[01])\./.test(host)) {
-      return true;
-    }
-    return false;
-  } catch {
-    return true;
-  }
-}
-function isSuspiciousRegex(pattern) {
-  if (/\([^)]*[+*][^)]*\)[+*]/.test(pattern))
-    return true;
-  if (/\(([^|)]+)\|\1\)[+*]/.test(pattern))
-    return true;
-  if (/\(\.\*\)\+/.test(pattern))
-    return true;
-  if (/\(\.\+\)\+/.test(pattern))
-    return true;
-  if (/\(\[.*\]\+\)\+/.test(pattern))
-    return true;
-  return false;
-}
-function createChildScope(ctx) {
-  return {
-    ...ctx,
-    state: Object.create(ctx.state)
-  };
-}
-function diffObjects(before, after) {
-  const diff = {};
-  const allKeys = new Set([...Object.keys(before), ...Object.keys(after)]);
-  for (const key of allKeys) {
-    const beforeVal = before[key];
-    const afterVal = after[key];
-    if (afterVal !== beforeVal) {
-      diff[key] = afterVal;
-    }
-  }
-  return diff;
-}
-function resolveValue(val, ctx) {
-  if (val && typeof val === "object" && val.$kind === "arg") {
-    return ctx.args[val.path];
-  }
-  if (val && typeof val === "object" && val.$expr) {
-    return evaluateExpr(val, ctx);
-  }
-  if (typeof val === "string") {
-    if (val.startsWith("args.")) {
-      return ctx.args[val.replace("args.", "")];
-    }
-    if (val.includes(".")) {
-      const parts = val.split(".");
-      for (const part of parts) {
-        if (FORBIDDEN_PROPERTIES.has(part)) {
-          throw new Error(`Security Error: Access to '${part}' is forbidden`);
-        }
-      }
-      let current = ctx.state[parts[0]];
-      if (current !== undefined) {
-        for (let i2 = 1;i2 < parts.length; i2++) {
-          current = current?.[parts[i2]];
-        }
-        return current;
-      }
-    }
-    if (val in ctx.state) {
-      return ctx.state[val];
-    }
-    return val;
-  }
-  if (val && typeof val === "object" && !Array.isArray(val) && val.constructor === Object) {
-    const result = {};
-    for (const key of Object.keys(val)) {
-      result[key] = resolveValue(val[key], ctx);
-    }
-    return result;
-  }
-  if (Array.isArray(val)) {
-    return val.map((item) => resolveValue(item, ctx));
-  }
-  return val;
-}
-function createBuiltinProxy(name2, supported, alternatives) {
-  return new Proxy(supported, {
-    get(target, prop) {
-      if (prop in target) {
-        return target[prop];
-      }
-      const alt = alternatives?.[prop];
-      if (alt) {
-        throw new Error(`${name2}.${prop} is not available. ${alt}`);
-      }
-      throw new Error(`${name2}.${prop} is not supported in AsyncJS. Check docs for available ${name2} methods.`);
-    }
-  });
-}
-function convertExampleToSchema(example) {
-  if (example === null) {
-    return { type: "null" };
-  }
-  if (example === undefined) {
-    return {};
-  }
-  if (typeof example === "object" && example !== null && "type" in example && typeof example.type === "string") {
-    return example;
-  }
-  if (typeof example === "object" && example !== null && "schema" in example && typeof example.schema === "object") {
-    return example.schema;
-  }
-  const type = typeof example;
-  if (type === "string") {
-    return { type: "string" };
-  }
-  if (type === "number") {
-    return Number.isInteger(example) ? { type: "integer" } : { type: "number" };
-  }
-  if (type === "boolean") {
-    return { type: "boolean" };
-  }
-  if (Array.isArray(example)) {
-    if (example.length === 0) {
-      return { type: "array" };
-    }
-    return {
-      type: "array",
-      items: convertExampleToSchema(example[0])
-    };
-  }
-  if (type === "object") {
-    const properties = {};
-    const required = [];
-    for (const [key, value] of Object.entries(example)) {
-      properties[key] = convertExampleToSchema(value);
-      required.push(key);
-    }
-    return {
-      type: "object",
-      properties,
-      required
-    };
-  }
-  return {};
-}
-var builtins = {
-  Math: createBuiltinProxy("Math", {
-    PI: Math.PI,
-    E: Math.E,
-    LN2: Math.LN2,
-    LN10: Math.LN10,
-    LOG2E: Math.LOG2E,
-    LOG10E: Math.LOG10E,
-    SQRT2: Math.SQRT2,
-    SQRT1_2: Math.SQRT1_2,
-    abs: Math.abs,
-    ceil: Math.ceil,
-    floor: Math.floor,
-    round: Math.round,
-    trunc: Math.trunc,
-    sign: Math.sign,
-    sqrt: Math.sqrt,
-    cbrt: Math.cbrt,
-    pow: Math.pow,
-    exp: Math.exp,
-    expm1: Math.expm1,
-    log: Math.log,
-    log2: Math.log2,
-    log10: Math.log10,
-    log1p: Math.log1p,
-    sin: Math.sin,
-    cos: Math.cos,
-    tan: Math.tan,
-    asin: Math.asin,
-    acos: Math.acos,
-    atan: Math.atan,
-    atan2: Math.atan2,
-    sinh: Math.sinh,
-    cosh: Math.cosh,
-    tanh: Math.tanh,
-    asinh: Math.asinh,
-    acosh: Math.acosh,
-    atanh: Math.atanh,
-    hypot: Math.hypot,
-    min: Math.min,
-    max: Math.max,
-    clz32: Math.clz32,
-    imul: Math.imul,
-    fround: Math.fround,
-    random: () => {
-      if (typeof crypto !== "undefined" && crypto.getRandomValues) {
-        const arr = new Uint32Array(1);
-        crypto.getRandomValues(arr);
-        return arr[0] / (4294967295 + 1);
-      }
-      return Math.random();
-    }
-  }),
-  JSON: createBuiltinProxy("JSON", {
-    parse: (text) => JSON.parse(text),
-    stringify: (value, replacer, space2) => JSON.stringify(value, replacer, space2)
-  }),
-  console: createBuiltinProxy("console", {
-    log: (..._args) => {
-      return;
-    },
-    warn: (..._args) => {
-      return;
-    },
-    error: (..._args) => {
-      return;
-    },
-    info: (..._args) => {
-      return;
-    }
-  }, {
-    table: "Use console.log with JSON.stringify for structured data.",
-    dir: "Use console.log instead.",
-    trace: "Stack traces are not available in AsyncJS."
-  }),
-  Array: createBuiltinProxy("Array", {
-    isArray: (value) => Array.isArray(value),
-    from: (iterable, mapFn, thisArg) => Array.from(iterable, mapFn, thisArg),
-    of: (...items) => Array.of(...items)
-  }, {
-    prototype: "Prototype access is not allowed."
-  }),
-  Object: createBuiltinProxy("Object", {
-    keys: (obj) => Object.keys(obj),
-    values: (obj) => Object.values(obj),
-    entries: (obj) => Object.entries(obj),
-    fromEntries: (entries) => Object.fromEntries(entries),
-    assign: (target, ...sources) => Object.assign({}, target, ...sources),
-    hasOwn: (obj, prop) => Object.hasOwn(obj, prop)
-  }, {
-    prototype: "Prototype access is not allowed.",
-    create: "Use object literals instead.",
-    defineProperty: "Property descriptors are not supported.",
-    getPrototypeOf: "Prototype access is not allowed.",
-    setPrototypeOf: "Prototype modification is not allowed."
-  }),
-  String: createBuiltinProxy("String", {
-    fromCharCode: (...codes) => String.fromCharCode(...codes),
-    fromCodePoint: (...codePoints) => String.fromCodePoint(...codePoints)
-  }),
-  Number: createBuiltinProxy("Number", {
-    isNaN: Number.isNaN,
-    isFinite: Number.isFinite,
-    isInteger: Number.isInteger,
-    isSafeInteger: Number.isSafeInteger,
-    parseFloat,
-    parseInt,
-    MAX_VALUE: Number.MAX_VALUE,
-    MIN_VALUE: Number.MIN_VALUE,
-    MAX_SAFE_INTEGER: Number.MAX_SAFE_INTEGER,
-    MIN_SAFE_INTEGER: Number.MIN_SAFE_INTEGER,
-    POSITIVE_INFINITY: Number.POSITIVE_INFINITY,
-    NEGATIVE_INFINITY: Number.NEGATIVE_INFINITY,
-    NaN: Number.NaN,
-    EPSILON: Number.EPSILON
-  }),
-  parseInt,
-  parseFloat,
-  isNaN,
-  isFinite,
-  encodeURI,
-  decodeURI,
-  encodeURIComponent,
-  decodeURIComponent,
-  undefined: undefined,
-  null: null,
-  NaN: NaN,
-  Infinity: Infinity,
-  filter: (data, schema) => {
-    const jsonSchema = convertExampleToSchema(schema);
-    const result = H2(data, jsonSchema);
-    if (result instanceof Error) {
-      throw result;
-    }
-    return result;
-  },
-  Schema: {
-    ...e,
-    response: (name2, schemaOrExample) => {
-      const jsonSchema = schemaOrExample?.schema != null ? schemaOrExample.schema : convertExampleToSchema(schemaOrExample);
-      return {
-        type: "json_schema",
-        json_schema: {
-          name: name2,
-          strict: true,
-          schema: jsonSchema
-        }
-      };
-    },
-    fromExample: (example) => convertExampleToSchema(example),
-    isValid: (data, schemaOrExample) => {
-      if (schemaOrExample?.schema != null) {
-        return G3(data, schemaOrExample);
-      }
-      return G3(data, convertExampleToSchema(schemaOrExample));
-    }
-  },
-  Set: (items = []) => {
-    const data = [...new globalThis.Set(items)];
-    return {
-      add(item) {
-        if (!data.includes(item)) {
-          data.push(item);
-        }
-        return this;
-      },
-      remove(item) {
-        const idx = data.indexOf(item);
-        if (idx !== -1) {
-          data.splice(idx, 1);
-        }
-        return this;
-      },
-      clear() {
-        data.length = 0;
-        return this;
-      },
-      has(item) {
-        return data.includes(item);
-      },
-      get size() {
-        return data.length;
-      },
-      toArray() {
-        return [...data];
-      },
-      union(other) {
-        const otherItems = other?.toArray?.() ?? other ?? [];
-        return builtins.Set([...data, ...otherItems]);
-      },
-      intersection(other) {
-        const otherItems = other?.toArray?.() ?? other ?? [];
-        return builtins.Set(data.filter((x) => otherItems.includes(x)));
-      },
-      diff(other) {
-        const otherItems = other?.toArray?.() ?? other ?? [];
-        return builtins.Set(data.filter((x) => !otherItems.includes(x)));
-      },
-      forEach(fn2) {
-        data.forEach(fn2);
-      },
-      map(fn2) {
-        return builtins.Set(data.map(fn2));
-      },
-      filter(fn2) {
-        return builtins.Set(data.filter(fn2));
-      },
-      toJSON() {
-        return [...data];
-      }
-    };
-  },
-  Date: (() => {
-    const createDate = (d3) => ({
-      get value() {
-        return d3.toISOString();
-      },
-      get timestamp() {
-        return d3.getTime();
-      },
-      get year() {
-        return d3.getFullYear();
-      },
-      get month() {
-        return d3.getMonth() + 1;
-      },
-      get day() {
-        return d3.getDate();
-      },
-      get hours() {
-        return d3.getHours();
-      },
-      get minutes() {
-        return d3.getMinutes();
-      },
-      get seconds() {
-        return d3.getSeconds();
-      },
-      get dayOfWeek() {
-        return d3.getDay();
-      },
-      add({
-        years = 0,
-        months = 0,
-        days = 0,
-        hours = 0,
-        minutes = 0,
-        seconds = 0,
-        ms = 0
-      } = {}) {
-        const newDate = new globalThis.Date(d3.getTime());
-        if (years)
-          newDate.setFullYear(newDate.getFullYear() + years);
-        if (months)
-          newDate.setMonth(newDate.getMonth() + months);
-        if (days)
-          newDate.setDate(newDate.getDate() + days);
-        if (hours)
-          newDate.setHours(newDate.getHours() + hours);
-        if (minutes)
-          newDate.setMinutes(newDate.getMinutes() + minutes);
-        if (seconds)
-          newDate.setSeconds(newDate.getSeconds() + seconds);
-        if (ms)
-          newDate.setMilliseconds(newDate.getMilliseconds() + ms);
-        return createDate(newDate);
-      },
-      diff(other, unit = "ms") {
-        const otherTime = typeof other === "object" && other.timestamp ? other.timestamp : new globalThis.Date(other).getTime();
-        const diffMs = d3.getTime() - otherTime;
-        switch (unit) {
-          case "seconds":
-            return diffMs / 1000;
-          case "minutes":
-            return diffMs / (1000 * 60);
-          case "hours":
-            return diffMs / (1000 * 60 * 60);
-          case "days":
-            return diffMs / (1000 * 60 * 60 * 24);
-          default:
-            return diffMs;
-        }
-      },
-      format(fmt = "ISO") {
-        if (fmt === "ISO")
-          return d3.toISOString();
-        if (fmt === "date")
-          return d3.toISOString().split("T")[0];
-        if (fmt === "time")
-          return d3.toISOString().split("T")[1].split(".")[0];
-        return fmt.replace("YYYY", String(d3.getFullYear())).replace("MM", String(d3.getMonth() + 1).padStart(2, "0")).replace("DD", String(d3.getDate()).padStart(2, "0")).replace("HH", String(d3.getHours()).padStart(2, "0")).replace("mm", String(d3.getMinutes()).padStart(2, "0")).replace("ss", String(d3.getSeconds()).padStart(2, "0"));
-      },
-      isBefore(other) {
-        const otherTime = typeof other === "object" && other.timestamp ? other.timestamp : new globalThis.Date(other).getTime();
-        return d3.getTime() < otherTime;
-      },
-      isAfter(other) {
-        const otherTime = typeof other === "object" && other.timestamp ? other.timestamp : new globalThis.Date(other).getTime();
-        return d3.getTime() > otherTime;
-      },
-      toString() {
-        return d3.toISOString();
-      },
-      toJSON() {
-        return d3.toISOString();
-      }
-    });
-    const DateFactory = (init) => {
-      const date = init !== undefined ? new globalThis.Date(init) : new globalThis.Date;
-      if (isNaN(date.getTime())) {
-        throw new Error(`Invalid date: ${init}`);
-      }
-      return createDate(date);
-    };
-    DateFactory.now = () => globalThis.Date.now();
-    DateFactory.parse = (str) => createDate(new globalThis.Date(str));
-    return DateFactory;
-  })()
-};
-var unsupportedBuiltins = {
-  RegExp: "RegExp is not available. Use string methods or the regexMatch atom.",
-  Promise: "Promise is not needed. All operations are implicitly async.",
-  Map: "Map is not available. Use plain objects instead.",
-  WeakSet: "WeakSet is not available.",
-  WeakMap: "WeakMap is not available.",
-  Symbol: "Symbol is not available.",
-  Proxy: "Proxy is not available.",
-  Reflect: "Reflect is not available.",
-  Function: "Function constructor is not available. Define functions normally.",
-  eval: "eval is not available. Code is compiled, not evaluated.",
-  setTimeout: "setTimeout is not available. Use the delay atom.",
-  setInterval: "setInterval is not available. Use while loops with delay.",
-  fetch: "fetch is not available. Use the httpFetch atom.",
-  require: "require is not available. Atoms must be registered with the VM.",
-  import: "import is not available. Atoms must be registered with the VM.",
-  process: "process is not available. AsyncJS runs in a sandboxed environment.",
-  window: "window is not available. AsyncJS runs in a sandboxed environment.",
-  document: "document is not available. AsyncJS runs in a sandboxed environment.",
-  global: "global is not available. AsyncJS runs in a sandboxed environment.",
-  globalThis: "globalThis is not available. Use builtins directly."
-};
-var EXPR_FUEL_COST = 0.01;
-function evaluateExpr(node, ctx) {
-  if (node === null || node === undefined) {
-    return node;
-  }
-  if (typeof node !== "object" || !("$expr" in node)) {
-    return node;
-  }
-  if (ctx.fuel) {
-    ctx.fuel.current -= EXPR_FUEL_COST;
-    if (ctx.fuel.current <= 0) {
-      throw new Error("Out of Fuel");
-    }
-  }
-  switch (node.$expr) {
-    case "literal":
-      return node.value;
-    case "ident": {
-      if (node.name in ctx.state) {
-        return ctx.state[node.name];
-      }
-      if (node.name in ctx.args) {
-        return ctx.args[node.name];
-      }
-      if (node.name in builtins) {
-        return builtins[node.name];
-      }
-      if (node.name in unsupportedBuiltins) {
-        throw new Error(unsupportedBuiltins[node.name]);
-      }
-      return;
-    }
-    case "member": {
-      const obj = evaluateExpr(node.object, ctx);
-      if (node.optional && (obj === null || obj === undefined)) {
-        return;
-      }
-      const prop = node.property;
-      assertSafeProperty(prop);
-      return obj?.[prop];
-    }
-    case "binary": {
-      const left = evaluateExpr(node.left, ctx);
-      const right = evaluateExpr(node.right, ctx);
-      switch (node.op) {
-        case "+":
-          return left + right;
-        case "-":
-          return left - right;
-        case "*":
-          return left * right;
-        case "/":
-          return left / right;
-        case "%":
-          return left % right;
-        case "**":
-          return left ** right;
-        case ">":
-          return left > right;
-        case "<":
-          return left < right;
-        case ">=":
-          return left >= right;
-        case "<=":
-          return left <= right;
-        case "==":
-          return left == right;
-        case "!=":
-          return left != right;
-        case "===":
-          return left === right;
-        case "!==":
-          return left !== right;
-        default:
-          throw new Error(`Unknown binary operator: ${node.op}`);
-      }
-    }
-    case "unary": {
-      const arg = evaluateExpr(node.argument, ctx);
-      switch (node.op) {
-        case "!":
-          return !arg;
-        case "-":
-          return -arg;
-        case "+":
-          return +arg;
-        case "typeof":
-          return typeof arg;
-        default:
-          throw new Error(`Unknown unary operator: ${node.op}`);
-      }
-    }
-    case "logical": {
-      const left = evaluateExpr(node.left, ctx);
-      if (node.op === "&&") {
-        return left ? evaluateExpr(node.right, ctx) : left;
-      } else if (node.op === "??") {
-        return left ?? evaluateExpr(node.right, ctx);
-      } else {
-        return left ? left : evaluateExpr(node.right, ctx);
-      }
-    }
-    case "conditional": {
-      const test = evaluateExpr(node.test, ctx);
-      return test ? evaluateExpr(node.consequent, ctx) : evaluateExpr(node.alternate, ctx);
-    }
-    case "array":
-      return node.elements.map((el) => evaluateExpr(el, ctx));
-    case "object": {
-      const result = {};
-      for (const prop of node.properties) {
-        result[prop.key] = evaluateExpr(prop.value, ctx);
-      }
-      return result;
-    }
-    case "call": {
-      if (node.callee === "Error") {
-        const args = node.arguments.map((arg) => evaluateExpr(arg, ctx));
-        const message = typeof args[0] === "string" ? args[0] : "Error";
-        ctx.error = new AgentError(message, "Error");
-        return;
-      }
-      if (node.callee in builtins) {
-        const fn2 = builtins[node.callee];
-        if (typeof fn2 === "function") {
-          const args = node.arguments.map((arg) => evaluateExpr(arg, ctx));
-          return fn2(...args);
-        }
-      }
-      const atom = ctx.resolver(node.callee);
-      if (!atom) {
-        if (node.callee in unsupportedBuiltins) {
-          throw new Error(unsupportedBuiltins[node.callee]);
-        }
-        throw new Error(`Unknown function: ${node.callee}`);
-      }
-      throw new Error(`Atom calls in expressions not yet supported: ${node.callee}`);
-    }
-    case "methodCall": {
-      const obj = evaluateExpr(node.object, ctx);
-      if (node.optional && (obj === null || obj === undefined)) {
-        return;
-      }
-      const method = node.method;
-      assertSafeProperty(method);
-      if (obj === null || obj === undefined) {
-        throw new Error(`Cannot call method '${method}' on ${obj}`);
-      }
-      const fn2 = obj[method];
-      if (typeof fn2 !== "function") {
-        throw new Error(`'${method}' is not a function`);
-      }
-      const args = node.arguments.map((arg) => evaluateExpr(arg, ctx));
-      return fn2.apply(obj, args);
-    }
-    default:
-      throw new Error(`Unknown expression type: ${node.$expr}`);
-  }
-}
-function defineAtom(op, inputSchema, outputSchema, fn2, options2 = {}) {
-  const {
-    docs = "",
-    timeoutMs = 1000,
-    cost = 1
-  } = typeof options2 === "string" ? { docs: options2 } : options2;
-  const exec = async (step, ctx) => {
-    const { op: _op, result: _res, ...inputData } = step;
-    if (ctx.error)
-      return;
-    if (inputSchema && !G3(inputSchema, inputData)) {
-      ctx.error = new AgentError(`Validation failed: ${JSON.stringify(inputData)}`, op);
-      return;
-    }
-    const stateBefore = ctx.trace ? { ...ctx.state } : null;
-    const fuelBefore = ctx.fuel.current;
-    let result;
-    let error;
-    try {
-      const overrideCost = ctx.costOverrides?.[op];
-      const baseCost = overrideCost !== undefined ? overrideCost : cost;
-      const currentCost = typeof baseCost === "function" ? baseCost(inputData, ctx) : baseCost;
-      if ((ctx.fuel.current -= currentCost) <= 0) {
-        ctx.error = new AgentError("Out of Fuel", op);
-        return;
-      }
-      let timer;
-      const execute = async () => fn2(step, ctx);
-      result = timeoutMs > 0 ? await Promise.race([
-        execute(),
-        new Promise((_2, reject) => {
-          timer = setTimeout(() => reject(new Error(`Atom '${op}' timed out`)), timeoutMs);
-        })
-      ]).finally(() => clearTimeout(timer)) : await execute();
-      if (step.result && result !== undefined) {
-        if (ctx.consts.has(step.result)) {
-          throw new Error(`Cannot reassign const variable '${step.result}'`);
-        }
-        ctx.state[step.result] = result;
-        if (step.resultConst) {
-          ctx.consts.add(step.result);
-        }
-      }
-    } catch (e2) {
-      error = e2.message || String(e2);
-      ctx.error = new AgentError(error, op, e2);
-    } finally {
-      if (ctx.trace && stateBefore) {
-        const stateDiff = diffObjects(stateBefore, ctx.state);
-        ctx.trace.push({
-          op,
-          input: inputData,
-          stateDiff,
-          result,
-          error,
-          fuelBefore,
-          fuelAfter: ctx.fuel.current,
-          timestamp: new Date().toISOString()
-        });
-      }
-    }
-  };
-  return {
-    op,
-    inputSchema,
-    outputSchema,
-    exec,
-    docs,
-    timeoutMs,
-    cost,
-    create: (input) => ({ op, ...input })
-  };
-}
-var seq = defineAtom("seq", e.object({ steps: e.array(e.any) }), undefined, async ({ steps }, ctx) => {
-  for (const step of steps) {
-    if (ctx.output !== undefined)
-      return;
-    if (ctx.error)
-      return;
-    const atom = ctx.resolver(step.op);
-    if (!atom)
-      throw new Error(`Unknown Atom: ${step.op}`);
-    await atom.exec(step, ctx);
-  }
-}, { docs: "Sequence", timeoutMs: 0, cost: 0.1 });
-var iff = defineAtom("if", e.object({
-  condition: e.any,
-  then: e.array(e.any),
-  else: e.array(e.any).optional
-}), undefined, async (step, ctx) => {
-  if (evaluateExpr(step.condition, ctx)) {
-    await seq.exec({ op: "seq", steps: step.then }, ctx);
-  } else if (step.else) {
-    await seq.exec({ op: "seq", steps: step.else }, ctx);
-  }
-}, { docs: "If/Else", timeoutMs: 0, cost: 0.1 });
-var whileLoop = defineAtom("while", e.object({
-  condition: e.any,
-  body: e.array(e.any)
-}), undefined, async (step, ctx) => {
-  while (evaluateExpr(step.condition, ctx)) {
-    if (ctx.signal?.aborted)
-      throw new Error("Execution aborted");
-    if ((ctx.fuel.current -= 0.1) <= 0)
-      throw new Error("Out of Fuel");
-    await seq.exec({ op: "seq", steps: step.body }, ctx);
-    if (ctx.output !== undefined)
-      return;
-  }
-}, { docs: "While Loop", timeoutMs: 0, cost: 0.1 });
-var ret = defineAtom("return", undefined, e.any, async (step, ctx) => {
-  if (ctx.error) {
-    ctx.output = ctx.error;
-    return ctx.error;
-  }
-  let res = {};
-  if (step.schema?.properties) {
-    for (const key of Object.keys(step.schema.properties)) {
-      res[key] = ctx.state[key];
-    }
-    if (step.filter !== false) {
-      const filterResult = H2(res, step.schema);
-      if (!(filterResult instanceof Error)) {
-        res = filterResult;
-      }
-    }
-  }
-  ctx.output = res;
-  return res;
-}, { docs: "Return", cost: 0.1 });
-var tryCatch = defineAtom("try", e.object({
-  try: e.array(e.any),
-  catch: e.array(e.any).optional,
-  catchParam: e.string.optional
-}), undefined, async (step, ctx) => {
-  await seq.exec({ op: "seq", steps: step.try }, ctx);
-  if (ctx.error && step.catch) {
-    const paramName = step.catchParam || "error";
-    ctx.state[paramName] = ctx.error.message;
-    ctx.state["errorOp"] = ctx.error.op;
-    ctx.error = undefined;
-    await seq.exec({ op: "seq", steps: step.catch }, ctx);
-  }
-}, { docs: "Try/Catch", timeoutMs: 0, cost: 0.1 });
-var errorAtom = defineAtom("Error", e.object({ args: e.array(e.any).optional }), undefined, async (step, ctx) => {
-  const message = step.args?.[0] ?? "Error";
-  ctx.error = new AgentError(String(message), "Error");
-}, { docs: "Trigger error flow", cost: 0.1 });
-var varSet = defineAtom("varSet", e.object({ key: e.string, value: e.any }), undefined, async ({ key, value }, ctx) => {
-  if (ctx.consts.has(key)) {
-    throw new Error(`Cannot reassign const variable '${key}'`);
-  }
-  ctx.state[key] = resolveValue(value, ctx);
-}, { docs: "Set Variable", cost: 0.1 });
-var constSet = defineAtom("constSet", e.object({ key: e.string, value: e.any }), undefined, async ({ key, value }, ctx) => {
-  if (ctx.consts.has(key)) {
-    throw new Error(`Cannot reassign const variable '${key}'`);
-  }
-  if (key in ctx.state) {
-    throw new Error(`Cannot redeclare variable '${key}' as const`);
-  }
-  ctx.state[key] = resolveValue(value, ctx);
-  ctx.consts.add(key);
-}, { docs: "Set Const Variable (immutable)", cost: 0.1 });
-var varGet = defineAtom("varGet", e.object({ key: e.string }), e.any, async ({ key }, ctx) => {
-  return resolveValue(key, ctx);
-}, { docs: "Get Variable", cost: 0.1 });
-var varsImport = defineAtom("varsImport", e.object({
-  keys: e.union([e.array(e.string), e.record(e.string)])
-}), undefined, async ({ keys: keys2 }, ctx) => {
-  if (Array.isArray(keys2)) {
-    for (const key of keys2) {
-      ctx.state[key] = resolveValue({ $kind: "arg", path: key }, ctx);
-    }
-  } else {
-    for (const [alias, path] of Object.entries(keys2)) {
-      ctx.state[alias] = resolveValue({ $kind: "arg", path }, ctx);
-    }
-  }
-}, {
-  docs: "Import variables from args into the current scope, with optional renaming.",
-  cost: 0.2
-});
-var varsLet = defineAtom("varsLet", e.record(e.any), undefined, async (step, ctx) => {
-  for (const key of Object.keys(step)) {
-    if (key === "op" || key === "result")
-      continue;
-    ctx.state[key] = resolveValue(step[key], ctx);
-  }
-}, {
-  docs: "Initialize a set of variables in the current scope from the step object properties.",
-  cost: 0.1
-});
-var varsExport = defineAtom("varsExport", e.object({
-  keys: e.union([e.array(e.string), e.record(e.string)])
-}), e.record(e.any), async ({ keys: keys2 }, ctx) => {
-  const result = {};
-  if (Array.isArray(keys2)) {
-    for (const key of keys2) {
-      result[key] = resolveValue(key, ctx);
-    }
-  } else {
-    for (const [alias, path] of Object.entries(keys2)) {
-      result[alias] = resolveValue(path, ctx);
-    }
-  }
-  return result;
-}, {
-  docs: "Export variables from the current scope, with optional renaming.",
-  cost: 0.2
-});
-var scope = defineAtom("scope", e.object({ steps: e.array(e.any) }), undefined, async ({ steps }, ctx) => {
-  const scopedCtx = createChildScope(ctx);
-  await seq.exec({ op: "seq", steps }, scopedCtx);
-  if (scopedCtx.output !== undefined)
-    ctx.output = scopedCtx.output;
-}, { docs: "Create new scope", timeoutMs: 0, cost: 0.1 });
-var map = defineAtom("map", e.object({ items: e.array(e.any), as: e.string, steps: e.array(e.any) }), e.array(e.any), async ({ items, as, steps }, ctx) => {
-  const results = [];
-  const resolvedItems = resolveValue(items, ctx);
-  if (!Array.isArray(resolvedItems))
-    throw new Error("map: items is not an array");
-  for (const item of resolvedItems) {
-    if (ctx.signal?.aborted)
-      throw new Error("Execution aborted");
-    const scopedCtx = createChildScope(ctx);
-    scopedCtx.state[as] = item;
-    await seq.exec({ op: "seq", steps }, scopedCtx);
-    results.push(scopedCtx.state["result"] ?? null);
-  }
-  return results;
-}, { docs: "Map Array", timeoutMs: 0, cost: 1 });
-var filter = defineAtom("filter", e.object({
-  items: e.array(e.any),
-  as: e.string,
-  condition: e.any
-}), e.array(e.any), async ({ items, as, condition }, ctx) => {
-  const results = [];
-  const resolvedItems = resolveValue(items, ctx);
-  if (!Array.isArray(resolvedItems))
-    throw new Error("filter: items is not an array");
-  for (const item of resolvedItems) {
-    if (ctx.signal?.aborted)
-      throw new Error("Execution aborted");
-    const scopedCtx = createChildScope(ctx);
-    scopedCtx.state[as] = item;
-    const passes = evaluateExpr(condition, scopedCtx);
-    if (passes) {
-      results.push(item);
-    }
-  }
-  return results;
-}, { docs: "Filter Array", timeoutMs: 0, cost: 1 });
-var reduce = defineAtom("reduce", e.object({
-  items: e.array(e.any),
-  as: e.string,
-  accumulator: e.string,
-  initial: e.any,
-  steps: e.array(e.any)
-}), e.any, async ({ items, as, accumulator, initial, steps }, ctx) => {
-  const resolvedItems = resolveValue(items, ctx);
-  const resolvedInitial = resolveValue(initial, ctx);
-  if (!Array.isArray(resolvedItems))
-    throw new Error("reduce: items is not an array");
-  let acc = resolvedInitial;
-  for (const item of resolvedItems) {
-    if (ctx.signal?.aborted)
-      throw new Error("Execution aborted");
-    const scopedCtx = createChildScope(ctx);
-    scopedCtx.state[as] = item;
-    scopedCtx.state[accumulator] = acc;
-    await seq.exec({ op: "seq", steps }, scopedCtx);
-    acc = scopedCtx.state["result"] ?? acc;
-  }
-  return acc;
-}, { docs: "Reduce Array", timeoutMs: 0, cost: 1 });
-var find2 = defineAtom("find", e.object({
-  items: e.array(e.any),
-  as: e.string,
-  condition: e.any
-}), e.any, async ({ items, as, condition }, ctx) => {
-  const resolvedItems = resolveValue(items, ctx);
-  if (!Array.isArray(resolvedItems))
-    throw new Error("find: items is not an array");
-  for (const item of resolvedItems) {
-    if (ctx.signal?.aborted)
-      throw new Error("Execution aborted");
-    const scopedCtx = createChildScope(ctx);
-    scopedCtx.state[as] = item;
-    const matches = evaluateExpr(condition, scopedCtx);
-    if (matches) {
-      return item;
-    }
-  }
-  return null;
-}, { docs: "Find in Array", timeoutMs: 0, cost: 1 });
-var push = defineAtom("push", e.object({ list: e.array(e.any), item: e.any }), e.array(e.any), async ({ list, item }, ctx) => {
-  const resolvedList = resolveValue(list, ctx);
-  const resolvedItem = resolveValue(item, ctx);
-  if (Array.isArray(resolvedList))
-    resolvedList.push(resolvedItem);
-  return resolvedList;
-}, { docs: "Push to Array", cost: 1 });
-var len = defineAtom("len", e.object({ list: e.any }), e.number, async ({ list }, ctx) => {
-  const val = resolveValue(list, ctx);
-  return Array.isArray(val) || typeof val === "string" ? val.length : 0;
-}, { docs: "Length", cost: 1 });
-var split = defineAtom("split", e.object({ str: e.string, sep: e.string }), e.array(e.string), async ({ str, sep }, ctx) => resolveValue(str, ctx).split(resolveValue(sep, ctx)), { docs: "Split String", cost: 1 });
-var join = defineAtom("join", e.object({ list: e.array(e.string), sep: e.string }), e.string, async ({ list, sep }, ctx) => resolveValue(list, ctx).join(resolveValue(sep, ctx)), { docs: "Join String", cost: 1 });
-var template = defineAtom("template", e.object({ tmpl: e.string, vars: e.record(e.any) }), e.string, async ({ tmpl, vars }, ctx) => {
-  const resolvedTmpl = resolveValue(tmpl, ctx);
-  return resolvedTmpl.replace(/\{\{(\w+)\}\}/g, (_2, key) => String(resolveValue(vars[key], ctx) ?? ""));
-}, { docs: "String Template", cost: 1 });
-var regexMatch = defineAtom("regexMatch", e.object({
-  pattern: e.string,
-  value: e.any
-}), e.boolean, async ({ pattern, value }, ctx) => {
-  if (isSuspiciousRegex(pattern)) {
-    throw new Error(`Suspicious regex pattern rejected (potential ReDoS): ${pattern}`);
-  }
-  const resolvedValue = resolveValue(value, ctx);
-  const p = new RegExp(pattern);
-  return p.test(resolvedValue);
-}, {
-  docs: "Returns true if the value matches the regex pattern.",
-  cost: 2
-});
-var pick = defineAtom("pick", e.object({ obj: e.record(e.any), keys: e.array(e.string) }), e.record(e.any), async ({ obj, keys: keys2 }, ctx) => {
-  const resolvedObj = resolveValue(obj, ctx);
-  const resolvedKeys = resolveValue(keys2, ctx);
-  const res = {};
-  if (resolvedObj && Array.isArray(resolvedKeys)) {
-    resolvedKeys.forEach((k2) => res[k2] = resolvedObj[k2]);
-  }
-  return res;
-}, { docs: "Pick Keys", cost: 1 });
-var merge = defineAtom("merge", e.object({ a: e.record(e.any), b: e.record(e.any) }), e.record(e.any), async ({ a: a2, b: b3 }, ctx) => ({
-  ...resolveValue(a2, ctx),
-  ...resolveValue(b3, ctx)
-}), { docs: "Merge Objects", cost: 1 });
-var keys2 = defineAtom("keys", e.object({ obj: e.record(e.any) }), e.array(e.string), async ({ obj }, ctx) => Object.keys(resolveValue(obj, ctx) ?? {}), { docs: "Object Keys", cost: 1 });
-var MAX_AGENT_DEPTH = 10;
-var AGENT_DEPTH_HEADER = "X-Agent-Depth";
-function isDomainAllowed(urlString, allowedDomains) {
-  try {
-    const url = new URL(urlString);
-    const host = url.hostname.toLowerCase();
-    for (const pattern of allowedDomains) {
-      const p = pattern.toLowerCase();
-      if (p.startsWith("*.")) {
-        const suffix = p.slice(1);
-        if (host.endsWith(suffix) || host === p.slice(2)) {
-          return true;
-        }
-      } else if (host === p) {
-        return true;
-      }
-    }
-    return false;
-  } catch {
-    return false;
-  }
-}
-var fetch2 = defineAtom("httpFetch", e.object({
-  url: e.string,
-  method: e.string.optional,
-  headers: e.record(e.string).optional,
-  body: e.any.optional,
-  responseType: e.string.optional
-}), e.any, async (step, ctx) => {
-  const url = resolveValue(step.url, ctx);
-  const method = resolveValue(step.method, ctx);
-  const headers = resolveValue(step.headers, ctx) || {};
-  const body = resolveValue(step.body, ctx);
-  const responseType = resolveValue(step.responseType, ctx);
-  const currentDepth = ctx.context?.requestDepth ?? 0;
-  if (currentDepth >= MAX_AGENT_DEPTH) {
-    throw new Error(`Agent request depth exceeded (max ${MAX_AGENT_DEPTH}). This prevents recursive agent loops.`);
-  }
-  if (ctx.capabilities.fetch) {
-    return ctx.capabilities.fetch(url, {
-      method,
-      headers: {
-        ...headers,
-        [AGENT_DEPTH_HEADER]: String(currentDepth + 1)
-      },
-      body,
-      signal: ctx.signal,
-      responseType
-    });
-  }
-  const allowedDomains = ctx.context?.allowedFetchDomains;
-  if (allowedDomains) {
-    if (!isDomainAllowed(url, allowedDomains)) {
-      throw new Error(`Fetch blocked: domain not in allowlist. Allowed: ${allowedDomains.join(", ")}`);
-    }
-  } else {
-    if (isBlockedUrl(url)) {
-      throw new Error(`Blocked URL: private/internal addresses not allowed in default fetch`);
-    }
-    try {
-      const parsed = new URL(url);
-      const host = parsed.hostname.toLowerCase();
-      if (host !== "localhost" && host !== "127.0.0.1" && host !== "[::1]") {
-        throw new Error(`Fetch blocked: no allowedFetchDomains configured. ` + `Set ctx.context.allowedFetchDomains or provide a custom fetch capability.`);
-      }
-    } catch (e2) {
-      if (e2.message.includes("allowedFetchDomains"))
-        throw e2;
-      throw new Error(`Invalid URL: ${url}`);
-    }
-  }
-  if (typeof globalThis.fetch === "function") {
-    const res = await globalThis.fetch(url, {
-      method,
-      headers: {
-        ...headers,
-        [AGENT_DEPTH_HEADER]: String(currentDepth + 1)
-      },
-      body: body ? JSON.stringify(body) : undefined,
-      signal: ctx.signal
-    });
-    if (responseType === "dataUrl") {
-      const buffer = await res.arrayBuffer();
-      const bytes = new Uint8Array(buffer);
-      let binary = "";
-      for (let i2 = 0;i2 < bytes.length; i2++) {
-        binary += String.fromCharCode(bytes[i2]);
-      }
-      const base64 = btoa(binary);
-      const contentType2 = res.headers.get("content-type") || "application/octet-stream";
-      return `data:${contentType2};base64,${base64}`;
-    }
-    const contentType = res.headers.get("content-type");
-    if (responseType === "json" || contentType && contentType.includes("application/json")) {
-      return res.json();
-    }
-    return res.text();
-  }
-  throw new Error("Capability 'fetch' missing and no global fetch available");
-}, { docs: "HTTP Fetch", timeoutMs: 30000, cost: 5 });
-var storeGet = defineAtom("storeGet", e.object({ key: e.string }), e.any, async ({ key }, ctx) => {
-  const k2 = resolveValue(key, ctx);
-  return ctx.capabilities.store?.get(k2);
-}, { docs: "Store Get", cost: 5 });
-var storeSet = defineAtom("storeSet", e.object({ key: e.string, value: e.any }), undefined, async ({ key, value }, ctx) => {
-  const k2 = resolveValue(key, ctx);
-  const v2 = resolveValue(value, ctx);
-  return ctx.capabilities.store?.set(k2, v2);
-}, { docs: "Store Set", cost: 5 });
-var storeQuery = defineAtom("storeQuery", e.object({ query: e.any }), e.array(e.any), async ({ query }, ctx) => ctx.capabilities.store?.query?.(resolveValue(query, ctx)) ?? [], { docs: "Store Query", cost: 5 });
-var vectorSearch = defineAtom("storeVectorSearch", e.object({
-  collection: e.string,
-  vector: e.array(e.number),
-  k: e.number.optional
-}), e.array(e.any), async ({ collection, vector, k: k2 }, ctx) => ctx.capabilities.store?.vectorSearch?.(resolveValue(collection, ctx), resolveValue(vector, ctx), resolveValue(k2, ctx)) ?? [], {
-  docs: "Vector Search",
-  cost: (input, ctx) => 5 + (resolveValue(input.k, ctx) ?? 5)
-});
-var llmPredict = defineAtom("llmPredict", e.object({ prompt: e.string, options: e.any.optional }), e.string, async ({ prompt: prompt2, options: options2 }, ctx) => {
-  if (!ctx.capabilities.llm?.predict)
-    throw new Error("Capability 'llm.predict' missing");
-  return ctx.capabilities.llm.predict(resolveValue(prompt2, ctx), resolveValue(options2, ctx));
-}, { docs: "LLM Predict", timeoutMs: 120000, cost: 1 });
-var agentRun = defineAtom("agentRun", e.object({ agentId: e.string, input: e.any }), e.any, async ({ agentId, input }, ctx) => {
-  if (!ctx.capabilities.agent?.run)
-    throw new Error("Capability 'agent.run' missing");
-  const resolvedId = resolveValue(agentId, ctx);
-  const rawInput = resolveValue(input, ctx);
-  let resolvedInput = rawInput;
-  if (rawInput && typeof rawInput === "object" && !Array.isArray(rawInput)) {
-    resolvedInput = {};
-    for (const k2 in rawInput) {
-      resolvedInput[k2] = resolveValue(rawInput[k2], ctx);
-    }
-  }
-  const result = await ctx.capabilities.agent.run(resolvedId, resolvedInput);
-  if (result && typeof result === "object" && "fuelUsed" in result && typeof result.fuelUsed === "number") {
-    if (result.error) {
-      throw new Error(result.error.message || "Sub-agent failed");
-    }
-    return result.result;
-  }
-  return result;
-}, { docs: "Run Sub-Agent", cost: 1 });
-var transpileCode = defineAtom("transpileCode", e.object({
-  code: e.string
-}), e.any, async ({ code: code2 }, ctx) => {
-  if (!ctx.capabilities.code?.transpile) {
-    throw new Error("Capability 'code.transpile' missing. Enable code transpilation by providing the code capability.");
-  }
-  const resolvedCode = resolveValue(code2, ctx);
-  try {
-    return ctx.capabilities.code.transpile(resolvedCode);
-  } catch (e2) {
-    throw new Error(`Code transpilation failed: ${e2.message}`);
-  }
-}, { docs: "Transpile AsyncJS code to AST", cost: 1 });
-var MAX_RUNCODE_DEPTH = 10;
-var runCode = defineAtom("runCode", e.object({
-  code: e.string,
-  args: e.record(e.any).optional
-}), e.any, async ({ code: code2, args }, ctx) => {
-  const currentDepth = ctx.runCodeDepth ?? 0;
-  if (currentDepth >= MAX_RUNCODE_DEPTH) {
-    throw new Error(`runCode recursion limit exceeded (max ${MAX_RUNCODE_DEPTH}). ` + "This prevents infinite loops from dynamically generated code calling runCode.");
-  }
-  if (!ctx.capabilities.code?.transpile) {
-    throw new Error("Capability 'code.transpile' missing. Enable dynamic code execution by providing the code capability.");
-  }
-  const resolvedCode = resolveValue(code2, ctx);
-  const resolvedArgs = args ? resolveValue(args, ctx) : {};
-  let ast;
-  try {
-    ast = ctx.capabilities.code.transpile(resolvedCode);
-  } catch (e2) {
-    throw new Error(`Code transpilation failed: ${e2.message}`);
-  }
-  if (ast.op !== "seq") {
-    throw new Error("Transpiled code must be a seq node");
-  }
-  const childCtx = createChildScope(ctx);
-  childCtx.args = resolvedArgs;
-  childCtx.output = undefined;
-  childCtx.runCodeDepth = currentDepth + 1;
-  await seq.exec(ast, childCtx);
-  if (childCtx.error) {
-    ctx.error = childCtx.error;
-    return;
-  }
-  return childCtx.output;
-}, { docs: "Run dynamically generated AsyncJS code", cost: 1 });
-var jsonParse = defineAtom("jsonParse", e.object({ str: e.string }), e.any, async ({ str }, ctx) => JSON.parse(resolveValue(str, ctx)), { docs: "Parse JSON", cost: 1 });
-var jsonStringify = defineAtom("jsonStringify", e.object({ value: e.any }), e.string, async ({ value }, ctx) => JSON.stringify(resolveValue(value, ctx)), { docs: "Stringify JSON", cost: 1 });
-var xmlParse = defineAtom("xmlParse", e.object({ str: e.string }), e.any, async ({ str }, ctx) => {
-  if (!ctx.capabilities.xml?.parse)
-    throw new Error("Capability 'xml.parse' missing");
-  return ctx.capabilities.xml.parse(resolveValue(str, ctx));
-}, { docs: "Parse XML", cost: 1 });
-var memoize = defineAtom("memoize", e.object({ key: e.string.optional, steps: e.array(e.any) }), e.any, async ({ key, steps }, ctx) => {
-  if (!ctx.memo)
-    ctx.memo = new Map;
-  const k2 = resolveValue(key, ctx) ?? await hash.exec({ value: steps, algorithm: "SHA-256" }, ctx);
-  if (ctx.memo.has(k2)) {
-    return ctx.memo.get(k2);
-  }
-  const scopedCtx = createChildScope(ctx);
-  await seq.exec({ op: "seq", steps }, scopedCtx);
-  const result = scopedCtx.output ?? scopedCtx.state["result"];
-  ctx.memo.set(k2, result);
-  return result;
-}, { docs: "Memoize steps result in memory", cost: 1 });
-var cache2 = defineAtom("cache", e.object({
-  key: e.string.optional,
-  steps: e.array(e.any),
-  ttlMs: e.number.optional
-}), e.any, async ({ key, steps, ttlMs }, ctx) => {
-  if (!ctx.capabilities.store)
-    throw new Error("Capability 'store' missing for caching");
-  const k2 = resolveValue(key, ctx) ?? await hash.exec({ value: steps, algorithm: "SHA-256" }, ctx);
-  const cacheKey = `cache:${k2}`;
-  const cached = await ctx.capabilities.store.get(cacheKey);
-  if (cached) {
-    if (typeof cached === "object" && cached._exp) {
-      if (Date.now() < cached._exp)
-        return cached.val;
-    } else {
-      return cached;
-    }
-  }
-  const scopedCtx = createChildScope(ctx);
-  await seq.exec({ op: "seq", steps }, scopedCtx);
-  const result = scopedCtx.output ?? scopedCtx.state["result"];
-  const expiry = Date.now() + (ttlMs ?? 24 * 3600 * 1000);
-  if ((ctx.fuel.current -= 5) <= 0)
-    throw new Error("Out of Fuel");
-  await ctx.capabilities.store.set(cacheKey, { val: result, _exp: expiry });
-  return result;
-}, { docs: "Cache steps result in store with TTL", cost: 5 });
-var random = defineAtom("random", e.object({
-  min: e.number.optional,
-  max: e.number.optional,
-  format: e.string.optional,
-  length: e.number.optional
-}), e.any, async ({ min, max, format, length }, ctx) => {
-  const f2 = resolveValue(format, ctx) ?? "float";
-  const len2 = resolveValue(length, ctx) ?? 10;
-  const mn2 = resolveValue(min, ctx) ?? 0;
-  const mx = resolveValue(max, ctx) ?? 1;
-  if (f2 === "base36") {
-    const chars = "0123456789abcdefghijklmnopqrstuvwxyz";
-    let result2 = "";
-    if (typeof crypto !== "undefined" && crypto.getRandomValues) {
-      const values = new Uint8Array(len2);
-      crypto.getRandomValues(values);
-      for (let i2 = 0;i2 < len2; i2++) {
-        result2 += chars[values[i2] % 36];
-      }
-    } else {
-      for (let i2 = 0;i2 < len2; i2++) {
-        result2 += chars.charAt(Math.floor(Math.random() * 36));
-      }
-    }
-    return result2;
-  }
-  let val;
-  if (typeof crypto !== "undefined" && crypto.getRandomValues) {
-    const arr = new Uint32Array(1);
-    crypto.getRandomValues(arr);
-    val = arr[0] / (4294967295 + 1);
-  } else {
-    val = Math.random();
-  }
-  const range = mx - mn2;
-  const result = val * range + mn2;
-  if (f2 === "integer") {
-    return Math.floor(result);
-  }
-  return result;
-}, { docs: "Generate Random", cost: 1 });
-var uuid = defineAtom("uuid", undefined, e.string, async () => {
-  if (typeof crypto !== "undefined" && crypto.randomUUID) {
-    return crypto.randomUUID();
-  }
-  if (typeof crypto !== "undefined" && crypto.getRandomValues) {
-    const bytes = new Uint8Array(16);
-    crypto.getRandomValues(bytes);
-    bytes[6] = bytes[6] & 15 | 64;
-    bytes[8] = bytes[8] & 63 | 128;
-    const hex = Array.from(bytes, (b3) => b3.toString(16).padStart(2, "0")).join("");
-    return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`;
-  }
-  return "xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx".replace(/[xy]/g, (c2) => {
-    const r = Math.random() * 16 | 0;
-    const v2 = c2 === "x" ? r : r & 3 | 8;
-    return v2.toString(16);
-  });
-}, { docs: "Generate UUID", cost: 1 });
-var hash = defineAtom("hash", e.object({
-  value: e.any,
-  algorithm: e.string.optional
-}), e.string, async ({ value, algorithm }, ctx) => {
-  const str = typeof value === "string" ? value : JSON.stringify(resolveValue(value, ctx));
-  const algo = resolveValue(algorithm, ctx) || "SHA-256";
-  if (typeof crypto !== "undefined" && crypto.subtle) {
-    const encoder = new TextEncoder;
-    const data = encoder.encode(str);
-    const hashBuffer = await crypto.subtle.digest(algo, data);
-    const hashArray = Array.from(new Uint8Array(hashBuffer));
-    return hashArray.map((b3) => b3.toString(16).padStart(2, "0")).join("");
-  }
-  let hash2 = 0;
-  for (let i2 = 0;i2 < str.length; i2++) {
-    const char = str.charCodeAt(i2);
-    hash2 = (hash2 << 5) - hash2 + char;
-    hash2 |= 0;
-  }
-  return String(hash2);
-}, { docs: "Hash a value", cost: 1 });
-var consoleLog = defineAtom("consoleLog", e.object({ message: e.any }), undefined, async ({ message }, ctx) => {
-  const msg = resolveValue(message, ctx);
-  if (ctx.trace) {
-    ctx.trace.push({
-      op: "console.log",
-      input: { message: msg },
-      stateDiff: {},
-      result: msg,
-      fuelBefore: ctx.fuel.current,
-      fuelAfter: ctx.fuel.current,
-      timestamp: new Date().toISOString()
-    });
-  }
-}, { docs: "Log to trace", cost: 0.1 });
-var consoleWarn = defineAtom("consoleWarn", e.object({ message: e.any }), undefined, async ({ message }, ctx) => {
-  const msg = resolveValue(message, ctx);
-  const msgStr = typeof msg === "string" ? msg : JSON.stringify(msg);
-  if (!ctx.warnings)
-    ctx.warnings = [];
-  ctx.warnings.push(msgStr);
-  if (ctx.trace) {
-    ctx.trace.push({
-      op: "console.warn",
-      input: { message: msg },
-      stateDiff: {},
-      result: msg,
-      fuelBefore: ctx.fuel.current,
-      fuelAfter: ctx.fuel.current,
-      timestamp: new Date().toISOString()
-    });
-  }
-}, { docs: "Add warning", cost: 0.1 });
-var consoleError = defineAtom("consoleError", e.object({ message: e.any }), undefined, async ({ message }, ctx) => {
-  const msg = resolveValue(message, ctx);
-  const msgStr = typeof msg === "string" ? msg : JSON.stringify(msg);
-  ctx.error = new AgentError(msgStr, "console.error");
-}, { docs: "Emit error and stop", cost: 0.1 });
-var coreAtoms = {
-  seq,
-  if: iff,
-  while: whileLoop,
-  return: ret,
-  try: tryCatch,
-  Error: errorAtom,
-  varSet,
-  constSet,
-  varGet,
-  varsImport,
-  varsLet,
-  varsExport,
-  scope,
-  map,
-  filter,
-  reduce,
-  find: find2,
-  push,
-  len,
-  split,
-  join,
-  template,
-  regexMatch,
-  pick,
-  merge,
-  keys: keys2,
-  httpFetch: fetch2,
-  storeGet,
-  storeSet,
-  storeQuery,
-  storeVectorSearch: vectorSearch,
-  llmPredict,
-  agentRun,
-  transpileCode,
-  runCode,
-  jsonParse,
-  jsonStringify,
-  xmlParse,
-  memoize,
-  cache: cache2,
-  random,
-  uuid,
-  hash,
-  consoleLog,
-  consoleWarn,
-  consoleError
-};
-
-// src/builder.ts
-var RESERVED_WORDS = new Set([
-  "true",
-  "false",
-  "null",
-  "undefined",
-  "and",
-  "or",
-  "not"
-]);
-function warnMissingVars(condition, vars) {
-  const withoutStrings = condition.replace(/"[^"]*"/g, '""').replace(/'[^']*'/g, "''");
-  const identifiers = [];
-  const regex = /(?<![.])\b([a-zA-Z_][a-zA-Z0-9_]*)\b/g;
-  let match;
-  while ((match = regex.exec(withoutStrings)) !== null) {
-    identifiers.push(match[1]);
-  }
-  const uniqueIds = [...new Set(identifiers)];
-  const missing = uniqueIds.filter((id2) => !RESERVED_WORDS.has(id2) && !(id2 in vars) && !new RegExp(`\\b${id2}\\s*\\(`).test(withoutStrings));
-  if (missing.length > 0) {
-    console.warn(`[Agent99 Builder] Condition "${condition}" references variables not in vars mapping: ${missing.join(", ")}. ` + `Add them to vars or use AsyncJS syntax (ajs\`...\`) which handles this automatically.`);
-  }
-}
-function parseCondition(condition, vars) {
-  warnMissingVars(condition, vars);
-  const tokens = tokenize(condition);
-  const result = parseExpression(tokens, 0, vars);
-  if (result.pos < tokens.length) {
-    const remaining = tokens.slice(result.pos).join(" ");
-    throw new Error(`Unsupported condition syntax near '${remaining}' in: ${condition}
-` + `Supported: comparisons, &&, ||, !, arithmetic, member access (a.b), literals`);
-  }
-  return result.node;
-}
-function tokenize(expr) {
-  const tokens = [];
-  let i2 = 0;
-  while (i2 < expr.length) {
-    while (i2 < expr.length && /\s/.test(expr[i2]))
-      i2++;
-    if (i2 >= expr.length)
-      break;
-    if (expr[i2] === '"' || expr[i2] === "'") {
-      const quote = expr[i2++];
-      let str = "";
-      while (i2 < expr.length && expr[i2] !== quote) {
-        if (expr[i2] === "\\" && i2 + 1 < expr.length) {
-          i2++;
-          str += expr[i2++];
-        } else {
-          str += expr[i2++];
-        }
-      }
-      i2++;
-      tokens.push(JSON.stringify(str));
-      continue;
-    }
-    if (expr.slice(i2, i2 + 2).match(/^(&&|\|\||==|!=|>=|<=)$/)) {
-      tokens.push(expr.slice(i2, i2 + 2));
-      i2 += 2;
-      continue;
-    }
-    if ("+-*/%><!().?:[]".includes(expr[i2])) {
-      tokens.push(expr[i2]);
-      i2++;
-      continue;
-    }
-    if (/\d/.test(expr[i2])) {
-      let num = "";
-      while (i2 < expr.length && /[\d.]/.test(expr[i2])) {
-        num += expr[i2++];
-      }
-      tokens.push(num);
-      continue;
-    }
-    if (/[a-zA-Z_]/.test(expr[i2])) {
-      let id2 = "";
-      while (i2 < expr.length && /[a-zA-Z0-9_]/.test(expr[i2])) {
-        id2 += expr[i2++];
-      }
-      tokens.push(id2);
-      continue;
-    }
-    i2++;
-  }
-  return tokens;
-}
-function parseExpression(tokens, pos, vars) {
-  return parseLogicalOr(tokens, pos, vars);
-}
-function parseLogicalOr(tokens, pos, vars) {
-  let { node: left, pos: newPos } = parseLogicalAnd(tokens, pos, vars);
-  while (tokens[newPos] === "||") {
-    newPos++;
-    const { node: right, pos: rightPos } = parseLogicalAnd(tokens, newPos, vars);
-    left = { $expr: "logical", op: "||", left, right };
-    newPos = rightPos;
-  }
-  return { node: left, pos: newPos };
-}
-function parseLogicalAnd(tokens, pos, vars) {
-  let { node: left, pos: newPos } = parseComparison(tokens, pos, vars);
-  while (tokens[newPos] === "&&") {
-    newPos++;
-    const { node: right, pos: rightPos } = parseComparison(tokens, newPos, vars);
-    left = { $expr: "logical", op: "&&", left, right };
-    newPos = rightPos;
-  }
-  return { node: left, pos: newPos };
-}
-function parseComparison(tokens, pos, vars) {
-  let { node: left, pos: newPos } = parseAdditive(tokens, pos, vars);
-  const compOps = ["==", "!=", ">", "<", ">=", "<="];
-  while (compOps.includes(tokens[newPos])) {
-    const op = tokens[newPos++];
-    const { node: right, pos: rightPos } = parseAdditive(tokens, newPos, vars);
-    left = { $expr: "binary", op, left, right };
-    newPos = rightPos;
-  }
-  return { node: left, pos: newPos };
-}
-function parseAdditive(tokens, pos, vars) {
-  let { node: left, pos: newPos } = parseMultiplicative(tokens, pos, vars);
-  while (tokens[newPos] === "+" || tokens[newPos] === "-") {
-    const op = tokens[newPos++];
-    const { node: right, pos: rightPos } = parseMultiplicative(tokens, newPos, vars);
-    left = { $expr: "binary", op, left, right };
-    newPos = rightPos;
-  }
-  return { node: left, pos: newPos };
-}
-function parseMultiplicative(tokens, pos, vars) {
-  let { node: left, pos: newPos } = parseUnary(tokens, pos, vars);
-  while (tokens[newPos] === "*" || tokens[newPos] === "/" || tokens[newPos] === "%") {
-    const op = tokens[newPos++];
-    const { node: right, pos: rightPos } = parseUnary(tokens, newPos, vars);
-    left = { $expr: "binary", op, left, right };
-    newPos = rightPos;
-  }
-  return { node: left, pos: newPos };
-}
-function parseUnary(tokens, pos, vars) {
-  if (tokens[pos] === "!" || tokens[pos] === "-") {
-    const op = tokens[pos++];
-    const { node: argument, pos: newPos } = parseUnary(tokens, pos, vars);
-    return { node: { $expr: "unary", op, argument }, pos: newPos };
-  }
-  return parsePrimary(tokens, pos, vars);
-}
-function parsePrimary(tokens, pos, vars) {
-  const token = tokens[pos];
-  if (token === "(") {
-    const { node, pos: newPos } = parseExpression(tokens, pos + 1, vars);
-    return { node, pos: newPos + 1 };
-  }
-  if (token && token.startsWith('"')) {
-    return {
-      node: { $expr: "literal", value: JSON.parse(token) },
-      pos: pos + 1
-    };
-  }
-  if (token && /^\d/.test(token)) {
-    return {
-      node: { $expr: "literal", value: parseFloat(token) },
-      pos: pos + 1
-    };
-  }
-  if (token === "true")
-    return { node: { $expr: "literal", value: true }, pos: pos + 1 };
-  if (token === "false")
-    return { node: { $expr: "literal", value: false }, pos: pos + 1 };
-  if (token === "null")
-    return { node: { $expr: "literal", value: null }, pos: pos + 1 };
-  if (token && /^[a-zA-Z_]/.test(token)) {
-    let node = { $expr: "ident", name: token };
-    let newPos = pos + 1;
-    while (tokens[newPos] === ".") {
-      newPos++;
-      const prop = tokens[newPos++];
-      node = { $expr: "member", object: node, property: prop };
-    }
-    return { node, pos: newPos };
-  }
-  return { node: { $expr: "literal", value: null }, pos: pos + 1 };
-}
-
-class TypedBuilder {
-  steps = [];
-  atoms;
-  proxy;
-  constructor(atoms) {
-    this.atoms = atoms;
-    this.proxy = new Proxy(this, {
-      get: (target, prop, receiver) => {
-        if (prop in target)
-          return target[prop];
-        if (typeof prop === "string" && prop in target.atoms) {
-          return (input) => {
-            const atom = target.atoms[prop];
-            target.add(atom.create(input));
-            return receiver;
-          };
-        }
-        return;
-      }
-    });
-    return this.proxy;
-  }
-  add(step) {
-    this.steps.push(step);
-    return this.proxy;
-  }
-  as(variableName) {
-    if (this.steps.length === 0)
-      throw new Error("No step to capture");
-    const last = this.steps[this.steps.length - 1];
-    last.result = variableName;
-    return this.proxy;
-  }
-  step(node) {
-    return this.add(node);
-  }
-  return(schema) {
-    const atom = this.atoms["return"];
-    if (!atom)
-      throw new Error("Atom 'return' not found");
-    const _schema = schema.schema ?? schema;
-    return this.add(atom.create({ schema: _schema }));
-  }
-  toJSON() {
-    return {
-      op: "seq",
-      steps: [...this.steps]
-    };
-  }
-  varsImport(keys3) {
-    return this.add(this.atoms["varsImport"].create({ keys: keys3 }));
-  }
-  varsExport(keys3) {
-    return this.add(this.atoms["varsExport"].create({ keys: keys3 }));
-  }
-  if(condition, vars, thenBranch, elseBranch) {
-    const thenB = new TypedBuilder(this.atoms);
-    thenBranch(thenB);
-    let elseSteps;
-    if (elseBranch) {
-      const elseB = new TypedBuilder(this.atoms);
-      elseBranch(elseB);
-      elseSteps = elseB.steps;
-    }
-    const conditionExpr = parseCondition(condition, vars);
-    const ifAtom = this.atoms["if"];
-    return this.add(ifAtom.create({
-      condition: conditionExpr,
-      then: thenB.steps,
-      else: elseSteps
-    }));
-  }
-  while(condition, vars, body) {
-    const bodyB = new TypedBuilder(this.atoms);
-    body(bodyB);
-    const conditionExpr = parseCondition(condition, vars);
-    const whileAtom = this.atoms["while"];
-    return this.add(whileAtom.create({
-      condition: conditionExpr,
-      body: bodyB.steps
-    }));
-  }
-  scope(steps) {
-    const scopeB = new TypedBuilder(this.atoms);
-    steps(scopeB);
-    const scopeAtom = this.atoms["scope"];
-    return this.add(scopeAtom.create({
-      steps: scopeB.steps
-    }));
-  }
-  map(items, as, steps) {
-    const stepsB = new TypedBuilder(this.atoms);
-    steps(stepsB);
-    const mapAtom = this.atoms["map"];
-    return this.add(mapAtom.create({
-      items,
-      as,
-      steps: stepsB.steps
-    }));
-  }
-  filter(items, as, condition, vars = {}) {
-    const conditionExpr = parseCondition(condition, vars);
-    const filterAtom = this.atoms["filter"];
-    return this.add(filterAtom.create({
-      items,
-      as,
-      condition: conditionExpr
-    }));
-  }
-  find(items, as, condition, vars = {}) {
-    const conditionExpr = parseCondition(condition, vars);
-    const findAtom = this.atoms["find"];
-    return this.add(findAtom.create({
-      items,
-      as,
-      condition: conditionExpr
-    }));
-  }
-  reduce(items, as, accumulator, initial, steps) {
-    const stepsB = new TypedBuilder(this.atoms);
-    steps(stepsB);
-    const reduceAtom = this.atoms["reduce"];
-    return this.add(reduceAtom.create({
-      items,
-      as,
-      accumulator,
-      initial,
-      steps: stepsB.steps
-    }));
-  }
-  memoize(steps, key) {
-    const stepsB = new TypedBuilder(this.atoms);
-    steps(stepsB);
-    const memoAtom = this.atoms["memoize"];
-    return this.add(memoAtom.create({
-      key,
-      steps: stepsB.steps
-    }));
-  }
-  cache(steps, key, ttlMs) {
-    const stepsB = new TypedBuilder(this.atoms);
-    steps(stepsB);
-    const cacheAtom = this.atoms["cache"];
-    return this.add(cacheAtom.create({
-      key,
-      steps: stepsB.steps,
-      ttlMs
-    }));
-  }
-  try(branches) {
-    const tryB = new TypedBuilder(this.atoms);
-    branches.try(tryB);
-    let catchSteps;
-    if (branches.catch) {
-      const catchB = new TypedBuilder(this.atoms);
-      branches.catch(catchB);
-      catchSteps = catchB.steps;
-    }
-    const tryAtom = this.atoms["try"];
-    return this.add(tryAtom.create({
-      try: tryB.steps,
-      catch: catchSteps
-    }));
-  }
-}
-var Agent = {
-  take(_schema) {
-    return new TypedBuilder(coreAtoms);
-  },
-  custom(atoms) {
-    return new TypedBuilder(atoms);
-  },
-  args(path) {
-    return { $kind: "arg", path };
-  },
-  val(path) {
-    return path;
-  }
-};
-var A99 = Agent;
-// src/atoms/batteries.ts
-var storeVectorize = defineAtom("storeVectorize", e.object({
-  text: e.string,
-  model: e.string.optional
-}), e.array(e.number), async ({ text }, ctx) => {
-  const vectorCap = ctx.capabilities.vector;
-  if (!vectorCap)
-    throw new Error("Capability 'vector' missing. Ensure vector battery is loaded.");
-  const resolvedText = resolveValue(text, ctx);
-  return vectorCap.embed(resolvedText);
-}, { docs: "Generate embeddings using vector battery", cost: 20 });
-var storeCreateCollection = defineAtom("storeCreateCollection", e.object({
-  collection: e.string,
-  dimension: e.number.optional
-}), undefined, async ({ collection, dimension }, ctx) => {
-  const storeCap = ctx.capabilities.store;
-  if (!storeCap?.createCollection)
-    throw new Error("Capability 'store' missing or does not support createCollection.");
-  const resolvedColl = resolveValue(collection, ctx);
-  const resolvedDim = resolveValue(dimension, ctx);
-  return storeCap.createCollection(resolvedColl, undefined, resolvedDim);
-}, { docs: "Create a vector store collection", cost: 5 });
-var storeVectorAdd = defineAtom("storeVectorAdd", e.object({
-  collection: e.string,
-  doc: e.any
-}), undefined, async ({ collection, doc: doc2 }, ctx) => {
-  const storeCap = ctx.capabilities.store;
-  if (!storeCap?.vectorAdd)
-    throw new Error("Capability 'store' missing or does not support vectorAdd.");
-  const resolvedColl = resolveValue(collection, ctx);
-  const resolvedDoc = resolveValue(doc2, ctx);
-  return storeCap.vectorAdd(resolvedColl, resolvedDoc);
-}, { docs: "Add a document to a vector store collection", cost: 5 });
-var storeSearch = defineAtom("storeSearch", e.object({
-  collection: e.string,
-  queryVector: e.array(e.number),
-  k: e.number.optional,
-  filter: e.record(e.any).optional
-}), e.array(e.any), async ({ collection, queryVector, k: k2, filter: filter2 }, ctx) => {
-  const storeCap = ctx.capabilities.store;
-  if (!storeCap?.vectorSearch)
-    throw new Error("Capability 'store' missing or does not support vectorSearch.");
-  const resolvedColl = resolveValue(collection, ctx);
-  const resolvedVec = resolveValue(queryVector, ctx);
-  const resolvedK = resolveValue(k2, ctx) ?? 5;
-  const resolvedFilter = resolveValue(filter2, ctx);
-  return storeCap.vectorSearch(resolvedColl, resolvedVec, resolvedK, resolvedFilter);
-}, {
-  docs: "Search vector store",
-  cost: (input, ctx) => 5 + (resolveValue(input.k, ctx) ?? 5)
-});
-var llmPredictBattery = defineAtom("llmPredictBattery", e.object({
-  system: e.string.optional,
-  user: e.string,
-  tools: e.array(e.any).optional,
-  responseFormat: e.any.optional
-}), e.object({
-  content: e.string.optional,
-  tool_calls: e.array(e.any).optional
-}), async ({ system, user, tools, responseFormat }, ctx) => {
-  const llmCap = ctx.capabilities.llmBattery;
-  if (!llmCap?.predict)
-    throw new Error("Capability 'llmBattery' missing or invalid.");
-  const resolvedSystem = resolveValue(system, ctx) ?? "You are a helpful agent.";
-  const resolvedUser = resolveValue(user, ctx);
-  const resolvedTools = resolveValue(tools, ctx);
-  const resolvedFormat = resolveValue(responseFormat, ctx);
-  return llmCap.predict(resolvedSystem, resolvedUser, resolvedTools, resolvedFormat);
-}, { docs: "Generate completion using LLM battery", cost: 100 });
-var llmVision = defineAtom("llmVision", e.object({
-  system: e.string.optional,
-  prompt: e.string,
-  images: e.array(e.string),
-  responseFormat: e.any.optional
-}), e.object({
-  content: e.string.optional,
-  tool_calls: e.array(e.any).optional
-}), async ({ system, prompt: prompt2, images, responseFormat }, ctx) => {
-  const llmCap = ctx.capabilities.llmBattery;
-  if (!llmCap?.predict)
-    throw new Error("Capability 'llmBattery' missing or invalid.");
-  const resolvedSystem = resolveValue(system, ctx) ?? "You analyze images accurately and concisely.";
-  const resolvedPrompt = resolveValue(prompt2, ctx);
-  const resolvedImages = resolveValue(images, ctx) ?? [];
-  const resolvedFormat = resolveValue(responseFormat, ctx);
-  return llmCap.predict(resolvedSystem, { text: resolvedPrompt, images: resolvedImages }, undefined, resolvedFormat);
-}, { docs: "Analyze images using a vision model", timeoutMs: 120000, cost: 150 });
-
-// src/atoms/index.ts
-var batteryAtoms = {
-  storeCreateCollection,
-  storeSearch,
-  storeVectorAdd,
-  storeVectorize,
-  llmPredictBattery,
-  llmVision
-};
-// src/batteries/store.ts
-var kvStore = new Map;
-var collections = new Map;
-function cosineSimilarity(vecA, vecB) {
-  if (vecA.length !== vecB.length) {
-    throw new Error("Vectors must have the same length for cosine similarity.");
-  }
-  let dotProduct = 0;
-  let magA = 0;
-  let magB = 0;
-  for (let i2 = 0;i2 < vecA.length; i2++) {
-    dotProduct += vecA[i2] * vecB[i2];
-    magA += vecA[i2] * vecA[i2];
-    magB += vecB[i2] * vecB[i2];
-  }
-  magA = Math.sqrt(magA);
-  magB = Math.sqrt(magB);
-  if (magA === 0 || magB === 0) {
-    return 0;
-  }
-  return dotProduct / (magA * magB);
-}
-function getStoreCapability() {
-  return {
-    async get(key) {
-      return kvStore.get(key);
-    },
-    async set(key, val) {
-      kvStore.set(key, val);
-    },
-    async createCollection(name2, _schema, _dimension) {
-      if (collections.has(name2)) {
-        console.warn(`Collection '${name2}' already exists. Overwriting.`);
-      }
-      collections.set(name2, []);
-    },
-    async vectorAdd(collection, doc2) {
-      const db = collections.get(collection);
-      if (!db)
-        throw new Error(`Collection '${collection}' not found. Create it first.`);
-      if (!doc2.embedding || !Array.isArray(doc2.embedding)) {
-        throw new Error("Document must have an 'embedding' property that is an array of numbers.");
-      }
-      db.push(doc2);
-    },
-    async vectorSearch(collection, vector, k2 = 5) {
-      const db = collections.get(collection);
-      if (!db)
-        throw new Error(`Collection '${collection}' not found. Create it first.`);
-      const scoredDocs = db.map((doc2) => ({
-        doc: doc2,
-        score: cosineSimilarity(vector, doc2.embedding)
-      }));
-      scoredDocs.sort((a2, b3) => b3.score - a2.score);
-      return scoredDocs.slice(0, k2).map((item) => item.doc);
-    }
-  };
-}
-
-// src/batteries/llm.ts
-function buildUserMessage(user) {
-  if (typeof user === "string") {
-    return { role: "user", content: user };
-  }
-  const content2 = [{ type: "text", text: user.text }];
-  for (const img of user.images || []) {
-    content2.push({
-      type: "image_url",
-      image_url: {
-        url: img
-      }
-    });
-  }
-  return { role: "user", content: content2 };
-}
-var DEFAULT_BASE_URL = "http://localhost:1234/v1";
-function getLLMCapability(models, baseUrl = DEFAULT_BASE_URL) {
-  return {
-    async predict(system, user, tools, responseFormat) {
-      try {
-        const model = responseFormat ? models.getStructuredLLM() : models.getLLM();
-        const messages = [
-          { role: "system", content: system },
-          buildUserMessage(user)
-        ];
-        const response = await fetch(`${baseUrl}/chat/completions`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            model: model.id,
-            messages,
-            temperature: 0.7,
-            tools,
-            response_format: responseFormat
-          })
-        });
-        if (!response.ok) {
-          throw new Error(`LLM Error: ${response.status} ${response.statusText}`);
-        }
-        const data = await response.json();
-        return data.choices[0]?.message ?? { content: "" };
-      } catch (e2) {
-        if (e2.cause?.code === "ECONNREFUSED") {
-          throw new Error("No LLM provider configured. Please start LM Studio or provide an API key.");
-        }
-        throw e2;
-      }
-    },
-    async embed(text) {
-      try {
-        const model = models.getEmbedding();
-        const response = await fetch(`${baseUrl}/embeddings`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            model: model.id,
-            input: text
-          })
-        });
-        if (!response.ok) {
-          throw new Error(`Embedding Error: ${response.status}`);
-        }
-        const data = await response.json();
-        return data.data[0]?.embedding ?? [];
-      } catch (e2) {
-        if (e2.cause?.code === "ECONNREFUSED") {
-          throw new Error("No LLM provider configured. Please start LM Studio or provide an API key.");
-        }
-        throw e2;
-      }
-    }
-  };
-}
-
-// src/batteries/audit.ts
-var TIMEOUT_MS = 60000;
-var CACHE_FILE = ".models.cache.json";
-var CACHE_TTL_MS = 24 * 60 * 60 * 1000;
-var isBrowser = typeof window !== "undefined" && typeof window.localStorage !== "undefined";
-async function readCache(baseUrl) {
-  try {
-    if (isBrowser) {
-      const cached = window.localStorage.getItem(CACHE_FILE);
-      if (!cached)
-        return null;
-      const data = JSON.parse(cached);
-      if (data.baseUrl !== baseUrl)
-        return null;
-      if (Date.now() - data.timestamp > CACHE_TTL_MS)
-        return null;
-      return data.models;
-    } else {
-      const fs2 = await import("node:fs/promises");
-      const path = await Promise.resolve().then(() => (init_path(), exports_path));
-      const cacheFile = path.join(process.cwd(), CACHE_FILE);
-      try {
-        const content2 = await fs2.readFile(cacheFile, "utf-8");
-        const data = JSON.parse(content2);
-        if (data.baseUrl !== baseUrl)
-          return null;
-        if (Date.now() - data.timestamp > CACHE_TTL_MS)
-          return null;
-        return data.models;
-      } catch {
-        return null;
-      }
-    }
-  } catch (e2) {
-    console.warn("⚠️ Error reading model cache:", e2);
-    return null;
-  }
-}
-async function writeCache(baseUrl, models) {
-  const data = {
-    timestamp: Date.now(),
-    baseUrl,
-    models
-  };
-  try {
-    if (isBrowser) {
-      window.localStorage.setItem(CACHE_FILE, JSON.stringify(data));
-    } else {
-      const fs2 = await import("node:fs/promises");
-      const path = await Promise.resolve().then(() => (init_path(), exports_path));
-      const cacheFile = path.join(process.cwd(), CACHE_FILE);
-      await fs2.writeFile(cacheFile, JSON.stringify(data, null, 2));
-    }
-  } catch (e2) {
-    console.error("❌ Error writing model cache:", e2);
-  }
-}
-var fetchWithTimeout = async (url, options2) => {
-  const controller = new AbortController;
-  const id2 = setTimeout(() => controller.abort(), TIMEOUT_MS);
-  try {
-    const res = await fetch(url, { ...options2, signal: controller.signal });
-    clearTimeout(id2);
-    return res;
-  } catch (error) {
-    clearTimeout(id2);
-    throw error;
-  }
-};
-async function checkStructured(baseUrl, modelId) {
-  try {
-    const schemaPayload = {
-      type: "json_schema",
-      json_schema: {
-        name: "test",
-        strict: false,
-        schema: {
-          type: "object",
-          properties: { status: { type: "string" } }
-        }
-      }
-    };
-    const res = await fetchWithTimeout(`${baseUrl}/chat/completions`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        model: modelId,
-        messages: [
-          { role: "system", content: "You respond in JSON." },
-          { role: "user", content: 'Return JSON: {"status": "ok"}' }
-        ],
-        response_format: schemaPayload,
-        max_tokens: 20
-      })
-    });
-    if (!res.ok) {
-      if (res.status === 400) {
-        return checkStructuredLegacy(baseUrl, modelId);
-      }
-      return { ok: false, msg: `HTTP ${res.status}` };
-    }
-    const data = await res.json();
-    JSON.parse(data.choices[0].message.content);
-    return { ok: true, msg: "OK (Schema)" };
-  } catch (e2) {
-    return { ok: false, msg: e2.message || "Error" };
-  }
-}
-async function checkStructuredLegacy(baseUrl, modelId) {
-  try {
-    const res = await fetchWithTimeout(`${baseUrl}/chat/completions`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        model: modelId,
-        messages: [{ role: "user", content: 'JSON: {"a":1}' }],
-        response_format: { type: "json_object" },
-        max_tokens: 10
-      })
-    });
-    if (res.ok)
-      return { ok: true, msg: "OK (Legacy Mode)" };
-    return { ok: false, msg: "Not Supported" };
-  } catch {
-    return { ok: false, msg: "Legacy Fail" };
-  }
-}
-async function checkLLM(baseUrl, modelId) {
-  try {
-    const res = await fetchWithTimeout(`${baseUrl}/chat/completions`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        model: modelId,
-        messages: [{ role: "user", content: "hi" }],
-        max_tokens: 1
-      })
-    });
-    return res.ok;
-  } catch {
-    return false;
-  }
-}
-async function checkEmbedding(baseUrl, modelId) {
-  try {
-    const res = await fetchWithTimeout(`${baseUrl}/embeddings`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ model: modelId, input: "test" })
-    });
-    if (!res.ok)
-      return null;
-    const data = await res.json();
-    return data.data[0]?.embedding?.length ?? null;
-  } catch {
-    return null;
-  }
-}
-var TINY_TEST_IMAGE = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8DwHwAFBQIAX8jx0gAAAABJRU5ErkJggg==";
-async function checkVision(baseUrl, modelId) {
-  try {
-    const res = await fetchWithTimeout(`${baseUrl}/chat/completions`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        model: modelId,
-        messages: [
-          {
-            role: "user",
-            content: [
-              { type: "text", text: "What color is this?" },
-              { type: "image_url", image_url: { url: TINY_TEST_IMAGE } }
-            ]
-          }
-        ],
-        max_tokens: 10
-      })
-    });
-    return res.ok;
-  } catch {
-    return false;
-  }
-}
-async function auditModels(baseUrl) {
-  const cachedData = await readCache(baseUrl);
-  let serverModelIds = [];
-  try {
-    const res = await fetch(`${baseUrl}/models`);
-    if (!res.ok)
-      throw new Error("Could not connect");
-    const data = await res.json();
-    serverModelIds = data.data.map((m) => m.id).sort();
-  } catch (e2) {
-    if (cachedData) {
-      console.log("⚠️ LM Studio unavailable, using cached model audit.");
-      return cachedData;
-    }
-    console.error("❌ Failed to connect to LM Studio.");
-    return [];
-  }
-  if (cachedData) {
-    const cachedModelIds = cachedData.map((m) => m.id).sort();
-    if (JSON.stringify(serverModelIds) === JSON.stringify(cachedModelIds)) {
-      console.log("✅ Using cached model audit.");
-      return cachedData;
-    }
-    console.log("\uD83D\uDD0D Model list changed. Re-running audit...");
-  }
-  console.log("\uD83D\uDD0D Scanning models (this may take a moment)...");
-  const results = [];
-  const modelList = serverModelIds.map((id2) => ({ id: id2 }));
-  let readline;
-  if (!isBrowser) {
-    readline = await import("node:readline");
-  }
-  for (const model of modelList) {
-    if (!isBrowser && readline) {
-      readline.cursorTo(process.stdout, 0);
-      process.stdout.write(`\uD83D\uDC49 Testing: ${model.id}...`);
-      readline.clearLine(process.stdout, 1);
-    }
-    let type = "Unknown";
-    let structured = false;
-    let vision = false;
-    let statusMsg = "";
-    let dimension = undefined;
-    const isLLM = await checkLLM(baseUrl, model.id);
-    const dim = await checkEmbedding(baseUrl, model.id);
-    if (dim) {
-      dimension = dim;
-    }
-    if (isLLM) {
-      type = "LLM";
-      const structRes = await checkStructured(baseUrl, model.id);
-      structured = structRes.ok;
-      vision = await checkVision(baseUrl, model.id);
-      statusMsg = structured ? structRes.msg : `Fail: ${structRes.msg}`;
-      if (vision)
-        statusMsg += " +Vision";
-    } else if (dim) {
-      type = "Embedding";
-      statusMsg = `OK (Dim: ${dim})`;
-    } else {
-      statusMsg = "LLM Fail";
-    }
-    results.push({
-      id: model.id,
-      type,
-      structuredOutput: structured,
-      vision,
-      dimension,
-      status: statusMsg
-    });
-  }
-  if (!isBrowser && readline) {
-    readline.cursorTo(process.stdout, 0);
-    readline.clearLine(process.stdout, 0);
-  }
-  console.log(`
-`);
-  console.table(results);
-  await writeCache(baseUrl, results);
-  console.log(`\uD83D\uDCDD Audit results saved to cache.`);
-  return results;
-}
-
-// src/batteries/models.ts
-var DEFAULT_BASE_URL2 = "http://localhost:1234/v1";
-
-class LocalModels {
-  baseUrl;
-  models = [];
-  defaultLLM = null;
-  defaultEmbedding = null;
-  defaultStructuredLLM = null;
-  constructor(baseUrl = DEFAULT_BASE_URL2) {
-    this.baseUrl = baseUrl;
-  }
-  async audit() {
-    this.models = await auditModels(this.baseUrl);
-    this.selectDefaults();
-  }
-  selectDefaults() {
-    this.defaultEmbedding = this.models.find((m) => m.type === "Embedding") || null;
-    this.defaultLLM = this.models.find((m) => m.type === "LLM") || null;
-    this.defaultStructuredLLM = this.models.find((m) => m.type === "LLM" && m.structuredOutput) || null;
-    if (!this.defaultEmbedding) {
-      console.warn("⚠️ No embedding model found.");
-    }
-    if (!this.defaultLLM) {
-      console.warn("⚠️ No LLM found.");
-    }
-    if (!this.defaultStructuredLLM) {
-      console.warn("⚠️ No LLM with structured output support found.");
-    }
-  }
-  getModels() {
-    return this.models;
-  }
-  _setDefaultModel(modelId, property, predicate, errorType) {
-    const model = this.models.find((m) => m.id === modelId && predicate(m));
-    if (!model) {
-      throw new Error(`Model '${modelId}' not found or is not ${errorType}.`);
-    }
-    this[property] = model;
-  }
-  setDefaultLLM(modelId) {
-    this._setDefaultModel(modelId, "defaultLLM", (m) => m.type === "LLM", "an LLM");
-  }
-  setDefaultEmbedding(modelId) {
-    this._setDefaultModel(modelId, "defaultEmbedding", (m) => m.dimension !== undefined, "an embedding model");
-  }
-  setDefaultStructuredLLM(modelId) {
-    this._setDefaultModel(modelId, "defaultStructuredLLM", (m) => m.type === "LLM" && m.structuredOutput, "a structured-output LLM");
-  }
-  getLLM() {
-    if (!this.defaultLLM) {
-      throw new Error("No LLM available.");
-    }
-    return this.defaultLLM;
-  }
-  getEmbedding() {
-    if (!this.defaultEmbedding) {
-      throw new Error("No embedding model available.");
-    }
-    return this.defaultEmbedding;
-  }
-  getStructuredLLM() {
-    if (!this.defaultStructuredLLM) {
-      throw new Error("No structured-output LLM available.");
-    }
-    return this.defaultStructuredLLM;
-  }
-}
-
-// src/batteries/index.ts
-var isBrowser2 = typeof window !== "undefined";
-var isHttps = isBrowser2 && window.location.protocol === "https:";
-var localModels = null;
-var llm = null;
-var initializationAttempted = false;
-async function ensureInitialized() {
-  if (initializationAttempted) {
-    return { localModels, llm };
-  }
-  initializationAttempted = true;
-  if (isHttps) {
-    console.log("\uD83D\uDCE1 HTTPS detected - local LLM endpoints disabled. Use HTTP for local LLM support.");
-    return { localModels: null, llm: null };
-  }
-  try {
-    localModels = new LocalModels;
-    await localModels.audit();
-    llm = getLLMCapability(localModels);
-  } catch (e2) {
-    console.warn("⚠️ Could not connect to local LLM:", e2);
-  }
-  return { localModels, llm };
-}
-async function getBatteries() {
-  const { localModels: localModels2, llm: llm2 } = await ensureInitialized();
-  return {
-    vector: llm2 ? { embed: llm2.embed } : undefined,
-    store: getStoreCapability(),
-    llmBattery: llm2,
-    models: localModels2
-  };
-}
-async function getStandardCapabilities() {
-  return getBatteries();
-}
-var batteries = {
-  store: getStoreCapability(),
-  llmBattery: null,
-  vector: undefined,
-  models: null
-};
-// src/vm.ts
-var FUEL_TO_MS = 10;
-
-class AgentVM {
-  atoms;
-  constructor(customAtoms = {}) {
-    this.atoms = { ...coreAtoms, ...customAtoms };
-  }
-  get builder() {
-    return new TypedBuilder(this.atoms);
-  }
-  get Agent() {
-    return new TypedBuilder(this.atoms);
-  }
-  get A99() {
-    return this.Agent;
-  }
-  resolve(op) {
-    return this.atoms[op];
-  }
-  getTools(filter2 = "all") {
-    let targetAtoms = Object.values(this.atoms);
-    if (Array.isArray(filter2)) {
-      targetAtoms = targetAtoms.filter((a2) => filter2.includes(a2.op));
-    } else if (filter2 === "flow") {
-      const flowOps = [
-        "seq",
-        "if",
-        "while",
-        "return",
-        "try",
-        "varSet",
-        "varGet",
-        "scope"
-      ];
-      targetAtoms = targetAtoms.filter((a2) => flowOps.includes(a2.op));
-    }
-    return targetAtoms.map((atom) => ({
-      type: "function",
-      function: {
-        name: atom.op,
-        description: atom.docs,
-        parameters: atom.inputSchema?.schema ?? {}
-      }
-    }));
-  }
-  async run(ast, args = {}, options2 = {}) {
-    const startFuel = options2.fuel ?? 1000;
-    const timeoutMs = options2.timeoutMs ?? startFuel * FUEL_TO_MS;
-    const capabilities = options2.capabilities ?? {};
-    const warnings = [];
-    if (!capabilities.store) {
-      const memoryStore = new Map;
-      let warned2 = false;
-      capabilities.store = {
-        get: async (key) => {
-          if (!warned2) {
-            warned2 = true;
-            warnings.push("Using default in-memory store (not suitable for production)");
-          }
-          return memoryStore.get(key);
-        },
-        set: async (key, value) => {
-          if (!warned2) {
-            warned2 = true;
-            warnings.push("Using default in-memory store (not suitable for production)");
-          }
-          memoryStore.set(key, value);
-        }
-      };
-    }
-    const controller = new AbortController;
-    const timeout = setTimeout(() => controller.abort(), timeoutMs);
-    if (options2.signal) {
-      options2.signal.addEventListener("abort", () => controller.abort());
-    }
-    const ctx = {
-      fuel: { current: startFuel },
-      args,
-      state: {},
-      consts: new Set,
-      capabilities,
-      resolver: (op) => this.resolve(op),
-      output: undefined,
-      signal: controller.signal,
-      costOverrides: options2.costOverrides,
-      context: options2.context,
-      warnings
-    };
-    if (options2.trace) {
-      ctx.trace = [];
-    }
-    if (ast.op !== "seq")
-      throw new Error("Root AST must be 'seq'. Ensure you're passing a transpiled agent (use ajs`...` or transpile()).");
-    try {
-      await Promise.race([
-        this.resolve("seq")?.exec(ast, ctx),
-        new Promise((_2, reject) => {
-          controller.signal.addEventListener("abort", () => {
-            reject(new Error(`Execution timeout after ${timeoutMs}ms (fuel: ${startFuel}). Consider increasing fuel or optimizing your agent.`));
-          });
-          if (controller.signal.aborted) {
-            reject(new Error(`Execution timeout after ${timeoutMs}ms (fuel: ${startFuel}). Consider increasing fuel or optimizing your agent.`));
-          }
-        })
-      ]);
-    } catch (e2) {
-      if (e2.message?.includes("timeout") || e2.message?.includes("aborted") || controller.signal.aborted) {
-        ctx.error = new AgentError(`Execution timeout after ${timeoutMs}ms (fuel: ${startFuel}). Consider increasing fuel or optimizing your agent.`, "vm.run");
-      } else {
-        throw e2;
-      }
-    } finally {
-      clearTimeout(timeout);
-    }
-    if (ctx.error && ctx.output === undefined) {
-      ctx.output = ctx.error;
-    }
-    const allWarnings = [...warnings, ...ctx.warnings ?? []];
-    return {
-      result: ctx.output,
-      error: ctx.error,
-      fuelUsed: startFuel - ctx.fuel.current,
-      trace: ctx.trace,
-      warnings: allWarnings.length > 0 ? allWarnings : undefined
-    };
-  }
-}
 // node_modules/acorn/dist/acorn.mjs
 var astralIdentifierCodes = [509, 0, 227, 0, 150, 4, 294, 9, 1368, 2, 2, 1, 6, 3, 41, 2, 5, 0, 166, 1, 574, 3, 9, 9, 7, 9, 32, 4, 318, 1, 80, 3, 71, 10, 50, 3, 123, 2, 54, 14, 32, 10, 3, 1, 11, 3, 46, 10, 8, 0, 46, 9, 7, 2, 37, 13, 2, 9, 6, 1, 45, 0, 13, 2, 49, 13, 9, 3, 2, 11, 83, 11, 7, 0, 3, 0, 158, 11, 6, 9, 7, 3, 56, 1, 2, 6, 3, 1, 3, 2, 10, 0, 11, 1, 3, 6, 4, 4, 68, 8, 2, 0, 3, 0, 2, 3, 2, 4, 2, 0, 15, 1, 83, 17, 10, 9, 5, 0, 82, 19, 13, 9, 214, 6, 3, 8, 28, 1, 83, 16, 16, 9, 82, 12, 9, 9, 7, 19, 58, 14, 5, 9, 243, 14, 166, 9, 71, 5, 2, 1, 3, 3, 2, 0, 2, 1, 13, 9, 120, 6, 3, 6, 4, 0, 29, 9, 41, 6, 2, 3, 9, 0, 10, 10, 47, 15, 343, 9, 54, 7, 2, 7, 17, 9, 57, 21, 2, 13, 123, 5, 4, 0, 2, 1, 2, 6, 2, 0, 9, 9, 49, 4, 2, 1, 2, 4, 9, 9, 330, 3, 10, 1, 2, 0, 49, 6, 4, 4, 14, 10, 5350, 0, 7, 14, 11465, 27, 2343, 9, 87, 9, 39, 4, 60, 6, 26, 9, 535, 9, 470, 0, 2, 54, 8, 3, 82, 0, 12, 1, 19628, 1, 4178, 9, 519, 45, 3, 22, 543, 4, 4, 5, 9, 7, 3, 6, 31, 3, 149, 2, 1418, 49, 513, 54, 5, 49, 9, 0, 15, 0, 23, 4, 2, 14, 1361, 6, 2, 16, 3, 6, 2, 1, 2, 4, 101, 0, 161, 6, 10, 9, 357, 0, 62, 13, 499, 13, 245, 1, 2, 9, 726, 6, 110, 6, 6, 9, 4759, 9, 787719, 239];
 var astralIdentifierStartCodes = [0, 11, 2, 25, 2, 18, 2, 1, 2, 14, 3, 13, 35, 122, 70, 52, 268, 28, 4, 48, 48, 31, 14, 29, 6, 37, 11, 29, 3, 35, 5, 7, 2, 4, 43, 157, 19, 35, 5, 35, 5, 39, 9, 51, 13, 10, 2, 14, 2, 6, 2, 1, 2, 10, 2, 14, 2, 6, 2, 1, 4, 51, 13, 310, 10, 21, 11, 7, 25, 5, 2, 41, 2, 8, 70, 5, 3, 0, 2, 43, 2, 1, 4, 0, 3, 22, 11, 22, 10, 30, 66, 18, 2, 1, 11, 21, 11, 25, 71, 55, 7, 1, 65, 0, 16, 3, 2, 2, 2, 28, 43, 28, 4, 28, 36, 7, 2, 27, 28, 53, 11, 21, 11, 18, 14, 17, 111, 72, 56, 50, 14, 50, 14, 35, 39, 27, 10, 22, 251, 41, 7, 1, 17, 2, 60, 28, 11, 0, 9, 21, 43, 17, 47, 20, 28, 22, 13, 52, 58, 1, 3, 0, 14, 44, 33, 24, 27, 35, 30, 0, 3, 0, 9, 34, 4, 0, 13, 47, 15, 3, 22, 0, 2, 0, 36, 17, 2, 24, 20, 1, 64, 6, 2, 0, 2, 3, 2, 14, 2, 9, 8, 46, 39, 7, 3, 1, 3, 21, 2, 6, 2, 1, 2, 4, 4, 0, 19, 0, 13, 4, 31, 9, 2, 0, 3, 0, 2, 37, 2, 0, 26, 0, 2, 0, 45, 52, 19, 3, 21, 2, 31, 47, 21, 1, 2, 0, 185, 46, 42, 3, 37, 47, 21, 0, 60, 42, 14, 0, 72, 26, 38, 6, 186, 43, 117, 63, 32, 7, 3, 0, 3, 7, 2, 1, 2, 23, 16, 0, 2, 0, 95, 7, 3, 38, 17, 0, 2, 0, 29, 0, 11, 39, 8, 0, 22, 0, 12, 45, 20, 0, 19, 72, 200, 32, 32, 8, 2, 36, 18, 0, 50, 29, 113, 6, 2, 1, 2, 37, 22, 0, 26, 5, 2, 1, 2, 31, 15, 0, 328, 18, 16, 0, 2, 12, 2, 33, 125, 0, 80, 921, 103, 110, 18, 195, 2637, 96, 16, 1071, 18, 5, 26, 3994, 6, 582, 6842, 29, 1763, 568, 8, 30, 18, 78, 18, 29, 19, 47, 17, 3, 32, 20, 6, 18, 433, 44, 212, 63, 129, 74, 6, 0, 67, 12, 65, 1, 2, 0, 29, 6135, 9, 1237, 42, 9, 8936, 3, 2, 6, 2, 1, 2, 290, 16, 0, 30, 2, 3, 0, 15, 3, 9, 395, 2309, 106, 6, 12, 4, 8, 8, 9, 5991, 84, 2, 70, 2, 1, 3, 0, 3, 1, 3, 3, 2, 11, 2, 0, 2, 6, 2, 64, 2, 3, 3, 7, 2, 6, 2, 27, 2, 3, 2, 4, 2, 0, 4, 6, 2, 339, 3, 24, 2, 24, 2, 30, 2, 24, 2, 30, 2, 24, 2, 30, 2, 24, 2, 30, 2, 24, 2, 7, 1845, 30, 7, 5, 262, 61, 147, 44, 11, 6, 17, 0, 322, 29, 19, 43, 485, 27, 229, 29, 3, 0, 496, 6, 2, 3, 2, 1, 2, 14, 2, 196, 60, 67, 8, 0, 1205, 3, 2, 26, 2, 1, 2, 0, 3, 0, 2, 9, 2, 3, 2, 0, 2, 0, 7, 0, 5, 0, 2, 0, 2, 0, 2, 2, 2, 1, 2, 0, 3, 0, 2, 0, 2, 0, 2, 0, 2, 0, 2, 1, 2, 0, 3, 3, 2, 6, 2, 3, 2, 3, 2, 0, 2, 9, 2, 16, 6, 2, 2, 4, 2, 16, 4421, 42719, 33, 4153, 7, 221, 3, 5761, 15, 7472, 16, 621, 2467, 541, 1507, 4938, 6, 4191];
@@ -33600,7 +30754,7 @@ var Parser2 = function Parser3(options2, input, startPos) {
   this.privateNameStack = [];
 };
 var prototypeAccessors = { inFunction: { configurable: true }, inGenerator: { configurable: true }, inAsync: { configurable: true }, canAwait: { configurable: true }, allowSuper: { configurable: true }, allowDirectSuper: { configurable: true }, treatFunctionsAsVar: { configurable: true }, allowNewDotTarget: { configurable: true }, inClassStaticBlock: { configurable: true } };
-Parser2.prototype.parse = function parse2() {
+Parser2.prototype.parse = function parse() {
   var node = this.options.program || this.startNode();
   this.nextToken();
   return this.parseTopLevel(node);
@@ -33652,16 +30806,16 @@ prototypeAccessors.inClassStaticBlock.get = function() {
   return (this.currentVarScope().flags & SCOPE_CLASS_STATIC_BLOCK) > 0;
 };
 Parser2.extend = function extend() {
-  var plugins = [], len2 = arguments.length;
-  while (len2--)
-    plugins[len2] = arguments[len2];
+  var plugins = [], len = arguments.length;
+  while (len--)
+    plugins[len] = arguments[len];
   var cls = this;
   for (var i2 = 0;i2 < plugins.length; i2++) {
     cls = plugins[i2](cls);
   }
   return cls;
 };
-Parser2.parse = function parse3(input, options2) {
+Parser2.parse = function parse2(input, options2) {
   return new this(options2, input).parse();
 };
 Parser2.parseExpressionAt = function parseExpressionAt(input, pos, options2) {
@@ -34605,8 +31759,8 @@ pp$8.exitClassBody = function() {
   if (!this.options.checkPrivateFields) {
     return;
   }
-  var len2 = this.privateNameStack.length;
-  var parent = len2 === 0 ? null : this.privateNameStack[len2 - 1];
+  var len = this.privateNameStack.length;
+  var parent = len === 0 ? null : this.privateNameStack[len - 1];
   for (var i2 = 0;i2 < used.length; ++i2) {
     var id2 = used[i2];
     if (!hasOwn(declared, id2.name)) {
@@ -36389,16 +33543,16 @@ pp$3.enterScope = function(flags) {
 pp$3.exitScope = function() {
   this.scopeStack.pop();
 };
-pp$3.treatFunctionsAsVarInScope = function(scope2) {
-  return scope2.flags & SCOPE_FUNCTION || !this.inModule && scope2.flags & SCOPE_TOP;
+pp$3.treatFunctionsAsVarInScope = function(scope) {
+  return scope.flags & SCOPE_FUNCTION || !this.inModule && scope.flags & SCOPE_TOP;
 };
 pp$3.declareName = function(name2, bindingType, pos) {
   var redeclared = false;
   if (bindingType === BIND_LEXICAL) {
-    var scope2 = this.currentScope();
-    redeclared = scope2.lexical.indexOf(name2) > -1 || scope2.functions.indexOf(name2) > -1 || scope2.var.indexOf(name2) > -1;
-    scope2.lexical.push(name2);
-    if (this.inModule && scope2.flags & SCOPE_TOP) {
+    var scope = this.currentScope();
+    redeclared = scope.lexical.indexOf(name2) > -1 || scope.functions.indexOf(name2) > -1 || scope.var.indexOf(name2) > -1;
+    scope.lexical.push(name2);
+    if (this.inModule && scope.flags & SCOPE_TOP) {
       delete this.undefinedExports[name2];
     }
   } else if (bindingType === BIND_SIMPLE_CATCH) {
@@ -36442,17 +33596,17 @@ pp$3.currentScope = function() {
 };
 pp$3.currentVarScope = function() {
   for (var i2 = this.scopeStack.length - 1;; i2--) {
-    var scope2 = this.scopeStack[i2];
-    if (scope2.flags & (SCOPE_VAR | SCOPE_CLASS_FIELD_INIT | SCOPE_CLASS_STATIC_BLOCK)) {
-      return scope2;
+    var scope = this.scopeStack[i2];
+    if (scope.flags & (SCOPE_VAR | SCOPE_CLASS_FIELD_INIT | SCOPE_CLASS_STATIC_BLOCK)) {
+      return scope;
     }
   }
 };
 pp$3.currentThisScope = function() {
   for (var i2 = this.scopeStack.length - 1;; i2--) {
-    var scope2 = this.scopeStack[i2];
-    if (scope2.flags & (SCOPE_VAR | SCOPE_CLASS_FIELD_INIT | SCOPE_CLASS_STATIC_BLOCK) && !(scope2.flags & SCOPE_ARROW)) {
-      return scope2;
+    var scope = this.scopeStack[i2];
+    if (scope.flags & (SCOPE_VAR | SCOPE_CLASS_FIELD_INIT | SCOPE_CLASS_STATIC_BLOCK) && !(scope.flags & SCOPE_ARROW)) {
+      return scope;
     }
   }
 };
@@ -36542,7 +33696,7 @@ var unicodeScriptValues = {
 };
 var data = {};
 function buildUnicodeData(ecmaVersion) {
-  var d3 = data[ecmaVersion] = {
+  var d2 = data[ecmaVersion] = {
     binary: wordsRegexp(unicodeBinaryProperties[ecmaVersion] + " " + unicodeGeneralCategoryValues),
     binaryOfStrings: wordsRegexp(unicodeBinaryPropertiesOfStrings[ecmaVersion]),
     nonBinary: {
@@ -36550,10 +33704,10 @@ function buildUnicodeData(ecmaVersion) {
       Script: wordsRegexp(unicodeScriptValues[ecmaVersion])
     }
   };
-  d3.nonBinary.Script_Extensions = d3.nonBinary.Script;
-  d3.nonBinary.gc = d3.nonBinary.General_Category;
-  d3.nonBinary.sc = d3.nonBinary.Script;
-  d3.nonBinary.scx = d3.nonBinary.Script_Extensions;
+  d2.nonBinary.Script_Extensions = d2.nonBinary.Script;
+  d2.nonBinary.gc = d2.nonBinary.General_Category;
+  d2.nonBinary.sc = d2.nonBinary.Script;
+  d2.nonBinary.scx = d2.nonBinary.Script_Extensions;
 }
 for (i2 = 0, list = [9, 10, 11, 12, 13, 14];i2 < list.length; i2 += 1) {
   ecmaVersion = list[i2];
@@ -38089,14 +35243,14 @@ pp.readRegexp = function() {
   var value = null;
   try {
     value = new RegExp(pattern, flags);
-  } catch (e2) {}
+  } catch (e) {}
   return this.finishToken(types$1.regexp, { pattern, flags, value });
 };
-pp.readInt = function(radix, len2, maybeLegacyOctalNumericLiteral) {
-  var allowSeparators = this.options.ecmaVersion >= 12 && len2 === undefined;
+pp.readInt = function(radix, len, maybeLegacyOctalNumericLiteral) {
+  var allowSeparators = this.options.ecmaVersion >= 12 && len === undefined;
   var isLegacyOctalNumericLiteral = maybeLegacyOctalNumericLiteral && this.input.charCodeAt(this.pos) === 48;
   var start = this.pos, total = 0, lastCode = 0;
-  for (var i3 = 0, e2 = len2 == null ? Infinity : len2;i3 < e2; ++i3, ++this.pos) {
+  for (var i3 = 0, e = len == null ? Infinity : len;i3 < e; ++i3, ++this.pos) {
     var code2 = this.input.charCodeAt(this.pos), val = undefined;
     if (allowSeparators && code2 === 95) {
       if (isLegacyOctalNumericLiteral) {
@@ -38129,7 +35283,7 @@ pp.readInt = function(radix, len2, maybeLegacyOctalNumericLiteral) {
   if (allowSeparators && lastCode === 95) {
     this.raiseRecoverable(this.pos - 1, "Numeric separator is not allowed at the last of digits");
   }
-  if (this.pos === start || len2 != null && this.pos - start !== len2) {
+  if (this.pos === start || len != null && this.pos - start !== len) {
     return null;
   }
   return total;
@@ -38416,9 +35570,9 @@ pp.readEscapedChar = function(inTemplate) {
       return String.fromCharCode(ch);
   }
 };
-pp.readHexChar = function(len2) {
+pp.readHexChar = function(len) {
   var codePos = this.pos;
-  var n = this.readInt(16, len2);
+  var n = this.readInt(16, len);
   if (n === null) {
     this.invalidStringToken(codePos, "Bad character escape sequence");
   }
@@ -38483,14 +35637,14 @@ Parser2.acorn = {
   lineBreakG,
   nonASCIIwhitespace
 };
-function parse4(input, options2) {
+function parse3(input, options2) {
   return Parser2.parse(input, options2);
 }
 function parseExpressionAt2(input, pos, options2) {
   return Parser2.parseExpressionAt(input, pos, options2);
 }
 
-// src/transpiler/types.ts
+// src/lang/types.ts
 class TranspileError extends Error {
   line;
   column;
@@ -38558,7 +35712,7 @@ function getLocation(node) {
   return { line: 1, column: 0 };
 }
 
-// src/transpiler/parser.ts
+// src/lang/parser.ts
 function preprocess(source) {
   const originalSource = source;
   let returnType;
@@ -38643,7 +35797,7 @@ function splitParameters(params) {
   }
   return result;
 }
-function parse5(source, options2 = {}) {
+function parse4(source, options2 = {}) {
   const { filename = "<source>", colonShorthand = true } = options2;
   const {
     source: processedSource,
@@ -38657,16 +35811,16 @@ function parse5(source, options2 = {}) {
     requiredParams: new Set
   };
   try {
-    const ast = parse4(processedSource, {
+    const ast = parse3(processedSource, {
       ecmaVersion: 2022,
       sourceType: "module",
       locations: true,
       allowReturnOutsideFunction: false
     });
     return { ast, returnType, originalSource, requiredParams };
-  } catch (e2) {
-    const loc = e2.loc || { line: 1, column: 0 };
-    throw new SyntaxError2(e2.message.replace(/\s*\(\d+:\d+\)$/, ""), loc, originalSource, filename);
+  } catch (e) {
+    const loc = e.loc || { line: 1, column: 0 };
+    throw new SyntaxError2(e.message.replace(/\s*\(\d+:\d+\)$/, ""), loc, originalSource, filename);
   }
 }
 function validateSingleFunction(ast, filename) {
@@ -38714,7 +35868,7 @@ function extractJSDoc(source, func) {
   return result;
 }
 
-// src/transpiler/type-system/inference.ts
+// src/lang/inference.ts
 function inferTypeFromValue(node) {
   switch (node.type) {
     case "Literal": {
@@ -38975,7 +36129,7 @@ function checkType(value, type) {
   }
 }
 
-// src/transpiler/transformer.ts
+// src/lang/emitters/ast.ts
 function transformFunction(func, source, returnTypeAnnotation, options2 = {}, requiredParamsFromPreprocess) {
   const jsdoc = extractJSDoc(source, func);
   const parameters = new Map;
@@ -40008,14 +37162,14 @@ function extractReturnSchema(expr, _ctx) {
   return { type: type.kind };
 }
 
-// src/transpiler/index.ts
+// src/lang/index.ts
 function transpile(source, options2 = {}) {
   const {
     ast: program,
     returnType,
     originalSource,
     requiredParams
-  } = parse5(source, {
+  } = parse4(source, {
     filename: options2.filename,
     colonShorthand: true
   });
@@ -40110,6 +37264,2852 @@ function typeDescriptorToJsonSchema(type) {
       return {};
   }
 }
+// node_modules/tosijs-schema/dist/index.js
+var d2 = (n) => ({ schema: n, _type: null, validate: (i3, c2) => G3(i3, n, c2), get optional() {
+  return d2({ ...n, type: Array.isArray(n.type) ? [...n.type, "null"] : [n.type, "null"] });
+}, title: (i3) => d2({ ...n, title: i3 }), describe: (i3) => d2({ ...n, description: i3 }), default: (i3) => d2({ ...n, default: i3 }), meta: (i3) => d2({ ...n, ...i3 }), min: (i3) => {
+  let c2 = n.type === "string" ? "minLength" : n.type === "array" ? "minItems" : n.type === "object" ? "minProperties" : "minimum";
+  return d2({ ...n, [c2]: i3 });
+}, max: (i3) => {
+  let c2 = n.type === "string" ? "maxLength" : n.type === "array" ? "maxItems" : n.type === "object" ? "maxProperties" : "maximum";
+  return d2({ ...n, [c2]: i3 });
+}, pattern: (i3) => d2({ ...n, pattern: typeof i3 === "string" ? i3 : i3.source }), get email() {
+  return d2({ ...n, format: "email" });
+}, get uuid() {
+  return d2({ ...n, format: "uuid" });
+}, get ipv4() {
+  return d2({ ...n, format: "ipv4" });
+}, get url() {
+  return d2({ ...n, format: "uri" });
+}, get datetime() {
+  return d2({ ...n, format: "date-time" });
+}, get emoji() {
+  return d2({ ...n, pattern: "^\\p{Extended_Pictographic}+$", format: "emoji" });
+}, get int() {
+  return d2({ ...n, type: "integer" });
+}, step: (i3) => d2({ ...n, multipleOf: i3 }) });
+var E3 = { get email() {
+  return d2({ type: "string", format: "email" });
+}, get uuid() {
+  return d2({ type: "string", format: "uuid" });
+}, get ipv4() {
+  return d2({ type: "string", format: "ipv4" });
+}, get url() {
+  return d2({ type: "string", format: "uri" });
+}, get datetime() {
+  return d2({ type: "string", format: "date-time" });
+}, get emoji() {
+  return d2({ type: "string", pattern: "^\\p{Extended_Pictographic}+$", format: "emoji" });
+}, get any() {
+  return d2({});
+}, pattern: (n) => d2({ type: "string", pattern: typeof n === "string" ? n : n.source }), union: (n) => d2({ anyOf: n.map((i3) => i3.schema) }), enum: (n) => {
+  if (n.length === 0)
+    return console.warn("s.enum() called with empty array - schema will never match"), d2({ enum: [] });
+  return d2({ type: typeof n[0], enum: n });
+}, const: (n) => d2({ const: n }), array: (n) => d2({ type: "array", items: n.schema }), tuple: (n) => d2({ type: "array", items: n.map((i3) => i3.schema), minItems: n.length, maxItems: n.length }), object: (n) => {
+  let i3 = {}, c2 = [];
+  for (let R2 in n)
+    if (i3[R2] = n[R2].schema, !Array.isArray(i3[R2].type) || !i3[R2].type.includes("null"))
+      c2.push(R2);
+  return d2({ type: "object", properties: i3, required: c2, additionalProperties: false });
+}, record: (n) => d2({ type: "object", additionalProperties: n.schema }) };
+var e = new Proxy(E3, { get(n, i3) {
+  if (i3 in n)
+    return n[i3];
+  if (i3 === "string" || i3 === "number" || i3 === "boolean" || i3 === "integer") {
+    let c2 = d2({ type: i3 });
+    return n[i3] = c2, c2;
+  }
+  return;
+} });
+var w2 = { email: (n) => /^\S+@\S+\.\S+$/.test(n), uuid: (n) => /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(n), uri: (n) => {
+  try {
+    return new URL(n), true;
+  } catch {
+    return false;
+  }
+}, ipv4: (n) => /^(?:(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\.){3}(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)$/.test(n), "date-time": (n) => !isNaN(Date.parse(n)), emoji: (n) => new RegExp("\\p{Extended_Pictographic}", "u").test(n) };
+function G3(n, i3, c2) {
+  let R2 = i3?.schema || i3, g3 = typeof c2 === "function" ? c2 : c2?.onError, I3 = typeof c2 === "object" ? c2?.fullScan : false, y = [], o = (f2) => {
+    if (g3)
+      g3(y.join(".") || "root", f2);
+    return false;
+  }, O2 = (f2, u) => {
+    if (u.anyOf) {
+      for (let x of u.anyOf)
+        if (G3(f2, x))
+          return true;
+      return o("Union mismatch");
+    }
+    if (u.const !== undefined)
+      return f2 === u.const || o("Const mismatch");
+    if (f2 === null || f2 === undefined)
+      return !u.type || Array.isArray(u.type) && u.type.includes("null") || o("Expected value");
+    let m = Array.isArray(u.type) ? u.type[0] : u.type;
+    if (u.enum && !u.enum.includes(f2))
+      return o("Enum mismatch");
+    if (m === "integer") {
+      if (typeof f2 !== "number" || !Number.isInteger(f2))
+        return o("Expected integer");
+    } else if (m === "array") {
+      if (!Array.isArray(f2))
+        return o("Expected array");
+    } else if (m === "object") {
+      if (typeof f2 !== "object" || Array.isArray(f2))
+        return o("Expected object");
+    } else if (m && typeof f2 !== m)
+      return o(`Expected ${m}`);
+    if (typeof f2 === "number") {
+      if (u.minimum !== undefined && f2 < u.minimum)
+        return o("Value < min");
+      if (u.maximum !== undefined && f2 > u.maximum)
+        return o("Value > max");
+      if (u.multipleOf !== undefined && f2 % u.multipleOf !== 0)
+        return o("Value not step");
+    }
+    if (typeof f2 === "string") {
+      if (u.minLength !== undefined && f2.length < u.minLength)
+        return o("Len < min");
+      if (u.maxLength !== undefined && f2.length > u.maxLength)
+        return o("Len > max");
+      if (u.pattern && !new RegExp(u.pattern, u.format === "emoji" ? "u" : "").test(f2))
+        return o("Pattern mismatch");
+      if (u.format && w2[u.format] && !w2[u.format](f2))
+        return o("Format invalid");
+    }
+    if (m === "object") {
+      if (u.minProperties !== undefined) {
+        let x = 0;
+        for (let P3 in f2)
+          if (Object.prototype.hasOwnProperty.call(f2, P3))
+            x++;
+        if (x < u.minProperties)
+          return o("Too few props");
+      }
+      if (u.required) {
+        for (let x of u.required)
+          if (!(x in f2))
+            return o(`Missing ${x}`);
+      }
+      if (u.properties) {
+        for (let x in u.properties)
+          if (x in f2) {
+            y.push(x);
+            let P3 = O2(f2[x], u.properties[x]);
+            if (y.pop(), !P3)
+              return false;
+          }
+      }
+      if (u.additionalProperties === false)
+        for (let x in f2) {
+          if (u.properties && x in u.properties)
+            continue;
+          return o(`Extra prop ${x}`);
+        }
+      else if (u.additionalProperties) {
+        let x = 0;
+        for (let P3 in f2) {
+          if (u.properties && P3 in u.properties)
+            continue;
+          if (!I3) {
+            if (x++, x % 97 !== 0)
+              continue;
+          }
+          y.push(P3);
+          let $2 = O2(f2[P3], u.additionalProperties);
+          if (y.pop(), !$2)
+            return false;
+        }
+      }
+      return true;
+    }
+    if (m === "array" && u.items) {
+      let x = f2.length;
+      if (u.minItems !== undefined && x < u.minItems)
+        return o("Array too short");
+      if (u.maxItems !== undefined && x > u.maxItems)
+        return o("Array too long");
+      if (Array.isArray(u.items)) {
+        for (let $2 = 0;$2 < u.items.length; $2++) {
+          if (y.push(String($2)), !O2(f2[$2], u.items[$2]))
+            return y.pop(), false;
+          y.pop();
+        }
+        return true;
+      }
+      let P3 = I3 || x <= 97 ? 1 : Math.floor(x / 97);
+      for (let $2 = 0;$2 < x; $2 += P3) {
+        let t2 = P3 > 1 && $2 > x - 1 - P3 ? x - 1 : $2;
+        y.push(String(t2));
+        let _2 = O2(f2[t2], u.items);
+        if (y.pop(), !_2)
+          return false;
+        if (t2 === x - 1)
+          break;
+      }
+      return true;
+    }
+    return true;
+  };
+  return O2(n, R2);
+}
+function H2(n, i3) {
+  let c2 = i3?.schema || i3, R2 = [], g3 = (I3, y) => {
+    let o = R2.join(".") || "root";
+    if (y.anyOf) {
+      for (let f2 of y.anyOf) {
+        let u = g3(I3, f2);
+        if (!(u instanceof Error))
+          return u;
+      }
+      return Error(`Union mismatch at ${o}`);
+    }
+    if (y.const !== undefined)
+      return I3 === y.const ? I3 : Error(`Const mismatch at ${o}`);
+    if (I3 === null || I3 === undefined) {
+      if (!y.type || Array.isArray(y.type) && y.type.includes("null"))
+        return I3;
+      return Error(`Expected value at ${o}`);
+    }
+    let O2 = Array.isArray(y.type) ? y.type[0] : y.type;
+    if (y.enum && !y.enum.includes(I3))
+      return Error(`Enum mismatch at ${o}`);
+    if (O2 === "integer") {
+      if (typeof I3 !== "number" || !Number.isInteger(I3))
+        return Error(`Expected integer at ${o}`);
+    } else if (O2 === "array") {
+      if (!Array.isArray(I3))
+        return Error(`Expected array at ${o}`);
+    } else if (O2 === "object") {
+      if (typeof I3 !== "object" || Array.isArray(I3))
+        return Error(`Expected object at ${o}`);
+    } else if (O2 && typeof I3 !== O2)
+      return Error(`Expected ${O2} at ${o}`);
+    if (typeof I3 === "number") {
+      if (y.minimum !== undefined && I3 < y.minimum)
+        return Error(`Value < min at ${o}`);
+      if (y.maximum !== undefined && I3 > y.maximum)
+        return Error(`Value > max at ${o}`);
+      if (y.multipleOf !== undefined && I3 % y.multipleOf !== 0)
+        return Error(`Value not step at ${o}`);
+    }
+    if (typeof I3 === "string") {
+      if (y.minLength !== undefined && I3.length < y.minLength)
+        return Error(`Len < min at ${o}`);
+      if (y.maxLength !== undefined && I3.length > y.maxLength)
+        return Error(`Len > max at ${o}`);
+      if (y.pattern && !new RegExp(y.pattern, y.format === "emoji" ? "u" : "").test(I3))
+        return Error(`Pattern mismatch at ${o}`);
+      if (y.format && w2[y.format] && !w2[y.format](I3))
+        return Error(`Format invalid at ${o}`);
+    }
+    if (O2 === "object") {
+      let f2 = {};
+      if (y.minProperties !== undefined) {
+        let u = 0;
+        for (let m in I3)
+          if (Object.prototype.hasOwnProperty.call(I3, m))
+            u++;
+        if (u < y.minProperties)
+          return Error(`Too few props at ${o}`);
+      }
+      if (y.required) {
+        for (let u of y.required)
+          if (!(u in I3))
+            return Error(`Missing ${u} at ${o}`);
+      }
+      if (y.properties) {
+        for (let u in y.properties)
+          if (u in I3) {
+            R2.push(u);
+            let m = g3(I3[u], y.properties[u]);
+            if (R2.pop(), m instanceof Error)
+              return m;
+            f2[u] = m;
+          }
+      }
+      if (y.additionalProperties && typeof y.additionalProperties === "object")
+        for (let u in I3) {
+          if (y.properties && u in y.properties)
+            continue;
+          R2.push(u);
+          let m = g3(I3[u], y.additionalProperties);
+          if (R2.pop(), m instanceof Error)
+            return m;
+          f2[u] = m;
+        }
+      return f2;
+    }
+    if (O2 === "array" && y.items) {
+      let f2 = I3.length;
+      if (y.minItems !== undefined && f2 < y.minItems)
+        return Error(`Array too short at ${o}`);
+      if (y.maxItems !== undefined && f2 > y.maxItems)
+        return Error(`Array too long at ${o}`);
+      if (Array.isArray(y.items)) {
+        let m = [];
+        for (let x = 0;x < y.items.length; x++) {
+          R2.push(String(x));
+          let P3 = g3(I3[x], y.items[x]);
+          if (R2.pop(), P3 instanceof Error)
+            return P3;
+          m.push(P3);
+        }
+        return m;
+      }
+      let u = [];
+      for (let m = 0;m < f2; m++) {
+        R2.push(String(m));
+        let x = g3(I3[m], y.items);
+        if (R2.pop(), x instanceof Error)
+          return x;
+        u.push(x);
+      }
+      return u;
+    }
+    return I3;
+  };
+  return g3(n, c2);
+}
+
+// src/vm/runtime.ts
+class AgentError {
+  $error = true;
+  message;
+  op;
+  cause;
+  constructor(message, op, cause) {
+    this.message = message;
+    this.op = op;
+    this.cause = cause;
+  }
+  toString() {
+    return `AgentError[${this.op}]: ${this.message}`;
+  }
+  toJSON() {
+    return { $error: true, message: this.message, op: this.op };
+  }
+}
+function isAgentError(value) {
+  return value instanceof AgentError || value && value.$error === true;
+}
+var FORBIDDEN_PROPERTIES = new Set(["__proto__", "constructor", "prototype"]);
+function assertSafeProperty(prop) {
+  if (FORBIDDEN_PROPERTIES.has(prop)) {
+    throw new Error(`Security Error: Access to '${prop}' is forbidden`);
+  }
+}
+var BLOCKED_HOSTS = new Set([
+  "localhost",
+  "127.0.0.1",
+  "0.0.0.0",
+  "[::1]",
+  "metadata.google.internal"
+]);
+function isBlockedUrl(urlString) {
+  try {
+    const url = new URL(urlString);
+    if (url.protocol !== "http:" && url.protocol !== "https:") {
+      return true;
+    }
+    const host = url.hostname.toLowerCase();
+    if (BLOCKED_HOSTS.has(host))
+      return true;
+    if (host.endsWith(".internal") || host.endsWith(".local"))
+      return true;
+    if (host === "169.254.169.254")
+      return true;
+    if (/^10\./.test(host) || /^192\.168\./.test(host) || /^172\.(1[6-9]|2\d|3[01])\./.test(host)) {
+      return true;
+    }
+    return false;
+  } catch {
+    return true;
+  }
+}
+function isSuspiciousRegex(pattern) {
+  if (/\([^)]*[+*][^)]*\)[+*]/.test(pattern))
+    return true;
+  if (/\(([^|)]+)\|\1\)[+*]/.test(pattern))
+    return true;
+  if (/\(\.\*\)\+/.test(pattern))
+    return true;
+  if (/\(\.\+\)\+/.test(pattern))
+    return true;
+  if (/\(\[.*\]\+\)\+/.test(pattern))
+    return true;
+  return false;
+}
+function createChildScope(ctx) {
+  return {
+    ...ctx,
+    state: Object.create(ctx.state)
+  };
+}
+function diffObjects(before, after) {
+  const diff = {};
+  const allKeys = new Set([...Object.keys(before), ...Object.keys(after)]);
+  for (const key of allKeys) {
+    const beforeVal = before[key];
+    const afterVal = after[key];
+    if (afterVal !== beforeVal) {
+      diff[key] = afterVal;
+    }
+  }
+  return diff;
+}
+function resolveValue(val, ctx) {
+  if (val && typeof val === "object" && val.$kind === "arg") {
+    return ctx.args[val.path];
+  }
+  if (val && typeof val === "object" && val.$expr) {
+    return evaluateExpr(val, ctx);
+  }
+  if (typeof val === "string") {
+    if (val.startsWith("args.")) {
+      return ctx.args[val.replace("args.", "")];
+    }
+    if (val.includes(".")) {
+      const parts = val.split(".");
+      for (const part of parts) {
+        if (FORBIDDEN_PROPERTIES.has(part)) {
+          throw new Error(`Security Error: Access to '${part}' is forbidden`);
+        }
+      }
+      let current2 = ctx.state[parts[0]];
+      if (current2 !== undefined) {
+        for (let i3 = 1;i3 < parts.length; i3++) {
+          current2 = current2?.[parts[i3]];
+        }
+        return current2;
+      }
+    }
+    if (val in ctx.state) {
+      return ctx.state[val];
+    }
+    return val;
+  }
+  if (val && typeof val === "object" && !Array.isArray(val) && val.constructor === Object) {
+    const result = {};
+    for (const key of Object.keys(val)) {
+      result[key] = resolveValue(val[key], ctx);
+    }
+    return result;
+  }
+  if (Array.isArray(val)) {
+    return val.map((item) => resolveValue(item, ctx));
+  }
+  return val;
+}
+function createBuiltinProxy(name2, supported, alternatives) {
+  return new Proxy(supported, {
+    get(target, prop) {
+      if (prop in target) {
+        return target[prop];
+      }
+      const alt = alternatives?.[prop];
+      if (alt) {
+        throw new Error(`${name2}.${prop} is not available. ${alt}`);
+      }
+      throw new Error(`${name2}.${prop} is not supported in AsyncJS. Check docs for available ${name2} methods.`);
+    }
+  });
+}
+function convertExampleToSchema(example) {
+  if (example === null) {
+    return { type: "null" };
+  }
+  if (example === undefined) {
+    return {};
+  }
+  if (typeof example === "object" && example !== null && "type" in example && typeof example.type === "string") {
+    return example;
+  }
+  if (typeof example === "object" && example !== null && "schema" in example && typeof example.schema === "object") {
+    return example.schema;
+  }
+  const type = typeof example;
+  if (type === "string") {
+    return { type: "string" };
+  }
+  if (type === "number") {
+    return Number.isInteger(example) ? { type: "integer" } : { type: "number" };
+  }
+  if (type === "boolean") {
+    return { type: "boolean" };
+  }
+  if (Array.isArray(example)) {
+    if (example.length === 0) {
+      return { type: "array" };
+    }
+    return {
+      type: "array",
+      items: convertExampleToSchema(example[0])
+    };
+  }
+  if (type === "object") {
+    const properties = {};
+    const required = [];
+    for (const [key, value] of Object.entries(example)) {
+      properties[key] = convertExampleToSchema(value);
+      required.push(key);
+    }
+    return {
+      type: "object",
+      properties,
+      required
+    };
+  }
+  return {};
+}
+var builtins = {
+  Math: createBuiltinProxy("Math", {
+    PI: Math.PI,
+    E: Math.E,
+    LN2: Math.LN2,
+    LN10: Math.LN10,
+    LOG2E: Math.LOG2E,
+    LOG10E: Math.LOG10E,
+    SQRT2: Math.SQRT2,
+    SQRT1_2: Math.SQRT1_2,
+    abs: Math.abs,
+    ceil: Math.ceil,
+    floor: Math.floor,
+    round: Math.round,
+    trunc: Math.trunc,
+    sign: Math.sign,
+    sqrt: Math.sqrt,
+    cbrt: Math.cbrt,
+    pow: Math.pow,
+    exp: Math.exp,
+    expm1: Math.expm1,
+    log: Math.log,
+    log2: Math.log2,
+    log10: Math.log10,
+    log1p: Math.log1p,
+    sin: Math.sin,
+    cos: Math.cos,
+    tan: Math.tan,
+    asin: Math.asin,
+    acos: Math.acos,
+    atan: Math.atan,
+    atan2: Math.atan2,
+    sinh: Math.sinh,
+    cosh: Math.cosh,
+    tanh: Math.tanh,
+    asinh: Math.asinh,
+    acosh: Math.acosh,
+    atanh: Math.atanh,
+    hypot: Math.hypot,
+    min: Math.min,
+    max: Math.max,
+    clz32: Math.clz32,
+    imul: Math.imul,
+    fround: Math.fround,
+    random: () => {
+      if (typeof crypto !== "undefined" && crypto.getRandomValues) {
+        const arr = new Uint32Array(1);
+        crypto.getRandomValues(arr);
+        return arr[0] / (4294967295 + 1);
+      }
+      return Math.random();
+    }
+  }),
+  JSON: createBuiltinProxy("JSON", {
+    parse: (text) => JSON.parse(text),
+    stringify: (value, replacer, space2) => JSON.stringify(value, replacer, space2)
+  }),
+  console: createBuiltinProxy("console", {
+    log: (..._args) => {
+      return;
+    },
+    warn: (..._args) => {
+      return;
+    },
+    error: (..._args) => {
+      return;
+    },
+    info: (..._args) => {
+      return;
+    }
+  }, {
+    table: "Use console.log with JSON.stringify for structured data.",
+    dir: "Use console.log instead.",
+    trace: "Stack traces are not available in AsyncJS."
+  }),
+  Array: createBuiltinProxy("Array", {
+    isArray: (value) => Array.isArray(value),
+    from: (iterable, mapFn, thisArg) => Array.from(iterable, mapFn, thisArg),
+    of: (...items) => Array.of(...items)
+  }, {
+    prototype: "Prototype access is not allowed."
+  }),
+  Object: createBuiltinProxy("Object", {
+    keys: (obj) => Object.keys(obj),
+    values: (obj) => Object.values(obj),
+    entries: (obj) => Object.entries(obj),
+    fromEntries: (entries) => Object.fromEntries(entries),
+    assign: (target, ...sources) => Object.assign({}, target, ...sources),
+    hasOwn: (obj, prop) => Object.hasOwn(obj, prop)
+  }, {
+    prototype: "Prototype access is not allowed.",
+    create: "Use object literals instead.",
+    defineProperty: "Property descriptors are not supported.",
+    getPrototypeOf: "Prototype access is not allowed.",
+    setPrototypeOf: "Prototype modification is not allowed."
+  }),
+  String: createBuiltinProxy("String", {
+    fromCharCode: (...codes) => String.fromCharCode(...codes),
+    fromCodePoint: (...codePoints) => String.fromCodePoint(...codePoints)
+  }),
+  Number: createBuiltinProxy("Number", {
+    isNaN: Number.isNaN,
+    isFinite: Number.isFinite,
+    isInteger: Number.isInteger,
+    isSafeInteger: Number.isSafeInteger,
+    parseFloat,
+    parseInt,
+    MAX_VALUE: Number.MAX_VALUE,
+    MIN_VALUE: Number.MIN_VALUE,
+    MAX_SAFE_INTEGER: Number.MAX_SAFE_INTEGER,
+    MIN_SAFE_INTEGER: Number.MIN_SAFE_INTEGER,
+    POSITIVE_INFINITY: Number.POSITIVE_INFINITY,
+    NEGATIVE_INFINITY: Number.NEGATIVE_INFINITY,
+    NaN: Number.NaN,
+    EPSILON: Number.EPSILON
+  }),
+  parseInt,
+  parseFloat,
+  isNaN,
+  isFinite,
+  encodeURI,
+  decodeURI,
+  encodeURIComponent,
+  decodeURIComponent,
+  undefined: undefined,
+  null: null,
+  NaN: NaN,
+  Infinity: Infinity,
+  filter: (data2, schema) => {
+    const jsonSchema = convertExampleToSchema(schema);
+    const result = H2(data2, jsonSchema);
+    if (result instanceof Error) {
+      throw result;
+    }
+    return result;
+  },
+  Schema: {
+    ...e,
+    response: (name2, schemaOrExample) => {
+      const jsonSchema = schemaOrExample?.schema != null ? schemaOrExample.schema : convertExampleToSchema(schemaOrExample);
+      return {
+        type: "json_schema",
+        json_schema: {
+          name: name2,
+          strict: true,
+          schema: jsonSchema
+        }
+      };
+    },
+    fromExample: (example) => convertExampleToSchema(example),
+    isValid: (data2, schemaOrExample) => {
+      if (schemaOrExample?.schema != null) {
+        return G3(data2, schemaOrExample);
+      }
+      return G3(data2, convertExampleToSchema(schemaOrExample));
+    }
+  },
+  Set: (items = []) => {
+    const data2 = [...new globalThis.Set(items)];
+    return {
+      add(item) {
+        if (!data2.includes(item)) {
+          data2.push(item);
+        }
+        return this;
+      },
+      remove(item) {
+        const idx = data2.indexOf(item);
+        if (idx !== -1) {
+          data2.splice(idx, 1);
+        }
+        return this;
+      },
+      clear() {
+        data2.length = 0;
+        return this;
+      },
+      has(item) {
+        return data2.includes(item);
+      },
+      get size() {
+        return data2.length;
+      },
+      toArray() {
+        return [...data2];
+      },
+      union(other) {
+        const otherItems = other?.toArray?.() ?? other ?? [];
+        return builtins.Set([...data2, ...otherItems]);
+      },
+      intersection(other) {
+        const otherItems = other?.toArray?.() ?? other ?? [];
+        return builtins.Set(data2.filter((x) => otherItems.includes(x)));
+      },
+      diff(other) {
+        const otherItems = other?.toArray?.() ?? other ?? [];
+        return builtins.Set(data2.filter((x) => !otherItems.includes(x)));
+      },
+      forEach(fn2) {
+        data2.forEach(fn2);
+      },
+      map(fn2) {
+        return builtins.Set(data2.map(fn2));
+      },
+      filter(fn2) {
+        return builtins.Set(data2.filter(fn2));
+      },
+      toJSON() {
+        return [...data2];
+      }
+    };
+  },
+  Date: (() => {
+    const createDate = (d3) => ({
+      get value() {
+        return d3.toISOString();
+      },
+      get timestamp() {
+        return d3.getTime();
+      },
+      get year() {
+        return d3.getFullYear();
+      },
+      get month() {
+        return d3.getMonth() + 1;
+      },
+      get day() {
+        return d3.getDate();
+      },
+      get hours() {
+        return d3.getHours();
+      },
+      get minutes() {
+        return d3.getMinutes();
+      },
+      get seconds() {
+        return d3.getSeconds();
+      },
+      get dayOfWeek() {
+        return d3.getDay();
+      },
+      add({
+        years = 0,
+        months = 0,
+        days = 0,
+        hours = 0,
+        minutes = 0,
+        seconds = 0,
+        ms = 0
+      } = {}) {
+        const newDate = new globalThis.Date(d3.getTime());
+        if (years)
+          newDate.setFullYear(newDate.getFullYear() + years);
+        if (months)
+          newDate.setMonth(newDate.getMonth() + months);
+        if (days)
+          newDate.setDate(newDate.getDate() + days);
+        if (hours)
+          newDate.setHours(newDate.getHours() + hours);
+        if (minutes)
+          newDate.setMinutes(newDate.getMinutes() + minutes);
+        if (seconds)
+          newDate.setSeconds(newDate.getSeconds() + seconds);
+        if (ms)
+          newDate.setMilliseconds(newDate.getMilliseconds() + ms);
+        return createDate(newDate);
+      },
+      diff(other, unit = "ms") {
+        const otherTime = typeof other === "object" && other.timestamp ? other.timestamp : new globalThis.Date(other).getTime();
+        const diffMs = d3.getTime() - otherTime;
+        switch (unit) {
+          case "seconds":
+            return diffMs / 1000;
+          case "minutes":
+            return diffMs / (1000 * 60);
+          case "hours":
+            return diffMs / (1000 * 60 * 60);
+          case "days":
+            return diffMs / (1000 * 60 * 60 * 24);
+          default:
+            return diffMs;
+        }
+      },
+      format(fmt = "ISO") {
+        if (fmt === "ISO")
+          return d3.toISOString();
+        if (fmt === "date")
+          return d3.toISOString().split("T")[0];
+        if (fmt === "time")
+          return d3.toISOString().split("T")[1].split(".")[0];
+        return fmt.replace("YYYY", String(d3.getFullYear())).replace("MM", String(d3.getMonth() + 1).padStart(2, "0")).replace("DD", String(d3.getDate()).padStart(2, "0")).replace("HH", String(d3.getHours()).padStart(2, "0")).replace("mm", String(d3.getMinutes()).padStart(2, "0")).replace("ss", String(d3.getSeconds()).padStart(2, "0"));
+      },
+      isBefore(other) {
+        const otherTime = typeof other === "object" && other.timestamp ? other.timestamp : new globalThis.Date(other).getTime();
+        return d3.getTime() < otherTime;
+      },
+      isAfter(other) {
+        const otherTime = typeof other === "object" && other.timestamp ? other.timestamp : new globalThis.Date(other).getTime();
+        return d3.getTime() > otherTime;
+      },
+      toString() {
+        return d3.toISOString();
+      },
+      toJSON() {
+        return d3.toISOString();
+      }
+    });
+    const DateFactory = (init) => {
+      const date = init !== undefined ? new globalThis.Date(init) : new globalThis.Date;
+      if (isNaN(date.getTime())) {
+        throw new Error(`Invalid date: ${init}`);
+      }
+      return createDate(date);
+    };
+    DateFactory.now = () => globalThis.Date.now();
+    DateFactory.parse = (str) => createDate(new globalThis.Date(str));
+    return DateFactory;
+  })()
+};
+var unsupportedBuiltins = {
+  RegExp: "RegExp is not available. Use string methods or the regexMatch atom.",
+  Promise: "Promise is not needed. All operations are implicitly async.",
+  Map: "Map is not available. Use plain objects instead.",
+  WeakSet: "WeakSet is not available.",
+  WeakMap: "WeakMap is not available.",
+  Symbol: "Symbol is not available.",
+  Proxy: "Proxy is not available.",
+  Reflect: "Reflect is not available.",
+  Function: "Function constructor is not available. Define functions normally.",
+  eval: "eval is not available. Code is compiled, not evaluated.",
+  setTimeout: "setTimeout is not available. Use the delay atom.",
+  setInterval: "setInterval is not available. Use while loops with delay.",
+  fetch: "fetch is not available. Use the httpFetch atom.",
+  require: "require is not available. Atoms must be registered with the VM.",
+  import: "import is not available. Atoms must be registered with the VM.",
+  process: "process is not available. AsyncJS runs in a sandboxed environment.",
+  window: "window is not available. AsyncJS runs in a sandboxed environment.",
+  document: "document is not available. AsyncJS runs in a sandboxed environment.",
+  global: "global is not available. AsyncJS runs in a sandboxed environment.",
+  globalThis: "globalThis is not available. Use builtins directly."
+};
+var EXPR_FUEL_COST = 0.01;
+function evaluateExpr(node, ctx) {
+  if (node === null || node === undefined) {
+    return node;
+  }
+  if (typeof node !== "object" || !("$expr" in node)) {
+    return node;
+  }
+  if (ctx.fuel) {
+    ctx.fuel.current -= EXPR_FUEL_COST;
+    if (ctx.fuel.current <= 0) {
+      throw new Error("Out of Fuel");
+    }
+  }
+  switch (node.$expr) {
+    case "literal":
+      return node.value;
+    case "ident": {
+      if (node.name in ctx.state) {
+        return ctx.state[node.name];
+      }
+      if (node.name in ctx.args) {
+        return ctx.args[node.name];
+      }
+      if (node.name in builtins) {
+        return builtins[node.name];
+      }
+      if (node.name in unsupportedBuiltins) {
+        throw new Error(unsupportedBuiltins[node.name]);
+      }
+      return;
+    }
+    case "member": {
+      const obj = evaluateExpr(node.object, ctx);
+      if (node.optional && (obj === null || obj === undefined)) {
+        return;
+      }
+      const prop = node.property;
+      assertSafeProperty(prop);
+      return obj?.[prop];
+    }
+    case "binary": {
+      const left = evaluateExpr(node.left, ctx);
+      const right = evaluateExpr(node.right, ctx);
+      switch (node.op) {
+        case "+":
+          return left + right;
+        case "-":
+          return left - right;
+        case "*":
+          return left * right;
+        case "/":
+          return left / right;
+        case "%":
+          return left % right;
+        case "**":
+          return left ** right;
+        case ">":
+          return left > right;
+        case "<":
+          return left < right;
+        case ">=":
+          return left >= right;
+        case "<=":
+          return left <= right;
+        case "==":
+          return left == right;
+        case "!=":
+          return left != right;
+        case "===":
+          return left === right;
+        case "!==":
+          return left !== right;
+        default:
+          throw new Error(`Unknown binary operator: ${node.op}`);
+      }
+    }
+    case "unary": {
+      const arg = evaluateExpr(node.argument, ctx);
+      switch (node.op) {
+        case "!":
+          return !arg;
+        case "-":
+          return -arg;
+        case "+":
+          return +arg;
+        case "typeof":
+          return typeof arg;
+        default:
+          throw new Error(`Unknown unary operator: ${node.op}`);
+      }
+    }
+    case "logical": {
+      const left = evaluateExpr(node.left, ctx);
+      if (node.op === "&&") {
+        return left ? evaluateExpr(node.right, ctx) : left;
+      } else if (node.op === "??") {
+        return left ?? evaluateExpr(node.right, ctx);
+      } else {
+        return left ? left : evaluateExpr(node.right, ctx);
+      }
+    }
+    case "conditional": {
+      const test = evaluateExpr(node.test, ctx);
+      return test ? evaluateExpr(node.consequent, ctx) : evaluateExpr(node.alternate, ctx);
+    }
+    case "array":
+      return node.elements.map((el) => evaluateExpr(el, ctx));
+    case "object": {
+      const result = {};
+      for (const prop of node.properties) {
+        result[prop.key] = evaluateExpr(prop.value, ctx);
+      }
+      return result;
+    }
+    case "call": {
+      if (node.callee === "Error") {
+        const args = node.arguments.map((arg) => evaluateExpr(arg, ctx));
+        const message = typeof args[0] === "string" ? args[0] : "Error";
+        ctx.error = new AgentError(message, "Error");
+        return;
+      }
+      if (node.callee in builtins) {
+        const fn2 = builtins[node.callee];
+        if (typeof fn2 === "function") {
+          const args = node.arguments.map((arg) => evaluateExpr(arg, ctx));
+          return fn2(...args);
+        }
+      }
+      const atom = ctx.resolver(node.callee);
+      if (!atom) {
+        if (node.callee in unsupportedBuiltins) {
+          throw new Error(unsupportedBuiltins[node.callee]);
+        }
+        throw new Error(`Unknown function: ${node.callee}`);
+      }
+      throw new Error(`Atom calls in expressions not yet supported: ${node.callee}`);
+    }
+    case "methodCall": {
+      const obj = evaluateExpr(node.object, ctx);
+      if (node.optional && (obj === null || obj === undefined)) {
+        return;
+      }
+      const method = node.method;
+      assertSafeProperty(method);
+      if (obj === null || obj === undefined) {
+        throw new Error(`Cannot call method '${method}' on ${obj}`);
+      }
+      const fn2 = obj[method];
+      if (typeof fn2 !== "function") {
+        throw new Error(`'${method}' is not a function`);
+      }
+      const args = node.arguments.map((arg) => evaluateExpr(arg, ctx));
+      return fn2.apply(obj, args);
+    }
+    default:
+      throw new Error(`Unknown expression type: ${node.$expr}`);
+  }
+}
+function defineAtom(op, inputSchema, outputSchema, fn2, options2 = {}) {
+  const {
+    docs = "",
+    timeoutMs = 1000,
+    cost = 1
+  } = typeof options2 === "string" ? { docs: options2 } : options2;
+  const exec = async (step, ctx) => {
+    const { op: _op, result: _res, ...inputData } = step;
+    if (ctx.error)
+      return;
+    if (inputSchema && !G3(inputSchema, inputData)) {
+      ctx.error = new AgentError(`Validation failed: ${JSON.stringify(inputData)}`, op);
+      return;
+    }
+    const stateBefore = ctx.trace ? { ...ctx.state } : null;
+    const fuelBefore = ctx.fuel.current;
+    let result;
+    let error;
+    try {
+      const overrideCost = ctx.costOverrides?.[op];
+      const baseCost = overrideCost !== undefined ? overrideCost : cost;
+      const currentCost = typeof baseCost === "function" ? baseCost(inputData, ctx) : baseCost;
+      if ((ctx.fuel.current -= currentCost) <= 0) {
+        ctx.error = new AgentError("Out of Fuel", op);
+        return;
+      }
+      let timer;
+      const execute = async () => fn2(step, ctx);
+      result = timeoutMs > 0 ? await Promise.race([
+        execute(),
+        new Promise((_2, reject) => {
+          timer = setTimeout(() => reject(new Error(`Atom '${op}' timed out`)), timeoutMs);
+        })
+      ]).finally(() => clearTimeout(timer)) : await execute();
+      if (step.result && result !== undefined) {
+        if (ctx.consts.has(step.result)) {
+          throw new Error(`Cannot reassign const variable '${step.result}'`);
+        }
+        ctx.state[step.result] = result;
+        if (step.resultConst) {
+          ctx.consts.add(step.result);
+        }
+      }
+    } catch (e2) {
+      error = e2.message || String(e2);
+      ctx.error = new AgentError(error, op, e2);
+    } finally {
+      if (ctx.trace && stateBefore) {
+        const stateDiff = diffObjects(stateBefore, ctx.state);
+        ctx.trace.push({
+          op,
+          input: inputData,
+          stateDiff,
+          result,
+          error,
+          fuelBefore,
+          fuelAfter: ctx.fuel.current,
+          timestamp: new Date().toISOString()
+        });
+      }
+    }
+  };
+  return {
+    op,
+    inputSchema,
+    outputSchema,
+    exec,
+    docs,
+    timeoutMs,
+    cost,
+    create: (input) => ({ op, ...input })
+  };
+}
+var seq = defineAtom("seq", e.object({ steps: e.array(e.any) }), undefined, async ({ steps }, ctx) => {
+  for (const step of steps) {
+    if (ctx.output !== undefined)
+      return;
+    if (ctx.error)
+      return;
+    const atom = ctx.resolver(step.op);
+    if (!atom)
+      throw new Error(`Unknown Atom: ${step.op}`);
+    await atom.exec(step, ctx);
+  }
+}, { docs: "Sequence", timeoutMs: 0, cost: 0.1 });
+var iff = defineAtom("if", e.object({
+  condition: e.any,
+  then: e.array(e.any),
+  else: e.array(e.any).optional
+}), undefined, async (step, ctx) => {
+  if (evaluateExpr(step.condition, ctx)) {
+    await seq.exec({ op: "seq", steps: step.then }, ctx);
+  } else if (step.else) {
+    await seq.exec({ op: "seq", steps: step.else }, ctx);
+  }
+}, { docs: "If/Else", timeoutMs: 0, cost: 0.1 });
+var whileLoop = defineAtom("while", e.object({
+  condition: e.any,
+  body: e.array(e.any)
+}), undefined, async (step, ctx) => {
+  while (evaluateExpr(step.condition, ctx)) {
+    if (ctx.signal?.aborted)
+      throw new Error("Execution aborted");
+    if ((ctx.fuel.current -= 0.1) <= 0)
+      throw new Error("Out of Fuel");
+    await seq.exec({ op: "seq", steps: step.body }, ctx);
+    if (ctx.output !== undefined)
+      return;
+  }
+}, { docs: "While Loop", timeoutMs: 0, cost: 0.1 });
+var ret = defineAtom("return", undefined, e.any, async (step, ctx) => {
+  if (ctx.error) {
+    ctx.output = ctx.error;
+    return ctx.error;
+  }
+  let res = {};
+  if (step.schema?.properties) {
+    for (const key of Object.keys(step.schema.properties)) {
+      res[key] = ctx.state[key];
+    }
+    if (step.filter !== false) {
+      const filterResult = H2(res, step.schema);
+      if (!(filterResult instanceof Error)) {
+        res = filterResult;
+      }
+    }
+  }
+  ctx.output = res;
+  return res;
+}, { docs: "Return", cost: 0.1 });
+var tryCatch = defineAtom("try", e.object({
+  try: e.array(e.any),
+  catch: e.array(e.any).optional,
+  catchParam: e.string.optional
+}), undefined, async (step, ctx) => {
+  await seq.exec({ op: "seq", steps: step.try }, ctx);
+  if (ctx.error && step.catch) {
+    const paramName = step.catchParam || "error";
+    ctx.state[paramName] = ctx.error.message;
+    ctx.state["errorOp"] = ctx.error.op;
+    ctx.error = undefined;
+    await seq.exec({ op: "seq", steps: step.catch }, ctx);
+  }
+}, { docs: "Try/Catch", timeoutMs: 0, cost: 0.1 });
+var errorAtom = defineAtom("Error", e.object({ args: e.array(e.any).optional }), undefined, async (step, ctx) => {
+  const message = step.args?.[0] ?? "Error";
+  ctx.error = new AgentError(String(message), "Error");
+}, { docs: "Trigger error flow", cost: 0.1 });
+var varSet = defineAtom("varSet", e.object({ key: e.string, value: e.any }), undefined, async ({ key, value }, ctx) => {
+  if (ctx.consts.has(key)) {
+    throw new Error(`Cannot reassign const variable '${key}'`);
+  }
+  ctx.state[key] = resolveValue(value, ctx);
+}, { docs: "Set Variable", cost: 0.1 });
+var constSet = defineAtom("constSet", e.object({ key: e.string, value: e.any }), undefined, async ({ key, value }, ctx) => {
+  if (ctx.consts.has(key)) {
+    throw new Error(`Cannot reassign const variable '${key}'`);
+  }
+  if (key in ctx.state) {
+    throw new Error(`Cannot redeclare variable '${key}' as const`);
+  }
+  ctx.state[key] = resolveValue(value, ctx);
+  ctx.consts.add(key);
+}, { docs: "Set Const Variable (immutable)", cost: 0.1 });
+var varGet = defineAtom("varGet", e.object({ key: e.string }), e.any, async ({ key }, ctx) => {
+  return resolveValue(key, ctx);
+}, { docs: "Get Variable", cost: 0.1 });
+var varsImport = defineAtom("varsImport", e.object({
+  keys: e.union([e.array(e.string), e.record(e.string)])
+}), undefined, async ({ keys: keys2 }, ctx) => {
+  if (Array.isArray(keys2)) {
+    for (const key of keys2) {
+      ctx.state[key] = resolveValue({ $kind: "arg", path: key }, ctx);
+    }
+  } else {
+    for (const [alias, path] of Object.entries(keys2)) {
+      ctx.state[alias] = resolveValue({ $kind: "arg", path }, ctx);
+    }
+  }
+}, {
+  docs: "Import variables from args into the current scope, with optional renaming.",
+  cost: 0.2
+});
+var varsLet = defineAtom("varsLet", e.record(e.any), undefined, async (step, ctx) => {
+  for (const key of Object.keys(step)) {
+    if (key === "op" || key === "result")
+      continue;
+    ctx.state[key] = resolveValue(step[key], ctx);
+  }
+}, {
+  docs: "Initialize a set of variables in the current scope from the step object properties.",
+  cost: 0.1
+});
+var varsExport = defineAtom("varsExport", e.object({
+  keys: e.union([e.array(e.string), e.record(e.string)])
+}), e.record(e.any), async ({ keys: keys2 }, ctx) => {
+  const result = {};
+  if (Array.isArray(keys2)) {
+    for (const key of keys2) {
+      result[key] = resolveValue(key, ctx);
+    }
+  } else {
+    for (const [alias, path] of Object.entries(keys2)) {
+      result[alias] = resolveValue(path, ctx);
+    }
+  }
+  return result;
+}, {
+  docs: "Export variables from the current scope, with optional renaming.",
+  cost: 0.2
+});
+var scope = defineAtom("scope", e.object({ steps: e.array(e.any) }), undefined, async ({ steps }, ctx) => {
+  const scopedCtx = createChildScope(ctx);
+  await seq.exec({ op: "seq", steps }, scopedCtx);
+  if (scopedCtx.output !== undefined)
+    ctx.output = scopedCtx.output;
+}, { docs: "Create new scope", timeoutMs: 0, cost: 0.1 });
+var map = defineAtom("map", e.object({ items: e.array(e.any), as: e.string, steps: e.array(e.any) }), e.array(e.any), async ({ items, as, steps }, ctx) => {
+  const results = [];
+  const resolvedItems = resolveValue(items, ctx);
+  if (!Array.isArray(resolvedItems))
+    throw new Error("map: items is not an array");
+  for (const item of resolvedItems) {
+    if (ctx.signal?.aborted)
+      throw new Error("Execution aborted");
+    const scopedCtx = createChildScope(ctx);
+    scopedCtx.state[as] = item;
+    await seq.exec({ op: "seq", steps }, scopedCtx);
+    results.push(scopedCtx.state["result"] ?? null);
+  }
+  return results;
+}, { docs: "Map Array", timeoutMs: 0, cost: 1 });
+var filter = defineAtom("filter", e.object({
+  items: e.array(e.any),
+  as: e.string,
+  condition: e.any
+}), e.array(e.any), async ({ items, as, condition }, ctx) => {
+  const results = [];
+  const resolvedItems = resolveValue(items, ctx);
+  if (!Array.isArray(resolvedItems))
+    throw new Error("filter: items is not an array");
+  for (const item of resolvedItems) {
+    if (ctx.signal?.aborted)
+      throw new Error("Execution aborted");
+    const scopedCtx = createChildScope(ctx);
+    scopedCtx.state[as] = item;
+    const passes = evaluateExpr(condition, scopedCtx);
+    if (passes) {
+      results.push(item);
+    }
+  }
+  return results;
+}, { docs: "Filter Array", timeoutMs: 0, cost: 1 });
+var reduce = defineAtom("reduce", e.object({
+  items: e.array(e.any),
+  as: e.string,
+  accumulator: e.string,
+  initial: e.any,
+  steps: e.array(e.any)
+}), e.any, async ({ items, as, accumulator, initial, steps }, ctx) => {
+  const resolvedItems = resolveValue(items, ctx);
+  const resolvedInitial = resolveValue(initial, ctx);
+  if (!Array.isArray(resolvedItems))
+    throw new Error("reduce: items is not an array");
+  let acc = resolvedInitial;
+  for (const item of resolvedItems) {
+    if (ctx.signal?.aborted)
+      throw new Error("Execution aborted");
+    const scopedCtx = createChildScope(ctx);
+    scopedCtx.state[as] = item;
+    scopedCtx.state[accumulator] = acc;
+    await seq.exec({ op: "seq", steps }, scopedCtx);
+    acc = scopedCtx.state["result"] ?? acc;
+  }
+  return acc;
+}, { docs: "Reduce Array", timeoutMs: 0, cost: 1 });
+var find2 = defineAtom("find", e.object({
+  items: e.array(e.any),
+  as: e.string,
+  condition: e.any
+}), e.any, async ({ items, as, condition }, ctx) => {
+  const resolvedItems = resolveValue(items, ctx);
+  if (!Array.isArray(resolvedItems))
+    throw new Error("find: items is not an array");
+  for (const item of resolvedItems) {
+    if (ctx.signal?.aborted)
+      throw new Error("Execution aborted");
+    const scopedCtx = createChildScope(ctx);
+    scopedCtx.state[as] = item;
+    const matches = evaluateExpr(condition, scopedCtx);
+    if (matches) {
+      return item;
+    }
+  }
+  return null;
+}, { docs: "Find in Array", timeoutMs: 0, cost: 1 });
+var push = defineAtom("push", e.object({ list: e.array(e.any), item: e.any }), e.array(e.any), async ({ list: list2, item }, ctx) => {
+  const resolvedList = resolveValue(list2, ctx);
+  const resolvedItem = resolveValue(item, ctx);
+  if (Array.isArray(resolvedList))
+    resolvedList.push(resolvedItem);
+  return resolvedList;
+}, { docs: "Push to Array", cost: 1 });
+var len = defineAtom("len", e.object({ list: e.any }), e.number, async ({ list: list2 }, ctx) => {
+  const val = resolveValue(list2, ctx);
+  return Array.isArray(val) || typeof val === "string" ? val.length : 0;
+}, { docs: "Length", cost: 1 });
+var split = defineAtom("split", e.object({ str: e.string, sep: e.string }), e.array(e.string), async ({ str, sep }, ctx) => resolveValue(str, ctx).split(resolveValue(sep, ctx)), { docs: "Split String", cost: 1 });
+var join = defineAtom("join", e.object({ list: e.array(e.string), sep: e.string }), e.string, async ({ list: list2, sep }, ctx) => resolveValue(list2, ctx).join(resolveValue(sep, ctx)), { docs: "Join String", cost: 1 });
+var template = defineAtom("template", e.object({ tmpl: e.string, vars: e.record(e.any) }), e.string, async ({ tmpl, vars }, ctx) => {
+  const resolvedTmpl = resolveValue(tmpl, ctx);
+  return resolvedTmpl.replace(/\{\{(\w+)\}\}/g, (_2, key) => String(resolveValue(vars[key], ctx) ?? ""));
+}, { docs: "String Template", cost: 1 });
+var regexMatch = defineAtom("regexMatch", e.object({
+  pattern: e.string,
+  value: e.any
+}), e.boolean, async ({ pattern, value }, ctx) => {
+  if (isSuspiciousRegex(pattern)) {
+    throw new Error(`Suspicious regex pattern rejected (potential ReDoS): ${pattern}`);
+  }
+  const resolvedValue = resolveValue(value, ctx);
+  const p = new RegExp(pattern);
+  return p.test(resolvedValue);
+}, {
+  docs: "Returns true if the value matches the regex pattern.",
+  cost: 2
+});
+var pick = defineAtom("pick", e.object({ obj: e.record(e.any), keys: e.array(e.string) }), e.record(e.any), async ({ obj, keys: keys2 }, ctx) => {
+  const resolvedObj = resolveValue(obj, ctx);
+  const resolvedKeys = resolveValue(keys2, ctx);
+  const res = {};
+  if (resolvedObj && Array.isArray(resolvedKeys)) {
+    resolvedKeys.forEach((k2) => res[k2] = resolvedObj[k2]);
+  }
+  return res;
+}, { docs: "Pick Keys", cost: 1 });
+var merge = defineAtom("merge", e.object({ a: e.record(e.any), b: e.record(e.any) }), e.record(e.any), async ({ a: a2, b: b3 }, ctx) => ({
+  ...resolveValue(a2, ctx),
+  ...resolveValue(b3, ctx)
+}), { docs: "Merge Objects", cost: 1 });
+var keys2 = defineAtom("keys", e.object({ obj: e.record(e.any) }), e.array(e.string), async ({ obj }, ctx) => Object.keys(resolveValue(obj, ctx) ?? {}), { docs: "Object Keys", cost: 1 });
+var MAX_AGENT_DEPTH = 10;
+var AGENT_DEPTH_HEADER = "X-Agent-Depth";
+function isDomainAllowed(urlString, allowedDomains) {
+  try {
+    const url = new URL(urlString);
+    const host = url.hostname.toLowerCase();
+    for (const pattern of allowedDomains) {
+      const p = pattern.toLowerCase();
+      if (p.startsWith("*.")) {
+        const suffix = p.slice(1);
+        if (host.endsWith(suffix) || host === p.slice(2)) {
+          return true;
+        }
+      } else if (host === p) {
+        return true;
+      }
+    }
+    return false;
+  } catch {
+    return false;
+  }
+}
+var fetch2 = defineAtom("httpFetch", e.object({
+  url: e.string,
+  method: e.string.optional,
+  headers: e.record(e.string).optional,
+  body: e.any.optional,
+  responseType: e.string.optional
+}), e.any, async (step, ctx) => {
+  const url = resolveValue(step.url, ctx);
+  const method = resolveValue(step.method, ctx);
+  const headers = resolveValue(step.headers, ctx) || {};
+  const body = resolveValue(step.body, ctx);
+  const responseType = resolveValue(step.responseType, ctx);
+  const currentDepth = ctx.context?.requestDepth ?? 0;
+  if (currentDepth >= MAX_AGENT_DEPTH) {
+    throw new Error(`Agent request depth exceeded (max ${MAX_AGENT_DEPTH}). This prevents recursive agent loops.`);
+  }
+  if (ctx.capabilities.fetch) {
+    return ctx.capabilities.fetch(url, {
+      method,
+      headers: {
+        ...headers,
+        [AGENT_DEPTH_HEADER]: String(currentDepth + 1)
+      },
+      body,
+      signal: ctx.signal,
+      responseType
+    });
+  }
+  const allowedDomains = ctx.context?.allowedFetchDomains;
+  if (allowedDomains) {
+    if (!isDomainAllowed(url, allowedDomains)) {
+      throw new Error(`Fetch blocked: domain not in allowlist. Allowed: ${allowedDomains.join(", ")}`);
+    }
+  } else {
+    if (isBlockedUrl(url)) {
+      throw new Error(`Blocked URL: private/internal addresses not allowed in default fetch`);
+    }
+    try {
+      const parsed = new URL(url);
+      const host = parsed.hostname.toLowerCase();
+      if (host !== "localhost" && host !== "127.0.0.1" && host !== "[::1]") {
+        throw new Error(`Fetch blocked: no allowedFetchDomains configured. ` + `Set ctx.context.allowedFetchDomains or provide a custom fetch capability.`);
+      }
+    } catch (e2) {
+      if (e2.message.includes("allowedFetchDomains"))
+        throw e2;
+      throw new Error(`Invalid URL: ${url}`);
+    }
+  }
+  if (typeof globalThis.fetch === "function") {
+    const res = await globalThis.fetch(url, {
+      method,
+      headers: {
+        ...headers,
+        [AGENT_DEPTH_HEADER]: String(currentDepth + 1)
+      },
+      body: body ? JSON.stringify(body) : undefined,
+      signal: ctx.signal
+    });
+    if (responseType === "dataUrl") {
+      const buffer = await res.arrayBuffer();
+      const bytes = new Uint8Array(buffer);
+      let binary = "";
+      for (let i3 = 0;i3 < bytes.length; i3++) {
+        binary += String.fromCharCode(bytes[i3]);
+      }
+      const base64 = btoa(binary);
+      const contentType2 = res.headers.get("content-type") || "application/octet-stream";
+      return `data:${contentType2};base64,${base64}`;
+    }
+    const contentType = res.headers.get("content-type");
+    if (responseType === "json" || contentType && contentType.includes("application/json")) {
+      return res.json();
+    }
+    return res.text();
+  }
+  throw new Error("Capability 'fetch' missing and no global fetch available");
+}, { docs: "HTTP Fetch", timeoutMs: 30000, cost: 5 });
+var storeGet = defineAtom("storeGet", e.object({ key: e.string }), e.any, async ({ key }, ctx) => {
+  const k2 = resolveValue(key, ctx);
+  return ctx.capabilities.store?.get(k2);
+}, { docs: "Store Get", cost: 5 });
+var storeSet = defineAtom("storeSet", e.object({ key: e.string, value: e.any }), undefined, async ({ key, value }, ctx) => {
+  const k2 = resolveValue(key, ctx);
+  const v2 = resolveValue(value, ctx);
+  return ctx.capabilities.store?.set(k2, v2);
+}, { docs: "Store Set", cost: 5 });
+var storeQuery = defineAtom("storeQuery", e.object({ query: e.any }), e.array(e.any), async ({ query }, ctx) => ctx.capabilities.store?.query?.(resolveValue(query, ctx)) ?? [], { docs: "Store Query", cost: 5 });
+var vectorSearch = defineAtom("storeVectorSearch", e.object({
+  collection: e.string,
+  vector: e.array(e.number),
+  k: e.number.optional
+}), e.array(e.any), async ({ collection, vector, k: k2 }, ctx) => ctx.capabilities.store?.vectorSearch?.(resolveValue(collection, ctx), resolveValue(vector, ctx), resolveValue(k2, ctx)) ?? [], {
+  docs: "Vector Search",
+  cost: (input, ctx) => 5 + (resolveValue(input.k, ctx) ?? 5)
+});
+var llmPredict = defineAtom("llmPredict", e.object({ prompt: e.string, options: e.any.optional }), e.string, async ({ prompt: prompt2, options: options2 }, ctx) => {
+  if (!ctx.capabilities.llm?.predict)
+    throw new Error("Capability 'llm.predict' missing");
+  return ctx.capabilities.llm.predict(resolveValue(prompt2, ctx), resolveValue(options2, ctx));
+}, { docs: "LLM Predict", timeoutMs: 120000, cost: 1 });
+var agentRun = defineAtom("agentRun", e.object({ agentId: e.string, input: e.any }), e.any, async ({ agentId, input }, ctx) => {
+  if (!ctx.capabilities.agent?.run)
+    throw new Error("Capability 'agent.run' missing");
+  const resolvedId = resolveValue(agentId, ctx);
+  const rawInput = resolveValue(input, ctx);
+  let resolvedInput = rawInput;
+  if (rawInput && typeof rawInput === "object" && !Array.isArray(rawInput)) {
+    resolvedInput = {};
+    for (const k2 in rawInput) {
+      resolvedInput[k2] = resolveValue(rawInput[k2], ctx);
+    }
+  }
+  const result = await ctx.capabilities.agent.run(resolvedId, resolvedInput);
+  if (result && typeof result === "object" && "fuelUsed" in result && typeof result.fuelUsed === "number") {
+    if (result.error) {
+      throw new Error(result.error.message || "Sub-agent failed");
+    }
+    return result.result;
+  }
+  return result;
+}, { docs: "Run Sub-Agent", cost: 1 });
+var transpileCode = defineAtom("transpileCode", e.object({
+  code: e.string
+}), e.any, async ({ code: code2 }, ctx) => {
+  if (!ctx.capabilities.code?.transpile) {
+    throw new Error("Capability 'code.transpile' missing. Enable code transpilation by providing the code capability.");
+  }
+  const resolvedCode = resolveValue(code2, ctx);
+  try {
+    return ctx.capabilities.code.transpile(resolvedCode);
+  } catch (e2) {
+    throw new Error(`Code transpilation failed: ${e2.message}`);
+  }
+}, { docs: "Transpile AsyncJS code to AST", cost: 1 });
+var MAX_RUNCODE_DEPTH = 10;
+var runCode = defineAtom("runCode", e.object({
+  code: e.string,
+  args: e.record(e.any).optional
+}), e.any, async ({ code: code2, args }, ctx) => {
+  const currentDepth = ctx.runCodeDepth ?? 0;
+  if (currentDepth >= MAX_RUNCODE_DEPTH) {
+    throw new Error(`runCode recursion limit exceeded (max ${MAX_RUNCODE_DEPTH}). ` + "This prevents infinite loops from dynamically generated code calling runCode.");
+  }
+  if (!ctx.capabilities.code?.transpile) {
+    throw new Error("Capability 'code.transpile' missing. Enable dynamic code execution by providing the code capability.");
+  }
+  const resolvedCode = resolveValue(code2, ctx);
+  const resolvedArgs = args ? resolveValue(args, ctx) : {};
+  let ast;
+  try {
+    ast = ctx.capabilities.code.transpile(resolvedCode);
+  } catch (e2) {
+    throw new Error(`Code transpilation failed: ${e2.message}`);
+  }
+  if (ast.op !== "seq") {
+    throw new Error("Transpiled code must be a seq node");
+  }
+  const childCtx = createChildScope(ctx);
+  childCtx.args = resolvedArgs;
+  childCtx.output = undefined;
+  childCtx.runCodeDepth = currentDepth + 1;
+  await seq.exec(ast, childCtx);
+  if (childCtx.error) {
+    ctx.error = childCtx.error;
+    return;
+  }
+  return childCtx.output;
+}, { docs: "Run dynamically generated AsyncJS code", cost: 1 });
+var jsonParse = defineAtom("jsonParse", e.object({ str: e.string }), e.any, async ({ str }, ctx) => JSON.parse(resolveValue(str, ctx)), { docs: "Parse JSON", cost: 1 });
+var jsonStringify = defineAtom("jsonStringify", e.object({ value: e.any }), e.string, async ({ value }, ctx) => JSON.stringify(resolveValue(value, ctx)), { docs: "Stringify JSON", cost: 1 });
+var xmlParse = defineAtom("xmlParse", e.object({ str: e.string }), e.any, async ({ str }, ctx) => {
+  if (!ctx.capabilities.xml?.parse)
+    throw new Error("Capability 'xml.parse' missing");
+  return ctx.capabilities.xml.parse(resolveValue(str, ctx));
+}, { docs: "Parse XML", cost: 1 });
+var memoize = defineAtom("memoize", e.object({ key: e.string.optional, steps: e.array(e.any) }), e.any, async ({ key, steps }, ctx) => {
+  if (!ctx.memo)
+    ctx.memo = new Map;
+  const k2 = resolveValue(key, ctx) ?? await hash.exec({ value: steps, algorithm: "SHA-256" }, ctx);
+  if (ctx.memo.has(k2)) {
+    return ctx.memo.get(k2);
+  }
+  const scopedCtx = createChildScope(ctx);
+  await seq.exec({ op: "seq", steps }, scopedCtx);
+  const result = scopedCtx.output ?? scopedCtx.state["result"];
+  ctx.memo.set(k2, result);
+  return result;
+}, { docs: "Memoize steps result in memory", cost: 1 });
+var cache2 = defineAtom("cache", e.object({
+  key: e.string.optional,
+  steps: e.array(e.any),
+  ttlMs: e.number.optional
+}), e.any, async ({ key, steps, ttlMs }, ctx) => {
+  if (!ctx.capabilities.store)
+    throw new Error("Capability 'store' missing for caching");
+  const k2 = resolveValue(key, ctx) ?? await hash.exec({ value: steps, algorithm: "SHA-256" }, ctx);
+  const cacheKey = `cache:${k2}`;
+  const cached = await ctx.capabilities.store.get(cacheKey);
+  if (cached) {
+    if (typeof cached === "object" && cached._exp) {
+      if (Date.now() < cached._exp)
+        return cached.val;
+    } else {
+      return cached;
+    }
+  }
+  const scopedCtx = createChildScope(ctx);
+  await seq.exec({ op: "seq", steps }, scopedCtx);
+  const result = scopedCtx.output ?? scopedCtx.state["result"];
+  const expiry = Date.now() + (ttlMs ?? 24 * 3600 * 1000);
+  if ((ctx.fuel.current -= 5) <= 0)
+    throw new Error("Out of Fuel");
+  await ctx.capabilities.store.set(cacheKey, { val: result, _exp: expiry });
+  return result;
+}, { docs: "Cache steps result in store with TTL", cost: 5 });
+var random = defineAtom("random", e.object({
+  min: e.number.optional,
+  max: e.number.optional,
+  format: e.string.optional,
+  length: e.number.optional
+}), e.any, async ({ min, max, format, length }, ctx) => {
+  const f2 = resolveValue(format, ctx) ?? "float";
+  const len2 = resolveValue(length, ctx) ?? 10;
+  const mn2 = resolveValue(min, ctx) ?? 0;
+  const mx = resolveValue(max, ctx) ?? 1;
+  if (f2 === "base36") {
+    const chars = "0123456789abcdefghijklmnopqrstuvwxyz";
+    let result2 = "";
+    if (typeof crypto !== "undefined" && crypto.getRandomValues) {
+      const values = new Uint8Array(len2);
+      crypto.getRandomValues(values);
+      for (let i3 = 0;i3 < len2; i3++) {
+        result2 += chars[values[i3] % 36];
+      }
+    } else {
+      for (let i3 = 0;i3 < len2; i3++) {
+        result2 += chars.charAt(Math.floor(Math.random() * 36));
+      }
+    }
+    return result2;
+  }
+  let val;
+  if (typeof crypto !== "undefined" && crypto.getRandomValues) {
+    const arr = new Uint32Array(1);
+    crypto.getRandomValues(arr);
+    val = arr[0] / (4294967295 + 1);
+  } else {
+    val = Math.random();
+  }
+  const range = mx - mn2;
+  const result = val * range + mn2;
+  if (f2 === "integer") {
+    return Math.floor(result);
+  }
+  return result;
+}, { docs: "Generate Random", cost: 1 });
+var uuid = defineAtom("uuid", undefined, e.string, async () => {
+  if (typeof crypto !== "undefined" && crypto.randomUUID) {
+    return crypto.randomUUID();
+  }
+  if (typeof crypto !== "undefined" && crypto.getRandomValues) {
+    const bytes = new Uint8Array(16);
+    crypto.getRandomValues(bytes);
+    bytes[6] = bytes[6] & 15 | 64;
+    bytes[8] = bytes[8] & 63 | 128;
+    const hex = Array.from(bytes, (b3) => b3.toString(16).padStart(2, "0")).join("");
+    return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`;
+  }
+  return "xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx".replace(/[xy]/g, (c2) => {
+    const r = Math.random() * 16 | 0;
+    const v2 = c2 === "x" ? r : r & 3 | 8;
+    return v2.toString(16);
+  });
+}, { docs: "Generate UUID", cost: 1 });
+var hash = defineAtom("hash", e.object({
+  value: e.any,
+  algorithm: e.string.optional
+}), e.string, async ({ value, algorithm }, ctx) => {
+  const str = typeof value === "string" ? value : JSON.stringify(resolveValue(value, ctx));
+  const algo = resolveValue(algorithm, ctx) || "SHA-256";
+  if (typeof crypto !== "undefined" && crypto.subtle) {
+    const encoder = new TextEncoder;
+    const data2 = encoder.encode(str);
+    const hashBuffer = await crypto.subtle.digest(algo, data2);
+    const hashArray = Array.from(new Uint8Array(hashBuffer));
+    return hashArray.map((b3) => b3.toString(16).padStart(2, "0")).join("");
+  }
+  let hash2 = 0;
+  for (let i3 = 0;i3 < str.length; i3++) {
+    const char = str.charCodeAt(i3);
+    hash2 = (hash2 << 5) - hash2 + char;
+    hash2 |= 0;
+  }
+  return String(hash2);
+}, { docs: "Hash a value", cost: 1 });
+var consoleLog = defineAtom("consoleLog", e.object({ message: e.any }), undefined, async ({ message }, ctx) => {
+  const msg = resolveValue(message, ctx);
+  if (ctx.trace) {
+    ctx.trace.push({
+      op: "console.log",
+      input: { message: msg },
+      stateDiff: {},
+      result: msg,
+      fuelBefore: ctx.fuel.current,
+      fuelAfter: ctx.fuel.current,
+      timestamp: new Date().toISOString()
+    });
+  }
+}, { docs: "Log to trace", cost: 0.1 });
+var consoleWarn = defineAtom("consoleWarn", e.object({ message: e.any }), undefined, async ({ message }, ctx) => {
+  const msg = resolveValue(message, ctx);
+  const msgStr = typeof msg === "string" ? msg : JSON.stringify(msg);
+  if (!ctx.warnings)
+    ctx.warnings = [];
+  ctx.warnings.push(msgStr);
+  if (ctx.trace) {
+    ctx.trace.push({
+      op: "console.warn",
+      input: { message: msg },
+      stateDiff: {},
+      result: msg,
+      fuelBefore: ctx.fuel.current,
+      fuelAfter: ctx.fuel.current,
+      timestamp: new Date().toISOString()
+    });
+  }
+}, { docs: "Add warning", cost: 0.1 });
+var consoleError = defineAtom("consoleError", e.object({ message: e.any }), undefined, async ({ message }, ctx) => {
+  const msg = resolveValue(message, ctx);
+  const msgStr = typeof msg === "string" ? msg : JSON.stringify(msg);
+  ctx.error = new AgentError(msgStr, "console.error");
+}, { docs: "Emit error and stop", cost: 0.1 });
+var coreAtoms = {
+  seq,
+  if: iff,
+  while: whileLoop,
+  return: ret,
+  try: tryCatch,
+  Error: errorAtom,
+  varSet,
+  constSet,
+  varGet,
+  varsImport,
+  varsLet,
+  varsExport,
+  scope,
+  map,
+  filter,
+  reduce,
+  find: find2,
+  push,
+  len,
+  split,
+  join,
+  template,
+  regexMatch,
+  pick,
+  merge,
+  keys: keys2,
+  httpFetch: fetch2,
+  storeGet,
+  storeSet,
+  storeQuery,
+  storeVectorSearch: vectorSearch,
+  llmPredict,
+  agentRun,
+  transpileCode,
+  runCode,
+  jsonParse,
+  jsonStringify,
+  xmlParse,
+  memoize,
+  cache: cache2,
+  random,
+  uuid,
+  hash,
+  consoleLog,
+  consoleWarn,
+  consoleError
+};
+// src/builder.ts
+var RESERVED_WORDS = new Set([
+  "true",
+  "false",
+  "null",
+  "undefined",
+  "and",
+  "or",
+  "not"
+]);
+function warnMissingVars(condition, vars) {
+  const withoutStrings = condition.replace(/"[^"]*"/g, '""').replace(/'[^']*'/g, "''");
+  const identifiers = [];
+  const regex = /(?<![.])\b([a-zA-Z_][a-zA-Z0-9_]*)\b/g;
+  let match;
+  while ((match = regex.exec(withoutStrings)) !== null) {
+    identifiers.push(match[1]);
+  }
+  const uniqueIds = [...new Set(identifiers)];
+  const missing = uniqueIds.filter((id2) => !RESERVED_WORDS.has(id2) && !(id2 in vars) && !new RegExp(`\\b${id2}\\s*\\(`).test(withoutStrings));
+  if (missing.length > 0) {
+    console.warn(`[Agent99 Builder] Condition "${condition}" references variables not in vars mapping: ${missing.join(", ")}. ` + `Add them to vars or use AsyncJS syntax (ajs\`...\`) which handles this automatically.`);
+  }
+}
+function parseCondition(condition, vars) {
+  warnMissingVars(condition, vars);
+  const tokens = tokenize(condition);
+  const result = parseExpression(tokens, 0, vars);
+  if (result.pos < tokens.length) {
+    const remaining = tokens.slice(result.pos).join(" ");
+    throw new Error(`Unsupported condition syntax near '${remaining}' in: ${condition}
+` + `Supported: comparisons, &&, ||, !, arithmetic, member access (a.b), literals`);
+  }
+  return result.node;
+}
+function tokenize(expr) {
+  const tokens = [];
+  let i3 = 0;
+  while (i3 < expr.length) {
+    while (i3 < expr.length && /\s/.test(expr[i3]))
+      i3++;
+    if (i3 >= expr.length)
+      break;
+    if (expr[i3] === '"' || expr[i3] === "'") {
+      const quote = expr[i3++];
+      let str = "";
+      while (i3 < expr.length && expr[i3] !== quote) {
+        if (expr[i3] === "\\" && i3 + 1 < expr.length) {
+          i3++;
+          str += expr[i3++];
+        } else {
+          str += expr[i3++];
+        }
+      }
+      i3++;
+      tokens.push(JSON.stringify(str));
+      continue;
+    }
+    if (expr.slice(i3, i3 + 2).match(/^(&&|\|\||==|!=|>=|<=)$/)) {
+      tokens.push(expr.slice(i3, i3 + 2));
+      i3 += 2;
+      continue;
+    }
+    if ("+-*/%><!().?:[]".includes(expr[i3])) {
+      tokens.push(expr[i3]);
+      i3++;
+      continue;
+    }
+    if (/\d/.test(expr[i3])) {
+      let num = "";
+      while (i3 < expr.length && /[\d.]/.test(expr[i3])) {
+        num += expr[i3++];
+      }
+      tokens.push(num);
+      continue;
+    }
+    if (/[a-zA-Z_]/.test(expr[i3])) {
+      let id2 = "";
+      while (i3 < expr.length && /[a-zA-Z0-9_]/.test(expr[i3])) {
+        id2 += expr[i3++];
+      }
+      tokens.push(id2);
+      continue;
+    }
+    i3++;
+  }
+  return tokens;
+}
+function parseExpression(tokens, pos, vars) {
+  return parseLogicalOr(tokens, pos, vars);
+}
+function parseLogicalOr(tokens, pos, vars) {
+  let { node: left, pos: newPos } = parseLogicalAnd(tokens, pos, vars);
+  while (tokens[newPos] === "||") {
+    newPos++;
+    const { node: right, pos: rightPos } = parseLogicalAnd(tokens, newPos, vars);
+    left = { $expr: "logical", op: "||", left, right };
+    newPos = rightPos;
+  }
+  return { node: left, pos: newPos };
+}
+function parseLogicalAnd(tokens, pos, vars) {
+  let { node: left, pos: newPos } = parseComparison(tokens, pos, vars);
+  while (tokens[newPos] === "&&") {
+    newPos++;
+    const { node: right, pos: rightPos } = parseComparison(tokens, newPos, vars);
+    left = { $expr: "logical", op: "&&", left, right };
+    newPos = rightPos;
+  }
+  return { node: left, pos: newPos };
+}
+function parseComparison(tokens, pos, vars) {
+  let { node: left, pos: newPos } = parseAdditive(tokens, pos, vars);
+  const compOps = ["==", "!=", ">", "<", ">=", "<="];
+  while (compOps.includes(tokens[newPos])) {
+    const op = tokens[newPos++];
+    const { node: right, pos: rightPos } = parseAdditive(tokens, newPos, vars);
+    left = { $expr: "binary", op, left, right };
+    newPos = rightPos;
+  }
+  return { node: left, pos: newPos };
+}
+function parseAdditive(tokens, pos, vars) {
+  let { node: left, pos: newPos } = parseMultiplicative(tokens, pos, vars);
+  while (tokens[newPos] === "+" || tokens[newPos] === "-") {
+    const op = tokens[newPos++];
+    const { node: right, pos: rightPos } = parseMultiplicative(tokens, newPos, vars);
+    left = { $expr: "binary", op, left, right };
+    newPos = rightPos;
+  }
+  return { node: left, pos: newPos };
+}
+function parseMultiplicative(tokens, pos, vars) {
+  let { node: left, pos: newPos } = parseUnary(tokens, pos, vars);
+  while (tokens[newPos] === "*" || tokens[newPos] === "/" || tokens[newPos] === "%") {
+    const op = tokens[newPos++];
+    const { node: right, pos: rightPos } = parseUnary(tokens, newPos, vars);
+    left = { $expr: "binary", op, left, right };
+    newPos = rightPos;
+  }
+  return { node: left, pos: newPos };
+}
+function parseUnary(tokens, pos, vars) {
+  if (tokens[pos] === "!" || tokens[pos] === "-") {
+    const op = tokens[pos++];
+    const { node: argument, pos: newPos } = parseUnary(tokens, pos, vars);
+    return { node: { $expr: "unary", op, argument }, pos: newPos };
+  }
+  return parsePrimary(tokens, pos, vars);
+}
+function parsePrimary(tokens, pos, vars) {
+  const token = tokens[pos];
+  if (token === "(") {
+    const { node, pos: newPos } = parseExpression(tokens, pos + 1, vars);
+    return { node, pos: newPos + 1 };
+  }
+  if (token && token.startsWith('"')) {
+    return {
+      node: { $expr: "literal", value: JSON.parse(token) },
+      pos: pos + 1
+    };
+  }
+  if (token && /^\d/.test(token)) {
+    return {
+      node: { $expr: "literal", value: parseFloat(token) },
+      pos: pos + 1
+    };
+  }
+  if (token === "true")
+    return { node: { $expr: "literal", value: true }, pos: pos + 1 };
+  if (token === "false")
+    return { node: { $expr: "literal", value: false }, pos: pos + 1 };
+  if (token === "null")
+    return { node: { $expr: "literal", value: null }, pos: pos + 1 };
+  if (token && /^[a-zA-Z_]/.test(token)) {
+    let node = { $expr: "ident", name: token };
+    let newPos = pos + 1;
+    while (tokens[newPos] === ".") {
+      newPos++;
+      const prop = tokens[newPos++];
+      node = { $expr: "member", object: node, property: prop };
+    }
+    return { node, pos: newPos };
+  }
+  return { node: { $expr: "literal", value: null }, pos: pos + 1 };
+}
+
+class TypedBuilder {
+  steps = [];
+  atoms;
+  proxy;
+  constructor(atoms) {
+    this.atoms = atoms;
+    this.proxy = new Proxy(this, {
+      get: (target, prop, receiver) => {
+        if (prop in target)
+          return target[prop];
+        if (typeof prop === "string" && prop in target.atoms) {
+          return (input) => {
+            const atom = target.atoms[prop];
+            target.add(atom.create(input));
+            return receiver;
+          };
+        }
+        return;
+      }
+    });
+    return this.proxy;
+  }
+  add(step) {
+    this.steps.push(step);
+    return this.proxy;
+  }
+  as(variableName) {
+    if (this.steps.length === 0)
+      throw new Error("No step to capture");
+    const last = this.steps[this.steps.length - 1];
+    last.result = variableName;
+    return this.proxy;
+  }
+  step(node) {
+    return this.add(node);
+  }
+  return(schema) {
+    const atom = this.atoms["return"];
+    if (!atom)
+      throw new Error("Atom 'return' not found");
+    const _schema = schema.schema ?? schema;
+    return this.add(atom.create({ schema: _schema }));
+  }
+  toJSON() {
+    return {
+      op: "seq",
+      steps: [...this.steps]
+    };
+  }
+  varsImport(keys3) {
+    return this.add(this.atoms["varsImport"].create({ keys: keys3 }));
+  }
+  varsExport(keys3) {
+    return this.add(this.atoms["varsExport"].create({ keys: keys3 }));
+  }
+  if(condition, vars, thenBranch, elseBranch) {
+    const thenB = new TypedBuilder(this.atoms);
+    thenBranch(thenB);
+    let elseSteps;
+    if (elseBranch) {
+      const elseB = new TypedBuilder(this.atoms);
+      elseBranch(elseB);
+      elseSteps = elseB.steps;
+    }
+    const conditionExpr = parseCondition(condition, vars);
+    const ifAtom = this.atoms["if"];
+    return this.add(ifAtom.create({
+      condition: conditionExpr,
+      then: thenB.steps,
+      else: elseSteps
+    }));
+  }
+  while(condition, vars, body) {
+    const bodyB = new TypedBuilder(this.atoms);
+    body(bodyB);
+    const conditionExpr = parseCondition(condition, vars);
+    const whileAtom = this.atoms["while"];
+    return this.add(whileAtom.create({
+      condition: conditionExpr,
+      body: bodyB.steps
+    }));
+  }
+  scope(steps) {
+    const scopeB = new TypedBuilder(this.atoms);
+    steps(scopeB);
+    const scopeAtom = this.atoms["scope"];
+    return this.add(scopeAtom.create({
+      steps: scopeB.steps
+    }));
+  }
+  map(items, as, steps) {
+    const stepsB = new TypedBuilder(this.atoms);
+    steps(stepsB);
+    const mapAtom = this.atoms["map"];
+    return this.add(mapAtom.create({
+      items,
+      as,
+      steps: stepsB.steps
+    }));
+  }
+  filter(items, as, condition, vars = {}) {
+    const conditionExpr = parseCondition(condition, vars);
+    const filterAtom = this.atoms["filter"];
+    return this.add(filterAtom.create({
+      items,
+      as,
+      condition: conditionExpr
+    }));
+  }
+  find(items, as, condition, vars = {}) {
+    const conditionExpr = parseCondition(condition, vars);
+    const findAtom = this.atoms["find"];
+    return this.add(findAtom.create({
+      items,
+      as,
+      condition: conditionExpr
+    }));
+  }
+  reduce(items, as, accumulator, initial, steps) {
+    const stepsB = new TypedBuilder(this.atoms);
+    steps(stepsB);
+    const reduceAtom = this.atoms["reduce"];
+    return this.add(reduceAtom.create({
+      items,
+      as,
+      accumulator,
+      initial,
+      steps: stepsB.steps
+    }));
+  }
+  memoize(steps, key) {
+    const stepsB = new TypedBuilder(this.atoms);
+    steps(stepsB);
+    const memoAtom = this.atoms["memoize"];
+    return this.add(memoAtom.create({
+      key,
+      steps: stepsB.steps
+    }));
+  }
+  cache(steps, key, ttlMs) {
+    const stepsB = new TypedBuilder(this.atoms);
+    steps(stepsB);
+    const cacheAtom = this.atoms["cache"];
+    return this.add(cacheAtom.create({
+      key,
+      steps: stepsB.steps,
+      ttlMs
+    }));
+  }
+  try(branches) {
+    const tryB = new TypedBuilder(this.atoms);
+    branches.try(tryB);
+    let catchSteps;
+    if (branches.catch) {
+      const catchB = new TypedBuilder(this.atoms);
+      branches.catch(catchB);
+      catchSteps = catchB.steps;
+    }
+    const tryAtom = this.atoms["try"];
+    return this.add(tryAtom.create({
+      try: tryB.steps,
+      catch: catchSteps
+    }));
+  }
+}
+var Agent = {
+  take(_schema) {
+    return new TypedBuilder(coreAtoms);
+  },
+  custom(atoms) {
+    return new TypedBuilder(atoms);
+  },
+  args(path) {
+    return { $kind: "arg", path };
+  },
+  val(path) {
+    return path;
+  }
+};
+var A99 = Agent;
+
+// src/vm/vm.ts
+var FUEL_TO_MS = 10;
+
+class AgentVM {
+  atoms;
+  constructor(customAtoms = {}) {
+    this.atoms = { ...coreAtoms, ...customAtoms };
+  }
+  get builder() {
+    return new TypedBuilder(this.atoms);
+  }
+  get Agent() {
+    return new TypedBuilder(this.atoms);
+  }
+  get A99() {
+    return this.Agent;
+  }
+  resolve(op) {
+    return this.atoms[op];
+  }
+  getTools(filter2 = "all") {
+    let targetAtoms = Object.values(this.atoms);
+    if (Array.isArray(filter2)) {
+      targetAtoms = targetAtoms.filter((a2) => filter2.includes(a2.op));
+    } else if (filter2 === "flow") {
+      const flowOps = [
+        "seq",
+        "if",
+        "while",
+        "return",
+        "try",
+        "varSet",
+        "varGet",
+        "scope"
+      ];
+      targetAtoms = targetAtoms.filter((a2) => flowOps.includes(a2.op));
+    }
+    return targetAtoms.map((atom) => ({
+      type: "function",
+      function: {
+        name: atom.op,
+        description: atom.docs,
+        parameters: atom.inputSchema?.schema ?? {}
+      }
+    }));
+  }
+  async run(ast, args = {}, options2 = {}) {
+    const startFuel = options2.fuel ?? 1000;
+    const timeoutMs = options2.timeoutMs ?? startFuel * FUEL_TO_MS;
+    const capabilities = options2.capabilities ?? {};
+    const warnings = [];
+    if (!capabilities.store) {
+      const memoryStore = new Map;
+      let warned2 = false;
+      capabilities.store = {
+        get: async (key) => {
+          if (!warned2) {
+            warned2 = true;
+            warnings.push("Using default in-memory store (not suitable for production)");
+          }
+          return memoryStore.get(key);
+        },
+        set: async (key, value) => {
+          if (!warned2) {
+            warned2 = true;
+            warnings.push("Using default in-memory store (not suitable for production)");
+          }
+          memoryStore.set(key, value);
+        }
+      };
+    }
+    const controller = new AbortController;
+    const timeout = setTimeout(() => controller.abort(), timeoutMs);
+    if (options2.signal) {
+      options2.signal.addEventListener("abort", () => controller.abort());
+    }
+    const ctx = {
+      fuel: { current: startFuel },
+      args,
+      state: {},
+      consts: new Set,
+      capabilities,
+      resolver: (op) => this.resolve(op),
+      output: undefined,
+      signal: controller.signal,
+      costOverrides: options2.costOverrides,
+      context: options2.context,
+      warnings
+    };
+    if (options2.trace) {
+      ctx.trace = [];
+    }
+    if (ast.op !== "seq")
+      throw new Error("Root AST must be 'seq'. Ensure you're passing a transpiled agent (use ajs`...` or transpile()).");
+    try {
+      await Promise.race([
+        this.resolve("seq")?.exec(ast, ctx),
+        new Promise((_2, reject) => {
+          controller.signal.addEventListener("abort", () => {
+            reject(new Error(`Execution timeout after ${timeoutMs}ms (fuel: ${startFuel}). Consider increasing fuel or optimizing your agent.`));
+          });
+          if (controller.signal.aborted) {
+            reject(new Error(`Execution timeout after ${timeoutMs}ms (fuel: ${startFuel}). Consider increasing fuel or optimizing your agent.`));
+          }
+        })
+      ]);
+    } catch (e2) {
+      if (e2.message?.includes("timeout") || e2.message?.includes("aborted") || controller.signal.aborted) {
+        ctx.error = new AgentError(`Execution timeout after ${timeoutMs}ms (fuel: ${startFuel}). Consider increasing fuel or optimizing your agent.`, "vm.run");
+      } else {
+        throw e2;
+      }
+    } finally {
+      clearTimeout(timeout);
+    }
+    if (ctx.error && ctx.output === undefined) {
+      ctx.output = ctx.error;
+    }
+    const allWarnings = [...warnings, ...ctx.warnings ?? []];
+    return {
+      result: ctx.output,
+      error: ctx.error,
+      fuelUsed: startFuel - ctx.fuel.current,
+      trace: ctx.trace,
+      warnings: allWarnings.length > 0 ? allWarnings : undefined
+    };
+  }
+}
+// src/vm/atoms/batteries.ts
+var storeVectorize = defineAtom("storeVectorize", e.object({
+  text: e.string,
+  model: e.string.optional
+}), e.array(e.number), async ({ text }, ctx) => {
+  const vectorCap = ctx.capabilities.vector;
+  if (!vectorCap)
+    throw new Error("Capability 'vector' missing. Ensure vector battery is loaded.");
+  const resolvedText = resolveValue(text, ctx);
+  return vectorCap.embed(resolvedText);
+}, { docs: "Generate embeddings using vector battery", cost: 20 });
+var storeCreateCollection = defineAtom("storeCreateCollection", e.object({
+  collection: e.string,
+  dimension: e.number.optional
+}), undefined, async ({ collection, dimension }, ctx) => {
+  const storeCap = ctx.capabilities.store;
+  if (!storeCap?.createCollection)
+    throw new Error("Capability 'store' missing or does not support createCollection.");
+  const resolvedColl = resolveValue(collection, ctx);
+  const resolvedDim = resolveValue(dimension, ctx);
+  return storeCap.createCollection(resolvedColl, undefined, resolvedDim);
+}, { docs: "Create a vector store collection", cost: 5 });
+var storeVectorAdd = defineAtom("storeVectorAdd", e.object({
+  collection: e.string,
+  doc: e.any
+}), undefined, async ({ collection, doc: doc2 }, ctx) => {
+  const storeCap = ctx.capabilities.store;
+  if (!storeCap?.vectorAdd)
+    throw new Error("Capability 'store' missing or does not support vectorAdd.");
+  const resolvedColl = resolveValue(collection, ctx);
+  const resolvedDoc = resolveValue(doc2, ctx);
+  return storeCap.vectorAdd(resolvedColl, resolvedDoc);
+}, { docs: "Add a document to a vector store collection", cost: 5 });
+var storeSearch = defineAtom("storeSearch", e.object({
+  collection: e.string,
+  queryVector: e.array(e.number),
+  k: e.number.optional,
+  filter: e.record(e.any).optional
+}), e.array(e.any), async ({ collection, queryVector, k: k2, filter: filter2 }, ctx) => {
+  const storeCap = ctx.capabilities.store;
+  if (!storeCap?.vectorSearch)
+    throw new Error("Capability 'store' missing or does not support vectorSearch.");
+  const resolvedColl = resolveValue(collection, ctx);
+  const resolvedVec = resolveValue(queryVector, ctx);
+  const resolvedK = resolveValue(k2, ctx) ?? 5;
+  const resolvedFilter = resolveValue(filter2, ctx);
+  return storeCap.vectorSearch(resolvedColl, resolvedVec, resolvedK, resolvedFilter);
+}, {
+  docs: "Search vector store",
+  cost: (input, ctx) => 5 + (resolveValue(input.k, ctx) ?? 5)
+});
+var llmPredictBattery = defineAtom("llmPredictBattery", e.object({
+  system: e.string.optional,
+  user: e.string,
+  tools: e.array(e.any).optional,
+  responseFormat: e.any.optional
+}), e.object({
+  content: e.string.optional,
+  tool_calls: e.array(e.any).optional
+}), async ({ system, user, tools, responseFormat }, ctx) => {
+  const llmCap = ctx.capabilities.llmBattery;
+  if (!llmCap?.predict)
+    throw new Error("Capability 'llmBattery' missing or invalid.");
+  const resolvedSystem = resolveValue(system, ctx) ?? "You are a helpful agent.";
+  const resolvedUser = resolveValue(user, ctx);
+  const resolvedTools = resolveValue(tools, ctx);
+  const resolvedFormat = resolveValue(responseFormat, ctx);
+  return llmCap.predict(resolvedSystem, resolvedUser, resolvedTools, resolvedFormat);
+}, { docs: "Generate completion using LLM battery", cost: 100 });
+var llmVision = defineAtom("llmVision", e.object({
+  system: e.string.optional,
+  prompt: e.string,
+  images: e.array(e.string),
+  responseFormat: e.any.optional
+}), e.object({
+  content: e.string.optional,
+  tool_calls: e.array(e.any).optional
+}), async ({ system, prompt: prompt2, images, responseFormat }, ctx) => {
+  const llmCap = ctx.capabilities.llmBattery;
+  if (!llmCap?.predict)
+    throw new Error("Capability 'llmBattery' missing or invalid.");
+  const resolvedSystem = resolveValue(system, ctx) ?? "You analyze images accurately and concisely.";
+  const resolvedPrompt = resolveValue(prompt2, ctx);
+  const resolvedImages = resolveValue(images, ctx) ?? [];
+  const resolvedFormat = resolveValue(responseFormat, ctx);
+  return llmCap.predict(resolvedSystem, { text: resolvedPrompt, images: resolvedImages }, undefined, resolvedFormat);
+}, { docs: "Analyze images using a vision model", timeoutMs: 120000, cost: 150 });
+
+// src/vm/atoms/index.ts
+var batteryAtoms = {
+  storeCreateCollection,
+  storeSearch,
+  storeVectorAdd,
+  storeVectorize,
+  llmPredictBattery,
+  llmVision
+};
+// src/batteries/store.ts
+var kvStore = new Map;
+var collections = new Map;
+function cosineSimilarity(vecA, vecB) {
+  if (vecA.length !== vecB.length) {
+    throw new Error("Vectors must have the same length for cosine similarity.");
+  }
+  let dotProduct = 0;
+  let magA = 0;
+  let magB = 0;
+  for (let i3 = 0;i3 < vecA.length; i3++) {
+    dotProduct += vecA[i3] * vecB[i3];
+    magA += vecA[i3] * vecA[i3];
+    magB += vecB[i3] * vecB[i3];
+  }
+  magA = Math.sqrt(magA);
+  magB = Math.sqrt(magB);
+  if (magA === 0 || magB === 0) {
+    return 0;
+  }
+  return dotProduct / (magA * magB);
+}
+function getStoreCapability() {
+  return {
+    async get(key) {
+      return kvStore.get(key);
+    },
+    async set(key, val) {
+      kvStore.set(key, val);
+    },
+    async createCollection(name2, _schema, _dimension) {
+      if (collections.has(name2)) {
+        console.warn(`Collection '${name2}' already exists. Overwriting.`);
+      }
+      collections.set(name2, []);
+    },
+    async vectorAdd(collection, doc2) {
+      const db = collections.get(collection);
+      if (!db)
+        throw new Error(`Collection '${collection}' not found. Create it first.`);
+      if (!doc2.embedding || !Array.isArray(doc2.embedding)) {
+        throw new Error("Document must have an 'embedding' property that is an array of numbers.");
+      }
+      db.push(doc2);
+    },
+    async vectorSearch(collection, vector, k2 = 5) {
+      const db = collections.get(collection);
+      if (!db)
+        throw new Error(`Collection '${collection}' not found. Create it first.`);
+      const scoredDocs = db.map((doc2) => ({
+        doc: doc2,
+        score: cosineSimilarity(vector, doc2.embedding)
+      }));
+      scoredDocs.sort((a2, b3) => b3.score - a2.score);
+      return scoredDocs.slice(0, k2).map((item) => item.doc);
+    }
+  };
+}
+
+// src/batteries/llm.ts
+function buildUserMessage(user) {
+  if (typeof user === "string") {
+    return { role: "user", content: user };
+  }
+  const content2 = [{ type: "text", text: user.text }];
+  for (const img of user.images || []) {
+    content2.push({
+      type: "image_url",
+      image_url: {
+        url: img
+      }
+    });
+  }
+  return { role: "user", content: content2 };
+}
+var DEFAULT_BASE_URL = "http://localhost:1234/v1";
+function getLLMCapability(models, baseUrl = DEFAULT_BASE_URL) {
+  return {
+    async predict(system, user, tools, responseFormat) {
+      try {
+        const model = responseFormat ? models.getStructuredLLM() : models.getLLM();
+        const messages = [
+          { role: "system", content: system },
+          buildUserMessage(user)
+        ];
+        const response = await fetch(`${baseUrl}/chat/completions`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            model: model.id,
+            messages,
+            temperature: 0.7,
+            tools,
+            response_format: responseFormat
+          })
+        });
+        if (!response.ok) {
+          throw new Error(`LLM Error: ${response.status} ${response.statusText}`);
+        }
+        const data2 = await response.json();
+        return data2.choices[0]?.message ?? { content: "" };
+      } catch (e2) {
+        if (e2.cause?.code === "ECONNREFUSED") {
+          throw new Error("No LLM provider configured. Please start LM Studio or provide an API key.");
+        }
+        throw e2;
+      }
+    },
+    async embed(text) {
+      try {
+        const model = models.getEmbedding();
+        const response = await fetch(`${baseUrl}/embeddings`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            model: model.id,
+            input: text
+          })
+        });
+        if (!response.ok) {
+          throw new Error(`Embedding Error: ${response.status}`);
+        }
+        const data2 = await response.json();
+        return data2.data[0]?.embedding ?? [];
+      } catch (e2) {
+        if (e2.cause?.code === "ECONNREFUSED") {
+          throw new Error("No LLM provider configured. Please start LM Studio or provide an API key.");
+        }
+        throw e2;
+      }
+    }
+  };
+}
+
+// src/batteries/audit.ts
+var TIMEOUT_MS = 60000;
+var CACHE_FILE = ".models.cache.json";
+var CACHE_TTL_MS = 24 * 60 * 60 * 1000;
+var isBrowser = typeof window !== "undefined" && typeof window.localStorage !== "undefined";
+async function readCache(baseUrl) {
+  try {
+    if (isBrowser) {
+      const cached = window.localStorage.getItem(CACHE_FILE);
+      if (!cached)
+        return null;
+      const data2 = JSON.parse(cached);
+      if (data2.baseUrl !== baseUrl)
+        return null;
+      if (Date.now() - data2.timestamp > CACHE_TTL_MS)
+        return null;
+      return data2.models;
+    } else {
+      const fs2 = await import("node:fs/promises");
+      const path = await Promise.resolve().then(() => (init_path(), exports_path));
+      const cacheFile = path.join(process.cwd(), CACHE_FILE);
+      try {
+        const content2 = await fs2.readFile(cacheFile, "utf-8");
+        const data2 = JSON.parse(content2);
+        if (data2.baseUrl !== baseUrl)
+          return null;
+        if (Date.now() - data2.timestamp > CACHE_TTL_MS)
+          return null;
+        return data2.models;
+      } catch {
+        return null;
+      }
+    }
+  } catch (e2) {
+    console.warn("⚠️ Error reading model cache:", e2);
+    return null;
+  }
+}
+async function writeCache(baseUrl, models) {
+  const data2 = {
+    timestamp: Date.now(),
+    baseUrl,
+    models
+  };
+  try {
+    if (isBrowser) {
+      window.localStorage.setItem(CACHE_FILE, JSON.stringify(data2));
+    } else {
+      const fs2 = await import("node:fs/promises");
+      const path = await Promise.resolve().then(() => (init_path(), exports_path));
+      const cacheFile = path.join(process.cwd(), CACHE_FILE);
+      await fs2.writeFile(cacheFile, JSON.stringify(data2, null, 2));
+    }
+  } catch (e2) {
+    console.error("❌ Error writing model cache:", e2);
+  }
+}
+var fetchWithTimeout = async (url, options2) => {
+  const controller = new AbortController;
+  const id2 = setTimeout(() => controller.abort(), TIMEOUT_MS);
+  try {
+    const res = await fetch(url, { ...options2, signal: controller.signal });
+    clearTimeout(id2);
+    return res;
+  } catch (error) {
+    clearTimeout(id2);
+    throw error;
+  }
+};
+async function checkStructured(baseUrl, modelId) {
+  try {
+    const schemaPayload = {
+      type: "json_schema",
+      json_schema: {
+        name: "test",
+        strict: false,
+        schema: {
+          type: "object",
+          properties: { status: { type: "string" } }
+        }
+      }
+    };
+    const res = await fetchWithTimeout(`${baseUrl}/chat/completions`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        model: modelId,
+        messages: [
+          { role: "system", content: "You respond in JSON." },
+          { role: "user", content: 'Return JSON: {"status": "ok"}' }
+        ],
+        response_format: schemaPayload,
+        max_tokens: 20
+      })
+    });
+    if (!res.ok) {
+      if (res.status === 400) {
+        return checkStructuredLegacy(baseUrl, modelId);
+      }
+      return { ok: false, msg: `HTTP ${res.status}` };
+    }
+    const data2 = await res.json();
+    JSON.parse(data2.choices[0].message.content);
+    return { ok: true, msg: "OK (Schema)" };
+  } catch (e2) {
+    return { ok: false, msg: e2.message || "Error" };
+  }
+}
+async function checkStructuredLegacy(baseUrl, modelId) {
+  try {
+    const res = await fetchWithTimeout(`${baseUrl}/chat/completions`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        model: modelId,
+        messages: [{ role: "user", content: 'JSON: {"a":1}' }],
+        response_format: { type: "json_object" },
+        max_tokens: 10
+      })
+    });
+    if (res.ok)
+      return { ok: true, msg: "OK (Legacy Mode)" };
+    return { ok: false, msg: "Not Supported" };
+  } catch {
+    return { ok: false, msg: "Legacy Fail" };
+  }
+}
+async function checkLLM(baseUrl, modelId) {
+  try {
+    const res = await fetchWithTimeout(`${baseUrl}/chat/completions`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        model: modelId,
+        messages: [{ role: "user", content: "hi" }],
+        max_tokens: 1
+      })
+    });
+    return res.ok;
+  } catch {
+    return false;
+  }
+}
+async function checkEmbedding(baseUrl, modelId) {
+  try {
+    const res = await fetchWithTimeout(`${baseUrl}/embeddings`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ model: modelId, input: "test" })
+    });
+    if (!res.ok)
+      return null;
+    const data2 = await res.json();
+    return data2.data[0]?.embedding?.length ?? null;
+  } catch {
+    return null;
+  }
+}
+var TINY_TEST_IMAGE = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8DwHwAFBQIAX8jx0gAAAABJRU5ErkJggg==";
+async function checkVision(baseUrl, modelId) {
+  try {
+    const res = await fetchWithTimeout(`${baseUrl}/chat/completions`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        model: modelId,
+        messages: [
+          {
+            role: "user",
+            content: [
+              { type: "text", text: "What color is this?" },
+              { type: "image_url", image_url: { url: TINY_TEST_IMAGE } }
+            ]
+          }
+        ],
+        max_tokens: 10
+      })
+    });
+    return res.ok;
+  } catch {
+    return false;
+  }
+}
+async function auditModels(baseUrl) {
+  const cachedData = await readCache(baseUrl);
+  let serverModelIds = [];
+  try {
+    const res = await fetch(`${baseUrl}/models`);
+    if (!res.ok)
+      throw new Error("Could not connect");
+    const data2 = await res.json();
+    serverModelIds = data2.data.map((m) => m.id).sort();
+  } catch (e2) {
+    if (cachedData) {
+      console.log("⚠️ LM Studio unavailable, using cached model audit.");
+      return cachedData;
+    }
+    console.error("❌ Failed to connect to LM Studio.");
+    return [];
+  }
+  if (cachedData) {
+    const cachedModelIds = cachedData.map((m) => m.id).sort();
+    if (JSON.stringify(serverModelIds) === JSON.stringify(cachedModelIds)) {
+      console.log("✅ Using cached model audit.");
+      return cachedData;
+    }
+    console.log("\uD83D\uDD0D Model list changed. Re-running audit...");
+  }
+  console.log("\uD83D\uDD0D Scanning models (this may take a moment)...");
+  const results = [];
+  const modelList = serverModelIds.map((id2) => ({ id: id2 }));
+  let readline;
+  if (!isBrowser) {
+    readline = await import("node:readline");
+  }
+  for (const model of modelList) {
+    if (!isBrowser && readline) {
+      readline.cursorTo(process.stdout, 0);
+      process.stdout.write(`\uD83D\uDC49 Testing: ${model.id}...`);
+      readline.clearLine(process.stdout, 1);
+    }
+    let type = "Unknown";
+    let structured = false;
+    let vision = false;
+    let statusMsg = "";
+    let dimension = undefined;
+    const isLLM = await checkLLM(baseUrl, model.id);
+    const dim = await checkEmbedding(baseUrl, model.id);
+    if (dim) {
+      dimension = dim;
+    }
+    if (isLLM) {
+      type = "LLM";
+      const structRes = await checkStructured(baseUrl, model.id);
+      structured = structRes.ok;
+      vision = await checkVision(baseUrl, model.id);
+      statusMsg = structured ? structRes.msg : `Fail: ${structRes.msg}`;
+      if (vision)
+        statusMsg += " +Vision";
+    } else if (dim) {
+      type = "Embedding";
+      statusMsg = `OK (Dim: ${dim})`;
+    } else {
+      statusMsg = "LLM Fail";
+    }
+    results.push({
+      id: model.id,
+      type,
+      structuredOutput: structured,
+      vision,
+      dimension,
+      status: statusMsg
+    });
+  }
+  if (!isBrowser && readline) {
+    readline.cursorTo(process.stdout, 0);
+    readline.clearLine(process.stdout, 0);
+  }
+  console.log(`
+`);
+  console.table(results);
+  await writeCache(baseUrl, results);
+  console.log(`\uD83D\uDCDD Audit results saved to cache.`);
+  return results;
+}
+
+// src/batteries/models.ts
+var DEFAULT_BASE_URL2 = "http://localhost:1234/v1";
+
+class LocalModels {
+  baseUrl;
+  models = [];
+  defaultLLM = null;
+  defaultEmbedding = null;
+  defaultStructuredLLM = null;
+  constructor(baseUrl = DEFAULT_BASE_URL2) {
+    this.baseUrl = baseUrl;
+  }
+  async audit() {
+    this.models = await auditModels(this.baseUrl);
+    this.selectDefaults();
+  }
+  selectDefaults() {
+    this.defaultEmbedding = this.models.find((m) => m.type === "Embedding") || null;
+    this.defaultLLM = this.models.find((m) => m.type === "LLM") || null;
+    this.defaultStructuredLLM = this.models.find((m) => m.type === "LLM" && m.structuredOutput) || null;
+    if (!this.defaultEmbedding) {
+      console.warn("⚠️ No embedding model found.");
+    }
+    if (!this.defaultLLM) {
+      console.warn("⚠️ No LLM found.");
+    }
+    if (!this.defaultStructuredLLM) {
+      console.warn("⚠️ No LLM with structured output support found.");
+    }
+  }
+  getModels() {
+    return this.models;
+  }
+  _setDefaultModel(modelId, property, predicate, errorType) {
+    const model = this.models.find((m) => m.id === modelId && predicate(m));
+    if (!model) {
+      throw new Error(`Model '${modelId}' not found or is not ${errorType}.`);
+    }
+    this[property] = model;
+  }
+  setDefaultLLM(modelId) {
+    this._setDefaultModel(modelId, "defaultLLM", (m) => m.type === "LLM", "an LLM");
+  }
+  setDefaultEmbedding(modelId) {
+    this._setDefaultModel(modelId, "defaultEmbedding", (m) => m.dimension !== undefined, "an embedding model");
+  }
+  setDefaultStructuredLLM(modelId) {
+    this._setDefaultModel(modelId, "defaultStructuredLLM", (m) => m.type === "LLM" && m.structuredOutput, "a structured-output LLM");
+  }
+  getLLM() {
+    if (!this.defaultLLM) {
+      throw new Error("No LLM available.");
+    }
+    return this.defaultLLM;
+  }
+  getEmbedding() {
+    if (!this.defaultEmbedding) {
+      throw new Error("No embedding model available.");
+    }
+    return this.defaultEmbedding;
+  }
+  getStructuredLLM() {
+    if (!this.defaultStructuredLLM) {
+      throw new Error("No structured-output LLM available.");
+    }
+    return this.defaultStructuredLLM;
+  }
+}
+
+// src/batteries/index.ts
+var isBrowser2 = typeof window !== "undefined";
+var isHttps = isBrowser2 && window.location.protocol === "https:";
+var localModels = null;
+var llm = null;
+var initializationAttempted = false;
+async function ensureInitialized() {
+  if (initializationAttempted) {
+    return { localModels, llm };
+  }
+  initializationAttempted = true;
+  if (isHttps) {
+    console.log("\uD83D\uDCE1 HTTPS detected - local LLM endpoints disabled. Use HTTP for local LLM support.");
+    return { localModels: null, llm: null };
+  }
+  try {
+    localModels = new LocalModels;
+    await localModels.audit();
+    llm = getLLMCapability(localModels);
+  } catch (e2) {
+    console.warn("⚠️ Could not connect to local LLM:", e2);
+  }
+  return { localModels, llm };
+}
+async function getBatteries() {
+  const { localModels: localModels2, llm: llm2 } = await ensureInitialized();
+  return {
+    vector: llm2 ? { embed: llm2.embed } : undefined,
+    store: getStoreCapability(),
+    llmBattery: llm2,
+    models: localModels2
+  };
+}
+async function getStandardCapabilities() {
+  return getBatteries();
+}
+var batteries = {
+  store: getStoreCapability(),
+  llmBattery: null,
+  vector: undefined,
+  models: null
+};
 // demo/src/capabilities.ts
 var cachedLocalModels = new Map;
 var loadStatus = new Map;
@@ -44287,7 +44287,7 @@ console.error("Fatal: " + msg)         // Triggers monadic error flow
 - \`error\`: stops execution, sets \`result.error\``,
     title: "runtime (inline docs)",
     filename: "runtime.ts",
-    path: "src/runtime.ts"
+    path: "src/vm/runtime.ts"
   },
   {
     text: `# tosijs-agent Technical Context
@@ -44666,9 +44666,9 @@ Agent.take(s.object({})).try({
 jn("demo-style", styleSpec);
 var demoRuntime = {
   async run(ast, args, options2 = {}) {
-    const vm2 = new AgentVM;
+    const vm3 = new AgentVM;
     const caps = buildCapabilities(getSettings());
-    return vm2.run(ast, args, {
+    return vm3.run(ast, args, {
       ...options2,
       capabilities: {
         ...options2.capabilities,
@@ -44962,4 +44962,4 @@ if (main) {
 }
 console.log(`%c tosijs-agent %c v${VERSION} `, "background: #6366f1; color: white; padding: 2px 6px; border-radius: 3px 0 0 3px;", "background: #374151; color: white; padding: 2px 6px; border-radius: 0 3px 3px 0;");
 
-//# debugId=16BCC0596846747464756E2164756E21
+//# debugId=EABCFCEC2B50A44164756E2164756E21
