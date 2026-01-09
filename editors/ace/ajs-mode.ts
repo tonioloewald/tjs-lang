@@ -12,58 +12,17 @@
  * ```
  */
 
-// Forbidden keywords in AsyncJS - these will be highlighted as errors
-export const FORBIDDEN_KEYWORDS = [
-  'new',
-  'class',
-  'async',
-  'await',
-  'var',
-  'this',
-  'super',
-  'extends',
-  'implements',
-  'interface',
-  'type',
-  'yield',
-  'import',
-  'export',
-  'require',
-  'throw',
-]
+import {
+  KEYWORDS as KEYWORDS_LIST,
+  FORBIDDEN_KEYWORDS as FORBIDDEN_LIST,
+  TYPE_CONSTRUCTORS,
+} from '../ajs-syntax'
 
-// Valid keywords in AsyncJS
-export const KEYWORDS = [
-  'function',
-  'return',
-  'if',
-  'else',
-  'while',
-  'for',
-  'of',
-  'in',
-  'try',
-  'catch',
-  'finally',
-  'let',
-  'const',
-]
-
-// Language constants
-export const CONSTANTS = ['true', 'false', 'null']
-
-// Built-in type constructors
-export const BUILTINS = [
-  'Date',
-  'Set',
-  'Map',
-  'Array',
-  'Object',
-  'String',
-  'Number',
-  'Math',
-  'JSON',
-]
+// Re-export from shared definition for backwards compatibility
+export const FORBIDDEN_KEYWORDS = [...FORBIDDEN_LIST]
+export const KEYWORDS = [...KEYWORDS_LIST]
+export const CONSTANTS = ['true', 'false', 'null', 'undefined']
+export const BUILTINS = [...TYPE_CONSTRUCTORS]
 
 type AceEditor = typeof import('ace-builds')
 

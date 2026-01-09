@@ -37,27 +37,15 @@ import {
 } from '@codemirror/view'
 import { Extension, RangeSetBuilder } from '@codemirror/state'
 
+import {
+  FORBIDDEN_KEYWORDS as FORBIDDEN_LIST,
+  FORBIDDEN_PATTERN,
+} from '../ajs-syntax'
+
 /**
  * Forbidden keywords in AsyncJS - these will be highlighted as errors
  */
-const FORBIDDEN_KEYWORDS = new Set([
-  'new',
-  'class',
-  'async',
-  'await',
-  'var',
-  'this',
-  'super',
-  'extends',
-  'implements',
-  'interface',
-  'type',
-  'yield',
-  'import',
-  'export',
-  'require',
-  'throw',
-])
+const FORBIDDEN_KEYWORDS = new Set(FORBIDDEN_LIST)
 
 /**
  * Decoration for forbidden keywords
@@ -194,11 +182,8 @@ const forbiddenHighlighter = ViewPlugin.fromClass(
       const doc = view.state.doc.toString()
       const skipRegions = findSkipRegions(doc)
 
-      // Match word boundaries for forbidden keywords
-      const pattern = new RegExp(
-        `\\b(${Array.from(FORBIDDEN_KEYWORDS).join('|')})\\b`,
-        'g'
-      )
+      // Match word boundaries for forbidden keywords (use fresh regex for each scan)
+      const pattern = new RegExp(FORBIDDEN_PATTERN.source, 'g')
 
       let match
       while ((match = pattern.exec(doc)) !== null) {

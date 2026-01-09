@@ -13,6 +13,7 @@
  */
 
 import type * as Monaco from 'monaco-editor'
+import { KEYWORDS, FORBIDDEN_KEYWORDS, TYPE_CONSTRUCTORS } from '../ajs-syntax'
 
 export const languageId = 'ajs'
 
@@ -54,48 +55,14 @@ export const monarchLanguage: Monaco.languages.IMonarchLanguage = {
   defaultToken: 'source',
   ignoreCase: false,
 
-  // Good parts - standard keywords
-  keywords: [
-    'function',
-    'return',
-    'if',
-    'else',
-    'while',
-    'for',
-    'of',
-    'in',
-    'try',
-    'catch',
-    'finally',
-    'let',
-    'const',
-    'true',
-    'false',
-    'null',
-  ],
+  // Good parts - standard keywords (from shared definition)
+  keywords: [...KEYWORDS],
 
-  // Bad parts - forbidden in AsyncJS (highlighted as errors)
-  forbidden: [
-    'new',
-    'class',
-    'async',
-    'await',
-    'var',
-    'this',
-    'super',
-    'extends',
-    'implements',
-    'interface',
-    'type',
-    'yield',
-    'import',
-    'export',
-    'require',
-    'throw',
-  ],
+  // Bad parts - forbidden in AsyncJS (from shared definition)
+  forbidden: [...FORBIDDEN_KEYWORDS],
 
-  // Built-in type constructors used as factories
-  typeKeywords: ['Date', 'Set', 'Map', 'Array', 'Object', 'String', 'Number'],
+  // Built-in type constructors used as factories (from shared definition)
+  typeKeywords: [...TYPE_CONSTRUCTORS],
 
   operators: [
     '=',

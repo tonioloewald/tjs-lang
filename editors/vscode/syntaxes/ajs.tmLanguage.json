@@ -3,80 +3,126 @@
   "name": "AsyncJS",
   "scopeName": "source.ajs",
   "patterns": [
-    { "include": "#comments" },
-    { "include": "#strings" },
-    { "include": "#function-def" },
-    { "include": "#forbidden" },
-    { "include": "#keywords" },
-    { "include": "#type-parameters" },
-    { "include": "#numbers" },
-    { "include": "#operators" }
+    {
+      "include": "#comments"
+    },
+    {
+      "include": "#strings"
+    },
+    {
+      "include": "#function-def"
+    },
+    {
+      "include": "#forbidden"
+    },
+    {
+      "include": "#keywords"
+    },
+    {
+      "include": "#builtins"
+    },
+    {
+      "include": "#type-parameters"
+    },
+    {
+      "include": "#numbers"
+    },
+    {
+      "include": "#operators"
+    }
   ],
   "repository": {
     "function-def": {
       "begin": "\\b(function)\\s+([a-zA-Z_$][a-zA-Z0-9_$]*)\\s*\\(",
       "beginCaptures": {
-        "1": { "name": "keyword.control.ajs" },
-        "2": { "name": "entity.name.function.ajs" }
+        "1": {
+          "name": "keyword.control.ajs"
+        },
+        "2": {
+          "name": "entity.name.function.ajs"
+        }
       },
       "end": "\\)",
       "patterns": [
-        { "include": "#type-parameters" },
-        { "include": "#comments" }
+        {
+          "include": "#type-parameters"
+        },
+        {
+          "include": "#comments"
+        }
       ]
     },
-
     "type-parameters": {
       "patterns": [
         {
           "comment": "Required parameter with type: name: 'string' or name: 0",
           "match": "([a-zA-Z_$][a-zA-Z0-9_$]*)\\s*(:)\\s*('[^']*'|\"[^\"]*\"|\\d+|\\{[^}]*\\}|\\[[^\\]]*\\]|true|false|null)",
           "captures": {
-            "1": { "name": "variable.parameter.ajs" },
-            "2": { "name": "punctuation.separator.ajs" },
-            "3": { "name": "support.type.ajs" }
+            "1": {
+              "name": "variable.parameter.ajs"
+            },
+            "2": {
+              "name": "punctuation.separator.ajs"
+            },
+            "3": {
+              "name": "support.type.ajs"
+            }
           }
         },
         {
           "comment": "Optional parameter with default: name = value",
           "match": "([a-zA-Z_$][a-zA-Z0-9_$]*)\\s*(=)\\s*(?=null\\s*&&|'|\"|\\d|\\{|\\[|true|false|null)",
           "captures": {
-            "1": { "name": "variable.parameter.ajs" },
-            "2": { "name": "keyword.operator.assignment.ajs" }
+            "1": {
+              "name": "variable.parameter.ajs"
+            },
+            "2": {
+              "name": "keyword.operator.assignment.ajs"
+            }
           }
         },
         {
           "comment": "Simple parameter name",
           "match": "([a-zA-Z_$][a-zA-Z0-9_$]*)(?=\\s*[,)])",
           "captures": {
-            "1": { "name": "variable.parameter.ajs" }
+            "1": {
+              "name": "variable.parameter.ajs"
+            }
           }
         }
       ]
     },
-
     "forbidden": {
+      "comment": "Auto-generated from editors/ajs-syntax.ts FORBIDDEN_KEYWORDS",
       "patterns": [
         {
-          "match": "\\b(new|class|async|await|var|this|super|extends|implements|interface|type|yield|import|export|require|throw)\\b",
+          "match": "\\\\b(new|class|extends|super|this|implements|interface|abstract|static|private|protected|public|async|await|yield|import|export|require|module|var|throw|switch|case|default|with|delete|void|typeof|instanceof|debugger|eval|type|enum|namespace|declare|readonly|as|is|keyof|infer|never|unknown)\\\\b",
           "name": "invalid.illegal.forbidden.ajs"
         }
       ]
     },
-
     "keywords": {
+      "comment": "Auto-generated from editors/ajs-syntax.ts KEYWORDS",
       "patterns": [
         {
-          "match": "\\b(function|return|if|else|while|for|of|in|try|catch|finally|let|const)\\b",
+          "match": "\\\\b(function|return|if|else|while|for|of|in|try|catch|finally|let|const)\\\\b",
           "name": "keyword.control.ajs"
         },
         {
-          "match": "\\b(true|false|null)\\b",
+          "match": "\\\\b(true|false|null|undefined)\\\\b",
           "name": "constant.language.ajs"
         }
       ]
     },
-
+    "builtins": {
+      "comment": "Auto-generated from editors/ajs-syntax.ts TYPE_CONSTRUCTORS",
+      "patterns": [
+        {
+          "match": "\\\\b(Date|Set|Map|Array|Object|String|Number|Boolean|RegExp|Error|JSON|Math|Schema)\\\\b",
+          "name": "support.class.ajs"
+        }
+      ]
+    },
     "strings": {
       "patterns": [
         {
@@ -84,7 +130,10 @@
           "begin": "'",
           "end": "'",
           "patterns": [
-            { "name": "constant.character.escape.ajs", "match": "\\\\." }
+            {
+              "name": "constant.character.escape.ajs",
+              "match": "\\\\."
+            }
           ]
         },
         {
@@ -92,7 +141,10 @@
           "begin": "\"",
           "end": "\"",
           "patterns": [
-            { "name": "constant.character.escape.ajs", "match": "\\\\." }
+            {
+              "name": "constant.character.escape.ajs",
+              "match": "\\\\."
+            }
           ]
         },
         {
@@ -100,7 +152,10 @@
           "begin": "`",
           "end": "`",
           "patterns": [
-            { "name": "constant.character.escape.ajs", "match": "\\\\." },
+            {
+              "name": "constant.character.escape.ajs",
+              "match": "\\\\."
+            },
             {
               "name": "meta.template.expression.ajs",
               "begin": "\\$\\{",
@@ -116,17 +171,27 @@
                 }
               },
               "patterns": [
-                { "include": "#forbidden" },
-                { "include": "#keywords" },
-                { "include": "#numbers" },
-                { "include": "#operators" }
+                {
+                  "include": "#forbidden"
+                },
+                {
+                  "include": "#keywords"
+                },
+                {
+                  "include": "#builtins"
+                },
+                {
+                  "include": "#numbers"
+                },
+                {
+                  "include": "#operators"
+                }
               ]
             }
           ]
         }
       ]
     },
-
     "numbers": {
       "patterns": [
         {
@@ -139,34 +204,31 @@
         }
       ]
     },
-
     "operators": {
       "patterns": [
         {
-          "match": "&&|\\|\\||!|==|!=|>=|<=|>|<",
+          "match": "\\?\\?|&&|\\|\\||!|===|!==|==|!=|>=|<=|>|<",
           "name": "keyword.operator.logical.ajs"
         },
         {
-          "match": "\\+|\\-|\\*|\\/|%",
+          "match": "\\+|\\-|\\*|\\/|%|\\*\\*",
           "name": "keyword.operator.arithmetic.ajs"
         },
         {
           "match": "=",
           "name": "keyword.operator.assignment.ajs"
+        },
+        {
+          "match": "\\?\\.?",
+          "name": "keyword.operator.optional.ajs"
         }
       ]
     },
-
     "comments": {
       "patterns": [
         {
           "name": "comment.line.double-slash.ajs",
           "match": "//.*$"
-        },
-        {
-          "name": "comment.block.ajs",
-          "begin": "/\\*",
-          "end": "\\*/"
         },
         {
           "name": "comment.block.documentation.ajs",
@@ -178,6 +240,11 @@
               "name": "keyword.other.documentation.ajs"
             }
           ]
+        },
+        {
+          "name": "comment.block.ajs",
+          "begin": "/\\*",
+          "end": "\\*/"
         }
       ]
     }
