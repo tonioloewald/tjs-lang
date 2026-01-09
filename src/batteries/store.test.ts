@@ -84,7 +84,7 @@ describe('cosineSimilarity calculation', () => {
   })
 })
 
-describe.skipIf(process.env.AGENT99_TESTS_SKIP_BENCHMARKS)(
+describe.skipIf(process.env.SKIP_BENCHMARKS)(
   'Vector Search Benchmark (10k x 500dim)',
   () => {
     const store = getStoreCapability()
@@ -128,7 +128,7 @@ describe.skipIf(process.env.AGENT99_TESTS_SKIP_BENCHMARKS)(
   }
 )
 
-describe.skipIf(process.env.AGENT99_TESTS_SKIP_BENCHMARKS)(
+describe.skipIf(process.env.SKIP_BENCHMARKS)(
   'Vector Search Benchmark (10k x 1000dim)',
   () => {
     const store = getStoreCapability()
@@ -170,7 +170,7 @@ describe.skipIf(process.env.AGENT99_TESTS_SKIP_BENCHMARKS)(
   }
 )
 
-describe.skipIf(process.env.AGENT99_TESTS_SKIP_BENCHMARKS)(
+describe.skipIf(process.env.SKIP_BENCHMARKS)(
   'Vector Search Benchmark (100k x 500dim)',
   () => {
     const store = getStoreCapability()

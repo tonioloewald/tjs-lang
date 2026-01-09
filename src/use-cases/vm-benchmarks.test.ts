@@ -4,10 +4,9 @@ import { AgentVM } from '../vm'
 import { s } from 'tosijs-schema'
 import { ajs } from '../transpiler'
 
-// To skip benchmarks, run with a filter that excludes them
-// bun test --except-filter=benchmark
+// To skip benchmarks: SKIP_BENCHMARKS=1 bun test
 const benchmarks = describe.each([
-  { run: process.env.RUN_BENCHMARKS !== 'false' },
+  { run: !process.env.SKIP_BENCHMARKS },
 ])
 
 function generatePrimes(n: number): number[] {
