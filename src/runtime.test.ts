@@ -282,4 +282,116 @@ describe('Edge Cases', () => {
     const result = await vm.run(ast, { x: 1 })
     expect(result.result.result).toBe(10.5)
   })
+
+  it('should emit warning when using default in-memory store', async () => {
+    const vm = new AgentVM()
+    const ast = {
+      op: 'seq',
+      steps: [
+        { op: 'storeSet', key: 'test', value: 'hello' },
+        { op: 'storeGet', key: 'test' },
+        { op: 'return', schema: {} },
+      ],
+    } as any
+
+    const result = await vm.run(ast, {})
+    expect(result.warnings).toBeDefined()
+    expect(result.warnings).toContain(
+      'Using default in-memory store (not suitable for production)'
+    )
+  })
+
+  it('should not emit store warning when custom store is provided', async () => {
+    const vm = new AgentVM()
+    const customStore = new Map<string, any>()
+    const ast = {
+      op: 'seq',
+      steps: [
+        { op: 'storeSet', key: 'test', value: 'hello' },
+        { op: 'return', schema: {} },
+      ],
+    } as any
+
+    const result = await vm.run(
+      ast,
+      {},
+      {
+        capabilities: {
+          store: {
+            get: async (key) => customStore.get(key),
+            set: async (key, value) => {
+              customStore.set(key, value)
+            },
+          },
+        },
+      }
+    )
+    expect(result.warnings).toBeUndefined()
+  })
+
+  it('should support console.warn in code', async () => {
+    const vm = new AgentVM()
+    const ast = {
+      op: 'seq',
+      steps: [
+        { op: 'consoleWarn', message: 'This is a warning' },
+        { op: 'consoleWarn', message: 'Another warning' },
+        { op: 'return', schema: {} },
+      ],
+    } as any
+
+    const result = await vm.run(ast, {})
+    expect(result.warnings).toBeDefined()
+    expect(result.warnings).toContain('This is a warning')
+    expect(result.warnings).toContain('Another warning')
+  })
+
+  it('should include console.warn in trace', async () => {
+    const vm = new AgentVM()
+    const ast = {
+      op: 'seq',
+      steps: [
+        { op: 'consoleWarn', message: 'traced warning' },
+        { op: 'return', schema: {} },
+      ],
+    } as any
+
+    const result = await vm.run(ast, {}, { trace: true })
+    const warnEvent = result.trace?.find((e) => e.op === 'console.warn')
+    expect(warnEvent).toBeDefined()
+    expect(warnEvent?.input.message).toBe('traced warning')
+  })
+
+  it('should support console.log in trace', async () => {
+    const vm = new AgentVM()
+    const ast = {
+      op: 'seq',
+      steps: [
+        { op: 'consoleLog', message: 'debug message' },
+        { op: 'return', schema: {} },
+      ],
+    } as any
+
+    const result = await vm.run(ast, {}, { trace: true })
+    const logEvent = result.trace?.find((e) => e.op === 'console.log')
+    expect(logEvent).toBeDefined()
+    expect(logEvent?.input.message).toBe('debug message')
+  })
+
+  it('should support console.error to stop execution', async () => {
+    const vm = new AgentVM()
+    const ast = {
+      op: 'seq',
+      steps: [
+        { op: 'varSet', key: 'before', value: 'set' },
+        { op: 'consoleError', message: 'Fatal error occurred' },
+        { op: 'varSet', key: 'after', value: 'should not run' },
+        { op: 'return', schema: {} },
+      ],
+    } as any
+
+    const result = await vm.run(ast, {})
+    expect(result.error).toBeDefined()
+    expect(result.error?.message).toBe('Fatal error occurred')
+  })
 })

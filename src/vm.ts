@@ -88,12 +88,30 @@ export class AgentVM<M extends Record<string, Atom<any, any>>> {
     // Default Capabilities
     const capabilities = options.capabilities ?? {}
 
-    // Default In-Memory Store if none provided
+    // Track warnings
+    const warnings: string[] = []
+
+    // Default In-Memory Store if none provided (with warning)
     if (!capabilities.store) {
       const memoryStore = new Map<string, any>()
+      let warned = false
       capabilities.store = {
-        get: async (key) => memoryStore.get(key),
+        get: async (key) => {
+          if (!warned) {
+            warned = true
+            warnings.push(
+              'Using default in-memory store (not suitable for production)'
+            )
+          }
+          return memoryStore.get(key)
+        },
         set: async (key, value) => {
+          if (!warned) {
+            warned = true
+            warnings.push(
+              'Using default in-memory store (not suitable for production)'
+            )
+          }
           memoryStore.set(key, value)
         },
       }
@@ -119,6 +137,7 @@ export class AgentVM<M extends Record<string, Atom<any, any>>> {
       signal: controller.signal,
       costOverrides: options.costOverrides,
       context: options.context,
+      warnings, // Shared warnings array
     }
 
     if (options.trace) {
@@ -176,11 +195,15 @@ export class AgentVM<M extends Record<string, Atom<any, any>>> {
       ctx.output = ctx.error
     }
 
+    // Merge any warnings added via console.warn
+    const allWarnings = [...warnings, ...(ctx.warnings ?? [])]
+
     return {
       result: ctx.output,
       error: ctx.error,
       fuelUsed: startFuel - ctx.fuel.current,
       trace: ctx.trace,
+      warnings: allWarnings.length > 0 ? allWarnings : undefined,
     }
   }
 }

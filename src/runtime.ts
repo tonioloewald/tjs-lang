@@ -92,6 +92,7 @@ export interface RuntimeContext {
   error?: AgentError // Monadic error - when set, subsequent atoms are skipped
   memo?: Map<string, any>
   trace?: TraceEvent[]
+  warnings?: string[] // Non-fatal warnings (e.g., console.warn)
   signal?: AbortSignal // External abort signal for timeout enforcement
   costOverrides?: Record<string, CostOverride> // Per-atom cost overrides
   context?: Record<string, any> // Immutable request-scoped metadata (auth, permissions, etc.)
@@ -125,6 +126,7 @@ export interface RunResult {
   error?: AgentError
   fuelUsed: number
   trace?: TraceEvent[]
+  warnings?: string[] // Non-fatal warnings emitted during execution
 }
 
 // --- Security ---
@@ -2127,6 +2129,76 @@ export const hash = defineAtom(
   { docs: 'Hash a value', cost: 1 }
 )
 
+// 14. Console (logging, warnings, errors)
+
+/**
+ * console.log - adds message to trace
+ */
+export const consoleLog = defineAtom(
+  'consoleLog',
+  s.object({ message: s.any }),
+  undefined,
+  async ({ message }, ctx) => {
+    const msg = resolveValue(message, ctx)
+    if (ctx.trace) {
+      ctx.trace.push({
+        op: 'console.log',
+        input: { message: msg },
+        stateDiff: {},
+        result: msg,
+        fuelBefore: ctx.fuel.current,
+        fuelAfter: ctx.fuel.current,
+        timestamp: new Date().toISOString(),
+      })
+    }
+  },
+  { docs: 'Log to trace', cost: 0.1 }
+)
+
+/**
+ * console.warn - adds to trace and warnings summary
+ */
+export const consoleWarn = defineAtom(
+  'consoleWarn',
+  s.object({ message: s.any }),
+  undefined,
+  async ({ message }, ctx) => {
+    const msg = resolveValue(message, ctx)
+    const msgStr = typeof msg === 'string' ? msg : JSON.stringify(msg)
+    // Add to warnings summary
+    if (!ctx.warnings) ctx.warnings = []
+    ctx.warnings.push(msgStr)
+    // Add to trace for context
+    if (ctx.trace) {
+      ctx.trace.push({
+        op: 'console.warn',
+        input: { message: msg },
+        stateDiff: {},
+        result: msg,
+        fuelBefore: ctx.fuel.current,
+        fuelAfter: ctx.fuel.current,
+        timestamp: new Date().toISOString(),
+      })
+    }
+  },
+  { docs: 'Add warning', cost: 0.1 }
+)
+
+/**
+ * console.error - sets error and terminates execution (monadic error flow)
+ */
+export const consoleError = defineAtom(
+  'consoleError',
+  s.object({ message: s.any }),
+  undefined,
+  async ({ message }, ctx) => {
+    const msg = resolveValue(message, ctx)
+    const msgStr = typeof msg === 'string' ? msg : JSON.stringify(msg)
+    ctx.error = new AgentError(msgStr, 'console.error')
+  },
+  { docs: 'Emit error and stop', cost: 0.1 }
+)
+
 // --- Exports ---
 
 export const coreAtoms = {
@@ -2178,4 +2250,7 @@ export const coreAtoms = {
   random,
   uuid,
   hash,
+  consoleLog,
+  consoleWarn,
+  consoleError,
 }

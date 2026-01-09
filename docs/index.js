@@ -30172,6 +30172,9 @@ __export(exports_src, {
   createAgent: () => createAgent,
   coreAtoms: () => coreAtoms,
   constSet: () => constSet,
+  consoleWarn: () => consoleWarn,
+  consoleLog: () => consoleLog,
+  consoleError: () => consoleError,
   checkType: () => checkType,
   cache: () => cache2,
   builtins: () => builtins,
@@ -31759,6 +31762,43 @@ var hash = defineAtom("hash", e.object({
   }
   return String(hash2);
 }, { docs: "Hash a value", cost: 1 });
+var consoleLog = defineAtom("consoleLog", e.object({ message: e.any }), undefined, async ({ message }, ctx) => {
+  const msg = resolveValue(message, ctx);
+  if (ctx.trace) {
+    ctx.trace.push({
+      op: "console.log",
+      input: { message: msg },
+      stateDiff: {},
+      result: msg,
+      fuelBefore: ctx.fuel.current,
+      fuelAfter: ctx.fuel.current,
+      timestamp: new Date().toISOString()
+    });
+  }
+}, { docs: "Log to trace", cost: 0.1 });
+var consoleWarn = defineAtom("consoleWarn", e.object({ message: e.any }), undefined, async ({ message }, ctx) => {
+  const msg = resolveValue(message, ctx);
+  const msgStr = typeof msg === "string" ? msg : JSON.stringify(msg);
+  if (!ctx.warnings)
+    ctx.warnings = [];
+  ctx.warnings.push(msgStr);
+  if (ctx.trace) {
+    ctx.trace.push({
+      op: "console.warn",
+      input: { message: msg },
+      stateDiff: {},
+      result: msg,
+      fuelBefore: ctx.fuel.current,
+      fuelAfter: ctx.fuel.current,
+      timestamp: new Date().toISOString()
+    });
+  }
+}, { docs: "Add warning", cost: 0.1 });
+var consoleError = defineAtom("consoleError", e.object({ message: e.any }), undefined, async ({ message }, ctx) => {
+  const msg = resolveValue(message, ctx);
+  const msgStr = typeof msg === "string" ? msg : JSON.stringify(msg);
+  ctx.error = new AgentError(msgStr, "console.error");
+}, { docs: "Emit error and stop", cost: 0.1 });
 var coreAtoms = {
   seq,
   if: iff,
@@ -31807,7 +31847,10 @@ var coreAtoms = {
   cache: cache2,
   random,
   uuid,
-  hash
+  hash,
+  consoleLog,
+  consoleWarn,
+  consoleError
 };
 
 // src/builder.ts
@@ -32811,11 +32854,23 @@ class AgentVM {
     const startFuel = options2.fuel ?? 1000;
     const timeoutMs = options2.timeoutMs ?? startFuel * FUEL_TO_MS;
     const capabilities = options2.capabilities ?? {};
+    const warnings = [];
     if (!capabilities.store) {
       const memoryStore = new Map;
+      let warned2 = false;
       capabilities.store = {
-        get: async (key) => memoryStore.get(key),
+        get: async (key) => {
+          if (!warned2) {
+            warned2 = true;
+            warnings.push("Using default in-memory store (not suitable for production)");
+          }
+          return memoryStore.get(key);
+        },
         set: async (key, value) => {
+          if (!warned2) {
+            warned2 = true;
+            warnings.push("Using default in-memory store (not suitable for production)");
+          }
           memoryStore.set(key, value);
         }
       };
@@ -32835,7 +32890,8 @@ class AgentVM {
       output: undefined,
       signal: controller.signal,
       costOverrides: options2.costOverrides,
-      context: options2.context
+      context: options2.context,
+      warnings
     };
     if (options2.trace) {
       ctx.trace = [];
@@ -32866,11 +32922,13 @@ class AgentVM {
     if (ctx.error && ctx.output === undefined) {
       ctx.output = ctx.error;
     }
+    const allWarnings = [...warnings, ...ctx.warnings ?? []];
     return {
       result: ctx.output,
       error: ctx.error,
       fuelUsed: startFuel - ctx.fuel.current,
-      trace: ctx.trace
+      trace: ctx.trace,
+      warnings: allWarnings.length > 0 ? allWarnings : undefined
     };
   }
 }
@@ -44054,4 +44112,4 @@ if (main) {
 }
 console.log(`%c tosijs-agent %c v${VERSION} `, "background: #6366f1; color: white; padding: 2px 6px; border-radius: 3px 0 0 3px;", "background: #374151; color: white; padding: 2px 6px; border-radius: 0 3px 3px 0;");
 
-//# debugId=D0BB2D5DD4055F0264756E2164756E21
+//# debugId=34A2EA46EFD0F5E764756E2164756E21
