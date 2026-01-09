@@ -276,21 +276,41 @@ npm install tosijs-agent
 
 ## Quick Start
 
-### 1. Define Logic (The Builder)
+### 1. Write Logic (AsyncJS)
 
-Use the fluent builder to create a logic chain.
+Write agents in AsyncJS—a JavaScript subset that compiles to a safe, serializable AST.
+
+```typescript
+import { ajs, AgentVM } from 'tosijs-agent'
+
+// Define a calculation agent using familiar JavaScript syntax
+const calculateTotal = ajs`
+  function calculate({ price, taxRate }) {
+    let total = price * (1 + taxRate)
+    return { total }
+  }
+`
+
+// Run it
+const vm = new AgentVM()
+const result = await vm.run(calculateTotal, { price: 100, taxRate: 0.2 })
+
+console.log(result.result) // { total: 120 }
+console.log(result.fuelUsed) // Fuel consumed
+```
+
+AsyncJS supports most JavaScript expressions, loops, try/catch, and more. See [ASYNCJS.md](./ASYNCJS.md) for the full language reference.
+
+### 2. Advanced: The Builder API
+
+For programmatic AST construction (e.g., dynamic agent generation, metaprogramming), use the fluent builder:
 
 ```typescript
 import { Agent, s } from 'tosijs-agent'
 
-// Define a simple calculation agent
 const calculateTotal = Agent.take(
-  s.object({
-    price: s.number,
-    taxRate: s.number,
-  })
+  s.object({ price: s.number, taxRate: s.number })
 )
-  // Use varSet with expression nodes for arithmetic
   .varSet({
     key: 'total',
     value: {
@@ -307,29 +327,10 @@ const calculateTotal = Agent.take(
   })
   .return(s.object({ total: s.number }))
 
-// Compile to JSON AST
-const ast = calculateTotal.toJSON()
-console.log(JSON.stringify(ast, null, 2))
+const ast = calculateTotal.toJSON() // JSON-serializable AST
 ```
 
-### 2. Execute (The VM)
-
-Run the AST in the VM. The VM is stateless and isolated.
-
-```typescript
-import { AgentVM } from 'tosijs-agent'
-
-const vm = new AgentVM()
-
-const result = await vm.run(
-  ast,
-  { price: 100, taxRate: 0.2 }, // Input Args
-  { fuel: 1000 } // Execution Options
-)
-
-console.log(result.result) // { total: 120 }
-console.log(result.fuelUsed) // Gas consumed
-```
+The Builder is lower-level but gives you full control over AST construction.
 
 ## Tracing and Debugging
 
