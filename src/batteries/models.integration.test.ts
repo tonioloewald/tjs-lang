@@ -7,7 +7,7 @@ import { Agent } from '../builder'
 import { storeVectorize } from '../atoms/batteries'
 import { s } from 'tosijs-schema'
 
-describe('LocalModels Integration Test', () => {
+describe.skipIf(process.env.SKIP_LLM_TESTS)('LocalModels Integration Test', () => {
   it('should audit models from a live server and classify them correctly', async () => {
     // This test requires a running LM Studio instance at the default URL.
     const localModels = new LocalModels()

@@ -49,6 +49,7 @@
     "format": "bun eslint src --fix && bun prettier --write .",
     "lint": "eslint src",
     "build:grammars": "bun editors/build-grammars.ts",
+    "test:fast": "SKIP_LLM_TESTS=1 bun test",
     "make": "rm -rf dist && bun format && bun run build:grammars && tsc -p tsconfig.build.json && bun build ./src/index.ts --outdir=dist --minify --sourcemap=external --external acorn --external tosijs-schema && bun run show-size",
     "show-size": "gzip -c dist/index.js | wc -c | awk '{printf \"%d bytes (%.2f kB)\\n\", $1, $1/1024}'",
     "typecheck": "tsc --noEmit",

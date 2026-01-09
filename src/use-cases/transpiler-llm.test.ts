@@ -81,7 +81,7 @@ function extractSystemPrompt(markdown: string): string {
 
 const ASYNCJS_GUIDE = extractSystemPrompt(ASYNCJS_LLM_PROMPT)
 
-describe('LLM AsyncJS Code Generation', () => {
+describe.skipIf(process.env.SKIP_LLM_TESTS)('LLM AsyncJS Code Generation', () => {
   it('should generate valid AsyncJS that computes factorial', async () => {
     await withRetry(async () => {
       const localModels = new LocalModels()
@@ -224,7 +224,7 @@ Use native arithmetic for the calculation. Respond with ONLY the function code.`
   }, 90000)
 })
 
-describe('LLM Agent Tool Use', () => {
+describe.skipIf(process.env.SKIP_LLM_TESTS)('LLM Agent Tool Use', () => {
   it('should write and execute code to solve a problem using provided tools', async () => {
     await withRetry(async () => {
       const localModels = new LocalModels()
