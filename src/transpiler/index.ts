@@ -1,6 +1,6 @@
 /**
  * AsyncJS Transpiler - Re-export from lang/
- * 
+ *
  * @deprecated Import from 'tosijs-agent/lang' instead
  */
 

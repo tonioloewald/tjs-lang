@@ -30285,9 +30285,11 @@ __export(exports_src, {
   uuid: () => uuid,
   typeToString: () => typeToString,
   tryCatch: () => tryCatch,
+  transpileToJS: () => transpileToJS,
   transpileCode: () => transpileCode,
   transpile: () => transpile,
   transformFunction: () => transformFunction,
+  tjs: () => tjs,
   template: () => template,
   storeSet: () => storeSet,
   storeQuery: () => storeQuery,
@@ -35717,10 +35719,10 @@ function preprocess(source) {
   const originalSource = source;
   let returnType;
   const requiredParams = new Set;
-  const returnTypeMatch = source.match(/\)\s*->\s*(\{[\s\S]*?\}|\[[^\]]*\]|'[^']*'|\d+|true|false)\s*\{(?!\s*\w+:)/);
+  const returnTypeMatch = source.match(/\)\s*->\s*(\{[\s\S]*?\}|\[[^\]]*\]|'[^']*'|\d+|true|false|null|undefined)\s*\{(?!\s*\w+:)/);
   if (returnTypeMatch) {
     returnType = returnTypeMatch[1];
-    const pattern = /\)\s*->\s*(?:\{[\s\S]*?\}|\[[^\]]*\]|'[^']*'|\d+|true|false)\s*(\{)(?!\s*\w+:)/;
+    const pattern = /\)\s*->\s*(?:\{[\s\S]*?\}|\[[^\]]*\]|'[^']*'|\d+|true|false|null|undefined)\s*(\{)(?!\s*\w+:)/;
     source = source.replace(pattern, ") $1");
   }
   source = source.replace(/function\s+(\w+)\s*\(([^)]*)\)/g, (match, funcName, params) => {
@@ -35933,6 +35935,9 @@ function inferTypeFromValue(node) {
       return { kind: "any" };
     }
     case "Identifier": {
+      if (node.name === "undefined") {
+        return { kind: "undefined" };
+      }
       return { kind: "any" };
     }
     case "UnaryExpression": {
@@ -37161,7 +37166,121 @@ function extractReturnSchema(expr, _ctx) {
   const type = inferTypeFromValue(expr);
   return { type: type.kind };
 }
+// src/lang/emitters/js.ts
+function transpileToJS(source, options2 = {}) {
+  const { filename = "<source>" } = options2;
+  const warnings = [];
+  const {
+    ast: program,
+    returnType,
+    originalSource,
+    requiredParams
+  } = parse4(source, {
+    filename,
+    colonShorthand: true
+  });
+  const func = findMainFunction(program);
+  if (!func) {
+    throw new Error("No function declaration found");
+  }
+  const jsdoc = extractJSDoc(originalSource, func);
+  const params = {};
+  for (const param of func.params) {
+    if (param.type === "Identifier") {
+      const paramInfo = parseParameter(param, requiredParams);
+      params[param.name] = {
+        ...paramInfo,
+        required: requiredParams.has(param.name),
+        description: jsdoc.params[param.name]
+      };
+    } else if (param.type === "AssignmentPattern" && param.left.type === "Identifier") {
+      const paramInfo = parseParameter(param, requiredParams);
+      params[param.left.name] = {
+        ...paramInfo,
+        required: requiredParams.has(param.left.name),
+        description: jsdoc.params[param.left.name]
+      };
+    }
+  }
+  let returns;
+  if (returnType) {
+    try {
+      const returnExpr = parseExpressionAt2(returnType, 0, { ecmaVersion: 2022 });
+      returns = inferTypeFromValue(returnExpr);
+    } catch {
+      returns = { kind: "any" };
+      warnings.push(`Could not parse return type: ${returnType}`);
+    }
+  }
+  const types3 = {
+    name: func.id?.name || "anonymous",
+    params,
+    returns,
+    description: jsdoc.description
+  };
+  const preprocessed = preprocessSource(source);
+  const funcName = func.id?.name || "anonymous";
+  const typeMetadata = generateTypeMetadata(funcName, types3);
+  const code2 = `${preprocessed.source}
 
+${typeMetadata}`;
+  return { code: code2, types: types3, warnings: warnings.length > 0 ? warnings : undefined };
+}
+function preprocessSource(source) {
+  let result = source;
+  const returnTypeMatch = result.match(/\)\s*->\s*(\{[\s\S]*?\}|\[[^\]]*\]|'[^']*'|\d+|true|false)\s*\{(?!\s*\w+:)/);
+  if (returnTypeMatch) {
+    const pattern = /\)\s*->\s*(?:\{[\s\S]*?\}|\[[^\]]*\]|'[^']*'|\d+|true|false)\s*(\{)(?!\s*\w+:)/;
+    result = result.replace(pattern, ") $1");
+  }
+  result = result.replace(/function\s+(\w+)\s*\(([^)]*)\)/g, (match, funcName, params) => {
+    if (!params.trim())
+      return match;
+    const processed = params.split(",").map((param) => {
+      param = param.trim();
+      const colonMatch = param.match(/^(\w+)\s*:\s*(.+)$/);
+      if (colonMatch && !colonMatch[2].includes("=")) {
+        return `${colonMatch[1]} = ${colonMatch[2]}`;
+      }
+      return param;
+    }).join(", ");
+    return `function ${funcName}(${processed})`;
+  });
+  return { source: result };
+}
+function findMainFunction(program) {
+  for (const node of program.body) {
+    if (node.type === "FunctionDeclaration") {
+      return node;
+    }
+  }
+  return null;
+}
+function generateTypeMetadata(funcName, types3) {
+  const paramsObj = {};
+  for (const [name2, param] of Object.entries(types3.params)) {
+    paramsObj[name2] = {
+      type: param.type.kind,
+      required: param.required
+    };
+    if (param.default !== undefined) {
+      paramsObj[name2].default = param.default;
+    }
+    if (param.description) {
+      paramsObj[name2].description = param.description;
+    }
+  }
+  const metadata = {
+    params: paramsObj
+  };
+  if (types3.returns) {
+    metadata.returns = { type: types3.returns.kind };
+  }
+  if (types3.description) {
+    metadata.description = types3.description;
+  }
+  return `${funcName}.__tjs = ${JSON.stringify(metadata, null, 2)}`;
+}
 // src/lang/index.ts
 function transpile(source, options2 = {}) {
   const {
@@ -37187,6 +37306,13 @@ function ajs(sourceOrStrings, ...values) {
   }
   const source = sourceOrStrings.reduce((acc, str, i3) => acc + str + (values[i3] !== undefined ? String(values[i3]) : ""), "");
   return transpile(source).ast;
+}
+function tjs(sourceOrStrings, ...values) {
+  if (typeof sourceOrStrings === "string") {
+    return transpileToJS(sourceOrStrings);
+  }
+  const source = sourceOrStrings.reduce((acc, str, i3) => acc + str + (values[i3] !== undefined ? String(values[i3]) : ""), "");
+  return transpileToJS(source);
 }
 function createAgent(source, vm, runOptions) {
   const { ast, signature } = transpile(source);
@@ -44962,4 +45088,4 @@ if (main) {
 }
 console.log(`%c tosijs-agent %c v${VERSION} `, "background: #6366f1; color: white; padding: 2px 6px; border-radius: 3px 0 0 3px;", "background: #374151; color: white; padding: 2px 6px; border-radius: 0 3px 3px 0;");
 
-//# debugId=EABCFCEC2B50A44164756E2164756E21
+//# debugId=E2A799697000424364756E2164756E21

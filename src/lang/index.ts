@@ -33,7 +33,12 @@ import { transformFunction } from './emitters/ast'
 export * from './types'
 export { parse, preprocess } from './parser'
 export { transformFunction } from './emitters/ast'
-export { transpileToJS, type TJSTranspileOptions, type TJSTranspileResult, type TJSTypeInfo } from './emitters/js'
+export {
+  transpileToJS,
+  type TJSTranspileOptions,
+  type TJSTranspileResult,
+  type TJSTypeInfo,
+} from './emitters/js'
 export * from './inference'
 
 /**
@@ -163,7 +168,10 @@ export function ajs(
  */
 import { transpileToJS, type TJSTranspileResult } from './emitters/js'
 
-export function tjs(strings: TemplateStringsArray, ...values: any[]): TJSTranspileResult
+export function tjs(
+  strings: TemplateStringsArray,
+  ...values: any[]
+): TJSTranspileResult
 export function tjs(source: string): TJSTranspileResult
 export function tjs(
   sourceOrStrings: string | TemplateStringsArray,

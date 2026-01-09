@@ -65,7 +65,12 @@ export function transpileToJS(
   const warnings: string[] = []
 
   // Parse the source (handles TJS syntax like x: 'type' and -> ReturnType)
-  const { ast: program, returnType, originalSource, requiredParams } = parse(source, {
+  const {
+    ast: program,
+    returnType,
+    originalSource,
+    requiredParams,
+  } = parse(source, {
     filename,
     colonShorthand: true,
   })
@@ -89,7 +94,10 @@ export function transpileToJS(
         required: requiredParams.has(param.name),
         description: jsdoc.params[param.name],
       }
-    } else if (param.type === 'AssignmentPattern' && param.left.type === 'Identifier') {
+    } else if (
+      param.type === 'AssignmentPattern' &&
+      param.left.type === 'Identifier'
+    ) {
       const paramInfo = parseParameter(param, requiredParams)
       params[param.left.name] = {
         ...paramInfo,
@@ -125,11 +133,11 @@ export function transpileToJS(
   // Use the preprocessed source which is already valid JS
   // The preprocessing converts `x: 'type'` to `x = 'type'` and removes `-> Type`
   const preprocessed = preprocessSource(source)
-  
+
   // Add type metadata
   const funcName = func.id?.name || 'anonymous'
   const typeMetadata = generateTypeMetadata(funcName, types)
-  
+
   const code = `${preprocessed.source}\n\n${typeMetadata}`
 
   return { code, types, warnings: warnings.length > 0 ? warnings : undefined }
@@ -194,7 +202,7 @@ function findMainFunction(program: Program): FunctionDeclaration | null {
  */
 function generateTypeMetadata(funcName: string, types: TJSTypeInfo): string {
   const paramsObj: Record<string, any> = {}
-  
+
   for (const [name, param] of Object.entries(types.params)) {
     paramsObj[name] = {
       type: param.type.kind,

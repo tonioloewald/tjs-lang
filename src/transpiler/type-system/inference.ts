@@ -1,1 +1,1 @@
-export * from "../../lang/inference"
+export * from '../../lang/inference'

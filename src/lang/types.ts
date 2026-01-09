@@ -16,6 +16,7 @@ export interface TypeDescriptor {
     | 'number'
     | 'boolean'
     | 'null'
+    | 'undefined'
     | 'array'
     | 'object'
     | 'union'

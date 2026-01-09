@@ -42,13 +42,13 @@ export function preprocess(source: string): {
   // Handle return type annotation: ) -> Type {
   // Match balanced braces for object types
   const returnTypeMatch = source.match(
-    /\)\s*->\s*(\{[\s\S]*?\}|\[[^\]]*\]|'[^']*'|\d+|true|false)\s*\{(?!\s*\w+:)/
+    /\)\s*->\s*(\{[\s\S]*?\}|\[[^\]]*\]|'[^']*'|\d+|true|false|null|undefined)\s*\{(?!\s*\w+:)/
   )
   if (returnTypeMatch) {
     returnType = returnTypeMatch[1]
     // Remove the -> Type part, keeping ) and {
     const pattern =
-      /\)\s*->\s*(?:\{[\s\S]*?\}|\[[^\]]*\]|'[^']*'|\d+|true|false)\s*(\{)(?!\s*\w+:)/
+      /\)\s*->\s*(?:\{[\s\S]*?\}|\[[^\]]*\]|'[^']*'|\d+|true|false|null|undefined)\s*(\{)(?!\s*\w+:)/
     source = source.replace(pattern, ') $1')
   }
 

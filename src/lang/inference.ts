@@ -101,7 +101,11 @@ export function inferTypeFromValue(node: Expression): TypeDescriptor {
     }
 
     case 'Identifier': {
-      // Identifiers in type position aren't valid
+      // Handle undefined as a type
+      if ((node as any).name === 'undefined') {
+        return { kind: 'undefined' }
+      }
+      // Other identifiers in type position aren't valid example types
       return { kind: 'any' }
     }
 

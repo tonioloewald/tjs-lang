@@ -1934,7 +1934,7 @@ export const fetch = defineAtom(
           `Blocked URL: private/internal addresses not allowed in default fetch`
         )
       }
-      
+
       // Additionally restrict to localhost when no allowlist
       try {
         const parsed = new URL(url)
