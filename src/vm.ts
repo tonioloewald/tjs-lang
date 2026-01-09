@@ -125,7 +125,10 @@ export class AgentVM<M extends Record<string, Atom<any, any>>> {
       ctx.trace = []
     }
 
-    if (ast.op !== 'seq') throw new Error("Root AST must be 'seq'")
+    if (ast.op !== 'seq')
+      throw new Error(
+        "Root AST must be 'seq'. Ensure you're passing a transpiled agent (use ajs`...` or transpile())."
+      )
 
     try {
       // Race execution against timeout
@@ -133,11 +136,19 @@ export class AgentVM<M extends Record<string, Atom<any, any>>> {
         this.resolve('seq')?.exec(ast, ctx),
         new Promise<never>((_, reject) => {
           controller.signal.addEventListener('abort', () => {
-            reject(new Error('Execution timeout: fuel budget exceeded'))
+            reject(
+              new Error(
+                `Execution timeout after ${timeoutMs}ms (fuel: ${startFuel}). Consider increasing fuel or optimizing your agent.`
+              )
+            )
           })
           // If already aborted, reject immediately
           if (controller.signal.aborted) {
-            reject(new Error('Execution timeout: fuel budget exceeded'))
+            reject(
+              new Error(
+                `Execution timeout after ${timeoutMs}ms (fuel: ${startFuel}). Consider increasing fuel or optimizing your agent.`
+              )
+            )
           }
         }),
       ])
@@ -149,7 +160,7 @@ export class AgentVM<M extends Record<string, Atom<any, any>>> {
         controller.signal.aborted
       ) {
         ctx.error = new AgentError(
-          'Execution timeout: fuel budget exceeded',
+          `Execution timeout after ${timeoutMs}ms (fuel: ${startFuel}). Consider increasing fuel or optimizing your agent.`,
           'vm.run'
         )
       } else {

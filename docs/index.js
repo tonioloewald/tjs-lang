@@ -32841,22 +32841,22 @@ class AgentVM {
       ctx.trace = [];
     }
     if (ast.op !== "seq")
-      throw new Error("Root AST must be 'seq'");
+      throw new Error("Root AST must be 'seq'. Ensure you're passing a transpiled agent (use ajs`...` or transpile()).");
     try {
       await Promise.race([
         this.resolve("seq")?.exec(ast, ctx),
         new Promise((_2, reject) => {
           controller.signal.addEventListener("abort", () => {
-            reject(new Error("Execution timeout: fuel budget exceeded"));
+            reject(new Error(`Execution timeout after ${timeoutMs}ms (fuel: ${startFuel}). Consider increasing fuel or optimizing your agent.`));
           });
           if (controller.signal.aborted) {
-            reject(new Error("Execution timeout: fuel budget exceeded"));
+            reject(new Error(`Execution timeout after ${timeoutMs}ms (fuel: ${startFuel}). Consider increasing fuel or optimizing your agent.`));
           }
         })
       ]);
     } catch (e2) {
       if (e2.message?.includes("timeout") || e2.message?.includes("aborted") || controller.signal.aborted) {
-        ctx.error = new AgentError("Execution timeout: fuel budget exceeded", "vm.run");
+        ctx.error = new AgentError(`Execution timeout after ${timeoutMs}ms (fuel: ${startFuel}). Consider increasing fuel or optimizing your agent.`, "vm.run");
       } else {
         throw e2;
       }
@@ -44054,4 +44054,4 @@ if (main) {
 }
 console.log(`%c tosijs-agent %c v${VERSION} `, "background: #6366f1; color: white; padding: 2px 6px; border-radius: 3px 0 0 3px;", "background: #374151; color: white; padding: 2px 6px; border-radius: 0 3px 3px 0;");
 
-//# debugId=63D5D541F9B0BD3264756E2164756E21
+//# debugId=D0BB2D5DD4055F0264756E2164756E21
