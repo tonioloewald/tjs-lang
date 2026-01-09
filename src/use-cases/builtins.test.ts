@@ -233,4 +233,125 @@ describe('Builtins', () => {
       `)
     }).toThrow('Use factory functions or object literals')
   })
+
+  test('Date factory and methods work', async () => {
+    const ast = ajs(`
+      function testDate() {
+        let d = Date('2024-06-15T12:30:00Z')
+        let year = d.year
+        let month = d.month
+        let day = d.day
+        let formatted = d.format('date')
+        let iso = d.format('ISO')
+        return { year, month, day, formatted, iso }
+      }
+    `)
+    const result = await vm.run(ast, {})
+    expect(result.error).toBeUndefined()
+    expect(result.result.year).toBe(2024)
+    expect(result.result.month).toBe(6)
+    expect(result.result.day).toBe(15)
+    expect(result.result.formatted).toBe('2024-06-15')
+    expect(result.result.iso).toContain('2024-06-15')
+  })
+
+  test('Date.add method works', async () => {
+    const ast = ajs(`
+      function testDateAdd() {
+        let d = Date('2024-01-15T00:00:00Z')
+        let later = d.add({ days: 10, months: 1 })
+        return { 
+          original: d.format('date'),
+          later: later.format('date')
+        }
+      }
+    `)
+    const result = await vm.run(ast, {})
+    expect(result.error).toBeUndefined()
+    expect(result.result.original).toBe('2024-01-15')
+    expect(result.result.later).toBe('2024-02-25')
+  })
+
+  test('Date comparison methods work', async () => {
+    const ast = ajs(`
+      function testDateCompare() {
+        let d1 = Date('2024-01-15')
+        let d2 = Date('2024-06-15')
+        let before = d1.isBefore(d2)
+        let after = d1.isAfter(d2)
+        let diffDays = d2.diff(d1, 'days')
+        return { before, after, diffDays }
+      }
+    `)
+    const result = await vm.run(ast, {})
+    expect(result.error).toBeUndefined()
+    expect(result.result.before).toBe(true)
+    expect(result.result.after).toBe(false)
+    expect(result.result.diffDays).toBeCloseTo(152, 0) // ~5 months
+  })
+
+  test('Date.now() works', async () => {
+    const ast = ajs(`
+      function testDateNow() {
+        let now = Date.now()
+        return { now, isNumber: typeof now === 'number' }
+      }
+    `)
+    const result = await vm.run(ast, {})
+    expect(result.error).toBeUndefined()
+    expect(result.result.isNumber).toBe(true)
+    expect(result.result.now).toBeGreaterThan(1700000000000)
+  })
+
+  test('Set factory and methods work', async () => {
+    const ast = ajs(`
+      function testSet() {
+        let s = Set([1, 2, 3, 2, 1])
+        let size = s.size
+        let has2 = s.has(2)
+        let has5 = s.has(5)
+        let arr = s.toArray()
+        return { size, has2, has5, arr }
+      }
+    `)
+    const result = await vm.run(ast, {})
+    expect(result.error).toBeUndefined()
+    expect(result.result.size).toBe(3)
+    expect(result.result.has2).toBe(true)
+    expect(result.result.has5).toBe(false)
+    expect(result.result.arr).toEqual([1, 2, 3])
+  })
+
+  test('Set.add works', async () => {
+    const ast = ajs(`
+      function testSetAdd() {
+        let s = Set([1, 2])
+        s.add(3)
+        s.add(4)
+        return { arr: s.toArray(), size: s.size }
+      }
+    `)
+    const result = await vm.run(ast, {})
+    expect(result.error).toBeUndefined()
+    expect(result.result.arr).toEqual([1, 2, 3, 4])
+    expect(result.result.size).toBe(4)
+  })
+
+  test('Set operations (union, intersection, diff) work', async () => {
+    const ast = ajs(`
+      function testSetOps() {
+        let a = Set([1, 2, 3])
+        let b = Set([2, 3, 4])
+        let union = a.union(b).toArray()
+        let intersection = a.intersection(b).toArray()
+        let diff = a.diff(b).toArray()
+        return { union, intersection, diff }
+      }
+    `)
+    const result = await vm.run(ast, {})
+    expect(result.error).toBeUndefined()
+    expect(result.result.union.sort()).toEqual([1, 2, 3, 4])
+    expect(result.result.intersection.sort()).toEqual([2, 3])
+    expect(result.result.diff).toEqual([1])
+  })
 })

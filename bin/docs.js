@@ -74,10 +74,12 @@ function findMarkdownFiles(dirs, ignore) {
         const docs = content.match(/\/\*#[\s\S]+?\*\//g) || []
         if (docs.length) {
           const markdown = docs.map((s) => s.substring(3, s.length - 2).trim())
-          const text = markdown.join('\n\n')
+          const text = markdown.join('\n\n---\n\n')
+          // Use filename as title for source files (more descriptive than first heading)
+          const fileTitle = basename(file, extname(file))
           markdownFiles.push({
             text,
-            title: text.split('\n')[0].replace(TRIM_REGEX, ''),
+            title: `${fileTitle} (inline docs)`,
             filename: file,
             path: filePath,
             ...metadata(content, filePath),
@@ -113,10 +115,23 @@ const ignore = [
 ]
 
 // Directories to search
-const directoriesToSearch = ['.', 'src']
+const directoriesToSearch = ['.']
 
-// Find all documentation
-const markdownFiles = findMarkdownFiles(directoriesToSearch, ignore)
+// Dedupe by normalized path
+function dedupeByPath(docs) {
+  const seen = new Map()
+  for (const doc of docs) {
+    // Normalize path to avoid duplicates from different starting points
+    const normalizedPath = doc.path.replace(/^\.\//, '')
+    if (!seen.has(normalizedPath)) {
+      seen.set(normalizedPath, doc)
+    }
+  }
+  return Array.from(seen.values())
+}
+
+// Find all documentation and dedupe
+const markdownFiles = dedupeByPath(findMarkdownFiles(directoriesToSearch, ignore))
 
 // Save to demo/docs.json
 const outputPath = './demo/docs.json'

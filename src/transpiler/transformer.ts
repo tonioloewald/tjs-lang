@@ -1570,6 +1570,15 @@ function expressionToExprNode(
       )
     }
 
+    case 'TemplateLiteral':
+      throw new TranspileError(
+        'Template literals inside expressions are not supported. ' +
+          'Assign to a variable first: const msg = `hello ${name}`; then use msg',
+        getLocation(expr),
+        ctx.source,
+        ctx.filename
+      )
+
     default:
       throw new TranspileError(
         `Unsupported expression type in condition: ${expr.type}`,
@@ -1674,9 +1683,9 @@ function expressionToValue(expr: Expression, ctx: TransformContext): any {
     }
 
     case 'TemplateLiteral':
-      // For template literals as values, we'd need to evaluate them
-      // For now, return a placeholder
-      return '__template__'
+      // Template literals need runtime evaluation - convert to ExprNode
+      // This will throw a helpful error explaining the limitation
+      return expressionToExprNode(expr, ctx)
 
     case 'CallExpression':
       // Method calls like s.toArray() used as values need to be ExprNodes

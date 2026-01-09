@@ -1221,6 +1221,23 @@ export function defineAtom<I extends Record<string, any>, O = any>(
 // --- Core Atoms ---
 
 // 1. Flow (Low cost: 0.1)
+
+/*#
+## seq (Sequence)
+
+The root atom for all agent programs. Executes steps in order.
+
+- Stops on `return` (when `ctx.output` is set)
+- Stops on error (monadic error flow)
+- Cost: 0.1
+
+```javascript
+// AsyncJS compiles to seq at the top level
+const x = 1
+const y = 2
+return { sum: x + y }
+```
+*/
 export const seq = defineAtom(
   'seq',
   s.object({ steps: s.array(s.any) }),
@@ -1237,6 +1254,19 @@ export const seq = defineAtom(
   { docs: 'Sequence', timeoutMs: 0, cost: 0.1 }
 )
 
+/*#
+## if (Conditional)
+
+Conditional branching based on expression evaluation.
+
+```javascript
+if (count > 0) {
+  console.log("Has items")
+} else {
+  console.log("Empty")
+}
+```
+*/
 export const iff = defineAtom(
   'if',
   s.object({
@@ -1255,6 +1285,21 @@ export const iff = defineAtom(
   { docs: 'If/Else', timeoutMs: 0, cost: 0.1 }
 )
 
+/*#
+## while (Loop)
+
+Repeats body while condition is truthy. Consumes fuel each iteration.
+
+```javascript
+let i = 0
+while (i < 10) {
+  console.log(i)
+  i = i + 1
+}
+```
+
+**Note:** No `break`/`continue`. Use condition variables instead.
+*/
 export const whileLoop = defineAtom(
   'while',
   s.object({
@@ -1274,6 +1319,17 @@ export const whileLoop = defineAtom(
   { docs: 'While Loop', timeoutMs: 0, cost: 0.1 }
 )
 
+/*#
+## return
+
+Ends execution and returns values from state. The schema defines which
+state variables to include in the output.
+
+```javascript
+const result = compute()
+return { result }  // Returns { result: <computed value> }
+```
+*/
 export const ret = defineAtom(
   'return',
   undefined,
@@ -1309,6 +1365,26 @@ export const ret = defineAtom(
   { docs: 'Return', cost: 0.1 }
 )
 
+/*#
+## try/catch
+
+Error handling with monadic error flow. When an error occurs, subsequent
+steps are skipped until caught.
+
+```javascript
+try {
+  const data = fetch(url)
+  processData(data)
+} catch (err) {
+  console.warn("Failed: " + err)
+  return { error: err }
+}
+```
+
+The catch block receives:
+- `err` (or custom name): error message
+- `errorOp`: the atom that failed
+*/
 export const tryCatch = defineAtom(
   'try',
   s.object({
@@ -1469,8 +1545,23 @@ export const scope = defineAtom(
 )
 
 // 3. List (Cost 1)
-// Note: Logic operations (eq, neq, gt, lt, and, or, not) were removed.
-// Use ExprNode expressions instead: { $expr: 'binary', op: '==', left, right }
+
+/*#
+## for...of / map
+
+Transforms each item in an array. The `result` variable in each iteration
+becomes the new item value.
+
+```javascript
+const doubled = items.map(x => x * 2)
+
+// Or with for...of:
+const results = []
+for (const item of items) {
+  results.push(process(item))
+}
+```
+*/
 export const map = defineAtom(
   'map',
   s.object({ items: s.array(s.any), as: s.string, steps: s.array(s.any) }),
@@ -1493,6 +1584,15 @@ export const map = defineAtom(
   { docs: 'Map Array', timeoutMs: 0, cost: 1 }
 )
 
+/*#
+## filter
+
+Keeps items that match a condition.
+
+```javascript
+const adults = users.filter(u => u.age >= 18)
+```
+*/
 export const filter = defineAtom(
   'filter',
   s.object({
@@ -1521,6 +1621,15 @@ export const filter = defineAtom(
   { docs: 'Filter Array', timeoutMs: 0, cost: 1 }
 )
 
+/*#
+## reduce
+
+Accumulates a single value from an array.
+
+```javascript
+const sum = numbers.reduce((acc, n) => acc + n, 0)
+```
+*/
 export const reduce = defineAtom(
   'reduce',
   s.object({
@@ -1552,6 +1661,15 @@ export const reduce = defineAtom(
   { docs: 'Reduce Array', timeoutMs: 0, cost: 1 }
 )
 
+/*#
+## find
+
+Returns first item matching condition, or null.
+
+```javascript
+const admin = users.find(u => u.role === "admin")
+```
+*/
 export const find = defineAtom(
   'find',
   s.object({
@@ -1692,7 +1810,24 @@ export const keys = defineAtom(
   { docs: 'Object Keys', cost: 1 }
 )
 
-// 8. IO (Cost 1)
+// 8. IO (Cost 5)
+
+/*#
+## fetch
+
+HTTP requests. Requires `fetch` capability or uses global fetch with SSRF protection.
+
+```javascript
+const data = fetch("https://api.example.com/data")
+const posted = fetch("https://api.example.com/items", {
+  method: "POST",
+  headers: { "Content-Type": "application/json" },
+  body: { name: "New Item" }
+})
+```
+
+Response types: `"json"` (default for JSON content-type), `"text"`, `"dataUrl"` (for images)
+*/
 export const fetch = defineAtom(
   'httpFetch',
   s.object({
@@ -1767,6 +1902,22 @@ export const fetch = defineAtom(
 )
 
 // 9. Store
+
+/*#
+## storeGet / storeSet
+
+Persistent key-value storage. Requires `store` capability.
+
+```javascript
+// Save data
+storeSet("user:123", { name: "Alice", prefs: {} })
+
+// Retrieve later
+const user = storeGet("user:123")
+```
+
+**Warning:** Default in-memory store is not suitable for production.
+*/
 export const storeGet = defineAtom(
   'storeGet',
   s.object({ key: s.string }),
@@ -1818,7 +1969,24 @@ export const vectorSearch = defineAtom(
   }
 )
 
-// 10. Agent
+// 10. LLM
+
+/*#
+## llmPredict
+
+Call language model. Requires `llm` capability with `predict` method.
+
+```javascript
+const response = llmPredict("Summarize this: " + text)
+
+// With options
+const structured = llmPredict(prompt, {
+  model: "gpt-4",
+  temperature: 0.7,
+  responseFormat: { type: "json_object" }
+})
+```
+*/
 export const llmPredict = defineAtom(
   'llmPredict',
   s.object({ prompt: s.string, options: s.any.optional }),
@@ -1902,6 +2070,19 @@ export const xmlParse = defineAtom(
 )
 
 // 12. Optimization
+
+/*#
+## memoize
+
+In-memory caching within a single execution. Same key returns cached result.
+
+```javascript
+// Expensive computation cached by key
+const result = memoize("expensive-" + id, () => {
+  return heavyComputation(data)
+})
+```
+*/
 export const memoize = defineAtom(
   'memoize',
   s.object({ key: s.string.optional, steps: s.array(s.any) }),
@@ -1934,6 +2115,18 @@ export const memoize = defineAtom(
   { docs: 'Memoize steps result in memory', cost: 1 }
 )
 
+/*#
+## cache
+
+Persistent caching across executions using store capability.
+
+```javascript
+// Cache API result for 1 hour (3600000 ms)
+const weather = cache("weather-" + city, 3600000, () => {
+  return fetch("https://api.weather.com/" + city)
+})
+```
+*/
 export const cache = defineAtom(
   'cache',
   s.object({
@@ -2109,9 +2302,21 @@ export const hash = defineAtom(
 
 // 14. Console (logging, warnings, errors)
 
-/**
- * console.log - adds message to trace
- */
+/*#
+## console.log / console.warn / console.error
+
+Logging utilities that integrate with trace and error flow.
+
+```javascript
+console.log("Debug info: " + value)   // Adds to trace
+console.warn("Potential issue")        // Adds to trace + warnings summary
+console.error("Fatal: " + msg)         // Triggers monadic error flow
+```
+
+- `log`: trace only (no side effects)
+- `warn`: trace + appears in `result.warnings`
+- `error`: stops execution, sets `result.error`
+*/
 export const consoleLog = defineAtom(
   'consoleLog',
   s.object({ message: s.any }),
@@ -2133,9 +2338,6 @@ export const consoleLog = defineAtom(
   { docs: 'Log to trace', cost: 0.1 }
 )
 
-/**
- * console.warn - adds to trace and warnings summary
- */
 export const consoleWarn = defineAtom(
   'consoleWarn',
   s.object({ message: s.any }),
@@ -2162,9 +2364,6 @@ export const consoleWarn = defineAtom(
   { docs: 'Add warning', cost: 0.1 }
 )
 
-/**
- * console.error - sets error and terminates execution (monadic error flow)
- */
 export const consoleError = defineAtom(
   'consoleError',
   s.object({ message: s.any }),

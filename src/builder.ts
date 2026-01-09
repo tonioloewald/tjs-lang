@@ -27,10 +27,23 @@ const RESERVED_WORDS = new Set([
 ])
 
 /**
+ * VarMapping maps condition variable names to state paths.
+ * Keys are variable names used in the condition string,
+ * values are state paths (e.g., { count: 'counter.value' }).
+ */
+type VarMapping = Record<string, string>
+
+/**
+ * ItemsRef is a reference to an array in state (string path)
+ * or a literal array value for iteration atoms.
+ */
+type ItemsRef = string | unknown[]
+
+/**
  * Warn if condition references identifiers not present in vars mapping.
  * This helps catch common mistakes when using the Builder API.
  */
-function warnMissingVars(condition: string, vars: Record<string, any>): void {
+function warnMissingVars(condition: string, vars: VarMapping): void {
   // Remove string literals before scanning for identifiers
   const withoutStrings = condition
     .replace(/"[^"]*"/g, '""')
@@ -358,46 +371,87 @@ interface ControlFlow<M extends Record<string, Atom<any, any>>> {
   varsImport(keys: string[] | Record<string, string>): BuilderType<M>
   varsExport(keys: string[] | Record<string, string>): BuilderType<M>
 
+  /**
+   * Conditional branch. Condition is a JS-like expression string.
+   * @param condition - Expression like "count > 0 && active"
+   * @param vars - Map condition vars to state paths: { count: 'state.count' }
+   * @param thenBranch - Steps to run if condition is true
+   * @param elseBranch - Optional steps if condition is false
+   */
   if(
     condition: string,
-    vars: Record<string, any>,
+    vars: VarMapping,
     thenBranch: (b: BuilderType<M>) => BuilderType<M>,
     elseBranch?: (b: BuilderType<M>) => BuilderType<M>
   ): BuilderType<M>
 
+  /**
+   * Loop while condition is true.
+   * @param condition - Expression like "count < 10"
+   * @param vars - Map condition vars to state paths
+   * @param body - Steps to run each iteration
+   */
   while(
     condition: string,
-    vars: Record<string, any>,
+    vars: VarMapping,
     body: (b: BuilderType<M>) => BuilderType<M>
   ): BuilderType<M>
 
   scope(steps: (b: BuilderType<M>) => BuilderType<M>): BuilderType<M>
 
+  /**
+   * Transform each item in array.
+   * @param items - State path to array or literal array
+   * @param as - Variable name for current item in scope
+   * @param steps - Transform steps (result is new item value)
+   */
   map(
-    items: any,
+    items: ItemsRef,
     as: string,
     steps: (b: BuilderType<M>) => BuilderType<M>
   ): BuilderType<M>
 
+  /**
+   * Filter array to items matching condition.
+   * @param items - State path to array or literal array
+   * @param as - Variable name for current item
+   * @param condition - Filter expression using 'as' variable
+   * @param vars - Additional var mappings (optional)
+   */
   filter(
-    items: any,
+    items: ItemsRef,
     as: string,
     condition: string,
-    vars?: Record<string, any>
+    vars?: VarMapping
   ): BuilderType<M>
 
+  /**
+   * Find first item matching condition.
+   * @param items - State path to array or literal array
+   * @param as - Variable name for current item
+   * @param condition - Search expression
+   * @param vars - Additional var mappings (optional)
+   */
   find(
-    items: any,
+    items: ItemsRef,
     as: string,
     condition: string,
-    vars?: Record<string, any>
+    vars?: VarMapping
   ): BuilderType<M>
 
-  reduce(
-    items: any,
+  /**
+   * Reduce array to single value.
+   * @param items - State path to array or literal array
+   * @param as - Variable name for current item
+   * @param accumulator - Variable name for running result
+   * @param initial - Initial accumulator value
+   * @param steps - Reduction steps (result becomes new accumulator)
+   */
+  reduce<T>(
+    items: ItemsRef,
     as: string,
     accumulator: string,
-    initial: any,
+    initial: T,
     steps: (b: BuilderType<M>) => BuilderType<M>
   ): BuilderType<M>
 
@@ -495,7 +549,7 @@ export class TypedBuilder<M extends Record<string, Atom<any, any>>> {
 
   if(
     condition: string,
-    vars: Record<string, any>,
+    vars: VarMapping,
     thenBranch: (b: BuilderType<M>) => BuilderType<M>,
     elseBranch?: (b: BuilderType<M>) => BuilderType<M>
   ) {
@@ -524,7 +578,7 @@ export class TypedBuilder<M extends Record<string, Atom<any, any>>> {
 
   while(
     condition: string,
-    vars: Record<string, any>,
+    vars: VarMapping,
     body: (b: BuilderType<M>) => BuilderType<M>
   ) {
     const bodyB = new TypedBuilder(this.atoms)
@@ -553,7 +607,7 @@ export class TypedBuilder<M extends Record<string, Atom<any, any>>> {
     )
   }
 
-  map(items: any, as: string, steps: (b: BuilderType<M>) => BuilderType<M>) {
+  map(items: ItemsRef, as: string, steps: (b: BuilderType<M>) => BuilderType<M>) {
     const stepsB = new TypedBuilder(this.atoms)
     steps(stepsB as any)
     const mapAtom = this.atoms['map']
@@ -567,10 +621,10 @@ export class TypedBuilder<M extends Record<string, Atom<any, any>>> {
   }
 
   filter(
-    items: any,
+    items: ItemsRef,
     as: string,
     condition: string,
-    vars: Record<string, any> = {}
+    vars: VarMapping = {}
   ) {
     const conditionExpr = parseCondition(condition, vars)
     const filterAtom = this.atoms['filter']
@@ -584,10 +638,10 @@ export class TypedBuilder<M extends Record<string, Atom<any, any>>> {
   }
 
   find(
-    items: any,
+    items: ItemsRef,
     as: string,
     condition: string,
-    vars: Record<string, any> = {}
+    vars: VarMapping = {}
   ) {
     const conditionExpr = parseCondition(condition, vars)
     const findAtom = this.atoms['find']
@@ -600,11 +654,11 @@ export class TypedBuilder<M extends Record<string, Atom<any, any>>> {
     )
   }
 
-  reduce(
-    items: any,
+  reduce<T>(
+    items: ItemsRef,
     as: string,
     accumulator: string,
-    initial: any,
+    initial: T,
     steps: (b: BuilderType<M>) => BuilderType<M>
   ) {
     const stepsB = new TypedBuilder(this.atoms)
