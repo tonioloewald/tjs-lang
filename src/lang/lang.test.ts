@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'bun:test'
-import { transpile, ajs, tjs, transpileToJS } from './index'
+import { transpile, ajs, tjs, transpileToJS, fromTS } from './index'
 import { preprocess } from './parser'
 
 describe('Transpiler', () => {
@@ -733,6 +733,112 @@ describe('TJS Emitter', () => {
       expect(result.types.returns).toBeDefined()
       expect(result.types.returns?.kind).toBe('object')
       expect(result.types.returns?.shape?.result.kind).toBe('number')
+    })
+  })
+})
+
+describe('TypeScript to TJS Transpiler', () => {
+  describe('fromTS with emitTJS', () => {
+    it('should convert string type to empty string example', () => {
+      const result = fromTS(`function greet(name: string) { return name }`, {
+        emitTJS: true,
+      })
+      expect(result.code).toContain("name: ''")
+    })
+
+    it('should convert number type to 0 example', () => {
+      const result = fromTS(
+        `function add(a: number, b: number) { return a + b }`,
+        { emitTJS: true }
+      )
+      expect(result.code).toContain('a: 0')
+      expect(result.code).toContain('b: 0')
+    })
+
+    it('should convert optional params to = syntax', () => {
+      const result = fromTS(
+        `function greet(name: string, title?: string) { return name }`,
+        { emitTJS: true }
+      )
+      expect(result.code).toContain("name: ''")
+      expect(result.code).toContain("title = ''")
+    })
+
+    it('should convert return type to -> annotation', () => {
+      const result = fromTS(
+        `function greet(name: string): string { return name }`,
+        { emitTJS: true }
+      )
+      expect(result.code).toContain("-> ''")
+    })
+
+    it('should handle array types', () => {
+      const result = fromTS(
+        `function sum(nums: number[]): number { return 0 }`,
+        { emitTJS: true }
+      )
+      expect(result.code).toContain('nums: [0]')
+    })
+
+    it('should handle object literal types', () => {
+      const result = fromTS(
+        `function getUser(): { name: string, age: number } { return { name: '', age: 0 } }`,
+        { emitTJS: true }
+      )
+      expect(result.code).toContain("-> { name: '', age: 0 }")
+    })
+
+    it('should handle nullable types', () => {
+      const result = fromTS(
+        `function find(id: string): string | null { return null }`,
+        { emitTJS: true }
+      )
+      expect(result.code).toContain("-> '' || null")
+    })
+
+    it('should preserve default values', () => {
+      const result = fromTS(
+        `function greet(name: string = 'world') { return name }`,
+        { emitTJS: true }
+      )
+      expect(result.code).toContain("name = 'world'")
+    })
+  })
+
+  describe('fromTS with JS output', () => {
+    it('should strip types and add __tjs metadata', () => {
+      const result = fromTS(
+        `function greet(name: string): string { return name }`
+      )
+      expect(result.code).toContain('function greet(name)')
+      expect(result.code).toContain('greet.__tjs')
+      expect(result.types?.greet).toBeDefined()
+      expect(result.types?.greet.params.name.type.kind).toBe('string')
+      expect(result.types?.greet.params.name.required).toBe(true)
+    })
+
+    it('should mark optional params as not required', () => {
+      const result = fromTS(`function test(a: string, b?: number) { return a }`)
+      expect(result.types?.test.params.a.required).toBe(true)
+      expect(result.types?.test.params.b.required).toBe(false)
+    })
+
+    it('should capture return type in metadata', () => {
+      const result = fromTS(
+        `function add(a: number, b: number): number { return a + b }`
+      )
+      expect(result.types?.add.returns?.kind).toBe('number')
+    })
+
+    it('should handle multiple functions', () => {
+      const result = fromTS(`
+        function foo(x: string) { return x }
+        function bar(y: number) { return y }
+      `)
+      expect(result.types?.foo).toBeDefined()
+      expect(result.types?.bar).toBeDefined()
+      expect(result.code).toContain('foo.__tjs')
+      expect(result.code).toContain('bar.__tjs')
     })
   })
 })

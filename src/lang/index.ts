@@ -39,6 +39,11 @@ export {
   type TJSTranspileResult,
   type TJSTypeInfo,
 } from './emitters/js'
+export {
+  fromTS,
+  type FromTSOptions,
+  type FromTSResult,
+} from './emitters/from-ts'
 export * from './inference'
 
 /**
