@@ -349,6 +349,48 @@ describe('Transpiler', () => {
         expect(e.line).toBeDefined()
       }
     })
+
+    it('should reject switch statements', () => {
+      expect(() =>
+        transpile(`
+        function test({ x = 0 }) {
+          switch(x) {
+            case 1: return { result: 'one' }
+            default: return { result: 'other' }
+          }
+        }
+      `)
+      ).toThrow(/Unsupported statement type: SwitchStatement/)
+    })
+
+    it('should reject throw statements', () => {
+      expect(() =>
+        transpile(`
+        function test({ x = 0 }) {
+          throw new Error('fail')
+        }
+      `)
+      ).toThrow(/'throw' is not supported/)
+    })
+
+    it('should reject traditional for loops', () => {
+      expect(() =>
+        transpile(`
+        function test({ n = 0 }) {
+          for (let i = 0; i < n; i++) {}
+          return { result: n }
+        }
+      `)
+      ).toThrow(/Unsupported statement type: ForStatement/)
+    })
+
+    it('should reject exports', () => {
+      expect(() =>
+        transpile(`
+        export function test() {}
+      `)
+      ).toThrow('Exports are not supported')
+    })
   })
 
   describe('Template literals', () => {

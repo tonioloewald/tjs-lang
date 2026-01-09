@@ -42214,6 +42214,39 @@ Extract common test patterns:
 
 ---
 
+### 2.4b Unify Editor Grammar Implementations
+
+**Problem:** There are 4+ separate grammar implementations that must stay in sync manually:
+
+- \`editors/vscode/syntaxes/ajs.tmLanguage.json\` (TextMate)
+- \`editors/vscode/syntaxes/ajs-injection.tmLanguage.json\` (TextMate injection for template literals)
+- \`editors/monaco/ajs-monarch.ts\` (Monaco Monarch)
+- \`editors/codemirror/ajs-language.ts\` (CodeMirror)
+- \`editors/ace/ajs-mode.ts\` (Ace)
+
+Any change to syntax (new keywords, new atoms, new unsupported patterns) requires updating all files.
+
+**Solution Options:**
+
+1. **Single source of truth:** Create a \`grammar-definition.json\` with keyword lists, patterns, etc. Generate editor-specific grammars from it.
+
+2. **Shared constants file:** At minimum, export shared keyword lists that each grammar imports:
+
+   \`\`\`typescript
+   // editors/shared/keywords.ts
+   export const ATOMS = ['search', 'llmPredict', 'storeGet', ...]
+   export const UNSUPPORTED = ['switch', 'class', 'throw', ...]
+   export const BUILTINS = ['Math', 'JSON', 'Array', ...]
+   \`\`\`
+
+3. **Test for consistency:** Add a test that validates all grammars highlight the same keywords.
+
+**Files:** \`editors/shared/*.ts\` (new), all grammar files
+
+**Status:** TODO (P3 - significant effort)
+
+---
+
 ### 2.5 Fix Builder Footguns
 
 **Problem:** \`.if()\` requires manual \`vars\` parameter mapping - easy to forget.
@@ -44021,4 +44054,4 @@ if (main) {
 }
 console.log(`%c tosijs-agent %c v${VERSION} `, "background: #6366f1; color: white; padding: 2px 6px; border-radius: 3px 0 0 3px;", "background: #374151; color: white; padding: 2px 6px; border-radius: 0 3px 3px 0;");
 
-//# debugId=CFA4CEF94A8CA78564756E2164756E21
+//# debugId=63D5D541F9B0BD3264756E2164756E21
