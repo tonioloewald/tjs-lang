@@ -151,7 +151,117 @@ export function preprocess(source: string): {
     }
   )
 
+  // Handle unsafe blocks: unsafe { ... } -> try { ... } catch (e) { return AgentError }
+  // `unsafe` skips type checks (when we add runtime validation) and wraps in try-catch
+  // since unchecked code may throw unexpectedly
+  source = transformUnsafeBlocks(source)
+
+  // Handle try-without-catch: try { ... } (no catch/finally) -> monadic error handling
+  // This is the idiomatic TJS way to convert exceptions to AgentError
+  source = transformTryWithoutCatch(source)
+
   return { source, returnType, originalSource, requiredParams }
+}
+
+/**
+ * Transform unsafe blocks with proper brace matching
+ * unsafe { ... } -> try { ... } catch (__unsafe_err) { return AgentError }
+ */
+function transformUnsafeBlocks(source: string): string {
+  let result = ''
+  let i = 0
+
+  while (i < source.length) {
+    // Look for 'unsafe' keyword
+    const unsafeMatch = source.slice(i).match(/^\bunsafe\s*\{/)
+    if (unsafeMatch) {
+      // Found 'unsafe {', now find the matching closing brace
+      const startBrace = i + unsafeMatch[0].length - 1 // position of '{'
+      const bodyStart = startBrace + 1
+      let depth = 1
+      let j = bodyStart
+
+      while (j < source.length && depth > 0) {
+        const char = source[j]
+        if (char === '{') depth++
+        else if (char === '}') depth--
+        j++
+      }
+
+      if (depth !== 0) {
+        // Unbalanced braces, let the parser handle the error
+        result += source[i]
+        i++
+        continue
+      }
+
+      // Extract the body (excluding the closing brace)
+      const body = source.slice(bodyStart, j - 1)
+
+      // Replace with try-catch
+      result += `try {${body}} catch (__unsafe_err) { return { $error: true, message: 'unsafe block threw: ' + (__unsafe_err?.message || String(__unsafe_err)), op: 'unsafe', cause: __unsafe_err } }`
+      i = j
+    } else {
+      result += source[i]
+      i++
+    }
+  }
+
+  return result
+}
+
+/**
+ * Transform try blocks without catch/finally into monadic error handling
+ * try { ... } (alone) -> try { ... } catch (__err) { return AgentError }
+ */
+function transformTryWithoutCatch(source: string): string {
+  let result = ''
+  let i = 0
+
+  while (i < source.length) {
+    // Look for 'try' keyword followed by '{'
+    const tryMatch = source.slice(i).match(/^\btry\s*\{/)
+    if (tryMatch) {
+      // Found 'try {', now find the matching closing brace
+      const startBrace = i + tryMatch[0].length - 1
+      const bodyStart = startBrace + 1
+      let depth = 1
+      let j = bodyStart
+
+      while (j < source.length && depth > 0) {
+        const char = source[j]
+        if (char === '{') depth++
+        else if (char === '}') depth--
+        j++
+      }
+
+      if (depth !== 0) {
+        // Unbalanced braces, let the parser handle the error
+        result += source[i]
+        i++
+        continue
+      }
+
+      // Check what comes after the closing brace
+      const afterTry = source.slice(j).match(/^\s*(catch|finally)\b/)
+      
+      if (afterTry) {
+        // Has catch or finally - leave it alone, copy the try block as-is
+        result += source.slice(i, j)
+        i = j
+      } else {
+        // No catch or finally - add monadic error handler
+        const body = source.slice(bodyStart, j - 1)
+        result += `try {${body}} catch (__try_err) { return { $error: true, message: __try_err?.message || String(__try_err), op: 'try', cause: __try_err } }`
+        i = j
+      }
+    } else {
+      result += source[i]
+      i++
+    }
+  }
+
+  return result
 }
 
 /**

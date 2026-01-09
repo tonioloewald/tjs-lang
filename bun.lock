@@ -6,7 +6,7 @@
       "name": "create-xinjs-blueprint",
       "dependencies": {
         "acorn": "^8.15.0",
-        "tosijs-schema": "^1.0.3",
+        "tosijs-schema": "^1.1.3",
       },
       "devDependencies": {
         "@codemirror/lang-javascript": "^6.2.4",
@@ -491,7 +491,7 @@
 
     "tosijs": ["tosijs@1.0.10", "", {}, "sha512-qD2Jyo4wQoGcHoYnYAfcIQcDymJLiodBvHgG6EK440Z9bPiv0262pqTwrjGm8yzMsHH/sOONjFT1jSH3liu37g=="],
 
-    "tosijs-schema": ["tosijs-schema@1.0.3", "", {}, "sha512-WDXhXxjNOsq4ZX+pM2ij7NvK36OEzEGTDl3fEKSC95IIf6Fb+WdcjOOKVLP0fDzg8ZahdkXhOPmFLvD0aUj5mQ=="],
+    "tosijs-schema": ["tosijs-schema@1.1.3", "", {}, "sha512-yUenlWe26s/ht/A8RYShU2jr58jEmOLG/8fNPrCsNOkCH/jvKmxsHPHAQxjT8QsmUfJ+Hiz6Mo8sGEaOCTgEXw=="],
 
     "tosijs-ui": ["tosijs-ui@1.0.10", "", { "peerDependencies": { "marked": "^16.4.2", "tosijs": "^1.0.10" } }, "sha512-bgFyyi/HSvP5TKcQAJru3dtyStwRmTsJ3mj68tmqf4fM8XTiOSqQsU4XXGn+U3SIHpyWunhJFvOhqun+WTl3pA=="],
 

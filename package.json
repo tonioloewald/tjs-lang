@@ -10,6 +10,7 @@
     "./editors/ace": "./editors/ace/ajs-mode.js"
   },
   "bin": {
+    "tjs": "./src/cli/tjs.ts",
     "ajs-install-vscode": "./bin/install-vscode.sh",
     "ajs-install-cursor": "./bin/install-cursor.sh"
   },
@@ -61,6 +62,6 @@
   },
   "dependencies": {
     "acorn": "^8.15.0",
-    "tosijs-schema": "^1.0.3"
+    "tosijs-schema": "^1.1.3"
   }
 }

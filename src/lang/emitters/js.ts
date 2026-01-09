@@ -21,7 +21,7 @@
 
 import type { FunctionDeclaration, Program } from 'acorn'
 import { parseExpressionAt } from 'acorn'
-import { parse, extractJSDoc } from '../parser'
+import { parse, extractJSDoc, preprocess } from '../parser'
 import type { TypeDescriptor, ParameterDescriptor } from '../types'
 import { inferTypeFromValue, parseParameter } from '../inference'
 
@@ -130,9 +130,9 @@ export function transpileToJS(
   }
 
   // Generate the JavaScript code
-  // Use the preprocessed source which is already valid JS
-  // The preprocessing converts `x: 'type'` to `x = 'type'` and removes `-> Type`
-  const preprocessed = preprocessSource(source)
+  // Use the parser's preprocess which handles all TJS syntax transformations
+  // including: `x: 'type'` -> `x = 'type'`, `-> Type` removal, and `unsafe { }` blocks
+  const preprocessed = preprocess(source)
 
   // Add type metadata
   const funcName = func.id?.name || 'anonymous'
@@ -143,47 +143,7 @@ export function transpileToJS(
   return { code, types, warnings: warnings.length > 0 ? warnings : undefined }
 }
 
-/**
- * Preprocess source without full parsing
- */
-function preprocessSource(source: string): { source: string } {
-  let result = source
 
-  // Handle return type annotation: ) -> Type {
-  const returnTypeMatch = result.match(
-    /\)\s*->\s*(\{[\s\S]*?\}|\[[^\]]*\]|'[^']*'|\d+|true|false)\s*\{(?!\s*\w+:)/
-  )
-  if (returnTypeMatch) {
-    const pattern =
-      /\)\s*->\s*(?:\{[\s\S]*?\}|\[[^\]]*\]|'[^']*'|\d+|true|false)\s*(\{)(?!\s*\w+:)/
-    result = result.replace(pattern, ') $1')
-  }
-
-  // Handle colon shorthand: x: 'type' -> x = 'type'
-  result = result.replace(
-    /function\s+(\w+)\s*\(([^)]*)\)/g,
-    (match, funcName, params) => {
-      if (!params.trim()) return match
-
-      const processed = params
-        .split(',')
-        .map((param: string) => {
-          param = param.trim()
-          // Transform colon shorthand to default value
-          const colonMatch = param.match(/^(\w+)\s*:\s*(.+)$/)
-          if (colonMatch && !colonMatch[2].includes('=')) {
-            return `${colonMatch[1]} = ${colonMatch[2]}`
-          }
-          return param
-        })
-        .join(', ')
-
-      return `function ${funcName}(${processed})`
-    }
-  )
-
-  return { source: result }
-}
 
 /**
  * Find the main function in the AST

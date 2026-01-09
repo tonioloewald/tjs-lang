@@ -45,6 +45,7 @@ export {
   type FromTSResult,
 } from './emitters/from-ts'
 export * from './inference'
+export { Schema } from './schema'
 
 /**
  * Transpile JavaScript source code to Agent99 AST

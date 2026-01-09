@@ -928,3 +928,179 @@ describe('TypeScript to TJS Transpiler', () => {
     })
   })
 })
+// Schema callable tests
+describe('Schema callable', () => {
+  const { Schema } = require('./schema')
+
+  describe('Schema(value) inference', () => {
+    it('should infer string schema', () => {
+      const schema = Schema('hello')
+      expect(schema.schema.type).toBe('string')
+      expect(schema.validate('world')).toBe(true)
+      expect(schema.validate(42)).toBe(false)
+    })
+
+    it('should infer number schema (integer)', () => {
+      const schema = Schema(42)
+      expect(schema.schema.type).toBe('integer')
+      expect(schema.validate(100)).toBe(true)
+      expect(schema.validate('hello')).toBe(false)
+    })
+
+    it('should infer number schema (float)', () => {
+      const schema = Schema(3.14)
+      expect(schema.schema.type).toBe('number')
+      expect(schema.validate(2.71)).toBe(true)
+    })
+
+    it('should infer boolean schema', () => {
+      const schema = Schema(true)
+      expect(schema.schema.type).toBe('boolean')
+      expect(schema.validate(false)).toBe(true)
+      expect(schema.validate('true')).toBe(false)
+    })
+
+    it('should infer null schema', () => {
+      const schema = Schema(null)
+      expect(schema.schema.type).toBe('null')
+      expect(schema.validate(null)).toBe(true)
+      expect(schema.validate(undefined)).toBe(false)
+    })
+
+    it('should infer undefined schema', () => {
+      const schema = Schema(undefined)
+      expect(schema.schema.type).toBe('null')
+      expect(schema.schema['x-tjs-undefined']).toBe(true)
+      expect(schema.validate(undefined)).toBe(true)
+      expect(schema.validate(null)).toBe(false)
+    })
+
+    it('should infer array schema', () => {
+      const schema = Schema([1, 2, 3])
+      expect(schema.schema.type).toBe('array')
+      expect(schema.schema.items.type).toBe('integer')
+      expect(schema.validate([4, 5, 6])).toBe(true)
+    })
+
+    it('should infer object schema', () => {
+      const schema = Schema({ name: 'Anne', age: 30 })
+      expect(schema.schema.type).toBe('object')
+      expect(schema.schema.properties.name.type).toBe('string')
+      expect(schema.schema.properties.age.type).toBe('integer')
+      expect(schema.validate({ name: 'Bob', age: 25 })).toBe(true)
+    })
+  })
+
+  describe('Schema.type() - fixed typeof', () => {
+    it('should return "null" for null', () => {
+      expect(Schema.type(null)).toBe('null')
+    })
+
+    it('should return "undefined" for undefined', () => {
+      expect(Schema.type(undefined)).toBe('undefined')
+    })
+
+    it('should return "array" for arrays', () => {
+      expect(Schema.type([])).toBe('array')
+      expect(Schema.type([1, 2, 3])).toBe('array')
+    })
+
+    it('should return "object" for objects', () => {
+      expect(Schema.type({})).toBe('object')
+      expect(Schema.type({ a: 1 })).toBe('object')
+    })
+
+    it('should return primitive types correctly', () => {
+      expect(Schema.type('hello')).toBe('string')
+      expect(Schema.type(42)).toBe('number')
+      expect(Schema.type(true)).toBe('boolean')
+    })
+  })
+
+  describe('Schema.* methods from tosijs-schema', () => {
+    it('should have Schema.string', () => {
+      expect(Schema.string.schema.type).toBe('string')
+    })
+
+    it('should have Schema.number', () => {
+      expect(Schema.number.schema.type).toBe('number')
+    })
+
+    it('should have Schema.null', () => {
+      expect(Schema.null.schema.type).toBe('null')
+      expect(Schema.null.validate(null)).toBe(true)
+    })
+
+    it('should have Schema.undefined', () => {
+      expect(Schema.undefined.validate(undefined)).toBe(true)
+      expect(Schema.undefined.validate(null)).toBe(false)
+    })
+
+    it('should have Schema.object()', () => {
+      const schema = Schema.object({
+        name: Schema.string,
+        age: Schema.number.optional
+      })
+      expect(schema.validate({ name: 'Anne' })).toBe(true)
+      expect(schema.validate({ name: 'Anne', age: 30 })).toBe(true)
+      expect(schema.validate({})).toBe(false) // missing required name
+    })
+
+    it('should have Schema.array()', () => {
+      const schema = Schema.array(Schema.string)
+      expect(schema.validate(['a', 'b', 'c'])).toBe(true)
+      expect(schema.validate([1, 2, 3])).toBe(false)
+    })
+  })
+})
+
+// unsafe block tests
+describe('unsafe blocks', () => {
+  it('should transform unsafe block to try-catch', () => {
+    const result = tjs(`
+      function riskyOp(x: 0) -> 0 {
+        unsafe {
+          if (x < 0) throw new Error('negative')
+          return x * 2
+        }
+      }
+    `)
+
+    expect(result.code).toContain('try {')
+    expect(result.code).toContain('catch (__unsafe_err)')
+    expect(result.code).toContain('$error: true')
+    expect(result.code).toContain("op: 'unsafe'")
+    expect(result.code).not.toContain('unsafe {')
+  })
+
+  it('should execute unsafe block and return result on success', () => {
+    const result = tjs(`
+      function double(x: 0) -> 0 {
+        unsafe {
+          return x * 2
+        }
+      }
+    `)
+
+    const fn = new Function(`${result.code}; return double(5);`)
+    expect(fn()).toBe(10)
+  })
+
+  it('should return error object on throw', () => {
+    const result = tjs(`
+      function mustBePositive(x: 0) -> 0 {
+        unsafe {
+          if (x < 0) throw new Error('must be positive')
+          return x
+        }
+      }
+    `)
+
+    const fn = new Function(`${result.code}; return mustBePositive(-1);`)
+    const error = fn()
+    expect(error.$error).toBe(true)
+    expect(error.op).toBe('unsafe')
+    expect(error.message).toContain('must be positive')
+    expect(error.cause).toBeInstanceOf(Error)
+  })
+})

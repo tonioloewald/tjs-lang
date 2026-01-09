@@ -1,8 +1,8 @@
 /**
  * Tests for playground examples
  *
- * By default, uses mocks for fast CI. Set USE_LM_STUDIO=1 to test with real LM Studio.
- * Vision tests require a vision-capable model (OpenAI/Anthropic).
+ * By default, uses LM Studio if available. Set SKIP_LLM_TESTS=1 to use mocks.
+ * Vision tests require a vision-capable model.
  */
 
 // Provide browser globals (document, window, etc.) for capabilities.ts
@@ -294,6 +294,13 @@ const mockLLMBattery = {
 }
 
 beforeAll(async () => {
+  // Skip LLM if SKIP_LLM_TESTS is set
+  if (process.env.SKIP_LLM_TESTS) {
+    console.log('SKIP_LLM_TESTS set, using mocks')
+    hasLLM = false
+    return
+  }
+
   // Use the SAME builders as the playground
   llmCapability = buildLLMCapability(testSettings)
   llmBattery = buildLLMBattery(testSettings)
