@@ -31,9 +31,8 @@ import { html } from '@codemirror/lang-html'
 import { markdown } from '@codemirror/lang-markdown'
 import { ajsEditorExtension } from './ajs-language'
 
-// Language mode compartment for dynamic switching
-const languageCompartment = new Compartment()
-const readonlyCompartment = new Compartment()
+// Note: Compartments must be per-instance, not module-level
+// Each editor needs its own compartments to avoid interference
 
 // Map of mode names to extensions
 function getLanguageExtension(mode: string): Extension {
@@ -86,6 +85,10 @@ export class CodeMirror extends Component {
 
   private _source: string = ''
   private _editor: EditorView | undefined
+  
+  // Per-instance compartments for language and readonly state
+  private languageCompartment = new Compartment()
+  private readonlyCompartment = new Compartment()
 
   mode = 'javascript'
   disabled = false
@@ -150,8 +153,8 @@ export class CodeMirror extends Component {
       doc: this._source,
       extensions: [
         basicSetup,
-        languageCompartment.of(getLanguageExtension(this.mode)),
-        readonlyCompartment.of(EditorState.readOnly.of(this.disabled)),
+        this.languageCompartment.of(getLanguageExtension(this.mode)),
+        this.readonlyCompartment.of(EditorState.readOnly.of(this.disabled)),
         EditorView.updateListener.of((update) => {
           if (update.docChanged) {
             this.dispatchEvent(new Event('change', { bubbles: true }))
@@ -177,8 +180,8 @@ export class CodeMirror extends Component {
     if (this._editor) {
       this._editor.dispatch({
         effects: [
-          languageCompartment.reconfigure(getLanguageExtension(this.mode)),
-          readonlyCompartment.reconfigure(
+          this.languageCompartment.reconfigure(getLanguageExtension(this.mode)),
+          this.readonlyCompartment.reconfigure(
             EditorState.readOnly.of(this.disabled)
           ),
         ],

@@ -495,7 +495,8 @@ if (main) {
           // Show/hide based on currentView
           bind(pg, 'app.currentView', {
             toDOM(element: HTMLElement, view: string) {
-              element.style.display = view === 'tjs' ? 'block' : 'none'
+              // Use 'flex' not 'block' - component has flex layout internally
+              element.style.display = view === 'tjs' ? 'flex' : 'none'
             },
           })
 
