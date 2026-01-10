@@ -17,7 +17,7 @@
  */
 
 import { describe, it, expect } from 'bun:test'
-import { tjs } from './index'
+import { tjs, wrap, isError } from './index'
 
 const ITERATIONS = 100_000
 
@@ -302,6 +302,123 @@ describe('TJS Performance', () => {
       expect(unsafeThrow(42)).toBe(42)
       const err = unsafeThrow(-1)
       expect(err.$error).toBe(true)
+    })
+  })
+
+  describe('Runtime wrap() overhead', () => {
+    it('should measure wrap() validation overhead', () => {
+      // Unwrapped function - baseline
+      function unwrappedAdd(a: number, b: number): number {
+        return a + b
+      }
+
+      // Wrapped with runtime validation
+      const wrappedAdd = wrap((a: number, b: number) => a + b, {
+        params: {
+          a: { type: 'number', required: true },
+          b: { type: 'number', required: true },
+        },
+        returns: { type: 'number' },
+      })
+
+      const unwrappedTime = benchmark('unwrapped', () => unwrappedAdd(2, 3))
+      const wrappedTime = benchmark('wrapped', () => wrappedAdd(2, 3))
+
+      console.log(
+        `\n  wrap() overhead (${ITERATIONS.toLocaleString()} iterations):`
+      )
+      console.log(`    Unwrapped:  ${unwrappedTime.toFixed(2)}ms`)
+      console.log(
+        `    Wrapped:    ${wrappedTime.toFixed(2)}ms (${(
+          wrappedTime / unwrappedTime
+        ).toFixed(2)}x)`
+      )
+      console.log(
+        `    Per-call:   ${(
+          ((wrappedTime - unwrappedTime) / ITERATIONS) *
+          1000
+        ).toFixed(3)}µs`
+      )
+
+      // Sanity check
+      expect(unwrappedAdd(2, 3)).toBe(5)
+      expect(wrappedAdd(2, 3)).toBe(5)
+    })
+
+    it('should measure error propagation overhead', () => {
+      // Chain of 3 wrapped functions
+      const step1 = wrap((x: number) => x * 2, {
+        params: { x: { type: 'number', required: true } },
+      })
+      const step2 = wrap((x: number) => x + 10, {
+        params: { x: { type: 'number', required: true } },
+      })
+      const step3 = wrap((x: number) => x / 2, {
+        params: { x: { type: 'number', required: true } },
+      })
+
+      // Unwrapped chain for baseline
+      const chain = (x: number) => (x * 2 + 10) / 2
+
+      const chainTime = benchmark('chain', () => chain(5))
+      const wrappedChainTime = benchmark('wrapped-chain', () =>
+        step3(step2(step1(5)))
+      )
+
+      console.log(
+        `\n  3-function chain (${ITERATIONS.toLocaleString()} iterations):`
+      )
+      console.log(`    Plain chain:   ${chainTime.toFixed(2)}ms`)
+      console.log(
+        `    Wrapped chain: ${wrappedChainTime.toFixed(2)}ms (${(
+          wrappedChainTime / chainTime
+        ).toFixed(2)}x)`
+      )
+
+      // Sanity check: (5 * 2 + 10) / 2 = 10
+      expect(chain(5)).toBe(10)
+      expect(step3(step2(step1(5)))).toBe(10)
+    })
+
+    it('should measure error short-circuit benefit', () => {
+      // When an error propagates, wrapped functions skip execution
+      let step2Called = 0
+      let step3Called = 0
+
+      const errorStep = wrap(
+        (x: number) => {
+          if (x < 0) return { $error: true, message: 'negative' }
+          return x
+        },
+        { params: { x: { type: 'number', required: true } } }
+      )
+
+      const step2 = wrap(
+        (x: number) => {
+          step2Called++
+          return x * 2
+        },
+        { params: { x: { type: 'number', required: true } } }
+      )
+
+      const step3 = wrap(
+        (x: number) => {
+          step3Called++
+          return x + 10
+        },
+        { params: { x: { type: 'number', required: true } } }
+      )
+
+      // Run chain with error input
+      const errorResult = step3(step2(errorStep(-1) as any) as any)
+
+      console.log(`\n  Error short-circuit:`)
+      console.log(`    step2 called: ${step2Called} times (should be 0)`)
+      console.log(`    step3 called: ${step3Called} times (should be 0)`)
+
+      expect(isError(errorResult)).toBe(true)
+      expect(step2Called).toBe(0) // Never called due to error propagation
+      expect(step3Called).toBe(0)
     })
   })
 })

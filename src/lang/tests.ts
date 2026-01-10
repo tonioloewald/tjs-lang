@@ -349,12 +349,14 @@ export const testUtils = assertFunction + '\n' + expectFunction
  * Q1: Should mocks be scoped per-test or shared?
  *     Current: Each test runs all mocks before executing
  *
- * Q2: How to handle async tests?
- *     Could detect async/await and wrap appropriately
- *
- * Q3: Should we support test.only / test.skip?
+ * Q2: Should we support test.only / test.skip?
  *     Easy to add with syntax: test.only('...') { } or test.skip('...') { }
  *
- * Q4: Integration with playground?
+ * Q3: Integration with playground?
  *     Playground could run extractTests() and show test results in a panel
+ *
+ * Q4: DOM tests - test.browser('desc') { }?
+ *     SHELVED: Plan is to run tests in actual browser (playground)
+ *     Happy-DOM is ~1MB packed, too heavy to bundle
+ *     If needed later: lazy-load happy-dom only for Node/Bun DOM tests
  */
