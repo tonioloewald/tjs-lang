@@ -1,0 +1,50 @@
+{
+  "name": "dev-channel",
+  "version": "0.1.0",
+  "description": "Real-time communication bridge between AI agents and browser pages",
+  "type": "module",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "exports": {
+    ".": {
+      "import": "./dist/index.js",
+      "types": "./dist/index.d.ts"
+    },
+    "./component": {
+      "import": "./dist/component.js",
+      "types": "./dist/component.d.ts"
+    },
+    "./server": {
+      "import": "./dist/server.js",
+      "types": "./dist/server.d.ts"
+    },
+    "./client": {
+      "import": "./dist/client.js",
+      "types": "./dist/client.d.ts"
+    }
+  },
+  "bin": {
+    "dev-channel": "./bin/dev-channel.ts"
+  },
+  "scripts": {
+    "build": "bun build ./src/component.ts --outdir=dist --target=browser --format=iife && bun build ./src/server.ts ./src/client.ts ./src/index.ts --outdir=dist --target=bun",
+    "build:bookmarklet": "bun run bin/build-bookmarklet.ts",
+    "dev": "bun run bin/server.ts",
+    "test": "bun test src/server.test.ts",
+    "test:e2e": "bunx playwright test src/playwright.test.ts",
+    "test:all": "bun test src/server.test.ts && bunx playwright test src/playwright.test.ts"
+  },
+  "keywords": [
+    "devtools",
+    "debugging",
+    "websocket",
+    "ai-agent",
+    "browser"
+  ],
+  "author": "Tonio Loewald",
+  "license": "MIT",
+  "devDependencies": {
+    "@playwright/test": "^1.40.0",
+    "typescript": "^5.0.0"
+  }
+}
