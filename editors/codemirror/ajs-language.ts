@@ -26,6 +26,7 @@ import {
   HighlightStyle,
   syntaxHighlighting,
   LanguageSupport,
+  defaultHighlightStyle,
 } from '@codemirror/language'
 import { tags } from '@lezer/highlight'
 import {
@@ -231,6 +232,7 @@ export function ajsEditorExtension(
 ): Extension {
   return [
     javascript({ jsx: config.jsx, typescript: config.typescript }),
+    syntaxHighlighting(defaultHighlightStyle),
     forbiddenHighlighter,
     ajsTheme,
     syntaxHighlighting(ajsHighlightStyle),

@@ -17,6 +17,7 @@ const PORT = 8699 // Homage to Agent-99
 const DEMO_DIR = './demo'
 const DOCS_DIR = './docs'
 const SRC_DIR = './src'
+const EDITORS_DIR = './editors'
 const ROOT_DIR = '.'
 
 // Build the demo
@@ -56,6 +57,16 @@ const demoWatcher = watch(
   { recursive: true },
   async (event, filename) => {
     console.log(`\nDemo file changed: ${filename}`)
+    await buildDemo()
+  }
+)
+
+// Watch for editor changes
+const editorsWatcher = watch(
+  EDITORS_DIR,
+  { recursive: true },
+  async (event, filename) => {
+    console.log(`\nEditor file changed: ${filename}`)
     await buildDemo()
   }
 )
@@ -132,6 +143,7 @@ console.log(`
   Watching for changes in:
   - ${SRC_DIR}/
   - ${DEMO_DIR}/src/
+  - ${EDITORS_DIR}/
   - *.md (root directory)
   
   Press Ctrl+C to stop
@@ -142,6 +154,7 @@ process.on('SIGINT', () => {
   console.log('\nShutting down...')
   watcher.close()
   demoWatcher.close()
+  editorsWatcher.close()
   mdWatcher.close()
   server.stop()
   process.exit(0)

@@ -42,15 +42,15 @@ greet('TJS')`,
     name: 'Required vs Optional',
     description: 'Difference between : and = in parameters',
     code: `// In TJS:
-//   param: 'default'  → required, string type
-//   param = 'default' → optional with default
+//   param: 'default'  --> required, string type
+//   param = 'default' --> optional with default
 
 function createUser(
   name: 'anonymous',      // required string
   email: 'user@example.com', // required string  
   age = 0,                // optional number, defaults to 0
   admin = false           // optional boolean, defaults to false
-) -> {} {
+) -> { name: '', email: '', age: 0, admin: false } {
   return { name, email, age, admin }
 }
 
@@ -61,31 +61,32 @@ createUser('Alice', 'alice@example.com')`,
     name: 'Object Types',
     description: 'Typed object parameters and returns',
     code: `// Object types are inferred from examples
+// Note: type annotations use flat objects
 
-function processOrder(order: {
-  id: 'ORD-001',
-  items: [{ name: 'Widget', qty: 1, price: 9.99 }],
-  customer: { name: 'John', email: 'john@example.com' }
-}) -> { total: 0, itemCount: 0 } {
-  const total = order.items.reduce(
-    (sum, item) => sum + item.qty * item.price, 
-    0
-  )
-  const itemCount = order.items.reduce(
-    (sum, item) => sum + item.qty, 
-    0
-  )
-  return { total, itemCount }
+function getFullName(person: { first: '', last: '' }) -> '' {
+  return person.first + ' ' + person.last
 }
 
-processOrder({
-  id: 'ORD-123',
-  items: [
-    { name: 'Gadget', qty: 2, price: 29.99 },
-    { name: 'Gizmo', qty: 1, price: 49.99 }
-  ],
-  customer: { name: 'Jane', email: 'jane@example.com' }
-})`,
+function createPoint(x: 0, y: 0) -> { x: 0, y: 0 } {
+  return { x, y }
+}
+
+function distance(p1: { x: 0, y: 0 }, p2: { x: 0, y: 0 }) -> 0 {
+  const dx = p2.x - p1.x
+  const dy = p2.y - p1.y
+  return Math.sqrt(dx * dx + dy * dy)
+}
+
+// Usage
+const name = getFullName({ first: 'Jane', last: 'Doe' })
+const origin = createPoint(0, 0)
+const point = createPoint(3, 4)
+const dist = distance(origin, point)
+
+console.log('Name:', name)
+console.log('Distance from origin:', dist)
+
+dist`,
   },
   {
     name: 'Array Types',
@@ -179,18 +180,18 @@ await fetchUsers(['alice', 'bob', 'charlie'])`,
     description: 'Type-safe error handling patterns',
     code: `// Result type pattern for error handling
 
-function divide(a: 10, b: 2) -> { ok: true, value: 0 } | { ok: false, error: '' } {
+function divide(a: 10, b: 2) -> { ok: true, value: 0, error: '' } {
   if (b === 0) {
-    return { ok: false, error: 'Division by zero' }
+    return { ok: false, value: 0, error: 'Division by zero' }
   }
-  return { ok: true, value: a / b }
+  return { ok: true, value: a / b, error: '' }
 }
 
-function safeParse(json: '{}') -> { ok: true, data: {} } | { ok: false, error: '' } {
+function safeParse(json: '{}') -> { ok: true, data: null, error: '' } {
   try {
-    return { ok: true, data: JSON.parse(json) }
+    return { ok: true, data: JSON.parse(json), error: '' }
   } catch (e) {
-    return { ok: false, error: e.message }
+    return { ok: false, data: null, error: e.message }
   }
 }
 
@@ -218,7 +219,7 @@ const UserSchema = Schema({
 })
 
 // Validate data
-function validateUser(data: {}) -> { valid: true, errors: [''] } {
+function validateUser(data: { name: '', email: '', age: 0 }) -> { valid: true, errors: [''] } {
   const errors = []
   
   if (!UserSchema.validate(data)) {
@@ -241,6 +242,7 @@ interface DocItem {
   filename: string
   text: string
   category?: 'ajs' | 'tjs' | 'general'
+  hidden?: boolean
 }
 
 interface DemoNavEvents {
@@ -312,13 +314,32 @@ export class DemoNav extends Component {
 
     const params = new URLSearchParams(hash)
     const section = params.get('section')
-    if (
+    const view = params.get('view')
+    const example = params.get('example')
+    
+    // Set view and open appropriate section
+    if (view === 'ajs') {
+      this._currentView = 'ajs'
+      this.openSection = 'ajs-demos'
+    } else if (view === 'tjs') {
+      this._currentView = 'tjs'
+      this.openSection = 'tjs-demos'
+    } else if (view === 'home') {
+      this._currentView = 'home'
+    } else if (
       section &&
       ['ajs-demos', 'tjs-demos', 'ajs-docs', 'tjs-docs'].includes(section)
     ) {
       this.openSection = section
-      this.rebuildNav()
     }
+    
+    // Set current example for highlighting
+    if (example) {
+      this._currentExample = example
+    }
+    
+    this.rebuildNav()
+    this.updateCurrentIndicator()
   }
 
   private saveStateToURL() {
@@ -459,6 +480,8 @@ export class DemoNav extends Component {
   connectedCallback() {
     super.connectedCallback()
     this.rebuildNav()
+    // Update indicator after DOM is ready
+    this.updateCurrentIndicator()
   }
 
   rebuildNav() {
@@ -602,19 +625,20 @@ export class DemoNav extends Component {
   getAjsDocs(): DocItem[] {
     return this.docs.filter(
       (d) =>
-        d.filename.includes('ASYNCJS') ||
-        d.filename.includes('PATTERNS') ||
-        d.filename === 'runtime.ts'
+        !d.hidden &&
+        (d.filename.includes('ASYNCJS') ||
+          d.filename.includes('PATTERNS') ||
+          d.filename === 'runtime.ts')
     )
   }
 
   getTjsDocs(): DocItem[] {
     return this.docs.filter(
       (d) =>
-        d.filename.includes('TJS') ||
-        d.filename === 'README.md' ||
-        d.filename === 'CONTEXT.md' ||
-        d.filename === 'PLAN.md'
+        !d.hidden &&
+        (d.filename.includes('TJS') ||
+          d.filename === 'CONTEXT.md' ||
+          d.filename === 'PLAN.md')
     )
   }
 

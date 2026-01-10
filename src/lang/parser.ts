@@ -292,8 +292,48 @@ function splitParameters(params: string): string[] {
   const result: string[] = []
   let current = ''
   let depth = 0
+  let inLineComment = false
+  let inBlockComment = false
+  let i = 0
 
-  for (const char of params) {
+  while (i < params.length) {
+    const char = params[i]
+    const nextChar = params[i + 1]
+
+    // Handle line comments
+    if (!inBlockComment && char === '/' && nextChar === '/') {
+      inLineComment = true
+      i += 2
+      continue
+    }
+
+    // Handle block comments
+    if (!inLineComment && char === '/' && nextChar === '*') {
+      inBlockComment = true
+      i += 2
+      continue
+    }
+
+    // End of line comment
+    if (inLineComment && char === '\n') {
+      inLineComment = false
+      i++
+      continue
+    }
+
+    // End of block comment
+    if (inBlockComment && char === '*' && nextChar === '/') {
+      inBlockComment = false
+      i += 2
+      continue
+    }
+
+    // Skip characters inside comments
+    if (inLineComment || inBlockComment) {
+      i++
+      continue
+    }
+
     if (char === '(' || char === '{' || char === '[') {
       depth++
       current += char
@@ -306,6 +346,7 @@ function splitParameters(params: string): string[] {
     } else {
       current += char
     }
+    i++
   }
 
   if (current.trim()) {

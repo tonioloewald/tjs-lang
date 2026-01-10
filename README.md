@@ -1,4 +1,4 @@
-<!--{"pin": "top"}-->
+<!--{"pin": "top", "hidden": true}-->
 
 # tosijs-agent
 

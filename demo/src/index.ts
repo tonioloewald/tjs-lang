@@ -440,17 +440,7 @@ if (main) {
           saveViewStateToURL('home')
         }) as EventListener)
 
-        // Sync nav state from URL on load
-        const syncNavState = () => {
-          const view = app.currentView.valueOf() as 'home' | 'ajs' | 'tjs'
-          nav.currentView = view
-          if (app.currentExample) {
-            nav.currentExample = (app.currentExample as any).name || null
-          }
-        }
-        
-        // Initial sync after a tick (to let nav render)
-        setTimeout(syncNavState, 0)
+        // Nav syncs its own state from URL - no need to overwrite on initial load
 
         return nav
       })(),
@@ -554,10 +544,13 @@ if (main) {
           bind(pg, 'app.currentExample', {
             toDOM(element: TJSPlayground, example: any) {
               if (example && app.currentView.valueOf() === 'tjs') {
-                // Set value on the TJS editor
+                // Set value on the TJS editor - unwrap Proxy if needed
                 setTimeout(() => {
                   if (element.parts?.tjsEditor) {
-                    element.parts.tjsEditor.value = example.code
+                    const code = typeof example.code === 'string' 
+                      ? example.code 
+                      : String(example.code)
+                    element.parts.tjsEditor.value = code
                   }
                 }, 0)
               }
