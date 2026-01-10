@@ -1,5 +1,7 @@
 /**
  * tjs run - Transpile and execute a TJS file
+ *
+ * Uses Bun's native eval for instant execution.
  */
 
 import { readFileSync } from 'fs'
@@ -16,13 +18,14 @@ export async function run(file: string): Promise<void> {
     process.exit(1)
   }
 
-  // Create a module from the transpiled code that returns the function
-  const moduleCode = `
-    ${result.code}
-    return ${fnName};
-  `
-
   try {
+    // Use Bun's native eval for instant execution
+    // The transpiled code is standard JS, so we can run it directly
+    const moduleCode = `
+      ${result.code}
+      return ${fnName};
+    `
+
     // Execute the transpiled code to get the function
     const fn = new Function(moduleCode)()
 

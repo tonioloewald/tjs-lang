@@ -11,6 +11,7 @@
   },
   "bin": {
     "tjs": "./src/cli/tjs.ts",
+    "tjsx": "./src/cli/tjsx.ts",
     "ajs-install-vscode": "./bin/install-vscode.sh",
     "ajs-install-cursor": "./bin/install-cursor.sh"
   },
