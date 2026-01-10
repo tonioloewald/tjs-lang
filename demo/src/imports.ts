@@ -141,9 +141,7 @@ export async function resolveModule(specifier: string): Promise<string> {
 /**
  * Resolve all imports in source code and return import map
  */
-export async function resolveImports(
-  source: string
-): Promise<{
+export async function resolveImports(source: string): Promise<{
   importMap: { imports: Record<string, string> }
   errors: string[]
 }> {

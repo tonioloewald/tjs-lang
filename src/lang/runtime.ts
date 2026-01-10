@@ -10,7 +10,46 @@
  * This runtime is attached to globalThis.__tjs and shared across modules.
  */
 
-export const TJS_VERSION = '0.1.0'
+// Version from package.json - injected at build time or imported
+// eslint-disable-next-line @typescript-eslint/no-var-requires
+const pkg = require('../../package.json') as { version: string }
+
+export const TJS_VERSION: string = pkg.version
+
+/**
+ * Parse semver version string into components
+ */
+function parseVersion(version: string): {
+  major: number
+  minor: number
+  patch: number
+} {
+  const [major = 0, minor = 0, patch = 0] = version.split('.').map(Number)
+  return { major, minor, patch }
+}
+
+/**
+ * Compare two version strings
+ * Returns: -1 if a < b, 0 if equal, 1 if a > b
+ */
+export function compareVersions(a: string, b: string): -1 | 0 | 1 {
+  const va = parseVersion(a)
+  const vb = parseVersion(b)
+
+  if (va.major !== vb.major) return va.major < vb.major ? -1 : 1
+  if (va.minor !== vb.minor) return va.minor < vb.minor ? -1 : 1
+  if (va.patch !== vb.patch) return va.patch < vb.patch ? -1 : 1
+  return 0
+}
+
+/**
+ * Check if two versions are compatible (same major version)
+ */
+export function versionsCompatible(a: string, b: string): boolean {
+  const va = parseVersion(a)
+  const vb = parseVersion(b)
+  return va.major === vb.major
+}
 
 /**
  * Error marker - identifies TJS error objects
@@ -201,21 +240,54 @@ export const runtime = {
   checkType,
   validateArgs,
   wrap,
+  compareVersions,
+  versionsCompatible,
 }
 
 /**
  * Install runtime globally (idempotent, version-checked)
+ *
+ * Version handling:
+ * - Same version: reuse existing (no warning)
+ * - Compatible (same major): reuse existing, log info
+ * - Incompatible (different major): warn, use newer version
  */
 export function installRuntime(): typeof runtime {
   const g = globalThis as any
 
   if (g.__tjs) {
-    // Already installed - check version compatibility
-    if (g.__tjs.version !== TJS_VERSION) {
-      console.warn(
-        `TJS runtime version mismatch: ${g.__tjs.version} vs ${TJS_VERSION}`
-      )
+    const existingVersion = g.__tjs.version
+    const comparison = compareVersions(TJS_VERSION, existingVersion)
+
+    if (comparison === 0) {
+      // Exact same version - just reuse
+      return g.__tjs
     }
+
+    if (versionsCompatible(TJS_VERSION, existingVersion)) {
+      // Same major version - compatible, use newer
+      if (comparison > 0) {
+        console.info(
+          `TJS runtime: upgrading ${existingVersion} → ${TJS_VERSION}`
+        )
+        g.__tjs = runtime
+      } else {
+        console.info(
+          `TJS runtime: keeping ${existingVersion} (newer than ${TJS_VERSION})`
+        )
+      }
+    } else {
+      // Different major version - breaking change potential
+      console.warn(
+        `TJS runtime version conflict: ${existingVersion} vs ${TJS_VERSION} (major version mismatch)`
+      )
+      // Use the newer one but warn about potential issues
+      if (comparison > 0) {
+        console.warn(`Upgrading to ${TJS_VERSION} - check for breaking changes`)
+        g.__tjs = runtime
+      }
+    }
+
     return g.__tjs
   }
 
