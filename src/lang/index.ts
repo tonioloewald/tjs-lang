@@ -55,6 +55,8 @@ export {
 export {
   extractTests,
   assertFunction,
+  expectFunction,
+  testUtils,
   type ExtractedTest,
   type ExtractedMock,
   type TestExtractionResult,

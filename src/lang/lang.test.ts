@@ -7,6 +7,7 @@ import {
   fromTS,
   lint,
   extractTests,
+  testUtils,
 } from './index'
 import { preprocess } from './parser'
 import { Schema } from './schema'
@@ -1171,6 +1172,41 @@ describe('Inline Tests', () => {
     const summary = await fn()
     expect(summary.passed).toBe(1)
     expect(summary.failed).toBe(0)
+  })
+
+  it('should support expect().toBe() API', async () => {
+    const result = extractTests(`
+      function add(a, b) { return a + b }
+      
+      test('expect API works') {
+        expect(add(2, 3)).toBe(5)
+        expect({ a: 1 }).toEqual({ a: 1 })
+        expect([1, 2, 3]).toContain(2)
+      }
+    `)
+    const fullCode = `${result.code}\n${testUtils}\nreturn ${result.testRunner}`
+
+    const fn = new Function(fullCode)
+    const summary = await fn()
+    expect(summary.passed).toBe(1)
+    expect(summary.failed).toBe(0)
+  })
+
+  it('should give meaningful error messages', async () => {
+    const result = extractTests(`
+      function getValue() { return 42 }
+      
+      test('wrong value') {
+        expect(getValue()).toBe(99)
+      }
+    `)
+    const fullCode = `${result.code}\n${testUtils}\nreturn ${result.testRunner}`
+
+    const fn = new Function(fullCode)
+    const summary = await fn()
+    expect(summary.failed).toBe(1)
+    expect(summary.results[0].error).toContain('Expected 99')
+    expect(summary.results[0].error).toContain('got 42')
   })
 })
 

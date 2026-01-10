@@ -19,7 +19,7 @@
  *   - testRunner: Generated code to execute tests
  */
 
-import { parse } from './parser'
+// Note: parser could be used for more robust test extraction in future
 
 export interface ExtractedTest {
   description: string
@@ -230,7 +230,7 @@ return { passed: __passed, failed: __failed, results: __results }
 }
 
 /**
- * Simple assert function for tests
+ * Test utilities - assert and expect
  * Include this in the runtime or inject it
  */
 export const assertFunction = `
@@ -240,6 +240,108 @@ function assert(condition, message) {
   }
 }
 `
+
+/**
+ * Expect API for richer test assertions
+ * Uses deep equality, handles null/undefined correctly
+ */
+export const expectFunction = `
+function expect(actual) {
+  const deepEqual = (a, b) => {
+    if (a === b) return true
+    if (a === null || b === null) return a === b
+    if (a === undefined || b === undefined) return a === undefined && b === undefined
+    if (typeof a !== typeof b) return false
+    if (typeof a !== 'object') return a === b
+    if (Array.isArray(a) !== Array.isArray(b)) return false
+    if (Array.isArray(a)) {
+      if (a.length !== b.length) return false
+      return a.every((v, i) => deepEqual(v, b[i]))
+    }
+    const keysA = Object.keys(a)
+    const keysB = Object.keys(b)
+    if (keysA.length !== keysB.length) return false
+    return keysA.every(k => deepEqual(a[k], b[k]))
+  }
+  
+  const format = (v) => {
+    if (v === null) return 'null'
+    if (v === undefined) return 'undefined'
+    if (typeof v === 'string') return JSON.stringify(v)
+    if (typeof v === 'object') return JSON.stringify(v)
+    return String(v)
+  }
+
+  return {
+    toBe(expected) {
+      if (!deepEqual(actual, expected)) {
+        throw new Error(\`Expected \${format(expected)} but got \${format(actual)}\`)
+      }
+    },
+    toEqual(expected) {
+      if (!deepEqual(actual, expected)) {
+        throw new Error(\`Expected \${format(expected)} but got \${format(actual)}\`)
+      }
+    },
+    toContain(item) {
+      if (!Array.isArray(actual) || !actual.some(v => deepEqual(v, item))) {
+        throw new Error(\`Expected \${format(actual)} to contain \${format(item)}\`)
+      }
+    },
+    toThrow(message) {
+      let threw = false
+      let thrownMessage = ''
+      try {
+        if (typeof actual === 'function') actual()
+      } catch (e) {
+        threw = true
+        thrownMessage = e.message || String(e)
+      }
+      if (!threw) {
+        throw new Error('Expected function to throw but it did not')
+      }
+      if (message && !thrownMessage.includes(message)) {
+        throw new Error(\`Expected error containing "\${message}" but got "\${thrownMessage}"\`)
+      }
+    },
+    toBeTruthy() {
+      if (!actual) {
+        throw new Error(\`Expected \${format(actual)} to be truthy\`)
+      }
+    },
+    toBeFalsy() {
+      if (actual) {
+        throw new Error(\`Expected \${format(actual)} to be falsy\`)
+      }
+    },
+    toBeNull() {
+      if (actual !== null) {
+        throw new Error(\`Expected null but got \${format(actual)}\`)
+      }
+    },
+    toBeUndefined() {
+      if (actual !== undefined) {
+        throw new Error(\`Expected undefined but got \${format(actual)}\`)
+      }
+    },
+    toBeGreaterThan(n) {
+      if (!(actual > n)) {
+        throw new Error(\`Expected \${format(actual)} to be greater than \${n}\`)
+      }
+    },
+    toBeLessThan(n) {
+      if (!(actual < n)) {
+        throw new Error(\`Expected \${format(actual)} to be less than \${n}\`)
+      }
+    }
+  }
+}
+`
+
+/**
+ * Combined test utilities (assert + expect)
+ */
+export const testUtils = assertFunction + '\n' + expectFunction
 
 /**
  * Questions/Notes:
