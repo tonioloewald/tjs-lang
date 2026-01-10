@@ -7,81 +7,68 @@ Iterations: 100,000 per test
 
 ## Summary
 
-| Benchmark                             | Baseline | TJS          | Unsafe        | Wrapped         |
-| ------------------------------------- | -------- | ------------ | ------------- | --------------- |
-| CLI: Bun + TypeScript                 | 13.0ms   | -            | -             | -               |
-| CLI: tjsx (execute TJS)               | 127.8ms  | -            | -             | -               |
-| CLI: tjs emit                         | 128.6ms  | -            | -             | -               |
-| CLI: tjs check                        | 132.9ms  | -            | -             | -               |
-| Simple arithmetic (100K iterations)   | 0.4ms    | 0.4ms (0.9x) | 0.6ms (1.4x)  | -               |
-| Object manipulation (100K iterations) | 0.9ms    | 0.8ms (0.8x) | 0.9ms (~1.0x) | -               |
-| wrap() validation (100K iterations)   | 0.4ms    | -            | -             | 21.4ms (49.2x)  |
-| 3-function chain (100K iterations)    | 0.4ms    | -            | -             | 46.5ms (104.1x) |
+| Benchmark | Baseline | Safe (default) | Unsafe (!) | Unsafe {} |
+|-----------|----------|----------------|------------|-----------|
+| CLI: Bun + TypeScript | 14.8ms | - | - | - |
+| CLI: tjsx (execute TJS) | 131.4ms | - | - | - |
+| CLI: tjs emit | 132.3ms | - | - | - |
+| CLI: tjs check | 133.0ms | - | - | - |
+| Simple arithmetic (100K iterations) | 0.3ms | 0.4ms (1.2x) | 0.4ms (1.3x) | 0.5ms (1.6x) |
+| Object manipulation (100K iterations) | 0.8ms | 0.8ms (~1.0x) | 0.9ms (1.1x) | 1.0ms (1.2x) |
+| 3-function chain (100K iterations) | 0.5ms | 0.5ms (0.9x) | 0.5ms (0.9x) | - |
 
 ## Key Findings
 
 ### CLI Cold Start
 
-- **Bun + TypeScript**: ~13ms (native, baseline)
-- **tjsx**: ~128ms (includes TJS transpiler load)
-- **Overhead**: 115ms for transpiler initialization
+- **Bun + TypeScript**: ~15ms (native, baseline)
+- **tjsx**: ~131ms (includes TJS transpiler load)
+- **Overhead**: 117ms for transpiler initialization
 
-The ~115ms overhead is from loading the acorn parser and TJS transpiler.
+The ~117ms overhead is from loading the acorn parser and TJS transpiler.
 A compiled binary (via `bun build --compile`) reduces this to ~20ms.
 
-### Transpiled Code Overhead
+### Safe vs Unsafe Functions
 
-TJS transpiled code has **negligible overhead** compared to plain JavaScript:
-
-- Simple arithmetic: 0.9x
-- Object manipulation: 0.8x
-
-The transpiler just converts syntax; the output is standard JS.
-
-### `unsafe` Block Overhead
-
-The `unsafe` block adds a try-catch wrapper:
-
-- Simple operations: 1.4x
-- Object operations: ~1.0x
-
-The try-catch overhead is amortized when the loop is inside the unsafe block.
-
-### `wrap()` Validation Overhead
-
-Runtime type validation via `wrap()` adds significant overhead:
-
-- Single function: 49.2x
-- 3-function chain: 104.1x
-- Per-call cost: ~0.2µs
-
-**Recommendation**: Use `wrap()` at API boundaries, not in hot loops.
-
-### Error Short-Circuit Benefit
-
-When an error propagates through wrapped functions, subsequent functions
-are **not executed**. This is the monadic "fail fast" behavior:
+TJS functions are **safe by default** with runtime type validation.
+Use `(!)` to mark functions as unsafe for performance-critical code:
 
 ```javascript
-const result = step3(step2(step1(errorValue)))
-// If step1 returns an error, step2 and step3 are skipped
+// Safe (default) - validates types at runtime
+function add(a: 0, b: 0) -> 0 { return a + b }
+
+// Unsafe - no validation, maximum performance  
+function fastAdd(! a: 0, b: 0) -> 0 { return a + b }
 ```
+
+Performance comparison:
+- Simple arithmetic: Safe 1.2x vs Unsafe 1.3x
+- Object manipulation: Safe ~1.0x vs Unsafe 1.1x
+- 3-function chain: Safe 0.9x vs Unsafe 0.9x
+
+### `unsafe {}` Block Overhead
+
+The `unsafe {}` block adds a try-catch wrapper within a safe function:
+- Simple operations: 1.6x
+- Object operations: 1.2x
+
+Use `unsafe {}` for hot loops inside validated functions.
 
 ## Recommendations
 
-1. **Don't wrap hot loops** - Use `wrap()` at API boundaries only
-2. **Use `unsafe` for performance-critical internals** - After validation at the boundary
-3. **Leverage error short-circuit** - Chain wrapped functions for automatic error propagation
-4. **Consider compiled binary for CLI tools** - `bun build --compile` for ~20ms startup
+1. **Use safe functions at API boundaries** - The default is correct for most code
+2. **Use `(!)` for internal hot paths** - When inputs are already validated
+3. **Use `unsafe {}` for inner loops** - Keep param validation, skip inner checks
+4. **Consider compiled binary for CLI** - `bun build --compile` for ~20ms startup
 
 ## Running Benchmarks
 
 ```bash
-bun bin/benchmarks.ts
+bun run bench
 ```
 
 Or run the test suite with timing output:
 
 ```bash
-SKIP_LLM_TESTS=1 bun test src/lang/perf.test.ts
+bun test src/lang/perf.test.ts
 ```
