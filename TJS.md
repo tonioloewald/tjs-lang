@@ -167,41 +167,64 @@ if (isError(result)) {
 }
 ```
 
-### The `wrap()` Function
+### Safe by Default
 
-Wrap functions for runtime type validation:
+TJS functions are wrapped with runtime type validation by default:
 
 ```javascript
-const safeAdd = wrap((a, b) => a + b, {
-  params: {
-    a: { type: 'number', required: true },
-    b: { type: 'number', required: true },
-  },
-  returns: { type: 'number' },
-})
+function add(a: 0, b: 0) -> 0 {
+  return a + b
+}
 
-safeAdd(1, 2) // 3
-safeAdd('1', 2) // Error: expected number, got string
+add(1, 2)      // 3
+add('1', 2)    // Error: expected number, got string
+add(null, 2)   // Error: expected number, got null
 ```
+
+This provides excellent error messages and catches type mismatches at runtime.
+
+### Unsafe Functions with `(!)`
+
+For performance-critical code, mark functions as unsafe with `(!)`:
+
+```javascript
+// The ! after ( marks this function as unsafe (no runtime validation)
+function fastAdd(! a: 0, b: 0) -> 0 {
+  return a + b
+}
+
+fastAdd(1, 2)      // 3 (fast path, no validation)
+fastAdd('1', 2)    // NaN (no validation, garbage in = garbage out)
+```
+
+The `!` is borrowed from TypeScript's non-null assertion operator - it means "I know what I'm doing, trust me."
 
 ### The `unsafe` Block
 
-Skip type validation for performance-critical code:
+For unsafe sections within a safe function, use `unsafe {}`:
 
 ```javascript
-function fastSum(numbers: [0]) -> 0 {
-  // ~35x faster than wrapped version
+function sum(numbers: [0]) -> 0 {
+  // Parameters are validated, but the inner loop is unsafe
   unsafe {
-    let sum = 0
+    let total = 0
     for (let i = 0; i < numbers.length; i++) {
-      sum += numbers[i]
+      total += numbers[i]
     }
-    return sum
+    return total
   }
 }
 ```
 
-Use `unsafe` at API boundaries after validation, not for skipping validation entirely.
+### Performance Characteristics
+
+| Mode | Overhead | Use Case |
+|------|----------|----------|
+| Default (safe) | ~50x | API boundaries, user input |
+| `unsafe {}` block | ~1.2x | Hot loops within validated functions |
+| `(!)` function | 0x | Internal utilities, performance critical |
+
+Use `(!)` for internal functions that are called frequently with known-good data. Keep public APIs safe.
 
 ## Testing
 
@@ -267,15 +290,16 @@ test('async operations work') {
 
 ### Added
 
-| Feature         | Purpose                         |
-| --------------- | ------------------------------- |
-| `: example`     | Required parameter with type    |
-| `= example`     | Optional parameter with default |
-| `-> Type`       | Return type annotation          |
-| `test() {}`     | Inline test block               |
-| `mock {}`       | Test setup block                |
-| `unsafe {}`     | Skip type validation            |
-| `\|\|` in types | Union types                     |
+| Feature         | Purpose                              |
+| --------------- | ------------------------------------ |
+| `: example`     | Required parameter with type         |
+| `= example`     | Optional parameter with default      |
+| `-> Type`       | Return type annotation               |
+| `(!)`           | Mark function as unsafe (no validation) |
+| `test() {}`     | Inline test block                    |
+| `mock {}`       | Test setup block                     |
+| `unsafe {}`     | Skip validation for a block          |
+| `\|\|` in types | Union types                          |
 
 ## Differences from TypeScript
 
@@ -411,14 +435,14 @@ function send(
 ### 2. Validate at Boundaries
 
 ```javascript
-// Public API - use wrap() for validation
-export const createUser = wrap(createUserImpl, createUserImpl.__tjs)
+// Public API - safe by default
+export function createUser(name: '', email: '') -> { id: '', name: '', email: '' } {
+  return createUserImpl(name, email)
+}
 
-// Internal - skip validation for speed
-function createUserImpl(name: '', email: '') -> { id: '', name: '', email: '' } {
-  unsafe {
-    return { id: crypto.randomUUID(), name, email }
-  }
+// Internal - mark as unsafe for speed
+function createUserImpl(! name: '', email: '') -> { id: '', name: '', email: '' } {
+  return { id: crypto.randomUUID(), name, email }
 }
 ```
 

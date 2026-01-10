@@ -750,6 +750,57 @@ describe('TJS Emitter', () => {
       expect(result.types.returns?.shape?.result.kind).toBe('number')
     })
   })
+
+  describe('Unsafe functions with (!) syntax', () => {
+    it('should mark function as unsafe when using (!) syntax', () => {
+      const result = transpileToJS(`
+        function fastAdd(! a: 0, b: 0) -> 0 {
+          return a + b
+        }
+      `)
+      expect(result.code).toContain('"unsafe": true')
+    })
+
+    it('should NOT mark function as unsafe without (!) syntax', () => {
+      const result = transpileToJS(`
+        function safeAdd(a: 0, b: 0) -> 0 {
+          return a + b
+        }
+      `)
+      expect(result.code).not.toContain('"unsafe"')
+    })
+
+    it('should strip (!) from output code', () => {
+      const result = transpileToJS(`
+        function test(! x: 0) {
+          return x
+        }
+      `)
+      expect(result.code).toContain('function test(x = 0)')
+      expect(result.code).not.toContain('!')
+    })
+
+    it('should handle (!) with empty params', () => {
+      const result = transpileToJS(`
+        function noArgs(!) {
+          return 42
+        }
+      `)
+      expect(result.code).toContain('function noArgs()')
+      expect(result.code).toContain('"unsafe": true')
+    })
+
+    it('should preserve type metadata for unsafe functions', () => {
+      const result = transpileToJS(`
+        function compute(! x: 0, y: 'str') -> 0 {
+          return x
+        }
+      `)
+      expect(result.types.params.x.type.kind).toBe('number')
+      expect(result.types.params.y.type.kind).toBe('string')
+      expect(result.types.returns?.kind).toBe('number')
+    })
+  })
 })
 
 describe('TypeScript to TJS Transpiler', () => {

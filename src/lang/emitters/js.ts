@@ -24,6 +24,7 @@ import { parseExpressionAt } from 'acorn'
 import { parse, extractJSDoc, preprocess } from '../parser'
 import type { TypeDescriptor, ParameterDescriptor } from '../types'
 import { inferTypeFromValue, parseParameter } from '../inference'
+import { extractTests } from '../tests'
 
 export interface TJSTranspileOptions {
   /** Filename for error messages */
@@ -39,8 +40,14 @@ export interface TJSTranspileResult {
   code: string
   /** Type information for the function(s) */
   types: TJSTypeInfo
+  /** Function metadata (alias for types, used by runtime) */
+  metadata: TJSTypeInfo
   /** Any warnings during transpilation */
   warnings?: string[]
+  /** Generated test runner code (if tests were present) */
+  testRunner?: string
+  /** Number of tests extracted */
+  testCount?: number
 }
 
 export interface TJSTypeInfo {
@@ -64,13 +71,17 @@ export function transpileToJS(
   const { filename = '<source>' } = options
   const warnings: string[] = []
 
-  // Parse the source (handles TJS syntax like x: 'type' and -> ReturnType)
+  // Extract test/mock blocks before parsing (they're not valid JS)
+  const { code: cleanSource, tests, mocks, testRunner } = extractTests(source)
+
+  // Parse the cleaned source (handles TJS syntax like x: 'type' and -> ReturnType)
   const {
     ast: program,
     returnType,
     originalSource,
     requiredParams,
-  } = parse(source, {
+    unsafeFunctions,
+  } = parse(cleanSource, {
     filename,
     colonShorthand: true,
   })
@@ -132,15 +143,23 @@ export function transpileToJS(
   // Generate the JavaScript code
   // Use the parser's preprocess which handles all TJS syntax transformations
   // including: `x: 'type'` -> `x = 'type'`, `-> Type` removal, and `unsafe { }` blocks
-  const preprocessed = preprocess(source)
+  const preprocessed = preprocess(cleanSource)
 
   // Add type metadata
   const funcName = func.id?.name || 'anonymous'
-  const typeMetadata = generateTypeMetadata(funcName, types)
+  const isUnsafe = unsafeFunctions.has(funcName)
+  const typeMetadata = generateTypeMetadata(funcName, types, isUnsafe)
 
   const code = `${preprocessed.source}\n\n${typeMetadata}`
 
-  return { code, types, warnings: warnings.length > 0 ? warnings : undefined }
+  return {
+    code,
+    types,
+    metadata: types, // alias for runtime compatibility
+    warnings: warnings.length > 0 ? warnings : undefined,
+    testRunner: tests.length > 0 ? testRunner : undefined,
+    testCount: tests.length > 0 ? tests.length : undefined,
+  }
 }
 
 /**
@@ -157,8 +176,16 @@ function findMainFunction(program: Program): FunctionDeclaration | null {
 
 /**
  * Generate type metadata code
+ *
+ * @param funcName - Function name
+ * @param types - Type information
+ * @param isUnsafe - If true, function was marked with (!) and should NOT be wrapped
  */
-function generateTypeMetadata(funcName: string, types: TJSTypeInfo): string {
+function generateTypeMetadata(
+  funcName: string,
+  types: TJSTypeInfo,
+  isUnsafe: boolean
+): string {
   const paramsObj: Record<string, any> = {}
 
   for (const [name, param] of Object.entries(types.params)) {
@@ -184,6 +211,11 @@ function generateTypeMetadata(funcName: string, types: TJSTypeInfo): string {
 
   if (types.description) {
     metadata.description = types.description
+  }
+
+  // Mark unsafe functions - they skip runtime validation wrapping
+  if (isUnsafe) {
+    metadata.unsafe = true
   }
 
   return `${funcName}.__tjs = ${JSON.stringify(metadata, null, 2)}`

@@ -58,6 +58,9 @@ export const TJS_PATTERNS = {
   // Return type annotation: -> Type
   returnType: /\)\s*->\s*(\{[^}]+\}|'[^']*'|"[^"]*"|\[[^\]]*\]|\w+)/,
 
+  // Unsafe function marker: function name(! or function name(!
+  unsafeFunction: /function\s+(\w+)\s*\(\s*!/,
+
   // Test block: test('description') { ... }
   testBlock: /test\s*\(\s*(['"`])([^'"`]*)\1\s*\)\s*\{/,
 

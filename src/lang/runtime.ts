@@ -186,10 +186,18 @@ export function wrap<T extends (...args: any[]) => any>(
   meta: { params: Record<string, any>; returns?: any }
 ): T {
   const wrapped = function (this: any, ...args: Parameters<T>): ReturnType<T> {
+    // Check for error as first arg immediately (before arg processing)
+    if (args.length > 0 && isError(args[0])) {
+      return args[0] as ReturnType<T>
+    }
+
     // Convert positional args to named args if needed
     const paramNames = Object.keys(meta.params)
     const namedArgs: Record<string, unknown> =
-      args.length === 1 && typeof args[0] === 'object' && args[0] !== null
+      args.length === 1 &&
+      typeof args[0] === 'object' &&
+      args[0] !== null &&
+      !isError(args[0])
         ? args[0]
         : Object.fromEntries(paramNames.map((name, i) => [name, args[i]]))
 

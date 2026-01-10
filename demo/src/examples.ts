@@ -111,10 +111,15 @@ test('async operations work in tests') {
   expect(true).toBe(true)
 }
 
-// unsafe block for performance-critical code
+// Unsafe function with (!) - skips all runtime validation
+function fastAdd(! a: 0, b: 0) -> 0 {
+  return a + b
+}
+
+// unsafe block for performance-critical code within a safe function
 function fastSum(numbers: [0]) -> 0 {
   /*
-  Performance-critical path using unsafe block.
+  Parameters are validated, but the inner loop is unsafe.
   Skips runtime type validation for ~35x speedup.
   */
   unsafe {
@@ -172,6 +177,7 @@ This file demonstrates TJS syntax highlighting for:
 | Required param | \`name: 'example'\` |
 | Optional param | \`name = 'default'\` |
 | Return type | \`-> Type\` |
+| Unsafe function | \`function foo(! x: 0) { }\` |
 | Test block | \`test('desc') { }\` |
 | Mock block | \`mock { }\` |
 | Unsafe block | \`unsafe { }\` |
@@ -179,9 +185,6 @@ This file demonstrates TJS syntax highlighting for:
 
 Check that all keywords and constructs are properly highlighted!
 */
-
-// Export for playground
-return { greet, divide, createUser, fastSum, parseValue, processItems, mergeConfig }
 `,
   },
   {

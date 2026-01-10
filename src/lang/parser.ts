@@ -34,23 +34,47 @@ export function preprocess(source: string): {
   returnType?: string
   originalSource: string
   requiredParams: Set<string>
+  unsafeFunctions: Set<string>
 } {
   const originalSource = source
   let returnType: string | undefined
   const requiredParams = new Set<string>()
+  const unsafeFunctions = new Set<string>()
+
+  // Handle unsafe function marker: function foo(!) or function foo(! params)
+  // The ! after ( marks the function as unsafe (no runtime type validation)
+  // Transform: function foo(! x: 'str') -> function foo(x: 'str') and track foo as unsafe
+  source = source.replace(
+    /function\s+(\w+)\s*\(\s*!\s*/g,
+    (match, funcName) => {
+      unsafeFunctions.add(funcName)
+      return `function ${funcName}(`
+    }
+  )
+
+  // Also handle arrow functions: (! params) => or (!) =>
+  source = source.replace(
+    /\(\s*!\s*([^)]*)\)\s*=>/g,
+    (match, params) => {
+      // Arrow functions are anonymous, mark via comment for now
+      return `(/* unsafe */ ${params}) =>`
+    }
+  )
 
   // Handle return type annotation: ) -> Type {
   // Match balanced braces for object types
+  // NOTE: We capture the FIRST return type for the main function (for single-function analysis)
+  // but we globally remove ALL -> Type patterns for multi-function files
   const returnTypeMatch = source.match(
     /\)\s*->\s*(\{[\s\S]*?\}|\[[^\]]*\]|'[^']*'|\d+|true|false|null|undefined)\s*\{(?!\s*\w+:)/
   )
   if (returnTypeMatch) {
     returnType = returnTypeMatch[1]
-    // Remove the -> Type part, keeping ) and {
-    const pattern =
-      /\)\s*->\s*(?:\{[\s\S]*?\}|\[[^\]]*\]|'[^']*'|\d+|true|false|null|undefined)\s*(\{)(?!\s*\w+:)/
-    source = source.replace(pattern, ') $1')
   }
+  // Remove ALL -> Type parts globally, keeping ) and {
+  const returnTypePattern =
+    /\)\s*->\s*(?:\{[\s\S]*?\}|\[[^\]]*\]|'[^']*'|\d+|true|false|null|undefined)\s*(\{)(?!\s*\w+:)/g
+  source = source.replace(returnTypePattern, ') $1')
 
   // Handle colon shorthand in parameters: (x: type) -> (x = type)
   // Track which params used colon syntax (they're required)
@@ -160,7 +184,7 @@ export function preprocess(source: string): {
   // This is the idiomatic TJS way to convert exceptions to AgentError
   source = transformTryWithoutCatch(source)
 
-  return { source, returnType, originalSource, requiredParams }
+  return { source, returnType, originalSource, requiredParams, unsafeFunctions }
 }
 
 /**
@@ -305,6 +329,7 @@ export function parse(
   returnType?: string
   originalSource: string
   requiredParams: Set<string>
+  unsafeFunctions: Set<string>
 } {
   const { filename = '<source>', colonShorthand = true } = options
 
@@ -314,6 +339,7 @@ export function parse(
     returnType,
     originalSource,
     requiredParams,
+    unsafeFunctions,
   } = colonShorthand
     ? preprocess(source)
     : {
@@ -321,6 +347,7 @@ export function parse(
         returnType: undefined,
         originalSource: source,
         requiredParams: new Set<string>(),
+        unsafeFunctions: new Set<string>(),
       }
 
   try {
@@ -331,7 +358,7 @@ export function parse(
       allowReturnOutsideFunction: false,
     })
 
-    return { ast, returnType, originalSource, requiredParams }
+    return { ast, returnType, originalSource, requiredParams, unsafeFunctions }
   } catch (e: any) {
     // Convert Acorn error to our error type
     const loc = e.loc || { line: 1, column: 0 }

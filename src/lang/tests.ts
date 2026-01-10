@@ -208,9 +208,8 @@ function generateTestRunner(
     )
     .join('\n')
 
-  return `
-// TJS Test Runner - Generated
-(async () => {
+  // Note: No comment before IIFE - ASI would break `return (async...)` if comment is between
+  return `(async () => {
 const __results = []
 
 ${testCases}
@@ -225,8 +224,7 @@ __results.filter(r => !r.passed).forEach(r => {
 
 // Return summary
 return { passed: __passed, failed: __failed, results: __results }
-})()
-`.trim()
+})()`.trim()
 }
 
 /**
