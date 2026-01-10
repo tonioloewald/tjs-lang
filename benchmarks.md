@@ -7,34 +7,34 @@ Iterations: 100,000 per test
 
 ## Summary
 
-| Benchmark                             | Baseline | TJS          | Unsafe       | Wrapped         |
-| ------------------------------------- | -------- | ------------ | ------------ | --------------- |
-| CLI: Bun + TypeScript                 | 10.9ms   | -            | -            | -               |
-| CLI: tjsx (execute TJS)               | 116.0ms  | -            | -            | -               |
-| CLI: tjs emit                         | 115.0ms  | -            | -            | -               |
-| CLI: tjs check                        | 117.0ms  | -            | -            | -               |
-| Simple arithmetic (100K iterations)   | 0.4ms    | 0.4ms (1.2x) | 0.5ms (1.4x) | -               |
-| Object manipulation (100K iterations) | 1.0ms    | 0.9ms (0.9x) | 1.1ms (1.1x) | -               |
-| wrap() validation (100K iterations)   | 0.4ms    | -            | -            | 20.3ms (53.2x)  |
-| 3-function chain (100K iterations)    | 0.4ms    | -            | -            | 43.1ms (107.7x) |
+| Benchmark                             | Baseline | TJS          | Unsafe        | Wrapped         |
+| ------------------------------------- | -------- | ------------ | ------------- | --------------- |
+| CLI: Bun + TypeScript                 | 13.0ms   | -            | -             | -               |
+| CLI: tjsx (execute TJS)               | 127.8ms  | -            | -             | -               |
+| CLI: tjs emit                         | 128.6ms  | -            | -             | -               |
+| CLI: tjs check                        | 132.9ms  | -            | -             | -               |
+| Simple arithmetic (100K iterations)   | 0.4ms    | 0.4ms (0.9x) | 0.6ms (1.4x)  | -               |
+| Object manipulation (100K iterations) | 0.9ms    | 0.8ms (0.8x) | 0.9ms (~1.0x) | -               |
+| wrap() validation (100K iterations)   | 0.4ms    | -            | -             | 21.4ms (49.2x)  |
+| 3-function chain (100K iterations)    | 0.4ms    | -            | -             | 46.5ms (104.1x) |
 
 ## Key Findings
 
 ### CLI Cold Start
 
-- **Bun + TypeScript**: ~11ms (native, baseline)
-- **tjsx**: ~116ms (includes TJS transpiler load)
-- **Overhead**: 105ms for transpiler initialization
+- **Bun + TypeScript**: ~13ms (native, baseline)
+- **tjsx**: ~128ms (includes TJS transpiler load)
+- **Overhead**: 115ms for transpiler initialization
 
-The ~105ms overhead is from loading the acorn parser and TJS transpiler.
+The ~115ms overhead is from loading the acorn parser and TJS transpiler.
 A compiled binary (via `bun build --compile`) reduces this to ~20ms.
 
 ### Transpiled Code Overhead
 
 TJS transpiled code has **negligible overhead** compared to plain JavaScript:
 
-- Simple arithmetic: 1.2x
-- Object manipulation: 0.9x
+- Simple arithmetic: 0.9x
+- Object manipulation: 0.8x
 
 The transpiler just converts syntax; the output is standard JS.
 
@@ -43,7 +43,7 @@ The transpiler just converts syntax; the output is standard JS.
 The `unsafe` block adds a try-catch wrapper:
 
 - Simple operations: 1.4x
-- Object operations: 1.1x
+- Object operations: ~1.0x
 
 The try-catch overhead is amortized when the loop is inside the unsafe block.
 
@@ -51,8 +51,8 @@ The try-catch overhead is amortized when the loop is inside the unsafe block.
 
 Runtime type validation via `wrap()` adds significant overhead:
 
-- Single function: 53.2x
-- 3-function chain: 107.7x
+- Single function: 49.2x
+- 3-function chain: 104.1x
 - Per-call cost: ~0.2µs
 
 **Recommendation**: Use `wrap()` at API boundaries, not in hot loops.

@@ -218,11 +218,11 @@ function sum(numbers: [0]) -> 0 {
 
 ### Performance Characteristics
 
-| Mode | Overhead | Use Case |
-|------|----------|----------|
-| Default (safe) | ~50x | API boundaries, user input |
-| `unsafe {}` block | ~1.2x | Hot loops within validated functions |
-| `(!)` function | 0x | Internal utilities, performance critical |
+| Mode              | Overhead | Use Case                                 |
+| ----------------- | -------- | ---------------------------------------- |
+| Default (safe)    | ~50x     | API boundaries, user input               |
+| `unsafe {}` block | ~1.2x    | Hot loops within validated functions     |
+| `(!)` function    | 0x       | Internal utilities, performance critical |
 
 Use `(!)` for internal functions that are called frequently with known-good data. Keep public APIs safe.
 
@@ -290,16 +290,16 @@ test('async operations work') {
 
 ### Added
 
-| Feature         | Purpose                              |
-| --------------- | ------------------------------------ |
-| `: example`     | Required parameter with type         |
-| `= example`     | Optional parameter with default      |
-| `-> Type`       | Return type annotation               |
+| Feature         | Purpose                                 |
+| --------------- | --------------------------------------- |
+| `: example`     | Required parameter with type            |
+| `= example`     | Optional parameter with default         |
+| `-> Type`       | Return type annotation                  |
 | `(!)`           | Mark function as unsafe (no validation) |
-| `test() {}`     | Inline test block                    |
-| `mock {}`       | Test setup block                     |
-| `unsafe {}`     | Skip validation for a block          |
-| `\|\|` in types | Union types                          |
+| `test() {}`     | Inline test block                       |
+| `mock {}`       | Test setup block                        |
+| `unsafe {}`     | Skip validation for a block             |
+| `\|\|` in types | Union types                             |
 
 ## Differences from TypeScript
 

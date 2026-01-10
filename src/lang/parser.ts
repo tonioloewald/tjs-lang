@@ -53,13 +53,10 @@ export function preprocess(source: string): {
   )
 
   // Also handle arrow functions: (! params) => or (!) =>
-  source = source.replace(
-    /\(\s*!\s*([^)]*)\)\s*=>/g,
-    (match, params) => {
-      // Arrow functions are anonymous, mark via comment for now
-      return `(/* unsafe */ ${params}) =>`
-    }
-  )
+  source = source.replace(/\(\s*!\s*([^)]*)\)\s*=>/g, (match, params) => {
+    // Arrow functions are anonymous, mark via comment for now
+    return `(/* unsafe */ ${params}) =>`
+  })
 
   // Handle return type annotation: ) -> Type {
   // Match balanced braces for object types
