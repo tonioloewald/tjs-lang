@@ -52,6 +52,13 @@ export {
   type LintDiagnostic,
   type LintOptions,
 } from './linter'
+export {
+  extractTests,
+  assertFunction,
+  type ExtractedTest,
+  type ExtractedMock,
+  type TestExtractionResult,
+} from './tests'
 
 /**
  * Transpile JavaScript source code to Agent99 AST

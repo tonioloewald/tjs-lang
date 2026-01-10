@@ -1,5 +1,13 @@
 import { describe, it, expect } from 'bun:test'
-import { transpile, ajs, tjs, transpileToJS, fromTS, lint } from './index'
+import {
+  transpile,
+  ajs,
+  tjs,
+  transpileToJS,
+  fromTS,
+  lint,
+  extractTests,
+} from './index'
 import { preprocess } from './parser'
 import { Schema } from './schema'
 
@@ -1050,6 +1058,98 @@ describe('Schema callable', () => {
       expect(schema.validate(['a', 'b', 'c'])).toBe(true)
       expect(schema.validate([1, 2, 3])).toBe(false)
     })
+  })
+})
+
+// Inline tests extraction
+describe('Inline Tests', () => {
+  it('should extract test blocks from source', () => {
+    const result = extractTests(`
+      function add(a, b) { return a + b }
+      
+      test('adds numbers') {
+        assert(add(2, 3) === 5)
+      }
+    `)
+    expect(result.tests.length).toBe(1)
+    expect(result.tests[0].description).toBe('adds numbers')
+    expect(result.tests[0].body).toContain('assert')
+  })
+
+  it('should remove tests from output code', () => {
+    const result = extractTests(`
+      function add(a, b) { return a + b }
+      
+      test('adds numbers') {
+        assert(add(2, 3) === 5)
+      }
+    `)
+    expect(result.code).toContain('function add')
+    expect(result.code).not.toContain('test(')
+  })
+
+  it('should extract multiple tests', () => {
+    const result = extractTests(`
+      function math(a, b) { return a + b }
+      
+      test('adds') {
+        assert(math(1, 2) === 3)
+      }
+      
+      test('handles zero') {
+        assert(math(0, 5) === 5)
+      }
+    `)
+    expect(result.tests.length).toBe(2)
+    expect(result.tests[0].description).toBe('adds')
+    expect(result.tests[1].description).toBe('handles zero')
+  })
+
+  it('should extract mock blocks', () => {
+    const result = extractTests(`
+      function process(x) { return x }
+      
+      mock {
+        const testData = [1, 2, 3]
+      }
+      
+      test('uses mock') {
+        assert(testData.length === 3)
+      }
+    `)
+    expect(result.mocks.length).toBe(1)
+    expect(result.mocks[0].body).toContain('testData')
+  })
+
+  it('should generate test runner code', () => {
+    const result = extractTests(`
+      function add(a, b) { return a + b }
+      
+      test('works') {
+        assert(add(1, 1) === 2)
+      }
+    `)
+    expect(result.testRunner).toContain('__results')
+    expect(result.testRunner).toContain('passed')
+    expect(result.testRunner).toContain('works')
+  })
+
+  it('should execute tests via concatenation', () => {
+    const result = extractTests(`
+      function add(a, b) { return a + b }
+      
+      test('adds correctly') {
+        assert(add(2, 3) === 5)
+      }
+    `)
+    // Concatenate code + assert + testRunner
+    const assert = `function assert(c, m) { if (!c) throw new Error(m || 'fail') }`
+    const fullCode = `${result.code}\n${assert}\n${result.testRunner}`
+
+    const fn = new Function(fullCode)
+    const summary = fn()
+    expect(summary.passed).toBe(1)
+    expect(summary.failed).toBe(0)
   })
 })
 
