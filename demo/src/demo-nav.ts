@@ -273,7 +273,6 @@ export class DemoNav extends Component {
   
   set currentView(value: 'home' | 'ajs' | 'tjs') {
     this._currentView = value
-    this.updateCurrentIndicator()
     // Auto-open the appropriate section
     if (value === 'ajs') {
       this.openSection = 'ajs-demos'
@@ -281,6 +280,8 @@ export class DemoNav extends Component {
       this.openSection = 'tjs-demos'
     }
     this.rebuildNav()
+    // Update indicator after rebuild (DOM now exists)
+    this.updateCurrentIndicator()
   }
   
   get currentExample() {
