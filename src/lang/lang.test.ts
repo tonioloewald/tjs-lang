@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'bun:test'
-import { transpile, ajs, tjs, transpileToJS, fromTS } from './index'
+import { transpile, ajs, tjs, transpileToJS, fromTS, lint } from './index'
 import { preprocess } from './parser'
 import { Schema } from './schema'
 
@@ -1050,6 +1050,65 @@ describe('Schema callable', () => {
       expect(schema.validate(['a', 'b', 'c'])).toBe(true)
       expect(schema.validate([1, 2, 3])).toBe(false)
     })
+  })
+})
+
+// Linter tests
+describe('Linter', () => {
+  it('should detect unused variables', () => {
+    const result = lint(`
+      function test(x: 0) {
+        const unused = 5
+        return x
+      }
+    `)
+    expect(result.diagnostics.length).toBeGreaterThan(0)
+    expect(result.diagnostics[0].rule).toBe('no-unused-vars')
+    expect(result.diagnostics[0].message).toContain('unused')
+  })
+
+  it('should not warn for used variables', () => {
+    const result = lint(`
+      function test(x: 0) {
+        const y = x + 1
+        return y
+      }
+    `)
+    const unusedWarnings = result.diagnostics.filter(
+      (d) => d.rule === 'no-unused-vars'
+    )
+    expect(unusedWarnings.length).toBe(0)
+  })
+
+  it('should detect unreachable code', () => {
+    const result = lint(`
+      function test(x: 0) {
+        return x
+        const dead = 5
+      }
+    `)
+    const unreachable = result.diagnostics.filter(
+      (d) => d.rule === 'no-unreachable'
+    )
+    expect(unreachable.length).toBeGreaterThan(0)
+  })
+
+  it('should ignore variables prefixed with _', () => {
+    const result = lint(`
+      function test(_unused: 0, x: 0) {
+        return x
+      }
+    `)
+    const unusedWarnings = result.diagnostics.filter(
+      (d) => d.rule === 'no-unused-vars'
+    )
+    expect(unusedWarnings.length).toBe(0)
+  })
+
+  it('should report parse errors', () => {
+    const result = lint(`function broken( {`)
+    expect(result.valid).toBe(false)
+    expect(result.diagnostics[0].rule).toBe('parse-error')
   })
 })
 

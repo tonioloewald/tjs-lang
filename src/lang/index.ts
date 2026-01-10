@@ -46,6 +46,12 @@ export {
 } from './emitters/from-ts'
 export * from './inference'
 export { Schema } from './schema'
+export {
+  lint,
+  type LintResult,
+  type LintDiagnostic,
+  type LintOptions,
+} from './linter'
 
 /**
  * Transpile JavaScript source code to Agent99 AST
