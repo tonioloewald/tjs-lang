@@ -1134,7 +1134,7 @@ describe('Inline Tests', () => {
     expect(result.testRunner).toContain('works')
   })
 
-  it('should execute tests via concatenation', () => {
+  it('should execute tests via concatenation', async () => {
     const result = extractTests(`
       function add(a, b) { return a + b }
       
@@ -1142,12 +1142,33 @@ describe('Inline Tests', () => {
         assert(add(2, 3) === 5)
       }
     `)
-    // Concatenate code + assert + testRunner
-    const assert = `function assert(c, m) { if (!c) throw new Error(m || 'fail') }`
-    const fullCode = `${result.code}\n${assert}\n${result.testRunner}`
+    // Concatenate code + assert + testRunner (returns a Promise)
+    const assertFn = `function assert(c, m) { if (!c) throw new Error(m || 'fail') }`
+    const fullCode = `${result.code}\n${assertFn}\nreturn ${result.testRunner}`
 
     const fn = new Function(fullCode)
-    const summary = fn()
+    const summary = await fn()
+    expect(summary.passed).toBe(1)
+    expect(summary.failed).toBe(0)
+  })
+
+  it('should handle async tests', async () => {
+    const result = extractTests(`
+      async function fetchData() { 
+        await Promise.resolve()
+        return 42 
+      }
+      
+      test('async works') {
+        const val = await fetchData()
+        assert(val === 42)
+      }
+    `)
+    const assertFn = `function assert(c, m) { if (!c) throw new Error(m || 'fail') }`
+    const fullCode = `${result.code}\n${assertFn}\nreturn ${result.testRunner}`
+
+    const fn = new Function(fullCode)
+    const summary = await fn()
     expect(summary.passed).toBe(1)
     expect(summary.failed).toBe(0)
   })

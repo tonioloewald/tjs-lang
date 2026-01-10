@@ -194,7 +194,9 @@ function generateTestRunner(
   // Test ${i + 1}: ${t.description}
   try {
     ${mockSetup}
-    ${t.body}
+    await (async () => {
+      ${t.body}
+    })()
     __results.push({ description: ${JSON.stringify(
       t.description
     )}, passed: true })
@@ -208,6 +210,7 @@ function generateTestRunner(
 
   return `
 // TJS Test Runner - Generated
+(async () => {
 const __results = []
 
 ${testCases}
@@ -221,7 +224,8 @@ __results.filter(r => !r.passed).forEach(r => {
 })
 
 // Return summary
-({ passed: __passed, failed: __failed, results: __results })
+return { passed: __passed, failed: __failed, results: __results }
+})()
 `.trim()
 }
 
