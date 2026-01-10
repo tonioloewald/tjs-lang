@@ -380,6 +380,55 @@ describe('TJS Performance', () => {
       expect(step3(step2(step1(5)))).toBe(10)
     })
 
+    it('should compare wrap() vs unsafe overhead', () => {
+      // Wrapped function with validation
+      const wrappedAdd = wrap((a: number, b: number) => a + b, {
+        params: {
+          a: { type: 'number', required: true },
+          b: { type: 'number', required: true },
+        },
+      })
+
+      // TJS unsafe version (try-catch, no validation)
+      const unsafeResult = tjs(`
+        function unsafeAdd(a: 0, b: 0) -> 0 {
+          unsafe {
+            return a + b
+          }
+        }
+      `)
+      const unsafeAdd = new Function(
+        `${unsafeResult.code}; return unsafeAdd;`
+      )()
+
+      // Plain function baseline
+      const plainAdd = (a: number, b: number) => a + b
+
+      const plainTime = benchmark('plain', () => plainAdd(2, 3))
+      const wrappedTime = benchmark('wrapped', () => wrappedAdd(2, 3))
+      const unsafeTime = benchmark('unsafe', () => unsafeAdd(2, 3))
+
+      console.log(
+        `\n  wrap() vs unsafe (${ITERATIONS.toLocaleString()} iterations):`
+      )
+      console.log(`    Plain:    ${plainTime.toFixed(2)}ms (baseline)`)
+      console.log(
+        `    Wrapped:  ${wrappedTime.toFixed(2)}ms (${(
+          wrappedTime / plainTime
+        ).toFixed(2)}x) - with validation`
+      )
+      console.log(
+        `    Unsafe:   ${unsafeTime.toFixed(2)}ms (${(
+          unsafeTime / plainTime
+        ).toFixed(2)}x) - try-catch only`
+      )
+
+      // Sanity check
+      expect(plainAdd(2, 3)).toBe(5)
+      expect(wrappedAdd(2, 3)).toBe(5)
+      expect(unsafeAdd(2, 3)).toBe(5)
+    })
+
     it('should measure error short-circuit benefit', () => {
       // When an error propagates, wrapped functions skip execution
       let step2Called = 0

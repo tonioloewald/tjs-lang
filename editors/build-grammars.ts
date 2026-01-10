@@ -7,6 +7,12 @@
  */
 
 import { KEYWORDS, FORBIDDEN_KEYWORDS, TYPE_CONSTRUCTORS } from './ajs-syntax'
+import {
+  KEYWORDS as TJS_KEYWORDS,
+  FORBIDDEN_KEYWORDS as TJS_FORBIDDEN,
+  TYPE_CONSTRUCTORS as TJS_TYPE_CONSTRUCTORS,
+  TJS_PATTERNS,
+} from './tjs-syntax'
 import { writeFileSync, readFileSync } from 'fs'
 import { join, dirname } from 'path'
 
