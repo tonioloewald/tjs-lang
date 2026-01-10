@@ -33,6 +33,87 @@ function benchmark(name: string, fn: () => void): number {
 }
 
 describe('TJS Performance', () => {
+  describe('CLI cold start', () => {
+    it('should measure tjsx cold start time', async () => {
+      const { execSync } = await import('child_process')
+      const path = await import('path')
+
+      // Create a simple test file
+      const testFile = '/tmp/perf-test.tjs'
+      const { writeFileSync } = await import('fs')
+      writeFileSync(testFile, `function add(a: 1, b: 2) -> 0 { return a + b }`)
+
+      const cliPath = path.join(import.meta.dir, '../cli/tjsx.ts')
+
+      // Measure cold start (5 runs, take median)
+      const times: number[] = []
+      for (let i = 0; i < 5; i++) {
+        const start = performance.now()
+        execSync(`bun ${cliPath} ${testFile}`, { stdio: 'pipe' })
+        times.push(performance.now() - start)
+      }
+
+      times.sort((a, b) => a - b)
+      const median = times[Math.floor(times.length / 2)]
+      const min = times[0]
+      const max = times[times.length - 1]
+
+      console.log(`\n  tjsx cold start (5 runs):`)
+      console.log(`    Min:    ${min.toFixed(0)}ms`)
+      console.log(`    Median: ${median.toFixed(0)}ms`)
+      console.log(`    Max:    ${max.toFixed(0)}ms`)
+
+      // Cold start should be under 200ms
+      expect(median).toBeLessThan(200)
+    })
+
+    it('should measure tjs emit time', async () => {
+      const { execSync } = await import('child_process')
+      const path = await import('path')
+
+      const testFile = '/tmp/perf-test.tjs'
+      const cliPath = path.join(import.meta.dir, '../cli/tjs.ts')
+
+      const times: number[] = []
+      for (let i = 0; i < 5; i++) {
+        const start = performance.now()
+        execSync(`bun ${cliPath} emit ${testFile}`, { stdio: 'pipe' })
+        times.push(performance.now() - start)
+      }
+
+      times.sort((a, b) => a - b)
+      const median = times[Math.floor(times.length / 2)]
+
+      console.log(`\n  tjs emit cold start (5 runs):`)
+      console.log(`    Median: ${median.toFixed(0)}ms`)
+
+      expect(median).toBeLessThan(200)
+    })
+
+    it('should measure tjs check time', async () => {
+      const { execSync } = await import('child_process')
+      const path = await import('path')
+
+      const testFile = '/tmp/perf-test.tjs'
+      const cliPath = path.join(import.meta.dir, '../cli/tjs.ts')
+
+      const times: number[] = []
+      for (let i = 0; i < 5; i++) {
+        const start = performance.now()
+        execSync(`bun ${cliPath} check ${testFile}`, { stdio: 'pipe' })
+        times.push(performance.now() - start)
+      }
+
+      times.sort((a, b) => a - b)
+      const median = times[Math.floor(times.length / 2)]
+
+      console.log(`\n  tjs check cold start (5 runs):`)
+      console.log(`    Median: ${median.toFixed(0)}ms`)
+
+      expect(median).toBeLessThan(200)
+    })
+  })
+
   describe('Tight loop overhead', () => {
     it('should measure overhead for simple arithmetic', () => {
       // Legacy JS - baseline
