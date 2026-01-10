@@ -8,6 +8,11 @@ import {
   lint,
   extractTests,
   testUtils,
+  isError,
+  error,
+  typeOf,
+  validateArgs,
+  wrap,
 } from './index'
 import { preprocess } from './parser'
 import { Schema } from './schema'
@@ -1207,6 +1212,167 @@ describe('Inline Tests', () => {
     expect(summary.failed).toBe(1)
     expect(summary.results[0].error).toContain('Expected 99')
     expect(summary.results[0].error).toContain('got 42')
+  })
+})
+
+// Runtime monadic type checking tests
+describe('TJS Runtime', () => {
+  describe('isError', () => {
+    it('should identify TJS errors', () => {
+      expect(isError({ $error: true, message: 'test' })).toBe(true)
+      expect(isError({ message: 'not an error' })).toBe(false)
+      expect(isError(null)).toBe(false)
+      expect(isError(undefined)).toBe(false)
+      expect(isError('string')).toBe(false)
+    })
+  })
+
+  describe('typeOf', () => {
+    it('should handle null correctly (unlike typeof)', () => {
+      expect(typeOf(null)).toBe('null')
+    })
+
+    it('should identify arrays (unlike typeof)', () => {
+      expect(typeOf([])).toBe('array')
+      expect(typeOf([1, 2, 3])).toBe('array')
+    })
+
+    it('should handle other types', () => {
+      expect(typeOf(undefined)).toBe('undefined')
+      expect(typeOf('hello')).toBe('string')
+      expect(typeOf(42)).toBe('number')
+      expect(typeOf(true)).toBe('boolean')
+      expect(typeOf({})).toBe('object')
+    })
+  })
+
+  describe('validateArgs', () => {
+    it('should pass valid args', () => {
+      const meta = {
+        params: {
+          name: { type: 'string', required: true },
+          age: { type: 'number', required: false },
+        },
+      }
+      const result = validateArgs({ name: 'Alice', age: 30 }, meta)
+      expect(result).toBe(null)
+    })
+
+    it('should error on missing required param', () => {
+      const meta = {
+        params: {
+          name: { type: 'string', required: true },
+        },
+      }
+      const result = validateArgs({}, meta)
+      expect(isError(result)).toBe(true)
+      expect(result?.message).toContain('Missing required')
+    })
+
+    it('should error on wrong type', () => {
+      const meta = {
+        params: {
+          count: { type: 'number', required: true },
+        },
+      }
+      const result = validateArgs({ count: 'not a number' }, meta)
+      expect(isError(result)).toBe(true)
+      expect(result?.message).toContain('Expected number')
+    })
+
+    it('should propagate error inputs', () => {
+      const meta = {
+        params: {
+          value: { type: 'number', required: true },
+        },
+      }
+      const inputError = error('upstream failure')
+      const result = validateArgs({ value: inputError }, meta)
+      expect(result).toBe(inputError) // Same error passed through
+    })
+  })
+
+  describe('wrap', () => {
+    it('should wrap function with validation', () => {
+      const add = (a: number, b: number) => a + b
+      const meta = {
+        params: {
+          a: { type: 'number', required: true },
+          b: { type: 'number', required: true },
+        },
+        returns: { type: 'number' },
+      }
+      const wrappedAdd = wrap(add, meta)
+
+      // Valid call works
+      expect(wrappedAdd(2, 3)).toBe(5)
+    })
+
+    it('should return error for invalid args', () => {
+      const add = (a: number, b: number) => a + b
+      const meta = {
+        params: {
+          a: { type: 'number', required: true },
+          b: { type: 'number', required: true },
+        },
+      }
+      const wrappedAdd = wrap(add, meta)
+
+      const result = wrappedAdd('not a number' as any, 3)
+      expect(isError(result)).toBe(true)
+    })
+
+    it('should propagate error inputs without calling function', () => {
+      let called = false
+      const fn = (x: number) => {
+        called = true
+        return x * 2
+      }
+      const meta = {
+        params: { x: { type: 'number', required: true } },
+      }
+      const wrapped = wrap(fn, meta)
+
+      const inputError = error('upstream error')
+      const result = wrapped(inputError as any)
+
+      expect(isError(result)).toBe(true)
+      expect(called).toBe(false) // Function was NOT called
+      expect(result).toBe(inputError) // Same error passed through
+    })
+
+    it('should convert thrown errors to TJS errors', () => {
+      const fn = () => {
+        throw new Error('kaboom')
+      }
+      const meta = { params: {} }
+      const wrapped = wrap(fn, meta)
+
+      const result = wrapped()
+      expect(isError(result)).toBe(true)
+      expect(result.message).toBe('kaboom')
+    })
+  })
+
+  describe('error propagation chain', () => {
+    it('should propagate errors through call chain', () => {
+      const step1 = wrap(
+        (x: number) => (x < 0 ? error('negative input') : x * 2),
+        { params: { x: { type: 'number', required: true } } }
+      )
+
+      const step2 = wrap((y: number) => y + 10, {
+        params: { y: { type: 'number', required: true } },
+      })
+
+      // Valid chain
+      expect(step2(step1(5))).toBe(20)
+
+      // Error in step1 propagates through step2
+      const result = step2(step1(-1) as any)
+      expect(isError(result)).toBe(true)
+      expect(result.message).toBe('negative input')
+    })
   })
 })
 

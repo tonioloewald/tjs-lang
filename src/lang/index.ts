@@ -61,6 +61,19 @@ export {
   type ExtractedMock,
   type TestExtractionResult,
 } from './tests'
+export {
+  runtime,
+  installRuntime,
+  isError,
+  error,
+  typeOf,
+  checkType,
+  validateArgs,
+  wrap,
+  emitRuntimeWrapper,
+  TJS_VERSION,
+  type TJSError,
+} from './runtime'
 
 /**
  * Transpile JavaScript source code to Agent99 AST
