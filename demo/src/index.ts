@@ -9,7 +9,7 @@
 
 import { elements, tosi, bindings, StyleSheet, bind } from 'tosijs'
 
-import { icons, sideNav, SideNav, sizeBreak, popMenu } from 'tosijs-ui'
+import { icons, sideNav, SideNav, sizeBreak, popMenu, markdownViewer } from 'tosijs-ui'
 
 import { styleSpec } from './style'
 StyleSheet('demo-style', styleSpec)
@@ -102,7 +102,7 @@ const { app, prefs } = tosi({
     docs: allDocs,
     currentDoc,
     compact: false,
-    currentView: 'ajs' as 'ajs' | 'tjs',
+    currentView: 'home' as 'home' | 'ajs' | 'tjs',
     currentExample: null as any,
   },
   prefs: {
@@ -171,13 +171,19 @@ window.addEventListener('popstate', () => {
 // URL state management for view and example
 function loadViewStateFromURL() {
   const hash = window.location.hash.slice(1)
-  if (!hash) return
+  if (!hash) {
+    app.currentView = 'home'
+    return
+  }
 
   const params = new URLSearchParams(hash)
   const view = params.get('view')
   const example = params.get('example')
 
-  if (view === 'ajs' || view === 'tjs') {
+  if (view === 'home') {
+    app.currentView = 'home'
+    app.currentExample = null
+  } else if (view === 'ajs' || view === 'tjs') {
     app.currentView = view
   }
 
@@ -427,6 +433,25 @@ if (main) {
           saveViewStateToURL('tjs', example.name)
         }) as EventListener)
 
+        // Handle Home selection - show README
+        nav.addEventListener('select-home', (() => {
+          app.currentView = 'home'
+          app.currentExample = null
+          saveViewStateToURL('home')
+        }) as EventListener)
+
+        // Sync nav state from URL on load
+        const syncNavState = () => {
+          const view = app.currentView.valueOf() as 'home' | 'ajs' | 'tjs'
+          nav.currentView = view
+          if (app.currentExample) {
+            nav.currentExample = (app.currentExample as any).name || null
+          }
+        }
+        
+        // Initial sync after a tick (to let nav render)
+        setTimeout(syncNavState, 0)
+
         return nav
       })(),
 
@@ -441,6 +466,31 @@ if (main) {
             flexDirection: 'column',
           },
         },
+        // Home/README view
+        (() => {
+          const readmeDoc = docs.find((d: any) => d.filename === 'README.md')
+          const viewer = markdownViewer({
+            value: readmeDoc?.text || '# Welcome to tosijs-agent',
+            style: {
+              display: 'none',
+              flex: '1 1 auto',
+              height: '100%',
+              padding: '20px 40px',
+              overflow: 'auto',
+              maxWidth: '900px',
+            },
+          })
+
+          // Show/hide based on currentView
+          bind(viewer, 'app.currentView', {
+            toDOM(element: HTMLElement, view: string) {
+              element.style.display = view === 'home' ? 'block' : 'none'
+            },
+          })
+
+          return viewer
+        })(),
+
         // AJS Playground
         (() => {
           const pg = playground({

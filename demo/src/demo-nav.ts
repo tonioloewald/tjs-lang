@@ -251,9 +251,13 @@ interface DemoNavEvents {
 
 export class DemoNav extends Component {
   private _docs: DocItem[] = []
-  private openSection: string | null = 'ajs-demos'
+  private openSection: string | null = null
   private floatViewer: XinFloat | null = null
   private mdViewer: MarkdownViewer | null = null
+  
+  // Track current selection for highlighting
+  private _currentView: 'home' | 'ajs' | 'tjs' = 'home'
+  private _currentExample: string | null = null
 
   constructor() {
     super()
@@ -261,6 +265,44 @@ export class DemoNav extends Component {
     this.loadStateFromURL()
     // Listen for hash changes
     window.addEventListener('hashchange', () => this.loadStateFromURL())
+  }
+  
+  get currentView() {
+    return this._currentView
+  }
+  
+  set currentView(value: 'home' | 'ajs' | 'tjs') {
+    this._currentView = value
+    this.updateCurrentIndicator()
+    // Auto-open the appropriate section
+    if (value === 'ajs') {
+      this.openSection = 'ajs-demos'
+    } else if (value === 'tjs') {
+      this.openSection = 'tjs-demos'
+    }
+    this.rebuildNav()
+  }
+  
+  get currentExample() {
+    return this._currentExample
+  }
+  
+  set currentExample(value: string | null) {
+    this._currentExample = value
+    this.updateCurrentIndicator()
+  }
+  
+  private updateCurrentIndicator() {
+    // Update .current class on nav items
+    const items = this.querySelectorAll('.nav-item')
+    items.forEach((item) => {
+      const itemName = item.textContent?.trim()
+      const isCurrent = itemName === this._currentExample
+      item.classList.toggle('current', isCurrent)
+    })
+    // Update home link
+    const homeLink = this.querySelector('.home-link')
+    homeLink?.classList.toggle('current', this._currentView === 'home')
   }
 
   private loadStateFromURL() {
@@ -375,10 +417,39 @@ export class DemoNav extends Component {
       marginLeft: '4px',
       fontSize: '11px',
     },
+    
+    '.nav-item.current': {
+      background: '#e0e7ff',
+      fontWeight: '500',
+      color: '#3730a3',
+    },
 
     '.section-icon': {
       width: '16px',
       height: '16px',
+    },
+    
+    '.home-link': {
+      display: 'flex',
+      alignItems: 'center',
+      gap: '8px',
+      padding: '10px 12px',
+      marginBottom: '8px',
+      cursor: 'pointer',
+      fontSize: '14px',
+      fontWeight: '500',
+      color: '#374151',
+      borderRadius: '6px',
+      transition: 'background 0.15s',
+    },
+    
+    '.home-link:hover': {
+      background: '#f3f4f6',
+    },
+    
+    '.home-link.current': {
+      background: '#e0e7ff',
+      color: '#3730a3',
     },
   }
 
@@ -395,6 +466,16 @@ export class DemoNav extends Component {
 
     container.innerHTML = ''
     container.append(
+      // Home link
+      div(
+        {
+          class: this._currentView === 'home' ? 'home-link current' : 'home-link',
+          onClick: () => this.selectHome(),
+        },
+        span({ class: 'section-icon' }, icons.home({ size: 16 })),
+        'Home'
+      ),
+      
       // AJS Demos
       details(
         {
@@ -536,7 +617,21 @@ export class DemoNav extends Component {
     )
   }
 
+  selectHome() {
+    this._currentView = 'home'
+    this._currentExample = null
+    this.updateCurrentIndicator()
+    this.dispatchEvent(
+      new CustomEvent('select-home', {
+        bubbles: true,
+      })
+    )
+  }
+
   selectAjsExample(example: (typeof ajsExamples)[0]) {
+    this._currentView = 'ajs'
+    this._currentExample = example.name
+    this.updateCurrentIndicator()
     this.dispatchEvent(
       new CustomEvent('select-ajs-example', {
         detail: { example },
@@ -546,6 +641,9 @@ export class DemoNav extends Component {
   }
 
   selectTjsExample(example: (typeof tjsExamples)[0]) {
+    this._currentView = 'tjs'
+    this._currentExample = example.name
+    this.updateCurrentIndicator()
     this.dispatchEvent(
       new CustomEvent('select-tjs-example', {
         detail: { example },
