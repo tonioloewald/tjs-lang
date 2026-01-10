@@ -7,35 +7,22 @@
  * - Markdown content with live examples
  */
 
-import {
-  elements,
-  tosi,
-  vars,
-  bindings,
-  touch,
-  getListItem,
-  StyleSheet,
-  bind,
-  debounce,
-} from 'tosijs'
+import { elements, tosi, bindings, StyleSheet, bind } from 'tosijs'
 
-import {
-  icons,
-  markdownViewer,
-  MarkdownViewer,
-  LiveExample,
-  sideNav,
-  SideNav,
-  sizeBreak,
-  popMenu,
-} from 'tosijs-ui'
+import { icons, sideNav, SideNav, sizeBreak, popMenu } from 'tosijs-ui'
 
 import { styleSpec } from './style'
 StyleSheet('demo-style', styleSpec)
 
 // Import playground components
-import { playground } from './playground'
-import { tjsPlayground } from './tjs-playground'
+import { playground, Playground } from './playground'
+import { tjsPlayground, TJSPlayground } from './tjs-playground'
+
+// Import new demo navigation
+import { demoNav, DemoNav, tjsExamples } from './demo-nav'
+
+// Import examples
+import { examples as ajsExamples } from './examples'
 
 // Import settings dialog
 import { showSettingsDialog } from './settings'
@@ -115,6 +102,8 @@ const { app, prefs } = tosi({
     docs: allDocs,
     currentDoc,
     compact: false,
+    currentView: 'ajs' as 'ajs' | 'tjs',
+    currentExample: null as any,
   },
   prefs: {
     theme: 'system',
@@ -179,27 +168,48 @@ window.addEventListener('popstate', () => {
     app.docs.find((doc: any) => doc.filename === filename) || app.docs[0]
 })
 
-// Search functionality
-const filterDocs = debounce(() => {
-  const needle = searchField.value.toLocaleLowerCase()
-  app.docs.forEach((doc: any) => {
-    doc.hidden =
-      !doc.title.toLocaleLowerCase().includes(needle) &&
-      !doc.text.toLocaleLowerCase().includes(needle)
-  })
-  touch(app.docs)
-}, 150)
+// URL state management for view and example
+function loadViewStateFromURL() {
+  const hash = window.location.hash.slice(1)
+  if (!hash) return
 
-const searchField = input({
-  slot: 'nav',
-  placeholder: 'Search docs...',
-  type: 'search',
-  style: {
-    width: 'calc(100% - 10px)',
-    margin: '5px',
-  },
-  onInput: filterDocs,
-})
+  const params = new URLSearchParams(hash)
+  const view = params.get('view')
+  const example = params.get('example')
+
+  if (view === 'ajs' || view === 'tjs') {
+    app.currentView = view
+  }
+
+  if (example) {
+    // Find example by name in appropriate list
+    if (view === 'tjs') {
+      const found = tjsExamples.find((e: any) => e.name === example)
+      if (found) app.currentExample = found
+    } else {
+      const found = ajsExamples.find((e: any) => e.name === example)
+      if (found) app.currentExample = found
+    }
+  }
+}
+
+function saveViewStateToURL(view: string, exampleName?: string) {
+  const params = new URLSearchParams(window.location.hash.slice(1))
+  params.set('view', view)
+  if (exampleName) {
+    params.set('example', exampleName)
+  } else {
+    params.delete('example')
+  }
+  const newHash = params.toString()
+  window.history.replaceState(null, '', `#${newHash}`)
+}
+
+// Load initial state from URL
+loadViewStateFromURL()
+
+// Listen for hash changes
+window.addEventListener('hashchange', loadViewStateFromURL)
 
 // Main app
 const main = document.querySelector('main') as HTMLElement
@@ -375,8 +385,8 @@ if (main) {
     // Side navigation + content
     sideNav(
       {
-        name: 'Documentation',
-        navSize: 200,
+        name: 'Demos',
+        navSize: 220,
         minSize: 600,
         style: {
           flex: '1 1 auto',
@@ -388,110 +398,124 @@ if (main) {
         },
       },
 
-      // Search field
-      searchField,
-
-      // Doc list
-      div(
-        {
+      // Demo navigation with 4 accordion sections
+      (() => {
+        const nav = demoNav({
           slot: 'nav',
           style: {
-            display: 'flex',
-            flexDirection: 'column',
             width: '100%',
             height: '100%',
-            overflowY: 'auto',
-            padding: '5px',
           },
-          bindList: {
-            hiddenProp: 'hidden',
-            value: app.docs,
-          },
-        },
-        template(
-          a(
-            {
-              class: 'doc-link',
-              bindCurrent: 'app.currentDoc.filename',
-              bindDocLink: '^.filename',
-              onClick(event: Event) {
-                event.preventDefault()
-                const doc = getListItem(event.target as HTMLElement)
-                const nav = (event.target as HTMLElement).closest(
-                  'xin-sidenav'
-                ) as SideNav
-                nav.contentVisible = true
-                const href = `?${doc.filename}`
-                window.history.pushState({ href }, '', href)
-                app.currentDoc = doc
-              },
-            },
-            span({ bindText: '^.title' })
-          )
-        )
-      ),
+        }) as DemoNav
 
-      // Content area
-      div({
-        style: {
-          position: 'relative',
-          overflowY: 'auto',
-          height: '100%',
+        // Pass docs to the nav component
+        nav.docs = docs
+
+        // Handle AJS example selection - load into AJS playground
+        nav.addEventListener('select-ajs-example', ((event: CustomEvent) => {
+          const { example } = event.detail
+          app.currentView = 'ajs'
+          app.currentExample = example
+          saveViewStateToURL('ajs', example.name)
+        }) as EventListener)
+
+        // Handle TJS example selection - load into TJS playground
+        nav.addEventListener('select-tjs-example', ((event: CustomEvent) => {
+          const { example } = event.detail
+          app.currentView = 'tjs'
+          app.currentExample = example
+          saveViewStateToURL('tjs', example.name)
+        }) as EventListener)
+
+        return nav
+      })(),
+
+      // Content area - shows the active playground
+      div(
+        {
+          style: {
+            position: 'relative',
+            overflow: 'hidden',
+            height: '100%',
+            display: 'flex',
+            flexDirection: 'column',
+          },
         },
-        bind: {
-          value: app.currentDoc,
-          binding: {
-            toDOM(element: HTMLElement, doc: any) {
-              element.innerHTML = ''
-              if (doc.isPlayground === 'ajs') {
-                element.append(
-                  playground({
-                    style: {
-                      display: 'block',
-                      height: '100%',
-                      padding: 10,
-                    },
-                  })
-                )
-              } else if (doc.isPlayground === 'tjs') {
-                element.append(
-                  tjsPlayground({
-                    style: {
-                      display: 'block',
-                      height: '100%',
-                      padding: 10,
-                    },
-                  })
-                )
-              } else {
-                // Render markdown viewer
-                element.append(
-                  markdownViewer({
-                    class: 'markdown-content',
-                    style: {
-                      display: 'block',
-                      maxWidth: '48em',
-                      margin: 'auto',
-                      padding: '0 20px 40px',
-                    },
-                    value: doc.text,
-                    didRender(this: MarkdownViewer) {
-                      // Make code blocks interactive
-                      LiveExample.insertExamples(this, {
-                        'tosijs-agent': agent,
-                        agent,
-                        tosijs,
-                        'tosijs-ui': tosijsui,
-                        demoRuntime,
-                      })
-                    },
-                  })
-                )
+        // AJS Playground
+        (() => {
+          const pg = playground({
+            style: {
+              display: 'none',
+              flex: '1 1 auto',
+              height: '100%',
+              padding: '10px',
+            },
+          }) as Playground
+
+          // Show/hide based on currentView
+          bind(pg, 'app.currentView', {
+            toDOM(element: HTMLElement, view: string) {
+              element.style.display = view === 'ajs' ? 'block' : 'none'
+            },
+          })
+
+          // Load example when selected
+          bind(pg, 'app.currentExample', {
+            toDOM(element: Playground, example: any) {
+              if (
+                example &&
+                app.currentView.valueOf() === 'ajs' &&
+                element.editor
+              ) {
+                element.editor.dispatch({
+                  changes: {
+                    from: 0,
+                    to: element.editor.state.doc.length,
+                    insert: example.code,
+                  },
+                })
               }
             },
-          },
-        },
-      })
+          })
+
+          return pg
+        })(),
+
+        // TJS Playground
+        (() => {
+          const pg = tjsPlayground({
+            style: {
+              display: 'none',
+              flex: '1 1 auto',
+              height: '100%',
+              padding: '10px',
+            },
+          }) as TJSPlayground
+
+          // Show/hide based on currentView
+          bind(pg, 'app.currentView', {
+            toDOM(element: HTMLElement, view: string) {
+              element.style.display = view === 'tjs' ? 'block' : 'none'
+            },
+          })
+
+          // Load example when selected
+          bind(pg, 'app.currentExample', {
+            toDOM(element: TJSPlayground, example: any) {
+              if (example && app.currentView.valueOf() === 'tjs') {
+                // Set value on the TJS editor
+                setTimeout(() => {
+                  if (element.parts?.tjsEditor) {
+                    element.parts.tjsEditor.value = example.code
+                  }
+                }, 0)
+              }
+            },
+          })
+
+          return pg
+        })()
+      )
     )
   )
 }
