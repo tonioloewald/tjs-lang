@@ -50,11 +50,20 @@ export interface FromTSResult {
   warnings?: string[]
 }
 
+export interface TypeParamInfo {
+  /** Constraint schema (from `extends`) - example-based */
+  constraint?: string | Record<string, any>
+  /** Default schema (from `= Type`) - example-based */
+  default?: string | Record<string, any>
+}
+
 export interface FunctionTypeInfo {
   name: string
   params: Record<string, ParamTypeInfo>
   returns?: TypeInfo
   description?: string
+  /** Generic type parameters with constraints/defaults */
+  typeParams?: Record<string, TypeParamInfo>
 }
 
 export interface ParamTypeInfo {
@@ -83,10 +92,13 @@ export interface TypeInfo {
 
 /**
  * Convert a TypeScript type node to a TJS example value string
+ *
+ * @param warnings - Optional array to collect warnings about generic types
  */
 function typeToExample(
   type: ts.TypeNode | undefined,
-  checker?: ts.TypeChecker
+  checker?: ts.TypeChecker,
+  warnings?: string[]
 ): string {
   if (!type) return 'undefined'
 
@@ -133,8 +145,30 @@ function typeToExample(
       if (typeName === 'Record') {
         return '{}'
       }
+      if (typeName === 'Map') {
+        return 'new Map()'
+      }
+      if (typeName === 'Set') {
+        return 'new Set()'
+      }
+      // Type parameters (generics like T, K, V) - treat as any
+      // Single uppercase letter or common generic names
+      if (
+        /^[A-Z]$/.test(typeName) ||
+        ['T', 'K', 'V', 'U', 'TKey', 'TValue', 'TItem', 'TResult'].includes(
+          typeName
+        )
+      ) {
+        warnings?.push(
+          `Generic type parameter '${typeName}' converted to 'any' - consider specializing`
+        )
+        return 'any'
+      }
       // Unknown type reference - treat as any
-      return 'undefined'
+      warnings?.push(
+        `Unknown type '${typeName}' converted to 'any' - may need manual review`
+      )
+      return 'any'
     }
 
     case ts.SyntaxKind.TypeLiteral: {
@@ -297,6 +331,10 @@ function typeToInfo(type: ts.TypeNode | undefined): TypeInfo {
       if (typeName === 'Array' && typeRef.typeArguments?.length) {
         return { kind: 'array', items: typeToInfo(typeRef.typeArguments[0]) }
       }
+      if (typeName === 'Promise' && typeRef.typeArguments?.length) {
+        return typeToInfo(typeRef.typeArguments[0])
+      }
+      // Generics and unknown types become 'any'
       return { kind: 'any' }
     }
 
@@ -306,19 +344,69 @@ function typeToInfo(type: ts.TypeNode | undefined): TypeInfo {
 }
 
 /**
+ * Extract type parameter info (generics) from a function
+ */
+function extractTypeParams(
+  node: ts.FunctionDeclaration | ts.ArrowFunction | ts.FunctionExpression,
+  warnings?: string[]
+): Record<string, TypeParamInfo> | undefined {
+  if (!node.typeParameters || node.typeParameters.length === 0) {
+    return undefined
+  }
+
+  const typeParams: Record<string, TypeParamInfo> = {}
+
+  for (const param of node.typeParameters) {
+    const name = param.name.getText()
+    const info: TypeParamInfo = {}
+
+    // Extract constraint: T extends Foo
+    if (param.constraint) {
+      const constraintExample = typeToExample(
+        param.constraint,
+        undefined,
+        warnings
+      )
+      // Try to parse as object/value for richer schema
+      if (constraintExample.startsWith('{')) {
+        try {
+          // This is a rough parse - in production we'd use proper AST
+          info.constraint = constraintExample
+        } catch {
+          info.constraint = constraintExample
+        }
+      } else {
+        info.constraint = constraintExample
+      }
+    }
+
+    // Extract default: T = Foo
+    if (param.default) {
+      const defaultExample = typeToExample(param.default, undefined, warnings)
+      info.default = defaultExample
+    }
+
+    typeParams[name] = info
+  }
+
+  return Object.keys(typeParams).length > 0 ? typeParams : undefined
+}
+
+/**
  * Transform a TypeScript function to TJS syntax
  */
 function transformFunctionToTJS(
   node: ts.FunctionDeclaration | ts.ArrowFunction | ts.FunctionExpression,
   sourceFile: ts.SourceFile,
-  explicitName?: string
+  explicitName?: string,
+  warnings?: string[]
 ): string {
   const params: string[] = []
 
   for (const param of node.parameters) {
     const name = param.name.getText(sourceFile)
     const isOptional = !!param.questionToken || !!param.initializer
-    const typeExample = typeToExample(param.type)
+    const typeExample = typeToExample(param.type, undefined, warnings)
 
     if (param.initializer) {
       // Has default value - use it directly
@@ -338,7 +426,9 @@ function transformFunctionToTJS(
     (ts.isFunctionDeclaration(node) && node.name
       ? node.name.getText(sourceFile)
       : '')
-  const returnExample = node.type ? typeToExample(node.type) : ''
+  const returnExample = node.type
+    ? typeToExample(node.type, undefined, warnings)
+    : ''
   const returnAnnotation =
     returnExample && returnExample !== 'undefined' ? ` -> ${returnExample}` : ''
 
@@ -363,7 +453,8 @@ function transformFunctionToTJS(
  */
 function extractFunctionMetadata(
   node: ts.FunctionDeclaration | ts.ArrowFunction | ts.FunctionExpression,
-  sourceFile: ts.SourceFile
+  sourceFile: ts.SourceFile,
+  warnings?: string[]
 ): FunctionTypeInfo {
   const name =
     ts.isFunctionDeclaration(node) && node.name
@@ -393,11 +484,19 @@ function extractFunctionMetadata(
     }
   }
 
-  return {
+  const result: FunctionTypeInfo = {
     name,
     params,
     returns: node.type ? typeToInfo(node.type) : undefined,
   }
+
+  // Extract generic type parameters
+  const typeParams = extractTypeParams(node, warnings)
+  if (typeParams) {
+    result.typeParams = typeParams
+  }
+
+  return result
 }
 
 /**
@@ -428,9 +527,11 @@ export function fromTS(
       const funcName = node.name.getText(sourceFile)
 
       if (emitTJS) {
-        tjsFunctions.push(transformFunctionToTJS(node, sourceFile))
+        tjsFunctions.push(
+          transformFunctionToTJS(node, sourceFile, undefined, warnings)
+        )
       } else {
-        metadata[funcName] = extractFunctionMetadata(node, sourceFile)
+        metadata[funcName] = extractFunctionMetadata(node, sourceFile, warnings)
       }
     }
 
@@ -448,10 +549,10 @@ export function fromTS(
 
           if (emitTJS) {
             tjsFunctions.push(
-              transformFunctionToTJS(funcNode, sourceFile, funcName)
+              transformFunctionToTJS(funcNode, sourceFile, funcName, warnings)
             )
           } else {
-            const info = extractFunctionMetadata(funcNode, sourceFile)
+            const info = extractFunctionMetadata(funcNode, sourceFile, warnings)
             info.name = funcName
             metadata[funcName] = info
           }
@@ -483,19 +584,22 @@ export function fromTS(
   // Append __tjs metadata for each function
   let code = jsOutput.outputText
   for (const [funcName, info] of Object.entries(metadata)) {
-    const metadataStr = JSON.stringify(
-      {
-        params: Object.fromEntries(
-          Object.entries(info.params).map(([k, v]) => [
-            k,
-            { type: v.type.kind, required: v.required, default: v.default },
-          ])
-        ),
-        returns: info.returns ? { type: info.returns.kind } : undefined,
-      },
-      null,
-      2
-    )
+    const metadataObj: Record<string, any> = {
+      params: Object.fromEntries(
+        Object.entries(info.params).map(([k, v]) => [
+          k,
+          { type: v.type.kind, required: v.required, default: v.default },
+        ])
+      ),
+      returns: info.returns ? { type: info.returns.kind } : undefined,
+    }
+
+    // Include type parameters (generics) if present
+    if (info.typeParams) {
+      metadataObj.typeParams = info.typeParams
+    }
+
+    const metadataStr = JSON.stringify(metadataObj, null, 2)
     code += `\n${funcName}.__tjs = ${metadataStr};\n`
   }
 
