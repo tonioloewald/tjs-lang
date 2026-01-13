@@ -280,7 +280,10 @@ export class TJSPlayground extends Component<TJSPlaygroundParts> {
       ${jsCode}
       
       // Try to call the function if it exists and show result
-      const funcName = Object.keys(window).find(k => typeof window[k] === 'function' && window[k].__tjs);
+      const funcName = Object.keys(window).find(k => {
+        try { return typeof window[k] === 'function' && window[k].__tjs; }
+        catch { return false; }
+      });
       if (funcName) {
         const result = window[funcName]();
         if (result !== undefined) {

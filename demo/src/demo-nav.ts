@@ -23,6 +23,183 @@ const { div, details, summary, span, button } = elements
 // TJS examples - demonstrating typed JavaScript features
 export const tjsExamples = [
   {
+    name: 'TJS Grammar Demo',
+    description: 'Comprehensive example exercising all TJS syntax features',
+    code: `/*
+# TJS Grammar Demonstration
+
+This example showcases **all TJS syntax features** for testing
+syntax highlighting in editors.
+
+## Features Covered
+- Type annotations with examples
+- Return type arrows
+- test/mock/unsafe blocks
+- Markdown in comments
+*/
+
+// Type annotations by example
+function greet(name: 'World', times: 3) -> '' {
+  /*
+  ## Implementation Notes
+  
+  This function demonstrates:
+  - Required parameters with example values
+  - Return type annotation
+  - Template literal usage
+  */
+  let result = ''
+  let i = 0
+  while (i < times) {
+    result = result + \`Hello, \${name}! \`
+    i = i + 1
+  }
+  return result.trim()
+}
+
+// Optional parameters use = instead of :
+function divide(a: 10, b: 2, fallback = 0) -> 0 {
+  if (b === 0) {
+    return fallback
+  }
+  return a / b
+}
+
+// Schema-based types
+function createUser(
+  name: 'Alice',
+  age: 30,
+  email: 'alice@example.com',
+  roles: ['user']
+) -> { id: '', name: '', age: 0, email: '', roles: [''] } {
+  return {
+    id: 'user-' + Math.random().toString(36).slice(2),
+    name,
+    age,
+    email,
+    roles
+  }
+}
+
+// Inline mock block - runs before each test
+mock {
+  // Setup test fixtures
+  const testUser = { name: 'Test', age: 25 }
+  const mockData = [1, 2, 3, 4, 5]
+}
+
+// Inline test blocks
+test('greet returns proper greeting') {
+  const result = greet('TJS', 2)
+  expect(result).toBe('Hello, TJS! Hello, TJS!')
+}
+
+test('greet handles single repetition') {
+  const result = greet('World', 1)
+  expect(result).toBe('Hello, World!')
+}
+
+test('divide handles division') {
+  expect(divide(10, 2)).toBe(5)
+  expect(divide(15, 3)).toBe(5)
+}
+
+test('divide returns fallback on zero') {
+  expect(divide(10, 0)).toBe(0)
+  expect(divide(10, 0, -1)).toBe(-1)
+}
+
+test('createUser generates valid user') {
+  const user = createUser('Bob', 35, 'bob@test.com', ['admin'])
+  expect(user.name).toBe('Bob')
+  expect(user.age).toBe(35)
+  expect(user.roles).toContain('admin')
+}
+
+// Async test with await
+test('async operations work in tests') {
+  const delay = (ms) => new Promise(r => setTimeout(r, ms))
+  await delay(10)
+  expect(true).toBe(true)
+}
+
+// Unsafe function with (!) - skips all runtime validation
+function fastAdd(! a: 0, b: 0) -> 0 {
+  return a + b
+}
+
+// unsafe block for performance-critical code within a safe function
+function fastSum(numbers: [0]) -> 0 {
+  /*
+  Parameters are validated, but the inner loop is unsafe.
+  Skips runtime type validation for ~35x speedup.
+  */
+  unsafe {
+    let sum = 0
+    for (let i = 0; i < numbers.length; i++) {
+      sum += numbers[i]
+    }
+    return sum
+  }
+}
+
+test('fastSum calculates correctly') {
+  expect(fastSum([1, 2, 3, 4, 5])).toBe(15)
+  expect(fastSum([])).toBe(0)
+}
+
+// Union types with ||
+function parseValue(input: '' || 0 || null) -> '' {
+  if (input === null) {
+    return 'null'
+  }
+  if (typeof input === 'number') {
+    return \`number: \${input}\`
+  }
+  return \`string: \${input}\`
+}
+
+test('parseValue handles unions') {
+  expect(parseValue('hello')).toBe('string: hello')
+  expect(parseValue(42)).toBe('number: 42')
+  expect(parseValue(null)).toBe('null')
+}
+
+// Array type examples
+function processItems(items: ['']) -> { count: 0, first: '', last: '' } {
+  return {
+    count: items.length,
+    first: items[0] || '',
+    last: items[items.length - 1] || ''
+  }
+}
+
+// Object spread and destructuring
+function mergeConfig(base: { debug: false }, overrides: {}) -> {} {
+  return { ...base, ...overrides }
+}
+
+/*
+# Summary
+
+This file demonstrates TJS syntax highlighting for:
+
+| Feature | Syntax |
+|---------|--------|
+| Required param | \`name: 'example'\` |
+| Optional param | \`name = 'default'\` |
+| Return type | \`-> Type\` |
+| Unsafe function | \`function foo(! x: 0) { }\` |
+| Test block | \`test('desc') { }\` |
+| Mock block | \`mock { }\` |
+| Unsafe block | \`unsafe { }\` |
+| Union type | \`Type1 \\|\\| Type2\` |
+
+Check that all keywords and constructs are properly highlighted!
+*/
+`,
+  },
+  {
     name: 'Hello TJS',
     description: 'Simple typed greeting function',
     code: `// TJS: Type annotations via examples
@@ -706,7 +883,8 @@ export class DemoNav extends Component {
       class: 'no-drag',
       value: doc.text,
       style: {
-        padding: '16px',
+        display: 'block',
+        padding: '4px 20px 12px',
         overflow: 'auto',
         maxHeight: 'calc(80vh - 40px)',
       },
@@ -750,7 +928,7 @@ export class DemoNav extends Component {
           style: {
             display: 'flex',
             alignItems: 'center',
-            padding: '8px 12px',
+            padding: '6px 12px',
             background: '#f3f4f6',
             borderBottom: '1px solid #e5e7eb',
             cursor: 'move',
