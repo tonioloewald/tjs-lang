@@ -14,7 +14,7 @@ And it's **tiny**, ![bundlejs bundle including dependencies](https://deno.bundle
 
 tosijs-agent allows you to define complex logic chains, agents, and data pipelines—_computer programs_—using a fluent TypeScript builder. These definitions compile to a safe, JSON-serializable AST ([Abstract Syntax Tree](https://en.wikipedia.org/wiki/Abstract_syntax_tree)) that can be executed in the browser, on the server, or at the edge.
 
-For a deeper dive into the architecture and security model, see the [Technical Context](./CONTEXT.md).
+For a deeper dive into the architecture and security model, see the [Technical Context](./CONTEXT.md). For detailed language references and patterns, see the [guides](./guides/).
 
 ### Why do you care?
 
@@ -299,7 +299,7 @@ console.log(result.result) // { total: 120 }
 console.log(result.fuelUsed) // Fuel consumed
 ```
 
-AsyncJS supports most JavaScript expressions, loops, try/catch, and more. See [ASYNCJS.md](./ASYNCJS.md) for the full language reference.
+AsyncJS supports most JavaScript expressions, loops, try/catch, and more. See [guides/asyncjs.md](./guides/asyncjs.md) for the full language reference.
 
 ### 2. Advanced: The Builder API
 

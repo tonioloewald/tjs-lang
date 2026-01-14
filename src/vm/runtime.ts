@@ -1135,15 +1135,6 @@ export function defineAtom<I extends Record<string, any>, O = any>(
     // Skip if already in error state (monadic flow)
     if (ctx.error) return
 
-    // 1. Validation
-    if (inputSchema && !validate(inputSchema, inputData)) {
-      ctx.error = new AgentError(
-        `Validation failed: ${JSON.stringify(inputData)}`,
-        op
-      )
-      return
-    }
-
     // --- Tracing Start ---
     const stateBefore = ctx.trace ? { ...ctx.state } : null
     const fuelBefore = ctx.fuel.current
@@ -1182,6 +1173,14 @@ export function defineAtom<I extends Record<string, any>, O = any>(
       if (step.result && result !== undefined) {
         if (ctx.consts.has(step.result)) {
           throw new Error(`Cannot reassign const variable '${step.result}'`)
+        }
+        // Validate output against schema
+        if (outputSchema && !validate(result, outputSchema)) {
+          ctx.error = new AgentError(
+            `Output validation failed for '${op}'`,
+            op
+          )
+          return
         }
         ctx.state[step.result] = result
         // Mark as const if resultConst is set
@@ -2043,7 +2042,7 @@ export const storeQuery = defineAtom(
 export const vectorSearch = defineAtom(
   'storeVectorSearch',
   s.object({
-    collection: s.string,
+    collection: s.string.optional,
     vector: s.array(s.number),
     k: s.number.optional,
   }),

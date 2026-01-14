@@ -69,7 +69,7 @@ import { join } from 'path'
 
 // Load the actual LLM prompt that users get - tests should match real usage
 const ASYNCJS_LLM_PROMPT = readFileSync(
-  join(import.meta.dir, '../../ASYNCJS_LLM_PROMPT.md'),
+  join(import.meta.dir, '../../guides/asyncjs-llm-prompt.md'),
   'utf-8'
 )
 

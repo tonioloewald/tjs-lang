@@ -16,6 +16,40 @@ import { tjs } from '../../src/lang'
 
 const { div, button, span, pre, style } = elements
 
+/**
+ * Convert TypeDescriptor to readable string
+ */
+function typeToString(type: any): string {
+  if (!type) return 'unknown'
+  if (typeof type === 'string') return type
+
+  switch (type.kind) {
+    case 'string':
+      return 'string'
+    case 'number':
+      return 'number'
+    case 'boolean':
+      return 'boolean'
+    case 'null':
+      return 'null'
+    case 'any':
+      return 'any'
+    case 'array':
+      return type.items ? `${typeToString(type.items)}[]` : 'array'
+    case 'object': {
+      if (!type.shape) return 'object'
+      const props = Object.entries(type.shape)
+        .map(([k, v]) => `${k}: ${typeToString(v)}`)
+        .join(', ')
+      return `{ ${props} }`
+    }
+    case 'union':
+      return type.members?.map(typeToString).join(' | ') || 'unknown'
+    default:
+      return type.kind || 'unknown'
+  }
+}
+
 // Example TJS code
 const DEFAULT_TJS = `// TJS Example - Type annotations via examples
 function greet(name: 'World') -> '' {
@@ -226,8 +260,9 @@ export class TJSPlayground extends Component<TJSPlaygroundParts> {
       docs += '### Parameters\n\n'
       for (const [paramName, paramInfo] of Object.entries(params) as any) {
         const required = paramInfo.required ? '(required)' : '(optional)'
-        docs += `- **${paramName}**: ${paramInfo.type} ${required}\n`
-        if (paramInfo.default !== null) {
+        const typeStr = typeToString(paramInfo.type)
+        docs += `- **${paramName}**: \`${typeStr}\` ${required}\n`
+        if (paramInfo.default !== undefined && paramInfo.default !== null) {
           docs += `  - Default: \`${JSON.stringify(paramInfo.default)}\`\n`
         }
       }
@@ -235,7 +270,8 @@ export class TJSPlayground extends Component<TJSPlaygroundParts> {
     }
 
     if (returns) {
-      docs += `### Returns\n\n- **${returns.type}**\n`
+      const returnType = typeToString(returns)
+      docs += `### Returns\n\n- \`${returnType}\`\n`
     }
 
     this.parts.docsOutput.textContent = docs

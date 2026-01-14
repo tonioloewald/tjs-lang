@@ -8,6 +8,7 @@ import {
   AgentError,
 } from './runtime'
 import { TypedBuilder, type BaseNode, type BuilderType } from '../builder'
+import { validate } from 'tosijs-schema'
 
 /** Default timeout multiplier: milliseconds per fuel unit */
 const FUEL_TO_MS = 10 // 1000 fuel = 10 seconds
@@ -148,6 +149,22 @@ export class AgentVM<M extends Record<string, Atom<any, any>>> {
       throw new Error(
         "Root AST must be 'seq'. Ensure you're passing a transpiled agent (use ajs`...` or transpile())."
       )
+
+    // Input validation: validate args against the agent's input schema
+    const inputSchema = (ast as any).inputSchema
+    if (inputSchema && !validate(args, inputSchema)) {
+      const error = new AgentError(
+        `Input validation failed: args do not match expected schema`,
+        'vm.run'
+      )
+      return {
+        result: error,
+        error,
+        fuelUsed: 0,
+        trace: ctx.trace,
+        warnings: warnings.length > 0 ? warnings : undefined,
+      }
+    }
 
     try {
       // Race execution against timeout

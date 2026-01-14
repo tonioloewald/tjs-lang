@@ -46,6 +46,77 @@ import {
 import { extractJSDoc } from '../parser'
 
 /**
+ * Convert TypeDescriptor to JSON Schema
+ */
+function typeToJsonSchema(type: TypeDescriptor): any {
+  switch (type.kind) {
+    case 'string':
+      return { type: 'string' }
+    case 'number':
+      return { type: 'number' }
+    case 'boolean':
+      return { type: 'boolean' }
+    case 'null':
+      // null as a default value means "any type, defaults to null"
+      // In JSON Schema, empty object means any type is allowed
+      return {}
+    case 'undefined':
+      return {} // JSON Schema doesn't have undefined, treat as any
+    case 'any':
+      return {} // No constraints
+    case 'array':
+      return {
+        type: 'array',
+        items: type.items ? typeToJsonSchema(type.items) : {},
+      }
+    case 'object':
+      if (type.shape) {
+        const properties: Record<string, any> = {}
+        for (const [key, propType] of Object.entries(type.shape)) {
+          properties[key] = typeToJsonSchema(propType)
+        }
+        return {
+          type: 'object',
+          properties,
+          additionalProperties: false,
+        }
+      }
+      return { type: 'object' }
+    case 'union':
+      if (type.members) {
+        return { oneOf: type.members.map(typeToJsonSchema) }
+      }
+      return {}
+    default:
+      return {}
+  }
+}
+
+/**
+ * Convert function parameters to JSON Schema for input validation
+ */
+function parametersToJsonSchema(
+  parameters: Record<string, ParameterDescriptor>
+): any {
+  const properties: Record<string, any> = {}
+  const required: string[] = []
+
+  for (const [name, param] of Object.entries(parameters)) {
+    properties[name] = typeToJsonSchema(param.type)
+    if (param.required) {
+      required.push(name)
+    }
+  }
+
+  return {
+    type: 'object',
+    properties,
+    required: required.length > 0 ? required : undefined,
+    additionalProperties: false,
+  }
+}
+
+/**
  * Transform a function declaration into Agent99 AST
  */
 export function transformFunction(
@@ -162,15 +233,19 @@ export function transformFunction(
   steps.push(...bodySteps)
 
   // Build signature
+  const signatureParams = Object.fromEntries(parameters)
   const signature: FunctionSignature = {
     name: func.id?.name || 'anonymous',
     description: jsdoc.description,
-    parameters: Object.fromEntries(parameters),
+    parameters: signatureParams,
     returns: returnType,
   }
 
+  // Generate input schema for runtime validation
+  const inputSchema = parametersToJsonSchema(signatureParams)
+
   return {
-    ast: { op: 'seq', steps },
+    ast: { op: 'seq', steps, inputSchema },
     signature,
     warnings: ctx.warnings,
   }
