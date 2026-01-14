@@ -85,7 +85,7 @@ export class CodeMirror extends Component {
 
   private _source: string = ''
   private _editor: EditorView | undefined
-  
+
   // Per-instance compartments for language and readonly state
   private languageCompartment = new Compartment()
   private readonlyCompartment = new Compartment()

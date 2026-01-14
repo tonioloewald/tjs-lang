@@ -7,15 +7,15 @@ Iterations: 100,000 per test
 
 ## Summary
 
-| Benchmark | Baseline | Safe (default) | Unsafe (!) | Unsafe {} |
-|-----------|----------|----------------|------------|-----------|
-| CLI: Bun + TypeScript | 14.8ms | - | - | - |
-| CLI: tjsx (execute TJS) | 131.4ms | - | - | - |
-| CLI: tjs emit | 132.3ms | - | - | - |
-| CLI: tjs check | 133.0ms | - | - | - |
-| Simple arithmetic (100K iterations) | 0.3ms | 0.4ms (1.2x) | 0.4ms (1.3x) | 0.5ms (1.6x) |
-| Object manipulation (100K iterations) | 0.8ms | 0.8ms (~1.0x) | 0.9ms (1.1x) | 1.0ms (1.2x) |
-| 3-function chain (100K iterations) | 0.5ms | 0.5ms (0.9x) | 0.5ms (0.9x) | - |
+| Benchmark                             | Baseline | Safe (default) | Unsafe (!)   | Unsafe {}    |
+| ------------------------------------- | -------- | -------------- | ------------ | ------------ |
+| CLI: Bun + TypeScript                 | 14.8ms   | -              | -            | -            |
+| CLI: tjsx (execute TJS)               | 131.4ms  | -              | -            | -            |
+| CLI: tjs emit                         | 132.3ms  | -              | -            | -            |
+| CLI: tjs check                        | 133.0ms  | -              | -            | -            |
+| Simple arithmetic (100K iterations)   | 0.3ms    | 0.4ms (1.2x)   | 0.4ms (1.3x) | 0.5ms (1.6x) |
+| Object manipulation (100K iterations) | 0.8ms    | 0.8ms (~1.0x)  | 0.9ms (1.1x) | 1.0ms (1.2x) |
+| 3-function chain (100K iterations)    | 0.5ms    | 0.5ms (0.9x)   | 0.5ms (0.9x) | -            |
 
 ## Key Findings
 
@@ -37,11 +37,12 @@ Use `(!)` to mark functions as unsafe for performance-critical code:
 // Safe (default) - validates types at runtime
 function add(a: 0, b: 0) -> 0 { return a + b }
 
-// Unsafe - no validation, maximum performance  
+// Unsafe - no validation, maximum performance
 function fastAdd(! a: 0, b: 0) -> 0 { return a + b }
 ```
 
 Performance comparison:
+
 - Simple arithmetic: Safe 1.2x vs Unsafe 1.3x
 - Object manipulation: Safe ~1.0x vs Unsafe 1.1x
 - 3-function chain: Safe 0.9x vs Unsafe 0.9x
@@ -49,6 +50,7 @@ Performance comparison:
 ### `unsafe {}` Block Overhead
 
 The `unsafe {}` block adds a try-catch wrapper within a safe function:
+
 - Simple operations: 1.6x
 - Object operations: 1.2x
 

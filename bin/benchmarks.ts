@@ -233,15 +233,9 @@ const safeStep1Result = tjs(`function safeStep1(x: 0) -> 0 { return x * 2 }`)
 const safeStep2Result = tjs(`function safeStep2(x: 0) -> 0 { return x + 10 }`)
 const safeStep3Result = tjs(`function safeStep3(x: 0) -> 0 { return x / 2 }`)
 
-const safeStep1 = new Function(
-  `${safeStep1Result.code}; return safeStep1;`
-)()
-const safeStep2 = new Function(
-  `${safeStep2Result.code}; return safeStep2;`
-)()
-const safeStep3 = new Function(
-  `${safeStep3Result.code}; return safeStep3;`
-)()
+const safeStep1 = new Function(`${safeStep1Result.code}; return safeStep1;`)()
+const safeStep2 = new Function(`${safeStep2Result.code}; return safeStep2;`)()
+const safeStep3 = new Function(`${safeStep3Result.code}; return safeStep3;`)()
 
 // Create unsafe chain with (!)
 const unsafeStep1Result = tjs(
@@ -363,9 +357,18 @@ function fastAdd(! a: 0, b: 0) -> 0 { return a + b }
 \`\`\`
 
 Performance comparison:
-- Simple arithmetic: Safe ${formatRatio(safeTime, legacyTime)} vs Unsafe ${formatRatio(unsafeTime, legacyTime)}
-- Object manipulation: Safe ${formatRatio(safeObjTime, legacyObjTime)} vs Unsafe ${formatRatio(unsafeObjTime, legacyObjTime)}
-- 3-function chain: Safe ${formatRatio(safeChainTime, plainChainTime)} vs Unsafe ${formatRatio(unsafeChainTime, plainChainTime)}
+- Simple arithmetic: Safe ${formatRatio(
+  safeTime,
+  legacyTime
+)} vs Unsafe ${formatRatio(unsafeTime, legacyTime)}
+- Object manipulation: Safe ${formatRatio(
+  safeObjTime,
+  legacyObjTime
+)} vs Unsafe ${formatRatio(unsafeObjTime, legacyObjTime)}
+- 3-function chain: Safe ${formatRatio(
+  safeChainTime,
+  plainChainTime
+)} vs Unsafe ${formatRatio(unsafeChainTime, plainChainTime)}
 
 ### \`unsafe {}\` Block Overhead
 

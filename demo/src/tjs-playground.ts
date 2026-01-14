@@ -18,30 +18,38 @@ const { div, button, span, pre, style } = elements
 
 /**
  * Convert TypeDescriptor to readable string
+ * Handles both old format (type: 'string') and new format (type: { kind: 'string', ... })
  */
 function typeToString(type: any): string {
   if (!type) return 'unknown'
+  // Old format: type was just a string like 'string', 'number', etc.
   if (typeof type === 'string') return type
 
+  // New format: type is an object with kind, shape, items, members
   switch (type.kind) {
     case 'string':
-      return 'string'
+      return type.nullable ? 'string | null' : 'string'
     case 'number':
-      return 'number'
+      return type.nullable ? 'number | null' : 'number'
     case 'boolean':
-      return 'boolean'
+      return type.nullable ? 'boolean | null' : 'boolean'
     case 'null':
       return 'null'
+    case 'undefined':
+      return 'undefined'
     case 'any':
       return 'any'
-    case 'array':
-      return type.items ? `${typeToString(type.items)}[]` : 'array'
+    case 'array': {
+      const itemType = type.items ? typeToString(type.items) : 'any'
+      return type.nullable ? `${itemType}[] | null` : `${itemType}[]`
+    }
     case 'object': {
-      if (!type.shape) return 'object'
+      if (!type.shape) return type.nullable ? 'object | null' : 'object'
       const props = Object.entries(type.shape)
         .map(([k, v]) => `${k}: ${typeToString(v)}`)
         .join(', ')
-      return `{ ${props} }`
+      const objStr = `{ ${props} }`
+      return type.nullable ? `${objStr} | null` : objStr
     }
     case 'union':
       return type.members?.map(typeToString).join(' | ') || 'unknown'

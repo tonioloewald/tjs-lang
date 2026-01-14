@@ -433,7 +433,7 @@ export class DemoNav extends Component {
   private openSection: string | null = null
   private floatViewer: XinFloat | null = null
   private mdViewer: MarkdownViewer | null = null
-  
+
   // Track current selection for highlighting
   private _currentView: 'home' | 'ajs' | 'tjs' = 'home'
   private _currentExample: string | null = null
@@ -445,11 +445,11 @@ export class DemoNav extends Component {
     // Listen for hash changes
     window.addEventListener('hashchange', () => this.loadStateFromURL())
   }
-  
+
   get currentView() {
     return this._currentView
   }
-  
+
   set currentView(value: 'home' | 'ajs' | 'tjs') {
     this._currentView = value
     // Auto-open the appropriate section
@@ -462,16 +462,16 @@ export class DemoNav extends Component {
     // Update indicator after rebuild (DOM now exists)
     this.updateCurrentIndicator()
   }
-  
+
   get currentExample() {
     return this._currentExample
   }
-  
+
   set currentExample(value: string | null) {
     this._currentExample = value
     this.updateCurrentIndicator()
   }
-  
+
   private updateCurrentIndicator() {
     // Update .current class on nav items
     const items = this.querySelectorAll('.nav-item')
@@ -493,7 +493,7 @@ export class DemoNav extends Component {
     const section = params.get('section')
     const view = params.get('view')
     const example = params.get('example')
-    
+
     // Set view and open appropriate section
     if (view === 'ajs') {
       this._currentView = 'ajs'
@@ -509,12 +509,12 @@ export class DemoNav extends Component {
     ) {
       this.openSection = section
     }
-    
+
     // Set current example for highlighting
     if (example) {
       this._currentExample = example
     }
-    
+
     this.rebuildNav()
     this.updateCurrentIndicator()
   }
@@ -616,7 +616,7 @@ export class DemoNav extends Component {
       marginLeft: '4px',
       fontSize: '11px',
     },
-    
+
     '.nav-item.current': {
       background: '#e0e7ff',
       fontWeight: '500',
@@ -627,7 +627,7 @@ export class DemoNav extends Component {
       width: '16px',
       height: '16px',
     },
-    
+
     '.home-link': {
       display: 'flex',
       alignItems: 'center',
@@ -641,11 +641,11 @@ export class DemoNav extends Component {
       borderRadius: '6px',
       transition: 'background 0.15s',
     },
-    
+
     '.home-link:hover': {
       background: '#f3f4f6',
     },
-    
+
     '.home-link.current': {
       background: '#e0e7ff',
       color: '#3730a3',
@@ -670,13 +670,14 @@ export class DemoNav extends Component {
       // Home link
       div(
         {
-          class: this._currentView === 'home' ? 'home-link current' : 'home-link',
+          class:
+            this._currentView === 'home' ? 'home-link current' : 'home-link',
           onClick: () => this.selectHome(),
         },
         span({ class: 'section-icon' }, icons.home({ size: 16 })),
         'Home'
       ),
-      
+
       // AJS Demos
       details(
         {

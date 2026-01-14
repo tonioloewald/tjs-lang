@@ -175,6 +175,23 @@ function findMainFunction(program: Program): FunctionDeclaration | null {
 }
 
 /**
+ * Serialize a TypeDescriptor to JSON-compatible object
+ * Preserves full type structure (shape, items, members)
+ */
+function serializeType(t: TypeDescriptor): any {
+  const result: any = { kind: t.kind }
+  if (t.nullable) result.nullable = true
+  if (t.items) result.items = serializeType(t.items)
+  if (t.shape) {
+    result.shape = Object.fromEntries(
+      Object.entries(t.shape).map(([k, v]) => [k, serializeType(v)])
+    )
+  }
+  if (t.members) result.members = t.members.map(serializeType)
+  return result
+}
+
+/**
  * Generate type metadata code
  *
  * @param funcName - Function name
@@ -190,7 +207,7 @@ function generateTypeMetadata(
 
   for (const [name, param] of Object.entries(types.params)) {
     paramsObj[name] = {
-      type: param.type.kind,
+      type: serializeType(param.type),
       required: param.required,
     }
     if (param.default !== undefined) {
@@ -206,7 +223,7 @@ function generateTypeMetadata(
   }
 
   if (types.returns) {
-    metadata.returns = { type: types.returns.kind }
+    metadata.returns = serializeType(types.returns)
   }
 
   if (types.description) {

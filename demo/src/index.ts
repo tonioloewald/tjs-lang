@@ -9,7 +9,14 @@
 
 import { elements, tosi, bindings, StyleSheet, bind } from 'tosijs'
 
-import { icons, sideNav, SideNav, sizeBreak, popMenu, markdownViewer } from 'tosijs-ui'
+import {
+  icons,
+  sideNav,
+  SideNav,
+  sizeBreak,
+  popMenu,
+  markdownViewer,
+} from 'tosijs-ui'
 
 import { styleSpec } from './style'
 StyleSheet('demo-style', styleSpec)
@@ -547,9 +554,10 @@ if (main) {
                 // Set value on the TJS editor - unwrap Proxy if needed
                 setTimeout(() => {
                   if (element.parts?.tjsEditor) {
-                    const code = typeof example.code === 'string' 
-                      ? example.code 
-                      : String(example.code)
+                    const code =
+                      typeof example.code === 'string'
+                        ? example.code
+                        : String(example.code)
                     element.parts.tjsEditor.value = code
                   }
                 }, 0)
