@@ -905,6 +905,47 @@ const unsupportedBuiltins: Record<string, string> = {
 /** Fuel cost per expression node evaluation */
 const EXPR_FUEL_COST = 0.01
 
+/** Fuel cost per character for string operations (1 fuel per ~10KB) */
+const STRING_FUEL_PER_CHAR = 0.0001
+
+/** Fuel cost per element for array allocation operations */
+const ARRAY_FUEL_PER_ELEMENT = 0.001
+
+/** Methods that allocate new arrays/strings and need proportional charging */
+const ALLOCATING_METHODS = new Set([
+  // Array methods that create new arrays
+  'concat',
+  'slice',
+  'map',
+  'filter',
+  'flatMap',
+  'flat',
+  'toReversed',
+  'toSorted',
+  'toSpliced',
+  // String methods that create new strings
+  'repeat',
+  'padStart',
+  'padEnd',
+  'split',
+  'join',
+  'replace',
+  'replaceAll',
+  'substring',
+  'substr',
+  'trim',
+  'trimStart',
+  'trimEnd',
+  'toLowerCase',
+  'toUpperCase',
+  // Regex methods that allocate (match returns array, split/replace covered above)
+  'match',
+  'matchAll',
+  // JSON parsing creates objects
+  'parse',
+  'stringify',
+])
+
 /**
  * Evaluates an expression node against the runtime context.
  * This replaces JSEP for new code - expressions are already parsed by Acorn.
@@ -970,8 +1011,18 @@ export function evaluateExpr(node: ExprNode, ctx: RuntimeContext): any {
       const right = evaluateExpr(node.right, ctx)
 
       switch (node.op) {
-        case '+':
-          return left + right
+        case '+': {
+          const result = left + right
+          // Charge fuel proportional to string length for concatenation
+          if (typeof result === 'string' && ctx.fuel) {
+            ctx.fuel.current -= result.length * STRING_FUEL_PER_CHAR
+            if (ctx.fuel.current <= 0) {
+              ctx.error = new AgentError('Out of Fuel', 'expr.concat')
+              return undefined
+            }
+          }
+          return result
+        }
         case '-':
           return left - right
         case '*':
@@ -1106,7 +1157,29 @@ export function evaluateExpr(node: ExprNode, ctx: RuntimeContext): any {
       }
 
       const args = node.arguments.map((arg) => evaluateExpr(arg, ctx))
-      return fn.apply(obj, args)
+      const result = fn.apply(obj, args)
+
+      // Charge fuel for allocating operations based on result size
+      if (ctx.fuel && ALLOCATING_METHODS.has(method)) {
+        let fuelCost = 0
+        if (typeof result === 'string') {
+          fuelCost = result.length * STRING_FUEL_PER_CHAR
+        } else if (Array.isArray(result)) {
+          fuelCost = result.length * ARRAY_FUEL_PER_ELEMENT
+        } else if (typeof result === 'object' && result !== null) {
+          // For JSON.parse and similar, estimate based on key count
+          // This is a rough estimate but catches large objects
+          const keys = Object.keys(result)
+          fuelCost = keys.length * ARRAY_FUEL_PER_ELEMENT
+        }
+        ctx.fuel.current -= fuelCost
+        if (ctx.fuel.current <= 0) {
+          ctx.error = new AgentError('Out of Fuel', `expr.${method}`)
+          return undefined
+        }
+      }
+
+      return result
     }
 
     default:
@@ -1176,10 +1249,7 @@ export function defineAtom<I extends Record<string, any>, O = any>(
         }
         // Validate output against schema
         if (outputSchema && !validate(result, outputSchema)) {
-          ctx.error = new AgentError(
-            `Output validation failed for '${op}'`,
-            op
-          )
+          ctx.error = new AgentError(`Output validation failed for '${op}'`, op)
           return
         }
         ctx.state[step.result] = result
