@@ -2,7 +2,7 @@
 
 **Safe eval for the cloud. Code that travels to data.**
 
-tosijs-agent is a 30kB type-safe virtual machine that executes untrusted code safely anywhere—browser, server, or edge. Logic is written in AsyncJS (a JavaScript subset) and compiles to portable JSON. One hot endpoint can run any valid agent with zero deployment.
+tosijs-agent is a ~33kB type-safe virtual machine that executes untrusted code safely anywhere—browser, server, or edge. Logic is written in AsyncJS (a JavaScript subset) and compiles to portable JSON. One hot endpoint can run any valid agent with zero deployment.
 
 ---
 
@@ -10,7 +10,7 @@ tosijs-agent is a 30kB type-safe virtual machine that executes untrusted code sa
 
 Ship code to data instead of shipping data to code. Define backend logic as JSON, send it to any node, execute it safely with bounded resources. No deployment, no spin-up, no trust required.
 
-- **30kB VM** runs anywhere JavaScript runs
+- **~33kB VM** runs anywhere JavaScript runs (2 runtime deps, zero transitive)
 - **JSON AST** is the program—portable, inspectable, versionable
 - **Capability-based security**—VM has zero IO by default
 - **Fuel/gas metering**—bounded execution, no infinite loops
@@ -38,6 +38,8 @@ Ship code to data instead of shipping data to code. Define backend logic as JSON
 - **Type-safe boundaries:** Input validated at entry, output validated at exit—f(x: A) -> C is enforced
 - **Horizontal scaling:** Stateless execution with injected capabilities enables trivial scaling
 - **Polyglot potential:** JSON AST can be executed by runtimes in any language
+- **Minimal supply chain:** 2 runtime dependencies, both with zero transitive deps
+- **Well-tested:** 508 tests, 98% line coverage on security-critical runtime code
 
 ---
 
@@ -61,21 +63,49 @@ Ship code to data instead of shipping data to code. Define backend logic as JSON
 
 ## For the Security Consultant
 
-**Security model:** Defense in depth through capability restriction and resource bounding.
+**Security model:** Defense in depth through capability restriction, resource bounding, and validated boundaries.
+
+**Resource Controls:**
+
+- **Fuel metering:** Prevents CPU-bound abuse (tight loops, recursive bombs)
+- **Proportional fuel:** Memory-allocating operations (string concat, array methods, JSON.parse) charge fuel based on output size—large allocations exhaust fuel before exhausting memory
+- **Timeout enforcement:** Prevents IO-bound abuse (slow network calls, hung connections)
+- **Depth protocol:** Agent-to-agent recursion is bounded—no fork bombs
+
+**Sandboxing:**
 
 - **Zero-trust by default:** VM starts with no capabilities—no network, no filesystem, no storage
 - **Capability injection:** Host explicitly grants fetch, store, LLM access—audit trail is clear
-- **Fuel metering:** Prevents CPU-bound abuse (tight loops, recursive bombs)
-- **Timeout enforcement:** Prevents IO-bound abuse (slow network calls, hung connections)
-- **Monadic errors:** Errors propagate as values, not exceptions—no stack unwinding exploits
 - **No eval:** Expressions are AST nodes, not string evaluation—no injection vectors
-- **Depth protocol:** Agent-to-agent recursion is bounded—no fork bombs
+- **Prototype blocking:** Access to `__proto__`, `constructor`, `prototype` is blocked
+- **SSRF protection:** Default fetch blocks localhost, private IPs, cloud metadata endpoints
+
+**Type Safety:**
+
+- **Input validation:** Args validated against schema at VM entry
+- **Output validation:** Atom results validated against declared output schemas
+- **Monadic errors:** Errors propagate as values, not exceptions—no stack unwinding exploits
+
+**Tested Threats (508 tests, 98% line coverage on core runtime):**
+
+- Infinite loops → fuel exhaustion
+- Prototype pollution → blocked property access
+- SSRF → URL allowlist enforcement
+- ReDoS → suspicious regex pattern rejection
+- Path traversal → capability-level enforcement
+- Memory exhaustion → proportional fuel charging
 
 **Attack surface:**
 
 - Custom atoms are trusted code—host is responsible for their security
 - Capabilities determine exposure—a misconfigured fetch capability can still be abused
 - The VM prevents malicious _agents_, not malicious _atom implementations_
+
+**Dependencies:**
+
+- `acorn` (JS parser): 10+ years mature, Mozilla-backed, zero transitive deps
+- `tosijs-schema` (validation): Our library, zero transitive deps
+- Total supply chain: 2 packages, both with empty dependency trees
 
 ---
 
@@ -153,14 +183,21 @@ Ship code to data instead of shipping data to code. Define backend logic as JSON
 ### Where It Gets Complicated
 
 - **Capability design is hard:** A poorly designed capability can undermine the security model
-- **Fuel tuning is empirical:** Default costs are guesses—production deployments need calibration
+- **Fuel tuning is empirical:** Default costs are calibrated but production deployments may need adjustment
 - **LLM non-determinism:** Agents using LLMs won't produce identical results across runs
 - **Testing untrusted code:** You're responsible for validating agent behavior before deployment
+
+### What's Been Validated
+
+- **Security model:** 508 tests including malicious actor scenarios, 98% coverage on runtime
+- **Memory safety:** Proportional fuel charging prevents memory exhaustion attacks
+- **Capability failures:** Tested failure modes for network, storage, and partial capabilities
+- **Small model generation:** Gemma 3 4B successfully generates valid AsyncJS
 
 ### Open Questions
 
 - **Adoption:** Novel approach means limited ecosystem and community
-- **Performance:** Interpreted execution will be slower than native code
+- **Performance:** Interpreted execution will be slower than native code (but often fast enough—torture test runs 100 agents in 6ms)
 - **Complexity budget:** Is the abstraction worth the indirection for your use case?
 
 ### When NOT to Use This
