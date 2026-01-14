@@ -429,10 +429,22 @@ These ship with the library and affect bundle size and security posture.
 | Package         | Version | Size  | Purpose                                     | Risk                                                 |
 | --------------- | ------- | ----- | ------------------------------------------- | ---------------------------------------------------- |
 | `acorn`         | ^8.15.0 | ~30KB | JavaScript parser for AsyncJS transpilation | **Low** - Mature, widely audited, Mozilla-maintained |
-| `tosijs-schema` | ^1.1.3  | ~5KB  | JSON Schema validation                      | **Low** - Our library, minimal dependencies          |
+| `tosijs-schema` | ^1.2.0  | ~5KB  | JSON Schema validation                      | **Low** - Our library, 96.6% coverage, zero deps     |
 | `@codemirror/*` | various | ~50KB | Editor syntax highlighting (optional)       | **Low** - Only loaded for editor integration         |
 
 **Total runtime footprint:** ~33KB gzipped (core), ~83KB with editor support.
+
+### tosijs-schema 1.2.0 Coverage
+
+Our validation dependency maintains comprehensive test coverage:
+
+- **98.25% function coverage, 96.62% line coverage** (146 tests, 349 assertions)
+- **Edge cases tested:** NaN, Infinity, -0, sparse arrays, unicode, deeply nested structures
+- **Complex unions:** nested unions, discriminated unions, union of arrays, union with null/undefined
+- **Format validators:** email, ipv4 boundaries, url protocols, datetime variants
+- **Strict mode:** `validate(data, schema, { strict: true })` validates every item
+
+Because tosijs-schema schemas are JSON data (not code), library coverage extends to user-defined schemas—unlike Zod where user schema compositions are untested code.
 
 ### Development Dependencies
 

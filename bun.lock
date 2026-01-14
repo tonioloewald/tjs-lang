@@ -9,7 +9,7 @@
         "@codemirror/lang-html": "^6.4.11",
         "@codemirror/lang-markdown": "^6.5.0",
         "acorn": "^8.15.0",
-        "tosijs-schema": "^1.1.3",
+        "tosijs-schema": "1.2.0",
       },
       "devDependencies": {
         "@codemirror/lang-javascript": "^6.2.4",
@@ -509,7 +509,7 @@
 
     "tosijs": ["tosijs@1.0.10", "", {}, "sha512-qD2Jyo4wQoGcHoYnYAfcIQcDymJLiodBvHgG6EK440Z9bPiv0262pqTwrjGm8yzMsHH/sOONjFT1jSH3liu37g=="],
 
-    "tosijs-schema": ["tosijs-schema@1.1.3", "", {}, "sha512-yUenlWe26s/ht/A8RYShU2jr58jEmOLG/8fNPrCsNOkCH/jvKmxsHPHAQxjT8QsmUfJ+Hiz6Mo8sGEaOCTgEXw=="],
+    "tosijs-schema": ["tosijs-schema@1.2.0", "", {}, "sha512-03RP2ka3scNTw4WV06GfYmAiwZt1Z6+rRKcZsyJsjKYtw9lqnIO+KwKI5xsySBYh/RqnRrPK4F68Ars2lH2NSw=="],
 
     "tosijs-ui": ["tosijs-ui@1.0.10", "", { "peerDependencies": { "marked": "^16.4.2", "tosijs": "^1.0.10" } }, "sha512-bgFyyi/HSvP5TKcQAJru3dtyStwRmTsJ3mj68tmqf4fM8XTiOSqQsU4XXGn+U3SIHpyWunhJFvOhqun+WTl3pA=="],
 

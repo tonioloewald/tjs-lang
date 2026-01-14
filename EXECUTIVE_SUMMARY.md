@@ -104,8 +104,10 @@ Ship code to data instead of shipping data to code. Define backend logic as JSON
 **Dependencies:**
 
 - `acorn` (JS parser): 10+ years mature, Mozilla-backed, zero transitive deps
-- `tosijs-schema` (validation): Our library, zero transitive deps
+- `tosijs-schema` (validation): 96.6% test coverage, 146 tests, zero transitive deps
 - Total supply chain: 2 packages, both with empty dependency trees
+
+**Combined test coverage:** tosijs-agent (508 tests, 98% runtime) + tosijs-schema (146 tests, 96.6%) = 654 tests validating the full stack.
 
 ---
 
