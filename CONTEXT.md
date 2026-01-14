@@ -363,3 +363,126 @@ Agent.take(s.object({})).try({
       ),
 })
 ```
+
+## 8. Test Coverage
+
+**Summary (as of January 2025):**
+
+| Metric    | Value  |
+| --------- | ------ |
+| Tests     | 508    |
+| Functions | 84.77% |
+| Lines     | 80.36% |
+
+### Coverage by Component
+
+**Core Runtime (security-critical):**
+
+| File                      | Functions | Lines   | Notes                        |
+| ------------------------- | --------- | ------- | ---------------------------- |
+| `src/runtime.ts`          | 100%      | 100%    | Re-exports                   |
+| `src/vm.ts`               | 100%      | 100%    | Re-exports                   |
+| `src/vm/runtime.ts`       | 84%       | **98%** | Atoms, expression eval, fuel |
+| `src/vm/vm.ts`            | 90%       | 94%     | VM entry point               |
+| `src/transpiler/index.ts` | 100%      | 100%    | AsyncJS transpiler           |
+| `src/builder.ts`          | 92%       | 90%     | Fluent builder               |
+
+**Language/Transpiler:**
+
+| File                       | Functions | Lines | Notes                           |
+| -------------------------- | --------- | ----- | ------------------------------- |
+| `src/lang/emitters/ast.ts` | 94%       | 83%   | TJS → AST                       |
+| `src/lang/parser.ts`       | 92%       | 82%   | TJS parser                      |
+| `src/lang/inference.ts`    | 57%       | 60%   | Type inference (lower priority) |
+
+**Test Categories:**
+
+| Category                   | Tests | Coverage                                             |
+| -------------------------- | ----- | ---------------------------------------------------- |
+| Security (malicious actor) | 10    | Prototype access, SSRF, ReDoS, path traversal        |
+| Runtime core               | 25+   | Fuel, timeout, tracing, expressions                  |
+| Stress/Memory              | 6     | Large arrays, deep nesting, memory pressure          |
+| Capability failures        | 10    | Network errors, store failures, partial capabilities |
+| Allocation fuel            | 4     | Proportional charging for strings/arrays             |
+| Transpiler                 | 50+   | Language features, edge cases                        |
+| Use cases                  | 100+  | RAG, orchestration, client-server patterns           |
+
+### Running Tests
+
+```bash
+# Full suite
+bun test
+
+# Fast (skip LLM and benchmarks)
+SKIP_LLM_TESTS=1 AGENT99_TESTS_SKIP_BENCHMARKS=1 bun test
+
+# With coverage
+bun test --coverage
+```
+
+## 9. Dependencies
+
+### Runtime Dependencies
+
+These ship with the library and affect bundle size and security posture.
+
+| Package         | Version | Size  | Purpose                                     | Risk                                                 |
+| --------------- | ------- | ----- | ------------------------------------------- | ---------------------------------------------------- |
+| `acorn`         | ^8.15.0 | ~30KB | JavaScript parser for AsyncJS transpilation | **Low** - Mature, widely audited, Mozilla-maintained |
+| `tosijs-schema` | ^1.1.3  | ~5KB  | JSON Schema validation                      | **Low** - Our library, minimal dependencies          |
+| `@codemirror/*` | various | ~50KB | Editor syntax highlighting (optional)       | **Low** - Only loaded for editor integration         |
+
+**Total runtime footprint:** ~33KB gzipped (core), ~83KB with editor support.
+
+### Development Dependencies
+
+Not shipped to users. Used for building, testing, and development.
+
+| Package                | Purpose                       | Notes                   |
+| ---------------------- | ----------------------------- | ----------------------- |
+| `typescript`           | Type checking and compilation | Standard                |
+| `bun`                  | Runtime, bundler, test runner | Fast, modern            |
+| `eslint` / `prettier`  | Code quality                  | Standard                |
+| `acorn-walk`           | AST traversal for transpiler  | Only used at build time |
+| `codemirror`           | Editor components for demo    | Demo only               |
+| `tosijs` / `tosijs-ui` | Demo UI framework             | Demo only               |
+| `happy-dom`            | DOM mocking for tests         | Test only               |
+| `vitest`               | Alternative test runner       | Optional                |
+
+### Dependency Risk Assessment
+
+**Supply Chain:**
+
+| Risk                     | Mitigation                                               |
+| ------------------------ | -------------------------------------------------------- |
+| Acorn compromise         | Mature project (10+ years), Mozilla backing, widely used |
+| tosijs-schema compromise | We control this library                                  |
+| Transitive dependencies  | Minimal—acorn has 0 deps, tosijs-schema has 0 deps       |
+
+**Version Pinning:**
+
+- Production dependencies use caret (`^`) for patch updates
+- Consider using exact versions or lockfile for production deployments
+
+**Audit:**
+
+```bash
+# Check for known vulnerabilities
+bun audit
+# or
+npm audit
+```
+
+### What We Don't Depend On
+
+Notably absent from our dependency tree:
+
+| Common Dependency | Why We Don't Use It                     |
+| ----------------- | --------------------------------------- |
+| lodash            | Native JS methods suffice               |
+| axios             | Native fetch + capability injection     |
+| moment/dayjs      | Built-in Date wrapper in expressions    |
+| zod/yup           | tosijs-schema is lighter and sufficient |
+| jsep              | Replaced with acorn + custom AST nodes  |
+
+This minimal dependency approach reduces supply chain risk and bundle size.

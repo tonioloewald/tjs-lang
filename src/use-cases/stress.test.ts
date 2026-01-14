@@ -1,8 +1,6 @@
 import { describe, it, expect, mock } from 'bun:test'
 import { AgentVM } from '../vm'
 import { ajs } from '../transpiler'
-import { Agent } from '../builder'
-import { s } from 'tosijs-schema'
 
 describe('Allocation Fuel Charging', () => {
   const vm = new AgentVM()
@@ -257,7 +255,7 @@ describe('Capability Failure Modes', () => {
       get: mock(async () => {
         throw new Error('Redis connection lost')
       }),
-      set: mock(async () => {}),
+      set: mock(async () => undefined),
     }
 
     const ast = {
@@ -390,7 +388,10 @@ describe('Capability Failure Modes', () => {
           user: 'Hello',
           result: 'response',
         },
-        { op: 'return', schema: { type: 'object', properties: { response: {} } } },
+        {
+          op: 'return',
+          schema: { type: 'object', properties: { response: {} } },
+        },
       ],
     } as any
 
@@ -406,7 +407,7 @@ describe('Capability Failure Modes', () => {
 
     const undefinedStore = {
       get: mock(async () => undefined),
-      set: mock(async () => {}),
+      set: mock(async () => undefined),
     }
 
     const ast = ajs`
