@@ -6,6 +6,8 @@ import {
   type CostOverride,
   coreAtoms,
   AgentError,
+  isProcedureToken,
+  resolveProcedureToken,
 } from './runtime'
 import { TypedBuilder, type BaseNode, type BuilderType } from '../builder'
 import { validate } from 'tosijs-schema'
@@ -68,7 +70,7 @@ export class AgentVM<M extends Record<string, Atom<any, any>>> {
   }
 
   async run(
-    ast: BaseNode,
+    astOrToken: BaseNode | string,
     args: Record<string, any> = {},
     options: {
       fuel?: number
@@ -80,6 +82,20 @@ export class AgentVM<M extends Record<string, Atom<any, any>>> {
       context?: Record<string, any> // Request-scoped metadata (auth, permissions, etc.)
     } = {}
   ): Promise<RunResult> {
+    // Resolve procedure token to AST if needed
+    let ast: BaseNode
+    if (typeof astOrToken === 'string') {
+      if (isProcedureToken(astOrToken)) {
+        ast = resolveProcedureToken(astOrToken) as BaseNode
+      } else {
+        throw new Error(
+          `Invalid argument: expected AST or procedure token (starting with 'proc_'), got string: ${astOrToken}`
+        )
+      }
+    } else {
+      ast = astOrToken
+    }
+
     const startFuel = options.fuel ?? 1000
 
     // Calculate timeout from fuel budget (generous: 10ms per fuel unit)

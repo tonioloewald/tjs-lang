@@ -224,7 +224,92 @@ app.post('/run-agent', async (req, res) => {
 })
 ```
 
-## 4. Production Considerations
+## 4. Stored Procedures
+
+The procedure store provides a built-in mechanism for storing ASTs as callable tokens. This enables function-pointer-like patterns where behavior can be passed as data.
+
+### Storage Model
+
+```typescript
+// Module-level storage in runtime.ts
+const procedureStore = new Map<string, {
+  ast: any
+  createdAt: number
+  expiresAt: number
+}>()
+```
+
+**Constants:**
+- `PROCEDURE_TOKEN_PREFIX`: `'proc_'` - All tokens start with this prefix
+- `DEFAULT_PROCEDURE_TTL`: 3,600,000ms (1 hour)
+- `DEFAULT_MAX_AST_SIZE`: 102,400 bytes (100KB)
+
+### Token Resolution
+
+Tokens can be used anywhere an AST is accepted:
+
+1. **`vm.run(token, args)`** - Direct execution via VM
+2. **`agentRun({ agentId: token, input })`** - Execution from within an agent
+3. **`agentRun({ agentId: ast, input })`** - Raw AST also accepted (no storage needed)
+
+Resolution happens at runtime. If a string starts with `proc_`, the VM looks it up in the store. Expired or missing tokens throw clear errors.
+
+### Fuel Costs
+
+| Atom | Cost | Notes |
+|------|------|-------|
+| `storeProcedure` | 1.0 | Plus 0.001 per byte of AST |
+| `releaseProcedure` | 0.5 | Constant |
+| `clearExpiredProcedures` | 0.5 | Plus 0.01 per procedure scanned |
+
+### Security Considerations
+
+**Memory bounds:** The `maxSize` parameter prevents storing arbitrarily large ASTs. Default 100KB is generous for most agents.
+
+**Expiry:** TTL prevents memory leaks from abandoned procedures. The store is in-memory, so procedures don't survive process restarts.
+
+**No capability escalation:** Stored procedures inherit the capabilities of the calling context, not the storing context. A malicious agent cannot store a procedure that later executes with elevated privileges.
+
+**Token predictability:** Tokens are UUIDs, not sequential. They cannot be enumerated or guessed.
+
+### Use Cases
+
+**Dynamic dispatch (strategy pattern):**
+```typescript
+const strategies = ajs`
+  function dispatch({ strategyToken, data }) {
+    let result = agentRun({ agentId: strategyToken, input: { data } })
+    return result
+  }
+`
+```
+
+**Worker pool:**
+```typescript
+const orchestrator = ajs`
+  function orchestrate({ workers, tasks }) {
+    let results = []
+    for (let i = 0; i < tasks.length; i = i + 1) {
+      let workerToken = workers[i % workers.length]
+      let r = agentRun({ agentId: workerToken, input: tasks[i] })
+      results.push(r)
+    }
+    return { results }
+  }
+`
+```
+
+**Callback registration:**
+```typescript
+const registerCallback = ajs`
+  function register({ handler }) {
+    let token = storeProcedure({ ast: handler, ttl: 300000 })
+    return { callbackId: token }
+  }
+`
+```
+
+## 5. Production Considerations
 
 ### Recursive Agent Fuel
 
@@ -364,7 +449,7 @@ Agent.take(s.object({})).try({
 })
 ```
 
-## 8. Test Coverage
+## 9. Test Coverage
 
 **Summary (as of January 2025):**
 
@@ -420,7 +505,7 @@ SKIP_LLM_TESTS=1 AGENT99_TESTS_SKIP_BENCHMARKS=1 bun test
 bun test --coverage
 ```
 
-## 9. Dependencies
+## 10. Dependencies
 
 ### Runtime Dependencies
 

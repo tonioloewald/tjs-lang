@@ -27,6 +27,7 @@ export const styleSpec = {
     _linkColor: brandColor,
     _codeBackground: '#f3f4f6',
     _codeBorder: '#e5e7eb',
+    _xinTabsSelectedColor: vars.brandColor,
   },
 
   // Dark mode overrides

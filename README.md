@@ -375,6 +375,7 @@ The standard library includes essential primitives:
 | **IO**           | `httpFetch`                                                        | HTTP requests.                                                                                                        |
 | **Store**        | `storeGet`, `storeSet`                                             | Key-Value storage.                                                                                                    |
 | **AI**           | `llmPredict`, `agentRun`                                           | LLM calls and sub-agent recursion.                                                                                    |
+| **Procedures**   | `storeProcedure`, `releaseProcedure`, `clearExpiredProcedures`     | Store ASTs as callable tokens with TTL expiry.                                                                        |
 | **Utils**        | `random`, `uuid`, `hash`                                           | Random generation, UUIDs, and hashing.                                                                                |
 | **Optimization** | `memoize`, `cache`                                                 | In-memory memoization and persistent caching. Keys are optional and will be auto-generated if not provided.           |
 
@@ -425,6 +426,77 @@ let schema = Schema.response(
 | **Union/Enum**  | `union([...])`, `enum([...])`, `const(value)`                             |
 | **Metadata**    | `.title(s)`, `.describe(s)`, `.default(v)`, `.optional`                   |
 | **Helpers**     | `response(name, schema)`, `fromExample(example)`, `isValid(data, schema)` |
+
+## Stored Procedures
+
+Store ASTs as callable tokens—function pointers that can be passed around and invoked later. Useful for:
+
+- **Dynamic dispatch:** Pass behavior as data to sub-agents
+- **Deferred execution:** Store logic now, execute later
+- **Callback patterns:** Register handlers that other agents can invoke
+
+```typescript
+import { ajs, AgentVM } from 'tosijs-agent'
+
+const vm = new AgentVM()
+
+// Define a worker agent
+const workerAgent = ajs`
+  function worker({ value }) {
+    return { doubled: value * 2 }
+  }
+`
+
+// Store it and get a token
+const storeAgent = ajs`
+  function store({ ast }) {
+    let token = storeProcedure({ ast })
+    return { token }
+  }
+`
+
+const { result: storeResult } = await vm.run(storeAgent, { ast: workerAgent })
+const token = storeResult.token  // e.g., "proc_abc123..."
+
+// Call via token directly
+const { result } = await vm.run(token, { value: 21 })
+console.log(result)  // { doubled: 42 }
+
+// Or pass token to another agent
+const orchestrator = ajs`
+  function orchestrate({ workerToken, values }) {
+    let results = []
+    for (let v of values) {
+      let r = agentRun({ agentId: workerToken, input: { value: v } })
+      results.push(r.doubled)
+    }
+    return { results }
+  }
+`
+
+const { result: orchResult } = await vm.run(orchestrator, { 
+  workerToken: token, 
+  values: [1, 2, 3, 4, 5] 
+})
+console.log(orchResult)  // { results: [2, 4, 6, 8, 10] }
+```
+
+### Token Lifecycle
+
+| Atom | Description |
+|------|-------------|
+| `storeProcedure({ ast, ttl?, maxSize? })` | Store an AST, returns a `proc_*` token. Default TTL: 1 hour. |
+| `releaseProcedure({ token })` | Manually delete a stored procedure. Returns `true` if existed. |
+| `clearExpiredProcedures({})` | Remove all expired procedures. Returns count cleared. |
+
+**Options:**
+- `ttl`: Time-to-live in milliseconds (default: 3600000 = 1 hour)
+- `maxSize`: Maximum AST size in bytes (default: 102400 = 100KB)
+
+**Errors:**
+- `TokenExpired`: Token existed but TTL has passed
+- `TokenNotFound`: Token was never stored or was released
+- `ASTTooLarge`: AST exceeds `maxSize` limit
 
 ## Capabilities & Security
 

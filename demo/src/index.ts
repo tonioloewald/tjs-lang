@@ -398,7 +398,7 @@ if (main) {
     // Side navigation + content
     sideNav(
       {
-        name: 'Demos',
+        name: 'Examples',
         navSize: 220,
         minSize: 600,
         style: {

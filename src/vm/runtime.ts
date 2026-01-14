@@ -134,6 +134,70 @@ export interface RunResult {
   warnings?: string[] // Non-fatal warnings emitted during execution
 }
 
+// --- Procedure Store ---
+
+/**
+ * Stored procedure entry with AST and expiry metadata
+ */
+export interface StoredProcedure {
+  ast: any
+  createdAt: number
+  expiresAt: number
+}
+
+/**
+ * Module-level procedure store. In production, replace with a proper cache.
+ * Default TTL: 1 hour. Max AST size: 100KB.
+ */
+export const procedureStore = new Map<string, StoredProcedure>()
+
+/** Default TTL for stored procedures: 1 hour */
+export const DEFAULT_PROCEDURE_TTL = 60 * 60 * 1000
+
+/** Default max AST size: 100KB */
+export const DEFAULT_MAX_AST_SIZE = 100 * 1024
+
+/** Token prefix for identifying procedure tokens */
+export const PROCEDURE_TOKEN_PREFIX = 'proc_'
+
+/**
+ * Check if a string is a procedure token
+ */
+export function isProcedureToken(value: any): value is string {
+  return typeof value === 'string' && value.startsWith(PROCEDURE_TOKEN_PREFIX)
+}
+
+/**
+ * Resolve a procedure token to its AST.
+ * Returns the AST or throws an error if expired/not found.
+ */
+export function resolveProcedureToken(token: string): any {
+  const entry = procedureStore.get(token)
+  if (!entry) {
+    throw new Error(`Procedure not found: ${token}`)
+  }
+  if (Date.now() > entry.expiresAt) {
+    procedureStore.delete(token) // Clean up expired entry
+    throw new Error(`Procedure expired: ${token}`)
+  }
+  return entry.ast
+}
+
+/**
+ * Generate a unique procedure token
+ */
+function generateProcedureToken(): string {
+  if (typeof crypto !== 'undefined' && crypto.randomUUID) {
+    return PROCEDURE_TOKEN_PREFIX + crypto.randomUUID()
+  }
+  // Fallback
+  return (
+    PROCEDURE_TOKEN_PREFIX +
+    Math.random().toString(36).slice(2) +
+    Date.now().toString(36)
+  )
+}
+
 // --- Security ---
 
 /**
@@ -2164,12 +2228,9 @@ export const llmPredict = defineAtom(
 
 export const agentRun = defineAtom(
   'agentRun',
-  s.object({ agentId: s.string, input: s.any }),
+  s.object({ agentId: s.any, input: s.any }), // agentId can be string token or AST object
   s.any,
   async ({ agentId, input }, ctx) => {
-    if (!ctx.capabilities.agent?.run)
-      throw new Error("Capability 'agent.run' missing")
-
     const resolvedId = resolveValue(agentId, ctx)
     const rawInput = resolveValue(input, ctx)
 
@@ -2180,6 +2241,64 @@ export const agentRun = defineAtom(
         resolvedInput[k] = resolveValue(rawInput[k], ctx)
       }
     }
+
+    // Check if this is a procedure token
+    if (isProcedureToken(resolvedId)) {
+      // Resolve the token to AST and execute directly
+      const ast = resolveProcedureToken(resolvedId)
+
+      // Execute the AST using the seq atom (recursive execution)
+      // Create a child context with the input as args
+      const childCtx: RuntimeContext = {
+        ...ctx,
+        args: resolvedInput,
+        state: {},
+        consts: new Set(),
+        output: undefined,
+        error: undefined,
+      }
+
+      const seqAtom = ctx.resolver('seq')
+      if (!seqAtom) throw new Error('seq atom not found')
+      await seqAtom.exec(ast, childCtx)
+
+      if (childCtx.error) {
+        throw new Error(childCtx.error.message || 'Sub-agent failed')
+      }
+
+      return childCtx.output
+    }
+
+    // Check if resolvedId is an AST object (has 'op' property)
+    if (
+      resolvedId &&
+      typeof resolvedId === 'object' &&
+      'op' in resolvedId
+    ) {
+      // Execute the AST directly
+      const childCtx: RuntimeContext = {
+        ...ctx,
+        args: resolvedInput,
+        state: {},
+        consts: new Set(),
+        output: undefined,
+        error: undefined,
+      }
+
+      const seqAtom = ctx.resolver('seq')
+      if (!seqAtom) throw new Error('seq atom not found')
+      await seqAtom.exec(resolvedId, childCtx)
+
+      if (childCtx.error) {
+        throw new Error(childCtx.error.message || 'Sub-agent failed')
+      }
+
+      return childCtx.output
+    }
+
+    // Fall back to capability-based agent lookup
+    if (!ctx.capabilities.agent?.run)
+      throw new Error("Capability 'agent.run' missing")
 
     const result = await ctx.capabilities.agent.run(resolvedId, resolvedInput)
 
@@ -2199,7 +2318,7 @@ export const agentRun = defineAtom(
 
     return result
   },
-  { docs: 'Run Sub-Agent', cost: 1 }
+  { docs: 'Run Sub-Agent (accepts procedure token, AST, or agent ID)', cost: 1 }
 )
 
 /*#
@@ -2664,6 +2783,80 @@ export const consoleError = defineAtom(
   { docs: 'Emit error and stop', cost: 0.1 }
 )
 
+// --- Stored Procedures ---
+
+export const storeProcedure = defineAtom(
+  'storeProcedure',
+  s.object({
+    ast: s.any,
+    ttl: s.number.optional,
+    maxSize: s.number.optional,
+  }),
+  s.string,
+  async ({ ast, ttl, maxSize }, ctx) => {
+    const resolvedAst = resolveValue(ast, ctx)
+    const resolvedTtl = ttl ? resolveValue(ttl, ctx) : DEFAULT_PROCEDURE_TTL
+    const resolvedMaxSize = maxSize
+      ? resolveValue(maxSize, ctx)
+      : DEFAULT_MAX_AST_SIZE
+
+    // Validate AST has an op
+    if (!resolvedAst || typeof resolvedAst !== 'object' || !resolvedAst.op) {
+      throw new Error('Invalid AST: must be an object with an "op" property')
+    }
+
+    // Check size
+    const astJson = JSON.stringify(resolvedAst)
+    if (astJson.length > resolvedMaxSize) {
+      throw new Error(
+        `AST too large: ${astJson.length} bytes exceeds limit of ${resolvedMaxSize} bytes. ` +
+          `Consider reducing AST size or using a shorter TTL.`
+      )
+    }
+
+    // Generate token and store
+    const token = generateProcedureToken()
+    const now = Date.now()
+    procedureStore.set(token, {
+      ast: resolvedAst,
+      createdAt: now,
+      expiresAt: now + resolvedTtl,
+    })
+
+    return token
+  },
+  { docs: 'Store an AST and return a token for later execution', cost: 1 }
+)
+
+export const releaseProcedure = defineAtom(
+  'releaseProcedure',
+  s.object({ token: s.string }),
+  s.boolean,
+  async ({ token }, ctx) => {
+    const resolvedToken = resolveValue(token, ctx)
+    return procedureStore.delete(resolvedToken)
+  },
+  { docs: 'Release a stored procedure by token', cost: 0.1 }
+)
+
+export const clearExpiredProcedures = defineAtom(
+  'clearExpiredProcedures',
+  undefined,
+  s.number,
+  async () => {
+    const now = Date.now()
+    let cleared = 0
+    for (const [token, entry] of procedureStore) {
+      if (now > entry.expiresAt) {
+        procedureStore.delete(token)
+        cleared++
+      }
+    }
+    return cleared
+  },
+  { docs: 'Clear all expired procedures and return count', cost: 0.5 }
+)
+
 // --- Exports ---
 
 export const coreAtoms = {
@@ -2713,4 +2906,7 @@ export const coreAtoms = {
   consoleLog,
   consoleWarn,
   consoleError,
+  storeProcedure,
+  releaseProcedure,
+  clearExpiredProcedures,
 }

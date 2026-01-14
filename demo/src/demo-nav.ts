@@ -2,8 +2,8 @@
  * Demo Navigation Component
  *
  * Sidebar with 4 accordion details blocks:
- * - AJS Demos (examples that open AJS playground)
- * - TJS Demos (examples that open TJS playground)
+ * - AJS Examples (examples that open AJS playground)
+ * - TJS Examples (examples that open TJS playground)
  * - AJS Docs (documentation that opens in floating viewer)
  * - TJS Docs (documentation that opens in floating viewer)
  */
@@ -678,7 +678,7 @@ export class DemoNav extends Component {
         'Home'
       ),
 
-      // AJS Demos
+      // AJS Examples
       details(
         {
           open: this.openSection === 'ajs-demos',
@@ -686,8 +686,8 @@ export class DemoNav extends Component {
           onToggle: this.handleToggle,
         },
         summary(
-          span({ class: 'section-icon' }, icons.play({ size: 16 })),
-          'AJS Demos'
+          span({ class: 'section-icon' }, icons.code({ size: 16 })),
+          'AJS Examples'
         ),
         div(
           { class: 'section-content' },
@@ -704,7 +704,7 @@ export class DemoNav extends Component {
         )
       ),
 
-      // TJS Demos
+      // TJS Examples
       details(
         {
           open: this.openSection === 'tjs-demos',
@@ -712,8 +712,8 @@ export class DemoNav extends Component {
           onToggle: this.handleToggle,
         },
         summary(
-          span({ class: 'section-icon' }, icons.play({ size: 16 })),
-          'TJS Demos'
+          span({ class: 'section-icon' }, icons.code({ size: 16 })),
+          'TJS Examples'
         ),
         div(
           { class: 'section-content' },

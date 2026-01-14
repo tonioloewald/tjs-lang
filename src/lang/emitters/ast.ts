@@ -707,7 +707,10 @@ function transformReturnStatement(
     steps.push({ op: 'varSet', key: '__result__', value: resultVar })
   }
 
-  steps.push({ op: 'return', schema: { __result__: {} } })
+  steps.push({
+    op: 'return',
+    schema: { type: 'object', properties: { __result__: {} } },
+  })
 
   // Wrap in seq if multiple steps
   if (steps.length === 1) {
