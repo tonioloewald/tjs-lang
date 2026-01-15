@@ -112,30 +112,46 @@ When transpiled with `--debug`:
 //   called from handleSubmit() (form.tjs:89:12)
 ```
 
-## 4. test {} Blocks
+## 4. test('description') {} Blocks
 
 Inline tests that hoist to bottom of file for execution.
 
 ```typescript
 const ZipCode = Type('5-digit US zip code', (s) => /^\d{5}$/.test(s))
 
-test {
+test('ZipCode validates correctly') {
   assert(ZipCode.check('12345'))
   assert(!ZipCode.check('1234'))
   assert(!ZipCode.check('123456'))
-  assert(!ZipCode.check('abcde'))
+  assert(!ZipCode.check('abcde'), 'letters should fail')
 }
 
 function ship(to: ZipCode, quantity: PositiveInt) {
   // ...
 }
 
-test {
+test('ship requires valid zip and quantity') {
   ship('12345', 1)  // ok
   assertThrows(() => ship('bad', 1))
 }
 ```
 
+### Failure Output
+
+```
+FAIL: ZipCode validates correctly
+  assert(!ZipCode.check('1234'))  ← auto-generated from source
+
+FAIL: ship requires valid zip and quantity
+  letters should fail  ← custom message when provided
+  assert(!ZipCode.check('abcde'), 'letters should fail')
+```
+
+### Rules
+
+- `test('description')` - description required, explains what's being tested
+- `assert(expr)` - auto-describes from source code on failure
+- `assert(expr, 'reason')` - custom message overrides auto-description
 - Tests live next to the code they test
 - Hoisted to bottom for execution order
 - Stripped in `target(production)`
