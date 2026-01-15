@@ -198,6 +198,80 @@ The AST is the source of truth. Targets are just emission strategies.
 5. Native type pragmatism - trust constructors
 6. Additional targets as needed
 
+## 7. Safety Levels and Flags
+
+### Defaults: Safe and Correct
+
+By default, TJS is strict:
+- All type contracts enforced
+- Lint errors block compilation
+- Unknown types are errors
+
+### Escape Hatches
+
+```bash
+tjs build app.tjs                    # strict, safe defaults
+tjs build app.tjs --allow-unsafe     # let nasty TS libs pass through
+tjs build app.tjs --yolo             # bypass all safeguards (--just-fucking-doit)
+```
+
+- `--allow-unsafe`: Complex/unknown types become best-effort runtime checks, warnings not errors
+- `--yolo`: Skip all validation, emit anyway (for when you know what you're doing)
+
+### Lint Integration
+
+Lint errors block safe builds. Not warnings - errors. If you want to ship broken code, use `--yolo`.
+
+## 8. Single-Pass Pipeline
+
+One command does everything:
+
+```bash
+tjs build app.tjs
+```
+
+In a single pass:
+1. **Lint** - catch errors early
+2. **Transpile** - emit target code
+3. **Test** - run inline tests (unless `--no-test`)
+4. **Docs** - extract documentation from types and descriptions
+
+No separate `tjs lint && tjs build && tjs test && tjs docs`. One pass, all the information is right there.
+
+## 9. Module System
+
+### Versioned Imports (Native Approach)
+
+```typescript
+import { Thing } from 'https://pkg.example.com/thing@1.2.3/mod.tjs'
+import { Other } from './local.tjs'
+```
+
+- URLs with versions are the native import mechanism
+- No node_modules, no package.json resolution dance
+- Imports are cached by URL+version
+- Works like Deno, but we got here independently
+
+### Bundler Compatibility
+
+TJS also works inside conventional bundlers:
+- Emits standard ES modules
+- Can be a webpack/vite/esbuild plugin
+- Or replace bundling entirely with versioned imports
+
+Your choice. We don't force either approach.
+
+## 10. Autocomplete by Introspection
+
+IDE support via runtime introspection, not static `.d.ts` files:
+
+- Types carry their descriptions
+- Functions know their signatures
+- Atoms expose their schemas
+- Autocomplete queries the actual runtime
+
+Already partially implemented in playground. Goal is LSP integration.
+
 ## Non-Goals
 
 - TypeScript compatibility (we're inspired by, not constrained by)
