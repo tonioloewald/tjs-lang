@@ -408,6 +408,43 @@ Eval(expression, {
 })
 ```
 
+## Ideas Parking Lot
+
+### JIT-Compiled Type Predicates
+
+We own the language, so we can optimize hot type checks:
+
+1. **Interpreted mode** (default): Predicate runs as-is
+2. **Compiled mode** (hot path): If a Type validates thousands of times, JIT-compile it
+
+```typescript
+const ZipCode = Type('5-digit zip', (s) => /^\d{5}$/.test(s))
+
+// First N calls: interpreted, collecting stats
+// Call N+1: "this is hot, compile it"
+// Now it's TypeBox-fast without ahead-of-time compilation
+```
+
+For `target(production)`, we could inline validators entirely:
+
+```typescript
+// Source
+function ship(to: ZipCode) { ... }
+
+// Transpiled (production)
+function ship(to) {
+  if (typeof to !== 'string' || !/^\d{5}$/.test(to)) 
+    throw new TypeError('expected 5-digit zip')
+  ...
+}
+```
+
+No runtime Type object, no .check() call - just inlined validation.
+
+Unlike TypeBox (which precompiles via eval and can't handle dynamic types), we can do both interpreted and compiled because we control the compiler.
+
+---
+
 ## Non-Goals
 
 - TypeScript compatibility (we're inspired by, not constrained by)
