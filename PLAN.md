@@ -272,6 +272,38 @@ IDE support via runtime introspection, not static `.d.ts` files:
 
 Already partially implemented in playground. Goal is LSP integration.
 
+## 11. Eval() - Safe Expression Evaluation
+
+A builtin for evaluating expressions with fuel limits:
+
+```typescript
+// Low default fuel - won't run away
+Eval('2 + 2')  // ~100 fuel default
+
+// Explicitly allow more for complex work
+Eval('fibonacci(20)', { fuel: 1000 })
+
+// Restrict for untrusted input
+Eval(userInput, { fuel: 10 })
+```
+
+### Why
+
+- Same sandboxed evaluator we already have, exposed as builtin
+- Safe by default - low fuel limit prevents runaway computation
+- No `eval()` - this is AST evaluation, not string execution
+- Fuel exhaustion returns error, doesn't throw
+
+### Options
+
+```typescript
+Eval(expression, {
+  fuel: 100,        // max fuel (default: 100)
+  context: {},      // variables available to expression
+  timeout: 1000,    // ms timeout (default: fuel * 10)
+})
+```
+
 ## Non-Goals
 
 - TypeScript compatibility (we're inspired by, not constrained by)
