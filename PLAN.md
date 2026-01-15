@@ -98,12 +98,49 @@ target(browser | node) {
 - `|` - either matches
 - `target(production)` strips `test {}` blocks and debug code
 
-## 3. Debug Mode (--debug)
+## 3. Monadic Errors and Debug Mode
+
+### try {} Without catch
+
+Bare `try` blocks convert to monadic error returns:
+
+```typescript
+try {
+  let data = riskyOperation()
+  process(data)
+}
+// No catch - transforms to:
+// if error, return { $error: true, message, op, cause }
+```
+
+Errors become values, not exceptions. Subsequent code is skipped (monadic flow).
+
+### AgentError Introspection
+
+Errors carry full context:
+
+```typescript
+{
+  $error: true,
+  message: 'Connection refused',
+  op: 'httpFetch',              // which atom failed
+  cause: <original exception>,  // for debugging
+  // With --debug:
+  source: 'orders.tjs:47:3',    // exact location
+  callStack: [                  // how we got here
+    'ship() at orders.tjs:47:3',
+    'processOrder() at checkout.tjs:123:5',
+    'handleSubmit() at form.tjs:89:12'
+  ]
+}
+```
+
+### --debug Flag
 
 When transpiled with `--debug`:
 - Functions know what they were called and where they came from
-- Stack traces point to original source locations
-- Runtime can insert stack traces on error
+- Errors include source locations and call stacks
+- Runtime can reconstruct the full path to failure
 
 ```typescript
 // With --debug, errors show:
@@ -111,6 +148,14 @@ When transpiled with `--debug`:
 //   called from processOrder() (checkout.tjs:123:5)
 //   called from handleSubmit() (form.tjs:89:12)
 ```
+
+### Current State
+
+- ✅ Monadic errors (AgentError class)
+- ✅ try {} without catch transforms
+- ⏳ Error introspection (op and message, not full stack)
+- ❌ --debug source mapping
+- ❌ Call stack in errors
 
 ## 4. test('description') {} Blocks
 
