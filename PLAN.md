@@ -234,14 +234,35 @@ The AST is the source of truth. Targets are just emission strategies.
 
 ---
 
-## Implementation Order
+## Implementation Status
 
-1. **Type()** - foundation for everything else
-2. **target()** - conditional compilation
-3. **test {}** - inline tests with hoisting
-4. **--debug** - source mapping and stack traces
-5. Native type pragmatism - trust constructors
-6. Additional targets as needed
+| # | Feature | Status | Notes |
+|---|---------|--------|-------|
+| 1 | Type() | ❌ | Foundation for everything |
+| 2 | target() | ❌ | Conditional compilation |
+| 3 | Monadic Errors | ⏳ | Have AgentError, need --debug/call stacks |
+| 4 | test() blocks | ❌ | Hoisting, stripping |
+| 5 | Pragmatic natives | ⏳ | Some constructor checks exist |
+| 6 | Multi-target | ❌ | Future - JS only for now |
+| 7 | Safety flags | ❌ | --allow-unsafe, --yolo |
+| 8 | Single-pass | ⏳ | CLI exists, not unified |
+| 9 | Module system | ❌ | Versioned imports |
+| 10 | Autocomplete | ⏳ | Playground has some |
+| 11 | Eval() | ⏳ | Expression eval exists, not exposed |
+
+## Implementation Priority
+
+| Priority | Feature | Why |
+|----------|---------|-----|
+| 1 | **Type()** | Foundation for type system |
+| 2 | **Autocomplete** | Do or die - dev experience |
+| 3 | **test() blocks** | TDD, in-file productivity |
+| 4 | **--debug / call stacks** | Error experience |
+| 5 | **Eval()** | Expose existing work |
+| 6 | **target()** | Conditional compilation |
+| 7 | **Safety flags** | Polish |
+| 8 | **Single-pass** | Polish |
+| 9 | **Modules** | Can wait |
 
 ## 7. Safety Levels and Flags
 
@@ -308,14 +329,52 @@ Your choice. We don't force either approach.
 
 ## 10. Autocomplete by Introspection
 
-IDE support via runtime introspection, not static `.d.ts` files:
+IDE support via runtime introspection, not static `.d.ts` files.
 
-- Types carry their descriptions
-- Functions know their signatures
-- Atoms expose their schemas
-- Autocomplete queries the actual runtime
+### Heuristic Levels (Progressive Fallback)
 
-Already partially implemented in playground. Goal is LSP integration.
+**Level 0: Local symbols** (instant, always)
+- Scan current file for identifiers
+- Function names, variable names, parameter names
+- Known atoms
+- Like BBEdit - fast, useful, no dependencies
+
+**Level 1: Type-aware** (fast, from syntax)
+- Parameter `name: 'Sarah'` → string, offer string methods
+- Variable `x: 17` → number
+- No runtime needed, just syntax analysis
+
+**Level 2: Runtime introspection** (when idle)
+- Actually run code with mocks up to cursor
+- Get real shapes from execution
+- Nice to have, not blocking
+
+### Strategy
+
+- Start fast (Level 0+1), upgrade async in background
+- Typing rapidly? Stay at Level 0
+- Paused 200ms? Try Level 1
+- Paused 500ms? Try Level 2
+- Cache aggressively - same signature = same completions
+
+### Versioned Imports Make This Insane
+
+```typescript
+import { ship } from 'https://pkg.example.com/shipping@2.0.0/mod.tjs'
+```
+
+- Module already transpiled (cached by URL+version)
+- Already introspected (we know its exports)
+- Immutable (version pinned, never changes)
+- Autocomplete for `ship.` is instant forever
+
+No node_modules crawling. No LSP server eating 4GB RAM. One file, one unit, instant knowledge.
+
+### Non-Goals
+
+- External LSP dependencies
+- TypeScript language server
+- Crawling dependency graphs
 
 ## 11. Eval() - Safe Expression Evaluation
 
