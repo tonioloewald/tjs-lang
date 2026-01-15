@@ -1306,13 +1306,17 @@ export function defineAtom<I extends Record<string, any>, O = any>(
             ]).finally(() => clearTimeout(timer))
           : await execute()
 
-      // 4. Result
-      if (step.result && result !== undefined) {
+      // 4. Result - always set if step.result is specified (even for undefined values)
+      if (step.result) {
         if (ctx.consts.has(step.result)) {
           throw new Error(`Cannot reassign const variable '${step.result}'`)
         }
-        // Validate output against schema
-        if (outputSchema && !validate(result, outputSchema)) {
+        // Validate output against schema (skip for undefined results)
+        if (
+          result !== undefined &&
+          outputSchema &&
+          !validate(result, outputSchema)
+        ) {
           ctx.error = new AgentError(`Output validation failed for '${op}'`, op)
           return
         }
@@ -1479,9 +1483,15 @@ export const ret = defineAtom(
       return ctx.error
     }
 
+    // New style: return has explicit value
+    if ('value' in step) {
+      const res = resolveValue(step.value, ctx)
+      ctx.output = res
+      return res
+    }
+
+    // Legacy style: extract from state based on schema keys
     let res: any = {}
-    // If schema provided, extract subset of state. Else return null/void?
-    // Current pattern: schema defines output shape matching state keys
     if (step.schema?.properties) {
       for (const key of Object.keys(step.schema.properties)) {
         res[key] = ctx.state[key]
@@ -2270,11 +2280,7 @@ export const agentRun = defineAtom(
     }
 
     // Check if resolvedId is an AST object (has 'op' property)
-    if (
-      resolvedId &&
-      typeof resolvedId === 'object' &&
-      'op' in resolvedId
-    ) {
+    if (resolvedId && typeof resolvedId === 'object' && 'op' in resolvedId) {
       // Execute the AST directly
       const childCtx: RuntimeContext = {
         ...ctx,

@@ -11,15 +11,12 @@
  */
 
 import { describe, it, expect, beforeEach } from 'bun:test'
-import { AgentVM, ajs } from '../index'
-import {
-  procedureStore,
-  PROCEDURE_TOKEN_PREFIX,
-  DEFAULT_PROCEDURE_TTL,
-} from '../vm/runtime'
+import { AgentVM, ajs, defineAtom } from '../index'
+import { s } from 'tosijs-schema'
+import { procedureStore, PROCEDURE_TOKEN_PREFIX } from '../vm/runtime'
 
 describe('Stored Procedures', () => {
-  let vm: AgentVM<{}>
+  let vm: AgentVM<object>
 
   beforeEach(() => {
     vm = new AgentVM()
@@ -74,7 +71,11 @@ describe('Stored Procedures', () => {
       // Create a large AST by nesting
       const largeAst = {
         op: 'seq',
-        steps: Array(1000).fill({ op: 'varSet', key: 'x', value: 'a'.repeat(200) }),
+        steps: Array(1000).fill({
+          op: 'varSet',
+          key: 'x',
+          value: 'a'.repeat(200),
+        }),
       }
 
       const storeAgent = ajs`
@@ -84,7 +85,7 @@ describe('Stored Procedures', () => {
         }
       `
 
-      const { result, error } = await vm.run(storeAgent, {
+      const { error } = await vm.run(storeAgent, {
         ast: largeAst,
         maxSize: 1000, // 1KB limit
       })
@@ -124,7 +125,9 @@ describe('Stored Procedures', () => {
         }
       `
 
-      const { result: storeResult } = await vm.run(storeAgent, { ast: subAgent })
+      const { result: storeResult } = await vm.run(storeAgent, {
+        ast: subAgent,
+      })
       const token = storeResult.token
 
       // Call via token
@@ -135,7 +138,7 @@ describe('Stored Procedures', () => {
 
     it('rejects non-token strings', async () => {
       await expect(vm.run('not-a-token', {})).rejects.toThrow(
-        "expected AST or procedure token"
+        'expected AST or procedure token'
       )
     })
 
@@ -154,7 +157,9 @@ describe('Stored Procedures', () => {
         }
       `
 
-      const { result: storeResult } = await vm.run(storeAgent, { ast: subAgent })
+      const { result: storeResult } = await vm.run(storeAgent, {
+        ast: subAgent,
+      })
       const token = storeResult.token
 
       // Wait for expiry
@@ -185,7 +190,9 @@ describe('Stored Procedures', () => {
         }
       `
 
-      const { result: storeResult } = await vm.run(storeAgent, { ast: subAgent })
+      const { result: storeResult } = await vm.run(storeAgent, {
+        ast: subAgent,
+      })
       const token = storeResult.token
 
       // Call from another agent
@@ -216,7 +223,9 @@ describe('Stored Procedures', () => {
         }
       `
 
-      const { result: storeResult } = await vm.run(storeAgent, { ast: workerAgent })
+      const { result: storeResult } = await vm.run(storeAgent, {
+        ast: workerAgent,
+      })
       const workerToken = storeResult.token
 
       // Orchestrator that receives a token and calls it
@@ -289,7 +298,9 @@ describe('Stored Procedures', () => {
         }
       `
 
-      const { result } = await vm.run(releaseAgent, { token: 'proc_nonexistent' })
+      const { result } = await vm.run(releaseAgent, {
+        token: 'proc_nonexistent',
+      })
 
       expect(result.released).toBe(false)
     })
@@ -419,6 +430,213 @@ describe('Stored Procedures', () => {
       })
 
       expect(result.results).toEqual([13, 30, 7]) // 10+3, 10*3, 10-3
+    })
+  })
+
+  describe('security: caller context isolation', () => {
+    // Define an atom that checks permissions from context
+    const secureAction = defineAtom(
+      'secureAction',
+      s.object({ action: s.string }),
+      s.object({ action: s.string, authorized: s.boolean, user: s.string }),
+      async (input, ctx) => {
+        const permissions = ctx.context?.permissions ?? []
+        const user = ctx.context?.user ?? 'anonymous'
+        if (!permissions.includes('admin')) {
+          throw new Error('Admin permission required')
+        }
+        return { action: input.action, authorized: true, user }
+      },
+      { docs: 'Action requiring admin permission', cost: 1 }
+    )
+
+    it('stored procedure uses caller context, not storer context', async () => {
+      // VM with custom secure atom
+      const vm = new AgentVM({ secureAction })
+      procedureStore.clear()
+
+      // Agent that calls secureAction
+      const secureAgent = ajs`
+        function doSecure({ action }) {
+          let result = secureAction({ action })
+          return result
+        }
+      `
+
+      // Store the procedure as "admin" user with admin permissions
+      const storeAgent = ajs`
+        function store({ ast }) {
+          let token = storeProcedure({ ast })
+          return { token }
+        }
+      `
+
+      // Admin stores the procedure
+      const { result: storeResult } = await vm.run(
+        storeAgent,
+        { ast: secureAgent },
+        {
+          context: {
+            user: 'admin-user',
+            permissions: ['admin', 'read', 'write'],
+          },
+        }
+      )
+
+      const token = storeResult.token
+
+      // Regular user (no admin) tries to call the stored procedure
+      // Should FAIL - the procedure doesn't inherit admin's permissions
+      const { error: unprivError } = await vm.run(
+        token,
+        { action: 'delete-everything' },
+        {
+          context: {
+            user: 'regular-user',
+            permissions: ['read'],
+          },
+        }
+      )
+
+      expect(unprivError).toBeDefined()
+      expect(unprivError?.message).toContain('Admin permission required')
+
+      // Admin user calls the same stored procedure
+      // Should SUCCEED - using caller's (admin's) context
+      const { result, error } = await vm.run(
+        token,
+        { action: 'delete-everything' },
+        {
+          context: {
+            user: 'another-admin',
+            permissions: ['admin', 'read'],
+          },
+        }
+      )
+
+      expect(error).toBeUndefined()
+      expect(result.authorized).toBe(true)
+      expect(result.user).toBe('another-admin') // Proves caller's context is used
+    })
+
+    it('agentRun with token uses caller context', async () => {
+      const vm = new AgentVM({ secureAction })
+      procedureStore.clear()
+
+      // Agent that calls secureAction
+      const secureAgent = ajs`
+        function doSecure({ action }) {
+          let result = secureAction({ action })
+          return result
+        }
+      `
+
+      // Store the procedure
+      const storeAgent = ajs`
+        function store({ ast }) {
+          let token = storeProcedure({ ast })
+          return { token }
+        }
+      `
+
+      const { result: storeResult } = await vm.run(storeAgent, {
+        ast: secureAgent,
+      })
+      const token = storeResult.token
+
+      // Orchestrator that calls the stored procedure via agentRun
+      const orchestrator = ajs`
+        function orchestrate({ token, action }) {
+          let result = agentRun({ agentId: token, input: { action } })
+          return result
+        }
+      `
+
+      // Call without admin permissions - should fail
+      const { error: unprivError } = await vm.run(
+        orchestrator,
+        { token, action: 'nuke-it' },
+        {
+          context: {
+            user: 'unprivileged',
+            permissions: ['read'],
+          },
+        }
+      )
+
+      expect(unprivError).toBeDefined()
+      expect(unprivError?.message).toContain('Admin permission required')
+
+      // Call with admin permissions - should succeed
+      const { result, error } = await vm.run(
+        orchestrator,
+        { token, action: 'nuke-it' },
+        {
+          context: {
+            user: 'super-admin',
+            permissions: ['admin'],
+          },
+        }
+      )
+
+      expect(error).toBeUndefined()
+      expect(result.authorized).toBe(true)
+      expect(result.user).toBe('super-admin')
+    })
+
+    it('capability restrictions apply at call time, not store time', async () => {
+      let fetchCallCount = 0
+
+      const vm = new AgentVM()
+      procedureStore.clear()
+
+      // Agent that tries to fetch
+      const fetchAgent = ajs`
+        function doFetch({ url }) {
+          let data = httpFetch({ url })
+          return { data }
+        }
+      `
+
+      // Store the procedure with permissive capabilities
+      const storeAgent = ajs`
+        function store({ ast }) {
+          let token = storeProcedure({ ast })
+          return { token }
+        }
+      `
+
+      const { result: storeResult } = await vm.run(
+        storeAgent,
+        { ast: fetchAgent },
+        {
+          capabilities: {
+            fetch: async (_url: string) => {
+              fetchCallCount++
+              return 'allowed-data'
+            },
+          },
+        }
+      )
+
+      const token = storeResult.token
+
+      // Call with restricted capabilities (fetch throws)
+      const { error } = await vm.run(
+        token,
+        { url: 'https://evil.com' },
+        {
+          capabilities: {
+            fetch: async () => {
+              throw new Error('Fetch not allowed')
+            },
+          },
+        }
+      )
+
+      expect(error).toBeDefined()
+      expect(error?.message).toContain('Fetch not allowed')
+      expect(fetchCallCount).toBe(0) // The permissive fetch was never called
     })
   })
 })

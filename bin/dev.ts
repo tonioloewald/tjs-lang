@@ -51,7 +51,10 @@ async function buildDemo() {
 
     console.log('Build complete!')
   } catch (error) {
-    console.error('Build error:', error instanceof Error ? error.message : error)
+    console.error(
+      'Build error:',
+      error instanceof Error ? error.message : error
+    )
   }
 }
 

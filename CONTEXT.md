@@ -232,14 +232,18 @@ The procedure store provides a built-in mechanism for storing ASTs as callable t
 
 ```typescript
 // Module-level storage in runtime.ts
-const procedureStore = new Map<string, {
-  ast: any
-  createdAt: number
-  expiresAt: number
-}>()
+const procedureStore = new Map<
+  string,
+  {
+    ast: any
+    createdAt: number
+    expiresAt: number
+  }
+>()
 ```
 
 **Constants:**
+
 - `PROCEDURE_TOKEN_PREFIX`: `'proc_'` - All tokens start with this prefix
 - `DEFAULT_PROCEDURE_TTL`: 3,600,000ms (1 hour)
 - `DEFAULT_MAX_AST_SIZE`: 102,400 bytes (100KB)
@@ -256,11 +260,11 @@ Resolution happens at runtime. If a string starts with `proc_`, the VM looks it 
 
 ### Fuel Costs
 
-| Atom | Cost | Notes |
-|------|------|-------|
-| `storeProcedure` | 1.0 | Plus 0.001 per byte of AST |
-| `releaseProcedure` | 0.5 | Constant |
-| `clearExpiredProcedures` | 0.5 | Plus 0.01 per procedure scanned |
+| Atom                     | Cost | Notes                           |
+| ------------------------ | ---- | ------------------------------- |
+| `storeProcedure`         | 1.0  | Plus 0.001 per byte of AST      |
+| `releaseProcedure`       | 0.5  | Constant                        |
+| `clearExpiredProcedures` | 0.5  | Plus 0.01 per procedure scanned |
 
 ### Security Considerations
 
@@ -275,6 +279,7 @@ Resolution happens at runtime. If a string starts with `proc_`, the VM looks it 
 ### Use Cases
 
 **Dynamic dispatch (strategy pattern):**
+
 ```typescript
 const strategies = ajs`
   function dispatch({ strategyToken, data }) {
@@ -285,6 +290,7 @@ const strategies = ajs`
 ```
 
 **Worker pool:**
+
 ```typescript
 const orchestrator = ajs`
   function orchestrate({ workers, tasks }) {
@@ -300,6 +306,7 @@ const orchestrator = ajs`
 ```
 
 **Callback registration:**
+
 ```typescript
 const registerCallback = ajs`
   function register({ handler }) {

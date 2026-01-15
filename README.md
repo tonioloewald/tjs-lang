@@ -456,11 +456,11 @@ const storeAgent = ajs`
 `
 
 const { result: storeResult } = await vm.run(storeAgent, { ast: workerAgent })
-const token = storeResult.token  // e.g., "proc_abc123..."
+const token = storeResult.token // e.g., "proc_abc123..."
 
 // Call via token directly
 const { result } = await vm.run(token, { value: 21 })
-console.log(result)  // { doubled: 42 }
+console.log(result) // { doubled: 42 }
 
 // Or pass token to another agent
 const orchestrator = ajs`
@@ -474,26 +474,28 @@ const orchestrator = ajs`
   }
 `
 
-const { result: orchResult } = await vm.run(orchestrator, { 
-  workerToken: token, 
-  values: [1, 2, 3, 4, 5] 
+const { result: orchResult } = await vm.run(orchestrator, {
+  workerToken: token,
+  values: [1, 2, 3, 4, 5],
 })
-console.log(orchResult)  // { results: [2, 4, 6, 8, 10] }
+console.log(orchResult) // { results: [2, 4, 6, 8, 10] }
 ```
 
 ### Token Lifecycle
 
-| Atom | Description |
-|------|-------------|
-| `storeProcedure({ ast, ttl?, maxSize? })` | Store an AST, returns a `proc_*` token. Default TTL: 1 hour. |
-| `releaseProcedure({ token })` | Manually delete a stored procedure. Returns `true` if existed. |
-| `clearExpiredProcedures({})` | Remove all expired procedures. Returns count cleared. |
+| Atom                                      | Description                                                    |
+| ----------------------------------------- | -------------------------------------------------------------- |
+| `storeProcedure({ ast, ttl?, maxSize? })` | Store an AST, returns a `proc_*` token. Default TTL: 1 hour.   |
+| `releaseProcedure({ token })`             | Manually delete a stored procedure. Returns `true` if existed. |
+| `clearExpiredProcedures({})`              | Remove all expired procedures. Returns count cleared.          |
 
 **Options:**
+
 - `ttl`: Time-to-live in milliseconds (default: 3600000 = 1 hour)
 - `maxSize`: Maximum AST size in bytes (default: 102400 = 100KB)
 
 **Errors:**
+
 - `TokenExpired`: Token existed but TTL has passed
 - `TokenNotFound`: Token was never stored or was released
 - `ASTTooLarge`: AST exceeds `maxSize` limit

@@ -626,98 +626,26 @@ function transformTryStatement(
 function transformReturnStatement(
   stmt: ReturnStatement,
   ctx: TransformContext
-): BaseNode {
+): BaseNode | BaseNode[] {
   if (!stmt.argument) {
-    return { op: 'return', schema: {} }
+    return { op: 'return', value: {} }
   }
 
-  // If returning an object literal, we need to handle each property
-  if (stmt.argument.type === 'ObjectExpression') {
-    const obj = stmt.argument as ObjectExpression
-    const steps: BaseNode[] = []
-    const schemaProperties: Record<string, any> = {}
-
-    for (const prop of obj.properties) {
-      if (prop.type === 'Property') {
-        const key =
-          prop.key.type === 'Identifier'
-            ? (prop.key as Identifier).name
-            : String((prop.key as Literal).value)
-
-        schemaProperties[key] = {}
-
-        // Get the value expression
-        const valueExpr = prop.value as Expression
-
-        // If it's a shorthand like { city } or simple identifier matching the key
-        if (
-          prop.shorthand ||
-          (valueExpr.type === 'Identifier' &&
-            (valueExpr as Identifier).name === key)
-        ) {
-          // The value is already in state with the same name, nothing to do
-          continue
-        }
-
-        // For member expressions like weather.condition, or other complex expressions,
-        // we need to set the result key in state first
-        const value = expressionToValue(valueExpr, ctx)
-
-        // If value is a string (state reference) and not the same as key, copy it
-        if (typeof value === 'string' && value !== key) {
-          steps.push({
-            op: 'varSet',
-            key,
-            value,
-          })
-        } else if (typeof value !== 'string') {
-          // Literal value or complex object
-          steps.push({
-            op: 'varSet',
-            key,
-            value,
-          })
-        }
-      }
-    }
-
-    steps.push({
-      op: 'return',
-      schema: { type: 'object', properties: schemaProperties },
-    })
-
-    if (steps.length === 1) {
-      return steps[0]
-    }
-    return { op: 'seq', steps }
-  }
-
-  // For non-object returns, set a result variable first
-  const _schema = extractReturnSchema(stmt.argument, ctx)
+  // Check if the return expression requires a preceding step (e.g., atom call)
   const { step, resultVar } = transformExpressionToStep(
     stmt.argument,
     ctx,
-    '__result__'
+    '__returnVal__'
   )
 
-  const steps: BaseNode[] = []
+  // If there's a step (atom call), emit it first, then return the result variable
   if (step) {
-    steps.push(step)
-  } else if (resultVar !== '__result__') {
-    steps.push({ op: 'varSet', key: '__result__', value: resultVar })
+    return [step, { op: 'return', value: resultVar }]
   }
 
-  steps.push({
-    op: 'return',
-    schema: { type: 'object', properties: { __result__: {} } },
-  })
-
-  // Wrap in seq if multiple steps
-  if (steps.length === 1) {
-    return steps[0]
-  }
-
-  return { op: 'seq', steps }
+  // Otherwise, convert expression directly to a value for return
+  const value = expressionToValue(stmt.argument, ctx)
+  return { op: 'return', value }
 }
 
 // Known builtins that should be evaluated as expressions, not atom calls
@@ -1815,28 +1743,4 @@ function extractCallArguments(
       expressionToValue(arg as Expression, ctx)
     ),
   }
-}
-
-/**
- * Extract return schema from expression
- */
-function extractReturnSchema(
-  expr: Expression,
-  _ctx: TransformContext
-): Record<string, any> {
-  if (expr.type === 'ObjectExpression') {
-    const schema: Record<string, any> = { type: 'object', properties: {} }
-
-    for (const prop of (expr as ObjectExpression).properties) {
-      if (prop.type === 'Property' && prop.key.type === 'Identifier') {
-        schema.properties[(prop.key as Identifier).name] = {}
-      }
-    }
-
-    return schema
-  }
-
-  // For other expressions, infer from type
-  const type = inferTypeFromValue(expr)
-  return { type: type.kind }
 }

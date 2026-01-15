@@ -75,6 +75,7 @@ vm.Agent  // Builder with custom atoms included
 ### Expression Evaluation
 
 Expressions use AST nodes (`$expr`), not strings:
+
 ```typescript
 { $expr: 'binary', op: '+', left: {...}, right: {...} }
 { $expr: 'ident', name: 'varName' }
