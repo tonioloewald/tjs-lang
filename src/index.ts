@@ -5,6 +5,7 @@ export * from './vm/vm'
 export * from './vm/atoms'
 export * from './builder'
 export * from './batteries'
+export * from './types'
 
 // Legacy re-exports for backwards compatibility
 // These will be removed in a future version
