@@ -17,6 +17,7 @@ import {
   Union,
   TArray,
 } from './Type'
+import { checkType, validateArgs, isError } from '../lang/runtime'
 
 describe('Type()', () => {
   describe('Type(description, predicate)', () => {
@@ -220,6 +221,88 @@ describe('Type Combinators', () => {
     expect(OptionalStringArray.check(null)).toBe(true)
     expect(OptionalStringArray.check(undefined)).toBe(true)
     expect(OptionalStringArray.check(['hello', ''])).toBe(false)
+  })
+})
+
+describe('Runtime Integration', () => {
+  describe('checkType() with RuntimeType', () => {
+    it('validates with RuntimeType', () => {
+      const ZipCode = Type('5-digit zip', (s) => typeof s === 'string' && /^\d{5}$/.test(s))
+      
+      expect(checkType('12345', ZipCode)).toBe(null)
+      expect(checkType('1234', ZipCode)).not.toBe(null)
+      expect(checkType(12345, ZipCode)).not.toBe(null)
+    })
+
+    it('returns descriptive error for RuntimeType', () => {
+      const ZipCode = Type('5-digit zip', (s) => typeof s === 'string' && /^\d{5}$/.test(s))
+      
+      const err = checkType('bad', ZipCode, 'address.zip')
+      expect(isError(err)).toBe(true)
+      expect(err?.message).toContain('5-digit zip')
+      expect(err?.path).toBe('address.zip')
+    })
+
+    it('works with built-in types', () => {
+      expect(checkType('hello', TString)).toBe(null)
+      expect(checkType(123, TString)).not.toBe(null)
+      
+      expect(checkType(42, TPositiveInt)).toBe(null)
+      expect(checkType(-1, TPositiveInt)).not.toBe(null)
+      expect(checkType(1.5, TPositiveInt)).not.toBe(null)
+    })
+  })
+
+  describe('validateArgs() with RuntimeType', () => {
+    it('validates args with RuntimeType params', () => {
+      const ZipCode = Type('5-digit zip', (s) => typeof s === 'string' && /^\d{5}$/.test(s))
+      
+      const meta = {
+        params: {
+          zip: { type: ZipCode, required: true },
+          count: { type: 'number', required: false },
+        }
+      }
+
+      expect(validateArgs({ zip: '12345' }, meta)).toBe(null)
+      expect(validateArgs({ zip: '12345', count: 5 }, meta)).toBe(null)
+      
+      const err = validateArgs({ zip: 'bad' }, meta, 'ship')
+      expect(isError(err)).toBe(true)
+      expect(err?.message).toContain('5-digit zip')
+      expect(err?.path).toBe('ship.zip')
+    })
+
+    it('reports missing required RuntimeType param', () => {
+      const Email = Type('email', (s) => typeof s === 'string' && s.includes('@'))
+      
+      const meta = {
+        params: {
+          email: { type: Email, required: true },
+        }
+      }
+
+      const err = validateArgs({}, meta, 'sendEmail')
+      expect(isError(err)).toBe(true)
+      expect(err?.message).toContain("Missing required parameter 'email'")
+      expect(err?.expected).toBe('email')
+    })
+
+    it('mixes string types and RuntimeTypes', () => {
+      const PositiveAmount = Type('positive amount', (n) => typeof n === 'number' && n > 0)
+      
+      const meta = {
+        params: {
+          name: { type: 'string', required: true },
+          amount: { type: PositiveAmount, required: true },
+          note: { type: 'string', required: false },
+        }
+      }
+
+      expect(validateArgs({ name: 'Test', amount: 100 }, meta)).toBe(null)
+      expect(validateArgs({ name: 'Test', amount: -5 }, meta)).not.toBe(null)
+      expect(validateArgs({ name: 123, amount: 100 }, meta)).not.toBe(null)
+    })
   })
 })
 

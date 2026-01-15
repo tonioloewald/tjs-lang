@@ -100,14 +100,29 @@ export function typeOf(value: unknown): string {
 
 /**
  * Check if a value matches an expected type
+ *
+ * @param value - The value to check
+ * @param expected - Either a string type name ('string', 'number', etc.)
+ *                   or a RuntimeType instance with .check() method
+ * @param path - Optional path for error messages
  */
 export function checkType(
   value: unknown,
-  expected: string,
+  expected: string | { check: (v: unknown) => boolean; description: string },
   path?: string
 ): TJSError | null {
   // If value is already an error, propagate it
   if (isError(value)) return value
+
+  // Handle RuntimeType instances (Type() results)
+  if (typeof expected === 'object' && expected !== null && 'check' in expected) {
+    if (expected.check(value)) return null
+    return error(`Expected ${expected.description} but got ${typeOf(value)}`, {
+      path,
+      expected: expected.description,
+      actual: typeOf(value),
+    })
+  }
 
   const actual = typeOf(value)
 
@@ -130,6 +145,9 @@ export function checkType(
   })
 }
 
+/** Type specifier - either a string name or a RuntimeType */
+type TypeSpec = string | { check: (v: unknown) => boolean; description: string }
+
 /**
  * Validate function arguments against __tjs metadata
  * Returns first error found, or null if all valid
@@ -139,7 +157,7 @@ export function validateArgs(
   meta: {
     params: Record<
       string,
-      { type: string; required: boolean; default?: unknown }
+      { type: TypeSpec; required: boolean; default?: unknown }
     >
   },
   funcName?: string
@@ -152,9 +170,11 @@ export function validateArgs(
 
     // Check required
     if (param.required && value === undefined) {
+      const expectedDesc =
+        typeof param.type === 'string' ? param.type : param.type.description
       return error(`Missing required parameter '${name}'`, {
         path: funcName ? `${funcName}.${name}` : name,
-        expected: param.type,
+        expected: expectedDesc,
         actual: 'undefined',
       })
     }
