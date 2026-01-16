@@ -145,8 +145,138 @@ export function checkType(
   })
 }
 
-/** Type specifier - either a string name or a RuntimeType */
-type TypeSpec = string | { check: (v: unknown) => boolean; description: string }
+/** RuntimeType interface - objects with check method */
+interface RuntimeType {
+  check: (v: unknown) => boolean
+  description: string
+}
+
+/** Type descriptor from metadata */
+interface TypeDescriptor {
+  kind: string
+  refName?: string
+  nullable?: boolean
+  items?: TypeDescriptor
+  shape?: Record<string, TypeDescriptor>
+  members?: TypeDescriptor[]
+}
+
+/** Type specifier - a string name, RuntimeType instance, or type descriptor */
+type TypeSpec = string | RuntimeType | TypeDescriptor
+
+/** Global type registry - stores named Type() instances */
+const typeRegistry = new Map<string, RuntimeType>()
+
+/**
+ * Register a Type in the global registry
+ */
+export function registerType(name: string, type: RuntimeType): void {
+  typeRegistry.set(name, type)
+}
+
+/**
+ * Get a registered Type by name
+ */
+export function getType(name: string): RuntimeType | undefined {
+  return typeRegistry.get(name)
+}
+
+/**
+ * Check if a value is a RuntimeType instance
+ */
+function isRuntimeType(value: unknown): value is RuntimeType {
+  return (
+    value !== null &&
+    typeof value === 'object' &&
+    'check' in value &&
+    typeof (value as any).check === 'function' &&
+    'description' in value
+  )
+}
+
+/**
+ * Check if a value is a TypeDescriptor
+ */
+function isTypeDescriptor(value: unknown): value is TypeDescriptor {
+  return (
+    value !== null &&
+    typeof value === 'object' &&
+    'kind' in value &&
+    typeof (value as any).kind === 'string'
+  )
+}
+
+/**
+ * Resolve a TypeSpec to something checkType can use
+ */
+function resolveType(
+  typeSpec: TypeSpec
+): string | RuntimeType | null {
+  // String type name - use as-is
+  if (typeof typeSpec === 'string') {
+    return typeSpec
+  }
+
+  // RuntimeType instance - use directly
+  if (isRuntimeType(typeSpec)) {
+    return typeSpec
+  }
+
+  // TypeDescriptor - resolve based on kind
+  if (isTypeDescriptor(typeSpec)) {
+    switch (typeSpec.kind) {
+      case 'ref':
+        // Look up type in registry
+        if (typeSpec.refName) {
+          const type = typeRegistry.get(typeSpec.refName)
+          if (type) return type
+          // Type not found - return null to skip validation with warning
+          console.warn(`Type '${typeSpec.refName}' not found in registry`)
+          return null
+        }
+        return null
+
+      case 'string':
+        return 'string'
+      case 'number':
+        return 'number'
+      case 'boolean':
+        return 'boolean'
+      case 'any':
+        return 'any'
+      case 'null':
+        return 'null'
+      case 'undefined':
+        return 'undefined'
+      case 'object':
+        return 'object'
+      case 'array':
+        return 'array'
+
+      default:
+        // Unknown kind - skip validation
+        return 'any'
+    }
+  }
+
+  return 'any'
+}
+
+/**
+ * Get the description for a TypeSpec
+ */
+function getTypeDescription(typeSpec: TypeSpec): string {
+  if (typeof typeSpec === 'string') return typeSpec
+  if (isRuntimeType(typeSpec)) return typeSpec.description
+  if (isTypeDescriptor(typeSpec)) {
+    if (typeSpec.kind === 'ref' && typeSpec.refName) {
+      const type = typeRegistry.get(typeSpec.refName)
+      return type?.description ?? typeSpec.refName
+    }
+    return typeSpec.kind
+  }
+  return 'unknown'
+}
 
 /**
  * Validate function arguments against __tjs metadata
@@ -170,8 +300,7 @@ export function validateArgs(
 
     // Check required
     if (param.required && value === undefined) {
-      const expectedDesc =
-        typeof param.type === 'string' ? param.type : param.type.description
+      const expectedDesc = getTypeDescription(param.type)
       return error(`Missing required parameter '${name}'`, {
         path: funcName ? `${funcName}.${name}` : name,
         expected: expectedDesc,
@@ -182,10 +311,14 @@ export function validateArgs(
     // Skip type check for undefined optional params
     if (value === undefined) continue
 
+    // Resolve the type spec
+    const resolvedType = resolveType(param.type)
+    if (resolvedType === null) continue // Skip validation if type couldn't be resolved
+
     // Type check
     const typeError = checkType(
       value,
-      param.type,
+      resolvedType,
       funcName ? `${funcName}.${name}` : name
     )
     if (typeError) return typeError
@@ -270,6 +403,8 @@ export const runtime = {
   wrap,
   compareVersions,
   versionsCompatible,
+  registerType,
+  getType,
 }
 
 /**

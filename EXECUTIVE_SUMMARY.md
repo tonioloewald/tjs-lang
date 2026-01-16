@@ -2,7 +2,7 @@
 
 **Safe eval for the cloud. Code that travels to data.**
 
-tosijs-agent is a ~33kB type-safe virtual machine that executes untrusted code safely anywhere—browser, server, or edge. Logic is written in AsyncJS (a JavaScript subset) and compiles to portable JSON. One hot endpoint can run any valid agent with zero deployment.
+tosijs-agent is a ~33kB type-safe virtual machine that executes untrusted code safely anywhere—browser, server, or edge. Logic is written in AJS (a strict async-first JavaScript subset) and compiles to portable JSON. One universal endpoint can run any valid agent with zero deployment.
 
 ---
 
@@ -14,7 +14,7 @@ Ship code to data instead of shipping data to code. Define backend logic as JSON
 - **JSON AST** is the program—portable, inspectable, versionable
 - **Capability-based security**—VM has zero IO by default
 - **Fuel/gas metering**—bounded execution, no infinite loops
-- **AsyncJS**—familiar syntax, small enough for 4B-parameter LLMs to generate
+- **AJS dialect**—familiar syntax, small enough for 4B-parameter LLMs to generate
 
 ---
 
@@ -22,7 +22,7 @@ Ship code to data instead of shipping data to code. Define backend logic as JSON
 
 **Business value:** Eliminate deployment friction and reduce infrastructure complexity.
 
-- **Zero-deploy architecture:** One endpoint accepts any agent. No build pipelines, no container orchestration, no cold starts
+- **Zero-deploy architecture:** One universal endpoint accepts any agent. No build pipelines, no container orchestration, no cold starts
 - **Vendor flexibility:** Logic is JSON—migrate between clouds, edge providers, or self-hosted infrastructure without rewriting code
 - **Cost control:** Fuel metering provides hard limits on compute consumption per request
 - **AI-native:** Agents can be generated, modified, and composed by LLMs at runtime
@@ -39,6 +39,7 @@ Ship code to data instead of shipping data to code. Define backend logic as JSON
 - **Horizontal scaling:** Stateless execution with injected capabilities enables trivial scaling
 - **Polyglot potential:** JSON AST can be executed by runtimes in any language
 - **Minimal supply chain:** 2 runtime dependencies, both with zero transitive deps
+- **Apache 2.0 licensed:** Explicit patent grants protect your organization from IP litigation—no "submarine patents"
 - **Well-tested:** 508 tests, 98% line coverage on security-critical runtime code
 
 ---
@@ -47,11 +48,16 @@ Ship code to data instead of shipping data to code. Define backend logic as JSON
 
 **Developer experience:** Write logic once, run it anywhere, debug it easily.
 
-- **Familiar syntax:** AsyncJS looks like JavaScript—loops, conditionals, try/catch, template literals
+```typescript
+// The entire backend:
+app.post('/agent', (req) => vm.run(req.body.ast, req.body.args, { capabilities }))
+```
+
+- **Familiar syntax:** AJS looks like JavaScript—loops, conditionals, try/catch, template literals
 - **Type inference:** Full TypeScript support with schema-driven validation
 - **Tracing built-in:** Every execution step is logged with before/after state, fuel consumption, and timing
 - **Custom atoms:** Extend the runtime with your own operations—full type safety preserved
-- **No magic:** The AST is just JSON—inspect it, transform it, generate it programmatically
+- **No magic:** The AST is just JSON—inspect it, transform it, generate it. No compilation step required
 
 **Limitations to know:**
 
@@ -119,7 +125,7 @@ Ship code to data instead of shipping data to code. Define backend logic as JSON
 - **Vector search:** Built-in cosine similarity—10K vectors in ~15ms, no external database required
 - **Local inference:** Batteries-included setup connects to LM Studio for zero-API-key development
 - **Agent composition:** Agents can invoke other agents with depth-bounded recursion
-- **Small-model friendly:** AsyncJS syntax is simple enough for 4B-parameter models to generate correctly
+- **Small-model friendly:** AJS syntax is simple enough for 4B-parameter models to generate correctly
 
 **Use cases:**
 
@@ -135,7 +141,7 @@ Ship code to data instead of shipping data to code. Define backend logic as JSON
 
 | Aspect             | GraphQL                                     | tosijs-agent                            |
 | ------------------ | ------------------------------------------- | --------------------------------------- |
-| **Query language** | Domain-specific (GraphQL SDL)               | General-purpose (AsyncJS/JSON)          |
+| **Query language** | Domain-specific (GraphQL SDL)               | General-purpose (AJS/JSON)              |
 | **Execution**      | Server-side resolvers                       | Portable—client, server, or edge        |
 | **Caching**        | Per-field, requires careful resolver design | Per-capability, shareable across agents |
 | **N+1 problem**    | Your problem (DataLoader, etc.)             | Your problem (but agents can batch)     |
@@ -177,7 +183,7 @@ Ship code to data instead of shipping data to code. Define backend logic as JSON
 
 ### What It Can't Do
 
-- **No raw JavaScript:** You can't `require()` arbitrary npm packages or use the full JS standard library
+- **No raw JavaScript:** You can't `require()` arbitrary npm packages or use the full JS standard library (that's the point)
 - **No persistent state:** The VM is stateless—state lives in injected capabilities
 - **No concurrency primitives:** No `Promise.all`, no workers—sequential execution only
 - **No debugging tools:** Tracing exists, but no step-through debugger (yet)
@@ -194,7 +200,7 @@ Ship code to data instead of shipping data to code. Define backend logic as JSON
 - **Security model:** 508 tests including malicious actor scenarios, 98% coverage on runtime
 - **Memory safety:** Proportional fuel charging prevents memory exhaustion attacks
 - **Capability failures:** Tested failure modes for network, storage, and partial capabilities
-- **Small model generation:** Gemma 3 4B successfully generates valid AsyncJS
+- **Small model generation:** Gemma 3 4B successfully generates valid AJS
 
 ### Open Questions
 
@@ -214,7 +220,7 @@ Ship code to data instead of shipping data to code. Define backend logic as JSON
 ## Quick Links
 
 - [Technical Documentation](./CONTEXT.md)
-- [AsyncJS Language Guide](./guides/asyncjs.md)
+- [AJS Language Guide](./guides/ajs.md)
 - [Patterns & Examples](./guides/patterns.md)
 - [GitHub](https://github.com/tonioloewald/tosijs-agent)
 - [npm](https://www.npmjs.com/package/tosijs-agent)

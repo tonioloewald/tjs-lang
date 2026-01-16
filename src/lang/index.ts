@@ -1,7 +1,7 @@
 /**
- * AsyncJS Transpiler
+ * AJS Transpiler
  *
- * Transforms AsyncJS ("Better JavaScript") into tosijs-agent AST.
+ * Transforms AJS ("Better JavaScript") into tosijs-agent AST.
  *
  * @example
  * ```typescript
@@ -72,8 +72,30 @@ export {
   wrap,
   emitRuntimeWrapper,
   TJS_VERSION,
+  registerType,
+  getType,
   type TJSError,
 } from './runtime'
+
+// Re-export Type utilities from types module
+export {
+  Type,
+  isRuntimeType,
+  TString,
+  TNumber,
+  TBoolean,
+  TInteger,
+  TPositiveInt,
+  TNonEmptyString,
+  TEmail,
+  TUrl,
+  TUuid,
+  Nullable,
+  Optional,
+  Union,
+  TArray,
+  type RuntimeType,
+} from '../types'
 
 /**
  * Transpile JavaScript source code to Agent99 AST
@@ -136,7 +158,7 @@ export function transpile(
 }
 
 /**
- * Transpile AsyncJS source and return just the AST.
+ * Transpile AJS source and return just the AST.
  * Works as both a function and a tagged template literal.
  *
  * @example

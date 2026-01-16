@@ -306,6 +306,96 @@ describe('Runtime Integration', () => {
   })
 })
 
+describe('Transpiler Integration', () => {
+  it('transpiles type reference parameters correctly', async () => {
+    const { transpileToJS, registerType, wrap } = await import('../lang/index')
+    
+    // Define and register a custom type
+    const ZipCode = Type('5-digit zip', (v) => typeof v === 'string' && /^\d{5}$/.test(v))
+    registerType('ZipCode', ZipCode)
+
+    // Transpile a function that uses the type
+    const result = transpileToJS(`
+      function ship(to: ZipCode) {
+        return to
+      }
+    `)
+
+    // Check the metadata
+    expect(result.metadata.params.to.type.kind).toBe('ref')
+    expect(result.metadata.params.to.type.refName).toBe('ZipCode')
+    expect(result.metadata.params.to.required).toBe(true)
+
+    // Check the generated code doesn't have a bogus default value
+    expect(result.code).toContain('function ship(to)')
+    expect(result.code).not.toContain('to = ZipCode')
+  })
+
+  it('validates type references at runtime', async () => {
+    const { transpileToJS, registerType, wrap, isError } = await import('../lang/index')
+    
+    // Define and register a custom type
+    const Email = Type('email address', (v) => typeof v === 'string' && v.includes('@'))
+    registerType('Email', Email)
+
+    // Transpile a function
+    const result = transpileToJS(`
+      function sendMail(to: Email) {
+        return \`Sending to \${to}\`
+      }
+    `)
+
+    // Evaluate and wrap
+    const fn = eval(`(function() { ${result.code}; return sendMail })()`)
+    const wrapped = wrap(fn, fn.__tjs)
+
+    // Valid input
+    expect(wrapped('test@example.com')).toBe('Sending to test@example.com')
+
+    // Invalid input - should return error
+    const err = wrapped('not-an-email')
+    expect(isError(err)).toBe(true)
+    expect(err.message).toContain('email address')
+  })
+
+  it('handles multiple type reference parameters', async () => {
+    const { transpileToJS, registerType, wrap, isError } = await import('../lang/index')
+    
+    const Name = Type('non-empty name', (v) => typeof v === 'string' && v.length > 0)
+    const Age = Type('valid age', (v) => typeof v === 'number' && v >= 0 && v <= 150)
+    registerType('Name', Name)
+    registerType('Age', Age)
+
+    const result = transpileToJS(`
+      function createUser(name: Name, age: Age) {
+        return { name, age }
+      }
+    `)
+
+    expect(result.metadata.params.name.type.kind).toBe('ref')
+    expect(result.metadata.params.name.type.refName).toBe('Name')
+    expect(result.metadata.params.age.type.kind).toBe('ref')
+    expect(result.metadata.params.age.type.refName).toBe('Age')
+
+    // Evaluate and wrap
+    const fn = eval(`(function() { ${result.code}; return createUser })()`)
+    const wrapped = wrap(fn, fn.__tjs)
+
+    // Valid
+    expect(wrapped('Alice', 30)).toEqual({ name: 'Alice', age: 30 })
+
+    // Invalid name
+    const err1 = wrapped('', 30)
+    expect(isError(err1)).toBe(true)
+    expect(err1.message).toContain('non-empty name')
+
+    // Invalid age
+    const err2 = wrapped('Alice', -5)
+    expect(isError(err2)).toBe(true)
+    expect(err2.message).toContain('valid age')
+  })
+})
+
 describe('Real-world Types', () => {
   it('US Zip Code', () => {
     const ZipCode = Type(

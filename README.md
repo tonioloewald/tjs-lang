@@ -67,7 +67,7 @@ const agent = Agent.take(s.object({ topic: s.string })).while(
 
 ## Interactive Example: Cover Version Finder
 
-This example shows the complete loop: a UI form captures user input, AsyncJS code processes it (calling an API and using an LLM to analyze results), and displays the output with album artwork.
+This example shows the complete loop: a UI form captures user input, AJS code processes it (calling an API and using an LLM to analyze results), and displays the output with album artwork.
 
 ```css
 .cover-finder {
@@ -155,11 +155,11 @@ This example shows the complete loop: a UI form captures user input, AsyncJS cod
 ```
 
 ```js
-// Wire up the form to AsyncJS
+// Wire up the form to AJS
 // Uses demoRuntime which gets LLM settings from the Settings dialog
 import { ajs } from 'tosijs-agent'
 
-// The AsyncJS code - searches iTunes and uses LLM to find covers
+// The AJS code - searches iTunes and uses LLM to find covers
 const findCovers = ajs`
   function findCovers({ song, artist }) {
     let query = song + ' ' + artist
@@ -255,7 +255,7 @@ document.getElementById('cover-search').onsubmit = async (e) => {
 
 This demonstrates:
 
-- **Safe execution**: The AsyncJS code runs in a sandboxed VM with fuel limits
+- **Safe execution**: The AJS code runs in a sandboxed VM with fuel limits
 - **Structured output**: JSON schema guarantees valid response format from the LLM
 - **Capability injection**: LLM access is provided by the host, not the untrusted code
 - **Portable logic**: The `findCovers` AST could be sent to a server for execution instead
@@ -276,9 +276,9 @@ npm install tosijs-agent
 
 ## Quick Start
 
-### 1. Write Logic (AsyncJS)
+### 1. Write Logic (AJS)
 
-Write agents in AsyncJS—a JavaScript subset that compiles to a safe, serializable AST.
+Write agents in AJS—a JavaScript subset that compiles to a safe, serializable AST.
 
 ```typescript
 import { ajs, AgentVM } from 'tosijs-agent'
@@ -299,7 +299,7 @@ console.log(result.result) // { total: 120 }
 console.log(result.fuelUsed) // Fuel consumed
 ```
 
-AsyncJS supports most JavaScript expressions, loops, try/catch, and more. See [guides/asyncjs.md](./guides/asyncjs.md) for the full language reference.
+AJS supports most JavaScript expressions, loops, try/catch, and more. See [guides/ajs.md](./guides/ajs.md) for the full language reference.
 
 ### 2. Advanced: The Builder API
 
@@ -381,7 +381,7 @@ The standard library includes essential primitives:
 
 ## Expression Builtins
 
-AsyncJS expressions have access to safe built-in objects:
+AJS expressions have access to safe built-in objects:
 
 | Builtin  | Description                                                                 |
 | -------- | --------------------------------------------------------------------------- |
@@ -836,7 +836,7 @@ chain.try({
 
 ## Editor Support
 
-tosijs-agent includes syntax highlighting for AsyncJS (the JavaScript subset used by `ajs` template literals).
+tosijs-agent includes syntax highlighting for AJS (the JavaScript subset used by `ajs` template literals).
 
 ### Quick Install
 
@@ -874,7 +874,7 @@ import { ajs } from 'tosijs-agent/editors/codemirror'
 
 Associate `.ajs` files with JavaScript syntax in your editor config. See [editors/README.md](./editors/README.md) for details.
 
-> **Note:** If you modify AsyncJS syntax (e.g., adding/removing forbidden keywords), update the grammar files in `editors/` to match. See [editors/README.md](./editors/README.md) for grammar locations.
+> **Note:** If you modify AJS syntax (e.g., adding/removing forbidden keywords), update the grammar files in `editors/` to match. See [editors/README.md](./editors/README.md) for grammar locations.
 
 ## Development
 

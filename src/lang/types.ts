@@ -21,6 +21,7 @@ export interface TypeDescriptor {
     | 'object'
     | 'union'
     | 'any'
+    | 'ref' // Reference to a Type() variable
   nullable?: boolean
   /** For arrays: the element type */
   items?: TypeDescriptor
@@ -30,6 +31,8 @@ export interface TypeDescriptor {
   members?: TypeDescriptor[]
   /** For destructured parameters: full parameter descriptors */
   destructuredParams?: Record<string, ParameterDescriptor>
+  /** For ref kind: the name of the referenced Type variable */
+  refName?: string
 }
 
 /** Describes a function parameter */

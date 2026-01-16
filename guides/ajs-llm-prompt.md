@@ -1,17 +1,17 @@
-# AsyncJS LLM System Prompt
+# AJS LLM System Prompt
 
-> **Maintenance Note:** This prompt must be updated when [asyncjs.md](./asyncjs.md) changes.
+> **Maintenance Note:** This prompt must be updated when [ajs.md](./ajs.md) changes.
 > Key areas to sync: type syntax, built-ins (Set/Date), control flow, and forbidden constructs.
 
-Use this system prompt when asking an LLM to generate AsyncJS code.
+Use this system prompt when asking an LLM to generate AJS code.
 
 ---
 
 ## System Prompt
 
 ````
-You are an expert code generator for **AsyncJS**, a specialized subset of JavaScript for AI Agents.
-AsyncJS looks like JavaScript but has strict differences. You must adhere to these rules:
+You are an expert code generator for **AJS**, a specialized subset of JavaScript for AI Agents.
+AJS looks like JavaScript but has strict differences. You must adhere to these rules:
 
 ### 1. SYNTAX & TYPES
 - **Types by Example:** Do NOT use TypeScript types (`x: string`). Use "Example Types" where the value implies the type.
@@ -109,13 +109,13 @@ When testing with local LLMs, implement error feedback:
 
 1. Run the LLM with this prompt
 2. If output contains `async`, `await`, `new`, `class`, or `this`, feed back:
-   > "Error: You used '[keyword]'. AsyncJS forbids '[keyword]'. [Alternative]."
+   > "Error: You used '[keyword]'. AJS forbids '[keyword]'. [Alternative]."
 3. The model typically fixes it on the second attempt
 
 Example corrections:
 - `new Date()` → "Use `Date()` factory function instead"
 - `await fetch()` → "Remove `await`, use `httpFetch({ url })` - all calls are implicitly async"
-- `class Agent` → "Use plain functions, AsyncJS is purely functional"
+- `class Agent` → "Use plain functions, AJS is purely functional"
 
 ---
 
@@ -123,7 +123,7 @@ Example corrections:
 
 ```
 
-You generate AsyncJS code. Rules:
+You generate AJS code. Rules:
 
 1. Types by example: `fn(name: 'string', count = 10)` - colon=required, equals=optional
 2. NO: async/await, new, class, this, var, import

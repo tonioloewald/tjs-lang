@@ -1,6 +1,6 @@
-# AsyncJS Patterns
+# AJS Patterns
 
-This document covers common patterns and workarounds for features not directly supported in AsyncJS.
+This document covers common patterns and workarounds for features not directly supported in AJS.
 
 ## Table of Contents
 
@@ -18,7 +18,7 @@ This document covers common patterns and workarounds for features not directly s
 
 **Status:** Not supported
 
-AsyncJS executes sequentially by design. This is intentional for:
+AJS executes sequentially by design. This is intentional for:
 
 - Predictable fuel consumption
 - Deterministic execution order
@@ -34,7 +34,7 @@ const parallelFetch = {
   },
 }
 
-// AsyncJS code calls the capability
+// AJS code calls the capability
 const results = parallelFetch.fetchAll(urls)
 ```
 
@@ -46,7 +46,7 @@ const results = parallelFetch.fetchAll(urls)
 
 **Status:** Manual pattern required
 
-AsyncJS doesn't have built-in retry. Implement with a while loop:
+AJS doesn't have built-in retry. Implement with a while loop:
 
 ```javascript
 let attempts = 0
@@ -74,7 +74,7 @@ if (!success) {
 return result
 ```
 
-**Note:** The `sleep` capability must be injected. AsyncJS doesn't include timing primitives to keep the VM deterministic.
+**Note:** The `sleep` capability must be injected. AJS doesn't include timing primitives to keep the VM deterministic.
 
 ---
 
@@ -141,7 +141,7 @@ For production, always provide a custom fetch capability with appropriate restri
 
 **Status:** Capability responsibility
 
-Rate limiting should be implemented in the capability layer, not in AsyncJS:
+Rate limiting should be implemented in the capability layer, not in AJS:
 
 ```typescript
 // Inject a rate-limited fetch capability
@@ -235,7 +235,7 @@ if (handler) {
 
 ### Monadic Error Flow
 
-AsyncJS uses monadic error handling. When an error occurs, subsequent atoms are skipped until a `try/catch` block handles it:
+AJS uses monadic error handling. When an error occurs, subsequent atoms are skipped until a `try/catch` block handles it:
 
 ```javascript
 try {
@@ -407,7 +407,7 @@ expect(result.trace).toContainEqual(expect.objectContaining({ op: 'storeGet' }))
 
 ## Expression Limitations
 
-Some JavaScript expressions have limitations in AsyncJS due to the compilation model.
+Some JavaScript expressions have limitations in AJS due to the compilation model.
 
 ### Template Literals in Nested Expressions
 
@@ -460,4 +460,4 @@ for (const x of items) {
 }
 ```
 
-These limitations exist because AsyncJS compiles to a JSON AST that executes step-by-step. Complex nested expressions would require runtime evaluation that could bypass fuel tracking and capability checks.
+These limitations exist because AJS compiles to a JSON AST that executes step-by-step. Complex nested expressions would require runtime evaluation that could bypass fuel tracking and capability checks.

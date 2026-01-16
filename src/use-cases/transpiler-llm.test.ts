@@ -1,7 +1,7 @@
 /**
- * Test that an LLM can write valid AsyncJS code
+ * Test that an LLM can write valid AJS code
  *
- * This test verifies that an LLM can understand the AsyncJS format
+ * This test verifies that an LLM can understand the AJS format
  * and generate code that successfully transpiles and executes.
  */
 
@@ -69,7 +69,7 @@ import { join } from 'path'
 
 // Load the actual LLM prompt that users get - tests should match real usage
 const ASYNCJS_LLM_PROMPT = readFileSync(
-  join(import.meta.dir, '../../guides/asyncjs-llm-prompt.md'),
+  join(import.meta.dir, '../../guides/ajs-llm-prompt.md'),
   'utf-8'
 )
 
@@ -82,9 +82,9 @@ function extractSystemPrompt(markdown: string): string {
 const ASYNCJS_GUIDE = extractSystemPrompt(ASYNCJS_LLM_PROMPT)
 
 describe.skipIf(process.env.SKIP_LLM_TESTS)(
-  'LLM AsyncJS Code Generation',
+  'LLM AJS Code Generation',
   () => {
-    it('should generate valid AsyncJS that computes factorial', async () => {
+    it('should generate valid AJS that computes factorial', async () => {
       await withRetry(async () => {
         const localModels = new LocalModels()
         await localModels.audit()
@@ -92,7 +92,7 @@ describe.skipIf(process.env.SKIP_LLM_TESTS)(
 
         const prompt = `${ASYNCJS_GUIDE}
 
-Write an AsyncJS function called "factorial" that takes a required number parameter "n" and returns an object with property "result" containing the factorial.
+Write an AJS function called "factorial" that takes a required number parameter "n" and returns an object with property "result" containing the factorial.
 
 Follow the factorial example exactly. Use a while loop with a simple condition like \`i > 1\`, and use native arithmetic for multiplication and decrement inside the loop.
 
@@ -101,7 +101,7 @@ The factorial of 5 is 120.
 Respond with ONLY the function code, no markdown fences or explanation.`
 
         const response = await predict(
-          'You are a code generator. Output only valid AsyncJS code.',
+          'You are a code generator. Output only valid AJS code.',
           prompt
         )
 
@@ -125,7 +125,7 @@ Respond with ONLY the function code, no markdown fences or explanation.`
       })
     }, 90000) // Extended timeout for retries
 
-    it('should generate valid AsyncJS for string greeting', async () => {
+    it('should generate valid AJS for string greeting', async () => {
       await withRetry(async () => {
         const localModels = new LocalModels()
         await localModels.audit()
@@ -133,7 +133,7 @@ Respond with ONLY the function code, no markdown fences or explanation.`
 
         const prompt = `${ASYNCJS_GUIDE}
 
-Write an AsyncJS function called "greet" following the greeting example above exactly.
+Write an AJS function called "greet" following the greeting example above exactly.
 
 The function should:
 - Take a required string parameter "name" (use example value like 'World')
@@ -146,7 +146,7 @@ Follow the "Greeting with optional parameter" example pattern exactly.
 Respond with ONLY the function code, no markdown fences or explanation.`
 
         const response = await predict(
-          'You are a code generator. Output only valid AsyncJS code.',
+          'You are a code generator. Output only valid AJS code.',
           prompt
         )
 
@@ -200,14 +200,14 @@ Respond with ONLY the function code, no markdown fences or explanation.`
 Here's an example tool definition:
 ${JSON.stringify(tools[0], null, 2)}
 
-Write a similar AsyncJS function called "calculateVolume" that:
+Write a similar AJS function called "calculateVolume" that:
 - Takes required number parameters: width, height, depth
 - Returns an object with property "volume" (width * height * depth)
 
 Use native arithmetic for the calculation. Respond with ONLY the function code.`
 
         const response = await predict(
-          'You are a code generator. Output only valid AsyncJS code.',
+          'You are a code generator. Output only valid AJS code.',
           prompt
         )
 
@@ -295,7 +295,7 @@ ${toolDocs}
 
 ## Task
 
-Write an AsyncJS function called "weatherReport" that:
+Write an AJS function called "weatherReport" that:
 1. Takes a required string parameter "city"
 2. Gets the weather for that city using getWeather
 3. Converts the temperature to Celsius using convertTemp  
@@ -309,7 +309,7 @@ Remember:
 Respond with ONLY the function code, no explanation.`
 
       const response = await predict(
-        'You are a code generator. Output only valid AsyncJS code.',
+        'You are a code generator. Output only valid AJS code.',
         prompt
       )
 
@@ -369,7 +369,7 @@ Respond with ONLY the function code, no explanation.`
    Check inventory for an item.
    Example: let inv = getInventory({ item: 'apple' })
 
-Note: Arithmetic works directly in AsyncJS, no special function needed.
+Note: Arithmetic works directly in AJS, no special function needed.
 Example: let total = price * quantity
 `
 
@@ -379,7 +379,7 @@ ${toolDocs}
 
 ## Task
 
-Write an AsyncJS function called "calculateOrder" that:
+Write an AJS function called "calculateOrder" that:
 1. Takes required parameters: item (string), quantity (number)
 2. Gets inventory info using getInventory
 3. If the item is in stock AND has enough quantity:
@@ -403,7 +403,7 @@ if (inv.inStock && inv.quantity >= quantity) {
 Respond with ONLY the function code.`
 
       const response = await predict(
-        'You are a code generator. Output only valid AsyncJS code.',
+        'You are a code generator. Output only valid AJS code.',
         prompt
       )
 

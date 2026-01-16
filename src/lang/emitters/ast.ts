@@ -305,7 +305,7 @@ export function transformStatement(
 
     case 'ThrowStatement':
       throw new TranspileError(
-        `'throw' is not supported in AsyncJS. Use Error('message') to trigger error flow`,
+        `'throw' is not supported in AJS. Use Error('message') to trigger error flow`,
         getLocation(stmt),
         ctx.source,
         ctx.filename
@@ -821,11 +821,11 @@ const UNSUPPORTED_BUILTIN_MESSAGES: Record<string, string> = {
   fetch: 'fetch is not available. Use the httpFetch atom.',
   require: 'require is not available. Atoms must be registered with the VM.',
   import: 'import is not available. Atoms must be registered with the VM.',
-  process: 'process is not available. AsyncJS runs in a sandboxed environment.',
-  window: 'window is not available. AsyncJS runs in a sandboxed environment.',
+  process: 'process is not available. AJS runs in a sandboxed environment.',
+  window: 'window is not available. AJS runs in a sandboxed environment.',
   document:
-    'document is not available. AsyncJS runs in a sandboxed environment.',
-  global: 'global is not available. AsyncJS runs in a sandboxed environment.',
+    'document is not available. AJS runs in a sandboxed environment.',
+  global: 'global is not available. AJS runs in a sandboxed environment.',
   globalThis: 'globalThis is not available. Use builtins directly.',
 }
 
@@ -838,7 +838,7 @@ function getUnsupportedBuiltinError(expr: CallExpression): string | null {
     if (UNSUPPORTED_BUILTINS.has(name)) {
       return (
         UNSUPPORTED_BUILTIN_MESSAGES[name] ||
-        `${name} is not available in AsyncJS.`
+        `${name} is not available in AJS.`
       )
     }
   }
@@ -850,7 +850,7 @@ function getUnsupportedBuiltinError(expr: CallExpression): string | null {
       if (UNSUPPORTED_BUILTINS.has(objName)) {
         return (
           UNSUPPORTED_BUILTIN_MESSAGES[objName] ||
-          `${objName} is not available in AsyncJS.`
+          `${objName} is not available in AJS.`
         )
       }
     }
@@ -914,7 +914,7 @@ function transformExpressionToStep(
     }
     const suggestion = getNewExpressionSuggestion(constructorName)
     throw new TranspileError(
-      `The 'new' keyword is not supported in AsyncJS.${suggestion}`,
+      `The 'new' keyword is not supported in AJS.${suggestion}`,
       getLocation(expr),
       ctx.source,
       ctx.filename
@@ -1569,7 +1569,7 @@ function expressionToExprNode(
       }
       const suggestion = getNewExpressionSuggestion(constructorName)
       throw new TranspileError(
-        `The 'new' keyword is not supported in AsyncJS.${suggestion}`,
+        `The 'new' keyword is not supported in AJS.${suggestion}`,
         getLocation(expr),
         ctx.source,
         ctx.filename

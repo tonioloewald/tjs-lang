@@ -81,6 +81,7 @@ export function transpileToJS(
     originalSource,
     requiredParams,
     unsafeFunctions,
+    typeAnnotations,
   } = parse(cleanSource, {
     filename,
     colonShorthand: true,
@@ -99,11 +100,24 @@ export function transpileToJS(
   const params: Record<string, ParameterDescriptor> = {}
   for (const param of func.params) {
     if (param.type === 'Identifier') {
-      const paramInfo = parseParameter(param, requiredParams)
-      params[param.name] = {
-        ...paramInfo,
-        required: requiredParams.has(param.name),
-        description: jsdoc.params[param.name],
+      const paramName = param.name
+      // Check if this param has a type annotation from the preprocessor
+      const typeRef = typeAnnotations.get(paramName)
+      if (typeRef) {
+        // Type reference (e.g., to: ZipCode) - use the ref type descriptor
+        params[paramName] = {
+          name: paramName,
+          type: { kind: 'ref', refName: typeRef },
+          required: requiredParams.has(paramName),
+          description: jsdoc.params[paramName],
+        }
+      } else {
+        const paramInfo = parseParameter(param, requiredParams)
+        params[paramName] = {
+          ...paramInfo,
+          required: requiredParams.has(paramName),
+          description: jsdoc.params[paramName],
+        }
       }
     } else if (
       param.type === 'AssignmentPattern' &&
@@ -188,6 +202,7 @@ function serializeType(t: TypeDescriptor): any {
     )
   }
   if (t.members) result.members = t.members.map(serializeType)
+  if (t.refName) result.refName = t.refName
   return result
 }
 

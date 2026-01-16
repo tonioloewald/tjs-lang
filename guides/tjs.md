@@ -2,6 +2,8 @@
 
 TJS is a typed superset of JavaScript where **types are examples**.
 
+**MIME Type:** `text/tjs`
+
 ```javascript
 function greet(name: 'World', times: 3) -> '' {
   let result = ''
@@ -500,5 +502,5 @@ The output is valid ES modules that work with any bundler (Vite, esbuild, webpac
 ## Further Reading
 
 - [Benchmarks](./benchmarks.md) - Performance characteristics
-- [asyncjs.md](./asyncjs.md) - The sandboxed agent language
+- [ajs.md](./ajs.md) - The sandboxed agent language
 - [API Documentation](./docs/) - Generated from source

@@ -1,6 +1,9 @@
-# Editor Integration for AsyncJS
+# Editor Integration for AJS
 
-This directory contains syntax highlighting definitions for AsyncJS (the JavaScript subset used by tosijs-agent).
+This directory contains syntax highlighting definitions for AJS (the JavaScript subset used by tosijs-agent).
+
+**File Extensions:** `.ajs`, `.tjs`
+**MIME Types:** `text/ajs`, `text/tjs`
 
 ## Quick Install
 
@@ -51,7 +54,7 @@ async function x() {} // Not needed, all calls are implicitly async
 
 **Template literal injection:**
 
-When you write `ajs`...`` in a TypeScript file, the content gets AsyncJS highlighting:
+When you write `ajs`...`` in a TypeScript file, the content gets AJS highlighting:
 
 ```typescript
 import { ajs } from 'tosijs-agent'
@@ -77,7 +80,7 @@ import { registerAjsLanguage } from 'tosijs-agent/editors/monaco/ajs-monarch'
 // Register the language
 registerAjsLanguage(monaco)
 
-// Create an editor with AsyncJS
+// Create an editor with AJS
 monaco.editor.create(document.getElementById('container'), {
   value: `function agent(topic: 'string') {
   let results = storeSearch({ query: topic })
@@ -120,7 +123,7 @@ true, false, null, numbers, strings
 
 ### Forbidden (red/error)
 
-These are JavaScript features not allowed in AsyncJS:
+These are JavaScript features not allowed in AJS:
 
 ```
 new, class, async, await, var, this, super,
@@ -138,7 +141,7 @@ Date, Set, Map, Array, Object
 
 ## CodeMirror 6 (Web)
 
-The `codemirror/` directory extends CodeMirror's JavaScript language with AsyncJS error highlighting.
+The `codemirror/` directory extends CodeMirror's JavaScript language with AJS error highlighting.
 
 ### Usage (TypeScript)
 
@@ -161,13 +164,13 @@ new EditorView({
 
 ### How It Works
 
-CodeMirror 6 uses Lezer grammars (compiled parsers). Rather than creating a full AsyncJS grammar, we:
+CodeMirror 6 uses Lezer grammars (compiled parsers). Rather than creating a full AJS grammar, we:
 
 1. Use the standard JavaScript language
 2. Add a view plugin that marks forbidden keywords as errors
 3. Apply custom styling to show red squiggly underlines
 
-This gives you full JS syntax highlighting with AsyncJS-specific error marking.
+This gives you full JS syntax highlighting with AJS-specific error marking.
 
 ## Ace Editor (Web)
 
@@ -182,7 +185,7 @@ import { registerAjsMode } from 'tosijs-agent/editors/ace/ajs-mode'
 // Register the mode
 registerAjsMode(ace)
 
-// Create an editor with AsyncJS
+// Create an editor with AJS
 const editor = ace.edit('editor')
 editor.session.setMode('ace/mode/ajs')
 editor.setValue(`function agent(topic: 'string') {
@@ -213,7 +216,7 @@ editor.setValue(`function agent(topic: 'string') {
 
 ## Tree-sitter Editors (Zed, Nova, Helix)
 
-These editors use Tree-sitter grammars, which require compiled C/WASM parsers. Since AsyncJS is a JavaScript subset, we recommend:
+These editors use Tree-sitter grammars, which require compiled C/WASM parsers. Since AJS is a JavaScript subset, we recommend:
 
 ### Option 1: Use JavaScript Mode
 
@@ -260,7 +263,7 @@ Tree-sitter grammars require:
 - Maintaining compatibility with each editor's Tree-sitter version
 - Complex injection queries for template literals
 
-Since AsyncJS is JavaScript with restrictions (not additions), the effort doesn't pay off. The JavaScript grammar already parses everything correctly—we just want to mark certain constructs as errors, which is better done at the linting/transpiler level.
+Since AJS is JavaScript with restrictions (not additions), the effort doesn't pay off. The JavaScript grammar already parses everything correctly—we just want to mark certain constructs as errors, which is better done at the linting/transpiler level.
 
 ## Syntax Highlighting Rules
 
@@ -279,7 +282,7 @@ true, false, null, numbers, strings
 
 ### Forbidden (red/error)
 
-These are JavaScript features not allowed in AsyncJS:
+These are JavaScript features not allowed in AJS:
 
 ```
 new, class, async, await, var, this, super,
@@ -306,7 +309,7 @@ The grammars are defined in:
 
 ### Keeping Grammars in Sync
 
-When modifying AsyncJS syntax, update **all** grammar files:
+When modifying AJS syntax, update **all** grammar files:
 
 1. **Forbidden keywords** - If you add/remove keywords from the transpiler's forbidden list, update:
 

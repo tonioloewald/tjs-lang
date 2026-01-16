@@ -42,7 +42,7 @@ npm run show-size           # Show gzipped bundle size
 - `src/vm/runtime.ts` - All atom implementations, expression evaluation, fuel charging
 - `src/vm/vm.ts` - AgentVM class (~226 lines)
 - `src/builder.ts` - TypedBuilder fluent API (~19KB)
-- `src/lang/` - AsyncJS/TJS transpiler (parser, emitters, type inference)
+- `src/lang/` - AJS/TJS transpiler (parser, emitters, type inference)
 - `src/batteries/` - LM Studio integration (LLM, vector search)
 - `src/use-cases/` - Integration tests and real-world examples (27 test files)
 
@@ -50,8 +50,8 @@ npm run show-size           # Show gzipped bundle size
 
 ```typescript
 // Language
-ajs`...`                    // Parse AsyncJS to AST
-tjs`...`                    // Parse TypeScript variant with type metadata
+ajs`...`                    // Parse AJS to AST
+tjs`...`                    // Parse TJS (TypeScript variant) with type metadata
 transpile(source, options)  // Full transpilation with signature extraction
 createAgent(source, vm)     // Creates callable agent
 

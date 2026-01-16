@@ -35,11 +35,14 @@ export function preprocess(source: string): {
   originalSource: string
   requiredParams: Set<string>
   unsafeFunctions: Set<string>
+  /** Type annotations for parameters that use type references (e.g., to: ZipCode) */
+  typeAnnotations: Map<string, string>
 } {
   const originalSource = source
   let returnType: string | undefined
   const requiredParams = new Set<string>()
   const unsafeFunctions = new Set<string>()
+  const typeAnnotations = new Map<string, string>()
 
   // Handle unsafe function marker: function foo(!) or function foo(! params)
   // The ! after ( marks the function as unsafe (no runtime type validation)
@@ -123,7 +126,18 @@ export function preprocess(source: string): {
               }
               // Track this as a required parameter
               requiredParams.add(name)
-              // Transform to standard default syntax
+              
+              // Check if the type is a pure identifier (type reference like ZipCode)
+              // These don't have meaningful default values - they're type annotations only
+              const typeRefMatch = type.match(/^\s*([A-Z][a-zA-Z0-9]*)\s*$/)
+              if (typeRefMatch) {
+                // Type-only annotation: no default value in JS, just the parameter name
+                // Record the type annotation for later use in inference
+                typeAnnotations.set(name, typeRefMatch[1])
+                return name
+              }
+              
+              // Transform to standard default syntax (for example values)
               return `${name} = ${type}`
             }
           }
@@ -181,7 +195,7 @@ export function preprocess(source: string): {
   // This is the idiomatic TJS way to convert exceptions to AgentError
   source = transformTryWithoutCatch(source)
 
-  return { source, returnType, originalSource, requiredParams, unsafeFunctions }
+  return { source, returnType, originalSource, requiredParams, unsafeFunctions, typeAnnotations }
 }
 
 /**
@@ -368,6 +382,7 @@ export function parse(
   originalSource: string
   requiredParams: Set<string>
   unsafeFunctions: Set<string>
+  typeAnnotations: Map<string, string>
 } {
   const { filename = '<source>', colonShorthand = true } = options
 
@@ -378,6 +393,7 @@ export function parse(
     originalSource,
     requiredParams,
     unsafeFunctions,
+    typeAnnotations,
   } = colonShorthand
     ? preprocess(source)
     : {
@@ -386,6 +402,7 @@ export function parse(
         originalSource: source,
         requiredParams: new Set<string>(),
         unsafeFunctions: new Set<string>(),
+        typeAnnotations: new Map<string, string>(),
       }
 
   try {
@@ -396,7 +413,7 @@ export function parse(
       allowReturnOutsideFunction: false,
     })
 
-    return { ast, returnType, originalSource, requiredParams, unsafeFunctions }
+    return { ast, returnType, originalSource, requiredParams, unsafeFunctions, typeAnnotations }
   } catch (e: any) {
     // Convert Acorn error to our error type
     const loc = e.loc || { line: 1, column: 0 }

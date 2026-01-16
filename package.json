@@ -1,6 +1,7 @@
 {
   "name": "tosijs-agent",
   "version": "0.0.3",
+  "license": "Apache-2.0",
   "main": "./dist/index.js",
   "exports": {
     ".": "./dist/index.js",

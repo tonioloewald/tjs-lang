@@ -101,12 +101,18 @@ export function inferTypeFromValue(node: Expression): TypeDescriptor {
     }
 
     case 'Identifier': {
+      const name = (node as any).name
       // Handle undefined as a type
-      if ((node as any).name === 'undefined') {
+      if (name === 'undefined') {
         return { kind: 'undefined' }
       }
-      // Other identifiers in type position aren't valid example types
-      return { kind: 'any' }
+      // Handle primitive type names as explicit types
+      if (name === 'string') return { kind: 'string' }
+      if (name === 'number') return { kind: 'number' }
+      if (name === 'boolean') return { kind: 'boolean' }
+      // Other identifiers are type references (e.g., ZipCode, Email, etc.)
+      // These will be resolved at runtime as Type() instances
+      return { kind: 'ref', refName: name }
     }
 
     case 'UnaryExpression': {

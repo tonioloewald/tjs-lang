@@ -72,7 +72,7 @@ function warnMissingVars(condition: string, vars: VarMapping): void {
       `[Agent99 Builder] Condition "${condition}" references variables not in vars mapping: ${missing.join(
         ', '
       )}. ` +
-        `Add them to vars or use AsyncJS syntax (ajs\`...\`) which handles this automatically.`
+        `Add them to vars or use AJS syntax (ajs\`...\`) which handles this automatically.`
     )
   }
 }
