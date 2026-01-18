@@ -512,6 +512,541 @@ function extractVariables(source: string, position: number): CMCompletion[] {
 }
 
 /**
+ * Curated property completions for common globals
+ * These are hand-picked for usefulness with proper type signatures
+ */
+const CURATED_PROPERTIES: Record<string, CMCompletion[]> = {
+  console: [
+    snippetCompletion('log(${1:message})', {
+      label: 'log',
+      type: 'method',
+      detail: '(...args: any[]) -> void',
+      info: 'Log to console',
+    }),
+    snippetCompletion('error(${1:message})', {
+      label: 'error',
+      type: 'method',
+      detail: '(...args: any[]) -> void',
+      info: 'Log error',
+    }),
+    snippetCompletion('warn(${1:message})', {
+      label: 'warn',
+      type: 'method',
+      detail: '(...args: any[]) -> void',
+      info: 'Log warning',
+    }),
+    snippetCompletion('info(${1:message})', {
+      label: 'info',
+      type: 'method',
+      detail: '(...args: any[]) -> void',
+      info: 'Log info',
+    }),
+    snippetCompletion('debug(${1:message})', {
+      label: 'debug',
+      type: 'method',
+      detail: '(...args: any[]) -> void',
+      info: 'Log debug',
+    }),
+    snippetCompletion('table(${1:data})', {
+      label: 'table',
+      type: 'method',
+      detail: '(data: any) -> void',
+      info: 'Display as table',
+    }),
+    snippetCompletion("time('${1:label}')", {
+      label: 'time',
+      type: 'method',
+      detail: '(label: string) -> void',
+      info: 'Start timer',
+    }),
+    snippetCompletion("timeEnd('${1:label}')", {
+      label: 'timeEnd',
+      type: 'method',
+      detail: '(label: string) -> void',
+      info: 'End timer',
+    }),
+    snippetCompletion("group('${1:label}')", {
+      label: 'group',
+      type: 'method',
+      detail: '(label?: string) -> void',
+      info: 'Start group',
+    }),
+    {
+      label: 'groupEnd',
+      type: 'method',
+      detail: '() -> void',
+      info: 'End group',
+    },
+    {
+      label: 'clear',
+      type: 'method',
+      detail: '() -> void',
+      info: 'Clear console',
+    },
+  ],
+  Math: [
+    // Common operations
+    snippetCompletion('floor(${1:x})', {
+      label: 'floor',
+      type: 'method',
+      detail: '(x: number) -> number',
+      info: 'Round down',
+    }),
+    snippetCompletion('ceil(${1:x})', {
+      label: 'ceil',
+      type: 'method',
+      detail: '(x: number) -> number',
+      info: 'Round up',
+    }),
+    snippetCompletion('round(${1:x})', {
+      label: 'round',
+      type: 'method',
+      detail: '(x: number) -> number',
+      info: 'Round to nearest',
+    }),
+    snippetCompletion('trunc(${1:x})', {
+      label: 'trunc',
+      type: 'method',
+      detail: '(x: number) -> number',
+      info: 'Remove decimals',
+    }),
+    snippetCompletion('abs(${1:x})', {
+      label: 'abs',
+      type: 'method',
+      detail: '(x: number) -> number',
+      info: 'Absolute value',
+    }),
+    snippetCompletion('sign(${1:x})', {
+      label: 'sign',
+      type: 'method',
+      detail: '(x: number) -> number',
+      info: 'Sign of number (-1, 0, 1)',
+    }),
+    // Min/max
+    snippetCompletion('min(${1:a}, ${2:b})', {
+      label: 'min',
+      type: 'method',
+      detail: '(...values: number[]) -> number',
+      info: 'Minimum value',
+    }),
+    snippetCompletion('max(${1:a}, ${2:b})', {
+      label: 'max',
+      type: 'method',
+      detail: '(...values: number[]) -> number',
+      info: 'Maximum value',
+    }),
+    snippetCompletion('clamp(${1:x}, ${2:min}, ${3:max})', {
+      label: 'clamp',
+      type: 'method',
+      detail: '(x, min, max) -> number',
+      info: 'Clamp to range (ES2024)',
+    }),
+    // Powers and roots
+    snippetCompletion('pow(${1:base}, ${2:exp})', {
+      label: 'pow',
+      type: 'method',
+      detail: '(base, exp) -> number',
+      info: 'Power',
+    }),
+    snippetCompletion('sqrt(${1:x})', {
+      label: 'sqrt',
+      type: 'method',
+      detail: '(x: number) -> number',
+      info: 'Square root',
+    }),
+    snippetCompletion('cbrt(${1:x})', {
+      label: 'cbrt',
+      type: 'method',
+      detail: '(x: number) -> number',
+      info: 'Cube root',
+    }),
+    snippetCompletion('hypot(${1:a}, ${2:b})', {
+      label: 'hypot',
+      type: 'method',
+      detail: '(...values: number[]) -> number',
+      info: 'Hypotenuse',
+    }),
+    // Logarithms
+    snippetCompletion('log(${1:x})', {
+      label: 'log',
+      type: 'method',
+      detail: '(x: number) -> number',
+      info: 'Natural log',
+    }),
+    snippetCompletion('log10(${1:x})', {
+      label: 'log10',
+      type: 'method',
+      detail: '(x: number) -> number',
+      info: 'Base 10 log',
+    }),
+    snippetCompletion('log2(${1:x})', {
+      label: 'log2',
+      type: 'method',
+      detail: '(x: number) -> number',
+      info: 'Base 2 log',
+    }),
+    snippetCompletion('exp(${1:x})', {
+      label: 'exp',
+      type: 'method',
+      detail: '(x: number) -> number',
+      info: 'e^x',
+    }),
+    // Trig
+    snippetCompletion('sin(${1:x})', {
+      label: 'sin',
+      type: 'method',
+      detail: '(radians: number) -> number',
+    }),
+    snippetCompletion('cos(${1:x})', {
+      label: 'cos',
+      type: 'method',
+      detail: '(radians: number) -> number',
+    }),
+    snippetCompletion('tan(${1:x})', {
+      label: 'tan',
+      type: 'method',
+      detail: '(radians: number) -> number',
+    }),
+    snippetCompletion('atan2(${1:y}, ${2:x})', {
+      label: 'atan2',
+      type: 'method',
+      detail: '(y, x) -> number',
+      info: 'Angle in radians',
+    }),
+    // Random
+    {
+      label: 'random',
+      type: 'method',
+      detail: '() -> number',
+      info: 'Random 0-1',
+    },
+    // Constants
+    { label: 'PI', type: 'property', detail: 'number', info: '3.14159...' },
+    { label: 'E', type: 'property', detail: 'number', info: '2.71828...' },
+  ],
+  JSON: [
+    snippetCompletion('parse(${1:text})', {
+      label: 'parse',
+      type: 'method',
+      detail: '(text: string) -> any',
+      info: 'Parse JSON string',
+    }),
+    snippetCompletion('stringify(${1:value})', {
+      label: 'stringify',
+      type: 'method',
+      detail: '(value: any, replacer?, space?) -> string',
+      info: 'Convert to JSON',
+    }),
+  ],
+  Object: [
+    snippetCompletion('keys(${1:obj})', {
+      label: 'keys',
+      type: 'method',
+      detail: '(obj: object) -> string[]',
+      info: 'Get property names',
+    }),
+    snippetCompletion('values(${1:obj})', {
+      label: 'values',
+      type: 'method',
+      detail: '(obj: object) -> any[]',
+      info: 'Get property values',
+    }),
+    snippetCompletion('entries(${1:obj})', {
+      label: 'entries',
+      type: 'method',
+      detail: '(obj: object) -> [string, any][]',
+      info: 'Get key-value pairs',
+    }),
+    snippetCompletion('fromEntries(${1:entries})', {
+      label: 'fromEntries',
+      type: 'method',
+      detail: '(entries: [string, any][]) -> object',
+      info: 'Create from entries',
+    }),
+    snippetCompletion('assign(${1:target}, ${2:source})', {
+      label: 'assign',
+      type: 'method',
+      detail: '(target, ...sources) -> object',
+      info: 'Copy properties',
+    }),
+    snippetCompletion('hasOwn(${1:obj}, ${2:prop})', {
+      label: 'hasOwn',
+      type: 'method',
+      detail: '(obj, prop: string) -> boolean',
+      info: 'Has own property',
+    }),
+    snippetCompletion('freeze(${1:obj})', {
+      label: 'freeze',
+      type: 'method',
+      detail: '(obj: T) -> T',
+      info: 'Make immutable',
+    }),
+  ],
+  Array: [
+    snippetCompletion('isArray(${1:value})', {
+      label: 'isArray',
+      type: 'method',
+      detail: '(value: any) -> boolean',
+      info: 'Check if array',
+    }),
+    snippetCompletion('from(${1:iterable})', {
+      label: 'from',
+      type: 'method',
+      detail: '(iterable, mapFn?) -> any[]',
+      info: 'Create from iterable',
+    }),
+    snippetCompletion('of(${1:items})', {
+      label: 'of',
+      type: 'method',
+      detail: '(...items) -> any[]',
+      info: 'Create from arguments',
+    }),
+  ],
+  String: [
+    snippetCompletion('fromCharCode(${1:code})', {
+      label: 'fromCharCode',
+      type: 'method',
+      detail: '(...codes: number[]) -> string',
+    }),
+    snippetCompletion('fromCodePoint(${1:code})', {
+      label: 'fromCodePoint',
+      type: 'method',
+      detail: '(...codes: number[]) -> string',
+    }),
+  ],
+  Number: [
+    snippetCompletion('isFinite(${1:value})', {
+      label: 'isFinite',
+      type: 'method',
+      detail: '(value: any) -> boolean',
+    }),
+    snippetCompletion('isInteger(${1:value})', {
+      label: 'isInteger',
+      type: 'method',
+      detail: '(value: any) -> boolean',
+    }),
+    snippetCompletion('isNaN(${1:value})', {
+      label: 'isNaN',
+      type: 'method',
+      detail: '(value: any) -> boolean',
+    }),
+    snippetCompletion('parseFloat(${1:string})', {
+      label: 'parseFloat',
+      type: 'method',
+      detail: '(string: string) -> number',
+    }),
+    snippetCompletion('parseInt(${1:string})', {
+      label: 'parseInt',
+      type: 'method',
+      detail: '(string: string, radix?) -> number',
+    }),
+    {
+      label: 'MAX_SAFE_INTEGER',
+      type: 'property',
+      detail: 'number',
+      info: '2^53 - 1',
+    },
+    {
+      label: 'MIN_SAFE_INTEGER',
+      type: 'property',
+      detail: 'number',
+      info: '-(2^53 - 1)',
+    },
+    {
+      label: 'EPSILON',
+      type: 'property',
+      detail: 'number',
+      info: 'Smallest difference',
+    },
+  ],
+  Date: [
+    {
+      label: 'now',
+      type: 'method',
+      detail: '() -> number',
+      info: 'Current timestamp',
+    },
+    snippetCompletion('parse(${1:dateString})', {
+      label: 'parse',
+      type: 'method',
+      detail: '(dateString: string) -> number',
+    }),
+    snippetCompletion('UTC(${1:year}, ${2:month})', {
+      label: 'UTC',
+      type: 'method',
+      detail: '(year, month, ...) -> number',
+    }),
+  ],
+  Promise: [
+    snippetCompletion('resolve(${1:value})', {
+      label: 'resolve',
+      type: 'method',
+      detail: '(value: T) -> Promise<T>',
+    }),
+    snippetCompletion('reject(${1:reason})', {
+      label: 'reject',
+      type: 'method',
+      detail: '(reason: any) -> Promise<never>',
+    }),
+    snippetCompletion('all(${1:promises})', {
+      label: 'all',
+      type: 'method',
+      detail: '(promises: Promise[]) -> Promise<any[]>',
+      info: 'Wait for all',
+    }),
+    snippetCompletion('allSettled(${1:promises})', {
+      label: 'allSettled',
+      type: 'method',
+      detail: '(promises: Promise[]) -> Promise<Result[]>',
+      info: 'Wait for all to settle',
+    }),
+    snippetCompletion('race(${1:promises})', {
+      label: 'race',
+      type: 'method',
+      detail: '(promises: Promise[]) -> Promise<any>',
+      info: 'First to resolve/reject',
+    }),
+    snippetCompletion('any(${1:promises})', {
+      label: 'any',
+      type: 'method',
+      detail: '(promises: Promise[]) -> Promise<any>',
+      info: 'First to resolve',
+    }),
+  ],
+}
+
+/**
+ * Known global objects that can be introspected for property completion
+ * Falls back to runtime introspection if not in CURATED_PROPERTIES
+ */
+const INTROSPECTABLE_GLOBALS: Record<string, any> = {
+  console,
+  Math,
+  JSON,
+  Object,
+  Array,
+  String,
+  Number,
+  Boolean,
+  Date,
+  RegExp,
+  Map,
+  Set,
+  WeakMap,
+  WeakSet,
+  Promise,
+  Reflect,
+  Proxy,
+  Symbol,
+  Error,
+  TypeError,
+  RangeError,
+  SyntaxError,
+  ReferenceError,
+  ArrayBuffer,
+  Uint8Array,
+  Int8Array,
+  Uint16Array,
+  Int16Array,
+  Uint32Array,
+  Int32Array,
+  Float32Array,
+  Float64Array,
+  Intl,
+}
+
+/**
+ * Get completions for properties of an object
+ * Uses curated list if available, falls back to runtime introspection
+ */
+function getPropertyCompletions(objName: string): CMCompletion[] {
+  // Prefer curated completions with proper type info
+  if (CURATED_PROPERTIES[objName]) {
+    return CURATED_PROPERTIES[objName]
+  }
+
+  // Fall back to runtime introspection for uncurated objects
+  const obj = INTROSPECTABLE_GLOBALS[objName]
+  if (!obj) return []
+
+  const completions: CMCompletion[] = []
+  const seen = new Set<string>()
+
+  // Get own properties and prototype chain
+  let current = obj
+  while (current && current !== Object.prototype) {
+    for (const key of Object.getOwnPropertyNames(current)) {
+      // Skip constructor, private-ish names, and already seen
+      if (key === 'constructor' || key.startsWith('_') || seen.has(key)) {
+        continue
+      }
+      seen.add(key)
+
+      try {
+        const descriptor = Object.getOwnPropertyDescriptor(current, key)
+        const value =
+          descriptor?.value ?? (descriptor?.get ? '[getter]' : undefined)
+        const valueType = typeof value
+
+        if (valueType === 'function') {
+          // Try to get function signature from length
+          const fn = value as Function
+          const paramCount = fn.length
+          const params =
+            paramCount > 0
+              ? Array.from(
+                  { length: paramCount },
+                  (_, i) => `arg${i + 1}`
+                ).join(', ')
+              : ''
+
+          completions.push(
+            snippetCompletion(`${key}(${paramCount > 0 ? '${1}' : ''})`, {
+              label: key,
+              type: 'method',
+              detail: `(${params})`,
+              boost: key.startsWith('to') ? -1 : 0, // Demote toString, etc.
+            })
+          )
+        } else {
+          // Property or constant
+          const type =
+            valueType === 'number'
+              ? 'property'
+              : valueType === 'string'
+              ? 'property'
+              : valueType === 'boolean'
+              ? 'property'
+              : 'property'
+
+          completions.push({
+            label: key,
+            type,
+            detail: valueType,
+          })
+        }
+      } catch {
+        // Some properties may throw on access - skip them
+      }
+    }
+    current = Object.getPrototypeOf(current)
+  }
+
+  return completions
+}
+
+/**
+ * Extract the object name before a dot from source
+ * e.g., "console." -> "console", "Math.floor" -> "Math"
+ */
+function getObjectBeforeDot(source: string, dotPos: number): string | null {
+  // Look backwards from the dot to find the identifier
+  const before = source.slice(0, dotPos)
+  const match = before.match(/(\w+)\s*$/)
+  return match ? match[1] : null
+}
+
+/**
  * Create TJS/AJS completion source
  */
 function tjsCompletionSource(config: AutocompleteConfig = {}) {
@@ -533,13 +1068,20 @@ function tjsCompletionSource(config: AutocompleteConfig = {}) {
 
     let options: CMCompletion[] = []
 
-    // After . - check for expect() matchers
+    // After . - property completion
     if (charBefore === '.') {
       const before = source.slice(Math.max(0, word.from - 50), word.from)
+
+      // Check for expect() matchers first
       if (/expect\s*\([^)]*\)\s*\.$/.test(before)) {
         options = EXPECT_MATCHERS
+      } else {
+        // Try to get object name and introspect its properties
+        const objName = getObjectBeforeDot(source, word.from - 1)
+        if (objName) {
+          options = getPropertyCompletions(objName)
+        }
       }
-      // Could add more dot-completion contexts here
     }
     // After : - type context
     else if (/:\s*$/.test(lineBefore)) {
