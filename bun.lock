@@ -9,7 +9,7 @@
         "@codemirror/lang-html": "^6.4.11",
         "@codemirror/lang-markdown": "^6.5.0",
         "acorn": "^8.15.0",
-        "tosijs-schema": "1.2.0",
+        "tosijs-schema": "^1.2.0",
       },
       "devDependencies": {
         "@codemirror/lang-javascript": "^6.2.4",

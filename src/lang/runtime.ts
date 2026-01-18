@@ -115,7 +115,11 @@ export function checkType(
   if (isError(value)) return value
 
   // Handle RuntimeType instances (Type() results)
-  if (typeof expected === 'object' && expected !== null && 'check' in expected) {
+  if (
+    typeof expected === 'object' &&
+    expected !== null &&
+    'check' in expected
+  ) {
     if (expected.check(value)) return null
     return error(`Expected ${expected.description} but got ${typeOf(value)}`, {
       path,

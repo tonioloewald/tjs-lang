@@ -8,7 +8,7 @@
  * - TJS Docs (documentation that opens in floating viewer)
  */
 
-import { Component, elements, ElementCreator } from 'tosijs'
+import { Component, elements, ElementCreator, vars } from 'tosijs'
 import {
   xinFloat,
   XinFloat,
@@ -42,7 +42,7 @@ syntax highlighting in editors.
 function greet(name: 'World', times: 3) -> '' {
   /*
   ## Implementation Notes
-  
+
   This function demonstrates:
   - Required parameters with example values
   - Return type annotation
@@ -224,7 +224,7 @@ greet('TJS')`,
 
 function createUser(
   name: 'anonymous',      // required string
-  email: 'user@example.com', // required string  
+  email: 'user@example.com', // required string
   age = 0,                // optional number, defaults to 0
   admin = false           // optional boolean, defaults to false
 ) -> { name: '', email: '', age: 0, admin: false } {
@@ -398,11 +398,11 @@ const UserSchema = Schema({
 // Validate data
 function validateUser(data: { name: '', email: '', age: 0 }) -> { valid: true, errors: [''] } {
   const errors = []
-  
+
   if (!UserSchema.validate(data)) {
     errors.push('Invalid user structure')
   }
-  
+
   return {
     valid: errors.length === 0,
     errors
@@ -563,7 +563,8 @@ export class DemoNav extends Component {
 
     summary: {
       padding: '8px 12px',
-      background: '#f3f4f6',
+      background: vars.codeBackground,
+      color: vars.textColor,
       cursor: 'pointer',
       fontWeight: '500',
       fontSize: '14px',
@@ -589,7 +590,7 @@ export class DemoNav extends Component {
     },
 
     'summary:hover': {
-      background: '#e5e7eb',
+      background: vars.codeBorder,
     },
 
     '.section-content': {
@@ -601,14 +602,14 @@ export class DemoNav extends Component {
       padding: '6px 12px 6px 24px',
       cursor: 'pointer',
       fontSize: '13px',
-      color: '#374151',
+      color: vars.textColor,
       textDecoration: 'none',
       borderRadius: '4px',
       transition: 'background 0.15s',
     },
 
     '.nav-item:hover': {
-      background: '#f3f4f6',
+      background: vars.codeBackground,
     },
 
     '.nav-item.requires-api::after': {
@@ -618,9 +619,9 @@ export class DemoNav extends Component {
     },
 
     '.nav-item.current': {
-      background: '#e0e7ff',
+      background: vars.brandColor,
       fontWeight: '500',
-      color: '#3730a3',
+      color: '#fff',
     },
 
     '.section-icon': {

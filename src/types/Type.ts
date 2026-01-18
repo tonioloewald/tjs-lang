@@ -16,7 +16,10 @@
  *   ZipCode.description // '5-digit US zip code'
  */
 
-import { validate, type Schema } from 'tosijs-schema'
+import { validate, type Base, type JSONSchema } from 'tosijs-schema'
+
+/** Schema can be a tosijs-schema builder or a raw JSON Schema object */
+type Schema = Base<any> | JSONSchema
 
 /** A runtime type with description and validation */
 export interface RuntimeType<T = unknown> {

@@ -315,14 +315,14 @@ export class TJSPlayground extends Component<TJSPlaygroundParts> {
     const _log = console.log;
     console.log = (...args) => {
       _log(...args);
-      parent.postMessage({ type: 'console', message: args.map(a => 
+      parent.postMessage({ type: 'console', message: args.map(a =>
         typeof a === 'object' ? JSON.stringify(a, null, 2) : String(a)
       ).join(' ') }, '*');
     };
 
     try {
       ${jsCode}
-      
+
       // Try to call the function if it exists and show result
       const funcName = Object.keys(window).find(k => {
         try { return typeof window[k] === 'function' && window[k].__tjs; }
@@ -389,6 +389,7 @@ export const tjsPlayground = TJSPlayground.elementCreator({
       height: '100%',
       flex: '1 1 auto',
       background: 'var(--background, #fff)',
+      color: 'var(--text-color, #1f2937)',
       fontFamily: 'system-ui, sans-serif',
     },
 
@@ -397,8 +398,8 @@ export const tjsPlayground = TJSPlayground.elementCreator({
       alignItems: 'center',
       gap: '10px',
       padding: '8px 12px',
-      background: '#f3f4f6',
-      borderBottom: '1px solid #e5e7eb',
+      background: 'var(--code-background, #f3f4f6)',
+      borderBottom: '1px solid var(--code-border, #e5e7eb)',
     },
 
     ':host .run-btn': {
@@ -406,8 +407,8 @@ export const tjsPlayground = TJSPlayground.elementCreator({
       alignItems: 'center',
       gap: '4px',
       padding: '6px 12px',
-      background: '#3d4a6b',
-      color: 'white',
+      background: 'var(--brand-color, #3d4a6b)',
+      color: 'var(--brand-text-color, white)',
       border: 'none',
       borderRadius: '6px',
       cursor: 'pointer',
@@ -416,7 +417,7 @@ export const tjsPlayground = TJSPlayground.elementCreator({
     },
 
     ':host .run-btn:hover': {
-      background: '#4a5a80',
+      filter: 'brightness(1.1)',
     },
 
     ':host .elastic': {
@@ -425,11 +426,13 @@ export const tjsPlayground = TJSPlayground.elementCreator({
 
     ':host .status-bar': {
       fontSize: '13px',
-      color: '#6b7280',
+      color: 'var(--text-color, #6b7280)',
+      opacity: '0.7',
     },
 
     ':host .status-bar.error': {
       color: '#dc2626',
+      opacity: '1',
     },
 
     ':host .tjs-main': {
@@ -437,7 +440,7 @@ export const tjsPlayground = TJSPlayground.elementCreator({
       flex: '1 1 auto',
       minHeight: '0',
       gap: '1px',
-      background: '#e5e7eb',
+      background: 'var(--code-border, #e5e7eb)',
     },
 
     ':host .tjs-input, :host .tjs-output': {
@@ -445,7 +448,7 @@ export const tjsPlayground = TJSPlayground.elementCreator({
       minWidth: '0',
       display: 'flex',
       flexDirection: 'column',
-      background: '#fff',
+      background: 'var(--background, #fff)',
       overflow: 'hidden',
     },
 
@@ -454,6 +457,12 @@ export const tjsPlayground = TJSPlayground.elementCreator({
       display: 'flex',
       flexDirection: 'column',
       minHeight: '0',
+    },
+
+    // Tab content panels need explicit background for dark mode
+    ':host xin-tabs > [name]': {
+      background: 'var(--background, #fff)',
+      color: 'var(--text-color, #1f2937)',
     },
 
     // Editor wrapper - contains the shadow DOM code-mirror component
@@ -478,8 +487,8 @@ export const tjsPlayground = TJSPlayground.elementCreator({
     ':host .js-output': {
       margin: '0',
       padding: '12px',
-      background: '#1e1e1e',
-      color: '#d4d4d4',
+      background: 'var(--code-background, #f3f4f6)',
+      color: 'var(--text-color, #1f2937)',
       fontSize: '13px',
       fontFamily: 'ui-monospace, monospace',
       overflow: 'auto',
@@ -489,7 +498,7 @@ export const tjsPlayground = TJSPlayground.elementCreator({
 
     ':host .preview-container': {
       height: '100%',
-      background: '#fff',
+      background: 'var(--background, #fff)',
     },
 
     ':host .preview-frame': {
@@ -503,30 +512,35 @@ export const tjsPlayground = TJSPlayground.elementCreator({
       fontSize: '14px',
       whiteSpace: 'pre-wrap',
       fontFamily: 'system-ui, sans-serif',
+      color: 'var(--text-color, inherit)',
+      background: 'var(--background, #fff)',
+      height: '100%',
+      overflow: 'auto',
     },
 
     ':host .tjs-console': {
       height: '120px',
-      borderTop: '1px solid #e5e7eb',
+      borderTop: '1px solid var(--code-border, #e5e7eb)',
       display: 'flex',
       flexDirection: 'column',
     },
 
     ':host .console-header': {
       padding: '4px 12px',
-      background: '#f3f4f6',
+      background: 'var(--code-background, #f3f4f6)',
       fontSize: '12px',
       fontWeight: '500',
-      color: '#6b7280',
-      borderBottom: '1px solid #e5e7eb',
+      color: 'var(--text-color, #6b7280)',
+      opacity: '0.7',
+      borderBottom: '1px solid var(--code-border, #e5e7eb)',
     },
 
     ':host .console-output': {
       flex: '1',
       margin: '0',
       padding: '8px 12px',
-      background: '#1e1e1e',
-      color: '#d4d4d4',
+      background: 'var(--code-background, #f3f4f6)',
+      color: 'var(--text-color, #1f2937)',
       fontSize: '12px',
       fontFamily: 'ui-monospace, monospace',
       overflow: 'auto',
