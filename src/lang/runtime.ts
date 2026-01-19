@@ -610,6 +610,47 @@ export function wrap<T extends (...args: any[]) => any>(
 }
 
 /**
+ * Wrap a class to make it callable without `new`
+ *
+ * In TJS, classes can be instantiated without the `new` keyword:
+ *   const obj = MyClass(args)  // equivalent to new MyClass(args)
+ *
+ * This eliminates a common source of errors where developers forget `new`.
+ * Using explicit `new` still works but should be flagged by the linter.
+ */
+export function wrapClass<T extends new (...args: any[]) => any>(
+  cls: T
+): T & ((...args: ConstructorParameters<T>) => InstanceType<T>) {
+  // Use a Proxy to intercept both `new Wrapper()` and `Wrapper()` calls
+  const wrapped = new Proxy(cls, {
+    // Called when using `new Wrapper(...)`
+    construct(target, args, newTarget) {
+      return Reflect.construct(target, args, newTarget)
+    },
+    // Called when using `Wrapper(...)` without new
+    apply(target, _thisArg, args) {
+      return Reflect.construct(target, args)
+    },
+  })
+
+  // Preserve class name
+  Object.defineProperty(wrapped, 'name', { value: cls.name })
+
+  // Copy static properties and methods
+  for (const key of Object.getOwnPropertyNames(cls)) {
+    if (key !== 'length' && key !== 'name' && key !== 'prototype') {
+      Object.defineProperty(
+        wrapped,
+        key,
+        Object.getOwnPropertyDescriptor(cls, key)!
+      )
+    }
+  }
+
+  return wrapped as T & ((...args: ConstructorParameters<T>) => InstanceType<T>)
+}
+
+/**
  * TJS Runtime object - attached to globalThis.__tjs
  */
 export const runtime = {
@@ -621,6 +662,7 @@ export const runtime = {
   checkType,
   validateArgs,
   wrap,
+  wrapClass,
   compareVersions,
   versionsCompatible,
   // Debug mode
@@ -695,6 +737,19 @@ export function emitRuntimeWrapper(funcName: string): string {
 // TJS runtime wrapper (skips unsafe functions)
 if (typeof ${funcName}.__tjs === 'object' && !${funcName}.__tjs.unsafe && typeof globalThis.__tjs?.wrap === 'function') {
   ${funcName} = globalThis.__tjs.wrap(${funcName}, ${funcName}.__tjs)
+}
+`.trim()
+}
+
+/**
+ * Generate class wrapper code for emitted JS
+ * Makes classes callable without `new` keyword
+ */
+export function emitClassWrapper(className: string): string {
+  return `
+// TJS class wrapper (callable without new)
+if (typeof globalThis.__tjs?.wrapClass === 'function') {
+  ${className} = globalThis.__tjs.wrapClass(${className})
 }
 `.trim()
 }

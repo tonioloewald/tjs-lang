@@ -236,4 +236,81 @@ describe('fromTS', () => {
       expect(result.types?.map.params.arr.type.kind).toBe('array')
     })
   })
+
+  describe('class support - callable without new', () => {
+    it('should emit wrapClass for classes', () => {
+      const result = fromTS(`
+        class Point {
+          constructor(public x: number, public y: number) {}
+        }
+      `)
+
+      // Should include wrapClass call
+      expect(result.code).toContain('wrapClass')
+      expect(result.code).toContain('Point')
+    })
+
+    it('should allow instantiation without new', () => {
+      const result = fromTS(`
+        class Point {
+          x: number
+          y: number
+          constructor(x: number, y: number) {
+            this.x = x
+            this.y = y
+          }
+        }
+      `)
+
+      // Execute the generated code with runtime
+      const code = `
+        // Mock runtime
+        globalThis.__tjs = {
+          wrapClass: function(cls) {
+            return new Proxy(cls, {
+              construct(target, args) {
+                return Reflect.construct(target, args)
+              },
+              apply(target, _, args) {
+                return Reflect.construct(target, args)
+              }
+            })
+          }
+        }
+        ${result.code}
+        return Point
+      `
+      const Point = new Function(code)()
+
+      // Call without new
+      const p1 = Point(10, 20)
+      expect(p1.x).toBe(10)
+      expect(p1.y).toBe(20)
+
+      // Call with new still works
+      const p2 = new Point(30, 40)
+      expect(p2.x).toBe(30)
+      expect(p2.y).toBe(40)
+    })
+
+    it('should extract class metadata', () => {
+      const result = fromTS(`
+        class Calculator {
+          constructor(public initialValue: number) {}
+          add(x: number): number {
+            return this.initialValue + x
+          }
+          static create(value: number): Calculator {
+            return new Calculator(value)
+          }
+        }
+      `)
+
+      expect(result.classes).toBeDefined()
+      expect(result.classes?.Calculator).toBeDefined()
+      expect(result.classes?.Calculator.constructor).toBeDefined()
+      expect(result.classes?.Calculator.methods.add).toBeDefined()
+      expect(result.classes?.Calculator.staticMethods.create).toBeDefined()
+    })
+  })
 })

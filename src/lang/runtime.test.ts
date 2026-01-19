@@ -9,6 +9,7 @@ import {
   composeErrors,
   validateArgs,
   wrap,
+  wrapClass,
   configure,
   getConfig,
   getStack,
@@ -534,6 +535,91 @@ describe('TJS Runtime - Monadic Errors', () => {
       const result = fn('bad' as any)
       expect(isError(result)).toBe(true)
       expect((result as TJSError).path).toContain('anonymous')
+    })
+  })
+
+  describe('wrapClass - callable without new', () => {
+    it('allows calling class without new keyword', () => {
+      class Point {
+        constructor(public x: number, public y: number) {}
+      }
+
+      const WrappedPoint = wrapClass(Point)
+
+      // Can call without new
+      const p1 = WrappedPoint(10, 20)
+      expect(p1).toBeInstanceOf(Point)
+      expect(p1.x).toBe(10)
+      expect(p1.y).toBe(20)
+    })
+
+    it('still works with new keyword', () => {
+      class Point {
+        constructor(public x: number, public y: number) {}
+      }
+
+      const WrappedPoint = wrapClass(Point)
+
+      // new still works
+      const p2 = new WrappedPoint(30, 40)
+      expect(p2).toBeInstanceOf(Point)
+      expect(p2.x).toBe(30)
+      expect(p2.y).toBe(40)
+    })
+
+    it('preserves class name', () => {
+      class MyCustomClass {}
+      const Wrapped = wrapClass(MyCustomClass)
+      expect(Wrapped.name).toBe('MyCustomClass')
+    })
+
+    it('preserves static properties', () => {
+      class Counter {
+        static count = 0
+        static increment() {
+          Counter.count++
+        }
+      }
+
+      const WrappedCounter = wrapClass(Counter)
+      expect(WrappedCounter.count).toBe(0)
+      WrappedCounter.increment()
+      expect(WrappedCounter.count).toBe(1)
+    })
+
+    it('preserves prototype chain', () => {
+      class Animal {
+        speak() {
+          return 'generic sound'
+        }
+      }
+
+      const WrappedAnimal = wrapClass(Animal)
+      const a = WrappedAnimal()
+
+      expect(a.speak()).toBe('generic sound')
+      expect(a).toBeInstanceOf(Animal)
+    })
+
+    it('works with inheritance', () => {
+      class Animal {
+        speak() {
+          return 'generic'
+        }
+      }
+
+      class Dog extends Animal {
+        speak() {
+          return 'woof'
+        }
+      }
+
+      const WrappedDog = wrapClass(Dog)
+      const d = WrappedDog()
+
+      expect(d.speak()).toBe('woof')
+      expect(d).toBeInstanceOf(Dog)
+      expect(d).toBeInstanceOf(Animal)
     })
   })
 })

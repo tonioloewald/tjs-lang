@@ -498,6 +498,8 @@ The AST is the source of truth. Targets are just emission strategies.
 | 15  | Asymmetric get/set     | ❌     | Broader input, narrower output                 |
 | 16  | `==` that works        | ❌     | Structural equality + .Equals hook             |
 | 17  | WASM blocks            | ✅     | POC: parser + compiler for simple expressions  |
+| 18  | Death to `new`         | ✅     | wrapClass + no-explicit-new lint rule          |
+| 19  | Linter                 | ✅     | unused vars, unreachable code, no-explicit-new |
 
 ## Implementation Priority
 
@@ -1012,7 +1014,7 @@ target(args?) {
 
 TJS embraces classes, but eliminates JS footguns and enables cross-platform UI components.
 
-### Death to `new`
+### Death to `new` ✅
 
 The `new` keyword is redundant ceremony. TJS handles it automatically:
 
@@ -1027,6 +1029,11 @@ const u2 = new User('Alice')  // Lint warning: "use User() instead of new User()
 ```
 
 If you call `Foo()` and `Foo` is a class, TJS calls it with `new` internally. No more "Cannot call a class as a function" errors.
+
+**Implementation:**
+- `wrapClass()` in `src/lang/runtime.ts` - wraps classes with Proxy for callable behavior
+- `emitClassWrapper()` generates wrapper code for transpiled classes
+- `no-explicit-new` lint rule warns about unnecessary `new` keyword usage
 
 ### Component Base Class
 

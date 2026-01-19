@@ -31,6 +31,7 @@
  */
 
 import ts from 'typescript'
+import { emitClassWrapper } from '../runtime'
 
 export interface FromTSOptions {
   /** Emit TJS intermediate instead of JS + metadata */
@@ -1359,6 +1360,9 @@ export function fromTS(
 
     const metadataStr = JSON.stringify(metadataObj, null, 2)
     code += `\n${className}.__tjs = ${metadataStr};\n`
+
+    // Wrap class to make it callable without `new`
+    code += `\n${emitClassWrapper(className)}\n`
   }
 
   return {

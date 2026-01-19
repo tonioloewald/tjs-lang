@@ -53,7 +53,10 @@ npm run show-size           # Show gzipped bundle size
 - `src/lang/parser.ts` - TJS parser with colon shorthand, unsafe markers, return type extraction
 - `src/lang/emitters/ast.ts` - Emits Agent99 AST from parsed source
 - `src/lang/emitters/js.ts` - Emits JavaScript with `__tjs` metadata
+- `src/lang/emitters/from-ts.ts` - TypeScript to TJS/JS transpiler with class metadata extraction
 - `src/lang/inference.ts` - Type inference from example values
+- `src/lang/linter.ts` - Static analysis (unused vars, unreachable code, no-explicit-new)
+- `src/lang/runtime.ts` - TJS runtime (monadic errors, type checking, wrapClass)
 - `src/batteries/` - LM Studio integration (lazy init, model audit, vector search)
 - `src/use-cases/` - Integration tests and real-world examples (27 test files)
 - `src/cli/tjs.ts` - CLI tool for check/run/types/emit commands
@@ -146,6 +149,25 @@ When `ctx.error` is set, subsequent atoms in a `seq` skip execution. Errors are 
 ### TJS Parser Syntax Extensions
 
 TJS extends JavaScript with type annotations that survive to runtime.
+
+#### Classes (Callable Without `new`)
+
+TJS classes are wrapped to be callable without the `new` keyword:
+
+```typescript
+class Point {
+  constructor(public x: number, public y: number) {}
+}
+
+// Both work identically:
+const p1 = Point(10, 20)      // TJS way - clean
+const p2 = new Point(10, 20)  // Still works, but linter warns
+
+// The linter flags explicit `new` usage:
+// Warning: Unnecessary 'new' keyword. In TJS, classes are callable without 'new'
+```
+
+The `wrapClass()` function in the runtime uses a Proxy to intercept calls and auto-construct.
 
 #### Function Parameters
 
