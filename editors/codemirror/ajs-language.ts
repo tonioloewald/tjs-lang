@@ -920,6 +920,7 @@ const CURATED_PROPERTIES: Record<string, CMCompletion[]> = {
  * Falls back to runtime introspection if not in CURATED_PROPERTIES
  */
 const INTROSPECTABLE_GLOBALS: Record<string, any> = {
+  // Core JS globals (always available)
   console,
   Math,
   JSON,
@@ -953,6 +954,76 @@ const INTROSPECTABLE_GLOBALS: Record<string, any> = {
   Float32Array,
   Float64Array,
   Intl,
+}
+
+// Add browser globals when available (isomorphic - works in Node too)
+if (typeof globalThis !== 'undefined') {
+  // Browser APIs
+  if (typeof crypto !== 'undefined') INTROSPECTABLE_GLOBALS.crypto = crypto
+  if (typeof navigator !== 'undefined')
+    INTROSPECTABLE_GLOBALS.navigator = navigator
+  if (typeof localStorage !== 'undefined')
+    INTROSPECTABLE_GLOBALS.localStorage = localStorage
+  if (typeof sessionStorage !== 'undefined')
+    INTROSPECTABLE_GLOBALS.sessionStorage = sessionStorage
+  if (typeof fetch !== 'undefined') INTROSPECTABLE_GLOBALS.fetch = fetch
+  if (typeof URL !== 'undefined') INTROSPECTABLE_GLOBALS.URL = URL
+  if (typeof URLSearchParams !== 'undefined')
+    INTROSPECTABLE_GLOBALS.URLSearchParams = URLSearchParams
+  if (typeof Headers !== 'undefined') INTROSPECTABLE_GLOBALS.Headers = Headers
+  if (typeof Request !== 'undefined') INTROSPECTABLE_GLOBALS.Request = Request
+  if (typeof Response !== 'undefined')
+    INTROSPECTABLE_GLOBALS.Response = Response
+  if (typeof FormData !== 'undefined')
+    INTROSPECTABLE_GLOBALS.FormData = FormData
+  if (typeof Blob !== 'undefined') INTROSPECTABLE_GLOBALS.Blob = Blob
+  if (typeof File !== 'undefined') INTROSPECTABLE_GLOBALS.File = File
+  if (typeof FileReader !== 'undefined')
+    INTROSPECTABLE_GLOBALS.FileReader = FileReader
+  if (typeof AbortController !== 'undefined')
+    INTROSPECTABLE_GLOBALS.AbortController = AbortController
+  if (typeof TextEncoder !== 'undefined')
+    INTROSPECTABLE_GLOBALS.TextEncoder = TextEncoder
+  if (typeof TextDecoder !== 'undefined')
+    INTROSPECTABLE_GLOBALS.TextDecoder = TextDecoder
+
+  // DOM classes (for instanceof checks and static methods)
+  if (typeof Element !== 'undefined') INTROSPECTABLE_GLOBALS.Element = Element
+  if (typeof HTMLElement !== 'undefined')
+    INTROSPECTABLE_GLOBALS.HTMLElement = HTMLElement
+  if (typeof Document !== 'undefined')
+    INTROSPECTABLE_GLOBALS.Document = Document
+  if (typeof Node !== 'undefined') INTROSPECTABLE_GLOBALS.Node = Node
+  if (typeof Event !== 'undefined') INTROSPECTABLE_GLOBALS.Event = Event
+  if (typeof CustomEvent !== 'undefined')
+    INTROSPECTABLE_GLOBALS.CustomEvent = CustomEvent
+  if (typeof MutationObserver !== 'undefined')
+    INTROSPECTABLE_GLOBALS.MutationObserver = MutationObserver
+  if (typeof ResizeObserver !== 'undefined')
+    INTROSPECTABLE_GLOBALS.ResizeObserver = ResizeObserver
+  if (typeof IntersectionObserver !== 'undefined')
+    INTROSPECTABLE_GLOBALS.IntersectionObserver = IntersectionObserver
+
+  // Canvas/WebGL
+  if (typeof CanvasRenderingContext2D !== 'undefined')
+    INTROSPECTABLE_GLOBALS.CanvasRenderingContext2D = CanvasRenderingContext2D
+  if (typeof ImageData !== 'undefined')
+    INTROSPECTABLE_GLOBALS.ImageData = ImageData
+
+  // Audio
+  if (typeof AudioContext !== 'undefined')
+    INTROSPECTABLE_GLOBALS.AudioContext = AudioContext
+
+  // Performance
+  if (typeof performance !== 'undefined')
+    INTROSPECTABLE_GLOBALS.performance = performance
+  if (typeof PerformanceObserver !== 'undefined')
+    INTROSPECTABLE_GLOBALS.PerformanceObserver = PerformanceObserver
+
+  // Global objects (singletons)
+  if (typeof document !== 'undefined')
+    INTROSPECTABLE_GLOBALS.document = document
+  if (typeof window !== 'undefined') INTROSPECTABLE_GLOBALS.window = window
 }
 
 /**
