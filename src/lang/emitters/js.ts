@@ -40,6 +40,11 @@ export interface TJSTranspileOptions {
    * - 'only': only run tests, don't emit code (CI/test runner)
    */
   runTests?: boolean | 'only'
+  /**
+   * Debug mode: include source locations in __tjs metadata
+   * Enables better error messages with file:line:column info
+   */
+  debug?: boolean
 }
 
 /** Result of running tests at transpile time */
@@ -95,7 +100,7 @@ export function transpileToJS(
   source: string,
   options: TJSTranspileOptions = {}
 ): TJSTranspileResult {
-  const { filename = '<source>', runTests = true } = options
+  const { filename = '<source>', runTests = true, debug = false } = options
   const warnings: string[] = []
 
   // Extract test/mock blocks before parsing (they're not valid JS)
@@ -233,12 +238,25 @@ export function transpileToJS(
   const isUnsafe = unsafeFunctions.has(funcName)
   const isSafe = preprocessed.safeFunctions.has(funcName)
   const returnSafety = preprocessed.returnSafety
+
+  // Get source location for debug mode
+  const funcLoc = func.loc
+    ? {
+        file: filename,
+        line: func.loc.start.line,
+        column: func.loc.start.column,
+      }
+    : undefined
+
   const safetyOptions = {
     unsafe: isUnsafe,
     safe: isSafe,
     returnSafety,
   }
-  const typeMetadata = generateTypeMetadata(funcName, types, safetyOptions)
+  const typeMetadata = generateTypeMetadata(funcName, types, safetyOptions, {
+    debug,
+    source: funcLoc,
+  })
 
   // For single-arg object types, generate inline validation (20x faster)
   // Otherwise, the runtime wrap() will be used
@@ -354,16 +372,32 @@ interface SafetyOptions {
 }
 
 /**
+ * Debug options for metadata generation
+ */
+interface DebugOptions {
+  /** Include source locations in metadata */
+  debug?: boolean
+  /** Source location of the function */
+  source?: {
+    file: string
+    line: number
+    column: number
+  }
+}
+
+/**
  * Generate type metadata code
  *
  * @param funcName - Function name
  * @param types - Type information
  * @param safety - Safety flags for the function
+ * @param debugOpts - Debug options (source locations)
  */
 function generateTypeMetadata(
   funcName: string,
   types: TJSTypeInfo,
-  safety: SafetyOptions = {}
+  safety: SafetyOptions = {},
+  debugOpts: DebugOptions = {}
 ): string {
   const paramsObj: Record<string, any> = {}
 
@@ -408,6 +442,12 @@ function generateTypeMetadata(
   // Mark safe functions - they force runtime input validation
   if (safety.safe) {
     metadata.safe = true
+  }
+
+  // Add source location in debug mode
+  if (debugOpts.debug && debugOpts.source) {
+    const { file, line, column } = debugOpts.source
+    metadata.source = `${file}:${line}:${column}`
   }
 
   return `${funcName}.__tjs = ${JSON.stringify(metadata, null, 2)}`

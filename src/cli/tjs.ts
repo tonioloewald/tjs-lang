@@ -35,12 +35,14 @@ Commands:
 Options:
   -h, --help      Show this help message
   -v, --version   Show version
+  --debug         Include source locations in __tjs metadata (emit command)
 
 Examples:
   tjs check src/utils.tjs
   tjs run examples/hello.tjs
   tjs types lib/api.tjs > api-types.json
   tjs emit src/utils.tjs > dist/utils.js
+  tjs emit --debug src/utils.tjs > dist/utils.debug.js
 `
 
 async function main() {
@@ -56,8 +58,19 @@ async function main() {
     process.exit(0)
   }
 
-  const command = args[0]
-  const file = args[1]
+  // Parse flags
+  const debug = args.includes('--debug')
+  const filteredArgs = args.filter(
+    (a) =>
+      !a.startsWith('--') ||
+      a === '--help' ||
+      a === '-h' ||
+      a === '--version' ||
+      a === '-v'
+  )
+
+  const command = filteredArgs[0]
+  const file = filteredArgs[1]
 
   if (!file) {
     console.error(`Error: No file specified for command '${command}'`)
@@ -77,7 +90,7 @@ async function main() {
         await types(file)
         break
       case 'emit':
-        await emit(file)
+        await emit(file, { debug })
         break
       default:
         console.error(`Error: Unknown command '${command}'`)

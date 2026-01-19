@@ -893,6 +893,26 @@ describe('TJS Emitter', () => {
       expect(result.types.description).toBe('Greet a user by name')
       expect(result.types.params.name.description).toBe('The name to greet')
     })
+
+    it('should include source location in debug mode', () => {
+      const result = transpileToJS(
+        `function greet(name: 'world') {
+          return name
+        }`,
+        { filename: 'test.tjs', debug: true }
+      )
+      expect(result.code).toContain('"source": "test.tjs:1:0"')
+    })
+
+    it('should not include source location without debug mode', () => {
+      const result = transpileToJS(
+        `function greet(name: 'world') {
+          return name
+        }`,
+        { filename: 'test.tjs', debug: false }
+      )
+      expect(result.code).not.toContain('"source"')
+    })
   })
 
   describe('tjs() convenience function', () => {
