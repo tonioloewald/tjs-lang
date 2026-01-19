@@ -490,7 +490,7 @@ The AST is the source of truth. Targets are just emission strategies.
 | 7   | Safety levels          | ✅     | none/inputs/all + (!)/(?) + unsafe {}          |
 | 8   | Module-level safety    | ✅     | `safety none` directive parsed and passed      |
 | 9   | Single-pass            | ✅     | Bun plugin: direct `bun file.tjs` execution    |
-| 10  | Module system          | ❌     | Versioned imports                              |
+| 10  | Module system          | ✅     | IndexedDB store, esm.sh CDN, pinned versions   |
 | 11  | Autocomplete           | ✅     | CodeMirror integration, globals, introspection |
 | 12  | Eval() / SafeFunction  | ✅     | Both exported and tested in runtime            |
 | 13  | Function introspection | ✅     | __tjs metadata with params, returns, examples  |
@@ -516,15 +516,14 @@ The AST is the source of truth. Targets are just emission strategies.
 | 6        | **target()**              | ❌     | Conditional compilation    |
 | 7        | **Safety flags**          | ✅     | Done                       |
 | 8        | **Single-pass**           | ✅     | Bun plugin: `bun file.tjs` |
-| 9        | **Modules**               | ❌     | Versioned imports          |
+| 9        | **Modules**               | ✅     | Local store + CDN          |
 
 ## Next Up
 
 | Priority | Feature                   | Why                        |
 | -------- | ------------------------- | -------------------------- |
 | 1        | **target()**              | browser/node/debug blocks  |
-| 2        | **Module system**         | Versioned URL imports      |
-| 3        | **Multi-target emission** | LLVM, SwiftUI, Android     |
+| 2        | **Multi-target emission** | LLVM, SwiftUI, Android     |
 
 ## 7. Safety Levels and Flags
 
@@ -568,27 +567,45 @@ In a single pass:
 
 No separate `tjs lint && tjs build && tjs test && tjs docs`. One pass, all the information is right there.
 
-## 9. Module System
+## 9. Module System ✅
 
-### Versioned Imports (Native Approach)
+### Local Module Store (IndexedDB)
+
+The playground provides persistent module storage:
 
 ```typescript
-import { Thing } from 'https://pkg.example.com/thing@1.2.3/mod.tjs'
-import { Other } from './local.tjs'
+// Save a module
+await store.save({ name: 'my-utils', type: 'tjs', code: source })
+
+// Import it in another module
+import { helper } from 'my-utils'
 ```
 
-- URLs with versions are the native import mechanism
-- No node_modules, no package.json resolution dance
-- Imports are cached by URL+version
-- Works like Deno, but we got here independently
+- Modules stored in IndexedDB (persistent across sessions)
+- Validation on save (transpilation + inline tests)
+- Version tracking and timestamps
+- Local modules resolved first, then CDN
+
+### CDN Integration (esm.sh)
+
+npm packages resolve via esm.sh with pinned versions:
+
+```typescript
+import { debounce } from 'lodash'  // -> https://esm.sh/lodash@4.17.21
+import { z } from 'zod'            // -> https://esm.sh/zod@3.22.0
+```
+
+- Common packages have pinned versions for stability
+- Service Worker caches fetched modules
+- Import maps generated at runtime for browser
 
 ### Bundler Compatibility
 
 TJS also works inside conventional bundlers:
 
 - Emits standard ES modules
-- Can be a webpack/vite/esbuild plugin
-- Or replace bundling entirely with versioned imports
+- Bun plugin for direct `.tjs` execution
+- Or use playground's zero-build approach
 
 Your choice. We don't force either approach.
 
