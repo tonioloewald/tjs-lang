@@ -496,7 +496,7 @@ The AST is the source of truth. Targets are just emission strategies.
 | 13  | Function introspection | ✅     | __tjs metadata with params, returns, examples  |
 | 14  | Generic()              | ✅     | Runtime-checkable generics with TPair, TRecord |
 | 15  | Asymmetric get/set     | ✅     | JS native get/set captures asymmetric types    |
-| 16  | `==` that works        | ⏳     | Is/IsNot implemented; auto-transform deferred  |
+| 16  | `==` that works        | ✅     | Is/IsNot with infix syntax + .Equals hook      |
 | 17  | WASM blocks            | ✅     | POC: parser + compiler for simple expressions  |
 | 18  | Death to `new`         | ✅     | wrapClass + no-explicit-new lint rule          |
 | 19  | Linter                 | ✅     | unused vars, unreachable code, no-explicit-new |
@@ -524,8 +524,7 @@ The AST is the source of truth. Targets are just emission strategies.
 | -------- | ------------------------- | -------------------------- |
 | 1        | **target()**              | browser/node/debug blocks  |
 | 2        | **Module system**         | Versioned URL imports      |
-| 3        | **`==` auto-transform**   | Transform == to Is() when full parser exists |
-| 4        | **Multi-target emission** | LLVM, SwiftUI, Android     |
+| 3        | **Multi-target emission** | LLVM, SwiftUI, Android     |
 
 ## 7. Safety Levels and Flags
 
@@ -962,7 +961,7 @@ p1 === p2  // false (different objects)
 
 - ✅ `Is()` and `IsNot()` functions in runtime
 - ✅ Infix syntax transformation (`a Is b` → `Is(a, b)`)
-- ⏳ Auto-transform `==`/`!=` to `Is`/`IsNot` (requires full parser for expression boundaries)
+- ✅ Legacy JS/TS code works unchanged (uses native `==`/`!=`)
 
 ## 16. Death to Semicolons
 
