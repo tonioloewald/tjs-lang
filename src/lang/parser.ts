@@ -394,109 +394,56 @@ export function preprocess(source: string): {
     source = returnTypeResult.cleanedSource
   }
 
-  // Handle colon shorthand in parameters: (x: type) -> (x = type)
-  // Track which params used colon syntax (they're required)
-  // Also validate: no duplicates, no required after optional
-  source = source.replace(
-    /function\s+(\w+)\s*\(([^)]*)\)/g,
-    (match, funcName, params) => {
-      // Don't process empty params
-      if (!params.trim()) return match
+  // Helper to process parameters (shared by function declarations and arrow functions)
+  const processParams = (params: string, trackRequired: boolean): string => {
+    if (!params.trim()) return params
 
-      const seenParams = new Set<string>()
-      let sawOptional = false
+    const seenParams = new Set<string>()
+    let sawOptional = false
 
-      // Split parameters carefully, respecting nested structures
-      const processed = splitParameters(params)
-        .map((param: string) => {
-          param = param.trim()
+    return splitParameters(params)
+      .map((param: string) => {
+        param = param.trim()
 
-          // Skip destructuring patterns for now
-          if (param.startsWith('{')) {
-            return param
+        // Skip destructuring patterns for now
+        if (param.startsWith('{')) {
+          return param
+        }
+
+        // Check for TS-style optional param: name?: type
+        // Transform to: name = type (optional, uses type as default example)
+        const optionalMatch = param.match(/^(\w+)\s*\?\s*:\s*(.+)$/)
+        if (optionalMatch) {
+          const [, name, type] = optionalMatch
+
+          if (seenParams.has(name)) {
+            throw new SyntaxError(
+              `Duplicate parameter name '${name}'`,
+              { line: 1, column: 0 },
+              originalSource
+            )
           }
+          seenParams.add(name)
+          sawOptional = true
 
-          // Check for TS-style optional param: name?: type
-          // Transform to: name = type (optional, uses type as default example)
-          const optionalMatch = param.match(/^(\w+)\s*\?\s*:\s*(.+)$/)
-          if (optionalMatch) {
-            const [, name, type] = optionalMatch
+          return `${name} = ${type}`
+        }
 
-            // Check for duplicate parameter
-            if (seenParams.has(name)) {
-              throw new SyntaxError(
-                `Duplicate parameter name '${name}'`,
-                { line: 1, column: 0 },
-                originalSource
-              )
-            }
-            seenParams.add(name)
-            sawOptional = true
+        // Check for colon shorthand: name: type
+        const colonMatch = param.match(/^(\w+)\s*:\s*(.+)$/)
+        if (colonMatch) {
+          const [, name, type] = colonMatch
 
-            // Optional param - transform to default syntax
-            return `${name} = ${type}`
+          if (seenParams.has(name)) {
+            throw new SyntaxError(
+              `Duplicate parameter name '${name}'`,
+              { line: 1, column: 0 },
+              originalSource
+            )
           }
+          seenParams.add(name)
 
-          // Check for colon shorthand: name: type (but not inside objects)
-          // Only match if the colon is directly after an identifier at the start
-          const colonMatch = param.match(/^(\w+)\s*:\s*(.+)$/)
-          if (colonMatch) {
-            const [, name, type] = colonMatch
-
-            // Check for duplicate parameter
-            if (seenParams.has(name)) {
-              throw new SyntaxError(
-                `Duplicate parameter name '${name}'`,
-                { line: 1, column: 0 },
-                originalSource
-              )
-            }
-            seenParams.add(name)
-
-            // Don't transform if it already has = (it's a default value context)
-            if (!type.includes('=')) {
-              // This is a required parameter - check ordering
-              if (sawOptional) {
-                throw new SyntaxError(
-                  `Required parameter '${name}' cannot follow optional parameter`,
-                  { line: 1, column: 0 },
-                  originalSource
-                )
-              }
-              // Track this as a required parameter
-              requiredParams.add(name)
-              // Transform to standard default syntax
-              return `${name} = ${type}`
-            }
-          }
-
-          // Check for regular assignment (optional param): name = value
-          const assignMatch = param.match(/^(\w+)\s*=/)
-          if (assignMatch) {
-            const name = assignMatch[1]
-            if (seenParams.has(name)) {
-              throw new SyntaxError(
-                `Duplicate parameter name '${name}'`,
-                { line: 1, column: 0 },
-                originalSource
-              )
-            }
-            seenParams.add(name)
-            sawOptional = true
-          }
-
-          // Check for plain identifier (required param without type)
-          const plainMatch = param.match(/^(\w+)$/)
-          if (plainMatch) {
-            const name = plainMatch[1]
-            if (seenParams.has(name)) {
-              throw new SyntaxError(
-                `Duplicate parameter name '${name}'`,
-                { line: 1, column: 0 },
-                originalSource
-              )
-            }
-            seenParams.add(name)
+          if (!type.includes('=')) {
             if (sawOptional) {
               throw new SyntaxError(
                 `Required parameter '${name}' cannot follow optional parameter`,
@@ -504,15 +451,70 @@ export function preprocess(source: string): {
                 originalSource
               )
             }
+            if (trackRequired) {
+              requiredParams.add(name)
+            }
+            return `${name} = ${type}`
           }
+        }
 
-          return param
-        })
-        .join(', ')
+        // Check for regular assignment (optional param): name = value
+        const assignMatch = param.match(/^(\w+)\s*=/)
+        if (assignMatch) {
+          const name = assignMatch[1]
+          if (seenParams.has(name)) {
+            throw new SyntaxError(
+              `Duplicate parameter name '${name}'`,
+              { line: 1, column: 0 },
+              originalSource
+            )
+          }
+          seenParams.add(name)
+          sawOptional = true
+        }
 
+        // Check for plain identifier (required param without type)
+        const plainMatch = param.match(/^(\w+)$/)
+        if (plainMatch) {
+          const name = plainMatch[1]
+          if (seenParams.has(name)) {
+            throw new SyntaxError(
+              `Duplicate parameter name '${name}'`,
+              { line: 1, column: 0 },
+              originalSource
+            )
+          }
+          seenParams.add(name)
+          if (sawOptional) {
+            throw new SyntaxError(
+              `Required parameter '${name}' cannot follow optional parameter`,
+              { line: 1, column: 0 },
+              originalSource
+            )
+          }
+        }
+
+        return param
+      })
+      .join(', ')
+  }
+
+  // Handle colon shorthand in function parameters: function foo(x: type) -> function foo(x = type)
+  source = source.replace(
+    /function\s+(\w+)\s*\(([^)]*)\)/g,
+    (match, funcName, params) => {
+      const processed = processParams(params, true)
       return `function ${funcName}(${processed})`
     }
   )
+
+  // Handle colon shorthand in arrow function parameters: (x: type) => ... -> (x = type) => ...
+  // Use a proper balanced-paren approach to avoid matching nested parens incorrectly
+  source = transformArrowParams(source, processParams)
+
+  // Also handle single-param arrow functions without parens: x => ...
+  // These can't have type annotations, so no processing needed
+  // But we need to handle: (x: type) => which is already covered above
 
   // Handle unsafe blocks: unsafe { ... } -> enterUnsafe(); try { ... } finally { exitUnsafe() }
   // `unsafe` skips type checks for all wrapped function calls within the block
@@ -537,6 +539,81 @@ export function preprocess(source: string): {
     safeFunctions,
     wasmBlocks: wasmBlocks.blocks,
   }
+}
+
+/**
+ * Transform arrow function parameters with proper balanced-paren handling
+ * (x: type) => ... -> (x = type) => ...
+ *
+ * Uses character-by-character parsing to handle nested parens correctly.
+ * Recursively processes content inside non-arrow parens to catch nested arrows.
+ */
+function transformArrowParams(
+  source: string,
+  processParams: (params: string, trackRequired: boolean) => string
+): string {
+  let result = ''
+  let i = 0
+
+  while (i < source.length) {
+    // Look for ( that might start arrow function params
+    if (source[i] === '(') {
+      const parenStart = i
+      i++ // move past (
+
+      // Find matching ) using balanced paren counting
+      let depth = 1
+      let inString = false
+      let stringChar = ''
+      let contentStart = i
+
+      while (i < source.length && depth > 0) {
+        const char = source[i]
+
+        // Handle strings
+        if (!inString && (char === "'" || char === '"' || char === '`')) {
+          inString = true
+          stringChar = char
+        } else if (inString && char === stringChar && source[i - 1] !== '\\') {
+          inString = false
+        } else if (!inString) {
+          if (char === '(') depth++
+          else if (char === ')') depth--
+        }
+        i++
+      }
+
+      if (depth !== 0) {
+        // Unbalanced, just copy what we have
+        result += source.slice(parenStart, i)
+        continue
+      }
+
+      const parenEnd = i // position after )
+      const content = source.slice(contentStart, parenEnd - 1)
+
+      // Check if this is followed by => (arrow function)
+      let j = parenEnd
+      while (j < source.length && /\s/.test(source[j])) j++
+
+      if (source.slice(j, j + 2) === '=>') {
+        // This is an arrow function - process the params
+        // But first, recursively process any nested arrows in the param defaults
+        const processedContent = transformArrowParams(content, processParams)
+        const processed = processParams(processedContent, false)
+        result += `(${processed})`
+      } else {
+        // Not an arrow function - but recursively process content for nested arrows
+        const processedContent = transformArrowParams(content, processParams)
+        result += `(${processedContent})`
+      }
+    } else {
+      result += source[i]
+      i++
+    }
+  }
+
+  return result
 }
 
 /**
@@ -927,16 +1004,18 @@ function splitParameters(params: string): string[] {
     const char = params[i]
     const nextChar = params[i + 1]
 
-    // Handle line comments
+    // Handle line comments - preserve them in output
     if (!inBlockComment && char === '/' && nextChar === '/') {
       inLineComment = true
+      current += '//'
       i += 2
       continue
     }
 
-    // Handle block comments
+    // Handle block comments - preserve them in output
     if (!inLineComment && char === '/' && nextChar === '*') {
       inBlockComment = true
+      current += '/*'
       i += 2
       continue
     }
@@ -944,19 +1023,22 @@ function splitParameters(params: string): string[] {
     // End of line comment
     if (inLineComment && char === '\n') {
       inLineComment = false
+      current += char
       i++
       continue
     }
 
-    // End of block comment
+    // End of block comment - preserve closing
     if (inBlockComment && char === '*' && nextChar === '/') {
       inBlockComment = false
+      current += '*/'
       i += 2
       continue
     }
 
-    // Skip characters inside comments
+    // Inside comments - preserve the content
     if (inLineComment || inBlockComment) {
+      current += char
       i++
       continue
     }

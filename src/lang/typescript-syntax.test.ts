@@ -269,15 +269,25 @@ describe('Return Types', () => {
 // =============================================================================
 
 describe('Arrow Functions', () => {
-  test.todo('arrow function with types - NOT YET SUPPORTED in TJS', () => {
-    // TJS doesn't support arrow functions at top level
-    // But fromTS should handle them
-    const { types } = fromTS(`
-      const greet = (name: string): string => {
-        return 'Hello, ' + name
+  test('arrow function with TJS types', () => {
+    // Arrow functions now support TJS type syntax
+    const { code } = transpileToJS(`
+      function process(items: ['']) {
+        return items.map((x: '') => x.toUpperCase())
       }
     `)
-    expect(types?.greet.params.name.type.kind).toBe('string')
+    // The arrow param should be transformed
+    expect(code).toContain('(x = ')
+    expect(code).toContain(') =>')
+  })
+
+  test('arrow function in callback with object type', () => {
+    const { code } = transpileToJS(`
+      function filter(items: [{ id: 0 }]) {
+        return items.filter((item: { id: 0 }) => item.id > 0)
+      }
+    `)
+    expect(code).toContain('(item = ')
   })
 
   test('arrow functions work in fromTS', () => {
@@ -293,6 +303,16 @@ describe('Arrow Functions', () => {
       const double = (x: number): number => x * 2
     `)
     expect(types?.double.returns?.kind).toBe('number')
+  })
+
+  test('chained arrow functions', () => {
+    const { code } = transpileToJS(`
+      function transform(nums: [0]) {
+        return nums.map((x: 0) => x * 2).filter((y: 0) => y > 5)
+      }
+    `)
+    expect(code).toContain('(x = 0)')
+    expect(code).toContain('(y = 0)')
   })
 })
 
