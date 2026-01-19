@@ -518,12 +518,14 @@ The AST is the source of truth. Targets are just emission strategies.
 | 8        | **Single-pass**           | ✅     | Bun plugin: `bun file.tjs` |
 | 9        | **Modules**               | ✅     | Local store + CDN          |
 
-## Next Up
+## Next Up (Post-MVP)
 
 | Priority | Feature                   | Why                        |
 | -------- | ------------------------- | -------------------------- |
-| 1        | **target()**              | browser/node/debug blocks  |
+| 1        | **target()**              | Conditional compilation for build flags |
 | 2        | **Multi-target emission** | LLVM, SwiftUI, Android     |
+
+Note: `wasm { } fallback { }` is already implemented. `target()` is for build-time code stripping (e.g., `target(browser) { }` vs `target(node) { }`), which is useful for multi-platform deployment but not MVP.
 
 ## 7. Safety Levels and Flags
 
