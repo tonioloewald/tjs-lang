@@ -18,7 +18,6 @@ interface BenchmarkResult {
   baseline: number
   safe?: number
   unsafe?: number
-  unsafeBlock?: number
   unit: string
 }
 
@@ -94,19 +93,19 @@ results.push({
   unit: 'ms',
 })
 
-// Simple Arithmetic - comparing safe vs unsafe(!) vs unsafe block
+// Simple Arithmetic - comparing safe vs unsafe(!)
 console.log('\nSimple Arithmetic:')
 function legacyDouble(x: number): number {
   return x * 2
 }
 
-// Safe function (default) - will have runtime validation
+// Safe function (default) - will have inline validation
 const safeDoubleResult = tjs(`function safeDouble(x: 0) -> 0 { return x * 2 }`)
 const safeDouble = new Function(
   `${safeDoubleResult.code}; return safeDouble;`
 )()
 
-// Unsafe function with (!) - no validation
+// Unsafe function with (!) - no validation wrapper
 const unsafeDoubleResult = tjs(
   `function unsafeDouble(! x: 0) -> 0 { return x * 2 }`
 )
@@ -114,18 +113,9 @@ const unsafeDouble = new Function(
   `${unsafeDoubleResult.code}; return unsafeDouble;`
 )()
 
-// Unsafe block within safe function
-const unsafeBlockResult = tjs(
-  `function unsafeBlockDouble(x: 0) -> 0 { unsafe { return x * 2 } }`
-)
-const unsafeBlockDouble = new Function(
-  `${unsafeBlockResult.code}; return unsafeBlockDouble;`
-)()
-
 const legacyTime = benchmark('legacy', () => legacyDouble(42))
 const safeTime = benchmark('safe', () => safeDouble(42))
 const unsafeTime = benchmark('unsafe(!)', () => unsafeDouble(42))
-const unsafeBlockTime = benchmark('unsafe{}', () => unsafeBlockDouble(42))
 
 console.log(`  Legacy JS:     ${legacyTime.toFixed(2)}ms`)
 console.log(
@@ -140,19 +130,12 @@ console.log(
     legacyTime
   )})`
 )
-console.log(
-  `  Unsafe {}:     ${unsafeBlockTime.toFixed(2)}ms (${formatRatio(
-    unsafeBlockTime,
-    legacyTime
-  )})`
-)
 
 results.push({
   name: 'Simple arithmetic (100K iterations)',
   baseline: legacyTime,
   safe: safeTime,
   unsafe: unsafeTime,
-  unsafeBlock: unsafeBlockTime,
   unit: 'ms',
 })
 
@@ -180,21 +163,9 @@ const unsafeTransform = new Function(
   `${unsafeTransformResult.code}; return unsafeTransform;`
 )()
 
-const unsafeBlockTransformResult = tjs(`
-  function unsafeBlockTransform(x: 0, y: 0) -> { sum: 0, product: 0 } {
-    unsafe { return { sum: x + y, product: x * y } }
-  }
-`)
-const unsafeBlockTransform = new Function(
-  `${unsafeBlockTransformResult.code}; return unsafeBlockTransform;`
-)()
-
 const legacyObjTime = benchmark('legacy', () => legacyTransform(3, 4))
 const safeObjTime = benchmark('safe', () => safeTransform(3, 4))
 const unsafeObjTime = benchmark('unsafe(!)', () => unsafeTransform(3, 4))
-const unsafeBlockObjTime = benchmark('unsafe{}', () =>
-  unsafeBlockTransform(3, 4)
-)
 
 console.log(`  Legacy JS:     ${legacyObjTime.toFixed(2)}ms`)
 console.log(
@@ -209,19 +180,12 @@ console.log(
     legacyObjTime
   )})`
 )
-console.log(
-  `  Unsafe {}:     ${unsafeBlockObjTime.toFixed(2)}ms (${formatRatio(
-    unsafeBlockObjTime,
-    legacyObjTime
-  )})`
-)
 
 results.push({
   name: 'Object manipulation (100K iterations)',
   baseline: legacyObjTime,
   safe: safeObjTime,
   unsafe: unsafeObjTime,
-  unsafeBlock: unsafeBlockObjTime,
   unit: 'ms',
 })
 
@@ -306,8 +270,8 @@ Iterations: ${ITERATIONS.toLocaleString()} per test
 
 ## Summary
 
-| Benchmark | Baseline | Safe (default) | Unsafe (!) | Unsafe {} |
-|-----------|----------|----------------|------------|-----------|
+| Benchmark | Baseline | Safe (default) | Unsafe (!) |
+|-----------|----------|----------------|------------|
 `
 
 for (const r of results) {
@@ -318,13 +282,7 @@ for (const r of results) {
   const unsafeCol = r.unsafe
     ? `${r.unsafe.toFixed(1)}${r.unit} (${formatRatio(r.unsafe, r.baseline)})`
     : '-'
-  const unsafeBlockCol = r.unsafeBlock
-    ? `${r.unsafeBlock.toFixed(1)}${r.unit} (${formatRatio(
-        r.unsafeBlock,
-        r.baseline
-      )})`
-    : '-'
-  markdown += `| ${r.name} | ${baseline} | ${safeCol} | ${unsafeCol} | ${unsafeBlockCol} |\n`
+  markdown += `| ${r.name} | ${baseline} | ${safeCol} | ${unsafeCol} |\n`
 }
 
 markdown += `
@@ -352,7 +310,7 @@ Use \`(!)\` to mark functions as unsafe for performance-critical code:
 // Safe (default) - validates types at runtime
 function add(a: 0, b: 0) -> 0 { return a + b }
 
-// Unsafe - no validation, maximum performance  
+// Unsafe - no validation, maximum performance
 function fastAdd(! a: 0, b: 0) -> 0 { return a + b }
 \`\`\`
 
@@ -370,20 +328,11 @@ Performance comparison:
   plainChainTime
 )} vs Unsafe ${formatRatio(unsafeChainTime, plainChainTime)}
 
-### \`unsafe {}\` Block Overhead
-
-The \`unsafe {}\` block adds a try-catch wrapper within a safe function:
-- Simple operations: ${formatRatio(unsafeBlockTime, legacyTime)}
-- Object operations: ${formatRatio(unsafeBlockObjTime, legacyObjTime)}
-
-Use \`unsafe {}\` for hot loops inside validated functions.
-
 ## Recommendations
 
 1. **Use safe functions at API boundaries** - The default is correct for most code
 2. **Use \`(!)\` for internal hot paths** - When inputs are already validated
-3. **Use \`unsafe {}\` for inner loops** - Keep param validation, skip inner checks
-4. **Consider compiled binary for CLI** - \`bun build --compile\` for ~20ms startup
+3. **Consider compiled binary for CLI** - \`bun build --compile\` for ~20ms startup
 
 ## Running Benchmarks
 

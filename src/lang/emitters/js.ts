@@ -59,6 +59,12 @@ export interface TJSTypeInfo {
   returns?: TypeDescriptor
   /** JSDoc description */
   description?: string
+  /** True if function uses destructured object param (the fast path) */
+  isDestructuredParam?: boolean
+  /** The shape of the destructured param (for inline validation) */
+  destructuredShape?: Record<string, TypeDescriptor>
+  /** Which fields in destructuredShape are required */
+  destructuredRequired?: Set<string>
 }
 
 /**
@@ -97,26 +103,79 @@ export function transpileToJS(
 
   // Build parameter type info
   const params: Record<string, ParameterDescriptor> = {}
-  for (const param of func.params) {
-    if (param.type === 'Identifier') {
-      const paramInfo = parseParameter(param, requiredParams)
-      params[param.name] = {
-        ...paramInfo,
-        required: requiredParams.has(param.name),
-        description: jsdoc.params[param.name],
-      }
-    } else if (
-      param.type === 'AssignmentPattern' &&
-      param.left.type === 'Identifier'
-    ) {
-      const paramInfo = parseParameter(param, requiredParams)
-      params[param.left.name] = {
-        ...paramInfo,
-        required: requiredParams.has(param.left.name),
-        description: jsdoc.params[param.left.name],
+  let isDestructuredParam = false
+  let destructuredShape: Record<string, TypeDescriptor> | undefined
+  let destructuredRequired: Set<string> | undefined
+
+  // Check if this is a single destructured object param (the fast path)
+  if (
+    func.params.length === 1 &&
+    (func.params[0].type === 'ObjectPattern' ||
+      (func.params[0].type === 'AssignmentPattern' &&
+        func.params[0].left.type === 'ObjectPattern'))
+  ) {
+    isDestructuredParam = true
+    const param = func.params[0]
+    const objectPattern =
+      param.type === 'ObjectPattern' ? param : (param as any).left
+
+    const paramInfo = parseParameter(objectPattern, requiredParams)
+    if (paramInfo.type.kind === 'object' && paramInfo.type.destructuredParams) {
+      destructuredShape = {}
+      destructuredRequired = new Set()
+
+      // Build shape and track required fields
+      for (const [key, descriptor] of Object.entries(
+        paramInfo.type.destructuredParams
+      )) {
+        params[key] = {
+          ...descriptor,
+          description: jsdoc.params[key],
+        }
+        destructuredShape[key] = descriptor.type
+        if (descriptor.required) {
+          destructuredRequired.add(key)
+        }
       }
     }
-    // TODO: handle destructuring patterns
+  } else {
+    // Traditional param handling (multiple params or non-destructured)
+    for (const param of func.params) {
+      if (param.type === 'Identifier') {
+        const paramInfo = parseParameter(param, requiredParams)
+        params[param.name] = {
+          ...paramInfo,
+          required: requiredParams.has(param.name),
+          description: jsdoc.params[param.name],
+        }
+      } else if (
+        param.type === 'AssignmentPattern' &&
+        param.left.type === 'Identifier'
+      ) {
+        const paramInfo = parseParameter(param, requiredParams)
+        params[param.left.name] = {
+          ...paramInfo,
+          required: requiredParams.has(param.left.name),
+          description: jsdoc.params[param.left.name],
+        }
+      } else if (param.type === 'ObjectPattern') {
+        // Handle destructured object parameters (non-single case)
+        const paramInfo = parseParameter(param, requiredParams)
+        if (
+          paramInfo.type.kind === 'object' &&
+          paramInfo.type.destructuredParams
+        ) {
+          for (const [key, descriptor] of Object.entries(
+            paramInfo.type.destructuredParams
+          )) {
+            params[key] = {
+              ...descriptor,
+              description: jsdoc.params[key],
+            }
+          }
+        }
+      }
+    }
   }
 
   // Parse return type if present
@@ -138,6 +197,9 @@ export function transpileToJS(
     params,
     returns,
     description: jsdoc.description,
+    isDestructuredParam,
+    destructuredShape,
+    destructuredRequired,
   }
 
   // Generate the JavaScript code
@@ -277,19 +339,23 @@ function generateTypeMetadata(
 }
 
 /**
- * Check if this is a single-arg function with object type (the happy path)
+ * Check if this function can use inline validation (the fast path)
  *
- * Single-arg object types like:
- *   function foo(input: { x: 0, y: 0, name: 'default' }) { ... }
+ * Two patterns qualify:
+ * 1. Single destructured object param: function foo({ x: 0, y: '' }) { ... }
+ * 2. Single named object param: function foo(input: { x: 0, y: '' }) { ... }
  *
- * Can be validated with fast inline checks instead of schema interpretation.
+ * These can be validated with fast inline checks instead of schema interpretation.
  */
-function isSingleArgObjectType(types: TJSTypeInfo): boolean {
-  const params = Object.entries(types.params)
-  if (params.length !== 1) return false
+function canUseInlineValidation(types: TJSTypeInfo): boolean {
+  // Destructured params always qualify
+  if (types.isDestructuredParam && types.destructuredShape) {
+    return true
+  }
 
-  const [, param] = params[0]
-  return param.type.kind === 'object' && param.type.shape !== undefined
+  // Any function with params can use inline validation
+  // (we generate typeof checks for primitives too)
+  return Object.keys(types.params).length > 0
 }
 
 /**
@@ -378,59 +444,123 @@ function generateTypeCheck(
 /**
  * Generate the complete function wrapper with inline validation
  *
- * For single-arg object types, this generates:
+ * For destructured object params, this generates:
  *
  *   const _original_funcName = funcName
- *   funcName = function(input) {
- *     if (!globalThis.__tjs?.isUnsafeMode?.()) {
- *       if (typeof input !== 'object' || input === null || ...) {
- *         return { $error: true, message: '...', path: '...' }
- *       }
+ *   funcName = function(__input) {
+ *     if (typeof __input !== 'object' || __input === null || ...) {
+ *       return { $error: true, message: '...', path: '...' }
  *     }
- *     return _original_funcName.call(this, input)
+ *     return _original_funcName.call(this, __input)
  *   }
- *   funcName.__tjs = ...
+ *
+ * For single named object params, same pattern with the actual param name.
  */
 export function generateInlineWrapper(
   funcName: string,
   types: TJSTypeInfo,
   safety: SafetyOptions = {}
 ): string | null {
-  // Only for single-arg object types
-  if (!isSingleArgObjectType(types)) return null
+  // Check if we can use inline validation
+  if (!canUseInlineValidation(types)) return null
 
   // Unsafe functions don't need wrappers
   if (safety.unsafe) return null
 
-  const params = Object.entries(types.params)
-  const [paramName, param] = params[0]
-  const shape = param.type.shape!
+  // Destructured params: use __input as the wrapper param name
+  if (types.isDestructuredParam && types.destructuredShape) {
+    const paramName = '__input'
+    const shape = types.destructuredShape
+    const requiredFields = types.destructuredRequired || new Set()
 
-  // Determine which fields are required
-  const requiredFields = new Set<string>()
-  for (const [fieldName] of Object.entries(shape)) {
-    // For now, all fields in the shape are required
-    // TODO: handle optional fields with ? syntax
-    requiredFields.add(fieldName)
-  }
+    const validation = generateInlineValidation(
+      funcName,
+      paramName,
+      shape,
+      requiredFields
+    )
+    if (!validation) return null
 
-  const validation = generateInlineValidation(
-    funcName,
-    paramName,
-    shape,
-    requiredFields
-  )
-  if (!validation) return null
-
-  // Generate the wrapper
-  // Note: We check isUnsafeMode() to respect unsafe {} blocks
-  return `
+    return `
 const _original_${funcName} = ${funcName}
 ${funcName} = function(${paramName}) {
-  if (!globalThis.__tjs?.isUnsafeMode?.()) {
-    ${validation}
-  }
+  ${validation}
   return _original_${funcName}.call(this, ${paramName})
 }
 `.trim()
+  }
+
+  // Positional params path (primitives or single object param)
+  const params = Object.entries(types.params)
+
+  // Check if it's a single object param with shape
+  if (params.length === 1) {
+    const [paramName, param] = params[0]
+    if (param.type.kind === 'object' && param.type.shape) {
+      // Single named object param
+      const shape = param.type.shape
+      const requiredFields = new Set<string>()
+      for (const [fieldName] of Object.entries(shape)) {
+        requiredFields.add(fieldName)
+      }
+
+      const validation = generateInlineValidation(
+        funcName,
+        paramName,
+        shape,
+        requiredFields
+      )
+      if (!validation) return null
+
+      return `
+const _original_${funcName} = ${funcName}
+${funcName} = function(${paramName}) {
+  ${validation}
+  return _original_${funcName}.call(this, ${paramName})
+}
+`.trim()
+    }
+  }
+
+  // Generate validation for positional primitive params
+  const validation = generatePositionalValidation(funcName, params)
+  if (!validation) return null
+
+  const paramNames = params.map(([name]) => name).join(', ')
+  return `
+const _original_${funcName} = ${funcName}
+${funcName} = function(${paramNames}) {
+  ${validation}
+  return _original_${funcName}.call(this, ${paramNames})
+}
+`.trim()
+}
+
+/**
+ * Generate validation for positional (primitive) params
+ */
+function generatePositionalValidation(
+  funcName: string,
+  params: [string, ParameterDescriptor][]
+): string | null {
+  const checks: string[] = []
+
+  for (const [paramName, param] of params) {
+    const typeCheck = generateTypeCheck(paramName, param.type)
+    if (typeCheck) {
+      if (param.required) {
+        // Required: must have correct type
+        checks.push(typeCheck)
+      } else {
+        // Optional: only check if defined
+        checks.push(`(${paramName} !== undefined && ${typeCheck})`)
+      }
+    }
+  }
+
+  if (checks.length === 0) return null
+
+  return `if (${checks.join(' || ')}) {
+    return { $error: true, message: 'Invalid arguments', path: '${funcName}' }
+  }`
 }

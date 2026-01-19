@@ -695,6 +695,24 @@ function processParamString(
     const trimmed = param.trim()
     if (!trimmed) return param
 
+    // Handle destructured object parameters: { name: 'Clara', age = 30 }
+    // Transform colons to equals inside the braces (recursive)
+    // Order doesn't matter for objects, so don't enforce required-before-optional
+    // ONLY do this when trackRequired is true - i.e., actual function parameters
+    if (trackRequired && trimmed.startsWith('{') && trimmed.endsWith('}')) {
+      const inner = trimmed.slice(1, -1)
+      const processedInner = processDestructuredObjectParams(inner, ctx)
+      return `{ ${processedInner} }`
+    }
+
+    // Handle destructured array parameters: [first: '', second: 0]
+    // ONLY do this when trackRequired is true - i.e., actual function parameters
+    if (trackRequired && trimmed.startsWith('[') && trimmed.endsWith(']')) {
+      const inner = trimmed.slice(1, -1)
+      const processedInner = processDestructuredObjectParams(inner, ctx)
+      return `[ ${processedInner} ]`
+    }
+
     // Handle optional param syntax: x?: type -> x = type (not required)
     const optionalMatch = trimmed.match(/^(\w+)\s*\?\s*:\s*(.+)$/)
     if (optionalMatch) {
@@ -742,6 +760,161 @@ function processParamString(
   })
 
   return processed.join(',')
+}
+
+/**
+ * Process destructured object/array parameters
+ *
+ * In TJS destructuring patterns:
+ * - `name: 'Clara'` means required param with example (transforms to `name = 'Clara'`)
+ * - `age = 30` means optional param with default (stays as `age = 30`)
+ * - Nested objects like `address: { street: '9 High St', zip = '0000' }` are tricky:
+ *   the inner object is a value (object literal), not a pattern, so we transform it back
+ *
+ * Key insight: In destructuring, `foo: value` at top level is a required param,
+ * but at nested levels within an object value, `:` is normal object literal syntax.
+ *
+ * Order does NOT matter in objects (unlike positional function params).
+ */
+function processDestructuredObjectParams(
+  inner: string,
+  ctx: {
+    requiredParams: Set<string>
+    unsafeFunctions: Set<string>
+    safeFunctions: Set<string>
+  }
+): string {
+  // Split on commas at the top level (respecting nested braces)
+  const parts = splitParameters(inner)
+
+  const processed = parts.map((part) => {
+    const trimmed = part.trim()
+    if (!trimmed) return part
+
+    // Check for nested destructured object: name: { ... }
+    // The inner { ... } is an object literal value, not a destructuring pattern
+    const nestedObjectMatch = trimmed.match(/^(\w+)\s*:\s*(\{[\s\S]*\})$/)
+    if (nestedObjectMatch) {
+      const [, name, objectLiteral] = nestedObjectMatch
+      ctx.requiredParams.add(name)
+      // Process the inner object as an object literal (transform = to : for values)
+      const processedLiteral = processObjectLiteralValue(objectLiteral)
+      return `${name} = ${processedLiteral}`
+    }
+
+    // Check for nested destructured array: name: [ ... ]
+    const nestedArrayMatch = trimmed.match(/^(\w+)\s*:\s*(\[[\s\S]*\])$/)
+    if (nestedArrayMatch) {
+      const [, name, arrayLiteral] = nestedArrayMatch
+      ctx.requiredParams.add(name)
+      // Process the inner array as an array literal
+      const processedLiteral = processArrayLiteralValue(arrayLiteral)
+      return `${name} = ${processedLiteral}`
+    }
+
+    // Handle simple colon syntax: name: 'value' -> name = 'value' (required)
+    const colonMatch = trimmed.match(/^(\w+)\s*:\s*([\s\S]+)$/)
+    if (colonMatch) {
+      const [, name, value] = colonMatch
+      ctx.requiredParams.add(name)
+      return `${name} = ${value}`
+    }
+
+    // Handle equals syntax: name = value (optional, already valid JS)
+    // Just preserve it as-is
+    return part
+  })
+
+  return processed.join(', ')
+}
+
+/**
+ * Process an object literal value (nested inside destructuring)
+ *
+ * In object literals, TJS allows `=` for optional values:
+ *   { street: '9 High St', zip = '0000' }
+ *
+ * This must become valid JS object literal syntax:
+ *   { street: '9 High St', zip: '0000' }
+ *
+ * (The `=` is TJS shorthand indicating the value is optional/has default,
+ * but in an object literal context it must use `:`)
+ */
+function processObjectLiteralValue(literal: string): string {
+  // Remove outer braces, process content, restore braces
+  const inner = literal.slice(1, -1).trim()
+  const parts = splitParameters(inner)
+
+  const processed = parts.map((part) => {
+    const trimmed = part.trim()
+    if (!trimmed) return part
+
+    // Handle nested objects: key: { ... } or key = { ... }
+    const nestedObjColonMatch = trimmed.match(/^(\w+)\s*:\s*(\{[\s\S]*\})$/)
+    if (nestedObjColonMatch) {
+      const [, key, nested] = nestedObjColonMatch
+      return `${key}: ${processObjectLiteralValue(nested)}`
+    }
+    const nestedObjEqualsMatch = trimmed.match(/^(\w+)\s*=\s*(\{[\s\S]*\})$/)
+    if (nestedObjEqualsMatch) {
+      const [, key, nested] = nestedObjEqualsMatch
+      return `${key}: ${processObjectLiteralValue(nested)}`
+    }
+
+    // Handle nested arrays: key: [ ... ] or key = [ ... ]
+    const nestedArrColonMatch = trimmed.match(/^(\w+)\s*:\s*(\[[\s\S]*\])$/)
+    if (nestedArrColonMatch) {
+      const [, key, nested] = nestedArrColonMatch
+      return `${key}: ${processArrayLiteralValue(nested)}`
+    }
+    const nestedArrEqualsMatch = trimmed.match(/^(\w+)\s*=\s*(\[[\s\S]*\])$/)
+    if (nestedArrEqualsMatch) {
+      const [, key, nested] = nestedArrEqualsMatch
+      return `${key}: ${processArrayLiteralValue(nested)}`
+    }
+
+    // Transform equals to colon for simple values: key = value -> key: value
+    const equalsMatch = trimmed.match(/^(\w+)\s*=\s*([\s\S]+)$/)
+    if (equalsMatch) {
+      const [, key, value] = equalsMatch
+      return `${key}: ${value}`
+    }
+
+    // Colon syntax is already valid: key: value
+    return part
+  })
+
+  return `{ ${processed.join(', ')} }`
+}
+
+/**
+ * Process an array literal value (nested inside destructuring)
+ * Similar to processObjectLiteralValue but for arrays
+ */
+function processArrayLiteralValue(literal: string): string {
+  // Remove outer brackets, process content, restore brackets
+  const inner = literal.slice(1, -1).trim()
+  const parts = splitParameters(inner)
+
+  const processed = parts.map((part) => {
+    const trimmed = part.trim()
+    if (!trimmed) return part
+
+    // Handle nested objects
+    if (trimmed.startsWith('{') && trimmed.endsWith('}')) {
+      return processObjectLiteralValue(trimmed)
+    }
+
+    // Handle nested arrays
+    if (trimmed.startsWith('[') && trimmed.endsWith(']')) {
+      return processArrayLiteralValue(trimmed)
+    }
+
+    // Array elements are just values, no transformation needed
+    return part
+  })
+
+  return `[ ${processed.join(', ')} ]`
 }
 
 /**
@@ -882,9 +1055,9 @@ export function preprocess(source: string): {
   returnType = transformResult.returnType
   returnSafety = transformResult.returnSafety
 
-  // Handle unsafe blocks: unsafe { ... } -> enterUnsafe(); try { ... } finally { exitUnsafe() }
-  // `unsafe` skips type checks for all wrapped function calls within the block
-  source = transformUnsafeBlocks(source)
+  // NOTE: unsafe {} blocks removed - they provided no performance benefit because
+  // the wrapper decision is made at transpile time. Use (!) on functions instead.
+  // See ideas parking lot for potential future approaches.
 
   // Handle try-without-catch: try { ... } (no catch/finally) -> monadic error handling
   // This is the idiomatic TJS way to convert exceptions to AgentError
@@ -905,56 +1078,6 @@ export function preprocess(source: string): {
     safeFunctions,
     wasmBlocks: wasmBlocks.blocks,
   }
-}
-
-/**
- * Transform unsafe blocks with proper brace matching
- * unsafe { ... } -> globalThis.__tjs.enterUnsafe(); try { ... } finally { globalThis.__tjs.exitUnsafe() }
- *
- * This disables validation in all wrapped function calls within the block.
- * No catch - errors propagate naturally (monadic or thrown).
- */
-function transformUnsafeBlocks(source: string): string {
-  let result = ''
-  let i = 0
-
-  while (i < source.length) {
-    // Look for 'unsafe' keyword
-    const unsafeMatch = source.slice(i).match(/^\bunsafe\s*\{/)
-    if (unsafeMatch) {
-      // Found 'unsafe {', now find the matching closing brace
-      const startBrace = i + unsafeMatch[0].length - 1 // position of '{'
-      const bodyStart = startBrace + 1
-      let depth = 1
-      let j = bodyStart
-
-      while (j < source.length && depth > 0) {
-        const char = source[j]
-        if (char === '{') depth++
-        else if (char === '}') depth--
-        j++
-      }
-
-      if (depth !== 0) {
-        // Unbalanced braces, let the parser handle the error
-        result += source[i]
-        i++
-        continue
-      }
-
-      // Extract the body (excluding the closing brace)
-      const body = source.slice(bodyStart, j - 1)
-
-      // Enter unsafe mode, run body, exit unsafe mode (finally ensures cleanup)
-      result += `globalThis.__tjs?.enterUnsafe?.(); try {${body}} finally { globalThis.__tjs?.exitUnsafe?.() }`
-      i = j
-    } else {
-      result += source[i]
-      i++
-    }
-  }
-
-  return result
 }
 
 /**

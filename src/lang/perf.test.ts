@@ -3,15 +3,11 @@
  *
  * Compares execution overhead between:
  * - Legacy JavaScript (baseline)
- * - TJS transpiled code (currently no runtime validation)
- * - TJS with unsafe blocks (skips type checks, wraps in try-catch)
+ * - TJS transpiled code (with inline validation)
+ * - TJS unsafe (!) functions (no validation wrapper)
  *
- * Currently TJS has no runtime type validation, so `unsafe` only adds try-catch
- * overhead. Once runtime validation is added, `unsafe` may be a performance WIN
- * for hot paths where skipping type checks outweighs the try-catch cost.
- *
- * For monadic error handling WITHOUT skipping type checks, use try-without-catch:
- *   try { JSON.parse(s) }  // converts exceptions to AgentError, keeps type checks
+ * For monadic error handling, use try-without-catch:
+ *   try { JSON.parse(s) }  // converts exceptions to AgentError
  *
  * Run with: SKIP_LLM_TESTS=1 bun test src/lang/perf.test.ts
  */
@@ -130,12 +126,10 @@ describe('TJS Performance', () => {
       `)
       const tjsDouble = new Function(`${tjsResult.code}; return tjsDouble;`)()
 
-      // TJS with unsafe
+      // TJS with unsafe (!) - no validation wrapper
       const unsafeResult = tjs(`
-        function unsafeDouble(x: 0) -> 0 {
-          unsafe {
-            return x * 2
-          }
+        function unsafeDouble(! x: 0) -> 0 {
+          return x * 2
         }
       `)
       const unsafeDouble = new Function(
@@ -186,12 +180,10 @@ describe('TJS Performance', () => {
         `${tjsResult.code}; return tjsTransform;`
       )()
 
-      // TJS with unsafe
+      // TJS with unsafe (!) - no validation wrapper
       const unsafeResult = tjs(`
-        function unsafeTransform(x: 0, y: 0) -> { sum: 0, product: 0 } {
-          unsafe {
-            return { sum: x + y, product: x * y }
-          }
+        function unsafeTransform(! x: 0, y: 0) -> { sum: 0, product: 0 } {
+          return { sum: x + y, product: x * y }
         }
       `)
       const unsafeTransform = new Function(
@@ -241,14 +233,12 @@ describe('TJS Performance', () => {
       `)
       const tjsSum = new Function(`${tjsResult.code}; return tjsSum;`)()
 
-      // TJS with unsafe
+      // TJS with unsafe (!) - no validation wrapper
       const unsafeResult = tjs(`
-        function unsafeSum(arr: [0]) -> 0 {
-          unsafe {
-            let sum = 0
-            for (const n of arr) sum += n
-            return sum
-          }
+        function unsafeSum(! arr: [0]) -> 0 {
+          let sum = 0
+          for (const n of arr) sum += n
+          return sum
         }
       `)
       const unsafeSum = new Function(
@@ -279,10 +269,7 @@ describe('TJS Performance', () => {
       expect(unsafeSum(testArr)).toBe(55)
     })
 
-    it('should measure try-catch overhead amortization', () => {
-      // When the loop is INSIDE the unsafe block, the try-catch overhead is amortized
-      // across many iterations, reducing per-iteration cost (but still slower than no try-catch)
-
+    it('should measure intensive inner loop overhead', () => {
       // Legacy JS - baseline with tight inner loop
       function legacyIntensive(n: number): number {
         let sum = 0
@@ -306,16 +293,14 @@ describe('TJS Performance', () => {
         `${tjsResult.code}; return tjsIntensive;`
       )()
 
-      // TJS unsafe - loop inside unsafe block, try-catch paid once
+      // TJS unsafe (!) - no validation wrapper
       const unsafeResult = tjs(`
-        function unsafeIntensive(n: 0) -> 0 {
-          unsafe {
-            let sum = 0
-            for (let i = 0; i < n; i++) {
-              sum += i * i
-            }
-            return sum
+        function unsafeIntensive(! n: 0) -> 0 {
+          let sum = 0
+          for (let i = 0; i < n; i++) {
+            sum += i * i
           }
+          return sum
         }
       `)
       const unsafeIntensive = new Function(
@@ -460,7 +445,7 @@ describe('TJS Performance', () => {
       expect(step3(step2(step1(5)))).toBe(10)
     })
 
-    it('should compare wrap() vs unsafe overhead', () => {
+    it('should compare wrap() vs unsafe (!) overhead', () => {
       // Wrapped function with validation
       const wrappedAdd = wrap((a: number, b: number) => a + b, {
         params: {
@@ -469,12 +454,10 @@ describe('TJS Performance', () => {
         },
       })
 
-      // TJS unsafe version (try-catch, no validation)
+      // TJS unsafe (!) version - no wrapper at all
       const unsafeResult = tjs(`
-        function unsafeAdd(a: 0, b: 0) -> 0 {
-          unsafe {
-            return a + b
-          }
+        function unsafeAdd(! a: 0, b: 0) -> 0 {
+          return a + b
         }
       `)
       const unsafeAdd = new Function(
@@ -489,7 +472,7 @@ describe('TJS Performance', () => {
       const unsafeTime = benchmark('unsafe', () => unsafeAdd(2, 3))
 
       console.log(
-        `\n  wrap() vs unsafe (${ITERATIONS.toLocaleString()} iterations):`
+        `\n  wrap() vs unsafe (!) (${ITERATIONS.toLocaleString()} iterations):`
       )
       console.log(`    Plain:    ${plainTime.toFixed(2)}ms (baseline)`)
       console.log(
@@ -500,7 +483,7 @@ describe('TJS Performance', () => {
       console.log(
         `    Unsafe:   ${unsafeTime.toFixed(2)}ms (${(
           unsafeTime / plainTime
-        ).toFixed(2)}x) - try-catch only`
+        ).toFixed(2)}x) - no wrapper`
       )
 
       // Sanity check
@@ -611,43 +594,8 @@ describe('TJS Performance', () => {
       expect(wrappedAll(5)).toBe(10)
     })
 
-    it('should measure unsafe block overhead', () => {
-      configure({ safety: 'inputs' })
-
-      const wrapped = wrap((x: number) => x * 2, {
-        params: { x: { type: 'number', required: true } },
-      })
-
-      const plain = (x: number) => x * 2
-
-      // Normal wrapped call
-      const wrappedTime = benchmark('wrapped', () => wrapped(5))
-
-      // Inside unsafe block
-      enterUnsafe()
-      const unsafeTime = benchmark('unsafe-block', () => wrapped(5))
-      exitUnsafe()
-
-      // Plain baseline
-      const plainTime = benchmark('plain', () => plain(5))
-
-      console.log(
-        `\n  unsafe {} block (${ITERATIONS.toLocaleString()} iterations):`
-      )
-      console.log(`    Plain:         ${plainTime.toFixed(2)}ms (baseline)`)
-      console.log(
-        `    Wrapped:       ${wrappedTime.toFixed(2)}ms (${(
-          wrappedTime / plainTime
-        ).toFixed(2)}x)`
-      )
-      console.log(
-        `    In unsafe {}:  ${unsafeTime.toFixed(2)}ms (${(
-          unsafeTime / plainTime
-        ).toFixed(2)}x)`
-      )
-
-      expect(wrapped(5)).toBe(10)
-    })
+    // NOTE: unsafe {} block test removed - the feature was removed because
+    // it provided no performance benefit (wrapper decision is at transpile time)
 
     it('should measure per-function safety flags', () => {
       configure({ safety: 'none' })

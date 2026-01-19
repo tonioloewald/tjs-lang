@@ -1534,55 +1534,9 @@ describe('Linter', () => {
   })
 })
 
-// unsafe block tests
-describe('unsafe blocks', () => {
-  it('should transform unsafe block to enterUnsafe/exitUnsafe', () => {
-    const result = tjs(`
-      function riskyOp(x: 0) -> 0 {
-        unsafe {
-          if (x < 0) throw new Error('negative')
-          return x * 2
-        }
-      }
-    `)
-
-    // unsafe blocks now use enterUnsafe/exitUnsafe to disable validation
-    expect(result.code).toContain('enterUnsafe')
-    expect(result.code).toContain('exitUnsafe')
-    expect(result.code).toContain('try {')
-    expect(result.code).toContain('finally')
-    expect(result.code).not.toContain('unsafe {')
-  })
-
-  it('should execute unsafe block and return result on success', () => {
-    const result = tjs(`
-      function double(x: 0) -> 0 {
-        unsafe {
-          return x * 2
-        }
-      }
-    `)
-
-    const fn = new Function(`${result.code}; return double(5);`)
-    expect(fn()).toBe(10)
-  })
-
-  it('should propagate errors (unsafe skips validation, not error handling)', () => {
-    const result = tjs(`
-      function mustBePositive(x: 0) -> 0 {
-        unsafe {
-          if (x < 0) throw new Error('must be positive')
-          return x
-        }
-      }
-    `)
-
-    // unsafe blocks don't catch errors - they just disable validation
-    // errors propagate normally (thrown)
-    const fn = new Function(`${result.code}; return mustBePositive(-1);`)
-    expect(() => fn()).toThrow('must be positive')
-  })
-})
+// NOTE: unsafe {} blocks have been removed - they provided no performance benefit
+// because the wrapper decision is made at transpile time. Use (!) on functions instead.
+// See ideas parking lot for potential future approaches.
 
 // safety syntax tests
 describe('module-level safety directive', () => {
@@ -1738,15 +1692,17 @@ function process(input: { x: 0, y: 0, name: 'test' }) {
     expect(result.code).toContain("typeof input.name !== 'string'")
   })
 
-  it('should not generate inline wrapper for multi-arg functions', () => {
+  it('should generate inline wrapper for multi-arg functions', () => {
     const result = tjs(`
 function add(x: 0, y: 0) {
   return x + y
 }`)
 
-    // Should NOT have inline wrapper
-    expect(result.code).not.toContain('_original_add')
-    // But should have metadata
+    // Should have inline wrapper with type checks for each param
+    expect(result.code).toContain('_original_add')
+    expect(result.code).toContain("typeof x !== 'number'")
+    expect(result.code).toContain("typeof y !== 'number'")
+    // And should have metadata
     expect(result.code).toContain('add.__tjs')
   })
 
