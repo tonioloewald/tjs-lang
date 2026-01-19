@@ -1178,19 +1178,19 @@ export function fromTS(
     warnings,
   }
 
-  // Walk the AST
-  function visit(node: ts.Node) {
+  // Walk top-level statements only (don't recurse into function bodies)
+  for (const statement of sourceFile.statements) {
     // Handle: function foo() {}
-    if (ts.isFunctionDeclaration(node) && node.name) {
-      const funcName = node.name.getText(sourceFile)
+    if (ts.isFunctionDeclaration(statement) && statement.name) {
+      const funcName = statement.name.getText(sourceFile)
 
       if (emitTJS) {
         tjsFunctions.push(
-          transformFunctionToTJS(node, sourceFile, undefined, warnings)
+          transformFunctionToTJS(statement, sourceFile, undefined, warnings)
         )
       } else {
         metadata[funcName] = extractFunctionMetadata(
-          node,
+          statement,
           sourceFile,
           warnings,
           resolutionCtx
@@ -1199,8 +1199,8 @@ export function fromTS(
     }
 
     // Handle: const foo = () => {} or const foo = function() {}
-    if (ts.isVariableStatement(node)) {
-      for (const decl of node.declarationList.declarations) {
+    if (ts.isVariableStatement(statement)) {
+      for (const decl of statement.declarationList.declarations) {
         if (
           ts.isIdentifier(decl.name) &&
           decl.initializer &&
@@ -1229,37 +1229,35 @@ export function fromTS(
     }
 
     // Handle: interface Foo { ... }
-    if (ts.isInterfaceDeclaration(node) && emitTJS) {
-      const typeName = node.name.getText(sourceFile)
-      const typeDecl = transformInterfaceToType(node, sourceFile, warnings)
+    if (ts.isInterfaceDeclaration(statement) && emitTJS) {
+      const typeDecl = transformInterfaceToType(statement, sourceFile, warnings)
       if (typeDecl) {
         tjsFunctions.push(typeDecl)
       }
     }
 
     // Handle: type Foo = { ... }
-    if (ts.isTypeAliasDeclaration(node) && emitTJS) {
-      const typeName = node.name.getText(sourceFile)
-      const typeDecl = transformTypeAliasToType(node, sourceFile, warnings)
+    if (ts.isTypeAliasDeclaration(statement) && emitTJS) {
+      const typeDecl = transformTypeAliasToType(statement, sourceFile, warnings)
       if (typeDecl) {
         tjsFunctions.push(typeDecl)
       }
     }
 
     // Handle: enum Status { Pending, Active, Done }
-    if (ts.isEnumDeclaration(node) && emitTJS) {
-      const enumDecl = transformEnumToTJS(node, sourceFile, warnings)
+    if (ts.isEnumDeclaration(statement) && emitTJS) {
+      const enumDecl = transformEnumToTJS(statement, sourceFile, warnings)
       if (enumDecl) {
         tjsFunctions.push(enumDecl)
       }
     }
 
     // Handle: class Foo { ... }
-    if (ts.isClassDeclaration(node) && node.name) {
-      const className = node.name.getText(sourceFile)
+    if (ts.isClassDeclaration(statement) && statement.name) {
+      const className = statement.name.getText(sourceFile)
       if (!emitTJS) {
         classMetadata[className] = extractClassMetadata(
-          node,
+          statement,
           sourceFile,
           warnings,
           resolutionCtx
@@ -1267,11 +1265,7 @@ export function fromTS(
       }
       // TODO: emitTJS mode for classes
     }
-
-    ts.forEachChild(node, visit)
   }
-
-  visit(sourceFile)
 
   if (emitTJS) {
     return {
