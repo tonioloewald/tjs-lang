@@ -1051,13 +1051,23 @@ function getObjectBeforeDot(source: string, dotPos: number): string | null {
  * Returns a sensible default that can be used in snippet placeholders
  */
 function getPlaceholderForParam(name: string, info: any): string {
-  // If there's an explicit default, use it (but not null - that means "no default" in metadata)
+  // First check for example value (from TJS colon syntax)
+  if (info.example !== undefined && info.example !== null) {
+    const ex = info.example
+    if (typeof ex === 'string') return `'${ex}'`
+    if (typeof ex === 'number' || typeof ex === 'boolean') return String(ex)
+    if (Array.isArray(ex)) return JSON.stringify(ex)
+    if (typeof ex === 'object') return JSON.stringify(ex)
+    return String(ex)
+  }
+
+  // Then check for explicit default value
   if (info.default !== undefined && info.default !== null) {
     const def = info.default
     if (typeof def === 'string') return `'${def}'`
     if (typeof def === 'number' || typeof def === 'boolean') return String(def)
-    if (Array.isArray(def)) return '[]'
-    if (typeof def === 'object') return '{}'
+    if (Array.isArray(def)) return JSON.stringify(def)
+    if (typeof def === 'object') return JSON.stringify(def)
     return String(def)
   }
 

@@ -38,7 +38,11 @@ export interface ParameterDescriptor {
   type: TypeDescriptor
   required: boolean
   default?: any
+  /** The example value used to infer the type (for autocomplete) */
+  example?: any
   description?: string
+  /** Source location for error reporting */
+  loc?: { start: number; end: number }
 }
 
 /** Describes a function's complete signature */

@@ -165,13 +165,15 @@ export function parseParameter(
 
     // Infer type from the example value
     const type = inferTypeFromValue(right)
-    const defaultValue = extractLiteralValue(right)
+    const exampleValue = extractLiteralValue(right)
 
     return {
       name,
       type,
       required: isRequired,
-      default: isRequired ? null : defaultValue,
+      default: isRequired ? null : exampleValue,
+      example: exampleValue,
+      loc: { start: param.start, end: param.end },
     }
   }
 
