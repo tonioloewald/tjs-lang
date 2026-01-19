@@ -22,6 +22,8 @@ import {
   SafeFunction,
   Eval,
   Type,
+  typeOf,
+  isNativeType,
 } from './runtime'
 
 describe('TJS Runtime - Monadic Errors', () => {
@@ -798,5 +800,89 @@ describe('Eval', () => {
     })
     expect(isError(result)).toBe(true)
     expect((result as TJSError).message).toContain('oops')
+  })
+})
+
+
+describe('typeOf - enhanced typeof', () => {
+  it('returns "null" for null', () => {
+    expect(typeOf(null)).toBe('null')
+  })
+
+  it('returns "undefined" for undefined', () => {
+    expect(typeOf(undefined)).toBe('undefined')
+  })
+
+  it('returns "array" for arrays', () => {
+    expect(typeOf([])).toBe('array')
+    expect(typeOf([1, 2, 3])).toBe('array')
+  })
+
+  it('returns primitive types', () => {
+    expect(typeOf('hello')).toBe('string')
+    expect(typeOf(42)).toBe('number')
+    expect(typeOf(true)).toBe('boolean')
+    expect(typeOf(Symbol('test'))).toBe('symbol')
+    expect(typeOf(() => {})).toBe('function')
+  })
+
+  it('returns "object" for plain objects', () => {
+    expect(typeOf({})).toBe('object')
+    expect(typeOf({ a: 1 })).toBe('object')
+  })
+
+  it('returns constructor name for class instances', () => {
+    class MyClass {}
+    expect(typeOf(new MyClass())).toBe('MyClass')
+  })
+
+  it('returns constructor name for built-in types', () => {
+    expect(typeOf(new Map())).toBe('Map')
+    expect(typeOf(new Set())).toBe('Set')
+    expect(typeOf(new Date())).toBe('Date')
+    expect(typeOf(/regex/)).toBe('RegExp')
+    expect(typeOf(new Error('test'))).toBe('Error')
+  })
+})
+
+describe('isNativeType - pragmatic native type checking', () => {
+  it('checks constructor name directly', () => {
+    expect(isNativeType(new Map(), 'Map')).toBe(true)
+    expect(isNativeType(new Set(), 'Set')).toBe(true)
+    expect(isNativeType(new Date(), 'Date')).toBe(true)
+    expect(isNativeType(new Error('test'), 'Error')).toBe(true)
+  })
+
+  it('checks prototype chain', () => {
+    // TypeError extends Error
+    expect(isNativeType(new TypeError('test'), 'Error')).toBe(true)
+    expect(isNativeType(new TypeError('test'), 'TypeError')).toBe(true)
+  })
+
+  it('returns false for non-matching types', () => {
+    expect(isNativeType(new Map(), 'Set')).toBe(false)
+    expect(isNativeType({}, 'Map')).toBe(false)
+    expect(isNativeType('string', 'String')).toBe(false)
+  })
+
+  it('returns false for null/undefined', () => {
+    expect(isNativeType(null, 'Object')).toBe(false)
+    expect(isNativeType(undefined, 'Object')).toBe(false)
+  })
+
+  it('returns false for primitives', () => {
+    expect(isNativeType(42, 'Number')).toBe(false)
+    expect(isNativeType('hello', 'String')).toBe(false)
+    expect(isNativeType(true, 'Boolean')).toBe(false)
+  })
+
+  it('works with custom classes', () => {
+    class MyWidget {}
+    class MyButton extends MyWidget {}
+    
+    const button = new MyButton()
+    expect(isNativeType(button, 'MyButton')).toBe(true)
+    expect(isNativeType(button, 'MyWidget')).toBe(true)
+    expect(isNativeType(button, 'Object')).toBe(true)
   })
 })

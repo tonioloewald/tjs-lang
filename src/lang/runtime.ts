@@ -293,13 +293,61 @@ export function composeErrors(errors: TJSError[], funcName?: string): TJSError {
 }
 
 /**
- * Get the type name for a value (fixed typeof)
+ * Get the type of a value
+ *
+ * Enhanced typeof that handles:
+ * - null (returns 'null' not 'object')
+ * - undefined (returns 'undefined')
+ * - arrays (returns 'array' not 'object')
+ * - native/platform types (returns constructor name for objects)
+ *
+ * For objects, returns the constructor name which enables pragmatic
+ * native type checking (e.g., 'HTMLElement', 'Buffer', 'Event')
  */
 export function typeOf(value: unknown): string {
   if (value === null) return 'null'
   if (value === undefined) return 'undefined'
   if (Array.isArray(value)) return 'array'
-  return typeof value
+
+  const t = typeof value
+  if (t !== 'object') return t
+
+  // For objects, return constructor name for pragmatic native type checking
+  // This enables checking for HTMLElement, Buffer, Event, etc.
+  const constructorName = (value as object).constructor?.name
+  if (constructorName && constructorName !== 'Object') {
+    return constructorName
+  }
+
+  return 'object'
+}
+
+/**
+ * Check if a value is an instance of a native/platform type by constructor name
+ *
+ * This enables pragmatic native type checking without shipping type definitions:
+ * - isNativeType(el, 'HTMLElement') - DOM element check
+ * - isNativeType(buf, 'Buffer') - Node.js Buffer check
+ * - isNativeType(evt, 'Event') - DOM Event check
+ * - isNativeType(map, 'Map') - Map instance check
+ *
+ * @param value - The value to check
+ * @param typeName - The constructor name to match (e.g., 'HTMLElement', 'Buffer')
+ * @returns true if value's constructor.name matches or is in prototype chain
+ */
+export function isNativeType(value: unknown, typeName: string): boolean {
+  if (value === null || value === undefined) return false
+  if (typeof value !== 'object' && typeof value !== 'function') return false
+
+  // Check constructor name
+  let proto = value
+  while (proto !== null) {
+    const constructorName = (proto as object).constructor?.name
+    if (constructorName === typeName) return true
+    proto = Object.getPrototypeOf(proto)
+  }
+
+  return false
 }
 
 /**
@@ -925,6 +973,7 @@ export const runtime = {
   error,
   composeErrors,
   typeOf,
+  isNativeType,
   checkType,
   validateArgs,
   wrap,
