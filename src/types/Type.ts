@@ -31,6 +31,10 @@ export interface RuntimeType<T = unknown> {
   readonly schema?: Schema
   /** The predicate function (if predicate-based) */
   readonly predicate?: (value: unknown) => boolean
+  /** Example value (for documentation and implicit testing) */
+  readonly example?: T
+  /** Default value (for instantiation) */
+  readonly default?: T
   /** Brand for type identification */
   readonly __runtimeType: true
 }
@@ -52,31 +56,88 @@ export function isRuntimeType(value: unknown): value is RuntimeType {
  * @overload Type(description, schema) - schema-based validation
  * @overload Type(schema) - schema only
  */
+/**
+ * Check if a value is a tosijs-schema builder (has .schema property)
+ */
+function isSchemaBuilder(value: unknown): value is Base<any> {
+  return (
+    value !== null &&
+    typeof value === 'object' &&
+    'schema' in value &&
+    typeof (value as any).schema === 'object'
+  )
+}
+
+/**
+ * Check if a value looks like a raw JSON Schema object
+ */
+function isJSONSchema(value: unknown): value is JSONSchema {
+  return (
+    value !== null &&
+    typeof value === 'object' &&
+    'type' in value &&
+    typeof (value as any).type === 'string'
+  )
+}
+
 export function Type<T = unknown>(
   descriptionOrSchema: string | Schema,
-  predicateOrSchema?: ((value: unknown) => boolean) | Schema
+  predicateOrSchemaOrExample?:
+    | ((value: unknown) => boolean)
+    | Schema
+    | T
+    | undefined,
+  exampleArg?: T,
+  defaultArg?: T
 ): RuntimeType<T> {
   // Parse arguments
   let description: string
   let predicate: ((value: unknown) => boolean) | undefined
   let schema: Schema | undefined
+  let example: T | undefined = exampleArg
+  let defaultValue: T | undefined = defaultArg
 
   if (typeof descriptionOrSchema === 'string') {
-    // Form: Type(description, predicate) or Type(description, schema)
+    // Form: Type(description, predicate/schema/example, example?, default?)
     description = descriptionOrSchema
 
-    if (typeof predicateOrSchema === 'function') {
-      // Type(description, predicate)
-      predicate = predicateOrSchema
-    } else if (predicateOrSchema !== undefined) {
-      // Type(description, schema)
-      schema = predicateOrSchema as Schema
+    if (typeof predicateOrSchemaOrExample === 'function') {
+      // Type(description, predicate, example?, default?)
+      predicate = predicateOrSchemaOrExample
+      // If we have example, infer schema from it for the type guard in predicate
+      if (example !== undefined) {
+        schema = s.infer(example)
+      }
+    } else if (
+      predicateOrSchemaOrExample === undefined &&
+      example !== undefined
+    ) {
+      // Type(description, undefined, example, default?) - example provides schema
+      schema = s.infer(example)
+    } else if (isSchemaBuilder(predicateOrSchemaOrExample)) {
+      // Type(description, schemaBuilder)
+      schema = predicateOrSchemaOrExample
+    } else if (isJSONSchema(predicateOrSchemaOrExample)) {
+      // Type(description, jsonSchema)
+      schema = predicateOrSchemaOrExample
+    } else if (predicateOrSchemaOrExample !== undefined) {
+      // Type(description, example) - second arg is the example/default, infer schema
+      // This is the simple form: Type('Name', 'Alice')
+      example = predicateOrSchemaOrExample as T
+      defaultValue = example // In simple form, example IS the default
+      schema = s.infer(example)
     } else {
-      throw new Error('Type(description) requires a predicate or schema')
+      throw new Error(
+        'Type(description) requires a predicate, schema, or example'
+      )
     }
   } else {
-    // Form: Type(schema)
-    schema = descriptionOrSchema as Schema
+    // Form: Type(schema) or Type(schemaBuilder)
+    if (isSchemaBuilder(descriptionOrSchema)) {
+      schema = descriptionOrSchema
+    } else {
+      schema = descriptionOrSchema as Schema
+    }
     description = schemaToDescription(schema)
   }
 
@@ -96,6 +157,8 @@ export function Type<T = unknown>(
     check,
     schema,
     predicate,
+    example,
+    default: defaultValue,
     __runtimeType: true as const,
   }
 }

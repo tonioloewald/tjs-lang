@@ -60,17 +60,26 @@ describe('Transpiler', () => {
       expect(result.source).toBe(`const Name = Type('Name', 'Alice')`)
     })
 
-    it('should transform Type declaration with block', () => {
+    it('should transform Type declaration with block (old syntax)', () => {
       const result = preprocess(`Type User {
   description: 'a user'
   example: { name: '', age: 0 }
 }`)
-      expect(result.source).toContain(
-        `const User = Type('a user', { name: '', age: 0 })`
-      )
+      // Example-only blocks emit: Type(desc, undefined, example)
+      expect(result.source).toContain(`const User = Type('a user', undefined,`)
+      expect(result.source).toContain(`{ name: '', age: 0 }`)
     })
 
-    it('should transform Type with predicate and example', () => {
+    it('should transform Type with description before block (new syntax)', () => {
+      const result = preprocess(`Type User 'a user' {
+  example: { name: '', age: 0 }
+}`)
+      // Example-only blocks emit: Type(desc, undefined, example)
+      expect(result.source).toContain(`const User = Type('a user', undefined,`)
+      expect(result.source).toContain(`{ name: '', age: 0 }`)
+    })
+
+    it('should transform Type with predicate and example (old syntax)', () => {
       const result = preprocess(`Type EvenNum {
   description: 'even number'
   example: 2
@@ -79,6 +88,55 @@ describe('Transpiler', () => {
       expect(result.source).toContain(`const EvenNum = Type('even number'`)
       expect(result.source).toContain(`__tjs?.validate`)
       expect(result.source).toContain(`x % 2 === 0`)
+    })
+
+    it('should transform Type with description before block and predicate (new syntax)', () => {
+      const result = preprocess(`Type EvenNum 'even number' {
+  example: 2
+  predicate(x) { return x % 2 === 0 }
+}`)
+      expect(result.source).toContain(`const EvenNum = Type('even number'`)
+      expect(result.source).toContain(`__tjs?.validate`)
+      expect(result.source).toContain(`x % 2 === 0`)
+    })
+
+    // New = default syntax tests
+    it('should transform Type with = default (string)', () => {
+      const result = preprocess(`Type Name = 'Alice'`)
+      expect(result.source).toBe(`const Name = Type('Name', 'Alice')`)
+    })
+
+    it('should transform Type with = default (number)', () => {
+      const result = preprocess(`Type Count = 0`)
+      expect(result.source).toBe(`const Count = Type('Count', 0)`)
+    })
+
+    it('should transform Type with = default (positive number)', () => {
+      const result = preprocess(`Type Age = +18`)
+      expect(result.source).toBe(`const Age = Type('Age', +18)`)
+    })
+
+    it('should transform Type with description and = default', () => {
+      const result = preprocess(`Type Name 'a person name' = 'Alice'`)
+      expect(result.source).toBe(`const Name = Type('a person name', 'Alice')`)
+    })
+
+    it('should transform Type with = default and block with example', () => {
+      const result = preprocess(`Type PositiveAge = +1 {
+  example: 30
+}`)
+      expect(result.source).toContain(`const PositiveAge = Type('PositiveAge'`)
+      expect(result.source).toContain(`, 30`)
+      expect(result.source).toContain(`, +1)`)
+    })
+
+    it('should transform Type with = default (object)', () => {
+      const result = preprocess(
+        `Type Config = { host: 'localhost', port: 8080 }`
+      )
+      expect(result.source).toContain(`const Config = Type('Config'`)
+      expect(result.source).toContain(`host: 'localhost'`)
+      expect(result.source).toContain(`port: 8080`)
     })
 
     it('should transform Generic declaration', () => {

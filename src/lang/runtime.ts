@@ -10,6 +10,54 @@
  * This runtime is attached to globalThis.__tjs and shared across modules.
  */
 
+import { validate, s } from 'tosijs-schema'
+import {
+  Type,
+  isRuntimeType,
+  Union,
+  Generic,
+  Enum,
+  Nullable,
+  Optional,
+  TArray,
+  // Built-in types
+  TString,
+  TNumber,
+  TBoolean,
+  TInteger,
+  TPositiveInt,
+  TNonEmptyString,
+  TEmail,
+  TUrl,
+  TUuid,
+  // Built-in generics
+  TPair,
+  TRecord,
+} from '../types/Type'
+
+// Re-export Type utilities for consumers
+export {
+  Type,
+  isRuntimeType,
+  Union,
+  Generic,
+  Enum,
+  Nullable,
+  Optional,
+  TArray,
+  TString,
+  TNumber,
+  TBoolean,
+  TInteger,
+  TPositiveInt,
+  TNonEmptyString,
+  TEmail,
+  TUrl,
+  TUuid,
+  TPair,
+  TRecord,
+}
+
 // Version from package.json - injected at build time or imported
 // eslint-disable-next-line @typescript-eslint/no-var-requires
 const pkg = require('../../package.json') as { version: string }
@@ -675,6 +723,29 @@ export const runtime = {
   enterUnsafe,
   exitUnsafe,
   isUnsafeMode,
+  // Type system (used by transpiled Type declarations)
+  validate,
+  infer: s.infer.bind(s),
+  Type,
+  isRuntimeType,
+  Union,
+  Generic,
+  Enum,
+  Nullable,
+  Optional,
+  TArray,
+  // Built-in types
+  TString,
+  TNumber,
+  TBoolean,
+  TInteger,
+  TPositiveInt,
+  TNonEmptyString,
+  TEmail,
+  TUrl,
+  TUuid,
+  TPair,
+  TRecord,
 }
 
 /**

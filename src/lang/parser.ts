@@ -1528,10 +1528,10 @@ function splitParameters(params: string): string[] {
  * Syntax forms:
  *   Type Foo 'example'                    -> const Foo = Type('Foo', 'example')
  *   Type Foo { example: 'value' }         -> const Foo = Type('Foo', 'value')
- *   Type Foo { description: '...', example: 'value' }
- *                                         -> const Foo = Type('...', 'value')
- *   Type Foo { description: '...', example: 0, predicate(x) { return x > 0 } }
- *                                         -> const Foo = Type('...', (x) => { ... }, 0)
+ *   Type Foo 'description' { example: 'value' }
+ *                                         -> const Foo = Type('description', 'value')
+ *   Type Foo 'description' { example: 0, predicate(x) { return x > 0 } }
+ *                                         -> const Foo = Type('description', (x) => { ... }, 0)
  *
  * When predicate + example: auto-generate type guard from example
  */
@@ -1546,10 +1546,58 @@ function transformTypeDeclarations(source: string): string {
       const typeName = typeMatch[1]
       let j = i + typeMatch[0].length
 
-      // Check what follows: simple value or block
+      // Check for optional description string
+      // Only treat as description if followed by = or {
+      let description = typeName
+      let descriptionWasExplicit = false
+      const descStringMatch = source.slice(j).match(/^(['"`])([^]*?)\1\s*/)
+      if (descStringMatch) {
+        const afterString = j + descStringMatch[0].length
+        const nextChar = source[afterString]
+        // It's a description if followed by = or { or end of statement
+        if (
+          nextChar === '=' ||
+          nextChar === '{' ||
+          nextChar === '\n' ||
+          afterString >= source.length
+        ) {
+          // But if it's just end of statement with no = or {, it's the old simple form
+          if (nextChar !== '=' && nextChar !== '{') {
+            // Old simple form: Type Name 'value' - value is both example and default
+            const value = descStringMatch[0].trim()
+            result += `const ${typeName} = Type('${typeName}', ${value})`
+            i = afterString
+            continue
+          }
+          description = descStringMatch[2]
+          descriptionWasExplicit = true
+          j = afterString
+        }
+      }
+
+      // Check for = default value
+      let defaultValue: string | undefined
+      const equalsMatch = source.slice(j).match(/^=\s*/)
+      if (equalsMatch) {
+        j += equalsMatch[0].length
+        // Parse the default value (handles +number, strings, objects, arrays, etc.)
+        const valueMatch = source
+          .slice(j)
+          .match(
+            /^(\+?\d+(?:\.\d+)?|['"`][^'"`]*['"`]|\{[^}]*\}|\[[^\]]*\]|true|false|null)/
+          )
+        if (valueMatch) {
+          defaultValue = valueMatch[0]
+          j += valueMatch[0].length
+          // Skip whitespace after default
+          const wsMatch = source.slice(j).match(/^\s*/)
+          if (wsMatch) j += wsMatch[0].length
+        }
+      }
+
+      // Check for block { ... }
       if (source[j] === '{') {
-        // Block form: Type Foo { ... }
-        const blockStart = j
+        // Block form: Type Foo 'desc'? = default? { ... }
         const bodyStart = j + 1
         let depth = 1
         let k = bodyStart
@@ -1572,54 +1620,62 @@ function transformTypeDeclarations(source: string): string {
         const blockBody = source.slice(bodyStart, k - 1).trim()
         const blockEnd = k
 
-        // Parse the block body for description, example, predicate
-        const descMatch = blockBody.match(/description\s*:\s*(['"`])([^]*?)\1/)
-        // For example/type, need to handle objects/arrays properly
-        const exampleMatch = blockBody.match(
-          /example\s*:\s*(\{[^}]*\}|\[[^\]]*\]|['"`][^'"`]*['"`]|\d+(?:\.\d+)?|true|false|null)/
+        // Parse block body for description (old syntax fallback), example, predicate
+        const descInsideMatch = blockBody.match(
+          /description\s*:\s*(['"`])([^]*?)\1/
         )
-        const typeMatch2 = blockBody.match(
-          /type\s*:\s*(\{[^}]*\}|\[[^\]]*\]|['"`][^'"`]*['"`]|\d+(?:\.\d+)?|true|false|null)/
+        if (descInsideMatch && !descriptionWasExplicit) {
+          description = descInsideMatch[2]
+        }
+
+        const exampleMatch = blockBody.match(
+          /example\s*:\s*(\{[^}]*\}|\[[^\]]*\]|['"`][^'"`]*['"`]|\+?\d+(?:\.\d+)?|true|false|null)/
         )
         const predicateMatch = blockBody.match(
           /predicate\s*\(([^)]*)\)\s*\{([^]*)\}/
         )
 
-        const description = descMatch ? descMatch[2] : typeName
-        const example = exampleMatch
-          ? exampleMatch[1].trim()
-          : typeMatch2
-          ? typeMatch2[1].trim()
-          : undefined
+        const example = exampleMatch ? exampleMatch[1].trim() : undefined
 
+        // Build Type() call with appropriate arguments
+        // Type(description, predicateOrExample, example?, default?)
         if (predicateMatch && example) {
-          // Has predicate + example: generate type-guarded predicate
+          // Predicate + example
           const params = predicateMatch[1].trim()
           const body = predicateMatch[2].trim()
-          // Auto-generate type check from example
-          result += `const ${typeName} = Type('${description}', (${params}) => { if (!globalThis.__tjs?.validate(${params}, globalThis.__tjs?.infer(${example}))) return false; ${body} }, ${example})`
+          const defaultArg = defaultValue ? `, ${defaultValue}` : ''
+          result += `const ${typeName} = Type('${description}', (${params}) => { if (!globalThis.__tjs?.validate(${params}, globalThis.__tjs?.infer(${example}))) return false; ${body} }, ${example}${defaultArg})`
         } else if (predicateMatch) {
-          // Predicate only, no example
+          // Predicate only
           const params = predicateMatch[1].trim()
           const body = predicateMatch[2].trim()
-          result += `const ${typeName} = Type('${description}', (${params}) => { ${body} })`
+          const defaultArg = defaultValue ? `, undefined, ${defaultValue}` : ''
+          result += `const ${typeName} = Type('${description}', (${params}) => { ${body} }${defaultArg})`
         } else if (example) {
-          // Example only
-          result += `const ${typeName} = Type('${description}', ${example})`
+          // Example only (becomes validation schema)
+          const defaultArg = defaultValue ? `, ${defaultValue}` : ''
+          result += `const ${typeName} = Type('${description}', undefined, ${example}${defaultArg})`
+        } else if (defaultValue) {
+          // Default only (infer schema from default)
+          result += `const ${typeName} = Type('${description}', ${defaultValue})`
         } else {
-          // Empty block - just use name as description
-          result += `const ${typeName} = Type('${typeName}')`
+          // Empty block - error or description-only type
+          result += `const ${typeName} = Type('${description}')`
         }
 
         i = blockEnd
         continue
-      } else {
-        // Simple form: Type Foo 'example' or Type Foo { ... } (inline object)
-        // Look for a value (string, number, object, array)
+      } else if (defaultValue) {
+        // Simple form with default: Type Foo = 'value' or Type Foo 'desc' = 'value'
+        result += `const ${typeName} = Type('${description}', ${defaultValue})`
+        i = j
+        continue
+      } else if (!descStringMatch) {
+        // No description, no default, no block - look for old simple form: Type Foo 'value'
         const valueMatch = source
           .slice(j)
           .match(
-            /^(['"`][^]*?['"`]|\d+(?:\.\d+)?|true|false|null|\{[^]*?\}|\[[^]*?\])/
+            /^(['"`][^]*?['"`]|\+?\d+(?:\.\d+)?|true|false|null|\{[^]*?\}|\[[^]*?\])/
           )
         if (valueMatch) {
           const example = valueMatch[0]

@@ -110,6 +110,33 @@ describe('Type()', () => {
       )
     })
   })
+
+  describe('Type(description, predicate, example)', () => {
+    it('stores example value for introspection', () => {
+      const User = Type(
+        'a registered user',
+        (x: any) =>
+          x && typeof x.name === 'string' && typeof x.age === 'number',
+        { name: 'Alice', age: 30 }
+      )
+
+      expect(User.description).toBe('a registered user')
+      expect(User.example).toEqual({ name: 'Alice', age: 30 })
+      expect(User.check({ name: 'Bob', age: 25 })).toBe(true)
+      expect(User.check({ name: 'Bob' })).toBe(false)
+    })
+
+    it('example can be used for implicit testing', () => {
+      const Email = Type(
+        'valid email address',
+        (x: any) => typeof x === 'string' && x.includes('@'),
+        'test@example.com'
+      )
+
+      // The example should pass the predicate
+      expect(Email.check(Email.example)).toBe(true)
+    })
+  })
 })
 
 describe('Built-in Types', () => {
