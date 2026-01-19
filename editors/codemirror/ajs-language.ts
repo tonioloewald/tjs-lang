@@ -1051,12 +1051,11 @@ function getObjectBeforeDot(source: string, dotPos: number): string | null {
  * Returns a sensible default that can be used in snippet placeholders
  */
 function getPlaceholderForParam(name: string, info: any): string {
-  // If there's an explicit default, use it
-  if (info.default !== undefined) {
+  // If there's an explicit default, use it (but not null - that means "no default" in metadata)
+  if (info.default !== undefined && info.default !== null) {
     const def = info.default
     if (typeof def === 'string') return `'${def}'`
     if (typeof def === 'number' || typeof def === 'boolean') return String(def)
-    if (def === null) return 'null'
     if (Array.isArray(def)) return '[]'
     if (typeof def === 'object') return '{}'
     return String(def)
