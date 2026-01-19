@@ -1008,6 +1008,132 @@ target(args?) {
 - **Single source**: Don't maintain separate WASM/shader files
 - **Type-safe boundary**: Args translated automatically at the boundary
 
+## 18. Classes and Components
+
+TJS embraces classes, but eliminates JS footguns and enables cross-platform UI components.
+
+### Death to `new`
+
+The `new` keyword is redundant ceremony. TJS handles it automatically:
+
+```typescript
+class User {
+  constructor(public name: string) {}
+}
+
+// Both work identically in TJS:
+const u1 = User('Alice')      // TJS way - clean
+const u2 = new User('Alice')  // Lint warning: "use User() instead of new User()"
+```
+
+If you call `Foo()` and `Foo` is a class, TJS calls it with `new` internally. No more "Cannot call a class as a function" errors.
+
+### Component Base Class
+
+`Component` is the platform-agnostic UI primitive:
+
+```typescript
+class MyDropdown extends Component {
+  // Shared logic - runs everywhere
+  items: string[] = []
+  selectedIndex: number = 0
+  
+  select(index: number) {
+    this.selectedIndex = index
+    this.emit('change', this.items[index])
+  }
+  
+  // Platform-specific blocks
+  web() {
+    // CSS, DOM events, ARIA attributes
+    this.style = `
+      .dropdown { position: relative; }
+      .dropdown-menu { position: absolute; }
+    `
+  }
+  
+  swift() {
+    // SwiftUI modifiers, gestures
+    Menu {
+      ForEach(items) { item in
+        Button(item) { select(items.indexOf(item)) }
+      }
+    }
+  }
+  
+  android() {
+    // Jetpack Compose
+    DropdownMenu(expanded = expanded) {
+      items.forEach { item ->
+        DropdownMenuItem(onClick = { select(items.indexOf(item)) }) {
+          Text(item)
+        }
+      }
+    }
+  }
+}
+```
+
+### Web Components (HTMLElement)
+
+For web, `extends HTMLElement` auto-registers custom elements:
+
+```typescript
+class MyDropdown extends HTMLElement {
+  // Automatically registers <my-dropdown>
+}
+
+class UserCard extends HTMLElement {
+  // Automatically registers <user-card>
+}
+
+// Error: can't infer tag name
+class Thang extends HTMLElement { }  // "can't infer tag-name from 'Thang'"
+
+// OK: modest names work
+class MyThang extends HTMLElement { }  // <my-thang>
+```
+
+**Key features:**
+
+1. **Auto-registration**: Class name → tag name (`MyDropdown` → `my-dropdown`)
+2. **Inferrable names required**: Must be PascalCase with multiple words
+3. **Hot-reloadable**: Components are hollow shells - redefining rebuilds all instances
+4. **Smart inheritance**: ARIA roles and behaviors wired automatically
+
+### Why Hollow Components?
+
+The web component registry is a source of pain - you can't redefine elements. TJS sidesteps this:
+
+```typescript
+// First definition
+class MyButton extends HTMLElement {
+  render() { return '<button>v1</button>' }
+}
+
+// Later redefinition (hot reload, live coding)
+class MyButton extends HTMLElement {
+  render() { return '<button>v2</button>' }
+}
+// All existing <my-button> elements rebuild with new implementation
+```
+
+The registered element is a hollow proxy that delegates to the current class definition.
+
+### Platform Adapters
+
+The `Component` class compiles to platform-native code:
+
+| TJS Source | Web Output | SwiftUI Output | Compose Output |
+|------------|------------|----------------|----------------|
+| `class Foo extends Component` | Custom Element | `struct Foo: View` | `@Composable fun Foo()` |
+| `this.state = x` | Reactive update | `@State var state` | `mutableStateOf()` |
+| `this.emit('click')` | `dispatchEvent()` | Callback closure | Lambda |
+| `web { }` | Compiled | Stripped | Stripped |
+| `swift { }` | Stripped | Compiled | Stripped |
+
+The class definition is the source of truth. Platform blocks contain native code for each target - no CSS-in-JS gymnastics trying to map everywhere.
+
 ## Non-Goals
 
 - TypeScript compatibility (we're inspired by, not constrained by)
