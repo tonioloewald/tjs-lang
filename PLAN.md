@@ -449,6 +449,67 @@ Eval(expression, {
 
 ## Ideas Parking Lot
 
+### Type Flow Optimization (Compile-Time)
+
+Skip redundant type checks when types are already proven. The transpiler tracks type information through the call graph:
+
+**Scenario 1: Chained Functions**
+
+```typescript
+function validate(x: number) -> number { return x * 2 }
+function process(x: number) -> number { return x + 1 }
+
+// Source
+const result = process(validate(input))
+
+// Naive: validate checks input, process checks validate's output
+// Optimized: validate's return type matches process's input - skip second check
+
+// Transpiled (optimized)
+const _v = validate(input)  // validates input once
+const result = process.__unchecked(_v)  // skips redundant check
+```
+
+**Scenario 2: Loop Bodies**
+
+```typescript
+function double(x: number) -> number { return x * 2 }
+const nums: number[] = [1, 2, 3]
+
+// Source
+nums.map(double)
+
+// Naive: double validates x on every iteration (3 checks)
+// Optimized: nums is number[], so each element is number - skip all checks
+
+// Transpiled (optimized)  
+nums.map(double.__unchecked)  // zero validation overhead in loop
+```
+
+**Scenario 3: Subtype Relationships**
+
+```typescript
+const PositiveInt = Type('positive integer', n => Number.isInteger(n) && n > 0)
+function increment(x: number) -> number { return x + 1 }
+
+const val: PositiveInt = 5
+increment(val)  // PositiveInt is subtype of number - skip check
+```
+
+**Implementation:**
+
+1. Track return types through call graph
+2. Generate `fn.__unchecked` variants that skip input validation
+3. Emit unchecked calls when input type is proven
+4. Array/iterable element types flow into loop bodies
+5. Subtype relationships allow broader → narrower without checks
+
+**Performance Target:**
+
+- Current `wrap()`: ~17x overhead
+- With type flow: ~1.2x overhead (matching safe TJS functions)
+- Hot loops: 0x overhead (unchecked path)
+
 ### JIT-Compiled Type Predicates
 
 We own the language, so we can optimize hot type checks:

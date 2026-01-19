@@ -113,7 +113,10 @@ describe('TJS Runtime - Monadic Errors', () => {
       const result = outer()
       expect(isError(result)).toBe(true)
       const err = result as TJSError
-      expect(err.stack).toEqual(['outer', 'middle', 'inner', 'inner.x'])
+      // Stack shows: outer called middle, which called inner where error occurred
+      // Note: inner.x is the path (where error happened), outer/middle are the call chain
+      expect(err.stack).toEqual(['outer', 'middle', 'inner.x'])
+      expect(err.path).toBe('inner.x')
     })
   })
 

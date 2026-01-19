@@ -291,44 +291,109 @@ export function wrap<T extends (...args: any[]) => any>(
   fn: T,
   meta: { params: Record<string, any>; returns?: any }
 ): T {
+  // Pre-compute param info at wrap time (not per-call)
+  const paramEntries = Object.entries(meta.params)
+  const paramCount = paramEntries.length
+  const hasReturns = !!meta.returns
+  const funcName = fn.name
+
   const wrapped = function (this: any, ...args: Parameters<T>): ReturnType<T> {
-    // Check for error as first arg immediately (before arg processing)
+    // Fast path: check for error as first arg
     if (args.length > 0 && isError(args[0])) {
       return args[0] as ReturnType<T>
     }
 
-    // Convert positional args to named args if needed
-    const paramNames = Object.keys(meta.params)
-    const namedArgs: Record<string, unknown> =
+    // Detect if single object arg (named params) vs positional
+    const isNamedCall =
       args.length === 1 &&
       typeof args[0] === 'object' &&
       args[0] !== null &&
-      !isError(args[0])
-        ? args[0]
-        : Object.fromEntries(paramNames.map((name, i) => [name, args[i]]))
+      !Array.isArray(args[0])
 
-    // Check for errors in args first
-    for (const value of Object.values(namedArgs)) {
-      if (isError(value)) return value as ReturnType<T>
+    // Fast positional validation (avoids object allocation)
+    if (!isNamedCall) {
+      for (let i = 0; i < paramCount; i++) {
+        const [name, param] = paramEntries[i]
+        const value = args[i]
+
+        // Check for error propagation
+        if (isError(value)) return value as ReturnType<T>
+
+        // Check required
+        if (param.required && value === undefined) {
+          return error(`Missing required parameter '${name}'`, {
+            path: funcName ? `${funcName}.${name}` : name,
+            expected:
+              typeof param.type === 'string'
+                ? param.type
+                : param.type?.description || 'value',
+            actual: 'undefined',
+            loc: param.loc,
+          }) as ReturnType<T>
+        }
+
+        // Type check (skip undefined optional)
+        if (value !== undefined) {
+          const typeErr = checkType(
+            value,
+            param.type,
+            funcName ? `${funcName}.${name}` : name
+          )
+          if (typeErr) {
+            if (param.loc) typeErr.loc = param.loc
+            return typeErr as ReturnType<T>
+          }
+        }
+      }
+    } else {
+      // Named args path (slower, but supports object destructuring)
+      const namedArgs = args[0] as Record<string, unknown>
+      for (let i = 0; i < paramCount; i++) {
+        const [name, param] = paramEntries[i]
+        const value = namedArgs[name]
+
+        if (isError(value)) return value as ReturnType<T>
+
+        if (param.required && value === undefined) {
+          return error(`Missing required parameter '${name}'`, {
+            path: funcName ? `${funcName}.${name}` : name,
+            expected:
+              typeof param.type === 'string'
+                ? param.type
+                : param.type?.description || 'value',
+            actual: 'undefined',
+            loc: param.loc,
+          }) as ReturnType<T>
+        }
+
+        if (value !== undefined) {
+          const typeErr = checkType(
+            value,
+            param.type,
+            funcName ? `${funcName}.${name}` : name
+          )
+          if (typeErr) {
+            if (param.loc) typeErr.loc = param.loc
+            return typeErr as ReturnType<T>
+          }
+        }
+      }
     }
 
     // Push onto call stack in debug mode
-    pushStack(fn.name)
+    pushStack(funcName)
 
     try {
-      // Validate types
-      const validationError = validateArgs(namedArgs, meta, fn.name)
-      if (validationError) {
-        popStack()
-        return validationError as ReturnType<T>
-      }
-
       // Execute function
       const result = fn.apply(this, args)
 
       // Check result type if specified
-      if (meta.returns && !isError(result)) {
-        const returnError = checkType(result, meta.returns.type, `${fn.name}()`)
+      if (hasReturns && !isError(result)) {
+        const returnError = checkType(
+          result,
+          meta.returns.type,
+          `${funcName}()`
+        )
         if (returnError) {
           popStack()
           return returnError as ReturnType<T>
@@ -341,7 +406,7 @@ export function wrap<T extends (...args: any[]) => any>(
       popStack()
       // Convert thrown errors to TJS errors
       return error((e as Error).message || String(e), {
-        path: fn.name,
+        path: funcName,
         cause: e as Error,
       }) as ReturnType<T>
     }
