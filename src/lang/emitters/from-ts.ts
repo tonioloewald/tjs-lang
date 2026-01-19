@@ -81,10 +81,13 @@ export interface TypeInfo {
     | 'null'
     | 'undefined'
     | 'array'
+    | 'tuple'
     | 'object'
     | 'union'
     | 'any'
   items?: TypeInfo
+  /** For tuples: element types in order */
+  elements?: TypeInfo[]
   shape?: Record<string, TypeInfo>
   members?: TypeInfo[]
   nullable?: boolean
@@ -408,6 +411,20 @@ function typeToInfo(
       return { kind: 'any' }
     }
 
+    case ts.SyntaxKind.TupleType: {
+      const tupleType = type as ts.TupleTypeNode
+      const elements: TypeInfo[] = []
+      for (const element of tupleType.elements) {
+        // Handle named tuple members: [x: number, y: string]
+        if (ts.isNamedTupleMember(element)) {
+          elements.push(typeToInfo(element.type, ctx))
+        } else {
+          elements.push(typeToInfo(element as ts.TypeNode, ctx))
+        }
+      }
+      return { kind: 'tuple', elements }
+    }
+
     case ts.SyntaxKind.TypeReference: {
       const typeRef = type as ts.TypeReferenceNode
       const typeName = typeRef.typeName.getText()
@@ -419,6 +436,56 @@ function typeToInfo(
       }
       if (typeName === 'Promise' && typeRef.typeArguments?.length) {
         return typeToInfo(typeRef.typeArguments[0], ctx)
+      }
+
+      // Handle utility types
+      if (typeRef.typeArguments?.length) {
+        const innerType = typeToInfo(typeRef.typeArguments[0], ctx)
+
+        // Partial<T> - all properties become optional (we just return the shape)
+        if (typeName === 'Partial') {
+          return innerType
+        }
+
+        // Required<T> - all properties become required (we just return the shape)
+        if (typeName === 'Required') {
+          return innerType
+        }
+
+        // Readonly<T> - same shape, readonly is a compile-time concept
+        if (typeName === 'Readonly') {
+          return innerType
+        }
+
+        // Record<K, V> - object with string keys and V values
+        if (typeName === 'Record' && typeRef.typeArguments.length >= 2) {
+          const valueType = typeToInfo(typeRef.typeArguments[1], ctx)
+          // Record is essentially an object with dynamic keys
+          return { kind: 'object', shape: { '[key]': valueType } }
+        }
+
+        // Pick<T, K> and Omit<T, K> - just return the base type for now
+        // Full implementation would need to filter properties
+        if (typeName === 'Pick' || typeName === 'Omit') {
+          return innerType
+        }
+
+        // NonNullable<T> - remove null/undefined
+        if (typeName === 'NonNullable') {
+          if (innerType.nullable) {
+            return { ...innerType, nullable: false }
+          }
+          return innerType
+        }
+
+        // ReturnType<T>, Parameters<T>, etc. - complex, return any
+        if (
+          ['ReturnType', 'Parameters', 'ConstructorParameters'].includes(
+            typeName
+          )
+        ) {
+          return { kind: 'any' }
+        }
       }
 
       // Resolve type aliases

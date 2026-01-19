@@ -489,22 +489,31 @@ describe('Tuple Types', () => {
     expect(metadata.params.pair.type.kind).toBe('array')
   })
 
-  test.todo('tuple in fromTS - NOT YET SUPPORTED', () => {
+  test('tuple in fromTS', () => {
     const { types } = fromTS(`
       function swap(pair: [string, number]): [number, string] {
         return [pair[1], pair[0]]
       }
     `)
-    expect(types?.swap.params.pair.type.kind).toBe('array')
+    expect(types?.swap.params.pair.type.kind).toBe('tuple')
+    expect(types?.swap.params.pair.type.elements?.[0].kind).toBe('string')
+    expect(types?.swap.params.pair.type.elements?.[1].kind).toBe('number')
+    // Return type is also a tuple
+    expect(types?.swap.returns?.kind).toBe('tuple')
+    expect(types?.swap.returns?.elements?.[0].kind).toBe('number')
+    expect(types?.swap.returns?.elements?.[1].kind).toBe('string')
   })
 
-  test.todo('named tuple - NOT YET SUPPORTED', () => {
+  test('named tuple', () => {
     const { types } = fromTS(`
       function process(point: [x: number, y: number]): number {
         return point[0] + point[1]
       }
     `)
-    expect(types?.process).toBeDefined()
+    expect(types?.process.params.point.type.kind).toBe('tuple')
+    expect(types?.process.params.point.type.elements?.length).toBe(2)
+    expect(types?.process.params.point.type.elements?.[0].kind).toBe('number')
+    expect(types?.process.params.point.type.elements?.[1].kind).toBe('number')
   })
 })
 
@@ -558,16 +567,18 @@ describe('Conditional Types', () => {
 // =============================================================================
 
 describe('Mapped Types', () => {
-  test.todo('Partial<T> usage - NOT YET SUPPORTED', () => {
+  test('Partial<T> resolves inner type', () => {
     const { types } = fromTS(`
       function update(base: { a: number; b: string }, patch: Partial<{ a: number; b: string }>): { a: number; b: string } {
         return { ...base, ...patch }
       }
     `)
-    expect(types?.update).toBeDefined()
+    expect(types?.update.params.patch.type.kind).toBe('object')
+    expect(types?.update.params.patch.type.shape?.a.kind).toBe('number')
+    expect(types?.update.params.patch.type.shape?.b.kind).toBe('string')
   })
 
-  test.todo('Record<K, V> usage - NOT YET SUPPORTED', () => {
+  test('Record<K, V> becomes object with value type', () => {
     const { types } = fromTS(`
       function makeMap(keys: string[], value: number): Record<string, number> {
         const result: Record<string, number> = {}
@@ -577,7 +588,9 @@ describe('Mapped Types', () => {
         return result
       }
     `)
-    expect(types?.makeMap).toBeDefined()
+    expect(types?.makeMap.returns?.kind).toBe('object')
+    // Record uses [key] as placeholder for dynamic keys
+    expect(types?.makeMap.returns?.shape?.['[key]']?.kind).toBe('number')
   })
 })
 
@@ -794,32 +807,39 @@ describe('Readonly Modifiers', () => {
 // =============================================================================
 
 describe('Utility Types', () => {
-  test.todo('Pick<T, K> - NOT YET SUPPORTED', () => {
+  test('Pick<T, K> returns base type shape', () => {
     const { types } = fromTS(`
       function pick(obj: { a: number; b: string; c: boolean }): Pick<{ a: number; b: string; c: boolean }, 'a' | 'b'> {
         return { a: obj.a, b: obj.b }
       }
     `)
-    expect(types?.pick).toBeDefined()
+    // Pick returns the full base type (filtering is compile-time)
+    expect(types?.pick.returns?.kind).toBe('object')
+    expect(types?.pick.returns?.shape?.a.kind).toBe('number')
   })
 
-  test.todo('Omit<T, K> - NOT YET SUPPORTED', () => {
+  test('Omit<T, K> returns base type shape', () => {
     const { types } = fromTS(`
       function omit(obj: { a: number; b: string; c: boolean }): Omit<{ a: number; b: string; c: boolean }, 'c'> {
         const { c, ...rest } = obj
         return rest
       }
     `)
-    expect(types?.omit).toBeDefined()
+    // Omit returns the full base type (filtering is compile-time)
+    expect(types?.omit.returns?.kind).toBe('object')
+    expect(types?.omit.returns?.shape?.a.kind).toBe('number')
   })
 
-  test.todo('Required<T> - NOT YET SUPPORTED', () => {
+  test('Required<T> returns base type shape', () => {
     const { types } = fromTS(`
       function require(obj: { a?: number; b?: string }): Required<{ a?: number; b?: string }> {
         return { a: obj.a ?? 0, b: obj.b ?? '' }
       }
     `)
-    expect(types?.require).toBeDefined()
+    // Required returns the base type shape
+    expect(types?.require.returns?.kind).toBe('object')
+    expect(types?.require.returns?.shape?.a.kind).toBe('number')
+    expect(types?.require.returns?.shape?.b.kind).toBe('string')
   })
 })
 
