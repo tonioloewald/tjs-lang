@@ -558,12 +558,14 @@ test 'always fails' { throw new Error('intentional') }
       ).toThrow('Only a single function')
     })
 
-    it('should reject classes', () => {
+    it('should require a function when only a class is provided', () => {
+      // transpile() is for function-to-AST conversion
+      // Classes are handled by preprocess() and fromTS()
       expect(() =>
         transpile(`
         class Foo {}
       `)
-      ).toThrow('Classes are not supported')
+      ).toThrow('Source must contain a function declaration')
     })
 
     it('should reject imports', () => {
@@ -2097,11 +2099,11 @@ describe('SyntaxError formatting', () => {
     } catch (e: any) {
       expect(e.name).toBe('SyntaxError')
       expect(typeof e.formatWithContext).toBe('function')
-      
+
       const formatted = e.formatWithContext(1)
       expect(formatted).toContain('return x +')
       expect(formatted).toContain('^')
-      expect(formatted).toContain('>')  // error line marker
+      expect(formatted).toContain('>') // error line marker
     }
   })
 

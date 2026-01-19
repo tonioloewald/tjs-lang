@@ -146,8 +146,8 @@ describe('fromTS', () => {
         { emitTJS: true }
       )
 
-      // Generic params become untyped (any is omitted)
-      expect(result.code).toContain('function identity(x)')
+      // Generic params become explicit any
+      expect(result.code).toContain('function identity(x: any)')
       expect(result.code).not.toContain('-> any')
     })
 
@@ -238,15 +238,16 @@ describe('fromTS', () => {
   })
 
   describe('class support - callable without new', () => {
-    it('should emit wrapClass for classes', () => {
+    it('should emit Proxy wrapper for classes', () => {
       const result = fromTS(`
         class Point {
           constructor(public x: number, public y: number) {}
         }
       `)
 
-      // Should include wrapClass call
-      expect(result.code).toContain('wrapClass')
+      // Should include inline Proxy wrapper (no runtime dependency)
+      expect(result.code).toContain('new Proxy')
+      expect(result.code).toContain('Reflect.construct')
       expect(result.code).toContain('Point')
     })
 
@@ -312,5 +313,86 @@ describe('fromTS', () => {
       expect(result.classes?.Calculator.methods.add).toBeDefined()
       expect(result.classes?.Calculator.staticMethods.create).toBeDefined()
     })
+  })
+})
+
+describe('clean TJS output', () => {
+  it('should emit clean TJS for classes', () => {
+    const result = fromTS(
+      `
+      class Foo {
+        constructor(x: number) {
+          this.x = x
+        }
+      }
+    `,
+      { emitTJS: true }
+    )
+
+    // TJS should be human-readable, not full of runtime calls
+    expect(result.code).not.toContain('globalThis.__tjs')
+    expect(result.code).not.toContain('wrapClass')
+    expect(result.code).toContain('class Foo')
+  })
+
+  it('should emit clean TJS for functions with types', () => {
+    const result = fromTS(
+      `
+      function add(a: number, b: number): number {
+        return a + b
+      }
+    `,
+      { emitTJS: true }
+    )
+
+    // Should be clean TJS with example-based types
+    expect(result.code).toContain('function add')
+    expect(result.code).toContain(': 0') // number becomes 0
+    expect(result.code).not.toContain('globalThis')
+  })
+
+  it('should emit readable Type declarations', () => {
+    const result = fromTS(
+      `
+      interface User {
+        name: string
+        age: number
+      }
+
+      function getUser(id: string): User {
+        return { name: 'test', age: 0 }
+      }
+    `,
+      { emitTJS: true }
+    )
+
+    // Type declarations should be readable TJS syntax
+    expect(result.code).toContain('Type User')
+    expect(result.code).not.toContain('globalThis')
+  })
+
+  it('should produce TJS that a human could maintain', () => {
+    const result = fromTS(
+      `
+      class Counter {
+        private count: number = 0
+
+        increment(): void {
+          this.count++
+        }
+
+        get value(): number {
+          return this.count
+        }
+      }
+    `,
+      { emitTJS: true }
+    )
+
+    // The TJS should look like something a human would write
+    expect(result.code).toContain('class Counter')
+    expect(result.code).toContain('#count') // private -> #
+    expect(result.code).not.toContain('globalThis')
+    expect(result.code).not.toContain('__tjs?.') // no runtime optional chaining
   })
 })

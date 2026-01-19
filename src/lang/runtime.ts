@@ -1085,13 +1085,12 @@ if (typeof ${funcName}.__tjs === 'object' && !${funcName}.__tjs.unsafe && typeof
 /**
  * Generate class wrapper code for emitted JS
  * Makes classes callable without `new` keyword
+ * Emits standalone JS - no runtime dependency
  */
 export function emitClassWrapper(className: string): string {
   return `
-// TJS class wrapper (callable without new)
-if (typeof globalThis.__tjs?.wrapClass === 'function') {
-  ${className} = globalThis.__tjs.wrapClass(${className})
-}
+// TJS: callable without new
+${className} = new Proxy(${className}, { apply(t, _, a) { return Reflect.construct(t, a) } });
 `.trim()
 }
 

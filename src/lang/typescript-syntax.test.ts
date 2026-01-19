@@ -614,8 +614,9 @@ describe('Async Functions', () => {
 // =============================================================================
 
 describe('Class Syntax', () => {
-  test('classes are rejected in transpile', () => {
-    // tjs() returns "No function found" but transpile() gives better error
+  test('transpile requires a function (classes handled elsewhere)', () => {
+    // transpile() is for function-to-AST conversion
+    // Classes are handled by preprocess() for wrapping and fromTS() for metadata
     const { transpile } = require('./index')
     expect(() =>
       transpile(`
@@ -625,7 +626,7 @@ describe('Class Syntax', () => {
         }
       }
     `)
-    ).toThrow(/class/i)
+    ).toThrow(/function declaration/i)
   })
 
   // ✅ Class metadata extraction implemented in fromTS (extractClassMetadata)

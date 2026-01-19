@@ -28,13 +28,18 @@ await plugin({
       // Preprocess: transforms Type, Generic, Union declarations, runs tests
       const preprocessed = preprocess(source)
 
-      // Transpile to JS with __tjs metadata
-      const result = transpileToJS(preprocessed.source)
-
       // Inject runtime imports at the top using the resolved path
-      const runtimeImports = `import { Type, Generic, Union, Enum, isRuntimeType, wrap, error, isError } from '${runtimePath}';\n`
+      const runtimeImports = `import { Type, Generic, Union, Enum, isRuntimeType, wrap, wrapClass, error, isError } from '${runtimePath}';\n`
 
-      const code = runtimeImports + result.code
+      let code: string
+      try {
+        // Try to transpile as function with __tjs metadata
+        const result = transpileToJS(preprocessed.source)
+        code = runtimeImports + result.code
+      } catch {
+        // Not a function - pass through preprocessed source (e.g., classes)
+        code = runtimeImports + preprocessed.source
+      }
 
       return {
         contents: code,

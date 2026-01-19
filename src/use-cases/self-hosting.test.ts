@@ -27,6 +27,7 @@ const EXPECTED_EMPTY_FILES = [
   'vm/vm.ts', // class-based
   'batteries/models.ts', // const declarations
   'types/index.ts', // re-exports
+  'bun-plugin/tjs-plugin.ts', // plugin registration, no exportable functions
 ]
 
 describe('Self-hosting', () => {

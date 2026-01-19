@@ -81,7 +81,42 @@ function vectorDot(a: [0], b: [0]) -> 0 {
 - Falls back to JS if WASM unavailable
 - The Universal Endpoint stays fast without breaking the abstraction
 
-### 4. Literate Programming: Documentation That Can't Rot
+### 4. Classes Without Ceremony
+
+TJS classes are callable without `new`—less ceremony, same semantics:
+
+```typescript
+class Timestamp {
+  #value
+  
+  constructor(initial: '' | 0 | null) {
+    this.#value = initial === null ? new Date() : new Date(initial)
+  }
+  
+  set value(v: '' | 0 | null) {
+    this.#value = v === null ? new Date() : new Date(v)
+  }
+  
+  get value() {
+    return this.#value
+  }
+}
+
+// Both work identically:
+const ts1 = Timestamp('2024-01-15')   // TJS way—clean
+const ts2 = new Timestamp('2024-01-15') // Also works (lint warning)
+
+// Asymmetric types captured automatically:
+ts1.value = 0        // SET accepts: string | number | null
+ts1.value            // GET returns: Date
+```
+
+TypeScript-to-TJS conversion handles the transformation:
+- `private foo` → `#foo` (native private fields)
+- Class wrapped with Proxy for callable-without-new
+- Getter/setter types captured in metadata
+
+### 5. Literate Programming: Documentation That Can't Rot
 
 If the endpoint lives forever while agents change constantly, docs must live in the code:
 

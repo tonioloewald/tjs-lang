@@ -147,13 +147,18 @@ function typeToExample(
     case ts.SyntaxKind.VoidKeyword:
       return 'undefined'
     case ts.SyntaxKind.AnyKeyword:
-      return 'undefined'
+      // For function params we use 'any', for object props we use 'null'
+      return 'any'
     case ts.SyntaxKind.UnknownKeyword:
-      return 'undefined'
+      return 'any'
+    case ts.SyntaxKind.NeverKeyword:
+      return 'null'
 
     case ts.SyntaxKind.ArrayType: {
       const arrayType = type as ts.ArrayTypeNode
-      const itemExample = typeToExample(arrayType.elementType, checker)
+      let itemExample = typeToExample(arrayType.elementType, checker)
+      // 'any' is not a valid literal value - use null for array items
+      if (itemExample === 'any') itemExample = 'null'
       return `[${itemExample}]`
     }
 
@@ -260,13 +265,11 @@ function typeToExample(
       for (const member of typeLiteral.members) {
         if (ts.isPropertySignature(member) && member.name) {
           const propName = member.name.getText()
-          const propType = typeToExample(member.type, checker)
-          const isOptional = !!member.questionToken
-          if (isOptional) {
-            props.push(`${propName} = ${propType}`)
-          } else {
-            props.push(`${propName}: ${propType}`)
-          }
+          let propType = typeToExample(member.type, checker)
+          // 'any' is not a valid literal value - use null for object properties
+          if (propType === 'any') propType = 'null'
+          // In object literals, always use : syntax (= is for function params only)
+          props.push(`${propName}: ${propType}`)
         }
       }
       return `{ ${props.join(', ')} }`
@@ -644,7 +647,9 @@ function transformInterfaceToType(
   for (const member of node.members) {
     if (ts.isPropertySignature(member) && member.name) {
       const propName = member.name.getText(sourceFile)
-      const propExample = typeToExample(member.type, undefined, warnings)
+      let propExample = typeToExample(member.type, undefined, warnings)
+      // 'any' is not a valid literal value - use null for object properties
+      if (propExample === 'any') propExample = 'null'
       props.push(`${propName}: ${propExample}`)
     }
   }
@@ -921,8 +926,11 @@ function transformFunctionToTJS(
       // Has default value - use it directly
       const defaultText = param.initializer.getText(sourceFile)
       params.push(`${name} = ${defaultText}`)
-    } else if (typeExample === 'any' || typeExample === 'undefined') {
-      // Unknown type - just use the name without annotation
+    } else if (typeExample === 'any') {
+      // Unknown/any type - use explicit any annotation
+      params.push(`${name}: any`)
+    } else if (typeExample === 'undefined') {
+      // Undefined type - just use the name (truly optional)
       params.push(name)
     } else if (isOptional) {
       // Optional without default - use = for optional
@@ -946,20 +954,259 @@ function transformFunctionToTJS(
       ? ` -> ${returnExample}`
       : ''
 
-  // Get function body
+  // Get function body and strip TypeScript syntax using ts.transpileModule
   let body = ''
   if (node.body) {
-    if (ts.isBlock(node.body)) {
-      body = node.body.getText(sourceFile)
-    } else {
-      // Arrow function with expression body
-      body = `{ return ${node.body.getText(sourceFile)} }`
-    }
+    const bodyText = ts.isBlock(node.body)
+      ? node.body.getText(sourceFile)
+      : `{ return ${node.body.getText(sourceFile)} }`
+
+    // Use TypeScript's transpiler to strip all type syntax
+    const transpiled = ts.transpileModule(bodyText, {
+      compilerOptions: {
+        target: ts.ScriptTarget.ESNext,
+        module: ts.ModuleKind.ESNext,
+        removeComments: false,
+      },
+    })
+    body = transpiled.outputText.trim()
   } else {
     body = '{ }'
   }
 
-  return `function ${funcName}(${params.join(', ')})${returnAnnotation} ${body}`
+  // Check for async modifier
+  const isAsync = node.modifiers?.some(
+    (m) => m.kind === ts.SyntaxKind.AsyncKeyword
+  )
+  const asyncPrefix = isAsync ? 'async ' : ''
+
+  return `${asyncPrefix}function ${funcName}(${params.join(
+    ', '
+  )})${returnAnnotation} ${body}`
+}
+
+/**
+ * Transform TypeScript class to TJS class
+ * Converts TS type annotations to TJS example-based annotations
+ */
+function transformClassToTJS(
+  node: ts.ClassDeclaration,
+  sourceFile: ts.SourceFile,
+  warnings?: string[]
+): string {
+  const className = node.name?.getText(sourceFile) || 'Anonymous'
+  const extendsClause = node.heritageClauses
+    ?.find((h) => h.token === ts.SyntaxKind.ExtendsKeyword)
+    ?.types[0]?.getText(sourceFile)
+
+  // First pass: collect private field mappings (TS private -> JS #)
+  const privateFieldMap = new Map<string, string>()
+  for (const member of node.members) {
+    if (ts.isPropertyDeclaration(member) && member.name) {
+      const propName = member.name.getText(sourceFile)
+      const isPrivate = member.modifiers?.some(
+        (m) => m.kind === ts.SyntaxKind.PrivateKeyword
+      )
+      if (isPrivate && !propName.startsWith('#')) {
+        privateFieldMap.set(propName, `#${propName}`)
+      }
+    }
+  }
+
+  // Helper to replace private field references in transpiled code
+  const replacePrivateRefs = (code: string): string => {
+    let result = code
+    for (const [tsName, jsName] of privateFieldMap) {
+      // Replace this.propName with this.#propName
+      result = result.replace(
+        new RegExp(`this\\.${tsName}\\b`, 'g'),
+        `this.${jsName}`
+      )
+    }
+    return result
+  }
+
+  const members: string[] = []
+
+  for (const member of node.members) {
+    // Constructor
+    if (ts.isConstructorDeclaration(member)) {
+      const params = transformParams(member.parameters, sourceFile, warnings)
+      let body = '{ }'
+      if (member.body) {
+        const transpiled = ts.transpileModule(member.body.getText(sourceFile), {
+          compilerOptions: {
+            target: ts.ScriptTarget.ESNext,
+            module: ts.ModuleKind.ESNext,
+            removeComments: false,
+          },
+        })
+        body = replacePrivateRefs(transpiled.outputText.trim())
+      }
+      members.push(`  constructor(${params.join(', ')}) ${body}`)
+    }
+
+    // Regular methods
+    if (ts.isMethodDeclaration(member) && member.name) {
+      const methodName = member.name.getText(sourceFile)
+      const isStatic = member.modifiers?.some(
+        (m) => m.kind === ts.SyntaxKind.StaticKeyword
+      )
+      const isAsync = member.modifiers?.some(
+        (m) => m.kind === ts.SyntaxKind.AsyncKeyword
+      )
+
+      const params = transformParams(member.parameters, sourceFile, warnings)
+      const returnExample = member.type
+        ? typeToExample(member.type, undefined, warnings)
+        : ''
+      const returnAnnotation =
+        returnExample &&
+        returnExample !== 'undefined' &&
+        returnExample !== 'any'
+          ? ` -> ${returnExample}`
+          : ''
+
+      let body = '{ }'
+      if (member.body) {
+        const transpiled = ts.transpileModule(member.body.getText(sourceFile), {
+          compilerOptions: {
+            target: ts.ScriptTarget.ESNext,
+            module: ts.ModuleKind.ESNext,
+            removeComments: false,
+          },
+        })
+        body = replacePrivateRefs(transpiled.outputText.trim())
+      }
+
+      const staticPrefix = isStatic ? 'static ' : ''
+      const asyncPrefix = isAsync ? 'async ' : ''
+      members.push(
+        `  ${staticPrefix}${asyncPrefix}${methodName}(${params.join(
+          ', '
+        )})${returnAnnotation} ${body}`
+      )
+    }
+
+    // Getters
+    if (ts.isGetAccessorDeclaration(member) && member.name) {
+      const propName = member.name.getText(sourceFile)
+      const returnExample = member.type
+        ? typeToExample(member.type, undefined, warnings)
+        : ''
+      const returnAnnotation =
+        returnExample &&
+        returnExample !== 'undefined' &&
+        returnExample !== 'any'
+          ? ` -> ${returnExample}`
+          : ''
+
+      let body = '{ }'
+      if (member.body) {
+        const transpiled = ts.transpileModule(member.body.getText(sourceFile), {
+          compilerOptions: {
+            target: ts.ScriptTarget.ESNext,
+            module: ts.ModuleKind.ESNext,
+            removeComments: false,
+          },
+        })
+        body = replacePrivateRefs(transpiled.outputText.trim())
+      }
+
+      members.push(`  get ${propName}()${returnAnnotation} ${body}`)
+    }
+
+    // Setters
+    if (ts.isSetAccessorDeclaration(member) && member.name) {
+      const propName = member.name.getText(sourceFile)
+      const params = transformParams(member.parameters, sourceFile, warnings)
+
+      let body = '{ }'
+      if (member.body) {
+        const transpiled = ts.transpileModule(member.body.getText(sourceFile), {
+          compilerOptions: {
+            target: ts.ScriptTarget.ESNext,
+            module: ts.ModuleKind.ESNext,
+            removeComments: false,
+          },
+        })
+        body = replacePrivateRefs(transpiled.outputText.trim())
+      }
+
+      members.push(`  set ${propName}(${params.join(', ')}) ${body}`)
+    }
+
+    // Properties with initializers (private fields, regular properties)
+    if (ts.isPropertyDeclaration(member) && member.name) {
+      const origName = member.name.getText(sourceFile)
+      const isStatic = member.modifiers?.some(
+        (m) => m.kind === ts.SyntaxKind.StaticKeyword
+      )
+      const staticPrefix = isStatic ? 'static ' : ''
+
+      // Use mapped name (# for private) or original
+      const propName = privateFieldMap.get(origName) || origName
+
+      if (member.initializer) {
+        const transpiled = ts.transpileModule(
+          member.initializer.getText(sourceFile),
+          {
+            compilerOptions: {
+              target: ts.ScriptTarget.ESNext,
+              module: ts.ModuleKind.ESNext,
+              removeComments: false,
+            },
+          }
+        )
+        members.push(
+          `  ${staticPrefix}${propName} = ${transpiled.outputText.trim()}`
+        )
+      } else {
+        // Property without initializer - just declare it
+        members.push(`  ${staticPrefix}${propName}`)
+      }
+    }
+  }
+
+  const extendsStr = extendsClause ? ` extends ${extendsClause}` : ''
+  return `class ${className}${extendsStr} {\n${members.join('\n')}\n}`
+}
+
+/**
+ * Helper to transform parameters to TJS format
+ */
+function transformParams(
+  parameters: ts.NodeArray<ts.ParameterDeclaration>,
+  sourceFile: ts.SourceFile,
+  warnings?: string[]
+): string[] {
+  const params: string[] = []
+
+  for (const param of parameters) {
+    const name = param.name.getText(sourceFile)
+    const isOptional = !!param.questionToken || !!param.initializer
+    const typeExample = typeToExample(param.type, undefined, warnings)
+
+    if (param.initializer) {
+      // Has default value - use it directly
+      const defaultText = param.initializer.getText(sourceFile)
+      params.push(`${name} = ${defaultText}`)
+    } else if (typeExample === 'any') {
+      // Unknown/any type - use explicit any annotation
+      params.push(`${name}: any`)
+    } else if (typeExample === 'undefined') {
+      // Undefined type - just use the name
+      params.push(name)
+    } else if (isOptional) {
+      // Optional without default - use = for optional
+      params.push(`${name} = ${typeExample}`)
+    } else {
+      // Required - use : for required
+      params.push(`${name}: ${typeExample}`)
+    }
+  }
+
+  return params
 }
 
 /**
@@ -1152,6 +1399,7 @@ export function fromTS(
   )
 
   const tjsFunctions: string[] = []
+  const seenTypeNames = new Set<string>() // Track emitted type names to avoid duplicates
   const metadata: Record<string, FunctionTypeInfo> = {}
   const classMetadata: Record<string, ClassTypeInfo> = {}
 
@@ -1230,32 +1478,55 @@ export function fromTS(
 
     // Handle: interface Foo { ... }
     if (ts.isInterfaceDeclaration(statement) && emitTJS) {
-      const typeDecl = transformInterfaceToType(statement, sourceFile, warnings)
-      if (typeDecl) {
-        tjsFunctions.push(typeDecl)
+      const typeName = statement.name.getText(sourceFile)
+      if (!seenTypeNames.has(typeName)) {
+        seenTypeNames.add(typeName)
+        const typeDecl = transformInterfaceToType(
+          statement,
+          sourceFile,
+          warnings
+        )
+        if (typeDecl) {
+          tjsFunctions.push(typeDecl)
+        }
       }
     }
 
     // Handle: type Foo = { ... }
     if (ts.isTypeAliasDeclaration(statement) && emitTJS) {
-      const typeDecl = transformTypeAliasToType(statement, sourceFile, warnings)
-      if (typeDecl) {
-        tjsFunctions.push(typeDecl)
+      const typeName = statement.name.getText(sourceFile)
+      if (!seenTypeNames.has(typeName)) {
+        seenTypeNames.add(typeName)
+        const typeDecl = transformTypeAliasToType(
+          statement,
+          sourceFile,
+          warnings
+        )
+        if (typeDecl) {
+          tjsFunctions.push(typeDecl)
+        }
       }
     }
 
     // Handle: enum Status { Pending, Active, Done }
     if (ts.isEnumDeclaration(statement) && emitTJS) {
-      const enumDecl = transformEnumToTJS(statement, sourceFile, warnings)
-      if (enumDecl) {
-        tjsFunctions.push(enumDecl)
+      const enumName = statement.name.getText(sourceFile)
+      if (!seenTypeNames.has(enumName)) {
+        seenTypeNames.add(enumName)
+        const enumDecl = transformEnumToTJS(statement, sourceFile, warnings)
+        if (enumDecl) {
+          tjsFunctions.push(enumDecl)
+        }
       }
     }
 
     // Handle: class Foo { ... }
     if (ts.isClassDeclaration(statement) && statement.name) {
       const className = statement.name.getText(sourceFile)
-      if (!emitTJS) {
+      if (emitTJS) {
+        const classDecl = transformClassToTJS(statement, sourceFile, warnings)
+        tjsFunctions.push(classDecl)
+      } else {
         classMetadata[className] = extractClassMetadata(
           statement,
           sourceFile,
@@ -1263,7 +1534,6 @@ export function fromTS(
           resolutionCtx
         )
       }
-      // TODO: emitTJS mode for classes
     }
   }
 

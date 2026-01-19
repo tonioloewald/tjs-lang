@@ -481,39 +481,51 @@ The AST is the source of truth. Targets are just emission strategies.
 
 | #   | Feature                | Status | Notes                                          |
 | --- | ---------------------- | ------ | ---------------------------------------------- |
-| 1   | Type()                 | ⏳     | Integrated with runtime validation             |
+| 1   | Type()                 | ✅     | Full form with description + predicate, Union, Generic, Enum |
 | 2   | target()               | ❌     | Conditional compilation                        |
 | 3   | Monadic Errors         | ✅     | AgentError with path, loc, debug call stacks   |
-| 4   | test() blocks          | ⏳     | Basic extraction exists                        |
+| 4   | test() blocks          | ✅     | extractTests, assert/expect, mock blocks, CLI  |
 | 5   | Pragmatic natives      | ⏳     | Some constructor checks exist                  |
 | 6   | Multi-target           | ❌     | Future - JS only for now                       |
 | 7   | Safety levels          | ✅     | none/inputs/all + (!)/(?) + unsafe {}          |
 | 8   | Module-level safety    | ✅     | `safety none` directive parsed and passed      |
-| 9   | Single-pass            | ⏳     | CLI exists, not unified                        |
+| 9   | Single-pass            | ✅     | Bun plugin: direct `bun file.tjs` execution    |
 | 10  | Module system          | ❌     | Versioned imports                              |
 | 11  | Autocomplete           | ✅     | CodeMirror integration, globals, introspection |
-| 12  | Eval()                 | ⏳     | Expression eval exists, not exposed            |
+| 12  | Eval() / SafeFunction  | ✅     | Both exported and tested in runtime            |
 | 13  | Function introspection | ✅     | __tjs metadata with params, returns, examples  |
-| 14  | Generic()              | ❌     | Runtime-checkable generics                     |
-| 15  | Asymmetric get/set     | ❌     | Broader input, narrower output                 |
+| 14  | Generic()              | ✅     | Runtime-checkable generics with TPair, TRecord |
+| 15  | Asymmetric get/set     | ✅     | JS native get/set captures asymmetric types    |
 | 16  | `==` that works        | ❌     | Structural equality + .Equals hook             |
 | 17  | WASM blocks            | ✅     | POC: parser + compiler for simple expressions  |
 | 18  | Death to `new`         | ✅     | wrapClass + no-explicit-new lint rule          |
 | 19  | Linter                 | ✅     | unused vars, unreachable code, no-explicit-new |
+| 20  | TS→TJS converter       | ✅     | `tjs convert` command                          |
+| 21  | Docs generation        | ✅     | Auto-generated with emit, --no-docs, --docs-dir|
+| 22  | Class support          | ✅     | TS→TJS class conversion, private→#, Proxy wrap |
 
-## Implementation Priority
+## Implementation Priority (Updated)
+
+| Priority | Feature                   | Status | Notes                      |
+| -------- | ------------------------- | ------ | -------------------------- |
+| 1        | **Type()**                | ✅     | Full implementation        |
+| 2        | **Autocomplete**          | ✅     | Working in playground      |
+| 3        | **test() blocks**         | ✅     | Full implementation        |
+| 4        | **--debug / call stacks** | ✅     | Full stacks with maxStackSize limit |
+| 5        | **Eval() / SafeFunction** | ✅     | Done                       |
+| 6        | **target()**              | ❌     | Conditional compilation    |
+| 7        | **Safety flags**          | ✅     | Done                       |
+| 8        | **Single-pass**           | ✅     | Bun plugin: `bun file.tjs` |
+| 9        | **Modules**               | ❌     | Versioned imports          |
+
+## Next Up
 
 | Priority | Feature                   | Why                        |
 | -------- | ------------------------- | -------------------------- |
-| 1        | **Type()**                | Foundation for type system |
-| 2        | **Autocomplete**          | Do or die - dev experience |
-| 3        | **test() blocks**         | TDD, in-file productivity  |
-| 4        | **--debug / call stacks** | Error experience           |
-| 5        | **Eval()**                | Expose existing work       |
-| 6        | **target()**              | Conditional compilation    |
-| 7        | **Safety flags**          | Polish                     |
-| 8        | **Single-pass**           | Polish                     |
-| 9        | **Modules**               | Can wait                   |
+| 1        | **target()**              | browser/node/debug blocks  |
+| 2        | **Module system**         | Versioned URL imports      |
+| 3        | **`==` that works**       | Structural equality        |
+| 4        | **Multi-target emission** | LLVM, SwiftUI, Android     |
 
 ## 7. Safety Levels and Flags
 
@@ -877,21 +889,39 @@ const lookup: Map(string, number) = new Map([['age', 42]])
 
 Converting convoluted TypeScript generics (`Pick<Omit<Partial<...>>>`) is nice-to-have, not a priority.
 
-## 14. Asymmetric Get/Set
+## 14. Asymmetric Get/Set ✅
 
-Properties that accept a broader type on write but return a narrower type on read:
+Properties that accept a broader type on write but return a narrower type on read. TJS uses JavaScript's native getter/setter syntax which naturally captures asymmetric types:
 
 ```typescript
-// Setter accepts multiple types, getter returns normalized type
-obj.timestamp = '2024-01-15' // SET accepts: string | number | Date
-obj.timestamp // GET returns: Date (always normalized)
+class Timestamp {
+  #value
+  
+  constructor(initial: '' | 0 | null) {
+    this.#value = initial === null ? new Date() : new Date(initial)
+  }
+  
+  // Setter accepts string, number, or null
+  set value(v: '' | 0 | null) {
+    this.#value = v === null ? new Date() : new Date(v)
+  }
+  
+  // Getter always returns Date
+  get value() {
+    return this.#value
+  }
+}
 
-// DOM example
-el.style.color = 'red' // SET accepts: string | null
-el.style.color // GET returns: string
+const ts = Timestamp('2024-01-15')
+ts.value = 0          // SET accepts: string | number | null  
+ts.value              // GET returns: Date (always normalized)
 ```
 
-This is common in real APIs but TypeScript makes it painful. TJS supports it natively.
+The type metadata captures the asymmetry:
+- Setter param type: `'' | 0 | null` (union of string, number, null)
+- Getter return type: `Date` (inferred from implementation)
+
+This matches real-world APIs (DOM, dates, etc.) without TypeScript's painful workarounds.
 
 ## 15. `==` That Works
 

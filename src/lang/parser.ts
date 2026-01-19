@@ -384,6 +384,68 @@ function transformParenExpressions(
       continue
     }
 
+    // Look for class method syntax: constructor(, methodName(, get name(, set name(
+    // These appear inside class bodies and need param transformation
+    const methodMatch = source
+      .slice(i)
+      .match(/^(constructor|(?:get|set)\s+\w+|async\s+\w+|\w+)\s*\(/)
+    if (methodMatch) {
+      // Check if we're likely inside a class (heuristic: preceded by { or ; or newline with indentation)
+      const before = result.slice(-50)
+      const isLikelyClassMethod =
+        /[{;]\s*$/.test(before) || /\n\s*$/.test(before)
+
+      if (isLikelyClassMethod) {
+        const methodPart = methodMatch[1]
+        const matchLen = methodMatch[0].length
+        const paramStart = i + matchLen
+
+        result += methodPart + '('
+        i = paramStart
+
+        // Find matching )
+        const paramsResult = extractBalancedContent(source, i, '(', ')')
+        if (!paramsResult) {
+          result += source[i]
+          i++
+          continue
+        }
+
+        const { content: params, endPos } = paramsResult
+        i = endPos
+
+        // Process the params (transform : to = for TJS types)
+        const processedParams = processParamString(params, ctx, true)
+        result += processedParams + ')'
+
+        // Check for return type annotation: ) -> type or ): type
+        let j = i
+        while (j < source.length && /\s/.test(source[j])) j++
+
+        // Handle -> return type (TJS style)
+        const returnArrow = source.slice(j, j + 2)
+        if (returnArrow === '->') {
+          j += 2
+          while (j < source.length && /\s/.test(source[j])) j++
+          const typeResult = extractReturnTypeValue(source, j)
+          if (typeResult) {
+            i = typeResult.endPos
+          }
+        }
+        // Handle : return type (TS style) - just strip it
+        else if (source[j] === ':') {
+          j++
+          while (j < source.length && /\s/.test(source[j])) j++
+          const typeResult = extractReturnTypeValue(source, j)
+          if (typeResult) {
+            i = typeResult.endPos
+          }
+        }
+
+        continue
+      }
+    }
+
     // Look for arrow function params: (params) =>
     // We need to be careful to only transform when followed by =>
     if (source[i] === '(') {
@@ -464,10 +526,10 @@ function transformParenExpressions(
           i = j
         }
       } else {
-        // Not an arrow function - recursively process content for nested arrows
-        // but preserve the original content structure (including any ! or ? operators)
-        const processedContent = processParamString(fullContent, ctx, false)
-        result += `(${processedContent})`
+        // Not an arrow function - recursively transform the content for nested arrows
+        // but don't process as param declarations (no colon-to-equals transform)
+        const transformed = transformParenExpressions(fullContent, ctx)
+        result += `(${transformed.source})`
         i = endPos
       }
       continue
@@ -525,6 +587,66 @@ function extractBalancedContent(
     content: source.slice(start, i - 1),
     endPos: i,
   }
+}
+
+/**
+ * Extract a JS value starting at a position in source.
+ * Handles nested objects {}, arrays [], strings, numbers, booleans, null.
+ * Uses state machine to properly track nesting.
+ */
+function extractJSValue(
+  source: string,
+  start: number
+): { value: string; endPos: number } | null {
+  let i = start
+
+  // Skip leading whitespace
+  while (i < source.length && /\s/.test(source[i])) i++
+  if (i >= source.length) return null
+
+  const valueStart = i
+  const firstChar = source[i]
+
+  // Handle objects and arrays with balanced parsing
+  if (firstChar === '{' || firstChar === '[') {
+    const close = firstChar === '{' ? '}' : ']'
+    const result = extractBalancedContent(source, i + 1, firstChar, close)
+    if (!result) return null
+    return {
+      value: source.slice(valueStart, result.endPos),
+      endPos: result.endPos,
+    }
+  }
+
+  // Handle strings
+  if (firstChar === "'" || firstChar === '"' || firstChar === '`') {
+    i++
+    while (i < source.length) {
+      if (source[i] === firstChar && source[i - 1] !== '\\') {
+        i++
+        return { value: source.slice(valueStart, i), endPos: i }
+      }
+      i++
+    }
+    return null // Unterminated string
+  }
+
+  // Handle numbers (including negative and decimals)
+  if (/[-+\d]/.test(firstChar)) {
+    while (i < source.length && /[\d.eE+-]/.test(source[i])) i++
+    return { value: source.slice(valueStart, i), endPos: i }
+  }
+
+  // Handle keywords: true, false, null, undefined
+  const keywordMatch = source.slice(i).match(/^(true|false|null|undefined)\b/)
+  if (keywordMatch) {
+    return {
+      value: keywordMatch[1],
+      endPos: i + keywordMatch[1].length,
+    }
+  }
+
+  return null
 }
 
 /**
@@ -1148,6 +1270,10 @@ export function preprocess(
   const testResult = extractAndRunTests(source, options.dangerouslySkipTests)
   source = testResult.source
 
+  // Wrap class declarations to make them callable without `new`
+  // class Foo { } -> let Foo = class Foo { }; Foo = globalThis.__tjs?.wrapClass?.(Foo) ?? Foo;
+  source = wrapClassDeclarations(source)
+
   return {
     source,
     returnType,
@@ -1594,24 +1720,26 @@ function transformTypeDeclarations(source: string): string {
       if (descStringMatch) {
         const afterString = j + descStringMatch[0].length
         const nextChar = source[afterString]
-        // It's a description if followed by = or { or end of statement
-        if (
-          nextChar === '=' ||
-          nextChar === '{' ||
-          nextChar === '\n' ||
-          afterString >= source.length
-        ) {
-          // But if it's just end of statement with no = or {, it's the old simple form
-          if (nextChar !== '=' && nextChar !== '{') {
-            // Old simple form: Type Name 'value' - value is both example and default
-            const value = descStringMatch[0].trim()
-            result += `const ${typeName} = Type('${typeName}', ${value})`
-            i = afterString
-            continue
-          }
+        // Check if this looks like end of statement (not followed by = or {)
+        // Note: the \s* in the regex consumes trailing whitespace including newlines
+        const isEndOfStatement =
+          nextChar === undefined ||
+          afterString >= source.length ||
+          (nextChar !== '=' && nextChar !== '{')
+
+        if (nextChar === '=' || nextChar === '{') {
+          // It's a description followed by = or { block
           description = descStringMatch[2]
           descriptionWasExplicit = true
           j = afterString
+        } else if (isEndOfStatement) {
+          // Old simple form: Type Name 'value' - value is both example and default
+          const value = descStringMatch[0].trim()
+          // Preserve trailing whitespace (newlines) that was consumed by the regex
+          const trailingWs = descStringMatch[0].slice(value.length)
+          result += `const ${typeName} = Type('${typeName}', ${value})${trailingWs}`
+          i = afterString
+          continue
         }
       }
 
@@ -1670,14 +1798,20 @@ function transformTypeDeclarations(source: string): string {
           description = descInsideMatch[2]
         }
 
-        const exampleMatch = blockBody.match(
-          /example\s*:\s*(\{[^}]*\}|\[[^\]]*\]|['"`][^'"`]*['"`]|\+?\d+(?:\.\d+)?|true|false|null)/
-        )
+        // Extract example value using state machine for nested structures
+        let example: string | undefined
+        const exampleKeyword = blockBody.match(/example\s*:\s*/)
+        if (exampleKeyword) {
+          const valueStart = exampleKeyword.index! + exampleKeyword[0].length
+          const extracted = extractJSValue(blockBody, valueStart)
+          if (extracted) {
+            example = extracted.value.trim()
+          }
+        }
+
         const predicateMatch = blockBody.match(
           /predicate\s*\(([^)]*)\)\s*\{([^]*)\}/
         )
-
-        const example = exampleMatch ? exampleMatch[1].trim() : undefined
 
         // Build Type() call with appropriate arguments
         // Type(description, predicateOrExample, example?, default?)
@@ -2355,4 +2489,55 @@ function extractAndRunTests(
   }
 
   return { source: result, tests, errors }
+}
+
+/**
+ * Wrap class declarations to make them callable without `new`
+ *
+ * Transforms:
+ *   class Foo { ... }
+ * To:
+ *   let Foo = class Foo { ... };
+ *   Foo = new Proxy(Foo, { apply(t, _, a) { return Reflect.construct(t, a) } });
+ *
+ * This emits standalone JS with no runtime dependencies.
+ */
+function wrapClassDeclarations(source: string): string {
+  // Match class declarations: class Name { or class Name extends Base {
+  // Capture the class name and find the full class body
+  const classRegex = /\bclass\s+(\w+)(\s+extends\s+\w+)?\s*\{/g
+  let result = ''
+  let lastIndex = 0
+  let match
+
+  while ((match = classRegex.exec(source)) !== null) {
+    const className = match[1]
+    const extendsClause = match[2] || ''
+    const classStart = match.index
+    const bodyStart = classStart + match[0].length - 1 // position of {
+
+    // Find matching closing brace
+    let depth = 1
+    let i = bodyStart + 1
+    while (i < source.length && depth > 0) {
+      const char = source[i]
+      if (char === '{') depth++
+      else if (char === '}') depth--
+      i++
+    }
+
+    if (depth === 0) {
+      const classEnd = i
+      const classBody = source.slice(bodyStart, classEnd)
+
+      // Emit standalone JS - no runtime dependency
+      result += source.slice(lastIndex, classStart)
+      result += `let ${className} = class ${className}${extendsClause} ${classBody}; `
+      result += `${className} = new Proxy(${className}, { apply(t, _, a) { return Reflect.construct(t, a) } });`
+      lastIndex = classEnd
+    }
+  }
+
+  result += source.slice(lastIndex)
+  return result
 }
