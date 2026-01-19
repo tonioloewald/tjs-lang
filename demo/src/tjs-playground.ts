@@ -13,6 +13,7 @@ import { Component, ElementCreator, PartsMap, elements } from 'tosijs'
 import { tabSelector, TabSelector, icons } from 'tosijs-ui'
 import { codeMirror, CodeMirror } from '../../editors/codemirror/component'
 import { tjs } from '../../src/lang'
+import { extractImports, generateImportMap, resolveImports } from './imports'
 
 const { div, button, span, pre, style } = elements
 
@@ -470,15 +471,37 @@ export class TJSPlayground extends Component<TJSPlaygroundParts> {
       const cssContent = this.parts.cssEditor.value
       const jsCode = this.lastTranspileResult.code
 
+      // Resolve imports from the transpiled code
+      const imports = extractImports(jsCode)
+      let importMapScript = ''
+
+      if (imports.length > 0) {
+        this.log(`Resolving imports: ${imports.join(', ')}`)
+        const { importMap, errors } = await resolveImports(jsCode)
+
+        if (errors.length > 0) {
+          for (const err of errors) {
+            this.log(`Import error: ${err}`)
+          }
+        }
+
+        if (Object.keys(importMap.imports).length > 0) {
+          importMapScript = `<script type="importmap">${JSON.stringify(
+            importMap
+          )}</script>`
+        }
+      }
+
       // Create a complete HTML document for the iframe
       const iframeDoc = `<!DOCTYPE html>
 <html>
 <head>
   <style>${cssContent}</style>
+  ${importMapScript}
 </head>
 <body>
   ${htmlContent}
-  <script>
+  <script type="module">
     // Capture console.log
     const _log = console.log;
     console.log = (...args) => {
