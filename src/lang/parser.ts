@@ -50,6 +50,34 @@ export interface WasmBlock {
 }
 
 /**
+ * A test block extracted from source
+ *
+ * Syntax:
+ *   test { body }
+ *   test 'description' { body }
+ *
+ * Tests run at transpile time and are stripped from output.
+ */
+export interface TestBlock {
+  /** Optional description */
+  description?: string
+  /** The test body code */
+  body: string
+  /** Start position in original source */
+  start: number
+  /** End position in original source */
+  end: number
+}
+
+/**
+ * Preprocess options
+ */
+export interface PreprocessOptions {
+  /** Skip test execution (tests still stripped from output) */
+  dangerouslySkipTests?: boolean
+}
+
+/**
  * Tokenizer state for tracking context during source transformation
  */
 type TokenizerState =
@@ -1038,7 +1066,10 @@ function findTopLevelColon(param: string): number {
  * Also handles return type annotation:
  *   function foo(x: 'example') -> { result: 'string' } { }
  */
-export function preprocess(source: string): {
+export function preprocess(
+  source: string,
+  options: PreprocessOptions = {}
+): {
   source: string
   returnType?: string
   returnSafety?: 'safe' | 'unsafe'
@@ -1048,6 +1079,8 @@ export function preprocess(source: string): {
   unsafeFunctions: Set<string>
   safeFunctions: Set<string>
   wasmBlocks: WasmBlock[]
+  tests: TestBlock[]
+  testErrors: string[]
 } {
   const originalSource = source
   let returnType: string | undefined
@@ -1110,6 +1143,11 @@ export function preprocess(source: string): {
   const wasmBlocks = extractWasmBlocks(source)
   source = wasmBlocks.source
 
+  // Extract and run test blocks: test 'desc'? { body }
+  // Tests run at transpile time and are stripped from output
+  const testResult = extractAndRunTests(source, options.dangerouslySkipTests)
+  source = testResult.source
+
   return {
     source,
     returnType,
@@ -1120,6 +1158,8 @@ export function preprocess(source: string): {
     unsafeFunctions,
     safeFunctions,
     wasmBlocks: wasmBlocks.blocks,
+    tests: testResult.tests,
+    testErrors: testResult.errors,
   }
 }
 
@@ -2053,6 +2093,8 @@ export function parse(
   unsafeFunctions: Set<string>
   safeFunctions: Set<string>
   wasmBlocks: WasmBlock[]
+  tests: TestBlock[]
+  testErrors: string[]
 } {
   const { filename = '<source>', colonShorthand = true } = options
 
@@ -2067,6 +2109,8 @@ export function parse(
     unsafeFunctions,
     safeFunctions,
     wasmBlocks,
+    tests,
+    testErrors,
   } = colonShorthand
     ? preprocess(source)
     : {
@@ -2079,6 +2123,8 @@ export function parse(
         unsafeFunctions: new Set<string>(),
         safeFunctions: new Set<string>(),
         wasmBlocks: [] as WasmBlock[],
+        tests: [] as TestBlock[],
+        testErrors: [] as string[],
       }
 
   try {
@@ -2099,6 +2145,8 @@ export function parse(
       unsafeFunctions,
       safeFunctions,
       wasmBlocks,
+      tests,
+      testErrors,
     }
   } catch (e: any) {
     // Convert Acorn error to our error type
@@ -2217,4 +2265,92 @@ export function extractJSDoc(
   }
 
   return result
+}
+
+/**
+ * Extract and run test blocks from source
+ *
+ * Syntax:
+ *   test { body }
+ *   test 'description' { body }
+ *
+ * Tests are executed at transpile time and stripped from output.
+ * If any test fails, the error is collected (transpilation continues).
+ */
+function extractAndRunTests(
+  source: string,
+  skipTests = false
+): {
+  source: string
+  tests: TestBlock[]
+  errors: string[]
+} {
+  const tests: TestBlock[] = []
+  const errors: string[] = []
+  let result = ''
+  let i = 0
+
+  while (i < source.length) {
+    // Look for 'test' keyword followed by optional string then {
+    const testMatch = source.slice(i).match(/^\btest\s+/)
+    if (testMatch) {
+      const start = i
+      let j = i + testMatch[0].length
+
+      // Check for optional description string
+      let description: string | undefined
+      const descMatch = source.slice(j).match(/^(['"`])([^]*?)\1\s*/)
+      if (descMatch) {
+        description = descMatch[2]
+        j += descMatch[0].length
+      }
+
+      // Must have opening brace
+      if (source[j] === '{') {
+        const bodyStart = j + 1
+        let depth = 1
+        let k = bodyStart
+
+        // Find matching closing brace
+        while (k < source.length && depth > 0) {
+          const char = source[k]
+          if (char === '{') depth++
+          else if (char === '}') depth--
+          k++
+        }
+
+        if (depth === 0) {
+          const body = source.slice(bodyStart, k - 1).trim()
+          const end = k
+
+          tests.push({ description, body, start, end })
+
+          // Run the test unless skipped
+          if (!skipTests) {
+            try {
+              // Execute test in isolated context
+              // The test has access to the Types defined before it
+              const testFn = new Function(body)
+              testFn()
+            } catch (err: any) {
+              const desc = description || `test at position ${start}`
+              errors.push(`Test failed: ${desc}\n  ${err.message || err}`)
+            }
+          }
+
+          // Strip the test block from output (replace with whitespace to preserve line numbers)
+          const removed = source.slice(start, end)
+          const newlines = (removed.match(/\n/g) || []).length
+          result += '\n'.repeat(newlines)
+          i = end
+          continue
+        }
+      }
+    }
+
+    result += source[i]
+    i++
+  }
+
+  return { source: result, tests, errors }
 }

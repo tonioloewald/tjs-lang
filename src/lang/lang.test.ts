@@ -139,6 +139,47 @@ describe('Transpiler', () => {
       expect(result.source).toContain(`port: 8080`)
     })
 
+    // Test block syntax tests
+    it('should extract and strip test blocks', () => {
+      const result = preprocess(`
+const x = 1
+test { if (x !== 1) throw new Error('x should be 1') }
+const y = 2
+`)
+      expect(result.source).not.toContain('test')
+      expect(result.source).toContain('const x = 1')
+      expect(result.source).toContain('const y = 2')
+      expect(result.tests.length).toBe(1)
+      expect(result.tests[0].body).toContain('x !== 1')
+    })
+
+    it('should extract test blocks with description', () => {
+      const result = preprocess(`
+test 'x equals 1' { if (x !== 1) throw new Error('failed') }
+`)
+      expect(result.tests.length).toBe(1)
+      expect(result.tests[0].description).toBe('x equals 1')
+    })
+
+    it('should report test errors', () => {
+      const result = preprocess(`
+test 'always fails' { throw new Error('intentional') }
+`)
+      expect(result.tests.length).toBe(1)
+      expect(result.testErrors.length).toBe(1)
+      expect(result.testErrors[0]).toContain('always fails')
+      expect(result.testErrors[0]).toContain('intentional')
+    })
+
+    it('should skip tests with dangerouslySkipTests', () => {
+      const result = preprocess(
+        `test 'would fail' { throw new Error('nope') }`,
+        { dangerouslySkipTests: true }
+      )
+      expect(result.tests.length).toBe(1)
+      expect(result.testErrors.length).toBe(0) // No errors because skipped
+    })
+
     it('should transform Generic declaration', () => {
       const result = preprocess(`Generic Pair<T, U> {
   description: 'a pair'
