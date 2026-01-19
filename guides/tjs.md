@@ -150,6 +150,68 @@ function identity(x: any) -> any {
 // identity.__tjs.typeParams = { T: {} }
 ```
 
+### 6. Type Declarations
+
+Define reusable types with the `Type` keyword:
+
+```javascript
+// Simple type from example value
+Type Name 'Alice'
+
+// Type with description and example
+Type User {
+  description: 'a user object'
+  example: { name: '', age: 0 }
+}
+
+// Type with predicate (auto-generates type guard from example)
+Type EvenNumber {
+  description: 'an even number'
+  example: 2
+  predicate(x) { return x % 2 === 0 }
+}
+```
+
+When both `example` and `predicate` are provided, the type guard is auto-generated from the example, and your predicate becomes a refinement check.
+
+### 7. Generic Declarations
+
+Define parameterized types with the `Generic` keyword:
+
+```javascript
+// Simple generic
+Generic Box<T> {
+  description: 'a boxed value'
+  predicate(x, T) { 
+    return typeof x === 'object' && x !== null && 'value' in x && T(x.value) 
+  }
+}
+
+// Generic with default type parameter
+Generic Container<T, U = ''> {
+  description: 'container with label'
+  predicate(obj, T, U) { 
+    return T(obj.item) && U(obj.label) 
+  }
+}
+```
+
+In the predicate, `T` and `U` are type-checking functions that validate values against the provided type parameters.
+
+### 8. Bare Assignments
+
+Uppercase identifiers automatically get `const`:
+
+```javascript
+// These are equivalent:
+Foo = Type('test', 'example')
+const Foo = Type('test', 'example')
+
+// Works for any uppercase identifier
+MyConfig = { debug: true }
+const MyConfig = { debug: true }
+```
+
 ## Runtime Features
 
 ### Monadic Error Handling
@@ -183,12 +245,17 @@ add(null, 2)   // Error: expected number, got null
 
 This provides excellent error messages and catches type mismatches at runtime.
 
-### Unsafe Functions with `(!)`
+### Safety Markers: `(?)` and `(!)`
 
-For performance-critical code, mark functions as unsafe with `(!)`:
+Control input validation with markers after the opening paren:
 
 ```javascript
-// The ! after ( marks this function as unsafe (no runtime validation)
+// (?) - Safe function: force input validation
+function safeAdd(? a: 0, b: 0) -> 0 {
+  return a + b
+}
+
+// (!) - Unsafe function: skip input validation
 function fastAdd(! a: 0, b: 0) -> 0 {
   return a + b
 }
@@ -198,6 +265,31 @@ fastAdd('1', 2)    // NaN (no validation, garbage in = garbage out)
 ```
 
 The `!` is borrowed from TypeScript's non-null assertion operator - it means "I know what I'm doing, trust me."
+
+### Return Type Safety: `->`, `-?`, `-!`
+
+Control output validation with different arrow styles:
+
+```javascript
+// -> normal return type (validation depends on module settings)
+function add(a: 0, b: 0) -> 0 { return a + b }
+
+// -? force output validation (safe return)
+function critical(a: 0, b: 0) -? 0 { return a + b }
+
+// -! skip output validation (unsafe return)
+function fast(a: 0, b: 0) -! 0 { return a + b }
+```
+
+Combine input and output markers for full control:
+
+```javascript
+// Fully safe: validate inputs AND outputs
+function critical(? x: 0) -? 0 { return x * 2 }
+
+// Fully unsafe: skip all validation
+function blazingFast(! x: 0) -! 0 { return x * 2 }
+```
 
 ### The `unsafe` Block
 
@@ -290,16 +382,22 @@ test('async operations work') {
 
 ### Added
 
-| Feature         | Purpose                                 |
-| --------------- | --------------------------------------- |
-| `: example`     | Required parameter with type            |
-| `= example`     | Optional parameter with default         |
-| `-> Type`       | Return type annotation                  |
-| `(!)`           | Mark function as unsafe (no validation) |
-| `test() {}`     | Inline test block                       |
-| `mock {}`       | Test setup block                        |
-| `unsafe {}`     | Skip validation for a block             |
-| `\|\|` in types | Union types                             |
+| Feature         | Purpose                                    |
+| --------------- | ------------------------------------------ |
+| `: example`     | Required parameter with type               |
+| `= example`     | Optional parameter with default            |
+| `-> Type`       | Return type annotation                     |
+| `-? Type`       | Return type with forced output validation  |
+| `-! Type`       | Return type with skipped output validation |
+| `(?)`           | Mark function as safe (force validation)   |
+| `(!)`           | Mark function as unsafe (skip validation)  |
+| `test() {}`     | Inline test block                          |
+| `mock {}`       | Test setup block                           |
+| `unsafe {}`     | Skip validation for a block                |
+| `\|\|` in types | Union types                                |
+| `Type Name ...` | Define a runtime type from example         |
+| `Generic<T>`    | Define a parameterized runtime type        |
+| `Foo = ...`     | Bare assignment (auto-adds `const`)        |
 
 ## Differences from TypeScript
 
@@ -500,5 +598,5 @@ The output is valid ES modules that work with any bundler (Vite, esbuild, webpac
 ## Further Reading
 
 - [Benchmarks](./benchmarks.md) - Performance characteristics
-- [asyncjs.md](./asyncjs.md) - The sandboxed agent language
+- [ajs.md](./ajs.md) - The sandboxed agent language
 - [API Documentation](./docs/) - Generated from source

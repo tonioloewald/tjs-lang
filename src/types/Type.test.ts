@@ -16,6 +16,9 @@ import {
   Optional,
   Union,
   TArray,
+  Generic,
+  TPair,
+  TRecord,
 } from './Type'
 import { checkType, validateArgs, isError } from '../lang/runtime'
 
@@ -318,6 +321,110 @@ describe('Runtime Integration', () => {
       expect(validateArgs({ name: 'Test', amount: 100 }, meta)).toBe(null)
       expect(validateArgs({ name: 'Test', amount: -5 }, meta)).not.toBe(null)
       expect(validateArgs({ name: 123, amount: 100 }, meta)).not.toBe(null)
+    })
+  })
+})
+
+describe('Generic Types', () => {
+  describe('Generic()', () => {
+    it('creates a parameterized type', () => {
+      const Box = Generic(
+        ['T'],
+        (x, checkT) =>
+          typeof x === 'object' &&
+          x !== null &&
+          'value' in x &&
+          checkT((x as any).value),
+        'Box<T>'
+      )
+
+      const StringBox = Box(TString)
+      expect(StringBox.check({ value: 'hello' })).toBe(true)
+      expect(StringBox.check({ value: 123 })).toBe(false)
+      expect(StringBox.check(null)).toBe(false)
+    })
+
+    it('accepts example values as type args', () => {
+      const Box = Generic(
+        ['T'],
+        (x, checkT) =>
+          typeof x === 'object' &&
+          x !== null &&
+          'value' in x &&
+          checkT((x as any).value),
+        'Box<T>'
+      )
+
+      // Use '' as example for string type
+      const StringBox = Box('')
+      expect(StringBox.check({ value: 'hello' })).toBe(true)
+      expect(StringBox.check({ value: 123 })).toBe(false)
+
+      // Use 0 as example for number type
+      const NumberBox = Box(0)
+      expect(NumberBox.check({ value: 42 })).toBe(true)
+      expect(NumberBox.check({ value: 'hello' })).toBe(false)
+    })
+
+    it('supports default type parameters', () => {
+      const Container = Generic(
+        ['T', ['U', '']], // U defaults to string
+        (x, checkT, checkU) =>
+          typeof x === 'object' &&
+          x !== null &&
+          checkT((x as any).item) &&
+          checkU((x as any).label),
+        'Container<T, U>'
+      )
+
+      // Only provide T, U defaults to string
+      const NumberContainer = Container(0)
+      expect(NumberContainer.check({ item: 42, label: 'test' })).toBe(true)
+      expect(NumberContainer.check({ item: 42, label: 123 })).toBe(false)
+
+      // Provide both T and U
+      const FullContainer = Container(0, true)
+      expect(FullContainer.check({ item: 42, label: true })).toBe(true)
+      expect(FullContainer.check({ item: 42, label: 'test' })).toBe(false)
+    })
+
+    it('substitutes type params in description', () => {
+      const Wrapper = Generic(['T'], () => true, 'Wrapper<T>')
+
+      const StringWrapper = Wrapper(TString)
+      expect(StringWrapper.description).toContain('string')
+    })
+  })
+
+  describe('TPair', () => {
+    it('validates 2-element tuples', () => {
+      const StringNumberPair = TPair(TString, TNumber)
+      expect(StringNumberPair.check(['hello', 42])).toBe(true)
+      expect(StringNumberPair.check([42, 'hello'])).toBe(false)
+      expect(StringNumberPair.check(['hello'])).toBe(false)
+      expect(StringNumberPair.check(['hello', 42, 'extra'])).toBe(false)
+    })
+
+    it('works with example values', () => {
+      const Pair = TPair('', 0)
+      expect(Pair.check(['a', 1])).toBe(true)
+      expect(Pair.check([1, 'a'])).toBe(false)
+    })
+  })
+
+  describe('TRecord', () => {
+    it('validates objects with typed values', () => {
+      const NumberRecord = TRecord(TNumber)
+      expect(NumberRecord.check({ a: 1, b: 2 })).toBe(true)
+      expect(NumberRecord.check({ a: 1, b: 'two' })).toBe(false)
+      expect(NumberRecord.check({})).toBe(true)
+      expect(NumberRecord.check(null)).toBe(false)
+    })
+
+    it('works with example values', () => {
+      const StringRecord = TRecord('')
+      expect(StringRecord.check({ name: 'Alice', city: 'NYC' })).toBe(true)
+      expect(StringRecord.check({ name: 'Alice', age: 30 })).toBe(false)
     })
   })
 })

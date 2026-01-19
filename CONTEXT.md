@@ -476,7 +476,7 @@ Agent.take(s.object({})).try({
 | `src/vm.ts`               | 100%      | 100%    | Re-exports                   |
 | `src/vm/runtime.ts`       | 84%       | **98%** | Atoms, expression eval, fuel |
 | `src/vm/vm.ts`            | 90%       | 94%     | VM entry point               |
-| `src/transpiler/index.ts` | 100%      | 100%    | AsyncJS transpiler           |
+| `src/transpiler/index.ts` | 100%      | 100%    | AJS transpiler               |
 | `src/builder.ts`          | 92%       | 90%     | Fluent builder               |
 
 **Language/Transpiler:**
@@ -520,7 +520,7 @@ These ship with the library and affect bundle size and security posture.
 
 | Package         | Version | Size  | Purpose                                     | Risk                                                 |
 | --------------- | ------- | ----- | ------------------------------------------- | ---------------------------------------------------- |
-| `acorn`         | ^8.15.0 | ~30KB | JavaScript parser for AsyncJS transpilation | **Low** - Mature, widely audited, Mozilla-maintained |
+| `acorn`         | ^8.15.0 | ~30KB | JavaScript parser for AJS transpilation     | **Low** - Mature, widely audited, Mozilla-maintained |
 | `tosijs-schema` | ^1.2.0  | ~5KB  | JSON Schema validation                      | **Low** - Our library, 96.6% coverage, zero deps     |
 | `@codemirror/*` | various | ~50KB | Editor syntax highlighting (optional)       | **Low** - Only loaded for editor integration         |
 

@@ -54,6 +54,54 @@ describe('Transpiler', () => {
         "Required parameter 'b' cannot follow optional parameter"
       )
     })
+
+    it('should transform Type declaration with simple example', () => {
+      const result = preprocess(`Type Name 'Alice'`)
+      expect(result.source).toBe(`const Name = Type('Name', 'Alice')`)
+    })
+
+    it('should transform Type declaration with block', () => {
+      const result = preprocess(`Type User {
+  description: 'a user'
+  example: { name: '', age: 0 }
+}`)
+      expect(result.source).toContain(
+        `const User = Type('a user', { name: '', age: 0 })`
+      )
+    })
+
+    it('should transform Type with predicate and example', () => {
+      const result = preprocess(`Type EvenNum {
+  description: 'even number'
+  example: 2
+  predicate(x) { return x % 2 === 0 }
+}`)
+      expect(result.source).toContain(`const EvenNum = Type('even number'`)
+      expect(result.source).toContain(`__tjs?.validate`)
+      expect(result.source).toContain(`x % 2 === 0`)
+    })
+
+    it('should transform Generic declaration', () => {
+      const result = preprocess(`Generic Pair<T, U> {
+  description: 'a pair'
+  predicate(x, T, U) { return T(x[0]) && U(x[1]) }
+}`)
+      expect(result.source).toContain(`const Pair = Generic(['T', 'U']`)
+      expect(result.source).toContain(`checkT(x[0]) && checkU(x[1])`)
+    })
+
+    it('should transform Generic with default type param', () => {
+      const result = preprocess(`Generic Box<T, U = ''> {
+  description: 'box'
+  predicate(x, T, U) { return true }
+}`)
+      expect(result.source).toContain(`['T', ['U', '']]`)
+    })
+
+    it('should transform bare uppercase assignment to const', () => {
+      const result = preprocess(`Foo = Type('test', 123)`)
+      expect(result.source).toContain(`const Foo = Type('test', 123)`)
+    })
   })
 
   describe('Type inference', () => {

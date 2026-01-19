@@ -4,13 +4,13 @@ Detailed documentation for tosijs-agent.
 
 ## Language References
 
-- **[asyncjs.md](./asyncjs.md)** - AsyncJS language reference (the main language for writing agents)
-- **[asyncjs-llm-prompt.md](./asyncjs-llm-prompt.md)** - System prompt for LLM code generation
+- **[ajs.md](./ajs.md)** - AJS language reference (the main language for writing agents)
+- **[ajs-llm-prompt.md](./ajs-llm-prompt.md)** - System prompt for LLM code generation
 - **[tjs.md](./tjs.md)** - TJS (Typed JavaScript) specification
 
 ## Patterns & Best Practices
 
-- **[patterns.md](./patterns.md)** - Common patterns and workarounds for AsyncJS
+- **[patterns.md](./patterns.md)** - Common patterns and workarounds for AJS
 
 ## Reference
 

@@ -50,84 +50,484 @@ export interface WasmBlock {
 }
 
 /**
- * Extract ALL return type annotations from source
- *
- * Handles complex types including:
- * - Simple types: -> '' or -> 0
- * - Object types: -> { name: '' }
- * - Array types: -> ['']
- * - Nested arrays: -> [['']]
- * - Union types: -> '' || null or -> '' | null
- *
- * Returns null if no return type found, otherwise returns:
- * - type: the FIRST return type (for single-function analysis)
- * - arrow: the arrow used for the first return type
- * - cleanedSource: source with ALL return type annotations removed
+ * Tokenizer state for tracking context during source transformation
  */
-function extractReturnType(source: string): {
-  type: string
-  arrow: string
-  cleanedSource: string
-} | null {
-  let firstType: string | null = null
-  let firstArrow: string | null = null
-  let result = source
+type TokenizerState =
+  | 'normal'
+  | 'single-string'
+  | 'double-string'
+  | 'template-string'
+  | 'line-comment'
+  | 'block-comment'
+  | 'regex'
 
-  // Keep extracting until no more return types found
-  while (true) {
-    const extracted = extractSingleReturnType(result)
-    if (!extracted) break
+/**
+ * Unified paren expression transformer using state machine tokenizer
+ *
+ * Model: opening paren can be ( or (? or (!, closing can be ) or )->type or )-?type or )-!type
+ *
+ * This unifies handling of:
+ * - Function declaration params: function foo(x: type) -> returnType { }
+ * - Arrow function params: (x: type) => expr
+ * - Safe/unsafe markers: function foo(?) or function foo(!)
+ * - Return type annotations: ) -> type or ) -? type or ) -! type
+ *
+ * @param source The source code to transform
+ * @param ctx Context for tracking required params, safe/unsafe functions, etc.
+ * @returns Transformed source and extracted metadata
+ */
+function transformParenExpressions(
+  source: string,
+  ctx: {
+    originalSource: string
+    requiredParams: Set<string>
+    unsafeFunctions: Set<string>
+    safeFunctions: Set<string>
+  }
+): {
+  source: string
+  returnType?: string
+  returnSafety?: 'safe' | 'unsafe'
+} {
+  let result = ''
+  let i = 0
+  let firstReturnType: string | undefined
+  let firstReturnSafety: 'safe' | 'unsafe' | undefined
 
-    if (firstType === null) {
-      firstType = extracted.type
-      firstArrow = extracted.arrow
+  // State machine for tokenizing
+  let state: TokenizerState = 'normal'
+  // Stack for template string interpolation depth (each entry is brace depth within that interpolation)
+  const templateStack: number[] = []
+
+  while (i < source.length) {
+    const char = source[i]
+    const nextChar = source[i + 1]
+
+    // Handle state transitions based on current state
+    switch (state) {
+      case 'single-string':
+        result += char
+        if (char === '\\' && i + 1 < source.length) {
+          result += nextChar
+          i += 2
+          continue
+        }
+        if (char === "'") {
+          state = 'normal'
+        }
+        i++
+        continue
+
+      case 'double-string':
+        result += char
+        if (char === '\\' && i + 1 < source.length) {
+          result += nextChar
+          i += 2
+          continue
+        }
+        if (char === '"') {
+          state = 'normal'
+        }
+        i++
+        continue
+
+      case 'template-string':
+        result += char
+        if (char === '\\' && i + 1 < source.length) {
+          result += nextChar
+          i += 2
+          continue
+        }
+        if (char === '$' && nextChar === '{') {
+          // Enter template expression
+          result += nextChar
+          i += 2
+          templateStack.push(1) // Start with brace depth 1
+          state = 'normal' // Back to normal parsing inside ${}
+          continue
+        }
+        if (char === '`') {
+          state = 'normal'
+        }
+        i++
+        continue
+
+      case 'line-comment':
+        result += char
+        if (char === '\n') {
+          state = 'normal'
+        }
+        i++
+        continue
+
+      case 'block-comment':
+        result += char
+        if (char === '*' && nextChar === '/') {
+          result += nextChar
+          i += 2
+          state = 'normal'
+          continue
+        }
+        i++
+        continue
+
+      case 'regex':
+        result += char
+        if (char === '\\' && i + 1 < source.length) {
+          result += nextChar
+          i += 2
+          continue
+        }
+        if (char === '[') {
+          // Character class - read until ]
+          i++
+          while (i < source.length && source[i] !== ']') {
+            result += source[i]
+            if (source[i] === '\\' && i + 1 < source.length) {
+              result += source[i + 1]
+              i += 2
+            } else {
+              i++
+            }
+          }
+          if (i < source.length) {
+            result += source[i]
+            i++
+          }
+          continue
+        }
+        if (char === '/') {
+          // End of regex, consume flags
+          i++
+          while (i < source.length && /[gimsuy]/.test(source[i])) {
+            result += source[i]
+            i++
+          }
+          state = 'normal'
+          continue
+        }
+        i++
+        continue
+
+      case 'normal':
+        // Handle template stack - track braces inside template expressions
+        if (templateStack.length > 0) {
+          if (char === '{') {
+            templateStack[templateStack.length - 1]++
+          } else if (char === '}') {
+            templateStack[templateStack.length - 1]--
+            if (templateStack[templateStack.length - 1] === 0) {
+              // Exiting template expression, back to template string
+              templateStack.pop()
+              result += char
+              i++
+              state = 'template-string'
+              continue
+            }
+          }
+        }
+
+        // Check for string/comment/regex start
+        if (char === "'") {
+          result += char
+          i++
+          state = 'single-string'
+          continue
+        }
+        if (char === '"') {
+          result += char
+          i++
+          state = 'double-string'
+          continue
+        }
+        if (char === '`') {
+          result += char
+          i++
+          state = 'template-string'
+          continue
+        }
+        if (char === '/' && nextChar === '/') {
+          result += char + nextChar
+          i += 2
+          state = 'line-comment'
+          continue
+        }
+        if (char === '/' && nextChar === '*') {
+          result += char + nextChar
+          i += 2
+          state = 'block-comment'
+          continue
+        }
+
+        // Check for regex literal
+        if (char === '/') {
+          const before = result.trimEnd()
+          const lastChar = before[before.length - 1]
+          const isRegexContext =
+            !lastChar ||
+            /[=(!,;:{\[&|?+\-*%<>~^]$/.test(before) ||
+            /\b(return|case|throw|in|of|typeof|instanceof|new|delete|void)\s*$/.test(
+              before
+            )
+          if (isRegexContext) {
+            result += char
+            i++
+            state = 'regex'
+            continue
+          }
+        }
+
+        // Now handle TJS-specific transformations in normal state
+        break
     }
-    result = extracted.cleanedSource
+
+    // We're in normal state - look for TJS patterns
+
+    // Look for function declarations: function name( or function name (
+    const funcMatch = source.slice(i).match(/^function\s+(\w+)\s*\(/)
+    if (funcMatch) {
+      const funcName = funcMatch[1]
+      const matchLen = funcMatch[0].length
+
+      // Check for safety marker right after opening paren: (? or (!
+      const afterParen = source[i + matchLen]
+      let safetyMarker: '?' | '!' | null = null
+      let paramStart = i + matchLen
+
+      if (afterParen === '?' || afterParen === '!') {
+        safetyMarker = afterParen
+        paramStart++
+        if (safetyMarker === '!') {
+          ctx.unsafeFunctions.add(funcName)
+        } else {
+          ctx.safeFunctions.add(funcName)
+        }
+      }
+
+      result += `function ${funcName}(`
+      i = paramStart
+
+      // Find matching ) using balanced counting
+      const paramsResult = extractBalancedContent(source, i, '(', ')')
+      if (!paramsResult) {
+        // Unbalanced - just copy character and continue
+        result += source[i]
+        i++
+        continue
+      }
+
+      const { content: params, endPos } = paramsResult
+      i = endPos
+
+      // Process the params (transform : to = for required params, handle nested arrows)
+      const processedParams = processParamString(params, ctx, true)
+      result += processedParams + ')'
+
+      // Check what follows the closing paren: whitespace then -> or -? or -! (return type)
+      let j = i
+      while (j < source.length && /\s/.test(source[j])) j++
+
+      const returnArrow = source.slice(j, j + 2)
+      if (
+        returnArrow === '->' ||
+        returnArrow === '-?' ||
+        returnArrow === '-!'
+      ) {
+        // Extract return type
+        j += 2
+        // Skip whitespace after arrow
+        while (j < source.length && /\s/.test(source[j])) j++
+
+        const typeResult = extractReturnTypeValue(source, j)
+        if (typeResult) {
+          const { type, endPos: typeEnd } = typeResult
+          // Record first return type for metadata
+          if (firstReturnType === undefined) {
+            firstReturnType = type
+            if (returnArrow === '-?') {
+              firstReturnSafety = 'safe'
+            } else if (returnArrow === '-!') {
+              firstReturnSafety = 'unsafe'
+            }
+          }
+          i = typeEnd
+        }
+      }
+      continue
+    }
+
+    // Look for arrow function params: (params) =>
+    // We need to be careful to only transform when followed by =>
+    if (source[i] === '(') {
+      // First, find the matching ) without consuming any safety marker
+      // We'll check for safety marker only if this is actually an arrow function
+      const fullParamsResult = extractBalancedContent(source, i + 1, '(', ')')
+      if (!fullParamsResult) {
+        result += source[i]
+        i++
+        continue
+      }
+
+      const fullContent = fullParamsResult.content
+      const endPos = fullParamsResult.endPos
+
+      // Check what follows: whitespace then => (arrow function) or -> (return type on arrow)
+      let j = endPos
+      while (j < source.length && /\s/.test(source[j])) j++
+
+      // Check for return type annotation on arrow function: ) -> type =>
+      let arrowReturnType: string | undefined
+      const returnArrow = source.slice(j, j + 2)
+      if (
+        returnArrow === '->' ||
+        returnArrow === '-?' ||
+        returnArrow === '-!'
+      ) {
+        j += 2
+        while (j < source.length && /\s/.test(source[j])) j++
+        const typeResult = extractReturnTypeValue(source, j)
+        if (typeResult) {
+          arrowReturnType = typeResult.type
+          j = typeResult.endPos
+          while (j < source.length && /\s/.test(source[j])) j++
+        }
+      }
+
+      if (source.slice(j, j + 2) === '=>') {
+        // This IS an arrow function - now check for safety marker
+        let safetyMarker: '?' | '!' | null = null
+        let params = fullContent
+
+        // Check if content starts with safety marker (? or !) followed by whitespace
+        const trimmedContent = fullContent.trimStart()
+        if (
+          trimmedContent.startsWith('?') &&
+          (trimmedContent.length === 1 || /\s/.test(trimmedContent[1]))
+        ) {
+          safetyMarker = '?'
+          params = trimmedContent.slice(1)
+        } else if (
+          trimmedContent.startsWith('!') &&
+          (trimmedContent.length === 1 || /\s/.test(trimmedContent[1]))
+        ) {
+          safetyMarker = '!'
+          params = trimmedContent.slice(1)
+        }
+
+        // Process the params
+        const processedParams = processParamString(params, ctx, false)
+        // Add safety marker as comment for arrow functions (since we can't track them by name)
+        const safetyComment =
+          safetyMarker === '?'
+            ? '/* safe */ '
+            : safetyMarker === '!'
+            ? '/* unsafe */ '
+            : ''
+        result += `(${safetyComment}${processedParams})`
+        // Skip the return type annotation (we extracted it but don't emit it)
+        i = endPos
+        // Skip to just before the =>
+        while (i < j && /\s/.test(source[i])) {
+          result += source[i]
+          i++
+        }
+        // If there was a return type, we need to skip past it to =>
+        if (arrowReturnType) {
+          i = j
+        }
+      } else {
+        // Not an arrow function - recursively process content for nested arrows
+        // but preserve the original content structure (including any ! or ? operators)
+        const processedContent = processParamString(fullContent, ctx, false)
+        result += `(${processedContent})`
+        i = endPos
+      }
+      continue
+    }
+
+    result += source[i]
+    i++
   }
 
-  if (firstType === null) return null
-
   return {
-    type: firstType,
-    arrow: firstArrow!,
-    cleanedSource: result,
+    source: result,
+    returnType: firstReturnType,
+    returnSafety: firstReturnSafety,
   }
 }
 
 /**
- * Extract a single return type annotation from source
+ * Extract balanced content between delimiters
+ * @param source The source string
+ * @param start Position after the opening delimiter
+ * @param open Opening delimiter character (for depth counting of nested structures)
+ * @param close Closing delimiter character
+ * @returns The content between delimiters and position after closing delimiter, or null if unbalanced
  */
-function extractSingleReturnType(source: string): {
-  type: string
-  arrow: string
-  cleanedSource: string
-} | null {
-  // Find ) -> or ) -? or ) -! pattern
-  const arrowMatch = source.match(/\)\s*(-[>?!])\s*/)
-  if (!arrowMatch) return null
+function extractBalancedContent(
+  source: string,
+  start: number,
+  open: string,
+  close: string
+): { content: string; endPos: number } | null {
+  let depth = 1
+  let i = start
+  let inString = false
+  let stringChar = ''
 
-  const arrowStart = arrowMatch.index!
-  const arrowEnd = arrowStart + arrowMatch[0].length
-  const arrow = arrowMatch[1]
+  while (i < source.length && depth > 0) {
+    const char = source[i]
 
-  // Now extract the type starting at arrowEnd
-  // We need to find where the type ends and the function body { begins
-  let i = arrowEnd
-  let typeStart = i
-
-  // Skip leading whitespace
-  while (i < source.length && /\s/.test(source[i])) {
+    // Handle string literals
+    if (!inString && (char === "'" || char === '"' || char === '`')) {
+      inString = true
+      stringChar = char
+    } else if (inString && char === stringChar && source[i - 1] !== '\\') {
+      inString = false
+    } else if (!inString) {
+      if (char === open) depth++
+      else if (char === close) depth--
+    }
     i++
-    typeStart = i
   }
 
-  // Track bracket depth to handle nested structures
+  if (depth !== 0) return null
+
+  return {
+    content: source.slice(start, i - 1),
+    endPos: i,
+  }
+}
+
+/**
+ * Normalize union syntax in type strings
+ * Converts single | to || for TJS consistency (needed for JS parsing)
+ */
+function normalizeUnionSyntax(type: string): string {
+  // Replace single | (not ||) with || for proper JS parsing
+  // Use negative lookbehind and lookahead to avoid matching ||
+  return type.replace(/(?<!\|)\|(?!\|)/g, ' || ')
+}
+
+/**
+ * Extract a return type value starting at the given position
+ * Handles: simple types ('', 0, null), objects ({ }), arrays ([ ]), unions (| or ||)
+ */
+function extractReturnTypeValue(
+  source: string,
+  start: number
+): { type: string; endPos: number } | null {
+  let i = start
   let depth = 0
   let inString = false
   let stringChar = ''
-  let typeEnd = i
-  // Track if we've seen any content (to distinguish empty type from real content)
   let sawContent = false
+
+  // Helper to create result with normalized type
+  const makeResult = (endPos: number) => ({
+    type: normalizeUnionSyntax(source.slice(start, endPos).trim()),
+    endPos,
+  })
 
   while (i < source.length) {
     const char = source[i]
@@ -143,159 +543,275 @@ function extractSingleReturnType(source: string): {
     if (inString) {
       if (char === stringChar && source[i - 1] !== '\\') {
         inString = false
-        // Just finished a string at depth 0 - check if next non-ws is function body
+        i++ // Move past closing quote
+        // Just finished a string at depth 0
         if (depth === 0) {
-          i++ // move past closing quote
+          // Check if next non-ws is function body { or union |
           let j = i
           while (j < source.length && /\s/.test(source[j])) j++
-          if (j < source.length && source[j] === '{') {
-            typeEnd = i
-            // Check what's after the brace - if it looks like object key, it's not body
+          if (source[j] === '{') {
+            // Check if it's object type or function body
             const afterBrace = source.slice(j + 1).match(/^\s*(\w+)\s*:/)
             if (!afterBrace) {
-              break
+              // Function body - type ends here
+              return makeResult(i)
             }
           }
-          continue
+          if (source[j] !== '|' && source[j] !== '&') {
+            // No union - type ends here
+            return makeResult(i)
+          }
         }
+        continue
       }
       i++
       continue
     }
 
-    // Track bracket depth for { } [ ]
-    if (char === '{' || char === '[') {
+    // Track bracket depth
+    if (char === '{' || char === '[' || char === '(') {
       depth++
       sawContent = true
       i++
       continue
     }
-    if (char === '}' || char === ']') {
+    if (char === '}' || char === ']' || char === ')') {
       depth--
-      // After closing a bracket at depth 0, we've completed a type component
-      // Update typeEnd to include this bracket
       if (depth === 0) {
         i++
-        typeEnd = i
-        // Check if there's more type content (like || null)
-        // Skip whitespace and check for union operator
+        // Check for union after closing bracket
         let j = i
         while (j < source.length && /\s/.test(source[j])) j++
-        if (
-          source.slice(j, j + 2) === '||' ||
-          (source[j] === '|' && source[j + 1] !== '|')
-        ) {
-          // There's a union, continue parsing
-          continue
+        if (source[j] === '|' || source[j] === '&') {
+          continue // More type content
         }
-        // No union, we're done with the type
-        break
+        return makeResult(i)
       }
       i++
       continue
     }
 
-    // Handle parentheses for grouping
-    if (char === '(') {
-      depth++
-      sawContent = true
-      i++
-      continue
-    }
-    if (char === ')') {
-      depth--
-      i++
-      continue
-    }
-
-    // At depth 0, check for function body opening brace
-    // This is tricky - we need to distinguish between:
-    // -> { name: '' } { body }  (object type followed by function body)
-    // -> '' { body }  (simple type followed by function body)
+    // At depth 0, check for function body
     if (depth === 0 && char === '{') {
-      // If we've already seen content and are at depth 0, this must be the function body
       if (sawContent) {
-        typeEnd = i
-        break
+        return makeResult(i)
       }
-      // First { - check if it's an object type or function body
+      // First { - check if object type or function body
       const afterBrace = source.slice(i + 1).match(/^\s*(\w+)\s*:/)
       if (afterBrace) {
-        // Looks like object type { key: value }
         depth++
         sawContent = true
         i++
         continue
       }
-      // Looks like function body
-      typeEnd = i
-      break
+      return makeResult(i)
     }
 
-    // Handle union operators at depth 0
+    // Handle union/intersection at depth 0
     if (depth === 0 && (char === '|' || char === '&')) {
-      // Before accepting a union operator, update typeEnd to current position
-      // (in case the union is part of the type)
       i++
-      // Skip second | if it's ||
-      if (i < source.length && source[i] === '|') {
-        i++
-      }
-      // Skip whitespace after operator
+      if (i < source.length && source[i] === '|') i++ // Skip second | for ||
       while (i < source.length && /\s/.test(source[i])) i++
       continue
     }
 
-    // Handle simple types at depth 0: strings, numbers, identifiers, null, etc.
-    // These end when we see whitespace followed by {
-    if (depth === 0) {
-      // Look ahead to see if we're about to hit the function body
-      // Skip current character and any subsequent non-whitespace chars of the same "token"
+    // Handle identifiers (null, undefined, true, false, type names)
+    if (depth === 0 && /\w/.test(char)) {
       let j = i
-      // Skip alphanumeric (identifier/keyword like null, true, false)
-      while (j < source.length && /\w/.test(source[j])) {
-        j++
-      }
-      // If we just skipped an identifier, j is now past it
-      if (j > i) {
-        sawContent = true
-        i = j
-        // Skip whitespace
-        while (i < source.length && /\s/.test(source[i])) i++
-        // Check if next non-ws char is { (function body)
-        if (i < source.length && source[i] === '{') {
-          typeEnd = j // type ends where the identifier ended (before whitespace)
-          // But we need to back up over trailing whitespace
-          while (typeEnd > typeStart && /\s/.test(source[typeEnd - 1])) {
-            typeEnd--
-          }
-          break
-        }
-        continue
-      }
-    }
-
-    // Handle identifiers and other content
-    if (/\w/.test(char)) {
+      while (j < source.length && /\w/.test(source[j])) j++
       sawContent = true
+      i = j
+      // Check what's next
+      while (i < source.length && /\s/.test(source[i])) i++
+      if (i < source.length && source[i] === '{') {
+        // Check if function body
+        const afterBrace = source.slice(i + 1).match(/^\s*(\w+)\s*:/)
+        if (!afterBrace) {
+          // Function body - type ends before whitespace
+          let typeEnd = j
+          while (typeEnd > start && /\s/.test(source[typeEnd - 1])) typeEnd--
+          return {
+            type: normalizeUnionSyntax(source.slice(start, typeEnd).trim()),
+            endPos: j,
+          }
+        }
+      }
+      if (source[i] !== '|' && source[i] !== '&') {
+        return {
+          type: normalizeUnionSyntax(source.slice(start, j).trim()),
+          endPos: j,
+        }
+      }
+      continue
     }
 
     i++
   }
 
-  // Extract the type string
-  let type = source.slice(typeStart, typeEnd).trim()
-  if (!type) return null
+  // Reached end of source
+  if (sawContent) {
+    return makeResult(i)
+  }
+  return null
+}
 
-  // Normalize union syntax: convert single | to || for TJS consistency
-  // But preserve existing || as-is
-  type = type.replace(/\s*\|\|\s*/g, ' || ').replace(/(?<!\|)\|(?!\|)/g, ' || ')
+/**
+ * Process a parameter string, transforming : to = for required params
+ * and recursively handling nested arrow functions
+ */
+function processParamString(
+  params: string,
+  ctx: {
+    requiredParams: Set<string>
+    unsafeFunctions: Set<string>
+    safeFunctions: Set<string>
+  },
+  trackRequired: boolean
+): string {
+  // First recursively process any nested arrow functions
+  const withArrows = transformParenExpressions(params, {
+    originalSource: params,
+    requiredParams: ctx.requiredParams,
+    unsafeFunctions: ctx.unsafeFunctions,
+    safeFunctions: ctx.safeFunctions,
+  }).source
 
-  // Clean the source by removing the return type annotation
-  const cleanedSource =
-    source.slice(0, arrowStart) + ') ' + source.slice(typeEnd)
+  // Now split and process each parameter
+  const paramList = splitParameters(withArrows)
+  let sawOptional = false
+  const seenNames = new Set<string>()
 
-  return { type, arrow, cleanedSource }
+  // Helper to check for duplicate names
+  const checkDuplicate = (name: string) => {
+    if (trackRequired && /^\w+$/.test(name)) {
+      if (seenNames.has(name)) {
+        throw new Error(`Duplicate parameter name '${name}'`)
+      }
+      seenNames.add(name)
+    }
+  }
+
+  const processed = paramList.map((param) => {
+    const trimmed = param.trim()
+    if (!trimmed) return param
+
+    // Handle optional param syntax: x?: type -> x = type (not required)
+    const optionalMatch = trimmed.match(/^(\w+)\s*\?\s*:\s*(.+)$/)
+    if (optionalMatch) {
+      const [, name, type] = optionalMatch
+      checkDuplicate(name)
+      sawOptional = true
+      // Optional params are NOT tracked as required
+      return `${name} = ${type}`
+    }
+
+    // Check if param already has a default value (x = value)
+    if (!hasColonNotEquals(trimmed)) {
+      // Has equals sign (default value) - this is optional
+      // Extract name from "name = value" pattern
+      const eqMatch = trimmed.match(/^(\w+)\s*=/)
+      if (eqMatch) {
+        checkDuplicate(eqMatch[1])
+      }
+      sawOptional = true
+      return param
+    }
+
+    // Handle required param syntax: x: type -> x = type (tracked as required)
+    const colonPos = findTopLevelColon(trimmed)
+    if (colonPos !== -1) {
+      const name = trimmed.slice(0, colonPos).trim()
+      const type = trimmed.slice(colonPos + 1).trim()
+
+      checkDuplicate(name)
+
+      // Check for required param after optional - this is an error
+      if (sawOptional && trackRequired && /^\w+$/.test(name)) {
+        throw new Error(
+          `Required parameter '${name}' cannot follow optional parameter`
+        )
+      }
+
+      if (trackRequired && /^\w+$/.test(name)) {
+        ctx.requiredParams.add(name)
+      }
+      return `${name} = ${type}`
+    }
+
+    return param
+  })
+
+  return processed.join(',')
+}
+
+/**
+ * Check if param has a top-level colon but no top-level equals
+ * This distinguishes x: type from x = type and handles nested structures
+ */
+function hasColonNotEquals(param: string): boolean {
+  let depth = 0
+  let hasColon = false
+  let hasEquals = false
+  let inString = false
+  let stringChar = ''
+
+  for (let i = 0; i < param.length; i++) {
+    const char = param[i]
+
+    if (!inString && (char === "'" || char === '"' || char === '`')) {
+      inString = true
+      stringChar = char
+      continue
+    }
+    if (inString) {
+      if (char === stringChar && param[i - 1] !== '\\') inString = false
+      continue
+    }
+
+    if (char === '(' || char === '{' || char === '[') {
+      depth++
+    } else if (char === ')' || char === '}' || char === ']') {
+      depth--
+    } else if (depth === 0) {
+      if (char === ':') hasColon = true
+      if (char === '=' && param[i + 1] !== '>') hasEquals = true // Ignore =>
+    }
+  }
+
+  return hasColon && !hasEquals
+}
+
+/**
+ * Find the position of the first top-level colon in a param
+ */
+function findTopLevelColon(param: string): number {
+  let depth = 0
+  let inString = false
+  let stringChar = ''
+
+  for (let i = 0; i < param.length; i++) {
+    const char = param[i]
+
+    if (!inString && (char === "'" || char === '"' || char === '`')) {
+      inString = true
+      stringChar = char
+      continue
+    }
+    if (inString) {
+      if (char === stringChar && param[i - 1] !== '\\') inString = false
+      continue
+    }
+
+    if (char === '(' || char === '{' || char === '[') {
+      depth++
+    } else if (char === ')' || char === '}' || char === ']') {
+      depth--
+    } else if (depth === 0 && char === ':') {
+      return i
+    }
+  }
+
+  return -1
 }
 
 /**
@@ -343,178 +859,28 @@ export function preprocess(source: string): {
     )
   }
 
-  // Handle unsafe function marker: function foo(!) or function foo(! params)
-  // The ! after ( marks the function as unsafe (no runtime type validation)
-  // Transform: function foo(! x: 'str') -> function foo(x: 'str') and track foo as unsafe
-  source = source.replace(
-    /function\s+(\w+)\s*\(\s*!\s*/g,
-    (match, funcName) => {
-      unsafeFunctions.add(funcName)
-      return `function ${funcName}(`
-    }
-  )
+  // Transform Type and Generic block declarations
+  // Type Foo { ... } -> const Foo = Type(...)
+  // Generic Bar<T, U> { ... } -> const Bar = Generic(...)
+  source = transformTypeDeclarations(source)
+  source = transformGenericDeclarations(source)
 
-  // Handle safe function marker: function foo(?) or function foo(? params)
-  // The ? after ( marks the function as safe (always validate, even if global safety: 'none')
-  // Transform: function foo(? x: 'str') -> function foo(x: 'str') and track foo as safe
-  source = source.replace(
-    /function\s+(\w+)\s*\(\s*\?\s*/g,
-    (match, funcName) => {
-      safeFunctions.add(funcName)
-      return `function ${funcName}(`
-    }
-  )
+  // Transform bare assignments to const declarations
+  // Foo = ... -> const Foo = ...
+  source = transformBareAssignments(source)
 
-  // Also handle arrow functions: (! params) => or (!) =>
-  source = source.replace(/\(\s*!\s*([^)]*)\)\s*=>/g, (match, params) => {
-    // Arrow functions are anonymous, mark via comment for now
-    return `(/* unsafe */ ${params}) =>`
+  // Unified paren expression transformer
+  // Handles: function params, arrow params, return types, safe/unsafe markers
+  // Model: open paren can be ( or (? or (!, close can be ) or )-> or )-? or )-!
+  const transformResult = transformParenExpressions(source, {
+    originalSource,
+    requiredParams,
+    unsafeFunctions,
+    safeFunctions,
   })
-
-  // Also handle safe arrow functions: (? params) => or (?) =>
-  source = source.replace(/\(\s*\?\s*([^)]*)\)\s*=>/g, (match, params) => {
-    // Arrow functions are anonymous, mark via comment for now
-    return `(/* safe */ ${params}) =>`
-  })
-
-  // Handle return type annotation: ) -> Type {  or  ) -? Type {  or  ) -! Type {
-  // Uses extractReturnType() to handle complex types including unions and nested arrays
-  // -? means force output validation (safeReturn)
-  // -! means skip output validation (unsafeReturn)
-  // -> means use global safety setting
-  const returnTypeResult = extractReturnType(source)
-  if (returnTypeResult) {
-    returnType = returnTypeResult.type
-    if (returnTypeResult.arrow === '-?') {
-      returnSafety = 'safe'
-    } else if (returnTypeResult.arrow === '-!') {
-      returnSafety = 'unsafe'
-    }
-    // Remove the return type annotation from source
-    source = returnTypeResult.cleanedSource
-  }
-
-  // Helper to process parameters (shared by function declarations and arrow functions)
-  const processParams = (params: string, trackRequired: boolean): string => {
-    if (!params.trim()) return params
-
-    const seenParams = new Set<string>()
-    let sawOptional = false
-
-    return splitParameters(params)
-      .map((param: string) => {
-        param = param.trim()
-
-        // Skip destructuring patterns for now
-        if (param.startsWith('{')) {
-          return param
-        }
-
-        // Check for TS-style optional param: name?: type
-        // Transform to: name = type (optional, uses type as default example)
-        const optionalMatch = param.match(/^(\w+)\s*\?\s*:\s*(.+)$/)
-        if (optionalMatch) {
-          const [, name, type] = optionalMatch
-
-          if (seenParams.has(name)) {
-            throw new SyntaxError(
-              `Duplicate parameter name '${name}'`,
-              { line: 1, column: 0 },
-              originalSource
-            )
-          }
-          seenParams.add(name)
-          sawOptional = true
-
-          return `${name} = ${type}`
-        }
-
-        // Check for colon shorthand: name: type
-        const colonMatch = param.match(/^(\w+)\s*:\s*(.+)$/)
-        if (colonMatch) {
-          const [, name, type] = colonMatch
-
-          if (seenParams.has(name)) {
-            throw new SyntaxError(
-              `Duplicate parameter name '${name}'`,
-              { line: 1, column: 0 },
-              originalSource
-            )
-          }
-          seenParams.add(name)
-
-          if (!type.includes('=')) {
-            if (sawOptional) {
-              throw new SyntaxError(
-                `Required parameter '${name}' cannot follow optional parameter`,
-                { line: 1, column: 0 },
-                originalSource
-              )
-            }
-            if (trackRequired) {
-              requiredParams.add(name)
-            }
-            return `${name} = ${type}`
-          }
-        }
-
-        // Check for regular assignment (optional param): name = value
-        const assignMatch = param.match(/^(\w+)\s*=/)
-        if (assignMatch) {
-          const name = assignMatch[1]
-          if (seenParams.has(name)) {
-            throw new SyntaxError(
-              `Duplicate parameter name '${name}'`,
-              { line: 1, column: 0 },
-              originalSource
-            )
-          }
-          seenParams.add(name)
-          sawOptional = true
-        }
-
-        // Check for plain identifier (required param without type)
-        const plainMatch = param.match(/^(\w+)$/)
-        if (plainMatch) {
-          const name = plainMatch[1]
-          if (seenParams.has(name)) {
-            throw new SyntaxError(
-              `Duplicate parameter name '${name}'`,
-              { line: 1, column: 0 },
-              originalSource
-            )
-          }
-          seenParams.add(name)
-          if (sawOptional) {
-            throw new SyntaxError(
-              `Required parameter '${name}' cannot follow optional parameter`,
-              { line: 1, column: 0 },
-              originalSource
-            )
-          }
-        }
-
-        return param
-      })
-      .join(', ')
-  }
-
-  // Handle colon shorthand in function parameters: function foo(x: type) -> function foo(x = type)
-  source = source.replace(
-    /function\s+(\w+)\s*\(([^)]*)\)/g,
-    (match, funcName, params) => {
-      const processed = processParams(params, true)
-      return `function ${funcName}(${processed})`
-    }
-  )
-
-  // Handle colon shorthand in arrow function parameters: (x: type) => ... -> (x = type) => ...
-  // Use a proper balanced-paren approach to avoid matching nested parens incorrectly
-  source = transformArrowParams(source, processParams)
-
-  // Also handle single-param arrow functions without parens: x => ...
-  // These can't have type annotations, so no processing needed
-  // But we need to handle: (x: type) => which is already covered above
+  source = transformResult.source
+  returnType = transformResult.returnType
+  returnSafety = transformResult.returnSafety
 
   // Handle unsafe blocks: unsafe { ... } -> enterUnsafe(); try { ... } finally { exitUnsafe() }
   // `unsafe` skips type checks for all wrapped function calls within the block
@@ -539,81 +905,6 @@ export function preprocess(source: string): {
     safeFunctions,
     wasmBlocks: wasmBlocks.blocks,
   }
-}
-
-/**
- * Transform arrow function parameters with proper balanced-paren handling
- * (x: type) => ... -> (x = type) => ...
- *
- * Uses character-by-character parsing to handle nested parens correctly.
- * Recursively processes content inside non-arrow parens to catch nested arrows.
- */
-function transformArrowParams(
-  source: string,
-  processParams: (params: string, trackRequired: boolean) => string
-): string {
-  let result = ''
-  let i = 0
-
-  while (i < source.length) {
-    // Look for ( that might start arrow function params
-    if (source[i] === '(') {
-      const parenStart = i
-      i++ // move past (
-
-      // Find matching ) using balanced paren counting
-      let depth = 1
-      let inString = false
-      let stringChar = ''
-      let contentStart = i
-
-      while (i < source.length && depth > 0) {
-        const char = source[i]
-
-        // Handle strings
-        if (!inString && (char === "'" || char === '"' || char === '`')) {
-          inString = true
-          stringChar = char
-        } else if (inString && char === stringChar && source[i - 1] !== '\\') {
-          inString = false
-        } else if (!inString) {
-          if (char === '(') depth++
-          else if (char === ')') depth--
-        }
-        i++
-      }
-
-      if (depth !== 0) {
-        // Unbalanced, just copy what we have
-        result += source.slice(parenStart, i)
-        continue
-      }
-
-      const parenEnd = i // position after )
-      const content = source.slice(contentStart, parenEnd - 1)
-
-      // Check if this is followed by => (arrow function)
-      let j = parenEnd
-      while (j < source.length && /\s/.test(source[j])) j++
-
-      if (source.slice(j, j + 2) === '=>') {
-        // This is an arrow function - process the params
-        // But first, recursively process any nested arrows in the param defaults
-        const processedContent = transformArrowParams(content, processParams)
-        const processed = processParams(processedContent, false)
-        result += `(${processed})`
-      } else {
-        // Not an arrow function - but recursively process content for nested arrows
-        const processedContent = transformArrowParams(content, processParams)
-        result += `(${processedContent})`
-      }
-    } else {
-      result += source[i]
-      i++
-    }
-  }
-
-  return result
 }
 
 /**
@@ -1063,6 +1354,251 @@ function splitParameters(params: string): string[] {
   }
 
   return result
+}
+
+/**
+ * Transform Type block declarations
+ *
+ * Syntax forms:
+ *   Type Foo 'example'                    -> const Foo = Type('Foo', 'example')
+ *   Type Foo { example: 'value' }         -> const Foo = Type('Foo', 'value')
+ *   Type Foo { description: '...', example: 'value' }
+ *                                         -> const Foo = Type('...', 'value')
+ *   Type Foo { description: '...', example: 0, predicate(x) { return x > 0 } }
+ *                                         -> const Foo = Type('...', (x) => { ... }, 0)
+ *
+ * When predicate + example: auto-generate type guard from example
+ */
+function transformTypeDeclarations(source: string): string {
+  let result = ''
+  let i = 0
+
+  while (i < source.length) {
+    // Look for 'Type' keyword followed by identifier
+    const typeMatch = source.slice(i).match(/^\bType\s+([A-Z][a-zA-Z0-9_]*)\s*/)
+    if (typeMatch) {
+      const typeName = typeMatch[1]
+      let j = i + typeMatch[0].length
+
+      // Check what follows: simple value or block
+      if (source[j] === '{') {
+        // Block form: Type Foo { ... }
+        const blockStart = j
+        const bodyStart = j + 1
+        let depth = 1
+        let k = bodyStart
+
+        // Find matching closing brace
+        while (k < source.length && depth > 0) {
+          const char = source[k]
+          if (char === '{') depth++
+          else if (char === '}') depth--
+          k++
+        }
+
+        if (depth !== 0) {
+          // Unbalanced - just copy and continue
+          result += source[i]
+          i++
+          continue
+        }
+
+        const blockBody = source.slice(bodyStart, k - 1).trim()
+        const blockEnd = k
+
+        // Parse the block body for description, example, predicate
+        const descMatch = blockBody.match(/description\s*:\s*(['"`])([^]*?)\1/)
+        // For example/type, need to handle objects/arrays properly
+        const exampleMatch = blockBody.match(
+          /example\s*:\s*(\{[^}]*\}|\[[^\]]*\]|['"`][^'"`]*['"`]|\d+(?:\.\d+)?|true|false|null)/
+        )
+        const typeMatch2 = blockBody.match(
+          /type\s*:\s*(\{[^}]*\}|\[[^\]]*\]|['"`][^'"`]*['"`]|\d+(?:\.\d+)?|true|false|null)/
+        )
+        const predicateMatch = blockBody.match(
+          /predicate\s*\(([^)]*)\)\s*\{([^]*)\}/
+        )
+
+        const description = descMatch ? descMatch[2] : typeName
+        const example = exampleMatch
+          ? exampleMatch[1].trim()
+          : typeMatch2
+          ? typeMatch2[1].trim()
+          : undefined
+
+        if (predicateMatch && example) {
+          // Has predicate + example: generate type-guarded predicate
+          const params = predicateMatch[1].trim()
+          const body = predicateMatch[2].trim()
+          // Auto-generate type check from example
+          result += `const ${typeName} = Type('${description}', (${params}) => { if (!globalThis.__tjs?.validate(${params}, globalThis.__tjs?.infer(${example}))) return false; ${body} }, ${example})`
+        } else if (predicateMatch) {
+          // Predicate only, no example
+          const params = predicateMatch[1].trim()
+          const body = predicateMatch[2].trim()
+          result += `const ${typeName} = Type('${description}', (${params}) => { ${body} })`
+        } else if (example) {
+          // Example only
+          result += `const ${typeName} = Type('${description}', ${example})`
+        } else {
+          // Empty block - just use name as description
+          result += `const ${typeName} = Type('${typeName}')`
+        }
+
+        i = blockEnd
+        continue
+      } else {
+        // Simple form: Type Foo 'example' or Type Foo { ... } (inline object)
+        // Look for a value (string, number, object, array)
+        const valueMatch = source
+          .slice(j)
+          .match(
+            /^(['"`][^]*?['"`]|\d+(?:\.\d+)?|true|false|null|\{[^]*?\}|\[[^]*?\])/
+          )
+        if (valueMatch) {
+          const example = valueMatch[0]
+          result += `const ${typeName} = Type('${typeName}', ${example})`
+          i = j + valueMatch[0].length
+          continue
+        }
+      }
+    }
+
+    result += source[i]
+    i++
+  }
+
+  return result
+}
+
+/**
+ * Transform Generic block declarations
+ *
+ * Syntax:
+ *   Generic Pair<T, U> { description: '...', predicate(obj, T, U) { ... } }
+ *   Generic Container<T, U = ''> { ... }  // U has default
+ *
+ * Transforms to:
+ *   const Pair = Generic(['T', 'U'], (obj, checkT, checkU) => { ... }, '...')
+ *   const Container = Generic(['T', ['U', '']], (obj, checkT, checkU) => { ... }, '...')
+ */
+function transformGenericDeclarations(source: string): string {
+  let result = ''
+  let i = 0
+
+  while (i < source.length) {
+    // Look for 'Generic' keyword followed by identifier and type params
+    const genericMatch = source
+      .slice(i)
+      .match(/^\bGeneric\s+([A-Z][a-zA-Z0-9_]*)\s*<([^>]+)>\s*\{/)
+    if (genericMatch) {
+      const genericName = genericMatch[1]
+      const typeParamsStr = genericMatch[2]
+      const blockStart = i + genericMatch[0].length - 1
+      const bodyStart = blockStart + 1
+      let depth = 1
+      let k = bodyStart
+
+      // Find matching closing brace
+      while (k < source.length && depth > 0) {
+        const char = source[k]
+        if (char === '{') depth++
+        else if (char === '}') depth--
+        k++
+      }
+
+      if (depth !== 0) {
+        // Unbalanced - just copy and continue
+        result += source[i]
+        i++
+        continue
+      }
+
+      const blockBody = source.slice(bodyStart, k - 1).trim()
+      const blockEnd = k
+
+      // Parse type params: T, U = Default
+      const typeParams = typeParamsStr.split(',').map((p) => {
+        const parts = p
+          .trim()
+          .split('=')
+          .map((s) => s.trim())
+        if (parts.length === 2) {
+          return `['${parts[0]}', ${parts[1]}]`
+        }
+        return `'${parts[0]}'`
+      })
+
+      // Parse the block body
+      const descMatch = blockBody.match(/description\s*:\s*(['"`])([^]*?)\1/)
+      const predicateMatch = blockBody.match(
+        /predicate\s*\(([^)]*)\)\s*\{([^]*)\}/
+      )
+
+      const description = descMatch ? descMatch[2] : genericName
+
+      if (predicateMatch) {
+        const params = predicateMatch[1]
+          .trim()
+          .split(',')
+          .map((s) => s.trim())
+        let body = predicateMatch[2].trim()
+
+        // First param is the value, rest are type params
+        const valueParam = params[0] || 'x'
+        const typeParamNames = params.slice(1)
+        const typeCheckParams = typeParamNames.map((p) => `check${p}`)
+
+        // Replace type param names with check functions in body
+        // e.g., T(x[0]) becomes checkT(x[0])
+        typeParamNames.forEach((name, idx) => {
+          body = body.replace(
+            new RegExp(`\\b${name}\\s*\\(`, 'g'),
+            `${typeCheckParams[idx]}(`
+          )
+        })
+
+        result += `const ${genericName} = Generic([${typeParams.join(
+          ', '
+        )}], (${valueParam}, ${typeCheckParams.join(
+          ', '
+        )}) => { ${body} }, '${description}')`
+      } else {
+        // No predicate - create a generic that always passes
+        result += `const ${genericName} = Generic([${typeParams.join(
+          ', '
+        )}], () => true, '${description}')`
+      }
+
+      i = blockEnd
+      continue
+    }
+
+    result += source[i]
+    i++
+  }
+
+  return result
+}
+
+/**
+ * Transform bare assignments to const declarations
+ *
+ * Foo = ... -> const Foo = ...
+ *
+ * Only transforms assignments at statement level (start of line or after semicolon/brace)
+ * where the identifier starts with uppercase (to avoid breaking normal assignments)
+ */
+function transformBareAssignments(source: string): string {
+  // Match: start of line/statement, uppercase identifier, =, not ==
+  // Negative lookbehind for const/let/var to avoid double-declaring
+  return source.replace(
+    /(?<=^|[;\n{])\s*([A-Z][a-zA-Z0-9_]*)\s*=(?!=)/gm,
+    (match, name) => {
+      // Check if already has const/let/var before it
+      return match.replace(name, `const ${name}`)
+    }
+  )
 }
 
 /**

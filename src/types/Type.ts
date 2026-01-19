@@ -16,7 +16,7 @@
  *   ZipCode.description // '5-digit US zip code'
  */
 
-import { validate, type Base, type JSONSchema } from 'tosijs-schema'
+import { validate, s, type Base, type JSONSchema } from 'tosijs-schema'
 
 /** Schema can be a tosijs-schema builder or a raw JSON Schema object */
 type Schema = Base<any> | JSONSchema
@@ -232,3 +232,134 @@ export function TArray<T>(itemType: RuntimeType<T>): RuntimeType<T[]> {
     (v) => Array.isArray(v) && v.every((item) => itemType.check(item))
   )
 }
+
+// ============================================================================
+// Generic Types
+// ============================================================================
+
+/** Type parameter - can be a RuntimeType, schema, or example value */
+export type TypeParam = RuntimeType | Base<any> | JSONSchema | unknown
+
+/** Generic type factory */
+export interface GenericType<TParams extends string[] = string[]> {
+  /** Instantiate the generic with concrete type arguments */
+  (...typeArgs: TypeParam[]): RuntimeType
+  /** The type parameter names */
+  readonly params: TParams
+  /** Description template */
+  readonly description: string
+}
+
+/**
+ * Convert a type param to a check function
+ */
+function typeParamToCheck(param: TypeParam): (value: unknown) => boolean {
+  if (isRuntimeType(param)) {
+    return (v) => param.check(v)
+  }
+  // Check if it's a schema builder (has .schema property)
+  if (param && typeof param === 'object' && 'schema' in param) {
+    return (v) => validate(v, param as Base<any>)
+  }
+  // It's an example value - infer schema using s.infer
+  const schema = s.infer(param)
+  return (v) => validate(v, schema)
+}
+
+/**
+ * Create a generic (parameterized) type factory
+ *
+ * @param params Array of type parameter names, with optional defaults: ['T', ['U', defaultSchema]]
+ * @param predicate Function receiving (value, ...typeChecks) where typeChecks are validation functions
+ * @param description Human-readable description template (type params will be substituted)
+ *
+ * @example
+ * // Pair<T, U>
+ * const Pair = Generic(
+ *   ['T', 'U'],
+ *   (x, checkT, checkU) =>
+ *     Array.isArray(x) && x.length === 2 && checkT(x[0]) && checkU(x[1]),
+ *   'Pair<T, U>'
+ * )
+ *
+ * // Usage: Pair(TString, TNumber) creates a type for [string, number]
+ * // Or with examples: Pair('', 0)
+ */
+export function Generic<TParams extends string[]>(
+  params: (string | [string, TypeParam])[],
+  predicate: (
+    value: unknown,
+    ...typeChecks: Array<(v: unknown) => boolean>
+  ) => boolean,
+  description: string
+): GenericType<TParams> {
+  // Extract param names and defaults
+  const paramNames: string[] = []
+  const defaults: (TypeParam | undefined)[] = []
+
+  for (const p of params) {
+    if (typeof p === 'string') {
+      paramNames.push(p)
+      defaults.push(undefined)
+    } else {
+      paramNames.push(p[0])
+      defaults.push(p[1])
+    }
+  }
+
+  // The factory function
+  const factory = (...typeArgs: TypeParam[]): RuntimeType => {
+    // Resolve type arguments, using defaults where not provided
+    const checks = paramNames.map((_, i) => {
+      const arg = i < typeArgs.length ? typeArgs[i] : defaults[i]
+      if (arg === undefined) {
+        // No arg and no default - accept anything
+        return () => true
+      }
+      return typeParamToCheck(arg)
+    })
+
+    // Build description with substituted types
+    let desc = description
+    paramNames.forEach((name, i) => {
+      const arg = i < typeArgs.length ? typeArgs[i] : defaults[i]
+      let typeStr = 'any'
+      if (isRuntimeType(arg)) {
+        typeStr = arg.description
+      } else if (arg !== undefined) {
+        typeStr = typeof arg === 'string' ? 'string' : JSON.stringify(arg)
+      }
+      desc = desc.replace(new RegExp(`\\b${name}\\b`, 'g'), typeStr)
+    })
+
+    return Type(desc, (value) => predicate(value, ...checks))
+  }
+
+  ;(factory as any).params = paramNames as TParams
+  ;(factory as any).description = description
+
+  return factory as GenericType<TParams>
+}
+
+// ============================================================================
+// Built-in Generic Types
+// ============================================================================
+
+/** Pair<T, U> - 2-element tuple */
+export const TPair = Generic(
+  ['T', 'U'],
+  (x, checkT, checkU) =>
+    Array.isArray(x) && x.length === 2 && checkT(x[0]) && checkU(x[1]),
+  'Pair<T, U>'
+)
+
+/** Record<V> - object with string keys and values of type V */
+export const TRecord = Generic(
+  ['V'],
+  (x, checkV) =>
+    typeof x === 'object' &&
+    x !== null &&
+    !Array.isArray(x) &&
+    Object.values(x).every(checkV),
+  'Record<string, V>'
+)

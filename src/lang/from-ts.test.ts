@@ -136,7 +136,7 @@ describe('fromTS', () => {
   })
 
   describe('generics - TJS output', () => {
-    it('should emit TJS with any for generic params', () => {
+    it('should emit TJS without type for generic params (any is omitted)', () => {
       const result = fromTS(
         `
         function identity<T>(x: T): T {
@@ -146,8 +146,9 @@ describe('fromTS', () => {
         { emitTJS: true }
       )
 
-      expect(result.code).toContain('function identity(x: any)')
-      expect(result.code).toContain('-> any')
+      // Generic params become untyped (any is omitted)
+      expect(result.code).toContain('function identity(x)')
+      expect(result.code).not.toContain('-> any')
     })
 
     it('should emit warnings for generics', () => {

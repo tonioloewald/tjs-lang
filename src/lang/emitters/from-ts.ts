@@ -395,6 +395,172 @@ function extractTypeParams(
 /**
  * Transform a TypeScript function to TJS syntax
  */
+/**
+ * Transform a TypeScript interface to TJS Type declaration
+ *
+ * interface User { name: string; age: number }
+ * ->
+ * Type User { example: { name: '', age: 0 } }
+ */
+function transformInterfaceToType(
+  node: ts.InterfaceDeclaration,
+  sourceFile: ts.SourceFile,
+  warnings?: string[]
+): string | null {
+  const typeName = node.name.getText(sourceFile)
+
+  // Check for generics
+  if (node.typeParameters && node.typeParameters.length > 0) {
+    return transformGenericInterfaceToGeneric(node, sourceFile, warnings)
+  }
+
+  // Build example object from members
+  const props: string[] = []
+  for (const member of node.members) {
+    if (ts.isPropertySignature(member) && member.name) {
+      const propName = member.name.getText(sourceFile)
+      const propExample = typeToExample(member.type, undefined, warnings)
+      props.push(`${propName}: ${propExample}`)
+    }
+  }
+
+  if (props.length === 0) {
+    return `Type ${typeName} {}`
+  }
+
+  return `Type ${typeName} {
+  example: { ${props.join(', ')} }
+}`
+}
+
+/**
+ * Transform a generic TypeScript interface to TJS Generic declaration
+ *
+ * interface Box<T> { value: T }
+ * ->
+ * Generic Box<T> {
+ *   description: 'Box'
+ *   predicate(x, T) { return typeof x === 'object' && x !== null && 'value' in x && T(x.value) }
+ * }
+ */
+function transformGenericInterfaceToGeneric(
+  node: ts.InterfaceDeclaration,
+  sourceFile: ts.SourceFile,
+  warnings?: string[]
+): string {
+  const typeName = node.name.getText(sourceFile)
+  const typeParams: string[] = []
+
+  // Extract type parameters with constraints/defaults
+  for (const param of node.typeParameters || []) {
+    const paramName = param.name.getText(sourceFile)
+    if (param.default) {
+      const defaultExample = typeToExample(param.default, undefined, warnings)
+      typeParams.push(`${paramName} = ${defaultExample}`)
+    } else {
+      typeParams.push(paramName)
+    }
+  }
+
+  // Build predicate checks for each property that uses a type parameter
+  const typeParamNames = (node.typeParameters || []).map((p) =>
+    p.name.getText(sourceFile)
+  )
+  const checks: string[] = ["typeof x === 'object'", 'x !== null']
+
+  for (const member of node.members) {
+    if (ts.isPropertySignature(member) && member.name) {
+      const propName = member.name.getText(sourceFile)
+      checks.push(`'${propName}' in x`)
+
+      // If property type is a type parameter, add check
+      if (member.type && ts.isTypeReferenceNode(member.type)) {
+        const refName = member.type.typeName.getText(sourceFile)
+        if (typeParamNames.includes(refName)) {
+          checks.push(`${refName}(x.${propName})`)
+        }
+      }
+    }
+  }
+
+  const predicateParams = ['x', ...typeParamNames].join(', ')
+
+  return `Generic ${typeName}<${typeParams.join(', ')}> {
+  description: '${typeName}'
+  predicate(${predicateParams}) { return ${checks.join(' && ')} }
+}`
+}
+
+/**
+ * Transform a TypeScript type alias to TJS Type declaration
+ *
+ * type User = { name: string; age: number }
+ * ->
+ * Type User { example: { name: '', age: 0 } }
+ */
+function transformTypeAliasToType(
+  node: ts.TypeAliasDeclaration,
+  sourceFile: ts.SourceFile,
+  warnings?: string[]
+): string | null {
+  const typeName = node.name.getText(sourceFile)
+
+  // Check for generics
+  if (node.typeParameters && node.typeParameters.length > 0) {
+    return transformGenericTypeAliasToGeneric(node, sourceFile, warnings)
+  }
+
+  const example = typeToExample(node.type, undefined, warnings)
+
+  // For simple primitive types, use short form
+  if (
+    example === "''" ||
+    example === '0' ||
+    example === 'true' ||
+    example === 'null'
+  ) {
+    return `Type ${typeName} ${example}`
+  }
+
+  return `Type ${typeName} {
+  example: ${example}
+}`
+}
+
+/**
+ * Transform a generic type alias to TJS Generic declaration
+ */
+function transformGenericTypeAliasToGeneric(
+  node: ts.TypeAliasDeclaration,
+  sourceFile: ts.SourceFile,
+  warnings?: string[]
+): string {
+  const typeName = node.name.getText(sourceFile)
+  const typeParams: string[] = []
+
+  // Extract type parameters
+  for (const param of node.typeParameters || []) {
+    const paramName = param.name.getText(sourceFile)
+    if (param.default) {
+      const defaultExample = typeToExample(param.default, undefined, warnings)
+      typeParams.push(`${paramName} = ${defaultExample}`)
+    } else {
+      typeParams.push(paramName)
+    }
+  }
+
+  const typeParamNames = (node.typeParameters || []).map((p) =>
+    p.name.getText(sourceFile)
+  )
+  const predicateParams = ['x', ...typeParamNames].join(', ')
+
+  // Simple fallback - more sophisticated analysis could be added
+  return `Generic ${typeName}<${typeParams.join(', ')}> {
+  description: '${typeName}'
+  predicate(${predicateParams}) { return true }
+}`
+}
+
 function transformFunctionToTJS(
   node: ts.FunctionDeclaration | ts.ArrowFunction | ts.FunctionExpression,
   sourceFile: ts.SourceFile,
@@ -412,6 +578,9 @@ function transformFunctionToTJS(
       // Has default value - use it directly
       const defaultText = param.initializer.getText(sourceFile)
       params.push(`${name} = ${defaultText}`)
+    } else if (typeExample === 'any' || typeExample === 'undefined') {
+      // Unknown type - just use the name without annotation
+      params.push(name)
     } else if (isOptional) {
       // Optional without default - use = for optional
       params.push(`${name} = ${typeExample}`)
@@ -430,7 +599,9 @@ function transformFunctionToTJS(
     ? typeToExample(node.type, undefined, warnings)
     : ''
   const returnAnnotation =
-    returnExample && returnExample !== 'undefined' ? ` -> ${returnExample}` : ''
+    returnExample && returnExample !== 'undefined' && returnExample !== 'any'
+      ? ` -> ${returnExample}`
+      : ''
 
   // Get function body
   let body = ''
@@ -557,6 +728,24 @@ export function fromTS(
             metadata[funcName] = info
           }
         }
+      }
+    }
+
+    // Handle: interface Foo { ... }
+    if (ts.isInterfaceDeclaration(node) && emitTJS) {
+      const typeName = node.name.getText(sourceFile)
+      const typeDecl = transformInterfaceToType(node, sourceFile, warnings)
+      if (typeDecl) {
+        tjsFunctions.push(typeDecl)
+      }
+    }
+
+    // Handle: type Foo = { ... }
+    if (ts.isTypeAliasDeclaration(node) && emitTJS) {
+      const typeName = node.name.getText(sourceFile)
+      const typeDecl = transformTypeAliasToType(node, sourceFile, warnings)
+      if (typeDecl) {
+        tjsFunctions.push(typeDecl)
       }
     }
 

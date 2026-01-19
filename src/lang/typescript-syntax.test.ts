@@ -321,7 +321,7 @@ describe('Arrow Functions', () => {
 // =============================================================================
 
 describe('Generics', () => {
-  test.todo('simple generic <T> - NOT YET SUPPORTED', () => {
+  test('simple generic <T>', () => {
     const { types } = fromTS(`
       function identity<T>(value: T): T {
         return value
@@ -330,7 +330,7 @@ describe('Generics', () => {
     expect(types?.identity.typeParams?.T).toBeDefined()
   })
 
-  test.todo('generic with constraint <T extends X> - NOT YET SUPPORTED', () => {
+  test('generic with constraint <T extends X>', () => {
     const { types } = fromTS(`
       function first<T extends { id: number }>(items: T[]): T | undefined {
         return items[0]
@@ -339,7 +339,7 @@ describe('Generics', () => {
     expect(types?.first.typeParams?.T.constraint).toBeDefined()
   })
 
-  test.todo('generic with default <T = X> - NOT YET SUPPORTED', () => {
+  test('generic with default <T = X>', () => {
     const { types } = fromTS(`
       function wrap<T = string>(value: T): { value: T } {
         return { value }
@@ -348,7 +348,7 @@ describe('Generics', () => {
     expect(types?.wrap.typeParams?.T.default).toBeDefined()
   })
 
-  test.todo('multiple type parameters - NOT YET SUPPORTED', () => {
+  test('multiple type parameters', () => {
     const { types } = fromTS(`
       function map<T, U>(items: T[], fn: (item: T) => U): U[] {
         return items.map(fn)
@@ -407,7 +407,7 @@ describe('Type Aliases and Interfaces', () => {
 // =============================================================================
 
 describe('Rest Parameters', () => {
-  test.todo('rest params (...args) - NOT YET SUPPORTED', () => {
+  test('rest params (...args)', () => {
     const { types } = fromTS(`
       function sum(...nums: number[]): number {
         return nums.reduce((a, b) => a + b, 0)
@@ -416,7 +416,7 @@ describe('Rest Parameters', () => {
     expect(types?.sum.params.nums.type.kind).toBe('array')
   })
 
-  test.todo('rest params with other params - NOT YET SUPPORTED', () => {
+  test('rest params with other params', () => {
     const { types } = fromTS(`
       function log(prefix: string, ...messages: string[]): void {
         console.log(prefix, ...messages)
@@ -674,22 +674,24 @@ describe('Enums', () => {
 // =============================================================================
 
 describe('Type Assertions', () => {
-  test.todo('as syntax - NOT YET SUPPORTED', () => {
+  test('as syntax strips assertion', () => {
     const { code } = fromTS(`
       function cast(value: unknown): string {
         return value as string
       }
     `)
     expect(code).toContain('value')
+    expect(code).not.toContain('as string')
   })
 
-  test.todo('angle bracket syntax - NOT YET SUPPORTED', () => {
+  test('angle bracket syntax strips assertion', () => {
     const { code } = fromTS(`
       function cast(value: unknown): string {
         return <string>value
       }
     `)
     expect(code).toContain('value')
+    expect(code).not.toContain('<string>')
   })
 })
 
@@ -731,22 +733,24 @@ describe('Literal Types', () => {
 // =============================================================================
 
 describe('Readonly Modifiers', () => {
-  test.todo('readonly property - NOT YET SUPPORTED', () => {
+  test('readonly property is stripped but shape preserved', () => {
     const { types } = fromTS(`
       function process(obj: { readonly id: number }): number {
         return obj.id
       }
     `)
     expect(types?.process).toBeDefined()
+    expect(types?.process.params.obj.type.shape?.id.kind).toBe('number')
   })
 
-  test.todo('as const - NOT YET SUPPORTED', () => {
+  test('as const is stripped', () => {
     const { code } = fromTS(`
       function getConfig() {
         return { host: 'localhost', port: 3000 } as const
       }
     `)
     expect(code).toContain('localhost')
+    expect(code).not.toContain('as const')
   })
 })
 

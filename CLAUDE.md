@@ -62,7 +62,7 @@ npm run show-size           # Show gzipped bundle size
 
 ```typescript
 // Language
-ajs`...`                    // Parse AsyncJS to AST
+ajs`...`                    // Parse AJS to AST
 tjs`...`                    // Parse TypeScript variant with type metadata
 transpile(source, options)  // Full transpilation with signature extraction
 createAgent(source, vm)     // Creates callable agent
@@ -145,9 +145,109 @@ When `ctx.error` is set, subsequent atoms in a `seq` skip execution. Errors are 
 
 ### TJS Parser Syntax Extensions
 
-- Colon shorthand: `function foo(x: 'type')` → parameter with type annotation
-- Unsafe marker: `function foo(!) { }` → skips runtime validation
-- Return type: `function foo() -> { result: 'string' } { }` → extracted return schema
+TJS extends JavaScript with type annotations that survive to runtime.
+
+#### Function Parameters
+
+```typescript
+// Required param with example value (colon shorthand)
+function greet(name: 'Alice') { }        // name is required, type inferred as string
+
+// Optional param with default
+function greet(name = 'Alice') { }       // name is optional, defaults to 'Alice'
+
+// Object parameter with shape
+function createUser(user: { name: '', age: 0 }) { }
+
+// Nullable type
+function find(id: 0 || null) { }         // number or null
+
+// Optional TS-style
+function greet(name?: '') { }            // same as name = ''
+```
+
+#### Return Types
+
+```typescript
+// Return type annotation (arrow syntax)
+function add(a: 0, b: 0) -> 0 { return a + b }
+
+// Object return type
+function getUser(id: 0) -> { name: '', age: 0 } { ... }
+```
+
+#### Safety Markers
+
+```typescript
+// Unsafe function (skips runtime validation)
+function fastAdd(! a: 0, b: 0) { return a + b }
+
+// Safe function (explicit validation)
+function safeAdd(? a: 0, b: 0) { return a + b }
+
+// Unsafe block
+unsafe {
+  // All calls in here skip validation
+  fastPath(data)
+}
+```
+
+#### Type Declarations
+
+```typescript
+// Simple type from example
+Type Name 'Alice'
+
+// Type with description and example
+Type User {
+  description: 'a user object'
+  example: { name: '', age: 0 }
+}
+
+// Type with predicate (auto-generates type guard from example)
+Type EvenNumber {
+  description: 'an even number'
+  example: 2
+  predicate(x) { return x % 2 === 0 }
+}
+```
+
+#### Generic Declarations
+
+```typescript
+// Simple generic
+Generic Box<T> {
+  description: 'a boxed value'
+  predicate(x, T) { 
+    return typeof x === 'object' && x !== null && 'value' in x && T(x.value) 
+  }
+}
+
+// Generic with default type parameter
+Generic Container<T, U = ''> {
+  description: 'container with label'
+  predicate(obj, T, U) { 
+    return T(obj.item) && U(obj.label) 
+  }
+}
+```
+
+#### Bare Assignments
+
+```typescript
+// Uppercase identifiers auto-get const
+Foo = Type('test', 'example')    // becomes: const Foo = Type(...)
+MyConfig = { debug: true }       // becomes: const MyConfig = { ... }
+```
+
+#### Module Safety Directive
+
+```typescript
+// At top of file - sets default validation level
+safety none     // No validation (metadata only)
+safety inputs   // Validate function inputs (default)
+safety all      // Validate everything (debug mode)
+```
 
 ## Dependencies
 
