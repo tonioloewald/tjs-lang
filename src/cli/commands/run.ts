@@ -49,7 +49,12 @@ export async function run(file: string): Promise<void> {
     const fn = new AsyncFunction('__runtime__', wrappedCode)
     await fn(runtime)
   } catch (error: any) {
-    if (error.name === 'SyntaxError') {
+    if (error.name === 'SyntaxError' && error.formatWithContext) {
+      // Use enhanced error formatting with source context
+      console.error(`Syntax error in ${file}:\n`)
+      console.error(error.formatWithContext(2))
+      console.error()
+    } else if (error.name === 'SyntaxError') {
       console.error(`Syntax error in ${file}:`)
       console.error(`  ${error.message}`)
       if (error.line) {

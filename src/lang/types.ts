@@ -135,6 +135,37 @@ export class SyntaxError extends TranspileError {
     super(message, location, source, filename)
     this.name = 'SyntaxError'
   }
+
+  /**
+   * Format the error with source context for better debugging
+   * Shows the problematic line with a caret pointing to the error location
+   */
+  formatWithContext(contextLines = 2): string {
+    if (!this.source) return this.message
+
+    const lines = this.source.split('\n')
+    const errorLine = this.line - 1 // 0-indexed
+    const startLine = Math.max(0, errorLine - contextLines)
+    const endLine = Math.min(lines.length - 1, errorLine + contextLines)
+
+    const output: string[] = []
+    const lineNumWidth = String(endLine + 1).length
+
+    // Add context before
+    for (let i = startLine; i <= endLine; i++) {
+      const lineNum = String(i + 1).padStart(lineNumWidth)
+      const marker = i === errorLine ? '>' : ' '
+      output.push(`${marker} ${lineNum} | ${lines[i]}`)
+
+      // Add caret pointing to error column
+      if (i === errorLine) {
+        const caretPadding = ' '.repeat(lineNumWidth + 4 + this.column)
+        output.push(`${caretPadding}^ ${this.message.split(' at ')[0]}`)
+      }
+    }
+
+    return output.join('\n')
+  }
 }
 
 /** Type error during transpilation or runtime */

@@ -2085,3 +2085,34 @@ function transform(arr: []) {
     expect(fn()).toEqual([2, 4, 6])
   })
 })
+
+describe('SyntaxError formatting', () => {
+  it('formatWithContext shows error with source context', () => {
+    try {
+      transpileToJS(`function foo() {
+  const x = 1
+  return x +
+}`)
+      expect.unreachable('Should have thrown')
+    } catch (e: any) {
+      expect(e.name).toBe('SyntaxError')
+      expect(typeof e.formatWithContext).toBe('function')
+      
+      const formatted = e.formatWithContext(1)
+      expect(formatted).toContain('return x +')
+      expect(formatted).toContain('^')
+      expect(formatted).toContain('>')  // error line marker
+    }
+  })
+
+  it('formatWithContext handles single-line errors', () => {
+    try {
+      transpileToJS(`function foo() { return + }`)
+      expect.unreachable('Should have thrown')
+    } catch (e: any) {
+      const formatted = e.formatWithContext(0)
+      expect(formatted).toContain('function foo')
+      expect(formatted).toContain('^')
+    }
+  })
+})
