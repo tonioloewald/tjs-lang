@@ -215,14 +215,12 @@ export class TJSPlayground extends Component<TJSPlaygroundParts> {
               })
             )
           ),
-          div(
-            { name: 'Docs' },
-            markdownViewer({
-              part: 'docsOutput',
-              class: 'docs-output',
-              value: '*Documentation will appear here*',
-            })
-          ),
+          markdownViewer({
+            name: 'Docs',
+            part: 'docsOutput',
+            class: 'docs-output',
+            value: '*Documentation will appear here*',
+          }),
           div(
             { name: 'Tests' },
             div(
