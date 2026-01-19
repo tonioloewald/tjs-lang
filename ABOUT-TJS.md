@@ -81,7 +81,27 @@ function vectorDot(a: [0], b: [0]) -> 0 {
 - Falls back to JS if WASM unavailable
 - The Universal Endpoint stays fast without breaking the abstraction
 
-### 4. Classes Without Ceremony
+### 4. Structural Equality: Is/IsNot
+
+JavaScript's `==` is broken (type coercion). TJS provides `Is` and `IsNot` operators:
+
+```typescript
+// Structural comparison - no coercion
+[1, 2] Is [1, 2]       // true
+5 Is "5"               // false (different types)
+{ a: 1 } Is { a: 1 }   // true
+
+// Custom equality via .Equals hook
+class Point {
+  constructor(x: 0, y: 0) { this.x = x; this.y = y }
+  Equals(other) { return this.x === other.x && this.y === other.y }
+}
+Point(1, 2) Is Point(1, 2)  // true (via .Equals)
+```
+
+`Is` and `IsNot` are stepping stones—the goal is for `==` and `!=` to eventually work correctly in native TJS.
+
+### 5. Classes Without Ceremony
 
 TJS classes are callable without `new`—less ceremony, same semantics:
 
@@ -116,7 +136,7 @@ TypeScript-to-TJS conversion handles the transformation:
 - Class wrapped with Proxy for callable-without-new
 - Getter/setter types captured in metadata
 
-### 5. Literate Programming: Documentation That Can't Rot
+### 6. Literate Programming: Documentation That Can't Rot
 
 If the endpoint lives forever while agents change constantly, docs must live in the code:
 

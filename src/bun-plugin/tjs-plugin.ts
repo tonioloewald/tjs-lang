@@ -29,7 +29,7 @@ await plugin({
       const preprocessed = preprocess(source)
 
       // Inject runtime imports at the top using the resolved path
-      const runtimeImports = `import { Type, Generic, Union, Enum, isRuntimeType, wrap, wrapClass, error, isError } from '${runtimePath}';\n`
+      const runtimeImports = `import { Type, Generic, Union, Enum, isRuntimeType, wrap, wrapClass, error, isError, Is, IsNot } from '${runtimePath}';\n`
 
       let code: string
       try {

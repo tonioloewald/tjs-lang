@@ -496,7 +496,7 @@ The AST is the source of truth. Targets are just emission strategies.
 | 13  | Function introspection | ✅     | __tjs metadata with params, returns, examples  |
 | 14  | Generic()              | ✅     | Runtime-checkable generics with TPair, TRecord |
 | 15  | Asymmetric get/set     | ✅     | JS native get/set captures asymmetric types    |
-| 16  | `==` that works        | ❌     | Structural equality + .Equals hook             |
+| 16  | `==` that works        | ⏳     | Is/IsNot implemented; auto-transform deferred  |
 | 17  | WASM blocks            | ✅     | POC: parser + compiler for simple expressions  |
 | 18  | Death to `new`         | ✅     | wrapClass + no-explicit-new lint rule          |
 | 19  | Linter                 | ✅     | unused vars, unreachable code, no-explicit-new |
@@ -524,7 +524,7 @@ The AST is the source of truth. Targets are just emission strategies.
 | -------- | ------------------------- | -------------------------- |
 | 1        | **target()**              | browser/node/debug blocks  |
 | 2        | **Module system**         | Versioned URL imports      |
-| 3        | **`==` that works**       | Structural equality        |
+| 3        | **`==` auto-transform**   | Transform == to Is() when full parser exists |
 | 4        | **Multi-target emission** | LLVM, SwiftUI, Android     |
 
 ## 7. Safety Levels and Flags
@@ -923,28 +923,32 @@ The type metadata captures the asymmetry:
 
 This matches real-world APIs (DOM, dates, etc.) without TypeScript's painful workarounds.
 
-## 15. `==` That Works
+## 15. `==` That Works (via Is/IsNot)
 
-JavaScript's `==` is broken (type coercion chaos). TJS fixes it:
+JavaScript's `==` is broken (type coercion chaos). TJS provides `Is` and `IsNot` operators as stepping stones toward eventually fixing `==` and `!=`:
 
 | Operator | Behavior                                                                                  |
 | -------- | ----------------------------------------------------------------------------------------- |
-| `==`     | **Value equality** - structural comparison for arrays/objects, calls `.Equals` if defined |
+| `Is`     | **Value equality** - structural comparison for arrays/objects, calls `.Equals` if defined |
+| `IsNot`  | **Value inequality** - negation of Is                                                     |
 | `===`    | **Identity** - same object reference (rarely needed)                                      |
 
 ```typescript
-;([1, 2] == [1, 2][(1, 2)]) === // true (structural)
-  [1, 2] // false (different objects)
+// Infix syntax - clean and readable
+[1, 2] Is [1, 2]       // true (structural)
+[1, 2] IsNot [1, 2, 3] // true (different length)
+5 Is "5"               // false (no coercion - different types)
 
+// Custom equality via .Equals hook
 const p1 = {
   x: 1,
   Equals(o) {
-    return this.x == o.x
+    return this.x === o.x
   },
 }
 const p2 = { x: 1 }
-p1 == p2 // true (via .Equals hook)
-p1 === p2 // false (different objects)
+p1 Is p2   // true (via .Equals hook)
+p1 === p2  // false (different objects)
 ```
 
 ### Rules
@@ -953,6 +957,12 @@ p1 === p2 // false (different objects)
 2. If right has `.Equals`, call `right.Equals(left)`
 3. Arrays/objects: recursive structural comparison
 4. Primitives: strict equality (no coercion)
+
+### Implementation Status
+
+- ✅ `Is()` and `IsNot()` functions in runtime
+- ✅ Infix syntax transformation (`a Is b` → `Is(a, b)`)
+- ⏳ Auto-transform `==`/`!=` to `Is`/`IsNot` (requires full parser for expression boundaries)
 
 ## 16. Death to Semicolons
 

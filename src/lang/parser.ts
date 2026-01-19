@@ -1226,6 +1226,16 @@ export function preprocess(
     )
   }
 
+  // Transform Is/IsNot infix operators to function calls
+  // a Is b -> Is(a, b)
+  // a IsNot b -> IsNot(a, b)
+  source = transformIsOperators(source)
+
+  // NOTE: Auto-transforming == and != to Is/IsNot is too risky with regex
+  // because we can't reliably identify expression boundaries (e.g., x % 2 == 0)
+  // Users should use the explicit Is/IsNot syntax for structural equality
+  // Future: when we have a full parser, we can revisit == transformation
+
   // Transform Type, Generic, Union, and Enum declarations
   // Type Foo { ... } -> const Foo = Type(...)
   // Generic Bar<T, U> { ... } -> const Bar = Generic(...)
@@ -1686,6 +1696,33 @@ function splitParameters(params: string): string[] {
   }
 
   return result
+}
+
+/**
+ * Transform Is/IsNot infix operators to function calls
+ *
+ * Syntax:
+ *   a Is b      -> Is(a, b)
+ *   a IsNot b   -> IsNot(a, b)
+ *
+ * This enables structural equality with a clean syntax.
+ * Goal: Is/IsNot are stepping stones to eventually making == and != work correctly.
+ */
+function transformIsOperators(source: string): string {
+  // Match: (simpleExpr) IsNot (simpleExpr) - must check IsNot first (longer match)
+  // simpleExpr = identifier chain with optional [], () OR literals
+  const exprPat =
+    '([\\w][\\w.\\[\\]()]*|null|undefined|true|false|\\d+(?:\\.\\d+)?|\'[^\']*\'|"[^"]*")'
+
+  // Transform IsNot first (longer keyword)
+  const isNotRegex = new RegExp(exprPat + '\\s+IsNot\\s+' + exprPat, 'g')
+  source = source.replace(isNotRegex, 'IsNot($1, $2)')
+
+  // Transform Is
+  const isRegex = new RegExp(exprPat + '\\s+Is\\s+' + exprPat, 'g')
+  source = source.replace(isRegex, 'Is($1, $2)')
+
+  return source
 }
 
 /**

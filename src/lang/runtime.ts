@@ -222,6 +222,70 @@ export function getStack(): string[] {
 }
 
 /**
+ * Structural equality - the == that works
+ *
+ * Rules:
+ * 1. If left has .Equals, call left.Equals(right)
+ * 2. If right has .Equals, call right.Equals(left)
+ * 3. Arrays/objects: recursive structural comparison
+ * 4. Primitives: strict equality (no coercion)
+ *
+ * Usage: `a Is b` transforms to `Is(a, b)`
+ */
+export function Is(a: unknown, b: unknown): boolean {
+  // Check for .Equals method
+  if (
+    a !== null &&
+    typeof a === 'object' &&
+    typeof (a as any).Equals === 'function'
+  ) {
+    return (a as any).Equals(b)
+  }
+  if (
+    b !== null &&
+    typeof b === 'object' &&
+    typeof (b as any).Equals === 'function'
+  ) {
+    return (b as any).Equals(a)
+  }
+
+  // Identical references or primitives
+  if (a === b) return true
+
+  // null/undefined - strict
+  if (a === null || b === null) return a === b
+  if (a === undefined || b === undefined) return a === b
+
+  // Different types - not equal (no coercion)
+  if (typeof a !== typeof b) return false
+
+  // Primitives that aren't === are not equal
+  if (typeof a !== 'object') return false
+
+  // Arrays
+  if (Array.isArray(a) && Array.isArray(b)) {
+    if (a.length !== b.length) return false
+    return a.every((v, i) => Is(v, b[i]))
+  }
+  if (Array.isArray(a) !== Array.isArray(b)) return false
+
+  // Objects - structural comparison
+  const keysA = Object.keys(a as object)
+  const keysB = Object.keys(b as object)
+  if (keysA.length !== keysB.length) return false
+  return keysA.every((k) => Is((a as any)[k], (b as any)[k]))
+}
+
+/**
+ * Structural inequality - the != that works
+ *
+ * Usage: `a IsNot b` transforms to `IsNot(a, b)`
+ */
+export function IsNot(a: unknown, b: unknown): boolean {
+  return !Is(a, b)
+}
+
+/**
  * Check if a value is a TJS error
  */
 export function isError(value: unknown): value is TJSError {
