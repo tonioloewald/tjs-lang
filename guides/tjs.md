@@ -604,6 +604,21 @@ tjsx -e "function f() { return 42 }"  # Evaluate inline
 echo '{"x": 1}' | tjsx script.tjs --json  # JSON from stdin
 ```
 
+### Bun Plugin - Native `.tjs` Support
+
+Run `.tjs` files directly with Bun using the preload plugin:
+
+```bash
+# Run a single file
+bun --preload ./src/bun-plugin/tjs-plugin.ts script.tjs
+
+# Enable globally in bunfig.toml
+[run]
+preload = ["./src/bun-plugin/tjs-plugin.ts"]
+```
+
+The plugin transpiles `.tjs` files on-the-fly with full runtime support (Type, Generic, Union, etc.).
+
 ## Best Practices
 
 ### 1. Use Examples That Document
