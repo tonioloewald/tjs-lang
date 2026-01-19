@@ -1317,7 +1317,7 @@ export function fromTS(
       constructor: info.constructor
         ? {
             params: Object.fromEntries(
-              Object.entries(info.constructor.params).map(([k, v]) => [
+              Object.entries(info.constructor.params ?? {}).map(([k, v]) => [
                 k,
                 { type: v.type.kind, required: v.required, default: v.default },
               ])
@@ -1325,11 +1325,11 @@ export function fromTS(
           }
         : undefined,
       methods: Object.fromEntries(
-        Object.entries(info.methods).map(([name, m]) => [
+        Object.entries(info.methods ?? {}).map(([name, m]) => [
           name,
           {
             params: Object.fromEntries(
-              Object.entries(m.params).map(([k, v]) => [
+              Object.entries(m.params ?? {}).map(([k, v]) => [
                 k,
                 { type: v.type.kind, required: v.required },
               ])
@@ -1339,11 +1339,11 @@ export function fromTS(
         ])
       ),
       staticMethods: Object.fromEntries(
-        Object.entries(info.staticMethods).map(([name, m]) => [
+        Object.entries(info.staticMethods ?? {}).map(([name, m]) => [
           name,
           {
             params: Object.fromEntries(
-              Object.entries(m.params).map(([k, v]) => [
+              Object.entries(m.params ?? {}).map(([k, v]) => [
                 k,
                 { type: v.type.kind, required: v.required },
               ])
