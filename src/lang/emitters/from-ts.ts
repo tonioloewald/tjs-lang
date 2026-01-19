@@ -391,6 +391,23 @@ function typeToInfo(
       }
     }
 
+    case ts.SyntaxKind.IntersectionType: {
+      const intersectionType = type as ts.IntersectionTypeNode
+      // Flatten intersection into merged object shape
+      const mergedShape: Record<string, TypeInfo> = {}
+      for (const member of intersectionType.types) {
+        const memberInfo = typeToInfo(member, ctx)
+        if (memberInfo.kind === 'object' && memberInfo.shape) {
+          Object.assign(mergedShape, memberInfo.shape)
+        }
+      }
+      if (Object.keys(mergedShape).length > 0) {
+        return { kind: 'object', shape: mergedShape }
+      }
+      // If no object shapes found, treat as any
+      return { kind: 'any' }
+    }
+
     case ts.SyntaxKind.TypeReference: {
       const typeRef = type as ts.TypeReferenceNode
       const typeName = typeRef.typeName.getText()

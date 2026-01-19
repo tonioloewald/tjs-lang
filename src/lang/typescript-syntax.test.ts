@@ -447,22 +447,30 @@ describe('Destructured Parameters', () => {
     expect(code).toContain('function greet')
   })
 
-  test.todo('object destructuring with inline type - NOT YET SUPPORTED', () => {
+  test('object destructuring with inline type', () => {
     const { types } = fromTS(`
       function greet({ name, age }: { name: string; age: number }): string {
         return 'Hello, ' + name
       }
     `)
     expect(types?.greet).toBeDefined()
+    // The param name is the destructuring pattern text
+    const paramKey = Object.keys(types!.greet.params)[0]
+    expect(types?.greet.params[paramKey].type.kind).toBe('object')
+    expect(types?.greet.params[paramKey].type.shape?.name.kind).toBe('string')
+    expect(types?.greet.params[paramKey].type.shape?.age.kind).toBe('number')
   })
 
-  test.todo('array destructuring with type - NOT YET SUPPORTED', () => {
+  test('array destructuring with type', () => {
     const { types } = fromTS(`
       function first([head, ...tail]: number[]): number {
         return head
       }
     `)
     expect(types?.first).toBeDefined()
+    const paramKey = Object.keys(types!.first.params)[0]
+    expect(types?.first.params[paramKey].type.kind).toBe('array')
+    expect(types?.first.params[paramKey].type.items?.kind).toBe('number')
   })
 })
 
@@ -506,7 +514,7 @@ describe('Tuple Types', () => {
 
 describe('Intersection Types', () => {
   test.todo('intersection with & in TJS - NOT YET SUPPORTED', () => {
-    // Intersection types need parser support
+    // Intersection types need parser support in the TJS parser
     const { metadata } = transpileToJS(`
       function merge(a: { x: 0 } & { y: 0 }) {
         return a.x + a.y
@@ -515,14 +523,16 @@ describe('Intersection Types', () => {
     expect(metadata.params.a.type.kind).toBe('object')
   })
 
-  test('intersection in fromTS', () => {
+  test('intersection in fromTS flattens to object', () => {
     const { types } = fromTS(`
       function merge(obj: { x: number } & { y: number }): number {
         return obj.x + obj.y
       }
     `)
-    // Intersection should be flattened to object
-    expect(types?.merge.params.obj.type.kind).toBe('any') // may need improvement
+    // Intersection is flattened to object with merged properties
+    expect(types?.merge.params.obj.type.kind).toBe('object')
+    expect(types?.merge.params.obj.type.shape?.x.kind).toBe('number')
+    expect(types?.merge.params.obj.type.shape?.y.kind).toBe('number')
   })
 })
 
