@@ -48,6 +48,66 @@ function getMetadata(source: string): Record<string, any> | undefined {
   }
 }
 
+// Helper: get object name before a dot
+function getObjectBeforeDot(source: string, dotPos: number): string | null {
+  const before = source.slice(0, dotPos)
+  const match = before.match(/(\w+)\s*$/)
+  return match ? match[1] : null
+}
+
+// Curated property completions (simplified version of ajs-language.ts)
+const PROPERTY_COMPLETIONS: Record<string, Completion[]> = {
+  console: [
+    { label: 'log', type: 'method', detail: '(...args: any[]) -> void' },
+    { label: 'error', type: 'method', detail: '(...args: any[]) -> void' },
+    { label: 'warn', type: 'method', detail: '(...args: any[]) -> void' },
+    { label: 'info', type: 'method', detail: '(...args: any[]) -> void' },
+    { label: 'debug', type: 'method', detail: '(...args: any[]) -> void' },
+    { label: 'table', type: 'method', detail: '(data: any) -> void' },
+    { label: 'clear', type: 'method', detail: '() -> void' },
+  ],
+  Math: [
+    { label: 'floor', type: 'method', detail: '(x: number) -> number' },
+    { label: 'ceil', type: 'method', detail: '(x: number) -> number' },
+    { label: 'round', type: 'method', detail: '(x: number) -> number' },
+    { label: 'abs', type: 'method', detail: '(x: number) -> number' },
+    { label: 'min', type: 'method', detail: '(...values: number[]) -> number' },
+    { label: 'max', type: 'method', detail: '(...values: number[]) -> number' },
+    { label: 'sqrt', type: 'method', detail: '(x: number) -> number' },
+    { label: 'pow', type: 'method', detail: '(base, exp) -> number' },
+    { label: 'random', type: 'method', detail: '() -> number' },
+    { label: 'PI', type: 'property', detail: 'number' },
+    { label: 'E', type: 'property', detail: 'number' },
+  ],
+  JSON: [
+    { label: 'parse', type: 'method', detail: '(text: string) -> any' },
+    { label: 'stringify', type: 'method', detail: '(value: any) -> string' },
+  ],
+  Object: [
+    { label: 'keys', type: 'method', detail: '(obj: object) -> string[]' },
+    { label: 'values', type: 'method', detail: '(obj: object) -> any[]' },
+    {
+      label: 'entries',
+      type: 'method',
+      detail: '(obj: object) -> [string, any][]',
+    },
+    {
+      label: 'assign',
+      type: 'method',
+      detail: '(target, ...sources) -> object',
+    },
+  ],
+  Array: [
+    { label: 'isArray', type: 'method', detail: '(value: any) -> boolean' },
+    { label: 'from', type: 'method', detail: '(iterable) -> any[]' },
+  ],
+}
+
+// Helper: get property completions for an object
+function getPropertyCompletions(objName: string): Completion[] {
+  return PROPERTY_COMPLETIONS[objName] || []
+}
+
 // Simplified completion logic for testing (mirrors ajs-language.ts)
 function getCompletions(ctx: CompletionContext): Completion[] {
   const { source, position, metadata } = ctx
@@ -78,6 +138,12 @@ function getCompletions(ctx: CompletionContext): Completion[] {
         { label: 'toBeTruthy', type: 'method', detail: '()' },
         { label: 'toBeFalsy', type: 'method', detail: '()' },
       ]
+    } else {
+      // Property completions for known globals
+      const objName = getObjectBeforeDot(source, wordStart - 1)
+      if (objName) {
+        completions = getPropertyCompletions(objName)
+      }
     }
   }
   // After : - type context
@@ -297,6 +363,63 @@ const after = 2
       expect(completions.every((c) => c.label.startsWith('toB'))).toBe(true)
       expect(completions.some((c) => c.label === 'toBe')).toBe(true)
       expect(completions.some((c) => c.label === 'toBeTruthy')).toBe(true)
+    })
+  })
+
+  describe('Property completions (after object.)', () => {
+    it('suggests console methods after console.', () => {
+      const { source, position } = parseSource('console.|')
+      const completions = getCompletions({ source, position })
+
+      expect(completions.some((c) => c.label === 'log')).toBe(true)
+      expect(completions.some((c) => c.label === 'error')).toBe(true)
+      expect(completions.some((c) => c.label === 'warn')).toBe(true)
+      expect(completions.every((c) => c.type === 'method')).toBe(true)
+    })
+
+    it('suggests Math methods and constants after Math.', () => {
+      const { source, position } = parseSource('Math.|')
+      const completions = getCompletions({ source, position })
+
+      expect(completions.some((c) => c.label === 'floor')).toBe(true)
+      expect(completions.some((c) => c.label === 'ceil')).toBe(true)
+      expect(completions.some((c) => c.label === 'random')).toBe(true)
+      expect(
+        completions.some((c) => c.label === 'PI' && c.type === 'property')
+      ).toBe(true)
+    })
+
+    it('suggests JSON methods after JSON.', () => {
+      const { source, position } = parseSource('JSON.|')
+      const completions = getCompletions({ source, position })
+
+      expect(completions.some((c) => c.label === 'parse')).toBe(true)
+      expect(completions.some((c) => c.label === 'stringify')).toBe(true)
+    })
+
+    it('suggests Object methods after Object.', () => {
+      const { source, position } = parseSource('Object.|')
+      const completions = getCompletions({ source, position })
+
+      expect(completions.some((c) => c.label === 'keys')).toBe(true)
+      expect(completions.some((c) => c.label === 'values')).toBe(true)
+      expect(completions.some((c) => c.label === 'entries')).toBe(true)
+    })
+
+    it('filters property completions by prefix', () => {
+      const { source, position } = parseSource('console.lo|')
+      const completions = getCompletions({ source, position })
+
+      expect(completions.some((c) => c.label === 'log')).toBe(true)
+      // Should filter to only those starting with 'lo'
+      expect(completions.every((c) => c.label.startsWith('lo'))).toBe(true)
+    })
+
+    it('returns empty for unknown objects', () => {
+      const { source, position } = parseSource('unknownObj.|')
+      const completions = getCompletions({ source, position })
+
+      expect(completions.length).toBe(0)
     })
   })
 

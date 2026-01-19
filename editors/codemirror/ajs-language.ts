@@ -1055,9 +1055,6 @@ function tjsCompletionSource(config: AutocompleteConfig = {}) {
     const word = context.matchBefore(/[\w$]*/)
     if (!word) return null
 
-    // Don't complete in the middle of a word unless explicit
-    if (word.from === word.to && !context.explicit) return null
-
     const source = context.state.doc.toString()
     const pos = context.pos
 
@@ -1065,6 +1062,12 @@ function tjsCompletionSource(config: AutocompleteConfig = {}) {
     const lineStart = context.state.doc.lineAt(pos).from
     const lineBefore = source.slice(lineStart, word.from)
     const charBefore = source.slice(Math.max(0, word.from - 1), word.from)
+
+    // Don't complete in the middle of a word unless explicit,
+    // BUT always allow completion after a dot (for property access)
+    if (word.from === word.to && !context.explicit && charBefore !== '.') {
+      return null
+    }
 
     let options: CMCompletion[] = []
 
@@ -1159,6 +1162,7 @@ export function ajsEditorExtension(
     syntaxHighlighting(ajsHighlightStyle),
     autocompletion({
       override: [tjsCompletionSource(config.autocomplete || {})],
+      activateOnTyping: true,
     }),
   ]
 }

@@ -23,14 +23,71 @@
  */
 
 import { Component, ElementCreator } from 'tosijs'
-import { EditorView, basicSetup } from 'codemirror'
+import { EditorView, minimalSetup } from 'codemirror'
 import { EditorState, Extension, Compartment } from '@codemirror/state'
 import { javascript } from '@codemirror/lang-javascript'
 import { css } from '@codemirror/lang-css'
 import { html } from '@codemirror/lang-html'
 import { markdown } from '@codemirror/lang-markdown'
 import { oneDark } from '@codemirror/theme-one-dark'
+import {
+  lineNumbers,
+  highlightActiveLineGutter,
+  highlightSpecialChars,
+  drawSelection,
+  dropCursor,
+  rectangularSelection,
+  crosshairCursor,
+  highlightActiveLine,
+  keymap,
+} from '@codemirror/view'
+import {
+  foldGutter,
+  indentOnInput,
+  syntaxHighlighting,
+  defaultHighlightStyle,
+  bracketMatching,
+  foldKeymap,
+} from '@codemirror/language'
+import { history, defaultKeymap, historyKeymap } from '@codemirror/commands'
+import { highlightSelectionMatches, searchKeymap } from '@codemirror/search'
+import {
+  closeBrackets,
+  closeBracketsKeymap,
+  completionKeymap,
+} from '@codemirror/autocomplete'
+import { lintKeymap } from '@codemirror/lint'
 import { ajsEditorExtension, AutocompleteConfig } from './ajs-language'
+
+// Custom setup without autocompletion (we add our own via ajsEditorExtension)
+// Based on basicSetup but excludes autocompletion()
+const customSetup: Extension = [
+  lineNumbers(),
+  highlightActiveLineGutter(),
+  highlightSpecialChars(),
+  history(),
+  foldGutter(),
+  drawSelection(),
+  dropCursor(),
+  EditorState.allowMultipleSelections.of(true),
+  indentOnInput(),
+  syntaxHighlighting(defaultHighlightStyle, { fallback: true }),
+  bracketMatching(),
+  closeBrackets(),
+  rectangularSelection(),
+  crosshairCursor(),
+  highlightActiveLine(),
+  highlightSelectionMatches(),
+  keymap.of([
+    ...closeBracketsKeymap,
+    ...defaultKeymap,
+    ...searchKeymap,
+    ...historyKeymap,
+    ...foldKeymap,
+    ...completionKeymap,
+    ...lintKeymap,
+  ]),
+]
 
 // Note: Compartments must be per-instance, not module-level
 // Each editor needs its own compartments to avoid interference
@@ -190,7 +247,7 @@ export class CodeMirror extends Component {
     const startState = EditorState.create({
       doc: this._source,
       extensions: [
-        basicSetup,
+        customSetup,
         this.languageCompartment.of(
           getLanguageExtension(this.mode, this._autocompleteConfig)
         ),
