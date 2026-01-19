@@ -57,10 +57,68 @@ export function versionsCompatible(a: string, b: string): boolean {
 export interface TJSError {
   $error: true
   message: string
-  path?: string // e.g. "add.a" for param 'a' of function 'add'
+  /** Failure location - e.g., "greet.name" */
+  path?: string
+  /** Call stack in debug mode - e.g., ["main", "processUser", "greet.name"] */
+  stack?: string[]
   expected?: string
   actual?: string
   cause?: Error | TJSError
+  /** Source location for error reporting */
+  loc?: { start: number; end: number }
+}
+
+/**
+ * Runtime configuration
+ */
+export interface TJSConfig {
+  /** Enable debug mode - captures call stacks in errors */
+  debug?: boolean
+}
+
+/** Current runtime configuration */
+let config: TJSConfig = { debug: false }
+
+/** Current call stack (only tracked in debug mode) */
+const callStack: string[] = []
+
+/**
+ * Configure TJS runtime
+ */
+export function configure(options: TJSConfig): void {
+  config = { ...config, ...options }
+}
+
+/**
+ * Get current configuration
+ */
+export function getConfig(): TJSConfig {
+  return { ...config }
+}
+
+/**
+ * Push a function onto the call stack (debug mode only)
+ */
+export function pushStack(name: string): void {
+  if (config.debug) {
+    callStack.push(name)
+  }
+}
+
+/**
+ * Pop a function from the call stack (debug mode only)
+ */
+export function popStack(): void {
+  if (config.debug) {
+    callStack.pop()
+  }
+}
+
+/**
+ * Get current call stack snapshot
+ */
+export function getStack(): string[] {
+  return [...callStack]
 }
 
 /**
@@ -76,16 +134,28 @@ export function isError(value: unknown): value is TJSError {
 
 /**
  * Create a TJS error
+ * In debug mode, captures the current call stack
  */
 export function error(
   message: string,
   details?: Partial<Omit<TJSError, '$error' | 'message'>>
 ): TJSError {
-  return {
+  const err: TJSError = {
     $error: true,
     message,
     ...details,
   }
+
+  // In debug mode, capture the call stack
+  if (config.debug && callStack.length > 0) {
+    // Add the path to the stack if it exists
+    const fullStack = details?.path
+      ? [...callStack, details.path]
+      : [...callStack]
+    err.stack = fullStack
+  }
+
+  return err
 }
 
 /**
@@ -152,6 +222,14 @@ export function checkType(
 /** Type specifier - either a string name or a RuntimeType */
 type TypeSpec = string | { check: (v: unknown) => boolean; description: string }
 
+/** Parameter metadata with optional location */
+interface ParamMeta {
+  type: TypeSpec
+  required: boolean
+  default?: unknown
+  loc?: { start: number; end: number }
+}
+
 /**
  * Validate function arguments against __tjs metadata
  * Returns first error found, or null if all valid
@@ -159,10 +237,7 @@ type TypeSpec = string | { check: (v: unknown) => boolean; description: string }
 export function validateArgs(
   args: Record<string, unknown>,
   meta: {
-    params: Record<
-      string,
-      { type: TypeSpec; required: boolean; default?: unknown }
-    >
+    params: Record<string, ParamMeta>
   },
   funcName?: string
 ): TJSError | null {
@@ -180,6 +255,7 @@ export function validateArgs(
         path: funcName ? `${funcName}.${name}` : name,
         expected: expectedDesc,
         actual: 'undefined',
+        loc: param.loc,
       })
     }
 
@@ -192,7 +268,13 @@ export function validateArgs(
       param.type,
       funcName ? `${funcName}.${name}` : name
     )
-    if (typeError) return typeError
+    if (typeError) {
+      // Add location info if available
+      if (param.loc) {
+        typeError.loc = param.loc
+      }
+      return typeError
+    }
   }
 
   return null
@@ -230,22 +312,33 @@ export function wrap<T extends (...args: any[]) => any>(
       if (isError(value)) return value as ReturnType<T>
     }
 
-    // Validate types
-    const validationError = validateArgs(namedArgs, meta, fn.name)
-    if (validationError) return validationError as ReturnType<T>
+    // Push onto call stack in debug mode
+    pushStack(fn.name)
 
-    // Execute function
     try {
+      // Validate types
+      const validationError = validateArgs(namedArgs, meta, fn.name)
+      if (validationError) {
+        popStack()
+        return validationError as ReturnType<T>
+      }
+
+      // Execute function
       const result = fn.apply(this, args)
 
       // Check result type if specified
       if (meta.returns && !isError(result)) {
         const returnError = checkType(result, meta.returns.type, `${fn.name}()`)
-        if (returnError) return returnError as ReturnType<T>
+        if (returnError) {
+          popStack()
+          return returnError as ReturnType<T>
+        }
       }
 
+      popStack()
       return result
     } catch (e) {
+      popStack()
       // Convert thrown errors to TJS errors
       return error((e as Error).message || String(e), {
         path: fn.name,
@@ -274,6 +367,12 @@ export const runtime = {
   wrap,
   compareVersions,
   versionsCompatible,
+  // Debug mode
+  configure,
+  getConfig,
+  pushStack,
+  popStack,
+  getStack,
 }
 
 /**
