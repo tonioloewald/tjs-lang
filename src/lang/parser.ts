@@ -416,6 +416,27 @@ export function preprocess(source: string): {
             return param
           }
 
+          // Check for TS-style optional param: name?: type
+          // Transform to: name = type (optional, uses type as default example)
+          const optionalMatch = param.match(/^(\w+)\s*\?\s*:\s*(.+)$/)
+          if (optionalMatch) {
+            const [, name, type] = optionalMatch
+
+            // Check for duplicate parameter
+            if (seenParams.has(name)) {
+              throw new SyntaxError(
+                `Duplicate parameter name '${name}'`,
+                { line: 1, column: 0 },
+                originalSource
+              )
+            }
+            seenParams.add(name)
+            sawOptional = true
+
+            // Optional param - transform to default syntax
+            return `${name} = ${type}`
+          }
+
           // Check for colon shorthand: name: type (but not inside objects)
           // Only match if the colon is directly after an identifier at the start
           const colonMatch = param.match(/^(\w+)\s*:\s*(.+)$/)

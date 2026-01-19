@@ -184,14 +184,33 @@ describe('Optional Parameters', () => {
     expect(metadata.params.limit.required).toBe(false)
   })
 
-  test.todo('optional with ? syntax (TS style) - NOT YET SUPPORTED', () => {
-    // fromTS should handle this
+  test('optional with ? syntax (TS style) in TJS', () => {
+    const { metadata } = transpileToJS(`
+      function greet(name?: '') {
+        return 'Hello, ' + (name ?? 'World')
+      }
+    `)
+    expect(metadata.params.name.required).toBe(false)
+  })
+
+  test('optional with ? syntax in fromTS', () => {
     const { types } = fromTS(`
       function greet(name?: string): string {
         return 'Hello, ' + (name ?? 'World')
       }
     `)
     expect(types?.greet.params.name.required).toBe(false)
+  })
+
+  test('mixed required and optional with ? syntax', () => {
+    const { metadata } = transpileToJS(`
+      function config(host: '', port?: 3000, timeout?: 5000) {
+        return { host, port, timeout }
+      }
+    `)
+    expect(metadata.params.host.required).toBe(true)
+    expect(metadata.params.port.required).toBe(false)
+    expect(metadata.params.timeout.required).toBe(false)
   })
 })
 
