@@ -628,8 +628,9 @@ describe('Class Syntax', () => {
     ).toThrow(/class/i)
   })
 
-  // TODO: extract class methods and static methods via fromTS
-  // Planned: Component base class, Elements proxy
+  // ✅ Class metadata extraction implemented in fromTS (extractClassMetadata)
+  // See from-ts.test.ts for class metadata tests
+  // Future: Component base class, Elements proxy (see PLAN.md Section 18)
 })
 
 // =============================================================================
