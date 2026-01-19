@@ -69,18 +69,59 @@ export interface TJSError {
 }
 
 /**
+ * Safety levels for runtime validation
+ * - 'none': No validation unless explicitly forced with (?) or -?
+ * - 'inputs': Validate inputs only (default) - outputs only with explicit -> or -?
+ * - 'all': Validate both inputs and outputs unless explicitly skipped with (!) or -!
+ */
+export type SafetyLevel = 'none' | 'inputs' | 'all'
+
+/**
  * Runtime configuration
  */
 export interface TJSConfig {
   /** Enable debug mode - captures call stacks in errors */
   debug?: boolean
+  /** Safety level for validation (default: 'inputs') */
+  safety?: SafetyLevel
+  /** Require explicit return types (error if -> not specified) */
+  requireReturnTypes?: boolean
 }
 
 /** Current runtime configuration */
-let config: TJSConfig = { debug: false }
+let config: TJSConfig = {
+  debug: false,
+  safety: 'inputs',
+  requireReturnTypes: false,
+}
 
 /** Current call stack (only tracked in debug mode) */
 const callStack: string[] = []
+
+/** Unsafe mode depth - when > 0, skip validation in wrap() */
+let unsafeDepth = 0
+
+/**
+ * Enter unsafe mode - disables validation for all wrapped function calls
+ * Can be nested (uses depth counter)
+ */
+export function enterUnsafe(): void {
+  unsafeDepth++
+}
+
+/**
+ * Exit unsafe mode - re-enables validation when depth returns to 0
+ */
+export function exitUnsafe(): void {
+  if (unsafeDepth > 0) unsafeDepth--
+}
+
+/**
+ * Check if currently in unsafe mode
+ */
+export function isUnsafeMode(): boolean {
+  return unsafeDepth > 0
+}
 
 /**
  * Configure TJS runtime
@@ -281,6 +322,55 @@ export function validateArgs(
 }
 
 /**
+ * Function metadata with safety flags
+ */
+export interface FunctionMeta {
+  params: Record<string, any>
+  returns?: { type: any; safe?: boolean }
+  /** Function marked with (!) - never validate inputs */
+  unsafe?: boolean
+  /** Function marked with (?) - always validate inputs */
+  safe?: boolean
+  /** Return type marked with -! - never validate output */
+  unsafeReturn?: boolean
+  /** Return type marked with -? - always validate output */
+  safeReturn?: boolean
+}
+
+/**
+ * Determine if we should validate inputs for this call
+ */
+function shouldValidateInputs(meta: FunctionMeta): boolean {
+  // Per-function flags take precedence
+  if (meta.unsafe) return false
+  if (meta.safe) return true
+
+  // Block-level override
+  if (unsafeDepth > 0) return false
+
+  // Global safety level
+  return config.safety !== 'none'
+}
+
+/**
+ * Determine if we should validate outputs for this call
+ */
+function shouldValidateOutputs(meta: FunctionMeta): boolean {
+  // No return type declared = no validation
+  if (!meta.returns) return false
+
+  // Per-function return flags take precedence
+  if (meta.unsafeReturn) return false
+  if (meta.safeReturn) return true
+
+  // Block-level override
+  if (unsafeDepth > 0) return false
+
+  // Global safety level: 'all' validates outputs, others don't by default
+  return config.safety === 'all'
+}
+
+/**
  * Wrap a function with monadic type checking
  *
  * @param fn - The original function
@@ -289,97 +379,132 @@ export function validateArgs(
  */
 export function wrap<T extends (...args: any[]) => any>(
   fn: T,
-  meta: { params: Record<string, any>; returns?: any; unsafe?: boolean }
+  meta: FunctionMeta
 ): T {
-  // Skip wrapping for unsafe functions - return original
-  if (meta.unsafe) {
+  // Always attach metadata for introspection/autocomplete
+  ;(fn as any).__tjs = meta
+
+  // Determine if we need a wrapper at all
+  const needsWrapper =
+    // Has forced safety that requires validation
+    meta.safe ||
+    meta.safeReturn ||
+    // Global safety requires validation (and not explicitly unsafe)
+    (config.safety !== 'none' && !meta.unsafe) ||
+    // Has return type that might need validation
+    (meta.returns && config.safety === 'all' && !meta.unsafeReturn)
+
+  if (!needsWrapper) {
     return fn
   }
 
-  // Pre-compute param info at wrap time (not per-call)
+  // Pre-compute flags at wrap time
+  const hasReturns = !!meta.returns
+  const metaUnsafe = !!meta.unsafe
+  const metaSafe = !!meta.safe
+  const metaUnsafeReturn = !!meta.unsafeReturn
+  const metaSafeReturn = !!meta.safeReturn
   const paramEntries = Object.entries(meta.params)
   const paramCount = paramEntries.length
-  const hasReturns = !!meta.returns
   const funcName = fn.name
 
   const wrapped = function (this: any, ...args: Parameters<T>): ReturnType<T> {
+    // Fast path: inside unsafe block, skip all validation
+    if (unsafeDepth > 0) {
+      return fn.apply(this, args)
+    }
+
+    // Compute validation flags
+    const validateInputs = metaSafe || (!metaUnsafe && config.safety !== 'none')
+    const validateOutputs =
+      hasReturns &&
+      (metaSafeReturn || (!metaUnsafeReturn && config.safety === 'all'))
+
+    // Fast path: no validation needed
+    if (!validateInputs && !validateOutputs) {
+      return fn.apply(this, args)
+    }
+
     // Fast path: check for error as first arg
     if (args.length > 0 && isError(args[0])) {
       return args[0] as ReturnType<T>
     }
 
-    // Detect if single object arg (named params) vs positional
-    const isNamedCall =
-      args.length === 1 &&
-      typeof args[0] === 'object' &&
-      args[0] !== null &&
-      !Array.isArray(args[0])
+    // Input validation
+    if (validateInputs) {
+      // Detect if single object arg (named params) vs positional
+      const isNamedCall =
+        args.length === 1 &&
+        typeof args[0] === 'object' &&
+        args[0] !== null &&
+        !Array.isArray(args[0])
 
-    // Fast positional validation (avoids object allocation)
-    if (!isNamedCall) {
-      for (let i = 0; i < paramCount; i++) {
-        const [name, param] = paramEntries[i]
-        const value = args[i]
+      // Fast positional validation (avoids object allocation)
+      if (!isNamedCall) {
+        for (let i = 0; i < paramCount; i++) {
+          const [name, param] = paramEntries[i]
+          const value = args[i]
 
-        // Check for error propagation
-        if (isError(value)) return value as ReturnType<T>
+          // Check for error propagation
+          if (isError(value)) return value as ReturnType<T>
 
-        // Check required
-        if (param.required && value === undefined) {
-          return error(`Missing required parameter '${name}'`, {
-            path: funcName ? `${funcName}.${name}` : name,
-            expected:
-              typeof param.type === 'string'
-                ? param.type
-                : param.type?.description || 'value',
-            actual: 'undefined',
-            loc: param.loc,
-          }) as ReturnType<T>
-        }
+          // Check required
+          if (param.required && value === undefined) {
+            return error(`Missing required parameter '${name}'`, {
+              path: funcName ? `${funcName}.${name}` : name,
+              expected:
+                typeof param.type === 'string'
+                  ? param.type
+                  : param.type?.description || 'value',
+              actual: 'undefined',
+              loc: param.loc,
+            }) as ReturnType<T>
+          }
 
-        // Type check (skip undefined optional)
-        if (value !== undefined) {
-          const typeErr = checkType(
-            value,
-            param.type,
-            funcName ? `${funcName}.${name}` : name
-          )
-          if (typeErr) {
-            if (param.loc) typeErr.loc = param.loc
-            return typeErr as ReturnType<T>
+          // Type check (skip undefined optional)
+          if (value !== undefined) {
+            const typeErr = checkType(
+              value,
+              param.type,
+              funcName ? `${funcName}.${name}` : name
+            )
+            if (typeErr) {
+              if (param.loc) typeErr.loc = param.loc
+              return typeErr as ReturnType<T>
+            }
           }
         }
-      }
-    } else {
-      // Named args path (slower, but supports object destructuring)
-      const namedArgs = args[0] as Record<string, unknown>
-      for (let i = 0; i < paramCount; i++) {
-        const [name, param] = paramEntries[i]
-        const value = namedArgs[name]
+      } else {
+        // Named args path (slower, but supports object destructuring)
+        const namedArgs = args[0] as Record<string, unknown>
+        for (let i = 0; i < paramCount; i++) {
+          const [name, param] = paramEntries[i]
+          const value = namedArgs[name]
 
-        if (isError(value)) return value as ReturnType<T>
+          if (isError(value)) return value as ReturnType<T>
 
-        if (param.required && value === undefined) {
-          return error(`Missing required parameter '${name}'`, {
-            path: funcName ? `${funcName}.${name}` : name,
-            expected:
-              typeof param.type === 'string'
-                ? param.type
-                : param.type?.description || 'value',
-            actual: 'undefined',
-            loc: param.loc,
-          }) as ReturnType<T>
-        }
+          if (param.required && value === undefined) {
+            return error(`Missing required parameter '${name}'`, {
+              path: funcName ? `${funcName}.${name}` : name,
+              expected:
+                typeof param.type === 'string'
+                  ? param.type
+                  : param.type?.description || 'value',
+              actual: 'undefined',
+              loc: param.loc,
+            }) as ReturnType<T>
+          }
 
-        if (value !== undefined) {
-          const typeErr = checkType(
-            value,
-            param.type,
-            funcName ? `${funcName}.${name}` : name
-          )
-          if (typeErr) {
-            if (param.loc) typeErr.loc = param.loc
-            return typeErr as ReturnType<T>
+          if (value !== undefined) {
+            const typeErr = checkType(
+              value,
+              param.type,
+              funcName ? `${funcName}.${name}` : name
+            )
+            if (typeErr) {
+              if (param.loc) typeErr.loc = param.loc
+              return typeErr as ReturnType<T>
+            }
           }
         }
       }
@@ -392,8 +517,8 @@ export function wrap<T extends (...args: any[]) => any>(
       // Execute function
       const result = fn.apply(this, args)
 
-      // Check result type if specified
-      if (hasReturns && !isError(result)) {
+      // Output validation
+      if (validateOutputs && meta.returns && !isError(result)) {
         const returnError = checkType(
           result,
           meta.returns.type,
@@ -443,6 +568,10 @@ export const runtime = {
   pushStack,
   popStack,
   getStack,
+  // Unsafe mode
+  enterUnsafe,
+  exitUnsafe,
+  isUnsafeMode,
 }
 
 /**

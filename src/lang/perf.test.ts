@@ -18,6 +18,7 @@
 
 import { describe, it, expect } from 'bun:test'
 import { tjs, wrap, isError } from './index'
+import { configure, enterUnsafe, exitUnsafe } from './runtime'
 
 const ITERATIONS = 100_000
 
@@ -349,28 +350,26 @@ describe('TJS Performance', () => {
       expect(unsafeIntensive(INNER_LOOP)).toBe(expected)
     })
 
-    it('should measure error path overhead for unsafe', () => {
-      // TJS unsafe that throws
-      const unsafeResult = tjs(`
-        function unsafeThrow(x: 0) -> 0 {
-          unsafe {
+    it('should measure error path overhead for try block', () => {
+      // TJS try-without-catch converts exceptions to monadic errors
+      const tryResult = tjs(`
+        function tryThrow(x: 0) -> 0 {
+          try {
             if (x < 0) throw new Error('negative')
             return x
           }
         }
       `)
-      const unsafeThrow = new Function(
-        `${unsafeResult.code}; return unsafeThrow;`
-      )()
+      const tryThrow = new Function(`${tryResult.code}; return tryThrow;`)()
 
       // Measure success path
-      const successTime = benchmark('success', () => unsafeThrow(42))
+      const successTime = benchmark('success', () => tryThrow(42))
 
-      // Measure error path
-      const errorTime = benchmark('error', () => unsafeThrow(-1))
+      // Measure error path (try-without-catch returns monadic error)
+      const errorTime = benchmark('error', () => tryThrow(-1))
 
       console.log(
-        `\n  Unsafe error handling (${ITERATIONS.toLocaleString()} iterations):`
+        `\n  Try-without-catch error handling (${ITERATIONS.toLocaleString()} iterations):`
       )
       console.log(`    Success path: ${successTime.toFixed(2)}ms`)
       console.log(
@@ -380,8 +379,8 @@ describe('TJS Performance', () => {
       )
 
       // Sanity check
-      expect(unsafeThrow(42)).toBe(42)
-      const err = unsafeThrow(-1)
+      expect(tryThrow(42)).toBe(42)
+      const err = tryThrow(-1)
       expect(err.$error).toBe(true)
     })
   })
@@ -549,6 +548,231 @@ describe('TJS Performance', () => {
       expect(isError(errorResult)).toBe(true)
       expect(step2Called).toBe(0) // Never called due to error propagation
       expect(step3Called).toBe(0)
+    })
+  })
+
+  describe('Safety levels overhead', () => {
+    it('should compare all safety levels', () => {
+      // Plain function - baseline
+      const plain = (x: number) => x * 2
+
+      // Create wrapped functions for each test
+      const createWrapped = () =>
+        wrap((x: number) => x * 2, {
+          params: { x: { type: 'number', required: true } },
+          returns: { type: 'number' },
+        })
+
+      // Test safety: 'none'
+      configure({ safety: 'none' })
+      const wrappedNone = createWrapped()
+      const noneTime = benchmark('none', () => wrappedNone(5))
+
+      // Test safety: 'inputs'
+      configure({ safety: 'inputs' })
+      const wrappedInputs = createWrapped()
+      const inputsTime = benchmark('inputs', () => wrappedInputs(5))
+
+      // Test safety: 'all'
+      configure({ safety: 'all' })
+      const wrappedAll = createWrapped()
+      const allTime = benchmark('all', () => wrappedAll(5))
+
+      // Plain baseline
+      const plainTime = benchmark('plain', () => plain(5))
+
+      console.log(
+        `\n  Safety levels (${ITERATIONS.toLocaleString()} iterations):`
+      )
+      console.log(`    Plain:           ${plainTime.toFixed(2)}ms (baseline)`)
+      console.log(
+        `    safety: 'none':  ${noneTime.toFixed(2)}ms (${(
+          noneTime / plainTime
+        ).toFixed(2)}x)`
+      )
+      console.log(
+        `    safety: 'inputs': ${inputsTime.toFixed(2)}ms (${(
+          inputsTime / plainTime
+        ).toFixed(2)}x)`
+      )
+      console.log(
+        `    safety: 'all':   ${allTime.toFixed(2)}ms (${(
+          allTime / plainTime
+        ).toFixed(2)}x)`
+      )
+
+      // Reset to default
+      configure({ safety: 'inputs' })
+
+      // Sanity checks
+      expect(plain(5)).toBe(10)
+      expect(wrappedNone(5)).toBe(10)
+      expect(wrappedInputs(5)).toBe(10)
+      expect(wrappedAll(5)).toBe(10)
+    })
+
+    it('should measure unsafe block overhead', () => {
+      configure({ safety: 'inputs' })
+
+      const wrapped = wrap((x: number) => x * 2, {
+        params: { x: { type: 'number', required: true } },
+      })
+
+      const plain = (x: number) => x * 2
+
+      // Normal wrapped call
+      const wrappedTime = benchmark('wrapped', () => wrapped(5))
+
+      // Inside unsafe block
+      enterUnsafe()
+      const unsafeTime = benchmark('unsafe-block', () => wrapped(5))
+      exitUnsafe()
+
+      // Plain baseline
+      const plainTime = benchmark('plain', () => plain(5))
+
+      console.log(
+        `\n  unsafe {} block (${ITERATIONS.toLocaleString()} iterations):`
+      )
+      console.log(`    Plain:         ${plainTime.toFixed(2)}ms (baseline)`)
+      console.log(
+        `    Wrapped:       ${wrappedTime.toFixed(2)}ms (${(
+          wrappedTime / plainTime
+        ).toFixed(2)}x)`
+      )
+      console.log(
+        `    In unsafe {}:  ${unsafeTime.toFixed(2)}ms (${(
+          unsafeTime / plainTime
+        ).toFixed(2)}x)`
+      )
+
+      expect(wrapped(5)).toBe(10)
+    })
+
+    it('should measure per-function safety flags', () => {
+      configure({ safety: 'none' })
+
+      // Use the SAME base function to eliminate JIT variance
+      const baseFn = (x: number) => x * 2
+
+      // Normal function (no validation with safety: 'none')
+      const normal = wrap(baseFn, {
+        params: { x: { type: 'number', required: true } },
+      })
+
+      // Safe function (forces validation)
+      const safe = wrap(baseFn, {
+        params: { x: { type: 'number', required: true } },
+        safe: true,
+      })
+
+      // Unsafe function (skips validation) - returns baseFn itself
+      const unsafe = wrap(baseFn, {
+        params: { x: { type: 'number', required: true } },
+        unsafe: true,
+      })
+
+      // Verify unsafe returns the original function
+      expect(unsafe).toBe(baseFn)
+
+      // Warmup
+      for (let i = 0; i < 1000; i++) {
+        baseFn(5)
+        normal(5)
+        safe(5)
+      }
+
+      // Benchmark
+      const plainTime = benchmark('plain', () => baseFn(5))
+      const normalTime = benchmark('normal', () => normal(5))
+      const safeTime = benchmark('safe', () => safe(5))
+      // unsafe === baseFn, so this tests the same function
+      const unsafeTime = benchmark('unsafe', () => unsafe(5))
+
+      console.log(
+        `\n  Per-function flags with safety: 'none' (${ITERATIONS.toLocaleString()} iterations):`
+      )
+      console.log(`    Plain/(!):  ${plainTime.toFixed(2)}ms (baseline)`)
+      console.log(
+        `    Normal:    ${normalTime.toFixed(2)}ms (${(
+          normalTime / plainTime
+        ).toFixed(2)}x) - wrapped, follows global`
+      )
+      console.log(
+        `    (?) safe:  ${safeTime.toFixed(2)}ms (${(
+          safeTime / plainTime
+        ).toFixed(2)}x) - forces validation`
+      )
+      console.log(
+        `    Note: (!) unsafe returns original function, so it's identical to plain`
+      )
+
+      // Reset
+      configure({ safety: 'inputs' })
+
+      expect(normal(5)).toBe(10)
+      expect(safe(5)).toBe(10)
+      expect(unsafe(5)).toBe(10)
+    })
+
+    it('should measure inputs-only vs all validation', () => {
+      const plain = (x: number) => x * 2
+
+      // Inputs only (default)
+      configure({ safety: 'inputs' })
+      const inputsOnly = wrap((x: number) => x * 2, {
+        params: { x: { type: 'number', required: true } },
+        returns: { type: 'number' },
+      })
+
+      // All validation
+      configure({ safety: 'all' })
+      const allValidation = wrap((x: number) => x * 2, {
+        params: { x: { type: 'number', required: true } },
+        returns: { type: 'number' },
+      })
+
+      // Force output validation with -?
+      configure({ safety: 'inputs' })
+      const safeReturn = wrap((x: number) => x * 2, {
+        params: { x: { type: 'number', required: true } },
+        returns: { type: 'number' },
+        safeReturn: true,
+      })
+
+      const plainTime = benchmark('plain', () => plain(5))
+      const inputsTime = benchmark('inputs', () => inputsOnly(5))
+      const allTime = benchmark('all', () => allValidation(5))
+      const safeReturnTime = benchmark('safeReturn', () => safeReturn(5))
+
+      console.log(
+        `\n  Input vs Output validation (${ITERATIONS.toLocaleString()} iterations):`
+      )
+      console.log(
+        `    Plain:              ${plainTime.toFixed(2)}ms (baseline)`
+      )
+      console.log(
+        `    Inputs only:        ${inputsTime.toFixed(2)}ms (${(
+          inputsTime / plainTime
+        ).toFixed(2)}x)`
+      )
+      console.log(
+        `    Inputs + outputs:   ${allTime.toFixed(2)}ms (${(
+          allTime / plainTime
+        ).toFixed(2)}x)`
+      )
+      console.log(
+        `    -? (force output):  ${safeReturnTime.toFixed(2)}ms (${(
+          safeReturnTime / plainTime
+        ).toFixed(2)}x)`
+      )
+
+      // Reset
+      configure({ safety: 'inputs' })
+
+      expect(inputsOnly(5)).toBe(10)
+      expect(allValidation(5)).toBe(10)
+      expect(safeReturn(5)).toBe(10)
     })
   })
 })

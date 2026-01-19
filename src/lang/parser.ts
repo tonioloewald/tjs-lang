@@ -18,6 +18,38 @@ export interface ParseOptions {
 }
 
 /**
+ * A WASM block extracted from source
+ *
+ * Simple form (body is both WASM source and JS fallback):
+ *   wasm {
+ *     for (let i = 0; i < arr.length; i++) { arr[i] *= 2 }
+ *   }
+ *
+ * With explicit fallback (when WASM and JS need different code):
+ *   wasm {
+ *     // WASM-optimized path
+ *   } fallback {
+ *     // JS fallback using different approach
+ *   }
+ *
+ * Variables are captured from scope automatically.
+ */
+export interface WasmBlock {
+  /** Unique ID for this block */
+  id: string
+  /** The body (JS subset that compiles to WASM, also used as fallback) */
+  body: string
+  /** Explicit fallback body (only if different from body) */
+  fallback?: string
+  /** Variables captured from enclosing scope (auto-detected) */
+  captures: string[]
+  /** Start position in original source */
+  start: number
+  /** End position in original source */
+  end: number
+}
+
+/**
  * Preprocess source to handle custom syntax extensions
  *
  * Transforms:
@@ -32,14 +64,35 @@ export interface ParseOptions {
 export function preprocess(source: string): {
   source: string
   returnType?: string
+  returnSafety?: 'safe' | 'unsafe'
+  moduleSafety?: 'none' | 'inputs' | 'all'
   originalSource: string
   requiredParams: Set<string>
   unsafeFunctions: Set<string>
+  safeFunctions: Set<string>
+  wasmBlocks: WasmBlock[]
 } {
   const originalSource = source
   let returnType: string | undefined
+  let returnSafety: 'safe' | 'unsafe' | undefined
+  let moduleSafety: 'none' | 'inputs' | 'all' | undefined
   const requiredParams = new Set<string>()
   const unsafeFunctions = new Set<string>()
+  const safeFunctions = new Set<string>()
+
+  // Handle module-level safety directive: safety none | safety inputs | safety all
+  // Must be at the start of the file (possibly after comments/whitespace)
+  const safetyMatch = source.match(
+    /^(\s*(?:\/\/[^\n]*\n|\/\*[\s\S]*?\*\/\s*)*)\s*safety\s+(none|inputs|all)\b/
+  )
+  if (safetyMatch) {
+    moduleSafety = safetyMatch[2] as 'none' | 'inputs' | 'all'
+    // Remove the directive from source
+    source = source.replace(
+      /^(\s*(?:\/\/[^\n]*\n|\/\*[\s\S]*?\*\/\s*)*)\s*safety\s+(none|inputs|all)\s*/,
+      '$1'
+    )
+  }
 
   // Handle unsafe function marker: function foo(!) or function foo(! params)
   // The ! after ( marks the function as unsafe (no runtime type validation)
@@ -52,25 +105,51 @@ export function preprocess(source: string): {
     }
   )
 
+  // Handle safe function marker: function foo(?) or function foo(? params)
+  // The ? after ( marks the function as safe (always validate, even if global safety: 'none')
+  // Transform: function foo(? x: 'str') -> function foo(x: 'str') and track foo as safe
+  source = source.replace(
+    /function\s+(\w+)\s*\(\s*\?\s*/g,
+    (match, funcName) => {
+      safeFunctions.add(funcName)
+      return `function ${funcName}(`
+    }
+  )
+
   // Also handle arrow functions: (! params) => or (!) =>
   source = source.replace(/\(\s*!\s*([^)]*)\)\s*=>/g, (match, params) => {
     // Arrow functions are anonymous, mark via comment for now
     return `(/* unsafe */ ${params}) =>`
   })
 
-  // Handle return type annotation: ) -> Type {
+  // Also handle safe arrow functions: (? params) => or (?) =>
+  source = source.replace(/\(\s*\?\s*([^)]*)\)\s*=>/g, (match, params) => {
+    // Arrow functions are anonymous, mark via comment for now
+    return `(/* safe */ ${params}) =>`
+  })
+
+  // Handle return type annotation: ) -> Type {  or  ) -? Type {  or  ) -! Type {
   // Match balanced braces for object types
   // NOTE: We capture the FIRST return type for the main function (for single-function analysis)
-  // but we globally remove ALL -> Type patterns for multi-function files
+  // but we globally remove ALL -> / -? / -! Type patterns for multi-function files
+  // -? means force output validation (safeReturn)
+  // -! means skip output validation (unsafeReturn)
+  // -> means use global safety setting
   const returnTypeMatch = source.match(
-    /\)\s*->\s*(\{[\s\S]*?\}|\[[^\]]*\]|'[^']*'|\d+|true|false|null|undefined)\s*\{(?!\s*\w+:)/
+    /\)\s*(-[>?!])\s*(\{[\s\S]*?\}|\[[^\]]*\]|'[^']*'|\d+|true|false|null|undefined)\s*\{(?!\s*\w+:)/
   )
   if (returnTypeMatch) {
-    returnType = returnTypeMatch[1]
+    const arrow = returnTypeMatch[1]
+    returnType = returnTypeMatch[2]
+    if (arrow === '-?') {
+      returnSafety = 'safe'
+    } else if (arrow === '-!') {
+      returnSafety = 'unsafe'
+    }
   }
-  // Remove ALL -> Type parts globally, keeping ) and {
+  // Remove ALL -> / -? / -! Type parts globally, keeping ) and {
   const returnTypePattern =
-    /\)\s*->\s*(?:\{[\s\S]*?\}|\[[^\]]*\]|'[^']*'|\d+|true|false|null|undefined)\s*(\{)(?!\s*\w+:)/g
+    /\)\s*-[>?!]\s*(?:\{[\s\S]*?\}|\[[^\]]*\]|'[^']*'|\d+|true|false|null|undefined)\s*(\{)(?!\s*\w+:)/g
   source = source.replace(returnTypePattern, ') $1')
 
   // Handle colon shorthand in parameters: (x: type) -> (x = type)
@@ -172,21 +251,37 @@ export function preprocess(source: string): {
     }
   )
 
-  // Handle unsafe blocks: unsafe { ... } -> try { ... } catch (e) { return AgentError }
-  // `unsafe` skips type checks (when we add runtime validation) and wraps in try-catch
-  // since unchecked code may throw unexpectedly
+  // Handle unsafe blocks: unsafe { ... } -> enterUnsafe(); try { ... } finally { exitUnsafe() }
+  // `unsafe` skips type checks for all wrapped function calls within the block
   source = transformUnsafeBlocks(source)
 
   // Handle try-without-catch: try { ... } (no catch/finally) -> monadic error handling
   // This is the idiomatic TJS way to convert exceptions to AgentError
   source = transformTryWithoutCatch(source)
 
-  return { source, returnType, originalSource, requiredParams, unsafeFunctions }
+  // Extract WASM blocks: wasm(args) { ... } fallback { ... }
+  const wasmBlocks = extractWasmBlocks(source)
+  source = wasmBlocks.source
+
+  return {
+    source,
+    returnType,
+    returnSafety,
+    moduleSafety,
+    originalSource,
+    requiredParams,
+    unsafeFunctions,
+    safeFunctions,
+    wasmBlocks: wasmBlocks.blocks,
+  }
 }
 
 /**
  * Transform unsafe blocks with proper brace matching
- * unsafe { ... } -> try { ... } catch (__unsafe_err) { return AgentError }
+ * unsafe { ... } -> globalThis.__tjs.enterUnsafe(); try { ... } finally { globalThis.__tjs.exitUnsafe() }
+ *
+ * This disables validation in all wrapped function calls within the block.
+ * No catch - errors propagate naturally (monadic or thrown).
  */
 function transformUnsafeBlocks(source: string): string {
   let result = ''
@@ -219,8 +314,8 @@ function transformUnsafeBlocks(source: string): string {
       // Extract the body (excluding the closing brace)
       const body = source.slice(bodyStart, j - 1)
 
-      // Replace with try-catch
-      result += `try {${body}} catch (__unsafe_err) { return { $error: true, message: 'unsafe block threw: ' + (__unsafe_err?.message || String(__unsafe_err)), op: 'unsafe', cause: __unsafe_err } }`
+      // Enter unsafe mode, run body, exit unsafe mode (finally ensures cleanup)
+      result += `globalThis.__tjs?.enterUnsafe?.(); try {${body}} finally { globalThis.__tjs?.exitUnsafe?.() }`
       i = j
     } else {
       result += source[i]
@@ -283,6 +378,275 @@ function transformTryWithoutCatch(source: string): string {
   }
 
   return result
+}
+
+/**
+ * Extract WASM blocks from source and replace with runtime dispatch code
+ *
+ * Simple form (body used as both WASM source and JS fallback):
+ *   wasm {
+ *     for (let i = 0; i < arr.length; i++) { arr[i] *= 2 }
+ *   }
+ *
+ * With explicit fallback (when you need different JS code):
+ *   wasm {
+ *     // WASM-optimized version
+ *   } fallback {
+ *     // Different JS implementation
+ *   }
+ *
+ * Output:
+ *   (globalThis.__tjs_wasm_0
+ *     ? globalThis.__tjs_wasm_0(captures...)
+ *     : (() => { body })())
+ *
+ * Variables are auto-captured from the body.
+ */
+function extractWasmBlocks(source: string): {
+  source: string
+  blocks: WasmBlock[]
+} {
+  const blocks: WasmBlock[] = []
+  let result = ''
+  let i = 0
+  let blockId = 0
+
+  while (i < source.length) {
+    // Look for 'wasm {' or 'wasm{' - simple block without params
+    const wasmMatch = source.slice(i).match(/^\bwasm\s*\{/)
+    if (wasmMatch) {
+      const matchStart = i
+
+      // Find the body
+      const bodyStart = i + wasmMatch[0].length
+      let braceDepth = 1
+      let j = bodyStart
+
+      while (j < source.length && braceDepth > 0) {
+        const char = source[j]
+        if (char === '{') braceDepth++
+        else if (char === '}') braceDepth--
+        j++
+      }
+
+      if (braceDepth !== 0) {
+        result += source[i]
+        i++
+        continue
+      }
+
+      const body = source.slice(bodyStart, j - 1)
+      let fallbackBody: string | undefined
+      let matchEnd = j
+
+      // Check for optional 'fallback {' block
+      const fallbackMatch = source.slice(j).match(/^\s*fallback\s*\{/)
+      if (fallbackMatch) {
+        const fallbackStart = j + fallbackMatch[0].length
+        braceDepth = 1
+        let k = fallbackStart
+
+        while (k < source.length && braceDepth > 0) {
+          const char = source[k]
+          if (char === '{') braceDepth++
+          else if (char === '}') braceDepth--
+          k++
+        }
+
+        if (braceDepth === 0) {
+          fallbackBody = source.slice(fallbackStart, k - 1)
+          matchEnd = k
+        }
+      }
+
+      // Auto-detect captured variables from the body
+      const captures = detectCaptures(body)
+
+      // Create the block record
+      const block: WasmBlock = {
+        id: `__tjs_wasm_${blockId}`,
+        body,
+        fallback: fallbackBody,
+        captures,
+        start: matchStart,
+        end: matchEnd,
+      }
+      blocks.push(block)
+
+      // Generate runtime dispatch code:
+      // The fallback is the body itself (or explicit fallback if provided)
+      const fallbackCode = fallbackBody ?? body
+      const captureArgs = captures.length > 0 ? captures.join(', ') : ''
+
+      // For WASM: pass captures as arguments
+      // For fallback: just run inline (captures are in scope)
+      const wasmCall =
+        captures.length > 0
+          ? `globalThis.${block.id}(${captureArgs})`
+          : `globalThis.${block.id}()`
+
+      const dispatch = `(globalThis.${block.id} ? ${wasmCall} : (() => {${fallbackCode}})())`
+
+      result += dispatch
+      i = matchEnd
+      blockId++
+    } else {
+      result += source[i]
+      i++
+    }
+  }
+
+  return { source: result, blocks }
+}
+
+/**
+ * Detect variables captured from enclosing scope
+ *
+ * Finds identifiers that are:
+ * - Used in the body
+ * - Not declared within the body (let, const, var, function params)
+ *
+ * This is a simple heuristic - a full implementation would use proper AST analysis
+ */
+function detectCaptures(body: string): string[] {
+  // Find all identifiers used in the body
+  const identifierPattern = /\b([a-zA-Z_$][a-zA-Z0-9_$]*)\b/g
+  const allIdentifiers = new Set<string>()
+  let match
+  while ((match = identifierPattern.exec(body)) !== null) {
+    allIdentifiers.add(match[1])
+  }
+
+  // Find identifiers declared in the body
+  const declared = new Set<string>()
+
+  // let/const/var declarations
+  const declPattern = /\b(?:let|const|var)\s+([a-zA-Z_$][a-zA-Z0-9_$]*)/g
+  while ((match = declPattern.exec(body)) !== null) {
+    declared.add(match[1])
+  }
+
+  // for loop variables: for (let i = ...)
+  const forPattern =
+    /\bfor\s*\(\s*(?:let|const|var)\s+([a-zA-Z_$][a-zA-Z0-9_$]*)/g
+  while ((match = forPattern.exec(body)) !== null) {
+    declared.add(match[1])
+  }
+
+  // function declarations and parameters would go here for full impl
+
+  // JS keywords and builtins to exclude
+  const reserved = new Set([
+    'if',
+    'else',
+    'for',
+    'while',
+    'do',
+    'switch',
+    'case',
+    'break',
+    'continue',
+    'return',
+    'function',
+    'let',
+    'const',
+    'var',
+    'new',
+    'this',
+    'true',
+    'false',
+    'null',
+    'undefined',
+    'typeof',
+    'instanceof',
+    'in',
+    'of',
+    'try',
+    'catch',
+    'finally',
+    'throw',
+    'async',
+    'await',
+    'class',
+    'extends',
+    'super',
+    'import',
+    'export',
+    'default',
+    'from',
+    'as',
+    'static',
+    'get',
+    'set',
+    'yield',
+    // Common globals
+    'console',
+    'Math',
+    'Array',
+    'Object',
+    'String',
+    'Number',
+    'Boolean',
+    'Date',
+    'JSON',
+    'Promise',
+    'Map',
+    'Set',
+    'WeakMap',
+    'WeakSet',
+    'Float32Array',
+    'Float64Array',
+    'Int8Array',
+    'Int16Array',
+    'Int32Array',
+    'Uint8Array',
+    'Uint16Array',
+    'Uint32Array',
+    'BigInt64Array',
+    'BigUint64Array',
+    'ArrayBuffer',
+    'DataView',
+    'Error',
+    'TypeError',
+    'RangeError',
+    'length',
+    'push',
+    'pop',
+    'shift',
+    'unshift',
+    'slice',
+    'splice',
+    'map',
+    'filter',
+    'reduce',
+    'forEach',
+    'find',
+    'findIndex',
+    'indexOf',
+    'includes',
+    'globalThis',
+    'window',
+    'document',
+    'Infinity',
+    'NaN',
+    'isNaN',
+    'isFinite',
+    'parseInt',
+    'parseFloat',
+    'encodeURI',
+    'decodeURI',
+    'eval',
+  ])
+
+  // Return identifiers that are used but not declared or reserved
+  const captures: string[] = []
+  for (const id of allIdentifiers) {
+    if (!declared.has(id) && !reserved.has(id)) {
+      captures.push(id)
+    }
+  }
+
+  return captures.sort()
 }
 
 /**
@@ -365,9 +729,13 @@ export function parse(
 ): {
   ast: Program
   returnType?: string
+  returnSafety?: 'safe' | 'unsafe'
+  moduleSafety?: 'none' | 'inputs' | 'all'
   originalSource: string
   requiredParams: Set<string>
   unsafeFunctions: Set<string>
+  safeFunctions: Set<string>
+  wasmBlocks: WasmBlock[]
 } {
   const { filename = '<source>', colonShorthand = true } = options
 
@@ -375,17 +743,25 @@ export function parse(
   const {
     source: processedSource,
     returnType,
+    returnSafety,
+    moduleSafety,
     originalSource,
     requiredParams,
     unsafeFunctions,
+    safeFunctions,
+    wasmBlocks,
   } = colonShorthand
     ? preprocess(source)
     : {
         source,
         returnType: undefined,
+        returnSafety: undefined,
+        moduleSafety: undefined,
         originalSource: source,
         requiredParams: new Set<string>(),
         unsafeFunctions: new Set<string>(),
+        safeFunctions: new Set<string>(),
+        wasmBlocks: [] as WasmBlock[],
       }
 
   try {
@@ -396,7 +772,17 @@ export function parse(
       allowReturnOutsideFunction: false,
     })
 
-    return { ast, returnType, originalSource, requiredParams, unsafeFunctions }
+    return {
+      ast,
+      returnType,
+      returnSafety,
+      moduleSafety,
+      originalSource,
+      requiredParams,
+      unsafeFunctions,
+      safeFunctions,
+      wasmBlocks,
+    }
   } catch (e: any) {
     // Convert Acorn error to our error type
     const loc = e.loc || { line: 1, column: 0 }

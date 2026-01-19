@@ -140,17 +140,35 @@ export async function resolveModule(specifier: string): Promise<string> {
 
 /**
  * Resolve all imports in source code and return import map
+ * Checks local module store first, then falls back to CDN
  */
 export async function resolveImports(source: string): Promise<{
   importMap: { imports: Record<string, string> }
   errors: string[]
+  localModules: string[]
 }> {
   const specifiers = extractImports(source)
   const errors: string[] = []
   const imports: Record<string, string> = {}
+  const localModules: string[] = []
+
+  // Lazy import to avoid circular deps
+  const { resolveLocalImports } = await import('./module-store')
+
+  // First, resolve local modules
+  try {
+    const localImports = await resolveLocalImports(specifiers)
+    Object.assign(imports, localImports)
+    localModules.push(...Object.keys(localImports))
+  } catch (error: any) {
+    errors.push(error.message)
+  }
+
+  // Then resolve remaining from CDN
+  const remaining = specifiers.filter((s) => !localModules.includes(s))
 
   await Promise.all(
-    specifiers.map(async (specifier) => {
+    remaining.map(async (specifier) => {
       try {
         imports[specifier] = await resolveModule(specifier)
       } catch (error: any) {
@@ -159,7 +177,7 @@ export async function resolveImports(source: string): Promise<{
     })
   )
 
-  return { importMap: { imports }, errors }
+  return { importMap: { imports }, errors, localModules }
 }
 
 /**

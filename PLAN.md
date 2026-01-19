@@ -6,6 +6,239 @@ TJS is a practical language that targets multiple runtimes. The type system is _
 
 The runtime is JavaScript today, but it's _our_ JavaScript - the sandboxed expression evaluator, the fuel-metered VM. When we target LLVM or SwiftUI, we compile our AST, not arbitrary JS.
 
+---
+
+## Executive Summary
+
+TJS delivers **runtime type safety with near-zero overhead**. The key insight: single structured arguments enable inline validation that's 20x faster than schema interpretation.
+
+### The Performance Story
+
+| Mode | Overhead | Use Case |
+|------|----------|----------|
+| `safety none` | **1.0x** | Production - metadata only, no wrappers |
+| `safety inputs` | **~1.5x** | Production with validation (single-arg objects) |
+| `safety inputs` | ~11x | Multi-arg functions (schema-based) |
+| `safety all` | ~14x | Debug - validates inputs and outputs |
+| `(!) unsafe` | **1.0x** | Hot paths - explicit opt-out |
+| WASM blocks | **<1.0x** | Heavy computation - faster than JS |
+
+**The happy path**: Single structured argument + inline validation = **1.5x overhead** with full runtime type checking.
+
+### Why Single-Arg Objects Win
+
+```typescript
+// TJS: pleasant syntax, fast validation (1.5x)
+function createUser(input: { name: 'Alice', email: 'a@b.com', age: 30 }) {
+  return save(input)
+}
+
+// TypeScript: painful syntax, no runtime safety (1.0x but unsafe)
+function createUser({ name, email, age }: { name: string, email: string, age: number }) {
+  return save({ name, email, age })
+}
+```
+
+TJS generates inline type checks at transpile time:
+```javascript
+if (typeof input !== 'object' || input === null ||
+    typeof input.name !== 'string' ||
+    typeof input.email !== 'string' ||
+    typeof input.age !== 'number') {
+  return { $error: true, message: 'Invalid input', path: 'createUser.input' }
+}
+```
+
+No schema interpretation. JIT-friendly. **20x faster** than Zod/io-ts style validation.
+
+### What You Get
+
+- **Runtime safety in production** - 1.5x overhead is acceptable
+- **Autocomplete always works** - `__tjs` metadata attached regardless of safety
+- **Monadic errors** - type failures return error objects, not exceptions
+- **Escape hatches** - `(!)` for hot functions, `unsafe {}` for hot blocks
+- **WASM acceleration** - `wasm {}` blocks for compute-heavy code
+
+### The Design Alignment
+
+The idiomatic way to write TJS (single structured argument) is also the fastest way. Language design and performance goals are aligned - you don't have to choose between clean code and fast code.
+
+### Future: Compile to LLVM
+
+The AST is the source of truth. Today we emit JavaScript. Tomorrow:
+- LLVM IR for native binaries
+- Compete with Go and Rust on performance
+- Same type safety, same developer experience
+
+---
+
+## Technical Aspects
+
+### Performance
+
+**Runtime Validation Overhead:**
+```
+Plain function call:     0.5ms / 100K calls (baseline)
+safety: 'none':          0.5ms / 100K calls (~1.0x) - no wrapper
+safety: 'inputs':        0.8ms / 100K calls (~1.5x) - inline validation*
+safety: 'all':           7.0ms / 100K calls (~14x) - validates args + return
+
+* For single-arg object types (the happy path)
+  Multi-arg functions use schema-based validation (~11x)
+```
+
+**Why single-arg objects are fast:**
+```typescript
+// The happy path - single structured argument
+function process(input: { x: 0, y: 0, name: 'default' }) {
+  return input.x + input.y
+}
+
+// Generates inline type checks (20x faster than schema interpretation):
+if (typeof input !== 'object' || input === null ||
+    typeof input.x !== 'number' ||
+    typeof input.y !== 'number' ||
+    typeof input.name !== 'string') {
+  return { $error: true, message: 'Invalid input', path: 'process.input' }
+}
+```
+
+This makes `safety: 'inputs'` viable for **production** with single-arg patterns.
+
+**Why `safety: 'none'` is free:**
+- `wrap()` attaches `__tjs` metadata but returns original function
+- No wrapper function, no `fn.apply()`, no argument spreading
+- Introspection/autocomplete still works - metadata is always there
+
+**The `(!) unsafe` marker:**
+```typescript
+function hot(! x: number) -> number { return x * 2 }
+```
+- Returns original function even with `safety: inputs`
+- Use for hot paths where validation cost matters
+- Autocomplete still works (metadata attached)
+
+**WASM blocks:**
+```typescript
+function compute(x: 0, y: 0) {
+  const scale = 2
+  return wasm {
+    return x * y * scale  // Compiles to WebAssembly
+  }
+}
+// Variables (x, y, scale) captured automatically from scope
+// Same code runs as JS fallback if WASM unavailable
+```
+
+With explicit fallback (when WASM and JS need different code):
+```typescript
+function transform(arr: []) {
+  wasm {
+    for (let i = 0; i < arr.length; i++) { arr[i] *= 2 }
+  } fallback {
+    return arr.map(x => x * 2)  // Different JS implementation
+  }
+}
+```
+
+WASM compilation is implemented as a proof-of-concept:
+- Parser extracts `wasm { }` blocks with automatic variable capture
+- Compiler generates valid WebAssembly binary from the body
+- Runtime dispatches to WASM when available, body runs as JS fallback
+- Benchmark: ~1.3x faster than equivalent JS (varies by workload)
+
+The POC supports: arithmetic (+, -, *, /), captured variables, parentheses.
+Full implementation would add: loops, conditionals, typed arrays, memory access.
+
+### Debugging
+
+**Source locations in errors:**
+```typescript
+{
+  $error: true,
+  message: 'Expected string but got number',
+  path: 'greet.name',           // which parameter
+  loc: { start: 15, end: 29 },  // source position
+  stack: ['main', 'processUser', 'greet.name']  // call chain (debug mode)
+}
+```
+
+**Debug mode:**
+```typescript
+configure({ debug: true })
+// Errors now include full call stacks
+```
+
+**The `--debug` flag (planned):**
+- Functions know where they're defined
+- Errors include source file and line
+- No source maps needed - metadata is inline
+
+### For Human Coding
+
+**Intuitive syntax:**
+```typescript
+// Types ARE examples - self-documenting
+function greet(name: 'World', times: 3) -> string {
+  return (name + '!').repeat(times)
+}
+
+// Autocomplete shows: greet(name: string, times: number) -> string
+// With examples: greet('World', 3)
+```
+
+**Module-level safety:**
+```typescript
+safety none  // This module skips validation
+
+function hot(x: number) -> number {
+  return x * 2  // No wrapper, but autocomplete still works
+}
+```
+
+**Escape hatches:**
+```typescript
+// Per-function: skip validation for this function
+function critical(! data: object) { ... }
+
+// Per-block: skip validation for calls inside
+unsafe {
+  for (let i = 0; i < 1000000; i++) {
+    hot(i)  // No validation overhead
+  }
+}
+```
+
+### For Agent Coding
+
+**Introspectable functions:**
+```typescript
+greet.__tjs = {
+  params: { name: { type: 'string', required: true, example: 'World' } },
+  returns: { type: 'string' }
+}
+
+// Agents can read this to understand function signatures
+// LLMs can generate function call schemas automatically
+```
+
+**Monadic errors:**
+```typescript
+const result = riskyOperation()
+if (result.$error) {
+  // Error is a value, not an exception
+  // Agent can inspect and handle gracefully
+}
+```
+
+**Fuel metering:**
+```typescript
+// Agents run with fuel limits - can't run forever
+vm.run(agentCode, { fuel: 10000 })
+```
+
+---
+
 ## 1. Type() Builtin
 
 A new builtin for defining types with descriptions and runtime validation.
@@ -250,21 +483,21 @@ The AST is the source of truth. Targets are just emission strategies.
 | --- | ---------------------- | ------ | ---------------------------------------------- |
 | 1   | Type()                 | ⏳     | Integrated with runtime validation             |
 | 2   | target()               | ❌     | Conditional compilation                        |
-| 3   | Monadic Errors         | ⏳     | Have AgentError, need --debug/call stacks      |
+| 3   | Monadic Errors         | ✅     | AgentError with path, loc, debug call stacks   |
 | 4   | test() blocks          | ⏳     | Basic extraction exists                        |
 | 5   | Pragmatic natives      | ⏳     | Some constructor checks exist                  |
 | 6   | Multi-target           | ❌     | Future - JS only for now                       |
-| 7   | Safety flags           | ❌     | --allow-unsafe, --yolo                         |
-| 8   | Single-pass            | ⏳     | CLI exists, not unified                        |
-| 9   | Module system          | ❌     | Versioned imports                              |
-| 10  | Autocomplete           | ⏳     | Playground has some                            |
-| 11  | Eval()                 | ⏳     | Expression eval exists, not exposed            |
-| 12  | Function introspection | ⏳     | Metadata exists, source positions need --debug |
-| 13  | Generic()              | ❌     | Runtime-checkable generics                     |
-| 14  | Asymmetric get/set     | ❌     | Broader input, narrower output                 |
-| 15  | `==` that works        | ❌     | Structural equality + .Equals hook             |
-| 16  | Death to semicolons    | ❌     | Meaningful newlines                            |
-| 17  | WASM blocks            | ❌     | Performance-critical code                      |
+| 7   | Safety levels          | ✅     | none/inputs/all + (!)/(?) + unsafe {}          |
+| 8   | Module-level safety    | ✅     | `safety none` directive parsed and passed      |
+| 9   | Single-pass            | ⏳     | CLI exists, not unified                        |
+| 10  | Module system          | ❌     | Versioned imports                              |
+| 11  | Autocomplete           | ✅     | CodeMirror integration, globals, introspection |
+| 12  | Eval()                 | ⏳     | Expression eval exists, not exposed            |
+| 13  | Function introspection | ✅     | __tjs metadata with params, returns, examples  |
+| 14  | Generic()              | ❌     | Runtime-checkable generics                     |
+| 15  | Asymmetric get/set     | ❌     | Broader input, narrower output                 |
+| 16  | `==` that works        | ❌     | Structural equality + .Equals hook             |
+| 17  | WASM blocks            | ✅     | POC: parser + compiler for simple expressions  |
 
 ## Implementation Priority
 
@@ -709,34 +942,36 @@ The only code this breaks is pathological formatting that nobody writes intentio
 
 ## 17. Polyglot Blocks (WASM, Shaders, etc.)
 
-Target-specific code blocks with automatic translation and fallback:
+Target-specific code blocks with automatic variable capture and fallback:
 
 ```typescript
-// WASM for performance-critical path
-wasm(vertices: Float32Array, matrix: Float32Array) {
-  // Simple JS subset that compiles to WASM
-  for (let i = 0; i < vertices.length; i += 3) {
-    // matrix multiply...
+// WASM for performance-critical path - variables captured automatically
+function matmul(vertices: Float32Array, matrix: Float32Array) {
+  wasm {
+    for (let i = 0; i < vertices.length; i += 3) {
+      // matrix multiply using vertices and matrix from scope
+    }
   }
-} fallback {
-  // Pure TJS - runs if WASM unavailable
-  return vertices.map((v, i) => /* ... */)
+  // Body runs as JS if WASM unavailable
 }
 
-// GPU shader
-glShader(positions: Float32Array, colors: Float32Array) {
-  // GLSL-like subset
+// With explicit fallback when implementations differ:
+function transform(data: Float32Array) {
+  wasm {
+    // WASM-optimized in-place mutation
+    for (let i = 0; i < data.length; i++) { data[i] *= 2 }
+  } fallback {
+    // JS uses different approach
+    return data.map(x => x * 2)
+  }
+}
+
+// GPU shader (future)
+glShader {
   gl_Position = projection * view * vec4(position, 1.0)
   fragColor = color
 } fallback {
   // CPU fallback
-}
-
-// Metal for Apple platforms
-metal(texture: ImageData) {
-  // Metal shader subset
-} fallback {
-  // Canvas 2D fallback
 }
 
 // Debug-only code (stripped in production)

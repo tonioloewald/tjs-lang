@@ -273,11 +273,122 @@ export class TJSPlayground extends Component<TJSPlaygroundParts> {
         this.functionMetadata[result.metadata.name] = result.metadata
       }
     } catch (e: any) {
-      this.parts.jsOutput.textContent = `// Error: ${e.message}`
-      this.parts.statusBar.textContent = `Error: ${e.message}`
+      // Format error with location info if available
+      const errorInfo = this.formatTranspileError(e, source)
+      this.parts.jsOutput.textContent = errorInfo.detailed
+      this.parts.statusBar.textContent = errorInfo.short
       this.parts.statusBar.classList.add('error')
       this.lastTranspileResult = null
     }
+  }
+
+  /**
+   * Format transpile error with helpful context
+   */
+  private formatTranspileError = (
+    e: any,
+    source: string
+  ): { short: string; detailed: string } => {
+    const lines = source.split('\n')
+    const line = e.line ?? 1
+    const column = e.column ?? 0
+    const message = e.message || String(e)
+
+    // Short version for status bar
+    const short = e.line
+      ? `Error at line ${line}: ${message}`
+      : `Error: ${message}`
+
+    // Detailed version with code context
+    const detailedLines = ['// Transpilation Error', '// ' + '='.repeat(50), '']
+
+    // Add the error message
+    detailedLines.push(`// ${message}`)
+    if (e.line) {
+      detailedLines.push(`// at line ${line}, column ${column}`)
+    }
+    detailedLines.push('')
+
+    // Show code context (3 lines before and after)
+    if (e.line && lines.length > 0) {
+      detailedLines.push('// Code context:')
+      const start = Math.max(0, line - 3)
+      const end = Math.min(lines.length, line + 2)
+
+      for (let i = start; i < end; i++) {
+        const lineNum = i + 1
+        const prefix = lineNum === line ? '>> ' : '   '
+        const lineContent = lines[i] ?? ''
+        detailedLines.push(
+          `// ${prefix}${lineNum.toString().padStart(3)}: ${lineContent}`
+        )
+
+        // Show caret pointing to error column
+        if (lineNum === line && column > 0) {
+          const caretPos = 10 + column // account for prefix
+          detailedLines.push('// ' + ' '.repeat(caretPos) + '^')
+        }
+      }
+    }
+
+    // Add suggestions based on common errors
+    const suggestions = this.getSuggestions(message, source)
+    if (suggestions.length > 0) {
+      detailedLines.push('')
+      detailedLines.push('// Suggestions:')
+      for (const suggestion of suggestions) {
+        detailedLines.push(`//   - ${suggestion}`)
+      }
+    }
+
+    return { short, detailed: detailedLines.join('\n') }
+  }
+
+  /**
+   * Get helpful suggestions based on error message
+   */
+  private getSuggestions = (message: string, source: string): string[] => {
+    const suggestions: string[] = []
+    const msg = message.toLowerCase()
+
+    if (msg.includes('unexpected token')) {
+      suggestions.push('Check for missing brackets, parentheses, or quotes')
+      suggestions.push('TJS uses : for type annotations, = for defaults')
+      if (source.includes('=>')) {
+        suggestions.push(
+          'Arrow functions are not supported - use function keyword'
+        )
+      }
+    }
+
+    if (msg.includes('unexpected identifier')) {
+      suggestions.push('Check for missing commas between parameters')
+      suggestions.push(
+        'Check for typos in keywords (function, return, if, while)'
+      )
+    }
+
+    if (msg.includes('unterminated string')) {
+      suggestions.push('Check for unmatched quotes')
+      suggestions.push('Template literals use backticks (`), not quotes')
+    }
+
+    if (msg.includes('imports are not supported')) {
+      suggestions.push('For TJS modules, imports work - this error is for AJS')
+      suggestions.push('Make sure the module exists in the store')
+    }
+
+    if (msg.includes('required parameter') && msg.includes('optional')) {
+      suggestions.push(
+        'Required parameters (name: type) must come before optional (name = default)'
+      )
+    }
+
+    if (msg.includes('duplicate parameter')) {
+      suggestions.push('Each parameter must have a unique name')
+    }
+
+    return suggestions
   }
 
   /**

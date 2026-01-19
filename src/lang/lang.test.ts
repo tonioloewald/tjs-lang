@@ -1123,7 +1123,7 @@ describe('Inline Tests', () => {
   it('should extract test blocks from source', () => {
     const result = extractTests(`
       function add(a, b) { return a + b }
-      
+
       test('adds numbers') {
         assert(add(2, 3) === 5)
       }
@@ -1136,7 +1136,7 @@ describe('Inline Tests', () => {
   it('should remove tests from output code', () => {
     const result = extractTests(`
       function add(a, b) { return a + b }
-      
+
       test('adds numbers') {
         assert(add(2, 3) === 5)
       }
@@ -1148,11 +1148,11 @@ describe('Inline Tests', () => {
   it('should extract multiple tests', () => {
     const result = extractTests(`
       function math(a, b) { return a + b }
-      
+
       test('adds') {
         assert(math(1, 2) === 3)
       }
-      
+
       test('handles zero') {
         assert(math(0, 5) === 5)
       }
@@ -1165,11 +1165,11 @@ describe('Inline Tests', () => {
   it('should extract mock blocks', () => {
     const result = extractTests(`
       function process(x) { return x }
-      
+
       mock {
         const testData = [1, 2, 3]
       }
-      
+
       test('uses mock') {
         assert(testData.length === 3)
       }
@@ -1181,7 +1181,7 @@ describe('Inline Tests', () => {
   it('should generate test runner code', () => {
     const result = extractTests(`
       function add(a, b) { return a + b }
-      
+
       test('works') {
         assert(add(1, 1) === 2)
       }
@@ -1194,7 +1194,7 @@ describe('Inline Tests', () => {
   it('should execute tests via concatenation', async () => {
     const result = extractTests(`
       function add(a, b) { return a + b }
-      
+
       test('adds correctly') {
         assert(add(2, 3) === 5)
       }
@@ -1211,11 +1211,11 @@ describe('Inline Tests', () => {
 
   it('should handle async tests', async () => {
     const result = extractTests(`
-      async function fetchData() { 
+      async function fetchData() {
         await Promise.resolve()
-        return 42 
+        return 42
       }
-      
+
       test('async works') {
         const val = await fetchData()
         assert(val === 42)
@@ -1233,7 +1233,7 @@ describe('Inline Tests', () => {
   it('should support expect().toBe() API', async () => {
     const result = extractTests(`
       function add(a, b) { return a + b }
-      
+
       test('expect API works') {
         expect(add(2, 3)).toBe(5)
         expect({ a: 1 }).toEqual({ a: 1 })
@@ -1251,7 +1251,7 @@ describe('Inline Tests', () => {
   it('should give meaningful error messages', async () => {
     const result = extractTests(`
       function getValue() { return 42 }
-      
+
       test('wrong value') {
         expect(getValue()).toBe(99)
       }
@@ -1488,7 +1488,7 @@ describe('Linter', () => {
 
 // unsafe block tests
 describe('unsafe blocks', () => {
-  it('should transform unsafe block to try-catch', () => {
+  it('should transform unsafe block to enterUnsafe/exitUnsafe', () => {
     const result = tjs(`
       function riskyOp(x: 0) -> 0 {
         unsafe {
@@ -1498,10 +1498,11 @@ describe('unsafe blocks', () => {
       }
     `)
 
+    // unsafe blocks now use enterUnsafe/exitUnsafe to disable validation
+    expect(result.code).toContain('enterUnsafe')
+    expect(result.code).toContain('exitUnsafe')
     expect(result.code).toContain('try {')
-    expect(result.code).toContain('catch (__unsafe_err)')
-    expect(result.code).toContain('$error: true')
-    expect(result.code).toContain("op: 'unsafe'")
+    expect(result.code).toContain('finally')
     expect(result.code).not.toContain('unsafe {')
   })
 
@@ -1518,7 +1519,7 @@ describe('unsafe blocks', () => {
     expect(fn()).toBe(10)
   })
 
-  it('should return error object on throw', () => {
+  it('should propagate errors (unsafe skips validation, not error handling)', () => {
     const result = tjs(`
       function mustBePositive(x: 0) -> 0 {
         unsafe {
@@ -1528,11 +1529,363 @@ describe('unsafe blocks', () => {
       }
     `)
 
+    // unsafe blocks don't catch errors - they just disable validation
+    // errors propagate normally (thrown)
     const fn = new Function(`${result.code}; return mustBePositive(-1);`)
-    const error = fn()
-    expect(error.$error).toBe(true)
-    expect(error.op).toBe('unsafe')
-    expect(error.message).toContain('must be positive')
-    expect(error.cause).toBeInstanceOf(Error)
+    expect(() => fn()).toThrow('must be positive')
+  })
+})
+
+// safety syntax tests
+describe('module-level safety directive', () => {
+  it('should parse safety none', () => {
+    const { preprocess } = require('./parser')
+    const result = preprocess(`safety none
+
+function greet(name: 'World') {
+  return 'Hello, ' + name
+}`)
+
+    expect(result.moduleSafety).toBe('none')
+    expect(result.source).not.toContain('safety none')
+    expect(result.source).toContain('function greet')
+  })
+
+  it('should parse safety inputs', () => {
+    const { preprocess } = require('./parser')
+    const result = preprocess(`safety inputs
+
+function greet(name: 'World') {
+  return 'Hello, ' + name
+}`)
+
+    expect(result.moduleSafety).toBe('inputs')
+  })
+
+  it('should parse safety all', () => {
+    const { preprocess } = require('./parser')
+    const result = preprocess(`safety all
+
+function greet(name: 'World') {
+  return 'Hello, ' + name
+}`)
+
+    expect(result.moduleSafety).toBe('all')
+  })
+
+  it('should allow comments before safety directive', () => {
+    const { preprocess } = require('./parser')
+    const result = preprocess(`// Module configuration
+/* Multi-line
+   comment */
+safety none
+
+function greet(name: 'World') {
+  return 'Hello, ' + name
+}`)
+
+    expect(result.moduleSafety).toBe('none')
+  })
+
+  it('should not match safety in wrong position', () => {
+    const { preprocess } = require('./parser')
+    const result = preprocess(`function greet(name: 'World') {
+  const safety = 'none'  // This is just a variable
+  return 'Hello, ' + name
+}`)
+
+    expect(result.moduleSafety).toBeUndefined()
+  })
+})
+
+describe('safe function syntax (?)', () => {
+  it('should parse (?) function marker', () => {
+    const result = tjs(`
+      function validated(? x: 0) -> 0 {
+        return x * 2
+      }
+    `)
+
+    expect(result.code).toContain('validated.__tjs')
+    expect(result.code).toContain('"safe": true')
+  })
+
+  it('should work with arrow functions', () => {
+    // Note: arrow function safe marker is converted to a comment for now
+    const { preprocess } = require('./parser')
+    const processed = preprocess('const fn = (? x) => x * 2')
+    expect(processed.source).toContain('/* safe */')
+  })
+})
+
+describe('return type safety arrows', () => {
+  it('should parse -> as normal return type', () => {
+    const result = tjs(`
+      function add(a: 0, b: 0) -> 0 {
+        return a + b
+      }
+    `)
+
+    expect(result.code).toContain('"returns"')
+    expect(result.code).not.toContain('"safeReturn"')
+    expect(result.code).not.toContain('"unsafeReturn"')
+  })
+
+  it('should parse -? as safe return (force output validation)', () => {
+    const result = tjs(`
+      function add(a: 0, b: 0) -? 0 {
+        return a + b
+      }
+    `)
+
+    expect(result.code).toContain('"returns"')
+    expect(result.code).toContain('"safeReturn": true')
+  })
+
+  it('should parse -! as unsafe return (skip output validation)', () => {
+    const result = tjs(`
+      function add(a: 0, b: 0) -! 0 {
+        return a + b
+      }
+    `)
+
+    expect(result.code).toContain('"returns"')
+    expect(result.code).toContain('"unsafeReturn": true')
+  })
+
+  it('should combine (?) with -? for fully safe function', () => {
+    const result = tjs(`
+      function critical(? x: 0) -? 0 {
+        return x * 2
+      }
+    `)
+
+    expect(result.code).toContain('"safe": true')
+    expect(result.code).toContain('"safeReturn": true')
+  })
+
+  it('should combine (!) with -! for fully unsafe function', () => {
+    const result = tjs(`
+      function fast(! x: 0) -! 0 {
+        return x * 2
+      }
+    `)
+
+    expect(result.code).toContain('"unsafe": true')
+    expect(result.code).toContain('"unsafeReturn": true')
+  })
+})
+
+describe('inline validation', () => {
+  it('should generate inline validation for single-arg object types', () => {
+    const result = tjs(`
+function process(input: { x: 0, y: 0, name: 'test' }) {
+  return input.x + input.y
+}`)
+
+    // Should have inline wrapper
+    expect(result.code).toContain('_original_process')
+    expect(result.code).toContain("typeof input !== 'object'")
+    expect(result.code).toContain("typeof input.x !== 'number'")
+    expect(result.code).toContain("typeof input.name !== 'string'")
+  })
+
+  it('should not generate inline wrapper for multi-arg functions', () => {
+    const result = tjs(`
+function add(x: 0, y: 0) {
+  return x + y
+}`)
+
+    // Should NOT have inline wrapper
+    expect(result.code).not.toContain('_original_add')
+    // But should have metadata
+    expect(result.code).toContain('add.__tjs')
+  })
+
+  it('should not generate inline wrapper for unsafe functions', () => {
+    const result = tjs(`
+function fast(! input: { x: 0 }) {
+  return input.x
+}`)
+
+    // Should NOT have inline wrapper (marked unsafe)
+    expect(result.code).not.toContain('_original_fast')
+  })
+
+  it('should validate correctly at runtime', () => {
+    const result = tjs(`
+function process(input: { x: 0, y: 0 }) {
+  return input.x + input.y
+}`)
+
+    const fn = new Function(`${result.code}; return process`)()
+
+    // Valid input
+    expect(fn({ x: 1, y: 2 })).toBe(3)
+
+    // Invalid type
+    const badType = fn({ x: 'bad', y: 2 })
+    expect(badType.$error).toBe(true)
+
+    // Missing field
+    const missing = fn({ x: 1 })
+    expect(missing.$error).toBe(true)
+
+    // Null input
+    const nullInput = fn(null)
+    expect(nullInput.$error).toBe(true)
+  })
+})
+
+describe('WASM blocks', () => {
+  it('should parse simple wasm block', () => {
+    const result = preprocess(`
+function double(arr: []) {
+  wasm {
+    for (let i = 0; i < arr.length; i++) {
+      arr[i] *= 2
+    }
+    return arr
+  }
+}`)
+
+    // Should have extracted the WASM block
+    expect(result.wasmBlocks.length).toBe(1)
+    expect(result.wasmBlocks[0].id).toBe('__tjs_wasm_0')
+    expect(result.wasmBlocks[0].body).toContain('arr[i] *= 2')
+    // arr should be auto-captured
+    expect(result.wasmBlocks[0].captures).toContain('arr')
+  })
+
+  it('should parse wasm block with explicit fallback', () => {
+    const result = preprocess(`
+function transform(data: []) {
+  return wasm {
+    return data
+  } fallback {
+    return data.slice()
+  }
+}`)
+
+    expect(result.wasmBlocks[0].body).toContain('return data')
+    expect(result.wasmBlocks[0].fallback).toContain('data.slice()')
+  })
+
+  it('should generate runtime dispatch code', () => {
+    const result = preprocess(`
+function transform(data: []) {
+  return wasm {
+    return data
+  }
+}`)
+
+    // Should replace wasm block with dispatch
+    expect(result.source).toContain('globalThis.__tjs_wasm_0')
+    expect(result.source).not.toContain('wasm {')
+  })
+
+  it('should auto-capture variables from scope', () => {
+    const result = preprocess(`
+function compute(x: 0, y: 0) {
+  const multiplier = 2
+  return wasm {
+    return x * y * multiplier
+  }
+}`)
+
+    // x, y, multiplier should be captured
+    expect(result.wasmBlocks[0].captures).toContain('x')
+    expect(result.wasmBlocks[0].captures).toContain('y')
+    expect(result.wasmBlocks[0].captures).toContain('multiplier')
+    // Dispatch should pass captures
+    expect(result.source).toContain('__tjs_wasm_0(multiplier, x, y)')
+  })
+
+  it('should not capture locally declared variables', () => {
+    const result = preprocess(`
+function loop(arr: []) {
+  wasm {
+    let sum = 0
+    for (let i = 0; i < arr.length; i++) {
+      sum += arr[i]
+    }
+    return sum
+  }
+}`)
+
+    // arr is captured, but sum and i are declared locally
+    expect(result.wasmBlocks[0].captures).toContain('arr')
+    expect(result.wasmBlocks[0].captures).not.toContain('sum')
+    expect(result.wasmBlocks[0].captures).not.toContain('i')
+  })
+
+  it('should handle multiple wasm blocks', () => {
+    const result = preprocess(`
+function process(a: [], b: []) {
+  const x = wasm {
+    return a
+  }
+
+  const y = wasm {
+    return b
+  }
+
+  return [x, y]
+}`)
+
+    expect(result.wasmBlocks.length).toBe(2)
+    expect(result.wasmBlocks[0].id).toBe('__tjs_wasm_0')
+    expect(result.wasmBlocks[1].id).toBe('__tjs_wasm_1')
+    expect(result.source).toContain('globalThis.__tjs_wasm_0')
+    expect(result.source).toContain('globalThis.__tjs_wasm_1')
+  })
+
+  it('should execute fallback when WASM not available', () => {
+    const result = tjs(`
+function double(x: 0, y: 0) {
+  return wasm {
+    return x * y + x
+  }
+}`)
+
+    // Execute with fallback (no WASM registered)
+    const fn = new Function(`${result.code}; return double(3, 4);`)
+    expect(fn()).toBe(15) // 3 * 4 + 3 = 15
+  })
+
+  it('should use WASM when available', () => {
+    const result = tjs(`
+function compute(a: 0, b: 0) {
+  return wasm {
+    return a + b
+  }
+}`)
+
+    // Register a mock WASM implementation
+    const code = `
+      globalThis.__tjs_wasm_0 = (a, b) => a * b * 100;
+      ${result.code}
+      const result = compute(3, 4);
+      delete globalThis.__tjs_wasm_0;
+      return result;
+    `
+    const fn = new Function(code)
+    // Should use the "WASM" version (our mock)
+    expect(fn()).toBe(1200) // 3 * 4 * 100
+  })
+
+  it('should use explicit fallback when provided', () => {
+    const result = tjs(`
+function transform(arr: []) {
+  return wasm {
+    return arr
+  } fallback {
+    return arr.map(x => x * 2)
+  }
+}`)
+
+    // Fallback should use the explicit fallback code
+    const fn = new Function(`${result.code}; return transform([1, 2, 3]);`)
+    expect(fn()).toEqual([2, 4, 6])
   })
 })

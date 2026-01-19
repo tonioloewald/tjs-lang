@@ -11,6 +11,9 @@ import {
   configure,
   getConfig,
   getStack,
+  enterUnsafe,
+  exitUnsafe,
+  isUnsafeMode,
   TJSError,
 } from './runtime'
 
@@ -265,6 +268,161 @@ describe('TJS Runtime - Monadic Errors', () => {
       const result = safeAdd('hello' as any, 'world' as any)
       expect(isError(result)).toBe(true)
       expect((result as TJSError).expected).toBe('number')
+    })
+  })
+
+  describe('unsafe mode (enterUnsafe/exitUnsafe)', () => {
+    it('disables validation when in unsafe mode', () => {
+      const double = wrap((x: number) => x * 2, {
+        params: { x: { type: 'number', required: true } },
+      })
+
+      // Outside unsafe mode - validates
+      expect(isError(double('bad' as any))).toBe(true)
+
+      // Enter unsafe mode
+      enterUnsafe()
+      try {
+        // Inside unsafe mode - skips validation, so 'bad' * 2 = NaN
+        const result = double('bad' as any)
+        expect(result).toBeNaN()
+      } finally {
+        exitUnsafe()
+      }
+
+      // Outside again - validates
+      expect(isError(double('bad' as any))).toBe(true)
+    })
+
+    it('handles nested unsafe blocks', () => {
+      const fn = wrap((x: number) => x, {
+        params: { x: { type: 'number', required: true } },
+      })
+
+      expect(isUnsafeMode()).toBe(false)
+
+      enterUnsafe()
+      expect(isUnsafeMode()).toBe(true)
+
+      enterUnsafe() // nested
+      expect(isUnsafeMode()).toBe(true)
+
+      exitUnsafe() // exit inner
+      expect(isUnsafeMode()).toBe(true) // still in outer
+
+      exitUnsafe() // exit outer
+      expect(isUnsafeMode()).toBe(false)
+    })
+
+    it('exitUnsafe is safe to call when not in unsafe mode', () => {
+      expect(isUnsafeMode()).toBe(false)
+      exitUnsafe() // should not throw or go negative
+      expect(isUnsafeMode()).toBe(false)
+    })
+  })
+
+  describe('safety levels', () => {
+    beforeEach(() => {
+      configure({ safety: 'inputs' }) // reset to default
+    })
+
+    it('safety: none skips all validation by default', () => {
+      configure({ safety: 'none' })
+
+      const fn = wrap((x: number) => x * 2, {
+        params: { x: { type: 'number', required: true } },
+        returns: { type: 'number' },
+      })
+
+      // No validation - bad type passes through
+      expect(fn('bad' as any)).toBeNaN()
+    })
+
+    it('safety: inputs validates inputs only', () => {
+      configure({ safety: 'inputs' })
+
+      const fn = wrap((x: number) => 'not a number' as any, {
+        params: { x: { type: 'number', required: true } },
+        returns: { type: 'number' },
+      })
+
+      // Input validation catches bad args
+      expect(isError(fn('bad' as any))).toBe(true)
+
+      // But output is not validated (returns wrong type)
+      expect(fn(5)).toBe('not a number')
+    })
+
+    it('safety: all validates inputs and outputs', () => {
+      configure({ safety: 'all' })
+
+      const fn = wrap((x: number) => 'not a number' as any, {
+        params: { x: { type: 'number', required: true } },
+        returns: { type: 'number' },
+      })
+
+      // Input validation
+      expect(isError(fn('bad' as any))).toBe(true)
+
+      // Output validation also catches wrong return type
+      const result = fn(5)
+      expect(isError(result)).toBe(true)
+      expect((result as TJSError).message).toContain('Expected number')
+    })
+  })
+
+  describe('per-function safety flags', () => {
+    beforeEach(() => {
+      configure({ safety: 'inputs' })
+    })
+
+    it('unsafe flag skips validation regardless of global setting', () => {
+      const fn = wrap((x: number) => x * 2, {
+        params: { x: { type: 'number', required: true } },
+        unsafe: true,
+      })
+
+      // unsafe function skips validation
+      expect(fn('bad' as any)).toBeNaN()
+    })
+
+    it('safe flag forces validation regardless of global setting', () => {
+      configure({ safety: 'none' })
+
+      const fn = wrap((x: number) => x * 2, {
+        params: { x: { type: 'number', required: true } },
+        safe: true,
+      })
+
+      // safe function forces validation even with safety: 'none'
+      expect(isError(fn('bad' as any))).toBe(true)
+    })
+
+    it('safeReturn forces output validation', () => {
+      configure({ safety: 'inputs' }) // normally doesn't check outputs
+
+      const fn = wrap((x: number) => 'wrong' as any, {
+        params: { x: { type: 'number', required: true } },
+        returns: { type: 'number' },
+        safeReturn: true,
+      })
+
+      // safeReturn forces output check
+      const result = fn(5)
+      expect(isError(result)).toBe(true)
+    })
+
+    it('unsafeReturn skips output validation', () => {
+      configure({ safety: 'all' }) // normally checks outputs
+
+      const fn = wrap((x: number) => 'wrong' as any, {
+        params: { x: { type: 'number', required: true } },
+        returns: { type: 'number' },
+        unsafeReturn: true,
+      })
+
+      // unsafeReturn skips output check even with safety: 'all'
+      expect(fn(5)).toBe('wrong')
     })
   })
 })
