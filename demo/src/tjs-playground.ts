@@ -1037,7 +1037,64 @@ export const tjsPlayground = TJSPlayground.elementCreator({
       border: 'none',
     },
 
-    ':host .docs-output, :host .tests-output': {
+    ':host .docs-output': {
+      display: 'block',
+      padding: '12px 16px',
+      fontSize: '14px',
+      fontFamily: 'system-ui, sans-serif',
+      color: 'var(--text-color, inherit)',
+      background: 'var(--background, #fff)',
+      height: '100%',
+      overflow: 'auto',
+    },
+
+    ':host .docs-output h2': {
+      fontSize: '1.25em',
+      marginTop: '0',
+      marginBottom: '0.5em',
+      color: 'var(--text-color, #1f2937)',
+    },
+
+    ':host .docs-output pre': {
+      background: 'var(--code-background, #f3f4f6)',
+      padding: '8px 12px',
+      borderRadius: '6px',
+      overflow: 'auto',
+      fontSize: '13px',
+    },
+
+    ':host .docs-output code': {
+      fontFamily: 'ui-monospace, monospace',
+      fontSize: '0.9em',
+    },
+
+    ':host .docs-output p': {
+      margin: '0.75em 0',
+      lineHeight: '1.5',
+    },
+
+    ':host .docs-output h3': {
+      fontSize: '1em',
+      marginTop: '1em',
+      marginBottom: '0.5em',
+    },
+
+    ':host .docs-output ul': {
+      paddingLeft: '1.5em',
+      margin: '0.5em 0',
+    },
+
+    ':host .docs-output li': {
+      marginBottom: '0.25em',
+    },
+
+    ':host .docs-output hr': {
+      border: 'none',
+      borderTop: '1px solid var(--code-border, #e5e7eb)',
+      margin: '1.5em 0',
+    },
+
+    ':host .tests-output': {
       padding: '12px',
       fontSize: '14px',
       whiteSpace: 'pre-wrap',
