@@ -1136,6 +1136,5 @@ The class definition is the source of truth. Platform blocks contain native code
 
 ## Non-Goals
 
-- TypeScript compatibility (we're inspired by, not constrained by)
 - Full JS semantics (we're a subset that's portable)
-- Converting convoluted TS generics (nice-to-have, not priority)
+- Convoluted TS type gymnastics (maximum effort - best-effort conversion, ignore what we can't handle)
