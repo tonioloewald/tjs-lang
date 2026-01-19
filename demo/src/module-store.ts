@@ -27,6 +27,7 @@
 import {
   transpileToJS,
   extractTests,
+  testUtils,
   type TJSTranspileResult,
 } from '../../src/lang'
 
@@ -145,12 +146,126 @@ export class ModuleStore {
   }
 
   /**
+   * Validate a module before saving
+   * Checks transpilation and runs inline tests
+   */
+  async validate(code: string, type: ModuleType): Promise<ValidationResult> {
+    const errors: ValidationError[] = []
+    const warnings: string[] = []
+    let testResults: TestResult[] | undefined
+
+    if (type === 'tjs') {
+      // Step 1: Try to transpile
+      let transpileResult: TJSTranspileResult
+      try {
+        transpileResult = transpileToJS(code)
+        if (transpileResult.warnings) {
+          warnings.push(...transpileResult.warnings)
+        }
+      } catch (e: any) {
+        errors.push({
+          type: 'transpile',
+          message: e.message,
+          line: e.line,
+          column: e.column,
+        })
+        return { valid: false, errors, warnings }
+      }
+
+      // Step 2: Extract and run tests
+      const testExtraction = extractTests(code)
+      if (testExtraction.tests.length > 0) {
+        try {
+          testResults = await this.runTests(
+            transpileResult.code,
+            testExtraction.testRunner
+          )
+
+          // Check for failed tests
+          const failed = testResults.filter((t) => !t.passed)
+          if (failed.length > 0) {
+            for (const f of failed) {
+              errors.push({
+                type: 'test',
+                message: `Test "${f.name}" failed: ${f.error}`,
+              })
+            }
+          }
+        } catch (e: any) {
+          errors.push({
+            type: 'test',
+            message: `Test execution error: ${e.message}`,
+          })
+        }
+      }
+    }
+
+    // AJS validation could be added here (parse with ajs())
+
+    return {
+      valid: errors.length === 0,
+      errors,
+      warnings,
+      testResults,
+    }
+  }
+
+  /**
+   * Run tests in an isolated context
+   */
+  private async runTests(
+    moduleCode: string,
+    testRunnerCode: string
+  ): Promise<TestResult[]> {
+    // Create isolated execution context
+    const fullCode = `
+      ${testUtils}
+      ${moduleCode}
+      ${testRunnerCode}
+    `
+
+    try {
+      // Run in async function to handle await in tests
+      const runTests = new Function(`
+        return (async () => {
+          ${fullCode}
+        })()
+      `)
+
+      const result = await runTests()
+
+      if (result?.results) {
+        return result.results.map((r: any) => ({
+          name: r.description,
+          passed: r.passed,
+          error: r.error,
+        }))
+      }
+
+      return []
+    } catch (e: any) {
+      throw new Error(`Test execution failed: ${e.message}`)
+    }
+  }
+
+  /**
    * Save a module (create or update)
+   * Validates the module first - fails if transpilation or tests fail
    */
   async save(
-    module: Omit<StoredModule, 'created' | 'modified' | 'version' | 'compiled'>
+    module: Omit<StoredModule, 'created' | 'modified' | 'version' | 'compiled'>,
+    options: { skipValidation?: boolean } = {}
   ): Promise<StoredModule> {
     if (!this.db) throw new Error('Store not open')
+
+    // Validate first (unless skipped)
+    if (!options.skipValidation) {
+      const validation = await this.validate(module.code, module.type)
+      if (!validation.valid) {
+        const errorMessages = validation.errors.map((e) => e.message).join('\n')
+        throw new Error(`Module validation failed:\n${errorMessages}`)
+      }
+    }
 
     // Check for existing
     const existing = await this.get(module.name)
@@ -163,7 +278,7 @@ export class ModuleStore {
       version: (existing?.version ?? 0) + 1,
     }
 
-    // Pre-compile TJS modules
+    // Pre-compile TJS modules (we know it succeeds because validation passed)
     if (module.type === 'tjs') {
       try {
         const result = transpileToJS(module.code)
@@ -172,7 +287,7 @@ export class ModuleStore {
           version: entry.version,
         }
       } catch (e) {
-        // Store anyway, compilation errors will surface at import time
+        // Should not happen if validation passed, but handle anyway
         console.warn(`Compilation warning for ${module.name}:`, e)
       }
     }
@@ -185,6 +300,15 @@ export class ModuleStore {
       request.onerror = () => reject(request.error)
       request.onsuccess = () => resolve(entry)
     })
+  }
+
+  /**
+   * Save without validation (use with caution)
+   */
+  async saveUnsafe(
+    module: Omit<StoredModule, 'created' | 'modified' | 'version' | 'compiled'>
+  ): Promise<StoredModule> {
+    return this.save(module, { skipValidation: true })
   }
 
   /**

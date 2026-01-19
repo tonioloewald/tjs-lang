@@ -14,8 +14,9 @@ import { tabSelector, TabSelector, icons } from 'tosijs-ui'
 import { codeMirror, CodeMirror } from '../../editors/codemirror/component'
 import { tjs } from '../../src/lang'
 import { extractImports, generateImportMap, resolveImports } from './imports'
+import { ModuleStore, type ValidationResult } from './module-store'
 
-const { div, button, span, pre, style } = elements
+const { div, button, span, pre, style, input } = elements
 
 /**
  * Convert TypeDescriptor to readable string
@@ -101,6 +102,8 @@ interface TJSPlaygroundParts extends PartsMap {
   testsOutput: HTMLElement
   console: HTMLElement
   runBtn: HTMLButtonElement
+  saveBtn: HTMLButtonElement
+  moduleNameInput: HTMLInputElement
   statusBar: HTMLElement
 }
 
@@ -131,6 +134,19 @@ export class TJSPlayground extends Component<TJSPlaygroundParts> {
         { part: 'runBtn', class: 'run-btn', onClick: this.run },
         icons.play({ size: 16 }),
         'Run'
+      ),
+      span({ class: 'toolbar-separator' }),
+      input({
+        part: 'moduleNameInput',
+        class: 'module-name-input',
+        type: 'text',
+        placeholder: 'module-name',
+        title: 'Module name for saving/importing',
+      }),
+      button(
+        { part: 'saveBtn', class: 'save-btn', onClick: this.saveModule },
+        icons.save({ size: 16 }),
+        'Save'
       ),
       span({ class: 'elastic' }),
       span({ part: 'statusBar', class: 'status-bar' }, 'Ready')
@@ -565,6 +581,84 @@ export class TJSPlayground extends Component<TJSPlaygroundParts> {
     this.parts.docsOutput.textContent = docs
   }
 
+  saveModule = async () => {
+    const name = this.parts.moduleNameInput.value.trim()
+    if (!name) {
+      this.parts.statusBar.textContent = 'Enter a module name to save'
+      this.parts.statusBar.classList.add('error')
+      this.parts.moduleNameInput.focus()
+      return
+    }
+
+    // Validate module name format
+    if (!/^[a-z][a-z0-9-]*$/i.test(name)) {
+      this.parts.statusBar.textContent =
+        'Module name must start with letter, contain only letters, numbers, dashes'
+      this.parts.statusBar.classList.add('error')
+      return
+    }
+
+    this.parts.statusBar.textContent = 'Validating...'
+    this.parts.statusBar.classList.remove('error')
+
+    try {
+      const store = await ModuleStore.open()
+      const code = this.parts.tjsEditor.value
+
+      // Validate first to get detailed results
+      const validation = await store.validate(code, 'tjs')
+
+      if (!validation.valid) {
+        // Show validation errors
+        const errorMessages = validation.errors.map((e) => e.message).join('; ')
+        this.parts.statusBar.textContent = `Save failed: ${errorMessages}`
+        this.parts.statusBar.classList.add('error')
+
+        // Log detailed errors to console
+        this.clearConsole()
+        this.log('=== Save Validation Failed ===')
+        for (const error of validation.errors) {
+          if (error.line) {
+            this.log(
+              `${error.type} error at line ${error.line}: ${error.message}`
+            )
+          } else {
+            this.log(`${error.type} error: ${error.message}`)
+          }
+        }
+        if (validation.warnings.length > 0) {
+          this.log('')
+          this.log('Warnings:')
+          for (const warning of validation.warnings) {
+            this.log(`  - ${warning}`)
+          }
+        }
+        return
+      }
+
+      // Validation passed, save (skip re-validation)
+      await store.save({ name, type: 'tjs', code }, { skipValidation: true })
+
+      // Success!
+      this.parts.statusBar.textContent = `Saved as "${name}"`
+      this.parts.statusBar.classList.remove('error')
+
+      // Show test results if any
+      if (validation.testResults && validation.testResults.length > 0) {
+        this.clearConsole()
+        this.log(`=== Module "${name}" saved successfully ===`)
+        this.log('')
+        this.log(`Tests: ${validation.testResults.length} passed`)
+        for (const test of validation.testResults) {
+          this.log(`  ✓ ${test.name}`)
+        }
+      }
+    } catch (e: any) {
+      this.parts.statusBar.textContent = `Save error: ${e.message}`
+      this.parts.statusBar.classList.add('error')
+    }
+  }
+
   run = async () => {
     this.clearConsole()
     this.transpile()
@@ -720,6 +814,54 @@ export const tjsPlayground = TJSPlayground.elementCreator({
 
     ':host .run-btn:hover': {
       filter: 'brightness(1.1)',
+    },
+
+    ':host .toolbar-separator': {
+      width: '1px',
+      height: '20px',
+      background: 'var(--code-border, #d1d5db)',
+    },
+
+    ':host .module-name-input': {
+      padding: '6px 10px',
+      border: '1px solid var(--code-border, #d1d5db)',
+      borderRadius: '6px',
+      fontSize: '14px',
+      fontFamily: 'ui-monospace, monospace',
+      background: 'var(--background, #fff)',
+      color: 'var(--text-color, #1f2937)',
+      width: '160px',
+    },
+
+    ':host .module-name-input:focus': {
+      outline: 'none',
+      borderColor: 'var(--brand-color, #3d4a6b)',
+      boxShadow: '0 0 0 2px rgba(61, 74, 107, 0.2)',
+    },
+
+    ':host .module-name-input::placeholder': {
+      color: 'var(--text-color, #9ca3af)',
+      opacity: '0.6',
+    },
+
+    ':host .save-btn': {
+      display: 'flex',
+      alignItems: 'center',
+      gap: '4px',
+      padding: '6px 12px',
+      background: 'var(--code-background, #e5e7eb)',
+      color: 'var(--text-color, #374151)',
+      border: '1px solid var(--code-border, #d1d5db)',
+      borderRadius: '6px',
+      cursor: 'pointer',
+      fontWeight: '500',
+      fontSize: '14px',
+    },
+
+    ':host .save-btn:hover': {
+      background: 'var(--brand-color, #3d4a6b)',
+      color: 'var(--brand-text-color, white)',
+      borderColor: 'var(--brand-color, #3d4a6b)',
     },
 
     ':host .elastic': {
