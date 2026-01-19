@@ -33,6 +33,25 @@ export interface TJSTranspileOptions {
   sourceMap?: boolean
   /** Mode: 'dev' | 'strict' | 'production' */
   mode?: 'dev' | 'strict' | 'production'
+  /**
+   * Test execution mode:
+   * - true (default): run tests at transpile time, throw on failure
+   * - false: skip tests entirely (production build)
+   * - 'only': only run tests, don't emit code (CI/test runner)
+   */
+  runTests?: boolean | 'only'
+}
+
+/** Result of running tests at transpile time */
+export interface TestResult {
+  /** Test description */
+  description: string
+  /** Whether the test passed */
+  passed: boolean
+  /** Error message if failed */
+  error?: string
+  /** Whether this was an implicit signature test */
+  isSignatureTest?: boolean
 }
 
 export interface TJSTranspileResult {
@@ -44,10 +63,12 @@ export interface TJSTranspileResult {
   metadata: TJSTypeInfo
   /** Any warnings during transpilation */
   warnings?: string[]
-  /** Generated test runner code (if tests were present) */
+  /** Generated test runner code (if tests were present) - DEPRECATED, tests now run at transpile time */
   testRunner?: string
   /** Number of tests extracted */
   testCount?: number
+  /** Test results (when runTests is true or 'only') */
+  testResults?: TestResult[]
 }
 
 export interface TJSTypeInfo {
@@ -74,7 +95,7 @@ export function transpileToJS(
   source: string,
   options: TJSTranspileOptions = {}
 ): TJSTranspileResult {
-  const { filename = '<source>' } = options
+  const { filename = '<source>', runTests = true } = options
   const warnings: string[] = []
 
   // Extract test/mock blocks before parsing (they're not valid JS)
@@ -227,6 +248,59 @@ export function transpileToJS(
     ? `${preprocessed.source}\n\n${inlineWrapper}\n${typeMetadata}`
     : `${preprocessed.source}\n\n${typeMetadata}`
 
+  // Run tests at transpile time if enabled
+  let testResults: TestResult[] | undefined
+
+  if (runTests && (tests.length > 0 || returnType)) {
+    testResults = []
+
+    // Run explicit test blocks
+    if (tests.length > 0) {
+      const blockResults = runTestBlocks(tests, mocks, preprocessed.source)
+      testResults.push(...blockResults)
+    }
+
+    // Run implicit signature test if function has ->! (assertion) return type
+    // ->! means "assert this is what you get with these example inputs"
+    // -> alone is just a type annotation, no test
+    if (returnType && func && returnSafety === 'unsafe') {
+      // returnSafety === 'unsafe' means ->! was used (the ! marker)
+      const sigExample = extractSignatureExample(func, types, returnType)
+      if (sigExample) {
+        const sigResult = runSignatureTest(
+          funcName,
+          preprocessed.source,
+          sigExample.args,
+          sigExample.expected
+        )
+        testResults.push(sigResult)
+      }
+    }
+
+    // Check for failures and throw if runTests is true (not 'only')
+    const failures = testResults.filter((r) => !r.passed)
+    if (failures.length > 0 && runTests !== 'only') {
+      const errorLines = failures.map((f) => {
+        if (f.isSignatureTest) {
+          return `  Function '${funcName}' signature example is inconsistent:\n    ${f.error}`
+        }
+        return `  Test '${f.description}' failed:\n    ${f.error}`
+      })
+      throw new Error(`Transpile-time test failures:\n${errorLines.join('\n')}`)
+    }
+  }
+
+  // If runTests === 'only', return minimal result
+  if (runTests === 'only') {
+    return {
+      code: '',
+      types,
+      metadata: types,
+      testResults,
+      testCount: testResults?.length,
+    }
+  }
+
   return {
     code,
     types,
@@ -234,6 +308,7 @@ export function transpileToJS(
     warnings: warnings.length > 0 ? warnings : undefined,
     testRunner: tests.length > 0 ? testRunner : undefined,
     testCount: tests.length > 0 ? tests.length : undefined,
+    testResults,
   }
 }
 
@@ -563,4 +638,271 @@ function generatePositionalValidation(
   return `if (${checks.join(' || ')}) {
     return { $error: true, message: 'Invalid arguments', path: '${funcName}' }
   }`
+}
+
+// =============================================================================
+// Transpile-time Test Execution
+// =============================================================================
+
+/**
+ * Fuzzy comparison for floating point numbers
+ */
+function fuzzyEqual(a: unknown, b: unknown, epsilon = 1e-9): boolean {
+  if (a === b) return true
+  if (typeof a === 'number' && typeof b === 'number') {
+    // Check if either is non-integer (float)
+    if (!Number.isInteger(a) || !Number.isInteger(b)) {
+      const diff = Math.abs(a - b)
+      const maxAbs = Math.max(Math.abs(a), Math.abs(b), 1)
+      return diff / maxAbs < epsilon
+    }
+  }
+  return false
+}
+
+/**
+ * Deep equality check with fuzzy float comparison
+ */
+function deepEqual(a: unknown, b: unknown): boolean {
+  if (a === b) return true
+  if (fuzzyEqual(a, b)) return true
+  if (a === null || b === null) return a === b
+  if (a === undefined || b === undefined) return a === b
+  if (typeof a !== typeof b) return false
+  if (typeof a !== 'object') return false
+
+  if (Array.isArray(a) && Array.isArray(b)) {
+    if (a.length !== b.length) return false
+    return a.every((v, i) => deepEqual(v, b[i]))
+  }
+
+  if (Array.isArray(a) !== Array.isArray(b)) return false
+
+  const keysA = Object.keys(a as object)
+  const keysB = Object.keys(b as object)
+  if (keysA.length !== keysB.length) return false
+  return keysA.every((k) => deepEqual((a as any)[k], (b as any)[k]))
+}
+
+/**
+ * Format a value for error messages
+ */
+function formatValue(v: unknown): string {
+  if (v === null) return 'null'
+  if (v === undefined) return 'undefined'
+  if (typeof v === 'string') return JSON.stringify(v)
+  if (typeof v === 'number') return String(v)
+  if (typeof v === 'object') return JSON.stringify(v)
+  return String(v)
+}
+
+import type { ExtractedTest, ExtractedMock } from '../tests'
+
+/**
+ * Run extracted test blocks at transpile time
+ */
+function runTestBlocks(
+  tests: ExtractedTest[],
+  mocks: ExtractedMock[],
+  transpiledCode: string
+): TestResult[] {
+  const results: TestResult[] = []
+
+  // Build execution context with the transpiled function
+  const mockSetup = mocks.map((m) => m.body).join('\n')
+
+  for (const test of tests) {
+    try {
+      // Create a function that runs the test
+      const testCode = `
+        ${transpiledCode}
+        ${mockSetup}
+
+        // Test assertions
+        function assert(condition, message) {
+          if (!condition) throw new Error(message || 'Assertion failed')
+        }
+
+        function expect(actual) {
+          return {
+            toBe(expected) {
+              if (!__deepEqual(actual, expected)) {
+                throw new Error('Expected ' + __format(expected) + ' but got ' + __format(actual))
+              }
+            },
+            toEqual(expected) {
+              if (!__deepEqual(actual, expected)) {
+                throw new Error('Expected ' + __format(expected) + ' but got ' + __format(actual))
+              }
+            }
+          }
+        }
+
+        // Run the test body
+        ${test.body}
+      `
+
+      // Execute the test
+      const fn = new Function('__deepEqual', '__format', testCode)
+      fn(deepEqual, formatValue)
+
+      results.push({
+        description: test.description,
+        passed: true,
+      })
+    } catch (e: any) {
+      results.push({
+        description: test.description,
+        passed: false,
+        error: e.message || String(e),
+      })
+    }
+  }
+
+  return results
+}
+
+/**
+ * Extract signature example values from function parameters
+ * Returns null if not all params have examples or no return type
+ */
+function extractSignatureExample(
+  func: FunctionDeclaration,
+  types: TJSTypeInfo,
+  returnTypeStr: string
+): { args: unknown[]; expected: unknown } | null {
+  // Need a return type with an example value
+  if (!types.returns || !returnTypeStr) return null
+
+  // Get example values from params - they should be the default values
+  const args: unknown[] = []
+
+  for (const param of func.params) {
+    let defaultValue: unknown = undefined
+
+    if (param.type === 'AssignmentPattern') {
+      // Has default value - extract it
+      const right = param.right as any
+      if (right.type === 'Literal') {
+        defaultValue = right.value
+      } else if (right.type === 'ObjectExpression') {
+        // Handle object examples by evaluating the expression
+        try {
+          defaultValue = evalObjectExpression(right)
+        } catch {
+          return null
+        }
+      } else if (right.type === 'ArrayExpression') {
+        // Handle array examples
+        try {
+          defaultValue = evalArrayExpression(right)
+        } catch {
+          return null
+        }
+      }
+    } else {
+      // No default value - can't run signature test
+      return null
+    }
+
+    if (defaultValue === undefined) return null
+    args.push(defaultValue)
+  }
+
+  // Parse the expected return value from the return type string
+  // The return type is a TJS example like: 14.5, 'hello', { name: '' }, etc.
+  let expected: unknown
+  try {
+    // Use Function constructor to safely evaluate the literal
+    expected = new Function(`return ${returnTypeStr}`)()
+  } catch {
+    // Can't parse the return type as a value
+    return null
+  }
+
+  return { args, expected }
+}
+
+/**
+ * Evaluate an ObjectExpression AST node to a plain object
+ */
+function evalObjectExpression(node: any): Record<string, unknown> {
+  const result: Record<string, unknown> = {}
+  for (const prop of node.properties) {
+    if (prop.type === 'Property' && prop.key) {
+      const key =
+        prop.key.type === 'Identifier' ? prop.key.name : prop.key.value
+      if (prop.value.type === 'Literal') {
+        result[key] = prop.value.value
+      } else if (prop.value.type === 'ObjectExpression') {
+        result[key] = evalObjectExpression(prop.value)
+      } else if (prop.value.type === 'ArrayExpression') {
+        result[key] = evalArrayExpression(prop.value)
+      } else {
+        throw new Error('Unsupported value type')
+      }
+    }
+  }
+  return result
+}
+
+/**
+ * Evaluate an ArrayExpression AST node to an array
+ */
+function evalArrayExpression(node: any): unknown[] {
+  const result: unknown[] = []
+  for (const elem of node.elements) {
+    if (elem.type === 'Literal') {
+      result.push(elem.value)
+    } else if (elem.type === 'ObjectExpression') {
+      result.push(evalObjectExpression(elem))
+    } else if (elem.type === 'ArrayExpression') {
+      result.push(evalArrayExpression(elem))
+    } else {
+      throw new Error('Unsupported element type')
+    }
+  }
+  return result
+}
+
+/**
+ * Run signature example test
+ */
+function runSignatureTest(
+  funcName: string,
+  transpiledCode: string,
+  args: unknown[],
+  expected: unknown
+): TestResult {
+  const description = `${funcName} signature example`
+
+  try {
+    // Execute the function with example args
+    const testCode = `
+      ${transpiledCode}
+      return ${funcName}(${args.map((a) => JSON.stringify(a)).join(', ')})
+    `
+    const fn = new Function(testCode)
+    const actual = fn()
+
+    if (!deepEqual(actual, expected)) {
+      return {
+        description,
+        passed: false,
+        error: `Expected ${formatValue(expected)} but got ${formatValue(
+          actual
+        )}`,
+        isSignatureTest: true,
+      }
+    }
+
+    return { description, passed: true, isSignatureTest: true }
+  } catch (e: any) {
+    return {
+      description,
+      passed: false,
+      error: e.message || String(e),
+      isSignatureTest: true,
+    }
+  }
 }

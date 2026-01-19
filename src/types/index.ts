@@ -23,4 +23,13 @@ export {
   Optional,
   Union,
   TArray,
+  // Enum
+  Enum,
+  type EnumType,
+  // Generics
+  Generic,
+  TPair,
+  TRecord,
+  type GenericType,
+  type TypeParam,
 } from './Type'

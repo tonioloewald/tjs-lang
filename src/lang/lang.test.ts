@@ -102,6 +102,79 @@ describe('Transpiler', () => {
       const result = preprocess(`Foo = Type('test', 123)`)
       expect(result.source).toContain(`const Foo = Type('test', 123)`)
     })
+
+    it('should transform Union declaration with block', () => {
+      const result = preprocess(`Union Direction 'cardinal direction' {
+  'up' | 'down' | 'left' | 'right'
+}`)
+      expect(result.source).toBe(
+        `const Direction = Union('cardinal direction', ['up', 'down', 'left', 'right'])`
+      )
+    })
+
+    it('should transform Union declaration inline', () => {
+      const result = preprocess(
+        `Union Status 'task status' 'pending' | 'active' | 'done'`
+      )
+      expect(result.source).toBe(
+        `const Status = Union('task status', ['pending', 'active', 'done'])`
+      )
+    })
+
+    it('should transform Union with mixed types', () => {
+      const result = preprocess(`Union Mixed 'mixed values' {
+  'string' | 42 | true | null
+}`)
+      expect(result.source).toBe(
+        `const Mixed = Union('mixed values', ['string', 42, true, null])`
+      )
+    })
+
+    it('should transform Enum with auto-incrementing numbers', () => {
+      const result = preprocess(`Enum Status 'task status' {
+  Pending
+  Active
+  Done
+}`)
+      expect(result.source).toBe(
+        `const Status = Enum('task status', { Pending: 0, Active: 1, Done: 2 })`
+      )
+    })
+
+    it('should transform Enum with string values', () => {
+      const result = preprocess(`Enum Color 'CSS color' {
+  Red = 'red'
+  Green = 'green'
+  Blue = 'blue'
+}`)
+      expect(result.source).toBe(
+        `const Color = Enum('CSS color', { Red: 'red', Green: 'green', Blue: 'blue' })`
+      )
+    })
+
+    it('should transform Enum with explicit numeric values', () => {
+      const result = preprocess(`Enum HttpStatus 'HTTP status code' {
+  OK = 200
+  Created = 201
+  BadRequest = 400
+  NotFound = 404
+}`)
+      expect(result.source).toBe(
+        `const HttpStatus = Enum('HTTP status code', { OK: 200, Created: 201, BadRequest: 400, NotFound: 404 })`
+      )
+    })
+
+    it('should transform Enum with mixed auto and explicit values', () => {
+      const result = preprocess(`Enum Mixed 'mixed enum' {
+  Zero = 0
+  One
+  Ten = 10
+  Eleven
+}`)
+      expect(result.source).toBe(
+        `const Mixed = Enum('mixed enum', { Zero: 0, One: 1, Ten: 10, Eleven: 11 })`
+      )
+    })
   })
 
   describe('Type inference', () => {

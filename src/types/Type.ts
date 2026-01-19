@@ -217,12 +217,52 @@ export function Optional<T>(
   )
 }
 
-/** Create a union of types */
-export function Union<T extends RuntimeType[]>(
-  ...types: T
-): RuntimeType<T[number] extends RuntimeType<infer U> ? U : never> {
+/**
+ * Create a union type
+ *
+ * Two forms:
+ *   Union(...types: RuntimeType[]) - combine existing types
+ *   Union(description, values) - create literal union from values
+ *
+ * @example
+ * // From RuntimeTypes
+ * const StringOrNumber = Union(TString, TNumber)
+ *
+ * // From literal values (used by TJS syntax)
+ * const Direction = Union('cardinal direction', ['up', 'down', 'left', 'right'])
+ */
+export function Union<T extends unknown[]>(
+  descriptionOrType: string | RuntimeType,
+  valuesOrType?: T | RuntimeType,
+  ...restTypes: RuntimeType[]
+): RuntimeType {
+  // New form: Union(description, values[])
+  if (typeof descriptionOrType === 'string' && Array.isArray(valuesOrType)) {
+    const description = descriptionOrType
+    const values = valuesOrType as unknown[]
+    const valueSet = new Set(values)
+
+    const result: RuntimeType & { values: unknown[] } = {
+      description,
+      check: (v: unknown): v is T[number] => valueSet.has(v),
+      __runtimeType: true as const,
+      values, // Expose values for introspection
+    }
+    return result
+  }
+
+  // Old form: Union(...types: RuntimeType[])
+  const types: RuntimeType[] = []
+  if (isRuntimeType(descriptionOrType)) {
+    types.push(descriptionOrType)
+  }
+  if (isRuntimeType(valuesOrType)) {
+    types.push(valuesOrType as RuntimeType)
+  }
+  types.push(...restTypes)
+
   const description = types.map((t) => t.description).join(' | ')
-  return Type(description, (v) => types.some((t) => t.check(v))) as any
+  return Type(description, (v) => types.some((t) => t.check(v)))
 }
 
 /** Create an array type */
@@ -363,3 +403,67 @@ export const TRecord = Generic(
     Object.values(x).every(checkV),
   'Record<string, V>'
 )
+
+// ============================================================================
+// Enum Types
+// ============================================================================
+
+/** Enum type with bidirectional lookup */
+export interface EnumType<
+  T extends Record<string, string | number> = Record<string, string | number>
+> extends RuntimeType<T[keyof T]> {
+  /** The enum members as { Name: value } */
+  readonly members: T
+  /** Reverse lookup: value -> name */
+  readonly names: Record<string | number, string>
+  /** Get all valid values */
+  readonly values: Array<T[keyof T]>
+  /** Get all member names */
+  readonly keys: Array<keyof T>
+}
+
+/**
+ * Create an enum type with bidirectional lookup
+ *
+ * @param description Human-readable description
+ * @param members Object mapping names to values { Pending: 0, Active: 1 }
+ *
+ * @example
+ * const Status = Enum('task status', { Pending: 0, Active: 1, Done: 2 })
+ * Status.check(0)        // true
+ * Status.check('done')   // false
+ * Status.members.Pending // 0
+ * Status.names[0]        // 'Pending'
+ * Status.values          // [0, 1, 2]
+ * Status.keys            // ['Pending', 'Active', 'Done']
+ *
+ * const Color = Enum('CSS color', { Red: 'red', Green: 'green', Blue: 'blue' })
+ * Color.check('red')     // true
+ * Color.members.Red      // 'red'
+ */
+export function Enum<T extends Record<string, string | number>>(
+  description: string,
+  members: T
+): EnumType<T> {
+  const values = Object.values(members) as Array<T[keyof T]>
+  const valueSet = new Set(values)
+  const keys = Object.keys(members) as Array<keyof T>
+
+  // Build reverse lookup
+  const names: Record<string | number, string> = {}
+  for (const [key, value] of Object.entries(members)) {
+    names[value] = key
+  }
+
+  const enumType: EnumType<T> = {
+    description,
+    check: (v: unknown): v is T[keyof T] => valueSet.has(v as T[keyof T]),
+    __runtimeType: true as const,
+    members,
+    names,
+    values,
+    keys,
+  }
+
+  return enumType
+}

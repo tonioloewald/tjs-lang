@@ -492,11 +492,123 @@ function transformGenericInterfaceToGeneric(
 }
 
 /**
+ * Check if a TypeScript union type is a literal union (e.g., 'up' | 'down' | 'left')
+ * Returns the literal values if it is, null otherwise
+ */
+function extractLiteralUnionValues(
+  type: ts.TypeNode,
+  sourceFile: ts.SourceFile
+): string[] | null {
+  if (!ts.isUnionTypeNode(type)) return null
+
+  const values: string[] = []
+  for (const member of type.types) {
+    if (ts.isLiteralTypeNode(member)) {
+      if (ts.isStringLiteral(member.literal)) {
+        values.push(`'${member.literal.text}'`)
+      } else if (ts.isNumericLiteral(member.literal)) {
+        values.push(member.literal.text)
+      } else if (member.literal.kind === ts.SyntaxKind.TrueKeyword) {
+        values.push('true')
+      } else if (member.literal.kind === ts.SyntaxKind.FalseKeyword) {
+        values.push('false')
+      } else if (member.literal.kind === ts.SyntaxKind.NullKeyword) {
+        values.push('null')
+      } else {
+        // Not a literal we can handle
+        return null
+      }
+    } else if (member.kind === ts.SyntaxKind.NullKeyword) {
+      values.push('null')
+    } else if (member.kind === ts.SyntaxKind.UndefinedKeyword) {
+      values.push('undefined')
+    } else {
+      // Not a literal union (has complex types)
+      return null
+    }
+  }
+
+  return values.length > 0 ? values : null
+}
+
+/**
+ * Transform a TypeScript enum to TJS Enum declaration
+ *
+ * enum Status { Pending, Active, Done }
+ * ->
+ * Enum Status 'Status' {
+ *   Pending
+ *   Active
+ *   Done
+ * }
+ *
+ * enum Color { Red = 'red', Green = 'green', Blue = 'blue' }
+ * ->
+ * Enum Color 'Color' {
+ *   Red = 'red'
+ *   Green = 'green'
+ *   Blue = 'blue'
+ * }
+ */
+function transformEnumToTJS(
+  node: ts.EnumDeclaration,
+  sourceFile: ts.SourceFile,
+  warnings?: string[]
+): string | null {
+  const enumName = node.name.getText(sourceFile)
+  const members: string[] = []
+
+  let currentValue = 0
+  for (const member of node.members) {
+    const memberName = member.name.getText(sourceFile)
+
+    if (member.initializer) {
+      // Has explicit value
+      if (ts.isStringLiteral(member.initializer)) {
+        members.push(`  ${memberName} = '${member.initializer.text}'`)
+      } else if (ts.isNumericLiteral(member.initializer)) {
+        const numValue = parseInt(member.initializer.text, 10)
+        members.push(`  ${memberName} = ${numValue}`)
+        currentValue = numValue + 1
+      } else if (
+        ts.isPrefixUnaryExpression(member.initializer) &&
+        member.initializer.operator === ts.SyntaxKind.MinusToken
+      ) {
+        // Negative number
+        const operand = member.initializer.operand
+        if (ts.isNumericLiteral(operand)) {
+          const numValue = -parseInt(operand.text, 10)
+          members.push(`  ${memberName} = ${numValue}`)
+          currentValue = numValue + 1
+        }
+      } else {
+        // Expression or other complex initializer - use the text directly
+        members.push(
+          `  ${memberName} = ${member.initializer.getText(sourceFile)}`
+        )
+      }
+    } else {
+      // Auto-increment numeric value
+      members.push(`  ${memberName}`)
+      currentValue++
+    }
+  }
+
+  return `Enum ${enumName} '${enumName}' {
+${members.join('\n')}
+}`
+}
+
+/**
  * Transform a TypeScript type alias to TJS Type declaration
  *
  * type User = { name: string; age: number }
  * ->
  * Type User { example: { name: '', age: 0 } }
+ *
+ * type Direction = 'up' | 'down' | 'left' | 'right'
+ * ->
+ * Union Direction 'Direction' 'up' | 'down' | 'left' | 'right'
  */
 function transformTypeAliasToType(
   node: ts.TypeAliasDeclaration,
@@ -508,6 +620,12 @@ function transformTypeAliasToType(
   // Check for generics
   if (node.typeParameters && node.typeParameters.length > 0) {
     return transformGenericTypeAliasToGeneric(node, sourceFile, warnings)
+  }
+
+  // Check for literal union type → emit Union syntax
+  const literalValues = extractLiteralUnionValues(node.type, sourceFile)
+  if (literalValues) {
+    return `Union ${typeName} '${typeName}' ${literalValues.join(' | ')}`
   }
 
   const example = typeToExample(node.type, undefined, warnings)
@@ -746,6 +864,14 @@ export function fromTS(
       const typeDecl = transformTypeAliasToType(node, sourceFile, warnings)
       if (typeDecl) {
         tjsFunctions.push(typeDecl)
+      }
+    }
+
+    // Handle: enum Status { Pending, Active, Done }
+    if (ts.isEnumDeclaration(node) && emitTJS) {
+      const enumDecl = transformEnumToTJS(node, sourceFile, warnings)
+      if (enumDecl) {
+        tjsFunctions.push(enumDecl)
       }
     }
 

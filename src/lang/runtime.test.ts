@@ -6,11 +6,14 @@ import { describe, it, expect, beforeEach } from 'bun:test'
 import {
   isError,
   error,
+  composeErrors,
   validateArgs,
   wrap,
   configure,
   getConfig,
   getStack,
+  pushStack,
+  popStack,
   enterUnsafe,
   exitUnsafe,
   isUnsafeMode,
@@ -264,10 +267,15 @@ describe('TJS Runtime - Monadic Errors', () => {
         // No unsafe flag
       })
 
-      // Should return error for wrong types
+      // Should return error for wrong types - both params are wrong, so composed error
       const result = safeAdd('hello' as any, 'world' as any)
       expect(isError(result)).toBe(true)
-      expect((result as TJSError).expected).toBe('number')
+      // With multiple errors, they're composed into a single error with errors array
+      const err = result as TJSError
+      expect(err.errors).toBeDefined()
+      expect(err.errors!.length).toBe(2)
+      expect(err.errors![0].expected).toBe('number')
+      expect(err.errors![1].expected).toBe('number')
     })
   })
 
@@ -423,6 +431,109 @@ describe('TJS Runtime - Monadic Errors', () => {
 
       // unsafeReturn skips output check even with safety: 'all'
       expect(fn(5)).toBe('wrong')
+    })
+  })
+
+  describe('composed errors', () => {
+    it('composeErrors returns single error when only one', () => {
+      const singleErr = error('Test error', { path: 'func.x' })
+      const composed = composeErrors([singleErr], 'func')
+      expect(composed).toBe(singleErr) // Same object, not wrapped
+    })
+
+    it('composeErrors combines multiple errors', () => {
+      const err1 = error('Error 1', { path: 'func.a', expected: 'number' })
+      const err2 = error('Error 2', { path: 'func.b', expected: 'string' })
+      const composed = composeErrors([err1, err2], 'testFunc')
+
+      expect(isError(composed)).toBe(true)
+      expect(composed.message).toContain('Multiple parameter errors')
+      expect(composed.message).toContain('testFunc')
+      expect(composed.message).toContain('a, b')
+      expect(composed.errors).toBeDefined()
+      expect(composed.errors!.length).toBe(2)
+      expect(composed.errors![0]).toBe(err1)
+      expect(composed.errors![1]).toBe(err2)
+    })
+
+    it('wrap collects all parameter errors', () => {
+      const fn = wrap((a: number, b: string, c: boolean) => ({ a, b, c }), {
+        params: {
+          a: { type: 'number', required: true },
+          b: { type: 'string', required: true },
+          c: { type: 'boolean', required: true },
+        },
+      })
+
+      // All three params are wrong
+      const result = fn('not-num' as any, 123 as any, 'not-bool' as any)
+      expect(isError(result)).toBe(true)
+      const err = result as TJSError
+      expect(err.errors).toBeDefined()
+      expect(err.errors!.length).toBe(3)
+    })
+  })
+
+  describe('stack size limit', () => {
+    beforeEach(() => {
+      configure({ debug: true, maxStackSize: 5 })
+    })
+
+    it('limits stack size to maxStackSize', () => {
+      // Push more than maxStackSize
+      for (let i = 0; i < 10; i++) {
+        pushStack(`func${i}`)
+      }
+
+      const stack = getStack()
+      expect(stack.length).toBe(5)
+      // Should have the most recent 5 entries
+      expect(stack[0]).toBe('func5')
+      expect(stack[4]).toBe('func9')
+
+      // Clean up
+      for (let i = 0; i < 5; i++) {
+        popStack()
+      }
+    })
+
+    it('does not push empty names to stack', () => {
+      pushStack('')
+      pushStack('valid')
+      pushStack('')
+
+      const stack = getStack()
+      expect(stack.length).toBe(1)
+      expect(stack[0]).toBe('valid')
+
+      popStack()
+    })
+  })
+
+  describe('meta.name fallback for anonymous functions', () => {
+    it('uses meta.name when fn.name is empty', () => {
+      configure({ debug: true })
+
+      // Anonymous function - fn.name will be empty
+      const fn = wrap((x: number) => x * 2, {
+        params: { x: { type: 'number', required: true } },
+        name: 'myNamedFunc',
+      })
+
+      // Cause an error to see the path
+      const result = fn('bad' as any)
+      expect(isError(result)).toBe(true)
+      expect((result as TJSError).path).toContain('myNamedFunc')
+    })
+
+    it('uses "anonymous" when both fn.name and meta.name are empty', () => {
+      const fn = wrap((x: number) => x * 2, {
+        params: { x: { type: 'number', required: true } },
+      })
+
+      const result = fn('bad' as any)
+      expect(isError(result)).toBe(true)
+      expect((result as TJSError).path).toContain('anonymous')
     })
   })
 })

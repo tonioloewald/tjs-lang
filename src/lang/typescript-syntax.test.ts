@@ -646,26 +646,30 @@ describe('Class Syntax', () => {
 // =============================================================================
 
 describe('Enums', () => {
-  test.todo('numeric enum - NOT YET SUPPORTED', () => {
-    const { code } = fromTS(`
+  test('numeric enum emits TJS Enum', () => {
+    const { code } = fromTS(
+      `
       enum Status { Pending, Active, Done }
-
-      function getStatus(s: Status): string {
-        return Status[s]
-      }
-    `)
-    expect(code).toContain('function getStatus')
+    `,
+      { emitTJS: true }
+    )
+    expect(code).toContain("Enum Status 'Status'")
+    expect(code).toContain('Pending')
+    expect(code).toContain('Active')
+    expect(code).toContain('Done')
   })
 
-  test.todo('string enum - NOT YET SUPPORTED', () => {
-    const { code } = fromTS(`
+  test('string enum emits TJS Enum with values', () => {
+    const { code } = fromTS(
+      `
       enum Color { Red = 'red', Green = 'green', Blue = 'blue' }
-
-      function paint(color: Color): void {
-        console.log(color)
-      }
-    `)
-    expect(code).toContain('function paint')
+    `,
+      { emitTJS: true }
+    )
+    expect(code).toContain("Enum Color 'Color'")
+    expect(code).toContain("Red = 'red'")
+    expect(code).toContain("Green = 'green'")
+    expect(code).toContain("Blue = 'blue'")
   })
 })
 
@@ -718,7 +722,21 @@ describe('Literal Types', () => {
     expect(metadata.params.n.type.kind).toBe('number')
   })
 
-  test.todo('literal union type - NOT YET SUPPORTED', () => {
+  test('literal union type alias emits TJS Union', () => {
+    const { code } = fromTS(
+      `
+      type Direction = 'up' | 'down' | 'left' | 'right'
+    `,
+      { emitTJS: true }
+    )
+    expect(code).toContain("Union Direction 'Direction'")
+    expect(code).toContain("'up'")
+    expect(code).toContain("'down'")
+    expect(code).toContain("'left'")
+    expect(code).toContain("'right'")
+  })
+
+  test('literal union in function parameter', () => {
     const { types } = fromTS(`
       function setDirection(dir: 'up' | 'down' | 'left' | 'right'): void {
         console.log(dir)

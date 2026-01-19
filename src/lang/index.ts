@@ -219,21 +219,36 @@ export function ajs(
  * `
  * ```
  */
-import { transpileToJS, type TJSTranspileResult } from './emitters/js'
+import {
+  transpileToJS,
+  type TJSTranspileResult,
+  type TJSTranspileOptions,
+} from './emitters/js'
 
 export function tjs(
   strings: TemplateStringsArray,
   ...values: any[]
 ): TJSTranspileResult
-export function tjs(source: string): TJSTranspileResult
+export function tjs(
+  source: string,
+  options?: TJSTranspileOptions
+): TJSTranspileResult
 export function tjs(
   sourceOrStrings: string | TemplateStringsArray,
-  ...values: any[]
+  optionsOrFirstValue?: TJSTranspileOptions | any,
+  ...restValues: any[]
 ): TJSTranspileResult {
   if (typeof sourceOrStrings === 'string') {
-    return transpileToJS(sourceOrStrings)
+    return transpileToJS(
+      sourceOrStrings,
+      optionsOrFirstValue as TJSTranspileOptions
+    )
   }
   // Tagged template literal
+  const values =
+    optionsOrFirstValue !== undefined
+      ? [optionsOrFirstValue, ...restValues]
+      : restValues
   const source = sourceOrStrings.reduce(
     (acc, str, i) =>
       acc + str + (values[i] !== undefined ? String(values[i]) : ''),

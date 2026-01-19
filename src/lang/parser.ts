@@ -615,8 +615,47 @@ function extractReturnTypeValue(
       continue
     }
 
+    // Handle numbers (including decimals like 14.5, -3.14)
+    if (
+      depth === 0 &&
+      (/\d/.test(char) || (char === '-' && /\d/.test(source[i + 1])))
+    ) {
+      let j = i
+      if (source[j] === '-') j++ // Skip negative sign
+      while (j < source.length && /\d/.test(source[j])) j++
+      // Handle decimal part
+      if (j < source.length && source[j] === '.' && /\d/.test(source[j + 1])) {
+        j++ // Skip decimal point
+        while (j < source.length && /\d/.test(source[j])) j++
+      }
+      // Handle exponent (1e10, 1.5e-3)
+      if (j < source.length && (source[j] === 'e' || source[j] === 'E')) {
+        j++
+        if (j < source.length && (source[j] === '+' || source[j] === '-')) j++
+        while (j < source.length && /\d/.test(source[j])) j++
+      }
+      sawContent = true
+      i = j
+      // Check what's next
+      while (i < source.length && /\s/.test(source[i])) i++
+      if (i < source.length && source[i] === '{') {
+        // Function body - type ends here
+        return {
+          type: normalizeUnionSyntax(source.slice(start, j).trim()),
+          endPos: j,
+        }
+      }
+      if (source[i] !== '|' && source[i] !== '&') {
+        return {
+          type: normalizeUnionSyntax(source.slice(start, j).trim()),
+          endPos: j,
+        }
+      }
+      continue
+    }
+
     // Handle identifiers (null, undefined, true, false, type names)
-    if (depth === 0 && /\w/.test(char)) {
+    if (depth === 0 && /[a-zA-Z_]/.test(char)) {
       let j = i
       while (j < source.length && /\w/.test(source[j])) j++
       sawContent = true
@@ -1032,11 +1071,15 @@ export function preprocess(source: string): {
     )
   }
 
-  // Transform Type and Generic block declarations
+  // Transform Type, Generic, Union, and Enum declarations
   // Type Foo { ... } -> const Foo = Type(...)
   // Generic Bar<T, U> { ... } -> const Bar = Generic(...)
+  // Union Dir 'up' | 'down' -> const Dir = Union(...)
+  // Enum Status { Pending, Active, Done } -> const Status = Enum(...)
   source = transformTypeDeclarations(source)
   source = transformGenericDeclarations(source)
+  source = transformUnionDeclarations(source)
+  source = transformEnumDeclarations(source)
 
   // Transform bare assignments to const declarations
   // Foo = ... -> const Foo = ...
@@ -1702,6 +1745,220 @@ function transformGenericDeclarations(source: string): string {
   }
 
   return result
+}
+
+/**
+ * Transform Union declarations
+ *
+ * Syntax:
+ *   Union Direction 'cardinal direction' {
+ *     'up' | 'down' | 'left' | 'right'
+ *   }
+ *
+ * Transforms to:
+ *   const Direction = Union('cardinal direction', ['up', 'down', 'left', 'right'])
+ *
+ * Also supports inline form:
+ *   Union Direction 'cardinal direction' 'up' | 'down' | 'left' | 'right'
+ */
+function transformUnionDeclarations(source: string): string {
+  let result = ''
+  let i = 0
+
+  while (i < source.length) {
+    // Look for 'Union' keyword followed by identifier and description
+    const unionMatch = source
+      .slice(i)
+      .match(/^\bUnion\s+([A-Z][a-zA-Z0-9_]*)\s+(['"`])([^]*?)\2\s*/)
+    if (unionMatch) {
+      const unionName = unionMatch[1]
+      const description = unionMatch[3]
+      let j = i + unionMatch[0].length
+
+      // Check what follows: block or inline values
+      if (source[j] === '{') {
+        // Block form: Union Foo 'desc' { ... }
+        const bodyStart = j + 1
+        let depth = 1
+        let k = bodyStart
+
+        // Find matching closing brace
+        while (k < source.length && depth > 0) {
+          const char = source[k]
+          if (char === '{') depth++
+          else if (char === '}') depth--
+          k++
+        }
+
+        if (depth !== 0) {
+          result += source[i]
+          i++
+          continue
+        }
+
+        const blockBody = source.slice(bodyStart, k - 1).trim()
+        const blockEnd = k
+
+        // Parse values: 'a' | 'b' | 'c' or "a" | "b" or mixed
+        const values = parseUnionValues(blockBody)
+        result += `const ${unionName} = Union('${description}', [${values.join(
+          ', '
+        )}])`
+        i = blockEnd
+        continue
+      } else {
+        // Inline form: Union Foo 'desc' 'a' | 'b' | 'c'
+        // Find the end of the line or statement
+        let lineEnd = source.indexOf('\n', j)
+        if (lineEnd === -1) lineEnd = source.length
+        const inlineValues = source.slice(j, lineEnd).trim()
+
+        if (inlineValues) {
+          const values = parseUnionValues(inlineValues)
+          result += `const ${unionName} = Union('${description}', [${values.join(
+            ', '
+          )}])`
+          i = lineEnd
+          continue
+        }
+      }
+    }
+
+    result += source[i]
+    i++
+  }
+
+  return result
+}
+
+/**
+ * Parse union values from a string like: 'a' | 'b' | 123 | true
+ * Returns array of value literals as strings
+ */
+function parseUnionValues(input: string): string[] {
+  const values: string[] = []
+  // Split on | and trim, preserving quoted strings and literals
+  const parts = input.split('|').map((p) => p.trim())
+
+  for (const part of parts) {
+    if (!part) continue
+    // Keep the value as-is (already a valid JS literal)
+    values.push(part)
+  }
+
+  return values
+}
+
+/**
+ * Transform Enum declarations
+ *
+ * Syntax:
+ *   Enum Status 'task status' {
+ *     Pending
+ *     Active
+ *     Done
+ *   }
+ *
+ *   Enum Color 'CSS color' {
+ *     Red = 'red'
+ *     Green = 'green'
+ *     Blue = 'blue'
+ *   }
+ *
+ * Transforms to:
+ *   const Status = Enum('task status', { Pending: 0, Active: 1, Done: 2 })
+ *   const Color = Enum('CSS color', { Red: 'red', Green: 'green', Blue: 'blue' })
+ */
+function transformEnumDeclarations(source: string): string {
+  let result = ''
+  let i = 0
+
+  while (i < source.length) {
+    // Look for 'Enum' keyword followed by identifier and description
+    const enumMatch = source
+      .slice(i)
+      .match(/^\bEnum\s+([A-Z][a-zA-Z0-9_]*)\s+(['"`])([^]*?)\2\s*\{/)
+    if (enumMatch) {
+      const enumName = enumMatch[1]
+      const description = enumMatch[3]
+      const blockStart = i + enumMatch[0].length - 1
+      const bodyStart = blockStart + 1
+      let depth = 1
+      let k = bodyStart
+
+      // Find matching closing brace
+      while (k < source.length && depth > 0) {
+        const char = source[k]
+        if (char === '{') depth++
+        else if (char === '}') depth--
+        k++
+      }
+
+      if (depth !== 0) {
+        result += source[i]
+        i++
+        continue
+      }
+
+      const blockBody = source.slice(bodyStart, k - 1).trim()
+      const blockEnd = k
+
+      // Parse enum members
+      const members = parseEnumMembers(blockBody)
+      const membersStr = members
+        .map(([key, value]) => `${key}: ${value}`)
+        .join(', ')
+
+      result += `const ${enumName} = Enum('${description}', { ${membersStr} })`
+      i = blockEnd
+      continue
+    }
+
+    result += source[i]
+    i++
+  }
+
+  return result
+}
+
+/**
+ * Parse enum members from block body
+ * Handles: Pending, Active = 5, Done, Name = 'value'
+ * Returns array of [key, value] pairs
+ */
+function parseEnumMembers(input: string): [string, string][] {
+  const members: [string, string][] = []
+  let currentNumericValue = 0
+
+  // Split on newlines and commas, filter empty
+  const lines = input
+    .split(/[\n,]/)
+    .map((l) => l.trim())
+    .filter((l) => l && !l.startsWith('//'))
+
+  for (const line of lines) {
+    // Match: Name or Name = value
+    const match = line.match(/^([A-Za-z_][A-Za-z0-9_]*)\s*(?:=\s*(.+))?$/)
+    if (match) {
+      const key = match[1]
+      const explicitValue = match[2]?.trim()
+
+      if (explicitValue !== undefined) {
+        members.push([key, explicitValue])
+        // If it's a number, update the counter
+        const numVal = Number(explicitValue)
+        if (!isNaN(numVal)) {
+          currentNumericValue = numVal + 1
+        }
+      } else {
+        // Auto-increment numeric value
+        members.push([key, String(currentNumericValue)])
+        currentNumericValue++
+      }
+    }
+  }
+
+  return members
 }
 
 /**

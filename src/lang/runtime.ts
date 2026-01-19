@@ -66,6 +66,8 @@ export interface TJSError {
   cause?: Error | TJSError
   /** Source location for error reporting */
   loc?: { start: number; end: number }
+  /** Multiple errors (when composing parameter errors) */
+  errors?: TJSError[]
 }
 
 /**
@@ -86,6 +88,8 @@ export interface TJSConfig {
   safety?: SafetyLevel
   /** Require explicit return types (error if -> not specified) */
   requireReturnTypes?: boolean
+  /** Maximum call stack size to prevent memory issues (default: 100) */
+  maxStackSize?: number
 }
 
 /** Current runtime configuration */
@@ -93,6 +97,7 @@ let config: TJSConfig = {
   debug: false,
   safety: 'inputs',
   requireReturnTypes: false,
+  maxStackSize: 100,
 }
 
 /** Current call stack (only tracked in debug mode) */
@@ -139,10 +144,16 @@ export function getConfig(): TJSConfig {
 
 /**
  * Push a function onto the call stack (debug mode only)
+ * Respects maxStackSize to prevent unbounded memory growth
  */
 export function pushStack(name: string): void {
-  if (config.debug) {
+  if (config.debug && name) {
     callStack.push(name)
+    // Enforce max stack size by removing oldest entries
+    const maxSize = config.maxStackSize ?? 100
+    while (callStack.length > maxSize) {
+      callStack.shift()
+    }
   }
 }
 
@@ -197,6 +208,40 @@ export function error(
   }
 
   return err
+}
+
+/**
+ * Compose multiple errors into a single error
+ * Used when multiple parameters have errors
+ */
+export function composeErrors(errors: TJSError[], funcName?: string): TJSError {
+  if (errors.length === 0) {
+    return error('Unknown error')
+  }
+  if (errors.length === 1) {
+    return errors[0]
+  }
+
+  // Build a message listing all failed parameters
+  const paramNames = errors
+    .map((e) => {
+      // Extract param name from path (e.g., "func.paramName" -> "paramName")
+      if (e.path) {
+        const parts = e.path.split('.')
+        return parts[parts.length - 1]
+      }
+      return 'unknown'
+    })
+    .join(', ')
+
+  const message = `Multiple parameter errors in ${
+    funcName || 'function'
+  }: ${paramNames}`
+
+  return error(message, {
+    path: funcName,
+    errors,
+  })
 }
 
 /**
@@ -335,6 +380,8 @@ export interface FunctionMeta {
   unsafeReturn?: boolean
   /** Return type marked with -? - always validate output */
   safeReturn?: boolean
+  /** Explicit function name for stack tracking (used when fn.name is empty) */
+  name?: string
 }
 
 /**
@@ -382,7 +429,7 @@ export function wrap<T extends (...args: any[]) => any>(
   meta: FunctionMeta
 ): T {
   // Always attach metadata for introspection/autocomplete
-  (fn as any).__tjs = meta
+  ;(fn as any).__tjs = meta
 
   // Determine if we need a wrapper at all
   const needsWrapper =
@@ -406,7 +453,8 @@ export function wrap<T extends (...args: any[]) => any>(
   const metaSafeReturn = !!meta.safeReturn
   const paramEntries = Object.entries(meta.params)
   const paramCount = paramEntries.length
-  const funcName = fn.name
+  // Use meta.name as fallback when fn.name is empty (anonymous functions)
+  const funcName = fn.name || meta.name || 'anonymous'
 
   const wrapped = function (this: any, ...args: Parameters<T>): ReturnType<T> {
     // Fast path: inside unsafe block, skip all validation
@@ -439,38 +487,43 @@ export function wrap<T extends (...args: any[]) => any>(
         args[0] !== null &&
         !Array.isArray(args[0])
 
+      // Collect all errors to compose them
+      const collectedErrors: TJSError[] = []
+
       // Fast positional validation (avoids object allocation)
       if (!isNamedCall) {
         for (let i = 0; i < paramCount; i++) {
           const [name, param] = paramEntries[i]
           const value = args[i]
 
-          // Check for error propagation
-          if (isError(value)) return value as ReturnType<T>
+          // Check for error propagation (passed-in errors)
+          if (isError(value)) {
+            collectedErrors.push(value)
+            continue
+          }
 
           // Check required
           if (param.required && value === undefined) {
-            return error(`Missing required parameter '${name}'`, {
-              path: funcName ? `${funcName}.${name}` : name,
-              expected:
-                typeof param.type === 'string'
-                  ? param.type
-                  : param.type?.description || 'value',
-              actual: 'undefined',
-              loc: param.loc,
-            }) as ReturnType<T>
+            collectedErrors.push(
+              error(`Missing required parameter '${name}'`, {
+                path: `${funcName}.${name}`,
+                expected:
+                  typeof param.type === 'string'
+                    ? param.type
+                    : param.type?.description || 'value',
+                actual: 'undefined',
+                loc: param.loc,
+              })
+            )
+            continue
           }
 
           // Type check (skip undefined optional)
           if (value !== undefined) {
-            const typeErr = checkType(
-              value,
-              param.type,
-              funcName ? `${funcName}.${name}` : name
-            )
+            const typeErr = checkType(value, param.type, `${funcName}.${name}`)
             if (typeErr) {
               if (param.loc) typeErr.loc = param.loc
-              return typeErr as ReturnType<T>
+              collectedErrors.push(typeErr)
             }
           }
         }
@@ -481,32 +534,39 @@ export function wrap<T extends (...args: any[]) => any>(
           const [name, param] = paramEntries[i]
           const value = namedArgs[name]
 
-          if (isError(value)) return value as ReturnType<T>
+          if (isError(value)) {
+            collectedErrors.push(value)
+            continue
+          }
 
           if (param.required && value === undefined) {
-            return error(`Missing required parameter '${name}'`, {
-              path: funcName ? `${funcName}.${name}` : name,
-              expected:
-                typeof param.type === 'string'
-                  ? param.type
-                  : param.type?.description || 'value',
-              actual: 'undefined',
-              loc: param.loc,
-            }) as ReturnType<T>
+            collectedErrors.push(
+              error(`Missing required parameter '${name}'`, {
+                path: `${funcName}.${name}`,
+                expected:
+                  typeof param.type === 'string'
+                    ? param.type
+                    : param.type?.description || 'value',
+                actual: 'undefined',
+                loc: param.loc,
+              })
+            )
+            continue
           }
 
           if (value !== undefined) {
-            const typeErr = checkType(
-              value,
-              param.type,
-              funcName ? `${funcName}.${name}` : name
-            )
+            const typeErr = checkType(value, param.type, `${funcName}.${name}`)
             if (typeErr) {
               if (param.loc) typeErr.loc = param.loc
-              return typeErr as ReturnType<T>
+              collectedErrors.push(typeErr)
             }
           }
         }
+      }
+
+      // If we collected any errors, compose and return them
+      if (collectedErrors.length > 0) {
+        return composeErrors(collectedErrors, funcName) as ReturnType<T>
       }
     }
 
@@ -556,6 +616,7 @@ export const runtime = {
   version: TJS_VERSION,
   isError,
   error,
+  composeErrors,
   typeOf,
   checkType,
   validateArgs,

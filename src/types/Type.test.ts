@@ -470,3 +470,118 @@ describe('Real-world Types', () => {
     expect(Password.check('Sec1')).toBe(false) // too short
   })
 })
+
+describe('Union with literal values', () => {
+  it('creates union from string literals', () => {
+    const Direction = Union('cardinal direction', [
+      'up',
+      'down',
+      'left',
+      'right',
+    ])
+
+    expect(Direction.check('up')).toBe(true)
+    expect(Direction.check('down')).toBe(true)
+    expect(Direction.check('diagonal')).toBe(false)
+    expect(Direction.description).toBe('cardinal direction')
+  })
+
+  it('creates union from mixed literals', () => {
+    const Mixed = Union('mixed values', ['string', 42, true, null])
+
+    expect(Mixed.check('string')).toBe(true)
+    expect(Mixed.check(42)).toBe(true)
+    expect(Mixed.check(true)).toBe(true)
+    expect(Mixed.check(null)).toBe(true)
+    expect(Mixed.check('other')).toBe(false)
+    expect(Mixed.check(43)).toBe(false)
+    expect(Mixed.check(false)).toBe(false)
+  })
+
+  it('exposes values for introspection', () => {
+    const Status = Union('status', ['pending', 'active', 'done']) as any
+
+    expect(Status.values).toEqual(['pending', 'active', 'done'])
+  })
+
+  it('backward compatible with RuntimeType union', () => {
+    // Old form still works
+    const StringOrNumber = Union(TString, TNumber)
+    expect(StringOrNumber.check('hello')).toBe(true)
+    expect(StringOrNumber.check(123)).toBe(true)
+    expect(StringOrNumber.check(true)).toBe(false)
+  })
+})
+
+describe('Enum', () => {
+  const { Enum } = require('./Type')
+
+  it('creates numeric enum with auto-incrementing values', () => {
+    const Status = Enum('task status', { Pending: 0, Active: 1, Done: 2 })
+
+    expect(Status.check(0)).toBe(true)
+    expect(Status.check(1)).toBe(true)
+    expect(Status.check(2)).toBe(true)
+    expect(Status.check(3)).toBe(false)
+    expect(Status.check('Pending')).toBe(false) // Check values, not keys
+    expect(Status.description).toBe('task status')
+  })
+
+  it('creates string enum', () => {
+    const Color = Enum('CSS color', {
+      Red: 'red',
+      Green: 'green',
+      Blue: 'blue',
+    })
+
+    expect(Color.check('red')).toBe(true)
+    expect(Color.check('green')).toBe(true)
+    expect(Color.check('blue')).toBe(true)
+    expect(Color.check('yellow')).toBe(false)
+    expect(Color.check('Red')).toBe(false) // Case sensitive
+  })
+
+  it('provides member access', () => {
+    const Status = Enum('status', { Pending: 0, Active: 1, Done: 2 })
+
+    expect(Status.members.Pending).toBe(0)
+    expect(Status.members.Active).toBe(1)
+    expect(Status.members.Done).toBe(2)
+  })
+
+  it('provides reverse lookup', () => {
+    const Status = Enum('status', { Pending: 0, Active: 1, Done: 2 })
+
+    expect(Status.names[0]).toBe('Pending')
+    expect(Status.names[1]).toBe('Active')
+    expect(Status.names[2]).toBe('Done')
+  })
+
+  it('provides values array', () => {
+    const Status = Enum('status', { Pending: 0, Active: 1, Done: 2 })
+
+    expect(Status.values).toEqual([0, 1, 2])
+  })
+
+  it('provides keys array', () => {
+    const Status = Enum('status', { Pending: 0, Active: 1, Done: 2 })
+
+    expect(Status.keys).toEqual(['Pending', 'Active', 'Done'])
+  })
+
+  it('works with HTTP status codes', () => {
+    const HttpStatus = Enum('HTTP status', {
+      OK: 200,
+      Created: 201,
+      BadRequest: 400,
+      NotFound: 404,
+      InternalError: 500,
+    })
+
+    expect(HttpStatus.check(200)).toBe(true)
+    expect(HttpStatus.check(404)).toBe(true)
+    expect(HttpStatus.check(418)).toBe(false) // I'm a teapot - not in enum
+    expect(HttpStatus.names[200]).toBe('OK')
+    expect(HttpStatus.members.NotFound).toBe(404)
+  })
+})
