@@ -1,7 +1,7 @@
 /*
  * style.ts - CSS styles for agent-99 demo site
  *
- * Uses tosijs StyleSheet with CSS variables for theming
+ * Uses tosijs StyleSheet with CSS variables for theming.
  */
 
 import { vars } from 'tosijs'
@@ -24,18 +24,24 @@ export const styleSpec = {
     _fontMono: "'SF Mono', Monaco, 'Cascadia Code', Consolas, monospace",
     _fontSize: '15px',
     _lineHeight: '1.6',
-    _linkColor: brandColor,
+    _xinTabsSelectedColor: vars.brandColor,
+    // Light mode colors
+    _background: '#ffffff',
+    _textColor: '#1f2937',
     _codeBackground: '#f3f4f6',
     _codeBorder: '#e5e7eb',
+    _linkColor: brandColor,
   },
 
-  // Dark mode overrides
+  // Dark mode - explicit colors for better control
   '.darkmode': {
     _background: '#111827',
     _textColor: '#f3f4f6',
     _codeBackground: '#1f2937',
     _codeBorder: '#374151',
     _linkColor: '#818cf8',
+    // xin-tabs uses these
+    _xinTabsBarColor: '#374151',
   },
 
   // High contrast mode - uses filter for comprehensive contrast boost

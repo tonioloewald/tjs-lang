@@ -1,8 +1,8 @@
 /**
  * Tests for playground examples
  *
- * By default, uses mocks for fast CI. Set USE_LM_STUDIO=1 to test with real LM Studio.
- * Vision tests require a vision-capable model (OpenAI/Anthropic).
+ * By default, uses LM Studio if available. Set SKIP_LLM_TESTS=1 to use mocks.
+ * Vision tests require a vision-capable model.
  */
 
 // Provide browser globals (document, window, etc.) for capabilities.ts
@@ -28,8 +28,14 @@ function trackTestEnd() {
   activeTests--
 }
 import { examples } from './src/examples'
-import { AgentVM, transpile, coreAtoms, batteryAtoms } from '../src'
+import { AgentVM, transpile, coreAtoms, batteryAtoms, tjs } from '../src'
 import { withRetry } from '../src/test-utils'
+
+// Helper to detect if example is TJS (uses TJS-specific syntax)
+function isTjsExample(code: string): boolean {
+  // TJS uses -> for return types, : for required params with example values
+  return /\)\s*->\s*/.test(code) || /mock\s*\{/.test(code)
+}
 import {
   buildLLMCapability,
   buildLLMBattery,
@@ -294,6 +300,13 @@ const mockLLMBattery = {
 }
 
 beforeAll(async () => {
+  // Skip LLM if SKIP_LLM_TESTS is set
+  if (process.env.SKIP_LLM_TESTS) {
+    console.log('SKIP_LLM_TESTS set, using mocks')
+    hasLLM = false
+    return
+  }
+
   // Use the SAME builders as the playground
   llmCapability = buildLLMCapability(testSettings)
   llmBattery = buildLLMBattery(testSettings)
@@ -327,11 +340,20 @@ describe('Playground Examples', () => {
     const shouldFail = example.name === 'Fuel Exhaustion'
     // Examples that generate and run code need retry due to LLM variability
     const needsRetry = example.code.includes('runCode(')
+    // TJS examples use the TJS transpiler, not AgentJS
+    const isTjs = isTjsExample(example.code)
 
     it(`${example.name} - transpiles correctly`, () => {
-      const result = transpile(example.code)
-      expect(result.ast).toBeDefined()
-      expect(result.error).toBeUndefined()
+      if (isTjs) {
+        // TJS examples use the TJS transpiler
+        const result = tjs(example.code)
+        expect(result.code).toBeDefined()
+        expect(result.metadata).toBeDefined()
+      } else {
+        const result = transpile(example.code)
+        expect(result.ast).toBeDefined()
+        expect(result.error).toBeUndefined()
+      }
     })
 
     if (shouldFail) {
@@ -436,6 +458,25 @@ describe('Playground Examples', () => {
           }
         })
       }, 360000) // 3 attempts * 120s each
+    } else if (isTjs) {
+      // TJS examples run via direct JS execution
+      it(`${example.name} - runs successfully`, async () => {
+        trackTestStart()
+        try {
+          const result = tjs(example.code)
+          // Execute the transpiled JS code
+          const fn = new Function(
+            result.code + '\nreturn typeof greet === "function" ? greet : null'
+          )
+          const greetFn = fn()
+          if (greetFn) {
+            const output = greetFn('Test', 1)
+            expect(output).toContain('Hello')
+          }
+        } finally {
+          trackTestEnd()
+        }
+      }, 10000)
     } else {
       it(`${example.name} - runs successfully`, async () => {
         trackTestStart()

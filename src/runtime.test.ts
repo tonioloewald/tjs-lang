@@ -538,4 +538,61 @@ describe('Edge Cases', () => {
     // The nested runCode should succeed (2 levels is fine)
     expect(result.result.result.x.v).toBe(1)
   })
+
+  it('should validate atom output against outputSchema', async () => {
+    // Define an atom that returns the wrong type
+    const badAtom = defineAtom(
+      'badOutput',
+      s.object({}),
+      s.object({ value: s.number }), // Expects { value: number }
+      async () => {
+        return { value: 'not a number' } // Returns string instead
+      }
+    )
+
+    const vm = new AgentVM({ badOutput: badAtom })
+
+    const ast = {
+      op: 'seq',
+      steps: [{ op: 'badOutput', result: 'res' }],
+    } as any
+
+    const result = await vm.run(ast, {})
+
+    // Should fail with output validation error
+    expect(result.error).toBeDefined()
+    expect(result.error?.message).toContain('Output validation failed')
+    expect(result.error?.op).toBe('badOutput')
+  })
+
+  it('should allow valid atom output that matches outputSchema', async () => {
+    // Define an atom that returns the correct type
+    const goodAtom = defineAtom(
+      'goodOutput',
+      s.object({}),
+      s.object({ value: s.number }), // Expects { value: number }
+      async () => {
+        return { value: 42 } // Returns correct type
+      }
+    )
+
+    const vm = new AgentVM({ goodOutput: goodAtom })
+
+    const ast = {
+      op: 'seq',
+      steps: [
+        { op: 'goodOutput', result: 'res' },
+        {
+          op: 'return',
+          schema: { type: 'object', properties: { res: { type: 'object' } } },
+        },
+      ],
+    } as any
+
+    const result = await vm.run(ast, {})
+
+    // Should succeed
+    expect(result.error).toBeUndefined()
+    expect(result.result.res).toEqual({ value: 42 })
+  })
 })

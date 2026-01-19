@@ -7,8 +7,9 @@ import { elements, Component, PartsMap } from 'tosijs'
 import { icons } from 'tosijs-ui'
 
 import { EditorView, basicSetup } from 'codemirror'
-import { EditorState } from '@codemirror/state'
+import { EditorState, Compartment } from '@codemirror/state'
 import { syntaxHighlighting, defaultHighlightStyle } from '@codemirror/language'
+import { oneDark } from '@codemirror/theme-one-dark'
 import { ajsEditorExtension } from '../../editors/codemirror/ajs-language'
 
 import { examples, type Example } from './examples'
@@ -90,6 +91,8 @@ interface PlaygroundParts extends PartsMap {
 
 export class Playground extends Component<PlaygroundParts> {
   private editor: EditorView | null = null
+  private themeCompartment = new Compartment()
+  private darkModeObserver: MutationObserver | null = null
   private vm = new AgentVM({ ...coreAtoms, ...batteryAtoms })
   private currentTab = 'result'
   private lastResult: any = null
@@ -100,11 +103,29 @@ export class Playground extends Component<PlaygroundParts> {
   private currentExampleIndex: number = -1 // -1 = new/unsaved
 
   // Use Shadow DOM styles (static styleSpec)
+  // CSS variables for theming
   static styleSpec = {
     ':host': {
       display: 'block',
       height: '100%',
       position: 'relative',
+      // Light mode defaults
+      '--pg-bg': '#f3f4f6',
+      '--pg-border': '#e5e7eb',
+      '--pg-text': '#1f2937',
+      '--pg-brand': '#3d4a6b',
+      '--pg-success': '#16a34a',
+      '--pg-error': '#dc2626',
+    },
+
+    // Dark mode - detect from parent
+    ':host-context(.darkmode)': {
+      '--pg-bg': '#1f2937',
+      '--pg-border': '#374151',
+      '--pg-text': '#f3f4f6',
+      '--pg-brand': '#818cf8',
+      '--pg-success': '#4ade80',
+      '--pg-error': '#f87171',
     },
 
     '.playground': {
@@ -112,6 +133,7 @@ export class Playground extends Component<PlaygroundParts> {
       flexDirection: 'column',
       height: '100%',
       gap: '10px',
+      color: 'var(--pg-text)',
     },
 
     '.playground-toolbar': {
@@ -119,7 +141,7 @@ export class Playground extends Component<PlaygroundParts> {
       alignItems: 'center',
       gap: '10px',
       padding: '10px',
-      background: '#f3f4f6',
+      background: 'var(--pg-bg)',
       borderRadius: '6px',
       flexWrap: 'wrap',
     },
@@ -129,12 +151,29 @@ export class Playground extends Component<PlaygroundParts> {
       alignItems: 'center',
       gap: '4px',
       padding: '6px 12px',
-      background: '#3d4a6b',
+      background: 'var(--pg-brand)',
       color: 'white',
       border: 'none',
       borderRadius: '6px',
       cursor: 'pointer',
       fontWeight: '500',
+    },
+
+    '.iconic': {
+      background: 'none',
+      border: 'none',
+      cursor: 'pointer',
+      padding: '5px',
+      borderRadius: '6px',
+      color: 'var(--pg-text)',
+      display: 'flex',
+      alignItems: 'center',
+      justifyContent: 'center',
+      transition: 'background 0.15s',
+    },
+
+    '.iconic:hover': {
+      background: 'rgba(99, 102, 241, 0.15)',
     },
 
     '.playground-main': {
@@ -148,10 +187,11 @@ export class Playground extends Component<PlaygroundParts> {
       flex: '1 1 50%',
       minWidth: '300px',
       minHeight: '300px',
-      border: '1px solid #e5e7eb',
+      border: '1px solid var(--pg-border)',
       borderRadius: '6px',
       overflow: 'hidden',
       position: 'relative',
+      background: 'var(--pg-bg)',
     },
 
     // Critical CodeMirror styles
@@ -174,15 +214,16 @@ export class Playground extends Component<PlaygroundParts> {
       display: 'flex',
       flexDirection: 'column',
       minWidth: '300px',
-      border: '1px solid #e5e7eb',
+      border: '1px solid var(--pg-border)',
       borderRadius: '6px',
       overflow: 'hidden',
+      background: 'var(--pg-bg)',
     },
 
     '.playground-tabs': {
       display: 'flex',
-      background: '#f3f4f6',
-      borderBottom: '1px solid #e5e7eb',
+      background: 'var(--pg-bg)',
+      borderBottom: '1px solid var(--pg-border)',
       alignItems: 'center',
     },
 
@@ -196,6 +237,7 @@ export class Playground extends Component<PlaygroundParts> {
       border: 'none',
       background: 'transparent',
       cursor: 'pointer',
+      color: 'var(--pg-text)',
       opacity: 0.6,
       transition: 'opacity 0.15s',
     },
@@ -205,7 +247,7 @@ export class Playground extends Component<PlaygroundParts> {
     },
 
     '.copy-btn.copied': {
-      color: '#16a34a',
+      color: 'var(--pg-success)',
     },
 
     '.playground-tab': {
@@ -213,7 +255,7 @@ export class Playground extends Component<PlaygroundParts> {
       border: 'none',
       background: 'transparent',
       cursor: 'pointer',
-      color: 'inherit',
+      color: 'var(--pg-text)',
       opacity: 0.7,
       transition: 'opacity 0.15s, background 0.15s',
     },
@@ -225,7 +267,7 @@ export class Playground extends Component<PlaygroundParts> {
 
     '.playground-tab.active': {
       opacity: 1,
-      borderBottom: '2px solid #3d4a6b',
+      borderBottom: '2px solid var(--pg-brand)',
       marginBottom: '-1px',
     },
 
@@ -237,22 +279,24 @@ export class Playground extends Component<PlaygroundParts> {
       fontSize: '13px',
       whiteSpace: 'pre-wrap',
       wordBreak: 'break-word',
+      color: 'var(--pg-text)',
+      background: 'var(--pg-bg)',
     },
 
     '.playground-result.error': {
-      color: '#dc2626',
+      color: 'var(--pg-error)',
     },
 
     '.playground-result.success': {
-      color: '#16a34a',
+      color: 'var(--pg-success)',
     },
 
     '.loading-spinner': {
       display: 'inline-block',
       width: '14px',
       height: '14px',
-      border: '2px solid #e5e7eb',
-      borderTopColor: '#3d4a6b',
+      border: '2px solid var(--pg-border)',
+      borderTopColor: 'var(--pg-brand)',
       borderRadius: '50%',
       animation: 'spin 0.8s linear infinite',
       verticalAlign: 'middle',
@@ -265,10 +309,19 @@ export class Playground extends Component<PlaygroundParts> {
 
     '.playground-status': {
       padding: '5px 10px',
-      background: '#f3f4f6',
-      borderTop: '1px solid #e5e7eb',
+      background: 'var(--pg-bg)',
+      borderTop: '1px solid var(--pg-border)',
       fontSize: '12px',
       opacity: 0.7,
+    },
+
+    // Select dropdown styling
+    select: {
+      padding: '4px 8px',
+      borderRadius: '4px',
+      border: '1px solid var(--pg-border)',
+      background: 'var(--pg-bg)',
+      color: 'var(--pg-text)',
     },
 
     '@media (max-width: 768px)': {
@@ -399,6 +452,7 @@ export class Playground extends Component<PlaygroundParts> {
 
   disconnectedCallback() {
     window.removeEventListener('hashchange', this.handleHashChange)
+    this.darkModeObserver?.disconnect()
   }
 
   // Get all examples (built-in + custom)
@@ -478,6 +532,21 @@ export class Playground extends Component<PlaygroundParts> {
     this.loadExampleByTypeAndIndex(type, index)
   }
 
+  private isDarkMode(): boolean {
+    return document.body.classList.contains('darkmode')
+  }
+
+  private getThemeExtension() {
+    return this.isDarkMode() ? oneDark : []
+  }
+
+  private updateEditorTheme() {
+    if (!this.editor) return
+    this.editor.dispatch({
+      effects: this.themeCompartment.reconfigure(this.getThemeExtension()),
+    })
+  }
+
   initEditor() {
     const container = this.parts.editorContainer
     if (!container) return
@@ -486,6 +555,7 @@ export class Playground extends Component<PlaygroundParts> {
       basicSetup,
       syntaxHighlighting(defaultHighlightStyle),
       ajsEditorExtension(),
+      this.themeCompartment.of(this.getThemeExtension()),
     ]
 
     // Get initial example from hash or default to first built-in
@@ -504,6 +574,16 @@ export class Playground extends Component<PlaygroundParts> {
       }),
       parent: container,
     })
+
+    // Watch for dark mode changes on body
+    this.darkModeObserver = new MutationObserver((mutations) => {
+      for (const mutation of mutations) {
+        if (mutation.attributeName === 'class') {
+          this.updateEditorTheme()
+        }
+      }
+    })
+    this.darkModeObserver.observe(document.body, { attributes: true })
 
     // Update current example tracking
     this.currentExampleIndex = index

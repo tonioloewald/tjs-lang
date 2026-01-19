@@ -1,4 +1,4 @@
-<!--{"pin": "top"}-->
+<!--{"pin": "top", "hidden": true}-->
 
 # tosijs-agent
 
@@ -14,7 +14,7 @@ And it's **tiny**, ![bundlejs bundle including dependencies](https://deno.bundle
 
 tosijs-agent allows you to define complex logic chains, agents, and data pipelines—_computer programs_—using a fluent TypeScript builder. These definitions compile to a safe, JSON-serializable AST ([Abstract Syntax Tree](https://en.wikipedia.org/wiki/Abstract_syntax_tree)) that can be executed in the browser, on the server, or at the edge.
 
-For a deeper dive into the architecture and security model, see the [Technical Context](./CONTEXT.md).
+For a deeper dive into the architecture and security model, see the [Technical Context](./CONTEXT.md). For detailed language references and patterns, see the [guides](./guides/).
 
 ### Why do you care?
 
@@ -67,7 +67,7 @@ const agent = Agent.take(s.object({ topic: s.string })).while(
 
 ## Interactive Example: Cover Version Finder
 
-This example shows the complete loop: a UI form captures user input, AsyncJS code processes it (calling an API and using an LLM to analyze results), and displays the output with album artwork.
+This example shows the complete loop: a UI form captures user input, AJS code processes it (calling an API and using an LLM to analyze results), and displays the output with album artwork.
 
 ```css
 .cover-finder {
@@ -155,11 +155,11 @@ This example shows the complete loop: a UI form captures user input, AsyncJS cod
 ```
 
 ```js
-// Wire up the form to AsyncJS
+// Wire up the form to AJS
 // Uses demoRuntime which gets LLM settings from the Settings dialog
 import { ajs } from 'tosijs-agent'
 
-// The AsyncJS code - searches iTunes and uses LLM to find covers
+// The AJS code - searches iTunes and uses LLM to find covers
 const findCovers = ajs`
   function findCovers({ song, artist }) {
     let query = song + ' ' + artist
@@ -255,7 +255,7 @@ document.getElementById('cover-search').onsubmit = async (e) => {
 
 This demonstrates:
 
-- **Safe execution**: The AsyncJS code runs in a sandboxed VM with fuel limits
+- **Safe execution**: The AJS code runs in a sandboxed VM with fuel limits
 - **Structured output**: JSON schema guarantees valid response format from the LLM
 - **Capability injection**: LLM access is provided by the host, not the untrusted code
 - **Portable logic**: The `findCovers` AST could be sent to a server for execution instead
@@ -276,9 +276,9 @@ npm install tosijs-agent
 
 ## Quick Start
 
-### 1. Write Logic (AsyncJS)
+### 1. Write Logic (AJS)
 
-Write agents in AsyncJS—a JavaScript subset that compiles to a safe, serializable AST.
+Write agents in AJS—a JavaScript subset that compiles to a safe, serializable AST.
 
 ```typescript
 import { ajs, AgentVM } from 'tosijs-agent'
@@ -299,7 +299,7 @@ console.log(result.result) // { total: 120 }
 console.log(result.fuelUsed) // Fuel consumed
 ```
 
-AsyncJS supports most JavaScript expressions, loops, try/catch, and more. See [ASYNCJS.md](./ASYNCJS.md) for the full language reference.
+AJS supports most JavaScript expressions, loops, try/catch, and more. See [guides/ajs.md](./guides/ajs.md) for the full language reference.
 
 ### 2. Advanced: The Builder API
 
@@ -375,12 +375,13 @@ The standard library includes essential primitives:
 | **IO**           | `httpFetch`                                                        | HTTP requests.                                                                                                        |
 | **Store**        | `storeGet`, `storeSet`                                             | Key-Value storage.                                                                                                    |
 | **AI**           | `llmPredict`, `agentRun`                                           | LLM calls and sub-agent recursion.                                                                                    |
+| **Procedures**   | `storeProcedure`, `releaseProcedure`, `clearExpiredProcedures`     | Store ASTs as callable tokens with TTL expiry.                                                                        |
 | **Utils**        | `random`, `uuid`, `hash`                                           | Random generation, UUIDs, and hashing.                                                                                |
 | **Optimization** | `memoize`, `cache`                                                 | In-memory memoization and persistent caching. Keys are optional and will be auto-generated if not provided.           |
 
 ## Expression Builtins
 
-AsyncJS expressions have access to safe built-in objects:
+AJS expressions have access to safe built-in objects:
 
 | Builtin  | Description                                                                 |
 | -------- | --------------------------------------------------------------------------- |
@@ -425,6 +426,79 @@ let schema = Schema.response(
 | **Union/Enum**  | `union([...])`, `enum([...])`, `const(value)`                             |
 | **Metadata**    | `.title(s)`, `.describe(s)`, `.default(v)`, `.optional`                   |
 | **Helpers**     | `response(name, schema)`, `fromExample(example)`, `isValid(data, schema)` |
+
+## Stored Procedures
+
+Store ASTs as callable tokens—function pointers that can be passed around and invoked later. Useful for:
+
+- **Dynamic dispatch:** Pass behavior as data to sub-agents
+- **Deferred execution:** Store logic now, execute later
+- **Callback patterns:** Register handlers that other agents can invoke
+
+```typescript
+import { ajs, AgentVM } from 'tosijs-agent'
+
+const vm = new AgentVM()
+
+// Define a worker agent
+const workerAgent = ajs`
+  function worker({ value }) {
+    return { doubled: value * 2 }
+  }
+`
+
+// Store it and get a token
+const storeAgent = ajs`
+  function store({ ast }) {
+    let token = storeProcedure({ ast })
+    return { token }
+  }
+`
+
+const { result: storeResult } = await vm.run(storeAgent, { ast: workerAgent })
+const token = storeResult.token // e.g., "proc_abc123..."
+
+// Call via token directly
+const { result } = await vm.run(token, { value: 21 })
+console.log(result) // { doubled: 42 }
+
+// Or pass token to another agent
+const orchestrator = ajs`
+  function orchestrate({ workerToken, values }) {
+    let results = []
+    for (let v of values) {
+      let r = agentRun({ agentId: workerToken, input: { value: v } })
+      results.push(r.doubled)
+    }
+    return { results }
+  }
+`
+
+const { result: orchResult } = await vm.run(orchestrator, {
+  workerToken: token,
+  values: [1, 2, 3, 4, 5],
+})
+console.log(orchResult) // { results: [2, 4, 6, 8, 10] }
+```
+
+### Token Lifecycle
+
+| Atom                                      | Description                                                    |
+| ----------------------------------------- | -------------------------------------------------------------- |
+| `storeProcedure({ ast, ttl?, maxSize? })` | Store an AST, returns a `proc_*` token. Default TTL: 1 hour.   |
+| `releaseProcedure({ token })`             | Manually delete a stored procedure. Returns `true` if existed. |
+| `clearExpiredProcedures({})`              | Remove all expired procedures. Returns count cleared.          |
+
+**Options:**
+
+- `ttl`: Time-to-live in milliseconds (default: 3600000 = 1 hour)
+- `maxSize`: Maximum AST size in bytes (default: 102400 = 100KB)
+
+**Errors:**
+
+- `TokenExpired`: Token existed but TTL has passed
+- `TokenNotFound`: Token was never stored or was released
+- `ASTTooLarge`: AST exceeds `maxSize` limit
 
 ## Capabilities & Security
 
@@ -762,7 +836,7 @@ chain.try({
 
 ## Editor Support
 
-tosijs-agent includes syntax highlighting for AsyncJS (the JavaScript subset used by `ajs` template literals).
+tosijs-agent includes syntax highlighting for AJS (the JavaScript subset used by `ajs` template literals).
 
 ### Quick Install
 

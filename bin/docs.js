@@ -109,6 +109,7 @@ const ignore = [
   'docs',
   'third-party',
   '.git',
+  '.archive',
   'editors',
   'demo',
   'bin',

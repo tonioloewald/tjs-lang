@@ -224,7 +224,99 @@ app.post('/run-agent', async (req, res) => {
 })
 ```
 
-## 4. Production Considerations
+## 4. Stored Procedures
+
+The procedure store provides a built-in mechanism for storing ASTs as callable tokens. This enables function-pointer-like patterns where behavior can be passed as data.
+
+### Storage Model
+
+```typescript
+// Module-level storage in runtime.ts
+const procedureStore = new Map<
+  string,
+  {
+    ast: any
+    createdAt: number
+    expiresAt: number
+  }
+>()
+```
+
+**Constants:**
+
+- `PROCEDURE_TOKEN_PREFIX`: `'proc_'` - All tokens start with this prefix
+- `DEFAULT_PROCEDURE_TTL`: 3,600,000ms (1 hour)
+- `DEFAULT_MAX_AST_SIZE`: 102,400 bytes (100KB)
+
+### Token Resolution
+
+Tokens can be used anywhere an AST is accepted:
+
+1. **`vm.run(token, args)`** - Direct execution via VM
+2. **`agentRun({ agentId: token, input })`** - Execution from within an agent
+3. **`agentRun({ agentId: ast, input })`** - Raw AST also accepted (no storage needed)
+
+Resolution happens at runtime. If a string starts with `proc_`, the VM looks it up in the store. Expired or missing tokens throw clear errors.
+
+### Fuel Costs
+
+| Atom                     | Cost | Notes                           |
+| ------------------------ | ---- | ------------------------------- |
+| `storeProcedure`         | 1.0  | Plus 0.001 per byte of AST      |
+| `releaseProcedure`       | 0.5  | Constant                        |
+| `clearExpiredProcedures` | 0.5  | Plus 0.01 per procedure scanned |
+
+### Security Considerations
+
+**Memory bounds:** The `maxSize` parameter prevents storing arbitrarily large ASTs. Default 100KB is generous for most agents.
+
+**Expiry:** TTL prevents memory leaks from abandoned procedures. The store is in-memory, so procedures don't survive process restarts.
+
+**No capability escalation:** Stored procedures inherit the capabilities of the calling context, not the storing context. A malicious agent cannot store a procedure that later executes with elevated privileges.
+
+**Token predictability:** Tokens are UUIDs, not sequential. They cannot be enumerated or guessed.
+
+### Use Cases
+
+**Dynamic dispatch (strategy pattern):**
+
+```typescript
+const strategies = ajs`
+  function dispatch({ strategyToken, data }) {
+    let result = agentRun({ agentId: strategyToken, input: { data } })
+    return result
+  }
+`
+```
+
+**Worker pool:**
+
+```typescript
+const orchestrator = ajs`
+  function orchestrate({ workers, tasks }) {
+    let results = []
+    for (let i = 0; i < tasks.length; i = i + 1) {
+      let workerToken = workers[i % workers.length]
+      let r = agentRun({ agentId: workerToken, input: tasks[i] })
+      results.push(r)
+    }
+    return { results }
+  }
+`
+```
+
+**Callback registration:**
+
+```typescript
+const registerCallback = ajs`
+  function register({ handler }) {
+    let token = storeProcedure({ ast: handler, ttl: 300000 })
+    return { callbackId: token }
+  }
+`
+```
+
+## 5. Production Considerations
 
 ### Recursive Agent Fuel
 
@@ -363,3 +455,138 @@ Agent.take(s.object({})).try({
       ),
 })
 ```
+
+## 9. Test Coverage
+
+**Summary (as of January 2025):**
+
+| Metric    | Value  |
+| --------- | ------ |
+| Tests     | 508    |
+| Functions | 84.77% |
+| Lines     | 80.36% |
+
+### Coverage by Component
+
+**Core Runtime (security-critical):**
+
+| File                      | Functions | Lines   | Notes                        |
+| ------------------------- | --------- | ------- | ---------------------------- |
+| `src/runtime.ts`          | 100%      | 100%    | Re-exports                   |
+| `src/vm.ts`               | 100%      | 100%    | Re-exports                   |
+| `src/vm/runtime.ts`       | 84%       | **98%** | Atoms, expression eval, fuel |
+| `src/vm/vm.ts`            | 90%       | 94%     | VM entry point               |
+| `src/transpiler/index.ts` | 100%      | 100%    | AJS transpiler               |
+| `src/builder.ts`          | 92%       | 90%     | Fluent builder               |
+
+**Language/Transpiler:**
+
+| File                       | Functions | Lines | Notes                           |
+| -------------------------- | --------- | ----- | ------------------------------- |
+| `src/lang/emitters/ast.ts` | 94%       | 83%   | TJS → AST                       |
+| `src/lang/parser.ts`       | 92%       | 82%   | TJS parser                      |
+| `src/lang/inference.ts`    | 57%       | 60%   | Type inference (lower priority) |
+
+**Test Categories:**
+
+| Category                   | Tests | Coverage                                             |
+| -------------------------- | ----- | ---------------------------------------------------- |
+| Security (malicious actor) | 10    | Prototype access, SSRF, ReDoS, path traversal        |
+| Runtime core               | 25+   | Fuel, timeout, tracing, expressions                  |
+| Stress/Memory              | 6     | Large arrays, deep nesting, memory pressure          |
+| Capability failures        | 10    | Network errors, store failures, partial capabilities |
+| Allocation fuel            | 4     | Proportional charging for strings/arrays             |
+| Transpiler                 | 50+   | Language features, edge cases                        |
+| Use cases                  | 100+  | RAG, orchestration, client-server patterns           |
+
+### Running Tests
+
+```bash
+# Full suite
+bun test
+
+# Fast (skip LLM and benchmarks)
+SKIP_LLM_TESTS=1 AGENT99_TESTS_SKIP_BENCHMARKS=1 bun test
+
+# With coverage
+bun test --coverage
+```
+
+## 10. Dependencies
+
+### Runtime Dependencies
+
+These ship with the library and affect bundle size and security posture.
+
+| Package         | Version | Size  | Purpose                                     | Risk                                                 |
+| --------------- | ------- | ----- | ------------------------------------------- | ---------------------------------------------------- |
+| `acorn`         | ^8.15.0 | ~30KB | JavaScript parser for AJS transpilation     | **Low** - Mature, widely audited, Mozilla-maintained |
+| `tosijs-schema` | ^1.2.0  | ~5KB  | JSON Schema validation                      | **Low** - Our library, 96.6% coverage, zero deps     |
+| `@codemirror/*` | various | ~50KB | Editor syntax highlighting (optional)       | **Low** - Only loaded for editor integration         |
+
+**Total runtime footprint:** ~33KB gzipped (core), ~83KB with editor support.
+
+### tosijs-schema 1.2.0 Coverage
+
+Our validation dependency maintains comprehensive test coverage:
+
+- **98.25% function coverage, 96.62% line coverage** (146 tests, 349 assertions)
+- **Edge cases tested:** NaN, Infinity, -0, sparse arrays, unicode, deeply nested structures
+- **Complex unions:** nested unions, discriminated unions, union of arrays, union with null/undefined
+- **Format validators:** email, ipv4 boundaries, url protocols, datetime variants
+- **Strict mode:** `validate(data, schema, { strict: true })` validates every item
+
+Because tosijs-schema schemas are JSON data (not code), library coverage extends to user-defined schemas—unlike Zod where user schema compositions are untested code.
+
+### Development Dependencies
+
+Not shipped to users. Used for building, testing, and development.
+
+| Package                | Purpose                       | Notes                   |
+| ---------------------- | ----------------------------- | ----------------------- |
+| `typescript`           | Type checking and compilation | Standard                |
+| `bun`                  | Runtime, bundler, test runner | Fast, modern            |
+| `eslint` / `prettier`  | Code quality                  | Standard                |
+| `acorn-walk`           | AST traversal for transpiler  | Only used at build time |
+| `codemirror`           | Editor components for demo    | Demo only               |
+| `tosijs` / `tosijs-ui` | Demo UI framework             | Demo only               |
+| `happy-dom`            | DOM mocking for tests         | Test only               |
+| `vitest`               | Alternative test runner       | Optional                |
+
+### Dependency Risk Assessment
+
+**Supply Chain:**
+
+| Risk                     | Mitigation                                               |
+| ------------------------ | -------------------------------------------------------- |
+| Acorn compromise         | Mature project (10+ years), Mozilla backing, widely used |
+| tosijs-schema compromise | We control this library                                  |
+| Transitive dependencies  | Minimal—acorn has 0 deps, tosijs-schema has 0 deps       |
+
+**Version Pinning:**
+
+- Production dependencies use caret (`^`) for patch updates
+- Consider using exact versions or lockfile for production deployments
+
+**Audit:**
+
+```bash
+# Check for known vulnerabilities
+bun audit
+# or
+npm audit
+```
+
+### What We Don't Depend On
+
+Notably absent from our dependency tree:
+
+| Common Dependency | Why We Don't Use It                     |
+| ----------------- | --------------------------------------- |
+| lodash            | Native JS methods suffice               |
+| axios             | Native fetch + capability injection     |
+| moment/dayjs      | Built-in Date wrapper in expressions    |
+| zod/yup           | tosijs-schema is lighter and sufficient |
+| jsep              | Replaced with acorn + custom AST nodes  |
+
+This minimal dependency approach reduces supply chain risk and bundle size.

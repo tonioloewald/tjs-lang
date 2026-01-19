@@ -17,60 +17,99 @@ const PORT = 8699 // Homage to Agent-99
 const DEMO_DIR = './demo'
 const DOCS_DIR = './docs'
 const SRC_DIR = './src'
+const EDITORS_DIR = './editors'
 const ROOT_DIR = '.'
 
 // Build the demo
 async function buildDemo() {
   console.log('Building demo...')
 
-  // Generate docs.json
-  await $`node bin/docs.js`
+  try {
+    // Generate docs.json
+    await $`node bin/docs.js`
 
-  // Build the demo app (bundle everything for browser)
-  await Bun.build({
-    entrypoints: ['./demo/src/index.ts'],
-    outdir: './docs',
-    minify: false,
-    sourcemap: 'external',
-    target: 'browser',
-  })
+    // Build the demo app (bundle everything for browser)
+    const result = await Bun.build({
+      entrypoints: ['./demo/src/index.ts'],
+      outdir: './docs',
+      minify: false,
+      sourcemap: 'external',
+      target: 'browser',
+    })
 
-  // Copy static files
-  await $`cp demo/index.html demo/static/favicon.svg demo/static/photo-*.jpg tosijs-agent.svg docs/`
-  await $`cp -r demo/static/texts docs/`
+    if (!result.success) {
+      console.error('Build failed:')
+      for (const log of result.logs) {
+        console.error(log)
+      }
+      return
+    }
 
-  console.log('Build complete!')
+    // Copy static files
+    await $`cp demo/index.html demo/static/favicon.svg demo/static/photo-*.jpg tosijs-agent.svg docs/`
+    await $`cp -r demo/static/texts docs/`
+
+    console.log('Build complete!')
+  } catch (error) {
+    console.error(
+      'Build error:',
+      error instanceof Error ? error.message : error
+    )
+  }
 }
 
 // Initial build
 await buildDemo()
 
+// Debounce rebuilds to avoid multiple rapid rebuilds
+let rebuildTimeout: ReturnType<typeof setTimeout> | null = null
+let isBuilding = false
+
+async function debouncedBuild(source: string) {
+  if (rebuildTimeout) {
+    clearTimeout(rebuildTimeout)
+  }
+  rebuildTimeout = setTimeout(async () => {
+    if (isBuilding) {
+      // Schedule another build after current one finishes
+      debouncedBuild(source)
+      return
+    }
+    isBuilding = true
+    console.log(`\n${source}`)
+    await buildDemo()
+    isBuilding = false
+  }, 100)
+}
+
 // Watch for changes
-const watcher = watch(SRC_DIR, { recursive: true }, async (event, filename) => {
-  console.log(`\nFile changed: ${filename}`)
-  await buildDemo()
+const watcher = watch(SRC_DIR, { recursive: true }, (event, filename) => {
+  debouncedBuild(`File changed: ${filename}`)
 })
 
 const demoWatcher = watch(
   `${DEMO_DIR}/src`,
   { recursive: true },
-  async (event, filename) => {
-    console.log(`\nDemo file changed: ${filename}`)
-    await buildDemo()
+  (event, filename) => {
+    debouncedBuild(`Demo file changed: ${filename}`)
+  }
+)
+
+// Watch for editor changes
+const editorsWatcher = watch(
+  EDITORS_DIR,
+  { recursive: true },
+  (event, filename) => {
+    debouncedBuild(`Editor file changed: ${filename}`)
   }
 )
 
 // Watch for markdown file changes in root
-const mdWatcher = watch(
-  ROOT_DIR,
-  { recursive: false },
-  async (event, filename) => {
-    if (filename && filename.endsWith('.md')) {
-      console.log(`\nMarkdown file changed: ${filename}`)
-      await buildDemo()
-    }
+const mdWatcher = watch(ROOT_DIR, { recursive: false }, (event, filename) => {
+  if (filename && filename.endsWith('.md')) {
+    debouncedBuild(`Markdown file changed: ${filename}`)
   }
-)
+})
 
 // Serve the docs directory
 const server = Bun.serve({
@@ -132,6 +171,7 @@ console.log(`
   Watching for changes in:
   - ${SRC_DIR}/
   - ${DEMO_DIR}/src/
+  - ${EDITORS_DIR}/
   - *.md (root directory)
   
   Press Ctrl+C to stop
@@ -142,6 +182,7 @@ process.on('SIGINT', () => {
   console.log('\nShutting down...')
   watcher.close()
   demoWatcher.close()
+  editorsWatcher.close()
   mdWatcher.close()
   server.stop()
   process.exit(0)

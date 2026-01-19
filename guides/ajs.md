@@ -1,21 +1,21 @@
-# AsyncJS (.ajs) - A Better JavaScript for AI Agents
+# AJS (.ajs) - A Better JavaScript for AI Agents
 
-AsyncJS is a JavaScript subset designed for writing AI agent logic. It compiles to Agent99's secure JSON AST format, providing familiar syntax with cleaner semantics.
+AJS is a JavaScript subset designed for writing AI agent logic. It compiles to Agent99's secure JSON AST format, providing familiar syntax with cleaner semantics.
 
-> **For LLM Integration:** See [ASYNCJS_LLM_PROMPT.md](./ASYNCJS_LLM_PROMPT.md) for a system prompt optimized for code generation.
+> **For LLM Integration:** See [ajs-llm-prompt.md](./ajs-llm-prompt.md) for a system prompt optimized for code generation.
 
 ## File Extension
 
-AsyncJS files use the `.ajs` extension to distinguish them from standard JavaScript:
+AJS files use the `.ajs` extension to distinguish them from standard JavaScript:
 
 ```
 my-agent.ajs
 search-tool.ajs
 ```
 
-## Why AsyncJS?
+## Why AJS?
 
-| Problem with JavaScript       | AsyncJS Solution                                |
+| Problem with JavaScript       | AJS Solution                                    |
 | ----------------------------- | ----------------------------------------------- |
 | `async/await` boilerplate     | All calls are implicitly async                  |
 | Complex error handling        | Monadic error flow - errors propagate as values |
@@ -55,7 +55,7 @@ function searchAgent(topic: 'climate change', maxResults = 5) {
 All function calls that invoke atoms are automatically awaited. No `async/await` keywords needed.
 
 ```javascript
-// AsyncJS - clean and simple
+// AJS - clean and simple
 function agent(topic: 'machine learning') {
   let results = search({ query: topic })
   let summary = summarize({ text: results })
@@ -176,7 +176,7 @@ search.signature = {
 
 ### Destructured Parameter Defaults
 
-AsyncJS supports default values in destructured object parameters. Unlike JavaScript/TypeScript where destructuring defaults can be tricky, AsyncJS makes them work reliably:
+AJS supports default values in destructured object parameters. Unlike JavaScript/TypeScript where destructuring defaults can be tricky, AJS makes them work reliably:
 
 ```javascript
 function calculate({ a = 10, b = 5 }) {
@@ -291,7 +291,7 @@ atomName({ param1: value1, param2: value2 })
 
 ### Built-in Objects
 
-AsyncJS provides safe implementations of common JavaScript built-in objects:
+AJS provides safe implementations of common JavaScript built-in objects:
 
 #### Math
 
@@ -372,7 +372,7 @@ let sliced = arr.slice(1, 3) // [1, 4]
 
 ### Set and Date Builtins
 
-AsyncJS provides `Set()` and `Date()` as factory functions - no `new` keyword needed.
+AJS provides `Set()` and `Date()` as factory functions - no `new` keyword needed.
 
 #### Set
 
@@ -668,7 +668,7 @@ if (isAgentError(result)) {
 
 ### Recovery with try/catch
 
-Use `try/catch` in your AsyncJS code to handle errors gracefully:
+Use `try/catch` in your AJS code to handle errors gracefully:
 
 ```javascript
 function resilientAgent({ query }) {
@@ -687,7 +687,7 @@ function resilientAgent({ query }) {
 
 ### Triggering Errors with Error()
 
-Use the `Error()` built-in to trigger monadic error flow from your AsyncJS code:
+Use the `Error()` built-in to trigger monadic error flow from your AJS code:
 
 ```javascript
 function validateInput({ value }) {
@@ -729,7 +729,7 @@ function calculate({ x, y }) {
 
 ### Why No `throw` Statement?
 
-AsyncJS intentionally does not support the `throw` statement. Instead, use `Error()`:
+AJS intentionally does not support the `throw` statement. Instead, use `Error()`:
 
 ```javascript
 // DON'T DO THIS - throw is not supported:
@@ -749,7 +749,7 @@ The `throw` keyword will show as an error in your editor (red underline) and the
 
 ### Unavailable JavaScript Features
 
-These common JavaScript APIs are **not available** in AsyncJS. The transpiler will catch these and provide helpful error messages:
+These common JavaScript APIs are **not available** in AJS. The transpiler will catch these and provide helpful error messages:
 
 | Feature          | Error Message              | Alternative                            |
 | ---------------- | -------------------------- | -------------------------------------- |
@@ -763,7 +763,7 @@ These common JavaScript APIs are **not available** in AsyncJS. The transpiler wi
 
 ### The `new` Keyword
 
-The `new` keyword is not supported. AsyncJS provides factory functions instead:
+The `new` keyword is not supported. AJS provides factory functions instead:
 
 ```javascript
 // DON'T DO THIS - the transpiler catches these with helpful errors:
@@ -782,7 +782,7 @@ See [Set and Date Builtins](#set-and-date-builtins) for full documentation.
 
 ### No `this` or Classes
 
-AsyncJS is purely functional. There's no `this`, no classes, no prototypes:
+AJS is purely functional. There's no `this`, no classes, no prototypes:
 
 ```javascript
 // DON'T DO THIS
@@ -800,7 +800,7 @@ function createAgent(name: 'Agent Smith') {
 
 ### Equality Semantics
 
-AsyncJS uses JavaScript's standard equality (`==` and `===`). There is no special deep equality:
+AJS uses JavaScript's standard equality (`==` and `===`). There is no special deep equality:
 
 ```javascript
 let a = { x: 1 }
@@ -907,7 +907,7 @@ const result = await vm.run(ast, args, { fuel: 10000 })
 
 ## Security Model
 
-AsyncJS compiles to Agent99's JSON AST, which executes in a completely sandboxed VM:
+AJS compiles to Agent99's JSON AST, which executes in a completely sandboxed VM:
 
 - **No file system access** - unless explicitly provided via atoms
 - **No network access** - unless explicitly provided via atoms
@@ -944,7 +944,7 @@ const ast = Agent.take()
   .return({ properties: { results: {}, summary: {} } })
   .toJSON()
 
-// After: AsyncJS
+// After: AJS
 const ast = ajs(`
   function searchAgent(topic: 'climate change') {
     let results = search({ query: topic })
