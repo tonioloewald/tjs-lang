@@ -628,7 +628,8 @@ describe('Class Syntax', () => {
     ).toThrow(/class/i)
   })
 
-  // Class methods: maximum effort - use functions instead of classes
+  // TODO: extract class methods and static methods via fromTS
+  // Planned: Component base class, Elements proxy
 })
 
 // =============================================================================
@@ -804,13 +805,13 @@ describe('Utility Types', () => {
 })
 
 // =============================================================================
-// OUT OF SCOPE
+// OUT OF SCOPE (for now)
 // =============================================================================
-// The following TS features are intentionally not supported:
+// The following TS features are not yet supported:
 // - namespace: Legacy pattern, use ES modules instead
 // - module augmentation: Very advanced, niche use case
-// - decorators: Complex, experimental, and TJS has better patterns
-// - class syntax: TJS is function-oriented by design
+// - decorators: Complex, experimental (TC39 stage 3)
+// Note: class syntax support is planned (Component base class, etc.)
 
 // =============================================================================
 // REAL-WORLD LIBRARY TESTS
