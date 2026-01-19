@@ -90,6 +90,16 @@ export interface TypeInfo {
   nullable?: boolean
 }
 
+/** Context for type resolution */
+interface TypeResolutionContext {
+  typeAliases?: Map<string, ts.TypeNode>
+  interfaces?: Map<string, ts.InterfaceDeclaration>
+  sourceFile?: ts.SourceFile
+  warnings?: string[]
+  /** Track visited types to prevent infinite recursion */
+  visited?: Set<string>
+}
+
 /**
  * Convert a TypeScript type node to a TJS example value string
  *
@@ -98,7 +108,8 @@ export interface TypeInfo {
 function typeToExample(
   type: ts.TypeNode | undefined,
   checker?: ts.TypeChecker,
-  warnings?: string[]
+  warnings?: string[],
+  ctx?: TypeResolutionContext
 ): string {
   if (!type) return 'undefined'
 
@@ -132,13 +143,18 @@ function typeToExample(
 
       // Handle common generic types
       if (typeName === 'Array' && typeRef.typeArguments?.length) {
-        const itemExample = typeToExample(typeRef.typeArguments[0], checker)
+        const itemExample = typeToExample(
+          typeRef.typeArguments[0],
+          checker,
+          warnings,
+          ctx
+        )
         return `[${itemExample}]`
       }
       if (typeName === 'Promise') {
         // Unwrap Promise type
         if (typeRef.typeArguments?.length) {
-          return typeToExample(typeRef.typeArguments[0], checker)
+          return typeToExample(typeRef.typeArguments[0], checker, warnings, ctx)
         }
         return 'undefined'
       }
@@ -151,6 +167,53 @@ function typeToExample(
       if (typeName === 'Set') {
         return 'new Set()'
       }
+
+      // Resolve type aliases
+      if (ctx?.typeAliases?.has(typeName)) {
+        // Prevent infinite recursion
+        const visited = ctx.visited ?? new Set<string>()
+        if (visited.has(typeName)) {
+          warnings?.push(`Circular type reference '${typeName}' - using 'any'`)
+          return 'any'
+        }
+        visited.add(typeName)
+        const resolvedType = ctx.typeAliases.get(typeName)!
+        return typeToExample(resolvedType, checker, warnings, {
+          ...ctx,
+          visited,
+        })
+      }
+
+      // Resolve interfaces
+      if (ctx?.interfaces?.has(typeName)) {
+        // Prevent infinite recursion
+        const visited = ctx.visited ?? new Set<string>()
+        if (visited.has(typeName)) {
+          warnings?.push(`Circular type reference '${typeName}' - using 'any'`)
+          return 'any'
+        }
+        visited.add(typeName)
+        const iface = ctx.interfaces.get(typeName)!
+        // Build example object from interface members
+        const props: string[] = []
+        for (const member of iface.members) {
+          if (ts.isPropertySignature(member) && member.name) {
+            const propName = member.name.getText(ctx.sourceFile)
+            const propExample = typeToExample(member.type, checker, warnings, {
+              ...ctx,
+              visited,
+            })
+            const isOptional = !!member.questionToken
+            if (isOptional) {
+              props.push(`${propName} = ${propExample}`)
+            } else {
+              props.push(`${propName}: ${propExample}`)
+            }
+          }
+        }
+        return `{ ${props.join(', ')} }`
+      }
+
       // Type parameters (generics like T, K, V) - treat as any
       // Single uppercase letter or common generic names
       if (
@@ -271,7 +334,10 @@ function typeToExample(
 /**
  * Convert TypeScript type to TypeInfo for metadata
  */
-function typeToInfo(type: ts.TypeNode | undefined): TypeInfo {
+function typeToInfo(
+  type: ts.TypeNode | undefined,
+  ctx?: TypeResolutionContext
+): TypeInfo {
   if (!type) return { kind: 'any' }
 
   switch (type.kind) {
@@ -289,7 +355,7 @@ function typeToInfo(type: ts.TypeNode | undefined): TypeInfo {
 
     case ts.SyntaxKind.ArrayType: {
       const arrayType = type as ts.ArrayTypeNode
-      return { kind: 'array', items: typeToInfo(arrayType.elementType) }
+      return { kind: 'array', items: typeToInfo(arrayType.elementType, ctx) }
     }
 
     case ts.SyntaxKind.TypeLiteral: {
@@ -298,7 +364,7 @@ function typeToInfo(type: ts.TypeNode | undefined): TypeInfo {
       for (const member of typeLiteral.members) {
         if (ts.isPropertySignature(member) && member.name) {
           const propName = member.name.getText()
-          shape[propName] = typeToInfo(member.type)
+          shape[propName] = typeToInfo(member.type, ctx)
         }
       }
       return { kind: 'object', shape }
@@ -316,12 +382,12 @@ function typeToInfo(type: ts.TypeNode | undefined): TypeInfo {
       )
 
       if (nonNullTypes.length === 1 && hasNull) {
-        return { ...typeToInfo(nonNullTypes[0]), nullable: true }
+        return { ...typeToInfo(nonNullTypes[0], ctx), nullable: true }
       }
 
       return {
         kind: 'union',
-        members: unionType.types.map((t) => typeToInfo(t)),
+        members: unionType.types.map((t) => typeToInfo(t, ctx)),
       }
     }
 
@@ -329,11 +395,69 @@ function typeToInfo(type: ts.TypeNode | undefined): TypeInfo {
       const typeRef = type as ts.TypeReferenceNode
       const typeName = typeRef.typeName.getText()
       if (typeName === 'Array' && typeRef.typeArguments?.length) {
-        return { kind: 'array', items: typeToInfo(typeRef.typeArguments[0]) }
+        return {
+          kind: 'array',
+          items: typeToInfo(typeRef.typeArguments[0], ctx),
+        }
       }
       if (typeName === 'Promise' && typeRef.typeArguments?.length) {
-        return typeToInfo(typeRef.typeArguments[0])
+        return typeToInfo(typeRef.typeArguments[0], ctx)
       }
+
+      // Resolve type aliases
+      if (ctx?.typeAliases?.has(typeName)) {
+        const visited = ctx.visited ?? new Set<string>()
+        if (visited.has(typeName)) {
+          return { kind: 'any' } // Circular reference
+        }
+        visited.add(typeName)
+        const resolvedType = ctx.typeAliases.get(typeName)!
+        return typeToInfo(resolvedType, { ...ctx, visited })
+      }
+
+      // Resolve interfaces
+      if (ctx?.interfaces?.has(typeName)) {
+        const visited = ctx.visited ?? new Set<string>()
+        if (visited.has(typeName)) {
+          return { kind: 'any' } // Circular reference
+        }
+        visited.add(typeName)
+        const iface = ctx.interfaces.get(typeName)!
+        const shape: Record<string, TypeInfo> = {}
+
+        // Handle extends clauses - merge in base interface properties
+        if (iface.heritageClauses) {
+          for (const clause of iface.heritageClauses) {
+            if (clause.token === ts.SyntaxKind.ExtendsKeyword) {
+              for (const baseType of clause.types) {
+                const baseName = baseType.expression.getText(ctx.sourceFile)
+                // Look up the base interface and recursively resolve it
+                if (ctx.interfaces?.has(baseName) && !visited.has(baseName)) {
+                  // Create a synthetic type reference node to look up the base
+                  const syntheticRef = {
+                    kind: ts.SyntaxKind.TypeReference,
+                    typeName: { getText: () => baseName },
+                  } as unknown as ts.TypeReferenceNode
+                  const baseInfo = typeToInfo(syntheticRef, { ...ctx, visited })
+                  if (baseInfo.kind === 'object' && baseInfo.shape) {
+                    Object.assign(shape, baseInfo.shape)
+                  }
+                }
+              }
+            }
+          }
+        }
+
+        // Add own members (may override base)
+        for (const member of iface.members) {
+          if (ts.isPropertySignature(member) && member.name) {
+            const propName = member.name.getText(ctx.sourceFile)
+            shape[propName] = typeToInfo(member.type, { ...ctx, visited })
+          }
+        }
+        return { kind: 'object', shape }
+      }
+
       // Generics and unknown types become 'any'
       return { kind: 'any' }
     }
@@ -743,7 +867,8 @@ function transformFunctionToTJS(
 function extractFunctionMetadata(
   node: ts.FunctionDeclaration | ts.ArrowFunction | ts.FunctionExpression,
   sourceFile: ts.SourceFile,
-  warnings?: string[]
+  warnings?: string[],
+  ctx?: TypeResolutionContext
 ): FunctionTypeInfo {
   const name =
     ts.isFunctionDeclaration(node) && node.name
@@ -767,7 +892,7 @@ function extractFunctionMetadata(
     }
 
     params[paramName] = {
-      type: typeToInfo(param.type),
+      type: typeToInfo(param.type, ctx),
       required: !isOptional,
       default: defaultValue,
     }
@@ -776,7 +901,7 @@ function extractFunctionMetadata(
   const result: FunctionTypeInfo = {
     name,
     params,
-    returns: node.type ? typeToInfo(node.type) : undefined,
+    returns: node.type ? typeToInfo(node.type, ctx) : undefined,
   }
 
   // Extract generic type parameters
@@ -809,6 +934,29 @@ export function fromTS(
   const tjsFunctions: string[] = []
   const metadata: Record<string, FunctionTypeInfo> = {}
 
+  // Build type alias and interface maps first (first pass)
+  const typeAliases = new Map<string, ts.TypeNode>()
+  const interfaces = new Map<string, ts.InterfaceDeclaration>()
+
+  function collectTypes(node: ts.Node) {
+    if (ts.isTypeAliasDeclaration(node)) {
+      typeAliases.set(node.name.getText(sourceFile), node.type)
+    }
+    if (ts.isInterfaceDeclaration(node)) {
+      interfaces.set(node.name.getText(sourceFile), node)
+    }
+    ts.forEachChild(node, collectTypes)
+  }
+  collectTypes(sourceFile)
+
+  // Create resolution context
+  const resolutionCtx: TypeResolutionContext = {
+    typeAliases,
+    interfaces,
+    sourceFile,
+    warnings,
+  }
+
   // Walk the AST
   function visit(node: ts.Node) {
     // Handle: function foo() {}
@@ -820,7 +968,12 @@ export function fromTS(
           transformFunctionToTJS(node, sourceFile, undefined, warnings)
         )
       } else {
-        metadata[funcName] = extractFunctionMetadata(node, sourceFile, warnings)
+        metadata[funcName] = extractFunctionMetadata(
+          node,
+          sourceFile,
+          warnings,
+          resolutionCtx
+        )
       }
     }
 
@@ -841,7 +994,12 @@ export function fromTS(
               transformFunctionToTJS(funcNode, sourceFile, funcName, warnings)
             )
           } else {
-            const info = extractFunctionMetadata(funcNode, sourceFile, warnings)
+            const info = extractFunctionMetadata(
+              funcNode,
+              sourceFile,
+              warnings,
+              resolutionCtx
+            )
             info.name = funcName
             metadata[funcName] = info
           }

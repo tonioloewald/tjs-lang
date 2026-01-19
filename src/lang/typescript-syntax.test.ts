@@ -364,19 +364,21 @@ describe('Generics', () => {
 // =============================================================================
 
 describe('Type Aliases and Interfaces', () => {
-  test.todo('type alias - NOT YET SUPPORTED', () => {
-    const { code } = fromTS(`
+  test('type alias resolves to object shape', () => {
+    const { types } = fromTS(`
       type User = { name: string; age: number }
 
       function greet(user: User): string {
         return 'Hello, ' + user.name
       }
     `)
-    expect(code).toContain('function greet')
+    expect(types?.greet.params.user.type.kind).toBe('object')
+    expect(types?.greet.params.user.type.shape?.name.kind).toBe('string')
+    expect(types?.greet.params.user.type.shape?.age.kind).toBe('number')
   })
 
-  test.todo('interface - NOT YET SUPPORTED', () => {
-    const { code } = fromTS(`
+  test('interface resolves to object shape', () => {
+    const { types } = fromTS(`
       interface Config {
         host: string
         port: number
@@ -386,11 +388,13 @@ describe('Type Aliases and Interfaces', () => {
         console.log(config.host + ':' + config.port)
       }
     `)
-    expect(code).toContain('function connect')
+    expect(types?.connect.params.config.type.kind).toBe('object')
+    expect(types?.connect.params.config.type.shape?.host.kind).toBe('string')
+    expect(types?.connect.params.config.type.shape?.port.kind).toBe('number')
   })
 
-  test.todo('interface extends - NOT YET SUPPORTED', () => {
-    const { code } = fromTS(`
+  test('interface extends merges base properties', () => {
+    const { types } = fromTS(`
       interface Base { id: number }
       interface User extends Base { name: string }
 
@@ -398,7 +402,10 @@ describe('Type Aliases and Interfaces', () => {
         return user.id
       }
     `)
-    expect(code).toContain('function process')
+    expect(types?.process.params.user.type.kind).toBe('object')
+    // Should have both base and derived properties
+    expect(types?.process.params.user.type.shape?.id.kind).toBe('number')
+    expect(types?.process.params.user.type.shape?.name.kind).toBe('string')
   })
 })
 
@@ -834,16 +841,6 @@ describe('Namespace and Module', () => {
 describe('Decorators', () => {
   test.todo('class decorator - NOT YET SUPPORTED (and probably never)', () => {
     // Decorators are very complex and likely out of scope
-  })
-})
-
-// =============================================================================
-// JSX TYPES
-// =============================================================================
-
-describe('JSX Types', () => {
-  test.todo('JSX element - NOT YET SUPPORTED', () => {
-    // JSX support would require significant work
   })
 })
 
