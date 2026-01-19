@@ -1047,6 +1047,42 @@ function getObjectBeforeDot(source: string, dotPos: number): string | null {
 }
 
 /**
+ * Get a placeholder value for a parameter based on its type info
+ * Returns a sensible default that can be used in snippet placeholders
+ */
+function getPlaceholderForParam(name: string, info: any): string {
+  // If there's an explicit default, use it
+  if (info.default !== undefined) {
+    const def = info.default
+    if (typeof def === 'string') return `'${def}'`
+    if (typeof def === 'number' || typeof def === 'boolean') return String(def)
+    if (def === null) return 'null'
+    if (Array.isArray(def)) return '[]'
+    if (typeof def === 'object') return '{}'
+    return String(def)
+  }
+
+  // Otherwise generate based on type
+  const kind = info.type?.kind || info.type?.type || 'any'
+  switch (kind) {
+    case 'string':
+      return `'${name}'`
+    case 'number':
+      return '0'
+    case 'boolean':
+      return 'true'
+    case 'null':
+      return 'null'
+    case 'array':
+      return '[]'
+    case 'object':
+      return '{}'
+    default:
+      return name
+  }
+}
+
+/**
  * Create TJS/AJS completion source
  */
 function tjsCompletionSource(config: AutocompleteConfig = {}) {
@@ -1108,24 +1144,35 @@ function tjsCompletionSource(config: AutocompleteConfig = {}) {
       const metadata = config.getMetadata?.()
       if (metadata) {
         for (const [name, meta] of Object.entries(metadata)) {
-          const params = meta.params ? Object.keys(meta.params).join(', ') : ''
-          const returnType = meta.returns?.type || 'void'
+          // Build parameter list with types for display
+          const paramEntries = meta.params ? Object.entries(meta.params) : []
+          const paramList = paramEntries
+            .map(([pName, pInfo]: [string, any]) => {
+              const pType = pInfo.type?.kind || pInfo.type?.type || 'any'
+              const optional = !pInfo.required
+              return optional ? `${pName}?: ${pType}` : `${pName}: ${pType}`
+            })
+            .join(', ')
+
+          // Build snippet with example values as placeholders
+          const snippetParams = paramEntries
+            .map(([pName, pInfo]: [string, any], i) => {
+              // Use default value or generate placeholder based on type
+              const placeholder = getPlaceholderForParam(pName, pInfo)
+              return `\${${i + 1}:${placeholder}}`
+            })
+            .join(', ')
+
+          // Handle both { type: 'string' } and { kind: 'string' } formats
+          const returnType = meta.returns?.type || meta.returns?.kind || 'void'
           options.push(
-            snippetCompletion(
-              `${name}(${
-                meta.params
-                  ? Object.keys(meta.params)
-                      .map((p, i) => `\${${i + 1}:${p}}`)
-                      .join(', ')
-                  : ''
-              })`,
-              {
-                label: name,
-                type: 'function',
-                detail: `(${params}) -> ${returnType}`,
-                info: meta.description,
-              }
-            )
+            snippetCompletion(`${name}(${snippetParams})`, {
+              label: name,
+              type: 'function',
+              detail: `(${paramList}) -> ${returnType}`,
+              info: meta.description,
+              boost: 2, // Boost user-defined functions above globals
+            })
           )
         }
       }

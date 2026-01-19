@@ -106,9 +106,20 @@ interface TJSPlaygroundParts extends PartsMap {
 export class TJSPlayground extends Component<TJSPlaygroundParts> {
   private lastTranspileResult: any = null
   private consoleMessages: string[] = []
+  private functionMetadata: Record<string, any> = {}
 
   constructor() {
     super()
+  }
+
+  /**
+   * Get metadata for autocomplete - returns all discovered functions
+   */
+  private getMetadataForAutocomplete = (): Record<string, any> | undefined => {
+    if (Object.keys(this.functionMetadata).length === 0) {
+      return undefined
+    }
+    return this.functionMetadata
   }
 
   content = () => [
@@ -216,6 +227,11 @@ export class TJSPlayground extends Component<TJSPlaygroundParts> {
       this.parts.htmlEditor.value = DEFAULT_HTML
       this.parts.cssEditor.value = DEFAULT_CSS
 
+      // Wire up autocomplete to get metadata from transpiler
+      this.parts.tjsEditor.autocomplete = {
+        getMetadata: this.getMetadataForAutocomplete,
+      }
+
       // Auto-transpile on load
       this.transpile()
     }, 0)
@@ -238,6 +254,9 @@ export class TJSPlayground extends Component<TJSPlaygroundParts> {
   transpile = () => {
     const source = this.parts.tjsEditor.value
 
+    // Extract function metadata for autocomplete (even if transpile fails)
+    this.extractFunctionMetadata(source)
+
     try {
       const result = tjs(source)
       this.lastTranspileResult = result
@@ -247,12 +266,161 @@ export class TJSPlayground extends Component<TJSPlaygroundParts> {
 
       // Update docs
       this.updateDocs(result)
+
+      // If we got metadata from transpiler, use it (more accurate)
+      if (result.metadata?.name) {
+        this.functionMetadata[result.metadata.name] = result.metadata
+      }
     } catch (e: any) {
       this.parts.jsOutput.textContent = `// Error: ${e.message}`
       this.parts.statusBar.textContent = `Error: ${e.message}`
       this.parts.statusBar.classList.add('error')
       this.lastTranspileResult = null
     }
+  }
+
+  /**
+   * Extract function metadata from source for autocomplete
+   * This runs even when transpilation fails (incomplete code)
+   */
+  private extractFunctionMetadata = (source: string) => {
+    // Match function declarations with TJS syntax
+    // function name(param: 'type', param2 = default) -> returnType { ... }
+    const funcRegex =
+      /function\s+(\w+)\s*\(\s*([^)]*)\s*\)\s*(?:->\s*([^\s{]+))?\s*\{/g
+
+    const newMetadata: Record<string, any> = {}
+    let match
+
+    while ((match = funcRegex.exec(source)) !== null) {
+      const [, funcName, paramsStr, returnType] = match
+
+      // Parse parameters
+      const params: Record<string, any> = {}
+      if (paramsStr.trim()) {
+        // Split on commas, but be careful of nested structures
+        const paramParts = this.splitParams(paramsStr)
+
+        for (const paramStr of paramParts) {
+          const trimmed = paramStr.trim()
+          if (!trimmed) continue
+
+          // Match: name: 'type' or name = default or name: type = default
+          const paramMatch = trimmed.match(
+            /^(\w+)\s*(?::\s*([^=]+?))?\s*(?:=\s*(.+))?$/
+          )
+          if (paramMatch) {
+            const [, paramName, typeExample, defaultValue] = paramMatch
+            const hasDefault = defaultValue !== undefined
+            const typeStr = typeExample?.trim() || defaultValue?.trim()
+
+            params[paramName] = {
+              type: this.inferTypeFromExample(typeStr),
+              required: !hasDefault && typeExample !== undefined,
+              default: hasDefault ? this.parseDefault(defaultValue) : undefined,
+            }
+          }
+        }
+      }
+
+      newMetadata[funcName] = {
+        name: funcName,
+        params,
+        returns: returnType ? this.inferTypeFromExample(returnType) : undefined,
+      }
+    }
+
+    this.functionMetadata = newMetadata
+  }
+
+  /**
+   * Split parameter string handling nested brackets
+   */
+  private splitParams = (paramsStr: string): string[] => {
+    const result: string[] = []
+    let current = ''
+    let depth = 0
+
+    for (const char of paramsStr) {
+      if (char === '(' || char === '[' || char === '{') {
+        depth++
+        current += char
+      } else if (char === ')' || char === ']' || char === '}') {
+        depth--
+        current += char
+      } else if (char === ',' && depth === 0) {
+        result.push(current)
+        current = ''
+      } else {
+        current += char
+      }
+    }
+    if (current.trim()) {
+      result.push(current)
+    }
+    return result
+  }
+
+  /**
+   * Infer type descriptor from example value
+   */
+  private inferTypeFromExample = (
+    example: string | undefined
+  ): { kind: string } | undefined => {
+    if (!example) return undefined
+    const trimmed = example.trim()
+
+    // String literal
+    if (/^['"]/.test(trimmed)) {
+      return { kind: 'string' }
+    }
+    // Number
+    if (/^-?\d+(\.\d+)?$/.test(trimmed)) {
+      return { kind: 'number' }
+    }
+    // Boolean
+    if (trimmed === 'true' || trimmed === 'false') {
+      return { kind: 'boolean' }
+    }
+    // Null
+    if (trimmed === 'null') {
+      return { kind: 'null' }
+    }
+    // Array
+    if (trimmed.startsWith('[')) {
+      return { kind: 'array' }
+    }
+    // Object
+    if (trimmed.startsWith('{')) {
+      return { kind: 'object' }
+    }
+
+    return { kind: 'any' }
+  }
+
+  /**
+   * Parse default value to JS value
+   */
+  private parseDefault = (value: string): any => {
+    const trimmed = value.trim()
+    try {
+      // Try to parse as JSON-like value
+      if (
+        trimmed === 'true' ||
+        trimmed === 'false' ||
+        trimmed === 'null' ||
+        /^-?\d+(\.\d+)?$/.test(trimmed)
+      ) {
+        return JSON.parse(trimmed)
+      }
+      // String literal
+      if (/^['"]/.test(trimmed)) {
+        return trimmed.slice(1, -1)
+      }
+    } catch {
+      // Return as-is if parsing fails
+    }
+    return trimmed
   }
 
   updateDocs = (result: any) => {
