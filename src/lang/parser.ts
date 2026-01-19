@@ -1617,6 +1617,7 @@ function transformTypeDeclarations(source: string): string {
 
       // Check for = default value
       let defaultValue: string | undefined
+      let posAfterDefault = j // Track position right after the default value
       const equalsMatch = source.slice(j).match(/^=\s*/)
       if (equalsMatch) {
         j += equalsMatch[0].length
@@ -1629,7 +1630,8 @@ function transformTypeDeclarations(source: string): string {
         if (valueMatch) {
           defaultValue = valueMatch[0]
           j += valueMatch[0].length
-          // Skip whitespace after default
+          posAfterDefault = j // Save position before consuming whitespace
+          // Skip whitespace after default (only to check for block)
           const wsMatch = source.slice(j).match(/^\s*/)
           if (wsMatch) j += wsMatch[0].length
         }
@@ -1708,7 +1710,7 @@ function transformTypeDeclarations(source: string): string {
       } else if (defaultValue) {
         // Simple form with default: Type Foo = 'value' or Type Foo 'desc' = 'value'
         result += `const ${typeName} = Type('${description}', ${defaultValue})`
-        i = j
+        i = posAfterDefault // Use position before whitespace was consumed
         continue
       } else if (!descStringMatch) {
         // No description, no default, no block - look for old simple form: Type Foo 'value'

@@ -1,3 +1,6 @@
 [test.run]
 # Run tests sequentially to avoid overwhelming LM Studio
 concurrency = 1
+
+# Preload TJS plugin for native .tjs file support
+# preload = ["./src/bun-plugin/tjs-plugin.ts"]
