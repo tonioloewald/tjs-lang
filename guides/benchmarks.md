@@ -1,75 +1,86 @@
 # TJS Benchmarks
 
-Generated: 2026-01-10
-Runtime: Bun 1.3.5
+Generated: 2026-01-19
+Runtime: Bun 1.3.6
 Platform: darwin arm64
 Iterations: 100,000 per test
 
 ## Summary
 
-| Benchmark                             | Baseline | Safe (default) | Unsafe (!)   | Unsafe {}    |
-| ------------------------------------- | -------- | -------------- | ------------ | ------------ |
-| CLI: Bun + TypeScript                 | 14.8ms   | -              | -            | -            |
-| CLI: tjsx (execute TJS)               | 131.4ms  | -              | -            | -            |
-| CLI: tjs emit                         | 132.3ms  | -              | -            | -            |
-| CLI: tjs check                        | 133.0ms  | -              | -            | -            |
-| Simple arithmetic (100K iterations)   | 0.3ms    | 0.4ms (1.2x)   | 0.4ms (1.3x) | 0.5ms (1.6x) |
-| Object manipulation (100K iterations) | 0.8ms    | 0.8ms (~1.0x)  | 0.9ms (1.1x) | 1.0ms (1.2x) |
-| 3-function chain (100K iterations)    | 0.5ms    | 0.5ms (0.9x)   | 0.5ms (0.9x) | -            |
+| Benchmark                           | Baseline | Safe (wrapped) | Unsafe (!)  |
+| ----------------------------------- | -------- | -------------- | ----------- |
+| Simple arithmetic (100K calls)      | 0.5ms    | 13ms (26x)     | 0.7ms (1.3x) |
+| 3-function chain (100K calls)       | 0.7ms    | 19ms (28x)     | 0.8ms (1.2x) |
+| Loop with helper (100 elem × 10K)   | 1.7ms    | 20ms (12x)     | 1.5ms (0.9x) |
 
 ## Key Findings
 
-### CLI Cold Start
+### Runtime Validation Overhead
 
-- **Bun + TypeScript**: ~15ms (native, baseline)
-- **tjsx**: ~131ms (includes TJS transpiler load)
-- **Overhead**: 117ms for transpiler initialization
-
-The ~117ms overhead is from loading the acorn parser and TJS transpiler.
-A compiled binary (via `bun build --compile`) reduces this to ~20ms.
+Safe TJS functions use `wrap()` for monadic type validation:
+- **~17-28x overhead** for simple operations
+- **~0.02µs per validation** (absolute time is small)
+- Overhead becomes negligible when actual work dominates
 
 ### Safe vs Unsafe Functions
-
-TJS functions are **safe by default** with runtime type validation.
-Use `(!)` to mark functions as unsafe for performance-critical code:
 
 ```javascript
 // Safe (default) - validates types at runtime
 function add(a: 0, b: 0) -> 0 { return a + b }
 
-// Unsafe - no validation, maximum performance
+// Unsafe - no validation, plain JS performance
 function fastAdd(! a: 0, b: 0) -> 0 { return a + b }
 ```
 
-Performance comparison:
+| Mode        | Overhead | Use Case                        |
+| ----------- | -------- | ------------------------------- |
+| Safe        | ~17-28x  | API boundaries, untrusted input |
+| Unsafe (!)  | ~1.2x    | Hot paths, internal functions   |
 
-- Simple arithmetic: Safe 1.2x vs Unsafe 1.3x
-- Object manipulation: Safe ~1.0x vs Unsafe 1.1x
-- 3-function chain: Safe 0.9x vs Unsafe 0.9x
+### ⚠️ Safe Helpers in Loops
 
-### `unsafe {}` Block Overhead
+**Critical insight**: Wrapping the outer function in `unsafe {}` does NOT help if the inner helper is safe:
 
-The `unsafe {}` block adds a try-catch wrapper within a safe function:
+```javascript
+function process(arr: [0]) -> 0 {
+  unsafe {
+    let sum = 0
+    for (const x of arr) {
+      sum += double(x)  // If double() is safe, still pays 12x per call!
+    }
+    return sum
+  }
+}
+```
 
-- Simple operations: 1.6x
-- Object operations: 1.2x
+**Fix**: Mark the helper as unsafe:
 
-Use `unsafe {}` for hot loops inside validated functions.
+```javascript
+function double(! x: 0) -> 0 { return x * 2 }  // No validation overhead
+```
+
+### `unsafe {}` Block
+
+The `unsafe {}` block wraps code in try-catch for error handling:
+- Converts exceptions to monadic errors
+- Does NOT affect validation of called functions
+- Minimal overhead (~1.3x)
 
 ## Recommendations
 
-1. **Use safe functions at API boundaries** - The default is correct for most code
-2. **Use `(!)` for internal hot paths** - When inputs are already validated
-3. **Use `unsafe {}` for inner loops** - Keep param validation, skip inner checks
-4. **Consider compiled binary for CLI** - `bun build --compile` for ~20ms startup
+1. **Safe by default** - Use for API boundaries and untrusted input
+2. **Unsafe (!) for helpers** - Mark hot inner functions that are called in loops
+3. **Validate once at the edge** - Check types at entry, use unsafe internally
+4. **Don't micro-optimize** - 0.02µs matters only in tight loops
+
+## Future: Type Flow Optimization
+
+Planned compile-time optimization will automatically skip redundant checks:
+- Output type matches next input → skip validation
+- Array element type known → skip per-iteration checks
+- Target: ~1.2x overhead automatically (no manual `!` needed)
 
 ## Running Benchmarks
-
-```bash
-bun run bench
-```
-
-Or run the test suite with timing output:
 
 ```bash
 bun test src/lang/perf.test.ts
