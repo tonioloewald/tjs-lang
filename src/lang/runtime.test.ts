@@ -214,4 +214,57 @@ describe('TJS Runtime - Monadic Errors', () => {
       expect(err.loc?.start).toBeLessThan(err.loc?.end ?? 0)
     })
   })
+
+  describe('unsafe functions', () => {
+    it('wrap() returns original function when meta.unsafe is true', () => {
+      function original(x: number) {
+        return x * 2
+      }
+
+      const wrapped = wrap(original, {
+        params: { x: { type: 'number', required: true } },
+        unsafe: true,
+      })
+
+      // Should be the exact same function, not a wrapper
+      expect(wrapped).toBe(original)
+    })
+
+    it('unsafe functions skip validation', () => {
+      function add(a: number, b: number) {
+        return a + b
+      }
+
+      const unsafeAdd = wrap(add, {
+        params: {
+          a: { type: 'number', required: true },
+          b: { type: 'number', required: true },
+        },
+        unsafe: true,
+      })
+
+      // Should work with wrong types (no validation)
+      const result = unsafeAdd('hello' as any, 'world' as any)
+      expect(result).toBe('helloworld') // String concatenation
+    })
+
+    it('safe functions validate types', () => {
+      function add(a: number, b: number) {
+        return a + b
+      }
+
+      const safeAdd = wrap(add, {
+        params: {
+          a: { type: 'number', required: true },
+          b: { type: 'number', required: true },
+        },
+        // No unsafe flag
+      })
+
+      // Should return error for wrong types
+      const result = safeAdd('hello' as any, 'world' as any)
+      expect(isError(result)).toBe(true)
+      expect((result as TJSError).expected).toBe('number')
+    })
+  })
 })

@@ -289,8 +289,13 @@ export function validateArgs(
  */
 export function wrap<T extends (...args: any[]) => any>(
   fn: T,
-  meta: { params: Record<string, any>; returns?: any }
+  meta: { params: Record<string, any>; returns?: any; unsafe?: boolean }
 ): T {
+  // Skip wrapping for unsafe functions - return original
+  if (meta.unsafe) {
+    return fn
+  }
+
   // Pre-compute param info at wrap time (not per-call)
   const paramEntries = Object.entries(meta.params)
   const paramCount = paramEntries.length
@@ -493,11 +498,12 @@ export function installRuntime(): typeof runtime {
 
 /**
  * Generate runtime wrapper code for emitted JS
+ * Skips wrapping for unsafe functions (marked with !)
  */
 export function emitRuntimeWrapper(funcName: string): string {
   return `
-// TJS runtime wrapper
-if (typeof ${funcName}.__tjs === 'object' && typeof globalThis.__tjs?.wrap === 'function') {
+// TJS runtime wrapper (skips unsafe functions)
+if (typeof ${funcName}.__tjs === 'object' && !${funcName}.__tjs.unsafe && typeof globalThis.__tjs?.wrap === 'function') {
   ${funcName} = globalThis.__tjs.wrap(${funcName}, ${funcName}.__tjs)
 }
 `.trim()
