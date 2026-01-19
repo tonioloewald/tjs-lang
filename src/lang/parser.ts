@@ -50,6 +50,255 @@ export interface WasmBlock {
 }
 
 /**
+ * Extract ALL return type annotations from source
+ *
+ * Handles complex types including:
+ * - Simple types: -> '' or -> 0
+ * - Object types: -> { name: '' }
+ * - Array types: -> ['']
+ * - Nested arrays: -> [['']]
+ * - Union types: -> '' || null or -> '' | null
+ *
+ * Returns null if no return type found, otherwise returns:
+ * - type: the FIRST return type (for single-function analysis)
+ * - arrow: the arrow used for the first return type
+ * - cleanedSource: source with ALL return type annotations removed
+ */
+function extractReturnType(source: string): {
+  type: string
+  arrow: string
+  cleanedSource: string
+} | null {
+  let firstType: string | null = null
+  let firstArrow: string | null = null
+  let result = source
+
+  // Keep extracting until no more return types found
+  while (true) {
+    const extracted = extractSingleReturnType(result)
+    if (!extracted) break
+
+    if (firstType === null) {
+      firstType = extracted.type
+      firstArrow = extracted.arrow
+    }
+    result = extracted.cleanedSource
+  }
+
+  if (firstType === null) return null
+
+  return {
+    type: firstType,
+    arrow: firstArrow!,
+    cleanedSource: result,
+  }
+}
+
+/**
+ * Extract a single return type annotation from source
+ */
+function extractSingleReturnType(source: string): {
+  type: string
+  arrow: string
+  cleanedSource: string
+} | null {
+  // Find ) -> or ) -? or ) -! pattern
+  const arrowMatch = source.match(/\)\s*(-[>?!])\s*/)
+  if (!arrowMatch) return null
+
+  const arrowStart = arrowMatch.index!
+  const arrowEnd = arrowStart + arrowMatch[0].length
+  const arrow = arrowMatch[1]
+
+  // Now extract the type starting at arrowEnd
+  // We need to find where the type ends and the function body { begins
+  let i = arrowEnd
+  let typeStart = i
+
+  // Skip leading whitespace
+  while (i < source.length && /\s/.test(source[i])) {
+    i++
+    typeStart = i
+  }
+
+  // Track bracket depth to handle nested structures
+  let depth = 0
+  let inString = false
+  let stringChar = ''
+  let typeEnd = i
+  // Track if we've seen any content (to distinguish empty type from real content)
+  let sawContent = false
+
+  while (i < source.length) {
+    const char = source[i]
+
+    // Handle string literals
+    if (!inString && (char === "'" || char === '"' || char === '`')) {
+      inString = true
+      stringChar = char
+      sawContent = true
+      i++
+      continue
+    }
+    if (inString) {
+      if (char === stringChar && source[i - 1] !== '\\') {
+        inString = false
+        // Just finished a string at depth 0 - check if next non-ws is function body
+        if (depth === 0) {
+          i++ // move past closing quote
+          let j = i
+          while (j < source.length && /\s/.test(source[j])) j++
+          if (j < source.length && source[j] === '{') {
+            typeEnd = i
+            // Check what's after the brace - if it looks like object key, it's not body
+            const afterBrace = source.slice(j + 1).match(/^\s*(\w+)\s*:/)
+            if (!afterBrace) {
+              break
+            }
+          }
+          continue
+        }
+      }
+      i++
+      continue
+    }
+
+    // Track bracket depth for { } [ ]
+    if (char === '{' || char === '[') {
+      depth++
+      sawContent = true
+      i++
+      continue
+    }
+    if (char === '}' || char === ']') {
+      depth--
+      // After closing a bracket at depth 0, we've completed a type component
+      // Update typeEnd to include this bracket
+      if (depth === 0) {
+        i++
+        typeEnd = i
+        // Check if there's more type content (like || null)
+        // Skip whitespace and check for union operator
+        let j = i
+        while (j < source.length && /\s/.test(source[j])) j++
+        if (
+          source.slice(j, j + 2) === '||' ||
+          (source[j] === '|' && source[j + 1] !== '|')
+        ) {
+          // There's a union, continue parsing
+          continue
+        }
+        // No union, we're done with the type
+        break
+      }
+      i++
+      continue
+    }
+
+    // Handle parentheses for grouping
+    if (char === '(') {
+      depth++
+      sawContent = true
+      i++
+      continue
+    }
+    if (char === ')') {
+      depth--
+      i++
+      continue
+    }
+
+    // At depth 0, check for function body opening brace
+    // This is tricky - we need to distinguish between:
+    // -> { name: '' } { body }  (object type followed by function body)
+    // -> '' { body }  (simple type followed by function body)
+    if (depth === 0 && char === '{') {
+      // If we've already seen content and are at depth 0, this must be the function body
+      if (sawContent) {
+        typeEnd = i
+        break
+      }
+      // First { - check if it's an object type or function body
+      const afterBrace = source.slice(i + 1).match(/^\s*(\w+)\s*:/)
+      if (afterBrace) {
+        // Looks like object type { key: value }
+        depth++
+        sawContent = true
+        i++
+        continue
+      }
+      // Looks like function body
+      typeEnd = i
+      break
+    }
+
+    // Handle union operators at depth 0
+    if (depth === 0 && (char === '|' || char === '&')) {
+      // Before accepting a union operator, update typeEnd to current position
+      // (in case the union is part of the type)
+      i++
+      // Skip second | if it's ||
+      if (i < source.length && source[i] === '|') {
+        i++
+      }
+      // Skip whitespace after operator
+      while (i < source.length && /\s/.test(source[i])) i++
+      continue
+    }
+
+    // Handle simple types at depth 0: strings, numbers, identifiers, null, etc.
+    // These end when we see whitespace followed by {
+    if (depth === 0) {
+      // Look ahead to see if we're about to hit the function body
+      // Skip current character and any subsequent non-whitespace chars of the same "token"
+      let j = i
+      // Skip alphanumeric (identifier/keyword like null, true, false)
+      while (j < source.length && /\w/.test(source[j])) {
+        j++
+      }
+      // If we just skipped an identifier, j is now past it
+      if (j > i) {
+        sawContent = true
+        i = j
+        // Skip whitespace
+        while (i < source.length && /\s/.test(source[i])) i++
+        // Check if next non-ws char is { (function body)
+        if (i < source.length && source[i] === '{') {
+          typeEnd = j // type ends where the identifier ended (before whitespace)
+          // But we need to back up over trailing whitespace
+          while (typeEnd > typeStart && /\s/.test(source[typeEnd - 1])) {
+            typeEnd--
+          }
+          break
+        }
+        continue
+      }
+    }
+
+    // Handle identifiers and other content
+    if (/\w/.test(char)) {
+      sawContent = true
+    }
+
+    i++
+  }
+
+  // Extract the type string
+  let type = source.slice(typeStart, typeEnd).trim()
+  if (!type) return null
+
+  // Normalize union syntax: convert single | to || for TJS consistency
+  // But preserve existing || as-is
+  type = type.replace(/\s*\|\|\s*/g, ' || ').replace(/(?<!\|)\|(?!\|)/g, ' || ')
+
+  // Clean the source by removing the return type annotation
+  const cleanedSource =
+    source.slice(0, arrowStart) + ') ' + source.slice(typeEnd)
+
+  return { type, arrow, cleanedSource }
+}
+
+/**
  * Preprocess source to handle custom syntax extensions
  *
  * Transforms:
@@ -129,28 +378,21 @@ export function preprocess(source: string): {
   })
 
   // Handle return type annotation: ) -> Type {  or  ) -? Type {  or  ) -! Type {
-  // Match balanced braces for object types
-  // NOTE: We capture the FIRST return type for the main function (for single-function analysis)
-  // but we globally remove ALL -> / -? / -! Type patterns for multi-function files
+  // Uses extractReturnType() to handle complex types including unions and nested arrays
   // -? means force output validation (safeReturn)
   // -! means skip output validation (unsafeReturn)
   // -> means use global safety setting
-  const returnTypeMatch = source.match(
-    /\)\s*(-[>?!])\s*(\{[\s\S]*?\}|\[[^\]]*\]|'[^']*'|\d+|true|false|null|undefined)\s*\{(?!\s*\w+:)/
-  )
-  if (returnTypeMatch) {
-    const arrow = returnTypeMatch[1]
-    returnType = returnTypeMatch[2]
-    if (arrow === '-?') {
+  const returnTypeResult = extractReturnType(source)
+  if (returnTypeResult) {
+    returnType = returnTypeResult.type
+    if (returnTypeResult.arrow === '-?') {
       returnSafety = 'safe'
-    } else if (arrow === '-!') {
+    } else if (returnTypeResult.arrow === '-!') {
       returnSafety = 'unsafe'
     }
+    // Remove the return type annotation from source
+    source = returnTypeResult.cleanedSource
   }
-  // Remove ALL -> / -? / -! Type parts globally, keeping ) and {
-  const returnTypePattern =
-    /\)\s*-[>?!]\s*(?:\{[\s\S]*?\}|\[[^\]]*\]|'[^']*'|\d+|true|false|null|undefined)\s*(\{)(?!\s*\w+:)/g
-  source = source.replace(returnTypePattern, ') $1')
 
   // Handle colon shorthand in parameters: (x: type) -> (x = type)
   // Track which params used colon syntax (they're required)
