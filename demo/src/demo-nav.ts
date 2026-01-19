@@ -524,7 +524,8 @@ function uniqueByEmail(users: [{ email: '', name: '' }]) -> [{ email: '', name: 
 }
 
 // Chunk array into smaller arrays
-function paginate(items: [''], pageSize: 10) -> [['']] {
+// Note: nested array types like [['']] aren't supported yet, so we omit return type
+function paginate(items: [''], pageSize: 10) {
   return chunk(items, pageSize)
 }
 
@@ -634,19 +635,19 @@ export function createUser(input: {
   return user
 }
 
-// Get user by ID
-export function getUser(input: { id: 1 }) -> { id: 0, name: '', email: '', createdAt: '' } | null {
-  return users.get(input.id) || null
+// Get user by ID (returns empty object if not found - union types not yet supported)
+export function getUser(input: { id: 1 }) -> { id: 0, name: '', email: '', createdAt: '' } {
+  return users.get(input.id) || { id: 0, name: '', email: '', createdAt: '' }
 }
 
-// Update a user
+// Update a user (returns empty object if not found - union types not yet supported)
 export function updateUser(input: {
   id: 1,
   name: 'Alice',
   email: 'alice@example.com'
-}) -> { id: 0, name: '', email: '', createdAt: '' } | null {
+}) -> { id: 0, name: '', email: '', createdAt: '' } {
   const existing = users.get(input.id)
-  if (!existing) return null
+  if (!existing) return { id: 0, name: '', email: '', createdAt: '' }
 
   const updated = { ...existing, name: input.name, email: input.email }
   users.set(input.id, updated)
@@ -821,10 +822,10 @@ export function createTodo(input: { title: 'New todo' })
   return todo
 }
 
-// GET /todos/:id - Read one
+// GET /todos/:id - Read one (returns empty if not found)
 export function getTodo(input: { id: 1 })
-  -> { id: 0, title: '', completed: false, createdAt: '' } | null {
-  return todos.get(input.id) || null
+  -> { id: 0, title: '', completed: false, createdAt: '' } {
+  return todos.get(input.id) || { id: 0, title: '', completed: false, createdAt: '' }
 }
 
 // GET /todos - Read all (with optional filter)
@@ -839,11 +840,11 @@ export function listTodos(input: { completed: true } | {})
   return { todos: items }
 }
 
-// PUT /todos/:id - Update
+// PUT /todos/:id - Update (returns empty if not found)
 export function updateTodo(input: { id: 1, title: '', completed: false })
-  -> { id: 0, title: '', completed: false, createdAt: '' } | null {
+  -> { id: 0, title: '', completed: false, createdAt: '' } {
   const existing = todos.get(input.id)
-  if (!existing) return null
+  if (!existing) return { id: 0, title: '', completed: false, createdAt: '' }
 
   const updated = {
     ...existing,
@@ -855,17 +856,17 @@ export function updateTodo(input: { id: 1, title: '', completed: false })
 }
 
 // DELETE /todos/:id - Delete
-export function deleteTodo(input: { id: 1 }) -> { deleted: true } | { deleted: false } {
+export function deleteTodo(input: { id: 1 }) -> { deleted: true } {
   const existed = todos.has(input.id)
   todos.delete(input.id)
   return { deleted: existed }
 }
 
-// PATCH /todos/:id/toggle - Toggle completion
+// PATCH /todos/:id/toggle - Toggle completion (returns empty if not found)
 export function toggleTodo(input: { id: 1 })
-  -> { id: 0, title: '', completed: false, createdAt: '' } | null {
+  -> { id: 0, title: '', completed: false, createdAt: '' } {
   const todo = todos.get(input.id)
-  if (!todo) return null
+  if (!todo) return { id: 0, title: '', completed: false, createdAt: '' }
 
   todo.completed = !todo.completed
   return todo
