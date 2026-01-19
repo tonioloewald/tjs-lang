@@ -44,8 +44,10 @@ export interface FromTSOptions {
 export interface FromTSResult {
   /** The transpiled code (TJS or JS depending on options) */
   code: string
-  /** Type metadata (only when emitting JS) */
+  /** Function type metadata (only when emitting JS) */
   types?: Record<string, FunctionTypeInfo>
+  /** Class type metadata (only when emitting JS) */
+  classes?: Record<string, ClassTypeInfo>
   /** Any warnings during transpilation */
   warnings?: string[]
 }
@@ -63,6 +65,20 @@ export interface FunctionTypeInfo {
   returns?: TypeInfo
   description?: string
   /** Generic type parameters with constraints/defaults */
+  typeParams?: Record<string, TypeParamInfo>
+}
+
+export interface ClassTypeInfo {
+  name: string
+  /** Constructor parameters - also serves as the type shape */
+  constructor?: {
+    params: Record<string, ParamTypeInfo>
+  }
+  /** Instance methods */
+  methods: Record<string, FunctionTypeInfo>
+  /** Static methods */
+  staticMethods: Record<string, FunctionTypeInfo>
+  /** Generic type parameters */
   typeParams?: Record<string, TypeParamInfo>
 }
 
@@ -998,6 +1014,125 @@ function extractFunctionMetadata(
 }
 
 /**
+ * Extract type metadata from a TypeScript class
+ */
+function extractClassMetadata(
+  node: ts.ClassDeclaration,
+  sourceFile: ts.SourceFile,
+  warnings?: string[],
+  ctx?: TypeResolutionContext
+): ClassTypeInfo {
+  const name = node.name?.getText(sourceFile) || 'anonymous'
+  const methods: Record<string, FunctionTypeInfo> = {}
+  const staticMethods: Record<string, FunctionTypeInfo> = {}
+  let constructorInfo: { params: Record<string, ParamTypeInfo> } | undefined
+
+  for (const member of node.members) {
+    // Constructor
+    if (ts.isConstructorDeclaration(member)) {
+      const params: Record<string, ParamTypeInfo> = {}
+      for (const param of member.parameters) {
+        const paramName = param.name.getText(sourceFile)
+        const isOptional = !!param.questionToken || !!param.initializer
+
+        let defaultValue: any = undefined
+        if (param.initializer) {
+          const initText = param.initializer.getText(sourceFile)
+          try {
+            defaultValue = JSON.parse(initText)
+          } catch {
+            defaultValue = initText
+          }
+        }
+
+        params[paramName] = {
+          type: typeToInfo(param.type, ctx),
+          required: !isOptional,
+          default: defaultValue,
+        }
+      }
+      constructorInfo = { params }
+    }
+
+    // Methods (instance and static)
+    if (ts.isMethodDeclaration(member) && member.name) {
+      const methodName = member.name.getText(sourceFile)
+      const isStatic = member.modifiers?.some(
+        (m) => m.kind === ts.SyntaxKind.StaticKeyword
+      )
+
+      const params: Record<string, ParamTypeInfo> = {}
+      for (const param of member.parameters) {
+        const paramName = param.name.getText(sourceFile)
+        const isOptional = !!param.questionToken || !!param.initializer
+
+        let defaultValue: any = undefined
+        if (param.initializer) {
+          const initText = param.initializer.getText(sourceFile)
+          try {
+            defaultValue = JSON.parse(initText)
+          } catch {
+            defaultValue = initText
+          }
+        }
+
+        params[paramName] = {
+          type: typeToInfo(param.type, ctx),
+          required: !isOptional,
+          default: defaultValue,
+        }
+      }
+
+      const methodInfo: FunctionTypeInfo = {
+        name: methodName,
+        params,
+        returns: member.type ? typeToInfo(member.type, ctx) : undefined,
+      }
+
+      if (isStatic) {
+        staticMethods[methodName] = methodInfo
+      } else {
+        methods[methodName] = methodInfo
+      }
+    }
+  }
+
+  const result: ClassTypeInfo = {
+    name,
+    methods,
+    staticMethods,
+  }
+
+  if (constructorInfo) {
+    result.constructor = constructorInfo
+  }
+
+  // Extract class-level generic type parameters
+  if (node.typeParameters && node.typeParameters.length > 0) {
+    const typeParams: Record<string, TypeParamInfo> = {}
+    for (const param of node.typeParameters) {
+      const paramName = param.name.getText(sourceFile)
+      const info: TypeParamInfo = {}
+      if (param.constraint) {
+        info.constraint = typeToExample(
+          param.constraint,
+          undefined,
+          warnings,
+          ctx
+        )
+      }
+      if (param.default) {
+        info.default = typeToExample(param.default, undefined, warnings, ctx)
+      }
+      typeParams[paramName] = info
+    }
+    result.typeParams = typeParams
+  }
+
+  return result
+}
+
+/**
  * Transpile TypeScript source to TJS or JS + metadata
  */
 export function fromTS(
@@ -1017,6 +1152,7 @@ export function fromTS(
 
   const tjsFunctions: string[] = []
   const metadata: Record<string, FunctionTypeInfo> = {}
+  const classMetadata: Record<string, ClassTypeInfo> = {}
 
   // Build type alias and interface maps first (first pass)
   const typeAliases = new Map<string, ts.TypeNode>()
@@ -1117,6 +1253,20 @@ export function fromTS(
       }
     }
 
+    // Handle: class Foo { ... }
+    if (ts.isClassDeclaration(node) && node.name) {
+      const className = node.name.getText(sourceFile)
+      if (!emitTJS) {
+        classMetadata[className] = extractClassMetadata(
+          node,
+          sourceFile,
+          warnings,
+          resolutionCtx
+        )
+      }
+      // TODO: emitTJS mode for classes
+    }
+
     ts.forEachChild(node, visit)
   }
 
@@ -1160,9 +1310,61 @@ export function fromTS(
     code += `\n${funcName}.__tjs = ${metadataStr};\n`
   }
 
+  // Append __tjs metadata for each class
+  for (const [className, info] of Object.entries(classMetadata)) {
+    const metadataObj: Record<string, any> = {
+      constructor: info.constructor
+        ? {
+            params: Object.fromEntries(
+              Object.entries(info.constructor.params).map(([k, v]) => [
+                k,
+                { type: v.type.kind, required: v.required, default: v.default },
+              ])
+            ),
+          }
+        : undefined,
+      methods: Object.fromEntries(
+        Object.entries(info.methods).map(([name, m]) => [
+          name,
+          {
+            params: Object.fromEntries(
+              Object.entries(m.params).map(([k, v]) => [
+                k,
+                { type: v.type.kind, required: v.required },
+              ])
+            ),
+            returns: m.returns ? { type: m.returns.kind } : undefined,
+          },
+        ])
+      ),
+      staticMethods: Object.fromEntries(
+        Object.entries(info.staticMethods).map(([name, m]) => [
+          name,
+          {
+            params: Object.fromEntries(
+              Object.entries(m.params).map(([k, v]) => [
+                k,
+                { type: v.type.kind, required: v.required },
+              ])
+            ),
+            returns: m.returns ? { type: m.returns.kind } : undefined,
+          },
+        ])
+      ),
+    }
+
+    if (info.typeParams) {
+      metadataObj.typeParams = info.typeParams
+    }
+
+    const metadataStr = JSON.stringify(metadataObj, null, 2)
+    code += `\n${className}.__tjs = ${metadataStr};\n`
+  }
+
   return {
     code,
     types: metadata,
+    classes: Object.keys(classMetadata).length > 0 ? classMetadata : undefined,
     warnings: warnings.length > 0 ? warnings : undefined,
   }
 }
