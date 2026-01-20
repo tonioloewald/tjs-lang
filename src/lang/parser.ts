@@ -90,6 +90,17 @@ type TokenizerState =
   | 'regex'
 
 /**
+ * Structural context for tracking where we are in the code
+ * This enables proper handling of class methods vs function calls
+ */
+type StructuralContext = 'top-level' | 'class-body' | 'function-body' | 'block'
+
+interface ContextFrame {
+  type: StructuralContext
+  braceDepth: number // The brace depth when we entered this context
+}
+
+/**
  * Unified paren expression transformer using state machine tokenizer
  *
  * Model: opening paren can be ( or (? or (!, closing can be ) or )->type or )-?type or )-!type
@@ -126,6 +137,20 @@ function transformParenExpressions(
   let state: TokenizerState = 'normal'
   // Stack for template string interpolation depth (each entry is brace depth within that interpolation)
   const templateStack: number[] = []
+
+  // Structural context tracking - know if we're in a class body, function body, etc.
+  const contextStack: ContextFrame[] = [{ type: 'top-level', braceDepth: 0 }]
+  let braceDepth = 0
+
+  // Helper to get current structural context
+  const currentContext = (): StructuralContext =>
+    contextStack[contextStack.length - 1]?.type || 'top-level'
+
+  // Helper to check if we're directly in a class body (not nested in a function/block inside it)
+  const isInClassBody = (): boolean => {
+    const frame = contextStack[contextStack.length - 1]
+    return frame?.type === 'class-body' && braceDepth === frame.braceDepth + 1
+  }
 
   while (i < source.length) {
     const char = source[i]
@@ -311,6 +336,39 @@ function transformParenExpressions(
 
     // We're in normal state - look for TJS patterns
 
+    // Track braces for structural context
+    if (char === '{') {
+      braceDepth++
+      result += char
+      i++
+      continue
+    }
+    if (char === '}') {
+      braceDepth--
+      // Pop context if we're exiting it
+      const frame = contextStack[contextStack.length - 1]
+      if (frame && braceDepth === frame.braceDepth) {
+        contextStack.pop()
+      }
+      result += char
+      i++
+      continue
+    }
+
+    // Look for class declarations: class Name { or class Name extends Base {
+    const classMatch = source
+      .slice(i)
+      .match(/^class\s+\w+(?:\s+extends\s+\w+)?\s*\{/)
+    if (classMatch) {
+      // Output everything up to but not including the {
+      const classHeader = classMatch[0].slice(0, -1)
+      result += classHeader
+      i += classHeader.length
+      // Push class-body context (will be entered when we see the {)
+      contextStack.push({ type: 'class-body', braceDepth })
+      continue
+    }
+
     // Look for function declarations: function name( or function name (
     const funcMatch = source.slice(i).match(/^function\s+(\w+)\s*\(/)
     if (funcMatch) {
@@ -386,64 +444,59 @@ function transformParenExpressions(
 
     // Look for class method syntax: constructor(, methodName(, get name(, set name(
     // These appear inside class bodies and need param transformation
+    // Only match if we're actually in a class body (proper context tracking)
     const methodMatch = source
       .slice(i)
       .match(/^(constructor|(?:get|set)\s+\w+|async\s+\w+|\w+)\s*\(/)
-    if (methodMatch) {
-      // Check if we're likely inside a class (heuristic: preceded by { or ; or newline with indentation)
-      const before = result.slice(-50)
-      const isLikelyClassMethod =
-        /[{;]\s*$/.test(before) || /\n\s*$/.test(before)
+    if (methodMatch && isInClassBody()) {
+      // We're actually in a class body - this is a method definition
+      const methodPart = methodMatch[1]
+      const matchLen = methodMatch[0].length
+      const paramStart = i + matchLen
 
-      if (isLikelyClassMethod) {
-        const methodPart = methodMatch[1]
-        const matchLen = methodMatch[0].length
-        const paramStart = i + matchLen
+      result += methodPart + '('
+      i = paramStart
 
-        result += methodPart + '('
-        i = paramStart
-
-        // Find matching )
-        const paramsResult = extractBalancedContent(source, i, '(', ')')
-        if (!paramsResult) {
-          result += source[i]
-          i++
-          continue
-        }
-
-        const { content: params, endPos } = paramsResult
-        i = endPos
-
-        // Process the params (transform : to = for TJS types)
-        const processedParams = processParamString(params, ctx, true)
-        result += processedParams + ')'
-
-        // Check for return type annotation: ) -> type or ): type
-        let j = i
-        while (j < source.length && /\s/.test(source[j])) j++
-
-        // Handle -> return type (TJS style)
-        const returnArrow = source.slice(j, j + 2)
-        if (returnArrow === '->') {
-          j += 2
-          while (j < source.length && /\s/.test(source[j])) j++
-          const typeResult = extractReturnTypeValue(source, j)
-          if (typeResult) {
-            i = typeResult.endPos
-          }
-        }
-        // Handle : return type (TS style) - just strip it
-        else if (source[j] === ':') {
-          j++
-          while (j < source.length && /\s/.test(source[j])) j++
-          const typeResult = extractReturnTypeValue(source, j)
-          if (typeResult) {
-            i = typeResult.endPos
-          }
-        }
-
+      // Find matching )
+      const paramsResult = extractBalancedContent(source, i, '(', ')')
+      if (!paramsResult) {
+        result += source[i]
+        i++
         continue
       }
+
+      const { content: params, endPos } = paramsResult
+      i = endPos
+
+      // Process the params (transform : to = for TJS types)
+      const processedParams = processParamString(params, ctx, true)
+      result += processedParams + ')'
+
+      // Check for return type annotation: ) -> type or ): type
+      let j = i
+      while (j < source.length && /\s/.test(source[j])) j++
+
+      // Handle -> return type (TJS style)
+      const returnArrow = source.slice(j, j + 2)
+      if (returnArrow === '->') {
+        j += 2
+        while (j < source.length && /\s/.test(source[j])) j++
+        const typeResult = extractReturnTypeValue(source, j)
+        if (typeResult) {
+          i = typeResult.endPos
+        }
+      }
+      // Handle : return type (TS style) - just strip it
+      else if (source[j] === ':') {
+        j++
+        while (j < source.length && /\s/.test(source[j])) j++
+        const typeResult = extractReturnTypeValue(source, j)
+        if (typeResult) {
+          i = typeResult.endPos
+        }
+      }
+
+      continue
     }
 
     // Look for arrow function params: (params) =>

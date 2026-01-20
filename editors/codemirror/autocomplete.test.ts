@@ -436,7 +436,7 @@ const after = 2
     })
 
     it('extracts example-based types', () => {
-      const source = `function greet(name: 'World', times = 1) -> '' {
+      const source = `function greet(name: 'World', times = 1) -! '' {
   return 'Hello ' + name
 }`
       const metadata = getMetadata(source)

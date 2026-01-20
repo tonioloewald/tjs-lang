@@ -337,7 +337,8 @@ describe('Playground Examples', () => {
 
   for (const example of examples) {
     const isVision = example.name.startsWith('Vision:')
-    const shouldFail = example.name === 'Fuel Exhaustion'
+    const shouldFail =
+      example.name === 'Fuel Exhaustion' || example.name === 'Fuel Limits'
     // Examples that generate and run code need retry due to LLM variability
     const needsRetry = example.code.includes('runCode(')
     // TJS examples use the TJS transpiler, not AgentJS

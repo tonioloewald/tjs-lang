@@ -326,7 +326,9 @@ export function resolveValue(val: any, ctx: RuntimeContext): any {
     return evaluateExpr(val, ctx)
   }
   if (typeof val === 'string') {
-    if (val.startsWith('args.')) {
+    // Special case: args.foo looks up ctx.args['foo'] directly
+    // BUT only if 'args' is not a state variable (which takes precedence)
+    if (val.startsWith('args.') && !('args' in ctx.state)) {
       return ctx.args[val.replace('args.', '')]
     }
     // Dot notation support
@@ -2337,7 +2339,7 @@ Useful for generating agents to send to other services via fetch.
 // Generate an agent and send it to a worker
 let code = llmPredict({ prompt: 'Write an AsyncJS data processor' })
 let ast = transpileCode({ code })
-let result = httpFetch({ 
+let result = httpFetch({
   url: 'https://worker.example.com/run',
   method: 'POST',
   body: JSON.stringify({ ast, args: { data: myData } })

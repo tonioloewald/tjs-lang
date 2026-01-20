@@ -58,33 +58,34 @@ benchmarks('VM Benchmarks ($run)', ({ run }) => {
       const expectedPrimes = generatePrimes(n)
 
       const ast = ajs(`
-        function findPrimes({ n }) {
+        function findPrimes(args) {
+          let n = args.n
           let primes = []
           let i = 2
-          
+
           while (i <= n) {
             let isPrime = true
             let j = 2
-            
+
             while (j * j <= i) {
               if (i % j == 0) {
                 isPrime = false
               }
               j = j + 1
             }
-            
+
             if (isPrime) {
               push({ list: primes, item: i })
             }
             i = i + 1
           }
-          
-          return { primes }
+
+          return { primes: primes }
         }
       `)
 
-      const { result } = await VM.run(ast, { n }, { fuel: 1_000_000 })
-      expect(result.primes).toEqual(expectedPrimes)
+      const { result } = await VM.run(ast, { args: { n } }, { fuel: 1_000_000 })
+      expect(result.primes).toEqual(expectedPrimes) // result is ctx.output = { primes: [...] }
     },
     { timeout: 20000 }
   )
