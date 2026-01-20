@@ -2,8 +2,6 @@
 
 AJS is a JavaScript subset designed for writing AI agent logic. It compiles to Agent99's secure JSON AST format, providing familiar syntax with cleaner semantics.
 
-**MIME Type:** `text/ajs`
-
 > **For LLM Integration:** See [ajs-llm-prompt.md](./ajs-llm-prompt.md) for a system prompt optimized for code generation.
 
 ## File Extension

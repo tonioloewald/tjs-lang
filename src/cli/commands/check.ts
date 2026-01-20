@@ -29,7 +29,13 @@ export async function check(file: string): Promise<void> {
     }
   } catch (error: any) {
     console.error(`✗ ${file}`)
-    console.error(`  ${error.message}`)
+    if (error.name === 'SyntaxError' && error.formatWithContext) {
+      console.error()
+      console.error(error.formatWithContext(2))
+      console.error()
+    } else {
+      console.error(`  ${error.message}`)
+    }
     process.exit(1)
   }
 }

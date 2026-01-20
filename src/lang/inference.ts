@@ -171,13 +171,15 @@ export function parseParameter(
 
     // Infer type from the example value
     const type = inferTypeFromValue(right)
-    const defaultValue = extractLiteralValue(right)
+    const exampleValue = extractLiteralValue(right)
 
     return {
       name,
       type,
       required: isRequired,
-      default: isRequired ? null : defaultValue,
+      default: isRequired ? null : exampleValue,
+      example: exampleValue,
+      loc: { start: param.start, end: param.end },
     }
   }
 
@@ -206,14 +208,16 @@ export function parseParameter(
             required: true,
           }
         } else if (prop.value.type === 'AssignmentPattern') {
-          // { name = default } - optional with default
-          const innerParam = parseParameter(prop.value)
+          // { name = default } - check requiredParams to see if this was originally colon syntax
+          const innerParam = parseParameter(prop.value, requiredParams)
+          const isRequired = requiredParams?.has(key) ?? false
           shape[key] = innerParam.type
           destructuredParams[key] = {
             name: key,
             type: innerParam.type,
-            required: false,
-            default: innerParam.default,
+            required: isRequired,
+            default: isRequired ? null : innerParam.example,
+            example: innerParam.example,
           }
         }
       }

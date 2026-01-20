@@ -113,8 +113,9 @@ const { app, prefs } = tosi({
     currentExample: null as any,
   },
   prefs: {
-    theme: 'system',
-    highContrast: false,
+    // UI settings (stored in localStorage)
+    theme: localStorage.getItem('theme') || 'system',
+    highContrast: localStorage.getItem('highContrast') === 'true',
     // LLM settings (stored in localStorage)
     preferredProvider: localStorage.getItem('preferredProvider') || 'auto',
     openaiKey: localStorage.getItem('openaiKey') || '',
@@ -126,6 +127,10 @@ const { app, prefs } = tosi({
 
 // Persist preferences
 const savePrefs = () => {
+  // UI settings
+  localStorage.setItem('theme', prefs.theme.valueOf())
+  localStorage.setItem('highContrast', String(prefs.highContrast.valueOf()))
+  // LLM settings
   localStorage.setItem('preferredProvider', prefs.preferredProvider.valueOf())
   localStorage.setItem('openaiKey', prefs.openaiKey.valueOf())
   localStorage.setItem('anthropicKey', prefs.anthropicKey.valueOf())
@@ -350,6 +355,7 @@ if (main) {
                       checked: () => prefs.theme.valueOf() === 'system',
                       action: () => {
                         prefs.theme = 'system'
+                        savePrefs()
                       },
                     },
                     {
@@ -357,6 +363,7 @@ if (main) {
                       checked: () => prefs.theme.valueOf() === 'dark',
                       action: () => {
                         prefs.theme = 'dark'
+                        savePrefs()
                       },
                     },
                     {
@@ -364,6 +371,7 @@ if (main) {
                       checked: () => prefs.theme.valueOf() === 'light',
                       action: () => {
                         prefs.theme = 'light'
+                        savePrefs()
                       },
                     },
                     null,
@@ -372,6 +380,7 @@ if (main) {
                       checked: () => prefs.highContrast.valueOf(),
                       action: () => {
                         prefs.highContrast = !prefs.highContrast.valueOf()
+                        savePrefs()
                       },
                     },
                   ],

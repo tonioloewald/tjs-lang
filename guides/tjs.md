@@ -152,6 +152,87 @@ function identity(x: any) -> any {
 // identity.__tjs.typeParams = { T: {} }
 ```
 
+### 6. Type Declarations
+
+Define reusable types with the `Type` keyword:
+
+```javascript
+// Type with default value (= syntax)
+Type Name = 'Alice'
+Type Count = 0
+Type Age = +18              // positive number
+
+// Type with description and default
+Type Name 'a person name' = 'Alice'
+
+// Type with example (for testing/documentation)
+Type User 'registered user' {
+  example: { name: '', age: 0 }
+}
+
+// Type with both default and example
+Type PositiveAge = +1 {
+  example: 30
+}
+
+// Type with predicate (auto-generates type guard from example)
+Type EvenNumber {
+  example: 2
+  predicate(x) { return x % 2 === 0 }
+}
+
+// Complex validation with predicate
+Type Email {
+  example: 'test@example.com'
+  predicate(x) { return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(x) }
+}
+```
+
+**Default vs Example:**
+- `= value` sets a **default** for instantiation
+- `example:` in block sets an **example** for testing/documentation
+- When both are present, they serve different purposes
+
+When `example` and `predicate` are provided, the type guard auto-checks the example's shape, then your predicate refines it.
+
+### 7. Generic Declarations
+
+Define parameterized types with the `Generic` keyword:
+
+```javascript
+// Simple generic
+Generic Box<T> {
+  description: 'a boxed value'
+  predicate(x, T) { 
+    return typeof x === 'object' && x !== null && 'value' in x && T(x.value) 
+  }
+}
+
+// Generic with default type parameter
+Generic Container<T, U = ''> {
+  description: 'container with label'
+  predicate(obj, T, U) { 
+    return T(obj.item) && U(obj.label) 
+  }
+}
+```
+
+In the predicate, `T` and `U` are type-checking functions that validate values against the provided type parameters.
+
+### 8. Bare Assignments
+
+Uppercase identifiers automatically get `const`:
+
+```javascript
+// These are equivalent:
+Foo = Type('test', 'example')
+const Foo = Type('test', 'example')
+
+// Works for any uppercase identifier
+MyConfig = { debug: true }
+const MyConfig = { debug: true }
+```
+
 ## Runtime Features
 
 ### Monadic Error Handling
@@ -185,12 +266,17 @@ add(null, 2)   // Error: expected number, got null
 
 This provides excellent error messages and catches type mismatches at runtime.
 
-### Unsafe Functions with `(!)`
+### Safety Markers: `(?)` and `(!)`
 
-For performance-critical code, mark functions as unsafe with `(!)`:
+Control input validation with markers after the opening paren:
 
 ```javascript
-// The ! after ( marks this function as unsafe (no runtime validation)
+// (?) - Safe function: force input validation
+function safeAdd(? a: 0, b: 0) -> 0 {
+  return a + b
+}
+
+// (!) - Unsafe function: skip input validation
 function fastAdd(! a: 0, b: 0) -> 0 {
   return a + b
 }
@@ -200,6 +286,31 @@ fastAdd('1', 2)    // NaN (no validation, garbage in = garbage out)
 ```
 
 The `!` is borrowed from TypeScript's non-null assertion operator - it means "I know what I'm doing, trust me."
+
+### Return Type Safety: `->`, `-?`, `-!`
+
+Control output validation with different arrow styles:
+
+```javascript
+// -> normal return type (validation depends on module settings)
+function add(a: 0, b: 0) -> 0 { return a + b }
+
+// -? force output validation (safe return)
+function critical(a: 0, b: 0) -? 0 { return a + b }
+
+// -! skip output validation (unsafe return)
+function fast(a: 0, b: 0) -! 0 { return a + b }
+```
+
+Combine input and output markers for full control:
+
+```javascript
+// Fully safe: validate inputs AND outputs
+function critical(? x: 0) -? 0 { return x * 2 }
+
+// Fully unsafe: skip all validation
+function blazingFast(! x: 0) -! 0 { return x * 2 }
+```
 
 ### The `unsafe` Block
 
@@ -228,47 +339,116 @@ function sum(numbers: [0]) -> 0 {
 
 Use `(!)` for internal functions that are called frequently with known-good data. Keep public APIs safe.
 
+### SafeFunction and Eval
+
+Safe replacements for `new Function()` and `eval()` with typed inputs/outputs:
+
+```javascript
+// SafeFunction - create a typed async function from code
+const add = await SafeFunction({
+  inputs: { a: 0, b: 0 },      // typed parameters
+  output: 0,                    // typed return
+  body: 'return a + b'
+})
+await add(1, 2)  // 3
+await add('x', 2)  // Error: invalid input 'a'
+
+// Eval - evaluate code once with typed result
+const result = await Eval({
+  code: 'a + b',
+  context: { a: 1, b: 2 },
+  output: 0
+})  // 3
+```
+
+**Key safety features:**
+- **Typed inputs/outputs** - validated at runtime
+- **Async execution** - can timeout, won't block
+- **Explicit context** - no implicit scope access
+- **Injectable capabilities** - fetch, console, etc. must be provided
+
+```javascript
+// With capabilities and timeout
+const fetcher = await SafeFunction({
+  inputs: { url: '' },
+  output: { data: [] },
+  body: 'return await fetch(url).then(r => r.json())',
+  capabilities: { fetch: globalThis.fetch },
+  timeoutMs: 10000
+})
+
+const data = await Eval({
+  code: 'await fetch(url).then(r => r.json())',
+  context: { url: 'https://api.example.com' },
+  output: { items: [] },
+  capabilities: { fetch: globalThis.fetch }
+})
+```
+
+Both functions return errors as values (monadic) rather than throwing.
+
 ## Testing
 
-### Inline Tests
+### Compile-Time Tests
 
-Tests live alongside your code:
+Tests run at **transpile time** and are stripped from output:
 
 ```javascript
-function add(a: 0, b: 0) -> 0 {
-  return a + b
+Type Email {
+  example: 'test@example.com'
+  predicate(x) { return x.includes('@') }
 }
 
-test('add works with positive numbers') {
-  expect(add(1, 2)).toBe(3)
-  expect(add(0, 0)).toBe(0)
+// This test runs during transpilation
+test 'email validation' {
+  if (!Email.check('user@example.com')) {
+    throw new Error('valid email should pass')
+  }
+  if (Email.check('invalid')) {
+    throw new Error('invalid email should fail')
+  }
 }
 
-test('add works with negative numbers') {
-  expect(add(-1, 1)).toBe(0)
-  expect(add(-5, -3)).toBe(-8)
+function sendEmail(to: Email) {
+  // ...
 }
 ```
 
-### Inline Mocks
-
-Setup code that runs before each test:
-
+The transpiled output contains only:
 ```javascript
-mock {
-  const testUser = { name: 'Test', age: 25 }
-  const mockDB = new Map()
-}
-
-test('user can be stored') {
-  mockDB.set('user1', testUser)
-  expect(mockDB.get('user1')).toEqual(testUser)
-}
+const Email = Type('Email', ...)
+function sendEmail(to) { ... }
 ```
 
-### Async Tests
+The test code **evaporates** - it verified correctness at build time.
 
-All test blocks are async contexts:
+### Implicit Type Tests
+
+Types with `example` have implicit tests - the example must pass the type check:
+
+```javascript
+Type PositiveInt {
+  example: 42
+  predicate(x) { return Number.isInteger(x) && x > 0 }
+}
+// Implicit test: PositiveInt.check(42) must be true
+```
+
+If the example fails the predicate, transpilation fails.
+
+### Skip Tests Flag
+
+For debugging or speed, skip test execution:
+
+```bash
+tjs emit file.tjs --dangerously-skip-tests
+```
+
+Tests are still stripped from output, but not executed.
+
+### Legacy Inline Tests
+
+For runtime tests (e.g., integration tests), use standard test frameworks:
 
 ```javascript
 test('async operations work') {
@@ -292,16 +472,24 @@ test('async operations work') {
 
 ### Added
 
-| Feature         | Purpose                                 |
-| --------------- | --------------------------------------- |
-| `: example`     | Required parameter with type            |
-| `= example`     | Optional parameter with default         |
-| `-> Type`       | Return type annotation                  |
-| `(!)`           | Mark function as unsafe (no validation) |
-| `test() {}`     | Inline test block                       |
-| `mock {}`       | Test setup block                        |
-| `unsafe {}`     | Skip validation for a block             |
-| `\|\|` in types | Union types                             |
+| Feature           | Purpose                                      |
+| ----------------- | -------------------------------------------- |
+| `: example`       | Required parameter with type                 |
+| `= example`       | Optional parameter with default              |
+| `-> Type`         | Return type annotation                       |
+| `-? Type`         | Return type with forced output validation    |
+| `-! Type`         | Return type with skipped output validation   |
+| `(?)`             | Mark function as safe (force validation)     |
+| `(!)`             | Mark function as unsafe (skip validation)    |
+| `test 'name' {}`  | Compile-time test block (evaporates)         |
+| `mock {}`         | Test setup block                             |
+| `unsafe {}`       | Skip validation for a block                  |
+| `\|\|` in types   | Union types                                  |
+| `Type Name = val` | Define runtime type with default             |
+| `Generic<T>`      | Define a parameterized runtime type          |
+| `Foo = ...`       | Bare assignment (auto-adds `const`)          |
+| `SafeFunction`    | Safe typed async replacement for `Function`  |
+| `Eval`            | Safe typed async replacement for `eval()`    |
 
 ## Differences from TypeScript
 
@@ -417,6 +605,21 @@ tjsx script.tjs --name=value       # Pass arguments
 tjsx -e "function f() { return 42 }"  # Evaluate inline
 echo '{"x": 1}' | tjsx script.tjs --json  # JSON from stdin
 ```
+
+### Bun Plugin - Native `.tjs` Support
+
+Run `.tjs` files directly with Bun using the preload plugin:
+
+```bash
+# Run a single file
+bun --preload ./src/bun-plugin/tjs-plugin.ts script.tjs
+
+# Enable globally in bunfig.toml
+[run]
+preload = ["./src/bun-plugin/tjs-plugin.ts"]
+```
+
+The plugin transpiles `.tjs` files on-the-fly with full runtime support (Type, Generic, Union, etc.).
 
 ## Best Practices
 

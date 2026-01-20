@@ -34,6 +34,8 @@ export interface LintOptions {
   undefinedVariables?: boolean
   /** Check for unreachable code */
   unreachableCode?: boolean
+  /** Warn about explicit `new` keyword usage (TJS makes classes callable without new) */
+  noExplicitNew?: boolean
   /** Filename for error messages */
   filename?: string
 }
@@ -42,6 +44,7 @@ const DEFAULT_OPTIONS: LintOptions = {
   unusedVariables: true,
   undefinedVariables: true,
   unreachableCode: true,
+  noExplicitNew: true,
 }
 
 /**
@@ -170,6 +173,33 @@ export function lint(source: string, options: LintOptions = {}): LintResult {
             foundReturn = true
           }
         }
+      },
+    })
+  }
+
+  // Check for explicit `new` keyword usage
+  // In TJS, classes are callable without `new`, so using `new` is unnecessary
+  if (opts.noExplicitNew) {
+    walk.simple(program, {
+      NewExpression(node: any) {
+        // Get the callee name
+        let calleeName = 'class'
+        if (node.callee.type === 'Identifier') {
+          calleeName = node.callee.name
+        } else if (node.callee.type === 'MemberExpression') {
+          // e.g., new foo.Bar()
+          if (node.callee.property.type === 'Identifier') {
+            calleeName = node.callee.property.name
+          }
+        }
+
+        diagnostics.push({
+          severity: 'warning',
+          message: `Unnecessary 'new' keyword. In TJS, classes are callable without 'new': ${calleeName}(...) instead of new ${calleeName}(...)`,
+          line: node.loc?.start?.line,
+          column: node.loc?.start?.column,
+          rule: 'no-explicit-new',
+        })
       },
     })
   }

@@ -1,0 +1,41 @@
+// TJS Generic types demo
+
+Generic Box<T> {
+  description: "a boxed value"
+  predicate(obj, T) { return typeof obj === "object" && obj !== null && "value" in obj && T(obj.value) }
+}
+
+Type Name = "World"
+
+const StringBox = Box("")
+
+function demo() -> { passed: 0, failed: 0 } {
+  let passed = 0
+  let failed = 0
+
+  // Test Box<string>
+  if (StringBox.check({ value: "hello" })) {
+    passed = passed + 1
+  } else {
+    failed = failed + 1
+  }
+
+  if (!StringBox.check({ value: 123 })) {
+    passed = passed + 1
+  } else {
+    failed = failed + 1
+  }
+
+  // Test Type with default
+  const name = Name.default
+  if (name === "World") {
+    passed = passed + 1
+  } else {
+    failed = failed + 1
+  }
+
+  return { passed, failed }
+}
+
+const results = demo()
+console.log(`Tests: ${results.passed} passed, ${results.failed} failed`)

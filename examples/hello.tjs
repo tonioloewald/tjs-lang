@@ -1,3 +1,10 @@
-function greet(name: 'world') -> '' {
+// Simple TJS example
+
+Type Name = 'World'
+
+function greet(name: Name) -> '' {
   return `Hello, ${name}!`
 }
+
+// Run and print result
+console.log(greet('TJS'))

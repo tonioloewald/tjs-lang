@@ -76,6 +76,25 @@ export {
   getType,
   type TJSError,
 } from './runtime'
+export {
+  compileToWasm,
+  instantiateWasm,
+  registerWasmBlock,
+  compileWasmBlocks,
+  type WasmCompileResult,
+} from './wasm'
+export type { WasmBlock } from './parser'
+export {
+  MetadataCache,
+  getGlobalCache,
+  setGlobalCache,
+  hashSource,
+  hashSourceSync,
+  type CacheEntry,
+  type CachedTranspileResult,
+  type CachedTJSResult,
+  type CacheStats,
+} from './metadata-cache'
 
 // Re-export Type utilities from types module
 export {
@@ -222,27 +241,152 @@ export function ajs(
  * `
  * ```
  */
-import { transpileToJS, type TJSTranspileResult } from './emitters/js'
+import {
+  transpileToJS,
+  type TJSTranspileResult,
+  type TJSTranspileOptions,
+} from './emitters/js'
 
 export function tjs(
   strings: TemplateStringsArray,
   ...values: any[]
 ): TJSTranspileResult
-export function tjs(source: string): TJSTranspileResult
+export function tjs(
+  source: string,
+  options?: TJSTranspileOptions
+): TJSTranspileResult
 export function tjs(
   sourceOrStrings: string | TemplateStringsArray,
-  ...values: any[]
+  optionsOrFirstValue?: TJSTranspileOptions | any,
+  ...restValues: any[]
 ): TJSTranspileResult {
   if (typeof sourceOrStrings === 'string') {
-    return transpileToJS(sourceOrStrings)
+    return transpileToJS(
+      sourceOrStrings,
+      optionsOrFirstValue as TJSTranspileOptions
+    )
   }
   // Tagged template literal
+  const values =
+    optionsOrFirstValue !== undefined
+      ? [optionsOrFirstValue, ...restValues]
+      : restValues
   const source = sourceOrStrings.reduce(
     (acc, str, i) =>
       acc + str + (values[i] !== undefined ? String(values[i]) : ''),
     ''
   )
   return transpileToJS(source)
+}
+
+// ============================================================================
+// Cached transpilation functions
+// ============================================================================
+
+import {
+  MetadataCache,
+  getGlobalCache,
+  type CachedTranspileResult,
+  type CachedTJSResult,
+} from './metadata-cache'
+
+/**
+ * Transpile with caching support
+ *
+ * Uses IndexedDB to cache transpilation results. On cache hit,
+ * returns immediately without re-parsing. Particularly useful for
+ * playground editors and development workflows.
+ *
+ * @example
+ * ```typescript
+ * const cache = new MetadataCache()
+ * await cache.open()
+ *
+ * // First call: parses and caches
+ * const result1 = await transpileWithCache(source, {}, cache)
+ *
+ * // Second call: returns from cache
+ * const result2 = await transpileWithCache(source, {}, cache)
+ * ```
+ */
+export async function transpileWithCache(
+  source: string,
+  options: TranspileOptions = {},
+  cache?: MetadataCache
+): Promise<TranspileResult> {
+  const effectiveCache = cache ?? (await getGlobalCache())
+
+  // Try cache first
+  const cached = await effectiveCache.getTranspile(source)
+  if (cached) {
+    return {
+      ast: cached.ast,
+      signature: cached.signature,
+      warnings: cached.warnings,
+    }
+  }
+
+  // Cache miss - transpile
+  const result = transpile(source, options)
+
+  // Store in cache (don't await - fire and forget)
+  effectiveCache.setTranspile(source, {
+    ast: result.ast,
+    signature: result.signature,
+    warnings: result.warnings,
+  })
+
+  return result
+}
+
+/**
+ * Transpile TJS to JavaScript with caching support
+ *
+ * @example
+ * ```typescript
+ * const cache = new MetadataCache()
+ * await cache.open()
+ *
+ * // First call: transpiles and caches
+ * const result1 = await tjsWithCache(source, {}, cache)
+ *
+ * // Second call: returns from cache
+ * const result2 = await tjsWithCache(source, {}, cache)
+ * ```
+ */
+export async function tjsWithCache(
+  source: string,
+  options: import('./emitters/js').TJSTranspileOptions = {},
+  cache?: MetadataCache
+): Promise<import('./emitters/js').TJSTranspileResult> {
+  const effectiveCache = cache ?? (await getGlobalCache())
+
+  // Try cache first
+  const cached = await effectiveCache.getTJS(source)
+  if (cached) {
+    return {
+      code: cached.code,
+      types: cached.types,
+      metadata: cached.types, // alias
+      testRunner: cached.testRunner,
+      testCount: cached.testCount,
+      warnings: cached.warnings,
+    }
+  }
+
+  // Cache miss - transpile
+  const result = transpileToJS(source, options)
+
+  // Store in cache (don't await - fire and forget)
+  effectiveCache.setTJS(source, {
+    code: result.code,
+    types: result.types,
+    testRunner: result.testRunner,
+    testCount: result.testCount,
+    warnings: result.warnings,
+  })
+
+  return result
 }
 
 /**

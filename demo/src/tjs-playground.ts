@@ -10,11 +10,19 @@
  */
 
 import { Component, ElementCreator, PartsMap, elements } from 'tosijs'
-import { tabSelector, TabSelector, icons } from 'tosijs-ui'
+import {
+  tabSelector,
+  TabSelector,
+  icons,
+  markdownViewer,
+  MarkdownViewer,
+} from 'tosijs-ui'
 import { codeMirror, CodeMirror } from '../../editors/codemirror/component'
 import { tjs } from '../../src/lang'
+import { extractImports, generateImportMap, resolveImports } from './imports'
+import { ModuleStore, type ValidationResult } from './module-store'
 
-const { div, button, span, pre, style } = elements
+const { div, button, span, pre, style, input } = elements
 
 /**
  * Convert TypeDescriptor to readable string
@@ -96,19 +104,32 @@ interface TJSPlaygroundParts extends PartsMap {
   outputTabs: TabSelector
   jsOutput: HTMLElement
   previewFrame: HTMLIFrameElement
-  docsOutput: HTMLElement
+  docsOutput: MarkdownViewer
   testsOutput: HTMLElement
   console: HTMLElement
   runBtn: HTMLButtonElement
+  saveBtn: HTMLButtonElement
+  moduleNameInput: HTMLInputElement
   statusBar: HTMLElement
 }
 
 export class TJSPlayground extends Component<TJSPlaygroundParts> {
   private lastTranspileResult: any = null
   private consoleMessages: string[] = []
+  private functionMetadata: Record<string, any> = {}
 
   constructor() {
     super()
+  }
+
+  /**
+   * Get metadata for autocomplete - returns all discovered functions
+   */
+  private getMetadataForAutocomplete = (): Record<string, any> | undefined => {
+    if (Object.keys(this.functionMetadata).length === 0) {
+      return undefined
+    }
+    return this.functionMetadata
   }
 
   content = () => [
@@ -119,6 +140,19 @@ export class TJSPlayground extends Component<TJSPlaygroundParts> {
         { part: 'runBtn', class: 'run-btn', onClick: this.run },
         icons.play({ size: 16 }),
         'Run'
+      ),
+      span({ class: 'toolbar-separator' }),
+      input({
+        part: 'moduleNameInput',
+        class: 'module-name-input',
+        type: 'text',
+        placeholder: 'module-name',
+        title: 'Module name for saving/importing',
+      }),
+      button(
+        { part: 'saveBtn', class: 'save-btn', onClick: this.saveModule },
+        icons.save({ size: 16 }),
+        'Save'
       ),
       span({ class: 'elastic' }),
       span({ part: 'statusBar', class: 'status-bar' }, 'Ready')
@@ -181,13 +215,12 @@ export class TJSPlayground extends Component<TJSPlaygroundParts> {
               })
             )
           ),
-          div(
-            { name: 'Docs' },
-            div(
-              { part: 'docsOutput', class: 'docs-output' },
-              'Generated documentation will appear here'
-            )
-          ),
+          markdownViewer({
+            name: 'Docs',
+            part: 'docsOutput',
+            class: 'docs-output',
+            value: '*Documentation will appear here*',
+          }),
           div(
             { name: 'Tests' },
             div(
@@ -216,6 +249,11 @@ export class TJSPlayground extends Component<TJSPlaygroundParts> {
       this.parts.htmlEditor.value = DEFAULT_HTML
       this.parts.cssEditor.value = DEFAULT_CSS
 
+      // Wire up autocomplete to get metadata from transpiler
+      this.parts.tjsEditor.autocomplete = {
+        getMetadata: this.getMetadataForAutocomplete,
+      }
+
       // Auto-transpile on load
       this.transpile()
     }, 0)
@@ -238,6 +276,9 @@ export class TJSPlayground extends Component<TJSPlaygroundParts> {
   transpile = () => {
     const source = this.parts.tjsEditor.value
 
+    // Extract function metadata for autocomplete (even if transpile fails)
+    this.extractFunctionMetadata(source)
+
     try {
       const result = tjs(source)
       this.lastTranspileResult = result
@@ -247,42 +288,459 @@ export class TJSPlayground extends Component<TJSPlaygroundParts> {
 
       // Update docs
       this.updateDocs(result)
+
+      // If we got metadata from transpiler, use it (more accurate)
+      if (result.metadata?.name) {
+        this.functionMetadata[result.metadata.name] = result.metadata
+      }
     } catch (e: any) {
-      this.parts.jsOutput.textContent = `// Error: ${e.message}`
-      this.parts.statusBar.textContent = `Error: ${e.message}`
+      // Format error with location info if available
+      const errorInfo = this.formatTranspileError(e, source)
+      this.parts.jsOutput.textContent = errorInfo.detailed
+      this.parts.statusBar.textContent = errorInfo.short
       this.parts.statusBar.classList.add('error')
       this.lastTranspileResult = null
     }
   }
 
+  /**
+   * Format transpile error with helpful context
+   */
+  private formatTranspileError = (
+    e: any,
+    source: string
+  ): { short: string; detailed: string } => {
+    const lines = source.split('\n')
+    const line = e.line ?? 1
+    const column = e.column ?? 0
+    const message = e.message || String(e)
+
+    // Short version for status bar
+    const short = e.line
+      ? `Error at line ${line}: ${message}`
+      : `Error: ${message}`
+
+    // Detailed version with code context
+    const detailedLines = ['// Transpilation Error', '// ' + '='.repeat(50), '']
+
+    // Add the error message
+    detailedLines.push(`// ${message}`)
+    if (e.line) {
+      detailedLines.push(`// at line ${line}, column ${column}`)
+    }
+    detailedLines.push('')
+
+    // Show code context (3 lines before and after)
+    if (e.line && lines.length > 0) {
+      detailedLines.push('// Code context:')
+      const start = Math.max(0, line - 3)
+      const end = Math.min(lines.length, line + 2)
+
+      for (let i = start; i < end; i++) {
+        const lineNum = i + 1
+        const prefix = lineNum === line ? '>> ' : '   '
+        const lineContent = lines[i] ?? ''
+        detailedLines.push(
+          `// ${prefix}${lineNum.toString().padStart(3)}: ${lineContent}`
+        )
+
+        // Show caret pointing to error column
+        if (lineNum === line && column > 0) {
+          const caretPos = 10 + column // account for prefix
+          detailedLines.push('// ' + ' '.repeat(caretPos) + '^')
+        }
+      }
+    }
+
+    // Add suggestions based on common errors
+    const suggestions = this.getSuggestions(message, source)
+    if (suggestions.length > 0) {
+      detailedLines.push('')
+      detailedLines.push('// Suggestions:')
+      for (const suggestion of suggestions) {
+        detailedLines.push(`//   - ${suggestion}`)
+      }
+    }
+
+    return { short, detailed: detailedLines.join('\n') }
+  }
+
+  /**
+   * Get helpful suggestions based on error message
+   */
+  private getSuggestions = (message: string, source: string): string[] => {
+    const suggestions: string[] = []
+    const msg = message.toLowerCase()
+
+    if (msg.includes('unexpected token')) {
+      suggestions.push('Check for missing brackets, parentheses, or quotes')
+      suggestions.push('TJS uses : for type annotations, = for defaults')
+      if (source.includes('=>')) {
+        suggestions.push(
+          'Arrow functions are not supported - use function keyword'
+        )
+      }
+    }
+
+    if (msg.includes('unexpected identifier')) {
+      suggestions.push('Check for missing commas between parameters')
+      suggestions.push(
+        'Check for typos in keywords (function, return, if, while)'
+      )
+    }
+
+    if (msg.includes('unterminated string')) {
+      suggestions.push('Check for unmatched quotes')
+      suggestions.push('Template literals use backticks (`), not quotes')
+    }
+
+    if (msg.includes('imports are not supported')) {
+      suggestions.push('For TJS modules, imports work - this error is for AJS')
+      suggestions.push('Make sure the module exists in the store')
+    }
+
+    if (msg.includes('required parameter') && msg.includes('optional')) {
+      suggestions.push(
+        'Required parameters (name: type) must come before optional (name = default)'
+      )
+    }
+
+    if (msg.includes('duplicate parameter')) {
+      suggestions.push('Each parameter must have a unique name')
+    }
+
+    return suggestions
+  }
+
+  /**
+   * Extract function metadata from source for autocomplete
+   * This runs even when transpilation fails (incomplete code)
+   */
+  private extractFunctionMetadata = (source: string) => {
+    // Match function declarations with TJS syntax
+    // function name(param: 'type', param2 = default) -> returnType { ... }
+    const funcRegex =
+      /function\s+(\w+)\s*\(\s*([^)]*)\s*\)\s*(?:->\s*([^\s{]+))?\s*\{/g
+
+    const newMetadata: Record<string, any> = {}
+    let match
+
+    while ((match = funcRegex.exec(source)) !== null) {
+      const [, funcName, paramsStr, returnType] = match
+
+      // Parse parameters
+      const params: Record<string, any> = {}
+      if (paramsStr.trim()) {
+        // Split on commas, but be careful of nested structures
+        const paramParts = this.splitParams(paramsStr)
+
+        for (const paramStr of paramParts) {
+          const trimmed = paramStr.trim()
+          if (!trimmed) continue
+
+          // Match: name: 'type' or name = default or name: type = default
+          const paramMatch = trimmed.match(
+            /^(\w+)\s*(?::\s*([^=]+?))?\s*(?:=\s*(.+))?$/
+          )
+          if (paramMatch) {
+            const [, paramName, typeExample, defaultValue] = paramMatch
+            const hasDefault = defaultValue !== undefined
+            const typeStr = typeExample?.trim() || defaultValue?.trim()
+
+            params[paramName] = {
+              type: this.inferTypeFromExample(typeStr),
+              required: !hasDefault && typeExample !== undefined,
+              default: hasDefault ? this.parseDefault(defaultValue) : undefined,
+            }
+          }
+        }
+      }
+
+      newMetadata[funcName] = {
+        name: funcName,
+        params,
+        returns: returnType ? this.inferTypeFromExample(returnType) : undefined,
+      }
+    }
+
+    this.functionMetadata = newMetadata
+  }
+
+  /**
+   * Split parameter string handling nested brackets
+   */
+  private splitParams = (paramsStr: string): string[] => {
+    const result: string[] = []
+    let current = ''
+    let depth = 0
+
+    for (const char of paramsStr) {
+      if (char === '(' || char === '[' || char === '{') {
+        depth++
+        current += char
+      } else if (char === ')' || char === ']' || char === '}') {
+        depth--
+        current += char
+      } else if (char === ',' && depth === 0) {
+        result.push(current)
+        current = ''
+      } else {
+        current += char
+      }
+    }
+    if (current.trim()) {
+      result.push(current)
+    }
+    return result
+  }
+
+  /**
+   * Infer type descriptor from example value
+   */
+  private inferTypeFromExample = (
+    example: string | undefined
+  ): { kind: string } | undefined => {
+    if (!example) return undefined
+    const trimmed = example.trim()
+
+    // String literal
+    if (/^['"]/.test(trimmed)) {
+      return { kind: 'string' }
+    }
+    // Number
+    if (/^-?\d+(\.\d+)?$/.test(trimmed)) {
+      return { kind: 'number' }
+    }
+    // Boolean
+    if (trimmed === 'true' || trimmed === 'false') {
+      return { kind: 'boolean' }
+    }
+    // Null
+    if (trimmed === 'null') {
+      return { kind: 'null' }
+    }
+    // Array
+    if (trimmed.startsWith('[')) {
+      return { kind: 'array' }
+    }
+    // Object
+    if (trimmed.startsWith('{')) {
+      return { kind: 'object' }
+    }
+
+    return { kind: 'any' }
+  }
+
+  /**
+   * Parse default value to JS value
+   */
+  private parseDefault = (value: string): any => {
+    const trimmed = value.trim()
+    try {
+      // Try to parse as JSON-like value
+      if (
+        trimmed === 'true' ||
+        trimmed === 'false' ||
+        trimmed === 'null' ||
+        /^-?\d+(\.\d+)?$/.test(trimmed)
+      ) {
+        return JSON.parse(trimmed)
+      }
+      // String literal
+      if (/^['"]/.test(trimmed)) {
+        return trimmed.slice(1, -1)
+      }
+    } catch {
+      // Return as-is if parsing fails
+    }
+    return trimmed
+  }
+
+  /**
+   * Extract block comments immediately preceding functions
+   * Returns map of function name -> comment text
+   */
+  extractFunctionComments = (source: string): Record<string, string> => {
+    const comments: Record<string, string> = {}
+
+    // Match block comment followed by function declaration
+    // The regex captures: block comment content, function name, params, return type
+    const pattern =
+      /\/\*\s*([\s\S]*?)\s*\*\/\s*\n\s*function\s+(\w+)\s*\(([^)]*)\)\s*(?:->\s*([^\s{]+))?\s*\{/g
+
+    let match
+    while ((match = pattern.exec(source)) !== null) {
+      const [, commentContent, funcName] = match
+      // Clean up the comment - remove leading * from each line (JSDoc style)
+      const cleaned = commentContent
+        .split('\n')
+        .map((line) => line.replace(/^\s*\*\s?/, '').trim())
+        .join('\n')
+        .trim()
+      comments[funcName] = cleaned
+    }
+
+    return comments
+  }
+
+  /**
+   * Build function signature string for docs
+   */
+  buildSignature = (name: string, params: any, returns: any): string => {
+    const paramParts: string[] = []
+
+    if (params) {
+      for (const [paramName, paramInfo] of Object.entries(params) as any) {
+        const typeStr = typeToString(paramInfo.type)
+        if (paramInfo.required) {
+          paramParts.push(`${paramName}: ${typeStr}`)
+        } else if (paramInfo.default !== undefined) {
+          paramParts.push(`${paramName} = ${JSON.stringify(paramInfo.default)}`)
+        } else {
+          paramParts.push(`${paramName}?: ${typeStr}`)
+        }
+      }
+    }
+
+    const returnStr = returns ? ` -> ${typeToString(returns)}` : ''
+    return `${name}(${paramParts.join(', ')})${returnStr}`
+  }
+
   updateDocs = (result: any) => {
+    const source = this.parts.tjsEditor.value
+
+    // Extract block comments for all functions
+    const comments = this.extractFunctionComments(source)
+
     if (!result?.types) {
-      this.parts.docsOutput.textContent = 'No type information available'
+      // No transpile result, but we might still have comments
+      if (Object.keys(comments).length === 0) {
+        this.parts.docsOutput.value = '*No documentation available*'
+        return
+      }
+    }
+
+    const { name, params, returns } = result?.types || {}
+    let docs = ''
+
+    if (name) {
+      // Build signature
+      const signature = this.buildSignature(name, params, returns)
+
+      docs += `## ${name}\n\n`
+      docs += '```\n' + signature + '\n```\n\n'
+
+      // Add block comment if present
+      if (comments[name]) {
+        docs += comments[name] + '\n\n'
+      }
+
+      // Add parameter details if any have defaults or are complex
+      if (params && Object.keys(params).length > 0) {
+        const hasDefaults = Object.values(params).some(
+          (p: any) => p.default !== undefined
+        )
+        if (hasDefaults) {
+          docs += '### Parameters\n\n'
+          for (const [paramName, paramInfo] of Object.entries(params) as any) {
+            const typeStr = typeToString(paramInfo.type)
+            const required = paramInfo.required ? '' : ' *(optional)*'
+            docs += `- **${paramName}**: \`${typeStr}\`${required}\n`
+            if (paramInfo.default !== undefined && paramInfo.default !== null) {
+              docs += `  - Default: \`${JSON.stringify(paramInfo.default)}\`\n`
+            }
+          }
+          docs += '\n'
+        }
+      }
+    }
+
+    // Also document other functions found with comments
+    for (const [funcName, comment] of Object.entries(comments)) {
+      if (funcName !== name && comment) {
+        docs += `---\n\n## ${funcName}\n\n${comment}\n\n`
+      }
+    }
+
+    this.parts.docsOutput.value = docs || '*No documentation available*'
+  }
+
+  saveModule = async () => {
+    const name = this.parts.moduleNameInput.value.trim()
+    if (!name) {
+      this.parts.statusBar.textContent = 'Enter a module name to save'
+      this.parts.statusBar.classList.add('error')
+      this.parts.moduleNameInput.focus()
       return
     }
 
-    const { name, params, returns } = result.types
-    let docs = `## ${name || 'Function'}\n\n`
+    // Validate module name format
+    if (!/^[a-z][a-z0-9-]*$/i.test(name)) {
+      this.parts.statusBar.textContent =
+        'Module name must start with letter, contain only letters, numbers, dashes'
+      this.parts.statusBar.classList.add('error')
+      return
+    }
 
-    if (params && Object.keys(params).length > 0) {
-      docs += '### Parameters\n\n'
-      for (const [paramName, paramInfo] of Object.entries(params) as any) {
-        const required = paramInfo.required ? '(required)' : '(optional)'
-        const typeStr = typeToString(paramInfo.type)
-        docs += `- **${paramName}**: \`${typeStr}\` ${required}\n`
-        if (paramInfo.default !== undefined && paramInfo.default !== null) {
-          docs += `  - Default: \`${JSON.stringify(paramInfo.default)}\`\n`
+    this.parts.statusBar.textContent = 'Validating...'
+    this.parts.statusBar.classList.remove('error')
+
+    try {
+      const store = await ModuleStore.open()
+      const code = this.parts.tjsEditor.value
+
+      // Validate first to get detailed results
+      const validation = await store.validate(code, 'tjs')
+
+      if (!validation.valid) {
+        // Show validation errors
+        const errorMessages = validation.errors.map((e) => e.message).join('; ')
+        this.parts.statusBar.textContent = `Save failed: ${errorMessages}`
+        this.parts.statusBar.classList.add('error')
+
+        // Log detailed errors to console
+        this.clearConsole()
+        this.log('=== Save Validation Failed ===')
+        for (const error of validation.errors) {
+          if (error.line) {
+            this.log(
+              `${error.type} error at line ${error.line}: ${error.message}`
+            )
+          } else {
+            this.log(`${error.type} error: ${error.message}`)
+          }
+        }
+        if (validation.warnings.length > 0) {
+          this.log('')
+          this.log('Warnings:')
+          for (const warning of validation.warnings) {
+            this.log(`  - ${warning}`)
+          }
+        }
+        return
+      }
+
+      // Validation passed, save (skip re-validation)
+      await store.save({ name, type: 'tjs', code }, { skipValidation: true })
+
+      // Success!
+      this.parts.statusBar.textContent = `Saved as "${name}"`
+      this.parts.statusBar.classList.remove('error')
+
+      // Show test results if any
+      if (validation.testResults && validation.testResults.length > 0) {
+        this.clearConsole()
+        this.log(`=== Module "${name}" saved successfully ===`)
+        this.log('')
+        this.log(`Tests: ${validation.testResults.length} passed`)
+        for (const test of validation.testResults) {
+          this.log(`  ✓ ${test.name}`)
         }
       }
-      docs += '\n'
+    } catch (e: any) {
+      this.parts.statusBar.textContent = `Save error: ${e.message}`
+      this.parts.statusBar.classList.add('error')
     }
-
-    if (returns) {
-      const returnType = typeToString(returns)
-      docs += `### Returns\n\n- \`${returnType}\`\n`
-    }
-
-    this.parts.docsOutput.textContent = docs
   }
 
   run = async () => {
@@ -302,27 +760,49 @@ export class TJSPlayground extends Component<TJSPlaygroundParts> {
       const cssContent = this.parts.cssEditor.value
       const jsCode = this.lastTranspileResult.code
 
+      // Resolve imports from the transpiled code
+      const imports = extractImports(jsCode)
+      let importMapScript = ''
+
+      if (imports.length > 0) {
+        this.log(`Resolving imports: ${imports.join(', ')}`)
+        const { importMap, errors } = await resolveImports(jsCode)
+
+        if (errors.length > 0) {
+          for (const err of errors) {
+            this.log(`Import error: ${err}`)
+          }
+        }
+
+        if (Object.keys(importMap.imports).length > 0) {
+          importMapScript = `<script type="importmap">${JSON.stringify(
+            importMap
+          )}</script>`
+        }
+      }
+
       // Create a complete HTML document for the iframe
       const iframeDoc = `<!DOCTYPE html>
 <html>
 <head>
   <style>${cssContent}</style>
+  ${importMapScript}
 </head>
 <body>
   ${htmlContent}
-  <script>
+  <script type="module">
     // Capture console.log
     const _log = console.log;
     console.log = (...args) => {
       _log(...args);
-      parent.postMessage({ type: 'console', message: args.map(a => 
+      parent.postMessage({ type: 'console', message: args.map(a =>
         typeof a === 'object' ? JSON.stringify(a, null, 2) : String(a)
       ).join(' ') }, '*');
     };
 
     try {
       ${jsCode}
-      
+
       // Try to call the function if it exists and show result
       const funcName = Object.keys(window).find(k => {
         try { return typeof window[k] === 'function' && window[k].__tjs; }
@@ -389,6 +869,7 @@ export const tjsPlayground = TJSPlayground.elementCreator({
       height: '100%',
       flex: '1 1 auto',
       background: 'var(--background, #fff)',
+      color: 'var(--text-color, #1f2937)',
       fontFamily: 'system-ui, sans-serif',
     },
 
@@ -397,8 +878,8 @@ export const tjsPlayground = TJSPlayground.elementCreator({
       alignItems: 'center',
       gap: '10px',
       padding: '8px 12px',
-      background: '#f3f4f6',
-      borderBottom: '1px solid #e5e7eb',
+      background: 'var(--code-background, #f3f4f6)',
+      borderBottom: '1px solid var(--code-border, #e5e7eb)',
     },
 
     ':host .run-btn': {
@@ -406,8 +887,8 @@ export const tjsPlayground = TJSPlayground.elementCreator({
       alignItems: 'center',
       gap: '4px',
       padding: '6px 12px',
-      background: '#3d4a6b',
-      color: 'white',
+      background: 'var(--brand-color, #3d4a6b)',
+      color: 'var(--brand-text-color, white)',
       border: 'none',
       borderRadius: '6px',
       cursor: 'pointer',
@@ -416,7 +897,55 @@ export const tjsPlayground = TJSPlayground.elementCreator({
     },
 
     ':host .run-btn:hover': {
-      background: '#4a5a80',
+      filter: 'brightness(1.1)',
+    },
+
+    ':host .toolbar-separator': {
+      width: '1px',
+      height: '20px',
+      background: 'var(--code-border, #d1d5db)',
+    },
+
+    ':host .module-name-input': {
+      padding: '6px 10px',
+      border: '1px solid var(--code-border, #d1d5db)',
+      borderRadius: '6px',
+      fontSize: '14px',
+      fontFamily: 'ui-monospace, monospace',
+      background: 'var(--background, #fff)',
+      color: 'var(--text-color, #1f2937)',
+      width: '160px',
+    },
+
+    ':host .module-name-input:focus': {
+      outline: 'none',
+      borderColor: 'var(--brand-color, #3d4a6b)',
+      boxShadow: '0 0 0 2px rgba(61, 74, 107, 0.2)',
+    },
+
+    ':host .module-name-input::placeholder': {
+      color: 'var(--text-color, #9ca3af)',
+      opacity: '0.6',
+    },
+
+    ':host .save-btn': {
+      display: 'flex',
+      alignItems: 'center',
+      gap: '4px',
+      padding: '6px 12px',
+      background: 'var(--code-background, #e5e7eb)',
+      color: 'var(--text-color, #374151)',
+      border: '1px solid var(--code-border, #d1d5db)',
+      borderRadius: '6px',
+      cursor: 'pointer',
+      fontWeight: '500',
+      fontSize: '14px',
+    },
+
+    ':host .save-btn:hover': {
+      background: 'var(--brand-color, #3d4a6b)',
+      color: 'var(--brand-text-color, white)',
+      borderColor: 'var(--brand-color, #3d4a6b)',
     },
 
     ':host .elastic': {
@@ -425,11 +954,13 @@ export const tjsPlayground = TJSPlayground.elementCreator({
 
     ':host .status-bar': {
       fontSize: '13px',
-      color: '#6b7280',
+      color: 'var(--text-color, #6b7280)',
+      opacity: '0.7',
     },
 
     ':host .status-bar.error': {
       color: '#dc2626',
+      opacity: '1',
     },
 
     ':host .tjs-main': {
@@ -437,7 +968,7 @@ export const tjsPlayground = TJSPlayground.elementCreator({
       flex: '1 1 auto',
       minHeight: '0',
       gap: '1px',
-      background: '#e5e7eb',
+      background: 'var(--code-border, #e5e7eb)',
     },
 
     ':host .tjs-input, :host .tjs-output': {
@@ -445,7 +976,7 @@ export const tjsPlayground = TJSPlayground.elementCreator({
       minWidth: '0',
       display: 'flex',
       flexDirection: 'column',
-      background: '#fff',
+      background: 'var(--background, #fff)',
       overflow: 'hidden',
     },
 
@@ -454,6 +985,12 @@ export const tjsPlayground = TJSPlayground.elementCreator({
       display: 'flex',
       flexDirection: 'column',
       minHeight: '0',
+    },
+
+    // Tab content panels need explicit background for dark mode
+    ':host xin-tabs > [name]': {
+      background: 'var(--background, #fff)',
+      color: 'var(--text-color, #1f2937)',
     },
 
     // Editor wrapper - contains the shadow DOM code-mirror component
@@ -478,8 +1015,8 @@ export const tjsPlayground = TJSPlayground.elementCreator({
     ':host .js-output': {
       margin: '0',
       padding: '12px',
-      background: '#1e1e1e',
-      color: '#d4d4d4',
+      background: 'var(--code-background, #f3f4f6)',
+      color: 'var(--text-color, #1f2937)',
       fontSize: '13px',
       fontFamily: 'ui-monospace, monospace',
       overflow: 'auto',
@@ -489,7 +1026,7 @@ export const tjsPlayground = TJSPlayground.elementCreator({
 
     ':host .preview-container': {
       height: '100%',
-      background: '#fff',
+      background: 'var(--background, #fff)',
     },
 
     ':host .preview-frame': {
@@ -498,35 +1035,97 @@ export const tjsPlayground = TJSPlayground.elementCreator({
       border: 'none',
     },
 
-    ':host .docs-output, :host .tests-output': {
+    ':host .docs-output': {
+      display: 'block',
+      padding: '12px 16px',
+      fontSize: '14px',
+      fontFamily: 'system-ui, sans-serif',
+      color: 'var(--text-color, inherit)',
+      background: 'var(--background, #fff)',
+      height: '100%',
+      overflow: 'auto',
+    },
+
+    ':host .docs-output h2': {
+      fontSize: '1.25em',
+      marginTop: '0',
+      marginBottom: '0.5em',
+      color: 'var(--text-color, #1f2937)',
+    },
+
+    ':host .docs-output pre': {
+      background: 'var(--code-background, #f3f4f6)',
+      padding: '8px 12px',
+      borderRadius: '6px',
+      overflow: 'auto',
+      fontSize: '13px',
+    },
+
+    ':host .docs-output code': {
+      fontFamily: 'ui-monospace, monospace',
+      fontSize: '0.9em',
+    },
+
+    ':host .docs-output p': {
+      margin: '0.75em 0',
+      lineHeight: '1.5',
+    },
+
+    ':host .docs-output h3': {
+      fontSize: '1em',
+      marginTop: '1em',
+      marginBottom: '0.5em',
+    },
+
+    ':host .docs-output ul': {
+      paddingLeft: '1.5em',
+      margin: '0.5em 0',
+    },
+
+    ':host .docs-output li': {
+      marginBottom: '0.25em',
+    },
+
+    ':host .docs-output hr': {
+      border: 'none',
+      borderTop: '1px solid var(--code-border, #e5e7eb)',
+      margin: '1.5em 0',
+    },
+
+    ':host .tests-output': {
       padding: '12px',
       fontSize: '14px',
       whiteSpace: 'pre-wrap',
       fontFamily: 'system-ui, sans-serif',
+      color: 'var(--text-color, inherit)',
+      background: 'var(--background, #fff)',
+      height: '100%',
+      overflow: 'auto',
     },
 
     ':host .tjs-console': {
       height: '120px',
-      borderTop: '1px solid #e5e7eb',
+      borderTop: '1px solid var(--code-border, #e5e7eb)',
       display: 'flex',
       flexDirection: 'column',
     },
 
     ':host .console-header': {
       padding: '4px 12px',
-      background: '#f3f4f6',
+      background: 'var(--code-background, #f3f4f6)',
       fontSize: '12px',
       fontWeight: '500',
-      color: '#6b7280',
-      borderBottom: '1px solid #e5e7eb',
+      color: 'var(--text-color, #6b7280)',
+      opacity: '0.7',
+      borderBottom: '1px solid var(--code-border, #e5e7eb)',
     },
 
     ':host .console-output': {
       flex: '1',
       margin: '0',
       padding: '8px 12px',
-      background: '#1e1e1e',
-      color: '#d4d4d4',
+      background: 'var(--code-background, #f3f4f6)',
+      color: 'var(--text-color, #1f2937)',
       fontSize: '12px',
       fontFamily: 'ui-monospace, monospace',
       overflow: 'auto',

@@ -23,26 +23,87 @@
  */
 
 import { Component, ElementCreator } from 'tosijs'
-import { EditorView, basicSetup } from 'codemirror'
+import { EditorView, minimalSetup } from 'codemirror'
 import { EditorState, Extension, Compartment } from '@codemirror/state'
 import { javascript } from '@codemirror/lang-javascript'
 import { css } from '@codemirror/lang-css'
 import { html } from '@codemirror/lang-html'
 import { markdown } from '@codemirror/lang-markdown'
-import { ajsEditorExtension } from './ajs-language'
+import { oneDark } from '@codemirror/theme-one-dark'
+import {
+  lineNumbers,
+  highlightActiveLineGutter,
+  highlightSpecialChars,
+  drawSelection,
+  dropCursor,
+  rectangularSelection,
+  crosshairCursor,
+  highlightActiveLine,
+  keymap,
+} from '@codemirror/view'
+import {
+  foldGutter,
+  indentOnInput,
+  syntaxHighlighting,
+  defaultHighlightStyle,
+  bracketMatching,
+  foldKeymap,
+} from '@codemirror/language'
+import { history, defaultKeymap, historyKeymap } from '@codemirror/commands'
+import { highlightSelectionMatches, searchKeymap } from '@codemirror/search'
+import {
+  closeBrackets,
+  closeBracketsKeymap,
+  completionKeymap,
+} from '@codemirror/autocomplete'
+import { lintKeymap } from '@codemirror/lint'
+import { ajsEditorExtension, AutocompleteConfig } from './ajs-language'
+
+// Custom setup without autocompletion (we add our own via ajsEditorExtension)
+// Based on basicSetup but excludes autocompletion()
+const customSetup: Extension = [
+  lineNumbers(),
+  highlightActiveLineGutter(),
+  highlightSpecialChars(),
+  history(),
+  foldGutter(),
+  drawSelection(),
+  dropCursor(),
+  EditorState.allowMultipleSelections.of(true),
+  indentOnInput(),
+  syntaxHighlighting(defaultHighlightStyle, { fallback: true }),
+  bracketMatching(),
+  closeBrackets(),
+  rectangularSelection(),
+  crosshairCursor(),
+  highlightActiveLine(),
+  highlightSelectionMatches(),
+  keymap.of([
+    ...closeBracketsKeymap,
+    ...defaultKeymap,
+    ...searchKeymap,
+    ...historyKeymap,
+    ...foldKeymap,
+    ...completionKeymap,
+    ...lintKeymap,
+  ]),
+]
 
 // Note: Compartments must be per-instance, not module-level
 // Each editor needs its own compartments to avoid interference
 
 // Map of mode names to extensions
-function getLanguageExtension(mode: string): Extension {
+function getLanguageExtension(
+  mode: string,
+  autocomplete?: AutocompleteConfig
+): Extension {
   switch (mode) {
     case 'ajs':
-      return ajsEditorExtension()
+      return ajsEditorExtension({ autocomplete })
     case 'tjs':
       // TJS uses same syntax as AJS for now (colon params, return arrows)
       // TODO: Add TJS-specific highlighting (unsafe blocks, try-without-catch)
-      return ajsEditorExtension()
+      return ajsEditorExtension({ autocomplete })
     case 'js':
     case 'javascript':
       return javascript()
@@ -72,7 +133,8 @@ export class CodeMirror extends Component {
       textAlign: 'left',
       fontSize: '14px',
       overflow: 'hidden',
-      backgroundColor: '#fff',
+      // Let CodeMirror theme control background, or fall back to transparent
+      backgroundColor: 'transparent',
     },
     '.cm-editor': {
       height: '100%',
@@ -85,14 +147,36 @@ export class CodeMirror extends Component {
 
   private _source: string = ''
   private _editor: EditorView | undefined
+  private _autocompleteConfig: AutocompleteConfig = {}
+  private _darkModeObserver: MutationObserver | null = null
 
-  // Per-instance compartments for language and readonly state
+  // Per-instance compartments for language, readonly state, and theme
   private languageCompartment = new Compartment()
   private readonlyCompartment = new Compartment()
+  private themeCompartment = new Compartment()
 
   mode = 'javascript'
   disabled = false
   role = 'code editor'
+
+  /** Configure autocomplete callbacks for metadata extraction */
+  set autocomplete(config: AutocompleteConfig) {
+    this._autocompleteConfig = config
+    // Reconfigure if editor exists
+    if (this._editor) {
+      this._editor.dispatch({
+        effects: [
+          this.languageCompartment.reconfigure(
+            getLanguageExtension(this.mode, this._autocompleteConfig)
+          ),
+        ],
+      })
+    }
+  }
+
+  get autocomplete(): AutocompleteConfig {
+    return this._autocompleteConfig
+  }
 
   get value(): string {
     return this._editor !== undefined
@@ -126,8 +210,19 @@ export class CodeMirror extends Component {
     this.initAttributes('mode', 'disabled')
   }
 
-  onResize() {
-    // CodeMirror handles resize automatically via CSS
+  private isDarkMode(): boolean {
+    return document.body.classList.contains('darkmode')
+  }
+
+  private getThemeExtension(): Extension {
+    return this.isDarkMode() ? oneDark : []
+  }
+
+  private updateTheme() {
+    if (!this._editor) return
+    this._editor.dispatch({
+      effects: this.themeCompartment.reconfigure(this.getThemeExtension()),
+    })
   }
 
   connectedCallback() {
@@ -152,9 +247,12 @@ export class CodeMirror extends Component {
     const startState = EditorState.create({
       doc: this._source,
       extensions: [
-        basicSetup,
-        this.languageCompartment.of(getLanguageExtension(this.mode)),
+        customSetup,
+        this.languageCompartment.of(
+          getLanguageExtension(this.mode, this._autocompleteConfig)
+        ),
         this.readonlyCompartment.of(EditorState.readOnly.of(this.disabled)),
+        this.themeCompartment.of(this.getThemeExtension()),
         EditorView.updateListener.of((update) => {
           if (update.docChanged) {
             this.dispatchEvent(new Event('change', { bubbles: true }))
@@ -167,6 +265,21 @@ export class CodeMirror extends Component {
       state: startState,
       parent: this.shadowRoot || this,
     })
+
+    // Watch for dark mode changes on body
+    this._darkModeObserver = new MutationObserver((mutations) => {
+      for (const mutation of mutations) {
+        if (mutation.attributeName === 'class') {
+          this.updateTheme()
+        }
+      }
+    })
+    this._darkModeObserver.observe(document.body, { attributes: true })
+  }
+
+  disconnectedCallback() {
+    super.disconnectedCallback()
+    this._darkModeObserver?.disconnect()
   }
 
   onResize() {
@@ -180,7 +293,9 @@ export class CodeMirror extends Component {
     if (this._editor) {
       this._editor.dispatch({
         effects: [
-          this.languageCompartment.reconfigure(getLanguageExtension(this.mode)),
+          this.languageCompartment.reconfigure(
+            getLanguageExtension(this.mode, this._autocompleteConfig)
+          ),
           this.readonlyCompartment.reconfigure(
             EditorState.readOnly.of(this.disabled)
           ),

@@ -1,0 +1,23 @@
+// Test Is and IsNot operators
+
+const arr1 = [1, 2, 3]
+const arr2 = [1, 2, 3]
+const arr3 = [1, 2, 4]
+
+console.log('Array equality:')
+console.log('  arr1 Is arr2:', arr1 Is arr2)
+console.log('  arr1 Is arr3:', arr1 Is arr3)
+console.log('  arr1 IsNot arr3:', arr1 IsNot arr3)
+
+const obj1 = { name: 'Alice', age: 30 }
+const obj2 = { name: 'Alice', age: 30 }
+
+console.log('Object equality:')
+console.log('  obj1 Is obj2:', obj1 Is obj2)
+
+// No type coercion
+console.log('No coercion:')
+console.log('  5 Is "5":', 5 Is "5")
+console.log('  null Is undefined:', null Is undefined)
+
+console.log('Done!')
