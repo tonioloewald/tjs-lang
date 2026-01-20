@@ -1,0 +1,627 @@
+# AJS: The Agent Language
+
+*Code as Data. Safe. Async. Sandboxed.*
+
+---
+
+## What is AJS?
+
+AJS (AsyncJS) is a JavaScript subset that compiles to a **JSON AST**. It's designed for untrusted code—user scripts, LLM-generated agents, remote logic.
+
+```javascript
+function searchAndSummarize({ query }) {
+  let results = httpFetch({ url: `https://api.example.com/search?q=${query}` })
+  let summary = llmPredict({ prompt: `Summarize: ${JSON.stringify(results)}` })
+  return { query, summary }
+}
+```
+
+This compiles to JSON that can be:
+- Stored in a database
+- Sent over the network
+- Executed in a sandboxed VM
+- Audited before running
+
+---
+
+## The VM
+
+AJS runs in a gas-limited, isolated VM with strict resource controls.
+
+```typescript
+import { ajs, AgentVM } from 'tosijs-agent'
+
+const agent = ajs`
+  function process({ url }) {
+    let data = httpFetch({ url })
+    return { fetched: data }
+  }
+`
+
+const vm = new AgentVM()
+const result = await vm.run(agent, { url: 'https://api.example.com' }, {
+  fuel: 1000,      // CPU budget
+  timeoutMs: 5000  // Wall-clock limit
+})
+```
+
+### Fuel Metering
+
+Every operation costs fuel:
+
+| Operation | Cost |
+|-----------|------|
+| Expression evaluation | 0.01 |
+| Variable set/get | 0.1 |
+| Control flow (if, while) | 0.5 |
+| HTTP fetch | 10 |
+| LLM predict | 100 |
+
+When fuel runs out, execution stops safely:
+
+```typescript
+if (result.fuelExhausted) {
+  // Agent tried to run forever - stopped safely
+}
+```
+
+### Timeout Enforcement
+
+Fuel protects against CPU abuse. Timeouts protect against I/O abuse:
+
+```typescript
+await vm.run(agent, args, {
+  fuel: 1000,
+  timeoutMs: 5000  // Hard 5-second limit
+})
+```
+
+Slow network calls can't hang your servers.
+
+### Capability Injection
+
+The VM starts with **zero capabilities**. You grant what each agent needs:
+
+```typescript
+const capabilities = {
+  fetch: createFetchCapability({ 
+    allowedHosts: ['api.example.com']
+  }),
+  store: createReadOnlyStore(),
+  // No llm - this agent can't call AI
+}
+
+await vm.run(agent, args, { capabilities })
+```
+
+---
+
+## Syntax
+
+AJS is a JavaScript subset. Familiar syntax, restricted features.
+
+### What's Allowed
+
+```javascript
+// Functions
+function process({ input }) {
+  return { output: input * 2 }
+}
+
+// Variables
+let x = 10
+const y = 'hello'
+
+// Conditionals
+if (x > 5) {
+  return 'big'
+} else {
+  return 'small'
+}
+
+// Loops
+for (let i = 0; i < 10; i++) {
+  total = total + i
+}
+
+for (let item of items) {
+  results.push(item.name)
+}
+
+while (count > 0) {
+  count = count - 1
+}
+
+// Try/catch
+try {
+  riskyOperation()
+} catch (e) {
+  return { error: e.message }
+}
+
+// Template literals
+let message = `Hello, ${name}!`
+
+// Object/array literals
+let obj = { a: 1, b: 2 }
+let arr = [1, 2, 3]
+
+// Destructuring
+let { name, age } = user
+let [first, second] = items
+
+// Spread
+let merged = { ...defaults, ...overrides }
+let combined = [...arr1, ...arr2]
+
+// Ternary
+let result = x > 0 ? 'positive' : 'non-positive'
+
+// Logical operators
+let value = a && b
+let fallback = a || defaultValue
+let nullish = a ?? defaultValue
+```
+
+### What's Forbidden
+
+| Feature | Why Forbidden |
+|---------|---------------|
+| `class` | Too complex for LLMs, enables prototype pollution |
+| `new` | Arbitrary object construction |
+| `this` | Implicit context, hard to sandbox |
+| Closures | State escapes the sandbox |
+| `async`/`await` | VM handles async internally |
+| `eval`, `Function` | Code injection |
+| `__proto__`, `constructor` | Prototype pollution |
+| `import`/`export` | Module system handled by host |
+
+AJS is intentionally simple—simple enough for 4B parameter LLMs to generate correctly.
+
+---
+
+## Atoms
+
+Atoms are the built-in operations. Each atom has a defined cost, input schema, and output schema.
+
+### Flow Control
+
+| Atom | Description |
+|------|-------------|
+| `seq` | Execute operations in sequence |
+| `if` | Conditional branching |
+| `while` | Loop with condition |
+| `return` | Return a value |
+| `try` | Error handling |
+
+### State Management
+
+| Atom | Description |
+|------|-------------|
+| `varSet` | Set a variable |
+| `varGet` | Get a variable |
+| `varsLet` | Batch variable declaration |
+| `varsImport` | Import from arguments |
+| `varsExport` | Export as result |
+| `scope` | Create a local scope |
+
+### I/O
+
+| Atom | Description |
+|------|-------------|
+| `httpFetch` | HTTP requests (requires `fetch` capability) |
+
+### Storage
+
+| Atom | Description |
+|------|-------------|
+| `storeGet` | Get from key-value store |
+| `storeSet` | Set in key-value store |
+| `storeSearch` | Vector similarity search |
+
+### AI
+
+| Atom | Description |
+|------|-------------|
+| `llmPredict` | LLM inference |
+| `agentRun` | Run a sub-agent |
+
+### Procedures
+
+| Atom | Description |
+|------|-------------|
+| `storeProcedure` | Store an AST as callable token |
+| `releaseProcedure` | Delete a stored procedure |
+| `clearExpiredProcedures` | Clean up expired tokens |
+
+### Utilities
+
+| Atom | Description |
+|------|-------------|
+| `random` | Random number generation |
+| `uuid` | Generate UUIDs |
+| `hash` | Compute hashes |
+| `memoize` | In-memory memoization |
+| `cache` | Persistent caching |
+
+---
+
+## Expression Builtins
+
+AJS expressions have access to safe built-in objects:
+
+### Math
+
+All standard math functions:
+
+```javascript
+Math.abs(-5)        // 5
+Math.floor(3.7)     // 3
+Math.sqrt(16)       // 4
+Math.sin(Math.PI)   // ~0
+Math.random()       // 0-1
+Math.max(1, 2, 3)   // 3
+Math.min(1, 2, 3)   // 1
+```
+
+### JSON
+
+Parse and stringify:
+
+```javascript
+JSON.parse('{"a": 1}')     // { a: 1 }
+JSON.stringify({ a: 1 })   // '{"a": 1}'
+```
+
+### Array
+
+Static methods:
+
+```javascript
+Array.isArray([1, 2])      // true
+Array.from('abc')          // ['a', 'b', 'c']
+Array.of(1, 2, 3)          // [1, 2, 3]
+```
+
+### Object
+
+Static methods:
+
+```javascript
+Object.keys({ a: 1 })      // ['a']
+Object.values({ a: 1 })    // [1]
+Object.entries({ a: 1 })   // [['a', 1]]
+Object.fromEntries([['a', 1]])  // { a: 1 }
+Object.assign({}, a, b)    // merged object
+```
+
+### String
+
+Static methods:
+
+```javascript
+String.fromCharCode(65)    // 'A'
+String.fromCodePoint(128512)  // emoji
+```
+
+### Number
+
+Constants and checks:
+
+```javascript
+Number.MAX_VALUE
+Number.isNaN(NaN)          // true
+Number.isFinite(100)       // true
+Number.parseInt('42')      // 42
+Number.parseFloat('3.14')  // 3.14
+```
+
+### Set Operations
+
+Set-like operations:
+
+```javascript
+Set.add([1, 2], 3)         // [1, 2, 3]
+Set.remove([1, 2, 3], 2)   // [1, 3]
+Set.union([1, 2], [2, 3])  // [1, 2, 3]
+Set.intersection([1, 2], [2, 3])  // [2]
+Set.diff([1, 2, 3], [2])   // [1, 3]
+```
+
+### Date
+
+Date factory with arithmetic:
+
+```javascript
+Date.now()                 // timestamp
+Date.create('2024-01-15')  // Date object
+Date.add(date, 1, 'day')   // new Date
+Date.format(date, 'YYYY-MM-DD')
+```
+
+### Schema
+
+Build JSON schemas for structured LLM outputs:
+
+```javascript
+// From example
+let schema = Schema.response('person', { name: '', age: 0 })
+
+// With constraints
+let schema = Schema.response('user', Schema.object({
+  email: Schema.string.email,
+  age: Schema.number.int.min(0).max(150).optional,
+  role: Schema.enum(['admin', 'user', 'guest'])
+}))
+```
+
+---
+
+## JSON AST Format
+
+AJS compiles to a JSON AST. Here's what it looks like:
+
+### Sequence
+
+```json
+{
+  "$seq": [
+    { "$op": "varSet", "key": "x", "value": 10 },
+    { "$op": "varSet", "key": "y", "value": 20 },
+    { "$op": "return", "value": { "$expr": "binary", "op": "+", "left": "x", "right": "y" } }
+  ]
+}
+```
+
+### Expressions
+
+```json
+// Literal
+{ "$expr": "literal", "value": 42 }
+
+// Identifier
+{ "$expr": "ident", "name": "varName" }
+
+// Binary operation
+{ "$expr": "binary", "op": "+", "left": {...}, "right": {...} }
+
+// Member access
+{ "$expr": "member", "object": {...}, "property": "foo" }
+
+// Template literal
+{ "$expr": "template", "tmpl": "Hello, ${name}!" }
+```
+
+### Conditionals
+
+```json
+{
+  "$op": "if",
+  "cond": { "$expr": "binary", "op": ">", "left": "x", "right": 0 },
+  "then": { "$seq": [...] },
+  "else": { "$seq": [...] }
+}
+```
+
+### Loops
+
+```json
+{
+  "$op": "while",
+  "cond": { "$expr": "binary", "op": ">", "left": "count", "right": 0 },
+  "body": { "$seq": [...] }
+}
+```
+
+---
+
+## Security Model
+
+### Zero Capabilities by Default
+
+The VM can't do anything unless you allow it:
+
+```typescript
+// This agent can only compute - no I/O
+await vm.run(agent, args, { capabilities: {} })
+
+// This agent can fetch from one domain
+await vm.run(agent, args, {
+  capabilities: {
+    fetch: createFetchCapability({ allowedHosts: ['api.example.com'] })
+  }
+})
+```
+
+### Forbidden Properties
+
+These property names are blocked to prevent prototype pollution:
+
+- `__proto__`
+- `constructor`
+- `prototype`
+
+### SSRF Protection
+
+The `httpFetch` atom can be configured with:
+- Allowlisted hosts only
+- Blocked private IP ranges
+- Request signing requirements
+
+### ReDoS Protection
+
+Suspicious regex patterns are rejected before execution.
+
+### Execution Tracing
+
+Every agent run can produce an audit trail:
+
+```typescript
+const { result, trace } = await vm.run(agent, args, { trace: true })
+
+// trace: [
+//   { op: 'varSet', key: 'x', fuelBefore: 1000, fuelAfter: 999.9 },
+//   { op: 'httpFetch', url: '...', fuelBefore: 999.9, fuelAfter: 989.9 },
+//   ...
+// ]
+```
+
+---
+
+## Use Cases
+
+### AI Agents
+
+```javascript
+function researchAgent({ topic }) {
+  let searchResults = httpFetch({ 
+    url: `https://api.search.com?q=${topic}` 
+  })
+  
+  let summary = llmPredict({
+    system: 'You are a research assistant.',
+    user: `Summarize these results about ${topic}: ${searchResults}`
+  })
+  
+  return { topic, summary }
+}
+```
+
+### Rule Engines
+
+```javascript
+function applyDiscounts({ cart, userTier }) {
+  let discount = 0
+  
+  if (userTier === 'gold') {
+    discount = 0.2
+  } else if (userTier === 'silver') {
+    discount = 0.1
+  }
+  
+  if (cart.total > 100) {
+    discount = discount + 0.05
+  }
+  
+  return { 
+    originalTotal: cart.total,
+    discount: discount,
+    finalTotal: cart.total * (1 - discount)
+  }
+}
+```
+
+### Smart Configuration
+
+```javascript
+function routeRequest({ request, config }) {
+  for (let rule of config.rules) {
+    if (request.path.startsWith(rule.prefix)) {
+      return { backend: rule.backend, timeout: rule.timeout }
+    }
+  }
+  return { backend: config.defaultBackend, timeout: 30000 }
+}
+```
+
+### Remote Jobs
+
+```javascript
+function processDataBatch({ items, transform }) {
+  let results = []
+  for (let item of items) {
+    let processed = applyTransform(item, transform)
+    results.push(processed)
+  }
+  return { processed: results.length, results }
+}
+```
+
+---
+
+## Custom Atoms
+
+Extend the runtime with your own operations:
+
+```typescript
+import { defineAtom, AgentVM, s } from 'tosijs-agent'
+
+const myScraper = defineAtom(
+  'scrape',                           // OpCode
+  s.object({ url: s.string }),        // Input Schema
+  s.string,                           // Output Schema
+  async ({ url }, ctx) => {
+    const res = await ctx.capabilities.fetch(url)
+    return await res.text()
+  },
+  { cost: 5 }                         // Fuel cost
+)
+
+const myVM = new AgentVM({ scrape: myScraper })
+```
+
+Atoms must:
+- Be non-blocking (no synchronous CPU-heavy work)
+- Respect `ctx.signal` for cancellation
+- Access I/O only via `ctx.capabilities`
+
+---
+
+## Builder API
+
+For programmatic AST construction:
+
+```typescript
+import { Agent, s } from 'tosijs-agent'
+
+const agent = Agent
+  .take(s.object({ price: s.number, taxRate: s.number }))
+  .varSet({ key: 'total', value: Agent.expr('price * (1 + taxRate)') })
+  .return(s.object({ total: s.number }))
+
+const ast = agent.toJSON()  // JSON-serializable AST
+```
+
+The builder is lower-level but gives full control over AST construction.
+
+---
+
+## Limitations
+
+### What AJS Doesn't Do
+
+- **No closures** - functions can't capture outer scope
+- **No classes** - use plain objects
+- **No async/await syntax** - the VM handles async internally
+- **No modules** - logic is self-contained
+- **No direct DOM access** - everything goes through capabilities
+
+### What AJS Intentionally Avoids
+
+- Complex language features that enable escape from the sandbox
+- Syntax that LLMs frequently hallucinate incorrectly
+- Patterns that make code hard to audit
+
+---
+
+## Performance
+
+- **100 agents in ~6ms** (torture test benchmark)
+- **~0.01 fuel per expression**
+- **Proportional memory charging** prevents runaway allocations
+
+AJS is interpreted (JSON AST), so it's slower than native JS. But:
+- Execution is predictable and bounded
+- I/O dominates most agent workloads
+- Tracing is free (built into the VM)
+
+For compute-heavy operations in your platform code, use TJS with `wasm {}` blocks.
+
+---
+
+## Learn More
+
+- [TJS Documentation](DOCS-TJS.md) — The host language
+- [Builder's Manifesto](MANIFESTO-BUILDER.md) — Why AJS is fun
+- [Enterprise Guide](MANIFESTO-ENTERPRISE.md) — Why AJS is safe
+- [Technical Context](CONTEXT.md) — Architecture deep dive
