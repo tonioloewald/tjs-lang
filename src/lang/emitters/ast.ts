@@ -43,7 +43,7 @@ import {
   inferTypeFromValue,
   parseReturnType,
 } from '../inference'
-import { extractJSDoc } from '../parser'
+import { extractTDoc } from '../parser'
 
 /**
  * Convert TypeDescriptor to JSON Schema
@@ -130,8 +130,8 @@ export function transformFunction(
   signature: FunctionSignature
   warnings: TranspileWarning[]
 } {
-  // Extract JSDoc
-  const jsdoc = extractJSDoc(source, func)
+  // Extract TDoc (/*# ... */) comments
+  const tdoc = extractTDoc(source, func)
 
   // Parse parameters
   const parameters = new Map<string, ParameterDescriptor>()
@@ -150,11 +150,11 @@ export function transformFunction(
       )) {
         parameters.set(key, {
           ...(paramDesc as any),
-          description: jsdoc.params[key],
+          description: tdoc.params[key],
         })
       }
     } else {
-      parsed.description = jsdoc.params[parsed.name]
+      parsed.description = tdoc.params[parsed.name]
       parameters.set(parsed.name, parsed)
     }
   }
@@ -236,7 +236,7 @@ export function transformFunction(
   const signatureParams = Object.fromEntries(parameters)
   const signature: FunctionSignature = {
     name: func.id?.name || 'anonymous',
-    description: jsdoc.description,
+    description: tdoc.description,
     parameters: signatureParams,
     returns: returnType,
   }

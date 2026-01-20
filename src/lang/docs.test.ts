@@ -1,329 +1,234 @@
 /**
  * Tests for TJS documentation generation
+ *
+ * The docs system is dead simple: walk source in order, emit what you find.
+ * Doc blocks are markdown. Function signatures are code. That's it.
  */
 
 import { describe, it, expect } from 'bun:test'
 import { generateDocs } from './docs'
 
 describe('generateDocs', () => {
-  describe('basic function documentation', () => {
-    it('generates docs for simple function with params', () => {
+  describe('basic output', () => {
+    it('extracts function signatures in document order', () => {
       const source = `
-function greet(name: 'World') -> '' {
-  return \`Hello, \${name}!\`
+function first(x: 5) -> 10 {
+  return x * 2
 }
-`
-      const result = generateDocs(source)
 
-      expect(result.functions).toHaveLength(1)
-      expect(result.functions[0].name).toBe('greet')
-      expect(result.functions[0].params).toHaveLength(1)
-      expect(result.functions[0].params[0].name).toBe('name')
-      expect(result.functions[0].params[0].type).toBe('string')
-      expect(result.functions[0].params[0].required).toBe(true)
-    })
-
-    it('generates docs for function with optional params', () => {
-      const source = `
-function greet(name = 'World') -> '' {
-  return \`Hello, \${name}!\`
-}
-`
-      const result = generateDocs(source)
-
-      expect(result.functions[0].params[0].required).toBe(false)
-      expect(result.functions[0].params[0].default).toBe('World')
-    })
-
-    it('generates docs for function with multiple params', () => {
-      const source = `
-function add(a: 0, b: 0) -> 0 {
+function second(a: '', b: 0) -> '' {
   return a + b
 }
 `
       const result = generateDocs(source)
 
-      expect(result.functions[0].params).toHaveLength(2)
-      expect(result.functions[0].params[0].name).toBe('a')
-      expect(result.functions[0].params[0].type).toBe('number')
-      expect(result.functions[0].params[1].name).toBe('b')
-      expect(result.functions[0].params[1].type).toBe('number')
+      expect(result.items).toHaveLength(2)
+      expect(result.items[0].type).toBe('function')
+      expect(result.items[0]).toHaveProperty('name', 'first')
+      expect(result.items[1].type).toBe('function')
+      expect(result.items[1]).toHaveProperty('name', 'second')
     })
 
-    it('generates docs for function with no params', () => {
+    it('extracts doc blocks in document order', () => {
       const source = `
-function getTimestamp() -> 0 {
-  return Date.now()
-}
+/*#
+# Module Header
+
+This is the intro.
+*/
+
+/*#
+More docs here.
+*/
 `
       const result = generateDocs(source)
 
-      expect(result.functions[0].params).toHaveLength(0)
-      expect(result.functions[0].returns?.type).toBe('number')
+      expect(result.items).toHaveLength(2)
+      expect(result.items[0].type).toBe('doc')
+      expect(result.items[0]).toHaveProperty('content')
+      expect((result.items[0] as any).content).toContain('Module Header')
+      expect(result.items[1].type).toBe('doc')
+      expect((result.items[1] as any).content).toContain('More docs here')
+    })
+
+    it('interleaves docs and functions in document order', () => {
+      const source = `
+/*#
+# First Section
+*/
+function first(x: 0) -> 0 { return x }
+
+/*#
+# Second Section
+*/
+function second(x: 0) -> 0 { return x }
+`
+      const result = generateDocs(source)
+
+      expect(result.items).toHaveLength(4)
+      expect(result.items[0].type).toBe('doc')
+      expect(result.items[1].type).toBe('function')
+      expect(result.items[1]).toHaveProperty('name', 'first')
+      expect(result.items[2].type).toBe('doc')
+      expect(result.items[3].type).toBe('function')
+      expect(result.items[3]).toHaveProperty('name', 'second')
     })
   })
 
-  describe('type formatting', () => {
-    it('formats string type', () => {
-      const source = `function f(x: '') -> '' { return x }`
+  describe('function signatures', () => {
+    it('captures full signature with params and return type', () => {
+      const source = `function greet(name: 'World') -> '' { return name }`
       const result = generateDocs(source)
-      expect(result.functions[0].params[0].type).toBe('string')
-      expect(result.functions[0].returns?.type).toBe('string')
+
+      const func = result.items[0] as any
+      expect(func.type).toBe('function')
+      expect(func.signature).toContain('greet')
+      expect(func.signature).toContain("name: 'World'")
+      expect(func.signature).toContain("-> ''")
     })
 
-    it('formats number type', () => {
-      const source = `function f(x: 0) -> 0 { return x }`
+    it('captures optional params with defaults', () => {
+      const source = `function greet(name = 'World') { return name }`
       const result = generateDocs(source)
-      expect(result.functions[0].params[0].type).toBe('number')
-      expect(result.functions[0].returns?.type).toBe('number')
+
+      const func = result.items[0] as any
+      expect(func.signature).toContain("name = 'World'")
     })
 
-    it('formats boolean type', () => {
-      const source = `function f(x: true) -> false { return x }`
+    it('handles functions without return type', () => {
+      const source = `function doStuff(x: 0) { console.log(x) }`
       const result = generateDocs(source)
-      expect(result.functions[0].params[0].type).toBe('boolean')
-      expect(result.functions[0].returns?.type).toBe('boolean')
-    })
 
-    it('formats array type', () => {
-      const source = `function f(x: [0]) -> [0] { return x }`
-      const result = generateDocs(source)
-      expect(result.functions[0].params[0].type).toBe('number[]')
-      expect(result.functions[0].returns?.type).toBe('number[]')
-    })
-
-    it('formats object type', () => {
-      const source = `function f(x: { name: '', age: 0 }) -> { name: '', age: 0 } { return x }`
-      const result = generateDocs(source)
-      expect(result.functions[0].params[0].type).toBe(
-        '{ name: string, age: number }'
-      )
-    })
-
-    it('formats nested object type', () => {
-      const source = `function f(x: { user: { name: '' } }) { return x }`
-      const result = generateDocs(source)
-      expect(result.functions[0].params[0].type).toBe(
-        '{ user: { name: string } }'
-      )
-    })
-
-    it('formats null type', () => {
-      const source = `function f(x: null) { return x }`
-      const result = generateDocs(source)
-      expect(result.functions[0].params[0].type).toBe('null')
+      const func = result.items[0] as any
+      expect(func.signature).toBe('function doStuff(x: 0)')
     })
   })
 
-  describe('examples from tests', () => {
-    it('extracts examples from inline tests', () => {
+  describe('doc block content', () => {
+    it('preserves markdown formatting', () => {
       const source = `
-function double(x: 0) -> 0 {
-  return x * 2
-}
+/*#
+# Heading
 
-test('doubles numbers') {
-  expect(double(5)).toBe(10)
-  expect(double(0)).toBe(0)
-}
+- List item 1
+- List item 2
+
+\`code example\`
+*/
 `
       const result = generateDocs(source)
 
-      expect(result.functions[0].examples).toHaveLength(1)
-      expect(result.functions[0].examples[0].description).toBe(
-        'doubles numbers'
-      )
-      expect(result.functions[0].examples[0].code).toContain(
-        'expect(double(5)).toBe(10)'
-      )
+      const doc = result.items[0] as any
+      expect(doc.content).toContain('# Heading')
+      expect(doc.content).toContain('- List item 1')
+      expect(doc.content).toContain('`code example`')
     })
 
-    it('extracts multiple test examples', () => {
+    it('dedents common leading whitespace', () => {
       const source = `
-function isEven(x: 0) -> true {
-  return x % 2 === 0
-}
-
-test('returns true for even numbers') {
-  expect(isEven(2)).toBe(true)
-  expect(isEven(4)).toBe(true)
-}
-
-test('returns false for odd numbers') {
-  expect(isEven(1)).toBe(false)
-  expect(isEven(3)).toBe(false)
-}
+/*#
+    Indented content.
+    More indented.
+*/
 `
       const result = generateDocs(source)
 
-      expect(result.functions[0].examples).toHaveLength(2)
-      expect(result.functions[0].examples[0].description).toBe(
-        'returns true for even numbers'
-      )
-      expect(result.functions[0].examples[1].description).toBe(
-        'returns false for odd numbers'
-      )
-    })
-
-    it('handles function with no tests', () => {
-      const source = `
-function simple(x: 0) -> 0 {
-  return x
-}
-`
-      const result = generateDocs(source)
-      expect(result.functions[0].examples).toHaveLength(0)
+      const doc = result.items[0] as any
+      // Should not start with lots of spaces
+      expect(doc.content).toBe('Indented content.\nMore indented.')
     })
   })
 
-  describe('markdown generation', () => {
-    it('generates markdown with function signature', () => {
+  describe('markdown output', () => {
+    it('renders doc blocks as plain markdown', () => {
       const source = `
-function greet(name: 'World') -> '' {
-  return \`Hello, \${name}!\`
-}
+/*#
+# Hello World
+
+This is documentation.
+*/
 `
       const result = generateDocs(source)
 
-      expect(result.markdown).toContain('## greet')
-      expect(result.markdown).toContain('```typescript')
-      expect(result.markdown).toContain(
-        'function greet(name: string) -> string'
-      )
+      expect(result.markdown).toContain('# Hello World')
+      expect(result.markdown).toContain('This is documentation.')
+    })
+
+    it('renders function signatures as code blocks', () => {
+      const source = `function double(x: 5) -> 10 { return x * 2 }`
+      const result = generateDocs(source)
+
+      expect(result.markdown).toContain('```tjs')
+      expect(result.markdown).toContain('function double(x: 5) -> 10')
       expect(result.markdown).toContain('```')
     })
 
-    it('includes parameters section', () => {
+    it('outputs items separated by blank lines', () => {
       const source = `
-function add(a: 0, b: 0) -> 0 {
-  return a + b
-}
+/*#
+Intro
+*/
+function first(x: 0) -> 0 { return x }
+/*#
+Middle
+*/
+function second(x: 0) -> 0 { return x }
 `
       const result = generateDocs(source)
 
-      expect(result.markdown).toContain('### Parameters')
-      expect(result.markdown).toContain('`a`: number')
-      expect(result.markdown).toContain('`b`: number')
-      expect(result.markdown).toContain('**required**')
+      // Should have blank lines between items
+      expect(result.markdown.split('\n\n').length).toBeGreaterThan(1)
     })
+  })
 
-    it('includes returns section', () => {
+  describe('real-world example', () => {
+    it('documents a module with header and functions', () => {
       const source = `
-function double(x: 0) -> 0 {
-  return x * 2
-}
-`
-      const result = generateDocs(source)
+/*#
+# Math Utilities
 
-      expect(result.markdown).toContain('### Returns')
-      expect(result.markdown).toContain('`number`')
-    })
+A collection of math functions.
+*/
 
-    it('marks optional params correctly', () => {
-      const source = `
-function greet(name = 'World') -> '' {
-  return \`Hello, \${name}!\`
-}
-`
-      const result = generateDocs(source)
-
-      expect(result.markdown).toContain('optional')
-      expect(result.markdown).toContain('(default: `World`)')
-    })
-
-    it('includes examples section from tests', () => {
-      const source = `
-function double(x: 0) -> 0 {
+function double(x: 5) -> 10 {
   return x * 2
 }
 
-test('works correctly') {
-  expect(double(5)).toBe(10)
+function triple(x: 3) -> 9 {
+  return x * 3
 }
+
+/*#
+## Notes
+
+These functions are pure.
+*/
 `
       const result = generateDocs(source)
 
-      expect(result.markdown).toContain('### Examples')
-      expect(result.markdown).toContain('**works correctly**')
-      expect(result.markdown).toContain('expect(double(5)).toBe(10)')
-    })
-  })
+      expect(result.items).toHaveLength(4)
 
-  describe('JSON output', () => {
-    it('provides structured JSON output', () => {
-      const source = `
-function greet(name: 'World') -> '' {
-  return \`Hello, \${name}!\`
-}
-`
-      const result = generateDocs(source)
+      // First: module header
+      expect(result.items[0].type).toBe('doc')
+      expect((result.items[0] as any).content).toContain('Math Utilities')
 
-      expect(result.json).toHaveProperty('functions')
-      expect((result.json as any).functions).toHaveLength(1)
-      expect((result.json as any).functions[0].name).toBe('greet')
-    })
-  })
+      // Second: double function
+      expect(result.items[1].type).toBe('function')
+      expect((result.items[1] as any).name).toBe('double')
 
-  describe('description extraction', () => {
-    it('extracts JSDoc description', () => {
-      const source = `
-/**
- * Greets a person by name
- */
-function greet(name: 'World') -> '' {
-  return \`Hello, \${name}!\`
-}
-`
-      const result = generateDocs(source)
+      // Third: triple function
+      expect(result.items[2].type).toBe('function')
+      expect((result.items[2] as any).name).toBe('triple')
 
-      expect(result.functions[0].description).toBe('Greets a person by name')
-      expect(result.markdown).toContain('Greets a person by name')
-    })
+      // Fourth: notes section
+      expect(result.items[3].type).toBe('doc')
+      expect((result.items[3] as any).content).toContain('Notes')
 
-    it('handles multi-line JSDoc', () => {
-      const source = `
-/**
- * Adds two numbers together.
- * Returns their sum.
- */
-function add(a: 0, b: 0) -> 0 {
-  return a + b
-}
-`
-      const result = generateDocs(source)
-
-      // JSDoc extraction currently takes only the first line
-      expect(result.functions[0].description).toContain(
-        'Adds two numbers together'
-      )
-    })
-  })
-
-  describe('edge cases', () => {
-    it('handles empty array type', () => {
-      const source = `function f(x: []) { return x }`
-      const result = generateDocs(source)
-      // Empty array should be 'array' or similar
-      expect(result.functions[0].params[0].type).toMatch(/array|any\[\]/)
-    })
-
-    it('handles empty object type', () => {
-      const source = `function f(x: {}) { return x }`
-      const result = generateDocs(source)
-      // Empty object renders as `{  }` with the shape formatter
-      expect(result.functions[0].params[0].type).toBe('{  }')
-    })
-
-    it('handles mixed required and optional params', () => {
-      const source = `
-function fetch(url: '', timeout = 5000) -> {} {
-  return {}
-}
-`
-      const result = generateDocs(source)
-
-      expect(result.functions[0].params[0].required).toBe(true)
-      expect(result.functions[0].params[1].required).toBe(false)
+      // Markdown should have it all
+      expect(result.markdown).toContain('Math Utilities')
+      expect(result.markdown).toContain('function double')
+      expect(result.markdown).toContain('function triple')
+      expect(result.markdown).toContain('Notes')
     })
   })
 })

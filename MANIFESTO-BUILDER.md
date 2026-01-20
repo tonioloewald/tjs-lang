@@ -1,3 +1,5 @@
+<!--{"section": "meta", "order": 1, "navTitle": "For Builders"}-->
+
 # Applied Laziness: The "Zero-Infrastructure" Stack
 
 **Stop building pipelines. Start shipping logic.**
@@ -42,6 +44,33 @@ The type *is* the example. The example *is* the documentation. One thing, not th
 - It runs
 
 That's it. No build server. No bundler. No transpilation step. The loop is: write → run.
+
+### The "Oops, It's Robust" Moment
+
+Here's the happy accident: you left Safe Mode on.
+
+You didn't write validation logic. You didn't write `if (x == null) throw`. You just wrote `function add(x: 0)`.
+
+Because you left Safe Mode on, your function now automatically rejects bad inputs with a clean, traceable report:
+
+```javascript
+{
+  $error: true,
+  message: "Expected 'number', got 'banana'",
+  path: "add.input.x"
+}
+```
+
+You accidentally built an enterprise-grade API while prototyping.
+
+**This is the physics change:** In every other language, a type error at runtime is a catastrophe—uncaught exception, stack trace, 500 server error. In TJS Safe Mode, a type error is just *data*. You trace the error to the *source* (the caller), not the *symptom* (the crash).
+
+| Mode | Behavior | The "Oops" Factor |
+|------|----------|-------------------|
+| **Unsafe (`!`)** | "Trust me, bro." Fast, loose. | You write tests to catch edge cases. |
+| **Safe (`?`)** | The Contract. Inputs validated, outputs guaranteed. | "I forgot to turn it off, and now my API is bulletproof." |
+
+Laziness = Quality. You did less work (no validation code), got a better result (robust contracts).
 
 ---
 
@@ -115,6 +144,59 @@ If your stack disagrees, your stack is wrong.
 - **The startup** that needs to ship features, not manage K8s
 - **The AI builder** whose agents need to evolve faster than deploy cycles allow
 - **The pragmatist** who knows that the best infrastructure is no infrastructure
+- **The TypeScript dev** who doesn't care about TJS but wants the tooling (see below)
+
+---
+
+## For TypeScript Developers Who Don't Care About TJS
+
+You're happy with TypeScript. You don't want a new language. Fine.
+
+You can still use TJS tooling for one thing: **inline tests that live with your code.**
+
+```typescript
+// mymath.ts - normal TypeScript
+function add(a: number, b: number): number {
+  return a + b
+}
+
+/*test 'adds positive numbers' {
+  expect(add(2, 3)).toBe(5)
+}*/
+
+/*test 'handles negatives' {
+  expect(add(-1, 1)).toBe(0)
+}*/
+```
+
+The `/*test ... */` comments survive TypeScript compilation. TJS extracts and runs them.
+
+### What You Get
+
+- **Literate programming.** Tests live next to the code they verify.
+- **Faster debug loops.** No switching between files.
+- **Private tests.** They're comments—they don't ship to production.
+- **Zero buy-in.** Keep your tsconfig, your build, your everything.
+
+### How It Works
+
+```typescript
+import { extractTests, testUtils } from 'tosijs-agent'
+
+// Read your compiled JS (or TS source)
+const source = fs.readFileSync('mymath.js', 'utf-8')
+
+// Extract tests from comments
+const { tests, testRunner } = extractTests(source)
+
+// Run them
+const result = eval(source + '\n' + testUtils + '\n' + testRunner)
+// { passed: 2, failed: 0 }
+```
+
+That's it. You don't adopt TJS. You don't change your types. You just get inline tests for free.
+
+Set `safety none` and keep living in your world. We're not here to convert you.
 
 ---
 

@@ -2042,7 +2042,7 @@ function transformUnionDeclarations(source: string): string {
     if (unionMatch) {
       const unionName = unionMatch[1]
       const description = unionMatch[3]
-      let j = i + unionMatch[0].length
+      const j = i + unionMatch[0].length
 
       // Check what follows: block or inline values
       if (source[j] === '{') {
@@ -2401,9 +2401,12 @@ export function validateSingleFunction(
 }
 
 /**
- * Extract JSDoc comment from before a function
+ * Extract TDoc comment from before a function
+ *
+ * TJS doc comments use /*# ... * / syntax and preserve full markdown content.
+ * Legacy JSDoc (/** ... * /) is supported as a fallback.
  */
-export function extractJSDoc(
+export function extractTDoc(
   source: string,
   func: FunctionDeclaration
 ): {
@@ -2416,10 +2419,46 @@ export function extractJSDoc(
 
   if (!func.loc) return result
 
-  // Find the JSDoc comment before the function
   const beforeFunc = source.substring(0, func.start)
-  const jsdocMatch = beforeFunc.match(/\/\*\*[\s\S]*?\*\/\s*$/)
 
+  // First, check for TJS doc comment: /*# ... */
+  // This preserves full markdown content
+  // Find the LAST /*# ... */ block and verify it immediately precedes the function
+  // (only whitespace and line comments allowed between)
+  const allDocBlocks = [...beforeFunc.matchAll(/\/\*#([\s\S]*?)\*\//g)]
+  if (allDocBlocks.length > 0) {
+    const lastBlock = allDocBlocks[allDocBlocks.length - 1]
+    const afterBlock = beforeFunc.substring(
+      lastBlock.index! + lastBlock[0].length
+    )
+
+    // Only attach if nothing but whitespace and line comments between doc and function
+    if (/^(?:\s|\/\/[^\n]*)*$/.test(afterBlock)) {
+      // Extract content, trim leading/trailing whitespace, preserve internal formatting
+      let content = lastBlock[1]
+
+      // Remove common leading whitespace (like dedent)
+      const lines = content.split('\n')
+      // Find minimum indentation (ignoring empty lines)
+      const minIndent = lines
+        .filter((line) => line.trim().length > 0)
+        .reduce((min, line) => {
+          const indent = line.match(/^(\s*)/)?.[1].length || 0
+          return Math.min(min, indent)
+        }, Infinity)
+
+      // Remove that indentation from all lines
+      if (minIndent > 0 && minIndent < Infinity) {
+        content = lines.map((line) => line.slice(minIndent)).join('\n')
+      }
+
+      result.description = content.trim()
+      return result
+    }
+  }
+
+  // Fall back to JSDoc: /** ... */
+  const jsdocMatch = beforeFunc.match(/\/\*\*[\s\S]*?\*\/\s*$/)
   if (!jsdocMatch) return result
 
   const jsdoc = jsdocMatch[0]

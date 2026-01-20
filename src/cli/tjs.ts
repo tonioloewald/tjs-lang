@@ -43,6 +43,7 @@ Options:
   --unsafe        Strip __tjs metadata for production builds (emit command)
   --no-docs       Suppress documentation generation (emit command)
   --docs-dir <d>  Output docs to separate directory (emit command)
+  --jfdi          Emit even if tests fail (just fucking do it)
   -o <path>       Output path (for emit, convert commands)
   -t <pattern>    Test name pattern (for test command)
   --verbose, -V   Verbose output
@@ -79,6 +80,7 @@ async function main() {
   const verbose = args.includes('--verbose') || args.includes('-V')
   const unsafe = args.includes('--unsafe')
   const noDocs = args.includes('--no-docs')
+  const jfdi = args.includes('--jfdi')
 
   // Parse -o <output> option
   const outputIdx = args.findIndex((a) => a === '-o' || a === '--output')
@@ -134,7 +136,15 @@ async function main() {
         await types(file)
         break
       case 'emit':
-        await emit(file, { debug, unsafe, output, verbose, noDocs, docsDir })
+        await emit(file, {
+          debug,
+          unsafe,
+          output,
+          verbose,
+          noDocs,
+          docsDir,
+          jfdi,
+        })
         break
       case 'test':
         await test(file, { pattern: testPattern })

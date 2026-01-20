@@ -1174,6 +1174,12 @@ function tjsCompletionSource(config: AutocompleteConfig = {}) {
     const source = context.state.doc.toString()
     const pos = context.pos
 
+    // Don't complete inside strings or comments
+    const skipRegions = findSkipRegions(source)
+    if (isInSkipRegion(pos, skipRegions)) {
+      return null
+    }
+
     // Check context before cursor
     const lineStart = context.state.doc.lineAt(pos).from
     const lineBefore = source.slice(lineStart, word.from)

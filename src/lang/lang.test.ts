@@ -548,6 +548,114 @@ test 'always fails' { throw new Error('intentional') }
     })
   })
 
+  describe('TJS doc comments (/*#)', () => {
+    it('should extract markdown doc comment', () => {
+      const { signature } = transpile(`
+        /*#
+        The classic greeting function.
+
+        This demonstrates TJS doc comments.
+        */
+        function greet(name: 'World') -> '' {
+          return 'Hello, ' + name + '!'
+        }
+      `)
+      expect(signature.description).toContain('The classic greeting function')
+      expect(signature.description).toContain(
+        'This demonstrates TJS doc comments'
+      )
+    })
+
+    it('should preserve markdown formatting', () => {
+      const { signature } = transpile(`
+        /*#
+        # Heading
+
+        - List item 1
+        - List item 2
+
+        \`code example\`
+        */
+        function test(x: 0) -> 0 {
+          return x
+        }
+      `)
+      expect(signature.description).toContain('# Heading')
+      expect(signature.description).toContain('- List item 1')
+      expect(signature.description).toContain('`code example`')
+    })
+
+    it('should dedent common leading whitespace', () => {
+      const { signature } = transpile(`
+        /*#
+          Indented content here.
+          More indented content.
+        */
+        function test(x: 0) -> 0 {
+          return x
+        }
+      `)
+      // Should not have extra leading spaces
+      expect(signature.description).toBe(
+        'Indented content here.\nMore indented content.'
+      )
+    })
+
+    it('should prefer /*# over /** when both present', () => {
+      const { signature } = transpile(`
+        /**
+         * JSDoc description
+         */
+        /*#
+        TJS doc description
+        */
+        function test(x: 0) -> 0 {
+          return x
+        }
+      `)
+      expect(signature.description).toBe('TJS doc description')
+    })
+
+    it('should only use the immediately preceding /*# block, not earlier ones', () => {
+      const { signature } = transpile(`
+        /*#
+        # File-level documentation
+
+        This is a header comment that should NOT be attached to the function.
+        */
+
+        // Some other code or comments here
+
+        /*#
+        Function-specific documentation.
+        */
+        function test(x: 0) -> 0 {
+          return x
+        }
+      `)
+      expect(signature.description).toBe('Function-specific documentation.')
+      expect(signature.description).not.toContain('File-level')
+    })
+
+    it('should not attach distant /*# block when nothing immediately precedes function', () => {
+      const { signature } = transpile(`
+        /*#
+        # File-level documentation
+
+        This should NOT be attached to the function below.
+        */
+
+        const someVar = 123
+
+        function test(x: 0) -> 0 {
+          return x
+        }
+      `)
+      // No doc comment should be attached since there's code between
+      expect(signature.description).toBeUndefined()
+    })
+  })
+
   describe('Error handling', () => {
     it('should reject multiple functions', () => {
       expect(() =>
@@ -872,7 +980,7 @@ describe('TJS Emitter', () => {
 
     it('should generate __tjs metadata object', () => {
       const result = transpileToJS(`
-        function greet(name: 'world') -> '' {
+        function greet(name: 'world') -> 'Hello, world!' {
           return \`Hello, \${name}!\`
         }
       `)
@@ -1491,10 +1599,11 @@ describe('Inline Tests', () => {
   })
 
   it('should give meaningful error messages', async () => {
+    // NOTE: This test INTENTIONALLY creates a failing inner test to verify error messages
     const result = extractTests(`
       function getValue() { return 42 }
 
-      test('wrong value') {
+      test('INTENTIONAL FAIL - testing error messages') {
         expect(getValue()).toBe(99)
       }
     `)
@@ -1505,6 +1614,106 @@ describe('Inline Tests', () => {
     expect(summary.failed).toBe(1)
     expect(summary.results[0].error).toContain('Expected 99')
     expect(summary.results[0].error).toContain('got 42')
+  })
+
+  it('should support canonical TJS test syntax without parentheses', () => {
+    const result = extractTests(`
+      function double(x) { return x * 2 }
+
+      test 'doubles numbers' {
+        expect(double(5)).toBe(10)
+      }
+    `)
+    expect(result.tests.length).toBe(1)
+    expect(result.tests[0].description).toBe('doubles numbers')
+  })
+
+  it('should support anonymous test blocks', () => {
+    const result = extractTests(`
+      function add(a, b) { return a + b }
+
+      test {
+        expect(add(1, 2)).toBe(3)
+      }
+
+      test {
+        expect(add(0, 0)).toBe(0)
+      }
+    `)
+    expect(result.tests.length).toBe(2)
+    expect(result.tests[0].description).toBe('test 1')
+    expect(result.tests[1].description).toBe('test 2')
+  })
+
+  it('should extract tests from anywhere in source (tests are "sucked" to bottom)', () => {
+    const result = extractTests(`
+      test 'early test' {
+        expect(add(1, 1)).toBe(2)
+      }
+
+      function add(a, b) { return a + b }
+
+      test 'late test' {
+        expect(add(2, 2)).toBe(4)
+      }
+    `)
+    // Both tests extracted
+    expect(result.tests.length).toBe(2)
+    expect(result.tests[0].description).toBe('early test')
+    expect(result.tests[1].description).toBe('late test')
+    // Clean code has function but no tests
+    expect(result.code).toContain('function add')
+    expect(result.code).not.toContain('test')
+  })
+
+  it('should extract embedded tests from block comments (TS compatibility)', () => {
+    // This syntax survives TypeScript compilation - tests live in comments
+    const result = extractTests(`
+      function add(a: number, b: number): number {
+        return a + b
+      }
+
+      /*test 'adds two numbers' {
+        expect(add(2, 3)).toBe(5)
+      }*/
+
+      /*test 'handles negatives' {
+        expect(add(-1, 1)).toBe(0)
+      }*/
+    `)
+    expect(result.tests.length).toBe(2)
+    expect(result.tests[0].description).toBe('adds two numbers')
+    expect(result.tests[0].body).toContain('expect(add(2, 3)).toBe(5)')
+    expect(result.tests[1].description).toBe('handles negatives')
+  })
+
+  it('should extract anonymous embedded tests', () => {
+    const result = extractTests(`
+      function double(x: number): number { return x * 2 }
+
+      /*test {
+        expect(double(5)).toBe(10)
+      }*/
+    `)
+    expect(result.tests.length).toBe(1)
+    expect(result.tests[0].description).toBe('embedded test 1')
+  })
+
+  it('should combine embedded and regular tests', () => {
+    const result = extractTests(`
+      function add(a, b) { return a + b }
+
+      /*test 'embedded test' {
+        expect(add(1, 1)).toBe(2)
+      }*/
+
+      test 'regular test' {
+        expect(add(2, 2)).toBe(4)
+      }
+    `)
+    expect(result.tests.length).toBe(2)
+    expect(result.tests[0].description).toBe('embedded test')
+    expect(result.tests[1].description).toBe('regular test')
   })
 })
 
@@ -1869,6 +2078,83 @@ describe('return type safety arrows', () => {
 
     expect(result.code).toContain('"unsafe": true')
     expect(result.code).toContain('"unsafeReturn": true')
+  })
+})
+
+describe('signature tests (transpile-time)', () => {
+  // Return type grammar:
+  // ->  'example' = transpile-time test only (default)
+  // -?  'example' = transpile-time test + runtime output validation
+  // -!  'example' = skip test entirely
+
+  it('-> should run signature test at transpile time', () => {
+    const result = tjs(`
+      function double(x: 5) -> 10 {
+        return x * 2
+      }
+    `)
+    expect(result.testResults).toHaveLength(1)
+    expect(result.testResults![0].passed).toBe(true)
+    expect(result.testResults![0].isSignatureTest).toBe(true)
+  })
+
+  it('-> should fail if signature example is wrong', () => {
+    expect(() =>
+      tjs(`
+        function double(x: 5) -> 999 {
+          return x * 2
+        }
+      `)
+    ).toThrow(/signature example is inconsistent/)
+  })
+
+  it('-? should run signature test at transpile time', () => {
+    const result = tjs(`
+      function double(x: 5) -? 10 {
+        return x * 2
+      }
+    `)
+    expect(result.testResults).toHaveLength(1)
+    expect(result.testResults![0].passed).toBe(true)
+  })
+
+  it('-? should fail if signature example is wrong', () => {
+    expect(() =>
+      tjs(`
+        function double(x: 5) -? 999 {
+          return x * 2
+        }
+      `)
+    ).toThrow(/signature example is inconsistent/)
+  })
+
+  it('-! should skip signature test entirely', () => {
+    // This would fail if tested, but -! skips the test
+    const result = tjs(`
+      function double(x: 5) -! 999 {
+        return x * 2
+      }
+    `)
+    expect(result.testResults).toHaveLength(0)
+  })
+
+  it('-> with object return should test structure', () => {
+    const result = tjs(`
+      function getPoint(x: 3, y: 4) -> { x: 3, y: 4 } {
+        return { x, y }
+      }
+    `)
+    expect(result.testResults![0].passed).toBe(true)
+  })
+
+  it('-> with object return should fail on mismatch', () => {
+    expect(() =>
+      tjs(`
+        function getPoint(x: 3, y: 4) -> { x: 0, y: 0 } {
+          return { x, y }
+        }
+      `)
+    ).toThrow(/signature example is inconsistent/)
   })
 })
 

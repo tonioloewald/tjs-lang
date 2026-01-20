@@ -21,7 +21,7 @@
 
 import type { FunctionDeclaration, Program } from 'acorn'
 import { parseExpressionAt } from 'acorn'
-import { parse, extractJSDoc, preprocess } from '../parser'
+import { parse, extractTDoc, preprocess } from '../parser'
 import type { TypeDescriptor, ParameterDescriptor } from '../types'
 import { inferTypeFromValue, parseParameter } from '../inference'
 import { extractTests } from '../tests'
@@ -38,8 +38,10 @@ export interface TJSTranspileOptions {
    * - true (default): run tests at transpile time, throw on failure
    * - false: skip tests entirely (production build)
    * - 'only': only run tests, don't emit code (CI/test runner)
+   * - 'report': run tests, report results in testResults, don't throw
+   *             (caller decides whether to use the code based on results)
    */
-  runTests?: boolean | 'only'
+  runTests?: boolean | 'only' | 'report'
   /**
    * Debug mode: include source locations in __tjs metadata
    * Enables better error messages with file:line:column info
@@ -83,7 +85,7 @@ export interface TJSTypeInfo {
   params: Record<string, ParameterDescriptor>
   /** Return type */
   returns?: TypeDescriptor
-  /** JSDoc description */
+  /** TDoc description */
   description?: string
   /** True if function uses destructured object param (the fast path) */
   isDestructuredParam?: boolean
@@ -124,8 +126,8 @@ export function transpileToJS(
     throw new Error('No function declaration found')
   }
 
-  // Extract JSDoc
-  const jsdoc = extractJSDoc(originalSource, func)
+  // Extract TDoc (/*# ... */) comments
+  const tdoc = extractTDoc(originalSource, func)
 
   // Build parameter type info
   const params: Record<string, ParameterDescriptor> = {}
@@ -156,7 +158,7 @@ export function transpileToJS(
       )) {
         params[key] = {
           ...descriptor,
-          description: jsdoc.params[key],
+          description: tdoc.params[key],
         }
         destructuredShape[key] = descriptor.type
         if (descriptor.required) {
@@ -172,7 +174,7 @@ export function transpileToJS(
         params[param.name] = {
           ...paramInfo,
           required: requiredParams.has(param.name),
-          description: jsdoc.params[param.name],
+          description: tdoc.params[param.name],
         }
       } else if (
         param.type === 'AssignmentPattern' &&
@@ -182,7 +184,7 @@ export function transpileToJS(
         params[param.left.name] = {
           ...paramInfo,
           required: requiredParams.has(param.left.name),
-          description: jsdoc.params[param.left.name],
+          description: tdoc.params[param.left.name],
         }
       } else if (param.type === 'ObjectPattern') {
         // Handle destructured object parameters (non-single case)
@@ -196,7 +198,7 @@ export function transpileToJS(
           )) {
             params[key] = {
               ...descriptor,
-              description: jsdoc.params[key],
+              description: tdoc.params[key],
             }
           }
         }
@@ -222,7 +224,7 @@ export function transpileToJS(
     name: func.id?.name || 'anonymous',
     params,
     returns,
-    description: jsdoc.description,
+    description: tdoc.description,
     isDestructuredParam,
     destructuredShape,
     destructuredRequired,
@@ -269,7 +271,7 @@ export function transpileToJS(
   // Run tests at transpile time if enabled
   let testResults: TestResult[] | undefined
 
-  if (runTests && (tests.length > 0 || returnType)) {
+  if (runTests) {
     testResults = []
 
     // Run explicit test blocks
@@ -278,29 +280,18 @@ export function transpileToJS(
       testResults.push(...blockResults)
     }
 
-    // Run implicit signature test if function has ->! (assertion) return type
-    // ->! means "assert this is what you get with these example inputs"
-    // -> alone is just a type annotation, no test
-    if (returnType && func && returnSafety === 'unsafe') {
-      // returnSafety === 'unsafe' means ->! was used (the ! marker)
-      const sigExample = extractSignatureExample(func, types, returnType)
-      if (sigExample) {
-        const sigResult = runSignatureTest(
-          funcName,
-          preprocessed.source,
-          sigExample.args,
-          sigExample.expected
-        )
-        testResults.push(sigResult)
-      }
-    }
+    // Run signature tests for ALL functions with -> return types
+    // Extract from original source since parser only tracks the first one
+    const sigTests = runAllSignatureTests(source, preprocessed.source)
+    testResults.push(...sigTests)
 
-    // Check for failures and throw if runTests is true (not 'only')
+    // Check for failures and throw only if runTests === true (strict mode)
+    // 'only' and 'report' modes return results without throwing
     const failures = testResults.filter((r) => !r.passed)
-    if (failures.length > 0 && runTests !== 'only') {
+    if (failures.length > 0 && runTests === true) {
       const errorLines = failures.map((f) => {
         if (f.isSignatureTest) {
-          return `  Function '${funcName}' signature example is inconsistent:\n    ${f.error}`
+          return `  Function signature example is inconsistent:\n    ${f.error}`
         }
         return `  Test '${f.description}' failed:\n    ${f.error}`
       })
@@ -903,6 +894,152 @@ function evalArrayExpression(node: any): unknown[] {
     }
   }
   return result
+}
+
+/**
+ * Extract and run signature tests for ALL functions with -> return types
+ * Parses the original source to find function signatures
+ *
+ * Current limitations (future work):
+ * - Only tests top-level `function` declarations (not arrow functions yet)
+ * - Nested functions (inside other functions/blocks) are not excluded yet
+ *   and will fail if tested since they're not in global scope
+ * - Arrow functions like `Foo = (x: 5) -> 10 => {}` not yet supported
+ */
+function runAllSignatureTests(
+  originalSource: string,
+  transpiledCode: string
+): TestResult[] {
+  const results: TestResult[] = []
+
+  // Match function declarations with return type marker (-> or -?)
+  // Skip -! which means "don't test"
+  // Pattern: function name(params) -> returnExample {
+  const funcRegex = /function\s+(\w+)\s*\(([^)]*)\)\s*(-[>?])\s*/g
+
+  let match
+  while ((match = funcRegex.exec(originalSource)) !== null) {
+    const funcName = match[1]
+    const paramsStr = match[2]
+    const returnMarker = match[3]
+
+    // -! means skip test
+    if (returnMarker === '-!') continue
+
+    // Extract return example - handle nested braces/brackets
+    const afterMarker = originalSource.slice(match.index + match[0].length)
+    const returnExample = extractReturnExampleFromSource(afterMarker)
+    if (!returnExample) continue
+
+    // Extract parameter examples
+    const paramExamples = extractParamExamples(paramsStr)
+    if (paramsStr.trim() && paramExamples.length === 0) continue
+
+    // Run the signature test
+    try {
+      const argsStr = paramExamples.join(', ')
+      const expectedStr = returnExample
+
+      // Parse expected value
+      const expected = new Function(`return ${expectedStr}`)()
+
+      // Parse args
+      const args = paramExamples.map((p) => new Function(`return ${p}`)())
+
+      const result = runSignatureTest(funcName, transpiledCode, args, expected)
+      results.push(result)
+    } catch (e: any) {
+      results.push({
+        description: `${funcName} signature example`,
+        passed: false,
+        error: `Failed to parse signature: ${e.message}`,
+        isSignatureTest: true,
+      })
+    }
+  }
+
+  return results
+}
+
+/**
+ * Extract return type example from source, handling nested braces
+ */
+function extractReturnExampleFromSource(source: string): string | null {
+  let result = ''
+  let depth = 0
+  let hasContent = false
+
+  for (let i = 0; i < source.length; i++) {
+    const char = source[i]
+
+    if (char === '{' || char === '[' || char === '(') {
+      if (char === '{' && depth === 0 && hasContent) {
+        // Found the function body opening brace
+        break
+      }
+      depth++
+      result += char
+      hasContent = true
+    } else if (char === '}' || char === ']' || char === ')') {
+      depth--
+      result += char
+    } else if (!/\s/.test(char)) {
+      result += char
+      hasContent = true
+    } else {
+      result += char
+    }
+  }
+
+  const trimmed = result.trim()
+  return trimmed || null
+}
+
+/**
+ * Extract parameter example values from params string
+ */
+function extractParamExamples(paramsStr: string): string[] {
+  if (!paramsStr.trim()) return []
+
+  const examples: string[] = []
+  const params = splitParams(paramsStr)
+
+  for (const param of params) {
+    // Match: name: example or name = example (with optional safety markers)
+    // Handle: (? name: example) or (! name: example)
+    const match = param.match(/(?:\(\s*[?!]\s*)?(\w+)\s*[:=]\s*(.+?)(?:\))?$/)
+    if (match) {
+      examples.push(match[2].trim())
+    } else {
+      // No example value - can't run signature test
+      return []
+    }
+  }
+
+  return examples
+}
+
+/**
+ * Split parameter string on commas, respecting nested structures
+ */
+function splitParams(paramsStr: string): string[] {
+  const params: string[] = []
+  let current = ''
+  let depth = 0
+
+  for (const char of paramsStr) {
+    if (char === '(' || char === '[' || char === '{') depth++
+    else if (char === ')' || char === ']' || char === '}') depth--
+    else if (char === ',' && depth === 0) {
+      params.push(current.trim())
+      current = ''
+      continue
+    }
+    current += char
+  }
+
+  if (current.trim()) params.push(current.trim())
+  return params
 }
 
 /**

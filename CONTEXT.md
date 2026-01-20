@@ -1,3 +1,5 @@
+<!--{"section": "ajs", "group": "docs", "order": 1, "navTitle": "Technical Context"}-->
+
 # tosijs-agent Technical Context
 
 **Note:** This document provides a technical deep-dive into tosijs-agent's architecture and security model. For a general overview, installation instructions, and usage examples, please refer to the main [README.md](./README.md).

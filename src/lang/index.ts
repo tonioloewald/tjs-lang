@@ -31,7 +31,7 @@ import { parse, validateSingleFunction } from './parser'
 import { transformFunction } from './emitters/ast'
 
 export * from './types'
-export { parse, preprocess } from './parser'
+export { parse, preprocess, extractTDoc } from './parser'
 export { transformFunction } from './emitters/ast'
 export {
   transpileToJS,

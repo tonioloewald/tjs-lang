@@ -8,6 +8,7 @@
  *   tjs emit --unsafe <file.tjs>        Emit without __tjs metadata (production)
  *   tjs emit --no-docs <file.tjs>       Suppress documentation generation
  *   tjs emit --docs-dir <dir>           Output docs to separate directory
+ *   tjs emit --jfdi <file.tjs>          Emit even if tests fail (just fucking do it)
  */
 
 import {
@@ -37,6 +38,8 @@ export interface EmitOptions {
   noDocs?: boolean
   /** Output docs to separate directory (default: alongside JS) */
   docsDir?: string
+  /** Emit even if tests fail (just fucking do it) */
+  jfdi?: boolean
 }
 
 export async function emit(
@@ -77,10 +80,55 @@ async function emitFile(
   const filename = basename(inputPath)
 
   try {
+    // Use 'report' mode to get test results without throwing
     const result = tjs(source, {
       filename,
       debug: options.debug,
+      runTests: 'report',
     })
+
+    // Check test results
+    const testResults = result.testResults || []
+    const failures = testResults.filter((r) => !r.passed)
+    const hasFailures = failures.length > 0
+
+    // Report test results
+    if (testResults.length > 0) {
+      const passed = testResults.filter((r) => r.passed).length
+      const failed = failures.length
+
+      if (options.verbose || hasFailures) {
+        if (hasFailures) {
+          console.log(`\n${inputPath}: ${passed} passed, ${failed} failed`)
+          for (const f of failures) {
+            if (f.isSignatureTest) {
+              console.log(`  ✗ Signature: ${f.error}`)
+            } else {
+              console.log(`  ✗ ${f.description}: ${f.error}`)
+            }
+          }
+        } else if (options.verbose) {
+          console.log(`  ✓ ${testResults.length} tests passed`)
+        }
+      }
+    }
+
+    // Don't emit if tests failed (unless --jfdi)
+    if (hasFailures && !options.jfdi) {
+      if (!options.verbose) {
+        // Show failures even in non-verbose mode
+        console.error(`✗ ${inputPath}: ${failures.length} test(s) failed`)
+        for (const f of failures) {
+          if (f.isSignatureTest) {
+            console.error(`  Signature: ${f.error}`)
+          } else {
+            console.error(`  ${f.description}: ${f.error}`)
+          }
+        }
+      }
+      console.error(`  (use --jfdi to emit anyway)`)
+      return
+    }
 
     let code = result.code
 
@@ -97,7 +145,8 @@ async function emitFile(
       }
       writeFileSync(outputPath, code)
       if (options.verbose) {
-        console.log(`✓ ${inputPath} -> ${outputPath}`)
+        const suffix = hasFailures ? ' (tests failed, --jfdi)' : ''
+        console.log(`✓ ${inputPath} -> ${outputPath}${suffix}`)
       }
 
       // Generate docs unless suppressed
@@ -133,6 +182,7 @@ async function emitFile(
       console.log(code)
     }
   } catch (error: any) {
+    // This is a real transpilation error (syntax, parse, etc.)
     console.error(`✗ ${inputPath}: ${error.message}`)
     if (!outputPath) {
       process.exit(1)

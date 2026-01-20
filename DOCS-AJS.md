@@ -1,3 +1,5 @@
+<!--{"section": "ajs", "group": "docs", "order": 0, "navTitle": "Documentation"}-->
+
 # AJS: The Agent Language
 
 *Code as Data. Safe. Async. Sandboxed.*

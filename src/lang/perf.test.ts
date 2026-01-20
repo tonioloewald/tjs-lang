@@ -38,7 +38,7 @@ describe('TJS Performance', () => {
       // Create a simple test file
       const testFile = '/tmp/perf-test.tjs'
       const { writeFileSync } = await import('fs')
-      writeFileSync(testFile, `function add(a: 1, b: 2) -> 0 { return a + b }`)
+      writeFileSync(testFile, `function add(a: 1, b: 2) -> 3 { return a + b }`)
 
       const cliPath = path.join(import.meta.dir, '../cli/tjsx.ts')
 

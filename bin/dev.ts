@@ -11,9 +11,25 @@
 
 import { watch } from 'fs'
 import { join } from 'path'
-import { $ } from 'bun'
+import { $, spawn } from 'bun'
 
 const PORT = 8699 // Homage to Agent-99
+
+// Kill any existing process on our port
+async function killExistingServer() {
+  try {
+    const result = await $`lsof -ti:${PORT}`.quiet()
+    const pids = result.text().trim().split('\n').filter(Boolean)
+    for (const pid of pids) {
+      console.log(`Killing existing process on port ${PORT} (PID: ${pid})`)
+      await $`kill -9 ${pid}`.quiet()
+    }
+  } catch {
+    // No process on port, that's fine
+  }
+}
+
+await killExistingServer()
 const DEMO_DIR = './demo'
 const DOCS_DIR = './docs'
 const SRC_DIR = './src'
@@ -167,13 +183,13 @@ const server = Bun.serve({
 
 console.log(`
   Development server running at http://localhost:${PORT}
-  
+
   Watching for changes in:
   - ${SRC_DIR}/
   - ${DEMO_DIR}/src/
   - ${EDITORS_DIR}/
   - *.md (root directory)
-  
+
   Press Ctrl+C to stop
 `)
 

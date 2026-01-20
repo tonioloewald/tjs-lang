@@ -1,12 +1,10 @@
-<!--{"pin": "top", "hidden": true}-->
+<!--{"section": "home", "order": 0, "navTitle": "Home"}-->
 
-# tosi
+# tosijs-agent
+
+![tosjijs-agent logo](/tosijs-agent.svg)
 
 [github](https://github.com/tonioloewald/tosijs-agent#readme) | [npm](https://www.npmjs.com/package/tosijs-agent) | [discord](https://discord.gg/ramJ9rgky5)
-
-<img src="/tosijs-agent.svg" alt="tosi logo" width="300" height="300">
-
-![bundlejs bundle including dependencies](https://deno.bundlejs.com/badge?q=tosijs-agent)
 
 ---
 
@@ -169,6 +167,15 @@ pnpm add tosijs-agent
 
 ## Bundle Size
 
+### AJS Runtime
 ~33KB gzipped with dependencies. ~17KB for expression-only evaluation.
 
 **Dependencies:** `acorn` (JS parser), `tosijs-schema` (validation). Both have zero transitive dependencies.
+
+### TJS Compiler
+The TJS transpiler is larger (~400KB) as it includes a full parser and emitter. However:
+- It runs entirely in the browser — no build server needed
+- It's loaded on-demand, not bundled into your app
+- Your shipped code is just the transpiled JavaScript
+
+TJS is experimental but surprisingly complete. The playground demonstrates the full feature set running client-side.

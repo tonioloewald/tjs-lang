@@ -9,7 +9,7 @@
  * - Console output panel
  */
 
-import { Component, ElementCreator, PartsMap, elements } from 'tosijs'
+import { Component, ElementCreator, PartsMap, elements, vars } from 'tosijs'
 import {
   tabSelector,
   TabSelector,
@@ -22,7 +22,7 @@ import { tjs } from '../../src/lang'
 import { extractImports, generateImportMap, resolveImports } from './imports'
 import { ModuleStore, type ValidationResult } from './module-store'
 
-const { div, button, span, pre, style, input } = elements
+const { div, button, span, pre, style, input, template } = elements
 
 /**
  * Convert TypeDescriptor to readable string
@@ -223,6 +223,21 @@ export class TJSPlayground extends Component<TJSPlaygroundParts> {
           }),
           div(
             { name: 'Tests' },
+            template(
+              { role: 'tab' },
+              span({
+                class: 'test-indicator',
+                style: {
+                  display: 'inline-block',
+                  width: '8px',
+                  height: '8px',
+                  borderRadius: '50%',
+                  marginRight: '6px',
+                  background: vars.testIndicatorColor,
+                },
+              }),
+              'Tests'
+            ),
             div(
               { part: 'testsOutput', class: 'tests-output' },
               'Test results will appear here'
@@ -258,8 +273,12 @@ export class TJSPlayground extends Component<TJSPlaygroundParts> {
       this.transpile()
     }, 0)
 
-    // Listen for changes
-    this.parts.tjsEditor.addEventListener('change', () => this.transpile())
+    // Listen for changes (debounced to avoid excessive transpilation)
+    let debounceTimer: ReturnType<typeof setTimeout>
+    this.parts.tjsEditor.addEventListener('change', () => {
+      clearTimeout(debounceTimer)
+      debounceTimer = setTimeout(() => this.transpile(), 300)
+    })
   }
 
   log = (message: string) => {
@@ -280,14 +299,28 @@ export class TJSPlayground extends Component<TJSPlaygroundParts> {
     this.extractFunctionMetadata(source)
 
     try {
-      const result = tjs(source)
+      // Use 'report' mode to get test results without throwing on test failure
+      const result = tjs(source, { runTests: 'report' })
       this.lastTranspileResult = result
       this.parts.jsOutput.textContent = result.code
-      this.parts.statusBar.textContent = 'Transpiled successfully'
-      this.parts.statusBar.classList.remove('error')
 
       // Update docs
       this.updateDocs(result)
+
+      // Update test results and status bar
+      const tests = result.testResults || []
+      const failed = tests.filter((t: any) => !t.passed).length
+      if (failed > 0) {
+        this.parts.statusBar.textContent = `Transpiled with ${failed} test failure${
+          failed > 1 ? 's' : ''
+        }`
+        this.parts.statusBar.classList.add('error')
+      } else {
+        this.parts.statusBar.textContent = 'Transpiled successfully'
+        this.parts.statusBar.classList.remove('error')
+      }
+
+      this.updateTestResults(result)
 
       // If we got metadata from transpiler, use it (more accurate)
       if (result.metadata?.name) {
@@ -300,6 +333,59 @@ export class TJSPlayground extends Component<TJSPlaygroundParts> {
       this.parts.statusBar.textContent = errorInfo.short
       this.parts.statusBar.classList.add('error')
       this.lastTranspileResult = null
+      // Clear test results on error
+      this.parts.testsOutput.textContent = 'Transpilation failed - no tests run'
+    }
+  }
+
+  private updateTestResults(result: any) {
+    const tests = result.testResults
+    if (!tests || tests.length === 0) {
+      this.parts.testsOutput.textContent = 'No tests defined'
+      this.updateTestsTabLabel(0, 0)
+      return
+    }
+
+    const passed = tests.filter((t: any) => t.passed).length
+    const failed = tests.filter((t: any) => !t.passed).length
+
+    // Update tab label with indicator
+    this.updateTestsTabLabel(passed, failed)
+
+    let html = `<div class="test-summary">`
+    html += `<strong>${passed} passed</strong>`
+    if (failed > 0) {
+      html += `, <strong class="test-failed">${failed} failed</strong>`
+    }
+    html += `</div><ul class="test-list">`
+
+    for (const test of tests) {
+      const icon = test.passed ? '✓' : '✗'
+      const cls = test.passed ? 'test-pass' : 'test-fail'
+      const sigBadge = test.isSignatureTest
+        ? ' <span class="sig-badge">signature</span>'
+        : ''
+      html += `<li class="${cls}">${icon} ${test.description}${sigBadge}`
+      if (!test.passed && test.error) {
+        html += `<div class="test-error">${test.error}</div>`
+      }
+      html += `</li>`
+    }
+    html += `</ul>`
+
+    this.parts.testsOutput.innerHTML = html
+  }
+
+  private updateTestsTabLabel(passed: number, failed: number) {
+    const tabs = this.parts.outputTabs
+    if (!tabs) return
+
+    if (failed > 0) {
+      tabs.style.setProperty('--test-indicator-color', '#dc2626')
+    } else if (passed > 0) {
+      tabs.style.setProperty('--test-indicator-color', '#16a34a')
+    } else {
+      tabs.style.setProperty('--test-indicator-color', 'transparent')
     }
   }
 
@@ -557,27 +643,53 @@ export class TJSPlayground extends Component<TJSPlaygroundParts> {
   }
 
   /**
-   * Extract block comments immediately preceding functions
+   * Extract TDoc comments immediately preceding functions
    * Returns map of function name -> comment text
+   *
+   * Uses regex on original source (not AST) because preprocessing
+   * transforms TJS syntax and shifts positions.
    */
   extractFunctionComments = (source: string): Record<string, string> => {
     const comments: Record<string, string> = {}
 
-    // Match block comment followed by function declaration
-    // The regex captures: block comment content, function name, params, return type
-    const pattern =
-      /\/\*\s*([\s\S]*?)\s*\*\/\s*\n\s*function\s+(\w+)\s*\(([^)]*)\)\s*(?:->\s*([^\s{]+))?\s*\{/g
-
+    // Find all function declarations and their preceding doc comments
+    // We use regex on the original source to avoid AST position mismatch
+    // after preprocessing transforms TJS syntax (e.g., `x: 5` -> `x = 5`)
+    const funcPattern = /function\s+(\w+)\s*\(/g
     let match
-    while ((match = pattern.exec(source)) !== null) {
-      const [, commentContent, funcName] = match
-      // Clean up the comment - remove leading * from each line (JSDoc style)
-      const cleaned = commentContent
-        .split('\n')
-        .map((line) => line.replace(/^\s*\*\s?/, '').trim())
-        .join('\n')
-        .trim()
-      comments[funcName] = cleaned
+
+    while ((match = funcPattern.exec(source)) !== null) {
+      const funcName = match[1]
+      const funcStart = match.index
+      const beforeFunc = source.substring(0, funcStart)
+
+      // Find the LAST /*# ... */ block before this function
+      const docBlocks = [...beforeFunc.matchAll(/\/\*#([\s\S]*?)\*\//g)]
+      if (docBlocks.length > 0) {
+        const lastBlock = docBlocks[docBlocks.length - 1]
+        const afterBlock = beforeFunc.substring(
+          lastBlock.index! + lastBlock[0].length
+        )
+
+        // Only attach if nothing but whitespace/line comments between doc and function
+        if (/^(?:\s|\/\/[^\n]*)*$/.test(afterBlock)) {
+          // Dedent the content
+          let content = lastBlock[1]
+          const lines = content.split('\n')
+          const minIndent = lines
+            .filter((line) => line.trim().length > 0)
+            .reduce((min, line) => {
+              const indent = line.match(/^(\s*)/)?.[1].length || 0
+              return Math.min(min, indent)
+            }, Infinity)
+
+          if (minIndent > 0 && minIndent < Infinity) {
+            content = lines.map((line) => line.slice(minIndent)).join('\n')
+          }
+
+          comments[funcName] = content.trim()
+        }
+      }
     }
 
     return comments
@@ -1095,12 +1207,58 @@ export const tjsPlayground = TJSPlayground.elementCreator({
     ':host .tests-output': {
       padding: '12px',
       fontSize: '14px',
-      whiteSpace: 'pre-wrap',
       fontFamily: 'system-ui, sans-serif',
       color: 'var(--text-color, inherit)',
       background: 'var(--background, #fff)',
       height: '100%',
       overflow: 'auto',
+    },
+
+    ':host .test-summary': {
+      marginBottom: '12px',
+      paddingBottom: '8px',
+      borderBottom: '1px solid var(--code-border, #e5e7eb)',
+    },
+
+    ':host .test-failed': {
+      color: '#dc2626',
+    },
+
+    ':host .test-list': {
+      listStyle: 'none',
+      padding: 0,
+      margin: 0,
+    },
+
+    ':host .test-list li': {
+      padding: '4px 0',
+    },
+
+    ':host .test-pass': {
+      color: '#16a34a',
+    },
+
+    ':host .test-fail': {
+      color: '#dc2626',
+    },
+
+    ':host .test-error': {
+      marginLeft: '20px',
+      marginTop: '4px',
+      padding: '8px',
+      background: 'rgba(220, 38, 38, 0.1)',
+      borderRadius: '4px',
+      fontSize: '13px',
+      fontFamily: 'var(--font-mono, monospace)',
+    },
+
+    ':host .sig-badge': {
+      fontSize: '11px',
+      padding: '2px 6px',
+      marginLeft: '8px',
+      background: 'rgba(99, 102, 241, 0.1)',
+      color: '#6366f1',
+      borderRadius: '4px',
     },
 
     ':host .tjs-console': {

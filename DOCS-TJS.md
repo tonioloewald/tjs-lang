@@ -1,3 +1,5 @@
+<!--{"section": "tjs", "group": "docs", "order": 0, "navTitle": "Documentation"}-->
+
 # TJS: Typed JavaScript
 
 *Types as Examples. Zero Build. Runtime Metadata.*

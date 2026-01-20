@@ -1,224 +1,107 @@
 /**
  * TJS Documentation Generator
  *
- * Generates documentation from TJS source:
- * - Function signatures from __tjs metadata
- * - Descriptions from JSDoc comments
- * - Usage examples from inline tests
+ * Dead simple: walk source in order, emit what you find.
+ * - Doc blocks render as markdown
+ * - Function signatures render as code blocks
  *
- * Output formats:
- * - Markdown for human reading
- * - JSON for programmatic use
+ * No magic pairing. No attachment logic. The signature IS the docs.
+ * Doc blocks are just editorial commentary when you need it.
  */
 
-import { tjs, type TJSTypeInfo } from './index'
-import { extractTests, type ExtractedTest } from './tests'
-import type { TypeDescriptor } from './types'
-
-export interface FunctionDoc {
-  name: string
-  description?: string
-  params: ParamDoc[]
-  returns?: ReturnDoc
-  examples: ExampleDoc[]
-}
-
-export interface ParamDoc {
-  name: string
-  type: string
-  required: boolean
-  description?: string
-  default?: any
-}
-
-export interface ReturnDoc {
-  type: string
-  description?: string
-}
-
-export interface ExampleDoc {
-  description: string
-  code: string
-}
-
 export interface DocResult {
-  functions: FunctionDoc[]
+  /** Items in document order */
+  items: DocItem[]
+  /** Rendered markdown */
   markdown: string
-  json: object
 }
+
+export type DocItem =
+  | { type: 'doc'; content: string }
+  | { type: 'function'; name: string; signature: string }
 
 /**
  * Generate documentation from TJS source
+ *
+ * Walk source in document order. Emit doc blocks and function signatures.
  */
 export function generateDocs(source: string): DocResult {
-  // Extract type info via TJS transpiler
-  const { types } = tjs(source)
+  const items: DocItem[] = []
 
-  // Extract tests for examples
-  const { tests } = extractTests(source)
+  // Find all doc blocks and functions, sort by position
+  const docPattern = /\/\*#([\s\S]*?)\*\//g
+  const funcPattern =
+    /function\s+(\w+)\s*\(([^)]*)\)\s*(?:(-[>?!])\s*([^\s{]+))?\s*\{/g
 
-  // Build function documentation
-  const funcDoc = buildFunctionDoc(types, tests)
+  type Match = { type: 'doc' | 'function'; index: number; data: any }
+  const matches: Match[] = []
 
-  // Generate output formats
-  const markdown = generateMarkdown([funcDoc])
-  const json = { functions: [funcDoc] }
+  let match
+  while ((match = docPattern.exec(source)) !== null) {
+    // Dedent content
+    let content = match[1]
+    const lines = content.split('\n')
+    const minIndent = lines
+      .filter((line) => line.trim().length > 0)
+      .reduce((min, line) => {
+        const indent = line.match(/^(\s*)/)?.[1].length || 0
+        return Math.min(min, indent)
+      }, Infinity)
 
-  return {
-    functions: [funcDoc],
-    markdown,
-    json,
-  }
-}
+    if (minIndent > 0 && minIndent < Infinity) {
+      content = lines.map((line) => line.slice(minIndent)).join('\n')
+    }
 
-/**
- * Build documentation for a function
- */
-function buildFunctionDoc(
-  types: TJSTypeInfo,
-  tests: ExtractedTest[]
-): FunctionDoc {
-  const params: ParamDoc[] = Object.entries(types.params).map(
-    ([name, param]) => ({
-      name,
-      type: typeToString(param.type),
-      required: param.required,
-      description: param.description,
-      default: param.default,
+    matches.push({
+      type: 'doc',
+      index: match.index,
+      data: content.trim(),
     })
-  )
+  }
 
-  const returns: ReturnDoc | undefined = types.returns
-    ? {
-        type: typeToString(types.returns),
+  while ((match = funcPattern.exec(source)) !== null) {
+    const name = match[1]
+    const params = match[2]
+    const returnMarker = match[3] || ''
+    const returnType = match[4] || ''
+
+    const signature = `function ${name}(${params})${
+      returnMarker ? ` ${returnMarker} ${returnType}` : ''
+    }`
+
+    matches.push({
+      type: 'function',
+      index: match.index,
+      data: { name, signature },
+    })
+  }
+
+  // Sort by position in source
+  matches.sort((a, b) => a.index - b.index)
+
+  // Build items
+  for (const m of matches) {
+    if (m.type === 'doc') {
+      items.push({ type: 'doc', content: m.data })
+    } else {
+      items.push({
+        type: 'function',
+        name: m.data.name,
+        signature: m.data.signature,
+      })
+    }
+  }
+
+  // Generate markdown
+  const markdown = items
+    .map((item) => {
+      if (item.type === 'doc') {
+        return item.content
+      } else {
+        return `\`\`\`tjs\n${item.signature}\n\`\`\``
       }
-    : undefined
-
-  const examples: ExampleDoc[] = tests.map((t) => ({
-    description: t.description,
-    code: t.body.trim(),
-  }))
-
-  return {
-    name: types.name,
-    description: types.description,
-    params,
-    returns,
-    examples,
-  }
-}
-
-/**
- * Convert TypeDescriptor to readable string
- */
-function typeToString(type: TypeDescriptor): string {
-  switch (type.kind) {
-    case 'string':
-      return 'string'
-    case 'number':
-      return 'number'
-    case 'boolean':
-      return 'boolean'
-    case 'null':
-      return 'null'
-    case 'any':
-      return 'any'
-    case 'array':
-      return type.items ? `${typeToString(type.items)}[]` : 'array'
-    case 'object': {
-      if (!type.shape) return 'object'
-      const props = Object.entries(type.shape)
-        .map(([k, v]) => `${k}: ${typeToString(v)}`)
-        .join(', ')
-      return `{ ${props} }`
-    }
-    case 'union':
-      return type.members?.map(typeToString).join(' | ') || 'unknown'
-    default:
-      return 'unknown'
-  }
-}
-
-/**
- * Generate Markdown documentation
- */
-function generateMarkdown(functions: FunctionDoc[]): string {
-  return functions.map(funcToMarkdown).join('\n\n---\n\n')
-}
-
-function funcToMarkdown(func: FunctionDoc): string {
-  const lines: string[] = []
-
-  // Function signature
-  const paramSig = func.params
-    .map((p) => {
-      const opt = p.required ? '' : '?'
-      return `${p.name}${opt}: ${p.type}`
     })
-    .join(', ')
-  const retSig = func.returns ? ` -> ${func.returns.type}` : ''
-  lines.push(`## ${func.name}`)
-  lines.push('')
-  lines.push('```typescript')
-  lines.push(`function ${func.name}(${paramSig})${retSig}`)
-  lines.push('```')
+    .join('\n\n')
 
-  // Description
-  if (func.description) {
-    lines.push('')
-    lines.push(func.description)
-  }
-
-  // Parameters
-  if (func.params.length > 0) {
-    lines.push('')
-    lines.push('### Parameters')
-    lines.push('')
-    for (const param of func.params) {
-      const req = param.required ? '**required**' : 'optional'
-      const desc = param.description ? ` - ${param.description}` : ''
-      const def =
-        param.default !== undefined ? ` (default: \`${param.default}\`)` : ''
-      lines.push(`- \`${param.name}\`: ${param.type} (${req})${desc}${def}`)
-    }
-  }
-
-  // Returns
-  if (func.returns) {
-    lines.push('')
-    lines.push('### Returns')
-    lines.push('')
-    lines.push(`\`${func.returns.type}\``)
-  }
-
-  // Examples from tests
-  if (func.examples.length > 0) {
-    lines.push('')
-    lines.push('### Examples')
-    for (const ex of func.examples) {
-      lines.push('')
-      lines.push(`**${ex.description}**`)
-      lines.push('')
-      lines.push('```javascript')
-      lines.push(ex.code)
-      lines.push('```')
-    }
-  }
-
-  return lines.join('\n')
+  return { items, markdown }
 }
-
-/**
- * Questions/Notes:
- *
- * Q1: Multi-function modules?
- *     Current: Single function per source
- *     Could extend to handle multiple exports
- *
- * Q2: Nested type formatting?
- *     Deep objects could get hard to read
- *     Could add collapsible sections or type aliases
- *
- * Q3: Integration with existing docs?
- *     Could output to docs/ folder or integrate with demo site
- */

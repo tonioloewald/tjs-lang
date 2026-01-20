@@ -139,7 +139,7 @@ describe('Union Types', () => {
 
   test('union return type with || (TJS style)', () => {
     const { metadata } = transpileToJS(`
-      function find(id: 0) -> { name: '' } || null {
+      function find(id: 0) -! { name: '' } || null {
         return null
       }
     `)
@@ -149,7 +149,7 @@ describe('Union Types', () => {
 
   test('union return type with | (TS style)', () => {
     const { metadata } = transpileToJS(`
-      function find(id: 0) -> { name: '' } | null {
+      function find(id: 0) -! { name: '' } | null {
         return null
       }
     `)
@@ -220,8 +220,9 @@ describe('Optional Parameters', () => {
 
 describe('Return Types', () => {
   test('simple return type', () => {
+    // Use -! to skip signature test (testing metadata, not return value match)
     const { metadata } = transpileToJS(`
-      function greet(name: '') -> '' {
+      function greet(name: '') -! '' {
         return 'Hello, ' + name
       }
     `)
@@ -229,8 +230,9 @@ describe('Return Types', () => {
   })
 
   test('object return type', () => {
+    // Use -! to skip signature test (testing metadata, not return value match)
     const { metadata } = transpileToJS(`
-      function makeUser(name: '') -> { name: '', id: 0 } {
+      function makeUser(name: '') -! { name: '', id: 0 } {
         return { name, id: 1 }
       }
     `)

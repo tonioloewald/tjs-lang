@@ -1,3 +1,5 @@
+<!--{"section": "meta", "order": 2, "navTitle": "For Enterprise"}-->
+
 # Governance: Safe Execution of Untrusted Logic
 
 **Adopt AI Agents without exposing your database to the Wild West.**
@@ -20,7 +22,7 @@ The choice has been: accept the risk, or don't run untrusted code at all.
 
 TJS is the language you use to build the trusted infrastructure—your servers, your APIs, your capability boundaries. It's designed to never crash, even when guests misbehave.
 
-### Monadic Errors
+### Monadic Errors: Exceptions are for Amateurs
 
 No unhandled exceptions. Ever.
 
@@ -35,6 +37,28 @@ if (result.$error) {
 ```
 
 Type failures return error objects, not exceptions. The host survives anything the guest throws at it.
+
+**TJS changes the physics of failure.** In every other language, a runtime type error is a catastrophe—uncaught exception, stack trace, 500 server error. In TJS, a type error is just *data*.
+
+Most developers see: `TypeError: Cannot read property 'x' of undefined at anonymous:5:12`
+
+Translation: "Something broke somewhere. Good luck."
+
+In TJS Safe Mode, the error looks like:
+
+```javascript
+{
+  $error: true,
+  message: "Expected 'positive number', got -5",
+  path: "calculateTax.input.price"
+}
+```
+
+Translation: "The function `calculateTax` received a bad `price`."
+
+**You trace the error to the source (the caller), not the symptom (the crash).**
+
+This means your "Universal Endpoint" cannot crash due to bad data. It simply refuses the contract and tells the caller exactly why. Contracts are for pros.
 
 ### Full Introspection
 

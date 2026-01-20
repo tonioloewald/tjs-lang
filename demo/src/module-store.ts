@@ -155,14 +155,15 @@ export class ModuleStore {
     let testResults: TestResult[] | undefined
 
     if (type === 'tjs') {
-      // Step 1: Try to transpile
+      // Step 1: Try to transpile (use 'report' mode to get test results without throwing)
       let transpileResult: TJSTranspileResult
       try {
-        transpileResult = transpileToJS(code)
+        transpileResult = transpileToJS(code, { runTests: 'report' })
         if (transpileResult.warnings) {
           warnings.push(...transpileResult.warnings)
         }
       } catch (e: any) {
+        // This is a real transpilation error (syntax, parse, etc.)
         errors.push({
           type: 'transpile',
           message: e.message,
@@ -172,17 +173,35 @@ export class ModuleStore {
         return { valid: false, errors, warnings }
       }
 
-      // Step 2: Extract and run tests
+      // Step 2: Collect signature test results from transpile
+      // Map from transpiler's TestResult (description) to our TestResult (name)
+      if (
+        transpileResult.testResults &&
+        transpileResult.testResults.length > 0
+      ) {
+        testResults = transpileResult.testResults.map((t) => ({
+          name: t.description,
+          passed: t.passed,
+          error: t.error,
+        }))
+      }
+
+      // Step 3: Extract and run explicit test blocks
       const testExtraction = extractTests(code)
       if (testExtraction.tests.length > 0) {
         try {
-          testResults = await this.runTests(
+          const explicitResults = await this.runTests(
             transpileResult.code,
             testExtraction.testRunner
           )
 
+          // Merge with signature test results
+          testResults = testResults
+            ? [...testResults, ...explicitResults]
+            : explicitResults
+
           // Check for failed tests
-          const failed = testResults.filter((t) => !t.passed)
+          const failed = explicitResults.filter((t) => !t.passed)
           if (failed.length > 0) {
             for (const f of failed) {
               errors.push({

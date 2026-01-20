@@ -20,227 +20,242 @@ import { examples as ajsExamples } from './examples'
 
 const { div, details, summary, span, button } = elements
 
+// TJS example interface
+interface TjsExample {
+  name: string
+  description: string
+  code: string
+  group?: 'featured' | 'basics' | 'patterns' | 'fullstack' | 'advanced'
+}
+
 // TJS examples - demonstrating typed JavaScript features
-export const tjsExamples = [
+export const tjsExamples: TjsExample[] = [
   {
     name: 'TJS Grammar Demo',
     description: 'Comprehensive example exercising all TJS syntax features',
-    code: `/*
-# TJS Grammar Demonstration
+    group: 'featured',
+    code: `/*#
+# TJS Grammar Reference
 
-This example showcases **all TJS syntax features** for testing
-syntax highlighting in editors.
+This example exercises **every TJS feature**. Run it to see
+tests pass and signature validation in action.
 
-## Features Covered
-- Type annotations with examples
-- Return type arrows
-- test/mock/unsafe blocks
-- Markdown in comments
+## Parameter Syntax
+| Syntax | Meaning |
+|--------|---------|
+| \`x: 0\` | Required number |
+| \`x = 0\` | Optional, defaults to 0 |
+| \`(? x: 0)\` | Force input validation |
+| \`(! x: 0)\` | Skip input validation |
+
+## Return Type Syntax
+| Syntax | Meaning |
+|--------|---------|
+| \`-> 10\` | Signature test runs at transpile |
+| \`-? 10\` | + runtime output validation |
+| \`-! 10\` | Skip signature test |
 */
 
-// Type annotations by example
-function greet(name: 'World', times: 3) -> '' {
-  /*
-  ## Implementation Notes
+// ─────────────────────────────────────────────────────────
+// SIGNATURE TESTS: -> runs at transpile time
+// ─────────────────────────────────────────────────────────
 
-  This function demonstrates:
-  - Required parameters with example values
-  - Return type annotation
-  - Template literal usage
-  */
-  let result = ''
-  let i = 0
-  while (i < times) {
-    result = result + \`Hello, \${name}! \`
-    i = i + 1
-  }
-  return result.trim()
+/*#
+Double a number. The \`-> 10\` means: double(5) must return 10.
+This is verified when you save/transpile!
+*/
+function double(x: 5) -> 10 {
+  return x * 2
 }
 
-// Optional parameters use = instead of :
-function divide(a: 10, b: 2, fallback = 0) -> 0 {
+/*#
+Concatenate first and last name.
+*/
+function fullName(first: 'Jane', last: 'Doe') -> 'Jane Doe' {
+  return first + ' ' + last
+}
+
+// ─────────────────────────────────────────────────────────
+// SKIP SIGNATURE TEST: -! when return varies
+// ─────────────────────────────────────────────────────────
+
+/*#
+Division with error handling. Uses \`-!\` because the error
+path returns a different shape than success.
+*/
+function divide(a: 10, b: 2) -! { ok: true, value: 5 } {
   if (b === 0) {
-    return fallback
+    return { ok: false, value: 0, error: 'div by zero' }
   }
-  return a / b
+  return { ok: true, value: a / b }
 }
 
-// Schema-based types
-function createUser(
-  name: 'Alice',
-  age: 30,
-  email: 'alice@example.com',
-  roles: ['user']
-) -> { id: '', name: '', age: 0, email: '', roles: [''] } {
-  return {
-    id: 'user-' + Math.random().toString(36).slice(2),
-    name,
-    age,
-    email,
-    roles
-  }
+// ─────────────────────────────────────────────────────────
+// EXPLICIT TESTS: test 'description' { }
+// ─────────────────────────────────────────────────────────
+
+test 'double works' {
+  expect(double(7)).toBe(14)
+  expect(double(0)).toBe(0)
 }
 
-// Inline mock block - runs before each test
-mock {
-  // Setup test fixtures
-  const testUser = { name: 'Test', age: 25 }
-  const mockData = [1, 2, 3, 4, 5]
+test 'fullName concatenates' {
+  expect(fullName('John', 'Smith')).toBe('John Smith')
 }
 
-// Inline test blocks
-test('greet returns proper greeting') {
-  const result = greet('TJS', 2)
-  expect(result).toBe('Hello, TJS! Hello, TJS!')
+test 'divide handles zero' {
+  const result = divide(10, 0)
+  expect(result.ok).toBe(false)
 }
 
-test('greet handles single repetition') {
-  const result = greet('World', 1)
-  expect(result).toBe('Hello, World!')
+test 'divide works normally' {
+  const result = divide(20, 4)
+  expect(result.ok).toBe(true)
+  expect(result.value).toBe(5)
 }
 
-test('divide handles division') {
-  expect(divide(10, 2)).toBe(5)
-  expect(divide(15, 3)).toBe(5)
-}
+// ─────────────────────────────────────────────────────────
+// UNSAFE FUNCTIONS: (!) skips input validation
+// ─────────────────────────────────────────────────────────
 
-test('divide returns fallback on zero') {
-  expect(divide(10, 0)).toBe(0)
-  expect(divide(10, 0, -1)).toBe(-1)
-}
-
-test('createUser generates valid user') {
-  const user = createUser('Bob', 35, 'bob@test.com', ['admin'])
-  expect(user.name).toBe('Bob')
-  expect(user.age).toBe(35)
-  expect(user.roles).toContain('admin')
-}
-
-// Async test with await
-test('async operations work in tests') {
-  const delay = (ms) => new Promise(r => setTimeout(r, ms))
-  await delay(10)
-  expect(true).toBe(true)
-}
-
-// Unsafe function with (!) - skips all runtime validation
+/*#
+Fast path - no runtime type checks on inputs.
+Use when you trust the caller (internal code).
+*/
 function fastAdd(! a: 0, b: 0) -> 0 {
   return a + b
 }
 
-// unsafe block for performance-critical code within a safe function
-function fastSum(numbers: [0]) -> 0 {
-  /*
-  Parameters are validated, but the inner loop is unsafe.
-  Skips runtime type validation for ~35x speedup.
-  */
-  unsafe {
-    let sum = 0
-    for (let i = 0; i < numbers.length; i++) {
-      sum += numbers[i]
-    }
-    return sum
-  }
-}
+// ─────────────────────────────────────────────────────────
+// SAFE FUNCTIONS: (?) forces input validation
+// ─────────────────────────────────────────────────────────
 
-test('fastSum calculates correctly') {
-  expect(fastSum([1, 2, 3, 4, 5])).toBe(15)
-  expect(fastSum([])).toBe(0)
-}
-
-// Union types with ||
-function parseValue(input: '' || 0 || null) -> '' {
-  if (input === null) {
-    return 'null'
-  }
-  if (typeof input === 'number') {
-    return \`number: \${input}\`
-  }
-  return \`string: \${input}\`
-}
-
-test('parseValue handles unions') {
-  expect(parseValue('hello')).toBe('string: hello')
-  expect(parseValue(42)).toBe('number: 42')
-  expect(parseValue(null)).toBe('null')
-}
-
-// Array type examples
-function processItems(items: ['']) -> { count: 0, first: '', last: '' } {
-  return {
-    count: items.length,
-    first: items[0] || '',
-    last: items[items.length - 1] || ''
-  }
-}
-
-// Object spread and destructuring
-function mergeConfig(base: { debug: false }, overrides: {}) -> {} {
-  return { ...base, ...overrides }
-}
-
-/*
-# Summary
-
-This file demonstrates TJS syntax highlighting for:
-
-| Feature | Syntax |
-|---------|--------|
-| Required param | \`name: 'example'\` |
-| Optional param | \`name = 'default'\` |
-| Return type | \`-> Type\` |
-| Unsafe function | \`function foo(! x: 0) { }\` |
-| Test block | \`test('desc') { }\` |
-| Mock block | \`mock { }\` |
-| Unsafe block | \`unsafe { }\` |
-| Union type | \`Type1 \\|\\| Type2\` |
-
-Check that all keywords and constructs are properly highlighted!
+/*#
+Critical path - always validate inputs even in unsafe blocks.
 */
+function safeAdd(? a: 0, b: 0) -> 0 {
+  return a + b
+}
+
+// ─────────────────────────────────────────────────────────
+// COMPLEX TYPES
+// ─────────────────────────────────────────────────────────
+
+/*#
+Object types are defined by example shape.
+*/
+function createPoint(x: 3, y: 4) -> { x: 3, y: 4 } {
+  return { x, y }
+}
+
+/*#
+Array types use single-element example.
+*/
+function sum(nums: [1, 2, 3]) -> 6 {
+  return nums.reduce((a, b) => a + b, 0)
+}
+
+test 'createPoint returns structure' {
+  const p = createPoint(10, 20)
+  expect(p.x).toBe(10)
+  expect(p.y).toBe(20)
+}
+
+test 'sum adds array' {
+  expect(sum([1, 2, 3, 4])).toBe(10)
+}
+
+// ─────────────────────────────────────────────────────────
+// OUTPUT
+// ─────────────────────────────────────────────────────────
+
+console.log('All signature tests passed at transpile time!')
+console.log('double.__tjs:', double.__tjs)
+console.log('Result:', double(21))
 `,
   },
   {
     name: 'Hello TJS',
-    description: 'Simple typed greeting function',
-    code: `// TJS: Type annotations via examples
-// Use : for required params, = for optional
+    description: 'Simple typed greeting function with docs and tests',
+    group: 'basics',
+    code: `/*#
+The classic first function in any language.
 
-function greet(name: 'World') -> '' {
+Demonstrates:
+- Type annotations via examples (\`name: 'World'\`)
+- Return type example (\`-> 'Hello, World'\`) - tests the signature!
+- Inline tests with \`test\` blocks
+- Markdown documentation via \`/*#\` comments
+*/
+test 'greet says hello' {
+  expect(greet('TJS')).toBe('Hello, TJS!')
+}
+
+function greet(name: 'World') -> 'Hello, World!' {
   return \`Hello, \${name}!\`
 }
 
-// The type metadata is attached to the function
+// The type metadata includes the doc comment
 console.log('Type info:', greet.__tjs)
 
-// Call it
+// The ->! means: greet('World') MUST return 'Hello, World'
+// This is verified at transpile time!
 greet('TJS')`,
   },
   {
     name: 'Required vs Optional',
     description: 'Difference between : and = in parameters',
-    code: `// In TJS:
-//   param: 'default'  --> required, string type
-//   param = 'default' --> optional with default
+    group: 'basics',
+    code: `/*#
+## Required vs Optional Parameters
+
+In TJS, the punctuation tells you everything:
+
+| Syntax | Meaning |
+|--------|---------|
+| \`param: 'value'\` | **Required** - must be provided |
+| \`param = 'value'\` | **Optional** - defaults to value |
+
+The example value after \`:\` or \`=\` defines the type.
+*/
+test 'requires name and email' {
+  const user = createUser('Alice', 'alice@test.com')
+  expect(user.name).toBe('Alice')
+  expect(user.age).toBe(0) // default
+}
 
 function createUser(
-  name: 'anonymous',      // required string
-  email: 'user@example.com', // required string
-  age = 0,                // optional number, defaults to 0
-  admin = false           // optional boolean, defaults to false
+  name: 'anonymous',
+  email: 'user@example.com',
+  age = 0,
+  admin = false
 ) -> { name: '', email: '', age: 0, admin: false } {
   return { name, email, age, admin }
 }
 
-// Must provide name and email
+// Check the metadata
+console.log('Params:', createUser.__tjs.params)
 createUser('Alice', 'alice@example.com')`,
   },
   {
     name: 'Object Types',
     description: 'Typed object parameters and returns',
-    code: `// Object types are inferred from examples
-// Note: type annotations use flat objects
+    group: 'basics',
+    code: `/*#
+## Object Types
 
-function getFullName(person: { first: '', last: '' }) -> '' {
+Object shapes are defined by example:
+\`{ first: '', last: '' }\` means an object with string properties.
+
+The return type \`-> { x: 0, y: 0 }\` is tested at transpile time!
+*/
+test 'createPoint returns correct structure' {
+  const p = createPoint(5, 10)
+  expect(p.x).toBe(5)
+  expect(p.y).toBe(10)
+}
+
+function getFullName(person: { first: '', last: '' }) -> 'Jane Doe' {
   return person.first + ' ' + person.last
 }
 
@@ -248,38 +263,52 @@ function createPoint(x: 0, y: 0) -> { x: 0, y: 0 } {
   return { x, y }
 }
 
-function distance(p1: { x: 0, y: 0 }, p2: { x: 0, y: 0 }) -> 0 {
+function distance(p1: { x: 0, y: 0 }, p2: { x: 0, y: 0 }) -> 5 {
   const dx = p2.x - p1.x
   const dy = p2.y - p1.y
   return Math.sqrt(dx * dx + dy * dy)
 }
 
-// Usage
-const name = getFullName({ first: 'Jane', last: 'Doe' })
-const origin = createPoint(0, 0)
-const point = createPoint(3, 4)
-const dist = distance(origin, point)
+// Usage - signature tests verify these at transpile time
+const name = getFullName({ first: 'Jane', last: 'Doe' })  // -> 'Jane Doe'
+const dist = distance({ x: 0, y: 0 }, { x: 3, y: 4 })     // -> 5
 
 console.log('Name:', name)
-console.log('Distance from origin:', dist)
-
-dist`,
+console.log('Distance:', dist)`,
   },
   {
     name: 'Array Types',
     description: 'Working with typed arrays',
-    code: `// Array types from example elements
+    group: 'basics',
+    code: `/*#
+## Array Types
 
-function sum(numbers: [0]) -> 0 {
+Array types use a single-element example:
+- \`[0]\` = array of numbers
+- \`['']\` = array of strings
+- \`[{ x: 0 }]\` = array of objects with shape { x: number }
+*/
+test 'sum adds numbers' {
+  expect(sum([1, 2, 3, 4])).toBe(10)
+}
+
+test 'stats calculates correctly' {
+  const s = stats([10, 20, 30])
+  expect(s.min).toBe(10)
+  expect(s.max).toBe(30)
+  expect(s.avg).toBe(20)
+}
+
+function sum(numbers: [0]) -> 10 {
   return numbers.reduce((a, b) => a + b, 0)
 }
 
-function average(numbers: [0]) -> 0 {
+function average(numbers: [0]) -> 20 {
   if (numbers.length === 0) return 0
   return sum(numbers) / numbers.length
 }
 
-function stats(data: [0]) -> { min: 0, max: 0, avg: 0 } {
+function stats(data: [0]) -> { min: 10, max: 30, avg: 20 } {
   if (data.length === 0) {
     return { min: 0, max: 0, avg: 0 }
   }
@@ -290,11 +319,13 @@ function stats(data: [0]) -> { min: 0, max: 0, avg: 0 } {
   }
 }
 
-stats([10, 20, 30, 40, 50])`,
+// Signature test: stats([10, 20, 30]) -> { min: 10, max: 30, avg: 20 }
+stats([10, 20, 30])`,
   },
   {
     name: 'Higher-Order Functions',
     description: 'Functions that take or return functions',
+    group: 'patterns',
     code: `// TJS handles higher-order functions
 // Note: Function type annotations use simple syntax
 
@@ -334,6 +365,7 @@ result`,
   {
     name: 'Async Functions',
     description: 'Typed async/await patterns',
+    group: 'patterns',
     code: `// Async functions work naturally
 
 async function fetchUser(id: 'user-1') -> { name: '', email: '' } {
@@ -355,16 +387,36 @@ await fetchUsers(['alice', 'bob', 'charlie'])`,
   {
     name: 'Error Handling',
     description: 'Type-safe error handling patterns',
-    code: `// Result type pattern for error handling
+    group: 'patterns',
+    code: `/*#
+## Monadic Error Handling
 
-function divide(a: 10, b: 2) -> { ok: true, value: 0, error: '' } {
+TJS uses the Result pattern - errors are values, not exceptions.
+This makes error handling explicit and type-safe.
+
+Note: Using \`-!\` to skip signature test since error paths
+return different shapes.
+*/
+test 'divide handles zero' {
+  const result = divide(10, 0)
+  expect(result.ok).toBe(false)
+  expect(result.error).toBe('Division by zero')
+}
+
+test 'divide works normally' {
+  const result = divide(10, 2)
+  expect(result.ok).toBe(true)
+  expect(result.value).toBe(5)
+}
+
+function divide(a: 10, b: 2) -! { ok: true, value: 5, error: '' } {
   if (b === 0) {
     return { ok: false, value: 0, error: 'Division by zero' }
   }
   return { ok: true, value: a / b, error: '' }
 }
 
-function safeParse(json: '{}') -> { ok: true, data: null, error: '' } {
+function safeParse(json: '{"x":1}') -! { ok: true, data: null, error: '' } {
   try {
     return { ok: true, data: JSON.parse(json), error: '' }
   } catch (e) {
@@ -372,19 +424,18 @@ function safeParse(json: '{}') -> { ok: true, data: null, error: '' } {
   }
 }
 
-// Usage
+// Usage - errors are values you can inspect
 const result = divide(10, 0)
 if (result.ok) {
   console.log('Result:', result.value)
 } else {
   console.log('Error:', result.error)
-}
-
-result`,
+}`,
   },
   {
     name: 'Schema Validation',
     description: 'Using Schema for runtime type checking',
+    group: 'patterns',
     code: `// TJS integrates with Schema for validation
 import { Schema } from 'tosijs-schema'
 
@@ -414,6 +465,7 @@ validateUser({ name: 'Alice', email: 'alice@test.com', age: 30 })`,
   {
     name: 'Date Formatting (with import)',
     description: 'Uses date-fns for date formatting via ESM import',
+    group: 'patterns',
     code: `/**
  * # Date Formatting with Imports
  *
@@ -499,6 +551,7 @@ console.log('\\nEvent:', event.formatted)`,
   {
     name: 'Lodash Utilities (with import)',
     description: 'Uses lodash-es for utility functions via ESM import',
+    group: 'patterns',
     code: `/**
  * # Lodash Utilities with Type Safety
  *
@@ -604,6 +657,7 @@ console.log('Engineering team:', result.byDept['Engineering']?.map(u => u.name))
     name: 'Full-Stack Demo: User Service',
     description:
       'A complete backend service with typed endpoints - save this first!',
+    group: 'fullstack',
     code: `/**
  * # User Service
  *
@@ -729,6 +783,7 @@ console.log('Bad input result:', badResult) // Returns $error object`,
     name: 'Full-Stack Demo: Client App',
     description:
       'Frontend that calls the User Service - run after saving user-service!',
+    group: 'fullstack',
     code: `/**
  * # Client Application
  *
@@ -792,6 +847,7 @@ main()`,
   {
     name: 'Full-Stack Demo: Todo API',
     description: 'Complete REST-style Todo API with persistence',
+    group: 'fullstack',
     code: `/**
  * # Todo API Service
  *
@@ -927,6 +983,7 @@ console.log('Remaining:', listTodos({}))`,
     name: 'The Universal Endpoint',
     description:
       'One endpoint. Any logic. Zero deployment. This is the whole thing.',
+    group: 'advanced',
     code: `/**
  * # The Universal Endpoint
  *
@@ -1116,6 +1173,7 @@ Everyone is full stack now.
   {
     name: 'Inline Tests: Test Private Functions',
     description: 'Test internals without exporting them - the killer feature',
+    group: 'advanced',
     code: `/**
  * # Testing Private Functions
  *
@@ -1527,6 +1585,21 @@ export class DemoNav extends Component {
       color: '#fff',
     },
 
+    '.group-header': {
+      padding: '8px 12px 4px 16px',
+      fontSize: '11px',
+      fontWeight: '600',
+      color: vars.textColorLight,
+      textTransform: 'uppercase',
+      letterSpacing: '0.5px',
+    },
+
+    '.group-header:not(:first-child)': {
+      marginTop: '8px',
+      borderTop: `1px solid ${vars.codeBorder}`,
+      paddingTop: '12px',
+    },
+
     '.section-icon': {
       width: '16px',
       height: '16px',
@@ -1565,6 +1638,69 @@ export class DemoNav extends Component {
     this.updateCurrentIndicator()
   }
 
+  // Group labels for display
+  private static readonly GROUP_LABELS: Record<string, string> = {
+    featured: 'Featured',
+    basics: 'Basics',
+    patterns: 'Patterns',
+    api: 'API',
+    llm: 'LLM',
+    fullstack: 'Full Stack',
+    advanced: 'Advanced',
+  }
+
+  // Group ordering (featured first, then alphabetical-ish)
+  private static readonly GROUP_ORDER = [
+    'featured',
+    'basics',
+    'patterns',
+    'api',
+    'llm',
+    'fullstack',
+    'advanced',
+  ]
+
+  // Helper to render examples grouped by their group field
+  private renderGroupedExamples<T extends { name: string; group?: string }>(
+    examples: T[],
+    renderItem: (ex: T) => HTMLElement
+  ): HTMLElement[] {
+    const grouped = new Map<string, T[]>()
+
+    // Group examples
+    for (const ex of examples) {
+      const group = ex.group || 'other'
+      if (!grouped.has(group)) {
+        grouped.set(group, [])
+      }
+      grouped.get(group)!.push(ex)
+    }
+
+    // Sort groups by GROUP_ORDER
+    const sortedGroups = Array.from(grouped.keys()).sort((a, b) => {
+      const orderA = DemoNav.GROUP_ORDER.indexOf(a)
+      const orderB = DemoNav.GROUP_ORDER.indexOf(b)
+      return (orderA === -1 ? 99 : orderA) - (orderB === -1 ? 99 : orderB)
+    })
+
+    // Render groups with headers
+    const elements: HTMLElement[] = []
+    for (const group of sortedGroups) {
+      const items = grouped.get(group)!
+      const label = DemoNav.GROUP_LABELS[group] || group
+
+      // Add group header
+      elements.push(div({ class: 'group-header' }, label))
+
+      // Add items in this group
+      for (const ex of items) {
+        elements.push(renderItem(ex))
+      }
+    }
+
+    return elements
+  }
+
   rebuildNav() {
     const container = this.querySelector('.nav-sections')
     if (!container) return
@@ -1582,32 +1718,6 @@ export class DemoNav extends Component {
         'Home'
       ),
 
-      // AJS Examples
-      details(
-        {
-          open: this.openSection === 'ajs-demos',
-          'data-section': 'ajs-demos',
-          onToggle: this.handleToggle,
-        },
-        summary(
-          span({ class: 'section-icon' }, icons.code({ size: 16 })),
-          'AJS Examples'
-        ),
-        div(
-          { class: 'section-content' },
-          ...ajsExamples.map((ex) =>
-            div(
-              {
-                class: ex.requiresApi ? 'nav-item requires-api' : 'nav-item',
-                title: ex.description,
-                onClick: () => this.selectAjsExample(ex),
-              },
-              ex.name
-            )
-          )
-        )
-      ),
-
       // TJS Examples
       details(
         {
@@ -1621,7 +1731,7 @@ export class DemoNav extends Component {
         ),
         div(
           { class: 'section-content' },
-          ...tjsExamples.map((ex) =>
+          ...this.renderGroupedExamples(tjsExamples, (ex) =>
             div(
               {
                 class: 'nav-item',
@@ -1634,26 +1744,27 @@ export class DemoNav extends Component {
         )
       ),
 
-      // AJS Docs
+      // AJS Examples
       details(
         {
-          open: this.openSection === 'ajs-docs',
-          'data-section': 'ajs-docs',
+          open: this.openSection === 'ajs-demos',
+          'data-section': 'ajs-demos',
           onToggle: this.handleToggle,
         },
         summary(
-          span({ class: 'section-icon' }, icons.book({ size: 16 })),
-          'AJS Docs'
+          span({ class: 'section-icon' }, icons.code({ size: 16 })),
+          'AJS Examples'
         ),
         div(
           { class: 'section-content' },
-          ...this.getAjsDocs().map((doc) =>
+          ...this.renderGroupedExamples(ajsExamples, (ex) =>
             div(
               {
-                class: 'nav-item',
-                onClick: () => this.selectDoc(doc),
+                class: ex.requiresApi ? 'nav-item requires-api' : 'nav-item',
+                title: ex.description,
+                onClick: () => this.selectAjsExample(ex),
               },
-              doc.title
+              ex.name
             )
           )
         )
@@ -1673,6 +1784,31 @@ export class DemoNav extends Component {
         div(
           { class: 'section-content' },
           ...this.getTjsDocs().map((doc) =>
+            div(
+              {
+                class: 'nav-item',
+                onClick: () => this.selectDoc(doc),
+              },
+              doc.title
+            )
+          )
+        )
+      ),
+
+      // AJS Docs
+      details(
+        {
+          open: this.openSection === 'ajs-docs',
+          'data-section': 'ajs-docs',
+          onToggle: this.handleToggle,
+        },
+        summary(
+          span({ class: 'section-icon' }, icons.book({ size: 16 })),
+          'AJS Docs'
+        ),
+        div(
+          { class: 'section-content' },
+          ...this.getAjsDocs().map((doc) =>
             div(
               {
                 class: 'nav-item',
@@ -1785,7 +1921,7 @@ export class DemoNav extends Component {
 
   createFloatViewer(doc: DocItem) {
     this.mdViewer = markdownViewer({
-      class: 'no-drag',
+      class: 'no-drag markdown-content',
       value: doc.text,
       style: {
         display: 'block',

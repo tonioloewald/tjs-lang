@@ -229,21 +229,43 @@ export const styleSpec = {
     marginTop: '1.25em',
   },
 
-  '.markdown-content table': {
+  // Table styles (global)
+  table: {
     width: '100%',
     borderCollapse: 'collapse',
     marginBottom: '1em',
+    fontSize: '0.9em',
   },
 
-  '.markdown-content th, .markdown-content td': {
-    padding: vars.spacing50,
-    border: `1px solid ${vars.codeBorder}`,
+  'th, td': {
+    padding: '6px 10px',
+    borderBottom: `1px solid ${vars.codeBorder}`,
     textAlign: 'left',
   },
 
-  '.markdown-content th': {
-    background: vars.codeBackground,
+  th: {
     fontWeight: 600,
+    background: 'rgba(0, 0, 0, 0.03)',
+  },
+
+  '.darkmode th': {
+    background: 'rgba(255, 255, 255, 0.03)',
+  },
+
+  'tr:nth-child(even)': {
+    background: 'rgba(0, 0, 0, 0.03)',
+  },
+
+  '.darkmode tr:nth-child(even)': {
+    background: 'rgba(255, 255, 255, 0.03)',
+  },
+
+  'tr:hover': {
+    background: 'rgba(0, 0, 0, 0.06)',
+  },
+
+  '.darkmode tr:hover': {
+    background: 'rgba(255, 255, 255, 0.06)',
   },
 
   // Loading state

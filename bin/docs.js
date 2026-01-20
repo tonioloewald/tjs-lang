@@ -25,14 +25,32 @@ function metadata(content, filePath) {
   return data
 }
 
-function pinnedSort(a, b) {
-  a =
-    (a.pin === 'top' ? 'A' : a.pin === 'bottom' ? 'Z' : 'M') +
-    a.title.toLocaleLowerCase()
-  b =
-    (b.pin === 'top' ? 'A' : b.pin === 'bottom' ? 'Z' : 'M') +
-    b.title.toLocaleLowerCase()
-  return a > b ? 1 : b > a ? -1 : 0
+// Section order for navigation hierarchy
+const SECTION_ORDER = {
+  home: 0,
+  meta: 1,
+  tjs: 2,
+  ajs: 3,
+}
+
+function hierarchicalSort(a, b) {
+  // First sort by section
+  const sectionA = SECTION_ORDER[a.section] ?? 99
+  const sectionB = SECTION_ORDER[b.section] ?? 99
+  if (sectionA !== sectionB) return sectionA - sectionB
+
+  // Then by group (docs before others)
+  const groupA = a.group || ''
+  const groupB = b.group || ''
+  if (groupA !== groupB) return groupA.localeCompare(groupB)
+
+  // Then by order
+  const orderA = a.order ?? 99
+  const orderB = b.order ?? 99
+  if (orderA !== orderB) return orderA - orderB
+
+  // Finally alphabetically by title
+  return a.title.localeCompare(b.title)
 }
 
 function findMarkdownFiles(dirs, ignore) {
@@ -93,7 +111,7 @@ function findMarkdownFiles(dirs, ignore) {
     traverseDirectory(dir, ignore)
   })
 
-  return markdownFiles.sort(pinnedSort)
+  return markdownFiles.sort(hierarchicalSort)
 }
 
 function saveAsJSON(data, outputFilePath) {
@@ -143,11 +161,10 @@ saveAsJSON(markdownFiles, outputPath)
 // List what was found
 console.log('\nDocuments found:')
 markdownFiles.forEach((doc, i) => {
-  const pinIndicator =
-    doc.pin === 'top'
-      ? ' [pinned top]'
-      : doc.pin === 'bottom'
-      ? ' [pinned bottom]'
-      : ''
-  console.log(`  ${i + 1}. ${doc.title}${pinIndicator} (${doc.filename})`)
+  const section = doc.section ? `[${doc.section}]` : ''
+  const group = doc.group ? `/${doc.group}` : ''
+  const navTitle = doc.navTitle ? ` → "${doc.navTitle}"` : ''
+  console.log(
+    `  ${i + 1}. ${section}${group} ${doc.title}${navTitle} (${doc.filename})`
+  )
 })

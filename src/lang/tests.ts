@@ -3,15 +3,32 @@
  *
  * Extracts test blocks from TJS source and generates test runners.
  *
- * Syntax:
- *   test('description') {
+ * Syntax (TJS):
+ *   test 'description' {
  *     assert(condition)
- *     assert(a === b, 'optional message')
+ *     expect(a).toBe(b)
+ *   }
+ *
+ *   test {
+ *     // Anonymous test
  *   }
  *
  *   mock {
  *     // Setup code that runs before each test
  *   }
+ *
+ * Syntax (TypeScript - embedded in comments):
+ *   /*test 'description' {
+ *     expect(add(2, 3)).toBe(5)
+ *   }* /
+ *
+ *   This syntax survives TypeScript compilation, enabling literate
+ *   programming for TypeScript: tests live alongside the code they
+ *   verify, extracted and executed at runtime by TJS.
+ *
+ *   For TS developers who don't care about TJS: you still get inline
+ *   tests that live with your code, literate development, and faster
+ *   debug loops. Set `safety none` and keep living in your world.
  *
  * Output:
  *   - code: Clean source with tests stripped
@@ -44,15 +61,92 @@ export interface TestExtractionResult {
 }
 
 /**
+ * Check if a position in source is inside a comment
+ */
+function isInsideComment(source: string, pos: number): boolean {
+  // Check for line comment - scan backwards to start of line
+  let lineStart = pos
+  while (lineStart > 0 && source[lineStart - 1] !== '\n') {
+    lineStart--
+  }
+  const lineBeforePos = source.slice(lineStart, pos)
+  if (lineBeforePos.includes('//')) {
+    return true
+  }
+
+  // Check for block comment - find last /* and */ before pos
+  let i = 0
+  let inBlockComment = false
+  while (i < pos) {
+    if (!inBlockComment && source.slice(i, i + 2) === '/*') {
+      inBlockComment = true
+      i += 2
+    } else if (inBlockComment && source.slice(i, i + 2) === '*/') {
+      inBlockComment = false
+      i += 2
+    } else {
+      i++
+    }
+  }
+  return inBlockComment
+}
+
+/**
+ * Extract embedded tests from block comments
+ *
+ * Syntax:
+ *   /*test 'description' {
+ *     assert(condition)
+ *   }* /
+ *
+ * This allows tests to be embedded in TypeScript files that would
+ * otherwise strip out `test {}` blocks during TS compilation.
+ */
+function extractEmbeddedTests(source: string): ExtractedTest[] {
+  const tests: ExtractedTest[] = []
+
+  // Match: /*test 'description' { ... }*/  or  /*test { ... }*/
+  const embeddedRegex =
+    /\/\*test\s+(['"`])([^'"`]*)\1\s*\{([\s\S]*?)\}\s*\*\/|\/\*test\s*\{([\s\S]*?)\}\s*\*\//g
+
+  let match
+  while ((match = embeddedRegex.exec(source)) !== null) {
+    // Group 2 = description for quoted, group 3 = body for quoted
+    // Group 4 = body for anonymous
+    const desc = match[2] || `embedded test ${tests.length + 1}`
+    const body = (match[3] || match[4] || '').trim()
+
+    tests.push({
+      description: desc,
+      body,
+      line: getLineNumber(source, match.index),
+    })
+  }
+
+  return tests
+}
+
+/**
  * Extract inline tests from TJS source
+ *
+ * Note: Signature tests (from -> return types) are handled separately by the
+ * transpiler in js.ts. This function only extracts explicit test blocks.
  */
 export function extractTests(source: string): TestExtractionResult {
   const tests: ExtractedTest[] = []
   const mocks: ExtractedMock[] = []
 
-  // Regex to match test('description') { ... } blocks
-  // This is a simplified approach - handles basic cases
-  const testRegex = /test\s*\(\s*(['"`])([^'"`]*)\1\s*\)\s*\{/g
+  // First, extract embedded tests from block comments (for TS compatibility)
+  // These use syntax: /*test 'description' { ... }*/
+  const embeddedTests = extractEmbeddedTests(source)
+  tests.push(...embeddedTests)
+
+  // Regex to match test blocks - three syntaxes supported:
+  //   test { ... }                   (anonymous test)
+  //   test 'description' { ... }     (canonical TJS)
+  //   test('description') { ... }    (also valid - parenthesized string is still a string)
+  const testRegex =
+    /test\s+(['"`])([^'"`]*)\1\s*\{|test\s*\(\s*(['"`])([^'"`]*)\3\s*\)\s*\{|test\s*\{/g
   const mockRegex = /mock\s*\{/g
 
   let cleanCode = source
@@ -64,7 +158,14 @@ export function extractTests(source: string): TestExtractionResult {
 
   while ((match = testRegex.exec(source)) !== null) {
     const start = match.index
-    const desc = match[2]
+
+    // Skip matches inside comments (but embedded tests were already extracted above)
+    if (isInsideComment(source, start)) {
+      continue
+    }
+
+    // Description is in group 2 for `test 'desc'`, group 4 for `test('desc')`, or undefined for `test {`
+    const desc = match[2] || match[4] || `test ${tests.length + 1}`
     const bodyStart = match.index + match[0].length
 
     // Find matching closing brace
@@ -261,7 +362,7 @@ function expect(actual) {
     if (keysA.length !== keysB.length) return false
     return keysA.every(k => deepEqual(a[k], b[k]))
   }
-  
+
   const format = (v) => {
     if (v === null) return 'null'
     if (v === undefined) return 'undefined'

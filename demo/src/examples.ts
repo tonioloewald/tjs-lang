@@ -7,12 +7,14 @@ export interface Example {
   description: string
   code: string
   requiresApi?: boolean // Needs LLM API key
+  group?: 'featured' | 'basics' | 'api' | 'llm' | 'advanced' // Navigation group
 }
 
 export const examples: Example[] = [
   {
     name: 'Hello World',
     description: 'Simple greeting with template',
+    group: 'basics',
     code: `function greet({ name = 'World' }) {
   let message = template({ tmpl: 'Hello, {{name}}!', vars: { name } })
   return { message }
@@ -21,6 +23,7 @@ export const examples: Example[] = [
   {
     name: 'Math Operations',
     description: 'Basic arithmetic and Math built-ins',
+    group: 'basics',
     code: `function calculate({ a = 10, b = 5 }) {
   let sum = a + b
   let product = a * b
@@ -34,6 +37,7 @@ export const examples: Example[] = [
   {
     name: 'Conditional Logic',
     description: 'If/else branching',
+    group: 'basics',
     code: `function checkAge({ age = 25 }) {
   if (age >= 18) {
     let status = 'adult'
@@ -47,6 +51,7 @@ export const examples: Example[] = [
   {
     name: 'Loop & Filter',
     description: 'Process arrays with array methods',
+    group: 'basics',
     code: `function processNumbers({ numbers = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10] }) {
   let evens = numbers.filter(x => x % 2 == 0)
   let doubled = evens.map(x => x * 2)
@@ -57,6 +62,7 @@ export const examples: Example[] = [
   {
     name: 'String Processing',
     description: 'Work with text',
+    group: 'basics',
     code: `function processText({ text = 'Hello World' }) {
   let upper = text.toUpperCase()
   let lower = text.toLowerCase()
@@ -68,6 +74,7 @@ export const examples: Example[] = [
   {
     name: 'JSON Processing',
     description: 'Parse and stringify JSON',
+    group: 'basics',
     code: `function jsonRoundTrip({ data = { name: 'Alice', age: 30 } }) {
   let jsonStr = JSON.stringify(data)
   let parsed = JSON.parse(jsonStr)
@@ -78,6 +85,7 @@ export const examples: Example[] = [
   {
     name: 'Error Handling',
     description: 'Try/catch with Error()',
+    group: 'basics',
     code: `function safeDivide({ a = 10, b = 0 }) {
   try {
     if (b == 0) {
@@ -93,6 +101,7 @@ export const examples: Example[] = [
   {
     name: 'Weather API',
     description: 'Fetch weather data (no API key needed)',
+    group: 'api',
     code: `function getWeather({ lat = 37.7749, lon = -122.4194 }) {
   let url = \`https://api.open-meteo.com/v1/forecast?latitude=\${lat}&longitude=\${lon}&current_weather=true\`
   let response = httpFetch({ url, cache: 1800 })
@@ -103,13 +112,14 @@ export const examples: Example[] = [
   {
     name: 'iTunes Search',
     description: 'Search Apple iTunes catalog',
+    group: 'api',
     code: `function searchMusic({ query = 'Beatles', limit = 5 }) {
   let url = \`https://itunes.apple.com/search?term=\${query}&limit=\${limit}&media=music\`
   let response = httpFetch({ url, cache: 3600 })
-  let tracks = response.results.map(x => ({ 
-    artist: x.artistName, 
-    track: x.trackName, 
-    album: x.collectionName 
+  let tracks = response.results.map(x => ({
+    artist: x.artistName,
+    track: x.trackName,
+    album: x.collectionName
   }))
   return { tracks }
 }`,
@@ -117,13 +127,14 @@ export const examples: Example[] = [
   {
     name: 'GitHub Repos',
     description: 'Search GitHub repositories',
+    group: 'api',
     code: `function searchRepos({ query = 'tosijs', perPage = 5 }) {
   let url = \`https://api.github.com/search/repositories?q=\${query}&per_page=\${perPage}&sort=stars\`
   let response = httpFetch({ url, cache: 300 })
-  let repos = response.items.map(x => ({ 
-    name: x.full_name, 
-    stars: x.stargazers_count, 
-    description: x.description 
+  let repos = response.items.map(x => ({
+    name: x.full_name,
+    stars: x.stargazers_count,
+    description: x.description
   }))
   return { repos }
 }`,
@@ -131,6 +142,7 @@ export const examples: Example[] = [
   {
     name: 'LLM Chat',
     description: 'Chat with AI (requires llm capability)',
+    group: 'llm',
     requiresApi: true,
     code: `function chat({ message = 'What is the capital of France?' }) {
   // Requires llm.predict capability to be configured
@@ -141,13 +153,14 @@ export const examples: Example[] = [
   {
     name: 'LLM Summarizer',
     description: 'Fetch and summarize text (requires llm capability)',
+    group: 'llm',
     requiresApi: true,
     code: `function summarize({ source = 'coffee-origins' }) {
   // Fetch text from our sample documents
   // Options: 'coffee-origins', 'ai-history', 'renewable-energy'
   let url = \`/texts/\${source}.txt\`
   let text = httpFetch({ url })
-  
+
   let prompt = \`Summarize the following text in 2-3 sentences:\n\n\${text}\`
   let summary = llmPredict({ prompt })
   return { source, summary }
@@ -156,6 +169,7 @@ export const examples: Example[] = [
   {
     name: 'LLM Structured Output',
     description: 'Get structured JSON from LLM (requires llm capability)',
+    group: 'llm',
     requiresApi: true,
     code: `function extractInfo({ text = 'John Smith is a 35-year-old software engineer from San Francisco who loves hiking and photography.' }) {
   // Schema.response builds responseFormat from an example
@@ -166,7 +180,7 @@ export const examples: Example[] = [
     location: '',
     hobbies: ['']
   })
-  
+
   let prompt = \`Extract person info from this text: \${text}\`
   let response = llmPredict({ prompt, options: { responseFormat: schema } })
   let person = JSON.parse(response)
@@ -176,23 +190,24 @@ export const examples: Example[] = [
   {
     name: 'LLM + API Data',
     description: 'LLM analyzes API data (requires llm capability)',
+    group: 'featured',
     requiresApi: true,
     code: `function findCovers({ song = 'Yesterday', artist = 'Beatles' }) {
   // Search iTunes for the song
   let query = song + ' ' + artist
   let url = \`https://itunes.apple.com/search?term=\${query}&limit=25&media=music\`
   let response = httpFetch({ url, cache: 3600 })
-  
+
   // Format results for LLM analysis
   let results = response.results || []
   let tracks = results.map(x => \`"\${x.trackName}" by \${x.artistName} (\${x.collectionName})\`)
   let trackList = tracks.join('\\n')
-  
+
   // Schema.response from example - much cleaner!
   let schema = Schema.response('cover_versions', {
     covers: [{ track: '', artist: '', album: '' }]
   })
-  
+
   let prompt = \`Search results for "\${song}" by \${artist}:
 
 \${trackList}
@@ -207,37 +222,39 @@ List cover versions (tracks NOT by \${artist}).\`
   {
     name: 'LLM with Tool',
     description: 'LLM uses a calculator tool (requires llm capability)',
+    group: 'advanced',
     requiresApi: true,
     code: `function mathAssistant({ question = 'What is 23 * 47 + 156?' }) {
   // First, ask LLM to extract the calculation
   let extractPrompt = \`Extract the math expression from this question. Return ONLY the expression, nothing else.
 Question: \${question}\`
   let expression = llmPredict({ prompt: extractPrompt })
-  
+
   // Evaluate the expression (simple eval simulation)
   let calcPrompt = \`Calculate: \${expression}
 Return ONLY the numeric result.\`
   let calcResult = llmPredict({ prompt: calcPrompt })
-  
+
   // Format the answer
   let answerPrompt = \`The user asked: "\${question}"
 The calculated result is: \${calcResult}
 Write a brief, friendly response with the answer.\`
   let answer = llmPredict({ prompt: answerPrompt })
-  
+
   return { question, expression: expression.trim(), result: calcResult.trim(), answer }
 }`,
   },
   {
     name: 'Multi-Agent Pipeline',
     description: 'Two agents collaborate on a task (requires llm capability)',
+    group: 'advanced',
     requiresApi: true,
     code: `function collaborativeWriting({ topic = 'the future of renewable energy' }) {
   // Agent 1: Research Agent - generates key points
   let researchPrompt = \`You are a research agent. Generate 3 key facts or points about: \${topic}
 Format as a numbered list. Be concise.\`
   let research = llmPredict({ prompt: researchPrompt })
-  
+
   // Agent 2: Writer Agent - creates content from research
   let writerPrompt = \`You are a writer agent. Using these research points:
 
@@ -246,7 +263,7 @@ Format as a numbered list. Be concise.\`
 Write a short, engaging paragraph (2-3 sentences) about \${topic}.
 Make it informative and accessible.\`
   let article = llmPredict({ prompt: writerPrompt })
-  
+
   // Agent 3: Editor Agent - reviews and improves
   let editorPrompt = \`You are an editor agent. Review this draft:
 
@@ -255,8 +272,8 @@ Make it informative and accessible.\`
 Suggest one specific improvement. Then provide the improved version.
 Format: "Suggestion: [your suggestion]\\n\\nImproved: [improved text]"\`
   let edited = llmPredict({ prompt: editorPrompt })
-  
-  return { 
+
+  return {
     topic,
     researchPoints: research,
     firstDraft: article,
@@ -265,8 +282,9 @@ Format: "Suggestion: [your suggestion]\\n\\nImproved: [improved text]"\`
 }`,
   },
   {
-    name: 'Fuel Exhaustion',
-    description: 'Demonstrates running out of fuel',
+    name: 'Fuel Limits',
+    description: 'Demonstrates safe termination - try different fuel amounts!',
+    group: 'featured',
     code: `function infiniteLoop({ limit = 1000000 }) {
   // This will run out of fuel before completing
   let counter = 0
@@ -281,23 +299,24 @@ Format: "Suggestion: [your suggestion]\\n\\nImproved: [improved text]"\`
   {
     name: 'Vision: OCR',
     description: 'Extract text from an image (requires vision model)',
+    group: 'advanced',
     requiresApi: true,
     code: `function extractText({ imageUrl = '/photo-2.jpg' }) {
   // Fetch image as data URL for vision model
   let image = httpFetch({ url: imageUrl, responseType: 'dataUrl' })
-  
+
   // Use Schema.response for structured output
   let schema = Schema.response('ocr_result', {
     text: '',
     items: [{ description: '', amount: '' }]
   })
-  
+
   let result = llmVision({
     prompt: 'Extract all text from this image. If it is a receipt, list the items and amounts.',
     images: [image],
     responseFormat: schema
   })
-  
+
   let parsed = JSON.parse(result.content)
   return { imageUrl, extracted: parsed }
 }`,
@@ -305,11 +324,12 @@ Format: "Suggestion: [your suggestion]\\n\\nImproved: [improved text]"\`
   {
     name: 'Vision: Classification',
     description: 'Classify and describe an image (requires vision model)',
+    group: 'advanced',
     requiresApi: true,
     code: `function classifyImage({ imageUrl = '/photo-1.jpg' }) {
   // Fetch image as data URL
   let image = httpFetch({ url: imageUrl, responseType: 'dataUrl' })
-  
+
   // Schema for classification result
   let schema = Schema.response('image_classification', {
     category: '',
@@ -318,13 +338,13 @@ Format: "Suggestion: [your suggestion]\\n\\nImproved: [improved text]"\`
     tags: [''],
     confidence: ''
   })
-  
+
   let result = llmVision({
     prompt: 'Classify this image. Identify the main subject, provide a brief description, and list relevant tags.',
     images: [image],
     responseFormat: schema
   })
-  
+
   let parsed = JSON.parse(result.content)
   return { imageUrl, classification: parsed }
 }`,
@@ -333,6 +353,7 @@ Format: "Suggestion: [your suggestion]\\n\\nImproved: [improved text]"\`
     name: 'LLM Code Solver',
     description:
       'LLM writes and runs code to solve a problem (requires llm capability)',
+    group: 'advanced',
     requiresApi: true,
     code: `function solveWithCode({ problem = 'Calculate the 10th Fibonacci number' }) {
   // System prompt with AsyncJS rules and example
@@ -355,13 +376,13 @@ function solve() {
 }
 
 Return ONLY the function code, nothing else.\`
-  
+
   let prompt = \`\${systemContext}
 
 Write a function called "solve" that: \${problem}\`
 
   let response = llmPredict({ prompt })
-  
+
   // Clean up code - remove markdown fences, fix escapes, extract function
   let code = response
   code = code.replace(/\`\`\`(?:javascript|js|asyncjs)?\\n?/g, '')
@@ -370,13 +391,13 @@ Write a function called "solve" that: \${problem}\`
   code = code.replace(/\\\\t/g, '\\t')
   code = code.replace(/\\\\"/g, '"')
   code = code.trim()
-  
+
   // Try to extract just the function if there's extra text
   let funcMatch = code.match(/function\\s+solve\\s*\\([^)]*\\)\\s*\\{[\\s\\S]*\\}/)
   if (funcMatch) {
     code = funcMatch[0]
   }
-  
+
   // Validate it looks like a function before running
   if (!code.startsWith('function')) {
     return {
@@ -385,10 +406,10 @@ Write a function called "solve" that: \${problem}\`
       rawResponse: response
     }
   }
-  
+
   // Execute the generated code
   let output = runCode({ code, args: {} })
-  
+
   return {
     problem,
     generatedCode: code,
@@ -400,6 +421,7 @@ Write a function called "solve" that: \${problem}\`
     name: 'LLM Code Generator',
     description:
       'LLM writes AsyncJS code from a description (requires llm capability)',
+    group: 'advanced',
     requiresApi: true,
     code: `function generateCode({ task = 'Calculate the factorial of n' }) {
   // System prompt with AsyncJS rules and complete example
@@ -426,7 +448,7 @@ function sumTo(n: 10) {
     code: '',
     description: ''
   })
-  
+
   let prompt = \`\${systemContext}
 
 Write an AsyncJS function for: \${task}
@@ -435,7 +457,7 @@ Return ONLY valid AsyncJS code in the code field. Must start with "function" and
 
   let response = llmPredict({ prompt, options: { responseFormat: schema } })
   let result = JSON.parse(response)
-  
+
   // Clean up any markdown fences and fix escaped newlines
   let code = result.code
   code = code.replace(/\`\`\`(?:javascript|js)?\\n?/g, '')
@@ -443,7 +465,7 @@ Return ONLY valid AsyncJS code in the code field. Must start with "function" and
   code = code.replace(/\\\\n/g, '\\n')
   code = code.replace(/\\\\t/g, '\\t')
   code = code.trim()
-  
+
   return {
     task,
     code,
