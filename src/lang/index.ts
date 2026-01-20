@@ -72,8 +72,6 @@ export {
   wrap,
   emitRuntimeWrapper,
   TJS_VERSION,
-  registerType,
-  getType,
   type TJSError,
 } from './runtime'
 export {
