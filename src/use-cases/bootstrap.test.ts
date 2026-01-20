@@ -5,14 +5,15 @@
  * 1. Transpile TJS source files with TJS
  * 2. Execute the transpiled code
  * 3. Run functionality tests against it
- * 4. Report timing as a benchmark
+ * 4. Use transpiled TJS to transpile TJS (true self-hosting)
+ * 5. Report timing as a benchmark
  *
  * If this test fails, something fundamental is broken.
  */
 
 import { describe, it, expect } from 'bun:test'
 import { fromTS } from '../lang/emitters/from-ts'
-import { tjs } from '../lang'
+import { tjs, transpileToJS } from '../lang'
 import * as fs from 'fs'
 import * as path from 'path'
 
@@ -294,6 +295,371 @@ describe('Bootstrap Canary', () => {
       // All should succeed
       const failures = results.filter((r) => !r.success)
       expect(failures.length).toBe(0)
+    })
+  })
+
+  describe('True self-hosting: transpiled TJS validates types', () => {
+    it('should execute transpiled checkType and typeToString', () => {
+      const start = performance.now()
+
+      // Step 1: Transpile inference.ts
+      const inferencePath = path.join(import.meta.dir, '../lang/inference.ts')
+      const inferenceSource = fs.readFileSync(inferencePath, 'utf-8')
+
+      const transpileStart = performance.now()
+      const inferenceResult = fromTS(inferenceSource)
+      const transpileTime = performance.now() - transpileStart
+
+      expect(inferenceResult.code).toBeTruthy()
+      expect(inferenceResult.code.length).toBeGreaterThan(1000)
+
+      // Step 2: Execute the transpiled inference module
+      // checkType and typeToString work on raw values, not AST nodes
+      const execStart = performance.now()
+      const strippedInference = inferenceResult.code
+        .replace(/^import\s+.*$/gm, '')
+        .replace(/^export\s+/gm, '')
+
+      const inferenceModule = new Function(`
+        ${strippedInference}
+        return { checkType, typeToString };
+      `)()
+      const execTime = performance.now() - execStart
+
+      // Step 3: Test transpiled checkType with various types
+      const testStart = performance.now()
+
+      // String type
+      expect(inferenceModule.checkType('hello', { kind: 'string' })).toBe(true)
+      expect(inferenceModule.checkType(42, { kind: 'string' })).toBe(false)
+
+      // Number type
+      expect(inferenceModule.checkType(42, { kind: 'number' })).toBe(true)
+      expect(inferenceModule.checkType('42', { kind: 'number' })).toBe(false)
+
+      // Boolean type
+      expect(inferenceModule.checkType(true, { kind: 'boolean' })).toBe(true)
+      expect(inferenceModule.checkType(1, { kind: 'boolean' })).toBe(false)
+
+      // Null handling
+      expect(inferenceModule.checkType(null, { kind: 'null' })).toBe(true)
+      expect(
+        inferenceModule.checkType(null, { kind: 'string', nullable: true })
+      ).toBe(true)
+      expect(inferenceModule.checkType(null, { kind: 'string' })).toBe(false)
+
+      // Array type
+      expect(
+        inferenceModule.checkType([1, 2, 3], {
+          kind: 'array',
+          items: { kind: 'number' },
+        })
+      ).toBe(true)
+      expect(
+        inferenceModule.checkType(['a', 'b'], {
+          kind: 'array',
+          items: { kind: 'string' },
+        })
+      ).toBe(true)
+      expect(
+        inferenceModule.checkType([1, 'a'], {
+          kind: 'array',
+          items: { kind: 'number' },
+        })
+      ).toBe(false)
+
+      // Object type
+      expect(
+        inferenceModule.checkType(
+          { name: 'test', age: 25 },
+          {
+            kind: 'object',
+            shape: { name: { kind: 'string' }, age: { kind: 'number' } },
+          }
+        )
+      ).toBe(true)
+
+      // Union type
+      expect(
+        inferenceModule.checkType('hello', {
+          kind: 'union',
+          members: [{ kind: 'string' }, { kind: 'number' }],
+        })
+      ).toBe(true)
+      expect(
+        inferenceModule.checkType(42, {
+          kind: 'union',
+          members: [{ kind: 'string' }, { kind: 'number' }],
+        })
+      ).toBe(true)
+      expect(
+        inferenceModule.checkType(true, {
+          kind: 'union',
+          members: [{ kind: 'string' }, { kind: 'number' }],
+        })
+      ).toBe(false)
+
+      // Step 4: Test transpiled typeToString
+      expect(inferenceModule.typeToString({ kind: 'string' })).toBe('string')
+      expect(inferenceModule.typeToString({ kind: 'number' })).toBe('number')
+      expect(inferenceModule.typeToString({ kind: 'boolean' })).toBe('boolean')
+      expect(
+        inferenceModule.typeToString({
+          kind: 'array',
+          items: { kind: 'string' },
+        })
+      ).toBe('string[]')
+      expect(
+        inferenceModule.typeToString({ kind: 'string', nullable: true })
+      ).toBe('string | null')
+
+      const testTime = performance.now() - testStart
+      const totalTime = performance.now() - start
+
+      console.log(`\n  True self-hosting test:`)
+      console.log(
+        `    Transpile inference.ts: ${transpileTime.toFixed(2)}ms (${(
+          inferenceResult.code.length / 1024
+        ).toFixed(1)}KB)`
+      )
+      console.log(`    Execute module:         ${execTime.toFixed(2)}ms`)
+      console.log(`    Run checkType tests:    ${testTime.toFixed(2)}ms`)
+      console.log(`    Total:                  ${totalTime.toFixed(2)}ms`)
+      console.log(
+        `    Status:                 ✓ Transpiled checkType/typeToString work correctly`
+      )
+    })
+
+    it('should produce identical checkType results vs native', () => {
+      // Transpile and execute inference.ts
+      const inferencePath = path.join(import.meta.dir, '../lang/inference.ts')
+      const inferenceSource = fs.readFileSync(inferencePath, 'utf-8')
+      const inferenceResult = fromTS(inferenceSource)
+
+      const strippedCode = inferenceResult.code
+        .replace(/^import\s+.*$/gm, '')
+        .replace(/^export\s+/gm, '')
+
+      const bootstrappedInference = new Function(`
+        ${strippedCode}
+        return { checkType, typeToString };
+      `)()
+
+      // Import native inference
+      const nativeInference = require('../lang/inference')
+
+      // Test cases: [value, type, expectedResult]
+      const testCases: [any, any, boolean][] = [
+        ['hello', { kind: 'string' }, true],
+        [42, { kind: 'string' }, false],
+        [42, { kind: 'number' }, true],
+        [true, { kind: 'boolean' }, true],
+        [null, { kind: 'null' }, true],
+        [null, { kind: 'string', nullable: true }, true],
+        [[1, 2, 3], { kind: 'array', items: { kind: 'number' } }, true],
+        [{ x: 1 }, { kind: 'object', shape: { x: { kind: 'number' } } }, true],
+        [
+          'a',
+          { kind: 'union', members: [{ kind: 'string' }, { kind: 'number' }] },
+          true,
+        ],
+      ]
+
+      for (const [value, type, expected] of testCases) {
+        const nativeResult = nativeInference.checkType(value, type)
+        const bootstrappedResult = bootstrappedInference.checkType(value, type)
+
+        expect(bootstrappedResult).toBe(nativeResult)
+        expect(bootstrappedResult).toBe(expected)
+      }
+
+      // Test typeToString equivalence
+      const types = [
+        { kind: 'string' },
+        { kind: 'number' },
+        { kind: 'boolean' },
+        { kind: 'null' },
+        { kind: 'any' },
+        { kind: 'array', items: { kind: 'string' } },
+        { kind: 'string', nullable: true },
+        { kind: 'object', shape: { name: { kind: 'string' } } },
+      ]
+
+      for (const type of types) {
+        const nativeStr = nativeInference.typeToString(type)
+        const bootstrappedStr = bootstrappedInference.typeToString(type)
+        expect(bootstrappedStr).toBe(nativeStr)
+      }
+
+      console.log(`\n  Bootstrapped vs Native comparison:`)
+      console.log(`    checkType:    ${testCases.length} test cases ✓`)
+      console.log(`    typeToString: ${types.length} test cases ✓`)
+      console.log(`    All results match native implementation`)
+    })
+
+    it('should execute transpiled preprocess to transform TJS syntax', () => {
+      const start = performance.now()
+
+      // Step 1: Transpile parser.ts
+      const parserPath = path.join(import.meta.dir, '../lang/parser.ts')
+      const parserSource = fs.readFileSync(parserPath, 'utf-8')
+
+      const transpileStart = performance.now()
+      const parserResult = fromTS(parserSource)
+      const transpileTime = performance.now() - transpileStart
+
+      expect(parserResult.code).toBeTruthy()
+      expect(parserResult.code.length).toBeGreaterThan(10000)
+
+      // Step 2: Execute the transpiled parser module
+      const execStart = performance.now()
+      const strippedCode = parserResult.code
+        .replace(/^import\s+.*$/gm, '')
+        .replace(/^export\s+/gm, '')
+
+      const parserModule = new Function(`
+        ${strippedCode}
+        return { preprocess };
+      `)()
+      const execTime = performance.now() - execStart
+
+      expect(typeof parserModule.preprocess).toBe('function')
+
+      // Step 3: Test TJS preprocessing
+      const testStart = performance.now()
+
+      // Test colon shorthand -> default params
+      const result1 = parserModule.preprocess(`
+        function greet(name: 'World') -> '' {
+          return 'Hello, ' + name + '!'
+        }
+      `)
+      expect(result1.source).toContain("name = 'World'")
+      expect(result1.source).not.toContain("name: 'World'")
+
+      // Test arrow return type extraction
+      const result2 = parserModule.preprocess(`
+        function add(a: 0, b: 0) -> 0 {
+          return a + b
+        }
+      `)
+      expect(result2.returnType).toBe('0')
+      expect(result2.source).toContain('a = 0')
+      expect(result2.source).toContain('b = 0')
+      expect(result2.source).not.toContain('-> 0')
+
+      // Test required params (with colon, not default)
+      const result3 = parserModule.preprocess(`
+        function fetch(url: '') {
+          return url
+        }
+      `)
+      expect(result3.requiredParams.has('url')).toBe(true)
+
+      // Test safety markers
+      const result4 = parserModule.preprocess(`
+        function fast(! x: 0) { return x }
+        function safe(? y: 0) { return y }
+      `)
+      expect(result4.unsafeFunctions.has('fast')).toBe(true)
+      expect(result4.safeFunctions.has('safe')).toBe(true)
+
+      // Test Type declaration transformation
+      const result5 = parserModule.preprocess(`
+        Type User {
+          description: 'a user'
+          example: { name: '', age: 0 }
+        }
+      `)
+      expect(result5.source).toContain('const User = Type(')
+
+      // Test Generic declaration transformation
+      const result6 = parserModule.preprocess(`
+        Generic Box<T> {
+          description: 'boxed value'
+          predicate(x, T) { return T(x.value) }
+        }
+      `)
+      expect(result6.source).toContain('const Box = Generic(')
+
+      // Test Is/IsNot operators
+      const result7 = parserModule.preprocess(`
+        if (x Is y) { return true }
+        if (a IsNot b) { return false }
+      `)
+      expect(result7.source).toContain('Is(x, y)')
+      expect(result7.source).toContain('IsNot(a, b)')
+
+      const testTime = performance.now() - testStart
+      const totalTime = performance.now() - start
+
+      console.log(`\n  Transpiled parser (preprocess) test:`)
+      console.log(
+        `    Transpile parser.ts: ${transpileTime.toFixed(2)}ms (${(
+          parserResult.code.length / 1024
+        ).toFixed(1)}KB)`
+      )
+      console.log(`    Execute module:      ${execTime.toFixed(2)}ms`)
+      console.log(`    Run preprocess tests: ${testTime.toFixed(2)}ms`)
+      console.log(`    Total:               ${totalTime.toFixed(2)}ms`)
+      console.log(
+        `    Status:              ✓ Transpiled preprocess transforms TJS correctly`
+      )
+    })
+
+    it('should produce identical preprocess results vs native', () => {
+      // Transpile and execute parser.ts
+      const parserPath = path.join(import.meta.dir, '../lang/parser.ts')
+      const parserSource = fs.readFileSync(parserPath, 'utf-8')
+      const parserResult = fromTS(parserSource)
+
+      const strippedCode = parserResult.code
+        .replace(/^import\s+.*$/gm, '')
+        .replace(/^export\s+/gm, '')
+
+      const bootstrappedParser = new Function(`
+        ${strippedCode}
+        return { preprocess };
+      `)()
+
+      // Import native parser
+      const nativeParser = require('../lang/parser')
+
+      // Test cases - various TJS syntax
+      const testCases = [
+        `function f(x: 0) { return x }`,
+        `function g(a: '', b = 1) -> '' { return a }`,
+        `function h(! fast: 0) { return fast }`,
+        `Type Foo { example: { x: 0 } }`,
+        `Generic Bar<T> { predicate(x, T) { return true } }`,
+        `if (a Is b) { x = 1 }`,
+        `Union Dir 'direction' 'up' | 'down'`,
+        `Enum Color 'color' { Red: 'red' }`,
+      ]
+
+      let passed = 0
+      for (const source of testCases) {
+        const nativeResult = nativeParser.preprocess(source)
+        const bootstrappedResult = bootstrappedParser.preprocess(source)
+
+        // Compare outputs
+        expect(bootstrappedResult.source).toBe(nativeResult.source)
+        expect(bootstrappedResult.returnType).toBe(nativeResult.returnType)
+        expect([...bootstrappedResult.requiredParams]).toEqual([
+          ...nativeResult.requiredParams,
+        ])
+        expect([...bootstrappedResult.unsafeFunctions]).toEqual([
+          ...nativeResult.unsafeFunctions,
+        ])
+        expect([...bootstrappedResult.safeFunctions]).toEqual([
+          ...nativeResult.safeFunctions,
+        ])
+        passed++
+      }
+
+      console.log(`\n  Bootstrapped vs Native preprocess:`)
+      console.log(`    ${passed}/${testCases.length} test cases ✓`)
+      console.log(`    All outputs match native implementation`)
     })
   })
 })
