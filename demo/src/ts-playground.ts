@@ -76,12 +76,23 @@ interface TSPlaygroundParts extends PartsMap {
   copyTjsBtn: HTMLButtonElement
   openTjsBtn: HTMLButtonElement
   statusBar: HTMLElement
+  // Build flags
+  testsToggle: HTMLInputElement
+  debugToggle: HTMLInputElement
+  safetyToggle: HTMLInputElement
 }
 
 export class TSPlayground extends Component<TSPlaygroundParts> {
   private lastTjsCode: string = ''
   private lastJsCode: string = ''
   private consoleMessages: string[] = []
+
+  // Build flags state
+  private buildFlags = {
+    tests: true, // Run tests at transpile time
+    debug: false, // Debug mode (call stack tracking)
+    safe: true, // Safe mode (validates inputs)
+  }
 
   content = () => [
     // Toolbar
@@ -91,6 +102,40 @@ export class TSPlayground extends Component<TSPlaygroundParts> {
         { part: 'runBtn', class: 'run-btn', onClick: this.run },
         icons.play({ size: 16 }),
         'Run'
+      ),
+      span({ class: 'toolbar-separator' }),
+      // Build flags
+      div(
+        { class: 'build-flags' },
+        elements.label(
+          { class: 'flag-label', title: 'Run tests at transpile time' },
+          input({
+            part: 'testsToggle',
+            type: 'checkbox',
+            checked: true,
+            onChange: this.toggleTests,
+          }),
+          'Tests'
+        ),
+        elements.label(
+          { class: 'flag-label', title: 'Debug mode (call stack tracking)' },
+          input({
+            part: 'debugToggle',
+            type: 'checkbox',
+            onChange: this.toggleDebug,
+          }),
+          'Debug'
+        ),
+        elements.label(
+          { class: 'flag-label', title: 'Safe mode (validates inputs)' },
+          input({
+            part: 'safetyToggle',
+            type: 'checkbox',
+            checked: true,
+            onChange: this.toggleSafety,
+          }),
+          'Safe'
+        )
       ),
       span({ class: 'elastic' }),
       span({ part: 'statusBar', class: 'status-bar' }, 'Ready')
@@ -240,6 +285,22 @@ export class TSPlayground extends Component<TSPlaygroundParts> {
     this.parts.consoleHeader.textContent = 'Console'
   }
 
+  // Build flag toggle handlers
+  toggleTests = () => {
+    this.buildFlags.tests = this.parts.testsToggle.checked
+    this.transpile()
+  }
+
+  toggleDebug = () => {
+    this.buildFlags.debug = this.parts.debugToggle.checked
+    this.transpile()
+  }
+
+  toggleSafety = () => {
+    this.buildFlags.safe = this.parts.safetyToggle.checked
+    this.transpile()
+  }
+
   lastTranspileTime = 0
   lastTsToTjsTime = 0
   lastTjsToJsTime = 0
@@ -264,11 +325,21 @@ export class TSPlayground extends Component<TSPlaygroundParts> {
 
       // Step 2: TJS -> JS (skip signature tests with -!) (timed)
       // Replace -> with -! to avoid signature test failures during transpilation
-      const tjsCodeForJs = tjsResult.code.replace(/-> /g, '-! ')
+      let tjsCodeForJs = tjsResult.code.replace(/-> /g, '-! ')
+
+      // Inject safety directive if unsafe mode is enabled
+      if (!this.buildFlags.safe) {
+        tjsCodeForJs = 'safety none\n' + tjsCodeForJs
+      }
 
       try {
         const tjsStart = performance.now()
-        const jsResult = tjs(tjsCodeForJs, { runTests: 'report' })
+        // Build transpiler options from flags
+        const options: { runTests: boolean | 'report'; debug?: boolean } = {
+          runTests: this.buildFlags.tests ? 'report' : false,
+          debug: this.buildFlags.debug,
+        }
+        const jsResult = tjs(tjsCodeForJs, options)
         this.lastTjsToJsTime = performance.now() - tjsStart
         this.lastTranspileTime = this.lastTsToTjsTime + this.lastTjsToJsTime
 
@@ -587,6 +658,38 @@ export const tsPlayground = TSPlayground.elementCreator({
 
     ':host .run-btn:hover': {
       filter: 'brightness(1.1)',
+    },
+
+    ':host .toolbar-separator': {
+      width: '1px',
+      height: '20px',
+      background: 'var(--code-border, #d1d5db)',
+    },
+
+    ':host .build-flags': {
+      display: 'flex',
+      alignItems: 'center',
+      gap: '12px',
+    },
+
+    ':host .flag-label': {
+      display: 'flex',
+      alignItems: 'center',
+      gap: '4px',
+      fontSize: '13px',
+      color: 'var(--text-color, #6b7280)',
+      cursor: 'pointer',
+      userSelect: 'none',
+    },
+
+    ':host .flag-label:hover': {
+      color: 'var(--text-color, #374151)',
+    },
+
+    ':host .flag-label input[type="checkbox"]': {
+      margin: '0',
+      cursor: 'pointer',
+      accentColor: 'var(--brand-color, #3178c6)',
     },
 
     ':host .elastic': {
