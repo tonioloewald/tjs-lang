@@ -16,6 +16,10 @@
 
 import { readFileSync } from 'fs'
 import { tjs } from '../lang'
+import { installRuntime } from '../lang/runtime'
+
+// Install TJS runtime globally before executing any transpiled code
+installRuntime()
 
 const HELP = `
 tjsx - Execute TJS files instantly

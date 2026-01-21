@@ -268,6 +268,7 @@ describe('fromTS', () => {
       const code = `
         // Mock runtime
         globalThis.__tjs = {
+          version: '0.0.0',
           wrapClass: function(cls) {
             return new Proxy(cls, {
               construct(target, args) {
@@ -277,7 +278,8 @@ describe('fromTS', () => {
                 return Reflect.construct(target, args)
               }
             })
-          }
+          },
+          createRuntime: function() { return this; }
         }
         ${result.code}
         return Point

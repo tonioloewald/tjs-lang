@@ -903,6 +903,39 @@ export class TJSPlayground extends Component<TJSPlaygroundParts> {
 <body>
   ${htmlContent}
   <script type="module">
+    // TJS Runtime stub for iframe execution
+    globalThis.__tjs = {
+      version: '0.0.0',
+      pushStack: () => {},
+      popStack: () => {},
+      getStack: () => [],
+      typeError: (path, expected, value) => {
+        const actual = value === null ? 'null' : typeof value;
+        const err = new Error(\`Expected \${expected} for '\${path}', got \${actual}\`);
+        err.name = 'MonadicError';
+        err.path = path;
+        err.expected = expected;
+        err.actual = actual;
+        return err;
+      },
+      createRuntime: function() { return this; },
+      Is: (a, b) => {
+        if (a === b) return true;
+        if (a === null || b === null) return a === b;
+        if (typeof a !== typeof b) return false;
+        if (typeof a !== 'object') return false;
+        if (Array.isArray(a) && Array.isArray(b)) {
+          if (a.length !== b.length) return false;
+          return a.every((v, i) => globalThis.__tjs.Is(v, b[i]));
+        }
+        const keysA = Object.keys(a);
+        const keysB = Object.keys(b);
+        if (keysA.length !== keysB.length) return false;
+        return keysA.every(k => globalThis.__tjs.Is(a[k], b[k]));
+      },
+      IsNot: (a, b) => !globalThis.__tjs.Is(a, b),
+    };
+
     // Capture console.log
     const _log = console.log;
     console.log = (...args) => {

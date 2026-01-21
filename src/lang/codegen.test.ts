@@ -1301,6 +1301,24 @@ function fastDouble(! x: 0) -! 0 {
   })
 
   describe('source location tracking', () => {
+    it('error includes source file and line (no debug mode)', () => {
+      const tjsSource = `
+function greet(name: '') -! '' {
+  return 'Hello, ' + name
+}
+`
+      const { code } = tjs(tjsSource)
+      const greet = new Function(code + '; return greet')()
+
+      const err = greet(42)
+      expect(err).toBeInstanceOf(MonadicError)
+      // Path includes source location
+      expect(err.path).toContain('greet.name')
+      // Has the standard Error stack trace (from V8/JSC)
+      expect(err.stack).toBeDefined()
+      expect(err.stack).toContain('MonadicError')
+    })
+
     it('includes original TS file and line in error path (full pipeline)', () => {
       // Simulate a multi-function TS file
       const ts = `
@@ -1366,6 +1384,70 @@ function helper(x: 0) -! 0 {
       const helper = new Function(code + '; return helper')()
       const err = helper('wrong')
       expect(err.path).toBe('lib/utils.ts:15:helper.x')
+    })
+
+    it('captures TJS call stack in debug mode', () => {
+      const { configure } = require('./runtime')
+
+      // Enable debug mode
+      configure({ debug: true })
+
+      try {
+        const tjsSource = `/* tjs <- src/chain.ts */
+
+/* line 10 */
+function outer(x: 0) -! 0 {
+  return middle(x * 2)
+}
+
+/* line 20 */
+function middle(x: 0) -! 0 {
+  return inner(x + 10)
+}
+
+/* line 30 */
+function inner(x: '') -! '' {
+  return x.toUpperCase()
+}
+`
+        const { code } = tjs(tjsSource)
+        const fns = new Function(code + '; return { outer, middle, inner }')()
+
+        // outer(5) -> middle(10) -> inner(20) fails (20 is not a string)
+        const err = fns.outer(5)
+
+        expect(err).toBeInstanceOf(MonadicError)
+        expect(err.path).toBe('src/chain.ts:30:inner.x')
+
+        // Call stack should show the chain with source locations
+        expect(err.callStack).toBeDefined()
+        expect(err.callStack).toContain('src/chain.ts:10:outer')
+        expect(err.callStack).toContain('src/chain.ts:20:middle')
+        expect(err.callStack).toContain('src/chain.ts:30:inner')
+      } finally {
+        // Reset debug mode
+        configure({ debug: false })
+      }
+    })
+
+    it('does not capture call stack when debug mode is off', () => {
+      const { configure } = require('./runtime')
+
+      // Ensure debug mode is off
+      configure({ debug: false })
+
+      const tjsSource = `
+function test(x: 0) -! 0 {
+  return x * 2
+}
+`
+      const { code } = tjs(tjsSource)
+      const test = new Function(code + '; return test')()
+
+      const err = test('wrong')
+      expect(err).toBeInstanceOf(MonadicError)
+      // No call stack when debug is off
+      expect(err.callStack).toBeUndefined()
     })
   })
 })

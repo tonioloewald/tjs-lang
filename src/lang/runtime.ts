@@ -110,24 +110,28 @@ export function versionsCompatible(a: string, b: string): boolean {
  * NOT exported to user code - they just see Error instances.
  */
 export class MonadicError extends Error {
-  /** Path where the error occurred, e.g., "greet.name" */
+  /** Path where the error occurred, e.g., "src/file.ts:42:greet.name" */
   readonly path: string
   /** Expected type */
   readonly expected?: string
   /** Actual type received */
   readonly actual?: string
+  /** TJS call stack (only in debug mode) - shows source locations */
+  readonly callStack?: string[]
 
   constructor(
     message: string,
     path: string,
     expected?: string,
-    actual?: string
+    actual?: string,
+    callStack?: string[]
   ) {
     super(message)
     this.name = 'MonadicError'
     this.path = path
     this.expected = expected
     this.actual = actual
+    this.callStack = callStack
     // Maintains proper stack trace in V8 environments
     if (Error.captureStackTrace) {
       Error.captureStackTrace(this, MonadicError)
@@ -140,8 +144,9 @@ export class MonadicError extends Error {
  *
  * Called ONLY when a type check fails - no overhead on happy path.
  * Returns a MonadicError that propagates through the call chain.
+ * In debug mode, captures the TJS call stack with source locations.
  *
- * @param path - Location of the error, e.g., "greet.name"
+ * @param path - Location of the error, e.g., "src/file.ts:42:greet.name"
  * @param expected - Expected type, e.g., "string"
  * @param value - The actual value that failed the check
  */
@@ -151,11 +156,14 @@ export function typeError(
   value: unknown
 ): MonadicError {
   const actual = value === null ? 'null' : typeof value
+  // Capture call stack in debug mode (getStack returns [] if not in debug mode)
+  const stack = config.debug ? getStack() : undefined
   return new MonadicError(
     `Expected ${expected} for '${path}', got ${actual}`,
     path,
     expected,
-    actual
+    actual,
+    stack
   )
 }
 
@@ -208,13 +216,16 @@ export interface TJSConfig {
   maxStackSize?: number
 }
 
-/** Current runtime configuration */
-let config: TJSConfig = {
+/** Default configuration values */
+const DEFAULT_CONFIG: TJSConfig = {
   debug: false,
   safety: 'inputs',
   requireReturnTypes: false,
   maxStackSize: 100,
 }
+
+/** Current runtime configuration */
+let config: TJSConfig = { ...DEFAULT_CONFIG }
 
 /** Current call stack (only tracked in debug mode) */
 const callStack: string[] = []
@@ -287,6 +298,18 @@ export function popStack(): void {
  */
 export function getStack(): string[] {
   return [...callStack]
+}
+
+/**
+ * Reset runtime state to defaults
+ *
+ * Resets: config, callStack, unsafeDepth
+ * Use this in test teardown to prevent state leaking between tests.
+ */
+export function resetRuntime(): void {
+  config = { ...DEFAULT_CONFIG }
+  callStack.length = 0
+  unsafeDepth = 0
 }
 
 /**
@@ -1097,7 +1120,173 @@ export async function Eval<TOutput extends TypeSpec>(
 }
 
 /**
+ * Create an isolated TJS runtime instance
+ *
+ * Each call returns a fresh runtime with its own:
+ * - config (debug, safety, etc.)
+ * - callStack
+ * - unsafeDepth
+ *
+ * The new instance inherits the current global config at creation time,
+ * but subsequent changes are isolated.
+ *
+ * Use this to prevent state leaking between transpiled modules.
+ */
+export function createRuntime() {
+  // Per-instance state - inherit current global config
+  let instanceConfig: TJSConfig = { ...config }
+  const instanceCallStack: string[] = []
+  let instanceUnsafeDepth = 0
+
+  // Per-instance stateful functions
+  function instanceConfigure(options: TJSConfig): void {
+    instanceConfig = { ...instanceConfig, ...options }
+  }
+
+  function instanceGetConfig(): TJSConfig {
+    return { ...instanceConfig }
+  }
+
+  function instancePushStack(name: string): void {
+    if (instanceConfig.debug && name) {
+      instanceCallStack.push(name)
+      const maxSize = instanceConfig.maxStackSize ?? 100
+      while (instanceCallStack.length > maxSize) {
+        instanceCallStack.shift()
+      }
+    }
+  }
+
+  function instancePopStack(): void {
+    if (instanceConfig.debug) {
+      instanceCallStack.pop()
+    }
+  }
+
+  function instanceGetStack(): string[] {
+    return [...instanceCallStack]
+  }
+
+  function instanceResetRuntime(): void {
+    instanceConfig = { ...DEFAULT_CONFIG }
+    instanceCallStack.length = 0
+    instanceUnsafeDepth = 0
+  }
+
+  function instanceEnterUnsafe(): void {
+    instanceUnsafeDepth++
+  }
+
+  function instanceExitUnsafe(): void {
+    if (instanceUnsafeDepth > 0) instanceUnsafeDepth--
+  }
+
+  function instanceIsUnsafeMode(): boolean {
+    return instanceUnsafeDepth > 0
+  }
+
+  function instanceTypeError(
+    path: string,
+    expected: string,
+    value: unknown
+  ): MonadicError {
+    const actual = value === null ? 'null' : typeof value
+    const stack = instanceConfig.debug ? instanceGetStack() : undefined
+    return new MonadicError(
+      `Expected ${expected} for '${path}', got ${actual}`,
+      path,
+      expected,
+      actual,
+      stack
+    )
+  }
+
+  function instanceError(
+    message: string,
+    details?: Partial<Omit<TJSError, '$error' | 'message'>>
+  ): TJSError {
+    const err: TJSError = {
+      $error: true,
+      message,
+      ...details,
+    }
+    if (instanceConfig.debug && instanceCallStack.length > 0) {
+      const fullStack = details?.path
+        ? [...instanceCallStack, details.path]
+        : [...instanceCallStack]
+      err.stack = fullStack
+    }
+    return err
+  }
+
+  return {
+    version: TJS_VERSION,
+    // Monadic error handling
+    MonadicError,
+    typeError: instanceTypeError,
+    isMonadicError,
+    // Legacy error handling
+    isError,
+    error: instanceError,
+    composeErrors,
+    typeOf,
+    isNativeType,
+    checkType,
+    validateArgs,
+    wrap,
+    wrapClass,
+    compareVersions,
+    versionsCompatible,
+    // Debug mode (instance-specific)
+    configure: instanceConfigure,
+    getConfig: instanceGetConfig,
+    pushStack: instancePushStack,
+    popStack: instancePopStack,
+    getStack: instanceGetStack,
+    resetRuntime: instanceResetRuntime,
+    // Unsafe mode (instance-specific)
+    enterUnsafe: instanceEnterUnsafe,
+    exitUnsafe: instanceExitUnsafe,
+    isUnsafeMode: instanceIsUnsafeMode,
+    // Type system
+    validate,
+    infer: s.infer.bind(s),
+    Type,
+    isRuntimeType,
+    Union,
+    Generic,
+    Enum,
+    Nullable,
+    Optional,
+    TArray,
+    TString,
+    TNumber,
+    TBoolean,
+    TInteger,
+    TPositiveInt,
+    TNonEmptyString,
+    TEmail,
+    TUrl,
+    TUuid,
+    TPair,
+    TRecord,
+    // Safe eval/function
+    SafeFunction,
+    Eval,
+    // Structural equality
+    Is,
+    IsNot,
+  }
+}
+
+/** Type for runtime instances */
+export type TJSRuntime = ReturnType<typeof createRuntime>
+
+/**
  * TJS Runtime object - attached to globalThis.__tjs
+ *
+ * NOTE: This is a shared global instance. For isolated execution,
+ * use createRuntime() instead.
  */
 export const runtime = {
   version: TJS_VERSION,
@@ -1123,10 +1312,13 @@ export const runtime = {
   pushStack,
   popStack,
   getStack,
+  resetRuntime,
   // Unsafe mode
   enterUnsafe,
   exitUnsafe,
   isUnsafeMode,
+  // Factory for isolated instances
+  createRuntime,
   // Type system (used by transpiled Type declarations)
   validate,
   infer: s.infer.bind(s),
@@ -1171,6 +1363,13 @@ export function installRuntime(): typeof runtime {
 
   if (g.__tjs) {
     const existingVersion = g.__tjs.version
+
+    // Guard against polluted __tjs without proper version
+    if (typeof existingVersion !== 'string') {
+      g.__tjs = runtime
+      return runtime
+    }
+
     const comparison = compareVersions(TJS_VERSION, existingVersion)
 
     if (comparison === 0) {

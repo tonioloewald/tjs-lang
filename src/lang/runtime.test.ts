@@ -2,7 +2,7 @@
  * TJS Runtime Tests - Monadic Errors with Location Info
  */
 
-import { describe, it, expect, beforeEach } from 'bun:test'
+import { describe, it, expect, beforeEach, afterEach } from 'bun:test'
 import {
   isError,
   error,
@@ -15,6 +15,7 @@ import {
   getStack,
   pushStack,
   popStack,
+  resetRuntime,
   enterUnsafe,
   exitUnsafe,
   isUnsafeMode,
@@ -57,6 +58,10 @@ describe('TJS Runtime - Monadic Errors', () => {
   describe('debug mode - call stacks', () => {
     beforeEach(() => {
       configure({ debug: true })
+    })
+
+    afterEach(() => {
+      resetRuntime()
     })
 
     it('captures call stack in debug mode', () => {
@@ -803,7 +808,6 @@ describe('Eval', () => {
   })
 })
 
-
 describe('typeOf - enhanced typeof', () => {
   it('returns "null" for null', () => {
     expect(typeOf(null)).toBe('null')
@@ -879,7 +883,7 @@ describe('isNativeType - pragmatic native type checking', () => {
   it('works with custom classes', () => {
     class MyWidget {}
     class MyButton extends MyWidget {}
-    
+
     const button = new MyButton()
     expect(isNativeType(button, 'MyButton')).toBe(true)
     expect(isNativeType(button, 'MyWidget')).toBe(true)

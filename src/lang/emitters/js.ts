@@ -235,6 +235,10 @@ function generateInlineValidationCode(
   const lines: string[] = []
   // Include source in path if available: "src/file.ts:42:funcName.param"
   const pathPrefix = source ? `${source}:` : ''
+  const stackEntry = source ? `${source}:${funcName}` : funcName
+
+  // Push onto call stack for debug mode (only runs if debug enabled)
+  lines.push(`__tjs.pushStack('${stackEntry}');`)
 
   // Destructured params: validate each field of the input object
   if (types.isDestructuredParam && types.destructuredShape) {
@@ -497,13 +501,16 @@ export function transpileToJS(
   }
 
   // Add __tjs reference for monadic error handling and structural equality
+  // Use createRuntime() for isolated state per-module
   const needsTypeError = code.includes('__tjs.typeError(')
   const needsIs = code.includes('Is(')
   const needsIsNot = code.includes('IsNot(')
 
   if (needsTypeError || needsIs || needsIsNot) {
-    // Always get __tjs reference when needed
-    let preamble = 'const __tjs = globalThis.__tjs;\n'
+    // Create isolated runtime instance for this module
+    // Falls back to shared global if createRuntime not available
+    let preamble =
+      'const __tjs = globalThis.__tjs?.createRuntime?.() ?? globalThis.__tjs;\n'
 
     // Add destructured imports for Is/IsNot if used
     if (needsIs || needsIsNot) {
@@ -1010,32 +1017,45 @@ function runTestBlocks(
   for (const test of tests) {
     try {
       // Create a function that runs the test
+      // Always provide a clean __tjs stub for isolated test execution
+      // Save and restore globalThis.__tjs to prevent pollution
+      const tjsStub = `
+        const __saved_tjs = globalThis.__tjs;
+        const __stub_tjs = { version: '0.0.0', pushStack: () => {}, typeError: (path, expected, value) => new Error(\`Type error at \${path}: expected \${expected}\`), createRuntime: function() { return this; } };
+        globalThis.__tjs = __stub_tjs;
+      `
+      const tjsRestore = `globalThis.__tjs = __saved_tjs;`
       const testCode = `
-        ${transpiledCode}
-        ${mockSetup}
+        ${tjsStub}
+        try {
+          ${transpiledCode}
+          ${mockSetup}
 
-        // Test assertions
-        function assert(condition, message) {
-          if (!condition) throw new Error(message || 'Assertion failed')
-        }
+          // Test assertions
+          function assert(condition, message) {
+            if (!condition) throw new Error(message || 'Assertion failed')
+          }
 
-        function expect(actual) {
-          return {
-            toBe(expected) {
-              if (!__deepEqual(actual, expected)) {
-                throw new Error('Expected ' + __format(expected) + ' but got ' + __format(actual))
-              }
-            },
-            toEqual(expected) {
-              if (!__deepEqual(actual, expected)) {
-                throw new Error('Expected ' + __format(expected) + ' but got ' + __format(actual))
+          function expect(actual) {
+            return {
+              toBe(expected) {
+                if (!__deepEqual(actual, expected)) {
+                  throw new Error('Expected ' + __format(expected) + ' but got ' + __format(actual))
+                }
+              },
+              toEqual(expected) {
+                if (!__deepEqual(actual, expected)) {
+                  throw new Error('Expected ' + __format(expected) + ' but got ' + __format(actual))
+                }
               }
             }
           }
-        }
 
-        // Run the test body
-        ${test.body}
+          // Run the test body
+          ${test.body}
+        } finally {
+          ${tjsRestore}
+        }
       `
 
       // Execute the test
@@ -1320,9 +1340,24 @@ function runSignatureTest(
 
   try {
     // Execute the function with example args
+    // Provide a minimal __tjs stub for pushStack/typeError (used by inline validation)
+    // Only define if not already in the transpiled code
+    // Always provide a clean __tjs stub for isolated test execution
+    // Save and restore globalThis.__tjs to prevent pollution
+    const tjsStub = `
+      const __saved_tjs = globalThis.__tjs;
+      const __stub_tjs = { version: '0.0.0', pushStack: () => {}, typeError: (path, expected, value) => new Error(\`Type error at \${path}: expected \${expected}\`), createRuntime: function() { return this; } };
+      globalThis.__tjs = __stub_tjs;
+    `
+    const tjsRestore = `globalThis.__tjs = __saved_tjs;`
     const testCode = `
-      ${transpiledCode}
-      return ${funcName}(${args.map((a) => JSON.stringify(a)).join(', ')})
+      ${tjsStub}
+      try {
+        ${transpiledCode}
+        return ${funcName}(${args.map((a) => JSON.stringify(a)).join(', ')})
+      } finally {
+        ${tjsRestore}
+      }
     `
     const fn = new Function(testCode)
     const actual = fn()

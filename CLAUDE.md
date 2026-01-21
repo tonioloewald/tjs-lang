@@ -24,6 +24,11 @@ bun test --test-name-pattern "pattern"  # Run tests matching pattern
 SKIP_LLM_TESTS=1 bun test   # Skip LLM integration tests
 bun test --coverage         # With coverage report
 
+# Efficient test debugging - capture once, query multiple times
+bun test 2>&1 | tee /tmp/test-results.txt | tail -20  # Run and save
+grep -E "^\(fail\)" /tmp/test-results.txt             # List failures
+grep -A10 "test name" /tmp/test-results.txt           # See specific error
+
 # CLI tools
 bun src/cli/tjs.ts check <file>   # Parse and type check TJS file
 bun src/cli/tjs.ts run <file>     # Transpile and execute
