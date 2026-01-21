@@ -26,13 +26,7 @@ interface TjsExample {
   name: string
   description: string
   code: string
-  group?:
-    | 'featured'
-    | 'basics'
-    | 'patterns'
-    | 'fullstack'
-    | 'advanced'
-    | 'god-demo'
+  group?: 'featured' | 'basics' | 'patterns' | 'fullstack' | 'advanced'
 }
 
 // TJS examples - demonstrating typed JavaScript features
@@ -1379,232 +1373,6 @@ console.log('TJS inline tests: Full coverage. Clean exports.\\n')
 const user = createUser({ email: 'demo@example.com', password: 'SecurePass123!' })
 console.log('Created user:', user)`,
   },
-
-  // ═══════════════════════════════════════════════════════════════
-  // GOD DEMO: TypeScript → TJS → Runtime Validation
-  // ═══════════════════════════════════════════════════════════════
-  {
-    name: 'TS Keeps Its Promise',
-    description: 'TypeScript types work at runtime - the happy path',
-    group: 'god-demo',
-    code: `/**
- * # TypeScript Keeps Its Promise
- *
- * This is what TypeScript CLAIMS to do.
- * TJS makes it ACTUALLY happen at runtime.
- *
- * Watch the types flow through:
- * 1. You write TypeScript-style types
- * 2. TJS preserves them as runtime metadata
- * 3. The code validates itself
- */
-
-// Define a User type via example (TJS style)
-// In TS this would be: interface User { name: string; age: number }
-// In TJS the example IS the type
-
-function greet(user: { name: '', age: 0 }) -> '' {
-  return \`Hello, \${user.name}! You are \${user.age} years old.\`
-}
-
-// ═══════════════════════════════════════════════════════════════
-// THE HAPPY PATH: Types match, everything works
-// ═══════════════════════════════════════════════════════════════
-
-console.log('═══ TypeScript Keeps Its Promise ═══\\n')
-
-// This is what your API contract says
-const validUser = { name: 'Alice', age: 30 }
-
-console.log('Input:', validUser)
-console.log('Type check: ✓ name is string, age is number')
-
-const result = greet(validUser)
-console.log('Output:', result)
-
-console.log('\\n✅ Success! The types matched, the code ran.')
-console.log('\\nBut wait... what happens when types LIE?')
-console.log('→ Try the next example: "TS Lies"')
-
-// Show the runtime metadata
-console.log('\\n───────────────────────────────────')
-console.log('Runtime type metadata (greet.__tjs):')
-console.log(JSON.stringify(greet.__tjs, null, 2))
-`,
-  },
-  {
-    name: 'TS Lies',
-    description: 'TypeScript compiles, runtime crashes - TJS catches it',
-    group: 'god-demo',
-    code: `/**
- * # TypeScript Lies
- *
- * This is the REAL world:
- * - TypeScript says the data is valid
- * - TypeScript compiles successfully
- * - The runtime receives garbage
- * - Your app crashes at 3am
- *
- * TJS catches this. TypeScript doesn't.
- */
-
-// Same function as before
-function greet(user: { name: '', age: 0 }) -> '' {
-  return \`Hello, \${user.name}! You are \${user.age} years old.\`
-}
-
-// ═══════════════════════════════════════════════════════════════
-// THE LIE: What your API actually sends (not what TS thinks)
-// ═══════════════════════════════════════════════════════════════
-
-console.log('═══ TypeScript Lies ═══\\n')
-
-// Your API contract says { name: string, age: number }
-// But the server sends this (missing age!)
-const badUser = { name: 'Bob' }  // age is missing!
-
-console.log('Input:', badUser)
-console.log('TypeScript: "Looks fine to me!" ✓')
-console.log('\\nCalling greet(badUser)...\\n')
-
-// In pure TypeScript, this would:
-// 1. Compile successfully
-// 2. Return "Hello, Bob! You are undefined years old."
-// 3. Or crash if you try to do math on age
-// 4. Or corrupt your database with undefined values
-
-// In TJS, we catch it:
-const result = greet(badUser)
-
-console.log('───────────────────────────────────')
-if (result && result.$error) {
-  console.log('🛑 TJS CAUGHT THE LIE:\\n')
-  console.log('Error:', result.message)
-  console.log('Path:', result.path)
-  console.log('\\n✅ No crash. No corruption. No 3am pages.')
-  console.log('   Just a clean error you can handle.')
-} else {
-  console.log('Result:', result)
-}
-
-console.log('\\n═══════════════════════════════════════════════════════════════')
-console.log('THE PUNCHLINE:')
-console.log('═══════════════════════════════════════════════════════════════')
-console.log(\`
-TypeScript: "Trust me, the types are correct"
-            *compiles*
-            *deploys*
-            *crashes at runtime*
-            *corrupts database*
-            *wakes you up at 3am*
-
-TJS:        "Here's the error. Handle it."
-            { $error: true, message: "...", path: "..." }
-
-Same syntax. Actual safety.
-\`)
-`,
-  },
-  {
-    name: 'TS → TJS Full Pipeline',
-    description:
-      'See the complete transformation from TypeScript to validated runtime',
-    group: 'god-demo',
-    code: `/**
- * # The Complete Pipeline: TS → TJS → Safe Runtime
- *
- * This shows exactly what happens when you use TJS:
- *
- * 1. Write TypeScript-style code
- * 2. TJS transpiles it (types become runtime values)
- * 3. Run with automatic validation
- * 4. Errors are values, not crashes
- */
-
-// ═══════════════════════════════════════════════════════════════
-// STEP 1: Define your types (familiar TypeScript style)
-// ═══════════════════════════════════════════════════════════════
-
-// Type examples define both the shape AND example values
-function createOrder(order: {
-  product: 'Widget',
-  quantity: 1,
-  price: 9.99
-}) -> { total: 0, status: '' } {
-  const total = order.quantity * order.price
-  return {
-    total: Math.round(total * 100) / 100,
-    status: 'created'
-  }
-}
-
-// ═══════════════════════════════════════════════════════════════
-// STEP 2: The types are now runtime metadata
-// ═══════════════════════════════════════════════════════════════
-
-console.log('═══ The TJS Pipeline ═══\\n')
-console.log('STEP 2: Runtime metadata (this is what TS throws away)\\n')
-console.log(JSON.stringify(createOrder.__tjs, null, 2))
-
-// ═══════════════════════════════════════════════════════════════
-// STEP 3: Call with valid data - works perfectly
-// ═══════════════════════════════════════════════════════════════
-
-console.log('\\n───────────────────────────────────')
-console.log('STEP 3: Valid call\\n')
-
-const validOrder = { product: 'Gadget', quantity: 3, price: 29.99 }
-console.log('Input:', validOrder)
-
-const result1 = createOrder(validOrder)
-console.log('Output:', result1)
-console.log('Status: ✅ Success')
-
-// ═══════════════════════════════════════════════════════════════
-// STEP 4: Call with bad data - TJS catches it
-// ═══════════════════════════════════════════════════════════════
-
-console.log('\\n───────────────────────────────────')
-console.log('STEP 4: Invalid call (missing price)\\n')
-
-const badOrder = { product: 'Broken', quantity: 2 }  // no price!
-console.log('Input:', badOrder)
-
-const result2 = createOrder(badOrder)
-console.log('Output:', result2)
-
-if (result2.$error) {
-  console.log('Status: 🛑 Caught at runtime')
-  console.log('\\nIn TypeScript: undefined * 2 = NaN (silent corruption)')
-  console.log('In TJS: Clean error before the bad math happens')
-}
-
-// ═══════════════════════════════════════════════════════════════
-// STEP 5: More realistic - wrong types, not just missing
-// ═══════════════════════════════════════════════════════════════
-
-console.log('\\n───────────────────────────────────')
-console.log('STEP 5: Wrong types (quantity is string)\\n')
-
-const wrongTypes = { product: 'Bug', quantity: 'five', price: 10 }
-console.log('Input:', wrongTypes)
-
-const result3 = createOrder(wrongTypes)
-console.log('Output:', result3)
-
-if (result3.$error) {
-  console.log('Status: 🛑 Caught - "five" is not a number')
-}
-
-console.log('\\n═══════════════════════════════════════════════════════════════')
-console.log('This is the God Demo:')
-console.log('- TypeScript syntax you already know')
-console.log('- Types that exist at runtime')
-console.log('- Errors that are values, not crashes')
-console.log('- 50KB total. No build step. Just works.')
-console.log('═══════════════════════════════════════════════════════════════')
-`,
-  },
 ]
 
 // Types for docs
@@ -1878,7 +1646,7 @@ export class DemoNav extends Component {
     intro: 'Introduction',
     validation: 'Runtime Validation',
     // TJS example groups
-    'god-demo': '🔥 TS → TJS',
+
     featured: 'Featured',
     basics: 'Basics',
     patterns: 'Patterns',
@@ -1894,7 +1662,6 @@ export class DemoNav extends Component {
     'intro',
     'validation',
     // TJS groups
-    'god-demo',
     'featured',
     'basics',
     'patterns',
