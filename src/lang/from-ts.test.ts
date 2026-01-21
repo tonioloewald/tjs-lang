@@ -146,8 +146,9 @@ describe('fromTS', () => {
         { emitTJS: true }
       )
 
-      // Generic params become explicit any
-      expect(result.code).toContain('function identity(x: any)')
+      // Generic params become bare params (any is omitted in TJS)
+      expect(result.code).toContain('function identity(x)')
+      expect(result.code).not.toContain('x: any') // any is omitted, not explicit
       expect(result.code).not.toContain('-> any')
     })
 

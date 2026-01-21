@@ -1268,12 +1268,12 @@ describe('TypeScript to TJS Transpiler', () => {
       expect(result.code).toContain("title = ''")
     })
 
-    it('should convert return type to -> annotation', () => {
+    it('should convert return type to -! annotation (skip signature test)', () => {
       const result = fromTS(
         `function greet(name: string): string { return name }`,
         { emitTJS: true }
       )
-      expect(result.code).toContain("-> ''")
+      expect(result.code).toContain("-! ''") // -! skips signature test for TS-transpiled code
     })
 
     it('should handle array types', () => {
@@ -1289,7 +1289,7 @@ describe('TypeScript to TJS Transpiler', () => {
         `function getUser(): { name: string, age: number } { return { name: '', age: 0 } }`,
         { emitTJS: true }
       )
-      expect(result.code).toContain("-> { name: '', age: 0 }")
+      expect(result.code).toContain("-! { name: '', age: 0 }") // -! for TS-transpiled
     })
 
     it('should handle nullable types', () => {
@@ -1297,7 +1297,7 @@ describe('TypeScript to TJS Transpiler', () => {
         `function find(id: string): string | null { return null }`,
         { emitTJS: true }
       )
-      expect(result.code).toContain("-> '' || null")
+      expect(result.code).toContain("-! '' || null") // -! for TS-transpiled
     })
 
     it('should preserve default values', () => {

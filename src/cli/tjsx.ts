@@ -109,7 +109,9 @@ async function main() {
     process.exit(1)
   }
 
-  const fnName = result.types?.name
+  // Get the first function name from the types dictionary
+  const fnNames = Object.keys(result.types ?? {})
+  const fnName = fnNames[0]
   if (!fnName) {
     console.error('Error: No function found in source')
     process.exit(1)
