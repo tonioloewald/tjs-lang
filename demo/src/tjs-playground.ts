@@ -18,7 +18,7 @@ import {
   MarkdownViewer,
 } from 'tosijs-ui'
 import { codeMirror, CodeMirror } from '../../editors/codemirror/component'
-import { tjs } from '../../src/lang'
+import { tjs, type TJSTranspileOptions } from '../../src/lang'
 import { generateDocs } from '../../src/lang/docs'
 import { extractImports, generateImportMap, resolveImports } from './imports'
 import { ModuleStore, type ValidationResult } from './module-store'
@@ -137,9 +137,8 @@ export class TJSPlayground extends Component<TJSPlaygroundParts> {
     safe: true, // Safe mode (validates inputs)
   }
 
-  constructor() {
-    super()
-  }
+  // Transpilation sequence number to handle race conditions
+  private transpileSeq = 0
 
   /**
    * Get metadata for autocomplete - returns all discovered functions
@@ -417,6 +416,14 @@ export class TJSPlayground extends Component<TJSPlaygroundParts> {
   lastTranspileTime = 0
 
   transpile = () => {
+    // Kick off async transpilation
+    this.transpileAsync()
+  }
+
+  private transpileAsync = async () => {
+    // Increment sequence number to track this transpilation
+    const mySeq = ++this.transpileSeq
+
     let source = this.parts.tjsEditor.value
 
     // Extract function metadata for autocomplete (even if transpile fails)
@@ -429,12 +436,21 @@ export class TJSPlayground extends Component<TJSPlaygroundParts> {
     }
 
     try {
+      // Resolve local imports before transpilation (for test execution)
+      const resolvedImports = await this.resolveImportsForTests(source)
+
+      // Check if a newer transpilation has started - if so, abandon this one
+      if (mySeq !== this.transpileSeq) {
+        return
+      }
+
       // Time the transpilation
       const startTime = performance.now()
       // Build transpiler options from flags
-      const options: { runTests: boolean | 'report'; debug?: boolean } = {
+      const options: TJSTranspileOptions = {
         runTests: this.buildFlags.tests ? 'report' : false,
         debug: this.buildFlags.debug,
+        resolvedImports,
       }
       const result = tjs(source, options)
       this.lastTranspileTime = performance.now() - startTime
@@ -487,6 +503,34 @@ export class TJSPlayground extends Component<TJSPlaygroundParts> {
         this.parts.tjsEditor.clearMarkers()
       }
     }
+  }
+
+  /**
+   * Resolve local imports for test execution
+   * Returns a map of import specifier -> compiled code
+   */
+  private resolveImportsForTests = async (
+    source: string
+  ): Promise<Record<string, string>> => {
+    const imports = extractImports(source)
+    if (imports.length === 0) {
+      return {}
+    }
+
+    const resolvedImports: Record<string, string> = {}
+    const store = await ModuleStore.open()
+
+    for (const specifier of imports) {
+      // Only resolve local modules (not CDN packages)
+      if (await store.exists(specifier)) {
+        const compiled = await store.getCompiled(specifier)
+        if (compiled) {
+          resolvedImports[specifier] = compiled
+        }
+      }
+    }
+
+    return resolvedImports
   }
 
   private updateTestResults(result: any) {
@@ -943,7 +987,7 @@ export class TJSPlayground extends Component<TJSPlaygroundParts> {
 
       if (imports.length > 0) {
         this.log(`Resolving imports: ${imports.join(', ')}`)
-        const { importMap, errors } = await resolveImports(jsCode)
+        const { importMap, errors, localModules } = await resolveImports(jsCode)
 
         if (errors.length > 0) {
           for (const err of errors) {
@@ -958,6 +1002,16 @@ export class TJSPlayground extends Component<TJSPlaygroundParts> {
         }
       }
 
+      // Extract import statements from jsCode - they must be at the top of the module
+      const importStatements: string[] = []
+      const codeWithoutImports = jsCode.replace(
+        /^import\s+.*?from\s+['"][^'"]+['"];?\s*$/gm,
+        (match) => {
+          importStatements.push(match)
+          return ''
+        }
+      )
+
       // Create a complete HTML document for the iframe
       const iframeDoc = `<!DOCTYPE html>
 <html>
@@ -967,8 +1021,8 @@ export class TJSPlayground extends Component<TJSPlaygroundParts> {
 </head>
 <body>
   ${htmlContent}
-  <script type="module">
-    // TJS Runtime stub for iframe execution
+  <!-- TJS Runtime stub must be set up BEFORE imports execute -->
+  <script>
     globalThis.__tjs = {
       version: '0.0.0',
       pushStack: () => {},
@@ -1000,6 +1054,10 @@ export class TJSPlayground extends Component<TJSPlaygroundParts> {
       },
       IsNot: (a, b) => !globalThis.__tjs.Is(a, b),
     };
+  </script>
+  <script type="module">
+    // Import statements must be at the top of the module
+    ${importStatements.join('\n    ')}
 
     // Capture console.log
     const _log = console.log;
@@ -1012,7 +1070,7 @@ export class TJSPlayground extends Component<TJSPlaygroundParts> {
 
     try {
       const __execStart = performance.now();
-      ${jsCode}
+      ${codeWithoutImports}
 
       // Try to call the function if it exists and show result
       const funcName = Object.keys(window).find(k => {
@@ -1101,9 +1159,17 @@ export class TJSPlayground extends Component<TJSPlaygroundParts> {
     // Update revert button visibility
     this.updateRevertButton()
 
-    this.transpile()
-    // Auto-run when source is loaded externally (e.g., from example selection)
-    this.run()
+    // Transpile and run sequentially to avoid race conditions
+    this.transpileAndRun()
+  }
+
+  private transpileAndRun = async () => {
+    const mySeq = this.transpileSeq // Capture current seq before transpile increments it
+    await this.transpileAsync()
+    // Only run if this is still the current transpilation
+    if (this.transpileSeq === mySeq + 1) {
+      await this.run()
+    }
   }
 
   // Navigate to a specific line in the source editor

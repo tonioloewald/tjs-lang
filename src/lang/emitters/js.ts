@@ -47,6 +47,12 @@ export interface TJSTranspileOptions {
    * Enables better error messages with file:line:column info
    */
   debug?: boolean
+  /**
+   * Pre-resolved import code for test execution.
+   * Map of import specifier to compiled JavaScript code.
+   * Used when tests depend on imported modules.
+   */
+  resolvedImports?: Record<string, string>
 }
 
 /** Result of running tests at transpile time */
@@ -395,7 +401,12 @@ export function transpileToJS(
   source: string,
   options: TJSTranspileOptions = {}
 ): TJSTranspileResult {
-  const { filename = '<source>', runTests = true, debug = false } = options
+  const {
+    filename = '<source>',
+    runTests = true,
+    debug = false,
+    resolvedImports = {},
+  } = options
   const warnings: string[] = []
 
   // Extract source file annotation if present (from TS transpilation)
@@ -537,13 +548,13 @@ export function transpileToJS(
 
     // Run explicit test blocks
     if (tests.length > 0) {
-      const blockResults = runTestBlocks(tests, mocks, code)
+      const blockResults = runTestBlocks(tests, mocks, code, resolvedImports)
       testResults.push(...blockResults)
     }
 
     // Run signature tests for ALL functions with -> return types
     // Extract from original source since parser only tracks the first one
-    const sigTests = runAllSignatureTests(source, code)
+    const sigTests = runAllSignatureTests(source, code, resolvedImports)
     testResults.push(...sigTests)
 
     // Check for failures and throw only if runTests === true (strict mode)
@@ -596,11 +607,28 @@ function findMainFunction(program: Program): FunctionDeclaration | null {
 
 /**
  * Find ALL function declarations in the AST
+ * Includes functions inside export declarations
  */
 function findAllFunctions(program: Program): FunctionDeclaration[] {
-  return program.body.filter(
-    (node): node is FunctionDeclaration => node.type === 'FunctionDeclaration'
-  )
+  const functions: FunctionDeclaration[] = []
+
+  for (const node of program.body) {
+    if (node.type === 'FunctionDeclaration') {
+      functions.push(node)
+    } else if (
+      node.type === 'ExportNamedDeclaration' &&
+      node.declaration?.type === 'FunctionDeclaration'
+    ) {
+      functions.push(node.declaration as FunctionDeclaration)
+    } else if (
+      node.type === 'ExportDefaultDeclaration' &&
+      node.declaration?.type === 'FunctionDeclaration'
+    ) {
+      functions.push(node.declaration as FunctionDeclaration)
+    }
+  }
+
+  return functions
 }
 
 /**
@@ -1008,14 +1036,121 @@ function formatValue(v: unknown): string {
 import type { ExtractedTest, ExtractedMock } from '../tests'
 
 /**
+ * Strip comments from source code
+ * Used to avoid matching code patterns inside comments
+ */
+function stripComments(code: string): string {
+  // Replace block comments with equivalent whitespace (preserve line numbers)
+  let result = code.replace(/\/\*[\s\S]*?\*\//g, (match) => {
+    // Replace with same number of newlines to preserve line numbers
+    const newlines = match.split('\n').length - 1
+    return '\n'.repeat(newlines)
+  })
+
+  // Replace line comments
+  result = result.replace(/\/\/[^\n]*/g, '')
+
+  return result
+}
+
+/**
+ * Strip import/export syntax for test execution context
+ * Tests run in new Function() which doesn't support ES modules
+ *
+ * Useful for:
+ * - Running tests in new Function() context
+ * - CLI test runners
+ * - Bundler plugins that need to extract module code
+ */
+export function stripModuleSyntax(code: string): string {
+  // Remove import statements (entire line)
+  let result = code.replace(/^import\s+.*?from\s+['"][^'"]+['"];?\s*$/gm, '')
+  result = result.replace(/^import\s+['"][^'"]+['"];?\s*$/gm, '')
+
+  // Remove 'export ' keyword but keep the declaration
+  result = result.replace(/^export\s+default\s+/gm, '')
+  result = result.replace(/^export\s+/gm, '')
+
+  return result
+}
+
+/**
+ * Strip the __tjs runtime preamble from transpiled code
+ * This is needed when injecting resolved imports into a test context
+ * that already has its own __tjs stub
+ *
+ * Useful for:
+ * - Combining multiple TJS modules into a single execution context
+ * - Test runners that provide their own __tjs runtime
+ * - Bundlers that need to deduplicate runtime setup
+ */
+export function stripTjsPreamble(code: string): string {
+  // Remove the __tjs runtime setup lines:
+  // const __tjs = globalThis.__tjs?.createRuntime?.() ?? globalThis.__tjs;
+  // const { Is, IsNot } = __tjs ?? {};
+  let result = code.replace(
+    /^const __tjs = globalThis\.__tjs\?\.createRuntime\?\.\(\) \?\? globalThis\.__tjs;\n?/m,
+    ''
+  )
+  result = result.replace(
+    /^const \{ (?:Is|IsNot|Is, IsNot) \} = __tjs \?\? \{\};\n?/m,
+    ''
+  )
+  return result
+}
+
+/**
+ * Build code to inject resolved imports into test execution context
+ *
+ * Takes a map of module specifier -> compiled code and returns code that
+ * makes those exports available in the test scope.
+ *
+ * For example, if resolvedImports contains:
+ *   { 'mymath': 'function add(a, b) { return a + b }\nadd.__tjs = {...}' }
+ *
+ * This will return code that evaluates that module and makes `add` available.
+ */
+function buildResolvedImportsCode(
+  resolvedImports: Record<string, string>
+): string {
+  if (Object.keys(resolvedImports).length === 0) {
+    return ''
+  }
+
+  const lines: string[] = []
+
+  for (const [specifier, moduleCode] of Object.entries(resolvedImports)) {
+    // Strip module syntax from the imported code too (it may have exports)
+    let cleanCode = stripModuleSyntax(moduleCode)
+    // Strip __tjs preamble to avoid duplicate declarations
+    // (test execution context provides its own __tjs stub)
+    cleanCode = stripTjsPreamble(cleanCode)
+
+    lines.push(`// Resolved import: ${specifier}`)
+    lines.push(cleanCode)
+  }
+
+  return lines.join('\n')
+}
+
+/**
  * Run extracted test blocks at transpile time
  */
 function runTestBlocks(
   tests: ExtractedTest[],
   mocks: ExtractedMock[],
-  transpiledCode: string
+  transpiledCode: string,
+  resolvedImports: Record<string, string> = {}
 ): TestResult[] {
   const results: TestResult[] = []
+
+  // Strip import/export for test execution (can't use modules in new Function)
+  let executableCode = stripModuleSyntax(transpiledCode)
+  // Strip __tjs preamble - test context provides its own stub
+  executableCode = stripTjsPreamble(executableCode)
+
+  // Build resolved imports code - inject imported module code into execution context
+  const importedCode = buildResolvedImportsCode(resolvedImports)
 
   // Build execution context with the transpiled function
   const mockSetup = mocks.map((m) => m.body).join('\n')
@@ -1034,7 +1169,9 @@ function runTestBlocks(
       const testCode = `
         ${tjsStub}
         try {
-          ${transpiledCode}
+          // Inject resolved imports first (they may be dependencies)
+          ${importedCode}
+          ${executableCode}
           ${mockSetup}
 
           // Test assertions
@@ -1201,9 +1338,13 @@ function evalArrayExpression(node: any): unknown[] {
  */
 function runAllSignatureTests(
   originalSource: string,
-  transpiledCode: string
+  transpiledCode: string,
+  resolvedImports: Record<string, string> = {}
 ): TestResult[] {
   const results: TestResult[] = []
+
+  // Strip comments to avoid matching functions inside doc comments/code examples
+  const sourceWithoutComments = stripComments(originalSource)
 
   // Match function declarations with return type marker (-> or -?)
   // Skip -! which means "don't test"
@@ -1211,19 +1352,24 @@ function runAllSignatureTests(
   const funcRegex = /function\s+(\w+)\s*\(([^)]*)\)\s*(-[>?])\s*/g
 
   let match
-  while ((match = funcRegex.exec(originalSource)) !== null) {
+  while ((match = funcRegex.exec(sourceWithoutComments)) !== null) {
     const funcName = match[1]
     const paramsStr = match[2]
     const returnMarker = match[3]
 
-    // Calculate line number from match position
-    const lineNumber = originalSource.slice(0, match.index).split('\n').length
+    // Calculate line number from match position in stripped source
+    const lineNumber = sourceWithoutComments
+      .slice(0, match.index)
+      .split('\n').length
 
     // -! means skip test
     if (returnMarker === '-!') continue
 
     // Extract return example - handle nested braces/brackets
-    const afterMarker = originalSource.slice(match.index + match[0].length)
+    // Use stripped source since match.index is from that
+    const afterMarker = sourceWithoutComments.slice(
+      match.index + match[0].length
+    )
     const returnExample = extractReturnExampleFromSource(afterMarker)
     if (!returnExample) continue
 
@@ -1242,7 +1388,13 @@ function runAllSignatureTests(
       // Parse args
       const args = paramExamples.map((p) => new Function(`return ${p}`)())
 
-      const result = runSignatureTest(funcName, transpiledCode, args, expected)
+      const result = runSignatureTest(
+        funcName,
+        transpiledCode,
+        args,
+        expected,
+        resolvedImports
+      )
       result.line = lineNumber
       results.push(result)
     } catch (e: any) {
@@ -1347,9 +1499,18 @@ function runSignatureTest(
   funcName: string,
   transpiledCode: string,
   args: unknown[],
-  expected: unknown
+  expected: unknown,
+  resolvedImports: Record<string, string> = {}
 ): TestResult {
   const description = `${funcName} signature example`
+
+  // Strip import/export for test execution (can't use modules in new Function)
+  let executableCode = stripModuleSyntax(transpiledCode)
+  // Strip __tjs preamble - test context provides its own stub
+  executableCode = stripTjsPreamble(executableCode)
+
+  // Build resolved imports code - inject imported module code into execution context
+  const importedCode = buildResolvedImportsCode(resolvedImports)
 
   try {
     // Execute the function with example args
@@ -1366,7 +1527,9 @@ function runSignatureTest(
     const testCode = `
       ${tjsStub}
       try {
-        ${transpiledCode}
+        // Inject resolved imports first (they may be dependencies)
+        ${importedCode}
+        ${executableCode}
         return ${funcName}(${args.map((a) => JSON.stringify(a)).join(', ')})
       } finally {
         ${tjsRestore}

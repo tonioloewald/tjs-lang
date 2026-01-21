@@ -35,6 +35,8 @@ export { parse, preprocess, extractTDoc } from './parser'
 export { transformFunction } from './emitters/ast'
 export {
   transpileToJS,
+  stripModuleSyntax,
+  stripTjsPreamble,
   type TJSTranspileOptions,
   type TJSTranspileResult,
   type TJSTypeInfo,

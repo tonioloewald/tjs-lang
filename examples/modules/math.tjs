@@ -1,0 +1,26 @@
+// Math utilities module
+
+export function add(a: 0, b: 0) -> 0 {
+  return a + b
+}
+
+export function subtract(a: 0, b: 0) -> 0 {
+  return a - b
+}
+
+export function multiply(a: 0, b: 0) -> 0 {
+  return a * b
+}
+
+test 'add works correctly' {
+  expect(add(2, 3)).toBe(5)
+  expect(add(-1, 1)).toBe(0)
+}
+
+test 'subtract works correctly' {
+  expect(subtract(5, 3)).toBe(2)
+}
+
+test 'multiply works correctly' {
+  expect(multiply(3, 4)).toBe(12)
+}

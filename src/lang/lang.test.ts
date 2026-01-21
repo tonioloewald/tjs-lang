@@ -1243,6 +1243,203 @@ function greet(name: 'world') {
       expect(addTjs).toBeLessThan(addLog)
     })
   })
+
+  describe('ES Module support (import/export)', () => {
+    it('should preserve import statements', () => {
+      const result = transpileToJS(`
+        import { add } from './math.tjs'
+        function main() {
+          return add(1, 2)
+        }
+      `)
+      expect(result.code).toContain("import { add } from './math.tjs'")
+      expect(result.code).toContain('main.__tjs')
+    })
+
+    it('should preserve multiple imports', () => {
+      const result = transpileToJS(`
+        import { add, subtract } from './math.tjs'
+        import { format } from 'date-fns'
+        function main() {
+          return add(1, 2)
+        }
+      `)
+      expect(result.code).toContain(
+        "import { add, subtract } from './math.tjs'"
+      )
+      expect(result.code).toContain("import { format } from 'date-fns'")
+    })
+
+    it('should handle export function with __tjs metadata', () => {
+      const result = transpileToJS(
+        `
+        export function add(a: 1.0, b: 2.0) -> 3.0 {
+          return a + b
+        }
+      `,
+        { runTests: false }
+      )
+      expect(result.code).toContain('export function add')
+      expect(result.code).toContain('add.__tjs')
+      expect(result.types.add).toBeDefined()
+      expect(result.types.add.params.a.type.kind).toBe('number')
+      expect(result.types.add.returns?.kind).toBe('number')
+    })
+
+    it('should handle export default function with __tjs metadata', () => {
+      const result = transpileToJS(
+        `
+        export default function greet(name: 'World') -> '' {
+          return 'Hello, ' + name
+        }
+      `,
+        { runTests: false }
+      )
+      expect(result.code).toContain('export default function greet')
+      expect(result.code).toContain('greet.__tjs')
+      expect(result.types.greet).toBeDefined()
+    })
+
+    it('should handle mixed imports, exports, and regular functions', () => {
+      const result = transpileToJS(
+        `
+        import { helper } from './utils.tjs'
+
+        function internal(x: 0) -> 0 {
+          return x * 2
+        }
+
+        export function api(y: 0) -> 0 {
+          return internal(helper(y))
+        }
+      `,
+        { runTests: false }
+      )
+      expect(result.code).toContain("import { helper } from './utils.tjs'")
+      expect(result.code).toContain('internal.__tjs')
+      expect(result.code).toContain('api.__tjs')
+      expect(result.code).toContain('export function api')
+    })
+
+    it('should preserve import * as syntax', () => {
+      const result = transpileToJS(`
+        import * as math from './math.tjs'
+        function main() {
+          return math.add(1, 2)
+        }
+      `)
+      expect(result.code).toContain("import * as math from './math.tjs'")
+    })
+
+    it('should preserve default import syntax', () => {
+      const result = transpileToJS(`
+        import Calculator from './calc.tjs'
+        function main() {
+          return new Calculator()
+        }
+      `)
+      expect(result.code).toContain("import Calculator from './calc.tjs'")
+    })
+
+    it('should generate inline validation for exported functions', () => {
+      const result = transpileToJS(
+        `
+        export function add(a: 0, b: 0) -> 0 {
+          return a + b
+        }
+      `,
+        { runTests: false }
+      )
+      // Should have inline validation
+      expect(result.code).toContain("if (typeof a !== 'number')")
+      expect(result.code).toContain('__tjs.typeError')
+    })
+
+    it('should not run signature tests for functions in comments', () => {
+      const result = transpileToJS(
+        `
+/*#
+# Example
+
+\`\`\`javascript
+export function add(a: 0, b: 0) -> 0 {
+  return a + b
+}
+\`\`\`
+*/
+
+function realFunction(x: 5) -> 10 {
+  return x * 2
+}
+      `,
+        { runTests: 'report' }
+      )
+      // Should only have 1 signature test (realFunction), not 2
+      const sigTests =
+        result.testResults?.filter((t) => t.isSignatureTest) || []
+      expect(sigTests.length).toBe(1)
+      expect(sigTests[0].description).toContain('realFunction')
+    })
+
+    it('should use resolvedImports for test execution', () => {
+      // Simulate a dependency module that provides an 'add' function
+      const mathModuleCode = `
+function add(a = 0, b = 0) {
+  return a + b
+}
+add.__tjs = { params: { a: { type: { kind: 'number' } }, b: { type: { kind: 'number' } } } }
+`
+      // Main module imports and uses 'add'
+      const mainSource = `
+import { add } from 'mymath'
+
+function doubleAdd(x: 5) -> 20 {
+  return add(x, x) * 2
+}
+`
+      // Without resolvedImports, test would fail because 'add' is not defined
+      // With resolvedImports, the dependency code is injected
+      const result = transpileToJS(mainSource, {
+        runTests: 'report',
+        resolvedImports: { mymath: mathModuleCode },
+      })
+
+      // Test should pass because 'add' was resolved
+      expect(result.testResults).toBeDefined()
+      expect(result.testResults!.length).toBe(1)
+      expect(result.testResults![0].passed).toBe(true)
+      expect(result.testResults![0].description).toContain('doubleAdd')
+    })
+
+    it('should handle test blocks with resolvedImports', () => {
+      const mathModuleCode = `
+function multiply(a = 0, b = 0) {
+  return a * b
+}
+multiply.__tjs = { params: { a: { type: { kind: 'number' } }, b: { type: { kind: 'number' } } } }
+`
+      const mainSource = `
+import { multiply } from 'mymath'
+
+function square(x: 0) -> 0 {
+  return multiply(x, x)
+}
+
+test('square uses multiply') {
+  expect(square(4)).toBe(16)
+}
+`
+      const result = transpileToJS(mainSource, {
+        runTests: 'report',
+        resolvedImports: { mymath: mathModuleCode },
+      })
+
+      // Both signature test and explicit test should pass
+      expect(result.testResults).toBeDefined()
+      expect(result.testResults!.length).toBe(2)
+      expect(result.testResults!.every((t) => t.passed)).toBe(true)
+    })
+  })
 })
 
 describe('TypeScript to TJS Transpiler', () => {
