@@ -280,7 +280,8 @@ export class TSPlayground extends Component<TSPlaygroundParts> {
       // TS -> TJS failed
       const errorInfo = this.formatError(tsError, tsSource)
       this.parts.tjsOutput.textContent = errorInfo
-      this.parts.jsOutput.textContent = '// Cannot generate JS - TS transpilation failed'
+      this.parts.jsOutput.textContent =
+        '// Cannot generate JS - TS transpilation failed'
       this.parts.statusBar.textContent = `TS error: ${tsError.message}`
       this.parts.statusBar.classList.add('error')
       this.lastTjsCode = ''
@@ -343,7 +344,9 @@ export class TSPlayground extends Component<TSPlaygroundParts> {
 
       if (info.params) {
         docs += '**Parameters:**\n'
-        for (const [paramName, paramInfo] of Object.entries(info.params) as any) {
+        for (const [paramName, paramInfo] of Object.entries(
+          info.params
+        ) as any) {
           const required = paramInfo.required ? '' : ' *(optional)*'
           const typeStr = paramInfo.type?.kind || 'any'
           docs += `- \`${paramName}\`: ${typeStr}${required}\n`
@@ -474,10 +477,12 @@ export class TSPlayground extends Component<TSPlaygroundParts> {
     }
   }
 
-  // Public method to set source code
+  // Public method to set source code (auto-runs when examples are loaded)
   setSource(code: string) {
     this.parts.tsEditor.value = code
     this.transpile()
+    // Auto-run when source is loaded externally (e.g., from example selection)
+    this.run()
   }
 }
 

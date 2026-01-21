@@ -970,6 +970,14 @@ export class TJSPlayground extends Component<TJSPlaygroundParts> {
   render(): void {
     super.render()
   }
+
+  // Public method to set source code (auto-runs when examples are loaded)
+  setSource(code: string) {
+    this.parts.tjsEditor.value = code
+    this.transpile()
+    // Auto-run when source is loaded externally (e.g., from example selection)
+    this.run()
+  }
 }
 
 export const tjsPlayground = TJSPlayground.elementCreator({

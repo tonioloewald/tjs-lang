@@ -217,57 +217,83 @@ function extractFunctionTypeInfo(
 
 /**
  * Generate inline validation code to be inserted at the start of a function body
+ *
+ * Implements proper monadic error handling:
+ * 1. Check if any param is an Error - if so, pass it through (no work)
+ * 2. Check types with fast inline typeof checks
+ * 3. On type mismatch, call __tjs.typeError() (only on error path)
  */
 function generateInlineValidationCode(
   funcName: string,
   types: TJSTypeInfo
 ): string | null {
+  const lines: string[] = []
+
   // Destructured params: validate each field of the input object
   if (types.isDestructuredParam && types.destructuredShape) {
-    const checks: string[] = []
     const shape = types.destructuredShape
     const requiredFields = types.destructuredRequired || new Set()
+    const fieldNames = Object.keys(shape)
 
+    if (fieldNames.length === 0) return null
+
+    // 1. Error pass-through: check if any field is an Error
+    for (const fieldName of fieldNames) {
+      lines.push(`if (${fieldName} instanceof Error) return ${fieldName};`)
+    }
+
+    // 2. Type checks with proper error emission
     for (const [fieldName, fieldType] of Object.entries(shape)) {
       const isRequired = requiredFields.has(fieldName)
-      const typeCheck = generateTypeCheck(fieldName, fieldType)
+      const path = `${funcName}.${fieldName}`
+      const typeCheck = generateTypeCheckExpr(fieldName, fieldType)
+
       if (typeCheck) {
+        const expectedType = fieldType.kind
         if (isRequired) {
-          checks.push(typeCheck)
+          lines.push(
+            `if (${typeCheck}) return __tjs.typeError('${path}', '${expectedType}', ${fieldName});`
+          )
         } else {
-          checks.push(`(${fieldName} !== undefined && ${typeCheck})`)
+          lines.push(
+            `if (${fieldName} !== undefined && ${typeCheck}) return __tjs.typeError('${path}', '${expectedType}', ${fieldName});`
+          )
         }
       }
     }
 
-    if (checks.length === 0) return null
-
-    return `if (${checks.join(
-      ' || '
-    )}) { return { $error: true, message: 'Invalid input', path: '${funcName}' } }`
+    return lines.length > 0 ? lines.join('\n  ') : null
   }
 
   // Positional params: validate each param
   const params = Object.entries(types.params)
   if (params.length === 0) return null
 
-  const checks: string[] = []
+  // 1. Error pass-through: check if any param is an Error
+  for (const [paramName] of params) {
+    lines.push(`if (${paramName} instanceof Error) return ${paramName};`)
+  }
+
+  // 2. Type checks with proper error emission
   for (const [paramName, param] of params) {
-    const typeCheck = generateTypeCheck(paramName, param.type)
+    const path = `${funcName}.${paramName}`
+    const typeCheck = generateTypeCheckExpr(paramName, param.type)
+
     if (typeCheck) {
+      const expectedType = param.type.kind
       if (param.required) {
-        checks.push(typeCheck)
+        lines.push(
+          `if (${typeCheck}) return __tjs.typeError('${path}', '${expectedType}', ${paramName});`
+        )
       } else {
-        checks.push(`(${paramName} !== undefined && ${typeCheck})`)
+        lines.push(
+          `if (${paramName} !== undefined && ${typeCheck}) return __tjs.typeError('${path}', '${expectedType}', ${paramName});`
+        )
       }
     }
   }
 
-  if (checks.length === 0) return null
-
-  return `if (${checks.join(
-    ' || '
-  )}) { return { $error: true, message: 'Invalid arguments', path: '${funcName}' } }`
+  return lines.length > 0 ? lines.join('\n  ') : null
 }
 
 /**
@@ -428,14 +454,24 @@ export function transpileToJS(
     code = code.slice(0, position) + text + code.slice(position)
   }
 
-  // Add Is/IsNot imports if needed (for structural equality)
+  // Add __tjs reference for monadic error handling and structural equality
+  const needsTypeError = code.includes('__tjs.typeError(')
   const needsIs = code.includes('Is(')
   const needsIsNot = code.includes('IsNot(')
-  if (needsIs || needsIsNot) {
-    const imports = [needsIs && 'Is', needsIsNot && 'IsNot']
-      .filter(Boolean)
-      .join(', ')
-    code = `const { ${imports} } = globalThis.__tjs ?? {};\n` + code
+
+  if (needsTypeError || needsIs || needsIsNot) {
+    // Always get __tjs reference when needed
+    let preamble = 'const __tjs = globalThis.__tjs;\n'
+
+    // Add destructured imports for Is/IsNot if used
+    if (needsIs || needsIsNot) {
+      const imports = [needsIs && 'Is', needsIsNot && 'IsNot']
+        .filter(Boolean)
+        .join(', ')
+      preamble += `const { ${imports} } = __tjs ?? {};\n`
+    }
+
+    code = preamble + code
   }
 
   // Run tests at transpile time if enabled
@@ -699,7 +735,12 @@ export function generateInlineValidation(
  * Generate a type check expression for a single field
  * Returns null if no check needed (e.g., 'any' type)
  */
-function generateTypeCheck(
+/**
+ * Generate a type check expression for a single field
+ * Returns an expression that evaluates to true when type is INVALID
+ * Returns null if no check needed (e.g., 'any' type)
+ */
+function generateTypeCheckExpr(
   fieldPath: string,
   type: TypeDescriptor
 ): string | null {
@@ -725,6 +766,9 @@ function generateTypeCheck(
       return null
   }
 }
+
+// Alias for backward compatibility with other functions that use this
+const generateTypeCheck = generateTypeCheckExpr
 
 /**
  * Generate the complete function wrapper with inline validation

@@ -773,7 +773,10 @@ function greet(name: '') -! '' {
 
       // Should have type checking in the function body
       expect(code).toContain('typeof')
-      expect(code).toContain('$error')
+      // Should use __tjs.typeError() for proper monadic errors
+      expect(code).toContain('__tjs.typeError')
+      // Should check for error pass-through
+      expect(code).toContain('instanceof Error')
     })
 
     it('__tjs metadata is valid JSON structure', () => {
@@ -848,12 +851,15 @@ test 'add works' {
     })
 
     it('does NOT add Is/IsNot imports when not needed', () => {
-      const tjsSource = `function add(a: 0, b: 0) -! 0 { return a + b }`
+      // Use unsafe (!) to skip all validation, then no __tjs needed
+      const tjsSource = `function add(! a: 0, b: 0) -! 0 { return a + b }`
       const { code } = tjs(tjsSource)
 
-      // No equality ops = no imports
+      // No equality ops and fully unsafe = no __tjs reference
       expect(code).not.toContain('const { Is')
-      expect(code).not.toContain('globalThis.__tjs')
+      // Note: __tjs IS now needed for typeError() in safe functions
+      // But this function is fully unsafe so no validation code is added
+      expect(code).not.toContain('__tjs.typeError')
     })
 
     it('adds only Is when only == is used', () => {
@@ -1009,6 +1015,10 @@ function processUser(user: { name: string; age: number }): string {
   })
 
   describe('runtime validation from TS types', () => {
+    // Install runtime for MonadicError
+    const { installRuntime } = require('./runtime')
+    installRuntime()
+
     it('validates object type at runtime', () => {
       const ts = `
 function greet(user: { name: string; age: number }): string {
@@ -1025,9 +1035,9 @@ function greet(user: { name: string; age: number }): string {
       const validResult = greet({ name: 'Alice', age: 30 })
       expect(validResult).toBe('Hello, Alice')
 
-      // Non-object input returns error
+      // Non-object input returns MonadicError (extends Error)
       const invalidResult = greet('not an object')
-      expect(invalidResult.$error).toBe(true)
+      expect(invalidResult).toBeInstanceOf(Error)
 
       // Note: Current validation checks type (object vs primitive),
       // not deep property validation. Missing properties pass type check.
@@ -1050,9 +1060,9 @@ function add(a: number, b: number): number {
       // Valid input works
       expect(add(2, 3)).toBe(5)
 
-      // Invalid input returns error object
+      // Invalid input returns MonadicError (extends Error)
       const invalidResult = add('two', 3)
-      expect(invalidResult.$error).toBe(true)
+      expect(invalidResult).toBeInstanceOf(Error)
     })
   })
 
@@ -1086,6 +1096,205 @@ function test(required: string, optional?: number): void { }
 
       expect(types?.test?.params?.required?.required).toBe(true)
       expect(types?.test?.params?.optional?.required).toBe(false)
+    })
+  })
+})
+
+/**
+ * Monadic Error Handling Tests
+ *
+ * Critical tests for proper error propagation through function chains.
+ * The monadic pattern ensures:
+ * 1. Errors pass through without being processed (no work done)
+ * 2. Type errors return real Error objects, not plain objects
+ * 3. User code can't accidentally swallow errors as data
+ */
+describe('Monadic error handling', () => {
+  // Install runtime globally for tests
+  const { installRuntime, MonadicError } = require('./runtime')
+  installRuntime() // Sets globalThis.__tjs
+
+  describe('error pass-through (monadic propagation)', () => {
+    it('passes through Error input without processing', () => {
+      const tjsSource = `
+function double(x: 0) -! 0 {
+  return x * 2
+}
+`
+      const { code } = tjs(tjsSource)
+      // Runtime is already installed globally, code references globalThis.__tjs
+      const double = new Function(code + '; return double')()
+
+      // Pass an error as input
+      const inputError = new Error('upstream failure')
+      const result = double(inputError)
+
+      // Should return the same error, not process it
+      expect(result).toBe(inputError)
+    })
+
+    it('passes through error in multi-param function', () => {
+      const tjsSource = `
+function add(a: 0, b: 0) -! 0 {
+  return a + b
+}
+`
+      const { code } = tjs(tjsSource)
+      const add = new Function(code + '; return add')()
+
+      const inputError = new Error('bad value')
+
+      // Error in first param
+      expect(add(inputError, 5)).toBe(inputError)
+
+      // Error in second param
+      expect(add(5, inputError)).toBe(inputError)
+    })
+
+    it('propagates error through function chain', () => {
+      const tjsSource = `
+function step1(x: 0) -! 0 {
+  return x * 2
+}
+
+function step2(x: 0) -! 0 {
+  return x + 10
+}
+
+function step3(x: 0) -! 0 {
+  return x / 2
+}
+`
+      const { code } = tjs(tjsSource)
+      const fns = new Function(code + '; return { step1, step2, step3 }')()
+
+      // Chain: step3(step2(step1(error)))
+      const inputError = new Error('start with error')
+      const result = fns.step3(fns.step2(fns.step1(inputError)))
+
+      // Same error flows through all three functions
+      expect(result).toBe(inputError)
+    })
+  })
+
+  describe('type error emission', () => {
+    it('returns MonadicError on type mismatch', () => {
+      const tjsSource = `
+function greet(name: '') -! '' {
+  return 'Hello, ' + name
+}
+`
+      const { code } = tjs(tjsSource)
+      const greet = new Function(code + '; return greet')()
+
+      // Pass wrong type
+      const result = greet(42)
+
+      // Should be a MonadicError (extends Error)
+      expect(result).toBeInstanceOf(Error)
+      expect(result).toBeInstanceOf(MonadicError)
+      expect(result.path).toBe('greet.name')
+      expect(result.expected).toBe('string')
+    })
+
+    it('includes path for nested params', () => {
+      const tjsSource = `
+function process({ name: '', age: 0 }) -! '' {
+  return name + ' is ' + age
+}
+`
+      const { code } = tjs(tjsSource)
+      const process = new Function(code + '; return process')()
+
+      // Pass wrong type for name
+      const result = process({ name: 123, age: 30 })
+
+      expect(result).toBeInstanceOf(MonadicError)
+      expect(result.path).toBe('process.name')
+    })
+
+    it('user code cannot accidentally process error as data', () => {
+      const tjsSource = `
+function getData(id: 0) -! { value: 0 } {
+  return { value: id * 10 }
+}
+`
+      const { code } = tjs(tjsSource)
+      const getData = new Function(code + '; return getData')()
+
+      const result = getData('not-a-number')
+
+      // Error is an Error, not a plain object
+      expect(result).toBeInstanceOf(Error)
+
+      // Trying to access .value won't work like it would with plain object
+      // This prevents accidental error swallowing
+      expect(result.value).toBeUndefined()
+
+      // But error properties are accessible
+      expect(result.message).toContain('Expected number')
+    })
+  })
+
+  describe('error vs valid value distinction', () => {
+    it('valid values pass through normally', () => {
+      const tjsSource = `
+function double(x: 0) -! 0 {
+  return x * 2
+}
+`
+      const { code } = tjs(tjsSource)
+      const double = new Function(code + '; return double')()
+
+      expect(double(5)).toBe(10)
+      expect(double(0)).toBe(0)
+      expect(double(-3)).toBe(-6)
+    })
+
+    it('distinguishes Error from error-like objects', () => {
+      const tjsSource = `
+function process(data: { error: false }) -! { error: false } {
+  return data
+}
+`
+      const { code } = tjs(tjsSource)
+      const process = new Function(code + '; return process')()
+
+      // An object with an 'error' property should NOT be treated as an Error
+      // Only actual Error instances trigger pass-through
+      const errorLikeObj = { error: true, message: 'not a real error' }
+      const result = process(errorLikeObj)
+
+      // It's processed (not passed through) - returns the same object
+      // because it's not an Error instance
+      expect(result).toBe(errorLikeObj)
+
+      // But a real Error WOULD be passed through
+      const realError = new Error('real error')
+      const errorResult = process(realError)
+      expect(errorResult).toBe(realError)
+    })
+  })
+
+  describe('unsafe functions skip validation entirely', () => {
+    it('unsafe function skips all validation including error pass-through', () => {
+      const tjsSource = `
+function fastDouble(! x: 0) -! 0 {
+  return x * 2
+}
+`
+      const { code } = tjs(tjsSource)
+      const fastDouble = new Function(code + '; return fastDouble')()
+
+      // Unsafe function has no validation code at all
+      // JS coerces '5' to 5 for multiplication
+      const result = fastDouble('5')
+      expect(result).toBe(10) // '5' * 2 = 10 (JS coercion)
+
+      // Also doesn't check for error pass-through
+      const err = new Error('test')
+      const errResult = fastDouble(err)
+      expect(errResult).toBeNaN() // Error * 2 = NaN
     })
   })
 })

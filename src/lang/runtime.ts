@@ -100,7 +100,75 @@ export function versionsCompatible(a: string, b: string): boolean {
 }
 
 /**
+ * MonadicError - Internal error type for monadic error propagation
+ *
+ * This extends Error so:
+ * 1. It's a real Error with proper stack traces
+ * 2. User code can't accidentally process it as data (unlike { $error: true })
+ * 3. It flows through function calls via instanceof checks
+ *
+ * NOT exported to user code - they just see Error instances.
+ */
+export class MonadicError extends Error {
+  /** Path where the error occurred, e.g., "greet.name" */
+  readonly path: string
+  /** Expected type */
+  readonly expected?: string
+  /** Actual type received */
+  readonly actual?: string
+
+  constructor(
+    message: string,
+    path: string,
+    expected?: string,
+    actual?: string
+  ) {
+    super(message)
+    this.name = 'MonadicError'
+    this.path = path
+    this.expected = expected
+    this.actual = actual
+    // Maintains proper stack trace in V8 environments
+    if (Error.captureStackTrace) {
+      Error.captureStackTrace(this, MonadicError)
+    }
+  }
+}
+
+/**
+ * Create a type error for inline validation
+ *
+ * Called ONLY when a type check fails - no overhead on happy path.
+ * Returns a MonadicError that propagates through the call chain.
+ *
+ * @param path - Location of the error, e.g., "greet.name"
+ * @param expected - Expected type, e.g., "string"
+ * @param value - The actual value that failed the check
+ */
+export function typeError(
+  path: string,
+  expected: string,
+  value: unknown
+): MonadicError {
+  const actual = value === null ? 'null' : typeof value
+  return new MonadicError(
+    `Expected ${expected} for '${path}', got ${actual}`,
+    path,
+    expected,
+    actual
+  )
+}
+
+/**
+ * Check if a value is a MonadicError (for internal use)
+ */
+export function isMonadicError(value: unknown): value is MonadicError {
+  return value instanceof MonadicError
+}
+
+/**
  * Error marker - identifies TJS error objects
+ * @deprecated Use MonadicError instead. This interface is kept for backward compatibility.
  */
 export interface TJSError {
   $error: true
@@ -1033,6 +1101,11 @@ export async function Eval<TOutput extends TypeSpec>(
  */
 export const runtime = {
   version: TJS_VERSION,
+  // Monadic error handling (new)
+  MonadicError,
+  typeError,
+  isMonadicError,
+  // Legacy error handling (deprecated)
   isError,
   error,
   composeErrors,

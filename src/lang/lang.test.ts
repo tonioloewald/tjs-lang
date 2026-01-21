@@ -1213,7 +1213,8 @@ describe('TJS Emitter', () => {
 
       // Should have inline validation at start of function body
       expect(result.code).toContain("if (typeof name !== 'string')")
-      expect(result.code).toContain('$error')
+      // Should use __tjs.typeError() for proper monadic errors
+      expect(result.code).toContain('__tjs.typeError')
     })
 
     it('should handle mixed functions and statements', () => {
@@ -2285,6 +2286,10 @@ function fast(! input: { x: 0 }) {
   })
 
   it('should validate correctly at runtime', () => {
+    // Install runtime for MonadicError
+    const { installRuntime } = require('./runtime')
+    installRuntime()
+
     const result = tjs(`
 function process(input: { x: 0, y: 0 }) {
   return input.x + input.y
@@ -2297,15 +2302,15 @@ function process(input: { x: 0, y: 0 }) {
 
     // Null input should fail (inline validation checks typeof object)
     const nullInput = fn(null)
-    expect(nullInput.$error).toBe(true)
+    expect(nullInput).toBeInstanceOf(Error)
 
     // Non-object should fail
     const nonObject = fn('not an object')
-    expect(nonObject.$error).toBe(true)
+    expect(nonObject).toBeInstanceOf(Error)
 
     // Array should fail (arrays are objects but not valid here)
     const arrayInput = fn([1, 2])
-    expect(arrayInput.$error).toBe(true)
+    expect(arrayInput).toBeInstanceOf(Error)
   })
 })
 

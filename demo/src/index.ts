@@ -569,18 +569,17 @@ if (main) {
             },
           })
 
-          // Load example when selected
+          // Load example when selected (auto-runs via setSource)
           bind(pg, 'app.currentExample', {
             toDOM(element: TJSPlayground, example: any) {
               if (example && app.currentView.valueOf() === 'tjs') {
-                // Set value on the TJS editor - unwrap Proxy if needed
                 setTimeout(() => {
-                  if (element.parts?.tjsEditor) {
+                  if (element.setSource) {
                     const code =
                       typeof example.code === 'string'
                         ? example.code
                         : String(example.code)
-                    element.parts.tjsEditor.value = code
+                    element.setSource(code)
                   }
                 }, 0)
               }
