@@ -319,6 +319,116 @@ describe('fromTS', () => {
   })
 })
 
+describe('embedded test comments', () => {
+  it('should preserve embedded test comments in TJS output', () => {
+    const result = fromTS(
+      `
+      function add(a: number, b: number): number {
+        return a + b
+      }
+
+      /*test 'adds two numbers' {
+        expect(add(1, 2)).toBe(3)
+      }*/
+    `,
+      { emitTJS: true }
+    )
+
+    // Embedded test comments should be preserved
+    expect(result.code).toContain("/*test 'adds two numbers'")
+    expect(result.code).toContain('expect(add(1, 2)).toBe(3)')
+  })
+
+  it('should preserve multiple embedded tests', () => {
+    const result = fromTS(
+      `
+      function multiply(a: number, b: number): number {
+        return a * b
+      }
+
+      /*test 'multiplies positive numbers' {
+        expect(multiply(3, 4)).toBe(12)
+      }*/
+
+      /*test 'handles zero' {
+        expect(multiply(5, 0)).toBe(0)
+      }*/
+    `,
+      { emitTJS: true }
+    )
+
+    expect(result.code).toContain("/*test 'multiplies positive numbers'")
+    expect(result.code).toContain("/*test 'handles zero'")
+  })
+
+  it('should preserve embedded tests with backtick descriptions', () => {
+    const result = fromTS(
+      `
+      function greet(name: string): string {
+        return \`Hello, \${name}!\`
+      }
+
+      /*test \`greets user\` {
+        expect(greet('Alice')).toBe('Hello, Alice!')
+      }*/
+    `,
+      { emitTJS: true }
+    )
+
+    expect(result.code).toContain('/*test `greets user`')
+  })
+
+  it('should preserve embedded tests with double-quoted descriptions', () => {
+    const result = fromTS(
+      `
+      function negate(x: number): number {
+        return -x
+      }
+
+      /*test "negates numbers" {
+        expect(negate(5)).toBe(-5)
+      }*/
+    `,
+      { emitTJS: true }
+    )
+
+    expect(result.code).toContain('/*test "negates numbers"')
+  })
+
+  it('should preserve anonymous embedded tests', () => {
+    const result = fromTS(
+      `
+      function double(x: number): number {
+        return x * 2
+      }
+
+      /*test {
+        expect(double(7)).toBe(14)
+      }*/
+    `,
+      { emitTJS: true }
+    )
+
+    expect(result.code).toContain('/*test {')
+    expect(result.code).toContain('expect(double(7)).toBe(14)')
+  })
+
+  it('should preserve embedded tests in JS output too', () => {
+    const result = fromTS(`
+      function subtract(a: number, b: number): number {
+        return a - b
+      }
+
+      /*test 'subtracts numbers' {
+        expect(subtract(10, 3)).toBe(7)
+      }*/
+    `)
+
+    // In JS output, embedded tests should also be preserved
+    expect(result.code).toContain("/*test 'subtracts numbers'")
+  })
+})
+
 describe('clean TJS output', () => {
   it('should emit clean TJS for classes', () => {
     const result = fromTS(

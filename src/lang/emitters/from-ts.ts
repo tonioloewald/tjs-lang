@@ -1388,12 +1388,33 @@ function extractClassMetadata(
 /**
  * Transpile TypeScript source to TJS or JS + metadata
  */
+/**
+ * Extract embedded test comments from source
+ * These use syntax: /*test 'description' { ... }* / (without space before /)
+ * They survive TS compilation and should be preserved in TJS output
+ */
+function extractEmbeddedTestComments(source: string): string[] {
+  const tests: string[] = []
+  // Match: /*test 'description' { ... }*/  or  /*test { ... }*/
+  const embeddedRegex =
+    /\/\*test\s+(['"`])([^'"`]*)\1\s*\{[\s\S]*?\}\s*\*\/|\/\*test\s*\{[\s\S]*?\}\s*\*\//g
+
+  let match
+  while ((match = embeddedRegex.exec(source)) !== null) {
+    tests.push(match[0])
+  }
+  return tests
+}
+
 export function fromTS(
   source: string,
   options: FromTSOptions = {}
 ): FromTSResult {
   const { emitTJS = false, filename = 'input.ts' } = options
   const warnings: string[] = []
+
+  // Extract embedded test comments before TS parsing (they need to be preserved)
+  const embeddedTests = extractEmbeddedTestComments(source)
 
   // Parse TypeScript
   const sourceFile = ts.createSourceFile(
@@ -1656,8 +1677,13 @@ export function fromTS(
     // Include source file annotation for error reporting
     const sourceFileName = filename || 'unknown'
     const header = `/* tjs <- ${sourceFileName} */\nLegacyEquals\n\n`
+
+    // Append embedded test comments (they were extracted from original source)
+    const testsSection =
+      embeddedTests.length > 0 ? '\n\n' + embeddedTests.join('\n\n') : ''
+
     return {
-      code: header + tjsFunctions.join('\n\n'),
+      code: header + tjsFunctions.join('\n\n') + testsSection,
       warnings: warnings.length > 0 ? warnings : undefined,
     }
   }
