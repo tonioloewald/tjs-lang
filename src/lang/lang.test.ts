@@ -1010,24 +1010,27 @@ describe('TJS Emitter', () => {
       )
     })
 
-    it('should include source location in debug mode', () => {
+    it('should always include source location in metadata', () => {
       const result = transpileToJS(
         `function greet(name: 'world') {
           return name
         }`,
-        { filename: 'test.tjs', debug: true }
+        { filename: 'test.tjs' }
       )
-      expect(result.code).toContain('"source": "test.tjs:1:0"')
+      // Source location is always included (file:line format)
+      expect(result.code).toContain('"source": "test.tjs:1"')
     })
 
-    it('should not include source location without debug mode', () => {
+    it('should use filename from tjs annotation if present', () => {
       const result = transpileToJS(
-        `function greet(name: 'world') {
+        `/* tjs <- src/original.ts */
+function greet(name: 'world') {
           return name
         }`,
-        { filename: 'test.tjs', debug: false }
+        { filename: 'fallback.tjs' }
       )
-      expect(result.code).not.toContain('"source"')
+      // Should use the annotated filename, not the fallback
+      expect(result.code).toContain('"source": "src/original.ts:')
     })
   })
 

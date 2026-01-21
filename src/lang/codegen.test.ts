@@ -1193,7 +1193,8 @@ function greet(name: '') -! '' {
       // Should be a MonadicError (extends Error)
       expect(result).toBeInstanceOf(Error)
       expect(result).toBeInstanceOf(MonadicError)
-      expect(result.path).toBe('greet.name')
+      // Path now includes source location: "<source>:line:func.param"
+      expect(result.path).toContain('greet.name')
       expect(result.expected).toBe('string')
     })
 
@@ -1210,7 +1211,8 @@ function process({ name: '', age: 0 }) -! '' {
       const result = process({ name: 123, age: 30 })
 
       expect(result).toBeInstanceOf(MonadicError)
-      expect(result.path).toBe('process.name')
+      // Path includes source location
+      expect(result.path).toContain('process.name')
     })
 
     it('user code cannot accidentally process error as data', () => {
@@ -1295,6 +1297,75 @@ function fastDouble(! x: 0) -! 0 {
       const err = new Error('test')
       const errResult = fastDouble(err)
       expect(errResult).toBeNaN() // Error * 2 = NaN
+    })
+  })
+
+  describe('source location tracking', () => {
+    it('includes original TS file and line in error path (full pipeline)', () => {
+      // Simulate a multi-function TS file
+      const ts = `
+function validate(input: string): boolean {
+  return input.length > 0
+}
+
+function process(data: number): number {
+  return data * 2
+}
+
+function transform(value: string): string {
+  return value.toUpperCase()
+}
+`
+      // TS → TJS with filename
+      const { code: tjsCode } = fromTS(ts, {
+        emitTJS: true,
+        filename: 'src/processors/data.ts',
+      })
+
+      // TJS → JS
+      const { code: jsCode } = tjs(tjsCode)
+
+      // Execute and trigger errors
+      const fns = new Function(
+        jsCode + '; return { validate, process, transform }'
+      )()
+
+      // Each function should report its correct source line
+      const validateErr = fns.validate(123) // wrong type
+      expect(validateErr).toBeInstanceOf(MonadicError)
+      expect(validateErr.path).toContain('src/processors/data.ts:2')
+      expect(validateErr.path).toContain('validate.input')
+
+      const processErr = fns.process('not a number')
+      expect(processErr).toBeInstanceOf(MonadicError)
+      expect(processErr.path).toContain('src/processors/data.ts:6')
+      expect(processErr.path).toContain('process.data')
+
+      const transformErr = fns.transform(42)
+      expect(transformErr).toBeInstanceOf(MonadicError)
+      expect(transformErr.path).toContain('src/processors/data.ts:10')
+      expect(transformErr.path).toContain('transform.value')
+    })
+
+    it('preserves line annotations through TJS intermediate', () => {
+      // TJS with explicit line annotations (as if from TS transpilation)
+      const tjsSource = `/* tjs <- lib/utils.ts */
+LegacyEquals
+
+/* line 15 */
+function helper(x: 0) -! 0 {
+  return x + 1
+}
+`
+      const { code } = tjs(tjsSource)
+
+      // Metadata should reference the original file and line
+      expect(code).toContain('"source": "lib/utils.ts:15"')
+
+      // Error paths should include the source
+      const helper = new Function(code + '; return helper')()
+      const err = helper('wrong')
+      expect(err.path).toBe('lib/utils.ts:15:helper.x')
     })
   })
 })

@@ -222,12 +222,19 @@ function extractFunctionTypeInfo(
  * 1. Check if any param is an Error - if so, pass it through (no work)
  * 2. Check types with fast inline typeof checks
  * 3. On type mismatch, call __tjs.typeError() (only on error path)
+ *
+ * @param funcName - Function name for error paths
+ * @param types - Type information for the function
+ * @param source - Source location (e.g., "src/utils.ts:42") for error reporting
  */
 function generateInlineValidationCode(
   funcName: string,
-  types: TJSTypeInfo
+  types: TJSTypeInfo,
+  source?: string
 ): string | null {
   const lines: string[] = []
+  // Include source in path if available: "src/file.ts:42:funcName.param"
+  const pathPrefix = source ? `${source}:` : ''
 
   // Destructured params: validate each field of the input object
   if (types.isDestructuredParam && types.destructuredShape) {
@@ -245,7 +252,7 @@ function generateInlineValidationCode(
     // 2. Type checks with proper error emission
     for (const [fieldName, fieldType] of Object.entries(shape)) {
       const isRequired = requiredFields.has(fieldName)
-      const path = `${funcName}.${fieldName}`
+      const path = `${pathPrefix}${funcName}.${fieldName}`
       const typeCheck = generateTypeCheckExpr(fieldName, fieldType)
 
       if (typeCheck) {
@@ -276,7 +283,7 @@ function generateInlineValidationCode(
 
   // 2. Type checks with proper error emission
   for (const [paramName, param] of params) {
-    const path = `${funcName}.${paramName}`
+    const path = `${pathPrefix}${funcName}.${paramName}`
     const typeCheck = generateTypeCheckExpr(paramName, param.type)
 
     if (typeCheck) {
@@ -341,6 +348,33 @@ function extractFunctionReturnSafety(
 }
 
 /**
+ * Extract source file annotation from TJS source
+ * Looks for: /★ tjs <- path/to/file.ts ★/ at the start (★ = *)
+ */
+function extractSourceFileAnnotation(source: string): string | undefined {
+  const match = source.match(/^\/\*\s*tjs\s*<-\s*([^\*]+?)\s*\*\//)
+  return match ? match[1].trim() : undefined
+}
+
+/**
+ * Extract line number annotation for a specific function
+ * Looks for: /★ line N ★/ immediately before the function declaration
+ */
+function extractLineAnnotation(
+  source: string,
+  funcName: string
+): number | undefined {
+  // Match: /* line N */ followed by function declaration
+  // Allow for async, whitespace variations
+  const regex = new RegExp(
+    `\\/\\*\\s*line\\s+(\\d+)\\s*\\*\\/\\s*(?:async\\s+)?function\\s+${funcName}\\s*\\(`,
+    'm'
+  )
+  const match = source.match(regex)
+  return match ? parseInt(match[1], 10) : undefined
+}
+
+/**
  * Transpile TJS source to JavaScript
  *
  * This function handles:
@@ -355,6 +389,10 @@ export function transpileToJS(
 ): TJSTranspileResult {
   const { filename = '<source>', runTests = true, debug = false } = options
   const warnings: string[] = []
+
+  // Extract source file annotation if present (from TS transpilation)
+  const sourceFileAnnotation = extractSourceFileAnnotation(source)
+  const effectiveFilename = sourceFileAnnotation || filename
 
   // Extract test/mock blocks before parsing (they're not valid JS)
   const { code: cleanSource, tests, mocks, testRunner } = extractTests(source)
@@ -405,14 +443,13 @@ export function transpileToJS(
     // Extract return safety per-function from original source
     const returnSafety = extractFunctionReturnSafety(cleanSource, funcName)
 
-    // Get source location for debug mode
-    const funcLoc = func.loc
-      ? {
-          file: filename,
-          line: func.loc.start.line,
-          column: func.loc.start.column,
-        }
-      : undefined
+    // Get source location - prefer line annotation from TS transpilation
+    const annotatedLine = extractLineAnnotation(source, funcName)
+    const funcLoc = {
+      file: effectiveFilename,
+      line: annotatedLine ?? func.loc?.start.line ?? 0,
+      column: func.loc?.start.column ?? 0,
+    }
 
     const safetyOptions = {
       unsafe: isUnsafe,
@@ -435,7 +472,12 @@ export function transpileToJS(
     // Generate inline validation (to insert at start of function body)
     // Skip for unsafe functions
     if (!isUnsafe) {
-      const validationCode = generateInlineValidationCode(funcName, types)
+      const sourceStr = `${funcLoc.file}:${funcLoc.line}`
+      const validationCode = generateInlineValidationCode(
+        funcName,
+        types,
+        sourceStr
+      )
       if (validationCode && func.body && func.body.start !== undefined) {
         // Insert right after the opening brace
         insertions.push({
@@ -650,10 +692,10 @@ function generateTypeMetadata(
     metadata.safe = true
   }
 
-  // Add source location in debug mode
-  if (debugOpts.debug && debugOpts.source) {
-    const { file, line, column } = debugOpts.source
-    metadata.source = `${file}:${line}:${column}`
+  // Always include source location for error reporting
+  if (debugOpts.source) {
+    const { file, line } = debugOpts.source
+    metadata.source = `${file}:${line}`
   }
 
   return `${funcName}.__tjs = ${JSON.stringify(metadata, null, 2)}`

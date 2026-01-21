@@ -913,9 +913,16 @@ function transformFunctionToTJS(
   node: ts.FunctionDeclaration | ts.ArrowFunction | ts.FunctionExpression,
   sourceFile: ts.SourceFile,
   explicitName?: string,
-  warnings?: string[]
+  warnings?: string[],
+  includeLineNumber?: boolean
 ): string {
   const params: string[] = []
+
+  // Get line number (1-indexed) for source mapping
+  const { line } = sourceFile.getLineAndCharacterOfPosition(
+    node.getStart(sourceFile)
+  )
+  const lineComment = includeLineNumber ? `/* line ${line + 1} */\n` : ''
 
   for (const param of node.parameters) {
     const name = param.name.getText(sourceFile)
@@ -979,7 +986,7 @@ function transformFunctionToTJS(
   )
   const asyncPrefix = isAsync ? 'async ' : ''
 
-  return `${asyncPrefix}function ${funcName}(${params.join(
+  return `${lineComment}${asyncPrefix}function ${funcName}(${params.join(
     ', '
   )})${returnAnnotation} ${body}`
 }
@@ -1435,7 +1442,13 @@ export function fromTS(
 
       if (emitTJS) {
         tjsFunctions.push(
-          transformFunctionToTJS(statement, sourceFile, undefined, warnings)
+          transformFunctionToTJS(
+            statement,
+            sourceFile,
+            undefined,
+            warnings,
+            true
+          )
         )
       } else {
         metadata[funcName] = extractFunctionMetadata(
@@ -1465,7 +1478,13 @@ export function fromTS(
 
           if (emitTJS) {
             tjsFunctions.push(
-              transformFunctionToTJS(funcNode, sourceFile, funcName, warnings)
+              transformFunctionToTJS(
+                funcNode,
+                sourceFile,
+                funcName,
+                warnings,
+                true
+              )
             )
           } else {
             const info = extractFunctionMetadata(
@@ -1634,7 +1653,9 @@ export function fromTS(
   if (emitTJS) {
     // TypeScript uses JavaScript's equality semantics, so we need LegacyEquals
     // to preserve == and === behavior when the TJS is executed
-    const header = 'LegacyEquals\n\n'
+    // Include source file annotation for error reporting
+    const sourceFileName = filename || 'unknown'
+    const header = `/* tjs <- ${sourceFileName} */\nLegacyEquals\n\n`
     return {
       code: header + tjsFunctions.join('\n\n'),
       warnings: warnings.length > 0 ? warnings : undefined,
