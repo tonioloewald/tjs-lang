@@ -19,6 +19,7 @@ import {
 } from 'tosijs-ui'
 import { codeMirror, CodeMirror } from '../../editors/codemirror/component'
 import { tjs } from '../../src/lang'
+import { generateDocs } from '../../src/lang/docs'
 import { extractImports, generateImportMap, resolveImports } from './imports'
 import { ModuleStore, type ValidationResult } from './module-store'
 
@@ -406,7 +407,7 @@ export class TJSPlayground extends Component<TJSPlaygroundParts> {
       this.updateTestResults(result)
 
       // If we got metadata from transpiler, use it (more accurate)
-      if (result.metadata?.name) {
+      if (result.metadata?.name && typeof result.metadata.name === 'string') {
         this.functionMetadata[result.metadata.name] = result.metadata
       }
     } catch (e: any) {
@@ -725,139 +726,18 @@ export class TJSPlayground extends Component<TJSPlaygroundParts> {
     return trimmed
   }
 
-  /**
-   * Extract TDoc comments immediately preceding functions
-   * Returns map of function name -> comment text
-   *
-   * Uses regex on original source (not AST) because preprocessing
-   * transforms TJS syntax and shifts positions.
-   */
-  extractFunctionComments = (source: string): Record<string, string> => {
-    const comments: Record<string, string> = {}
-
-    // Find all function declarations and their preceding doc comments
-    // We use regex on the original source to avoid AST position mismatch
-    // after preprocessing transforms TJS syntax (e.g., `x: 5` -> `x = 5`)
-    const funcPattern = /function\s+(\w+)\s*\(/g
-    let match
-
-    while ((match = funcPattern.exec(source)) !== null) {
-      const funcName = match[1]
-      const funcStart = match.index
-      const beforeFunc = source.substring(0, funcStart)
-
-      // Find the LAST /*# ... */ block before this function
-      const docBlocks = [...beforeFunc.matchAll(/\/\*#([\s\S]*?)\*\//g)]
-      if (docBlocks.length > 0) {
-        const lastBlock = docBlocks[docBlocks.length - 1]
-        const afterBlock = beforeFunc.substring(
-          lastBlock.index! + lastBlock[0].length
-        )
-
-        // Only attach if nothing but whitespace/line comments between doc and function
-        if (/^(?:\s|\/\/[^\n]*)*$/.test(afterBlock)) {
-          // Dedent the content
-          let content = lastBlock[1]
-          const lines = content.split('\n')
-          const minIndent = lines
-            .filter((line) => line.trim().length > 0)
-            .reduce((min, line) => {
-              const indent = line.match(/^(\s*)/)?.[1].length || 0
-              return Math.min(min, indent)
-            }, Infinity)
-
-          if (minIndent > 0 && minIndent < Infinity) {
-            content = lines.map((line) => line.slice(minIndent)).join('\n')
-          }
-
-          comments[funcName] = content.trim()
-        }
-      }
-    }
-
-    return comments
-  }
-
-  /**
-   * Build function signature string for docs
-   */
-  buildSignature = (name: string, params: any, returns: any): string => {
-    const paramParts: string[] = []
-
-    if (params) {
-      for (const [paramName, paramInfo] of Object.entries(params) as any) {
-        const typeStr = typeToString(paramInfo.type)
-        if (paramInfo.required) {
-          paramParts.push(`${paramName}: ${typeStr}`)
-        } else if (paramInfo.default !== undefined) {
-          paramParts.push(`${paramName} = ${JSON.stringify(paramInfo.default)}`)
-        } else {
-          paramParts.push(`${paramName}?: ${typeStr}`)
-        }
-      }
-    }
-
-    const returnStr = returns ? ` -> ${typeToString(returns)}` : ''
-    return `${name}(${paramParts.join(', ')})${returnStr}`
-  }
-
-  updateDocs = (result: any) => {
+  updateDocs = (_result: any) => {
     const source = this.parts.tjsEditor.value
 
-    // Extract block comments for all functions
-    const comments = this.extractFunctionComments(source)
+    // Use the core generateDocs function to extract all doc blocks and functions
+    const docs = generateDocs(source)
 
-    if (!result?.types) {
-      // No transpile result, but we might still have comments
-      if (Object.keys(comments).length === 0) {
-        this.parts.docsOutput.value = '*No documentation available*'
-        return
-      }
+    if (docs.items.length === 0) {
+      this.parts.docsOutput.value = '*No documentation available*'
+      return
     }
 
-    const { name, params, returns } = result?.types || {}
-    let docs = ''
-
-    if (name) {
-      // Build signature
-      const signature = this.buildSignature(name, params, returns)
-
-      docs += `## ${name}\n\n`
-      docs += '```\n' + signature + '\n```\n\n'
-
-      // Add block comment if present
-      if (comments[name]) {
-        docs += comments[name] + '\n\n'
-      }
-
-      // Add parameter details if any have defaults or are complex
-      if (params && Object.keys(params).length > 0) {
-        const hasDefaults = Object.values(params).some(
-          (p: any) => p.default !== undefined
-        )
-        if (hasDefaults) {
-          docs += '### Parameters\n\n'
-          for (const [paramName, paramInfo] of Object.entries(params) as any) {
-            const typeStr = typeToString(paramInfo.type)
-            const required = paramInfo.required ? '' : ' *(optional)*'
-            docs += `- **${paramName}**: \`${typeStr}\`${required}\n`
-            if (paramInfo.default !== undefined && paramInfo.default !== null) {
-              docs += `  - Default: \`${JSON.stringify(paramInfo.default)}\`\n`
-            }
-          }
-          docs += '\n'
-        }
-      }
-    }
-
-    // Also document other functions found with comments
-    for (const [funcName, comment] of Object.entries(comments)) {
-      if (funcName !== name && comment) {
-        docs += `---\n\n## ${funcName}\n\n${comment}\n\n`
-      }
-    }
-
-    this.parts.docsOutput.value = docs || '*No documentation available*'
+    this.parts.docsOutput.value = docs.markdown
   }
 
   saveModule = async () => {

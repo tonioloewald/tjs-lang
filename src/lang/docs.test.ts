@@ -124,6 +124,24 @@ function second(x: 0) -> 0 { return x }
       expect(doc.content).toContain('`code example`')
     })
 
+    it('preserves markdown tables', () => {
+      const source = `
+/*#
+## Parameter Syntax
+| Syntax | Meaning |
+|--------|---------|
+| \`x: 0\` | Required number |
+| \`x = 0\` | Optional, defaults to 0 |
+*/
+`
+      const result = generateDocs(source)
+
+      const doc = result.items[0] as any
+      expect(doc.content).toContain('| Syntax | Meaning |')
+      expect(doc.content).toContain('|--------|---------|')
+      expect(doc.content).toContain('| `x: 0` | Required number |')
+    })
+
     it('dedents common leading whitespace', () => {
       const source = `
 /*#
