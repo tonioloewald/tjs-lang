@@ -579,7 +579,7 @@ if (main) {
                       typeof example.code === 'string'
                         ? example.code
                         : String(example.code)
-                    element.setSource(code)
+                    element.setSource(code, example.name)
                   }
                 }, 0)
               }
@@ -617,7 +617,7 @@ if (main) {
                       typeof example.code === 'string'
                         ? example.code
                         : String(example.code)
-                    element.setSource(code)
+                    element.setSource(code, example.name)
                   }
                 }, 0)
               }

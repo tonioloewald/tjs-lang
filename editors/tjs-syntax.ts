@@ -32,9 +32,10 @@ export const KEYWORDS = [...AJS_KEYWORDS, ...TJS_KEYWORDS] as const
 
 /**
  * TJS forbidden keywords (fewer than AJS - TJS is less restrictive)
+ * TJS allows: async/await, throw, import/export
  */
 export const FORBIDDEN_KEYWORDS = AJS_FORBIDDEN.filter(
-  (k) => !['async', 'await', 'throw'].includes(k)
+  (k) => !['async', 'await', 'throw', 'import', 'export'].includes(k)
 ) as readonly string[]
 
 /**

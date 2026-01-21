@@ -56,8 +56,17 @@ import {
   closeBracketsKeymap,
   completionKeymap,
 } from '@codemirror/autocomplete'
-import { lintKeymap } from '@codemirror/lint'
-import { ajsEditorExtension, AutocompleteConfig } from './ajs-language'
+import {
+  lintKeymap,
+  lintGutter,
+  setDiagnostics,
+  Diagnostic,
+} from '@codemirror/lint'
+import {
+  ajsEditorExtension,
+  tjsEditorExtension,
+  AutocompleteConfig,
+} from './ajs-language'
 
 // Custom setup without autocompletion (we add our own via ajsEditorExtension)
 // Based on basicSetup but excludes autocompletion()
@@ -101,9 +110,8 @@ function getLanguageExtension(
     case 'ajs':
       return ajsEditorExtension({ autocomplete })
     case 'tjs':
-      // TJS uses same syntax as AJS for now (colon params, return arrows)
-      // TODO: Add TJS-specific highlighting (unsafe blocks, try-without-catch)
-      return ajsEditorExtension({ autocomplete })
+      // TJS is less restrictive than AJS - allows import/export, async/await, throw
+      return tjsEditorExtension({ autocomplete })
     case 'js':
     case 'javascript':
       return javascript()
@@ -248,6 +256,7 @@ export class CodeMirror extends Component {
       doc: this._source,
       extensions: [
         customSetup,
+        lintGutter(),
         this.languageCompartment.of(
           getLanguageExtension(this.mode, this._autocompleteConfig)
         ),
@@ -332,6 +341,57 @@ export class CodeMirror extends Component {
     this._editor.dispatch({
       changes: { from, to, insert: text },
     })
+  }
+
+  // Go to a specific line (1-indexed) and optionally column
+  goToLine(line: number, column: number = 1) {
+    if (!this._editor) return
+    const doc = this._editor.state.doc
+    // Clamp line to valid range
+    const lineNum = Math.max(1, Math.min(line, doc.lines))
+    const lineInfo = doc.line(lineNum)
+    // Calculate position: start of line + column offset (clamped)
+    const col = Math.max(1, Math.min(column, lineInfo.length + 1))
+    const pos = lineInfo.from + col - 1
+
+    this._editor.dispatch({
+      selection: { anchor: pos },
+      scrollIntoView: true,
+    })
+    this._editor.focus()
+  }
+
+  // Set diagnostics (errors/warnings) to show in the gutter
+  // Each marker has: line (1-indexed), message, severity ('error' | 'warning' | 'info')
+  setMarkers(
+    markers: Array<{
+      line: number
+      message: string
+      severity?: 'error' | 'warning' | 'info'
+    }>
+  ) {
+    if (!this._editor) return
+    const doc = this._editor.state.doc
+
+    const diagnostics: Diagnostic[] = markers
+      .filter((m) => m.line >= 1 && m.line <= doc.lines)
+      .map((m) => {
+        const lineInfo = doc.line(m.line)
+        return {
+          from: lineInfo.from,
+          to: lineInfo.to,
+          severity: m.severity || 'error',
+          message: m.message,
+        }
+      })
+
+    this._editor.dispatch(setDiagnostics(this._editor.state, diagnostics))
+  }
+
+  // Clear all diagnostics
+  clearMarkers() {
+    if (!this._editor) return
+    this._editor.dispatch(setDiagnostics(this._editor.state, []))
   }
 }
 

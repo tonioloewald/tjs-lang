@@ -172,7 +172,7 @@
     "forbidden": {
       "patterns": [
         {
-          "match": "\\\\b(new|class|extends|super|this|implements|interface|abstract|static|private|protected|public|yield|import|export|require|module|var|switch|case|default|with|delete|void|typeof|instanceof|debugger|eval|type|enum|namespace|declare|readonly|as|is|keyof|infer|never|unknown)\\\\b",
+          "match": "\\\\b(new|class|extends|super|this|implements|interface|abstract|static|private|protected|public|yield|require|module|var|switch|case|default|with|delete|void|typeof|instanceof|debugger|eval|type|enum|namespace|declare|readonly|as|is|keyof|infer|never|unknown)\\\\b",
           "name": "invalid.illegal.forbidden.tjs"
         }
       ]

@@ -59,6 +59,10 @@ export interface TestResult {
   error?: string
   /** Whether this was an implicit signature test */
   isSignatureTest?: boolean
+  /** Source line number (1-indexed) where the test or error occurred */
+  line?: number
+  /** Source column number (1-indexed) */
+  column?: number
 }
 
 export interface TJSTranspileResult {
@@ -1067,12 +1071,14 @@ function runTestBlocks(
       results.push({
         description: test.description,
         passed: true,
+        line: test.line,
       })
     } catch (e: any) {
       results.push({
         description: test.description,
         passed: false,
         error: e.message || String(e),
+        line: test.line,
       })
     }
   }
@@ -1210,6 +1216,9 @@ function runAllSignatureTests(
     const paramsStr = match[2]
     const returnMarker = match[3]
 
+    // Calculate line number from match position
+    const lineNumber = originalSource.slice(0, match.index).split('\n').length
+
     // -! means skip test
     if (returnMarker === '-!') continue
 
@@ -1234,6 +1243,7 @@ function runAllSignatureTests(
       const args = paramExamples.map((p) => new Function(`return ${p}`)())
 
       const result = runSignatureTest(funcName, transpiledCode, args, expected)
+      result.line = lineNumber
       results.push(result)
     } catch (e: any) {
       results.push({
@@ -1241,6 +1251,7 @@ function runAllSignatureTests(
         passed: false,
         error: `Failed to parse signature: ${e.message}`,
         isSignatureTest: true,
+        line: lineNumber,
       })
     }
   }

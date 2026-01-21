@@ -49,11 +49,17 @@ import {
   FORBIDDEN_KEYWORDS as FORBIDDEN_LIST,
   FORBIDDEN_PATTERN,
 } from '../ajs-syntax'
+import { FORBIDDEN_KEYWORDS as TJS_FORBIDDEN_LIST } from '../tjs-syntax'
 
 /**
  * Forbidden keywords in AsyncJS - these will be highlighted as errors
  */
 const FORBIDDEN_KEYWORDS = new Set(FORBIDDEN_LIST)
+
+/**
+ * Forbidden keywords in TJS - fewer restrictions than AJS
+ */
+const TJS_FORBIDDEN_KEYWORDS = new Set(TJS_FORBIDDEN_LIST)
 
 /**
  * Decoration for forbidden keywords
@@ -175,45 +181,61 @@ function isInSkipRegion(pos: number, regions: [number, number][]): boolean {
 }
 
 /**
- * Plugin that highlights forbidden keywords as errors
+ * Create a plugin that highlights forbidden keywords as errors
  * (but not inside strings or comments)
  */
-const forbiddenHighlighter = ViewPlugin.fromClass(
-  class {
-    decorations: DecorationSet
+function createForbiddenHighlighter(forbiddenSet: Set<string>) {
+  const pattern = new RegExp(`\\b(${[...forbiddenSet].join('|')})\\b`, 'g')
 
-    constructor(view: EditorView) {
-      this.decorations = this.buildDecorations(view)
-    }
+  return ViewPlugin.fromClass(
+    class {
+      decorations: DecorationSet
 
-    update(update: ViewUpdate) {
-      if (update.docChanged || update.viewportChanged) {
-        this.decorations = this.buildDecorations(update.view)
+      constructor(view: EditorView) {
+        this.decorations = this.buildDecorations(view)
       }
-    }
 
-    buildDecorations(view: EditorView): DecorationSet {
-      const builder = new RangeSetBuilder<Decoration>()
-      const doc = view.state.doc.toString()
-      const skipRegions = findSkipRegions(doc)
-
-      // Match word boundaries for forbidden keywords (use fresh regex for each scan)
-      const pattern = new RegExp(FORBIDDEN_PATTERN.source, 'g')
-
-      let match
-      while ((match = pattern.exec(doc)) !== null) {
-        // Skip if inside string or comment
-        if (!isInSkipRegion(match.index, skipRegions)) {
-          builder.add(match.index, match.index + match[0].length, forbiddenMark)
+      update(update: ViewUpdate) {
+        if (update.docChanged || update.viewportChanged) {
+          this.decorations = this.buildDecorations(update.view)
         }
       }
 
-      return builder.finish()
+      buildDecorations(view: EditorView): DecorationSet {
+        const builder = new RangeSetBuilder<Decoration>()
+        const doc = view.state.doc.toString()
+        const skipRegions = findSkipRegions(doc)
+
+        // Use fresh regex for each scan
+        const regex = new RegExp(pattern.source, 'g')
+
+        let match
+        while ((match = regex.exec(doc)) !== null) {
+          // Skip if inside string or comment
+          if (!isInSkipRegion(match.index, skipRegions)) {
+            builder.add(
+              match.index,
+              match.index + match[0].length,
+              forbiddenMark
+            )
+          }
+        }
+
+        return builder.finish()
+      }
+    },
+    {
+      decorations: (v) => v.decorations,
     }
-  },
-  {
-    decorations: (v) => v.decorations,
-  }
+  )
+}
+
+// AJS forbidden highlighter (stricter)
+const forbiddenHighlighter = createForbiddenHighlighter(FORBIDDEN_KEYWORDS)
+
+// TJS forbidden highlighter (more permissive - allows import/export, async/await, throw)
+const tjsForbiddenHighlighter = createForbiddenHighlighter(
+  TJS_FORBIDDEN_KEYWORDS
 )
 
 /**
@@ -1380,6 +1402,31 @@ export function ajsEditorExtension(
 
 // Alias for backwards compatibility
 export { ajsEditorExtension as ajs }
+
+/**
+ * TJS editor extension - like AJS but with fewer restrictions
+ * Allows: import/export, async/await, throw
+ */
+export function tjsEditorExtension(
+  config: {
+    jsx?: boolean
+    typescript?: boolean
+    autocomplete?: AutocompleteConfig
+  } = {}
+): Extension {
+  return [
+    javascript({ jsx: config.jsx, typescript: config.typescript }),
+    syntaxHighlighting(defaultHighlightStyle),
+    tjsForbiddenHighlighter, // Use TJS forbidden list (more permissive)
+    tryWithoutCatchHighlighter,
+    ajsTheme,
+    syntaxHighlighting(ajsHighlightStyle),
+    autocompletion({
+      override: [tjsCompletionSource(config.autocomplete || {})],
+      activateOnTyping: true,
+    }),
+  ]
+}
 
 /**
  * AsyncJS language support wrapped as LanguageSupport

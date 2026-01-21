@@ -110,6 +110,7 @@ interface TJSPlaygroundParts extends PartsMap {
   consoleHeader: HTMLElement
   console: HTMLElement
   runBtn: HTMLButtonElement
+  revertBtn: HTMLButtonElement
   saveBtn: HTMLButtonElement
   moduleNameInput: HTMLInputElement
   statusBar: HTMLElement
@@ -123,6 +124,11 @@ export class TJSPlayground extends Component<TJSPlaygroundParts> {
   private lastTranspileResult: any = null
   private consoleMessages: string[] = []
   private functionMetadata: Record<string, any> = {}
+
+  // Editor state persistence
+  private currentExampleName: string | null = null
+  private originalCode: string = DEFAULT_TJS
+  private editorCache: Map<string, string> = new Map()
 
   // Build flags state
   private buildFlags = {
@@ -187,6 +193,17 @@ export class TJSPlayground extends Component<TJSPlaygroundParts> {
           }),
           'Safe'
         )
+      ),
+      span({ class: 'toolbar-separator' }),
+      button(
+        {
+          part: 'revertBtn',
+          class: 'revert-btn',
+          onClick: this.revertToOriginal,
+          title: 'Revert to original example code',
+        },
+        icons.cornerUpLeft({ size: 16 }),
+        'Revert'
       ),
       span({ class: 'toolbar-separator' }),
       input({
@@ -324,20 +341,61 @@ export class TJSPlayground extends Component<TJSPlaygroundParts> {
     let debounceTimer: ReturnType<typeof setTimeout>
     this.parts.tjsEditor.addEventListener('change', () => {
       clearTimeout(debounceTimer)
-      debounceTimer = setTimeout(() => this.transpile(), 300)
+      debounceTimer = setTimeout(() => {
+        this.transpile()
+        this.updateRevertButton()
+      }, 300)
     })
   }
 
   log = (message: string) => {
     this.consoleMessages.push(message)
-    this.parts.console.textContent = this.consoleMessages.join('\n')
-    this.parts.console.scrollTop = this.parts.console.scrollHeight
+    this.renderConsole()
   }
 
   clearConsole = () => {
     this.consoleMessages = []
-    this.parts.console.textContent = ''
+    this.parts.console.innerHTML = ''
     this.parts.consoleHeader.textContent = 'Console'
+  }
+
+  private renderConsole() {
+    // Parse messages for line references and make them clickable
+    // Patterns: "at line X", "line X:", "Line X", ":X:" (line:col)
+    const linePattern =
+      /(?:at line |line |Line )(\d+)(?:[:,]?\s*(?:column |col )?(\d+))?|:(\d+):(\d+)/g
+
+    const html = this.consoleMessages
+      .map((msg) => {
+        // Escape HTML
+        const escaped = msg
+          .replace(/&/g, '&amp;')
+          .replace(/</g, '&lt;')
+          .replace(/>/g, '&gt;')
+
+        // Replace line references with clickable spans
+        return escaped.replace(linePattern, (match, l1, c1, l2, c2) => {
+          const line = l1 || l2
+          const col = c1 || c2 || '1'
+          return `<span class="clickable-line" data-line="${line}" data-col="${col}">${match}</span>`
+        })
+      })
+      .join('\n')
+
+    this.parts.console.innerHTML = html
+    this.parts.console.scrollTop = this.parts.console.scrollHeight
+
+    // Add click handlers
+    this.parts.console.querySelectorAll('.clickable-line').forEach((el) => {
+      el.addEventListener('click', (e) => {
+        const target = e.currentTarget as HTMLElement
+        const line = parseInt(target.dataset.line || '0', 10)
+        const col = parseInt(target.dataset.col || '1', 10)
+        if (line > 0) {
+          this.goToSourceLine(line, col)
+        }
+      })
+    })
   }
 
   // Build flag toggle handlers
@@ -419,6 +477,15 @@ export class TJSPlayground extends Component<TJSPlaygroundParts> {
       this.lastTranspileResult = null
       // Clear test results on error
       this.parts.testsOutput.textContent = 'Transpilation failed - no tests run'
+
+      // Set error marker in gutter
+      if (e.line) {
+        this.parts.tjsEditor.setMarkers([
+          { line: e.line, message: e.message || 'Transpilation error' },
+        ])
+      } else {
+        this.parts.tjsEditor.clearMarkers()
+      }
     }
   }
 
@@ -427,6 +494,7 @@ export class TJSPlayground extends Component<TJSPlaygroundParts> {
     if (!tests || tests.length === 0) {
       this.parts.testsOutput.textContent = 'No tests defined'
       this.updateTestsTabLabel(0, 0)
+      this.parts.tjsEditor.clearMarkers()
       return
     }
 
@@ -435,6 +503,20 @@ export class TJSPlayground extends Component<TJSPlaygroundParts> {
 
     // Update tab label with indicator
     this.updateTestsTabLabel(passed, failed)
+
+    // Set gutter markers for failed tests
+    const failedTests = tests.filter((t: any) => !t.passed && t.line)
+    if (failedTests.length > 0) {
+      this.parts.tjsEditor.setMarkers(
+        failedTests.map((t: any) => ({
+          line: t.line,
+          message: t.error || t.description,
+          severity: 'error' as const,
+        }))
+      )
+    } else {
+      this.parts.tjsEditor.clearMarkers()
+    }
 
     let html = `<div class="test-summary">`
     html += `<strong>${passed} passed</strong>`
@@ -449,15 +531,35 @@ export class TJSPlayground extends Component<TJSPlaygroundParts> {
       const sigBadge = test.isSignatureTest
         ? ' <span class="sig-badge">signature</span>'
         : ''
-      html += `<li class="${cls}">${icon} ${test.description}${sigBadge}`
+      const clickable =
+        !test.passed && test.line ? ' class="clickable-error"' : ''
+      const dataLine = test.line ? ` data-line="${test.line}"` : ''
+      html += `<li class="${cls}"${dataLine}>${icon} ${test.description}${sigBadge}`
       if (!test.passed && test.error) {
-        html += `<div class="test-error">${test.error}</div>`
+        html += `<div${clickable}${dataLine} class="test-error${
+          test.line ? ' clickable-error' : ''
+        }">${test.error}</div>`
       }
       html += `</li>`
     }
     html += `</ul>`
 
     this.parts.testsOutput.innerHTML = html
+
+    // Add click handlers for clickable errors
+    this.parts.testsOutput
+      .querySelectorAll('.clickable-error')
+      .forEach((el) => {
+        el.addEventListener('click', (e) => {
+          const line = parseInt(
+            (e.currentTarget as HTMLElement).dataset.line || '0',
+            10
+          )
+          if (line > 0) {
+            this.goToSourceLine(line)
+          }
+        })
+      })
   }
 
   private updateTestsTabLabel(passed: number, failed: number) {
@@ -982,11 +1084,52 @@ export class TJSPlayground extends Component<TJSPlaygroundParts> {
   }
 
   // Public method to set source code (auto-runs when examples are loaded)
-  setSource(code: string) {
-    this.parts.tjsEditor.value = code
+  setSource(code: string, exampleName?: string) {
+    // Save current edits before switching
+    if (this.currentExampleName) {
+      this.editorCache.set(this.currentExampleName, this.parts.tjsEditor.value)
+    }
+
+    // Update current example tracking
+    this.currentExampleName = exampleName || null
+    this.originalCode = code
+
+    // Check if we have cached edits for this example
+    const cachedCode = exampleName ? this.editorCache.get(exampleName) : null
+    this.parts.tjsEditor.value = cachedCode || code
+
+    // Update revert button visibility
+    this.updateRevertButton()
+
     this.transpile()
     // Auto-run when source is loaded externally (e.g., from example selection)
     this.run()
+  }
+
+  // Navigate to a specific line in the source editor
+  goToSourceLine(line: number, column: number = 1) {
+    this.parts.inputTabs.value = 0 // Switch to TJS tab (first tab)
+    // Wait for tab switch and editor resize before scrolling
+    setTimeout(() => {
+      this.parts.tjsEditor.goToLine(line, column)
+    }, 50)
+  }
+
+  // Revert to the original example code
+  revertToOriginal = () => {
+    if (this.currentExampleName) {
+      this.editorCache.delete(this.currentExampleName)
+    }
+    this.parts.tjsEditor.value = this.originalCode
+    this.updateRevertButton()
+    this.transpile()
+  }
+
+  // Update revert button state based on whether code has changed
+  private updateRevertButton() {
+    const hasChanges = this.parts.tjsEditor.value !== this.originalCode
+    this.parts.revertBtn.disabled = !hasChanges
+    this.parts.revertBtn.style.opacity = hasChanges ? '1' : '0.5'
   }
 }
 
@@ -1102,6 +1245,31 @@ export const tjsPlayground = TJSPlayground.elementCreator({
       background: 'var(--brand-color, #3d4a6b)',
       color: 'var(--brand-text-color, white)',
       borderColor: 'var(--brand-color, #3d4a6b)',
+    },
+
+    ':host .revert-btn': {
+      display: 'flex',
+      alignItems: 'center',
+      gap: '4px',
+      padding: '6px 12px',
+      background: 'var(--code-background, #e5e7eb)',
+      color: 'var(--text-color, #374151)',
+      border: '1px solid var(--code-border, #d1d5db)',
+      borderRadius: '6px',
+      cursor: 'pointer',
+      fontWeight: '500',
+      fontSize: '14px',
+      transition: 'opacity 0.2s',
+    },
+
+    ':host .revert-btn:hover:not(:disabled)': {
+      background: '#fef3c7',
+      borderColor: '#f59e0b',
+      color: '#92400e',
+    },
+
+    ':host .revert-btn:disabled': {
+      cursor: 'default',
     },
 
     ':host .elastic': {
@@ -1296,6 +1464,16 @@ export const tjsPlayground = TJSPlayground.elementCreator({
       fontFamily: 'var(--font-mono, monospace)',
     },
 
+    ':host .clickable-error': {
+      cursor: 'pointer',
+      textDecoration: 'underline',
+      textDecorationStyle: 'dotted',
+    },
+
+    ':host .clickable-error:hover': {
+      background: 'rgba(220, 38, 38, 0.2)',
+    },
+
     ':host .sig-badge': {
       fontSize: '11px',
       padding: '2px 6px',
@@ -1331,6 +1509,19 @@ export const tjsPlayground = TJSPlayground.elementCreator({
       fontSize: '12px',
       fontFamily: 'ui-monospace, monospace',
       overflow: 'auto',
+      whiteSpace: 'pre-wrap',
+    },
+
+    ':host .clickable-line': {
+      cursor: 'pointer',
+      color: '#2563eb',
+      textDecoration: 'underline',
+      textDecorationStyle: 'dotted',
+    },
+
+    ':host .clickable-line:hover': {
+      color: '#1d4ed8',
+      background: 'rgba(37, 99, 235, 0.1)',
     },
   },
 }) as ElementCreator<TJSPlayground>

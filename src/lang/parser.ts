@@ -2106,7 +2106,7 @@ function findLeftOperandBoundary(source: string, opPos: number): number {
     // We need to look backwards for a word boundary and check if it's a keyword
     if (/[a-z]/.test(char)) {
       // Might be end of a keyword - scan backwards to get full word
-      let wordEnd = i + 1
+      const wordEnd = i + 1
       let wordStart = i
       while (wordStart > 0 && /[a-z]/i.test(source[wordStart - 1])) {
         wordStart--
