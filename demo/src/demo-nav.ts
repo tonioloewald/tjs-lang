@@ -17,6 +17,7 @@ import {
   icons,
 } from 'tosijs-ui'
 import { examples as ajsExamples } from './examples'
+import { tsExamples, type TSExample } from './ts-examples'
 
 const { div, details, summary, span, button } = elements
 
@@ -782,7 +783,7 @@ console.log('\\nSearch "ob":', searchUsers({ query: 'ob' }))
 
 // Type validation in action
 console.log('\\nType validation test:')
-const badResult = createUser({ name: 123 } as any) // Wrong type
+const badResult = createUser({ name: 123 }) // Wrong type
 console.log('Bad input result:', badResult) // Returns $error object`,
   },
   {
@@ -839,7 +840,7 @@ async function main() {
 
   // Type error handling
   console.log('\\n--- Type Validation Demo ---')
-  const badResult = createUser({ name: 999 } as any)
+  const badResult = createUser({ name: 999 })
   if (badResult.$error) {
     console.log('Caught type error:', badResult.message)
   }
@@ -1473,7 +1474,7 @@ console.log('\\nCalling greet(badUser)...\\n')
 // 4. Or corrupt your database with undefined values
 
 // In TJS, we catch it:
-const result = greet(badUser as any)
+const result = greet(badUser)
 
 console.log('───────────────────────────────────')
 if (result && result.$error) {
@@ -1569,7 +1570,7 @@ console.log('STEP 4: Invalid call (missing price)\\n')
 const badOrder = { product: 'Broken', quantity: 2 }  // no price!
 console.log('Input:', badOrder)
 
-const result2 = createOrder(badOrder as any)
+const result2 = createOrder(badOrder)
 console.log('Output:', result2)
 
 if (result2.$error) {
@@ -1588,7 +1589,7 @@ console.log('STEP 5: Wrong types (quantity is string)\\n')
 const wrongTypes = { product: 'Bug', quantity: 'five', price: 10 }
 console.log('Input:', wrongTypes)
 
-const result3 = createOrder(wrongTypes as any)
+const result3 = createOrder(wrongTypes)
 console.log('Output:', result3)
 
 if (result3.$error) {
@@ -1618,6 +1619,7 @@ interface DocItem {
 interface DemoNavEvents {
   'select-ajs-example': { example: (typeof ajsExamples)[0] }
   'select-tjs-example': { example: (typeof tjsExamples)[0] }
+  'select-ts-example': { example: TSExample }
   'select-doc': { doc: DocItem }
 }
 
@@ -1872,6 +1874,10 @@ export class DemoNav extends Component {
 
   // Group labels for display
   private static readonly GROUP_LABELS: Record<string, string> = {
+    // TypeScript example groups
+    intro: 'Introduction',
+    validation: 'Runtime Validation',
+    // TJS example groups
     'god-demo': '🔥 TS → TJS',
     featured: 'Featured',
     basics: 'Basics',
@@ -1884,6 +1890,10 @@ export class DemoNav extends Component {
 
   // Group ordering (featured first, then alphabetical-ish)
   private static readonly GROUP_ORDER = [
+    // TypeScript groups
+    'intro',
+    'validation',
+    // TJS groups
     'god-demo',
     'featured',
     'basics',
@@ -1950,6 +1960,32 @@ export class DemoNav extends Component {
         },
         span({ class: 'section-icon' }, icons.home({ size: 16 })),
         'Home'
+      ),
+
+      // TypeScript Examples (TS -> TJS -> JS pipeline)
+      details(
+        {
+          open: this.openSection === 'ts-demos',
+          'data-section': 'ts-demos',
+          onToggle: this.handleToggle,
+        },
+        summary(
+          span({ class: 'section-icon' }, icons.code({ size: 16 })),
+          'TypeScript Examples'
+        ),
+        div(
+          { class: 'section-content' },
+          ...this.renderGroupedExamples(tsExamples, (ex) =>
+            div(
+              {
+                class: 'nav-item',
+                title: ex.description,
+                onClick: () => this.selectTsExample(ex),
+              },
+              ex.name
+            )
+          )
+        )
       ),
 
       // TJS Examples
@@ -2123,6 +2159,18 @@ export class DemoNav extends Component {
     this.updateCurrentIndicator()
     this.dispatchEvent(
       new CustomEvent('select-tjs-example', {
+        detail: { example },
+        bubbles: true,
+      })
+    )
+  }
+
+  selectTsExample(example: TSExample) {
+    this._currentView = 'tjs' // Will switch to 'ts' when TS playground is wired up
+    this._currentExample = example.name
+    this.updateCurrentIndicator()
+    this.dispatchEvent(
+      new CustomEvent('select-ts-example', {
         detail: { example },
         bubbles: true,
       })

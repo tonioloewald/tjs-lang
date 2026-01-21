@@ -926,11 +926,8 @@ function transformFunctionToTJS(
       // Has default value - use it directly
       const defaultText = param.initializer.getText(sourceFile)
       params.push(`${name} = ${defaultText}`)
-    } else if (typeExample === 'any') {
-      // Unknown/any type - use explicit any annotation
-      params.push(`${name}: any`)
-    } else if (typeExample === 'undefined') {
-      // Undefined type - just use the name (truly optional)
+    } else if (typeExample === 'any' || typeExample === 'undefined') {
+      // any/undefined type - no annotation in TJS (bare name means any)
       params.push(name)
     } else if (isOptional) {
       // Optional without default - use = for optional
@@ -949,9 +946,11 @@ function transformFunctionToTJS(
   const returnExample = node.type
     ? typeToExample(node.type, undefined, warnings)
     : ''
+  // Use -! to skip signature tests - TS types are compile-time only,
+  // the example values won't necessarily match runtime behavior
   const returnAnnotation =
     returnExample && returnExample !== 'undefined' && returnExample !== 'any'
-      ? ` -> ${returnExample}`
+      ? ` -! ${returnExample}`
       : ''
 
   // Get function body and strip TypeScript syntax using ts.transpileModule
@@ -1060,11 +1059,12 @@ function transformClassToTJS(
       const returnExample = member.type
         ? typeToExample(member.type, undefined, warnings)
         : ''
+      // Use -! to skip signature tests for TS-transpiled code
       const returnAnnotation =
         returnExample &&
         returnExample !== 'undefined' &&
         returnExample !== 'any'
-          ? ` -> ${returnExample}`
+          ? ` -! ${returnExample}`
           : ''
 
       let body = '{ }'
@@ -1094,11 +1094,12 @@ function transformClassToTJS(
       const returnExample = member.type
         ? typeToExample(member.type, undefined, warnings)
         : ''
+      // Use -! to skip signature tests for TS-transpiled code
       const returnAnnotation =
         returnExample &&
         returnExample !== 'undefined' &&
         returnExample !== 'any'
-          ? ` -> ${returnExample}`
+          ? ` -! ${returnExample}`
           : ''
 
       let body = '{ }'
@@ -1191,11 +1192,8 @@ function transformParams(
       // Has default value - use it directly
       const defaultText = param.initializer.getText(sourceFile)
       params.push(`${name} = ${defaultText}`)
-    } else if (typeExample === 'any') {
-      // Unknown/any type - use explicit any annotation
-      params.push(`${name}: any`)
-    } else if (typeExample === 'undefined') {
-      // Undefined type - just use the name
+    } else if (typeExample === 'any' || typeExample === 'undefined') {
+      // any/undefined type - no annotation in TJS (bare name means any)
       params.push(name)
     } else if (isOptional) {
       // Optional without default - use = for optional
@@ -1428,9 +1426,12 @@ export function fromTS(
 
   // Walk top-level statements only (don't recurse into function bodies)
   for (const statement of sourceFile.statements) {
+    let handled = false
+
     // Handle: function foo() {}
     if (ts.isFunctionDeclaration(statement) && statement.name) {
       const funcName = statement.name.getText(sourceFile)
+      handled = true
 
       if (emitTJS) {
         tjsFunctions.push(
@@ -1447,7 +1448,10 @@ export function fromTS(
     }
 
     // Handle: const foo = () => {} or const foo = function() {}
+    // Also handle: const x = ..., let x = ..., var x = ... (non-function)
     if (ts.isVariableStatement(statement)) {
+      let hasFunctionDecl = false
+
       for (const decl of statement.declarationList.declarations) {
         if (
           ts.isIdentifier(decl.name) &&
@@ -1455,6 +1459,7 @@ export function fromTS(
           (ts.isArrowFunction(decl.initializer) ||
             ts.isFunctionExpression(decl.initializer))
         ) {
+          hasFunctionDecl = true
           const funcName = decl.name.getText(sourceFile)
           const funcNode = decl.initializer
 
@@ -1474,48 +1479,72 @@ export function fromTS(
           }
         }
       }
+
+      // If this variable statement doesn't contain function declarations,
+      // transpile and preserve it (strips type annotations)
+      if (!hasFunctionDecl && emitTJS) {
+        const transpiled = ts.transpileModule(statement.getText(sourceFile), {
+          compilerOptions: {
+            target: ts.ScriptTarget.ESNext,
+            module: ts.ModuleKind.ESNext,
+            removeComments: false,
+          },
+        })
+        tjsFunctions.push(transpiled.outputText.trim())
+      }
+
+      handled = true
     }
 
     // Handle: interface Foo { ... }
-    if (ts.isInterfaceDeclaration(statement) && emitTJS) {
-      const typeName = statement.name.getText(sourceFile)
-      if (!seenTypeNames.has(typeName)) {
-        seenTypeNames.add(typeName)
-        const typeDecl = transformInterfaceToType(
-          statement,
-          sourceFile,
-          warnings
-        )
-        if (typeDecl) {
-          tjsFunctions.push(typeDecl)
+    if (ts.isInterfaceDeclaration(statement)) {
+      handled = true
+      if (emitTJS) {
+        const typeName = statement.name.getText(sourceFile)
+        if (!seenTypeNames.has(typeName)) {
+          seenTypeNames.add(typeName)
+          const typeDecl = transformInterfaceToType(
+            statement,
+            sourceFile,
+            warnings
+          )
+          if (typeDecl) {
+            tjsFunctions.push(typeDecl)
+          }
         }
       }
     }
 
     // Handle: type Foo = { ... }
-    if (ts.isTypeAliasDeclaration(statement) && emitTJS) {
-      const typeName = statement.name.getText(sourceFile)
-      if (!seenTypeNames.has(typeName)) {
-        seenTypeNames.add(typeName)
-        const typeDecl = transformTypeAliasToType(
-          statement,
-          sourceFile,
-          warnings
-        )
-        if (typeDecl) {
-          tjsFunctions.push(typeDecl)
+    if (ts.isTypeAliasDeclaration(statement)) {
+      handled = true
+      if (emitTJS) {
+        const typeName = statement.name.getText(sourceFile)
+        if (!seenTypeNames.has(typeName)) {
+          seenTypeNames.add(typeName)
+          const typeDecl = transformTypeAliasToType(
+            statement,
+            sourceFile,
+            warnings
+          )
+          if (typeDecl) {
+            tjsFunctions.push(typeDecl)
+          }
         }
       }
     }
 
     // Handle: enum Status { Pending, Active, Done }
-    if (ts.isEnumDeclaration(statement) && emitTJS) {
-      const enumName = statement.name.getText(sourceFile)
-      if (!seenTypeNames.has(enumName)) {
-        seenTypeNames.add(enumName)
-        const enumDecl = transformEnumToTJS(statement, sourceFile, warnings)
-        if (enumDecl) {
-          tjsFunctions.push(enumDecl)
+    if (ts.isEnumDeclaration(statement)) {
+      handled = true
+      if (emitTJS) {
+        const enumName = statement.name.getText(sourceFile)
+        if (!seenTypeNames.has(enumName)) {
+          seenTypeNames.add(enumName)
+          const enumDecl = transformEnumToTJS(statement, sourceFile, warnings)
+          if (enumDecl) {
+            tjsFunctions.push(enumDecl)
+          }
         }
       }
     }
@@ -1523,6 +1552,7 @@ export function fromTS(
     // Handle: class Foo { ... }
     if (ts.isClassDeclaration(statement) && statement.name) {
       const className = statement.name.getText(sourceFile)
+      handled = true
       if (emitTJS) {
         const classDecl = transformClassToTJS(statement, sourceFile, warnings)
         tjsFunctions.push(classDecl)
@@ -1535,11 +1565,78 @@ export function fromTS(
         )
       }
     }
+
+    // Handle: import statements (strip type-only imports, keep value imports)
+    if (ts.isImportDeclaration(statement)) {
+      handled = true
+      if (emitTJS) {
+        // Check if it's a type-only import
+        const isTypeOnly =
+          statement.importClause?.isTypeOnly ||
+          (statement.importClause?.namedBindings &&
+            ts.isNamedImports(statement.importClause.namedBindings) &&
+            statement.importClause.namedBindings.elements.every(
+              (e) => e.isTypeOnly
+            ))
+
+        if (!isTypeOnly) {
+          // Keep value imports - just strip any type annotations
+          const transpiled = ts.transpileModule(statement.getText(sourceFile), {
+            compilerOptions: {
+              target: ts.ScriptTarget.ESNext,
+              module: ts.ModuleKind.ESNext,
+              removeComments: false,
+            },
+          })
+          const trimmed = transpiled.outputText.trim()
+          if (trimmed) {
+            tjsFunctions.push(trimmed)
+          }
+        }
+      }
+    }
+
+    // Handle: export statements
+    if (ts.isExportDeclaration(statement) || ts.isExportAssignment(statement)) {
+      handled = true
+      if (emitTJS) {
+        const transpiled = ts.transpileModule(statement.getText(sourceFile), {
+          compilerOptions: {
+            target: ts.ScriptTarget.ESNext,
+            module: ts.ModuleKind.ESNext,
+            removeComments: false,
+          },
+        })
+        const trimmed = transpiled.outputText.trim()
+        if (trimmed) {
+          tjsFunctions.push(trimmed)
+        }
+      }
+    }
+
+    // Handle: expression statements (console.log(...), foo(), etc.)
+    // and any other unhandled statements
+    if (!handled && emitTJS) {
+      const transpiled = ts.transpileModule(statement.getText(sourceFile), {
+        compilerOptions: {
+          target: ts.ScriptTarget.ESNext,
+          module: ts.ModuleKind.ESNext,
+          removeComments: false,
+        },
+      })
+      const trimmed = transpiled.outputText.trim()
+      if (trimmed) {
+        tjsFunctions.push(trimmed)
+      }
+    }
   }
 
   if (emitTJS) {
+    // TypeScript uses JavaScript's equality semantics, so we need LegacyEquals
+    // to preserve == and === behavior when the TJS is executed
+    const header = 'LegacyEquals\n\n'
     return {
-      code: tjsFunctions.join('\n\n'),
+      code: header + tjsFunctions.join('\n\n'),
       warnings: warnings.length > 0 ? warnings : undefined,
     }
   }

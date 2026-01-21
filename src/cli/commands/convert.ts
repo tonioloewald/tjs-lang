@@ -7,7 +7,14 @@
  *   tjs convert <dir> -o <outdir>      Convert all .ts files in directory
  */
 
-import { readFileSync, writeFileSync, readdirSync, statSync, mkdirSync, existsSync } from 'fs'
+import {
+  readFileSync,
+  writeFileSync,
+  readdirSync,
+  statSync,
+  mkdirSync,
+  existsSync,
+} from 'fs'
 import { join, basename, dirname, extname } from 'path'
 import { fromTS } from '../../lang/emitters/from-ts'
 
@@ -17,7 +24,10 @@ export interface ConvertOptions {
   verbose?: boolean
 }
 
-export async function convert(input: string, options: ConvertOptions = {}): Promise<void> {
+export async function convert(
+  input: string,
+  options: ConvertOptions = {}
+): Promise<void> {
   const { output, recursive = true, verbose = false } = options
   const stats = statSync(input)
 
@@ -38,14 +48,18 @@ export async function convert(input: string, options: ConvertOptions = {}): Prom
   }
 }
 
-async function convertFile(inputPath: string, outputPath?: string, verbose = false): Promise<void> {
+async function convertFile(
+  inputPath: string,
+  outputPath?: string,
+  verbose = false
+): Promise<void> {
   const source = readFileSync(inputPath, 'utf-8')
   const filename = basename(inputPath)
 
   try {
     const result = fromTS(source, { emitTJS: true, filename })
 
-    if (result.warnings.length > 0 && verbose) {
+    if (result.warnings && result.warnings.length > 0 && verbose) {
       console.error(`Warnings for ${inputPath}:`)
       for (const warning of result.warnings) {
         console.error(`  - ${warning}`)
@@ -112,6 +126,8 @@ async function convertDirectory(
   }
 
   if (verbose || converted > 0 || failed > 0) {
-    console.log(`\nDirectory ${inputDir}: ${converted} converted, ${failed} failed, ${skipped} skipped`)
+    console.log(
+      `\nDirectory ${inputDir}: ${converted} converted, ${failed} failed, ${skipped} skipped`
+    )
   }
 }

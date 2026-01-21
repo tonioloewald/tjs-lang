@@ -125,6 +125,7 @@ export function transpile(
   options: TranspileOptions = {}
 ): TranspileResult {
   // Parse the source
+  // vmTarget: true because AJS runs in the VM which handles == correctly
   const {
     ast: program,
     returnType,
@@ -133,6 +134,7 @@ export function transpile(
   } = parse(source, {
     filename: options.filename,
     colonShorthand: true,
+    vmTarget: true,
   })
 
   // Validate structure

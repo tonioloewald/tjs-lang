@@ -79,6 +79,83 @@ Agent.take(schema).varSet(...).httpFetch(...).return(schema)
 vm.Agent  // Builder with custom atoms included
 ```
 
+### Transpiler Chain (TS → TJS → JS)
+
+TJS supports transpiling TypeScript to JavaScript with runtime type validation. The pipeline has two distinct, independently testable steps:
+
+**Step 1: TypeScript → TJS** (`fromTS`)
+```typescript
+import { fromTS } from 'tosijs/lang/from-ts'
+
+const tsSource = `
+function greet(name: string): string {
+  return \`Hello, \${name}!\`
+}
+`
+
+const result = fromTS(tsSource, { emitTJS: true })
+// result.code contains TJS:
+// function greet(name: '') -> '' {
+//   return \`Hello, \${name}!\`
+// }
+```
+
+**Step 2: TJS → JavaScript** (`tjs`)
+```typescript
+import { tjs } from 'tosijs/lang'
+
+const tjsSource = `
+function greet(name: '') -> '' {
+  return \`Hello, \${name}!\`
+}
+`
+
+const jsCode = tjs(tjsSource)
+// Generates JavaScript with __tjs metadata for runtime validation
+```
+
+**Full Chain Example:**
+```typescript
+import { fromTS } from 'tosijs/lang/from-ts'
+import { tjs } from 'tosijs/lang'
+
+// TypeScript source with type annotations
+const tsSource = `
+function add(a: number, b: number): number {
+  return a + b
+}
+`
+
+// Step 1: TS → TJS
+const tjsResult = fromTS(tsSource, { emitTJS: true })
+
+// Step 2: TJS → JS (with runtime validation)
+const jsCode = tjs(tjsResult.code)
+
+// Execute the result
+const fn = new Function('__tjs', jsCode + '; return add')(__tjs_runtime)
+fn(1, 2)  // Returns 3
+fn('a', 'b')  // Returns { error: 'type mismatch', ... }
+```
+
+**CLI Commands:**
+```bash
+# Convert TypeScript to TJS
+bun src/cli/tjs.ts convert input.ts --emit-tjs > output.tjs
+
+# Emit TJS to JavaScript
+bun src/cli/tjs.ts emit input.tjs > output.js
+
+# Run TJS file directly (transpiles and executes)
+bun src/cli/tjs.ts run input.tjs
+```
+
+**Design Notes:**
+- The two steps are intentionally separate for tree-shaking (TS support is optional)
+- `fromTS` lives in a separate entry point (`tosijs/lang/from-ts`)
+- Import only what you need to keep bundle size minimal
+- Each step is independently testable (see `src/lang/codegen.test.ts`)
+
 ### Security Model
 
 - **Capability-based**: VM has zero IO by default; inject `fetch`, `store`, `llm` via capabilities
@@ -270,6 +347,59 @@ safety none     // No validation (metadata only)
 safety inputs   // Validate function inputs (default)
 safety all      // Validate everything (debug mode)
 ```
+
+#### Equality Operators
+
+TJS redefines equality to be structural by default, fixing JavaScript's confusing `==` vs `===` semantics.
+
+**Normal TJS Mode (default):**
+
+| Operator | Meaning | Example |
+|----------|---------|---------|
+| `==` | Structural equality | `{a:1} == {a:1}` is `true` |
+| `!=` | Structural inequality | `{a:1} != {a:2}` is `true` |
+| `===` | Identity (same reference) | `obj === obj` is `true` |
+| `!==` | Not same reference | `{a:1} !== {a:1}` is `true` |
+| `a Is b` | Structural equality (explicit) | Same as `==` |
+| `a IsNot b` | Structural inequality (explicit) | Same as `!=` |
+
+```typescript
+// Structural equality - compares values deeply
+const a = { x: 1, y: [2, 3] }
+const b = { x: 1, y: [2, 3] }
+a == b      // true (same structure)
+a === b     // false (different objects)
+
+// Works with arrays too
+[1, 2, 3] == [1, 2, 3]  // true
+
+// Infix operators for readability
+user Is expectedUser
+result IsNot errorValue
+```
+
+**LegacyEquals Mode (for TS-emitted code):**
+
+Add `LegacyEquals` at the top of a file to preserve JavaScript's original equality semantics:
+
+```typescript
+LegacyEquals
+
+// Now == and === work like standard JavaScript
+'1' == 1    // true (JS coercion)
+'1' === 1   // false (strict equality)
+
+// Use explicit Is/IsNot for structural equality in legacy mode
+a Is b      // structural equality
+a IsNot b   // structural inequality
+```
+
+**Implementation Notes:**
+
+- **AJS (VM)**: The VM's expression evaluator handles `==`/`!=` with structural semantics at runtime
+- **TJS (browser/Node)**: Source transformation converts `==` to `Is()` and `!=` to `IsNot()` calls
+- **`===` and `!==`**: Always preserved as identity checks, never transformed
+- The `Is()` and `IsNot()` functions are available in `src/lang/runtime.ts` and exposed globally
 
 ## Dependencies
 

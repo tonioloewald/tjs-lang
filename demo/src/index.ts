@@ -24,9 +24,11 @@ StyleSheet('demo-style', styleSpec)
 // Import playground components
 import { playground, Playground } from './playground'
 import { tjsPlayground, TJSPlayground } from './tjs-playground'
+import { tsPlayground, TSPlayground } from './ts-playground'
 
 // Import new demo navigation
 import { demoNav, DemoNav, tjsExamples } from './demo-nav'
+import { tsExamples } from './ts-examples'
 
 // Import examples
 import { examples as ajsExamples } from './examples'
@@ -109,7 +111,7 @@ const { app, prefs } = tosi({
     docs: allDocs,
     currentDoc,
     compact: false,
-    currentView: 'home' as 'home' | 'ajs' | 'tjs',
+    currentView: 'home' as 'home' | 'ajs' | 'tjs' | 'ts',
     currentExample: null as any,
   },
   prefs: {
@@ -195,13 +197,16 @@ function loadViewStateFromURL() {
   if (view === 'home') {
     app.currentView = 'home'
     app.currentExample = null
-  } else if (view === 'ajs' || view === 'tjs') {
+  } else if (view === 'ajs' || view === 'tjs' || view === 'ts') {
     app.currentView = view
   }
 
   if (example) {
     // Find example by name in appropriate list
-    if (view === 'tjs') {
+    if (view === 'ts') {
+      const found = tsExamples.find((e: any) => e.name === example)
+      if (found) app.currentExample = found
+    } else if (view === 'tjs') {
       const found = tjsExamples.find((e: any) => e.name === example)
       if (found) app.currentExample = found
     } else {
@@ -449,6 +454,14 @@ if (main) {
           saveViewStateToURL('tjs', example.name)
         }) as EventListener)
 
+        // Handle TS example selection - load into TS playground
+        nav.addEventListener('select-ts-example', ((event: CustomEvent) => {
+          const { example } = event.detail
+          app.currentView = 'ts'
+          app.currentExample = example
+          saveViewStateToURL('ts', example.name)
+        }) as EventListener)
+
         // Handle Home selection - show README
         nav.addEventListener('select-home', (() => {
           app.currentView = 'home'
@@ -568,6 +581,44 @@ if (main) {
                         ? example.code
                         : String(example.code)
                     element.parts.tjsEditor.value = code
+                  }
+                }, 0)
+              }
+            },
+          })
+
+          return pg
+        })(),
+
+        // TS Playground (TypeScript -> TJS -> JS pipeline)
+        (() => {
+          const pg = tsPlayground({
+            style: {
+              display: 'none',
+              flex: '1 1 auto',
+              height: '100%',
+              padding: '10px',
+            },
+          }) as TSPlayground
+
+          // Show/hide based on currentView
+          bind(pg, 'app.currentView', {
+            toDOM(element: HTMLElement, view: string) {
+              element.style.display = view === 'ts' ? 'flex' : 'none'
+            },
+          })
+
+          // Load example when selected
+          bind(pg, 'app.currentExample', {
+            toDOM(element: TSPlayground, example: any) {
+              if (example && app.currentView.valueOf() === 'ts') {
+                setTimeout(() => {
+                  if (element.setSource) {
+                    const code =
+                      typeof example.code === 'string'
+                        ? example.code
+                        : String(example.code)
+                    element.setSource(code)
                   }
                 }, 0)
               }

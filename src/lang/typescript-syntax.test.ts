@@ -15,6 +15,12 @@
 import { describe, test, expect, it } from 'bun:test'
 import { tjs, transpileToJS, fromTS } from './index'
 
+// Helper to get the first function's metadata from the Record
+function getFirstFunc(metadata: Record<string, any>) {
+  const keys = Object.keys(metadata)
+  return keys.length > 0 ? metadata[keys[0]] : undefined
+}
+
 // =============================================================================
 // BASIC TYPES - These should all work
 // =============================================================================
@@ -27,7 +33,7 @@ describe('Basic Types', () => {
           return name
         }
       `)
-      expect(metadata.params.name.type.kind).toBe('string')
+      expect(getFirstFunc(metadata).params.name.type.kind).toBe('string')
     })
 
     test('number parameter', () => {
@@ -36,7 +42,7 @@ describe('Basic Types', () => {
           return x * 2
         }
       `)
-      expect(metadata.params.x.type.kind).toBe('number')
+      expect(getFirstFunc(metadata).params.x.type.kind).toBe('number')
     })
 
     test('boolean parameter', () => {
@@ -45,7 +51,7 @@ describe('Basic Types', () => {
           return !flag
         }
       `)
-      expect(metadata.params.flag.type.kind).toBe('boolean')
+      expect(getFirstFunc(metadata).params.flag.type.kind).toBe('boolean')
     })
 
     test('null literal', () => {
@@ -54,7 +60,7 @@ describe('Basic Types', () => {
           return x
         }
       `)
-      expect(metadata.params.x.type.kind).toBe('null')
+      expect(getFirstFunc(metadata).params.x.type.kind).toBe('null')
     })
   })
 
@@ -65,9 +71,9 @@ describe('Basic Types', () => {
           return user.name
         }
       `)
-      expect(metadata.params.user.type.kind).toBe('object')
-      expect(metadata.params.user.type.shape?.name.kind).toBe('string')
-      expect(metadata.params.user.type.shape?.age.kind).toBe('number')
+      expect(getFirstFunc(metadata).params.user.type.kind).toBe('object')
+      expect(getFirstFunc(metadata).params.user.type.shape?.name.kind).toBe('string')
+      expect(getFirstFunc(metadata).params.user.type.shape?.age.kind).toBe('number')
     })
 
     test('nested object shape', () => {
@@ -76,8 +82,8 @@ describe('Basic Types', () => {
           return data.user.profile.name
         }
       `)
-      expect(metadata.params.data.type.kind).toBe('object')
-      expect(metadata.params.data.type.shape?.user.kind).toBe('object')
+      expect(getFirstFunc(metadata).params.data.type.kind).toBe('object')
+      expect(getFirstFunc(metadata).params.data.type.shape?.user.kind).toBe('object')
     })
   })
 
@@ -88,8 +94,8 @@ describe('Basic Types', () => {
           return nums.reduce((a, b) => a + b, 0)
         }
       `)
-      expect(metadata.params.nums.type.kind).toBe('array')
-      expect(metadata.params.nums.type.items?.kind).toBe('number')
+      expect(getFirstFunc(metadata).params.nums.type.kind).toBe('array')
+      expect(getFirstFunc(metadata).params.nums.type.items?.kind).toBe('number')
     })
 
     test('array of objects', () => {
@@ -98,8 +104,8 @@ describe('Basic Types', () => {
           return users.map(u => u.name)
         }
       `)
-      expect(metadata.params.users.type.kind).toBe('array')
-      expect(metadata.params.users.type.items?.kind).toBe('object')
+      expect(getFirstFunc(metadata).params.users.type.kind).toBe('array')
+      expect(getFirstFunc(metadata).params.users.type.items?.kind).toBe('object')
     })
   })
 })
@@ -115,8 +121,8 @@ describe('Union Types', () => {
         return String(id)
       }
     `)
-    expect(metadata.params.id.type.kind).toBe('union')
-    expect(metadata.params.id.type.members?.length).toBe(2)
+    expect(getFirstFunc(metadata).params.id.type.kind).toBe('union')
+    expect(getFirstFunc(metadata).params.id.type.members?.length).toBe(2)
   })
 
   test('nullable with || null', () => {
@@ -125,7 +131,7 @@ describe('Union Types', () => {
         return s ?? 'default'
       }
     `)
-    expect(metadata.params.s.type.nullable).toBe(true)
+    expect(getFirstFunc(metadata).params.s.type.nullable).toBe(true)
   })
 
   test('union with | (TS style) in fromTS', () => {
@@ -143,8 +149,8 @@ describe('Union Types', () => {
         return null
       }
     `)
-    expect(metadata.returns?.kind).toBe('object')
-    expect(metadata.returns?.nullable).toBe(true)
+    expect(getFirstFunc(metadata).returns?.kind).toBe('object')
+    expect(getFirstFunc(metadata).returns?.nullable).toBe(true)
   })
 
   test('union return type with | (TS style)', () => {
@@ -153,8 +159,8 @@ describe('Union Types', () => {
         return null
       }
     `)
-    expect(metadata.returns?.kind).toBe('object')
-    expect(metadata.returns?.nullable).toBe(true)
+    expect(getFirstFunc(metadata).returns?.kind).toBe('object')
+    expect(getFirstFunc(metadata).returns?.nullable).toBe(true)
   })
 })
 
@@ -169,8 +175,8 @@ describe('Optional Parameters', () => {
         return 'Hello, ' + name
       }
     `)
-    expect(metadata.params.name.required).toBe(false)
-    expect(metadata.params.name.default).toBe('World')
+    expect(getFirstFunc(metadata).params.name.required).toBe(false)
+    expect(getFirstFunc(metadata).params.name.default).toBe('World')
   })
 
   test('required with colon, optional with equals', () => {
@@ -179,9 +185,9 @@ describe('Optional Parameters', () => {
         return items.slice((page - 1) * limit, page * limit)
       }
     `)
-    expect(metadata.params.items.required).toBe(true)
-    expect(metadata.params.page.required).toBe(false)
-    expect(metadata.params.limit.required).toBe(false)
+    expect(getFirstFunc(metadata).params.items.required).toBe(true)
+    expect(getFirstFunc(metadata).params.page.required).toBe(false)
+    expect(getFirstFunc(metadata).params.limit.required).toBe(false)
   })
 
   test('optional with ? syntax (TS style) in TJS', () => {
@@ -190,7 +196,7 @@ describe('Optional Parameters', () => {
         return 'Hello, ' + (name ?? 'World')
       }
     `)
-    expect(metadata.params.name.required).toBe(false)
+    expect(getFirstFunc(metadata).params.name.required).toBe(false)
   })
 
   test('optional with ? syntax in fromTS', () => {
@@ -208,9 +214,9 @@ describe('Optional Parameters', () => {
         return { host, port, timeout }
       }
     `)
-    expect(metadata.params.host.required).toBe(true)
-    expect(metadata.params.port.required).toBe(false)
-    expect(metadata.params.timeout.required).toBe(false)
+    expect(getFirstFunc(metadata).params.host.required).toBe(true)
+    expect(getFirstFunc(metadata).params.port.required).toBe(false)
+    expect(getFirstFunc(metadata).params.timeout.required).toBe(false)
   })
 })
 
@@ -226,7 +232,7 @@ describe('Return Types', () => {
         return 'Hello, ' + name
       }
     `)
-    expect(metadata.returns?.kind).toBe('string')
+    expect(getFirstFunc(metadata).returns?.kind).toBe('string')
   })
 
   test('object return type', () => {
@@ -236,8 +242,8 @@ describe('Return Types', () => {
         return { name, id: 1 }
       }
     `)
-    expect(metadata.returns?.kind).toBe('object')
-    expect(metadata.returns?.shape?.name.kind).toBe('string')
+    expect(getFirstFunc(metadata).returns?.kind).toBe('object')
+    expect(getFirstFunc(metadata).returns?.shape?.name.kind).toBe('string')
   })
 
   test('array return type', () => {
@@ -246,8 +252,8 @@ describe('Return Types', () => {
         return [item]
       }
     `)
-    expect(metadata.returns?.kind).toBe('array')
-    expect(metadata.returns?.items?.kind).toBe('string')
+    expect(getFirstFunc(metadata).returns?.kind).toBe('array')
+    expect(getFirstFunc(metadata).returns?.items?.kind).toBe('string')
   })
 
   test('nested array return ([[x]])', () => {
@@ -260,9 +266,9 @@ describe('Return Types', () => {
         return result
       }
     `)
-    expect(metadata.returns?.kind).toBe('array')
-    expect(metadata.returns?.items?.kind).toBe('array')
-    expect(metadata.returns?.items?.items?.kind).toBe('string')
+    expect(getFirstFunc(metadata).returns?.kind).toBe('array')
+    expect(getFirstFunc(metadata).returns?.items?.kind).toBe('array')
+    expect(getFirstFunc(metadata).returns?.items?.items?.kind).toBe('string')
   })
 })
 
@@ -488,7 +494,7 @@ describe('Tuple Types', () => {
       }
     `)
     // Currently tuples are parsed as arrays - could distinguish later
-    expect(metadata.params.pair.type.kind).toBe('array')
+    expect(getFirstFunc(metadata).params.pair.type.kind).toBe('array')
   })
 
   test('tuple in fromTS', () => {
@@ -705,7 +711,7 @@ describe('Literal Types', () => {
         return mode
       }
     `)
-    expect(metadata.params.mode.type.kind).toBe('string')
+    expect(getFirstFunc(metadata).params.mode.type.kind).toBe('string')
   })
 
   test('numeric literal', () => {
@@ -714,7 +720,7 @@ describe('Literal Types', () => {
         return n
       }
     `)
-    expect(metadata.params.n.type.kind).toBe('number')
+    expect(getFirstFunc(metadata).params.n.type.kind).toBe('number')
   })
 
   test('literal union type alias emits TJS Union', () => {

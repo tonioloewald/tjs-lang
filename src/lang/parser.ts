@@ -15,6 +15,11 @@ export interface ParseOptions {
   filename?: string
   /** Enable colon shorthand syntax preprocessing */
   colonShorthand?: boolean
+  /**
+   * Target is the VM (AJS code).
+   * When true, skips == to Is() transformation since the VM handles == correctly.
+   */
+  vmTarget?: boolean
 }
 
 /**
@@ -75,6 +80,12 @@ export interface TestBlock {
 export interface PreprocessOptions {
   /** Skip test execution (tests still stripped from output) */
   dangerouslySkipTests?: boolean
+  /**
+   * Skip == to Is() transformation.
+   * Set to true for AJS code that runs in the VM, which already handles == correctly.
+   * Default: false (transform == to Is() for TJS code running in regular JS)
+   */
+  vmTarget?: boolean
 }
 
 /**
@@ -1249,6 +1260,7 @@ export function preprocess(
   returnType?: string
   returnSafety?: 'safe' | 'unsafe'
   moduleSafety?: 'none' | 'inputs' | 'all'
+  legacyEquals?: boolean
   originalSource: string
   requiredParams: Set<string>
   unsafeFunctions: Set<string>
@@ -1261,6 +1273,7 @@ export function preprocess(
   let returnType: string | undefined
   let returnSafety: 'safe' | 'unsafe' | undefined
   let moduleSafety: 'none' | 'inputs' | 'all' | undefined
+  let legacyEquals = false
   const requiredParams = new Set<string>()
   const unsafeFunctions = new Set<string>()
   const safeFunctions = new Set<string>()
@@ -1279,15 +1292,35 @@ export function preprocess(
     )
   }
 
+  // Handle LegacyEquals directive: LegacyEquals
+  // This preserves JS equality semantics (== is loose equality, === is strict)
+  // Used for TS-emitted code that relies on JS behavior
+  // In this mode, use explicit `a Is b` and `a IsNot b` for structural equality
+  const legacyEqualsMatch = source.match(
+    /^(\s*(?:\/\/[^\n]*\n|\/\*[\s\S]*?\*\/\s*)*)\s*LegacyEquals\b/
+  )
+  if (legacyEqualsMatch) {
+    legacyEquals = true
+    // Remove the directive from source
+    source = source.replace(
+      /^(\s*(?:\/\/[^\n]*\n|\/\*[\s\S]*?\*\/\s*)*)\s*LegacyEquals\s*/,
+      '$1'
+    )
+  }
+
   // Transform Is/IsNot infix operators to function calls
   // a Is b -> Is(a, b)
   // a IsNot b -> IsNot(a, b)
+  // These are available in both normal and LegacyEquals mode
   source = transformIsOperators(source)
 
-  // NOTE: Auto-transforming == and != to Is/IsNot is too risky with regex
-  // because we can't reliably identify expression boundaries (e.g., x % 2 == 0)
-  // Users should use the explicit Is/IsNot syntax for structural equality
-  // Future: when we have a full parser, we can revisit == transformation
+  // Transform == and != to structural equality (Is/IsNot)
+  // Only in normal mode (not LegacyEquals) and not for VM targets
+  // VM targets already handle == correctly at runtime
+  // This uses a state machine to properly handle complex expressions like x % 2 == 0
+  if (!legacyEquals && !options.vmTarget) {
+    source = transformEqualityToStructural(source)
+  }
 
   // Transform Type, Generic, Union, and Enum declarations
   // Type Foo { ... } -> const Foo = Type(...)
@@ -1342,6 +1375,7 @@ export function preprocess(
     returnType,
     returnSafety,
     moduleSafety,
+    legacyEquals,
     originalSource,
     requiredParams,
     unsafeFunctions,
@@ -1759,7 +1793,7 @@ function splitParameters(params: string): string[] {
  *   a IsNot b   -> IsNot(a, b)
  *
  * This enables structural equality with a clean syntax.
- * Goal: Is/IsNot are stepping stones to eventually making == and != work correctly.
+ * In LegacyEquals mode, these are the explicit operators for structural equality.
  */
 function transformIsOperators(source: string): string {
   // Match: (simpleExpr) IsNot (simpleExpr) - must check IsNot first (longer match)
@@ -1776,6 +1810,468 @@ function transformIsOperators(source: string): string {
   source = source.replace(isRegex, 'Is($1, $2)')
 
   return source
+}
+
+/**
+ * Transform == and != to Is() and IsNot() calls
+ *
+ * In TJS normal mode:
+ *   a == b   -> Is(a, b)     (structural equality)
+ *   a != b   -> IsNot(a, b)  (structural inequality)
+ *   a === b  -> a === b      (identity, unchanged)
+ *
+ * Uses a two-pass algorithm:
+ * 1. Find all == and != positions (outside strings/comments/regex)
+ * 2. Transform from end to start (so positions remain valid)
+ */
+function transformEqualityToStructural(source: string): string {
+  // First pass: find all == and != positions (outside strings/comments/regex)
+  const equalityOps: Array<{ pos: number; op: '==' | '!=' }> = []
+  let i = 0
+  let state: TokenizerState = 'normal'
+  const templateStack: number[] = []
+
+  while (i < source.length) {
+    const char = source[i]
+    const nextChar = source[i + 1]
+
+    // Handle state transitions
+    switch (state) {
+      case 'single-string':
+        if (char === '\\' && i + 1 < source.length) {
+          i += 2
+          continue
+        }
+        if (char === "'") state = 'normal'
+        i++
+        continue
+
+      case 'double-string':
+        if (char === '\\' && i + 1 < source.length) {
+          i += 2
+          continue
+        }
+        if (char === '"') state = 'normal'
+        i++
+        continue
+
+      case 'template-string':
+        if (char === '\\' && i + 1 < source.length) {
+          i += 2
+          continue
+        }
+        if (char === '$' && nextChar === '{') {
+          i += 2
+          templateStack.push(1)
+          state = 'normal'
+          continue
+        }
+        if (char === '`') state = 'normal'
+        i++
+        continue
+
+      case 'line-comment':
+        if (char === '\n') state = 'normal'
+        i++
+        continue
+
+      case 'block-comment':
+        if (char === '*' && nextChar === '/') {
+          i += 2
+          state = 'normal'
+          continue
+        }
+        i++
+        continue
+
+      case 'regex':
+        if (char === '\\' && i + 1 < source.length) {
+          i += 2
+          continue
+        }
+        if (char === '[') {
+          i++
+          while (i < source.length && source[i] !== ']') {
+            if (source[i] === '\\' && i + 1 < source.length) {
+              i += 2
+            } else {
+              i++
+            }
+          }
+          if (i < source.length) i++
+          continue
+        }
+        if (char === '/') {
+          i++
+          while (i < source.length && /[gimsuy]/.test(source[i])) i++
+          state = 'normal'
+          continue
+        }
+        i++
+        continue
+
+      case 'normal':
+        // Handle template stack
+        if (templateStack.length > 0) {
+          if (char === '{') {
+            templateStack[templateStack.length - 1]++
+          } else if (char === '}') {
+            templateStack[templateStack.length - 1]--
+            if (templateStack[templateStack.length - 1] === 0) {
+              templateStack.pop()
+              i++
+              state = 'template-string'
+              continue
+            }
+          }
+        }
+
+        // Check for string/comment/regex start
+        if (char === "'") {
+          i++
+          state = 'single-string'
+          continue
+        }
+        if (char === '"') {
+          i++
+          state = 'double-string'
+          continue
+        }
+        if (char === '`') {
+          i++
+          state = 'template-string'
+          continue
+        }
+        if (char === '/' && nextChar === '/') {
+          i += 2
+          state = 'line-comment'
+          continue
+        }
+        if (char === '/' && nextChar === '*') {
+          i += 2
+          state = 'block-comment'
+          continue
+        }
+
+        // Check for regex literal (simplified detection)
+        if (char === '/') {
+          let j = i - 1
+          while (j >= 0 && /\s/.test(source[j])) j--
+          const beforeChar = j >= 0 ? source[j] : ''
+          const isRegexContext =
+            !beforeChar ||
+            /[=(!,;:{\[&|?+\-*%<>~^]/.test(beforeChar) ||
+            (j >= 5 &&
+              /\b(return|case|throw|in|of|typeof|instanceof|new|delete|void)$/.test(
+                source.slice(Math.max(0, j - 10), j + 1)
+              ))
+          if (isRegexContext) {
+            i++
+            state = 'regex'
+            continue
+          }
+        }
+
+        // Look for == or != (but not === or !==)
+        // For ==: check it's not part of !== (char before is !)
+        // For !=: check it's not !== (third char is =)
+        if (
+          char === '=' &&
+          nextChar === '=' &&
+          source[i + 2] !== '=' &&
+          source[i - 1] !== '!'
+        ) {
+          equalityOps.push({ pos: i, op: '==' })
+          i += 2
+          continue
+        }
+        if (char === '!' && nextChar === '=' && source[i + 2] !== '=') {
+          equalityOps.push({ pos: i, op: '!=' })
+          i += 2
+          continue
+        }
+        break
+    }
+
+    i++
+  }
+
+  // If no equality operators found, return source unchanged
+  if (equalityOps.length === 0) {
+    return source
+  }
+
+  // Second pass: transform from end to start (so positions remain valid)
+  let result = source
+  for (let k = equalityOps.length - 1; k >= 0; k--) {
+    const { pos, op } = equalityOps[k]
+    const funcName = op === '==' ? 'Is' : 'IsNot'
+
+    // Find left operand boundary
+    const leftBoundary = findLeftOperandBoundary(result, pos)
+    // Find right operand boundary
+    const rightBoundary = findRightOperandBoundary(result, pos + 2)
+
+    const leftExpr = result.slice(leftBoundary, pos).trim()
+    const rightExpr = result.slice(pos + 2, rightBoundary).trim()
+
+    if (leftExpr && rightExpr) {
+      // Build the replacement
+      const before = result.slice(0, leftBoundary)
+      const after = result.slice(rightBoundary)
+      // Add space after keyword if needed (e.g., return, throw, typeof)
+      const needsSpace = /[a-zA-Z0-9_$]$/.test(before)
+      const spacer = needsSpace ? ' ' : ''
+      result = `${before}${spacer}${funcName}(${leftExpr}, ${rightExpr})${after}`
+    }
+  }
+
+  return result
+}
+
+/**
+ * Find the start position of the left operand
+ *
+ * Scans backwards from the operator position to find where the left expression starts.
+ * Respects operator precedence: == has lower precedence than arithmetic operators,
+ * so `x % 2 == 0` has left operand `x % 2`.
+ */
+function findLeftOperandBoundary(source: string, opPos: number): number {
+  let i = opPos - 1
+
+  // Skip whitespace before operator
+  while (i >= 0 && /\s/.test(source[i])) i--
+  if (i < 0) return 0
+
+  let depth = 0
+  let inString = false
+  let stringChar = ''
+
+  while (i >= 0) {
+    const char = source[i]
+    const prevChar = i > 0 ? source[i - 1] : ''
+
+    // Handle string literals (scan backwards through them)
+    if (inString) {
+      if (char === stringChar && prevChar !== '\\') {
+        inString = false
+      }
+      i--
+      continue
+    }
+
+    // Check for string end (we're scanning backwards, so end is opening quote)
+    if ((char === '"' || char === "'" || char === '`') && prevChar !== '\\') {
+      inString = true
+      stringChar = char
+      i--
+      continue
+    }
+
+    // Track depth of parens/brackets (reversed since we're going backwards)
+    if (char === ')' || char === ']') {
+      depth++
+      i--
+      continue
+    }
+    if (char === '(' || char === '[') {
+      if (depth > 0) {
+        depth--
+        i--
+        continue
+      }
+      // Opening paren/bracket at depth 0 - this is a grouping/call paren
+      // The expression starts AFTER it, not including it
+      return i + 1
+    }
+
+    // Inside nested expression - keep scanning
+    if (depth > 0) {
+      i--
+      continue
+    }
+
+    // At depth 0 - check for expression boundaries
+    // Statement delimiters
+    if (char === ';' || char === '{' || char === '}') {
+      return i + 1
+    }
+
+    // Check for keywords that precede expressions (return, throw, etc.)
+    // We need to look backwards for a word boundary and check if it's a keyword
+    if (/[a-z]/.test(char)) {
+      // Might be end of a keyword - scan backwards to get full word
+      let wordEnd = i + 1
+      let wordStart = i
+      while (wordStart > 0 && /[a-z]/i.test(source[wordStart - 1])) {
+        wordStart--
+      }
+      const word = source.slice(wordStart, wordEnd)
+      // Check if preceded by word char (not a keyword then)
+      const beforeWord = wordStart > 0 ? source[wordStart - 1] : ''
+      if (!/[a-zA-Z0-9_$]/.test(beforeWord)) {
+        // These keywords start an expression - stop after them
+        if (
+          [
+            'return',
+            'throw',
+            'case',
+            'typeof',
+            'void',
+            'delete',
+            'await',
+            'yield',
+            'new',
+          ].includes(word)
+        ) {
+          return wordEnd
+        }
+      }
+    }
+
+    // Arrow function - stop before =>
+    if (char === '>' && prevChar === '=') {
+      return i + 1
+    }
+
+    // Assignment operator (but not ==, !=, <=, >=)
+    if (
+      char === '=' &&
+      prevChar !== '=' &&
+      prevChar !== '!' &&
+      prevChar !== '<' &&
+      prevChar !== '>'
+    ) {
+      return i + 1
+    }
+
+    // Logical operators (lower precedence than ==)
+    if (char === '&' && prevChar === '&') {
+      return i + 1
+    }
+    if (char === '|' && prevChar === '|') {
+      return i + 1
+    }
+
+    // Ternary operators
+    if (char === '?' || char === ':') {
+      return i + 1
+    }
+
+    // Comma
+    if (char === ',') {
+      return i + 1
+    }
+
+    i--
+  }
+
+  return 0
+}
+
+/**
+ * Find the end position of the right operand
+ *
+ * Scans forward from after the operator to find where the right expression ends.
+ */
+function findRightOperandBoundary(
+  source: string,
+  startAfterOp: number
+): number {
+  let i = startAfterOp
+
+  // Skip whitespace after operator
+  while (i < source.length && /\s/.test(source[i])) i++
+  if (i >= source.length) return source.length
+
+  let depth = 0
+  let inString = false
+  let stringChar = ''
+
+  while (i < source.length) {
+    const char = source[i]
+    const nextChar = i + 1 < source.length ? source[i + 1] : ''
+
+    // Handle string literals
+    if (inString) {
+      if (char === stringChar && source[i - 1] !== '\\') {
+        inString = false
+      }
+      i++
+      continue
+    }
+
+    if (
+      (char === '"' || char === "'" || char === '`') &&
+      source[i - 1] !== '\\'
+    ) {
+      inString = true
+      stringChar = char
+      i++
+      continue
+    }
+
+    // Track depth
+    if (char === '(' || char === '[' || char === '{') {
+      depth++
+      i++
+      continue
+    }
+    if (char === ')' || char === ']' || char === '}') {
+      if (depth > 0) {
+        depth--
+        i++
+        continue
+      }
+      // Closing paren at depth 0 - boundary
+      return i
+    }
+
+    // Inside nested - keep scanning
+    if (depth > 0) {
+      i++
+      continue
+    }
+
+    // At depth 0 - check for expression boundaries
+    if (char === ';') {
+      return i
+    }
+
+    // Logical operators - lower precedence than ==
+    if (char === '&' && nextChar === '&') {
+      return i
+    }
+    if (char === '|' && nextChar === '|') {
+      return i
+    }
+
+    // Ternary
+    if (char === '?') {
+      return i
+    }
+    if (char === ':') {
+      return i
+    }
+
+    // Comma
+    if (char === ',') {
+      return i
+    }
+
+    // Another == or != (chained equality - stop before it)
+    if (
+      (char === '=' || char === '!') &&
+      nextChar === '=' &&
+      source[i + 2] !== '='
+    ) {
+      return i
+    }
+
+    i++
+  }
+
+  return source.length
 }
 
 /**
@@ -2322,7 +2818,11 @@ export function parse(
   tests: TestBlock[]
   testErrors: string[]
 } {
-  const { filename = '<source>', colonShorthand = true } = options
+  const {
+    filename = '<source>',
+    colonShorthand = true,
+    vmTarget = false,
+  } = options
 
   // Preprocess for custom syntax
   const {
@@ -2338,7 +2838,7 @@ export function parse(
     tests,
     testErrors,
   } = colonShorthand
-    ? preprocess(source)
+    ? preprocess(source, { vmTarget })
     : {
         source,
         returnType: undefined,

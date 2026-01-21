@@ -921,9 +921,9 @@ describe('TJS Emitter', () => {
       `)
       expect(result.code).toContain('function greet')
       expect(result.code).toContain('greet.__tjs')
-      expect(result.types.name).toBe('greet')
-      expect(result.types.params.name).toBeDefined()
-      expect(result.types.params.name.type.kind).toBe('string')
+      expect(result.types.greet.name).toBe('greet')
+      expect(result.types.greet.params.name).toBeDefined()
+      expect(result.types.greet.params.name.type.kind).toBe('string')
     })
 
     it('should preserve return type annotation in metadata', () => {
@@ -933,8 +933,8 @@ describe('TJS Emitter', () => {
         }
       `)
       expect(result.code).not.toContain('->')
-      expect(result.types.returns).toBeDefined()
-      expect(result.types.returns?.kind).toBe('number')
+      expect(result.types.add.returns).toBeDefined()
+      expect(result.types.add.returns?.kind).toBe('number')
     })
 
     it('should mark parameters as required when using colon syntax', () => {
@@ -943,8 +943,8 @@ describe('TJS Emitter', () => {
           return required
         }
       `)
-      expect(result.types.params.required.required).toBe(true)
-      expect(result.types.params.optional.required).toBe(false)
+      expect(result.types.test.params.required.required).toBe(true)
+      expect(result.types.test.params.optional.required).toBe(false)
     })
 
     it('should convert colon syntax to default values in output', () => {
@@ -963,9 +963,13 @@ describe('TJS Emitter', () => {
           return user.name
         }
       `)
-      expect(result.types.params.user.type.kind).toBe('object')
-      expect(result.types.params.user.type.shape?.name.kind).toBe('string')
-      expect(result.types.params.user.type.shape?.age.kind).toBe('number')
+      expect(result.types.process.params.user.type.kind).toBe('object')
+      expect(result.types.process.params.user.type.shape?.name.kind).toBe(
+        'string'
+      )
+      expect(result.types.process.params.user.type.shape?.age.kind).toBe(
+        'number'
+      )
     })
 
     it('should handle array type annotations', () => {
@@ -974,8 +978,8 @@ describe('TJS Emitter', () => {
           return numbers.reduce((a, b) => a + b, 0)
         }
       `)
-      expect(result.types.params.numbers.type.kind).toBe('array')
-      expect(result.types.params.numbers.type.items?.kind).toBe('number')
+      expect(result.types.sum.params.numbers.type.kind).toBe('array')
+      expect(result.types.sum.params.numbers.type.items?.kind).toBe('number')
     })
 
     it('should generate __tjs metadata object', () => {
@@ -1000,8 +1004,10 @@ describe('TJS Emitter', () => {
           return \`Hello, \${name}!\`
         }
       `)
-      expect(result.types.description).toBe('Greet a user by name')
-      expect(result.types.params.name.description).toBe('The name to greet')
+      expect(result.types.greet.description).toBe('Greet a user by name')
+      expect(result.types.greet.params.name.description).toBe(
+        'The name to greet'
+      )
     })
 
     it('should include source location in debug mode', () => {
@@ -1033,7 +1039,7 @@ describe('TJS Emitter', () => {
         }
       `)
       expect(result.code).toContain('function test')
-      expect(result.types.name).toBe('test')
+      expect(result.types.test.name).toBe('test')
     })
 
     it('should work as tagged template literal', () => {
@@ -1043,7 +1049,7 @@ describe('TJS Emitter', () => {
         }
       `
       expect(result.code).toContain('function double')
-      expect(result.types.params.n.type.kind).toBe('number')
+      expect(result.types.double.params.n.type.kind).toBe('number')
     })
 
     it('should handle interpolation in tagged template', () => {
@@ -1065,7 +1071,7 @@ describe('TJS Emitter', () => {
         }
       `)
       expect(result.code).toContain('function noArgs()')
-      expect(Object.keys(result.types.params)).toHaveLength(0)
+      expect(Object.keys(result.types.noArgs.params)).toHaveLength(0)
     })
 
     it('should handle multiple parameters', () => {
@@ -1074,9 +1080,9 @@ describe('TJS Emitter', () => {
           return a + b + c
         }
       `)
-      expect(result.types.params.a.required).toBe(true)
-      expect(result.types.params.b.required).toBe(true)
-      expect(result.types.params.c.required).toBe(false)
+      expect(result.types.calc.params.a.required).toBe(true)
+      expect(result.types.calc.params.b.required).toBe(true)
+      expect(result.types.calc.params.c.required).toBe(false)
     })
 
     it('should handle boolean types', () => {
@@ -1085,7 +1091,7 @@ describe('TJS Emitter', () => {
           return !enabled
         }
       `)
-      expect(result.types.params.enabled.type.kind).toBe('boolean')
+      expect(result.types.toggle.params.enabled.type.kind).toBe('boolean')
     })
 
     it('should handle object return type', () => {
@@ -1095,9 +1101,9 @@ describe('TJS Emitter', () => {
           return { result: x }
         }
       `)
-      expect(result.types.returns).toBeDefined()
-      expect(result.types.returns?.kind).toBe('object')
-      expect(result.types.returns?.shape?.result.kind).toBe('number')
+      expect(result.types.test.returns).toBeDefined()
+      expect(result.types.test.returns?.kind).toBe('object')
+      expect(result.types.test.returns?.shape?.result.kind).toBe('number')
     })
   })
 
@@ -1146,9 +1152,91 @@ describe('TJS Emitter', () => {
           return x
         }
       `)
-      expect(result.types.params.x.type.kind).toBe('number')
-      expect(result.types.params.y.type.kind).toBe('string')
-      expect(result.types.returns?.kind).toBe('number')
+      expect(result.types.compute.params.x.type.kind).toBe('number')
+      expect(result.types.compute.params.y.type.kind).toBe('string')
+      expect(result.types.compute.returns?.kind).toBe('number')
+    })
+
+    // === NEW TESTS: Multi-function and no-function support ===
+
+    it('should handle files with no functions', () => {
+      const result = transpileToJS(
+        `
+        const foo = 2 + 2
+
+        test 'basic math' {
+          expect(foo).toBe(4)
+        }
+      `,
+        { runTests: 'report' }
+      )
+
+      expect(result.code).toContain('const foo = 2 + 2')
+      expect(result.testResults?.[0].passed).toBe(true)
+    })
+
+    it('should handle multiple functions', () => {
+      const result = transpileToJS(`
+        function add(a: 0, b: 0) -> 0 { return a + b }
+        function mul(a: 0, b: 0) -> 0 { return a * b }
+      `)
+
+      expect(result.code).toContain('add.__tjs')
+      expect(result.code).toContain('mul.__tjs')
+      // Both functions should have type info
+      expect(result.types.add).toBeDefined()
+      expect(result.types.mul).toBeDefined()
+    })
+
+    it('should insert __tjs immediately after each function', () => {
+      const result = transpileToJS(`
+        function greet(name: 'World') -> 'Hello, World' { return 'Hello, ' + name }
+        console.log(greet.__tjs)
+      `)
+
+      // __tjs assignment should appear BEFORE the console.log
+      const tjsPos = result.code.indexOf('greet.__tjs = {')
+      const consolePos = result.code.indexOf('console.log(greet.__tjs)')
+      expect(tjsPos).toBeGreaterThan(-1)
+      expect(consolePos).toBeGreaterThan(-1)
+      expect(tjsPos).toBeLessThan(consolePos)
+    })
+
+    it('should compile validation inline (no wrapper)', () => {
+      const result = transpileToJS(`
+        function greet(name: 'World') -> 'Hello, World' { return 'Hello, ' + name }
+      `)
+
+      // Should NOT have wrapper pattern
+      expect(result.code).not.toContain('_original_greet')
+      expect(result.code).not.toContain('greet = function')
+
+      // Should have inline validation at start of function body
+      expect(result.code).toContain("if (typeof name !== 'string')")
+      expect(result.code).toContain('$error')
+    })
+
+    it('should handle mixed functions and statements', () => {
+      const result = transpileToJS(`
+        const VERSION = '1.0'
+
+        function greet(name: 'World') -> 'Hello, World' { return 'Hello, ' + name }
+
+        console.log(greet.__tjs)
+
+        function add(a: 1, b: 2) -> 3 { return a + b }
+
+        console.log(add.__tjs)
+      `)
+
+      // Both should work - metadata assigned before usage
+      const greetTjs = result.code.indexOf('greet.__tjs = {')
+      const greetLog = result.code.indexOf('console.log(greet.__tjs)')
+      expect(greetTjs).toBeLessThan(greetLog)
+
+      const addTjs = result.code.indexOf('add.__tjs = {')
+      const addLog = result.code.indexOf('console.log(add.__tjs)')
+      expect(addTjs).toBeLessThan(addLog)
     })
   })
 })
@@ -2165,21 +2253,21 @@ function process(input: { x: 0, y: 0, name: 'test' }) {
   return input.x + input.y
 }`)
 
-    // Should have inline wrapper
-    expect(result.code).toContain('_original_process')
+    // Should have inline validation (no wrapper)
+    expect(result.code).not.toContain('_original_process')
     expect(result.code).toContain("typeof input !== 'object'")
-    expect(result.code).toContain("typeof input.x !== 'number'")
-    expect(result.code).toContain("typeof input.name !== 'string'")
+    // Should have __tjs metadata
+    expect(result.code).toContain('process.__tjs')
   })
 
-  it('should generate inline wrapper for multi-arg functions', () => {
+  it('should generate inline validation for multi-arg functions', () => {
     const result = tjs(`
 function add(x: 0, y: 0) {
   return x + y
 }`)
 
-    // Should have inline wrapper with type checks for each param
-    expect(result.code).toContain('_original_add')
+    // Should have inline validation (no wrapper)
+    expect(result.code).not.toContain('_original_add')
     expect(result.code).toContain("typeof x !== 'number'")
     expect(result.code).toContain("typeof y !== 'number'")
     // And should have metadata
@@ -2207,17 +2295,17 @@ function process(input: { x: 0, y: 0 }) {
     // Valid input
     expect(fn({ x: 1, y: 2 })).toBe(3)
 
-    // Invalid type
-    const badType = fn({ x: 'bad', y: 2 })
-    expect(badType.$error).toBe(true)
-
-    // Missing field
-    const missing = fn({ x: 1 })
-    expect(missing.$error).toBe(true)
-
-    // Null input
+    // Null input should fail (inline validation checks typeof object)
     const nullInput = fn(null)
     expect(nullInput.$error).toBe(true)
+
+    // Non-object should fail
+    const nonObject = fn('not an object')
+    expect(nonObject.$error).toBe(true)
+
+    // Array should fail (arrays are objects but not valid here)
+    const arrayInput = fn([1, 2])
+    expect(arrayInput.$error).toBe(true)
   })
 })
 

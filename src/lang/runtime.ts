@@ -589,7 +589,7 @@ export function wrap<T extends (...args: any[]) => any>(
   meta: FunctionMeta
 ): T {
   // Always attach metadata for introspection/autocomplete
-  (fn as any).__tjs = meta
+  ;(fn as any).__tjs = meta
 
   // Determine if we need a wrapper at all
   const needsWrapper =
@@ -1080,6 +1080,9 @@ export const runtime = {
   // Safe eval/function
   SafeFunction,
   Eval,
+  // Structural equality (used by == and != in TJS)
+  Is,
+  IsNot,
 }
 
 /**

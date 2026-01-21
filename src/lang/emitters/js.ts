@@ -64,10 +64,10 @@ export interface TestResult {
 export interface TJSTranspileResult {
   /** The transpiled JavaScript code */
   code: string
-  /** Type information for the function(s) */
-  types: TJSTypeInfo
+  /** Type information for the function(s) - Record of function name to type info */
+  types: Record<string, TJSTypeInfo>
   /** Function metadata (alias for types, used by runtime) */
-  metadata: TJSTypeInfo
+  metadata: Record<string, TJSTypeInfo>
   /** Any warnings during transpilation */
   warnings?: string[]
   /** Generated test runner code (if tests were present) - DEPRECATED, tests now run at transpile time */
@@ -96,35 +96,15 @@ export interface TJSTypeInfo {
 }
 
 /**
- * Transpile TJS source to JavaScript
+ * Extract type info for a single function declaration
  */
-export function transpileToJS(
-  source: string,
-  options: TJSTranspileOptions = {}
-): TJSTranspileResult {
-  const { filename = '<source>', runTests = true, debug = false } = options
+function extractFunctionTypeInfo(
+  func: FunctionDeclaration,
+  originalSource: string,
+  requiredParams: Set<string>,
+  returnTypeStr: string | null
+): { types: TJSTypeInfo; warnings: string[] } {
   const warnings: string[] = []
-
-  // Extract test/mock blocks before parsing (they're not valid JS)
-  const { code: cleanSource, tests, mocks, testRunner } = extractTests(source)
-
-  // Parse the cleaned source (handles TJS syntax like x: 'type' and -> ReturnType)
-  const {
-    ast: program,
-    returnType,
-    originalSource,
-    requiredParams,
-    unsafeFunctions,
-  } = parse(cleanSource, {
-    filename,
-    colonShorthand: true,
-  })
-
-  // For now, handle single function (can extend to modules later)
-  const func = findMainFunction(program)
-  if (!func) {
-    throw new Error('No function declaration found')
-  }
 
   // Extract TDoc (/*# ... */) comments
   const tdoc = extractTDoc(originalSource, func)
@@ -208,14 +188,16 @@ export function transpileToJS(
 
   // Parse return type if present
   let returns: TypeDescriptor | undefined
-  if (returnType) {
+  if (returnTypeStr) {
     try {
-      const returnExpr = parseExpressionAt(returnType, 0, { ecmaVersion: 2022 })
+      const returnExpr = parseExpressionAt(returnTypeStr, 0, {
+        ecmaVersion: 2022,
+      })
       returns = inferTypeFromValue(returnExpr as any)
     } catch {
       // If we can't parse the return type, just store it as-is
       returns = { kind: 'any' }
-      warnings.push(`Could not parse return type: ${returnType}`)
+      warnings.push(`Could not parse return type: ${returnTypeStr}`)
     }
   }
 
@@ -230,43 +212,231 @@ export function transpileToJS(
     destructuredRequired,
   }
 
-  // Generate the JavaScript code
-  // Use the parser's preprocess which handles all TJS syntax transformations
-  // including: `x: 'type'` -> `x = 'type'`, `-> Type` removal, and `unsafe { }` blocks
-  const preprocessed = preprocess(cleanSource)
+  return { types, warnings }
+}
 
-  // Add type metadata
-  const funcName = func.id?.name || 'anonymous'
-  const isUnsafe = unsafeFunctions.has(funcName)
-  const isSafe = preprocessed.safeFunctions.has(funcName)
-  const returnSafety = preprocessed.returnSafety
+/**
+ * Generate inline validation code to be inserted at the start of a function body
+ */
+function generateInlineValidationCode(
+  funcName: string,
+  types: TJSTypeInfo
+): string | null {
+  // Destructured params: validate each field of the input object
+  if (types.isDestructuredParam && types.destructuredShape) {
+    const checks: string[] = []
+    const shape = types.destructuredShape
+    const requiredFields = types.destructuredRequired || new Set()
 
-  // Get source location for debug mode
-  const funcLoc = func.loc
-    ? {
-        file: filename,
-        line: func.loc.start.line,
-        column: func.loc.start.column,
+    for (const [fieldName, fieldType] of Object.entries(shape)) {
+      const isRequired = requiredFields.has(fieldName)
+      const typeCheck = generateTypeCheck(fieldName, fieldType)
+      if (typeCheck) {
+        if (isRequired) {
+          checks.push(typeCheck)
+        } else {
+          checks.push(`(${fieldName} !== undefined && ${typeCheck})`)
+        }
       }
-    : undefined
+    }
 
-  const safetyOptions = {
-    unsafe: isUnsafe,
-    safe: isSafe,
-    returnSafety,
+    if (checks.length === 0) return null
+
+    return `if (${checks.join(
+      ' || '
+    )}) { return { $error: true, message: 'Invalid input', path: '${funcName}' } }`
   }
-  const typeMetadata = generateTypeMetadata(funcName, types, safetyOptions, {
-    debug,
-    source: funcLoc,
+
+  // Positional params: validate each param
+  const params = Object.entries(types.params)
+  if (params.length === 0) return null
+
+  const checks: string[] = []
+  for (const [paramName, param] of params) {
+    const typeCheck = generateTypeCheck(paramName, param.type)
+    if (typeCheck) {
+      if (param.required) {
+        checks.push(typeCheck)
+      } else {
+        checks.push(`(${paramName} !== undefined && ${typeCheck})`)
+      }
+    }
+  }
+
+  if (checks.length === 0) return null
+
+  return `if (${checks.join(
+    ' || '
+  )}) { return { $error: true, message: 'Invalid arguments', path: '${funcName}' } }`
+}
+
+/**
+ * Extract the return type string for a specific function from source
+ * Returns null if no return type found
+ */
+function extractFunctionReturnType(
+  source: string,
+  funcName: string
+): string | null {
+  // Match: function funcName(params) -> returnExample {
+  // or: function funcName(params) -? returnExample {
+  // or: function funcName(params) -! returnExample {
+  const regex = new RegExp(
+    `function\\s+${funcName}\\s*\\([^)]*\\)\\s*(-[>?!])\\s*`,
+    'g'
+  )
+  const match = regex.exec(source)
+  if (!match) return null
+
+  const afterMarker = source.slice(match.index + match[0].length)
+  return extractReturnExampleFromSource(afterMarker)
+}
+
+/**
+ * Extract return safety marker for a specific function from source
+ * Returns 'safe' for -?, 'unsafe' for -!, undefined for -> or no marker
+ */
+function extractFunctionReturnSafety(
+  source: string,
+  funcName: string
+): 'safe' | 'unsafe' | undefined {
+  // Match: function funcName(params) -X where X is >, ?, or !
+  const regex = new RegExp(
+    `function\\s+${funcName}\\s*\\([^)]*\\)\\s*-([>?!])`,
+    'g'
+  )
+  const match = regex.exec(source)
+  if (!match) return undefined
+
+  const marker = match[1]
+  if (marker === '?') return 'safe'
+  if (marker === '!') return 'unsafe'
+  return undefined // -> is the default, no special safety flag
+}
+
+/**
+ * Transpile TJS source to JavaScript
+ *
+ * This function handles:
+ * - Files with no functions (just statements/tests)
+ * - Files with multiple functions
+ * - Inline validation (no wrappers)
+ * - __tjs metadata inserted immediately after each function
+ */
+export function transpileToJS(
+  source: string,
+  options: TJSTranspileOptions = {}
+): TJSTranspileResult {
+  const { filename = '<source>', runTests = true, debug = false } = options
+  const warnings: string[] = []
+
+  // Extract test/mock blocks before parsing (they're not valid JS)
+  const { code: cleanSource, tests, mocks, testRunner } = extractTests(source)
+
+  // Parse the cleaned source (handles TJS syntax like x: 'type' and -> ReturnType)
+  const {
+    ast: program,
+    originalSource,
+    requiredParams,
+    unsafeFunctions,
+  } = parse(cleanSource, {
+    filename,
+    colonShorthand: true,
   })
 
-  // For single-arg object types, generate inline validation (20x faster)
-  // Otherwise, the runtime wrap() will be used
-  const inlineWrapper = generateInlineWrapper(funcName, types, safetyOptions)
+  // Find ALL functions in the program
+  const functions = findAllFunctions(program)
 
-  const code = inlineWrapper
-    ? `${preprocessed.source}\n\n${inlineWrapper}\n${typeMetadata}`
-    : `${preprocessed.source}\n\n${typeMetadata}`
+  // Preprocess source (handles TJS syntax transformations)
+  const preprocessed = preprocess(cleanSource)
+
+  // Build types map for all functions
+  const allTypes: Record<string, TJSTypeInfo> = {}
+
+  // Collect insertions: { position, text } to be applied in reverse order
+  const insertions: { position: number; text: string }[] = []
+
+  // Process each function
+  for (const func of functions) {
+    const funcName = func.id?.name || 'anonymous'
+
+    // Extract return type for this specific function from original source
+    const returnTypeStr = extractFunctionReturnType(cleanSource, funcName)
+
+    // Extract type info for this function
+    const { types, warnings: funcWarnings } = extractFunctionTypeInfo(
+      func,
+      originalSource,
+      requiredParams,
+      returnTypeStr
+    )
+    warnings.push(...funcWarnings)
+    allTypes[funcName] = types
+
+    // Determine safety options
+    const isUnsafe = unsafeFunctions.has(funcName)
+    const isSafe = preprocessed.safeFunctions.has(funcName)
+    // Extract return safety per-function from original source
+    const returnSafety = extractFunctionReturnSafety(cleanSource, funcName)
+
+    // Get source location for debug mode
+    const funcLoc = func.loc
+      ? {
+          file: filename,
+          line: func.loc.start.line,
+          column: func.loc.start.column,
+        }
+      : undefined
+
+    const safetyOptions = {
+      unsafe: isUnsafe,
+      safe: isSafe,
+      returnSafety,
+    }
+
+    // Generate __tjs metadata (to insert after function)
+    const typeMetadata = generateTypeMetadata(funcName, types, safetyOptions, {
+      debug,
+      source: funcLoc,
+    })
+
+    // Queue insertion of __tjs after function closing brace
+    insertions.push({
+      position: func.end,
+      text: `\n${typeMetadata}`,
+    })
+
+    // Generate inline validation (to insert at start of function body)
+    // Skip for unsafe functions
+    if (!isUnsafe) {
+      const validationCode = generateInlineValidationCode(funcName, types)
+      if (validationCode && func.body && func.body.start !== undefined) {
+        // Insert right after the opening brace
+        insertions.push({
+          position: func.body.start + 1,
+          text: `\n  ${validationCode}\n`,
+        })
+      }
+    }
+  }
+
+  // Apply insertions in reverse position order (to maintain correct offsets)
+  insertions.sort((a, b) => b.position - a.position)
+
+  let code = preprocessed.source
+  for (const { position, text } of insertions) {
+    code = code.slice(0, position) + text + code.slice(position)
+  }
+
+  // Add Is/IsNot imports if needed (for structural equality)
+  const needsIs = code.includes('Is(')
+  const needsIsNot = code.includes('IsNot(')
+  if (needsIs || needsIsNot) {
+    const imports = [needsIs && 'Is', needsIsNot && 'IsNot']
+      .filter(Boolean)
+      .join(', ')
+    code = `const { ${imports} } = globalThis.__tjs ?? {};\n` + code
+  }
 
   // Run tests at transpile time if enabled
   let testResults: TestResult[] | undefined
@@ -276,13 +446,13 @@ export function transpileToJS(
 
     // Run explicit test blocks
     if (tests.length > 0) {
-      const blockResults = runTestBlocks(tests, mocks, preprocessed.source)
+      const blockResults = runTestBlocks(tests, mocks, code)
       testResults.push(...blockResults)
     }
 
     // Run signature tests for ALL functions with -> return types
     // Extract from original source since parser only tracks the first one
-    const sigTests = runAllSignatureTests(source, preprocessed.source)
+    const sigTests = runAllSignatureTests(source, code)
     testResults.push(...sigTests)
 
     // Check for failures and throw only if runTests === true (strict mode)
@@ -303,8 +473,8 @@ export function transpileToJS(
   if (runTests === 'only') {
     return {
       code: '',
-      types,
-      metadata: types,
+      types: allTypes,
+      metadata: allTypes,
       testResults,
       testCount: testResults?.length,
     }
@@ -312,8 +482,8 @@ export function transpileToJS(
 
   return {
     code,
-    types,
-    metadata: types, // alias for runtime compatibility
+    types: allTypes,
+    metadata: allTypes, // alias for runtime compatibility
     warnings: warnings.length > 0 ? warnings : undefined,
     testRunner: tests.length > 0 ? testRunner : undefined,
     testCount: tests.length > 0 ? tests.length : undefined,
@@ -322,7 +492,7 @@ export function transpileToJS(
 }
 
 /**
- * Find the main function in the AST
+ * Find the main function in the AST (DEPRECATED - use findAllFunctions)
  */
 function findMainFunction(program: Program): FunctionDeclaration | null {
   for (const node of program.body) {
@@ -331,6 +501,15 @@ function findMainFunction(program: Program): FunctionDeclaration | null {
     }
   }
   return null
+}
+
+/**
+ * Find ALL function declarations in the AST
+ */
+function findAllFunctions(program: Program): FunctionDeclaration[] {
+  return program.body.filter(
+    (node): node is FunctionDeclaration => node.type === 'FunctionDeclaration'
+  )
 }
 
 /**
