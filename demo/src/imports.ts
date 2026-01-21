@@ -2,30 +2,47 @@
  * Playground Import Resolver
  *
  * Resolves and fetches external modules for the TJS playground.
- * Uses esm.sh CDN for npm packages.
+ * Uses unpkg.com CDN for npm packages.
+ *
+ * Note: unpkg serves files directly from npm, unlike esm.sh which
+ * converts CJS to ESM. For packages without proper ESM exports,
+ * you need to specify the exact path to the ESM bundle.
  *
  * Features:
  * - Detects import statements in code
- * - Fetches modules from esm.sh
+ * - Fetches modules from unpkg with pinned versions
  * - Caches fetched modules in memory
  * - Returns import map for browser
  */
 
-// CDN base URL - esm.sh provides ESM builds of npm packages
-const CDN_BASE = 'https://esm.sh'
+// CDN base URL - unpkg serves files directly from npm
+const CDN_BASE = 'https://unpkg.com'
 
 // In-memory cache for fetched module URLs
 const moduleCache = new Map<string, string>()
 
-// Common packages that should use specific versions
-const PINNED_VERSIONS: Record<string, string> = {
-  lodash: '4.17.21',
-  'lodash-es': '4.17.21',
-  'date-fns': '3.0.0',
-  zod: '3.22.0',
-  preact: '10.19.0',
-  react: '18.2.0',
-  'react-dom': '18.2.0',
+// Common packages that should use specific versions and ESM paths
+// unpkg serves files directly, so we need explicit paths to ESM bundles
+// Packages with proper "exports" or "module" fields in package.json
+// may work without explicit paths, but it's safer to specify them
+const PINNED_PACKAGES: Record<string, { version: string; path?: string }> = {
+  // tosijs ecosystem
+  tosijs: { version: '1.0.10', path: '/dist/module.js' },
+  'tosijs-ui': { version: '1.0.10', path: '/dist/module.js' },
+
+  // Utilities - lodash-es is native ESM
+  'lodash-es': { version: '4.17.21' },
+  'date-fns': { version: '3.6.0' }, // v3+ is native ESM
+
+  // Validation
+  zod: { version: '3.23.8', path: '/lib/index.mjs' },
+
+  // Markdown
+  marked: { version: '9.1.6', path: '/lib/marked.esm.js' },
+
+  // UI frameworks - these have proper ESM exports
+  preact: { version: '10.19.0', path: '/dist/preact.module.js' },
+  'preact/hooks': { version: '10.19.0', path: '/hooks/dist/hooks.module.js' },
 }
 
 /**
@@ -84,15 +101,26 @@ function parseSpecifier(specifier: string): { name: string; subpath: string } {
 
 /**
  * Get CDN URL for a package specifier
+ *
+ * unpkg serves files directly from npm packages. For ESM packages,
+ * we often need to specify the exact path to the ESM bundle since
+ * unpkg doesn't do automatic ESM conversion like esm.sh.
  */
 export function getCDNUrl(specifier: string): string {
   const { name, subpath } = parseSpecifier(specifier)
 
-  // Check for pinned version
-  const version = PINNED_VERSIONS[name]
-  const versionSuffix = version ? `@${version}` : ''
+  // Check for pinned package config
+  const pinned = PINNED_PACKAGES[name]
 
-  return `${CDN_BASE}/${name}${versionSuffix}${subpath}`
+  if (pinned) {
+    // If subpath provided in specifier, use that; otherwise use pinned path
+    const path = subpath || pinned.path || ''
+    return `${CDN_BASE}/${name}@${pinned.version}${path}`
+  }
+
+  // For unknown packages, try unpkg's default resolution
+  // This may not work for all packages if they don't have proper ESM exports
+  return `${CDN_BASE}/${name}${subpath}`
 }
 
 /**

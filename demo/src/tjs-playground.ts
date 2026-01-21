@@ -274,7 +274,7 @@ export class TJSPlayground extends Component<TJSPlaygroundParts> {
               elements.iframe({
                 part: 'previewFrame',
                 class: 'preview-frame',
-                sandbox: 'allow-scripts',
+                sandbox: 'allow-scripts allow-same-origin',
               })
             )
           ),
@@ -995,10 +995,12 @@ export class TJSPlayground extends Component<TJSPlaygroundParts> {
           }
         }
 
+        console.log('[run] importMap:', JSON.stringify(importMap, null, 2))
         if (Object.keys(importMap.imports).length > 0) {
           importMapScript = `<script type="importmap">${JSON.stringify(
             importMap
           )}</script>`
+          console.log('[run] importMapScript:', importMapScript)
         }
       }
 
@@ -1011,6 +1013,7 @@ export class TJSPlayground extends Component<TJSPlaygroundParts> {
           return ''
         }
       )
+      console.log('[run] importStatements:', importStatements)
 
       // Create a complete HTML document for the iframe
       const iframeDoc = `<!DOCTYPE html>
@@ -1121,9 +1124,18 @@ export class TJSPlayground extends Component<TJSPlaygroundParts> {
       }
       window.addEventListener('message', messageHandler)
 
-      // Set iframe content
+      // Set iframe content using blob URL instead of srcdoc
+      // This allows import maps to work with external URLs
       const iframe = this.parts.previewFrame
-      iframe.srcdoc = iframeDoc
+      const blob = new Blob([iframeDoc], { type: 'text/html' })
+      const blobUrl = URL.createObjectURL(blob)
+
+      // Clean up previous blob URL if any
+      if (iframe.dataset.blobUrl) {
+        URL.revokeObjectURL(iframe.dataset.blobUrl)
+      }
+      iframe.dataset.blobUrl = blobUrl
+      iframe.src = blobUrl
 
       // Wait a bit for execution, then clean up listener
       setTimeout(() => {
