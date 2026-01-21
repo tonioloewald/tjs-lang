@@ -63,6 +63,13 @@ const forbiddenMark = Decoration.mark({
 })
 
 /**
+ * Decoration for TJS special syntax (try-without-catch, etc.)
+ */
+const tjsSpecialMark = Decoration.mark({
+  class: 'cm-tjs-special',
+})
+
+/**
  * Find all string and comment regions in the document
  * Returns array of [start, end] ranges to skip
  */
@@ -210,6 +217,71 @@ const forbiddenHighlighter = ViewPlugin.fromClass(
 )
 
 /**
+ * Plugin that highlights try-without-catch as TJS special syntax
+ * (monadic error handling - returns error instead of throwing)
+ */
+const tryWithoutCatchHighlighter = ViewPlugin.fromClass(
+  class {
+    decorations: DecorationSet
+
+    constructor(view: EditorView) {
+      this.decorations = this.buildDecorations(view)
+    }
+
+    update(update: ViewUpdate) {
+      if (update.docChanged || update.viewportChanged) {
+        this.decorations = this.buildDecorations(update.view)
+      }
+    }
+
+    buildDecorations(view: EditorView): DecorationSet {
+      const builder = new RangeSetBuilder<Decoration>()
+      const doc = view.state.doc.toString()
+      const skipRegions = findSkipRegions(doc)
+
+      // Find try blocks without catch or finally
+      // Pattern: try { ... } NOT followed by catch or finally
+      const tryPattern = /\btry\s*\{/g
+      let match
+
+      while ((match = tryPattern.exec(doc)) !== null) {
+        // Skip if inside string or comment
+        if (isInSkipRegion(match.index, skipRegions)) continue
+
+        // Find the matching closing brace
+        const braceStart = match.index + match[0].length - 1
+        let depth = 1
+        let j = braceStart + 1
+
+        while (j < doc.length && depth > 0) {
+          const char = doc[j]
+          if (char === '{') depth++
+          else if (char === '}') depth--
+          j++
+        }
+
+        if (depth !== 0) continue // Unbalanced
+
+        // Check what comes after the closing brace
+        const afterTry = doc.slice(j).match(/^\s*(catch|finally)\b/)
+
+        if (!afterTry) {
+          // No catch or finally - this is TJS monadic try
+          // Highlight just the 'try' keyword
+          const tryKeywordEnd = match.index + 3 // 'try'.length
+          builder.add(match.index, tryKeywordEnd, tjsSpecialMark)
+        }
+      }
+
+      return builder.finish()
+    }
+  },
+  {
+    decorations: (v) => v.decorations,
+  }
+)
+
+/**
  * Theme for AsyncJS - styles forbidden keywords as errors
  */
 const ajsTheme = EditorView.theme({
@@ -217,6 +289,11 @@ const ajsTheme = EditorView.theme({
     color: '#dc2626',
     textDecoration: 'wavy underline #dc2626',
     backgroundColor: 'rgba(220, 38, 38, 0.1)',
+  },
+  '.cm-tjs-special': {
+    color: '#7c3aed',
+    fontWeight: 'bold',
+    backgroundColor: 'rgba(124, 58, 237, 0.1)',
   },
 })
 
@@ -1291,6 +1368,7 @@ export function ajsEditorExtension(
     javascript({ jsx: config.jsx, typescript: config.typescript }),
     syntaxHighlighting(defaultHighlightStyle),
     forbiddenHighlighter,
+    tryWithoutCatchHighlighter,
     ajsTheme,
     syntaxHighlighting(ajsHighlightStyle),
     autocompletion({
@@ -1313,6 +1391,7 @@ export function ajsLanguage(
   const jsLang = javascript({ jsx: config.jsx, typescript: config.typescript })
   return new LanguageSupport(jsLang.language, [
     forbiddenHighlighter,
+    tryWithoutCatchHighlighter,
     ajsTheme,
     syntaxHighlighting(ajsHighlightStyle),
   ])

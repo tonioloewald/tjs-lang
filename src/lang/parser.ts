@@ -1389,6 +1389,10 @@ export function preprocess(
 /**
  * Transform try blocks without catch/finally into monadic error handling
  * try { ... } (alone) -> try { ... } catch (__err) { return AgentError }
+ *
+ * Note: try-without-catch only makes sense inside functions (for monadic return).
+ * Using it at top level will result in "'return' outside of function" error,
+ * which is the correct behavior - monadic error flow requires a function context.
  */
 function transformTryWithoutCatch(source: string): string {
   let result = ''
@@ -1426,9 +1430,10 @@ function transformTryWithoutCatch(source: string): string {
         result += source.slice(i, j)
         i = j
       } else {
-        // No catch or finally - add monadic error handler
+        // No catch or finally - add monadic error handler with call stack
+        // In debug mode, __tjs.getStack() returns the call stack for diagnostics
         const body = source.slice(bodyStart, j - 1)
-        result += `try {${body}} catch (__try_err) { return { $error: true, message: __try_err?.message || String(__try_err), op: 'try', cause: __try_err } }`
+        result += `try {${body}} catch (__try_err) { return { $error: true, message: __try_err?.message || String(__try_err), op: 'try', cause: __try_err, stack: globalThis.__tjs?.getStack?.() } }`
         i = j
       }
     } else {

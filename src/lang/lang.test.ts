@@ -2093,6 +2093,101 @@ function greet(name: 'World') {
 
     expect(result.moduleSafety).toBeUndefined()
   })
+
+  it('safety none should skip validation code in output', () => {
+    // With safety (default) - should have validation
+    const safe = tjs(`function add(a: 0, b: 0) -> 0 { return a + b }`)
+    expect(safe.code).toContain('__tjs.typeError')
+    expect(safe.code).toContain('__tjs.pushStack')
+    expect(safe.code).toContain("typeof a !== 'number'")
+
+    // Without safety - should NOT have validation
+    const unsafe = tjs(`safety none
+function add(a: 0, b: 0) -> 0 { return a + b }`)
+    expect(unsafe.code).not.toContain('__tjs.typeError')
+    expect(unsafe.code).not.toContain('__tjs.pushStack')
+    expect(unsafe.code).not.toContain("typeof a !== 'number'")
+    // Should still have metadata
+    expect(unsafe.code).toContain('add.__tjs')
+    expect(unsafe.code).toContain('"unsafe": true')
+  })
+
+  it('safety none should work with multiple functions', () => {
+    const result = tjs(`safety none
+function add(a: 0, b: 0) -> 0 { return a + b }
+function multiply(a: 0, b: 0) -> 0 { return a * b }`)
+
+    // No validation for either function
+    expect(result.code).not.toContain('__tjs.typeError')
+    expect(result.code).not.toContain('__tjs.pushStack')
+    // Both have metadata
+    expect(result.code).toContain('add.__tjs')
+    expect(result.code).toContain('multiply.__tjs')
+  })
+})
+
+describe('unsafe function marker (!)', () => {
+  it('(!) should skip validation for that function only', () => {
+    const result = tjs(`
+function safeAdd(a: 0, b: 0) -> 0 { return a + b }
+function unsafeAdd(! a: 0, b: 0) -> 0 { return a + b }
+`)
+    // Safe function has validation
+    expect(result.code).toContain('__tjs.pushStack')
+    expect(result.code).toContain('__tjs.typeError')
+
+    // Check the unsafe function body doesn't have validation
+    // The unsafeAdd function should just be: function unsafeAdd(a = 0,b = 0) { return a + b }
+    const unsafeMatch = result.code.match(
+      /function unsafeAdd\([^)]+\)\s*\{([^}]+)\}/
+    )
+    expect(unsafeMatch).toBeTruthy()
+    const unsafeBody = unsafeMatch![1]
+    expect(unsafeBody).not.toContain('__tjs.typeError')
+    expect(unsafeBody).not.toContain('__tjs.pushStack')
+
+    // Metadata marks it as unsafe
+    expect(result.code).toContain('unsafeAdd.__tjs')
+  })
+
+  it('(!) function metadata should have unsafe: true', () => {
+    const result = tjs(`function fast(! x: 0) -> 0 { return x * 2 }`)
+    expect(result.code).toContain('"unsafe": true')
+  })
+})
+
+describe('safe vs unsafe comparison', () => {
+  it('safe function should have validation, unsafe should not', () => {
+    // Safe function (default)
+    const safe = tjs(`function double(x: 0) -> 0 { return x * 2 }`)
+    expect(safe.code).toContain("typeof x !== 'number'")
+    expect(safe.code).toContain('__tjs.typeError')
+
+    // Unsafe via (!) marker
+    const unsafeMarker = tjs(`function double(! x: 0) -> 0 { return x * 2 }`)
+    expect(unsafeMarker.code).not.toContain("typeof x !== 'number'")
+    expect(unsafeMarker.code).not.toContain('__tjs.typeError')
+
+    // Unsafe via safety none
+    const unsafeModule = tjs(`safety none
+function double(x: 0) -> 0 { return x * 2 }`)
+    expect(unsafeModule.code).not.toContain("typeof x !== 'number'")
+    expect(unsafeModule.code).not.toContain('__tjs.typeError')
+  })
+
+  it('both (!) and safety none should produce equivalent unsafe output', () => {
+    const viaMarker = tjs(`function add(! a: 0, b: 0) -> 0 { return a + b }`)
+    const viaDirective = tjs(`safety none
+function add(a: 0, b: 0) -> 0 { return a + b }`)
+
+    // Both should lack validation
+    expect(viaMarker.code).not.toContain('__tjs.pushStack')
+    expect(viaDirective.code).not.toContain('__tjs.pushStack')
+
+    // Both should have unsafe metadata
+    expect(viaMarker.code).toContain('"unsafe": true')
+    expect(viaDirective.code).toContain('"unsafe": true')
+  })
 })
 
 describe('safe function syntax (?)', () => {
@@ -2112,6 +2207,86 @@ describe('safe function syntax (?)', () => {
     const { preprocess } = require('./parser')
     const processed = preprocess('const fn = (? x) => x * 2')
     expect(processed.source).toContain('/* safe */')
+  })
+})
+
+describe('try-without-catch (monadic errors)', () => {
+  it('should transform try without catch to return monadic error', () => {
+    const { preprocess } = require('./parser')
+    const result = preprocess(`
+function parse(s: '') {
+  try {
+    return JSON.parse(s)
+  }
+}
+`)
+    // Should add a catch block that returns monadic error
+    expect(result.source).toContain('catch (__try_err)')
+    expect(result.source).toContain('$error: true')
+    expect(result.source).toContain('__try_err?.message')
+  })
+
+  it('should NOT transform try with existing catch', () => {
+    const { preprocess } = require('./parser')
+    const result = preprocess(`
+function parse(s: '') {
+  try {
+    return JSON.parse(s)
+  } catch (e) {
+    return null
+  }
+}
+`)
+    // Should keep original catch, not add __try_err
+    expect(result.source).toContain('catch (e)')
+    expect(result.source).not.toContain('__try_err')
+  })
+
+  it('should NOT transform try with finally', () => {
+    const { preprocess } = require('./parser')
+    const result = preprocess(`
+function cleanup(s: '') {
+  try {
+    return JSON.parse(s)
+  } finally {
+    console.log('done')
+  }
+}
+`)
+    // Should keep original finally, not add __try_err
+    expect(result.source).toContain('finally')
+    expect(result.source).not.toContain('__try_err')
+  })
+
+  it('should work in transpiled TJS code', () => {
+    // Use runTests: false because the signature example '' returns monadic error
+    const result = tjs(
+      `
+function safeParse(s: '') {
+  try {
+    return JSON.parse(s)
+  }
+}
+`,
+      { runTests: false }
+    )
+    // The transpiled code should have the monadic error catch
+    expect(result.code).toContain('catch (__try_err)')
+    expect(result.code).toContain('$error: true')
+  })
+
+  it('monadic error should have proper structure', () => {
+    const { preprocess } = require('./parser')
+    const result = preprocess(`
+function test() {
+  try { throw new Error('oops') }
+}
+`)
+    // Check error structure
+    expect(result.source).toContain("op: 'try'")
+    expect(result.source).toContain('cause: __try_err')
+    // Should capture call stack for debugging
+    expect(result.source).toContain('stack: globalThis.__tjs?.getStack?.()')
   })
 })
 

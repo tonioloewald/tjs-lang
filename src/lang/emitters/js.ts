@@ -442,7 +442,9 @@ export function transpileToJS(
     allTypes[funcName] = types
 
     // Determine safety options
-    const isUnsafe = unsafeFunctions.has(funcName)
+    // Module-level "safety none" makes ALL functions unsafe (no validation)
+    const isUnsafe =
+      preprocessed.moduleSafety === 'none' || unsafeFunctions.has(funcName)
     const isSafe = preprocessed.safeFunctions.has(funcName)
     // Extract return safety per-function from original source
     const returnSafety = extractFunctionReturnSafety(cleanSource, funcName)
