@@ -1005,15 +1005,15 @@ export class TJSPlayground extends Component<TJSPlaygroundParts> {
       }
 
       // Extract import statements from jsCode - they must be at the top of the module
+      // Matches: import ... from 'pkg', import 'pkg' (side-effect)
       const importStatements: string[] = []
       const codeWithoutImports = jsCode.replace(
-        /^import\s+.*?from\s+['"][^'"]+['"];?\s*$/gm,
+        /^import\s+(?:.*?from\s+)?['"][^'"]+['"];?\s*$/gm,
         (match) => {
           importStatements.push(match)
           return ''
         }
       )
-      console.log('[run] importStatements:', importStatements)
 
       // Create a complete HTML document for the iframe
       const iframeDoc = `<!DOCTYPE html>
