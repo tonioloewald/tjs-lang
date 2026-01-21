@@ -106,6 +106,7 @@ interface TJSPlaygroundParts extends PartsMap {
   previewFrame: HTMLIFrameElement
   docsOutput: MarkdownViewer
   testsOutput: HTMLElement
+  consoleHeader: HTMLElement
   console: HTMLElement
   runBtn: HTMLButtonElement
   saveBtn: HTMLButtonElement
@@ -250,7 +251,7 @@ export class TJSPlayground extends Component<TJSPlaygroundParts> {
     // Console panel at bottom
     div(
       { class: 'tjs-console' },
-      div({ class: 'console-header' }, 'Console'),
+      div({ part: 'consoleHeader', class: 'console-header' }, 'Console'),
       pre({ part: 'console', class: 'console-output' })
     ),
   ]
@@ -290,7 +291,10 @@ export class TJSPlayground extends Component<TJSPlaygroundParts> {
   clearConsole = () => {
     this.consoleMessages = []
     this.parts.console.textContent = ''
+    this.parts.consoleHeader.textContent = 'Console'
   }
+
+  lastTranspileTime = 0
 
   transpile = () => {
     const source = this.parts.tjsEditor.value
@@ -299,24 +303,32 @@ export class TJSPlayground extends Component<TJSPlaygroundParts> {
     this.extractFunctionMetadata(source)
 
     try {
+      // Time the transpilation
+      const startTime = performance.now()
       // Use 'report' mode to get test results without throwing on test failure
       const result = tjs(source, { runTests: 'report' })
+      this.lastTranspileTime = performance.now() - startTime
+
       this.lastTranspileResult = result
       this.parts.jsOutput.textContent = result.code
 
       // Update docs
       this.updateDocs(result)
 
-      // Update test results and status bar
+      // Update test results and status bar with timing
       const tests = result.testResults || []
       const failed = tests.filter((t: any) => !t.passed).length
+      const timeStr =
+        this.lastTranspileTime < 1
+          ? `${(this.lastTranspileTime * 1000).toFixed(0)}μs`
+          : `${this.lastTranspileTime.toFixed(2)}ms`
       if (failed > 0) {
-        this.parts.statusBar.textContent = `Transpiled with ${failed} test failure${
+        this.parts.statusBar.textContent = `Transpiled in ${timeStr} with ${failed} test failure${
           failed > 1 ? 's' : ''
         }`
         this.parts.statusBar.classList.add('error')
       } else {
-        this.parts.statusBar.textContent = 'Transpiled successfully'
+        this.parts.statusBar.textContent = `Transpiled in ${timeStr}`
         this.parts.statusBar.classList.remove('error')
       }
 
@@ -946,6 +958,7 @@ export class TJSPlayground extends Component<TJSPlaygroundParts> {
     };
 
     try {
+      const __execStart = performance.now();
       ${jsCode}
 
       // Try to call the function if it exists and show result
@@ -954,7 +967,10 @@ export class TJSPlayground extends Component<TJSPlaygroundParts> {
         catch { return false; }
       });
       if (funcName) {
+        const __callStart = performance.now();
         const result = window[funcName]();
+        const __execTime = performance.now() - __callStart;
+        parent.postMessage({ type: 'timing', execTime: __execTime }, '*');
         if (result !== undefined) {
           const output = document.getElementById('output');
           if (output) {
@@ -962,6 +978,10 @@ export class TJSPlayground extends Component<TJSPlaygroundParts> {
           }
           console.log('Result:', result);
         }
+      } else {
+        // No TJS function found, report total parse/exec time
+        const __execTime = performance.now() - __execStart;
+        parent.postMessage({ type: 'timing', execTime: __execTime }, '*');
       }
     } catch (e) {
       parent.postMessage({ type: 'error', message: e.message }, '*');
@@ -974,6 +994,14 @@ export class TJSPlayground extends Component<TJSPlaygroundParts> {
       const messageHandler = (event: MessageEvent) => {
         if (event.data?.type === 'console') {
           this.log(event.data.message)
+        } else if (event.data?.type === 'timing') {
+          // Update console header with execution time
+          const execTime = event.data.execTime
+          const execStr =
+            execTime < 1
+              ? `${(execTime * 1000).toFixed(0)}μs`
+              : `${execTime.toFixed(2)}ms`
+          this.parts.consoleHeader.textContent = `Console — executed in ${execStr}`
         } else if (event.data?.type === 'error') {
           this.log(`Error: ${event.data.message}`)
           this.parts.statusBar.textContent = 'Runtime error'
@@ -986,12 +1014,10 @@ export class TJSPlayground extends Component<TJSPlaygroundParts> {
       const iframe = this.parts.previewFrame
       iframe.srcdoc = iframeDoc
 
-      // Wait a bit for execution
+      // Wait a bit for execution, then clean up listener
       setTimeout(() => {
         window.removeEventListener('message', messageHandler)
-        if (!this.parts.statusBar.classList.contains('error')) {
-          this.parts.statusBar.textContent = 'Done'
-        }
+        // Don't overwrite status bar - keep showing transpile time
       }, 1000)
     } catch (e: any) {
       this.log(`Error: ${e.message}`)

@@ -70,6 +70,7 @@ interface TSPlaygroundParts extends PartsMap {
   previewFrame: HTMLIFrameElement
   docsOutput: MarkdownViewer
   testsOutput: HTMLElement
+  consoleHeader: HTMLElement
   console: HTMLElement
   runBtn: HTMLButtonElement
   copyTjsBtn: HTMLButtonElement
@@ -201,7 +202,7 @@ export class TSPlayground extends Component<TSPlaygroundParts> {
     // Console panel at bottom
     div(
       { class: 'ts-console' },
-      div({ class: 'console-header' }, 'Console'),
+      div({ part: 'consoleHeader', class: 'console-header' }, 'Console'),
       pre({ part: 'console', class: 'console-output' })
     ),
   ]
@@ -236,14 +237,22 @@ export class TSPlayground extends Component<TSPlaygroundParts> {
   clearConsole = () => {
     this.consoleMessages = []
     this.parts.console.textContent = ''
+    this.parts.consoleHeader.textContent = 'Console'
   }
+
+  lastTranspileTime = 0
+  lastTsToTjsTime = 0
+  lastTjsToJsTime = 0
 
   transpile = () => {
     const tsSource = this.parts.tsEditor.value
 
     try {
-      // Step 1: TS -> TJS
+      // Step 1: TS -> TJS (timed)
+      const tsStart = performance.now()
       const tjsResult = fromTS(tsSource, { emitTJS: true })
+      this.lastTsToTjsTime = performance.now() - tsStart
+
       this.lastTjsCode = tjsResult.code
       this.parts.tjsOutput.textContent = tjsResult.code
 
@@ -253,12 +262,16 @@ export class TSPlayground extends Component<TSPlaygroundParts> {
           '\n\n// Warnings:\n// ' + tjsResult.warnings.join('\n// ')
       }
 
-      // Step 2: TJS -> JS (skip signature tests with -!)
+      // Step 2: TJS -> JS (skip signature tests with -!) (timed)
       // Replace -> with -! to avoid signature test failures during transpilation
       const tjsCodeForJs = tjsResult.code.replace(/-> /g, '-! ')
 
       try {
+        const tjsStart = performance.now()
         const jsResult = tjs(tjsCodeForJs, { runTests: 'report' })
+        this.lastTjsToJsTime = performance.now() - tjsStart
+        this.lastTranspileTime = this.lastTsToTjsTime + this.lastTjsToJsTime
+
         this.lastJsCode = jsResult.code
         this.parts.jsOutput.textContent = jsResult.code
 
@@ -268,7 +281,14 @@ export class TSPlayground extends Component<TSPlaygroundParts> {
         // Update docs
         this.updateDocs(jsResult)
 
-        this.parts.statusBar.textContent = 'Transpiled successfully'
+        // Show timing: TS->TJS + TJS->JS = total
+        const formatTime = (t: number) =>
+          t < 1 ? `${(t * 1000).toFixed(0)}μs` : `${t.toFixed(2)}ms`
+        this.parts.statusBar.textContent = `TS→TJS ${formatTime(
+          this.lastTsToTjsTime
+        )} + TJS→JS ${formatTime(this.lastTjsToJsTime)} = ${formatTime(
+          this.lastTranspileTime
+        )}`
         this.parts.statusBar.classList.remove('error')
       } catch (jsError: any) {
         this.parts.jsOutput.textContent = `// TJS -> JS Error:\n// ${jsError.message}`
@@ -474,7 +494,10 @@ export class TSPlayground extends Component<TSPlaygroundParts> {
     };
 
     try {
+      const __execStart = performance.now();
       ${jsCode}
+      const __execTime = performance.now() - __execStart;
+      parent.postMessage({ type: 'timing', execTime: __execTime }, '*');
     } catch (e) {
       parent.postMessage({ type: 'error', message: e.message }, '*');
     }
@@ -486,6 +509,14 @@ export class TSPlayground extends Component<TSPlaygroundParts> {
       const messageHandler = (event: MessageEvent) => {
         if (event.data?.type === 'console') {
           this.log(event.data.message)
+        } else if (event.data?.type === 'timing') {
+          // Update console header with execution time
+          const execTime = event.data.execTime
+          const execStr =
+            execTime < 1
+              ? `${(execTime * 1000).toFixed(0)}μs`
+              : `${execTime.toFixed(2)}ms`
+          this.parts.consoleHeader.textContent = `Console — executed in ${execStr}`
         } else if (event.data?.type === 'error') {
           this.log(`Error: ${event.data.message}`)
           this.parts.statusBar.textContent = 'Runtime error'
@@ -497,11 +528,10 @@ export class TSPlayground extends Component<TSPlaygroundParts> {
       // Set iframe content
       this.parts.previewFrame.srcdoc = iframeDoc
 
+      // Wait a bit for execution, then clean up listener
       setTimeout(() => {
         window.removeEventListener('message', messageHandler)
-        if (!this.parts.statusBar.classList.contains('error')) {
-          this.parts.statusBar.textContent = 'Done'
-        }
+        // Don't overwrite status bar - keep showing transpile time
       }, 1000)
     } catch (e: any) {
       this.log(`Error: ${e.message}`)
