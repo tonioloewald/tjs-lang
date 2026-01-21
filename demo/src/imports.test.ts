@@ -97,45 +97,48 @@ describe('extractImports', () => {
 describe('getCDNUrl', () => {
   it('should generate URL for simple package', () => {
     expect(getCDNUrl('some-unknown-package')).toBe(
-      'https://esm.sh/some-unknown-package'
+      'https://unpkg.com/some-unknown-package'
     )
   })
 
-  it('should use pinned version for known packages', () => {
-    expect(getCDNUrl('lodash')).toBe('https://esm.sh/lodash@4.17.21')
-    expect(getCDNUrl('react')).toBe('https://esm.sh/react@18.2.0')
-    expect(getCDNUrl('date-fns')).toBe('https://esm.sh/date-fns@3.0.0')
+  it('should use pinned version and path for known packages', () => {
+    // tosijs has pinned version and path
+    expect(getCDNUrl('tosijs')).toBe(
+      'https://unpkg.com/tosijs@1.0.10/dist/module.js'
+    )
+    // date-fns has pinned version but no path
+    expect(getCDNUrl('date-fns')).toBe('https://unpkg.com/date-fns@3.6.0')
   })
 
-  it('should handle subpath imports', () => {
-    expect(getCDNUrl('lodash/debounce')).toBe(
-      'https://esm.sh/lodash@4.17.21/debounce'
+  it('should handle subpath imports with pinned version', () => {
+    expect(getCDNUrl('lodash-es/debounce')).toBe(
+      'https://unpkg.com/lodash-es@4.17.21/debounce'
     )
   })
 
   it('should handle scoped packages', () => {
-    expect(getCDNUrl('@scope/package')).toBe('https://esm.sh/@scope/package')
+    expect(getCDNUrl('@scope/package')).toBe('https://unpkg.com/@scope/package')
   })
 
   it('should handle scoped packages with subpaths', () => {
     expect(getCDNUrl('@scope/package/utils')).toBe(
-      'https://esm.sh/@scope/package/utils'
+      'https://unpkg.com/@scope/package/utils'
     )
   })
 
-  it('should handle scoped packages with pinned versions', () => {
-    // lodash-es is pinned
-    expect(getCDNUrl('lodash-es')).toBe('https://esm.sh/lodash-es@4.17.21')
+  it('should handle packages with pinned version but no path', () => {
+    // lodash-es is pinned but has no explicit path
+    expect(getCDNUrl('lodash-es')).toBe('https://unpkg.com/lodash-es@4.17.21')
   })
 })
 
 describe('generateImportMap', () => {
   it('should generate import map for specifiers', () => {
-    const result = generateImportMap(['lodash', 'react'])
+    const result = generateImportMap(['tosijs', 'date-fns'])
     expect(result).toEqual({
       imports: {
-        lodash: 'https://esm.sh/lodash@4.17.21',
-        react: 'https://esm.sh/react@18.2.0',
+        tosijs: 'https://unpkg.com/tosijs@1.0.10/dist/module.js',
+        'date-fns': 'https://unpkg.com/date-fns@3.6.0',
       },
     })
   })
@@ -145,22 +148,24 @@ describe('generateImportMap', () => {
   })
 
   it('should handle subpath imports', () => {
-    const result = generateImportMap(['lodash/debounce'])
-    expect(result.imports['lodash/debounce']).toBe(
-      'https://esm.sh/lodash@4.17.21/debounce'
+    const result = generateImportMap(['lodash-es/debounce'])
+    expect(result.imports['lodash-es/debounce']).toBe(
+      'https://unpkg.com/lodash-es@4.17.21/debounce'
     )
   })
 })
 
 describe('generateImportMapScript', () => {
   it('should generate script tag with import map', () => {
-    const importMap = { imports: { lodash: 'https://esm.sh/lodash@4.17.21' } }
+    const importMap = {
+      imports: { tosijs: 'https://unpkg.com/tosijs@1.0.10/dist/module.js' },
+    }
     const script = generateImportMapScript(importMap)
 
     expect(script).toContain('<script type="importmap">')
     expect(script).toContain('</script>')
-    expect(script).toContain('"lodash"')
-    expect(script).toContain('https://esm.sh/lodash@4.17.21')
+    expect(script).toContain('"tosijs"')
+    expect(script).toContain('https://unpkg.com/tosijs@1.0.10/dist/module.js')
   })
 })
 

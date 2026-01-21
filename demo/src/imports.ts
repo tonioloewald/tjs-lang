@@ -28,7 +28,7 @@ const moduleCache = new Map<string, string>()
 const PINNED_PACKAGES: Record<string, { version: string; path?: string }> = {
   // tosijs ecosystem
   tosijs: { version: '1.0.10', path: '/dist/module.js' },
-  'tosijs-ui': { version: '1.0.10', path: '/dist/module.js' },
+  'tosijs-ui': { version: '1.0.10', path: '/dist/index.js' },
 
   // Utilities - lodash-es is native ESM
   'lodash-es': { version: '4.17.21' },
@@ -140,8 +140,75 @@ export function generateImportMap(specifiers: string[]): {
   return { imports }
 }
 
+// Cache for package.json data
+const packageJsonCache = new Map<string, any>()
+
+/**
+ * Fetch and cache package.json for a package
+ */
+async function getPackageJson(name: string, version?: string): Promise<any> {
+  const cacheKey = version ? `${name}@${version}` : name
+
+  if (packageJsonCache.has(cacheKey)) {
+    return packageJsonCache.get(cacheKey)
+  }
+
+  const url = `${CDN_BASE}/${cacheKey}/package.json`
+  const response = await fetch(url)
+
+  if (!response.ok) {
+    throw new Error(`Package not found: ${cacheKey}`)
+  }
+
+  const pkg = await response.json()
+  packageJsonCache.set(cacheKey, pkg)
+  return pkg
+}
+
+/**
+ * Resolve the ESM entry point from package.json
+ * Checks exports, module, and main fields in order of preference
+ */
+function resolveEntryPoint(pkg: any): string | null {
+  // Check exports field first (modern packages)
+  if (pkg.exports) {
+    // Handle string exports
+    if (typeof pkg.exports === 'string') {
+      return pkg.exports
+    }
+
+    // Handle exports object - look for ESM entry
+    const exp = pkg.exports['.'] ?? pkg.exports
+    if (typeof exp === 'string') {
+      return exp
+    }
+    if (exp?.import) {
+      return typeof exp.import === 'string' ? exp.import : exp.import?.default
+    }
+    if (exp?.module) {
+      return exp.module
+    }
+    if (exp?.default) {
+      return typeof exp.default === 'string' ? exp.default : null
+    }
+  }
+
+  // Check module field (ES modules)
+  if (pkg.module) {
+    return pkg.module
+  }
+
+  // Check main field (may be CJS, but worth trying)
+  if (pkg.main) {
+    return pkg.main
+  }
+
+  return null
+}
+
 /**
  * Fetch and cache a module, returning its resolved URL
+ * Uses package.json to find the correct ESM entry point
  */
 export async function resolveModule(specifier: string): Promise<string> {
   // Check cache first
@@ -149,21 +216,42 @@ export async function resolveModule(specifier: string): Promise<string> {
     return moduleCache.get(specifier)!
   }
 
-  const url = getCDNUrl(specifier)
+  const { name, subpath } = parseSpecifier(specifier)
+  const pinned = PINNED_PACKAGES[name]
+  const version = pinned?.version
 
-  // Verify the module exists by making a HEAD request
-  try {
-    const response = await fetch(url, { method: 'HEAD' })
-    if (!response.ok) {
-      throw new Error(`Module not found: ${specifier} (${response.status})`)
-    }
-
-    // Cache the resolved URL
+  // If there's a subpath in the specifier, use it directly
+  if (subpath) {
+    const url = `${CDN_BASE}/${name}${version ? `@${version}` : ''}${subpath}`
     moduleCache.set(specifier, url)
     return url
-  } catch (error: any) {
-    throw new Error(`Failed to resolve module '${specifier}': ${error.message}`)
   }
+
+  // If we have a pinned path, use it directly (skip package.json lookup)
+  if (pinned?.path) {
+    const url = `${CDN_BASE}/${name}@${version}${pinned.path}`
+    moduleCache.set(specifier, url)
+    return url
+  }
+
+  // Fetch package.json and resolve the entry point
+  const pkg = await getPackageJson(name, version)
+  const entryPoint = resolveEntryPoint(pkg)
+
+  if (!entryPoint) {
+    throw new Error(`No ESM entry point found in package.json for ${name}`)
+  }
+
+  // Normalize path (ensure it starts with /)
+  const path = entryPoint.startsWith('./')
+    ? entryPoint.slice(1)
+    : entryPoint.startsWith('/')
+    ? entryPoint
+    : `/${entryPoint}`
+
+  const url = `${CDN_BASE}/${name}${version ? `@${version}` : ''}${path}`
+  moduleCache.set(specifier, url)
+  return url
 }
 
 /**
