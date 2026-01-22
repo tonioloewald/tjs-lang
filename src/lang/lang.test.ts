@@ -2562,14 +2562,16 @@ describe('signature tests (transpile-time)', () => {
     expect(result.testResults![0].isSignatureTest).toBe(true)
   })
 
-  it('-> should fail if signature example is wrong', () => {
+  it('-> should fail if return type is wrong', () => {
+    // Signature test checks TYPE, not value
+    // double(5) returns 10 (number), but pattern expects string
     expect(() =>
       tjs(`
-        function double(x: 5) -> 999 {
+        function double(x: 5) -> "" {
           return x * 2
         }
       `)
-    ).toThrow(/signature example is inconsistent/)
+    ).toThrow(/Expected string/)
   })
 
   it('-? should run signature test at transpile time', () => {
@@ -2582,14 +2584,24 @@ describe('signature tests (transpile-time)', () => {
     expect(result.testResults![0].passed).toBe(true)
   })
 
-  it('-? should fail if signature example is wrong', () => {
+  it('-? should pass if return type matches (type pattern, not value)', () => {
+    // 999 is a number pattern, double(5) returns 10 which is a number - passes
+    const result = tjs(`
+      function double(x: 5) -? 0 {
+        return x * 2
+      }
+    `)
+    expect(result.testResults![0].passed).toBe(true)
+  })
+
+  it('-? should fail if return type mismatches', () => {
     expect(() =>
       tjs(`
-        function double(x: 5) -? 999 {
+        function getString(x: 5) -? "" {
           return x * 2
         }
       `)
-    ).toThrow(/signature example is inconsistent/)
+    ).toThrow(/Expected string/)
   })
 
   it('-! should skip signature test entirely', () => {
@@ -2611,14 +2623,25 @@ describe('signature tests (transpile-time)', () => {
     expect(result.testResults![0].passed).toBe(true)
   })
 
-  it('-> with object return should fail on mismatch', () => {
+  it('-> with object return should pass when types match (not values)', () => {
+    // {x: 0, y: 0} is a type pattern for {x: number, y: number}
+    // getPoint(3, 4) returns {x: 3, y: 4} which matches the pattern
+    const result = tjs(`
+      function getPoint(x: 3, y: 4) -> { x: 0, y: 0 } {
+        return { x, y }
+      }
+    `)
+    expect(result.testResults![0].passed).toBe(true)
+  })
+
+  it('-> with object return should fail on type mismatch', () => {
     expect(() =>
       tjs(`
-        function getPoint(x: 3, y: 4) -> { x: 0, y: 0 } {
+        function getPoint(x: 3, y: 4) -> { x: "", y: "" } {
           return { x, y }
         }
       `)
-    ).toThrow(/signature example is inconsistent/)
+    ).toThrow(/Expected string/)
   })
 })
 

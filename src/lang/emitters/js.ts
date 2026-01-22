@@ -1022,14 +1022,174 @@ function deepEqual(a: unknown, b: unknown): boolean {
 }
 
 /**
- * Format a value for error messages
+ * Check if a value matches an expected type pattern (from example value)
+ * Unlike deepEqual, this checks TYPE compatibility, not value equality.
+ *
+ * Example patterns:
+ *   0 matches any number
+ *   "" matches any string
+ *   true matches any boolean
+ *   null matches null
+ *   [] matches any array
+ *   [0] matches array of numbers
+ *   {name: "", age: 0} matches object with string name and number age
  */
-function formatValue(v: unknown): string {
+function typeMatches(
+  actual: unknown,
+  pattern: unknown,
+  path = ''
+): { matches: boolean; error?: string } {
+  // null pattern matches null
+  if (pattern === null) {
+    if (actual === null) return { matches: true }
+    return {
+      matches: false,
+      error: `Expected null at '${path}', got ${typeOf(actual)}`,
+    }
+  }
+
+  // undefined pattern matches undefined
+  if (pattern === undefined) {
+    if (actual === undefined) return { matches: true }
+    return {
+      matches: false,
+      error: `Expected undefined at '${path}', got ${typeOf(actual)}`,
+    }
+  }
+
+  // Primitive types - check type, not value
+  if (typeof pattern === 'number') {
+    if (typeof actual === 'number') return { matches: true }
+    return {
+      matches: false,
+      error: `Expected number at '${path}', got ${typeOf(actual)}`,
+    }
+  }
+
+  if (typeof pattern === 'string') {
+    if (typeof actual === 'string') return { matches: true }
+    return {
+      matches: false,
+      error: `Expected string at '${path}', got ${typeOf(actual)}`,
+    }
+  }
+
+  if (typeof pattern === 'boolean') {
+    if (typeof actual === 'boolean') return { matches: true }
+    return {
+      matches: false,
+      error: `Expected boolean at '${path}', got ${typeOf(actual)}`,
+    }
+  }
+
+  // Arrays
+  if (Array.isArray(pattern)) {
+    if (!Array.isArray(actual)) {
+      return {
+        matches: false,
+        error: `Expected array at '${path}', got ${typeOf(actual)}`,
+      }
+    }
+    // Empty array pattern matches any array
+    if (pattern.length === 0) return { matches: true }
+    // Non-empty array pattern: check each element against first pattern element
+    const elementPattern = pattern[0]
+    for (let i = 0; i < actual.length; i++) {
+      const result = typeMatches(actual[i], elementPattern, `${path}[${i}]`)
+      if (!result.matches) return result
+    }
+    return { matches: true }
+  }
+
+  // Objects
+  if (typeof pattern === 'object' && pattern !== null) {
+    if (
+      typeof actual !== 'object' ||
+      actual === null ||
+      Array.isArray(actual)
+    ) {
+      return {
+        matches: false,
+        error: `Expected object at '${path}', got ${typeOf(actual)}`,
+      }
+    }
+    // Check all pattern keys exist and match types
+    for (const key of Object.keys(pattern)) {
+      const keyPath = path ? `${path}.${key}` : key
+      if (!(key in actual)) {
+        return { matches: false, error: `Missing property '${keyPath}'` }
+      }
+      const result = typeMatches(
+        (actual as any)[key],
+        (pattern as any)[key],
+        keyPath
+      )
+      if (!result.matches) return result
+    }
+    return { matches: true }
+  }
+
+  // Fallback: exact equality
+  if (actual === pattern) return { matches: true }
+  return { matches: false, error: `Type mismatch at '${path}'` }
+}
+
+/**
+ * Get a human-readable type description
+ */
+function typeOf(v: unknown): string {
+  if (v === null) return 'null'
+  if (v === undefined) return 'undefined'
+  if (Array.isArray(v)) return 'array'
+  return typeof v
+}
+
+/**
+ * Format a value for error messages - uses cleaner object notation
+ * Multi-line for objects with 3+ properties
+ */
+function formatValue(v: unknown, indent = 0): string {
   if (v === null) return 'null'
   if (v === undefined) return 'undefined'
   if (typeof v === 'string') return JSON.stringify(v)
   if (typeof v === 'number') return String(v)
-  if (typeof v === 'object') return JSON.stringify(v)
+  if (typeof v === 'boolean') return String(v)
+  if (Array.isArray(v)) {
+    if (v.length === 0) return '[]'
+    if (v.length <= 3)
+      return `[${v.map((x) => formatValue(x, indent)).join(', ')}]`
+    return `[${v
+      .slice(0, 3)
+      .map((x) => formatValue(x, indent))
+      .join(', ')}, ...]`
+  }
+  if (typeof v === 'object') {
+    const entries = Object.entries(v)
+    if (entries.length === 0) return '{}'
+
+    const formatKey = (k: string) =>
+      /^[a-zA-Z_$][a-zA-Z0-9_$]*$/.test(k) ? k : JSON.stringify(k)
+
+    // Single line for 1-2 properties
+    if (entries.length <= 2) {
+      const formatted = entries
+        .map(([k, val]) => `${formatKey(k)}: ${formatValue(val, indent)}`)
+        .join(', ')
+      return `{${formatted}}`
+    }
+
+    // Multi-line for 3+ properties
+    const pad = '  '.repeat(indent + 1)
+    const closePad = '  '.repeat(indent)
+    const formatted = entries
+      .slice(0, 8)
+      .map(
+        ([k, val]) => `${pad}${formatKey(k)}: ${formatValue(val, indent + 1)}`
+      )
+      .join(',\n')
+    const suffix = entries.length > 8 ? `,\n${pad}...` : ''
+    return `{\n${formatted}${suffix}\n${closePad}}`
+  }
   return String(v)
 }
 
@@ -1538,13 +1698,14 @@ function runSignatureTest(
     const fn = new Function(testCode)
     const actual = fn()
 
-    if (!deepEqual(actual, expected)) {
+    // Use type matching, not value equality
+    // The expected value is a TYPE PATTERN (example), not the exact expected result
+    const result = typeMatches(actual, expected, funcName)
+    if (!result.matches) {
       return {
         description,
         passed: false,
-        error: `Expected ${formatValue(expected)} but got ${formatValue(
-          actual
-        )}`,
+        error: result.error || `Type mismatch: got ${formatValue(actual)}`,
         isSignatureTest: true,
       }
     }
