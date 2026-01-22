@@ -30,6 +30,8 @@ import {
   TEmail,
   TUrl,
   TUuid,
+  Timestamp,
+  LegalDate,
   // Built-in generics
   TPair,
   TRecord,
@@ -54,6 +56,8 @@ export {
   TEmail,
   TUrl,
   TUuid,
+  Timestamp,
+  LegalDate,
   TPair,
   TRecord,
 }
@@ -680,7 +684,7 @@ export function wrap<T extends (...args: any[]) => any>(
   meta: FunctionMeta
 ): T {
   // Always attach metadata for introspection/autocomplete
-  (fn as any).__tjs = meta
+  ;(fn as any).__tjs = meta
 
   // Determine if we need a wrapper at all
   const needsWrapper =
@@ -1340,6 +1344,8 @@ export const runtime = {
   TEmail,
   TUrl,
   TUuid,
+  Timestamp,
+  LegalDate,
   TPair,
   TRecord,
   // Safe eval/function

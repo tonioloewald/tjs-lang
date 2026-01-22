@@ -258,6 +258,21 @@ export const TUuid = Type<string>(
     /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(v)
 )
 
+/** ISO 8601 timestamp string (e.g., "2024-01-15T10:30:00Z") */
+export const Timestamp = Type<string>('ISO 8601 timestamp', (v) => {
+  if (typeof v !== 'string') return false
+  const d = new Date(v)
+  return !isNaN(d.getTime()) && v.includes('T')
+})
+
+/** Legal date string in YYYY-MM-DD format */
+export const LegalDate = Type<string>('date (YYYY-MM-DD)', (v) => {
+  if (typeof v !== 'string') return false
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(v)) return false
+  const d = new Date(v + 'T00:00:00Z')
+  return !isNaN(d.getTime())
+})
+
 // ============================================================================
 // Type Combinators
 // ============================================================================
