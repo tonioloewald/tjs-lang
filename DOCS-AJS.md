@@ -31,7 +31,7 @@ This compiles to JSON that can be:
 AJS runs in a gas-limited, isolated VM with strict resource controls.
 
 ```typescript
-import { ajs, AgentVM } from 'tosijs-agent'
+import { ajs, AgentVM } from 'tjs-lang'
 
 const agent = ajs`
   function process({ url }) {
@@ -546,7 +546,7 @@ function processDataBatch({ items, transform }) {
 Extend the runtime with your own operations:
 
 ```typescript
-import { defineAtom, AgentVM, s } from 'tosijs-agent'
+import { defineAtom, AgentVM, s } from 'tjs-lang'
 
 const myScraper = defineAtom(
   'scrape',                           // OpCode
@@ -574,7 +574,7 @@ Atoms must:
 For programmatic AST construction:
 
 ```typescript
-import { Agent, s } from 'tosijs-agent'
+import { Agent, s } from 'tjs-lang'
 
 const agent = Agent
   .take(s.object({ price: s.number, taxRate: s.number }))

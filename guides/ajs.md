@@ -564,7 +564,7 @@ These JavaScript features are intentionally not supported:
 Full transpilation with signature and metadata:
 
 ```typescript
-import { transpile } from 'tosijs-agent'
+import { transpile } from 'tjs-lang'
 
 const { ast, signature, warnings } = transpile(`
   function greet(name: 'World') {
@@ -582,7 +582,7 @@ console.log(signature.parameters.name.required) // true
 Convenience function returning just the AST (works as both a function and tagged template literal):
 
 ```typescript
-import { ajs } from 'tosijs-agent'
+import { ajs } from 'tjs-lang'
 
 const ast = ajs(`
   function add(a: 5, b: 3) {
@@ -602,7 +602,7 @@ console.log(result.result.sum) // 8
 Tagged template for inline definitions:
 
 ```typescript
-import { agent } from 'tosijs-agent'
+import { agent } from 'tjs-lang'
 
 const searchAST = agent`
   function search(query: 'example search', limit = 10) {
@@ -617,7 +617,7 @@ const searchAST = agent`
 Generate OpenAI-compatible tool schemas for LLM integration:
 
 ```typescript
-import { getToolDefinitions, transpile } from 'tosijs-agent'
+import { getToolDefinitions, transpile } from 'tjs-lang'
 
 const { signature } = transpile(source)
 const tools = getToolDefinitions([signature])
@@ -657,7 +657,7 @@ if (error) {
 ### Checking for Errors
 
 ```typescript
-import { isAgentError } from 'tosijs-agent'
+import { isAgentError } from 'tjs-lang'
 
 const { result, error } = await vm.run(ast, args)
 

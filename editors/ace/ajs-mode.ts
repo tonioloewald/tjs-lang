@@ -4,7 +4,7 @@
  * Usage:
  * ```typescript
  * import ace from 'ace-builds'
- * import { registerAjsMode } from 'tosijs-agent/editors/ace/ajs-mode'
+ * import { registerAjsMode } from 'tjs-lang/editors/ace/ajs-mode'
  *
  * registerAjsMode(ace)
  * const editor = ace.edit('editor')

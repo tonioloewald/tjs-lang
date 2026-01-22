@@ -1,5 +1,5 @@
 {
-  "name": "tosijs-agent",
+  "name": "tjs-lang",
   "version": "0.1.0",
   "main": "./dist/index.js",
   "exports": {
@@ -61,7 +61,7 @@
     "latest": "rm -rf node_modules && bun install",
     "docs": "node bin/docs.js",
     "dev": "bun run bin/dev.ts",
-    "build:demo": "bun run docs && bun build ./demo/src/index.ts --outdir=docs --minify --sourcemap=external --target=browser && cp demo/index.html demo/static/favicon.svg demo/static/photo-*.jpg tosijs-agent.svg docs/ && cp -r demo/static/texts docs/",
+    "build:demo": "bun run docs && bun build ./demo/src/index.ts --outdir=docs --minify --sourcemap=external --target=browser && cp demo/index.html demo/static/favicon.svg demo/static/photo-*.jpg tjs-lang.svg docs/ && cp -r demo/static/texts docs/",
     "build:cli": "bun build src/cli/tjs.ts --compile --outfile=dist/tjs && bun build src/cli/tjsx.ts --compile --outfile=dist/tjsx",
     "start": "bun run build:demo && bun run dev"
   },

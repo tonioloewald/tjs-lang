@@ -1,10 +1,10 @@
 <!--{"section": "home", "order": 0, "navTitle": "Home"}-->
 
-# tosijs-agent
+# tjs-lang
 
-![tosjijs-agent logo](/tosijs-agent.svg)
+![tjs-lang logo](/tjs-lang.svg)
 
-[github](https://github.com/tonioloewald/tosijs-agent#readme) | [npm](https://www.npmjs.com/package/tosijs-agent) | [discord](https://discord.gg/ramJ9rgky5)
+[github](https://github.com/tonioloewald/tjs-lang#readme) | [npm](https://www.npmjs.com/package/tjs-lang) | [discord](https://discord.gg/ramJ9rgky5)
 
 ---
 
@@ -86,13 +86,13 @@ const result = await vm.run(agent, { query: 'climate change' }, {
 ## Quick Start
 
 ```bash
-npm install tosijs-agent
+npm install tjs-lang
 ```
 
 ### Run an Agent (AJS)
 
 ```typescript
-import { ajs, AgentVM } from 'tosijs-agent'
+import { ajs, AgentVM } from 'tjs-lang'
 
 const agent = ajs`
   function double({ value }) {
@@ -108,7 +108,7 @@ console.log(result)  // { result: 42 }
 ### Write Typed Code (TJS)
 
 ```typescript
-import { tjs } from 'tosijs-agent'
+import { tjs } from 'tjs-lang'
 
 const code = tjs`
   function add(a: 0, b: 0) -> 0 {
@@ -154,13 +154,13 @@ No install needed: **[Open Playground](demo/)**
 
 ```bash
 # npm
-npm install tosijs-agent
+npm install tjs-lang
 
 # bun
-bun add tosijs-agent
+bun add tjs-lang
 
 # pnpm
-pnpm add tosijs-agent
+pnpm add tjs-lang
 ```
 
 ---

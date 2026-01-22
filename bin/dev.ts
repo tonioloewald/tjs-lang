@@ -62,7 +62,7 @@ async function buildDemo() {
     }
 
     // Copy static files
-    await $`cp demo/index.html demo/static/favicon.svg demo/static/photo-*.jpg tosijs-agent.svg docs/`
+    await $`cp demo/index.html demo/static/favicon.svg demo/static/photo-*.jpg tjs-lang.svg docs/`
     await $`cp -r demo/static/texts docs/`
 
     console.log('Build complete!')

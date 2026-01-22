@@ -4,7 +4,7 @@
  * Usage:
  * ```typescript
  * import * as monaco from 'monaco-editor'
- * import { languageId, languageConfiguration, monarchLanguage } from 'tosijs-agent/editors/monaco/ajs-monarch'
+ * import { languageId, languageConfiguration, monarchLanguage } from 'tjs-lang/editors/monaco/ajs-monarch'
  *
  * monaco.languages.register({ id: languageId })
  * monaco.languages.setLanguageConfiguration(languageId, languageConfiguration)

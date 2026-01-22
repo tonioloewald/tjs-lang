@@ -36,7 +36,7 @@ import { examples as ajsExamples } from './examples'
 // Import settings dialog
 import { showSettingsDialog } from './settings'
 
-// Import tosijs-agent for live examples
+// Import tjs-lang for live examples
 import * as agent from '../../src'
 import * as tosijs from 'tosijs'
 import * as tosijsui from 'tosijs-ui'
@@ -86,7 +86,7 @@ const tjsPlaygroundDoc = {
 // Insert playgrounds at top
 const allDocs = [ajsPlaygroundDoc, tjsPlaygroundDoc, ...docs]
 
-const PROJECT = 'tosijs-agent'
+const PROJECT = 'tjs-lang'
 const VERSION = '0.1.0' // TODO: import from package.json
 
 // Determine initial doc from URL
@@ -105,9 +105,9 @@ const { app, prefs } = tosi({
     title: PROJECT,
     version: VERSION,
     githubUrl: `https://github.com/tonioloewald/${PROJECT}#readme`,
-    npmUrl: `https://www.npmjs.com/package/tosijs-agent`,
-    bundleBadgeUrl: `https://deno.bundlejs.com/?q=tosijs-agent&badge=`,
-    bundleUrl: `https://bundlejs.com/?q=tosijs-agent`,
+    npmUrl: `https://www.npmjs.com/package/tjs-lang`,
+    bundleBadgeUrl: `https://deno.bundlejs.com/?q=tjs-lang&badge=`,
+    bundleUrl: `https://bundlejs.com/?q=tjs-lang`,
     docs: allDocs,
     currentDoc,
     compact: false,
@@ -277,7 +277,7 @@ if (main) {
         },
         // Agent icon
         img({ src: '/favicon.svg', style: { width: '32px', height: '32px' } }),
-        h1('tosijs-agent')
+        h1('tjs-lang')
       ),
 
       // Elastic spacer
@@ -489,7 +489,7 @@ if (main) {
         (() => {
           const readmeDoc = docs.find((d: any) => d.filename === 'README.md')
           const viewer = markdownViewer({
-            value: readmeDoc?.text || '# Welcome to tosijs-agent',
+            value: readmeDoc?.text || '# Welcome to tjs-lang',
             style: {
               display: 'none',
               flex: '1 1 auto',
@@ -633,7 +633,7 @@ if (main) {
 
 // Log welcome message
 console.log(
-  `%c tosijs-agent %c v${VERSION} `,
+  `%c tjs-lang %c v${VERSION} `,
   'background: #6366f1; color: white; padding: 2px 6px; border-radius: 3px 0 0 3px;',
   'background: #374151; color: white; padding: 2px 6px; border-radius: 0 3px 3px 0;'
 )

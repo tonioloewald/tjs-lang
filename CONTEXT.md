@@ -1,10 +1,10 @@
 <!--{"section": "ajs", "group": "docs", "order": 1, "navTitle": "Technical Context"}-->
 
-# tosijs-agent Technical Context
+# tjs-lang Technical Context
 
-**Note:** This document provides a technical deep-dive into tosijs-agent's architecture and security model. For a general overview, installation instructions, and usage examples, please refer to the main [README.md](./README.md).
+**Note:** This document provides a technical deep-dive into tjs-lang's architecture and security model. For a general overview, installation instructions, and usage examples, please refer to the main [README.md](./README.md).
 
-**tosijs-agent** is a secure, environment-agnostic runtime for executing AI agents and logic chains defined as JSON ASTs.
+**tjs-lang** is a secure, environment-agnostic runtime for executing AI agents and logic chains defined as JSON ASTs.
 
 **Bundle Size:** ~17KB gzipped. Expressions are evaluated via lightweight AST nodes at runtime, eliminating the need for a parser library (the previous JSEP-based approach was ~50KB gzipped).
 
@@ -25,7 +25,7 @@ It is important to understand that the builder is only for constructing the AST;
 You can access the builder via `Agent` (for core atoms) or `vm.Agent` (the recommended way to access both core and any custom atoms registered with the VM instance).
 
 ```typescript
-import { Agent, s, AgentVM } from 'tosijs-agent'
+import { Agent, s, AgentVM } from 'tjs-lang'
 
 // Global Builder (Core Atoms)
 const logic = Agent.take(s.object({ input: s.string }))
@@ -47,7 +47,7 @@ A stateless Virtual Machine that executes the AST. The runtime contains all the 
 - **Capability-Based:** All IO (Network, DB, AI) must be injected via `capabilities` object.
 
 ```typescript
-import { AgentVM } from 'tosijs-agent'
+import { AgentVM } from 'tjs-lang'
 const vm = new AgentVM()
 const { result, fuelUsed } = await vm.run(ast, args, {
   capabilities,

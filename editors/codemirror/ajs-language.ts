@@ -9,7 +9,7 @@
  * ```typescript
  * import { EditorState } from '@codemirror/state'
  * import { EditorView, basicSetup } from 'codemirror'
- * import { ajs } from 'tosijs-agent/editors/codemirror/ajs-language'
+ * import { ajs } from 'tjs-lang/editors/codemirror/ajs-language'
  *
  * new EditorView({
  *   state: EditorState.create({

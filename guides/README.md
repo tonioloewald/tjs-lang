@@ -1,6 +1,6 @@
-# tosijs-agent Guides
+# tjs-lang Guides
 
-Detailed documentation for tosijs-agent.
+Detailed documentation for tjs-lang.
 
 ## Language References
 

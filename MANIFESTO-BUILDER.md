@@ -181,7 +181,7 @@ The `/*test ... */` comments survive TypeScript compilation. TJS extracts and ru
 ### How It Works
 
 ```typescript
-import { extractTests, testUtils } from 'tosijs-agent'
+import { extractTests, testUtils } from 'tjs-lang'
 
 // Read your compiled JS (or TS source)
 const source = fs.readFileSync('mymath.js', 'utf-8')
@@ -203,11 +203,11 @@ Set `safety none` and keep living in your world. We're not here to convert you.
 ## Quick Start
 
 ```bash
-npm install tosijs-agent
+npm install tjs-lang
 ```
 
 ```typescript
-import { tjs, AgentVM } from 'tosijs-agent'
+import { tjs, AgentVM } from 'tjs-lang'
 
 // TJS: types as examples, runs in browser
 const greet = tjs`

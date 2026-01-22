@@ -369,7 +369,7 @@ import {
   createMockStore,
   createMockLLM,
   createCapabilities,
-} from 'tosijs-agent/test-utils'
+} from 'tjs-lang/test-utils'
 
 const caps = createCapabilities({
   store: createMockStore({ key: 'value' }),

@@ -1,12 +1,12 @@
 {
-  "name": "tosijs-agent-ajs",
-  "displayName": "AsyncJS (tosijs-agent)",
+  "name": "tjs-lang-ajs",
+  "displayName": "AsyncJS (tjs-lang)",
   "description": "Syntax highlighting for AsyncJS - ajs`...` template literals and .ajs files",
   "version": "0.1.0",
   "publisher": "tosijs",
   "repository": {
     "type": "git",
-    "url": "https://github.com/tonioloewald/tosijs-agent"
+    "url": "https://github.com/tonioloewald/tjs-lang"
   },
   "engines": {
     "vscode": "^1.75.0"

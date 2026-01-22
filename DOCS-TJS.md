@@ -29,7 +29,7 @@ TJS transpiles to JavaScript with embedded `__tjs` metadata, enabling runtime ty
 TJS compiles in the browser. No webpack, no node_modules, no build server.
 
 ```typescript
-import { tjs } from 'tosijs-agent'
+import { tjs } from 'tjs-lang'
 
 const code = tjs`
   function add(a: 0, b: 0) -> 0 {

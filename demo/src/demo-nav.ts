@@ -1048,7 +1048,7 @@ console.log('Remaining:', listTodos({}))`,
  * 3. That's it. That's the whole thing.
  */
 
-import { AgentVM, ajs, coreAtoms } from 'tosijs-agent'
+import { AgentVM, ajs, coreAtoms } from 'tjs-lang'
 
 // ============================================================
 // THE UNIVERSAL ENDPOINT (This is the entire backend)

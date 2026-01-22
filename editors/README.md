@@ -1,10 +1,10 @@
 # Editor Integration for AsyncJS
 
-This directory contains syntax highlighting definitions for AsyncJS (the JavaScript subset used by tosijs-agent).
+This directory contains syntax highlighting definitions for AsyncJS (the JavaScript subset used by tjs-lang).
 
 ## Quick Install
 
-After installing `tosijs-agent`, run one of these commands:
+After installing `tjs-lang`, run one of these commands:
 
 ```bash
 # VS Code
@@ -17,8 +17,8 @@ npx ajs-install-cursor
 If npx has issues resolving paths, run directly from node_modules:
 
 ```bash
-./node_modules/tosijs-agent/bin/install-vscode.sh
-./node_modules/tosijs-agent/bin/install-cursor.sh
+./node_modules/tjs-lang/bin/install-vscode.sh
+./node_modules/tjs-lang/bin/install-cursor.sh
 ```
 
 Then restart your editor.
@@ -54,7 +54,7 @@ async function x() {} // Not needed, all calls are implicitly async
 When you write `ajs`...`` in a TypeScript file, the content gets AsyncJS highlighting:
 
 ```typescript
-import { ajs } from 'tosijs-agent'
+import { ajs } from 'tjs-lang'
 
 const agent = ajs`
   function search(query: 'string', limit = 10) {
@@ -72,7 +72,7 @@ The `monaco/` directory contains Monarch tokenizer definitions for the Monaco Ed
 
 ```typescript
 import * as monaco from 'monaco-editor'
-import { registerAjsLanguage } from 'tosijs-agent/editors/monaco/ajs-monarch'
+import { registerAjsLanguage } from 'tjs-lang/editors/monaco/ajs-monarch'
 
 // Register the language
 registerAjsLanguage(monaco)
@@ -145,7 +145,7 @@ The `codemirror/` directory extends CodeMirror's JavaScript language with AsyncJ
 ```typescript
 import { EditorState } from '@codemirror/state'
 import { EditorView, basicSetup } from 'codemirror'
-import { ajs } from 'tosijs-agent/editors/codemirror/ajs-language'
+import { ajs } from 'tjs-lang/editors/codemirror/ajs-language'
 
 new EditorView({
   state: EditorState.create({
@@ -177,7 +177,7 @@ The `ace/` directory contains a custom mode for the Ace Editor.
 
 ```typescript
 import ace from 'ace-builds'
-import { registerAjsMode } from 'tosijs-agent/editors/ace/ajs-mode'
+import { registerAjsMode } from 'tjs-lang/editors/ace/ajs-mode'
 
 // Register the mode
 registerAjsMode(ace)

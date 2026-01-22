@@ -1,11 +1,11 @@
 /**
  * AsyncJS Transpiler
  *
- * Transforms AsyncJS ("Better JavaScript") into tosijs-agent AST.
+ * Transforms AsyncJS ("Better JavaScript") into tjs-lang AST.
  *
  * @example
  * ```typescript
- * import { ajs, transpile } from 'tosijs-agent'
+ * import { ajs, transpile } from 'tjs-lang'
  *
  * // Simple function
  * const ast = ajs(`
