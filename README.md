@@ -12,45 +12,45 @@
 
 > TypeScript is also difficult to transpile. Your browser can run full virtual machines in JavaScript, but most TypeScript playgrounds either fake it by stripping type declarations or use a server backend to do the real work.
 
-**JavaScript is dangerous but forgiving.** These are virtues in a web page, but liabilities in a web **app**. JavaScript promises and delivers most of the power of Lisp in a simple, popular syntax. But in practice, `eval()` and `Function()` are so dangerous they're forbidden almost everywhere—blocked completely by CSP in most production environments.
+**JavaScript is dangerous.** `eval()` and `Function()` are so powerful they're forbidden almost everywhere—blocked by CSP in most production environments. The industry's answer? The **Container Fallacy**: wrap every function in a 200MB Linux container just to run it safely. We ship buildings to deliver letters.
 
-**Security is hard.** Every layer of your stack needs to verify it's doing what it's supposed to, revealing only what it's allowed to. Every layer solves problems of routing, caching, minimizing bandwidth, and managing security. It's all work that shouldn't need to be done.
+**Security is a mess.** Every layer validates. Gateway validates. Auth validates. Business logic validates. Database validates. We spend 90% of our time building pipelines to move data to code, re-checking it at every hop.
 
 ## What If?
 
 What if your language were:
 
-- **As safe as TypeScript pretends to be** — types that actually validate at runtime
-- **More powerful than JavaScript promises** — safe eval, sandboxed execution, full introspection (shhh... it's a real Lisp)
-- **Architecture that collapses layers** — handle caching and shape responses at the data center
-- **Deploy logic, not code** — change queries without touching your security model
+- **Honest** — types that actually exist at runtime, not fiction that evaporates
+- **Safe** — a gas-metered VM where infinite loops are impossible, no container required
+- **Mobile** — logic that travels to data, not oceans of data dragged to logic
+- **Unified** — one source of truth, not TypeScript interfaces *plus* Zod schemas *plus* JSDoc
 
 That's what TJS Platform provides: **TJS** for writing your infrastructure, and **AJS** for shipping logic that runs anywhere.
 
 ## TJS — Types That Survive
 
-Write typed JavaScript that validates at runtime. No build step. No ceremony.
+Write typed JavaScript where the type *is* an example. No split-brain validation.
 
 ```typescript
-// Types are examples, not annotations
+// TJS: The type is an example value
 function greet(name: 'World') -> '' {
   return `Hello, ${name}!`
 }
 
-// Types survive to runtime
+// Runtime: The type becomes a contract
 console.log(greet.__tjs.params)  // { name: { type: 'string' } }
 
-// Errors are values, not exceptions
+// Safety: Errors are values, not crashes
 const result = greet(123)        // { $error: true, message: 'type mismatch' }
 ```
 
 **Why it matters:**
+- **One source of truth** — no more TS interfaces + Zod schemas + JSDoc comments
 - **Types as examples** — `name: 'Alice'` means "required string, like 'Alice'"
-- **Runtime metadata** — `__tjs` enables reflection, autocomplete, documentation
+- **Runtime metadata** — `__tjs` enables reflection, autocomplete, documentation from live objects
 - **Monadic errors** — type failures return values, never throw
 - **Zero build step** — transpiles in the browser, no webpack/Vite/Babel
-- **TS compatible** — convert existing TypeScript with `tjs convert`
-- **Full browser transpilation** — TJS transpiles itself *and* TypeScript entirely client-side
+- **The compiler *is* the client** — TJS transpiles itself *and* TypeScript entirely client-side
 
 ## AJS — Code That Travels
 
@@ -58,41 +58,36 @@ Write logic that compiles to JSON and runs in a gas-limited sandbox. Send agents
 
 ```typescript
 const agent = ajs`
-  function searchAndSummarize(query: 'climate change') {
-    let results = httpFetch({ url: 'https://api.example.com/search?q=' + query })
-    let summary = llmPredict({ prompt: 'Summarize: ' + results })
-    return { query, summary }
+  function research(topic: 'AI') {
+    let data = httpFetch({ url: '/search?q=' + topic })
+    let summary = llmPredict({ prompt: 'Summarize: ' + data })
+    return { topic, summary }
   }
 `
 
-// Run with resource limits
-const result = await vm.run(agent, { query: 'climate change' }, {
-  fuel: 1000,      // CPU budget—loops can't run forever
-  timeoutMs: 5000  // Wall-clock limit
+// Run it safely—no Docker required
+const result = await vm.run(agent, { topic: 'Agents' }, {
+  fuel: 500,                    // Strict CPU budget
+  capabilities: { fetch: http } // Allow ONLY http, block everything else
 })
 ```
 
 **Why it matters:**
+- **Safe eval** — run untrusted code without containers
 - **Code is JSON** — store in databases, diff, version, transmit
 - **Fuel metering** — every operation costs gas, infinite loops impossible
 - **Capability-based** — zero I/O by default, grant only what's needed
-- **LLM-friendly** — simple enough for small models to generate correctly
+- **LLM-native** — simple enough for small models to generate correctly
 
 ## The Architecture Shift
 
-Traditional architectures shuttle data between layers, validating at every boundary:
+**Old way (data-to-code):**
+Client requests data → Server fetches 100 rows → Server filters to 5 → Client receives 5.
+*High latency. High bandwidth. Validate at every layer.*
 
-```
-Client → API Gateway → Auth → Business Logic → Database
-         ↓              ↓           ↓              ↓
-      validate      validate    validate       validate
-```
-
-With AJS, logic travels to data:
-
-```
-Client → Edge (validate once) → Agent runs at data
-```
+**TJS way (code-to-data):**
+Client sends agent → Edge runs agent at data → Edge returns 5 rows.
+*Low latency. Zero waste. Validate once.*
 
 The agent carries its own validation. The server grants capabilities. Caching happens automatically because the query *is* the code.
 
@@ -134,7 +129,9 @@ const { code, types } = tjs`
 
 ### Try the Playground
 
-No install needed: **[tjs-platform.web.app](https://tjs-platform.web.app)**
+Since TJS compiles itself, the playground is the full engine running entirely in your browser.
+
+**[tjs-platform.web.app](https://tjs-platform.web.app)**
 
 ## At a Glance
 
@@ -150,9 +147,11 @@ No install needed: **[tjs-platform.web.app](https://tjs-platform.web.app)**
 
 ## Bundle Size
 
+The cost of "safe eval"—compare to a 200MB Docker image:
+
 | Bundle | Size | Gzipped |
 |--------|------|---------|
-| VM only | 42 KB | 14 KB |
+| VM only | 42 KB | **14 KB** |
 | + Batteries (LLM, vector) | 56 KB | 19 KB |
 | + Transpiler | 89 KB | 27 KB |
 | Full (with TS support) | 180 KB | 56 KB |
