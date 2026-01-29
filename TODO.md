@@ -15,31 +15,9 @@
 
 ## Language Features
 - [ ] SafeFunction - AJS Function constructor exposed to TJS
-- [ ] Linter: flag eval() and new Function() as errors unless unsafe block
 - [ ] Portable Type predicates - expression-only AJS subset (no loops, no async, serializable)
 - [ ] Inline WASM for TJS
-- [ ] Timestamp utilities - pure functions, no Date warts, 1-based months
-  - [ ] Timestamp.now() -> ISO string
-  - [ ] Timestamp.from(year, month, day, hour?, min?, sec?, ms?) -> ISO string
-  - [ ] Timestamp.parse(string) -> ISO string (flexible input)
-  - [ ] Timestamp.addDays/Hours/Minutes/Seconds(ts, n) -> ISO string
-  - [ ] Timestamp.diff(a, b) -> milliseconds
-  - [ ] Timestamp.year/month/day/hour/minute/second(ts) -> number
-  - [ ] Timestamp.toLocal(ts, timezone?) -> formatted string for display
-- [ ] LegalDate utilities - pure functions, YYYY-MM-DD strings
-  - [ ] LegalDate.today() -> date string
-  - [ ] LegalDate.from(year, month, day) -> date string
-  - [ ] LegalDate.addDays/Months/Years(date, n) -> date string
-  - [ ] LegalDate.diff(a, b) -> days
-  - [ ] LegalDate.year/month/day(date) -> number
-  - [ ] LegalDate.toTimestamp(date) -> ISO string (midnight UTC)
-- [ ] TJS strict mode directives (opt-in, JS is baseline)
-  - [ ] TjsEquals - structural == and !=
-  - [ ] TjsDate - bans Date, use Timestamp/LegalDate
-  - [ ] TjsClass - new automatic and illegal
-  - [ ] TjsNoeval - bans eval/Function, allows Eval/SafeFunction
-  - [ ] TjsNosemicolon - prevents ASI footguns
-  - [ ] TjsStrict - all of the above
+- [ ] TjsNosemicolon - prevents ASI footguns (not yet implemented)
 
 ## Editor
 - [ ] Embedded AJS syntax highlighting
@@ -63,3 +41,44 @@
   - [ ] Public/private visibility toggle
 - [ ] Rate limiting / abuse prevention for LLM endpoint
 - [ ] Usage tracking / billing foundation (for future paid tiers)
+
+---
+
+## Completed (this session)
+
+### Project Rename
+- [x] Rename from tosijs-agent to tjs-lang
+- [x] Update all references in package.json, docs, scripts
+- [x] Remove bd (beads) issue tracker, replace with TODO.md
+
+### Timestamp & LegalDate Utilities
+- [x] Timestamp - pure functions, 1-based months, no Date warts (53 tests)
+  - now, from, parse, tryParse
+  - addDays/Hours/Minutes/Seconds/Weeks/Months/Years
+  - diff, diffSeconds/Minutes/Hours/Days
+  - year/month/day/hour/minute/second/millisecond/dayOfWeek
+  - toLocal, format, formatDate, formatTime, toDate
+  - isBefore/isAfter/isEqual/min/max
+  - startOf/endOf Day/Month/Year
+- [x] LegalDate - pure functions, YYYY-MM-DD strings (55 tests)
+  - today, todayIn, from, parse, tryParse
+  - addDays/Weeks/Months/Years
+  - diff, diffMonths, diffYears
+  - year/month/day/dayOfWeek/weekOfYear/dayOfYear/quarter
+  - isLeapYear, daysInMonth, daysInYear
+  - toTimestamp, toUnix, fromUnix
+  - format, formatLong, formatShort
+  - isBefore/isAfter/isEqual/min/max/isBetween
+  - startOf/endOf Month/Quarter/Year/Week
+- [x] Portable predicate helpers: isValidUrl, isValidTimestamp, isValidLegalDate
+
+### TJS Mode System (JS is now the default)
+- [x] Invert mode system - JS semantics are default, improvements opt-in
+- [x] TjsEquals directive - structural == and != (null == undefined)
+- [x] TjsClass directive - classes callable without new
+- [x] TjsDate directive - bans Date constructor/methods
+- [x] TjsNoeval directive - bans eval() and new Function()
+- [x] TjsStrict directive - enables all of the above
+- [x] Deprecate LegacyEquals (now a no-op with warning)
+- [x] Updated Is() for nullish equality (null == undefined)
+- [x] Added Is/IsNot tests (structural equality, nullish handling)
