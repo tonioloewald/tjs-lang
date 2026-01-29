@@ -18,6 +18,12 @@ export {
   TEmail,
   TUrl,
   TUuid,
+  Timestamp as TimestampType,
+  LegalDate as LegalDateType,
+  // Portable predicate helpers
+  isValidUrl,
+  isValidTimestamp,
+  isValidLegalDate,
   // Combinators
   Nullable,
   Optional,
@@ -33,3 +39,7 @@ export {
   type GenericType,
   type TypeParam,
 } from './Type'
+
+// Timestamp and LegalDate utilities (pure functions)
+export { Timestamp, type TimestampString } from './Timestamp'
+export { LegalDate, type LegalDateString } from './LegalDate'
