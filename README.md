@@ -10,6 +10,8 @@
 
 **TypeScript is fragile.** It pretends to be a superset of JavaScript, but it isn't. It pretends to be typesafe, but it isn't. Its Turing-complete type system is harder to reason about than the code it supposedly documents—and then it all disappears at runtime.
 
+> TypeScript is also difficult to transpile. Your browser can run full virtual machines in JavaScript, but most TypeScript playgrounds either fake it by stripping type declarations or use a server backend to do the real work.
+
 **JavaScript is dangerous but forgiving.** These are virtues in a web page, but liabilities in a web **app**. JavaScript promises and delivers most of the power of Lisp in a simple, popular syntax. But in practice, `eval()` and `Function()` are so dangerous they're forbidden almost everywhere—blocked completely by CSP in most production environments.
 
 **Security is hard.** Every layer of your stack needs to verify it's doing what it's supposed to, revealing only what it's allowed to. Every layer solves problems of routing, caching, minimizing bandwidth, and managing security. It's all work that shouldn't need to be done.
@@ -48,6 +50,7 @@ const result = greet(123)        // { $error: true, message: 'type mismatch' }
 - **Monadic errors** — type failures return values, never throw
 - **Zero build step** — transpiles in the browser, no webpack/Vite/Babel
 - **TS compatible** — convert existing TypeScript with `tjs convert`
+- **Full browser transpilation** — TJS transpiles itself *and* TypeScript entirely client-side
 
 ## AJS — Code That Travels
 
