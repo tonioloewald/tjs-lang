@@ -118,13 +118,13 @@ console.log(result)  // { result: 42 }
 ```typescript
 import { tjs } from 'tjs-lang'
 
-const { code, types } = tjs`
+const { code, metadata } = tjs`
   function add(a: 0, b: 0) -> 0 {
     return a + b
   }
 `
-// code: JavaScript with __tjs metadata
-// types: { add: { params: {...}, returns: {...} } }
+// code: JavaScript with __tjs metadata attached
+// metadata: { add: { params: { a: { type: 'number' }, b: { type: 'number' } }, returns: { type: 'number' } } }
 ```
 
 ### Try the Playground
