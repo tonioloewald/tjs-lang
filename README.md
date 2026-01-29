@@ -42,7 +42,7 @@ function greet(name: 'World') -> 'Hello, World!' {
 console.log(greet.__tjs.params)  // { name: { type: 'string', example: 'World', required: true } }
 
 // Safety: Errors are values, not crashes
-const result = greet(123)        // { $error: true, message: 'type mismatch' }
+const result = greet(123)        // MonadicError: Expected string for 'greet.name', got number
 ```
 
 **Why it matters:**
