@@ -10,7 +10,7 @@
 
 ## The Problem
 
-JavaScript is too **fragile** for agents—types evaporate at runtime, leaving you with `undefined is not a function` in production.
+TypeScript is too **fragile** for agents—types evaporate at runtime, leaving you with `undefined is not a function` in production.
 
 JavaScript is too **dangerous** to run remotely—no sandbox, no resource limits, one infinite loop and your server hangs forever.
 
