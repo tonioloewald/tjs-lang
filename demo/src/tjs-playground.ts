@@ -19,7 +19,7 @@ import {
 } from 'tosijs-ui'
 import { codeMirror, CodeMirror } from '../../editors/codemirror/component'
 import { tjs, type TJSTranspileOptions } from '../../src/lang'
-import { generateDocs } from '../../src/lang/docs'
+import { generateDocsMarkdown } from './docs-utils'
 import { extractImports, generateImportMap, resolveImports } from './imports'
 import { ModuleStore, type ValidationResult } from './module-store'
 
@@ -874,65 +874,9 @@ export class TJSPlayground extends Component<TJSPlaygroundParts> {
 
   updateDocs = (result: any) => {
     const source = this.parts.tjsEditor.value
-
-    // Get doc blocks from source (/*# ... */ comments)
-    const docBlocks = generateDocs(source)
-
-    // Get function metadata from transpiler result
-    const types = result?.types || result?.metadata || {}
-
-    // Build combined documentation
-    let markdown = ''
-
-    // Add doc blocks first (module-level documentation)
-    for (const item of docBlocks.items) {
-      if (item.type === 'doc') {
-        markdown += item.content + '\n\n'
-      }
-    }
-
-    // Add function documentation from transpiler metadata
-    const functions = Object.entries(types) as [string, any][]
-    if (functions.length > 0) {
-      markdown += '## Functions\n\n'
-
-      for (const [name, info] of functions) {
-        markdown += `### ${name}\n\n`
-
-        if (info.description) {
-          markdown += `${info.description}\n\n`
-        }
-
-        if (info.params && Object.keys(info.params).length > 0) {
-          markdown += '**Parameters:**\n'
-          for (const [paramName, paramInfo] of Object.entries(
-            info.params
-          ) as any) {
-            const required = paramInfo.required ? '' : ' *(optional)*'
-            const typeStr = paramInfo.type?.kind || 'any'
-            const example =
-              paramInfo.example !== undefined
-                ? ` (e.g. \`${JSON.stringify(paramInfo.example)}\`)`
-                : ''
-            markdown += `- \`${paramName}\`: ${typeStr}${required}${example}\n`
-          }
-          markdown += '\n'
-        }
-
-        if (info.returns) {
-          markdown += `**Returns:** ${info.returns.kind || 'void'}\n\n`
-        }
-
-        markdown += '---\n\n'
-      }
-    }
-
-    if (!markdown.trim()) {
-      this.parts.docsOutput.value = '*No documentation available*'
-      return
-    }
-
-    this.parts.docsOutput.value = markdown
+    const types = result?.types || result?.metadata
+    this.parts.docsOutput.value = generateDocsMarkdown(source, types)
+    this.parts.docsOutput.render?.()
   }
 
   saveModule = async () => {

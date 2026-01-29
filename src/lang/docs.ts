@@ -30,8 +30,9 @@ export function generateDocs(source: string): DocResult {
 
   // Find all doc blocks and functions, sort by position
   const docPattern = /\/\*#([\s\S]*?)\*\//g
+  // Return type can be quoted string with spaces (e.g. 'Hello, World!')
   const funcPattern =
-    /function\s+(\w+)\s*\(([^)]*)\)\s*(?:(-[>?!])\s*([^\s{]+))?\s*\{/g
+    /function\s+(\w+)\s*\(([^)]*)\)\s*(?:(-[>?!])\s*('[^']*'|"[^"]*"|[^\s{]+))?\s*\{/g
 
   type Match = { type: 'doc' | 'function'; index: number; data: any }
   const matches: Match[] = []

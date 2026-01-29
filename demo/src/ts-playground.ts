@@ -20,6 +20,7 @@ import { codeMirror, CodeMirror } from '../../editors/codemirror/component'
 import { fromTS } from '../../src/lang/emitters/from-ts'
 import { tjs } from '../../src/lang'
 import { extractImports, resolveImports } from './imports'
+import { generateDocsMarkdown } from './docs-utils'
 
 const { div, button, span, pre, input } = elements
 
@@ -535,36 +536,10 @@ export class TSPlayground extends Component<TSPlaygroundParts> {
   }
 
   private updateDocs(result: any) {
-    if (!result?.types) {
-      this.parts.docsOutput.value = '*No documentation available*'
-      return
-    }
-
-    let docs = '# Generated Documentation\n\n'
-
-    for (const [name, info] of Object.entries(result.types) as any) {
-      docs += `## ${name}\n\n`
-
-      if (info.params) {
-        docs += '**Parameters:**\n'
-        for (const [paramName, paramInfo] of Object.entries(
-          info.params
-        ) as any) {
-          const required = paramInfo.required ? '' : ' *(optional)*'
-          const typeStr = paramInfo.type?.kind || 'any'
-          docs += `- \`${paramName}\`: ${typeStr}${required}\n`
-        }
-        docs += '\n'
-      }
-
-      if (info.returns) {
-        docs += `**Returns:** ${info.returns.kind || 'void'}\n\n`
-      }
-
-      docs += '---\n\n'
-    }
-
-    this.parts.docsOutput.value = docs
+    const source = this.parts.tsEditor.value
+    const types = result?.types || result?.metadata
+    this.parts.docsOutput.value = generateDocsMarkdown(source, types)
+    this.parts.docsOutput.render?.()
   }
 
   copyTjs = () => {
