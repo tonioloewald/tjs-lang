@@ -38,7 +38,7 @@ function greet(name: 'World') -> 'Hello, World!' {
 }
 
 // Runtime: The type becomes a contract
-console.log(greet.__tjs.params)  // { name: { type: 'string' } }
+console.log(greet.__tjs.params)  // { name: { type: 'string', example: 'World', required: true } }
 
 // Safety: Errors are values, not crashes
 const result = greet(123)        // { $error: true, message: 'type mismatch' }
@@ -124,7 +124,7 @@ const { code, metadata } = tjs`
   }
 `
 // code: JavaScript with __tjs metadata attached
-// metadata: { add: { params: { a: { type: 'number' }, b: { type: 'number' } }, returns: { type: 'number' } } }
+// metadata: { add: { params: { a: { type: 'number', example: 0 }, b: { type: 'number', example: 0 } }, returns: { type: 'number' } } }
 ```
 
 ### Try the Playground
