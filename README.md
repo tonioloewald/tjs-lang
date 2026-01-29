@@ -32,10 +32,11 @@ That's what TJS Platform provides: **TJS** for writing your infrastructure, and 
 Write typed JavaScript where the type *is* an example. No split-brain validation.
 
 ```typescript
-// TJS: The type is an example value
+// TJS: The type is an example AND a test
 function greet(name: 'World') -> 'Hello, World!' {
   return `Hello, ${name}!`
 }
+// At transpile time: greet('World') is called and checked against 'Hello, World!'
 
 // Runtime: The type becomes a contract
 console.log(greet.__tjs.params)  // { name: { type: 'string', example: 'World', required: true } }
