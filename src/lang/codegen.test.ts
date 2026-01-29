@@ -932,6 +932,146 @@ function isEqual(a: {x: 0}, b: {x: 0}) -! true { return a == b }`
       expect(isEqual({ x: 1 }, { x: 2 })).toBe(false)
     })
   })
+
+  describe('TjsStandard (ASI protection)', () => {
+    it('inserts semicolon before IIFE to prevent footgun', () => {
+      const tjsSource = `TjsStandard
+function test() -! 0 {
+  const x = 1
+  (() => console.log('iife'))()
+  return x
+}`
+      const { code } = tjs(tjsSource)
+
+      // Should insert semicolon before the IIFE
+      expect(code).toContain(';(() =>')
+    })
+
+    it('inserts semicolon before array literal on new line', () => {
+      const tjsSource = `TjsStandard
+function test() -! 0 {
+  const x = 1
+  [1, 2, 3].forEach(console.log)
+  return x
+}`
+      const { code } = tjs(tjsSource)
+
+      // Should insert semicolon before the array
+      expect(code).toContain(';[1, 2, 3]')
+    })
+
+    it('does NOT insert semicolon when previous line has operator', () => {
+      const tjsSource = `TjsStandard
+function test() -! 0 {
+  const result = 1 +
+    (2 + 3)
+  return result
+}`
+      const { code } = tjs(tjsSource)
+
+      // Should NOT add semicolon - the + continues to next line
+      expect(code).not.toContain(';(2 + 3)')
+      expect(code).toContain('1 +')
+      expect(code).toContain('(2 + 3)')
+    })
+
+    it('does NOT insert semicolon after opening brace', () => {
+      const tjsSource = `TjsStandard
+function test() -! 0 {
+  const obj = {
+    (x) { return x }
+  }
+  return 0
+}`
+      // This is actually invalid syntax, but the point is we don't add ; after {
+      // Let's use a valid example instead
+      const tjsSource2 = `TjsStandard
+function test() -! 0 {
+  const arr = [
+    (x => x + 1)
+  ]
+  return arr[0](1)
+}`
+      const { code } = tjs(tjsSource2)
+
+      // Should NOT add semicolon after [
+      expect(code).not.toContain('[;')
+      expect(code).toContain('[\n')
+    })
+
+    it('does NOT insert semicolon after return keyword', () => {
+      const tjsSource = `TjsStandard
+function test() -! 0 {
+  return (
+    1 + 2
+  )
+}`
+      const { code } = tjs(tjsSource)
+
+      // Should NOT add semicolon after return
+      expect(code).toContain('return (')
+      expect(code).not.toContain('return\n  ;(')
+    })
+
+    it('does NOT insert semicolon after comma (multi-line array)', () => {
+      const tjsSource = `TjsStandard
+function test() -! [] {
+  return [
+    1,
+    (2 + 3),
+    4
+  ]
+}`
+      const { code } = tjs(tjsSource)
+
+      // Should NOT add semicolon after comma
+      expect(code).not.toContain(';(2 + 3)')
+    })
+
+    it('TjsStrict enables TjsStandard', () => {
+      const tjsSource = `TjsStrict
+function test() -! 0 {
+  const x = 1
+  (() => console.log('iife'))()
+  return x
+}`
+      const { code } = tjs(tjsSource)
+
+      // TjsStrict should enable TjsStandard
+      expect(code).toContain(';(() =>')
+    })
+
+    it('works correctly at runtime', () => {
+      const tjsSource = `TjsStandard
+function test() -! 0 {
+  let result = 42
+  (() => { result = result + 1 })()
+  return result
+}`
+      const { code } = tjs(tjsSource)
+      const fn = new Function(code + '; return test')()
+
+      // Should work: IIFE runs separately, doesn't try to call result
+      expect(fn()).toBe(43)
+    })
+
+    it('without TjsStandard, IIFE would be footgun (JS behavior)', () => {
+      // This demonstrates the footgun that TjsStandard prevents
+      // Without the directive, the code passes through unchanged
+      const tjsSource = `
+function getNumber() -! 0 { return 42 }
+function test() -! 0 {
+  const x = getNumber
+  (() => {})()
+  return 1
+}`
+      const { code } = tjs(tjsSource)
+
+      // Without TjsStandard, no semicolon is inserted
+      // This means x(...) would be called with IIFE as argument
+      expect(code).not.toContain(';(() =>')
+    })
+  })
 })
 
 describe('Full Pipeline: TS → TJS → JS', () => {

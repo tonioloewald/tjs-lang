@@ -38,10 +38,10 @@ export function from(
   year: number,
   month: number,
   day: number,
-  hour: number = 0,
-  minute: number = 0,
-  second: number = 0,
-  ms: number = 0
+  hour = 0,
+  minute = 0,
+  second = 0,
+  ms = 0
 ): TimestampString {
   // Convert 1-based month to 0-based for Date
   const d = new Date(Date.UTC(year, month - 1, day, hour, minute, second, ms))

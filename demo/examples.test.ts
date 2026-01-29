@@ -68,7 +68,10 @@ function isVisionModel(id: string): boolean {
     id.includes('vision') ||
     id.includes('llava') ||
     id.includes('gemma-3') ||
-    id.includes('gemma3')
+    id.includes('gemma3') ||
+    id.includes('qwen3-vl') ||
+    id.includes('qwen2.5-vl') ||
+    id.includes('pixtral')
   )
 }
 
@@ -317,12 +320,59 @@ beforeAll(async () => {
     try {
       const models = await getLocalModels(LM_STUDIO_URL)
       const visionModels = models.filter(isVisionModel)
-      hasVision = visionModels.length > 0
       console.log(
         `LM Studio: ${models.length} models, ${visionModels.length} vision-capable`
       )
       if (visionModels.length > 0) {
         console.log(`Vision models: ${visionModels.join(', ')}`)
+        // Actually test if vision works by sending a minimal request
+        for (const model of visionModels) {
+          console.log(`🔍 Testing vision capability: ${model}`)
+          try {
+            const testResponse = await fetch(
+              `${LM_STUDIO_URL}/chat/completions`,
+              {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                  model,
+                  messages: [
+                    {
+                      role: 'user',
+                      content: [
+                        {
+                          type: 'text',
+                          text: 'test',
+                        },
+                        {
+                          type: 'image_url',
+                          image_url: {
+                            url: 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==',
+                          },
+                        },
+                      ],
+                    },
+                  ],
+                  max_tokens: 1,
+                }),
+              }
+            )
+            if (testResponse.ok) {
+              hasVision = true
+              console.log(`✅ Vision test for ${model}: works`)
+              break
+            } else {
+              const errorData = await testResponse.json().catch(() => ({}))
+              console.log(
+                `🧪 Vision test for ${model}: HTTP ${
+                  testResponse.status
+                } - ${JSON.stringify(errorData)}`
+              )
+            }
+          } catch (e: any) {
+            console.log(`🧪 Vision test for ${model}: ${e.message}`)
+          }
+        }
       }
     } catch (e) {
       console.log('Could not fetch models:', e)

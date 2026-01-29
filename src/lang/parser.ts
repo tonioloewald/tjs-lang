@@ -1262,6 +1262,8 @@ export interface TjsModes {
   tjsDate: boolean
   /** TjsNoeval: eval() and new Function() are banned */
   tjsNoeval: boolean
+  /** TjsStandard: newlines as statement terminators (prevents ASI footguns) */
+  tjsStandard: boolean
 }
 
 export function preprocess(
@@ -1295,6 +1297,7 @@ export function preprocess(
     tjsClass: false,
     tjsDate: false,
     tjsNoeval: false,
+    tjsStandard: false,
   }
 
   // Handle module-level safety directive: safety none | safety inputs | safety all
@@ -1313,9 +1316,9 @@ export function preprocess(
 
   // Handle TJS mode directives (can appear in any order after safety)
   // TjsStrict enables all TJS modes
-  // Individual modes: TjsEquals, TjsClass, TjsDate, TjsNoeval
+  // Individual modes: TjsEquals, TjsClass, TjsDate, TjsNoeval, TjsStandard
   const directivePattern =
-    /^(\s*(?:\/\/[^\n]*\n|\/\*[\s\S]*?\*\/\s*)*)\s*(TjsStrict|TjsEquals|TjsClass|TjsDate|TjsNoeval|LegacyEquals)\b/
+    /^(\s*(?:\/\/[^\n]*\n|\/\*[\s\S]*?\*\/\s*)*)\s*(TjsStrict|TjsEquals|TjsClass|TjsDate|TjsNoeval|TjsStandard|LegacyEquals)\b/
 
   let match
   while ((match = source.match(directivePattern))) {
@@ -1327,6 +1330,7 @@ export function preprocess(
       tjsModes.tjsClass = true
       tjsModes.tjsDate = true
       tjsModes.tjsNoeval = true
+      tjsModes.tjsStandard = true
     } else if (directive === 'TjsEquals') {
       tjsModes.tjsEquals = true
     } else if (directive === 'TjsClass') {
@@ -1335,6 +1339,8 @@ export function preprocess(
       tjsModes.tjsDate = true
     } else if (directive === 'TjsNoeval') {
       tjsModes.tjsNoeval = true
+    } else if (directive === 'TjsStandard') {
+      tjsModes.tjsStandard = true
     } else if (directive === 'LegacyEquals') {
       // DEPRECATED: LegacyEquals is now the default behavior
       // Kept for backwards compatibility - just ignore it
@@ -1350,6 +1356,12 @@ export function preprocess(
       ),
       '$1'
     )
+  }
+
+  // TjsStandard mode: insert semicolons to prevent ASI footguns
+  // Must happen early before other transformations modify line structure
+  if (tjsModes.tjsStandard) {
+    source = insertAsiProtection(source)
   }
 
   // Transform Is/IsNot infix operators to function calls
@@ -1871,6 +1883,73 @@ function transformIsOperators(source: string): string {
   source = source.replace(isRegex, 'Is($1, $2)')
 
   return source
+}
+
+/**
+ * Insert semicolons to prevent ASI footguns (TjsStandard mode)
+ *
+ * JavaScript's ASI (Automatic Semicolon Insertion) has notorious footguns:
+ *
+ *   foo          // Intended: call foo, then IIFE
+ *   (() => {})() // Actual: foo(...)(...) - calls foo with IIFE as argument!
+ *
+ * TjsStandard prevents this by treating newlines as statement terminators
+ * (like Go, Swift, Kotlin). When a line starts with a problematic character
+ * that could continue the previous line, we insert a semicolon.
+ *
+ * Problematic line starts: ( [ / + - `
+ *
+ * We only insert when the previous line doesn't already end with:
+ * - A semicolon
+ * - An opening brace/bracket/paren (multi-line expression)
+ * - A comma (array/object literal or params)
+ * - An operator that clearly continues (+, -, *, /, =, etc.)
+ * - A keyword that expects continuation (return, throw, etc. followed by value)
+ */
+function insertAsiProtection(source: string): string {
+  // Characters that can continue a previous expression (ASI footguns)
+  const continuationStarts = /^[\s]*[(\[\/+\-`]/
+
+  // Characters/patterns that indicate the previous line expects continuation
+  // (don't insert semicolon after these)
+  const expectsContinuation = /[{(\[,;:+\-*/%=&|?<>!~^]\s*$|^\s*$/
+
+  // Keywords that expect an expression to follow on same or next line
+  const continueKeywords =
+    /\b(return|throw|yield|await|case|default|extends|new|typeof|void|delete|in|of|instanceof)\s*$/
+
+  const lines = source.split('\n')
+  const result: string[] = []
+
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i]
+    const prevLine = i > 0 ? lines[i - 1] : ''
+
+    // Check if this line starts with a problematic character
+    if (i > 0 && continuationStarts.test(line)) {
+      // Get the previous line without trailing comment
+      const prevNoComment = prevLine
+        .replace(/\/\/.*$/, '')
+        .replace(/\/\*.*\*\/\s*$/, '')
+
+      // Don't insert if prev line clearly expects continuation
+      if (
+        !expectsContinuation.test(prevNoComment) &&
+        !continueKeywords.test(prevNoComment)
+      ) {
+        // Insert semicolon at start of this line (preserving whitespace)
+        const match = line.match(/^(\s*)/)
+        const indent = match ? match[1] : ''
+        const rest = line.slice(indent.length)
+        result.push(indent + ';' + rest)
+        continue
+      }
+    }
+
+    result.push(line)
+  }
+
+  return result.join('\n')
 }
 
 /**

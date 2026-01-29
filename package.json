@@ -12,14 +12,20 @@
   "bin": {
     "tjs": "./src/cli/tjs.ts",
     "tjsx": "./src/cli/tjsx.ts",
+    "tjs-playground": "./src/cli/playground.ts",
+    "create-tjs-app": "./src/cli/create-app.ts",
     "ajs-install-vscode": "./bin/install-vscode.sh",
     "ajs-install-cursor": "./bin/install-cursor.sh"
   },
   "type": "module",
   "files": [
     "dist",
+    "docs",
+    "src/cli",
     "editors",
     "bin",
+    "demo",
+    "tjs-lang.svg",
     "CONTEXT.md"
   ],
   "sideEffects": false,

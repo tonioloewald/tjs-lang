@@ -920,222 +920,15 @@ export function wrapClass<T extends new (...args: any[]) => any>(
 }
 
 // ============================================================================
-// SafeFunction and Eval - Safe replacements for Function and eval
+// SafeFunction and Eval - moved to ./eval.ts
 // ============================================================================
-
-/** Type specification - can be a RuntimeType, example value, or schema */
-type TypeSpec = RuntimeType | unknown
-
-/** Convert a type spec to a check function */
-function typeSpecToCheck(spec: TypeSpec): (value: unknown) => boolean {
-  if (isRuntimeType(spec)) {
-    return (v) => spec.check(v)
-  }
-  // Infer schema from example value
-  const schema = s.infer(spec)
-  return (v) => validate(v, schema)
-}
-
-/** Capabilities that can be injected into SafeFunction/Eval */
-export interface SafeCapabilities {
-  /** Fetch function for HTTP requests */
-  fetch?: typeof globalThis.fetch
-  /** Console for logging */
-  console?: typeof console
-  /** Additional globals to expose */
-  [key: string]: unknown
-}
-
-/** Options for SafeFunction */
-export interface SafeFunctionOptions<
-  TInputs extends Record<string, TypeSpec>,
-  TOutput extends TypeSpec
-> {
-  /** Input parameter types (name -> type spec) */
-  inputs: TInputs
-  /** Output type spec */
-  output: TOutput
-  /** Function body code */
-  body: string
-  /** Timeout in milliseconds (default: 5000) */
-  timeoutMs?: number
-  /** Fuel budget (basic operation counting, not full VM) */
-  fuel?: number
-  /** Capabilities to inject (fetch, console, etc.) */
-  capabilities?: SafeCapabilities
-}
-
-/**
- * Create a safe, typed async function from code
- *
- * @example
- * const add = await SafeFunction({
- *   inputs: { a: +0, b: +0 },
- *   output: +0,
- *   body: 'return a + b'
- * })
- * await add(1, 2) // 3
- *
- * // With capabilities
- * const fetcher = await SafeFunction({
- *   inputs: { url: '' },
- *   output: { data: [] },
- *   body: 'return await fetch(url).then(r => r.json())',
- *   capabilities: { fetch: globalThis.fetch },
- *   timeoutMs: 10000
- * })
- */
-export async function SafeFunction<
-  TInputs extends Record<string, TypeSpec>,
-  TOutput extends TypeSpec
->(
-  options: SafeFunctionOptions<TInputs, TOutput>
-): Promise<(...args: unknown[]) => Promise<unknown>> {
-  const { inputs, output, body, timeoutMs = 5000, capabilities = {} } = options
-
-  // Build input validators
-  const paramNames = Object.keys(inputs)
-  const inputChecks = paramNames.map((name) => ({
-    name,
-    check: typeSpecToCheck(inputs[name]),
-  }))
-  const outputCheck = typeSpecToCheck(output)
-
-  // Build capability names and values for injection
-  const capNames = Object.keys(capabilities)
-  const capValues = Object.values(capabilities)
-
-  // Create the async function with capabilities injected
-  // Wrap body in async IIFE to support await
-  const asyncBody = `
-    return (async () => {
-      ${body}
-    })()
-  `
-  // Function signature: capabilities first, then params
-  const fn = new Function(...capNames, ...paramNames, asyncBody)
-
-  // Return wrapped function with validation
-  return async (...args: unknown[]): Promise<unknown> => {
-    // Validate inputs
-    for (let i = 0; i < inputChecks.length; i++) {
-      const { name, check } = inputChecks[i]
-      const value = args[i]
-      if (!check(value)) {
-        return error(`SafeFunction: invalid input '${name}'`, 'SafeFunction', {
-          expected: name,
-          received: value,
-        })
-      }
-    }
-
-    // Execute with timeout
-    const timeoutPromise = new Promise((_, reject) => {
-      setTimeout(() => reject(new Error('SafeFunction timeout')), timeoutMs)
-    })
-
-    try {
-      // Call with capabilities first, then args
-      const result = await Promise.race([
-        fn(...capValues, ...args),
-        timeoutPromise,
-      ])
-
-      // Validate output
-      if (!outputCheck(result)) {
-        return error('SafeFunction: invalid output', 'SafeFunction', {
-          received: result,
-        })
-      }
-
-      return result
-    } catch (err: any) {
-      return error(
-        `SafeFunction error: ${err.message || err}`,
-        'SafeFunction',
-        { cause: err }
-      )
-    }
-  }
-}
-
-/** Options for Eval */
-export interface EvalOptions<TOutput extends TypeSpec> {
-  /** Code to evaluate */
-  code: string
-  /** Context variables available to the code */
-  context?: Record<string, unknown>
-  /** Expected output type */
-  output: TOutput
-  /** Timeout in milliseconds (default: 5000) */
-  timeoutMs?: number
-  /** Capabilities to inject (fetch, console, etc.) */
-  capabilities?: SafeCapabilities
-}
-
-/**
- * Safely evaluate code with typed context and output
- *
- * @example
- * const result = await Eval({
- *   code: 'a + b',
- *   context: { a: 1, b: 2 },
- *   output: +0
- * }) // 3
- *
- * // With capabilities
- * const data = await Eval({
- *   code: 'await fetch(url).then(r => r.json())',
- *   context: { url: 'https://api.example.com' },
- *   output: { items: [] },
- *   capabilities: { fetch: globalThis.fetch }
- * })
- */
-export async function Eval<TOutput extends TypeSpec>(
-  options: EvalOptions<TOutput>
-): Promise<unknown> {
-  const {
-    code,
-    context = {},
-    output,
-    timeoutMs = 5000,
-    capabilities = {},
-  } = options
-
-  // Combine capabilities and context (capabilities take precedence)
-  const allNames = [...Object.keys(capabilities), ...Object.keys(context)]
-  const allValues = [...Object.values(capabilities), ...Object.values(context)]
-  const outputCheck = typeSpecToCheck(output)
-
-  // Wrap code in async IIFE to support await and return the expression
-  // If code doesn't have 'return', treat it as an expression
-  const hasReturn = /\breturn\b/.test(code)
-  const asyncBody = hasReturn
-    ? `return (async () => { ${code} })()`
-    : `return (async () => { return (${code}) })()`
-
-  const fn = new Function(...allNames, asyncBody)
-
-  // Execute with timeout
-  const timeoutPromise = new Promise((_, reject) => {
-    setTimeout(() => reject(new Error('Eval timeout')), timeoutMs)
-  })
-
-  try {
-    const result = await Promise.race([fn(...allValues), timeoutPromise])
-
-    // Validate output
-    if (!outputCheck(result)) {
-      return error('Eval: invalid output', 'Eval', {
-        received: result,
-      })
-    }
-
-    return result
-  } catch (err: any) {
-    return error(`Eval error: ${err.message || err}`, 'Eval', { cause: err })
-  }
-}
+//
+// Eval and SafeFunction are in a separate module to keep the runtime lite.
+// Import from 'tjs-lang/eval' when you need dynamic code execution.
+//
+// Runtime (this file): ~5KB gzipped - type checking, Is/IsNot, wrap, etc.
+// Eval module:         ~27KB gzipped - adds transpiler + VM for dynamic code
+// ============================================================================
 
 /**
  * Create an isolated TJS runtime instance
@@ -1288,9 +1081,6 @@ export function createRuntime() {
     TUuid,
     TPair,
     TRecord,
-    // Safe eval/function
-    SafeFunction,
-    Eval,
     // Structural equality
     Is,
     IsNot,
@@ -1362,9 +1152,6 @@ export const runtime = {
   LegalDate,
   TPair,
   TRecord,
-  // Safe eval/function
-  SafeFunction,
-  Eval,
   // Structural equality (used by == and != in TJS)
   Is,
   IsNot,

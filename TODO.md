@@ -14,10 +14,14 @@
 - [ ] Auto-discover and build local dependencies in module resolution
 
 ## Language Features
-- [ ] SafeFunction - AJS Function constructor exposed to TJS
 - [ ] Portable Type predicates - expression-only AJS subset (no loops, no async, serializable)
-- [ ] Inline WASM for TJS
-- [ ] TjsNosemicolon - prevents ASI footguns (not yet implemented)
+- [ ] Expand WASM support beyond POC (currently: single return + numeric ops only)
+  - [ ] For loops with numeric bounds
+  - [ ] Conditionals (if/else)
+  - [ ] Local variables within block
+  - [ ] Typed array access (Float32Array, etc.)
+  - [ ] Memory operations
+- [ ] Compelling WASM demo, e.g. iTunes-visualizer like animation
 
 ## Editor
 - [ ] Embedded AJS syntax highlighting
@@ -82,3 +86,14 @@
 - [x] Deprecate LegacyEquals (now a no-op with warning)
 - [x] Updated Is() for nullish equality (null == undefined)
 - [x] Added Is/IsNot tests (structural equality, nullish handling)
+- [x] TjsStandard directive - newlines as statement terminators (prevents ASI footguns)
+- [x] WASM POC - wasm {} blocks with parsing, fallback mechanism, basic numeric compilation
+- [x] Eval/SafeFunction - proper VM-backed implementation with fuel metering and capabilities
+
+### Bundle Size Optimization
+- [x] Separated Eval/SafeFunction into standalone module (eval.ts)
+- [x] Created core.ts - AJS transpiler without TypeScript dependency
+- [x] Fixed tjs-transpiler bundle: 4.14MB → 88.9KB (27KB gzipped)
+- [x] Runtime is now ~5KB gzipped (just Is/IsNot, wrap, Type, etc.)
+- [x] Eval adds ~27KB gzipped (VM + AJS transpiler, no TypeScript)
+- [x] TypeScript only bundled in playground (5.8MB) for real-time TS transpilation

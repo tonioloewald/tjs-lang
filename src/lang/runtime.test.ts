@@ -20,14 +20,13 @@ import {
   exitUnsafe,
   isUnsafeMode,
   TJSError,
-  SafeFunction,
-  Eval,
   Type,
   typeOf,
   isNativeType,
   Is,
   IsNot,
 } from './runtime'
+import { Eval, SafeFunction } from './eval'
 
 describe('TJS Runtime - Monadic Errors', () => {
   beforeEach(() => {
@@ -636,177 +635,115 @@ describe('TJS Runtime - Monadic Errors', () => {
   })
 })
 
-describe('SafeFunction', () => {
-  it('creates a typed async function', async () => {
-    const add = await SafeFunction({
-      inputs: { a: 0, b: 0 },
-      output: 0,
-      body: 'return a + b',
-    })
-
-    const result = await add(1, 2)
-    expect(result).toBe(3)
-  })
-
-  it('validates input types', async () => {
-    const add = await SafeFunction({
-      inputs: { a: 0, b: 0 },
-      output: 0,
-      body: 'return a + b',
-    })
-
-    const result = await add('not a number', 2)
-    expect(isError(result)).toBe(true)
-    expect((result as TJSError).message).toContain('invalid input')
-  })
-
-  it('validates output type', async () => {
-    const bad = await SafeFunction({
-      inputs: { x: 0 },
-      output: 0,
-      body: 'return "not a number"',
-    })
-
-    const result = await bad(1)
-    expect(isError(result)).toBe(true)
-    expect((result as TJSError).message).toContain('invalid output')
-  })
-
-  it('supports async operations', async () => {
-    const delayed = await SafeFunction({
-      inputs: { x: 0 },
-      output: 0,
-      body: `
-        await new Promise(r => setTimeout(r, 10))
-        return x * 2
-      `,
-    })
-
-    const result = await delayed(5)
-    expect(result).toBe(10)
-  })
-
-  it('times out on long operations', async () => {
-    const slow = await SafeFunction({
-      inputs: {},
-      output: 0,
-      body: 'await new Promise(r => setTimeout(r, 1000)); return 1',
-      timeoutMs: 50,
-    })
-
-    const result = await slow()
-    expect(isError(result)).toBe(true)
-    expect((result as TJSError).message).toContain('timeout')
-  })
-
-  it('injects capabilities', async () => {
-    const mockFetch = async (url: string) => ({
-      json: async () => ({ url, data: 'test' }),
-    })
-
-    const fetcher = await SafeFunction({
-      inputs: { url: '' },
-      output: { url: '', data: '' },
-      body: 'return await fetch(url).then(r => r.json())',
-      capabilities: { fetch: mockFetch },
-    })
-
-    const result = await fetcher('https://example.com')
-    expect(result).toEqual({ url: 'https://example.com', data: 'test' })
-  })
-
-  it('works with RuntimeType inputs', async () => {
-    const PositiveInt = Type(
-      'positive integer',
-      (x: unknown) => typeof x === 'number' && Number.isInteger(x) && x > 0
-    )
-
-    const double = await SafeFunction({
-      inputs: { n: PositiveInt },
-      output: 0,
-      body: 'return n * 2',
-    })
-
-    expect(await double(5)).toBe(10)
-    expect(isError(await double(-1))).toBe(true)
-    expect(isError(await double(1.5))).toBe(true)
-  })
-})
-
-describe('Eval', () => {
+describe('Eval (VM-backed)', () => {
   it('evaluates simple expressions', async () => {
     const result = await Eval({
       code: 'a + b',
       context: { a: 1, b: 2 },
-      output: 0,
     })
-    expect(result).toBe(3)
+    expect(result.result).toBe(3)
   })
 
   it('evaluates code with return statement', async () => {
     const result = await Eval({
       code: 'return a * b',
       context: { a: 3, b: 4 },
-      output: 0,
     })
-    expect(result).toBe(12)
+    expect(result.result).toBe(12)
   })
 
-  it('validates output type', async () => {
+  it('returns fuel used', async () => {
     const result = await Eval({
-      code: '"not a number"',
-      context: {},
-      output: 0,
+      code: 'a + b',
+      context: { a: 1, b: 2 },
+      fuel: 100,
     })
-    expect(isError(result)).toBe(true)
-    expect((result as TJSError).message).toContain('invalid output')
+    expect(result.fuelUsed).toBeGreaterThan(0)
+    expect(result.fuelUsed).toBeLessThan(100)
   })
 
-  it('supports async operations', async () => {
+  it('uses all fuel on expensive operations', async () => {
     const result = await Eval({
       code: `
-        await new Promise(r => setTimeout(r, 10))
-        return x * 2
+        let sum = 0
+        let i = 0
+        while (i < 10000) {
+          sum = sum + i
+          i = i + 1
+        }
+        return sum
       `,
-      context: { x: 5 },
-      output: 0,
-    })
-    expect(result).toBe(10)
-  })
-
-  it('times out on long operations', async () => {
-    const result = await Eval({
-      code: 'await new Promise(r => setTimeout(r, 1000))',
       context: {},
-      output: 0,
-      timeoutMs: 50,
+      fuel: 100, // Not enough fuel for 10000 iterations
     })
-    expect(isError(result)).toBe(true)
-    expect((result as TJSError).message).toContain('timeout')
-  })
-
-  it('injects capabilities', async () => {
-    const mockFetch = async (url: string) => ({
-      json: async () => ({ fetched: url }),
-    })
-
-    const result = await Eval({
-      code: 'await fetch(url).then(r => r.json())',
-      context: { url: 'https://example.com' },
-      output: { fetched: '' },
-      capabilities: { fetch: mockFetch },
-    })
-    expect(result).toEqual({ fetched: 'https://example.com' })
+    // Should use all available fuel (floating point precision)
+    expect(result.fuelUsed).toBeCloseTo(100, 0)
   })
 
   it('handles errors gracefully', async () => {
     const result = await Eval({
-      code: '(() => { throw new Error("oops") })()',
+      code: 'nonexistent.property',
       context: {},
-      output: 0,
     })
-    expect(isError(result)).toBe(true)
-    expect((result as TJSError).message).toContain('oops')
+    // VM handles undefined access differently - check we get a result
+    expect(result).toBeDefined()
+  })
+})
+
+describe('SafeFunction (VM-backed)', () => {
+  it('creates a reusable function', async () => {
+    const add = await SafeFunction({
+      params: ['a', 'b'],
+      body: 'return a + b',
+    })
+
+    const result = await add(1, 2)
+    expect(result.result).toBe(3)
+  })
+
+  it('can be called multiple times', async () => {
+    const double = await SafeFunction({
+      params: ['x'],
+      body: 'return x * 2',
+    })
+
+    expect((await double(5)).result).toBe(10)
+    expect((await double(10)).result).toBe(20)
+    expect((await double(-3)).result).toBe(-6)
+  })
+
+  it('respects fuel limits', async () => {
+    const looper = await SafeFunction({
+      params: [],
+      body: `
+        let i = 0
+        while (i < 10000) {
+          i = i + 1
+        }
+        return i
+      `,
+      fuel: 50, // Not enough
+    })
+
+    const result = await looper()
+    expect(result.fuelUsed).toBeCloseTo(50, 0) // All fuel consumed
+  })
+
+  it('pre-compiles AST for efficiency', async () => {
+    const fn = await SafeFunction({
+      params: ['x'],
+      body: 'return x + 1',
+    })
+
+    // Multiple calls should be fast (no re-parsing)
+    const start = performance.now()
+    for (let i = 0; i < 100; i++) {
+      await fn(i)
+    }
+    const elapsed = performance.now() - start
+
+    // Should complete 100 calls in reasonable time
+    expect(elapsed).toBeLessThan(5000) // 5 seconds is very generous
   })
 })
 

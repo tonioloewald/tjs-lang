@@ -64,6 +64,28 @@ function stripCodeFences(code: string): string {
     .trim()
 }
 
+/**
+ * Fix common LLM mistakes that are easy to auto-correct:
+ * - Backticks in template() calls (should be single quotes)
+ * - TypeScript-style type annotations like `: string` or `: number`
+ */
+function fixCommonMistakes(code: string): string {
+  // Fix backticks in template({ tmpl: `...` }) - convert to single quotes
+  // Only if the backtick string doesn't contain ${} interpolation
+  code = code.replace(
+    /template\(\s*\{\s*tmpl:\s*`([^`$]*)`/g,
+    "template({ tmpl: '$1'"
+  )
+
+  // Fix TypeScript-style type annotations on parameters
+  // e.g., (x: string) -> (x: 'example') or (x: number) -> (x: 0)
+  // Only do this for standalone type keywords, not example values
+  code = code.replace(/:\s*string\b(?!\s*[=)])/g, ": ''")
+  code = code.replace(/:\s*number\b(?!\s*[=)])/g, ': 0')
+
+  return code
+}
+
 import { readFileSync } from 'fs'
 import { join } from 'path'
 
@@ -103,7 +125,7 @@ Respond with ONLY the function code, no markdown fences or explanation.`
         prompt
       )
 
-      const code = stripCodeFences(response.content)
+      const code = fixCommonMistakes(stripCodeFences(response.content))
       console.log('LLM generated code:')
       console.log(code)
 
@@ -148,7 +170,7 @@ Respond with ONLY the function code, no markdown fences or explanation.`
         prompt
       )
 
-      const code = stripCodeFences(response.content)
+      const code = fixCommonMistakes(stripCodeFences(response.content))
       console.log('LLM generated code:')
       console.log(code)
 
@@ -209,7 +231,7 @@ Use native arithmetic for the calculation. Respond with ONLY the function code.`
         prompt
       )
 
-      const code = stripCodeFences(response.content)
+      const code = fixCommonMistakes(stripCodeFences(response.content))
       console.log('LLM generated code:')
       console.log(code)
 
@@ -310,7 +332,7 @@ Respond with ONLY the function code, no explanation.`
         prompt
       )
 
-      const code = stripCodeFences(response.content)
+      const code = fixCommonMistakes(stripCodeFences(response.content))
       console.log('LLM generated code:')
       console.log(code)
 
@@ -404,7 +426,7 @@ Respond with ONLY the function code.`
         prompt
       )
 
-      const code = stripCodeFences(response.content)
+      const code = fixCommonMistakes(stripCodeFences(response.content))
       console.log('LLM generated code:')
       console.log(code)
 

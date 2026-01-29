@@ -5,10 +5,14 @@
  * Does NOT include fromTS (which requires the full TypeScript compiler).
  *
  * For TS -> TJS conversion, use the full bundle or import fromTS separately.
+ *
+ * NOTE: We import directly from source files, NOT from ./index, because
+ * ./index imports from-ts.ts which pulls in the TypeScript compiler (~4MB).
  */
 
-// Core transpiler functions
-export { transpile, ajs, tjs, createAgent, getToolDefinitions } from './index'
+// Core transpiler functions - imported directly to avoid TS compiler
+export { transpile, ajs, createAgent, getToolDefinitions } from './core'
+export { tjs } from './emitters/js'
 
 // Parser
 export { parse, preprocess, extractTDoc } from './parser'
@@ -35,8 +39,17 @@ export { lint } from './linter'
 export type { LintResult, LintDiagnostic, LintOptions } from './linter'
 
 // Tests
-export { extractTests, assertFunction, expectFunction, testUtils } from './tests'
-export type { ExtractedTest, ExtractedMock, TestExtractionResult } from './tests'
+export {
+  extractTests,
+  assertFunction,
+  expectFunction,
+  testUtils,
+} from './tests'
+export type {
+  ExtractedTest,
+  ExtractedMock,
+  TestExtractionResult,
+} from './tests'
 
 // Runtime
 export {
