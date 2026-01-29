@@ -727,7 +727,7 @@ function transformGenericInterfaceToGeneric(
  */
 function extractLiteralUnionValues(
   type: ts.TypeNode,
-  sourceFile: ts.SourceFile
+  _sourceFile: ts.SourceFile
 ): string[] | null {
   if (!ts.isUnionTypeNode(type)) return null
 
@@ -783,12 +783,12 @@ function extractLiteralUnionValues(
 function transformEnumToTJS(
   node: ts.EnumDeclaration,
   sourceFile: ts.SourceFile,
-  warnings?: string[]
+  _warnings?: string[]
 ): string | null {
   const enumName = node.name.getText(sourceFile)
   const members: string[] = []
 
-  let currentValue = 0
+  let nextValue = 0
   for (const member of node.members) {
     const memberName = member.name.getText(sourceFile)
 
@@ -799,7 +799,7 @@ function transformEnumToTJS(
       } else if (ts.isNumericLiteral(member.initializer)) {
         const numValue = parseInt(member.initializer.text, 10)
         members.push(`  ${memberName} = ${numValue}`)
-        currentValue = numValue + 1
+        nextValue = numValue + 1
       } else if (
         ts.isPrefixUnaryExpression(member.initializer) &&
         member.initializer.operator === ts.SyntaxKind.MinusToken
@@ -809,7 +809,7 @@ function transformEnumToTJS(
         if (ts.isNumericLiteral(operand)) {
           const numValue = -parseInt(operand.text, 10)
           members.push(`  ${memberName} = ${numValue}`)
-          currentValue = numValue + 1
+          nextValue = numValue + 1
         }
       } else {
         // Expression or other complex initializer - use the text directly
@@ -819,8 +819,8 @@ function transformEnumToTJS(
       }
     } else {
       // Auto-increment numeric value
-      members.push(`  ${memberName}`)
-      currentValue++
+      members.push(`  ${memberName} = ${nextValue}`)
+      nextValue++
     }
   }
 

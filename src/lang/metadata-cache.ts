@@ -25,12 +25,7 @@
  */
 
 import type { SeqNode } from '../builder'
-import type {
-  FunctionSignature,
-  TranspileWarning,
-  TypeDescriptor,
-  ParameterDescriptor,
-} from './types'
+import type { FunctionSignature, TranspileWarning } from './types'
 import type { TJSTypeInfo } from './emitters/js'
 import { TJS_VERSION } from './runtime'
 
@@ -161,7 +156,7 @@ export class MetadataCache {
   }
 
   private async _open(): Promise<void> {
-    return new Promise((resolve, reject) => {
+    return new Promise((resolve, _reject) => {
       if (typeof indexedDB === 'undefined') {
         // IndexedDB not available (Node.js without polyfill, etc.)
         resolve()
@@ -239,7 +234,9 @@ export class MetadataCache {
   /**
    * Get cached transpile result (AsyncJS -> AST)
    */
-  async getTranspile(source: string): Promise<CachedTranspileResult | undefined> {
+  async getTranspile(
+    source: string
+  ): Promise<CachedTranspileResult | undefined> {
     const entry = await this.get(source)
     return entry?.transpile
   }
@@ -255,7 +252,10 @@ export class MetadataCache {
   /**
    * Store transpile result
    */
-  async setTranspile(source: string, result: CachedTranspileResult): Promise<void> {
+  async setTranspile(
+    source: string,
+    result: CachedTranspileResult
+  ): Promise<void> {
     await this._set(source, { transpile: result })
   }
 

@@ -10,12 +10,12 @@ Most languages compile to binaries. TJS compiles to **Universal Endpoints**—se
 
 We separate **Host** (infrastructure you deploy once) from **Guest** (logic that ships continuously).
 
-| | **TJS (Host)** | **AJS (Guest)** |
-|---|---|---|
-| **Role** | Defines the physics—capabilities, resources, safety | The portable logic payload |
-| **You write** | Your service layer, frontend, capabilities | Agents, workflows, LLM-generated code |
-| **Deploys** | Once, then evolves | Continuously, as data |
-| **Trust level** | Trusted code you control | Untrusted code from anywhere |
+|                 | **TJS (Host)**                                      | **AJS (Guest)**                       |
+| --------------- | --------------------------------------------------- | ------------------------------------- |
+| **Role**        | Defines the physics—capabilities, resources, safety | The portable logic payload            |
+| **You write**   | Your service layer, frontend, capabilities          | Agents, workflows, LLM-generated code |
+| **Deploys**     | Once, then evolves                                  | Continuously, as data                 |
+| **Trust level** | Trusted code you control                            | Untrusted code from anywhere          |
 
 **Together:** Deploy TJS once to create a secure, high-performance Universal Endpoint. Ship AJS continuously to execute logic where the data lives.
 
@@ -108,30 +108,31 @@ TJS classes are callable without `new`—less ceremony, same semantics:
 ```typescript
 class Timestamp {
   #value
-  
+
   constructor(initial: '' | 0 | null) {
     this.#value = initial === null ? new Date() : new Date(initial)
   }
-  
+
   set value(v: '' | 0 | null) {
     this.#value = v === null ? new Date() : new Date(v)
   }
-  
+
   get value() {
     return this.#value
   }
 }
 
 // Both work identically:
-const ts1 = Timestamp('2024-01-15')   // TJS way—clean
+const ts1 = Timestamp('2024-01-15') // TJS way—clean
 const ts2 = new Timestamp('2024-01-15') // Also works (lint warning)
 
 // Asymmetric types captured automatically:
-ts1.value = 0        // SET accepts: string | number | null
-ts1.value            // GET returns: Date
+ts1.value = 0 // SET accepts: string | number | null
+ts1.value // GET returns: Date
 ```
 
 TypeScript-to-TJS conversion handles the transformation:
+
 - `private foo` → `#foo` (native private fields)
 - Class wrapped with Proxy for callable-without-new
 - Getter/setter types captured in metadata
@@ -143,14 +144,14 @@ If the endpoint lives forever while agents change constantly, docs must live in 
 ```typescript
 /**
  * Create a new user in the system.
- * 
+ *
  * @capability Requires `store` capability with write access.
  * @rateLimit 100 requests per minute per API key.
- * 
+ *
  * @example
  * createUser({ name: 'Alice', email: 'alice@example.com', age: 30 })
  * // => { id: 12345, created: '2025-01-19T...' }
- * 
+ *
  * @test
  * const result = createUser({ name: 'Test', email: 'test@test.com', age: 25 })
  * expect(result.id).toBeNumber()
@@ -160,7 +161,7 @@ function createUser(input: { name: 'Alice', email: 'a@b.com', age: 30 }) -> { id
 }
 ```
 
-Tests and docs are extracted automatically. The API *is* its own manual.
+Tests and docs are extracted automatically. The API _is_ its own manual.
 
 ---
 
@@ -189,14 +190,14 @@ import { validate } from './utils/validation.tjs'
 
 ### The Stack You Delete
 
-| Before | After |
-|--------|-------|
-| TypeScript | TJS |
-| Webpack/Vite | Browser |
-| Babel | Browser |
-| `node_modules` | Import URLs |
-| Source maps | Direct execution |
-| Build server | Nothing |
+| Before         | After            |
+| -------------- | ---------------- |
+| TypeScript     | TJS              |
+| Webpack/Vite   | Browser          |
+| Babel          | Browser          |
+| `node_modules` | Import URLs      |
+| Source maps    | Direct execution |
+| Build server   | Nothing          |
 
 ---
 
@@ -241,14 +242,14 @@ import { validate } from './utils/validation.tjs'
 
 ## Performance
 
-| Mode | Overhead | Use Case |
-|------|----------|----------|
-| `safety none` | **1.0x** | Metadata only, no validation |
+| Mode            | Overhead  | Use Case                                        |
+| --------------- | --------- | ----------------------------------------------- |
+| `safety none`   | **1.0x**  | Metadata only, no validation                    |
 | `safety inputs` | **~1.5x** | Production with validation (single-arg objects) |
-| `safety inputs` | ~11x | Multi-arg functions (schema fallback) |
-| `safety all` | ~14x | Debug mode |
-| `(!) unsafe` | **1.0x** | Hot paths |
-| `wasm {}` | **<1.0x** | Compute-heavy code |
+| `safety inputs` | ~11x      | Multi-arg functions (schema fallback)           |
+| `safety all`    | ~14x      | Debug mode                                      |
+| `(!) unsafe`    | **1.0x**  | Hot paths                                       |
+| `wasm {}`       | **<1.0x** | Compute-heavy code                              |
 
 ### Why 1.5x, Not 25x
 
@@ -256,9 +257,12 @@ Most validators interpret schemas at runtime (~25x). TJS generates inline checks
 
 ```typescript
 // Generated (JIT-friendly)
-if (typeof input !== 'object' || input === null ||
-    typeof input.name !== 'string' ||
-    typeof input.age !== 'number') {
+if (
+  typeof input !== 'object' ||
+  input === null ||
+  typeof input.name !== 'string' ||
+  typeof input.age !== 'number'
+) {
   return { $error: true, message: 'Invalid input', path: 'createUser.input' }
 }
 ```

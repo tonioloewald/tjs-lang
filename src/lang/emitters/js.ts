@@ -366,7 +366,7 @@ function extractFunctionReturnSafety(
  * Looks for: /★ tjs <- path/to/file.ts ★/ at the start (★ = *)
  */
 function extractSourceFileAnnotation(source: string): string | undefined {
-  const match = source.match(/^\/\*\s*tjs\s*<-\s*([^\*]+?)\s*\*\//)
+  const match = source.match(/^\/\*\s*tjs\s*<-\s*([^*]+?)\s*\*\//)
   return match ? match[1].trim() : undefined
 }
 
@@ -591,18 +591,6 @@ export function transpileToJS(
     testCount: tests.length > 0 ? tests.length : undefined,
     testResults,
   }
-}
-
-/**
- * Find the main function in the AST (DEPRECATED - use findAllFunctions)
- */
-function findMainFunction(program: Program): FunctionDeclaration | null {
-  for (const node of program.body) {
-    if (node.type === 'FunctionDeclaration') {
-      return node
-    }
-  }
-  return null
 }
 
 /**
@@ -1384,67 +1372,6 @@ function runTestBlocks(
 }
 
 /**
- * Extract signature example values from function parameters
- * Returns null if not all params have examples or no return type
- */
-function extractSignatureExample(
-  func: FunctionDeclaration,
-  types: TJSTypeInfo,
-  returnTypeStr: string
-): { args: unknown[]; expected: unknown } | null {
-  // Need a return type with an example value
-  if (!types.returns || !returnTypeStr) return null
-
-  // Get example values from params - they should be the default values
-  const args: unknown[] = []
-
-  for (const param of func.params) {
-    let defaultValue: unknown = undefined
-
-    if (param.type === 'AssignmentPattern') {
-      // Has default value - extract it
-      const right = param.right as any
-      if (right.type === 'Literal') {
-        defaultValue = right.value
-      } else if (right.type === 'ObjectExpression') {
-        // Handle object examples by evaluating the expression
-        try {
-          defaultValue = evalObjectExpression(right)
-        } catch {
-          return null
-        }
-      } else if (right.type === 'ArrayExpression') {
-        // Handle array examples
-        try {
-          defaultValue = evalArrayExpression(right)
-        } catch {
-          return null
-        }
-      }
-    } else {
-      // No default value - can't run signature test
-      return null
-    }
-
-    if (defaultValue === undefined) return null
-    args.push(defaultValue)
-  }
-
-  // Parse the expected return value from the return type string
-  // The return type is a TJS example like: 14.5, 'hello', { name: '' }, etc.
-  let expected: unknown
-  try {
-    // Use Function constructor to safely evaluate the literal
-    expected = new Function(`return ${returnTypeStr}`)()
-  } catch {
-    // Can't parse the return type as a value
-    return null
-  }
-
-  return { args, expected }
-}
-
-/**
  * Evaluate an ObjectExpression AST node to a plain object
  */
 function evalObjectExpression(node: any): Record<string, unknown> {
@@ -1539,7 +1466,6 @@ function runAllSignatureTests(
 
     // Run the signature test
     try {
-      const argsStr = paramExamples.join(', ')
       const expectedStr = returnExample
 
       // Parse expected value

@@ -6,12 +6,21 @@
  */
 
 import type { SeqNode } from '../builder'
-import type { TranspileOptions, TranspileResult, FunctionSignature } from './types'
+import type {
+  TranspileOptions,
+  TranspileResult,
+  FunctionSignature,
+} from './types'
 import { parse, validateSingleFunction } from './parser'
 import { transformFunction } from './emitters/ast'
 
 export * from './types'
-export { parse, preprocess, extractTDoc, validateSingleFunction } from './parser'
+export {
+  parse,
+  preprocess,
+  extractTDoc,
+  validateSingleFunction,
+} from './parser'
 export { transformFunction } from './emitters/ast'
 
 /**

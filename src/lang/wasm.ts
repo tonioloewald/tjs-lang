@@ -137,8 +137,9 @@ function encodeULEB128(value: number): number[] {
 
 /**
  * Encode a signed LEB128 integer
+ * Reserved for future use with signed WASM values
  */
-function encodeSLEB128(value: number): number[] {
+function _encodeSLEB128(value: number): number[] {
   const result: number[] = []
   let more = true
   while (more) {
@@ -167,8 +168,9 @@ function encodeString(s: string): number[] {
 
 /**
  * Encode a vector (length-prefixed array)
+ * Reserved for future use with WASM vectors
  */
-function encodeVector(items: number[][]): number[] {
+function _encodeVector(items: number[][]): number[] {
   return [...encodeULEB128(items.length), ...items.flat()]
 }
 
@@ -266,9 +268,6 @@ function buildWasmModule(
 
   // Compile the expression to WASM instructions
   const exprCode = compileExpression(expr, paramNames, warnings)
-
-  // Build module sections
-  const sections: number[] = []
 
   // Magic number and version
   const header = [0x00, 0x61, 0x73, 0x6d, 0x01, 0x00, 0x00, 0x00]
@@ -452,7 +451,7 @@ export async function registerWasmBlock(block: WasmBlock): Promise<boolean> {
 
   try {
     const instance = await instantiateWasm(result.bytes)
-    const compute = instance.exports.compute as Function
+    const compute = instance.exports.compute as (...args: number[]) => number
 
     // Register globally so the dispatch code can find it
     ;(globalThis as any)[block.id] = compute

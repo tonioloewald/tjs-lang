@@ -84,7 +84,7 @@ export class ServiceHost {
       endpoints,
       instance,
       fuel: this.defaultFuel,
-      calls: 0
+      calls: 0,
     }
 
     this.services.set(name, service)
@@ -125,7 +125,7 @@ export class ServiceHost {
         success: false,
         error: { message: `Service '${serviceName}' not deployed` },
         fuel: 0,
-        duration: performance.now() - start
+        duration: performance.now() - start,
       }
     }
 
@@ -133,9 +133,11 @@ export class ServiceHost {
     if (typeof fn !== 'function') {
       return {
         success: false,
-        error: { message: `Endpoint '${endpoint}' not found in '${serviceName}'` },
+        error: {
+          message: `Endpoint '${endpoint}' not found in '${serviceName}'`,
+        },
         fuel: 0,
-        duration: performance.now() - start
+        duration: performance.now() - start,
       }
     }
 
@@ -151,7 +153,7 @@ export class ServiceHost {
           success: false,
           error: { message: result.message, path: result.path },
           fuel: 1, // minimal fuel for failed validation
-          duration: performance.now() - start
+          duration: performance.now() - start,
         }
       }
 
@@ -159,14 +161,14 @@ export class ServiceHost {
         success: true,
         result,
         fuel: 1, // TODO: actual fuel metering
-        duration: performance.now() - start
+        duration: performance.now() - start,
       }
     } catch (e: any) {
       return {
         success: false,
         error: { message: e.message },
         fuel: 1,
-        duration: performance.now() - start
+        duration: performance.now() - start,
       }
     }
   }
@@ -215,7 +217,7 @@ export class ServiceHost {
           }
           return result.result
         }
-      }
+      },
     })
   }
 
@@ -232,7 +234,7 @@ export class ServiceHost {
     const lines = [
       `// Auto-generated client for ${serviceName}`,
       `// Calls are proxied through ServiceHost`,
-      ``
+      ``,
     ]
 
     for (const ep of service.endpoints) {
@@ -241,7 +243,11 @@ export class ServiceHost {
         .join(', ')
 
       lines.push(`export async function ${ep.name}(${paramStr || 'args'}) {`)
-      lines.push(`  return globalThis.__serviceHost.call('${serviceName}', '${ep.name}', ${paramStr || 'args'})`)
+      lines.push(
+        `  return globalThis.__serviceHost.call('${serviceName}', '${
+          ep.name
+        }', ${paramStr || 'args'})`
+      )
       lines.push(`}`)
       lines.push(``)
     }
@@ -258,7 +264,8 @@ export class ServiceHost {
 
     // Find all functions with __tjs metadata
     // Pattern: functionName.__tjs = { params: ..., returns: ... }
-    const metadataPattern = /(\w+)\.__tjs\s*=\s*(\{[\s\S]*?\})\s*(?=\w+\.__tjs|$)/g
+    const metadataPattern =
+      /(\w+)\.__tjs\s*=\s*(\{[\s\S]*?\})\s*(?=\w+\.__tjs|$)/g
 
     let match
     while ((match = metadataPattern.exec(code)) !== null) {
@@ -272,7 +279,7 @@ export class ServiceHost {
           for (const [pname, pinfo] of Object.entries(metadata.params as any)) {
             params[pname] = {
               type: (pinfo as any).type?.kind ?? 'any',
-              required: (pinfo as any).required ?? true
+              required: (pinfo as any).required ?? true,
             }
           }
         }
@@ -280,7 +287,9 @@ export class ServiceHost {
         endpoints.push({
           name,
           params,
-          returns: metadata.returns ? { type: metadata.returns.kind ?? 'any' } : undefined
+          returns: metadata.returns
+            ? { type: metadata.returns.kind ?? 'any' }
+            : undefined,
         })
       } catch (e) {
         console.warn(`Failed to parse metadata for ${name}:`, e)
@@ -291,7 +300,7 @@ export class ServiceHost {
     const exportPattern = /export\s+(?:async\s+)?function\s+(\w+)/g
     while ((match = exportPattern.exec(code)) !== null) {
       const name = match[1]
-      if (!endpoints.find(e => e.name === name)) {
+      if (!endpoints.find((e) => e.name === name)) {
         endpoints.push({ name, params: {} })
       }
     }
@@ -372,7 +381,9 @@ export async function createService<T extends Record<string, Function>>(
 /**
  * Get a client for an already-deployed service
  */
-export function getService<T extends Record<string, Function>>(name: string): T {
+export function getService<T extends Record<string, Function>>(
+  name: string
+): T {
   const host = getServiceHost()
   return host.createClient<T>(name)
 }

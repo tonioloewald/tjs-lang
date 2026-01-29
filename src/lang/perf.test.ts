@@ -14,7 +14,7 @@
 
 import { describe, it, expect } from 'bun:test'
 import { tjs, wrap, isError } from './index'
-import { configure, enterUnsafe, exitUnsafe } from './runtime'
+import { configure } from './runtime'
 
 const ITERATIONS = 100_000
 
@@ -635,7 +635,7 @@ describe('TJS Performance', () => {
       const normalTime = benchmark('normal', () => normal(5))
       const safeTime = benchmark('safe', () => safe(5))
       // unsafe === baseFn, so this tests the same function
-      const unsafeTime = benchmark('unsafe', () => unsafe(5))
+      benchmark('unsafe', () => unsafe(5))
 
       console.log(
         `\n  Per-function flags with safety: 'none' (${ITERATIONS.toLocaleString()} iterations):`

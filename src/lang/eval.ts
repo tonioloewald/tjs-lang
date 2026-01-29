@@ -1,9 +1,9 @@
 /**
  * Safe Eval and SafeFunction - VM-backed dynamic code execution
- * 
+ *
  * Import this module explicitly when you need to execute code dynamically.
  * This pulls in the AJS transpiler and VM (~50KB gzipped).
- * 
+ *
  * For static code (pre-transpiled), use the lite runtime instead.
  */
 
@@ -12,7 +12,7 @@ import { transpile } from './core'
 
 // Singleton VM instance (lazy)
 let _vm: AgentVM | null = null
-const getVM = () => _vm ??= new AgentVM()
+const getVM = () => (_vm ??= new AgentVM())
 
 /** Capabilities that can be injected into SafeFunction/Eval */
 export interface SafeCapabilities {
@@ -74,7 +74,9 @@ export async function Eval(options: EvalOptions): Promise<{
     return {
       result: vmResult.result,
       fuelUsed: vmResult.fuelUsed,
-      error: vmResult.error ? { message: vmResult.error.message || String(vmResult.error) } : undefined,
+      error: vmResult.error
+        ? { message: vmResult.error.message || String(vmResult.error) }
+        : undefined,
     }
   } catch (err: any) {
     return {
@@ -143,7 +145,9 @@ export async function SafeFunction(options: SafeFunctionOptions): Promise<
       return {
         result: vmResult.result,
         fuelUsed: vmResult.fuelUsed,
-        error: vmResult.error ? { message: vmResult.error.message || String(vmResult.error) } : undefined,
+        error: vmResult.error
+          ? { message: vmResult.error.message || String(vmResult.error) }
+          : undefined,
       }
     } catch (err: any) {
       return {

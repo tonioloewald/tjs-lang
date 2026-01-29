@@ -187,6 +187,7 @@ Type Email {
 ```
 
 **Default vs Example:**
+
 - `= value` sets a **default** for instantiation
 - `example:` in block sets an **example** for testing/documentation
 - When both are present, they serve different purposes
@@ -201,16 +202,16 @@ Define parameterized types with the `Generic` keyword:
 // Simple generic
 Generic Box<T> {
   description: 'a boxed value'
-  predicate(x, T) { 
-    return typeof x === 'object' && x !== null && 'value' in x && T(x.value) 
+  predicate(x, T) {
+    return typeof x === 'object' && x !== null && 'value' in x && T(x.value)
   }
 }
 
 // Generic with default type parameter
 Generic Container<T, U = ''> {
   description: 'container with label'
-  predicate(obj, T, U) { 
-    return T(obj.item) && U(obj.label) 
+  predicate(obj, T, U) {
+    return T(obj.item) && U(obj.label)
   }
 }
 ```
@@ -344,22 +345,23 @@ Safe replacements for `new Function()` and `eval()` with typed inputs/outputs:
 ```javascript
 // SafeFunction - create a typed async function from code
 const add = await SafeFunction({
-  inputs: { a: 0, b: 0 },      // typed parameters
-  output: 0,                    // typed return
-  body: 'return a + b'
+  inputs: { a: 0, b: 0 }, // typed parameters
+  output: 0, // typed return
+  body: 'return a + b',
 })
-await add(1, 2)  // 3
-await add('x', 2)  // Error: invalid input 'a'
+await add(1, 2) // 3
+await add('x', 2) // Error: invalid input 'a'
 
 // Eval - evaluate code once with typed result
 const result = await Eval({
   code: 'a + b',
   context: { a: 1, b: 2 },
-  output: 0
-})  // 3
+  output: 0,
+}) // 3
 ```
 
 **Key safety features:**
+
 - **Typed inputs/outputs** - validated at runtime
 - **Async execution** - can timeout, won't block
 - **Explicit context** - no implicit scope access
@@ -372,14 +374,14 @@ const fetcher = await SafeFunction({
   output: { data: [] },
   body: 'return await fetch(url).then(r => r.json())',
   capabilities: { fetch: globalThis.fetch },
-  timeoutMs: 10000
+  timeoutMs: 10000,
 })
 
 const data = await Eval({
   code: 'await fetch(url).then(r => r.json())',
   context: { url: 'https://api.example.com' },
   output: { items: [] },
-  capabilities: { fetch: globalThis.fetch }
+  capabilities: { fetch: globalThis.fetch },
 })
 ```
 
@@ -413,6 +415,7 @@ function sendEmail(to: Email) {
 ```
 
 The transpiled output contains only:
+
 ```javascript
 const Email = Type('Email', ...)
 function sendEmail(to) { ... }
@@ -470,24 +473,24 @@ test('async operations work') {
 
 ### Added
 
-| Feature           | Purpose                                      |
-| ----------------- | -------------------------------------------- |
-| `: example`       | Required parameter with type                 |
-| `= example`       | Optional parameter with default              |
-| `-> Type`         | Return type annotation                       |
-| `-? Type`         | Return type with forced output validation    |
-| `-! Type`         | Return type with skipped output validation   |
-| `(?)`             | Mark function as safe (force validation)     |
-| `(!)`             | Mark function as unsafe (skip validation)    |
-| `test 'name' {}`  | Compile-time test block (evaporates)         |
-| `mock {}`         | Test setup block                             |
-| `unsafe {}`       | Skip validation for a block                  |
-| `\|\|` in types   | Union types                                  |
-| `Type Name = val` | Define runtime type with default             |
-| `Generic<T>`      | Define a parameterized runtime type          |
-| `Foo = ...`       | Bare assignment (auto-adds `const`)          |
-| `SafeFunction`    | Safe typed async replacement for `Function`  |
-| `Eval`            | Safe typed async replacement for `eval()`    |
+| Feature           | Purpose                                     |
+| ----------------- | ------------------------------------------- |
+| `: example`       | Required parameter with type                |
+| `= example`       | Optional parameter with default             |
+| `-> Type`         | Return type annotation                      |
+| `-? Type`         | Return type with forced output validation   |
+| `-! Type`         | Return type with skipped output validation  |
+| `(?)`             | Mark function as safe (force validation)    |
+| `(!)`             | Mark function as unsafe (skip validation)   |
+| `test 'name' {}`  | Compile-time test block (evaporates)        |
+| `mock {}`         | Test setup block                            |
+| `unsafe {}`       | Skip validation for a block                 |
+| `\|\|` in types   | Union types                                 |
+| `Type Name = val` | Define runtime type with default            |
+| `Generic<T>`      | Define a parameterized runtime type         |
+| `Foo = ...`       | Bare assignment (auto-adds `const`)         |
+| `SafeFunction`    | Safe typed async replacement for `Function` |
+| `Eval`            | Safe typed async replacement for `eval()`   |
 
 ## Differences from TypeScript
 

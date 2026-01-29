@@ -322,7 +322,15 @@ describe('Timestamp', () => {
 
   describe('roundtrip consistency', () => {
     it('from -> extractors roundtrip', () => {
-      const original = { year: 2024, month: 7, day: 20, hour: 15, minute: 45, second: 30, ms: 500 }
+      const original = {
+        year: 2024,
+        month: 7,
+        day: 20,
+        hour: 15,
+        minute: 45,
+        second: 30,
+        ms: 500,
+      }
       const created = Timestamp.from(
         original.year,
         original.month,

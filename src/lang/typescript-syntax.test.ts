@@ -12,8 +12,8 @@
  * Goal: Eventually transpile Zod, lodash-es, and other complex libraries.
  */
 
-import { describe, test, expect, it } from 'bun:test'
-import { tjs, transpileToJS, fromTS } from './index'
+import { describe, test, expect } from 'bun:test'
+import { transpileToJS, fromTS } from './index'
 
 // Helper to get the first function's metadata from the Record
 function getFirstFunc(metadata: Record<string, any>) {
@@ -308,7 +308,7 @@ describe('Arrow Functions', () => {
   })
 
   test('arrow functions work in fromTS', () => {
-    const { code, types } = fromTS(`
+    const { types } = fromTS(`
       const add = (a: number, b: number): number => a + b
     `)
     expect(types?.add).toBeDefined()

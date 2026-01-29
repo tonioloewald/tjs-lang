@@ -2,7 +2,7 @@
 
 # TJS: Typed JavaScript
 
-*Types as Examples. Zero Build. Runtime Metadata.*
+_Types as Examples. Zero Build. Runtime Metadata._
 
 ---
 
@@ -58,9 +58,9 @@ bun src/cli/tjs.ts types file.tjs   # Output type metadata
 Required parameters use colon syntax with an example value:
 
 ```typescript
-function greet(name: 'Alice') { }        // name is required, type: string
-function calculate(value: 0) { }         // value is required, type: number
-function toggle(flag: true) { }          // flag is required, type: boolean
+function greet(name: 'Alice') {} // name is required, type: string
+function calculate(value: 0) {} // value is required, type: number
+function toggle(flag: true) {} // flag is required, type: boolean
 ```
 
 ### Optional Parameters (Default Values)
@@ -68,8 +68,8 @@ function toggle(flag: true) { }          // flag is required, type: boolean
 Optional parameters use `=` with a default value:
 
 ```typescript
-function greet(name = 'World') { }       // name is optional, defaults to 'World'
-function calculate(value = 0) { }        // value is optional, defaults to 0
+function greet(name = 'World') {} // name is optional, defaults to 'World'
+function calculate(value = 0) {} // value is optional, defaults to 0
 ```
 
 ### TypeScript-Style Optional
@@ -77,7 +77,7 @@ function calculate(value = 0) { }        // value is optional, defaults to 0
 You can also use `?:` syntax:
 
 ```typescript
-function greet(name?: '') { }            // same as name = ''
+function greet(name?: '') {} // same as name = ''
 ```
 
 ### Object Parameters
@@ -85,7 +85,7 @@ function greet(name?: '') { }            // same as name = ''
 Object shapes are defined by example:
 
 ```typescript
-function createUser(user: { name: '', age: 0 }) { }
+function createUser(user: { name: ''; age: 0 }) {}
 // user must be an object with string name and number age
 ```
 
@@ -209,16 +209,16 @@ Runtime-checkable generics:
 ```typescript
 Generic Box<T> {
   description: 'a boxed value'
-  predicate(x, T) { 
-    return typeof x === 'object' && x !== null && 'value' in x && T(x.value) 
+  predicate(x, T) {
+    return typeof x === 'object' && x !== null && 'value' in x && T(x.value)
   }
 }
 
 // With default type parameter
 Generic Container<T, U = ''> {
   description: 'container with label'
-  predicate(obj, T, U) { 
-    return T(obj.item) && U(obj.label) 
+  predicate(obj, T, U) {
+    return T(obj.item) && U(obj.label)
   }
 }
 ```
@@ -249,7 +249,7 @@ String or numeric enums:
 const Status = Enum(['pending', 'active', 'completed'])
 const Priority = Enum({ low: 1, medium: 2, high: 3 })
 
-function setStatus(status: Status) { }
+function setStatus(status: Status) {}
 ```
 
 ---
@@ -294,12 +294,14 @@ TJS classes are callable without the `new` keyword:
 
 ```typescript
 class User {
-  constructor(name: '') { this.name = name }
+  constructor(name: '') {
+    this.name = name
+  }
 }
 
 // Both work identically:
-const u1 = User('Alice')      // TJS way - clean
-const u2 = new User('Alice')  // Also works (linter warns)
+const u1 = User('Alice') // TJS way - clean
+const u2 = new User('Alice') // Also works (linter warns)
 ```
 
 ### Private Fields
@@ -309,9 +311,13 @@ Use `#` for private fields:
 ```typescript
 class Counter {
   #count = 0
-  
-  increment() { this.#count++ }
-  get value() { return this.#count }
+
+  increment() {
+    this.#count++
+  }
+  get value() {
+    return this.#count
+  }
 }
 ```
 
@@ -324,23 +330,23 @@ Asymmetric types are captured:
 ```typescript
 class Timestamp {
   #value
-  
+
   constructor(initial: '' | 0 | null) {
     this.#value = initial === null ? new Date() : new Date(initial)
   }
-  
+
   set value(v: '' | 0 | null) {
     this.#value = v === null ? new Date() : new Date(v)
   }
-  
+
   get value() {
     return this.#value
   }
 }
 
 const ts = Timestamp('2024-01-15')
-ts.value = 0        // SET accepts: string | number | null
-ts.value            // GET returns: Date
+ts.value = 0 // SET accepts: string | number | null
+ts.value // GET returns: Date
 ```
 
 ---
@@ -366,6 +372,7 @@ console.log(createUser.__tjs)
 ```
 
 This enables:
+
 - Autocomplete from live objects
 - Runtime type validation
 - Automatic documentation generation
@@ -375,7 +382,7 @@ This enables:
 Type failures return error objects, not exceptions:
 
 ```typescript
-const result = createUser({ name: 123 })  // wrong type
+const result = createUser({ name: 123 }) // wrong type
 // { $error: true, message: 'Invalid input', path: 'createUser.input' }
 
 if (result.$error) {
@@ -399,6 +406,7 @@ test('doubles numbers') {
 ```
 
 Tests are extracted at compile time and can be:
+
 - Run during transpilation
 - Stripped in production builds
 - Used for documentation generation
@@ -435,6 +443,7 @@ import { validate } from './utils/validation.tjs'
 ```
 
 Modules are:
+
 - Fetched on demand
 - Transpiled in the browser
 - Cached independently (IndexedDB + service worker)
@@ -469,28 +478,28 @@ function greet(name: '', age = 0) -> '' { ... }
 
 ### What Gets Converted
 
-| TypeScript | TJS |
-|------------|-----|
-| `name: string` | `name: ''` |
-| `age: number` | `age: 0` |
-| `flag: boolean` | `flag: true` |
-| `items: string[]` | `items: ['']` |
-| `age?: number` | `age = 0` |
-| `private foo` | `#foo` |
-| `interface User` | `Type User` |
+| TypeScript                 | TJS                 |
+| -------------------------- | ------------------- |
+| `name: string`             | `name: ''`          |
+| `age: number`              | `age: 0`            |
+| `flag: boolean`            | `flag: true`        |
+| `items: string[]`          | `items: ['']`       |
+| `age?: number`             | `age = 0`           |
+| `private foo`              | `#foo`              |
+| `interface User`           | `Type User`         |
 | `type Status = 'a' \| 'b'` | `Union(['a', 'b'])` |
-| `enum Color` | `Enum(...)` |
+| `enum Color`               | `Enum(...)`         |
 
 ---
 
 ## Performance
 
-| Mode | Overhead | Use Case |
-|------|----------|----------|
-| `safety none` | **1.0x** | Metadata only, no validation |
+| Mode            | Overhead  | Use Case                        |
+| --------------- | --------- | ------------------------------- |
+| `safety none`   | **1.0x**  | Metadata only, no validation    |
 | `safety inputs` | **~1.5x** | Production (single-arg objects) |
-| `(!) unsafe` | **1.0x** | Hot paths |
-| `wasm {}` | **<1.0x** | Compute-heavy code |
+| `(!) unsafe`    | **1.0x**  | Hot paths                       |
+| `wasm {}`       | **<1.0x** | Compute-heavy code              |
 
 ### Why 1.5x, Not 25x
 
@@ -498,9 +507,12 @@ Most validators interpret schemas at runtime (~25x overhead). TJS generates inli
 
 ```typescript
 // Generated (JIT-friendly)
-if (typeof input !== 'object' || input === null ||
-    typeof input.name !== 'string' ||
-    typeof input.age !== 'number') {
+if (
+  typeof input !== 'object' ||
+  input === null ||
+  typeof input.name !== 'string' ||
+  typeof input.age !== 'number'
+) {
   return { $error: true, message: 'Invalid input', path: 'fn.input' }
 }
 ```
@@ -514,8 +526,8 @@ No schema interpretation. No object iteration. The JIT inlines these completely.
 Uppercase identifiers automatically get `const`:
 
 ```typescript
-Foo = Type('test', 'example')    // becomes: const Foo = Type(...)
-MyConfig = { debug: true }       // becomes: const MyConfig = { ... }
+Foo = Type('test', 'example') // becomes: const Foo = Type(...)
+MyConfig = { debug: true } // becomes: const MyConfig = { ... }
 ```
 
 ---

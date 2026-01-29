@@ -23,13 +23,13 @@ What if your language were:
 - **Honest** — types that actually exist at runtime, not fiction that evaporates
 - **Safe** — a gas-metered VM where infinite loops are impossible, no container required
 - **Mobile** — logic that travels to data, not oceans of data dragged to logic
-- **Unified** — one source of truth, not TypeScript interfaces *plus* Zod schemas *plus* JSDoc
+- **Unified** — one source of truth, not TypeScript interfaces _plus_ Zod schemas _plus_ JSDoc
 
 That's what TJS Platform provides: **TJS** for writing your infrastructure, and **AJS** for shipping logic that runs anywhere.
 
 ## TJS — Types That Survive
 
-Write typed JavaScript where the type *is* an example. No split-brain validation.
+Write typed JavaScript where the type _is_ an example. No split-brain validation.
 
 ```typescript
 // TJS: The type is an example AND a test
@@ -46,12 +46,13 @@ const result = greet(123)        // { $error: true, message: 'type mismatch' }
 ```
 
 **Why it matters:**
+
 - **One source of truth** — no more TS interfaces + Zod schemas + JSDoc comments
 - **Types as examples** — `name: 'Alice'` means "required string, like 'Alice'"
 - **Runtime metadata** — `__tjs` enables reflection, autocomplete, documentation from live objects
 - **Monadic errors** — type failures return values, never throw
 - **Zero build step** — transpiles in the browser, no webpack/Vite/Babel
-- **The compiler *is* the client** — TJS transpiles itself *and* TypeScript entirely client-side
+- **The compiler _is_ the client** — TJS transpiles itself _and_ TypeScript entirely client-side
 
 ## AJS — Code That Travels
 
@@ -67,13 +68,18 @@ const agent = ajs`
 `
 
 // Run it safely—no Docker required
-const result = await vm.run(agent, { topic: 'Agents' }, {
-  fuel: 500,                    // Strict CPU budget
-  capabilities: { fetch: http } // Allow ONLY http, block everything else
-})
+const result = await vm.run(
+  agent,
+  { topic: 'Agents' },
+  {
+    fuel: 500, // Strict CPU budget
+    capabilities: { fetch: http }, // Allow ONLY http, block everything else
+  }
+)
 ```
 
 **Why it matters:**
+
 - **Safe eval** — run untrusted code without containers
 - **Code is JSON** — store in databases, diff, version, transmit
 - **Fuel metering** — every operation costs gas, infinite loops impossible
@@ -84,13 +90,13 @@ const result = await vm.run(agent, { topic: 'Agents' }, {
 
 **Old way (data-to-code):**
 Client requests data → Server fetches 100 rows → Server filters to 5 → Client receives 5.
-*High latency. High bandwidth. Validate at every layer.*
+_High latency. High bandwidth. Validate at every layer._
 
 **TJS way (code-to-data):**
 Client sends agent → Edge runs agent at data → Edge returns 5 rows.
-*Low latency. Zero waste. Validate once.*
+_Low latency. Zero waste. Validate once._
 
-The agent carries its own validation. The server grants capabilities. Caching happens automatically because the query *is* the code.
+The agent carries its own validation. The server grants capabilities. Caching happens automatically because the query _is_ the code.
 
 ## Safe Eval
 
@@ -116,11 +122,11 @@ const { result, fuelUsed } = await Eval({
   `,
   context: { budget: 100 },
   fuel: 1000,
-  capabilities: { fetch: safeFetch }  // Only whitelisted domains
+  capabilities: { fetch: safeFetch }, // Only whitelisted domains
 })
 ```
 
-The untrusted code thinks it has `fetch`, but it only has *your* `fetch`. No CSP violations. No infinite loops. No access to anything you didn't explicitly grant.
+The untrusted code thinks it has `fetch`, but it only has _your_ `fetch`. No CSP violations. No infinite loops. No access to anything you didn't explicitly grant.
 
 ## Quick Start
 
@@ -141,7 +147,7 @@ const agent = ajs`
 
 const vm = new AgentVM()
 const { result } = await vm.run(agent, { value: 21 })
-console.log(result)  // { result: 42 }
+console.log(result) // { result: 42 }
 ```
 
 ### Write Typed Code
@@ -166,26 +172,26 @@ Since TJS compiles itself, the playground is the full engine running entirely in
 
 ## At a Glance
 
-|  | TJS | AJS |
-|--|-----|-----|
-| **Purpose** | Write your platform | Write your agents |
-| **Trust level** | Your code | Anyone's code |
-| **Compiles to** | JavaScript + metadata | JSON AST |
-| **Runs in** | Browser, Node, Bun | Sandboxed VM |
-| **Types** | Examples → runtime validation | Schemas for I/O |
-| **Errors** | Monadic (values, not exceptions) | Monadic |
-| **Build step** | None | None |
+|                 | TJS                              | AJS               |
+| --------------- | -------------------------------- | ----------------- |
+| **Purpose**     | Write your platform              | Write your agents |
+| **Trust level** | Your code                        | Anyone's code     |
+| **Compiles to** | JavaScript + metadata            | JSON AST          |
+| **Runs in**     | Browser, Node, Bun               | Sandboxed VM      |
+| **Types**       | Examples → runtime validation    | Schemas for I/O   |
+| **Errors**      | Monadic (values, not exceptions) | Monadic           |
+| **Build step**  | None                             | None              |
 
 ## Bundle Size
 
 The cost of "safe eval"—compare to a 200MB Docker image:
 
-| Bundle | Size | Gzipped |
-|--------|------|---------|
-| VM only | 42 KB | **14 KB** |
-| + Batteries (LLM, vector) | 56 KB | 19 KB |
-| + Transpiler | 89 KB | 27 KB |
-| Full (with TS support) | 180 KB | 56 KB |
+| Bundle                    | Size   | Gzipped   |
+| ------------------------- | ------ | --------- |
+| VM only                   | 42 KB  | **14 KB** |
+| + Batteries (LLM, vector) | 56 KB  | 19 KB     |
+| + Transpiler              | 89 KB  | 27 KB     |
+| Full (with TS support)    | 180 KB | 56 KB     |
 
 **Dependencies:** `acorn` (JS parser), `tosijs-schema` (validation). Both have zero transitive dependencies.
 
@@ -202,7 +208,7 @@ The cost of "safe eval"—compare to a 200MB Docker image:
 # npm
 npm install tjs-lang
 
-# bun  
+# bun
 bun add tjs-lang
 
 # pnpm

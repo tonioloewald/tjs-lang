@@ -18,7 +18,7 @@ The modern stack has become a tax on productivity. Every "improvement" adds anot
 
 **"I write the type as an example, and I get validation, documentation, and autocomplete for free."**
 
-TJS flips the script on types. Instead of describing what a value *could* be, you show what it *looks like*:
+TJS flips the script on types. Instead of describing what a value _could_ be, you show what it _looks like_:
 
 ```typescript
 // TypeScript: describe the abstract shape
@@ -28,7 +28,7 @@ function greet(name: string): string
 function greet(name: 'World') -> '' { return `Hello, ${name}!` }
 ```
 
-The type *is* the example. The example *is* the documentation. One thing, not three.
+The type _is_ the example. The example _is_ the documentation. One thing, not three.
 
 ### What You Stop Doing
 
@@ -63,12 +63,12 @@ Because you left Safe Mode on, your function now automatically rejects bad input
 
 You accidentally built an enterprise-grade API while prototyping.
 
-**This is the physics change:** In every other language, a type error at runtime is a catastrophe—uncaught exception, stack trace, 500 server error. In TJS Safe Mode, a type error is just *data*. You trace the error to the *source* (the caller), not the *symptom* (the crash).
+**This is the physics change:** In every other language, a type error at runtime is a catastrophe—uncaught exception, stack trace, 500 server error. In TJS Safe Mode, a type error is just _data_. You trace the error to the _source_ (the caller), not the _symptom_ (the crash).
 
-| Mode | Behavior | The "Oops" Factor |
-|------|----------|-------------------|
-| **Unsafe (`!`)** | "Trust me, bro." Fast, loose. | You write tests to catch edge cases. |
-| **Safe (`?`)** | The Contract. Inputs validated, outputs guaranteed. | "I forgot to turn it off, and now my API is bulletproof." |
+| Mode             | Behavior                                            | The "Oops" Factor                                         |
+| ---------------- | --------------------------------------------------- | --------------------------------------------------------- |
+| **Unsafe (`!`)** | "Trust me, bro." Fast, loose.                       | You write tests to catch edge cases.                      |
+| **Safe (`?`)**   | The Contract. Inputs validated, outputs guaranteed. | "I forgot to turn it off, and now my API is bulletproof." |
 
 Laziness = Quality. You did less work (no validation code), got a better result (robust contracts).
 
@@ -78,7 +78,7 @@ Laziness = Quality. You did less work (no validation code), got a better result 
 
 **"I don't deploy microservices. I save AJS records to Postgres. My 'deployment' takes 10ms."**
 
-AJS compiles to JSON. Your agent *is* a database record:
+AJS compiles to JSON. Your agent _is_ a database record:
 
 ```sql
 INSERT INTO agents (name, logic) VALUES (
@@ -108,22 +108,22 @@ Your "deployment" is a database write. Your "rollback" is loading the previous r
 
 ## The Stack You Delete
 
-| Before | After |
-|--------|-------|
-| TypeScript | TJS |
-| Webpack / Vite / Babel | Browser |
-| `node_modules` (300MB) | Import URLs |
-| Source maps | Direct execution |
-| Build server | Nothing |
-| Microservices | One endpoint |
-| Docker / K8s | A function call |
-| CI/CD for logic | Database write |
+| Before                 | After            |
+| ---------------------- | ---------------- |
+| TypeScript             | TJS              |
+| Webpack / Vite / Babel | Browser          |
+| `node_modules` (300MB) | Import URLs      |
+| Source maps            | Direct execution |
+| Build server           | Nothing          |
+| Microservices          | One endpoint     |
+| Docker / K8s           | A function call  |
+| CI/CD for logic        | Database write   |
 
 ---
 
 ## The Vibe
 
-This isn't about doing less work. It's about doing *the right* work.
+This isn't about doing less work. It's about doing _the right_ work.
 
 Every hour you spend debugging build tools is an hour you're not shipping features. Every deployment pipeline you maintain is cognitive overhead you carry forever.
 

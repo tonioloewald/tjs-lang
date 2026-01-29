@@ -12,16 +12,23 @@
  * Bun's test runner only recognizes standard extensions.
  */
 
-import { readdirSync, statSync, writeFileSync, unlinkSync, existsSync, mkdirSync } from 'fs'
-import { join, dirname, basename, resolve, relative } from 'path'
+import {
+  readdirSync,
+  statSync,
+  writeFileSync,
+  unlinkSync,
+  existsSync,
+  mkdirSync,
+} from 'fs'
+import { join, dirname, resolve, relative } from 'path'
 import { spawn } from 'bun'
 
 export interface TestOptions {
-  pattern?: string      // -t, --test-name-pattern
-  timeout?: number      // --timeout
-  watch?: boolean       // --watch
-  coverage?: boolean    // --coverage
-  bail?: number         // --bail
+  pattern?: string // -t, --test-name-pattern
+  timeout?: number // --timeout
+  watch?: boolean // --watch
+  coverage?: boolean // --coverage
+  bail?: number // --bail
 }
 
 // Find all .test.tjs files recursively
@@ -32,7 +39,11 @@ function findTestFiles(dir: string, files: string[] = []): string[] {
     const fullPath = join(dir, entry)
     const stats = statSync(fullPath)
 
-    if (stats.isDirectory() && !entry.startsWith('.') && entry !== 'node_modules') {
+    if (
+      stats.isDirectory() &&
+      !entry.startsWith('.') &&
+      entry !== 'node_modules'
+    ) {
       findTestFiles(fullPath, files)
     } else if (stats.isFile() && entry.endsWith('.test.tjs')) {
       files.push(fullPath)
@@ -45,7 +56,10 @@ function findTestFiles(dir: string, files: string[] = []): string[] {
 // Get the plugin path relative to cwd
 function getPluginPath(): string {
   // Find the tjs-plugin relative to this file
-  const pluginPath = resolve(dirname(import.meta.path), '../../bun-plugin/tjs-plugin.ts')
+  const pluginPath = resolve(
+    dirname(import.meta.path),
+    '../../bun-plugin/tjs-plugin.ts'
+  )
   return pluginPath
 }
 
@@ -64,13 +78,11 @@ function generateWrappers(testFiles: string[], tempDir: string): string[] {
 
   for (const testFile of testFiles) {
     const relativePath = relative(tempDir, testFile)
-    const wrapperName = basename(testFile).replace('.test.tjs', '.test.ts')
-    const wrapperPath = join(tempDir, wrapperName)
 
     // Handle potential name collisions by including directory info
     const uniqueName = testFile
       .replace(process.cwd(), '')
-      .replace(/[\/\\]/g, '_')
+      .replace(/[/\\]/g, '_')
       .replace('.test.tjs', '.test.ts')
       .replace(/^_/, '')
     const uniqueWrapperPath = join(tempDir, uniqueName)
@@ -104,7 +116,10 @@ function cleanupWrappers(wrappers: string[], tempDir: string): void {
   }
 }
 
-export async function test(input?: string, options: TestOptions = {}): Promise<void> {
+export async function test(
+  input?: string,
+  options: TestOptions = {}
+): Promise<void> {
   const pluginPath = getPluginPath()
 
   // Determine what to test

@@ -32,5 +32,10 @@ module.exports = {
         caughtErrorsIgnorePattern: '^_',
       },
     ],
+    'prefer-const': 'warn',
+    // Test files use require() for dynamic code evaluation - intentional
+    '@typescript-eslint/no-var-requires': 0,
+    // Empty functions used in tests and AsyncFunction pattern
+    '@typescript-eslint/no-empty-function': 0,
   },
 }

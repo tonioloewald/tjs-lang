@@ -316,7 +316,11 @@ describe('LegalDate', () => {
   describe('roundtrip consistency', () => {
     it('from -> extractors roundtrip', () => {
       const original = { year: 2024, month: 7, day: 20 }
-      const created = LegalDate.from(original.year, original.month, original.day)
+      const created = LegalDate.from(
+        original.year,
+        original.month,
+        original.day
+      )
 
       expect(LegalDate.year(created)).toBe(original.year)
       expect(LegalDate.month(created)).toBe(original.month)

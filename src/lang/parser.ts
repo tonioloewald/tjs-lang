@@ -153,8 +153,8 @@ function transformParenExpressions(
   const contextStack: ContextFrame[] = [{ type: 'top-level', braceDepth: 0 }]
   let braceDepth = 0
 
-  // Helper to get current structural context
-  const currentContext = (): StructuralContext =>
+  // Helper to get current structural context (reserved for future use)
+  const _currentContext = (): StructuralContext =>
     contextStack[contextStack.length - 1]?.type || 'top-level'
 
   // Helper to check if we're directly in a class body (not nested in a function/block inside it)
@@ -329,7 +329,7 @@ function transformParenExpressions(
           const lastChar = before[before.length - 1]
           const isRegexContext =
             !lastChar ||
-            /[=(!,;:{\[&|?+\-*%<>~^]$/.test(before) ||
+            /[=(!,;:{[&|?+\-*%<>~^]$/.test(before) ||
             /\b(return|case|throw|in|of|typeof|instanceof|new|delete|void)\s*$/.test(
               before
             )
@@ -1284,8 +1284,6 @@ export function preprocess(
   testErrors: string[]
 } {
   const originalSource = source
-  let returnType: string | undefined
-  let returnSafety: 'safe' | 'unsafe' | undefined
   let moduleSafety: 'none' | 'inputs' | 'all' | undefined
   const requiredParams = new Set<string>()
   const unsafeFunctions = new Set<string>()
@@ -1394,15 +1392,17 @@ export function preprocess(
   // Unified paren expression transformer
   // Handles: function params, arrow params, return types, safe/unsafe markers
   // Model: open paren can be ( or (? or (!, close can be ) or )-> or )-? or )-!
-  const transformResult = transformParenExpressions(source, {
+  const {
+    source: transformedSource,
+    returnType,
+    returnSafety,
+  } = transformParenExpressions(source, {
     originalSource,
     requiredParams,
     unsafeFunctions,
     safeFunctions,
   })
-  source = transformResult.source
-  returnType = transformResult.returnType
-  returnSafety = transformResult.returnSafety
+  source = transformedSource
 
   // NOTE: unsafe {} blocks removed - they provided no performance benefit because
   // the wrapper decision is made at transpile time. Use (!) on functions instead.
@@ -1908,11 +1908,11 @@ function transformIsOperators(source: string): string {
  */
 function insertAsiProtection(source: string): string {
   // Characters that can continue a previous expression (ASI footguns)
-  const continuationStarts = /^[\s]*[(\[\/+\-`]/
+  const continuationStarts = /^[\s]*[([/+\-`]/
 
   // Characters/patterns that indicate the previous line expects continuation
   // (don't insert semicolon after these)
-  const expectsContinuation = /[{(\[,;:+\-*/%=&|?<>!~^]\s*$|^\s*$/
+  const expectsContinuation = /[{([,;:+\-*/%=&|?<>!~^]\s*$|^\s*$/
 
   // Keywords that expect an expression to follow on same or next line
   const continueKeywords =
@@ -2100,7 +2100,7 @@ function transformEqualityToStructural(source: string): string {
           const beforeChar = j >= 0 ? source[j] : ''
           const isRegexContext =
             !beforeChar ||
-            /[=(!,;:{\[&|?+\-*%<>~^]/.test(beforeChar) ||
+            /[=(!,;:{[&|?+\-*%<>~^]/.test(beforeChar) ||
             (j >= 5 &&
               /\b(return|case|throw|in|of|typeof|instanceof|new|delete|void)$/.test(
                 source.slice(Math.max(0, j - 10), j + 1)

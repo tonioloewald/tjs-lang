@@ -5,7 +5,7 @@
  */
 
 import { readFileSync } from 'fs'
-import { resolve, dirname } from 'path'
+import { resolve } from 'path'
 import { preprocess } from '../../lang/parser'
 import { transpileToJS } from '../../lang/emitters/js'
 import * as runtime from '../../lang/runtime'

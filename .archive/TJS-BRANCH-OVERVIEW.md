@@ -5,6 +5,7 @@
 ## Executive Summary
 
 This branch transforms tosijs from a VM with a builder API into a **full language ecosystem** with:
+
 - A new language (TJS) that transpiles to JavaScript with runtime type safety
 - TypeScript-to-TJS conversion for gradual migration
 - Interactive playground with autocomplete
@@ -26,6 +27,7 @@ function greet(name: 'World', times: 3) -> '' {
 ```
 
 **Key syntax:**
+
 - `name: 'example'` - required param with type inferred from example
 - `name = 'default'` - optional param with default
 - `-> returnType` - return type annotation
@@ -43,6 +45,7 @@ Runtime type validation with minimal overhead:
 - **Is()/IsNot()** - structural equality with `.Equals` hook
 
 **Safety levels:**
+
 - `safety none` - metadata only, no validation
 - `safety inputs` - validate function inputs (~1.5x overhead)
 - `safety all` - validate inputs and outputs
@@ -67,11 +70,13 @@ Classes work without `new` keyword:
 
 ```typescript
 class User {
-  #name  // private fields via #
-  constructor(name: '') { this.#name = name }
+  #name // private fields via #
+  constructor(name: '') {
+    this.#name = name
+  }
 }
 
-const u = User('Alice')  // No 'new' needed
+const u = User('Alice') // No 'new' needed
 ```
 
 - `wrapClass()` makes classes callable
@@ -98,6 +103,7 @@ test('doubles numbers') {
 ### 6. Interactive Playground (`demo/`)
 
 Browser-based IDE with:
+
 - CodeMirror editor with TJS syntax highlighting
 - **Autocomplete** via runtime introspection
 - Tabbed output: JS, Preview, Docs, Tests, Console
@@ -126,6 +132,7 @@ bun file.tjs  # Just works
 ### 9. Linter (`src/lang/linter.ts`)
 
 Static analysis:
+
 - Unused variables
 - Unreachable code
 - `no-explicit-new` (warns on unnecessary `new`)
@@ -150,6 +157,7 @@ Full call stacks in errors:
 ### 12. Autocomplete System
 
 Two-tier approach:
+
 1. **Curated completions** for common APIs (console, Math, JSON)
 2. **Runtime introspection** for everything else (browser APIs, user code)
 
@@ -197,12 +205,12 @@ editors/
 
 ## Performance
 
-| Mode | Overhead | Use Case |
-|------|----------|----------|
-| `safety none` | 1.0x | Metadata only |
-| `safety inputs` | ~1.5x | Production (single-arg objects) |
-| `(!) unsafe` | 1.0x | Hot paths |
-| WASM blocks | <1.0x | Compute-heavy |
+| Mode            | Overhead | Use Case                        |
+| --------------- | -------- | ------------------------------- |
+| `safety none`   | 1.0x     | Metadata only                   |
+| `safety inputs` | ~1.5x    | Production (single-arg objects) |
+| `(!) unsafe`    | 1.0x     | Hot paths                       |
+| WASM blocks     | <1.0x    | Compute-heavy                   |
 
 ## What's Complete (from PLAN.md)
 
@@ -213,7 +221,7 @@ editors/
 - ✅ Module system (IndexedDB + CDN)
 - ✅ Autocomplete
 - ✅ Eval()/SafeFunction
-- ✅ Function introspection (__tjs)
+- ✅ Function introspection (\_\_tjs)
 - ✅ Generic()
 - ✅ Asymmetric get/set
 - ✅ Is/IsNot (structural equality)

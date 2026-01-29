@@ -11,7 +11,6 @@ import {
   wrap,
   wrapClass,
   configure,
-  getConfig,
   getStack,
   pushStack,
   popStack,
@@ -20,7 +19,6 @@ import {
   exitUnsafe,
   isUnsafeMode,
   TJSError,
-  Type,
   typeOf,
   isNativeType,
   Is,
@@ -185,7 +183,7 @@ describe('TJS Runtime - Monadic Errors', () => {
   describe('error propagation', () => {
     it('propagates errors through wrapped functions', () => {
       const step1 = wrap(
-        function step1(x: number) {
+        function step1(_x: number) {
           return error('Something went wrong', {
             path: 'step1',
             loc: { start: 0, end: 10 },
@@ -315,10 +313,6 @@ describe('TJS Runtime - Monadic Errors', () => {
     })
 
     it('handles nested unsafe blocks', () => {
-      const fn = wrap((x: number) => x, {
-        params: { x: { type: 'number', required: true } },
-      })
-
       expect(isUnsafeMode()).toBe(false)
 
       enterUnsafe()
@@ -361,7 +355,7 @@ describe('TJS Runtime - Monadic Errors', () => {
     it('safety: inputs validates inputs only', () => {
       configure({ safety: 'inputs' })
 
-      const fn = wrap((x: number) => 'not a number' as any, {
+      const fn = wrap((_x: number) => 'not a number' as any, {
         params: { x: { type: 'number', required: true } },
         returns: { type: 'number' },
       })
@@ -376,7 +370,7 @@ describe('TJS Runtime - Monadic Errors', () => {
     it('safety: all validates inputs and outputs', () => {
       configure({ safety: 'all' })
 
-      const fn = wrap((x: number) => 'not a number' as any, {
+      const fn = wrap((_x: number) => 'not a number' as any, {
         params: { x: { type: 'number', required: true } },
         returns: { type: 'number' },
       })
@@ -421,7 +415,7 @@ describe('TJS Runtime - Monadic Errors', () => {
     it('safeReturn forces output validation', () => {
       configure({ safety: 'inputs' }) // normally doesn't check outputs
 
-      const fn = wrap((x: number) => 'wrong' as any, {
+      const fn = wrap((_x: number) => 'wrong' as any, {
         params: { x: { type: 'number', required: true } },
         returns: { type: 'number' },
         safeReturn: true,
@@ -435,7 +429,7 @@ describe('TJS Runtime - Monadic Errors', () => {
     it('unsafeReturn skips output validation', () => {
       configure({ safety: 'all' }) // normally checks outputs
 
-      const fn = wrap((x: number) => 'wrong' as any, {
+      const fn = wrap((_x: number) => 'wrong' as any, {
         params: { x: { type: 'number', required: true } },
         returns: { type: 'number' },
         unsafeReturn: true,

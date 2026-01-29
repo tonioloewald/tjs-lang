@@ -265,13 +265,6 @@ export function tjs(
 // Cached transpilation functions
 // ============================================================================
 
-import {
-  MetadataCache,
-  getGlobalCache,
-  type CachedTranspileResult,
-  type CachedTJSResult,
-} from './metadata-cache'
-
 /**
  * Transpile with caching support
  *

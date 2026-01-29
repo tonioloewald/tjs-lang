@@ -49,11 +49,11 @@ Runtime-checkable generics:
 // Define a generic Box<T> type
 Generic Box<T> {
   description: 'a boxed value'
-  predicate(obj, T) { 
-    return typeof obj === 'object' && 
-           obj !== null && 
-           'value' in obj && 
-           T(obj.value) 
+  predicate(obj, T) {
+    return typeof obj === 'object' &&
+           obj !== null &&
+           'value' in obj &&
+           T(obj.value)
   }
 }
 
@@ -73,8 +73,8 @@ Tests run during transpilation and evaporate from output:
 ```javascript
 Type Email {
   example: 'test@example.com'
-  predicate(x) { 
-    return typeof x === 'string' && x.includes('@') 
+  predicate(x) {
+    return typeof x === 'string' && x.includes('@')
   }
 }
 
@@ -127,19 +127,19 @@ Safe replacements for `new Function()` and `eval()`:
 const multiply = await SafeFunction({
   inputs: { a: 0, b: 0 },
   output: 0,
-  body: 'return a * b'
+  body: 'return a * b',
 })
 
-console.log(await multiply(3, 4))  // 12
+console.log(await multiply(3, 4)) // 12
 
 // Evaluate code with typed result
 const result = await Eval({
   code: 'x + y',
   context: { x: 10, y: 5 },
-  output: 0
+  output: 0,
 })
 
-console.log(result)  // 15
+console.log(result) // 15
 ```
 
 ## Monadic Error Handling
@@ -171,14 +171,14 @@ Check platform types pragmatically:
 
 ```javascript
 // typeOf returns constructor names for objects
-console.log(typeOf(new Map()))     // 'Map'
-console.log(typeOf(new Date()))    // 'Date'
-console.log(typeOf([1, 2, 3]))     // 'array'
-console.log(typeOf(null))          // 'null'
+console.log(typeOf(new Map())) // 'Map'
+console.log(typeOf(new Date())) // 'Date'
+console.log(typeOf([1, 2, 3])) // 'array'
+console.log(typeOf(null)) // 'null'
 
 // isNativeType checks prototype chain
-console.log(isNativeType(new TypeError('oops'), 'Error'))  // true
-console.log(isNativeType(new Map(), 'Map'))                // true
+console.log(isNativeType(new TypeError('oops'), 'Error')) // true
+console.log(isNativeType(new Map(), 'Map')) // true
 ```
 
 ## Union Types

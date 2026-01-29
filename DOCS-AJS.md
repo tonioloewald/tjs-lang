@@ -2,7 +2,7 @@
 
 # AJS: The Agent Language
 
-*Code as Data. Safe. Async. Sandboxed.*
+_Code as Data. Safe. Async. Sandboxed._
 
 ---
 
@@ -19,6 +19,7 @@ function searchAndSummarize({ query }) {
 ```
 
 This compiles to JSON that can be:
+
 - Stored in a database
 - Sent over the network
 - Executed in a sandboxed VM
@@ -41,23 +42,27 @@ const agent = ajs`
 `
 
 const vm = new AgentVM()
-const result = await vm.run(agent, { url: 'https://api.example.com' }, {
-  fuel: 1000,      // CPU budget
-  timeoutMs: 5000  // Wall-clock limit
-})
+const result = await vm.run(
+  agent,
+  { url: 'https://api.example.com' },
+  {
+    fuel: 1000, // CPU budget
+    timeoutMs: 5000, // Wall-clock limit
+  }
+)
 ```
 
 ### Fuel Metering
 
 Every operation costs fuel:
 
-| Operation | Cost |
-|-----------|------|
-| Expression evaluation | 0.01 |
-| Variable set/get | 0.1 |
-| Control flow (if, while) | 0.5 |
-| HTTP fetch | 10 |
-| LLM predict | 100 |
+| Operation                | Cost |
+| ------------------------ | ---- |
+| Expression evaluation    | 0.01 |
+| Variable set/get         | 0.1  |
+| Control flow (if, while) | 0.5  |
+| HTTP fetch               | 10   |
+| LLM predict              | 100  |
 
 When fuel runs out, execution stops safely:
 
@@ -74,7 +79,7 @@ Fuel protects against CPU abuse. Timeouts protect against I/O abuse:
 ```typescript
 await vm.run(agent, args, {
   fuel: 1000,
-  timeoutMs: 5000  // Hard 5-second limit
+  timeoutMs: 5000, // Hard 5-second limit
 })
 ```
 
@@ -86,8 +91,8 @@ The VM starts with **zero capabilities**. You grant what each agent needs:
 
 ```typescript
 const capabilities = {
-  fetch: createFetchCapability({ 
-    allowedHosts: ['api.example.com']
+  fetch: createFetchCapability({
+    allowedHosts: ['api.example.com'],
   }),
   store: createReadOnlyStore(),
   // No llm - this agent can't call AI
@@ -167,16 +172,16 @@ let nullish = a ?? defaultValue
 
 ### What's Forbidden
 
-| Feature | Why Forbidden |
-|---------|---------------|
-| `class` | Too complex for LLMs, enables prototype pollution |
-| `new` | Arbitrary object construction |
-| `this` | Implicit context, hard to sandbox |
-| Closures | State escapes the sandbox |
-| `async`/`await` | VM handles async internally |
-| `eval`, `Function` | Code injection |
-| `__proto__`, `constructor` | Prototype pollution |
-| `import`/`export` | Module system handled by host |
+| Feature                    | Why Forbidden                                     |
+| -------------------------- | ------------------------------------------------- |
+| `class`                    | Too complex for LLMs, enables prototype pollution |
+| `new`                      | Arbitrary object construction                     |
+| `this`                     | Implicit context, hard to sandbox                 |
+| Closures                   | State escapes the sandbox                         |
+| `async`/`await`            | VM handles async internally                       |
+| `eval`, `Function`         | Code injection                                    |
+| `__proto__`, `constructor` | Prototype pollution                               |
+| `import`/`export`          | Module system handled by host                     |
 
 AJS is intentionally simple—simple enough for 4B parameter LLMs to generate correctly.
 
@@ -188,63 +193,63 @@ Atoms are the built-in operations. Each atom has a defined cost, input schema, a
 
 ### Flow Control
 
-| Atom | Description |
-|------|-------------|
-| `seq` | Execute operations in sequence |
-| `if` | Conditional branching |
-| `while` | Loop with condition |
-| `return` | Return a value |
-| `try` | Error handling |
+| Atom     | Description                    |
+| -------- | ------------------------------ |
+| `seq`    | Execute operations in sequence |
+| `if`     | Conditional branching          |
+| `while`  | Loop with condition            |
+| `return` | Return a value                 |
+| `try`    | Error handling                 |
 
 ### State Management
 
-| Atom | Description |
-|------|-------------|
-| `varSet` | Set a variable |
-| `varGet` | Get a variable |
-| `varsLet` | Batch variable declaration |
-| `varsImport` | Import from arguments |
-| `varsExport` | Export as result |
-| `scope` | Create a local scope |
+| Atom         | Description                |
+| ------------ | -------------------------- |
+| `varSet`     | Set a variable             |
+| `varGet`     | Get a variable             |
+| `varsLet`    | Batch variable declaration |
+| `varsImport` | Import from arguments      |
+| `varsExport` | Export as result           |
+| `scope`      | Create a local scope       |
 
 ### I/O
 
-| Atom | Description |
-|------|-------------|
+| Atom        | Description                                 |
+| ----------- | ------------------------------------------- |
 | `httpFetch` | HTTP requests (requires `fetch` capability) |
 
 ### Storage
 
-| Atom | Description |
-|------|-------------|
-| `storeGet` | Get from key-value store |
-| `storeSet` | Set in key-value store |
+| Atom          | Description              |
+| ------------- | ------------------------ |
+| `storeGet`    | Get from key-value store |
+| `storeSet`    | Set in key-value store   |
 | `storeSearch` | Vector similarity search |
 
 ### AI
 
-| Atom | Description |
-|------|-------------|
-| `llmPredict` | LLM inference |
-| `agentRun` | Run a sub-agent |
+| Atom         | Description     |
+| ------------ | --------------- |
+| `llmPredict` | LLM inference   |
+| `agentRun`   | Run a sub-agent |
 
 ### Procedures
 
-| Atom | Description |
-|------|-------------|
-| `storeProcedure` | Store an AST as callable token |
-| `releaseProcedure` | Delete a stored procedure |
-| `clearExpiredProcedures` | Clean up expired tokens |
+| Atom                     | Description                    |
+| ------------------------ | ------------------------------ |
+| `storeProcedure`         | Store an AST as callable token |
+| `releaseProcedure`       | Delete a stored procedure      |
+| `clearExpiredProcedures` | Clean up expired tokens        |
 
 ### Utilities
 
-| Atom | Description |
-|------|-------------|
-| `random` | Random number generation |
-| `uuid` | Generate UUIDs |
-| `hash` | Compute hashes |
-| `memoize` | In-memory memoization |
-| `cache` | Persistent caching |
+| Atom      | Description              |
+| --------- | ------------------------ |
+| `random`  | Random number generation |
+| `uuid`    | Generate UUIDs           |
+| `hash`    | Compute hashes           |
+| `memoize` | In-memory memoization    |
+| `cache`   | Persistent caching       |
 
 ---
 
@@ -257,13 +262,13 @@ AJS expressions have access to safe built-in objects:
 All standard math functions:
 
 ```javascript
-Math.abs(-5)        // 5
-Math.floor(3.7)     // 3
-Math.sqrt(16)       // 4
-Math.sin(Math.PI)   // ~0
-Math.random()       // 0-1
-Math.max(1, 2, 3)   // 3
-Math.min(1, 2, 3)   // 1
+Math.abs(-5) // 5
+Math.floor(3.7) // 3
+Math.sqrt(16) // 4
+Math.sin(Math.PI) // ~0
+Math.random() // 0-1
+Math.max(1, 2, 3) // 3
+Math.min(1, 2, 3) // 1
 ```
 
 ### JSON
@@ -271,8 +276,8 @@ Math.min(1, 2, 3)   // 1
 Parse and stringify:
 
 ```javascript
-JSON.parse('{"a": 1}')     // { a: 1 }
-JSON.stringify({ a: 1 })   // '{"a": 1}'
+JSON.parse('{"a": 1}') // { a: 1 }
+JSON.stringify({ a: 1 }) // '{"a": 1}'
 ```
 
 ### Array
@@ -280,9 +285,9 @@ JSON.stringify({ a: 1 })   // '{"a": 1}'
 Static methods:
 
 ```javascript
-Array.isArray([1, 2])      // true
-Array.from('abc')          // ['a', 'b', 'c']
-Array.of(1, 2, 3)          // [1, 2, 3]
+Array.isArray([1, 2]) // true
+Array.from('abc') // ['a', 'b', 'c']
+Array.of(1, 2, 3) // [1, 2, 3]
 ```
 
 ### Object
@@ -290,11 +295,11 @@ Array.of(1, 2, 3)          // [1, 2, 3]
 Static methods:
 
 ```javascript
-Object.keys({ a: 1 })      // ['a']
-Object.values({ a: 1 })    // [1]
-Object.entries({ a: 1 })   // [['a', 1]]
-Object.fromEntries([['a', 1]])  // { a: 1 }
-Object.assign({}, a, b)    // merged object
+Object.keys({ a: 1 }) // ['a']
+Object.values({ a: 1 }) // [1]
+Object.entries({ a: 1 }) // [['a', 1]]
+Object.fromEntries([['a', 1]]) // { a: 1 }
+Object.assign({}, a, b) // merged object
 ```
 
 ### String
@@ -302,8 +307,8 @@ Object.assign({}, a, b)    // merged object
 Static methods:
 
 ```javascript
-String.fromCharCode(65)    // 'A'
-String.fromCodePoint(128512)  // emoji
+String.fromCharCode(65) // 'A'
+String.fromCodePoint(128512) // emoji
 ```
 
 ### Number
@@ -312,10 +317,10 @@ Constants and checks:
 
 ```javascript
 Number.MAX_VALUE
-Number.isNaN(NaN)          // true
-Number.isFinite(100)       // true
-Number.parseInt('42')      // 42
-Number.parseFloat('3.14')  // 3.14
+Number.isNaN(NaN) // true
+Number.isFinite(100) // true
+Number.parseInt('42') // 42
+Number.parseFloat('3.14') // 3.14
 ```
 
 ### Set Operations
@@ -323,11 +328,11 @@ Number.parseFloat('3.14')  // 3.14
 Set-like operations:
 
 ```javascript
-Set.add([1, 2], 3)         // [1, 2, 3]
-Set.remove([1, 2, 3], 2)   // [1, 3]
-Set.union([1, 2], [2, 3])  // [1, 2, 3]
-Set.intersection([1, 2], [2, 3])  // [2]
-Set.diff([1, 2, 3], [2])   // [1, 3]
+Set.add([1, 2], 3) // [1, 2, 3]
+Set.remove([1, 2, 3], 2) // [1, 3]
+Set.union([1, 2], [2, 3]) // [1, 2, 3]
+Set.intersection([1, 2], [2, 3]) // [2]
+Set.diff([1, 2, 3], [2]) // [1, 3]
 ```
 
 ### Date
@@ -335,9 +340,9 @@ Set.diff([1, 2, 3], [2])   // [1, 3]
 Date factory with arithmetic:
 
 ```javascript
-Date.now()                 // timestamp
-Date.create('2024-01-15')  // Date object
-Date.add(date, 1, 'day')   // new Date
+Date.now() // timestamp
+Date.create('2024-01-15') // Date object
+Date.add(date, 1, 'day') // new Date
 Date.format(date, 'YYYY-MM-DD')
 ```
 
@@ -350,11 +355,14 @@ Build JSON schemas for structured LLM outputs:
 let schema = Schema.response('person', { name: '', age: 0 })
 
 // With constraints
-let schema = Schema.response('user', Schema.object({
-  email: Schema.string.email,
-  age: Schema.number.int.min(0).max(150).optional,
-  role: Schema.enum(['admin', 'user', 'guest'])
-}))
+let schema = Schema.response(
+  'user',
+  Schema.object({
+    email: Schema.string.email,
+    age: Schema.number.int.min(0).max(150).optional,
+    role: Schema.enum(['admin', 'user', 'guest']),
+  })
+)
 ```
 
 ---
@@ -370,7 +378,10 @@ AJS compiles to a JSON AST. Here's what it looks like:
   "$seq": [
     { "$op": "varSet", "key": "x", "value": 10 },
     { "$op": "varSet", "key": "y", "value": 20 },
-    { "$op": "return", "value": { "$expr": "binary", "op": "+", "left": "x", "right": "y" } }
+    {
+      "$op": "return",
+      "value": { "$expr": "binary", "op": "+", "left": "x", "right": "y" }
+    }
   ]
 }
 ```
@@ -430,8 +441,8 @@ await vm.run(agent, args, { capabilities: {} })
 // This agent can fetch from one domain
 await vm.run(agent, args, {
   capabilities: {
-    fetch: createFetchCapability({ allowedHosts: ['api.example.com'] })
-  }
+    fetch: createFetchCapability({ allowedHosts: ['api.example.com'] }),
+  },
 })
 ```
 
@@ -446,6 +457,7 @@ These property names are blocked to prevent prototype pollution:
 ### SSRF Protection
 
 The `httpFetch` atom can be configured with:
+
 - Allowlisted hosts only
 - Blocked private IP ranges
 - Request signing requirements
@@ -476,15 +488,15 @@ const { result, trace } = await vm.run(agent, args, { trace: true })
 
 ```javascript
 function researchAgent({ topic }) {
-  let searchResults = httpFetch({ 
-    url: `https://api.search.com?q=${topic}` 
+  let searchResults = httpFetch({
+    url: `https://api.search.com?q=${topic}`,
   })
-  
+
   let summary = llmPredict({
     system: 'You are a research assistant.',
-    user: `Summarize these results about ${topic}: ${searchResults}`
+    user: `Summarize these results about ${topic}: ${searchResults}`,
   })
-  
+
   return { topic, summary }
 }
 ```
@@ -494,21 +506,21 @@ function researchAgent({ topic }) {
 ```javascript
 function applyDiscounts({ cart, userTier }) {
   let discount = 0
-  
+
   if (userTier === 'gold') {
     discount = 0.2
   } else if (userTier === 'silver') {
     discount = 0.1
   }
-  
+
   if (cart.total > 100) {
     discount = discount + 0.05
   }
-  
-  return { 
+
+  return {
     originalTotal: cart.total,
     discount: discount,
-    finalTotal: cart.total * (1 - discount)
+    finalTotal: cart.total * (1 - discount),
   }
 }
 ```
@@ -549,20 +561,21 @@ Extend the runtime with your own operations:
 import { defineAtom, AgentVM, s } from 'tjs-lang'
 
 const myScraper = defineAtom(
-  'scrape',                           // OpCode
-  s.object({ url: s.string }),        // Input Schema
-  s.string,                           // Output Schema
+  'scrape', // OpCode
+  s.object({ url: s.string }), // Input Schema
+  s.string, // Output Schema
   async ({ url }, ctx) => {
     const res = await ctx.capabilities.fetch(url)
     return await res.text()
   },
-  { cost: 5 }                         // Fuel cost
+  { cost: 5 } // Fuel cost
 )
 
 const myVM = new AgentVM({ scrape: myScraper })
 ```
 
 Atoms must:
+
 - Be non-blocking (no synchronous CPU-heavy work)
 - Respect `ctx.signal` for cancellation
 - Access I/O only via `ctx.capabilities`
@@ -576,12 +589,11 @@ For programmatic AST construction:
 ```typescript
 import { Agent, s } from 'tjs-lang'
 
-const agent = Agent
-  .take(s.object({ price: s.number, taxRate: s.number }))
+const agent = Agent.take(s.object({ price: s.number, taxRate: s.number }))
   .varSet({ key: 'total', value: Agent.expr('price * (1 + taxRate)') })
   .return(s.object({ total: s.number }))
 
-const ast = agent.toJSON()  // JSON-serializable AST
+const ast = agent.toJSON() // JSON-serializable AST
 ```
 
 The builder is lower-level but gives full control over AST construction.
@@ -613,6 +625,7 @@ The builder is lower-level but gives full control over AST construction.
 - **Proportional memory charging** prevents runaway allocations
 
 AJS is interpreted (JSON AST), so it's slower than native JS. But:
+
 - Execution is predictable and bounded
 - I/O dominates most agent workloads
 - Tracing is free (built into the VM)

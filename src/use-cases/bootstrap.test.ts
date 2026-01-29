@@ -13,7 +13,7 @@
 
 import { describe, it, expect } from 'bun:test'
 import { fromTS } from '../lang/emitters/from-ts'
-import { tjs, transpileToJS } from '../lang'
+import { tjs } from '../lang'
 import * as fs from 'fs'
 import * as path from 'path'
 

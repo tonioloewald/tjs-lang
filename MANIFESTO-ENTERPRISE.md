@@ -38,7 +38,7 @@ if (result.$error) {
 
 Type failures return error objects, not exceptions. The host survives anything the guest throws at it.
 
-**TJS changes the physics of failure.** In every other language, a runtime type error is a catastrophe—uncaught exception, stack trace, 500 server error. In TJS, a type error is just *data*.
+**TJS changes the physics of failure.** In every other language, a runtime type error is a catastrophe—uncaught exception, stack trace, 500 server error. In TJS, a type error is just _data_.
 
 Most developers see: `TypeError: Cannot read property 'x' of undefined at anonymous:5:12`
 
@@ -98,10 +98,10 @@ You grant exactly what each agent needs:
 
 ```typescript
 const capabilities = {
-  fetch: createFetchCapability({ 
-    allowedHosts: ['api.example.com']  // Only these domains
+  fetch: createFetchCapability({
+    allowedHosts: ['api.example.com'], // Only these domains
   }),
-  store: createReadOnlyStore(),         // Read but not write
+  store: createReadOnlyStore(), // Read but not write
   // No LLM capability - this agent can't call AI
 }
 
@@ -115,9 +115,9 @@ If you don't grant it, the agent can't do it.
 Every operation costs fuel. Loops can't run forever:
 
 ```typescript
-const result = await vm.run(agent, args, { 
-  fuel: 1000,      // CPU budget
-  timeoutMs: 5000  // Wall-clock limit
+const result = await vm.run(agent, args, {
+  fuel: 1000, // CPU budget
+  timeoutMs: 5000, // Wall-clock limit
 })
 
 if (result.fuelExhausted) {
@@ -134,7 +134,7 @@ Fuel protects against CPU abuse. Timeouts protect against I/O abuse:
 ```typescript
 await vm.run(agent, args, {
   fuel: 1000,
-  timeoutMs: 5000  // 5 second hard limit
+  timeoutMs: 5000, // 5 second hard limit
 })
 ```
 
@@ -144,33 +144,33 @@ Slow network calls can't hang your servers.
 
 ## Threat Model
 
-| Threat | Defense |
-|--------|---------|
-| **Infinite loops** | Fuel exhaustion - every op costs gas |
-| **Memory bombs** | Proportional charging - large allocs cost more |
-| **SSRF** | URL allowlists in fetch capability |
+| Threat                  | Defense                                              |
+| ----------------------- | ---------------------------------------------------- |
+| **Infinite loops**      | Fuel exhaustion - every op costs gas                 |
+| **Memory bombs**        | Proportional charging - large allocs cost more       |
+| **SSRF**                | URL allowlists in fetch capability                   |
 | **Prototype pollution** | Blocked property access (`__proto__`, `constructor`) |
-| **Code injection** | AST nodes, not string eval |
-| **ReDoS** | Suspicious regex rejection |
-| **Data exfiltration** | Zero capabilities by default |
-| **Resource exhaustion** | Per-request fuel + timeout limits |
+| **Code injection**      | AST nodes, not string eval                           |
+| **ReDoS**               | Suspicious regex rejection                           |
+| **Data exfiltration**   | Zero capabilities by default                         |
+| **Resource exhaustion** | Per-request fuel + timeout limits                    |
 
 ### What the Platform Controls
 
-| Resource | Mechanism |
-|----------|-----------|
-| CPU | Fuel budget |
-| Memory | Proportional charging |
-| Time | Timeout enforcement |
-| Network | Capability allowlists |
-| Storage | Capability scoping |
-| Recursion | Depth protocol |
+| Resource  | Mechanism             |
+| --------- | --------------------- |
+| CPU       | Fuel budget           |
+| Memory    | Proportional charging |
+| Time      | Timeout enforcement   |
+| Network   | Capability allowlists |
+| Storage   | Capability scoping    |
+| Recursion | Depth protocol        |
 
 ### What the Platform Trusts
 
 - **Custom atoms** are host code - you write them, you trust them
 - **Capabilities** determine exposure - misconfigured fetch is still dangerous
-- **The VM** prevents malicious *agents*, not malicious *atom implementations*
+- **The VM** prevents malicious _agents_, not malicious _atom implementations_
 
 ---
 

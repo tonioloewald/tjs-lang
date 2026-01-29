@@ -10,12 +10,12 @@ AJS (AsyncJS) is a JavaScript subset that compiles to portable JSON AST. It's th
 
 We separate **Host** (infrastructure you deploy once) from **Guest** (logic that ships continuously).
 
-| | **TJS (Host)** | **AJS (Guest)** |
-|---|---|---|
-| **Role** | Defines the physics—capabilities, resources, safety | The portable logic payload |
-| **You write** | Your service layer, frontend, capabilities | Agents, workflows, LLM-generated code |
-| **Deploys** | Once, then evolves | Continuously, as data |
-| **Trust level** | Trusted code you control | Untrusted code from anywhere |
+|                 | **TJS (Host)**                                      | **AJS (Guest)**                       |
+| --------------- | --------------------------------------------------- | ------------------------------------- |
+| **Role**        | Defines the physics—capabilities, resources, safety | The portable logic payload            |
+| **You write**   | Your service layer, frontend, capabilities          | Agents, workflows, LLM-generated code |
+| **Deploys**     | Once, then evolves                                  | Continuously, as data                 |
+| **Trust level** | Trusted code you control                            | Untrusted code from anywhere          |
 
 **Together:** Deploy TJS once to create a secure, high-performance Universal Endpoint. Ship AJS continuously to execute logic where the data lives.
 
@@ -30,9 +30,9 @@ We separate **Host** (infrastructure you deploy once) from **Guest** (logic that
 You can't know if arbitrary code will terminate. But you can **bound** it:
 
 ```typescript
-const result = await vm.run(agent, args, { 
-  fuel: 1000,      // CPU budget
-  timeoutMs: 5000  // Wall-clock limit
+const result = await vm.run(agent, args, {
+  fuel: 1000, // CPU budget
+  timeoutMs: 5000, // Wall-clock limit
 })
 
 if (result.fuelExhausted) {
@@ -53,8 +53,8 @@ AJS syntax is simple enough for **4B parameter models** to generate correctly:
 ```javascript
 function searchAndSummarize({ query }) {
   let results = httpFetch({ url: `https://api.example.com/search?q=${query}` })
-  let summary = llmPredict({ 
-    prompt: `Summarize these results: ${JSON.stringify(results)}` 
+  let summary = llmPredict({
+    prompt: `Summarize these results: ${JSON.stringify(results)}`,
   })
   return { query, summary }
 }
@@ -73,10 +73,10 @@ The VM starts with **zero capabilities**. The host grants exactly what each agen
 ```typescript
 // Host decides what this agent can do
 const capabilities = {
-  fetch: createFetchCapability({ 
-    allowedHosts: ['api.example.com']  // No SSRF
+  fetch: createFetchCapability({
+    allowedHosts: ['api.example.com'], // No SSRF
   }),
-  store: createReadOnlyStore(),         // Can read, can't write
+  store: createReadOnlyStore(), // Can read, can't write
   // No LLM capability—this agent can't call AI
 }
 
@@ -95,7 +95,11 @@ AJS compiles to JSON AST. The code **is** data:
 {
   "$seq": [
     { "$op": "httpFetch", "url": { "$expr": "template", "tmpl": "..." } },
-    { "$op": "varSet", "name": "results", "value": { "$expr": "ident", "name": "fetched" } },
+    {
+      "$op": "varSet",
+      "name": "results",
+      "value": { "$expr": "ident", "name": "fetched" }
+    },
     { "$op": "return", "value": { "$expr": "ident", "name": "results" } }
   ]
 }
@@ -116,31 +120,33 @@ One endpoint. Any agent. Zero deployment.
 // TJS host: deployed once
 app.post('/execute', async (req, res) => {
   const { agent, args, apiKey } = req.body
-  
+
   // Validate and parse the agent
   const ast = ajs(agent)
-  
+
   // Get capabilities for this API key
   const capabilities = getCapabilitiesForKey(apiKey)
-  
+
   // Execute with limits
   const result = await vm.run(ast, args, {
     fuel: 1000,
     timeoutMs: 5000,
-    capabilities
+    capabilities,
   })
-  
+
   res.json(result)
 })
 ```
 
 **What this replaces:**
+
 - Deploying a new service for each workflow
 - Building bespoke APIs for each integration
 - Managing containers for each agent
 - Cold start latency for serverless functions
 
 **What you get:**
+
 - One hot endpoint that runs any valid agent
 - Per-request resource limits
 - Per-key capability scoping
@@ -192,25 +198,25 @@ app.post('/execute', async (req, res) => {
 
 ### What AJS Prevents
 
-| Threat | Defense |
-|--------|---------|
-| Infinite loops | Fuel exhaustion |
-| Memory bombs | Proportional fuel charging |
-| SSRF | URL allowlists |
-| Prototype pollution | Blocked property access |
-| Code injection | AST nodes, not eval |
-| ReDoS | Suspicious regex rejection |
+| Threat              | Defense                    |
+| ------------------- | -------------------------- |
+| Infinite loops      | Fuel exhaustion            |
+| Memory bombs        | Proportional fuel charging |
+| SSRF                | URL allowlists             |
+| Prototype pollution | Blocked property access    |
+| Code injection      | AST nodes, not eval        |
+| ReDoS               | Suspicious regex rejection |
 
 ### What the Host Controls
 
-| Resource | Mechanism |
-|----------|-----------|
-| CPU | Fuel budget |
-| Memory | Proportional charging |
-| Time | Timeout enforcement |
-| Network | Capability allowlists |
-| Storage | Capability scoping |
-| Recursion | Depth protocol |
+| Resource  | Mechanism             |
+| --------- | --------------------- |
+| CPU       | Fuel budget           |
+| Memory    | Proportional charging |
+| Time      | Timeout enforcement   |
+| Network   | Capability allowlists |
+| Storage   | Capability scoping    |
+| Recursion | Depth protocol        |
 
 ### Attack Surface
 
@@ -227,6 +233,7 @@ app.post('/execute', async (req, res) => {
 - **Proportional memory charging** prevents runaway allocations
 
 AJS is interpreted (JSON AST), so it's slower than native JS. But:
+
 - Execution is predictable and bounded
 - I/O dominates most agent workloads
 - Tracing is free (built into the VM)

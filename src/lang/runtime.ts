@@ -655,8 +655,9 @@ export interface FunctionMeta {
 
 /**
  * Determine if we should validate inputs for this call
+ * Reserved for future use with runtime validation modes
  */
-function shouldValidateInputs(meta: FunctionMeta): boolean {
+function _shouldValidateInputs(meta: FunctionMeta): boolean {
   // Per-function flags take precedence
   if (meta.unsafe) return false
   if (meta.safe) return true
@@ -670,8 +671,9 @@ function shouldValidateInputs(meta: FunctionMeta): boolean {
 
 /**
  * Determine if we should validate outputs for this call
+ * Reserved for future use with runtime validation modes
  */
-function shouldValidateOutputs(meta: FunctionMeta): boolean {
+function _shouldValidateOutputs(meta: FunctionMeta): boolean {
   // No return type declared = no validation
   if (!meta.returns) return false
 
@@ -698,7 +700,7 @@ export function wrap<T extends (...args: any[]) => any>(
   meta: FunctionMeta
 ): T {
   // Always attach metadata for introspection/autocomplete
-  ;(fn as any).__tjs = meta
+  (fn as any).__tjs = meta
 
   // Determine if we need a wrapper at all
   const needsWrapper =

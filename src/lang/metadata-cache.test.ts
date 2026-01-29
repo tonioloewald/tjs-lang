@@ -8,7 +8,6 @@ import {
   type CachedTranspileResult,
   type CachedTJSResult,
 } from './metadata-cache'
-import { TJS_VERSION } from './runtime'
 
 describe('metadata-cache', () => {
   describe('hashSource', () => {

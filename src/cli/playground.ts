@@ -228,8 +228,12 @@ async function main() {
 
   console.log(`
   TJS Playground running at http://localhost:${port}
-${!noWatch ? `
-  Watching for changes...` : ''}
+${
+  !noWatch
+    ? `
+  Watching for changes...`
+    : ''
+}
 
   Press Ctrl+C to stop
 `)

@@ -14,14 +14,14 @@ TJS delivers **runtime type safety with near-zero overhead**. The key insight: s
 
 ### The Performance Story
 
-| Mode | Overhead | Use Case |
-|------|----------|----------|
-| `safety none` | **1.0x** | Production - metadata only, no wrappers |
+| Mode            | Overhead  | Use Case                                        |
+| --------------- | --------- | ----------------------------------------------- |
+| `safety none`   | **1.0x**  | Production - metadata only, no wrappers         |
 | `safety inputs` | **~1.5x** | Production with validation (single-arg objects) |
-| `safety inputs` | ~11x | Multi-arg functions (schema-based) |
-| `safety all` | ~14x | Debug - validates inputs and outputs |
-| `(!) unsafe` | **1.0x** | Hot paths - explicit opt-out |
-| WASM blocks | **<1.0x** | Heavy computation - faster than JS |
+| `safety inputs` | ~11x      | Multi-arg functions (schema-based)              |
+| `safety all`    | ~14x      | Debug - validates inputs and outputs            |
+| `(!) unsafe`    | **1.0x**  | Hot paths - explicit opt-out                    |
+| WASM blocks     | **<1.0x** | Heavy computation - faster than JS              |
 
 **The happy path**: Single structured argument + inline validation = **1.5x overhead** with full runtime type checking.
 
@@ -29,22 +29,34 @@ TJS delivers **runtime type safety with near-zero overhead**. The key insight: s
 
 ```typescript
 // TJS: pleasant syntax, fast validation (1.5x)
-function createUser(input: { name: 'Alice', email: 'a@b.com', age: 30 }) {
+function createUser(input: { name: 'Alice'; email: 'a@b.com'; age: 30 }) {
   return save(input)
 }
 
 // TypeScript: painful syntax, no runtime safety (1.0x but unsafe)
-function createUser({ name, email, age }: { name: string, email: string, age: number }) {
+function createUser({
+  name,
+  email,
+  age,
+}: {
+  name: string
+  email: string
+  age: number
+}) {
   return save({ name, email, age })
 }
 ```
 
 TJS generates inline type checks at transpile time:
+
 ```javascript
-if (typeof input !== 'object' || input === null ||
-    typeof input.name !== 'string' ||
-    typeof input.email !== 'string' ||
-    typeof input.age !== 'number') {
+if (
+  typeof input !== 'object' ||
+  input === null ||
+  typeof input.name !== 'string' ||
+  typeof input.email !== 'string' ||
+  typeof input.age !== 'number'
+) {
   return { $error: true, message: 'Invalid input', path: 'createUser.input' }
 }
 ```
@@ -66,6 +78,7 @@ The idiomatic way to write TJS (single structured argument) is also the fastest 
 ### Future: Compile to LLVM
 
 The AST is the source of truth. Today we emit JavaScript. Tomorrow:
+
 - LLVM IR for native binaries
 - Compete with Go and Rust on performance
 - Same type safety, same developer experience
@@ -77,6 +90,7 @@ The AST is the source of truth. Today we emit JavaScript. Tomorrow:
 ### Performance
 
 **Runtime Validation Overhead:**
+
 ```
 Plain function call:     0.5ms / 100K calls (baseline)
 safety: 'none':          0.5ms / 100K calls (~1.0x) - no wrapper
@@ -88,17 +102,21 @@ safety: 'all':           7.0ms / 100K calls (~14x) - validates args + return
 ```
 
 **Why single-arg objects are fast:**
+
 ```typescript
 // The happy path - single structured argument
-function process(input: { x: 0, y: 0, name: 'default' }) {
+function process(input: { x: 0; y: 0; name: 'default' }) {
   return input.x + input.y
 }
 
 // Generates inline type checks (20x faster than schema interpretation):
-if (typeof input !== 'object' || input === null ||
-    typeof input.x !== 'number' ||
-    typeof input.y !== 'number' ||
-    typeof input.name !== 'string') {
+if (
+  typeof input !== 'object' ||
+  input === null ||
+  typeof input.x !== 'number' ||
+  typeof input.y !== 'number' ||
+  typeof input.name !== 'string'
+) {
   return { $error: true, message: 'Invalid input', path: 'process.input' }
 }
 ```
@@ -106,19 +124,23 @@ if (typeof input !== 'object' || input === null ||
 This makes `safety: 'inputs'` viable for **production** with single-arg patterns.
 
 **Why `safety: 'none'` is free:**
+
 - `wrap()` attaches `__tjs` metadata but returns original function
 - No wrapper function, no `fn.apply()`, no argument spreading
 - Introspection/autocomplete still works - metadata is always there
 
 **The `(!) unsafe` marker:**
+
 ```typescript
 function hot(! x: number) -> number { return x * 2 }
 ```
+
 - Returns original function even with `safety: inputs`
 - Use for hot paths where validation cost matters
 - Autocomplete still works (metadata attached)
 
 **WASM blocks:**
+
 ```typescript
 function compute(x: 0, y: 0) {
   const scale = 2
@@ -131,6 +153,7 @@ function compute(x: 0, y: 0) {
 ```
 
 With explicit fallback (when WASM and JS need different code):
+
 ```typescript
 function transform(arr: []) {
   wasm {
@@ -142,17 +165,19 @@ function transform(arr: []) {
 ```
 
 WASM compilation is implemented as a proof-of-concept:
+
 - Parser extracts `wasm { }` blocks with automatic variable capture
 - Compiler generates valid WebAssembly binary from the body
 - Runtime dispatches to WASM when available, body runs as JS fallback
 - Benchmark: ~1.3x faster than equivalent JS (varies by workload)
 
-The POC supports: arithmetic (+, -, *, /), captured variables, parentheses.
+The POC supports: arithmetic (+, -, \*, /), captured variables, parentheses.
 Full implementation would add: loops, conditionals, typed arrays, memory access.
 
 ### Debugging
 
 **Source locations in errors:**
+
 ```typescript
 {
   $error: true,
@@ -164,12 +189,14 @@ Full implementation would add: loops, conditionals, typed arrays, memory access.
 ```
 
 **Debug mode:**
+
 ```typescript
 configure({ debug: true })
 // Errors now include full call stacks
 ```
 
 **The `--debug` flag (planned):**
+
 - Functions know where they're defined
 - Errors include source file and line
 - No source maps needed - metadata is inline
@@ -177,6 +204,7 @@ configure({ debug: true })
 ### For Human Coding
 
 **Intuitive syntax:**
+
 ```typescript
 // Types ARE examples - self-documenting
 function greet(name: 'World', times: 3) -> string {
@@ -188,6 +216,7 @@ function greet(name: 'World', times: 3) -> string {
 ```
 
 **Module-level safety:**
+
 ```typescript
 safety none  // This module skips validation
 
@@ -197,6 +226,7 @@ function hot(x: number) -> number {
 ```
 
 **Escape hatches:**
+
 ```typescript
 // Per-function: skip validation for this function
 function critical(! data: object) { ... }
@@ -212,10 +242,11 @@ unsafe {
 ### For Agent Coding
 
 **Introspectable functions:**
+
 ```typescript
 greet.__tjs = {
   params: { name: { type: 'string', required: true, example: 'World' } },
-  returns: { type: 'string' }
+  returns: { type: 'string' },
 }
 
 // Agents can read this to understand function signatures
@@ -223,6 +254,7 @@ greet.__tjs = {
 ```
 
 **Monadic errors:**
+
 ```typescript
 const result = riskyOperation()
 if (result.$error) {
@@ -232,6 +264,7 @@ if (result.$error) {
 ```
 
 **Fuel metering:**
+
 ```typescript
 // Agents run with fuel limits - can't run forever
 vm.run(agentCode, { fuel: 10000 })
@@ -479,51 +512,51 @@ The AST is the source of truth. Targets are just emission strategies.
 
 ## Implementation Status
 
-| #   | Feature                | Status | Notes                                          |
-| --- | ---------------------- | ------ | ---------------------------------------------- |
+| #   | Feature                | Status | Notes                                                        |
+| --- | ---------------------- | ------ | ------------------------------------------------------------ |
 | 1   | Type()                 | ✅     | Full form with description + predicate, Union, Generic, Enum |
-| 2   | target()               | ❌     | Conditional compilation                        |
-| 3   | Monadic Errors         | ✅     | AgentError with path, loc, debug call stacks   |
-| 4   | test() blocks          | ✅     | extractTests, assert/expect, mock blocks, CLI  |
-| 5   | Pragmatic natives      | ⏳     | Some constructor checks exist                  |
-| 6   | Multi-target           | ❌     | Future - JS only for now                       |
-| 7   | Safety levels          | ✅     | none/inputs/all + (!)/(?) + unsafe {}          |
-| 8   | Module-level safety    | ✅     | `safety none` directive parsed and passed      |
-| 9   | Single-pass            | ✅     | Bun plugin: direct `bun file.tjs` execution    |
-| 10  | Module system          | ✅     | IndexedDB store, esm.sh CDN, pinned versions   |
-| 11  | Autocomplete           | ✅     | CodeMirror integration, globals, introspection |
-| 12  | Eval() / SafeFunction  | ✅     | Both exported and tested in runtime            |
-| 13  | Function introspection | ✅     | __tjs metadata with params, returns, examples  |
-| 14  | Generic()              | ✅     | Runtime-checkable generics with TPair, TRecord |
-| 15  | Asymmetric get/set     | ✅     | JS native get/set captures asymmetric types    |
-| 16  | `==` that works        | ✅     | Is/IsNot with infix syntax + .Equals hook      |
-| 17  | WASM blocks            | ✅     | POC: parser + compiler for simple expressions  |
-| 18  | Death to `new`         | ✅     | wrapClass + no-explicit-new lint rule          |
-| 19  | Linter                 | ✅     | unused vars, unreachable code, no-explicit-new |
-| 20  | TS→TJS converter       | ✅     | `tjs convert` command                          |
-| 21  | Docs generation        | ✅     | Auto-generated with emit, --no-docs, --docs-dir|
-| 22  | Class support          | ✅     | TS→TJS class conversion, private→#, Proxy wrap |
+| 2   | target()               | ❌     | Conditional compilation                                      |
+| 3   | Monadic Errors         | ✅     | AgentError with path, loc, debug call stacks                 |
+| 4   | test() blocks          | ✅     | extractTests, assert/expect, mock blocks, CLI                |
+| 5   | Pragmatic natives      | ⏳     | Some constructor checks exist                                |
+| 6   | Multi-target           | ❌     | Future - JS only for now                                     |
+| 7   | Safety levels          | ✅     | none/inputs/all + (!)/(?) + unsafe {}                        |
+| 8   | Module-level safety    | ✅     | `safety none` directive parsed and passed                    |
+| 9   | Single-pass            | ✅     | Bun plugin: direct `bun file.tjs` execution                  |
+| 10  | Module system          | ✅     | IndexedDB store, esm.sh CDN, pinned versions                 |
+| 11  | Autocomplete           | ✅     | CodeMirror integration, globals, introspection               |
+| 12  | Eval() / SafeFunction  | ✅     | Both exported and tested in runtime                          |
+| 13  | Function introspection | ✅     | \_\_tjs metadata with params, returns, examples              |
+| 14  | Generic()              | ✅     | Runtime-checkable generics with TPair, TRecord               |
+| 15  | Asymmetric get/set     | ✅     | JS native get/set captures asymmetric types                  |
+| 16  | `==` that works        | ✅     | Is/IsNot with infix syntax + .Equals hook                    |
+| 17  | WASM blocks            | ✅     | POC: parser + compiler for simple expressions                |
+| 18  | Death to `new`         | ✅     | wrapClass + no-explicit-new lint rule                        |
+| 19  | Linter                 | ✅     | unused vars, unreachable code, no-explicit-new               |
+| 20  | TS→TJS converter       | ✅     | `tjs convert` command                                        |
+| 21  | Docs generation        | ✅     | Auto-generated with emit, --no-docs, --docs-dir              |
+| 22  | Class support          | ✅     | TS→TJS class conversion, private→#, Proxy wrap               |
 
 ## Implementation Priority (Updated)
 
-| Priority | Feature                   | Status | Notes                      |
-| -------- | ------------------------- | ------ | -------------------------- |
-| 1        | **Type()**                | ✅     | Full implementation        |
-| 2        | **Autocomplete**          | ✅     | Working in playground      |
-| 3        | **test() blocks**         | ✅     | Full implementation        |
+| Priority | Feature                   | Status | Notes                               |
+| -------- | ------------------------- | ------ | ----------------------------------- |
+| 1        | **Type()**                | ✅     | Full implementation                 |
+| 2        | **Autocomplete**          | ✅     | Working in playground               |
+| 3        | **test() blocks**         | ✅     | Full implementation                 |
 | 4        | **--debug / call stacks** | ✅     | Full stacks with maxStackSize limit |
-| 5        | **Eval() / SafeFunction** | ✅     | Done                       |
-| 6        | **target()**              | ❌     | Conditional compilation    |
-| 7        | **Safety flags**          | ✅     | Done                       |
-| 8        | **Single-pass**           | ✅     | Bun plugin: `bun file.tjs` |
-| 9        | **Modules**               | ✅     | Local store + CDN          |
+| 5        | **Eval() / SafeFunction** | ✅     | Done                                |
+| 6        | **target()**              | ❌     | Conditional compilation             |
+| 7        | **Safety flags**          | ✅     | Done                                |
+| 8        | **Single-pass**           | ✅     | Bun plugin: `bun file.tjs`          |
+| 9        | **Modules**               | ✅     | Local store + CDN                   |
 
 ## Next Up (Post-MVP)
 
-| Priority | Feature                   | Why                        |
-| -------- | ------------------------- | -------------------------- |
+| Priority | Feature                   | Why                                     |
+| -------- | ------------------------- | --------------------------------------- |
 | 1        | **target()**              | Conditional compilation for build flags |
-| 2        | **Multi-target emission** | LLVM, SwiftUI, Android     |
+| 2        | **Multi-target emission** | LLVM, SwiftUI, Android                  |
 
 Note: `wasm { } fallback { }` is already implemented. `target()` is for build-time code stripping (e.g., `target(browser) { }` vs `target(node) { }`), which is useful for multi-platform deployment but not MVP.
 
@@ -593,8 +626,8 @@ import { helper } from 'my-utils'
 npm packages resolve via esm.sh with pinned versions:
 
 ```typescript
-import { debounce } from 'lodash'  // -> https://esm.sh/lodash@4.17.21
-import { z } from 'zod'            // -> https://esm.sh/zod@3.22.0
+import { debounce } from 'lodash' // -> https://esm.sh/lodash@4.17.21
+import { z } from 'zod' // -> https://esm.sh/zod@3.22.0
 ```
 
 - Common packages have pinned versions for stability
@@ -747,7 +780,7 @@ nums.map(double)
 // Naive: double validates x on every iteration (3 checks)
 // Optimized: nums is number[], so each element is number - skip all checks
 
-// Transpiled (optimized)  
+// Transpiled (optimized)
 nums.map(double.__unchecked)  // zero validation overhead in loop
 ```
 
@@ -914,16 +947,16 @@ Properties that accept a broader type on write but return a narrower type on rea
 ```typescript
 class Timestamp {
   #value
-  
+
   constructor(initial: '' | 0 | null) {
     this.#value = initial === null ? new Date() : new Date(initial)
   }
-  
+
   // Setter accepts string, number, or null
   set value(v: '' | 0 | null) {
     this.#value = v === null ? new Date() : new Date(v)
   }
-  
+
   // Getter always returns Date
   get value() {
     return this.#value
@@ -931,11 +964,12 @@ class Timestamp {
 }
 
 const ts = Timestamp('2024-01-15')
-ts.value = 0          // SET accepts: string | number | null  
-ts.value              // GET returns: Date (always normalized)
+ts.value = 0 // SET accepts: string | number | null
+ts.value // GET returns: Date (always normalized)
 ```
 
 The type metadata captures the asymmetry:
+
 - Setter param type: `'' | 0 | null` (union of string, number, null)
 - Getter return type: `Date` (inferred from implementation)
 
@@ -1082,13 +1116,14 @@ class User {
 }
 
 // Both work identically in TJS:
-const u1 = User('Alice')      // TJS way - clean
-const u2 = new User('Alice')  // Lint warning: "use User() instead of new User()"
+const u1 = User('Alice') // TJS way - clean
+const u2 = new User('Alice') // Lint warning: "use User() instead of new User()"
 ```
 
 If you call `Foo()` and `Foo` is a class, TJS calls it with `new` internally. No more "Cannot call a class as a function" errors.
 
 **Implementation:**
+
 - `wrapClass()` in `src/lang/runtime.ts` - wraps classes with Proxy for callable behavior
 - `emitClassWrapper()` generates wrapper code for transpiled classes
 - `no-explicit-new` lint rule warns about unnecessary `new` keyword usage
@@ -1102,12 +1137,12 @@ class MyDropdown extends Component {
   // Shared logic - runs everywhere
   items: string[] = []
   selectedIndex: number = 0
-  
+
   select(index: number) {
     this.selectedIndex = index
     this.emit('change', this.items[index])
   }
-  
+
   // Platform-specific blocks
   web() {
     // CSS, DOM events, ARIA attributes
@@ -1116,7 +1151,7 @@ class MyDropdown extends Component {
       .dropdown-menu { position: absolute; }
     `
   }
-  
+
   swift() {
     // SwiftUI modifiers, gestures
     Menu {
@@ -1125,7 +1160,7 @@ class MyDropdown extends Component {
       }
     }
   }
-  
+
   android() {
     // Jetpack Compose
     DropdownMenu(expanded = expanded) {
@@ -1153,10 +1188,10 @@ class UserCard extends HTMLElement {
 }
 
 // Error: can't infer tag name
-class Thang extends HTMLElement { }  // "can't infer tag-name from 'Thang'"
+class Thang extends HTMLElement {} // "can't infer tag-name from 'Thang'"
 
 // OK: modest names work
-class MyThang extends HTMLElement { }  // <my-thang>
+class MyThang extends HTMLElement {} // <my-thang>
 ```
 
 **Key features:**
@@ -1173,12 +1208,16 @@ The web component registry is a source of pain - you can't redefine elements. TJ
 ```typescript
 // First definition
 class MyButton extends HTMLElement {
-  render() { return '<button>v1</button>' }
+  render() {
+    return '<button>v1</button>'
+  }
 }
 
 // Later redefinition (hot reload, live coding)
 class MyButton extends HTMLElement {
-  render() { return '<button>v2</button>' }
+  render() {
+    return '<button>v2</button>'
+  }
 }
 // All existing <my-button> elements rebuild with new implementation
 ```
@@ -1189,13 +1228,13 @@ The registered element is a hollow proxy that delegates to the current class def
 
 The `Component` class compiles to platform-native code:
 
-| TJS Source | Web Output | SwiftUI Output | Compose Output |
-|------------|------------|----------------|----------------|
-| `class Foo extends Component` | Custom Element | `struct Foo: View` | `@Composable fun Foo()` |
-| `this.state = x` | Reactive update | `@State var state` | `mutableStateOf()` |
-| `this.emit('click')` | `dispatchEvent()` | Callback closure | Lambda |
-| `web { }` | Compiled | Stripped | Stripped |
-| `swift { }` | Stripped | Compiled | Stripped |
+| TJS Source                    | Web Output        | SwiftUI Output     | Compose Output          |
+| ----------------------------- | ----------------- | ------------------ | ----------------------- |
+| `class Foo extends Component` | Custom Element    | `struct Foo: View` | `@Composable fun Foo()` |
+| `this.state = x`              | Reactive update   | `@State var state` | `mutableStateOf()`      |
+| `this.emit('click')`          | `dispatchEvent()` | Callback closure   | Lambda                  |
+| `web { }`                     | Compiled          | Stripped           | Stripped                |
+| `swift { }`                   | Stripped          | Compiled           | Stripped                |
 
 The class definition is the source of truth. Platform blocks contain native code for each target - no CSS-in-JS gymnastics trying to map everywhere.
 

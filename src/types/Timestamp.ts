@@ -78,7 +78,10 @@ export function tryParse(input: string): TimestampString | null {
 /**
  * Add milliseconds to a timestamp
  */
-export function addMilliseconds(ts: TimestampString, ms: number): TimestampString {
+export function addMilliseconds(
+  ts: TimestampString,
+  ms: number
+): TimestampString {
   const d = new Date(ts)
   d.setTime(d.getTime() + ms)
   return d.toISOString()
@@ -87,14 +90,20 @@ export function addMilliseconds(ts: TimestampString, ms: number): TimestampStrin
 /**
  * Add seconds to a timestamp
  */
-export function addSeconds(ts: TimestampString, seconds: number): TimestampString {
+export function addSeconds(
+  ts: TimestampString,
+  seconds: number
+): TimestampString {
   return addMilliseconds(ts, seconds * 1000)
 }
 
 /**
  * Add minutes to a timestamp
  */
-export function addMinutes(ts: TimestampString, minutes: number): TimestampString {
+export function addMinutes(
+  ts: TimestampString,
+  minutes: number
+): TimestampString {
   return addMilliseconds(ts, minutes * 60 * 1000)
 }
 
@@ -123,14 +132,16 @@ export function addWeeks(ts: TimestampString, weeks: number): TimestampString {
  * Add months to a timestamp
  * Handles month overflow correctly (e.g., Jan 31 + 1 month = Feb 28/29)
  */
-export function addMonths(ts: TimestampString, months: number): TimestampString {
+export function addMonths(
+  ts: TimestampString,
+  months: number
+): TimestampString {
   const d = new Date(ts)
   const targetMonth = d.getUTCMonth() + months
   d.setUTCMonth(targetMonth)
 
   // Handle overflow (e.g., Jan 31 + 1 month shouldn't become Mar 3)
   // If the day changed, we overflowed - go back to last day of target month
-  const expectedMonth = ((d.getUTCMonth() - months) % 12 + 12) % 12
   if (d.getUTCMonth() !== ((targetMonth % 12) + 12) % 12) {
     d.setUTCDate(0) // Last day of previous month
   }
@@ -280,10 +291,7 @@ export function toLocal(
 /**
  * Format as a readable date/time string
  */
-export function format(
-  ts: TimestampString,
-  timezone?: string
-): string {
+export function format(ts: TimestampString, timezone?: string): string {
   return toLocal(ts, timezone, {
     year: 'numeric',
     month: 'short',

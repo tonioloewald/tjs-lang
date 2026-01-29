@@ -19,7 +19,7 @@ import {
   mkdirSync,
   existsSync,
 } from 'fs'
-import { join, basename, dirname, extname, relative } from 'path'
+import { join, basename, dirname, extname } from 'path'
 import { tjs } from '../../lang'
 import { generateDocs } from '../../lang/docs'
 
@@ -46,7 +46,7 @@ export async function emit(
   input: string,
   options: EmitOptions = {}
 ): Promise<void> {
-  const { output, recursive = true, verbose = false } = options
+  const { output, recursive = true } = options
 
   // Check if input exists
   if (!existsSync(input)) {

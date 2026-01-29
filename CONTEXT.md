@@ -520,11 +520,11 @@ bun test --coverage
 
 These ship with the library and affect bundle size and security posture.
 
-| Package         | Version | Size  | Purpose                                     | Risk                                                 |
-| --------------- | ------- | ----- | ------------------------------------------- | ---------------------------------------------------- |
-| `acorn`         | ^8.15.0 | ~30KB | JavaScript parser for AJS transpilation     | **Low** - Mature, widely audited, Mozilla-maintained |
-| `tosijs-schema` | ^1.2.0  | ~5KB  | JSON Schema validation                      | **Low** - Our library, 96.6% coverage, zero deps     |
-| `@codemirror/*` | various | ~50KB | Editor syntax highlighting (optional)       | **Low** - Only loaded for editor integration         |
+| Package         | Version | Size  | Purpose                                 | Risk                                                 |
+| --------------- | ------- | ----- | --------------------------------------- | ---------------------------------------------------- |
+| `acorn`         | ^8.15.0 | ~30KB | JavaScript parser for AJS transpilation | **Low** - Mature, widely audited, Mozilla-maintained |
+| `tosijs-schema` | ^1.2.0  | ~5KB  | JSON Schema validation                  | **Low** - Our library, 96.6% coverage, zero deps     |
+| `@codemirror/*` | various | ~50KB | Editor syntax highlighting (optional)   | **Low** - Only loaded for editor integration         |
 
 **Total runtime footprint:** ~33KB gzipped (core), ~83KB with editor support.
 

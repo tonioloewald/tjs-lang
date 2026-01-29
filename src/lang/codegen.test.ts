@@ -976,23 +976,15 @@ function test() -! 0 {
     })
 
     it('does NOT insert semicolon after opening brace', () => {
+      // Test that we don't add ; after [ or {
       const tjsSource = `TjsStandard
-function test() -! 0 {
-  const obj = {
-    (x) { return x }
-  }
-  return 0
-}`
-      // This is actually invalid syntax, but the point is we don't add ; after {
-      // Let's use a valid example instead
-      const tjsSource2 = `TjsStandard
 function test() -! 0 {
   const arr = [
     (x => x + 1)
   ]
   return arr[0](1)
 }`
-      const { code } = tjs(tjsSource2)
+      const { code } = tjs(tjsSource)
 
       // Should NOT add semicolon after [
       expect(code).not.toContain('[;')

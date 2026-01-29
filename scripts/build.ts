@@ -30,6 +30,12 @@ interface BuildTarget {
 
 const targets: BuildTarget[] = [
   {
+    name: 'index',
+    entry: './src/index.ts',
+    external: ['acorn', 'tosijs-schema', 'typescript'],
+    description: 'Main entry point (same as tjs-full)',
+  },
+  {
     name: 'tjs-vm',
     entry: './src/vm/index.ts',
     external: ['tosijs-schema'],

@@ -89,6 +89,7 @@ vm.Agent  // Builder with custom atoms included
 TJS supports transpiling TypeScript to JavaScript with runtime type validation. The pipeline has two distinct, independently testable steps:
 
 **Step 1: TypeScript → TJS** (`fromTS`)
+
 ```typescript
 import { fromTS } from 'tosijs/lang/from-ts'
 
@@ -106,6 +107,7 @@ const result = fromTS(tsSource, { emitTJS: true })
 ```
 
 **Step 2: TJS → JavaScript** (`tjs`)
+
 ```typescript
 import { tjs } from 'tosijs/lang'
 
@@ -120,6 +122,7 @@ const jsCode = tjs(tjsSource)
 ```
 
 **Full Chain Example:**
+
 ```typescript
 import { fromTS } from 'tosijs/lang/from-ts'
 import { tjs } from 'tosijs/lang'
@@ -139,11 +142,12 @@ const jsCode = tjs(tjsResult.code)
 
 // Execute the result
 const fn = new Function('__tjs', jsCode + '; return add')(__tjs_runtime)
-fn(1, 2)  // Returns 3
-fn('a', 'b')  // Returns { error: 'type mismatch', ... }
+fn(1, 2) // Returns 3
+fn('a', 'b') // Returns { error: 'type mismatch', ... }
 ```
 
 **CLI Commands:**
+
 ```bash
 # Convert TypeScript to TJS
 bun src/cli/tjs.ts convert input.ts --emit-tjs > output.tjs
@@ -156,6 +160,7 @@ bun src/cli/tjs.ts run input.tjs
 ```
 
 **Design Notes:**
+
 - The two steps are intentionally separate for tree-shaking (TS support is optional)
 - `fromTS` lives in a separate entry point (`tosijs/lang/from-ts`)
 - Import only what you need to keep bundle size minimal
@@ -242,8 +247,8 @@ class Point {
 }
 
 // Both work identically:
-const p1 = Point(10, 20)      // TJS way - clean
-const p2 = new Point(10, 20)  // Still works, but linter warns
+const p1 = Point(10, 20) // TJS way - clean
+const p2 = new Point(10, 20) // Still works, but linter warns
 
 // The linter flags explicit `new` usage:
 // Warning: Unnecessary 'new' keyword. In TJS, classes are callable without 'new'
@@ -322,16 +327,16 @@ Type EvenNumber {
 // Simple generic
 Generic Box<T> {
   description: 'a boxed value'
-  predicate(x, T) { 
-    return typeof x === 'object' && x !== null && 'value' in x && T(x.value) 
+  predicate(x, T) {
+    return typeof x === 'object' && x !== null && 'value' in x && T(x.value)
   }
 }
 
 // Generic with default type parameter
 Generic Container<T, U = ''> {
   description: 'container with label'
-  predicate(obj, T, U) { 
-    return T(obj.item) && U(obj.label) 
+  predicate(obj, T, U) {
+    return T(obj.item) && U(obj.label)
   }
 }
 ```
@@ -340,8 +345,8 @@ Generic Container<T, U = ''> {
 
 ```typescript
 // Uppercase identifiers auto-get const
-Foo = Type('test', 'example')    // becomes: const Foo = Type(...)
-MyConfig = { debug: true }       // becomes: const MyConfig = { ... }
+Foo = Type('test', 'example') // becomes: const Foo = Type(...)
+MyConfig = { debug: true } // becomes: const MyConfig = { ... }
 ```
 
 #### Module Safety Directive
@@ -359,14 +364,14 @@ TJS redefines equality to be structural by default, fixing JavaScript's confusin
 
 **Normal TJS Mode (default):**
 
-| Operator | Meaning | Example |
-|----------|---------|---------|
-| `==` | Structural equality | `{a:1} == {a:1}` is `true` |
-| `!=` | Structural inequality | `{a:1} != {a:2}` is `true` |
-| `===` | Identity (same reference) | `obj === obj` is `true` |
-| `!==` | Not same reference | `{a:1} !== {a:1}` is `true` |
-| `a Is b` | Structural equality (explicit) | Same as `==` |
-| `a IsNot b` | Structural inequality (explicit) | Same as `!=` |
+| Operator    | Meaning                          | Example                     |
+| ----------- | -------------------------------- | --------------------------- |
+| `==`        | Structural equality              | `{a:1} == {a:1}` is `true`  |
+| `!=`        | Structural inequality            | `{a:1} != {a:2}` is `true`  |
+| `===`       | Identity (same reference)        | `obj === obj` is `true`     |
+| `!==`       | Not same reference               | `{a:1} !== {a:1}` is `true` |
+| `a Is b`    | Structural equality (explicit)   | Same as `==`                |
+| `a IsNot b` | Structural inequality (explicit) | Same as `!=`                |
 
 ```typescript
 // Structural equality - compares values deeply

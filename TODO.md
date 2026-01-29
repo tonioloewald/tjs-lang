@@ -1,11 +1,13 @@
 # TJS-Lang TODO
 
 ## Playground - Error Navigation
+
 - [ ] Test errors: click should navigate to source location
 - [ ] Console errors: click should navigate to source location
 - [ ] Error in imported module: click through to source
 
 ## Playground - Module Management
+
 - [ ] Import one example from another in playground
 - [ ] Save/Load TS examples (consistency with TJS examples)
 - [ ] File name should be linked to example name
@@ -14,6 +16,7 @@
 - [ ] Auto-discover and build local dependencies in module resolution
 
 ## Language Features
+
 - [ ] Portable Type predicates - expression-only AJS subset (no loops, no async, serializable)
 - [ ] Expand WASM support beyond POC (currently: single return + numeric ops only)
   - [ ] For loops with numeric bounds
@@ -24,12 +27,15 @@
 - [ ] Compelling WASM demo, e.g. iTunes-visualizer like animation
 
 ## Editor
+
 - [ ] Embedded AJS syntax highlighting
 
 ## Documentation / Examples
+
 - [ ] Create an endpoint example
 
 ## Infrastructure
+
 - [ ] Make playground components reusable for others
 - [ ] Web worker for transpiles (freezer - not needed yet)
 - [ ] Retarget Firebase as host platform (vs GitHub Pages)
@@ -51,11 +57,13 @@
 ## Completed (this session)
 
 ### Project Rename
+
 - [x] Rename from tosijs-agent to tjs-lang
 - [x] Update all references in package.json, docs, scripts
 - [x] Remove bd (beads) issue tracker, replace with TODO.md
 
 ### Timestamp & LegalDate Utilities
+
 - [x] Timestamp - pure functions, 1-based months, no Date warts (53 tests)
   - now, from, parse, tryParse
   - addDays/Hours/Minutes/Seconds/Weeks/Months/Years
@@ -77,6 +85,7 @@
 - [x] Portable predicate helpers: isValidUrl, isValidTimestamp, isValidLegalDate
 
 ### TJS Mode System (JS is now the default)
+
 - [x] Invert mode system - JS semantics are default, improvements opt-in
 - [x] TjsEquals directive - structural == and != (null == undefined)
 - [x] TjsClass directive - classes callable without new
@@ -91,6 +100,7 @@
 - [x] Eval/SafeFunction - proper VM-backed implementation with fuel metering and capabilities
 
 ### Bundle Size Optimization
+
 - [x] Separated Eval/SafeFunction into standalone module (eval.ts)
 - [x] Created core.ts - AJS transpiler without TypeScript dependency
 - [x] Fixed tjs-transpiler bundle: 4.14MB → 88.9KB (27KB gzipped)

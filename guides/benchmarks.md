@@ -7,17 +7,18 @@ Iterations: 100,000 per test
 
 ## Summary
 
-| Benchmark                           | Baseline | Safe (wrapped) | Unsafe (!)  |
-| ----------------------------------- | -------- | -------------- | ----------- |
-| Simple arithmetic (100K calls)      | 0.5ms    | 13ms (26x)     | 0.7ms (1.3x) |
-| 3-function chain (100K calls)       | 0.7ms    | 19ms (28x)     | 0.8ms (1.2x) |
-| Loop with helper (100 elem × 10K)   | 1.7ms    | 20ms (12x)     | 1.5ms (0.9x) |
+| Benchmark                         | Baseline | Safe (wrapped) | Unsafe (!)   |
+| --------------------------------- | -------- | -------------- | ------------ |
+| Simple arithmetic (100K calls)    | 0.5ms    | 13ms (26x)     | 0.7ms (1.3x) |
+| 3-function chain (100K calls)     | 0.7ms    | 19ms (28x)     | 0.8ms (1.2x) |
+| Loop with helper (100 elem × 10K) | 1.7ms    | 20ms (12x)     | 1.5ms (0.9x) |
 
 ## Key Findings
 
 ### Runtime Validation Overhead
 
 Safe TJS functions use `wrap()` for monadic type validation:
+
 - **~17-28x overhead** for simple operations
 - **~0.02µs per validation** (absolute time is small)
 - Overhead becomes negligible when actual work dominates
@@ -32,10 +33,10 @@ function add(a: 0, b: 0) -> 0 { return a + b }
 function fastAdd(! a: 0, b: 0) -> 0 { return a + b }
 ```
 
-| Mode        | Overhead | Use Case                        |
-| ----------- | -------- | ------------------------------- |
-| Safe        | ~17-28x  | API boundaries, untrusted input |
-| Unsafe (!)  | ~1.2x    | Hot paths, internal functions   |
+| Mode       | Overhead | Use Case                        |
+| ---------- | -------- | ------------------------------- |
+| Safe       | ~17-28x  | API boundaries, untrusted input |
+| Unsafe (!) | ~1.2x    | Hot paths, internal functions   |
 
 ### ⚠️ Safe Helpers in Loops
 
@@ -62,6 +63,7 @@ function double(! x: 0) -> 0 { return x * 2 }  // No validation overhead
 ### `unsafe {}` Block
 
 The `unsafe {}` block wraps code in try-catch for error handling:
+
 - Converts exceptions to monadic errors
 - Does NOT affect validation of called functions
 - Minimal overhead (~1.3x)
@@ -76,6 +78,7 @@ The `unsafe {}` block wraps code in try-catch for error handling:
 ## Future: Type Flow Optimization
 
 Planned compile-time optimization will automatically skip redundant checks:
+
 - Output type matches next input → skip validation
 - Array element type known → skip per-iteration checks
 - Target: ~1.2x overhead automatically (no manual `!` needed)
