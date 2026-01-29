@@ -667,13 +667,13 @@ test 'always fails' { throw new Error('intentional') }
     })
 
     it('should require a function when only a class is provided', () => {
-      // transpile() is for function-to-AST conversion
-      // Classes are handled by preprocess() and fromTS()
+      // transpile() is for function-to-AST conversion (VM path)
+      // Classes are not supported in AJS/VM - they're a TJS-only feature
       expect(() =>
         transpile(`
         class Foo {}
       `)
-      ).toThrow('Source must contain a function declaration')
+      ).toThrow('Classes are not supported')
     })
 
     it('should reject imports', () => {

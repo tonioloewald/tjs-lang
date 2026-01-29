@@ -1252,6 +1252,18 @@ function findTopLevelColon(param: string): number {
  * Also handles return type annotation:
  *   function foo(x: 'example') -> { result: 'string' } { }
  */
+/** TJS mode flags for opt-in language improvements */
+export interface TjsModes {
+  /** TjsEquals: == and != use structural equality */
+  tjsEquals: boolean
+  /** TjsClass: classes callable without new, explicit new is banned */
+  tjsClass: boolean
+  /** TjsDate: Date is banned, use Timestamp/LegalDate */
+  tjsDate: boolean
+  /** TjsNoeval: eval() and new Function() are banned */
+  tjsNoeval: boolean
+}
+
 export function preprocess(
   source: string,
   options: PreprocessOptions = {}
@@ -1260,7 +1272,7 @@ export function preprocess(
   returnType?: string
   returnSafety?: 'safe' | 'unsafe'
   moduleSafety?: 'none' | 'inputs' | 'all'
-  legacyEquals?: boolean
+  tjsModes: TjsModes
   originalSource: string
   requiredParams: Set<string>
   unsafeFunctions: Set<string>
@@ -1273,10 +1285,17 @@ export function preprocess(
   let returnType: string | undefined
   let returnSafety: 'safe' | 'unsafe' | undefined
   let moduleSafety: 'none' | 'inputs' | 'all' | undefined
-  let legacyEquals = false
   const requiredParams = new Set<string>()
   const unsafeFunctions = new Set<string>()
   const safeFunctions = new Set<string>()
+
+  // TJS modes - all default to false (JS-compatible by default)
+  const tjsModes: TjsModes = {
+    tjsEquals: false,
+    tjsClass: false,
+    tjsDate: false,
+    tjsNoeval: false,
+  }
 
   // Handle module-level safety directive: safety none | safety inputs | safety all
   // Must be at the start of the file (possibly after comments/whitespace)
@@ -1292,18 +1311,43 @@ export function preprocess(
     )
   }
 
-  // Handle LegacyEquals directive: LegacyEquals
-  // This preserves JS equality semantics (== is loose equality, === is strict)
-  // Used for TS-emitted code that relies on JS behavior
-  // In this mode, use explicit `a Is b` and `a IsNot b` for structural equality
-  const legacyEqualsMatch = source.match(
-    /^(\s*(?:\/\/[^\n]*\n|\/\*[\s\S]*?\*\/\s*)*)\s*LegacyEquals\b/
-  )
-  if (legacyEqualsMatch) {
-    legacyEquals = true
+  // Handle TJS mode directives (can appear in any order after safety)
+  // TjsStrict enables all TJS modes
+  // Individual modes: TjsEquals, TjsClass, TjsDate, TjsNoeval
+  const directivePattern =
+    /^(\s*(?:\/\/[^\n]*\n|\/\*[\s\S]*?\*\/\s*)*)\s*(TjsStrict|TjsEquals|TjsClass|TjsDate|TjsNoeval|LegacyEquals)\b/
+
+  let match
+  while ((match = source.match(directivePattern))) {
+    const directive = match[2]
+
+    if (directive === 'TjsStrict') {
+      // Enable all TJS modes
+      tjsModes.tjsEquals = true
+      tjsModes.tjsClass = true
+      tjsModes.tjsDate = true
+      tjsModes.tjsNoeval = true
+    } else if (directive === 'TjsEquals') {
+      tjsModes.tjsEquals = true
+    } else if (directive === 'TjsClass') {
+      tjsModes.tjsClass = true
+    } else if (directive === 'TjsDate') {
+      tjsModes.tjsDate = true
+    } else if (directive === 'TjsNoeval') {
+      tjsModes.tjsNoeval = true
+    } else if (directive === 'LegacyEquals') {
+      // DEPRECATED: LegacyEquals is now the default behavior
+      // Kept for backwards compatibility - just ignore it
+      console.warn(
+        'LegacyEquals is deprecated: JS equality is now the default. Use TjsEquals to enable structural equality.'
+      )
+    }
+
     // Remove the directive from source
     source = source.replace(
-      /^(\s*(?:\/\/[^\n]*\n|\/\*[\s\S]*?\*\/\s*)*)\s*LegacyEquals\s*/,
+      new RegExp(
+        `^(\\s*(?:\\/\\/[^\\n]*\\n|\\/\\*[\\s\\S]*?\\*\\/\\s*)*)\\s*${directive}\\s*`
+      ),
       '$1'
     )
   }
@@ -1311,14 +1355,13 @@ export function preprocess(
   // Transform Is/IsNot infix operators to function calls
   // a Is b -> Is(a, b)
   // a IsNot b -> IsNot(a, b)
-  // These are available in both normal and LegacyEquals mode
+  // These are always available for explicit structural equality
   source = transformIsOperators(source)
 
   // Transform == and != to structural equality (Is/IsNot)
-  // Only in normal mode (not LegacyEquals) and not for VM targets
+  // Only when TjsEquals mode is enabled and not for VM targets
   // VM targets already handle == correctly at runtime
-  // This uses a state machine to properly handle complex expressions like x % 2 == 0
-  if (!legacyEquals && !options.vmTarget) {
+  if (tjsModes.tjsEquals && !options.vmTarget) {
     source = transformEqualityToStructural(source)
   }
 
@@ -1367,15 +1410,28 @@ export function preprocess(
   source = testResult.source
 
   // Wrap class declarations to make them callable without `new`
+  // Only when TjsClass mode is enabled
   // class Foo { } -> let Foo = class Foo { }; Foo = globalThis.__tjs?.wrapClass?.(Foo) ?? Foo;
-  source = wrapClassDeclarations(source)
+  if (tjsModes.tjsClass) {
+    source = wrapClassDeclarations(source)
+  }
+
+  // Validate TjsDate mode - check for Date usage
+  if (tjsModes.tjsDate) {
+    source = validateNoDate(source)
+  }
+
+  // Validate TjsNoeval mode - check for eval/Function usage
+  if (tjsModes.tjsNoeval) {
+    source = validateNoEval(source)
+  }
 
   return {
     source,
     returnType,
     returnSafety,
     moduleSafety,
-    legacyEquals,
+    tjsModes,
     originalSource,
     requiredParams,
     unsafeFunctions,
@@ -3174,4 +3230,66 @@ function wrapClassDeclarations(source: string): string {
 
   result += source.slice(lastIndex)
   return result
+}
+
+/**
+ * Validate that Date is not used (TjsDate mode)
+ * Throws an error if Date constructor or static methods are found
+ */
+function validateNoDate(source: string): string {
+  // Match Date usage: new Date, Date.now, Date.parse, Date.UTC
+  const datePatterns = [
+    {
+      pattern: /\bnew\s+Date\b/,
+      message:
+        'new Date() is not allowed in TjsDate mode. Use Timestamp.now() or Timestamp.from()',
+    },
+    {
+      pattern: /\bDate\.now\b/,
+      message: 'Date.now() is not allowed in TjsDate mode. Use Timestamp.now()',
+    },
+    {
+      pattern: /\bDate\.parse\b/,
+      message:
+        'Date.parse() is not allowed in TjsDate mode. Use Timestamp.parse()',
+    },
+    {
+      pattern: /\bDate\.UTC\b/,
+      message:
+        'Date.UTC() is not allowed in TjsDate mode. Use Timestamp.from()',
+    },
+  ]
+
+  for (const { pattern, message } of datePatterns) {
+    if (pattern.test(source)) {
+      throw new Error(message)
+    }
+  }
+
+  return source
+}
+
+/**
+ * Validate that eval and Function constructor are not used (TjsNoeval mode)
+ * Note: Eval and SafeFunction from TJS runtime are allowed
+ */
+function validateNoEval(source: string): string {
+  // Match eval() calls - but not Eval() (capital E)
+  // Use negative lookbehind to avoid matching inside words
+  const evalPattern = /(?<![A-Za-z_$])\beval\s*\(/
+  if (evalPattern.test(source)) {
+    throw new Error(
+      'eval() is not allowed in TjsNoeval mode. Use Eval() from TJS runtime for safe evaluation.'
+    )
+  }
+
+  // Match new Function() - but not SafeFunction or other *Function names
+  const functionPattern = /\bnew\s+Function\s*\(/
+  if (functionPattern.test(source)) {
+    throw new Error(
+      'new Function() is not allowed in TjsNoeval mode. Use SafeFunction() from TJS runtime.'
+    )
+  }
+
+  return source
 }

@@ -632,8 +632,8 @@ describe('Async Functions', () => {
 
 describe('Class Syntax', () => {
   test('transpile requires a function (classes handled elsewhere)', () => {
-    // transpile() is for function-to-AST conversion
-    // Classes are handled by preprocess() for wrapping and fromTS() for metadata
+    // transpile() is for function-to-AST conversion (VM path)
+    // Classes are not supported in AJS/VM - they're a TJS-only feature
     const { transpile } = require('./index')
     expect(() =>
       transpile(`
@@ -643,7 +643,7 @@ describe('Class Syntax', () => {
         }
       }
     `)
-    ).toThrow(/function declaration/i)
+    ).toThrow(/classes are not supported/i)
   })
 
   // ✅ Class metadata extraction implemented in fromTS (extractClassMetadata)

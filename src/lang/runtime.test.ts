@@ -25,6 +25,8 @@ import {
   Type,
   typeOf,
   isNativeType,
+  Is,
+  IsNot,
 } from './runtime'
 
 describe('TJS Runtime - Monadic Errors', () => {
@@ -888,5 +890,80 @@ describe('isNativeType - pragmatic native type checking', () => {
     expect(isNativeType(button, 'MyButton')).toBe(true)
     expect(isNativeType(button, 'MyWidget')).toBe(true)
     expect(isNativeType(button, 'Object')).toBe(true)
+  })
+})
+
+describe('Is - structural equality', () => {
+  it('returns true for identical primitives', () => {
+    expect(Is(1, 1)).toBe(true)
+    expect(Is('hello', 'hello')).toBe(true)
+    expect(Is(true, true)).toBe(true)
+    expect(Is(null, null)).toBe(true)
+    expect(Is(undefined, undefined)).toBe(true)
+  })
+
+  it('returns false for different primitives', () => {
+    expect(Is(1, 2)).toBe(false)
+    expect(Is('a', 'b')).toBe(false)
+    expect(Is(true, false)).toBe(false)
+  })
+
+  it('treats null and undefined as equal (nullish equality)', () => {
+    // This preserves the useful JS pattern: x == null checks for both
+    expect(Is(null, undefined)).toBe(true)
+    expect(Is(undefined, null)).toBe(true)
+  })
+
+  it('does NOT coerce types like JS ==', () => {
+    // Unlike JS ==, we don't coerce types
+    expect(Is('1', 1)).toBe(false)
+    expect(Is(0, false)).toBe(false)
+    expect(Is('', false)).toBe(false)
+    expect(Is([], '')).toBe(false)
+  })
+
+  it('compares arrays structurally', () => {
+    expect(Is([1, 2, 3], [1, 2, 3])).toBe(true)
+    expect(Is([1, 2], [1, 2, 3])).toBe(false)
+    expect(Is([1, 2, 3], [1, 2])).toBe(false)
+    expect(Is([1, [2, 3]], [1, [2, 3]])).toBe(true)
+  })
+
+  it('compares objects structurally', () => {
+    expect(Is({ a: 1 }, { a: 1 })).toBe(true)
+    expect(Is({ a: 1, b: 2 }, { a: 1, b: 2 })).toBe(true)
+    expect(Is({ a: 1 }, { a: 2 })).toBe(false)
+    expect(Is({ a: 1 }, { b: 1 })).toBe(false)
+    expect(Is({ a: { b: 1 } }, { a: { b: 1 } })).toBe(true)
+  })
+
+  it('returns false for different reference types', () => {
+    const obj1 = { a: 1 }
+    const obj2 = { a: 1 }
+    // Same structure, but Is returns true (structural equality)
+    expect(Is(obj1, obj2)).toBe(true)
+    // But === returns false (identity)
+    expect(obj1 === obj2).toBe(false)
+  })
+
+  it('handles objects with Equals method', () => {
+    const custom = {
+      value: 42,
+      Equals(other: any) {
+        return other?.value === this.value
+      },
+    }
+    expect(Is(custom, { value: 42 })).toBe(true)
+    expect(Is(custom, { value: 99 })).toBe(false)
+  })
+})
+
+describe('IsNot - structural inequality', () => {
+  it('is the negation of Is', () => {
+    expect(IsNot(1, 1)).toBe(false)
+    expect(IsNot(1, 2)).toBe(true)
+    expect(IsNot({ a: 1 }, { a: 1 })).toBe(false)
+    expect(IsNot({ a: 1 }, { a: 2 })).toBe(true)
+    expect(IsNot(null, undefined)).toBe(false) // They're equal
   })
 })

@@ -3,6 +3,8 @@
 // - Setter accepts string, number, or null
 // - Getter returns a Date object
 
+TjsClass
+
 class Timestamp {
   #value
 

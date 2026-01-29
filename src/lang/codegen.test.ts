@@ -820,8 +820,21 @@ test 'add works' {
   })
 
   describe('structural equality (== and !=)', () => {
-    it('transforms == to Is() for structural equality', () => {
+    // NOTE: As of the mode inversion, JS semantics are the default.
+    // TjsEquals directive enables structural equality transformation.
+
+    it('preserves == as-is by default (JS semantics)', () => {
       const tjsSource = `function isEqual(a: {x: 0}, b: {x: 0}) -! true { return a == b }`
+      const { code } = tjs(tjsSource)
+
+      // Without TjsEquals, == is NOT transformed
+      expect(code).not.toContain('Is(')
+      expect(code).toContain('==')
+    })
+
+    it('transforms == to Is() with TjsEquals directive', () => {
+      const tjsSource = `TjsEquals
+function isEqual(a: {x: 0}, b: {x: 0}) -! true { return a == b }`
       const { code } = tjs(tjsSource)
 
       // Should transform == to Is()
@@ -830,8 +843,9 @@ test 'add works' {
       expect(code).toContain('const { Is }')
     })
 
-    it('transforms != to IsNot() for structural inequality', () => {
-      const tjsSource = `function notEqual(a: {x: 0}, b: {x: 0}) -! true { return a != b }`
+    it('transforms != to IsNot() with TjsEquals directive', () => {
+      const tjsSource = `TjsEquals
+function notEqual(a: {x: 0}, b: {x: 0}) -! true { return a != b }`
       const { code } = tjs(tjsSource)
 
       // Should transform != to IsNot()
@@ -841,7 +855,8 @@ test 'add works' {
     })
 
     it('preserves === for identity comparison', () => {
-      const tjsSource = `function isSame(a: {x: 0}, b: {x: 0}) -! true { return a === b }`
+      const tjsSource = `TjsEquals
+function isSame(a: {x: 0}, b: {x: 0}) -! true { return a === b }`
       const { code } = tjs(tjsSource)
 
       // Should preserve === unchanged
@@ -862,8 +877,9 @@ test 'add works' {
       expect(code).not.toContain('__tjs.typeError')
     })
 
-    it('adds only Is when only == is used', () => {
-      const tjsSource = `function eq(a: 0, b: 0) -! true { return a == b }`
+    it('adds only Is when only == is used with TjsEquals', () => {
+      const tjsSource = `TjsEquals
+function eq(a: 0, b: 0) -! true { return a == b }`
       const { code } = tjs(tjsSource)
 
       expect(code).toContain('Is(')
@@ -871,8 +887,9 @@ test 'add works' {
       expect(code).not.toContain('IsNot')
     })
 
-    it('adds only IsNot when only != is used', () => {
-      const tjsSource = `function neq(a: 0, b: 0) -! true { return a != b }`
+    it('adds only IsNot when only != is used with TjsEquals', () => {
+      const tjsSource = `TjsEquals
+function neq(a: 0, b: 0) -! true { return a != b }`
       const { code } = tjs(tjsSource)
 
       expect(code).toContain('IsNot(')
@@ -880,8 +897,9 @@ test 'add works' {
       expect(code).not.toMatch(/\bIs\b[^N]/) // Is but not IsNot
     })
 
-    it('adds both Is and IsNot when both == and != are used', () => {
-      const tjsSource = `function test(a: 0, b: 0) -! true { return a == b || a != b }`
+    it('adds both Is and IsNot when both == and != are used with TjsEquals', () => {
+      const tjsSource = `TjsEquals
+function test(a: 0, b: 0) -! true { return a == b || a != b }`
       const { code } = tjs(tjsSource)
 
       expect(code).toContain('Is(')
@@ -889,19 +907,21 @@ test 'add works' {
       expect(code).toContain('const { Is, IsNot }')
     })
 
-    it('does NOT add imports for === only', () => {
-      const tjsSource = `function strict(a: 0, b: 0) -! true { return a === b }`
+    it('does NOT add imports for === only even with TjsEquals', () => {
+      const tjsSource = `TjsEquals
+function strict(a: 0, b: 0) -! true { return a === b }`
       const { code } = tjs(tjsSource)
 
       expect(code).not.toContain('const { Is')
       expect(code).toContain('===')
     })
 
-    it('structural equality works at runtime', async () => {
+    it('structural equality works at runtime with TjsEquals', async () => {
       const { installRuntime } = await import('./runtime')
       installRuntime()
 
-      const tjsSource = `function isEqual(a: {x: 0}, b: {x: 0}) -! true { return a == b }`
+      const tjsSource = `TjsEquals
+function isEqual(a: {x: 0}, b: {x: 0}) -! true { return a == b }`
       const { code } = tjs(tjsSource)
 
       const isEqual = new Function(code + '; return isEqual')()

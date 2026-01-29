@@ -1672,11 +1672,10 @@ export function fromTS(
   }
 
   if (emitTJS) {
-    // TypeScript uses JavaScript's equality semantics, so we need LegacyEquals
-    // to preserve == and === behavior when the TJS is executed
     // Include source file annotation for error reporting
+    // JS equality semantics are now the default (no LegacyEquals needed)
     const sourceFileName = filename || 'unknown'
-    const header = `/* tjs <- ${sourceFileName} */\nLegacyEquals\n\n`
+    const header = `/* tjs <- ${sourceFileName} */\n\n`
 
     // Append embedded test comments (they were extracted from original source)
     const testsSection =

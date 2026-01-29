@@ -354,9 +354,16 @@ export function Is(a: unknown, b: unknown): boolean {
   // Identical references or primitives
   if (a === b) return true
 
-  // null/undefined - strict
-  if (a === null || b === null) return a === b
-  if (a === undefined || b === undefined) return a === b
+  // null and undefined are equal to each other (nullish equality)
+  // This preserves the useful JS pattern: x == null checks for both
+  if ((a === null || a === undefined) && (b === null || b === undefined)) {
+    return true
+  }
+
+  // If only one is nullish, not equal
+  if (a === null || a === undefined || b === null || b === undefined) {
+    return false
+  }
 
   // Different types - not equal (no coercion)
   if (typeof a !== typeof b) return false
