@@ -287,4 +287,4 @@ TJS merges Editor, Compiler, and Runtime into one fluid loop. It's the Smalltalk
 - [AJS: The Guest Language](./ABOUT-AJS.md)
 - [Technical Documentation](./CONTEXT.md)
 - [Playground](./demo/)
-- [GitHub](https://github.com/tonioloewald/tosijs-agent)
+- [GitHub](https://github.com/tonioloewald/tjs-lang)

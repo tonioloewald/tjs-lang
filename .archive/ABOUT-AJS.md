@@ -255,4 +255,4 @@ AJS is the "practical solution to the halting problem" that makes Universal Endp
 - [TJS: The Host Language](./ABOUT-TJS.md)
 - [Technical Documentation](./CONTEXT.md)
 - [Playground](./demo/)
-- [GitHub](https://github.com/tonioloewald/tosijs-agent)
+- [GitHub](https://github.com/tonioloewald/tjs-lang)

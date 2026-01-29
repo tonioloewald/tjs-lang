@@ -44,7 +44,7 @@ if [ ! -d "$EXTENSION_SRC" ]; then
   echo "Error: Extension source not found at $EXTENSION_SRC"
   echo ""
   echo "If you installed via npm/npx, try running from your project directory:"
-  echo "  ./node_modules/tosijs-agent/bin/install-vscode.sh"
+  echo "  ./node_modules/tjs-lang/bin/install-vscode.sh"
   exit 1
 fi
 

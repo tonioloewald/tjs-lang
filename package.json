@@ -25,7 +25,7 @@
   "sideEffects": false,
   "repository": {
     "type": "git",
-    "url": "https://github.com/tonioloewald/tosijs-agent.git"
+    "url": "https://github.com/tonioloewald/tjs-lang.git"
   },
   "devDependencies": {
     "@codemirror/lang-javascript": "^6.2.4",

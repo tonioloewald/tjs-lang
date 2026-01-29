@@ -14,7 +14,7 @@
  * Or as ES module:
  * ```javascript
  * import ace from 'ace-builds'
- * import { registerAjsMode } from 'tosijs-agent/editors/ace/ajs-mode'
+ * import { registerAjsMode } from 'tjs-lang/editors/ace/ajs-mode'
  * registerAjsMode(ace)
  * editor.session.setMode('ace/mode/ajs')
  * ```
