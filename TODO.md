@@ -56,3 +56,10 @@
 - [ ] User accounts (Google sign-in) for API key storage
 - [ ] AJS-based Firestore and Storage security rules
 - [ ] npx tjs-playground - run playground locally with LM Studio
+- [ ] Virtual subdomains for user apps (yourapp.tjs.land)
+  - [ ] Wildcard DNS to Firebase
+  - [ ] Subdomain routing in Cloud Function
+  - [ ] Deploy button in playground
+  - [ ] Public/private visibility toggle
+- [ ] Rate limiting / abuse prevention for LLM endpoint
+- [ ] Usage tracking / billing foundation (for future paid tiers)
