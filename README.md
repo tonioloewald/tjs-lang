@@ -92,6 +92,36 @@ Client sends agent → Edge runs agent at data → Edge returns 5 rows.
 
 The agent carries its own validation. The server grants capabilities. Caching happens automatically because the query *is* the code.
 
+## Safe Eval
+
+The holy grail: `eval()` that's actually safe.
+
+```typescript
+import { Eval } from 'tjs-lang/eval'
+
+// Whitelist-wrapped fetch - untrusted code only reaches your domains
+const safeFetch = (url: string) => {
+  const allowed = ['api.example.com', 'cdn.example.com']
+  const host = new URL(url).host
+  if (!allowed.includes(host)) {
+    return { error: 'Domain not allowed' }
+  }
+  return fetch(url)
+}
+
+const { result, fuelUsed } = await Eval({
+  code: `
+    let data = fetch('https://api.example.com/products')
+    return data.filter(x => x.price < budget)
+  `,
+  context: { budget: 100 },
+  fuel: 1000,
+  capabilities: { fetch: safeFetch }  // Only whitelisted domains
+})
+```
+
+The untrusted code thinks it has `fetch`, but it only has *your* `fetch`. No CSP violations. No infinite loops. No access to anything you didn't explicitly grant.
+
 ## Quick Start
 
 ```bash
