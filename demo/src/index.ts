@@ -106,8 +106,6 @@ const { app, prefs } = tosi({
     version: VERSION,
     githubUrl: `https://github.com/tonioloewald/${PROJECT}#readme`,
     npmUrl: `https://www.npmjs.com/package/tjs-lang`,
-    bundleBadgeUrl: `https://deno.bundlejs.com/?q=tjs-lang&badge=`,
-    bundleUrl: `https://bundlejs.com/?q=tjs-lang`,
     docs: allDocs,
     currentDoc,
     compact: false,
@@ -282,19 +280,6 @@ if (main) {
 
       // Elastic spacer
       span({ class: 'elastic' }),
-
-      // Bundle size badge (responsive)
-      sizeBreak(
-        { minWidth: 600 },
-        span(
-          { class: 'badge' },
-          a(
-            { href: app.bundleUrl, target: '_blank' },
-            img({ alt: 'bundle size', src: app.bundleBadgeUrl })
-          )
-        ),
-        span({ slot: 'small' })
-      ),
 
       // GitHub link
       a(
