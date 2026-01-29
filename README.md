@@ -181,4 +181,4 @@ pnpm add tjs-lang
 
 ## License
 
-MIT
+Apache 2.0
