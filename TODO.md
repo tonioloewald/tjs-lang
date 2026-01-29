@@ -50,3 +50,9 @@
 ## Infrastructure
 - [ ] Make playground components reusable for others
 - [ ] Web worker for transpiles (freezer - not needed yet)
+- [ ] Retarget Firebase as host platform (vs GitHub Pages)
+- [ ] Universal LLM endpoint with real LLMs (OpenAI, Anthropic, etc.)
+- [ ] ESM-as-a-service: versioned library endpoints
+- [ ] User accounts (Google sign-in) for API key storage
+- [ ] AJS-based Firestore and Storage security rules
+- [ ] npx tjs-playground - run playground locally with LM Studio
