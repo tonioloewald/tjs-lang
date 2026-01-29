@@ -1,6 +1,24 @@
 {
   "name": "tjs-lang",
   "version": "0.2.0",
+  "description": "Type-safe JavaScript dialect with runtime validation, sandboxed VM execution, and AI agent orchestration. Transpiles TypeScript to validated JS with fuel-metered execution for untrusted code.",
+  "keywords": [
+    "typescript",
+    "transpiler",
+    "runtime-validation",
+    "type-safety",
+    "sandbox",
+    "virtual-machine",
+    "wasm-alternative",
+    "ai-agents",
+    "llm",
+    "orchestration",
+    "security",
+    "fuel-metering",
+    "capability-based",
+    "json-ast",
+    "untrusted-code"
+  ],
   "license": "Apache-2.0",
   "main": "./dist/index.js",
   "exports": {
