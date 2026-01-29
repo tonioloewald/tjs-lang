@@ -239,16 +239,24 @@ export const TEmail = Type<string>(
   (v) => typeof v === 'string' && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(v)
 )
 
-/** URL type */
-export const TUrl = Type<string>('URL', (v) => {
-  if (typeof v !== 'string') return false
+/**
+ * Check if a string is a valid URL (portable helper for predicates)
+ * This will become an AJS builtin
+ */
+export const isValidUrl = (v: string): boolean => {
   try {
     new URL(v)
     return true
   } catch {
     return false
   }
-})
+}
+
+/** URL type */
+export const TUrl = Type<string>(
+  'URL',
+  (v) => typeof v === 'string' && isValidUrl(v)
+)
 
 /** UUID type */
 export const TUuid = Type<string>(
@@ -258,20 +266,36 @@ export const TUuid = Type<string>(
     /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(v)
 )
 
-/** ISO 8601 timestamp string (e.g., "2024-01-15T10:30:00Z") */
-export const Timestamp = Type<string>('ISO 8601 timestamp', (v) => {
-  if (typeof v !== 'string') return false
+/**
+ * Check if a string is a valid ISO 8601 timestamp (portable helper for predicates)
+ * This will become an AJS builtin
+ */
+export const isValidTimestamp = (v: string): boolean => {
   const d = new Date(v)
   return !isNaN(d.getTime()) && v.includes('T')
-})
+}
 
-/** Legal date string in YYYY-MM-DD format */
-export const LegalDate = Type<string>('date (YYYY-MM-DD)', (v) => {
-  if (typeof v !== 'string') return false
+/**
+ * Check if a string is a valid YYYY-MM-DD date (portable helper for predicates)
+ * This will become an AJS builtin
+ */
+export const isValidLegalDate = (v: string): boolean => {
   if (!/^\d{4}-\d{2}-\d{2}$/.test(v)) return false
   const d = new Date(v + 'T00:00:00Z')
   return !isNaN(d.getTime())
-})
+}
+
+/** ISO 8601 timestamp string (e.g., "2024-01-15T10:30:00Z") */
+export const Timestamp = Type<string>(
+  'ISO 8601 timestamp',
+  (v) => typeof v === 'string' && isValidTimestamp(v)
+)
+
+/** Legal date string in YYYY-MM-DD format */
+export const LegalDate = Type<string>(
+  'date (YYYY-MM-DD)',
+  (v) => typeof v === 'string' && isValidLegalDate(v)
+)
 
 // ============================================================================
 // Type Combinators

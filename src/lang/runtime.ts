@@ -35,6 +35,10 @@ import {
   // Built-in generics
   TPair,
   TRecord,
+  // Portable predicate helpers (future AJS builtins)
+  isValidUrl,
+  isValidTimestamp,
+  isValidLegalDate,
 } from '../types/Type'
 
 // Re-export Type utilities for consumers
@@ -60,6 +64,9 @@ export {
   LegalDate,
   TPair,
   TRecord,
+  isValidUrl,
+  isValidTimestamp,
+  isValidLegalDate,
 }
 
 // Version from package.json - injected at build time or imported

@@ -16,7 +16,7 @@
 ## Language Features
 - [ ] SafeFunction - AJS Function constructor exposed to TJS
 - [ ] Linter: flag eval() and new Function() as errors unless unsafe block
-- [ ] Sync (non-async) gas-limited AJS VM for fast predicates
+- [ ] Portable Type predicates - expression-only AJS subset (no loops, no async, serializable)
 - [ ] Inline WASM for TJS
 
 ## Editor
