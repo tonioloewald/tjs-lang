@@ -33,7 +33,7 @@ Write typed JavaScript where the type *is* an example. No split-brain validation
 
 ```typescript
 // TJS: The type is an example value
-function greet(name: 'World') -> '' {
+function greet(name: 'World') -> 'Hello, World!' {
   return `Hello, ${name}!`
 }
 
