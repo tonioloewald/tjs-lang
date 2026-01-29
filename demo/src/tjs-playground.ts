@@ -872,18 +872,67 @@ export class TJSPlayground extends Component<TJSPlaygroundParts> {
     return trimmed
   }
 
-  updateDocs = (_result: any) => {
+  updateDocs = (result: any) => {
     const source = this.parts.tjsEditor.value
 
-    // Use the core generateDocs function to extract all doc blocks and functions
-    const docs = generateDocs(source)
+    // Get doc blocks from source (/*# ... */ comments)
+    const docBlocks = generateDocs(source)
 
-    if (docs.items.length === 0) {
+    // Get function metadata from transpiler result
+    const types = result?.types || result?.metadata || {}
+
+    // Build combined documentation
+    let markdown = ''
+
+    // Add doc blocks first (module-level documentation)
+    for (const item of docBlocks.items) {
+      if (item.type === 'doc') {
+        markdown += item.content + '\n\n'
+      }
+    }
+
+    // Add function documentation from transpiler metadata
+    const functions = Object.entries(types) as [string, any][]
+    if (functions.length > 0) {
+      markdown += '## Functions\n\n'
+
+      for (const [name, info] of functions) {
+        markdown += `### ${name}\n\n`
+
+        if (info.description) {
+          markdown += `${info.description}\n\n`
+        }
+
+        if (info.params && Object.keys(info.params).length > 0) {
+          markdown += '**Parameters:**\n'
+          for (const [paramName, paramInfo] of Object.entries(
+            info.params
+          ) as any) {
+            const required = paramInfo.required ? '' : ' *(optional)*'
+            const typeStr = paramInfo.type?.kind || 'any'
+            const example =
+              paramInfo.example !== undefined
+                ? ` (e.g. \`${JSON.stringify(paramInfo.example)}\`)`
+                : ''
+            markdown += `- \`${paramName}\`: ${typeStr}${required}${example}\n`
+          }
+          markdown += '\n'
+        }
+
+        if (info.returns) {
+          markdown += `**Returns:** ${info.returns.kind || 'void'}\n\n`
+        }
+
+        markdown += '---\n\n'
+      }
+    }
+
+    if (!markdown.trim()) {
       this.parts.docsOutput.value = '*No documentation available*'
       return
     }
 
-    this.parts.docsOutput.value = docs.markdown
+    this.parts.docsOutput.value = markdown
   }
 
   saveModule = async () => {
