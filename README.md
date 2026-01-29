@@ -1,26 +1,33 @@
 <!--{"section": "home", "order": 0, "navTitle": "Home"}-->
 
-# tjs-lang
+# TJS Platform
 
 ![tjs-lang logo](/tjs-lang.svg)
 
-[github](https://github.com/tonioloewald/tjs-lang#readme) | [npm](https://www.npmjs.com/package/tjs-lang) | [discord](https://discord.gg/ramJ9rgky5)
-
----
+[playground](https://tjs-platform.web.app) | [github](https://github.com/tonioloewald/tjs-lang#readme) | [npm](https://www.npmjs.com/package/tjs-lang) | [discord](https://discord.gg/ramJ9rgky5)
 
 ## The Problem
 
-TypeScript is too **fragile** for agents—types evaporate at runtime, leaving you with `undefined is not a function` in production.
+**TypeScript is fragile.** It pretends to be a superset of JavaScript, but it isn't. It pretends to be typesafe, but it isn't. Its Turing-complete type system is harder to reason about than the code it supposedly documents—and then it all disappears at runtime.
 
-JavaScript is too **dangerous** to run remotely—no sandbox, no resource limits, one infinite loop and your server hangs forever.
+**JavaScript is dangerous but forgiving.** These are virtues in a web page, but liabilities in a web **app**. JavaScript promises and delivers most of the power of Lisp in a simple, popular syntax. But in practice, `eval()` and `Function()` are so dangerous they're forbidden almost everywhere—blocked completely by CSP in most production environments.
 
----
+**Security is hard.** Every layer of your stack needs to verify it's doing what it's supposed to, revealing only what it's allowed to. Every layer solves problems of routing, caching, minimizing bandwidth, and managing security. It's all work that shouldn't need to be done.
 
-## The Solution
+## What If?
 
-### TJS — The Language
+What if your language were:
 
-Write your infrastructure. Typed JavaScript with zero build step, runtime metadata, and monadic errors.
+- **As safe as TypeScript pretends to be** — types that actually validate at runtime
+- **More powerful than JavaScript promises** — safe eval, sandboxed execution, full introspection (shhh... it's a real Lisp)
+- **Architecture that collapses layers** — handle caching and shape responses at the data center
+- **Deploy logic, not code** — change queries without touching your security model
+
+That's what TJS Platform provides: **TJS** for writing your infrastructure, and **AJS** for shipping logic that runs anywhere.
+
+## TJS — Types That Survive
+
+Write typed JavaScript that validates at runtime. No build step. No ceremony.
 
 ```typescript
 // Types are examples, not annotations
@@ -32,26 +39,23 @@ function greet(name: 'World') -> '' {
 console.log(greet.__tjs.params)  // { name: { type: 'string' } }
 
 // Errors are values, not exceptions
-const result = greet(123)        // { $error: true, message: 'Invalid input' }
+const result = greet(123)        // { $error: true, message: 'type mismatch' }
 ```
 
-- **Types as examples** — `name: 'Alice'` means "name is a string like 'Alice'"
-- **Zero build step** — Transpiles in the browser, no webpack/Vite/Babel
-- **Runtime metadata** — `__tjs` enables autocomplete from live objects
-- **Monadic errors** — Type failures return error objects, not exceptions
-- **TS compatible** — Convert existing TypeScript with `tjs convert`
+**Why it matters:**
+- **Types as examples** — `name: 'Alice'` means "required string, like 'Alice'"
+- **Runtime metadata** — `__tjs` enables reflection, autocomplete, documentation
+- **Monadic errors** — type failures return values, never throw
+- **Zero build step** — transpiles in the browser, no webpack/Vite/Babel
+- **TS compatible** — convert existing TypeScript with `tjs convert`
 
-**→ [TJS Documentation](DOCS-TJS.md)**
+## AJS — Code That Travels
 
----
-
-### AJS — The Payload
-
-Write your mobile logic. A JS subset that compiles to JSON AST and runs in a gas-limited sandbox.
+Write logic that compiles to JSON and runs in a gas-limited sandbox. Send agents to data instead of shipping data to code.
 
 ```typescript
 const agent = ajs`
-  function searchAndSummarize({ query }) {
+  function searchAndSummarize(query: 'climate change') {
     let results = httpFetch({ url: 'https://api.example.com/search?q=' + query })
     let summary = llmPredict({ prompt: 'Summarize: ' + results })
     return { query, summary }
@@ -60,28 +64,34 @@ const agent = ajs`
 
 // Run with resource limits
 const result = await vm.run(agent, { query: 'climate change' }, {
-  fuel: 1000,      // CPU budget
+  fuel: 1000,      // CPU budget—loops can't run forever
   timeoutMs: 5000  // Wall-clock limit
 })
 ```
 
-- **Code is JSON** — Store agents in databases, diff them, version them
-- **Fuel metering** — Every operation costs gas, loops can't run forever
-- **Capability-based** — Zero I/O by default, grant only what's needed
-- **LLM-friendly** — Simple enough for 4B parameter models to generate
+**Why it matters:**
+- **Code is JSON** — store in databases, diff, version, transmit
+- **Fuel metering** — every operation costs gas, infinite loops impossible
+- **Capability-based** — zero I/O by default, grant only what's needed
+- **LLM-friendly** — simple enough for small models to generate correctly
 
-**→ [AJS Documentation](DOCS-AJS.md)**
+## The Architecture Shift
 
----
+Traditional architectures shuttle data between layers, validating at every boundary:
 
-## Why?
+```
+Client → API Gateway → Auth → Business Logic → Database
+         ↓              ↓           ↓              ↓
+      validate      validate    validate       validate
+```
 
-| You are a... | You want... | Read this |
-|--------------|-------------|-----------|
-| **Builder** | Speed. No build tools, instant deploys, types without ceremony. | [Builder's Manifesto](MANIFESTO-BUILDER.md) |
-| **CTO** | Safety. Sandboxed execution, audit trails, resource limits. | [Enterprise Guide](MANIFESTO-ENTERPRISE.md) |
+With AJS, logic travels to data:
 
----
+```
+Client → Edge (validate once) → Agent runs at data
+```
+
+The agent carries its own validation. The server grants capabilities. Caching happens automatically because the query *is* the code.
 
 ## Quick Start
 
@@ -89,13 +99,13 @@ const result = await vm.run(agent, { query: 'climate change' }, {
 npm install tjs-lang
 ```
 
-### Run an Agent (AJS)
+### Run an Agent
 
 ```typescript
 import { ajs, AgentVM } from 'tjs-lang'
 
 const agent = ajs`
-  function double({ value }) {
+  function double(value: 21) {
     return { result: value * 2 }
   }
 `
@@ -105,50 +115,53 @@ const { result } = await vm.run(agent, { value: 21 })
 console.log(result)  // { result: 42 }
 ```
 
-### Write Typed Code (TJS)
+### Write Typed Code
 
 ```typescript
 import { tjs } from 'tjs-lang'
 
-const code = tjs`
+const { code, types } = tjs`
   function add(a: 0, b: 0) -> 0 {
     return a + b
   }
 `
-
-// Transpiles to JavaScript with __tjs metadata
+// code: JavaScript with __tjs metadata
+// types: { add: { params: {...}, returns: {...} } }
 ```
 
 ### Try the Playground
 
-No install needed: **[Open Playground](demo/)**
-
----
+No install needed: **[tjs-platform.web.app](https://tjs-platform.web.app)**
 
 ## At a Glance
 
 |  | TJS | AJS |
 |--|-----|-----|
 | **Purpose** | Write your platform | Write your agents |
-| **Trust level** | Trusted code you control | Untrusted code from anywhere |
+| **Trust level** | Your code | Anyone's code |
 | **Compiles to** | JavaScript + metadata | JSON AST |
-| **Runs in** | Browser, Node, anywhere | Sandboxed VM |
-| **Types** | Examples that validate | Schemas for I/O |
-| **Errors** | Monadic (values) | Monadic (values) |
-| **Build step** | None (browser) | None (template literal) |
+| **Runs in** | Browser, Node, Bun | Sandboxed VM |
+| **Types** | Examples → runtime validation | Schemas for I/O |
+| **Errors** | Monadic (values, not exceptions) | Monadic |
+| **Build step** | None | None |
 
----
+## Bundle Size
 
-## Links
+| Bundle | Size | Gzipped |
+|--------|------|---------|
+| VM only | 42 KB | 14 KB |
+| + Batteries (LLM, vector) | 56 KB | 19 KB |
+| + Transpiler | 89 KB | 27 KB |
+| Full (with TS support) | 180 KB | 56 KB |
 
-- [TJS Documentation](DOCS-TJS.md) — Language reference
-- [AJS Documentation](DOCS-AJS.md) — Agent runtime reference
-- [Builder's Manifesto](MANIFESTO-BUILDER.md) — Why it's fun
-- [Enterprise Guide](MANIFESTO-ENTERPRISE.md) — Why it's safe
-- [Technical Context](CONTEXT.md) — Architecture deep dive
-- [Playground](demo/) — Try it now
+**Dependencies:** `acorn` (JS parser), `tosijs-schema` (validation). Both have zero transitive dependencies.
 
----
+## Documentation
+
+- **[TJS Language Guide](DOCS-TJS.md)** — Types, syntax, runtime
+- **[AJS Runtime Guide](DOCS-AJS.md)** — VM, atoms, capabilities
+- **[Architecture Deep Dive](CONTEXT.md)** — How it all fits together
+- **[Playground](https://tjs-platform.web.app)** — Try it now
 
 ## Installation
 
@@ -156,26 +169,13 @@ No install needed: **[Open Playground](demo/)**
 # npm
 npm install tjs-lang
 
-# bun
+# bun  
 bun add tjs-lang
 
 # pnpm
 pnpm add tjs-lang
 ```
 
----
+## License
 
-## Bundle Size
-
-### AJS Runtime
-~33KB gzipped with dependencies. ~17KB for expression-only evaluation.
-
-**Dependencies:** `acorn` (JS parser), `tosijs-schema` (validation). Both have zero transitive dependencies.
-
-### TJS Compiler
-The TJS transpiler is larger (~400KB) as it includes a full parser and emitter. However:
-- It runs entirely in the browser — no build server needed
-- It's loaded on-demand, not bundled into your app
-- Your shipped code is just the transpiled JavaScript
-
-TJS is experimental but surprisingly complete. The playground demonstrates the full feature set running client-side.
+MIT
