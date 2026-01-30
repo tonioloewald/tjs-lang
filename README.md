@@ -18,7 +18,7 @@
 
 ```
 ┌─────────────────────────────────────────────────────────────────────────┐
-│                            TJS Platform                                  │
+│                            TJS Platform                                 │
 ├─────────────────────┬─────────────────────┬─────────────────────────────┤
 │      Language       │      Runtime        │      Safe Execution         │
 ├─────────────────────┼─────────────────────┼─────────────────────────────┤
@@ -36,7 +36,7 @@
 
 **TypeScript is fragile.** It pretends to be a superset of JavaScript, but it isn't. It pretends to be typesafe, but it isn't. Its Turing-complete type system is harder to reason about than the code it supposedly documents—and then it all disappears at runtime.
 
-> TypeScript is also difficult to transpile. Your browser can run full virtual machines in JavaScript, but most TypeScript playgrounds either fake it by stripping type declarations or use a server backend to do the real work.
+TypeScript is also *difficult to transpile*. Your browser can run entire [full virtual machines](https://infinitemac.org/) in JavaScript, but most TypeScript playgrounds either fake transpilation by stripping type declarations or use a server backend to do the real work.
 
 **JavaScript is dangerous.** `eval()` and `Function()` are so powerful they're forbidden almost everywhere—blocked by CSP in most production environments. The industry's answer? The **Container Fallacy**: shipping a 200MB Linux OS just to run a 1KB function safely. We ship buildings to deliver letters.
 
