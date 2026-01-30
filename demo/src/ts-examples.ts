@@ -24,8 +24,14 @@ export const tsExamples: TSExample[] = [
     name: 'Hello TypeScript',
     description: 'See how TypeScript types become TJS example-based types',
     group: 'intro',
-    code: `// TypeScript: Types are compile-time only
-// TJS: Types become runtime validation!
+    code: `/*#
+# TypeScript:
+
+Types are compile-time only
+TJS: Types become runtime validation!
+
+Markdown doc comments in ts are supported
+*/
 
 function greet(name: string): string {
   return \`Hello, \${name}!\`
