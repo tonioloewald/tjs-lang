@@ -30,12 +30,17 @@ export const tsExamples: TSExample[] = [
 Types are compile-time only
 TJS: Types become runtime validation!
 
-Markdown doc comments in ts are supported
+Markdown doc comments in ts are supported, and
+inline tests can be embedded in comment blocks.
 */
 
 function greet(name: string): string {
   return \`Hello, \${name}!\`
 }
+
+/*test {
+  expect(greet('ts')).toBe('Hello, ts!')
+}*/
 
 // This works - correct type
 console.log(greet('World'))
