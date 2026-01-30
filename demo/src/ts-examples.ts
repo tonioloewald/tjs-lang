@@ -34,7 +34,7 @@ Markdown doc comments in ts are supported, and
 inline tests can be embedded in comment blocks.
 */
 
-/*test {
+/*test 'this is a tjs test block' {
   expect(greet('ts')).toBe('Hello, ts!')
 }*/
 
