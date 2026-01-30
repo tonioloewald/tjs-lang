@@ -1,0 +1,13 @@
+# Enable .tjs file imports
+preload = ["./src/bun-plugin/tjs-plugin.ts"]
+
+[test]
+# Preload for bun test specifically
+preload = ["./src/bun-plugin/tjs-plugin.ts"]
+
+[install.scopes]
+# Package resolution
+
+[resolve]
+# Alias tjs-lang to local source for monorepo builds
+"tjs-lang" = "./src/index.ts"

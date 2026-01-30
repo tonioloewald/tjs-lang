@@ -550,18 +550,11 @@ export function transpileToJS(
   let testResults: TestResult[] | undefined
 
   if (runTests) {
-    testResults = []
+    // Extract signature tests info (doesn't execute yet)
+    const sigTestInfos = extractSignatureTestInfos(source)
 
-    // Run explicit test blocks
-    if (tests.length > 0) {
-      const blockResults = runTestBlocks(tests, mocks, code, resolvedImports)
-      testResults.push(...blockResults)
-    }
-
-    // Run signature tests for ALL functions with -> return types
-    // Extract from original source since parser only tracks the first one
-    const sigTests = runAllSignatureTests(source, code, resolvedImports)
-    testResults.push(...sigTests)
+    // Run all tests in a single execution context
+    testResults = runAllTests(tests, mocks, sigTestInfos, code, resolvedImports)
 
     // Check for failures and throw only if runTests === true (strict mode)
     // 'only' and 'report' modes return results without throwing
@@ -1288,7 +1281,255 @@ function buildResolvedImportsCode(
 }
 
 /**
+ * Info about a signature test (extracted but not yet executed)
+ */
+interface SignatureTestInfo {
+  funcName: string
+  args: unknown[]
+  expected: unknown
+  line: number
+}
+
+/**
+ * Extract signature test info from source without executing
+ */
+function extractSignatureTestInfos(
+  originalSource: string
+): SignatureTestInfo[] {
+  const infos: SignatureTestInfo[] = []
+
+  // Strip comments to avoid matching functions inside doc comments/code examples
+  const sourceWithoutComments = stripComments(originalSource)
+
+  // Match function declarations with return type marker (-> or -?)
+  // Skip -! which means "don't test"
+  // Pattern: function name(params) -> returnExample {
+  const funcRegex = /function\s+(\w+)\s*\(([^)]*)\)\s*(-[>?])\s*/g
+
+  let match
+  while ((match = funcRegex.exec(sourceWithoutComments)) !== null) {
+    const funcName = match[1]
+    const paramsStr = match[2]
+    const returnMarker = match[3]
+
+    // Calculate line number from match position in stripped source
+    const lineNumber = sourceWithoutComments
+      .slice(0, match.index)
+      .split('\n').length
+
+    // -! means skip test
+    if (returnMarker === '-!') continue
+
+    // Extract return example - handle nested braces/brackets
+    const afterMarker = sourceWithoutComments.slice(
+      match.index + match[0].length
+    )
+    const returnExample = extractReturnExampleFromSource(afterMarker)
+    if (!returnExample) continue
+
+    // Extract parameter examples
+    const paramExamples = extractParamExamples(paramsStr)
+    if (paramsStr.trim() && paramExamples.length === 0) continue
+
+    try {
+      // Parse expected value and args
+      const expected = new Function(`return ${returnExample}`)()
+      const args = paramExamples.map((p) => new Function(`return ${p}`)())
+
+      infos.push({ funcName, args, expected, line: lineNumber })
+    } catch {
+      // Skip if parsing fails - will be reported as error during execution
+    }
+  }
+
+  return infos
+}
+
+/**
+ * Run all tests (explicit blocks + signature tests) in a single execution context
+ * This executes the module only once, then runs all tests against that context
+ */
+function runAllTests(
+  tests: ExtractedTest[],
+  mocks: ExtractedMock[],
+  sigTestInfos: SignatureTestInfo[],
+  transpiledCode: string,
+  resolvedImports: Record<string, string> = {}
+): TestResult[] {
+  const results: TestResult[] = []
+
+  // If no tests at all, return empty
+  if (tests.length === 0 && sigTestInfos.length === 0) {
+    return results
+  }
+
+  // Strip import/export for test execution (can't use modules in new Function)
+  let executableCode = stripModuleSyntax(transpiledCode)
+  // Strip __tjs preamble - test context provides its own stub
+  executableCode = stripTjsPreamble(executableCode)
+
+  // Build resolved imports code - inject imported module code into execution context
+  const importedCode = buildResolvedImportsCode(resolvedImports)
+
+  // Build mock setup
+  const mockSetup = mocks.map((m) => m.body).join('\n')
+
+  // Build test execution code that runs all tests in sequence
+  const testBodies = tests
+    .map(
+      (t, i) => `
+    // Test ${i}: ${t.description}
+    try {
+      ${t.body}
+      __testResults.push({ idx: ${i}, passed: true });
+    } catch (e) {
+      __testResults.push({ idx: ${i}, passed: false, error: e.message || String(e) });
+    }
+  `
+    )
+    .join('\n')
+
+  // Build signature test execution code
+  const sigTestBodies = sigTestInfos
+    .map(
+      (info, i) => `
+    // Signature test ${i}: ${info.funcName}
+    try {
+      const __actual = ${info.funcName}(${info.args
+        .map((a) => JSON.stringify(a))
+        .join(', ')});
+      const __expected = ${JSON.stringify(info.expected)};
+      const __typeResult = __typeMatches(__actual, __expected, '${
+        info.funcName
+      }');
+      if (__typeResult.matches) {
+        __sigTestResults.push({ idx: ${i}, passed: true });
+      } else {
+        __sigTestResults.push({ idx: ${i}, passed: false, error: __typeResult.error || 'Type mismatch: got ' + __format(__actual) });
+      }
+    } catch (e) {
+      __sigTestResults.push({ idx: ${i}, passed: false, error: e.message || String(e) });
+    }
+  `
+    )
+    .join('\n')
+
+  // TJS stub setup/restore
+  const tjsStub = `
+    const __saved_tjs = globalThis.__tjs;
+    const __stub_tjs = { version: '0.0.0', pushStack: () => {}, typeError: (path, expected, value) => new Error(\`Type error at \${path}: expected \${expected}\`), createRuntime: function() { return this; } };
+    globalThis.__tjs = __stub_tjs;
+  `
+  const tjsRestore = `globalThis.__tjs = __saved_tjs;`
+
+  // Combined test code - execute module ONCE, then run all tests
+  const testCode = `
+    ${tjsStub}
+    const __testResults = [];
+    const __sigTestResults = [];
+    try {
+      // Test assertions
+      function assert(condition, message) {
+        if (!condition) throw new Error(message || 'Assertion failed')
+      }
+
+      function expect(actual) {
+        return {
+          toBe(expected) {
+            if (!__deepEqual(actual, expected)) {
+              throw new Error('Expected ' + __format(expected) + ' but got ' + __format(actual))
+            }
+          },
+          toEqual(expected) {
+            if (!__deepEqual(actual, expected)) {
+              throw new Error('Expected ' + __format(expected) + ' but got ' + __format(actual))
+            }
+          }
+        }
+      }
+
+      // Inject resolved imports first (they may be dependencies)
+      ${importedCode}
+
+      // Execute the module code ONCE
+      ${executableCode}
+      ${mockSetup}
+
+      // Run explicit test blocks
+      ${testBodies}
+
+      // Run signature tests
+      ${sigTestBodies}
+
+    } finally {
+      ${tjsRestore}
+    }
+    return { testResults: __testResults, sigTestResults: __sigTestResults };
+  `
+
+  try {
+    // Execute all tests
+    const fn = new Function(
+      '__deepEqual',
+      '__format',
+      '__typeMatches',
+      testCode
+    )
+    const { testResults: blockResults, sigTestResults } = fn(
+      deepEqual,
+      formatValue,
+      typeMatches
+    )
+
+    // Map block test results
+    for (const r of blockResults) {
+      const test = tests[r.idx]
+      results.push({
+        description: test.description,
+        passed: r.passed,
+        error: r.error,
+        line: test.line,
+      })
+    }
+
+    // Map signature test results
+    for (const r of sigTestResults) {
+      const info = sigTestInfos[r.idx]
+      results.push({
+        description: `${info.funcName} signature example`,
+        passed: r.passed,
+        error: r.error,
+        isSignatureTest: true,
+        line: info.line,
+      })
+    }
+  } catch (e: any) {
+    // Module execution failed - all tests fail
+    for (const test of tests) {
+      results.push({
+        description: test.description,
+        passed: false,
+        error: `Module execution failed: ${e.message}`,
+        line: test.line,
+      })
+    }
+    for (const info of sigTestInfos) {
+      results.push({
+        description: `${info.funcName} signature example`,
+        passed: false,
+        error: `Module execution failed: ${e.message}`,
+        isSignatureTest: true,
+        line: info.line,
+      })
+    }
+  }
+
+  return results
+}
+
+/**
  * Run extracted test blocks at transpile time
+ * @deprecated Use runAllTests instead for single execution context
  */
 function runTestBlocks(
   tests: ExtractedTest[],

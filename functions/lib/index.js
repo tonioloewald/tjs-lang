@@ -1,3 +1,6 @@
+import { createRequire } from "node:module";
+var __require = /* @__PURE__ */ createRequire(import.meta.url);
+
 // ../node_modules/acorn/dist/acorn.mjs
 var astralIdentifierCodes = [509, 0, 227, 0, 150, 4, 294, 9, 1368, 2, 2, 1, 6, 3, 41, 2, 5, 0, 166, 1, 574, 3, 9, 9, 7, 9, 32, 4, 318, 1, 80, 3, 71, 10, 50, 3, 123, 2, 54, 14, 32, 10, 3, 1, 11, 3, 46, 10, 8, 0, 46, 9, 7, 2, 37, 13, 2, 9, 6, 1, 45, 0, 13, 2, 49, 13, 9, 3, 2, 11, 83, 11, 7, 0, 3, 0, 158, 11, 6, 9, 7, 3, 56, 1, 2, 6, 3, 1, 3, 2, 10, 0, 11, 1, 3, 6, 4, 4, 68, 8, 2, 0, 3, 0, 2, 3, 2, 4, 2, 0, 15, 1, 83, 17, 10, 9, 5, 0, 82, 19, 13, 9, 214, 6, 3, 8, 28, 1, 83, 16, 16, 9, 82, 12, 9, 9, 7, 19, 58, 14, 5, 9, 243, 14, 166, 9, 71, 5, 2, 1, 3, 3, 2, 0, 2, 1, 13, 9, 120, 6, 3, 6, 4, 0, 29, 9, 41, 6, 2, 3, 9, 0, 10, 10, 47, 15, 343, 9, 54, 7, 2, 7, 17, 9, 57, 21, 2, 13, 123, 5, 4, 0, 2, 1, 2, 6, 2, 0, 9, 9, 49, 4, 2, 1, 2, 4, 9, 9, 330, 3, 10, 1, 2, 0, 49, 6, 4, 4, 14, 10, 5350, 0, 7, 14, 11465, 27, 2343, 9, 87, 9, 39, 4, 60, 6, 26, 9, 535, 9, 470, 0, 2, 54, 8, 3, 82, 0, 12, 1, 19628, 1, 4178, 9, 519, 45, 3, 22, 543, 4, 4, 5, 9, 7, 3, 6, 31, 3, 149, 2, 1418, 49, 513, 54, 5, 49, 9, 0, 15, 0, 23, 4, 2, 14, 1361, 6, 2, 16, 3, 6, 2, 1, 2, 4, 101, 0, 161, 6, 10, 9, 357, 0, 62, 13, 499, 13, 245, 1, 2, 9, 726, 6, 110, 6, 6, 9, 4759, 9, 787719, 239];
 var astralIdentifierStartCodes = [0, 11, 2, 25, 2, 18, 2, 1, 2, 14, 3, 13, 35, 122, 70, 52, 268, 28, 4, 48, 48, 31, 14, 29, 6, 37, 11, 29, 3, 35, 5, 7, 2, 4, 43, 157, 19, 35, 5, 35, 5, 39, 9, 51, 13, 10, 2, 14, 2, 6, 2, 1, 2, 10, 2, 14, 2, 6, 2, 1, 4, 51, 13, 310, 10, 21, 11, 7, 25, 5, 2, 41, 2, 8, 70, 5, 3, 0, 2, 43, 2, 1, 4, 0, 3, 22, 11, 22, 10, 30, 66, 18, 2, 1, 11, 21, 11, 25, 71, 55, 7, 1, 65, 0, 16, 3, 2, 2, 2, 28, 43, 28, 4, 28, 36, 7, 2, 27, 28, 53, 11, 21, 11, 18, 14, 17, 111, 72, 56, 50, 14, 50, 14, 35, 39, 27, 10, 22, 251, 41, 7, 1, 17, 2, 60, 28, 11, 0, 9, 21, 43, 17, 47, 20, 28, 22, 13, 52, 58, 1, 3, 0, 14, 44, 33, 24, 27, 35, 30, 0, 3, 0, 9, 34, 4, 0, 13, 47, 15, 3, 22, 0, 2, 0, 36, 17, 2, 24, 20, 1, 64, 6, 2, 0, 2, 3, 2, 14, 2, 9, 8, 46, 39, 7, 3, 1, 3, 21, 2, 6, 2, 1, 2, 4, 4, 0, 19, 0, 13, 4, 31, 9, 2, 0, 3, 0, 2, 37, 2, 0, 26, 0, 2, 0, 45, 52, 19, 3, 21, 2, 31, 47, 21, 1, 2, 0, 185, 46, 42, 3, 37, 47, 21, 0, 60, 42, 14, 0, 72, 26, 38, 6, 186, 43, 117, 63, 32, 7, 3, 0, 3, 7, 2, 1, 2, 23, 16, 0, 2, 0, 95, 7, 3, 38, 17, 0, 2, 0, 29, 0, 11, 39, 8, 0, 22, 0, 12, 45, 20, 0, 19, 72, 200, 32, 32, 8, 2, 36, 18, 0, 50, 29, 113, 6, 2, 1, 2, 37, 22, 0, 26, 5, 2, 1, 2, 31, 15, 0, 328, 18, 16, 0, 2, 12, 2, 33, 125, 0, 80, 921, 103, 110, 18, 195, 2637, 96, 16, 1071, 18, 5, 26, 3994, 6, 582, 6842, 29, 1763, 568, 8, 30, 18, 78, 18, 29, 19, 47, 17, 3, 32, 20, 6, 18, 433, 44, 212, 63, 129, 74, 6, 0, 67, 12, 65, 1, 2, 0, 29, 6135, 9, 1237, 42, 9, 8936, 3, 2, 6, 2, 1, 2, 290, 16, 0, 30, 2, 3, 0, 15, 3, 9, 395, 2309, 106, 6, 12, 4, 8, 8, 9, 5991, 84, 2, 70, 2, 1, 3, 0, 3, 1, 3, 3, 2, 11, 2, 0, 2, 6, 2, 64, 2, 3, 3, 7, 2, 6, 2, 27, 2, 3, 2, 4, 2, 0, 4, 6, 2, 339, 3, 24, 2, 24, 2, 30, 2, 24, 2, 30, 2, 24, 2, 30, 2, 24, 2, 30, 2, 24, 2, 7, 1845, 30, 7, 5, 262, 61, 147, 44, 11, 6, 17, 0, 322, 29, 19, 43, 485, 27, 229, 29, 3, 0, 496, 6, 2, 3, 2, 1, 2, 14, 2, 196, 60, 67, 8, 0, 1205, 3, 2, 26, 2, 1, 2, 0, 3, 0, 2, 9, 2, 3, 2, 0, 2, 0, 7, 0, 5, 0, 2, 0, 2, 0, 2, 2, 2, 1, 2, 0, 3, 0, 2, 0, 2, 0, 2, 0, 2, 0, 2, 1, 2, 0, 3, 3, 2, 6, 2, 3, 2, 3, 2, 0, 2, 9, 2, 16, 6, 2, 2, 4, 2, 16, 4421, 42719, 33, 4153, 7, 221, 3, 5761, 15, 7472, 16, 621, 2467, 541, 1507, 4938, 6, 4191];
@@ -10025,6 +10028,18 @@ var pick = defineAtom("pick", X.object({ obj: X.record(X.any), keys: X.array(X.s
   }
   return res;
 }, { docs: "Pick Keys", cost: 1 });
+var omit = defineAtom("omit", X.object({ obj: X.record(X.any), keys: X.array(X.string) }), X.record(X.any), async ({ obj, keys }, ctx) => {
+  const resolvedObj = resolveValue(obj, ctx);
+  const resolvedKeys = new Set(resolveValue(keys, ctx));
+  const res = {};
+  if (resolvedObj) {
+    Object.keys(resolvedObj).forEach((k) => {
+      if (!resolvedKeys.has(k))
+        res[k] = resolvedObj[k];
+    });
+  }
+  return res;
+}, { docs: "Omit Keys", cost: 1 });
 var merge = defineAtom("merge", X.object({ a: X.record(X.any), b: X.record(X.any) }), X.record(X.any), async ({ a, b }, ctx) => ({
   ...resolveValue(a, ctx),
   ...resolveValue(b, ctx)
@@ -10486,6 +10501,7 @@ var coreAtoms = {
   template,
   regexMatch,
   pick,
+  omit,
   merge,
   keys,
   httpFetch: fetch2,
@@ -11341,7 +11357,85 @@ var agentRun2 = onCall(async (request) => {
     error: result.error || null
   };
 });
+var run = onRequest(async (req, res) => {
+  res.set("Access-Control-Allow-Origin", "*");
+  if (req.method === "OPTIONS") {
+    res.set("Access-Control-Allow-Methods", "POST");
+    res.set("Access-Control-Allow-Headers", "Authorization, Content-Type");
+    res.set("Access-Control-Max-Age", "3600");
+    return res.status(204).send("");
+  }
+  if (req.method !== "POST") {
+    return res.status(405).json({ error: "Method not allowed" });
+  }
+  const authHeader = req.headers.authorization;
+  if (!authHeader?.startsWith("Bearer ")) {
+    return res.status(401).json({ error: "Missing or invalid Authorization header" });
+  }
+  const idToken = authHeader.slice(7);
+  let uid;
+  try {
+    const { getAuth } = await import("firebase-admin/auth");
+    const decoded = await getAuth().verifyIdToken(idToken);
+    uid = decoded.uid;
+  } catch (err) {
+    return res.status(401).json({ error: "Invalid token" });
+  }
+  const { code, args = {}, fuel = 1000 } = req.body;
+  if (!code || typeof code !== "string") {
+    return res.status(400).json({ error: "code must be a non-empty string" });
+  }
+  if (fuel > 1e4) {
+    return res.status(400).json({ error: "fuel limit cannot exceed 10000" });
+  }
+  const startTime = Date.now();
+  let result = null;
+  let error = null;
+  try {
+    const apiKeys = await getUserApiKeys(uid);
+    const llm = createLlmCapability(apiKeys);
+    result = await Eval({
+      code,
+      context: args,
+      fuel,
+      timeoutMs: 30000,
+      capabilities: { llm }
+    });
+  } catch (err) {
+    console.error("Agent execution error:", err);
+    error = { message: err.message || "Execution failed" };
+  }
+  const fuelUsed = result?.fuelUsed || 0;
+  const duration = Date.now() - startTime;
+  const usageLog = {
+    timestamp: Date.now(),
+    duration,
+    payloadHash: hashPayload({ code, args }),
+    fuelRequested: fuel,
+    fuelUsed,
+    hasError: !!(error || result?.error),
+    resultHash: result?.result ? hashPayload(result.result) : null
+  };
+  const usageRef = db.collection("users").doc(uid).collection("usage");
+  usageRef.add(usageLog).catch((err) => console.error("Failed to log usage:", err));
+  usageRef.doc("total").set({
+    totalCalls: FieldValue.increment(1),
+    totalFuelUsed: FieldValue.increment(fuelUsed),
+    totalDuration: FieldValue.increment(duration),
+    totalErrors: FieldValue.increment(error || result?.error ? 1 : 0),
+    lastUpdated: Date.now()
+  }, { merge: true }).catch((err) => console.error("Failed to update totals:", err));
+  if (error) {
+    return res.status(200).json({ result: null, fuelUsed: 0, error });
+  }
+  res.json({
+    result: result.result,
+    fuelUsed: result.fuelUsed || 0,
+    error: result.error || null
+  });
+});
 export {
+  run,
   health,
   agentRun2 as agentRun
 };

@@ -315,13 +315,9 @@ const __results = []
 
 ${testCases}
 
-// Report results
+// Compute summary (no console output - caller handles reporting)
 const __passed = __results.filter(r => r.passed).length
 const __failed = __results.filter(r => !r.passed).length
-console.log(\`Tests: \${__passed} passed, \${__failed} failed\`)
-__results.filter(r => !r.passed).forEach(r => {
-  console.log(\`  ✗ \${r.description}: \${r.error}\`)
-})
 
 // Return summary
 return { passed: __passed, failed: __failed, results: __results }

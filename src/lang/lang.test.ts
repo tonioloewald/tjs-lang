@@ -1888,11 +1888,11 @@ describe('Inline Tests', () => {
   })
 
   it('should give meaningful error messages', async () => {
-    // NOTE: This test INTENTIONALLY creates a failing inner test to verify error messages
+    // NOTE: This test creates a failing inner test to verify error messages work correctly
     const result = extractTests(`
       function getValue() { return 42 }
 
-      test('INTENTIONAL FAIL - testing error messages') {
+      test('inner test expected to fail') {
         expect(getValue()).toBe(99)
       }
     `)
@@ -1900,6 +1900,7 @@ describe('Inline Tests', () => {
 
     const fn = new Function(fullCode)
     const summary = await fn()
+    // The inner test should fail (42 !== 99), and we verify the error message format
     expect(summary.failed).toBe(1)
     expect(summary.results[0].error).toContain('Expected 99')
     expect(summary.results[0].error).toContain('got 42')

@@ -957,7 +957,17 @@ export class TJSPlayground extends Component<TJSPlaygroundParts> {
     }
   }
 
+  private runSeq = 0
+  private isRunning = false
+
   run = async () => {
+    if (this.isRunning) {
+      console.log('[TJS-Playground] run() skipped - already running')
+      return
+    }
+    this.isRunning = true
+    const myRunSeq = ++this.runSeq
+    console.log('[TJS-Playground] run() called, seq:', myRunSeq)
     this.clearConsole()
     this.transpile()
 
@@ -1019,6 +1029,11 @@ export class TJSPlayground extends Component<TJSPlaygroundParts> {
   ${htmlContent}
   <!-- TJS Runtime stub must be set up BEFORE imports execute -->
   <script>
+    // Expose parent's run/runAgent/getIdToken in iframe for playground convenience
+    if (parent.run) window.run = parent.run.bind(parent);
+    if (parent.runAgent) window.runAgent = parent.runAgent.bind(parent);
+    if (parent.getIdToken) window.getIdToken = parent.getIdToken.bind(parent);
+
     globalThis.__tjs = {
       version: '0.0.0',
       pushStack: () => {},
@@ -1065,8 +1080,10 @@ export class TJSPlayground extends Component<TJSPlaygroundParts> {
     };
 
     try {
+      console.log('[iframe] Starting execution');
       const __execStart = performance.now();
       ${codeWithoutImports}
+      console.log('[iframe] Code executed');
 
       // Try to call the function if it exists and show result
       const funcName = Object.keys(window).find(k => {
@@ -1122,6 +1139,11 @@ export class TJSPlayground extends Component<TJSPlaygroundParts> {
       const iframe = this.parts.previewFrame
       const blob = new Blob([iframeDoc], { type: 'text/html' })
       const blobUrl = URL.createObjectURL(blob)
+      console.log('[TJS-Playground] Setting iframe src to blob URL')
+      console.log(
+        '[TJS-Playground] codeWithoutImports:',
+        codeWithoutImports.slice(0, 200)
+      )
 
       // Clean up previous blob URL if any
       if (iframe.dataset.blobUrl) {
@@ -1133,9 +1155,11 @@ export class TJSPlayground extends Component<TJSPlaygroundParts> {
       // Wait a bit for execution, then clean up listener
       setTimeout(() => {
         window.removeEventListener('message', messageHandler)
+        this.isRunning = false
         // Don't overwrite status bar - keep showing transpile time
       }, 1000)
     } catch (e: any) {
+      this.isRunning = false
       this.log(`Error: ${e.message}`)
       this.parts.statusBar.textContent = 'Error'
       this.parts.statusBar.classList.add('error')
@@ -1148,6 +1172,7 @@ export class TJSPlayground extends Component<TJSPlaygroundParts> {
 
   // Public method to set source code (auto-runs when examples are loaded)
   setSource(code: string, exampleName?: string) {
+    console.log('[TJS-Playground] setSource() called', exampleName)
     // Save current edits before switching
     if (this.currentExampleName) {
       this.editorCache.set(this.currentExampleName, this.parts.tjsEditor.value)

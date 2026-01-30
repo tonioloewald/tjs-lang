@@ -286,3 +286,104 @@ export const agentRun = onCall(async (request) => {
     error: result.error || null
   }
 })
+
+/*#
+## REST Agent Endpoint
+
+Same as agentRun but as a simple POST endpoint.
+Lighter weight - no Firebase callable overhead.
+Auth via Bearer token (Firebase ID token).
+*/
+export const run = onRequest(async (req, res) => {
+  // CORS
+  res.set('Access-Control-Allow-Origin', '*')
+  if (req.method === 'OPTIONS') {
+    res.set('Access-Control-Allow-Methods', 'POST')
+    res.set('Access-Control-Allow-Headers', 'Authorization, Content-Type')
+    res.set('Access-Control-Max-Age', '3600')
+    return res.status(204).send('')
+  }
+
+  if (req.method !== 'POST') {
+    return res.status(405).json({ error: 'Method not allowed' })
+  }
+
+  // Verify auth
+  const authHeader = req.headers.authorization
+  if (!authHeader?.startsWith('Bearer ')) {
+    return res.status(401).json({ error: 'Missing or invalid Authorization header' })
+  }
+
+  const idToken = authHeader.slice(7)
+  let uid
+  try {
+    const { getAuth } = await import('firebase-admin/auth')
+    const decoded = await getAuth().verifyIdToken(idToken)
+    uid = decoded.uid
+  } catch (err) {
+    return res.status(401).json({ error: 'Invalid token' })
+  }
+
+  const { code, args = {}, fuel = 1000 } = req.body
+
+  if (!code || typeof code !== 'string') {
+    return res.status(400).json({ error: 'code must be a non-empty string' })
+  }
+
+  if (fuel > 10000) {
+    return res.status(400).json({ error: 'fuel limit cannot exceed 10000' })
+  }
+
+  const startTime = Date.now()
+  let result = null
+  let error = null
+
+  try {
+    const apiKeys = await getUserApiKeys(uid)
+    const llm = createLlmCapability(apiKeys)
+
+    result = await Eval({
+      code,
+      context: args,
+      fuel,
+      timeoutMs: 30000,
+      capabilities: { llm }
+    })
+  } catch (err) {
+    console.error('Agent execution error:', err)
+    error = { message: err.message || 'Execution failed' }
+  }
+
+  // Log usage
+  const fuelUsed = result?.fuelUsed || 0
+  const duration = Date.now() - startTime
+  const usageLog = {
+    timestamp: Date.now(),
+    duration,
+    payloadHash: hashPayload({ code, args }),
+    fuelRequested: fuel,
+    fuelUsed,
+    hasError: !!(error || result?.error),
+    resultHash: result?.result ? hashPayload(result.result) : null
+  }
+
+  const usageRef = db.collection('users').doc(uid).collection('usage')
+  usageRef.add(usageLog).catch(err => console.error('Failed to log usage:', err))
+  usageRef.doc('total').set({
+    totalCalls: FieldValue.increment(1),
+    totalFuelUsed: FieldValue.increment(fuelUsed),
+    totalDuration: FieldValue.increment(duration),
+    totalErrors: FieldValue.increment(error || result?.error ? 1 : 0),
+    lastUpdated: Date.now()
+  }, { merge: true }).catch(err => console.error('Failed to update totals:', err))
+
+  if (error) {
+    return res.status(200).json({ result: null, fuelUsed: 0, error })
+  }
+
+  res.json({
+    result: result.result,
+    fuelUsed: result.fuelUsed || 0,
+    error: result.error || null
+  })
+})

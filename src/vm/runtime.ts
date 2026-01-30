@@ -1942,6 +1942,24 @@ export const pick = defineAtom(
   { docs: 'Pick Keys', cost: 1 }
 )
 
+export const omit = defineAtom(
+  'omit',
+  s.object({ obj: s.record(s.any), keys: s.array(s.string) }),
+  s.record(s.any),
+  async ({ obj, keys }: { obj: Record<string, any>; keys: string[] }, ctx) => {
+    const resolvedObj = resolveValue(obj, ctx)
+    const resolvedKeys = new Set(resolveValue(keys, ctx))
+    const res: any = {}
+    if (resolvedObj) {
+      Object.keys(resolvedObj).forEach((k) => {
+        if (!resolvedKeys.has(k)) res[k] = resolvedObj[k]
+      })
+    }
+    return res
+  },
+  { docs: 'Omit Keys', cost: 1 }
+)
+
 export const merge = defineAtom(
   'merge',
   s.object({ a: s.record(s.any), b: s.record(s.any) }),
@@ -2892,6 +2910,7 @@ export const coreAtoms = {
   template,
   regexMatch,
   pick,
+  omit,
   merge,
   keys,
   httpFetch: fetch,
