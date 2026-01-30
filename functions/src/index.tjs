@@ -387,3 +387,197 @@ export const run = onRequest(async (req, res) => {
     error: result.error || null
   })
 })
+
+/*#
+## URL Pattern Matching
+
+Matches URL paths against patterns like `/user/:id` or `/api/v1/:resource/:action`.
+Returns extracted parameters if match succeeds, null otherwise.
+*/
+function matchUrlPattern(pattern, path) {
+  // Normalize paths - remove trailing slashes
+  const normalizedPattern = pattern.replace(/\/+$/, '') || '/'
+  const normalizedPath = path.replace(/\/+$/, '') || '/'
+
+  const patternParts = normalizedPattern.split('/')
+  const pathParts = normalizedPath.split('/')
+
+  if (patternParts.length !== pathParts.length) {
+    return null
+  }
+
+  const params = {}
+
+  for (let i = 0; i < patternParts.length; i++) {
+    const patternPart = patternParts[i]
+    const pathPart = pathParts[i]
+
+    if (patternPart.startsWith(':')) {
+      // Parameter - extract value
+      const paramName = patternPart.slice(1)
+      params[paramName] = decodeURIComponent(pathPart)
+    } else if (patternPart !== pathPart) {
+      // Literal mismatch
+      return null
+    }
+  }
+
+  return params
+}
+
+/*#
+## Stored Functions Cache
+
+Simple in-memory cache to avoid repeated Firestore reads.
+Cache entries expire after 60 seconds.
+*/
+const storedFunctionsCache = {
+  data: null,
+  timestamp: 0,
+  ttl: 60000 // 60 seconds
+}
+
+async function getStoredFunctions() {
+  const now = Date.now()
+
+  if (storedFunctionsCache.data && (now - storedFunctionsCache.timestamp) < storedFunctionsCache.ttl) {
+    return storedFunctionsCache.data
+  }
+
+  const snapshot = await db.collection('storedFunctions').get()
+  const functions = []
+
+  snapshot.forEach(doc => {
+    functions.push({ id: doc.id, ...doc.data() })
+  })
+
+  storedFunctionsCache.data = functions
+  storedFunctionsCache.timestamp = now
+
+  return functions
+}
+
+/*#
+## Page Endpoint
+
+Serves stored functions based on URL routing.
+Matches incoming path against stored function URL patterns.
+Executes matched function's AJS code and returns with appropriate content-type.
+
+### Features
+- URL pattern matching with parameters (e.g., `/user/:id`)
+- Configurable content-type per function
+- Public/private access control
+- Query string passed as args
+*/
+export const page = onRequest(async (req, res) => {
+  // CORS for public endpoints
+  res.set('Access-Control-Allow-Origin', '*')
+  if (req.method === 'OPTIONS') {
+    res.set('Access-Control-Allow-Methods', 'GET, POST')
+    res.set('Access-Control-Allow-Headers', 'Authorization, Content-Type')
+    res.set('Access-Control-Max-Age', '3600')
+    return res.status(204).send('')
+  }
+
+  // Get the path from the request
+  // Firebase functions receive path after the function name
+  const path = req.path || '/'
+
+  try {
+    // Load all stored functions
+    const storedFunctions = await getStoredFunctions()
+
+    // Find matching function
+    let matchedFunction = null
+    let params = null
+
+    for (const fn of storedFunctions) {
+      if (!fn.urlPattern || !fn.code) continue
+
+      const match = matchUrlPattern(fn.urlPattern, path)
+      if (match !== null) {
+        matchedFunction = fn
+        params = match
+        break
+      }
+    }
+
+    if (!matchedFunction) {
+      return res.status(404).json({ error: 'Not found', path })
+    }
+
+    // Check auth for non-public functions
+    let uid = null
+    if (!matchedFunction.public) {
+      const authHeader = req.headers.authorization
+      if (!authHeader?.startsWith('Bearer ')) {
+        return res.status(401).json({ error: 'Authentication required' })
+      }
+
+      const idToken = authHeader.slice(7)
+      try {
+        const { getAuth } = await import('firebase-admin/auth')
+        const decoded = await getAuth().verifyIdToken(idToken)
+        uid = decoded.uid
+      } catch (err) {
+        return res.status(401).json({ error: 'Invalid token' })
+      }
+    }
+
+    // Build args from URL params, query string, and body
+    const args = {
+      ...params,
+      ...req.query,
+      ...(req.body || {}),
+      _path: path,
+      _method: req.method,
+      _uid: uid
+    }
+
+    // Execute the stored function's code
+    const startTime = Date.now()
+    let result = null
+    let error = null
+
+    try {
+      // Load user's API keys if authenticated
+      let llm = null
+      if (uid) {
+        const apiKeys = await getUserApiKeys(uid)
+        llm = createLlmCapability(apiKeys)
+      }
+
+      result = await Eval({
+        code: matchedFunction.code,
+        context: args,
+        fuel: matchedFunction.fuel || 1000,
+        timeoutMs: matchedFunction.timeoutMs || 10000,
+        capabilities: llm ? { llm } : {}
+      })
+    } catch (err) {
+      console.error('Stored function execution error:', err)
+      error = { message: err.message || 'Execution failed' }
+    }
+
+    if (error || result?.error) {
+      const errorMessage = error?.message || result?.error?.message || 'Unknown error'
+      return res.status(500).json({ error: errorMessage })
+    }
+
+    // Set content type and return result
+    const contentType = matchedFunction.contentType || 'application/json'
+    res.set('Content-Type', contentType)
+
+    // For HTML/text, return raw result; for JSON, stringify
+    if (contentType.includes('text/') || contentType.includes('html')) {
+      return res.send(result.result)
+    } else {
+      return res.json(result.result)
+    }
+
+  } catch (err) {
+    console.error('Page endpoint error:', err)
+    return res.status(500).json({ error: 'Internal server error' })
+  }
+})

@@ -11434,8 +11434,157 @@ var run = onRequest(async (req, res) => {
     error: result.error || null
   });
 });
+function matchUrlPattern(pattern, path) {
+  const normalizedPattern = pattern.replace(/\/+$/, "") || "/";
+  const normalizedPath = path.replace(/\/+$/, "") || "/";
+  const patternParts = normalizedPattern.split("/");
+  const pathParts = normalizedPath.split("/");
+  if (patternParts.length !== pathParts.length) {
+    return null;
+  }
+  const params = {};
+  for (let i2 = 0;i2 < patternParts.length; i2++) {
+    const patternPart = patternParts[i2];
+    const pathPart = pathParts[i2];
+    if (patternPart.startsWith(":")) {
+      const paramName = patternPart.slice(1);
+      params[paramName] = decodeURIComponent(pathPart);
+    } else if (patternPart !== pathPart) {
+      return null;
+    }
+  }
+  return params;
+}
+matchUrlPattern.__tjs = {
+  params: {
+    pattern: {
+      type: {
+        kind: "any"
+      },
+      required: false
+    },
+    path: {
+      type: {
+        kind: "any"
+      },
+      required: false
+    }
+  },
+  unsafe: true,
+  source: "index.tjs:394"
+};
+var storedFunctionsCache = {
+  data: null,
+  timestamp: 0,
+  ttl: 60000
+};
+async function getStoredFunctions() {
+  const now = Date.now();
+  if (storedFunctionsCache.data && now - storedFunctionsCache.timestamp < storedFunctionsCache.ttl) {
+    return storedFunctionsCache.data;
+  }
+  const snapshot = await db.collection("storedFunctions").get();
+  const functions = [];
+  snapshot.forEach((doc) => {
+    functions.push({ id: doc.id, ...doc.data() });
+  });
+  storedFunctionsCache.data = functions;
+  storedFunctionsCache.timestamp = now;
+  return functions;
+}
+getStoredFunctions.__tjs = {
+  params: {},
+  unsafe: true,
+  source: "index.tjs:437"
+};
+var page = onRequest(async (req, res) => {
+  res.set("Access-Control-Allow-Origin", "*");
+  if (req.method === "OPTIONS") {
+    res.set("Access-Control-Allow-Methods", "GET, POST");
+    res.set("Access-Control-Allow-Headers", "Authorization, Content-Type");
+    res.set("Access-Control-Max-Age", "3600");
+    return res.status(204).send("");
+  }
+  const path = req.path || "/";
+  try {
+    const storedFunctions = await getStoredFunctions();
+    let matchedFunction = null;
+    let params = null;
+    for (const fn of storedFunctions) {
+      if (!fn.urlPattern || !fn.code)
+        continue;
+      const match = matchUrlPattern(fn.urlPattern, path);
+      if (match !== null) {
+        matchedFunction = fn;
+        params = match;
+        break;
+      }
+    }
+    if (!matchedFunction) {
+      return res.status(404).json({ error: "Not found", path });
+    }
+    let uid = null;
+    if (!matchedFunction.public) {
+      const authHeader = req.headers.authorization;
+      if (!authHeader?.startsWith("Bearer ")) {
+        return res.status(401).json({ error: "Authentication required" });
+      }
+      const idToken = authHeader.slice(7);
+      try {
+        const { getAuth } = await import("firebase-admin/auth");
+        const decoded = await getAuth().verifyIdToken(idToken);
+        uid = decoded.uid;
+      } catch (err) {
+        return res.status(401).json({ error: "Invalid token" });
+      }
+    }
+    const args = {
+      ...params,
+      ...req.query,
+      ...req.body || {},
+      _path: path,
+      _method: req.method,
+      _uid: uid
+    };
+    const startTime = Date.now();
+    let result = null;
+    let error = null;
+    try {
+      let llm = null;
+      if (uid) {
+        const apiKeys = await getUserApiKeys(uid);
+        llm = createLlmCapability(apiKeys);
+      }
+      result = await Eval({
+        code: matchedFunction.code,
+        context: args,
+        fuel: matchedFunction.fuel || 1000,
+        timeoutMs: matchedFunction.timeoutMs || 1e4,
+        capabilities: llm ? { llm } : {}
+      });
+    } catch (err) {
+      console.error("Stored function execution error:", err);
+      error = { message: err.message || "Execution failed" };
+    }
+    if (error || result?.error) {
+      const errorMessage = error?.message || result?.error?.message || "Unknown error";
+      return res.status(500).json({ error: errorMessage });
+    }
+    const contentType = matchedFunction.contentType || "application/json";
+    res.set("Content-Type", contentType);
+    if (contentType.includes("text/") || contentType.includes("html")) {
+      return res.send(result.result);
+    } else {
+      return res.json(result.result);
+    }
+  } catch (err) {
+    console.error("Page endpoint error:", err);
+    return res.status(500).json({ error: "Internal server error" });
+  }
+});
 export {
   run,
+  page,
   health,
   agentRun2 as agentRun
 };
