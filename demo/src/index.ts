@@ -103,7 +103,8 @@ const tjsPlaygroundDoc = {
 const allDocs = [ajsPlaygroundDoc, tjsPlaygroundDoc, ...docs]
 
 const PROJECT = 'tjs-lang'
-const VERSION = '0.1.0' // TODO: import from package.json
+declare const __VERSION__: string
+const VERSION = __VERSION__
 
 // Determine initial doc from URL
 const docName =
