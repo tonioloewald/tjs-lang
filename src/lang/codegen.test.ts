@@ -1520,7 +1520,6 @@ function transform(value: string): string {
     it('preserves line annotations through TJS intermediate', () => {
       // TJS with explicit line annotations (as if from TS transpilation)
       const tjsSource = `/* tjs <- lib/utils.ts */
-LegacyEquals
 
 /* line 15 */
 function helper(x: 0) -! 0 {

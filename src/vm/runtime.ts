@@ -2235,7 +2235,7 @@ export const llmPredict = defineAtom(
       resolveValue(options, ctx)
     )
   },
-  { docs: 'LLM Predict', timeoutMs: 120000, cost: 1 }
+  { docs: 'LLM Predict', timeoutMs: 120000, cost: 100 }
 )
 
 export const agentRun = defineAtom(

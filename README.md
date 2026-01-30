@@ -8,7 +8,7 @@
 
 ## What is TJS?
 
-**TJS is a language.** It's what JavaScript always promised, but never quite delivered. Indeed it's what Apple's Dylan promised and never delivered. Instead of "a lot of the power of Lisp", *all* the power of Lisp. Instead of C-like Syntax, actual JavaScript syntax. Instead of easy to learn but with weird corner cases, dangerous gotchas, and problems at scale, we fix the corner cases, remove the gotchas, and provide the tools that let you scale.
+**TJS is a language.** It's what JavaScript always promised, but never quite delivered. Indeed it's what Apple's Dylan promised and never delivered. Instead of "a lot of the power of Lisp", _all_ the power of Lisp. Instead of C-like Syntax, actual JavaScript syntax. Instead of easy to learn but with weird corner cases, dangerous gotchas, and problems at scale, we fix the corner cases, remove the gotchas, and provide the tools that let you scale.
 
 **TJS is also a runtime.** A runtime that remembers your function declarations and can check whether parameter types are what they ought to be. It can guarantee safety by default, and speed when it's needed (including inline WASM).
 
@@ -36,7 +36,7 @@
 
 **TypeScript is fragile.** It pretends to be a superset of JavaScript, but it isn't. It pretends to be typesafe, but it isn't. Its Turing-complete type system is harder to reason about than the code it supposedly documents—and then it all disappears at runtime.
 
-TypeScript is also *difficult to transpile*. Your browser can run entire [full virtual machines](https://infinitemac.org/) in JavaScript, but most TypeScript playgrounds either fake transpilation by stripping type declarations or use a server backend to do the real work.
+TypeScript is also _difficult to transpile_. Your browser can run entire [full virtual machines](https://infinitemac.org/) in JavaScript, but most TypeScript playgrounds either fake transpilation by stripping type declarations or use a server backend to do the real work.
 
 **JavaScript is dangerous.** `eval()` and `Function()` are so powerful they're forbidden almost everywhere—blocked by CSP in most production environments. The industry's answer? The **Container Fallacy**: shipping a 200MB Linux OS just to run a 1KB function safely. We ship buildings to deliver letters.
 
@@ -141,6 +141,7 @@ const result = await vm.run(
 └────────┘   5 rows      └────────┘    100 rows      └──────────┘
              (after filtering 95 away)
 ```
+
 _High latency. High bandwidth. Validate at every layer._
 
 ```
@@ -151,6 +152,7 @@ _High latency. High bandwidth. Validate at every layer._
 └────────┘    5 rows     └────────┘     5 rows       └──────────┘
              (agent filtered at source)
 ```
+
 _Low latency. Zero waste. Validate once._
 
 The agent carries its own validation. The server grants capabilities. Caching happens automatically because the query _is_ the code.

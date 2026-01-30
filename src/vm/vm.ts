@@ -11,6 +11,7 @@ import {
 } from './runtime'
 import { TypedBuilder, type BaseNode, type BuilderType } from '../builder'
 import { validate } from 'tosijs-schema'
+import { transpile } from '../lang/core'
 
 /** Default timeout multiplier: milliseconds per fuel unit */
 const FUEL_TO_MS = 10 // 1000 fuel = 10 seconds
@@ -82,15 +83,19 @@ export class AgentVM<M extends Record<string, Atom<any, any>>> {
       context?: Record<string, any> // Request-scoped metadata (auth, permissions, etc.)
     } = {}
   ): Promise<RunResult> {
-    // Resolve procedure token to AST if needed
+    // Resolve string input to AST
     let ast: BaseNode
     if (typeof astOrToken === 'string') {
       if (isProcedureToken(astOrToken)) {
+        // Procedure token - lookup stored AST
         ast = resolveProcedureToken(astOrToken) as BaseNode
       } else {
-        throw new Error(
-          `Invalid argument: expected AST or procedure token (starting with 'proc_'), got string: ${astOrToken}`
-        )
+        // AJS source code - transpile to AST
+        try {
+          ast = transpile(astOrToken).ast as BaseNode
+        } catch (e: any) {
+          throw new Error(`AJS transpilation failed: ${e.message}`)
+        }
       }
     } else {
       ast = astOrToken

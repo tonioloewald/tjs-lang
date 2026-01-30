@@ -136,9 +136,10 @@ describe('Stored Procedures', () => {
       expect(result).toEqual({ product: 42 })
     })
 
-    it('rejects non-token strings', async () => {
-      await expect(vm.run('not-a-token', {})).rejects.toThrow(
-        'expected AST or procedure token'
+    it('rejects invalid AJS source', async () => {
+      // Now that vm.run() accepts AJS source, invalid source fails transpilation
+      await expect(vm.run('not-valid-ajs', {})).rejects.toThrow(
+        'AJS transpilation failed'
       )
     })
 

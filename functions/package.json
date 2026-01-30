@@ -8,12 +8,17 @@
     "node": "20"
   },
   "scripts": {
-    "build": "cd .. && bun src/cli/tjs.ts emit functions/src/index.tjs > functions/lib/index.js",
+    "build:transpile": "cd .. && bun src/cli/tjs.ts emit functions/src/index.tjs > functions/src/index.js",
+    "build:bundle": "bun build src/index.js --outfile=lib/index.js --target=node --conditions=bun --external=firebase-functions --external=firebase-admin --external=firebase-functions/* --external=firebase-admin/*",
+    "build": "npm run build:transpile && npm run build:bundle",
     "serve": "firebase emulators:start --only functions",
     "deploy": "npm run build && firebase deploy --only functions"
   },
   "dependencies": {
     "firebase-admin": "^12.0.0",
     "firebase-functions": "^5.0.0"
+  },
+  "devDependencies": {
+    "tjs-lang": "file:.."
   }
 }

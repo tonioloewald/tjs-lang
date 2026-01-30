@@ -95,7 +95,7 @@
 - [x] TjsDate directive - bans Date constructor/methods
 - [x] TjsNoeval directive - bans eval() and new Function()
 - [x] TjsStrict directive - enables all of the above
-- [x] Deprecate LegacyEquals (now a no-op with warning)
+- [x] TjsSafeEval directive - includes Eval/SafeFunction for dynamic code execution
 - [x] Updated Is() for nullish equality (null == undefined)
 - [x] Added Is/IsNot tests (structural equality, nullish handling)
 - [x] TjsStandard directive - newlines as statement terminators (prevents ASI footguns)

@@ -22,7 +22,26 @@
   "license": "Apache-2.0",
   "main": "./dist/index.js",
   "exports": {
-    ".": "./dist/index.js",
+    ".": {
+      "bun": "./src/index.ts",
+      "default": "./dist/index.js"
+    },
+    "./eval": {
+      "bun": "./src/lang/eval.ts",
+      "default": "./dist/lang/eval.js"
+    },
+    "./lang": {
+      "bun": "./src/lang/index.ts",
+      "default": "./dist/lang/index.js"
+    },
+    "./lang/eval": {
+      "bun": "./src/lang/eval.ts",
+      "default": "./dist/lang/eval.js"
+    },
+    "./lang/from-ts": {
+      "bun": "./src/lang/emitters/from-ts.ts",
+      "default": "./dist/lang/emitters/from-ts.js"
+    },
     "./src": "./src/index.ts",
     "./editors/monaco": "./editors/monaco/ajs-monarch.js",
     "./editors/codemirror": "./editors/codemirror/ajs-language.js",
@@ -39,8 +58,8 @@
   "type": "module",
   "files": [
     "dist",
+    "src",
     "docs",
-    "src/cli",
     "editors",
     "bin",
     "demo",
@@ -65,6 +84,8 @@
     "chokidar": "^4.0.3",
     "codemirror": "^6.0.2",
     "eslint": "^8.57.1",
+    "firebase-admin": "^13.6.0",
+    "firebase-functions": "^7.0.5",
     "marked": "^9.1.6",
     "prettier": "^2.8.8",
     "tosijs": "^1.0.0",

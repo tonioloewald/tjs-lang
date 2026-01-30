@@ -7,6 +7,12 @@ service cloud.firestore {
     // Each user can only read/write their own document
     match /users/{uid} {
       allow read, write: if request.auth != null && request.auth.uid == uid;
+
+      // Usage logs - read only for owner, written by Cloud Functions
+      match /usage/{logId} {
+        allow read: if request.auth != null && request.auth.uid == uid;
+        allow write: if false; // Admin SDK only (Cloud Functions)
+      }
     }
 
     // Stored functions - public read, admin write only

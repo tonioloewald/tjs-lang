@@ -93,6 +93,12 @@ export {
 } from './wasm'
 export type { WasmBlock } from './parser'
 export {
+  Eval,
+  SafeFunction,
+  type EvalOptions,
+  type SafeFunctionOptions,
+} from './eval'
+export {
   MetadataCache,
   getGlobalCache,
   setGlobalCache,

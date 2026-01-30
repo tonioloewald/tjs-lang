@@ -1,6 +1,0 @@
-# Preload TJS plugin for native .tjs file support
-preload = ["./src/bun-plugin/tjs-plugin.ts"]
-
-[test]
-# Preload TJS plugin for tests too
-preload = ["./src/bun-plugin/tjs-plugin.ts"]

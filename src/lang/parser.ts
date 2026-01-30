@@ -1264,6 +1264,8 @@ export interface TjsModes {
   tjsNoeval: boolean
   /** TjsStandard: newlines as statement terminators (prevents ASI footguns) */
   tjsStandard: boolean
+  /** TjsSafeEval: include Eval/SafeFunction in runtime for dynamic code execution */
+  tjsSafeEval: boolean
 }
 
 export function preprocess(
@@ -1296,6 +1298,7 @@ export function preprocess(
     tjsDate: false,
     tjsNoeval: false,
     tjsStandard: false,
+    tjsSafeEval: false,
   }
 
   // Handle module-level safety directive: safety none | safety inputs | safety all
@@ -1314,9 +1317,9 @@ export function preprocess(
 
   // Handle TJS mode directives (can appear in any order after safety)
   // TjsStrict enables all TJS modes
-  // Individual modes: TjsEquals, TjsClass, TjsDate, TjsNoeval, TjsStandard
+  // Individual modes: TjsEquals, TjsClass, TjsDate, TjsNoeval, TjsStandard, TjsSafeEval
   const directivePattern =
-    /^(\s*(?:\/\/[^\n]*\n|\/\*[\s\S]*?\*\/\s*)*)\s*(TjsStrict|TjsEquals|TjsClass|TjsDate|TjsNoeval|TjsStandard|LegacyEquals)\b/
+    /^(\s*(?:\/\/[^\n]*\n|\/\*[\s\S]*?\*\/\s*)*)\s*(TjsStrict|TjsEquals|TjsClass|TjsDate|TjsNoeval|TjsStandard|TjsSafeEval)\b/
 
   let match
   while ((match = source.match(directivePattern))) {
@@ -1339,12 +1342,8 @@ export function preprocess(
       tjsModes.tjsNoeval = true
     } else if (directive === 'TjsStandard') {
       tjsModes.tjsStandard = true
-    } else if (directive === 'LegacyEquals') {
-      // DEPRECATED: LegacyEquals is now the default behavior
-      // Kept for backwards compatibility - just ignore it
-      console.warn(
-        'LegacyEquals is deprecated: JS equality is now the default. Use TjsEquals to enable structural equality.'
-      )
+    } else if (directive === 'TjsSafeEval') {
+      tjsModes.tjsSafeEval = true
     }
 
     // Remove the directive from source
@@ -1866,7 +1865,6 @@ function splitParameters(params: string): string[] {
  *   a IsNot b   -> IsNot(a, b)
  *
  * This enables structural equality with a clean syntax.
- * In LegacyEquals mode, these are the explicit operators for structural equality.
  */
 function transformIsOperators(source: string): string {
   // Match: (simpleExpr) IsNot (simpleExpr) - must check IsNot first (longer match)

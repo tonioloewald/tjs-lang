@@ -49,6 +49,9 @@ import {
 // Import user store for encrypted API key storage
 import { initUserDoc, getApiKeys, saveApiKeys } from './user-store'
 
+// Import agent client for calling Cloud Functions
+import { runAgent } from './agent-client'
+
 // Import tjs-lang for live examples
 import * as agent from '../../src'
 import * as tosijs from 'tosijs'
@@ -74,7 +77,7 @@ const demoRuntime = {
 }
 
 // Make available globally for debugging
-Object.assign(window, { agent, tosijs, tosijsui, demoRuntime })
+Object.assign(window, { agent, tosijs, tosijsui, demoRuntime, runAgent })
 
 // Load documentation
 import docs from '../docs.json'

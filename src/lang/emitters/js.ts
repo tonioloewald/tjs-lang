@@ -522,8 +522,9 @@ export function transpileToJS(
   const needsTypeError = code.includes('__tjs.typeError(')
   const needsIs = code.includes('Is(')
   const needsIsNot = code.includes('IsNot(')
+  const needsSafeEval = preprocessed.tjsModes.tjsSafeEval
 
-  if (needsTypeError || needsIs || needsIsNot) {
+  if (needsTypeError || needsIs || needsIsNot || needsSafeEval) {
     // Create isolated runtime instance for this module
     // Falls back to shared global if createRuntime not available
     let preamble =
@@ -538,6 +539,11 @@ export function transpileToJS(
     }
 
     code = preamble + code
+  }
+
+  // Add Eval/SafeFunction import when TjsSafeEval directive is present
+  if (needsSafeEval) {
+    code = `import { Eval, SafeFunction } from 'tjs-lang';\n` + code
   }
 
   // Run tests at transpile time if enabled

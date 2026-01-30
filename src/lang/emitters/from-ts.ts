@@ -1748,7 +1748,6 @@ export function fromTS(
     emitDocCommentsBefore(Infinity)
 
     // Include source file annotation for error reporting
-    // JS equality semantics are now the default (no LegacyEquals needed)
     const sourceFileName = filename || 'unknown'
     const header = `/* tjs <- ${sourceFileName} */\n\n`
 

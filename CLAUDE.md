@@ -388,22 +388,6 @@ user Is expectedUser
 result IsNot errorValue
 ```
 
-**LegacyEquals Mode (for TS-emitted code):**
-
-Add `LegacyEquals` at the top of a file to preserve JavaScript's original equality semantics:
-
-```typescript
-LegacyEquals
-
-// Now == and === work like standard JavaScript
-'1' == 1    // true (JS coercion)
-'1' === 1   // false (strict equality)
-
-// Use explicit Is/IsNot for structural equality in legacy mode
-a Is b      // structural equality
-a IsNot b   // structural inequality
-```
-
 **Implementation Notes:**
 
 - **AJS (VM)**: The VM's expression evaluator handles `==`/`!=` with structural semantics at runtime
