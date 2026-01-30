@@ -1388,11 +1388,11 @@ export function ajsEditorExtension(
 ): Extension {
   return [
     javascript({ jsx: config.jsx, typescript: config.typescript }),
-    syntaxHighlighting(defaultHighlightStyle),
+    // Syntax highlighting comes from customSetup (defaultHighlightStyle with fallback)
+    // or from the active theme (e.g. oneDark)
     forbiddenHighlighter,
     tryWithoutCatchHighlighter,
     ajsTheme,
-    syntaxHighlighting(ajsHighlightStyle),
     autocompletion({
       override: [tjsCompletionSource(config.autocomplete || {})],
       activateOnTyping: true,
@@ -1416,11 +1416,11 @@ export function tjsEditorExtension(
 ): Extension {
   return [
     javascript({ jsx: config.jsx, typescript: config.typescript }),
-    syntaxHighlighting(defaultHighlightStyle),
+    // Syntax highlighting comes from customSetup (defaultHighlightStyle with fallback)
+    // or from the active theme (e.g. oneDark)
     tjsForbiddenHighlighter, // Use TJS forbidden list (more permissive)
     tryWithoutCatchHighlighter,
     ajsTheme,
-    syntaxHighlighting(ajsHighlightStyle),
     autocompletion({
       override: [tjsCompletionSource(config.autocomplete || {})],
       activateOnTyping: true,
@@ -1440,7 +1440,6 @@ export function ajsLanguage(
     forbiddenHighlighter,
     tryWithoutCatchHighlighter,
     ajsTheme,
-    syntaxHighlighting(ajsHighlightStyle),
   ])
 }
 

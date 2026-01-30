@@ -8,7 +8,7 @@ import { icons } from 'tosijs-ui'
 
 import { EditorView, basicSetup } from 'codemirror'
 import { EditorState, Compartment } from '@codemirror/state'
-import { syntaxHighlighting, defaultHighlightStyle } from '@codemirror/language'
+// syntaxHighlighting and defaultHighlightStyle are included in basicSetup
 import { oneDark } from '@codemirror/theme-one-dark'
 import { ajsEditorExtension } from '../../editors/codemirror/ajs-language'
 
@@ -553,7 +553,8 @@ export class Playground extends Component<PlaygroundParts> {
 
     const extensions = [
       basicSetup,
-      syntaxHighlighting(defaultHighlightStyle),
+      // Note: basicSetup already includes syntaxHighlighting(defaultHighlightStyle, {fallback: true})
+      // Don't add it again or it interferes with dark mode themes like oneDark
       ajsEditorExtension(),
       this.themeCompartment.of(this.getThemeExtension()),
     ]
