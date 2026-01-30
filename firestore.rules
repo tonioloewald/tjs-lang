@@ -1,0 +1,25 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // Users collection - owner access only
+    // Each user can only read/write their own document
+    match /users/{uid} {
+      allow read, write: if request.auth != null && request.auth.uid == uid;
+    }
+
+    // Stored functions - public read, admin write only
+    // These are AJS functions with URL patterns for routing
+    match /storedFunctions/{functionId} {
+      allow read: if true;
+      allow write: if false; // Admin SDK only
+    }
+
+    // Default: deny all other access
+    // Future collections will use AJS-driven RBAC via the universal endpoint
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}

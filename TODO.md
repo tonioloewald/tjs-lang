@@ -35,6 +35,7 @@
 - [ ] Create an endpoint example
 - [ ] Fold docs and tests into one panel, with passing tests collapsed by default (ts -> tjs inserts test; tjs -> js turns test blocks into documentation along with outcomes).
 - [ ] Dim/hide the preview tab if nothing ever changed it
+- [ ] Single source of truth for version number. I note the badge displayed in console is not matching the version. No hardwired versions -- version number is pulled from package.json and written to version.ts somewhere and that is the single source of truth.
 
 ## Infrastructure
 

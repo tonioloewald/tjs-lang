@@ -36,6 +36,16 @@ import { examples as ajsExamples } from './examples'
 // Import settings dialog
 import { showSettingsDialog } from './settings'
 
+// Import Firebase Auth
+import {
+  initAuth,
+  subscribeAuth,
+  signInWithGoogle,
+  signOut,
+  getCurrentUser,
+  AuthState,
+} from './firebase-auth'
+
 // Import tjs-lang for live examples
 import * as agent from '../../src'
 import * as tosijs from 'tosijs'
@@ -100,7 +110,7 @@ const currentDoc =
   allDocs[0]
 
 // Initialize reactive state
-const { app, prefs } = tosi({
+const { app, prefs, auth } = tosi({
   app: {
     title: PROJECT,
     version: VERSION,
@@ -111,6 +121,16 @@ const { app, prefs } = tosi({
     compact: false,
     currentView: 'home' as 'home' | 'ajs' | 'tjs' | 'ts',
     currentExample: null as any,
+  },
+  auth: {
+    user: null as {
+      uid: string
+      email: string | null
+      displayName: string | null
+      photoURL: string | null
+    } | null,
+    loading: true,
+    error: null as string | null,
   },
   prefs: {
     // UI settings (stored in localStorage)
@@ -137,6 +157,23 @@ const savePrefs = () => {
   localStorage.setItem('deepseekKey', prefs.deepseekKey.valueOf())
   localStorage.setItem('customLlmUrl', prefs.customLlmUrl.valueOf())
 }
+
+// Subscribe to auth state changes, then initialize Firebase Auth
+subscribeAuth((state: AuthState) => {
+  auth.user.xinValue = state.user
+    ? {
+        uid: state.user.uid,
+        email: state.user.email,
+        displayName: state.user.displayName,
+        photoURL: state.user.photoURL,
+      }
+    : null
+  auth.loading.xinValue = state.loading
+  auth.error.xinValue = state.error
+})
+
+// Initialize Firebase Auth after subscription is set up
+initAuth()
 
 // Custom bindings
 bindings.docLink = {
@@ -193,7 +230,7 @@ function loadViewStateFromURL() {
   const example = params.get('example')
 
   if (view === 'home') {
-    app.currentView = 'home'
+    app.currentView.xin = 'home'
     app.currentExample = null
   } else if (view === 'ajs' || view === 'tjs' || view === 'ts') {
     app.currentView = view
@@ -309,33 +346,119 @@ if (main) {
           class: 'iconic',
           title: 'Settings',
           onClick(event: MouseEvent) {
+            const user = auth.user.valueOf() as any
+            const isFirebaseHosting =
+              window.location.hostname === 'platform.tosijs.net' ||
+              window.location.hostname.includes('tjs-platform')
+
+            // Build account menu items based on auth state
+            const accountMenuItems =
+              isFirebaseHosting && user?.uid
+                ? [
+                    {
+                      caption: user.displayName || user.email || 'Account',
+                      icon: 'user',
+                      menuItems: [
+                        {
+                          caption: 'API Keys',
+                          icon: 'key',
+                          action: () => {
+                            showSettingsDialog(
+                              {
+                                preferredProvider:
+                                  prefs.preferredProvider.valueOf() as any,
+                                openaiKey: prefs.openaiKey.valueOf(),
+                                anthropicKey: prefs.anthropicKey.valueOf(),
+                                deepseekKey: prefs.deepseekKey.valueOf(),
+                                customLlmUrl: prefs.customLlmUrl.valueOf(),
+                              },
+                              (settings) => {
+                                prefs.preferredProvider =
+                                  settings.preferredProvider
+                                prefs.openaiKey = settings.openaiKey
+                                prefs.anthropicKey = settings.anthropicKey
+                                prefs.deepseekKey = settings.deepseekKey
+                                prefs.customLlmUrl = settings.customLlmUrl
+                                savePrefs()
+                              }
+                            )
+                          },
+                        },
+                        null,
+                        {
+                          caption: 'Log Out',
+                          icon: 'logOut',
+                          action: () => signOut(),
+                        },
+                      ],
+                    },
+                    null,
+                  ]
+                : isFirebaseHosting
+                ? [
+                    {
+                      caption: 'Sign In',
+                      icon: 'user',
+                      action: () => signInWithGoogle(),
+                    },
+                    {
+                      caption: 'API Keys',
+                      icon: 'key',
+                      action: () => {
+                        showSettingsDialog(
+                          {
+                            preferredProvider:
+                              prefs.preferredProvider.valueOf() as any,
+                            openaiKey: prefs.openaiKey.valueOf(),
+                            anthropicKey: prefs.anthropicKey.valueOf(),
+                            deepseekKey: prefs.deepseekKey.valueOf(),
+                            customLlmUrl: prefs.customLlmUrl.valueOf(),
+                          },
+                          (settings) => {
+                            prefs.preferredProvider = settings.preferredProvider
+                            prefs.openaiKey = settings.openaiKey
+                            prefs.anthropicKey = settings.anthropicKey
+                            prefs.deepseekKey = settings.deepseekKey
+                            prefs.customLlmUrl = settings.customLlmUrl
+                            savePrefs()
+                          }
+                        )
+                      },
+                    },
+                    null,
+                  ]
+                : [
+                    {
+                      caption: 'API Keys',
+                      icon: 'key',
+                      action: () => {
+                        showSettingsDialog(
+                          {
+                            preferredProvider:
+                              prefs.preferredProvider.valueOf() as any,
+                            openaiKey: prefs.openaiKey.valueOf(),
+                            anthropicKey: prefs.anthropicKey.valueOf(),
+                            deepseekKey: prefs.deepseekKey.valueOf(),
+                            customLlmUrl: prefs.customLlmUrl.valueOf(),
+                          },
+                          (settings) => {
+                            prefs.preferredProvider = settings.preferredProvider
+                            prefs.openaiKey = settings.openaiKey
+                            prefs.anthropicKey = settings.anthropicKey
+                            prefs.deepseekKey = settings.deepseekKey
+                            prefs.customLlmUrl = settings.customLlmUrl
+                            savePrefs()
+                          }
+                        )
+                      },
+                    },
+                    null,
+                  ]
+
             popMenu({
               target: event.target as HTMLButtonElement,
               menuItems: [
-                {
-                  caption: 'API Keys',
-                  icon: 'key',
-                  action: () => {
-                    showSettingsDialog(
-                      {
-                        preferredProvider:
-                          prefs.preferredProvider.valueOf() as any,
-                        openaiKey: prefs.openaiKey.valueOf(),
-                        anthropicKey: prefs.anthropicKey.valueOf(),
-                        deepseekKey: prefs.deepseekKey.valueOf(),
-                        customLlmUrl: prefs.customLlmUrl.valueOf(),
-                      },
-                      (settings) => {
-                        prefs.preferredProvider = settings.preferredProvider
-                        prefs.openaiKey = settings.openaiKey
-                        prefs.anthropicKey = settings.anthropicKey
-                        prefs.deepseekKey = settings.deepseekKey
-                        prefs.customLlmUrl = settings.customLlmUrl
-                        savePrefs()
-                      }
-                    )
-                  },
-                },
+                ...accountMenuItems,
                 {
                   caption: 'Color Theme',
                   icon: 'rgb',
