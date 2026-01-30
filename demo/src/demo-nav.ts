@@ -197,7 +197,7 @@ function greet(name: 'World') -> 'Hello, World!' {
 }
 
 // The type metadata includes the doc comment
-console.log('Type info:', greet.__tjs)
+// console.log('Type info:', greet.__tjs)
 
 // The ->! means: greet('World') MUST return 'Hello, World'
 // This is verified at transpile time!
