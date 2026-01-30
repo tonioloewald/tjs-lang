@@ -957,22 +957,14 @@ export class TJSPlayground extends Component<TJSPlaygroundParts> {
     }
   }
 
-  private runSeq = 0
-  private isRunning = false
-
   run = async () => {
-    if (this.isRunning) {
-      console.log('[TJS-Playground] run() skipped - already running')
-      return
-    }
-    this.isRunning = true
-    const myRunSeq = ++this.runSeq
-    console.log('[TJS-Playground] run() called, seq:', myRunSeq)
+    this.parts.runBtn.disabled = true
     this.clearConsole()
     this.transpile()
 
     if (!this.lastTranspileResult) {
       this.log('Cannot run - transpilation failed')
+      this.parts.runBtn.disabled = false
       return
     }
 
@@ -1080,10 +1072,8 @@ export class TJSPlayground extends Component<TJSPlaygroundParts> {
     };
 
     try {
-      console.log('[iframe] Starting execution');
       const __execStart = performance.now();
       ${codeWithoutImports}
-      console.log('[iframe] Code executed');
 
       // Try to call the function if it exists and show result
       const funcName = Object.keys(window).find(k => {
@@ -1139,11 +1129,6 @@ export class TJSPlayground extends Component<TJSPlaygroundParts> {
       const iframe = this.parts.previewFrame
       const blob = new Blob([iframeDoc], { type: 'text/html' })
       const blobUrl = URL.createObjectURL(blob)
-      console.log('[TJS-Playground] Setting iframe src to blob URL')
-      console.log(
-        '[TJS-Playground] codeWithoutImports:',
-        codeWithoutImports.slice(0, 200)
-      )
 
       // Clean up previous blob URL if any
       if (iframe.dataset.blobUrl) {
@@ -1155,11 +1140,10 @@ export class TJSPlayground extends Component<TJSPlaygroundParts> {
       // Wait a bit for execution, then clean up listener
       setTimeout(() => {
         window.removeEventListener('message', messageHandler)
-        this.isRunning = false
-        // Don't overwrite status bar - keep showing transpile time
+        this.parts.runBtn.disabled = false
       }, 1000)
     } catch (e: any) {
-      this.isRunning = false
+      this.parts.runBtn.disabled = false
       this.log(`Error: ${e.message}`)
       this.parts.statusBar.textContent = 'Error'
       this.parts.statusBar.classList.add('error')
@@ -1172,7 +1156,6 @@ export class TJSPlayground extends Component<TJSPlaygroundParts> {
 
   // Public method to set source code (auto-runs when examples are loaded)
   setSource(code: string, exampleName?: string) {
-    console.log('[TJS-Playground] setSource() called', exampleName)
     // Save current edits before switching
     if (this.currentExampleName) {
       this.editorCache.set(this.currentExampleName, this.parts.tjsEditor.value)
@@ -1265,8 +1248,13 @@ export const tjsPlayground = TJSPlayground.elementCreator({
       fontSize: '14px',
     },
 
-    ':host .run-btn:hover': {
+    ':host .run-btn:hover:not(:disabled)': {
       filter: 'brightness(1.1)',
+    },
+
+    ':host .run-btn:disabled': {
+      opacity: '0.6',
+      cursor: 'not-allowed',
     },
 
     ':host .toolbar-separator': {
