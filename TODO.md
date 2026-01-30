@@ -33,6 +33,8 @@
 ## Documentation / Examples
 
 - [ ] Create an endpoint example
+- [ ] Fold docs and tests into one panel, with passing tests collapsed by default (ts -> tjs inserts test; tjs -> js turns test blocks into documentation along with outcomes).
+- [ ] Dim/hide the preview tab if nothing ever changed it
 
 ## Infrastructure
 
