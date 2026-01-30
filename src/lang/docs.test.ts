@@ -6,7 +6,7 @@
  */
 
 import { describe, it, expect } from 'bun:test'
-import { generateDocs } from './docs'
+import { generateDocs, generateDocsMarkdown } from './docs'
 
 describe('generateDocs', () => {
   describe('basic output', () => {
@@ -248,5 +248,160 @@ These functions are pure.
       expect(result.markdown).toContain('function triple')
       expect(result.markdown).toContain('Notes')
     })
+  })
+
+  describe('TypeScript function syntax', () => {
+    it('parses TypeScript function with return type', () => {
+      const source = `function greet(name: string): string { return name }`
+      const result = generateDocs(source)
+
+      expect(result.items).toHaveLength(1)
+      expect(result.items[0].type).toBe('function')
+      expect((result.items[0] as any).signature).toBe(
+        'function greet(name: string): string'
+      )
+    })
+
+    it('parses TypeScript function without return type', () => {
+      const source = `function log(msg: string) { console.log(msg) }`
+      const result = generateDocs(source)
+
+      expect(result.items).toHaveLength(1)
+      expect((result.items[0] as any).signature).toBe(
+        'function log(msg: string)'
+      )
+    })
+
+    it('handles mixed TJS and TypeScript in same file', () => {
+      const source = `
+function tsFunc(x: number): number { return x }
+function tjsFunc(x: 0) -> 0 { return x }
+`
+      const result = generateDocs(source)
+
+      expect(result.items).toHaveLength(2)
+      expect((result.items[0] as any).signature).toContain(': number')
+      expect((result.items[1] as any).signature).toContain('-> 0')
+    })
+  })
+})
+
+describe('generateDocsMarkdown', () => {
+  it('returns placeholder for empty source', () => {
+    const result = generateDocsMarkdown('', undefined)
+    expect(result).toBe('*No documentation available*')
+  })
+
+  it('renders doc blocks as markdown', () => {
+    const source = `/*# Hello World */`
+    const result = generateDocsMarkdown(source, undefined)
+    expect(result).toContain('Hello World')
+  })
+
+  it('renders function with type metadata', () => {
+    const source = `function greet(name: 'World') -> '' { return name }`
+    const types = {
+      greet: {
+        params: {
+          name: { type: { kind: 'string' }, required: true, example: 'World' },
+        },
+        returns: { kind: 'string' },
+      },
+    }
+
+    const result = generateDocsMarkdown(source, types)
+
+    expect(result).toContain('## greet')
+    expect(result).toContain('```tjs')
+    expect(result).toContain("function greet(name: 'World') -> ''")
+    expect(result).toContain('**Parameters:**')
+    expect(result).toContain('`name`: string')
+    expect(result).toContain('(e.g. `"World"`)')
+    expect(result).toContain('**Returns:** string')
+  })
+
+  it('shows optional parameters', () => {
+    const source = `function greet(name = 'World') { return name }`
+    const types = {
+      greet: {
+        params: {
+          name: {
+            type: { kind: 'string' },
+            required: false,
+            example: 'World',
+          },
+        },
+      },
+    }
+
+    const result = generateDocsMarkdown(source, types)
+    expect(result).toContain('*(optional)*')
+  })
+
+  it('works without type metadata', () => {
+    const source = `
+/*# Intro */
+function foo(x: 0) -> 0 { return x }
+`
+    const result = generateDocsMarkdown(source, undefined)
+
+    expect(result).toContain('Intro')
+    expect(result).toContain('## foo')
+    expect(result).toContain('function foo(x: 0) -> 0')
+    // No params/returns since no type metadata
+    expect(result).not.toContain('**Parameters:**')
+  })
+
+  it('preserves document order with interleaved docs and functions', () => {
+    const source = `
+/*# Section 1 */
+function first(x: 0) -> 0 { return x }
+/*# Section 2 */
+function second(x: 0) -> 0 { return x }
+/*# Conclusion */
+`
+    const types = {
+      first: { params: { x: { type: { kind: 'number' }, required: true } } },
+      second: { params: { x: { type: { kind: 'number' }, required: true } } },
+    }
+
+    const result = generateDocsMarkdown(source, types)
+
+    // Check order by finding positions
+    const section1Pos = result.indexOf('Section 1')
+    const firstPos = result.indexOf('## first')
+    const section2Pos = result.indexOf('Section 2')
+    const secondPos = result.indexOf('## second')
+    const conclusionPos = result.indexOf('Conclusion')
+
+    expect(section1Pos).toBeLessThan(firstPos)
+    expect(firstPos).toBeLessThan(section2Pos)
+    expect(section2Pos).toBeLessThan(secondPos)
+    expect(secondPos).toBeLessThan(conclusionPos)
+  })
+
+  it('works with TypeScript source', () => {
+    const source = `
+/*# TypeScript Example */
+function greet(name: string): string {
+  return \`Hello, \${name}!\`
+}
+`
+    const types = {
+      greet: {
+        params: {
+          name: { type: { kind: 'string' }, required: true, example: '' },
+        },
+        returns: { kind: 'string' },
+      },
+    }
+
+    const result = generateDocsMarkdown(source, types)
+
+    expect(result).toContain('TypeScript Example')
+    expect(result).toContain('## greet')
+    expect(result).toContain('function greet(name: string): string')
+    expect(result).toContain('**Parameters:**')
+    expect(result).toContain('**Returns:** string')
   })
 })

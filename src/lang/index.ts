@@ -55,6 +55,14 @@ export {
   type LintOptions,
 } from './linter'
 export {
+  generateDocs,
+  generateDocsMarkdown,
+  type DocResult,
+  type DocItem,
+  type FunctionTypeInfo,
+  type ParamTypeInfo,
+} from './docs'
+export {
   extractTests,
   assertFunction,
   expectFunction,

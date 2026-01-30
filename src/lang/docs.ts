@@ -111,3 +111,77 @@ export function generateDocs(source: string): DocResult {
 
   return { items, markdown }
 }
+
+/**
+ * Type metadata for a function parameter
+ */
+export interface ParamTypeInfo {
+  type?: { kind: string }
+  required?: boolean
+  example?: any
+}
+
+/**
+ * Type metadata for a function
+ */
+export interface FunctionTypeInfo {
+  params?: Record<string, ParamTypeInfo>
+  returns?: { kind: string }
+}
+
+/**
+ * Generate markdown documentation with type metadata
+ *
+ * Combines source-level doc blocks with runtime type information.
+ * Shows everything in document order:
+ * - /*# ... *\/ comments render as markdown
+ * - Functions render with signature and detailed type info
+ *
+ * @param source - TJS or TypeScript source code
+ * @param types - Type metadata from transpiler (result.types)
+ * @returns Formatted markdown documentation
+ *
+ * @example
+ * ```typescript
+ * const result = tjs(source)
+ * const docs = generateDocsMarkdown(source, result.types)
+ * ```
+ */
+export function generateDocsMarkdown(
+  source: string,
+  types?: Record<string, FunctionTypeInfo>
+): string {
+  const docs = generateDocs(source)
+  let markdown = ''
+
+  for (const item of docs.items) {
+    if (item.type === 'doc') {
+      markdown += item.content + '\n\n'
+    } else if (item.type === 'function') {
+      const info = types?.[item.name]
+
+      markdown += `## ${item.name}\n\n`
+      markdown += `\`\`\`tjs\n${item.signature}\n\`\`\`\n\n`
+
+      if (info?.params && Object.keys(info.params).length > 0) {
+        markdown += '**Parameters:**\n'
+        for (const [paramName, paramInfo] of Object.entries(info.params)) {
+          const required = paramInfo.required ? '' : ' *(optional)*'
+          const typeStr = paramInfo.type?.kind || 'any'
+          const example =
+            paramInfo.example !== undefined
+              ? ` (e.g. \`${JSON.stringify(paramInfo.example)}\`)`
+              : ''
+          markdown += `- \`${paramName}\`: ${typeStr}${required}${example}\n`
+        }
+        markdown += '\n'
+      }
+
+      if (info?.returns) {
+        markdown += `**Returns:** ${info.returns.kind || 'void'}\n\n`
+      }
+    }
+  }
+
+  return markdown.trim() || '*No documentation available*'
+}

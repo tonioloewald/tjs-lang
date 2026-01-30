@@ -105,7 +105,13 @@
     "path": "guides/tosijs-schema.md"
   },
   {
-    "text": "# Module Header\n\nThis is the intro.\n\n---\n\nMore docs here.\n\n---\n\n# First Section\n\n---\n\n# Second Section\n\n---\n\n# Heading\n\n- List item 1\n- List item 2\n\n\\`code example\\`\n\n---\n\n## Parameter Syntax\n| Syntax | Meaning |\n|--------|---------|\n| \\`x: 0\\` | Required number |\n| \\`x = 0\\` | Optional, defaults to 0 |\n\n---\n\nIndented content.\n    More indented.\n\n---\n\n# Hello World\n\nThis is documentation.\n\n---\n\nIntro\n\n---\n\nMiddle\n\n---\n\n# Math Utilities\n\nA collection of math functions.\n\n---\n\n## Notes\n\nThese functions are pure.",
+    "text": "... *\\/ comments render as markdown\n * - Functions render with signature and detailed type info\n *\n * @param source - TJS or TypeScript source code\n * @param types - Type metadata from transpiler (result.types)\n * @returns Formatted markdown documentation\n *\n * @example\n * ```typescript\n * const result = tjs(source)\n * const docs = generateDocsMarkdown(source, result.types)\n * ```",
+    "title": "docs (inline docs)",
+    "filename": "docs.ts",
+    "path": "src/lang/docs.ts"
+  },
+  {
+    "text": "# Module Header\n\nThis is the intro.\n\n---\n\nMore docs here.\n\n---\n\n# First Section\n\n---\n\n# Second Section\n\n---\n\n# Heading\n\n- List item 1\n- List item 2\n\n\\`code example\\`\n\n---\n\n## Parameter Syntax\n| Syntax | Meaning |\n|--------|---------|\n| \\`x: 0\\` | Required number |\n| \\`x = 0\\` | Optional, defaults to 0 |\n\n---\n\nIndented content.\n    More indented.\n\n---\n\n# Hello World\n\nThis is documentation.\n\n---\n\nIntro\n\n---\n\nMiddle\n\n---\n\n# Math Utilities\n\nA collection of math functions.\n\n---\n\n## Notes\n\nThese functions are pure.\n\n---\n\nHello World\n\n---\n\nIntro\n\n---\n\nSection 1\n\n---\n\nSection 2\n\n---\n\nConclusion\n\n---\n\nTypeScript Example",
     "title": "docs.test (inline docs)",
     "filename": "docs.test.ts",
     "path": "src/lang/docs.test.ts"
