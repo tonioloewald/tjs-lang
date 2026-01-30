@@ -8,13 +8,29 @@
 
 ## What is TJS?
 
-**TJS is a language.** It's what JavaScript always promised, but never quite delivered. Instead of "a lot of the power of Lisp", all the power of Lisp. Instead of easy to learn but with weird corner cases, dangerous gotchas, and problems at scale, we fix the corner cases, remove the gotchas, and provide the tools that let you scale.
+**TJS is a language.** It's what JavaScript always promised, but never quite delivered. Indeed it's what Apple's Dylan promised and never delivered. Instead of "a lot of the power of Lisp", *all* the power of Lisp. Instead of C-like Syntax, actual JavaScript syntax. Instead of easy to learn but with weird corner cases, dangerous gotchas, and problems at scale, we fix the corner cases, remove the gotchas, and provide the tools that let you scale.
 
 **TJS is also a runtime.** A runtime that remembers your function declarations and can check whether parameter types are what they ought to be. It can guarantee safety by default, and speed when it's needed (including inline WASM).
 
-**AJS is another language.** It's a language for safe evaluation with injected capabilities and a gas limit. It's a language that's easy for agents to write and comprehend. It can be converted into an AST and run remotely.
+**AJS is another language.** It's a language for safe evaluation with injected capabilities and a gas limit. It's the language tjs allows you to Eval and use to create a SafeFunction. It also has its own VM and runtime to allow you to build **universal endpoints**. It's a language that's easy for agents to write and comprehend. It can be converted into an AST and run remotely.
 
 **TJS is also a toolchain.** It transpiles itself into JavaScript. It transpiles TypeScript into itself and then into JS. It turns function definitions into runtime contracts, documentation, and simple tests. It uses types both as contracts and examples. It allows inline tests of private module internals that disappear at runtime. It compresses transpilation, linting, testing, and documentation generation into a single fast pass. As for bundling? It allows it but it targets an unbundled web.
+
+```
+┌─────────────────────────────────────────────────────────────────────────┐
+│                            TJS Platform                                  │
+├─────────────────────┬─────────────────────┬─────────────────────────────┤
+│      Language       │      Runtime        │      Safe Execution         │
+├─────────────────────┼─────────────────────┼─────────────────────────────┤
+│  TypeScript         │  __tjs metadata     │  AJS Agent                  │
+│       ↓             │       ↓             │       ↓                     │
+│  TJS                │  Runtime Validation │  JSON AST                   │
+│       ↓             │       ↓             │       ↓                     │
+│  JavaScript         │  Auto Documentation │  Gas-Limited VM             │
+│                     │                     │       ↓                     │
+│                     │                     │  Injected Capabilities      │
+└─────────────────────┴─────────────────────┴─────────────────────────────┘
+```
 
 ## The Problem
 
@@ -22,7 +38,7 @@
 
 > TypeScript is also difficult to transpile. Your browser can run full virtual machines in JavaScript, but most TypeScript playgrounds either fake it by stripping type declarations or use a server backend to do the real work.
 
-**JavaScript is dangerous.** `eval()` and `Function()` are so powerful they're forbidden almost everywhere—blocked by CSP in most production environments. The industry's answer? The **Container Fallacy**: wrap every function in a 200MB Linux container just to run it safely. We ship buildings to deliver letters.
+**JavaScript is dangerous.** `eval()` and `Function()` are so powerful they're forbidden almost everywhere—blocked by CSP in most production environments. The industry's answer? The **Container Fallacy**: shipping a 200MB Linux OS just to run a 1KB function safely. We ship buildings to deliver letters.
 
 **Security is a mess.** Every layer validates. Gateway validates. Auth validates. Business logic validates. Database validates. We spend 90% of our time building pipelines to move data to code, re-checking it at every hop.
 
@@ -64,6 +80,25 @@ const result = greet(123)        // MonadicError: Expected string for 'greet.nam
 - **Zero build step** — transpiles in the browser, no webpack/Vite/Babel
 - **The compiler _is_ the client** — TJS transpiles itself _and_ TypeScript entirely client-side
 
+```
+┌─────────────────────────────────────────────────────────────────┐
+│ COMPILE TIME                                                    │
+│                                                                 │
+│   function greet(name: 'World')  ──→  Parse  ──→  Extract type  │
+│                                                   name = string │
+└─────────────────────────────────────────────────────────────────┘
+                              ↓
+┌─────────────────────────────────────────────────────────────────┐
+│ RUNTIME                                                         │
+│                                                                 │
+│   greet.__tjs = { params: { name: { type: 'string' } } }        │
+│                                                                 │
+│   greet(123)  ──→  Type Check  ──┬──→  Pass  ──→  Execute       │
+│                                  └──→  Fail  ──→  MonadicError  │
+│                                                   (no throw)    │
+└─────────────────────────────────────────────────────────────────┘
+```
+
 ## AJS — Code That Travels
 
 Write logic that compiles to JSON and runs in a gas-limited sandbox. Send agents to data instead of shipping data to code.
@@ -98,12 +133,24 @@ const result = await vm.run(
 
 ## The Architecture Shift
 
-**Old way (data-to-code):**
-Client requests data → Server fetches 100 rows → Server filters to 5 → Client receives 5.
+```
+❌ OLD WAY: Data-to-Code
+┌────────┐    request    ┌────────┐  fetch 100 rows  ┌──────────┐
+│ Client │ ────────────→ │ Server │ ───────────────→ │ Database │
+│        │ ←──────────── │        │ ←─────────────── │          │
+└────────┘   5 rows      └────────┘    100 rows      └──────────┘
+             (after filtering 95 away)
+```
 _High latency. High bandwidth. Validate at every layer._
 
-**TJS way (code-to-data):**
-Client sends agent → Edge runs agent at data → Edge returns 5 rows.
+```
+✅ TJS WAY: Code-to-Data
+┌────────┐  send agent   ┌────────┐  run at data    ┌──────────┐
+│ Client │ ────────────→ │  Edge  │ ───────────────→ │ Database │
+│        │ ←──────────── │        │ ←─────────────── │          │
+└────────┘    5 rows     └────────┘     5 rows       └──────────┘
+             (agent filtered at source)
+```
 _Low latency. Zero waste. Validate once._
 
 The agent carries its own validation. The server grants capabilities. Caching happens automatically because the query _is_ the code.
@@ -137,6 +184,27 @@ const { result, fuelUsed } = await Eval({
 ```
 
 The untrusted code thinks it has `fetch`, but it only has _your_ `fetch`. No CSP violations. No infinite loops. No access to anything you didn't explicitly grant.
+
+```
+                    ┌─────────────────┐
+                    │ Untrusted Code  │
+                    └────────┬────────┘
+                             │
+         ┌───────────┬───────┴───────┬───────────┐
+         ↓           ↓               ↓           ↓
+     fetch()    fs.read()         loop       console
+         │           │               │           │
+         ↓           ↓               ↓           ↓
+    ┌─────────┐ ┌─────────┐    ┌─────────┐ ┌─────────┐
+    │Granted? │ │Granted? │    │Fuel left│ │Granted? │
+    └────┬────┘ └────┬────┘    └────┬────┘ └────┬────┘
+      Y  │  N     N  │          Y   │  N     N  │
+         ↓     ↓     ↓             ↓     ↓      ↓
+    ┌────────┐ ┌───────┐      Continue  Halt  Block
+    │  Your  │ │ Block │          │
+    │safeFetch│ └───────┘          ↓
+    └────────┘
+```
 
 ## Quick Start
 
