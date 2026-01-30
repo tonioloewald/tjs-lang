@@ -111,10 +111,22 @@
     "path": "src/lang/docs.ts"
   },
   {
-    "text": "# Module Header\n\nThis is the intro.\n\n---\n\nMore docs here.\n\n---\n\n# First Section\n\n---\n\n# Second Section\n\n---\n\n# Heading\n\n- List item 1\n- List item 2\n\n\\`code example\\`\n\n---\n\n## Parameter Syntax\n| Syntax | Meaning |\n|--------|---------|\n| \\`x: 0\\` | Required number |\n| \\`x = 0\\` | Optional, defaults to 0 |\n\n---\n\nIndented content.\n    More indented.\n\n---\n\n# Hello World\n\nThis is documentation.\n\n---\n\nIntro\n\n---\n\nMiddle\n\n---\n\n# Math Utilities\n\nA collection of math functions.\n\n---\n\n## Notes\n\nThese functions are pure.\n\n---\n\nHello World\n\n---\n\nIntro\n\n---\n\nSection 1\n\n---\n\nSection 2\n\n---\n\nConclusion\n\n---\n\nTypeScript Example",
+    "text": "# Module Header\n\nThis is the intro.\n\n---\n\nMore docs here.\n\n---\n\n# First Section\n\n---\n\n# Second Section\n\n---\n\n# Heading\n\n- List item 1\n- List item 2\n\n\\`code example\\`\n\n---\n\n## Parameter Syntax\n| Syntax | Meaning |\n|--------|---------|\n| \\`x: 0\\` | Required number |\n| \\`x = 0\\` | Optional, defaults to 0 |\n\n---\n\nIndented content.\n    More indented.\n\n---\n\n# Hello World\n\nThis is documentation.\n\n---\n\nIntro\n\n---\n\nMiddle\n\n---\n\n# Math Utilities\n\nA collection of math functions.\n\n---\n\n## Notes\n\nThese functions are pure.\n\n---\n\nHello World\n\n---\n\nIntro\n\n---\n\nSection 1\n\n---\n\nSection 2\n\n---\n\nConclusion\n\n---\n\nTypeScript Example\n\n---\n\nModule header\n\n---\n\nComment inside first - should be ignored\n\n---\n\nBetween first and second\n\n---\n\nComment inside second - should be ignored\n\n---\n\nAfter all functions",
     "title": "docs.test (inline docs)",
     "filename": "docs.test.ts",
     "path": "src/lang/docs.test.ts"
+  },
+  {
+    "text": "... *\\/) from source with position info.\n * These need to be preserved in TJS output in their original positions.\n * Comments inside function bodies are already preserved by the TS transpiler.\n\n---\n\n...",
+    "title": "from-ts (inline docs)",
+    "filename": "from-ts.ts",
+    "path": "src/lang/emitters/from-ts.ts"
+  },
+  {
+    "text": "doc comments in TJS output', () => {\n    const result = fromTS(\n      `\n/*# Module documentation\n\n---\n\nInside first - should be preserved by TS transpiler\n\n---\n\nBetween functions\n\n---\n\nAfter all\n\n---\n\nModule documentation\n\n---\n\nBetween functions\n\n---\n\nAfter all\n\n---\n\nModule documentation\n\n---\n\nBetween functions\n\n---\n\nAfter all\n\n---\n\nComment inside function",
+    "title": "from-ts.test (inline docs)",
+    "filename": "from-ts.test.ts",
+    "path": "src/lang/from-ts.test.ts"
   },
   {
     "text": "...",

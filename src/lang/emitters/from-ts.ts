@@ -1406,6 +1406,56 @@ function extractEmbeddedTestComments(source: string): string[] {
   return tests
 }
 
+/**
+ * Extract top-level TJS doc comments (/*# ... *\/) from source with position info.
+ * These need to be preserved in TJS output in their original positions.
+ * Comments inside function bodies are already preserved by the TS transpiler.
+ */
+function extractDocComments(
+  source: string
+): Array<{ content: string; index: number }> {
+  const comments: Array<{ content: string; index: number }> = []
+  const docRegex = /\/\*#[\s\S]*?\*\//g
+
+  // Track brace depth to identify top-level comments
+  let braceDepth = 0
+  let inString: string | null = null
+
+  // Scan source to find brace depths at each position
+  const braceDepthAt: number[] = []
+  for (let i = 0; i < source.length; i++) {
+    const ch = source[i]
+    const prev = i > 0 ? source[i - 1] : ''
+
+    // Handle string literals
+    if (!inString && (ch === '"' || ch === "'" || ch === '`')) {
+      inString = ch
+    } else if (inString && ch === inString && prev !== '\\') {
+      inString = null
+    }
+
+    // Track braces only outside strings
+    if (!inString) {
+      if (ch === '{') braceDepth++
+      if (ch === '}') braceDepth--
+    }
+
+    braceDepthAt[i] = braceDepth
+  }
+
+  let match
+  while ((match = docRegex.exec(source)) !== null) {
+    // Only include comments at top level (brace depth 0)
+    if (braceDepthAt[match.index] === 0) {
+      comments.push({
+        content: match[0],
+        index: match.index,
+      })
+    }
+  }
+  return comments
+}
+
 export function fromTS(
   source: string,
   options: FromTSOptions = {}
@@ -1415,6 +1465,9 @@ export function fromTS(
 
   // Extract embedded test comments before TS parsing (they need to be preserved)
   const embeddedTests = extractEmbeddedTestComments(source)
+
+  // Extract doc comments (/*# ... */) with position info for TJS output
+  const docComments = emitTJS ? extractDocComments(source) : []
 
   // Parse TypeScript
   const sourceFile = ts.createSourceFile(
@@ -1428,6 +1481,20 @@ export function fromTS(
   const seenTypeNames = new Set<string>() // Track emitted type names to avoid duplicates
   const metadata: Record<string, FunctionTypeInfo> = {}
   const classMetadata: Record<string, ClassTypeInfo> = {}
+
+  // Track which doc comments have been emitted (by index in docComments array)
+  const emittedDocComments = new Set<number>()
+
+  // Helper: emit any doc comments that appear before a given source position
+  const emitDocCommentsBefore = (pos: number) => {
+    for (let i = 0; i < docComments.length; i++) {
+      const doc = docComments[i]
+      if (!emittedDocComments.has(i) && doc.index < pos) {
+        tjsFunctions.push(doc.content)
+        emittedDocComments.add(i)
+      }
+    }
+  }
 
   // Build type alias and interface maps first (first pass)
   const typeAliases = new Map<string, ts.TypeNode>()
@@ -1455,6 +1522,11 @@ export function fromTS(
   // Walk top-level statements only (don't recurse into function bodies)
   for (const statement of sourceFile.statements) {
     let handled = false
+
+    // Emit any doc comments before this statement
+    if (emitTJS) {
+      emitDocCommentsBefore(statement.getStart(sourceFile))
+    }
 
     // Handle: function foo() {}
     if (ts.isFunctionDeclaration(statement) && statement.name) {
@@ -1672,6 +1744,9 @@ export function fromTS(
   }
 
   if (emitTJS) {
+    // Emit any remaining doc comments (after all statements)
+    emitDocCommentsBefore(Infinity)
+
     // Include source file annotation for error reporting
     // JS equality semantics are now the default (no LegacyEquals needed)
     const sourceFileName = filename || 'unknown'

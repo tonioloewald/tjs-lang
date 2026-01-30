@@ -509,3 +509,61 @@ describe('clean TJS output', () => {
     expect(result.code).not.toContain('__tjs?.') // no runtime optional chaining
   })
 })
+
+describe('fromTS doc comment preservation', () => {
+  it('should preserve /*# doc comments in TJS output', () => {
+    const result = fromTS(
+      `
+/*# Module documentation */
+
+function first(x: number): number {
+  /*# Inside first - should be preserved by TS transpiler */
+  return x
+}
+
+/*# Between functions */
+
+function second(x: number): number {
+  return x
+}
+
+/*# After all */
+`,
+      { emitTJS: true }
+    )
+
+    // Top-level doc comments should be in output in correct order
+    expect(result.code).toContain('/*# Module documentation */')
+    expect(result.code).toContain('/*# Between functions */')
+    expect(result.code).toContain('/*# After all */')
+
+    // Check order: module doc -> first function -> between -> second function -> after
+    const moduleDocPos = result.code.indexOf('/*# Module documentation */')
+    const firstFuncPos = result.code.indexOf('function first')
+    const betweenPos = result.code.indexOf('/*# Between functions */')
+    const secondFuncPos = result.code.indexOf('function second')
+    const afterPos = result.code.indexOf('/*# After all */')
+
+    expect(moduleDocPos).toBeLessThan(firstFuncPos)
+    expect(firstFuncPos).toBeLessThan(betweenPos)
+    expect(betweenPos).toBeLessThan(secondFuncPos)
+    expect(secondFuncPos).toBeLessThan(afterPos)
+  })
+
+  it('should not duplicate comments inside function bodies', () => {
+    const result = fromTS(
+      `
+function example(x: number): number {
+  /*# Comment inside function */
+  return x * 2
+}
+`,
+      { emitTJS: true }
+    )
+
+    // The comment inside the function should appear exactly once
+    // (preserved by TS transpiler, not extracted as top-level doc)
+    const matches = result.code.match(/\/\*# Comment inside function \*\//g)
+    expect(matches?.length || 0).toBe(1)
+  })
+})

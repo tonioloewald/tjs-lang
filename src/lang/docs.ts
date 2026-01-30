@@ -9,6 +9,38 @@
  * Doc blocks are just editorial commentary when you need it.
  */
 
+/**
+ * Compute brace depth at each position in source.
+ * Used to filter out constructs inside function bodies.
+ */
+function computeBraceDepths(source: string): number[] {
+  const depths: number[] = []
+  let braceDepth = 0
+  let inString: string | null = null
+
+  for (let i = 0; i < source.length; i++) {
+    const ch = source[i]
+    const prev = i > 0 ? source[i - 1] : ''
+
+    // Handle string literals (skip braces inside strings)
+    if (!inString && (ch === '"' || ch === "'" || ch === '`')) {
+      inString = ch
+    } else if (inString && ch === inString && prev !== '\\') {
+      inString = null
+    }
+
+    // Track braces only outside strings
+    if (!inString) {
+      if (ch === '{') braceDepth++
+      if (ch === '}') braceDepth--
+    }
+
+    depths[i] = braceDepth
+  }
+
+  return depths
+}
+
 export interface DocResult {
   /** Items in document order */
   items: DocItem[]
@@ -24,9 +56,14 @@ export type DocItem =
  * Generate documentation from TJS source
  *
  * Walk source in document order. Emit doc blocks and function signatures.
+ * Only extracts top-level doc blocks (outside function bodies).
  */
 export function generateDocs(source: string): DocResult {
   const items: DocItem[] = []
+
+  // Build brace depth map to identify top-level constructs
+  // This filters out doc blocks inside function bodies
+  const braceDepthAt = computeBraceDepths(source)
 
   // Find all doc blocks and functions, sort by position
   const docPattern = /\/\*#([\s\S]*?)\*\//g
@@ -40,6 +77,11 @@ export function generateDocs(source: string): DocResult {
 
   let match
   while ((match = docPattern.exec(source)) !== null) {
+    // Only include top-level doc blocks (brace depth 0)
+    if (braceDepthAt[match.index] !== 0) {
+      continue
+    }
+
     // Dedent content
     let content = match[1]
     const lines = content.split('\n')

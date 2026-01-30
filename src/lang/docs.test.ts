@@ -404,4 +404,51 @@ function greet(name: string): string {
     expect(result).toContain('**Parameters:**')
     expect(result).toContain('**Returns:** string')
   })
+
+  it('handles comments inside, around, and between functions', () => {
+    const source = `
+/*# Module header */
+
+function first(x: 0) -> 0 {
+  /*# Comment inside first - should be ignored */
+  return x
+}
+
+/*# Between first and second */
+
+function second(y: '') -> '' {
+  /*# Comment inside second - should be ignored */
+  return y
+}
+
+/*# After all functions */
+`
+    const result = generateDocsMarkdown(source, undefined)
+
+    // Top-level doc blocks should be in output
+    expect(result).toContain('Module header')
+    expect(result).toContain('Between first and second')
+    expect(result).toContain('After all functions')
+
+    // Functions should be documented
+    expect(result).toContain('## first')
+    expect(result).toContain('## second')
+
+    // Comments inside functions should NOT appear in top-level docs
+    // (they are inside function bodies, not module-level documentation)
+    expect(result).not.toContain('Comment inside first')
+    expect(result).not.toContain('Comment inside second')
+
+    // Check document order
+    const headerPos = result.indexOf('Module header')
+    const firstPos = result.indexOf('## first')
+    const betweenPos = result.indexOf('Between first and second')
+    const secondPos = result.indexOf('## second')
+    const afterPos = result.indexOf('After all functions')
+
+    expect(headerPos).toBeLessThan(firstPos)
+    expect(firstPos).toBeLessThan(betweenPos)
+    expect(betweenPos).toBeLessThan(secondPos)
+    expect(secondPos).toBeLessThan(afterPos)
+  })
 })
