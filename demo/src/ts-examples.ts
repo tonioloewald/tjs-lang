@@ -34,13 +34,13 @@ Markdown doc comments in ts are supported, and
 inline tests can be embedded in comment blocks.
 */
 
-function greet(name: string): string {
-  return \`Hello, \${name}!\`
-}
-
 /*test {
   expect(greet('ts')).toBe('Hello, ts!')
 }*/
+
+function greet(name: string): string {
+  return \`Hello, \${name}!\`
+}
 
 // This works - correct type
 console.log(greet('World'))
