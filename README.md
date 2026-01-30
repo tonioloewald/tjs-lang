@@ -6,6 +6,16 @@
 
 [playground](https://tjs-platform.web.app) | [github](https://github.com/tonioloewald/tjs-lang#readme) | [npm](https://www.npmjs.com/package/tjs-lang) | [discord](https://discord.gg/ramJ9rgky5)
 
+## What is TJS?
+
+**TJS is a language.** It's what JavaScript always promised, but never quite delivered. Instead of "a lot of the power of Lisp", all the power of Lisp. Instead of easy to learn but with weird corner cases, dangerous gotchas, and problems at scale, we fix the corner cases, remove the gotchas, and provide the tools that let you scale.
+
+**TJS is also a runtime.** A runtime that remembers your function declarations and can check whether parameter types are what they ought to be. It can guarantee safety by default, and speed when it's needed (including inline WASM).
+
+**AJS is another language.** It's a language for safe evaluation with injected capabilities and a gas limit. It's a language that's easy for agents to write and comprehend. It can be converted into an AST and run remotely.
+
+**TJS is also a toolchain.** It transpiles itself into JavaScript. It transpiles TypeScript into itself and then into JS. It turns function definitions into runtime contracts, documentation, and simple tests. It uses types both as contracts and examples. It allows inline tests of private module internals that disappear at runtime. It compresses transpilation, linting, testing, and documentation generation into a single fast pass. As for bundling? It allows it but it targets an unbundled web.
+
 ## The Problem
 
 **TypeScript is fragile.** It pretends to be a superset of JavaScript, but it isn't. It pretends to be typesafe, but it isn't. Its Turing-complete type system is harder to reason about than the code it supposedly documents—and then it all disappears at runtime.
