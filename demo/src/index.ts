@@ -46,6 +46,9 @@ import {
   AuthState,
 } from './firebase-auth'
 
+// Import user store for encrypted API key storage
+import { initUserDoc, getApiKeys, saveApiKeys } from './user-store'
+
 // Import tjs-lang for live examples
 import * as agent from '../../src'
 import * as tosijs from 'tosijs'
@@ -140,6 +143,7 @@ const { app, prefs, auth } = tosi({
     preferredProvider: localStorage.getItem('preferredProvider') || 'auto',
     openaiKey: localStorage.getItem('openaiKey') || '',
     anthropicKey: localStorage.getItem('anthropicKey') || '',
+    geminiKey: localStorage.getItem('geminiKey') || '',
     deepseekKey: localStorage.getItem('deepseekKey') || '',
     customLlmUrl: localStorage.getItem('customLlmUrl') || '',
   },
@@ -154,12 +158,13 @@ const savePrefs = () => {
   localStorage.setItem('preferredProvider', prefs.preferredProvider.valueOf())
   localStorage.setItem('openaiKey', prefs.openaiKey.valueOf())
   localStorage.setItem('anthropicKey', prefs.anthropicKey.valueOf())
+  localStorage.setItem('geminiKey', prefs.geminiKey.valueOf())
   localStorage.setItem('deepseekKey', prefs.deepseekKey.valueOf())
   localStorage.setItem('customLlmUrl', prefs.customLlmUrl.valueOf())
 }
 
 // Subscribe to auth state changes, then initialize Firebase Auth
-subscribeAuth((state: AuthState) => {
+subscribeAuth(async (state: AuthState) => {
   auth.user.xinValue = state.user
     ? {
         uid: state.user.uid,
@@ -170,6 +175,19 @@ subscribeAuth((state: AuthState) => {
     : null
   auth.loading.xinValue = state.loading
   auth.error.xinValue = state.error
+
+  // Initialize user doc on sign-in (creates encryption key if first time)
+  if (state.user) {
+    try {
+      await initUserDoc({
+        uid: state.user.uid,
+        email: state.user.email,
+        displayName: state.user.displayName,
+      })
+    } catch (e) {
+      console.error('Failed to initialize user doc:', e)
+    }
+  }
 })
 
 // Initialize Firebase Auth after subscription is set up
@@ -362,21 +380,33 @@ if (main) {
                         {
                           caption: 'API Keys',
                           icon: 'key',
-                          action: () => {
+                          action: async () => {
+                            // Load encrypted keys from Firestore
+                            const cloudKeys = await getApiKeys(user.uid)
                             showSettingsDialog(
                               {
                                 preferredProvider:
                                   prefs.preferredProvider.valueOf() as any,
-                                openaiKey: prefs.openaiKey.valueOf(),
-                                anthropicKey: prefs.anthropicKey.valueOf(),
-                                deepseekKey: prefs.deepseekKey.valueOf(),
+                                openaiKey: cloudKeys.openai || '',
+                                anthropicKey: cloudKeys.anthropic || '',
+                                geminiKey: cloudKeys.gemini || '',
+                                deepseekKey: cloudKeys.deepseek || '',
                                 customLlmUrl: prefs.customLlmUrl.valueOf(),
                               },
-                              (settings) => {
+                              async (settings) => {
+                                // Save to Firestore (encrypted)
+                                await saveApiKeys(user.uid, {
+                                  openai: settings.openaiKey || undefined,
+                                  anthropic: settings.anthropicKey || undefined,
+                                  gemini: settings.geminiKey || undefined,
+                                  deepseek: settings.deepseekKey || undefined,
+                                })
+                                // Also save to localStorage for offline use
                                 prefs.preferredProvider =
                                   settings.preferredProvider
                                 prefs.openaiKey = settings.openaiKey
                                 prefs.anthropicKey = settings.anthropicKey
+                                prefs.geminiKey = settings.geminiKey
                                 prefs.deepseekKey = settings.deepseekKey
                                 prefs.customLlmUrl = settings.customLlmUrl
                                 savePrefs()
@@ -411,6 +441,7 @@ if (main) {
                               prefs.preferredProvider.valueOf() as any,
                             openaiKey: prefs.openaiKey.valueOf(),
                             anthropicKey: prefs.anthropicKey.valueOf(),
+                            geminiKey: prefs.geminiKey.valueOf(),
                             deepseekKey: prefs.deepseekKey.valueOf(),
                             customLlmUrl: prefs.customLlmUrl.valueOf(),
                           },
@@ -418,6 +449,7 @@ if (main) {
                             prefs.preferredProvider = settings.preferredProvider
                             prefs.openaiKey = settings.openaiKey
                             prefs.anthropicKey = settings.anthropicKey
+                            prefs.geminiKey = settings.geminiKey
                             prefs.deepseekKey = settings.deepseekKey
                             prefs.customLlmUrl = settings.customLlmUrl
                             savePrefs()
@@ -438,6 +470,7 @@ if (main) {
                               prefs.preferredProvider.valueOf() as any,
                             openaiKey: prefs.openaiKey.valueOf(),
                             anthropicKey: prefs.anthropicKey.valueOf(),
+                            geminiKey: prefs.geminiKey.valueOf(),
                             deepseekKey: prefs.deepseekKey.valueOf(),
                             customLlmUrl: prefs.customLlmUrl.valueOf(),
                           },
@@ -445,6 +478,7 @@ if (main) {
                             prefs.preferredProvider = settings.preferredProvider
                             prefs.openaiKey = settings.openaiKey
                             prefs.anthropicKey = settings.anthropicKey
+                            prefs.geminiKey = settings.geminiKey
                             prefs.deepseekKey = settings.deepseekKey
                             prefs.customLlmUrl = settings.customLlmUrl
                             savePrefs()

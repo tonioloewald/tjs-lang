@@ -129,12 +129,14 @@ export type LLMProvider =
   | 'custom'
   | 'openai'
   | 'anthropic'
+  | 'gemini'
   | 'deepseek'
 
 export interface SettingsData {
   preferredProvider: LLMProvider
   openaiKey: string
   anthropicKey: string
+  geminiKey: string
   deepseekKey: string
   customLlmUrl: string
 }
@@ -145,18 +147,13 @@ export function showSettingsDialog(
 ): void {
   const overlay = div({ class: 'settings-overlay' })
 
+  const isHttps = window.location.protocol === 'https:'
+
   const providerSelect = select(
     { style: { width: '100%', padding: '8px 12px', borderRadius: '6px' } },
     option(
       { value: 'auto', selected: currentSettings.preferredProvider === 'auto' },
       'First Available'
-    ),
-    option(
-      {
-        value: 'custom',
-        selected: currentSettings.preferredProvider === 'custom',
-      },
-      'Custom Endpoint (LM Studio, Ollama)'
     ),
     option(
       {
@@ -171,6 +168,13 @@ export function showSettingsDialog(
         selected: currentSettings.preferredProvider === 'anthropic',
       },
       'Anthropic'
+    ),
+    option(
+      {
+        value: 'gemini',
+        selected: currentSettings.preferredProvider === 'gemini',
+      },
+      'Google Gemini'
     ),
     option(
       {
@@ -192,6 +196,13 @@ export function showSettingsDialog(
     type: 'password',
     placeholder: 'sk-ant-...',
     value: currentSettings.anthropicKey,
+    autocomplete: 'off',
+  })
+
+  const geminiInput = input({
+    type: 'password',
+    placeholder: 'AIza...',
+    value: currentSettings.geminiKey,
     autocomplete: 'off',
   })
 
@@ -218,6 +229,7 @@ export function showSettingsDialog(
         .value as LLMProvider,
       openaiKey: (openaiInput as HTMLInputElement).value,
       anthropicKey: (anthropicInput as HTMLInputElement).value,
+      geminiKey: (geminiInput as HTMLInputElement).value,
       deepseekKey: (deepseekInput as HTMLInputElement).value,
       customLlmUrl: (customUrlInput as HTMLInputElement).value,
     })
@@ -266,115 +278,125 @@ export function showSettingsDialog(
           { class: 'settings-field' },
           label('Custom LLM Endpoint'),
           customUrlInput,
-          div(
-            { class: 'hint' },
-            'OpenAI-compatible endpoint (e.g., LM Studio, Ollama). ',
-            window.location.protocol === 'https:'
-              ? span(
-                  { style: { color: '#dc2626' } },
-                  'Note: Local endpoints require HTTP.'
-                )
-              : ''
-          ),
-          div(
-            {
-              style: {
-                marginTop: '8px',
-                display: 'flex',
-                alignItems: 'center',
-                gap: '10px',
-                flexWrap: 'wrap',
-              },
-            },
-            button(
-              {
-                class: 'settings-btn secondary',
-                style: { padding: '4px 10px', fontSize: '0.85em' },
-                onClick: async (e: Event) => {
-                  const btn = e.target as HTMLButtonElement
-                  const container = btn.parentElement as HTMLElement
-                  const statusEl = container.querySelector(
-                    '.status-text'
-                  ) as HTMLElement
-                  btn.disabled = true
-                  btn.textContent = 'Scanning...'
-                  statusEl.textContent = ''
-
-                  const url = (customUrlInput as HTMLInputElement).value
-                  const models = await rescanLocalModels(url)
-
-                  btn.disabled = false
-                  btn.textContent = 'Rescan Models'
-
-                  if (models.length > 0) {
-                    const visionModels = models.filter(
-                      (m) =>
-                        m.includes('-vl') ||
-                        m.includes('vl-') ||
-                        m.includes('vision') ||
-                        m.includes('llava') ||
-                        m.includes('gemma-3') ||
-                        m.includes('gemma3')
-                    )
-                    statusEl.textContent =
-                      `Found ${models.length} model(s)` +
-                      (visionModels.length > 0
-                        ? ` (${visionModels.length} vision)`
-                        : '')
-                    statusEl.style.color = '#16a34a'
-                  } else {
-                    statusEl.textContent = 'No models found'
-                    statusEl.style.color = '#dc2626'
-                  }
+          isHttps
+            ? div(
+                {
+                  class: 'hint',
+                  style: { color: '#f87171', fontWeight: 500 },
                 },
-              },
-              'Rescan Models'
-            ),
-            button(
-              {
-                class: 'settings-btn secondary',
-                style: { padding: '4px 10px', fontSize: '0.85em' },
-                onClick: async (e: Event) => {
-                  const btn = e.target as HTMLButtonElement
-                  const container = btn.parentElement as HTMLElement
-                  const statusEl = container.querySelector(
-                    '.status-text'
-                  ) as HTMLElement
-                  btn.disabled = true
-                  btn.textContent = 'Checking...'
+                'HTTPS page cannot connect to HTTP endpoints (e.g., local LM Studio, Ollama).'
+              )
+            : div(
+                { class: 'hint' },
+                'OpenAI-compatible endpoint (e.g., LM Studio, Ollama)'
+              ),
+          // Hide scan/check buttons on HTTPS since they won't work
+          ...(isHttps
+            ? []
+            : [
+                div(
+                  {
+                    style: {
+                      marginTop: '8px',
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: '10px',
+                      flexWrap: 'wrap',
+                    },
+                  },
+                  button(
+                    {
+                      class: 'settings-btn secondary',
+                      style: { padding: '4px 10px', fontSize: '0.85em' },
+                      onClick: async (e: Event) => {
+                        const btn = e.target as HTMLButtonElement
+                        const container = btn.parentElement as HTMLElement
+                        const statusEl = container.querySelector(
+                          '.status-text'
+                        ) as HTMLElement
+                        btn.disabled = true
+                        btn.textContent = 'Scanning...'
+                        statusEl.textContent = ''
 
-                  const url = (customUrlInput as HTMLInputElement).value
-                  if (!url) {
-                    statusEl.textContent = 'No URL configured'
-                    statusEl.style.color = '#dc2626'
-                    btn.disabled = false
-                    btn.textContent = 'Check Status'
-                    return
-                  }
+                        const url = (customUrlInput as HTMLInputElement).value
+                        const models = await rescanLocalModels(url)
 
-                  const isResponsive = await checkServerLoad(url)
-                  const pending = getPendingRequests(url)
+                        btn.disabled = false
+                        btn.textContent = 'Rescan Models'
 
-                  btn.disabled = false
-                  btn.textContent = 'Check Status'
+                        if (models.length > 0) {
+                          const visionModels = models.filter(
+                            (m) =>
+                              m.includes('-vl') ||
+                              m.includes('vl-') ||
+                              m.includes('vision') ||
+                              m.includes('llava') ||
+                              m.includes('gemma-3') ||
+                              m.includes('gemma3')
+                          )
+                          statusEl.textContent =
+                            `Found ${models.length} model(s)` +
+                            (visionModels.length > 0
+                              ? ` (${visionModels.length} vision)`
+                              : '')
+                          statusEl.style.color = '#16a34a'
+                        } else {
+                          statusEl.textContent = 'No models found'
+                          statusEl.style.color = '#dc2626'
+                        }
+                      },
+                    },
+                    'Rescan Models'
+                  ),
+                  button(
+                    {
+                      class: 'settings-btn secondary',
+                      style: { padding: '4px 10px', fontSize: '0.85em' },
+                      onClick: async (e: Event) => {
+                        const btn = e.target as HTMLButtonElement
+                        const container = btn.parentElement as HTMLElement
+                        const statusEl = container.querySelector(
+                          '.status-text'
+                        ) as HTMLElement
+                        btn.disabled = true
+                        btn.textContent = 'Checking...'
 
-                  if (isResponsive) {
-                    statusEl.textContent =
-                      pending > 0 ? `Ready (${pending} pending)` : 'Ready'
-                    statusEl.style.color = '#16a34a'
-                  } else {
-                    statusEl.textContent =
-                      pending > 0
-                        ? `Under load (${pending} pending)`
-                        : 'Under load or unreachable'
-                    statusEl.style.color = '#f59e0b'
-                  }
-                },
-              },
-              'Check Status'
-            ),
-            span({ class: 'status-text', style: { fontSize: '0.85em' } }, '')
-          )
+                        const url = (customUrlInput as HTMLInputElement).value
+                        if (!url) {
+                          statusEl.textContent = 'No URL configured'
+                          statusEl.style.color = '#dc2626'
+                          btn.disabled = false
+                          btn.textContent = 'Check Status'
+                          return
+                        }
+
+                        const isResponsive = await checkServerLoad(url)
+                        const pending = getPendingRequests(url)
+
+                        btn.disabled = false
+                        btn.textContent = 'Check Status'
+
+                        if (isResponsive) {
+                          statusEl.textContent =
+                            pending > 0 ? `Ready (${pending} pending)` : 'Ready'
+                          statusEl.style.color = '#16a34a'
+                        } else {
+                          statusEl.textContent =
+                            pending > 0
+                              ? `Under load (${pending} pending)`
+                              : 'Under load or unreachable'
+                          statusEl.style.color = '#f59e0b'
+                        }
+                      },
+                    },
+                    'Check Status'
+                  ),
+                  span(
+                    { class: 'status-text', style: { fontSize: '0.85em' } },
+                    ''
+                  )
+                ),
+              ])
         ),
 
         div(
@@ -389,6 +411,13 @@ export function showSettingsDialog(
           label('Anthropic API Key'),
           anthropicInput,
           div({ class: 'hint' }, 'For Claude models')
+        ),
+
+        div(
+          { class: 'settings-field' },
+          label('Google Gemini API Key'),
+          geminiInput,
+          div({ class: 'hint' }, 'For Gemini models')
         ),
 
         div(

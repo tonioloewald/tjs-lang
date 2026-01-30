@@ -129,6 +129,12 @@
     "path": "src/lang/from-ts.test.ts"
   },
   {
+    "text": "# TJS Platform Cloud Functions\n\nCloud Functions for the TJS Platform, written in TJS and transpiled to JavaScript.\n\n---\n\n## Health Check\n\nSimple endpoint to verify functions are deployed and running.\n\n---\n\n## Agent Run Endpoint\n\nUniversal AJS endpoint - accepts code, args, and fuel limit.\nReturns execution result with fuel usage.\n\nThis is the foundation for Phase 4. Currently a stub that will be\nexpanded to include:\n- Firebase Auth token verification\n- User API key retrieval and decryption\n- VM execution with capability injection\n- Rate limiting and audit logging",
+    "title": "index (inline docs)",
+    "filename": "index.js",
+    "path": "functions/lib/index.js"
+  },
+  {
     "text": "...",
     "title": "js (inline docs)",
     "filename": "js.ts",
