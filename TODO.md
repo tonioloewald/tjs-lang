@@ -18,6 +18,7 @@
 ## Language Features
 
 - [ ] Portable Type predicates - expression-only AJS subset (no loops, no async, serializable)
+- [ ] Sync AJS / AJS-to-JS compilation - for type-checked AJS that passes static analysis, transpile to native JS with fuel injection points. Enables both type safety guarantees AND native performance for RBAC rules, predicates, etc.
 - [ ] Expand WASM support beyond POC (currently: single return + numeric ops only)
   - [ ] For loops with numeric bounds
   - [ ] Conditionals (if/else)

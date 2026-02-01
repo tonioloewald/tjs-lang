@@ -22,6 +22,13 @@ service cloud.firestore {
       allow write: if false; // Admin SDK only
     }
 
+    // Security rules - public read, admin write only
+    // These are AJS rules evaluated before each store operation
+    match /securityRules/{collection} {
+      allow read: if true;
+      allow write: if false; // Admin SDK only
+    }
+
     // Default: deny all other access
     // Future collections will use AJS-driven RBAC via the universal endpoint
     match /{document=**} {

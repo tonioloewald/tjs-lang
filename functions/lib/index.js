@@ -11317,12 +11317,13 @@ var agentRun2 = onCall(async (request) => {
   try {
     const apiKeys = await getUserApiKeys(uid);
     const llm = createLlmCapability(apiKeys);
+    const store = createStoreCapability(uid);
     result = await Eval({
       code,
       context: args,
       fuel,
       timeoutMs: 30000,
-      capabilities: { llm }
+      capabilities: { llm, store }
     });
   } catch (err) {
     console.error("Agent execution error:", err);
@@ -11394,12 +11395,13 @@ var run = onRequest(async (req, res) => {
   try {
     const apiKeys = await getUserApiKeys(uid);
     const llm = createLlmCapability(apiKeys);
+    const store = createStoreCapability(uid);
     result = await Eval({
       code,
       context: args,
       fuel,
       timeoutMs: 30000,
-      capabilities: { llm }
+      capabilities: { llm, store }
     });
   } catch (err) {
     console.error("Agent execution error:", err);
@@ -11434,6 +11436,203 @@ var run = onRequest(async (req, res) => {
     error: result.error || null
   });
 });
+var securityRulesCache = {
+  data: new Map,
+  timestamp: 0,
+  ttl: 60000
+};
+async function getSecurityRule(collection) {
+  const now = Date.now();
+  if (now - securityRulesCache.timestamp >= securityRulesCache.ttl) {
+    securityRulesCache.data.clear();
+    securityRulesCache.timestamp = now;
+  }
+  if (securityRulesCache.data.has(collection)) {
+    return securityRulesCache.data.get(collection);
+  }
+  const doc = await db.collection("securityRules").doc(collection).get();
+  const rule = doc.exists ? doc.data() : null;
+  securityRulesCache.data.set(collection, rule);
+  return rule;
+}
+getSecurityRule.__tjs = {
+  params: {
+    collection: {
+      type: {
+        kind: "any"
+      },
+      required: false
+    }
+  },
+  unsafe: true,
+  source: "index.tjs:420"
+};
+async function evaluateSecurityRule(rule, context) {
+  const startTime = performance.now();
+  try {
+    const result = await Eval({
+      code: rule.code,
+      context,
+      fuel: rule.fuel || 100,
+      timeoutMs: rule.timeoutMs || 1000,
+      capabilities: {}
+    });
+    const evalTimeMs = performance.now() - startTime;
+    let allowed = false;
+    let reason = null;
+    if (typeof result.result === "boolean") {
+      allowed = result.result;
+    } else if (typeof result.result === "object" && result.result !== null) {
+      allowed = !!result.result.allow;
+      reason = result.result.reason;
+    }
+    return { allowed, reason, evalTimeMs, fuelUsed: result.fuelUsed };
+  } catch (err) {
+    const evalTimeMs = performance.now() - startTime;
+    console.error("Security rule evaluation error:", err.message);
+    return { allowed: false, reason: "Rule evaluation failed: " + err.message, evalTimeMs, error: true };
+  }
+}
+evaluateSecurityRule.__tjs = {
+  params: {
+    rule: {
+      type: {
+        kind: "any"
+      },
+      required: false
+    },
+    context: {
+      type: {
+        kind: "any"
+      },
+      required: false
+    }
+  },
+  unsafe: true,
+  source: "index.tjs:448"
+};
+function createStoreCapability(uid) {
+  return {
+    async get(collection, docId) {
+      const rule = await getSecurityRule(collection);
+      if (!rule) {
+        return { error: `No security rule for collection: ${collection}` };
+      }
+      const docRef = db.collection(collection).doc(docId);
+      const docSnap = await docRef.get();
+      const doc = docSnap.exists ? docSnap.data() : null;
+      const ruleResult = await evaluateSecurityRule(rule, {
+        _uid: uid,
+        _method: "read",
+        _collection: collection,
+        _docId: docId,
+        doc
+      });
+      console.log(`RBAC [${collection}:read] ${ruleResult.evalTimeMs.toFixed(2)}ms, fuel: ${ruleResult.fuelUsed}, allowed: ${ruleResult.allowed}`);
+      if (!ruleResult.allowed) {
+        return { error: "Permission denied", reason: ruleResult.reason };
+      }
+      return doc;
+    },
+    async set(collection, docId, data2) {
+      const rule = await getSecurityRule(collection);
+      if (!rule) {
+        return { error: `No security rule for collection: ${collection}` };
+      }
+      const docRef = db.collection(collection).doc(docId);
+      const docSnap = await docRef.get();
+      const doc = docSnap.exists ? docSnap.data() : null;
+      const ruleResult = await evaluateSecurityRule(rule, {
+        _uid: uid,
+        _method: "write",
+        _collection: collection,
+        _docId: docId,
+        doc,
+        newData: data2
+      });
+      console.log(`RBAC [${collection}:write] ${ruleResult.evalTimeMs.toFixed(2)}ms, fuel: ${ruleResult.fuelUsed}, allowed: ${ruleResult.allowed}`);
+      if (!ruleResult.allowed) {
+        return { error: "Permission denied", reason: ruleResult.reason };
+      }
+      await docRef.set(data2, { merge: true });
+      return { success: true };
+    },
+    async delete(collection, docId) {
+      const rule = await getSecurityRule(collection);
+      if (!rule) {
+        return { error: `No security rule for collection: ${collection}` };
+      }
+      const docRef = db.collection(collection).doc(docId);
+      const docSnap = await docRef.get();
+      const doc = docSnap.exists ? docSnap.data() : null;
+      if (!doc) {
+        return { error: "Document not found" };
+      }
+      const ruleResult = await evaluateSecurityRule(rule, {
+        _uid: uid,
+        _method: "delete",
+        _collection: collection,
+        _docId: docId,
+        doc
+      });
+      console.log(`RBAC [${collection}:delete] ${ruleResult.evalTimeMs.toFixed(2)}ms, fuel: ${ruleResult.fuelUsed}, allowed: ${ruleResult.allowed}`);
+      if (!ruleResult.allowed) {
+        return { error: "Permission denied", reason: ruleResult.reason };
+      }
+      await docRef.delete();
+      return { success: true };
+    },
+    async query(collection, constraints = {}) {
+      const rule = await getSecurityRule(collection);
+      if (!rule) {
+        return { error: `No security rule for collection: ${collection}` };
+      }
+      const ruleResult = await evaluateSecurityRule(rule, {
+        _uid: uid,
+        _method: "read",
+        _collection: collection,
+        _docId: null,
+        doc: null,
+        _isQuery: true,
+        _constraints: constraints
+      });
+      console.log(`RBAC [${collection}:query] ${ruleResult.evalTimeMs.toFixed(2)}ms, fuel: ${ruleResult.fuelUsed}, allowed: ${ruleResult.allowed}`);
+      if (!ruleResult.allowed) {
+        return { error: "Permission denied", reason: ruleResult.reason };
+      }
+      let query = db.collection(collection);
+      if (constraints.where) {
+        for (const [field, op, value] of constraints.where) {
+          query = query.where(field, op, value);
+        }
+      }
+      if (constraints.orderBy) {
+        query = query.orderBy(constraints.orderBy, constraints.orderDirection || "asc");
+      }
+      if (constraints.limit) {
+        query = query.limit(constraints.limit);
+      }
+      const snapshot = await query.get();
+      const docs = [];
+      snapshot.forEach((doc) => {
+        docs.push({ id: doc.id, ...doc.data() });
+      });
+      return docs;
+    }
+  };
+}
+createStoreCapability.__tjs = {
+  params: {
+    uid: {
+      type: {
+        kind: "any"
+      },
+      required: false
+    }
+  },
+  unsafe: true,
+  source: "index.tjs:488"
+};
 function matchUrlPattern(pattern, path) {
   const normalizedPattern = pattern.replace(/\/+$/, "") || "/";
   const normalizedPath = path.replace(/\/+$/, "") || "/";
@@ -11471,7 +11670,7 @@ matchUrlPattern.__tjs = {
     }
   },
   unsafe: true,
-  source: "index.tjs:394"
+  source: "index.tjs:646"
 };
 var storedFunctionsCache = {
   data: null,
@@ -11495,7 +11694,7 @@ async function getStoredFunctions() {
 getStoredFunctions.__tjs = {
   params: {},
   unsafe: true,
-  source: "index.tjs:437"
+  source: "index.tjs:689"
 };
 var page = onRequest(async (req, res) => {
   res.set("Access-Control-Allow-Origin", "*");

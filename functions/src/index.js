@@ -296,8 +296,9 @@ export const agentRun = onCall(async (request) => {
     // Load user's API keys
     const apiKeys = await getUserApiKeys(uid)
 
-    // Create LLM capability with user's keys
+    // Create capabilities with user's keys
     const llm = createLlmCapability(apiKeys)
+    const store = createStoreCapability(uid)
 
     // Safe dynamic code execution - TJS can eval untrusted code
     result = await Eval({
@@ -305,7 +306,7 @@ export const agentRun = onCall(async (request) => {
       context: args,
       fuel,
       timeoutMs: 30000,
-      capabilities: { llm }
+      capabilities: { llm, store }
     })
   } catch (err) {
     console.error('Agent execution error:', err)
@@ -407,13 +408,14 @@ export const run = onRequest(async (req, res) => {
   try {
     const apiKeys = await getUserApiKeys(uid)
     const llm = createLlmCapability(apiKeys)
+    const store = createStoreCapability(uid)
 
     result = await Eval({
       code,
       context: args,
       fuel,
       timeoutMs: 30000,
-      capabilities: { llm }
+      capabilities: { llm, store }
     })
   } catch (err) {
     console.error('Agent execution error:', err)
@@ -453,6 +455,298 @@ export const run = onRequest(async (req, res) => {
     error: result.error || null
   })
 })
+
+/*#
+## RBAC Security Rules
+
+AJS-based security rules for Firestore collections.
+Rules are stored in `securityRules/{collection}` and evaluated before each operation.
+
+### Rule Context
+- `_uid` - authenticated user ID (null if public)
+- `_method` - 'read' | 'write' | 'delete'
+- `_collection` - collection name
+- `_docId` - document ID
+- `doc` - existing document data (for read/write/delete)
+- `newData` - incoming data (for write only)
+
+### Rule Response
+- Return `true` to allow
+- Return `false` to deny
+- Return `{ allow: true/false, reason: string }` for detailed response
+
+### Performance Tracking
+All rule evaluations are timed and logged for performance analysis.
+*/
+
+// Security rules cache (separate from stored functions)
+const securityRulesCache = {
+  data: new Map(),
+  timestamp: 0,
+  ttl: 60000 // 60 seconds
+}
+
+async function getSecurityRule(collection) {
+  const now = Date.now()
+
+  // Check cache freshness
+  if ((now - securityRulesCache.timestamp) >= securityRulesCache.ttl) {
+    securityRulesCache.data.clear()
+    securityRulesCache.timestamp = now
+  }
+
+  // Check cache
+  if (securityRulesCache.data.has(collection)) {
+    return securityRulesCache.data.get(collection)
+  }
+
+  // Load from Firestore
+  const doc = await db.collection('securityRules').doc(collection).get()
+  const rule = doc.exists ? doc.data() : null
+
+  securityRulesCache.data.set(collection, rule)
+  return rule
+}
+getSecurityRule.__tjs = {
+  "params": {
+    "collection": {
+      "type": {
+        "kind": "any"
+      },
+      "required": false
+    }
+  },
+  "unsafe": true,
+  "source": "index.tjs:420"
+}
+
+/*#
+## RBAC Rule Evaluation
+
+Evaluates a security rule with timing instrumentation.
+Returns { allowed: boolean, reason?: string, evalTimeMs: number }
+*/
+async function evaluateSecurityRule(rule, context) {
+  const startTime = performance.now()
+
+  try {
+    const result = await Eval({
+      code: rule.code,
+      context,
+      fuel: rule.fuel || 100, // Low fuel limit for rules
+      timeoutMs: rule.timeoutMs || 1000, // 1 second max
+      capabilities: {} // No capabilities for security rules
+    })
+
+    const evalTimeMs = performance.now() - startTime
+
+    // Interpret result
+    let allowed = false
+    let reason = null
+
+    if (typeof result.result === 'boolean') {
+      allowed = result.result
+    } else if (typeof result.result === 'object' && result.result !== null) {
+      allowed = !!result.result.allow
+      reason = result.result.reason
+    }
+
+    return { allowed, reason, evalTimeMs, fuelUsed: result.fuelUsed }
+
+  } catch (err) {
+    const evalTimeMs = performance.now() - startTime
+    console.error('Security rule evaluation error:', err.message)
+    return { allowed: false, reason: 'Rule evaluation failed: ' + err.message, evalTimeMs, error: true }
+  }
+}
+evaluateSecurityRule.__tjs = {
+  "params": {
+    "rule": {
+      "type": {
+        "kind": "any"
+      },
+      "required": false
+    },
+    "context": {
+      "type": {
+        "kind": "any"
+      },
+      "required": false
+    }
+  },
+  "unsafe": true,
+  "source": "index.tjs:448"
+}
+
+/*#
+## Create Store Capability with RBAC
+
+Wraps Firestore operations with AJS security rule evaluation.
+Each operation checks the relevant security rule before proceeding.
+*/
+function createStoreCapability(uid) {
+  return {
+    async get(collection, docId) {
+      const rule = await getSecurityRule(collection)
+
+      // No rule = deny by default (secure by default)
+      if (!rule) {
+        return { error: `No security rule for collection: ${collection}` }
+      }
+
+      // Load the document first (needed for rule context)
+      const docRef = db.collection(collection).doc(docId)
+      const docSnap = await docRef.get()
+      const doc = docSnap.exists ? docSnap.data() : null
+
+      // Evaluate rule
+      const ruleResult = await evaluateSecurityRule(rule, {
+        _uid: uid,
+        _method: 'read',
+        _collection: collection,
+        _docId: docId,
+        doc
+      })
+
+      // Log timing
+      console.log(`RBAC [${collection}:read] ${ruleResult.evalTimeMs.toFixed(2)}ms, fuel: ${ruleResult.fuelUsed}, allowed: ${ruleResult.allowed}`)
+
+      if (!ruleResult.allowed) {
+        return { error: 'Permission denied', reason: ruleResult.reason }
+      }
+
+      return doc
+    },
+
+    async set(collection, docId, data) {
+      const rule = await getSecurityRule(collection)
+
+      if (!rule) {
+        return { error: `No security rule for collection: ${collection}` }
+      }
+
+      // Load existing document (may not exist)
+      const docRef = db.collection(collection).doc(docId)
+      const docSnap = await docRef.get()
+      const doc = docSnap.exists ? docSnap.data() : null
+
+      // Evaluate rule
+      const ruleResult = await evaluateSecurityRule(rule, {
+        _uid: uid,
+        _method: 'write',
+        _collection: collection,
+        _docId: docId,
+        doc,
+        newData: data
+      })
+
+      console.log(`RBAC [${collection}:write] ${ruleResult.evalTimeMs.toFixed(2)}ms, fuel: ${ruleResult.fuelUsed}, allowed: ${ruleResult.allowed}`)
+
+      if (!ruleResult.allowed) {
+        return { error: 'Permission denied', reason: ruleResult.reason }
+      }
+
+      // Perform the write
+      await docRef.set(data, { merge: true })
+      return { success: true }
+    },
+
+    async delete(collection, docId) {
+      const rule = await getSecurityRule(collection)
+
+      if (!rule) {
+        return { error: `No security rule for collection: ${collection}` }
+      }
+
+      // Load existing document
+      const docRef = db.collection(collection).doc(docId)
+      const docSnap = await docRef.get()
+      const doc = docSnap.exists ? docSnap.data() : null
+
+      if (!doc) {
+        return { error: 'Document not found' }
+      }
+
+      // Evaluate rule
+      const ruleResult = await evaluateSecurityRule(rule, {
+        _uid: uid,
+        _method: 'delete',
+        _collection: collection,
+        _docId: docId,
+        doc
+      })
+
+      console.log(`RBAC [${collection}:delete] ${ruleResult.evalTimeMs.toFixed(2)}ms, fuel: ${ruleResult.fuelUsed}, allowed: ${ruleResult.allowed}`)
+
+      if (!ruleResult.allowed) {
+        return { error: 'Permission denied', reason: ruleResult.reason }
+      }
+
+      await docRef.delete()
+      return { success: true }
+    },
+
+    async query(collection, constraints = {}) {
+      const rule = await getSecurityRule(collection)
+
+      if (!rule) {
+        return { error: `No security rule for collection: ${collection}` }
+      }
+
+      // For queries, evaluate rule with null doc (list permission)
+      const ruleResult = await evaluateSecurityRule(rule, {
+        _uid: uid,
+        _method: 'read',
+        _collection: collection,
+        _docId: null,
+        doc: null,
+        _isQuery: true,
+        _constraints: constraints
+      })
+
+      console.log(`RBAC [${collection}:query] ${ruleResult.evalTimeMs.toFixed(2)}ms, fuel: ${ruleResult.fuelUsed}, allowed: ${ruleResult.allowed}`)
+
+      if (!ruleResult.allowed) {
+        return { error: 'Permission denied', reason: ruleResult.reason }
+      }
+
+      // Build query
+      let query = db.collection(collection)
+
+      if (constraints.where) {
+        for (const [field, op, value] of constraints.where) {
+          query = query.where(field, op, value)
+        }
+      }
+      if (constraints.orderBy) {
+        query = query.orderBy(constraints.orderBy, constraints.orderDirection || 'asc')
+      }
+      if (constraints.limit) {
+        query = query.limit(constraints.limit)
+      }
+
+      const snapshot = await query.get()
+      const docs = []
+      snapshot.forEach(doc => {
+        docs.push({ id: doc.id, ...doc.data() })
+      })
+
+      return docs
+    }
+  }
+}
+createStoreCapability.__tjs = {
+  "params": {
+    "uid": {
+      "type": {
+        "kind": "any"
+      },
+      "required": false
+    }
+  },
+  "unsafe": true,
+  "source": "index.tjs:488"
+}
 
 /*#
 ## URL Pattern Matching
@@ -506,7 +800,7 @@ matchUrlPattern.__tjs = {
     }
   },
   "unsafe": true,
-  "source": "index.tjs:394"
+  "source": "index.tjs:646"
 }
 
 /*#
@@ -543,7 +837,7 @@ async function getStoredFunctions() {
 getStoredFunctions.__tjs = {
   "params": {},
   "unsafe": true,
-  "source": "index.tjs:437"
+  "source": "index.tjs:689"
 }
 
 /*#
