@@ -579,12 +579,54 @@ evaluateSecurityRule.__tjs = {
 }
 
 /*#
+## Load User Roles
+
+Loads user roles from Firestore for RBAC context.
+*/
+async function loadUserRoles(uid) {
+  if (!uid) return []
+
+  try {
+    const userDoc = await db.collection('users').doc(uid).get()
+    if (!userDoc.exists) return []
+    const userData = userDoc.data()
+    return userData?.roles || []
+  } catch (err) {
+    console.error('Failed to load user roles:', err.message)
+    return []
+  }
+}
+loadUserRoles.__tjs = {
+  "params": {
+    "uid": {
+      "type": {
+        "kind": "any"
+      },
+      "required": false
+    }
+  },
+  "unsafe": true,
+  "source": "index.tjs:487"
+}
+
+/*#
 ## Create Store Capability with RBAC
 
 Wraps Firestore operations with AJS security rule evaluation.
 Each operation checks the relevant security rule before proceeding.
+User roles are loaded once and cached for all operations in the request.
 */
 function createStoreCapability(uid) {
+  // Cache for user roles (loaded lazily, once per request)
+  let cachedRoles = null
+
+  async function getRoles() {
+    if (cachedRoles === null) {
+      cachedRoles = await loadUserRoles(uid)
+    }
+    return cachedRoles
+  }
+
   return {
     async get(collection, docId) {
       const rule = await getSecurityRule(collection)
@@ -599,9 +641,15 @@ function createStoreCapability(uid) {
       const docSnap = await docRef.get()
       const doc = docSnap.exists ? docSnap.data() : null
 
-      // Evaluate rule
+      // Get user roles for context
+      const roles = await getRoles()
+
+      // Evaluate rule with role context
       const ruleResult = await evaluateSecurityRule(rule, {
         _uid: uid,
+        _roles: roles,
+        _isAdmin: roles.includes('admin'),
+        _isAuthor: roles.includes('author'),
         _method: 'read',
         _collection: collection,
         _docId: docId,
@@ -630,9 +678,15 @@ function createStoreCapability(uid) {
       const docSnap = await docRef.get()
       const doc = docSnap.exists ? docSnap.data() : null
 
+      // Get user roles for context
+      const roles = await getRoles()
+
       // Evaluate rule
       const ruleResult = await evaluateSecurityRule(rule, {
         _uid: uid,
+        _roles: roles,
+        _isAdmin: roles.includes('admin'),
+        _isAuthor: roles.includes('author'),
         _method: 'write',
         _collection: collection,
         _docId: docId,
@@ -667,9 +721,15 @@ function createStoreCapability(uid) {
         return { error: 'Document not found' }
       }
 
+      // Get user roles for context
+      const roles = await getRoles()
+
       // Evaluate rule
       const ruleResult = await evaluateSecurityRule(rule, {
         _uid: uid,
+        _roles: roles,
+        _isAdmin: roles.includes('admin'),
+        _isAuthor: roles.includes('author'),
         _method: 'delete',
         _collection: collection,
         _docId: docId,
@@ -693,9 +753,15 @@ function createStoreCapability(uid) {
         return { error: `No security rule for collection: ${collection}` }
       }
 
+      // Get user roles for context
+      const roles = await getRoles()
+
       // For queries, evaluate rule with null doc (list permission)
       const ruleResult = await evaluateSecurityRule(rule, {
         _uid: uid,
+        _roles: roles,
+        _isAdmin: roles.includes('admin'),
+        _isAuthor: roles.includes('author'),
         _method: 'read',
         _collection: collection,
         _docId: null,
@@ -745,7 +811,7 @@ createStoreCapability.__tjs = {
     }
   },
   "unsafe": true,
-  "source": "index.tjs:488"
+  "source": "index.tjs:508"
 }
 
 /*#
@@ -800,7 +866,7 @@ matchUrlPattern.__tjs = {
     }
   },
   "unsafe": true,
-  "source": "index.tjs:646"
+  "source": "index.tjs:700"
 }
 
 /*#
@@ -837,7 +903,7 @@ async function getStoredFunctions() {
 getStoredFunctions.__tjs = {
   "params": {},
   "unsafe": true,
-  "source": "index.tjs:689"
+  "source": "index.tjs:743"
 }
 
 /*#

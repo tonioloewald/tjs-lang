@@ -11511,7 +11511,40 @@ evaluateSecurityRule.__tjs = {
   unsafe: true,
   source: "index.tjs:448"
 };
+async function loadUserRoles(uid) {
+  if (!uid)
+    return [];
+  try {
+    const userDoc = await db.collection("users").doc(uid).get();
+    if (!userDoc.exists)
+      return [];
+    const userData = userDoc.data();
+    return userData?.roles || [];
+  } catch (err) {
+    console.error("Failed to load user roles:", err.message);
+    return [];
+  }
+}
+loadUserRoles.__tjs = {
+  params: {
+    uid: {
+      type: {
+        kind: "any"
+      },
+      required: false
+    }
+  },
+  unsafe: true,
+  source: "index.tjs:487"
+};
 function createStoreCapability(uid) {
+  let cachedRoles = null;
+  async function getRoles() {
+    if (cachedRoles === null) {
+      cachedRoles = await loadUserRoles(uid);
+    }
+    return cachedRoles;
+  }
   return {
     async get(collection, docId) {
       const rule = await getSecurityRule(collection);
@@ -11521,8 +11554,12 @@ function createStoreCapability(uid) {
       const docRef = db.collection(collection).doc(docId);
       const docSnap = await docRef.get();
       const doc = docSnap.exists ? docSnap.data() : null;
+      const roles = await getRoles();
       const ruleResult = await evaluateSecurityRule(rule, {
         _uid: uid,
+        _roles: roles,
+        _isAdmin: roles.includes("admin"),
+        _isAuthor: roles.includes("author"),
         _method: "read",
         _collection: collection,
         _docId: docId,
@@ -11542,8 +11579,12 @@ function createStoreCapability(uid) {
       const docRef = db.collection(collection).doc(docId);
       const docSnap = await docRef.get();
       const doc = docSnap.exists ? docSnap.data() : null;
+      const roles = await getRoles();
       const ruleResult = await evaluateSecurityRule(rule, {
         _uid: uid,
+        _roles: roles,
+        _isAdmin: roles.includes("admin"),
+        _isAuthor: roles.includes("author"),
         _method: "write",
         _collection: collection,
         _docId: docId,
@@ -11568,8 +11609,12 @@ function createStoreCapability(uid) {
       if (!doc) {
         return { error: "Document not found" };
       }
+      const roles = await getRoles();
       const ruleResult = await evaluateSecurityRule(rule, {
         _uid: uid,
+        _roles: roles,
+        _isAdmin: roles.includes("admin"),
+        _isAuthor: roles.includes("author"),
         _method: "delete",
         _collection: collection,
         _docId: docId,
@@ -11587,8 +11632,12 @@ function createStoreCapability(uid) {
       if (!rule) {
         return { error: `No security rule for collection: ${collection}` };
       }
+      const roles = await getRoles();
       const ruleResult = await evaluateSecurityRule(rule, {
         _uid: uid,
+        _roles: roles,
+        _isAdmin: roles.includes("admin"),
+        _isAuthor: roles.includes("author"),
         _method: "read",
         _collection: collection,
         _docId: null,
@@ -11631,7 +11680,7 @@ createStoreCapability.__tjs = {
     }
   },
   unsafe: true,
-  source: "index.tjs:488"
+  source: "index.tjs:508"
 };
 function matchUrlPattern(pattern, path) {
   const normalizedPattern = pattern.replace(/\/+$/, "") || "/";
@@ -11670,7 +11719,7 @@ matchUrlPattern.__tjs = {
     }
   },
   unsafe: true,
-  source: "index.tjs:646"
+  source: "index.tjs:700"
 };
 var storedFunctionsCache = {
   data: null,
@@ -11694,7 +11743,7 @@ async function getStoredFunctions() {
 getStoredFunctions.__tjs = {
   params: {},
   unsafe: true,
-  source: "index.tjs:689"
+  source: "index.tjs:743"
 };
 var page = onRequest(async (req, res) => {
   res.set("Access-Control-Allow-Origin", "*");
