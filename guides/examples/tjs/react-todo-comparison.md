@@ -2,7 +2,7 @@
 
 # React Todo (Comparison)
 
-React todo app for comparison - requires bundler, JSX transpilation.
+React todo app for comparison only - requires bundler and JSX transpilation to run. Compare with the tosijs version which runs directly in the browser.
 
 ```javascript
 import React, { useState } from 'react'

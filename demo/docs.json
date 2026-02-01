@@ -259,7 +259,7 @@
     "order": 0,
     "code": "import React, { useState } from 'react'\nimport { createRoot } from 'react-dom/client'\n\nfunction TodoApp() {\n  const [items, setItems] = useState(['bathe the cat', 'buy milk'])\n  const [newItem, setNewItem] = useState('')\n\n  const addItem = () => {\n    if (newItem !== '') {\n      setItems([...items, newItem])\n      setNewItem('')\n    }\n  }\n\n  return (\n    <div>\n      <h1>To Do</h1>\n      <ul>\n        {items.map((item, i) => (\n          <li key={i}>{item}</li>\n        ))}\n      </ul>\n      <label>\n        New item\n        <input\n          placeholder=\"enter thing to do\"\n          value={newItem}\n          onChange={(e) => setNewItem(e.target.value)}\n        />\n        <button disabled={!newItem} onClick={addItem}>\n          Add\n        </button>\n      </label>\n    </div>\n  )\n}\n\nconst root = document.createElement('div')\nroot.setAttribute('id', 'root')\ndocument.body.append(root)\ncreateRoot(root).render(<TodoApp />)",
     "language": "javascript",
-    "description": "React todo app for comparison - requires bundler, JSX transpilation."
+    "description": "React todo app for comparison only - requires bundler and JSX transpilation to run. Compare with the tosijs version which runs directly in the browser."
   },
   {
     "title": "tosijs Todo App",
@@ -269,7 +269,7 @@
     "type": "example",
     "group": "unbundled",
     "order": 1,
-    "code": "import { elements, tosi } from 'tosijs'\n\nconst { todoApp } = tosi({\n  todoApp: {\n    items: ['bathe the cat', 'buy milk'],\n    newItem: '',\n    addItem() {\n      if (todoApp.newItem !== '') {\n        todoApp.items.push(String(todoApp.newItem))\n        todoApp.newItem = ''\n      }\n    }\n  }\n})\n\nconst { h1, ul, template, li, label, input, button } = elements\n\ndocument.body.append(\n  h1('To Do'),\n  ul(\n    {\n      bindList: {\n        value: todoApp.items\n      }\n    },\n    template(li({ bind: '^' }))\n  ),\n  label(\n    'New item',\n    input({ placeholder: 'enter thing to do', bindValue: todoApp.newItem }),\n    button({ bindEnabled: todoApp.newItem, onClick: todoApp.addItem }, 'Add')\n  )\n)",
+    "code": "import { elements, tosi } from 'tosijs'\n\nconst { todoApp } = tosi({\n  todoApp: {\n    items: ['bathe the cat', 'buy milk'],\n    newItem: '',\n    addItem() {\n      if (todoApp.newItem !== '') {\n        todoApp.items.push(String(todoApp.newItem))\n        todoApp.newItem = ''\n      }\n    }\n  }\n})\n\nconst { h1, ul, template, li, label, input, button } = elements\n\ndocument.body.append(\n  h1('To Do'),\n  ul(\n    {\n      bindList: {\n        value: todoApp.items\n      }\n    },\n    template(li({ bindText: '^' }))\n  ),\n  label(\n    'New item',\n    input({ placeholder: 'enter thing to do', bindValue: todoApp.newItem }),\n    button({ bindEnabled: todoApp.newItem, onClick: todoApp.addItem }, 'Add')\n  )\n)",
     "language": "tjs",
     "description": "Unbundled todo app - runs directly in browser, no build step."
   },

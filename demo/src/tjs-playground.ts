@@ -1494,12 +1494,14 @@ export const tjsPlayground = TJSPlayground.elementCreator({
 
     ':host .preview-container': {
       height: '100%',
+      minHeight: '300px',
       background: 'var(--background, #fff)',
     },
 
     ':host .preview-frame': {
       width: '100%',
       height: '100%',
+      minHeight: '300px',
       border: 'none',
     },
 

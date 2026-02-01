@@ -30,7 +30,7 @@ document.body.append(
         value: todoApp.items
       }
     },
-    template(li({ bind: '^' }))
+    template(li({ bindText: '^' }))
   ),
   label(
     'New item',
