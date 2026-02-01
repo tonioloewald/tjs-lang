@@ -346,10 +346,10 @@ export class DemoNav extends Component {
     intro: 'Introduction',
     validation: 'Runtime Validation',
     // TJS example groups
-
     featured: 'Featured',
     basics: 'Basics',
     patterns: 'Patterns',
+    unbundled: 'Unbundled Integration',
     api: 'API',
     llm: 'LLM',
     fullstack: 'Full Stack',
@@ -365,6 +365,7 @@ export class DemoNav extends Component {
     'featured',
     'basics',
     'patterns',
+    'unbundled',
     'api',
     'llm',
     'fullstack',

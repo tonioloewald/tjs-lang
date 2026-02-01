@@ -1,4 +1,4 @@
-<!--{"section": "tjs", "type": "example", "group": "patterns", "order": 100}-->
+<!--{"section": "tjs", "type": "example", "group": "unbundled", "order": 0}-->
 
 # React Todo (Comparison)
 

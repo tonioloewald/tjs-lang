@@ -1,4 +1,4 @@
-<!--{"section": "tjs", "type": "example", "group": "patterns", "order": 101}-->
+<!--{"section": "tjs", "type": "example", "group": "unbundled", "order": 1}-->
 
 # tosijs Todo App
 
