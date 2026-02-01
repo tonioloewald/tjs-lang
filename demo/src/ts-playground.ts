@@ -39,25 +39,11 @@ console.log(greet('World'))
 console.log(add(2, 3))
 `
 
-const DEFAULT_HTML = `<div class="preview-content">
-  <h2>Preview</h2>
-  <div id="output"></div>
-</div>`
+const DEFAULT_HTML = ``
 
-const DEFAULT_CSS = `.preview-content {
-  padding: 1rem;
+const DEFAULT_CSS = `body {
+  margin: 1rem;
   font-family: system-ui, sans-serif;
-}
-
-h2 {
-  color: #3d4a6b;
-  margin-top: 0;
-}
-
-#output {
-  padding: 0.5rem;
-  background: #f5f5f5;
-  border-radius: 4px;
 }`
 
 interface TSPlaygroundParts extends PartsMap {
