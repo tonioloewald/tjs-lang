@@ -318,18 +318,12 @@ export class TJSPlayground extends Component<TJSPlaygroundParts> {
               '// Transpiled JavaScript will appear here'
             )
           ),
-          div(
-            { name: 'Preview' },
-            div(
-              { class: 'preview-container' },
-              // Using an iframe for isolation
-              elements.iframe({
-                part: 'previewFrame',
-                class: 'preview-frame',
-                sandbox: 'allow-scripts allow-same-origin',
-              })
-            )
-          ),
+          elements.iframe({
+            name: 'Preview',
+            part: 'previewFrame',
+            class: 'preview-frame',
+            sandbox: 'allow-scripts allow-same-origin',
+          }),
           markdownViewer({
             name: 'Docs',
             part: 'docsOutput',
@@ -1492,17 +1486,11 @@ export const tjsPlayground = TJSPlayground.elementCreator({
       whiteSpace: 'pre-wrap',
     },
 
-    ':host .preview-container': {
-      height: '100%',
-      minHeight: '300px',
-      background: 'var(--background, #fff)',
-    },
-
     ':host .preview-frame': {
       width: '100%',
       height: '100%',
-      minHeight: '300px',
       border: 'none',
+      background: 'var(--background, #fff)',
     },
 
     ':host .docs-output': {
