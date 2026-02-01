@@ -11467,30 +11467,218 @@ getSecurityRule.__tjs = {
   unsafe: true,
   source: "index.tjs:420"
 };
+function validateSchema(schema, data2) {
+  if (!schema || !data2)
+    return { valid: true };
+  const errors = [];
+  if (schema.type) {
+    const actualType = Array.isArray(data2) ? "array" : typeof data2;
+    if (schema.type !== actualType) {
+      errors.push(`Expected type ${schema.type}, got ${actualType}`);
+    }
+  }
+  if (schema.type === "object" && typeof data2 === "object" && data2 !== null) {
+    if (schema.required) {
+      for (const field of schema.required) {
+        if (!(field in data2)) {
+          errors.push(`Missing required field: ${field}`);
+        }
+      }
+    }
+    if (schema.properties) {
+      for (const [key, propSchema] of Object.entries(schema.properties)) {
+        if (key in data2) {
+          const propResult = validateSchema(propSchema, data2[key]);
+          if (!propResult.valid) {
+            errors.push(...propResult.errors.map((e) => `${key}: ${e}`));
+          }
+        }
+      }
+    }
+  }
+  if (schema.type === "string" && typeof data2 === "string") {
+    if (schema.minLength && data2.length < schema.minLength) {
+      errors.push(`String too short (min ${schema.minLength})`);
+    }
+    if (schema.maxLength && data2.length > schema.maxLength) {
+      errors.push(`String too long (max ${schema.maxLength})`);
+    }
+    if (schema.pattern && !new RegExp(schema.pattern).test(data2)) {
+      errors.push(`String does not match pattern`);
+    }
+  }
+  if (schema.type === "number" && typeof data2 === "number") {
+    if (schema.minimum !== undefined && data2 < schema.minimum) {
+      errors.push(`Number below minimum (${schema.minimum})`);
+    }
+    if (schema.maximum !== undefined && data2 > schema.maximum) {
+      errors.push(`Number above maximum (${schema.maximum})`);
+    }
+  }
+  if (schema.type === "array" && Array.isArray(data2)) {
+    if (schema.minItems && data2.length < schema.minItems) {
+      errors.push(`Array too short (min ${schema.minItems} items)`);
+    }
+    if (schema.maxItems && data2.length > schema.maxItems) {
+      errors.push(`Array too long (max ${schema.maxItems} items)`);
+    }
+    if (schema.items) {
+      data2.forEach((item, i2) => {
+        const itemResult = validateSchema(schema.items, item);
+        if (!itemResult.valid) {
+          errors.push(...itemResult.errors.map((e) => `[${i2}]: ${e}`));
+        }
+      });
+    }
+  }
+  if (schema.enum && !schema.enum.includes(data2)) {
+    errors.push(`Value must be one of: ${schema.enum.join(", ")}`);
+  }
+  return { valid: errors.length === 0, errors };
+}
+validateSchema.__tjs = {
+  params: {
+    schema: {
+      type: {
+        kind: "any"
+      },
+      required: false
+    },
+    data: {
+      type: {
+        kind: "any"
+      },
+      required: false
+    }
+  },
+  unsafe: true,
+  source: "index.tjs:448"
+};
+function evaluateAccessShortcut(accessRule, context) {
+  if (typeof accessRule !== "string")
+    return null;
+  const { _uid, _roles, doc, newData } = context;
+  switch (accessRule) {
+    case "none":
+      return { allowed: false, reason: "Access denied" };
+    case "all":
+      return { allowed: true };
+    case "authenticated":
+      return _uid ? { allowed: true } : { allowed: false, reason: "Authentication required" };
+    case "admin":
+      return _roles?.includes("admin") ? { allowed: true } : { allowed: false, reason: "Admin role required" };
+    case "author":
+      return _roles?.includes("author") ? { allowed: true } : { allowed: false, reason: "Author role required" };
+    default:
+      if (accessRule.startsWith("owner:")) {
+        const field = accessRule.slice(6);
+        const checkDoc = doc || newData;
+        if (!_uid) {
+          return { allowed: false, reason: "Authentication required" };
+        }
+        if (checkDoc && checkDoc[field] === _uid) {
+          return { allowed: true };
+        }
+        if (!doc && newData && newData[field] === _uid) {
+          return { allowed: true };
+        }
+        return { allowed: false, reason: `Must be owner (${field})` };
+      }
+      if (accessRule.startsWith("role:")) {
+        const role = accessRule.slice(5);
+        return _roles?.includes(role) ? { allowed: true } : { allowed: false, reason: `Role '${role}' required` };
+      }
+      return null;
+  }
+}
+evaluateAccessShortcut.__tjs = {
+  params: {
+    accessRule: {
+      type: {
+        kind: "any"
+      },
+      required: false
+    },
+    context: {
+      type: {
+        kind: "any"
+      },
+      required: false
+    }
+  },
+  unsafe: true,
+  source: "index.tjs:549"
+};
 async function evaluateSecurityRule(rule, context) {
   const startTime = performance.now();
+  const { _method, newData } = context;
   try {
-    const result = await Eval({
-      code: rule.code,
-      context,
-      fuel: rule.fuel || 100,
-      timeoutMs: rule.timeoutMs || 1000,
-      capabilities: {}
-    });
-    const evalTimeMs = performance.now() - startTime;
-    let allowed = false;
-    let reason = null;
-    if (typeof result.result === "boolean") {
-      allowed = result.result;
-    } else if (typeof result.result === "object" && result.result !== null) {
-      allowed = !!result.result.allow;
-      reason = result.result.reason;
+    let accessRule = rule.code;
+    if (_method === "read" && rule.read !== undefined) {
+      accessRule = rule.read;
+    } else if (_method === "write") {
+      if (!context.doc && rule.create !== undefined) {
+        accessRule = rule.create;
+      } else if (context.doc && rule.update !== undefined) {
+        accessRule = rule.update;
+      } else if (rule.write !== undefined) {
+        accessRule = rule.write;
+      }
+    } else if (_method === "delete" && rule.delete !== undefined) {
+      accessRule = rule.delete;
     }
-    return { allowed, reason, evalTimeMs, fuelUsed: result.fuelUsed };
+    if (typeof accessRule === "string") {
+      const shortcutResult = evaluateAccessShortcut(accessRule, context);
+      if (shortcutResult) {
+        const evalTimeMs2 = performance.now() - startTime;
+        return { ...shortcutResult, evalTimeMs: evalTimeMs2, fuelUsed: 0, type: "shortcut" };
+      }
+    }
+    if (_method === "write" && rule.schema && newData) {
+      const schemaResult = validateSchema(rule.schema, newData);
+      if (!schemaResult.valid) {
+        const evalTimeMs2 = performance.now() - startTime;
+        return {
+          allowed: false,
+          reason: "Schema validation failed: " + schemaResult.errors.join("; "),
+          evalTimeMs: evalTimeMs2,
+          fuelUsed: 0,
+          type: "schema"
+        };
+      }
+    }
+    const codeToRun = typeof accessRule === "object" && accessRule?.code ? accessRule.code : rule.code;
+    if (codeToRun) {
+      const fuel = typeof accessRule === "object" && accessRule?.fuel || rule.fuel || 100;
+      const timeoutMs = typeof accessRule === "object" && accessRule?.timeoutMs || rule.timeoutMs || 1000;
+      const result = await Eval({
+        code: codeToRun,
+        context,
+        fuel,
+        timeoutMs,
+        capabilities: {}
+      });
+      const evalTimeMs2 = performance.now() - startTime;
+      let allowed = false;
+      let reason = null;
+      if (typeof result.result === "boolean") {
+        allowed = result.result;
+      } else if (typeof result.result === "object" && result.result !== null) {
+        allowed = !!result.result.allow;
+        reason = result.result.reason;
+      }
+      return { allowed, reason, evalTimeMs: evalTimeMs2, fuelUsed: result.fuelUsed, type: "code" };
+    }
+    if (rule.schema && !rule.code) {
+      const evalTimeMs2 = performance.now() - startTime;
+      return { allowed: true, evalTimeMs: evalTimeMs2, fuelUsed: 0, type: "schema-only" };
+    }
+    const evalTimeMs = performance.now() - startTime;
+    return { allowed: false, reason: "No access rule defined", evalTimeMs, fuelUsed: 0, type: "default" };
   } catch (err) {
     const evalTimeMs = performance.now() - startTime;
     console.error("Security rule evaluation error:", err.message);
-    return { allowed: false, reason: "Rule evaluation failed: " + err.message, evalTimeMs, error: true };
+    return { allowed: false, reason: "Rule evaluation failed: " + err.message, evalTimeMs, error: true, type: "error" };
   }
 }
 evaluateSecurityRule.__tjs = {
@@ -11509,7 +11697,7 @@ evaluateSecurityRule.__tjs = {
     }
   },
   unsafe: true,
-  source: "index.tjs:448"
+  source: "index.tjs:617"
 };
 async function loadUserRoles(uid) {
   if (!uid)
@@ -11535,7 +11723,7 @@ loadUserRoles.__tjs = {
     }
   },
   unsafe: true,
-  source: "index.tjs:487"
+  source: "index.tjs:719"
 };
 function createStoreCapability(uid) {
   let cachedRoles = null;
@@ -11565,7 +11753,7 @@ function createStoreCapability(uid) {
         _docId: docId,
         doc
       });
-      console.log(`RBAC [${collection}:read] ${ruleResult.evalTimeMs.toFixed(2)}ms, fuel: ${ruleResult.fuelUsed}, allowed: ${ruleResult.allowed}`);
+      console.log(`RBAC [${collection}:read] ${ruleResult.evalTimeMs.toFixed(2)}ms, type: ${ruleResult.type}, fuel: ${ruleResult.fuelUsed}, allowed: ${ruleResult.allowed}`);
       if (!ruleResult.allowed) {
         return { error: "Permission denied", reason: ruleResult.reason };
       }
@@ -11591,7 +11779,7 @@ function createStoreCapability(uid) {
         doc,
         newData: data2
       });
-      console.log(`RBAC [${collection}:write] ${ruleResult.evalTimeMs.toFixed(2)}ms, fuel: ${ruleResult.fuelUsed}, allowed: ${ruleResult.allowed}`);
+      console.log(`RBAC [${collection}:write] ${ruleResult.evalTimeMs.toFixed(2)}ms, type: ${ruleResult.type}, fuel: ${ruleResult.fuelUsed}, allowed: ${ruleResult.allowed}`);
       if (!ruleResult.allowed) {
         return { error: "Permission denied", reason: ruleResult.reason };
       }
@@ -11620,7 +11808,7 @@ function createStoreCapability(uid) {
         _docId: docId,
         doc
       });
-      console.log(`RBAC [${collection}:delete] ${ruleResult.evalTimeMs.toFixed(2)}ms, fuel: ${ruleResult.fuelUsed}, allowed: ${ruleResult.allowed}`);
+      console.log(`RBAC [${collection}:delete] ${ruleResult.evalTimeMs.toFixed(2)}ms, type: ${ruleResult.type}, fuel: ${ruleResult.fuelUsed}, allowed: ${ruleResult.allowed}`);
       if (!ruleResult.allowed) {
         return { error: "Permission denied", reason: ruleResult.reason };
       }
@@ -11645,7 +11833,7 @@ function createStoreCapability(uid) {
         _isQuery: true,
         _constraints: constraints
       });
-      console.log(`RBAC [${collection}:query] ${ruleResult.evalTimeMs.toFixed(2)}ms, fuel: ${ruleResult.fuelUsed}, allowed: ${ruleResult.allowed}`);
+      console.log(`RBAC [${collection}:query] ${ruleResult.evalTimeMs.toFixed(2)}ms, type: ${ruleResult.type}, fuel: ${ruleResult.fuelUsed}, allowed: ${ruleResult.allowed}`);
       if (!ruleResult.allowed) {
         return { error: "Permission denied", reason: ruleResult.reason };
       }
@@ -11680,7 +11868,7 @@ createStoreCapability.__tjs = {
     }
   },
   unsafe: true,
-  source: "index.tjs:508"
+  source: "index.tjs:740"
 };
 function matchUrlPattern(pattern, path) {
   const normalizedPattern = pattern.replace(/\/+$/, "") || "/";
@@ -11719,7 +11907,7 @@ matchUrlPattern.__tjs = {
     }
   },
   unsafe: true,
-  source: "index.tjs:700"
+  source: "index.tjs:932"
 };
 var storedFunctionsCache = {
   data: null,
@@ -11743,7 +11931,7 @@ async function getStoredFunctions() {
 getStoredFunctions.__tjs = {
   params: {},
   unsafe: true,
-  source: "index.tjs:743"
+  source: "index.tjs:975"
 };
 var page = onRequest(async (req, res) => {
   res.set("Access-Control-Allow-Origin", "*");
