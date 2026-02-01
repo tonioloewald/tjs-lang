@@ -141,10 +141,34 @@
     "path": "functions/src/index.js"
   },
   {
+    "text": "# RBAC Module\n\nRole-Based Access Control with pluggable storage backends.\n\n## Usage\n\n```typescript\nimport { createRBAC } from 'tosijs/rbac'\nimport { createMemoryStore } from 'tosijs/store'\n\n// Create RBAC with memory store (for testing)\nconst store = createMemoryStore()\nconst rbac = createRBAC(store)\n\n// Set up a security rule\nawait rbac.setRule('posts', {\n  read: 'all',\n  create: 'authenticated',\n  update: 'owner:authorId',\n  delete: 'admin'\n})\n\n// Check access\nconst result = await rbac.check({\n  uid: 'user123',\n  roles: ['user'],\n  method: 'read',\n  collection: 'posts',\n  docId: 'post1'\n})\n\nif (result.allowed) {\n  // proceed\n}\n```",
+    "title": "index (inline docs)",
+    "filename": "index.ts",
+    "path": "src/rbac/index.ts"
+  },
+  {
+    "text": "# Store Module\n\nAbstract storage interface with multiple backend implementations.\n\n## Usage\n\n```typescript\nimport { createMemoryStore, createIndexedDBStore } from 'tosijs/store'\n\n// For testing\nconst store = createMemoryStore()\n\n// For browser\nconst store = createIndexedDBStore()\n\n// Use the store\nawait store.set('users', 'user123', { name: 'Alice', role: 'admin' })\nconst user = await store.get('users', 'user123')\nconst admins = await store.query('users', {\n  where: [{ field: 'role', op: '==', value: 'admin' }]\n})\n```",
+    "title": "index (inline docs)",
+    "filename": "index.ts",
+    "path": "src/store/index.ts"
+  },
+  {
+    "text": "# IndexedDB Store\n\nBrowser-compatible store implementation using IndexedDB.\nUseful for:\n- Local development without Firebase\n- Testing in browser environment\n- Offline-first applications\n- PWAs with local persistence",
+    "title": "indexeddb (inline docs)",
+    "filename": "indexeddb.ts",
+    "path": "src/store/indexeddb.ts"
+  },
+  {
     "text": "# Automatic Index Management\n\nMaintains denormalized indexes based on rule configuration.\nIndexes are stored in `{collection}_indexes/{indexName}` or\n`{collection}_indexes/{indexName}/{partitionKey}` for partitioned indexes.\n\n## Index Configuration\n```javascript\nindexes: [\n  {\n    name: 'published',           // Index name\n    filter: { status: 'published' }, // Which docs to include\n    fields: ['title', 'created'],    // Fields to denormalize\n  },\n  {\n    name: 'by-author',\n    partitionBy: 'authorId',     // Creates sub-indexes per author\n    fields: ['title', 'status']\n  },\n  {\n    name: 'by-tag',\n    partitionByArray: 'tags',    // Creates entry in each tag's index\n    filter: { status: 'published' },\n    fields: ['title', 'authorId']\n  }\n]\n```",
     "title": "indexes (inline docs)",
     "filename": "indexes.js",
     "path": "functions/src/indexes.js"
+  },
+  {
+    "text": "# Store Interface\n\nAbstract storage interface that can be backed by Firestore, IndexedDB,\nPostgres, filesystem, or any other storage backend.\n\nThis enables:\n1. Testing RBAC logic without Firebase\n2. Running locally with IndexedDB\n3. Self-hosted deployments with Postgres/SQLite\n4. \"Directory full of crap\" development mode",
+    "title": "interface (inline docs)",
+    "filename": "interface.ts",
+    "path": "src/store/interface.ts"
   },
   {
     "text": "...",
@@ -165,6 +189,12 @@
     "path": "functions/src/llm.js"
   },
   {
+    "text": "# In-Memory Store\n\nSimple in-memory store for testing and development.\nData is lost when the process exits.\n\nUseful for:\n- Unit tests\n- Quick prototyping\n- Node.js/Bun environments without IndexedDB",
+    "title": "memory (inline docs)",
+    "filename": "memory.ts",
+    "path": "src/store/memory.ts"
+  },
+  {
     "text": "... * / syntax and preserve full markdown content.\n * Legacy JSDoc (/** ... * /) is supported as a fallback.\n\n---\n\n...\n\n---\n\n...",
     "title": "parser (inline docs)",
     "filename": "parser.ts",
@@ -181,6 +211,12 @@
     "title": "routing (inline docs)",
     "filename": "routing.js",
     "path": "functions/src/routing.js"
+  },
+  {
+    "text": "# RBAC Security Rules (Pure Logic)\n\nPure security rule evaluation logic, independent of storage backend.\nThis module contains no I/O - it only evaluates rules against contexts.\n\n## Rule Context\n- `_uid` - authenticated user ID (null if public)\n- `_roles` - array of user roles\n- `_method` - 'read' | 'write' | 'delete'\n- `_collection` - collection name\n- `_docId` - document ID\n- `doc` - existing document data (for read/write/delete)\n- `newData` - incoming data (for write only)\n\n## Rule Response\n- Return `true` to allow\n- Return `false` to deny\n- Return `{ allow: true/false, reason: string }` for detailed response\n\n---\n\n## Access Rule Shortcuts\n\nEvaluates simple access rule strings without AJS overhead.\nReturns { allowed: boolean, reason?: string } or null if not a shortcut.\n\nShortcuts:\n- 'none' - deny all\n- 'all' - allow all\n- 'authenticated' - must be logged in\n- 'admin' - must have admin role\n- 'author' - must have author role\n- 'owner:fieldName' - doc[fieldName] === _uid\n- 'role:roleName' - _roles.includes(roleName)\n\n---\n\n## Select Access Rule\n\nDetermines which access rule to use based on the operation method.\nSupports granular rules (read/create/update/delete) with fallbacks.\n\n---\n\n## Validate Schema\n\nSimple schema validation for write operations.\nChecks required fields and basic types.\n\n---\n\n## Evaluate Rule Result\n\nInterprets the result of a rule evaluation (boolean, object, etc.)\ninto a standardized { allowed, reason } format.\n\n---\n\n## Check Role Hierarchy\n\nEvaluates if a user has sufficient role level.\nRole hierarchy: admin > author > user > guest\n\n---\n\n## Build Rule Context\n\nCreates the evaluation context for a security rule.",
+    "title": "rules (inline docs)",
+    "filename": "rules.js",
+    "path": "src/rbac/rules.js"
   },
   {
     "text": "## seq (Sequence)\n\nThe root atom for all agent programs. Executes steps in order.\n\n- Stops on `return` (when `ctx.output` is set)\n- Stops on error (monadic error flow)\n- Cost: 0.1\n\n```javascript\n// AsyncJS compiles to seq at the top level\nconst x = 1\nconst y = 2\nreturn { sum: x + y }\n```\n\n---\n\n## if (Conditional)\n\nConditional branching based on expression evaluation.\n\n```javascript\nif (count > 0) {\n  console.log(\"Has items\")\n} else {\n  console.log(\"Empty\")\n}\n```\n\n---\n\n## while (Loop)\n\nRepeats body while condition is truthy. Consumes fuel each iteration.\n\n```javascript\nlet i = 0\nwhile (i < 10) {\n  console.log(i)\n  i = i + 1\n}\n```\n\n**Note:** No `break`/`continue`. Use condition variables instead.\n\n---\n\n## return\n\nEnds execution and returns values from state. The schema defines which\nstate variables to include in the output.\n\n```javascript\nconst result = compute()\nreturn { result }  // Returns { result: <computed value> }\n```\n\n---\n\n## try/catch\n\nError handling with monadic error flow. When an error occurs, subsequent\nsteps are skipped until caught.\n\n```javascript\ntry {\n  const data = fetch(url)\n  processData(data)\n} catch (err) {\n  console.warn(\"Failed: \" + err)\n  return { error: err }\n}\n```\n\nThe catch block receives:\n- `err` (or custom name): error message\n- `errorOp`: the atom that failed\n\n---\n\n## for...of / map\n\nTransforms each item in an array. The `result` variable in each iteration\nbecomes the new item value.\n\n```javascript\nconst doubled = items.map(x => x * 2)\n\n// Or with for...of:\nconst results = []\nfor (const item of items) {\n  results.push(process(item))\n}\n```\n\n---\n\n## filter\n\nKeeps items that match a condition.\n\n```javascript\nconst adults = users.filter(u => u.age >= 18)\n```\n\n---\n\n## reduce\n\nAccumulates a single value from an array.\n\n```javascript\nconst sum = numbers.reduce((acc, n) => acc + n, 0)\n```\n\n---\n\n## find\n\nReturns first item matching condition, or null.\n\n```javascript\nconst admin = users.find(u => u.role === \"admin\")\n```\n\n---\n\n## fetch\n\nHTTP requests. Requires `fetch` capability or uses global fetch with SSRF protection.\n\n```javascript\nconst data = fetch(\"https://api.example.com/data\")\nconst posted = fetch(\"https://api.example.com/items\", {\n  method: \"POST\",\n  headers: { \"Content-Type\": \"application/json\" },\n  body: { name: \"New Item\" }\n})\n```\n\nResponse types: `\"json\"` (default for JSON content-type), `\"text\"`, `\"dataUrl\"` (for images)\n\nSecurity:\n- Requires `ctx.context.allowedFetchDomains` allowlist OR restricts to localhost\n- Automatically adds `X-Agent-Depth` header to prevent recursive agent loops\n- Custom fetch capability can override all restrictions\n\n---\n\n## storeGet / storeSet\n\nPersistent key-value storage. Requires `store` capability.\n\n```javascript\n// Save data\nstoreSet(\"user:123\", { name: \"Alice\", prefs: {} })\n\n// Retrieve later\nconst user = storeGet(\"user:123\")\n```\n\n**Warning:** Default in-memory store is not suitable for production.\n\n---\n\n## llmPredict\n\nCall language model. Requires `llm` capability with `predict` method.\n\n```javascript\nconst response = llmPredict(\"Summarize this: \" + text)\n\n// With options\nconst structured = llmPredict(prompt, {\n  model: \"gpt-4\",\n  temperature: 0.7,\n  responseFormat: { type: \"json_object\" }\n})\n```\n\n---\n\n## transpileCode (Code to AST)\n\nTranspiles AsyncJS code to an AST without executing it.\nUseful for generating agents to send to other services via fetch.\n\n```javascript\n// Generate an agent and send it to a worker\nlet code = llmPredict({ prompt: 'Write an AsyncJS data processor' })\nlet ast = transpileCode({ code })\nlet result = httpFetch({\n  url: 'https://worker.example.com/run',\n  method: 'POST',\n  body: JSON.stringify({ ast, args: { data: myData } })\n})\n```\n\nSecurity: Only available when the `code.transpile` capability is provided.\n\n---\n\n## runCode (Dynamic Code Execution)\n\nTranspiles and executes AsyncJS code at runtime. The generated code\nruns in the same context, sharing fuel budget, capabilities, and trace.\n\nThis enables agents to write and execute code to solve problems.\n\n```javascript\n// Agent writes code to solve a problem\nlet code = llmPredict({ prompt: 'Write AsyncJS to calculate fibonacci(10)' })\nlet result = runCode({ code, args: {} })\nreturn { answer: result }\n```\n\nThe code must be a valid AsyncJS function. The function's return value\nbecomes the result of runCode.\n\nSecurity: Only available when the `code.transpile` capability is provided.\nThe transpiled code runs with the same permissions as the parent.\nRecursion depth is limited to prevent stack overflow.\n\n---\n\n## memoize\n\nIn-memory caching within a single execution. Same key returns cached result.\n\n```javascript\n// Expensive computation cached by key\nconst result = memoize(\"expensive-\" + id, () => {\n  return heavyComputation(data)\n})\n```\n\n---\n\n## cache\n\nPersistent caching across executions using store capability.\n\n```javascript\n// Cache API result for 1 hour (3600000 ms)\nconst weather = cache(\"weather-\" + city, 3600000, () => {\n  return fetch(\"https://api.weather.com/\" + city)\n})\n```\n\n---\n\n## console.log / console.warn / console.error\n\nLogging utilities that integrate with trace and error flow.\n\n```javascript\nconsole.log(\"Debug info: \" + value)   // Adds to trace\nconsole.warn(\"Potential issue\")        // Adds to trace + warnings summary\nconsole.error(\"Fatal: \" + msg)         // Triggers monadic error flow\n```\n\n- `log`: trace only (no side effects)\n- `warn`: trace + appears in `result.warnings`\n- `error`: stops execution, sets `result.error`",

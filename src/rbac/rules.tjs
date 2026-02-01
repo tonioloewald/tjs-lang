@@ -1,0 +1,470 @@
+/*#
+# RBAC Security Rules (Pure Logic)
+
+Pure security rule evaluation logic, independent of storage backend.
+This module contains no I/O - it only evaluates rules against contexts.
+
+## Rule Context
+- `_uid` - authenticated user ID (null if public)
+- `_roles` - array of user roles
+- `_method` - 'read' | 'write' | 'delete'
+- `_collection` - collection name
+- `_docId` - document ID
+- `doc` - existing document data (for read/write/delete)
+- `newData` - incoming data (for write only)
+
+## Rule Response
+- Return `true` to allow
+- Return `false` to deny
+- Return `{ allow: true/false, reason: string }` for detailed response
+*/
+
+safety none
+
+/*#
+## Access Rule Shortcuts
+
+Evaluates simple access rule strings without AJS overhead.
+Returns { allowed: boolean, reason?: string } or null if not a shortcut.
+
+Shortcuts:
+- 'none' - deny all
+- 'all' - allow all
+- 'authenticated' - must be logged in
+- 'admin' - must have admin role
+- 'author' - must have author role
+- 'owner:fieldName' - doc[fieldName] === _uid
+- 'role:roleName' - _roles.includes(roleName)
+*/
+export function evaluateAccessShortcut(accessRule, context) {
+  if (typeof accessRule !== 'string') return null
+
+  const { _uid, _roles, doc, newData } = context
+
+  switch (accessRule) {
+    case 'none':
+      return { allowed: false, reason: 'Access denied' }
+
+    case 'all':
+      return { allowed: true }
+
+    case 'authenticated':
+      return _uid
+        ? { allowed: true }
+        : { allowed: false, reason: 'Authentication required' }
+
+    case 'admin':
+      return _roles?.includes('admin')
+        ? { allowed: true }
+        : { allowed: false, reason: 'Admin role required' }
+
+    case 'author':
+      return _roles?.includes('author')
+        ? { allowed: true }
+        : { allowed: false, reason: 'Author role required' }
+
+    default:
+      // owner:fieldName pattern
+      if (accessRule.startsWith('owner:')) {
+        const field = accessRule.slice(6)
+        const checkDoc = doc || newData
+        if (!_uid) {
+          return { allowed: false, reason: 'Authentication required' }
+        }
+        if (checkDoc && checkDoc[field] === _uid) {
+          return { allowed: true }
+        }
+        if (!doc && newData && newData[field] === _uid) {
+          return { allowed: true }
+        }
+        return { allowed: false, reason: `Must be owner (${field})` }
+      }
+
+      // role:roleName pattern
+      if (accessRule.startsWith('role:')) {
+        const role = accessRule.slice(5)
+        return _roles?.includes(role)
+          ? { allowed: true }
+          : { allowed: false, reason: `Role '${role}' required` }
+      }
+
+      return null // Not a recognized shortcut
+  }
+}
+
+test('evaluateAccessShortcut - none') {
+  const result = evaluateAccessShortcut('none', {})
+  expect(result.allowed).toBe(false)
+  expect(result.reason).toBe('Access denied')
+}
+
+test('evaluateAccessShortcut - all') {
+  const result = evaluateAccessShortcut('all', {})
+  expect(result.allowed).toBe(true)
+}
+
+test('evaluateAccessShortcut - authenticated (logged in)') {
+  const result = evaluateAccessShortcut('authenticated', { _uid: 'user123' })
+  expect(result.allowed).toBe(true)
+}
+
+test('evaluateAccessShortcut - authenticated (anonymous)') {
+  const result = evaluateAccessShortcut('authenticated', { _uid: null })
+  expect(result.allowed).toBe(false)
+  expect(result.reason).toBe('Authentication required')
+}
+
+test('evaluateAccessShortcut - admin (has role)') {
+  const result = evaluateAccessShortcut('admin', { _roles: ['admin'] })
+  expect(result.allowed).toBe(true)
+}
+
+test('evaluateAccessShortcut - admin (missing role)') {
+  const result = evaluateAccessShortcut('admin', { _roles: ['user'] })
+  expect(result.allowed).toBe(false)
+}
+
+test('evaluateAccessShortcut - owner:uid (match)') {
+  const result = evaluateAccessShortcut('owner:uid', {
+    _uid: 'user123',
+    doc: { uid: 'user123', title: 'My Doc' }
+  })
+  expect(result.allowed).toBe(true)
+}
+
+test('evaluateAccessShortcut - owner:uid (no match)') {
+  const result = evaluateAccessShortcut('owner:uid', {
+    _uid: 'user123',
+    doc: { uid: 'otheruser', title: 'Their Doc' }
+  })
+  expect(result.allowed).toBe(false)
+}
+
+test('evaluateAccessShortcut - owner:authorId (creating new doc)') {
+  const result = evaluateAccessShortcut('owner:authorId', {
+    _uid: 'user123',
+    doc: null,
+    newData: { authorId: 'user123', title: 'New Post' }
+  })
+  expect(result.allowed).toBe(true)
+}
+
+test('evaluateAccessShortcut - role:editor (has role)') {
+  const result = evaluateAccessShortcut('role:editor', { _roles: ['editor', 'user'] })
+  expect(result.allowed).toBe(true)
+}
+
+test('evaluateAccessShortcut - role:editor (missing role)') {
+  const result = evaluateAccessShortcut('role:editor', { _roles: ['user'] })
+  expect(result.allowed).toBe(false)
+  expect(result.reason).toBe("Role 'editor' required")
+}
+
+test('evaluateAccessShortcut - unknown string returns null') {
+  const result = evaluateAccessShortcut('someAjsCode()', {})
+  expect(result).toBe(null)
+}
+
+test('evaluateAccessShortcut - non-string returns null') {
+  const result = evaluateAccessShortcut({ code: 'return true' }, {})
+  expect(result).toBe(null)
+}
+
+/*#
+## Select Access Rule
+
+Determines which access rule to use based on the operation method.
+Supports granular rules (read/create/update/delete) with fallbacks.
+*/
+export function selectAccessRule(rule, context) {
+  const { _method, doc } = context
+
+  // Method-specific rules with fallbacks
+  if (_method === 'read' && rule.read !== undefined) {
+    return rule.read
+  }
+
+  if (_method === 'write') {
+    // Distinguish create vs update
+    if (!doc && rule.create !== undefined) {
+      return rule.create
+    }
+    if (doc && rule.update !== undefined) {
+      return rule.update
+    }
+    if (rule.write !== undefined) {
+      return rule.write
+    }
+  }
+
+  if (_method === 'delete' && rule.delete !== undefined) {
+    return rule.delete
+  }
+
+  // Fall back to code for backwards compatibility
+  return rule.code
+}
+
+test('selectAccessRule - read uses read rule') {
+  const rule = { read: 'authenticated', write: 'admin' }
+  const result = selectAccessRule(rule, { _method: 'read' })
+  expect(result).toBe('authenticated')
+}
+
+test('selectAccessRule - write with no doc uses create') {
+  const rule = { create: 'authenticated', update: 'owner:uid' }
+  const result = selectAccessRule(rule, { _method: 'write', doc: null })
+  expect(result).toBe('authenticated')
+}
+
+test('selectAccessRule - write with doc uses update') {
+  const rule = { create: 'authenticated', update: 'owner:uid' }
+  const result = selectAccessRule(rule, { _method: 'write', doc: { uid: 'x' } })
+  expect(result).toBe('owner:uid')
+}
+
+test('selectAccessRule - write falls back to write rule') {
+  const rule = { read: 'all', write: 'admin' }
+  const result = selectAccessRule(rule, { _method: 'write', doc: null })
+  expect(result).toBe('admin')
+}
+
+test('selectAccessRule - delete uses delete rule') {
+  const rule = { read: 'all', delete: 'owner:uid' }
+  const result = selectAccessRule(rule, { _method: 'delete' })
+  expect(result).toBe('owner:uid')
+}
+
+test('selectAccessRule - falls back to code') {
+  const rule = { code: 'return _uid !== null' }
+  const result = selectAccessRule(rule, { _method: 'read' })
+  expect(result).toBe('return _uid !== null')
+}
+
+/*#
+## Validate Schema
+
+Simple schema validation for write operations.
+Checks required fields and basic types.
+*/
+export function validateSchema(schema, data) {
+  const errors = []
+
+  if (!schema || typeof schema !== 'object') {
+    return { valid: true, errors: [] }
+  }
+
+  // Check required fields
+  if (schema.required && Array.isArray(schema.required)) {
+    for (const field of schema.required) {
+      if (data[field] === undefined || data[field] === null) {
+        errors.push(`Missing required field: ${field}`)
+      }
+    }
+  }
+
+  // Check field types
+  if (schema.properties && typeof schema.properties === 'object') {
+    for (const [field, spec] of Object.entries(schema.properties)) {
+      const value = data[field]
+      if (value === undefined) continue // Skip missing optional fields
+
+      const expectedType = spec.type
+      if (expectedType) {
+        const actualType = Array.isArray(value) ? 'array' : typeof value
+        if (actualType !== expectedType) {
+          errors.push(`Field '${field}' expected ${expectedType}, got ${actualType}`)
+        }
+      }
+    }
+  }
+
+  return {
+    valid: errors.length === 0,
+    errors
+  }
+}
+
+test('validateSchema - valid data passes') {
+  const schema = {
+    required: ['title', 'author'],
+    properties: {
+      title: { type: 'string' },
+      author: { type: 'string' }
+    }
+  }
+  const result = validateSchema(schema, { title: 'Hello', author: 'Alice' })
+  expect(result.valid).toBe(true)
+  expect(result.errors.length).toBe(0)
+}
+
+test('validateSchema - missing required field') {
+  const schema = { required: ['title'] }
+  const result = validateSchema(schema, { author: 'Alice' })
+  expect(result.valid).toBe(false)
+  expect(result.errors[0]).toBe('Missing required field: title')
+}
+
+test('validateSchema - wrong type') {
+  const schema = {
+    properties: { count: { type: 'number' } }
+  }
+  const result = validateSchema(schema, { count: 'five' })
+  expect(result.valid).toBe(false)
+  expect(result.errors[0].includes('expected number')).toBe(true)
+}
+
+test('validateSchema - null schema passes') {
+  const result = validateSchema(null, { anything: 'goes' })
+  expect(result.valid).toBe(true)
+}
+
+test('validateSchema - array type check') {
+  const schema = {
+    properties: { tags: { type: 'array' } }
+  }
+  const result = validateSchema(schema, { tags: ['a', 'b'] })
+  expect(result.valid).toBe(true)
+}
+
+/*#
+## Evaluate Rule Result
+
+Interprets the result of a rule evaluation (boolean, object, etc.)
+into a standardized { allowed, reason } format.
+*/
+export function interpretRuleResult(result) {
+  if (typeof result === 'boolean') {
+    return { allowed: result, reason: result ? null : 'Access denied' }
+  }
+
+  if (typeof result === 'object' && result !== null) {
+    return {
+      allowed: !!result.allow,
+      reason: result.reason || (result.allow ? null : 'Access denied')
+    }
+  }
+
+  // Truthy/falsy fallback
+  return { allowed: !!result, reason: result ? null : 'Access denied' }
+}
+
+test('interpretRuleResult - true') {
+  const result = interpretRuleResult(true)
+  expect(result.allowed).toBe(true)
+}
+
+test('interpretRuleResult - false') {
+  const result = interpretRuleResult(false)
+  expect(result.allowed).toBe(false)
+}
+
+test('interpretRuleResult - object with allow: true') {
+  const result = interpretRuleResult({ allow: true })
+  expect(result.allowed).toBe(true)
+}
+
+test('interpretRuleResult - object with allow: false and reason') {
+  const result = interpretRuleResult({ allow: false, reason: 'Custom reason' })
+  expect(result.allowed).toBe(false)
+  expect(result.reason).toBe('Custom reason')
+}
+
+/*#
+## Check Role Hierarchy
+
+Evaluates if a user has sufficient role level.
+Role hierarchy: admin > author > user > guest
+*/
+const ROLE_LEVELS = {
+  admin: 100,
+  author: 50,
+  editor: 40,
+  user: 10,
+  guest: 0
+}
+
+export function hasRoleLevel(userRoles, requiredRole) {
+  const requiredLevel = ROLE_LEVELS[requiredRole] ?? 0
+
+  for (const role of userRoles || []) {
+    const level = ROLE_LEVELS[role] ?? 0
+    if (level >= requiredLevel) {
+      return true
+    }
+  }
+
+  return false
+}
+
+test('hasRoleLevel - admin has all roles') {
+  expect(hasRoleLevel(['admin'], 'user')).toBe(true)
+  expect(hasRoleLevel(['admin'], 'author')).toBe(true)
+  expect(hasRoleLevel(['admin'], 'admin')).toBe(true)
+}
+
+test('hasRoleLevel - user cannot access author') {
+  expect(hasRoleLevel(['user'], 'author')).toBe(false)
+}
+
+test('hasRoleLevel - multiple roles checked') {
+  expect(hasRoleLevel(['user', 'editor'], 'editor')).toBe(true)
+}
+
+test('hasRoleLevel - empty roles fail') {
+  expect(hasRoleLevel([], 'user')).toBe(false)
+}
+
+test('hasRoleLevel - null roles fail') {
+  expect(hasRoleLevel(null, 'user')).toBe(false)
+}
+
+/*#
+## Build Rule Context
+
+Creates the evaluation context for a security rule.
+*/
+export function buildRuleContext(options) {
+  const { uid, roles, method, collection, docId, doc, newData } = options
+
+  return {
+    _uid: uid || null,
+    _roles: roles || [],
+    _isAdmin: roles?.includes('admin') || false,
+    _isAuthor: roles?.includes('author') || false,
+    _method: method,
+    _collection: collection,
+    _docId: docId,
+    doc: doc || null,
+    newData: newData || null
+  }
+}
+
+test('buildRuleContext - creates full context') {
+  const ctx = buildRuleContext({
+    uid: 'user123',
+    roles: ['admin'],
+    method: 'write',
+    collection: 'posts',
+    docId: 'post1',
+    doc: { title: 'Old' },
+    newData: { title: 'New' }
+  })
+
+  expect(ctx._uid).toBe('user123')
+  expect(ctx._roles).toEqual(['admin'])
+  expect(ctx._isAdmin).toBe(true)
+  expect(ctx._method).toBe('write')
+  expect(ctx._collection).toBe('posts')
+  expect(ctx.doc.title).toBe('Old')
+  expect(ctx.newData.title).toBe('New')
+}
+
+test('buildRuleContext - handles missing values') {
+  const ctx = buildRuleContext({ method: 'read', collection: 'public' })
+
+  expect(ctx._uid).toBe(null)
+  expect(ctx._roles).toEqual([])
+  expect(ctx._isAdmin).toBe(false)
+  expect(ctx.doc).toBe(null)
+}
