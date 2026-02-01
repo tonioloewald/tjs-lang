@@ -27,11 +27,20 @@ import { tjsPlayground, TJSPlayground } from './tjs-playground'
 import { tsPlayground, TSPlayground } from './ts-playground'
 
 // Import new demo navigation
-import { demoNav, DemoNav, tjsExamples } from './demo-nav'
+import { demoNav, DemoNav } from './demo-nav'
 import { tsExamples } from './ts-examples'
 
-// Import examples
-import { examples as ajsExamples } from './examples'
+// Helper to find example by title in docs
+function findExampleInDocs(
+  docs: any[],
+  section: string,
+  exampleName: string
+): any | null {
+  return docs.find(
+    (d: any) =>
+      d.type === 'example' && d.section === section && d.title === exampleName
+  )
+}
 
 // Import settings dialog
 import { showSettingsDialog } from './settings'
@@ -264,11 +273,27 @@ function loadViewStateFromURL() {
       const found = tsExamples.find((e: any) => e.name === example)
       if (found) app.currentExample = found
     } else if (view === 'tjs') {
-      const found = tjsExamples.find((e: any) => e.name === example)
-      if (found) app.currentExample = found
-    } else {
-      const found = ajsExamples.find((e: any) => e.name === example)
-      if (found) app.currentExample = found
+      // Find in docs by title
+      const found = findExampleInDocs(docs, 'tjs', example)
+      if (found) {
+        app.currentExample = {
+          name: found.title,
+          description: found.description || found.title,
+          code: found.code || '',
+          group: found.group,
+        }
+      }
+    } else if (view === 'ajs') {
+      // Find in docs by title
+      const found = findExampleInDocs(docs, 'ajs', example)
+      if (found) {
+        app.currentExample = {
+          name: found.title,
+          description: found.description || found.title,
+          code: found.code || '',
+          group: found.group,
+        }
+      }
     }
   }
 }

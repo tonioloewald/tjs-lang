@@ -12,6 +12,47 @@ import { join, extname, basename } from 'path'
 
 const TRIM_REGEX = /^#+ |`/g
 
+/**
+ * Extract the first code block from markdown content
+ */
+function extractCodeBlock(content) {
+  const match = content.match(/```(\w+)?\n([\s\S]*?)```/)
+  if (match) {
+    return {
+      language: match[1] || 'javascript',
+      code: match[2].trim(),
+    }
+  }
+  return null
+}
+
+/**
+ * Extract description - first paragraph after title, before code block
+ */
+function extractDescription(content) {
+  const lines = content.split('\n')
+  let inDescription = false
+  let description = []
+
+  for (const line of lines) {
+    // Skip metadata comment
+    if (line.startsWith('<!--')) continue
+    // Skip title
+    if (line.startsWith('# ')) {
+      inDescription = true
+      continue
+    }
+    // Stop at code block
+    if (line.startsWith('```')) break
+    // Collect description lines
+    if (inDescription && line.trim()) {
+      description.push(line.trim())
+    }
+  }
+
+  return description.join(' ').trim()
+}
+
 function metadata(content, filePath) {
   let source = content.match(/<\!\-\-(\{.*\})\-\->|\/\*(\{.*\})\*\//)
   let data = {}
@@ -79,13 +120,30 @@ function findMarkdownFiles(dirs, ignore) {
         // Find the first heading line (skip metadata comments)
         const lines = content.split('\n')
         let titleLine = lines.find((line) => line.startsWith('#')) || lines[0]
-        markdownFiles.push({
-          text: content,
+        const meta = metadata(content, filePath)
+
+        const doc = {
           title: titleLine.replace(TRIM_REGEX, ''),
           filename: file,
           path: filePath,
-          ...metadata(content, filePath),
-        })
+          ...meta,
+        }
+
+        // For examples, extract code and description separately
+        // Don't include full text to reduce bundle size - load on demand
+        if (meta.type === 'example') {
+          const codeBlock = extractCodeBlock(content)
+          if (codeBlock) {
+            doc.code = codeBlock.code
+            doc.language = codeBlock.language
+          }
+          doc.description = extractDescription(content)
+        } else {
+          // For regular docs, include full text
+          doc.text = content
+        }
+
+        markdownFiles.push(doc)
       } else if (['.ts', '.js'].includes(extname(file))) {
         const content = readFileSync(filePath, 'utf8')
         // Match /*# ... */ blocks (inline markdown documentation)

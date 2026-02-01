@@ -1,4 +1,4 @@
-<!--{"pin": "top"}-->
+<!--{"section": "tjs", "type": "examples", "pin": "top"}-->
 
 # TJS Interactive Examples
 
@@ -197,6 +197,100 @@ function updateTask(id: '', status: Status) -> { updated: true } {
 
 updateTask('task-1', 'active')
 ```
+
+## Unbundled Integration
+
+TJS runs directly in the browser with no build step. Compare React (which requires bundling) with tosijs (which doesn't):
+
+### React Todo App
+
+```javascript
+import React, { useState } from 'react'
+import { createRoot } from 'react-dom/client'
+
+function TodoApp() {
+  const [items, setItems] = useState(['bathe the cat', 'buy milk'])
+  const [newItem, setNewItem] = useState('')
+
+  const addItem = () => {
+    if (newItem !== '') {
+      setItems([...items, newItem])
+      setNewItem('')
+    }
+  }
+
+  return (
+    <div>
+      <h1>To Do</h1>
+      <ul>
+        {items.map((item, i) => (
+          <li key={i}>{item}</li>
+        ))}
+      </ul>
+      <label>
+        New item
+        <input
+          placeholder="enter thing to do"
+          value={newItem}
+          onChange={(e) => setNewItem(e.target.value)}
+        />
+        <button disabled={!newItem} onClick={addItem}>
+          Add
+        </button>
+      </label>
+    </div>
+  )
+}
+
+const root = document.createElement('div')
+root.setAttribute('id', 'root')
+document.body.append(root)
+createRoot(root).render(<TodoApp />)
+```
+
+### tosijs Todo App
+
+```javascript
+import { elements, tosi } from 'tosijs'
+
+const { todoApp } = tosi({
+  todoApp: {
+    items: ['bathe the cat', 'buy milk'],
+    newItem: '',
+    addItem() {
+      if (todoApp.newItem !== '') {
+        todoApp.items.push(String(todoApp.newItem))
+        todoApp.newItem = ''
+      }
+    }
+  }
+})
+
+const { h1, ul, template, li, label, input, button } = elements
+
+document.body.append(
+  h1('To Do'),
+  ul(
+    {
+      bindList: {
+        value: todoApp.items
+      }
+    },
+    template(li({ bind: '^' }))
+  ),
+  label(
+    'New item',
+    input({ placeholder: 'enter thing to do', bindValue: todoApp.newItem }),
+    button({ bindEnabled: todoApp.newItem, onClick: todoApp.addItem }, 'Add')
+  )
+)
+```
+
+The tosijs version:
+- No JSX, no transpilation, no bundler
+- Reactive bindings built-in
+- Runs directly in browser via ES modules
+- ~30KB total (vs React's 140KB+ minified)
 
 ## Running TJS
 
