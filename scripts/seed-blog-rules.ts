@@ -120,6 +120,34 @@ const securityRules = [
         tags: { type: 'array', items: { type: 'string' }, maxItems: 10 },
       },
     },
+    // Automatic index management
+    indexes: [
+      // Published posts index - for public listing
+      {
+        name: 'published',
+        filter: { status: 'published' },
+        fields: ['title', 'authorId', 'tags', 'created'],
+      },
+      // Drafts index - for author dashboard
+      {
+        name: 'drafts',
+        filter: { status: 'draft' },
+        fields: ['title', 'authorId', 'created', 'modified'],
+      },
+      // Posts by author - partitioned for quick lookup
+      {
+        name: 'by-author',
+        partitionBy: 'authorId',
+        fields: ['title', 'status', 'created'],
+      },
+      // Posts by tag - partitioned by each tag for tag pages
+      {
+        name: 'by-tag',
+        partitionByArray: 'tags',
+        filter: { status: 'published' },
+        fields: ['title', 'authorId', 'created'],
+      },
+    ],
     // Read: complex logic (published = public, drafts = author only)
     read: {
       code: `
@@ -174,6 +202,21 @@ const securityRules = [
         content: { type: 'string', minLength: 1, maxLength: 2000 },
       },
     },
+    // Automatic index management
+    indexes: [
+      // Comments by post - for displaying on post pages
+      {
+        name: 'by-post',
+        partitionBy: 'postId',
+        fields: ['authorId', 'content', 'created'],
+      },
+      // Comments by author - for user profile
+      {
+        name: 'by-author',
+        partitionBy: 'authorId',
+        fields: ['postId', 'content', 'created'],
+      },
+    ],
     read: 'all',
     create: {
       code: `
@@ -219,6 +262,21 @@ const securityRules = [
         postId: { type: 'string' },
       },
     },
+    // Automatic index management
+    indexes: [
+      // Assets by author - for asset library
+      {
+        name: 'by-author',
+        partitionBy: 'authorId',
+        fields: ['type', 'size', 'url', 'postId', 'created'],
+      },
+      // Assets by post - for post media management
+      {
+        name: 'by-post',
+        partitionBy: 'postId',
+        fields: ['authorId', 'type', 'size', 'url', 'created'],
+      },
+    ],
     read: 'all',
     create: {
       code: `

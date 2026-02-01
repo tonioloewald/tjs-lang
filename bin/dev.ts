@@ -12,6 +12,9 @@
 import { watch } from 'fs'
 import { join } from 'path'
 import { $, spawn } from 'bun'
+import pkg from '../package.json'
+
+const VERSION = pkg.version
 
 const PORT = 8699 // Homage to Agent-99
 
@@ -51,6 +54,9 @@ async function buildDemo() {
       minify: false,
       sourcemap: 'external',
       target: 'browser',
+      define: {
+        __VERSION__: JSON.stringify(VERSION),
+      },
     })
 
     if (!result.success) {

@@ -9,7 +9,9 @@
  * - Console output panel
  */
 
+import * as tosijs from 'tosijs'
 import { Component, ElementCreator, PartsMap, elements, vars } from 'tosijs'
+import * as tosisjsUi from 'tosijs-ui'
 import {
   tabSelector,
   TabSelector,
@@ -17,11 +19,24 @@ import {
   markdownViewer,
   MarkdownViewer,
 } from 'tosijs-ui'
+
+// Available modules for autocomplete introspection
+// These are the actual runtime values that can be introspected
 import { codeMirror, CodeMirror } from '../../editors/codemirror/component'
 import { tjs, type TJSTranspileOptions } from '../../src/lang'
 import { generateDocsMarkdown } from './docs-utils'
 import { extractImports, generateImportMap, resolveImports } from './imports'
 import { ModuleStore, type ValidationResult } from './module-store'
+import {
+  buildAutocompleteContext,
+  type AutocompleteContext,
+} from './autocomplete-context'
+
+// Available modules for autocomplete introspection
+const AVAILABLE_MODULES: Record<string, any> = {
+  tosijs,
+  'tosijs-ui': tosisjsUi,
+}
 
 const { div, button, span, pre, style, input, template } = elements
 
@@ -140,6 +155,11 @@ export class TJSPlayground extends Component<TJSPlaygroundParts> {
   // Transpilation sequence number to handle race conditions
   private transpileSeq = 0
 
+  // Autocomplete context - live bindings from import resolution
+  private autocompleteContext: AutocompleteContext | null = null
+  private contextUpdateTimer: ReturnType<typeof setTimeout> | null = null
+  private contextBuildPromise: Promise<void> | null = null
+
   /**
    * Get metadata for autocomplete - returns all discovered functions
    */
@@ -148,6 +168,52 @@ export class TJSPlayground extends Component<TJSPlaygroundParts> {
       return undefined
     }
     return this.functionMetadata
+  }
+
+  /**
+   * Get live bindings for autocomplete introspection
+   * Returns actual runtime values that can be introspected
+   */
+  private getLiveBindings = (): Record<string, any> | undefined => {
+    return this.autocompleteContext?.bindings
+  }
+
+  /**
+   * Update autocomplete context (debounced)
+   * Called when editor content changes.
+   * Keeps last good context if new build fails.
+   */
+  private updateAutocompleteContext = (immediate = false) => {
+    if (this.contextUpdateTimer) {
+      clearTimeout(this.contextUpdateTimer)
+    }
+
+    const doBuild = async () => {
+      const source = this.parts.tjsEditor.value
+
+      try {
+        const newContext = await buildAutocompleteContext(source)
+        // Only update if we got bindings (keep last good context otherwise)
+        if (Object.keys(newContext.bindings).length > 0) {
+          this.autocompleteContext = newContext
+        } else if (!this.autocompleteContext) {
+          // No previous context, use this one even if empty
+          this.autocompleteContext = newContext
+        }
+      } catch {
+        // Keep last good context on error
+      }
+    }
+
+    if (immediate) {
+      // Build immediately (used on initial load)
+      this.contextBuildPromise = doBuild()
+    } else {
+      // Debounce updates during typing
+      this.contextUpdateTimer = setTimeout(() => {
+        this.contextBuildPromise = doBuild()
+      }, 100)
+    }
   }
 
   content = () => [
@@ -327,10 +393,14 @@ export class TJSPlayground extends Component<TJSPlaygroundParts> {
       this.parts.htmlEditor.value = DEFAULT_HTML
       this.parts.cssEditor.value = DEFAULT_CSS
 
-      // Wire up autocomplete to get metadata from transpiler
+      // Wire up autocomplete to get metadata and live bindings
       this.parts.tjsEditor.autocomplete = {
         getMetadata: this.getMetadataForAutocomplete,
+        getLiveBindings: this.getLiveBindings,
       }
+
+      // Build initial autocomplete context immediately
+      this.updateAutocompleteContext(true)
 
       // Auto-transpile on load
       this.transpile()
@@ -344,6 +414,9 @@ export class TJSPlayground extends Component<TJSPlaygroundParts> {
         this.transpile()
         this.updateRevertButton()
       }, 300)
+
+      // Update autocomplete context more frequently
+      this.updateAutocompleteContext()
     })
   }
 

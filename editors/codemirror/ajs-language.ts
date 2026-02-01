@@ -335,6 +335,12 @@ export interface AutocompleteConfig {
   getMetadata?: () => Record<string, any> | undefined
   /** Function to get imported module metadata */
   getImports?: () => Record<string, Record<string, any>> | undefined
+  /**
+   * Function to get live module exports for runtime introspection.
+   * Returns a map of import names to their actual runtime values.
+   * e.g., { elements: Proxy, div: HTMLDivElement }
+   */
+  getLiveBindings?: () => Record<string, any> | undefined
 }
 
 // TJS keywords with snippets
@@ -1126,27 +1132,64 @@ if (typeof globalThis !== 'undefined') {
 }
 
 /**
- * Get completions for properties of an object
- * Uses curated list if available, falls back to runtime introspection
+ * Introspect any object and generate completions for its properties/methods.
+ * Walks the prototype chain to get inherited members too.
+ * Also uses Object.keys() first to handle Proxies that cache their accesses.
  */
-function getPropertyCompletions(objName: string): CMCompletion[] {
-  // Prefer curated completions with proper type info
-  if (CURATED_PROPERTIES[objName]) {
-    return CURATED_PROPERTIES[objName]
+function introspectObject(obj: any): CMCompletion[] {
+  if (!obj || (typeof obj !== 'object' && typeof obj !== 'function')) {
+    return []
   }
-
-  // Fall back to runtime introspection for uncurated objects
-  const obj = INTROSPECTABLE_GLOBALS[objName]
-  if (!obj) return []
 
   const completions: CMCompletion[] = []
   const seen = new Set<string>()
 
-  // Get own properties and prototype chain
+  // First try Object.keys - this works better for Proxies that cache their accesses
+  // (like tosijs's `elements` which stores previously accessed element creators)
+  try {
+    const objectKeys = Object.keys(obj)
+    if (objectKeys.length > 0) {
+      for (const key of objectKeys) {
+        if (key === 'constructor' || key.startsWith('_') || seen.has(key))
+          continue
+        seen.add(key)
+        try {
+          const value = obj[key]
+          const valueType = typeof value
+          if (valueType === 'function') {
+            completions.push(
+              snippetCompletion(`${key}(\${1})`, {
+                label: key,
+                type: 'method',
+                detail: '(...)',
+              })
+            )
+          } else {
+            completions.push({
+              label: key,
+              type: 'property',
+              detail: valueType,
+            })
+          }
+        } catch {
+          // Property access threw - skip
+        }
+      }
+    }
+  } catch {
+    // Object.keys failed - continue with getOwnPropertyNames
+  }
+
+  // Get own properties and prototype chain using getOwnPropertyNames
   let current = obj
-  while (current && current !== Object.prototype) {
-    for (const key of Object.getOwnPropertyNames(current)) {
-      // Skip constructor, private-ish names, and already seen
+  while (
+    current &&
+    current !== Object.prototype &&
+    current !== Function.prototype
+  ) {
+    const keys = Object.getOwnPropertyNames(current)
+    for (const key of keys) {
+      // Skip constructor, private-ish names, symbols, and already seen
       if (key === 'constructor' || key.startsWith('_') || seen.has(key)) {
         continue
       }
@@ -1179,19 +1222,9 @@ function getPropertyCompletions(objName: string): CMCompletion[] {
             })
           )
         } else {
-          // Property or constant
-          const type =
-            valueType === 'number'
-              ? 'property'
-              : valueType === 'string'
-              ? 'property'
-              : valueType === 'boolean'
-              ? 'property'
-              : 'property'
-
           completions.push({
             label: key,
-            type,
+            type: 'property',
             detail: valueType,
           })
         }
@@ -1203,6 +1236,95 @@ function getPropertyCompletions(objName: string): CMCompletion[] {
   }
 
   return completions
+}
+
+/**
+ * Get completions for properties of an object by name.
+ * Checks curated list first, then introspectable globals.
+ */
+function getPropertyCompletions(objName: string): CMCompletion[] {
+  // Prefer curated completions with proper type info
+  if (CURATED_PROPERTIES[objName]) {
+    return CURATED_PROPERTIES[objName]
+  }
+
+  // Fall back to runtime introspection for known globals
+  const obj = INTROSPECTABLE_GLOBALS[objName]
+  if (!obj) return []
+
+  return introspectObject(obj)
+}
+
+/**
+ * Get completions for an object from live bindings (imported modules, variables).
+ * Falls back to introspecting a DOM prototype if the name looks like an HTML element type.
+ */
+function getCompletionsFromLiveBinding(
+  name: string,
+  liveBindings?: Record<string, any>
+): CMCompletion[] {
+  // Debug: log what we're looking for and what we have
+  console.debug(
+    '[autocomplete] Looking for:',
+    name,
+    'in bindings:',
+    liveBindings ? Object.keys(liveBindings) : 'none'
+  )
+
+  // First, check if we have a live binding for this name
+  if (liveBindings && name in liveBindings) {
+    const value = liveBindings[name]
+    console.debug(
+      '[autocomplete] Found binding:',
+      name,
+      '=',
+      value,
+      'type:',
+      typeof value
+    )
+    const completions = introspectObject(value)
+    console.debug(
+      '[autocomplete] Introspection returned',
+      completions.length,
+      'completions'
+    )
+    return completions
+  }
+
+  // Special case: if the name looks like it could be an HTML element variable,
+  // try to get completions from the DOM prototype.
+  // This handles cases like `div.` where div is an HTMLDivElement.
+  // We can infer this from common variable naming patterns.
+  const elementTypeMap: Record<string, string> = {
+    // Common variable names that are likely specific element types
+    div: 'HTMLDivElement',
+    span: 'HTMLSpanElement',
+    input: 'HTMLInputElement',
+    button: 'HTMLButtonElement',
+    form: 'HTMLFormElement',
+    img: 'HTMLImageElement',
+    link: 'HTMLLinkElement',
+    anchor: 'HTMLAnchorElement',
+    table: 'HTMLTableElement',
+    canvas: 'HTMLCanvasElement',
+    video: 'HTMLVideoElement',
+    audio: 'HTMLAudioElement',
+    select: 'HTMLSelectElement',
+    textarea: 'HTMLTextAreaElement',
+    // iframe, etc.
+  }
+
+  // Check if the variable name matches a common element pattern
+  const lowerName = name.toLowerCase()
+  const elementType = elementTypeMap[lowerName]
+  if (elementType && typeof globalThis !== 'undefined') {
+    const ElementClass = (globalThis as any)[elementType]
+    if (ElementClass?.prototype) {
+      return introspectObject(ElementClass.prototype)
+    }
+  }
+
+  return []
 }
 
 /**
@@ -1266,109 +1388,123 @@ function getPlaceholderForParam(name: string, info: any): string {
  */
 function tjsCompletionSource(config: AutocompleteConfig = {}) {
   return (context: CMCompletionContext): CompletionResult | null => {
-    // Get word at cursor
-    const word = context.matchBefore(/[\w$]*/)
-    if (!word) return null
+    try {
+      // Get word at cursor
+      const word = context.matchBefore(/[\w$]*/)
+      if (!word) return null
 
-    const source = context.state.doc.toString()
-    const pos = context.pos
+      const source = context.state.doc.toString()
+      const pos = context.pos
 
-    // Don't complete inside strings or comments
-    const skipRegions = findSkipRegions(source)
-    if (isInSkipRegion(pos, skipRegions)) {
-      return null
-    }
+      // Don't complete inside strings or comments
+      const skipRegions = findSkipRegions(source)
+      if (isInSkipRegion(pos, skipRegions)) {
+        return null
+      }
 
-    // Check context before cursor
-    const lineStart = context.state.doc.lineAt(pos).from
-    const lineBefore = source.slice(lineStart, word.from)
-    const charBefore = source.slice(Math.max(0, word.from - 1), word.from)
+      // Check context before cursor
+      const lineStart = context.state.doc.lineAt(pos).from
+      const lineBefore = source.slice(lineStart, word.from)
+      const charBefore = source.slice(Math.max(0, word.from - 1), word.from)
 
-    // Don't complete in the middle of a word unless explicit,
-    // BUT always allow completion after a dot (for property access)
-    if (word.from === word.to && !context.explicit && charBefore !== '.') {
-      return null
-    }
+      // Don't complete in the middle of a word unless explicit,
+      // BUT always allow completion after a dot (for property access)
+      if (word.from === word.to && !context.explicit && charBefore !== '.') {
+        return null
+      }
 
-    let options: CMCompletion[] = []
+      let options: CMCompletion[] = []
 
-    // After . - property completion
-    if (charBefore === '.') {
-      const before = source.slice(Math.max(0, word.from - 50), word.from)
+      // After . - property completion
+      if (charBefore === '.') {
+        const before = source.slice(Math.max(0, word.from - 50), word.from)
 
-      // Check for expect() matchers first
-      if (/expect\s*\([^)]*\)\s*\.$/.test(before)) {
-        options = EXPECT_MATCHERS
-      } else {
-        // Try to get object name and introspect its properties
-        const objName = getObjectBeforeDot(source, word.from - 1)
-        if (objName) {
-          options = getPropertyCompletions(objName)
+        // Check for expect() matchers first
+        if (/expect\s*\([^)]*\)\s*\.$/.test(before)) {
+          options = EXPECT_MATCHERS
+        } else {
+          // Try to get object name and introspect its properties
+          const objName = getObjectBeforeDot(source, word.from - 1)
+          if (objName) {
+            // First try curated/global completions
+            options = getPropertyCompletions(objName)
+
+            // If no completions found, try live bindings (imports, variables)
+            if (options.length === 0) {
+              const liveBindings = config.getLiveBindings?.()
+              options = getCompletionsFromLiveBinding(objName, liveBindings)
+            }
+          }
         }
       }
-    }
-    // After : - type context
-    else if (/:\s*$/.test(lineBefore)) {
-      options = TJS_TYPES
-    }
-    // After -> - return type context
-    else if (/->\s*$/.test(lineBefore)) {
-      options = TJS_TYPES
-    }
-    // General completions
-    else {
-      options = [
-        ...TJS_COMPLETIONS,
-        ...RUNTIME_COMPLETIONS,
-        ...GLOBAL_COMPLETIONS,
-        ...extractFunctions(source),
-        ...extractVariables(source, pos),
-      ]
+      // After : - type context
+      else if (/:\s*$/.test(lineBefore)) {
+        options = TJS_TYPES
+      }
+      // After -> - return type context
+      else if (/->\s*$/.test(lineBefore)) {
+        options = TJS_TYPES
+      }
+      // General completions
+      else {
+        options = [
+          ...TJS_COMPLETIONS,
+          ...RUNTIME_COMPLETIONS,
+          ...GLOBAL_COMPLETIONS,
+          ...extractFunctions(source),
+          ...extractVariables(source, pos),
+        ]
 
-      // Add metadata-based completions if available
-      const metadata = config.getMetadata?.()
-      if (metadata) {
-        for (const [name, meta] of Object.entries(metadata)) {
-          // Build parameter list with types for display
-          const paramEntries = meta.params ? Object.entries(meta.params) : []
-          const paramList = paramEntries
-            .map(([pName, pInfo]: [string, any]) => {
-              const pType = pInfo.type?.kind || pInfo.type?.type || 'any'
-              const optional = !pInfo.required
-              return optional ? `${pName}?: ${pType}` : `${pName}: ${pType}`
-            })
-            .join(', ')
+        // Add metadata-based completions if available
+        const metadata = config.getMetadata?.()
+        if (metadata) {
+          for (const [name, meta] of Object.entries(metadata)) {
+            // Build parameter list with types for display
+            const paramEntries = meta.params ? Object.entries(meta.params) : []
+            const paramList = paramEntries
+              .map(([pName, pInfo]: [string, any]) => {
+                const pType = pInfo.type?.kind || pInfo.type?.type || 'any'
+                const optional = !pInfo.required
+                return optional ? `${pName}?: ${pType}` : `${pName}: ${pType}`
+              })
+              .join(', ')
 
-          // Build snippet with example values as placeholders
-          const snippetParams = paramEntries
-            .map(([pName, pInfo]: [string, any], i) => {
-              // Use default value or generate placeholder based on type
-              const placeholder = getPlaceholderForParam(pName, pInfo)
-              return `\${${i + 1}:${placeholder}}`
-            })
-            .join(', ')
+            // Build snippet with example values as placeholders
+            const snippetParams = paramEntries
+              .map(([pName, pInfo]: [string, any], i) => {
+                // Use default value or generate placeholder based on type
+                const placeholder = getPlaceholderForParam(pName, pInfo)
+                return `\${${i + 1}:${placeholder}}`
+              })
+              .join(', ')
 
-          // Handle both { type: 'string' } and { kind: 'string' } formats
-          const returnType = meta.returns?.type || meta.returns?.kind || 'void'
-          options.push(
-            snippetCompletion(`${name}(${snippetParams})`, {
-              label: name,
-              type: 'function',
-              detail: `(${paramList}) -> ${returnType}`,
-              info: meta.description,
-              boost: 2, // Boost user-defined functions above globals
-            })
-          )
+            // Handle both { type: 'string' } and { kind: 'string' } formats
+            const returnType =
+              meta.returns?.type || meta.returns?.kind || 'void'
+            options.push(
+              snippetCompletion(`${name}(${snippetParams})`, {
+                label: name,
+                type: 'function',
+                detail: `(${paramList}) -> ${returnType}`,
+                info: meta.description,
+                boost: 2, // Boost user-defined functions above globals
+              })
+            )
+          }
         }
       }
-    }
 
-    if (options.length === 0) return null
+      if (options.length === 0) return null
 
-    return {
-      from: word.from,
-      options,
-      validFor: /^[\w$]*$/,
+      return {
+        from: word.from,
+        options,
+        validFor: /^[\w$]*$/,
+      }
+    } catch (e) {
+      // Don't let autocomplete errors break the editor
+      console.warn('TJS autocomplete error:', e)
+      return null
     }
   }
 }

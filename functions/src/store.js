@@ -1,0 +1,249 @@
+/*#
+# Store Capability with RBAC
+
+Wraps Firestore operations with AJS security rule evaluation.
+Each operation checks the relevant security rule before proceeding.
+User roles are loaded once and cached for all operations in the request.
+*/
+
+import { getFirestore } from 'firebase-admin/firestore'
+import { getSecurityRule, evaluateSecurityRule, loadUserRoles } from './rbac.js'
+import { updateIndexes, removeFromIndexes } from './indexes.js'
+
+const db = getFirestore()
+
+export function createStoreCapability(uid) {
+  // Cache for user roles (loaded lazily, once per request)
+  let cachedRoles = null
+
+  async function getRoles() {
+    if (cachedRoles === null) {
+      cachedRoles = await loadUserRoles(uid)
+    }
+    return cachedRoles
+  }
+
+  return {
+    async get(collection, docId) {
+      const rule = await getSecurityRule(collection)
+
+      // No rule = deny by default (secure by default)
+      if (!rule) {
+        return { error: `No security rule for collection: ${collection}` }
+      }
+
+      // Load the document first (needed for rule context)
+      const docRef = db.collection(collection).doc(docId)
+      const docSnap = await docRef.get()
+      const doc = docSnap.exists ? docSnap.data() : null
+
+      // Get user roles for context
+      const roles = await getRoles()
+
+      // Evaluate rule with role context
+      const ruleResult = await evaluateSecurityRule(rule, {
+        _uid: uid,
+        _roles: roles,
+        _isAdmin: roles.includes('admin'),
+        _isAuthor: roles.includes('author'),
+        _method: 'read',
+        _collection: collection,
+        _docId: docId,
+        doc,
+      })
+
+      // Log timing with rule type
+      console.log(
+        `RBAC [${collection}:read] ${ruleResult.evalTimeMs.toFixed(
+          2
+        )}ms, type: ${ruleResult.type}, fuel: ${
+          ruleResult.fuelUsed
+        }, allowed: ${ruleResult.allowed}`
+      )
+
+      if (!ruleResult.allowed) {
+        return { error: 'Permission denied', reason: ruleResult.reason }
+      }
+
+      return doc
+    },
+
+    async set(collection, docId, data) {
+      const rule = await getSecurityRule(collection)
+
+      if (!rule) {
+        return { error: `No security rule for collection: ${collection}` }
+      }
+
+      // Load existing document (may not exist)
+      const docRef = db.collection(collection).doc(docId)
+      const docSnap = await docRef.get()
+      const doc = docSnap.exists ? docSnap.data() : null
+
+      // Get user roles for context
+      const roles = await getRoles()
+
+      // Evaluate rule
+      const ruleResult = await evaluateSecurityRule(rule, {
+        _uid: uid,
+        _roles: roles,
+        _isAdmin: roles.includes('admin'),
+        _isAuthor: roles.includes('author'),
+        _method: 'write',
+        _collection: collection,
+        _docId: docId,
+        doc,
+        newData: data,
+      })
+
+      console.log(
+        `RBAC [${collection}:write] ${ruleResult.evalTimeMs.toFixed(
+          2
+        )}ms, type: ${ruleResult.type}, fuel: ${
+          ruleResult.fuelUsed
+        }, allowed: ${ruleResult.allowed}`
+      )
+
+      if (!ruleResult.allowed) {
+        return { error: 'Permission denied', reason: ruleResult.reason }
+      }
+
+      // Perform the write
+      await docRef.set(data, { merge: true })
+
+      // Update indexes if configured
+      if (rule.indexes) {
+        await updateIndexes(collection, docId, doc, data, rule.indexes)
+      }
+
+      return { success: true }
+    },
+
+    async delete(collection, docId) {
+      const rule = await getSecurityRule(collection)
+
+      if (!rule) {
+        return { error: `No security rule for collection: ${collection}` }
+      }
+
+      // Load existing document
+      const docRef = db.collection(collection).doc(docId)
+      const docSnap = await docRef.get()
+      const doc = docSnap.exists ? docSnap.data() : null
+
+      if (!doc) {
+        return { error: 'Document not found' }
+      }
+
+      // Get user roles for context
+      const roles = await getRoles()
+
+      // Evaluate rule
+      const ruleResult = await evaluateSecurityRule(rule, {
+        _uid: uid,
+        _roles: roles,
+        _isAdmin: roles.includes('admin'),
+        _isAuthor: roles.includes('author'),
+        _method: 'delete',
+        _collection: collection,
+        _docId: docId,
+        doc,
+      })
+
+      console.log(
+        `RBAC [${collection}:delete] ${ruleResult.evalTimeMs.toFixed(
+          2
+        )}ms, type: ${ruleResult.type}, fuel: ${
+          ruleResult.fuelUsed
+        }, allowed: ${ruleResult.allowed}`
+      )
+
+      if (!ruleResult.allowed) {
+        return { error: 'Permission denied', reason: ruleResult.reason }
+      }
+
+      // Remove from indexes before delete
+      if (rule.indexes) {
+        await removeFromIndexes(collection, docId, doc, rule.indexes)
+      }
+
+      await docRef.delete()
+      return { success: true }
+    },
+
+    async query(collection, constraints = {}) {
+      const rule = await getSecurityRule(collection)
+
+      if (!rule) {
+        return { error: `No security rule for collection: ${collection}` }
+      }
+
+      // Get user roles for context
+      const roles = await getRoles()
+
+      // For queries, evaluate rule with null doc (list permission)
+      const ruleResult = await evaluateSecurityRule(rule, {
+        _uid: uid,
+        _roles: roles,
+        _isAdmin: roles.includes('admin'),
+        _isAuthor: roles.includes('author'),
+        _method: 'read',
+        _collection: collection,
+        _docId: null,
+        doc: null,
+        _isQuery: true,
+        _constraints: constraints,
+      })
+
+      console.log(
+        `RBAC [${collection}:query] ${ruleResult.evalTimeMs.toFixed(
+          2
+        )}ms, type: ${ruleResult.type}, fuel: ${
+          ruleResult.fuelUsed
+        }, allowed: ${ruleResult.allowed}`
+      )
+
+      if (!ruleResult.allowed) {
+        return { error: 'Permission denied', reason: ruleResult.reason }
+      }
+
+      // Build query
+      let query = db.collection(collection)
+
+      if (constraints.where) {
+        for (const [field, op, value] of constraints.where) {
+          query = query.where(field, op, value)
+        }
+      }
+      if (constraints.orderBy) {
+        query = query.orderBy(
+          constraints.orderBy,
+          constraints.orderDirection || 'asc'
+        )
+      }
+      if (constraints.limit) {
+        query = query.limit(constraints.limit)
+      }
+
+      const snapshot = await query.get()
+      const docs = []
+      snapshot.forEach((doc) => {
+        docs.push({ id: doc.id, ...doc.data() })
+      })
+
+      return docs
+    },
+  }
+}
+createStoreCapability.__tjs = {
+  params: {
+    uid: {
+      type: {
+        kind: 'any',
+      },
+      required: false,
+    },
+  },
+  unsafe: true,
+  source: 'store.tjs:15',
+}
