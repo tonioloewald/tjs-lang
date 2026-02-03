@@ -12,6 +12,9 @@ Modular architecture with separate concerns:
 - indexes.tjs - Automatic index management
 - store.tjs - Store capability with RBAC
 - routing.tjs - URL pattern matching & function cache
+
+## Future Work
+- Benchmark `safety none` vs `safety inputs` - likely negligible overhead for small payloads
 */
 
 import { onRequest } from 'firebase-functions/v2/https'
@@ -73,7 +76,7 @@ getUserApiKeys.__tjs = {
     },
   },
   unsafe: true,
-  source: 'index.tjs:36',
+  source: 'index.tjs:39',
 }
 
 /*#
@@ -119,7 +122,7 @@ hashPayload.__tjs = {
   description:
     "## Agent Run Endpoint\n\nUniversal AJS endpoint - accepts code, args, and fuel limit.\nExecutes the code in a sandboxed VM with user's API keys as capabilities.",
   unsafe: true,
-  source: 'index.tjs:86',
+  source: 'index.tjs:89',
 }
 
 export const agentRun = onCall(async (request) => {

@@ -5,5 +5,12 @@
     "emitDeclarationOnly": true,
     "outDir": "dist"
   },
-  "exclude": ["**/*.test.ts", "**/*.test.tsx", "dist", "editors/**", "demo/**"]
+  "exclude": [
+    "**/*.test.ts",
+    "**/*.test.tsx",
+    "dist",
+    "editors/**",
+    "demo/**",
+    "functions/**"
+  ]
 }

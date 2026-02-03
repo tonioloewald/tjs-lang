@@ -9,6 +9,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 Key concept: Code travels to data (rather than shipping data to code). Agents are defined as data, not deployed code.
 
 **Two languages in one platform:**
+
 - **TJS** — TypeScript-like syntax with runtime type validation for writing your platform
 - **AJS** — Agent language that compiles to JSON AST for safe, sandboxed execution
 
@@ -96,10 +97,10 @@ vm.Agent  // Builder with custom atoms included
 ### Package Entry Points
 
 ```typescript
-import { Agent, AgentVM, ajs, tjs } from 'tjs-lang'        // Main entry
-import { Eval, SafeFunction } from 'tjs-lang/eval'         // Safe eval utilities
-import { tjs, transpile } from 'tjs-lang/lang'             // Language tools only
-import { fromTS } from 'tjs-lang/lang/from-ts'             // TypeScript transpilation
+import { Agent, AgentVM, ajs, tjs } from 'tjs-lang' // Main entry
+import { Eval, SafeFunction } from 'tjs-lang/eval' // Safe eval utilities
+import { tjs, transpile } from 'tjs-lang/lang' // Language tools only
+import { fromTS } from 'tjs-lang/lang/from-ts' // TypeScript transpilation
 ```
 
 ### Transpiler Chain (TS → TJS → JS)

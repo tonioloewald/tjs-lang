@@ -14302,7 +14302,7 @@ getUserApiKeys.__tjs = {
     },
   },
   unsafe: true,
-  source: 'index.tjs:36',
+  source: 'index.tjs:39',
 }
 var health = onRequest((req, res) => {
   res.json({
@@ -14335,7 +14335,7 @@ hashPayload.__tjs = {
 Universal AJS endpoint - accepts code, args, and fuel limit.
 Executes the code in a sandboxed VM with user's API keys as capabilities.`,
   unsafe: true,
-  source: 'index.tjs:86',
+  source: 'index.tjs:89',
 }
 var agentRun2 = onCall(async (request) => {
   if (!request.auth) {

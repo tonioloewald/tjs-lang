@@ -15,5 +15,5 @@
     "allowJs": true,
     "types": ["bun-types", "@types/jsdom"]
   },
-  "exclude": ["**/*.test.ts", "**/*.test.tsx", "editors/**"]
+  "exclude": ["**/*.test.ts", "**/*.test.tsx", "editors/**", "functions/**"]
 }
