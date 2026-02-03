@@ -23,7 +23,12 @@ import {
 // Available modules for autocomplete introspection
 // These are the actual runtime values that can be introspected
 import { codeMirror, CodeMirror } from '../../editors/codemirror/component'
-import { tjs, type TJSTranspileOptions } from '../../src/lang'
+import {
+  tjs,
+  compileWasmBlocksForIframe,
+  generateWasmInstantiationCode,
+  type TJSTranspileOptions,
+} from '../../src/lang'
 import { generateDocsMarkdown } from './docs-utils'
 import { extractImports, generateImportMap, resolveImports } from './imports'
 import { ModuleStore, type ValidationResult } from './module-store'
@@ -119,6 +124,7 @@ interface TJSPlaygroundParts extends PartsMap {
   testsToggle: HTMLInputElement
   debugToggle: HTMLInputElement
   safetyToggle: HTMLInputElement
+  wasmToggle: HTMLInputElement
 }
 
 export class TJSPlayground extends Component<TJSPlaygroundParts> {
@@ -136,6 +142,7 @@ export class TJSPlayground extends Component<TJSPlaygroundParts> {
     tests: true, // Run tests at transpile time
     debug: false, // Debug mode (call stack tracking)
     safe: true, // Safe mode (validates inputs)
+    wasm: true, // Compile WASM blocks (false = use JS fallback)
   }
 
   // Transpilation sequence number to handle race conditions
@@ -243,6 +250,19 @@ export class TJSPlayground extends Component<TJSPlaygroundParts> {
             onChange: this.toggleSafety,
           }),
           'Safe'
+        ),
+        elements.label(
+          {
+            class: 'flag-label',
+            title: 'Compile WASM blocks (uncheck to use JS fallback)',
+          },
+          input({
+            part: 'wasmToggle',
+            type: 'checkbox',
+            checked: true,
+            onChange: this.toggleWasm,
+          }),
+          'WASM'
         )
       ),
       span({ class: 'toolbar-separator' }),
@@ -475,6 +495,11 @@ export class TJSPlayground extends Component<TJSPlaygroundParts> {
   toggleSafety = () => {
     this.buildFlags.safe = this.parts.safetyToggle.checked
     this.transpile()
+  }
+
+  toggleWasm = () => {
+    this.buildFlags.wasm = this.parts.wasmToggle.checked
+    // No need to re-transpile - WASM is handled at run time
   }
 
   lastTranspileTime = 0
@@ -1034,7 +1059,30 @@ export class TJSPlayground extends Component<TJSPlaygroundParts> {
 
     this.parts.statusBar.textContent = 'Running...'
 
+    // Compile WASM blocks if present and WASM is enabled
+    let wasmInstantiationCode = ''
     try {
+      const wasmBlocks = this.lastTranspileResult.wasmBlocks
+      if (wasmBlocks && wasmBlocks.length > 0) {
+        if (this.buildFlags.wasm) {
+          this.log(`Compiling ${wasmBlocks.length} WASM block(s)...`)
+          const wasmResult = await compileWasmBlocksForIframe(wasmBlocks)
+          if (wasmResult.compiled.length > 0) {
+            this.log(`WASM: ${wasmResult.compiled.length} compiled`)
+            wasmInstantiationCode = generateWasmInstantiationCode(
+              wasmResult.compiled
+            )
+          }
+          if (wasmResult.failed > 0) {
+            this.log(`WASM: ${wasmResult.failed} failed (using JS fallback)`)
+          }
+        } else {
+          this.log(
+            `WASM disabled - using JS fallback for ${wasmBlocks.length} block(s)`
+          )
+        }
+      }
+
       // Build the preview HTML
       const htmlContent = this.parts.htmlEditor.value
       const cssContent = this.parts.cssEditor.value
@@ -1141,6 +1189,9 @@ export class TJSPlayground extends Component<TJSPlaygroundParts> {
     };
 
     try {
+      // Instantiate WASM blocks (compiled in parent, instantiated here)
+      ${wasmInstantiationCode}
+
       const __execStart = performance.now();
       ${codeWithoutImports}
 
@@ -1158,6 +1209,7 @@ export class TJSPlayground extends Component<TJSPlaygroundParts> {
           // If result is a DOM node, append it; otherwise log it
           if (result instanceof Node) {
             document.body.append(result);
+            parent.postMessage({ type: 'hasPreviewContent' }, '*');
           } else {
             console.log('Result:', result);
           }
@@ -1166,6 +1218,10 @@ export class TJSPlayground extends Component<TJSPlaygroundParts> {
         // No TJS function found, report total parse/exec time
         const __execTime = performance.now() - __execStart;
         parent.postMessage({ type: 'timing', execTime: __execTime }, '*');
+      }
+      // Check if body has content after execution
+      if (document.body.children.length > 0) {
+        parent.postMessage({ type: 'hasPreviewContent' }, '*');
       }
     } catch (e) {
       parent.postMessage({ type: 'error', message: e.message }, '*');
@@ -1186,6 +1242,9 @@ export class TJSPlayground extends Component<TJSPlaygroundParts> {
               ? `${(execTime * 1000).toFixed(0)}μs`
               : `${execTime.toFixed(2)}ms`
           this.parts.consoleHeader.textContent = `Console — executed in ${execStr}`
+        } else if (event.data?.type === 'hasPreviewContent') {
+          // Switch to Preview tab when content is added
+          this.parts.outputTabs.value = 1 // Preview is second tab (index 1)
         } else if (event.data?.type === 'error') {
           this.log(`Error: ${event.data.message}`)
           this.parts.statusBar.textContent = 'Runtime error'

@@ -86,6 +86,8 @@ export interface TJSTranspileResult {
   testCount?: number
   /** Test results (when runTests is true or 'only') */
   testResults?: TestResult[]
+  /** WASM blocks extracted from source (need to be compiled before execution) */
+  wasmBlocks?: import('../parser').WasmBlock[]
 }
 
 export interface TJSTypeInfo {
@@ -589,6 +591,8 @@ export function transpileToJS(
     testRunner: tests.length > 0 ? testRunner : undefined,
     testCount: tests.length > 0 ? tests.length : undefined,
     testResults,
+    wasmBlocks:
+      preprocessed.wasmBlocks.length > 0 ? preprocessed.wasmBlocks : undefined,
   }
 }
 

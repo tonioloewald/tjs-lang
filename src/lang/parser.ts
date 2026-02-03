@@ -1592,7 +1592,14 @@ function extractWasmBlocks(source: string): {
       }
 
       // Auto-detect captured variables from the body
-      const captures = detectCaptures(body)
+      const captureNames = detectCaptures(body)
+
+      // Try to find type annotations from enclosing function parameters
+      // Look backwards from matchStart to find the function signature
+      const captures = captureNames.map((name) => {
+        const typeAnnotation = findParameterType(source, matchStart, name)
+        return typeAnnotation ? `${name}: ${typeAnnotation}` : name
+      })
 
       // Create the block record
       const block: WasmBlock = {
@@ -1608,12 +1615,15 @@ function extractWasmBlocks(source: string): {
       // Generate runtime dispatch code:
       // The fallback is the body itself (or explicit fallback if provided)
       const fallbackCode = fallbackBody ?? body
-      const captureArgs = captures.length > 0 ? captures.join(', ') : ''
+      // Strip type annotations from captures for runtime args (e.g., "xs: Float32Array" -> "xs")
+      const captureArgNames = captures.map((c) => c.split(':')[0].trim())
+      const captureArgs =
+        captureArgNames.length > 0 ? captureArgNames.join(', ') : ''
 
       // For WASM: pass captures as arguments
       // For fallback: just run inline (captures are in scope)
       const wasmCall =
-        captures.length > 0
+        captureArgNames.length > 0
           ? `globalThis.${block.id}(${captureArgs})`
           : `globalThis.${block.id}()`
 
@@ -1641,11 +1651,16 @@ function extractWasmBlocks(source: string): {
  * This is a simple heuristic - a full implementation would use proper AST analysis
  */
 function detectCaptures(body: string): string[] {
+  // Strip comments first to avoid extracting words from comments
+  const bodyWithoutComments = body
+    .replace(/\/\/[^\n]*/g, '') // line comments
+    .replace(/\/\*[\s\S]*?\*\//g, '') // block comments
+
   // Find all identifiers used in the body
   const identifierPattern = /\b([a-zA-Z_$][a-zA-Z0-9_$]*)\b/g
   const allIdentifiers = new Set<string>()
   let match
-  while ((match = identifierPattern.exec(body)) !== null) {
+  while ((match = identifierPattern.exec(bodyWithoutComments)) !== null) {
     allIdentifiers.add(match[1])
   }
 
@@ -1654,14 +1669,14 @@ function detectCaptures(body: string): string[] {
 
   // let/const/var declarations
   const declPattern = /\b(?:let|const|var)\s+([a-zA-Z_$][a-zA-Z0-9_$]*)/g
-  while ((match = declPattern.exec(body)) !== null) {
+  while ((match = declPattern.exec(bodyWithoutComments)) !== null) {
     declared.add(match[1])
   }
 
   // for loop variables: for (let i = ...)
   const forPattern =
     /\bfor\s*\(\s*(?:let|const|var)\s+([a-zA-Z_$][a-zA-Z0-9_$]*)/g
-  while ((match = forPattern.exec(body)) !== null) {
+  while ((match = forPattern.exec(bodyWithoutComments)) !== null) {
     declared.add(match[1])
   }
 
@@ -1779,6 +1794,78 @@ function detectCaptures(body: string): string[] {
   }
 
   return captures.sort()
+}
+
+/**
+ * Find the type annotation for a parameter in the enclosing function
+ *
+ * Looks backwards from wasmBlockStart to find the function signature,
+ * then extracts the type annotation for the given parameter name.
+ *
+ * Supports:
+ * - TJS colon syntax: `param: Float32Array`
+ * - TypeScript syntax: `param: Float32Array`
+ */
+function findParameterType(
+  source: string,
+  wasmBlockStart: number,
+  paramName: string
+): string | undefined {
+  // Look backwards to find the function signature
+  // Find the nearest 'function' keyword before the wasm block
+  const beforeBlock = source.slice(0, wasmBlockStart)
+
+  // Match function declaration with parameters
+  // This regex finds function signatures and captures the parameter list
+  const funcPattern = /function\s+\w+\s*\(([^)]*)\)\s*(?:->.*?)?\s*\{[^}]*$/
+  const match = beforeBlock.match(funcPattern)
+
+  if (!match) {
+    // Try arrow function or method syntax
+    const arrowPattern =
+      /(?:const|let|var)?\s*\w+\s*=\s*(?:async\s*)?\(([^)]*)\)\s*(?:=>|->)?\s*\{[^}]*$/
+    const arrowMatch = beforeBlock.match(arrowPattern)
+    if (!arrowMatch) return undefined
+    return extractTypeFromParams(arrowMatch[1], paramName)
+  }
+
+  return extractTypeFromParams(match[1], paramName)
+}
+
+/**
+ * Extract the type annotation for a specific parameter from a parameter list string
+ */
+function extractTypeFromParams(
+  paramsStr: string,
+  paramName: string
+): string | undefined {
+  // Split by comma (handling nested structures)
+  const params = paramsStr.split(',').map((p) => p.trim())
+
+  for (const param of params) {
+    // Match patterns like:
+    // - `name: Float32Array`
+    // - `name: number`
+    // - `name = Float32Array` (TJS example syntax)
+    const colonMatch = param.match(
+      new RegExp(`^${paramName}\\s*:\\s*([A-Za-z][A-Za-z0-9]*)`)
+    )
+    if (colonMatch) {
+      return colonMatch[1]
+    }
+
+    // Match TypeScript-style with equals (default value that's a type constructor)
+    const equalsMatch = param.match(
+      new RegExp(
+        `^${paramName}\\s*=\\s*(Float32Array|Float64Array|Int32Array|Uint8Array|Int8Array|Int16Array|Uint16Array|Uint32Array)`
+      )
+    )
+    if (equalsMatch) {
+      return equalsMatch[1]
+    }
+  }
+
+  return undefined
 }
 
 /**

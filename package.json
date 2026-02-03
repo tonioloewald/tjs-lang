@@ -1,6 +1,6 @@
 {
   "name": "tjs-lang",
-  "version": "0.2.6",
+  "version": "0.2.7",
   "description": "Type-safe JavaScript dialect with runtime validation, sandboxed VM execution, and AI agent orchestration. Transpiles TypeScript to validated JS with fuel-metered execution for untrusted code.",
   "keywords": [
     "typescript",
@@ -112,6 +112,8 @@
     "functions:build": "cd functions && npm run build",
     "functions:deploy": "cd functions && npm run deploy",
     "functions:serve": "cd functions && npm run serve",
+    "deploy:hosting": "firebase deploy --only hosting",
+    "deploy": "npm run functions:deploy && firebase deploy --only hosting",
     "start": "bun run build:demo && bun run dev"
   },
   "dependencies": {

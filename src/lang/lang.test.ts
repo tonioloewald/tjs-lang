@@ -2864,6 +2864,50 @@ function transform(arr: []) {
     const fn = new Function(`${result.code}; return transform([1, 2, 3]);`)
     expect(fn()).toEqual([2, 4, 6])
   })
+
+  it('should not capture words from comments', () => {
+    const result = preprocess(`
+function updateStars(xs: Float32Array, zs: Float32Array) {
+  wasm {
+    // Reset stars that pass camera
+    for (let i = 0; i < 10; i++) {
+      zs[i] -= 1.0
+    }
+  } fallback {
+    for (let i = 0; i < 10; i++) {
+      zs[i] -= 1
+    }
+  }
+}`)
+
+    // Should NOT capture "Reset", "stars", "that", "pass", "camera" from comment
+    expect(result.wasmBlocks[0].captures).not.toContain('Reset')
+    expect(result.wasmBlocks[0].captures).not.toContain('stars')
+    expect(result.wasmBlocks[0].captures).not.toContain('camera')
+    // Should capture actual variables
+    expect(result.wasmBlocks[0].captures).toContain('zs: Float32Array')
+  })
+
+  it('should handle typed array captures from function parameters', () => {
+    const result = preprocess(`
+function move(xs: Float32Array, ys: Float32Array, len: 0, speed: 0.0) {
+  wasm {
+    for (let i = 0; i < len; i++) {
+      xs[i] += speed
+    }
+  } fallback {
+    for (let i = 0; i < len; i++) {
+      xs[i] += speed
+    }
+  }
+}`)
+
+    // Should include type annotations for typed arrays
+    expect(result.wasmBlocks[0].captures).toContain('xs: Float32Array')
+    // Numeric example types (0, 0.0) are captured as bare names - WASM compiler infers f64
+    expect(result.wasmBlocks[0].captures).toContain('len')
+    expect(result.wasmBlocks[0].captures).toContain('speed')
+  })
 })
 
 describe('SyntaxError formatting', () => {
