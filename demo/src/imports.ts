@@ -30,8 +30,8 @@ const PINNED_PACKAGES: Record<
   { version: string; path?: string; cdn?: string }
 > = {
   // tosijs ecosystem
-  tosijs: { version: '1.1.2', path: '/dist/module.js' },
-  'tosijs-ui': { version: '1.1.1', path: '/dist/index.js' },
+  tosijs: { version: '1.2.0', path: '/dist/module.js' },
+  'tosijs-ui': { version: '1.2.0', path: '/dist/index.js' },
 
   // Utilities - lodash-es is native ESM
   'lodash-es': { version: '4.17.21' },

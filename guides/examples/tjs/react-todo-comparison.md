@@ -22,22 +22,32 @@ function TodoApp() {
     }
   }
 
-  return h('div', null,
+  return h(
+    'div',
+    null,
     h('h1', null, 'To Do'),
-    h('ul', null,
+    h(
+      'ul',
+      null,
       items.map((item, i) => h('li', { key: i }, item))
     ),
-    h('label', null,
+    h(
+      'label',
+      null,
       'New item',
       h('input', {
         placeholder: 'enter thing to do',
         value: newItem,
-        onChange: (e) => setNewItem(e.target.value)
+        onChange: (e) => setNewItem(e.target.value),
       }),
-      h('button', {
-        disabled: !newItem,
-        onClick: addItem
-      }, 'Add')
+      h(
+        'button',
+        {
+          disabled: !newItem,
+          onClick: addItem,
+        },
+        'Add'
+      )
     )
   )
 }

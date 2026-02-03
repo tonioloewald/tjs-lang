@@ -40,8 +40,8 @@ export const styleSpec = {
     _codeBackground: '#1f2937',
     _codeBorder: '#374151',
     _linkColor: '#818cf8',
-    // xin-tabs uses these
-    _xinTabsBarColor: '#374151',
+    // tosi-tabs uses these
+    _tosiTabsBarColor: '#374151',
   },
 
   // High contrast mode - uses filter for comprehensive contrast boost

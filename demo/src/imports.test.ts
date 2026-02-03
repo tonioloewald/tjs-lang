@@ -104,7 +104,7 @@ describe('getCDNUrl', () => {
   it('should use pinned version and path for known packages', () => {
     // tosijs has pinned version and path
     expect(getCDNUrl('tosijs')).toBe(
-      'https://unpkg.com/tosijs@1.1.2/dist/module.js'
+      'https://unpkg.com/tosijs@1.2.0/dist/module.js'
     )
     // date-fns has pinned version but no path
     expect(getCDNUrl('date-fns')).toBe('https://unpkg.com/date-fns@3.6.0')
@@ -137,7 +137,7 @@ describe('generateImportMap', () => {
     const result = generateImportMap(['tosijs', 'date-fns'])
     expect(result).toEqual({
       imports: {
-        tosijs: 'https://unpkg.com/tosijs@1.1.2/dist/module.js',
+        tosijs: 'https://unpkg.com/tosijs@1.2.0/dist/module.js',
         'date-fns': 'https://unpkg.com/date-fns@3.6.0',
       },
     })

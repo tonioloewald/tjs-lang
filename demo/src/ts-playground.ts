@@ -854,14 +854,15 @@ export const tsPlayground = TSPlayground.elementCreator({
       overflow: 'hidden',
     },
 
-    ':host .ts-input xin-tabs, :host .ts-output xin-tabs': {
+    ':host .ts-input tosi-tabs, :host .ts-output tosi-tabs': {
       flex: '1 1 auto',
       display: 'flex',
       flexDirection: 'column',
       minHeight: '0',
+      height: '100%',
     },
 
-    ':host xin-tabs > [name]': {
+    ':host tosi-tabs > [name]': {
       background: 'var(--background, #fff)',
       color: 'var(--text-color, #1f2937)',
     },

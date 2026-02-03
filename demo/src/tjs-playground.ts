@@ -281,7 +281,7 @@ export class TJSPlayground extends Component<TJSPlaygroundParts> {
       div(
         { class: 'tjs-input' },
         tabSelector(
-          { part: 'inputTabs' },
+          { part: 'inputTabs', style: { height: '100%' } },
           div(
             { name: 'TJS', class: 'editor-wrapper' },
             codeMirror({
@@ -310,7 +310,7 @@ export class TJSPlayground extends Component<TJSPlaygroundParts> {
       div(
         { class: 'tjs-output' },
         tabSelector(
-          { part: 'outputTabs' },
+          { part: 'outputTabs', style: { height: '100%' } },
           div(
             { name: 'JS' },
             pre(
@@ -1462,15 +1462,8 @@ export const tjsPlayground = TJSPlayground.elementCreator({
       overflow: 'hidden',
     },
 
-    ':host .tjs-input xin-tabs, :host .tjs-output xin-tabs': {
-      flex: '1 1 auto',
-      display: 'flex',
-      flexDirection: 'column',
-      minHeight: '0',
-    },
-
     // Tab content panels need explicit background for dark mode
-    ':host xin-tabs > [name]': {
+    ':host tosi-tabs > [name]': {
       background: 'var(--background, #fff)',
       color: 'var(--text-color, #1f2937)',
     },
