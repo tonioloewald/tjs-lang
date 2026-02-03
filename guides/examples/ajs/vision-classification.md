@@ -15,13 +15,14 @@ function classifyImage({ imageUrl = '/photo-1.jpg' }) {
     subject: '',
     description: '',
     tags: [''],
-    confidence: ''
+    confidence: '',
   })
 
   let result = llmVision({
-    prompt: 'Classify this image. Identify the main subject, provide a brief description, and list relevant tags.',
+    prompt:
+      'Classify this image. Identify the main subject, provide a brief description, and list relevant tags.',
     images: [image],
-    responseFormat: schema
+    responseFormat: schema,
   })
 
   let parsed = JSON.parse(result.content)

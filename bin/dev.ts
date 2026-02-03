@@ -37,6 +37,7 @@ const DEMO_DIR = './demo'
 const DOCS_DIR = './docs'
 const SRC_DIR = './src'
 const EDITORS_DIR = './editors'
+const GUIDES_DIR = './guides'
 const ROOT_DIR = '.'
 
 // Build the demo
@@ -126,6 +127,15 @@ const editorsWatcher = watch(
   }
 )
 
+// Watch for guide/example changes
+const guidesWatcher = watch(
+  GUIDES_DIR,
+  { recursive: true },
+  (event, filename) => {
+    debouncedBuild(`Guide file changed: ${filename}`)
+  }
+)
+
 // Watch for markdown file changes in root
 const mdWatcher = watch(ROOT_DIR, { recursive: false }, (event, filename) => {
   if (filename && filename.endsWith('.md')) {
@@ -194,6 +204,7 @@ console.log(`
   - ${SRC_DIR}/
   - ${DEMO_DIR}/src/
   - ${EDITORS_DIR}/
+  - ${GUIDES_DIR}/
   - *.md (root directory)
 
   Press Ctrl+C to stop
@@ -205,6 +216,7 @@ process.on('SIGINT', () => {
   watcher.close()
   demoWatcher.close()
   editorsWatcher.close()
+  guidesWatcher.close()
   mdWatcher.close()
   server.stop()
   process.exit(0)

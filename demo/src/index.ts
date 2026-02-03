@@ -178,7 +178,7 @@ const savePrefs = () => {
 
 // Subscribe to auth state changes, then initialize Firebase Auth
 subscribeAuth(async (state: AuthState) => {
-  auth.user.xinValue = state.user
+  auth.user.value = state.user
     ? {
         uid: state.user.uid,
         email: state.user.email,
@@ -186,8 +186,8 @@ subscribeAuth(async (state: AuthState) => {
         photoURL: state.user.photoURL,
       }
     : null
-  auth.loading.xinValue = state.loading
-  auth.error.xinValue = state.error
+  auth.loading.value = state.loading
+  auth.error.value = state.error
 
   // Initialize user doc on sign-in (creates encryption key if first time)
   if (state.user) {

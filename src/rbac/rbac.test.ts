@@ -306,7 +306,7 @@ describe('RBAC with Memory Store', () => {
     test('loads user roles', async () => {
       await store.set('users', 'user123', {
         email: 'user@example.com',
-        roles: ['editor', 'author']
+        roles: ['editor', 'author'],
       })
 
       const roles = await rbac.loadUserRoles('user123')

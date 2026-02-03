@@ -30,8 +30,8 @@
         "firebase-functions": "^7.0.5",
         "marked": "^9.1.6",
         "prettier": "^2.8.8",
-        "tosijs": "^1.0.0",
-        "tosijs-ui": "^1.0.0",
+        "tosijs": "^1.1.2",
+        "tosijs-ui": "^1.1.1",
         "typescript": "^5.6.2",
         "valibot": "^0.36.0",
         "vitest": "^2.0.5",
@@ -953,11 +953,11 @@
 
     "toidentifier": ["toidentifier@1.0.1", "", {}, "sha512-o5sSPKEkg/DIQNmH43V0/uerLrpzVedkUh8tGNvaeXpfpuwjKenlSox/2O/BTlZUtEe+JG7s5YhEz608PlAHRA=="],
 
-    "tosijs": ["tosijs@1.0.10", "", {}, "sha512-qD2Jyo4wQoGcHoYnYAfcIQcDymJLiodBvHgG6EK440Z9bPiv0262pqTwrjGm8yzMsHH/sOONjFT1jSH3liu37g=="],
+    "tosijs": ["tosijs@1.1.2", "", {}, "sha512-AxRqWWqkglgJToLtZCm5XjxX2EqfRBWofR4OSSNL0Idu2WsVIu9UABOadnjxP3PNmAKpsUgmi6t1NgZbJU21jw=="],
 
     "tosijs-schema": ["tosijs-schema@1.2.0", "", {}, "sha512-03RP2ka3scNTw4WV06GfYmAiwZt1Z6+rRKcZsyJsjKYtw9lqnIO+KwKI5xsySBYh/RqnRrPK4F68Ars2lH2NSw=="],
 
-    "tosijs-ui": ["tosijs-ui@1.0.10", "", { "peerDependencies": { "marked": "^16.4.2", "tosijs": "^1.0.10" } }, "sha512-bgFyyi/HSvP5TKcQAJru3dtyStwRmTsJ3mj68tmqf4fM8XTiOSqQsU4XXGn+U3SIHpyWunhJFvOhqun+WTl3pA=="],
+    "tosijs-ui": ["tosijs-ui@1.1.1", "", { "peerDependencies": { "marked": "^16.4.2", "tosijs": "1.1.2" } }, "sha512-ClgRy5btj9OAckcC0CcpDM7SnDGNEFnBTI5UnX9o19ddBJxbdDi8HAyzqDcTyQp/wAmAv9ucTEw2ldtxi8ie5g=="],
 
     "tr46": ["tr46@0.0.3", "", {}, "sha512-N3WMsuqV66lT30CrXNbEjx4GEwlow3v6rr4mCcv6prnfwhS01rkgyFdjPNBYd9br7LpXV1+Emh01fHnq2Gdgrw=="],
 

@@ -9,7 +9,13 @@ Useful for:
 - PWAs with local persistence
 */
 
-import type { Store, Doc, QueryConstraints, WriteResult, WhereClause } from './interface'
+import type {
+  Store,
+  Doc,
+  QueryConstraints,
+  WriteResult,
+  WhereClause,
+} from './interface'
 
 const DB_NAME = 'tjs-store'
 const DB_VERSION = 1
@@ -38,7 +44,10 @@ function openDB(): Promise<IDBDatabase> {
 /**
  * Ensure a collection (object store) exists
  */
-async function ensureCollection(db: IDBDatabase, collection: string): Promise<void> {
+async function ensureCollection(
+  db: IDBDatabase,
+  collection: string
+): Promise<void> {
   if (db.objectStoreNames.contains(collection)) {
     return
   }
@@ -156,7 +165,10 @@ export function createIndexedDBStore(): Store {
   }
 
   return {
-    async get(collection: string, id: string): Promise<Record<string, any> | null> {
+    async get(
+      collection: string,
+      id: string
+    ): Promise<Record<string, any> | null> {
       try {
         const result = await withCollection(collection, 'readonly', (store) =>
           store.get(id)
@@ -239,7 +251,11 @@ export function createIndexedDBStore(): Store {
         if (constraints?.orderBy) {
           const direction = constraints.orderDirection || 'asc'
           results.sort((a, b) =>
-            compareValues(a.data[constraints.orderBy!], b.data[constraints.orderBy!], direction)
+            compareValues(
+              a.data[constraints.orderBy!],
+              b.data[constraints.orderBy!],
+              direction
+            )
           )
         }
 
@@ -270,7 +286,12 @@ export function createIndexedDBStore(): Store {
 
     async batch(
       operations: Array<
-        | { type: 'set'; collection: string; id: string; data: Record<string, any> }
+        | {
+            type: 'set'
+            collection: string
+            id: string
+            data: Record<string, any>
+          }
         | { type: 'delete'; collection: string; id: string }
       >
     ): Promise<WriteResult> {

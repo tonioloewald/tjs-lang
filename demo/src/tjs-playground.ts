@@ -411,6 +411,17 @@ export class TJSPlayground extends Component<TJSPlaygroundParts> {
     this.parts.consoleHeader.textContent = 'Console'
   }
 
+  clearPreview = () => {
+    const iframe = this.parts.previewFrame
+    // Revoke any existing blob URL
+    if (iframe.dataset.blobUrl) {
+      URL.revokeObjectURL(iframe.dataset.blobUrl)
+      delete iframe.dataset.blobUrl
+    }
+    // Clear iframe by setting to blank
+    iframe.src = 'about:blank'
+  }
+
   private renderConsole() {
     // Parse messages for line references and make them clickable
     // Patterns: "at line X", "line X:", "Line X", ":X:" (line:col)
@@ -1119,9 +1130,14 @@ export class TJSPlayground extends Component<TJSPlaygroundParts> {
     const _log = console.log;
     console.log = (...args) => {
       _log(...args);
-      parent.postMessage({ type: 'console', message: args.map(a =>
-        typeof a === 'object' ? JSON.stringify(a, null, 2) : String(a)
-      ).join(' ') }, '*');
+      parent.postMessage({ type: 'console', message: args.map(a => {
+        if (typeof a !== 'object' || a === null) return String(a);
+        try {
+          return JSON.stringify(a, null, 2);
+        } catch {
+          return String(a);
+        }
+      }).join(' ') }, '*');
     };
 
     try {
@@ -1214,6 +1230,10 @@ export class TJSPlayground extends Component<TJSPlaygroundParts> {
     if (this.currentExampleName) {
       this.editorCache.set(this.currentExampleName, this.parts.tjsEditor.value)
     }
+
+    // Clear previous output when switching examples
+    this.clearPreview()
+    this.clearConsole()
 
     // Update current example tracking
     this.currentExampleName = exampleName || null

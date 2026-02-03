@@ -25,10 +25,13 @@ const moduleCache = new Map<string, string>()
 // unpkg serves files directly, so we need explicit paths to ESM bundles
 // Packages with proper "exports" or "module" fields in package.json
 // may work without explicit paths, but it's safer to specify them
-const PINNED_PACKAGES: Record<string, { version: string; path?: string }> = {
+const PINNED_PACKAGES: Record<
+  string,
+  { version: string; path?: string; cdn?: string }
+> = {
   // tosijs ecosystem
-  tosijs: { version: '1.0.10', path: '/dist/module.js' },
-  'tosijs-ui': { version: '1.0.10', path: '/dist/index.js' },
+  tosijs: { version: '1.1.2', path: '/dist/module.js' },
+  'tosijs-ui': { version: '1.1.1', path: '/dist/index.js' },
 
   // Utilities - lodash-es is native ESM
   'lodash-es': { version: '4.17.21' },
@@ -43,6 +46,20 @@ const PINNED_PACKAGES: Record<string, { version: string; path?: string }> = {
   // UI frameworks - these have proper ESM exports
   preact: { version: '10.19.0', path: '/dist/preact.module.js' },
   'preact/hooks': { version: '10.19.0', path: '/hooks/dist/hooks.module.js' },
+
+  // React - use cdn.jsdelivr.net with +esm for proper ESM conversion
+  react: {
+    version: '18.2.0',
+    cdn: 'https://cdn.jsdelivr.net/npm/react@18.2.0/+esm',
+  },
+  'react-dom': {
+    version: '18.2.0',
+    cdn: 'https://cdn.jsdelivr.net/npm/react-dom@18.2.0/+esm',
+  },
+  'react-dom/client': {
+    version: '18.2.0',
+    cdn: 'https://cdn.jsdelivr.net/npm/react-dom@18.2.0/client/+esm',
+  },
 }
 
 /**
@@ -109,10 +126,20 @@ function parseSpecifier(specifier: string): { name: string; subpath: string } {
 export function getCDNUrl(specifier: string): string {
   const { name, subpath } = parseSpecifier(specifier)
 
+  // Check for exact specifier match first (e.g., 'react-dom/client')
+  const exactPinned = PINNED_PACKAGES[specifier]
+  if (exactPinned?.cdn) {
+    return exactPinned.cdn
+  }
+
   // Check for pinned package config
   const pinned = PINNED_PACKAGES[name]
 
   if (pinned) {
+    // If package has custom CDN URL, use it
+    if (pinned.cdn) {
+      return subpath ? `${pinned.cdn}${subpath}` : pinned.cdn
+    }
     // If subpath provided in specifier, use that; otherwise use pinned path
     const path = subpath || pinned.path || ''
     return `${CDN_BASE}/${name}@${pinned.version}${path}`
@@ -216,9 +243,23 @@ export async function resolveModule(specifier: string): Promise<string> {
     return moduleCache.get(specifier)!
   }
 
+  // Check for exact specifier match first (e.g., 'react-dom/client')
+  const exactPinned = PINNED_PACKAGES[specifier]
+  if (exactPinned?.cdn) {
+    moduleCache.set(specifier, exactPinned.cdn)
+    return exactPinned.cdn
+  }
+
   const { name, subpath } = parseSpecifier(specifier)
   const pinned = PINNED_PACKAGES[name]
   const version = pinned?.version
+
+  // If package has custom CDN URL, use it
+  if (pinned?.cdn) {
+    const url = subpath ? `${pinned.cdn}${subpath}` : pinned.cdn
+    moduleCache.set(specifier, url)
+    return url
+  }
 
   // If there's a subpath in the specifier, use it directly
   if (subpath) {

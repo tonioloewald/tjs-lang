@@ -79,10 +79,7 @@ export interface Store {
   /**
    * Query documents in a collection
    */
-  query(
-    collection: string,
-    constraints?: QueryConstraints
-  ): Promise<Doc[]>
+  query(collection: string, constraints?: QueryConstraints): Promise<Doc[]>
 
   /**
    * Check if a document exists
@@ -100,7 +97,12 @@ export interface Store {
    */
   batch?(
     operations: Array<
-      | { type: 'set'; collection: string; id: string; data: Record<string, any> }
+      | {
+          type: 'set'
+          collection: string
+          id: string
+          data: Record<string, any>
+        }
       | { type: 'delete'; collection: string; id: string }
     >
   ): Promise<WriteResult>

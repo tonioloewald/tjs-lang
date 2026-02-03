@@ -12,13 +12,14 @@ function extractText({ imageUrl = '/photo-2.jpg' }) {
   // Use Schema.response for structured output
   let schema = Schema.response('ocr_result', {
     text: '',
-    items: [{ description: '', amount: '' }]
+    items: [{ description: '', amount: '' }],
   })
 
   let result = llmVision({
-    prompt: 'Extract all text from this image. If it is a receipt, list the items and amounts.',
+    prompt:
+      'Extract all text from this image. If it is a receipt, list the items and amounts.',
     images: [image],
-    responseFormat: schema
+    responseFormat: schema,
   })
 
   let parsed = JSON.parse(result.content)

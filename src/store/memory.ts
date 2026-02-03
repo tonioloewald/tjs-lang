@@ -10,7 +10,13 @@ Useful for:
 - Node.js/Bun environments without IndexedDB
 */
 
-import type { Store, Doc, QueryConstraints, WriteResult, WhereClause } from './interface'
+import type {
+  Store,
+  Doc,
+  QueryConstraints,
+  WriteResult,
+  WhereClause,
+} from './interface'
 
 /**
  * Evaluate a where clause against a document
@@ -81,7 +87,10 @@ export function createMemoryStore(): Store {
   }
 
   return {
-    async get(collection: string, id: string): Promise<Record<string, any> | null> {
+    async get(
+      collection: string,
+      id: string
+    ): Promise<Record<string, any> | null> {
       const coll = getCollection(collection)
       const doc = coll.get(id)
       return doc ? { ...doc } : null
@@ -137,7 +146,11 @@ export function createMemoryStore(): Store {
       if (constraints?.orderBy) {
         const direction = constraints.orderDirection || 'asc'
         results.sort((a, b) =>
-          compareValues(a.data[constraints.orderBy!], b.data[constraints.orderBy!], direction)
+          compareValues(
+            a.data[constraints.orderBy!],
+            b.data[constraints.orderBy!],
+            direction
+          )
         )
       }
 
@@ -165,7 +178,12 @@ export function createMemoryStore(): Store {
 
     async batch(
       operations: Array<
-        | { type: 'set'; collection: string; id: string; data: Record<string, any> }
+        | {
+            type: 'set'
+            collection: string
+            id: string
+            data: Record<string, any>
+          }
         | { type: 'delete'; collection: string; id: string }
       >
     ): Promise<WriteResult> {
