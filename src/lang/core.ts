@@ -10,9 +10,15 @@ import type {
   TranspileOptions,
   TranspileResult,
   FunctionSignature,
+  TypeDescriptor,
 } from './types'
 import { parse, validateSingleFunction } from './parser'
 import { transformFunction } from './emitters/ast'
+import {
+  transpileToJS,
+  type TJSTranspileResult,
+  type TJSTranspileOptions,
+} from './emitters/js'
 
 export * from './types'
 export {
@@ -103,6 +109,50 @@ export function createAgent(
 }
 
 /**
+ * Convert TypeDescriptor to JSON Schema
+ */
+function typeDescriptorToJsonSchema(type: TypeDescriptor): any {
+  switch (type.kind) {
+    case 'string':
+      return { type: 'string' }
+    case 'number':
+      return { type: 'number' }
+    case 'boolean':
+      return { type: 'boolean' }
+    case 'null':
+      return { type: 'null' }
+    case 'array':
+      return {
+        type: 'array',
+        items: type.items ? typeDescriptorToJsonSchema(type.items) : {},
+      }
+    case 'object':
+      if (!type.shape) {
+        return { type: 'object' }
+      }
+      return {
+        type: 'object',
+        properties: Object.fromEntries(
+          Object.entries(type.shape).map(([k, v]) => [
+            k,
+            typeDescriptorToJsonSchema(v),
+          ])
+        ),
+      }
+    case 'union':
+      if (!type.members) {
+        return {}
+      }
+      return {
+        anyOf: type.members.map(typeDescriptorToJsonSchema),
+      }
+    case 'any':
+    default:
+      return {}
+  }
+}
+
+/**
  * Get tool definitions from a set of agent functions
  */
 export function getToolDefinitions(
@@ -126,7 +176,7 @@ export function getToolDefinitions(
     const required: string[] = []
 
     for (const [paramName, param] of Object.entries(sig.parameters)) {
-      properties[paramName] = param.schema || { type: 'any' }
+      properties[paramName] = typeDescriptorToJsonSchema(param.type)
       if (param.description) {
         properties[paramName].description = param.description
       }
@@ -148,4 +198,40 @@ export function getToolDefinitions(
       },
     }
   })
+}
+
+/**
+ * Transpile TJS source to JavaScript with type metadata.
+ * Works as both a function and a tagged template literal.
+ */
+export function tjs(
+  strings: TemplateStringsArray,
+  ...values: any[]
+): TJSTranspileResult
+export function tjs(
+  source: string,
+  options?: TJSTranspileOptions
+): TJSTranspileResult
+export function tjs(
+  sourceOrStrings: string | TemplateStringsArray,
+  optionsOrFirstValue?: TJSTranspileOptions | any,
+  ...restValues: any[]
+): TJSTranspileResult {
+  if (typeof sourceOrStrings === 'string') {
+    return transpileToJS(
+      sourceOrStrings,
+      optionsOrFirstValue as TJSTranspileOptions
+    )
+  }
+  // Tagged template literal
+  const values =
+    optionsOrFirstValue !== undefined
+      ? [optionsOrFirstValue, ...restValues]
+      : restValues
+  const source = sourceOrStrings.reduce(
+    (acc, str, i) =>
+      acc + str + (values[i] !== undefined ? String(values[i]) : ''),
+    ''
+  )
+  return transpileToJS(source)
 }

@@ -11,7 +11,7 @@ import { AgentVM } from '../vm/vm'
 import { transpile } from './core'
 
 // Singleton VM instance (lazy)
-let _vm: AgentVM | null = null
+let _vm: AgentVM<Record<string, never>> | null = null
 const getVM = () => (_vm ??= new AgentVM())
 
 /** Capabilities that can be injected into SafeFunction/Eval */

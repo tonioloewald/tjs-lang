@@ -43,7 +43,7 @@ export interface CachedTranspileResult {
 /** Cached entry for TJS transpilation (tjs/transpileToJS) */
 export interface CachedTJSResult {
   code: string
-  types: TJSTypeInfo
+  types: Record<string, TJSTypeInfo>
   testRunner?: string
   testCount?: number
   warnings?: string[]

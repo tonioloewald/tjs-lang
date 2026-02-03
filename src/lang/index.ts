@@ -48,6 +48,7 @@ export {
 } from './emitters/from-ts'
 export * from './inference'
 export { Schema } from './schema'
+export { MetadataCache, getGlobalCache, setGlobalCache } from './metadata-cache'
 export {
   lint,
   type LintResult,
@@ -98,10 +99,8 @@ export {
   type EvalOptions,
   type SafeFunctionOptions,
 } from './eval'
+// Note: MetadataCache, getGlobalCache, setGlobalCache already exported above
 export {
-  MetadataCache,
-  getGlobalCache,
-  setGlobalCache,
   hashSource,
   hashSourceSync,
   type CacheEntry,
@@ -109,6 +108,9 @@ export {
   type CachedTJSResult,
   type CacheStats,
 } from './metadata-cache'
+
+// Re-import for local use in this file
+import { MetadataCache, getGlobalCache } from './metadata-cache'
 
 /**
  * Transpile JavaScript source code to Agent99 AST

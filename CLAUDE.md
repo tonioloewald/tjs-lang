@@ -4,9 +4,13 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-**tjs-lang** is a type-safe virtual machine (~33KB) for safe execution of untrusted code in any JavaScript environment. It compiles logic chains and AI agents to JSON-serializable ASTs that run sandboxed with fuel (gas) limits.
+**tjs-lang** (npm: `tjs-lang`) is a type-safe virtual machine (~33KB) for safe execution of untrusted code in any JavaScript environment. It compiles logic chains and AI agents to JSON-serializable ASTs that run sandboxed with fuel (gas) limits.
 
 Key concept: Code travels to data (rather than shipping data to code). Agents are defined as data, not deployed code.
+
+**Two languages in one platform:**
+- **TJS** — TypeScript-like syntax with runtime type validation for writing your platform
+- **AJS** — Agent language that compiles to JSON AST for safe, sandboxed execution
 
 ## Common Commands
 
@@ -30,10 +34,11 @@ grep -E "^\(fail\)" /tmp/test-results.txt             # List failures
 grep -A10 "test name" /tmp/test-results.txt           # See specific error
 
 # CLI tools
-bun src/cli/tjs.ts check <file>   # Parse and type check TJS file
-bun src/cli/tjs.ts run <file>     # Transpile and execute
-bun src/cli/tjs.ts types <file>   # Output type metadata as JSON
-bun src/cli/tjs.ts emit <file>    # Output transpiled JavaScript
+bun src/cli/tjs.ts check <file>    # Parse and type check TJS file
+bun src/cli/tjs.ts run <file>      # Transpile and execute
+bun src/cli/tjs.ts types <file>    # Output type metadata as JSON
+bun src/cli/tjs.ts emit <file>     # Output transpiled JavaScript
+bun src/cli/tjs.ts convert <file>  # Convert TypeScript to TJS (--emit-tjs) or JS
 
 # Other
 npm run test:llm            # LM Studio integration tests
@@ -62,9 +67,13 @@ npm run show-size           # Show gzipped bundle size
 - `src/lang/inference.ts` - Type inference from example values
 - `src/lang/linter.ts` - Static analysis (unused vars, unreachable code, no-explicit-new)
 - `src/lang/runtime.ts` - TJS runtime (monadic errors, type checking, wrapClass)
+- `src/types/` - Type system definitions (Type.ts, Generic.ts)
+- `src/transpiler/` - AJS transpiler (source → AST)
 - `src/batteries/` - LM Studio integration (lazy init, model audit, vector search)
+- `src/store/` - Store implementations for persistence
+- `src/rbac/` - Role-based access control
 - `src/use-cases/` - Integration tests and real-world examples (27 test files)
-- `src/cli/tjs.ts` - CLI tool for check/run/types/emit commands
+- `src/cli/tjs.ts` - CLI tool for check/run/types/emit/convert commands
 
 ### Core APIs
 
@@ -82,6 +91,15 @@ await vm.run(ast, args, { fuel, capabilities, timeoutMs, trace })
 // Builder
 Agent.take(schema).varSet(...).httpFetch(...).return(schema)
 vm.Agent  // Builder with custom atoms included
+```
+
+### Package Entry Points
+
+```typescript
+import { Agent, AgentVM, ajs, tjs } from 'tjs-lang'        // Main entry
+import { Eval, SafeFunction } from 'tjs-lang/eval'         // Safe eval utilities
+import { tjs, transpile } from 'tjs-lang/lang'             // Language tools only
+import { fromTS } from 'tjs-lang/lang/from-ts'             // TypeScript transpilation
 ```
 
 ### Transpiler Chain (TS → TJS → JS)

@@ -21,7 +21,7 @@ export async function run(file: string): Promise<void> {
     if (preprocessed.testErrors.length > 0) {
       console.error('Test failures:')
       for (const err of preprocessed.testErrors) {
-        console.error(`  ${err.description}: ${err.error}`)
+        console.error(`  ${err}`)
       }
       process.exit(1)
     }
@@ -31,7 +31,7 @@ export async function run(file: string): Promise<void> {
 
     if (result.warnings && result.warnings.length > 0) {
       for (const warning of result.warnings) {
-        console.warn(`Warning: ${warning.message}`)
+        console.warn(`Warning: ${warning}`)
       }
     }
 

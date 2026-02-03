@@ -1354,10 +1354,7 @@ function extractClassMetadata(
     name,
     methods,
     staticMethods,
-  }
-
-  if (constructorInfo) {
-    result.constructor = constructorInfo
+    constructor: constructorInfo,
   }
 
   // Extract class-level generic type parameters

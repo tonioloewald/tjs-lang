@@ -11,8 +11,7 @@
  */
 
 // Core transpiler functions - imported directly to avoid TS compiler
-export { transpile, ajs, createAgent, getToolDefinitions } from './core'
-export { tjs } from './emitters/js'
+export { transpile, ajs, tjs, createAgent, getToolDefinitions } from './core'
 
 // Parser
 export { parse, preprocess, extractTDoc } from './parser'

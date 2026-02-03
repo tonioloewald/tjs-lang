@@ -16,7 +16,16 @@
  *   ZipCode.description // '5-digit US zip code'
  */
 
-import { validate, s, type Base, type JSONSchema } from 'tosijs-schema'
+import { validate, s, type Base } from 'tosijs-schema'
+
+/** JSON Schema object type (simplified) */
+type JSONSchema = {
+  type?: string
+  properties?: Record<string, JSONSchema>
+  items?: JSONSchema
+  required?: string[]
+  [key: string]: unknown
+}
 
 /** Schema can be a tosijs-schema builder or a raw JSON Schema object */
 type Schema = Base<any> | JSONSchema
@@ -103,7 +112,7 @@ export function Type<T = unknown>(
 
     if (typeof predicateOrSchemaOrExample === 'function') {
       // Type(description, predicate, example?, default?)
-      predicate = predicateOrSchemaOrExample
+      predicate = predicateOrSchemaOrExample as (value: unknown) => boolean
       // If we have example, infer schema from it for the type guard in predicate
       if (example !== undefined) {
         schema = s.infer(example)
@@ -207,36 +216,45 @@ function schemaToDescription(schema: Schema): string {
 // ============================================================================
 
 /** String type */
-export const TString = Type<string>('string', (v) => typeof v === 'string')
+export const TString = Type<string>(
+  'string',
+  (v: unknown) => typeof v === 'string'
+)
 
 /** Number type */
-export const TNumber = Type<number>('number', (v) => typeof v === 'number')
+export const TNumber = Type<number>(
+  'number',
+  (v: unknown) => typeof v === 'number'
+)
 
 /** Boolean type */
-export const TBoolean = Type<boolean>('boolean', (v) => typeof v === 'boolean')
+export const TBoolean = Type<boolean>(
+  'boolean',
+  (v: unknown) => typeof v === 'boolean'
+)
 
 /** Integer type */
 export const TInteger = Type<number>(
   'integer',
-  (v) => typeof v === 'number' && Number.isInteger(v)
+  (v: unknown) => typeof v === 'number' && Number.isInteger(v)
 )
 
 /** Positive integer type */
 export const TPositiveInt = Type<number>(
   'positive integer',
-  (v) => typeof v === 'number' && Number.isInteger(v) && v > 0
+  (v: unknown) => typeof v === 'number' && Number.isInteger(v) && v > 0
 )
 
 /** Non-empty string type */
 export const TNonEmptyString = Type<string>(
   'non-empty string',
-  (v) => typeof v === 'string' && v.length > 0
+  (v: unknown) => typeof v === 'string' && v.length > 0
 )
 
 /** Email type (basic validation) */
 export const TEmail = Type<string>(
   'email address',
-  (v) => typeof v === 'string' && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(v)
+  (v: unknown) => typeof v === 'string' && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(v)
 )
 
 /**
@@ -255,13 +273,13 @@ export const isValidUrl = (v: string): boolean => {
 /** URL type */
 export const TUrl = Type<string>(
   'URL',
-  (v) => typeof v === 'string' && isValidUrl(v)
+  (v: unknown) => typeof v === 'string' && isValidUrl(v)
 )
 
 /** UUID type */
 export const TUuid = Type<string>(
   'UUID',
-  (v) =>
+  (v: unknown) =>
     typeof v === 'string' &&
     /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(v)
 )
@@ -288,13 +306,13 @@ export const isValidLegalDate = (v: string): boolean => {
 /** ISO 8601 timestamp string (e.g., "2024-01-15T10:30:00Z") */
 export const Timestamp = Type<string>(
   'ISO 8601 timestamp',
-  (v) => typeof v === 'string' && isValidTimestamp(v)
+  (v: unknown) => typeof v === 'string' && isValidTimestamp(v)
 )
 
 /** Legal date string in YYYY-MM-DD format */
 export const LegalDate = Type<string>(
   'date (YYYY-MM-DD)',
-  (v) => typeof v === 'string' && isValidLegalDate(v)
+  (v: unknown) => typeof v === 'string' && isValidLegalDate(v)
 )
 
 // ============================================================================
@@ -305,7 +323,7 @@ export const LegalDate = Type<string>(
 export function Nullable<T>(type: RuntimeType<T>): RuntimeType<T | null> {
   return Type<T | null>(
     `${type.description} or null`,
-    (v) => v === null || type.check(v)
+    (v: unknown) => v === null || type.check(v)
   )
 }
 
@@ -315,7 +333,7 @@ export function Optional<T>(
 ): RuntimeType<T | null | undefined> {
   return Type<T | null | undefined>(
     `${type.description} (optional)`,
-    (v) => v === null || v === undefined || type.check(v)
+    (v: unknown) => v === null || v === undefined || type.check(v)
   )
 }
 
@@ -364,14 +382,14 @@ export function Union<T extends unknown[]>(
   types.push(...restTypes)
 
   const description = types.map((t) => t.description).join(' | ')
-  return Type(description, (v) => types.some((t) => t.check(v)))
+  return Type(description, (v: unknown) => types.some((t) => t.check(v)))
 }
 
 /** Create an array type */
 export function TArray<T>(itemType: RuntimeType<T>): RuntimeType<T[]> {
   return Type<T[]>(
     `array of ${itemType.description}`,
-    (v) => Array.isArray(v) && v.every((item) => itemType.check(item))
+    (v: unknown) => Array.isArray(v) && v.every((item) => itemType.check(item))
   )
 }
 
@@ -474,7 +492,7 @@ export function Generic<TParams extends string[]>(
       desc = desc.replace(new RegExp(`\\b${name}\\b`, 'g'), typeStr)
     })
 
-    return Type(desc, (value) => predicate(value, ...checks))
+    return Type(desc, (value: unknown) => predicate(value, ...checks))
   }
 
   ;(factory as any).params = paramNames as TParams
