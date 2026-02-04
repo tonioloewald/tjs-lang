@@ -9,9 +9,9 @@ Working with typed arrays
 ## Array Types
 
 Array types use a single-element example:
-- \`[0]\` = array of numbers
-- \`['']\` = array of strings
-- \`[{ x: 0 }]\` = array of objects with shape { x: number }
+- `[0]` = array of numbers
+- `['']` = array of strings
+- `[{ x: 0 }]` = array of objects with shape { x: number }
 */
 test 'sum adds numbers' {
   expect(sum([1, 2, 3, 4])).toBe(10)

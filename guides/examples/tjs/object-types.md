@@ -9,9 +9,9 @@ Typed object parameters and returns
 ## Object Types
 
 Object shapes are defined by example:
-\`{ first: '', last: '' }\` means an object with string properties.
+`{ first: '', last: '' }` means an object with string properties.
 
-The return type \`-> { x: 0, y: 0 }\` is tested at transpile time!
+The return type `-> { x: 0, y: 0 }` is tested at transpile time!
 */
 test 'createPoint returns correct structure' {
   const p = createPoint(5, 10)

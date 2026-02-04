@@ -5,7 +5,7 @@
   "type": "module",
   "main": "lib/index.js",
   "engines": {
-    "node": "20"
+    "node": "24"
   },
   "scripts": {
     "build:transpile": "cd .. && for f in functions/src/*.tjs; do bun src/cli/tjs.ts emit \"$f\" > \"${f%.tjs}.js\"; done",

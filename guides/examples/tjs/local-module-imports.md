@@ -17,7 +17,7 @@ You can import from modules saved in the playground!
 ## Try it:
 1. First, create and save a module named "mymath":
 
-\`\`\`javascript
+```javascript
 export function add(a: 0, b: 0) -> 0 {
   return a + b
 }
@@ -25,7 +25,7 @@ export function add(a: 0, b: 0) -> 0 {
 export function multiply(a: 0, b: 0) -> 0 {
   return a * b
 }
-\`\`\`
+```
 
 2. Then run this code (it imports from your saved module)
 */

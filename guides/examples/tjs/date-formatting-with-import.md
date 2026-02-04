@@ -46,5 +46,5 @@ function createEvent(input: {
     title: input.title,
     start: format(start, 'yyyy-MM-dd'),
     end: format(end, 'yyyy-MM-dd'),
-    formatted: \`\${input.title}: \${format(start, 'MMM d')} - \${format(end, 'MMM d, yyyy')}\
+    formatted: `\${input.title}: \${format(start, 'MMM d')} - \${format(end, 'MMM d, yyyy')}\
 ```

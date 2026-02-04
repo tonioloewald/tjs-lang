@@ -12,10 +12,10 @@ In TJS, the punctuation tells you everything:
 
 | Syntax | Meaning |
 |--------|---------|
-| \`param: 'value'\` | **Required** - must be provided |
-| \`param = 'value'\` | **Optional** - defaults to value |
+| `param: 'value'` | **Required** - must be provided |
+| `param = 'value'` | **Optional** - defaults to value |
 
-The example value after \`:\` or \`=\` defines the type.
+The example value after `:` or `=` defines the type.
 */
 test 'requires name and email' {
   const user = createUser('Alice', 'alice@test.com')

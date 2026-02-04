@@ -43,7 +43,7 @@ export async function post(req: {
   try {
     ast = ajs(req.body.agent)
   } catch (e) {
-    return { error: \`Parse error: \${e.message}\`, fuelUsed: 0 }
+    return { error: `Parse error: \${e.message}`, fuelUsed: 0 }
   }
 
   // 2. Create VM with capabilities (this is what you monetize)
@@ -85,13 +85,13 @@ console.log('══════════════════════�
 console.log('TEST 1: Simple Agent')
 console.log('═══════════════════════════════════════════')
 
-const simpleAgent = \`
+const simpleAgent = `
   function compute({ x, y }) {
     let sum = x + y
     let product = x * y
     return { sum, product, message: 'Math is easy' }
   }
-\`
+`
 
 const result1 = await endpoint({
   body: { agent: simpleAgent, args: { x: 7, y: 6 }, fuel: 100 },
@@ -109,7 +109,7 @@ console.log('\\n═════════════════════�
 console.log('TEST 2: Malicious Agent (Infinite Loop)')
 console.log('═══════════════════════════════════════════')
 
-const maliciousAgent = \`
+const maliciousAgent = `
   function attack({ }) {
     let i = 0
     while (true) {
@@ -120,7 +120,7 @@ const maliciousAgent = \`
     }
     return { i }
   }
-\`
+`
 
 const result2 = await endpoint({
   body: { agent: maliciousAgent, args: {}, fuel: 50 },
@@ -138,7 +138,7 @@ console.log('\\n═════════════════════�
 console.log('TEST 3: Complex Agent (Metered)')
 console.log('═══════════════════════════════════════════')
 
-const complexAgent = \`
+const complexAgent = `
   function fibonacci({ n }) {
     if (n <= 1) return { result: n }
 
@@ -153,7 +153,7 @@ const complexAgent = \`
     }
     return { result: b, iterations: n }
   }
-\`
+`
 
 const result3 = await endpoint({
   body: { agent: complexAgent, args: { n: 20 }, fuel: 500 },
@@ -170,7 +170,7 @@ console.log('Status: ✓ Success (metered)')
 console.log('\\n═══════════════════════════════════════════')
 console.log('THE PUNCHLINE')
 console.log('═══════════════════════════════════════════')
-console.log(\`
+console.log(`
 Your current backend?
   - The infinite loop would have HUNG your server
   - Or cost you THOUSANDS on Lambda
@@ -189,5 +189,5 @@ One endpoint.
 Any logic.
 Zero deployment.
 Everyone is full stack now.
-\`)
+`)
 ```

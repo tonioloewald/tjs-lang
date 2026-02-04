@@ -24,7 +24,7 @@ import { createUser, getUser, listUsers, searchUsers } from 'user-service'
 
 // Helper to display results
 function display(label: '', data: {}) {
-  console.log(\`\\n\${label}:\`)
+  console.log(`\\n\${label}:`)
   console.log(JSON.stringify(data, null, 2))
 }
 

@@ -14,17 +14,17 @@ tests pass and signature validation in action.
 ## Parameter Syntax
 | Syntax | Meaning |
 |--------|---------|
-| \`x: 0\` | Required number |
-| \`x = 0\` | Optional, defaults to 0 |
-| \`(? x: 0)\` | Force input validation |
-| \`(! x: 0)\` | Skip input validation |
+| `x: 0` | Required number |
+| `x = 0` | Optional, defaults to 0 |
+| `(? x: 0)` | Force input validation |
+| `(! x: 0)` | Skip input validation |
 
 ## Return Type Syntax
 | Syntax | Meaning |
 |--------|---------|
-| \`-> 10\` | Signature test runs at transpile |
-| \`-? 10\` | + runtime output validation |
-| \`-! 10\` | Skip signature test |
+| `-> 10` | Signature test runs at transpile |
+| `-? 10` | + runtime output validation |
+| `-! 10` | Skip signature test |
 */
 
 // ─────────────────────────────────────────────────────────
@@ -32,7 +32,7 @@ tests pass and signature validation in action.
 // ─────────────────────────────────────────────────────────
 
 /*#
-Double a number. The \`-> 10\` means: double(5) must return 10.
+Double a number. The `-> 10` means: double(5) must return 10.
 This is verified when you save/transpile!
 */
 function double(x: 5) -> 10 {
@@ -51,7 +51,7 @@ function fullName(first: 'Jane', last: 'Doe') -> 'Jane Doe' {
 // ─────────────────────────────────────────────────────────
 
 /*#
-Division with error handling. Uses \`-!\` because the error
+Division with error handling. Uses `-!` because the error
 path returns a different shape than success.
 */
 function divide(a: 10, b: 2) -! { ok: true, value: 5 } {

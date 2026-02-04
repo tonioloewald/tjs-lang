@@ -11,7 +11,7 @@ Type-safe error handling patterns
 TJS uses the Result pattern - errors are values, not exceptions.
 This makes error handling explicit and type-safe.
 
-Note: Using \`-!\` to skip signature test since error paths
+Note: Using `-!` to skip signature test since error paths
 return different shapes.
 */
 test 'divide handles zero' {
