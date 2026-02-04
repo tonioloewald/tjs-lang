@@ -25,7 +25,7 @@ Test internals without exporting them - the killer feature
 // ============================================================
 
 // Private: Email validation regex
-const EMAIL_REGEX = /^[^\\s@]+@[^\\s@]+\\.[^\\s@]+$/
+const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
 
 // Private: Validate email format
 function isValidEmail(email: '') -> true {
@@ -94,63 +94,63 @@ export function createUser(input: { email: '', password: '' })
 // ============================================================
 
 // --- Test private email validation ---
-test('isValidEmail accepts valid emails') {
+test 'isValidEmail accepts valid emails' {
   expect(isValidEmail('test@example.com')).toBe(true)
   expect(isValidEmail('user.name+tag@domain.co.uk')).toBe(true)
 }
 
-test('isValidEmail rejects invalid emails') {
+test 'isValidEmail rejects invalid emails' {
   expect(isValidEmail('not-an-email')).toBe(false)
   expect(isValidEmail('@nodomain.com')).toBe(false)
   expect(isValidEmail('spaces in@email.com')).toBe(false)
 }
 
 // --- Test private sanitization ---
-test('sanitize trims and lowercases') {
+test 'sanitize trims and lowercases' {
   expect(sanitize('  HELLO  ')).toBe('hello')
   expect(sanitize('  Test@Email.COM  ')).toBe('test@email.com')
 }
 
 // --- Test private ID generation ---
-test('generateId creates prefixed unique IDs') {
+test 'generateId creates prefixed unique IDs' {
   const id1 = generateId('user')
   const id2 = generateId('user')
   expect(id1.startsWith('user_')).toBe(true)
-  expect(id1).not.toBe(id2) // unique each time
+  expect(id1 !== id2).toBe(true) // unique each time
 }
 
-test('generateId respects prefix') {
+test 'generateId respects prefix' {
   expect(generateId('post').startsWith('post_')).toBe(true)
   expect(generateId('comment').startsWith('comment_')).toBe(true)
 }
 
 // --- Test private password hashing ---
-test('hashPassword is deterministic') {
+test 'hashPassword is deterministic' {
   const hash1 = hashPassword('secret123')
   const hash2 = hashPassword('secret123')
   expect(hash1).toBe(hash2)
 }
 
-test('hashPassword produces different hashes for different inputs') {
+test 'hashPassword produces different hashes for different inputs' {
   const hash1 = hashPassword('password1')
   const hash2 = hashPassword('password2')
-  expect(hash1).not.toBe(hash2)
+  expect(hash1 !== hash2).toBe(true)
 }
 
 // --- Test private password strength checker ---
-test('isStrongPassword rejects weak passwords') {
+test 'isStrongPassword rejects weak passwords' {
   const result = isStrongPassword('weak')
   expect(result.strong).toBe(false)
   expect(result.issues.length).toBeGreaterThan(0)
 }
 
-test('isStrongPassword accepts strong passwords') {
+test 'isStrongPassword accepts strong passwords' {
   const result = isStrongPassword('MyStr0ngP@ss!')
   expect(result.strong).toBe(true)
   expect(result.issues.length).toBe(0)
 }
 
-test('isStrongPassword lists specific issues') {
+test 'isStrongPassword lists specific issues' {
   const noUpper = isStrongPassword('lowercase123')
   expect(noUpper.issues).toContain('Must contain uppercase letter')
 
@@ -165,17 +165,17 @@ test('isStrongPassword lists specific issues') {
 }
 
 // --- Test the public API (integration) ---
-test('createUser validates email') {
+test 'createUser validates email' {
   const result = createUser({ email: 'invalid', password: 'StrongPass1!' })
   expect(result.error).toBe('Invalid email format')
 }
 
-test('createUser validates password strength') {
+test 'createUser validates password strength' {
   const result = createUser({ email: 'test@test.com', password: 'weak' })
   expect(result.error).toBeTruthy()
 }
 
-test('createUser succeeds with valid input') {
+test 'createUser succeeds with valid input' {
   const result = createUser({
     email: '  Test@Example.COM  ',
     password: 'MyStr0ngPass!'
@@ -189,15 +189,15 @@ test('createUser succeeds with valid input') {
 // DEMO OUTPUT
 // ============================================================
 
-console.log('=== Testing Private Functions Demo ===\\n')
+console.log('=== Testing Private Functions Demo ===\n')
 console.log('The functions isValidEmail, sanitize, generateId,')
 console.log('hashPassword, and isStrongPassword are all PRIVATE.')
-console.log('They are NOT exported. But we tested them all!\\n')
+console.log('They are NOT exported. But we tested them all!\n')
 
-console.log('Try this in Jest/Vitest without exporting them. You can\\'t.')
-console.log('You\\'d have to either pollute your API or leave them untested.\\n')
+console.log("Try this in Jest/Vitest without exporting them. You can't.")
+console.log("You'd have to either pollute your API or leave them untested.\n")
 
-console.log('TJS inline tests: Full coverage. Clean exports.\\n')
+console.log('TJS inline tests: Full coverage. Clean exports.\n')
 
 // Show the public API working
 const user = createUser({ email: 'demo@example.com', password: 'SecurePass123!' })
