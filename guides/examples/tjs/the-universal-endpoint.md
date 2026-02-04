@@ -29,7 +29,7 @@ import { AgentVM, ajs, coreAtoms } from 'tjs-lang'
 // THE UNIVERSAL ENDPOINT (This is the entire backend)
 // ============================================================
 
-export async function post(req: {
+async function post(req: {
   body: {
     agent: '',      // The logic to execute (AJS source)
     args: {},       // Input data
