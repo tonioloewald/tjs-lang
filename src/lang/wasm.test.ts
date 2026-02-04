@@ -45,6 +45,26 @@ describe('WASM Compiler', () => {
       expect(result.success).toBe(true)
     })
 
+    it('should include WAT disassembly in result', () => {
+      const block: WasmBlock = {
+        id: '__tjs_wasm_test_wat',
+        body: 'return a + b',
+        captures: ['a', 'b'],
+        start: 0,
+        end: 0,
+      }
+
+      const result = compileToWasm(block)
+      expect(result.success).toBe(true)
+      expect(result.wat).toBeDefined()
+      expect(result.wat).toContain('(func (export "compute")')
+      expect(result.wat).toContain('(param $a f64)')
+      expect(result.wat).toContain('(param $b f64)')
+      expect(result.wat).toContain('f64.add')
+      expect(result.wat).toContain('local.get $a')
+      expect(result.wat).toContain('local.get $b')
+    })
+
     it('should compile multiplication', () => {
       const block: WasmBlock = {
         id: '__tjs_wasm_test_3',

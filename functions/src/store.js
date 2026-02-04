@@ -10,7 +10,17 @@ import { getFirestore } from 'firebase-admin/firestore'
 import { getSecurityRule, evaluateSecurityRule, loadUserRoles } from './rbac.js'
 import { updateIndexes, removeFromIndexes } from './indexes.js'
 
-const db = getFirestore()
+// Lazy initialization to ensure initializeApp() is called first
+let _db = null
+function db() {
+  if (!_db) _db = getFirestore()
+  return _db
+}
+db.__tjs = {
+  "params": {},
+  "unsafe": true,
+  "source": "store.tjs:15"
+}
 
 export function createStoreCapability(uid) {
   // Cache for user roles (loaded lazily, once per request)
@@ -33,7 +43,7 @@ export function createStoreCapability(uid) {
       }
 
       // Load the document first (needed for rule context)
-      const docRef = db.collection(collection).doc(docId)
+      const docRef = db().collection(collection).doc(docId)
       const docSnap = await docRef.get()
       const doc = docSnap.exists ? docSnap.data() : null
 
@@ -49,17 +59,11 @@ export function createStoreCapability(uid) {
         _method: 'read',
         _collection: collection,
         _docId: docId,
-        doc,
+        doc
       })
 
       // Log timing with rule type
-      console.log(
-        `RBAC [${collection}:read] ${ruleResult.evalTimeMs.toFixed(
-          2
-        )}ms, type: ${ruleResult.type}, fuel: ${
-          ruleResult.fuelUsed
-        }, allowed: ${ruleResult.allowed}`
-      )
+      console.log(`RBAC [${collection}:read] ${ruleResult.evalTimeMs.toFixed(2)}ms, type: ${ruleResult.type}, fuel: ${ruleResult.fuelUsed}, allowed: ${ruleResult.allowed}`)
 
       if (!ruleResult.allowed) {
         return { error: 'Permission denied', reason: ruleResult.reason }
@@ -76,7 +80,7 @@ export function createStoreCapability(uid) {
       }
 
       // Load existing document (may not exist)
-      const docRef = db.collection(collection).doc(docId)
+      const docRef = db().collection(collection).doc(docId)
       const docSnap = await docRef.get()
       const doc = docSnap.exists ? docSnap.data() : null
 
@@ -93,16 +97,10 @@ export function createStoreCapability(uid) {
         _collection: collection,
         _docId: docId,
         doc,
-        newData: data,
+        newData: data
       })
 
-      console.log(
-        `RBAC [${collection}:write] ${ruleResult.evalTimeMs.toFixed(
-          2
-        )}ms, type: ${ruleResult.type}, fuel: ${
-          ruleResult.fuelUsed
-        }, allowed: ${ruleResult.allowed}`
-      )
+      console.log(`RBAC [${collection}:write] ${ruleResult.evalTimeMs.toFixed(2)}ms, type: ${ruleResult.type}, fuel: ${ruleResult.fuelUsed}, allowed: ${ruleResult.allowed}`)
 
       if (!ruleResult.allowed) {
         return { error: 'Permission denied', reason: ruleResult.reason }
@@ -127,7 +125,7 @@ export function createStoreCapability(uid) {
       }
 
       // Load existing document
-      const docRef = db.collection(collection).doc(docId)
+      const docRef = db().collection(collection).doc(docId)
       const docSnap = await docRef.get()
       const doc = docSnap.exists ? docSnap.data() : null
 
@@ -147,16 +145,10 @@ export function createStoreCapability(uid) {
         _method: 'delete',
         _collection: collection,
         _docId: docId,
-        doc,
+        doc
       })
 
-      console.log(
-        `RBAC [${collection}:delete] ${ruleResult.evalTimeMs.toFixed(
-          2
-        )}ms, type: ${ruleResult.type}, fuel: ${
-          ruleResult.fuelUsed
-        }, allowed: ${ruleResult.allowed}`
-      )
+      console.log(`RBAC [${collection}:delete] ${ruleResult.evalTimeMs.toFixed(2)}ms, type: ${ruleResult.type}, fuel: ${ruleResult.fuelUsed}, allowed: ${ruleResult.allowed}`)
 
       if (!ruleResult.allowed) {
         return { error: 'Permission denied', reason: ruleResult.reason }
@@ -192,23 +184,17 @@ export function createStoreCapability(uid) {
         _docId: null,
         doc: null,
         _isQuery: true,
-        _constraints: constraints,
+        _constraints: constraints
       })
 
-      console.log(
-        `RBAC [${collection}:query] ${ruleResult.evalTimeMs.toFixed(
-          2
-        )}ms, type: ${ruleResult.type}, fuel: ${
-          ruleResult.fuelUsed
-        }, allowed: ${ruleResult.allowed}`
-      )
+      console.log(`RBAC [${collection}:query] ${ruleResult.evalTimeMs.toFixed(2)}ms, type: ${ruleResult.type}, fuel: ${ruleResult.fuelUsed}, allowed: ${ruleResult.allowed}`)
 
       if (!ruleResult.allowed) {
         return { error: 'Permission denied', reason: ruleResult.reason }
       }
 
       // Build query
-      let query = db.collection(collection)
+      let query = db().collection(collection)
 
       if (constraints.where) {
         for (const [field, op, value] of constraints.where) {
@@ -216,10 +202,7 @@ export function createStoreCapability(uid) {
         }
       }
       if (constraints.orderBy) {
-        query = query.orderBy(
-          constraints.orderBy,
-          constraints.orderDirection || 'asc'
-        )
+        query = query.orderBy(constraints.orderBy, constraints.orderDirection || 'asc')
       }
       if (constraints.limit) {
         query = query.limit(constraints.limit)
@@ -227,23 +210,23 @@ export function createStoreCapability(uid) {
 
       const snapshot = await query.get()
       const docs = []
-      snapshot.forEach((doc) => {
+      snapshot.forEach(doc => {
         docs.push({ id: doc.id, ...doc.data() })
       })
 
       return docs
-    },
+    }
   }
 }
 createStoreCapability.__tjs = {
-  params: {
-    uid: {
-      type: {
-        kind: 'any',
+  "params": {
+    "uid": {
+      "type": {
+        "kind": "any"
       },
-      required: false,
-    },
+      "required": false
+    }
   },
-  unsafe: true,
-  source: 'store.tjs:15',
+  "unsafe": true,
+  "source": "store.tjs:20"
 }

@@ -68,6 +68,7 @@ npm run show-size           # Show gzipped bundle size
 - `src/lang/inference.ts` - Type inference from example values
 - `src/lang/linter.ts` - Static analysis (unused vars, unreachable code, no-explicit-new)
 - `src/lang/runtime.ts` - TJS runtime (monadic errors, type checking, wrapClass)
+- `src/lang/wasm.ts` - WASM compiler (opcodes, disassembler, bytecode generation)
 - `src/types/` - Type system definitions (Type.ts, Generic.ts)
 - `src/transpiler/` - AJS transpiler (source → AST)
 - `src/batteries/` - LM Studio integration (lazy init, model audit, vector search)
@@ -413,6 +414,54 @@ result IsNot errorValue
 - **TJS (browser/Node)**: Source transformation converts `==` to `Is()` and `!=` to `IsNot()` calls
 - **`===` and `!==`**: Always preserved as identity checks, never transformed
 - The `Is()` and `IsNot()` functions are available in `src/lang/runtime.ts` and exposed globally
+
+## WASM Blocks
+
+TJS supports inline WebAssembly for performance-critical code. WASM blocks are compiled at transpile time and embedded as base64 in the output.
+
+### Syntax
+
+```typescript
+const add = wasm (a: i32, b: i32) -> i32 {
+  local.get $a
+  local.get $b
+  i32.add
+}
+```
+
+### Features
+
+- **Transpile-time compilation**: WASM bytecode is generated during transpilation, not at runtime
+- **WAT comments**: Human-readable WebAssembly Text format is included as comments above the base64
+- **Type-safe**: Parameters and return types are validated
+- **Self-contained**: Compiled WASM is embedded in output JS, no separate .wasm files needed
+
+### Output Example
+
+The transpiler generates code like:
+
+```javascript
+/*
+ * WASM Block: add
+ * WAT (WebAssembly Text):
+ *   (func $add (param $a i32) (param $b i32) (result i32)
+ *     local.get 0
+ *     local.get 1
+ *     i32.add
+ *   )
+ */
+const add = await (async () => {
+  const bytes = Uint8Array.from(atob('AGFzbQEAAAA...'), c => c.charCodeAt(0))
+  const { instance } = await WebAssembly.instantiate(bytes)
+  return instance.exports.fn
+})()
+```
+
+### Current Limitations
+
+- No SIMD support yet (planned - see TODO.md)
+- Memory operations require manual management
+- No imports/exports beyond the function itself
 
 ## Dependencies
 

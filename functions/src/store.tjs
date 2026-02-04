@@ -12,7 +12,12 @@ import { getFirestore } from 'firebase-admin/firestore'
 import { getSecurityRule, evaluateSecurityRule, loadUserRoles } from './rbac.js'
 import { updateIndexes, removeFromIndexes } from './indexes.js'
 
-const db = getFirestore()
+// Lazy initialization to ensure initializeApp() is called first
+let _db = null
+function db() {
+  if (!_db) _db = getFirestore()
+  return _db
+}
 
 export function createStoreCapability(uid) {
   // Cache for user roles (loaded lazily, once per request)
@@ -35,7 +40,7 @@ export function createStoreCapability(uid) {
       }
 
       // Load the document first (needed for rule context)
-      const docRef = db.collection(collection).doc(docId)
+      const docRef = db().collection(collection).doc(docId)
       const docSnap = await docRef.get()
       const doc = docSnap.exists ? docSnap.data() : null
 
@@ -72,7 +77,7 @@ export function createStoreCapability(uid) {
       }
 
       // Load existing document (may not exist)
-      const docRef = db.collection(collection).doc(docId)
+      const docRef = db().collection(collection).doc(docId)
       const docSnap = await docRef.get()
       const doc = docSnap.exists ? docSnap.data() : null
 
@@ -117,7 +122,7 @@ export function createStoreCapability(uid) {
       }
 
       // Load existing document
-      const docRef = db.collection(collection).doc(docId)
+      const docRef = db().collection(collection).doc(docId)
       const docSnap = await docRef.get()
       const doc = docSnap.exists ? docSnap.data() : null
 
@@ -186,7 +191,7 @@ export function createStoreCapability(uid) {
       }
 
       // Build query
-      let query = db.collection(collection)
+      let query = db().collection(collection)
 
       if (constraints.where) {
         for (const [field, op, value] of constraints.where) {

@@ -19,13 +19,39 @@
 
 - [ ] Portable Type predicates - expression-only AJS subset (no loops, no async, serializable)
 - [ ] Sync AJS / AJS-to-JS compilation - for type-checked AJS that passes static analysis, transpile to native JS with fuel injection points. Enables both type safety guarantees AND native performance for RBAC rules, predicates, etc.
-- [ ] Expand WASM support beyond POC (currently: single return + numeric ops only)
-  - [ ] For loops with numeric bounds
-  - [ ] Conditionals (if/else)
-  - [ ] Local variables within block
-  - [ ] Typed array access (Float32Array, etc.)
-  - [ ] Memory operations
-- [ ] Compelling WASM demo, e.g. iTunes-visualizer like animation
+- [ ] Self-contained transpiler output (no runtime dependency)
+  - Currently transpiled code references `globalThis.__tjs` for pushStack/popStack, typeError, Is/IsNot
+  - Requires runtime to be installed or a stub (see playground's manual \_\_tjs stub)
+  - Goal: TJS produces completely independent code, only needing semantic dependencies
+  - Options: inline minimal runtime (~1KB), `{ standalone: true }` option, or tree-shake
+  - See: src/lang/emitters/js.ts TODO comment for details
+- [x] WASM compilation at transpile time (not runtime)
+  - [x] Compile wasm {} blocks during transpilation
+  - [x] Embed base64-encoded WASM bytes in output
+  - [x] Include WAT disassembly as comment for debugging/learning
+  - [x] Self-contained async instantiation (no separate compileWasmBlocksForIframe)
+- [x] Expand WASM support beyond POC
+  - [x] For loops with numeric bounds
+  - [x] Conditionals (if/else)
+  - [x] Local variables within block
+  - [x] Typed array access (Float32Array, Float64Array, Int32Array, Uint8Array)
+  - [x] Memory operations
+  - [x] Continue/break statements
+  - [x] Logical expressions (&& / ||)
+  - [x] Math functions (sqrt, abs, floor, ceil, min, max, sin, cos, log, exp, pow)
+- [ ] WASM SIMD support (v128)
+  - Without SIMD, WASM shows no meaningful speedup vs JS JIT for scalar operations
+  - SIMD enables 2x f64 or 4x f32 operations per instruction
+  - Key for: particle systems, audio processing, image manipulation, physics
+  - Requires: v128 type, f64x2/f32x4 ops, loop vectorization detection
+  - This is the main justification for WASM in compute-heavy workloads
+- [ ] WASM SIMD vector search (batteries)
+  - Replace JS vectorSearch battery with WASM SIMD implementation
+  - Dot product / cosine similarity maps perfectly to f32x4 ops
+  - Process 4 dimensions per instruction vs 1 in scalar
+  - Auto-detect SIMD support, fallback to JS
+  - Real-world use case: RAG, semantic search, embeddings in browser
+  - Expected speedup: 3-4x for similarity calculations
 
 ## Editor
 

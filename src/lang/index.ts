@@ -90,10 +90,7 @@ export {
   instantiateWasm,
   registerWasmBlock,
   compileWasmBlocks,
-  compileWasmBlocksForIframe,
-  generateWasmInstantiationCode,
   type WasmCompileResult,
-  type CompiledWasmData,
 } from './wasm'
 export type { WasmBlock } from './parser'
 export {

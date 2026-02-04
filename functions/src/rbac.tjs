@@ -24,7 +24,12 @@ TjsSafeEval
 import { getFirestore } from 'firebase-admin/firestore'
 import { validateSchema } from './schema.js'
 
-const db = getFirestore()
+// Lazy initialization to ensure initializeApp() is called first
+let _db = null
+function db() {
+  if (!_db) _db = getFirestore()
+  return _db
+}
 
 // Security rules cache
 const securityRulesCache = {
@@ -48,7 +53,7 @@ export async function getSecurityRule(collection) {
   }
 
   // Load from Firestore
-  const doc = await db.collection('securityRules').doc(collection).get()
+  const doc = await db().collection('securityRules').doc(collection).get()
   const rule = doc.exists ? doc.data() : null
 
   securityRulesCache.data.set(collection, rule)
@@ -243,7 +248,7 @@ export async function loadUserRoles(uid) {
   if (!uid) return []
 
   try {
-    const userDoc = await db.collection('users').doc(uid).get()
+    const userDoc = await db().collection('users').doc(uid).get()
     if (!userDoc.exists) return []
     const userData = userDoc.data()
     return userData?.roles || []

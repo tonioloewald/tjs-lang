@@ -227,6 +227,16 @@ const Op = {
   i32_extend16_s: 0xc1,
 } as const
 
+/** Reverse lookup: opcode byte -> instruction name */
+const OpName: Record<number, string> = Object.fromEntries(
+  Object.entries(Op).map(([name, code]) => [code, name.replace(/_/g, '.')])
+)
+
+/** Emit WAT instruction to context */
+function wat(ctx: CompileContext, instruction: string): void {
+  ctx.wat.push('  '.repeat(ctx.watIndent) + instruction)
+}
+
 // ============================================================================
 // LEB128 Encoding
 // ============================================================================
@@ -284,6 +294,129 @@ function encodeSection(id: number, contents: number[]): number[] {
 
 function encodeVector(items: number[][]): number[] {
   return [...encodeULEB128(items.length), ...items.flat()]
+}
+
+// ============================================================================
+// Disassembly (for debugging)
+// ============================================================================
+
+/** Decode ULEB128 from bytes, return [value, bytesConsumed] */
+function decodeULEB128(bytes: number[], offset: number): [number, number] {
+  let result = 0
+  let shift = 0
+  let i = offset
+  while (i < bytes.length) {
+    const byte = bytes[i]
+    result |= (byte & 0x7f) << shift
+    i++
+    if ((byte & 0x80) === 0) break
+    shift += 7
+  }
+  return [result, i - offset]
+}
+
+/** Decode f64 from 8 bytes */
+function decodeF64(bytes: number[], offset: number): number {
+  const buffer = new ArrayBuffer(8)
+  const view = new Uint8Array(buffer)
+  for (let i = 0; i < 8; i++) view[i] = bytes[offset + i]
+  return new Float64Array(buffer)[0]
+}
+
+/** Disassemble function body bytes to WAT-like text */
+function disassemble(
+  code: number[],
+  params: TypedParam[],
+  localTypes: WasmValueType[]
+): string {
+  const lines: string[] = []
+  let indent = 1
+  const ind = () => '  '.repeat(indent)
+
+  // Function signature
+  const paramStr = params
+    .map((p, i) => `(param $${p.name} ${p.type})`)
+    .join(' ')
+  const localStr = localTypes
+    .map((t, i) => `(local $L${params.length + i} ${t})`)
+    .join(' ')
+  lines.push(`(func (export "compute") ${paramStr} (result f64)`)
+  if (localStr) lines.push(`  ${localStr}`)
+
+  let i = 0
+  while (i < code.length) {
+    const op = code[i]
+    const name = OpName[op] || `unknown(0x${op.toString(16)})`
+    i++
+
+    // Handle instructions with immediates
+    if (op === Op.local_get || op === Op.local_set || op === Op.local_tee) {
+      const [idx, len] = decodeULEB128(code, i)
+      i += len
+      const paramName =
+        idx < params.length ? `$${params[idx].name}` : `$L${idx}`
+      lines.push(`${ind()}${name} ${paramName}`)
+    } else if (op === Op.br || op === Op.br_if) {
+      const [depth, len] = decodeULEB128(code, i)
+      i += len
+      lines.push(`${ind()}${name} ${depth}`)
+    } else if (op === Op.i32_const) {
+      const [val, len] = decodeULEB128(code, i)
+      i += len
+      lines.push(`${ind()}i32.const ${val}`)
+    } else if (op === Op.f64_const) {
+      const val = decodeF64(code, i)
+      i += 8
+      lines.push(`${ind()}f64.const ${val}`)
+    } else if (op === Op.block || op === Op.loop) {
+      const blockType = code[i]
+      i++
+      lines.push(
+        `${ind()}${name}${
+          blockType === Type.void
+            ? ''
+            : ` (result ${blockType === Type.f64 ? 'f64' : 'i32'})`
+        }`
+      )
+      indent++
+    } else if (op === Op.if) {
+      const blockType = code[i]
+      i++
+      lines.push(
+        `${ind()}if${
+          blockType === Type.void
+            ? ''
+            : ` (result ${blockType === Type.f64 ? 'f64' : 'i32'})`
+        }`
+      )
+      indent++
+    } else if (op === Op.else) {
+      indent--
+      lines.push(`${ind()}else`)
+      indent++
+    } else if (op === Op.end) {
+      indent = Math.max(1, indent - 1)
+      lines.push(`${ind()}end`)
+    } else if (
+      op === Op.f64_load ||
+      op === Op.f64_store ||
+      op === Op.f32_load ||
+      op === Op.f32_store ||
+      op === Op.i32_load ||
+      op === Op.i32_store
+    ) {
+      const [align, len1] = decodeULEB128(code, i)
+      i += len1
+      const [offset, len2] = decodeULEB128(code, i)
+      i += len2
+      lines.push(`${ind()}${name}${offset ? ` offset=${offset}` : ''}`)
+    } else {
+      lines.push(`${ind()}${name}`)
+    }
+  }
+
+  lines.push(')')
+  return lines.join('\n')
 }
 
 // ============================================================================
@@ -391,6 +524,10 @@ interface CompileContext {
   needsMemory: boolean
   /** Whether the function has a return statement */
   hasReturn: boolean
+  /** WAT text representation lines (for debugging) */
+  wat: string[]
+  /** Current indentation level for WAT */
+  watIndent: number
 }
 
 function createContext(params: TypedParam[]): CompileContext {
@@ -405,6 +542,8 @@ function createContext(params: TypedParam[]): CompileContext {
     needsMathImports: new Set(),
     needsMemory: false,
     hasReturn: false,
+    wat: [],
+    watIndent: 1,
   }
 
   // Add params to locals map
@@ -1613,11 +1752,15 @@ export function compileToWasm(block: WasmBlock): WasmCompileResult {
       ctx.hasReturn
     )
 
+    // Generate WAT disassembly for debugging
+    const watText = disassemble(code, params, ctx.localTypes)
+
     return {
       bytes: new Uint8Array(moduleBytes),
       warnings: ctx.warnings,
       success: true,
       needsMemory: ctx.needsMemory,
+      wat: watText,
     }
   } catch (e: any) {
     return {

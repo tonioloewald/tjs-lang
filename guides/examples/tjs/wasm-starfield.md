@@ -11,10 +11,15 @@ Interactive space flythrough with parallax stars and nebula clouds
 A Star Trek-style starfield with parallax depth and nebula clouds.
 Particle position updates use `wasm { } fallback { }` blocks.
 
+**Note:** This is a proof-of-concept for the WASM compilation pipeline.
+Without SIMD, scalar WASM operations show no meaningful speedup vs JS JIT.
+SIMD support (v128) is planned, which will enable real performance gains
+for workloads like vector search, audio processing, and physics.
+
 **Controls:**
-- Move mouse left/right to steer
-- Mouse up/down to control speed
-- Toggle the **WASM** checkbox to compare WASM vs JS fallback
+- Mouse up = fast forward
+- Mouse down = slow/reverse
+- Toggle **WASM** to compare (similar performance expected)
 */
 
 // Configuration - high particle count to stress test WASM vs JS
@@ -42,48 +47,42 @@ for (let i = 0; i < NUM_STARS; i++) {
   starZ[i] = Math.random() * MAX_DEPTH
 }
 
-// Initialize nebula clusters
-const clusters = [
-  { cx: -200, cy: 100, r: 0.8, g: 0.2, b: 0.6 },
-  { cx: 300, cy: -150, r: 0.2, g: 0.5, b: 0.9 },
-  { cx: -100, cy: -200, r: 0.9, g: 0.4, b: 0.2 },
-  { cx: 200, cy: 200, r: 0.3, g: 0.8, b: 0.5 },
-]
-
+// Initialize nebula with random positions and colors
 for (let i = 0; i < NUM_NEBULA; i++) {
-  const cluster = clusters[i % clusters.length]
-  const spread = 200
-  nebulaX[i] = cluster.cx + (Math.random() - 0.5) * spread * 2
-  nebulaY[i] = cluster.cy + (Math.random() - 0.5) * spread * 2
+  nebulaX[i] = (Math.random() - 0.5) * 1500
+  nebulaY[i] = (Math.random() - 0.5) * 1500
   nebulaZ[i] = Math.random() * MAX_DEPTH
-  nebulaR[i] = Math.min(1, Math.max(0, cluster.r + (Math.random() - 0.5) * 0.3))
-  nebulaG[i] = Math.min(1, Math.max(0, cluster.g + (Math.random() - 0.5) * 0.3))
-  nebulaB[i] = Math.min(1, Math.max(0, cluster.b + (Math.random() - 0.5) * 0.3))
+  // Random pastel-ish colors
+  nebulaR[i] = 0.3 + Math.random() * 0.7
+  nebulaG[i] = 0.2 + Math.random() * 0.6
+  nebulaB[i] = 0.4 + Math.random() * 0.6
 }
 
 // Move particles - WASM accelerated (just motion, no respawn)
-function moveParticles(xs: Float32Array, ys: Float32Array, zs: Float32Array, len: 0, speed: 0.0, driftX: 0.0, driftY: 0.0) {
+function moveParticles(xs: Float32Array, ys: Float32Array, zs: Float32Array, len: 0, speed: 0.0) {
   wasm {
     for (let i = 0; i < len; i++) {
       zs[i] -= speed
-      xs[i] += driftX
-      ys[i] += driftY
     }
   } fallback {
     for (let i = 0; i < len; i++) {
       zs[i] -= speed
-      xs[i] += driftX
-      ys[i] += driftY
     }
   }
 }
 
-// Respawn stars that passed camera (JS only - needs Math.random)
+// Respawn stars that passed camera or went too far (JS only - needs Math.random)
 function respawnStars(xs, ys, zs, len, maxDepth) {
   for (let i = 0; i < len; i++) {
-    if (zs[i] < 1) {
-      // Respawn at back with random Z for natural distribution
-      zs[i] = maxDepth * (0.7 + Math.random() * 0.3)
+    if (zs[i] < 1 || zs[i] > maxDepth) {
+      // Respawn at opposite end depending on direction
+      if (zs[i] < 1) {
+        // Passed camera - respawn at back
+        zs[i] = maxDepth * (0.7 + Math.random() * 0.3)
+      } else {
+        // Too far (going backwards) - respawn near camera
+        zs[i] = 10 + Math.random() * 50
+      }
       xs[i] = (Math.random() - 0.5) * 2000
       ys[i] = (Math.random() - 0.5) * 2000
     }
@@ -93,9 +92,12 @@ function respawnStars(xs, ys, zs, len, maxDepth) {
 // Respawn nebula particles (JS only)
 function respawnNebula(xs, ys, zs, len, maxDepth) {
   for (let i = 0; i < len; i++) {
-    if (zs[i] < 1) {
-      // Respawn with varied Z so nebulae appear at different depths
-      zs[i] = maxDepth * (0.5 + Math.random() * 0.5)
+    if (zs[i] < 1 || zs[i] > maxDepth) {
+      if (zs[i] < 1) {
+        zs[i] = maxDepth * (0.5 + Math.random() * 0.5)
+      } else {
+        zs[i] = 50 + Math.random() * 100
+      }
       xs[i] = (Math.random() - 0.5) * 1500
       ys[i] = (Math.random() - 0.5) * 1500
     }
@@ -132,14 +134,14 @@ document.body.appendChild(canvas)
 resize()
 window.addEventListener('resize', resize)
 
-// Mouse state
-let mouseX = halfW
-let mouseY = halfH
+// Mouse state - vertical position controls speed
+let speedMultiplier = 1.0
 
 canvas.addEventListener('mousemove', (e) => {
   const rect = canvas.getBoundingClientRect()
-  mouseX = e.clientX - rect.left
-  mouseY = e.clientY - rect.top
+  const mouseY = (e.clientY - rect.top) / height
+  // Top = fast forward, bottom = reverse
+  speedMultiplier = 2.0 - mouseY * 3.0
 })
 
 // FPS tracking
@@ -158,19 +160,17 @@ function animate() {
     lastFpsTime = now
   }
 
-  // Speed and drift from mouse
-  const speed = BASE_SPEED + (halfH - mouseY) * 0.08
-  const driftX = (mouseX - halfW) * 0.015
-  const driftY = (mouseY - halfH) * 0.008
+  // Speed from mouse position
+  const speed = BASE_SPEED * speedMultiplier
 
   // Clear
   ctx.fillStyle = '#08080f'
   ctx.fillRect(0, 0, width, height)
 
   // Update particles - WASM handles motion, JS handles respawn
-  moveParticles(nebulaX, nebulaY, nebulaZ, NUM_NEBULA, speed * 0.25, driftX * 0.3, driftY * 0.3)
+  moveParticles(nebulaX, nebulaY, nebulaZ, NUM_NEBULA, speed * 0.25)
   respawnNebula(nebulaX, nebulaY, nebulaZ, NUM_NEBULA, MAX_DEPTH)
-  moveParticles(starX, starY, starZ, NUM_STARS, speed, driftX, driftY)
+  moveParticles(starX, starY, starZ, NUM_STARS, speed)
   respawnStars(starX, starY, starZ, NUM_STARS, MAX_DEPTH)
 
   // Draw nebula (behind stars)
@@ -241,23 +241,8 @@ function animate() {
   // HUD
   ctx.fillStyle = 'rgba(100,180,255,0.5)'
   ctx.font = '11px monospace'
-  ctx.fillText(`FPS: ${fps} | Stars: ${NUM_STARS} | Nebulae: ${NUM_NEBULA}`, 10, 18)
-  ctx.fillText('Move mouse to steer', 10, height - 10)
-
-  // Crosshair
-  ctx.strokeStyle = 'rgba(100,180,255,0.25)'
-  ctx.lineWidth = 1
-  ctx.beginPath()
-  ctx.arc(halfW, halfH, 15, 0, Math.PI * 2)
-  ctx.moveTo(halfW - 25, halfH)
-  ctx.lineTo(halfW - 10, halfH)
-  ctx.moveTo(halfW + 10, halfH)
-  ctx.lineTo(halfW + 25, halfH)
-  ctx.moveTo(halfW, halfH - 25)
-  ctx.lineTo(halfW, halfH - 10)
-  ctx.moveTo(halfW, halfH + 10)
-  ctx.lineTo(halfW, halfH + 25)
-  ctx.stroke()
+  ctx.fillText(`FPS: ${fps} | Stars: ${NUM_STARS.toLocaleString()} | Nebulae: ${NUM_NEBULA.toLocaleString()}`, 10, 18)
+  ctx.fillText('Mouse up/down to control speed', 10, height - 10)
 
   requestAnimationFrame(animate)
 }

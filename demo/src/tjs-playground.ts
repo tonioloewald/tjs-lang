@@ -23,12 +23,7 @@ import {
 // Available modules for autocomplete introspection
 // These are the actual runtime values that can be introspected
 import { codeMirror, CodeMirror } from '../../editors/codemirror/component'
-import {
-  tjs,
-  compileWasmBlocksForIframe,
-  generateWasmInstantiationCode,
-  type TJSTranspileOptions,
-} from '../../src/lang'
+import { tjs, type TJSTranspileOptions } from '../../src/lang'
 import { generateDocsMarkdown } from './docs-utils'
 import { extractImports, generateImportMap, resolveImports } from './imports'
 import { ModuleStore, type ValidationResult } from './module-store'
@@ -1059,27 +1054,20 @@ export class TJSPlayground extends Component<TJSPlaygroundParts> {
 
     this.parts.statusBar.textContent = 'Running...'
 
-    // Compile WASM blocks if present and WASM is enabled
-    let wasmInstantiationCode = ''
     try {
-      const wasmBlocks = this.lastTranspileResult.wasmBlocks
-      if (wasmBlocks && wasmBlocks.length > 0) {
-        if (this.buildFlags.wasm) {
-          this.log(`Compiling ${wasmBlocks.length} WASM block(s)...`)
-          const wasmResult = await compileWasmBlocksForIframe(wasmBlocks)
-          if (wasmResult.compiled.length > 0) {
-            this.log(`WASM: ${wasmResult.compiled.length} compiled`)
-            wasmInstantiationCode = generateWasmInstantiationCode(
-              wasmResult.compiled
-            )
+      // Log WASM compilation results (WASM is now compiled at transpile time)
+      const wasmCompiled = this.lastTranspileResult.wasmCompiled
+      if (wasmCompiled && wasmCompiled.length > 0) {
+        const success = wasmCompiled.filter((w) => w.success).length
+        const failed = wasmCompiled.filter((w) => !w.success).length
+        if (success > 0) {
+          this.log(`WASM: ${success} block(s) compiled at transpile time`)
+        }
+        if (failed > 0) {
+          this.log(`WASM: ${failed} failed (using JS fallback)`)
+          for (const w of wasmCompiled.filter((w) => !w.success)) {
+            this.log(`  ${w.id}: ${w.error}`)
           }
-          if (wasmResult.failed > 0) {
-            this.log(`WASM: ${wasmResult.failed} failed (using JS fallback)`)
-          }
-        } else {
-          this.log(
-            `WASM disabled - using JS fallback for ${wasmBlocks.length} block(s)`
-          )
         }
       }
 
@@ -1138,6 +1126,9 @@ export class TJSPlayground extends Component<TJSPlaygroundParts> {
     if (parent.runAgent) window.runAgent = parent.runAgent.bind(parent);
     if (parent.getIdToken) window.getIdToken = parent.getIdToken.bind(parent);
 
+    // TJS runtime stub - must stay in sync with src/lang/runtime.ts
+    // TODO: Eliminate this once transpiler emits self-contained code
+    // See: src/lang/emitters/js.ts for the plan to inline runtime functions
     globalThis.__tjs = {
       version: '0.0.0',
       pushStack: () => {},
@@ -1189,8 +1180,8 @@ export class TJSPlayground extends Component<TJSPlaygroundParts> {
     };
 
     try {
-      // Instantiate WASM blocks (compiled in parent, instantiated here)
-      ${wasmInstantiationCode}
+      // WASM blocks are pre-compiled and embedded in the transpiled code
+      // They auto-instantiate via the async IIFE at the top of the code
 
       const __execStart = performance.now();
       ${codeWithoutImports}

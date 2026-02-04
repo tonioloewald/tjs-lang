@@ -8,7 +8,12 @@ safety none
 
 import { getFirestore } from 'firebase-admin/firestore'
 
-const db = getFirestore()
+// Lazy initialization to ensure initializeApp() is called first
+let _db = null
+function db() {
+  if (!_db) _db = getFirestore()
+  return _db
+}
 
 /*#
 ## URL Pattern Matching
@@ -66,7 +71,7 @@ export async function getStoredFunctions() {
     return storedFunctionsCache.data
   }
 
-  const snapshot = await db.collection('storedFunctions').get()
+  const snapshot = await db().collection('storedFunctions').get()
   const functions = []
 
   snapshot.forEach(doc => {

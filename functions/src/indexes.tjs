@@ -32,7 +32,12 @@ safety none
 
 import { getFirestore } from 'firebase-admin/firestore'
 
-const db = getFirestore()
+// Lazy initialization to ensure initializeApp() is called first
+let _db = null
+function db() {
+  if (!_db) _db = getFirestore()
+  return _db
+}
 
 // Check if document matches filter criteria
 function matchesFilter(doc, filter) {
@@ -86,7 +91,7 @@ export async function updateIndexes(collection, docId, oldDoc, newDoc, indexes) 
       for (const partition of oldPartitions) {
         if (!newPartitions.includes(partition)) {
           const indexPath = getIndexPath(collection, name, partition)
-          await db.collection(indexPath).doc(docId).delete()
+          await db().collection(indexPath).doc(docId).delete()
           updated++
         }
       }
@@ -95,7 +100,7 @@ export async function updateIndexes(collection, docId, oldDoc, newDoc, indexes) 
       for (const partition of newPartitions) {
         const indexPath = getIndexPath(collection, name, partition)
         const entry = extractFields(newDoc, fields, docId)
-        await db.collection(indexPath).doc(docId).set(entry)
+        await db().collection(indexPath).doc(docId).set(entry)
         updated++
       }
     } else if (partitionBy) {
@@ -106,7 +111,7 @@ export async function updateIndexes(collection, docId, oldDoc, newDoc, indexes) 
       // Remove from old partition if changed
       if (oldPartition && oldPartition !== newPartition) {
         const indexPath = getIndexPath(collection, name, oldPartition)
-        await db.collection(indexPath).doc(docId).delete()
+        await db().collection(indexPath).doc(docId).delete()
         updated++
       }
 
@@ -114,7 +119,7 @@ export async function updateIndexes(collection, docId, oldDoc, newDoc, indexes) 
       if (newPartition) {
         const indexPath = getIndexPath(collection, name, newPartition)
         const entry = extractFields(newDoc, fields, docId)
-        await db.collection(indexPath).doc(docId).set(entry)
+        await db().collection(indexPath).doc(docId).set(entry)
         updated++
       }
     } else {
@@ -123,12 +128,12 @@ export async function updateIndexes(collection, docId, oldDoc, newDoc, indexes) 
 
       if (oldMatches && !newMatches) {
         // Remove from index
-        await db.collection(indexPath).doc(docId).delete()
+        await db().collection(indexPath).doc(docId).delete()
         updated++
       } else if (newMatches) {
         // Add/update in index
         const entry = extractFields(newDoc, fields, docId)
-        await db.collection(indexPath).doc(docId).set(entry)
+        await db().collection(indexPath).doc(docId).set(entry)
         updated++
       }
     }
@@ -154,19 +159,19 @@ export async function removeFromIndexes(collection, docId, doc, indexes) {
       const partitions = doc[partitionByArray] || []
       for (const partition of partitions) {
         const indexPath = getIndexPath(collection, name, partition)
-        await db.collection(indexPath).doc(docId).delete()
+        await db().collection(indexPath).doc(docId).delete()
         removed++
       }
     } else if (partitionBy) {
       const partition = doc[partitionBy]
       if (partition) {
         const indexPath = getIndexPath(collection, name, partition)
-        await db.collection(indexPath).doc(docId).delete()
+        await db().collection(indexPath).doc(docId).delete()
         removed++
       }
     } else {
       const indexPath = getIndexPath(collection, name)
-      await db.collection(indexPath).doc(docId).delete()
+      await db().collection(indexPath).doc(docId).delete()
       removed++
     }
   }

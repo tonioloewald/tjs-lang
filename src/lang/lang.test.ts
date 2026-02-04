@@ -2816,7 +2816,10 @@ function process(a: [], b: []) {
     expect(result.source).toContain('globalThis.__tjs_wasm_1')
   })
 
-  it('should execute fallback when WASM not available', () => {
+  it('should compile WASM at transpile time and embed in output', async () => {
+    const { installRuntime } = require('./runtime')
+    installRuntime()
+
     const result = tjs(`
 function double(x: 0, y: 0) {
   return wasm {
@@ -2824,12 +2827,27 @@ function double(x: 0, y: 0) {
   }
 }`)
 
-    // Execute with fallback (no WASM registered)
-    const fn = new Function(`${result.code}; return double(3, 4);`)
-    expect(fn()).toBe(15) // 3 * 4 + 3 = 15
+    // WASM should be compiled at transpile time
+    expect(result.wasmCompiled).toBeDefined()
+    expect(result.wasmCompiled?.length).toBe(1)
+    expect(result.wasmCompiled?.[0].success).toBe(true)
+    expect(result.wasmCompiled?.[0].byteLength).toBeGreaterThan(0)
+
+    // Output should contain base64-encoded WASM
+    expect(result.code).toContain('__wasmBlocks')
+    expect(result.code).toContain('b64:')
+
+    // Execute with async function to allow WASM instantiation
+    const fn = new Function(
+      'return (async () => {' + result.code + '; return double(3, 4); })()'
+    )
+    expect(await fn()).toBe(15) // 3 * 4 + 3 = 15
   })
 
-  it('should use WASM when available', () => {
+  it('should use WASM compute function when instantiated', async () => {
+    const { installRuntime } = require('./runtime')
+    installRuntime()
+
     const result = tjs(`
 function compute(a: 0, b: 0) {
   return wasm {
@@ -2837,30 +2855,31 @@ function compute(a: 0, b: 0) {
   }
 }`)
 
-    // Register a mock WASM implementation
-    const code = `
-      globalThis.__tjs_wasm_0 = (a, b) => a * b * 100;
-      ${result.code}
-      const result = compute(3, 4);
-      delete globalThis.__tjs_wasm_0;
-      return result;
-    `
-    const fn = new Function(code)
-    // Should use the "WASM" version (our mock)
-    expect(fn()).toBe(1200) // 3 * 4 * 100
+    // Execute async to allow WASM instantiation
+    const fn = new Function(
+      'return (async () => {' + result.code + '; return compute(3, 4); })()'
+    )
+    // Should use the actual WASM version
+    expect(await fn()).toBe(7) // 3 + 4 = 7
   })
 
-  it('should use explicit fallback when provided', () => {
+  it('should use explicit fallback when WASM compilation fails', () => {
+    // Test with code that can't compile to WASM (array.map)
     const result = tjs(`
 function transform(arr: []) {
   return wasm {
-    return arr
+    return arr.map(x => x * 2)
   } fallback {
     return arr.map(x => x * 2)
   }
 }`)
 
-    // Fallback should use the explicit fallback code
+    // WASM compilation should fail (array.map not supported)
+    expect(result.wasmCompiled?.[0].success).toBe(false)
+
+    // But code should still work using fallback
+    const { installRuntime } = require('./runtime')
+    installRuntime()
     const fn = new Function(`${result.code}; return transform([1, 2, 3]);`)
     expect(fn()).toEqual([2, 4, 6])
   })

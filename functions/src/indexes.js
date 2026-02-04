@@ -30,7 +30,17 @@ indexes: [
 
 import { getFirestore } from 'firebase-admin/firestore'
 
-const db = getFirestore()
+// Lazy initialization to ensure initializeApp() is called first
+let _db = null
+function db() {
+  if (!_db) _db = getFirestore()
+  return _db
+}
+db.__tjs = {
+  "params": {},
+  "unsafe": true,
+  "source": "indexes.tjs:35"
+}
 
 // Check if document matches filter criteria
 function matchesFilter(doc, filter) {
@@ -41,22 +51,22 @@ function matchesFilter(doc, filter) {
   return true
 }
 matchesFilter.__tjs = {
-  params: {
-    doc: {
-      type: {
-        kind: 'any',
+  "params": {
+    "doc": {
+      "type": {
+        "kind": "any"
       },
-      required: false,
+      "required": false
     },
-    filter: {
-      type: {
-        kind: 'any',
+    "filter": {
+      "type": {
+        "kind": "any"
       },
-      required: false,
-    },
+      "required": false
+    }
   },
-  unsafe: true,
-  source: 'indexes.tjs:36',
+  "unsafe": true,
+  "source": "indexes.tjs:41"
 }
 
 // Extract specified fields from document
@@ -73,28 +83,28 @@ function extractFields(doc, fields, docId) {
   return entry
 }
 extractFields.__tjs = {
-  params: {
-    doc: {
-      type: {
-        kind: 'any',
+  "params": {
+    "doc": {
+      "type": {
+        "kind": "any"
       },
-      required: false,
+      "required": false
     },
-    fields: {
-      type: {
-        kind: 'any',
+    "fields": {
+      "type": {
+        "kind": "any"
       },
-      required: false,
+      "required": false
     },
-    docId: {
-      type: {
-        kind: 'any',
+    "docId": {
+      "type": {
+        "kind": "any"
       },
-      required: false,
-    },
+      "required": false
+    }
   },
-  unsafe: true,
-  source: 'indexes.tjs:45',
+  "unsafe": true,
+  "source": "indexes.tjs:50"
 }
 
 // Get the index collection path
@@ -106,39 +116,33 @@ function getIndexPath(collection, indexName, partitionKey = null) {
   return `${base}/${indexName}`
 }
 getIndexPath.__tjs = {
-  params: {
-    collection: {
-      type: {
-        kind: 'any',
+  "params": {
+    "collection": {
+      "type": {
+        "kind": "any"
       },
-      required: false,
+      "required": false
     },
-    indexName: {
-      type: {
-        kind: 'any',
+    "indexName": {
+      "type": {
+        "kind": "any"
       },
-      required: false,
+      "required": false
     },
-    partitionKey: {
-      type: {
-        kind: 'null',
+    "partitionKey": {
+      "type": {
+        "kind": "null"
       },
-      required: false,
-      default: null,
-    },
+      "required": false,
+      "default": null
+    }
   },
-  unsafe: true,
-  source: 'indexes.tjs:59',
+  "unsafe": true,
+  "source": "indexes.tjs:64"
 }
 
 // Update indexes after a document write
-export async function updateIndexes(
-  collection,
-  docId,
-  oldDoc,
-  newDoc,
-  indexes
-) {
+export async function updateIndexes(collection, docId, oldDoc, newDoc, indexes) {
   const startTime = performance.now()
   let updated = 0
 
@@ -150,15 +154,14 @@ export async function updateIndexes(
 
     if (partitionByArray) {
       // Array partitioning: handle each element as a partition key
-      const oldPartitions =
-        oldDoc && oldMatches ? oldDoc[partitionByArray] || [] : []
-      const newPartitions = newMatches ? newDoc[partitionByArray] || [] : []
+      const oldPartitions = oldDoc && oldMatches ? (oldDoc[partitionByArray] || []) : []
+      const newPartitions = newMatches ? (newDoc[partitionByArray] || []) : []
 
       // Remove from old partitions no longer applicable
       for (const partition of oldPartitions) {
         if (!newPartitions.includes(partition)) {
           const indexPath = getIndexPath(collection, name, partition)
-          await db.collection(indexPath).doc(docId).delete()
+          await db().collection(indexPath).doc(docId).delete()
           updated++
         }
       }
@@ -167,7 +170,7 @@ export async function updateIndexes(
       for (const partition of newPartitions) {
         const indexPath = getIndexPath(collection, name, partition)
         const entry = extractFields(newDoc, fields, docId)
-        await db.collection(indexPath).doc(docId).set(entry)
+        await db().collection(indexPath).doc(docId).set(entry)
         updated++
       }
     } else if (partitionBy) {
@@ -178,7 +181,7 @@ export async function updateIndexes(
       // Remove from old partition if changed
       if (oldPartition && oldPartition !== newPartition) {
         const indexPath = getIndexPath(collection, name, oldPartition)
-        await db.collection(indexPath).doc(docId).delete()
+        await db().collection(indexPath).doc(docId).delete()
         updated++
       }
 
@@ -186,7 +189,7 @@ export async function updateIndexes(
       if (newPartition) {
         const indexPath = getIndexPath(collection, name, newPartition)
         const entry = extractFields(newDoc, fields, docId)
-        await db.collection(indexPath).doc(docId).set(entry)
+        await db().collection(indexPath).doc(docId).set(entry)
         updated++
       }
     } else {
@@ -195,12 +198,12 @@ export async function updateIndexes(
 
       if (oldMatches && !newMatches) {
         // Remove from index
-        await db.collection(indexPath).doc(docId).delete()
+        await db().collection(indexPath).doc(docId).delete()
         updated++
       } else if (newMatches) {
         // Add/update in index
         const entry = extractFields(newDoc, fields, docId)
-        await db.collection(indexPath).doc(docId).set(entry)
+        await db().collection(indexPath).doc(docId).set(entry)
         updated++
       }
     }
@@ -208,48 +211,44 @@ export async function updateIndexes(
 
   const elapsed = performance.now() - startTime
   if (updated > 0) {
-    console.log(
-      `INDEX [${collection}] Updated ${updated} index entries in ${elapsed.toFixed(
-        2
-      )}ms`
-    )
+    console.log(`INDEX [${collection}] Updated ${updated} index entries in ${elapsed.toFixed(2)}ms`)
   }
 }
 updateIndexes.__tjs = {
-  params: {
-    collection: {
-      type: {
-        kind: 'any',
+  "params": {
+    "collection": {
+      "type": {
+        "kind": "any"
       },
-      required: false,
+      "required": false
     },
-    docId: {
-      type: {
-        kind: 'any',
+    "docId": {
+      "type": {
+        "kind": "any"
       },
-      required: false,
+      "required": false
     },
-    oldDoc: {
-      type: {
-        kind: 'any',
+    "oldDoc": {
+      "type": {
+        "kind": "any"
       },
-      required: false,
+      "required": false
     },
-    newDoc: {
-      type: {
-        kind: 'any',
+    "newDoc": {
+      "type": {
+        "kind": "any"
       },
-      required: false,
+      "required": false
     },
-    indexes: {
-      type: {
-        kind: 'any',
+    "indexes": {
+      "type": {
+        "kind": "any"
       },
-      required: false,
-    },
+      "required": false
+    }
   },
-  unsafe: true,
-  source: 'indexes.tjs:68',
+  "unsafe": true,
+  "source": "indexes.tjs:73"
 }
 
 // Remove document from all indexes (on delete)
@@ -266,59 +265,55 @@ export async function removeFromIndexes(collection, docId, doc, indexes) {
       const partitions = doc[partitionByArray] || []
       for (const partition of partitions) {
         const indexPath = getIndexPath(collection, name, partition)
-        await db.collection(indexPath).doc(docId).delete()
+        await db().collection(indexPath).doc(docId).delete()
         removed++
       }
     } else if (partitionBy) {
       const partition = doc[partitionBy]
       if (partition) {
         const indexPath = getIndexPath(collection, name, partition)
-        await db.collection(indexPath).doc(docId).delete()
+        await db().collection(indexPath).doc(docId).delete()
         removed++
       }
     } else {
       const indexPath = getIndexPath(collection, name)
-      await db.collection(indexPath).doc(docId).delete()
+      await db().collection(indexPath).doc(docId).delete()
       removed++
     }
   }
 
   const elapsed = performance.now() - startTime
   if (removed > 0) {
-    console.log(
-      `INDEX [${collection}] Removed ${removed} index entries in ${elapsed.toFixed(
-        2
-      )}ms`
-    )
+    console.log(`INDEX [${collection}] Removed ${removed} index entries in ${elapsed.toFixed(2)}ms`)
   }
 }
 removeFromIndexes.__tjs = {
-  params: {
-    collection: {
-      type: {
-        kind: 'any',
+  "params": {
+    "collection": {
+      "type": {
+        "kind": "any"
       },
-      required: false,
+      "required": false
     },
-    docId: {
-      type: {
-        kind: 'any',
+    "docId": {
+      "type": {
+        "kind": "any"
       },
-      required: false,
+      "required": false
     },
-    doc: {
-      type: {
-        kind: 'any',
+    "doc": {
+      "type": {
+        "kind": "any"
       },
-      required: false,
+      "required": false
     },
-    indexes: {
-      type: {
-        kind: 'any',
+    "indexes": {
+      "type": {
+        "kind": "any"
       },
-      required: false,
-    },
+      "required": false
+    }
   },
-  unsafe: true,
-  source: 'indexes.tjs:142',
+  "unsafe": true,
+  "source": "indexes.tjs:147"
 }
