@@ -26,6 +26,14 @@ import { codeMirror, CodeMirror } from '../../editors/codemirror/component'
 import { tjs, type TJSTranspileOptions } from '../../src/lang'
 import { generateDocsMarkdown } from './docs-utils'
 import { extractImports, generateImportMap, resolveImports } from './imports'
+import {
+  buildIframeDoc,
+  createIframeMessageHandler,
+  renderConsoleMessages,
+  renderTestResults,
+  formatExecTime,
+  sharedPlaygroundStyles,
+} from './playground-shared'
 import { ModuleStore, type ValidationResult } from './module-store'
 import {
   buildAutocompleteContext,
@@ -438,42 +446,11 @@ export class TJSPlayground extends Component<TJSPlaygroundParts> {
   }
 
   private renderConsole() {
-    // Parse messages for line references and make them clickable
-    // Patterns: "at line X", "line X:", "Line X", ":X:" (line:col)
-    const linePattern =
-      /(?:at line |line |Line )(\d+)(?:[:,]?\s*(?:column |col )?(\d+))?|:(\d+):(\d+)/g
-
-    const html = this.consoleMessages
-      .map((msg) => {
-        // Escape HTML
-        const escaped = msg
-          .replace(/&/g, '&amp;')
-          .replace(/</g, '&lt;')
-          .replace(/>/g, '&gt;')
-
-        // Replace line references with clickable spans
-        return escaped.replace(linePattern, (match, l1, c1, l2, c2) => {
-          const line = l1 || l2
-          const col = c1 || c2 || '1'
-          return `<span class="clickable-line" data-line="${line}" data-col="${col}">${match}</span>`
-        })
-      })
-      .join('\n')
-
-    this.parts.console.innerHTML = html
-    this.parts.console.scrollTop = this.parts.console.scrollHeight
-
-    // Add click handlers
-    this.parts.console.querySelectorAll('.clickable-line').forEach((el) => {
-      el.addEventListener('click', (e) => {
-        const target = e.currentTarget as HTMLElement
-        const line = parseInt(target.dataset.line || '0', 10)
-        const col = parseInt(target.dataset.col || '1', 10)
-        if (line > 0) {
-          this.goToSourceLine(line, col)
-        }
-      })
-    })
+    renderConsoleMessages(
+      this.consoleMessages,
+      this.parts.console,
+      (line, col) => this.goToSourceLine(line, col)
+    )
   }
 
   // Build flag toggle handlers
@@ -548,10 +525,7 @@ export class TJSPlayground extends Component<TJSPlaygroundParts> {
       // Update test results and status bar with timing
       const tests = result.testResults || []
       const failed = tests.filter((t: any) => !t.passed).length
-      const timeStr =
-        this.lastTranspileTime < 1
-          ? `${(this.lastTranspileTime * 1000).toFixed(0)}μs`
-          : `${this.lastTranspileTime.toFixed(2)}ms`
+      const timeStr = formatExecTime(this.lastTranspileTime)
       if (failed > 0) {
         this.parts.statusBar.textContent = `Transpiled in ${timeStr} with ${failed} test failure${
           failed > 1 ? 's' : ''
@@ -619,75 +593,13 @@ export class TJSPlayground extends Component<TJSPlaygroundParts> {
 
   private updateTestResults(result: any) {
     const tests = result.testResults
-    if (!tests || tests.length === 0) {
-      this.parts.testsOutput.textContent = 'No tests defined'
-      this.updateTestsTabLabel(0, 0)
-      this.parts.tjsEditor.clearMarkers()
-      return
-    }
-
-    const passed = tests.filter((t: any) => t.passed).length
-    const failed = tests.filter((t: any) => !t.passed).length
-
-    // Update tab label with indicator
+    const { passed, failed } = renderTestResults(
+      tests,
+      this.parts.testsOutput,
+      this.parts.tjsEditor,
+      (line) => this.goToSourceLine(line)
+    )
     this.updateTestsTabLabel(passed, failed)
-
-    // Set gutter markers for failed tests
-    const failedTests = tests.filter((t: any) => !t.passed && t.line)
-    if (failedTests.length > 0) {
-      this.parts.tjsEditor.setMarkers(
-        failedTests.map((t: any) => ({
-          line: t.line,
-          message: t.error || t.description,
-          severity: 'error' as const,
-        }))
-      )
-    } else {
-      this.parts.tjsEditor.clearMarkers()
-    }
-
-    let html = `<div class="test-summary">`
-    html += `<strong>${passed} passed</strong>`
-    if (failed > 0) {
-      html += `, <strong class="test-failed">${failed} failed</strong>`
-    }
-    html += `</div><ul class="test-list">`
-
-    for (const test of tests) {
-      const icon = test.passed ? '✓' : '✗'
-      const cls = test.passed ? 'test-pass' : 'test-fail'
-      const sigBadge = test.isSignatureTest
-        ? ' <span class="sig-badge">signature</span>'
-        : ''
-      const clickable =
-        !test.passed && test.line ? ' class="clickable-error"' : ''
-      const dataLine = test.line ? ` data-line="${test.line}"` : ''
-      html += `<li class="${cls}"${dataLine}>${icon} ${test.description}${sigBadge}`
-      if (!test.passed && test.error) {
-        html += `<div${clickable}${dataLine} class="test-error${
-          test.line ? ' clickable-error' : ''
-        }">${test.error}</div>`
-      }
-      html += `</li>`
-    }
-    html += `</ul>`
-
-    this.parts.testsOutput.innerHTML = html
-
-    // Add click handlers for clickable errors
-    this.parts.testsOutput
-      .querySelectorAll('.clickable-error')
-      .forEach((el) => {
-        el.addEventListener('click', (e) => {
-          const line = parseInt(
-            (e.currentTarget as HTMLElement).dataset.line || '0',
-            10
-          )
-          if (line > 0) {
-            this.goToSourceLine(line)
-          }
-        })
-      })
   }
 
   private updateTestsTabLabel(passed: number, failed: number) {
@@ -1114,137 +1026,33 @@ export class TJSPlayground extends Component<TJSPlaygroundParts> {
       )
 
       // Create a complete HTML document for the iframe
-      const iframeDoc = `<!DOCTYPE html>
-<html>
-<head>
-  <style>${cssContent}</style>
-  ${importMapScript}
-</head>
-<body>
-  ${htmlContent}
-  <!-- TJS Runtime stub must be set up BEFORE imports execute -->
-  <script>
-    // Expose parent's run/runAgent/getIdToken in iframe for playground convenience
-    if (parent.run) window.run = parent.run.bind(parent);
-    if (parent.runAgent) window.runAgent = parent.runAgent.bind(parent);
-    if (parent.getIdToken) window.getIdToken = parent.getIdToken.bind(parent);
-
-    // TJS runtime stub - must stay in sync with src/lang/runtime.ts
-    // TODO: Eliminate this once transpiler emits self-contained code
-    // See: src/lang/emitters/js.ts for the plan to inline runtime functions
-    globalThis.__tjs = {
-      version: '0.0.0',
-      pushStack: () => {},
-      popStack: () => {},
-      getStack: () => [],
-      typeError: (path, expected, value) => {
-        const actual = value === null ? 'null' : typeof value;
-        const err = new Error(\`Expected \${expected} for '\${path}', got \${actual}\`);
-        err.name = 'MonadicError';
-        err.path = path;
-        err.expected = expected;
-        err.actual = actual;
-        return err;
-      },
-      createRuntime: function() { return this; },
-      Is: (a, b) => {
-        if (a === b) return true;
-        if (a === null || b === null) return a === b;
-        if (typeof a !== typeof b) return false;
-        if (typeof a !== 'object') return false;
-        if (Array.isArray(a) && Array.isArray(b)) {
-          if (a.length !== b.length) return false;
-          return a.every((v, i) => globalThis.__tjs.Is(v, b[i]));
-        }
-        const keysA = Object.keys(a);
-        const keysB = Object.keys(b);
-        if (keysA.length !== keysB.length) return false;
-        return keysA.every(k => globalThis.__tjs.Is(a[k], b[k]));
-      },
-      IsNot: (a, b) => !globalThis.__tjs.Is(a, b),
-    };
-  </script>
-  <script type="module">
-    // Import statements must be at the top of the module
-    ${importStatements.join('\n    ')}
-
-    // Capture console.log
-    const _log = console.log;
-    console.log = (...args) => {
-      _log(...args);
-      parent.postMessage({ type: 'console', message: args.map(a => {
-        if (typeof a !== 'object' || a === null) return String(a);
-        try {
-          return JSON.stringify(a, null, 2);
-        } catch {
-          return String(a);
-        }
-      }).join(' ') }, '*');
-    };
-
-    try {
-      // WASM blocks are pre-compiled and embedded in the transpiled code
-      // They auto-instantiate via the async IIFE at the top of the code
-
-      const __execStart = performance.now();
-      ${codeWithoutImports}
-
-      // Try to call the function if it exists and show result
-      const funcName = Object.keys(window).find(k => {
-        try { return typeof window[k] === 'function' && window[k].__tjs; }
-        catch { return false; }
-      });
-      if (funcName) {
-        const __callStart = performance.now();
-        const result = window[funcName]();
-        const __execTime = performance.now() - __callStart;
-        parent.postMessage({ type: 'timing', execTime: __execTime }, '*');
-        if (result !== undefined) {
-          // If result is a DOM node, append it; otherwise log it
-          if (result instanceof Node) {
-            document.body.append(result);
-            parent.postMessage({ type: 'hasPreviewContent' }, '*');
-          } else {
-            console.log('Result:', result);
-          }
-        }
-      } else {
-        // No TJS function found, report total parse/exec time
-        const __execTime = performance.now() - __execStart;
-        parent.postMessage({ type: 'timing', execTime: __execTime }, '*');
-      }
-      // Check if body has content after execution
-      if (document.body.children.length > 0) {
-        parent.postMessage({ type: 'hasPreviewContent' }, '*');
-      }
-    } catch (e) {
-      parent.postMessage({ type: 'error', message: e.message }, '*');
-    }
-  </script>
-</body>
-</html>`
+      const iframeDoc = buildIframeDoc({
+        cssContent,
+        htmlContent,
+        importMapScript,
+        jsCode: codeWithoutImports,
+        importStatements,
+        parentBindings: true,
+        autoCallTjsFunction: true,
+      })
 
       // Listen for messages from iframe
-      const messageHandler = (event: MessageEvent) => {
-        if (event.data?.type === 'console') {
-          this.log(event.data.message)
-        } else if (event.data?.type === 'timing') {
-          // Update console header with execution time
-          const execTime = event.data.execTime
-          const execStr =
-            execTime < 1
-              ? `${(execTime * 1000).toFixed(0)}μs`
-              : `${execTime.toFixed(2)}ms`
-          this.parts.consoleHeader.textContent = `Console — executed in ${execStr}`
-        } else if (event.data?.type === 'hasPreviewContent') {
-          // Switch to Preview tab when content is added
+      const messageHandler = createIframeMessageHandler({
+        onConsole: (message) => this.log(message),
+        onTiming: (execTime) => {
+          this.parts.consoleHeader.textContent = `Console — executed in ${formatExecTime(
+            execTime
+          )}`
+        },
+        onPreviewContent: () => {
           this.parts.outputTabs.value = 1 // Preview is second tab (index 1)
-        } else if (event.data?.type === 'error') {
-          this.log(`Error: ${event.data.message}`)
+        },
+        onError: (message) => {
+          this.log(`Error: ${message}`)
           this.parts.statusBar.textContent = 'Runtime error'
           this.parts.statusBar.classList.add('error')
-        }
-      }
+        },
+      })
       window.addEventListener('message', messageHandler)
 
       // Set iframe content using blob URL instead of srcdoc
@@ -1342,16 +1150,9 @@ export class TJSPlayground extends Component<TJSPlaygroundParts> {
 export const tjsPlayground = TJSPlayground.elementCreator({
   tag: 'tjs-playground',
   styleSpec: {
-    ':host': {
-      display: 'flex',
-      flexDirection: 'column',
-      height: '100%',
-      flex: '1 1 auto',
-      background: 'var(--background, #fff)',
-      color: 'var(--text-color, #1f2937)',
-      fontFamily: 'system-ui, sans-serif',
-    },
+    ...sharedPlaygroundStyles,
 
+    // TJS-specific: toolbar
     ':host .tjs-toolbar': {
       display: 'flex',
       alignItems: 'center',
@@ -1361,61 +1162,7 @@ export const tjsPlayground = TJSPlayground.elementCreator({
       borderBottom: '1px solid var(--code-border, #e5e7eb)',
     },
 
-    ':host .run-btn': {
-      display: 'flex',
-      alignItems: 'center',
-      gap: '4px',
-      padding: '6px 12px',
-      background: 'var(--brand-color, #3d4a6b)',
-      color: 'var(--brand-text-color, white)',
-      border: 'none',
-      borderRadius: '6px',
-      cursor: 'pointer',
-      fontWeight: '500',
-      fontSize: '14px',
-    },
-
-    ':host .run-btn:hover:not(:disabled)': {
-      filter: 'brightness(1.1)',
-    },
-
-    ':host .run-btn:disabled': {
-      opacity: '0.6',
-      cursor: 'not-allowed',
-    },
-
-    ':host .toolbar-separator': {
-      width: '1px',
-      height: '20px',
-      background: 'var(--code-border, #d1d5db)',
-    },
-
-    ':host .build-flags': {
-      display: 'flex',
-      alignItems: 'center',
-      gap: '12px',
-    },
-
-    ':host .flag-label': {
-      display: 'flex',
-      alignItems: 'center',
-      gap: '4px',
-      fontSize: '13px',
-      color: 'var(--text-color, #6b7280)',
-      cursor: 'pointer',
-      userSelect: 'none',
-    },
-
-    ':host .flag-label:hover': {
-      color: 'var(--text-color, #374151)',
-    },
-
-    ':host .flag-label input[type="checkbox"]': {
-      margin: '0',
-      cursor: 'pointer',
-      accentColor: 'var(--brand-color, #3d4a6b)',
-    },
-
+    // TJS-specific: module name input
     ':host .module-name-input': {
       padding: '6px 10px',
       border: '1px solid var(--code-border, #d1d5db)',
@@ -1438,6 +1185,7 @@ export const tjsPlayground = TJSPlayground.elementCreator({
       opacity: '0.6',
     },
 
+    // TJS-specific: save button
     ':host .save-btn': {
       display: 'flex',
       alignItems: 'center',
@@ -1458,46 +1206,7 @@ export const tjsPlayground = TJSPlayground.elementCreator({
       borderColor: 'var(--brand-color, #3d4a6b)',
     },
 
-    ':host .revert-btn': {
-      display: 'flex',
-      alignItems: 'center',
-      gap: '4px',
-      padding: '6px 12px',
-      background: 'var(--code-background, #e5e7eb)',
-      color: 'var(--text-color, #374151)',
-      border: '1px solid var(--code-border, #d1d5db)',
-      borderRadius: '6px',
-      cursor: 'pointer',
-      fontWeight: '500',
-      fontSize: '14px',
-      transition: 'opacity 0.2s',
-    },
-
-    ':host .revert-btn:hover:not(:disabled)': {
-      background: '#fef3c7',
-      borderColor: '#f59e0b',
-      color: '#92400e',
-    },
-
-    ':host .revert-btn:disabled': {
-      cursor: 'default',
-    },
-
-    ':host .elastic': {
-      flex: '1',
-    },
-
-    ':host .status-bar': {
-      fontSize: '13px',
-      color: 'var(--text-color, #6b7280)',
-      opacity: '0.7',
-    },
-
-    ':host .status-bar.error': {
-      color: '#dc2626',
-      opacity: '1',
-    },
-
+    // TJS-specific: layout
     ':host .tjs-main': {
       display: 'flex',
       flex: '1 1 auto',
@@ -1515,31 +1224,7 @@ export const tjsPlayground = TJSPlayground.elementCreator({
       overflow: 'hidden',
     },
 
-    // Tab content panels need explicit background for dark mode
-    ':host tosi-tabs > [name]': {
-      background: 'var(--background, #fff)',
-      color: 'var(--text-color, #1f2937)',
-    },
-
-    // Editor wrapper - contains the shadow DOM code-mirror component
-    ':host .editor-wrapper': {
-      flex: '1 1 auto',
-      height: '100%',
-      minHeight: '300px',
-      position: 'relative',
-      overflow: 'hidden',
-    },
-
-    // code-mirror is shadow DOM, so we just size it - internal styles are handled by the component
-    ':host .editor-wrapper code-mirror': {
-      display: 'block',
-      position: 'absolute',
-      top: '0',
-      left: '0',
-      right: '0',
-      bottom: '0',
-    },
-
+    // TJS-specific: JS output panel
     ':host .js-output': {
       margin: '0',
       padding: '12px',
@@ -1552,176 +1237,12 @@ export const tjsPlayground = TJSPlayground.elementCreator({
       whiteSpace: 'pre-wrap',
     },
 
-    ':host .preview-frame': {
-      width: '100%',
-      height: '100%',
-      border: 'none',
-      background: 'var(--background, #fff)',
-    },
-
-    ':host .docs-output': {
-      display: 'block',
-      padding: '12px 16px',
-      fontSize: '14px',
-      fontFamily: 'system-ui, sans-serif',
-      color: 'var(--text-color, inherit)',
-      background: 'var(--background, #fff)',
-      height: '100%',
-      overflow: 'auto',
-    },
-
-    ':host .docs-output h2': {
-      fontSize: '1.25em',
-      marginTop: '0',
-      marginBottom: '0.5em',
-      color: 'var(--text-color, #1f2937)',
-    },
-
-    ':host .docs-output pre': {
-      background: 'var(--code-background, #f3f4f6)',
-      padding: '8px 12px',
-      borderRadius: '6px',
-      overflow: 'auto',
-      fontSize: '13px',
-    },
-
-    ':host .docs-output code': {
-      fontFamily: 'ui-monospace, monospace',
-      fontSize: '0.9em',
-    },
-
-    ':host .docs-output p': {
-      margin: '0.75em 0',
-      lineHeight: '1.5',
-    },
-
-    ':host .docs-output h3': {
-      fontSize: '1em',
-      marginTop: '1em',
-      marginBottom: '0.5em',
-    },
-
-    ':host .docs-output ul': {
-      paddingLeft: '1.5em',
-      margin: '0.5em 0',
-    },
-
-    ':host .docs-output li': {
-      marginBottom: '0.25em',
-    },
-
-    ':host .docs-output hr': {
-      border: 'none',
-      borderTop: '1px solid var(--code-border, #e5e7eb)',
-      margin: '1.5em 0',
-    },
-
-    ':host .tests-output': {
-      padding: '12px',
-      fontSize: '14px',
-      fontFamily: 'system-ui, sans-serif',
-      color: 'var(--text-color, inherit)',
-      background: 'var(--background, #fff)',
-      height: '100%',
-      overflow: 'auto',
-    },
-
-    ':host .test-summary': {
-      marginBottom: '12px',
-      paddingBottom: '8px',
-      borderBottom: '1px solid var(--code-border, #e5e7eb)',
-    },
-
-    ':host .test-failed': {
-      color: '#dc2626',
-    },
-
-    ':host .test-list': {
-      listStyle: 'none',
-      padding: 0,
-      margin: 0,
-    },
-
-    ':host .test-list li': {
-      padding: '4px 0',
-    },
-
-    ':host .test-pass': {
-      color: '#16a34a',
-    },
-
-    ':host .test-fail': {
-      color: '#dc2626',
-    },
-
-    ':host .test-error': {
-      marginLeft: '20px',
-      marginTop: '4px',
-      padding: '8px',
-      background: 'rgba(220, 38, 38, 0.1)',
-      borderRadius: '4px',
-      fontSize: '13px',
-      fontFamily: 'var(--font-mono, monospace)',
-    },
-
-    ':host .clickable-error': {
-      cursor: 'pointer',
-      textDecoration: 'underline',
-      textDecorationStyle: 'dotted',
-    },
-
-    ':host .clickable-error:hover': {
-      background: 'rgba(220, 38, 38, 0.2)',
-    },
-
-    ':host .sig-badge': {
-      fontSize: '11px',
-      padding: '2px 6px',
-      marginLeft: '8px',
-      background: 'rgba(99, 102, 241, 0.1)',
-      color: '#6366f1',
-      borderRadius: '4px',
-    },
-
+    // TJS-specific: console container class name
     ':host .tjs-console': {
       height: '120px',
       borderTop: '1px solid var(--code-border, #e5e7eb)',
       display: 'flex',
       flexDirection: 'column',
-    },
-
-    ':host .console-header': {
-      padding: '4px 12px',
-      background: 'var(--code-background, #f3f4f6)',
-      fontSize: '12px',
-      fontWeight: '500',
-      color: 'var(--text-color, #6b7280)',
-      opacity: '0.7',
-      borderBottom: '1px solid var(--code-border, #e5e7eb)',
-    },
-
-    ':host .console-output': {
-      flex: '1',
-      margin: '0',
-      padding: '8px 12px',
-      background: 'var(--code-background, #f3f4f6)',
-      color: 'var(--text-color, #1f2937)',
-      fontSize: '12px',
-      fontFamily: 'ui-monospace, monospace',
-      overflow: 'auto',
-      whiteSpace: 'pre-wrap',
-    },
-
-    ':host .clickable-line': {
-      cursor: 'pointer',
-      color: '#2563eb',
-      textDecoration: 'underline',
-      textDecorationStyle: 'dotted',
-    },
-
-    ':host .clickable-line:hover': {
-      color: '#1d4ed8',
-      background: 'rgba(37, 99, 235, 0.1)',
     },
   },
 }) as ElementCreator<TJSPlayground>

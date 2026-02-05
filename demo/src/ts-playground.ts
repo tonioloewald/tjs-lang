@@ -21,6 +21,14 @@ import { fromTS } from '../../src/lang/emitters/from-ts'
 import { tjs } from '../../src/lang'
 import { extractImports, resolveImports } from './imports'
 import { generateDocsMarkdown } from './docs-utils'
+import {
+  buildIframeDoc,
+  createIframeMessageHandler,
+  renderConsoleMessages,
+  renderTestResults,
+  formatExecTime,
+  sharedPlaygroundStyles,
+} from './playground-shared'
 
 const { div, button, span, pre, input } = elements
 
@@ -292,42 +300,11 @@ export class TSPlayground extends Component<TSPlaygroundParts> {
   }
 
   private renderConsole() {
-    // Parse messages for line references and make them clickable
-    // Patterns: "at line X", "line X:", "Line X", ":X:" (line:col)
-    const linePattern =
-      /(?:at line |line |Line )(\d+)(?:[:,]?\s*(?:column |col )?(\d+))?|:(\d+):(\d+)/g
-
-    const html = this.consoleMessages
-      .map((msg) => {
-        // Escape HTML
-        const escaped = msg
-          .replace(/&/g, '&amp;')
-          .replace(/</g, '&lt;')
-          .replace(/>/g, '&gt;')
-
-        // Replace line references with clickable spans
-        return escaped.replace(linePattern, (match, l1, c1, l2, c2) => {
-          const line = l1 || l2
-          const col = c1 || c2 || '1'
-          return `<span class="clickable-line" data-line="${line}" data-col="${col}">${match}</span>`
-        })
-      })
-      .join('\n')
-
-    this.parts.console.innerHTML = html
-    this.parts.console.scrollTop = this.parts.console.scrollHeight
-
-    // Add click handlers
-    this.parts.console.querySelectorAll('.clickable-line').forEach((el) => {
-      el.addEventListener('click', (e) => {
-        const target = e.currentTarget as HTMLElement
-        const line = parseInt(target.dataset.line || '0', 10)
-        const col = parseInt(target.dataset.col || '1', 10)
-        if (line > 0) {
-          this.goToSourceLine(line, col)
-        }
-      })
-    })
+    renderConsoleMessages(
+      this.consoleMessages,
+      this.parts.console,
+      (line, col) => this.goToSourceLine(line, col)
+    )
   }
 
   // Navigate to a specific line in the source editor
@@ -407,11 +384,9 @@ export class TSPlayground extends Component<TSPlaygroundParts> {
         this.updateDocs(jsResult)
 
         // Show timing: TS->TJS + TJS->JS = total
-        const formatTime = (t: number) =>
-          t < 1 ? `${(t * 1000).toFixed(0)}μs` : `${t.toFixed(2)}ms`
-        this.parts.statusBar.textContent = `TS→TJS ${formatTime(
+        this.parts.statusBar.textContent = `TS→TJS ${formatExecTime(
           this.lastTsToTjsTime
-        )} + TJS→JS ${formatTime(this.lastTjsToJsTime)} = ${formatTime(
+        )} + TJS→JS ${formatExecTime(this.lastTjsToJsTime)} = ${formatExecTime(
           this.lastTranspileTime
         )}`
         this.parts.statusBar.classList.remove('error')
@@ -456,69 +431,12 @@ export class TSPlayground extends Component<TSPlaygroundParts> {
   }
 
   private updateTestResults(tests: any[]) {
-    if (!tests || tests.length === 0) {
-      this.parts.testsOutput.textContent = 'No tests defined'
-      this.parts.tsEditor.clearMarkers()
-      return
-    }
-
-    const passed = tests.filter((t) => t.passed).length
-    const failed = tests.filter((t) => !t.passed).length
-
-    // Set gutter markers for failed tests
-    const failedTests = tests.filter((t: any) => !t.passed && t.line)
-    if (failedTests.length > 0) {
-      this.parts.tsEditor.setMarkers(
-        failedTests.map((t: any) => ({
-          line: t.line,
-          message: t.error || t.description,
-          severity: 'error' as const,
-        }))
-      )
-    } else {
-      this.parts.tsEditor.clearMarkers()
-    }
-
-    let html = `<div class="test-summary">`
-    html += `<strong>${passed} passed</strong>`
-    if (failed > 0) {
-      html += `, <strong class="test-failed">${failed} failed</strong>`
-    }
-    html += `</div><ul class="test-list">`
-
-    for (const test of tests) {
-      const icon = test.passed ? '✓' : '✗'
-      const cls = test.passed ? 'test-pass' : 'test-fail'
-      const sigBadge = test.isSignatureTest
-        ? ' <span class="sig-badge">signature</span>'
-        : ''
-      const dataLine = test.line ? ` data-line="${test.line}"` : ''
-      html += `<li class="${cls}"${dataLine}>${icon} ${test.description}${sigBadge}`
-      if (!test.passed && test.error) {
-        html += `<div class="test-error${
-          test.line ? ' clickable-error' : ''
-        }"${dataLine}>${test.error}</div>`
-      }
-      html += `</li>`
-    }
-    html += `</ul>`
-
-    this.parts.testsOutput.innerHTML = html
-
-    // Add click handlers for clickable errors
-    this.parts.testsOutput
-      .querySelectorAll('.clickable-error')
-      .forEach((el) => {
-        el.addEventListener('click', (e) => {
-          const line = parseInt(
-            (e.currentTarget as HTMLElement).dataset.line || '0',
-            10
-          )
-          if (line > 0) {
-            this.goToSourceLine(line)
-          }
-        })
-      })
+    renderTestResults(
+      tests,
+      this.parts.testsOutput,
+      this.parts.tsEditor,
+      (line) => this.goToSourceLine(line)
+    )
   }
 
   private updateDocs(result: any) {
@@ -557,6 +475,9 @@ export class TSPlayground extends Component<TSPlaygroundParts> {
       return
     }
 
+    // Show JS output immediately after successful transpilation
+    this.parts.outputTabs.value = 1 // JS is second tab (index 1)
+
     this.parts.statusBar.textContent = 'Running...'
 
     try {
@@ -586,87 +507,30 @@ export class TSPlayground extends Component<TSPlaygroundParts> {
       }
 
       // Create iframe document
-      const iframeDoc = `<!DOCTYPE html>
-<html>
-<head>
-  <style>${cssContent}</style>
-  ${importMapScript}
-</head>
-<body>
-  ${htmlContent}
-  <script type="module">
-    // TJS Runtime stub for iframe execution
-    globalThis.__tjs = {
-      version: '0.0.0',
-      pushStack: () => {},
-      popStack: () => {},
-      getStack: () => [],
-      typeError: (path, expected, value) => {
-        const actual = value === null ? 'null' : typeof value;
-        const err = new Error(\`Expected \${expected} for '\${path}', got \${actual}\`);
-        err.name = 'MonadicError';
-        err.path = path;
-        err.expected = expected;
-        err.actual = actual;
-        return err;
-      },
-      createRuntime: function() { return this; },
-      Is: (a, b) => {
-        if (a === b) return true;
-        if (a === null || b === null) return a === b;
-        if (typeof a !== typeof b) return false;
-        if (typeof a !== 'object') return false;
-        if (Array.isArray(a) && Array.isArray(b)) {
-          if (a.length !== b.length) return false;
-          return a.every((v, i) => globalThis.__tjs.Is(v, b[i]));
-        }
-        const keysA = Object.keys(a);
-        const keysB = Object.keys(b);
-        if (keysA.length !== keysB.length) return false;
-        return keysA.every(k => globalThis.__tjs.Is(a[k], b[k]));
-      },
-      IsNot: (a, b) => !globalThis.__tjs.Is(a, b),
-    };
-
-    // Capture console.log
-    const _log = console.log;
-    console.log = (...args) => {
-      _log(...args);
-      parent.postMessage({ type: 'console', message: args.map(a =>
-        typeof a === 'object' ? JSON.stringify(a, null, 2) : String(a)
-      ).join(' ') }, '*');
-    };
-
-    try {
-      const __execStart = performance.now();
-      ${jsCode}
-      const __execTime = performance.now() - __execStart;
-      parent.postMessage({ type: 'timing', execTime: __execTime }, '*');
-    } catch (e) {
-      parent.postMessage({ type: 'error', message: e.message }, '*');
-    }
-  </script>
-</body>
-</html>`
+      const iframeDoc = buildIframeDoc({
+        cssContent,
+        htmlContent,
+        importMapScript,
+        jsCode,
+      })
 
       // Listen for messages from iframe
-      const messageHandler = (event: MessageEvent) => {
-        if (event.data?.type === 'console') {
-          this.log(event.data.message)
-        } else if (event.data?.type === 'timing') {
-          // Update console header with execution time
-          const execTime = event.data.execTime
-          const execStr =
-            execTime < 1
-              ? `${(execTime * 1000).toFixed(0)}μs`
-              : `${execTime.toFixed(2)}ms`
-          this.parts.consoleHeader.textContent = `Console — executed in ${execStr}`
-        } else if (event.data?.type === 'error') {
-          this.log(`Error: ${event.data.message}`)
+      const messageHandler = createIframeMessageHandler({
+        onConsole: (message) => this.log(message),
+        onTiming: (execTime) => {
+          this.parts.consoleHeader.textContent = `Console — executed in ${formatExecTime(
+            execTime
+          )}`
+        },
+        onPreviewContent: () => {
+          this.parts.outputTabs.value = 2 // Preview is third tab (index 2)
+        },
+        onError: (message) => {
+          this.log(`Error: ${message}`)
           this.parts.statusBar.textContent = 'Runtime error'
           this.parts.statusBar.classList.add('error')
-        }
-      }
+        },
+      })
       window.addEventListener('message', messageHandler)
 
       // Set iframe content
@@ -675,7 +539,6 @@ export class TSPlayground extends Component<TSPlaygroundParts> {
       // Wait a bit for execution, then clean up listener
       setTimeout(() => {
         window.removeEventListener('message', messageHandler)
-        // Don't overwrite status bar - keep showing transpile time
       }, 1000)
     } catch (e: any) {
       this.log(`Error: ${e.message}`)
@@ -728,16 +591,9 @@ export class TSPlayground extends Component<TSPlaygroundParts> {
 export const tsPlayground = TSPlayground.elementCreator({
   tag: 'ts-playground',
   styleSpec: {
-    ':host': {
-      display: 'flex',
-      flexDirection: 'column',
-      height: '100%',
-      flex: '1 1 auto',
-      background: 'var(--background, #fff)',
-      color: 'var(--text-color, #1f2937)',
-      fontFamily: 'system-ui, sans-serif',
-    },
+    ...sharedPlaygroundStyles,
 
+    // TS-specific: toolbar
     ':host .ts-toolbar': {
       display: 'flex',
       alignItems: 'center',
@@ -747,96 +603,14 @@ export const tsPlayground = TSPlayground.elementCreator({
       borderBottom: '1px solid var(--code-border, #e5e7eb)',
     },
 
-    ':host .run-btn': {
-      display: 'flex',
-      alignItems: 'center',
-      gap: '4px',
-      padding: '6px 12px',
-      background: 'var(--brand-color, #3178c6)', // TypeScript blue
-      color: 'var(--brand-text-color, white)',
-      border: 'none',
-      borderRadius: '6px',
-      cursor: 'pointer',
-      fontWeight: '500',
-      fontSize: '14px',
-    },
-
-    ':host .run-btn:hover': {
-      filter: 'brightness(1.1)',
-    },
-
-    ':host .toolbar-separator': {
-      width: '1px',
-      height: '20px',
-      background: 'var(--code-border, #d1d5db)',
-    },
-
-    ':host .build-flags': {
-      display: 'flex',
-      alignItems: 'center',
-      gap: '12px',
-    },
-
-    ':host .flag-label': {
-      display: 'flex',
-      alignItems: 'center',
-      gap: '4px',
-      fontSize: '13px',
-      color: 'var(--text-color, #6b7280)',
-      cursor: 'pointer',
-      userSelect: 'none',
-    },
-
-    ':host .flag-label:hover': {
-      color: 'var(--text-color, #374151)',
-    },
-
+    // TS-specific: TypeScript blue brand color for checkboxes
     ':host .flag-label input[type="checkbox"]': {
       margin: '0',
       cursor: 'pointer',
       accentColor: 'var(--brand-color, #3178c6)',
     },
 
-    ':host .revert-btn': {
-      display: 'flex',
-      alignItems: 'center',
-      gap: '4px',
-      padding: '6px 12px',
-      background: 'var(--code-background, #e5e7eb)',
-      color: 'var(--text-color, #374151)',
-      border: '1px solid var(--code-border, #d1d5db)',
-      borderRadius: '6px',
-      cursor: 'pointer',
-      fontWeight: '500',
-      fontSize: '14px',
-      transition: 'opacity 0.2s',
-    },
-
-    ':host .revert-btn:hover:not(:disabled)': {
-      background: '#fef3c7',
-      borderColor: '#f59e0b',
-      color: '#92400e',
-    },
-
-    ':host .revert-btn:disabled': {
-      cursor: 'default',
-    },
-
-    ':host .elastic': {
-      flex: '1',
-    },
-
-    ':host .status-bar': {
-      fontSize: '13px',
-      color: 'var(--text-color, #6b7280)',
-      opacity: '0.7',
-    },
-
-    ':host .status-bar.error': {
-      color: '#dc2626',
-      opacity: '1',
-    },
-
+    // TS-specific: layout
     ':host .ts-main': {
       display: 'flex',
       flex: '1 1 auto',
@@ -862,28 +636,7 @@ export const tsPlayground = TSPlayground.elementCreator({
       height: '100%',
     },
 
-    ':host tosi-tabs > [name]': {
-      background: 'var(--background, #fff)',
-      color: 'var(--text-color, #1f2937)',
-    },
-
-    ':host .editor-wrapper': {
-      flex: '1 1 auto',
-      height: '100%',
-      minHeight: '300px',
-      position: 'relative',
-      overflow: 'hidden',
-    },
-
-    ':host .editor-wrapper code-mirror': {
-      display: 'block',
-      position: 'absolute',
-      top: '0',
-      left: '0',
-      right: '0',
-      bottom: '0',
-    },
-
+    // TS-specific: TJS output toolbar and buttons
     ':host .output-toolbar': {
       display: 'flex',
       gap: '8px',
@@ -926,129 +679,12 @@ export const tsPlayground = TSPlayground.elementCreator({
       background: 'var(--background, #fff)',
     },
 
-    ':host .preview-frame': {
-      width: '100%',
-      height: '100%',
-      border: 'none',
-    },
-
-    ':host .docs-output': {
-      display: 'block',
-      padding: '12px 16px',
-      fontSize: '14px',
-      fontFamily: 'system-ui, sans-serif',
-      color: 'var(--text-color, inherit)',
-      background: 'var(--background, #fff)',
-      height: '100%',
-      overflow: 'auto',
-    },
-
-    ':host .tests-output': {
-      padding: '12px',
-      fontSize: '14px',
-      fontFamily: 'system-ui, sans-serif',
-      color: 'var(--text-color, inherit)',
-      background: 'var(--background, #fff)',
-      height: '100%',
-      overflow: 'auto',
-    },
-
-    ':host .test-summary': {
-      marginBottom: '12px',
-      paddingBottom: '8px',
-      borderBottom: '1px solid var(--code-border, #e5e7eb)',
-    },
-
-    ':host .test-failed': {
-      color: '#dc2626',
-    },
-
-    ':host .test-list': {
-      listStyle: 'none',
-      padding: 0,
-      margin: 0,
-    },
-
-    ':host .test-list li': {
-      padding: '4px 0',
-    },
-
-    ':host .test-pass': {
-      color: '#16a34a',
-    },
-
-    ':host .test-fail': {
-      color: '#dc2626',
-    },
-
-    ':host .test-error': {
-      marginLeft: '20px',
-      marginTop: '4px',
-      padding: '8px',
-      background: 'rgba(220, 38, 38, 0.1)',
-      borderRadius: '4px',
-      fontSize: '13px',
-      fontFamily: 'var(--font-mono, monospace)',
-    },
-
-    ':host .clickable-error': {
-      cursor: 'pointer',
-      textDecoration: 'underline',
-      textDecorationStyle: 'dotted',
-    },
-
-    ':host .clickable-error:hover': {
-      background: 'rgba(220, 38, 38, 0.2)',
-    },
-
-    ':host .sig-badge': {
-      fontSize: '11px',
-      padding: '2px 6px',
-      marginLeft: '8px',
-      background: 'rgba(99, 102, 241, 0.1)',
-      color: '#6366f1',
-      borderRadius: '4px',
-    },
-
+    // TS-specific: console container class name
     ':host .ts-console': {
       height: '120px',
       borderTop: '1px solid var(--code-border, #e5e7eb)',
       display: 'flex',
       flexDirection: 'column',
-    },
-
-    ':host .console-header': {
-      padding: '4px 12px',
-      background: 'var(--code-background, #f3f4f6)',
-      fontSize: '12px',
-      fontWeight: '500',
-      color: 'var(--text-color, #6b7280)',
-      opacity: '0.7',
-      borderBottom: '1px solid var(--code-border, #e5e7eb)',
-    },
-
-    ':host .console-output': {
-      flex: '1',
-      margin: '0',
-      padding: '8px 12px',
-      background: 'var(--code-background, #f3f4f6)',
-      color: 'var(--text-color, #1f2937)',
-      fontSize: '12px',
-      fontFamily: 'ui-monospace, monospace',
-      overflow: 'auto',
-      whiteSpace: 'pre-wrap',
-    },
-
-    ':host .clickable-line': {
-      cursor: 'pointer',
-      color: '#2563eb',
-      textDecoration: 'underline',
-      textDecorationStyle: 'dotted',
-    },
-
-    ':host .clickable-line:hover': {
-      color: '#1d4ed8',
-      background: 'rgba(37, 99, 235, 0.1)',
     },
   },
 }) as ElementCreator<TSPlayground>
