@@ -1052,6 +1052,9 @@ export class TJSPlayground extends Component<TJSPlaygroundParts> {
       return
     }
 
+    // Show JS output immediately after successful transpilation
+    this.parts.outputTabs.value = 0 // JS is first tab (index 0)
+
     this.parts.statusBar.textContent = 'Running...'
 
     try {
