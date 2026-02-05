@@ -16,11 +16,10 @@ Complete REST-style Todo API with persistence
 const todos = new Map()
 let nextId = 1
 
-// Types
-type Todo = { id: number, title: string, completed: boolean, createdAt: string }
-type CreateInput = { title: 'Buy milk' }
-type UpdateInput = { id: 1, title: 'Buy milk', completed: false }
-type FilterInput = { completed: true } | { completed: false } | {}
+// Types are inferred from function signatures below
+// Todo: { id: 0, title: '', completed: false, createdAt: '' }
+// CreateInput: { title: 'Buy milk' }
+// UpdateInput: { id: 1, title: 'Buy milk', completed: false }
 
 // POST /todos - Create
 export function createTodo(input: { title: 'New todo' })

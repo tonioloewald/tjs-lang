@@ -4,46 +4,28 @@
 
 LLM writes and runs code to solve a problem (requires llm capability)
 
-```javascript
+````javascript
 function solveWithCode({ problem = 'Calculate the 10th Fibonacci number' }) {
   // System prompt with AsyncJS rules and example
-  let systemContext = \`You write AsyncJS code. AsyncJS is a JavaScript subset.
+  let systemContext =
+    'You write AsyncJS code. AsyncJS is a JavaScript subset.\n\nRULES:\n- NO: async, await, new, class, this, var, for loops\n- Use let for variables, while for loops\n- Return an object: return { result }\n\nEXAMPLE (factorial):\nfunction solve() {\n  let result = 1\n  let i = 5\n  while (i > 1) {\n    result = result * i\n    i = i - 1\n  }\n  return { result }\n}\n\nReturn ONLY the function code, nothing else.'
 
-RULES:
-- NO: async, await, new, class, this, var, for loops
-- Use let for variables, while for loops
-- Return an object: return { result }
-
-EXAMPLE (factorial):
-function solve() {
-  let result = 1
-  let i = 5
-  while (i > 1) {
-    result = result * i
-    i = i - 1
-  }
-  return { result }
-}
-
-Return ONLY the function code, nothing else.\`
-
-  let prompt = \`\${systemContext}
-
-Write a function called "solve" that: \${problem}\`
+  let prompt =
+    systemContext + '\n\nWrite a function called "solve" that: ' + problem
 
   let response = llmPredict({ prompt })
 
   // Clean up code - remove markdown fences, fix escapes, extract function
   let code = response
-  code = code.replace(/\`\`\`(?:javascript|js|asyncjs)?\\n?/g, '')
-  code = code.replace(/\\n?\`\`\`/g, '')
-  code = code.replace(/\\\\n/g, '\\n')
-  code = code.replace(/\\\\t/g, '\\t')
-  code = code.replace(/\\\\"/g, '"')
+  code = code.replace(/```(?:javascript|js|asyncjs)?\n?/g, '')
+  code = code.replace(/\n?```/g, '')
+  code = code.replace(/\\n/g, '\n')
+  code = code.replace(/\\t/g, '\t')
+  code = code.replace(/\\"/g, '"')
   code = code.trim()
 
   // Try to extract just the function if there's extra text
-  let funcMatch = code.match(/function\\s+solve\\s*\\([^)]*\\)\\s*\\{[\\s\\S]*\\}/)
+  let funcMatch = code.match(/function\s+solve\s*\([^)]*\)\s*\{[\s\S]*\}/)
   if (funcMatch) {
     code = funcMatch[0]
   }
@@ -53,7 +35,7 @@ Write a function called "solve" that: \${problem}\`
     return {
       problem,
       error: 'LLM did not generate valid code',
-      rawResponse: response
+      rawResponse: response,
     }
   }
 
@@ -63,7 +45,7 @@ Write a function called "solve" that: \${problem}\`
   return {
     problem,
     generatedCode: code,
-    result: output.result
+    result: output.result,
   }
 }
-```
+````

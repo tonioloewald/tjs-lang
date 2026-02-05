@@ -8,10 +8,10 @@ Fetch and summarize text (requires llm capability)
 function summarize({ source = 'coffee-origins' }) {
   // Fetch text from our sample documents
   // Options: 'coffee-origins', 'ai-history', 'renewable-energy'
-  let url = \`/texts/\${source}.txt\`
+  let url = '/texts/' + source + '.txt'
   let text = httpFetch({ url })
 
-  let prompt = \`Summarize the following text in 2-3 sentences:\n\n\${text}\`
+  let prompt = 'Summarize the following text in 2-3 sentences:\n\n' + text
   let summary = llmPredict({ prompt })
   return { source, summary }
 }

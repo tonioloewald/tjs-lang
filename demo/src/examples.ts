@@ -103,7 +103,7 @@ export const examples: Example[] = [
     description: 'Fetch weather data (no API key needed)',
     group: 'api',
     code: `function getWeather({ lat = 37.7749, lon = -122.4194 }) {
-  let url = \`https://api.open-meteo.com/v1/forecast?latitude=\${lat}&longitude=\${lon}&current_weather=true\`
+  let url = 'https://api.open-meteo.com/v1/forecast?latitude=' + lat + '&longitude=' + lon + '&current_weather=true'
   let response = httpFetch({ url, cache: 1800 })
   let weather = response.current_weather
   return { weather }
@@ -114,7 +114,7 @@ export const examples: Example[] = [
     description: 'Search Apple iTunes catalog',
     group: 'api',
     code: `function searchMusic({ query = 'Beatles', limit = 5 }) {
-  let url = \`https://itunes.apple.com/search?term=\${query}&limit=\${limit}&media=music\`
+  let url = 'https://itunes.apple.com/search?term=' + query + '&limit=' + limit + '&media=music'
   let response = httpFetch({ url, cache: 3600 })
   let tracks = response.results.map(x => ({
     artist: x.artistName,
@@ -129,7 +129,7 @@ export const examples: Example[] = [
     description: 'Search GitHub repositories',
     group: 'api',
     code: `function searchRepos({ query = 'tosijs', perPage = 5 }) {
-  let url = \`https://api.github.com/search/repositories?q=\${query}&per_page=\${perPage}&sort=stars\`
+  let url = 'https://api.github.com/search/repositories?q=' + query + '&per_page=' + perPage + '&sort=stars'
   let response = httpFetch({ url, cache: 300 })
   let repos = response.items.map(x => ({
     name: x.full_name,
@@ -158,10 +158,10 @@ export const examples: Example[] = [
     code: `function summarize({ source = 'coffee-origins' }) {
   // Fetch text from our sample documents
   // Options: 'coffee-origins', 'ai-history', 'renewable-energy'
-  let url = \`/texts/\${source}.txt\`
+  let url = '/texts/' + source + '.txt'
   let text = httpFetch({ url })
 
-  let prompt = \`Summarize the following text in 2-3 sentences:\n\n\${text}\`
+  let prompt = 'Summarize the following text in 2-3 sentences:\\n\\n' + text
   let summary = llmPredict({ prompt })
   return { source, summary }
 }`,
@@ -181,7 +181,7 @@ export const examples: Example[] = [
     hobbies: ['']
   })
 
-  let prompt = \`Extract person info from this text: \${text}\`
+  let prompt = 'Extract person info from this text: ' + text
   let response = llmPredict({ prompt, options: { responseFormat: schema } })
   let person = JSON.parse(response)
   return { person }
@@ -195,12 +195,12 @@ export const examples: Example[] = [
     code: `function findCovers({ song = 'Yesterday', artist = 'Beatles' }) {
   // Search iTunes for the song
   let query = song + ' ' + artist
-  let url = \`https://itunes.apple.com/search?term=\${query}&limit=25&media=music\`
+  let url = 'https://itunes.apple.com/search?term=' + query + '&limit=25&media=music'
   let response = httpFetch({ url, cache: 3600 })
 
   // Format results for LLM analysis
   let results = response.results || []
-  let tracks = results.map(x => \`"\${x.trackName}" by \${x.artistName} (\${x.collectionName})\`)
+  let tracks = results.map(x => '"' + x.trackName + '" by ' + x.artistName + ' (' + x.collectionName + ')')
   let trackList = tracks.join('\\n')
 
   // Schema.response from example - much cleaner!
@@ -208,11 +208,7 @@ export const examples: Example[] = [
     covers: [{ track: '', artist: '', album: '' }]
   })
 
-  let prompt = \`Search results for "\${song}" by \${artist}:
-
-\${trackList}
-
-List cover versions (tracks NOT by \${artist}).\`
+  let prompt = 'Search results for "' + song + '" by ' + artist + ':\\n\\n' + trackList + '\\n\\nList cover versions (tracks NOT by ' + artist + ').'
 
   let llmResponse = llmPredict({ prompt, options: { responseFormat: schema } })
   let parsed = JSON.parse(llmResponse)
@@ -226,19 +222,15 @@ List cover versions (tracks NOT by \${artist}).\`
     requiresApi: true,
     code: `function mathAssistant({ question = 'What is 23 * 47 + 156?' }) {
   // First, ask LLM to extract the calculation
-  let extractPrompt = \`Extract the math expression from this question. Return ONLY the expression, nothing else.
-Question: \${question}\`
+  let extractPrompt = 'Extract the math expression from this question. Return ONLY the expression, nothing else.\\nQuestion: ' + question
   let expression = llmPredict({ prompt: extractPrompt })
 
   // Evaluate the expression (simple eval simulation)
-  let calcPrompt = \`Calculate: \${expression}
-Return ONLY the numeric result.\`
+  let calcPrompt = 'Calculate: ' + expression + '\\nReturn ONLY the numeric result.'
   let calcResult = llmPredict({ prompt: calcPrompt })
 
   // Format the answer
-  let answerPrompt = \`The user asked: "\${question}"
-The calculated result is: \${calcResult}
-Write a brief, friendly response with the answer.\`
+  let answerPrompt = 'The user asked: "' + question + '"\\nThe calculated result is: ' + calcResult + '\\nWrite a brief, friendly response with the answer.'
   let answer = llmPredict({ prompt: answerPrompt })
 
   return { question, expression: expression.trim(), result: calcResult.trim(), answer }
@@ -251,26 +243,15 @@ Write a brief, friendly response with the answer.\`
     requiresApi: true,
     code: `function collaborativeWriting({ topic = 'the future of renewable energy' }) {
   // Agent 1: Research Agent - generates key points
-  let researchPrompt = \`You are a research agent. Generate 3 key facts or points about: \${topic}
-Format as a numbered list. Be concise.\`
+  let researchPrompt = 'You are a research agent. Generate 3 key facts or points about: ' + topic + '\\nFormat as a numbered list. Be concise.'
   let research = llmPredict({ prompt: researchPrompt })
 
   // Agent 2: Writer Agent - creates content from research
-  let writerPrompt = \`You are a writer agent. Using these research points:
-
-\${research}
-
-Write a short, engaging paragraph (2-3 sentences) about \${topic}.
-Make it informative and accessible.\`
+  let writerPrompt = 'You are a writer agent. Using these research points:\\n\\n' + research + '\\n\\nWrite a short, engaging paragraph (2-3 sentences) about ' + topic + '.\\nMake it informative and accessible.'
   let article = llmPredict({ prompt: writerPrompt })
 
   // Agent 3: Editor Agent - reviews and improves
-  let editorPrompt = \`You are an editor agent. Review this draft:
-
-"\${article}"
-
-Suggest one specific improvement. Then provide the improved version.
-Format: "Suggestion: [your suggestion]\\n\\nImproved: [improved text]"\`
+  let editorPrompt = 'You are an editor agent. Review this draft:\\n\\n"' + article + '"\\n\\nSuggest one specific improvement. Then provide the improved version.\\nFormat: "Suggestion: [your suggestion]\\n\\nImproved: [improved text]"'
   let edited = llmPredict({ prompt: editorPrompt })
 
   return {
@@ -357,36 +338,16 @@ Format: "Suggestion: [your suggestion]\\n\\nImproved: [improved text]"\`
     requiresApi: true,
     code: `function solveWithCode({ problem = 'Calculate the 10th Fibonacci number' }) {
   // System prompt with AsyncJS rules and example
-  let systemContext = \`You write AsyncJS code. AsyncJS is a JavaScript subset.
+  let systemContext = 'You write AsyncJS code. AsyncJS is a JavaScript subset.\\n\\nRULES:\\n- NO: async, await, new, class, this, var, for loops\\n- Use let for variables, while for loops\\n- Return an object: return { result }\\n\\nEXAMPLE (factorial):\\nfunction solve() {\\n  let result = 1\\n  let i = 5\\n  while (i > 1) {\\n    result = result * i\\n    i = i - 1\\n  }\\n  return { result }\\n}\\n\\nReturn ONLY the function code, nothing else.'
 
-RULES:
-- NO: async, await, new, class, this, var, for loops
-- Use let for variables, while for loops
-- Return an object: return { result }
-
-EXAMPLE (factorial):
-function solve() {
-  let result = 1
-  let i = 5
-  while (i > 1) {
-    result = result * i
-    i = i - 1
-  }
-  return { result }
-}
-
-Return ONLY the function code, nothing else.\`
-
-  let prompt = \`\${systemContext}
-
-Write a function called "solve" that: \${problem}\`
+  let prompt = systemContext + '\\n\\nWrite a function called "solve" that: ' + problem
 
   let response = llmPredict({ prompt })
 
   // Clean up code - remove markdown fences, fix escapes, extract function
   let code = response
-  code = code.replace(/\`\`\`(?:javascript|js|asyncjs)?\\n?/g, '')
-  code = code.replace(/\\n?\`\`\`/g, '')
+  code = code.replace(/\\\`\\\`\\\`(?:javascript|js|asyncjs)?\\n?/g, '')
+  code = code.replace(/\\n?\\\`\\\`\\\`/g, '')
   code = code.replace(/\\\\n/g, '\\n')
   code = code.replace(/\\\\t/g, '\\t')
   code = code.replace(/\\\\"/g, '"')
@@ -425,43 +386,22 @@ Write a function called "solve" that: \${problem}\`
     requiresApi: true,
     code: `function generateCode({ task = 'Calculate the factorial of n' }) {
   // System prompt with AsyncJS rules and complete example
-  let systemContext = \`You write AsyncJS code. AsyncJS is a subset of JavaScript.
-
-RULES:
-- Types by example: fn(n: 5) means required number param with example value 5
-- NO: async, await, new, class, this, var, for, generator functions (function*)
-- Use let for variables, while for loops
-- Return an object: return { result }
-
-EXAMPLE - calculating sum of 1 to n:
-function sumTo(n: 10) {
-  let sum = 0
-  let i = 1
-  while (i <= n) {
-    sum = sum + i
-    i = i + 1
-  }
-  return { result: sum }
-}\`
+  let systemContext = 'You write AsyncJS code. AsyncJS is a subset of JavaScript.\\n\\nRULES:\\n- Types by example: fn(n: 5) means required number param with example value 5\\n- NO: async, await, new, class, this, var, for, generator functions (function*)\\n- Use let for variables, while for loops\\n- Return an object: return { result }\\n\\nEXAMPLE - calculating sum of 1 to n:\\nfunction sumTo(n: 10) {\\n  let sum = 0\\n  let i = 1\\n  while (i <= n) {\\n    sum = sum + i\\n    i = i + 1\\n  }\\n  return { result: sum }\\n}'
 
   let schema = Schema.response('generated_code', {
     code: '',
     description: ''
   })
 
-  let prompt = \`\${systemContext}
-
-Write an AsyncJS function for: \${task}
-
-Return ONLY valid AsyncJS code in the code field. Must start with "function" and use while loops (not for loops).\`
+  let prompt = systemContext + '\\n\\nWrite an AsyncJS function for: ' + task + '\\n\\nReturn ONLY valid AsyncJS code in the code field. Must start with "function" and use while loops (not for loops).'
 
   let response = llmPredict({ prompt, options: { responseFormat: schema } })
   let result = JSON.parse(response)
 
   // Clean up any markdown fences and fix escaped newlines
   let code = result.code
-  code = code.replace(/\`\`\`(?:javascript|js)?\\n?/g, '')
-  code = code.replace(/\\n?\`\`\`/g, '')
+  code = code.replace(/\\\`\\\`\\\`(?:javascript|js)?\\n?/g, '')
+  code = code.replace(/\\n?\\\`\\\`\\\`/g, '')
   code = code.replace(/\\\\n/g, '\\n')
   code = code.replace(/\\\\t/g, '\\t')
   code = code.trim()

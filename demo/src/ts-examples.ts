@@ -382,25 +382,26 @@ main()
     description: 'Classes are supported with metadata',
     group: 'advanced',
     code: `// Classes with typed methods
+// Note: return types omitted on methods — TJS infers them
 
 class Calculator {
   private value: number = 0
 
-  add(n: number): Calculator {
+  add(n: number) {
     this.value += n
     return this
   }
 
-  multiply(n: number): Calculator {
+  multiply(n: number) {
     this.value *= n
     return this
   }
 
-  getResult(): number {
+  getResult() {
     return this.value
   }
 
-  reset(): void {
+  reset() {
     this.value = 0
   }
 }

@@ -1493,6 +1493,41 @@ function runAllTests(
             if (!__deepEqual(actual, expected)) {
               throw new Error('Expected ' + __format(expected) + ' but got ' + __format(actual))
             }
+          },
+          toContain(item) {
+            if (!Array.isArray(actual) || !actual.some(function(v) { return __deepEqual(v, item) })) {
+              throw new Error('Expected ' + __format(actual) + ' to contain ' + __format(item))
+            }
+          },
+          toBeTruthy() {
+            if (!actual) {
+              throw new Error('Expected ' + __format(actual) + ' to be truthy')
+            }
+          },
+          toBeFalsy() {
+            if (actual) {
+              throw new Error('Expected ' + __format(actual) + ' to be falsy')
+            }
+          },
+          toBeNull() {
+            if (actual !== null) {
+              throw new Error('Expected null but got ' + __format(actual))
+            }
+          },
+          toBeUndefined() {
+            if (actual !== undefined) {
+              throw new Error('Expected undefined but got ' + __format(actual))
+            }
+          },
+          toBeGreaterThan(n) {
+            if (!(actual > n)) {
+              throw new Error('Expected ' + __format(actual) + ' to be greater than ' + n)
+            }
+          },
+          toBeLessThan(n) {
+            if (!(actual < n)) {
+              throw new Error('Expected ' + __format(actual) + ' to be less than ' + n)
+            }
           }
         }
       }
@@ -1633,6 +1668,41 @@ function runTestBlocks(
               toEqual(expected) {
                 if (!__deepEqual(actual, expected)) {
                   throw new Error('Expected ' + __format(expected) + ' but got ' + __format(actual))
+                }
+              },
+              toContain(item) {
+                if (!Array.isArray(actual) || !actual.some(function(v) { return __deepEqual(v, item) })) {
+                  throw new Error('Expected ' + __format(actual) + ' to contain ' + __format(item))
+                }
+              },
+              toBeTruthy() {
+                if (!actual) {
+                  throw new Error('Expected ' + __format(actual) + ' to be truthy')
+                }
+              },
+              toBeFalsy() {
+                if (actual) {
+                  throw new Error('Expected ' + __format(actual) + ' to be falsy')
+                }
+              },
+              toBeNull() {
+                if (actual !== null) {
+                  throw new Error('Expected null but got ' + __format(actual))
+                }
+              },
+              toBeUndefined() {
+                if (actual !== undefined) {
+                  throw new Error('Expected undefined but got ' + __format(actual))
+                }
+              },
+              toBeGreaterThan(n) {
+                if (!(actual > n)) {
+                  throw new Error('Expected ' + __format(actual) + ' to be greater than ' + n)
+                }
+              },
+              toBeLessThan(n) {
+                if (!(actual < n)) {
+                  throw new Error('Expected ' + __format(actual) + ' to be less than ' + n)
                 }
               }
             }
