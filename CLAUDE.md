@@ -451,7 +451,7 @@ The transpiler generates code like:
  *   )
  */
 const add = await (async () => {
-  const bytes = Uint8Array.from(atob('AGFzbQEAAAA...'), c => c.charCodeAt(0))
+  const bytes = Uint8Array.from(atob('AGFzbQEAAAA...'), (c) => c.charCodeAt(0))
   const { instance } = await WebAssembly.instantiate(bytes)
   return instance.exports.fn
 })()

@@ -19,6 +19,6 @@
     "firebase-functions": "^5.0.0"
   },
   "devDependencies": {
-    "tjs-lang": "file:.."
+    "tjs-lang": "^0.2.8"
   }
 }

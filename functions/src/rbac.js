@@ -1,5 +1,5 @@
-import { Eval, SafeFunction } from 'tjs-lang';
-const __tjs = globalThis.__tjs?.createRuntime?.() ?? globalThis.__tjs;
+import { Eval, SafeFunction } from 'tjs-lang'
+const __tjs = globalThis.__tjs?.createRuntime?.() ?? globalThis.__tjs
 /*#
 # RBAC Security Rules
 
@@ -30,23 +30,23 @@ function db() {
   return _db
 }
 db.__tjs = {
-  "params": {},
-  "unsafe": true,
-  "source": "rbac.tjs:26"
+  params: {},
+  unsafe: true,
+  source: 'rbac.tjs:26',
 }
 
 // Security rules cache
 const securityRulesCache = {
   data: new Map(),
   timestamp: 0,
-  ttl: 60000 // 60 seconds
+  ttl: 60000, // 60 seconds
 }
 
 export async function getSecurityRule(collection) {
   const now = Date.now()
 
   // Check cache freshness
-  if ((now - securityRulesCache.timestamp) >= securityRulesCache.ttl) {
+  if (now - securityRulesCache.timestamp >= securityRulesCache.ttl) {
     securityRulesCache.data.clear()
     securityRulesCache.timestamp = now
   }
@@ -64,16 +64,16 @@ export async function getSecurityRule(collection) {
   return rule
 }
 getSecurityRule.__tjs = {
-  "params": {
-    "collection": {
-      "type": {
-        "kind": "any"
+  params: {
+    collection: {
+      type: {
+        kind: 'any',
       },
-      "required": false
-    }
+      required: false,
+    },
   },
-  "unsafe": true,
-  "source": "rbac.tjs:38"
+  unsafe: true,
+  source: 'rbac.tjs:38',
 }
 
 /*#
@@ -147,22 +147,22 @@ export function evaluateAccessShortcut(accessRule, context) {
   }
 }
 evaluateAccessShortcut.__tjs = {
-  "params": {
-    "accessRule": {
-      "type": {
-        "kind": "any"
+  params: {
+    accessRule: {
+      type: {
+        kind: 'any',
       },
-      "required": false
+      required: false,
     },
-    "context": {
-      "type": {
-        "kind": "any"
+    context: {
+      type: {
+        kind: 'any',
       },
-      "required": false
-    }
+      required: false,
+    },
   },
-  "unsafe": true,
-  "source": "rbac.tjs:75"
+  unsafe: true,
+  source: 'rbac.tjs:75',
 }
 
 /*#
@@ -218,26 +218,31 @@ export async function evaluateSecurityRule(rule, context) {
           reason: 'Schema validation failed: ' + schemaResult.errors.join('; '),
           evalTimeMs,
           fuelUsed: 0,
-          type: 'schema'
+          type: 'schema',
         }
       }
     }
 
     // 3. Run AJS code if present
-    const codeToRun = typeof accessRule === 'object' && accessRule?.code
-      ? accessRule.code
-      : rule.code
+    const codeToRun =
+      typeof accessRule === 'object' && accessRule?.code
+        ? accessRule.code
+        : rule.code
 
     if (codeToRun) {
-      const fuel = (typeof accessRule === 'object' && accessRule?.fuel) || rule.fuel || 100
-      const timeoutMs = (typeof accessRule === 'object' && accessRule?.timeoutMs) || rule.timeoutMs || 1000
+      const fuel =
+        (typeof accessRule === 'object' && accessRule?.fuel) || rule.fuel || 100
+      const timeoutMs =
+        (typeof accessRule === 'object' && accessRule?.timeoutMs) ||
+        rule.timeoutMs ||
+        1000
 
       const result = await Eval({
         code: codeToRun,
         context,
         fuel,
         timeoutMs,
-        capabilities: {} // No capabilities for security rules
+        capabilities: {}, // No capabilities for security rules
       })
 
       const evalTimeMs = performance.now() - startTime
@@ -253,7 +258,13 @@ export async function evaluateSecurityRule(rule, context) {
         reason = result.result.reason
       }
 
-      return { allowed, reason, evalTimeMs, fuelUsed: result.fuelUsed, type: 'code' }
+      return {
+        allowed,
+        reason,
+        evalTimeMs,
+        fuelUsed: result.fuelUsed,
+        type: 'code',
+      }
     }
 
     // 4. No rule matched and shortcut passed - allow (schema-only rules)
@@ -264,31 +275,42 @@ export async function evaluateSecurityRule(rule, context) {
 
     // 5. No rule defined - deny by default
     const evalTimeMs = performance.now() - startTime
-    return { allowed: false, reason: 'No access rule defined', evalTimeMs, fuelUsed: 0, type: 'default' }
-
+    return {
+      allowed: false,
+      reason: 'No access rule defined',
+      evalTimeMs,
+      fuelUsed: 0,
+      type: 'default',
+    }
   } catch (err) {
     const evalTimeMs = performance.now() - startTime
     console.error('Security rule evaluation error:', err.message)
-    return { allowed: false, reason: 'Rule evaluation failed: ' + err.message, evalTimeMs, error: true, type: 'error' }
+    return {
+      allowed: false,
+      reason: 'Rule evaluation failed: ' + err.message,
+      evalTimeMs,
+      error: true,
+      type: 'error',
+    }
   }
 }
 evaluateSecurityRule.__tjs = {
-  "params": {
-    "rule": {
-      "type": {
-        "kind": "any"
+  params: {
+    rule: {
+      type: {
+        kind: 'any',
       },
-      "required": false
+      required: false,
     },
-    "context": {
-      "type": {
-        "kind": "any"
+    context: {
+      type: {
+        kind: 'any',
       },
-      "required": false
-    }
+      required: false,
+    },
   },
-  "unsafe": true,
-  "source": "rbac.tjs:142"
+  unsafe: true,
+  source: 'rbac.tjs:142',
 }
 
 /*#
@@ -310,14 +332,14 @@ export async function loadUserRoles(uid) {
   }
 }
 loadUserRoles.__tjs = {
-  "params": {
-    "uid": {
-      "type": {
-        "kind": "any"
+  params: {
+    uid: {
+      type: {
+        kind: 'any',
       },
-      "required": false
-    }
+      required: false,
+    },
   },
-  "unsafe": true,
-  "source": "rbac.tjs:244"
+  unsafe: true,
+  source: 'rbac.tjs:244',
 }
