@@ -54,7 +54,7 @@ describe('TS → TJS conversion quality', () => {
       const ts = `function sum(nums: number[]): number { return nums.reduce((a, b) => a + b, 0) }`
       const { code } = fromTS(ts, { emitTJS: true })
 
-      expect(code).toContain('nums: [0]')
+      expect(code).toContain('nums: [0.0]')
     })
 
     it('converts object param correctly', () => {
@@ -62,7 +62,7 @@ describe('TS → TJS conversion quality', () => {
       const { code } = fromTS(ts, { emitTJS: true })
 
       expect(code).toContain("name: ''")
-      expect(code).toContain('age: 0')
+      expect(code).toContain('age: 0.0')
     })
 
     it('handles multiple params in order', () => {
@@ -70,7 +70,7 @@ describe('TS → TJS conversion quality', () => {
       const { code } = fromTS(ts, { emitTJS: true })
 
       // Should have both params with colon syntax
-      expect(code).toMatch(/add\(a: 0, b: 0\)/)
+      expect(code).toMatch(/add\(a: 0\.0, b: 0\.0\)/)
     })
 
     it('handles mixed required and optional params', () => {
@@ -228,7 +228,7 @@ class Calculator {
 `
       const { code } = fromTS(ts, { emitTJS: true })
 
-      expect(code).toContain('add(a: 0, b: 0) -! 0')
+      expect(code).toContain('add(a: 0.0, b: 0.0) -! 0.0')
     })
 
     it('converts getters and setters', () => {
@@ -269,7 +269,7 @@ class MathUtils {
 `
       const { code } = fromTS(ts, { emitTJS: true })
 
-      expect(code).toContain('static double(x: 0) -! 0')
+      expect(code).toContain('static double(x: 0.0) -! 0.0')
     })
 
     it('converts async methods', () => {
@@ -396,7 +396,7 @@ describe('TJS → JS transpilation quality', () => {
 
       expect(code).toContain('__tjs')
       // types is now keyed by function name
-      expect(types?.double?.returns?.kind).toBe('number')
+      expect(types?.double?.returns?.kind).toBe('integer')
     })
 
     it('marks required params correctly', () => {
@@ -561,8 +561,8 @@ function greet(name: string): string {
       const { code } = fromTS(ts, { emitTJS: true })
 
       // All functions should be present (TS transpiler uses -! to skip signature tests)
-      expect(code).toContain('function add(a: 0, b: 0) -! 0')
-      expect(code).toContain('function multiply(a: 0, b: 0) -! 0')
+      expect(code).toContain('function add(a: 0.0, b: 0.0) -! 0.0')
+      expect(code).toContain('function multiply(a: 0.0, b: 0.0) -! 0.0')
       expect(code).toContain("function greet(name: '') -! ''")
 
       // Should be valid TJS (no TypeScript syntax remaining)
@@ -738,7 +738,7 @@ function greet(name: '', excited = false) -! '' {
       // add function
       expect(types?.add?.params?.a?.required).toBe(true)
       expect(types?.add?.params?.b?.required).toBe(true)
-      expect(types?.add?.returns?.kind).toBe('number')
+      expect(types?.add?.returns?.kind).toBe('integer')
 
       // greet function
       expect(types?.greet?.params?.name?.required).toBe(true)
@@ -1146,7 +1146,7 @@ function processUser(user: { name: string; age: number }): string {
       // TS → TJS
       const { code: tjsCode } = fromTS(ts, { emitTJS: true })
       expect(tjsCode).toContain("name: ''")
-      expect(tjsCode).toContain('age: 0')
+      expect(tjsCode).toContain('age: 0.0')
 
       // TJS → JS (already has -! from TS transpiler)
       const { code: jsCode, types } = tjs(tjsCode)
@@ -1386,7 +1386,7 @@ function getData(id: 0) -! { value: 0 } {
       expect(result.value).toBeUndefined()
 
       // But error properties are accessible
-      expect(result.message).toContain('Expected number')
+      expect(result.message).toContain('Expected integer')
     })
   })
 

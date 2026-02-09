@@ -563,6 +563,13 @@ export function checkType(
   if (expected === 'number' && actual === 'number') return null
   if (expected === 'integer' && actual === 'number' && Number.isInteger(value))
     return null
+  if (
+    expected === 'non-negative-integer' &&
+    actual === 'number' &&
+    Number.isInteger(value) &&
+    (value as number) >= 0
+  )
+    return null
 
   // Object matching (basic)
   if (expected === 'object' && actual === 'object') return null

@@ -868,6 +868,10 @@ function generateTypeCheckExpr(
       return `typeof ${fieldPath} !== 'string'`
     case 'number':
       return `typeof ${fieldPath} !== 'number'`
+    case 'integer':
+      return `(typeof ${fieldPath} !== 'number' || !Number.isInteger(${fieldPath}))`
+    case 'non-negative-integer':
+      return `(typeof ${fieldPath} !== 'number' || !Number.isInteger(${fieldPath}) || ${fieldPath} < 0)`
     case 'boolean':
       return `typeof ${fieldPath} !== 'boolean'`
     case 'null':

@@ -137,6 +137,70 @@ describe('Type()', () => {
       expect(Email.check(Email.example)).toBe(true)
     })
   })
+
+  describe('Schema examples support', () => {
+    it('extracts examples from schema metadata', () => {
+      const Username = Type(
+        'username',
+        s.string.meta({ examples: ['alice', 'bob', 'charlie'] })
+      )
+
+      expect(Username.examples).toEqual(['alice', 'bob', 'charlie'])
+    })
+
+    it('sets example to first schema example when no explicit example given', () => {
+      const Username = Type(
+        'username',
+        s.string.meta({ examples: ['alice', 'bob'] })
+      )
+
+      expect(Username.example).toBe('alice')
+    })
+
+    it('preserves explicit example over schema examples', () => {
+      const Username = Type(
+        'username',
+        s.string.meta({ examples: ['alice', 'bob'] }),
+        'explicit_user'
+      )
+
+      expect(Username.example).toBe('explicit_user')
+      expect(Username.examples).toEqual(['alice', 'bob'])
+    })
+
+    it('has no examples when schema lacks metadata', () => {
+      const Name = Type('name', s.string)
+
+      expect(Name.examples).toBeUndefined()
+    })
+
+    it('has no examples for predicate-based types', () => {
+      const Even = Type(
+        'even number',
+        (n) => typeof n === 'number' && n % 2 === 0
+      )
+
+      expect(Even.examples).toBeUndefined()
+    })
+
+    it('has no examples for simple form', () => {
+      const Name = Type('name', 'Alice')
+
+      expect(Name.examples).toBeUndefined()
+      expect(Name.example).toBe('Alice')
+    })
+
+    it('validates using schema even with examples', () => {
+      const ShortString = Type(
+        'short string',
+        s.string.max(5).meta({ examples: ['hi', 'hey'] })
+      )
+
+      expect(ShortString.check('hi')).toBe(true)
+      expect(ShortString.check('toolong')).toBe(false)
+      expect(ShortString.examples).toEqual(['hi', 'hey'])
+    })
+  })
 })
 
 describe('Built-in Types', () => {

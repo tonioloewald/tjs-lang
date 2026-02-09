@@ -42,7 +42,7 @@ describe('Basic Types', () => {
           return x * 2
         }
       `)
-      expect(getFirstFunc(metadata).params.x.type.kind).toBe('number')
+      expect(getFirstFunc(metadata).params.x.type.kind).toBe('integer')
     })
 
     test('boolean parameter', () => {
@@ -76,7 +76,7 @@ describe('Basic Types', () => {
         'string'
       )
       expect(getFirstFunc(metadata).params.user.type.shape?.age.kind).toBe(
-        'number'
+        'integer'
       )
     })
 
@@ -101,7 +101,9 @@ describe('Basic Types', () => {
         }
       `)
       expect(getFirstFunc(metadata).params.nums.type.kind).toBe('array')
-      expect(getFirstFunc(metadata).params.nums.type.items?.kind).toBe('number')
+      expect(getFirstFunc(metadata).params.nums.type.items?.kind).toBe(
+        'integer'
+      )
     })
 
     test('array of objects', () => {
@@ -729,7 +731,7 @@ describe('Literal Types', () => {
         return n
       }
     `)
-    expect(getFirstFunc(metadata).params.n.type.kind).toBe('number')
+    expect(getFirstFunc(metadata).params.n.type.kind).toBe('integer')
   })
 
   test('literal union type alias emits TJS Union', () => {

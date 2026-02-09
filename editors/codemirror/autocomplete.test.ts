@@ -432,8 +432,8 @@ const after = 2
 
       expect(metadata).toBeDefined()
       // metadata is now keyed by function name
-      expect(metadata?.add?.params?.a?.type?.kind).toBe('number')
-      expect(metadata?.add?.params?.b?.type?.kind).toBe('number')
+      expect(metadata?.add?.params?.a?.type?.kind).toBe('integer')
+      expect(metadata?.add?.params?.b?.type?.kind).toBe('integer')
     })
 
     it('extracts example-based types', () => {
@@ -445,7 +445,7 @@ const after = 2
       expect(metadata).toBeDefined()
       // metadata is now keyed by function name
       expect(metadata?.greet?.params?.name?.type?.kind).toBe('string')
-      expect(metadata?.greet?.params?.times?.type?.kind).toBe('number')
+      expect(metadata?.greet?.params?.times?.type?.kind).toBe('integer')
       expect(metadata?.greet?.params?.times?.default).toBe(1)
     })
 

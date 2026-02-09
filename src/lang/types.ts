@@ -14,6 +14,8 @@ export interface TypeDescriptor {
   kind:
     | 'string'
     | 'number'
+    | 'integer'
+    | 'non-negative-integer'
     | 'boolean'
     | 'null'
     | 'undefined'

@@ -40,8 +40,10 @@ export interface RuntimeType<T = unknown> {
   readonly schema?: Schema
   /** The predicate function (if predicate-based) */
   readonly predicate?: (value: unknown) => boolean
-  /** Example value (for documentation and implicit testing) */
+  /** Example value (for documentation and signature testing) */
   readonly example?: T
+  /** Multiple example values (from schema metadata, for autocomplete hints) */
+  readonly examples?: T[]
   /** Default value (for instantiation) */
   readonly default?: T
   /** Brand for type identification */
@@ -150,6 +152,24 @@ export function Type<T = unknown>(
     description = schemaToDescription(schema)
   }
 
+  // Extract examples from schema metadata (if any)
+  let examples: T[] | undefined
+  if (schema) {
+    const jsonSchema = (schema as any)?.schema ?? schema
+    if (
+      jsonSchema &&
+      typeof jsonSchema === 'object' &&
+      Array.isArray((jsonSchema as any).examples)
+    ) {
+      examples = (jsonSchema as any).examples as T[]
+    }
+  }
+
+  // If no explicit example was provided, use first schema example for autocomplete
+  if (example === undefined && examples && examples.length > 0) {
+    example = examples[0]
+  }
+
   // Build the check function
   const check = (value: unknown): value is T => {
     if (predicate) {
@@ -167,6 +187,7 @@ export function Type<T = unknown>(
     schema,
     predicate,
     example,
+    examples,
     default: defaultValue,
     __runtimeType: true as const,
   }

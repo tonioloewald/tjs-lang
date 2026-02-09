@@ -59,9 +59,38 @@ Required parameters use colon syntax with an example value:
 
 ```typescript
 function greet(name: 'Alice') {} // name is required, type: string
-function calculate(value: 0) {} // value is required, type: number
-function toggle(flag: true) {} // flag is required, type: boolean
+function calculate(value: 0) {}  // value is required, type: integer
+function measure(rate: 0.0) {}   // rate is required, type: number (float)
+function count(n: +0) {}         // n is required, type: non-negative integer
+function toggle(flag: true) {}   // flag is required, type: boolean
 ```
+
+### Numeric Types
+
+TJS distinguishes three numeric types using valid JavaScript syntax:
+
+```typescript
+function process(
+  rate: 3.14,    // number (float) -- has a decimal point
+  count: 42,     // integer -- whole number, no decimal
+  index: +0      // non-negative integer -- prefixed with +
+) {}
+```
+
+| You Write | Type Inferred          | Runtime Validation              |
+| --------- | ---------------------- | ------------------------------- |
+| `3.14`    | `number` (float)       | `typeof x === 'number'`         |
+| `0.0`     | `number` (float)       | `typeof x === 'number'`         |
+| `42`      | `integer`              | `Number.isInteger(x)`           |
+| `0`       | `integer`              | `Number.isInteger(x)`           |
+| `+20`     | `non-negative integer` | `Number.isInteger(x) && x >= 0` |
+| `+0`      | `non-negative integer` | `Number.isInteger(x) && x >= 0` |
+| `-5`      | `integer`              | `Number.isInteger(x)`           |
+| `-3.5`    | `number` (float)       | `typeof x === 'number'`         |
+
+All of these are valid JavaScript expressions. TJS reads the syntax more
+carefully to give you finer-grained type checking than JS or TypeScript
+provide natively.
 
 ### Optional Parameters (Default Values)
 
@@ -69,7 +98,7 @@ Optional parameters use `=` with a default value:
 
 ```typescript
 function greet(name = 'World') {} // name is optional, defaults to 'World'
-function calculate(value = 0) {} // value is optional, defaults to 0
+function calculate(value = 0) {} // value is optional, defaults to 0 (integer)
 ```
 
 ### TypeScript-Style Optional
@@ -481,10 +510,10 @@ function greet(name: '', age = 0) -> '' { ... }
 | TypeScript                 | TJS                 |
 | -------------------------- | ------------------- |
 | `name: string`             | `name: ''`          |
-| `age: number`              | `age: 0`            |
+| `age: number`              | `age: 0.0`          |
 | `flag: boolean`            | `flag: true`        |
 | `items: string[]`          | `items: ['']`       |
-| `age?: number`             | `age = 0`           |
+| `age?: number`             | `age = 0.0`         |
 | `private foo`              | `#foo`              |
 | `interface User`           | `Type User`         |
 | `type Status = 'a' \| 'b'` | `Union(['a', 'b'])` |

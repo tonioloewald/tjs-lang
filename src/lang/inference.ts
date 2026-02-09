@@ -29,7 +29,13 @@ export function inferTypeFromValue(node: Expression): TypeDescriptor {
         return { kind: 'string' }
       }
       if (typeof value === 'number') {
-        return { kind: 'number' }
+        // Distinguish float vs integer by checking if source contains '.'
+        // 2.0 -> number (float), 42 -> integer
+        const raw = (node as any).raw as string | undefined
+        if (raw && raw.includes('.')) {
+          return { kind: 'number' }
+        }
+        return { kind: 'integer' }
       }
       if (typeof value === 'boolean') {
         return { kind: 'boolean' }
@@ -110,14 +116,26 @@ export function inferTypeFromValue(node: Expression): TypeDescriptor {
     }
 
     case 'UnaryExpression': {
-      // Handle negative numbers: -1
-      if (
-        (node as any).operator === '-' &&
-        (node as any).argument.type === 'Literal'
-      ) {
-        const value = (node as any).argument.value
+      const op = (node as any).operator
+      const arg = (node as any).argument
+
+      // +N means non-negative integer (e.g., +1, +3)
+      if (op === '+' && arg.type === 'Literal') {
+        const value = arg.value
         if (typeof value === 'number') {
-          return { kind: 'number' }
+          return { kind: 'non-negative-integer' }
+        }
+      }
+
+      // -N means integer or float depending on source
+      if (op === '-' && arg.type === 'Literal') {
+        const value = arg.value
+        if (typeof value === 'number') {
+          const raw = arg.raw as string | undefined
+          if (raw && raw.includes('.')) {
+            return { kind: 'number' }
+          }
+          return { kind: 'integer' }
         }
       }
       return { kind: 'any' }
@@ -258,6 +276,10 @@ export function extractLiteralValue(node: Expression): any {
         const arg = extractLiteralValue((node as any).argument)
         return typeof arg === 'number' ? -arg : undefined
       }
+      if ((node as any).operator === '+') {
+        const arg = extractLiteralValue((node as any).argument)
+        return typeof arg === 'number' ? +arg : undefined
+      }
       return undefined
 
     case 'LogicalExpression': {
@@ -310,6 +332,12 @@ export function typeToString(type: TypeDescriptor): string {
       return type.nullable ? 'string | null' : 'string'
     case 'number':
       return type.nullable ? 'number | null' : 'number'
+    case 'integer':
+      return type.nullable ? 'integer | null' : 'integer'
+    case 'non-negative-integer':
+      return type.nullable
+        ? 'non-negative integer | null'
+        : 'non-negative integer'
     case 'boolean':
       return type.nullable ? 'boolean | null' : 'boolean'
     case 'null':
@@ -354,6 +382,10 @@ export function checkType(value: any, type: TypeDescriptor): boolean {
       return typeof value === 'string'
     case 'number':
       return typeof value === 'number'
+    case 'integer':
+      return typeof value === 'number' && Number.isInteger(value)
+    case 'non-negative-integer':
+      return typeof value === 'number' && Number.isInteger(value) && value >= 0
     case 'boolean':
       return typeof value === 'boolean'
     case 'array':

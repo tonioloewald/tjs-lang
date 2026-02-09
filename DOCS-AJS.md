@@ -218,7 +218,7 @@ Atoms are the built-in operations. Each atom has a defined cost, input schema, a
 | ----------- | ------------------------------------------- |
 | `httpFetch` | HTTP requests (requires `fetch` capability) |
 
-### Storage
+### Storage (Core)
 
 | Atom          | Description              |
 | ------------- | ------------------------ |
@@ -226,12 +226,27 @@ Atoms are the built-in operations. Each atom has a defined cost, input schema, a
 | `storeSet`    | Set in key-value store   |
 | `storeSearch` | Vector similarity search |
 
-### AI
+### Storage (Battery)
 
-| Atom         | Description     |
-| ------------ | --------------- |
-| `llmPredict` | LLM inference   |
-| `agentRun`   | Run a sub-agent |
+| Atom                    | Description                           |
+| ----------------------- | ------------------------------------- |
+| `storeVectorize`        | Generate embeddings from text         |
+| `storeCreateCollection` | Create a vector store collection      |
+| `storeVectorAdd`        | Add a document to a vector collection |
+
+### AI (Core)
+
+| Atom         | Description                                |
+| ------------ | ------------------------------------------ |
+| `llmPredict` | Simple LLM inference (`prompt` → `string`) |
+| `agentRun`   | Run a sub-agent                            |
+
+### AI (Battery)
+
+| Atom                | Description                                    |
+| ------------------- | ---------------------------------------------- |
+| `llmPredictBattery` | Chat completion (system/user → message object) |
+| `llmVision`         | Analyze images using a vision-capable model    |
 
 ### Procedures
 
@@ -250,6 +265,204 @@ Atoms are the built-in operations. Each atom has a defined cost, input schema, a
 | `hash`    | Compute hashes           |
 | `memoize` | In-memory memoization    |
 | `cache`   | Persistent caching       |
+
+---
+
+## Battery Atoms Reference
+
+Battery atoms provide LLM, embedding, and vector store capabilities. They
+require a separate import and capability setup.
+
+### Setup
+
+```javascript
+import { AgentVM } from 'tjs-lang'
+import { batteryAtoms, getBatteries } from 'tjs-lang'
+
+const vm = new AgentVM(batteryAtoms)
+const batteries = await getBatteries() // auto-detects LM Studio models
+
+const { result } = await vm.run(agent, args, {
+  fuel: 1000,
+  capabilities: batteries,
+})
+```
+
+The `getBatteries()` function returns:
+
+```javascript
+{
+  vector: { embed },       // embedding function
+  store: { ... },          // key-value + vector store
+  llmBattery: { predict, embed },  // LLM chat + embeddings
+  models: { ... },         // detected model info
+}
+```
+
+### `llmPredict` vs `llmPredictBattery`
+
+There are two LLM atoms with different interfaces:
+
+| Atom                | Input                   | Output         | Capability                |
+| ------------------- | ----------------------- | -------------- | ------------------------- |
+| `llmPredict`        | `{ prompt }`            | `string`       | `capabilities.llm`        |
+| `llmPredictBattery` | `{ system, user, ... }` | message object | `capabilities.llmBattery` |
+
+Use `llmPredict` for simple prompts. Use `llmPredictBattery` when you need
+system prompts, tool calling, or structured output.
+
+### `llmPredictBattery`
+
+Chat completion with system prompt, tool calling, and structured output support.
+
+**Input:**
+
+| Field            | Type     | Required | Description                                   |
+| ---------------- | -------- | -------- | --------------------------------------------- |
+| `system`         | `string` | No       | System prompt (defaults to helpful assistant) |
+| `user`           | `string` | Yes      | User message                                  |
+| `tools`          | `any[]`  | No       | Tool definitions (OpenAI format)              |
+| `responseFormat` | `any`    | No       | Structured output format                      |
+
+**Output:** OpenAI chat message object:
+
+```javascript
+{
+  role: 'assistant',
+  content: 'The answer is 42.',    // null when using tool calls
+  tool_calls: [...]                // present when tools are invoked
+}
+```
+
+**Example:**
+
+```javascript
+let response = llmPredictBattery({
+  system: 'You are a helpful assistant.',
+  user: 'What is the capital of France?',
+})
+// response.content === 'Paris is the capital of France.'
+```
+
+**Cost:** 100 fuel
+
+### `llmVision`
+
+Analyze images using a vision-capable model.
+
+**Input:**
+
+| Field            | Type       | Required | Description                                     |
+| ---------------- | ---------- | -------- | ----------------------------------------------- |
+| `system`         | `string`   | No       | System prompt                                   |
+| `prompt`         | `string`   | Yes      | Text prompt describing what to analyze          |
+| `images`         | `string[]` | Yes      | URLs or data URIs (`data:image/...;base64,...`) |
+| `responseFormat` | `any`      | No       | Structured output format                        |
+
+**Output:** Same as `llmPredictBattery` (message object with `role`, `content`, `tool_calls`).
+
+**Example:**
+
+```javascript
+let analysis = llmVision({
+  prompt: 'Describe what you see in this image.',
+  images: ['https://example.com/photo.jpg'],
+})
+// analysis.content === 'The image shows a sunset over the ocean...'
+```
+
+**Cost:** 150 fuel | **Timeout:** 120 seconds
+
+### `storeVectorize`
+
+Generate embeddings from text using the vector battery.
+
+**Input:**
+
+| Field   | Type     | Required | Description            |
+| ------- | -------- | -------- | ---------------------- |
+| `text`  | `string` | Yes      | Text to embed          |
+| `model` | `string` | No       | Embedding model to use |
+
+**Output:** `number[]` — the embedding vector.
+
+**Example:**
+
+```javascript
+let embedding = storeVectorize({ text: 'TJS is a typed JavaScript' })
+// embedding === [0.023, -0.412, 0.891, ...]
+```
+
+**Cost:** 20 fuel | **Capability:** `vector`
+
+### `storeCreateCollection`
+
+Create a vector store collection for similarity search.
+
+**Input:**
+
+| Field        | Type     | Required | Description                      |
+| ------------ | -------- | -------- | -------------------------------- |
+| `collection` | `string` | Yes      | Collection name                  |
+| `dimension`  | `number` | No       | Vector dimension (auto-detected) |
+
+**Output:** None.
+
+**Cost:** 5 fuel | **Capability:** `store`
+
+### `storeVectorAdd`
+
+Add a document to a vector store collection. The document is automatically
+embedded and indexed.
+
+**Input:**
+
+| Field        | Type     | Required | Description       |
+| ------------ | -------- | -------- | ----------------- |
+| `collection` | `string` | Yes      | Collection name   |
+| `doc`        | `any`    | Yes      | Document to store |
+
+**Output:** None.
+
+**Example:**
+
+```javascript
+storeVectorAdd({
+  collection: 'articles',
+  doc: { title: 'Intro to TJS', content: 'TJS is...', embedding: [...] }
+})
+```
+
+**Cost:** 5 fuel | **Capability:** `store`
+
+### `storeSearch`
+
+Search a vector store collection by similarity.
+
+**Input:**
+
+| Field         | Type       | Required | Description                    |
+| ------------- | ---------- | -------- | ------------------------------ |
+| `collection`  | `string`   | Yes      | Collection name                |
+| `queryVector` | `number[]` | Yes      | Query embedding vector         |
+| `k`           | `number`   | No       | Number of results (default: 5) |
+| `filter`      | `object`   | No       | Metadata filter                |
+
+**Output:** `any[]` — array of matching documents, sorted by similarity.
+
+**Example:**
+
+```javascript
+let query = storeVectorize({ text: 'How does type checking work?' })
+let results = storeSearch({
+  collection: 'articles',
+  queryVector: query,
+  k: 3,
+})
+// results === [{ title: 'Type System', content: '...' }, ...]
+```
+
+**Cost:** 5 + k fuel (dynamic) | **Capability:** `store`
 
 ---
 

@@ -145,6 +145,7 @@ export const llmPredictBattery = defineAtom(
     responseFormat: s.any.optional,
   }),
   s.object({
+    role: s.string.optional,
     content: s.string.optional,
     tool_calls: s.array(s.any).optional,
   }),
@@ -189,6 +190,7 @@ export const llmVision = defineAtom(
     responseFormat: s.any.optional,
   }),
   s.object({
+    role: s.string.optional,
     content: s.string.optional,
     tool_calls: s.array(s.any).optional,
   }),

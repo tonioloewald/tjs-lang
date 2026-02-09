@@ -1353,6 +1353,17 @@ function getPlaceholderForParam(name: string, info: any): string {
     return String(ex)
   }
 
+  // Then check for examples from schema metadata (use first as placeholder)
+  const examples = info.type?.examples || info.examples
+  if (Array.isArray(examples) && examples.length > 0) {
+    const ex = examples[0]
+    if (typeof ex === 'string') return `'${ex}'`
+    if (typeof ex === 'number' || typeof ex === 'boolean') return String(ex)
+    if (Array.isArray(ex)) return JSON.stringify(ex)
+    if (typeof ex === 'object') return JSON.stringify(ex)
+    return String(ex)
+  }
+
   // Then check for explicit default value
   if (info.default !== undefined && info.default !== null) {
     const def = info.default
@@ -1481,12 +1492,27 @@ function tjsCompletionSource(config: AutocompleteConfig = {}) {
             // Handle both { type: 'string' } and { kind: 'string' } formats
             const returnType =
               meta.returns?.type || meta.returns?.kind || 'void'
+
+            // Build info string with description and parameter examples
+            let infoText = meta.description || ''
+            for (const [pName, pInfo] of paramEntries as [string, any][]) {
+              const pExamples = pInfo.type?.examples || pInfo.examples
+              if (Array.isArray(pExamples) && pExamples.length > 0) {
+                const formatted = pExamples
+                  .map((ex: any) =>
+                    typeof ex === 'string' ? `'${ex}'` : String(ex)
+                  )
+                  .join(', ')
+                infoText += `${infoText ? '\n' : ''}${pName}: e.g. ${formatted}`
+              }
+            }
+
             options.push(
               snippetCompletion(`${name}(${snippetParams})`, {
                 label: name,
                 type: 'function',
                 detail: `(${paramList}) -> ${returnType}`,
-                info: meta.description,
+                info: infoText || undefined,
                 boost: 2, // Boost user-defined functions above globals
               })
             )

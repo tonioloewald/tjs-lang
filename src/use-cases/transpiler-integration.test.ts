@@ -134,7 +134,7 @@ describe('Transpiler Integration', () => {
       expect(signature.parameters.query.type.kind).toBe('string')
       expect(signature.parameters.query.required).toBe(true)
       expect(signature.parameters.query.description).toBe('Search terms')
-      expect(signature.parameters.limit.type.kind).toBe('number')
+      expect(signature.parameters.limit.type.kind).toBe('integer')
       expect(signature.parameters.limit.required).toBe(false)
       expect(signature.parameters.limit.default).toBe(10)
       expect(signature.parameters.limit.description).toBe('Max results')
@@ -153,7 +153,7 @@ describe('Transpiler Integration', () => {
       expect(signature.parameters.user.type.kind).toBe('object')
       expect(signature.parameters.user.type.shape?.name.kind).toBe('string')
       expect(signature.parameters.user.type.shape?.email.kind).toBe('string')
-      expect(signature.parameters.user.type.shape?.age.kind).toBe('number')
+      expect(signature.parameters.user.type.shape?.age.kind).toBe('integer')
       expect(signature.parameters.user.required).toBe(true)
 
       expect(signature.parameters.options.type.kind).toBe('object')
@@ -383,16 +383,16 @@ describe('Transpiler Integration', () => {
           let answer = ''
           let valid = false
           let tries = 0
-          
+
           while (!valid && tries < 3) {
             answer = llmPredict({ prompt: question })
             tries = tries + 1
-            
+
             if (answer == 'A' || answer == 'B' || answer == 'C' || answer == 'D') {
               valid = true
             }
           }
-          
+
           return { answer, tries, valid }
         }
       `)
@@ -772,9 +772,9 @@ describe('Transpiler Integration', () => {
       const ast = ajs(`
         function test() {
           let d = Date('2024-06-15T10:30:00Z')
-          return { 
-            year: d.year, 
-            month: d.month, 
+          return {
+            year: d.year,
+            month: d.month,
             day: d.day,
             hours: d.hours,
             minutes: d.minutes
@@ -826,7 +826,7 @@ describe('Transpiler Integration', () => {
       const ast = ajs(`
         function test() {
           let d = Date('2024-06-15T14:30:45Z')
-          return { 
+          return {
             iso: d.format('ISO'),
             date: d.format('date'),
             custom: d.format('YYYY-MM-DD')
@@ -847,7 +847,7 @@ describe('Transpiler Integration', () => {
         function test() {
           let a = Date('2024-01-15')
           let b = Date('2024-01-20')
-          return { 
+          return {
             aBeforeB: a.isBefore(b),
             aAfterB: a.isAfter(b)
           }

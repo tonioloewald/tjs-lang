@@ -21,8 +21,10 @@ npm run format              # ESLint fix + Prettier
 npm run test:fast           # Core tests (skips LLM & benchmarks)
 npm run make                # Full build (clean, format, grammars, tsc, esbuild)
 npm run dev                 # Development server with file watcher
+npm run start               # Build demo + start dev server
+npm run latest              # Clean reinstall (rm node_modules + bun install)
 
-# Testing
+# Testing (framework: bun:test — describe/it/expect)
 bun test                    # Full test suite
 bun test src/path/to/file.test.ts  # Single test file
 bun test --test-name-pattern "pattern"  # Run tests matching pattern
@@ -40,11 +42,22 @@ bun src/cli/tjs.ts run <file>      # Transpile and execute
 bun src/cli/tjs.ts types <file>    # Output type metadata as JSON
 bun src/cli/tjs.ts emit <file>     # Output transpiled JavaScript
 bun src/cli/tjs.ts convert <file>  # Convert TypeScript to TJS (--emit-tjs) or JS
+bun src/cli/tjs.ts test <file>     # Run inline tests in a TJS file
 
-# Other
+# Type checking & other
+npm run typecheck           # tsc --noEmit (type check without emitting)
 npm run test:llm            # LM Studio integration tests
 npm run bench               # Vector search benchmarks
 npm run show-size           # Show gzipped bundle size
+
+# Build standalone CLI binaries
+npm run build:cli           # Compiles tjs + tjsx to dist/
+
+# Deployment (Firebase)
+npm run deploy              # Deploy functions + hosting
+npm run deploy:hosting      # Hosting only (serves from docs/)
+npm run functions:deploy    # Cloud functions only
+npm run functions:serve     # Local functions emulator
 ```
 
 ## Architecture
@@ -52,7 +65,7 @@ npm run show-size           # Show gzipped bundle size
 ### Two-Layer Design
 
 1. **Builder Layer** (`src/builder.ts`): Fluent API that constructs AST nodes. Contains no execution logic.
-2. **Runtime Layer** (`src/vm/runtime.ts`): Executes AST nodes. Contains all atom implementations (~2700 lines, security-critical).
+2. **Runtime Layer** (`src/vm/runtime.ts`): Executes AST nodes. Contains all atom implementations (~2900 lines, security-critical).
 
 ### Key Source Files
 
@@ -74,8 +87,11 @@ npm run show-size           # Show gzipped bundle size
 - `src/batteries/` - LM Studio integration (lazy init, model audit, vector search)
 - `src/store/` - Store implementations for persistence
 - `src/rbac/` - Role-based access control
-- `src/use-cases/` - Integration tests and real-world examples (27 test files)
-- `src/cli/tjs.ts` - CLI tool for check/run/types/emit/convert commands
+- `src/use-cases/` - Integration tests and real-world examples (28 test files)
+- `src/cli/tjs.ts` - CLI tool for check/run/types/emit/convert/test commands
+- `src/cli/tjsx.ts` - JSX/component runner
+- `src/cli/playground.ts` - Local playground server
+- `src/cli/create-app.ts` - Project scaffolding tool
 
 ### Core APIs
 
@@ -164,19 +180,6 @@ const jsCode = tjs(tjsResult.code)
 const fn = new Function('__tjs', jsCode + '; return add')(__tjs_runtime)
 fn(1, 2) // Returns 3
 fn('a', 'b') // Returns { error: 'type mismatch', ... }
-```
-
-**CLI Commands:**
-
-```bash
-# Convert TypeScript to TJS
-bun src/cli/tjs.ts convert input.ts --emit-tjs > output.tjs
-
-# Emit TJS to JavaScript
-bun src/cli/tjs.ts emit input.tjs > output.js
-
-# Run TJS file directly (transpiles and executes)
-bun src/cli/tjs.ts run input.tjs
 ```
 
 **Design Notes:**
@@ -282,6 +285,11 @@ The `wrapClass()` function in the runtime uses a Proxy to intercept calls and au
 // Required param with example value (colon shorthand)
 function greet(name: 'Alice') { }        // name is required, type inferred as string
 
+// Numeric type narrowing (all valid JS syntax)
+function calc(rate: 3.14) { }            // number (float) -- has decimal point
+function calc(count: 42) { }             // integer -- whole number
+function calc(index: +0) { }             // non-negative integer -- + prefix
+
 // Optional param with default
 function greet(name = 'Alice') { }       // name is optional, defaults to 'Alice'
 
@@ -289,7 +297,7 @@ function greet(name = 'Alice') { }       // name is optional, defaults to 'Alice
 function createUser(user: { name: '', age: 0 }) { }
 
 // Nullable type
-function find(id: 0 || null) { }         // number or null
+function find(id: 0 || null) { }         // integer or null
 
 // Optional TS-style
 function greet(name?: '') { }            // same as name = ''
@@ -484,3 +492,30 @@ The batteries (`src/batteries/`) provide zero-config local AI development:
 - **Capabilities interface**: `fetch`, `store` (KV + vector), `llmBattery` (predict/embed)
 
 Register battery atoms: `new AgentVM(batteryAtoms)` then pass `{ capabilities: batteries }` to `run()`.
+
+## Development Configuration
+
+### Bun Plugin
+
+`bunfig.toml` preloads `src/bun-plugin/tjs-plugin.ts` which enables importing `.tjs` files directly in bun. It also aliases `tjs-lang` to `./src/index.ts` for local development (monorepo-style resolution).
+
+### Code Style
+
+- **Prettier**: Single quotes, no semicolons, 2-space indentation, 80 char width, es5 trailing commas
+- Prefix unused variables with `_` (enforced by ESLint: `argsIgnorePattern: '^_'`)
+- `any` types are allowed (`@typescript-eslint/no-explicit-any: 0`)
+- Module type is ESM (`"type": "module"` in package.json)
+- Build output goes to `dist/` (declaration files only via `tsconfig.build.json`, bundles via `scripts/build.ts`)
+- Run `npm run format` before committing (ESLint fix + Prettier)
+
+### Firebase Deployment
+
+The playground and docs are hosted on Firebase (`tjs-platform.web.app`). The `docs/` directory is the hosting root. Cloud Functions live in `functions/` with their own build process (`functions/src/*.tjs` → transpile → bundle). Firebase config: `firebase.json`, `.firebaserc`, `firestore.rules`.
+
+### Additional Documentation
+
+- `DOCS-TJS.md` — TJS language guide
+- `DOCS-AJS.md` — AJS runtime guide
+- `CONTEXT.md` — Architecture deep dive
+- `AGENTS.md` — Agent workflow instructions (issue tracking with `bd`, mandatory push-before-done)
+- `PLAN.md` — Roadmap

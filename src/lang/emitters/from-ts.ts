@@ -137,7 +137,7 @@ function typeToExample(
     case ts.SyntaxKind.StringKeyword:
       return "''"
     case ts.SyntaxKind.NumberKeyword:
-      return '0'
+      return '0.0'
     case ts.SyntaxKind.BooleanKeyword:
       return 'true'
     case ts.SyntaxKind.NullKeyword:

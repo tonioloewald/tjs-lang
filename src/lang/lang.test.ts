@@ -15,6 +15,7 @@ import {
   wrap,
 } from './index'
 import { preprocess } from './parser'
+import { createRuntime, isMonadicError } from './runtime'
 import { Schema } from './schema'
 
 describe('Transpiler', () => {
@@ -293,7 +294,7 @@ test 'always fails' { throw new Error('intentional') }
           return { count }
         }
       `)
-      expect(signature.parameters.count.type.kind).toBe('number')
+      expect(signature.parameters.count.type.kind).toBe('integer')
       expect(signature.parameters.count.required).toBe(true)
     })
 
@@ -303,7 +304,7 @@ test 'always fails' { throw new Error('intentional') }
           return { limit }
         }
       `)
-      expect(signature.parameters.limit.type.kind).toBe('number')
+      expect(signature.parameters.limit.type.kind).toBe('integer')
       expect(signature.parameters.limit.required).toBe(false)
       expect(signature.parameters.limit.default).toBe(10)
     })
@@ -336,7 +337,7 @@ test 'always fails' { throw new Error('intentional') }
       `)
       expect(signature.parameters.user.type.kind).toBe('object')
       expect(signature.parameters.user.type.shape?.name.kind).toBe('string')
-      expect(signature.parameters.user.type.shape?.age.kind).toBe('number')
+      expect(signature.parameters.user.type.shape?.age.kind).toBe('integer')
     })
 
     it('should handle array types with colon syntax', () => {
@@ -357,10 +358,147 @@ test 'always fails' { throw new Error('intentional') }
       `)
       expect(signature.parameters.name.type.kind).toBe('string')
       expect(signature.parameters.name.required).toBe(true)
-      expect(signature.parameters.count.type.kind).toBe('number')
+      expect(signature.parameters.count.type.kind).toBe('integer')
       expect(signature.parameters.count.required).toBe(true)
-      expect(signature.parameters.limit.type.kind).toBe('number')
+      expect(signature.parameters.limit.type.kind).toBe('integer')
       expect(signature.parameters.limit.required).toBe(false)
+    })
+  })
+
+  describe('Numeric type narrowing', () => {
+    it('should infer integer from whole number literal', () => {
+      const { signature } = transpile(`
+        function test(count: 42) { return { count } }
+      `)
+      expect(signature.parameters.count.type.kind).toBe('integer')
+    })
+
+    it('should infer float (number) from decimal literal', () => {
+      const { signature } = transpile(`
+        function test(rate: 3.14) { return { rate } }
+      `)
+      expect(signature.parameters.rate.type.kind).toBe('number')
+    })
+
+    it('should infer float from 0.0', () => {
+      const { signature } = transpile(`
+        function test(value: 0.0) { return { value } }
+      `)
+      expect(signature.parameters.value.type.kind).toBe('number')
+    })
+
+    it('should infer non-negative-integer from +N syntax', () => {
+      const { signature } = transpile(`
+        function test(age: +20) { return { age } }
+      `)
+      expect(signature.parameters.age.type.kind).toBe('non-negative-integer')
+    })
+
+    it('should infer non-negative-integer from +0', () => {
+      const { signature } = transpile(`
+        function test(index: +0) { return { index } }
+      `)
+      expect(signature.parameters.index.type.kind).toBe('non-negative-integer')
+    })
+
+    it('should infer integer from negative literal', () => {
+      const { signature } = transpile(`
+        function test(offset: -5) { return { offset } }
+      `)
+      expect(signature.parameters.offset.type.kind).toBe('integer')
+    })
+
+    it('should infer number from negative decimal', () => {
+      const { signature } = transpile(`
+        function test(temp: -3.5) { return { temp } }
+      `)
+      expect(signature.parameters.temp.type.kind).toBe('number')
+    })
+
+    it('should generate correct runtime validation for integer', () => {
+      const result = tjs(`function test(n: 1) -> 0 { return n }`)
+      // Should check Number.isInteger
+      expect(result.code).toContain('Number.isInteger')
+    })
+
+    it('should generate correct runtime validation for non-negative-integer', () => {
+      const result = tjs(`function test(n: +1) -> 0 { return n }`)
+      // Should check Number.isInteger AND >= 0
+      expect(result.code).toContain('Number.isInteger')
+      expect(result.code).toContain('< 0')
+    })
+
+    it('should validate integer at runtime', () => {
+      const result = tjs(`function check(n: 1) -> 0 { return n }`)
+      const savedTjs = globalThis.__tjs
+      globalThis.__tjs = createRuntime()
+      try {
+        const fn = new Function(result.code + '\nreturn check')()
+        // Valid integer
+        expect(fn(42)).toBe(42)
+        // Float should fail
+        const bad = fn(3.14)
+        expect(isMonadicError(bad)).toBe(true)
+      } finally {
+        globalThis.__tjs = savedTjs
+      }
+    })
+
+    it('should validate non-negative-integer at runtime', () => {
+      const result = tjs(`function check(n: +1) -> 0 { return n }`)
+      const savedTjs = globalThis.__tjs
+      globalThis.__tjs = createRuntime()
+      try {
+        const fn = new Function(result.code + '\nreturn check')()
+        // Valid non-negative integer
+        expect(fn(0)).toBe(0)
+        expect(fn(42)).toBe(42)
+        // Negative integer should fail
+        const negResult = fn(-1)
+        expect(isMonadicError(negResult)).toBe(true)
+        // Float should fail
+        const floatResult = fn(3.14)
+        expect(isMonadicError(floatResult)).toBe(true)
+      } finally {
+        globalThis.__tjs = savedTjs
+      }
+    })
+
+    it('should validate float (number) accepts all numbers at runtime', () => {
+      const result = tjs(`function check(n: 0.0) -> 0.0 { return n }`)
+      const savedTjs = globalThis.__tjs
+      globalThis.__tjs = createRuntime()
+      try {
+        const fn = new Function(result.code + '\nreturn check')()
+        // All numbers should pass for float
+        expect(fn(42)).toBe(42)
+        expect(fn(3.14)).toBe(3.14)
+        expect(fn(-5)).toBe(-5)
+        expect(fn(0)).toBe(0)
+      } finally {
+        globalThis.__tjs = savedTjs
+      }
+    })
+
+    it('should handle numeric types in object shapes', () => {
+      const { signature } = transpile(`
+        function test(point: { x: 0.0, y: 0.0, index: 0 }) { return point }
+      `)
+      expect(signature.parameters.point.type.shape?.x.kind).toBe('number')
+      expect(signature.parameters.point.type.shape?.y.kind).toBe('number')
+      expect(signature.parameters.point.type.shape?.index.kind).toBe('integer')
+    })
+
+    it('should handle numeric types in array items', () => {
+      const { signature } = transpile(`
+        function test(counts: [0]) { return counts }
+      `)
+      expect(signature.parameters.counts.type.items?.kind).toBe('integer')
+
+      const { signature: sig2 } = transpile(`
+        function test(values: [0.0]) { return values }
+      `)
+      expect(sig2.parameters.values.type.items?.kind).toBe('number')
     })
   })
 
@@ -934,7 +1072,7 @@ describe('TJS Emitter', () => {
       `)
       expect(result.code).not.toContain('->')
       expect(result.types.add.returns).toBeDefined()
-      expect(result.types.add.returns?.kind).toBe('number')
+      expect(result.types.add.returns?.kind).toBe('integer')
     })
 
     it('should mark parameters as required when using colon syntax', () => {
@@ -968,7 +1106,7 @@ describe('TJS Emitter', () => {
         'string'
       )
       expect(result.types.process.params.user.type.shape?.age.kind).toBe(
-        'number'
+        'integer'
       )
     })
 
@@ -979,7 +1117,7 @@ describe('TJS Emitter', () => {
         }
       `)
       expect(result.types.sum.params.numbers.type.kind).toBe('array')
-      expect(result.types.sum.params.numbers.type.items?.kind).toBe('number')
+      expect(result.types.sum.params.numbers.type.items?.kind).toBe('integer')
     })
 
     it('should generate __tjs metadata object', () => {
@@ -1052,7 +1190,7 @@ function greet(name: 'world') {
         }
       `
       expect(result.code).toContain('function double')
-      expect(result.types.double.params.n.type.kind).toBe('number')
+      expect(result.types.double.params.n.type.kind).toBe('integer')
     })
 
     it('should handle interpolation in tagged template', () => {
@@ -1106,7 +1244,7 @@ function greet(name: 'world') {
       `)
       expect(result.types.test.returns).toBeDefined()
       expect(result.types.test.returns?.kind).toBe('object')
-      expect(result.types.test.returns?.shape?.result.kind).toBe('number')
+      expect(result.types.test.returns?.shape?.result.kind).toBe('integer')
     })
   })
 
@@ -1155,9 +1293,9 @@ function greet(name: 'world') {
           return x
         }
       `)
-      expect(result.types.compute.params.x.type.kind).toBe('number')
+      expect(result.types.compute.params.x.type.kind).toBe('integer')
       expect(result.types.compute.params.y.type.kind).toBe('string')
-      expect(result.types.compute.returns?.kind).toBe('number')
+      expect(result.types.compute.returns?.kind).toBe('integer')
     })
 
     // === NEW TESTS: Multi-function and no-function support ===
@@ -1350,8 +1488,8 @@ function greet(name: 'world') {
       `,
         { runTests: false }
       )
-      // Should have inline validation
-      expect(result.code).toContain("if (typeof a !== 'number')")
+      // Should have inline validation (integer check for integer examples)
+      expect(result.code).toContain('Number.isInteger(a)')
       expect(result.code).toContain('__tjs.typeError')
     })
 
@@ -1482,7 +1620,7 @@ describe('TypeScript to TJS Transpiler', () => {
         `function sum(nums: number[]): number { return 0 }`,
         { emitTJS: true }
       )
-      expect(result.code).toContain('nums: [0]')
+      expect(result.code).toContain('nums: [0.0]')
     })
 
     it('should handle object literal types', () => {
@@ -1490,7 +1628,7 @@ describe('TypeScript to TJS Transpiler', () => {
         `function getUser(): { name: string, age: number } { return { name: '', age: 0 } }`,
         { emitTJS: true }
       )
-      expect(result.code).toContain("-! { name: '', age: 0 }") // -! for TS-transpiled
+      expect(result.code).toContain("-! { name: '', age: 0.0 }") // -! for TS-transpiled
     })
 
     it('should handle nullable types', () => {
