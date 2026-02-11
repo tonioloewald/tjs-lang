@@ -76,6 +76,16 @@ const pkg = require('../../package.json') as { version: string }
 export const TJS_VERSION: string = pkg.version
 
 /**
+ * Well-known symbol for custom equality.
+ *
+ * Any object can implement `[tjsEquals](other)` to control how `==` / `Is()`
+ * compares it. Useful for Proxies that should delegate equality to their target.
+ *
+ * Priority: tjsEquals symbol → .Equals method → structural comparison
+ */
+export const tjsEquals: unique symbol = Symbol.for('tjs.equals')
+
+/**
  * Parse semver version string into components
  */
 function parseVersion(version: string): {
@@ -327,15 +337,33 @@ export function resetRuntime(): void {
  * Structural equality - the == that works
  *
  * Rules:
- * 1. If left has .Equals, call left.Equals(right)
- * 2. If right has .Equals, call right.Equals(left)
- * 3. Arrays/objects: recursive structural comparison
- * 4. Primitives: strict equality (no coercion)
+ * 1. If left has [tjsEquals], call left[tjsEquals](right)
+ * 2. If right has [tjsEquals], call right[tjsEquals](left)
+ * 3. If left has .Equals, call left.Equals(right)
+ * 4. If right has .Equals, call right.Equals(left)
+ * 5. Arrays/objects: recursive structural comparison
+ * 6. Primitives: strict equality (no coercion)
  *
  * Usage: `a Is b` transforms to `Is(a, b)`
  */
 export function Is(a: unknown, b: unknown): boolean {
-  // Check for .Equals method
+  // Check for [tjsEquals] symbol protocol (highest priority)
+  if (
+    a !== null &&
+    typeof a === 'object' &&
+    typeof (a as any)[tjsEquals] === 'function'
+  ) {
+    return (a as any)[tjsEquals](b)
+  }
+  if (
+    b !== null &&
+    typeof b === 'object' &&
+    typeof (b as any)[tjsEquals] === 'function'
+  ) {
+    return (b as any)[tjsEquals](a)
+  }
+
+  // Check for .Equals method (backward compat)
   if (
     a !== null &&
     typeof a === 'object' &&
@@ -1093,6 +1121,7 @@ export function createRuntime() {
     // Structural equality
     Is,
     IsNot,
+    tjsEquals,
   }
 }
 

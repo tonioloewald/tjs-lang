@@ -23,6 +23,7 @@ import {
   isNativeType,
   Is,
   IsNot,
+  tjsEquals,
 } from './runtime'
 import { Eval, SafeFunction } from './eval'
 
@@ -896,5 +897,59 @@ describe('IsNot - structural inequality', () => {
     expect(IsNot({ a: 1 }, { a: 1 })).toBe(false)
     expect(IsNot({ a: 1 }, { a: 2 })).toBe(true)
     expect(IsNot(null, undefined)).toBe(false) // They're equal
+  })
+})
+
+describe('tjsEquals symbol protocol', () => {
+  it('uses [tjsEquals] on left operand', () => {
+    const obj = {
+      [tjsEquals](other: any) {
+        return other === 'match'
+      },
+    }
+    expect(Is(obj, 'match')).toBe(true)
+    expect(Is(obj, 'nope')).toBe(false)
+  })
+
+  it('uses [tjsEquals] on right operand', () => {
+    const obj = {
+      [tjsEquals](other: any) {
+        return other === 42
+      },
+    }
+    expect(Is(42, obj)).toBe(true)
+    expect(Is(99, obj)).toBe(false)
+  })
+
+  it('symbol takes priority over .Equals', () => {
+    const obj = {
+      [tjsEquals](_other: any) {
+        return true // symbol says yes
+      },
+      Equals(_other: any) {
+        return false // .Equals says no
+      },
+    }
+    expect(Is(obj, 'anything')).toBe(true) // symbol wins
+  })
+
+  it('works with Proxy delegation', () => {
+    const target = { x: 1, y: 2 }
+    const proxy = new Proxy(
+      {
+        [tjsEquals](other: any) {
+          return Is(target, other)
+        },
+      },
+      {}
+    )
+    expect(Is(proxy, { x: 1, y: 2 })).toBe(true)
+    expect(Is(proxy, { x: 1, y: 3 })).toBe(false)
+    // Reverse direction also works
+    expect(Is({ x: 1, y: 2 }, proxy)).toBe(true)
+  })
+
+  it('is a global symbol accessible via Symbol.for', () => {
+    expect(tjsEquals).toBe(Symbol.for('tjs.equals'))
   })
 })

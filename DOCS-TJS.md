@@ -308,7 +308,23 @@ JavaScript's `==` is broken (type coercion). TJS provides structural equality:
 
 ### Custom Equality
 
-Classes can define an `.Equals` method:
+Objects can define custom equality in two ways:
+
+**1. `[tjsEquals]` symbol protocol** (preferred for Proxies and advanced use):
+
+```typescript
+import { tjsEquals } from 'tjs-lang/lang'
+
+// A proxy that delegates equality to its target
+const target = { x: 1, y: 2 }
+const proxy = new Proxy({
+  [tjsEquals](other) { return target Is other }
+}, {})
+
+proxy == { x: 1, y: 2 }  // true — delegates to target
+```
+
+**2. `.Equals` method** (simple, works on any object or class):
 
 ```typescript
 class Point {
@@ -318,6 +334,11 @@ class Point {
 
 Point(1, 2) Is Point(1, 2)  // true (uses .Equals)
 ```
+
+**Priority:** `[tjsEquals]` symbol > `.Equals` method > structural comparison.
+
+The symbol is `Symbol.for('tjs.equals')`, so it works across realms. Access it
+via `import { tjsEquals } from 'tjs-lang/lang'` or `__tjs.tjsEquals` at runtime.
 
 ---
 

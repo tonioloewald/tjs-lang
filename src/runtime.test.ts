@@ -595,4 +595,132 @@ describe('Edge Cases', () => {
     expect(result.error).toBeUndefined()
     expect(result.result.res).toEqual({ value: 42 })
   })
+
+  describe('structural equality in expressions', () => {
+    it('== compares arrays structurally', async () => {
+      const ast = {
+        op: 'seq',
+        steps: [
+          {
+            op: 'varSet',
+            key: 'res',
+            value: {
+              $expr: 'binary',
+              op: '==',
+              left: { $expr: 'literal', value: [1, 2, 3] },
+              right: { $expr: 'literal', value: [1, 2, 3] },
+            },
+          },
+          { op: 'return', value: { $expr: 'ident', name: 'res' } },
+        ],
+      } as any
+      const result = await vm.run(ast, {})
+      expect(result.result).toBe(true)
+    })
+
+    it('== compares objects structurally', async () => {
+      const ast = {
+        op: 'seq',
+        steps: [
+          {
+            op: 'varSet',
+            key: 'res',
+            value: {
+              $expr: 'binary',
+              op: '==',
+              left: { $expr: 'literal', value: { a: 1, b: 2 } },
+              right: { $expr: 'literal', value: { a: 1, b: 2 } },
+            },
+          },
+          { op: 'return', value: { $expr: 'ident', name: 'res' } },
+        ],
+      } as any
+      const result = await vm.run(ast, {})
+      expect(result.result).toBe(true)
+    })
+
+    it('== does not coerce types', async () => {
+      const ast = {
+        op: 'seq',
+        steps: [
+          {
+            op: 'varSet',
+            key: 'res',
+            value: {
+              $expr: 'binary',
+              op: '==',
+              left: { $expr: 'literal', value: '1' },
+              right: { $expr: 'literal', value: 1 },
+            },
+          },
+          { op: 'return', value: { $expr: 'ident', name: 'res' } },
+        ],
+      } as any
+      const result = await vm.run(ast, {})
+      expect(result.result).toBe(false) // no coercion
+    })
+
+    it('!= returns true for structurally different objects', async () => {
+      const ast = {
+        op: 'seq',
+        steps: [
+          {
+            op: 'varSet',
+            key: 'res',
+            value: {
+              $expr: 'binary',
+              op: '!=',
+              left: { $expr: 'literal', value: { a: 1 } },
+              right: { $expr: 'literal', value: { a: 2 } },
+            },
+          },
+          { op: 'return', value: { $expr: 'ident', name: 'res' } },
+        ],
+      } as any
+      const result = await vm.run(ast, {})
+      expect(result.result).toBe(true)
+    })
+
+    it('null == undefined is true (nullish equality)', async () => {
+      const ast = {
+        op: 'seq',
+        steps: [
+          {
+            op: 'varSet',
+            key: 'res',
+            value: {
+              $expr: 'binary',
+              op: '==',
+              left: { $expr: 'literal', value: null },
+              right: { $expr: 'ident', name: 'missing' },
+            },
+          },
+          { op: 'return', value: { $expr: 'ident', name: 'res' } },
+        ],
+      } as any
+      const result = await vm.run(ast, {})
+      expect(result.result).toBe(true) // null == undefined
+    })
+
+    it('=== still uses identity comparison', async () => {
+      const ast = {
+        op: 'seq',
+        steps: [
+          {
+            op: 'varSet',
+            key: 'res',
+            value: {
+              $expr: 'binary',
+              op: '===',
+              left: { $expr: 'literal', value: [1, 2] },
+              right: { $expr: 'literal', value: [1, 2] },
+            },
+          },
+          { op: 'return', value: { $expr: 'ident', name: 'res' } },
+        ],
+      } as any
+      const result = await vm.run(ast, {})
+      expect(result.result).toBe(false) // different references
+    })
+  })
 })

@@ -1,5 +1,71 @@
 import { s, validate, filter as schemaFilter } from 'tosijs-schema'
 
+/** Well-known symbol for custom equality (matches src/lang/runtime.ts) */
+const tjsEquals = Symbol.for('tjs.equals')
+
+/**
+ * Structural equality for AJS expressions.
+ * Mirrors the TJS Is() function: symbol → .Equals → structural.
+ */
+function isStructurallyEqual(a: unknown, b: unknown): boolean {
+  // Symbol protocol
+  if (
+    a !== null &&
+    typeof a === 'object' &&
+    typeof (a as any)[tjsEquals] === 'function'
+  ) {
+    return (a as any)[tjsEquals](b)
+  }
+  if (
+    b !== null &&
+    typeof b === 'object' &&
+    typeof (b as any)[tjsEquals] === 'function'
+  ) {
+    return (b as any)[tjsEquals](a)
+  }
+
+  // .Equals method
+  if (
+    a !== null &&
+    typeof a === 'object' &&
+    typeof (a as any).Equals === 'function'
+  ) {
+    return (a as any).Equals(b)
+  }
+  if (
+    b !== null &&
+    typeof b === 'object' &&
+    typeof (b as any).Equals === 'function'
+  ) {
+    return (b as any).Equals(a)
+  }
+
+  if (a === b) return true
+
+  // Nullish equality (null == undefined)
+  if ((a === null || a === undefined) && (b === null || b === undefined))
+    return true
+
+  if (a === null || a === undefined || b === null || b === undefined)
+    return false
+
+  if (typeof a !== typeof b) return false
+  if (typeof a !== 'object') return false
+
+  // Arrays
+  if (Array.isArray(a) && Array.isArray(b)) {
+    if (a.length !== b.length) return false
+    return a.every((v, i) => isStructurallyEqual(v, b[i]))
+  }
+  if (Array.isArray(a) !== Array.isArray(b)) return false
+
+  // Objects
+  const keysA = Object.keys(a as object)
+  const keysB = Object.keys(b as object)
+  if (keysA.length !== keysB.length) return false
+  return keysA.every((k) => isStructurallyEqual((a as any)[k], (b as any)[k]))
+}
+
 // --- Monadic Error Type ---
 
 /**
@@ -1108,9 +1174,9 @@ export function evaluateExpr(node: ExprNode, ctx: RuntimeContext): any {
         case '<=':
           return left <= right
         case '==':
-          return left == right
+          return isStructurallyEqual(left, right)
         case '!=':
-          return left != right
+          return !isStructurallyEqual(left, right)
         case '===':
           return left === right
         case '!==':

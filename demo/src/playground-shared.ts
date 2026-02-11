@@ -20,7 +20,7 @@ export const TJS_RUNTIME_STUB = `
       getStack: () => [],
       typeError: (path, expected, value) => {
         const actual = value === null ? 'null' : typeof value;
-        const err = new Error(\\\`Expected \\\${expected} for '\\\${path}', got \\\${actual}\\\`);
+        const err = new Error("Expected " + expected + " for '" + path + "', got " + actual);
         err.name = 'MonadicError';
         err.path = path;
         err.expected = expected;

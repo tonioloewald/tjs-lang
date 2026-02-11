@@ -211,13 +211,17 @@ let item = items[i]
 
 Workaround: use array atoms like `map`, `reduce`, or `for...of` loops instead of index-based access.
 
-**Structural equality.** `==` and `!=` perform deep structural comparison, not reference or coerced equality. Use `===` and `!==` for identity (reference) checks:
+**Structural equality.** `==` and `!=` perform deep structural comparison, not reference or coerced equality. No type coercion: `'1' == 1` is `false`. Use `===` and `!==` for identity (reference) checks:
 
 ```javascript
 [1, 2] == [1, 2]        // true (structural)
 [1, 2] === [1, 2]       // false (different objects)
 { a: 1 } == { a: 1 }    // true (structural)
+'1' == 1                 // false (no coercion, unlike JS)
+null == undefined        // true (nullish equality preserved)
 ```
+
+Objects with a `.Equals` method or `[Symbol.for('tjs.equals')]` handler get custom comparison behavior.
 
 ---
 

@@ -427,10 +427,17 @@ result IsNot errorValue
 
 **Implementation Notes:**
 
-- **AJS (VM)**: The VM's expression evaluator handles `==`/`!=` with structural semantics at runtime
+- **AJS (VM)**: The VM's expression evaluator (`src/vm/runtime.ts`) uses `isStructurallyEqual()` for `==`/`!=`
 - **TJS (browser/Node)**: Source transformation converts `==` to `Is()` and `!=` to `IsNot()` calls
 - **`===` and `!==`**: Always preserved as identity checks, never transformed
 - The `Is()` and `IsNot()` functions are available in `src/lang/runtime.ts` and exposed globally
+
+**Custom Equality Protocol:**
+
+- `[tjsEquals]` symbol (`Symbol.for('tjs.equals')`) — highest priority, ideal for Proxies
+- `.Equals` method — backward-compatible, works on any object/class
+- Priority: symbol → `.Equals` → structural comparison
+- `tjsEquals` is exported from `src/lang/runtime.ts` and available as `__tjs.tjsEquals`
 
 ## WASM Blocks
 
