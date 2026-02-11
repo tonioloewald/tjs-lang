@@ -12,7 +12,7 @@ fiction. They exist only in your editor, and they vanish completely at runtime.
 
 TJS starts from a different premise: **types are example values that survive
 to runtime**. This gives you everything TypeScript gives you, plus runtime
-validation, reflection, and documentation -- from a single source of truth.
+validation, reflection, documentation, inline tests of private methods, and traceability of errors back to source code -- from a single source of truth.
 
 This guide is split into two paths:
 

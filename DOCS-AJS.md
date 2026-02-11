@@ -185,6 +185,40 @@ let nullish = a ?? defaultValue
 
 AJS is intentionally simple—simple enough for 4B parameter LLMs to generate correctly.
 
+### Differences from JavaScript
+
+AJS expressions differ from standard JavaScript in a few important ways:
+
+**Null-safe member access.** All member access uses optional chaining internally. Accessing a property on `null` or `undefined` returns `undefined` instead of throwing `TypeError`:
+
+```javascript
+let x = null
+let y = x.foo.bar // undefined (no error)
+```
+
+This is a deliberate safety choice — agents shouldn't crash on missing data.
+
+**No computed member access with variables.** You can use literal indices (`items[0]`, `obj["key"]`) but not variable indices (`items[i]`). This is rejected at transpile time:
+
+```javascript
+// Works
+let first = items[0]
+let name = user['name']
+
+// Fails: "Computed member access with variables not yet supported"
+let item = items[i]
+```
+
+Workaround: use array atoms like `map`, `reduce`, or `for...of` loops instead of index-based access.
+
+**Structural equality.** `==` and `!=` perform deep structural comparison, not reference or coerced equality. Use `===` and `!==` for identity (reference) checks:
+
+```javascript
+[1, 2] == [1, 2]        // true (structural)
+[1, 2] === [1, 2]       // false (different objects)
+{ a: 1 } == { a: 1 }    // true (structural)
+```
+
 ---
 
 ## Atoms
@@ -288,16 +322,38 @@ const { result } = await vm.run(agent, args, {
 })
 ```
 
-The `getBatteries()` function returns:
+The `getBatteries()` function auto-detects LM Studio and returns:
 
 ```javascript
 {
-  vector: { embed },       // embedding function
-  store: { ... },          // key-value + vector store
-  llmBattery: { predict, embed },  // LLM chat + embeddings
-  models: { ... },         // detected model info
+  vector: { embed },       // embedding function (undefined if no LM Studio)
+  store: { ... },          // key-value + vector store (always present)
+  llmBattery: { predict, embed },  // LLM chat + embeddings (null if no LM Studio)
+  models: { ... },         // detected model info (null if no LM Studio)
 }
 ```
+
+**Important:** `vector` and `llmBattery` will be `undefined`/`null` if LM Studio
+isn't running or the connection is made over HTTPS (local LLM calls are blocked
+from HTTPS contexts for security). Always check for availability or handle
+the atom's "missing capability" error.
+
+### Capability Keys
+
+Battery atoms look up capabilities by specific keys that differ from the base
+`Capabilities` interface:
+
+| Capability key | Used by atoms                                            | Contains                        |
+| -------------- | -------------------------------------------------------- | ------------------------------- |
+| `llmBattery`   | `llmPredictBattery`, `llmVision`                         | `{ predict, embed }` (full LLM) |
+| `vector`       | `storeVectorize`                                         | `{ embed }` only                |
+| `store`        | `storeSearch`, `storeCreateCollection`, `storeVectorAdd` | KV + vector store operations    |
+| `llm`          | `llmPredict` (core atom)                                 | `{ predict }` (simple)          |
+| `fetch`        | `httpFetch` (core atom)                                  | fetch function                  |
+
+The split exists because `storeVectorize` only needs the embedding function,
+while `llmPredictBattery` needs the full chat API. If you're providing your own
+capabilities (not using `getBatteries()`), wire the keys accordingly.
 
 ### `llmPredict` vs `llmPredictBattery`
 
@@ -822,6 +878,7 @@ The builder is lower-level but gives full control over AST construction.
 - **No async/await syntax** - the VM handles async internally
 - **No modules** - logic is self-contained
 - **No direct DOM access** - everything goes through capabilities
+- **No computed member access with variables** - `items[i]` is rejected; use `items[0]` (literal) or `for...of` loops
 
 ### What AJS Intentionally Avoids
 

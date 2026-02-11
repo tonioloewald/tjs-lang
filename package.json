@@ -64,7 +64,8 @@
     "bin",
     "demo",
     "tjs-lang.svg",
-    "CONTEXT.md"
+    "CONTEXT.md",
+    "CLAUDE.md"
   ],
   "sideEffects": false,
   "repository": {

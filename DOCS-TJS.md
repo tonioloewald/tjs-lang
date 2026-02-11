@@ -55,6 +55,12 @@ bun src/cli/tjs.ts types file.tjs   # Output type metadata
 
 ### Parameter Types (Colon Syntax)
 
+> **Not TypeScript.** TJS colon syntax looks like TypeScript but has different
+> semantics. The value after `:` is a **concrete example**, not a type name.
+> Write `name: 'Alice'` (example value), not `name: string` (type name).
+> TJS infers the type from the example: `'Alice'` → string, `0` → integer,
+> `true` → boolean.
+
 Required parameters use colon syntax with an example value:
 
 ```typescript
@@ -408,18 +414,27 @@ This enables:
 
 ### Monadic Errors
 
-Type failures return error objects, not exceptions:
+Type validation failures return `MonadicError` instances (extends `Error`),
+not thrown exceptions:
 
 ```typescript
-const result = createUser({ name: 123 }) // wrong type
-// { $error: true, message: 'Invalid input', path: 'createUser.input' }
+import { isMonadicError } from 'tjs-lang/lang'
 
-if (result.$error) {
-  // Handle gracefully
+const result = createUser({ name: 123 }) // wrong type
+// MonadicError: Expected string for 'createUser.name', got number
+
+if (isMonadicError(result)) {
+  console.log(result.message) // "Expected string for 'createUser.name', got number"
+  console.log(result.path) // "createUser.name"
+  console.log(result.expected) // "string"
+  console.log(result.actual) // "number"
 }
 ```
 
 No try/catch gambling. The host survives invalid inputs.
+
+For general-purpose error values (not type errors), use the `error()` helper
+which returns plain `{ $error: true, message }` objects checkable with `isError()`.
 
 ### Inline Tests
 

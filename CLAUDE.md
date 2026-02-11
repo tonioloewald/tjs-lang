@@ -209,6 +209,15 @@ Expressions use AST nodes (`$expr`), not strings:
 
 Each node costs 0.01 fuel. Forbidden: function calls, `new`, `this`, `__proto__`, `constructor`.
 
+## AJS Expression Gotchas
+
+AJS expressions behave differently from JavaScript in several important ways:
+
+- **Null member access is safe by default**: `null.foo.bar` returns `undefined` silently (uses `?.` semantics internally). This differs from JavaScript which would throw `TypeError`.
+- **No computed member access with variables**: `items[i]` fails at transpile time with "Computed member access with variables not yet supported". Literal indices work (`items[0]`, `obj["key"]`). Workaround: use `.map`/`.reduce` atoms instead.
+- **Unknown atom errors**: When an atom doesn't exist, the error is `"Unknown Atom: <name>"` with no listing of available atoms.
+- **TJS parameter syntax is NOT TypeScript**: `function foo(x: 'default')` means "required param, example value 'default'" — not a TypeScript string literal type. LLMs consistently generate `function foo(x: string)` which is wrong. The colon value is an _example_, not a _type annotation_.
+
 ## Testing Strategy
 
 - Unit tests alongside source files (`*.test.ts`)
@@ -492,6 +501,24 @@ The batteries (`src/batteries/`) provide zero-config local AI development:
 - **Capabilities interface**: `fetch`, `store` (KV + vector), `llmBattery` (predict/embed)
 
 Register battery atoms: `new AgentVM(batteryAtoms)` then pass `{ capabilities: batteries }` to `run()`.
+
+### Capability Key Naming
+
+The base `Capabilities` interface (`runtime.ts`) uses `llm` with `{ predict, embed? }`, but the battery atoms access capabilities via different keys:
+
+| Capability key | Used by                                                  | Contains                                     |
+| -------------- | -------------------------------------------------------- | -------------------------------------------- |
+| `llmBattery`   | `llmPredictBattery`, `llmVision`                         | Full `LLMCapability` (`predict` + `embed`)   |
+| `vector`       | `storeVectorize`                                         | Just `{ embed }` (extracted from llmBattery) |
+| `store`        | `storeSearch`, `storeCreateCollection`, `storeVectorAdd` | KV + vector store ops                        |
+
+Both `llmBattery` and `vector` can be `undefined`/`null` if LM Studio isn't available or HTTPS is detected.
+
+### Battery Atom Return Types
+
+- **`llmPredictBattery`**: Returns OpenAI message format `{ role?, content?, tool_calls? }` — NOT a plain string
+- **`storeVectorize`**: Returns `number[]` (embedding vector)
+- **`storeSearch`**: Returns `any[]` (matched documents)
 
 ## Development Configuration
 
