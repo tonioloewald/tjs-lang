@@ -41,11 +41,11 @@ export function getTodo(input: { id: 1 })
 }
 
 // GET /todos - Read all (with optional filter)
-export function listTodos(input: { completed: true } | {})
+export function listTodos(input = { completed: false })
   -> { todos: [{ id: 0, title: '', completed: false, createdAt: '' }] } {
   let items = [...todos.values()]
 
-  if ('completed' in input) {
+  if (input.completed !== undefined) {
     items = items.filter(t => t.completed === input.completed)
   }
 

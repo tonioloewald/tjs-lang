@@ -48,7 +48,7 @@ bun src/cli/tjs.ts test <file>     # Run inline tests in a TJS file
 npm run typecheck           # tsc --noEmit (type check without emitting)
 npm run test:llm            # LM Studio integration tests
 npm run bench               # Vector search benchmarks
-npm run show-size           # Show gzipped bundle size
+npm run build:bundles       # Generate esbuild bundles
 
 # Build standalone CLI binaries
 npm run build:cli           # Compiles tjs + tjsx to dist/

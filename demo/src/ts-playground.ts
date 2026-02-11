@@ -354,9 +354,9 @@ export class TSPlayground extends Component<TSPlaygroundParts> {
           '\n\n// Warnings:\n// ' + tjsResult.warnings.join('\n// ')
       }
 
-      // Step 2: TJS -> JS (skip signature tests with -!) (timed)
-      // Replace -> with -! to avoid signature test failures during transpilation
-      let tjsCodeForJs = tjsResult.code.replace(/-> /g, '-! ')
+      // Step 2: TJS -> JS (timed)
+      // Note: fromTS already emits -! for return types, so no workaround needed
+      let tjsCodeForJs = tjsResult.code
 
       // Inject safety directive if unsafe mode is enabled
       if (!this.buildFlags.safe) {

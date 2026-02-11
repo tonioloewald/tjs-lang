@@ -2782,6 +2782,109 @@ describe('signature tests (transpile-time)', () => {
       `)
     ).toThrow(/Expected string/)
   })
+
+  it('should skip signature tests for async functions', () => {
+    const result = tjs(
+      `
+      async function fetchData(id: 'test-1') -> { name: '', id: '' } {
+        return { name: 'Test', id }
+      }
+    `,
+      { runTests: 'report' }
+    )
+    // Async signature test should be skipped (passed = true, not errored)
+    expect(result.testResults).toHaveLength(1)
+    expect(result.testResults![0].passed).toBe(true)
+    expect(result.testResults![0].description).toContain('fetchData')
+  })
+
+  it('should handle top-level await in module code during tests', () => {
+    const result = tjs(
+      `
+      function double(x: 5) -> 10 {
+        return x * 2
+      }
+
+      async function fetchThing(id: '') -> '' {
+        return id
+      }
+
+      await fetchThing('test')
+    `,
+      { runTests: 'report' }
+    )
+    // double's signature test should pass, fetchThing's should be skipped
+    expect(result.testResults).toHaveLength(2)
+    const doubleTest = result.testResults!.find((t: any) =>
+      t.description.includes('double')
+    )
+    expect(doubleTest?.passed).toBe(true)
+  })
+
+  it('should skip tests gracefully when imports are unresolved (module-level)', () => {
+    const result = tjs(
+      `
+      import { Schema } from 'tosijs-schema'
+
+      const UserSchema = Schema({ name: '', age: 0 })
+
+      function validateUser(data: { name: '', age: 0 }) -> { valid: true, errors: [''] } {
+        return { valid: true, errors: [] }
+      }
+    `,
+      { runTests: 'report' }
+    )
+    // Should have a signature test result that's skipped (passed), not failed
+    expect(result.testResults).toBeDefined()
+    const sigTest = result.testResults!.find((t: any) =>
+      t.description.includes('validateUser')
+    )
+    expect(sigTest).toBeDefined()
+    expect(sigTest?.passed).toBe(true)
+    expect(sigTest?.error).toBeUndefined()
+  })
+
+  it('should skip tests gracefully when imports are unresolved (function-level)', () => {
+    const result = tjs(
+      `
+      import { parseISO, format } from 'date-fns'
+
+      function formatDate(date: '2024-01-15', pattern: 'yyyy-MM-dd') -> '' {
+        const parsed = parseISO(date)
+        return format(parsed, pattern)
+      }
+    `,
+      { runTests: 'report' }
+    )
+    expect(result.testResults).toBeDefined()
+    const sigTest = result.testResults!.find((t: any) =>
+      t.description.includes('formatDate')
+    )
+    expect(sigTest).toBeDefined()
+    expect(sigTest?.passed).toBe(true)
+    expect(sigTest?.error).toBeUndefined()
+  })
+
+  it('should test sync functions alongside async functions', () => {
+    const result = tjs(
+      `
+      function add(a: 2, b: 3) -> 5 {
+        return a + b
+      }
+
+      async function fetchSum(a: 0, b: 0) -> 0 {
+        return a + b
+      }
+    `,
+      { runTests: 'report' }
+    )
+    // add should have a real test, fetchSum should be skipped
+    expect(result.testResults).toHaveLength(2)
+    const addTest = result.testResults!.find((t: any) =>
+      t.description.includes('add')
+    )
+    expect(addTest?.passed).toBe(true)
+  })
 })
 
 describe('inline validation', () => {

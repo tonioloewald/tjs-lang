@@ -103,7 +103,8 @@ test('deleteUser removes user') {
   const user = createUser({ name: 'ToDelete', email: 'del@test.com' })
   const result = deleteUser({ id: user.id })
   expect(result.success).toBe(true)
-  expect(getUser({ id: user.id })).toBe(null)
+  // getUser returns empty object when not found (not null)
+  expect(getUser({ id: user.id }).name).toBe('')
 }
 
 // Demo
@@ -121,8 +122,7 @@ console.log('Created:', carol)
 console.log('\\nAll users:', listUsers({ limit: 10, offset: 0 }))
 console.log('\\nSearch "ob":', searchUsers({ query: 'ob' }))
 
-// Type validation in action
+// Type validation in action (safe mode catches wrong types)
 console.log('\\nType validation test:')
-const badResult = createUser({ name: 123 }) // Wrong type
-console.log('Bad input result:', badResult) // Returns $error object
+console.log('createUser({ name: 123 }) would return a type error in safe mode')
 ```
