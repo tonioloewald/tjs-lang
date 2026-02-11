@@ -1287,6 +1287,14 @@ function greet(name: 'world') {
       expect(result.code).toContain('"unsafe": true')
     })
 
+    it('should handle (!) with arrow functions', () => {
+      const result = transpileToJS(`
+        const add = (! a: 0, b: 0) => a + b
+      `)
+      expect(result.code).toContain('(/* unsafe */ a = 0,b = 0) => a + b')
+      expect(result.code).not.toContain('!')
+    })
+
     it('should preserve type metadata for unsafe functions', () => {
       const result = transpileToJS(`
         function compute(! x: 0, y: 'str') -> 0 {
