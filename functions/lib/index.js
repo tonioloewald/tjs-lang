@@ -6627,7 +6627,7 @@ function getLocation(node) {
   return { line: 1, column: 0 }
 }
 
-// ../src/lang/parser.ts
+// ../src/lang/parser-params.ts
 function transformParenExpressions(source, ctx) {
   let result = ''
   let i2 = 0
@@ -7215,6 +7215,69 @@ function extractReturnTypeValue(source, start) {
   }
   return null
 }
+function splitParameters(params) {
+  const result = []
+  let current2 = ''
+  let depth = 0
+  let inLineComment = false
+  let inBlockComment = false
+  let i2 = 0
+  while (i2 < params.length) {
+    const char = params[i2]
+    const nextChar = params[i2 + 1]
+    if (!inBlockComment && char === '/' && nextChar === '/') {
+      inLineComment = true
+      current2 += '//'
+      i2 += 2
+      continue
+    }
+    if (!inLineComment && char === '/' && nextChar === '*') {
+      inBlockComment = true
+      current2 += '/*'
+      i2 += 2
+      continue
+    }
+    if (
+      inLineComment &&
+      char ===
+        `
+`
+    ) {
+      inLineComment = false
+      current2 += char
+      i2++
+      continue
+    }
+    if (inBlockComment && char === '*' && nextChar === '/') {
+      inBlockComment = false
+      current2 += '*/'
+      i2 += 2
+      continue
+    }
+    if (inLineComment || inBlockComment) {
+      current2 += char
+      i2++
+      continue
+    }
+    if (char === '(' || char === '{' || char === '[') {
+      depth++
+      current2 += char
+    } else if (char === ')' || char === '}' || char === ']') {
+      depth--
+      current2 += char
+    } else if (char === ',' && depth === 0) {
+      result.push(current2)
+      current2 = ''
+    } else {
+      current2 += char
+    }
+    i2++
+  }
+  if (current2.trim()) {
+    result.push(current2)
+  }
+  return result
+}
 function processParamString(params, ctx, trackRequired) {
   const withArrows = transformParenExpressions(params, {
     originalSource: params,
@@ -7413,128 +7476,8 @@ function findTopLevelColon(param) {
   }
   return -1
 }
-function preprocess(source, options = {}) {
-  const originalSource = source
-  let moduleSafety
-  const requiredParams = new Set()
-  const unsafeFunctions = new Set()
-  const safeFunctions = new Set()
-  const tjsModes = {
-    tjsEquals: false,
-    tjsClass: false,
-    tjsDate: false,
-    tjsNoeval: false,
-    tjsStandard: false,
-    tjsSafeEval: false,
-  }
-  const safetyMatch = source.match(
-    /^(\s*(?:\/\/[^\n]*\n|\/\*[\s\S]*?\*\/\s*)*)\s*safety\s+(none|inputs|all)\b/
-  )
-  if (safetyMatch) {
-    moduleSafety = safetyMatch[2]
-    source = source.replace(
-      /^(\s*(?:\/\/[^\n]*\n|\/\*[\s\S]*?\*\/\s*)*)\s*safety\s+(none|inputs|all)\s*/,
-      '$1'
-    )
-  }
-  const directivePattern =
-    /^(\s*(?:\/\/[^\n]*\n|\/\*[\s\S]*?\*\/\s*)*)\s*(TjsStrict|TjsEquals|TjsClass|TjsDate|TjsNoeval|TjsStandard|TjsSafeEval)\b/
-  let match
-  while ((match = source.match(directivePattern))) {
-    const directive = match[2]
-    if (directive === 'TjsStrict') {
-      tjsModes.tjsEquals = true
-      tjsModes.tjsClass = true
-      tjsModes.tjsDate = true
-      tjsModes.tjsNoeval = true
-      tjsModes.tjsStandard = true
-    } else if (directive === 'TjsEquals') {
-      tjsModes.tjsEquals = true
-    } else if (directive === 'TjsClass') {
-      tjsModes.tjsClass = true
-    } else if (directive === 'TjsDate') {
-      tjsModes.tjsDate = true
-    } else if (directive === 'TjsNoeval') {
-      tjsModes.tjsNoeval = true
-    } else if (directive === 'TjsStandard') {
-      tjsModes.tjsStandard = true
-    } else if (directive === 'TjsSafeEval') {
-      tjsModes.tjsSafeEval = true
-    }
-    source = source.replace(
-      new RegExp(
-        `^(\\s*(?:\\/\\/[^\\n]*\\n|\\/\\*[\\s\\S]*?\\*\\/\\s*)*)\\s*${directive}\\s*`
-      ),
-      '$1'
-    )
-  }
-  if (tjsModes.tjsStandard) {
-    source = insertAsiProtection(source)
-  }
-  source = transformIsOperators(source)
-  if (tjsModes.tjsEquals && !options.vmTarget) {
-    source = transformEqualityToStructural(source)
-  }
-  source = transformTypeDeclarations(source)
-  source = transformGenericDeclarations(source)
-  source = transformUnionDeclarations(source)
-  source = transformEnumDeclarations(source)
-  source = transformBareAssignments(source)
-  const {
-    source: transformedSource,
-    returnType,
-    returnSafety,
-  } = transformParenExpressions(source, {
-    originalSource,
-    requiredParams,
-    unsafeFunctions,
-    safeFunctions,
-  })
-  source = transformedSource
-  const extResult = transformExtendDeclarations(source)
-  source = extResult.source
-  source = transformTryWithoutCatch(source)
-  const polyResult = transformPolymorphicFunctions(source, requiredParams)
-  source = polyResult.source
-  const wasmBlocks = extractWasmBlocks(source)
-  source = wasmBlocks.source
-  const testResult = extractAndRunTests(source, options.dangerouslySkipTests)
-  source = testResult.source
-  const polyCtorResult = transformPolymorphicConstructors(
-    source,
-    requiredParams
-  )
-  source = polyCtorResult.source
-  for (const cls of polyCtorResult.polyCtorClasses) {
-    unsafeFunctions.add(`${cls}$dispatch`)
-  }
-  if (tjsModes.tjsClass) {
-    source = wrapClassDeclarations(source, polyCtorResult.polyCtorClasses)
-  }
-  if (tjsModes.tjsDate) {
-    source = validateNoDate(source)
-  }
-  if (tjsModes.tjsNoeval) {
-    source = validateNoEval(source)
-  }
-  source = transformExtensionCalls(source, extResult.extensions)
-  return {
-    source,
-    returnType,
-    returnSafety,
-    moduleSafety,
-    tjsModes,
-    originalSource,
-    requiredParams,
-    unsafeFunctions,
-    safeFunctions,
-    wasmBlocks: wasmBlocks.blocks,
-    tests: testResult.tests,
-    testErrors: testResult.errors,
-    polymorphicNames: polyResult.polymorphicNames,
-    extensions: extResult.extensions,
-  }
-}
+
+// ../src/lang/parser-transforms.ts
 function transformTryWithoutCatch(source) {
   let result = ''
   let i2 = 0
@@ -7807,69 +7750,6 @@ function extractTypeFromParams(paramsStr, paramName) {
     }
   }
   return
-}
-function splitParameters(params) {
-  const result = []
-  let current2 = ''
-  let depth = 0
-  let inLineComment = false
-  let inBlockComment = false
-  let i2 = 0
-  while (i2 < params.length) {
-    const char = params[i2]
-    const nextChar = params[i2 + 1]
-    if (!inBlockComment && char === '/' && nextChar === '/') {
-      inLineComment = true
-      current2 += '//'
-      i2 += 2
-      continue
-    }
-    if (!inLineComment && char === '/' && nextChar === '*') {
-      inBlockComment = true
-      current2 += '/*'
-      i2 += 2
-      continue
-    }
-    if (
-      inLineComment &&
-      char ===
-        `
-`
-    ) {
-      inLineComment = false
-      current2 += char
-      i2++
-      continue
-    }
-    if (inBlockComment && char === '*' && nextChar === '/') {
-      inBlockComment = false
-      current2 += '*/'
-      i2 += 2
-      continue
-    }
-    if (inLineComment || inBlockComment) {
-      current2 += char
-      i2++
-      continue
-    }
-    if (char === '(' || char === '{' || char === '[') {
-      depth++
-      current2 += char
-    } else if (char === ')' || char === '}' || char === ']') {
-      depth--
-      current2 += char
-    } else if (char === ',' && depth === 0) {
-      result.push(current2)
-      current2 = ''
-    } else {
-      current2 += char
-    }
-    i2++
-  }
-  if (current2.trim()) {
-    result.push(current2)
-  }
-  return result
 }
 function transformIsOperators(source) {
   const exprPat = `([\\w][\\w.\\[\\]()]*|null|undefined|true|false|\\d+(?:\\.\\d+)?|'[^']*'|"[^"]*")`
@@ -9182,165 +9062,6 @@ function transformBareAssignments(source) {
     }
   )
 }
-function parse4(source, options = {}) {
-  const {
-    filename = '<source>',
-    colonShorthand = true,
-    vmTarget = false,
-  } = options
-  const {
-    source: processedSource,
-    returnType,
-    returnSafety,
-    moduleSafety,
-    originalSource,
-    requiredParams,
-    unsafeFunctions,
-    safeFunctions,
-    wasmBlocks,
-    tests,
-    testErrors,
-  } = colonShorthand
-    ? preprocess(source, { vmTarget })
-    : {
-        source,
-        returnType: undefined,
-        returnSafety: undefined,
-        moduleSafety: undefined,
-        originalSource: source,
-        requiredParams: new Set(),
-        unsafeFunctions: new Set(),
-        safeFunctions: new Set(),
-        wasmBlocks: [],
-        tests: [],
-        testErrors: [],
-      }
-  try {
-    const ast = parse3(processedSource, {
-      ecmaVersion: 2022,
-      sourceType: 'module',
-      locations: true,
-      allowReturnOutsideFunction: false,
-    })
-    return {
-      ast,
-      returnType,
-      returnSafety,
-      moduleSafety,
-      originalSource,
-      requiredParams,
-      unsafeFunctions,
-      safeFunctions,
-      wasmBlocks,
-      tests,
-      testErrors,
-    }
-  } catch (e) {
-    const loc = e.loc || { line: 1, column: 0 }
-    throw new SyntaxError2(
-      e.message.replace(/\s*\(\d+:\d+\)$/, ''),
-      loc,
-      originalSource,
-      filename
-    )
-  }
-}
-function validateSingleFunction(ast, filename) {
-  for (const node of ast.body) {
-    if (node.type === 'ImportDeclaration') {
-      throw new SyntaxError2(
-        'Imports are not supported. All atoms must be registered with the VM.',
-        node.loc?.start || { line: 1, column: 0 },
-        undefined,
-        filename
-      )
-    }
-    if (
-      node.type === 'ExportNamedDeclaration' ||
-      node.type === 'ExportDefaultDeclaration'
-    ) {
-      throw new SyntaxError2(
-        'Exports are not supported. The function is automatically exported.',
-        node.loc?.start || { line: 1, column: 0 },
-        undefined,
-        filename
-      )
-    }
-    if (node.type === 'ClassDeclaration') {
-      throw new SyntaxError2(
-        'Classes are not supported. Agent99 uses functional composition.',
-        node.loc?.start || { line: 1, column: 0 },
-        undefined,
-        filename
-      )
-    }
-  }
-  const functions = ast.body.filter(
-    (node) => node.type === 'FunctionDeclaration'
-  )
-  if (functions.length === 0) {
-    throw new SyntaxError2(
-      'Source must contain a function declaration',
-      { line: 1, column: 0 },
-      undefined,
-      filename
-    )
-  }
-  if (functions.length > 1) {
-    const second = functions[1]
-    throw new SyntaxError2(
-      'Only a single function per agent is allowed',
-      second.loc?.start || { line: 1, column: 0 },
-      undefined,
-      filename
-    )
-  }
-  return functions[0]
-}
-function extractTDoc(source, func) {
-  const result = {
-    params: {},
-  }
-  if (!func.loc) return result
-  const beforeFunc = source.substring(0, func.start)
-  const allDocBlocks = [...beforeFunc.matchAll(/\/\*#([\s\S]*?)\*\//g)]
-  if (allDocBlocks.length > 0) {
-    const lastBlock = allDocBlocks[allDocBlocks.length - 1]
-    const afterBlock = beforeFunc.substring(
-      lastBlock.index + lastBlock[0].length
-    )
-    if (/^(?:\s|\/\/[^\n]*)*$/.test(afterBlock)) {
-      let content = lastBlock[1]
-      const lines = content.split(`
-`)
-      const minIndent = lines
-        .filter((line) => line.trim().length > 0)
-        .reduce((min, line) => {
-          const indent = line.match(/^(\s*)/)?.[1].length || 0
-          return Math.min(min, indent)
-        }, Infinity)
-      if (minIndent > 0 && minIndent < Infinity) {
-        content = lines.map((line) => line.slice(minIndent)).join(`
-`)
-      }
-      result.description = content.trim()
-      return result
-    }
-  }
-  const jsdocMatch = beforeFunc.match(/\/\*\*[\s\S]*?\*\/\s*$/)
-  if (!jsdocMatch) return result
-  const jsdoc = jsdocMatch[0]
-  const descMatch = jsdoc.match(/\/\*\*\s*\n?\s*\*?\s*([^@\n][^\n]*)/m)
-  if (descMatch) {
-    result.description = descMatch[1].trim()
-  }
-  const paramRegex = /@param\s+(?:\{[^}]+\}\s+)?(\w+)\s*-?\s*(.*)/g
-  let match
-  while ((match = paramRegex.exec(jsdoc)) !== null) {
-    result.params[match[1]] = match[2].trim()
-  }
-  return result
-}
 function extractAndRunTests(source, skipTests = false) {
   const tests = []
   const errors = []
@@ -9370,14 +9091,15 @@ function extractAndRunTests(source, skipTests = false) {
         if (depth === 0) {
           const body = source.slice(bodyStart, k - 1).trim()
           const end = k
-          tests.push({ description, body, start, end })
+          const line = (source.slice(0, start).match(/\n/g) || []).length + 1
+          tests.push({ description, body, start, end, line })
           if (!skipTests) {
             try {
               const testFn = new Function(body)
               testFn()
             } catch (err) {
-              const desc = description || `test at position ${start}`
-              errors.push(`Test failed: ${desc}
+              const desc = description || `test at line ${line}`
+              errors.push(`Test failed: ${desc} (line ${line})
   ${err.message || err}`)
             }
           }
@@ -9607,6 +9329,289 @@ function validateNoEval(source) {
     )
   }
   return source
+}
+
+// ../src/lang/parser.ts
+function preprocess(source, options = {}) {
+  const originalSource = source
+  let moduleSafety
+  const requiredParams = new Set()
+  const unsafeFunctions = new Set()
+  const safeFunctions = new Set()
+  const tjsModes = {
+    tjsEquals: false,
+    tjsClass: false,
+    tjsDate: false,
+    tjsNoeval: false,
+    tjsStandard: false,
+    tjsSafeEval: false,
+  }
+  const safetyMatch = source.match(
+    /^(\s*(?:\/\/[^\n]*\n|\/\*[\s\S]*?\*\/\s*)*)\s*safety\s+(none|inputs|all)\b/
+  )
+  if (safetyMatch) {
+    moduleSafety = safetyMatch[2]
+    source = source.replace(
+      /^(\s*(?:\/\/[^\n]*\n|\/\*[\s\S]*?\*\/\s*)*)\s*safety\s+(none|inputs|all)\s*/,
+      '$1'
+    )
+  }
+  const directivePattern =
+    /^(\s*(?:\/\/[^\n]*\n|\/\*[\s\S]*?\*\/\s*)*)\s*(TjsStrict|TjsEquals|TjsClass|TjsDate|TjsNoeval|TjsStandard|TjsSafeEval)\b/
+  let match
+  while ((match = source.match(directivePattern))) {
+    const directive = match[2]
+    if (directive === 'TjsStrict') {
+      tjsModes.tjsEquals = true
+      tjsModes.tjsClass = true
+      tjsModes.tjsDate = true
+      tjsModes.tjsNoeval = true
+      tjsModes.tjsStandard = true
+    } else if (directive === 'TjsEquals') {
+      tjsModes.tjsEquals = true
+    } else if (directive === 'TjsClass') {
+      tjsModes.tjsClass = true
+    } else if (directive === 'TjsDate') {
+      tjsModes.tjsDate = true
+    } else if (directive === 'TjsNoeval') {
+      tjsModes.tjsNoeval = true
+    } else if (directive === 'TjsStandard') {
+      tjsModes.tjsStandard = true
+    } else if (directive === 'TjsSafeEval') {
+      tjsModes.tjsSafeEval = true
+    }
+    source = source.replace(
+      new RegExp(
+        `^(\\s*(?:\\/\\/[^\\n]*\\n|\\/\\*[\\s\\S]*?\\*\\/\\s*)*)\\s*${directive}\\s*`
+      ),
+      '$1'
+    )
+  }
+  if (tjsModes.tjsStandard) {
+    source = insertAsiProtection(source)
+  }
+  source = transformIsOperators(source)
+  if (tjsModes.tjsEquals && !options.vmTarget) {
+    source = transformEqualityToStructural(source)
+  }
+  source = transformTypeDeclarations(source)
+  source = transformGenericDeclarations(source)
+  source = transformUnionDeclarations(source)
+  source = transformEnumDeclarations(source)
+  source = transformBareAssignments(source)
+  const {
+    source: transformedSource,
+    returnType,
+    returnSafety,
+  } = transformParenExpressions(source, {
+    originalSource,
+    requiredParams,
+    unsafeFunctions,
+    safeFunctions,
+  })
+  source = transformedSource
+  const extResult = transformExtendDeclarations(source)
+  source = extResult.source
+  source = transformTryWithoutCatch(source)
+  const polyResult = transformPolymorphicFunctions(source, requiredParams)
+  source = polyResult.source
+  const wasmBlocks = extractWasmBlocks(source)
+  source = wasmBlocks.source
+  const testResult = extractAndRunTests(source, options.dangerouslySkipTests)
+  source = testResult.source
+  const polyCtorResult = transformPolymorphicConstructors(
+    source,
+    requiredParams
+  )
+  source = polyCtorResult.source
+  for (const cls of polyCtorResult.polyCtorClasses) {
+    unsafeFunctions.add(`${cls}$dispatch`)
+  }
+  if (tjsModes.tjsClass) {
+    source = wrapClassDeclarations(source, polyCtorResult.polyCtorClasses)
+  }
+  if (tjsModes.tjsDate) {
+    source = validateNoDate(source)
+  }
+  if (tjsModes.tjsNoeval) {
+    source = validateNoEval(source)
+  }
+  source = transformExtensionCalls(source, extResult.extensions)
+  return {
+    source,
+    returnType,
+    returnSafety,
+    moduleSafety,
+    tjsModes,
+    originalSource,
+    requiredParams,
+    unsafeFunctions,
+    safeFunctions,
+    wasmBlocks: wasmBlocks.blocks,
+    tests: testResult.tests,
+    testErrors: testResult.errors,
+    polymorphicNames: polyResult.polymorphicNames,
+    extensions: extResult.extensions,
+  }
+}
+function parse4(source, options = {}) {
+  const {
+    filename = '<source>',
+    colonShorthand = true,
+    vmTarget = false,
+  } = options
+  const {
+    source: processedSource,
+    returnType,
+    returnSafety,
+    moduleSafety,
+    originalSource,
+    requiredParams,
+    unsafeFunctions,
+    safeFunctions,
+    wasmBlocks,
+    tests,
+    testErrors,
+  } = colonShorthand
+    ? preprocess(source, { vmTarget })
+    : {
+        source,
+        returnType: undefined,
+        returnSafety: undefined,
+        moduleSafety: undefined,
+        originalSource: source,
+        requiredParams: new Set(),
+        unsafeFunctions: new Set(),
+        safeFunctions: new Set(),
+        wasmBlocks: [],
+        tests: [],
+        testErrors: [],
+      }
+  try {
+    const ast = parse3(processedSource, {
+      ecmaVersion: 2022,
+      sourceType: 'module',
+      locations: true,
+      allowReturnOutsideFunction: false,
+    })
+    return {
+      ast,
+      returnType,
+      returnSafety,
+      moduleSafety,
+      originalSource,
+      requiredParams,
+      unsafeFunctions,
+      safeFunctions,
+      wasmBlocks,
+      tests,
+      testErrors,
+    }
+  } catch (e) {
+    const loc = e.loc || { line: 1, column: 0 }
+    throw new SyntaxError2(
+      e.message.replace(/\s*\(\d+:\d+\)$/, ''),
+      loc,
+      originalSource,
+      filename
+    )
+  }
+}
+function validateSingleFunction(ast, filename) {
+  for (const node of ast.body) {
+    if (node.type === 'ImportDeclaration') {
+      throw new SyntaxError2(
+        'Imports are not supported. All atoms must be registered with the VM.',
+        node.loc?.start || { line: 1, column: 0 },
+        undefined,
+        filename
+      )
+    }
+    if (
+      node.type === 'ExportNamedDeclaration' ||
+      node.type === 'ExportDefaultDeclaration'
+    ) {
+      throw new SyntaxError2(
+        'Exports are not supported. The function is automatically exported.',
+        node.loc?.start || { line: 1, column: 0 },
+        undefined,
+        filename
+      )
+    }
+    if (node.type === 'ClassDeclaration') {
+      throw new SyntaxError2(
+        'Classes are not supported. Agent99 uses functional composition.',
+        node.loc?.start || { line: 1, column: 0 },
+        undefined,
+        filename
+      )
+    }
+  }
+  const functions = ast.body.filter(
+    (node) => node.type === 'FunctionDeclaration'
+  )
+  if (functions.length === 0) {
+    throw new SyntaxError2(
+      'Source must contain a function declaration',
+      { line: 1, column: 0 },
+      undefined,
+      filename
+    )
+  }
+  if (functions.length > 1) {
+    const second = functions[1]
+    throw new SyntaxError2(
+      'Only a single function per agent is allowed',
+      second.loc?.start || { line: 1, column: 0 },
+      undefined,
+      filename
+    )
+  }
+  return functions[0]
+}
+function extractTDoc(source, func) {
+  const result = {
+    params: {},
+  }
+  if (!func.loc) return result
+  const beforeFunc = source.substring(0, func.start)
+  const allDocBlocks = [...beforeFunc.matchAll(/\/\*#([\s\S]*?)\*\//g)]
+  if (allDocBlocks.length > 0) {
+    const lastBlock = allDocBlocks[allDocBlocks.length - 1]
+    const afterBlock = beforeFunc.substring(
+      lastBlock.index + lastBlock[0].length
+    )
+    if (/^(?:\s|\/\/[^\n]*)*$/.test(afterBlock)) {
+      let content = lastBlock[1]
+      const lines = content.split(`
+`)
+      const minIndent = lines
+        .filter((line) => line.trim().length > 0)
+        .reduce((min, line) => {
+          const indent = line.match(/^(\s*)/)?.[1].length || 0
+          return Math.min(min, indent)
+        }, Infinity)
+      if (minIndent > 0 && minIndent < Infinity) {
+        content = lines.map((line) => line.slice(minIndent)).join(`
+`)
+      }
+      result.description = content.trim()
+      return result
+    }
+  }
+  const jsdocMatch = beforeFunc.match(/\/\*\*[\s\S]*?\*\/\s*$/)
+  if (!jsdocMatch) return result
+  const jsdoc = jsdocMatch[0]
+  const descMatch = jsdoc.match(/\/\*\*\s*\n?\s*\*?\s*([^@\n][^\n]*)/m)
+  if (descMatch) {
+    result.description = descMatch[1].trim()
+  }
+  const paramRegex = /@param\s+(?:\{[^}]+\}\s+)?(\w+)\s*-?\s*(.*)/g
+  let match
+  while ((match = paramRegex.exec(jsdoc)) !== null) {
+    result.params[match[1]] = match[2].trim()
+  }
+  return result
 }
 
 // ../src/lang/inference.ts
