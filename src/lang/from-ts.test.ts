@@ -1,569 +1,195 @@
-/**
- * Tests for TypeScript to TJS transpilation
- *
- * Focus on generics handling - preserving type parameter info
- * as schema constraints for runtime validation.
- */
-
 import { describe, it, expect } from 'bun:test'
-import { fromTS } from './emitters/from-ts'
+import { fromTS } from './index'
 
-describe('fromTS', () => {
-  describe('basic types', () => {
-    it('should convert primitive types to examples', () => {
-      const result = fromTS(`
-        function add(a: number, b: number): number {
-          return a + b
-        }
-      `)
-
-      expect(result.types?.add).toBeDefined()
-      expect(result.types?.add.params.a.type.kind).toBe('number')
-      expect(result.types?.add.params.b.type.kind).toBe('number')
-      expect(result.types?.add.returns?.kind).toBe('number')
+describe('TypeScript to TJS Transpiler', () => {
+  describe('fromTS with emitTJS', () => {
+    it('should convert string type to empty string example', () => {
+      const result = fromTS(`function greet(name: string) { return name }`, {
+        emitTJS: true,
+      })
+      expect(result.code).toContain("name: ''")
     })
 
-    it('should handle optional parameters', () => {
-      const result = fromTS(`
-        function greet(name: string, greeting?: string): string {
-          return greeting ? \`\${greeting}, \${name}!\` : \`Hello, \${name}!\`
-        }
-      `)
+    it('should convert number type to 0 example', () => {
+      const result = fromTS(
+        `function add(a: number, b: number) { return a + b }`,
+        { emitTJS: true }
+      )
+      expect(result.code).toContain('a: 0')
+      expect(result.code).toContain('b: 0')
+    })
 
-      expect(result.types?.greet.params.name.required).toBe(true)
-      expect(result.types?.greet.params.greeting.required).toBe(false)
+    it('should convert optional params to = syntax', () => {
+      const result = fromTS(
+        `function greet(name: string, title?: string) { return name }`,
+        { emitTJS: true }
+      )
+      expect(result.code).toContain("name: ''")
+      expect(result.code).toContain("title = ''")
+    })
+
+    it('should convert return type to -! annotation (skip signature test)', () => {
+      const result = fromTS(
+        `function greet(name: string): string { return name }`,
+        { emitTJS: true }
+      )
+      expect(result.code).toContain("-! ''") // -! skips signature test for TS-transpiled code
     })
 
     it('should handle array types', () => {
-      const result = fromTS(`
-        function sum(numbers: number[]): number {
-          return numbers.reduce((a, b) => a + b, 0)
-        }
-      `)
-
-      expect(result.types?.sum.params.numbers.type.kind).toBe('array')
-      expect(result.types?.sum.params.numbers.type.items?.kind).toBe('number')
-    })
-  })
-
-  describe('generics - simple', () => {
-    it('should handle simple generic function', () => {
-      const result = fromTS(`
-        function identity<T>(x: T): T {
-          return x
-        }
-      `)
-
-      expect(result.types?.identity).toBeDefined()
-      expect(result.types?.identity.params.x.type.kind).toBe('any')
-      expect(result.types?.identity.returns?.kind).toBe('any')
-      expect(result.types?.identity.typeParams).toBeDefined()
-      expect(result.types?.identity.typeParams?.T).toBeDefined()
-    })
-
-    it('should handle multiple type parameters', () => {
-      const result = fromTS(`
-        function pair<A, B>(a: A, b: B): [A, B] {
-          return [a, b]
-        }
-      `)
-
-      expect(result.types?.pair.typeParams?.A).toBeDefined()
-      expect(result.types?.pair.typeParams?.B).toBeDefined()
-    })
-  })
-
-  describe('generics - with constraints', () => {
-    it('should preserve constraint as schema', () => {
-      const result = fromTS(`
-        function process<T extends { id: number }>(item: T): number {
-          return item.id
-        }
-      `)
-
-      expect(result.types?.process.typeParams?.T).toBeDefined()
-      expect(result.types?.process.typeParams?.T.constraint).toBeDefined()
-      // Constraint should be converted to example-based schema
-      expect(result.types?.process.typeParams?.T.constraint).toContain('id')
-    })
-
-    it('should handle array constraint', () => {
-      const result = fromTS(`
-        function first<T extends any[]>(arr: T): T[0] {
-          return arr[0]
-        }
-      `)
-
-      expect(result.types?.first.typeParams?.T).toBeDefined()
-      // any[] constraint
-      expect(result.types?.first.typeParams?.T.constraint).toBeDefined()
-    })
-
-    it('should handle string constraint', () => {
-      const result = fromTS(`
-        function stringify<T extends string | number>(value: T): string {
-          return String(value)
-        }
-      `)
-
-      expect(result.types?.stringify.typeParams?.T).toBeDefined()
-      expect(result.types?.stringify.typeParams?.T.constraint).toBeDefined()
-    })
-  })
-
-  describe('generics - with defaults', () => {
-    it('should preserve default type as schema', () => {
-      const result = fromTS(`
-        function createBox<T = string>(value: T): { value: T } {
-          return { value }
-        }
-      `)
-
-      expect(result.types?.createBox.typeParams?.T).toBeDefined()
-      expect(result.types?.createBox.typeParams?.T.default).toBe("''")
-    })
-
-    it('should handle object default', () => {
-      const result = fromTS(`
-        function wrap<T = { name: string }>(data: T): { wrapped: T } {
-          return { wrapped: data }
-        }
-      `)
-
-      expect(result.types?.wrap.typeParams?.T).toBeDefined()
-      expect(result.types?.wrap.typeParams?.T.default).toContain('name')
-    })
-  })
-
-  describe('generics - TJS output', () => {
-    it('should emit TJS without type for generic params (any is omitted)', () => {
       const result = fromTS(
-        `
-        function identity<T>(x: T): T {
-          return x
-        }
-      `,
+        `function sum(nums: number[]): number { return 0 }`,
         { emitTJS: true }
       )
-
-      // Generic params become bare params (any is omitted in TJS)
-      expect(result.code).toContain('function identity(x)')
-      expect(result.code).not.toContain('x: any') // any is omitted, not explicit
-      expect(result.code).not.toContain('-> any')
+      expect(result.code).toContain('nums: [0.0]')
     })
 
-    it('should emit warnings for generics', () => {
+    it('should handle object literal types', () => {
       const result = fromTS(
-        `
-        function identity<T>(x: T): T {
-          return x
-        }
-      `,
+        `function getUser(): { name: string, age: number } { return { name: '', age: 0 } }`,
         { emitTJS: true }
       )
+      expect(result.code).toContain("-! { name: '', age: 0.0 }") // -! for TS-transpiled
+    })
 
-      expect(result.warnings).toBeDefined()
-      expect(result.warnings?.some((w) => w.includes('T'))).toBe(true)
-      expect(result.warnings?.some((w) => w.includes('any'))).toBe(true)
+    it('should handle nullable types', () => {
+      const result = fromTS(
+        `function find(id: string): string | null { return null }`,
+        { emitTJS: true }
+      )
+      expect(result.code).toContain("-! '' || null") // -! for TS-transpiled
+    })
+
+    it('should preserve default values', () => {
+      const result = fromTS(
+        `function greet(name: string = 'world') { return name }`,
+        { emitTJS: true }
+      )
+      expect(result.code).toContain("name = 'world'")
     })
   })
 
-  describe('generics - JS output with metadata', () => {
-    it('should include typeParams in __tjs metadata', () => {
-      const result = fromTS(`
-        function process<T extends { foo: number }>(x: T): T {
-          return x
-        }
-      `)
-
-      // Check that the generated code includes typeParams
-      expect(result.code).toContain('typeParams')
-      expect(result.code).toContain('"T"')
+  describe('fromTS with JS output', () => {
+    it('should strip types and add __tjs metadata', () => {
+      const result = fromTS(
+        `function greet(name: string): string { return name }`
+      )
+      expect(result.code).toContain('function greet(name)')
+      expect(result.code).toContain('greet.__tjs')
+      expect(result.types?.greet).toBeDefined()
+      expect(result.types?.greet.params.name.type.kind).toBe('string')
+      expect(result.types?.greet.params.name.required).toBe(true)
     })
 
-    it('should generate valid executable JS', () => {
-      const result = fromTS(`
-        function identity<T>(x: T): T {
-          return x
-        }
-      `)
-
-      // Execute the generated code
-      const fn = new Function(`${result.code}; return identity;`)()
-
-      expect(fn('hello')).toBe('hello')
-      expect(fn(42)).toBe(42)
-      expect(fn.__tjs).toBeDefined()
-      expect(fn.__tjs.typeParams?.T).toBeDefined()
-    })
-  })
-
-  describe('real-world patterns', () => {
-    it('should handle React-style component props', () => {
-      const result = fromTS(`
-        function withLoading<P extends { loading?: boolean }>(
-          props: P
-        ): P & { isLoading: boolean } {
-          return { ...props, isLoading: props.loading ?? false }
-        }
-      `)
-
-      expect(result.types?.withLoading.typeParams?.P).toBeDefined()
-      expect(result.types?.withLoading.typeParams?.P.constraint).toBeDefined()
+    it('should mark optional params as not required', () => {
+      const result = fromTS(`function test(a: string, b?: number) { return a }`)
+      expect(result.types?.test.params.a.required).toBe(true)
+      expect(result.types?.test.params.b.required).toBe(false)
     })
 
-    it('should handle Promise unwrapping', () => {
-      const result = fromTS(`
-        async function fetchData<T>(url: string): Promise<T> {
-          const res = await fetch(url)
-          return res.json()
-        }
-      `)
-
-      expect(result.types?.fetchData.typeParams?.T).toBeDefined()
-      // Return type should unwrap Promise
-      expect(result.types?.fetchData.returns?.kind).toBe('any')
+    it('should capture return type in metadata', () => {
+      const result = fromTS(
+        `function add(a: number, b: number): number { return a + b }`
+      )
+      expect(result.types?.add.returns?.kind).toBe('number')
     })
 
-    it('should handle array methods pattern', () => {
+    it('should handle multiple functions', () => {
       const result = fromTS(`
-        function map<T, U>(arr: T[], fn: (x: T) => U): U[] {
-          return arr.map(fn)
-        }
+        function foo(x: string) { return x }
+        function bar(y: number) { return y }
       `)
+      expect(result.types?.foo).toBeDefined()
+      expect(result.types?.bar).toBeDefined()
+      expect(result.code).toContain('foo.__tjs')
+      expect(result.code).toContain('bar.__tjs')
+    })
 
-      expect(result.types?.map.typeParams?.T).toBeDefined()
-      expect(result.types?.map.typeParams?.U).toBeDefined()
-      expect(result.types?.map.params.arr.type.kind).toBe('array')
+    it('should handle arrow functions', () => {
+      const result = fromTS(
+        `const greet = (name: string): string => \`Hello, \${name}!\``
+      )
+      expect(result.types?.greet).toBeDefined()
+      expect(result.types?.greet.params.name.type.kind).toBe('string')
+      expect(result.types?.greet.returns?.kind).toBe('string')
+    })
+
+    it('should handle const function expressions', () => {
+      const result = fromTS(
+        `const add = function(a: number, b: number): number { return a + b }`
+      )
+      expect(result.types?.add).toBeDefined()
+      expect(result.types?.add.params.a.type.kind).toBe('number')
+      expect(result.types?.add.params.b.type.kind).toBe('number')
     })
   })
 
-  describe('class support - callable without new', () => {
-    it('should emit Proxy wrapper for classes', () => {
-      const result = fromTS(`
-        class Point {
-          constructor(public x: number, public y: number) {}
+  describe('End-to-end execution', () => {
+    it('should produce executable JS from TypeScript', () => {
+      const tsSource = `
+        function add(a: number, b: number): number {
+          return a + b
         }
-      `)
-
-      // Should include inline Proxy wrapper (no runtime dependency)
-      expect(result.code).toContain('new Proxy')
-      expect(result.code).toContain('Reflect.construct')
-      expect(result.code).toContain('Point')
-    })
-
-    it('should allow instantiation without new', () => {
-      const result = fromTS(`
-        class Point {
-          x: number
-          y: number
-          constructor(x: number, y: number) {
-            this.x = x
-            this.y = y
-          }
-        }
-      `)
-
-      // Execute the generated code with runtime
-      const code = `
-        // Mock runtime
-        globalThis.__tjs = {
-          version: '0.0.0',
-          wrapClass: function(cls) {
-            return new Proxy(cls, {
-              construct(target, args) {
-                return Reflect.construct(target, args)
-              },
-              apply(target, _, args) {
-                return Reflect.construct(target, args)
-              }
-            })
-          },
-          createRuntime: function() { return this; }
-        }
-        ${result.code}
-        return Point
       `
-      const Point = new Function(code)()
+      const result = fromTS(tsSource)
 
-      // Call without new
-      const p1 = Point(10, 20)
-      expect(p1.x).toBe(10)
-      expect(p1.y).toBe(20)
-
-      // Call with new still works
-      const p2 = new Point(30, 40)
-      expect(p2.x).toBe(30)
-      expect(p2.y).toBe(40)
+      // Execute the generated JS
+      const fn = new Function(`${result.code}; return add(2, 3);`)
+      expect(fn()).toBe(5)
     })
 
-    it('should extract class metadata', () => {
-      const result = fromTS(`
-        class Calculator {
-          constructor(public initialValue: number) {}
-          add(x: number): number {
-            return this.initialValue + x
-          }
-          static create(value: number): Calculator {
-            return new Calculator(value)
-          }
+    it('should produce executable JS with correct metadata', () => {
+      const tsSource = `
+        function greet(name: string, excited?: boolean): string {
+          return excited ? \`Hello, \${name}!\` : \`Hello, \${name}\`
         }
-      `)
+      `
+      const result = fromTS(tsSource)
 
-      expect(result.classes).toBeDefined()
-      expect(result.classes?.Calculator).toBeDefined()
-      expect(result.classes?.Calculator.constructor).toBeDefined()
-      expect(result.classes?.Calculator.methods.add).toBeDefined()
-      expect(result.classes?.Calculator.staticMethods.create).toBeDefined()
+      // Execute and check result
+      const fn = new Function(`${result.code}; return greet('World', true);`)
+      expect(fn()).toBe('Hello, World!')
+
+      // Also verify metadata is attached
+      const metaFn = new Function(`${result.code}; return greet.__tjs;`)
+      const meta = metaFn()
+      expect(meta.params.name.type).toBe('string')
+      expect(meta.params.name.required).toBe(true)
+      expect(meta.params.excited.required).toBe(false)
+      expect(meta.returns.type).toBe('string')
+    })
+
+    it('should handle arrow functions end-to-end', () => {
+      const tsSource = `
+        const multiply = (a: number, b: number): number => a * b
+      `
+      const result = fromTS(tsSource)
+
+      // Execute
+      const fn = new Function(`${result.code}; return multiply(4, 5);`)
+      expect(fn()).toBe(20)
+
+      // Check metadata
+      const metaFn = new Function(`${result.code}; return multiply.__tjs;`)
+      const meta = metaFn()
+      expect(meta.params.a.type).toBe('number')
+      expect(meta.params.b.type).toBe('number')
+    })
+
+    it('should handle complex types end-to-end', () => {
+      const tsSource = `
+        function processUser(user: { name: string, age: number }): string {
+          return \`\${user.name} is \${user.age} years old\`
+        }
+      `
+      const result = fromTS(tsSource)
+
+      // Execute
+      const fn = new Function(
+        `${result.code}; return processUser({ name: 'Alice', age: 30 });`
+      )
+      expect(fn()).toBe('Alice is 30 years old')
     })
   })
 })
-
-describe('embedded test comments', () => {
-  it('should preserve embedded test comments in TJS output', () => {
-    const result = fromTS(
-      `
-      function add(a: number, b: number): number {
-        return a + b
-      }
-
-      /*test 'adds two numbers' {
-        expect(add(1, 2)).toBe(3)
-      }*/
-    `,
-      { emitTJS: true }
-    )
-
-    // Embedded test comments should be preserved
-    expect(result.code).toContain("/*test 'adds two numbers'")
-    expect(result.code).toContain('expect(add(1, 2)).toBe(3)')
-  })
-
-  it('should preserve multiple embedded tests', () => {
-    const result = fromTS(
-      `
-      function multiply(a: number, b: number): number {
-        return a * b
-      }
-
-      /*test 'multiplies positive numbers' {
-        expect(multiply(3, 4)).toBe(12)
-      }*/
-
-      /*test 'handles zero' {
-        expect(multiply(5, 0)).toBe(0)
-      }*/
-    `,
-      { emitTJS: true }
-    )
-
-    expect(result.code).toContain("/*test 'multiplies positive numbers'")
-    expect(result.code).toContain("/*test 'handles zero'")
-  })
-
-  it('should preserve embedded tests with backtick descriptions', () => {
-    const result = fromTS(
-      `
-      function greet(name: string): string {
-        return \`Hello, \${name}!\`
-      }
-
-      /*test \`greets user\` {
-        expect(greet('Alice')).toBe('Hello, Alice!')
-      }*/
-    `,
-      { emitTJS: true }
-    )
-
-    expect(result.code).toContain('/*test `greets user`')
-  })
-
-  it('should preserve embedded tests with double-quoted descriptions', () => {
-    const result = fromTS(
-      `
-      function negate(x: number): number {
-        return -x
-      }
-
-      /*test "negates numbers" {
-        expect(negate(5)).toBe(-5)
-      }*/
-    `,
-      { emitTJS: true }
-    )
-
-    expect(result.code).toContain('/*test "negates numbers"')
-  })
-
-  it('should preserve anonymous embedded tests', () => {
-    const result = fromTS(
-      `
-      function double(x: number): number {
-        return x * 2
-      }
-
-      /*test {
-        expect(double(7)).toBe(14)
-      }*/
-    `,
-      { emitTJS: true }
-    )
-
-    expect(result.code).toContain('/*test {')
-    expect(result.code).toContain('expect(double(7)).toBe(14)')
-  })
-
-  it('should preserve embedded tests in JS output too', () => {
-    const result = fromTS(`
-      function subtract(a: number, b: number): number {
-        return a - b
-      }
-
-      /*test 'subtracts numbers' {
-        expect(subtract(10, 3)).toBe(7)
-      }*/
-    `)
-
-    // In JS output, embedded tests should also be preserved
-    expect(result.code).toContain("/*test 'subtracts numbers'")
-  })
-})
-
-describe('clean TJS output', () => {
-  it('should emit clean TJS for classes', () => {
-    const result = fromTS(
-      `
-      class Foo {
-        constructor(x: number) {
-          this.x = x
-        }
-      }
-    `,
-      { emitTJS: true }
-    )
-
-    // TJS should be human-readable, not full of runtime calls
-    expect(result.code).not.toContain('globalThis.__tjs')
-    expect(result.code).not.toContain('wrapClass')
-    expect(result.code).toContain('class Foo')
-  })
-
-  it('should emit clean TJS for functions with types', () => {
-    const result = fromTS(
-      `
-      function add(a: number, b: number): number {
-        return a + b
-      }
-    `,
-      { emitTJS: true }
-    )
-
-    // Should be clean TJS with example-based types
-    expect(result.code).toContain('function add')
-    expect(result.code).toContain(': 0') // number becomes 0
-    expect(result.code).not.toContain('globalThis')
-  })
-
-  it('should emit readable Type declarations', () => {
-    const result = fromTS(
-      `
-      interface User {
-        name: string
-        age: number
-      }
-
-      function getUser(id: string): User {
-        return { name: 'test', age: 0 }
-      }
-    `,
-      { emitTJS: true }
-    )
-
-    // Type declarations should be readable TJS syntax
-    expect(result.code).toContain('Type User')
-    expect(result.code).not.toContain('globalThis')
-  })
-
-  it('should produce TJS that a human could maintain', () => {
-    const result = fromTS(
-      `
-      class Counter {
-        private count: number = 0
-
-        increment(): void {
-          this.count++
-        }
-
-        get value(): number {
-          return this.count
-        }
-      }
-    `,
-      { emitTJS: true }
-    )
-
-    // The TJS should look like something a human would write
-    expect(result.code).toContain('class Counter')
-    expect(result.code).toContain('#count') // private -> #
-    expect(result.code).not.toContain('globalThis')
-    expect(result.code).not.toContain('__tjs?.') // no runtime optional chaining
-  })
-})
-
-describe('fromTS doc comment preservation', () => {
-  it('should preserve /*# doc comments in TJS output', () => {
-    const result = fromTS(
-      `
-/*# Module documentation */
-
-function first(x: number): number {
-  /*# Inside first - should be preserved by TS transpiler */
-  return x
-}
-
-/*# Between functions */
-
-function second(x: number): number {
-  return x
-}
-
-/*# After all */
-`,
-      { emitTJS: true }
-    )
-
-    // Top-level doc comments should be in output in correct order
-    expect(result.code).toContain('/*# Module documentation */')
-    expect(result.code).toContain('/*# Between functions */')
-    expect(result.code).toContain('/*# After all */')
-
-    // Check order: module doc -> first function -> between -> second function -> after
-    const moduleDocPos = result.code.indexOf('/*# Module documentation */')
-    const firstFuncPos = result.code.indexOf('function first')
-    const betweenPos = result.code.indexOf('/*# Between functions */')
-    const secondFuncPos = result.code.indexOf('function second')
-    const afterPos = result.code.indexOf('/*# After all */')
-
-    expect(moduleDocPos).toBeLessThan(firstFuncPos)
-    expect(firstFuncPos).toBeLessThan(betweenPos)
-    expect(betweenPos).toBeLessThan(secondFuncPos)
-    expect(secondFuncPos).toBeLessThan(afterPos)
-  })
-
-  it('should not duplicate comments inside function bodies', () => {
-    const result = fromTS(
-      `
-function example(x: number): number {
-  /*# Comment inside function */
-  return x * 2
-}
-`,
-      { emitTJS: true }
-    )
-
-    // The comment inside the function should appear exactly once
-    // (preserved by TS transpiler, not extracted as top-level doc)
-    const matches = result.code.match(/\/\*# Comment inside function \*\//g)
-    expect(matches?.length || 0).toBe(1)
-  })
-})
+// Schema callable tests

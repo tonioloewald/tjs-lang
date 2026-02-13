@@ -500,25 +500,36 @@ describe('Bootstrap Canary', () => {
     it('should execute transpiled preprocess to transform TJS syntax', () => {
       const start = performance.now()
 
-      // Step 1: Transpile parser.ts
-      const parserPath = path.join(import.meta.dir, '../lang/parser.ts')
-      const parserSource = fs.readFileSync(parserPath, 'utf-8')
+      // Step 1: Transpile all parser modules (split into types, params, transforms, orchestrator)
+      const langDir = path.join(import.meta.dir, '../lang')
+      const moduleFiles = [
+        'parser-types.ts',
+        'parser-params.ts',
+        'parser-transforms.ts',
+        'parser.ts',
+      ]
 
       const transpileStart = performance.now()
-      const parserResult = fromTS(parserSource)
+      let combinedCode = ''
+      for (const file of moduleFiles) {
+        const src = fs.readFileSync(path.join(langDir, file), 'utf-8')
+        const result = fromTS(src)
+        const stripped = result.code
+          .replace(/^import\s+.*$/gm, '')
+          .replace(/^export\s+\{[^}]*\}\s+from\s+.*$/gm, '')
+          .replace(/^export\s+/gm, '')
+        combinedCode += stripped + '\n'
+      }
       const transpileTime = performance.now() - transpileStart
 
-      expect(parserResult.code).toBeTruthy()
-      expect(parserResult.code.length).toBeGreaterThan(10000)
+      expect(combinedCode).toBeTruthy()
+      expect(combinedCode.length).toBeGreaterThan(10000)
 
-      // Step 2: Execute the transpiled parser module
+      // Step 2: Execute the combined transpiled parser modules
       const execStart = performance.now()
-      const strippedCode = parserResult.code
-        .replace(/^import\s+.*$/gm, '')
-        .replace(/^export\s+/gm, '')
 
       const parserModule = new Function(`
-        ${strippedCode}
+        ${combinedCode}
         return { preprocess };
       `)()
       const execTime = performance.now() - execStart
@@ -595,8 +606,8 @@ describe('Bootstrap Canary', () => {
 
       console.log(`\n  Transpiled parser (preprocess) test:`)
       console.log(
-        `    Transpile parser.ts: ${transpileTime.toFixed(2)}ms (${(
-          parserResult.code.length / 1024
+        `    Transpile parser modules: ${transpileTime.toFixed(2)}ms (${(
+          combinedCode.length / 1024
         ).toFixed(1)}KB)`
       )
       console.log(`    Execute module:      ${execTime.toFixed(2)}ms`)
@@ -608,17 +619,28 @@ describe('Bootstrap Canary', () => {
     })
 
     it('should produce identical preprocess results vs native', () => {
-      // Transpile and execute parser.ts
-      const parserPath = path.join(import.meta.dir, '../lang/parser.ts')
-      const parserSource = fs.readFileSync(parserPath, 'utf-8')
-      const parserResult = fromTS(parserSource)
+      // Transpile and execute all parser modules
+      const langDir = path.join(import.meta.dir, '../lang')
+      const moduleFiles = [
+        'parser-types.ts',
+        'parser-params.ts',
+        'parser-transforms.ts',
+        'parser.ts',
+      ]
 
-      const strippedCode = parserResult.code
-        .replace(/^import\s+.*$/gm, '')
-        .replace(/^export\s+/gm, '')
+      let combinedCode = ''
+      for (const file of moduleFiles) {
+        const src = fs.readFileSync(path.join(langDir, file), 'utf-8')
+        const result = fromTS(src)
+        const stripped = result.code
+          .replace(/^import\s+.*$/gm, '')
+          .replace(/^export\s+\{[^}]*\}\s+from\s+.*$/gm, '')
+          .replace(/^export\s+/gm, '')
+        combinedCode += stripped + '\n'
+      }
 
       const bootstrappedParser = new Function(`
-        ${strippedCode}
+        ${combinedCode}
         return { preprocess };
       `)()
 
