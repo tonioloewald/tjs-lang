@@ -34,7 +34,7 @@ async function killExistingServer() {
 
 await killExistingServer()
 const DEMO_DIR = './demo'
-const DOCS_DIR = './docs'
+const DOCS_DIR = './.demo'
 const SRC_DIR = './src'
 const EDITORS_DIR = './editors'
 const GUIDES_DIR = './guides'
@@ -51,7 +51,7 @@ async function buildDemo() {
     // Build the demo app (bundle everything for browser)
     const result = await Bun.build({
       entrypoints: ['./demo/src/index.ts'],
-      outdir: './docs',
+      outdir: './.demo',
       minify: false,
       sourcemap: 'external',
       target: 'browser',
@@ -69,8 +69,8 @@ async function buildDemo() {
     }
 
     // Copy static files
-    await $`cp demo/index.html demo/static/favicon.svg demo/static/photo-*.jpg tjs-lang.svg docs/`
-    await $`cp -r demo/static/texts docs/`
+    await $`cp demo/index.html demo/static/favicon.svg demo/static/photo-*.jpg tjs-lang.svg .demo/`
+    await $`cp -r demo/static/texts .demo/`
 
     console.log('Build complete!')
   } catch (error) {

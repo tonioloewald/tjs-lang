@@ -48,14 +48,14 @@ bun src/cli/tjs.ts test <file>     # Run inline tests in a TJS file
 npm run typecheck           # tsc --noEmit (type check without emitting)
 npm run test:llm            # LM Studio integration tests
 npm run bench               # Vector search benchmarks
-npm run build:bundles       # Generate esbuild bundles
+npm run show-size           # Show gzipped bundle size
 
 # Build standalone CLI binaries
 npm run build:cli           # Compiles tjs + tjsx to dist/
 
 # Deployment (Firebase)
-npm run deploy              # Deploy functions + hosting
-npm run deploy:hosting      # Hosting only (serves from docs/)
+npm run deploy              # Build demo + deploy functions + hosting
+npm run deploy:hosting      # Hosting only (serves from .demo/)
 npm run functions:deploy    # Cloud functions only
 npm run functions:serve     # Local functions emulator
 ```
@@ -609,7 +609,9 @@ Both `llmBattery` and `vector` can be `undefined`/`null` if LM Studio isn't avai
 
 ### Firebase Deployment
 
-The playground and docs are hosted on Firebase (`tjs-platform.web.app`). The `docs/` directory is the hosting root. Cloud Functions live in `functions/` with their own build process (`functions/src/*.tjs` → transpile → bundle). Firebase config: `firebase.json`, `.firebaserc`, `firestore.rules`.
+The playground is hosted on Firebase (`tjs-platform.web.app`). Demo build output goes to `.demo/` (gitignored) which is the Firebase hosting root. Cloud Functions live in `functions/` with their own build process (`functions/src/*.tjs` → transpile → bundle). Firebase config: `firebase.json`, `.firebaserc`, `firestore.rules`.
+
+The `docs/` directory contains real documentation (markdown), not build artifacts. See `docs/README.md` for the documentation index.
 
 ### Additional Documentation
 

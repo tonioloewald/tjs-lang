@@ -58,7 +58,7 @@ async function main() {
     rootDir = join(import.meta.dir, '..', '..')
   }
 
-  const docsDir = join(rootDir, 'docs')
+  const docsDir = join(rootDir, '.demo')
   const srcDir = join(rootDir, 'src')
   const demoDir = join(rootDir, 'demo')
   const editorsDir = join(rootDir, 'editors')
@@ -96,7 +96,7 @@ async function main() {
       // Build the demo app
       const result = await Bun.build({
         entrypoints: [join(root, 'demo', 'src', 'index.ts')],
-        outdir: join(root, 'docs'),
+        outdir: join(root, '.demo'),
         minify: false,
         sourcemap: 'external',
         target: 'browser',
@@ -114,7 +114,7 @@ async function main() {
       const demoStatic = join(root, 'demo', 'static')
       const demoIndex = join(root, 'demo', 'index.html')
       const logoSvg = join(root, 'tjs-lang.svg')
-      const targetDocs = join(root, 'docs')
+      const targetDocs = join(root, '.demo')
 
       await $`cp ${demoIndex} ${logoSvg} ${targetDocs}/`.quiet()
       await $`cp ${join(demoStatic, 'favicon.svg')} ${targetDocs}/`.quiet()

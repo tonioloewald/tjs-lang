@@ -137,6 +137,9 @@ dist
 .models.cache.json
 .DS_Store
 
+# Demo build output (served via Firebase, not committed)
+.demo/
+
 # Generated files that shouldn't be in src/
 src/**/*.js
 src/**/*.d.ts

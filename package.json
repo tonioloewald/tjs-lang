@@ -114,7 +114,7 @@
     "functions:deploy": "cd functions && npm run deploy",
     "functions:serve": "cd functions && npm run serve",
     "deploy:hosting": "firebase deploy --only hosting",
-    "deploy": "npm run functions:deploy && firebase deploy --only hosting",
+    "deploy": "npm run build:demo && npm run functions:deploy && firebase deploy --only hosting",
     "start": "bun run build:demo && bun run dev"
   },
   "dependencies": {

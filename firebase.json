@@ -1,6 +1,6 @@
 {
   "hosting": {
-    "public": "docs",
+    "public": ".demo",
     "ignore": ["firebase.json", "**/.*", "**/node_modules/**"],
     "rewrites": [
       {

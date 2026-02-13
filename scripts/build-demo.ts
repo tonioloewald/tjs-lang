@@ -15,7 +15,7 @@ await $`bun run docs`
 // Build with version injected using programmatic API
 const result = await Bun.build({
   entrypoints: ['./demo/src/index.ts'],
-  outdir: './docs',
+  outdir: './.demo',
   minify: true,
   sourcemap: 'external',
   target: 'browser',
@@ -35,7 +35,7 @@ if (!result.success) {
 console.log(`Bundled ${result.outputs.length} files`)
 
 // Copy static files
-await $`cp demo/index.html demo/static/favicon.svg demo/static/photo-*.jpg tjs-lang.svg docs/`
-await $`cp -r demo/static/texts docs/`
+await $`cp demo/index.html demo/static/favicon.svg demo/static/photo-*.jpg tjs-lang.svg .demo/`
+await $`cp -r demo/static/texts .demo/`
 
 console.log(`Demo built successfully (v${version})`)
