@@ -34,7 +34,7 @@ Commands:
   types <file>    Output type metadata as JSON
   emit <file>     Output transpiled JavaScript (+ docs)
   test [file]     Run .test.tjs test files
-  convert <src>   Convert TypeScript files to TJS
+  convert <src>   Convert TypeScript to JS (with runtime checks)
 
 Options:
   -h, --help      Show this help message
@@ -44,6 +44,7 @@ Options:
   --no-docs       Suppress documentation generation (emit command)
   --docs-dir <d>  Output docs to separate directory (emit command)
   --jfdi          Emit even if tests fail (just fucking do it)
+  --emit-tjs      Output intermediate TJS instead of JS (convert command)
   -o <path>       Output path (for emit, convert commands)
   -t <pattern>    Test name pattern (for test command)
   --verbose, -V   Verbose output
@@ -59,7 +60,8 @@ Examples:
   tjs test                            # Run all .test.tjs files
   tjs test src/lib/                   # Run tests in directory
   tjs test -t "validation"            # Run tests matching pattern
-  tjs convert src/ -o src-tjs/        # Convert TS files to TJS
+  tjs convert src/ -o dist/            # Convert TS files to JS
+  tjs convert --emit-tjs src/ -o tjs/ # Convert TS files to intermediate TJS
 `
 
 async function main() {
@@ -81,6 +83,7 @@ async function main() {
   const unsafe = args.includes('--unsafe')
   const noDocs = args.includes('--no-docs')
   const jfdi = args.includes('--jfdi')
+  const emitTJS = args.includes('--emit-tjs')
 
   // Parse -o <output> option
   const outputIdx = args.findIndex((a) => a === '-o' || a === '--output')
@@ -150,7 +153,7 @@ async function main() {
         await test(file, { pattern: testPattern })
         break
       case 'convert':
-        await convert(file, { output, verbose })
+        await convert(file, { output, verbose, emitTJS })
         break
       default:
         console.error(`Error: Unknown command '${command}'`)

@@ -252,15 +252,19 @@ Since TJS compiles itself, the playground is the full engine running entirely in
 
 ## At a Glance
 
-|                 | TJS                              | AJS               |
-| --------------- | -------------------------------- | ----------------- |
-| **Purpose**     | Write your platform              | Write your agents |
-| **Trust level** | Your code                        | Anyone's code     |
-| **Compiles to** | JavaScript + metadata            | JSON AST          |
-| **Runs in**     | Browser, Node, Bun               | Sandboxed VM      |
-| **Types**       | Examples → runtime validation    | Schemas for I/O   |
-| **Errors**      | Monadic (values, not exceptions) | Monadic           |
-| **Build step**  | None                             | None              |
+|                 | TypeScript                   | TJS                                          | AJS               |
+| --------------- | ---------------------------- | -------------------------------------------- | ----------------- |
+| **Purpose**     | Write your platform          | Write your platform                          | Write your agents |
+| **Trust level** | Your code                    | Your code                                    | Anyone's code     |
+| **Compiles to** | JavaScript + `.d.ts`         | JavaScript (with runtime checks + introspection) | JSON AST      |
+| **Runs in**     | Browser, Node, Bun           | Browser, Node, Bun                           | Sandboxed VM      |
+| **Types**       | Static only (erased at runtime) | Examples → runtime validation             | Schemas for I/O   |
+| **Errors**      | Exceptions                   | Monadic (values, not exceptions)             | Monadic           |
+| **Build step**  | `tsc` → JS + `.d.ts`        | Runs tests, builds docs, produces JS         | None              |
+
+> **Note:** TJS can transpile TypeScript into JS (via TJS) using `tjs convert`, giving your existing TS code
+> runtime type checks and introspection. You can even add inline tests using `/*test ...*/` comments
+> that run automatically during the build.
 
 ## Bundle Size
 
