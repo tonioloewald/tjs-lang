@@ -48,7 +48,12 @@
 
 import type { FunctionDeclaration, Program } from 'acorn'
 import { parseExpressionAt } from 'acorn'
-import { parse, extractTDoc, preprocess } from '../parser'
+import {
+  parse,
+  extractTDoc,
+  preprocess,
+  transformExtensionCalls,
+} from '../parser'
 import type { TypeDescriptor, ParameterDescriptor } from '../types'
 import { inferTypeFromValue, parseParameter } from '../inference'
 import { extractTests } from '../tests'
@@ -513,11 +518,32 @@ export function transpileToJS(
       returnSafety,
     }
 
+    // Check if this is a polymorphic dispatcher
+    const isPolymorphicDispatcher = preprocessed.polymorphicNames.has(funcName)
+
     // Generate __tjs metadata (to insert after function)
-    const typeMetadata = generateTypeMetadata(funcName, types, safetyOptions, {
-      debug,
-      source: funcLoc,
-    })
+    let typeMetadata: string
+    if (isPolymorphicDispatcher) {
+      // Build composite metadata referencing variants
+      const variantNames: string[] = []
+      for (const f of functions) {
+        const fn = f.id?.name || ''
+        if (fn.startsWith(funcName + '$')) variantNames.push(fn)
+      }
+      const metadata: any = {
+        polymorphic: true,
+        variants: variantNames,
+      }
+      if (funcLoc) {
+        metadata.source = `${funcLoc.file}:${funcLoc.line}`
+      }
+      typeMetadata = `${funcName}.__tjs = ${JSON.stringify(metadata, null, 2)}`
+    } else {
+      typeMetadata = generateTypeMetadata(funcName, types, safetyOptions, {
+        debug,
+        source: funcLoc,
+      })
+    }
 
     // Queue insertion of __tjs after function closing brace
     insertions.push({
@@ -526,8 +552,8 @@ export function transpileToJS(
     })
 
     // Generate inline validation (to insert at start of function body)
-    // Skip for unsafe functions
-    if (!isUnsafe) {
+    // Skip for unsafe functions and polymorphic dispatchers (they handle routing)
+    if (!isUnsafe && !isPolymorphicDispatcher) {
       const sourceStr = `${funcLoc.file}:${funcLoc.line}`
       const validationCode = generateInlineValidationCode(
         funcName,
@@ -589,7 +615,14 @@ export function transpileToJS(
     const sigTestInfos = extractSignatureTestInfos(source)
 
     // Run all tests in a single execution context
-    testResults = runAllTests(tests, mocks, sigTestInfos, code, resolvedImports)
+    testResults = runAllTests(
+      tests,
+      mocks,
+      sigTestInfos,
+      code,
+      resolvedImports,
+      preprocessed.extensions
+    )
 
     // Check for failures and throw only if runTests === true (strict mode)
     // 'only' and 'report' modes return results without throwing
@@ -1416,7 +1449,8 @@ function runAllTests(
   mocks: ExtractedMock[],
   sigTestInfos: SignatureTestInfo[],
   transpiledCode: string,
-  resolvedImports: Record<string, string> = {}
+  resolvedImports: Record<string, string> = {},
+  extensions: Map<string, Set<string>> = new Map()
 ): TestResult[] {
   const results: TestResult[] = []
 
@@ -1448,17 +1482,22 @@ function runAllTests(
 
   // Build test execution code that runs all tests in sequence
   const testBodies = tests
-    .map(
-      (t, i) => `
+    .map((t, i) => {
+      // Apply extension call rewriting to test body if extensions exist
+      const body =
+        extensions.size > 0
+          ? transformExtensionCalls(t.body, extensions)
+          : t.body
+      return `
     // Test ${i}: ${t.description}
     try {
-      ${t.body}
+      ${body}
       __testResults.push({ idx: ${i}, passed: true });
     } catch (e) {
       __testResults.push({ idx: ${i}, passed: false, error: e.message || String(e) });
     }
   `
-    )
+    })
     .join('\n')
 
   // Filter out async functions — can't be tested synchronously at transpile time

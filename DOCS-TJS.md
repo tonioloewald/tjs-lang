@@ -407,6 +407,111 @@ ts.value // GET returns: Date
 
 ---
 
+## Polymorphic Functions
+
+Multiple function declarations with the same name are automatically merged into a dispatcher that routes by argument count and type:
+
+```typescript
+function describe(value: 0) {
+  return 'number: ' + value
+}
+function describe(value: '') {
+  return 'string: ' + value
+}
+function describe(value: { name: '' }) {
+  return 'object: ' + value.name
+}
+
+describe(42) // 'number: 42'
+describe('hello') // 'string: hello'
+describe({ name: 'world' }) // 'object: world'
+describe(true) // MonadicError: no matching overload
+```
+
+### Dispatch Order
+
+1. **Arity** first (number of arguments)
+2. **Type specificity** within same arity: `integer` > `number` > `any`; objects before primitives
+3. **Declaration order** as tiebreaker
+
+### Polymorphic Constructors
+
+Classes can have multiple constructor signatures. The first becomes the real JS constructor; additional variants become factory functions:
+
+```typescript
+TjsClass
+
+class Point {
+  constructor(x: 0.0, y: 0.0) {
+    this.x = x
+    this.y = y
+  }
+  constructor(coords: { x: 0.0; y: 0.0 }) {
+    this.x = coords.x
+    this.y = coords.y
+  }
+}
+
+Point(3, 4) // variant 1: two numbers
+Point({ x: 10, y: 20 }) // variant 2: object
+```
+
+All variants produce correct `instanceof` results.
+
+### Compile-Time Validation
+
+TJS catches these errors at transpile time:
+
+- **Ambiguous signatures**: Two variants with identical types at every position
+- **Rest parameters**: `...args` not supported in polymorphic functions
+- **Mixed async/sync**: All variants must agree
+
+---
+
+## Local Class Extensions
+
+Add methods to built-in types without polluting prototypes:
+
+```typescript
+extend String {
+  capitalize() {
+    return this[0].toUpperCase() + this.slice(1)
+  }
+  words() {
+    return this.split(/\s+/)
+  }
+}
+
+'hello world'.capitalize()  // 'Hello world'
+'foo bar baz'.words()       // ['foo', 'bar', 'baz']
+```
+
+### How It Works
+
+For known-type receivers (literals, typed variables), calls are rewritten at transpile time to `.call()` — zero runtime overhead:
+
+```javascript
+// TJS source:
+'hello'.capitalize()
+
+// Generated JS:
+__ext_String.capitalize.call('hello')
+```
+
+For unknown types, a runtime registry (`registerExtension` / `resolveExtension`) provides fallback dispatch.
+
+### Supported Types
+
+Extensions work on any type: `String`, `Number`, `Array`, `Boolean`, custom classes, and DOM classes like `HTMLElement`. Multiple `extend` blocks for the same type merge left-to-right (later declarations can override earlier methods).
+
+### Rules
+
+- Arrow functions are **not allowed** in extend blocks (they don't bind `this`)
+- Extensions are **file-local** — they don't leak across modules
+- Prototypes are **never modified** — `String.prototype.capitalize` remains `undefined`
+
+---
+
 ## Runtime Features
 
 ### `__tjs` Metadata

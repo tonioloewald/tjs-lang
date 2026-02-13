@@ -686,6 +686,8 @@ export interface FunctionMeta {
   safeReturn?: boolean
   /** Explicit function name for stack tracking (used when fn.name is empty) */
   name?: string
+  /** Polymorphic dispatcher — skip wrapping, dispatch handles validation */
+  polymorphic?: boolean
 }
 
 /**
@@ -738,14 +740,15 @@ export function wrap<T extends (...args: any[]) => any>(
   ;(fn as any).__tjs = meta
 
   // Determine if we need a wrapper at all
+  // Polymorphic dispatchers handle their own routing — no wrapping needed
   const needsWrapper =
-    // Has forced safety that requires validation
-    meta.safe ||
-    meta.safeReturn ||
-    // Global safety requires validation (and not explicitly unsafe)
-    (config.safety !== 'none' && !meta.unsafe) ||
-    // Has return type that might need validation
-    (meta.returns && config.safety === 'all' && !meta.unsafeReturn)
+    !meta.polymorphic && // Has forced safety that requires validation
+    (meta.safe ||
+      meta.safeReturn ||
+      // Global safety requires validation (and not explicitly unsafe)
+      (config.safety !== 'none' && !meta.unsafe) ||
+      // Has return type that might need validation
+      (meta.returns && config.safety === 'all' && !meta.unsafeReturn))
 
   if (!needsWrapper) {
     return fn
@@ -1033,6 +1036,70 @@ export function createRuntime() {
     return instanceUnsafeDepth > 0
   }
 
+  // Extension registry: typeName -> methodName -> fn
+  const extensionRegistry = new Map<
+    string,
+    Map<string, (...args: any[]) => any>
+  >()
+
+  function instanceRegisterExtension(
+    typeName: string,
+    methodName: string,
+    fn: (...args: any[]) => any
+  ): void {
+    if (!extensionRegistry.has(typeName)) {
+      extensionRegistry.set(typeName, new Map())
+    }
+    extensionRegistry.get(typeName)!.set(methodName, fn)
+  }
+
+  function instanceResolveExtension(
+    value: unknown,
+    methodName: string
+  ): ((...args: any[]) => any) | undefined {
+    // Determine type name from value
+    const t = typeof value
+    let typeName: string
+    if (value === null || value === undefined) return undefined
+    if (t === 'string') typeName = 'String'
+    else if (t === 'number') typeName = 'Number'
+    else if (t === 'boolean') typeName = 'Boolean'
+    else if (Array.isArray(value)) typeName = 'Array'
+    else if (t === 'object') {
+      // Check constructor name for class instances (including DOM classes)
+      typeName = (value as any).constructor?.name || 'Object'
+    } else {
+      return undefined
+    }
+
+    // Walk prototype chain: HTMLInputElement -> HTMLElement -> Element -> Object
+    let current: string | undefined = typeName
+    while (current) {
+      const methods = extensionRegistry.get(current)
+      if (methods?.has(methodName)) {
+        return methods.get(methodName)
+      }
+      // Walk up: try parent class (for DOM/custom class hierarchies)
+      if (t === 'object' && !Array.isArray(value)) {
+        const proto = Object.getPrototypeOf(
+          current === typeName ? value : Object.getPrototypeOf(value)
+        )
+        current = proto?.constructor?.name
+        if (current === 'Object' || current === typeName) break
+      } else {
+        break
+      }
+    }
+
+    // Fallback: check 'Object' extensions
+    const objectMethods = extensionRegistry.get('Object')
+    if (objectMethods?.has(methodName)) {
+      return objectMethods.get(methodName)
+    }
+
+    return undefined
+  }
+
   function instanceTypeError(
     path: string,
     expected: string,
@@ -1122,6 +1189,9 @@ export function createRuntime() {
     Is,
     IsNot,
     tjsEquals,
+    // Extensions
+    registerExtension: instanceRegisterExtension,
+    resolveExtension: instanceResolveExtension,
   }
 }
 

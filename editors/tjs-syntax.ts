@@ -23,6 +23,20 @@ export const TJS_KEYWORDS = [
   'unsafe', // exception-catching blocks
   'async', // TJS allows async (unlike sandboxed AJS)
   'await',
+  'throw',
+  'import',
+  'export',
+  // Class support
+  'class',
+  'extends',
+  'super',
+  'this',
+  'new',
+  'static',
+  // JS operators
+  'typeof',
+  'instanceof',
+  'delete',
 ] as const
 
 /**
@@ -32,10 +46,28 @@ export const KEYWORDS = [...AJS_KEYWORDS, ...TJS_KEYWORDS] as const
 
 /**
  * TJS forbidden keywords (fewer than AJS - TJS is less restrictive)
- * TJS allows: async/await, throw, import/export
+ * TJS allows: async/await, throw, import/export, class-related, and JS operators
  */
 export const FORBIDDEN_KEYWORDS = AJS_FORBIDDEN.filter(
-  (k) => !['async', 'await', 'throw', 'import', 'export'].includes(k)
+  (k) =>
+    ![
+      'async',
+      'await',
+      'throw',
+      'import',
+      'export',
+      // Class support (TjsClass mode)
+      'class',
+      'extends',
+      'super',
+      'this',
+      'new',
+      'static',
+      // Valid JS operators
+      'typeof',
+      'instanceof',
+      'delete',
+    ].includes(k)
 ) as readonly string[]
 
 /**

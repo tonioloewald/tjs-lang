@@ -172,7 +172,7 @@
     "forbidden": {
       "patterns": [
         {
-          "match": "\\\\b(new|class|extends|super|this|implements|interface|abstract|static|private|protected|public|yield|require|module|var|switch|case|default|with|delete|void|typeof|instanceof|debugger|eval|type|enum|namespace|declare|readonly|as|is|keyof|infer|never|unknown)\\\\b",
+          "match": "\\\\b(implements|interface|abstract|private|protected|public|yield|require|module|var|switch|case|default|with|void|debugger|eval|type|enum|namespace|declare|readonly|as|is|keyof|infer|never|unknown)\\\\b",
           "name": "invalid.illegal.forbidden.tjs"
         }
       ]
@@ -180,7 +180,7 @@
     "keywords": {
       "patterns": [
         {
-          "match": "\\\\b(function|return|if|else|while|for|of|in|try|catch|finally|let|const|test|mock|unsafe|async|await)\\\\b",
+          "match": "\\\\b(function|return|if|else|while|for|of|in|try|catch|finally|let|const|test|mock|unsafe|async|await|throw|import|export|class|extends|super|this|new|static|typeof|instanceof|delete)\\\\b",
           "name": "keyword.control.tjs"
         },
         {

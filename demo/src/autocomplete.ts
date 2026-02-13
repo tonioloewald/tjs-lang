@@ -36,6 +36,10 @@ export interface TJSMetadata {
   returns?: { type: string }
   description?: string
   typeParams?: Record<string, { constraint?: string; default?: string }>
+  /** True for polymorphic function dispatchers */
+  polymorphic?: boolean
+  /** Variant function names (e.g., ['greet$1', 'greet$2']) */
+  variants?: string[]
 }
 
 interface ParamInfo {
@@ -323,6 +327,47 @@ function completionsFromMetadata(
   const completions: Completion[] = []
 
   for (const [name, meta] of Object.entries(metadata)) {
+    // Skip internal variant functions (greet$1, greet$2, etc.)
+    if (/\$\d+$/.test(name)) continue
+    // Skip internal dispatch functions (Point$dispatch, Point$ctor$2, etc.)
+    if (/\$dispatch$/.test(name) || /\$ctor\$\d+$/.test(name)) continue
+
+    // Polymorphic function: show all variant signatures
+    if (meta.polymorphic && meta.variants) {
+      const variantDetails: string[] = []
+      let firstParams: string[] = []
+
+      for (const variantName of meta.variants) {
+        const variantMeta = metadata[variantName]
+        if (variantMeta?.params) {
+          const params = Object.entries(variantMeta.params).map(
+            ([pname, info]) => {
+              const req = info.required ? '' : '?'
+              return `${pname}${req}: ${info.type}`
+            }
+          )
+          variantDetails.push(`${name}(${params.join(', ')})`)
+          if (firstParams.length === 0) {
+            firstParams = Object.keys(variantMeta.params)
+          }
+        }
+      }
+
+      completions.push({
+        label: name,
+        kind: 'function',
+        detail: variantDetails.join(' | '),
+        documentation: meta.description,
+        snippet:
+          firstParams.length > 0
+            ? `${name}(${firstParams
+                .map((p, i) => `\${${i + 1}:${p}}`)
+                .join(', ')})`
+            : `${name}()`,
+      })
+      continue
+    }
+
     const params = meta.params ? Object.keys(meta.params).join(', ') : ''
     const returnType = meta.returns?.type || 'void'
 
@@ -455,6 +500,35 @@ export function getSignatureHelp(
 
   // Look up function metadata
   const meta = metadata?.[funcName]
+
+  // Polymorphic function: show all variant signatures
+  if (meta?.polymorphic && meta.variants) {
+    const variantSignatures: string[] = []
+    const allParams: string[] = []
+
+    for (const variantName of meta.variants) {
+      const variantMeta = metadata?.[variantName]
+      if (variantMeta?.params) {
+        const params = Object.entries(variantMeta.params).map(
+          ([name, info]) => {
+            const req = info.required ? '' : '?'
+            return `${name}${req}: ${info.type}`
+          }
+        )
+        variantSignatures.push(`${funcName}(${params.join(', ')})`)
+        if (allParams.length === 0) allParams.push(...params)
+      }
+    }
+
+    if (variantSignatures.length > 0) {
+      return {
+        signature: variantSignatures.join(' | '),
+        activeParam,
+        params: allParams,
+      }
+    }
+  }
+
   if (meta?.params) {
     const params = Object.entries(meta.params).map(([name, info]) => {
       const req = info.required ? '' : '?'

@@ -439,6 +439,71 @@ result IsNot errorValue
 - Priority: symbol → `.Equals` → structural comparison
 - `tjsEquals` is exported from `src/lang/runtime.ts` and available as `__tjs.tjsEquals`
 
+#### Polymorphic Functions
+
+Multiple function declarations with the same name are merged into a dispatcher:
+
+```typescript
+function area(radius: 3.14) {
+  return Math.PI * radius * radius
+}
+function area(w: 0.0, h: 0.0) {
+  return w * h
+}
+
+area(5) // dispatches to variant 1 (one number)
+area(3, 4) // dispatches to variant 2 (two numbers)
+```
+
+Dispatch order: arity first, then type specificity, then declaration order. Ambiguous signatures (same types at same arity) are caught at transpile time.
+
+#### Polymorphic Constructors
+
+Classes can have multiple constructor signatures (requires `TjsClass` directive):
+
+```typescript
+TjsClass
+
+class Point {
+  constructor(x: 0.0, y: 0.0) {
+    this.x = x
+    this.y = y
+  }
+  constructor(coords: { x: 0.0; y: 0.0 }) {
+    this.x = coords.x
+    this.y = coords.y
+  }
+}
+
+Point(3, 4) // variant 1
+Point({ x: 10, y: 20 }) // variant 2 (both produce correct instanceof)
+```
+
+The first constructor becomes the real JS constructor; additional variants become factory functions using `Object.create`.
+
+#### Local Class Extensions
+
+Add methods to built-in types without prototype pollution:
+
+```typescript
+extend String {
+  capitalize() { return this[0].toUpperCase() + this.slice(1) }
+}
+
+extend Array {
+  last() { return this[this.length - 1] }
+}
+
+'hello'.capitalize()  // 'Hello' — rewritten to __ext_String.capitalize.call('hello')
+[1, 2, 3].last()      // 3
+```
+
+- Methods are rewritten to `.call()` at transpile time for known-type receivers (zero overhead)
+- Runtime fallback via `registerExtension()`/`resolveExtension()` for unknown types
+- Arrow functions rejected (need `this` binding)
+- Multiple `extend` blocks for same type merge left-to-right
+- File-local only — no cross-module leaking
+
 ## WASM Blocks
 
 TJS supports inline WebAssembly for performance-critical code. WASM blocks are compiled at transpile time and embedded as base64 in the output.

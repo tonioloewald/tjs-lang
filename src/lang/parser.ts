@@ -1284,6 +1284,8 @@ export function preprocess(
   wasmBlocks: WasmBlock[]
   tests: TestBlock[]
   testErrors: string[]
+  polymorphicNames: Set<string>
+  extensions: Map<string, Set<string>>
 } {
   const originalSource = source
   let moduleSafety: 'none' | 'inputs' | 'all' | undefined
@@ -1407,9 +1409,19 @@ export function preprocess(
   // the wrapper decision is made at transpile time. Use (!) on functions instead.
   // See ideas parking lot for potential future approaches.
 
+  // Transform extend blocks: extend TypeName { methods } -> __ext_TypeName object
+  // Must happen after paren expressions so method params are already transformed
+  const extResult = transformExtendDeclarations(source)
+  source = extResult.source
+
   // Handle try-without-catch: try { ... } (no catch/finally) -> monadic error handling
   // This is the idiomatic TJS way to convert exceptions to AgentError
   source = transformTryWithoutCatch(source)
+
+  // Transform polymorphic functions: multiple declarations with same name -> dispatcher
+  // Must happen after param transformation but before class wrapping and test extraction
+  const polyResult = transformPolymorphicFunctions(source, requiredParams)
+  source = polyResult.source
 
   // Extract WASM blocks: wasm(args) { ... } fallback { ... }
   const wasmBlocks = extractWasmBlocks(source)
@@ -1420,11 +1432,24 @@ export function preprocess(
   const testResult = extractAndRunTests(source, options.dangerouslySkipTests)
   source = testResult.source
 
+  // Transform polymorphic constructors: multiple constructor() -> factory functions
+  // Must happen before wrapClassDeclarations (which needs to know about poly ctors)
+  const polyCtorResult = transformPolymorphicConstructors(
+    source,
+    requiredParams
+  )
+  source = polyCtorResult.source
+
+  // Mark $dispatch functions as unsafe (internal Proxy trap params, not user-facing)
+  for (const cls of polyCtorResult.polyCtorClasses) {
+    unsafeFunctions.add(`${cls}$dispatch`)
+  }
+
   // Wrap class declarations to make them callable without `new`
   // Only when TjsClass mode is enabled
   // class Foo { } -> let Foo = class Foo { }; Foo = globalThis.__tjs?.wrapClass?.(Foo) ?? Foo;
   if (tjsModes.tjsClass) {
-    source = wrapClassDeclarations(source)
+    source = wrapClassDeclarations(source, polyCtorResult.polyCtorClasses)
   }
 
   // Validate TjsDate mode - check for Date usage
@@ -1436,6 +1461,10 @@ export function preprocess(
   if (tjsModes.tjsNoeval) {
     source = validateNoEval(source)
   }
+
+  // Rewrite extension method calls on known-type receivers
+  // Must happen after all other transforms so literals are in final form
+  source = transformExtensionCalls(source, extResult.extensions)
 
   return {
     source,
@@ -1450,6 +1479,8 @@ export function preprocess(
     wasmBlocks: wasmBlocks.blocks,
     tests: testResult.tests,
     testErrors: testResult.errors,
+    polymorphicNames: polyResult.polymorphicNames,
+    extensions: extResult.extensions,
   }
 }
 
@@ -3005,6 +3036,889 @@ function parseEnumMembers(input: string): [string, string][] {
 }
 
 /**
+ * Extension info for a single extend block
+ */
+interface ExtensionInfo {
+  /** The type name being extended (e.g., 'String', 'Array', 'MyClass') */
+  typeName: string
+  /** Method names defined in this extend block */
+  methods: string[]
+}
+
+/**
+ * Transform `extend TypeName { ... }` blocks into `const __ext_TypeName = { ... }` objects
+ * and runtime registration calls.
+ *
+ * extend String {
+ *   capitalize() { return this[0].toUpperCase() + this.slice(1) }
+ * }
+ *
+ * becomes:
+ *
+ * const __ext_String = {
+ *   capitalize: function() { return this[0].toUpperCase() + this.slice(1) }
+ * }
+ * if (__tjs?.registerExtension) {
+ *   __tjs.registerExtension('String', 'capitalize', __ext_String.capitalize)
+ * }
+ */
+function transformExtendDeclarations(source: string): {
+  source: string
+  extensions: Map<string, Set<string>>
+} {
+  const extensions = new Map<string, Set<string>>()
+  let result = ''
+  let i = 0
+
+  while (i < source.length) {
+    // Look for 'extend' keyword at statement boundary
+    const remaining = source.slice(i)
+    const extendMatch = remaining.match(/^(\s*)extend\s+([A-Z]\w*)\s*\{/)
+
+    if (!extendMatch) {
+      // Check if we're at start of line or after semicolon/brace
+      const lineStart =
+        i === 0 ||
+        source[i - 1] === '\n' ||
+        source[i - 1] === ';' ||
+        source[i - 1] === '}'
+
+      if (lineStart) {
+        const afterWS = remaining.match(/^(\s*)extend\s+([A-Z]\w*)\s*\{/)
+        if (afterWS) {
+          // Already handled above, fall through
+        }
+      }
+      result += source[i]
+      i++
+      continue
+    }
+
+    const indent = extendMatch[1]
+    const typeName = extendMatch[2]
+    const blockStart = i + extendMatch[0].length - 1 // position of {
+
+    // Find matching closing brace
+    const blockEnd = findFunctionBodyEnd(source, blockStart)
+    const blockBody = source.slice(blockStart + 1, blockEnd - 1).trim()
+
+    // Parse methods from the block body
+    // Match: methodName(params) { body } or async methodName(params) { body }
+    const methods: { name: string; isAsync: boolean; fullText: string }[] = []
+    let j = 0
+    const bodySource = source.slice(blockStart + 1, blockEnd - 1)
+
+    while (j < bodySource.length) {
+      const methodRemaining = bodySource.slice(j)
+      const methodMatch = methodRemaining.match(/^(\s*)(async\s+)?(\w+)\s*\(/)
+
+      if (!methodMatch) {
+        j++
+        continue
+      }
+
+      const methodIndent = methodMatch[1]
+      const isAsync = !!methodMatch[2]
+      const methodName = methodMatch[3]
+
+      // Reject arrow functions — they don't bind `this`
+      // We'll check after finding the body
+
+      // Find the opening paren
+      const parenStart = j + methodMatch[0].length - 1
+      let parenDepth = 1
+      let k = parenStart + 1
+      while (k < bodySource.length && parenDepth > 0) {
+        if (bodySource[k] === '(') parenDepth++
+        if (bodySource[k] === ')') parenDepth--
+        k++
+      }
+      const paramsStr = bodySource.slice(parenStart + 1, k - 1)
+
+      // Skip whitespace to find { or =>
+      let afterParams = k
+      while (
+        afterParams < bodySource.length &&
+        /\s/.test(bodySource[afterParams])
+      ) {
+        afterParams++
+      }
+
+      // Check for arrow function
+      if (
+        bodySource[afterParams] === '=' &&
+        bodySource[afterParams + 1] === '>'
+      ) {
+        const loc = locAt(source, blockStart + 1 + j)
+        throw new SyntaxError(
+          `Arrow functions are not allowed in extend blocks (method '${methodName}' in extend ${typeName}). ` +
+            `Use regular function syntax instead, as extension methods need 'this' binding.`,
+          loc
+        )
+      }
+
+      if (bodySource[afterParams] !== '{') {
+        j++
+        continue
+      }
+
+      // Find matching closing brace for the method body
+      const methodBodyEnd = findFunctionBodyEnd(bodySource, afterParams)
+      const fullMethodText = bodySource.slice(j, methodBodyEnd).trim()
+
+      // Build: methodName: function(params) { body }
+      // Transform TJS colon params (name: value) to JS defaults (name = value)
+      const transformedParams = paramsStr
+        .split(',')
+        .map((p) => p.trim())
+        .filter((p) => p.length > 0)
+        .map((p) => {
+          // name: value -> name = value (TJS colon shorthand)
+          const colonMatch = p.match(/^(\w+)\s*:\s*(.+)$/)
+          if (colonMatch) return `${colonMatch[1]} = ${colonMatch[2]}`
+          return p
+        })
+        .join(', ')
+      const asyncPrefix = isAsync ? 'async ' : ''
+      const methodBody = bodySource.slice(afterParams + 1, methodBodyEnd - 1)
+      methods.push({
+        name: methodName,
+        isAsync,
+        fullText: `${methodName}: ${asyncPrefix}function(${transformedParams}) {${methodBody}}`,
+      })
+
+      j = methodBodyEnd
+    }
+
+    // Track extensions
+    const isFirstForType = !extensions.has(typeName)
+    if (isFirstForType) {
+      extensions.set(typeName, new Set())
+    }
+    const extSet = extensions.get(typeName)!
+    for (const m of methods) {
+      extSet.add(m.name)
+    }
+
+    // Generate the __ext object (or merge into existing)
+    const methodEntries = methods.map((m) => `  ${m.fullText}`).join(',\n')
+    let replacement: string
+    if (isFirstForType) {
+      replacement = `${indent}const __ext_${typeName} = {\n${methodEntries}\n${indent}}\n`
+    } else {
+      // Merge into existing: Object.assign(__ext_TypeName, { ... })
+      replacement = `${indent}Object.assign(__ext_${typeName}, {\n${methodEntries}\n${indent}})\n`
+    }
+
+    // Generate registration calls
+    for (const m of methods) {
+      replacement += `${indent}if (__tjs?.registerExtension) { __tjs.registerExtension('${typeName}', '${m.name}', __ext_${typeName}.${m.name}) }\n`
+    }
+
+    result += replacement
+    i = blockEnd
+  }
+
+  // Append any remaining source
+  if (i <= source.length && result.length < source.length) {
+    // Already handled character by character
+  }
+
+  return { source: result, extensions }
+}
+
+/**
+ * Transform method calls on known-type receivers to use extension objects.
+ *
+ * For literals and typed variables where the type is known:
+ *   'hello'.capitalize()  ->  __ext_String.capitalize.call('hello')
+ *   [1,2,3].last()        ->  __ext_Array.last.call([1,2,3])
+ *
+ * This is a best-effort source-level transform. For unknown types,
+ * the runtime fallback (resolveExtension) handles it.
+ */
+export function transformExtensionCalls(
+  source: string,
+  extensions: Map<string, Set<string>>
+): string {
+  if (extensions.size === 0) return source
+
+  // Build a map of method names to possible type names for quick lookup
+  const methodToTypes = new Map<string, string[]>()
+  for (const [typeName, methods] of extensions) {
+    for (const method of methods) {
+      if (!methodToTypes.has(method)) {
+        methodToTypes.set(method, [])
+      }
+      methodToTypes.get(method)!.push(typeName)
+    }
+  }
+
+  let result = source
+
+  // Rewrite calls on string literals: 'str'.method(...) or "str".method(...)
+  for (const [method, typeNames] of methodToTypes) {
+    if (!typeNames.includes('String')) continue
+
+    // Match string literal followed by .method(
+    // Single-quoted strings
+    const singleQuotePattern = new RegExp(
+      `('(?:[^'\\\\]|\\\\.)*')\\.(${method})\\((\\))?`,
+      'g'
+    )
+    result = result.replace(singleQuotePattern, (_, str, meth, closeParen) => {
+      return closeParen
+        ? `__ext_String.${meth}.call(${str})`
+        : `__ext_String.${meth}.call(${str}, `
+    })
+
+    // Double-quoted strings
+    const doubleQuotePattern = new RegExp(
+      `("(?:[^"\\\\]|\\\\.)*")\\.(${method})\\((\\))?`,
+      'g'
+    )
+    result = result.replace(doubleQuotePattern, (_, str, meth, closeParen) => {
+      return closeParen
+        ? `__ext_String.${meth}.call(${str})`
+        : `__ext_String.${meth}.call(${str}, `
+    })
+
+    // Template literals (backtick) — simple case only (no nested templates)
+    const templatePattern = new RegExp(
+      '(`(?:[^`\\\\]|\\\\.)*`)\\.' + method + '\\((\\))?',
+      'g'
+    )
+    result = result.replace(templatePattern, (_, str, closeParen) => {
+      return closeParen
+        ? `__ext_String.${method}.call(${str})`
+        : `__ext_String.${method}.call(${str}, `
+    })
+  }
+
+  // Rewrite calls on array literals: [1,2,3].method(...)
+  for (const [method, typeNames] of methodToTypes) {
+    if (!typeNames.includes('Array')) continue
+
+    // Match array literal [...].method(
+    // This is tricky — we need to find balanced brackets
+    // Simple approach: find ].method( and walk backward to find matching [
+    const methodDot = `].${method}(`
+    let searchFrom = 0
+    let idx: number
+    while ((idx = result.indexOf(methodDot, searchFrom)) !== -1) {
+      // Walk backward from idx to find matching [
+      let bracketDepth = 1
+      let k = idx - 1
+      let inStr: string | false = false
+      while (k >= 0 && bracketDepth > 0) {
+        const ch = result[k]
+        if (inStr) {
+          if (ch === inStr && (k === 0 || result[k - 1] !== '\\')) {
+            inStr = false
+          }
+        } else {
+          if (ch === ']') bracketDepth++
+          if (ch === '[') bracketDepth--
+          if (ch === "'" || ch === '"' || ch === '`') inStr = ch
+        }
+        k--
+      }
+
+      if (bracketDepth === 0) {
+        const arrayLiteral = result.slice(k + 1, idx + 1)
+        const before = result.slice(0, k + 1)
+        const after = result.slice(idx + methodDot.length)
+        // Check if no-args call: next char is )
+        if (after[0] === ')') {
+          result = `${before}__ext_Array.${method}.call(${arrayLiteral})${after.slice(
+            1
+          )}`
+        } else {
+          result = `${before}__ext_Array.${method}.call(${arrayLiteral}, ${after}`
+        }
+      }
+
+      searchFrom = idx + 1
+    }
+  }
+
+  // Rewrite calls on number literals: (42).method(...)
+  for (const [method, typeNames] of methodToTypes) {
+    if (!typeNames.includes('Number')) continue
+
+    const numPattern = new RegExp(
+      `(\\d+(?:\\.\\d+)?)\\.(${method})\\((\\))?`,
+      'g'
+    )
+    result = result.replace(numPattern, (_, num, meth, closeParen) => {
+      return closeParen
+        ? `__ext_Number.${meth}.call(${num})`
+        : `__ext_Number.${meth}.call(${num}, `
+    })
+  }
+
+  return result
+}
+
+/**
+ * Compute {line, column} from a character offset in source.
+ */
+function locAt(source: string, pos: number): { line: number; column: number } {
+  let line = 1
+  let column = 0
+  for (let i = 0; i < pos && i < source.length; i++) {
+    if (source[i] === '\n') {
+      line++
+      column = 0
+    } else {
+      column++
+    }
+  }
+  return { line, column }
+}
+
+/**
+ * Info about a single function variant for polymorphic dispatch
+ */
+interface PolyVariant {
+  /** Index (1-based) for renaming */
+  index: number
+  /** Start position in source */
+  start: number
+  /** End position in source (after closing brace) */
+  end: number
+  /** The full function source text */
+  text: string
+  /** Whether it was exported */
+  exported: boolean
+  /** Whether it was async */
+  isAsync: boolean
+  /** Parsed parameter info: [name, defaultValue][] */
+  params: { name: string; defaultValue: string; required: boolean }[]
+}
+
+/**
+ * Infer a type-check expression from a parameter's default value string.
+ * Returns a condition that checks if an argument matches this param's type.
+ */
+function typeCheckForDefault(argExpr: string, defaultValue: string): string {
+  const dv = defaultValue.trim()
+
+  // String literal
+  if (/^['"`]/.test(dv)) return `typeof ${argExpr} === 'string'`
+
+  // Boolean
+  if (dv === 'true' || dv === 'false') return `typeof ${argExpr} === 'boolean'`
+
+  // null
+  if (dv === 'null') return `${argExpr} === null`
+
+  // undefined
+  if (dv === 'undefined') return `${argExpr} === undefined`
+
+  // Array literal
+  if (dv.startsWith('[')) return `Array.isArray(${argExpr})`
+
+  // Object literal
+  if (dv.startsWith('{'))
+    return `(typeof ${argExpr} === 'object' && ${argExpr} !== null && !Array.isArray(${argExpr}))`
+
+  // Non-negative integer: +N
+  if (/^\+\d+/.test(dv))
+    return `(typeof ${argExpr} === 'number' && Number.isInteger(${argExpr}) && ${argExpr} >= 0)`
+
+  // Number with decimal → float
+  if (/^-?\d+\.\d+/.test(dv)) return `typeof ${argExpr} === 'number'`
+
+  // Integer (whole number, possibly negative)
+  if (/^-?\d+$/.test(dv))
+    return `(typeof ${argExpr} === 'number' && Number.isInteger(${argExpr}))`
+
+  // Fallback: any
+  return 'true'
+}
+
+/**
+ * Get a type "signature" string from a default value for ambiguity checking.
+ * Two params with the same signature at the same position are ambiguous.
+ */
+function typeSignatureForDefault(defaultValue: string): string {
+  const dv = defaultValue.trim()
+  if (/^['"`]/.test(dv)) return 'string'
+  if (dv === 'true' || dv === 'false') return 'boolean'
+  if (dv === 'null') return 'null'
+  if (dv === 'undefined') return 'undefined'
+  if (dv.startsWith('[')) return 'array'
+  if (dv.startsWith('{')) return 'object'
+  if (/^\+\d+/.test(dv)) return 'non-negative-integer'
+  if (/^-?\d+\.\d+/.test(dv)) return 'number'
+  if (/^-?\d+$/.test(dv)) return 'integer'
+  return 'any'
+}
+
+/**
+ * Parse a parameter string like "a = 0, b = 'hello', c = { x: 0 }"
+ * into an array of { name, defaultValue, required } objects.
+ * Handles nested braces/brackets/parens and template literals.
+ */
+function parseParamList(
+  paramStr: string,
+  requiredParams: Set<string>
+): { name: string; defaultValue: string; required: boolean }[] {
+  const params: { name: string; defaultValue: string; required: boolean }[] = []
+  let depth = 0
+  let current = ''
+  let inString: string | false = false
+
+  for (let i = 0; i < paramStr.length; i++) {
+    const ch = paramStr[i]
+
+    // Track string state
+    if (!inString && (ch === "'" || ch === '"' || ch === '`')) {
+      inString = ch
+      current += ch
+      continue
+    }
+    if (inString) {
+      current += ch
+      if (ch === '\\') {
+        i++
+        if (i < paramStr.length) current += paramStr[i]
+        continue
+      }
+      if (ch === inString) inString = false
+      continue
+    }
+
+    // Track nesting
+    if (ch === '(' || ch === '[' || ch === '{') {
+      depth++
+      current += ch
+      continue
+    }
+    if (ch === ')' || ch === ']' || ch === '}') {
+      depth--
+      current += ch
+      continue
+    }
+
+    // Split on comma at depth 0
+    if (ch === ',' && depth === 0) {
+      const param = parseOneParam(current.trim(), requiredParams)
+      if (param) params.push(param)
+      current = ''
+      continue
+    }
+
+    current += ch
+  }
+
+  // Last param
+  const trimmed = current.trim()
+  if (trimmed) {
+    const param = parseOneParam(trimmed, requiredParams)
+    if (param) params.push(param)
+  }
+
+  return params
+}
+
+/**
+ * Parse a single parameter like "name = 'Alice'" or "/* unsafe * / x = 0"
+ */
+function parseOneParam(
+  paramStr: string,
+  requiredParams: Set<string>
+): { name: string; defaultValue: string; required: boolean } | null {
+  // Strip leading /* unsafe */ comment
+  const str = paramStr.replace(/^\/\*\s*unsafe\s*\*\/\s*/, '')
+
+  // Rest params not supported in polymorphic functions
+  if (str.startsWith('...')) return null
+
+  // Find = sign (the param has been transformed from : to = by transformParenExpressions)
+  const eqIdx = str.indexOf('=')
+  if (eqIdx === -1) {
+    // No default value — untyped param
+    return { name: str.trim(), defaultValue: '', required: true }
+  }
+
+  const name = str.slice(0, eqIdx).trim()
+  const defaultValue = str.slice(eqIdx + 1).trim()
+  return { name, defaultValue, required: requiredParams.has(name) }
+}
+
+/**
+ * Find the end of a function body (matching closing brace).
+ * Handles nested braces, strings, template literals, comments, and regex.
+ * Returns the index AFTER the closing brace.
+ */
+function findFunctionBodyEnd(source: string, openBracePos: number): number {
+  let depth = 1
+  let i = openBracePos + 1
+  let inString: string | false = false
+  let inLineComment = false
+  let inBlockComment = false
+
+  while (i < source.length && depth > 0) {
+    const ch = source[i]
+    const next = i + 1 < source.length ? source[i + 1] : ''
+
+    // Line comment
+    if (inLineComment) {
+      if (ch === '\n') inLineComment = false
+      i++
+      continue
+    }
+
+    // Block comment
+    if (inBlockComment) {
+      if (ch === '*' && next === '/') {
+        inBlockComment = false
+        i += 2
+        continue
+      }
+      i++
+      continue
+    }
+
+    // String tracking
+    if (inString) {
+      if (ch === '\\') {
+        i += 2
+        continue
+      }
+      if (ch === inString) inString = false
+      i++
+      continue
+    }
+
+    // Start comments
+    if (ch === '/' && next === '/') {
+      inLineComment = true
+      i += 2
+      continue
+    }
+    if (ch === '/' && next === '*') {
+      inBlockComment = true
+      i += 2
+      continue
+    }
+
+    // Start strings
+    if (ch === "'" || ch === '"' || ch === '`') {
+      inString = ch
+      i++
+      continue
+    }
+
+    // Braces
+    if (ch === '{') depth++
+    if (ch === '}') depth--
+
+    i++
+  }
+
+  return i
+}
+
+/**
+ * Transform polymorphic functions: multiple function declarations with the
+ * same name are merged into a single dispatcher function.
+ *
+ * Must be called AFTER transformParenExpressions (so params have = defaults)
+ * but BEFORE wrapClassDeclarations.
+ *
+ * function greet(name = '') { ... }
+ * function greet(first = '', last = '') { ... }
+ *
+ * becomes:
+ *
+ * function greet$1(name = '') { ... }
+ * function greet$2(first = '', last = '') { ... }
+ * function greet(...__args) {
+ *   if (__args.length === 1 && typeof __args[0] === 'string') return greet$1(__args[0])
+ *   if (__args.length === 2 && ...) return greet$2(__args[0], __args[1])
+ *   return __tjs.typeError('greet', 'no matching overload', __args)
+ * }
+ */
+function transformPolymorphicFunctions(
+  source: string,
+  requiredParams: Set<string>
+): { source: string; polymorphicNames: Set<string> } {
+  const polymorphicNames = new Set<string>()
+
+  // Phase 1: Find all function declarations and group by name
+  // Match: optional "export" + optional "async" + "function" + name + "("
+  const funcPattern =
+    /(?:^|(?<=[\n;{}]))\s*(export\s+)?(async\s+)?function\s+(\w+)\s*\(/gm
+  const declarations = new Map<string, PolyVariant[]>()
+  let match: RegExpExecArray | null
+
+  // First pass: collect all function positions and names
+  const allMatches: {
+    name: string
+    fullMatchStart: number
+    funcKeywordStart: number
+    exported: boolean
+    isAsync: boolean
+  }[] = []
+
+  while ((match = funcPattern.exec(source)) !== null) {
+    const exported = !!match[1]
+    const isAsync = !!match[2]
+    const name = match[3]
+    const fullMatchStart = match.index
+    // Find where "function" keyword starts (skip whitespace and export/async)
+    let funcKeywordStart = fullMatchStart
+    const prefix = match[0]
+    const funcIdx = prefix.indexOf('function')
+    if (funcIdx >= 0) funcKeywordStart = fullMatchStart + funcIdx
+
+    allMatches.push({
+      name,
+      fullMatchStart,
+      funcKeywordStart,
+      exported,
+      isAsync,
+    })
+  }
+
+  // Group by name
+  for (const m of allMatches) {
+    if (!declarations.has(m.name)) {
+      declarations.set(m.name, [])
+    }
+  }
+
+  // Count occurrences — only process names that appear more than once
+  const nameCounts = new Map<string, number>()
+  for (const m of allMatches) {
+    nameCounts.set(m.name, (nameCounts.get(m.name) || 0) + 1)
+  }
+
+  const polyNames = new Set<string>()
+  for (const [name, count] of nameCounts) {
+    if (count > 1) polyNames.add(name)
+  }
+
+  if (polyNames.size === 0) {
+    return { source, polymorphicNames }
+  }
+
+  // Phase 2: For each polymorphic function, extract full details
+  for (const m of allMatches) {
+    if (!polyNames.has(m.name)) continue
+
+    // Find the opening paren
+    const afterFunc = source.indexOf('(', m.funcKeywordStart)
+    if (afterFunc === -1) continue
+
+    // Find matching closing paren
+    let parenDepth = 1
+    let j = afterFunc + 1
+    while (j < source.length && parenDepth > 0) {
+      if (source[j] === '(') parenDepth++
+      if (source[j] === ')') parenDepth--
+      j++
+    }
+    const closeParen = j - 1
+    const paramStr = source.slice(afterFunc + 1, closeParen)
+
+    // Find the opening brace of the function body
+    let bodyStart = j
+    while (bodyStart < source.length && source[bodyStart] !== '{') bodyStart++
+    if (bodyStart >= source.length) continue
+
+    // Find matching closing brace
+    const bodyEnd = findFunctionBodyEnd(source, bodyStart)
+
+    // Determine the real start (including leading whitespace, export, async)
+    let realStart = m.fullMatchStart
+    // Include leading whitespace on the same line
+    while (realStart > 0 && source[realStart - 1] === ' ') realStart--
+
+    const variants = declarations.get(m.name)!
+    const params = parseParamList(paramStr, requiredParams)
+
+    // Check for rest params
+    const hasRestParam = paramStr.includes('...')
+    if (hasRestParam) {
+      const loc = locAt(source, m.funcKeywordStart)
+      throw new SyntaxError(
+        `Rest parameters are not supported in polymorphic function '${m.name}'. ` +
+          `Use separate function names instead.`,
+        loc
+      )
+    }
+
+    variants.push({
+      index: variants.length + 1,
+      start: realStart,
+      end: bodyEnd,
+      text: source.slice(realStart, bodyEnd),
+      exported: m.exported,
+      isAsync: m.isAsync,
+      params,
+    })
+  }
+
+  // Phase 3: Validate — check for ambiguous variants
+  for (const [name, variants] of declarations) {
+    if (variants.length < 2) continue
+
+    // Check async consistency
+    const asyncCount = variants.filter((v) => v.isAsync).length
+    if (asyncCount > 0 && asyncCount < variants.length) {
+      const loc = locAt(source, variants[0].start)
+      throw new SyntaxError(
+        `Polymorphic function '${name}': all variants must be either sync or async, not mixed.`,
+        loc
+      )
+    }
+
+    // Check for ambiguous signatures (same types at same positions, differing only in required/optional)
+    for (let i = 0; i < variants.length; i++) {
+      for (let j = i + 1; j < variants.length; j++) {
+        const a = variants[i]
+        const b = variants[j]
+
+        // Different max arity is fine
+        if (a.params.length !== b.params.length) continue
+
+        // Same arity — check if types are identical at every position
+        let allSame = true
+        for (let k = 0; k < a.params.length; k++) {
+          const sigA = a.params[k].defaultValue
+            ? typeSignatureForDefault(a.params[k].defaultValue)
+            : 'any'
+          const sigB = b.params[k].defaultValue
+            ? typeSignatureForDefault(b.params[k].defaultValue)
+            : 'any'
+          if (sigA !== sigB) {
+            allSame = false
+            break
+          }
+        }
+
+        if (allSame) {
+          const loc = locAt(source, b.start)
+          throw new SyntaxError(
+            `Polymorphic function '${name}': variants ${i + 1} and ${
+              j + 1
+            } have ambiguous signatures ` +
+              `(same parameter types at every position). Overloads must differ by arity or parameter types.`,
+            loc
+          )
+        }
+      }
+    }
+  }
+
+  // Phase 4: Build the transformed source
+  // Sort all variants by position (reverse order for safe replacement)
+  const allVariants: { name: string; variant: PolyVariant }[] = []
+  for (const [name, variants] of declarations) {
+    if (variants.length < 2) continue
+    for (const v of variants) {
+      allVariants.push({ name, variant: v })
+    }
+  }
+  allVariants.sort((a, b) => b.variant.start - a.variant.start)
+
+  // Replace each variant in reverse order (preserves positions)
+  let result = source
+  for (const { name, variant } of allVariants) {
+    const asyncPrefix = variant.isAsync ? 'async ' : ''
+    // Rename: function greet(...) -> function greet$1(...)
+    // Strip "export" from variants — only the dispatcher is exported
+    // Use $$ in replacement to produce literal $ (avoid backreference interpretation)
+    const renamed = variant.text.replace(
+      new RegExp(
+        `(?:export\\s+)?${
+          asyncPrefix ? asyncPrefix.replace(/\s+$/, '\\s+') : ''
+        }function\\s+${name}\\s*\\(`
+      ),
+      `${asyncPrefix}function ${name}$$${variant.index}(`
+    )
+    result =
+      result.slice(0, variant.start) + renamed + result.slice(variant.end)
+  }
+
+  // Phase 5: Append dispatcher functions
+  for (const [name, variants] of declarations) {
+    if (variants.length < 2) continue
+    polymorphicNames.add(name)
+
+    const isAsync = variants[0].isAsync
+    const isExported = variants.some((v) => v.exported)
+    const asyncPrefix = isAsync ? 'async ' : ''
+    const exportPrefix = isExported ? 'export ' : ''
+
+    // Sort variants by specificity for dispatch order:
+    // 1. More params first (higher arity)
+    // 2. More specific types first (integer before number, object before any)
+    const sorted = [...variants].sort((a, b) => {
+      // Different arity: more params = more specific (checked first within same arity group)
+      if (a.params.length !== b.params.length) return 0 // arity groups handled in dispatch
+
+      // Same arity: count specificity
+      let specA = 0
+      let specB = 0
+      for (const p of a.params) {
+        const sig = p.defaultValue
+          ? typeSignatureForDefault(p.defaultValue)
+          : 'any'
+        if (sig === 'non-negative-integer') specA += 3
+        else if (sig === 'integer') specA += 2
+        else if (sig !== 'any') specA += 1
+      }
+      for (const p of b.params) {
+        const sig = p.defaultValue
+          ? typeSignatureForDefault(p.defaultValue)
+          : 'any'
+        if (sig === 'non-negative-integer') specB += 3
+        else if (sig === 'integer') specB += 2
+        else if (sig !== 'any') specB += 1
+      }
+      return specB - specA // More specific first
+    })
+
+    // Generate dispatch branches
+    const branches: string[] = []
+    for (const v of sorted) {
+      const checks: string[] = [`__args.length === ${v.params.length}`]
+      const args: string[] = []
+
+      for (let k = 0; k < v.params.length; k++) {
+        const p = v.params[k]
+        args.push(`__args[${k}]`)
+        if (p.defaultValue) {
+          const check = typeCheckForDefault(`__args[${k}]`, p.defaultValue)
+          if (check !== 'true') checks.push(check)
+        }
+      }
+
+      branches.push(
+        `  if (${checks.join(' && ')}) return ${name}$${v.index}(${args.join(
+          ', '
+        )})`
+      )
+    }
+
+    const dispatcher = `
+${exportPrefix}${asyncPrefix}function ${name}(...__args) {
+${branches.join('\n')}
+  return __tjs.typeError('${name}', 'no matching overload', __args)
+}
+`
+    result += dispatcher
+  }
+
+  return { source: result, polymorphicNames }
+}
+
+/**
  * Transform bare assignments to const declarations
  *
  * Foo = ... -> const Foo = ...
@@ -3356,7 +4270,227 @@ function extractAndRunTests(
  *
  * This emits standalone JS with no runtime dependencies.
  */
-function wrapClassDeclarations(source: string): string {
+
+/**
+ * Transform polymorphic constructors into static factory functions.
+ *
+ * When a class has multiple constructor() declarations, the first becomes
+ * the real constructor and the rest become factory functions. The wrapClass
+ * Proxy routes through a polymorphic dispatcher.
+ *
+ * class Point {
+ *   constructor(x: 0.0, y: 0.0) { this.x = x; this.y = y }
+ *   constructor(coords: { x: 0.0, y: 0.0 }) { this.x = coords.x; this.y = coords.y }
+ * }
+ *
+ * becomes:
+ *
+ * class Point {
+ *   constructor(x = 0.0, y = 0.0) { this.x = x; this.y = y }
+ * }
+ * function Point$ctor$2(coords = { x: 0.0, y: 0.0 }) { return new Point(coords.x, coords.y) }
+ * // wrapClass Proxy dispatches through polymorphic factory
+ */
+function transformPolymorphicConstructors(
+  source: string,
+  requiredParams: Set<string>
+): { source: string; polyCtorClasses: Set<string> } {
+  const polyCtorClasses = new Set<string>()
+
+  // Find classes with multiple constructors
+  const classRegex = /\bclass\s+(\w+)(\s+extends\s+\w+)?\s*\{/g
+  let classMatch
+
+  // Collect all class info first
+  const classInfos: {
+    className: string
+    extendsClause: string
+    bodyStart: number
+    bodyEnd: number
+    body: string
+  }[] = []
+
+  while ((classMatch = classRegex.exec(source)) !== null) {
+    const className = classMatch[1]
+    const extendsClause = classMatch[2]?.trim() || ''
+    const bodyStart = classMatch.index + classMatch[0].length - 1
+
+    const bodyEnd = findFunctionBodyEnd(source, bodyStart)
+    const body = source.slice(bodyStart, bodyEnd)
+
+    classInfos.push({ className, extendsClause, bodyStart, bodyEnd, body })
+  }
+
+  // Process in reverse order to preserve positions
+  let result = source
+  for (let ci = classInfos.length - 1; ci >= 0; ci--) {
+    const { className, extendsClause, bodyStart, bodyEnd, body } =
+      classInfos[ci]
+
+    // Find all constructor declarations in the class body
+    const ctorPattern = /\bconstructor\s*\(/g
+    let ctorMatch
+    const ctorPositions: number[] = []
+
+    while ((ctorMatch = ctorPattern.exec(body)) !== null) {
+      ctorPositions.push(ctorMatch.index)
+    }
+
+    if (ctorPositions.length < 2) continue // Not polymorphic
+
+    polyCtorClasses.add(className)
+
+    // Parse each constructor
+    interface CtorInfo {
+      index: number
+      paramStr: string
+      bodyText: string
+      fullStart: number // relative to class body
+      fullEnd: number // relative to class body
+    }
+    const ctors: CtorInfo[] = []
+
+    for (let i = 0; i < ctorPositions.length; i++) {
+      const pos = ctorPositions[i]
+
+      // Find opening paren
+      const parenStart = body.indexOf('(', pos)
+      let parenDepth = 1
+      let j = parenStart + 1
+      while (j < body.length && parenDepth > 0) {
+        if (body[j] === '(') parenDepth++
+        if (body[j] === ')') parenDepth--
+        j++
+      }
+      const paramStr = body.slice(parenStart + 1, j - 1)
+
+      // Find opening brace
+      let braceStart = j
+      while (braceStart < body.length && body[braceStart] !== '{') braceStart++
+
+      // Find matching closing brace
+      const ctorBodyEnd = findFunctionBodyEnd(body, braceStart)
+      const bodyText = body.slice(braceStart + 1, ctorBodyEnd - 1)
+
+      ctors.push({
+        index: i + 1,
+        paramStr,
+        bodyText,
+        fullStart: pos,
+        fullEnd: ctorBodyEnd,
+      })
+    }
+
+    // Keep the first constructor in the class, remove the rest
+    // Build new class body with only the first constructor
+    let newBody = body.slice(0, ctors[0].fullEnd)
+    // Skip subsequent constructors
+    const afterLastCtor = ctors[ctors.length - 1].fullEnd
+    newBody += body.slice(afterLastCtor)
+
+    // But we need to remove just the extra constructors, keeping other methods
+    // Better approach: remove constructors 2..N from the body
+    let cleanBody = body
+    for (let i = ctors.length - 1; i >= 1; i--) {
+      const ctor = ctors[i]
+      // Find start of this constructor (including leading whitespace)
+      let start = ctor.fullStart
+      while (start > 0 && cleanBody[start - 1] === ' ') start--
+      if (start > 0 && cleanBody[start - 1] === '\n') start--
+
+      cleanBody = cleanBody.slice(0, start) + cleanBody.slice(ctor.fullEnd)
+    }
+
+    // Generate factory functions for constructors 2..N
+    let factories = ''
+    for (let i = 1; i < ctors.length; i++) {
+      const ctor = ctors[i]
+      // Parse params for type checking in dispatcher
+      const params = parseParamList(ctor.paramStr, requiredParams)
+      const hasRest = ctor.paramStr.includes('...')
+      if (hasRest) {
+        const loc = locAt(source, bodyStart + ctor.fullStart)
+        throw new SyntaxError(
+          `Rest parameters are not supported in polymorphic constructors for '${className}'.`,
+          loc
+        )
+      }
+
+      // The factory function creates the object manually
+      // For base classes: use Object.create + call constructor body
+      // Simpler: just use new ClassName() with the first ctor's params mapped
+      // Actually simplest: the factory body IS the constructor body but with
+      // `this.x = ...` replaced by building an object... No, that doesn't work
+      // for inheritance.
+      //
+      // Best approach: factory creates via new, then applies the extra ctor body
+      factories += `\nfunction ${className}$ctor$${ctor.index}(${ctor.paramStr}) {`
+      factories += `\n  const __obj = Object.create(${className}.prototype)`
+      if (extendsClause) {
+        // For derived classes, we can't easily call super() outside constructor
+        // Just call the constructor body and hope it sets fields
+        // Actually — the factory can just do: new ClassName(defaultArgs) then overwrite
+        // Let's use a simpler approach: the factory just does new + field assignment
+      }
+      factories += `\n  ;(function() {${ctor.bodyText}}).call(__obj)`
+      factories += `\n  return __obj`
+      factories += `\n}\n`
+    }
+
+    // Generate the polymorphic dispatcher for the Proxy's apply trap
+    // First constructor variant uses Reflect.construct, rest use factories
+    const dispatchBranches: string[] = []
+
+    for (let i = 0; i < ctors.length; i++) {
+      const ctor = ctors[i]
+      const params = parseParamList(ctor.paramStr, requiredParams)
+      const checks: string[] = [`a.length === ${params.length}`]
+
+      for (let k = 0; k < params.length; k++) {
+        const p = params[k]
+        if (p.defaultValue) {
+          const check = typeCheckForDefault(`a[${k}]`, p.defaultValue)
+          if (check !== 'true') checks.push(check)
+        }
+      }
+
+      if (i === 0) {
+        // First constructor — use Reflect.construct
+        dispatchBranches.push(
+          `    if (${checks.join(' && ')}) return Reflect.construct(t, a)`
+        )
+      } else {
+        // Factory function
+        const args = params.map((_, k) => `a[${k}]`).join(', ')
+        dispatchBranches.push(
+          `    if (${checks.join(' && ')}) return ${className}$ctor$${
+            ctor.index
+          }(${args})`
+        )
+      }
+    }
+
+    // Generate the dispatcher function
+    factories += `\nfunction ${className}$dispatch(t, a) {\n`
+    factories += dispatchBranches.join('\n') + '\n'
+    factories += `    return __tjs.typeError('${className}', 'no matching constructor', a)\n`
+    factories += `}\n`
+
+    // Replace the class body and append factories
+    result = result.slice(0, bodyStart) + cleanBody + result.slice(bodyEnd)
+
+    // Insert factories after the class
+    const insertPos = bodyStart + cleanBody.length
+    result = result.slice(0, insertPos) + factories + result.slice(insertPos)
+  }
+
+  return { source: result, polyCtorClasses }
+}
+
+function wrapClassDeclarations(
+  source: string,
+  polyCtorClasses: Set<string> = new Set()
+): string {
   // Match class declarations: class Name { or class Name extends Base {
   // Capture the class name and find the full class body
   const classRegex = /\bclass\s+(\w+)(\s+extends\s+\w+)?\s*\{/g
@@ -3387,7 +4521,13 @@ function wrapClassDeclarations(source: string): string {
       // Emit standalone JS - no runtime dependency
       result += source.slice(lastIndex, classStart)
       result += `let ${className} = class ${className}${extendsClause} ${classBody}; `
-      result += `${className} = new Proxy(${className}, { apply(t, _, a) { return Reflect.construct(t, a) } });`
+
+      if (polyCtorClasses.has(className)) {
+        // Polymorphic constructor: use dispatcher function for apply trap
+        result += `${className} = new Proxy(${className}, { apply(t, _, a) { return ${className}$dispatch(t, a) }, construct(t, a) { return ${className}$dispatch(t, a) } });`
+      } else {
+        result += `${className} = new Proxy(${className}, { apply(t, _, a) { return Reflect.construct(t, a) } });`
+      }
       lastIndex = classEnd
     }
   }
