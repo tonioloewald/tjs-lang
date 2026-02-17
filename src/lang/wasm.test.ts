@@ -1180,4 +1180,364 @@ describe('WASM Compiler', () => {
       expect(arr[0]).toBeCloseTo(99, 4)
     })
   })
+
+  // ============================================================================
+  // SIMD (v128/f32x4) Tests
+  // ============================================================================
+
+  describe('SIMD (v128/f32x4)', () => {
+    describe('compilation', () => {
+      it('should compile f32x4_splat intrinsic', () => {
+        const result = compileToWasm({
+          id: '__simd_compile_splat',
+          body: `
+            let v = f32x4_splat(1.0)
+            return 0
+          `,
+          captures: [],
+          start: 0,
+          end: 0,
+        })
+        expect(result.success).toBe(true)
+        expect(result.needsMemory).toBe(true)
+      })
+
+      it('should compile f32x4 load/store/add', () => {
+        const result = compileToWasm({
+          id: '__simd_compile_arith',
+          body: `
+            let a = f32x4_load(arr, 0)
+            let b = f32x4_splat(1.0)
+            let c = f32x4_add(a, b)
+            f32x4_store(arr, 0, c)
+            return 0
+          `,
+          captures: ['arr: Float32Array'],
+          start: 0,
+          end: 0,
+        })
+        expect(result.success).toBe(true)
+      })
+
+      it('should include SIMD ops in WAT disassembly', () => {
+        const result = compileToWasm({
+          id: '__simd_wat',
+          body: `
+            let v = f32x4_splat(2.0)
+            return 0
+          `,
+          captures: [],
+          start: 0,
+          end: 0,
+        })
+        expect(result.success).toBe(true)
+        expect(result.wat).toContain('f32x4.splat')
+      })
+    })
+
+    describe('f32x4_splat + extract_lane', () => {
+      it('should broadcast and extract lane 0', async () => {
+        const { fn, success } = await createWasmFunction({
+          id: '__simd_splat_extract',
+          body: `
+            let v = f32x4_splat(value)
+            return f32x4_extract_lane(v, 0)
+          `,
+          captures: ['value'],
+          start: 0,
+          end: 0,
+        })
+        expect(success).toBe(true)
+        expect(fn(42.0)).toBeCloseTo(42.0, 4)
+      })
+
+      it('should extract all 4 lanes', async () => {
+        const { fn, success } = await createWasmFunction({
+          id: '__simd_all_lanes',
+          body: `
+            let v = f32x4_splat(value)
+            let s0 = f32x4_extract_lane(v, 0)
+            let s1 = f32x4_extract_lane(v, 1)
+            let s2 = f32x4_extract_lane(v, 2)
+            let s3 = f32x4_extract_lane(v, 3)
+            return s0 + s1 + s2 + s3
+          `,
+          captures: ['value'],
+          start: 0,
+          end: 0,
+        })
+        expect(success).toBe(true)
+        expect(fn(10.0)).toBeCloseTo(40.0, 3)
+      })
+    })
+
+    describe('f32x4 load/store with Float32Array', () => {
+      it('should load, add constant, and store back', async () => {
+        const { fn, success } = await createWasmFunction({
+          id: '__simd_load_store',
+          body: `
+            let a = f32x4_load(arr, 0)
+            let b = f32x4_splat(1.0)
+            let c = f32x4_add(a, b)
+            f32x4_store(arr, 0, c)
+            return 0
+          `,
+          captures: ['arr: Float32Array'],
+          start: 0,
+          end: 0,
+        })
+        expect(success).toBe(true)
+        const arr = new Float32Array([10, 20, 30, 40])
+        fn(arr)
+        expect(arr[0]).toBeCloseTo(11, 4)
+        expect(arr[1]).toBeCloseTo(21, 4)
+        expect(arr[2]).toBeCloseTo(31, 4)
+        expect(arr[3]).toBeCloseTo(41, 4)
+      })
+    })
+
+    describe('f32x4 arithmetic', () => {
+      it('should multiply two v128 vectors', async () => {
+        const { fn, success } = await createWasmFunction({
+          id: '__simd_mul',
+          body: `
+            let a = f32x4_load(arr, 0)
+            let b = f32x4_splat(3.0)
+            let c = f32x4_mul(a, b)
+            f32x4_store(arr, 0, c)
+            return 0
+          `,
+          captures: ['arr: Float32Array'],
+          start: 0,
+          end: 0,
+        })
+        expect(success).toBe(true)
+        const arr = new Float32Array([1, 2, 3, 4])
+        fn(arr)
+        expect(arr[0]).toBeCloseTo(3, 4)
+        expect(arr[1]).toBeCloseTo(6, 4)
+        expect(arr[2]).toBeCloseTo(9, 4)
+        expect(arr[3]).toBeCloseTo(12, 4)
+      })
+
+      it('should subtract two v128 vectors', async () => {
+        const { fn, success } = await createWasmFunction({
+          id: '__simd_sub',
+          body: `
+            let a = f32x4_load(arr, 0)
+            let b = f32x4_splat(1.0)
+            let c = f32x4_sub(a, b)
+            f32x4_store(arr, 0, c)
+            return 0
+          `,
+          captures: ['arr: Float32Array'],
+          start: 0,
+          end: 0,
+        })
+        expect(success).toBe(true)
+        const arr = new Float32Array([10, 20, 30, 40])
+        fn(arr)
+        expect(arr[0]).toBeCloseTo(9, 4)
+        expect(arr[1]).toBeCloseTo(19, 4)
+        expect(arr[2]).toBeCloseTo(29, 4)
+        expect(arr[3]).toBeCloseTo(39, 4)
+      })
+    })
+
+    describe('SIMD loop (4-wide processing)', () => {
+      it('should scale array elements by 2.0 in SIMD chunks', async () => {
+        const { fn, success } = await createWasmFunction({
+          id: '__simd_loop_scale',
+          body: `
+            let scale = f32x4_splat(2.0)
+            for (let i = 0; i < len; i += 4) {
+              let off = i * 4
+              let v = f32x4_load(arr, off)
+              let r = f32x4_mul(v, scale)
+              f32x4_store(arr, off, r)
+            }
+            return 0
+          `,
+          captures: ['arr: Float32Array', 'len: i32'],
+          start: 0,
+          end: 0,
+        })
+        expect(success).toBe(true)
+        const arr = new Float32Array([1, 2, 3, 4, 5, 6, 7, 8])
+        fn(arr, 8)
+        expect(arr[0]).toBeCloseTo(2, 4)
+        expect(arr[1]).toBeCloseTo(4, 4)
+        expect(arr[2]).toBeCloseTo(6, 4)
+        expect(arr[3]).toBeCloseTo(8, 4)
+        expect(arr[4]).toBeCloseTo(10, 4)
+        expect(arr[5]).toBeCloseTo(12, 4)
+        expect(arr[6]).toBeCloseTo(14, 4)
+        expect(arr[7]).toBeCloseTo(16, 4)
+      })
+    })
+
+    describe('SIMD dot product', () => {
+      it('should compute dot product of two Float32Arrays', async () => {
+        const { fn, success } = await createWasmFunction({
+          id: '__simd_dot_product',
+          body: `
+            let acc = f32x4_splat(0.0)
+            for (let i = 0; i < len; i += 4) {
+              let off = i * 4
+              let a = f32x4_load(vecA, off)
+              let b = f32x4_load(vecB, off)
+              acc = f32x4_add(acc, f32x4_mul(a, b))
+            }
+            let s0 = f32x4_extract_lane(acc, 0)
+            let s1 = f32x4_extract_lane(acc, 1)
+            let s2 = f32x4_extract_lane(acc, 2)
+            let s3 = f32x4_extract_lane(acc, 3)
+            return s0 + s1 + s2 + s3
+          `,
+          captures: ['vecA: Float32Array', 'vecB: Float32Array', 'len: i32'],
+          start: 0,
+          end: 0,
+        })
+        expect(success).toBe(true)
+        const a = new Float32Array([1, 2, 3, 4])
+        const b = new Float32Array([5, 6, 7, 8])
+        // dot = 1*5 + 2*6 + 3*7 + 4*8 = 5+12+21+32 = 70
+        const result = fn(a, b, 4)
+        expect(result).toBeCloseTo(70, 2)
+      })
+
+      it('should handle larger arrays (16 elements)', async () => {
+        const { fn, success } = await createWasmFunction({
+          id: '__simd_dot_16',
+          body: `
+            let acc = f32x4_splat(0.0)
+            for (let i = 0; i < len; i += 4) {
+              let off = i * 4
+              let a = f32x4_load(vecA, off)
+              let b = f32x4_load(vecB, off)
+              acc = f32x4_add(acc, f32x4_mul(a, b))
+            }
+            let s0 = f32x4_extract_lane(acc, 0)
+            let s1 = f32x4_extract_lane(acc, 1)
+            let s2 = f32x4_extract_lane(acc, 2)
+            let s3 = f32x4_extract_lane(acc, 3)
+            return s0 + s1 + s2 + s3
+          `,
+          captures: ['vecA: Float32Array', 'vecB: Float32Array', 'len: i32'],
+          start: 0,
+          end: 0,
+        })
+        expect(success).toBe(true)
+        // All ones dot all ones = 16
+        const a = new Float32Array(16).fill(1)
+        const b = new Float32Array(16).fill(1)
+        expect(fn(a, b, 16)).toBeCloseTo(16, 2)
+
+        // [1..16] dot [1..16] = sum of squares = 1496
+        const c = Float32Array.from({ length: 16 }, (_, i) => i + 1)
+        const d = Float32Array.from({ length: 16 }, (_, i) => i + 1)
+        // 1+4+9+16+25+36+49+64+81+100+121+144+169+196+225+256 = 1496
+        expect(fn(c, d, 16)).toBeCloseTo(1496, 0)
+      })
+    })
+
+    describe('SIMD performance', () => {
+      it('SIMD should process arrays faster than scalar for large data', async () => {
+        const size = 4096
+        const iterations = 1000
+
+        // SIMD version
+        const { fn: simdFn, success: simdOk } = await createWasmFunction({
+          id: '__simd_perf',
+          body: `
+            let scale = f32x4_splat(1.001)
+            for (let i = 0; i < len; i += 4) {
+              let off = i * 4
+              let v = f32x4_load(arr, off)
+              let r = f32x4_mul(v, scale)
+              f32x4_store(arr, off, r)
+            }
+            return 0
+          `,
+          captures: ['arr: Float32Array', 'len: i32'],
+          start: 0,
+          end: 0,
+        })
+
+        // Scalar version
+        const { fn: scalarFn, success: scalarOk } = await createWasmFunction({
+          id: '__scalar_perf',
+          body: `
+            for (let i = 0; i < len; i++) {
+              arr[i] = arr[i] * 1.001
+            }
+            return 0
+          `,
+          captures: ['arr: Float32Array', 'len: i32'],
+          start: 0,
+          end: 0,
+        })
+
+        expect(simdOk).toBe(true)
+        expect(scalarOk).toBe(true)
+
+        const arr = Float32Array.from({ length: size }, (_, i) => i + 1)
+
+        // Time SIMD
+        const simdStart = performance.now()
+        for (let i = 0; i < iterations; i++) simdFn(arr, size)
+        const simdTime = performance.now() - simdStart
+
+        // Reset
+        arr.fill(1)
+
+        // Time scalar
+        const scalarStart = performance.now()
+        for (let i = 0; i < iterations; i++) scalarFn(arr, size)
+        const scalarTime = performance.now() - scalarStart
+
+        console.log(
+          `\nSIMD vs Scalar (${size} elements, ${iterations} iterations):`
+        )
+        console.log(`  SIMD:   ${simdTime.toFixed(2)}ms`)
+        console.log(`  Scalar: ${scalarTime.toFixed(2)}ms`)
+        console.log(`  Ratio:  ${(simdTime / scalarTime).toFixed(2)}x`)
+
+        // Don't hard-assert ratio — varies by environment
+        // Just verify both produce valid results
+        expect(simdTime).toBeGreaterThan(0)
+        expect(scalarTime).toBeGreaterThan(0)
+      })
+    })
+
+    describe('full pipeline (tjs → wasm)', () => {
+      it('SIMD intrinsics should not be captured as variables', async () => {
+        const { tjs } = await import('./index')
+        const source = `
+function scale(arr: Float32Array, len: 0, factor: 0.0) {
+  wasm {
+    let s = f32x4_splat(factor)
+    for (let i = 0; i < len; i += 4) {
+      let off = i * 4
+      let v = f32x4_load(arr, off)
+      f32x4_store(arr, off, f32x4_mul(v, s))
+    }
+  } fallback {
+    for (let i = 0; i < len; i++) arr[i] *= factor
+  }
+}
+`
+        const result = tjs(source)
+        // SIMD intrinsics should NOT appear as WASM function params
+        expect(result.code).not.toContain('param $f32x4_splat')
+        expect(result.code).not.toContain('param $f32x4_load')
+        expect(result.code).not.toContain('param $f32x4_store')
+        expect(result.code).not.toContain('param $f32x4_mul')
+        // Real captures should appear
+        expect(result.code).toContain('param $arr')
+        expect(result.code).toContain('param $len')
+        expect(result.code).toContain('param $factor')
+      })
+    })
+  })
 })

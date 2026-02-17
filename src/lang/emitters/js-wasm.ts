@@ -96,11 +96,11 @@ for(const{id,b64,c,m}of __wasmBlocks){
   globalThis[id]=function(...args){
     const mv=new Uint8Array(mem.buffer);let off=0;const ptrs=[];
     for(let i=0;i<params.length;i++){const p=params[i],a=args[i];
-      if(p.a&&a?.buffer){const ab=new Uint8Array(a.buffer,a.byteOffset,a.byteLength);mv.set(ab,off);ptrs.push(off);off+=ab.length;off=(off+7)&~7}
+      if(p.a&&a?.buffer){const ab=new Uint8Array(a.buffer,a.byteOffset,a.byteLength);mv.set(ab,off);ptrs.push(off);off+=ab.length;off=(off+15)&~15}
       else ptrs.push(a)}
     const r=compute(...ptrs);off=0;
     for(let i=0;i<params.length;i++){const p=params[i],a=args[i];
-      if(p.a&&a?.buffer){const ab=new Uint8Array(a.buffer,a.byteOffset,a.byteLength);ab.set(mv.slice(off,off+ab.length));off+=ab.length;off=(off+7)&~7}}
+      if(p.a&&a?.buffer){const ab=new Uint8Array(a.buffer,a.byteOffset,a.byteLength);ab.set(mv.slice(off,off+ab.length));off+=ab.length;off=(off+15)&~15}}
     return r};
 }})();
 `.trim()

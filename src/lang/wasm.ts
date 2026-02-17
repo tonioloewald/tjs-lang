@@ -232,6 +232,62 @@ const OpName: Record<number, string> = Object.fromEntries(
   Object.entries(Op).map(([name, code]) => [code, name.replace(/_/g, '.')])
 )
 
+// ============================================================================
+// SIMD (v128/f32x4) Constants
+// ============================================================================
+
+/** WASM SIMD prefix byte — all SIMD instructions start with this */
+const SIMD_PREFIX = 0xfd
+
+/** SIMD sub-opcodes (follow the 0xfd prefix, LEB128-encoded) */
+const SimdOp = {
+  // Memory
+  v128_load: 0x00,
+  v128_store: 0x0b,
+
+  // Constants
+  v128_const: 0x0c,
+
+  // Splat (scalar → all 4 lanes)
+  f32x4_splat: 0x13,
+
+  // Lane access
+  f32x4_extract_lane: 0x1f,
+  f32x4_replace_lane: 0x20,
+
+  // f32x4 arithmetic
+  f32x4_neg: 0xe1,
+  f32x4_sqrt: 0xe3,
+  f32x4_add: 0xe4,
+  f32x4_sub: 0xe5,
+  f32x4_mul: 0xe6,
+  f32x4_div: 0xe7,
+} as const
+
+/** Reverse lookup for SIMD opcodes */
+const SimdOpName: Record<number, string> = Object.fromEntries(
+  Object.entries(SimdOp).map(([name, code]) => [code, name.replace(/_/g, '.')])
+)
+
+/** Encode a SIMD instruction (0xfd prefix + LEB128 sub-opcode) */
+function encodeSIMD(subOp: number): number[] {
+  return [SIMD_PREFIX, ...encodeULEB128(subOp)]
+}
+
+/** Encode a SIMD instruction with memarg (align + offset) */
+function encodeSIMDMemarg(
+  subOp: number,
+  align: number,
+  offset: number
+): number[] {
+  return [
+    SIMD_PREFIX,
+    ...encodeULEB128(subOp),
+    ...encodeULEB128(align),
+    ...encodeULEB128(offset),
+  ]
+}
+
 /** Emit WAT instruction to context */
 function wat(ctx: CompileContext, instruction: string): void {
   ctx.wat.push('  '.repeat(ctx.watIndent) + instruction)
@@ -364,6 +420,13 @@ function disassemble(
       const [val, len] = decodeULEB128(code, i)
       i += len
       lines.push(`${ind()}i32.const ${val}`)
+    } else if (op === Op.f32_const) {
+      const buffer = new ArrayBuffer(4)
+      const view = new Uint8Array(buffer)
+      for (let j = 0; j < 4; j++) view[j] = code[i + j]
+      const val = new Float32Array(buffer)[0]
+      i += 4
+      lines.push(`${ind()}f32.const ${val}`)
     } else if (op === Op.f64_const) {
       const val = decodeF64(code, i)
       i += 8
@@ -410,6 +473,36 @@ function disassemble(
       const [offset, len2] = decodeULEB128(code, i)
       i += len2
       lines.push(`${ind()}${name}${offset ? ` offset=${offset}` : ''}`)
+    } else if (op === SIMD_PREFIX) {
+      // SIMD instruction: 0xfd + LEB128 sub-opcode
+      const [subOp, subLen] = decodeULEB128(code, i)
+      i += subLen
+      const simdName =
+        SimdOpName[subOp] || `simd.unknown(0x${subOp.toString(16)})`
+      if (subOp === SimdOp.v128_load || subOp === SimdOp.v128_store) {
+        const [_align, len1] = decodeULEB128(code, i)
+        i += len1
+        const [offset, len2] = decodeULEB128(code, i)
+        i += len2
+        lines.push(`${ind()}${simdName}${offset ? ` offset=${offset}` : ''}`)
+      } else if (subOp === SimdOp.v128_const) {
+        const bytes = code.slice(i, i + 16)
+        i += 16
+        lines.push(
+          `${ind()}v128.const ${bytes
+            .map((b) => '0x' + b.toString(16).padStart(2, '0'))
+            .join(' ')}`
+        )
+      } else if (
+        subOp === SimdOp.f32x4_extract_lane ||
+        subOp === SimdOp.f32x4_replace_lane
+      ) {
+        const lane = code[i]
+        i++
+        lines.push(`${ind()}${simdName} ${lane}`)
+      } else {
+        lines.push(`${ind()}${simdName}`)
+      }
     } else {
       lines.push(`${ind()}${name}`)
     }
@@ -424,7 +517,7 @@ function disassemble(
 // ============================================================================
 
 /** TJS type that maps to WASM */
-type WasmValueType = 'i32' | 'i64' | 'f32' | 'f64'
+type WasmValueType = 'i32' | 'i64' | 'f32' | 'f64' | 'v128'
 
 /** Typed array info */
 interface TypedArrayInfo {
@@ -794,6 +887,8 @@ function inferExprType(
       // Otherwise infer from operands
       const leftType = inferExprType(binExpr.left as acorn.Expression, ctx)
       const rightType = inferExprType(binExpr.right as acorn.Expression, ctx)
+      // v128 operations stay v128
+      if (leftType === 'v128' || rightType === 'v128') return 'v128'
       // If either is f64 or f32, result is floating point
       if (leftType === 'f64' || rightType === 'f64') return 'f64'
       if (leftType === 'f32' || rightType === 'f32') return 'f32'
@@ -838,6 +933,12 @@ function inferExprType(
           // Math functions return f64
           return 'f64'
         }
+      }
+      // SIMD intrinsics
+      if (call.callee.type === 'Identifier') {
+        const name = (call.callee as acorn.Identifier).name
+        if (name === 'f32x4_extract_lane') return 'f32'
+        if (name.startsWith('f32x4_') || name === 'v128_load') return 'v128'
       }
       return 'f64'
     }
@@ -1476,8 +1577,133 @@ function compileCall(
     }
   }
 
+  // Handle SIMD intrinsics: f32x4_xxx(...), v128_load(...)
+  if (node.callee.type === 'Identifier') {
+    const name = (node.callee as acorn.Identifier).name
+    if (name.startsWith('f32x4_') || name.startsWith('v128_')) {
+      return compileSIMDCall(name, node.arguments as acorn.Expression[], ctx)
+    }
+  }
+
   ctx.errors.push(`Unsupported function call: ${node.callee.type}`)
   return [Op.f64_const, ...encodeF64(0)]
+}
+
+/** Compile SIMD intrinsic calls */
+function compileSIMDCall(
+  name: string,
+  args: acorn.Expression[],
+  ctx: CompileContext
+): number[] {
+  ctx.needsMemory = true
+  const code: number[] = []
+
+  switch (name) {
+    case 'v128_load':
+    case 'f32x4_load': {
+      // f32x4_load(arrayPtr, byteOffset) → v128
+      code.push(...compileExpression(args[0], ctx))
+      const ptrType = inferExprType(args[0], ctx)
+      if (ptrType === 'f64') code.push(Op.i32_trunc_f64_s)
+      code.push(...compileExpression(args[1], ctx))
+      const offType = inferExprType(args[1], ctx)
+      if (offType === 'f64') code.push(Op.i32_trunc_f64_s)
+      else if (offType === 'f32') code.push(Op.i32_trunc_f32_s)
+      code.push(Op.i32_add)
+      // v128.load align=2 (2^2=4, f32 natural alignment), offset=0
+      code.push(...encodeSIMDMemarg(SimdOp.v128_load, 2, 0))
+      return code
+    }
+
+    case 'v128_store':
+    case 'f32x4_store': {
+      // f32x4_store(arrayPtr, byteOffset, v128value) → void (push dummy for drop)
+      code.push(...compileExpression(args[0], ctx))
+      const ptrType = inferExprType(args[0], ctx)
+      if (ptrType === 'f64') code.push(Op.i32_trunc_f64_s)
+      code.push(...compileExpression(args[1], ctx))
+      const offType = inferExprType(args[1], ctx)
+      if (offType === 'f64') code.push(Op.i32_trunc_f64_s)
+      else if (offType === 'f32') code.push(Op.i32_trunc_f32_s)
+      code.push(Op.i32_add)
+      code.push(...compileExpression(args[2], ctx))
+      code.push(...encodeSIMDMemarg(SimdOp.v128_store, 2, 0))
+      // v128.store doesn't push a value; push dummy i32 0 so ExpressionStatement's drop works
+      code.push(Op.i32_const, 0)
+      return code
+    }
+
+    case 'f32x4_splat': {
+      // f32x4_splat(scalar) → v128
+      code.push(...compileExpression(args[0], ctx))
+      const argType = inferExprType(args[0], ctx)
+      if (argType === 'i32') code.push(Op.f32_convert_i32_s)
+      else if (argType === 'f64') code.push(Op.f32_demote_f64)
+      code.push(...encodeSIMD(SimdOp.f32x4_splat))
+      return code
+    }
+
+    case 'f32x4_extract_lane': {
+      // f32x4_extract_lane(vec, laneIndex) → f32
+      code.push(...compileExpression(args[0], ctx))
+      const lane = (args[1] as acorn.Literal).value as number
+      if (!Number.isInteger(lane) || lane < 0 || lane > 3) {
+        ctx.errors.push(`f32x4_extract_lane: lane must be 0-3, got ${lane}`)
+        return [Op.f32_const, ...encodeF32(0)]
+      }
+      code.push(SIMD_PREFIX, ...encodeULEB128(SimdOp.f32x4_extract_lane), lane)
+      return code
+    }
+
+    case 'f32x4_replace_lane': {
+      // f32x4_replace_lane(vec, laneIndex, scalar) → v128
+      code.push(...compileExpression(args[0], ctx))
+      const lane = (args[1] as acorn.Literal).value as number
+      if (!Number.isInteger(lane) || lane < 0 || lane > 3) {
+        ctx.errors.push(`f32x4_replace_lane: lane must be 0-3, got ${lane}`)
+        return [Op.f32_const, ...encodeF32(0)]
+      }
+      code.push(...compileExpression(args[2], ctx))
+      const valType = inferExprType(args[2], ctx)
+      if (valType === 'i32') code.push(Op.f32_convert_i32_s)
+      else if (valType === 'f64') code.push(Op.f32_demote_f64)
+      code.push(SIMD_PREFIX, ...encodeULEB128(SimdOp.f32x4_replace_lane), lane)
+      return code
+    }
+
+    case 'f32x4_add':
+    case 'f32x4_sub':
+    case 'f32x4_mul':
+    case 'f32x4_div': {
+      // Binary v128 op: f32x4_add(a, b) → v128
+      code.push(...compileExpression(args[0], ctx))
+      code.push(...compileExpression(args[1], ctx))
+      const opMap: Record<string, number> = {
+        f32x4_add: SimdOp.f32x4_add,
+        f32x4_sub: SimdOp.f32x4_sub,
+        f32x4_mul: SimdOp.f32x4_mul,
+        f32x4_div: SimdOp.f32x4_div,
+      }
+      code.push(...encodeSIMD(opMap[name]))
+      return code
+    }
+
+    case 'f32x4_neg':
+    case 'f32x4_sqrt': {
+      // Unary v128 op: f32x4_neg(a) → v128
+      code.push(...compileExpression(args[0], ctx))
+      const unaryMap: Record<string, number> = {
+        f32x4_neg: SimdOp.f32x4_neg,
+        f32x4_sqrt: SimdOp.f32x4_sqrt,
+      }
+      code.push(...encodeSIMD(unaryMap[name]))
+      return code
+    }
+
+    default:
+      ctx.errors.push(`Unknown SIMD intrinsic: ${name}`)
+      return [Op.f64_const, ...encodeF64(0)]
+  }
 }
 
 /** Compile Math.xxx calls */
@@ -1851,7 +2077,7 @@ export async function createWasmFunction(block: WasmBlock): Promise<{
           pointers.push(offset)
           offset += bytes.length
           // Align to 8 bytes
-          offset = (offset + 7) & ~7
+          offset = (offset + 15) & ~15
         } else {
           pointers.push(arg as number)
         }
@@ -1879,7 +2105,7 @@ export async function createWasmFunction(block: WasmBlock): Promise<{
           )
           bytes.set(memoryView.slice(offset, offset + bytes.length))
           offset += bytes.length
-          offset = (offset + 7) & ~7
+          offset = (offset + 15) & ~15
         }
       }
 
@@ -2035,7 +2261,7 @@ async function __instantiateWasm(id, bytes, captures, needsMemory) {
         memoryView.set(bytes, offset);
         pointers.push(offset);
         offset += bytes.length;
-        offset = (offset + 7) & ~7; // Align to 8 bytes
+        offset = (offset + 15) & ~15; // Align to 16 bytes (SIMD)
       } else {
         pointers.push(arg);
       }
@@ -2054,7 +2280,7 @@ async function __instantiateWasm(id, bytes, captures, needsMemory) {
         const bytes = new Uint8Array(arg.buffer, arg.byteOffset, arg.byteLength);
         bytes.set(memoryView.slice(offset, offset + bytes.length));
         offset += bytes.length;
-        offset = (offset + 7) & ~7;
+        offset = (offset + 15) & ~15;
       }
     }
 

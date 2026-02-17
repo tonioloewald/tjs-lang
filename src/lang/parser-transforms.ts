@@ -195,6 +195,11 @@ export function extractWasmBlocks(source: string): {
   return { source: result, blocks }
 }
 
+/** Check if an identifier is a WASM SIMD intrinsic (not a captured variable) */
+function isWasmIntrinsic(name: string): boolean {
+  return name.startsWith('f32x4_') || name.startsWith('v128_')
+}
+
 /**
  * Detect variables captured from enclosing scope
  *
@@ -342,7 +347,7 @@ function detectCaptures(body: string): string[] {
   // Return identifiers that are used but not declared or reserved
   const captures: string[] = []
   for (const id of allIdentifiers) {
-    if (!declared.has(id) && !reserved.has(id)) {
+    if (!declared.has(id) && !reserved.has(id) && !isWasmIntrinsic(id)) {
       captures.push(id)
     }
   }
