@@ -29,6 +29,12 @@ const PINNED_PACKAGES: Record<
   string,
   { version: string; path?: string; cdn?: string }
 > = {
+  // tjs-lang itself (used by demos like Universal Endpoint)
+  'tjs-lang': {
+    version: '0.5.0',
+    cdn: 'https://cdn.jsdelivr.net/npm/tjs-lang@0.5.0/dist/index.js',
+  },
+
   // tosijs ecosystem
   tosijs: { version: '1.2.0', path: '/dist/module.js' },
   'tosijs-ui': { version: '1.2.0', path: '/dist/index.js' },
