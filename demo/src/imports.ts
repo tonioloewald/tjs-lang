@@ -2,27 +2,22 @@
  * Playground Import Resolver
  *
  * Resolves and fetches external modules for the TJS playground.
- * Uses unpkg.com CDN for npm packages.
- *
- * Note: unpkg serves files directly from npm, unlike esm.sh which
- * converts CJS to ESM. For packages without proper ESM exports,
- * you need to specify the exact path to the ESM bundle.
+ * Uses cdn.jsdelivr.net for npm packages.
  *
  * Features:
  * - Detects import statements in code
- * - Fetches modules from unpkg with pinned versions
+ * - Fetches modules from jsdelivr with pinned versions
  * - Caches fetched modules in memory
  * - Returns import map for browser
  */
 
-// CDN base URL - unpkg serves files directly from npm
-const CDN_BASE = 'https://unpkg.com'
+// CDN base URL - jsdelivr serves npm packages with proper ESM support
+const CDN_BASE = 'https://cdn.jsdelivr.net/npm'
 
 // In-memory cache for fetched module URLs
 const moduleCache = new Map<string, string>()
 
-// Common packages that should use specific versions and ESM paths
-// unpkg serves files directly, so we need explicit paths to ESM bundles
+// Common packages with pinned versions and ESM paths
 // Packages with proper "exports" or "module" fields in package.json
 // may work without explicit paths, but it's safer to specify them
 const PINNED_PACKAGES: Record<
@@ -124,10 +119,6 @@ function parseSpecifier(specifier: string): { name: string; subpath: string } {
 
 /**
  * Get CDN URL for a package specifier
- *
- * unpkg serves files directly from npm packages. For ESM packages,
- * we often need to specify the exact path to the ESM bundle since
- * unpkg doesn't do automatic ESM conversion like esm.sh.
  */
 export function getCDNUrl(specifier: string): string {
   const { name, subpath } = parseSpecifier(specifier)
@@ -151,8 +142,7 @@ export function getCDNUrl(specifier: string): string {
     return `${CDN_BASE}/${name}@${pinned.version}${path}`
   }
 
-  // For unknown packages, try unpkg's default resolution
-  // This may not work for all packages if they don't have proper ESM exports
+  // For unknown packages, try jsdelivr's default resolution
   return `${CDN_BASE}/${name}${subpath}`
 }
 
