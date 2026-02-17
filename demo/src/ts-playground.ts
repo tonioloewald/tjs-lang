@@ -17,7 +17,6 @@ import {
   MarkdownViewer,
 } from 'tosijs-ui'
 import { codeMirror, CodeMirror } from '../../editors/codemirror/component'
-import { fromTS } from '../../src/lang/emitters/from-ts'
 import { tjs } from '../../src/lang'
 import { extractImports, resolveImports } from './imports'
 import { generateDocsMarkdown } from './docs-utils'
@@ -336,11 +335,12 @@ export class TSPlayground extends Component<TSPlaygroundParts> {
   lastTsToTjsTime = 0
   lastTjsToJsTime = 0
 
-  transpile = () => {
+  transpile = async () => {
     const tsSource = this.parts.tsEditor.value
 
     try {
-      // Step 1: TS -> TJS (timed)
+      // Step 1: TS -> TJS (timed, lazy-load TypeScript compiler)
+      const { fromTS } = await import('../../src/lang/emitters/from-ts')
       const tsStart = performance.now()
       const tjsResult = fromTS(tsSource, { emitTJS: true })
       this.lastTsToTjsTime = performance.now() - tsStart

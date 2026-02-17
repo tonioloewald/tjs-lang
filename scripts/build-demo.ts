@@ -18,6 +18,7 @@ const result = await Bun.build({
   outdir: './.demo',
   minify: true,
   sourcemap: 'external',
+  splitting: true,
   target: 'browser',
   define: {
     __VERSION__: JSON.stringify(version),
