@@ -4,7 +4,7 @@
 
 Fetch and summarize text (requires llm capability)
 
-```javascript
+```ajs
 function summarize({ source = 'coffee-origins' }) {
   // Fetch text from our sample documents
   // Options: 'coffee-origins', 'ai-history', 'renewable-energy'

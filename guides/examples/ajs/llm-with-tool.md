@@ -4,7 +4,7 @@
 
 LLM uses a calculator tool (requires llm capability)
 
-```javascript
+```ajs
 function mathAssistant({ question = 'What is 23 * 47 + 156?' }) {
   // First, ask LLM to extract the calculation
   let extractPrompt =

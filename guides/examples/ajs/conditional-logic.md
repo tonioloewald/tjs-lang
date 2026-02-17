@@ -4,7 +4,7 @@
 
 If/else branching
 
-```javascript
+```ajs
 function checkAge({ age = 25 }) {
   if (age >= 18) {
     let status = 'adult'

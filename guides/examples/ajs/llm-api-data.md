@@ -4,7 +4,7 @@
 
 LLM analyzes API data (requires llm capability)
 
-```javascript
+```ajs
 function findCovers({ song = 'Yesterday', artist = 'Beatles' }) {
   // Search iTunes for the song
   let query = song + ' ' + artist

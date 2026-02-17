@@ -4,7 +4,7 @@
 
 Chat with AI (requires llm capability)
 
-```javascript
+```ajs
 function chat({ message = 'What is the capital of France?' }) {
   // Requires llm.predict capability to be configured
   let response = llmPredict({ prompt: message })

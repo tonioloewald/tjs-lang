@@ -4,7 +4,7 @@
 
 Basic arithmetic and Math built-ins
 
-```javascript
+```ajs
 function calculate({ a = 10, b = 5 }) {
   let sum = a + b
   let product = a * b

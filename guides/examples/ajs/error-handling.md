@@ -4,7 +4,7 @@
 
 Try/catch with Error()
 
-```javascript
+```ajs
 function safeDivide({ a = 10, b = 0 }) {
   try {
     if (b == 0) {

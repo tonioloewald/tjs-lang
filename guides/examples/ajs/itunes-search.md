@@ -4,7 +4,7 @@
 
 Search Apple iTunes catalog
 
-```javascript
+```ajs
 function searchMusic({ query = 'Beatles', limit = 5 }) {
   let url =
     'https://itunes.apple.com/search?term=' +

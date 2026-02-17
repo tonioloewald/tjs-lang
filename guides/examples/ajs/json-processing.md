@@ -4,7 +4,7 @@
 
 Parse and stringify JSON
 
-```javascript
+```ajs
 function jsonRoundTrip({ data = { name: 'Alice', age: 30 } }) {
   let jsonStr = JSON.stringify(data)
   let parsed = JSON.parse(jsonStr)

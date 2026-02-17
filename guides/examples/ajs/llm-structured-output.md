@@ -4,7 +4,7 @@
 
 Get structured JSON from LLM (requires llm capability)
 
-```javascript
+```ajs
 function extractInfo({
   text = 'John Smith is a 35-year-old software engineer from San Francisco who loves hiking and photography.',
 }) {

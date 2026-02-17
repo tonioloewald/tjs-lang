@@ -4,7 +4,7 @@
 
 LLM writes AsyncJS code from a description (requires llm capability)
 
-````javascript
+````ajs
 function generateCode({ task = 'Calculate the factorial of n' }) {
   // System prompt with AsyncJS rules and complete example
   let systemContext =

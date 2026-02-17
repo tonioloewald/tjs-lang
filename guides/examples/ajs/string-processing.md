@@ -4,7 +4,7 @@
 
 Work with text
 
-```javascript
+```ajs
 function processText({ text = 'Hello World' }) {
   let upper = text.toUpperCase()
   let lower = text.toLowerCase()

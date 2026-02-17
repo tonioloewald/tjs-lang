@@ -4,7 +4,7 @@
 
 Extract text from an image (requires vision model)
 
-```javascript
+```ajs
 function extractText({ imageUrl = '/photo-2.jpg' }) {
   // Fetch image as data URL for vision model
   let image = httpFetch({ url: imageUrl, responseType: 'dataUrl' })

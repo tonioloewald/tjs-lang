@@ -4,7 +4,7 @@
 
 LLM writes and runs code to solve a problem (requires llm capability)
 
-````javascript
+````ajs
 function solveWithCode({ problem = 'Calculate the 10th Fibonacci number' }) {
   // System prompt with AsyncJS rules and example
   let systemContext =

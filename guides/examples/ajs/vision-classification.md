@@ -4,7 +4,7 @@
 
 Classify and describe an image (requires vision model)
 
-```javascript
+```ajs
 function classifyImage({ imageUrl = '/photo-1.jpg' }) {
   // Fetch image as data URL
   let image = httpFetch({ url: imageUrl, responseType: 'dataUrl' })

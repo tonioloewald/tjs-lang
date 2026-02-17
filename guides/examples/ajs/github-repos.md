@@ -4,7 +4,7 @@
 
 Search GitHub repositories
 
-```javascript
+```ajs
 function searchRepos({ query = 'tosijs', perPage = 5 }) {
   let url =
     'https://api.github.com/search/repositories?q=' +

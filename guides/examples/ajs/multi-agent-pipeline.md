@@ -4,7 +4,7 @@
 
 Two agents collaborate on a task (requires llm capability)
 
-```javascript
+```ajs
 function collaborativeWriting({ topic = 'the future of renewable energy' }) {
   // Agent 1: Research Agent - generates key points
   let researchPrompt =
