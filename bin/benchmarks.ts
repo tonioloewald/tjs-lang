@@ -10,6 +10,10 @@
 import { writeFileSync } from 'fs'
 import { execSync } from 'child_process'
 import { tjs } from '../src/lang'
+import { installRuntime } from '../src/lang/runtime'
+
+// Install TJS runtime globally so emitted code can use __tjs
+installRuntime()
 
 const ITERATIONS = 100_000
 

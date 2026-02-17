@@ -1,5 +1,5 @@
-import { Eval, SafeFunction } from 'tjs-lang'
-const __tjs = globalThis.__tjs?.createRuntime?.() ?? globalThis.__tjs
+import { Eval, SafeFunction } from 'tjs-lang';
+const __tjs = globalThis.__tjs?.createRuntime?.() ?? globalThis.__tjs;
 /*#
 # TJS Platform Cloud Functions
 
@@ -67,16 +67,16 @@ async function getUserApiKeys(uid) {
   return decrypted
 }
 getUserApiKeys.__tjs = {
-  params: {
-    uid: {
-      type: {
-        kind: 'any',
+  "params": {
+    "uid": {
+      "type": {
+        "kind": "any"
       },
-      required: false,
-    },
+      "required": false
+    }
   },
-  unsafe: true,
-  source: 'index.tjs:39',
+  "unsafe": true,
+  "source": "index.tjs:39"
 }
 
 /*#
@@ -88,7 +88,7 @@ export const health = onRequest((req, res) => {
   res.json({
     status: 'ok',
     timestamp: Date.now(),
-    version: '0.4.0',
+    version: '0.4.0'
   })
 })
 
@@ -105,32 +105,28 @@ function hashPayload(payload) {
   let hash = 0
   for (let i = 0; i < str.length; i++) {
     const char = str.charCodeAt(i)
-    hash = (hash << 5) - hash + char
+    hash = ((hash << 5) - hash) + char
     hash = hash & hash
   }
   return hash.toString(16)
 }
 hashPayload.__tjs = {
-  params: {
-    payload: {
-      type: {
-        kind: 'any',
+  "params": {
+    "payload": {
+      "type": {
+        "kind": "any"
       },
-      required: false,
-    },
+      "required": false
+    }
   },
-  description:
-    "## Agent Run Endpoint\n\nUniversal AJS endpoint - accepts code, args, and fuel limit.\nExecutes the code in a sandboxed VM with user's API keys as capabilities.",
-  unsafe: true,
-  source: 'index.tjs:89',
+  "description": "## Agent Run Endpoint\n\nUniversal AJS endpoint - accepts code, args, and fuel limit.\nExecutes the code in a sandboxed VM with user's API keys as capabilities.",
+  "unsafe": true,
+  "source": "index.tjs:89"
 }
 
 export const agentRun = onCall(async (request) => {
   if (!request.auth) {
-    throw new HttpsError(
-      'unauthenticated',
-      'Must be authenticated to run agents'
-    )
+    throw new HttpsError('unauthenticated', 'Must be authenticated to run agents')
   }
 
   const uid = request.auth.uid
@@ -158,7 +154,7 @@ export const agentRun = onCall(async (request) => {
       context: args,
       fuel,
       timeoutMs: 30000,
-      capabilities: { llm, store },
+      capabilities: { llm, store }
     })
   } catch (err) {
     console.error('Agent execution error:', err)
@@ -175,26 +171,18 @@ export const agentRun = onCall(async (request) => {
     fuelRequested: fuel,
     fuelUsed,
     hasError: !!(error || result?.error),
-    resultHash: result?.result ? hashPayload(result.result) : null,
+    resultHash: result?.result ? hashPayload(result.result) : null
   }
 
   const usageRef = db.collection('users').doc(uid).collection('usage')
-  usageRef
-    .add(usageLog)
-    .catch((err) => console.error('Failed to log usage:', err))
-  usageRef
-    .doc('total')
-    .set(
-      {
-        totalCalls: FieldValue.increment(1),
-        totalFuelUsed: FieldValue.increment(fuelUsed),
-        totalDuration: FieldValue.increment(duration),
-        totalErrors: FieldValue.increment(error || result?.error ? 1 : 0),
-        lastUpdated: Date.now(),
-      },
-      { merge: true }
-    )
-    .catch((err) => console.error('Failed to update totals:', err))
+  usageRef.add(usageLog).catch(err => console.error('Failed to log usage:', err))
+  usageRef.doc('total').set({
+    totalCalls: FieldValue.increment(1),
+    totalFuelUsed: FieldValue.increment(fuelUsed),
+    totalDuration: FieldValue.increment(duration),
+    totalErrors: FieldValue.increment(error || result?.error ? 1 : 0),
+    lastUpdated: Date.now()
+  }, { merge: true }).catch(err => console.error('Failed to update totals:', err))
 
   if (error) {
     return { result: null, fuelUsed: 0, error }
@@ -203,7 +191,7 @@ export const agentRun = onCall(async (request) => {
   return {
     result: result.result,
     fuelUsed: result.fuelUsed || 0,
-    error: result.error || null,
+    error: result.error || null
   }
 })
 
@@ -230,9 +218,7 @@ export const run = onRequest(async (req, res) => {
   // Verify auth
   const authHeader = req.headers.authorization
   if (!authHeader?.startsWith('Bearer ')) {
-    return res
-      .status(401)
-      .json({ error: 'Missing or invalid Authorization header' })
+    return res.status(401).json({ error: 'Missing or invalid Authorization header' })
   }
 
   const idToken = authHeader.slice(7)
@@ -269,7 +255,7 @@ export const run = onRequest(async (req, res) => {
       context: args,
       fuel,
       timeoutMs: 30000,
-      capabilities: { llm, store },
+      capabilities: { llm, store }
     })
   } catch (err) {
     console.error('Agent execution error:', err)
@@ -286,26 +272,18 @@ export const run = onRequest(async (req, res) => {
     fuelRequested: fuel,
     fuelUsed,
     hasError: !!(error || result?.error),
-    resultHash: result?.result ? hashPayload(result.result) : null,
+    resultHash: result?.result ? hashPayload(result.result) : null
   }
 
   const usageRef = db.collection('users').doc(uid).collection('usage')
-  usageRef
-    .add(usageLog)
-    .catch((err) => console.error('Failed to log usage:', err))
-  usageRef
-    .doc('total')
-    .set(
-      {
-        totalCalls: FieldValue.increment(1),
-        totalFuelUsed: FieldValue.increment(fuelUsed),
-        totalDuration: FieldValue.increment(duration),
-        totalErrors: FieldValue.increment(error || result?.error ? 1 : 0),
-        lastUpdated: Date.now(),
-      },
-      { merge: true }
-    )
-    .catch((err) => console.error('Failed to update totals:', err))
+  usageRef.add(usageLog).catch(err => console.error('Failed to log usage:', err))
+  usageRef.doc('total').set({
+    totalCalls: FieldValue.increment(1),
+    totalFuelUsed: FieldValue.increment(fuelUsed),
+    totalDuration: FieldValue.increment(duration),
+    totalErrors: FieldValue.increment(error || result?.error ? 1 : 0),
+    lastUpdated: Date.now()
+  }, { merge: true }).catch(err => console.error('Failed to update totals:', err))
 
   if (error) {
     return res.status(200).json({ result: null, fuelUsed: 0, error })
@@ -314,7 +292,7 @@ export const run = onRequest(async (req, res) => {
   res.json({
     result: result.result,
     fuelUsed: result.fuelUsed || 0,
-    error: result.error || null,
+    error: result.error || null
   })
 })
 
@@ -384,7 +362,7 @@ export const page = onRequest(async (req, res) => {
       ...(req.body || {}),
       _path: path,
       _method: req.method,
-      _uid: uid,
+      _uid: uid
     }
 
     // Execute the stored function
@@ -403,7 +381,7 @@ export const page = onRequest(async (req, res) => {
         context: args,
         fuel: matchedFunction.fuel || 1000,
         timeoutMs: matchedFunction.timeoutMs || 10000,
-        capabilities: llm ? { llm } : {},
+        capabilities: llm ? { llm } : {}
       })
     } catch (err) {
       console.error('Stored function execution error:', err)
@@ -411,8 +389,7 @@ export const page = onRequest(async (req, res) => {
     }
 
     if (error || result?.error) {
-      const errorMessage =
-        error?.message || result?.error?.message || 'Unknown error'
+      const errorMessage = error?.message || result?.error?.message || 'Unknown error'
       return res.status(500).json({ error: errorMessage })
     }
 
@@ -425,6 +402,7 @@ export const page = onRequest(async (req, res) => {
     } else {
       return res.json(result.result)
     }
+
   } catch (err) {
     console.error('Page endpoint error:', err)
     return res.status(500).json({ error: 'Internal server error' })

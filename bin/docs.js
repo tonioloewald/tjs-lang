@@ -186,9 +186,11 @@ const ignore = [
   'third-party',
   '.git',
   '.archive',
+  '.demo',
   'editors',
   'demo',
   'bin',
+  'functions',
 ]
 
 // Directories to search
