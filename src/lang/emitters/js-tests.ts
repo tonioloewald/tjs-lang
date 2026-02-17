@@ -41,6 +41,14 @@ function fuzzyEqual(a: unknown, b: unknown, epsilon = 1e-9): boolean {
  */
 function deepEqual(a: unknown, b: unknown): boolean {
   if (a === b) return true
+  // NaN === NaN is false in JS, but NaN should equal NaN in tests
+  if (
+    typeof a === 'number' &&
+    typeof b === 'number' &&
+    Number.isNaN(a) &&
+    Number.isNaN(b)
+  )
+    return true
   if (fuzzyEqual(a, b)) return true
   if (a === null || b === null) return a === b
   if (a === undefined || b === undefined) return a === b
@@ -338,12 +346,114 @@ function buildResolvedImportsCode(
 }
 
 /**
+ * Parse a return type example that may contain `key = defaultValue` syntax.
+ * Transforms `{ value: 0, error = '' }` into valid JS `{ value: 0, error: '' }`
+ * and extracts the default values for optional keys.
+ */
+function parseReturnExample(
+  str: string
+): { pattern: unknown; defaults: Record<string, unknown> } | null {
+  const defaults: Record<string, unknown> = {}
+
+  // Only process objects that might contain = syntax
+  const trimmed = str.trim()
+  if (!trimmed.startsWith('{') || !trimmed.includes('=')) {
+    try {
+      return { pattern: new Function(`return ${str}`)(), defaults }
+    } catch {
+      return null
+    }
+  }
+
+  // Transform top-level `key = value` to `key: value` and track defaults
+  // Walk the string respecting nesting depth
+  let transformed = ''
+  let depth = 0
+  let i = 0
+
+  while (i < trimmed.length) {
+    const ch = trimmed[i]
+
+    if (ch === '{' || ch === '[' || ch === '(') {
+      depth++
+      transformed += ch
+      i++
+    } else if (ch === '}' || ch === ']' || ch === ')') {
+      depth--
+      transformed += ch
+      i++
+    } else if (ch === "'" || ch === '"' || ch === '`') {
+      // Skip string literals
+      const quote = ch
+      transformed += ch
+      i++
+      while (i < trimmed.length && trimmed[i] !== quote) {
+        if (trimmed[i] === '\\') {
+          transformed += trimmed[i++]
+        }
+        transformed += trimmed[i++]
+      }
+      if (i < trimmed.length) {
+        transformed += trimmed[i++]
+      }
+    } else if (depth === 1 && ch === '=') {
+      // Top-level `key = value` — look back for the key name
+      const beforeEq = transformed.slice(transformed.lastIndexOf('{') + 1)
+      const lastSegment = beforeEq.split(',').pop() || ''
+      const keyMatch = lastSegment.match(/\s*(\w+)\s*$/)
+      if (keyMatch) {
+        // Find the value after =
+        let j = i + 1
+        while (j < trimmed.length && /\s/.test(trimmed[j])) j++
+
+        // Extract value (up to , or } at depth 1)
+        let valStr = ''
+        let valDepth = 0
+        while (j < trimmed.length) {
+          const vc = trimmed[j]
+          if (vc === '{' || vc === '[' || vc === '(') valDepth++
+          else if (vc === '}' || vc === ']' || vc === ')') {
+            if (valDepth === 0) break
+            valDepth--
+          } else if (vc === ',' && valDepth === 0) break
+          valStr += vc
+          j++
+        }
+
+        try {
+          defaults[keyMatch[1]] = new Function(`return ${valStr.trim()}`)()
+        } catch {
+          // Can't parse default, skip
+        }
+
+        // Replace = with : in output
+        transformed += ':'
+        i++
+        continue
+      }
+      transformed += ch
+      i++
+    } else {
+      transformed += ch
+      i++
+    }
+  }
+
+  try {
+    return { pattern: new Function(`return ${transformed}`)(), defaults }
+  } catch {
+    return null
+  }
+}
+
+/**
  * Info about a signature test (extracted but not yet executed)
  */
 interface SignatureTestInfo {
   funcName: string
   args: unknown[]
   expected: unknown
+  defaults?: Record<string, unknown>
   line: number
   isAsync?: boolean
 }
@@ -391,11 +501,21 @@ export function extractSignatureTestInfos(
     if (paramsStr.trim() && paramExamples.length === 0) continue
 
     try {
-      // Parse expected value and args
-      const expected = new Function(`return ${returnExample}`)()
+      // Parse expected value (with optional default keys) and args
+      const parsed = parseReturnExample(returnExample)
+      if (!parsed) continue
+
       const args = paramExamples.map((p) => new Function(`return ${p}`)())
 
-      infos.push({ funcName, args, expected, line: lineNumber, isAsync })
+      infos.push({
+        funcName,
+        args,
+        expected: parsed.pattern,
+        defaults:
+          Object.keys(parsed.defaults).length > 0 ? parsed.defaults : undefined,
+        line: lineNumber,
+        isAsync,
+      })
     } catch {
       // Skip if parsing fails - will be reported as error during execution
     }
@@ -475,10 +595,16 @@ export function runAllTests(
       (info, i) => `
     // Signature test ${i}: ${info.funcName}
     try {
-      const __actual = ${info.funcName}(${info.args
+      let __actual = ${info.funcName}(${info.args
         .map((a) => JSON.stringify(a))
         .join(', ')});
-      const __expected = ${JSON.stringify(info.expected)};
+      const __expected = ${JSON.stringify(info.expected)};${
+        info.defaults
+          ? `
+      const __defaults = ${JSON.stringify(info.defaults)};
+      if (typeof __actual === 'object' && __actual !== null) __actual = Object.assign({}, __defaults, __actual);`
+          : ''
+      }
       const __typeResult = __typeMatches(__actual, __expected, '${
         info.funcName
       }');
@@ -558,6 +684,11 @@ export function runAllTests(
           toBeLessThan(n) {
             if (!(actual < n)) {
               throw new Error('Expected ' + __format(actual) + ' to be less than ' + n)
+            }
+          },
+          toBeNaN() {
+            if (typeof actual !== 'number' || !Number.isNaN(actual)) {
+              throw new Error('Expected NaN but got ' + __format(actual))
             }
           }
         }
@@ -764,6 +895,11 @@ function runTestBlocks(
                 if (!(actual < n)) {
                   throw new Error('Expected ' + __format(actual) + ' to be less than ' + n)
                 }
+              },
+              toBeNaN() {
+                if (typeof actual !== 'number' || !Number.isNaN(actual)) {
+                  throw new Error('Expected NaN but got ' + __format(actual))
+                }
               }
             }
           }
@@ -892,10 +1028,9 @@ function runAllSignatureTests(
 
     // Run the signature test
     try {
-      const expectedStr = returnExample
-
-      // Parse expected value
-      const expected = new Function(`return ${expectedStr}`)()
+      // Parse expected value (with optional default keys)
+      const parsed = parseReturnExample(returnExample)
+      if (!parsed) continue
 
       // Parse args
       const args = paramExamples.map((p) => new Function(`return ${p}`)())
@@ -904,8 +1039,9 @@ function runAllSignatureTests(
         funcName,
         transpiledCode,
         args,
-        expected,
-        resolvedImports
+        parsed.pattern,
+        resolvedImports,
+        Object.keys(parsed.defaults).length > 0 ? parsed.defaults : undefined
       )
       result.line = lineNumber
       results.push(result)
@@ -1012,7 +1148,8 @@ function runSignatureTest(
   transpiledCode: string,
   args: unknown[],
   expected: unknown,
-  resolvedImports: Record<string, string> = {}
+  resolvedImports: Record<string, string> = {},
+  defaults?: Record<string, unknown>
 ): TestResult {
   const description = `${funcName} signature example`
 
@@ -1048,7 +1185,12 @@ function runSignatureTest(
       }
     `
     const fn = new Function(testCode)
-    const actual = fn()
+    let actual = fn()
+
+    // Merge defaults for optional keys before type checking
+    if (defaults && typeof actual === 'object' && actual !== null) {
+      actual = Object.assign({}, defaults, actual)
+    }
 
     // Use type matching, not value equality
     // The expected value is a TYPE PATTERN (example), not the exact expected result

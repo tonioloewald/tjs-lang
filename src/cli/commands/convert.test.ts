@@ -144,10 +144,11 @@ function getAge(): number { return 30 }
       const inputPath = join(tmpDir, 'hello.ts')
       writeFileSync(inputPath, TS_SIMPLE)
 
-      const proc = Bun.spawn(
-        ['bun', 'src/cli/tjs.ts', 'convert', inputPath],
-        { cwd: '/Users/tonioloewald/tjs-lang', stdout: 'pipe', stderr: 'pipe' }
-      )
+      const proc = Bun.spawn(['bun', 'src/cli/tjs.ts', 'convert', inputPath], {
+        cwd: '/Users/tonioloewald/tjs-lang',
+        stdout: 'pipe',
+        stderr: 'pipe',
+      })
       const stdout = await new Response(proc.stdout).text()
       await proc.exited
 
@@ -190,10 +191,11 @@ function getAge(): number { return 30 }
       const inputPath = join(tmpDir, 'failing.ts')
       writeFileSync(inputPath, TS_WITH_FAILING_TEST)
 
-      const proc = Bun.spawn(
-        ['bun', 'src/cli/tjs.ts', 'convert', inputPath],
-        { cwd: '/Users/tonioloewald/tjs-lang', stdout: 'pipe', stderr: 'pipe' }
-      )
+      const proc = Bun.spawn(['bun', 'src/cli/tjs.ts', 'convert', inputPath], {
+        cwd: '/Users/tonioloewald/tjs-lang',
+        stdout: 'pipe',
+        stderr: 'pipe',
+      })
       const stderr = await new Response(proc.stderr).text()
       await proc.exited
 

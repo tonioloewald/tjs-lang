@@ -48,7 +48,7 @@ bun src/cli/tjs.ts test <file>     # Run inline tests in a TJS file
 npm run typecheck           # tsc --noEmit (type check without emitting)
 npm run test:llm            # LM Studio integration tests
 npm run bench               # Vector search benchmarks
-npm run show-size           # Show gzipped bundle size
+npm run docs                # Generate documentation
 
 # Build standalone CLI binaries
 npm run build:cli           # Compiles tjs + tjsx to dist/
@@ -194,7 +194,7 @@ fn('a', 'b') // Returns { error: 'type mismatch', ... }
 - **Capability-based**: VM has zero IO by default; inject `fetch`, `store`, `llm` via capabilities
 - **Fuel metering**: Every atom has a cost; execution stops when fuel exhausted
 - **Timeout enforcement**: Default `fuel × 10ms`; explicit `timeoutMs` overrides
-- **Monadic errors**: Errors wrapped in `AgentError`, not thrown (prevents exception exploits)
+- **Monadic errors**: Errors wrapped in `AgentError` (VM) / `MonadicError` (TJS), not thrown (prevents exception exploits). Use `isMonadicError()` to check — `isError()` is deprecated
 - **Expression sandboxing**: ExprNode AST evaluation, blocked prototype access
 
 ### Expression Evaluation
@@ -395,11 +395,26 @@ safety inputs   // Validate function inputs (default)
 safety all      // Validate everything (debug mode)
 ```
 
+#### TJS Mode Directives
+
+JavaScript semantics are the default. TJS improvements are opt-in via file-level directives:
+
+```typescript
+TjsStrict // Enables ALL modes below at once
+
+TjsEquals // == and != use structural equality (Is/IsNot)
+TjsClass // Classes callable without new, explicit new is banned
+TjsDate // Date is banned, use Timestamp/LegalDate instead
+TjsNoeval // eval() and new Function() are banned
+TjsStandard // Newlines as statement terminators (prevents ASI footguns)
+TjsSafeEval // Include Eval/SafeFunction in runtime for dynamic code
+```
+
+Multiple directives can be combined. Place them at the top of the file before any code.
+
 #### Equality Operators
 
-TJS redefines equality to be structural by default, fixing JavaScript's confusing `==` vs `===` semantics.
-
-**Normal TJS Mode (default):**
+With `TjsEquals` (or `TjsStrict`), TJS redefines equality to be structural, fixing JavaScript's confusing `==` vs `===` semantics.
 
 | Operator    | Meaning                          | Example                     |
 | ----------- | -------------------------------- | --------------------------- |
@@ -613,6 +628,13 @@ The playground is hosted on Firebase (`tjs-platform.web.app`). Demo build output
 
 The `docs/` directory contains real documentation (markdown), not build artifacts. See `docs/README.md` for the documentation index.
 
+### Additional Directories
+
+- `tjs-src/` — TJS runtime written in TJS itself (self-hosting)
+- `guides/` — Usage patterns, benchmarks, examples (`patterns.md`, `benchmarks.md`, `tjs-examples.md`)
+- `examples/` — Standalone TJS example files (`hello.tjs`, `datetime.tjs`, `generic-demo.tjs`)
+- `editors/` — Syntax highlighting for Monaco, CodeMirror, Ace, VSCode
+
 ### Additional Documentation
 
 - `DOCS-TJS.md` — TJS language guide
@@ -620,3 +642,7 @@ The `docs/` directory contains real documentation (markdown), not build artifact
 - `CONTEXT.md` — Architecture deep dive
 - `AGENTS.md` — Agent workflow instructions (issue tracking with `bd`, mandatory push-before-done)
 - `PLAN.md` — Roadmap
+
+### Known Gotcha: Self-Contained Output
+
+Transpiled TJS code currently requires `globalThis.__tjs` to be set up with `createRuntime()` before execution. A `{ standalone: true }` option to inline the ~1KB runtime is planned but not yet implemented.

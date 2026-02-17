@@ -234,7 +234,11 @@ function extractFunctionTypeInfo(
   let returns: TypeDescriptor | undefined
   if (returnTypeStr) {
     try {
-      const returnExpr = parseExpressionAt(returnTypeStr, 0, {
+      // Transform `key = value` (default keys) to `key: value` for acorn parsing
+      const parsableReturnStr = returnTypeStr.includes('=')
+        ? transformReturnDefaults(returnTypeStr)
+        : returnTypeStr
+      const returnExpr = parseExpressionAt(parsableReturnStr, 0, {
         ecmaVersion: 2022,
       })
       returns = inferTypeFromValue(returnExpr as any)
@@ -349,6 +353,46 @@ function generateInlineValidationCode(
   }
 
   return lines.length > 0 ? lines.join('\n  ') : null
+}
+
+/**
+ * Transform `key = value` to `key: value` in a return type string
+ * so acorn can parse it as a valid JS object expression.
+ */
+function transformReturnDefaults(str: string): string {
+  let result = ''
+  let depth = 0
+
+  for (let i = 0; i < str.length; i++) {
+    const ch = str[i]
+    if (ch === '{' || ch === '[' || ch === '(') {
+      depth++
+      result += ch
+    } else if (ch === '}' || ch === ']' || ch === ')') {
+      depth--
+      result += ch
+    } else if (ch === "'" || ch === '"' || ch === '`') {
+      result += ch
+      i++
+      while (i < str.length && str[i] !== ch) {
+        if (str[i] === '\\') result += str[i++]
+        result += str[i++]
+      }
+      if (i < str.length) result += str[i]
+    } else if (
+      depth === 1 &&
+      ch === '=' &&
+      str[i - 1] !== '!' &&
+      str[i + 1] !== '='
+    ) {
+      // Top-level = that isn't != or == — replace with :
+      result += ':'
+    } else {
+      result += ch
+    }
+  }
+
+  return result
 }
 
 /**

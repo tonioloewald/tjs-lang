@@ -1601,4 +1601,86 @@ function test(x: 0) -! 0 {
       expect(err.callStack).toBeUndefined()
     })
   })
+
+  describe('return type default keys', () => {
+    it('signature test passes when optional key is absent', () => {
+      const result = tjs(`
+function divide(a: 10, b: 2) -> { value: 0, error = '' } {
+  return { value: a / b }
+}
+`)
+      const sigTests = result.testResults?.filter((t) => t.isSignatureTest)
+      expect(sigTests?.length).toBe(1)
+      expect(sigTests?.[0].passed).toBe(true)
+    })
+
+    it('signature test passes when optional key is present', () => {
+      const result = tjs(`
+function divide(a: 10, b: 0) -> { value: 0, error = '' } {
+  if (b === 0) return { value: NaN, error: 'Division by zero' }
+  return { value: a / b }
+}
+`)
+      const sigTests = result.testResults?.filter((t) => t.isSignatureTest)
+      expect(sigTests?.length).toBe(1)
+      expect(sigTests?.[0].passed).toBe(true)
+    })
+
+    it('works with non-string defaults', () => {
+      const result = tjs(`
+function lookup(key: 'x') -> { value: '', count = 0 } {
+  return { value: 'found' }
+}
+`)
+      const sigTests = result.testResults?.filter((t) => t.isSignatureTest)
+      expect(sigTests?.length).toBe(1)
+      expect(sigTests?.[0].passed).toBe(true)
+    })
+
+    it('required keys still fail when absent', () => {
+      // Transpiler throws on signature test failure, so we catch it
+      expect(() =>
+        tjs(`
+function broken(x: 0) -> { value: 0, error = '' } {
+  return { error: 'oops' }
+}
+`)
+      ).toThrow(/Missing property/)
+    })
+
+    it('inline tests can check default keys', () => {
+      const result = tjs(`
+function divide(a: 10, b: 2) -> { value: 0, error = '' } {
+  if (b === 0) return { value: NaN, error: 'Division by zero' }
+  return { value: a / b }
+}
+
+test 'divide by zero returns error' {
+  const r = divide(10, 0)
+  expect(r.error).toBe('Division by zero')
+}
+
+test 'normal division works' {
+  const r = divide(10, 2)
+  expect(r.value).toBe(5)
+}
+`)
+      const blockTests = result.testResults?.filter((t) => !t.isSignatureTest)
+      expect(blockTests?.length).toBe(2)
+      expect(blockTests?.every((t) => t.passed)).toBe(true)
+    })
+
+    it('type metadata parses return type with defaults', () => {
+      const result = tjs(`
+function divide(a: 10, b: 2) -> { value: 0, error = '' } {
+  return { value: a / b }
+}
+`)
+      const divideType = result.types?.divide
+      expect(divideType).toBeDefined()
+      expect(divideType?.returns?.kind).toBe('object')
+      expect(divideType?.returns?.shape?.value?.kind).toBe('integer')
+      expect(divideType?.returns?.shape?.error?.kind).toBe('string')
+    })
+  })
 })
