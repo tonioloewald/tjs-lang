@@ -39,19 +39,16 @@
   - [x] Continue/break statements
   - [x] Logical expressions (&& / ||)
   - [x] Math functions (sqrt, abs, floor, ceil, min, max, sin, cos, log, exp, pow)
-- [ ] WASM SIMD support (v128)
-  - Without SIMD, WASM shows no meaningful speedup vs JS JIT for scalar operations
-  - SIMD enables 2x f64 or 4x f32 operations per instruction
-  - Key for: particle systems, audio processing, image manipulation, physics
-  - Requires: v128 type, f64x2/f32x4 ops, loop vectorization detection
-  - This is the main justification for WASM in compute-heavy workloads
+- [x] WASM SIMD support (v128/f32x4)
+  - 12 f32x4 intrinsics: load, store, splat, extract_lane, replace_lane, add, sub, mul, div, neg, sqrt
+  - Explicit intrinsic approach (users call f32x4_* in wasm blocks)
+  - Disassembler handles 0xfd prefix with LEB128 sub-opcodes
+  - 16-byte aligned memory for v128 loads/stores
+  - Demos: starfield SIMD rotation, vector search cosine similarity
 - [ ] WASM SIMD vector search (batteries)
   - Replace JS vectorSearch battery with WASM SIMD implementation
-  - Dot product / cosine similarity maps perfectly to f32x4 ops
-  - Process 4 dimensions per instruction vs 1 in scalar
-  - Auto-detect SIMD support, fallback to JS
-  - Real-world use case: RAG, semantic search, embeddings in browser
-  - Expected speedup: 3-4x for similarity calculations
+  - SIMD cosine similarity demonstrated in vector search demo
+  - TODO: integrate as a battery atom with auto-detect + fallback
 
 ## Editor
 

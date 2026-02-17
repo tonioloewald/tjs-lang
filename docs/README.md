@@ -39,7 +39,8 @@ Key examples:
 | [TJS Grammar Reference](../guides/examples/tjs/tjs-grammar-demo.md) | Comprehensive TJS feature demo |
 | [Hello TJS](../guides/examples/tjs/hello-tjs.md) | Getting started with TJS |
 | [Full-Stack Demo](../guides/examples/tjs/full-stack-demo-user-service.md) | User service with runtime validation |
-| [WASM Starfield](../guides/examples/tjs/wasm-starfield.md) | Inline WebAssembly in TJS |
+| [WASM Starfield](../guides/examples/tjs/wasm-starfield.md) | SIMD-accelerated particle system with mouse steering |
+| [WASM Vector Search](../guides/examples/tjs/wasm-vector-search.md) | SIMD cosine similarity benchmark vs JS scalar |
 
 ## Additional Resources
 

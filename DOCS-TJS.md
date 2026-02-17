@@ -599,6 +599,41 @@ function vectorDot(a: [0], b: [0]) -> 0 {
 
 Variables are captured automatically. Falls back to JS if WASM unavailable.
 
+#### SIMD Intrinsics (f32x4)
+
+For compute-heavy workloads, use f32x4 SIMD intrinsics to process 4 float32 values per instruction:
+
+```typescript
+const scale = wasm (arr: Float32Array, len: 0, factor: 0.0) -> 0 {
+  let s = f32x4_splat(factor)
+  for (let i = 0; i < len; i += 4) {
+    let off = i * 4
+    let v = f32x4_load(arr, off)
+    f32x4_store(arr, off, f32x4_mul(v, s))
+  }
+} fallback {
+  for (let i = 0; i < len; i++) arr[i] *= factor
+}
+```
+
+Available intrinsics:
+
+| Intrinsic | Description |
+|-----------|-------------|
+| `f32x4_load(ptr, byteOffset)` | Load 4 floats from memory into v128 |
+| `f32x4_store(ptr, byteOffset, vec)` | Store v128 as 4 floats to memory |
+| `f32x4_splat(scalar)` | Fill all 4 lanes with a scalar value |
+| `f32x4_extract_lane(vec, N)` | Extract float from lane 0-3 |
+| `f32x4_replace_lane(vec, N, val)` | Replace one lane, return new v128 |
+| `f32x4_add(a, b)` | Lane-wise addition |
+| `f32x4_sub(a, b)` | Lane-wise subtraction |
+| `f32x4_mul(a, b)` | Lane-wise multiplication |
+| `f32x4_div(a, b)` | Lane-wise division |
+| `f32x4_neg(v)` | Negate all lanes |
+| `f32x4_sqrt(v)` | Square root of all lanes |
+
+This mirrors C/C++ SIMD intrinsics (`_mm_add_ps`, etc.) — explicit, predictable, no auto-vectorization magic.
+
 ---
 
 ## Module System

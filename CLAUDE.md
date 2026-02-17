@@ -561,9 +561,27 @@ const add = await (async () => {
 })()
 ```
 
+### SIMD Intrinsics (f32x4)
+
+WASM blocks support explicit SIMD via `f32x4_*` intrinsics:
+
+```typescript
+const scale = wasm (arr: Float32Array, len: 0, factor: 0.0) -> 0 {
+  let s = f32x4_splat(factor)
+  for (let i = 0; i < len; i += 4) {
+    let off = i * 4
+    let v = f32x4_load(arr, off)
+    f32x4_store(arr, off, f32x4_mul(v, s))
+  }
+} fallback {
+  for (let i = 0; i < len; i++) arr[i] *= factor
+}
+```
+
+Available: `f32x4_load`, `f32x4_store`, `f32x4_splat`, `f32x4_extract_lane`, `f32x4_replace_lane`, `f32x4_add`, `f32x4_sub`, `f32x4_mul`, `f32x4_div`, `f32x4_neg`, `f32x4_sqrt`.
+
 ### Current Limitations
 
-- No SIMD support yet (planned - see TODO.md)
 - Memory operations require manual management
 - No imports/exports beyond the function itself
 
