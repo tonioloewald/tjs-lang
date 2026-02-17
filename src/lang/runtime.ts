@@ -675,7 +675,7 @@ export function validateArgs(
  */
 export interface FunctionMeta {
   params: Record<string, any>
-  returns?: { type: any; safe?: boolean }
+  returns?: { type: any; safe?: boolean; defaults?: Record<string, unknown> }
   /** Function marked with (!) - never validate inputs */
   unsafe?: boolean
   /** Function marked with (?) - always validate inputs */
@@ -760,6 +760,9 @@ export function wrap<T extends (...args: any[]) => any>(
   const metaSafe = !!meta.safe
   const metaUnsafeReturn = !!meta.unsafeReturn
   const metaSafeReturn = !!meta.safeReturn
+  // Pre-compute return defaults (for `key = value` in return type signatures)
+  // NOTE: applying defaults adds an Object.assign per call — may need benchmarking
+  const returnDefaults = meta.returns?.defaults
   const paramEntries = Object.entries(meta.params)
   const paramCount = paramEntries.length
   // Use meta.name as fallback when fn.name is empty (anonymous functions)
@@ -888,8 +891,13 @@ export function wrap<T extends (...args: any[]) => any>(
 
       // Output validation
       if (validateOutputs && meta.returns && !isError(result)) {
+        // Apply return defaults before validation
+        const validated =
+          returnDefaults && typeof result === 'object' && result !== null
+            ? Object.assign({}, returnDefaults, result)
+            : result
         const returnError = checkType(
-          result,
+          validated,
           meta.returns.type,
           `${funcName}()`
         )

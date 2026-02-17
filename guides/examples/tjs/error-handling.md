@@ -28,7 +28,7 @@ function divide(a: 10, b: 2) -> { value: 0, error = '' } {
   return { value: a / b }
 }
 
-function safeParse(json: '{"x":1}') -> { data: null, error = '' } {
+function safeParse(json: '{"x":1}') -! { data: null, error = '' } {
   try {
     return { data: JSON.parse(json) }
   } catch (e) {

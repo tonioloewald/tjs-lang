@@ -1682,5 +1682,44 @@ function divide(a: 10, b: 2) -> { value: 0, error = '' } {
       expect(divideType?.returns?.shape?.value?.kind).toBe('integer')
       expect(divideType?.returns?.shape?.error?.kind).toBe('string')
     })
+
+    it('-? runtime validation passes when optional key is absent', () => {
+      const result = tjs(`
+function divide(a: 10, b: 2) -? { value: 0, error = '' } {
+  return { value: a / b }
+}
+`)
+      // Runtime already installed by parent describe block
+      const fn = new Function(result.code + '\nreturn divide')()
+      // Should pass — error key defaults to ''
+      const r = fn(10, 2)
+      expect(r.value).toBe(5)
+      expect(r).not.toBeInstanceOf(MonadicError)
+    })
+
+    it('-? with simple return type rejects wrong type at runtime', () => {
+      // Use a simple return type (string) where checkType works
+      const result = tjs(`
+function greet(name: 'World') -? '' {
+  return 'Hello, ' + name
+}
+`)
+      const fn = new Function(result.code + '\nreturn greet')()
+      const good = fn('Bob')
+      expect(good).toBe('Hello, Bob')
+      // Wrong input type returns MonadicError (input validation)
+      const bad = fn(42)
+      expect(bad).toBeInstanceOf(MonadicError)
+    })
+
+    it('__tjs metadata includes return defaults', () => {
+      const result = tjs(`
+function divide(a: 10, b: 2) -? { value: 0, error = '' } {
+  return { value: a / b }
+}
+`)
+      expect(result.code).toContain('"defaults"')
+      expect(result.code).toContain('"error"')
+    })
   })
 })

@@ -524,6 +524,24 @@ export function transpileToJS(
     // Extract return type for this specific function from original source
     const returnTypeStr = extractFunctionReturnType(cleanSource, funcName)
 
+    // Extract default values from return type (e.g. { value: 0, error = '' })
+    let returnDefaults: Record<string, unknown> | undefined
+    if (returnTypeStr && returnTypeStr.includes('=')) {
+      try {
+        const defaultsMatch = returnTypeStr.matchAll(/(\w+)\s*=\s*/g)
+        const transformed = transformReturnDefaults(returnTypeStr)
+        const parsed = new Function(`return ${transformed}`)()
+        const defaults: Record<string, unknown> = {}
+        for (const m of defaultsMatch) {
+          const key = m[1]
+          if (key in parsed) defaults[key] = parsed[key]
+        }
+        if (Object.keys(defaults).length > 0) returnDefaults = defaults
+      } catch {
+        // If parsing fails, skip defaults
+      }
+    }
+
     // Extract type info for this function
     const { types, warnings: funcWarnings } = extractFunctionTypeInfo(
       func,
@@ -580,6 +598,7 @@ export function transpileToJS(
       typeMetadata = generateTypeMetadata(funcName, types, safetyOptions, {
         debug,
         source: funcLoc,
+        returnDefaults,
       })
     }
 
@@ -780,6 +799,8 @@ interface DebugOptions {
     line: number
     column: number
   }
+  /** Default values for optional return type keys */
+  returnDefaults?: Record<string, unknown>
 }
 
 /**
@@ -818,6 +839,9 @@ function generateTypeMetadata(
   if (types.returns) {
     metadata.returns = {
       type: serializeType(types.returns),
+    }
+    if (debugOpts.returnDefaults) {
+      metadata.returns.defaults = debugOpts.returnDefaults
     }
     // Add return safety flags
     if (safety.returnSafety === 'safe') {
