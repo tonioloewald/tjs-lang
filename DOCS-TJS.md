@@ -634,6 +634,50 @@ Available intrinsics:
 
 This mirrors C/C++ SIMD intrinsics (`_mm_add_ps`, etc.) — explicit, predictable, no auto-vectorization magic.
 
+#### Zero-Copy Arrays: `wasmBuffer()`
+
+By default, typed arrays passed to WASM blocks are copied into WASM memory before the call and copied back out after. For large arrays called frequently, this overhead can negate WASM's speed advantage.
+
+`wasmBuffer(Constructor, length)` allocates typed arrays directly in WASM linear memory. These arrays work like normal typed arrays from JavaScript, but when passed to a `wasm {}` block, they're zero-copy — the data is already there.
+
+```typescript
+// Allocate particle positions in WASM memory
+const starX = wasmBuffer(Float32Array, 50000)
+const starY = wasmBuffer(Float32Array, 50000)
+
+// Use from JS like normal arrays
+for (let i = 0; i < 50000; i++) {
+  starX[i] = (Math.random() - 0.5) * 2000
+  starY[i] = (Math.random() - 0.5) * 2000
+}
+
+// Zero-copy SIMD processing
+function moveParticles(! xs: Float32Array, ys: Float32Array, len: 0, dx: 0.0, dy: 0.0) {
+  wasm {
+    let vdx = f32x4_splat(dx)
+    let vdy = f32x4_splat(dy)
+    for (let i = 0; i < len; i += 4) {
+      let off = i * 4
+      f32x4_store(xs, off, f32x4_add(f32x4_load(xs, off), vdx))
+      f32x4_store(ys, off, f32x4_add(f32x4_load(ys, off), vdy))
+    }
+  } fallback {
+    for (let i = 0; i < len; i++) { xs[i] += dx; ys[i] += dy }
+  }
+}
+
+// After WASM runs, JS sees the mutations immediately
+moveParticles(starX, starY, 50000, 1.0, 0.5)
+console.log(starX[0]) // updated in place, no copy
+```
+
+Key points:
+- Supported constructors: `Float32Array`, `Float64Array`, `Int32Array`, `Uint8Array`
+- Uses a bump allocator — allocations persist for program lifetime
+- All WASM blocks in a file share one 64MB memory
+- Regular typed arrays still work (copy in/out as before)
+- Use `!` (unsafe) on hot-path functions to skip runtime type checks
+
 ---
 
 ## Module System

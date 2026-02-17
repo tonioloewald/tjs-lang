@@ -215,12 +215,34 @@ function detectCaptures(body: string): string[] {
     .replace(/\/\/[^\n]*/g, '') // line comments
     .replace(/\/\*[\s\S]*?\*\//g, '') // block comments
 
-  // Find all identifiers used in the body
-  const identifierPattern = /\b([a-zA-Z_$][a-zA-Z0-9_$]*)\b/g
-  const allIdentifiers = new Set<string>()
+  // Collect identifiers that appear as property accesses (after a dot)
+  const propertyOnly = new Set<string>()
+  const propPattern = /\.([a-zA-Z_$][a-zA-Z0-9_$]*)\b/g
   let match
+  while ((match = propPattern.exec(bodyWithoutComments)) !== null) {
+    propertyOnly.add(match[1])
+  }
+
+  // Find all identifiers used in the body (not after a dot)
+  const identifierPattern = /(?<!\.)(\b[a-zA-Z_$][a-zA-Z0-9_$]*)\b/g
+  const allIdentifiers = new Set<string>()
   while ((match = identifierPattern.exec(bodyWithoutComments)) !== null) {
     allIdentifiers.add(match[1])
+  }
+
+  // Remove identifiers that ONLY appear as property accesses
+  for (const prop of propertyOnly) {
+    if (!allIdentifiers.has(prop)) continue
+    // Check if this identifier is also used standalone (not just as .prop)
+    const standalonePattern = new RegExp(`(?<!\\.)\\b${prop}\\b`, 'g')
+    const dotPattern = new RegExp(`\\.${prop}\\b`, 'g')
+    const standaloneMatches =
+      bodyWithoutComments.match(standalonePattern)?.length || 0
+    const dotMatches = bodyWithoutComments.match(dotPattern)?.length || 0
+    // If every occurrence is a property access, remove it
+    if (standaloneMatches <= dotMatches) {
+      allIdentifiers.delete(prop)
+    }
   }
 
   // Find identifiers declared in the body
@@ -342,6 +364,7 @@ function detectCaptures(body: string): string[] {
     'encodeURI',
     'decodeURI',
     'eval',
+    'wasmBuffer',
   ])
 
   // Return identifiers that are used but not declared or reserved

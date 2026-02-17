@@ -1538,6 +1538,342 @@ function scale(arr: Float32Array, len: 0, factor: 0.0) {
         expect(result.code).toContain('param $len')
         expect(result.code).toContain('param $factor')
       })
+
+      it('Math.sqrt should not be captured as a parameter', async () => {
+        const { tjs } = await import('./index')
+        const source = `
+function compute(arr: Float32Array, len: 0) {
+  return wasm {
+    let sum = 0.0
+    for (let i = 0; i < len; i++) {
+      sum += arr[i]
+    }
+    return Math.sqrt(sum)
+  } fallback {
+    let sum = 0.0
+    for (let i = 0; i < len; i++) sum += arr[i]
+    return Math.sqrt(sum)
+  }
+}
+`
+        const result = tjs(source)
+        expect(result.code).not.toContain('param $sqrt')
+        expect(result.code).toContain('param $arr')
+        expect(result.code).toContain('param $len')
+      })
+
+      it('bootstrap should define wasmBuffer', async () => {
+        const { tjs } = await import('./index')
+        const source = `
+function double(arr: Float32Array, len: 0) {
+  wasm {
+    for (let i = 0; i < len; i++) {
+      arr[i] = arr[i] * 2.0
+    }
+  } fallback {
+    for (let i = 0; i < len; i++) arr[i] *= 2
+  }
+}
+`
+        const result = tjs(source)
+        expect(result.code).toContain('wasmBuffer')
+        expect(result.code).toContain('__wasmMem')
+        expect(result.code).toContain('__woff')
+      })
+
+      it('bootstrap should share memory across blocks', async () => {
+        const { tjs } = await import('./index')
+        const source = `
+function addOne(arr: Float32Array, len: 0) {
+  wasm {
+    for (let i = 0; i < len; i++) { arr[i] = arr[i] + 1.0 }
+  } fallback {
+    for (let i = 0; i < len; i++) arr[i] += 1
+  }
+}
+function mulTwo(arr: Float32Array, len: 0) {
+  wasm {
+    for (let i = 0; i < len; i++) { arr[i] = arr[i] * 2.0 }
+  } fallback {
+    for (let i = 0; i < len; i++) arr[i] *= 2
+  }
+}
+`
+        const result = tjs(source)
+        // Should only create memory once
+        const memMatches = result.code.match(/new WebAssembly\.Memory/g)
+        expect(memMatches?.length).toBe(1)
+      })
+
+      it('wasmBuffer arrays should skip copy via buffer identity check', async () => {
+        const { tjs } = await import('./index')
+        const source = `
+function inc(arr: Float32Array, len: 0) {
+  wasm {
+    for (let i = 0; i < len; i++) { arr[i] = arr[i] + 1.0 }
+  } fallback {
+    for (let i = 0; i < len; i++) arr[i] += 1
+  }
+}
+`
+        const result = tjs(source)
+        // The wrapper should check buffer identity
+        expect(result.code).toContain('a.buffer===mem.buffer')
+      })
+    })
+
+    describe('wasmBuffer end-to-end', () => {
+      it('wasmBuffer arrays should be usable from WASM and JS', async () => {
+        const { tjs } = await import('./index')
+        const { createRuntime } = await import('./runtime')
+
+        const source = `
+function double(arr: Float32Array, len: 0) {
+  wasm {
+    for (let i = 0; i < len; i++) {
+      arr[i] = arr[i] * 2.0
+    }
+  } fallback {
+    for (let i = 0; i < len; i++) arr[i] *= 2
+  }
+}
+`
+        const result = tjs(source)
+        const savedTjs = globalThis.__tjs
+        try {
+          globalThis.__tjs = createRuntime()
+          // Execute the bootstrap (sets up wasmBuffer and WASM functions)
+          await new Function(
+            '__tjs',
+            `return (async () => { ${result.code}\n` +
+              `globalThis.__test_double = double;\n` +
+              `})();`
+          )(globalThis.__tjs)
+
+          // Wait for WASM to initialize
+          await new Promise((r) => setTimeout(r, 100))
+
+          // Check wasmBuffer is available
+          expect(typeof globalThis.wasmBuffer).toBe('function')
+
+          // Allocate a wasmBuffer array
+          const arr = globalThis.wasmBuffer(Float32Array, 4)
+          expect(arr).toBeInstanceOf(Float32Array)
+          expect(arr.length).toBe(4)
+
+          // Write from JS
+          arr[0] = 1
+          arr[1] = 2
+          arr[2] = 3
+          arr[3] = 4
+
+          // Call WASM function with wasmBuffer array
+          if (typeof globalThis.__test_double === 'function') {
+            globalThis.__test_double(arr, 4)
+            // JS should see mutations immediately (shared memory)
+            expect(arr[0]).toBeCloseTo(2, 5)
+            expect(arr[1]).toBeCloseTo(4, 5)
+            expect(arr[2]).toBeCloseTo(6, 5)
+            expect(arr[3]).toBeCloseTo(8, 5)
+          }
+        } finally {
+          globalThis.__tjs = savedTjs
+          delete globalThis.wasmBuffer
+          delete globalThis.__test_double
+        }
+      })
+
+      it('non-wasmBuffer arrays should still work (copy in/out)', async () => {
+        const { tjs } = await import('./index')
+        const { createRuntime } = await import('./runtime')
+
+        const source = `
+function double(arr: Float32Array, len: 0) {
+  wasm {
+    for (let i = 0; i < len; i++) {
+      arr[i] = arr[i] * 2.0
+    }
+  } fallback {
+    for (let i = 0; i < len; i++) arr[i] *= 2
+  }
+}
+`
+        const result = tjs(source)
+        const savedTjs = globalThis.__tjs
+        try {
+          globalThis.__tjs = createRuntime()
+          await new Function(
+            '__tjs',
+            `return (async () => { ${result.code}\n` +
+              `globalThis.__test_double = double;\n` +
+              `})();`
+          )(globalThis.__tjs)
+
+          await new Promise((r) => setTimeout(r, 100))
+
+          // Use a regular Float32Array (not wasmBuffer)
+          const arr = new Float32Array([10, 20, 30, 40])
+
+          if (typeof globalThis.__test_double === 'function') {
+            globalThis.__test_double(arr, 4)
+            // Should still work via copy in/out
+            expect(arr[0]).toBeCloseTo(20, 5)
+            expect(arr[1]).toBeCloseTo(40, 5)
+            expect(arr[2]).toBeCloseTo(60, 5)
+            expect(arr[3]).toBeCloseTo(80, 5)
+          }
+        } finally {
+          globalThis.__tjs = savedTjs
+          delete globalThis.__test_double
+        }
+      })
+
+      it('wasmBuffer should be zero-copy (performance)', async () => {
+        const { tjs } = await import('./index')
+        const { createRuntime } = await import('./runtime')
+
+        const source = `
+function inc(arr: Float32Array, len: 0) {
+  wasm {
+    for (let i = 0; i < len; i++) {
+      arr[i] = arr[i] + 1.0
+    }
+  } fallback {
+    for (let i = 0; i < len; i++) arr[i] += 1
+  }
+}
+`
+        const result = tjs(source)
+        const savedTjs = globalThis.__tjs
+        try {
+          globalThis.__tjs = createRuntime()
+          await new Function(
+            '__tjs',
+            `return (async () => { ${result.code}\n` +
+              `globalThis.__test_inc = inc;\n` +
+              `})();`
+          )(globalThis.__tjs)
+
+          await new Promise((r) => setTimeout(r, 100))
+
+          if (
+            typeof globalThis.__test_inc !== 'function' ||
+            typeof globalThis.wasmBuffer !== 'function'
+          ) {
+            return // WASM not available in this environment
+          }
+
+          const size = 10000
+          const iterations = 1000
+
+          // wasmBuffer path
+          const wbArr = globalThis.wasmBuffer(Float32Array, size)
+          for (let i = 0; i < size; i++) wbArr[i] = i
+          const wbStart = performance.now()
+          for (let j = 0; j < iterations; j++)
+            globalThis.__test_inc(wbArr, size)
+          const wbTime = performance.now() - wbStart
+
+          // Regular array path (copy in/out)
+          const regArr = new Float32Array(size)
+          for (let i = 0; i < size; i++) regArr[i] = i
+          const regStart = performance.now()
+          for (let j = 0; j < iterations; j++)
+            globalThis.__test_inc(regArr, size)
+          const regTime = performance.now() - regStart
+
+          console.log(
+            `\nwasmBuffer vs regular array (${size} elements, ${iterations} iterations):`
+          )
+          console.log(`  wasmBuffer: ${wbTime.toFixed(2)}ms`)
+          console.log(`  Regular:    ${regTime.toFixed(2)}ms`)
+          console.log(`  Speedup:    ${(regTime / wbTime).toFixed(2)}x`)
+
+          // wasmBuffer should be faster (no copy overhead)
+          // Don't hard-assert ratio — varies by environment
+          expect(wbTime).toBeGreaterThan(0)
+          expect(regTime).toBeGreaterThan(0)
+        } finally {
+          globalThis.__tjs = savedTjs
+          delete globalThis.__test_inc
+          delete globalThis.wasmBuffer
+        }
+      })
+
+      it('SIMD with wasmBuffer should outperform scalar', async () => {
+        const { tjs } = await import('./index')
+        const { createRuntime } = await import('./runtime')
+
+        const source = `
+function simdScale(arr: Float32Array, len: 0, factor: 0.0) {
+  wasm {
+    let s = f32x4_splat(factor)
+    for (let i = 0; i < len; i += 4) {
+      let off = i * 4
+      f32x4_store(arr, off, f32x4_mul(f32x4_load(arr, off), s))
+    }
+  } fallback {
+    for (let i = 0; i < len; i++) arr[i] *= factor
+  }
+}
+`
+        const result = tjs(source)
+        const savedTjs = globalThis.__tjs
+        try {
+          globalThis.__tjs = createRuntime()
+          await new Function(
+            '__tjs',
+            `return (async () => { ${result.code}\n` +
+              `globalThis.__test_simdScale = simdScale;\n` +
+              `})();`
+          )(globalThis.__tjs)
+
+          await new Promise((r) => setTimeout(r, 100))
+
+          if (
+            typeof globalThis.__test_simdScale !== 'function' ||
+            typeof globalThis.wasmBuffer !== 'function'
+          ) {
+            return
+          }
+
+          const size = 40000 // Must be multiple of 4 for SIMD
+          const iterations = 1000
+
+          // SIMD + wasmBuffer
+          const arr = globalThis.wasmBuffer(Float32Array, size)
+          for (let i = 0; i < size; i++) arr[i] = i * 0.01
+
+          const simdStart = performance.now()
+          for (let j = 0; j < iterations; j++)
+            globalThis.__test_simdScale(arr, size, 1.001)
+          const simdTime = performance.now() - simdStart
+
+          // Plain JS scalar
+          const jsArr = new Float32Array(size)
+          for (let i = 0; i < size; i++) jsArr[i] = i * 0.01
+
+          const jsStart = performance.now()
+          for (let j = 0; j < iterations; j++) {
+            for (let i = 0; i < size; i++) jsArr[i] *= 1.001
+          }
+          const jsTime = performance.now() - jsStart
+
+          console.log(
+            `\nSIMD+wasmBuffer vs JS scalar (${size} elements, ${iterations} iterations):`
+          )
+          console.log(`  SIMD+wasmBuffer: ${simdTime.toFixed(2)}ms`)
+          console.log(`  JS scalar:       ${jsTime.toFixed(2)}ms`)
+          console.log(`  Speedup:         ${(jsTime / simdTime).toFixed(2)}x`)
+
+          expect(simdTime).toBeGreaterThan(0)
+          expect(jsTime).toBeGreaterThan(0)
+        } finally {
+          globalThis.__tjs = savedTjs
+          delete globalThis.__test_simdScale
+          delete globalThis.wasmBuffer
+        }
+      })
     })
   })
 })

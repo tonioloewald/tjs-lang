@@ -2,25 +2,21 @@
 
 # Starfield
 
-Interactive space flythrough with SIMD-accelerated perspective rotation
+Interactive space flythrough with parallax stars and nebula clouds. Uses `wasmBuffer()` for zero-copy WASM memory and SIMD-accelerated particle movement.
 
 ```tjs
 /*#
 # Space Flythrough Demo
 
-A Star Trek-style starfield with parallax depth, nebula clouds, and
-**mouse-controlled steering** using WASM SIMD (f32x4) for perspective
-rotation transforms on 50,000+ particles.
-
-The `rotateParticles` function applies yaw/pitch rotations to all
-particle positions using f32x4 SIMD intrinsics — processing 4 particles
-per instruction. The scalar fallback does the same math one particle
-at a time.
+A Star Trek-style starfield with parallax depth and nebula clouds.
+Uses `wasmBuffer()` to allocate particle arrays directly in WASM memory —
+no copy-in/copy-out overhead. SIMD processes 4 particles per instruction.
 
 **Controls:**
-- Move mouse **left/right** to steer (yaw)
-- Move mouse **up/down** to pitch
-- **Scroll wheel** or click to control speed
+- Move mouse **left/right** to steer laterally
+- Move mouse **up/down** to steer vertically
+- **Scroll wheel** to control speed
+- **Click** to pause/resume
 */
 
 // Configuration
@@ -29,14 +25,14 @@ const NUM_NEBULA = 5000
 const MAX_DEPTH = 1000
 const BASE_SPEED = 8
 
-// Particle arrays (Structure of Arrays — ideal for SIMD)
-const starX = new Float32Array(NUM_STARS)
-const starY = new Float32Array(NUM_STARS)
-const starZ = new Float32Array(NUM_STARS)
+// Particle arrays in WASM memory (zero-copy when passed to wasm blocks)
+const starX = wasmBuffer(Float32Array, NUM_STARS)
+const starY = wasmBuffer(Float32Array, NUM_STARS)
+const starZ = wasmBuffer(Float32Array, NUM_STARS)
 
-const nebulaX = new Float32Array(NUM_NEBULA)
-const nebulaY = new Float32Array(NUM_NEBULA)
-const nebulaZ = new Float32Array(NUM_NEBULA)
+const nebulaX = wasmBuffer(Float32Array, NUM_NEBULA)
+const nebulaY = wasmBuffer(Float32Array, NUM_NEBULA)
+const nebulaZ = wasmBuffer(Float32Array, NUM_NEBULA)
 const nebulaR = new Float32Array(NUM_NEBULA)
 const nebulaG = new Float32Array(NUM_NEBULA)
 const nebulaB = new Float32Array(NUM_NEBULA)
@@ -48,7 +44,7 @@ for (let i = 0; i < NUM_STARS; i++) {
   starZ[i] = Math.random() * MAX_DEPTH
 }
 
-// Initialize nebula
+// Initialize nebula with random positions and colors
 for (let i = 0; i < NUM_NEBULA; i++) {
   nebulaX[i] = (Math.random() - 0.5) * 1500
   nebulaY[i] = (Math.random() - 0.5) * 1500
@@ -58,62 +54,24 @@ for (let i = 0; i < NUM_NEBULA; i++) {
   nebulaB[i] = 0.4 + Math.random() * 0.6
 }
 
-// Move particles forward/back along Z
-function moveParticles(xs: Float32Array, ys: Float32Array, zs: Float32Array, len: 0, speed: 0.0) {
+// Move particles — SIMD accelerated with wasmBuffer (zero-copy)
+// Moves along Z (forward) and applies XY drift from steering
+function moveParticles(! xs: Float32Array, ys: Float32Array, zs: Float32Array, len: 0, dx: 0.0, dy: 0.0, dz: 0.0) {
   wasm {
-    for (let i = 0; i < len; i++) {
-      zs[i] -= speed
-    }
-  } fallback {
-    for (let i = 0; i < len; i++) {
-      zs[i] -= speed
-    }
-  }
-}
-
-// Rotate particles — SIMD accelerated (4 particles per instruction)
-// Applies yaw (Y-axis) then pitch (X-axis) rotation
-function rotateParticles(
-  xs: Float32Array, ys: Float32Array, zs: Float32Array,
-  len: 0, cosYaw: 0.0, sinYaw: 0.0, cosPitch: 0.0, sinPitch: 0.0
-) {
-  wasm {
-    let vCosYaw = f32x4_splat(cosYaw)
-    let vSinYaw = f32x4_splat(sinYaw)
-    let vNegSinYaw = f32x4_neg(vSinYaw)
-    let vCosPitch = f32x4_splat(cosPitch)
-    let vSinPitch = f32x4_splat(sinPitch)
-    let vNegSinPitch = f32x4_neg(vSinPitch)
-
+    let vdx = f32x4_splat(dx)
+    let vdy = f32x4_splat(dy)
+    let vdz = f32x4_splat(dz)
     for (let i = 0; i < len; i += 4) {
       let off = i * 4
-
-      let vx = f32x4_load(xs, off)
-      let vy = f32x4_load(ys, off)
-      let vz = f32x4_load(zs, off)
-
-      // Yaw rotation (Y-axis): x' = x*cos + z*sin, z' = -x*sin + z*cos
-      let nx = f32x4_add(f32x4_mul(vx, vCosYaw), f32x4_mul(vz, vSinYaw))
-      let nz = f32x4_add(f32x4_mul(vx, vNegSinYaw), f32x4_mul(vz, vCosYaw))
-
-      // Pitch rotation (X-axis): y' = y*cos - z*sin, z'' = y*sin + z*cos
-      let ny = f32x4_add(f32x4_mul(vy, vCosPitch), f32x4_mul(nz, vNegSinPitch))
-      let nz2 = f32x4_add(f32x4_mul(vy, vSinPitch), f32x4_mul(nz, vCosPitch))
-
-      f32x4_store(xs, off, nx)
-      f32x4_store(ys, off, ny)
-      f32x4_store(zs, off, nz2)
+      f32x4_store(xs, off, f32x4_add(f32x4_load(xs, off), vdx))
+      f32x4_store(ys, off, f32x4_add(f32x4_load(ys, off), vdy))
+      f32x4_store(zs, off, f32x4_sub(f32x4_load(zs, off), vdz))
     }
   } fallback {
     for (let i = 0; i < len; i++) {
-      let x = xs[i], y = ys[i], z = zs[i]
-      let nx = x * cosYaw + z * sinYaw
-      let nz = -x * sinYaw + z * cosYaw
-      let ny = y * cosPitch - nz * sinPitch
-      let nz2 = y * sinPitch + nz * cosPitch
-      xs[i] = nx
-      ys[i] = ny
-      zs[i] = nz2
+      xs[i] += dx
+      ys[i] += dy
+      zs[i] -= dz
     }
   }
 }
@@ -133,7 +91,7 @@ function respawnStars(xs, ys, zs, len, maxDepth) {
   }
 }
 
-// Respawn nebula
+// Respawn nebula particles
 function respawnNebula(xs, ys, zs, len, maxDepth) {
   for (let i = 0; i < len; i++) {
     if (zs[i] < 1 || zs[i] > maxDepth) {
@@ -148,7 +106,7 @@ function respawnNebula(xs, ys, zs, len, maxDepth) {
   }
 }
 
-// Canvas setup
+// Create canvas
 const canvas = document.createElement('canvas')
 canvas.style.background = '#000'
 canvas.style.display = 'block'
@@ -208,29 +166,20 @@ function animate() {
     lastFpsTime = now
   }
 
-  // Steering from mouse position (small rotation per frame)
-  const yaw = (mouseX - 0.5) * 0.015
-  const pitch = (mouseY - 0.5) * 0.015
-  const cosYaw = Math.cos(yaw)
-  const sinYaw = Math.sin(yaw)
-  const cosPitch = Math.cos(pitch)
-  const sinPitch = Math.sin(pitch)
-
   const speed = BASE_SPEED * speedMultiplier
+  // Steering: mouse offset from center generates lateral drift
+  const dx = (mouseX - 0.5) * speed * 3
+  const dy = (mouseY - 0.5) * speed * 3
 
   // Clear
   ctx.fillStyle = '#08080f'
   ctx.fillRect(0, 0, width, height)
 
-  // Rotate particles (SIMD: 4 at a time)
-  rotateParticles(starX, starY, starZ, NUM_STARS, cosYaw, sinYaw, cosPitch, sinPitch)
-  rotateParticles(nebulaX, nebulaY, nebulaZ, NUM_NEBULA, cosYaw, sinYaw, cosPitch, sinPitch)
-
-  // Move forward/back
-  moveParticles(nebulaX, nebulaY, nebulaZ, NUM_NEBULA, speed * 0.25)
-  respawnNebula(nebulaX, nebulaY, nebulaZ, NUM_NEBULA, MAX_DEPTH)
-  moveParticles(starX, starY, starZ, NUM_STARS, speed)
+  // Update particles
+  moveParticles(starX, starY, starZ, NUM_STARS, dx, dy, speed)
   respawnStars(starX, starY, starZ, NUM_STARS, MAX_DEPTH)
+  moveParticles(nebulaX, nebulaY, nebulaZ, NUM_NEBULA, dx * 0.25, dy * 0.25, speed * 0.25)
+  respawnNebula(nebulaX, nebulaY, nebulaZ, NUM_NEBULA, MAX_DEPTH)
 
   // Draw nebula (behind stars)
   for (let i = 0; i < NUM_NEBULA; i++) {
@@ -288,7 +237,7 @@ function animate() {
     }
   }
 
-  // Vignette
+  // Subtle vignette
   const vignette = ctx.createRadialGradient(halfW, halfH, height * 0.3, halfW, halfH, height * 0.8)
   vignette.addColorStop(0, 'rgba(0,0,0,0)')
   vignette.addColorStop(1, 'rgba(0,0,0,0.4)')
@@ -296,11 +245,12 @@ function animate() {
   ctx.fillRect(0, 0, width, height)
 
   // HUD
-  ctx.fillStyle = 'rgba(100,180,255,0.5)'
-  ctx.font = '11px monospace'
+  ctx.fillStyle = '#fff'
+  ctx.font = 'bold 16px monospace'
   const simdLabel = typeof globalThis.__tjs_wasm_0 === 'function' ? 'SIMD' : 'JS'
-  ctx.fillText(`FPS: ${fps} | ${simdLabel} | Stars: ${NUM_STARS.toLocaleString()} | Speed: ${speedMultiplier.toFixed(1)}x`, 10, 18)
-  ctx.fillText('Steer: mouse | Speed: scroll/click', 10, height - 10)
+  ctx.fillText(`FPS: ${fps} | ${simdLabel} | Stars: ${NUM_STARS.toLocaleString()} | Speed: ${speedMultiplier.toFixed(1)}x`, 10, 24)
+  ctx.font = '14px monospace'
+  ctx.fillText('Steer: mouse | Speed: scroll/click', 10, height - 12)
 
   requestAnimationFrame(animate)
 }

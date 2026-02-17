@@ -580,10 +580,44 @@ const scale = wasm (arr: Float32Array, len: 0, factor: 0.0) -> 0 {
 
 Available: `f32x4_load`, `f32x4_store`, `f32x4_splat`, `f32x4_extract_lane`, `f32x4_replace_lane`, `f32x4_add`, `f32x4_sub`, `f32x4_mul`, `f32x4_div`, `f32x4_neg`, `f32x4_sqrt`.
 
+### Zero-Copy Arrays: `wasmBuffer()`
+
+`wasmBuffer(Constructor, length)` allocates typed arrays directly in WASM linear memory. When passed to a `wasm {}` block, these arrays are zero-copy — no marshalling overhead.
+
+```typescript
+// Allocate in WASM memory (zero-copy when passed to wasm blocks)
+const xs = wasmBuffer(Float32Array, 50000)
+
+// Works like a normal Float32Array from JS
+xs[0] = 3.14
+for (let i = 0; i < xs.length; i++) xs[i] = Math.random()
+
+// Zero-copy in WASM blocks — data is already in WASM memory
+function process(! xs: Float32Array, len: 0, delta: 0.0) {
+  wasm {
+    let vd = f32x4_splat(delta)
+    for (let i = 0; i < len; i += 4) {
+      let off = i * 4
+      f32x4_store(xs, off, f32x4_add(f32x4_load(xs, off), vd))
+    }
+  } fallback {
+    for (let i = 0; i < len; i++) xs[i] += delta
+  }
+}
+
+// After WASM runs, JS sees mutations immediately (same memory)
+```
+
+- Regular `Float32Array` args are copied in before and out after each WASM call
+- `wasmBuffer` arrays skip both copies (detected via `buffer === wasmMemory.buffer`)
+- Uses a bump allocator — allocations persist for program lifetime (no deallocation)
+- All WASM blocks in a file share one `WebAssembly.Memory` (64MB / 1024 pages)
+- Supports `Float32Array`, `Float64Array`, `Int32Array`, `Uint8Array`
+
 ### Current Limitations
 
-- Memory operations require manual management
 - No imports/exports beyond the function itself
+- `wasmBuffer` allocations are permanent (bump allocator, no free)
 
 ## Dependencies
 
