@@ -163,8 +163,9 @@ console.log('10 / 0 =', divide(10, 0))
 const badResult = divide('ten' as any, 2)
 console.log('divide("ten", 2) =', badResult)
 
-if (badResult && badResult.$error) {
-  console.log('  ^ This is a validation error, not a crash!')
+if (badResult instanceof Error) {
+  console.log('  ^ This is a MonadicError, not a crash!')
+  console.log('  message:', badResult.message)
 }
 `,
   },

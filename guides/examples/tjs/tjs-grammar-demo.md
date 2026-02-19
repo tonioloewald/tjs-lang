@@ -313,7 +313,7 @@ function parseJSON(s: '{"a":1}') -! { a: 1 } {
 test 'try without catch' {
   expect(parseJSON('{"ok":true}')).toEqual({ ok: true })
   const bad = parseJSON('not json')
-  expect(bad.$error).toBe(true)
+  expect(bad instanceof Error).toBe(true)
 }
 
 // ═══════════════════════════════════════════════════════════

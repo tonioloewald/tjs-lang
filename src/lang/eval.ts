@@ -14,6 +14,27 @@ import { transpile } from './core'
 let _vm: AgentVM<Record<string, never>> | null = null
 const getVM = () => (_vm ??= new AgentVM())
 
+/**
+ * Walk an AST and wrap return values in { __result: value } objects.
+ * This lets Eval/SafeFunction return arbitrary values through the VM,
+ * which enforces strict object returns for agent composability.
+ */
+function wrapReturnValues(node: any): void {
+  if (!node || typeof node !== 'object') return
+  if (Array.isArray(node)) {
+    for (const child of node) wrapReturnValues(child)
+    return
+  }
+  if (node.op === 'return' && 'value' in node) {
+    node.value = { __result: node.value }
+  }
+  // Recurse into steps (seq), branches (if/else), etc.
+  if (node.steps) wrapReturnValues(node.steps)
+  if (node.then) wrapReturnValues(node.then)
+  if (node.else) wrapReturnValues(node.else)
+  if (node.body) wrapReturnValues(node.body)
+}
+
 /** Capabilities that can be injected into SafeFunction/Eval */
 export interface SafeCapabilities {
   /** Fetch function for HTTP requests */
@@ -65,14 +86,24 @@ export async function Eval(options: EvalOptions): Promise<{
   try {
     const { ast } = transpile(wrappedCode)
 
+    // Box return values in objects for VM strict-return compliance.
+    // Walk AST and wrap each { op: 'return', value } into
+    // { op: 'return', value: { __result: originalValue } }
+    wrapReturnValues(ast)
+
     const vmResult = await vm.run(ast, context, {
       fuel,
       timeoutMs,
       capabilities,
     })
 
+    // Unwrap the boxed result
+    const raw = vmResult.result
+    const result =
+      raw && typeof raw === 'object' && '__result' in raw ? raw.__result : raw
+
     return {
-      result: vmResult.result,
+      result,
       fuelUsed: vmResult.fuelUsed,
       error: vmResult.error
         ? { message: vmResult.error.message || String(vmResult.error) }
@@ -128,6 +159,9 @@ export async function SafeFunction(options: SafeFunctionOptions): Promise<
   // Pre-compile the AST (done once at creation time)
   const { ast } = transpile(source)
 
+  // Box return values for VM strict-return compliance
+  wrapReturnValues(ast)
+
   // Return a function that runs the pre-compiled AST
   return async (...args: unknown[]) => {
     const context: Record<string, unknown> = {}
@@ -142,8 +176,13 @@ export async function SafeFunction(options: SafeFunctionOptions): Promise<
         capabilities,
       })
 
+      // Unwrap the boxed result
+      const raw = vmResult.result
+      const result =
+        raw && typeof raw === 'object' && '__result' in raw ? raw.__result : raw
+
       return {
-        result: vmResult.result,
+        result,
         fuelUsed: vmResult.fuelUsed,
         error: vmResult.error
           ? { message: vmResult.error.message || String(vmResult.error) }

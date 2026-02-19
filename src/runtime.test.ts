@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'bun:test'
-import { defineAtom } from './runtime'
+import { defineAtom, isAgentError } from './runtime'
 import { AgentVM } from './vm'
 import { s } from 'tosijs-schema'
 import { ajs } from './transpiler'
@@ -611,11 +611,17 @@ describe('Edge Cases', () => {
               right: { $expr: 'literal', value: [1, 2, 3] },
             },
           },
-          { op: 'return', value: { $expr: 'ident', name: 'res' } },
+          {
+            op: 'return',
+            schema: {
+              type: 'object',
+              properties: { res: { type: 'boolean' } },
+            },
+          },
         ],
       } as any
       const result = await vm.run(ast, {})
-      expect(result.result).toBe(true)
+      expect(result.result.res).toBe(true)
     })
 
     it('== compares objects structurally', async () => {
@@ -632,11 +638,17 @@ describe('Edge Cases', () => {
               right: { $expr: 'literal', value: { a: 1, b: 2 } },
             },
           },
-          { op: 'return', value: { $expr: 'ident', name: 'res' } },
+          {
+            op: 'return',
+            schema: {
+              type: 'object',
+              properties: { res: { type: 'boolean' } },
+            },
+          },
         ],
       } as any
       const result = await vm.run(ast, {})
-      expect(result.result).toBe(true)
+      expect(result.result.res).toBe(true)
     })
 
     it('== does not coerce types', async () => {
@@ -653,11 +665,17 @@ describe('Edge Cases', () => {
               right: { $expr: 'literal', value: 1 },
             },
           },
-          { op: 'return', value: { $expr: 'ident', name: 'res' } },
+          {
+            op: 'return',
+            schema: {
+              type: 'object',
+              properties: { res: { type: 'boolean' } },
+            },
+          },
         ],
       } as any
       const result = await vm.run(ast, {})
-      expect(result.result).toBe(false) // no coercion
+      expect(result.result.res).toBe(false) // no coercion
     })
 
     it('!= returns true for structurally different objects', async () => {
@@ -674,11 +692,17 @@ describe('Edge Cases', () => {
               right: { $expr: 'literal', value: { a: 2 } },
             },
           },
-          { op: 'return', value: { $expr: 'ident', name: 'res' } },
+          {
+            op: 'return',
+            schema: {
+              type: 'object',
+              properties: { res: { type: 'boolean' } },
+            },
+          },
         ],
       } as any
       const result = await vm.run(ast, {})
-      expect(result.result).toBe(true)
+      expect(result.result.res).toBe(true)
     })
 
     it('null == undefined is true (nullish equality)', async () => {
@@ -695,11 +719,17 @@ describe('Edge Cases', () => {
               right: { $expr: 'ident', name: 'missing' },
             },
           },
-          { op: 'return', value: { $expr: 'ident', name: 'res' } },
+          {
+            op: 'return',
+            schema: {
+              type: 'object',
+              properties: { res: { type: 'boolean' } },
+            },
+          },
         ],
       } as any
       const result = await vm.run(ast, {})
-      expect(result.result).toBe(true) // null == undefined
+      expect(result.result.res).toBe(true) // null == undefined
     })
 
     it('=== still uses identity comparison', async () => {
@@ -716,11 +746,112 @@ describe('Edge Cases', () => {
               right: { $expr: 'literal', value: [1, 2] },
             },
           },
-          { op: 'return', value: { $expr: 'ident', name: 'res' } },
+          {
+            op: 'return',
+            schema: {
+              type: 'object',
+              properties: { res: { type: 'boolean' } },
+            },
+          },
         ],
       } as any
       const result = await vm.run(ast, {})
-      expect(result.result).toBe(false) // different references
+      expect(result.result.res).toBe(false) // different references
+    })
+  })
+
+  describe('strict object returns', () => {
+    it('should allow object returns', async () => {
+      const ast = ajs(`function test() { return { value: 42 } }`)
+      const result = await vm.run(ast, {})
+      expect(result.result).toEqual({ value: 42 })
+      expect(result.error).toBeUndefined()
+    })
+
+    it('should allow empty object returns', async () => {
+      const ast = ajs(`function test() { return {} }`)
+      const result = await vm.run(ast, {})
+      expect(result.result).toEqual({})
+      expect(result.error).toBeUndefined()
+    })
+
+    it('should allow bare return (no value)', async () => {
+      const ast = {
+        op: 'seq',
+        steps: [{ op: 'return', value: undefined }],
+      } as any
+      const result = await vm.run(ast, {})
+      expect(result.error).toBeUndefined()
+    })
+
+    it('should allow null return', async () => {
+      const ast = {
+        op: 'seq',
+        steps: [{ op: 'return', value: null }],
+      } as any
+      const result = await vm.run(ast, {})
+      expect(result.error).toBeUndefined()
+    })
+
+    it('should reject number return', async () => {
+      const ast = {
+        op: 'seq',
+        steps: [{ op: 'return', value: { $expr: 'literal', value: 42 } }],
+      } as any
+      const result = await vm.run(ast, {})
+      expect(isAgentError(result.result)).toBe(true)
+      expect(result.error?.message).toContain('must return an object')
+      expect(result.error?.message).toContain('number')
+    })
+
+    it('should reject string return', async () => {
+      const ast = {
+        op: 'seq',
+        steps: [{ op: 'return', value: { $expr: 'literal', value: 'hello' } }],
+      } as any
+      const result = await vm.run(ast, {})
+      expect(isAgentError(result.result)).toBe(true)
+      expect(result.error?.message).toContain('must return an object')
+      expect(result.error?.message).toContain('string')
+    })
+
+    it('should reject array return', async () => {
+      const ast = {
+        op: 'seq',
+        steps: [
+          { op: 'return', value: { $expr: 'literal', value: [1, 2, 3] } },
+        ],
+      } as any
+      const result = await vm.run(ast, {})
+      expect(isAgentError(result.result)).toBe(true)
+      expect(result.error?.message).toContain('must return an object')
+      expect(result.error?.message).toContain('array')
+    })
+
+    it('should reject boolean return', async () => {
+      const ast = {
+        op: 'seq',
+        steps: [{ op: 'return', value: { $expr: 'literal', value: true } }],
+      } as any
+      const result = await vm.run(ast, {})
+      expect(isAgentError(result.result)).toBe(true)
+      expect(result.error?.message).toContain('must return an object')
+      expect(result.error?.message).toContain('boolean')
+    })
+
+    it('should allow AgentError to propagate through return', async () => {
+      // Errors are objects but need special handling — must not be blocked
+      const ast = ajs(`
+        function test({ x }) {
+          if (x < 0) {
+            return { error: 'negative' }
+          }
+          return { value: x }
+        }
+      `)
+      const result = await vm.run(ast, { x: -1 })
+      expect(result.result).toEqual({ error: 'negative' })
+      expect(result.error).toBeUndefined()
     })
   })
 })

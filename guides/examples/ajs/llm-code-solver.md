@@ -8,7 +8,7 @@ LLM writes and runs code to solve a problem (requires llm capability)
 function solveWithCode({ problem = 'Calculate the 10th Fibonacci number' }) {
   // System prompt with AsyncJS rules and example
   let systemContext =
-    'You write AsyncJS code. AsyncJS is a JavaScript subset.\n\nRULES:\n- NO: async, await, new, class, this, var, for loops\n- Use let for variables, while for loops\n- Return an object: return { result }\n\nEXAMPLE (factorial):\nfunction solve() {\n  let result = 1\n  let i = 5\n  while (i > 1) {\n    result = result * i\n    i = i - 1\n  }\n  return { result }\n}\n\nReturn ONLY the function code, nothing else.'
+    'You write AsyncJS code. AsyncJS is a JavaScript subset.\n\nRULES:\n- Functions take a destructured object param: function foo({ a, b })\n- MUST return an object. WRONG: return 42. RIGHT: return { result: 42 }\n- NO: async, await, new, class, this, var, for loops\n- Use let for variables, while for loops\n\nEXAMPLE (factorial):\nfunction solve() {\n  let result = 1\n  let i = 5\n  while (i > 1) {\n    result = result * i\n    i = i - 1\n  }\n  return { result }\n}\n\nReturn ONLY the function code, nothing else.'
 
   let prompt =
     systemContext + '\n\nWrite a function called "solve" that: ' + problem

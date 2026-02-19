@@ -12,7 +12,7 @@
 
 import { describe, test, expect, beforeAll } from 'bun:test'
 import { tjs } from './index'
-import { Is, IsNot } from './runtime'
+import { Is, IsNot, MonadicError } from './runtime'
 
 // Set up the minimal runtime needed for transpiled code
 beforeAll(() => {
@@ -21,12 +21,15 @@ beforeAll(() => {
     IsNot,
     pushStack: () => {},
     popStack: () => {},
+    MonadicError,
     typeError: (path: string, expected: string, got: any) => {
-      const err = new Error(
-        `Type error at ${path}: expected ${expected}, got ${typeof got}`
+      const actual = got === null ? 'null' : typeof got
+      return new MonadicError(
+        `Expected ${expected} for '${path}', got ${actual}`,
+        path,
+        expected,
+        actual
       )
-      ;(err as any).$error = true
-      return err
     },
     createRuntime: () => (globalThis as any).__tjs,
   }

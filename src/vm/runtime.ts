@@ -1554,6 +1554,25 @@ export const ret = defineAtom(
     // New style: return has explicit value
     if ('value' in step) {
       const res = resolveValue(step.value, ctx)
+
+      // Enforce object returns — agents must return objects for composability
+      if (
+        res !== undefined &&
+        res !== null &&
+        !isAgentError(res) &&
+        (typeof res !== 'object' || Array.isArray(res))
+      ) {
+        const err = new AgentError(
+          `Agent must return an object, got ${
+            Array.isArray(res) ? 'array' : typeof res
+          }`,
+          'return'
+        )
+        ctx.error = err
+        ctx.output = err
+        return err
+      }
+
       ctx.output = res
       return res
     }

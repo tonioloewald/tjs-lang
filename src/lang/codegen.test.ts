@@ -47,7 +47,15 @@ describe('TS → TJS conversion quality', () => {
       const ts = `function toggle(flag: boolean): boolean { return !flag }`
       const { code } = fromTS(ts, { emitTJS: true })
 
-      expect(code).toContain('flag: true')
+      expect(code).toContain('flag: false')
+    })
+
+    it('converts optional boolean param to = false', () => {
+      const ts = `function greet(name: string, excited?: boolean): string { return excited ? name + '!' : name }`
+      const { code } = fromTS(ts, { emitTJS: true })
+
+      expect(code).toContain('excited = false')
+      expect(code).not.toContain('excited = true')
     })
 
     it('converts array param correctly', () => {
@@ -101,7 +109,7 @@ describe('TS → TJS conversion quality', () => {
       const ts = `function isValid(): boolean { return true }`
       const { code } = fromTS(ts, { emitTJS: true })
 
-      expect(code).toContain('-! true')
+      expect(code).toContain('-! false')
     })
 
     it('converts object return type to -! syntax', () => {
@@ -1599,6 +1607,211 @@ function test(x: 0) -! 0 {
       expect(err).toBeInstanceOf(MonadicError)
       // No call stack when debug is off
       expect(err.callStack).toBeUndefined()
+    })
+  })
+
+  describe('stack management', () => {
+    it('stack is empty after successful calls', () => {
+      const { configure, resetRuntime } = require('./runtime')
+      resetRuntime()
+      configure({ debug: true })
+
+      try {
+        const { code } = tjs(`
+function add(a: 0, b: 0) -! 0 {
+  return a + b
+}
+`)
+        const add = new Function(code + '; return add')()
+
+        add(1, 2)
+        add(3, 4)
+        add(5, 6)
+
+        // Stack must be empty — no stale entries from successful calls
+        expect(globalThis.__tjs.getStack()).toEqual([])
+      } finally {
+        resetRuntime()
+      }
+    })
+
+    it('stack is clean after error propagates back up', () => {
+      const { configure, resetRuntime } = require('./runtime')
+      resetRuntime()
+      configure({ debug: true })
+
+      try {
+        const { code } = tjs(`/* tjs <- src/app.ts */
+/* line 1 */
+function outer(x: 0) -! 0 {
+  return inner(x)
+}
+/* line 5 */
+function inner(x: '') -! '' {
+  return x.toUpperCase()
+}
+`)
+        const fns = new Function(code + '; return { outer, inner }')()
+        const err = fns.outer(42)
+
+        expect(err).toBeInstanceOf(MonadicError)
+        // Stack must be empty after error has propagated back
+        expect(globalThis.__tjs.getStack()).toEqual([])
+      } finally {
+        resetRuntime()
+      }
+    })
+
+    it('no stale entries after mixed success and error calls', () => {
+      const { configure, resetRuntime } = require('./runtime')
+      resetRuntime()
+      configure({ debug: true })
+
+      try {
+        const { code } = tjs(`
+function greet(name: '') -! '' {
+  return 'Hello, ' + name
+}
+`)
+        const greet = new Function(code + '; return greet')()
+
+        // Successful calls
+        greet('Alice')
+        greet('Bob')
+
+        // Error call
+        const err = greet(42)
+        expect(err).toBeInstanceOf(MonadicError)
+
+        // More successful calls
+        greet('Charlie')
+
+        // Stack must be empty throughout
+        expect(globalThis.__tjs.getStack()).toEqual([])
+      } finally {
+        resetRuntime()
+      }
+    })
+
+    it('call stack reflects chain when error occurs at depth', () => {
+      const { configure, resetRuntime } = require('./runtime')
+      resetRuntime()
+      configure({ debug: true })
+
+      try {
+        const { code } = tjs(`/* tjs <- src/pipeline.ts */
+/* line 1 */
+function a(x: 0) -! 0 { return b(x) }
+/* line 3 */
+function b(x: 0) -! 0 { return c(x) }
+/* line 5 */
+function c(x: 0) -! 0 { return d(x) }
+/* line 7 */
+function d(x: '') -! '' { return x.toUpperCase() }
+`)
+        const fns = new Function(code + '; return { a, b, c, d }')()
+        const err = fns.a(99)
+
+        expect(err).toBeInstanceOf(MonadicError)
+        expect(err.path).toBe('src/pipeline.ts:7:d.x')
+
+        // Call stack includes all functions in the chain
+        expect(err.callStack).toEqual([
+          'src/pipeline.ts:1:a',
+          'src/pipeline.ts:3:b',
+          'src/pipeline.ts:5:c',
+          'src/pipeline.ts:7:d',
+        ])
+      } finally {
+        resetRuntime()
+      }
+    })
+  })
+
+  describe('input-side error propagation', () => {
+    it('error from inner function caught by outer input check', () => {
+      const { code } = tjs(`
+function step1(x: '') -! '' {
+  return x.toUpperCase()
+}
+
+function step2(x: '') -! '' {
+  return x + '!'
+}
+`)
+      const fns = new Function(code + '; return { step1, step2 }')()
+
+      // step1(42) returns MonadicError, step2 receives it as input
+      const err = fns.step2(fns.step1(42))
+
+      expect(err).toBeInstanceOf(MonadicError)
+      // Error originated in step1, not step2
+      expect(err.path).toContain('step1.x')
+    })
+
+    it('error identity preserved through chain', () => {
+      const { code } = tjs(`
+function a(x: '') -! '' { return x }
+function b(x: '') -! '' { return x }
+function c(x: '') -! '' { return x }
+`)
+      const fns = new Function(code + '; return { a, b, c }')()
+
+      // Create error at a, flow through b and c
+      const originalError = fns.a(42)
+      expect(originalError).toBeInstanceOf(MonadicError)
+
+      const throughB = fns.b(originalError)
+      const throughC = fns.c(throughB)
+
+      // Same object reference all the way through
+      expect(throughB).toBe(originalError)
+      expect(throughC).toBe(originalError)
+    })
+
+    it('multi-level nested call propagation', () => {
+      const { code } = tjs(`
+function validate(x: '') -! '' { return x }
+function transform(x: '') -! '' { return x.toUpperCase() }
+function format(x: '') -! '' { return x + '!' }
+`)
+      const fns = new Function(
+        code + '; return { validate, transform, format }'
+      )()
+
+      // format(transform(validate(42)))
+      // validate(42) → error, transform(error) → pass-through, format(error) → pass-through
+      const result = fns.format(fns.transform(fns.validate(42)))
+
+      expect(result).toBeInstanceOf(MonadicError)
+      expect(result.path).toContain('validate.x')
+    })
+
+    it('error short-circuits function body', () => {
+      let bodyExecuted = false
+
+      const { code } = tjs(`
+function process(x: '') -! '' {
+  globalThis.__test_body_ran = true
+  return x.toUpperCase()
+}
+`)
+      globalThis.__test_body_ran = false
+      const process = new Function(code + '; return process')()
+
+      // Pass an error — body should NOT execute
+      const inputError = new MonadicError(
+        'upstream',
+        'upstream.x',
+        'string',
+        'number'
+      )
+      const result = process(inputError)
+
+      expect(result).toBe(inputError)
+      expect(globalThis.__test_body_ran).toBe(false)
+
+      delete globalThis.__test_body_ran
     })
   })
 

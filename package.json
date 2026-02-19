@@ -1,6 +1,6 @@
 {
   "name": "tjs-lang",
-  "version": "0.5.1",
+  "version": "0.5.3",
   "description": "Type-safe JavaScript dialect with runtime validation, sandboxed VM execution, and AI agent orchestration. Transpiles TypeScript to validated JS with fuel-metered execution for untrusted code.",
   "keywords": [
     "typescript",

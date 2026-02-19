@@ -799,9 +799,9 @@ function parse(s: '') {
   }
 }
 `)
-    // Should add a catch block that returns monadic error
+    // Should add a catch block that returns a MonadicError
     expect(result.source).toContain('catch (__try_err)')
-    expect(result.source).toContain('$error: true')
+    expect(result.source).toContain('MonadicError')
     expect(result.source).toContain('__try_err?.message')
   })
 
@@ -851,7 +851,7 @@ function safeParse(s: '') {
     )
     // The transpiled code should have the monadic error catch
     expect(result.code).toContain('catch (__try_err)')
-    expect(result.code).toContain('$error: true')
+    expect(result.code).toContain('MonadicError')
   })
 
   it('monadic error should have proper structure', () => {
@@ -861,11 +861,10 @@ function test() {
   try { throw new Error('oops') }
 }
 `)
-    // Check error structure
-    expect(result.source).toContain("op: 'try'")
-    expect(result.source).toContain('cause: __try_err')
-    // Should capture call stack for debugging
-    expect(result.source).toContain('stack: globalThis.__tjs?.getStack?.()')
+    // Should return a MonadicError to maintain monadic flow
+    expect(result.source).toContain('MonadicError')
+    expect(result.source).toContain('__try_err?.message')
+    expect(result.source).toContain('return new')
   })
 })
 

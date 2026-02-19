@@ -90,7 +90,7 @@ export class DemoNav extends Component {
   private mdViewer: MarkdownViewer | null = null
 
   // Track current selection for highlighting
-  private _currentView: 'home' | 'ajs' | 'tjs' = 'home'
+  private _currentView: 'home' | 'ajs' | 'tjs' | 'ts' = 'home'
   private _currentExample: string | null = null
 
   // Computed example arrays from docs
@@ -113,13 +113,15 @@ export class DemoNav extends Component {
     return this._currentView
   }
 
-  set currentView(value: 'home' | 'ajs' | 'tjs') {
+  set currentView(value: 'home' | 'ajs' | 'tjs' | 'ts') {
     this._currentView = value
     // Auto-open the appropriate section
     if (value === 'ajs') {
       this.openSection = 'ajs-demos'
     } else if (value === 'tjs') {
       this.openSection = 'tjs-demos'
+    } else if (value === 'ts') {
+      this.openSection = 'ts-demos'
     }
     this.rebuildNav()
     // Update indicator after rebuild (DOM now exists)
@@ -164,11 +166,16 @@ export class DemoNav extends Component {
     } else if (view === 'tjs') {
       this._currentView = 'tjs'
       this.openSection = 'tjs-demos'
+    } else if (view === 'ts') {
+      this._currentView = 'ts'
+      this.openSection = 'ts-demos'
     } else if (view === 'home') {
       this._currentView = 'home'
     } else if (
       section &&
-      ['ajs-demos', 'tjs-demos', 'ajs-docs', 'tjs-docs'].includes(section)
+      ['ajs-demos', 'tjs-demos', 'ts-demos', 'ajs-docs', 'tjs-docs'].includes(
+        section
+      )
     ) {
       this.openSection = section
     }

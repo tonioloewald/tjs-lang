@@ -147,11 +147,11 @@ export class ServiceHost {
       // Call with TJS validation (built into the transpiled code)
       const result = fn(args)
 
-      // Check for monadic error
-      if (result && result.$error) {
+      // Check for monadic error (MonadicError extends Error)
+      if (result instanceof Error) {
         return {
           success: false,
-          error: { message: result.message, path: result.path },
+          error: { message: result.message, path: (result as any).path },
           fuel: 1, // minimal fuel for failed validation
           duration: performance.now() - start,
         }

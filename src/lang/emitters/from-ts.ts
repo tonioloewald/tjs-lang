@@ -139,7 +139,12 @@ function typeToExample(
     case ts.SyntaxKind.NumberKeyword:
       return '0.0'
     case ts.SyntaxKind.BooleanKeyword:
-      return 'true'
+      // REVISIT: TS `x?: boolean` becomes TJS `x = false`, which collapses
+      // "not passed" (undefined) and "passed as false" into the same value.
+      // Code that distinguishes the three states (true/false/undefined) will
+      // break. Consider emitting `x: false || null` for optional booleans
+      // to preserve the undefined state.
+      return 'false'
     case ts.SyntaxKind.NullKeyword:
       return 'null'
     case ts.SyntaxKind.UndefinedKeyword:

@@ -279,14 +279,11 @@ function generateInlineValidationCode(
   funcName: string,
   types: TJSTypeInfo,
   source?: string
-): string | null {
+): { preamble: string; suffix: string } | null {
   const lines: string[] = []
   // Include source in path if available: "src/file.ts:42:funcName.param"
   const pathPrefix = source ? `${source}:` : ''
   const stackEntry = source ? `${source}:${funcName}` : funcName
-
-  // Push onto call stack for debug mode (only runs if debug enabled)
-  lines.push(`__tjs.pushStack('${stackEntry}');`)
 
   // Destructured params: validate each field of the input object
   if (types.isDestructuredParam && types.destructuredShape) {
@@ -321,7 +318,17 @@ function generateInlineValidationCode(
       }
     }
 
-    return lines.length > 0 ? lines.join('\n  ') : null
+    if (lines.length === 0) return null
+
+    // Push stack first, then validate — callStack includes current function
+    // finally block ensures popStack on all exit paths
+    lines.unshift(`__tjs.pushStack('${stackEntry}');`)
+    lines.unshift(`try {`)
+
+    return {
+      preamble: lines.join('\n  '),
+      suffix: '} finally { __tjs.popStack(); }',
+    }
   }
 
   // Positional params: validate each param
@@ -352,7 +359,17 @@ function generateInlineValidationCode(
     }
   }
 
-  return lines.length > 0 ? lines.join('\n  ') : null
+  if (lines.length === 0) return null
+
+  // Push stack first, then validate — callStack includes current function
+  // finally block ensures popStack on all exit paths
+  lines.unshift(`__tjs.pushStack('${stackEntry}');`)
+  lines.unshift(`try {`)
+
+  return {
+    preamble: lines.join('\n  '),
+    suffix: '} finally { __tjs.popStack(); }',
+  }
 }
 
 /**
@@ -612,16 +629,21 @@ export function transpileToJS(
     // Skip for unsafe functions and polymorphic dispatchers (they handle routing)
     if (!isUnsafe && !isPolymorphicDispatcher) {
       const sourceStr = `${funcLoc.file}:${funcLoc.line}`
-      const validationCode = generateInlineValidationCode(
+      const validation = generateInlineValidationCode(
         funcName,
         types,
         sourceStr
       )
-      if (validationCode && func.body && func.body.start !== undefined) {
-        // Insert right after the opening brace
+      if (validation && func.body && func.body.start !== undefined) {
+        // Insert preamble right after the opening brace
         insertions.push({
           position: func.body.start + 1,
-          text: `\n  ${validationCode}\n`,
+          text: `\n  ${validation.preamble}\n`,
+        })
+        // Insert suffix (popStack) right before the closing brace
+        insertions.push({
+          position: func.body.end - 1,
+          text: `\n  ${validation.suffix}\n`,
         })
       }
     }
@@ -638,11 +660,12 @@ export function transpileToJS(
   // Add __tjs reference for monadic error handling and structural equality
   // Use createRuntime() for isolated state per-module
   const needsTypeError = code.includes('__tjs.typeError(')
+  const needsStack = code.includes('__tjs.pushStack(')
   const needsIs = code.includes('Is(')
   const needsIsNot = code.includes('IsNot(')
   const needsSafeEval = preprocessed.tjsModes.tjsSafeEval
 
-  if (needsTypeError || needsIs || needsIsNot || needsSafeEval) {
+  if (needsTypeError || needsStack || needsIs || needsIsNot || needsSafeEval) {
     // Create isolated runtime instance for this module
     // Falls back to shared global if createRuntime not available
     let preamble =
@@ -906,7 +929,7 @@ function canUseInlineValidation(types: TJSTypeInfo): boolean {
  *   if (typeof input !== 'object' || input === null ||
  *       typeof input.x !== 'number' ||
  *       typeof input.y !== 'number') {
- *     return { $error: true, message: '...', path: 'funcName.input' }
+ *     return __tjs.typeError('funcName.input', 'object', input)
  *   }
  */
 export function generateInlineValidation(
@@ -942,7 +965,7 @@ export function generateInlineValidation(
   if (checks.length === 0) return ''
 
   return `if (${checks.join(' || ')}) {
-  return { $error: true, message: 'Invalid ${paramName}', path: '${path}' }
+  return __tjs.typeError('${path}', 'object', ${paramName})
 }`
 }
 
@@ -997,7 +1020,7 @@ const generateTypeCheck = generateTypeCheckExpr
  *   const _original_funcName = funcName
  *   funcName = function(__input) {
  *     if (typeof __input !== 'object' || __input === null || ...) {
- *       return { $error: true, message: '...', path: '...' }
+ *       return __tjs.typeError('funcName.input', 'object', __input)
  *     }
  *     return _original_funcName.call(this, __input)
  *   }

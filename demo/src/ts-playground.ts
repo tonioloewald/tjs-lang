@@ -468,7 +468,7 @@ export class TSPlayground extends Component<TSPlaygroundParts> {
 
   run = async () => {
     this.clearConsole()
-    this.transpile()
+    await this.transpile()
 
     if (!this.lastJsCode) {
       this.log('Cannot run - transpilation failed')
@@ -548,7 +548,7 @@ export class TSPlayground extends Component<TSPlaygroundParts> {
   }
 
   // Public method to set source code (auto-runs when examples are loaded)
-  setSource(code: string, exampleName?: string) {
+  async setSource(code: string, exampleName?: string) {
     // Save current edits before switching
     if (this.currentExampleName) {
       this.editorCache.set(this.currentExampleName, this.parts.tsEditor.value)
@@ -565,9 +565,9 @@ export class TSPlayground extends Component<TSPlaygroundParts> {
     // Update revert button visibility
     this.updateRevertButton()
 
-    this.transpile()
+    await this.transpile()
     // Auto-run when source is loaded externally (e.g., from example selection)
-    this.run()
+    await this.run()
   }
 
   // Revert to the original example code

@@ -103,6 +103,29 @@ await vm.run(agent, args, { capabilities })
 
 ---
 
+## Input/Output Contract
+
+AJS agents are composable — one agent's output feeds into another's input. To ensure this works reliably:
+
+- **Functions take a single destructured object parameter:** `function process({ input })`
+- **Functions must return a plain object:** `return { result }`, `return { summary, count }`
+- **Non-object returns produce an AgentError:** `return 42` or `return 'hello'` will fail
+- **Bare `return` is allowed** for void functions (no output)
+
+```javascript
+// CORRECT — object in, object out
+function add({ a, b }) {
+  return { sum: a + b }
+}
+
+// WRONG — non-object returns are errors
+function add({ a, b }) {
+  return a + b  // AgentError: must return an object
+}
+```
+
+---
+
 ## Syntax
 
 AJS is a JavaScript subset. Familiar syntax, restricted features.
@@ -121,9 +144,9 @@ const y = 'hello'
 
 // Conditionals
 if (x > 5) {
-  return 'big'
+  return { size: 'big' }
 } else {
-  return 'small'
+  return { size: 'small' }
 }
 
 // Loops

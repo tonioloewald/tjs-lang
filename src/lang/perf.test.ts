@@ -366,7 +366,7 @@ describe('TJS Performance', () => {
       // Sanity check
       expect(tryThrow(42)).toBe(42)
       const err = tryThrow(-1)
-      expect(err.$error).toBe(true)
+      expect(err).toBeInstanceOf(Error)
     })
   })
 

@@ -51,10 +51,10 @@ export function transformTryWithoutCatch(source: string): string {
         result += source.slice(i, j)
         i = j
       } else {
-        // No catch or finally - add monadic error handler with call stack
-        // In debug mode, __tjs.getStack() returns the call stack for diagnostics
+        // No catch or finally - add monadic error handler
+        // Returns MonadicError to maintain monadic flow (propagates through function chains)
         const body = source.slice(bodyStart, j - 1)
-        result += `try {${body}} catch (__try_err) { return { $error: true, message: __try_err?.message || String(__try_err), op: 'try', cause: __try_err, stack: globalThis.__tjs?.getStack?.() } }`
+        result += `try {${body}} catch (__try_err) { return new (__tjs?.MonadicError ?? Error)(__try_err?.message || String(__try_err), 'try', undefined, undefined, __tjs?.getStack?.()) }`
         i = j
       }
     } else {

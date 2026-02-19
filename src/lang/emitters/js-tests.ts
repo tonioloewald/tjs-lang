@@ -623,7 +623,8 @@ export function runAllTests(
   // TJS stub setup/restore
   const tjsStub = `
     const __saved_tjs = globalThis.__tjs;
-    const __stub_tjs = { version: '0.0.0', pushStack: () => {}, typeError: (path, expected, value) => new Error(\`Type error at \${path}: expected \${expected}\`), createRuntime: function() { return this; } };
+    class __MonadicError extends Error { constructor(m,p,e,a,c){super(m);this.name='MonadicError';this.path=p;this.expected=e;this.actual=a;this.callStack=c;} }
+    const __stub_tjs = { version: '0.0.0', MonadicError: __MonadicError, pushStack: () => {}, popStack: () => {}, getStack: () => [], typeError: (path, expected, value) => new __MonadicError(\`Type error at \${path}: expected \${expected}\`, path, expected, typeof value), createRuntime: function() { return this; } };
     globalThis.__tjs = __stub_tjs;
   `
   const tjsRestore = `globalThis.__tjs = __saved_tjs;`
@@ -832,7 +833,8 @@ function runTestBlocks(
       // Save and restore globalThis.__tjs to prevent pollution
       const tjsStub = `
         const __saved_tjs = globalThis.__tjs;
-        const __stub_tjs = { version: '0.0.0', pushStack: () => {}, typeError: (path, expected, value) => new Error(\`Type error at \${path}: expected \${expected}\`), createRuntime: function() { return this; } };
+        class __MonadicError extends Error { constructor(m,p,e,a,c){super(m);this.name='MonadicError';this.path=p;this.expected=e;this.actual=a;this.callStack=c;} }
+        const __stub_tjs = { version: '0.0.0', MonadicError: __MonadicError, pushStack: () => {}, popStack: () => {}, getStack: () => [], typeError: (path, expected, value) => new __MonadicError(\`Type error at \${path}: expected \${expected}\`, path, expected, typeof value), createRuntime: function() { return this; } };
         globalThis.__tjs = __stub_tjs;
       `
       const tjsRestore = `globalThis.__tjs = __saved_tjs;`
@@ -1169,7 +1171,8 @@ function runSignatureTest(
     // Save and restore globalThis.__tjs to prevent pollution
     const tjsStub = `
       const __saved_tjs = globalThis.__tjs;
-      const __stub_tjs = { version: '0.0.0', pushStack: () => {}, typeError: (path, expected, value) => new Error(\`Type error at \${path}: expected \${expected}\`), createRuntime: function() { return this; } };
+      class __MonadicError extends Error { constructor(m,p,e,a,c){super(m);this.name='MonadicError';this.path=p;this.expected=e;this.actual=a;this.callStack=c;} }
+      const __stub_tjs = { version: '0.0.0', MonadicError: __MonadicError, pushStack: () => {}, popStack: () => {}, getStack: () => [], typeError: (path, expected, value) => new __MonadicError(\`Type error at \${path}: expected \${expected}\`, path, expected, typeof value), createRuntime: function() { return this; } };
       globalThis.__tjs = __stub_tjs;
     `
     const tjsRestore = `globalThis.__tjs = __saved_tjs;`

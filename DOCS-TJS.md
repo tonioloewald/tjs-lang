@@ -731,13 +731,19 @@ function greet(name: '', age = 0) -> '' { ... }
 | -------------------------- | ------------------- |
 | `name: string`             | `name: ''`          |
 | `age: number`              | `age: 0.0`          |
-| `flag: boolean`            | `flag: true`        |
+| `flag: boolean`            | `flag: false`       |
 | `items: string[]`          | `items: ['']`       |
 | `age?: number`             | `age = 0.0`         |
 | `private foo`              | `#foo`              |
 | `interface User`           | `Type User`         |
 | `type Status = 'a' \| 'b'` | `Union(['a', 'b'])` |
 | `enum Color`               | `Enum(...)`         |
+
+> **Lossy boolean conversion:** TypeScript `x?: boolean` becomes TJS `x = false`.
+> This collapses "not passed" (`undefined`) and "passed as `false`" into the same
+> default value. Code that distinguishes the three states (`true` / `false` /
+> `undefined`) may break. A future version may emit `x: false || null` for
+> optional booleans to preserve the `undefined` state.
 
 ---
 

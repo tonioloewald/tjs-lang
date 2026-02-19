@@ -55,7 +55,7 @@ async function main() {
   // Type error handling
   console.log('\\n--- Type Validation Demo ---')
   const badResult = createUser({ name: 999 })
-  if (badResult.$error) {
+  if (badResult instanceof Error) {
     console.log('Caught type error:', badResult.message)
   }
 
