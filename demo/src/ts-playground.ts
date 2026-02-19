@@ -81,6 +81,7 @@ export class TSPlayground extends Component<TSPlaygroundParts> {
   private lastTjsCode: string = ''
   private lastJsCode: string = ''
   private consoleMessages: string[] = []
+  private _messageHandler: ((e: MessageEvent) => void) | null = null
 
   // Editor state persistence
   private currentExampleName: string | null = null
@@ -514,8 +515,13 @@ export class TSPlayground extends Component<TSPlaygroundParts> {
         jsCode,
       })
 
+      // Clean up any previous message handler
+      if (this._messageHandler) {
+        window.removeEventListener('message', this._messageHandler)
+      }
+
       // Listen for messages from iframe
-      const messageHandler = createIframeMessageHandler({
+      this._messageHandler = createIframeMessageHandler({
         onConsole: (message) => this.log(message),
         onTiming: (execTime) => {
           this.parts.consoleHeader.textContent = `Console — executed in ${formatExecTime(
@@ -531,15 +537,19 @@ export class TSPlayground extends Component<TSPlaygroundParts> {
           this.parts.statusBar.classList.add('error')
         },
       })
-      window.addEventListener('message', messageHandler)
+      window.addEventListener('message', this._messageHandler)
 
-      // Set iframe content
-      this.parts.previewFrame.srcdoc = iframeDoc
+      // Set iframe content using blob URL instead of srcdoc
+      // (srcdoc can cause double-execution in some browsers)
+      const iframe = this.parts.previewFrame
+      const blob = new Blob([iframeDoc], { type: 'text/html' })
+      const blobUrl = URL.createObjectURL(blob)
 
-      // Wait a bit for execution, then clean up listener
-      setTimeout(() => {
-        window.removeEventListener('message', messageHandler)
-      }, 1000)
+      if (iframe.dataset.blobUrl) {
+        URL.revokeObjectURL(iframe.dataset.blobUrl)
+      }
+      iframe.dataset.blobUrl = blobUrl
+      iframe.src = blobUrl
     } catch (e: any) {
       this.log(`Error: ${e.message}`)
       this.parts.statusBar.textContent = 'Error'

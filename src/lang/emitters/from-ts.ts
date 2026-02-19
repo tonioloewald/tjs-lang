@@ -139,11 +139,6 @@ function typeToExample(
     case ts.SyntaxKind.NumberKeyword:
       return '0.0'
     case ts.SyntaxKind.BooleanKeyword:
-      // REVISIT: TS `x?: boolean` becomes TJS `x = false`, which collapses
-      // "not passed" (undefined) and "passed as false" into the same value.
-      // Code that distinguishes the three states (true/false/undefined) will
-      // break. Consider emitting `x: false || null` for optional booleans
-      // to preserve the undefined state.
       return 'false'
     case ts.SyntaxKind.NullKeyword:
       return 'null'
@@ -301,10 +296,10 @@ function typeToExample(
       const hasUndefined = unionType.types.some(isUndefinedType)
 
       if (nonNullTypes.length === 1 && (hasNull || hasUndefined)) {
-        // Nullable type: T | null -> T || null
+        // Nullable type: T | null -> T | null
         const baseExample = typeToExample(nonNullTypes[0], checker)
-        if (hasNull) return `${baseExample} || null`
-        if (hasUndefined) return `${baseExample} || undefined`
+        if (hasNull) return `${baseExample} | null`
+        if (hasUndefined) return `${baseExample} | undefined`
       }
 
       // General union: use first type as example
@@ -921,34 +916,13 @@ function transformFunctionToTJS(
   warnings?: string[],
   includeLineNumber?: boolean
 ): string {
-  const params: string[] = []
+  const params = transformParams(node.parameters, sourceFile, warnings)
 
   // Get line number (1-indexed) for source mapping
   const { line } = sourceFile.getLineAndCharacterOfPosition(
     node.getStart(sourceFile)
   )
   const lineComment = includeLineNumber ? `/* line ${line + 1} */\n` : ''
-
-  for (const param of node.parameters) {
-    const name = param.name.getText(sourceFile)
-    const isOptional = !!param.questionToken || !!param.initializer
-    const typeExample = typeToExample(param.type, undefined, warnings)
-
-    if (param.initializer) {
-      // Has default value - use it directly
-      const defaultText = param.initializer.getText(sourceFile)
-      params.push(`${name} = ${defaultText}`)
-    } else if (typeExample === 'any' || typeExample === 'undefined') {
-      // any/undefined type - no annotation in TJS (bare name means any)
-      params.push(name)
-    } else if (isOptional) {
-      // Optional without default - use = for optional
-      params.push(`${name} = ${typeExample}`)
-    } else {
-      // Required - use : for required
-      params.push(`${name}: ${typeExample}`)
-    }
-  }
 
   const funcName =
     explicitName ||
@@ -1208,8 +1182,9 @@ function transformParams(
       // any/undefined type - no annotation in TJS (bare name means any)
       params.push(name)
     } else if (isOptional) {
-      // Optional without default - use = for optional
-      params.push(`${name} = ${typeExample}`)
+      // Optional without default - use union with undefined to preserve
+      // three-state semantics (e.g. TS `flag?: boolean` can be true/false/undefined)
+      params.push(`${name}: ${typeExample} | undefined`)
     } else {
       // Required - use : for required
       params.push(`${name}: ${typeExample}`)

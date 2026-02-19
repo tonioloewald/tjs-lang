@@ -140,13 +140,34 @@ export interface TJSTypeInfo {
 }
 
 /**
+ * Check if a param used `:` (required) or `=` (optional) in the raw source.
+ * Finds the function's param list by name, then looks for `paramName:` vs `paramName =`.
+ */
+function isParamRequiredInSource(
+  source: string,
+  funcName: string,
+  paramName: string
+): boolean {
+  if (!source || !funcName) return false
+  // Find the function declaration and its param list
+  const funcPattern = new RegExp(
+    `function\\s+${funcName}\\s*\\([^)]*?\\b${paramName}\\s*([=:])`,
+    's'
+  )
+  const match = source.match(funcPattern)
+  if (!match) return false
+  return match[1] === ':'
+}
+
+/**
  * Extract type info for a single function declaration
  */
 function extractFunctionTypeInfo(
   func: FunctionDeclaration,
   originalSource: string,
   requiredParams: Set<string>,
-  returnTypeStr: string | null
+  returnTypeStr: string | null,
+  inputSource?: string
 ): { types: TJSTypeInfo; warnings: string[] } {
   const warnings: string[] = []
 
@@ -205,9 +226,19 @@ function extractFunctionTypeInfo(
         param.left.type === 'Identifier'
       ) {
         const paramInfo = parseParameter(param, requiredParams)
+        // Determine if this param used `:` (required) or `=` (optional).
+        // The global requiredParams set is name-based, which fails when
+        // two functions share a param name with different syntax.
+        // Use the raw input source to check the actual syntax.
+        const isRequired = isParamRequiredInSource(
+          inputSource || '',
+          func.id?.name || '',
+          param.left.name
+        )
         params[param.left.name] = {
           ...paramInfo,
-          required: requiredParams.has(param.left.name),
+          required: isRequired,
+          default: isRequired ? null : paramInfo.example ?? paramInfo.default,
           description: tdoc.params[param.left.name],
         }
       } else if (param.type === 'ObjectPattern') {
@@ -346,7 +377,10 @@ function generateInlineValidationCode(
     const typeCheck = generateTypeCheckExpr(paramName, param.type)
 
     if (typeCheck) {
-      const expectedType = param.type.kind
+      const expectedType =
+        param.type.kind === 'union'
+          ? (param.type as any).members.map((m: any) => m.kind).join(' | ')
+          : param.type.kind
       if (param.required) {
         lines.push(
           `if (${typeCheck}) return __tjs.typeError('${path}', '${expectedType}', ${paramName});`
@@ -533,6 +567,9 @@ export function transpileToJS(
 
   // Collect insertions: { position, text } to be applied in reverse order
   const insertions: { position: number; text: string }[] = []
+  // Collect deletions for | union suffixes in param defaults
+  // e.g. `x = false | undefined` -> `x = false` (the `| undefined` is type-only)
+  const deletions: { start: number; end: number }[] = []
 
   // Process each function
   for (const func of functions) {
@@ -564,10 +601,39 @@ export function transpileToJS(
       func,
       originalSource,
       requiredParams,
-      returnTypeStr
+      returnTypeStr,
+      cleanSource
     )
     warnings.push(...funcWarnings)
     allTypes[funcName] = types
+
+    // Clean up param defaults in the emitted JS.
+    // After colon→equals transform, `x: false | undefined` becomes
+    // `x = false | undefined` in the parsed source.
+    // - For required params (`:` syntax), strip the entire `= value` — there's
+    //   no JS default for required params, the value is a type annotation only.
+    // - For union defaults, strip just the `| suffix` to avoid bitwise OR.
+    for (const param of func.params) {
+      if (param.type === 'AssignmentPattern') {
+        const paramName =
+          (param as any).left?.name || (param as any).left?.value
+        const paramInfo = paramName ? types.params[paramName] : null
+
+        if (paramInfo?.required && paramInfo.default === null) {
+          // Required param — strip entire `= value` from JS output
+          deletions.push({
+            start: (param as any).left.end,
+            end: (param as any).right.end,
+          })
+        } else {
+          // Optional param with union — strip just the `| suffix`
+          const right = (param as any).right
+          if (right.type === 'BinaryExpression' && right.operator === '|') {
+            deletions.push({ start: right.left.end, end: right.end })
+          }
+        }
+      }
+    }
 
     // Determine safety options
     // Module-level "safety none" makes ALL functions unsafe (no validation)
@@ -649,10 +715,27 @@ export function transpileToJS(
     }
   }
 
-  // Apply insertions in reverse position order (to maintain correct offsets)
-  insertions.sort((a, b) => b.position - a.position)
-
+  // Apply deletions first (reverse order to maintain offsets), then insertions.
+  // Deletions strip | union suffixes from param defaults in the output JS.
+  deletions.sort((a, b) => b.start - a.start)
   let code = preprocessed.source
+  for (const { start, end } of deletions) {
+    code = code.slice(0, start) + code.slice(end)
+  }
+
+  // Adjust insertion positions for any deletions that shifted offsets
+  for (const ins of insertions) {
+    let shift = 0
+    for (const del of deletions) {
+      if (del.start < ins.position) {
+        shift += del.end - del.start
+      }
+    }
+    ins.position -= shift
+  }
+
+  // Apply insertions in reverse position order
+  insertions.sort((a, b) => b.position - a.position)
   for (const { position, text } of insertions) {
     code = code.slice(0, position) + text + code.slice(position)
   }
@@ -1002,6 +1085,13 @@ function generateTypeCheckExpr(
     case 'object':
       // For nested objects, just check it's an object (deep validation is separate)
       return `(typeof ${fieldPath} !== 'object' || ${fieldPath} === null || Array.isArray(${fieldPath}))`
+    case 'union': {
+      const checks = (type as any).members
+        .map((m: TypeDescriptor) => generateTypeCheckExpr(fieldPath, m))
+        .filter((c: string | null) => c !== null)
+      if (checks.length === 0) return null
+      return `(${checks.join(' && ')})`
+    }
     case 'any':
       return null // No check needed
     default:

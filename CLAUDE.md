@@ -306,7 +306,7 @@ function greet(name = 'Alice') { }       // name is optional, defaults to 'Alice
 function createUser(user: { name: '', age: 0 }) { }
 
 // Nullable type
-function find(id: 0 || null) { }         // integer or null
+function find(id: 0 | null) { }           // integer or null
 
 // Optional TS-style
 function greet(name?: '') { }            // same as name = ''

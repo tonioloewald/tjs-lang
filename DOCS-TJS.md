@@ -107,13 +107,50 @@ function greet(name = 'World') {} // name is optional, defaults to 'World'
 function calculate(value = 0) {} // value is optional, defaults to 0 (integer)
 ```
 
-### TypeScript-Style Optional
+### TypeScript-Style Optional (`?:`)
 
-You can also use `?:` syntax:
+TJS supports `?:` for compatibility, but consider it a migration aid rather than idiomatic TJS:
 
 ```typescript
 function greet(name?: '') {} // same as name = ''
 ```
+
+**Why `?:` is an antipattern.** In TypeScript, `?:` creates a three-state parameter
+(`value | undefined | missing`) that forces every function body to handle the absent case:
+
+```typescript
+// TypeScript — every caller and callee must reason about undefined
+function greet(name?: string) {
+  const safeName = name ?? 'World' // defensive check required
+  return `Hello, ${safeName}!`
+}
+```
+
+TJS offers two better alternatives:
+
+**1. Safe defaults** — the parameter always has a value, no branching needed:
+
+```typescript
+function greet(name = 'World') {
+  return `Hello, ${name}!` // name is always a string
+}
+```
+
+**2. Polymorphic functions** — separate signatures for separate behavior:
+
+```typescript
+function greet() {
+  return 'Hello, World!'
+}
+function greet(name: '') {
+  return `Hello, ${name}!`
+}
+```
+
+Both approaches eliminate the `undefined` state entirely. The function body
+never needs a null check because the type system guarantees a valid value
+at every call site. This is simpler to write, simpler to read, and produces
+tighter runtime validation.
 
 ### Object Parameters
 
@@ -126,10 +163,10 @@ function createUser(user: { name: ''; age: 0 }) {}
 
 ### Nullable Types
 
-Use `||` for union with null:
+Use `|` for union with null:
 
 ```typescript
-function find(id: 0 || null) { }         // number or null
+function find(id: 0 | null) {} // number or null
 ```
 
 ### Return Types (Arrow Syntax)
@@ -618,19 +655,19 @@ const scale = wasm (arr: Float32Array, len: 0, factor: 0.0) -> 0 {
 
 Available intrinsics:
 
-| Intrinsic | Description |
-|-----------|-------------|
-| `f32x4_load(ptr, byteOffset)` | Load 4 floats from memory into v128 |
-| `f32x4_store(ptr, byteOffset, vec)` | Store v128 as 4 floats to memory |
-| `f32x4_splat(scalar)` | Fill all 4 lanes with a scalar value |
-| `f32x4_extract_lane(vec, N)` | Extract float from lane 0-3 |
-| `f32x4_replace_lane(vec, N, val)` | Replace one lane, return new v128 |
-| `f32x4_add(a, b)` | Lane-wise addition |
-| `f32x4_sub(a, b)` | Lane-wise subtraction |
-| `f32x4_mul(a, b)` | Lane-wise multiplication |
-| `f32x4_div(a, b)` | Lane-wise division |
-| `f32x4_neg(v)` | Negate all lanes |
-| `f32x4_sqrt(v)` | Square root of all lanes |
+| Intrinsic                           | Description                          |
+| ----------------------------------- | ------------------------------------ |
+| `f32x4_load(ptr, byteOffset)`       | Load 4 floats from memory into v128  |
+| `f32x4_store(ptr, byteOffset, vec)` | Store v128 as 4 floats to memory     |
+| `f32x4_splat(scalar)`               | Fill all 4 lanes with a scalar value |
+| `f32x4_extract_lane(vec, N)`        | Extract float from lane 0-3          |
+| `f32x4_replace_lane(vec, N, val)`   | Replace one lane, return new v128    |
+| `f32x4_add(a, b)`                   | Lane-wise addition                   |
+| `f32x4_sub(a, b)`                   | Lane-wise subtraction                |
+| `f32x4_mul(a, b)`                   | Lane-wise multiplication             |
+| `f32x4_div(a, b)`                   | Lane-wise division                   |
+| `f32x4_neg(v)`                      | Negate all lanes                     |
+| `f32x4_sqrt(v)`                     | Square root of all lanes             |
 
 This mirrors C/C++ SIMD intrinsics (`_mm_add_ps`, etc.) — explicit, predictable, no auto-vectorization magic.
 
@@ -672,6 +709,7 @@ console.log(starX[0]) // updated in place, no copy
 ```
 
 Key points:
+
 - Supported constructors: `Float32Array`, `Float64Array`, `Int32Array`, `Uint8Array`
 - Uses a bump allocator — allocations persist for program lifetime
 - All WASM blocks in a file share one 64MB memory
@@ -727,23 +765,21 @@ function greet(name: '', age = 0) -> '' { ... }
 
 ### What Gets Converted
 
-| TypeScript                 | TJS                 |
-| -------------------------- | ------------------- |
-| `name: string`             | `name: ''`          |
-| `age: number`              | `age: 0.0`          |
-| `flag: boolean`            | `flag: false`       |
-| `items: string[]`          | `items: ['']`       |
-| `age?: number`             | `age = 0.0`         |
-| `private foo`              | `#foo`              |
-| `interface User`           | `Type User`         |
-| `type Status = 'a' \| 'b'` | `Union(['a', 'b'])` |
-| `enum Color`               | `Enum(...)`         |
+| TypeScript                 | TJS                     |
+| -------------------------- | ----------------------- |
+| `name: string`             | `name: ''`              |
+| `age: number`              | `age: 0.0`              |
+| `flag: boolean`            | `flag: false`           |
+| `items: string[]`          | `items: ['']`           |
+| `age?: number`             | `age: 0.0 \| undefined` |
+| `private foo`              | `#foo`                  |
+| `interface User`           | `Type User`             |
+| `type Status = 'a' \| 'b'` | `Union(['a', 'b'])`     |
+| `enum Color`               | `Enum(...)`             |
 
-> **Lossy boolean conversion:** TypeScript `x?: boolean` becomes TJS `x = false`.
-> This collapses "not passed" (`undefined`) and "passed as `false`" into the same
-> default value. Code that distinguishes the three states (`true` / `false` /
-> `undefined`) may break. A future version may emit `x: false || null` for
-> optional booleans to preserve the `undefined` state.
+> **Optional params:** TypeScript `x?: boolean` becomes TJS `x: false | undefined`.
+> This preserves the three-state semantics (`true` / `false` / `undefined`)
+> using a union type. The param is required but explicitly accepts `undefined`.
 
 ---
 

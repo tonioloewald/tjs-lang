@@ -41,7 +41,7 @@
   - [x] Math functions (sqrt, abs, floor, ceil, min, max, sin, cos, log, exp, pow)
 - [x] WASM SIMD support (v128/f32x4)
   - 12 f32x4 intrinsics: load, store, splat, extract_lane, replace_lane, add, sub, mul, div, neg, sqrt
-  - Explicit intrinsic approach (users call f32x4_* in wasm blocks)
+  - Explicit intrinsic approach (users call f32x4\_\* in wasm blocks)
   - Disassembler handles 0xfd prefix with LEB128 sub-opcodes
   - 16-byte aligned memory for v128 loads/stores
   - Demos: starfield SIMD rotation, vector search cosine similarity

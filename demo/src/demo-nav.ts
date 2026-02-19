@@ -8,7 +8,7 @@
  * - TJS Docs (documentation that opens in floating viewer)
  */
 
-import { Component, elements, ElementCreator, vars } from 'tosijs'
+import { Component, elements, ElementCreator, vars, observe } from 'tosijs'
 import {
   xinFloat,
   XinFloat,
@@ -72,26 +72,11 @@ interface DocItem {
   requiresApi?: boolean
 }
 
-interface DemoNavEvents {
-  'select-ajs-example': {
-    example: { name: string; description: string; code: string; group?: string }
-  }
-  'select-tjs-example': {
-    example: { name: string; description: string; code: string; group?: string }
-  }
-  'select-ts-example': { example: TSExample }
-  'select-doc': { doc: DocItem }
-}
-
 export class DemoNav extends Component {
   private _docs: DocItem[] = []
-  private openSection: string | null = null
+  private _appState: any = null // boxed proxy from index.ts
   private floatViewer: XinFloat | null = null
   private mdViewer: MarkdownViewer | null = null
-
-  // Track current selection for highlighting
-  private _currentView: 'home' | 'ajs' | 'tjs' | 'ts' = 'home'
-  private _currentExample: string | null = null
 
   // Computed example arrays from docs
   private get tjsExamples(): Example[] {
@@ -101,103 +86,49 @@ export class DemoNav extends Component {
   private get ajsExamples(): Example[] {
     return this._docs.filter((d) => d.type === 'example' && d.section === 'ajs')
   }
-  constructor() {
-    super()
-    // Initialize from URL hash
-    this.loadStateFromURL()
-    // Listen for hash changes
-    window.addEventListener('hashchange', () => this.loadStateFromURL())
+  get appState() {
+    return this._appState
   }
 
-  get currentView() {
-    return this._currentView
-  }
-
-  set currentView(value: 'home' | 'ajs' | 'tjs' | 'ts') {
-    this._currentView = value
-    // Auto-open the appropriate section
-    if (value === 'ajs') {
-      this.openSection = 'ajs-demos'
-    } else if (value === 'tjs') {
-      this.openSection = 'tjs-demos'
-    } else if (value === 'ts') {
-      this.openSection = 'ts-demos'
-    }
+  set appState(state: any) {
+    this._appState = state
+    if (!state) return
+    // Observe state changes to update nav
+    observe(/^app\.(currentView|currentExample)/, () => {
+      this.rebuildNav()
+      this.updateCurrentIndicator()
+    })
+    observe('app.openSection', () => {
+      this.rebuildNav()
+    })
+    // Initial sync
     this.rebuildNav()
-    // Update indicator after rebuild (DOM now exists)
     this.updateCurrentIndicator()
   }
 
-  get currentExample() {
-    return this._currentExample
+  private get _currentView(): string {
+    return this._appState?.currentView?.valueOf() ?? 'home'
   }
 
-  set currentExample(value: string | null) {
-    this._currentExample = value
-    this.updateCurrentIndicator()
+  private get _currentExampleName(): string | null {
+    const ex = this._appState?.currentExample?.valueOf()
+    if (!ex) return null
+    return ex.name || ex.title || null
+  }
+
+  private get _openSection(): string | null {
+    return this._appState?.openSection?.valueOf() ?? null
   }
 
   private updateCurrentIndicator() {
-    // Update .current class on nav items
+    const exName = this._currentExampleName
     const items = this.querySelectorAll('.nav-item')
     items.forEach((item) => {
       const itemName = item.textContent?.trim()
-      const isCurrent = itemName === this._currentExample
-      item.classList.toggle('current', isCurrent)
+      item.classList.toggle('current', itemName === exName)
     })
-    // Update home link
     const homeLink = this.querySelector('.home-link')
     homeLink?.classList.toggle('current', this._currentView === 'home')
-  }
-
-  private loadStateFromURL() {
-    const hash = window.location.hash.slice(1) // Remove '#'
-    if (!hash) return
-
-    const params = new URLSearchParams(hash)
-    const section = params.get('section')
-    const view = params.get('view')
-    const example = params.get('example')
-
-    // Set view and open appropriate section
-    if (view === 'ajs') {
-      this._currentView = 'ajs'
-      this.openSection = 'ajs-demos'
-    } else if (view === 'tjs') {
-      this._currentView = 'tjs'
-      this.openSection = 'tjs-demos'
-    } else if (view === 'ts') {
-      this._currentView = 'ts'
-      this.openSection = 'ts-demos'
-    } else if (view === 'home') {
-      this._currentView = 'home'
-    } else if (
-      section &&
-      ['ajs-demos', 'tjs-demos', 'ts-demos', 'ajs-docs', 'tjs-docs'].includes(
-        section
-      )
-    ) {
-      this.openSection = section
-    }
-
-    // Set current example for highlighting
-    if (example) {
-      this._currentExample = example
-    }
-
-    this.rebuildNav()
-    this.updateCurrentIndicator()
-  }
-
-  private saveStateToURL() {
-    const params = new URLSearchParams(window.location.hash.slice(1))
-    if (this.openSection) {
-      params.set('section', this.openSection)
-    }
-    const newHash = params.toString()
-    if (newHash !== window.location.hash.slice(1)) {
-      window.history.replaceState(null, '', `#${newHash}`)
-    }
   }
 
   get docs(): DocItem[] {
@@ -206,8 +137,8 @@ export class DemoNav extends Component {
 
   set docs(value: DocItem[]) {
     this._docs = value
-    // Re-render when docs are set
     this.rebuildNav()
+    this.updateCurrentIndicator()
   }
 
   // Light DOM styles (no static styleSpec)
@@ -439,7 +370,7 @@ export class DemoNav extends Component {
       // TypeScript Examples (TS -> TJS -> JS pipeline)
       details(
         {
-          open: this.openSection === 'ts-demos',
+          open: this._openSection === 'ts-demos',
           'data-section': 'ts-demos',
           onToggle: this.handleToggle,
         },
@@ -465,7 +396,7 @@ export class DemoNav extends Component {
       // TJS Examples
       details(
         {
-          open: this.openSection === 'tjs-demos',
+          open: this._openSection === 'tjs-demos',
           'data-section': 'tjs-demos',
           onToggle: this.handleToggle,
         },
@@ -491,7 +422,7 @@ export class DemoNav extends Component {
       // AJS Examples
       details(
         {
-          open: this.openSection === 'ajs-demos',
+          open: this._openSection === 'ajs-demos',
           'data-section': 'ajs-demos',
           onToggle: this.handleToggle,
         },
@@ -517,7 +448,7 @@ export class DemoNav extends Component {
       // TJS Docs
       details(
         {
-          open: this.openSection === 'tjs-docs',
+          open: this._openSection === 'tjs-docs',
           'data-section': 'tjs-docs',
           onToggle: this.handleToggle,
         },
@@ -542,7 +473,7 @@ export class DemoNav extends Component {
       // AJS Docs
       details(
         {
-          open: this.openSection === 'ajs-docs',
+          open: this._openSection === 'ajs-docs',
           'data-section': 'ajs-docs',
           onToggle: this.handleToggle,
         },
@@ -571,16 +502,13 @@ export class DemoNav extends Component {
     const section = details.getAttribute('data-section')
 
     if (details.open) {
+      if (this._appState) this._appState.openSection.value = section
       // Close other sections (accordion behavior)
-      this.openSection = section
-      const allDetails = this.querySelectorAll('details')
-      allDetails.forEach((d) => {
+      this.querySelectorAll('details').forEach((d) => {
         if (d !== details && d.open) {
           d.open = false
         }
       })
-      // Save to URL
-      this.saveStateToURL()
     }
   }
 
@@ -605,50 +533,30 @@ export class DemoNav extends Component {
   }
 
   selectHome() {
-    this._currentView = 'home'
-    this._currentExample = null
-    this.updateCurrentIndicator()
-    this.dispatchEvent(
-      new CustomEvent('select-home', {
-        bubbles: true,
-      })
-    )
+    if (!this._appState) return
+    this._appState.currentView.value = 'home'
+    this._appState.currentExample.value = null
   }
 
   selectAjsExample(example: Example) {
-    this._currentView = 'ajs'
-    this._currentExample = example.title
-    this.updateCurrentIndicator()
-    this.dispatchEvent(
-      new CustomEvent('select-ajs-example', {
-        detail: { example: exampleToLegacy(example) },
-        bubbles: true,
-      })
-    )
+    if (!this._appState) return
+    this._appState.currentView.value = 'ajs'
+    this._appState.currentExample.value = exampleToLegacy(example)
+    this._appState.openSection.value = 'ajs-demos'
   }
 
   selectTjsExample(example: Example) {
-    this._currentView = 'tjs'
-    this._currentExample = example.title
-    this.updateCurrentIndicator()
-    this.dispatchEvent(
-      new CustomEvent('select-tjs-example', {
-        detail: { example: exampleToLegacy(example) },
-        bubbles: true,
-      })
-    )
+    if (!this._appState) return
+    this._appState.currentView.value = 'tjs'
+    this._appState.currentExample.value = exampleToLegacy(example)
+    this._appState.openSection.value = 'tjs-demos'
   }
 
   selectTsExample(example: TSExample) {
-    this._currentView = 'tjs' // Will switch to 'ts' when TS playground is wired up
-    this._currentExample = example.name
-    this.updateCurrentIndicator()
-    this.dispatchEvent(
-      new CustomEvent('select-ts-example', {
-        detail: { example: exampleToLegacy(example) },
-        bubbles: true,
-      })
-    )
+    if (!this._appState) return
+    this._appState.currentView.value = 'ts'
+    this._appState.currentExample.value = exampleToLegacy(example)
+    this._appState.openSection.value = 'ts-demos'
   }
 
   selectDoc(doc: DocItem) {

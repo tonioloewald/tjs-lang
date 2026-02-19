@@ -7,7 +7,7 @@
  * - Markdown content with live examples
  */
 
-import { elements, tosi, bindings, StyleSheet, bind } from 'tosijs'
+import { elements, tosi, bindings, StyleSheet, bind, observe } from 'tosijs'
 
 import {
   icons,
@@ -137,6 +137,7 @@ const { app, prefs, auth } = tosi({
     compact: false,
     currentView: 'home' as 'home' | 'ajs' | 'tjs' | 'ts',
     currentExample: null as any,
+    openSection: null as string | null,
   },
   auth: {
     user: null as {
@@ -248,35 +249,32 @@ window.addEventListener('popstate', () => {
     app.docs.find((doc: any) => doc.filename === filename) || app.docs[0]
 })
 
-// URL state management for view and example
-function loadViewStateFromURL() {
-  const hash = window.location.hash.slice(1)
-  if (!hash) {
-    app.currentView = 'home'
-    return
-  }
+// URL ↔ state sync (single source of truth: app state)
+let _suppressHashUpdate = false
 
+function syncURLToState() {
+  const hash = window.location.hash.slice(1)
+  if (!hash) return
+
+  _suppressHashUpdate = true
   const params = new URLSearchParams(hash)
   const view = params.get('view')
   const example = params.get('example')
+  const section = params.get('section')
 
-  if (view === 'home') {
-    app.currentView.xin = 'home'
-    app.currentExample = null
-  } else if (view === 'ajs' || view === 'tjs' || view === 'ts') {
-    app.currentView = view
+  if (view === 'home' || view === 'ajs' || view === 'tjs' || view === 'ts') {
+    app.currentView.value = view
   }
+  if (section) app.openSection.value = section
 
   if (example) {
-    // Find example by name in appropriate list
     if (view === 'ts') {
       const found = tsExamples.find((e: any) => e.name === example)
-      if (found) app.currentExample = found
+      if (found) app.currentExample.value = found
     } else if (view === 'tjs') {
-      // Find in docs by title
       const found = findExampleInDocs(docs, 'tjs', example)
       if (found) {
-        app.currentExample = {
+        app.currentExample.value = {
           name: found.title,
           description: found.description || found.title,
           code: found.code || '',
@@ -284,10 +282,9 @@ function loadViewStateFromURL() {
         }
       }
     } else if (view === 'ajs') {
-      // Find in docs by title
       const found = findExampleInDocs(docs, 'ajs', example)
       if (found) {
-        app.currentExample = {
+        app.currentExample.value = {
           name: found.title,
           description: found.description || found.title,
           code: found.code || '',
@@ -295,26 +292,29 @@ function loadViewStateFromURL() {
         }
       }
     }
-  }
-}
-
-function saveViewStateToURL(view: string, exampleName?: string) {
-  const params = new URLSearchParams(window.location.hash.slice(1))
-  params.set('view', view)
-  if (exampleName) {
-    params.set('example', exampleName)
   } else {
-    params.delete('example')
+    app.currentExample.value = null
   }
-  const newHash = params.toString()
-  window.history.replaceState(null, '', `#${newHash}`)
+  _suppressHashUpdate = false
 }
 
-// Load initial state from URL
-loadViewStateFromURL()
+syncURLToState()
+window.addEventListener('hashchange', syncURLToState)
 
-// Listen for hash changes
-window.addEventListener('hashchange', loadViewStateFromURL)
+// State → URL (observe changes, update hash)
+observe(/^app\.(currentView|currentExample|openSection)/, () => {
+  if (_suppressHashUpdate) return
+  const params = new URLSearchParams()
+  const view = app.currentView.valueOf() as string
+  params.set('view', view)
+  const example = app.currentExample.valueOf() as any
+  if (example) {
+    params.set('example', example.name || example.title || '')
+  }
+  const section = app.openSection.valueOf() as string | null
+  if (section) params.set('section', section)
+  window.history.replaceState(null, '', `#${params.toString()}`)
+})
 
 // Main app
 const main = document.querySelector('main') as HTMLElement
@@ -596,7 +596,7 @@ if (main) {
         },
       },
 
-      // Demo navigation with 4 accordion sections
+      // Demo navigation — shares app state directly
       (() => {
         const nav = demoNav({
           slot: 'nav',
@@ -606,41 +606,8 @@ if (main) {
           },
         }) as DemoNav
 
-        // Pass docs to the nav component
         nav.docs = docs
-
-        // Handle AJS example selection - load into AJS playground
-        nav.addEventListener('select-ajs-example', ((event: CustomEvent) => {
-          const { example } = event.detail
-          app.currentView = 'ajs'
-          app.currentExample = example
-          saveViewStateToURL('ajs', example.name)
-        }) as EventListener)
-
-        // Handle TJS example selection - load into TJS playground
-        nav.addEventListener('select-tjs-example', ((event: CustomEvent) => {
-          const { example } = event.detail
-          app.currentView = 'tjs'
-          app.currentExample = example
-          saveViewStateToURL('tjs', example.name)
-        }) as EventListener)
-
-        // Handle TS example selection - load into TS playground
-        nav.addEventListener('select-ts-example', ((event: CustomEvent) => {
-          const { example } = event.detail
-          app.currentView = 'ts'
-          app.currentExample = example
-          saveViewStateToURL('ts', example.name)
-        }) as EventListener)
-
-        // Handle Home selection - show README
-        nav.addEventListener('select-home', (() => {
-          app.currentView = 'home'
-          app.currentExample = null
-          saveViewStateToURL('home')
-        }) as EventListener)
-
-        // Nav syncs its own state from URL - no need to overwrite on initial load
+        nav.appState = app
 
         return nav
       })(),

@@ -120,7 +120,7 @@ function add({ a, b }) {
 
 // WRONG — non-object returns are errors
 function add({ a, b }) {
-  return a + b  // AgentError: must return an object
+  return a + b // AgentError: must return an object
 }
 ```
 

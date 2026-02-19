@@ -13,9 +13,9 @@ function db() {
   return _db
 }
 db.__tjs = {
-  "params": {},
-  "unsafe": true,
-  "source": "routing.tjs:11"
+  params: {},
+  unsafe: true,
+  source: 'routing.tjs:11',
 }
 
 /*#
@@ -55,22 +55,22 @@ export function matchUrlPattern(pattern, path) {
   return params
 }
 matchUrlPattern.__tjs = {
-  "params": {
-    "pattern": {
-      "type": {
-        "kind": "any"
+  params: {
+    pattern: {
+      type: {
+        kind: 'any',
       },
-      "required": false
+      required: false,
     },
-    "path": {
-      "type": {
-        "kind": "any"
+    path: {
+      type: {
+        kind: 'any',
       },
-      "required": false
-    }
+      required: false,
+    },
   },
-  "unsafe": true,
-  "source": "routing.tjs:22"
+  unsafe: true,
+  source: 'routing.tjs:22',
 }
 
 /*#
@@ -82,20 +82,23 @@ Cache entries expire after 60 seconds.
 const storedFunctionsCache = {
   data: null,
   timestamp: 0,
-  ttl: 60000 // 60 seconds
+  ttl: 60000, // 60 seconds
 }
 
 export async function getStoredFunctions() {
   const now = Date.now()
 
-  if (storedFunctionsCache.data && (now - storedFunctionsCache.timestamp) < storedFunctionsCache.ttl) {
+  if (
+    storedFunctionsCache.data &&
+    now - storedFunctionsCache.timestamp < storedFunctionsCache.ttl
+  ) {
     return storedFunctionsCache.data
   }
 
   const snapshot = await db().collection('storedFunctions').get()
   const functions = []
 
-  snapshot.forEach(doc => {
+  snapshot.forEach((doc) => {
     functions.push({ id: doc.id, ...doc.data() })
   })
 
@@ -105,7 +108,7 @@ export async function getStoredFunctions() {
   return functions
 }
 getStoredFunctions.__tjs = {
-  "params": {},
-  "unsafe": true,
-  "source": "routing.tjs:65"
+  params: {},
+  unsafe: true,
+  source: 'routing.tjs:65',
 }

@@ -13,7 +13,7 @@
  */
 
 import { describe, test, expect } from 'bun:test'
-import { transpileToJS, fromTS } from './index'
+import { transpileToJS, fromTS, tjs } from './index'
 
 // Helper to get the first function's metadata from the Record
 function getFirstFunc(metadata: Record<string, any>) {
@@ -125,9 +125,9 @@ describe('Basic Types', () => {
 // =============================================================================
 
 describe('Union Types', () => {
-  test('union with || (TJS style)', () => {
+  test('union with | (string or integer)', () => {
     const { metadata } = transpileToJS(`
-      function flexible(id: '' || 0) {
+      function flexible(id: '' | 0) {
         return String(id)
       }
     `)
@@ -135,9 +135,9 @@ describe('Union Types', () => {
     expect(getFirstFunc(metadata).params.id.type.members?.length).toBe(2)
   })
 
-  test('nullable with || null', () => {
+  test('nullable with | null', () => {
     const { metadata } = transpileToJS(`
-      function maybeString(s: '' || null) {
+      function maybeString(s: '' | null) {
         return s ?? 'default'
       }
     `)
@@ -153,18 +153,7 @@ describe('Union Types', () => {
     expect(types?.flexible.params.id.type.kind).toBe('union')
   })
 
-  test('union return type with || (TJS style)', () => {
-    const { metadata } = transpileToJS(`
-      function find(id: 0) -! { name: '' } || null {
-        return null
-      }
-    `)
-    expect(getFirstFunc(metadata).returns?.kind).toBe('object')
-    expect(getFirstFunc(metadata).returns?.nullable).toBe(true)
-  })
-
-  // TODO: Union return types like `{ obj } | null` not yet supported in parser
-  test.skip('union return type with | (TS style)', () => {
+  test('union return type with | (nullable object)', () => {
     const { metadata } = transpileToJS(`
       function find(id: 0) -! { name: '' } | null {
         return null
@@ -857,6 +846,20 @@ describe('Real-World Patterns', () => {
     expect(types?.chunk).toBeDefined()
     // Generic T becomes any, but structure is preserved
     expect(types?.chunk.params.array.type.kind).toBe('array')
+  })
+
+  test('?: boolean transpiles to required union param with no JS default', () => {
+    const tjsCode = fromTS('function f(excited?: boolean) { return excited }', {
+      emitTJS: true,
+    }).code
+    // TJS should have union annotation
+    expect(tjsCode).toContain('excited: false | undefined')
+    const jsResult = tjs(tjsCode)
+    // JS should not have default or bitwise OR — `:` means required
+    expect(jsResult.code).not.toMatch(/excited = false/)
+    expect(jsResult.code).not.toMatch(/excited = false \| undefined/)
+    // Should have union type check
+    expect(jsResult.code).toContain("typeof excited !== 'boolean'")
   })
 })
 

@@ -156,7 +156,7 @@ function isNativeType(value: any, typeName: '') -> true {
     return false;
 }
 
-function checkType(value: any, expected: '', path = '') -> any || null {
+function checkType(value: any, expected: '', path = '') -> any | null {
     // If value is already an error, propagate it
     if (isError(value))
         return value;
@@ -199,7 +199,7 @@ Type ParamMeta {
   example: { type: null, required: true, default: null, loc: { start: 0, end: 0 } }
 }
 
-function validateArgs(args: {}, meta: { params: {} }, funcName = '') -> any || null {
+function validateArgs(args: {}, meta: { params: {} }, funcName = '') -> any | null {
     for (const [name, param] of Object.entries(meta.params)) {
         const value = args[name];
         // Check if any arg is already an error - propagate first one
@@ -269,7 +269,7 @@ function wrap(fn: any, meta: any) {
     ;
     fn.__tjs = meta;
     // Determine if we need a wrapper at all
-    const needsWrapper = 
+    const needsWrapper =
     // Has forced safety that requires validation
     meta.safe ||
         meta.safeReturn ||

@@ -20,9 +20,7 @@ const ajsExamples = loadExamples(join(ROOT, 'guides/examples/ajs'))
 
 describe('loadExample helper', () => {
   test('extracts metadata, title, language, and code', () => {
-    const ex = loadExample(
-      join(ROOT, 'guides/examples/tjs/hello-tjs.md')
-    )
+    const ex = loadExample(join(ROOT, 'guides/examples/tjs/hello-tjs.md'))
     expect(ex.title).toBeTruthy()
     expect(ex.code).toBeTruthy()
     expect(ex.language).toBe('tjs')
@@ -31,9 +29,7 @@ describe('loadExample helper', () => {
   })
 
   test('extracts description', () => {
-    const ex = loadExample(
-      join(ROOT, 'guides/examples/ajs/hello-world.md')
-    )
+    const ex = loadExample(join(ROOT, 'guides/examples/ajs/hello-world.md'))
     expect(ex.description).toContain('greeting')
   })
 })
@@ -71,13 +67,9 @@ describe('TJS examples with inline tests', () => {
 
     test(`${ex.title} tests pass`, () => {
       const result = tjs(ex.code, { runTests: 'report' })
-      const failures = (result.testResults || []).filter(
-        (t: any) => !t.passed
-      )
+      const failures = (result.testResults || []).filter((t: any) => !t.passed)
       if (failures.length > 0) {
-        const msgs = failures.map(
-          (f: any) => `${f.description}: ${f.error}`
-        )
+        const msgs = failures.map((f: any) => `${f.description}: ${f.error}`)
         throw new Error(`Test failures:\n${msgs.join('\n')}`)
       }
     })

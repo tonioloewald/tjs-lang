@@ -119,10 +119,10 @@ function getUser(id: '') -> { name: '', email: '' } | null {
 
 ### 4. Union Types
 
-Use `||` for unions (not `|` like TypeScript):
+Use `|` for unions (same as TypeScript):
 
 ```javascript
-function parseInput(value: '' || 0 || null) -> '' {
+function parseInput(value: '' | 0 | null) -> '' {
   if (value === null) return 'null'
   if (typeof value === 'number') return `number: ${value}`
   return `string: ${value}`

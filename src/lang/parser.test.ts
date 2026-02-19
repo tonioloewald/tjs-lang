@@ -294,9 +294,9 @@ test 'always fails' { throw new Error('intentional') }
       expect(signature.parameters.limit.default).toBe(10)
     })
 
-    it('should handle nullable types with colon syntax', () => {
+    it('should handle nullable types with | syntax', () => {
       const { signature } = transpile(`
-        function test(filter: 'default' || null) {
+        function test(filter: 'default' | null) {
           return { filter }
         }
       `)
@@ -304,9 +304,9 @@ test 'always fails' { throw new Error('intentional') }
       expect(signature.parameters.filter.type.nullable).toBe(true)
     })
 
-    it('should handle union types with colon syntax', () => {
+    it('should handle union types with | syntax', () => {
       const { signature } = transpile(`
-        function test(id: 'abc123' || 42) {
+        function test(id: 'abc123' | 42) {
           return { id }
         }
       `)

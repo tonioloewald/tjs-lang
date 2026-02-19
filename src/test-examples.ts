@@ -60,7 +60,9 @@ export function parseExample(content: string, filePath = ''): ExampleFile {
   if (metaMatch) {
     try {
       metadata = JSON.parse(metaMatch[1])
-    } catch {}
+    } catch {
+      /* invalid JSON metadata, ignore */
+    }
   }
 
   // Extract title from first # heading

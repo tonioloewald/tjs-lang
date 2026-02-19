@@ -35,7 +35,7 @@ export function validateSchema(schema, data) {
         if (key in data) {
           const propResult = validateSchema(propSchema, data[key])
           if (!propResult.valid) {
-            errors.push(...propResult.errors.map(e => `${key}: ${e}`))
+            errors.push(...propResult.errors.map((e) => `${key}: ${e}`))
           }
         }
       }
@@ -77,7 +77,7 @@ export function validateSchema(schema, data) {
       data.forEach((item, i) => {
         const itemResult = validateSchema(schema.items, item)
         if (!itemResult.valid) {
-          errors.push(...itemResult.errors.map(e => `[${i}]: ${e}`))
+          errors.push(...itemResult.errors.map((e) => `[${i}]: ${e}`))
         }
       })
     }
@@ -91,20 +91,20 @@ export function validateSchema(schema, data) {
   return { valid: errors.length === 0, errors }
 }
 validateSchema.__tjs = {
-  "params": {
-    "schema": {
-      "type": {
-        "kind": "any"
+  params: {
+    schema: {
+      type: {
+        kind: 'any',
       },
-      "required": false
+      required: false,
     },
-    "data": {
-      "type": {
-        "kind": "any"
+    data: {
+      type: {
+        kind: 'any',
       },
-      "required": false
-    }
+      required: false,
+    },
   },
-  "unsafe": true,
-  "source": "schema.tjs:8"
+  unsafe: true,
+  source: 'schema.tjs:8',
 }

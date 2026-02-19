@@ -7,15 +7,15 @@ Iterations: 100,000 per test
 
 ## Summary
 
-| Benchmark | Baseline | Safe (default) | Unsafe (!) |
-|-----------|----------|----------------|------------|
-| CLI: Bun + TypeScript | 157.6ms | - | - |
-| CLI: tjsx (execute TJS) | 159.2ms | - | - |
-| CLI: tjs emit | 160.6ms | - | - |
-| CLI: tjs check | 159.8ms | - | - |
-| Simple arithmetic (100K iterations) | 0.5ms | 1.0ms (1.9x) | 0.5ms (1.1x) |
-| Object manipulation (100K iterations) | 1.0ms | 1.7ms (1.7x) | 1.1ms (1.1x) |
-| 3-function chain (100K iterations) | 0.6ms | 2.0ms (3.1x) | 0.6ms (~1.0x) |
+| Benchmark                             | Baseline | Safe (default) | Unsafe (!)    |
+| ------------------------------------- | -------- | -------------- | ------------- |
+| CLI: Bun + TypeScript                 | 157.6ms  | -              | -             |
+| CLI: tjsx (execute TJS)               | 159.2ms  | -              | -             |
+| CLI: tjs emit                         | 160.6ms  | -              | -             |
+| CLI: tjs check                        | 159.8ms  | -              | -             |
+| Simple arithmetic (100K iterations)   | 0.5ms    | 1.0ms (1.9x)   | 0.5ms (1.1x)  |
+| Object manipulation (100K iterations) | 1.0ms    | 1.7ms (1.7x)   | 1.1ms (1.1x)  |
+| 3-function chain (100K iterations)    | 0.6ms    | 2.0ms (3.1x)   | 0.6ms (~1.0x) |
 
 ## Key Findings
 
@@ -42,6 +42,7 @@ function fastAdd(! a: 0, b: 0) -> 0 { return a + b }
 ```
 
 Performance comparison:
+
 - Simple arithmetic: Safe 1.9x vs Unsafe 1.1x
 - Object manipulation: Safe 1.7x vs Unsafe 1.1x
 - 3-function chain: Safe 3.1x vs Unsafe ~1.0x

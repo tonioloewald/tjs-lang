@@ -6,8 +6,8 @@
  *   10 -> { kind: 'number' }
  *   ['string'] -> { kind: 'array', items: { kind: 'string' } }
  *   { name: 'string' } -> { kind: 'object', shape: { name: { kind: 'string' } } }
- *   'string' || null -> { kind: 'string', nullable: true }
- *   'string' || 0 -> { kind: 'union', members: [{ kind: 'string' }, { kind: 'number' }] }
+ *   'string' | null -> { kind: 'string', nullable: true }
+ *   'string' | 0 -> { kind: 'union', members: [{ kind: 'string' }, { kind: 'number' }] }
  */
 
 import { parseExpressionAt } from 'acorn'
@@ -71,24 +71,8 @@ export function inferTypeFromValue(node: Expression): TypeDescriptor {
       const { operator, left, right } = node as any
 
       if (operator === '||') {
-        const leftType = inferTypeFromValue(left)
-        const rightType = inferTypeFromValue(right)
-
-        // type || null means nullable type
-        if (rightType.kind === 'null') {
-          return { ...leftType, nullable: true }
-        }
-
-        // null || type means nullable type (reverse)
-        if (leftType.kind === 'null') {
-          return { ...rightType, nullable: true }
-        }
-
-        // type1 || type2 means union
-        return {
-          kind: 'union',
-          members: [leftType, rightType],
-        }
+        // || is JavaScript logical OR — infer type from left operand
+        return inferTypeFromValue(left)
       }
 
       if (operator === '&&') {
@@ -103,6 +87,27 @@ export function inferTypeFromValue(node: Expression): TypeDescriptor {
         return rightType
       }
 
+      return { kind: 'any' }
+    }
+
+    case 'BinaryExpression': {
+      const { operator, left, right } = node as any
+      // | means union type (e.g., 0 | null, '' | undefined)
+      if (operator === '|') {
+        const leftType = inferTypeFromValue(left)
+        const rightType = inferTypeFromValue(right)
+
+        if (rightType.kind === 'null') {
+          return { ...leftType, nullable: true }
+        }
+        if (leftType.kind === 'null') {
+          return { ...rightType, nullable: true }
+        }
+        return {
+          kind: 'union',
+          members: [leftType, rightType],
+        }
+      }
       return { kind: 'any' }
     }
 
@@ -281,6 +286,15 @@ export function extractLiteralValue(node: Expression): any {
         return typeof arg === 'number' ? +arg : undefined
       }
       return undefined
+
+    case 'BinaryExpression': {
+      const { operator, left } = node as any
+      // | is union type — extract the left (primary) example value
+      if (operator === '|') {
+        return extractLiteralValue(left)
+      }
+      return undefined
+    }
 
     case 'LogicalExpression': {
       const { operator, left, right } = node as any

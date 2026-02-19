@@ -37,14 +37,16 @@ describe('TJS Emitter', () => {
       expect(result.types.test.params.optional.required).toBe(false)
     })
 
-    it('should convert colon syntax to default values in output', () => {
+    it('should strip colon type annotations from output (no default for required params)', () => {
       const result = transpileToJS(`
         function greet(name: 'world') {
           return name
         }
       `)
-      expect(result.code).toContain("name = 'world'")
+      // Required `:` params have no default in JS output
+      expect(result.code).toContain('function greet(name)')
       expect(result.code).not.toContain("name: 'world'")
+      expect(result.code).not.toContain("name = 'world'")
     })
 
     it('should handle object type annotations', () => {
@@ -225,7 +227,7 @@ function greet(name: 'world') {
           return x
         }
       `)
-      expect(result.code).toContain('function test(x = 0)')
+      expect(result.code).toContain('function test(x)')
       expect(result.code).not.toContain('!')
     })
 

@@ -28,11 +28,11 @@ describe('TS → TJS conversion quality', () => {
       expect(code).not.toContain('x: number')
     })
 
-    it('converts optional param to equals syntax', () => {
+    it('converts optional param to union with undefined', () => {
       const ts = `function greet(name?: string): string { return name || 'World' }`
       const { code } = fromTS(ts, { emitTJS: true })
 
-      expect(code).toContain("name = ''")
+      expect(code).toContain("name: '' | undefined")
       expect(code).not.toContain('name?')
     })
 
@@ -50,12 +50,11 @@ describe('TS → TJS conversion quality', () => {
       expect(code).toContain('flag: false')
     })
 
-    it('converts optional boolean param to = false', () => {
+    it('converts optional boolean param to union with undefined', () => {
       const ts = `function greet(name: string, excited?: boolean): string { return excited ? name + '!' : name }`
       const { code } = fromTS(ts, { emitTJS: true })
 
-      expect(code).toContain('excited = false')
-      expect(code).not.toContain('excited = true')
+      expect(code).toContain('excited: false | undefined')
     })
 
     it('converts array param correctly', () => {
@@ -86,7 +85,7 @@ describe('TS → TJS conversion quality', () => {
       const { code } = fromTS(ts, { emitTJS: true })
 
       expect(code).toContain("url: ''")
-      expect(code).toContain('timeout = 0')
+      expect(code).toContain('timeout: 0.0 | undefined')
     })
   })
 
@@ -296,18 +295,18 @@ class Api {
   })
 
   describe('nullable types', () => {
-    it('converts T | null to T || null', () => {
+    it('converts T | null to T | null', () => {
       const ts = `function maybe(x: string | null): string | null { return x }`
       const { code } = fromTS(ts, { emitTJS: true })
 
-      expect(code).toContain("'' || null")
+      expect(code).toContain("'' | null")
     })
 
-    it('converts T | undefined to T || undefined', () => {
+    it('converts T | undefined to T | undefined', () => {
       const ts = `function maybe(x: number | undefined): number | undefined { return x }`
       const { code } = fromTS(ts, { emitTJS: true })
 
-      expect(code).toContain('0 || undefined')
+      expect(code).toContain('0 | undefined')
     })
   })
 
@@ -379,12 +378,21 @@ class Api {
 
 describe('TJS → JS transpilation quality', () => {
   describe('colon syntax transformation', () => {
-    it('transforms colon params to defaults in output', () => {
+    it('strips colon type annotations from output (required params get no default)', () => {
       const source = `function greet(name: 'World') { return name }`
       const { code } = tjs(source)
 
-      expect(code).toContain('name = ')
+      // Required params (`:` syntax) should have no default in JS
+      expect(code).toContain('function greet(name)')
       expect(code).not.toContain("name: 'World'")
+      expect(code).not.toContain('name = ')
+    })
+
+    it('preserves defaults for optional params (= syntax)', () => {
+      const source = `function greet(name = 'World') { return name }`
+      const { code } = tjs(source)
+
+      expect(code).toContain("name = 'World'")
     })
   })
 
@@ -632,12 +640,12 @@ console.log(second())
       expect(code).not.toContain('y: string')
     })
 
-    it('uses equals syntax for optional params', () => {
+    it('uses union with undefined for optional params', () => {
       const ts = `function test(x?: number, y?: string): void { }`
       const { code } = fromTS(ts, { emitTJS: true })
 
-      expect(code).toContain('x = 0')
-      expect(code).toContain("y = ''")
+      expect(code).toContain('x: 0.0 | undefined')
+      expect(code).toContain("y: '' | undefined")
     })
 
     it('uses -! syntax for return types (skip signature test)', () => {
@@ -1255,7 +1263,9 @@ function test(required: string, optional?: number): void { }
       const { types } = tjs(tjsCode)
 
       expect(types?.test?.params?.required?.required).toBe(true)
-      expect(types?.test?.params?.optional?.required).toBe(false)
+      // TS optional becomes TJS union with undefined (required param that accepts undefined)
+      expect(types?.test?.params?.optional?.required).toBe(true)
+      expect(types?.test?.params?.optional?.type?.kind).toBe('union')
     })
   })
 })
@@ -1788,7 +1798,7 @@ function format(x: '') -! '' { return x + '!' }
     })
 
     it('error short-circuits function body', () => {
-      let bodyExecuted = false
+      const bodyExecuted = false
 
       const { code } = tjs(`
 function process(x: '') -! '' {
@@ -1933,6 +1943,48 @@ function divide(a: 10, b: 2) -? { value: 0, error = '' } {
 `)
       expect(result.code).toContain('"defaults"')
       expect(result.code).toContain('"error"')
+    })
+  })
+
+  describe('union param JS output', () => {
+    it('required union param has no default in JS', () => {
+      const result = tjs('function f(x: false | undefined) { return x }')
+      expect(result.code).toContain('function f(x)')
+      expect(result.code).not.toMatch(/x = false/)
+      expect(result.code).not.toMatch(/x = false \| undefined/)
+    })
+
+    it('optional union param keeps first value as default', () => {
+      const result = tjs('function f(x = false | undefined) { return x }')
+      expect(result.code).toContain('x = false')
+      expect(result.code).not.toMatch(/x = false \| undefined/)
+    })
+
+    it('generates union type check for required union param', () => {
+      const result = tjs('function f(x: false | undefined) { return x }')
+      expect(result.code).toContain("typeof x !== 'boolean'")
+      expect(result.code).toContain('x !== undefined')
+    })
+
+    it('generates nullable integer check for int|null', () => {
+      const result = tjs('function f(x: 0 | null) { return x }')
+      expect(result.code).toContain('function f(x)')
+      // 0 | null is parsed as { kind: 'integer', nullable: true }, not a union
+      expect(result.code).toContain("'integer'")
+      // Nullable types skip the check when value is null
+      expect(result.metadata?.f?.params?.x?.type?.nullable).toBe(true)
+    })
+
+    it('preserves | in function body (bitwise OR)', () => {
+      const result = tjs('function f(x: 0) { return x | 0xFF }')
+      expect(result.code).toContain('x | 0xFF')
+    })
+
+    it('preserves union metadata despite stripping from JS', () => {
+      const result = tjs('function f(x: false | undefined) { return x }')
+      const meta = result.metadata?.f
+      expect(meta).toBeDefined()
+      expect(meta.params.x.type.kind).toBe('union')
     })
   })
 })

@@ -19,13 +19,13 @@ describe('TypeScript to TJS Transpiler', () => {
       expect(result.code).toContain('b: 0')
     })
 
-    it('should convert optional params to = syntax', () => {
+    it('should convert optional params to union with undefined', () => {
       const result = fromTS(
         `function greet(name: string, title?: string) { return name }`,
         { emitTJS: true }
       )
       expect(result.code).toContain("name: ''")
-      expect(result.code).toContain("title = ''")
+      expect(result.code).toContain("title: '' | undefined")
     })
 
     it('should convert return type to -! annotation (skip signature test)', () => {
@@ -57,7 +57,7 @@ describe('TypeScript to TJS Transpiler', () => {
         `function find(id: string): string | null { return null }`,
         { emitTJS: true }
       )
-      expect(result.code).toContain("-! '' || null") // -! for TS-transpiled
+      expect(result.code).toContain("-! '' | null") // -! for TS-transpiled
     })
 
     it('should preserve default values', () => {
