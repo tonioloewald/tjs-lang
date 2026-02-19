@@ -36,7 +36,7 @@
   "functions": {
     "source": "functions",
     "codebase": "default",
-    "runtime": "nodejs24"
+    "runtime": "nodejs22"
   },
   "firestore": {
     "rules": "firestore.rules"

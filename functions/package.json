@@ -5,7 +5,7 @@
   "type": "module",
   "main": "lib/index.js",
   "engines": {
-    "node": "24"
+    "node": "22"
   },
   "scripts": {
     "build:transpile": "cd .. && for f in functions/src/*.tjs; do bun src/cli/tjs.ts emit \"$f\" > \"${f%.tjs}.js\"; done",
@@ -15,8 +15,8 @@
     "deploy": "npm run build && firebase deploy --only functions"
   },
   "dependencies": {
-    "firebase-admin": "^12.0.0",
-    "firebase-functions": "^5.0.0"
+    "firebase-admin": "^13.6.1",
+    "firebase-functions": "^7.0.5"
   },
   "devDependencies": {
     "tjs-lang": "^0.2.8"
