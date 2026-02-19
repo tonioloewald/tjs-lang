@@ -137,6 +137,9 @@ dist
 .models.cache.json
 .DS_Store
 
+# Firebase functions — bun.lock triggers Cloud Build to use bun runtime
+functions/bun.lock
+
 # Demo build output (served via Firebase, not committed)
 .demo/
 
