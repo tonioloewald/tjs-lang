@@ -31,8 +31,8 @@ interface PinnedPackage {
 const PINNED_PACKAGES: Record<string, PinnedPackage> = {
   // tjs-lang itself (used by demos like Universal Endpoint)
   'tjs-lang': {
-    version: '0.5.1',
-    cdn: 'https://cdn.jsdelivr.net/npm/tjs-lang@0.5.1/dist/index.js',
+    version: '0.5.4',
+    cdn: 'https://cdn.jsdelivr.net/npm/tjs-lang@0.5.4/dist/index.js',
   },
 
   // tosijs ecosystem
