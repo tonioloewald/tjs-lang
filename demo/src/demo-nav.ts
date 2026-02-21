@@ -8,7 +8,7 @@
  * - TJS Docs (documentation that opens in floating viewer)
  */
 
-import { Component, elements, ElementCreator, vars, observe } from 'tosijs'
+import { Component, elements, ElementCreator, vars, bind } from 'tosijs'
 import {
   xinFloat,
   XinFloat,
@@ -75,6 +75,7 @@ interface DocItem {
 export class DemoNav extends Component {
   private _docs: DocItem[] = []
   private _appState: any = null // boxed proxy from index.ts
+  private _built = false
   private floatViewer: XinFloat | null = null
   private mdViewer: MarkdownViewer | null = null
 
@@ -93,42 +94,7 @@ export class DemoNav extends Component {
   set appState(state: any) {
     this._appState = state
     if (!state) return
-    // Observe state changes to update nav
-    observe(/^app\.(currentView|currentExample)/, () => {
-      this.rebuildNav()
-      this.updateCurrentIndicator()
-    })
-    observe('app.openSection', () => {
-      this.rebuildNav()
-    })
-    // Initial sync
-    this.rebuildNav()
-    this.updateCurrentIndicator()
-  }
-
-  private get _currentView(): string {
-    return this._appState?.currentView?.valueOf() ?? 'home'
-  }
-
-  private get _currentExampleName(): string | null {
-    const ex = this._appState?.currentExample?.valueOf()
-    if (!ex) return null
-    return ex.name || ex.title || null
-  }
-
-  private get _openSection(): string | null {
-    return this._appState?.openSection?.valueOf() ?? null
-  }
-
-  private updateCurrentIndicator() {
-    const exName = this._currentExampleName
-    const items = this.querySelectorAll('.nav-item')
-    items.forEach((item) => {
-      const itemName = item.textContent?.trim()
-      item.classList.toggle('current', itemName === exName)
-    })
-    const homeLink = this.querySelector('.home-link')
-    homeLink?.classList.toggle('current', this._currentView === 'home')
+    this.tryBuild()
   }
 
   get docs(): DocItem[] {
@@ -137,8 +103,16 @@ export class DemoNav extends Component {
 
   set docs(value: DocItem[]) {
     this._docs = value
-    this.rebuildNav()
-    this.updateCurrentIndicator()
+    this.tryBuild()
+  }
+
+  // Build nav once when both docs and appState are available
+  private tryBuild() {
+    if (this._built || !this._appState || !this._docs.length) return
+    const container = this.querySelector('.nav-sections')
+    if (!container) return
+    this._built = true
+    this.buildNav(container)
   }
 
   // Light DOM styles (no static styleSpec)
@@ -273,9 +247,7 @@ export class DemoNav extends Component {
 
   connectedCallback() {
     super.connectedCallback()
-    this.rebuildNav()
-    // Update indicator after DOM is ready
-    this.updateCurrentIndicator()
+    this.tryBuild()
   }
 
   // Group labels for display
@@ -316,199 +288,156 @@ export class DemoNav extends Component {
   >(examples: T[], renderItem: (ex: T) => HTMLElement): HTMLElement[] {
     const grouped = new Map<string, T[]>()
 
-    // Group examples
     for (const ex of examples) {
       const group = ex.group || 'other'
-      if (!grouped.has(group)) {
-        grouped.set(group, [])
-      }
+      if (!grouped.has(group)) grouped.set(group, [])
       grouped.get(group)!.push(ex)
     }
 
-    // Sort groups by GROUP_ORDER
     const sortedGroups = Array.from(grouped.keys()).sort((a, b) => {
       const orderA = DemoNav.GROUP_ORDER.indexOf(a)
       const orderB = DemoNav.GROUP_ORDER.indexOf(b)
       return (orderA === -1 ? 99 : orderA) - (orderB === -1 ? 99 : orderB)
     })
 
-    // Render groups with headers
-    const elements: HTMLElement[] = []
+    const elts: HTMLElement[] = []
     for (const group of sortedGroups) {
       const items = grouped.get(group)!
       const label = DemoNav.GROUP_LABELS[group] || group
-
-      // Add group header
-      elements.push(div({ class: 'group-header' }, label))
-
-      // Add items in this group
-      for (const ex of items) {
-        elements.push(renderItem(ex))
-      }
+      elts.push(div({ class: 'group-header' }, label))
+      for (const ex of items) elts.push(renderItem(ex))
     }
-
-    return elements
+    return elts
   }
 
-  rebuildNav() {
-    const container = this.querySelector('.nav-sections')
-    if (!container) return
+  // Create a nav item bound to currentExample for highlighting
+  private boundNavItem(
+    name: string,
+    extra: { description?: string; requiresApi?: boolean },
+    onClick: () => void
+  ): HTMLElement {
+    const baseClass = extra.requiresApi ? 'nav-item requires-api' : 'nav-item'
+    const item = div(
+      {
+        class: baseClass,
+        title: extra.description,
+        'data-name': name,
+        onClick,
+      },
+      name
+    )
+    bind(item, 'app.currentExample', {
+      toDOM(el: HTMLElement, example: any) {
+        const current = example?.name || example?.title || null
+        el.classList.toggle('current', current === name)
+      },
+    })
+    return item
+  }
 
-    container.innerHTML = ''
+  // Create a details section bound to openSection for open/close
+  private boundSection(
+    sectionId: string,
+    icon: Element,
+    label: string,
+    children: HTMLElement[]
+  ): HTMLElement {
+    const det = details(
+      {
+        'data-section': sectionId,
+        onToggle: this.handleToggle,
+      },
+      summary(span({ class: 'section-icon' }, icon), label),
+      div({ class: 'section-content' }, ...children)
+    )
+    bind(det, 'app.openSection', {
+      toDOM(el: HTMLDetailsElement, section: string | null) {
+        el.open = section === sectionId
+      },
+    })
+    return det
+  }
+
+  // Build the nav once — all reactive updates via bind
+  private buildNav(container: Element) {
+    const homeLink = div(
+      {
+        class: 'home-link',
+        onClick: () => this.selectHome(),
+      },
+      span({ class: 'section-icon' }, icons.home({ size: 16 })),
+      'Home'
+    )
+    bind(homeLink, 'app.currentView', {
+      toDOM(el: HTMLElement, view: string) {
+        el.classList.toggle('current', view === 'home')
+      },
+    })
+
     container.append(
-      // Home link
-      div(
-        {
-          class:
-            this._currentView === 'home' ? 'home-link current' : 'home-link',
-          onClick: () => this.selectHome(),
-        },
-        span({ class: 'section-icon' }, icons.home({ size: 16 })),
-        'Home'
-      ),
+      homeLink,
 
-      // TypeScript Examples (TS -> TJS -> JS pipeline)
-      details(
-        {
-          open: this._openSection === 'ts-demos',
-          'data-section': 'ts-demos',
-          onToggle: this.handleToggle,
-        },
-        summary(
-          span({ class: 'section-icon' }, icons.code({ size: 16 })),
-          'TypeScript Examples'
-        ),
-        div(
-          { class: 'section-content' },
-          ...this.renderGroupedExamples(tsExamples, (ex) =>
-            div(
-              {
-                class: 'nav-item',
-                title: ex.description,
-                onClick: () => this.selectTsExample(ex),
-              },
-              ex.name
-            )
-          )
+      this.boundSection(
+        'ts-demos',
+        icons.code({ size: 16 }),
+        'TypeScript Examples',
+        this.renderGroupedExamples(tsExamples, (ex) =>
+          this.boundNavItem(ex.name, ex, () => this.selectTsExample(ex))
         )
       ),
 
-      // TJS Examples
-      details(
-        {
-          open: this._openSection === 'tjs-demos',
-          'data-section': 'tjs-demos',
-          onToggle: this.handleToggle,
-        },
-        summary(
-          span({ class: 'section-icon' }, icons.code({ size: 16 })),
-          'TJS Examples'
-        ),
-        div(
-          { class: 'section-content' },
-          ...this.renderGroupedExamples(this.tjsExamples, (ex) =>
-            div(
-              {
-                class: 'nav-item',
-                title: ex.description,
-                onClick: () => this.selectTjsExample(ex),
-              },
-              ex.title || ex.name
-            )
-          )
+      this.boundSection(
+        'tjs-demos',
+        icons.code({ size: 16 }),
+        'TJS Examples',
+        this.renderGroupedExamples(this.tjsExamples, (ex) => {
+          const name = ex.title || ex.name || 'Untitled'
+          return this.boundNavItem(name, ex, () => this.selectTjsExample(ex))
+        })
+      ),
+
+      this.boundSection(
+        'ajs-demos',
+        icons.code({ size: 16 }),
+        'AJS Examples',
+        this.renderGroupedExamples(this.ajsExamples, (ex) => {
+          const name = ex.title || ex.name || 'Untitled'
+          return this.boundNavItem(name, ex, () => this.selectAjsExample(ex))
+        })
+      ),
+
+      this.boundSection(
+        'tjs-docs',
+        icons.book({ size: 16 }),
+        'TJS Docs',
+        this.getTjsDocs().map((doc) =>
+          this.boundNavItem(doc.title, doc, () => this.selectDoc(doc))
         )
       ),
 
-      // AJS Examples
-      details(
-        {
-          open: this._openSection === 'ajs-demos',
-          'data-section': 'ajs-demos',
-          onToggle: this.handleToggle,
-        },
-        summary(
-          span({ class: 'section-icon' }, icons.code({ size: 16 })),
-          'AJS Examples'
-        ),
-        div(
-          { class: 'section-content' },
-          ...this.renderGroupedExamples(this.ajsExamples, (ex) =>
-            div(
-              {
-                class: ex.requiresApi ? 'nav-item requires-api' : 'nav-item',
-                title: ex.description,
-                onClick: () => this.selectAjsExample(ex),
-              },
-              ex.title || ex.name
-            )
-          )
-        )
-      ),
-
-      // TJS Docs
-      details(
-        {
-          open: this._openSection === 'tjs-docs',
-          'data-section': 'tjs-docs',
-          onToggle: this.handleToggle,
-        },
-        summary(
-          span({ class: 'section-icon' }, icons.book({ size: 16 })),
-          'TJS Docs'
-        ),
-        div(
-          { class: 'section-content' },
-          ...this.getTjsDocs().map((doc) =>
-            div(
-              {
-                class: 'nav-item',
-                onClick: () => this.selectDoc(doc),
-              },
-              doc.title
-            )
-          )
-        )
-      ),
-
-      // AJS Docs
-      details(
-        {
-          open: this._openSection === 'ajs-docs',
-          'data-section': 'ajs-docs',
-          onToggle: this.handleToggle,
-        },
-        summary(
-          span({ class: 'section-icon' }, icons.book({ size: 16 })),
-          'AJS Docs'
-        ),
-        div(
-          { class: 'section-content' },
-          ...this.getAjsDocs().map((doc) =>
-            div(
-              {
-                class: 'nav-item',
-                onClick: () => this.selectDoc(doc),
-              },
-              doc.title
-            )
-          )
+      this.boundSection(
+        'ajs-docs',
+        icons.book({ size: 16 }),
+        'AJS Docs',
+        this.getAjsDocs().map((doc) =>
+          this.boundNavItem(doc.title, doc, () => this.selectDoc(doc))
         )
       )
     )
   }
 
   handleToggle = (event: Event) => {
-    const details = event.target as HTMLDetailsElement
-    const section = details.getAttribute('data-section')
+    const det = event.target as HTMLDetailsElement
+    const section = det.getAttribute('data-section')
+    if (!this._appState) return
 
-    if (details.open) {
-      if (this._appState) this._appState.openSection.value = section
-      // Close other sections (accordion behavior)
-      this.querySelectorAll('details').forEach((d) => {
-        if (d !== details && d.open) {
-          d.open = false
-        }
-      })
+    const current = this._appState.openSection.valueOf()
+    if (det.open && current !== section) {
+      // User opened a section — update state (bind handles the rest)
+      this._appState.openSection.value = section
+    } else if (!det.open && current === section) {
+      // User closed the current section
+      this._appState.openSection.value = null
     }
   }
 
@@ -602,6 +531,7 @@ export class DemoNav extends Component {
           padding: '4px',
           border: 'none',
           background: 'transparent',
+          color: vars.textColor,
           cursor: 'pointer',
         },
       },
@@ -620,7 +550,8 @@ export class DemoNav extends Component {
           width: '500px',
           maxWidth: 'calc(100vw - 40px)',
           maxHeight: '80vh',
-          background: 'white',
+          background: vars.background,
+          color: vars.textColor,
           borderRadius: '8px',
           boxShadow: '0 4px 20px rgba(0,0,0,0.15)',
           overflow: 'hidden',
@@ -634,13 +565,16 @@ export class DemoNav extends Component {
             display: 'flex',
             alignItems: 'center',
             padding: '6px 12px',
-            background: '#f3f4f6',
-            borderBottom: '1px solid #e5e7eb',
+            background: vars.codeBackground,
+            borderBottom: `1px solid ${vars.codeBorder}`,
             cursor: 'move',
           },
         },
         span(
-          { class: 'float-title', style: { flex: '1', fontWeight: '500' } },
+          {
+            class: 'float-title',
+            style: { flex: '1', fontWeight: '500', color: vars.textColor },
+          },
           doc.title
         ),
         closeBtn
