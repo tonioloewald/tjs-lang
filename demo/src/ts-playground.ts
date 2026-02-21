@@ -513,6 +513,7 @@ export class TSPlayground extends Component<TSPlaygroundParts> {
         htmlContent,
         importMapScript,
         jsCode,
+        darkMode: document.body.classList.contains('darkmode'),
       })
 
       // Clean up any previous message handler

@@ -79,6 +79,8 @@ export interface IframeDocOptions {
   parentBindings?: boolean
   /** Auto-find and call TJS-annotated functions, append DOM results */
   autoCallTjsFunction?: boolean
+  /** Whether parent is in dark mode — sets color-scheme on iframe */
+  darkMode?: boolean
 }
 
 /**
@@ -95,7 +97,10 @@ export function buildIframeDoc(options: IframeDocOptions): string {
     importStatements = [],
     parentBindings = false,
     autoCallTjsFunction = false,
+    darkMode = false,
   } = options
+
+  const colorScheme = darkMode ? 'dark' : 'light dark'
 
   const parentBindingsScript = parentBindings
     ? `
@@ -146,6 +151,7 @@ export function buildIframeDoc(options: IframeDocOptions): string {
     return `<!DOCTYPE html>
 <html>
 <head>
+  <style>:root { color-scheme: ${colorScheme} }</style>
   <style>${cssContent}</style>
   ${importMapScript}
 </head>
@@ -174,6 +180,7 @@ ${CONSOLE_CAPTURE_SCRIPT}
   return `<!DOCTYPE html>
 <html>
 <head>
+  <style>:root { color-scheme: ${colorScheme} }</style>
   <style>${cssContent}</style>
   ${importMapScript}
 </head>

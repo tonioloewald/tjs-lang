@@ -1034,6 +1034,7 @@ export class TJSPlayground extends Component<TJSPlaygroundParts> {
         importStatements,
         parentBindings: true,
         autoCallTjsFunction: true,
+        darkMode: document.body.classList.contains('darkmode'),
       })
 
       // Listen for messages from iframe

@@ -20,10 +20,15 @@ const moduleCache = new Map<string, string>()
 // Common packages with pinned versions and ESM paths
 // Packages with proper "exports" or "module" fields in package.json
 // may work without explicit paths, but it's safer to specify them
-const PINNED_PACKAGES: Record<
-  string,
-  { version: string; path?: string; cdn?: string }
-> = {
+interface PinnedPackage {
+  version: string
+  path?: string
+  cdn?: string
+  // Transitive deps to include in the import map when this package is imported
+  deps?: string[]
+}
+
+const PINNED_PACKAGES: Record<string, PinnedPackage> = {
   // tjs-lang itself (used by demos like Universal Endpoint)
   'tjs-lang': {
     version: '0.5.1',
@@ -32,7 +37,11 @@ const PINNED_PACKAGES: Record<
 
   // tosijs ecosystem
   tosijs: { version: '1.2.0', path: '/dist/module.js' },
-  'tosijs-ui': { version: '1.2.0', path: '/dist/index.js' },
+  'tosijs-ui': {
+    version: '1.2.0',
+    path: '/dist/index.js',
+    deps: ['tosijs', 'marked'],
+  },
 
   // Utilities - lodash-es is native ESM
   'lodash-es': { version: '4.17.21' },
@@ -56,11 +65,36 @@ const PINNED_PACKAGES: Record<
   'react-dom': {
     version: '18.2.0',
     cdn: 'https://cdn.jsdelivr.net/npm/react-dom@18.2.0/+esm',
+    deps: ['react'],
   },
   'react-dom/client': {
     version: '18.2.0',
     cdn: 'https://cdn.jsdelivr.net/npm/react-dom@18.2.0/client/+esm',
+    deps: ['react', 'react-dom'],
   },
+}
+
+/**
+ * Expand a list of specifiers to include transitive deps from PINNED_PACKAGES.
+ * Walks the deps graph to collect all needed packages.
+ */
+function expandWithDeps(specifiers: string[]): string[] {
+  const all = new Set(specifiers)
+  const queue = [...specifiers]
+  while (queue.length > 0) {
+    const spec = queue.pop()!
+    const { name } = parseSpecifier(spec)
+    const pinned = PINNED_PACKAGES[spec] || PINNED_PACKAGES[name]
+    if (pinned?.deps) {
+      for (const dep of pinned.deps) {
+        if (!all.has(dep)) {
+          all.add(dep)
+          queue.push(dep)
+        }
+      }
+    }
+  }
+  return [...all]
 }
 
 /**
@@ -156,7 +190,7 @@ export function generateImportMap(specifiers: string[]): {
 } {
   const imports: Record<string, string> = {}
 
-  for (const specifier of specifiers) {
+  for (const specifier of expandWithDeps(specifiers)) {
     imports[specifier] = getCDNUrl(specifier)
   }
 
@@ -300,7 +334,7 @@ export async function resolveImports(source: string): Promise<{
   errors: string[]
   localModules: string[]
 }> {
-  const specifiers = extractImports(source)
+  const specifiers = expandWithDeps(extractImports(source))
   const errors: string[] = []
   const imports: Record<string, string> = {}
   const localModules: string[] = []
