@@ -867,11 +867,11 @@ export class Playground extends Component<PlaygroundParts> {
         const isHttps = window.location.protocol === 'https:'
         if (isHttps) {
           throw new Error(
-            'No LLM configured. Go to Settings (⋮) > API Keys to add an OpenAI or Anthropic API key. Note: Local LLM endpoints require HTTP.'
+            'No LLM configured. Go to Settings (⋮) > API Keys to add an API key (OpenAI, Anthropic, Gemini, or Deepseek). Note: Local LLM endpoints require HTTP.'
           )
         } else {
           throw new Error(
-            'No LLM configured. Go to Settings (⋮) > API Keys to add an OpenAI key, Anthropic key, or LM Studio endpoint (default: http://localhost:1234/v1).'
+            'No LLM configured. Go to Settings (⋮) > API Keys to add an API key (OpenAI, Anthropic, Gemini, Deepseek) or LM Studio endpoint (default: http://localhost:1234/v1).'
           )
         }
       }

@@ -135,12 +135,14 @@ export type LLMProvider =
   | 'custom'
   | 'openai'
   | 'anthropic'
+  | 'gemini'
   | 'deepseek'
 
 export interface LLMSettings {
   preferredProvider: LLMProvider
   openaiKey: string
   anthropicKey: string
+  geminiKey: string
   deepseekKey: string
   customLlmUrl: string
 }
@@ -152,6 +154,7 @@ export function getSettings(): LLMSettings {
       'auto') as LLMProvider,
     openaiKey: localStorage.getItem('openaiKey') || '',
     anthropicKey: localStorage.getItem('anthropicKey') || '',
+    geminiKey: localStorage.getItem('geminiKey') || '',
     deepseekKey: localStorage.getItem('deepseekKey') || '',
     customLlmUrl: localStorage.getItem('customLlmUrl') || '',
   }
@@ -163,6 +166,7 @@ export function buildLLMCapability(settings: LLMSettings) {
     preferredProvider,
     openaiKey,
     anthropicKey,
+    geminiKey,
     deepseekKey,
     customLlmUrl,
   } = settings
@@ -171,9 +175,16 @@ export function buildLLMCapability(settings: LLMSettings) {
   const hasCustomUrl = customLlmUrl && customLlmUrl.trim() !== ''
   const hasOpenAI = openaiKey && openaiKey.trim() !== ''
   const hasAnthropic = anthropicKey && anthropicKey.trim() !== ''
+  const hasGemini = geminiKey && geminiKey.trim() !== ''
   const hasDeepseek = deepseekKey && deepseekKey.trim() !== ''
 
-  if (!hasCustomUrl && !hasOpenAI && !hasAnthropic && !hasDeepseek) {
+  if (
+    !hasCustomUrl &&
+    !hasOpenAI &&
+    !hasAnthropic &&
+    !hasGemini &&
+    !hasDeepseek
+  ) {
     return null
   }
 
@@ -280,6 +291,33 @@ export function buildLLMCapability(settings: LLMSettings) {
     return data.content?.[0]?.text ?? ''
   }
 
+  const callGemini = async (prompt: string, options?: any): Promise<string> => {
+    const model = options?.model || 'gemini-2.0-flash'
+    const response = await fetch(
+      `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${geminiKey}`,
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          contents: [{ parts: [{ text: prompt }] }],
+          generationConfig: {
+            temperature: options?.temperature ?? 0.7,
+          },
+        }),
+      }
+    )
+    if (!response.ok) {
+      const error = await response.json().catch(() => ({}))
+      throw new Error(
+        `Gemini Error: ${response.status} - ${
+          error.error?.message || 'Check your API key'
+        }`
+      )
+    }
+    const data = await response.json()
+    return data.candidates?.[0]?.content?.parts?.[0]?.text ?? ''
+  }
+
   const callDeepseek = async (
     prompt: string,
     options?: any
@@ -320,6 +358,8 @@ export function buildLLMCapability(settings: LLMSettings) {
         return callOpenAI(prompt, options)
       if (preferredProvider === 'anthropic' && hasAnthropic)
         return callAnthropic(prompt, options)
+      if (preferredProvider === 'gemini' && hasGemini)
+        return callGemini(prompt, options)
       if (preferredProvider === 'deepseek' && hasDeepseek)
         return callDeepseek(prompt, options)
 
@@ -329,6 +369,7 @@ export function buildLLMCapability(settings: LLMSettings) {
           custom: 'Custom Endpoint',
           openai: 'OpenAI',
           anthropic: 'Anthropic',
+          gemini: 'Google Gemini',
           deepseek: 'Deepseek',
         }
         throw new Error(
@@ -340,6 +381,7 @@ export function buildLLMCapability(settings: LLMSettings) {
       if (hasCustomUrl) return callCustom(prompt, options)
       if (hasOpenAI) return callOpenAI(prompt, options)
       if (hasAnthropic) return callAnthropic(prompt, options)
+      if (hasGemini) return callGemini(prompt, options)
       if (hasDeepseek) return callDeepseek(prompt, options)
 
       throw new Error('No LLM provider configured')
@@ -377,6 +419,7 @@ export function buildLLMBattery(settings: LLMSettings) {
     preferredProvider,
     openaiKey,
     anthropicKey,
+    geminiKey,
     deepseekKey,
     customLlmUrl,
   } = settings
@@ -384,9 +427,16 @@ export function buildLLMBattery(settings: LLMSettings) {
   const hasCustomUrl = customLlmUrl && customLlmUrl.trim() !== ''
   const hasOpenAI = openaiKey && openaiKey.trim() !== ''
   const hasAnthropic = anthropicKey && anthropicKey.trim() !== ''
+  const hasGemini = geminiKey && geminiKey.trim() !== ''
   const hasDeepseek = deepseekKey && deepseekKey.trim() !== ''
 
-  if (!hasCustomUrl && !hasOpenAI && !hasAnthropic && !hasDeepseek) {
+  if (
+    !hasCustomUrl &&
+    !hasOpenAI &&
+    !hasAnthropic &&
+    !hasGemini &&
+    !hasDeepseek
+  ) {
     return null
   }
 
@@ -780,6 +830,59 @@ export function buildLLMBattery(settings: LLMSettings) {
     return data.choices?.[0]?.message ?? { content: '' }
   }
 
+  const callGemini = async (
+    system: string,
+    user: UserContent,
+    _tools?: any[],
+    _responseFormat?: any
+  ): Promise<BatteryResult> => {
+    const model = 'gemini-2.0-flash'
+    const userText = typeof user === 'string' ? user : user.text
+    const contents: any[] = []
+    if (system) {
+      contents.push({ role: 'user', parts: [{ text: system }] })
+      contents.push({
+        role: 'model',
+        parts: [{ text: 'Understood.' }],
+      })
+    }
+    const userParts: any[] = [{ text: userText }]
+    if (typeof user !== 'string' && user.images?.length) {
+      for (const img of user.images) {
+        const match = img.match(/^data:(.*?);base64,(.*)$/)
+        if (match) {
+          userParts.push({
+            inline_data: { mime_type: match[1], data: match[2] },
+          })
+        }
+      }
+    }
+    contents.push({ role: 'user', parts: userParts })
+
+    const response = await fetch(
+      `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${geminiKey}`,
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          contents,
+          generationConfig: { temperature: 0.7 },
+        }),
+      }
+    )
+    if (!response.ok) {
+      const error = await response.json().catch(() => ({}))
+      throw new Error(
+        `Gemini Error: ${response.status} - ${
+          error.error?.message || 'Check your API key'
+        }`
+      )
+    }
+    const data = await response.json()
+    const text = data.candidates?.[0]?.content?.parts?.[0]?.text ?? ''
+    return { content: text }
+  }
+
   return {
     async predict(
       system: string,
@@ -794,6 +897,8 @@ export function buildLLMBattery(settings: LLMSettings) {
         return callOpenAI(system, user, tools, responseFormat)
       if (preferredProvider === 'anthropic' && hasAnthropic)
         return callAnthropic(system, user, tools, responseFormat)
+      if (preferredProvider === 'gemini' && hasGemini)
+        return callGemini(system, user, tools, responseFormat)
       if (preferredProvider === 'deepseek' && hasDeepseek)
         return callDeepseek(system, user, tools, responseFormat)
 
@@ -803,6 +908,7 @@ export function buildLLMBattery(settings: LLMSettings) {
           custom: 'Custom Endpoint',
           openai: 'OpenAI',
           anthropic: 'Anthropic',
+          gemini: 'Google Gemini',
           deepseek: 'Deepseek',
         }
         throw new Error(
@@ -815,6 +921,7 @@ export function buildLLMBattery(settings: LLMSettings) {
       if (hasOpenAI) return callOpenAI(system, user, tools, responseFormat)
       if (hasAnthropic)
         return callAnthropic(system, user, tools, responseFormat)
+      if (hasGemini) return callGemini(system, user, tools, responseFormat)
       if (hasDeepseek) return callDeepseek(system, user, tools, responseFormat)
 
       throw new Error('No LLM provider configured')
