@@ -1988,3 +1988,58 @@ function divide(a: 10, b: 2) -? { value: 0, error = '' } {
     })
   })
 })
+
+describe('TS overloads → TJS → JS full pipeline', () => {
+  it('dispatches by arity at runtime', () => {
+    const tsSource = `
+      function greet(name: string): string;
+      function greet(name: string, greeting: string): string;
+      function greet(name: any, greeting?: any): string {
+        return greeting ? greeting + ', ' + name : 'Hello, ' + name;
+      }
+    `
+    const tjsResult = fromTS(tsSource, { emitTJS: true })
+    const jsResult = tjs(tjsResult.code)
+
+    const savedTjs = globalThis.__tjs
+    const { createRuntime } = require('./runtime')
+    try {
+      globalThis.__tjs = createRuntime()
+      const code = jsResult.code.replace(/^const __tjs =.*\n/m, '')
+      const fn = new Function('__tjs', code + '; return greet')(
+        globalThis.__tjs
+      )
+      expect(fn('World')).toBe('Hello, World')
+      expect(fn('World', 'Hi')).toBe('Hi, World')
+    } finally {
+      globalThis.__tjs = savedTjs
+    }
+  })
+
+  it('dispatches by type at same arity', () => {
+    const tsSource = `
+      function process(x: string): string;
+      function process(x: number): number;
+      function process(x: any): any {
+        if (typeof x === 'string') return x.toUpperCase();
+        return x * 2;
+      }
+    `
+    const tjsResult = fromTS(tsSource, { emitTJS: true })
+    const jsResult = tjs(tjsResult.code)
+
+    const savedTjs = globalThis.__tjs
+    const { createRuntime } = require('./runtime')
+    try {
+      globalThis.__tjs = createRuntime()
+      const code = jsResult.code.replace(/^const __tjs =.*\n/m, '')
+      const fn = new Function('__tjs', code + '; return process')(
+        globalThis.__tjs
+      )
+      expect(fn('hello')).toBe('HELLO')
+      expect(fn(42)).toBe(84)
+    } finally {
+      globalThis.__tjs = savedTjs
+    }
+  })
+})

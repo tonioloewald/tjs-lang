@@ -67,6 +67,8 @@ export interface FunctionTypeInfo {
   description?: string
   /** Generic type parameters with constraints/defaults */
   typeParams?: Record<string, TypeParamInfo>
+  /** Overload signatures (when function has TS overloads) */
+  overloads?: FunctionTypeInfo[]
 }
 
 export interface ClassTypeInfo {
@@ -178,6 +180,18 @@ function typeToExample(
       }
       if (typeName === 'Promise') {
         // Unwrap Promise type
+        if (typeRef.typeArguments?.length) {
+          return typeToExample(typeRef.typeArguments[0], checker, warnings, ctx)
+        }
+        return 'undefined'
+      }
+      if (
+        typeName === 'Generator' ||
+        typeName === 'AsyncGenerator' ||
+        typeName === 'IterableIterator' ||
+        typeName === 'AsyncIterableIterator'
+      ) {
+        // Unwrap to yield type (first type argument)
         if (typeRef.typeArguments?.length) {
           return typeToExample(typeRef.typeArguments[0], checker, warnings, ctx)
         }
@@ -455,6 +469,15 @@ function typeToInfo(
         }
       }
       if (typeName === 'Promise' && typeRef.typeArguments?.length) {
+        return typeToInfo(typeRef.typeArguments[0], ctx)
+      }
+      if (
+        (typeName === 'Generator' ||
+          typeName === 'AsyncGenerator' ||
+          typeName === 'IterableIterator' ||
+          typeName === 'AsyncIterableIterator') &&
+        typeRef.typeArguments?.length
+      ) {
         return typeToInfo(typeRef.typeArguments[0], ctx)
       }
 
@@ -916,7 +939,13 @@ function transformFunctionToTJS(
   warnings?: string[],
   includeLineNumber?: boolean
 ): string {
-  const params = transformParams(node.parameters, sourceFile, warnings)
+  const degraded: string[] = []
+  const params = transformParams(
+    node.parameters,
+    sourceFile,
+    warnings,
+    degraded
+  )
 
   // Get line number (1-indexed) for source mapping
   const { line } = sourceFile.getLineAndCharacterOfPosition(
@@ -939,6 +968,18 @@ function transformFunctionToTJS(
       ? ` -! ${returnExample}`
       : ''
 
+  // Track degraded return type
+  if (node.type && (returnExample === 'any' || returnExample === 'undefined')) {
+    const originalReturn = node.type.getText(sourceFile)
+    if (
+      originalReturn !== 'any' &&
+      originalReturn !== 'unknown' &&
+      originalReturn !== 'void'
+    ) {
+      degraded.push(`return: ${originalReturn}`)
+    }
+  }
+
   // Get function body and strip TypeScript syntax using ts.transpileModule
   let body = ''
   if (node.body) {
@@ -959,15 +1000,99 @@ function transformFunctionToTJS(
     body = '{ }'
   }
 
-  // Check for async modifier
+  // Check for async and generator modifiers
   const isAsync = node.modifiers?.some(
     (m) => m.kind === ts.SyntaxKind.AsyncKeyword
   )
+  const isGenerator = !!(node as ts.FunctionDeclaration).asteriskToken
   const asyncPrefix = isAsync ? 'async ' : ''
+  const funcKeyword = isGenerator ? 'function* ' : 'function '
 
-  return `${lineComment}${asyncPrefix}function ${funcName}(${params.join(
+  // Emit migration comment if any types were degraded
+  const degradedComment =
+    degraded.length > 0
+      ? `/* TODO: TS types degraded — ${degraded.join(', ')} */\n`
+      : ''
+
+  return `${lineComment}${degradedComment}${asyncPrefix}${funcKeyword}${funcName}(${params.join(
     ', '
   )})${returnAnnotation} ${body}`
+}
+
+/**
+ * Emit a full TJS overload group: the implementation (renamed) + wrapper signatures.
+ * Each overload signature becomes a TJS function that delegates to the implementation.
+ * TJS polymorphic dispatch merges the wrappers into a dispatcher automatically.
+ */
+function emitOverloadGroup(
+  signatures: ts.FunctionDeclaration[],
+  implementation: ts.FunctionDeclaration,
+  sourceFile: ts.SourceFile,
+  warnings?: string[]
+): string[] {
+  const funcName = implementation.name?.getText(sourceFile) || ''
+  const implName = `_${funcName}_impl`
+  const results: string[] = []
+
+  // Emit the implementation as a renamed private function
+  const implParams = transformParams(
+    implementation.parameters,
+    sourceFile,
+    warnings
+  )
+  let implBody = '{ }'
+  if (implementation.body) {
+    const bodyText = implementation.body.getText(sourceFile)
+    const transpiled = ts.transpileModule(bodyText, {
+      compilerOptions: {
+        target: ts.ScriptTarget.ESNext,
+        module: ts.ModuleKind.ESNext,
+        removeComments: false,
+      },
+    })
+    implBody = transpiled.outputText.trim()
+  }
+  const isAsync = implementation.modifiers?.some(
+    (m) => m.kind === ts.SyntaxKind.AsyncKeyword
+  )
+  const isGenerator = !!implementation.asteriskToken
+  const asyncPrefix = isAsync ? 'async ' : ''
+  const funcKeyword = isGenerator ? 'function* ' : 'function '
+
+  results.push(
+    `${asyncPrefix}${funcKeyword}${implName}(${implParams.join(
+      ', '
+    )}) ${implBody}`
+  )
+
+  // Emit each overload signature as a wrapper that delegates to the implementation
+  for (const sig of signatures) {
+    const params = transformParams(sig.parameters, sourceFile, warnings)
+    const paramNames = sig.parameters.map((p) => p.name.getText(sourceFile))
+    const returnExample = sig.type
+      ? typeToExample(sig.type, undefined, warnings)
+      : ''
+    const returnAnnotation =
+      returnExample && returnExample !== 'undefined' && returnExample !== 'any'
+        ? ` -! ${returnExample}`
+        : ''
+
+    const { line } = sourceFile.getLineAndCharacterOfPosition(
+      sig.getStart(sourceFile)
+    )
+    const lineComment = `/* line ${line + 1} */\n`
+    const returnKw = isGenerator ? 'yield* ' : 'return '
+
+    results.push(
+      `${lineComment}${asyncPrefix}${funcKeyword}${funcName}(${params.join(
+        ', '
+      )})${returnAnnotation} { ${returnKw}${implName}(${paramNames.join(
+        ', '
+      )}) }`
+    )
+  }
+
+  return results
 }
 
 /**
@@ -1065,10 +1190,12 @@ function transformClassToTJS(
         body = replacePrivateRefs(transpiled.outputText.trim())
       }
 
+      const isGenerator = !!member.asteriskToken
       const staticPrefix = isStatic ? 'static ' : ''
       const asyncPrefix = isAsync ? 'async ' : ''
+      const generatorStar = isGenerator ? '*' : ''
       members.push(
-        `  ${staticPrefix}${asyncPrefix}${methodName}(${params.join(
+        `  ${staticPrefix}${asyncPrefix}${generatorStar}${methodName}(${params.join(
           ', '
         )})${returnAnnotation} ${body}`
       )
@@ -1165,7 +1292,8 @@ function transformClassToTJS(
 function transformParams(
   parameters: ts.NodeArray<ts.ParameterDeclaration>,
   sourceFile: ts.SourceFile,
-  warnings?: string[]
+  warnings?: string[],
+  degraded?: string[]
 ): string[] {
   const params: string[] = []
 
@@ -1181,6 +1309,13 @@ function transformParams(
     } else if (typeExample === 'any' || typeExample === 'undefined') {
       // any/undefined type - no annotation in TJS (bare name means any)
       params.push(name)
+      // Record original TS type for migration comments
+      if (degraded && param.type) {
+        const originalType = param.type.getText(sourceFile)
+        if (originalType !== 'any' && originalType !== 'unknown') {
+          degraded.push(`${name}: ${originalType}`)
+        }
+      }
     } else if (isOptional) {
       // Optional without default - use union with undefined to preserve
       // three-state semantics (e.g. TS `flag?: boolean` can be true/false/undefined)
@@ -1482,7 +1617,22 @@ export function fromTS(
       typeAliases.set(node.name.getText(sourceFile), node.type)
     }
     if (ts.isInterfaceDeclaration(node)) {
-      interfaces.set(node.name.getText(sourceFile), node)
+      const name = node.name.getText(sourceFile)
+      const existing = interfaces.get(name)
+      if (existing) {
+        // Merge members (TS interface merging)
+        const merged = ts.factory.updateInterfaceDeclaration(
+          existing,
+          existing.modifiers,
+          existing.name,
+          existing.typeParameters,
+          existing.heritageClauses,
+          [...existing.members, ...node.members]
+        )
+        interfaces.set(name, merged)
+      } else {
+        interfaces.set(name, node)
+      }
     }
     ts.forEachChild(node, collectTypes)
   }
@@ -1494,6 +1644,36 @@ export function fromTS(
     interfaces,
     sourceFile,
     warnings,
+  }
+
+  // Pre-scan: detect function overload groups
+  // In TS, overloads are N bodyless signatures + 1 implementation with body
+  const overloadGroups = new Map<
+    string,
+    {
+      signatures: ts.FunctionDeclaration[] // body === undefined
+      implementation: ts.FunctionDeclaration | null // has body
+    }
+  >()
+  for (const stmt of sourceFile.statements) {
+    if (ts.isFunctionDeclaration(stmt) && stmt.name) {
+      const name = stmt.name.getText(sourceFile)
+      if (!overloadGroups.has(name)) {
+        overloadGroups.set(name, { signatures: [], implementation: null })
+      }
+      const group = overloadGroups.get(name)!
+      if (stmt.body) {
+        group.implementation = stmt
+      } else {
+        group.signatures.push(stmt)
+      }
+    }
+  }
+  // Only keep groups that actually have overloads (signatures + implementation)
+  for (const [name, group] of overloadGroups) {
+    if (group.signatures.length === 0 || !group.implementation) {
+      overloadGroups.delete(name)
+    }
   }
 
   // Walk top-level statements only (don't recurse into function bodies)
@@ -1510,23 +1690,65 @@ export function fromTS(
       const funcName = statement.name.getText(sourceFile)
       handled = true
 
-      if (emitTJS) {
-        tjsFunctions.push(
-          transformFunctionToTJS(
+      const overloadGroup = overloadGroups.get(funcName)
+
+      if (overloadGroup) {
+        // This function is part of an overload group
+        if (!statement.body) {
+          // Skip bodyless signatures — handled when we encounter the implementation
+        } else {
+          // Implementation: emit the entire overload group
+          if (emitTJS) {
+            tjsFunctions.push(
+              ...emitOverloadGroup(
+                overloadGroup.signatures,
+                statement,
+                sourceFile,
+                warnings
+              )
+            )
+          } else {
+            const overloads: FunctionTypeInfo[] = []
+            for (const sig of overloadGroup.signatures) {
+              overloads.push(
+                extractFunctionMetadata(
+                  sig,
+                  sourceFile,
+                  warnings,
+                  resolutionCtx
+                )
+              )
+            }
+            const implInfo = extractFunctionMetadata(
+              statement,
+              sourceFile,
+              warnings,
+              resolutionCtx
+            )
+            implInfo.overloads = overloads
+            metadata[funcName] = implInfo
+          }
+        }
+      } else {
+        // Normal (non-overloaded) function
+        if (emitTJS) {
+          tjsFunctions.push(
+            transformFunctionToTJS(
+              statement,
+              sourceFile,
+              undefined,
+              warnings,
+              true
+            )
+          )
+        } else {
+          metadata[funcName] = extractFunctionMetadata(
             statement,
             sourceFile,
-            undefined,
             warnings,
-            true
+            resolutionCtx
           )
-        )
-      } else {
-        metadata[funcName] = extractFunctionMetadata(
-          statement,
-          sourceFile,
-          warnings,
-          resolutionCtx
-        )
+        }
       }
     }
 
@@ -1592,8 +1814,10 @@ export function fromTS(
         const typeName = statement.name.getText(sourceFile)
         if (!seenTypeNames.has(typeName)) {
           seenTypeNames.add(typeName)
+          // Use merged interface (handles declaration merging)
+          const merged = interfaces.get(typeName) || statement
           const typeDecl = transformInterfaceToType(
-            statement,
+            merged,
             sourceFile,
             warnings
           )

@@ -11,16 +11,16 @@ function base64ToBuffer(base64) {
   return Buffer.from(base64, 'base64')
 }
 base64ToBuffer.__tjs = {
-  "params": {
-    "base64": {
-      "type": {
-        "kind": "any"
+  params: {
+    base64: {
+      type: {
+        kind: 'any',
       },
-      "required": false
-    }
+      required: false,
+    },
   },
-  "unsafe": true,
-  "source": "crypto.tjs:10"
+  unsafe: true,
+  source: 'crypto.tjs:10',
 }
 
 export async function decrypt(encryptedBase64, keyBase64) {
@@ -41,20 +41,20 @@ export async function decrypt(encryptedBase64, keyBase64) {
   return decrypted.toString('utf8')
 }
 decrypt.__tjs = {
-  "params": {
-    "encryptedBase64": {
-      "type": {
-        "kind": "any"
+  params: {
+    encryptedBase64: {
+      type: {
+        kind: 'any',
       },
-      "required": false
+      required: false,
     },
-    "keyBase64": {
-      "type": {
-        "kind": "any"
+    keyBase64: {
+      type: {
+        kind: 'any',
       },
-      "required": false
-    }
+      required: false,
+    },
   },
-  "unsafe": true,
-  "source": "crypto.tjs:14"
+  unsafe: true,
+  source: 'crypto.tjs:14',
 }

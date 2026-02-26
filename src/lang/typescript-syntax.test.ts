@@ -864,6 +864,364 @@ describe('Real-World Patterns', () => {
 })
 
 // =============================================================================
+// Generators
+// =============================================================================
+
+describe('fromTS generators', () => {
+  test('preserves * on sync generator function', () => {
+    const result = fromTS('function* gen(): Generator<number> { yield 1 }', {
+      emitTJS: true,
+    })
+    expect(result.code).toContain('function* gen(')
+  })
+
+  test('preserves async function*', () => {
+    const result = fromTS(
+      'async function* gen(): AsyncGenerator<string> { yield "a" }',
+      { emitTJS: true }
+    )
+    expect(result.code).toContain('async function* gen(')
+  })
+
+  test('preserves * on class generator method', () => {
+    const result = fromTS(
+      `class Foo {
+        *items(): Generator<number> { yield 1 }
+      }`,
+      { emitTJS: true }
+    )
+    expect(result.code).toContain('*items(')
+  })
+
+  test('unwraps Generator<T> return type to T', () => {
+    const result = fromTS('function* nums(): Generator<number> { yield 1 }', {
+      emitTJS: true,
+    })
+    // Return annotation should be the yield type (number -> 0.0)
+    expect(result.code).toContain('-!')
+    expect(result.code).toContain('0.0')
+  })
+
+  test('unwraps AsyncGenerator<T> return type to T', () => {
+    const result = fromTS(
+      "async function* words(): AsyncGenerator<string> { yield 'hi' }",
+      { emitTJS: true }
+    )
+    expect(result.code).toContain('-!')
+    expect(result.code).toMatch(/''/)
+  })
+
+  test('captures generator metadata in JS mode', () => {
+    const result = fromTS('function* count(): Generator<number> { yield 1 }')
+    expect(result.types?.count).toBeDefined()
+    expect(result.types?.count?.returns?.kind).toBe('number')
+  })
+})
+
+// =============================================================================
+// Function Overloads
+// =============================================================================
+
+describe('fromTS function overloads', () => {
+  test('overload signatures become polymorphic TJS functions', () => {
+    const result = fromTS(
+      `
+      function greet(name: string): string;
+      function greet(name: string, greeting: string): string;
+      function greet(name: any, greeting?: any): string {
+        return greeting ? greeting + ', ' + name : 'Hello, ' + name;
+      }
+      `,
+      { emitTJS: true }
+    )
+    // Should have the impl renamed and two wrapper functions
+    expect(result.code).toContain('function _greet_impl(')
+    expect(result.code).toMatch(/function greet\(name: ''\)/)
+    expect(result.code).toMatch(/function greet\(name: '', greeting: ''\)/)
+    // Wrappers delegate to impl
+    expect(result.code).toContain('return _greet_impl(name)')
+    expect(result.code).toContain('return _greet_impl(name, greeting)')
+  })
+
+  test('different-type overloads at same arity', () => {
+    const result = fromTS(
+      `
+      function process(x: string): string;
+      function process(x: number): number;
+      function process(x: any): any { return x; }
+      `,
+      { emitTJS: true }
+    )
+    expect(result.code).toContain("process(x: '')")
+    expect(result.code).toContain('process(x: 0.0)')
+  })
+
+  test('overload metadata captured in JS mode', () => {
+    const result = fromTS(`
+      function foo(x: string): string;
+      function foo(x: number): number;
+      function foo(x: any): any { return x; }
+    `)
+    expect(result.types?.foo).toBeDefined()
+    expect(result.types?.foo?.overloads).toBeDefined()
+    expect(result.types?.foo?.overloads?.length).toBe(2)
+    expect(result.types?.foo?.overloads?.[0]?.params?.x?.type?.kind).toBe(
+      'string'
+    )
+    expect(result.types?.foo?.overloads?.[1]?.params?.x?.type?.kind).toBe(
+      'number'
+    )
+  })
+
+  test('non-overloaded functions are unaffected', () => {
+    const result = fromTS(
+      'function add(a: number, b: number): number { return a + b }',
+      { emitTJS: true }
+    )
+    // Should NOT have _impl naming
+    expect(result.code).not.toContain('_add_impl')
+    expect(result.code).toContain('function add(')
+  })
+})
+
+// =============================================================================
+// Interface Merging
+// =============================================================================
+
+describe('fromTS interface merging', () => {
+  test('two interfaces with same name merge members', () => {
+    const result = fromTS(
+      `
+      interface Config {
+        host: string;
+        port: number;
+      }
+      interface Config {
+        debug: boolean;
+      }
+      `,
+      { emitTJS: true }
+    )
+    // Should have a single Type with all 3 properties
+    expect(result.code).toContain('host')
+    expect(result.code).toContain('port')
+    expect(result.code).toContain('debug')
+    // Should only emit one Type declaration
+    const typeCount = (result.code.match(/^Type Config/gm) || []).length
+    expect(typeCount).toBe(1)
+  })
+
+  test('merged interface resolves correctly in function params', () => {
+    const result = fromTS(`
+      interface User { name: string; }
+      interface User { age: number; }
+      function greet(user: User): string {
+        return user.name;
+      }
+    `)
+    const paramType = result.types?.greet?.params?.user?.type
+    expect(paramType?.kind).toBe('object')
+    expect(paramType?.shape?.name?.kind).toBe('string')
+    expect(paramType?.shape?.age?.kind).toBe('number')
+  })
+
+  test('later properties with same name override earlier ones', () => {
+    const result = fromTS(`
+      interface Data { value: string; }
+      interface Data { value: number; extra: boolean; }
+      function fn(d: Data): void {}
+    `)
+    const shape = result.types?.fn?.params?.d?.type?.shape
+    // Later declaration's 'value' should win (number, not string)
+    expect(shape?.value?.kind).toBe('number')
+    expect(shape?.extra?.kind).toBe('boolean')
+  })
+})
+
+// =============================================================================
+// TS Compile-Time Types — Graceful Degradation
+// =============================================================================
+
+describe('TS compile-time types - graceful degradation', () => {
+  test('conditional types (T extends X ? Y : Z) → any with migration comment', () => {
+    const result = fromTS(
+      `
+      type IsString<T> = T extends string ? true : false;
+      function check(x: IsString<number>): void {}
+      `,
+      { emitTJS: true }
+    )
+    expect(result.code).toContain('function check(')
+    // Should have a migration comment showing the original TS type
+    expect(result.code).toContain('TODO: TS types degraded')
+    expect(result.code).toContain('x: IsString<number>')
+  })
+
+  test('template literal types → any with migration comment', () => {
+    const result = fromTS(
+      `
+      type EventName = \`on\${'Click' | 'Hover'}\`;
+      function handle(event: EventName): void {}
+      `,
+      { emitTJS: true }
+    )
+    expect(result.code).toContain('function handle(')
+    expect(result.code).toContain('TODO: TS types degraded')
+  })
+
+  test('infer keyword → any', () => {
+    const result = fromTS(
+      `
+      type UnpackPromise<T> = T extends Promise<infer U> ? U : T;
+      function unwrap(x: UnpackPromise<Promise<string>>): void {}
+      `,
+      { emitTJS: true }
+    )
+    expect(result.code).toBeDefined()
+  })
+
+  test('keyof and indexed access (T[K]) → any', () => {
+    const result = fromTS(
+      `
+      function getKey<T, K extends keyof T>(obj: T, key: K): T[K] {
+        return obj[key];
+      }
+      `,
+      { emitTJS: true }
+    )
+    expect(result.code).toBeDefined()
+    expect(result.code).toContain('function getKey(')
+  })
+
+  test('type predicates (x is T) → boolean return', () => {
+    const result = fromTS(
+      `
+      function isString(x: unknown): x is string {
+        return typeof x === 'string';
+      }
+      `
+    )
+    // Type predicate should at least not crash; return type degrades
+    expect(result.code).toBeDefined()
+    expect(result.types?.isString).toBeDefined()
+  })
+
+  test('satisfies operator → stripped, value preserved', () => {
+    const result = fromTS(
+      `
+      const config = {
+        width: 100,
+        height: 200,
+      } satisfies Record<string, number>;
+      `,
+      { emitTJS: true }
+    )
+    expect(result.code).toBeDefined()
+    expect(result.code).toContain('config')
+  })
+
+  test('const type parameters (<const T>) → T without const', () => {
+    const result = fromTS(
+      `
+      function identity<const T>(x: T): T { return x; }
+      `,
+      { emitTJS: true }
+    )
+    expect(result.code).toBeDefined()
+    expect(result.code).toContain('function identity(')
+  })
+
+  test('readonly arrays → mutable array at runtime', () => {
+    const result = fromTS(
+      `
+      function first(arr: readonly string[]): string {
+        return arr[0];
+      }
+      `,
+      { emitTJS: true }
+    )
+    expect(result.code).toBeDefined()
+    expect(result.code).toContain('function first(')
+  })
+
+  test('Exclude/Extract utility types → any', () => {
+    const result = fromTS(
+      `
+      type NonNull = Exclude<string | null, null>;
+      function fn(x: NonNull): void {}
+      `,
+      { emitTJS: true }
+    )
+    expect(result.code).toBeDefined()
+  })
+
+  test('abstract classes → regular class', () => {
+    const result = fromTS(
+      `
+      abstract class Shape {
+        abstract area(): number;
+        describe(): string { return 'shape'; }
+      }
+      `,
+      { emitTJS: true }
+    )
+    expect(result.code).toBeDefined()
+    expect(result.code).toContain('class Shape')
+  })
+
+  test('namespace functions → emitted bare', () => {
+    const result = fromTS(
+      `
+      namespace Utils {
+        export function add(a: number, b: number): number {
+          return a + b;
+        }
+      }
+      `,
+      { emitTJS: true }
+    )
+    // Namespaces are TS-only constructs; content should degrade gracefully
+    expect(result.code).toBeDefined()
+  })
+
+  test('mapped types (Partial, Required) → any', () => {
+    const result = fromTS(
+      `
+      interface User { name: string; age: number; }
+      function update(user: Partial<User>): void {}
+      `,
+      { emitTJS: true }
+    )
+    expect(result.code).toBeDefined()
+    expect(result.code).toContain('function update(')
+  })
+
+  test('intersection types (A & B) → merged or any', () => {
+    const result = fromTS(
+      `
+      type Named = { name: string };
+      type Aged = { age: number };
+      function greet(person: Named & Aged): string {
+        return person.name;
+      }
+      `,
+      { emitTJS: true }
+    )
+    expect(result.code).toBeDefined()
+    expect(result.code).toContain('function greet(')
+  })
+
+  test('clean functions have no degradation comment', () => {
+    const result = fromTS(
+      'function add(a: number, b: number): number { return a + b }',
+      { emitTJS: true }
+    )
+    expect(result.code).not.toContain('TODO: TS types degraded')
+    expect(result.code).toContain('function add(a: 0.0, b: 0.0)')
+  })
+})
+
+// =============================================================================
 // SUMMARY: Features to implement (in priority order)
 // =============================================================================
 /*
