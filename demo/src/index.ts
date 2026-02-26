@@ -387,6 +387,28 @@ if (main) {
         icons.npm()
       ),
 
+      // tosijs link
+      a(
+        {
+          class: 'iconic',
+          title: 'tosijs',
+          target: '_blank',
+          href: 'https://tosijs.net',
+        },
+        icons.tosi()
+      ),
+
+      // tosijs-ui link
+      a(
+        {
+          class: 'iconic',
+          title: 'tosijs-ui',
+          target: '_blank',
+          href: 'https://ui.tosijs.net',
+        },
+        icons.tosiUi()
+      ),
+
       // Settings menu
       button(
         {
@@ -571,6 +593,16 @@ if (main) {
                   caption: 'npm',
                   icon: 'npm',
                   action: () => window.open(app.npmUrl.valueOf(), '_blank'),
+                },
+                {
+                  caption: 'tosijs',
+                  icon: 'tosi',
+                  action: () => window.open('https://tosijs.net', '_blank'),
+                },
+                {
+                  caption: 'tosijs-ui',
+                  icon: 'tosiUi',
+                  action: () => window.open('https://ui.tosijs.net', '_blank'),
                 },
               ],
             })
