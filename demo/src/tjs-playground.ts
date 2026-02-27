@@ -128,6 +128,7 @@ interface TJSPlaygroundParts extends PartsMap {
   debugToggle: HTMLInputElement
   safetyToggle: HTMLInputElement
   wasmToggle: HTMLInputElement
+  splitBtn: HTMLButtonElement
 }
 
 export class TJSPlayground extends Component<TJSPlaygroundParts> {
@@ -139,6 +140,11 @@ export class TJSPlayground extends Component<TJSPlaygroundParts> {
   private currentExampleName: string | null = null
   private originalCode: string = DEFAULT_TJS
   private editorCache: Map<string, string> = new Map()
+
+  // Split mode
+  private _splitMode: null | 'code' | 'output' = null
+  private _splitChannel: BroadcastChannel | null = null
+  private _splitSessionId: string = ''
 
   // Build flags state
   private buildFlags = {
@@ -209,6 +215,229 @@ export class TJSPlayground extends Component<TJSPlaygroundParts> {
       this.contextUpdateTimer = setTimeout(() => {
         this.contextBuildPromise = doBuild()
       }, 100)
+    }
+  }
+
+  /**
+   * Set split mode and manage BroadcastChannel.
+   * sessionId ties code+output windows together so stale windows are ignored.
+   */
+  setSplitMode = (mode: null | 'code' | 'output', sessionId?: string) => {
+    const prev = this._splitMode
+    this._splitMode = mode
+    if (sessionId) this._splitSessionId = sessionId
+
+    // Update button appearance
+    this.updateSplitButton()
+
+    // Toggle visibility of input/output panes directly
+    const input = this.querySelector('.tjs-input') as HTMLElement | null
+    const output = this.querySelector('.tjs-output') as HTMLElement | null
+    const consoleEl = this.querySelector('.tjs-console') as HTMLElement | null
+    const flags = this.querySelector('.build-flags') as HTMLElement | null
+    const toolbar = this.querySelector('.tjs-toolbar') as HTMLElement | null
+
+    if (mode === 'code') {
+      if (output) output.style.display = 'none'
+      if (consoleEl) consoleEl.style.display = 'none'
+      if (input) input.style.flex = '1 1 100%'
+    } else if (mode === 'output') {
+      if (input) input.style.display = 'none'
+      if (flags) flags.style.display = 'none'
+      if (toolbar) toolbar.style.display = 'none'
+      if (output) output.style.flex = '1 1 100%'
+    } else {
+      // Restore normal layout
+      if (input) {
+        input.style.display = ''
+        input.style.flex = ''
+      }
+      if (output) {
+        output.style.display = ''
+        output.style.flex = ''
+      }
+      if (consoleEl) consoleEl.style.display = ''
+      if (flags) flags.style.display = ''
+      if (toolbar) toolbar.style.display = ''
+    }
+
+    // Tear down previous channel, notifying partner
+    if (this._splitChannel && prev) {
+      this._splitChannel.postMessage({
+        type: 'closed',
+        mode: prev,
+        sid: this._splitSessionId,
+      })
+      this._splitChannel.close()
+      this._splitChannel = null
+    }
+
+    if (!mode) {
+      this._splitSessionId = ''
+      return
+    }
+
+    const sid = this._splitSessionId
+    const channel = new BroadcastChannel('tjs-playground')
+    this._splitChannel = channel
+
+    if (mode === 'output') {
+      channel.onmessage = (e: MessageEvent) => {
+        const msg = e.data
+        if (msg.sid !== sid) return // ignore messages from other sessions
+        if (msg.type === 'ping') {
+          channel.postMessage({ type: 'pong', sid })
+        } else if (msg.type === 'code-change' && msg.view === 'tjs') {
+          this.parts.tjsEditor.value = msg.source
+          this.transpileAndRun()
+        } else if (msg.type === 'run' && msg.view === 'tjs') {
+          this.run()
+        } else if (msg.type === 'closed' && msg.mode === 'code') {
+          this.setSplitMode(null)
+          this.dispatchEvent(
+            new CustomEvent('split-mode-change', {
+              detail: null,
+              bubbles: true,
+            })
+          )
+        }
+      }
+      // Request current source from code window
+      channel.postMessage({ type: 'request-source', view: 'tjs', sid })
+    } else if (mode === 'code') {
+      channel.onmessage = (e: MessageEvent) => {
+        const msg = e.data
+        if (msg.sid !== sid) return // ignore messages from other sessions
+        if (msg.type === 'ping') {
+          channel.postMessage({ type: 'pong', sid })
+        } else if (msg.type === 'request-source' && msg.view === 'tjs') {
+          // Output window is asking for current source — send it
+          this.broadcastSource()
+        } else if (msg.type === 'closed' && msg.mode === 'output') {
+          this.setSplitMode(null)
+          this.dispatchEvent(
+            new CustomEvent('split-mode-change', {
+              detail: null,
+              bubbles: true,
+            })
+          )
+        }
+      }
+      // Send initial source to output window immediately
+      setTimeout(() => this.broadcastSource(), 50)
+    }
+  }
+
+  /**
+   * Broadcast editor content to output window (called in code mode)
+   */
+  private broadcastSource = () => {
+    if (this._splitMode === 'code' && this._splitChannel) {
+      this._splitChannel.postMessage({
+        type: 'code-change',
+        view: 'tjs',
+        source: this.parts.tjsEditor.value,
+        sid: this._splitSessionId,
+      })
+    }
+  }
+
+  /**
+   * Broadcast run command to output window
+   */
+  broadcastRun = () => {
+    if (this._splitMode === 'code' && this._splitChannel) {
+      this._splitChannel.postMessage({
+        type: 'run',
+        view: 'tjs',
+        sid: this._splitSessionId,
+      })
+    }
+  }
+
+  /**
+   * Notify partner window that this window is closing
+   */
+  notifyClose = () => {
+    if (this._splitChannel && this._splitMode) {
+      this._splitChannel.postMessage({
+        type: 'closed',
+        mode: this._splitMode,
+        sid: this._splitSessionId,
+      })
+    }
+  }
+
+  /**
+   * Handle split/merge button click.
+   * window.open must be called directly in the click handler to avoid popup blockers.
+   */
+  handleSplitClick = () => {
+    if (this._splitMode === 'output') {
+      // Output window — close it (partner will get 'closed' via beforeunload)
+      window.close()
+      return
+    } else if (this._splitMode === 'code') {
+      // Code window — merge back
+      this.setSplitMode(null)
+      this.dispatchEvent(
+        new CustomEvent('split-mode-change', { detail: null, bubbles: true })
+      )
+    } else {
+      // Open output in new window — must happen here in the click handler
+      const sid = crypto.randomUUID().slice(0, 8)
+      const params = new URLSearchParams(window.location.hash.slice(1))
+      params.set('mode', 'output')
+      params.set('sid', sid)
+      const url = window.location.pathname + '#' + params.toString()
+      const win = window.open(url, `tjs-output-${sid}`)
+      if (!win) return // popup blocked — do nothing
+
+      // Apply split mode directly — don't wait for event round-trip
+      this.setSplitMode('code', sid)
+
+      // Also notify parent so it can update URL state
+      this.dispatchEvent(
+        new CustomEvent('split-mode-change', {
+          detail: { mode: 'code', sid },
+          bubbles: true,
+        })
+      )
+    }
+  }
+
+  /**
+   * Update split button appearance based on current mode
+   */
+  private updateSplitButton = () => {
+    const btn = this._splitBtn
+    if (!btn) return
+
+    btn.innerHTML = ''
+    if (this._splitMode === 'output') {
+      // Output window — show x to close
+      btn.style.display = ''
+      btn.classList.remove('split-btn-flip')
+      btn.title = 'Close output window'
+      btn.append(icons.x({ size: 16 }))
+    } else if (this._splitMode === 'code') {
+      // Code window — hide (no button needed, output window has the x)
+      btn.style.display = 'none'
+    } else {
+      // Normal — show copy icon (CSS flips it)
+      btn.style.display = ''
+      btn.classList.add('split-btn-flip')
+      btn.title = 'Open output in new window'
+      btn.append(icons.copy({ size: 16 }))
+    }
+  }
+
+  // Cache the split button reference after first access
+  private get _splitBtn(): HTMLButtonElement | null {
+    try {
+      return this.parts.splitBtn
+    } catch {
+      return null
     }
   }
 
@@ -374,6 +603,16 @@ export class TJSPlayground extends Component<TJSPlaygroundParts> {
               { part: 'testsOutput', class: 'tests-output' },
               'Test results will appear here'
             )
+          ),
+          button(
+            {
+              part: 'splitBtn',
+              slot: 'after-tabs',
+              class: 'split-btn split-btn-flip',
+              title: 'Open output in new window',
+              onClick: this.handleSplitClick,
+            },
+            icons.copy({ size: 16 })
           )
         )
       )
@@ -416,6 +655,7 @@ export class TJSPlayground extends Component<TJSPlaygroundParts> {
       debounceTimer = setTimeout(() => {
         this.transpile()
         this.updateRevertButton()
+        this.broadcastSource()
       }, 300)
 
       // Update autocomplete context more frequently
@@ -954,6 +1194,11 @@ export class TJSPlayground extends Component<TJSPlaygroundParts> {
   }
 
   run = async () => {
+    // In code mode, broadcast run to output window instead of running locally
+    if (this._splitMode === 'code') {
+      this.broadcastRun()
+    }
+
     this.parts.runBtn.disabled = true
     this.clearConsole()
     this.transpile()
@@ -1244,6 +1489,28 @@ export const tjsPlayground = TJSPlayground.elementCreator({
       borderTop: '1px solid var(--code-border, #e5e7eb)',
       display: 'flex',
       flexDirection: 'column',
+    },
+
+    // Split button in tab bar
+    ':host .split-btn': {
+      display: 'flex',
+      alignItems: 'center',
+      alignSelf: 'center',
+      padding: '4px 6px',
+      marginRight: '4px',
+      background: 'transparent',
+      border: 'none',
+      cursor: 'pointer',
+      color: 'var(--text-color, #6b7280)',
+      borderRadius: '4px',
+      opacity: '0.7',
+    },
+    ':host .split-btn:hover': {
+      opacity: '1',
+      background: 'var(--code-background, #f3f4f6)',
+    },
+    ':host .split-btn-flip svg': {
+      transform: 'scaleY(-1)',
     },
   },
 }) as ElementCreator<TJSPlayground>

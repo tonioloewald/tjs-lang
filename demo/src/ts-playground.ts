@@ -75,6 +75,7 @@ interface TSPlaygroundParts extends PartsMap {
   testsToggle: HTMLInputElement
   debugToggle: HTMLInputElement
   safetyToggle: HTMLInputElement
+  splitBtn: HTMLButtonElement
 }
 
 export class TSPlayground extends Component<TSPlaygroundParts> {
@@ -88,11 +89,210 @@ export class TSPlayground extends Component<TSPlaygroundParts> {
   private originalCode: string = DEFAULT_TS
   private editorCache: Map<string, string> = new Map()
 
+  // Split mode
+  private _splitMode: null | 'code' | 'output' = null
+  private _splitChannel: BroadcastChannel | null = null
+  private _splitSessionId: string = ''
+
   // Build flags state
   private buildFlags = {
     tests: true, // Run tests at transpile time
     debug: false, // Debug mode (call stack tracking)
     safe: true, // Safe mode (validates inputs)
+  }
+
+  /**
+   * Set split mode and manage BroadcastChannel
+   */
+  setSplitMode = (mode: null | 'code' | 'output', sessionId?: string) => {
+    const prev = this._splitMode
+    this._splitMode = mode
+    if (sessionId) this._splitSessionId = sessionId
+
+    this.updateSplitButton()
+
+    const input = this.querySelector('.ts-input') as HTMLElement | null
+    const output = this.querySelector('.ts-output') as HTMLElement | null
+    const tsConsole = this.querySelector('.ts-console') as HTMLElement | null
+    const flags = this.querySelector('.build-flags') as HTMLElement | null
+    const toolbar = this.querySelector('.ts-toolbar') as HTMLElement | null
+
+    if (mode === 'code') {
+      if (output) output.style.display = 'none'
+      if (tsConsole) tsConsole.style.display = 'none'
+      if (input) input.style.flex = '1 1 100%'
+    } else if (mode === 'output') {
+      if (input) input.style.display = 'none'
+      if (flags) flags.style.display = 'none'
+      if (toolbar) toolbar.style.display = 'none'
+      if (output) output.style.flex = '1 1 100%'
+    } else {
+      if (input) {
+        input.style.display = ''
+        input.style.flex = ''
+      }
+      if (output) {
+        output.style.display = ''
+        output.style.flex = ''
+      }
+      if (tsConsole) tsConsole.style.display = ''
+      if (flags) flags.style.display = ''
+      if (toolbar) toolbar.style.display = ''
+    }
+
+    if (this._splitChannel && prev) {
+      this._splitChannel.postMessage({
+        type: 'closed',
+        mode: prev,
+        sid: this._splitSessionId,
+      })
+      this._splitChannel.close()
+      this._splitChannel = null
+    }
+
+    if (!mode) {
+      this._splitSessionId = ''
+      return
+    }
+
+    const sid = this._splitSessionId
+    const channel = new BroadcastChannel('tjs-playground')
+    this._splitChannel = channel
+
+    if (mode === 'output') {
+      channel.onmessage = (e: MessageEvent) => {
+        const msg = e.data
+        if (msg.sid !== sid) return
+        if (msg.type === 'ping') {
+          channel.postMessage({ type: 'pong', sid })
+        } else if (msg.type === 'code-change' && msg.view === 'ts') {
+          this.parts.tsEditor.value = msg.source
+          this.transpile().then(() => this.run())
+        } else if (msg.type === 'run' && msg.view === 'ts') {
+          this.run()
+        } else if (msg.type === 'closed' && msg.mode === 'code') {
+          this.setSplitMode(null)
+          this.dispatchEvent(
+            new CustomEvent('split-mode-change', {
+              detail: null,
+              bubbles: true,
+            })
+          )
+        }
+      }
+      // Request current source from code window
+      channel.postMessage({ type: 'request-source', view: 'ts', sid })
+    } else if (mode === 'code') {
+      channel.onmessage = (e: MessageEvent) => {
+        const msg = e.data
+        if (msg.sid !== sid) return
+        if (msg.type === 'ping') {
+          channel.postMessage({ type: 'pong', sid })
+        } else if (msg.type === 'request-source' && msg.view === 'ts') {
+          // Output window is asking for current source — send it
+          this.broadcastSource()
+        } else if (msg.type === 'closed' && msg.mode === 'output') {
+          this.setSplitMode(null)
+          this.dispatchEvent(
+            new CustomEvent('split-mode-change', {
+              detail: null,
+              bubbles: true,
+            })
+          )
+        }
+      }
+      // Send initial source to output window immediately
+      setTimeout(() => this.broadcastSource(), 50)
+    }
+  }
+
+  private broadcastSource = () => {
+    if (this._splitMode === 'code' && this._splitChannel) {
+      this._splitChannel.postMessage({
+        type: 'code-change',
+        view: 'ts',
+        source: this.parts.tsEditor.value,
+        sid: this._splitSessionId,
+      })
+    }
+  }
+
+  broadcastRun = () => {
+    if (this._splitMode === 'code' && this._splitChannel) {
+      this._splitChannel.postMessage({
+        type: 'run',
+        view: 'ts',
+        sid: this._splitSessionId,
+      })
+    }
+  }
+
+  notifyClose = () => {
+    if (this._splitChannel && this._splitMode) {
+      this._splitChannel.postMessage({
+        type: 'closed',
+        mode: this._splitMode,
+        sid: this._splitSessionId,
+      })
+    }
+  }
+
+  handleSplitClick = () => {
+    if (this._splitMode === 'output') {
+      window.close()
+      return
+    } else if (this._splitMode === 'code') {
+      this.setSplitMode(null)
+      this.dispatchEvent(
+        new CustomEvent('split-mode-change', { detail: null, bubbles: true })
+      )
+    } else {
+      const sid = crypto.randomUUID().slice(0, 8)
+      const params = new URLSearchParams(window.location.hash.slice(1))
+      params.set('mode', 'output')
+      params.set('sid', sid)
+      const url = window.location.pathname + '#' + params.toString()
+      const win = window.open(url, `ts-output-${sid}`)
+      if (!win) return
+
+      // Apply split mode directly
+      this.setSplitMode('code', sid)
+
+      this.dispatchEvent(
+        new CustomEvent('split-mode-change', {
+          detail: { mode: 'code', sid },
+          bubbles: true,
+        })
+      )
+    }
+  }
+
+  private updateSplitButton = () => {
+    const btn = this._splitBtn
+    if (!btn) return
+
+    btn.innerHTML = ''
+    if (this._splitMode === 'output') {
+      btn.style.display = ''
+      btn.classList.remove('split-btn-flip')
+      btn.title = 'Close output window'
+      btn.append(icons.x({ size: 16 }))
+    } else if (this._splitMode === 'code') {
+      btn.style.display = 'none'
+    } else {
+      btn.style.display = ''
+      btn.classList.add('split-btn-flip')
+      btn.title = 'Open output in new window'
+      btn.append(icons.copy({ size: 16 }))
+    }
+  }
+
+  private get _splitBtn(): HTMLButtonElement | null {
+    try {
+      return this.parts.splitBtn
+    } catch {
+      return null
+    }
   }
 
   content = () => [
@@ -251,6 +451,16 @@ export class TSPlayground extends Component<TSPlaygroundParts> {
               { part: 'testsOutput', class: 'tests-output' },
               'Test results will appear here'
             )
+          ),
+          button(
+            {
+              part: 'splitBtn',
+              slot: 'after-tabs',
+              class: 'split-btn split-btn-flip',
+              title: 'Open output in new window',
+              onClick: this.handleSplitClick,
+            },
+            icons.copy({ size: 16 })
           )
         )
       )
@@ -284,6 +494,7 @@ export class TSPlayground extends Component<TSPlaygroundParts> {
       debounceTimer = setTimeout(() => {
         this.transpile()
         this.updateRevertButton()
+        this.broadcastSource()
       }, 300)
     })
   }
@@ -468,6 +679,11 @@ export class TSPlayground extends Component<TSPlaygroundParts> {
   }
 
   run = async () => {
+    // In code mode, broadcast run to output window
+    if (this._splitMode === 'code') {
+      this.broadcastRun()
+    }
+
     this.clearConsole()
     await this.transpile()
 
@@ -696,6 +912,28 @@ export const tsPlayground = TSPlayground.elementCreator({
       borderTop: '1px solid var(--code-border, #e5e7eb)',
       display: 'flex',
       flexDirection: 'column',
+    },
+
+    // Split button in tab bar
+    ':host .split-btn': {
+      display: 'flex',
+      alignItems: 'center',
+      alignSelf: 'center',
+      padding: '4px 6px',
+      marginRight: '4px',
+      background: 'transparent',
+      border: 'none',
+      cursor: 'pointer',
+      color: 'var(--text-color, #6b7280)',
+      borderRadius: '4px',
+      opacity: '0.7',
+    },
+    ':host .split-btn:hover': {
+      opacity: '1',
+      background: 'var(--code-background, #f3f4f6)',
+    },
+    ':host .split-btn-flip svg': {
+      transform: 'scaleY(-1)',
     },
   },
 }) as ElementCreator<TSPlayground>

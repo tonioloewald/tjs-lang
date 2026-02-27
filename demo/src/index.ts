@@ -138,6 +138,8 @@ const { app, prefs, auth } = tosi({
     currentView: 'home' as 'home' | 'ajs' | 'tjs' | 'ts',
     currentExample: null as any,
     openSection: null as string | null,
+    splitMode: null as null | 'code' | 'output',
+    splitSessionId: '' as string,
   },
   auth: {
     user: null as {
@@ -266,6 +268,11 @@ function syncURLToState() {
     app.currentView.value = view
   }
   if (section) app.openSection.value = section
+  const mode = params.get('mode')
+  const newSplitMode = mode === 'code' || mode === 'output' ? mode : null
+  const sid = params.get('sid') || ''
+  app.splitSessionId.value = sid
+  app.splitMode.value = newSplitMode
 
   if (example) {
     if (view === 'ts') {
@@ -302,19 +309,26 @@ syncURLToState()
 window.addEventListener('hashchange', syncURLToState)
 
 // State → URL (observe changes, update hash)
-observe(/^app\.(currentView|currentExample|openSection)/, () => {
-  if (_suppressHashUpdate) return
-  const params = new URLSearchParams()
-  const view = app.currentView.valueOf() as string
-  params.set('view', view)
-  const example = app.currentExample.valueOf() as any
-  if (example) {
-    params.set('example', example.name || example.title || '')
+observe(
+  /^app\.(currentView|currentExample|openSection|splitMode|splitSessionId)/,
+  () => {
+    if (_suppressHashUpdate) return
+    const params = new URLSearchParams()
+    const view = app.currentView.valueOf() as string
+    params.set('view', view)
+    const example = app.currentExample.valueOf() as any
+    if (example) {
+      params.set('example', example.name || example.title || '')
+    }
+    const section = app.openSection.valueOf() as string | null
+    if (section) params.set('section', section)
+    const splitMode = app.splitMode.valueOf() as string | null
+    if (splitMode) params.set('mode', splitMode)
+    const sid = app.splitSessionId.valueOf() as string
+    if (sid) params.set('sid', sid)
+    window.history.replaceState(null, '', `#${params.toString()}`)
   }
-  const section = app.openSection.valueOf() as string | null
-  if (section) params.set('section', section)
-  window.history.replaceState(null, '', `#${params.toString()}`)
-})
+)
 
 // Main app
 const main = document.querySelector('main') as HTMLElement
@@ -756,6 +770,47 @@ if (main) {
             },
           })
 
+          // Apply split mode from URL on load (for output windows)
+          // Ping the partner window — if no pong, revert to normal
+          const initialMode = app.splitMode.valueOf() as string | null
+          const initialSid = app.splitSessionId.valueOf() as string
+          if (
+            initialMode &&
+            (initialMode === 'code' || initialMode === 'output') &&
+            app.currentView.valueOf() === 'tjs'
+          ) {
+            const probe = new BroadcastChannel('tjs-playground')
+            let gotPong = false
+            probe.onmessage = (e: MessageEvent) => {
+              if (e.data?.type === 'pong' && e.data.sid === initialSid) {
+                gotPong = true
+              }
+            }
+            probe.postMessage({ type: 'ping', sid: initialSid })
+            setTimeout(() => {
+              probe.close()
+              if (gotPong) {
+                pg.setSplitMode(initialMode, initialSid || undefined)
+              } else {
+                // Partner is gone — revert to normal
+                app.splitMode.value = null
+                app.splitSessionId.value = ''
+              }
+            }, 300)
+          }
+
+          // Listen for split-mode-change from playground
+          // The component handles its own setSplitMode; this just syncs URL state
+          pg.addEventListener('split-mode-change', ((e: CustomEvent) => {
+            if (e.detail?.mode === 'code') {
+              app.splitSessionId.value = e.detail.sid
+              app.splitMode.value = 'code'
+            } else {
+              app.splitSessionId.value = ''
+              app.splitMode.value = null
+            }
+          }) as EventListener)
+
           return pg
         })(),
 
@@ -794,12 +849,82 @@ if (main) {
             },
           })
 
+          // Apply split mode from URL on load (for output windows)
+          // Ping the partner window — if no pong, revert to normal
+          const tsInitialMode = app.splitMode.valueOf() as string | null
+          const tsInitialSid = app.splitSessionId.valueOf() as string
+          if (
+            tsInitialMode &&
+            (tsInitialMode === 'code' || tsInitialMode === 'output') &&
+            app.currentView.valueOf() === 'ts'
+          ) {
+            const probe = new BroadcastChannel('tjs-playground')
+            let gotPong = false
+            probe.onmessage = (e: MessageEvent) => {
+              if (e.data?.type === 'pong' && e.data.sid === tsInitialSid) {
+                gotPong = true
+              }
+            }
+            probe.postMessage({ type: 'ping', sid: tsInitialSid })
+            setTimeout(() => {
+              probe.close()
+              if (gotPong) {
+                pg.setSplitMode(tsInitialMode, tsInitialSid || undefined)
+              } else {
+                // Partner is gone — revert to normal
+                app.splitMode.value = null
+                app.splitSessionId.value = ''
+              }
+            }, 300)
+          }
+
+          // Listen for split-mode-change from playground
+          // The component handles its own setSplitMode; this just syncs URL state
+          pg.addEventListener('split-mode-change', ((e: CustomEvent) => {
+            if (e.detail?.mode === 'code') {
+              app.splitSessionId.value = e.detail.sid
+              app.splitMode.value = 'code'
+            } else {
+              app.splitSessionId.value = ''
+              app.splitMode.value = null
+            }
+          }) as EventListener)
+
           return pg
         })()
       )
     )
   )
+
+  // In output mode, hide header and sidebar — just show the playground full-screen
+  if (app.splitMode.valueOf() === 'output') {
+    const headerEl = main.querySelector('header')
+    if (headerEl) headerEl.style.display = 'none'
+    const navEl = main.querySelector(SideNav.tagName!) as SideNav | null
+    if (navEl) {
+      navEl.style.gridTemplateColumns = '0 1fr'
+      const navSlot = navEl.querySelector('[slot="nav"]') as HTMLElement | null
+      if (navSlot) navSlot.style.display = 'none'
+    }
+  }
 }
+
+// Notify partner window on close/refresh
+window.addEventListener('beforeunload', () => {
+  // Find the active playground and notify it to close its channel
+  const view = app.currentView.valueOf()
+  if (app.splitMode.valueOf()) {
+    if (view === 'tjs') {
+      const pg = document.querySelector(
+        'tjs-playground'
+      ) as TJSPlayground | null
+      pg?.notifyClose()
+    } else if (view === 'ts') {
+      const pg = document.querySelector('ts-playground') as TSPlayground | null
+      pg?.notifyClose()
+    }
+  }
+})
 
 // Log welcome message
 console.log(

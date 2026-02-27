@@ -181,6 +181,7 @@ const server = Bun.serve({
         headers: {
           'Content-Type': contentTypes[ext || 'html'] || 'text/plain',
           'Access-Control-Allow-Origin': '*',
+          'Cache-Control': 'no-cache, no-store, must-revalidate',
         },
       })
     }
@@ -189,7 +190,10 @@ const server = Bun.serve({
     const indexFile = Bun.file(join(DOCS_DIR, 'index.html'))
     if (await indexFile.exists()) {
       return new Response(indexFile, {
-        headers: { 'Content-Type': 'text/html' },
+        headers: {
+          'Content-Type': 'text/html',
+          'Cache-Control': 'no-cache, no-store, must-revalidate',
+        },
       })
     }
 

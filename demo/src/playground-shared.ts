@@ -164,9 +164,9 @@ ${TJS_RUNTIME_STUB}
     ${importStatements.join('\n    ')}
 ${CONSOLE_CAPTURE_SCRIPT}
 
-    const __childrenBefore = document.body.children.length;
+    const __childrenBefore = document.body.childNodes.length;
     try {${executionCode}
-      if (document.body.children.length > __childrenBefore) {
+      if (document.body.childNodes.length > __childrenBefore) {
         parent.postMessage({ type: 'hasPreviewContent' }, '*');
       }
     } catch (e) {
@@ -190,9 +190,9 @@ ${CONSOLE_CAPTURE_SCRIPT}
 ${TJS_RUNTIME_STUB}
 ${CONSOLE_CAPTURE_SCRIPT}
 
-    const __childrenBefore = document.body.children.length;
+    const __childrenBefore = document.body.childNodes.length;
     try {${executionCode}
-      if (document.body.children.length > __childrenBefore) {
+      if (document.body.childNodes.length > __childrenBefore) {
         parent.postMessage({ type: 'hasPreviewContent' }, '*');
       }
     } catch (e) {
