@@ -9,14 +9,7 @@
 
 import { elements, tosi, bindings, StyleSheet, bind, observe } from 'tosijs'
 
-import {
-  icons,
-  sideNav,
-  SideNav,
-  sizeBreak,
-  popMenu,
-  markdownViewer,
-} from 'tosijs-ui'
+import { icons, sideNav, SideNav, popMenu, markdownViewer } from 'tosijs-ui'
 
 import { styleSpec } from './style'
 StyleSheet('demo-style', styleSpec)
@@ -92,14 +85,6 @@ Object.assign(window, { agent, tosijs, tosijsui, demoRuntime, runAgent })
 import docs from '../docs.json'
 
 // Add playgrounds as special pages
-const ajsPlaygroundDoc = {
-  title: '▶ AJS Playground',
-  filename: 'playground',
-  text: '',
-  isPlayground: 'ajs',
-  pin: 'top',
-}
-
 const tjsPlaygroundDoc = {
   title: '▶ TJS Playground',
   filename: 'tjs-playground',
@@ -108,8 +93,16 @@ const tjsPlaygroundDoc = {
   pin: 'top',
 }
 
+const ajsPlaygroundDoc = {
+  title: '▶ AJS Playground',
+  filename: 'playground',
+  text: '',
+  isPlayground: 'ajs',
+  pin: 'top',
+}
+
 // Insert playgrounds at top
-const allDocs = [ajsPlaygroundDoc, tjsPlaygroundDoc, ...docs]
+const allDocs = [tjsPlaygroundDoc, ajsPlaygroundDoc, ...docs]
 
 const PROJECT = 'tjs-lang'
 declare const __VERSION__: string
