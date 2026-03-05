@@ -4,14 +4,13 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-**tjs-lang** (npm: `tjs-lang`) is a type-safe virtual machine (~33KB) for safe execution of untrusted code in any JavaScript environment. It compiles logic chains and AI agents to JSON-serializable ASTs that run sandboxed with fuel (gas) limits.
+**tjs-lang** (npm: `tjs-lang`) is a typed JavaScript platform — a language, runtime, and toolchain that transpiles TypeScript and TJS to JavaScript with runtime type validation, inline WASM, monadic errors, and safe eval. It also includes AJS, a gas-metered VM for executing untrusted agent code in any JavaScript environment.
 
-Key concept: Code travels to data (rather than shipping data to code). Agents are defined as data, not deployed code.
+**Three pillars:**
 
-**Two languages in one platform:**
-
-- **TJS** — TypeScript-like syntax with runtime type validation for writing your platform
-- **AJS** — Agent language that compiles to JSON AST for safe, sandboxed execution
+- **TJS** — TypeScript-like syntax where types are examples that survive to runtime as contracts, documentation, and tests. Transpiles TS → TJS → JS in a single fast pass.
+- **AJS** — Agent language that compiles to JSON AST for safe, sandboxed execution with fuel limits and injected capabilities. Code travels to data.
+- **Toolchain** — Compresses transpilation, linting, testing, and documentation generation into one pass. Includes inline WASM with SIMD, polymorphic dispatch, local class extensions, and a browser-based playground.
 
 ## Common Commands
 
