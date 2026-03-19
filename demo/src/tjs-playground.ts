@@ -1306,7 +1306,7 @@ export class TJSPlayground extends Component<TJSPlaygroundParts> {
           )}`
         },
         onPreviewContent: () => {
-          this.parts.outputTabs.value = 1 // Preview is second tab (index 1)
+          this.parts.outputTabs.value = 2 // Preview is third tab (index 2)
         },
         onError: (message) => {
           this.log(`Error: ${message}`)
