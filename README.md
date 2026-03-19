@@ -270,12 +270,12 @@ Since TJS compiles itself, the playground is the full engine running entirely in
 
 The cost of "safe eval"—compare to a 200MB Docker image:
 
-| Bundle                    | Size    | Gzipped    |
-| ------------------------- | ------- | ---------- |
-| VM only                   | 218 KB  | **66 KB**  |
-| + Batteries (LLM, vector) | 14 KB  | 5 KB       |
-| + Transpiler              | 5 KB   | 2 KB       |
-| Full (with TS support)    | 230 KB | 71 KB      |
+| Bundle                    | Size   | Gzipped   |
+| ------------------------- | ------ | --------- |
+| VM only                   | 218 KB | **66 KB** |
+| + Batteries (LLM, vector) | 14 KB  | 5 KB      |
+| + Transpiler              | 5 KB   | 2 KB      |
+| Full (with TS support)    | 230 KB | 71 KB     |
 
 **Dependencies:** `acorn` (JS parser), `tosijs-schema` (validation). Both have zero transitive dependencies.
 

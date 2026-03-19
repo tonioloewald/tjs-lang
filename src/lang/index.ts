@@ -42,6 +42,11 @@ export {
   type TJSTypeInfo,
 } from './emitters/js'
 export {
+  generateDTS,
+  typeDescriptorToTS,
+  type GenerateDTSOptions,
+} from './emitters/dts'
+export {
   fromTS,
   type FromTSOptions,
   type FromTSResult,

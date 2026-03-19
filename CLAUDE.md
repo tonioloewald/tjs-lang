@@ -69,7 +69,7 @@ npm run functions:serve     # Local functions emulator
 ### Key Source Files
 
 - `src/index.ts` - Main entry, re-exports everything
-- `src/vm/runtime.ts` - All atom implementations, expression evaluation, fuel charging (~2900 lines, security-critical)
+- `src/vm/runtime.ts` - All atom implementations, expression evaluation, fuel charging (~3000 lines, security-critical)
 - `src/vm/vm.ts` - AgentVM class (~226 lines)
 - `src/vm/atoms/batteries.ts` - Battery atoms (vector search, LLM, store operations)
 - `src/builder.ts` - TypedBuilder fluent API (~19KB)
@@ -152,8 +152,8 @@ function greet(name: '') -> '' {
 }
 `
 
-const jsCode = tjs(tjsSource)
-// Generates JavaScript with __tjs metadata for runtime validation
+const jsResult = tjs(tjsSource)
+// jsResult.code contains JavaScript with __tjs metadata for runtime validation
 ```
 
 **Full Chain Example:**
@@ -222,9 +222,11 @@ AJS expressions behave differently from JavaScript in several important ways:
 - Unit tests alongside source files (`*.test.ts`)
 - Integration tests in `src/use-cases/` (RAG, orchestration, malicious actors)
 - Security tests in `src/use-cases/malicious-actor.test.ts`
-- Language tests in `src/lang/lang.test.ts` (~46KB comprehensive)
+- Language tests split across 14 files in `src/lang/` (lang.test.ts, features.test.ts, codegen.test.ts, parser.test.ts, from-ts.test.ts, wasm.test.ts, etc.)
 
 Coverage targets: 98% lines on `src/vm/runtime.ts` (security-critical), 80%+ overall.
+
+**Bug fix rule:** Always create a reproduction test case before fixing a bug.
 
 ## Key Patterns
 
@@ -691,9 +693,28 @@ The `docs/` directory contains real documentation (markdown), not build artifact
 - `DOCS-TJS.md` — TJS language guide
 - `DOCS-AJS.md` — AJS runtime guide
 - `CONTEXT.md` — Architecture deep dive
-- `AGENTS.md` — Agent workflow instructions (issue tracking with `bd`, mandatory push-before-done)
+- `AGENTS.md` — Agent workflow instructions (issue tracking with `bd`, mandatory push-before-done). **Critical**: work is NOT complete until `git push` succeeds; use `bd ready` to find work, `bd close <id>` to complete
 - `PLAN.md` — Roadmap
 
-### Known Gotcha: Self-Contained Output
+### Known Gotcha: `tjs()` Returns an Object, Not a String
 
-Transpiled TJS code currently requires `globalThis.__tjs` to be set up with `createRuntime()` before execution. A `{ standalone: true }` option to inline the ~1KB runtime is planned but not yet implemented.
+`tjs(source)` returns `{ code, types, metadata, testResults, ... }`. Use `.code` to get the transpiled JavaScript string. This is a common mistake.
+
+### Known Gotcha: Running Emitted TJS Code in Tests
+
+Transpiled TJS code requires `globalThis.__tjs` to be set up with `createRuntime()` before execution:
+
+```typescript
+import { createRuntime } from '../lang/runtime'
+
+const saved = globalThis.__tjs
+globalThis.__tjs = createRuntime()
+try {
+  const fn = new Function(result.code + '\nreturn fnName')()
+  // ... test fn
+} finally {
+  globalThis.__tjs = saved
+}
+```
+
+A `{ standalone: true }` option to inline the ~1KB runtime is planned but not yet implemented.

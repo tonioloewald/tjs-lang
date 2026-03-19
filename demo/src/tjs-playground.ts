@@ -23,7 +23,7 @@ import {
 // Available modules for autocomplete introspection
 // These are the actual runtime values that can be introspected
 import { codeMirror, CodeMirror } from '../../editors/codemirror/component'
-import { tjs, type TJSTranspileOptions } from '../../src/lang'
+import { tjs, generateDTS, type TJSTranspileOptions } from '../../src/lang'
 import { generateDocsMarkdown } from './docs-utils'
 import { extractImports, generateImportMap, resolveImports } from './imports'
 import {
@@ -112,7 +112,8 @@ interface TJSPlaygroundParts extends PartsMap {
   cssEditor: CodeMirror
   inputTabs: TabSelector
   outputTabs: TabSelector
-  jsOutput: HTMLElement
+  jsOutput: CodeMirror
+  typesOutput: CodeMirror
   previewFrame: HTMLIFrameElement
   docsOutput: MarkdownViewer
   testsOutput: HTMLElement
@@ -563,13 +564,18 @@ export class TJSPlayground extends Component<TJSPlaygroundParts> {
         { class: 'tjs-output' },
         tabSelector(
           { part: 'outputTabs', style: { height: '100%' } },
-          div(
-            { name: 'JS' },
-            pre(
-              { part: 'jsOutput', class: 'js-output' },
-              '// Transpiled JavaScript will appear here'
-            )
-          ),
+          codeMirror({
+            name: 'JS',
+            part: 'jsOutput',
+            mode: 'javascript',
+            disabled: true,
+          }),
+          codeMirror({
+            name: 'Types',
+            part: 'typesOutput',
+            mode: 'typescript',
+            disabled: true,
+          }),
           elements.iframe({
             name: 'Preview',
             part: 'previewFrame',
@@ -757,7 +763,15 @@ export class TJSPlayground extends Component<TJSPlaygroundParts> {
       this.lastTranspileTime = performance.now() - startTime
 
       this.lastTranspileResult = result
-      this.parts.jsOutput.textContent = result.code
+      this.parts.jsOutput.value = result.code
+
+      // Update .d.ts types
+      try {
+        const dts = generateDTS(result, source)
+        this.parts.typesOutput.value = dts
+      } catch {
+        this.parts.typesOutput.value = '// Could not generate types'
+      }
 
       // Update docs
       this.updateDocs(result)
@@ -785,12 +799,13 @@ export class TJSPlayground extends Component<TJSPlaygroundParts> {
     } catch (e: any) {
       // Format error with location info if available
       const errorInfo = this.formatTranspileError(e, source)
-      this.parts.jsOutput.textContent = errorInfo.detailed
+      this.parts.jsOutput.value = errorInfo.detailed
       this.parts.statusBar.textContent = errorInfo.short
       this.parts.statusBar.classList.add('error')
       this.lastTranspileResult = null
       // Clear test results on error
       this.parts.testsOutput.textContent = 'Transpilation failed - no tests run'
+      this.parts.typesOutput.value = '// Transpilation failed'
 
       // Set error marker in gutter
       if (e.line) {

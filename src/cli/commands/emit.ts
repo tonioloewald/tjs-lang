@@ -6,6 +6,7 @@
  *   tjs emit <file.tjs> -o <out.js>     Emit single file to output
  *   tjs emit <dir> -o <outdir>          Emit all .tjs files in directory
  *   tjs emit --unsafe <file.tjs>        Emit without __tjs metadata (production)
+ *   tjs emit --dts <file.tjs>           Also generate .d.ts declaration file
  *   tjs emit --no-docs <file.tjs>       Suppress documentation generation
  *   tjs emit --docs-dir <dir>           Output docs to separate directory
  *   tjs emit --jfdi <file.tjs>          Emit even if tests fail (just fucking do it)
@@ -22,6 +23,7 @@ import {
 import { join, basename, dirname, extname } from 'path'
 import { tjs } from '../../lang'
 import { generateDocs } from '../../lang/docs'
+import { generateDTS } from '../../lang/emitters/dts'
 
 export interface EmitOptions {
   /** Include source locations in __tjs metadata */
@@ -40,6 +42,8 @@ export interface EmitOptions {
   docsDir?: string
   /** Emit even if tests fail (just fucking do it) */
   jfdi?: boolean
+  /** Generate .d.ts TypeScript declaration file alongside JS */
+  dts?: boolean
 }
 
 export async function emit(
@@ -147,6 +151,28 @@ async function emitFile(
       if (options.verbose) {
         const suffix = hasFailures ? ' (tests failed, --jfdi)' : ''
         console.log(`✓ ${inputPath} -> ${outputPath}${suffix}`)
+      }
+
+      // Generate .d.ts if requested
+      if (options.dts) {
+        try {
+          const dtsContent = generateDTS(result, source)
+          const dtsPath = outputPath.replace(/\.js$/, '.d.ts')
+
+          const dtsDir = dirname(dtsPath)
+          if (dtsDir && !existsSync(dtsDir)) {
+            mkdirSync(dtsDir, { recursive: true })
+          }
+
+          writeFileSync(dtsPath, dtsContent)
+          if (options.verbose) {
+            console.log(`  ${dtsPath}`)
+          }
+        } catch (dtsError: any) {
+          if (options.verbose) {
+            console.log(`  .d.ts skipped: ${dtsError.message}`)
+          }
+        }
       }
 
       // Generate docs unless suppressed

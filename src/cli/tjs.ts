@@ -20,7 +20,7 @@ import { emit } from './commands/emit'
 import { convert } from './commands/convert'
 import { test } from './commands/test'
 
-const VERSION = '0.1.0'
+const VERSION = '0.6.0'
 
 const HELP = `
 tjs - Typed JavaScript CLI
@@ -41,6 +41,7 @@ Options:
   -v, --version   Show version
   --debug         Include source locations in __tjs metadata (emit command)
   --unsafe        Strip __tjs metadata for production builds (emit command)
+  --dts           Generate .d.ts declaration file (emit command)
   --no-docs       Suppress documentation generation (emit command)
   --docs-dir <d>  Output docs to separate directory (emit command)
   --jfdi          Emit even if tests fail (just fucking do it)
@@ -82,6 +83,7 @@ async function main() {
   const verbose = args.includes('--verbose') || args.includes('-V')
   const unsafe = args.includes('--unsafe')
   const noDocs = args.includes('--no-docs')
+  const dts = args.includes('--dts')
   const jfdi = args.includes('--jfdi')
   const emitTJS = args.includes('--emit-tjs')
 
@@ -145,6 +147,7 @@ async function main() {
           output,
           verbose,
           noDocs,
+          dts,
           docsDir,
           jfdi,
         })
