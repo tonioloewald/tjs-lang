@@ -61,6 +61,8 @@ export function myFunction() {
 
 If you don't use any TJS features, your code is just JavaScript. No lock-in.
 
+This extends to advanced patterns too: **Proxies**, **WeakMap/WeakSet**, **Symbols**, **generators**, **async iterators**, **`Object.defineProperty`** — all work identically. TJS adds type checks at function boundaries; it doesn't wrap or intercept any JS runtime behavior.
+
 ---
 
 ## What's Different

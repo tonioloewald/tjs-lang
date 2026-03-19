@@ -24,6 +24,34 @@ TJS transpiles to JavaScript with embedded `__tjs` metadata, enabling runtime ty
 
 ---
 
+## TJS is JavaScript
+
+TJS is **purely additive**. It adds type annotations, runtime validation, and metadata on top of standard JavaScript. It does not replace, intercept, or modify any existing JavaScript semantics.
+
+**Everything you know about JavaScript still works:**
+
+- **Proxies** — fully supported. TJS never intercepts property access. `__tjs` metadata is a plain property assignment on the function object; it doesn't interfere with Proxy traps. The `[tjsEquals]` symbol protocol is specifically designed for Proxy-friendly custom equality.
+- **WeakMap, WeakSet, Map, Set** — all unchanged. TJS doesn't wrap or validate collection internals.
+- **Closures, Promises, async/await** — work identically to JS.
+- **Prototype chains** — preserved. `wrapClass()` uses a Proxy only on the class constructor (to allow calling without `new`), not on instances.
+- **Module semantics** — TJS preserves ES module `import`/`export` exactly. Lazy getters, circular dependencies, and re-exports work the same as in JS.
+- **`this` binding** — unchanged. Arrow functions, `.bind()`, `.call()`, `.apply()` all work normally.
+- **Regular expressions, JSON, Math, Date** — all standard built-ins are available and unmodified (though `TjsDate` directive can optionally ban `Date` in favor of safer alternatives).
+
+**What TJS adds (and when):**
+
+| Addition               | When                                      | Overhead                      |
+| ---------------------- | ----------------------------------------- | ----------------------------- |
+| Parameter validation   | Function entry (unless `!` unsafe)        | ~1.5x on that function        |
+| Return type validation | Function exit (only with `safety all`)    | ~1.5x on that function        |
+| `__tjs` metadata       | Transpile time                            | Zero runtime cost             |
+| `wrapClass` Proxy      | Class declaration (with `TjsClass`)       | One-time, on constructor only |
+| Structural equality    | Only when `==`/`!=` used with `TjsEquals` | Per-comparison                |
+
+If TJS doesn't understand something in your code, it passes it through unchanged. There is no "TJS runtime" that interposes between your code and the JS engine — just the inline checks you can see in the transpiled output.
+
+---
+
 ## The Compiler
 
 TJS compiles in the browser. No webpack, no node_modules, no build server.
@@ -720,28 +748,70 @@ Key points:
 
 ## Module System
 
-### Imports
+TJS preserves standard ES module semantics exactly. `import` and `export` statements pass through to the output unchanged — TJS does not have its own module resolver.
 
-TJS supports URL imports:
+### Importing .tjs Files
+
+In **Bun** (with the TJS plugin from `bunfig.toml`):
 
 ```typescript
-import { Button } from 'https://cdn.example.com/ui-kit.tjs'
-import { validate } from './utils/validation.tjs'
+// .tjs files are transpiled automatically on import
+import { processOrder } from './orders.tjs'
+import { validateUser } from './users.ts' // TS files also work
 ```
 
-Modules are:
+In the **browser playground**, local modules are resolved from the playground's module store. Relative imports are looked up by name:
 
-- Fetched on demand
-- Transpiled in the browser
-- Cached independently (IndexedDB + service worker)
+```typescript
+import { formatDate } from './date-utils' // resolves from saved modules
+```
 
-### CDN Integration
+In **production builds** (`tjs emit`), TJS transpiles `.tjs` → `.js`. Your bundler (esbuild, Rollup, etc.) handles resolution of the output `.js` files normally.
 
-External packages from esm.sh with pinned versions:
+### Importing JS/TS Libraries
+
+TJS files can import any JavaScript or TypeScript library. The imported code runs without TJS validation — it's just normal JS. Add a TJS wrapper at the boundary if you want type safety:
+
+```typescript
+import { rawGeocode } from 'legacy-geo-pkg'
+
+// Wrap at the boundary — rawGeocode is unchecked, geocode validates its output
+function geocode(addr: '') -> { lat: 0.0, lon: 0.0 } {
+  return rawGeocode(addr)
+}
+```
+
+### CDN Imports
+
+URL imports work with any ESM CDN:
 
 ```typescript
 import lodash from 'https://esm.sh/lodash@4.17.21'
 ```
+
+### Circular Dependencies
+
+TJS doesn't interfere with JS module loading. Circular imports work the same way as in standard ES modules — use lazy getters or late binding if you need to break cycles, exactly as you would in plain JS.
+
+### TypeScript Declaration Files (.d.ts)
+
+TJS can generate `.d.ts` files so TypeScript consumers can use TJS-authored libraries with autocomplete and tooltips:
+
+```bash
+bun src/cli/tjs.ts emit --dts src/lib.tjs -o dist/lib.js
+# Generates dist/lib.js + dist/lib.d.ts
+```
+
+From code:
+
+```typescript
+import { tjs, generateDTS } from 'tjs-lang'
+
+const result = tjs(source)
+const dts = generateDTS(result, source)
+```
+
+Functions get full type declarations. Classes, generics, and predicate-based types get `any`-based stubs that provide IDE hints (parameter names, object shapes) without generating false lint errors for types that TJS validates at runtime.
 
 ---
 
@@ -827,17 +897,77 @@ MyConfig = { debug: true } // becomes: const MyConfig = { ... }
 
 ### What TJS Doesn't Do
 
-- **No gradual typing** - types are all-or-nothing per function
-- **No complex type inference** - you provide examples, not constraints
-- **No declaration files** - types live in the code, not `.d.ts`
-- **No type-level computation** - no conditional types, mapped types, etc.
+- **No gradual typing** — types are all-or-nothing per function
+- **No complex type inference** — you provide examples, not constraints
+- **No type-level computation** — no conditional types, mapped types, etc.
 
 ### What TJS Intentionally Avoids
 
-- Build steps
+- Build steps beyond transpilation
 - External type checkers
 - Complex tooling configuration
 - Separation of types from runtime
+
+---
+
+## Troubleshooting
+
+### Common Transpilation Errors
+
+**"Unexpected token"** — Usually means TJS-specific syntax (`:` params, `->` returns, `Type`, `Generic`) wasn't recognized. Check:
+
+- Is the file being parsed as TJS (not plain JS)?
+- Are `Type`/`Generic`/`Union` declarations at the top level (not inside functions)?
+- Is the `->` return type before the function body `{`?
+
+**"Type is not defined" / "Generic is not defined"** — These become `const Name = Type(...)` / `const Name = Generic(...)` after preprocessing. If you see this at runtime, the TJS runtime (`createRuntime()`) wasn't installed, or the file wasn't transpiled through TJS.
+
+**Signature test failures** — TJS runs your function with its example values at transpile time. If the function fails with its own examples, transpilation reports an error. Fix the function or choose better examples:
+
+```typescript
+// BAD: example 0 causes division by zero
+function inverse(x: 0) -> 0.0 { return 1 / x }
+
+// GOOD: example 1 works
+function inverse(x: 1) -> 0.0 { return 1 / x }
+```
+
+**Monadic errors instead of exceptions** — TJS validation returns `MonadicError` objects (with `$error: true`), it doesn't throw. Check with `isMonadicError(result)`, not `try/catch`:
+
+```typescript
+import { isMonadicError } from 'tjs-lang'
+
+const result = myFunction(badInput)
+if (isMonadicError(result)) {
+  console.log(result.message) // "type mismatch: expected string, got number"
+}
+```
+
+### Debugging Type Checks
+
+Every transpiled function has `.__tjs` metadata you can inspect:
+
+```typescript
+console.log(myFunction.__tjs)
+// { params: { name: { type: { kind: 'string' }, required: true } },
+//   returns: { kind: 'string' } }
+```
+
+The transpiled JS is readable — look at the generated code to see exactly what checks run:
+
+```bash
+bun src/cli/tjs.ts emit myfile.tjs  # see the generated JS
+```
+
+### When to Use `!` (Unsafe)
+
+Mark functions unsafe when:
+
+- The data source is already validated (e.g., internal helper called only from a validated wrapper)
+- You're in a hot loop and profiling shows the checks matter
+- You're calling a function millions of times with known-good data
+
+Don't use `!` at system boundaries (API handlers, user input, external data).
 
 ---
 

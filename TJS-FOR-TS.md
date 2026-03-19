@@ -396,19 +396,19 @@ as `typeOf(null)` returns `'null'` and `typeOf(undefined)` returns
 TJS intentionally skips TypeScript features that don't survive to runtime
 or add complexity without proportional value:
 
-| TypeScript Feature          | TJS Equivalent                          |
-| --------------------------- | --------------------------------------- |
-| `interface`                 | `Type` with example                     |
-| `type` aliases              | `Type`, `Union`, or `Enum`              |
-| Conditional types           | Use predicates in `Type`                |
-| Mapped types                | Not needed (types are values)           |
-| `keyof`, `typeof`           | Use runtime `Object.keys()`, `typeOf()` |
-| `Partial<T>`, `Pick<T>`     | Define the shape you need directly      |
-| Declaration files (`.d.ts`) | `__tjs` metadata on live objects        |
-| `as` type assertions        | Not needed (values are checked)         |
-| `any` escape hatch          | `safety none` per-module or `!` per-fn  |
-| Decorators                  | Not supported                           |
-| `namespace`                 | Use modules                             |
+| TypeScript Feature          | TJS Equivalent                            |
+| --------------------------- | ----------------------------------------- |
+| `interface`                 | `Type` with example                       |
+| `type` aliases              | `Type`, `Union`, or `Enum`                |
+| Conditional types           | Use predicates in `Type`                  |
+| Mapped types                | Not needed (types are values)             |
+| `keyof`, `typeof`           | Use runtime `Object.keys()`, `typeOf()`   |
+| `Partial<T>`, `Pick<T>`     | Define the shape you need directly        |
+| Declaration files (`.d.ts`) | Generated from `__tjs` metadata (`--dts`) |
+| `as` type assertions        | Not needed (values are checked)           |
+| `any` escape hatch          | `safety none` per-module or `!` per-fn    |
+| Decorators                  | Not supported                             |
+| `namespace`                 | Use modules                               |
 
 The philosophy: if a type feature doesn't do something at runtime, it's
 complexity without payoff.
@@ -667,6 +667,45 @@ The converter handles:
 It warns on constructs it can't convert cleanly (complex generics,
 utility types, conditional types).
 
+### What `fromTS` Handles Well
+
+- Primitive annotations (`string`, `number`, `boolean`) → example values
+- Interfaces and type aliases → `Type` declarations
+- String literal unions → `Union`
+- Enums → `Enum`
+- Optional params, default values, private fields
+- Class declarations with constructor params
+- `Promise<T>` unwrapping
+- JSDoc comments → TDoc comments
+
+### What `fromTS` Can't Fully Express
+
+TJS types are example values, not abstract type algebra. Some TypeScript
+patterns have no direct TJS equivalent:
+
+| TypeScript Pattern                         | What Happens                   | Workaround                         |
+| ------------------------------------------ | ------------------------------ | ---------------------------------- |
+| `Partial<T>`, `Required<T>`                | Emits warning, uses base shape | Define the shape you need directly |
+| `Pick<T, K>`, `Omit<T, K>`                 | Emits warning, uses full shape | Define the subset shape explicitly |
+| `ReturnType<T>`, `Parameters<T>`           | Drops to `any`                 | Use a concrete example value       |
+| Conditional types (`T extends U ? X : Y`)  | Drops to `any`                 | Use a `Type` with a predicate      |
+| Mapped types (`{ [K in keyof T]: ... }`)   | Drops to `any`                 | Define the shape literally         |
+| Template literal types (`` `${A}-${B}` ``) | Becomes `string`               | Use a `Type` with predicate        |
+| Complex generics (`T extends Foo<Bar<U>>`) | Type params become `any`       | Define concrete types at use sites |
+| Intersection types (`A & B`)               | Takes first type               | Merge the shapes manually          |
+| `readonly`, `as const`                     | Stripped (JS doesn't enforce)  | Use `Object.freeze()` if needed    |
+
+This isn't a limitation of the converter — it's a design choice. TJS types
+are runtime values, so they can only express things that are checkable at
+runtime with a boolean test. TypeScript's type-level computation is powerful
+but produces types that vanish after compilation.
+
+**The practical impact:** If you're converting a library with heavy utility
+types (like `Pick<Omit<T, K>, Extract<keyof T, string>>`), the converter
+will emit warnings and fall back to `any` for the complex parts. The
+generated code still runs correctly — you just lose some type granularity
+that you can add back with TJS `Type` predicates where it matters.
+
 ## Migration Strategy
 
 ### Incremental Adoption
@@ -851,6 +890,28 @@ function geocode(addr: '') -> { lat: 0.0, lon: 0.0 } {
 
 The untyped library code runs freely. Your TJS wrapper validates the
 result before it enters your typed world.
+
+### Do Proxies, WeakMaps, and other advanced patterns work?
+
+Yes. TJS is purely additive — it adds inline type checks and metadata
+properties but does not wrap, intercept, or modify JavaScript runtime
+behavior. Specifically:
+
+- **Proxies** work identically to plain JS. TJS attaches `.__tjs` as a
+  plain property on function objects, which doesn't trigger Proxy traps.
+  If your Proxy needs custom equality, use the `[tjsEquals]` symbol protocol.
+- **WeakMap/WeakSet** are unaffected. TJS doesn't inspect collection contents.
+- **Symbols** work normally. TJS reserves `Symbol.for('tjs.equals')` for
+  custom equality but doesn't interfere with other symbols.
+- **`Object.defineProperty`**, getters/setters, non-enumerable properties
+  — all work as expected. TJS validation checks value types, not property
+  descriptors.
+- **Prototype chains** are preserved. `instanceof` works correctly with
+  TJS-wrapped classes.
+
+If you're building a Proxy-heavy library (reactive state, ORMs, etc.),
+TJS will not interfere. The transpiled output is plain JavaScript with
+some `typeof` checks at function entry points.
 
 ### Does structural equality (`==`) handle circular references?
 
