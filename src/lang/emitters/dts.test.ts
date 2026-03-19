@@ -357,7 +357,7 @@ export Type Count = 0
 })
 
 describe('generateDTS — Generic declarations', () => {
-  it('should emit Generic as factory function', () => {
+  it('should emit Generic without declaration as factory function', () => {
     const source = `
 export Generic Box<T> {
   description: 'a boxed value'
@@ -370,6 +370,70 @@ export Generic Box<T> {
     expect(dts).toContain('export declare function Box(')
     expect(dts).toContain('...args: any[]')
     expect(dts).toContain('check(value: any): boolean')
+  })
+
+  it('should emit Generic with declaration block as interface', () => {
+    const source = `
+export Generic BoxedProxy<T> {
+  description: 'typed state proxy'
+  predicate(x, T) { return typeof x === 'object' && 'value' in x && T(x.value) }
+  declaration {
+    value: T
+    path: string
+    observe(cb: (path: string) => void): void
+    touch(): void
+  }
+}
+`
+    const result = transpileToJS(source, { runTests: false })
+    const dts = generateDTS(result, source)
+
+    expect(dts).toContain('export interface BoxedProxy<T>')
+    expect(dts).toContain('value: T')
+    expect(dts).toContain('path: string')
+    expect(dts).toContain('observe(cb: (path: string) => void): void')
+    expect(dts).toContain('touch(): void')
+    // Should NOT contain the factory stub
+    expect(dts).not.toContain('...args: any[]')
+  })
+
+  it('should handle declaration block with complex TS types', () => {
+    const source = `
+export Generic Result<T, E> {
+  predicate(x, T, E) { return true }
+  declaration {
+    value: T | undefined
+    error: E | undefined
+    isOk(): this is { value: T; error: undefined }
+    map<U>(fn: (value: T) => U): Result<U, E>
+  }
+}
+`
+    const result = transpileToJS(source, { runTests: false })
+    const dts = generateDTS(result, source)
+
+    expect(dts).toContain('export interface Result<T, E>')
+    expect(dts).toContain('value: T | undefined')
+    expect(dts).toContain('error: E | undefined')
+    expect(dts).toContain('map<U>(fn: (value: T) => U): Result<U, E>')
+  })
+
+  it('should not include declaration content in runtime output', () => {
+    const source = `
+export Generic Box<T> {
+  description: 'a box'
+  predicate(obj, T) { return true }
+  declaration {
+    value: T
+    unwrap(): T
+  }
+}
+`
+    const result = transpileToJS(source, { runTests: false })
+
+    // Runtime code should not contain the declaration block content
+    expect(result.code).not.toContain('unwrap(): T')
+    expect(result.code).not.toContain('declaration')
   })
 })
 

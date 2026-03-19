@@ -120,6 +120,8 @@ interface TypeResolutionContext {
   warnings?: string[]
   /** Track visited types to prevent infinite recursion */
   visited?: Set<string>
+  /** Type parameter constraints and defaults from enclosing generic function/class */
+  typeParams?: Map<string, { constraint?: ts.TypeNode; default?: ts.TypeNode }>
 }
 
 /**
@@ -253,8 +255,20 @@ function typeToExample(
         return `{ ${props.join(', ')} }`
       }
 
-      // Type parameters (generics like T, K, V) - treat as any
-      // Single uppercase letter or common generic names
+      // Type parameters (generics like T, K, V)
+      // Check if we have constraint or default info from enclosing context
+      if (ctx?.typeParams?.has(typeName)) {
+        const tp = ctx.typeParams.get(typeName)!
+        if (tp.constraint) {
+          return typeToExample(tp.constraint, checker, warnings, ctx)
+        }
+        if (tp.default) {
+          return typeToExample(tp.default, checker, warnings, ctx)
+        }
+        // No constraint or default — fall through to 'any'
+      }
+
+      // Single uppercase letter or common generic names — treat as any
       if (
         /^[A-Z]$/.test(typeName) ||
         ['T', 'K', 'V', 'U', 'TKey', 'TValue', 'TItem', 'TResult'].includes(
@@ -583,6 +597,17 @@ function typeToInfo(
           }
         }
         return { kind: 'object', shape }
+      }
+
+      // Check type parameter constraints/defaults from enclosing context
+      if (ctx?.typeParams?.has(typeName)) {
+        const tp = ctx.typeParams.get(typeName)!
+        if (tp.constraint) {
+          return typeToInfo(tp.constraint, ctx)
+        }
+        if (tp.default) {
+          return typeToInfo(tp.default, ctx)
+        }
       }
 
       // Generics and unknown types become 'any'
@@ -937,14 +962,36 @@ function transformFunctionToTJS(
   sourceFile: ts.SourceFile,
   explicitName?: string,
   warnings?: string[],
-  includeLineNumber?: boolean
+  includeLineNumber?: boolean,
+  ctx?: TypeResolutionContext
 ): string {
+  // Build type parameter map from generic params (constraint/default)
+  let typeParamMap:
+    | Map<string, { constraint?: ts.TypeNode; default?: ts.TypeNode }>
+    | undefined
+  if (node.typeParameters && node.typeParameters.length > 0) {
+    typeParamMap = new Map()
+    for (const tp of node.typeParameters) {
+      typeParamMap.set(tp.name.getText(sourceFile), {
+        constraint: tp.constraint,
+        default: tp.default,
+      })
+    }
+  }
+
+  // Merge type params into ctx for resolution in typeToExample
+  const resolveCtx: TypeResolutionContext | undefined =
+    typeParamMap || ctx
+      ? { ...ctx, typeParams: typeParamMap ?? ctx?.typeParams }
+      : ctx
+
   const degraded: string[] = []
   const params = transformParams(
     node.parameters,
     sourceFile,
     warnings,
-    degraded
+    degraded,
+    resolveCtx
   )
 
   // Get line number (1-indexed) for source mapping
@@ -959,7 +1006,7 @@ function transformFunctionToTJS(
       ? node.name.getText(sourceFile)
       : '')
   const returnExample = node.type
-    ? typeToExample(node.type, undefined, warnings)
+    ? typeToExample(node.type, undefined, warnings, resolveCtx)
     : ''
   // Use -! to skip signature tests - TS types are compile-time only,
   // the example values won't necessarily match runtime behavior
@@ -1293,14 +1340,15 @@ function transformParams(
   parameters: ts.NodeArray<ts.ParameterDeclaration>,
   sourceFile: ts.SourceFile,
   warnings?: string[],
-  degraded?: string[]
+  degraded?: string[],
+  ctx?: TypeResolutionContext
 ): string[] {
   const params: string[] = []
 
   for (const param of parameters) {
     const name = param.name.getText(sourceFile)
     const isOptional = !!param.questionToken || !!param.initializer
-    const typeExample = typeToExample(param.type, undefined, warnings)
+    const typeExample = typeToExample(param.type, undefined, warnings, ctx)
 
     if (param.initializer) {
       // Has default value - use it directly
@@ -1338,6 +1386,22 @@ function extractFunctionMetadata(
   warnings?: string[],
   ctx?: TypeResolutionContext
 ): FunctionTypeInfo {
+  // Build type parameter map from generic params
+  let resolveCtx = ctx
+  if (node.typeParameters && node.typeParameters.length > 0) {
+    const typeParamMap = new Map<
+      string,
+      { constraint?: ts.TypeNode; default?: ts.TypeNode }
+    >()
+    for (const tp of node.typeParameters) {
+      typeParamMap.set(tp.name.getText(sourceFile), {
+        constraint: tp.constraint,
+        default: tp.default,
+      })
+    }
+    resolveCtx = { ...ctx, typeParams: typeParamMap }
+  }
+
   const name =
     ts.isFunctionDeclaration(node) && node.name
       ? node.name.getText(sourceFile)
@@ -1360,7 +1424,7 @@ function extractFunctionMetadata(
     }
 
     params[paramName] = {
-      type: typeToInfo(param.type, ctx),
+      type: typeToInfo(param.type, resolveCtx),
       required: !isOptional,
       default: defaultValue,
     }
@@ -1369,7 +1433,7 @@ function extractFunctionMetadata(
   const result: FunctionTypeInfo = {
     name,
     params,
-    returns: node.type ? typeToInfo(node.type, ctx) : undefined,
+    returns: node.type ? typeToInfo(node.type, resolveCtx) : undefined,
   }
 
   // Extract generic type parameters
@@ -1390,6 +1454,22 @@ function extractClassMetadata(
   warnings?: string[],
   ctx?: TypeResolutionContext
 ): ClassTypeInfo {
+  // Build type parameter map from class-level generics
+  let resolveCtx = ctx
+  if (node.typeParameters && node.typeParameters.length > 0) {
+    const typeParamMap = new Map<
+      string,
+      { constraint?: ts.TypeNode; default?: ts.TypeNode }
+    >()
+    for (const tp of node.typeParameters) {
+      typeParamMap.set(tp.name.getText(sourceFile), {
+        constraint: tp.constraint,
+        default: tp.default,
+      })
+    }
+    resolveCtx = { ...ctx, typeParams: typeParamMap }
+  }
+
   const name = node.name?.getText(sourceFile) || 'anonymous'
   const methods: Record<string, FunctionTypeInfo> = {}
   const staticMethods: Record<string, FunctionTypeInfo> = {}
@@ -1414,7 +1494,7 @@ function extractClassMetadata(
         }
 
         params[paramName] = {
-          type: typeToInfo(param.type, ctx),
+          type: typeToInfo(param.type, resolveCtx),
           required: !isOptional,
           default: defaultValue,
         }
@@ -1445,7 +1525,7 @@ function extractClassMetadata(
         }
 
         params[paramName] = {
-          type: typeToInfo(param.type, ctx),
+          type: typeToInfo(param.type, resolveCtx),
           required: !isOptional,
           default: defaultValue,
         }
@@ -1454,7 +1534,7 @@ function extractClassMetadata(
       const methodInfo: FunctionTypeInfo = {
         name: methodName,
         params,
-        returns: member.type ? typeToInfo(member.type, ctx) : undefined,
+        returns: member.type ? typeToInfo(member.type, resolveCtx) : undefined,
       }
 
       if (isStatic) {
@@ -1738,7 +1818,8 @@ export function fromTS(
               sourceFile,
               undefined,
               warnings,
-              true
+              true,
+              resolutionCtx
             )
           )
         } else {
@@ -1775,7 +1856,8 @@ export function fromTS(
                 sourceFile,
                 funcName,
                 warnings,
-                true
+                true,
+                resolutionCtx
               )
             )
           } else {

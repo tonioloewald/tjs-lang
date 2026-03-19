@@ -1245,8 +1245,25 @@ export function transformGenericDeclarations(source: string): string {
       })
 
       // Parse the block body
-      const descMatch = blockBody.match(/description\s*:\s*(['"`])([^]*?)\1/)
-      const predicateMatch = blockBody.match(
+      // Strip declaration { ... } block before parsing (it's .d.ts metadata, not runtime)
+      let parsedBody = blockBody
+      const declIdx = parsedBody.search(/\bdeclaration\s*\{/)
+      if (declIdx !== -1) {
+        // Find matching closing brace for the declaration block
+        const declBraceStart = parsedBody.indexOf('{', declIdx)
+        let dDepth = 1
+        let dj = declBraceStart + 1
+        while (dj < parsedBody.length && dDepth > 0) {
+          if (parsedBody[dj] === '{') dDepth++
+          else if (parsedBody[dj] === '}') dDepth--
+          dj++
+        }
+        // Remove the declaration block
+        parsedBody = parsedBody.slice(0, declIdx) + parsedBody.slice(dj)
+      }
+
+      const descMatch = parsedBody.match(/description\s*:\s*(['"`])([^]*?)\1/)
+      const predicateMatch = parsedBody.match(
         /predicate\s*\(([^)]*)\)\s*\{([^]*)\}/
       )
 

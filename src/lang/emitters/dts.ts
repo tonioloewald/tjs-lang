@@ -353,18 +353,51 @@ function detectTypeDeclarations(source: string): Map<string, string> {
   return result
 }
 
-/** Detect Generic declarations and their type parameter names */
-function detectGenerics(source: string): Map<string, { typeParams: string[] }> {
-  const result = new Map<string, { typeParams: string[] }>()
-  const re = /^[ \t]*(?:export\s+)?Generic\s+(\w+)\s*<([^>]+)>/gm
+/** Info about a Generic declaration */
+interface GenericInfo {
+  typeParams: string[]
+  /** Raw TypeScript content from `declaration { ... }` block, if present */
+  declaration?: string
+}
+
+/** Detect Generic declarations, their type params, and optional declaration blocks */
+function detectGenerics(source: string): Map<string, GenericInfo> {
+  const result = new Map<string, GenericInfo>()
+  const re = /^[ \t]*(?:export\s+)?Generic\s+(\w+)\s*<([^>]+)>\s*\{/gm
   let m
   while ((m = re.exec(source)) !== null) {
     const name = m[1]
     const typeParams = m[2].split(',').map((tp) => {
-      // Strip defaults: "U = ''" → "U"
       return tp.trim().split(/\s*=/)[0].trim()
     })
-    result.set(name, { typeParams })
+
+    // Find the full Generic block body via brace matching
+    const blockStart = m.index + m[0].length - 1
+    let depth = 1
+    let i = blockStart + 1
+    while (i < source.length && depth > 0) {
+      if (source[i] === '{') depth++
+      else if (source[i] === '}') depth--
+      i++
+    }
+    const blockBody = source.slice(blockStart + 1, i - 1)
+
+    // Look for declaration { ... } within the block body
+    let declaration: string | undefined
+    const declMatch = blockBody.match(/\bdeclaration\s*\{/)
+    if (declMatch && declMatch.index !== undefined) {
+      const declStart = declMatch.index + declMatch[0].length - 1
+      let dDepth = 1
+      let j = declStart + 1
+      while (j < blockBody.length && dDepth > 0) {
+        if (blockBody[j] === '{') dDepth++
+        else if (blockBody[j] === '}') dDepth--
+        j++
+      }
+      declaration = blockBody.slice(declStart + 1, j - 1).trim()
+    }
+
+    result.set(name, { typeParams, declaration })
   }
   return result
 }
@@ -469,9 +502,9 @@ export function generateDTS(
     emitted.add(name)
   }
 
-  // Emit Generic declarations as factory functions.
-  // Generic('Box', ['T'], predicate) → callable that creates type guards.
-  // In TS terms: a function that takes type args and returns a type guard.
+  // Emit Generic declarations.
+  // If a declaration block is present, emit a proper TS interface.
+  // Otherwise, emit an any-based factory stub.
   for (const [name, info] of generics) {
     if (emitted.has(name)) continue
 
@@ -479,14 +512,26 @@ export function generateDTS(
     const isExported = hasAnyExport ? !!exportInfo?.exported : true
     if (!isExported) continue
 
-    // Emit as a function that takes any args and returns a type guard object
-    // (same shape as Type — .check(), callable, etc.)
-    const anyParams = info.typeParams.map((_) => `...args: any[]`)
-    lines.push(
-      `export declare function ${name}(` +
-        `...args: any[]` +
-        `): { check(value: any): boolean; (value: any): boolean; };`
-    )
+    const typeParamStr =
+      info.typeParams.length > 0 ? `<${info.typeParams.join(', ')}>` : ''
+
+    if (info.declaration) {
+      // Emit a proper TypeScript interface from the declaration block
+      const declLines = info.declaration
+        .split('\n')
+        .map((l) => l.trim())
+        .filter((l) => l.length > 0)
+        .map((l) => `  ${l}`)
+        .join('\n')
+      lines.push(`export interface ${name}${typeParamStr} {\n${declLines}\n}`)
+    } else {
+      // No declaration block — emit any-based factory stub
+      lines.push(
+        `export declare function ${name}(` +
+          `...args: any[]` +
+          `): { check(value: any): boolean; (value: any): boolean; };`
+      )
+    }
     emitted.add(name)
   }
 

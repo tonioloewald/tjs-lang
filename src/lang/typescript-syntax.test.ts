@@ -1222,6 +1222,92 @@ describe('TS compile-time types - graceful degradation', () => {
 })
 
 // =============================================================================
+// Constrained generics — use constraint/default instead of 'any'
+// =============================================================================
+
+describe('Constrained generics use constraint as example', () => {
+  test('T extends object shape uses constraint shape', () => {
+    const result = fromTS(
+      `function first<T extends { id: number }>(items: T[]): T {
+        return items[0]
+      }`,
+      { emitTJS: true }
+    )
+    // items should use the constraint shape, not 'any'
+    expect(result.code).toContain('id:')
+    expect(result.code).not.toContain('TODO: TS types degraded')
+  })
+
+  test('T extends primitive uses constraint type', () => {
+    const result = fromTS(
+      `function stringify<T extends string | number>(value: T): string {
+        return String(value)
+      }`,
+      { emitTJS: true }
+    )
+    // Should produce a union example, not 'any'
+    expect(result.code).not.toContain('TODO: TS types degraded')
+  })
+
+  test('generic with default uses default when no constraint', () => {
+    const result = fromTS(
+      `function wrap<T = string>(value: T): { wrapped: T } {
+        return { wrapped: value }
+      }`,
+      { emitTJS: true }
+    )
+    // T should resolve to string (the default)
+    expect(result.code).toContain('value:')
+    expect(result.code).not.toContain('TODO: TS types degraded')
+  })
+
+  test('unconstrained generic still degrades to any', () => {
+    const result = fromTS(
+      `function identity<T>(value: T): T {
+        return value
+      }`,
+      { emitTJS: true }
+    )
+    // No constraint or default — should still be bare name (any)
+    expect(result.code).toContain('function identity(value)')
+    expect(result.code).toContain('TODO: TS types degraded')
+  })
+
+  test('constrained generic metadata uses constraint shape', () => {
+    const result = fromTS(
+      `function getKey<T extends { id: number; name: string }>(item: T): string {
+        return item.name
+      }`
+    )
+    // Metadata should reflect the constraint shape, not 'any'
+    expect(result.types).toBeDefined()
+    const fn = result.types!['getKey']
+    expect(fn).toBeDefined()
+    expect(fn.params.item.type.kind).toBe('object')
+    expect(fn.params.item.type.shape).toHaveProperty('id')
+    expect(fn.params.item.type.shape).toHaveProperty('name')
+  })
+
+  test('class with constrained generic uses constraint', () => {
+    const result = fromTS(
+      `class Store<T extends { id: number }> {
+        private items: T[] = []
+        add(item: T): void { this.items.push(item) }
+        get(id: number): T | undefined { return this.items.find(i => i.id === id) }
+      }`
+    )
+    expect(result.classes).toBeDefined()
+    const store = result.classes!['Store']
+    expect(store).toBeDefined()
+    // The add method's item param should reflect the constraint
+    const addMethod = store.methods['add']
+    expect(addMethod).toBeDefined()
+    expect(addMethod.params.item.type.kind).toBe('object')
+    expect(addMethod.params.item.type.shape).toHaveProperty('id')
+  })
+})
+
+// =============================================================================
 // SUMMARY: Features to implement (in priority order)
 // =============================================================================
 /*
