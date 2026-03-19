@@ -323,6 +323,45 @@ Generic Container<T, U = ''> {
 }
 ```
 
+#### Declaration Blocks (for TypeScript Consumers)
+
+Generics can include an optional `declaration` block that specifies the
+TypeScript interface to emit in `.d.ts` output. This is metadata for TS
+consumers — it has no effect on runtime behavior.
+
+```typescript
+Generic BoxedProxy<T> {
+  description: 'typed reactive proxy'
+  predicate(x, T) {
+    return typeof x === 'object' && 'value' in x && T(x.value)
+  }
+  declaration {
+    value: T
+    path: string
+    observe(cb: (path: string) => void): void
+    touch(): void
+  }
+}
+```
+
+When emitting `.d.ts` via `tjs emit --dts`, this produces:
+
+```typescript
+export interface BoxedProxy<T> {
+  value: T;
+  path: string;
+  observe(cb: (path: string) => void): void;
+  touch(): void;
+}
+```
+
+The declaration content is raw TypeScript syntax — it's emitted verbatim
+into the `.d.ts` file. This lets TJS libraries provide proper TypeScript
+interfaces while keeping the TJS source as the single source of truth.
+
+Without a `declaration` block, Generics emit an `any`-based factory stub
+that provides basic IDE hints without false type errors.
+
 ### Union()
 
 Discriminated unions:

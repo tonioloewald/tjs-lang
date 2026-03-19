@@ -678,6 +678,26 @@ utility types, conditional types).
 - `Promise<T>` unwrapping
 - JSDoc comments → TDoc comments
 
+### Constrained Generics
+
+When the converter encounters a constrained generic like
+`<T extends { id: number }>`, it uses the constraint shape as the
+example value instead of falling back to `any`. This means:
+
+```typescript
+// TypeScript
+function first<T extends { id: number }>(items: T[]): T {
+  return items[0]
+}
+
+// Converted TJS — uses constraint shape, not 'any'
+function first(items: [{ id: 0.0 }]) -! { id: 0.0 } { ... }
+```
+
+Generic defaults also work: `<T = string>` uses `string` as the example.
+Unconstrained generics (`<T>` with no `extends` or default) still degrade
+to `any` — there's genuinely no information about what T is.
+
 ### What `fromTS` Can't Fully Express
 
 TJS types are example values, not abstract type algebra. Some TypeScript
@@ -691,8 +711,8 @@ patterns have no direct TJS equivalent:
 | Conditional types (`T extends U ? X : Y`)  | Drops to `any`                 | Use a `Type` with a predicate      |
 | Mapped types (`{ [K in keyof T]: ... }`)   | Drops to `any`                 | Define the shape literally         |
 | Template literal types (`` `${A}-${B}` ``) | Becomes `string`               | Use a `Type` with predicate        |
-| Complex generics (`T extends Foo<Bar<U>>`) | Type params become `any`       | Define concrete types at use sites |
-| Intersection types (`A & B`)               | Takes first type               | Merge the shapes manually          |
+| Deeply nested generics (`Foo<Bar<U>>`)     | Inner params become `any`      | Define concrete types at use sites |
+| Intersection types (`A & B`)               | Objects merged; else `any`     | Merge the shapes manually          |
 | `readonly`, `as const`                     | Stripped (JS doesn't enforce)  | Use `Object.freeze()` if needed    |
 
 This isn't a limitation of the converter — it's a design choice. TJS types

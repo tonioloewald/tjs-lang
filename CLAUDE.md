@@ -77,6 +77,7 @@ npm run functions:serve     # Local functions emulator
 - `src/lang/emitters/ast.ts` - Emits Agent99 AST from parsed source
 - `src/lang/emitters/js.ts` - Emits JavaScript with `__tjs` metadata
 - `src/lang/emitters/from-ts.ts` - TypeScript to TJS/JS transpiler with class metadata extraction
+- `src/lang/emitters/dts.ts` - .d.ts declaration file generator from TJS transpilation results
 - `src/lang/inference.ts` - Type inference from example values
 - `src/lang/linter.ts` - Static analysis (unused vars, unreachable code, no-explicit-new)
 - `src/lang/runtime.ts` - TJS runtime (monadic errors, type checking, wrapClass)
@@ -187,6 +188,9 @@ fn('a', 'b') // Returns { error: 'type mismatch', ... }
 - `fromTS` lives in a separate entry point (`tosijs/lang/from-ts`)
 - Import only what you need to keep bundle size minimal
 - Each step is independently testable (see `src/lang/codegen.test.ts`)
+- Constrained generics (`<T extends { id: number }>`) use the constraint as the example value instead of `any`
+- Generic defaults (`<T = string>`) use the default as the example value
+- Unconstrained generics (`<T>`) degrade to `any` — there's no information to use
 
 ### Security Model
 
@@ -375,6 +379,18 @@ Generic Container<T, U = ''> {
   description: 'container with label'
   predicate(obj, T, U) {
     return T(obj.item) && U(obj.label)
+  }
+}
+
+// Generic with declaration block (for .d.ts emission)
+// The declaration block contains TypeScript syntax emitted verbatim into .d.ts
+// It is stripped from runtime JS output
+Generic BoxedProxy<T> {
+  predicate(x, T) { return typeof x === 'object' && T(x.value) }
+  declaration {
+    value: T
+    path: string
+    observe(cb: (path: string) => void): void
   }
 }
 ```
