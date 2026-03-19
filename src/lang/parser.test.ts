@@ -35,10 +35,11 @@ describe('Transpiler', () => {
       )
     })
 
-    it('should reject required params after optional params', () => {
-      expect(() => preprocess(`function foo(a = 10, b: 'string') { }`)).toThrow(
-        "Required parameter 'b' cannot follow optional parameter"
-      )
+    it('should allow required params after optional params', () => {
+      // TypeScript permits this pattern, and fromTS can produce it when
+      // earlier params degrade to any. TJS should accept it.
+      const result = preprocess(`function foo(a = 10, b: 'string') { }`)
+      expect(result.source).toContain("b = 'string'")
     })
 
     it('should transform Type declaration with simple example', () => {

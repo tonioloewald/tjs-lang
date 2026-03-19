@@ -244,12 +244,9 @@ function typeToExample(
               ...ctx,
               visited,
             })
-            const isOptional = !!member.questionToken
-            if (isOptional) {
-              props.push(`${propName} = ${propExample}`)
-            } else {
-              props.push(`${propName}: ${propExample}`)
-            }
+            // Always use : for object shape properties — = is only valid
+            // in destructuring patterns, not in object literal examples
+            props.push(`${propName}: ${propExample}`)
           }
         }
         return `{ ${props.join(', ')} }`

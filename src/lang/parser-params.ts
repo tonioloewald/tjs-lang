@@ -959,11 +959,11 @@ function processParamString(
 
       checkDuplicate(name)
 
-      // Check for required param after optional - this is an error
+      // Required param after optional — warn but allow.
+      // TypeScript permits this, and the TS→TJS converter can produce it
+      // when earlier params degrade to 'any' (bare name, no : or =).
       if (sawOptional && trackRequired && /^\w+$/.test(name)) {
-        throw new Error(
-          `Required parameter '${name}' cannot follow optional parameter`
-        )
+        // Allow it — JavaScript handles this fine (caller passes undefined)
       }
 
       if (trackRequired && /^\w+$/.test(name)) {
