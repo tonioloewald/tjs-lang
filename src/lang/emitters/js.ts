@@ -266,17 +266,13 @@ function extractFunctionTypeInfo(
         // defaults on rest params), so extract it from the original source
         const restName = param.argument.name
         const restTypeMatch = originalSource.match(
-          new RegExp(
-            `\\.\\.\\.${restName}\\s*:\\s*([^)]+?)\\s*\\)`
-          )
+          new RegExp(`\\.\\.\\.${restName}\\s*:\\s*([^)]+?)\\s*\\)`)
         )
         if (restTypeMatch) {
           try {
-            const typeExpr = parseExpressionAt(
-              restTypeMatch[1].trim(),
-              0,
-              { ecmaVersion: 2022 }
-            )
+            const typeExpr = parseExpressionAt(restTypeMatch[1].trim(), 0, {
+              ecmaVersion: 2022,
+            })
             const restItemType = inferTypeFromValue(typeExpr as any)
             params[restName] = {
               name: restName,

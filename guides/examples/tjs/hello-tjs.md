@@ -56,11 +56,11 @@ test 'floats accept any number' {
 }
 
 // Rest params — the array example IS the type
-function sum(! ...nums: [0]) -! 0 {
+function sum(...nums: [1, 2, 3]) -> 6 {
   return nums.reduce((a = 0, b: 0) => a + b, 0)
 }
 
-function mean(! ...values: [1.0, 2.0, 3.0]) -! 0.0 {
+function mean(...values: [1.0, 2.0, 3.0, 2.0]) -> 2.0 {
   return values.length
     ? values.reduce((sum = 0.0, x: 1.0) => sum + x) / values.length
     : 0.0

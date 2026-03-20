@@ -1105,9 +1105,30 @@ function extractParamExamples(paramsStr: string): string[] {
   const params = splitParams(paramsStr)
 
   for (const param of params) {
+    const trimmed = param.trim()
+
+    // Rest parameter: ...name: [examples] — spread the array elements as individual args
+    const restMatch = trimmed.match(/^\.\.\.(\w+)\s*[:=]\s*(\[.+\])$/)
+    if (restMatch) {
+      try {
+        const arr = new Function(`return ${restMatch[2]}`)()
+        if (Array.isArray(arr)) {
+          for (const el of arr) {
+            examples.push(JSON.stringify(el))
+          }
+        }
+      } catch {
+        // Can't parse — skip rest param examples
+      }
+      continue
+    }
+
+    // Bare rest param without type: ...name — skip (no example to use)
+    if (trimmed.startsWith('...')) continue
+
     // Match: name: example or name = example (with optional safety markers)
     // Handle: (? name: example) or (! name: example)
-    const match = param.match(/(?:\(\s*[?!]\s*)?(\w+)\s*[:=]\s*(.+?)(?:\))?$/)
+    const match = trimmed.match(/(?:\(\s*[?!]\s*)?(\w+)\s*[:=]\s*(.+?)(?:\))?$/)
     if (match) {
       examples.push(match[2].trim())
     } else {
