@@ -291,7 +291,7 @@ const p2 = new Point(10, 20) // Still works, but linter warns
 // Warning: Unnecessary 'new' keyword. In TJS, classes are callable without 'new'
 ```
 
-The `wrapClass()` function in the runtime uses a Proxy to intercept calls and auto-construct.
+The `wrapClass()` function in the runtime uses a Proxy to intercept calls and auto-construct. Only `class` declarations in `.tjs` files with `TjsClass` are wrapped — built-in constructors (`Boolean`, `Number`, `String`, etc.) and old-style `function` + `prototype` constructors are never touched because they may have intentional dual behavior (e.g., `Boolean(0)` returns `false` but `new Boolean(0)` returns a truthy wrapper object).
 
 #### Function Parameters
 

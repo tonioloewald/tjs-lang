@@ -348,10 +348,10 @@ When emitting `.d.ts` via `tjs emit --dts`, this produces:
 
 ```typescript
 export interface BoxedProxy<T> {
-  value: T;
-  path: string;
-  observe(cb: (path: string) => void): void;
-  touch(): void;
+  value: T
+  path: string
+  observe(cb: (path: string) => void): void
+  touch(): void
 }
 ```
 
@@ -450,9 +450,12 @@ via `import { tjsEquals } from 'tjs-lang/lang'` or `__tjs.tjsEquals` at runtime.
 
 ### Callable Without `new`
 
-TJS classes are callable without the `new` keyword:
+With the `TjsClass` directive, classes declared in your file are wrapped
+so they can be called without `new`:
 
 ```typescript
+TjsClass
+
 class User {
   constructor(name: '') {
     this.name = name
@@ -463,6 +466,31 @@ class User {
 const u1 = User('Alice') // TJS way - clean
 const u2 = new User('Alice') // Also works (linter warns)
 ```
+
+The wrapping uses a Proxy on the constructor that intercepts bare calls
+and forwards them to `Reflect.construct`. This means `User('Alice')`
+and `new User('Alice')` always produce the same result — an instance.
+
+**What gets wrapped:** Only `class` declarations in your `.tjs` file.
+Specifically:
+
+- `class Foo { }` in a file with `TjsClass` → wrapped
+- Built-in globals (`Boolean`, `Number`, `String`, `Array`) → **never touched**
+- Old-style constructor functions (`function Foo() { }` with `Foo.prototype`) → **never touched**
+
+**Why not built-ins:** JavaScript's built-in constructors have dual
+behavior — `Boolean(0)` returns the primitive `false` (type coercion),
+while `new Boolean(0)` returns a `Boolean` object wrapping `false`
+(which is truthy!). If TJS wrapped `Boolean`, then `Boolean(0)` would
+silently become `new Boolean(0)` — a truthy object instead of `false`.
+The same applies to `Number()`, `String()`, and `Array()`.
+
+**Why not old-style constructors:** If you're using `function` +
+`prototype` to build a class manually, you may intentionally want
+`Foo(x)` to behave differently from `new Foo(x)` — the same dual
+behavior pattern as the built-ins. TJS respects this by only wrapping
+the `class` keyword, where calling without `new` has no existing
+meaning in JavaScript (it throws `TypeError`).
 
 ### Private Fields
 
