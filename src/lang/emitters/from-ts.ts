@@ -157,6 +157,12 @@ function typeToExample(
       return 'any'
     case ts.SyntaxKind.NeverKeyword:
       return 'null'
+    case ts.SyntaxKind.SymbolKeyword:
+      return "Symbol('example')"
+    case ts.SyntaxKind.BigIntKeyword:
+      return '0n'
+    case ts.SyntaxKind.ObjectKeyword:
+      return '{}'
 
     case ts.SyntaxKind.ArrayType: {
       const arrayType = type as ts.ArrayTypeNode
@@ -202,11 +208,58 @@ function typeToExample(
       if (typeName === 'Record') {
         return '{}'
       }
-      if (typeName === 'Map') {
-        return 'new Map()'
+
+      // Built-in constructible types — valid JS expressions as examples
+      const builtinExamples: Record<string, string> = {
+        // Collections
+        Map: 'new Map()',
+        Set: 'new Set()',
+        WeakMap: 'new WeakMap()',
+        WeakSet: 'new WeakSet()',
+        WeakRef: 'new WeakRef({})',
+        // Errors
+        Error: "new Error('example')",
+        TypeError: "new TypeError('example')",
+        RangeError: "new RangeError('example')",
+        // Date/Regex
+        Date: 'new Date()',
+        RegExp: '/example/',
+        // Binary / WASM
+        ArrayBuffer: 'new ArrayBuffer(0)',
+        SharedArrayBuffer: 'new SharedArrayBuffer(0)',
+        DataView: 'new DataView(new ArrayBuffer(0))',
+        Float32Array: 'new Float32Array(0)',
+        Float64Array: 'new Float64Array(0)',
+        Int8Array: 'new Int8Array(0)',
+        Int16Array: 'new Int16Array(0)',
+        Int32Array: 'new Int32Array(0)',
+        Uint8Array: 'new Uint8Array(0)',
+        Uint16Array: 'new Uint16Array(0)',
+        Uint32Array: 'new Uint32Array(0)',
+        Uint8ClampedArray: 'new Uint8ClampedArray(0)',
+        BigInt64Array: 'new BigInt64Array(0)',
+        BigUint64Array: 'new BigUint64Array(0)',
+        // Web/DOM
+        URL: "new URL('https://example.com')",
+        URLSearchParams: 'new URLSearchParams()',
+        Headers: 'new Headers()',
+        FormData: 'new FormData()',
+        Blob: 'new Blob()',
+        File: "new File([], 'example')",
+        Response: 'new Response()',
+        Request: "new Request('https://example.com')",
+        AbortController: 'new AbortController()',
+        // Streams
+        ReadableStream: 'new ReadableStream()',
+        WritableStream: 'new WritableStream()',
+        TransformStream: 'new TransformStream()',
+        // Structured data
+        TextEncoder: 'new TextEncoder()',
+        TextDecoder: 'new TextDecoder()',
       }
-      if (typeName === 'Set') {
-        return 'new Set()'
+
+      if (typeName in builtinExamples) {
+        return builtinExamples[typeName]
       }
 
       // Resolve type aliases
@@ -320,6 +373,12 @@ function typeToExample(
       const hasNull = unionType.types.some(isNullType)
       const hasUndefined = unionType.types.some(isUndefinedType)
 
+      // All null/undefined — just return the simplest form
+      if (nonNullTypes.length === 0) {
+        if (hasNull) return 'null'
+        return 'undefined'
+      }
+
       if (nonNullTypes.length === 1 && (hasNull || hasUndefined)) {
         // Nullable type: T | null -> T | null
         const baseExample = typeToExample(nonNullTypes[0], checker)
@@ -327,10 +386,12 @@ function typeToExample(
         if (hasUndefined) return `${baseExample} | undefined`
       }
 
-      // General union: use first type as example
-      if (unionType.types.length > 0) {
-        return typeToExample(unionType.types[0], checker)
-      }
+      // General union: deduplicate and use first non-any type
+      const examples = unionType.types
+        .map((t) => typeToExample(t, checker))
+        .filter((e, i, arr) => arr.indexOf(e) === i) // deduplicate
+      if (examples.length === 1) return examples[0]
+      if (examples.length > 0) return examples[0]
       return 'undefined'
     }
 
@@ -918,6 +979,11 @@ function transformTypeAliasToType(
   }
 
   const example = typeToExample(node.type, undefined, warnings)
+
+  // 'any' and 'undefined' — skip declaration (undeclared = any in TJS)
+  if (example === 'any' || example === 'undefined') {
+    return `Type ${typeName} {}`
+  }
 
   // For simple primitive types, use short form
   if (
@@ -1980,7 +2046,10 @@ export function fromTS(
             warnings
           )
           if (typeDecl) {
-            tjsFunctions.push(typeDecl)
+            const isExported = statement.modifiers?.some(
+              (m) => m.kind === ts.SyntaxKind.ExportKeyword
+            )
+            tjsFunctions.push(isExported ? `export ${typeDecl}` : typeDecl)
           }
         }
       }
@@ -1999,7 +2068,10 @@ export function fromTS(
             warnings
           )
           if (typeDecl) {
-            tjsFunctions.push(typeDecl)
+            const isExported = statement.modifiers?.some(
+              (m) => m.kind === ts.SyntaxKind.ExportKeyword
+            )
+            tjsFunctions.push(isExported ? `export ${typeDecl}` : typeDecl)
           }
         }
       }

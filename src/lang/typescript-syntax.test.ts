@@ -1524,6 +1524,63 @@ describe('fromTS — tosijs conversion edge cases', () => {
     expect(result.code).toContain('{ value:')
   })
 
+  test('symbol type produces Symbol example', () => {
+    const result = fromTS(
+      `function f(x: symbol): void {}`,
+      { emitTJS: true }
+    )
+    expect(result.code).toContain("Symbol('example')")
+  })
+
+  test('bigint type produces 0n example', () => {
+    const result = fromTS(
+      `function f(x: bigint): void {}`,
+      { emitTJS: true }
+    )
+    expect(result.code).toContain('0n')
+  })
+
+  test('built-in reference types produce valid JS examples', () => {
+    const cases: [string, string][] = [
+      ['RegExp', '/example/'],
+      ['Date', 'new Date()'],
+      ['Map<string, number>', 'new Map()'],
+      ['Set<number>', 'new Set()'],
+      ['WeakMap<object, number>', 'new WeakMap()'],
+      ['Float32Array', 'new Float32Array(0)'],
+      ['Uint8Array', 'new Uint8Array(0)'],
+      ['ArrayBuffer', 'new ArrayBuffer(0)'],
+      ['URL', "new URL('https://example.com')"],
+      ['AbortController', 'new AbortController()'],
+      ['ReadableStream', 'new ReadableStream()'],
+      ['TextEncoder', 'new TextEncoder()'],
+      ['Error', "new Error('example')"],
+    ]
+    for (const [tsType, expected] of cases) {
+      const result = fromTS(
+        `function f(x: ${tsType}): void {}`,
+        { emitTJS: true }
+      )
+      expect(result.code).toContain(expected)
+    }
+  })
+
+  test('export keyword preserved on Type declarations', () => {
+    const result = fromTS(
+      `export interface User { name: string; age: number }`,
+      { emitTJS: true }
+    )
+    expect(result.code).toContain('export Type User')
+  })
+
+  test('export keyword preserved on type alias declarations', () => {
+    const result = fromTS(
+      `export type Name = string`,
+      { emitTJS: true }
+    )
+    expect(result.code).toContain('export Type Name')
+  })
+
   test('non-exported functions have no export keyword', () => {
     const result = fromTS(`function internal(x: number): number { return x }`, {
       emitTJS: true,
