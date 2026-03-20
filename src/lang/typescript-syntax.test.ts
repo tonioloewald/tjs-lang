@@ -1363,6 +1363,45 @@ describe('fromTS — tosijs conversion edge cases', () => {
     expect(result.code).not.toMatch(/\bdebug\s*=/)
   })
 
+  test('this pseudo-parameter is stripped', () => {
+    const result = fromTS(
+      `class Foo {
+        static create(this: new () => Foo, options: object = {}): Foo {
+          return new this()
+        }
+      }`,
+      { emitTJS: true }
+    )
+    // 'this' param should be stripped — it's a TS type annotation
+    expect(result.code).not.toMatch(/\bthis\s*,/)
+    expect(result.code).toContain('options')
+  })
+
+  test('class extends with generic type args stripped', () => {
+    const result = fromTS(
+      `class MyComponent extends Component<MyParts> {
+        value = 0
+      }`,
+      { emitTJS: true }
+    )
+    // Should strip <MyParts> from extends clause
+    expect(result.code).toContain('extends Component')
+    expect(result.code).not.toContain('Component<')
+  })
+
+  test('object literal initializer in class property preserved', () => {
+    const result = fromTS(
+      `class Blueprint {
+        static initAttributes = { tag: 'anon-elt', src: '', property: 'default' }
+      }`,
+      { emitTJS: true }
+    )
+    // Object literal colons should be preserved, not mangled into labels
+    expect(result.code).toContain("tag: 'anon-elt'")
+    expect(result.code).toContain("src: ''")
+    expect(result.code).toContain("property: 'default'")
+  })
+
   test('multiple params where first degrades to any', () => {
     // Simulates: function(element: UnknownDomType, path: string)
     // element degrades to bare name, path is typed — should not error
@@ -1375,7 +1414,7 @@ describe('fromTS — tosijs conversion edge cases', () => {
       { emitTJS: true }
     )
     expect(result.code).toContain('function bind(')
-    expect(result.code).toContain("path:")
+    expect(result.code).toContain('path:')
   })
 })
 

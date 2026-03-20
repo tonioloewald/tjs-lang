@@ -1169,9 +1169,11 @@ function transformClassToTJS(
   }
 
   const className = node.name?.getText(sourceFile) || 'Anonymous'
-  const extendsClause = node.heritageClauses
+  // Get base class name, stripping type arguments (e.g. Component<T> → Component)
+  const extendsType = node.heritageClauses
     ?.find((h) => h.token === ts.SyntaxKind.ExtendsKeyword)
-    ?.types[0]?.getText(sourceFile)
+    ?.types[0]
+  const extendsClause = extendsType?.expression?.getText(sourceFile)
 
   // First pass: collect private field mappings (TS private -> JS #)
   const privateFieldMap = new Map<string, string>()
@@ -1332,19 +1334,25 @@ function transformClassToTJS(
       const propName = privateFieldMap.get(origName) || origName
 
       if (member.initializer) {
-        const transpiled = ts.transpileModule(
-          member.initializer.getText(sourceFile),
-          {
-            compilerOptions: {
-              target: ts.ScriptTarget.ESNext,
-              module: ts.ModuleKind.ESNext,
-              removeComments: false,
-            },
-          }
-        )
-        members.push(
-          `  ${staticPrefix}${propName} = ${transpiled.outputText.trim()}`
-        )
+        // Wrap in parens so TS treats { ... } as an object expression,
+        // not a block with labels (which mangles property colons)
+        const initText = member.initializer.getText(sourceFile)
+        const wrapped = initText.trimStart().startsWith('{')
+          ? `(${initText})`
+          : initText
+        const transpiled = ts.transpileModule(wrapped, {
+          compilerOptions: {
+            target: ts.ScriptTarget.ESNext,
+            module: ts.ModuleKind.ESNext,
+            removeComments: false,
+          },
+        })
+        let output = transpiled.outputText.trim()
+        // Strip the wrapping parens and trailing semicolon
+        if (wrapped !== initText) {
+          output = output.replace(/^\(/, '').replace(/\);?\s*$/, '')
+        }
+        members.push(`  ${staticPrefix}${propName} = ${output}`)
       } else {
         // Property without initializer - just declare it
         members.push(`  ${staticPrefix}${propName}`)
