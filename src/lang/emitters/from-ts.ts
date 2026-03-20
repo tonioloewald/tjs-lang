@@ -1369,7 +1369,9 @@ function transformClassToTJS(
   )
   const exportPrefix = isExported ? 'export ' : ''
   const extendsStr = extendsClause ? ` extends ${extendsClause}` : ''
-  return `${exportPrefix}class ${className}${extendsStr} {\n${members.join('\n')}\n}`
+  return `${exportPrefix}class ${className}${extendsStr} {\n${members.join(
+    '\n'
+  )}\n}`
 }
 
 /**
@@ -1881,7 +1883,7 @@ export function fromTS(
 
       // Check if the variable statement itself is exported
       const varIsExported = statement.modifiers?.some(
-        (m: ts.Modifier) => m.kind === ts.SyntaxKind.ExportKeyword
+        (m) => m.kind === ts.SyntaxKind.ExportKeyword
       )
 
       for (const decl of statement.declarationList.declarations) {
@@ -1907,9 +1909,7 @@ export function fromTS(
             // Arrow/const functions: export is on the VariableStatement
             // Insert after any line comment or degraded comment
             if (varIsExported && !tjsFunc.includes('export ')) {
-              const firstFuncLine = tjsFunc.search(
-                /^(async\s+)?function[\s*]/m
-              )
+              const firstFuncLine = tjsFunc.search(/^(async\s+)?function[\s*]/m)
               if (firstFuncLine > 0) {
                 tjsFunc =
                   tjsFunc.slice(0, firstFuncLine) +
