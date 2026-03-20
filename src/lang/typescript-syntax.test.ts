@@ -1525,18 +1525,12 @@ describe('fromTS — tosijs conversion edge cases', () => {
   })
 
   test('symbol type produces Symbol example', () => {
-    const result = fromTS(
-      `function f(x: symbol): void {}`,
-      { emitTJS: true }
-    )
+    const result = fromTS(`function f(x: symbol): void {}`, { emitTJS: true })
     expect(result.code).toContain("Symbol('example')")
   })
 
   test('bigint type produces 0n example', () => {
-    const result = fromTS(
-      `function f(x: bigint): void {}`,
-      { emitTJS: true }
-    )
+    const result = fromTS(`function f(x: bigint): void {}`, { emitTJS: true })
     expect(result.code).toContain('0n')
   })
 
@@ -1557,10 +1551,9 @@ describe('fromTS — tosijs conversion edge cases', () => {
       ['Error', "new Error('example')"],
     ]
     for (const [tsType, expected] of cases) {
-      const result = fromTS(
-        `function f(x: ${tsType}): void {}`,
-        { emitTJS: true }
-      )
+      const result = fromTS(`function f(x: ${tsType}): void {}`, {
+        emitTJS: true,
+      })
       expect(result.code).toContain(expected)
     }
   })
@@ -1574,10 +1567,7 @@ describe('fromTS — tosijs conversion edge cases', () => {
   })
 
   test('export keyword preserved on type alias declarations', () => {
-    const result = fromTS(
-      `export type Name = string`,
-      { emitTJS: true }
-    )
+    const result = fromTS(`export type Name = string`, { emitTJS: true })
     expect(result.code).toContain('export Type Name')
   })
 
@@ -1601,6 +1591,75 @@ describe('fromTS — tosijs conversion edge cases', () => {
     )
     expect(result.code).toContain('function bind(')
     expect(result.code).toContain('path:')
+  })
+})
+
+// =============================================================================
+// FUNCTION TYPES → FunctionPredicate
+// =============================================================================
+
+describe('Function Types (FunctionPredicate)', () => {
+  test('function type alias emits FunctionPredicate', () => {
+    const result = fromTS(`type Callback = (x: number, y: string) => boolean`, {
+      emitTJS: true,
+    })
+    expect(result.code).toContain('FunctionPredicate Callback')
+    expect(result.code).toContain('params: { x: 0.0')
+    expect(result.code).toContain("y: ''")
+    expect(result.code).toContain('returns: false')
+  })
+
+  test('void function type alias', () => {
+    const result = fromTS(`type Logger = (msg: string) => void`, {
+      emitTJS: true,
+    })
+    expect(result.code).toContain('FunctionPredicate Logger')
+    expect(result.code).toContain("params: { msg: '' }")
+    // void return should not emit a returns line
+    expect(result.code).not.toMatch(/returns:/)
+  })
+
+  test('exported function type alias preserves export', () => {
+    const result = fromTS(`export type Handler = (event: Event) => boolean`, {
+      emitTJS: true,
+    })
+    expect(result.code).toContain('export FunctionPredicate Handler')
+  })
+
+  test('inline function param emits FunctionPredicate', () => {
+    const result = fromTS(
+      `function process(cb: (item: string) => number): void {}`,
+      { emitTJS: true }
+    )
+    expect(result.code).toContain("FunctionPredicate('function'")
+  })
+
+  test('no-arg function type', () => {
+    const result = fromTS(`type Thunk = () => number`, { emitTJS: true })
+    expect(result.code).toContain('FunctionPredicate Thunk')
+    expect(result.code).toContain('returns: 0.0')
+  })
+
+  test('function type with multiple params', () => {
+    const result = fromTS(
+      `type Reducer = (acc: number, item: string, index: number) => number`,
+      { emitTJS: true }
+    )
+    expect(result.code).toContain('FunctionPredicate Reducer')
+    expect(result.code).toContain('acc: 0.0')
+    expect(result.code).toContain("item: ''")
+    expect(result.code).toContain('index: 0.0')
+    expect(result.code).toContain('returns: 0.0')
+  })
+
+  test('function type transpiles through full TJS pipeline', () => {
+    const tsResult = fromTS(
+      `type Compare = (a: number, b: number) => boolean`,
+      { emitTJS: true }
+    )
+    const jsResult = tjs(tsResult.code, { runTests: false })
+    expect(jsResult.code).toContain('FunctionPredicate')
+    expect(jsResult.code).toContain('Compare')
   })
 })
 

@@ -169,6 +169,12 @@ function detectExports(source: string): Map<string, ExportInfo> {
     result.set(m[1], { exported: true, isDefault: false })
   }
 
+  // export FunctionPredicate Name
+  const fpRe = /^[ \t]*export\s+FunctionPredicate\s+(\w+)/gm
+  while ((m = fpRe.exec(source)) !== null) {
+    result.set(m[1], { exported: true, isDefault: false })
+  }
+
   // export { Name, Name2, ... } — re-export form
   const reExportRe = /^[ \t]*export\s*\{([^}]+)\}/gm
   while ((m = reExportRe.exec(source)) !== null) {
@@ -179,6 +185,62 @@ function detectExports(source: string): Map<string, ExportInfo> {
         result.set(exportedName, { exported: true, isDefault: false })
       }
     }
+  }
+
+  return result
+}
+
+/** Info about a FunctionPredicate declaration */
+interface FunctionPredicateInfo {
+  params: { name: string; example: string }[]
+  returns?: string
+}
+
+/** Detect FunctionPredicate declarations and extract their param/return specs */
+function detectFunctionPredicates(
+  source: string
+): Map<string, FunctionPredicateInfo> {
+  const result = new Map<string, FunctionPredicateInfo>()
+
+  // Block form: FunctionPredicate Name { params: { ... } returns: ... }
+  const blockRe = /^[ \t]*(?:export\s+)?FunctionPredicate\s+(\w+)\s*\{/gm
+  let m
+  while ((m = blockRe.exec(source)) !== null) {
+    const name = m[1]
+    const blockStart = m.index + m[0].length - 1
+
+    // Find matching closing brace
+    let depth = 1
+    let i = blockStart + 1
+    while (i < source.length && depth > 0) {
+      if (source[i] === '{') depth++
+      else if (source[i] === '}') depth--
+      i++
+    }
+    const body = source.slice(blockStart + 1, i - 1)
+
+    // Extract params object: params: { key: value, ... }
+    const params: FunctionPredicateInfo['params'] = []
+    const paramsMatch = body.match(/params\s*:\s*\{([^}]*)\}/)
+    if (paramsMatch) {
+      const paramsStr = paramsMatch[1]
+      const paramEntries = splitParams(paramsStr)
+      for (const entry of paramEntries) {
+        const kv = entry.match(/^(\w+)\s*:\s*(.+)$/)
+        if (kv) {
+          params.push({ name: kv[1], example: kv[2].trim() })
+        }
+      }
+    }
+
+    // Extract returns value
+    let returns: string | undefined
+    const returnsMatch = body.match(/returns\s*:\s*(.+?)(?:\n|$)/)
+    if (returnsMatch) {
+      returns = returnsMatch[1].trim()
+    }
+
+    result.set(name, { params, returns })
   }
 
   return result
@@ -532,6 +594,28 @@ export function generateDTS(
           `): { check(value: any): boolean; (value: any): boolean; };`
       )
     }
+    emitted.add(name)
+  }
+
+  // Emit FunctionPredicate declarations as TS function types.
+  // FunctionPredicate Callback { params: { x: 0 } returns: '' }
+  // → export type Callback = (x: number) => string;
+  const funcPreds = detectFunctionPredicates(source)
+  for (const [name, fpInfo] of funcPreds) {
+    if (emitted.has(name)) continue
+
+    const exportInfo = exports.get(name)
+    const isExported = hasAnyExport ? !!exportInfo?.exported : true
+    if (!isExported) continue
+
+    const tsParams = fpInfo.params
+      .map((p) => `${p.name}: ${inferTSTypeFromExample(p.example)}`)
+      .join(', ')
+    const tsReturn =
+      fpInfo.returns !== undefined
+        ? inferTSTypeFromExample(fpInfo.returns)
+        : 'void'
+    lines.push(`export type ${name} = (${tsParams}) => ${tsReturn};`)
     emitted.add(name)
   }
 

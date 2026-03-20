@@ -627,6 +627,7 @@ export interface FunctionPredicateSpec {
 }
 
 /** A runtime type that validates function signatures */
+// eslint-disable-next-line @typescript-eslint/ban-types
 export interface FunctionPredicateType extends RuntimeType<Function> {
   /** Parameter specification */
   readonly params: Record<string, any>
@@ -634,6 +635,24 @@ export interface FunctionPredicateType extends RuntimeType<Function> {
   readonly returns?: any
   /** Return contract level */
   readonly returnContract: ReturnContract
+}
+
+/** Infer a TypeDescriptor kind from an example value */
+function kindOfExample(example: unknown): string | null {
+  if (example === null) return 'null'
+  if (example === undefined) return 'undefined'
+  switch (typeof example) {
+    case 'string':
+      return 'string'
+    case 'boolean':
+      return 'boolean'
+    case 'number':
+      return Number.isInteger(example) ? 'integer' : 'number'
+    case 'object':
+      return Array.isArray(example) ? 'array' : 'object'
+    default:
+      return null
+  }
 }
 
 /**
@@ -658,6 +677,7 @@ export interface FunctionPredicateType extends RuntimeType<Function> {
  */
 export function FunctionPredicate(
   name: string,
+  // eslint-disable-next-line @typescript-eslint/ban-types
   specOrFn: FunctionPredicateSpec | Function
 ): FunctionPredicateType {
   let params: Record<string, any> = {}
@@ -694,11 +714,41 @@ export function FunctionPredicate(
     params,
     returns,
     returnContract,
+    // eslint-disable-next-line @typescript-eslint/ban-types
     check: (value: unknown): value is Function => {
       if (typeof value !== 'function') return false
-      // If the function has __tjs metadata, we could do deeper checking
-      // For now, typeof === 'function' is the runtime check
-      // Deeper structural checking is a future enhancement
+
+      // Structural validation: check arity and __tjs metadata
+      const expectedArity = Object.keys(params).length
+      if (expectedArity > 0) {
+        // Check function.length (number of params before first default)
+        // eslint-disable-next-line @typescript-eslint/ban-types
+        const fn = value as Function
+        const meta = (fn as any).__tjs
+        if (meta?.params) {
+          // Has TJS metadata — check param count matches
+          const metaParamCount = Object.keys(meta.params).length
+          if (metaParamCount !== expectedArity) return false
+
+          // Check param type kinds match where both sides have type info
+          const expectedKeys = Object.keys(params)
+          const metaKeys = Object.keys(meta.params)
+          for (let i = 0; i < expectedKeys.length; i++) {
+            const metaInfo = meta.params[metaKeys[i]]
+            const expectedExample = params[expectedKeys[i]]
+            if (metaInfo?.type?.kind && expectedExample !== undefined) {
+              const expectedKind = kindOfExample(expectedExample)
+              if (
+                expectedKind &&
+                metaInfo.type.kind !== expectedKind &&
+                metaInfo.type.kind !== 'any'
+              )
+                return false
+            }
+          }
+        }
+      }
+
       return true
     },
     __runtimeType: true as const,

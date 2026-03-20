@@ -50,6 +50,74 @@ describe('FunctionPredicate runtime', () => {
     const fp = FunctionPredicate('f', {})
     expect(fp.returnContract).toBe('assertReturns')
   })
+
+  it('should reject function with wrong arity via __tjs metadata', () => {
+    const Binop = FunctionPredicate('Binop', {
+      params: { a: 0, b: 0 },
+      returns: 0,
+    })
+    // Function with matching arity + types → pass
+    const goodFn = (a: number, b: number) => a + b
+    ;(goodFn as any).__tjs = {
+      params: {
+        a: { type: { kind: 'integer' }, example: 0 },
+        b: { type: { kind: 'integer' }, example: 0 },
+      },
+    }
+    expect(Binop.check(goodFn)).toBe(true)
+
+    // Function with wrong arity → fail
+    const wrongArity = (x: number) => x
+    ;(wrongArity as any).__tjs = {
+      params: {
+        x: { type: { kind: 'integer' }, example: 0 },
+      },
+    }
+    expect(Binop.check(wrongArity)).toBe(false)
+  })
+
+  it('should reject function with wrong param types via __tjs metadata', () => {
+    const StrFn = FunctionPredicate('StrFn', {
+      params: { name: '' },
+      returns: '',
+    })
+    // Function with string param → pass
+    const goodFn = (s: string) => s
+    ;(goodFn as any).__tjs = {
+      params: { s: { type: { kind: 'string' }, example: '' } },
+    }
+    expect(StrFn.check(goodFn)).toBe(true)
+
+    // Function with number param → fail
+    const badFn = (n: number) => String(n)
+    ;(badFn as any).__tjs = {
+      params: { n: { type: { kind: 'integer' }, example: 0 } },
+    }
+    expect(StrFn.check(badFn)).toBe(false)
+  })
+
+  it('should accept function with any-typed params', () => {
+    const Binop = FunctionPredicate('Binop', {
+      params: { a: 0, b: 0 },
+    })
+    const fn = (a: any, b: any) => a + b
+    ;(fn as any).__tjs = {
+      params: {
+        a: { type: { kind: 'any' }, example: null },
+        b: { type: { kind: 'any' }, example: null },
+      },
+    }
+    expect(Binop.check(fn)).toBe(true)
+  })
+
+  it('should accept plain functions without __tjs metadata', () => {
+    const Callback = FunctionPredicate('Callback', {
+      params: { x: 0 },
+    })
+    // Plain function with no metadata — should still pass (can't validate)
+    expect(Callback.check(() => {})).toBe(true)
+    expect(Callback.check(Math.abs)).toBe(true)
+  })
 })
 
 describe('FunctionPredicate parser transform', () => {
@@ -72,7 +140,7 @@ describe('FunctionPredicate parser transform', () => {
 
   it('should transpile block form through full pipeline', () => {
     const result = tjs(
-      "FunctionPredicate Callback {\n  params: { x: 0 }\n  returns: false\n}",
+      'FunctionPredicate Callback {\n  params: { x: 0 }\n  returns: false\n}',
       { runTests: false }
     )
     expect(result.code).toContain('FunctionPredicate')
@@ -82,19 +150,17 @@ describe('FunctionPredicate parser transform', () => {
 
 describe('FunctionPredicate in fromTS', () => {
   it('should convert function type alias to FunctionPredicate', () => {
-    const result = fromTS(
-      'type Callback = (x: number) => void',
-      { emitTJS: true }
-    )
+    const result = fromTS('type Callback = (x: number) => void', {
+      emitTJS: true,
+    })
     expect(result.code).toContain('FunctionPredicate Callback')
     expect(result.code).toContain('params: { x: 0.0 }')
   })
 
   it('should convert function type with return to FunctionPredicate', () => {
-    const result = fromTS(
-      'type Mapper = (value: string) => number',
-      { emitTJS: true }
-    )
+    const result = fromTS('type Mapper = (value: string) => number', {
+      emitTJS: true,
+    })
     expect(result.code).toContain('FunctionPredicate Mapper')
     expect(result.code).toContain("params: { value: '' }")
     expect(result.code).toContain('returns: 0.0')
@@ -109,18 +175,14 @@ describe('FunctionPredicate in fromTS', () => {
   })
 
   it('should handle void function type', () => {
-    const result = fromTS(
-      'type VoidFn = () => void',
-      { emitTJS: true }
-    )
+    const result = fromTS('type VoidFn = () => void', { emitTJS: true })
     expect(result.code).toContain('FunctionPredicate VoidFn')
   })
 
   it('should preserve export on function type alias', () => {
-    const result = fromTS(
-      'export type Handler = (event: Event) => boolean',
-      { emitTJS: true }
-    )
+    const result = fromTS('export type Handler = (event: Event) => boolean', {
+      emitTJS: true,
+    })
     expect(result.code).toContain('export FunctionPredicate Handler')
   })
 })

@@ -16,12 +16,12 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ```bash
 # Development
-npm run format              # ESLint fix + Prettier
-npm run test:fast           # Core tests (skips LLM & benchmarks)
-npm run make                # Full build (clean, format, grammars, tsc, esbuild)
-npm run dev                 # Development server with file watcher
-npm run start               # Build demo + start dev server
-npm run latest              # Clean reinstall (rm node_modules + bun install)
+bun run format              # ESLint fix + Prettier
+bun run test:fast           # Core tests (skips LLM & benchmarks)
+bun run make                # Full build (clean, format, grammars, tsc, esbuild)
+bun run dev                 # Development server with file watcher
+bun run start               # Build demo + start dev server
+bun run latest              # Clean reinstall (rm node_modules + bun install)
 
 # Testing (framework: bun:test — describe/it/expect)
 bun test                    # Full test suite
@@ -44,19 +44,19 @@ bun src/cli/tjs.ts convert <file>  # Convert TypeScript to TJS (--emit-tjs) or J
 bun src/cli/tjs.ts test <file>     # Run inline tests in a TJS file
 
 # Type checking & other
-npm run typecheck           # tsc --noEmit (type check without emitting)
-npm run test:llm            # LM Studio integration tests
-npm run bench               # Vector search benchmarks
-npm run docs                # Generate documentation
+bun run typecheck           # tsc --noEmit (type check without emitting)
+bun run test:llm            # LM Studio integration tests
+bun run bench               # Vector search benchmarks
+bun run docs                # Generate documentation
 
 # Build standalone CLI binaries
-npm run build:cli           # Compiles tjs + tjsx to dist/
+bun run build:cli           # Compiles tjs + tjsx to dist/
 
 # Deployment (Firebase)
-npm run deploy              # Build demo + deploy functions + hosting
-npm run deploy:hosting      # Hosting only (serves from .demo/)
-npm run functions:deploy    # Cloud functions only
-npm run functions:serve     # Local functions emulator
+bun run deploy              # Build demo + deploy functions + hosting
+bun run deploy:hosting      # Hosting only (serves from .demo/)
+bun run functions:deploy    # Cloud functions only
+bun run functions:serve     # Local functions emulator
 ```
 
 ## Architecture
@@ -74,6 +74,7 @@ npm run functions:serve     # Local functions emulator
 - `src/vm/atoms/batteries.ts` - Battery atoms (vector search, LLM, store operations)
 - `src/builder.ts` - TypedBuilder fluent API (~19KB)
 - `src/lang/parser.ts` - TJS parser with colon shorthand, unsafe markers, return type extraction
+- `src/lang/parser-transforms.ts` - Type, Generic, and FunctionPredicate block/function form transforms
 - `src/lang/emitters/ast.ts` - Emits Agent99 AST from parsed source
 - `src/lang/emitters/js.ts` - Emits JavaScript with `__tjs` metadata
 - `src/lang/emitters/from-ts.ts` - TypeScript to TJS/JS transpiler with class metadata extraction
@@ -239,7 +240,7 @@ Coverage targets: 98% lines on `src/vm/runtime.ts` (security-critical), 80%+ ove
 1. Define with `defineAtom(opCode, inputSchema, outputSchema, implementation, { cost, timeoutMs, docs })`
 2. Add to `src/vm/atoms/` and export from `src/vm/atoms/index.ts`
 3. Add tests
-4. Run `npm run test:fast`
+4. Run `bun run test:fast`
 
 **Atom implementation notes:**
 
@@ -398,6 +399,28 @@ Generic BoxedProxy<T> {
   }
 }
 ```
+
+#### FunctionPredicate Declarations
+
+First-class function types, completing the Type/Generic/FunctionPredicate triad:
+
+```typescript
+// Block form — declare a function type shape
+FunctionPredicate Callback {
+  params: { x: 0, y: 0 }
+  returns: ''
+}
+
+// Function form — extract signature from existing function
+FunctionPredicate Handler(existingFn, 'description')
+
+// Return contracts:
+// ->  returns (standard)
+// -!  assertReturns (throws on mismatch)
+// -?  checkedReturns (wraps in MonadicError)
+```
+
+Runtime creates a `RuntimeType` that checks `typeof === 'function'`. The spec includes params, returns, and returnContract. In `fromTS`, TS function type aliases (`type Cb = (x: number) => void`) emit FunctionPredicate declarations automatically.
 
 #### Bare Assignments
 
@@ -693,7 +716,7 @@ Both `llmBattery` and `vector` can be `undefined`/`null` if LM Studio isn't avai
 - `any` types are allowed (`@typescript-eslint/no-explicit-any: 0`)
 - Module type is ESM (`"type": "module"` in package.json)
 - Build output goes to `dist/` (declaration files only via `tsconfig.build.json`, bundles via `scripts/build.ts`)
-- Run `npm run format` before committing (ESLint fix + Prettier)
+- Run `bun run format` before committing (ESLint fix + Prettier)
 
 ### Firebase Deployment
 

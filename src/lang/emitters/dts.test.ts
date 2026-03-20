@@ -437,6 +437,64 @@ export Generic Box<T> {
   })
 })
 
+describe('generateDTS — FunctionPredicate declarations', () => {
+  it('should emit FunctionPredicate as TS function type', () => {
+    const source = `
+export FunctionPredicate Callback {
+  params: { x: 0, y: '' }
+  returns: false
+}
+`
+    const result = transpileToJS(source, { runTests: false })
+    const dts = generateDTS(result, source)
+
+    expect(dts).toContain(
+      'export type Callback = (x: number, y: string) => boolean;'
+    )
+  })
+
+  it('should emit FunctionPredicate with no params as zero-arg function', () => {
+    const source = `
+export FunctionPredicate Thunk {
+  returns: 0
+}
+`
+    const result = transpileToJS(source, { runTests: false })
+    const dts = generateDTS(result, source)
+
+    expect(dts).toContain('export type Thunk = () => number;')
+  })
+
+  it('should emit FunctionPredicate with no return as void', () => {
+    const source = `
+export FunctionPredicate SideEffect {
+  params: { msg: '' }
+}
+`
+    const result = transpileToJS(source, { runTests: false })
+    const dts = generateDTS(result, source)
+
+    expect(dts).toContain('export type SideEffect = (msg: string) => void;')
+  })
+
+  it('should not emit non-exported FunctionPredicate when exports exist', () => {
+    const source = `
+FunctionPredicate Internal {
+  params: { x: 0 }
+}
+
+export function use(fn: Internal) {
+  return fn(1)
+}
+`
+    const result = transpileToJS(source, { runTests: false })
+    const dts = generateDTS(result, source)
+
+    expect(dts).not.toContain('type Internal')
+    expect(dts).toContain('export declare function use(')
+  })
+})
+
 describe('generateDTS — mixed declarations', () => {
   it('should handle file with functions, classes, types, and generics', () => {
     const source = `

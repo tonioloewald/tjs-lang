@@ -1202,9 +1202,7 @@ export function transformTypeDeclarations(source: string): string {
  *   FunctionPredicate Handler(existingFn, 'description')
  *   → const Handler = FunctionPredicate('description', existingFn)
  */
-export function transformFunctionPredicateDeclarations(
-  source: string
-): string {
+export function transformFunctionPredicateDeclarations(source: string): string {
   let result = ''
   let i = 0
 
@@ -1214,7 +1212,7 @@ export function transformFunctionPredicateDeclarations(
       .match(/^\bFunctionPredicate\s+([A-Z_][a-zA-Z0-9_]*)\s*/)
     if (fpMatch) {
       const fpName = fpMatch[1]
-      let j = i + fpMatch[0].length
+      const j = i + fpMatch[0].length
 
       // Check for block form: FunctionPredicate Name { ... }
       if (source[j] === '{') {
@@ -1231,21 +1229,15 @@ export function transformFunctionPredicateDeclarations(
           const blockBody = source.slice(j + 1, k - 1).trim()
 
           // Extract params: { ... }
-          const paramsMatch = blockBody.match(
-            /params\s*:\s*(\{[^}]*\})/
-          )
+          const paramsMatch = blockBody.match(/params\s*:\s*(\{[^}]*\})/)
           // Extract returns value
-          const returnsMatch = blockBody.match(
-            /returns\s*:\s*(.+?)(?:\n|$)/
-          )
+          const returnsMatch = blockBody.match(/returns\s*:\s*(.+?)(?:\n|$)/)
           // Extract returnContract
           const contractMatch = blockBody.match(
             /returnContract\s*:\s*['"](\w+)['"]/
           )
           // Extract description
-          const descMatch = blockBody.match(
-            /description\s*:\s*(['"])([^]*?)\1/
-          )
+          const descMatch = blockBody.match(/description\s*:\s*(['"])([^]*?)\1/)
 
           const spec: string[] = []
           if (paramsMatch) spec.push(`params: ${paramsMatch[1]}`)
@@ -1255,7 +1247,9 @@ export function transformFunctionPredicateDeclarations(
           }
 
           const desc = descMatch ? descMatch[2] : fpName
-          result += `const ${fpName} = FunctionPredicate('${desc}', { ${spec.join(', ')} })`
+          result += `const ${fpName} = FunctionPredicate('${desc}', { ${spec.join(
+            ', '
+          )} })`
           i = k
           continue
         }

@@ -1254,6 +1254,7 @@ export const runtime = {
   Union,
   Generic,
   Enum,
+  FunctionPredicate,
   Nullable,
   Optional,
   TArray,

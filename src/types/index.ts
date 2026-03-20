@@ -38,6 +38,11 @@ export {
   TRecord,
   type GenericType,
   type TypeParam,
+  // Function predicates
+  FunctionPredicate,
+  type FunctionPredicateType,
+  type FunctionPredicateSpec,
+  type ReturnContract,
 } from './Type'
 
 // Timestamp and LegalDate utilities (pure functions)
