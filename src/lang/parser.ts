@@ -36,6 +36,7 @@ import {
   transformEqualityToStructural,
   transformTypeDeclarations,
   transformGenericDeclarations,
+  transformFunctionPredicateDeclarations,
   transformUnionDeclarations,
   transformEnumDeclarations,
   transformExtendDeclarations,
@@ -167,6 +168,7 @@ export function preprocess(
   // Enum Status { Pending, Active, Done } -> const Status = Enum(...)
   source = transformTypeDeclarations(source)
   source = transformGenericDeclarations(source)
+  source = transformFunctionPredicateDeclarations(source)
   source = transformUnionDeclarations(source)
   source = transformEnumDeclarations(source)
 

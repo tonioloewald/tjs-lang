@@ -1024,7 +1024,9 @@ export function transformTypeDeclarations(source: string): string {
 
   while (i < source.length) {
     // Look for 'Type' keyword followed by identifier
-    const typeMatch = source.slice(i).match(/^\bType\s+([A-Z_][a-zA-Z0-9_]*)\s*/)
+    const typeMatch = source
+      .slice(i)
+      .match(/^\bType\s+([A-Z_][a-zA-Z0-9_]*)\s*/)
     if (typeMatch) {
       const typeName = typeMatch[1]
       let j = i + typeMatch[0].length
@@ -1187,6 +1189,115 @@ export function transformTypeDeclarations(source: string): string {
 }
 
 /**
+ * Transform FunctionPredicate declarations
+ *
+ * Block form:
+ *   FunctionPredicate Callback {
+ *     params: { x: 0, y: '' }
+ *     returns: false
+ *   }
+ *   → const Callback = FunctionPredicate('Callback', { params: { x: 0, y: '' }, returns: false })
+ *
+ * Function form:
+ *   FunctionPredicate Handler(existingFn, 'description')
+ *   → const Handler = FunctionPredicate('description', existingFn)
+ */
+export function transformFunctionPredicateDeclarations(
+  source: string
+): string {
+  let result = ''
+  let i = 0
+
+  while (i < source.length) {
+    const fpMatch = source
+      .slice(i)
+      .match(/^\bFunctionPredicate\s+([A-Z_][a-zA-Z0-9_]*)\s*/)
+    if (fpMatch) {
+      const fpName = fpMatch[1]
+      let j = i + fpMatch[0].length
+
+      // Check for block form: FunctionPredicate Name { ... }
+      if (source[j] === '{') {
+        // Find matching closing brace
+        let depth = 1
+        let k = j + 1
+        while (k < source.length && depth > 0) {
+          if (source[k] === '{') depth++
+          else if (source[k] === '}') depth--
+          k++
+        }
+
+        if (depth === 0) {
+          const blockBody = source.slice(j + 1, k - 1).trim()
+
+          // Extract params: { ... }
+          const paramsMatch = blockBody.match(
+            /params\s*:\s*(\{[^}]*\})/
+          )
+          // Extract returns value
+          const returnsMatch = blockBody.match(
+            /returns\s*:\s*(.+?)(?:\n|$)/
+          )
+          // Extract returnContract
+          const contractMatch = blockBody.match(
+            /returnContract\s*:\s*['"](\w+)['"]/
+          )
+          // Extract description
+          const descMatch = blockBody.match(
+            /description\s*:\s*(['"])([^]*?)\1/
+          )
+
+          const spec: string[] = []
+          if (paramsMatch) spec.push(`params: ${paramsMatch[1]}`)
+          if (returnsMatch) spec.push(`returns: ${returnsMatch[1].trim()}`)
+          if (contractMatch) {
+            spec.push(`returnContract: '${contractMatch[1]}'`)
+          }
+
+          const desc = descMatch ? descMatch[2] : fpName
+          result += `const ${fpName} = FunctionPredicate('${desc}', { ${spec.join(', ')} })`
+          i = k
+          continue
+        }
+      }
+
+      // Check for function form: FunctionPredicate Name(fn, 'desc')
+      if (source[j] === '(') {
+        // Find matching closing paren
+        let depth = 1
+        let k = j + 1
+        while (k < source.length && depth > 0) {
+          if (source[k] === '(') depth++
+          else if (source[k] === ')') depth--
+          k++
+        }
+
+        if (depth === 0) {
+          const args = source.slice(j + 1, k - 1).trim()
+          // Split on comma: fn, 'description'
+          const commaIdx = args.indexOf(',')
+          if (commaIdx !== -1) {
+            const fnRef = args.slice(0, commaIdx).trim()
+            const desc = args.slice(commaIdx + 1).trim()
+            result += `const ${fpName} = FunctionPredicate(${desc}, ${fnRef})`
+          } else {
+            // Just a function reference, name as description
+            result += `const ${fpName} = FunctionPredicate('${fpName}', ${args})`
+          }
+          i = k
+          continue
+        }
+      }
+    }
+
+    result += source[i]
+    i++
+  }
+
+  return result
+}
+
+/**
  * Transform Generic block declarations
  *
  * Syntax:
@@ -1241,9 +1352,7 @@ export function transformGenericDeclarations(source: string): string {
         if (parts.length === 2) {
           // 'any' and 'undefined' aren't valid JS values — use null
           const defaultVal =
-            parts[1] === 'any' || parts[1] === 'undefined'
-              ? 'null'
-              : parts[1]
+            parts[1] === 'any' || parts[1] === 'undefined' ? 'null' : parts[1]
           return `['${parts[0]}', ${defaultVal}]`
         }
         return `'${parts[0]}'`

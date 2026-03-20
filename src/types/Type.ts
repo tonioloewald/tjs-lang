@@ -608,3 +608,101 @@ export function Enum<T extends Record<string, string | number>>(
 
   return enumType
 }
+
+// =============================================================================
+// FunctionPredicate - Runtime type for function signatures
+// =============================================================================
+
+/** Return contract levels in order of strictness */
+export type ReturnContract = 'assertReturns' | 'returns' | 'checkedReturns'
+
+/** Specification for a FunctionPredicate */
+export interface FunctionPredicateSpec {
+  /** Parameter types as example values */
+  params?: Record<string, any>
+  /** Return type as example value */
+  returns?: any
+  /** Return contract level */
+  returnContract?: ReturnContract
+}
+
+/** A runtime type that validates function signatures */
+export interface FunctionPredicateType extends RuntimeType<Function> {
+  /** Parameter specification */
+  readonly params: Record<string, any>
+  /** Return type specification */
+  readonly returns?: any
+  /** Return contract level */
+  readonly returnContract: ReturnContract
+}
+
+/**
+ * Create a runtime type for function signatures.
+ *
+ * Forms:
+ *   FunctionPredicate(name, spec) - from a specification object
+ *   FunctionPredicate(name, fn)   - from an existing typed function
+ *
+ * @example
+ * const Callback = FunctionPredicate('Callback', {
+ *   params: { x: 0, y: 0 },
+ *   returns: 0,
+ * })
+ * Callback.check((a, b) => a + b) // true (typeof === 'function')
+ * Callback.check(42)              // false
+ *
+ * @example
+ * function add(a: 0, b: 0) -> 0 { return a + b }
+ * const Adder = FunctionPredicate('Adder', add)
+ * // Extracts params/returns from add.__tjs
+ */
+export function FunctionPredicate(
+  name: string,
+  specOrFn: FunctionPredicateSpec | Function
+): FunctionPredicateType {
+  let params: Record<string, any> = {}
+  let returns: any = undefined
+  let returnContract: ReturnContract = 'assertReturns'
+
+  if (typeof specOrFn === 'function') {
+    // Extract from function's __tjs metadata
+    const meta = (specOrFn as any).__tjs
+    if (meta) {
+      // Build params from __tjs.params
+      if (meta.params) {
+        for (const [key, info] of Object.entries(meta.params)) {
+          params[key] = (info as any)?.example ?? null
+        }
+      }
+      // Extract return type
+      if (meta.returns) {
+        returns = (meta.returns as any)?.example ?? null
+      }
+      // Extract return contract from safety markers
+      if (meta.safeReturn) returnContract = 'checkedReturns'
+      else if (meta.unsafe) returnContract = 'assertReturns'
+      else returnContract = 'returns'
+    }
+  } else {
+    params = specOrFn.params ?? {}
+    returns = specOrFn.returns
+    returnContract = specOrFn.returnContract ?? 'assertReturns'
+  }
+
+  const fpType: FunctionPredicateType = {
+    description: name,
+    params,
+    returns,
+    returnContract,
+    check: (value: unknown): value is Function => {
+      if (typeof value !== 'function') return false
+      // If the function has __tjs metadata, we could do deeper checking
+      // For now, typeof === 'function' is the runtime check
+      // Deeper structural checking is a future enhancement
+      return true
+    },
+    __runtimeType: true as const,
+  }
+
+  return fpType
+}

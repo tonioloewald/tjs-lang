@@ -420,9 +420,24 @@ function typeToExample(
       return typeToExample(parenType.type, checker)
     }
 
-    case ts.SyntaxKind.FunctionType:
-      // Functions become undefined (can't really express as example)
-      return 'undefined'
+    case ts.SyntaxKind.FunctionType: {
+      // Convert to inline FunctionPredicate expression
+      const funcType = type as ts.FunctionTypeNode
+      const fpParams: string[] = []
+      for (const param of funcType.parameters) {
+        const name = param.name?.getText() || '_'
+        if (name === 'this') continue
+        let paramExample = typeToExample(param.type, checker, warnings, ctx)
+        if (paramExample === 'any') paramExample = 'null'
+        fpParams.push(`${name}: ${paramExample}`)
+      }
+      let fpReturn = typeToExample(funcType.type, checker, warnings, ctx)
+      if (fpReturn === 'any') fpReturn = 'null'
+      const spec: string[] = []
+      if (fpParams.length > 0) spec.push(`params: { ${fpParams.join(', ')} }`)
+      if (fpReturn !== 'undefined') spec.push(`returns: ${fpReturn}`)
+      return `FunctionPredicate('function', { ${spec.join(', ')} })`
+    }
 
     case ts.SyntaxKind.TupleType: {
       const tupleType = type as ts.TupleTypeNode
@@ -976,6 +991,25 @@ function transformTypeAliasToType(
   const literalValues = extractLiteralUnionValues(node.type, sourceFile)
   if (literalValues) {
     return `Union ${typeName} '${typeName}' ${literalValues.join(' | ')}`
+  }
+
+  // Function types → FunctionPredicate declaration
+  if (node.type.kind === ts.SyntaxKind.FunctionType) {
+    const funcType = node.type as ts.FunctionTypeNode
+    const fpParams: string[] = []
+    for (const param of funcType.parameters) {
+      const name = param.name?.getText(sourceFile) || '_'
+      if (name === 'this') continue
+      let paramExample = typeToExample(param.type, undefined, warnings)
+      if (paramExample === 'any') paramExample = 'null'
+      fpParams.push(`${name}: ${paramExample}`)
+    }
+    let fpReturn = typeToExample(funcType.type, undefined, warnings)
+    if (fpReturn === 'any') fpReturn = 'null'
+    const spec: string[] = []
+    if (fpParams.length > 0) spec.push(`params: { ${fpParams.join(', ')} }`)
+    if (fpReturn !== 'undefined') spec.push(`returns: ${fpReturn}`)
+    return `FunctionPredicate ${typeName} {\n  ${spec.join('\n  ')}\n}`
   }
 
   const example = typeToExample(node.type, undefined, warnings)
