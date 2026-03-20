@@ -1491,6 +1491,39 @@ describe('fromTS — tosijs conversion edge cases', () => {
     expect(result.code).not.toContain('.instances')
   })
 
+  test('private _backing field with public getter preserved correctly', () => {
+    const result = fromTS(
+      `class User {
+        private _name: string = ''
+        get name(): string { return this._name }
+        set name(value: string) { this._name = value }
+      }`,
+      { emitTJS: true }
+    )
+    // Backing field renamed
+    expect(result.code).toContain('#_name')
+    expect(result.code).toContain('this.#_name')
+    // Public getter NOT renamed
+    expect(result.code).toContain('get name()')
+    expect(result.code).toContain('set name(')
+  })
+
+  test('private field name not confused with object literal key', () => {
+    const result = fromTS(
+      `class Store {
+        private value: any = null
+        toJSON(): object {
+          return { value: this.value, type: 'store' }
+        }
+      }`,
+      { emitTJS: true }
+    )
+    // this.value → this.#value
+    expect(result.code).toContain('this.#value')
+    // object key { value: ... } stays as 'value' (not '#value')
+    expect(result.code).toContain('{ value:')
+  })
+
   test('non-exported functions have no export keyword', () => {
     const result = fromTS(`function internal(x: number): number { return x }`, {
       emitTJS: true,
