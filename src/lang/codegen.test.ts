@@ -1828,7 +1828,7 @@ function process(x: '') -! '' {
   describe('return type default keys', () => {
     it('signature test passes when optional key is absent', () => {
       const result = tjs(`
-function divide(a: 10, b: 2) -> { value: 0, error = '' } {
+function divide(a: 10, b: 2) -> { value: 5, error = '' } {
   return { value: a / b }
 }
 `)
@@ -1839,8 +1839,8 @@ function divide(a: 10, b: 2) -> { value: 0, error = '' } {
 
     it('signature test passes when optional key is present', () => {
       const result = tjs(`
-function divide(a: 10, b: 0) -> { value: 0, error = '' } {
-  if (b === 0) return { value: NaN, error: 'Division by zero' }
+function divide(a: 10, b: 0) -> { value: 0, error = 'Division by zero' } {
+  if (b === 0) return { value: 0, error: 'Division by zero' }
   return { value: a / b }
 }
 `)
@@ -1851,7 +1851,7 @@ function divide(a: 10, b: 0) -> { value: 0, error = '' } {
 
     it('works with non-string defaults', () => {
       const result = tjs(`
-function lookup(key: 'x') -> { value: '', count = 0 } {
+function lookup(key: 'x') -> { value: 'found', count = 0 } {
   return { value: 'found' }
 }
 `)
@@ -1868,12 +1868,12 @@ function broken(x: 0) -> { value: 0, error = '' } {
   return { error: 'oops' }
 }
 `)
-      ).toThrow(/Missing property/)
+      ).toThrow(/Expected.*got/)
     })
 
     it('inline tests can check default keys', () => {
       const result = tjs(`
-function divide(a: 10, b: 2) -> { value: 0, error = '' } {
+function divide(a: 10, b: 2) -> { value: 5, error = '' } {
   if (b === 0) return { value: NaN, error: 'Division by zero' }
   return { value: a / b }
 }
@@ -1895,7 +1895,7 @@ test 'normal division works' {
 
     it('type metadata parses return type with defaults', () => {
       const result = tjs(`
-function divide(a: 10, b: 2) -> { value: 0, error = '' } {
+function divide(a: 10, b: 2) -> { value: 5, error = '' } {
   return { value: a / b }
 }
 `)
@@ -1908,7 +1908,7 @@ function divide(a: 10, b: 2) -> { value: 0, error = '' } {
 
     it('-? runtime validation passes when optional key is absent', () => {
       const result = tjs(`
-function divide(a: 10, b: 2) -? { value: 0, error = '' } {
+function divide(a: 10, b: 2) -? { value: 5, error = '' } {
   return { value: a / b }
 }
 `)
@@ -1923,7 +1923,7 @@ function divide(a: 10, b: 2) -? { value: 0, error = '' } {
     it('-? with simple return type rejects wrong type at runtime', () => {
       // Use a simple return type (string) where checkType works
       const result = tjs(`
-function greet(name: 'World') -? '' {
+function greet(name: 'World') -? 'Hello, World' {
   return 'Hello, ' + name
 }
 `)
@@ -1937,7 +1937,7 @@ function greet(name: 'World') -? '' {
 
     it('__tjs metadata includes return defaults', () => {
       const result = tjs(`
-function divide(a: 10, b: 2) -? { value: 0, error = '' } {
+function divide(a: 10, b: 2) -? { value: 5, error = '' } {
   return { value: a / b }
 }
 `)

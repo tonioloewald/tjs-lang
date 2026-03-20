@@ -104,7 +104,7 @@ function typeMatches(
     }
   }
 
-  // Primitive types - check type, not value
+  // Primitive types - check type only (used by -? runtime validation)
   if (typeof pattern === 'number') {
     if (typeof actual === 'number') return { matches: true }
     return {
@@ -605,13 +605,10 @@ export function runAllTests(
       if (typeof __actual === 'object' && __actual !== null) __actual = Object.assign({}, __defaults, __actual);`
           : ''
       }
-      const __typeResult = __typeMatches(__actual, __expected, '${
-        info.funcName
-      }');
-      if (__typeResult.matches) {
+      if (__deepEqual(__actual, __expected)) {
         __sigTestResults.push({ idx: ${i}, passed: true });
       } else {
-        __sigTestResults.push({ idx: ${i}, passed: false, error: __typeResult.error || 'Type mismatch: got ' + __format(__actual) });
+        __sigTestResults.push({ idx: ${i}, passed: false, error: 'Expected ' + __format(__expected) + ' at \\'${info.funcName}\\', got ' + __format(__actual) });
       }
     } catch (e) {
       __sigTestResults.push({ idx: ${i}, passed: false, error: e.message || String(e) });
@@ -1216,14 +1213,12 @@ function runSignatureTest(
       actual = Object.assign({}, defaults, actual)
     }
 
-    // Use type matching, not value equality
-    // The expected value is a TYPE PATTERN (example), not the exact expected result
-    const result = typeMatches(actual, expected, funcName)
-    if (!result.matches) {
+    // Signature tests check exact values — the example is a test case
+    if (!deepEqual(actual, expected)) {
       return {
         description,
         passed: false,
-        error: result.error || `Type mismatch: got ${formatValue(actual)}`,
+        error: `Expected ${formatValue(expected)} at '${funcName}', got ${formatValue(actual)}`,
         isSignatureTest: true,
       }
     }

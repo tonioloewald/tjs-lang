@@ -943,16 +943,15 @@ describe('signature tests (transpile-time)', () => {
     expect(result.testResults![0].isSignatureTest).toBe(true)
   })
 
-  it('-> should fail if return type is wrong', () => {
-    // Signature test checks TYPE, not value
-    // double(5) returns 10 (number), but pattern expects string
+  it('-> should fail if return value is wrong', () => {
+    // double(5) returns 10, but expected "" — value mismatch
     expect(() =>
       tjs(`
         function double(x: 5) -> "" {
           return x * 2
         }
       `)
-    ).toThrow(/Expected string/)
+    ).toThrow(/Expected.*got/)
   })
 
   it('-? should run signature test at transpile time', () => {
@@ -965,24 +964,25 @@ describe('signature tests (transpile-time)', () => {
     expect(result.testResults![0].passed).toBe(true)
   })
 
-  it('-? should pass if return type matches (type pattern, not value)', () => {
-    // 999 is a number pattern, double(5) returns 10 which is a number - passes
+  it('-? should pass when example is consistent', () => {
+    // double(5) returns 10, -> 10 is the exact expected result
     const result = tjs(`
-      function double(x: 5) -? 0 {
+      function double(x: 5) -? 10 {
         return x * 2
       }
     `)
     expect(result.testResults![0].passed).toBe(true)
   })
 
-  it('-? should fail if return type mismatches', () => {
+  it('-? should fail if return value mismatches', () => {
+    // getString(5) returns 10, but expected "" — value mismatch
     expect(() =>
       tjs(`
         function getString(x: 5) -? "" {
           return x * 2
         }
       `)
-    ).toThrow(/Expected string/)
+    ).toThrow(/Expected.*got/)
   })
 
   it('-! should skip signature test entirely', () => {
@@ -1004,25 +1004,24 @@ describe('signature tests (transpile-time)', () => {
     expect(result.testResults![0].passed).toBe(true)
   })
 
-  it('-> with object return should pass when types match (not values)', () => {
-    // {x: 0, y: 0} is a type pattern for {x: number, y: number}
-    // getPoint(3, 4) returns {x: 3, y: 4} which matches the pattern
+  it('-> with object return should pass when example is consistent', () => {
+    // getPoint(3, 4) returns {x: 3, y: 4}, -> matches exactly
     const result = tjs(`
-      function getPoint(x: 3, y: 4) -> { x: 0, y: 0 } {
+      function getPoint(x: 3, y: 4) -> { x: 3, y: 4 } {
         return { x, y }
       }
     `)
     expect(result.testResults![0].passed).toBe(true)
   })
 
-  it('-> with object return should fail on type mismatch', () => {
+  it('-> with object return should fail on value mismatch', () => {
     expect(() =>
       tjs(`
         function getPoint(x: 3, y: 4) -> { x: "", y: "" } {
           return { x, y }
         }
       `)
-    ).toThrow(/Expected string/)
+    ).toThrow(/Expected.*got/)
   })
 
   it('should skip signature tests for async functions', () => {
@@ -1126,6 +1125,118 @@ describe('signature tests (transpile-time)', () => {
       t.description.includes('add')
     )
     expect(addTest?.passed).toBe(true)
+  })
+})
+
+// =============================================================================
+// CANARY TESTS — signature tests check exact values, not just types
+//
+// These tests exist to prevent regression to type-only matching.
+// Signature tests call the function with example args and verify the
+// return matches the -> annotation EXACTLY (deepEqual).
+// -? also runs the signature test (plus runtime type validation).
+// -! skips the signature test entirely.
+// =============================================================================
+
+describe('signature test canaries — exact value matching', () => {
+  it('CANARY: -> catches wrong primitive return value', () => {
+    // add(2,3) returns 5, but -> says 0 — must fail
+    expect(() =>
+      tjs(`
+        function add(a: 2, b: 3) -> 0 {
+          return a + b
+        }
+      `)
+    ).toThrow(/Expected.*got/)
+  })
+
+  it('CANARY: -> catches wrong string return value', () => {
+    // greet('World') returns 'Hello, World!', but -> says '' — must fail
+    expect(() =>
+      tjs(
+        "function greet(name: 'World') -> '' {\n  return 'Hello, ' + name + '!'\n}"
+      )
+    ).toThrow(/Expected.*got/)
+  })
+
+  it('CANARY: -> catches wrong object property values', () => {
+    // getPoint(3,4) returns {x:3,y:4}, but -> says {x:0,y:0} — must fail
+    expect(() =>
+      tjs(`
+        function getPoint(x: 3, y: 4) -> { x: 0, y: 0 } {
+          return { x, y }
+        }
+      `)
+    ).toThrow(/Expected.*got/)
+  })
+
+  it('CANARY: -? also catches wrong return value', () => {
+    // -? runs signature test AND runtime validation
+    expect(() =>
+      tjs(`
+        function double(x: 5) -? 0 {
+          return x * 2
+        }
+      `)
+    ).toThrow(/Expected.*got/)
+  })
+
+  it('CANARY: -! does NOT run signature test (wrong value is OK)', () => {
+    // -! skips the test — wrong return example is just metadata
+    const result = tjs(`
+      function double(x: 5) -! 999 {
+        return x * 2
+      }
+    `)
+    expect(result.testResults).toHaveLength(0)
+  })
+
+  it('CANARY: -> passes with correct exact values', () => {
+    const result = tjs(`
+      function add(a: 2, b: 3) -> 5 {
+        return a + b
+      }
+    `)
+    expect(result.testResults).toHaveLength(1)
+    expect(result.testResults![0].passed).toBe(true)
+  })
+
+  it('CANARY: -> passes with correct string value', () => {
+    const result = tjs(
+      "function greet(name: 'World') -> 'Hello, World!' {\n  return 'Hello, ' + name + '!'\n}"
+    )
+    expect(result.testResults).toHaveLength(1)
+    expect(result.testResults![0].passed).toBe(true)
+  })
+
+  it('CANARY: -> passes with correct object values', () => {
+    const result = tjs(`
+      function getPoint(x: 3, y: 4) -> { x: 3, y: 4 } {
+        return { x, y }
+      }
+    `)
+    expect(result.testResults).toHaveLength(1)
+    expect(result.testResults![0].passed).toBe(true)
+  })
+
+  it('CANARY: -? runtime validation checks type only (not value)', () => {
+    // -? validates at runtime that return TYPE matches (number, not 10)
+    // The runtime check should pass even if the value differs from annotation
+    const result = tjs(
+      'function double(x: 5) -? 10 { return x * 2 }',
+      { runTests: false }
+    )
+    const savedTjs = globalThis.__tjs
+    const { createRuntime } = require('./runtime')
+    globalThis.__tjs = createRuntime()
+    try {
+      const fn = new Function(result.code + '\nreturn double')()
+      // Runtime accepts any number — type check, not value check
+      expect(fn(3)).toBe(6) // 6 !== 10, but it's still a number — passes
+      expect(fn(5)).toBe(10)
+    } finally {
+      globalThis.__tjs = savedTjs
+    }
   })
 })
 

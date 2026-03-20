@@ -84,12 +84,12 @@ function greetOpt(name = 'World') -> 'Hello, World' {
 }
 
 // Destructured object params (colon = required, equals = optional)
-function createUser({ name: 'Anon', role = 'user' }) -> { name: '', role: '' } {
+function createUser({ name: 'Anon', role = 'user' }) -> { name: 'Anon', role: 'user' } {
   return { name, role }
 }
 
 // Numeric type narrowing: 42 = integer, 3.14 = float, +0 = non-negative int
-function calc(count: 42, rate: 3.14, index: +0) -> 0.0 {
+function calc(count: 42, rate: 3.14, index: +0) -> 131.88 {
   return (count + index) * rate
 }
 
@@ -347,7 +347,7 @@ Standard ES module syntax works. Functions and values
 can be exported for use by other modules.
 */
 
-export function publicHelper(x: 0) -> 0 {
+export function publicHelper(x: 0) -> 1 {
   return x + 1
 }
 

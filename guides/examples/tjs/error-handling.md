@@ -21,7 +21,7 @@ function validate(name: '') -> '' {
   return name.trim()
 }
 
-function greet(name: '') -> '' {
+function greet(name: '') -> 'Hello, !' {
   return `Hello, ${name}!`
 }
 
@@ -52,7 +52,7 @@ test 'error identity is preserved (same object, not a copy)' {
 
 // --- Result pattern for domain errors ---
 
-function divide(a: 10, b: 2) -> { value: 0, error = '' } {
+function divide(a: 10, b: 2) -> { value: 5 } {
   if (b === 0) {
     return { value: NaN, error: 'Division by zero' }
   }

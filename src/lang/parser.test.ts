@@ -417,20 +417,20 @@ test 'always fails' { throw new Error('intentional') }
     })
 
     it('should generate correct runtime validation for integer', () => {
-      const result = tjs(`function test(n: 1) -> 0 { return n }`)
+      const result = tjs(`function test(n: 1) -> 1 { return n }`)
       // Should check Number.isInteger
       expect(result.code).toContain('Number.isInteger')
     })
 
     it('should generate correct runtime validation for non-negative-integer', () => {
-      const result = tjs(`function test(n: +1) -> 0 { return n }`)
+      const result = tjs(`function test(n: +1) -> 1 { return n }`)
       // Should check Number.isInteger AND >= 0
       expect(result.code).toContain('Number.isInteger')
       expect(result.code).toContain('< 0')
     })
 
     it('should validate integer at runtime', () => {
-      const result = tjs(`function check(n: 1) -> 0 { return n }`)
+      const result = tjs(`function check(n: 1) -> 1 { return n }`)
       const savedTjs = globalThis.__tjs
       globalThis.__tjs = createRuntime()
       try {
@@ -446,7 +446,7 @@ test 'always fails' { throw new Error('intentional') }
     })
 
     it('should validate non-negative-integer at runtime', () => {
-      const result = tjs(`function check(n: +1) -> 0 { return n }`)
+      const result = tjs(`function check(n: +1) -> 1 { return n }`)
       const savedTjs = globalThis.__tjs
       globalThis.__tjs = createRuntime()
       try {

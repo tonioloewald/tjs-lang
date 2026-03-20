@@ -217,7 +217,8 @@ function mean(...values: [1.0, 2.0, 3.0, 2.0]) -> 2.0 {
 
 Signature tests work with rest params — the example array elements are
 spread as individual arguments. `mean(1.0, 2.0, 3.0, 2.0)` is called
-and its result checked against the `-> 2.0` expected return.
+and the result is checked against the `-> 2.0` expected return using
+exact value comparison (deepEqual).
 
 The array example tells TJS the element type. `[0]` means "array of
 integers", `[1.0, 2.0]` means "array of numbers (floats)".
