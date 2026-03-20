@@ -1024,7 +1024,7 @@ export function transformTypeDeclarations(source: string): string {
 
   while (i < source.length) {
     // Look for 'Type' keyword followed by identifier
-    const typeMatch = source.slice(i).match(/^\bType\s+([A-Z][a-zA-Z0-9_]*)\s*/)
+    const typeMatch = source.slice(i).match(/^\bType\s+([A-Z_][a-zA-Z0-9_]*)\s*/)
     if (typeMatch) {
       const typeName = typeMatch[1]
       let j = i + typeMatch[0].length
@@ -1239,7 +1239,12 @@ export function transformGenericDeclarations(source: string): string {
           .split('=')
           .map((s) => s.trim())
         if (parts.length === 2) {
-          return `['${parts[0]}', ${parts[1]}]`
+          // 'any' and 'undefined' aren't valid JS values — use null
+          const defaultVal =
+            parts[1] === 'any' || parts[1] === 'undefined'
+              ? 'null'
+              : parts[1]
+          return `['${parts[0]}', ${defaultVal}]`
         }
         return `'${parts[0]}'`
       })

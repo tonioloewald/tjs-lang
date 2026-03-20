@@ -366,10 +366,11 @@ function typeToExample(
     case ts.SyntaxKind.TupleType: {
       const tupleType = type as ts.TupleTypeNode
       const elements = tupleType.elements.map((e) => {
-        if (ts.isNamedTupleMember(e)) {
-          return typeToExample(e.type, checker)
-        }
-        return typeToExample(e as ts.TypeNode, checker)
+        const example = ts.isNamedTupleMember(e)
+          ? typeToExample(e.type, checker)
+          : typeToExample(e as ts.TypeNode, checker)
+        // 'any' is not a valid literal value
+        return example === 'any' ? 'null' : example
       })
       return `[${elements.join(', ')}]`
     }
@@ -746,13 +747,26 @@ function transformGenericInterfaceToGeneric(
   for (const member of node.members) {
     if (ts.isPropertySignature(member) && member.name) {
       const propName = member.name.getText(sourceFile)
-      checks.push(`'${propName}' in x`)
+
+      // Computed property names: [SYMBOL] → use bracket access
+      const isComputed = propName.startsWith('[') && propName.endsWith(']')
+      const symbolName = isComputed ? propName.slice(1, -1) : null
+
+      if (isComputed) {
+        checks.push(`${symbolName} in x`)
+      } else {
+        checks.push(`'${propName}' in x`)
+      }
 
       // If property type is a type parameter, add check
       if (member.type && ts.isTypeReferenceNode(member.type)) {
         const refName = member.type.typeName.getText(sourceFile)
         if (typeParamNames.includes(refName)) {
-          checks.push(`${refName}(x.${propName})`)
+          if (isComputed) {
+            checks.push(`${refName}(x[${symbolName}])`)
+          } else {
+            checks.push(`${refName}(x.${propName})`)
+          }
         }
       }
     }
