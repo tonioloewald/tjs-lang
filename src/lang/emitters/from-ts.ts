@@ -2054,7 +2054,11 @@ export function fromTS(
             const isExported = statement.modifiers?.some(
               (m) => m.kind === ts.SyntaxKind.ExportKeyword
             )
-            tjsFunctions.push(isExported ? `export ${typeDecl}` : typeDecl)
+            tjsFunctions.push(
+              isExported
+                ? typeDecl.replace(/^(\/\*[\s\S]*?\*\/\s*)?/, '$1export ')
+                : typeDecl
+            )
           }
         }
       }
@@ -2076,7 +2080,11 @@ export function fromTS(
             const isExported = statement.modifiers?.some(
               (m) => m.kind === ts.SyntaxKind.ExportKeyword
             )
-            tjsFunctions.push(isExported ? `export ${typeDecl}` : typeDecl)
+            tjsFunctions.push(
+              isExported
+                ? typeDecl.replace(/^(\/\*[\s\S]*?\*\/\s*)?/, '$1export ')
+                : typeDecl
+            )
           }
         }
       }
