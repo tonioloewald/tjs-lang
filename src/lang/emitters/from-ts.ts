@@ -1027,8 +1027,13 @@ function transformGenericTypeAliasToGeneric(
   )
   const predicateParams = ['x', ...typeParamNames].join(', ')
 
-  // Simple fallback - more sophisticated analysis could be added
-  return `Generic ${typeName}<${typeParams.join(', ')}> {
+  // Include original TS source as a block comment for manual enhancement
+  // Use /* */ to avoid confusing the Generic block preprocessor
+  const originalSource = node.getText(sourceFile).trim()
+  const comment = `/* Original TS:\n${originalSource}\n*/`
+
+  return `${comment}
+Generic ${typeName}<${typeParams.join(', ')}> {
   description: '${typeName}'
   predicate(${predicateParams}) { return true }
 }`
