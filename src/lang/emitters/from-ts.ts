@@ -1170,9 +1170,9 @@ function transformClassToTJS(
 
   const className = node.name?.getText(sourceFile) || 'Anonymous'
   // Get base class name, stripping type arguments (e.g. Component<T> → Component)
-  const extendsType = node.heritageClauses
-    ?.find((h) => h.token === ts.SyntaxKind.ExtendsKeyword)
-    ?.types[0]
+  const extendsType = node.heritageClauses?.find(
+    (h) => h.token === ts.SyntaxKind.ExtendsKeyword
+  )?.types[0]
   const extendsClause = extendsType?.expression?.getText(sourceFile)
 
   // First pass: collect private field mappings (TS private -> JS #)
@@ -2023,9 +2023,8 @@ export function fromTS(
                 return propName ? `${propName} as ${name}` : name
               })
             if (valueSpecs.length > 0) {
-              const modSpec = (
-                statement.moduleSpecifier as ts.StringLiteral
-              ).text
+              const modSpec = (statement.moduleSpecifier as ts.StringLiteral)
+                .text
               tjsFunctions.push(
                 `import { ${valueSpecs.join(', ')} } from '${modSpec}'`
               )

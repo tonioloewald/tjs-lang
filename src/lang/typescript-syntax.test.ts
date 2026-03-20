@@ -1421,10 +1421,9 @@ describe('fromTS — tosijs conversion edge cases', () => {
   })
 
   test('re-export from another module preserved', () => {
-    const result = fromTS(
-      `export { bar, baz as qux } from './other'`,
-      { emitTJS: true }
-    )
+    const result = fromTS(`export { bar, baz as qux } from './other'`, {
+      emitTJS: true,
+    })
     expect(result.code).toContain("export { bar, baz as qux } from './other'")
   })
 
