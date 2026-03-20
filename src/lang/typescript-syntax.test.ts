@@ -1402,6 +1402,44 @@ describe('fromTS — tosijs conversion edge cases', () => {
     expect(result.code).toContain("property: 'default'")
   })
 
+  test('value imports preserved, type-only imports stripped', () => {
+    const result = fromTS(
+      `
+      import { foo, type Bar } from './other'
+      import type { TypeOnly } from './types'
+      export { foo }
+      `,
+      { emitTJS: true }
+    )
+    // Value import preserved
+    expect(result.code).toContain("import { foo } from './other'")
+    // Type-only import stripped
+    expect(result.code).not.toContain('TypeOnly')
+    expect(result.code).not.toContain('Bar')
+    // Re-export works because foo is now defined
+    expect(result.code).toContain('export { foo }')
+  })
+
+  test('re-export from another module preserved', () => {
+    const result = fromTS(
+      `export { bar, baz as qux } from './other'`,
+      { emitTJS: true }
+    )
+    expect(result.code).toContain("export { bar, baz as qux } from './other'")
+  })
+
+  test('default and namespace imports preserved', () => {
+    const result = fromTS(
+      `
+      import * as ns from './namespace'
+      import defaultThing from './default'
+      `,
+      { emitTJS: true }
+    )
+    expect(result.code).toContain("import * as ns from './namespace'")
+    expect(result.code).toContain("import defaultThing from './default'")
+  })
+
   test('multiple params where first degrades to any', () => {
     // Simulates: function(element: UnknownDomType, path: string)
     // element degrades to bare name, path is typed — should not error

@@ -2008,17 +2008,37 @@ export function fromTS(
             ))
 
         if (!isTypeOnly) {
-          // Keep value imports - just strip any type annotations
-          const transpiled = ts.transpileModule(statement.getText(sourceFile), {
-            compilerOptions: {
-              target: ts.ScriptTarget.ESNext,
-              module: ts.ModuleKind.ESNext,
-              removeComments: false,
-            },
-          })
-          const trimmed = transpiled.outputText.trim()
-          if (trimmed) {
-            tjsFunctions.push(trimmed)
+          // Emit import directly — don't use ts.transpileModule which
+          // strips "unused" imports in isolation. Filter out type-only
+          // specifiers manually.
+          if (
+            statement.importClause?.namedBindings &&
+            ts.isNamedImports(statement.importClause.namedBindings)
+          ) {
+            const valueSpecs = statement.importClause.namedBindings.elements
+              .filter((e) => !e.isTypeOnly)
+              .map((e) => {
+                const name = e.name.getText(sourceFile)
+                const propName = e.propertyName?.getText(sourceFile)
+                return propName ? `${propName} as ${name}` : name
+              })
+            if (valueSpecs.length > 0) {
+              const modSpec = (
+                statement.moduleSpecifier as ts.StringLiteral
+              ).text
+              tjsFunctions.push(
+                `import { ${valueSpecs.join(', ')} } from '${modSpec}'`
+              )
+            }
+          } else {
+            // Default import, namespace import, or side-effect import
+            // Emit as-is (strip types via getText which preserves structure)
+            const importText = statement.getText(sourceFile)
+            // Remove type annotations by running through TS
+            const cleaned = importText
+              .replace(/\btype\s+/g, '')
+              .replace(/\s*:\s*\w+/g, '')
+            tjsFunctions.push(cleaned)
           }
         }
       }
