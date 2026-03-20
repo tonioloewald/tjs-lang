@@ -1008,7 +1008,10 @@ function transformFunctionToTJS(
   // Use -! to skip signature tests - TS types are compile-time only,
   // the example values won't necessarily match runtime behavior
   const returnAnnotation =
-    returnExample && returnExample !== 'undefined' && returnExample !== 'any'
+    returnExample &&
+    returnExample !== 'undefined' &&
+    returnExample !== 'any' &&
+    !returnExample.startsWith('new ') // new Set(), new Map() etc. aren't valid TJS literals
       ? ` -! ${returnExample}`
       : ''
 
@@ -1146,8 +1149,25 @@ function emitOverloadGroup(
 function transformClassToTJS(
   node: ts.ClassDeclaration,
   sourceFile: ts.SourceFile,
-  warnings?: string[]
+  warnings?: string[],
+  ctx?: TypeResolutionContext
 ): string {
+  // Build type parameter map from class-level generics
+  let resolveCtx = ctx
+  if (node.typeParameters && node.typeParameters.length > 0) {
+    const typeParamMap = new Map<
+      string,
+      { constraint?: ts.TypeNode; default?: ts.TypeNode }
+    >()
+    for (const tp of node.typeParameters) {
+      typeParamMap.set(tp.name.getText(sourceFile), {
+        constraint: tp.constraint,
+        default: tp.default,
+      })
+    }
+    resolveCtx = { ...ctx, typeParams: typeParamMap }
+  }
+
   const className = node.name?.getText(sourceFile) || 'Anonymous'
   const extendsClause = node.heritageClauses
     ?.find((h) => h.token === ts.SyntaxKind.ExtendsKeyword)
@@ -1210,9 +1230,15 @@ function transformClassToTJS(
         (m) => m.kind === ts.SyntaxKind.AsyncKeyword
       )
 
-      const params = transformParams(member.parameters, sourceFile, warnings)
+      const params = transformParams(
+        member.parameters,
+        sourceFile,
+        warnings,
+        undefined,
+        resolveCtx
+      )
       const returnExample = member.type
-        ? typeToExample(member.type, undefined, warnings)
+        ? typeToExample(member.type, undefined, warnings, resolveCtx)
         : ''
       // Use -! to skip signature tests for TS-transpiled code
       const returnAnnotation =
@@ -1249,14 +1275,14 @@ function transformClassToTJS(
     if (ts.isGetAccessorDeclaration(member) && member.name) {
       const propName = member.name.getText(sourceFile)
       const returnExample = member.type
-        ? typeToExample(member.type, undefined, warnings)
+        ? typeToExample(member.type, undefined, warnings, resolveCtx)
         : ''
-      // Use -! to skip signature tests for TS-transpiled code
       const returnAnnotation =
         returnExample &&
         returnExample !== 'undefined' &&
-        returnExample !== 'any'
-          ? ` -! ${returnExample}`
+        returnExample !== 'any' &&
+        !returnExample.startsWith('new ')
+          ? ` -> ${returnExample}`
           : ''
 
       let body = '{ }'
@@ -1344,6 +1370,8 @@ function transformParams(
 
   for (const param of parameters) {
     const name = param.name.getText(sourceFile)
+    // Skip TypeScript's `this` pseudo-parameter (declares `this` context type)
+    if (name === 'this') continue
     const isOptional = !!param.questionToken || !!param.initializer
     const typeExample = typeToExample(param.type, undefined, warnings, ctx)
 

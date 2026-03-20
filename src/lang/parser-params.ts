@@ -370,13 +370,17 @@ export function transformParenExpressions(
       const processedParams = processParamString(params, ctx, true)
       result += processedParams + ')'
 
-      // Check for return type annotation: ) -> type or ): type
+      // Check for return type annotation: ) -> type, ) -! type, ) -? type, ): type
       let j = i
       while (j < source.length && /\s/.test(source[j])) j++
 
-      // Handle -> return type (TJS style)
+      // Handle ->, -!, -? return type (TJS style)
       const returnArrow = source.slice(j, j + 2)
-      if (returnArrow === '->') {
+      if (
+        returnArrow === '->' ||
+        returnArrow === '-!' ||
+        returnArrow === '-?'
+      ) {
         j += 2
         while (j < source.length && /\s/.test(source[j])) j++
         const typeResult = extractReturnTypeValue(source, j)
