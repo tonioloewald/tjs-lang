@@ -1439,6 +1439,39 @@ describe('fromTS — tosijs conversion edge cases', () => {
     expect(result.code).toContain("import defaultThing from './default'")
   })
 
+  test('export keyword preserved on functions', () => {
+    const result = fromTS(
+      `export function greet(name: string): string { return name }`,
+      { emitTJS: true }
+    )
+    expect(result.code).toContain('export function greet(')
+  })
+
+  test('export keyword preserved on arrow functions', () => {
+    const result = fromTS(
+      `export const double = (x: number): number => x * 2`,
+      { emitTJS: true }
+    )
+    expect(result.code).toContain('export')
+    expect(result.code).toContain('function double(')
+  })
+
+  test('export keyword preserved on classes', () => {
+    const result = fromTS(
+      `export class Foo { constructor(x: number) {} }`,
+      { emitTJS: true }
+    )
+    expect(result.code).toContain('export class Foo')
+  })
+
+  test('non-exported functions have no export keyword', () => {
+    const result = fromTS(
+      `function internal(x: number): number { return x }`,
+      { emitTJS: true }
+    )
+    expect(result.code).not.toContain('export')
+  })
+
   test('multiple params where first degrades to any', () => {
     // Simulates: function(element: UnknownDomType, path: string)
     // element degrades to bare name, path is typed — should not error

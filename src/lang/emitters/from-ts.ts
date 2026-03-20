@@ -1047,11 +1047,15 @@ function transformFunctionToTJS(
     body = '{ }'
   }
 
-  // Check for async and generator modifiers
+  // Check for export, async, and generator modifiers
+  const isExported = node.modifiers?.some(
+    (m) => m.kind === ts.SyntaxKind.ExportKeyword
+  )
   const isAsync = node.modifiers?.some(
     (m) => m.kind === ts.SyntaxKind.AsyncKeyword
   )
   const isGenerator = !!(node as ts.FunctionDeclaration).asteriskToken
+  const exportPrefix = isExported ? 'export ' : ''
   const asyncPrefix = isAsync ? 'async ' : ''
   const funcKeyword = isGenerator ? 'function* ' : 'function '
 
@@ -1061,7 +1065,7 @@ function transformFunctionToTJS(
       ? `/* TODO: TS types degraded — ${degraded.join(', ')} */\n`
       : ''
 
-  return `${lineComment}${degradedComment}${asyncPrefix}${funcKeyword}${funcName}(${params.join(
+  return `${lineComment}${degradedComment}${exportPrefix}${asyncPrefix}${funcKeyword}${funcName}(${params.join(
     ', '
   )})${returnAnnotation} ${body}`
 }
@@ -1360,8 +1364,12 @@ function transformClassToTJS(
     }
   }
 
+  const isExported = node.modifiers?.some(
+    (m) => m.kind === ts.SyntaxKind.ExportKeyword
+  )
+  const exportPrefix = isExported ? 'export ' : ''
   const extendsStr = extendsClause ? ` extends ${extendsClause}` : ''
-  return `class ${className}${extendsStr} {\n${members.join('\n')}\n}`
+  return `${exportPrefix}class ${className}${extendsStr} {\n${members.join('\n')}\n}`
 }
 
 /**
@@ -1871,6 +1879,11 @@ export function fromTS(
     if (ts.isVariableStatement(statement)) {
       let hasFunctionDecl = false
 
+      // Check if the variable statement itself is exported
+      const varIsExported = statement.modifiers?.some(
+        (m: ts.Modifier) => m.kind === ts.SyntaxKind.ExportKeyword
+      )
+
       for (const decl of statement.declarationList.declarations) {
         if (
           ts.isIdentifier(decl.name) &&
@@ -1883,16 +1896,30 @@ export function fromTS(
           const funcNode = decl.initializer
 
           if (emitTJS) {
-            tjsFunctions.push(
-              transformFunctionToTJS(
-                funcNode,
-                sourceFile,
-                funcName,
-                warnings,
-                true,
-                resolutionCtx
-              )
+            let tjsFunc = transformFunctionToTJS(
+              funcNode,
+              sourceFile,
+              funcName,
+              warnings,
+              true,
+              resolutionCtx
             )
+            // Arrow/const functions: export is on the VariableStatement
+            // Insert after any line comment or degraded comment
+            if (varIsExported && !tjsFunc.includes('export ')) {
+              const firstFuncLine = tjsFunc.search(
+                /^(async\s+)?function[\s*]/m
+              )
+              if (firstFuncLine > 0) {
+                tjsFunc =
+                  tjsFunc.slice(0, firstFuncLine) +
+                  'export ' +
+                  tjsFunc.slice(firstFuncLine)
+              } else {
+                tjsFunc = 'export ' + tjsFunc
+              }
+            }
+            tjsFunctions.push(tjsFunc)
           } else {
             const info = extractFunctionMetadata(
               funcNode,
