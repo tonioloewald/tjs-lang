@@ -1308,6 +1308,78 @@ describe('Constrained generics use constraint as example', () => {
 })
 
 // =============================================================================
+// Converter edge cases found during tosijs compilation
+// =============================================================================
+
+describe('fromTS — tosijs conversion edge cases', () => {
+  test('unknown type param before known type param does not error', () => {
+    // When a param type is unknown (e.g. Element), it degrades to bare name
+    // (looks optional). A subsequent typed param should not cause
+    // "required param after optional" error.
+    const result = fromTS(
+      `export function touchElement(element: Element, changedPath?: string): void {
+        console.log(element, changedPath)
+      }`,
+      { emitTJS: true }
+    )
+    expect(result.code).toContain('function touchElement(')
+    // Should succeed without error
+    expect(result.code).toBeDefined()
+  })
+
+  test('interface with optional properties produces valid object shape', () => {
+    // Optional interface properties must use : not = in object literal examples
+    // { throttleInterval = 0.0 } is invalid (shorthand assignment)
+    // { throttleInterval: 0.0 } is correct
+    const result = fromTS(
+      `interface Options {
+        throttleInterval?: number
+        verbose?: boolean
+      }
+      export function configure(options: Options): void {}`,
+      { emitTJS: true }
+    )
+    expect(result.code).toContain('throttleInterval:')
+    expect(result.code).not.toContain('throttleInterval =')
+    expect(result.code).toContain('verbose:')
+    expect(result.code).not.toContain('verbose =')
+  })
+
+  test('interface with mix of required and optional properties', () => {
+    const result = fromTS(
+      `interface Config {
+        host: string
+        port: number
+        debug?: boolean
+      }
+      export function connect(config: Config): void {}`,
+      { emitTJS: true }
+    )
+    // All properties should use : in the object example
+    expect(result.code).toContain('host:')
+    expect(result.code).toContain('port:')
+    expect(result.code).toContain('debug:')
+    // None should use = (shorthand assignment)
+    expect(result.code).not.toMatch(/\bdebug\s*=/)
+  })
+
+  test('multiple params where first degrades to any', () => {
+    // Simulates: function(element: UnknownDomType, path: string)
+    // element degrades to bare name, path is typed — should not error
+    const result = fromTS(
+      `export function bind(
+        element: SomeUnknownType,
+        path: string,
+        options?: { bidirectional?: boolean }
+      ): void {}`,
+      { emitTJS: true }
+    )
+    expect(result.code).toContain('function bind(')
+    expect(result.code).toContain("path:")
+  })
+})
+
+// =============================================================================
 // SUMMARY: Features to implement (in priority order)
 // =============================================================================
 /*
