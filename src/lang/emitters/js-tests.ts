@@ -608,7 +608,9 @@ export function runAllTests(
       if (__deepEqual(__actual, __expected)) {
         __sigTestResults.push({ idx: ${i}, passed: true });
       } else {
-        __sigTestResults.push({ idx: ${i}, passed: false, error: 'Expected ' + __format(__expected) + ' at \\'${info.funcName}\\', got ' + __format(__actual) });
+        __sigTestResults.push({ idx: ${i}, passed: false, error: 'Expected ' + __format(__expected) + ' at \\'${
+        info.funcName
+      }\\', got ' + __format(__actual) });
       }
     } catch (e) {
       __sigTestResults.push({ idx: ${i}, passed: false, error: e.message || String(e) });
@@ -1218,7 +1220,9 @@ function runSignatureTest(
       return {
         description,
         passed: false,
-        error: `Expected ${formatValue(expected)} at '${funcName}', got ${formatValue(actual)}`,
+        error: `Expected ${formatValue(
+          expected
+        )} at '${funcName}', got ${formatValue(actual)}`,
         isSignatureTest: true,
       }
     }

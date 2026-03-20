@@ -1222,10 +1222,9 @@ describe('signature test canaries — exact value matching', () => {
   it('CANARY: -? runtime validation checks type only (not value)', () => {
     // -? validates at runtime that return TYPE matches (number, not 10)
     // The runtime check should pass even if the value differs from annotation
-    const result = tjs(
-      'function double(x: 5) -? 10 { return x * 2 }',
-      { runTests: false }
-    )
+    const result = tjs('function double(x: 5) -? 10 { return x * 2 }', {
+      runTests: false,
+    })
     const savedTjs = globalThis.__tjs
     const { createRuntime } = require('./runtime')
     globalThis.__tjs = createRuntime()
