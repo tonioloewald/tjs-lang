@@ -1457,18 +1457,44 @@ describe('fromTS — tosijs conversion edge cases', () => {
   })
 
   test('export keyword preserved on classes', () => {
-    const result = fromTS(
-      `export class Foo { constructor(x: number) {} }`,
-      { emitTJS: true }
-    )
+    const result = fromTS(`export class Foo { constructor(x: number) {} }`, {
+      emitTJS: true,
+    })
     expect(result.code).toContain('export class Foo')
   })
 
-  test('non-exported functions have no export keyword', () => {
+  test('private fields replaced in all access patterns', () => {
     const result = fromTS(
-      `function internal(x: number): number { return x }`,
+      `class Foo {
+        private cache: any = null
+        private static instances: any[] = []
+
+        static create(): Foo {
+          const f = new Foo()
+          f.cache = {}
+          Foo.instances.push(f)
+          return f
+        }
+
+        get cached() { return this.cache }
+      }`,
       { emitTJS: true }
     )
+    // this.cache -> this.#cache
+    expect(result.code).toContain('this.#cache')
+    // f.cache -> f.#cache (instance via variable)
+    expect(result.code).toContain('f.#cache')
+    // Foo.instances -> Foo.#instances (static via class name)
+    expect(result.code).toContain('Foo.#instances')
+    // No un-hashed private access left (dot followed by bare name)
+    expect(result.code).not.toContain('.cache')
+    expect(result.code).not.toContain('.instances')
+  })
+
+  test('non-exported functions have no export keyword', () => {
+    const result = fromTS(`function internal(x: number): number { return x }`, {
+      emitTJS: true,
+    })
     expect(result.code).not.toContain('export')
   })
 

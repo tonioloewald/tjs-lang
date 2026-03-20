@@ -1194,13 +1194,15 @@ function transformClassToTJS(
   }
 
   // Helper to replace private field references in transpiled code
+  // Handles: this.prop, ClassName.prop (static), varName.prop (instance via variable)
   const replacePrivateRefs = (code: string): string => {
     let result = code
     for (const [tsName, jsName] of privateFieldMap) {
-      // Replace this.propName with this.#propName
+      // Match property access on any identifier: word.propName or this.propName
+      // This covers this.prop, ClassName.prop, and varName.prop
       result = result.replace(
-        new RegExp(`this\\.${tsName}\\b`, 'g'),
-        `this.${jsName}`
+        new RegExp(`(\\b\\w+)\\.${tsName}\\b`, 'g'),
+        `$1.${jsName}`
       )
     }
     return result
