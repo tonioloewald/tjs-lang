@@ -2068,6 +2068,17 @@ describe('rest parameter metadata', () => {
     expect(info.params.values.type.items?.kind).toBe('number')
   })
 
+  it('should capture heterogeneous rest param as union', () => {
+    const result = tjs(
+      `function log(...args: ['hello', 42, true]) -> 0 { return 0 }`,
+      { runTests: false }
+    )
+    const info = result.types.log
+    expect(info.params.args.type.kind).toBe('array')
+    expect(info.params.args.type.items?.kind).toBe('union')
+    expect(info.params.args.type.items?.members).toHaveLength(3)
+  })
+
   it('should capture untyped rest param as bare array', () => {
     const result = tjs(
       `function collect(...args) { return args }`,

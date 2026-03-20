@@ -48,9 +48,26 @@ export function inferTypeFromValue(node: Expression): TypeDescriptor {
       if (elements.length === 0) {
         return { kind: 'array', items: { kind: 'any' } }
       }
-      // Use first element as the item type
-      const itemType = inferTypeFromValue(elements[0])
-      return { kind: 'array', items: itemType }
+      // Infer type from all elements — if homogeneous, use that type;
+      // if heterogeneous, produce a union of distinct kinds
+      const itemTypes = elements
+        .filter((el) => el != null)
+        .map((el) => inferTypeFromValue(el))
+      if (itemTypes.length === 0) {
+        return { kind: 'array', items: { kind: 'any' } }
+      }
+      // Deduplicate by structure
+      const seen = new Map<string, TypeDescriptor>()
+      for (const t of itemTypes) {
+        const key = JSON.stringify(t)
+        if (!seen.has(key)) seen.set(key, t)
+      }
+      const unique = [...seen.values()]
+      const items =
+        unique.length === 1
+          ? unique[0]
+          : { kind: 'union' as const, members: unique }
+      return { kind: 'array', items }
     }
 
     case 'ObjectExpression': {
