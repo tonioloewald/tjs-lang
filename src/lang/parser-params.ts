@@ -933,6 +933,17 @@ function processParamString(
       return `[ ${processedInner} ]`
     }
 
+    // Handle rest parameters: ...args: [0] -> ...args (strip type, JS forbids defaults on rest)
+    // The type annotation is still captured by extractFunctionTypeInfo for __tjs metadata
+    if (trimmed.startsWith('...')) {
+      const restColonPos = findTopLevelColon(trimmed)
+      if (restColonPos !== -1) {
+        const restName = trimmed.slice(0, restColonPos).trim()
+        return restName
+      }
+      return param
+    }
+
     // Handle optional param syntax: x?: type -> x = type (not required)
     const optionalMatch = trimmed.match(/^(\w+)\s*\?\s*:\s*(.+)$/)
     if (optionalMatch) {

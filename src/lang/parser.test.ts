@@ -35,6 +35,21 @@ describe('Transpiler', () => {
       )
     })
 
+    it('should strip type annotation from rest params', () => {
+      // JS forbids default values on rest params, so : annotation must be stripped
+      const result = preprocess(`function sum(...nums: [0]) { }`)
+      expect(result.source).toContain('...nums)')
+      expect(result.source).not.toContain('...nums =')
+    })
+
+    it('should handle rest param with array type example', () => {
+      const result = preprocess(
+        `function mean(...values: [1.0, 2.0, 3.0]) -> 2.0 { return 0 }`
+      )
+      expect(result.source).toContain('...values)')
+      expect(result.source).not.toContain('[1.0')
+    })
+
     it('should allow required params after optional params', () => {
       // TypeScript permits this pattern, and fromTS can produce it when
       // earlier params degrade to any. TJS should accept it.

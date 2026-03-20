@@ -2043,3 +2043,38 @@ describe('TS overloads → TJS → JS full pipeline', () => {
     }
   })
 })
+
+describe('rest parameter metadata', () => {
+  it('should capture typed rest param in metadata', () => {
+    const result = tjs(
+      `function sum(...nums: [0]) -> 0 { return 0 }`,
+      { runTests: false }
+    )
+    const info = result.types.sum
+    expect(info.params.nums).toBeDefined()
+    expect(info.params.nums.type.kind).toBe('array')
+    expect(info.params.nums.type.items?.kind).toBe('integer')
+    expect(info.params.nums.required).toBe(false)
+  })
+
+  it('should capture rest param with float array type', () => {
+    const result = tjs(
+      `function mean(...values: [1.0, 2.0]) -> 0.0 { return 0 }`,
+      { runTests: false }
+    )
+    const info = result.types.mean
+    expect(info.params.values).toBeDefined()
+    expect(info.params.values.type.kind).toBe('array')
+    expect(info.params.values.type.items?.kind).toBe('number')
+  })
+
+  it('should capture untyped rest param as bare array', () => {
+    const result = tjs(
+      `function collect(...args) { return args }`,
+      { runTests: false }
+    )
+    const info = result.types.collect
+    expect(info.params.args).toBeDefined()
+    expect(info.params.args.type.kind).toBe('array')
+  })
+})

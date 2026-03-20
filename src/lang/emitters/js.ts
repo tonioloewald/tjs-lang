@@ -257,6 +257,51 @@ function extractFunctionTypeInfo(
             }
           }
         }
+      } else if (
+        param.type === 'RestElement' &&
+        param.argument?.type === 'Identifier'
+      ) {
+        // Handle rest parameters: ...args: [0]
+        // The type annotation was stripped by preprocessing (JS forbids
+        // defaults on rest params), so extract it from the original source
+        const restName = param.argument.name
+        const restTypeMatch = originalSource.match(
+          new RegExp(
+            `\\.\\.\\.${restName}\\s*:\\s*([^)]+?)\\s*\\)`
+          )
+        )
+        if (restTypeMatch) {
+          try {
+            const typeExpr = parseExpressionAt(
+              restTypeMatch[1].trim(),
+              0,
+              { ecmaVersion: 2022 }
+            )
+            const restItemType = inferTypeFromValue(typeExpr as any)
+            params[restName] = {
+              name: restName,
+              type: restItemType,
+              required: false,
+              description: tdoc.params[restName],
+            }
+          } catch {
+            // If we can't parse the type, emit as any array
+            params[restName] = {
+              name: restName,
+              type: { kind: 'array' },
+              required: false,
+              description: tdoc.params[restName],
+            }
+          }
+        } else {
+          // No type annotation — bare rest param
+          params[restName] = {
+            name: restName,
+            type: { kind: 'array' },
+            required: false,
+            description: tdoc.params[restName],
+          }
+        }
       }
     }
   }
