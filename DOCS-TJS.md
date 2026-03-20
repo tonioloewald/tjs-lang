@@ -197,6 +197,38 @@ Use `|` for union with null:
 function find(id: 0 | null) {} // number or null
 ```
 
+### Rest Parameters
+
+Rest params use `:` with an array example. The annotation is stripped from
+the JS output (JS doesn't allow defaults on rest params) but captured in
+`__tjs` metadata:
+
+```typescript
+function sum(! ...nums: [0]) -> 0 {
+  return nums.reduce((a = 0, b: 0) => a + b, 0)
+}
+
+function mean(! ...values: [1.0, 2.0, 3.0]) -> 0.0 {
+  return values.length
+    ? values.reduce((sum = 0.0, x: 1.0) => sum + x) / values.length
+    : 0.0
+}
+```
+
+> **Note:** Rest param functions use `!` (unsafe) because TJS's automatic
+> signature test can't call rest-param functions correctly yet — it would
+> pass the array example as a single argument rather than spreading it.
+
+The array example tells TJS the element type. `[0]` means "array of
+integers", `[1.0, 2.0]` means "array of numbers (floats)".
+
+**Heterogeneous arrays** infer a union item type:
+
+```typescript
+function log(...args: ['info', 42, true]) {}
+// args type: array<string | integer | boolean>
+```
+
 ### Return Types (Arrow Syntax)
 
 Return types use `->`:

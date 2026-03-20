@@ -315,6 +315,10 @@ function find(id: 0 | null) { }           // integer or null
 
 // Optional TS-style
 function greet(name?: '') { }            // same as name = ''
+
+// Rest parameters — array example is the type (annotation stripped in JS output)
+function sum(...nums: [0]) { }           // nums: array of integers
+function log(...args: ['', 0, true]) { } // args: array<string | integer | boolean>
 ```
 
 #### Return Types
