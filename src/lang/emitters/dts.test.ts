@@ -328,6 +328,44 @@ export function make(n: 0) {
   })
 })
 
+describe('generateDTS — class method extraction', () => {
+  it('should not treat control flow as methods', () => {
+    const source = `
+export class Counter {
+  constructor(initial: 0) {
+    this.count = initial
+  }
+
+  increment() {
+    if (this.count < 100) {
+      this.count++
+    }
+    for (let i = 0; i < 1; i++) {
+      this.count += i
+    }
+    while (false) {
+      break
+    }
+  }
+
+  reset() {
+    this.count = 0
+  }
+}
+`
+    const result = transpileToJS(source, { runTests: false })
+    const dts = generateDTS(result, source)
+
+    // Real methods should be present
+    expect(dts).toContain('increment(')
+    expect(dts).toContain('reset(')
+    // Control flow should NOT be treated as methods
+    expect(dts).not.toContain('if(')
+    expect(dts).not.toContain('for(')
+    expect(dts).not.toContain('while(')
+  })
+})
+
 describe('generateDTS — Type declarations', () => {
   it('should emit Type as type guard object', () => {
     const source = `

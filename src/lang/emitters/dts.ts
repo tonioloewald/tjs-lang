@@ -304,30 +304,58 @@ function detectClasses(source: string): Map<string, ClassInfo> {
       }
     }
 
-    // Extract methods (name followed by parens, not constructor/get/set)
+    // Extract methods at class body level (brace depth 0 within classBody)
+    // Must skip method implementations to avoid matching if(), for(), etc.
     const methods: ClassInfo['methods'] = []
-    const methodStartRe = /^\s+(\w+)\s*\(/gm
-    let mm
-    while ((mm = methodStartRe.exec(classBody)) !== null) {
-      const name = mm[1]
-      if (name === 'constructor' || name === 'get' || name === 'set') continue
+    {
+      let pos = 0
+      let bodyDepth = 0
 
-      // Find matching close paren (handles nested braces in params)
-      const parenStart = mm.index + mm[0].length - 1
-      let depth = 1
-      let j = parenStart + 1
-      while (j < classBody.length && depth > 0) {
-        if (classBody[j] === '(') depth++
-        else if (classBody[j] === ')') depth--
-        j++
+      while (pos < classBody.length) {
+        const ch = classBody[pos]
+
+        // Track brace depth — only look for methods at depth 0
+        if (ch === '{') {
+          bodyDepth++
+          pos++
+          continue
+        }
+        if (ch === '}') {
+          bodyDepth--
+          pos++
+          continue
+        }
+
+        // Only match method declarations at class body level (depth 0)
+        if (bodyDepth === 0) {
+          const methodMatch = classBody.slice(pos).match(/^(\w+)\s*\(/)
+          if (methodMatch) {
+            const name = methodMatch[1]
+            if (name !== 'constructor' && name !== 'get' && name !== 'set') {
+              // Find matching close paren
+              const parenStart = pos + methodMatch[0].length - 1
+              let depth = 1
+              let j = parenStart + 1
+              while (j < classBody.length && depth > 0) {
+                if (classBody[j] === '(') depth++
+                else if (classBody[j] === ')') depth--
+                j++
+              }
+              const params = classBody.slice(parenStart + 1, j - 1).trim()
+
+              // Check for return type annotation: -> Type
+              const afterParen = classBody.slice(j).match(/^\s*->\s*(.+?)\s*\{/)
+              const returnType = afterParen ? afterParen[1].trim() : null
+
+              methods.push({ name, params, returnType })
+              pos = j
+              continue
+            }
+          }
+        }
+
+        pos++
       }
-      const params = classBody.slice(parenStart + 1, j - 1).trim()
-
-      // Check for return type annotation: -> Type
-      const afterParen = classBody.slice(j).match(/^\s*->\s*(.+?)\s*\{/)
-      const returnType = afterParen ? afterParen[1].trim() : null
-
-      methods.push({ name, params, returnType })
     }
 
     result.set(className, {
