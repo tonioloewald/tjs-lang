@@ -192,4 +192,123 @@ describe('TypeScript to TJS Transpiler', () => {
     })
   })
 })
-// Schema callable tests
+// =============================================================================
+// @tjs annotations
+// =============================================================================
+
+describe('@tjs annotations', () => {
+  describe('@tjs-skip', () => {
+    it('should skip interface with @tjs-skip', () => {
+      const result = fromTS(
+        `/* @tjs-skip */\nexport interface Internal { x: string }`,
+        { emitTJS: true }
+      )
+      expect(result.code).not.toContain('Type Internal')
+    })
+
+    it('should skip type alias with @tjs-skip', () => {
+      const result = fromTS(
+        `/* @tjs-skip */\nexport type Complex<T> = T extends Array<infer U> ? U : T`,
+        { emitTJS: true }
+      )
+      expect(result.code).not.toContain('Complex')
+    })
+
+    it('should only skip annotated declaration', () => {
+      const result = fromTS(
+        `/* @tjs-skip */\ninterface Hidden { x: string }\ninterface Visible { y: number }`,
+        { emitTJS: true }
+      )
+      expect(result.code).not.toContain('Hidden')
+      expect(result.code).toContain('Type Visible')
+    })
+  })
+
+  describe('@tjs example', () => {
+    it('should use custom example on interface', () => {
+      const result = fromTS(
+        `/* @tjs example: { name: 'Alice', age: 30 } */\nexport interface User { name: string; age: number }`,
+        { emitTJS: true }
+      )
+      expect(result.code).toContain("example: { name: 'Alice', age: 30 }")
+    })
+
+    it('should override auto-generated example', () => {
+      const result = fromTS(
+        `/* @tjs example: { id: 42, label: 'test' } */\nexport interface Item { id: number; label: string; meta?: any }`,
+        { emitTJS: true }
+      )
+      // Should use the annotation, not the auto-generated one
+      expect(result.code).toContain("{ id: 42, label: 'test' }")
+      expect(result.code).not.toContain('meta:')
+    })
+  })
+
+  describe('@tjs predicate', () => {
+    it('should use custom predicate on interface', () => {
+      const result = fromTS(
+        `/* @tjs predicate(x) { return typeof x.name === 'string' && x.age >= 0 } */\nexport interface User { name: string; age: number }`,
+        { emitTJS: true }
+      )
+      expect(result.code).toContain(
+        "predicate(x) { return typeof x.name === 'string' && x.age >= 0 }"
+      )
+    })
+
+    it('should use custom predicate on generic interface', () => {
+      const result = fromTS(
+        `/* @tjs predicate(x, T) { return typeof x === 'object' && x !== null && 'value' in x && T(x.value) } */\nexport interface Box<T> { value: T; label: string }`,
+        { emitTJS: true }
+      )
+      expect(result.code).toContain(
+        "predicate(x, T) { return typeof x === 'object' && x !== null && 'value' in x && T(x.value) }"
+      )
+    })
+
+    it('should use custom predicate on generic type alias', () => {
+      const result = fromTS(
+        `/* @tjs predicate(x, T) { return Array.isArray(x) && x.every(T) } */\nexport type TypedArray<T> = Array<T> & { __brand: 'typed' }`,
+        { emitTJS: true }
+      )
+      expect(result.code).toContain(
+        'predicate(x, T) { return Array.isArray(x) && x.every(T) }'
+      )
+    })
+  })
+
+  describe('@tjs declaration', () => {
+    it('should include declaration block on generic interface', () => {
+      const result = fromTS(
+        `/* @tjs declaration { value: T; path: string; observe(cb: (path: string) => void): void } */\nexport interface BoxedProxy<T> { value: T; path: string }`,
+        { emitTJS: true }
+      )
+      expect(result.code).toContain(
+        'declaration { value: T; path: string; observe(cb: (path: string) => void): void }'
+      )
+    })
+  })
+
+  describe('combined annotations', () => {
+    it('should support example + predicate together', () => {
+      const result = fromTS(
+        `/* @tjs example: { name: 'Alice', age: 30 } */\n/* @tjs predicate(x) { return typeof x.name === 'string' } */\nexport interface User { name: string; age: number }`,
+        { emitTJS: true }
+      )
+      expect(result.code).toContain("example: { name: 'Alice', age: 30 }")
+      expect(result.code).toContain(
+        "predicate(x) { return typeof x.name === 'string' }"
+      )
+    })
+
+    it('should support predicate + declaration on generic', () => {
+      const result = fromTS(
+        `/* @tjs predicate(x, T) { return typeof x === 'object' && T(x.value) } */\n/* @tjs declaration { value: T; unwrap(): T } */\nexport interface Box<T> { value: T }`,
+        { emitTJS: true }
+      )
+      expect(result.code).toContain(
+        "predicate(x, T) { return typeof x === 'object' && T(x.value) }"
+      )
+      expect(result.code).toContain('declaration { value: T; unwrap(): T }')
+    })
+  })
+})

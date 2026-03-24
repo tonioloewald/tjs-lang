@@ -924,34 +924,50 @@ function extractTypeParams(
 function transformInterfaceToType(
   node: ts.InterfaceDeclaration,
   sourceFile: ts.SourceFile,
-  warnings?: string[]
+  warnings?: string[],
+  annotations?: TjsAnnotation[]
 ): string | null {
   const typeName = node.name.getText(sourceFile)
 
   // Check for generics
   if (node.typeParameters && node.typeParameters.length > 0) {
-    return transformGenericInterfaceToGeneric(node, sourceFile, warnings)
+    return transformGenericInterfaceToGeneric(
+      node,
+      sourceFile,
+      warnings,
+      annotations
+    )
   }
 
-  // Build example object from members
-  const props: string[] = []
-  for (const member of node.members) {
-    if (ts.isPropertySignature(member) && member.name) {
-      const propName = member.name.getText(sourceFile)
-      let propExample = typeToExample(member.type, undefined, warnings)
-      // 'any' is not a valid literal value - use null for object properties
-      if (propExample === 'any') propExample = 'null'
-      props.push(`${propName}: ${propExample}`)
+  // Use @tjs example if provided, otherwise build from members
+  const exampleAnnotation = annotations?.find((a) => a.kind === 'example')
+  const predicateAnnotation = annotations?.find((a) => a.kind === 'predicate')
+
+  let example: string
+  if (exampleAnnotation?.text) {
+    example = exampleAnnotation.text
+  } else {
+    const props: string[] = []
+    for (const member of node.members) {
+      if (ts.isPropertySignature(member) && member.name) {
+        const propName = member.name.getText(sourceFile)
+        let propExample = typeToExample(member.type, undefined, warnings)
+        if (propExample === 'any') propExample = 'null'
+        props.push(`${propName}: ${propExample}`)
+      }
     }
+    if (props.length === 0 && !predicateAnnotation) {
+      return `Type ${typeName} {}`
+    }
+    example = props.length > 0 ? `{ ${props.join(', ')} }` : '{}'
   }
 
-  if (props.length === 0) {
-    return `Type ${typeName} {}`
+  const parts = [`example: ${example}`]
+  if (predicateAnnotation?.text) {
+    parts.push(predicateAnnotation.text)
   }
 
-  return `Type ${typeName} {
-  example: { ${props.join(', ')} }
-}`
+  return `Type ${typeName} {\n  ${parts.join('\n  ')}\n}`
 }
 
 /**
@@ -967,7 +983,8 @@ function transformInterfaceToType(
 function transformGenericInterfaceToGeneric(
   node: ts.InterfaceDeclaration,
   sourceFile: ts.SourceFile,
-  warnings?: string[]
+  warnings?: string[],
+  annotations?: TjsAnnotation[]
 ): string {
   const typeName = node.name.getText(sourceFile)
   const typeParams: string[] = []
@@ -983,46 +1000,61 @@ function transformGenericInterfaceToGeneric(
     }
   }
 
-  // Build predicate checks for each property that uses a type parameter
-  const typeParamNames = (node.typeParameters || []).map((p) =>
-    p.name.getText(sourceFile)
+  // Use @tjs predicate if provided, otherwise auto-generate
+  const predicateAnnotation = annotations?.find((a) => a.kind === 'predicate')
+  const declarationAnnotation = annotations?.find(
+    (a) => a.kind === 'declaration'
   )
-  const checks: string[] = ["typeof x === 'object'", 'x !== null']
 
-  for (const member of node.members) {
-    if (ts.isPropertySignature(member) && member.name) {
-      const propName = member.name.getText(sourceFile)
+  let predicateLine: string
+  if (predicateAnnotation?.text) {
+    predicateLine = predicateAnnotation.text
+  } else {
+    // Build predicate checks from interface members
+    const typeParamNames = (node.typeParameters || []).map((p) =>
+      p.name.getText(sourceFile)
+    )
+    const checks: string[] = ["typeof x === 'object'", 'x !== null']
 
-      // Computed property names: [SYMBOL] → use bracket access
-      const isComputed = propName.startsWith('[') && propName.endsWith(']')
-      const symbolName = isComputed ? propName.slice(1, -1) : null
+    for (const member of node.members) {
+      if (ts.isPropertySignature(member) && member.name) {
+        const propName = member.name.getText(sourceFile)
+        const isComputed = propName.startsWith('[') && propName.endsWith(']')
+        const symbolName = isComputed ? propName.slice(1, -1) : null
 
-      if (isComputed) {
-        checks.push(`${symbolName} in x`)
-      } else {
-        checks.push(`'${propName}' in x`)
-      }
+        if (isComputed) {
+          checks.push(`${symbolName} in x`)
+        } else {
+          checks.push(`'${propName}' in x`)
+        }
 
-      // If property type is a type parameter, add check
-      if (member.type && ts.isTypeReferenceNode(member.type)) {
-        const refName = member.type.typeName.getText(sourceFile)
-        if (typeParamNames.includes(refName)) {
-          if (isComputed) {
-            checks.push(`${refName}(x[${symbolName}])`)
-          } else {
-            checks.push(`${refName}(x.${propName})`)
+        if (member.type && ts.isTypeReferenceNode(member.type)) {
+          const refName = member.type.typeName.getText(sourceFile)
+          if (typeParamNames.includes(refName)) {
+            if (isComputed) {
+              checks.push(`${refName}(x[${symbolName}])`)
+            } else {
+              checks.push(`${refName}(x.${propName})`)
+            }
           }
         }
       }
     }
+
+    const predicateParams = ['x', ...typeParamNames].join(', ')
+    predicateLine = `predicate(${predicateParams}) { return ${checks.join(
+      ' && '
+    )} }`
   }
 
-  const predicateParams = ['x', ...typeParamNames].join(', ')
+  const parts = [`description: '${typeName}'`, predicateLine]
+  if (declarationAnnotation?.text) {
+    parts.push(`declaration ${declarationAnnotation.text}`)
+  }
 
-  return `Generic ${typeName}<${typeParams.join(', ')}> {
-  description: '${typeName}'
-  predicate(${predicateParams}) { return ${checks.join(' && ')} }
-}`
+  return `Generic ${typeName}<${typeParams.join(', ')}> {\n  ${parts.join(
+    '\n  '
+  )}\n}`
 }
 
 /**
@@ -1147,7 +1179,8 @@ ${members.join('\n')}
 function transformTypeAliasToType(
   node: ts.TypeAliasDeclaration,
   sourceFile: ts.SourceFile,
-  warnings?: string[]
+  warnings?: string[],
+  annotations?: TjsAnnotation[]
 ): string | null {
   const typeName = node.name.getText(sourceFile)
 
@@ -1157,7 +1190,12 @@ function transformTypeAliasToType(
     if (node.type.kind === ts.SyntaxKind.FunctionType) {
       return transformGenericFunctionTypeToFP(node, sourceFile, warnings)
     }
-    return transformGenericTypeAliasToGeneric(node, sourceFile, warnings)
+    return transformGenericTypeAliasToGeneric(
+      node,
+      sourceFile,
+      warnings,
+      annotations
+    )
   }
 
   // Check for literal union type → emit Union syntax
@@ -1276,7 +1314,8 @@ function transformGenericFunctionTypeToFP(
 function transformGenericTypeAliasToGeneric(
   node: ts.TypeAliasDeclaration,
   sourceFile: ts.SourceFile,
-  warnings?: string[]
+  warnings?: string[],
+  annotations?: TjsAnnotation[]
 ): string {
   const typeName = node.name.getText(sourceFile)
   const typeParams: string[] = []
@@ -1295,18 +1334,33 @@ function transformGenericTypeAliasToGeneric(
   const typeParamNames = (node.typeParameters || []).map((p) =>
     p.name.getText(sourceFile)
   )
-  const predicateParams = ['x', ...typeParamNames].join(', ')
+
+  // Use @tjs predicate if provided, otherwise default placeholder
+  const predicateAnnotation = annotations?.find((a) => a.kind === 'predicate')
+  const declarationAnnotation = annotations?.find(
+    (a) => a.kind === 'declaration'
+  )
+
+  let predicateLine: string
+  if (predicateAnnotation?.text) {
+    predicateLine = predicateAnnotation.text
+  } else {
+    const predicateParams = ['x', ...typeParamNames].join(', ')
+    predicateLine = `predicate(${predicateParams}) { return true }`
+  }
 
   // Include original TS source as a block comment for manual enhancement
-  // Use /* */ to avoid confusing the Generic block preprocessor
   const originalSource = node.getText(sourceFile).trim()
   const comment = `/* Original TS:\n${originalSource}\n*/`
 
-  return `${comment}
-Generic ${typeName}<${typeParams.join(', ')}> {
-  description: '${typeName}'
-  predicate(${predicateParams}) { return true }
-}`
+  const parts = [`description: '${typeName}'`, predicateLine]
+  if (declarationAnnotation?.text) {
+    parts.push(`declaration ${declarationAnnotation.text}`)
+  }
+
+  return `${comment}\nGeneric ${typeName}<${typeParams.join(
+    ', '
+  )}> {\n  ${parts.join('\n  ')}\n}`
 }
 
 function transformFunctionToTJS(
@@ -1985,6 +2039,103 @@ function extractClassMetadata(
  * These use syntax: /*test 'description' { ... }* / (without space before /)
  * They survive TS compilation and should be preserved in TJS output
  */
+// =============================================================================
+// @tjs annotations — enrich TJS output from TS source comments
+// =============================================================================
+
+interface TjsAnnotation {
+  index: number
+  kind: 'predicate' | 'example' | 'skip' | 'declaration'
+  text?: string // raw text for predicate/example/declaration
+}
+
+/**
+ * Extract @tjs annotations from source comments.
+ *
+ * Supported forms:
+ *   /* @tjs-skip * /
+ *   /* @tjs example: { name: '', age: 0 } * /
+ *   /* @tjs predicate(x, T) { return typeof x === 'object' && T(x.value) } * /
+ *   /* @tjs declaration { value: T; path: string } * /
+ */
+function extractTjsAnnotations(source: string): TjsAnnotation[] {
+  const annotations: TjsAnnotation[] = []
+
+  // @tjs-skip
+  const skipRe = /\/\*\s*@tjs-skip\s*\*\//g
+  let m
+  while ((m = skipRe.exec(source)) !== null) {
+    annotations.push({ index: m.index, kind: 'skip' })
+  }
+
+  // @tjs predicate(...) { ... }
+  const predRe = /\/\*\s*@tjs\s+predicate(\([^)]*\)\s*\{[\s\S]*?\})\s*\*\//g
+  while ((m = predRe.exec(source)) !== null) {
+    annotations.push({
+      index: m.index,
+      kind: 'predicate',
+      text: `predicate${m[1].trim()}`,
+    })
+  }
+
+  // @tjs example: ...
+  const exRe = /\/\*\s*@tjs\s+example:\s*([\s\S]*?)\s*\*\//g
+  while ((m = exRe.exec(source)) !== null) {
+    annotations.push({ index: m.index, kind: 'example', text: m[1].trim() })
+  }
+
+  // @tjs declaration { ... }
+  const declRe = /\/\*\s*@tjs\s+declaration\s*(\{[\s\S]*?\})\s*\*\//g
+  while ((m = declRe.exec(source)) !== null) {
+    annotations.push({
+      index: m.index,
+      kind: 'declaration',
+      text: m[1].trim(),
+    })
+  }
+
+  return annotations.sort((a, b) => a.index - b.index)
+}
+
+/**
+ * Build a map from declaration name → annotations that precede it.
+ */
+function buildAnnotationMap(
+  annotations: TjsAnnotation[],
+  sourceFile: ts.SourceFile
+): Map<string, TjsAnnotation[]> {
+  const result = new Map<string, TjsAnnotation[]>()
+  if (annotations.length === 0) return result
+
+  const statements = sourceFile.statements
+  for (let si = 0; si < statements.length; si++) {
+    const stmt = statements[si]
+    let name: string | undefined
+
+    if (ts.isInterfaceDeclaration(stmt)) {
+      name = stmt.name.getText(sourceFile)
+    } else if (ts.isTypeAliasDeclaration(stmt)) {
+      name = stmt.name.getText(sourceFile)
+    } else if (ts.isEnumDeclaration(stmt)) {
+      name = stmt.name.getText(sourceFile)
+    }
+
+    if (!name) continue
+
+    const stmtStart = stmt.getStart(sourceFile)
+    const prevEnd = si > 0 ? statements[si - 1].getEnd() : 0
+
+    const matching = annotations.filter(
+      (a) => a.index >= prevEnd && a.index < stmtStart
+    )
+    if (matching.length > 0) {
+      result.set(name, matching)
+    }
+  }
+
+  return result
+}
+
 function extractEmbeddedTestComments(source: string): string[] {
   const tests: string[] = []
   // Match: /*test 'description' { ... }*/  or  /*test { ... }*/
@@ -2061,6 +2212,9 @@ export function fromTS(
   // Extract doc comments (/*# ... */) with position info for TJS output
   const docComments = emitTJS ? extractDocComments(source) : []
 
+  // Extract @tjs annotations for enriching TJS output
+  const tjsAnnotations = emitTJS ? extractTjsAnnotations(source) : []
+
   // Parse TypeScript
   const sourceFile = ts.createSourceFile(
     filename,
@@ -2068,6 +2222,11 @@ export function fromTS(
     ts.ScriptTarget.Latest,
     true
   )
+
+  // Build annotation map from @tjs comments
+  const annotationMap = emitTJS
+    ? buildAnnotationMap(tjsAnnotations, sourceFile)
+    : new Map<string, TjsAnnotation[]>()
 
   const tjsFunctions: string[] = []
   const seenTypeNames = new Set<string>() // Track emitted type names to avoid duplicates
@@ -2311,24 +2470,31 @@ export function fromTS(
       handled = true
       if (emitTJS) {
         const typeName = statement.name.getText(sourceFile)
+        const annotations = annotationMap.get(typeName)
         if (!seenTypeNames.has(typeName)) {
           seenTypeNames.add(typeName)
-          // Use merged interface (handles declaration merging)
-          const merged = interfaces.get(typeName) || statement
-          const typeDecl = transformInterfaceToType(
-            merged,
-            sourceFile,
-            warnings
-          )
-          if (typeDecl) {
-            const isExported = statement.modifiers?.some(
-              (m) => m.kind === ts.SyntaxKind.ExportKeyword
+          // @tjs-skip — omit this declaration entirely
+          if (annotations?.some((a) => a.kind === 'skip')) {
+            // Skip — do not emit
+          } else {
+            // Use merged interface (handles declaration merging)
+            const merged = interfaces.get(typeName) || statement
+            const typeDecl = transformInterfaceToType(
+              merged,
+              sourceFile,
+              warnings,
+              annotations
             )
-            tjsFunctions.push(
-              isExported
-                ? typeDecl.replace(/^(\/\*[\s\S]*?\*\/\s*)?/, '$1export ')
-                : typeDecl
-            )
+            if (typeDecl) {
+              const isExported = statement.modifiers?.some(
+                (m) => m.kind === ts.SyntaxKind.ExportKeyword
+              )
+              tjsFunctions.push(
+                isExported
+                  ? typeDecl.replace(/^(\/\*[\s\S]*?\*\/\s*)?/, '$1export ')
+                  : typeDecl
+              )
+            }
           }
         }
       }
@@ -2339,22 +2505,29 @@ export function fromTS(
       handled = true
       if (emitTJS) {
         const typeName = statement.name.getText(sourceFile)
+        const annotations = annotationMap.get(typeName)
         if (!seenTypeNames.has(typeName)) {
           seenTypeNames.add(typeName)
-          const typeDecl = transformTypeAliasToType(
-            statement,
-            sourceFile,
-            warnings
-          )
-          if (typeDecl) {
-            const isExported = statement.modifiers?.some(
-              (m) => m.kind === ts.SyntaxKind.ExportKeyword
+          // @tjs-skip — omit this declaration entirely
+          if (annotations?.some((a) => a.kind === 'skip')) {
+            // Skip — do not emit
+          } else {
+            const typeDecl = transformTypeAliasToType(
+              statement,
+              sourceFile,
+              warnings,
+              annotations
             )
-            tjsFunctions.push(
-              isExported
-                ? typeDecl.replace(/^(\/\*[\s\S]*?\*\/\s*)?/, '$1export ')
-                : typeDecl
-            )
+            if (typeDecl) {
+              const isExported = statement.modifiers?.some(
+                (m) => m.kind === ts.SyntaxKind.ExportKeyword
+              )
+              tjsFunctions.push(
+                isExported
+                  ? typeDecl.replace(/^(\/\*[\s\S]*?\*\/\s*)?/, '$1export ')
+                  : typeDecl
+              )
+            }
           }
         }
       }
@@ -2365,11 +2538,16 @@ export function fromTS(
       handled = true
       if (emitTJS) {
         const enumName = statement.name.getText(sourceFile)
+        const annotations = annotationMap.get(enumName)
         if (!seenTypeNames.has(enumName)) {
           seenTypeNames.add(enumName)
-          const enumDecl = transformEnumToTJS(statement, sourceFile, warnings)
-          if (enumDecl) {
-            tjsFunctions.push(enumDecl)
+          if (annotations?.some((a) => a.kind === 'skip')) {
+            // Skip — do not emit
+          } else {
+            const enumDecl = transformEnumToTJS(statement, sourceFile, warnings)
+            if (enumDecl) {
+              tjsFunctions.push(enumDecl)
+            }
           }
         }
       }
