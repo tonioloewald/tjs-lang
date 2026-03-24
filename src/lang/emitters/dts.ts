@@ -331,7 +331,11 @@ function detectClasses(source: string): Map<string, ClassInfo> {
           const methodMatch = classBody.slice(pos).match(/^(\w+)\s*\(/)
           if (methodMatch) {
             const name = methodMatch[1]
-            if (name !== 'constructor' && name !== 'get' && name !== 'set') {
+            if (name === 'constructor' || name === 'get' || name === 'set') {
+              // Skip past the keyword to avoid re-matching a suffix
+              pos += name.length
+              continue
+            } else {
               // Find matching close paren
               const parenStart = pos + methodMatch[0].length - 1
               let depth = 1

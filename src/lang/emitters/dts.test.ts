@@ -364,6 +364,28 @@ export class Counter {
     expect(dts).not.toContain('for(')
     expect(dts).not.toContain('while(')
   })
+
+  it('should not emit onstructor (constructor with missing c)', () => {
+    const source = `
+export class Foo {
+  constructor(x: 0) {
+    this.x = x
+  }
+
+  bar() {
+    return this.x
+  }
+}
+`
+    const result = transpileToJS(source, { runTests: false })
+    const dts = generateDTS(result, source)
+
+    // constructor should appear exactly once, correctly spelled
+    const ctorMatches = dts.match(/constructor/g)
+    expect(ctorMatches).toHaveLength(1)
+    expect(dts).toContain('constructor(x: number)')
+    expect(dts).toContain('bar(')
+  })
 })
 
 describe('generateDTS — Type declarations', () => {
