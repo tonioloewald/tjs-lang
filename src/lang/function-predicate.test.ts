@@ -187,6 +187,27 @@ describe('FunctionPredicate in fromTS', () => {
   })
 })
 
+describe('FunctionPredicate regression fixes', () => {
+  it('should handle nested braces in params (registry.tjs bug)', () => {
+    const result = preprocess(
+      "FunctionPredicate BindFunc {\n  params: { element: {}, path: '', binding: null, options: null }\n}"
+    )
+    expect(result.source).toContain("FunctionPredicate('BindFunc'")
+    expect(result.source).toContain('element: {}')
+    expect(result.source).toContain("path: ''")
+    expect(result.source).toContain('options: null')
+  })
+
+  it('should handle FunctionPredicate call in return type position', () => {
+    const result = tjs(
+      "function makeStyle(spec: {}) -! FunctionPredicate('function', { params: { el: {} } }) {\n  return (el) => el\n}",
+      { runTests: false }
+    )
+    // Should not error — FunctionPredicate(...) is a valid return type
+    expect(result.code).toContain('function makeStyle(spec)')
+  })
+})
+
 describe('Generic FunctionPredicate runtime', () => {
   it('should create a factory from type params', () => {
     const Creator = FunctionPredicate('Creator', [['T', {}]], (T: any) => ({

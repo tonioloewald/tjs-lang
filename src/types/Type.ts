@@ -735,11 +735,12 @@ export function FunctionPredicate(
     return factory
   }
 
-  // eslint-disable-next-line @typescript-eslint/ban-types
+  /* eslint-disable @typescript-eslint/ban-types */
   return _createFunctionPredicate(
     name,
     specOrFn as FunctionPredicateSpec | Function
   )
+  /* eslint-enable @typescript-eslint/ban-types */
 }
 
 /** Internal: create a non-generic FunctionPredicateType */

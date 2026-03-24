@@ -6,6 +6,34 @@
  */
 
 import { SyntaxError } from './types'
+
+/**
+ * Extract a brace-balanced value from source after a regex match.
+ * Returns a match-like object with [1] being the balanced { ... } content,
+ * or null if no match. Handles nested braces.
+ */
+function extractBalancedValue(
+  source: string,
+  startRe: RegExp
+): RegExpMatchArray | null {
+  const m = source.match(startRe)
+  if (!m) return null
+
+  const braceStart = m.index! + m[0].length - 1 // position of opening {
+  let depth = 1
+  let j = braceStart + 1
+  while (j < source.length && depth > 0) {
+    if (source[j] === '{') depth++
+    else if (source[j] === '}') depth--
+    j++
+  }
+  if (depth !== 0) return null
+
+  const balanced = source.slice(braceStart, j) // includes { and }
+  const result = [m[0].slice(0, -1) + balanced, balanced] as RegExpMatchArray
+  result.index = m.index
+  return result
+}
 import type {
   WasmBlock,
   TestBlock,
@@ -1236,8 +1264,8 @@ export function transformFunctionPredicateDeclarations(source: string): string {
         if (depth === 0) {
           const blockBody = source.slice(j + 1, k - 1).trim()
 
-          // Extract params: { ... }
-          const paramsMatch = blockBody.match(/params\s*:\s*(\{[^}]*\})/)
+          // Extract params: { ... } (brace-balanced for nested objects like { el: {} })
+          const paramsMatch = extractBalancedValue(blockBody, /params\s*:\s*\{/)
           // Extract returns value
           const returnsMatch = blockBody.match(/returns\s*:\s*(.+?)(?:\n|$)/)
           // Extract returnContract

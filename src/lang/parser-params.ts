@@ -767,6 +767,15 @@ function extractReturnTypeValue(
       i = j
       // Check what's next
       while (i < source.length && /\s/.test(source[i])) i++
+
+      // Identifier followed by ( — constructor/function call as return type
+      // e.g. FunctionPredicate('function', { params: ... })
+      if (i < source.length && source[i] === '(') {
+        depth++
+        i++
+        continue
+      }
+
       if (i < source.length && source[i] === '{') {
         // Check if function body
         const afterBrace = source.slice(i + 1).match(/^\s*(\w+)\s*:/)
