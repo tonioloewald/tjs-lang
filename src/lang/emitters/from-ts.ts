@@ -125,6 +125,158 @@ interface TypeResolutionContext {
 }
 
 /**
+ * DOM interface types — not constructible but common in TS signatures.
+ * Map to {} (opaque object) so params stay annotated and required
+ * rather than degrading to bare names.
+ */
+const domInterfaceTypes = new Set([
+  // Events
+  'Event',
+  'CustomEvent',
+  'MouseEvent',
+  'KeyboardEvent',
+  'PointerEvent',
+  'TouchEvent',
+  'FocusEvent',
+  'InputEvent',
+  'CompositionEvent',
+  'WheelEvent',
+  'DragEvent',
+  'AnimationEvent',
+  'TransitionEvent',
+  'ClipboardEvent',
+  'UIEvent',
+  'ProgressEvent',
+  'ErrorEvent',
+  'MessageEvent',
+  'PopStateEvent',
+  'HashChangeEvent',
+  'PageTransitionEvent',
+  'StorageEvent',
+  'BeforeUnloadEvent',
+  'SubmitEvent',
+  // Event targets / misc
+  'EventTarget',
+  'EventListener',
+  // Nodes
+  'Node',
+  'Element',
+  'HTMLElement',
+  'SVGElement',
+  'Document',
+  'DocumentFragment',
+  'ShadowRoot',
+  'Text',
+  'Comment',
+  'Attr',
+  // Specific HTML elements
+  'HTMLInputElement',
+  'HTMLTextAreaElement',
+  'HTMLSelectElement',
+  'HTMLButtonElement',
+  'HTMLFormElement',
+  'HTMLAnchorElement',
+  'HTMLImageElement',
+  'HTMLVideoElement',
+  'HTMLAudioElement',
+  'HTMLCanvasElement',
+  'HTMLDivElement',
+  'HTMLSpanElement',
+  'HTMLParagraphElement',
+  'HTMLTableElement',
+  'HTMLTemplateElement',
+  'HTMLSlotElement',
+  'HTMLDialogElement',
+  'HTMLDetailsElement',
+  'HTMLLabelElement',
+  'HTMLOptionElement',
+  'HTMLIFrameElement',
+  'HTMLScriptElement',
+  'HTMLStyleElement',
+  'HTMLLinkElement',
+  'HTMLMetaElement',
+  'HTMLHeadElement',
+  'HTMLBodyElement',
+  'HTMLMediaElement',
+  // SVG elements
+  'SVGSVGElement',
+  'SVGPathElement',
+  'SVGGElement',
+  'SVGCircleElement',
+  'SVGRectElement',
+  'SVGTextElement',
+  'SVGLineElement',
+  'SVGPolygonElement',
+  // Collections / lists
+  'NodeList',
+  'HTMLCollection',
+  'NamedNodeMap',
+  'DOMTokenList',
+  'DOMStringMap',
+  'CSSStyleDeclaration',
+  'DOMRect',
+  'DOMRectReadOnly',
+  'DOMPoint',
+  'DOMMatrix',
+  // Ranges / selection
+  'Range',
+  'Selection',
+  'StaticRange',
+  // Observers
+  'MutationObserver',
+  'MutationRecord',
+  'IntersectionObserver',
+  'IntersectionObserverEntry',
+  'ResizeObserver',
+  'ResizeObserverEntry',
+  'PerformanceObserver',
+  'PerformanceEntry',
+  // Window / global
+  'Window',
+  'Location',
+  'History',
+  'Navigator',
+  'Screen',
+  'Storage',
+  // Canvas / media
+  'CanvasRenderingContext2D',
+  'WebGLRenderingContext',
+  'WebGL2RenderingContext',
+  'OffscreenCanvas',
+  'ImageData',
+  'ImageBitmap',
+  'MediaStream',
+  'MediaRecorder',
+  'AudioContext',
+  'AudioNode',
+  'AudioBuffer',
+  // Workers / messaging
+  'Worker',
+  'SharedWorker',
+  'ServiceWorker',
+  'ServiceWorkerRegistration',
+  'BroadcastChannel',
+  'MessageChannel',
+  'MessagePort',
+  // Other Web APIs
+  'WebSocket',
+  'XMLHttpRequest',
+  'FileReader',
+  'FileList',
+  'DataTransfer',
+  'Crypto',
+  'SubtleCrypto',
+  'CryptoKey',
+  'Geolocation',
+  'Notification',
+  'PermissionStatus',
+  'MediaQueryList',
+  'TreeWalker',
+  'NodeIterator',
+  'ClipboardItem',
+])
+
+/**
  * Convert a TypeScript type node to a TJS example value string
  *
  * @param warnings - Optional array to collect warnings about generic types
@@ -221,6 +373,10 @@ function typeToExample(
         Error: "new Error('example')",
         TypeError: "new TypeError('example')",
         RangeError: "new RangeError('example')",
+        SyntaxError: "new SyntaxError('example')",
+        ReferenceError: "new ReferenceError('example')",
+        URIError: "new URIError('example')",
+        EvalError: "new EvalError('example')",
         // Date/Regex
         Date: 'new Date()',
         RegExp: '/example/',
@@ -239,7 +395,7 @@ function typeToExample(
         Uint8ClampedArray: 'new Uint8ClampedArray(0)',
         BigInt64Array: 'new BigInt64Array(0)',
         BigUint64Array: 'new BigUint64Array(0)',
-        // Web/DOM
+        // Web APIs (constructible)
         URL: "new URL('https://example.com')",
         URLSearchParams: 'new URLSearchParams()',
         Headers: 'new Headers()',
@@ -249,6 +405,7 @@ function typeToExample(
         Response: 'new Response()',
         Request: "new Request('https://example.com')",
         AbortController: 'new AbortController()',
+        AbortSignal: 'AbortSignal.abort()',
         // Streams
         ReadableStream: 'new ReadableStream()',
         WritableStream: 'new WritableStream()',
@@ -256,6 +413,8 @@ function typeToExample(
         // Structured data
         TextEncoder: 'new TextEncoder()',
         TextDecoder: 'new TextDecoder()',
+        // Promises
+        Promise: 'Promise.resolve(null)',
       }
 
       if (typeName in builtinExamples) {
@@ -316,6 +475,11 @@ function typeToExample(
           return typeToExample(tp.default, checker, warnings, ctx)
         }
         // No constraint or default — fall through to 'any'
+      }
+
+      // DOM interface types — opaque objects, keep params annotated
+      if (domInterfaceTypes.has(typeName)) {
+        return '{}'
       }
 
       // Single uppercase letter or common generic names — treat as any
@@ -682,6 +846,11 @@ function typeToInfo(
         if (tp.default) {
           return typeToInfo(tp.default, ctx)
         }
+      }
+
+      // DOM interface types — opaque objects
+      if (domInterfaceTypes.has(typeName)) {
+        return { kind: 'object' }
       }
 
       // Generics and unknown types become 'any'

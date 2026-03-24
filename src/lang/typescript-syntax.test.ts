@@ -1312,10 +1312,9 @@ describe('Constrained generics use constraint as example', () => {
 // =============================================================================
 
 describe('fromTS — tosijs conversion edge cases', () => {
-  test('unknown type param before known type param does not error', () => {
-    // When a param type is unknown (e.g. Element), it degrades to bare name
-    // (looks optional). A subsequent typed param should not cause
-    // "required param after optional" error.
+  test('DOM type params stay annotated (not degraded to bare name)', () => {
+    // Element is a DOM interface type — should map to {} (opaque object)
+    // so the param stays annotated and required, not degraded to bare name
     const result = fromTS(
       `export function touchElement(element: Element, changedPath?: string): void {
         console.log(element, changedPath)
@@ -1323,7 +1322,8 @@ describe('fromTS — tosijs conversion edge cases', () => {
       { emitTJS: true }
     )
     expect(result.code).toContain('function touchElement(')
-    // Should succeed without error
+    // Element should be annotated with {} (opaque object), not bare name
+    expect(result.code).toContain('element: {}')
     expect(result.code).toBeDefined()
   })
 
@@ -1591,6 +1591,86 @@ describe('fromTS — tosijs conversion edge cases', () => {
     )
     expect(result.code).toContain('function bind(')
     expect(result.code).toContain('path:')
+  })
+})
+
+// =============================================================================
+// DOM TYPES
+// =============================================================================
+
+describe('DOM Types', () => {
+  test('Event param maps to opaque object', () => {
+    const result = fromTS(`function handle(e: Event): void {}`, {
+      emitTJS: true,
+    })
+    expect(result.code).toContain('e: {}')
+    // Should NOT have degraded comment
+    expect(result.code).not.toContain('TODO: TS types degraded')
+  })
+
+  test('HTMLElement param maps to opaque object', () => {
+    const result = fromTS(`function render(el: HTMLElement): void {}`, {
+      emitTJS: true,
+    })
+    expect(result.code).toContain('el: {}')
+  })
+
+  test('specific HTML element types map to opaque object', () => {
+    const result = fromTS(
+      `function setup(input: HTMLInputElement, form: HTMLFormElement): void {}`,
+      { emitTJS: true }
+    )
+    expect(result.code).toContain('input: {}')
+    expect(result.code).toContain('form: {}')
+  })
+
+  test('MouseEvent param maps to opaque object', () => {
+    const result = fromTS(
+      `function onClick(ev: MouseEvent): boolean { return true }`,
+      { emitTJS: true }
+    )
+    expect(result.code).toContain('ev: {}')
+  })
+
+  test('Document and Node params map to opaque object', () => {
+    const result = fromTS(
+      `function traverse(doc: Document, node: Node): void {}`,
+      { emitTJS: true }
+    )
+    expect(result.code).toContain('doc: {}')
+    expect(result.code).toContain('node: {}')
+  })
+
+  test('DOM types as return types', () => {
+    const result = fromTS(
+      `function getRoot(): HTMLElement { return document.body }`,
+      { emitTJS: true }
+    )
+    // Return type should be {} not degraded
+    expect(result.code).toContain('-! {}')
+  })
+
+  test('DOM callback type preserves annotation', () => {
+    const result = fromTS(`type ClickHandler = (ev: MouseEvent) => void`, {
+      emitTJS: true,
+    })
+    expect(result.code).toContain('FunctionPredicate ClickHandler')
+  })
+
+  test('mixed DOM and primitive params', () => {
+    const result = fromTS(
+      `function bind(el: Element, attr: string, value: number): void {}`,
+      { emitTJS: true }
+    )
+    expect(result.code).toContain('el: {}')
+    expect(result.code).toContain("attr: ''")
+    expect(result.code).toContain('value: 0.0')
+  })
+
+  test('DOM types in metadata mode', () => {
+    const { types } = fromTS(`function handle(e: Event): void {}`)
+    // Should be 'object' not 'any'
+    expect(types?.handle.params.e.type.kind).toBe('object')
   })
 })
 
