@@ -194,6 +194,7 @@ function detectExports(source: string): Map<string, ExportInfo> {
 interface FunctionPredicateInfo {
   params: { name: string; example: string }[]
   returns?: string
+  typeParams?: string[]
 }
 
 /** Detect FunctionPredicate declarations and extract their param/return specs */
@@ -202,11 +203,13 @@ function detectFunctionPredicates(
 ): Map<string, FunctionPredicateInfo> {
   const result = new Map<string, FunctionPredicateInfo>()
 
-  // Block form: FunctionPredicate Name { params: { ... } returns: ... }
-  const blockRe = /^[ \t]*(?:export\s+)?FunctionPredicate\s+(\w+)\s*\{/gm
+  // Block form: FunctionPredicate Name { ... } or FunctionPredicate Name<T> { ... }
+  const blockRe =
+    /^[ \t]*(?:export\s+)?FunctionPredicate\s+(\w+)\s*(?:<([^>]+)>)?\s*\{/gm
   let m
   while ((m = blockRe.exec(source)) !== null) {
     const name = m[1]
+    const typeParamsRaw = m[2] // undefined if no <...>
     const blockStart = m.index + m[0].length - 1
 
     // Find matching closing brace
@@ -218,6 +221,12 @@ function detectFunctionPredicates(
       i++
     }
     const body = source.slice(blockStart + 1, i - 1)
+
+    // Parse type params if present
+    let typeParams: string[] | undefined
+    if (typeParamsRaw) {
+      typeParams = typeParamsRaw.split(',').map((tp) => tp.trim())
+    }
 
     // Extract params object: params: { key: value, ... }
     const params: FunctionPredicateInfo['params'] = []
@@ -240,7 +249,7 @@ function detectFunctionPredicates(
       returns = returnsMatch[1].trim()
     }
 
-    result.set(name, { params, returns })
+    result.set(name, { params, returns, typeParams })
   }
 
   return result
@@ -608,14 +617,31 @@ export function generateDTS(
     const isExported = hasAnyExport ? !!exportInfo?.exported : true
     if (!isExported) continue
 
+    // Collect type param names for passthrough (don't convert T to any)
+    const tpNames = new Set(
+      fpInfo.typeParams?.map((tp) => tp.split('=')[0].trim()) ?? []
+    )
+    const typeParamStr = fpInfo.typeParams
+      ? `<${fpInfo.typeParams.join(', ')}>`
+      : ''
+
     const tsParams = fpInfo.params
-      .map((p) => `${p.name}: ${inferTSTypeFromExample(p.example)}`)
+      .map((p) => {
+        const tsType = tpNames.has(p.example)
+          ? p.example
+          : inferTSTypeFromExample(p.example)
+        return `${p.name}: ${tsType}`
+      })
       .join(', ')
     const tsReturn =
       fpInfo.returns !== undefined
-        ? inferTSTypeFromExample(fpInfo.returns)
+        ? tpNames.has(fpInfo.returns)
+          ? fpInfo.returns
+          : inferTSTypeFromExample(fpInfo.returns)
         : 'void'
-    lines.push(`export type ${name} = (${tsParams}) => ${tsReturn};`)
+    lines.push(
+      `export type ${name}${typeParamStr} = (${tsParams}) => ${tsReturn};`
+    )
     emitted.add(name)
   }
 

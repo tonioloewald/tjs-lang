@@ -1198,6 +1198,13 @@ export function transformTypeDeclarations(source: string): string {
  *   }
  *   → const Callback = FunctionPredicate('Callback', { params: { x: 0, y: '' }, returns: false })
  *
+ * Generic block form:
+ *   FunctionPredicate Creator<T = {}> {
+ *     params: { contents: [null] }
+ *     returns: T
+ *   }
+ *   → const Creator = FunctionPredicate('Creator', [['T', {}]], (T) => ({ params: { contents: [null] }, returns: T }))
+ *
  * Function form:
  *   FunctionPredicate Handler(existingFn, 'description')
  *   → const Handler = FunctionPredicate('description', existingFn)
@@ -1209,12 +1216,13 @@ export function transformFunctionPredicateDeclarations(source: string): string {
   while (i < source.length) {
     const fpMatch = source
       .slice(i)
-      .match(/^\bFunctionPredicate\s+([A-Z_][a-zA-Z0-9_]*)\s*/)
+      .match(/^\bFunctionPredicate\s+([A-Z_][a-zA-Z0-9_]*)\s*(?:<([^>]+)>)?\s*/)
     if (fpMatch) {
       const fpName = fpMatch[1]
+      const typeParamsStr = fpMatch[2] // undefined if no <...>
       const j = i + fpMatch[0].length
 
-      // Check for block form: FunctionPredicate Name { ... }
+      // Check for block form: FunctionPredicate Name { ... } or FunctionPredicate Name<T> { ... }
       if (source[j] === '{') {
         // Find matching closing brace
         let depth = 1
@@ -1247,9 +1255,35 @@ export function transformFunctionPredicateDeclarations(source: string): string {
           }
 
           const desc = descMatch ? descMatch[2] : fpName
-          result += `const ${fpName} = FunctionPredicate('${desc}', { ${spec.join(
-            ', '
-          )} })`
+
+          if (typeParamsStr) {
+            // Generic form — emit factory with type params
+            const typeParams = typeParamsStr.split(',').map((p) => {
+              const parts = p
+                .trim()
+                .split('=')
+                .map((s) => s.trim())
+              if (parts.length === 2) {
+                const defaultVal =
+                  parts[1] === 'any' || parts[1] === 'undefined'
+                    ? 'null'
+                    : parts[1]
+                return `['${parts[0]}', ${defaultVal}]`
+              }
+              return `'${parts[0]}'`
+            })
+            const paramNames = typeParamsStr
+              .split(',')
+              .map((p) => p.trim().split('=')[0].trim())
+            result += `const ${fpName} = FunctionPredicate('${desc}', [${typeParams.join(
+              ', '
+            )}], (${paramNames.join(', ')}) => ({ ${spec.join(', ')} }))`
+          } else {
+            // Non-generic form
+            result += `const ${fpName} = FunctionPredicate('${desc}', { ${spec.join(
+              ', '
+            )} })`
+          }
           i = k
           continue
         }

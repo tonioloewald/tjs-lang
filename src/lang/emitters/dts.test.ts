@@ -495,6 +495,48 @@ export function use(fn: Internal) {
   })
 })
 
+describe('generateDTS — generic FunctionPredicate', () => {
+  it('should emit generic FunctionPredicate with type params', () => {
+    const source = `
+export FunctionPredicate Creator<T> {
+  params: { name: '' }
+  returns: T
+}
+`
+    const result = transpileToJS(source, { runTests: false })
+    const dts = generateDTS(result, source)
+
+    expect(dts).toContain('export type Creator<T> = (name: string) => T;')
+  })
+
+  it('should emit generic FunctionPredicate with default type param', () => {
+    const source = `
+export FunctionPredicate Factory<T = {}> {
+  params: { x: 0 }
+  returns: T
+}
+`
+    const result = transpileToJS(source, { runTests: false })
+    const dts = generateDTS(result, source)
+
+    expect(dts).toContain('export type Factory<T = {}>')
+    expect(dts).toContain('=> T;')
+  })
+
+  it('should emit generic FunctionPredicate with type param in params', () => {
+    const source = `
+export FunctionPredicate Mapper<T, U> {
+  params: { input: T }
+  returns: U
+}
+`
+    const result = transpileToJS(source, { runTests: false })
+    const dts = generateDTS(result, source)
+
+    expect(dts).toContain('export type Mapper<T, U> = (input: T) => U;')
+  })
+})
+
 describe('generateDTS — mixed declarations', () => {
   it('should handle file with functions, classes, types, and generics', () => {
     const source = `

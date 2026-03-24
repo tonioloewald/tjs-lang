@@ -41,6 +41,7 @@ export {
   // Function predicates
   FunctionPredicate,
   type FunctionPredicateType,
+  type GenericFunctionPredicateType,
   type FunctionPredicateSpec,
   type ReturnContract,
 } from './Type'

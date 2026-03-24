@@ -637,6 +637,17 @@ export interface FunctionPredicateType extends RuntimeType<Function> {
   readonly returnContract: ReturnContract
 }
 
+/** A generic FunctionPredicate factory — call with type args to get a FunctionPredicateType */
+export interface GenericFunctionPredicateType {
+  (...typeArgs: TypeParam[]): FunctionPredicateType
+  /** Type parameter names */
+  readonly typeParamNames: string[]
+  /** Description */
+  readonly description: string
+  /** Marker for runtime type detection */
+  readonly __runtimeType: true
+}
+
 /** Infer a TypeDescriptor kind from an example value */
 function kindOfExample(example: unknown): string | null {
   if (example === null) return 'null'
@@ -674,8 +685,65 @@ function kindOfExample(example: unknown): string | null {
  * function add(a: 0, b: 0) -> 0 { return a + b }
  * const Adder = FunctionPredicate('Adder', add)
  * // Extracts params/returns from add.__tjs
+ *
+ * @example
+ * // Generic form — returns a factory
+ * const Creator = FunctionPredicate('Creator', [['T', {}]], (T) => ({
+ *   params: { contents: [null] },
+ *   returns: T,
+ * }))
+ * const HtmlCreator = Creator({})  // FunctionPredicateType with returns: {}
  */
 export function FunctionPredicate(
+  name: string,
+  // eslint-disable-next-line @typescript-eslint/ban-types
+  specOrFn: FunctionPredicateSpec | Function | (string | [string, TypeParam])[],
+  specBuilder?: (...typeArgs: any[]) => FunctionPredicateSpec
+): FunctionPredicateType | GenericFunctionPredicateType {
+  // Generic form: FunctionPredicate(name, typeParams, specBuilder)
+  if (Array.isArray(specOrFn) && specBuilder) {
+    const typeParams = specOrFn as (string | [string, TypeParam])[]
+
+    // Extract param names and defaults
+    const paramNames: string[] = []
+    const defaults: (TypeParam | undefined)[] = []
+    for (const tp of typeParams) {
+      if (Array.isArray(tp)) {
+        paramNames.push(tp[0])
+        defaults.push(tp[1])
+      } else {
+        paramNames.push(tp)
+        defaults.push(undefined)
+      }
+    }
+
+    const factory = ((...typeArgs: TypeParam[]) => {
+      // Resolve type args with defaults
+      const resolved: any[] = paramNames.map((_, idx) =>
+        idx < typeArgs.length ? typeArgs[idx] : defaults[idx]
+      )
+      const spec = specBuilder(...resolved)
+      return FunctionPredicate(name, spec) as FunctionPredicateType
+    }) as GenericFunctionPredicateType
+
+    Object.defineProperties(factory, {
+      typeParamNames: { value: paramNames, enumerable: true },
+      description: { value: name, enumerable: true },
+      __runtimeType: { value: true, enumerable: true },
+    })
+
+    return factory
+  }
+
+  // eslint-disable-next-line @typescript-eslint/ban-types
+  return _createFunctionPredicate(
+    name,
+    specOrFn as FunctionPredicateSpec | Function
+  )
+}
+
+/** Internal: create a non-generic FunctionPredicateType */
+function _createFunctionPredicate(
   name: string,
   // eslint-disable-next-line @typescript-eslint/ban-types
   specOrFn: FunctionPredicateSpec | Function

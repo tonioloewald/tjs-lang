@@ -1153,6 +1153,10 @@ function transformTypeAliasToType(
 
   // Check for generics
   if (node.typeParameters && node.typeParameters.length > 0) {
+    // Generic function types → generic FunctionPredicate
+    if (node.type.kind === ts.SyntaxKind.FunctionType) {
+      return transformGenericFunctionTypeToFP(node, sourceFile, warnings)
+    }
     return transformGenericTypeAliasToGeneric(node, sourceFile, warnings)
   }
 
@@ -1201,6 +1205,69 @@ function transformTypeAliasToType(
   return `Type ${typeName} {
   example: ${example}
 }`
+}
+
+/**
+ * Transform a generic function type alias to a generic FunctionPredicate declaration.
+ * e.g. `type Creator<T> = (x: string) => T` → `FunctionPredicate Creator<T> { params: { x: '' } returns: T }`
+ */
+function transformGenericFunctionTypeToFP(
+  node: ts.TypeAliasDeclaration,
+  sourceFile: ts.SourceFile,
+  warnings?: string[]
+): string {
+  const typeName = node.name.getText(sourceFile)
+  const funcType = node.type as ts.FunctionTypeNode
+
+  // Build type params string: <T, U = {}>
+  const typeParamNames = new Set<string>()
+  const typeParams: string[] = []
+  for (const tp of node.typeParameters!) {
+    const name = tp.name.getText(sourceFile)
+    typeParamNames.add(name)
+    if (tp.default) {
+      const defaultExample = typeToExample(tp.default, undefined, warnings)
+      typeParams.push(`${name} = ${defaultExample}`)
+    } else {
+      typeParams.push(name)
+    }
+  }
+
+  // Build params — preserve type param references as bare identifiers
+  const fpParams: string[] = []
+  for (const param of funcType.parameters) {
+    const name = param.name?.getText(sourceFile) || '_'
+    if (name === 'this') continue
+    const paramTypeText = param.type?.getText(sourceFile) || 'any'
+    if (typeParamNames.has(paramTypeText)) {
+      // Type param reference — keep as-is
+      fpParams.push(`${name}: ${paramTypeText}`)
+    } else {
+      let paramExample = typeToExample(param.type, undefined, warnings)
+      if (paramExample === 'any') paramExample = 'null'
+      fpParams.push(`${name}: ${paramExample}`)
+    }
+  }
+
+  // Build return type — preserve type param references
+  const returnTypeText = funcType.type?.getText(sourceFile) || 'void'
+  let fpReturn: string | undefined
+  if (returnTypeText !== 'void') {
+    if (typeParamNames.has(returnTypeText)) {
+      fpReturn = returnTypeText
+    } else {
+      fpReturn = typeToExample(funcType.type, undefined, warnings)
+      if (fpReturn === 'any') fpReturn = 'null'
+      if (fpReturn === 'undefined') fpReturn = undefined
+    }
+  }
+
+  const spec: string[] = []
+  if (fpParams.length > 0) spec.push(`params: { ${fpParams.join(', ')} }`)
+  if (fpReturn !== undefined) spec.push(`returns: ${fpReturn}`)
+  return `FunctionPredicate ${typeName}<${typeParams.join(
+    ', '
+  )}> {\n  ${spec.join('\n  ')}\n}`
 }
 
 /**
