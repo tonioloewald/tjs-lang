@@ -35,6 +35,19 @@ if (!result.success) {
 
 console.log(`Bundled ${result.outputs.length} files`)
 
+// Build standalone TJS runtime for iframe injection
+const runtimeResult = await Bun.build({
+  entrypoints: ['./demo/src/tjs-runtime-iframe.ts'],
+  outdir: './.demo',
+  minify: true,
+  target: 'browser',
+  naming: 'tjs-runtime.js',
+})
+if (!runtimeResult.success) {
+  console.error('Runtime build failed:', runtimeResult.logs)
+  process.exit(1)
+}
+
 // Copy static files
 await $`cp demo/index.html demo/static/favicon.svg demo/static/photo-*.jpg tjs-lang.svg .demo/`
 await $`cp -r demo/static/texts .demo/`

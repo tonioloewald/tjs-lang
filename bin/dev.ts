@@ -68,6 +68,15 @@ async function buildDemo() {
       return
     }
 
+    // Build standalone TJS runtime for iframe injection
+    await Bun.build({
+      entrypoints: ['./demo/src/tjs-runtime-iframe.ts'],
+      outdir: './.demo',
+      minify: false,
+      target: 'browser',
+      naming: 'tjs-runtime.js',
+    })
+
     // Copy static files
     await $`cp demo/index.html demo/static/favicon.svg demo/static/photo-*.jpg tjs-lang.svg .demo/`
     await $`cp -r demo/static/texts .demo/`

@@ -8,42 +8,12 @@
 import type { CodeMirror } from '../../editors/codemirror/component'
 
 // ---------------------------------------------------------------------------
-// TJS Runtime Stub (injected into iframe <script>)
+// TJS Runtime for iframe — loaded as a <script src> to stay in sync with
+// the real runtime. No more hand-maintained stub.
 // ---------------------------------------------------------------------------
 
-/** The globalThis.__tjs runtime stub for iframe execution. Must stay in sync with src/lang/runtime.ts */
-export const TJS_RUNTIME_STUB = `
-    globalThis.__tjs = {
-      version: '0.0.0',
-      pushStack: () => {},
-      popStack: () => {},
-      getStack: () => [],
-      typeError: (path, expected, value) => {
-        const actual = value === null ? 'null' : typeof value;
-        const err = new Error("Expected " + expected + " for '" + path + "', got " + actual);
-        err.name = 'MonadicError';
-        err.path = path;
-        err.expected = expected;
-        err.actual = actual;
-        return err;
-      },
-      createRuntime: function() { return this; },
-      Is: (a, b) => {
-        if (a === b) return true;
-        if (a === null || b === null) return a === b;
-        if (typeof a !== typeof b) return false;
-        if (typeof a !== 'object') return false;
-        if (Array.isArray(a) && Array.isArray(b)) {
-          if (a.length !== b.length) return false;
-          return a.every((v, i) => globalThis.__tjs.Is(v, b[i]));
-        }
-        const keysA = Object.keys(a);
-        const keysB = Object.keys(b);
-        if (keysA.length !== keysB.length) return false;
-        return keysA.every(k => globalThis.__tjs.Is(a[k], b[k]));
-      },
-      IsNot: (a, b) => !globalThis.__tjs.Is(a, b),
-    };`
+/** Script tag that loads the real TJS runtime in the iframe */
+export const TJS_RUNTIME_SCRIPT = '<script src="/tjs-runtime.js"></script>'
 
 // ---------------------------------------------------------------------------
 // Console capture script (injected into iframe <script>)
@@ -157,9 +127,8 @@ export function buildIframeDoc(options: IframeDocOptions): string {
 </head>
 <body>
   ${htmlContent}
-  <script>${parentBindingsScript}
-${TJS_RUNTIME_STUB}
-  </script>
+  ${TJS_RUNTIME_SCRIPT}
+  <script>${parentBindingsScript}</script>
   <script type="module">
     ${importStatements.join('\n    ')}
 ${CONSOLE_CAPTURE_SCRIPT}
@@ -186,8 +155,8 @@ ${CONSOLE_CAPTURE_SCRIPT}
 </head>
 <body>
   ${htmlContent}
+  ${TJS_RUNTIME_SCRIPT}
   <script type="module">${parentBindingsScript}
-${TJS_RUNTIME_STUB}
 ${CONSOLE_CAPTURE_SCRIPT}
 
     const __childrenBefore = document.body.childNodes.length;

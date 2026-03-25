@@ -381,6 +381,15 @@ export function Is(a: unknown, b: unknown): boolean {
     return (b as any).Equals(a)
   }
 
+  // Unwrap boxed primitives (new String, new Number, new Boolean)
+  // so structural equality honors the intent: new String('foo') == 'foo'
+  if (a instanceof String || a instanceof Number || a instanceof Boolean) {
+    a = a.valueOf()
+  }
+  if (b instanceof String || b instanceof Number || b instanceof Boolean) {
+    b = b.valueOf()
+  }
+
   // Identical references or primitives
   if (a === b) return true
 
@@ -400,6 +409,36 @@ export function Is(a: unknown, b: unknown): boolean {
 
   // Primitives that aren't === are not equal
   if (typeof a !== 'object') return false
+
+  // Sets — order-independent element equality
+  if (a instanceof Set && b instanceof Set) {
+    if ((a as Set<unknown>).size !== (b as Set<unknown>).size) return false
+    for (const v of a as Set<unknown>) {
+      if (!(b as Set<unknown>).has(v)) return false
+    }
+    return true
+  }
+
+  // Maps — key-value structural equality
+  if (a instanceof Map && b instanceof Map) {
+    if ((a as Map<unknown, unknown>).size !== (b as Map<unknown, unknown>).size)
+      return false
+    for (const [k, v] of a as Map<unknown, unknown>) {
+      if (!(b as Map<unknown, unknown>).has(k)) return false
+      if (!Is(v, (b as Map<unknown, unknown>).get(k))) return false
+    }
+    return true
+  }
+
+  // Dates — compare timestamps
+  if (a instanceof Date && b instanceof Date) {
+    return a.getTime() === b.getTime()
+  }
+
+  // RegExps — compare string representation
+  if (a instanceof RegExp && b instanceof RegExp) {
+    return a.toString() === b.toString()
+  }
 
   // Arrays
   if (Array.isArray(a) && Array.isArray(b)) {

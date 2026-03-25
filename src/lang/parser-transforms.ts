@@ -880,10 +880,14 @@ function findLeftOperandBoundary(source: string, opPos: number): number {
             'delete',
             'await',
             'yield',
-            'new',
           ].includes(word)
         ) {
           return wordEnd
+        }
+        // 'new' is part of the operand (new Foo() == bar),
+        // so include it by continuing the scan
+        if (word === 'new') {
+          return wordStart
         }
       }
     }

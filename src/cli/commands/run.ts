@@ -35,6 +35,9 @@ export async function run(file: string): Promise<void> {
       }
     }
 
+    // Install TJS runtime globally (emitted code expects globalThis.__tjs)
+    runtime.installRuntime()
+
     // Create a module-like execution context with TJS runtime
     const AsyncFunction = Object.getPrototypeOf(
       async function () {}
@@ -42,7 +45,7 @@ export async function run(file: string): Promise<void> {
 
     // Wrap code in an async IIFE to support top-level await
     const wrappedCode = `
-      const { Type, Generic, Union, Enum, isRuntimeType, wrap, error, isError } = __runtime__;
+      const { Type, Generic, Union, Enum, FunctionPredicate, isRuntimeType, wrap, error, isError } = __runtime__;
       ${result.code}
     `
 
