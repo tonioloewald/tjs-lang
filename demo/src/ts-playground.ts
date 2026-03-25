@@ -487,6 +487,14 @@ export class TSPlayground extends Component<TSPlaygroundParts> {
       this.transpile()
     }, 0)
 
+    // Cmd/Ctrl+R runs the current example instead of refreshing
+    this.addEventListener('keydown', (e: KeyboardEvent) => {
+      if ((e.metaKey || e.ctrlKey) && e.key === 'r') {
+        e.preventDefault()
+        this.run()
+      }
+    })
+
     // Listen for changes (debounced)
     let debounceTimer: ReturnType<typeof setTimeout>
     this.parts.tsEditor.addEventListener('change', () => {

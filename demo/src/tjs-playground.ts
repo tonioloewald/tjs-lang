@@ -654,6 +654,14 @@ export class TJSPlayground extends Component<TJSPlaygroundParts> {
       this.transpile()
     }, 0)
 
+    // Cmd/Ctrl+R runs the current example instead of refreshing
+    this.addEventListener('keydown', (e: KeyboardEvent) => {
+      if ((e.metaKey || e.ctrlKey) && e.key === 'r') {
+        e.preventDefault()
+        this.run()
+      }
+    })
+
     // Listen for changes (debounced to avoid excessive transpilation)
     let debounceTimer: ReturnType<typeof setTimeout>
     this.parts.tjsEditor.addEventListener('change', () => {
