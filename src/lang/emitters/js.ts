@@ -789,33 +789,50 @@ export function transpileToJS(
   const needsIsNot = code.includes('IsNot(')
   const needsEq = code.includes('Eq(')
   const needsNotEq = code.includes('NotEq(')
+  // Type system constructors (from Type/Generic/FunctionPredicate/Enum/Union declarations)
+  const needsType = /\bType\(/.test(code)
+  const needsGeneric = /\bGeneric\(/.test(code)
+  const needsFunctionPredicate = /\bFunctionPredicate\(/.test(code)
+  const needsEnum = /\bEnum\(/.test(code)
+  const needsUnion = /\bUnion\(/.test(code)
   const needsSafeEval = preprocessed.tjsModes.tjsSafeEval
 
-  if (
+  const needsRuntime =
     needsTypeError ||
     needsStack ||
     needsIs ||
     needsIsNot ||
     needsEq ||
     needsNotEq ||
+    needsType ||
+    needsGeneric ||
+    needsFunctionPredicate ||
+    needsEnum ||
+    needsUnion ||
     needsSafeEval
-  ) {
+
+  if (needsRuntime) {
     // Create isolated runtime instance for this module
     // Falls back to shared global if createRuntime not available
     let preamble =
       'const __tjs = globalThis.__tjs?.createRuntime?.() ?? globalThis.__tjs;\n'
 
-    // Add destructured imports for equality functions if used
-    const eqImports = [
+    // Add destructured imports for runtime functions if used
+    const runtimeImports = [
       needsIs && 'Is',
       needsIsNot && 'IsNot',
       needsEq && 'Eq',
       needsNotEq && 'NotEq',
+      needsType && 'Type',
+      needsGeneric && 'Generic',
+      needsFunctionPredicate && 'FunctionPredicate',
+      needsEnum && 'Enum',
+      needsUnion && 'Union',
     ]
       .filter(Boolean)
       .join(', ')
-    if (eqImports) {
-      preamble += `const { ${eqImports} } = __tjs ?? {};\n`
+    if (runtimeImports) {
+      preamble += `const { ${runtimeImports} } = __tjs ?? {};\n`
     }
 
     code = preamble + code

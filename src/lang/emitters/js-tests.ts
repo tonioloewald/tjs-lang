@@ -5,6 +5,7 @@
  */
 
 import { transformExtensionCalls } from '../parser'
+import { installRuntime } from '../runtime'
 import type { TypeDescriptor } from '../types'
 import type { ExtractedTest, ExtractedMock } from '../tests'
 
@@ -330,10 +331,7 @@ function buildResolvedImportsCode(
 
   for (const [specifier, moduleCode] of Object.entries(resolvedImports)) {
     // Strip module syntax from the imported code too (it may have exports)
-    let cleanCode = stripModuleSyntax(moduleCode)
-    // Strip __tjs preamble to avoid duplicate declarations
-    // (test execution context provides its own __tjs stub)
-    cleanCode = stripTjsPreamble(cleanCode)
+    const cleanCode = stripModuleSyntax(moduleCode)
 
     lines.push(`// Resolved import: ${specifier}`)
     lines.push(cleanCode)
@@ -551,9 +549,9 @@ export function runAllTests(
     })
 
   // Strip import/export for test execution (can't use modules in new Function)
-  let executableCode = stripModuleSyntax(transpiledCode)
+  const executableCode = stripModuleSyntax(transpiledCode)
   // Strip __tjs preamble - test context provides its own stub
-  executableCode = stripTjsPreamble(executableCode)
+  // Real runtime installed via installRuntime() — preamble finds it via globalThis.__tjs
 
   // Build resolved imports code - inject imported module code into execution context
   const importedCode = buildResolvedImportsCode(resolvedImports)
@@ -616,12 +614,11 @@ export function runAllTests(
     )
     .join('\n')
 
-  // TJS stub setup/restore
+  // Install real TJS runtime for test execution
+  installRuntime()
+
   const tjsStub = `
     const __saved_tjs = globalThis.__tjs;
-    class __MonadicError extends Error { constructor(m,p,e,a,c){super(m);this.name='MonadicError';this.path=p;this.expected=e;this.actual=a;this.callStack=c;} }
-    const __stub_tjs = { version: '0.0.0', MonadicError: __MonadicError, pushStack: () => {}, popStack: () => {}, getStack: () => [], typeError: (path, expected, value) => new __MonadicError(\`Type error at \${path}: expected \${expected}\`, path, expected, typeof value), createRuntime: function() { return this; } };
-    globalThis.__tjs = __stub_tjs;
   `
   const tjsRestore = `globalThis.__tjs = __saved_tjs;`
 
@@ -812,9 +809,9 @@ function runTestBlocks(
   const results: TestResult[] = []
 
   // Strip import/export for test execution (can't use modules in new Function)
-  let executableCode = stripModuleSyntax(transpiledCode)
+  const executableCode = stripModuleSyntax(transpiledCode)
   // Strip __tjs preamble - test context provides its own stub
-  executableCode = stripTjsPreamble(executableCode)
+  // Real runtime installed via installRuntime() — preamble finds it via globalThis.__tjs
 
   // Build resolved imports code - inject imported module code into execution context
   const importedCode = buildResolvedImportsCode(resolvedImports)
@@ -1173,9 +1170,9 @@ function runSignatureTest(
   const description = `${funcName} signature example`
 
   // Strip import/export for test execution (can't use modules in new Function)
-  let executableCode = stripModuleSyntax(transpiledCode)
+  const executableCode = stripModuleSyntax(transpiledCode)
   // Strip __tjs preamble - test context provides its own stub
-  executableCode = stripTjsPreamble(executableCode)
+  // Real runtime installed via installRuntime() — preamble finds it via globalThis.__tjs
 
   // Build resolved imports code - inject imported module code into execution context
   const importedCode = buildResolvedImportsCode(resolvedImports)
