@@ -827,8 +827,8 @@ function findLeftOperandBoundary(source: string, opPos: number): number {
       continue
     }
 
-    // Track depth of parens/brackets (reversed since we're going backwards)
-    if (char === ')' || char === ']') {
+    // Track depth of parens/brackets/braces (reversed since we're going backwards)
+    if (char === ')' || char === ']' || char === '}') {
       depth++
       i--
       continue
@@ -843,6 +843,15 @@ function findLeftOperandBoundary(source: string, opPos: number): number {
       // The expression starts AFTER it, not including it
       return i + 1
     }
+    if (char === '{') {
+      if (depth > 0) {
+        depth--
+        i--
+        continue
+      }
+      // Opening brace at depth 0 — could be block statement boundary
+      return i + 1
+    }
 
     // Inside nested expression - keep scanning
     if (depth > 0) {
@@ -852,7 +861,7 @@ function findLeftOperandBoundary(source: string, opPos: number): number {
 
     // At depth 0 - check for expression boundaries
     // Statement delimiters
-    if (char === ';' || char === '{' || char === '}') {
+    if (char === ';') {
       return i + 1
     }
 

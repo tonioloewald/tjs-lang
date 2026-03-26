@@ -8,12 +8,9 @@
 import type { CodeMirror } from '../../editors/codemirror/component'
 
 // ---------------------------------------------------------------------------
-// TJS Runtime for iframe — loaded as a <script src> to stay in sync with
-// the real runtime. No more hand-maintained stub.
+// TJS Runtime for iframe — loaded from a built file, not a hand-maintained stub.
+// The URL is resolved at runtime from the parent origin so it works in blob iframes.
 // ---------------------------------------------------------------------------
-
-/** Script tag that loads the real TJS runtime in the iframe */
-export const TJS_RUNTIME_SCRIPT = '<script src="/tjs-runtime.js"></script>'
 
 // ---------------------------------------------------------------------------
 // Console capture script (injected into iframe <script>)
@@ -59,6 +56,9 @@ export interface IframeDocOptions {
  * execution timing, and error boundary.
  */
 export function buildIframeDoc(options: IframeDocOptions): string {
+  // Build absolute URL for the runtime script (blob iframes have no origin)
+  const runtimeScriptTag = `<script src="${location.origin}/tjs-runtime.js"></script>`
+
   const {
     cssContent,
     htmlContent,
@@ -127,7 +127,7 @@ export function buildIframeDoc(options: IframeDocOptions): string {
 </head>
 <body>
   ${htmlContent}
-  ${TJS_RUNTIME_SCRIPT}
+  ${runtimeScriptTag}
   <script>${parentBindingsScript}</script>
   <script type="module">
     ${importStatements.join('\n    ')}
@@ -155,7 +155,7 @@ ${CONSOLE_CAPTURE_SCRIPT}
 </head>
 <body>
   ${htmlContent}
-  ${TJS_RUNTIME_SCRIPT}
+  ${runtimeScriptTag}
   <script type="module">${parentBindingsScript}
 ${CONSOLE_CAPTURE_SCRIPT}
 
