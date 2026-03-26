@@ -33,6 +33,7 @@ for when you explicitly need it. O(n) cost is visible.
 
 // --- Honest equality (==) fixes coercion ---
 console.log('== fixes JS coercion:')
+console.log('  [] == ![]:', [] == ![])          // false (JS: true!)
 console.log('  0 == "":', 0 == '')             // false (JS: true)
 console.log('  false == []:', false == [])      // false (JS: true)
 console.log('  false == "":', false == '')      // false (JS: true)
