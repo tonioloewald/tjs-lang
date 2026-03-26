@@ -584,6 +584,12 @@ export function insertAsiProtection(source: string): string {
  * 2. Transform from end to start (so positions remain valid)
  */
 export function transformEqualityToStructural(source: string): string {
+  // Transform typeof to TypeOf() — fixes typeof null === 'object'
+  source = source.replace(
+    /\btypeof\s+([a-zA-Z_$][\w$.]*(?:\?\.[\w$]+)*)/g,
+    'TypeOf($1)'
+  )
+
   // First pass: find all == and != positions (outside strings/comments/regex)
   const equalityOps: Array<{ pos: number; op: '==' | '!=' }> = []
   let i = 0

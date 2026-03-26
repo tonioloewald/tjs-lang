@@ -475,6 +475,19 @@ export function IsNot(a: unknown, b: unknown): boolean {
  *
  * Usage: `a == b` with TjsEquals transforms to `Eq(a, b)`
  */
+
+/**
+ * Honest typeof — fixes `typeof null === 'object'`
+ *
+ * Returns `'null'` for null instead of `'object'`.
+ * All other values return the same as standard typeof.
+ *
+ * Usage: `typeof x` with TjsEquals transforms to `TypeOf(x)`
+ */
+export function TypeOf(value: unknown): string {
+  if (value === null) return 'null'
+  return typeof value
+}
 export function Eq(a: unknown, b: unknown): boolean {
   // Unwrap boxed primitives
   if (a instanceof String || a instanceof Number || a instanceof Boolean) {
@@ -1282,6 +1295,8 @@ export function createRuntime() {
     // Honest equality (== / != with TjsEquals)
     Eq,
     NotEq,
+    // Honest typeof (typeof with TjsEquals)
+    TypeOf,
     tjsEquals,
     // Extensions
     registerExtension: instanceRegisterExtension,
@@ -1361,6 +1376,8 @@ export const runtime = {
   // Honest equality (used by == and != with TjsEquals)
   Eq,
   NotEq,
+  // Honest typeof (used by typeof with TjsEquals)
+  TypeOf,
 }
 
 /**

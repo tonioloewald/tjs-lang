@@ -789,6 +789,7 @@ export function transpileToJS(
   const needsIsNot = code.includes('IsNot(')
   const needsEq = code.includes('Eq(')
   const needsNotEq = code.includes('NotEq(')
+  const needsTypeOf = code.includes('TypeOf(')
   // Type system constructors (from Type/Generic/FunctionPredicate/Enum/Union declarations)
   const needsType = /\bType\(/.test(code)
   const needsGeneric = /\bGeneric\(/.test(code)
@@ -804,6 +805,7 @@ export function transpileToJS(
     needsIsNot ||
     needsEq ||
     needsNotEq ||
+    needsTypeOf ||
     needsType ||
     needsGeneric ||
     needsFunctionPredicate ||
@@ -823,6 +825,7 @@ export function transpileToJS(
       needsIsNot && 'IsNot',
       needsEq && 'Eq',
       needsNotEq && 'NotEq',
+      needsTypeOf && 'TypeOf',
       needsType && 'Type',
       needsGeneric && 'Generic',
       needsFunctionPredicate && 'FunctionPredicate',

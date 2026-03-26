@@ -70,11 +70,27 @@ console.log('  [1,2] Is [2,1]:', Is([1,2], [2,1]))             // false (order m
 // Sets compare by membership, not order
 console.log('  Set([1,2]) Is Set([2,1]):', Is(new Set([1,2]), new Set([2,1])))  // true
 
+// --- typeof null fixed ---
+console.log('')
+console.log('typeof null fixed:')
+console.log('  typeof null:', typeof null)                 // 'null' (JS: 'object')
+console.log('  typeof undefined:', typeof undefined)       // 'undefined'
+console.log('  typeof 42:', typeof 42)                     // 'number' (unchanged)
+
 // --- === unchanged: identity comparison ---
 console.log('')
 console.log('=== is unchanged (identity):')
 console.log('  obj === obj:', obj === obj)               // true
 console.log('  {x:1} === {x:1}:', {x: 1} === {x: 1})   // false
+
+test 'typeof null is null, not object' {
+  expect(TypeOf(null)).toBe('null')
+  expect(TypeOf(undefined)).toBe('undefined')
+  expect(TypeOf(42)).toBe('number')
+  expect(TypeOf('hi')).toBe('string')
+  expect(TypeOf(true)).toBe('boolean')
+  expect(TypeOf({})).toBe('object')
+}
 
 test 'Eq fixes coercion' {
   expect(Eq(0, '')).toBe(false)
