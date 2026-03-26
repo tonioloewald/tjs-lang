@@ -195,6 +195,74 @@ const server = Bun.serve({
       })
     }
 
+    // TFS proxy — resolve npm packages from jsdelivr CDN
+    // This is the server-side fallback when the service worker can't intercept
+    // (e.g. blob iframes, first load before SW is active)
+    if (pathname.startsWith('/tfs/')) {
+      const tfsPath = pathname.slice(5)
+      const CDN_BASE = 'https://cdn.jsdelivr.net/npm'
+
+      // Parse package@version/subpath
+      let name: string, version: string, subpath: string
+      if (tfsPath.startsWith('@')) {
+        const match = tfsPath.match(/^(@[^/]+\/[^/@]+)(?:@([^/]+))?(\/.*)?$/)
+        if (match) {
+          name = match[1]; version = match[2] || 'latest'; subpath = match[3] || ''
+        } else {
+          return new Response('invalid tfs path', { status: 400 })
+        }
+      } else {
+        const match = tfsPath.match(/^([^/@]+)(?:@([^/]+))?(\/.*)?$/)
+        if (match) {
+          name = match[1]; version = match[2] || 'latest'; subpath = match[3] || ''
+        } else {
+          return new Response('invalid tfs path', { status: 400 })
+        }
+      }
+
+      try {
+        // If no subpath, resolve ESM entry point from package.json
+        if (!subpath) {
+          const pkgRes = await fetch(`${CDN_BASE}/${name}@${version}/package.json`)
+          if (pkgRes.ok) {
+            const pkg = await pkgRes.json()
+            const exp = pkg.exports
+            let entryPath: string | null = null
+
+            if (exp) {
+              // exports can be { ".": { import: "..." } } or { import: "..." }
+              const dot = exp['.'] ?? exp
+              if (typeof dot === 'string') entryPath = dot
+              else if (dot?.import) entryPath = typeof dot.import === 'string' ? dot.import : dot.import?.default
+              else if (dot?.default) entryPath = dot.default
+            }
+            if (!entryPath) entryPath = pkg.module || pkg.main || '/index.js'
+            subpath = entryPath.startsWith('/') ? entryPath
+              : entryPath.startsWith('./') ? entryPath.slice(1)
+              : `/${entryPath}`
+          }
+        }
+
+        const cdnUrl = `${CDN_BASE}/${name}@${version}${subpath}`
+        const cdnRes = await fetch(cdnUrl)
+        if (!cdnRes.ok) {
+          // Try +esm fallback
+          const esmRes = await fetch(`${CDN_BASE}/${name}@${version}${subpath || ''}/+esm`)
+          if (esmRes.ok) {
+            return new Response(await esmRes.text(), {
+              headers: { 'Content-Type': 'application/javascript', 'Access-Control-Allow-Origin': '*' },
+            })
+          }
+          return new Response(`package not found: ${name}@${version}`, { status: 404 })
+        }
+        return new Response(await cdnRes.text(), {
+          headers: { 'Content-Type': 'application/javascript', 'Access-Control-Allow-Origin': '*' },
+        })
+      } catch (err: any) {
+        return new Response(`tfs error: ${err.message}`, { status: 502 })
+      }
+    }
+
     // For SPA routing, serve index.html for unknown paths
     const indexFile = Bun.file(join(DOCS_DIR, 'index.html'))
     if (await indexFile.exists()) {

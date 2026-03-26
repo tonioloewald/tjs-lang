@@ -72,8 +72,9 @@ async function resolveEntryPoint(name, version) {
   const pkg = await res.json()
 
   // Check exports field first (modern ESM)
+  // exports can be { ".": { import: "..." } } or { import: "..." } directly
   if (pkg.exports) {
-    const dot = pkg.exports['.']
+    const dot = pkg.exports['.'] ?? pkg.exports
     if (typeof dot === 'string') return dot
     if (dot?.import)
       return typeof dot.import === 'string' ? dot.import : dot.import.default
