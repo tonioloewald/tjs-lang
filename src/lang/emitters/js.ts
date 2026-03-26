@@ -787,20 +787,35 @@ export function transpileToJS(
   const needsStack = code.includes('__tjs.pushStack(')
   const needsIs = code.includes('Is(')
   const needsIsNot = code.includes('IsNot(')
+  const needsEq = code.includes('Eq(')
+  const needsNotEq = code.includes('NotEq(')
   const needsSafeEval = preprocessed.tjsModes.tjsSafeEval
 
-  if (needsTypeError || needsStack || needsIs || needsIsNot || needsSafeEval) {
+  if (
+    needsTypeError ||
+    needsStack ||
+    needsIs ||
+    needsIsNot ||
+    needsEq ||
+    needsNotEq ||
+    needsSafeEval
+  ) {
     // Create isolated runtime instance for this module
     // Falls back to shared global if createRuntime not available
     let preamble =
       'const __tjs = globalThis.__tjs?.createRuntime?.() ?? globalThis.__tjs;\n'
 
-    // Add destructured imports for Is/IsNot if used
-    if (needsIs || needsIsNot) {
-      const imports = [needsIs && 'Is', needsIsNot && 'IsNot']
-        .filter(Boolean)
-        .join(', ')
-      preamble += `const { ${imports} } = __tjs ?? {};\n`
+    // Add destructured imports for equality functions if used
+    const eqImports = [
+      needsIs && 'Is',
+      needsIsNot && 'IsNot',
+      needsEq && 'Eq',
+      needsNotEq && 'NotEq',
+    ]
+      .filter(Boolean)
+      .join(', ')
+    if (eqImports) {
+      preamble += `const { ${eqImports} } = __tjs ?? {};\n`
     }
 
     code = preamble + code

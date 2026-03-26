@@ -848,26 +848,25 @@ test 'add works' {
       expect(code).toContain('==')
     })
 
-    it('transforms == to Is() with TjsEquals directive', () => {
+    it('transforms == to Eq() with TjsEquals directive', () => {
       const tjsSource = `TjsEquals
 function isEqual(a: {x: 0}, b: {x: 0}) -! true { return a == b }`
       const { code } = tjs(tjsSource)
 
-      // Should transform == to Is()
-      expect(code).toContain('Is(')
-      // Should add Is import at top
-      expect(code).toContain('const { Is }')
+      // Should transform == to Eq()
+      expect(code).toContain('Eq(')
+      // Should add Eq import at top
+      expect(code).toContain('Eq')
     })
 
-    it('transforms != to IsNot() with TjsEquals directive', () => {
+    it('transforms != to NotEq() with TjsEquals directive', () => {
       const tjsSource = `TjsEquals
 function notEqual(a: {x: 0}, b: {x: 0}) -! true { return a != b }`
       const { code } = tjs(tjsSource)
 
-      // Should transform != to IsNot()
-      expect(code).toContain('IsNot(')
-      // Should add IsNot import at top
-      expect(code).toContain('IsNot')
+      // Should transform != to NotEq()
+      expect(code).toContain('NotEq(')
+      expect(code).toContain('NotEq')
     })
 
     it('preserves === for identity comparison', () => {
@@ -893,34 +892,32 @@ function isSame(a: {x: 0}, b: {x: 0}) -! true { return a === b }`
       expect(code).not.toContain('__tjs.typeError')
     })
 
-    it('adds only Is when only == is used with TjsEquals', () => {
+    it('adds only Eq when only == is used with TjsEquals', () => {
       const tjsSource = `TjsEquals
 function eq(a: 0, b: 0) -! true { return a == b }`
       const { code } = tjs(tjsSource)
 
-      expect(code).toContain('Is(')
-      expect(code).toContain('const { Is }')
-      expect(code).not.toContain('IsNot')
+      expect(code).toContain('Eq(')
+      expect(code).toContain('Eq')
+      expect(code).not.toContain('NotEq')
     })
 
-    it('adds only IsNot when only != is used with TjsEquals', () => {
+    it('adds only NotEq when only != is used with TjsEquals', () => {
       const tjsSource = `TjsEquals
 function neq(a: 0, b: 0) -! true { return a != b }`
       const { code } = tjs(tjsSource)
 
-      expect(code).toContain('IsNot(')
-      expect(code).toContain('const { IsNot }')
-      expect(code).not.toMatch(/\bIs\b[^N]/) // Is but not IsNot
+      expect(code).toContain('NotEq(')
+      expect(code).toContain('NotEq')
     })
 
-    it('adds both Is and IsNot when both == and != are used with TjsEquals', () => {
+    it('adds both Eq and NotEq when both == and != are used with TjsEquals', () => {
       const tjsSource = `TjsEquals
 function test(a: 0, b: 0) -! true { return a == b || a != b }`
       const { code } = tjs(tjsSource)
 
-      expect(code).toContain('Is(')
-      expect(code).toContain('IsNot(')
-      expect(code).toContain('const { Is, IsNot }')
+      expect(code).toContain('Eq(')
+      expect(code).toContain('NotEq(')
     })
 
     it('does NOT add imports for === only even with TjsEquals', () => {
@@ -932,20 +929,22 @@ function strict(a: 0, b: 0) -! true { return a === b }`
       expect(code).toContain('===')
     })
 
-    it('structural equality works at runtime with TjsEquals', async () => {
+    it('honest equality works at runtime with TjsEquals', async () => {
       const { installRuntime } = await import('./runtime')
       installRuntime()
 
       const tjsSource = `TjsEquals
-function isEqual(a: {x: 0}, b: {x: 0}) -! true { return a == b }`
+function isEqual(! a: null, b: null) -! true { return a == b }`
       const { code } = tjs(tjsSource)
 
       const isEqual = new Function(code + '; return isEqual')()
 
-      // Structural equality: same structure = true
-      expect(isEqual({ x: 1 }, { x: 1 })).toBe(true)
+      // Honest equality: same value = true
+      expect(isEqual(1, 1)).toBe(true)
       // Different values = false
-      expect(isEqual({ x: 1 }, { x: 2 })).toBe(false)
+      expect(isEqual(1, 2)).toBe(false)
+      // No coercion: 0 != '' (unlike JS ==)
+      expect(isEqual(0, '')).toBe(false)
     })
   })
 

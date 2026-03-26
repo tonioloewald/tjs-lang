@@ -446,7 +446,7 @@ JavaScript semantics are the default. TJS improvements are opt-in via file-level
 ```typescript
 TjsStrict // Enables ALL modes below at once
 
-TjsEquals // == and != use structural equality (Is/IsNot)
+TjsEquals // == and != use honest equality (Eq/NotEq) — no coercion, unwraps boxed primitives
 TjsClass // Classes callable without new, explicit new is banned
 TjsDate // Date is banned, use Timestamp/LegalDate instead
 TjsNoeval // eval() and new Function() are banned
@@ -458,38 +458,43 @@ Multiple directives can be combined. Place them at the top of the file before an
 
 #### Equality Operators
 
-With `TjsEquals` (or `TjsStrict`), TJS redefines equality to be structural, fixing JavaScript's confusing `==` vs `===` semantics.
+With `TjsEquals` (or `TjsStrict`), TJS fixes JavaScript's confusing `==` coercion without the performance cost of deep structural comparison.
 
-| Operator    | Meaning                          | Example                     |
-| ----------- | -------------------------------- | --------------------------- |
-| `==`        | Structural equality              | `{a:1} == {a:1}` is `true`  |
-| `!=`        | Structural inequality            | `{a:1} != {a:2}` is `true`  |
-| `===`       | Identity (same reference)        | `obj === obj` is `true`     |
-| `!==`       | Not same reference               | `{a:1} !== {a:1}` is `true` |
-| `a Is b`    | Structural equality (explicit)   | Same as `==`                |
-| `a IsNot b` | Structural inequality (explicit) | Same as `!=`                |
+| Operator    | Meaning                                      | Example                            |
+| ----------- | -------------------------------------------- | ---------------------------------- |
+| `==`        | Honest equality (no coercion, unwraps boxed) | `new String('x') == 'x'` is `true` |
+| `!=`        | Honest inequality                            | `0 != ''` is `true` (no coercion)  |
+| `===`       | Identity (same reference)                    | `obj === obj` is `true`            |
+| `!==`       | Not same reference                           | `{a:1} !== {a:1}` is `true`        |
+| `a Is b`    | Deep structural equality (explicit)          | `{a:1} Is {a:1}` is `true`         |
+| `a IsNot b` | Deep structural inequality (explicit)        | `[1,2] IsNot [2,1]` is `true`      |
 
 ```typescript
-// Structural equality - compares values deeply
-const a = { x: 1, y: [2, 3] }
-const b = { x: 1, y: [2, 3] }
-a == b      // true (same structure)
-a === b     // false (different objects)
+// == is honest: no coercion, unwraps boxed primitives
+'foo' == 'foo'                    // true
+new String('foo') == 'foo'        // true  (unwraps)
+new Boolean(false) == false       // true  (unwraps)
+null == undefined                 // true  (nullish equality preserved)
+0 == ''                           // false (no coercion!)
+false == []                       // false (no coercion!)
 
-// Works with arrays too
-[1, 2, 3] == [1, 2, 3]  // true
+// == is fast: objects/arrays use reference equality (O(1))
+{a:1} == {a:1}                    // false (different refs)
+[1,2] == [1,2]                    // false (different refs)
 
-// Infix operators for readability
-user Is expectedUser
-result IsNot errorValue
+// Is/IsNot for explicit deep structural comparison (O(n))
+{a:1} Is {a:1}                    // true
+[1,2,3] Is [1,2,3]               // true
+new Set([1,2]) Is new Set([2,1]) // true  (Sets are order-independent)
 ```
 
 **Implementation Notes:**
 
 - **AJS (VM)**: The VM's expression evaluator (`src/vm/runtime.ts`) uses `isStructurallyEqual()` for `==`/`!=`
-- **TJS (browser/Node)**: Source transformation converts `==` to `Is()` and `!=` to `IsNot()` calls
+- **TJS (browser/Node)**: Source transformation converts `==` to `Eq()` and `!=` to `NotEq()` calls
 - **`===` and `!==`**: Always preserved as identity checks, never transformed
-- The `Is()` and `IsNot()` functions are available in `src/lang/runtime.ts` and exposed globally
+- `Eq()`/`NotEq()` — fast honest equality (unwraps boxed primitives, nullish equality, reference for objects)
+- `Is()`/`IsNot()` — deep structural comparison (arrays, objects, Sets, Maps, Dates, RegExps)
 
 **Custom Equality Protocol:**
 

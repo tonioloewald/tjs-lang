@@ -764,7 +764,7 @@ export function transformEqualityToStructural(source: string): string {
   let result = source
   for (let k = equalityOps.length - 1; k >= 0; k--) {
     const { pos, op } = equalityOps[k]
-    const funcName = op === '==' ? 'Is' : 'IsNot'
+    const funcName = op === '==' ? 'Eq' : 'NotEq'
 
     // Find left operand boundary
     const leftBoundary = findLeftOperandBoundary(result, pos)

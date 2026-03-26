@@ -464,6 +464,47 @@ export function IsNot(a: unknown, b: unknown): boolean {
 }
 
 /**
+ * Honest equality — what == should have been.
+ *
+ * Like === but fixes the two remaining footguns:
+ * 1. Unwraps boxed primitives: new String('foo') Eq 'foo' → true
+ * 2. Nullish equality: null Eq undefined → true
+ *
+ * Does NOT do deep structural comparison on objects/arrays (that's O(n)).
+ * Use Is/IsNot for explicit structural comparison when you need it.
+ *
+ * Usage: `a == b` with TjsEquals transforms to `Eq(a, b)`
+ */
+export function Eq(a: unknown, b: unknown): boolean {
+  // Unwrap boxed primitives
+  if (a instanceof String || a instanceof Number || a instanceof Boolean) {
+    a = a.valueOf()
+  }
+  if (b instanceof String || b instanceof Number || b instanceof Boolean) {
+    b = b.valueOf()
+  }
+
+  // Identical references or primitives
+  if (a === b) return true
+
+  // null and undefined are equal to each other
+  if ((a === null || a === undefined) && (b === null || b === undefined)) {
+    return true
+  }
+
+  return false
+}
+
+/**
+ * Honest inequality — what != should have been.
+ *
+ * Usage: `a != b` with TjsEquals transforms to `NotEq(a, b)`
+ */
+export function NotEq(a: unknown, b: unknown): boolean {
+  return !Eq(a, b)
+}
+
+/**
  * Check if a value is a TJS error
  */
 export function isError(value: unknown): value is TJSError {
@@ -1238,6 +1279,9 @@ export function createRuntime() {
     // Structural equality
     Is,
     IsNot,
+    // Honest equality (== / != with TjsEquals)
+    Eq,
+    NotEq,
     tjsEquals,
     // Extensions
     registerExtension: instanceRegisterExtension,
@@ -1311,9 +1355,12 @@ export const runtime = {
   LegalDate,
   TPair,
   TRecord,
-  // Structural equality (used by == and != in TJS)
+  // Structural equality (used by Is/IsNot operators)
   Is,
   IsNot,
+  // Honest equality (used by == and != with TjsEquals)
+  Eq,
+  NotEq,
 }
 
 /**

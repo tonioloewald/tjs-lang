@@ -299,15 +299,12 @@ export function stripModuleSyntax(code: string): string {
 export function stripTjsPreamble(code: string): string {
   // Remove the __tjs runtime setup lines:
   // const __tjs = globalThis.__tjs?.createRuntime?.() ?? globalThis.__tjs;
-  // const { Is, IsNot } = __tjs ?? {};
+  // const { Is, IsNot, Eq, NotEq } = __tjs ?? {};
   let result = code.replace(
     /^const __tjs = globalThis\.__tjs\?\.createRuntime\?\.\(\) \?\? globalThis\.__tjs;\n?/m,
     ''
   )
-  result = result.replace(
-    /^const \{ (?:Is|IsNot|Is, IsNot) \} = __tjs \?\? \{\};\n?/m,
-    ''
-  )
+  result = result.replace(/^const \{ [\w, ]+ \} = __tjs \?\? \{\};\n?/m, '')
   return result
 }
 
