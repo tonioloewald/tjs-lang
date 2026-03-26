@@ -8,6 +8,10 @@
  */
 
 import { elements, tosi, bindings, StyleSheet, bind, observe } from 'tosijs'
+import { registerTFS } from './imports'
+
+// Register TFS service worker early — handles /tfs/ module resolution
+registerTFS()
 
 import { icons, sideNav, SideNav, popMenu, markdownViewer } from 'tosijs-ui'
 

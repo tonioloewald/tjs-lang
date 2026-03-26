@@ -1,19 +1,9 @@
 /**
- * Unit tests for import resolution infrastructure
- *
- * Tests the synchronous functions that don't require browser/network.
+ * Unit tests for TFS import resolution
  */
 
 import { describe, it, expect } from 'bun:test'
-import {
-  extractImports,
-  getCDNUrl,
-  generateImportMap,
-  generateImportMapScript,
-  wrapAsModule,
-  clearModuleCache,
-  getCacheStats,
-} from './imports'
+import { extractImports, generateImportMap } from './imports'
 
 describe('extractImports', () => {
   it('should extract named imports', () => {
@@ -78,14 +68,9 @@ describe('extractImports', () => {
     expect(extractImports(source)).toEqual(['@scope/package'])
   })
 
-  it('should handle scoped packages with subpaths', () => {
-    const source = `import { util } from '@scope/package/utils'`
-    expect(extractImports(source)).toEqual(['@scope/package/utils'])
-  })
-
-  it('should handle double quotes', () => {
-    const source = `import { foo } from "some-package"`
-    expect(extractImports(source)).toEqual(['some-package'])
+  it('should handle versioned imports', () => {
+    const source = `import { tosi } from 'tosijs@1.3.11'`
+    expect(extractImports(source)).toEqual(['tosijs@1.3.11'])
   })
 
   it('should return empty array for no imports', () => {
@@ -94,57 +79,22 @@ describe('extractImports', () => {
   })
 })
 
-describe('getCDNUrl', () => {
-  it('should generate URL for simple package', () => {
-    expect(getCDNUrl('some-unknown-package')).toBe(
-      'https://cdn.jsdelivr.net/npm/some-unknown-package'
-    )
-  })
-
-  it('should use pinned version and path for known packages', () => {
-    // tosijs has pinned version and path
-    expect(getCDNUrl('tosijs')).toBe(
-      'https://cdn.jsdelivr.net/npm/tosijs@1.2.0/dist/module.js'
-    )
-    // date-fns has pinned version but no path
-    expect(getCDNUrl('date-fns')).toBe(
-      'https://cdn.jsdelivr.net/npm/date-fns@3.6.0'
-    )
-  })
-
-  it('should handle subpath imports with pinned version', () => {
-    expect(getCDNUrl('lodash-es/debounce')).toBe(
-      'https://cdn.jsdelivr.net/npm/lodash-es@4.17.21/debounce'
-    )
-  })
-
-  it('should handle scoped packages', () => {
-    expect(getCDNUrl('@scope/package')).toBe(
-      'https://cdn.jsdelivr.net/npm/@scope/package'
-    )
-  })
-
-  it('should handle scoped packages with subpaths', () => {
-    expect(getCDNUrl('@scope/package/utils')).toBe(
-      'https://cdn.jsdelivr.net/npm/@scope/package/utils'
-    )
-  })
-
-  it('should handle packages with pinned version but no path', () => {
-    // lodash-es is pinned but has no explicit path
-    expect(getCDNUrl('lodash-es')).toBe(
-      'https://cdn.jsdelivr.net/npm/lodash-es@4.17.21'
-    )
-  })
-})
-
 describe('generateImportMap', () => {
-  it('should generate import map for specifiers', () => {
+  it('should map bare specifiers to /tfs/ URLs', () => {
     const result = generateImportMap(['tosijs', 'date-fns'])
     expect(result).toEqual({
       imports: {
-        tosijs: 'https://cdn.jsdelivr.net/npm/tosijs@1.2.0/dist/module.js',
-        'date-fns': 'https://cdn.jsdelivr.net/npm/date-fns@3.6.0',
+        tosijs: '/tfs/tosijs',
+        'date-fns': '/tfs/date-fns',
+      },
+    })
+  })
+
+  it('should handle versioned specifiers', () => {
+    const result = generateImportMap(['tosijs@1.3.11'])
+    expect(result).toEqual({
+      imports: {
+        'tosijs@1.3.11': '/tfs/tosijs@1.3.11',
       },
     })
   })
@@ -155,52 +105,11 @@ describe('generateImportMap', () => {
 
   it('should handle subpath imports', () => {
     const result = generateImportMap(['lodash-es/debounce'])
-    expect(result.imports['lodash-es/debounce']).toBe(
-      'https://cdn.jsdelivr.net/npm/lodash-es@4.17.21/debounce'
-    )
-  })
-})
-
-describe('generateImportMapScript', () => {
-  it('should generate script tag with import map', () => {
-    const importMap = {
-      imports: {
-        tosijs: 'https://cdn.jsdelivr.net/npm/tosijs@1.0.10/dist/module.js',
-      },
-    }
-    const script = generateImportMapScript(importMap)
-
-    expect(script).toContain('<script type="importmap">')
-    expect(script).toContain('</script>')
-    expect(script).toContain('"tosijs"')
-    expect(script).toContain(
-      'https://cdn.jsdelivr.net/npm/tosijs@1.0.10/dist/module.js'
-    )
-  })
-})
-
-describe('wrapAsModule', () => {
-  it('should wrap code in module script tag', () => {
-    const code = 'console.log("hello")'
-    const wrapped = wrapAsModule(code)
-
-    expect(wrapped).toContain('<script type="module">')
-    expect(wrapped).toContain('</script>')
-    expect(wrapped).toContain(code)
-  })
-})
-
-describe('module cache', () => {
-  it('should start empty', () => {
-    clearModuleCache()
-    const stats = getCacheStats()
-    expect(stats.size).toBe(0)
-    expect(stats.entries).toEqual([])
+    expect(result.imports['lodash-es/debounce']).toBe('/tfs/lodash-es/debounce')
   })
 
-  it('should clear cache', () => {
-    // Just verify it doesn't throw
-    clearModuleCache()
-    expect(getCacheStats().size).toBe(0)
+  it('should handle scoped packages', () => {
+    const result = generateImportMap(['@scope/pkg@1.0.0'])
+    expect(result.imports['@scope/pkg@1.0.0']).toBe('/tfs/@scope/pkg@1.0.0')
   })
 })

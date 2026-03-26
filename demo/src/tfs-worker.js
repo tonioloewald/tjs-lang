@@ -1,0 +1,213 @@
+/**
+ * TFS — TJS File System Service Worker
+ *
+ * Intercepts /tfs/ requests and resolves them to CDN modules.
+ * Handles caching, version resolution, and ESM serving.
+ *
+ * URL format: /tfs/package@version/subpath
+ *   /tfs/tosijs@1.3.11          → jsdelivr CDN
+ *   /tfs/tosijs@latest           → jsdelivr CDN (latest)
+ *   /tfs/lodash-es@4.17.21      → jsdelivr CDN
+ *   /tfs/@scope/pkg@1.0.0       → jsdelivr CDN (scoped)
+ *
+ * If no version specified, defaults to @latest.
+ */
+
+const CACHE_NAME = 'tfs-v1'
+const CDN_BASE = 'https://cdn.jsdelivr.net/npm'
+
+self.addEventListener('install', () => {
+  self.skipWaiting()
+})
+
+self.addEventListener('activate', (event) => {
+  event.waitUntil(clients.claim())
+})
+
+/**
+ * Parse a TFS path into package name, version, and subpath.
+ *
+ * Examples:
+ *   tosijs@1.3.11         → { name: 'tosijs', version: '1.3.11', subpath: '' }
+ *   tosijs                → { name: 'tosijs', version: 'latest', subpath: '' }
+ *   tosijs@1.3.11/utils   → { name: 'tosijs', version: '1.3.11', subpath: '/utils' }
+ *   @scope/pkg@1.0.0      → { name: '@scope/pkg', version: '1.0.0', subpath: '' }
+ *   @scope/pkg@1.0.0/sub  → { name: '@scope/pkg', version: '1.0.0', subpath: '/sub' }
+ */
+function parseTfsPath(path) {
+  // Scoped packages: @scope/name@version/subpath
+  if (path.startsWith('@')) {
+    const match = path.match(/^(@[^/]+\/[^/@]+)(?:@([^/]+))?(\/.*)?$/)
+    if (match) {
+      return {
+        name: match[1],
+        version: match[2] || 'latest',
+        subpath: match[3] || '',
+      }
+    }
+  }
+
+  // Regular packages: name@version/subpath
+  const match = path.match(/^([^/@]+)(?:@([^/]+))?(\/.*)?$/)
+  if (match) {
+    return {
+      name: match[1],
+      version: match[2] || 'latest',
+      subpath: match[3] || '',
+    }
+  }
+
+  return null
+}
+
+/**
+ * Resolve the ESM entry point for a package.
+ * Fetches package.json and checks exports → module → main.
+ */
+async function resolveEntryPoint(name, version) {
+  const pkgUrl = `${CDN_BASE}/${name}@${version}/package.json`
+  const res = await fetch(pkgUrl)
+  if (!res.ok) return null
+
+  const pkg = await res.json()
+
+  // Check exports field first (modern ESM)
+  if (pkg.exports) {
+    const dot = pkg.exports['.']
+    if (typeof dot === 'string') return dot
+    if (dot?.import)
+      return typeof dot.import === 'string' ? dot.import : dot.import.default
+    if (dot?.default) return dot.default
+  }
+
+  // module field (bundler convention)
+  if (pkg.module) return pkg.module
+
+  // main field (fallback)
+  if (pkg.main) return pkg.main
+
+  // Default
+  return '/index.js'
+}
+
+self.addEventListener('fetch', (event) => {
+  const url = new URL(event.request.url)
+
+  // Only intercept /tfs/ requests
+  if (!url.pathname.startsWith('/tfs/')) return
+
+  const tfsPath = url.pathname.slice(5) // strip '/tfs/'
+  if (!tfsPath) return
+
+  // Special: /tfs/__status
+  if (tfsPath === '__status') {
+    event.respondWith(
+      caches.open(CACHE_NAME).then(async (cache) => {
+        const keys = await cache.keys()
+        return new Response(
+          JSON.stringify({
+            version: CACHE_NAME,
+            cached: keys.map((k) => new URL(k.url).pathname),
+          }),
+          { headers: { 'Content-Type': 'application/json' } }
+        )
+      })
+    )
+    return
+  }
+
+  // Special: /tfs/__clear
+  if (tfsPath === '__clear') {
+    event.respondWith(
+      caches
+        .delete(CACHE_NAME)
+        .then(() => new Response('cache cleared', { status: 200 }))
+    )
+    return
+  }
+
+  const parsed = parseTfsPath(tfsPath)
+  if (!parsed) {
+    event.respondWith(new Response('invalid tfs path', { status: 400 }))
+    return
+  }
+
+  event.respondWith(serveTfsRequest(parsed, event.request))
+})
+
+async function serveTfsRequest({ name, version, subpath }, request) {
+  const cache = await caches.open(CACHE_NAME)
+
+  // Build the CDN URL
+  let cdnPath
+  if (subpath) {
+    cdnPath = `${CDN_BASE}/${name}@${version}${subpath}`
+  } else {
+    // No subpath — resolve the ESM entry point
+    const entry = await resolveEntryPoint(name, version)
+    if (!entry) {
+      return new Response(`package not found: ${name}@${version}`, {
+        status: 404,
+      })
+    }
+    const entryPath = entry.startsWith('/') ? entry : `/${entry}`
+    cdnPath = `${CDN_BASE}/${name}@${version}${entryPath}`
+  }
+
+  // Check cache (use CDN URL as cache key for dedup across versions)
+  const cacheKey = new Request(cdnPath)
+  const cached = await cache.match(cacheKey)
+  if (cached) {
+    return new Response(cached.body, {
+      status: 200,
+      headers: {
+        'Content-Type': 'text/javascript',
+        'X-TFS-Cache': 'hit',
+        'X-TFS-Source': cdnPath,
+      },
+    })
+  }
+
+  // Fetch from CDN
+  try {
+    const response = await fetch(cdnPath)
+    if (!response.ok) {
+      // Try jsdelivr's +esm fallback for CJS packages
+      const esmUrl = `${CDN_BASE}/${name}@${version}${subpath || ''}/+esm`
+      const esmResponse = await fetch(esmUrl)
+      if (esmResponse.ok) {
+        const body = await esmResponse.text()
+        const jsResponse = new Response(body, {
+          headers: { 'Content-Type': 'text/javascript' },
+        })
+        await cache.put(cacheKey, jsResponse.clone())
+        return new Response(body, {
+          status: 200,
+          headers: {
+            'Content-Type': 'text/javascript',
+            'X-TFS-Cache': 'miss',
+            'X-TFS-Source': esmUrl,
+          },
+        })
+      }
+      return new Response(`failed to fetch: ${cdnPath}`, { status: 502 })
+    }
+
+    const body = await response.text()
+    const jsResponse = new Response(body, {
+      headers: { 'Content-Type': 'text/javascript' },
+    })
+    await cache.put(cacheKey, jsResponse.clone())
+
+    return new Response(body, {
+      status: 200,
+      headers: {
+        'Content-Type': 'text/javascript',
+        'X-TFS-Cache': 'miss',
+        'X-TFS-Source': cdnPath,
+      },
+    })
+  } catch (err) {
+    return new Response(`fetch error: ${err.message}`, { status: 502 })
+  }
+}

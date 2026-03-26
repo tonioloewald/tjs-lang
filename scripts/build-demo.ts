@@ -48,8 +48,8 @@ if (!runtimeResult.success) {
   process.exit(1)
 }
 
-// Copy static files
-await $`cp demo/index.html demo/static/favicon.svg demo/static/photo-*.jpg tjs-lang.svg .demo/`
+// Copy static files (including TFS service worker — must not be bundled)
+await $`cp demo/index.html demo/static/favicon.svg demo/static/photo-*.jpg tjs-lang.svg demo/src/tfs-worker.js .demo/`
 await $`cp -r demo/static/texts .demo/`
 
 console.log(`Demo built successfully (v${version})`)
