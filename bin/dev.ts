@@ -246,16 +246,37 @@ const server = Bun.serve({
         const cdnUrl = `${CDN_BASE}/${name}@${version}${subpath}`
         const cdnRes = await fetch(cdnUrl)
         if (!cdnRes.ok) {
-          // Try +esm fallback
-          const esmRes = await fetch(`${CDN_BASE}/${name}@${version}${subpath || ''}/+esm`)
-          if (esmRes.ok) {
-            return new Response(await esmRes.text(), {
-              headers: { 'Content-Type': 'application/javascript', 'Access-Control-Allow-Origin': '*' },
-            })
-          }
           return new Response(`package not found: ${name}@${version}`, { status: 404 })
         }
-        return new Response(await cdnRes.text(), {
+
+        let body = await cdnRes.text()
+        const origin = new URL(req.url).origin
+        const pkgBase = `${CDN_BASE}/${name}@${version}`
+
+        // Rewrite imports in the fetched module:
+        // - Bare specifiers → /tfs/ (transitive deps)
+        // - Relative imports → absolute CDN URLs (sibling files)
+        body = body.replace(
+          /((?:import|export)\s+(?:[\w\s{},*]+\s+from\s+)?)(['"])([^'"]+)\2/g,
+          (match: string, prefix: string, quote: string, spec: string) => {
+            if (spec.startsWith('http://') || spec.startsWith('https://'))
+              return match
+            if (spec.startsWith('./') || spec.startsWith('../')) {
+              // Relative import → resolve against CDN package path
+              const dir = subpath ? subpath.replace(/\/[^/]*$/, '') : '/dist'
+              // Add .js extension if missing (CDN requires it)
+              const specWithExt = /\.\w+$/.test(spec) ? spec : `${spec}.js`
+              const resolved = new URL(specWithExt, `${pkgBase}${dir}/`).href
+              return `${prefix}${quote}${resolved}${quote}`
+            }
+            if (spec.startsWith('/'))
+              return match
+            // Bare specifier → route through /tfs/
+            return `${prefix}${quote}${origin}/tfs/${spec}${quote}`
+          }
+        )
+
+        return new Response(body, {
           headers: { 'Content-Type': 'application/javascript', 'Access-Control-Allow-Origin': '*' },
         })
       } catch (err: any) {

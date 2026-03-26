@@ -139,24 +139,23 @@ self.addEventListener('fetch', (event) => {
 async function serveTfsRequest({ name, version, subpath }, request) {
   const cache = await caches.open(CACHE_NAME)
 
-  // Build the CDN URL
-  let cdnPath
-  if (subpath) {
-    cdnPath = `${CDN_BASE}/${name}@${version}${subpath}`
-  } else {
-    // No subpath — resolve the ESM entry point
+  // Resolve entry point if no subpath
+  if (!subpath) {
     const entry = await resolveEntryPoint(name, version)
     if (!entry) {
       return new Response(`package not found: ${name}@${version}`, {
         status: 404,
       })
     }
-    const entryPath = entry.startsWith('/') ? entry : `/${entry}`
-    cdnPath = `${CDN_BASE}/${name}@${version}${entryPath}`
+    subpath = entry.startsWith('/') ? entry
+      : entry.startsWith('./') ? entry.slice(1)
+      : `/${entry}`
   }
 
-  // Check cache (use CDN URL as cache key for dedup across versions)
-  const cacheKey = new Request(cdnPath)
+  const cdnUrl = `${CDN_BASE}/${name}@${version}${subpath}`
+  const cacheKey = new Request(cdnUrl)
+
+  // Check cache
   const cached = await cache.match(cacheKey)
   if (cached) {
     return new Response(cached.body, {
@@ -164,48 +163,55 @@ async function serveTfsRequest({ name, version, subpath }, request) {
       headers: {
         'Content-Type': 'text/javascript',
         'X-TFS-Cache': 'hit',
-        'X-TFS-Source': cdnPath,
+        'X-TFS-Source': cdnUrl,
       },
     })
   }
 
   // Fetch from CDN
   try {
-    const response = await fetch(cdnPath)
+    const response = await fetch(cdnUrl)
     if (!response.ok) {
-      // Try jsdelivr's +esm fallback for CJS packages
-      const esmUrl = `${CDN_BASE}/${name}@${version}${subpath || ''}/+esm`
-      const esmResponse = await fetch(esmUrl)
-      if (esmResponse.ok) {
-        const body = await esmResponse.text()
-        const jsResponse = new Response(body, {
-          headers: { 'Content-Type': 'text/javascript' },
-        })
-        await cache.put(cacheKey, jsResponse.clone())
-        return new Response(body, {
-          status: 200,
-          headers: {
-            'Content-Type': 'text/javascript',
-            'X-TFS-Cache': 'miss',
-            'X-TFS-Source': esmUrl,
-          },
-        })
-      }
-      return new Response(`failed to fetch: ${cdnPath}`, { status: 502 })
+      return new Response(`package not found: ${cdnUrl}`, { status: 404 })
     }
 
-    const body = await response.text()
-    const jsResponse = new Response(body, {
-      headers: { 'Content-Type': 'text/javascript' },
-    })
-    await cache.put(cacheKey, jsResponse.clone())
+    let body = await response.text()
+    const origin = new URL(request.url).origin
+    const pkgBase = `${CDN_BASE}/${name}@${version}`
+
+    // Rewrite imports in fetched module:
+    // - Bare specifiers → /tfs/ URLs (transitive deps, single copy)
+    // - Relative imports → absolute CDN URLs (sibling files within package)
+    body = body.replace(
+      /((?:import|export)\s+(?:[\w\s{},*]+\s+from\s+)?)(['"])([^'"]+)\2/g,
+      (match, prefix, quote, spec) => {
+        if (spec.startsWith('http://') || spec.startsWith('https://'))
+          return match
+        if (spec.startsWith('./') || spec.startsWith('../')) {
+          const dir = subpath.replace(/\/[^/]*$/, '')
+          // Add .js extension if missing (CDN requires it)
+          const specWithExt = /\.\w+$/.test(spec) ? spec : `${spec}.js`
+          const resolved = new URL(specWithExt, `${pkgBase}${dir}/`).href
+          return `${prefix}${quote}${resolved}${quote}`
+        }
+        if (spec.startsWith('/'))
+          return match
+        // Bare specifier → route through /tfs/ for dedup
+        return `${prefix}${quote}${origin}/tfs/${spec}${quote}`
+      }
+    )
+
+    await cache.put(
+      cacheKey,
+      new Response(body, { headers: { 'Content-Type': 'text/javascript' } })
+    )
 
     return new Response(body, {
       status: 200,
       headers: {
         'Content-Type': 'text/javascript',
         'X-TFS-Cache': 'miss',
-        'X-TFS-Source': cdnPath,
+        'X-TFS-Source': cdnUrl,
       },
     })
   } catch (err) {
