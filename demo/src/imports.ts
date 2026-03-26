@@ -33,13 +33,15 @@ export function extractImports(source: string): string[] {
 }
 
 /**
- * Rewrite bare import specifiers to /tfs/ URLs.
+ * Rewrite bare import specifiers to absolute /tfs/ URLs.
+ * Uses location.origin so it works in blob iframes.
  * Skips relative (./) and absolute (/) paths.
  *
  * Before: import { tosi } from 'tosijs'
- * After:  import { tosi } from '/tfs/tosijs'
+ * After:  import { tosi } from 'http://localhost:8699/tfs/tosijs'
  */
 export function rewriteImports(source: string): string {
+  const origin = typeof location !== 'undefined' ? location.origin : ''
   return source.replace(
     /((?:import|export)\s+(?:[\w\s{},*]+\s+from\s+)?)(['"])([^'"]+)\2/g,
     (match, prefix, quote, specifier) => {
@@ -52,7 +54,7 @@ export function rewriteImports(source: string): string {
       ) {
         return match
       }
-      return `${prefix}${quote}/tfs/${specifier}${quote}`
+      return `${prefix}${quote}${origin}/tfs/${specifier}${quote}`
     }
   )
 }
