@@ -89,6 +89,7 @@ export async function resolveImports(source: string): Promise<{
 /**
  * Register the TFS service worker.
  * Call this early in app startup.
+ * Auto-reloads on first install so the worker is active immediately.
  */
 export async function registerTFS(): Promise<boolean> {
   if (!('serviceWorker' in navigator)) {
@@ -97,18 +98,12 @@ export async function registerTFS(): Promise<boolean> {
   }
 
   try {
-    const reg = await navigator.serviceWorker.register('/tfs-worker.js', {
-      scope: '/',
-    })
-    console.log('TFS service worker registered (scope:', reg.scope + ')')
+    await navigator.serviceWorker.register('/tfs-worker.js', { scope: '/' })
 
-    // If no controller yet (first load), wait for it
+    // First load — no controller yet. Reload so the worker can intercept.
     if (!navigator.serviceWorker.controller) {
-      await new Promise<void>((resolve) => {
-        navigator.serviceWorker.addEventListener('controllerchange', () =>
-          resolve()
-        )
-      })
+      window.location.reload()
+      return false // won't reach here, but satisfies types
     }
 
     return true
