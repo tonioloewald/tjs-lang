@@ -18,7 +18,7 @@ import {
 } from 'tosijs-ui'
 import { codeMirror, CodeMirror } from '../../editors/codemirror/component'
 import { tjs } from '../../src/lang'
-import { extractImports, resolveImports } from './imports'
+import { rewriteImports } from './imports'
 import { generateDocsMarkdown } from './docs-utils'
 import {
   buildIframeDoc,
@@ -710,33 +710,15 @@ export class TSPlayground extends Component<TSPlaygroundParts> {
       const cssContent = this.parts.cssEditor.value
       const jsCode = this.lastJsCode
 
-      // Resolve imports
-      const imports = extractImports(jsCode)
-      let importMapScript = ''
-
-      if (imports.length > 0) {
-        this.log(`Resolving imports: ${imports.join(', ')}`)
-        const { importMap, errors } = await resolveImports(jsCode)
-
-        if (errors.length > 0) {
-          for (const err of errors) {
-            this.log(`Import error: ${err}`)
-          }
-        }
-
-        if (Object.keys(importMap.imports).length > 0) {
-          importMapScript = `<script type="importmap">${JSON.stringify(
-            importMap
-          )}</script>`
-        }
-      }
+      // Rewrite bare imports to /tfs/ URLs
+      const rewrittenCode = rewriteImports(jsCode)
 
       // Create iframe document
       const iframeDoc = buildIframeDoc({
         cssContent,
         htmlContent,
-        importMapScript,
-        jsCode,
+        importMapScript: '',
+        jsCode: rewrittenCode,
         darkMode: document.body.classList.contains('darkmode'),
       })
 

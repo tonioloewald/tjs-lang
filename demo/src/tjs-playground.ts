@@ -25,7 +25,7 @@ import {
 import { codeMirror, CodeMirror } from '../../editors/codemirror/component'
 import { tjs, generateDTS, type TJSTranspileOptions } from '../../src/lang'
 import { generateDocsMarkdown } from './docs-utils'
-import { extractImports, generateImportMap, resolveImports } from './imports'
+import { rewriteImports, extractImports } from './imports'
 import {
   buildIframeDoc,
   createIframeMessageHandler,
@@ -1259,33 +1259,13 @@ export class TJSPlayground extends Component<TJSPlaygroundParts> {
       const cssContent = this.parts.cssEditor.value
       const jsCode = this.lastTranspileResult.code
 
-      // Resolve imports from the transpiled code
-      const imports = extractImports(jsCode)
-      let importMapScript = ''
+      // Rewrite bare import specifiers to /tfs/ URLs
+      // The TFS service worker handles CDN resolution and caching
+      const rewrittenCode = rewriteImports(jsCode)
 
-      if (imports.length > 0) {
-        this.log(`Resolving imports: ${imports.join(', ')}`)
-        const { importMap, errors, localModules } = await resolveImports(jsCode)
-
-        if (errors.length > 0) {
-          for (const err of errors) {
-            this.log(`Import error: ${err}`)
-          }
-        }
-
-        console.log('[run] importMap:', JSON.stringify(importMap, null, 2))
-        if (Object.keys(importMap.imports).length > 0) {
-          importMapScript = `<script type="importmap">${JSON.stringify(
-            importMap
-          )}</script>`
-          console.log('[run] importMapScript:', importMapScript)
-        }
-      }
-
-      // Extract import statements from jsCode - they must be at the top of the module
-      // Matches: import ... from 'pkg', import 'pkg' (side-effect)
+      // Extract import statements — they must be at the top of the module
       const importStatements: string[] = []
-      const codeWithoutImports = jsCode.replace(
+      const codeWithoutImports = rewrittenCode.replace(
         /^import\s+(?:.*?from\s+)?['"][^'"]+['"];?\s*$/gm,
         (match) => {
           importStatements.push(match)
@@ -1297,7 +1277,7 @@ export class TJSPlayground extends Component<TJSPlaygroundParts> {
       const iframeDoc = buildIframeDoc({
         cssContent,
         htmlContent,
-        importMapScript,
+        importMapScript: '',
         jsCode: codeWithoutImports,
         importStatements,
         parentBindings: true,

@@ -1,89 +1,60 @@
 /**
  * Playground Import Resolver — TFS Edition
  *
- * Resolves bare import specifiers to /tfs/ URLs.
+ * Rewrites bare import specifiers to /tfs/ URLs.
  * The TFS service worker handles CDN resolution and caching.
  *
  * Flow:
  *   import { x } from 'tosijs@1.3.11'
- *   → import map: { "tosijs@1.3.11": "/tfs/tosijs@1.3.11" }
+ *   → rewritten to: import { x } from '/tfs/tosijs@1.3.11'
  *   → service worker intercepts /tfs/tosijs@1.3.11
  *   → fetches from jsdelivr CDN, caches, returns ESM
+ *
+ * No import maps needed.
  */
 
 /**
  * Extract bare import specifiers from source code.
- * Skips relative (./) and absolute (/) paths.
+ * Used by the test runner to resolve local modules.
  */
 export function extractImports(source: string): string[] {
   const imports: string[] = []
-
   const importRegex =
     /(?:import|export)\s+(?:[\w\s{},*]+\s+from\s+)?['"]([^'"]+)['"]/g
 
   let match
   while ((match = importRegex.exec(source)) !== null) {
     const specifier = match[1]
-    // Only resolve bare specifiers (not relative or absolute paths)
     if (!specifier.startsWith('.') && !specifier.startsWith('/')) {
       imports.push(specifier)
     }
   }
-
   return [...new Set(imports)]
 }
 
 /**
- * Generate an import map that routes bare specifiers to /tfs/ URLs.
- * The TFS service worker handles actual resolution and caching.
+ * Rewrite bare import specifiers to /tfs/ URLs.
+ * Skips relative (./) and absolute (/) paths.
+ *
+ * Before: import { tosi } from 'tosijs'
+ * After:  import { tosi } from '/tfs/tosijs'
  */
-export function generateImportMap(specifiers: string[]): {
-  imports: Record<string, string>
-} {
-  const imports: Record<string, string> = {}
-
-  for (const specifier of specifiers) {
-    // Already a /tfs/ URL or relative path — skip
-    if (specifier.startsWith('/') || specifier.startsWith('.')) continue
-    imports[specifier] = `/tfs/${specifier}`
-  }
-
-  return { imports }
-}
-
-/**
- * Resolve all imports in source code — returns import map for iframe.
- * Local modules (from module store) are resolved first, remainder go to /tfs/.
- */
-export async function resolveImports(source: string): Promise<{
-  importMap: { imports: Record<string, string> }
-  errors: string[]
-  localModules: string[]
-}> {
-  const specifiers = extractImports(source)
-  const errors: string[] = []
-  const imports: Record<string, string> = {}
-  const localModules: string[] = []
-
-  // Lazy import to avoid circular deps
-  const { resolveLocalImports } = await import('./module-store')
-
-  // First, resolve local modules (saved in playground)
-  try {
-    const localImports = await resolveLocalImports(specifiers)
-    Object.assign(imports, localImports)
-    localModules.push(...Object.keys(localImports))
-  } catch (error: any) {
-    errors.push(error.message)
-  }
-
-  // Route remaining to TFS service worker
-  const remaining = specifiers.filter((s) => !localModules.includes(s))
-  for (const specifier of remaining) {
-    imports[specifier] = `/tfs/${specifier}`
-  }
-
-  return { importMap: { imports }, errors, localModules }
+export function rewriteImports(source: string): string {
+  return source.replace(
+    /((?:import|export)\s+(?:[\w\s{},*]+\s+from\s+)?)(['"])([^'"]+)\2/g,
+    (match, prefix, quote, specifier) => {
+      // Skip relative and absolute paths — only rewrite bare specifiers
+      if (
+        specifier.startsWith('.') ||
+        specifier.startsWith('/') ||
+        specifier.startsWith('http://') ||
+        specifier.startsWith('https://')
+      ) {
+        return match
+      }
+      return `${prefix}${quote}/tfs/${specifier}${quote}`
+    }
+  )
 }
 
 /**
@@ -103,7 +74,7 @@ export async function registerTFS(): Promise<boolean> {
     // First load — no controller yet. Reload so the worker can intercept.
     if (!navigator.serviceWorker.controller) {
       window.location.reload()
-      return false // won't reach here, but satisfies types
+      return false
     }
 
     return true
