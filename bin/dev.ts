@@ -207,14 +207,18 @@ const server = Bun.serve({
       if (tfsPath.startsWith('@')) {
         const match = tfsPath.match(/^(@[^/]+\/[^/@]+)(?:@([^/]+))?(\/.*)?$/)
         if (match) {
-          name = match[1]; version = match[2] || 'latest'; subpath = match[3] || ''
+          name = match[1]
+          version = match[2] || 'latest'
+          subpath = match[3] || ''
         } else {
           return new Response('invalid tfs path', { status: 400 })
         }
       } else {
         const match = tfsPath.match(/^([^/@]+)(?:@([^/]+))?(\/.*)?$/)
         if (match) {
-          name = match[1]; version = match[2] || 'latest'; subpath = match[3] || ''
+          name = match[1]
+          version = match[2] || 'latest'
+          subpath = match[3] || ''
         } else {
           return new Response('invalid tfs path', { status: 400 })
         }
@@ -223,7 +227,9 @@ const server = Bun.serve({
       try {
         // If no subpath, resolve ESM entry point from package.json
         if (!subpath) {
-          const pkgRes = await fetch(`${CDN_BASE}/${name}@${version}/package.json`)
+          const pkgRes = await fetch(
+            `${CDN_BASE}/${name}@${version}/package.json`
+          )
           if (pkgRes.ok) {
             const pkg = await pkgRes.json()
             const exp = pkg.exports
@@ -233,12 +239,18 @@ const server = Bun.serve({
               // exports can be { ".": { import: "..." } } or { import: "..." }
               const dot = exp['.'] ?? exp
               if (typeof dot === 'string') entryPath = dot
-              else if (dot?.import) entryPath = typeof dot.import === 'string' ? dot.import : dot.import?.default
+              else if (dot?.import)
+                entryPath =
+                  typeof dot.import === 'string'
+                    ? dot.import
+                    : dot.import?.default
               else if (dot?.default) entryPath = dot.default
             }
             if (!entryPath) entryPath = pkg.module || pkg.main || '/index.js'
-            subpath = entryPath.startsWith('/') ? entryPath
-              : entryPath.startsWith('./') ? entryPath.slice(1)
+            subpath = entryPath!.startsWith('/')
+              ? entryPath!
+              : entryPath!.startsWith('./')
+              ? entryPath!.slice(1)
               : `/${entryPath}`
           }
         }
@@ -246,7 +258,9 @@ const server = Bun.serve({
         const cdnUrl = `${CDN_BASE}/${name}@${version}${subpath}`
         const cdnRes = await fetch(cdnUrl)
         if (!cdnRes.ok) {
-          return new Response(`package not found: ${name}@${version}`, { status: 404 })
+          return new Response(`package not found: ${name}@${version}`, {
+            status: 404,
+          })
         }
 
         let body = await cdnRes.text()
@@ -269,15 +283,17 @@ const server = Bun.serve({
               const resolved = new URL(specWithExt, `${pkgBase}${dir}/`).href
               return `${prefix}${quote}${resolved}${quote}`
             }
-            if (spec.startsWith('/'))
-              return match
+            if (spec.startsWith('/')) return match
             // Bare specifier → route through /tfs/
             return `${prefix}${quote}${origin}/tfs/${spec}${quote}`
           }
         )
 
         return new Response(body, {
-          headers: { 'Content-Type': 'application/javascript', 'Access-Control-Allow-Origin': '*' },
+          headers: {
+            'Content-Type': 'application/javascript',
+            'Access-Control-Allow-Origin': '*',
+          },
         })
       } catch (err: any) {
         return new Response(`tfs error: ${err.message}`, { status: 502 })

@@ -194,7 +194,13 @@ export function typeError(
  * Check if a value is a MonadicError (for internal use)
  */
 export function isMonadicError(value: unknown): value is MonadicError {
-  return value instanceof MonadicError
+  // Duck-type check instead of instanceof — works across module boundaries,
+  // inline runtimes, and different copies of the MonadicError class
+  return (
+    value instanceof Error &&
+    (value as any).name === 'MonadicError' &&
+    'path' in value
+  )
 }
 
 /**

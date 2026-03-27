@@ -13,6 +13,12 @@
 import { plugin } from 'bun'
 import { basename } from 'path'
 import { tjs } from '../lang'
+import { installRuntime } from '../lang/runtime'
+
+// Install TJS runtime before any modules evaluate.
+// Emitted .js files capture globalThis.__tjs at the top level,
+// so it must exist before they're imported.
+installRuntime()
 
 await plugin({
   name: 'tjs-loader',

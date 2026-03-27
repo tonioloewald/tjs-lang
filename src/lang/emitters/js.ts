@@ -814,29 +814,108 @@ export function transpileToJS(
     needsSafeEval
 
   if (needsRuntime) {
-    // Create isolated runtime instance for this module
-    // Falls back to shared global if createRuntime not available
-    let preamble =
-      'const __tjs = globalThis.__tjs?.createRuntime?.() ?? globalThis.__tjs;\n'
+    // Build standalone preamble — emitted JS must work without any setup.
+    // Use globalThis.__tjs if available (shared runtime), otherwise inline
+    // a minimal self-contained runtime. Only includes functions actually used.
+    const inlineParts: string[] = []
 
-    // Add destructured imports for runtime functions if used
-    const runtimeImports = [
-      needsIs && 'Is',
-      needsIsNot && 'IsNot',
-      needsEq && 'Eq',
-      needsNotEq && 'NotEq',
-      needsTypeOf && 'TypeOf',
-      needsType && 'Type',
-      needsGeneric && 'Generic',
-      needsFunctionPredicate && 'FunctionPredicate',
-      needsEnum && 'Enum',
-      needsUnion && 'Union',
-    ]
-      .filter(Boolean)
-      .join(', ')
-    if (runtimeImports) {
-      preamble += `const { ${runtimeImports} } = __tjs ?? {};\n`
+    // Core: MonadicError + typeError (needed by almost all validated functions)
+    if (needsTypeError) {
+      inlineParts.push(
+        `class MonadicError extends Error{constructor(m,p,e,a,c){super(m);this.name='MonadicError';this.path=p;this.expected=e;this.actual=a;this.callStack=c}}`,
+        `function typeError(p,e,v){const a=v===null?'null':typeof v;return new MonadicError('Expected '+e+" for '"+p+"', got "+a,p,e,a)}`,
+        `function isMonadicError(v){return v instanceof MonadicError}`
+      )
     }
+
+    // Stack tracking
+    if (needsStack) {
+      inlineParts.push(
+        `const __stack=[];function pushStack(n){__stack.push(n)}function popStack(){__stack.pop()}function getStack(){return[...__stack]}`
+      )
+    }
+
+    // Eq/NotEq (honest equality)
+    if (needsEq) {
+      inlineParts.push(
+        `function Eq(a,b){if(a instanceof String||a instanceof Number||a instanceof Boolean)a=a.valueOf();if(b instanceof String||b instanceof Number||b instanceof Boolean)b=b.valueOf();if(a===b)return true;if((a===null||a===undefined)&&(b===null||b===undefined))return true;return false}`
+      )
+    }
+    if (needsNotEq) {
+      inlineParts.push(`function NotEq(a,b){return!Eq(a,b)}`)
+    }
+
+    // TypeOf (honest typeof)
+    if (needsTypeOf) {
+      inlineParts.push(`function TypeOf(v){return v===null?'null':typeof v}`)
+    }
+
+    // Is/IsNot (structural equality)
+    if (needsIs) {
+      inlineParts.push(
+        `const tjsEquals=Symbol.for('tjs.equals');function Is(a,b){if(a!=null&&typeof a==='object'&&typeof a[tjsEquals]==='function')return a[tjsEquals](b);if(b!=null&&typeof b==='object'&&typeof b[tjsEquals]==='function')return b[tjsEquals](a);if(a!=null&&typeof a==='object'&&typeof a.Equals==='function')return a.Equals(b);if(b!=null&&typeof b==='object'&&typeof b.Equals==='function')return b.Equals(a);if(a instanceof String||a instanceof Number||a instanceof Boolean)a=a.valueOf();if(b instanceof String||b instanceof Number||b instanceof Boolean)b=b.valueOf();if(a===b)return true;if((a==null)&&(b==null))return true;if(a==null||b==null)return false;if(typeof a!==typeof b)return false;if(typeof a!=='object')return false;if(a instanceof Set&&b instanceof Set){if(a.size!==b.size)return false;for(const v of a)if(!b.has(v))return false;return true}if(a instanceof Map&&b instanceof Map){if(a.size!==b.size)return false;for(const[k,v]of a)if(!b.has(k)||!Is(v,b.get(k)))return false;return true}if(a instanceof Date&&b instanceof Date)return a.getTime()===b.getTime();if(a instanceof RegExp&&b instanceof RegExp)return a.toString()===b.toString();if(Array.isArray(a)&&Array.isArray(b)){if(a.length!==b.length)return false;return a.every((v,i)=>Is(v,b[i]))}if(Array.isArray(a)!==Array.isArray(b))return false;const ka=Object.keys(a),kb=Object.keys(b);if(ka.length!==kb.length)return false;return ka.every(k=>Is(a[k],b[k]))}`
+      )
+    }
+    if (needsIsNot) {
+      inlineParts.push(`function IsNot(a,b){return!Is(a,b)}`)
+    }
+
+    // Type system constructors — these need tosijs-schema for full
+    // functionality but we provide a working fallback
+    if (needsType) {
+      inlineParts.push(
+        `function Type(d,p,e){const t={description:d,__runtimeType:true};if(typeof p==='function'){t.check=p;t.default=e??null}else{const ex=e??p;t.default=ex;t.check=v=>{if(ex===null)return true;return typeof v===typeof ex}}return t}`
+      )
+    }
+    if (needsGeneric) {
+      inlineParts.push(
+        `function Generic(tp,pred,d){const f=(...args)=>{const t={description:d||'generic',__runtimeType:true,check:v=>pred(v,...args)};return t};f.__runtimeType=true;f.description=d;return f}`
+      )
+    }
+    if (needsFunctionPredicate) {
+      inlineParts.push(
+        `function FunctionPredicate(n,s,b){if(Array.isArray(s)&&b){const f=(...a)=>FunctionPredicate(n,b(...a));f.typeParamNames=s.map(p=>Array.isArray(p)?p[0]:p);f.description=n;f.__runtimeType=true;return f}const spec=typeof s==='function'?{}:s||{};return{description:n,params:spec.params||{},returns:spec.returns,returnContract:spec.returnContract||'assertReturns',check:v=>typeof v==='function',__runtimeType:true}}`
+      )
+    }
+    if (needsEnum) {
+      inlineParts.push(
+        `function Enum(d,m){const vals=typeof m==='object'?Object.values(m):[];return{description:d,check:v=>vals.includes(v),values:vals,__runtimeType:true}}`
+      )
+    }
+    if (needsUnion) {
+      inlineParts.push(
+        `function Union(d,...v){const vals=v.flat();return{description:d,check:x=>vals.includes(x),values:vals,__runtimeType:true}}`
+      )
+    }
+
+    // Build preamble: inline functions are declared at module scope,
+    // then __tjs either uses the shared runtime or references the inlined ones.
+    const inlineBlock =
+      inlineParts.length > 0 ? inlineParts.join(';\n') + ';\n' : ''
+
+    // Build __tjs object from inlined functions (fallback when no shared runtime)
+    const fallbackEntries: string[] = []
+    if (needsTypeError) fallbackEntries.push('typeError', 'isMonadicError')
+    if (needsStack) fallbackEntries.push('pushStack', 'popStack', 'getStack')
+    if (needsEq) fallbackEntries.push('Eq')
+    if (needsNotEq) fallbackEntries.push('NotEq')
+    if (needsTypeOf) fallbackEntries.push('TypeOf')
+    if (needsIs) fallbackEntries.push('Is', 'tjsEquals')
+    if (needsIsNot) fallbackEntries.push('IsNot')
+    if (needsType) fallbackEntries.push('Type')
+    if (needsGeneric) fallbackEntries.push('Generic')
+    if (needsFunctionPredicate) fallbackEntries.push('FunctionPredicate')
+    if (needsEnum) fallbackEntries.push('Enum')
+    if (needsUnion) fallbackEntries.push('Union')
+
+    const fallbackObj =
+      fallbackEntries.length > 0
+        ? `{${fallbackEntries.join(',')}}`
+        : 'undefined'
+
+    const preamble =
+      inlineBlock +
+      `const __tjs = globalThis.__tjs?.createRuntime?.() ?? ${fallbackObj};\n`
 
     code = preamble + code
   }

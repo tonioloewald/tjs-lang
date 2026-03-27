@@ -147,8 +147,10 @@ async function serveTfsRequest({ name, version, subpath }, request) {
         status: 404,
       })
     }
-    subpath = entry.startsWith('/') ? entry
-      : entry.startsWith('./') ? entry.slice(1)
+    subpath = entry.startsWith('/')
+      ? entry
+      : entry.startsWith('./')
+      ? entry.slice(1)
       : `/${entry}`
   }
 
@@ -194,8 +196,7 @@ async function serveTfsRequest({ name, version, subpath }, request) {
           const resolved = new URL(specWithExt, `${pkgBase}${dir}/`).href
           return `${prefix}${quote}${resolved}${quote}`
         }
-        if (spec.startsWith('/'))
-          return match
+        if (spec.startsWith('/')) return match
         // Bare specifier → route through /tfs/ for dedup
         return `${prefix}${quote}${origin}/tfs/${spec}${quote}`
       }
