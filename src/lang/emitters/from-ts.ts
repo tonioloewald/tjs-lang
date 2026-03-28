@@ -1712,6 +1712,10 @@ function transformClassToTJS(
     // Getters
     if (ts.isGetAccessorDeclaration(member) && member.name) {
       const propName = member.name.getText(sourceFile)
+      const isStatic = member.modifiers?.some(
+        (m) => m.kind === ts.SyntaxKind.StaticKeyword
+      )
+      const staticPrefix = isStatic ? 'static ' : ''
       const returnExample = member.type
         ? typeToExample(member.type, undefined, warnings, resolveCtx)
         : ''
@@ -1735,12 +1739,18 @@ function transformClassToTJS(
         body = replacePrivateRefs(transpiled.outputText.trim())
       }
 
-      members.push(`  get ${propName}()${returnAnnotation} ${body}`)
+      members.push(
+        `  ${staticPrefix}get ${propName}()${returnAnnotation} ${body}`
+      )
     }
 
     // Setters
     if (ts.isSetAccessorDeclaration(member) && member.name) {
       const propName = member.name.getText(sourceFile)
+      const isStatic = member.modifiers?.some(
+        (m) => m.kind === ts.SyntaxKind.StaticKeyword
+      )
+      const staticPrefix = isStatic ? 'static ' : ''
       const params = transformParams(member.parameters, sourceFile, warnings)
 
       let body = '{ }'
@@ -1755,7 +1765,9 @@ function transformClassToTJS(
         body = replacePrivateRefs(transpiled.outputText.trim())
       }
 
-      members.push(`  set ${propName}(${params.join(', ')}) ${body}`)
+      members.push(
+        `  ${staticPrefix}set ${propName}(${params.join(', ')}) ${body}`
+      )
     }
 
     // Properties with initializers (private fields, regular properties)

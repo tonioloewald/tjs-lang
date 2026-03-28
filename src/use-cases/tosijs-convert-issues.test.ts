@@ -175,6 +175,33 @@ const tag = Component.getTag()
     }).not.toThrow()
   })
 
+  test('static getter loses static keyword during conversion', () => {
+    // In tosijs component.ts:
+    //   class Component extends HTMLElement {
+    //     static _tagName: string | null = null
+    //     static get tagName() { return this._tagName }
+    //   }
+    //
+    // The converter emits `get tagName()` (instance getter) instead of
+    // `static get tagName()`. This overrides HTMLElement.tagName with a
+    // getter that returns null, crashing the constructor.
+
+    const source = `
+class Foo {
+  static _label: string = ''
+  static get label() { return this._label }
+  static set label(v: string) { this._label = v }
+}
+`
+    // The bug is in TS→TJS: static is dropped from getters/setters
+    const tjsResult = fromTS(source, {
+      emitTJS: true,
+      filename: 'static-getter.ts',
+    })
+    expect(tjsResult.code).toContain('static get label')
+    expect(tjsResult.code).toContain('static set label')
+  })
+
   test('shorthand property assignment in destructuring converts', () => {
     // component.test.ts fails to convert with:
     //   "Shorthand property assignments are valid only in destructuring patterns"
