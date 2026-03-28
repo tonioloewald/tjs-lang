@@ -1580,7 +1580,8 @@ function transformClassToTJS(
   node: ts.ClassDeclaration,
   sourceFile: ts.SourceFile,
   warnings?: string[],
-  ctx?: TypeResolutionContext
+  ctx?: TypeResolutionContext,
+  convertPrivateToHash = false
 ): string {
   // Build type parameter map from class-level generics
   let resolveCtx = ctx
@@ -1605,10 +1606,22 @@ function transformClassToTJS(
   )?.types[0]
   const extendsClause = extendsType?.expression?.getText(sourceFile)
 
-  // TS `private` is compile-time only — do NOT convert to JS `#` private fields.
-  // Converting changes semantics: external access via (obj as any)._field breaks.
-  // Just strip the keyword and keep the field name as-is.
+  // With TjsClass: convert TS private to JS # (true runtime privacy).
+  // Without TjsClass: strip the keyword, keep the name (TS private is compile-time only).
   const privateFieldMap = new Map<string, string>()
+  if (convertPrivateToHash) {
+    for (const member of node.members) {
+      if (ts.isPropertyDeclaration(member) && member.name) {
+        const propName = member.name.getText(sourceFile)
+        const isPrivate = member.modifiers?.some(
+          (m) => m.kind === ts.SyntaxKind.PrivateKeyword
+        )
+        if (isPrivate && !propName.startsWith('#')) {
+          privateFieldMap.set(propName, `#${propName}`)
+        }
+      }
+    }
+  }
 
   // Helper to replace private field references in transpiled code
   // Handles: this.prop, ClassName.prop (static), varName.prop (instance via variable)
@@ -2066,6 +2079,37 @@ interface TjsAnnotation {
   text?: string // raw text for predicate/example/declaration
 }
 
+/** Valid TJS mode directives */
+const VALID_TJS_MODES = new Set([
+  'TjsStrict',
+  'TjsEquals',
+  'TjsClass',
+  'TjsDate',
+  'TjsNoeval',
+  'TjsNoVar',
+  'TjsStandard',
+  'TjsSafeEval',
+])
+
+/**
+ * Extract TJS mode directives from /* @tjs ... * / comments.
+ * e.g. /* @tjs TjsClass TjsEquals * / → ['TjsClass', 'TjsEquals']
+ */
+function extractTjsModes(source: string): string[] {
+  const modes: string[] = []
+  const re = /\/\*\s*@tjs\s+((?:Tjs\w+\s*)+)\*\//g
+  let m
+  while ((m = re.exec(source)) !== null) {
+    const words = m[1].trim().split(/\s+/)
+    for (const word of words) {
+      if (VALID_TJS_MODES.has(word) && !modes.includes(word)) {
+        modes.push(word)
+      }
+    }
+  }
+  return modes
+}
+
 /**
  * Extract @tjs annotations from source comments.
  *
@@ -2231,6 +2275,11 @@ export function fromTS(
 
   // Extract @tjs annotations for enriching TJS output
   const tjsAnnotations = emitTJS ? extractTjsAnnotations(source) : []
+
+  // Extract TJS mode directives from /* @tjs TjsClass ... */ comments
+  const tjsModes = extractTjsModes(source)
+  const hasTjsClass =
+    tjsModes.includes('TjsClass') || tjsModes.includes('TjsStrict')
 
   // Parse TypeScript
   const sourceFile = ts.createSourceFile(
@@ -2575,7 +2624,13 @@ export function fromTS(
       const className = statement.name.getText(sourceFile)
       handled = true
       if (emitTJS) {
-        const classDecl = transformClassToTJS(statement, sourceFile, warnings)
+        const classDecl = transformClassToTJS(
+          statement,
+          sourceFile,
+          warnings,
+          undefined,
+          hasTjsClass
+        )
         tjsFunctions.push(classDecl)
       } else {
         classMetadata[className] = extractClassMetadata(
@@ -2675,9 +2730,10 @@ export function fromTS(
     // Emit any remaining doc comments (after all statements)
     emitDocCommentsBefore(Infinity)
 
-    // Include source file annotation for error reporting
+    // Include source file annotation and TJS mode directives
     const sourceFileName = filename || 'unknown'
-    const header = `/* tjs <- ${sourceFileName} */\n\n`
+    const modesLine = tjsModes.length > 0 ? tjsModes.join('\n') + '\n\n' : ''
+    const header = `${modesLine}/* tjs <- ${sourceFileName} */\n\n`
 
     // Append embedded test comments (they were extracted from original source)
     const testsSection =
