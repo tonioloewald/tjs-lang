@@ -92,6 +92,89 @@ console.log(result)
     expect(result).toBe('') // [].join(', ') === ''
   })
 
+  test('literal "any" emitted as runtime value in interface/type', () => {
+    // In tosijs form-validation.ts, an interface has a property typed as `any`:
+    //   interface FormValidation { validity: any; ... }
+    //
+    // The TS→TJS→JS pipeline emits a Type() call with the literal `any`
+    // as a JS value: Type('FormValidation', undefined, { validity: any | undefined })
+    // which throws: ReferenceError: any is not defined
+    //
+    // The converter should emit null or skip the field for `any` types.
+
+    const source = `
+export interface FormValidation {
+  internals: any
+  validity: any | undefined
+  validationMessage: string
+  willValidate: boolean
+}
+`
+    const tjsResult = fromTS(source, { emitTJS: true, filename: 'any-type.ts' })
+    const jsResult = tjs(tjsResult.code, {
+      filename: 'any-type.ts',
+      runTests: false,
+    })
+
+    // Should not contain bare `any` as a runtime identifier
+    const safeCode = jsResult.code.replace(/^export /gm, '')
+    expect(() => {
+      new Function(safeCode)()
+    }).not.toThrow()
+  })
+
+  test('TS private keyword should not convert to # (changes semantics)', () => {
+    // In tosijs component.ts:
+    //   class Component { private static _tagName: string = '' }
+    //   function elementCreator(componentClass: typeof Component) {
+    //     componentClass._tagName = 'my-tag'  // valid TS — private is compile-time only
+    //   }
+    //
+    // The converter rewrites `private _tagName` to `#_tagName`, which makes
+    // the field a true JS private field. External access then fails:
+    //   TypeError: Cannot access invalid private field
+    //
+    // TS `private` is compile-time access control, not JS `#` runtime privacy.
+    // The converter should leave `private` fields as regular fields (strip the keyword).
+
+    const source = `
+class Component {
+  private static _tagName: string = ''
+
+  static getTag() {
+    return this._tagName
+  }
+}
+
+function setup(cls: typeof Component) {
+  (cls as any)._tagName = 'my-tag'
+}
+
+setup(Component)
+const tag = Component.getTag()
+`
+    const tjsResult = fromTS(source, {
+      emitTJS: true,
+      filename: 'private-kw.ts',
+    })
+    const jsResult = tjs(tjsResult.code, {
+      filename: 'private-kw.ts',
+      runTests: false,
+    })
+
+    // Should not convert `private` to `#`
+    expect(jsResult.code).not.toContain('#_tagName')
+
+    // The code should execute without error
+    const safeCode = jsResult.code.replace(/^export /gm, '')
+    expect(() => {
+      const fn = new Function(safeCode + '\n return tag;')
+      const result = fn()
+      if (result !== 'my-tag')
+        throw new Error(`Expected 'my-tag', got '${result}'`)
+    }).not.toThrow()
+  })
+
   test('shorthand property assignment in destructuring converts', () => {
     // component.test.ts fails to convert with:
     //   "Shorthand property assignments are valid only in destructuring patterns"

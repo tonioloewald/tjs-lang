@@ -545,7 +545,14 @@ function typeToExample(
 
       if (nonNullTypes.length === 1 && (hasNull || hasUndefined)) {
         // Nullable type: T | null -> T | null
-        const baseExample = typeToExample(nonNullTypes[0], checker)
+        const baseExample = typeToExample(
+          nonNullTypes[0],
+          checker,
+          warnings,
+          ctx
+        )
+        // any | null/undefined is just any — don't emit 'any | null'
+        if (baseExample === 'any') return 'any'
         if (hasNull) return `${baseExample} | null`
         if (hasUndefined) return `${baseExample} | undefined`
       }
@@ -1598,19 +1605,10 @@ function transformClassToTJS(
   )?.types[0]
   const extendsClause = extendsType?.expression?.getText(sourceFile)
 
-  // First pass: collect private field mappings (TS private -> JS #)
+  // TS `private` is compile-time only — do NOT convert to JS `#` private fields.
+  // Converting changes semantics: external access via (obj as any)._field breaks.
+  // Just strip the keyword and keep the field name as-is.
   const privateFieldMap = new Map<string, string>()
-  for (const member of node.members) {
-    if (ts.isPropertyDeclaration(member) && member.name) {
-      const propName = member.name.getText(sourceFile)
-      const isPrivate = member.modifiers?.some(
-        (m) => m.kind === ts.SyntaxKind.PrivateKeyword
-      )
-      if (isPrivate && !propName.startsWith('#')) {
-        privateFieldMap.set(propName, `#${propName}`)
-      }
-    }
-  }
 
   // Helper to replace private field references in transpiled code
   // Handles: this.prop, ClassName.prop (static), varName.prop (instance via variable)

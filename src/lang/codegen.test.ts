@@ -211,7 +211,7 @@ class User {
       expect(code).toContain("constructor(name: '')")
     })
 
-    it('converts private fields to # syntax', () => {
+    it('strips private keyword without converting to # syntax', () => {
       const ts = `
 class Counter {
   private count: number = 0
@@ -220,9 +220,10 @@ class Counter {
 `
       const { code } = fromTS(ts, { emitTJS: true })
 
-      expect(code).toContain('#count')
-      expect(code).toContain('this.#count')
+      // private keyword stripped, field name kept as-is
       expect(code).not.toContain('private')
+      expect(code).not.toContain('#count')
+      expect(code).toContain('this.count')
     })
 
     it('converts method return types', () => {

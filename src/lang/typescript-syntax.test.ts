@@ -1463,7 +1463,9 @@ describe('fromTS — tosijs conversion edge cases', () => {
     expect(result.code).toContain('export class Foo')
   })
 
-  test('private fields replaced in all access patterns', () => {
+  test('private keyword stripped without converting to #', () => {
+    // TS private is compile-time only — converting to # changes semantics
+    // and breaks external access via (obj as any)._field
     const result = fromTS(
       `class Foo {
         private cache: any = null
@@ -1480,18 +1482,15 @@ describe('fromTS — tosijs conversion edge cases', () => {
       }`,
       { emitTJS: true }
     )
-    // this.cache -> this.#cache
-    expect(result.code).toContain('this.#cache')
-    // f.cache -> f.#cache (instance via variable)
-    expect(result.code).toContain('f.#cache')
-    // Foo.instances -> Foo.#instances (static via class name)
-    expect(result.code).toContain('Foo.#instances')
-    // No un-hashed private access left (dot followed by bare name)
-    expect(result.code).not.toContain('.cache')
-    expect(result.code).not.toContain('.instances')
+    // private keyword stripped
+    expect(result.code).not.toContain('private')
+    // field names kept as-is (no # conversion)
+    expect(result.code).not.toContain('#cache')
+    expect(result.code).not.toContain('#instances')
+    expect(result.code).toContain('this.cache')
   })
 
-  test('private _backing field with public getter preserved correctly', () => {
+  test('private _backing field kept as-is with getter/setter', () => {
     const result = fromTS(
       `class User {
         private _name: string = ''
@@ -1500,15 +1499,15 @@ describe('fromTS — tosijs conversion edge cases', () => {
       }`,
       { emitTJS: true }
     )
-    // Backing field renamed
-    expect(result.code).toContain('#_name')
-    expect(result.code).toContain('this.#_name')
-    // Public getter NOT renamed
+    // Backing field kept as _name (not #_name)
+    expect(result.code).not.toContain('#_name')
+    expect(result.code).toContain('this._name')
+    // Public getter/setter preserved
     expect(result.code).toContain('get name()')
     expect(result.code).toContain('set name(')
   })
 
-  test('private field name not confused with object literal key', () => {
+  test('private field name unchanged in object literals', () => {
     const result = fromTS(
       `class Store {
         private value: any = null
@@ -1518,10 +1517,9 @@ describe('fromTS — tosijs conversion edge cases', () => {
       }`,
       { emitTJS: true }
     )
-    // this.value → this.#value
-    expect(result.code).toContain('this.#value')
-    // object key { value: ... } stays as 'value' (not '#value')
-    expect(result.code).toContain('{ value:')
+    // this.value stays as-is (not this.#value)
+    expect(result.code).toContain('this.value')
+    expect(result.code).not.toContain('#value')
   })
 
   test('symbol type produces Symbol example', () => {
