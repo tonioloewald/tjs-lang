@@ -54,6 +54,44 @@ export type ObserverCallbackFunction = _PathCallbackFunction | _CallbackFunction
     }).not.toThrow()
   })
 
+  test('rest parameter called with no args rejected as non-array', () => {
+    // In tosijs elements.ts, element creators use rest params:
+    //   function create(...contents: ElementPart[]) { ... }
+    //
+    // Calling create() with no args is valid TS — contents becomes [].
+    // But tjs convert emits a type check that rejects undefined:
+    //   if (!Array.isArray(contents)) return typeError(...)
+    //
+    // This causes elements.input(), elements.div(), etc. to silently
+    // return a MonadicError instead of an HTMLElement, breaking all
+    // DOM-related tests.
+
+    const source = `
+function create(...contents: string[]): string {
+  return contents.join(', ')
+}
+
+const result = create()
+console.log(result)
+`
+    // Step 1: TS → TJS
+    const tjsResult = fromTS(source, {
+      emitTJS: true,
+      filename: 'rest-param.ts',
+    })
+
+    // Step 2: TJS → JS
+    const jsResult = tjs(tjsResult.code, {
+      filename: 'rest-param.ts',
+      runTests: false,
+    })
+
+    // Calling with no args should work — rest params default to []
+    const fn = new Function(jsResult.code + '\n return result;')
+    const result = fn()
+    expect(result).toBe('') // [].join(', ') === ''
+  })
+
   test('shorthand property assignment in destructuring converts', () => {
     // component.test.ts fails to convert with:
     //   "Shorthand property assignments are valid only in destructuring patterns"

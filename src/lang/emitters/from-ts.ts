@@ -1811,10 +1811,19 @@ function transformParams(
     const name = param.name.getText(sourceFile)
     // Skip TypeScript's `this` pseudo-parameter (declares `this` context type)
     if (name === 'this') continue
+    const isRest = !!param.dotDotDotToken
     const isOptional = !!param.questionToken || !!param.initializer
     const typeExample = typeToExample(param.type, undefined, warnings, ctx)
 
-    if (param.initializer) {
+    if (isRest) {
+      // Rest parameter: ...args: T[] → ...args: [example]
+      // typeToExample already converts T[] to [example], so use directly
+      if (typeExample === 'any' || typeExample === 'undefined') {
+        params.push(`...${name}: [null]`)
+      } else {
+        params.push(`...${name}: ${typeExample}`)
+      }
+    } else if (param.initializer) {
       // Has default value - use it directly
       const defaultText = param.initializer.getText(sourceFile)
       params.push(`${name} = ${defaultText}`)
