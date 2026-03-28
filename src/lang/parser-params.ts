@@ -343,10 +343,38 @@ export function transformParenExpressions(
     // Look for class method syntax: constructor(, methodName(, get name(, set name(
     // These appear inside class bodies and need param transformation
     // Only match if we're actually in a class body (proper context tracking)
+    // Must NOT match function calls in expressions (div(), span(), etc.)
     const methodMatch = source
       .slice(i)
       .match(/^(constructor|(?:get|set)\s+\w+|async\s+\w+|\w+)\s*\(/)
-    if (methodMatch && isInClassBody()) {
+    // Check that the preceding non-whitespace character indicates this is a
+    // declaration, not a function call in an expression.
+    // Method declarations follow: newline, {, ;, or start of file
+    // Function calls follow: = => , [ ( . operators etc.
+    const prevNonWs = (() => {
+      for (let k = result.length - 1; k >= 0; k--) {
+        if (!/\s/.test(result[k])) return result[k]
+      }
+      return '\n' // start of input
+    })()
+    // Method declarations can follow almost anything (property, }, ;, etc.)
+    // Function CALLS in expressions specifically follow: = => , [ (
+    const isMethodDecl =
+      prevNonWs !== '=' &&
+      prevNonWs !== ',' &&
+      prevNonWs !== '(' &&
+      prevNonWs !== '[' &&
+      prevNonWs !== '>' // catches =>
+    if (methodMatch && isInClassBody() && !isMethodDecl) {
+      // Not a method declaration (it's a function call in an expression).
+      // Skip past the identifier to prevent re-matching a suffix
+      // (e.g. 'div(' → skip 'div', don't let 'iv(' match next).
+      const skipLen = methodMatch[1].length
+      result += source.slice(i, i + skipLen)
+      i += skipLen
+      continue
+    }
+    if (methodMatch && isInClassBody() && isMethodDecl) {
       // We're actually in a class body - this is a method definition
       const methodPart = methodMatch[1]
       const matchLen = methodMatch[0].length

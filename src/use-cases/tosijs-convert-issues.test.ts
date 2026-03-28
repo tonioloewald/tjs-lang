@@ -202,11 +202,48 @@ class Foo {
     expect(tjsResult.code).toContain('static set label')
   })
 
-  test('shorthand property assignment in destructuring converts', () => {
-    // component.test.ts fails to convert with:
+  test('destructured arrow param in class property fails TJS parse', () => {
+    // In tosijs component.test.ts, a class property is an arrow function
+    // with a destructured parameter:
+    //
+    //   content = ({ div, span }: typeof elements) => [...]
+    //
+    // fromTS (TS→TJS) handles this fine, stripping the type annotation:
+    //   content = ({ div, span }) => [...]
+    //
+    // But the TJS parser then chokes on this with:
     //   "Shorthand property assignments are valid only in destructuring patterns"
     //
-    // Minimal pattern that triggers the error:
+    // The bug is in the TJS→JS step (tjs parser), not the TS→TJS step.
+
+    const source = `
+class TestComponent {
+  content = ({ div, span }: { div: Function, span: Function }) => [
+    div({ part: 'container' }, span({ part: 'label' }, 'Test')),
+  ]
+
+  render() {}
+}
+`
+    const tjsResult = fromTS(source, {
+      emitTJS: true,
+      filename: 'destructured-param.ts',
+    })
+
+    // TS→TJS works fine
+    expect(tjsResult.code).toContain('content')
+
+    // TJS→JS fails on the destructured arrow param in class property
+    expect(() => {
+      tjs(tjsResult.code, {
+        filename: 'destructured-param.ts',
+        runTests: false,
+      })
+    }).not.toThrow()
+  })
+
+  test('shorthand property assignment in destructuring converts', () => {
+    // Also from component.test.ts — default values in destructuring:
     //   const { mode = 'default' } = getConfig()
 
     const source = `
