@@ -2085,4 +2085,97 @@ describe('rest parameter metadata', () => {
     expect(info.params.args).toBeDefined()
     expect(info.params.args.type.kind).toBe('array')
   })
+
+  describe('TjsNoVar', () => {
+    it('rejects var declarations', () => {
+      expect(() => tjs('TjsNoVar\nvar x = 1')).toThrow(
+        'var is not allowed in TjsNoVar mode'
+      )
+    })
+
+    it('allows const and let', () => {
+      const result = tjs('TjsNoVar\nconst x = 1\nlet y = 2')
+      expect(result.code).toContain('const x = 1')
+      expect(result.code).toContain('let y = 2')
+    })
+
+    it('is included in TjsStrict', () => {
+      expect(() => tjs('TjsStrict\nvar x = 1')).toThrow('var is not allowed')
+    })
+  })
+
+  describe('const!', () => {
+    it('emits as plain const', () => {
+      const result = tjs('const! x = 42')
+      expect(result.code).toContain('const x = 42')
+      expect(result.code).not.toContain('const!')
+    })
+
+    it('allows reads on immutable bindings', () => {
+      const result = tjs('const! cfg = { port: 8080 }\nconsole.log(cfg.port)')
+      expect(result.code).toContain('cfg.port')
+    })
+
+    it('rejects property assignment', () => {
+      expect(() => tjs('const! cfg = { x: 1 }\ncfg.x = 2')).toThrow(
+        "Cannot mutate immutable binding 'cfg'"
+      )
+    })
+
+    it('rejects computed property assignment', () => {
+      expect(() => tjs("const! cfg = { x: 1 }\ncfg['x'] = 2")).toThrow(
+        "Cannot mutate immutable binding 'cfg'"
+      )
+    })
+
+    it('rejects compound assignment', () => {
+      expect(() => tjs('const! cfg = { x: 1 }\ncfg.x += 1')).toThrow(
+        "Cannot mutate immutable binding 'cfg'"
+      )
+    })
+
+    it('rejects increment/decrement', () => {
+      expect(() => tjs('const! cfg = { x: 1 }\ncfg.x++')).toThrow(
+        "Cannot mutate immutable binding 'cfg'"
+      )
+      expect(() => tjs('const! cfg = { x: 1 }\n++cfg.x')).toThrow(
+        "Cannot mutate immutable binding 'cfg'"
+      )
+    })
+
+    it('rejects delete', () => {
+      expect(() => tjs('const! cfg = { x: 1 }\ndelete cfg.x')).toThrow(
+        "Cannot mutate immutable binding 'cfg'"
+      )
+    })
+
+    it('rejects mutating array methods', () => {
+      expect(() => tjs('const! arr = [1, 2]\narr.push(3)')).toThrow(
+        "Cannot call mutating method on immutable binding 'arr'"
+      )
+      expect(() => tjs('const! arr = [1, 2]\narr.splice(0, 1)')).toThrow(
+        "Cannot call mutating method on immutable binding 'arr'"
+      )
+    })
+
+    it('allows non-mutating methods', () => {
+      const result = tjs(
+        'const! arr = [1, 2, 3]\nconst mapped = arr.map(x => x * 2)'
+      )
+      expect(result.code).toContain('arr.map')
+    })
+
+    it('tracks multiple const! bindings independently', () => {
+      // One mutable, one immutable
+      const result = tjs(
+        'const! frozen = { x: 1 }\nconst mutable = { y: 2 }\nmutable.y = 3'
+      )
+      expect(result.code).toContain('mutable.y = 3')
+
+      // Mutating the immutable one should fail
+      expect(() =>
+        tjs('const! frozen = { x: 1 }\nconst mutable = { y: 2 }\nfrozen.x = 3')
+      ).toThrow("Cannot mutate immutable binding 'frozen'")
+    })
+  })
 })

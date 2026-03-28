@@ -142,6 +142,8 @@ export interface TjsModes {
   tjsStandard: boolean
   /** TjsSafeEval: include Eval/SafeFunction in runtime for dynamic code execution */
   tjsSafeEval: boolean
+  /** TjsNoVar: var declarations are syntax errors */
+  tjsNoVar: boolean
 }
 
 /**

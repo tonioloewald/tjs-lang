@@ -2985,6 +2985,110 @@ export function validateNoDate(source: string): string {
  * Validate that eval and Function constructor are not used (TjsNoeval mode)
  * Note: Eval and SafeFunction from TJS runtime are allowed
  */
+/**
+ * Transform const! declarations to const and validate immutability
+ *
+ * const! declares compile-time immutable bindings. The object itself
+ * is not frozen at runtime (performance trap), but the transpiler
+ * rejects any code that attempts to mutate the binding's properties.
+ *
+ *   const! config = { debug: false, port: 8080 }
+ *   config.debug = true  // ERROR: Cannot mutate immutable binding 'config'
+ *   console.log(config.port)  // OK: reads are fine
+ *
+ * Emits as plain `const` — semantics are enforced at transpile time.
+ * When runtimes support records/tuples, const! can emit those instead.
+ */
+export function transformConstBang(source: string): string {
+  // Find all const! declarations and collect binding names
+  const immutableNames = new Set<string>()
+
+  // Match: const! name = ... or const! { a, b } = ... or const! [a, b] = ...
+  const constBangRe = /\bconst!\s+(\w+)\b/g
+  let m
+  while ((m = constBangRe.exec(source)) !== null) {
+    immutableNames.add(m[1])
+  }
+
+  if (immutableNames.size === 0) return source
+
+  // Replace const! with const
+  source = source.replace(/\bconst!\s+/g, 'const ')
+
+  // Strip comments before checking mutations (avoid false positives
+  // from code examples in TDoc comments)
+  const stripped = source
+    .replace(/\/\*[\s\S]*?\*\//g, '') // block comments
+    .replace(/\/\/[^\n]*/g, '') // line comments
+
+  // Check for mutations to immutable bindings
+  for (const name of immutableNames) {
+    // Property assignment: name.prop = ..., name[key] = ...
+    const assignRe = new RegExp(
+      `\\b${name}\\s*(?:\\.[\\w]+|\\[[^\\]]+\\])\\s*(?:=(?!=)|\\+\\+|--|\\+=|-=|\\*=|\\/=|%=|&&=|\\|\\|=|\\?\\?=|<<=|>>=|>>>=|\\^=|&=|\\|=)`,
+      'g'
+    )
+    if (assignRe.test(stripped)) {
+      throw new Error(
+        `Cannot mutate immutable binding '${name}'. ` +
+          `const! bindings are read-only at compile time.`
+      )
+    }
+
+    // Prefix increment/decrement: ++name.prop, --name.prop
+    const prefixRe = new RegExp(
+      `(?:\\+\\+|--)\\s*${name}\\s*(?:\\.[\\w]+|\\[[^\\]]+\\])`,
+      'g'
+    )
+    if (prefixRe.test(stripped)) {
+      throw new Error(
+        `Cannot mutate immutable binding '${name}'. ` +
+          `const! bindings are read-only at compile time.`
+      )
+    }
+
+    // delete name.prop
+    const deleteRe = new RegExp(
+      `\\bdelete\\s+${name}\\s*(?:\\.[\\w]+|\\[[^\\]]+\\])`,
+      'g'
+    )
+    if (deleteRe.test(stripped)) {
+      throw new Error(
+        `Cannot mutate immutable binding '${name}'. ` +
+          `const! bindings are read-only at compile time.`
+      )
+    }
+
+    // push/pop/splice/shift/unshift/sort/reverse/fill on the binding
+    const mutatingMethods =
+      'push|pop|splice|shift|unshift|sort|reverse|fill|copyWithin|set'
+    const methodRe = new RegExp(
+      `\\b${name}\\s*\\.\\s*(?:${mutatingMethods})\\s*\\(`,
+      'g'
+    )
+    if (methodRe.test(stripped)) {
+      throw new Error(
+        `Cannot call mutating method on immutable binding '${name}'. ` +
+          `const! bindings are read-only at compile time.`
+      )
+    }
+  }
+
+  return source
+}
+
+export function validateNoVar(source: string): string {
+  // Match var declarations at statement level (not inside strings/comments)
+  // Catches: var x, var x = ..., var {x} = ..., var [x] = ...
+  const varPattern = /(?<![a-zA-Z_$])\bvar\s+/
+  if (varPattern.test(source)) {
+    throw new Error(
+      'var is not allowed in TjsNoVar mode. Use const or let instead.'
+    )
+  }
+  return source
+}
+
 export function validateNoEval(source: string): string {
   // Match eval() calls - but not Eval() (capital E)
   // Use negative lookbehind to avoid matching inside words

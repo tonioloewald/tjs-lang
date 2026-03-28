@@ -47,6 +47,8 @@ import {
   extractAndRunTests,
   validateNoDate,
   validateNoEval,
+  validateNoVar,
+  transformConstBang,
   transformExtensionCalls,
 } from './parser-transforms'
 
@@ -86,6 +88,7 @@ export function preprocess(
     tjsNoeval: false,
     tjsStandard: false,
     tjsSafeEval: false,
+    tjsNoVar: false,
   }
 
   // Handle module-level safety directive: safety none | safety inputs | safety all
@@ -106,7 +109,7 @@ export function preprocess(
   // TjsStrict enables all TJS modes
   // Individual modes: TjsEquals, TjsClass, TjsDate, TjsNoeval, TjsStandard, TjsSafeEval
   const directivePattern =
-    /^(\s*(?:\/\/[^\n]*\n|\/\*[\s\S]*?\*\/\s*)*)\s*(TjsStrict|TjsEquals|TjsClass|TjsDate|TjsNoeval|TjsStandard|TjsSafeEval)\b/
+    /^(\s*(?:\/\/[^\n]*\n|\/\*[\s\S]*?\*\/\s*)*)\s*(TjsStrict|TjsEquals|TjsClass|TjsDate|TjsNoeval|TjsNoVar|TjsStandard|TjsSafeEval)\b/
 
   let match
   while ((match = source.match(directivePattern))) {
@@ -118,6 +121,7 @@ export function preprocess(
       tjsModes.tjsClass = true
       tjsModes.tjsDate = true
       tjsModes.tjsNoeval = true
+      tjsModes.tjsNoVar = true
       tjsModes.tjsStandard = true
     } else if (directive === 'TjsEquals') {
       tjsModes.tjsEquals = true
@@ -127,6 +131,8 @@ export function preprocess(
       tjsModes.tjsDate = true
     } else if (directive === 'TjsNoeval') {
       tjsModes.tjsNoeval = true
+    } else if (directive === 'TjsNoVar') {
+      tjsModes.tjsNoVar = true
     } else if (directive === 'TjsStandard') {
       tjsModes.tjsStandard = true
     } else if (directive === 'TjsSafeEval') {
@@ -147,6 +153,10 @@ export function preprocess(
   if (tjsModes.tjsStandard) {
     source = insertAsiProtection(source)
   }
+
+  // Transform const! declarations — validate immutability and emit as const
+  // Must happen before acorn parsing since const! is not valid JS
+  source = transformConstBang(source)
 
   // Transform Is/IsNot infix operators to function calls
   // a Is b -> Is(a, b)
@@ -246,6 +256,11 @@ export function preprocess(
   // Validate TjsNoeval mode - check for eval/Function usage
   if (tjsModes.tjsNoeval) {
     source = validateNoEval(source)
+  }
+
+  // Validate TjsNoVar mode - check for var declarations
+  if (tjsModes.tjsNoVar) {
+    source = validateNoVar(source)
   }
 
   // Rewrite extension method calls on known-type receivers

@@ -181,13 +181,25 @@ export function typeError(
   const actual = value === null ? 'null' : typeof value
   // Capture call stack in debug mode (getStack returns [] if not in debug mode)
   const stack = config.debug ? getStack() : undefined
-  return new MonadicError(
+  const err = new MonadicError(
     `Expected ${expected} for '${path}', got ${actual}`,
     path,
     expected,
     actual,
     stack
   )
+
+  // Log to console if configured (includes source location from path)
+  if (config.logTypeErrors) {
+    console.error(`[TJS TypeError] ${err.message}`)
+  }
+
+  // Throw instead of returning if configured (for debugging)
+  if (config.throwTypeErrors) {
+    throw err
+  }
+
+  return err
 }
 
 /**
@@ -243,6 +255,11 @@ export interface TJSConfig {
   requireReturnTypes?: boolean
   /** Maximum call stack size to prevent memory issues (default: 100) */
   maxStackSize?: number
+  /** Log type errors to console.error when they occur (default: false) */
+  logTypeErrors?: boolean
+  /** Throw type errors instead of returning them (default: false).
+   *  Useful for debugging — makes type errors impossible to ignore. */
+  throwTypeErrors?: boolean
 }
 
 /** Default configuration values */
@@ -1216,13 +1233,22 @@ export function createRuntime() {
   ): MonadicError {
     const actual = value === null ? 'null' : typeof value
     const stack = instanceConfig.debug ? instanceGetStack() : undefined
-    return new MonadicError(
+    const err = new MonadicError(
       `Expected ${expected} for '${path}', got ${actual}`,
       path,
       expected,
       actual,
       stack
     )
+
+    if (instanceConfig.logTypeErrors) {
+      console.error(`[TJS TypeError] ${err.message}`)
+    }
+    if (instanceConfig.throwTypeErrors) {
+      throw err
+    }
+
+    return err
   }
 
   function instanceError(

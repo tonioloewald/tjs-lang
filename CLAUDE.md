@@ -450,11 +450,30 @@ TjsEquals // == and != use honest equality (Eq/NotEq) — no coercion, unwraps b
 TjsClass // Classes callable without new, explicit new is banned
 TjsDate // Date is banned, use Timestamp/LegalDate instead
 TjsNoeval // eval() and new Function() are banned
+TjsNoVar // var declarations are syntax errors — use const or let
 TjsStandard // Newlines as statement terminators (prevents ASI footguns)
 TjsSafeEval // Include Eval/SafeFunction in runtime for dynamic code
 ```
 
 Multiple directives can be combined. Place them at the top of the file before any code.
+
+#### Compile-Time Immutability (`const!`)
+
+`const!` declares bindings whose properties cannot be mutated. Enforced at transpile time with zero runtime cost — emits as plain `const`.
+
+```typescript
+const! config = { debug: false, port: 8080 }
+console.log(config.port)   // OK — reads are fine
+config.debug = true        // ERROR at transpile time
+
+const! items = [1, 2, 3]
+items.map(x => x * 2)     // OK — non-mutating methods
+items.push(4)              // ERROR — mutating method
+```
+
+Catches: property assignment, compound assignment (`+=`), increment/decrement, `delete`, and mutating array methods (`push`, `pop`, `splice`, `shift`, `unshift`, `sort`, `reverse`, `fill`).
+
+When runtimes support records/tuples, `const!` can emit those instead.
 
 #### Equality Operators
 

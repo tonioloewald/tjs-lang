@@ -823,8 +823,8 @@ export function transpileToJS(
     if (needsTypeError) {
       inlineParts.push(
         `class MonadicError extends Error{constructor(m,p,e,a,c){super(m);this.name='MonadicError';this.path=p;this.expected=e;this.actual=a;this.callStack=c}}`,
-        `function typeError(p,e,v){const a=v===null?'null':typeof v;return new MonadicError('Expected '+e+" for '"+p+"', got "+a,p,e,a)}`,
-        `function isMonadicError(v){return v instanceof MonadicError}`
+        `function typeError(p,e,v){const a=v===null?'null':typeof v;const err=new MonadicError('Expected '+e+" for '"+p+"', got "+a,p,e,a);const c=globalThis.__tjs?.getConfig?.();if(c?.logTypeErrors)console.error('[TJS TypeError] '+err.message);if(c?.throwTypeErrors)throw err;return err}`,
+        `function isMonadicError(v){return v instanceof Error&&v.name==='MonadicError'&&'path' in v}`
       )
     }
 
