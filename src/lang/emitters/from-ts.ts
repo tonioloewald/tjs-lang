@@ -550,12 +550,14 @@ function typeToExample(
         if (hasUndefined) return `${baseExample} | undefined`
       }
 
-      // General union: deduplicate and use first non-any type
+      // General union: if any member can't be expressed (any), degrade
+      // the whole union to any — don't silently drop members
       const examples = unionType.types
-        .map((t) => typeToExample(t, checker))
+        .map((t) => typeToExample(t, checker, warnings, ctx))
         .filter((e, i, arr) => arr.indexOf(e) === i) // deduplicate
+      if (examples.some((e) => e === 'any')) return 'any'
       if (examples.length === 1) return examples[0]
-      if (examples.length > 0) return examples[0]
+      if (examples.length > 0) return examples.join(' | ')
       return 'undefined'
     }
 

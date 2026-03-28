@@ -1220,38 +1220,55 @@ function generateTypeCheckExpr(
   fieldPath: string,
   type: TypeDescriptor
 ): string | null {
+  let check: string | null
+
   switch (type.kind) {
     case 'string':
-      return `typeof ${fieldPath} !== 'string'`
+      check = `typeof ${fieldPath} !== 'string'`
+      break
     case 'number':
-      return `typeof ${fieldPath} !== 'number'`
+      check = `typeof ${fieldPath} !== 'number'`
+      break
     case 'integer':
-      return `(typeof ${fieldPath} !== 'number' || !Number.isInteger(${fieldPath}))`
+      check = `(typeof ${fieldPath} !== 'number' || !Number.isInteger(${fieldPath}))`
+      break
     case 'non-negative-integer':
-      return `(typeof ${fieldPath} !== 'number' || !Number.isInteger(${fieldPath}) || ${fieldPath} < 0)`
+      check = `(typeof ${fieldPath} !== 'number' || !Number.isInteger(${fieldPath}) || ${fieldPath} < 0)`
+      break
     case 'boolean':
-      return `typeof ${fieldPath} !== 'boolean'`
+      check = `typeof ${fieldPath} !== 'boolean'`
+      break
     case 'null':
-      return `${fieldPath} !== null`
+      return `${fieldPath} !== null` // nullable doesn't apply to null itself
     case 'undefined':
       return `${fieldPath} !== undefined`
     case 'array':
-      return `!Array.isArray(${fieldPath})`
+      check = `!Array.isArray(${fieldPath})`
+      break
     case 'object':
       // For nested objects, just check it's an object (deep validation is separate)
-      return `(typeof ${fieldPath} !== 'object' || ${fieldPath} === null || Array.isArray(${fieldPath}))`
+      check = `(typeof ${fieldPath} !== 'object' || ${fieldPath} === null || Array.isArray(${fieldPath}))`
+      break
     case 'union': {
       const checks = (type as any).members
         .map((m: TypeDescriptor) => generateTypeCheckExpr(fieldPath, m))
         .filter((c: string | null) => c !== null)
       if (checks.length === 0) return null
-      return `(${checks.join(' && ')})`
+      check = `(${checks.join(' && ')})`
+      break
     }
     case 'any':
       return null // No check needed
     default:
       return null
   }
+
+  // If type is nullable, allow null to pass
+  if (check && type.nullable) {
+    check = `(${fieldPath} !== null && ${check})`
+  }
+
+  return check
 }
 
 // Alias for backward compatibility with other functions that use this

@@ -20,7 +20,7 @@ import { emit } from './commands/emit'
 import { convert } from './commands/convert'
 import { test } from './commands/test'
 
-const VERSION = '0.6.31'
+const VERSION = '0.6.32'
 
 const HELP = `
 tjs - Typed JavaScript CLI
