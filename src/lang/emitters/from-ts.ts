@@ -557,7 +557,15 @@ function typeToExample(
         .filter((e, i, arr) => arr.indexOf(e) === i) // deduplicate
       if (examples.some((e) => e === 'any')) return 'any'
       if (examples.length === 1) return examples[0]
-      if (examples.length > 0) return examples.join(' | ')
+      if (examples.length > 0) {
+        // Check if any member is a complex expression (function call, new, etc.)
+        // that would make | ambiguous as JS bitwise OR
+        const hasComplexMember = examples.some(
+          (e) => /[()]/.test(e) || e.startsWith('new ')
+        )
+        if (hasComplexMember) return 'any'
+        return examples.join(' | ')
+      }
       return 'undefined'
     }
 
