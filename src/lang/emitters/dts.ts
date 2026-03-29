@@ -619,14 +619,23 @@ export function generateDTS(
       info.typeParams.length > 0 ? `<${info.typeParams.join(', ')}>` : ''
 
     if (info.declaration) {
-      // Emit a proper TypeScript interface from the declaration block
-      const declLines = info.declaration
-        .split('\n')
-        .map((l) => l.trim())
-        .filter((l) => l.length > 0)
-        .map((l) => `  ${l}`)
-        .join('\n')
-      lines.push(`export interface ${name}${typeParamStr} {\n${declLines}\n}`)
+      const declContent = info.declaration.trim()
+
+      // Check if this is a verbatim TS type (conditional, mapped, etc.)
+      // These start with "// TS:" and should be emitted as `export type`
+      const tsMatch = declContent.match(/^\/\/\s*TS:\s*(.+)$/s)
+      if (tsMatch) {
+        lines.push(`export type ${name}${typeParamStr} = ${tsMatch[1].trim()};`)
+      } else {
+        // Structured declaration — emit as interface
+        const declLines = declContent
+          .split('\n')
+          .map((l) => l.trim())
+          .filter((l) => l.length > 0)
+          .map((l) => `  ${l}`)
+          .join('\n')
+        lines.push(`export interface ${name}${typeParamStr} {\n${declLines}\n}`)
+      }
     } else {
       // No declaration block — emit any-based factory stub
       lines.push(
