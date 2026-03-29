@@ -731,16 +731,30 @@ export function generateDTS(
       : ''
 
     const tsParams = fpInfo.params
-      .map((p) => {
-        // Array example [X] → rest param ...name: X[]
-        if (p.example.startsWith('[') && p.example.endsWith(']')) {
+      .map((p, idx) => {
+        // Array example [X] on the LAST param → rest param ...name: X[]
+        // Non-last array params are regular array params
+        const isLast = idx === fpInfo.params.length - 1
+        if (p.example.startsWith('[') && p.example.endsWith(']') && isLast) {
           const inner = p.example.slice(1, -1).trim()
-          const innerType = inner
-            ? tpNames.has(inner)
+          const innerType =
+            !inner || inner === 'null'
+              ? 'any'
+              : tpNames.has(inner)
               ? inner
               : inferTSTypeFromExample(inner)
-            : 'any'
           return `...${p.name}: ${innerType}[]`
+        }
+        // Non-last array param → regular array type
+        if (p.example.startsWith('[') && p.example.endsWith(']')) {
+          const inner = p.example.slice(1, -1).trim()
+          const innerType =
+            !inner || inner === 'null'
+              ? 'any'
+              : tpNames.has(inner)
+              ? inner
+              : inferTSTypeFromExample(inner)
+          return `${p.name}: ${innerType}[]`
         }
         // In FunctionPredicate params, null means "any" (not literal null)
         const tsType =
