@@ -522,6 +522,47 @@ new Set([1,2]) Is new Set([2,1]) // true  (Sets are order-independent)
 - Priority: symbol → `.Equals` → structural comparison
 - `tjsEquals` is exported from `src/lang/runtime.ts` and available as `__tjs.tjsEquals`
 
+#### Honest typeof
+
+With `TjsEquals`, `typeof null` returns `'null'` instead of `'object'` (JS's oldest bug). All other typeof results are unchanged. Transforms `typeof expr` to `TypeOf(expr)`.
+
+#### Runtime Error Configuration
+
+```typescript
+import { configure } from 'tjs-lang/lang'
+
+// Log type errors to console when they occur (with source location)
+configure({ logTypeErrors: true })
+
+// Throw type errors instead of returning them (for debugging)
+configure({ throwTypeErrors: true })
+```
+
+Both work on the shared runtime and isolated `createRuntime()` instances.
+
+#### Standalone JS Output
+
+Emitted `.js` files work without any runtime setup. Each file includes an inline
+minimal runtime as fallback — only the functions actually used are included (~500
+bytes for a basic validated function). If `globalThis.__tjs` exists (shared runtime),
+it's used instead.
+
+#### `@tjs` Annotations in TypeScript Source
+
+TypeScript files can include `/* @tjs ... */` comments that `fromTS` uses to enrich
+the TJS output. The TS compiler ignores them as regular comments.
+
+```typescript
+/* @tjs TjsClass TjsEquals */           // Enable TJS mode directives
+/* @tjs-skip */                          // Skip this declaration entirely
+/* @tjs example: { name: 'Alice' } */   // Custom example value for Type
+/* @tjs predicate(x) { return x > 0 } */ // Custom runtime predicate
+/* @tjs declaration { value: T } */      // Declaration block for Generic .d.ts
+```
+
+Mode directives (`TjsClass`, `TjsEquals`, etc.) are emitted at the top of the `.tjs`
+output and gate features like `private → #` conversion (only with `TjsClass`).
+
 #### Polymorphic Functions
 
 Multiple function declarations with the same name are merged into a dispatcher:
@@ -767,21 +808,17 @@ The `docs/` directory contains real documentation (markdown), not build artifact
 
 `tjs(source)` returns `{ code, types, metadata, testResults, ... }`. Use `.code` to get the transpiled JavaScript string. This is a common mistake.
 
-### Known Gotcha: Running Emitted TJS Code in Tests
+### Running Emitted TJS Code
 
-Transpiled TJS code requires `globalThis.__tjs` to be set up with `createRuntime()` before execution:
+Emitted JS works standalone — no setup required. Each file includes an inline
+runtime fallback. If you want the shared runtime (e.g. for `isMonadicError` to
+work across files), install it first:
 
 ```typescript
-import { createRuntime } from '../lang/runtime'
+import { installRuntime, createRuntime } from '../lang/runtime'
+installRuntime() // or: globalThis.__tjs = createRuntime()
 
-const saved = globalThis.__tjs
-globalThis.__tjs = createRuntime()
-try {
-  const fn = new Function(result.code + '\nreturn fnName')()
-  // ... test fn
-} finally {
-  globalThis.__tjs = saved
-}
+const fn = new Function(result.code + '\nreturn fnName')()
+fn('valid') // works
+fn(42) // returns MonadicError (not thrown)
 ```
-
-A `{ standalone: true }` option to inline the ~1KB runtime is planned but not yet implemented.
