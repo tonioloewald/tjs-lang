@@ -1065,8 +1065,28 @@ function transformGenericInterfaceToGeneric(
   }
 
   const parts = [`description: '${typeName}'`, predicateLine]
+
   if (declarationAnnotation?.text) {
     parts.push(`declaration ${declarationAnnotation.text}`)
+  } else {
+    // Auto-generate declaration block from interface members
+    const declMembers: string[] = []
+    for (const member of node.members) {
+      if (ts.isPropertySignature(member) && member.name) {
+        const propName = member.name.getText(sourceFile)
+        const optional = member.questionToken ? '?' : ''
+        const typeText = member.type ? member.type.getText(sourceFile) : 'any'
+        declMembers.push(`${propName}${optional}: ${typeText}`)
+      } else if (ts.isMethodSignature(member) && member.name) {
+        // Method: name(params): returnType
+        const methodText = member.getText(sourceFile).trim()
+        // Remove trailing semicolon if present
+        declMembers.push(methodText.replace(/;$/, ''))
+      }
+    }
+    if (declMembers.length > 0) {
+      parts.push(`declaration {\n    ${declMembers.join('\n    ')}\n  }`)
+    }
   }
 
   return `Generic ${typeName}<${typeParams.join(', ')}> {\n  ${parts.join(
@@ -1366,18 +1386,41 @@ function transformGenericTypeAliasToGeneric(
     predicateLine = `predicate(${predicateParams}) { return true }`
   }
 
-  // Include original TS source as a block comment for manual enhancement
-  const originalSource = node.getText(sourceFile).trim()
-  const comment = `/* Original TS:\n${originalSource}\n*/`
-
   const parts = [`description: '${typeName}'`, predicateLine]
+
   if (declarationAnnotation?.text) {
     parts.push(`declaration ${declarationAnnotation.text}`)
+  } else {
+    // Auto-generate declaration block from the type body
+    const typeBody = node.type
+
+    if (typeBody && ts.isTypeLiteralNode(typeBody)) {
+      // Object type literal: { item: T; count: number }
+      const declMembers: string[] = []
+      for (const member of typeBody.members) {
+        if (ts.isPropertySignature(member) && member.name) {
+          const propName = member.name.getText(sourceFile)
+          const optional = member.questionToken ? '?' : ''
+          const typeText = member.type ? member.type.getText(sourceFile) : 'any'
+          declMembers.push(`${propName}${optional}: ${typeText}`)
+        } else if (ts.isMethodSignature(member) && member.name) {
+          declMembers.push(member.getText(sourceFile).trim().replace(/;$/, ''))
+        }
+      }
+      if (declMembers.length > 0) {
+        parts.push(`declaration {\n    ${declMembers.join('\n    ')}\n  }`)
+      }
+    } else if (typeBody) {
+      // Complex type (conditional, mapped, intersection, etc.)
+      // Pass through the TS type body verbatim
+      const typeText = typeBody.getText(sourceFile).trim()
+      parts.push(`declaration {\n    // TS: ${typeText}\n  }`)
+    }
   }
 
-  return `${comment}\nGeneric ${typeName}<${typeParams.join(
-    ', '
-  )}> {\n  ${parts.join('\n  ')}\n}`
+  return `Generic ${typeName}<${typeParams.join(', ')}> {\n  ${parts.join(
+    '\n  '
+  )}\n}`
 }
 
 function transformFunctionToTJS(
