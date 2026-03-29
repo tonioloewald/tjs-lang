@@ -1262,9 +1262,11 @@ function transformTypeAliasToType(
 
   const example = typeToExample(node.type, undefined, warnings)
 
-  // 'any' and 'undefined' — skip declaration (undeclared = any in TJS)
+  // 'any' and 'undefined' — preserve original TS body for DTS round-tripping
   if (example === 'any' || example === 'undefined') {
-    return `Type ${typeName} {}`
+    const originalType = node.type.getText(sourceFile).trim()
+    // Include the TS type body so the DTS emitter can recover it
+    return `Type ${typeName} {\n  // TS: ${originalType}\n}`
   }
 
   // For simple primitive types, use short form

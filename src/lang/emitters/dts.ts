@@ -453,6 +453,15 @@ function detectTypeDeclarations(source: string): Map<string, string> {
     result.set(m[1], m[2].trim())
   }
 
+  // Block with TS type body: Type Name { // TS: original type }
+  const tsBodyRe =
+    /^[ \t]*(?:export\s+)?Type\s+(\w+)\s*\{[^}]*\/\/\s*TS:\s*(.+?)(?:\n|\s*\})/gm
+  while ((m = tsBodyRe.exec(source)) !== null) {
+    if (!result.has(m[1])) {
+      result.set(m[1], `__ts__:${m[2].trim()}`) // prefix marks TS passthrough
+    }
+  }
+
   // Empty block: Type Name {} (no example — degraded type, emit as any)
   const emptyBlockRe = /^[ \t]*(?:export\s+)?Type\s+(\w+)\s*\{\s*\}/gm
   while ((m = emptyBlockRe.exec(source)) !== null) {
@@ -653,7 +662,11 @@ export function generateDTS(
     const isExported = hasAnyExport ? !!exportInfo?.exported : true
     if (!isExported) continue
 
-    if (exampleStr === '') {
+    if (exampleStr.startsWith('__ts__:')) {
+      // Preserved TS type body — emit verbatim as type alias
+      const tsBody = exampleStr.slice(7)
+      lines.push(`export type ${name} = ${tsBody};`)
+    } else if (exampleStr === '') {
       // Empty Type {} — degraded from TS type alias, emit as type = any
       lines.push(`export type ${name} = any;`)
     } else {
