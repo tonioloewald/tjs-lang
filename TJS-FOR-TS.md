@@ -328,9 +328,10 @@ const p = Point(10, 20)  // no 'new' needed
 
 Key differences:
 
-- `private` becomes `#` (native private fields)
+- `private` is stripped by default (TS `private` is compile-time only).
+  With `TjsClass`, `private` converts to `#` (true JS runtime privacy).
 - Type annotations become example values
-- `new` is optional (linter warns against it)
+- With `TjsClass`, `new` is optional (linter warns against it)
 
 ### Generics
 
@@ -400,8 +401,8 @@ or add complexity without proportional value:
 | --------------------------- | ----------------------------------------- |
 | `interface`                 | `Type` with example                       |
 | `type` aliases              | `Type`, `Union`, or `Enum`                |
-| Conditional types           | Use predicates in `Type`                  |
-| Mapped types                | Not needed (types are values)             |
+| Conditional types           | Preserved in `.d.ts` via declaration blocks |
+| Mapped types                | Preserved in `.d.ts` via declaration blocks |
 | `keyof`, `typeof`           | Use runtime `Object.keys()`, `typeOf()`   |
 | `Partial<T>`, `Pick<T>`     | Define the shape you need directly        |
 | Declaration files (`.d.ts`) | Generated from `__tjs` metadata (`--dts`) |
@@ -505,7 +506,7 @@ library needed.
 | **Runtime schemas** | Zod / io-ts / Ajv (separate)       | Built-in (types _are_ schemas)                                   |
 | **Linting**         | ESLint + plugins                   | Built-in linter (unused vars, unreachable code, no-explicit-new) |
 | **Testing**         | Vitest / Jest (separate files)     | Inline `test` blocks (transpile-time)                            |
-| **Equality**        | Reference-based only               | Structural `==`, identity `===`                                  |
+| **Equality**        | Reference-based only               | Honest `==` (no coercion), `Is`/`IsNot` (structural), `===` (identity) |
 | **Build toolchain** | tsc + bundler (webpack/Vite/etc)   | Transpiles in-browser, no build step                             |
 | **Debugging**       | Source maps (brittle, build bloat) | Functions carry source identity via `__tjs` metadata             |
 | **Documentation**   | JSDoc / TypeDoc (manual)           | Generated from `__tjs` metadata                                  |
@@ -534,22 +535,35 @@ function processOrder(order: { items: [{ id: 0, qty: 0 }], total: 0 }) -> { stat
 }
 ```
 
-### Structural Equality
+### Honest Equality
 
-TypeScript inherits JavaScript's broken equality. TJS fixes it:
+TypeScript inherits JavaScript's broken equality. TJS fixes it with `TjsEquals`:
 
 ```javascript
-// TJS
-[1, 2, 3] == [1, 2, 3]     // true (structural)
-{ a: 1 } == { a: 1 }        // true (structural)
-obj1 === obj2               // identity check (same reference)
+TjsEquals
+
+// == is honest: no coercion, unwraps boxed primitives
+0 == ''                           // false (JS: true!)
+[] == ![]                         // false (JS: true!)
+new String('foo') == 'foo'        // true  (unwraps boxed)
+null == undefined                 // true  (useful pattern preserved)
+typeof null                       // 'null' (JS: 'object')
+
+// == is fast: O(1) reference equality for objects/arrays
+{a: 1} == {a: 1}                 // false (different refs)
+[1, 2] == [1, 2]                 // false (different refs)
+
+// Is/IsNot for explicit deep structural comparison (O(n))
+{a: 1} Is {a: 1}                 // true
+[1, 2, 3] Is [1, 2, 3]           // true
+new Set([1,2]) Is new Set([2,1]) // true (Sets are order-independent)
+
+// === unchanged: identity check
+obj === obj                       // true (same reference)
 ```
 
-The implementation is optimized: it short-circuits on reference identity
-(`===` check first), then type comparison, then recursive structural
-comparison. For performance-critical hot paths comparing large objects,
-use `===` for identity checks or define an `.Equals` method on your class
-to control comparison logic.
+`==` fixes coercion without the performance cost of deep comparison.
+Use `Is`/`IsNot` when you explicitly need structural comparison.
 
 ### Monadic Errors
 
@@ -628,20 +642,36 @@ Use `!` (skip validation) only in hot loops where every microsecond counts
 and the data source is already trusted. In all other cases, the ~1.5x
 overhead of `safety inputs` is negligible compared to the bugs it catches.
 
-TypeScript has no equivalent. You're either all-in on types or you
-use `as any` to escape.
+#### Additional Safety Features
+
+```javascript
+TjsNoVar              // var declarations are syntax errors
+const! config = {}    // Compile-time immutability (zero runtime cost)
+
+// Debug mode: make type errors visible
+import { configure } from 'tjs-lang/lang'
+configure({ logTypeErrors: true })   // console.error on every type error
+configure({ throwTypeErrors: true }) // throw instead of returning MonadicError
+```
+
+TypeScript has no equivalent to most of these. You're either all-in on
+types or you use `as any` to escape.
 
 ---
 
 ## Automatic Conversion
 
-TJS includes a TypeScript-to-TJS converter:
+TJS includes a TypeScript-to-TJS converter that has been validated against
+the tosijs production codebase (35 files, 523 tests passing):
 
 ```bash
-# Convert a TypeScript file to TJS
+# Convert a single file
 bun src/cli/tjs.ts convert input.ts --emit-tjs > output.tjs
 
-# Convert and emit JavaScript directly
+# Convert a directory (produces .js + .d.ts + .md per file)
+bun src/cli/tjs.ts convert src/ -o tjs-out/
+
+# Emit JavaScript directly
 bun src/cli/tjs.ts convert input.ts > output.js
 ```
 
@@ -654,29 +684,61 @@ const result = fromTS(tsSource, { emitTJS: true })
 console.log(result.code) // TJS source
 ```
 
-The converter handles:
-
-- Primitive type annotations -> example values
-- Optional parameters -> default values
-- Interfaces -> `Type` declarations
-- String literal unions -> `Union` declarations
-- Enums -> `Enum` declarations
-- `private` -> `#` private fields
-- `Promise<T>` -> unwrapped return types
-
-It warns on constructs it can't convert cleanly (complex generics,
-utility types, conditional types).
-
-### What `fromTS` Handles Well
+### What `fromTS` Handles
 
 - Primitive annotations (`string`, `number`, `boolean`) → example values
-- Interfaces and type aliases → `Type` declarations
+- Interfaces → `Type` declarations with declaration blocks for `.d.ts` round-tripping
+- Generic interfaces → `Generic` with predicates + declaration blocks
+- Conditional/mapped types → preserved verbatim in declaration blocks
+- Function type aliases → `FunctionPredicate` declarations (including generics)
 - String literal unions → `Union`
 - Enums → `Enum`
-- Optional params, default values, private fields
-- Class declarations with constructor params
-- `Promise<T>` unwrapping
+- Rest parameters (`...args: T[]`) → preserved with `...` prefix
+- Nullable types (`T | null`) → proper null guards in runtime checks
+- Optional params, default values
+- `private` → stripped (or `#` with `TjsClass`)
+- Static getters/setters → `static` keyword preserved
+- `Promise<T>` → unwrapped return types
+- DOM types (130+) → `{}` (opaque object, keeps params annotated)
 - JSDoc comments → TDoc comments
+- Exported constants → type-inferred `.d.ts` entries
+
+### `@tjs` Annotations in TypeScript
+
+Annotate your `.ts` files with `/* @tjs ... */` comments to enrich
+the TJS output. The TS compiler ignores them.
+
+```typescript
+/* @tjs TjsClass TjsEquals */  // Enable TJS mode directives
+
+/* @tjs-skip */                  // Skip this type declaration
+export type Unboxed<T> = T extends { value: infer U } ? U : T
+
+/* @tjs predicate(x, T) { return typeof x === 'object' && T(x.value) } */
+export interface Box<T> { value: T }
+
+/* @tjs example: { name: 'Alice', age: 30 } */
+export interface User { name: string; age: number }
+
+/* @tjs declaration { value: T; path: string } */
+export interface BoxedProxy<T> { /* complex conditional type */ }
+```
+
+### `.d.ts` Generation
+
+The DTS emitter produces TypeScript declarations from TJS transpilation:
+
+```bash
+bun src/cli/tjs.ts emit input.tjs  # emits .js, .d.ts, .md
+```
+
+- **Interfaces with declaration blocks** → `export interface Name<T> { ... }`
+- **Conditional/mapped types** → `export type Name<T> = ...` (verbatim TS body)
+- **Function types** → `export type Name = (...) => T`
+- **Simple type aliases** → `export type Name = original TS body`
+- **Constants** → `export declare const Name: type`
+- **Functions** → `export declare function Name(params): returnType`
+- **Classes** → callable function + class declaration
 
 ### Constrained Generics
 
@@ -701,30 +763,24 @@ to `any` — there's genuinely no information about what T is.
 ### What `fromTS` Can't Fully Express
 
 TJS types are example values, not abstract type algebra. Some TypeScript
-patterns have no direct TJS equivalent:
+patterns have no direct TJS equivalent — but most now preserve their
+original TS body for `.d.ts` round-tripping:
 
-| TypeScript Pattern                         | What Happens                   | Workaround                         |
-| ------------------------------------------ | ------------------------------ | ---------------------------------- |
-| `Partial<T>`, `Required<T>`                | Emits warning, uses base shape | Define the shape you need directly |
-| `Pick<T, K>`, `Omit<T, K>`                 | Emits warning, uses full shape | Define the subset shape explicitly |
-| `ReturnType<T>`, `Parameters<T>`           | Drops to `any`                 | Use a concrete example value       |
-| Conditional types (`T extends U ? X : Y`)  | Drops to `any`                 | Use a `Type` with a predicate      |
-| Mapped types (`{ [K in keyof T]: ... }`)   | Drops to `any`                 | Define the shape literally         |
-| Template literal types (`` `${A}-${B}` ``) | Becomes `string`               | Use a `Type` with predicate        |
-| Deeply nested generics (`Foo<Bar<U>>`)     | Inner params become `any`      | Define concrete types at use sites |
-| Intersection types (`A & B`)               | Objects merged; else `any`     | Merge the shapes manually          |
-| `readonly`, `as const`                     | Stripped (JS doesn't enforce)  | Use `Object.freeze()` if needed    |
+| TypeScript Pattern                         | What Happens                                     |
+| ------------------------------------------ | ------------------------------------------------ |
+| Conditional types (`T extends U ? X : Y`)  | TS body preserved verbatim in `.d.ts`            |
+| Mapped types (`{ [K in keyof T]: ... }`)   | TS body preserved verbatim in `.d.ts`            |
+| Intersection types (`A & B`)               | TS body preserved verbatim in `.d.ts`            |
+| `Partial<T>`, `Required<T>`, `Pick`, `Omit`| Emits warning, uses base shape                   |
+| `ReturnType<T>`, `Parameters<T>`           | Drops to `any`                                   |
+| Template literal types (`` `${A}-${B}` ``) | Becomes `string`                                 |
+| Deeply nested generics (`Foo<Bar<U>>`)     | Inner params become `any`                        |
+| `readonly`, `as const`                     | Stripped (use `const!` for compile-time immutability) |
 
-This isn't a limitation of the converter — it's a design choice. TJS types
-are runtime values, so they can only express things that are checkable at
-runtime with a boolean test. TypeScript's type-level computation is powerful
-but produces types that vanish after compilation.
-
-**The practical impact:** If you're converting a library with heavy utility
-types (like `Pick<Omit<T, K>, Extract<keyof T, string>>`), the converter
-will emit warnings and fall back to `any` for the complex parts. The
-generated code still runs correctly — you just lose some type granularity
-that you can add back with TJS `Type` predicates where it matters.
+The key improvement: complex types that can't be expressed as runtime
+predicates are still preserved in the `.d.ts` output via declaration blocks.
+The runtime code works with `any`, but TypeScript consumers of your library
+get the full type information.
 
 ## Migration Strategy
 
