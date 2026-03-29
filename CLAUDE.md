@@ -553,11 +553,11 @@ TypeScript files can include `/* @tjs ... */` comments that `fromTS` uses to enr
 the TJS output. The TS compiler ignores them as regular comments.
 
 ```typescript
-/* @tjs TjsClass TjsEquals */           // Enable TJS mode directives
-/* @tjs-skip */                          // Skip this declaration entirely
-/* @tjs example: { name: 'Alice' } */   // Custom example value for Type
+/* @tjs TjsClass TjsEquals */ // Enable TJS mode directives
+/* @tjs-skip */ // Skip this declaration entirely
+/* @tjs example: { name: 'Alice' } */ // Custom example value for Type
 /* @tjs predicate(x) { return x > 0 } */ // Custom runtime predicate
-/* @tjs declaration { value: T } */      // Declaration block for Generic .d.ts
+/* @tjs declaration { value: T } */ // Declaration block for Generic .d.ts
 ```
 
 Mode directives (`TjsClass`, `TjsEquals`, etc.) are emitted at the top of the `.tjs`

@@ -416,6 +416,16 @@ export function Is(a: unknown, b: unknown): boolean {
   // Identical references or primitives
   if (a === b) return true
 
+  // NaN === NaN (JS gets this wrong)
+  if (
+    typeof a === 'number' &&
+    typeof b === 'number' &&
+    isNaN(a as number) &&
+    isNaN(b as number)
+  ) {
+    return true
+  }
+
   // null and undefined are equal to each other (nullish equality)
   // This preserves the useful JS pattern: x == null checks for both
   if ((a === null || a === undefined) && (b === null || b === undefined)) {
@@ -511,6 +521,21 @@ export function TypeOf(value: unknown): string {
   if (value === null) return 'null'
   return typeof value
 }
+
+/**
+ * Check if a number is bounded (finite and not NaN).
+ * The question you're actually asking when you reach for isNaN or isFinite.
+ *
+ * IsBounded(42)        → true
+ * IsBounded(3.14)      → true
+ * IsBounded(NaN)       → false
+ * IsBounded(Infinity)  → false
+ * IsBounded(-Infinity) → false
+ * IsBounded('hello')   → false
+ */
+export function IsBounded(value: unknown): boolean {
+  return typeof value === 'number' && isFinite(value) && !isNaN(value)
+}
 export function Eq(a: unknown, b: unknown): boolean {
   // Unwrap boxed primitives
   if (a instanceof String || a instanceof Number || a instanceof Boolean) {
@@ -522,6 +547,16 @@ export function Eq(a: unknown, b: unknown): boolean {
 
   // Identical references or primitives
   if (a === b) return true
+
+  // NaN === NaN (JS gets this wrong)
+  if (
+    typeof a === 'number' &&
+    typeof b === 'number' &&
+    isNaN(a as number) &&
+    isNaN(b as number)
+  ) {
+    return true
+  }
 
   // null and undefined are equal to each other
   if ((a === null || a === undefined) && (b === null || b === undefined)) {
@@ -1329,6 +1364,8 @@ export function createRuntime() {
     NotEq,
     // Honest typeof (typeof with TjsEquals)
     TypeOf,
+    // Number utilities
+    IsBounded,
     tjsEquals,
     // Extensions
     registerExtension: instanceRegisterExtension,
@@ -1410,6 +1447,8 @@ export const runtime = {
   NotEq,
   // Honest typeof (used by typeof with TjsEquals)
   TypeOf,
+  // Number utilities
+  IsBounded,
 }
 
 /**

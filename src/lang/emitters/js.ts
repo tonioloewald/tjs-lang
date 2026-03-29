@@ -796,6 +796,7 @@ export function transpileToJS(
   const needsFunctionPredicate = /\bFunctionPredicate\(/.test(code)
   const needsEnum = /\bEnum\(/.test(code)
   const needsUnion = /\bUnion\(/.test(code)
+  const needsIsBounded = code.includes('IsBounded(')
   const needsSafeEval = preprocessed.tjsModes.tjsSafeEval
 
   const needsRuntime =
@@ -811,6 +812,7 @@ export function transpileToJS(
     needsFunctionPredicate ||
     needsEnum ||
     needsUnion ||
+    needsIsBounded ||
     needsSafeEval
 
   if (needsRuntime) {
@@ -838,7 +840,7 @@ export function transpileToJS(
     // Eq/NotEq (honest equality)
     if (needsEq) {
       inlineParts.push(
-        `function Eq(a,b){if(a instanceof String||a instanceof Number||a instanceof Boolean)a=a.valueOf();if(b instanceof String||b instanceof Number||b instanceof Boolean)b=b.valueOf();if(a===b)return true;if((a===null||a===undefined)&&(b===null||b===undefined))return true;return false}`
+        `function Eq(a,b){if(a instanceof String||a instanceof Number||a instanceof Boolean)a=a.valueOf();if(b instanceof String||b instanceof Number||b instanceof Boolean)b=b.valueOf();if(a===b)return true;if(typeof a==='number'&&typeof b==='number'&&isNaN(a)&&isNaN(b))return true;if((a===null||a===undefined)&&(b===null||b===undefined))return true;return false}`
       )
     }
     if (needsNotEq) {
@@ -853,7 +855,7 @@ export function transpileToJS(
     // Is/IsNot (structural equality)
     if (needsIs) {
       inlineParts.push(
-        `const tjsEquals=Symbol.for('tjs.equals');function Is(a,b){if(a!=null&&typeof a==='object'&&typeof a[tjsEquals]==='function')return a[tjsEquals](b);if(b!=null&&typeof b==='object'&&typeof b[tjsEquals]==='function')return b[tjsEquals](a);if(a!=null&&typeof a==='object'&&typeof a.Equals==='function')return a.Equals(b);if(b!=null&&typeof b==='object'&&typeof b.Equals==='function')return b.Equals(a);if(a instanceof String||a instanceof Number||a instanceof Boolean)a=a.valueOf();if(b instanceof String||b instanceof Number||b instanceof Boolean)b=b.valueOf();if(a===b)return true;if((a==null)&&(b==null))return true;if(a==null||b==null)return false;if(typeof a!==typeof b)return false;if(typeof a!=='object')return false;if(a instanceof Set&&b instanceof Set){if(a.size!==b.size)return false;for(const v of a)if(!b.has(v))return false;return true}if(a instanceof Map&&b instanceof Map){if(a.size!==b.size)return false;for(const[k,v]of a)if(!b.has(k)||!Is(v,b.get(k)))return false;return true}if(a instanceof Date&&b instanceof Date)return a.getTime()===b.getTime();if(a instanceof RegExp&&b instanceof RegExp)return a.toString()===b.toString();if(Array.isArray(a)&&Array.isArray(b)){if(a.length!==b.length)return false;return a.every((v,i)=>Is(v,b[i]))}if(Array.isArray(a)!==Array.isArray(b))return false;const ka=Object.keys(a),kb=Object.keys(b);if(ka.length!==kb.length)return false;return ka.every(k=>Is(a[k],b[k]))}`
+        `const tjsEquals=Symbol.for('tjs.equals');function Is(a,b){if(a!=null&&typeof a==='object'&&typeof a[tjsEquals]==='function')return a[tjsEquals](b);if(b!=null&&typeof b==='object'&&typeof b[tjsEquals]==='function')return b[tjsEquals](a);if(a!=null&&typeof a==='object'&&typeof a.Equals==='function')return a.Equals(b);if(b!=null&&typeof b==='object'&&typeof b.Equals==='function')return b.Equals(a);if(a instanceof String||a instanceof Number||a instanceof Boolean)a=a.valueOf();if(b instanceof String||b instanceof Number||b instanceof Boolean)b=b.valueOf();if(a===b)return true;if(typeof a==='number'&&typeof b==='number'&&isNaN(a)&&isNaN(b))return true;if((a==null)&&(b==null))return true;if(a==null||b==null)return false;if(typeof a!==typeof b)return false;if(typeof a!=='object')return false;if(a instanceof Set&&b instanceof Set){if(a.size!==b.size)return false;for(const v of a)if(!b.has(v))return false;return true}if(a instanceof Map&&b instanceof Map){if(a.size!==b.size)return false;for(const[k,v]of a)if(!b.has(k)||!Is(v,b.get(k)))return false;return true}if(a instanceof Date&&b instanceof Date)return a.getTime()===b.getTime();if(a instanceof RegExp&&b instanceof RegExp)return a.toString()===b.toString();if(Array.isArray(a)&&Array.isArray(b)){if(a.length!==b.length)return false;return a.every((v,i)=>Is(v,b[i]))}if(Array.isArray(a)!==Array.isArray(b))return false;const ka=Object.keys(a),kb=Object.keys(b);if(ka.length!==kb.length)return false;return ka.every(k=>Is(a[k],b[k]))}`
       )
     }
     if (needsIsNot) {
@@ -887,6 +889,11 @@ export function transpileToJS(
         `function Union(d,...v){const vals=v.flat();return{description:d,check:x=>vals.includes(x),values:vals,__runtimeType:true}}`
       )
     }
+    if (needsIsBounded) {
+      inlineParts.push(
+        `function IsBounded(v){return typeof v==='number'&&isFinite(v)&&!isNaN(v)}`
+      )
+    }
 
     // Build preamble: inline functions are declared at module scope,
     // then __tjs either uses the shared runtime or references the inlined ones.
@@ -907,6 +914,7 @@ export function transpileToJS(
     if (needsFunctionPredicate) fallbackEntries.push('FunctionPredicate')
     if (needsEnum) fallbackEntries.push('Enum')
     if (needsUnion) fallbackEntries.push('Union')
+    if (needsIsBounded) fallbackEntries.push('IsBounded')
 
     const fallbackObj =
       fallbackEntries.length > 0

@@ -397,19 +397,19 @@ as `typeOf(null)` returns `'null'` and `typeOf(undefined)` returns
 TJS intentionally skips TypeScript features that don't survive to runtime
 or add complexity without proportional value:
 
-| TypeScript Feature          | TJS Equivalent                            |
-| --------------------------- | ----------------------------------------- |
-| `interface`                 | `Type` with example                       |
-| `type` aliases              | `Type`, `Union`, or `Enum`                |
+| TypeScript Feature          | TJS Equivalent                              |
+| --------------------------- | ------------------------------------------- |
+| `interface`                 | `Type` with example                         |
+| `type` aliases              | `Type`, `Union`, or `Enum`                  |
 | Conditional types           | Preserved in `.d.ts` via declaration blocks |
 | Mapped types                | Preserved in `.d.ts` via declaration blocks |
-| `keyof`, `typeof`           | Use runtime `Object.keys()`, `typeOf()`   |
-| `Partial<T>`, `Pick<T>`     | Define the shape you need directly        |
-| Declaration files (`.d.ts`) | Generated from `__tjs` metadata (`--dts`) |
-| `as` type assertions        | Not needed (values are checked)           |
-| `any` escape hatch          | `safety none` per-module or `!` per-fn    |
-| Decorators                  | Not supported                             |
-| `namespace`                 | Use modules                               |
+| `keyof`, `typeof`           | Use runtime `Object.keys()`, `typeOf()`     |
+| `Partial<T>`, `Pick<T>`     | Define the shape you need directly          |
+| Declaration files (`.d.ts`) | Generated from `__tjs` metadata (`--dts`)   |
+| `as` type assertions        | Not needed (values are checked)             |
+| `any` escape hatch          | `safety none` per-module or `!` per-fn      |
+| Decorators                  | Not supported                               |
+| `namespace`                 | Use modules                                 |
 
 The philosophy: if a type feature doesn't do something at runtime, it's
 complexity without payoff.
@@ -500,17 +500,17 @@ library needed.
 
 ### Tooling Comparison
 
-| Concern             | TypeScript                         | TJS                                                              |
-| ------------------- | ---------------------------------- | ---------------------------------------------------------------- |
-| **Type checking**   | `tsc` (compile-time only)          | Runtime validation (survives build)                              |
-| **Runtime schemas** | Zod / io-ts / Ajv (separate)       | Built-in (types _are_ schemas)                                   |
-| **Linting**         | ESLint + plugins                   | Built-in linter (unused vars, unreachable code, no-explicit-new) |
-| **Testing**         | Vitest / Jest (separate files)     | Inline `test` blocks (transpile-time)                            |
+| Concern             | TypeScript                         | TJS                                                                    |
+| ------------------- | ---------------------------------- | ---------------------------------------------------------------------- |
+| **Type checking**   | `tsc` (compile-time only)          | Runtime validation (survives build)                                    |
+| **Runtime schemas** | Zod / io-ts / Ajv (separate)       | Built-in (types _are_ schemas)                                         |
+| **Linting**         | ESLint + plugins                   | Built-in linter (unused vars, unreachable code, no-explicit-new)       |
+| **Testing**         | Vitest / Jest (separate files)     | Inline `test` blocks (transpile-time)                                  |
 | **Equality**        | Reference-based only               | Honest `==` (no coercion), `Is`/`IsNot` (structural), `===` (identity) |
-| **Build toolchain** | tsc + bundler (webpack/Vite/etc)   | Transpiles in-browser, no build step                             |
-| **Debugging**       | Source maps (brittle, build bloat) | Functions carry source identity via `__tjs` metadata             |
-| **Documentation**   | JSDoc / TypeDoc (manual)           | Generated from `__tjs` metadata                                  |
-| **Editor support**  | Mature (VSCode, etc)               | Monaco/CodeMirror/Ace + VSCode/Cursor extensions                 |
+| **Build toolchain** | tsc + bundler (webpack/Vite/etc)   | Transpiles in-browser, no build step                                   |
+| **Debugging**       | Source maps (brittle, build bloat) | Functions carry source identity via `__tjs` metadata                   |
+| **Documentation**   | JSDoc / TypeDoc (manual)           | Generated from `__tjs` metadata                                        |
+| **Editor support**  | Mature (VSCode, etc)               | Monaco/CodeMirror/Ace + VSCode/Cursor extensions                       |
 
 ## What TJS Has That TypeScript Doesn't
 
@@ -709,19 +709,26 @@ Annotate your `.ts` files with `/* @tjs ... */` comments to enrich
 the TJS output. The TS compiler ignores them.
 
 ```typescript
-/* @tjs TjsClass TjsEquals */  // Enable TJS mode directives
+/* @tjs TjsClass TjsEquals */ // Enable TJS mode directives
 
-/* @tjs-skip */                  // Skip this type declaration
+/* @tjs-skip */ // Skip this type declaration
 export type Unboxed<T> = T extends { value: infer U } ? U : T
 
 /* @tjs predicate(x, T) { return typeof x === 'object' && T(x.value) } */
-export interface Box<T> { value: T }
+export interface Box<T> {
+  value: T
+}
 
 /* @tjs example: { name: 'Alice', age: 30 } */
-export interface User { name: string; age: number }
+export interface User {
+  name: string
+  age: number
+}
 
 /* @tjs declaration { value: T; path: string } */
-export interface BoxedProxy<T> { /* complex conditional type */ }
+export interface BoxedProxy<T> {
+  /* complex conditional type */
+}
 ```
 
 ### `.d.ts` Generation
@@ -766,16 +773,16 @@ TJS types are example values, not abstract type algebra. Some TypeScript
 patterns have no direct TJS equivalent — but most now preserve their
 original TS body for `.d.ts` round-tripping:
 
-| TypeScript Pattern                         | What Happens                                     |
-| ------------------------------------------ | ------------------------------------------------ |
-| Conditional types (`T extends U ? X : Y`)  | TS body preserved verbatim in `.d.ts`            |
-| Mapped types (`{ [K in keyof T]: ... }`)   | TS body preserved verbatim in `.d.ts`            |
-| Intersection types (`A & B`)               | TS body preserved verbatim in `.d.ts`            |
-| `Partial<T>`, `Required<T>`, `Pick`, `Omit`| Emits warning, uses base shape                   |
-| `ReturnType<T>`, `Parameters<T>`           | Drops to `any`                                   |
-| Template literal types (`` `${A}-${B}` ``) | Becomes `string`                                 |
-| Deeply nested generics (`Foo<Bar<U>>`)     | Inner params become `any`                        |
-| `readonly`, `as const`                     | Stripped (use `const!` for compile-time immutability) |
+| TypeScript Pattern                          | What Happens                                          |
+| ------------------------------------------- | ----------------------------------------------------- |
+| Conditional types (`T extends U ? X : Y`)   | TS body preserved verbatim in `.d.ts`                 |
+| Mapped types (`{ [K in keyof T]: ... }`)    | TS body preserved verbatim in `.d.ts`                 |
+| Intersection types (`A & B`)                | TS body preserved verbatim in `.d.ts`                 |
+| `Partial<T>`, `Required<T>`, `Pick`, `Omit` | Emits warning, uses base shape                        |
+| `ReturnType<T>`, `Parameters<T>`            | Drops to `any`                                        |
+| Template literal types (`` `${A}-${B}` ``)  | Becomes `string`                                      |
+| Deeply nested generics (`Foo<Bar<U>>`)      | Inner params become `any`                             |
+| `readonly`, `as const`                      | Stripped (use `const!` for compile-time immutability) |
 
 The key improvement: complex types that can't be expressed as runtime
 predicates are still preserved in the `.d.ts` output via declaration blocks.
