@@ -453,6 +453,14 @@ function detectTypeDeclarations(source: string): Map<string, string> {
     result.set(m[1], m[2].trim())
   }
 
+  // Empty block: Type Name {} (no example — degraded type, emit as any)
+  const emptyBlockRe = /^[ \t]*(?:export\s+)?Type\s+(\w+)\s*\{\s*\}/gm
+  while ((m = emptyBlockRe.exec(source)) !== null) {
+    if (!result.has(m[1])) {
+      result.set(m[1], '') // empty string signals "any"
+    }
+  }
+
   return result
 }
 
@@ -503,6 +511,57 @@ function detectGenerics(source: string): Map<string, GenericInfo> {
     result.set(name, { typeParams, declaration })
   }
   return result
+}
+
+/** Info about a const/let/var declaration */
+interface VarDeclInfo {
+  name: string
+  value: string
+  kind: 'const' | 'let' | 'var'
+}
+
+/** Detect exported const/let/var declarations and their initializer values */
+function detectVarDeclarations(source: string): VarDeclInfo[] {
+  const result: VarDeclInfo[] = []
+  const re =
+    /^[ \t]*export\s+(?:default\s+)?(const|let|var)\s+(\w+)\s*(?::\s*\w+\s*)?=\s*(.+)/gm
+  let m
+  while ((m = re.exec(source)) !== null) {
+    // Get the value — may span multiple lines for objects/arrays
+    let value = m[3].trim()
+    // Strip trailing semicolons
+    if (value.endsWith(';')) value = value.slice(0, -1).trim()
+    result.push({ name: m[2], value, kind: m[1] as 'const' | 'let' | 'var' })
+  }
+  return result
+}
+
+/** Infer a TS type from a const initializer value */
+function inferConstType(value: string): string {
+  // String literal
+  if (/^['"]/.test(value)) return 'string'
+  // Template literal
+  if (value.startsWith('`')) return 'string'
+  // Boolean
+  if (value === 'true' || value === 'false') return 'boolean'
+  // Number
+  if (/^[+-]?\d+(\.\d+)?$/.test(value)) return 'number'
+  // Symbol
+  if (value.startsWith('Symbol(') || value.startsWith('Symbol.'))
+    return 'symbol'
+  // Array
+  if (value.startsWith('[')) return 'any[]'
+  // new Map/Set/WeakMap etc.
+  if (value.startsWith('new WeakMap')) return 'WeakMap<any, any>'
+  if (value.startsWith('new Map')) return 'Map<any, any>'
+  if (value.startsWith('new Set')) return 'Set<any>'
+  if (value.startsWith('new ')) return 'any'
+  // Object/Record
+  if (value.startsWith('{')) return 'Record<string, any>'
+  // null/undefined
+  if (value === 'null') return 'null'
+  if (value === 'undefined') return 'undefined'
+  return 'any'
 }
 
 /**
@@ -594,14 +653,19 @@ export function generateDTS(
     const isExported = hasAnyExport ? !!exportInfo?.exported : true
     if (!isExported) continue
 
-    const tsType = inferTSTypeFromExample(exampleStr)
-    lines.push(
-      `export declare const ${name}: {` +
-        ` check(value: any): boolean;` +
-        ` default: ${tsType};` +
-        ` (value: any): boolean;` +
-        ` };`
-    )
+    if (exampleStr === '') {
+      // Empty Type {} — degraded from TS type alias, emit as type = any
+      lines.push(`export type ${name} = any;`)
+    } else {
+      const tsType = inferTSTypeFromExample(exampleStr)
+      lines.push(
+        `export declare const ${name}: {` +
+          ` check(value: any): boolean;` +
+          ` default: ${tsType};` +
+          ` (value: any): boolean;` +
+          ` };`
+      )
+    }
     emitted.add(name)
   }
 
@@ -668,15 +732,31 @@ export function generateDTS(
 
     const tsParams = fpInfo.params
       .map((p) => {
-        const tsType = tpNames.has(p.example)
-          ? p.example
-          : inferTSTypeFromExample(p.example)
+        // Array example [X] → rest param ...name: X[]
+        if (p.example.startsWith('[') && p.example.endsWith(']')) {
+          const inner = p.example.slice(1, -1).trim()
+          const innerType = inner
+            ? tpNames.has(inner)
+              ? inner
+              : inferTSTypeFromExample(inner)
+            : 'any'
+          return `...${p.name}: ${innerType}[]`
+        }
+        // In FunctionPredicate params, null means "any" (not literal null)
+        const tsType =
+          p.example === 'null'
+            ? 'any'
+            : tpNames.has(p.example)
+            ? p.example
+            : inferTSTypeFromExample(p.example)
         return `${p.name}: ${tsType}`
       })
       .join(', ')
     const tsReturn =
       fpInfo.returns !== undefined
-        ? tpNames.has(fpInfo.returns)
+        ? fpInfo.returns === 'null'
+          ? 'any'
+          : tpNames.has(fpInfo.returns)
           ? fpInfo.returns
           : inferTSTypeFromExample(fpInfo.returns)
         : 'void'
@@ -684,6 +764,20 @@ export function generateDTS(
       `export type ${name}${typeParamStr} = (${tsParams}) => ${tsReturn};`
     )
     emitted.add(name)
+  }
+
+  // Emit exported const/let/var declarations
+  const varDecls = detectVarDeclarations(source)
+  for (const decl of varDecls) {
+    if (emitted.has(decl.name)) continue
+
+    const exportInfo = exports.get(decl.name)
+    const isExported = hasAnyExport ? !!exportInfo?.exported : true
+    if (!isExported) continue
+
+    const tsType = inferConstType(decl.value)
+    lines.push(`export declare const ${decl.name}: ${tsType};`)
+    emitted.add(decl.name)
   }
 
   if (options.moduleName) {
