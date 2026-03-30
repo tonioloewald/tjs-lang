@@ -1,85 +1,112 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 660 380" font-family="system-ui, -apple-system, sans-serif">
+  <style>
+    /* TJS Brand Palette */
+    .bg { fill: #fafafa; stroke: #e4e4e4; }
+
+    .section-compile { fill: white; stroke: #3da8f4; stroke-width: 1.5; }
+    .section-runtime { fill: white; stroke: #181340; stroke-width: 1.5; }
+    .section-label-compile { fill: #3da8f4; font-size: 12px; font-weight: 700; letter-spacing: 1px; }
+    .section-label-runtime { fill: #181340; font-size: 12px; font-weight: 700; letter-spacing: 1px; }
+
+    .box-code { fill: #f8f8f8; stroke: #9e9e9e; }
+    .box-action { fill: #eef6ff; stroke: #3da8f4; stroke-width: 1.5; }
+    .box-error { fill: #fff3f3; stroke: #ff1c24; stroke-width: 1.5; }
+    .box-pass { fill: #f0fff5; stroke: #006736; stroke-width: 1.5; }
+    .box-metadata { fill: #f8f8f8; stroke: #9e9e9e; }
+
+    .diamond { fill: #fffbe6; stroke: #fdbe52; stroke-width: 1.5; }
+
+    .arrow { stroke: #9e9e9e; stroke-width: 1.5; fill: none; }
+    .arrow-pass { stroke: #006736; stroke-width: 1.5; fill: none; }
+    .arrow-fail { stroke: #ff1c24; stroke-width: 1.5; fill: none; }
+
+    .label { font-size: 13px; font-weight: 500; }
+    .label-sm { font-size: 11px; }
+    .label-xs { font-size: 9px; }
+    .label-mono { font-size: 11px; font-family: monospace; }
+    .label-mono-sm { font-size: 12px; font-family: monospace; }
+
+    .text-action { fill: #1a6ab5; }
+    .text-dark { fill: #444; }
+    .text-muted { fill: #999; }
+    .text-pass { fill: #006736; font-size: 10px; font-weight: 600; }
+    .text-fail { fill: #ff1c24; font-size: 10px; font-weight: 600; }
+    .text-error { fill: #cc1118; }
+
+    .shadow { filter: drop-shadow(0 2px 3px rgba(0,0,0,0.1)); }
+
+    .arrowhead { fill: #9e9e9e; }
+    .arrowhead-pass { fill: #006736; }
+    .arrowhead-fail { fill: #ff1c24; }
+  </style>
+
   <defs>
-    <filter id="shadow" x="-4%" y="-4%" width="108%" height="112%">
-      <feDropShadow dx="0" dy="2" stdDeviation="3" flood-opacity="0.12"/>
-    </filter>
-    <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
-      <path d="M 0 0 L 10 5 L 0 10 z" fill="#999"/>
+    <marker id="arr" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0 0 L10 5 L0 10z" class="arrowhead"/>
     </marker>
-    <marker id="arrowRed" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
-      <path d="M 0 0 L 10 5 L 0 10 z" fill="#ff1c24"/>
+    <marker id="arr-pass" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0 0 L10 5 L0 10z" class="arrowhead-pass"/>
     </marker>
-    <marker id="arrowGreen" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
-      <path d="M 0 0 L 10 5 L 0 10 z" fill="#006736"/>
+    <marker id="arr-fail" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0 0 L10 5 L0 10z" class="arrowhead-fail"/>
     </marker>
   </defs>
 
-  <!-- Background -->
-  <rect width="660" height="380" rx="12" fill="#fafafa" stroke="#e0e0e0" stroke-width="1"/>
+  <rect width="660" height="380" rx="12" class="bg"/>
 
-  <!-- COMPILE TIME section -->
-  <g filter="url(#shadow)">
-    <rect x="20" y="16" width="620" height="130" rx="8" fill="white" stroke="#006736" stroke-width="1.5"/>
+  <!-- COMPILE TIME -->
+  <g class="shadow">
+    <rect x="20" y="16" width="620" height="130" rx="8" class="section-compile"/>
   </g>
-  <text x="40" y="42" fill="#006736" font-size="12" font-weight="700" letter-spacing="1">COMPILE TIME</text>
+  <text x="40" y="42" class="section-label-compile">COMPILE TIME</text>
 
-  <!-- Source code box -->
-  <rect x="40" y="56" width="200" height="36" rx="6" fill="#f8f8f8" stroke="#ccc" stroke-width="1"/>
-  <text x="140" y="73" text-anchor="middle" fill="#444" font-size="11" font-family="monospace">greet(name: 'World')</text>
-  <text x="140" y="84" text-anchor="middle" fill="#999" font-size="9">source</text>
+  <rect x="40" y="56" width="200" height="36" rx="6" class="box-code"/>
+  <text x="140" y="73" text-anchor="middle" class="label-mono text-dark">greet(name: 'World')</text>
+  <text x="140" y="84" text-anchor="middle" class="label-xs text-muted">source</text>
 
-  <!-- Arrow -->
-  <line x1="245" y1="74" x2="290" y2="74" stroke="#999" stroke-width="1.5" marker-end="url(#arrow)"/>
+  <line x1="245" y1="74" x2="290" y2="74" class="arrow" marker-end="url(#arr)"/>
 
-  <!-- Parse box -->
-  <rect x="295" y="56" width="100" height="36" rx="6" fill="#f0fff5" stroke="#006736" stroke-width="1.5"/>
-  <text x="345" y="78" text-anchor="middle" fill="#005028" font-size="13" font-weight="500">Parse</text>
+  <rect x="295" y="56" width="100" height="36" rx="6" class="box-action"/>
+  <text x="345" y="78" text-anchor="middle" class="label text-action">Parse</text>
 
-  <!-- Arrow -->
-  <line x1="400" y1="74" x2="445" y2="74" stroke="#999" stroke-width="1.5" marker-end="url(#arrow)"/>
+  <line x1="400" y1="74" x2="445" y2="74" class="arrow" marker-end="url(#arr)"/>
 
-  <!-- Extract type box -->
-  <rect x="450" y="56" width="170" height="36" rx="6" fill="#f0fff5" stroke="#006736" stroke-width="1.5"/>
-  <text x="535" y="73" text-anchor="middle" fill="#005028" font-size="13" font-weight="500">Extract type</text>
-  <text x="535" y="85" text-anchor="middle" fill="#005028" font-size="10">name = string</text>
+  <rect x="450" y="56" width="170" height="36" rx="6" class="box-action"/>
+  <text x="535" y="73" text-anchor="middle" class="label text-action">Extract type</text>
+  <text x="535" y="85" text-anchor="middle" class="label-xs text-action">name = string</text>
 
-  <!-- Arrow down between sections -->
-  <line x1="330" y1="146" x2="330" y2="180" stroke="#999" stroke-width="1.5" marker-end="url(#arrow)"/>
+  <!-- Arrow between sections -->
+  <line x1="330" y1="146" x2="330" y2="180" class="arrow" marker-end="url(#arr)"/>
 
-  <!-- RUNTIME section -->
-  <g filter="url(#shadow)">
-    <rect x="20" y="184" width="620" height="180" rx="8" fill="white" stroke="#ff1c24" stroke-width="1.5"/>
+  <!-- RUNTIME -->
+  <g class="shadow">
+    <rect x="20" y="184" width="620" height="180" rx="8" class="section-runtime"/>
   </g>
-  <text x="40" y="210" fill="#ff1c24" font-size="12" font-weight="700" letter-spacing="1">RUNTIME</text>
+  <text x="40" y="210" class="section-label-runtime">RUNTIME</text>
 
-  <!-- __tjs metadata -->
-  <rect x="40" y="222" width="280" height="32" rx="6" fill="#f8f8f8" stroke="#ccc" stroke-width="1"/>
-  <text x="180" y="242" text-anchor="middle" fill="#444" font-size="11" font-family="monospace">greet.__tjs = { params: { name: ... } }</text>
+  <rect x="40" y="222" width="280" height="32" rx="6" class="box-metadata"/>
+  <text x="180" y="242" text-anchor="middle" class="label-mono text-dark">greet.__tjs = { params: { name: ... } }</text>
 
-  <!-- greet(123) call -->
-  <rect x="40" y="274" width="140" height="32" rx="6" fill="#fff3f3" stroke="#ff1c24" stroke-width="1.5"/>
-  <text x="110" y="294" text-anchor="middle" fill="#cc1118" font-size="12" font-family="monospace">greet(123)</text>
+  <rect x="40" y="274" width="140" height="32" rx="6" class="box-error"/>
+  <text x="110" y="294" text-anchor="middle" class="label-mono-sm text-error">greet(123)</text>
 
-  <!-- Arrow to type check -->
-  <line x1="185" y1="290" x2="230" y2="290" stroke="#999" stroke-width="1.5" marker-end="url(#arrow)"/>
+  <line x1="185" y1="290" x2="230" y2="290" class="arrow" marker-end="url(#arr)"/>
 
-  <!-- Type Check diamond -->
-  <polygon points="310,268 370,290 310,312 250,290" fill="#fffbe6" stroke="#b8860b" stroke-width="1.5"/>
-  <text x="310" y="294" text-anchor="middle" fill="#8b6914" font-size="12" font-weight="500">Type Check</text>
+  <!-- Diamond -->
+  <polygon points="310,268 370,290 310,312 250,290" class="diamond"/>
+  <text x="310" y="294" text-anchor="middle" fill="#8b6914" class="label" font-size="12">Type Check</text>
 
-  <!-- Pass arrow -->
-  <line x1="370" y1="290" x2="420" y2="290" stroke="#006736" stroke-width="1.5" marker-end="url(#arrowGreen)"/>
-  <text x="395" y="283" text-anchor="middle" fill="#006736" font-size="10" font-weight="600">Pass</text>
+  <!-- Pass -->
+  <line x1="370" y1="290" x2="420" y2="290" class="arrow-pass" marker-end="url(#arr-pass)"/>
+  <text x="395" y="283" text-anchor="middle" class="text-pass">Pass</text>
 
-  <!-- Execute box -->
-  <rect x="425" y="274" width="100" height="32" rx="6" fill="#f0fff5" stroke="#006736" stroke-width="1.5"/>
-  <text x="475" y="294" text-anchor="middle" fill="#005028" font-size="13" font-weight="500">Execute</text>
+  <rect x="425" y="274" width="100" height="32" rx="6" class="box-pass"/>
+  <text x="475" y="294" text-anchor="middle" class="label" fill="#005028">Execute</text>
 
-  <!-- Fail arrow -->
-  <line x1="310" y1="312" x2="310" y2="335" stroke="#ff1c24" stroke-width="1.5" marker-end="url(#arrowRed)"/>
-  <text x="330" y="328" fill="#ff1c24" font-size="10" font-weight="600">Fail</text>
+  <!-- Fail -->
+  <line x1="310" y1="312" x2="310" y2="335" class="arrow-fail" marker-end="url(#arr-fail)"/>
+  <text x="330" y="328" class="text-fail">Fail</text>
 
-  <!-- MonadicError box -->
-  <rect x="230" y="338" width="160" height="28" rx="6" fill="#fff3f3" stroke="#ff1c24" stroke-width="1.5"/>
-  <text x="310" y="356" text-anchor="middle" fill="#cc1118" font-size="11" font-weight="500">MonadicError (no throw)</text>
+  <rect x="230" y="338" width="160" height="28" rx="6" class="box-error"/>
+  <text x="310" y="356" text-anchor="middle" class="label-sm text-error">MonadicError (no throw)</text>
 </svg>

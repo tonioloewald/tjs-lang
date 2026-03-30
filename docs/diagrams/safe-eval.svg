@@ -1,126 +1,147 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 600 420" font-family="system-ui, -apple-system, sans-serif">
+  <style>
+    /* TJS Brand Palette */
+    .bg { fill: #fafafa; stroke: #e4e4e4; }
+
+    .box-untrusted { fill: #fff3f3; stroke: #ff1c24; stroke-width: 1.5; }
+    .box-cap { fill: #f5f5f5; stroke: #9e9e9e; }
+    .box-granted { fill: #f0fff5; stroke: #006736; stroke-width: 1.5; }
+    .box-blocked { fill: #fff3f3; stroke: #ff1c24; stroke-width: 1.5; }
+
+    .diamond { fill: #fffbe6; stroke: #fdbe52; stroke-width: 1.2; }
+    .diamond-text { fill: #8b6914; font-size: 10px; font-weight: 500; }
+
+    .arrow { stroke: #9e9e9e; stroke-width: 1.2; fill: none; }
+    .branch { stroke: #9e9e9e; stroke-width: 1.2; fill: none; }
+    .line-yes { stroke: #006736; stroke-width: 1.2; }
+    .line-no { stroke: #ff1c24; stroke-width: 1.2; }
+
+    .text-untrusted { fill: #cc1118; font-size: 14px; font-weight: 600; }
+    .text-cap { fill: #444; font-size: 12px; font-family: monospace; }
+    .text-granted { fill: #005028; font-size: 11px; font-weight: 500; }
+    .text-granted-mono { fill: #005028; font-size: 11px; font-family: monospace; font-weight: 500; }
+    .text-blocked { fill: #cc1118; font-size: 12px; font-weight: 600; }
+    .text-yes { fill: #006736; font-size: 9px; font-weight: 600; }
+    .text-no { fill: #ff1c24; font-size: 9px; font-weight: 600; }
+
+    .legend-bg { fill: white; stroke: #e4e4e4; }
+    .legend-title { fill: #181340; font-size: 11px; font-weight: 600; }
+    .legend-text { fill: #444; font-size: 11px; }
+    .legend-dot-yes { fill: #f0fff5; stroke: #006736; stroke-width: 1.2; }
+    .legend-dot-no { fill: #fff3f3; stroke: #ff1c24; stroke-width: 1.2; }
+
+    .shadow { filter: drop-shadow(0 2px 3px rgba(0,0,0,0.1)); }
+
+    .ah { fill: #9e9e9e; }
+    .ah-no { fill: #ff1c24; }
+  </style>
+
   <defs>
-    <filter id="shadow" x="-4%" y="-4%" width="108%" height="112%">
-      <feDropShadow dx="0" dy="2" stdDeviation="3" flood-opacity="0.12"/>
-    </filter>
-    <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
-      <path d="M 0 0 L 10 5 L 0 10 z" fill="#999"/>
+    <marker id="a" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0 0 L10 5 L0 10z" class="ah"/>
     </marker>
-    <marker id="arrowGreen" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
-      <path d="M 0 0 L 10 5 L 0 10 z" fill="#006736"/>
-    </marker>
-    <marker id="arrowRed" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
-      <path d="M 0 0 L 10 5 L 0 10 z" fill="#cc1118"/>
+    <marker id="an" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0 0 L10 5 L0 10z" class="ah-no"/>
     </marker>
   </defs>
 
-  <!-- Background -->
-  <rect width="600" height="420" rx="12" fill="#fafafa" stroke="#e0e0e0" stroke-width="1"/>
+  <rect width="600" height="420" rx="12" class="bg"/>
 
-  <!-- Untrusted Code box -->
-  <g filter="url(#shadow)">
-    <rect x="210" y="16" width="180" height="40" rx="8" fill="#fff3f3" stroke="#ff1c24" stroke-width="1.5"/>
+  <!-- Untrusted Code -->
+  <g class="shadow">
+    <rect x="210" y="16" width="180" height="40" rx="8" class="box-untrusted"/>
   </g>
-  <text x="300" y="41" text-anchor="middle" fill="#cc1118" font-size="14" font-weight="600">Untrusted Code</text>
+  <text x="300" y="41" text-anchor="middle" class="text-untrusted">Untrusted Code</text>
 
-  <!-- Central line down -->
-  <line x1="300" y1="56" x2="300" y2="86" stroke="#999" stroke-width="1.5"/>
+  <!-- Trunk -->
+  <line x1="300" y1="56" x2="300" y2="86" class="arrow"/>
 
-  <!-- Branching lines to 4 capabilities -->
-  <line x1="300" y1="86" x2="80" y2="120" stroke="#999" stroke-width="1.2"/>
-  <line x1="300" y1="86" x2="230" y2="120" stroke="#999" stroke-width="1.2"/>
-  <line x1="300" y1="86" x2="370" y2="120" stroke="#999" stroke-width="1.2"/>
-  <line x1="300" y1="86" x2="520" y2="120" stroke="#999" stroke-width="1.2"/>
+  <!-- Branches -->
+  <line x1="300" y1="86" x2="80" y2="120" class="branch"/>
+  <line x1="300" y1="86" x2="230" y2="120" class="branch"/>
+  <line x1="300" y1="86" x2="370" y2="120" class="branch"/>
+  <line x1="300" y1="86" x2="520" y2="120" class="branch"/>
 
-  <!-- fetch() -->
-  <rect x="30" y="120" width="100" height="32" rx="6" fill="#f8f8f8" stroke="#999" stroke-width="1"/>
-  <text x="80" y="140" text-anchor="middle" fill="#444" font-size="12" font-family="monospace">fetch()</text>
+  <!-- Capability boxes -->
+  <rect x="30" y="120" width="100" height="32" rx="6" class="box-cap"/>
+  <text x="80" y="140" text-anchor="middle" class="text-cap">fetch()</text>
 
-  <!-- fs.read() -->
-  <rect x="180" y="120" width="100" height="32" rx="6" fill="#f8f8f8" stroke="#999" stroke-width="1"/>
-  <text x="230" y="140" text-anchor="middle" fill="#444" font-size="12" font-family="monospace">fs.read()</text>
+  <rect x="180" y="120" width="100" height="32" rx="6" class="box-cap"/>
+  <text x="230" y="140" text-anchor="middle" class="text-cap">fs.read()</text>
 
-  <!-- loop -->
-  <rect x="320" y="120" width="100" height="32" rx="6" fill="#f8f8f8" stroke="#999" stroke-width="1"/>
-  <text x="370" y="140" text-anchor="middle" fill="#444" font-size="12" font-family="monospace">loop</text>
+  <rect x="320" y="120" width="100" height="32" rx="6" class="box-cap"/>
+  <text x="370" y="140" text-anchor="middle" class="text-cap">loop</text>
 
-  <!-- console -->
-  <rect x="470" y="120" width="100" height="32" rx="6" fill="#f8f8f8" stroke="#999" stroke-width="1"/>
-  <text x="520" y="140" text-anchor="middle" fill="#444" font-size="12" font-family="monospace">console</text>
+  <rect x="470" y="120" width="100" height="32" rx="6" class="box-cap"/>
+  <text x="520" y="140" text-anchor="middle" class="text-cap">console</text>
 
-  <!-- Arrows down from capabilities -->
-  <line x1="80" y1="152" x2="80" y2="182" stroke="#999" stroke-width="1.2" marker-end="url(#arrow)"/>
-  <line x1="230" y1="152" x2="230" y2="182" stroke="#999" stroke-width="1.2" marker-end="url(#arrow)"/>
-  <line x1="370" y1="152" x2="370" y2="182" stroke="#999" stroke-width="1.2" marker-end="url(#arrow)"/>
-  <line x1="520" y1="152" x2="520" y2="182" stroke="#999" stroke-width="1.2" marker-end="url(#arrow)"/>
+  <!-- Arrows to diamonds -->
+  <line x1="80" y1="152" x2="80" y2="182" class="arrow" marker-end="url(#a)"/>
+  <line x1="230" y1="152" x2="230" y2="182" class="arrow" marker-end="url(#a)"/>
+  <line x1="370" y1="152" x2="370" y2="182" class="arrow" marker-end="url(#a)"/>
+  <line x1="520" y1="152" x2="520" y2="182" class="arrow" marker-end="url(#a)"/>
 
-  <!-- Gate diamonds -->
-  <!-- fetch gate: Granted? -->
-  <polygon points="80,186 120,206 80,226 40,206" fill="#fffbe6" stroke="#b8860b" stroke-width="1.2"/>
-  <text x="80" y="210" text-anchor="middle" fill="#8b6914" font-size="10" font-weight="500">Granted?</text>
+  <!-- Diamonds -->
+  <polygon points="80,186 120,206 80,226 40,206" class="diamond"/>
+  <text x="80" y="210" text-anchor="middle" class="diamond-text">Granted?</text>
 
-  <!-- fs gate: Granted? -->
-  <polygon points="230,186 270,206 230,226 190,206" fill="#fffbe6" stroke="#b8860b" stroke-width="1.2"/>
-  <text x="230" y="210" text-anchor="middle" fill="#8b6914" font-size="10" font-weight="500">Granted?</text>
+  <polygon points="230,186 270,206 230,226 190,206" class="diamond"/>
+  <text x="230" y="210" text-anchor="middle" class="diamond-text">Granted?</text>
 
-  <!-- loop gate: Fuel left? -->
-  <polygon points="370,186 414,206 370,226 326,206" fill="#fffbe6" stroke="#b8860b" stroke-width="1.2"/>
-  <text x="370" y="210" text-anchor="middle" fill="#8b6914" font-size="10" font-weight="500">Fuel left?</text>
+  <polygon points="370,186 414,206 370,226 326,206" class="diamond"/>
+  <text x="370" y="210" text-anchor="middle" class="diamond-text">Fuel left?</text>
 
-  <!-- console gate: Granted? -->
-  <polygon points="520,186 560,206 520,226 480,206" fill="#fffbe6" stroke="#b8860b" stroke-width="1.2"/>
-  <text x="520" y="210" text-anchor="middle" fill="#8b6914" font-size="10" font-weight="500">Granted?</text>
+  <polygon points="520,186 560,206 520,226 480,206" class="diamond"/>
+  <text x="520" y="210" text-anchor="middle" class="diamond-text">Granted?</text>
 
-  <!-- fetch: YES path -->
-  <line x1="55" y1="216" x2="20" y2="250" stroke="#006736" stroke-width="1.2"/>
-  <text x="28" y="238" fill="#006736" font-size="9" font-weight="600">Y</text>
+  <!-- fetch: Y -> safeFetch -->
+  <line x1="55" y1="216" x2="20" y2="250" class="line-yes"/>
+  <text x="28" y="238" class="text-yes">Y</text>
 
-  <!-- fetch: Your safeFetch -->
-  <g filter="url(#shadow)">
-    <rect x="0" y="254" width="110" height="44" rx="6" fill="#f0fff5" stroke="#006736" stroke-width="1.5"/>
+  <g class="shadow">
+    <rect x="0" y="254" width="110" height="44" rx="6" class="box-granted"/>
   </g>
-  <text x="55" y="272" text-anchor="middle" fill="#005028" font-size="11" font-weight="500">Your</text>
-  <text x="55" y="286" text-anchor="middle" fill="#005028" font-size="11" font-family="monospace" font-weight="500">safeFetch</text>
+  <text x="55" y="272" text-anchor="middle" class="text-granted">Your</text>
+  <text x="55" y="286" text-anchor="middle" class="text-granted-mono">safeFetch</text>
 
-  <!-- fetch: NO path -->
-  <line x1="105" y1="216" x2="135" y2="250" stroke="#cc1118" stroke-width="1.2"/>
-  <text x="127" y="238" fill="#cc1118" font-size="9" font-weight="600">N</text>
+  <!-- fetch: N -> Block -->
+  <line x1="105" y1="216" x2="135" y2="250" class="line-no"/>
+  <text x="127" y="238" class="text-no">N</text>
 
-  <!-- Block boxes -->
-  <rect x="115" y="254" width="70" height="28" rx="6" fill="#fff3f3" stroke="#cc1118" stroke-width="1.5"/>
-  <text x="150" y="273" text-anchor="middle" fill="#cc1118" font-size="12" font-weight="600">Block</text>
+  <rect x="115" y="254" width="70" height="28" rx="6" class="box-blocked"/>
+  <text x="150" y="273" text-anchor="middle" class="text-blocked">Block</text>
 
-  <!-- fs.read: NO only -->
-  <line x1="230" y1="226" x2="230" y2="250" stroke="#cc1118" stroke-width="1.2" marker-end="url(#arrowRed)"/>
-  <text x="240" y="242" fill="#cc1118" font-size="9" font-weight="600">N</text>
-  <rect x="195" y="254" width="70" height="28" rx="6" fill="#fff3f3" stroke="#cc1118" stroke-width="1.5"/>
-  <text x="230" y="273" text-anchor="middle" fill="#cc1118" font-size="12" font-weight="600">Block</text>
+  <!-- fs.read: N -> Block -->
+  <line x1="230" y1="226" x2="230" y2="250" class="line-no" marker-end="url(#an)"/>
+  <text x="240" y="242" class="text-no">N</text>
+  <rect x="195" y="254" width="70" height="28" rx="6" class="box-blocked"/>
+  <text x="230" y="273" text-anchor="middle" class="text-blocked">Block</text>
 
-  <!-- loop: YES path -->
-  <line x1="345" y1="216" x2="315" y2="250" stroke="#006736" stroke-width="1.2"/>
-  <text x="322" y="238" fill="#006736" font-size="9" font-weight="600">Y</text>
-  <rect x="285" y="254" width="80" height="28" rx="6" fill="#f0fff5" stroke="#006736" stroke-width="1.5"/>
-  <text x="325" y="273" text-anchor="middle" fill="#005028" font-size="12" font-weight="500">Continue</text>
+  <!-- loop: Y -> Continue -->
+  <line x1="345" y1="216" x2="315" y2="250" class="line-yes"/>
+  <text x="322" y="238" class="text-yes">Y</text>
+  <rect x="285" y="254" width="80" height="28" rx="6" class="box-granted"/>
+  <text x="325" y="273" text-anchor="middle" class="text-granted">Continue</text>
 
-  <!-- loop: NO path -->
-  <line x1="395" y1="216" x2="420" y2="250" stroke="#cc1118" stroke-width="1.2"/>
-  <text x="415" y="238" fill="#cc1118" font-size="9" font-weight="600">N</text>
-  <rect x="400" y="254" width="60" height="28" rx="6" fill="#fff3f3" stroke="#cc1118" stroke-width="1.5"/>
-  <text x="430" y="273" text-anchor="middle" fill="#cc1118" font-size="12" font-weight="600">Halt</text>
+  <!-- loop: N -> Halt -->
+  <line x1="395" y1="216" x2="420" y2="250" class="line-no"/>
+  <text x="415" y="238" class="text-no">N</text>
+  <rect x="400" y="254" width="60" height="28" rx="6" class="box-blocked"/>
+  <text x="430" y="273" text-anchor="middle" class="text-blocked">Halt</text>
 
-  <!-- console: NO only -->
-  <line x1="520" y1="226" x2="520" y2="250" stroke="#cc1118" stroke-width="1.2" marker-end="url(#arrowRed)"/>
-  <text x="530" y="242" fill="#cc1118" font-size="9" font-weight="600">N</text>
-  <rect x="485" y="254" width="70" height="28" rx="6" fill="#fff3f3" stroke="#cc1118" stroke-width="1.5"/>
-  <text x="520" y="273" text-anchor="middle" fill="#cc1118" font-size="12" font-weight="600">Block</text>
+  <!-- console: N -> Block -->
+  <line x1="520" y1="226" x2="520" y2="250" class="line-no" marker-end="url(#an)"/>
+  <text x="530" y="242" class="text-no">N</text>
+  <rect x="485" y="254" width="70" height="28" rx="6" class="box-blocked"/>
+  <text x="520" y="273" text-anchor="middle" class="text-blocked">Block</text>
 
   <!-- Legend -->
-  <rect x="130" y="320" width="340" height="80" rx="8" fill="white" stroke="#e0e0e0" stroke-width="1"/>
-  <text x="300" y="342" text-anchor="middle" fill="#666" font-size="11" font-weight="600">Capability-Based Security</text>
+  <rect x="130" y="320" width="340" height="80" rx="8" class="legend-bg"/>
+  <text x="300" y="342" text-anchor="middle" class="legend-title">Capability-Based Security</text>
 
-  <circle cx="165" cy="362" r="6" fill="#f0fff5" stroke="#006736" stroke-width="1.2"/>
-  <text x="180" y="366" fill="#444" font-size="11">Granted = your wrapper runs</text>
+  <circle cx="165" cy="362" r="6" class="legend-dot-yes"/>
+  <text x="180" y="366" class="legend-text">Granted = your wrapper runs</text>
 
-  <circle cx="165" cy="384" r="6" fill="#fff3f3" stroke="#cc1118" stroke-width="1.2"/>
-  <text x="180" y="388" fill="#444" font-size="11">Not granted = silently blocked</text>
+  <circle cx="165" cy="384" r="6" class="legend-dot-no"/>
+  <text x="180" y="388" class="legend-text">Not granted = silently blocked</text>
 </svg>

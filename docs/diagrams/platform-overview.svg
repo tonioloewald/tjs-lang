@@ -1,85 +1,114 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 720 340" font-family="system-ui, -apple-system, sans-serif">
-  <defs>
-    <linearGradient id="headerGrad" x1="0" y1="0" x2="0" y2="1">
-      <stop offset="0%" stop-color="#ff1c24"/>
-      <stop offset="100%" stop-color="#d4161c"/>
-    </linearGradient>
-    <filter id="shadow" x="-4%" y="-4%" width="108%" height="112%">
-      <feDropShadow dx="0" dy="2" stdDeviation="3" flood-opacity="0.12"/>
-    </filter>
-  </defs>
+  <style>
+    /* TJS Brand Palette (from icon + Lottie animation) */
+    :root {
+      --blue: #3da8f4;
+      --navy: #181340;
+      --yellow: #fbed21;
+      --amber: #fdbe52;
+      --red: #ff1c24;
+      --green: #006736;
+      --gray-light: #e4e4e4;
+      --gray-mid: #9e9e9e;
+    }
+
+    .bg { fill: #fafafa; stroke: #e4e4e4; }
+    .title-bar { fill: #181340; }
+    .title-text { fill: white; font-size: 20px; font-weight: 700; }
+
+    .col-bg { fill: white; stroke: #e4e4e4; }
+    .col-header { fill: #3da8f4; }
+    .col-header-text { fill: white; font-size: 14px; font-weight: 600; }
+
+    .box-ts { fill: #fff3f3; stroke: #ff1c24; }
+    .box-ts text { fill: #cc1118; }
+    .box-tjs { fill: #f0fff5; stroke: #006736; }
+    .box-tjs text { fill: #005028; }
+    .box-js { fill: #fffbe6; stroke: #fdbe52; }
+    .box-js text { fill: #8b6914; }
+    .box-neutral { fill: #f5f5f5; stroke: #9e9e9e; }
+    .box-neutral text { fill: #444; }
+    .box-safe { fill: #eef6ff; stroke: #3da8f4; }
+    .box-safe text { fill: #1a6ab5; }
+
+    .arrow-text { fill: #9e9e9e; font-size: 18px; }
+    .label { font-size: 13px; font-weight: 500; }
+    .label-bold { font-size: 13px; font-weight: 600; }
+    .label-sm { font-size: 10px; }
+    .label-lg { font-size: 12px; font-weight: 500; }
+
+    .shadow { filter: drop-shadow(0 2px 3px rgba(0,0,0,0.1)); }
+  </style>
 
   <!-- Background -->
-  <rect width="720" height="340" rx="12" fill="#fafafa" stroke="#e0e0e0" stroke-width="1"/>
+  <rect width="720" height="340" rx="12" class="bg"/>
 
   <!-- Title bar -->
-  <rect width="720" height="48" rx="12" fill="url(#headerGrad)"/>
-  <rect y="36" width="720" height="12" fill="url(#headerGrad)"/>
-  <text x="360" y="32" text-anchor="middle" fill="white" font-size="20" font-weight="700">TJS Platform</text>
+  <rect width="720" height="48" rx="12" class="title-bar"/>
+  <rect y="36" width="720" height="12" class="title-bar"/>
+  <text x="360" y="32" text-anchor="middle" class="title-text">TJS Platform</text>
 
-  <!-- Three columns -->
-  <!-- Language -->
-  <g filter="url(#shadow)">
-    <rect x="20" y="68" width="220" height="252" rx="8" fill="white" stroke="#e0e0e0" stroke-width="1"/>
+  <!-- Column: Language -->
+  <g class="shadow">
+    <rect x="20" y="68" width="220" height="252" rx="8" class="col-bg"/>
   </g>
-  <rect x="20" y="68" width="220" height="36" rx="8" fill="#006736"/>
-  <rect x="20" y="92" width="220" height="12" fill="#006736"/>
-  <text x="130" y="92" text-anchor="middle" fill="white" font-size="14" font-weight="600">Language</text>
+  <rect x="20" y="68" width="220" height="36" rx="8" class="col-header"/>
+  <rect x="20" y="92" width="220" height="12" class="col-header"/>
+  <text x="130" y="92" text-anchor="middle" class="col-header-text">Language</text>
 
-  <rect x="52" y="120" width="156" height="32" rx="6" fill="#fff3f3" stroke="#ff1c24" stroke-width="1.5"/>
-  <text x="130" y="141" text-anchor="middle" fill="#cc1118" font-size="13" font-weight="500">TypeScript</text>
+  <g class="box-ts"><rect x="52" y="120" width="156" height="32" rx="6"/></g>
+  <text x="130" y="141" text-anchor="middle" class="label" fill="#cc1118">TypeScript</text>
 
-  <line x1="130" y1="152" x2="130" y2="172" stroke="#999" stroke-width="1.5" marker-end="url(#arrowGray)"/>
-  <text x="130" y="166" text-anchor="middle" fill="#999" font-size="18">&#x2193;</text>
+  <text x="130" y="166" text-anchor="middle" class="arrow-text">&#x2193;</text>
 
-  <rect x="52" y="178" width="156" height="32" rx="6" fill="#f0fff5" stroke="#006736" stroke-width="1.5"/>
-  <text x="130" y="199" text-anchor="middle" fill="#005028" font-size="13" font-weight="600">TJS</text>
+  <g class="box-tjs"><rect x="52" y="178" width="156" height="32" rx="6"/></g>
+  <text x="130" y="199" text-anchor="middle" class="label-bold" fill="#005028">TJS</text>
 
-  <text x="130" y="228" text-anchor="middle" fill="#999" font-size="18">&#x2193;</text>
+  <text x="130" y="228" text-anchor="middle" class="arrow-text">&#x2193;</text>
 
-  <rect x="52" y="240" width="156" height="32" rx="6" fill="#fffbe6" stroke="#b8860b" stroke-width="1.5"/>
-  <text x="130" y="261" text-anchor="middle" fill="#8b6914" font-size="13" font-weight="500">JavaScript</text>
+  <g class="box-js"><rect x="52" y="240" width="156" height="32" rx="6"/></g>
+  <text x="130" y="261" text-anchor="middle" class="label" fill="#8b6914">JavaScript</text>
 
-  <!-- Runtime -->
-  <g filter="url(#shadow)">
-    <rect x="250" y="68" width="220" height="252" rx="8" fill="white" stroke="#e0e0e0" stroke-width="1"/>
+  <!-- Column: Runtime -->
+  <g class="shadow">
+    <rect x="250" y="68" width="220" height="252" rx="8" class="col-bg"/>
   </g>
-  <rect x="250" y="68" width="220" height="36" rx="8" fill="#006736"/>
-  <rect x="250" y="92" width="220" height="12" fill="#006736"/>
-  <text x="360" y="92" text-anchor="middle" fill="white" font-size="14" font-weight="600">Runtime</text>
+  <rect x="250" y="68" width="220" height="36" rx="8" class="col-header"/>
+  <rect x="250" y="92" width="220" height="12" class="col-header"/>
+  <text x="360" y="92" text-anchor="middle" class="col-header-text">Runtime</text>
 
-  <rect x="282" y="120" width="156" height="32" rx="6" fill="#f5f5f5" stroke="#666" stroke-width="1.5"/>
-  <text x="360" y="141" text-anchor="middle" fill="#444" font-size="13" font-weight="500">__tjs metadata</text>
+  <g class="box-neutral"><rect x="282" y="120" width="156" height="32" rx="6"/></g>
+  <text x="360" y="141" text-anchor="middle" class="label" fill="#444">__tjs metadata</text>
 
-  <text x="360" y="166" text-anchor="middle" fill="#999" font-size="18">&#x2193;</text>
+  <text x="360" y="166" text-anchor="middle" class="arrow-text">&#x2193;</text>
 
-  <rect x="282" y="178" width="156" height="32" rx="6" fill="#f5f5f5" stroke="#666" stroke-width="1.5"/>
-  <text x="360" y="199" text-anchor="middle" fill="#444" font-size="13" font-weight="500">Runtime Validation</text>
+  <g class="box-neutral"><rect x="282" y="178" width="156" height="32" rx="6"/></g>
+  <text x="360" y="199" text-anchor="middle" class="label" fill="#444">Runtime Validation</text>
 
-  <text x="360" y="228" text-anchor="middle" fill="#999" font-size="18">&#x2193;</text>
+  <text x="360" y="228" text-anchor="middle" class="arrow-text">&#x2193;</text>
 
-  <rect x="282" y="240" width="156" height="32" rx="6" fill="#f5f5f5" stroke="#666" stroke-width="1.5"/>
-  <text x="360" y="261" text-anchor="middle" fill="#444" font-size="13" font-weight="500">Auto Documentation</text>
+  <g class="box-neutral"><rect x="282" y="240" width="156" height="32" rx="6"/></g>
+  <text x="360" y="261" text-anchor="middle" class="label" fill="#444">Auto Documentation</text>
 
-  <!-- Safe Execution -->
-  <g filter="url(#shadow)">
-    <rect x="480" y="68" width="220" height="252" rx="8" fill="white" stroke="#e0e0e0" stroke-width="1"/>
+  <!-- Column: Safe Execution -->
+  <g class="shadow">
+    <rect x="480" y="68" width="220" height="252" rx="8" class="col-bg"/>
   </g>
-  <rect x="480" y="68" width="220" height="36" rx="8" fill="#006736"/>
-  <rect x="480" y="92" width="220" height="12" fill="#006736"/>
-  <text x="590" y="92" text-anchor="middle" fill="white" font-size="14" font-weight="600">Safe Execution</text>
+  <rect x="480" y="68" width="220" height="36" rx="8" class="col-header"/>
+  <rect x="480" y="92" width="220" height="12" class="col-header"/>
+  <text x="590" y="92" text-anchor="middle" class="col-header-text">Safe Execution</text>
 
-  <rect x="512" y="120" width="156" height="32" rx="6" fill="#fff3f3" stroke="#ff1c24" stroke-width="1.5"/>
-  <text x="590" y="141" text-anchor="middle" fill="#cc1118" font-size="13" font-weight="500">AJS Agent</text>
+  <g class="box-safe"><rect x="512" y="120" width="156" height="32" rx="6"/></g>
+  <text x="590" y="141" text-anchor="middle" class="label" fill="#1a6ab5">AJS Agent</text>
 
-  <text x="590" y="166" text-anchor="middle" fill="#999" font-size="18">&#x2193;</text>
+  <text x="590" y="166" text-anchor="middle" class="arrow-text">&#x2193;</text>
 
-  <rect x="512" y="178" width="156" height="32" rx="6" fill="#f5f5f5" stroke="#666" stroke-width="1.5"/>
-  <text x="590" y="199" text-anchor="middle" fill="#444" font-size="13" font-weight="500">JSON AST</text>
+  <g class="box-neutral"><rect x="512" y="178" width="156" height="32" rx="6"/></g>
+  <text x="590" y="199" text-anchor="middle" class="label" fill="#444">JSON AST</text>
 
-  <text x="590" y="228" text-anchor="middle" fill="#999" font-size="18">&#x2193;</text>
+  <text x="590" y="228" text-anchor="middle" class="arrow-text">&#x2193;</text>
 
-  <rect x="512" y="240" width="156" height="32" rx="6" fill="#f0fff5" stroke="#006736" stroke-width="1.5"/>
-  <text x="590" y="255" text-anchor="middle" fill="#005028" font-size="12" font-weight="500">Gas-Limited VM</text>
-  <text x="590" y="269" text-anchor="middle" fill="#005028" font-size="10">+ Injected Capabilities</text>
+  <g class="box-tjs"><rect x="512" y="240" width="156" height="32" rx="6"/></g>
+  <text x="590" y="255" text-anchor="middle" class="label-lg" fill="#005028">Gas-Limited VM</text>
+  <text x="590" y="269" text-anchor="middle" class="label-sm" fill="#005028">+ Injected Capabilities</text>
 </svg>
