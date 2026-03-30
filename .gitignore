@@ -143,6 +143,9 @@ functions/bun.lock
 # Demo build output (served via Firebase, not committed)
 .demo/
 
+# Compatibility test working directories (cloned repos, transpiled output)
+.compat-tests/
+
 # Generated files that shouldn't be in src/
 src/**/*.js
 src/**/*.d.ts
