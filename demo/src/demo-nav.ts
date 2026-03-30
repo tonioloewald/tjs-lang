@@ -10,8 +10,8 @@
 
 import { Component, elements, ElementCreator, vars, bind } from 'tosijs'
 import {
-  xinFloat,
-  XinFloat,
+  tosiFloat,
+  TosiFloat,
   markdownViewer,
   MarkdownViewer,
   icons,
@@ -76,7 +76,7 @@ export class DemoNav extends Component {
   private _docs: DocItem[] = []
   private _appState: any = null // boxed proxy from index.ts
   private _built = false
-  private floatViewer: XinFloat | null = null
+  private floatViewer: TosiFloat | null = null
   private mdViewer: MarkdownViewer | null = null
 
   // Computed example arrays from docs
@@ -495,7 +495,7 @@ export class DemoNav extends Component {
     } else {
       // Update existing viewer
       if (this.mdViewer) {
-        this.mdViewer.value = doc.text
+        this.mdViewer.value = doc.text ?? ''
       }
       // Update title
       const title = this.floatViewer.querySelector('.float-title')
@@ -538,7 +538,7 @@ export class DemoNav extends Component {
       icons.x({ size: 16 })
     )
 
-    this.floatViewer = xinFloat(
+    this.floatViewer = tosiFloat(
       {
         drag: true,
         remainOnResize: 'remain',

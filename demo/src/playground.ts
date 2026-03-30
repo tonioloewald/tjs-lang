@@ -3,6 +3,7 @@
  */
 
 import { elements, Component, PartsMap } from 'tosijs'
+import type { XinStyleSheet } from 'tosijs'
 
 import { icons } from 'tosijs-ui'
 
@@ -104,7 +105,7 @@ export class Playground extends Component<PlaygroundParts> {
 
   // Use Shadow DOM styles (static styleSpec)
   // CSS variables for theming
-  static styleSpec = {
+  static styleSpec: XinStyleSheet = {
     ':host': {
       display: 'block',
       height: '100%',
@@ -936,6 +937,17 @@ export class Playground extends Component<PlaygroundParts> {
 
     this.updateOutput()
     this.isRunning = false
+  }
+
+  setCode(code: string) {
+    if (!this.editor) return
+    this.editor.dispatch({
+      changes: {
+        from: 0,
+        to: this.editor.state.doc.length,
+        insert: code,
+      },
+    })
   }
 
   render() {

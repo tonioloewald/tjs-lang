@@ -122,7 +122,7 @@ self.addEventListener('message', (event: MessageEvent) => {
 })
 
 // TypeScript declarations for service worker globals
-declare const self: ServiceWorkerGlobalScope
+declare const self: any // ServiceWorkerGlobalScope (webworker lib not available)
 interface ExtendableEvent extends Event {
   waitUntil(promise: Promise<any>): void
 }

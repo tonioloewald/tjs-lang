@@ -208,13 +208,13 @@ initAuth()
 
 // Custom bindings
 bindings.docLink = {
-  toDOM(elt: HTMLElement, filename: string) {
+  toDOM(elt: Element, filename: string) {
     elt.setAttribute('href', `?${filename}`)
   },
 }
 
 bindings.current = {
-  toDOM(elt: HTMLElement, currentFile: string) {
+  toDOM(elt: Element, currentFile: string) {
     const boundFile = elt.getAttribute('href') || ''
     elt.classList.toggle('current', currentFile === boundFile.substring(1))
   },
@@ -464,13 +464,13 @@ if (main) {
                                   deepseek: settings.deepseekKey || undefined,
                                 })
                                 // Also save to localStorage for offline use
-                                prefs.preferredProvider =
+                                prefs.preferredProvider.value =
                                   settings.preferredProvider
-                                prefs.openaiKey = settings.openaiKey
-                                prefs.anthropicKey = settings.anthropicKey
-                                prefs.geminiKey = settings.geminiKey
-                                prefs.deepseekKey = settings.deepseekKey
-                                prefs.customLlmUrl = settings.customLlmUrl
+                                prefs.openaiKey.value = settings.openaiKey
+                                prefs.anthropicKey.value = settings.anthropicKey
+                                prefs.geminiKey.value = settings.geminiKey
+                                prefs.deepseekKey.value = settings.deepseekKey
+                                prefs.customLlmUrl.value = settings.customLlmUrl
                                 savePrefs()
                               }
                             )
@@ -508,12 +508,13 @@ if (main) {
                             customLlmUrl: prefs.customLlmUrl.valueOf(),
                           },
                           (settings) => {
-                            prefs.preferredProvider = settings.preferredProvider
-                            prefs.openaiKey = settings.openaiKey
-                            prefs.anthropicKey = settings.anthropicKey
-                            prefs.geminiKey = settings.geminiKey
-                            prefs.deepseekKey = settings.deepseekKey
-                            prefs.customLlmUrl = settings.customLlmUrl
+                            prefs.preferredProvider.value =
+                              settings.preferredProvider
+                            prefs.openaiKey.value = settings.openaiKey
+                            prefs.anthropicKey.value = settings.anthropicKey
+                            prefs.geminiKey.value = settings.geminiKey
+                            prefs.deepseekKey.value = settings.deepseekKey
+                            prefs.customLlmUrl.value = settings.customLlmUrl
                             savePrefs()
                           }
                         )
@@ -537,12 +538,13 @@ if (main) {
                             customLlmUrl: prefs.customLlmUrl.valueOf(),
                           },
                           (settings) => {
-                            prefs.preferredProvider = settings.preferredProvider
-                            prefs.openaiKey = settings.openaiKey
-                            prefs.anthropicKey = settings.anthropicKey
-                            prefs.geminiKey = settings.geminiKey
-                            prefs.deepseekKey = settings.deepseekKey
-                            prefs.customLlmUrl = settings.customLlmUrl
+                            prefs.preferredProvider.value =
+                              settings.preferredProvider
+                            prefs.openaiKey.value = settings.openaiKey
+                            prefs.anthropicKey.value = settings.anthropicKey
+                            prefs.geminiKey.value = settings.geminiKey
+                            prefs.deepseekKey.value = settings.deepseekKey
+                            prefs.customLlmUrl.value = settings.customLlmUrl
                             savePrefs()
                           }
                         )
@@ -563,7 +565,7 @@ if (main) {
                       caption: 'System',
                       checked: () => prefs.theme.valueOf() === 'system',
                       action: () => {
-                        prefs.theme = 'system'
+                        prefs.theme.value = 'system'
                         savePrefs()
                       },
                     },
@@ -571,7 +573,7 @@ if (main) {
                       caption: 'Dark',
                       checked: () => prefs.theme.valueOf() === 'dark',
                       action: () => {
-                        prefs.theme = 'dark'
+                        prefs.theme.value = 'dark'
                         savePrefs()
                       },
                     },
@@ -579,7 +581,7 @@ if (main) {
                       caption: 'Light',
                       checked: () => prefs.theme.valueOf() === 'light',
                       action: () => {
-                        prefs.theme = 'light'
+                        prefs.theme.value = 'light'
                         savePrefs()
                       },
                     },
@@ -588,7 +590,7 @@ if (main) {
                       caption: 'High Contrast',
                       checked: () => prefs.highContrast.valueOf(),
                       action: () => {
-                        prefs.highContrast = !prefs.highContrast.valueOf()
+                        prefs.highContrast.value = !prefs.highContrast.valueOf()
                         savePrefs()
                       },
                     },
@@ -712,18 +714,8 @@ if (main) {
           // Load example when selected
           bind(pg, 'app.currentExample', {
             toDOM(element: Playground, example: any) {
-              if (
-                example &&
-                app.currentView.valueOf() === 'ajs' &&
-                element.editor
-              ) {
-                element.editor.dispatch({
-                  changes: {
-                    from: 0,
-                    to: element.editor.state.doc.length,
-                    insert: example.code,
-                  },
-                })
+              if (example && app.currentView.valueOf() === 'ajs') {
+                element.setCode(example.code)
               }
             },
           })

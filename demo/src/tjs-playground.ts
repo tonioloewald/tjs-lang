@@ -1241,14 +1241,14 @@ export class TJSPlayground extends Component<TJSPlaygroundParts> {
       // Log WASM compilation results (WASM is now compiled at transpile time)
       const wasmCompiled = this.lastTranspileResult.wasmCompiled
       if (wasmCompiled && wasmCompiled.length > 0) {
-        const success = wasmCompiled.filter((w) => w.success).length
-        const failed = wasmCompiled.filter((w) => !w.success).length
+        const success = wasmCompiled.filter((w: any) => w.success).length
+        const failed = wasmCompiled.filter((w: any) => !w.success).length
         if (success > 0) {
           this.log(`WASM: ${success} block(s) compiled at transpile time`)
         }
         if (failed > 0) {
           this.log(`WASM: ${failed} failed (using JS fallback)`)
-          for (const w of wasmCompiled.filter((w) => !w.success)) {
+          for (const w of wasmCompiled.filter((w: any) => !w.success)) {
             this.log(`  ${w.id}: ${w.error}`)
           }
         }

@@ -3,7 +3,7 @@
 # TJS Platform
 
 <center>
-    <xin-lottie style="width: 40vmin; height: 40vmin;" src="./tosi-platform.json"><img alt="tjs-lang logo" style="width: 40vmin; height: 40vmin" src="tjs-lang.svg"></xin-lottie>
+    <tosi-lottie style="width: 40vmin; height: 40vmin;" src="./tosi-platform.json"><img alt="tjs-lang logo" style="width: 40vmin; height: 40vmin" src="tjs-lang.svg"></tosi-lottie>
 </center>
 
 [playground](https://tjs-platform.web.app) | [github](https://github.com/tonioloewald/tjs-lang#readme) | [npm](https://www.npmjs.com/package/tjs-lang) | [discord](https://discord.gg/ramJ9rgky5)

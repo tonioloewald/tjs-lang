@@ -77,7 +77,7 @@ async function encrypt(plaintext: string, keyBase64: string): Promise<string> {
   combined.set(iv)
   combined.set(new Uint8Array(ciphertext), iv.length)
 
-  return bufferToBase64(combined)
+  return bufferToBase64(combined.buffer)
 }
 
 async function decrypt(
@@ -129,6 +129,7 @@ export interface UserDoc {
   apiKeys: {
     openai?: string
     anthropic?: string
+    gemini?: string
     deepseek?: string
   }
   created: number
