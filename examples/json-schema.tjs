@@ -1,0 +1,41 @@
+// JSON Schema generation from TJS types
+// Run with: bun src/cli/tjs.ts run examples/json-schema.tjs
+
+// --- Types emit JSON Schema ---
+
+Type User {
+  description: 'a registered user'
+  example: { name: '', age: 0, email: '' }
+}
+
+console.log('User schema:', JSON.stringify(User.toJSONSchema(), null, 2))
+
+// --- Type.check() validates ---
+
+console.log('Valid user:', User.check({ name: 'Alice', age: 30, email: 'a@b.com' }))
+console.log('Missing field:', User.check({ name: 'Alice' }))
+
+// --- Type.strip() removes extra fields ---
+
+const dirty = { name: 'Alice', age: 30, email: 'a@b.com', password: 'secret' }
+console.log('Stripped:', User.strip(dirty))
+
+// --- Enums and Unions ---
+
+const Status = Enum('status', { Active: 1, Inactive: 0 })
+console.log('Enum schema:', JSON.stringify(Status.toJSONSchema()))
+
+const Direction = Union('direction', ['up', 'down', 'left', 'right'])
+console.log('Union schema:', JSON.stringify(Direction.toJSONSchema()))
+
+// --- Function signatures → JSON Schema ---
+
+function createUser(name: '', age: 0) -> { id: 0, name: '' } {
+  return { id: 1, name }
+}
+
+// Access via standalone function
+import { functionMetaToJSONSchema } from 'tjs-lang/lang'
+const { input, output } = functionMetaToJSONSchema(createUser.__tjs)
+console.log('Input schema:', JSON.stringify(input, null, 2))
+console.log('Output schema:', JSON.stringify(output, null, 2))

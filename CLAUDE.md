@@ -80,6 +80,7 @@ bun run functions:serve     # Local functions emulator
 - `src/lang/emitters/from-ts.ts` - TypeScript to TJS/JS transpiler with class metadata extraction
 - `src/lang/emitters/dts.ts` - .d.ts declaration file generator from TJS transpilation results
 - `src/lang/inference.ts` - Type inference from example values
+- `src/lang/json-schema.ts` - JSON Schema generation from TypeDescriptors and example values
 - `src/lang/linter.ts` - Static analysis (unused vars, unreachable code, no-explicit-new)
 - `src/lang/runtime.ts` - TJS runtime (monadic errors, type checking, wrapClass)
 - `src/lang/wasm.ts` - WASM compiler (opcodes, disassembler, bytecode generation)
@@ -110,6 +111,11 @@ await vm.run(ast, args, { fuel, capabilities, timeoutMs, trace })
 // Builder
 Agent.take(schema).varSet(...).httpFetch(...).return(schema)
 vm.Agent  // Builder with custom atoms included
+
+// JSON Schema
+Type('user', { name: '', age: 0 }).toJSONSchema()  // → JSON Schema object
+Type('user', { name: '', age: 0 }).strip(value)     // → strip extra fields
+functionMetaToJSONSchema(fn.__tjs)                   // → { input, output } schemas
 ```
 
 ### Package Entry Points

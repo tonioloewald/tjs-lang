@@ -702,6 +702,67 @@ This enables:
 - Autocomplete from live objects
 - Runtime type validation
 - Automatic documentation generation
+- JSON Schema generation (see below)
+
+### JSON Schema
+
+TJS types and function signatures can be exported as standard JSON Schema. Instead of writing schemas and inferring types (Zod), you write typed functions and get schemas out.
+
+#### From Types
+
+```typescript
+Type User {
+  example: { name: '', age: 0, email: '' }
+}
+
+User.toJSONSchema()
+// {
+//   type: 'object',
+//   properties: {
+//     name: { type: 'string' },
+//     age: { type: 'integer' },
+//     email: { type: 'string' }
+//   },
+//   required: ['name', 'age', 'email'],
+//   additionalProperties: false
+// }
+
+User.check({ name: 'Alice', age: 30, email: 'a@b.com' })  // true
+User.strip({ name: 'Alice', age: 30, secret: 'pw' })
+// { name: 'Alice', age: 30 } — extra fields removed
+```
+
+#### From Function Signatures
+
+```typescript
+import { functionMetaToJSONSchema } from 'tjs-lang/lang'
+
+function createUser(name: '', age: 0) -> { id: 0, name: '' } {
+  return { id: 1, name }
+}
+
+const { input, output } = functionMetaToJSONSchema(createUser.__tjs)
+// input:  { type: 'object', properties: { name: { type: 'string' }, age: { type: 'integer' } }, required: ['name', 'age'] }
+// output: { type: 'object', properties: { id: { type: 'integer' }, name: { type: 'string' } }, ... }
+```
+
+When the shared runtime is installed (`installRuntime()`), `.schema()` is also available directly on the metadata:
+
+```typescript
+createUser.__tjs.schema() // same { input, output } result
+```
+
+#### Unions and Enums
+
+```typescript
+const Direction = Union('direction', ['up', 'down', 'left', 'right'])
+Direction.toJSONSchema() // { enum: ['up', 'down', 'left', 'right'] }
+
+const Status = Enum('status', { Active: 1, Inactive: 0 })
+Status.toJSONSchema() // { enum: [1, 0] }
+```
+
+This gives you OpenAPI-ready API contracts from your function signatures — no extra schema definitions needed.
 
 ### Monadic Errors
 

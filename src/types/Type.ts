@@ -17,10 +17,7 @@
  */
 
 import { validate, filter as schemaFilter, s, type Base } from 'tosijs-schema'
-import {
-  exampleToJSONSchema,
-  type JSONSchemaObject,
-} from '../lang/json-schema'
+import { exampleToJSONSchema, type JSONSchemaObject } from '../lang/json-schema'
 
 /** JSON Schema object type (simplified) */
 type JSONSchema = {

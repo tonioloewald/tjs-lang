@@ -89,9 +89,7 @@ export function exampleToJSONSchema(value: unknown): JSONSchemaObject {
     case 'string':
       return { type: 'string' }
     case 'number':
-      return Number.isInteger(value)
-        ? { type: 'integer' }
-        : { type: 'number' }
+      return Number.isInteger(value) ? { type: 'integer' } : { type: 'number' }
     case 'boolean':
       return { type: 'boolean' }
     case 'object': {
@@ -103,7 +101,9 @@ export function exampleToJSONSchema(value: unknown): JSONSchemaObject {
       // Object
       const properties: Record<string, JSONSchemaObject> = {}
       const required: string[] = []
-      for (const [key, val] of Object.entries(value as Record<string, unknown>)) {
+      for (const [key, val] of Object.entries(
+        value as Record<string, unknown>
+      )) {
         properties[key] = exampleToJSONSchema(val)
         required.push(key)
       }

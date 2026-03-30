@@ -494,4 +494,3 @@ export function getToolDefinitions(
     }
   })
 }
-

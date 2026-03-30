@@ -196,7 +196,10 @@ describe('json-schema', () => {
           },
         },
         returns: {
-          type: { kind: 'object' as const, shape: { id: { kind: 'integer' as const } } },
+          type: {
+            kind: 'object' as const,
+            shape: { id: { kind: 'integer' as const } },
+          },
         },
       }
 
