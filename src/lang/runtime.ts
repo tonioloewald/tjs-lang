@@ -11,6 +11,7 @@
  */
 
 import { validate, s } from 'tosijs-schema'
+import { functionMetaToJSONSchema } from './json-schema'
 import {
   Type,
   isRuntimeType,
@@ -891,6 +892,8 @@ export function wrap<T extends (...args: any[]) => any>(
 ): T {
   // Always attach metadata for introspection/autocomplete
   ;(fn as any).__tjs = meta
+  // Lazy JSON Schema generation — only computed when called
+  ;(fn as any).__tjs.schema = () => functionMetaToJSONSchema(meta)
 
   // Determine if we need a wrapper at all
   // Polymorphic dispatchers handle their own routing — no wrapping needed
@@ -1075,6 +1078,7 @@ export function wrap<T extends (...args: any[]) => any>(
   // Preserve function name and metadata
   Object.defineProperty(wrapped, 'name', { value: fn.name })
   ;(wrapped as any).__tjs = meta
+  ;(wrapped as any).__tjs.schema = () => functionMetaToJSONSchema(meta)
 
   return wrapped as T
 }

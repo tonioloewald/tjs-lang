@@ -16,7 +16,11 @@
  *   ZipCode.description // '5-digit US zip code'
  */
 
-import { validate, s, type Base } from 'tosijs-schema'
+import { validate, filter as schemaFilter, s, type Base } from 'tosijs-schema'
+import {
+  exampleToJSONSchema,
+  type JSONSchemaObject,
+} from '../lang/json-schema'
 
 /** JSON Schema object type (simplified) */
 type JSONSchema = {
@@ -46,6 +50,10 @@ export interface RuntimeType<T = unknown> {
   readonly examples?: T[]
   /** Default value (for instantiation) */
   readonly default?: T
+  /** Generate JSON Schema for this type */
+  toJSONSchema(): JSONSchemaObject
+  /** Strip a value down to only the fields matching this type's schema */
+  strip(value: unknown): unknown
   /** Brand for type identification */
   readonly __runtimeType: true
 }
@@ -189,6 +197,28 @@ export function Type<T = unknown>(
     example,
     examples,
     default: defaultValue,
+    toJSONSchema(): JSONSchemaObject {
+      // If we have an underlying JSON Schema or builder, extract it
+      if (schema) {
+        const raw = (schema as any)?.schema ?? schema
+        if (raw && typeof raw === 'object' && 'type' in raw) {
+          return raw as JSONSchemaObject
+        }
+      }
+      // Fall back to inferring from example
+      if (example !== undefined) {
+        return exampleToJSONSchema(example)
+      }
+      // Predicate-only types: best-effort from description
+      return { description }
+    },
+    strip(value: unknown): unknown {
+      if (schema) {
+        return schemaFilter(value, schema)
+      }
+      // No schema — can't strip, return as-is
+      return value
+    },
     __runtimeType: true as const,
   }
 }
@@ -386,6 +416,10 @@ export function Union<T extends unknown[]>(
     const result: RuntimeType & { values: unknown[] } = {
       description,
       check: (v: unknown): v is T[number] => valueSet.has(v),
+      toJSONSchema: () => ({
+        enum: values,
+      }),
+      strip: (value: unknown) => value,
       __runtimeType: true as const,
       values, // Expose values for introspection
     }
@@ -599,6 +633,10 @@ export function Enum<T extends Record<string, string | number>>(
   const enumType: EnumType<T> = {
     description,
     check: (v: unknown): v is T[keyof T] => valueSet.has(v as T[keyof T]),
+    toJSONSchema: () => ({
+      enum: values as unknown[],
+    }),
+    strip: (value: unknown) => value,
     __runtimeType: true as const,
     members,
     names,
@@ -783,6 +821,8 @@ function _createFunctionPredicate(
     params,
     returns,
     returnContract,
+    toJSONSchema: () => ({ description: name, type: 'function' as any }),
+    strip: (value: unknown) => value,
     // eslint-disable-next-line @typescript-eslint/ban-types
     check: (value: unknown): value is Function => {
       if (typeof value !== 'function') return false

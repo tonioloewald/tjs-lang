@@ -53,6 +53,12 @@ export {
 } from './emitters/from-ts'
 export * from './inference'
 export { Schema } from './schema'
+export {
+  typeDescriptorToJSONSchema,
+  exampleToJSONSchema,
+  functionMetaToJSONSchema,
+  type JSONSchemaObject,
+} from './json-schema'
 export { MetadataCache, getGlobalCache, setGlobalCache } from './metadata-cache'
 export {
   lint,
@@ -116,6 +122,7 @@ export {
 
 // Re-import for local use in this file
 import { MetadataCache, getGlobalCache } from './metadata-cache'
+import { typeDescriptorToJSONSchema } from './json-schema'
 
 /**
  * Transpile JavaScript source code to Agent99 AST
@@ -464,7 +471,7 @@ export function getToolDefinitions(
     const required: string[] = []
 
     for (const [paramName, param] of Object.entries(sig.parameters)) {
-      properties[paramName] = typeDescriptorToJsonSchema(param.type)
+      properties[paramName] = typeDescriptorToJSONSchema(param.type)
       if (param.description) {
         properties[paramName].description = param.description
       }
@@ -488,48 +495,3 @@ export function getToolDefinitions(
   })
 }
 
-/**
- * Convert TypeDescriptor to JSON Schema
- */
-function typeDescriptorToJsonSchema(
-  type: import('./types').TypeDescriptor
-): any {
-  switch (type.kind) {
-    case 'string':
-      return { type: 'string' }
-    case 'number':
-      return { type: 'number' }
-    case 'boolean':
-      return { type: 'boolean' }
-    case 'null':
-      return { type: 'null' }
-    case 'array':
-      return {
-        type: 'array',
-        items: type.items ? typeDescriptorToJsonSchema(type.items) : {},
-      }
-    case 'object':
-      if (!type.shape) {
-        return { type: 'object' }
-      }
-      return {
-        type: 'object',
-        properties: Object.fromEntries(
-          Object.entries(type.shape).map(([k, v]) => [
-            k,
-            typeDescriptorToJsonSchema(v),
-          ])
-        ),
-      }
-    case 'union':
-      if (!type.members) {
-        return {}
-      }
-      return {
-        anyOf: type.members.map(typeDescriptorToJsonSchema),
-      }
-    case 'any':
-    default:
-      return {}
-  }
-}
