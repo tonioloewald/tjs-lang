@@ -1,0 +1,95 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 680 400" font-family="system-ui, -apple-system, sans-serif">
+  <defs>
+    <filter id="shadow" x="-4%" y="-4%" width="108%" height="112%">
+      <feDropShadow dx="0" dy="2" stdDeviation="3" flood-opacity="0.12"/>
+    </filter>
+    <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M 0 0 L 10 5 L 0 10 z" fill="#999"/>
+    </marker>
+    <marker id="arrowRed" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M 0 0 L 10 5 L 0 10 z" fill="#cc1118"/>
+    </marker>
+    <marker id="arrowGreen" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M 0 0 L 10 5 L 0 10 z" fill="#006736"/>
+    </marker>
+  </defs>
+
+  <!-- Background -->
+  <rect width="680" height="400" rx="12" fill="#fafafa" stroke="#e0e0e0" stroke-width="1"/>
+
+  <!-- OLD WAY -->
+  <g filter="url(#shadow)">
+    <rect x="20" y="16" width="640" height="170" rx="8" fill="white" stroke="#cc1118" stroke-width="1.5"/>
+  </g>
+  <rect x="20" y="16" width="640" height="32" rx="8" fill="#fff3f3"/>
+  <rect x="20" y="36" width="640" height="12" fill="#fff3f3"/>
+  <text x="40" y="38" fill="#cc1118" font-size="13" font-weight="700">OLD WAY: Data-to-Code</text>
+
+  <!-- Client -->
+  <rect x="50" y="70" width="120" height="50" rx="8" fill="#f5f5f5" stroke="#999" stroke-width="1.5"/>
+  <text x="110" y="100" text-anchor="middle" fill="#444" font-size="14" font-weight="500">Client</text>
+
+  <!-- Server -->
+  <rect x="280" y="70" width="120" height="50" rx="8" fill="#f5f5f5" stroke="#999" stroke-width="1.5"/>
+  <text x="340" y="100" text-anchor="middle" fill="#444" font-size="14" font-weight="500">Server</text>
+
+  <!-- Database -->
+  <rect x="510" y="70" width="120" height="50" rx="8" fill="#f5f5f5" stroke="#999" stroke-width="1.5"/>
+  <text x="570" y="100" text-anchor="middle" fill="#444" font-size="14" font-weight="500">Database</text>
+
+  <!-- Forward arrows -->
+  <line x1="170" y1="85" x2="275" y2="85" stroke="#999" stroke-width="1.5" marker-end="url(#arrow)"/>
+  <text x="222" y="78" text-anchor="middle" fill="#888" font-size="10">request</text>
+
+  <line x1="400" y1="85" x2="505" y2="85" stroke="#999" stroke-width="1.5" marker-end="url(#arrow)"/>
+  <text x="452" y="78" text-anchor="middle" fill="#888" font-size="10">fetch 100 rows</text>
+
+  <!-- Return arrows -->
+  <line x1="505" y1="105" x2="400" y2="105" stroke="#cc1118" stroke-width="1.5" marker-end="url(#arrowRed)"/>
+  <text x="452" y="118" text-anchor="middle" fill="#cc1118" font-size="10" font-weight="600">100 rows</text>
+
+  <line x1="275" y1="105" x2="170" y2="105" stroke="#cc1118" stroke-width="1.5" marker-end="url(#arrowRed)"/>
+  <text x="222" y="118" text-anchor="middle" fill="#cc1118" font-size="10" font-weight="600">5 rows</text>
+
+  <!-- Waste callout -->
+  <rect x="170" y="140" width="330" height="28" rx="14" fill="#fff3f3" stroke="#cc1118" stroke-width="1" stroke-dasharray="4,3"/>
+  <text x="335" y="158" text-anchor="middle" fill="#cc1118" font-size="11">High latency. High bandwidth. Validate at every layer.</text>
+
+  <!-- TJS WAY -->
+  <g filter="url(#shadow)">
+    <rect x="20" y="210" width="640" height="174" rx="8" fill="white" stroke="#006736" stroke-width="1.5"/>
+  </g>
+  <rect x="20" y="210" width="640" height="32" rx="8" fill="#f0fff5"/>
+  <rect x="20" y="230" width="640" height="12" fill="#f0fff5"/>
+  <text x="40" y="232" fill="#006736" font-size="13" font-weight="700">TJS WAY: Code-to-Data</text>
+
+  <!-- Client -->
+  <rect x="50" y="264" width="120" height="50" rx="8" fill="#f5f5f5" stroke="#999" stroke-width="1.5"/>
+  <text x="110" y="294" text-anchor="middle" fill="#444" font-size="14" font-weight="500">Client</text>
+
+  <!-- Edge -->
+  <rect x="280" y="264" width="120" height="50" rx="8" fill="#f0fff5" stroke="#006736" stroke-width="1.5"/>
+  <text x="340" y="294" text-anchor="middle" fill="#005028" font-size="14" font-weight="600">Edge</text>
+
+  <!-- Database -->
+  <rect x="510" y="264" width="120" height="50" rx="8" fill="#f5f5f5" stroke="#999" stroke-width="1.5"/>
+  <text x="570" y="294" text-anchor="middle" fill="#444" font-size="14" font-weight="500">Database</text>
+
+  <!-- Forward arrows -->
+  <line x1="170" y1="279" x2="275" y2="279" stroke="#006736" stroke-width="1.5" marker-end="url(#arrowGreen)"/>
+  <text x="222" y="272" text-anchor="middle" fill="#006736" font-size="10" font-weight="500">send agent</text>
+
+  <line x1="400" y1="279" x2="505" y2="279" stroke="#006736" stroke-width="1.5" marker-end="url(#arrowGreen)"/>
+  <text x="452" y="272" text-anchor="middle" fill="#006736" font-size="10" font-weight="500">run at data</text>
+
+  <!-- Return arrows -->
+  <line x1="505" y1="299" x2="400" y2="299" stroke="#006736" stroke-width="1.5" marker-end="url(#arrowGreen)"/>
+  <text x="452" y="312" text-anchor="middle" fill="#006736" font-size="10" font-weight="600">5 rows</text>
+
+  <line x1="275" y1="299" x2="170" y2="299" stroke="#006736" stroke-width="1.5" marker-end="url(#arrowGreen)"/>
+  <text x="222" y="312" text-anchor="middle" fill="#006736" font-size="10" font-weight="600">5 rows</text>
+
+  <!-- Efficiency callout -->
+  <rect x="170" y="334" width="330" height="28" rx="14" fill="#f0fff5" stroke="#006736" stroke-width="1" stroke-dasharray="4,3"/>
+  <text x="335" y="352" text-anchor="middle" fill="#006736" font-size="11">Low latency. Zero waste. Validate once.</text>
+</svg>

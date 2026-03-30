@@ -16,21 +16,7 @@
 
 **TJS is also a toolchain.** It transpiles itself into JavaScript. It transpiles TypeScript into itself and then into JS. It turns function definitions into runtime contracts, documentation, and simple tests. It uses types both as contracts and examples. It allows inline tests of private module internals that disappear at runtime. It compresses transpilation, linting, testing, and documentation generation into a single fast pass. As for bundling? It allows it but it targets an unbundled web.
 
-```
-┌─────────────────────────────────────────────────────────────────────────┐
-│                            TJS Platform                                 │
-├─────────────────────┬─────────────────────┬─────────────────────────────┤
-│      Language       │      Runtime        │      Safe Execution         │
-├─────────────────────┼─────────────────────┼─────────────────────────────┤
-│  TypeScript         │  __tjs metadata     │  AJS Agent                  │
-│       ↓             │       ↓             │       ↓                     │
-│  TJS                │  Runtime Validation │  JSON AST                   │
-│       ↓             │       ↓             │       ↓                     │
-│  JavaScript         │  Auto Documentation │  Gas-Limited VM             │
-│                     │                     │       ↓                     │
-│                     │                     │  Injected Capabilities      │
-└─────────────────────┴─────────────────────┴─────────────────────────────┘
-```
+![TJS Platform Overview](docs/diagrams/platform-overview.svg)
 
 ## The Problem
 
@@ -80,24 +66,7 @@ const result = greet(123)        // MonadicError: Expected string for 'greet.nam
 - **Zero build step** — transpiles in the browser, no webpack/Vite/Babel
 - **The compiler _is_ the client** — TJS transpiles itself _and_ TypeScript entirely client-side
 
-```
-┌─────────────────────────────────────────────────────────────────┐
-│ COMPILE TIME                                                    │
-│                                                                 │
-│   function greet(name: 'World')  ──→  Parse  ──→  Extract type  │
-│                                                   name = string │
-└─────────────────────────────────────────────────────────────────┘
-                              ↓
-┌─────────────────────────────────────────────────────────────────┐
-│ RUNTIME                                                         │
-│                                                                 │
-│   greet.__tjs = { params: { name: { type: 'string' } } }        │
-│                                                                 │
-│   greet(123)  ──→  Type Check  ──┬──→  Pass  ──→  Execute       │
-│                                  └──→  Fail  ──→  MonadicError  │
-│                                                   (no throw)    │
-└─────────────────────────────────────────────────────────────────┘
-```
+![Compile Time and Runtime Flow](docs/diagrams/compile-runtime.svg)
 
 ## AJS — Code That Travels
 
@@ -133,27 +102,7 @@ const result = await vm.run(
 
 ## The Architecture Shift
 
-```
-❌ OLD WAY: Data-to-Code
-┌────────┐    request    ┌────────┐  fetch 100 rows  ┌──────────┐
-│ Client │ ────────────→ │ Server │ ───────────────→ │ Database │
-│        │ ←──────────── │        │ ←─────────────── │          │
-└────────┘   5 rows      └────────┘    100 rows      └──────────┘
-             (after filtering 95 away)
-```
-
-_High latency. High bandwidth. Validate at every layer._
-
-```
-✅ TJS WAY: Code-to-Data
-┌────────┐  send agent   ┌────────┐  run at data    ┌──────────┐
-│ Client │ ────────────→ │  Edge  │ ───────────────→ │ Database │
-│        │ ←──────────── │        │ ←─────────────── │          │
-└────────┘    5 rows     └────────┘     5 rows       └──────────┘
-             (agent filtered at source)
-```
-
-_Low latency. Zero waste. Validate once._
+![Architecture Shift: Data-to-Code vs Code-to-Data](docs/diagrams/architecture-shift.svg)
 
 The agent carries its own validation. The server grants capabilities. Caching happens automatically because the query _is_ the code.
 
@@ -187,26 +136,7 @@ const { result, fuelUsed } = await Eval({
 
 The untrusted code thinks it has `fetch`, but it only has _your_ `fetch`. No CSP violations. No infinite loops. No access to anything you didn't explicitly grant.
 
-```
-                    ┌─────────────────┐
-                    │ Untrusted Code  │
-                    └────────┬────────┘
-                             │
-         ┌───────────┬───────┴───────┬───────────┐
-         ↓           ↓               ↓           ↓
-     fetch()    fs.read()         loop       console
-         │           │               │           │
-         ↓           ↓               ↓           ↓
-    ┌─────────┐ ┌─────────┐    ┌─────────┐ ┌─────────┐
-    │Granted? │ │Granted? │    │Fuel left│ │Granted? │
-    └────┬────┘ └────┬────┘    └────┬────┘ └────┬────┘
-      Y  │  N     N  │          Y   │  N     N  │
-         ↓     ↓     ↓             ↓     ↓      ↓
-    ┌────────┐ ┌───────┐      Continue  Halt  Block
-    │  Your  │ │ Block │          │
-    │safeFetch│ └───────┘          ↓
-    └────────┘
-```
+![Safe Eval: Capability-Based Security](docs/diagrams/safe-eval.svg)
 
 ## Quick Start
 

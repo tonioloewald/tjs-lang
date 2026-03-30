@@ -1,0 +1,85 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 720 340" font-family="system-ui, -apple-system, sans-serif">
+  <defs>
+    <linearGradient id="headerGrad" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#ff1c24"/>
+      <stop offset="100%" stop-color="#d4161c"/>
+    </linearGradient>
+    <filter id="shadow" x="-4%" y="-4%" width="108%" height="112%">
+      <feDropShadow dx="0" dy="2" stdDeviation="3" flood-opacity="0.12"/>
+    </filter>
+  </defs>
+
+  <!-- Background -->
+  <rect width="720" height="340" rx="12" fill="#fafafa" stroke="#e0e0e0" stroke-width="1"/>
+
+  <!-- Title bar -->
+  <rect width="720" height="48" rx="12" fill="url(#headerGrad)"/>
+  <rect y="36" width="720" height="12" fill="url(#headerGrad)"/>
+  <text x="360" y="32" text-anchor="middle" fill="white" font-size="20" font-weight="700">TJS Platform</text>
+
+  <!-- Three columns -->
+  <!-- Language -->
+  <g filter="url(#shadow)">
+    <rect x="20" y="68" width="220" height="252" rx="8" fill="white" stroke="#e0e0e0" stroke-width="1"/>
+  </g>
+  <rect x="20" y="68" width="220" height="36" rx="8" fill="#006736"/>
+  <rect x="20" y="92" width="220" height="12" fill="#006736"/>
+  <text x="130" y="92" text-anchor="middle" fill="white" font-size="14" font-weight="600">Language</text>
+
+  <rect x="52" y="120" width="156" height="32" rx="6" fill="#fff3f3" stroke="#ff1c24" stroke-width="1.5"/>
+  <text x="130" y="141" text-anchor="middle" fill="#cc1118" font-size="13" font-weight="500">TypeScript</text>
+
+  <line x1="130" y1="152" x2="130" y2="172" stroke="#999" stroke-width="1.5" marker-end="url(#arrowGray)"/>
+  <text x="130" y="166" text-anchor="middle" fill="#999" font-size="18">&#x2193;</text>
+
+  <rect x="52" y="178" width="156" height="32" rx="6" fill="#f0fff5" stroke="#006736" stroke-width="1.5"/>
+  <text x="130" y="199" text-anchor="middle" fill="#005028" font-size="13" font-weight="600">TJS</text>
+
+  <text x="130" y="228" text-anchor="middle" fill="#999" font-size="18">&#x2193;</text>
+
+  <rect x="52" y="240" width="156" height="32" rx="6" fill="#fffbe6" stroke="#b8860b" stroke-width="1.5"/>
+  <text x="130" y="261" text-anchor="middle" fill="#8b6914" font-size="13" font-weight="500">JavaScript</text>
+
+  <!-- Runtime -->
+  <g filter="url(#shadow)">
+    <rect x="250" y="68" width="220" height="252" rx="8" fill="white" stroke="#e0e0e0" stroke-width="1"/>
+  </g>
+  <rect x="250" y="68" width="220" height="36" rx="8" fill="#006736"/>
+  <rect x="250" y="92" width="220" height="12" fill="#006736"/>
+  <text x="360" y="92" text-anchor="middle" fill="white" font-size="14" font-weight="600">Runtime</text>
+
+  <rect x="282" y="120" width="156" height="32" rx="6" fill="#f5f5f5" stroke="#666" stroke-width="1.5"/>
+  <text x="360" y="141" text-anchor="middle" fill="#444" font-size="13" font-weight="500">__tjs metadata</text>
+
+  <text x="360" y="166" text-anchor="middle" fill="#999" font-size="18">&#x2193;</text>
+
+  <rect x="282" y="178" width="156" height="32" rx="6" fill="#f5f5f5" stroke="#666" stroke-width="1.5"/>
+  <text x="360" y="199" text-anchor="middle" fill="#444" font-size="13" font-weight="500">Runtime Validation</text>
+
+  <text x="360" y="228" text-anchor="middle" fill="#999" font-size="18">&#x2193;</text>
+
+  <rect x="282" y="240" width="156" height="32" rx="6" fill="#f5f5f5" stroke="#666" stroke-width="1.5"/>
+  <text x="360" y="261" text-anchor="middle" fill="#444" font-size="13" font-weight="500">Auto Documentation</text>
+
+  <!-- Safe Execution -->
+  <g filter="url(#shadow)">
+    <rect x="480" y="68" width="220" height="252" rx="8" fill="white" stroke="#e0e0e0" stroke-width="1"/>
+  </g>
+  <rect x="480" y="68" width="220" height="36" rx="8" fill="#006736"/>
+  <rect x="480" y="92" width="220" height="12" fill="#006736"/>
+  <text x="590" y="92" text-anchor="middle" fill="white" font-size="14" font-weight="600">Safe Execution</text>
+
+  <rect x="512" y="120" width="156" height="32" rx="6" fill="#fff3f3" stroke="#ff1c24" stroke-width="1.5"/>
+  <text x="590" y="141" text-anchor="middle" fill="#cc1118" font-size="13" font-weight="500">AJS Agent</text>
+
+  <text x="590" y="166" text-anchor="middle" fill="#999" font-size="18">&#x2193;</text>
+
+  <rect x="512" y="178" width="156" height="32" rx="6" fill="#f5f5f5" stroke="#666" stroke-width="1.5"/>
+  <text x="590" y="199" text-anchor="middle" fill="#444" font-size="13" font-weight="500">JSON AST</text>
+
+  <text x="590" y="228" text-anchor="middle" fill="#999" font-size="18">&#x2193;</text>
+
+  <rect x="512" y="240" width="156" height="32" rx="6" fill="#f0fff5" stroke="#006736" stroke-width="1.5"/>
+  <text x="590" y="255" text-anchor="middle" fill="#005028" font-size="12" font-weight="500">Gas-Limited VM</text>
+  <text x="590" y="269" text-anchor="middle" fill="#005028" font-size="10">+ Injected Capabilities</text>
+</svg>
