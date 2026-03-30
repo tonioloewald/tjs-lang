@@ -80,7 +80,7 @@ async function buildDemo() {
     // Copy static files (including TFS service worker — must not be bundled)
     await $`cp demo/index.html demo/static/favicon.svg demo/static/photo-*.jpg tjs-lang.svg demo/src/tfs-worker.js .demo/`
     await $`cp -r demo/static/texts .demo/`
-    await $`cp -r docs/diagrams .demo/ 2>/dev/null || true`
+    await $`mkdir -p .demo/docs && cp -r docs/diagrams .demo/docs/ 2>/dev/null || true`
 
     console.log('Build complete!')
   } catch (error) {
