@@ -275,9 +275,9 @@ function normalize(! arr: Float32Array, len: 0) {
 
 ## Next Steps
 
-- **[WASM Basics](../guides/examples/tjs/wasm-basics.md)** — Runnable examples: integer math, floats, array processing
-- **[WASM SIMD](../guides/examples/tjs/wasm-simd.md)** — SIMD patterns: scale, dot product, benchmarking
-- **[WASM Memory](../guides/examples/tjs/wasm-memory.md)** — Data marshaling deep dive, `wasmBuffer()` patterns
-- **[WASM Starfield](../guides/examples/tjs/wasm-starfield.md)** — Full demo: 50K SIMD-accelerated particles
-- **[WASM Vector Search](../guides/examples/tjs/wasm-vector-search.md)** — Benchmark: SIMD cosine similarity vs JS scalar
-- **[TJS Language Guide — WASM section](../DOCS-TJS.md)** — Complete language reference
+- **[WASM Basics](https://github.com/tonioloewald/tjs-lang/blob/main/guides/examples/tjs/wasm-basics.md)** — Runnable examples: integer math, floats, array processing
+- **[WASM SIMD](https://github.com/tonioloewald/tjs-lang/blob/main/guides/examples/tjs/wasm-simd.md)** — SIMD patterns: scale, dot product, benchmarking
+- **[WASM Memory](https://github.com/tonioloewald/tjs-lang/blob/main/guides/examples/tjs/wasm-memory.md)** — Data marshaling deep dive, `wasmBuffer()` patterns
+- **[WASM Starfield](https://github.com/tonioloewald/tjs-lang/blob/main/guides/examples/tjs/wasm-starfield.md)** — Full demo: 50K SIMD-accelerated particles
+- **[WASM Vector Search](https://github.com/tonioloewald/tjs-lang/blob/main/guides/examples/tjs/wasm-vector-search.md)** — Benchmark: SIMD cosine similarity vs JS scalar
+- **[TJS Language Guide — WASM section](https://github.com/tonioloewald/tjs-lang/blob/main/DOCS-TJS.md)** — Complete language reference

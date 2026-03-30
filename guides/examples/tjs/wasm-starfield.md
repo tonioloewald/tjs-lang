@@ -2,7 +2,7 @@
 
 # Starfield
 
-> New to WASM in TJS? Start with the **[WASM Quick Start](../../../docs/WASM-QUICKSTART.md)**.
+> New to WASM in TJS? Start with the **[WASM Quick Start](https://github.com/tonioloewald/tjs-lang/blob/main/docs/WASM-QUICKSTART.md)**.
 
 Interactive space flythrough with parallax stars and nebula clouds. Uses `wasmBuffer()` for zero-copy WASM memory and SIMD-accelerated particle movement.
 

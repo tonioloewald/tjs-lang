@@ -2,7 +2,7 @@
 
 # Inline WASM
 
-> New to WASM in TJS? Start with the **[WASM Quick Start](../../../docs/WASM-QUICKSTART.md)**.
+> New to WASM in TJS? Start with the **[WASM Quick Start](https://github.com/tonioloewald/tjs-lang/blob/main/docs/WASM-QUICKSTART.md)**.
 
 Write WebAssembly inline — compiled at transpile time, embedded in the output.
 
