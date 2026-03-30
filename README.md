@@ -3,7 +3,7 @@
 # TJS Platform
 
 <center>
-    <tosi-lottie style="width: 40vmin; height: 40vmin;" src="./tosi-platform.json"><img alt="tjs-lang logo" style="width: 40vmin; height: 40vmin" src="tjs-lang.svg"></tosi-lottie>
+    <xin-lottie style="width: 40vmin; height: 40vmin;" src="./tosi-platform.json"><img alt="tjs-lang logo" style="width: 40vmin; height: 40vmin" src="tjs-lang.svg"></xin-lottie>
 </center>
 
 [playground](https://tjs-platform.web.app) | [github](https://github.com/tonioloewald/tjs-lang#readme) | [npm](https://www.npmjs.com/package/tjs-lang) | [discord](https://discord.gg/ramJ9rgky5)
@@ -215,6 +215,7 @@ The cost of "safe eval"—compare to a 200MB Docker image:
 
 - **[TJS Language Guide](DOCS-TJS.md)** — Types, syntax, runtime
 - **[AJS Runtime Guide](DOCS-AJS.md)** — VM, atoms, capabilities
+- **[WASM Quick Start](docs/WASM-QUICKSTART.md)** — Build WASM-accelerated libraries with zero toolchain setup
 - **[Architecture Deep Dive](CONTEXT.md)** — How it all fits together
 - **[Playground](https://tjs-platform.web.app)** — Try it now
 

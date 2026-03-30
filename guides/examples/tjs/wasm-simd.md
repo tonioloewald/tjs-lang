@@ -2,6 +2,8 @@
 
 # WASM SIMD
 
+> New to WASM in TJS? Start with the **[WASM Quick Start](../../../docs/WASM-QUICKSTART.md)**.
+
 Process 4 floats per instruction. No setup, no toolchain.
 
 ```tjs

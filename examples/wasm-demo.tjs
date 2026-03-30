@@ -1,0 +1,87 @@
+// WASM Quick Start — run with: bun src/cli/tjs.ts run examples/wasm-demo.tjs
+// See docs/WASM-QUICKSTART.md for the full guide
+
+// --- 1. Basic WASM: integer addition ---
+
+function add(! a: 0, b: 0) -! 0 {
+  return wasm {
+    a + b
+  } fallback {
+    return a + b
+  }
+}
+
+console.log('add(3, 4):', add(3, 4))
+
+// --- 2. Float math: linear interpolation ---
+
+function lerp(! a: 0.0, b: 0.0, t: 0.0) -! 0.0 {
+  return wasm {
+    a + (b - a) * t
+  } fallback {
+    return a + (b - a) * t
+  }
+}
+
+console.log('lerp(0, 100, 0.25):', lerp(0.0, 100.0, 0.25))
+
+// --- 3. SIMD: scale an array by a constant (4 floats per instruction) ---
+
+function scale(! arr: Float32Array, len: 0, factor: 0.0) {
+  wasm {
+    let s = f32x4_splat(factor)
+    for (let i = 0; i < len; i += 4) {
+      let off = i * 4
+      let v = f32x4_load(arr, off)
+      f32x4_store(arr, off, f32x4_mul(v, s))
+    }
+  } fallback {
+    for (let i = 0; i < len; i++) arr[i] *= factor
+  }
+}
+
+const data = new Float32Array([1, 2, 3, 4, 5, 6, 7, 8])
+scale(data, 8, 10.0)
+console.log('scale([1..8], 10):', Array.from(data))
+
+// --- 4. SIMD dot product with horizontal reduction ---
+
+function dot(! a: Float32Array, b: Float32Array, len: 0) -! 0.0 {
+  return wasm {
+    let acc = f32x4_splat(0.0)
+    for (let i = 0; i < len; i += 4) {
+      let off = i * 4
+      acc = f32x4_add(acc, f32x4_mul(f32x4_load(a, off), f32x4_load(b, off)))
+    }
+    f32x4_extract_lane(acc, 0) + f32x4_extract_lane(acc, 1)
+      + f32x4_extract_lane(acc, 2) + f32x4_extract_lane(acc, 3)
+  } fallback {
+    let sum = 0
+    for (let i = 0; i < len; i++) sum += a[i] * b[i]
+    return sum
+  }
+}
+
+const ones = new Float32Array(8).fill(1.0)
+const twos = new Float32Array(8).fill(2.0)
+console.log('dot([1,1,...], [2,2,...], 8):', dot(ones, twos, 8))
+
+// --- 5. Zero-copy memory with wasmBuffer ---
+
+const buf = wasmBuffer(Float32Array, 8)
+for (let i = 0; i < 8; i++) buf[i] = i + 1
+
+scale(buf, 8, 0.5)  // zero-copy — no marshal overhead
+console.log('wasmBuffer after scale(0.5):', Array.from(buf))
+
+// --- Benchmark ---
+
+const SIZE = 4096
+const bench = wasmBuffer(Float32Array, SIZE)
+for (let i = 0; i < SIZE; i++) bench[i] = Math.random()
+
+const iters = 10000
+const t0 = performance.now()
+for (let i = 0; i < iters; i++) scale(bench, SIZE, 1.0001)
+const elapsed = performance.now() - t0
+console.log(`${iters} SIMD scale ops on ${SIZE} floats: ${elapsed.toFixed(1)}ms`)

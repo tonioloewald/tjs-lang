@@ -2,6 +2,8 @@
 
 # Vector Search Benchmark
 
+> New to WASM in TJS? Start with the **[WASM Quick Start](../../../docs/WASM-QUICKSTART.md)**.
+
 WASM SIMD vs scalar JavaScript cosine similarity
 
 ```tjs

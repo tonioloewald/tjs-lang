@@ -20,6 +20,7 @@ ASTs that run sandboxed with fuel (gas) limits.
 | Document | Description |
 |----------|-------------|
 | [Technical Context](../CONTEXT.md) | Architecture deep dive, design decisions |
+| [WASM Quick Start](WASM-QUICKSTART.md) | Build WASM-accelerated libraries with zero toolchain setup |
 | [Design Patterns](../guides/patterns.md) | Common patterns in TJS and AJS |
 | [Schema Validation](../guides/tosijs-schema.md) | Working with tosijs-schema |
 

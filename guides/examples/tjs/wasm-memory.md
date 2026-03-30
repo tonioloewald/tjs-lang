@@ -2,6 +2,8 @@
 
 # WASM Memory
 
+> New to WASM in TJS? Start with the **[WASM Quick Start](../../../docs/WASM-QUICKSTART.md)**.
+
 Zero-copy arrays and automatic data marshaling between JS and WASM.
 
 ```tjs
