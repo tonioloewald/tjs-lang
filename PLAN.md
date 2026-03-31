@@ -514,7 +514,7 @@ The AST is the source of truth. Targets are just emission strategies.
 | --- | ---------------------- | ------ | ------------------------------------------------------------ |
 | 1   | Type()                 | ✅     | Full form with description + predicate, Union, Generic, Enum |
 | 2   | target()               | ❌     | Conditional compilation                                      |
-| 3   | Monadic Errors         | ✅     | AgentError with path, loc, debug call stacks                 |
+| 3   | Monadic Errors         | ✅     | MonadicError with path, expected, actual, callStack           |
 | 4   | test() blocks          | ✅     | extractTests, assert/expect, mock blocks, CLI                |
 | 5   | Pragmatic natives      | ⏳     | Some constructor checks exist                                |
 | 6   | Multi-target           | ❌     | Future - JS only for now                                     |
@@ -531,32 +531,41 @@ The AST is the source of truth. Targets are just emission strategies.
 | 17  | WASM blocks            | ✅     | Full: SIMD intrinsics, wasmBuffer, fallback, base64 embed    |
 | 18  | Death to `new`         | ✅     | wrapClass + no-explicit-new lint rule                        |
 | 19  | Linter                 | ✅     | unused vars, unreachable code, no-explicit-new               |
-| 20  | TS→TJS converter       | ✅     | `tjs convert` command                                        |
+| 20  | TS→TJS converter       | ✅     | `tjs convert` — proven on Zod, Effect, Radash, etc.          |
 | 21  | Docs generation        | ✅     | Auto-generated with emit, --no-docs, --docs-dir              |
 | 22  | Class support          | ✅     | TS→TJS class conversion, private→#, Proxy wrap               |
+| 23  | JSON Schema            | ✅     | Type.toJSONSchema(), Type.strip(), fn.\_\_tjs.schema()       |
+| 24  | Error history          | ✅     | Ring buffer of recent MonadicErrors, on by default            |
+| 25  | Polymorphic functions  | ✅     | Multiple same-name declarations merge into dispatcher         |
+| 26  | Local class extensions | ✅     | `extend String { }` without prototype pollution              |
+| 27  | `const!`               | ✅     | Compile-time immutability, zero runtime cost                  |
+| 28  | FunctionPredicate      | ✅     | First-class function types with params/returns/contract       |
+| 29  | `.d.ts` generation     | ✅     | `generateDTS()` from TJS transpilation results                |
+| 30  | `@tjs` annotations     | ✅     | `/* @tjs ... */` comments enrich TS→TJS output               |
 
-## Implementation Priority (Updated)
+### fromTS Transpiler Compatibility
 
-| Priority | Feature                   | Status | Notes                               |
-| -------- | ------------------------- | ------ | ----------------------------------- |
-| 1        | **Type()**                | ✅     | Full implementation                 |
-| 2        | **Autocomplete**          | ✅     | Working in playground               |
-| 3        | **test() blocks**         | ✅     | Full implementation                 |
-| 4        | **--debug / call stacks** | ✅     | Full stacks with maxStackSize limit |
-| 5        | **Eval() / SafeFunction** | ✅     | Done                                |
-| 6        | **target()**              | ❌     | Conditional compilation             |
-| 7        | **Safety flags**          | ✅     | Done                                |
-| 8        | **Single-pass**           | ✅     | Bun plugin: `bun file.tjs`          |
-| 9        | **Modules**               | ✅     | Local store + CDN                   |
+Proven against real-world TypeScript libraries (zero test regressions):
 
-## Next Up (Post-MVP)
+| Library      | Files | LOC   | Tests       | Status     |
+| ------------ | ----- | ----- | ----------- | ---------- |
+| Radash       | 10    | ~3K   | 340/340     | ✅ 100%    |
+| Superstruct  | 8     | 1.8K  | 225/225     | ✅ 100%    |
+| ts-pattern   | 17    | 5.5K  | 453/453     | ✅ 100%    |
+| Zod          | 114   | ~30K  | 1842/1842   | ✅ 100%    |
+| Kysely       | 279   | ~20K  | (DB req'd)  | ✅ transpiles |
+| Effect       | 363   | 120K  | (not run)   | ✅ transpiles |
 
-| Priority | Feature                   | Why                                     |
-| -------- | ------------------------- | --------------------------------------- |
-| 1        | **target()**              | Conditional compilation for build flags |
-| 2        | **Multi-target emission** | LLVM, SwiftUI, Android                  |
+Scripts: `bun scripts/compat-radash.ts`, `compat-superstruct.ts`, `compat-ts-pattern.ts`, `compat-zod.ts`, `compat-kysely.ts`, `compat-effect.ts`
 
-Note: `wasm { } fallback { }` is already implemented. `target()` is for build-time code stripping (e.g., `target(browser) { }` vs `target(node) { }`), which is useful for multi-platform deployment but not MVP.
+## Next Up
+
+| Priority | Feature                   | Why                                                       |
+| -------- | ------------------------- | --------------------------------------------------------- |
+| 1        | **JSON Schema from types** | Full schema emission for API contracts, OpenAPI generation |
+| 2        | **Tacit proxies**         | Transpiler-assisted implicit namespaces (see Ideas)       |
+| 3        | **target()**              | Conditional compilation for build flags                   |
+| 4        | **Multi-target emission** | LLVM, SwiftUI, Android (long-term)                        |
 
 ## 7. Safety Levels and Flags
 
@@ -802,8 +811,8 @@ increment(val)  // PositiveInt is subtype of number - skip check
 
 **Performance Target:**
 
-- Current `wrap()`: ~17x overhead
-- With type flow: ~1.2x overhead (matching safe TJS functions)
+- Current inline validation: ~1.15-1.3x overhead
+- With type flow: ~1.0x overhead (skip checks when types proven)
 - Hot loops: 0x overhead (unchecked path)
 
 ### JIT-Compiled Type Predicates
@@ -891,7 +900,7 @@ With `--debug`, functions know where they are and where they were called from:
 
 Source maps are a hack - external files that get out of sync, break in large builds, and require tooling support. TJS replaces them entirely:
 
-- The function _knows_ where it's from (`fn.meta.source`)
+- The function _knows_ where it's from (`fn.__tjs.source`)
 - Can't get out of sync (it's part of the function)
 - No external files, no tooling required
 - Works in production without `.map` files
@@ -1237,6 +1246,39 @@ The `Component` class compiles to platform-native code:
 | `swift { }`                   | Stripped          | Compiled           | Stripped                |
 
 The class definition is the source of truth. Platform blocks contain native code for each target - no CSS-in-JS gymnastics trying to map everywhere.
+
+### Tacit Proxies — Implicit Namespaces
+
+A `tacit` directive that tells the transpiler: "unresolved identifiers matching this pattern should be looked up on this object at runtime." No Proxy needed at runtime — pure transpile-time rewriting.
+
+```typescript
+tacit elements as UPPERCASE
+
+// LABEL is undefined, but matches the UPPERCASE pattern
+// Transpiler rewrites to: elements.label(...)
+LABEL('Edit me', INPUT({ placeholder: 'foo' }))
+```
+
+This gives you JSX-like ergonomics without special syntax, without build magic, and it's general-purpose — DOM elements, SQL builders, test DSLs, anything where you want a namespace of functions without explicit imports.
+
+**Key design constraints:**
+
+- Pattern matching (e.g., UPPERCASE) provides visual signal — you see `LABEL` and know it's tacit
+- File-scoped only — no cross-module leaking (same as `extend` blocks)
+- Zero runtime cost — transpiler rewrites to property access at compile time
+- Falls back to normal resolution — if an identifier IS defined, it takes precedence
+
+**Related prior art:** Python's `from module import *`, Ruby's `method_missing`, Kotlin's scope functions. TJS version is explicit (you declare the pattern) and compile-time (no runtime dispatch).
+
+### JSON Schema Deepening
+
+Current: `Type.toJSONSchema()`, `fn.__tjs.schema()`, `functionMetaToJSONSchema()`.
+
+Next steps:
+- CLI command: `tjs schema <file>` dumps JSON Schema for all exported types and functions
+- OpenAPI generation from function signatures
+- Schema validation at API boundaries (request/response matching)
+- Round-trip: JSON Schema → TJS Type (for consuming external schemas)
 
 ## Non-Goals
 
