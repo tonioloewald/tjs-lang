@@ -392,14 +392,13 @@ function generateInlineValidationCode(
 
     if (lines.length === 0) return null
 
-    // Push stack first, then validate — callStack includes current function
-    // finally block ensures popStack on all exit paths
+    // pushStack is a no-op unless callStacks/debug is enabled at runtime.
+    // No try/finally needed — the ring buffer tolerates missed popStack.
     lines.unshift(`__tjs.pushStack('${stackEntry}');`)
-    lines.unshift(`try {`)
 
     return {
       preamble: lines.join('\n  '),
-      suffix: '} finally { __tjs.popStack(); }',
+      suffix: '__tjs.popStack();',
     }
   }
 
@@ -436,14 +435,13 @@ function generateInlineValidationCode(
 
   if (lines.length === 0) return null
 
-  // Push stack first, then validate — callStack includes current function
-  // finally block ensures popStack on all exit paths
+  // pushStack is a no-op unless callStacks/debug is enabled at runtime.
+  // No try/finally needed — the ring buffer tolerates missed popStack.
   lines.unshift(`__tjs.pushStack('${stackEntry}');`)
-  lines.unshift(`try {`)
 
   return {
     preamble: lines.join('\n  '),
-    suffix: '} finally { __tjs.popStack(); }',
+    suffix: '__tjs.popStack();',
   }
 }
 
@@ -747,11 +745,12 @@ export function transpileToJS(
           position: func.body.start + 1,
           text: `\n  ${validation.preamble}\n`,
         })
-        // Insert suffix (popStack) right before the closing brace
-        insertions.push({
-          position: func.body.end - 1,
-          text: `\n  ${validation.suffix}\n`,
-        })
+        if (validation.suffix) {
+          insertions.push({
+            position: func.body.end - 1,
+            text: `\n  ${validation.suffix}\n`,
+          })
+        }
       }
     }
   }

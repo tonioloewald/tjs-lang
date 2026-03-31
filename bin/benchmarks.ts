@@ -47,7 +47,7 @@ console.log('Running TJS benchmarks...\n')
 // CLI Cold Start
 console.log('CLI Cold Start:')
 const testFile = '/tmp/bench-test.tjs'
-writeFileSync(testFile, `function add(a: 1, b: 2) -> 0 { return a + b }`)
+writeFileSync(testFile, `function add(a: 1, b: 2) -> 3 { return a + b }`)
 
 function measureCLI(cmd: string): number {
   const times: number[] = []
@@ -197,9 +197,9 @@ results.push({
 console.log('\n3-Function Chain:')
 
 // Create safe chain
-const safeStep1Result = tjs(`function safeStep1(x: 0) -> 0 { return x * 2 }`)
-const safeStep2Result = tjs(`function safeStep2(x: 0) -> 0 { return x + 10 }`)
-const safeStep3Result = tjs(`function safeStep3(x: 0) -> 0 { return x / 2 }`)
+const safeStep1Result = tjs(`function safeStep1(x: 5) -> 10 { return x * 2 }`)
+const safeStep2Result = tjs(`function safeStep2(x: 10) -> 20 { return x + 10 }`)
+const safeStep3Result = tjs(`function safeStep3(x: 20) -> 10 { return x / 2 }`)
 
 const safeStep1 = new Function(`${safeStep1Result.code}; return safeStep1;`)()
 const safeStep2 = new Function(`${safeStep2Result.code}; return safeStep2;`)()
@@ -207,13 +207,13 @@ const safeStep3 = new Function(`${safeStep3Result.code}; return safeStep3;`)()
 
 // Create unsafe chain with (!)
 const unsafeStep1Result = tjs(
-  `function unsafeStep1(! x: 0) -> 0 { return x * 2 }`
+  `function unsafeStep1(! x: 5) -> 10 { return x * 2 }`
 )
 const unsafeStep2Result = tjs(
-  `function unsafeStep2(! x: 0) -> 0 { return x + 10 }`
+  `function unsafeStep2(! x: 10) -> 20 { return x + 10 }`
 )
 const unsafeStep3Result = tjs(
-  `function unsafeStep3(! x: 0) -> 0 { return x / 2 }`
+  `function unsafeStep3(! x: 20) -> 10 { return x / 2 }`
 )
 
 const unsafeStep1 = new Function(

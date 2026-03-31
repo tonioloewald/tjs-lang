@@ -1555,11 +1555,11 @@ function helper(x: 0) -! 0 {
       expect(err.path).toBe('lib/utils.ts:15:helper.x')
     })
 
-    it('captures TJS call stack in debug mode', () => {
+    it('captures TJS call stack with callStacks enabled', () => {
       const { configure } = require('./runtime')
 
-      // Enable debug mode
-      configure({ debug: true })
+      // Enable call stack tracking
+      configure({ callStacks: true })
 
       try {
         const tjsSource = `/* tjs <- src/chain.ts */
@@ -1594,8 +1594,7 @@ function inner(x: '') -! '' {
         expect(err.callStack).toContain('src/chain.ts:20:middle')
         expect(err.callStack).toContain('src/chain.ts:30:inner')
       } finally {
-        // Reset debug mode
-        configure({ debug: false })
+        configure({ debug: false, callStacks: false })
       }
     })
 

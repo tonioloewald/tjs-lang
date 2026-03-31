@@ -181,7 +181,7 @@ export function typeError(
 ): MonadicError {
   const actual = value === null ? 'null' : typeof value
   // Capture call stack in debug mode (getStack returns [] if not in debug mode)
-  const stack = config.debug ? getStack() : undefined
+  const stack = (config.callStacks || config.debug) ? getStack() : undefined
   const err = new MonadicError(
     `Expected ${expected} for '${path}', got ${actual}`,
     path,
@@ -254,7 +254,11 @@ export interface TJSConfig {
   safety?: SafetyLevel
   /** Require explicit return types (error if -> not specified) */
   requireReturnTypes?: boolean
-  /** Maximum call stack size to prevent memory issues (default: 100) */
+  /** Track call stacks for error diagnostics (default: false).
+   *  Useful for server-side logging and agent debugging without devtools.
+   *  Uses a fixed ring buffer — no allocation pressure. */
+  callStacks?: boolean
+  /** Ring buffer size for call stack tracking (default: 64) */
   maxStackSize?: number
   /** Log type errors to console.error when they occur (default: false) */
   logTypeErrors?: boolean
@@ -268,14 +272,18 @@ const DEFAULT_CONFIG: TJSConfig = {
   debug: false,
   safety: 'inputs',
   requireReturnTypes: false,
-  maxStackSize: 100,
+  callStacks: false,
+  maxStackSize: 64,
 }
 
 /** Current runtime configuration */
 let config: TJSConfig = { ...DEFAULT_CONFIG }
 
-/** Current call stack (only tracked in debug mode) */
-const callStack: string[] = []
+/** Ring buffer for call stack tracking — fixed size, zero allocation */
+const STACK_SIZE = 64
+const callStackBuffer: string[] = new Array(STACK_SIZE).fill('')
+let callStackHead = 0
+let callStackCount = 0
 
 /** Unsafe mode depth - when > 0, skip validation in wrap() */
 let unsafeDepth = 0
@@ -317,34 +325,43 @@ export function getConfig(): TJSConfig {
 }
 
 /**
- * Push a function onto the call stack (debug mode only)
- * Respects maxStackSize to prevent unbounded memory growth
+ * Push a function onto the call stack ring buffer.
+ * Only tracks when callStacks or debug is enabled.
+ * O(1), no allocation.
  */
 export function pushStack(name: string): void {
-  if (config.debug && name) {
-    callStack.push(name)
-    // Enforce max stack size by removing oldest entries
-    const maxSize = config.maxStackSize ?? 100
-    while (callStack.length > maxSize) {
-      callStack.shift()
-    }
+  if ((config.callStacks || config.debug) && name) {
+    const size = config.maxStackSize ?? STACK_SIZE
+    callStackBuffer[callStackHead] = name
+    callStackHead = (callStackHead + 1) % size
+    if (callStackCount < size) callStackCount++
   }
 }
 
 /**
- * Pop a function from the call stack (debug mode only)
+ * Pop a function from the call stack ring buffer.
+ * O(1), no allocation.
  */
 export function popStack(): void {
-  if (config.debug) {
-    callStack.pop()
+  if ((config.callStacks || config.debug) && callStackCount > 0) {
+    const size = config.maxStackSize ?? STACK_SIZE
+    callStackHead = (callStackHead - 1 + size) % size
+    callStackCount--
   }
 }
 
 /**
- * Get current call stack snapshot
+ * Get current call stack snapshot (most recent entries, newest last)
  */
 export function getStack(): string[] {
-  return [...callStack]
+  if (callStackCount === 0) return []
+  const size = config.maxStackSize ?? STACK_SIZE
+  const result: string[] = []
+  const start = (callStackHead - callStackCount + size) % size
+  for (let i = 0; i < callStackCount; i++) {
+    result.push(callStackBuffer[(start + i) % size])
+  }
+  return result
 }
 
 /**
@@ -355,7 +372,8 @@ export function getStack(): string[] {
  */
 export function resetRuntime(): void {
   config = { ...DEFAULT_CONFIG }
-  callStack.length = 0
+  callStackHead = 0
+  callStackCount = 0
   unsafeDepth = 0
 }
 
@@ -601,12 +619,12 @@ export function error(
     ...details,
   }
 
-  // In debug mode, capture the call stack
-  if (config.debug && callStack.length > 0) {
-    // Add the path to the stack if it exists
+  // Capture call stack when tracking is enabled
+  if ((config.callStacks || config.debug) && callStackCount > 0) {
+    const currentStack = getStack()
     const fullStack = details?.path
-      ? [...callStack, details.path]
-      : [...callStack]
+      ? [...currentStack, details.path]
+      : currentStack
     err.stack = fullStack
   }
 
@@ -891,7 +909,7 @@ export function wrap<T extends (...args: any[]) => any>(
   meta: FunctionMeta
 ): T {
   // Always attach metadata for introspection/autocomplete
-  ;(fn as any).__tjs = meta
+  (fn as any).__tjs = meta
   // Lazy JSON Schema generation — only computed when called
   ;(fn as any).__tjs.schema = () => functionMetaToJSONSchema(meta)
 
@@ -1038,8 +1056,9 @@ export function wrap<T extends (...args: any[]) => any>(
       }
     }
 
-    // Push onto call stack in debug mode
-    pushStack(funcName)
+    // Track call stack only when enabled (ring buffer, no allocation)
+    const trackStack = config.callStacks || config.debug
+    if (trackStack) pushStack(funcName)
 
     try {
       // Execute function
@@ -1058,15 +1077,15 @@ export function wrap<T extends (...args: any[]) => any>(
           `${funcName}()`
         )
         if (returnError) {
-          popStack()
+          if (trackStack) popStack()
           return returnError as ReturnType<T>
         }
       }
 
-      popStack()
+      if (trackStack) popStack()
       return result
     } catch (e) {
-      popStack()
+      if (trackStack) popStack()
       // Convert thrown errors to TJS errors
       return error((e as Error).message || String(e), {
         path: funcName,
@@ -1151,7 +1170,10 @@ export function wrapClass<T extends new (...args: any[]) => any>(
 export function createRuntime() {
   // Per-instance state - inherit current global config
   let instanceConfig: TJSConfig = { ...config }
-  const instanceCallStack: string[] = []
+  const instStackSize = instanceConfig.maxStackSize ?? STACK_SIZE
+  const instanceStackBuffer: string[] = new Array(instStackSize).fill('')
+  let instanceStackHead = 0
+  let instanceStackCount = 0
   let instanceUnsafeDepth = 0
 
   // Per-instance stateful functions
@@ -1164,28 +1186,34 @@ export function createRuntime() {
   }
 
   function instancePushStack(name: string): void {
-    if (instanceConfig.debug && name) {
-      instanceCallStack.push(name)
-      const maxSize = instanceConfig.maxStackSize ?? 100
-      while (instanceCallStack.length > maxSize) {
-        instanceCallStack.shift()
-      }
+    if ((instanceConfig.callStacks || instanceConfig.debug) && name) {
+      instanceStackBuffer[instanceStackHead] = name
+      instanceStackHead = (instanceStackHead + 1) % instStackSize
+      if (instanceStackCount < instStackSize) instanceStackCount++
     }
   }
 
   function instancePopStack(): void {
-    if (instanceConfig.debug) {
-      instanceCallStack.pop()
+    if ((instanceConfig.callStacks || instanceConfig.debug) && instanceStackCount > 0) {
+      instanceStackHead = (instanceStackHead - 1 + instStackSize) % instStackSize
+      instanceStackCount--
     }
   }
 
   function instanceGetStack(): string[] {
-    return [...instanceCallStack]
+    if (instanceStackCount === 0) return []
+    const result: string[] = []
+    const start = (instanceStackHead - instanceStackCount + instStackSize) % instStackSize
+    for (let i = 0; i < instanceStackCount; i++) {
+      result.push(instanceStackBuffer[(start + i) % instStackSize])
+    }
+    return result
   }
 
   function instanceResetRuntime(): void {
     instanceConfig = { ...DEFAULT_CONFIG }
-    instanceCallStack.length = 0
+    instanceStackHead = 0
+    instanceStackCount = 0
     instanceUnsafeDepth = 0
   }
 
@@ -1271,7 +1299,7 @@ export function createRuntime() {
     value: unknown
   ): MonadicError {
     const actual = value === null ? 'null' : typeof value
-    const stack = instanceConfig.debug ? instanceGetStack() : undefined
+    const stack = (instanceConfig.callStacks || instanceConfig.debug) ? instanceGetStack() : undefined
     const err = new MonadicError(
       `Expected ${expected} for '${path}', got ${actual}`,
       path,
@@ -1299,10 +1327,10 @@ export function createRuntime() {
       message,
       ...details,
     }
-    if (instanceConfig.debug && instanceCallStack.length > 0) {
+    if ((instanceConfig.callStacks || instanceConfig.debug) && instanceStackCount > 0) {
       const fullStack = details?.path
-        ? [...instanceCallStack, details.path]
-        : [...instanceCallStack]
+        ? [...instanceGetStack(), details.path]
+        : instanceGetStack()
       err.stack = fullStack
     }
     return err

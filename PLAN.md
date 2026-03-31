@@ -17,15 +17,14 @@ TJS delivers **runtime type safety with near-zero overhead**. The key insight: s
 | Mode            | Overhead  | Use Case                                        |
 | --------------- | --------- | ----------------------------------------------- |
 | `safety none`   | **1.0x**  | Production - metadata only, no wrappers         |
-| `safety inputs` | **~1.5x** | Production with validation (single-arg objects) |
-| `safety inputs` | ~11x      | Multi-arg functions (schema-based)              |
+| `safety inputs` | **~1.5x** | Production with validation                      |
 | `safety all`    | ~14x      | Debug - validates inputs and outputs            |
 | `(!) unsafe`    | **1.0x**  | Hot paths - explicit opt-out                    |
 | WASM blocks     | **<1.0x** | Heavy computation - faster than JS              |
 
-**The happy path**: Single structured argument + inline validation = **1.5x overhead** with full runtime type checking.
+Inline validation = **~1.5x overhead** with full runtime type checking.
 
-### Why Single-Arg Objects Win
+### Why Inline Validation Wins
 
 ```typescript
 // TJS: pleasant syntax, fast validation (1.5x)
@@ -97,11 +96,10 @@ safety: 'none':          0.5ms / 100K calls (~1.0x) - no wrapper
 safety: 'inputs':        0.8ms / 100K calls (~1.5x) - inline validation*
 safety: 'all':           7.0ms / 100K calls (~14x) - validates args + return
 
-* For single-arg object types (the happy path)
-  Multi-arg functions use schema-based validation (~11x)
+* Inline type checks generated at transpile time
 ```
 
-**Why single-arg objects are fast:**
+**Why inline validation is fast:**
 
 ```typescript
 // The happy path - single structured argument
@@ -121,7 +119,7 @@ if (
 }
 ```
 
-This makes `safety: 'inputs'` viable for **production** with single-arg patterns.
+This makes `safety: 'inputs'` viable for **production**.
 
 **Why `safety: 'none'` is free:**
 
