@@ -242,6 +242,28 @@ if (isError(result)) {
 }
 ```
 
+### Error History
+
+Since monadic errors don't throw, they can silently vanish. TJS tracks recent type errors in a ring buffer so you always know what failed:
+
+```javascript
+greet(42)  // returns MonadicError, caller ignores it
+
+// Find it later
+__tjs.errors()        // → recent errors (newest last, max 64)
+__tjs.clearErrors()   // → clear and return them
+__tjs.getErrorCount() // → total since last clear
+
+// Testing pattern: clear → run → check
+__tjs.clearErrors()
+runMyCode()
+if (__tjs.errors().length > 0) {
+  console.log('Unexpected type errors!')
+}
+```
+
+On by default. Zero cost on the happy path — only writes when an error occurs.
+
 ### Safe by Default
 
 TJS functions are wrapped with runtime type validation by default:

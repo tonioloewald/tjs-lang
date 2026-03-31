@@ -788,6 +788,51 @@ No try/catch gambling. The host survives invalid inputs.
 For general-purpose error values (not type errors), use the `error()` helper
 which returns plain `{ $error: true, message }` objects checkable with `isError()`.
 
+### Error History
+
+Since monadic errors don't throw, they can silently vanish if nobody checks the return value. TJS tracks recent type errors in a ring buffer so you can catch these:
+
+```typescript
+// Errors are tracked automatically (on by default, zero cost on happy path)
+greet(42)              // returns MonadicError, caller ignores it
+processOrder('bad')    // same
+
+// Check what failed recently
+const recent = __tjs.errors()     // → recent MonadicErrors (newest last, max 64)
+for (const err of recent) {
+  console.log(err.message, err.path)
+}
+
+// Testing workflow: clear → run → check for surprises
+__tjs.clearErrors()
+runMyCode()
+expect(__tjs.errors()).toEqual([])  // no unexpected type errors
+
+// Total count survives ring buffer wrapping
+__tjs.getErrorCount()  // → total since last clear
+```
+
+### Runtime Configuration
+
+```typescript
+import { configure } from 'tjs-lang/lang'
+
+// Log type errors to console when they occur
+configure({ logTypeErrors: true })
+
+// Throw type errors instead of returning them (for debugging)
+configure({ throwTypeErrors: true })
+
+// Enable call stack tracking (off by default — ~2x overhead)
+// Useful for server-side logging and agent debugging without devtools
+configure({ callStacks: true })
+
+// Disable error history tracking (on by default, zero cost on happy path)
+configure({ trackErrors: false })
+```
+
+Both `logTypeErrors` and `throwTypeErrors` work on the shared runtime and isolated `createRuntime()` instances.
+
 ### Inline Tests
 
 Tests live next to code:

@@ -116,6 +116,11 @@ vm.Agent  // Builder with custom atoms included
 Type('user', { name: '', age: 0 }).toJSONSchema()  // → JSON Schema object
 Type('user', { name: '', age: 0 }).strip(value)     // → strip extra fields
 functionMetaToJSONSchema(fn.__tjs)                   // → { input, output } schemas
+
+// Error History (on by default, zero cost on happy path)
+__tjs.errors()          // → recent MonadicErrors (ring buffer, max 64)
+__tjs.clearErrors()     // → returns and clears
+__tjs.getErrorCount()   // → total since last clear
 ```
 
 ### Package Entry Points
@@ -294,19 +299,28 @@ Full syntax documentation is in [`CLAUDE-TJS-SYNTAX.md`](CLAUDE-TJS-SYNTAX.md). 
 - **WASM blocks**: Inline WebAssembly compiled at transpile time, with SIMD intrinsics and `wasmBuffer()` zero-copy arrays
 - **`@tjs` annotations**: `/* @tjs ... */` comments in TS files enrich TJS output
 
-#### Runtime Error Configuration
+#### Runtime Configuration
 
 ```typescript
 import { configure } from 'tjs-lang/lang'
 
-// Log type errors to console when they occur (with source location)
-configure({ logTypeErrors: true })
-
-// Throw type errors instead of returning them (for debugging)
-configure({ throwTypeErrors: true })
+configure({ logTypeErrors: true })   // Log type errors to console
+configure({ throwTypeErrors: true }) // Throw instead of return (debugging)
+configure({ callStacks: true })      // Track call stacks in errors (~2x overhead)
+configure({ trackErrors: false })    // Disable error history (on by default)
 ```
 
-Both work on the shared runtime and isolated `createRuntime()` instances.
+#### Error History
+
+Type errors are tracked in a ring buffer (on by default, zero cost on happy path):
+
+```typescript
+__tjs.errors()        // → recent MonadicErrors (newest last, max 64)
+__tjs.clearErrors()   // → returns and clears the buffer
+__tjs.getErrorCount() // → total since last clear (survives buffer wrap)
+```
+
+Use for debugging (find silent failures), testing (`clearErrors()` → run → check), and monitoring.
 
 #### Standalone JS Output
 
