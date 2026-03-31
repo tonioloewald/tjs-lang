@@ -132,7 +132,7 @@ This makes `safety: 'inputs'` viable for **production** with single-arg patterns
 **The `(!) unsafe` marker:**
 
 ```typescript
-function hot(! x: number) -> number { return x * 2 }
+function hot(! x: 0) -> 0 { return x * 2 }
 ```
 
 - Returns original function even with `safety: inputs`
@@ -164,15 +164,14 @@ function transform(arr: []) {
 }
 ```
 
-WASM compilation is implemented as a proof-of-concept:
+WASM compilation is fully implemented:
 
 - Parser extracts `wasm { }` blocks with automatic variable capture
-- Compiler generates valid WebAssembly binary from the body
-- Runtime dispatches to WASM when available, body runs as JS fallback
-- Benchmark: ~1.3x faster than equivalent JS (varies by workload)
-
-The POC supports: arithmetic (+, -, \*, /), captured variables, parentheses.
-Full implementation would add: loops, conditionals, typed arrays, memory access.
+- Compiler generates valid WebAssembly binary embedded as base64 in output
+- SIMD intrinsics (`f32x4_*`) for 4x float throughput
+- `wasmBuffer()` for zero-copy typed array sharing between JS and WASM
+- `fallback { }` provides JS path when WASM unavailable
+- See the [WASM Quick Start](https://github.com/tonioloewald/tjs-lang/blob/main/docs/WASM-QUICKSTART.md) for details
 
 ### Debugging
 
@@ -207,7 +206,7 @@ configure({ debug: true })
 
 ```typescript
 // Types ARE examples - self-documenting
-function greet(name: 'World', times: 3) -> string {
+function greet(name: 'World', times: 3) -> '' {
   return (name + '!').repeat(times)
 }
 
@@ -220,7 +219,7 @@ function greet(name: 'World', times: 3) -> string {
 ```typescript
 safety none  // This module skips validation
 
-function hot(x: number) -> number {
+function hot(x: 0) -> 0 {
   return x * 2  // No wrapper, but autocomplete still works
 }
 ```
@@ -257,7 +256,7 @@ greet.__tjs = {
 
 ```typescript
 const result = riskyOperation()
-if (result.$error) {
+if (isMonadicError(result)) {
   // Error is a value, not an exception
   // Agent can inspect and handle gracefully
 }
@@ -319,9 +318,9 @@ Predicates are sync JS functions that run in our runtime:
 
 ```typescript
 // These still work - Type() is the escape hatch, not the default
-function greet(name: string, times: number = 1) { ... }
+function greet(name: 'World', times = 1) { ... }
 function delay(ms = 1000) { ... }
-function fetch(url: string, timeout = +5000) { ... }
+function fetch(url: '', timeout = +5000) { ... }
 ```
 
 ## 2. Conditional Compilation with target()
@@ -529,8 +528,8 @@ The AST is the source of truth. Targets are just emission strategies.
 | 13  | Function introspection | ✅     | \_\_tjs metadata with params, returns, examples              |
 | 14  | Generic()              | ✅     | Runtime-checkable generics with TPair, TRecord               |
 | 15  | Asymmetric get/set     | ✅     | JS native get/set captures asymmetric types                  |
-| 16  | `==` that works        | ✅     | Is/IsNot with infix syntax + .Equals hook                    |
-| 17  | WASM blocks            | ✅     | POC: parser + compiler for simple expressions                |
+| 16  | `==` that works        | ✅     | Eq/NotEq + Is/IsNot, TjsEquals directive, honest typeof      |
+| 17  | WASM blocks            | ✅     | Full: SIMD intrinsics, wasmBuffer, fallback, base64 embed    |
 | 18  | Death to `new`         | ✅     | wrapClass + no-explicit-new lint rule                        |
 | 19  | Linter                 | ✅     | unused vars, unreachable code, no-explicit-new               |
 | 20  | TS→TJS converter       | ✅     | `tjs convert` command                                        |
@@ -754,8 +753,8 @@ Skip redundant type checks when types are already proven. The transpiler tracks 
 **Scenario 1: Chained Functions**
 
 ```typescript
-function validate(x: number) -> number { return x * 2 }
-function process(x: number) -> number { return x + 1 }
+function validate(x: 0) -> 0 { return x * 2 }
+function process(x: 0) -> 0 { return x + 1 }
 
 // Source
 const result = process(validate(input))
@@ -771,8 +770,8 @@ const result = process.__unchecked(_v)  // skips redundant check
 **Scenario 2: Loop Bodies**
 
 ```typescript
-function double(x: number) -> number { return x * 2 }
-const nums: number[] = [1, 2, 3]
+function double(x: 0) -> 0 { return x * 2 }
+const nums = [1, 2, 3]
 
 // Source
 nums.map(double)
@@ -788,7 +787,7 @@ nums.map(double.__unchecked)  // zero validation overhead in loop
 
 ```typescript
 const PositiveInt = Type('positive integer', n => Number.isInteger(n) && n > 0)
-function increment(x: number) -> number { return x + 1 }
+function increment(x: 0) -> 0 { return x + 1 }
 
 const val: PositiveInt = 5
 increment(val)  // PositiveInt is subtype of number - skip check
@@ -867,15 +866,14 @@ From this you get:
 Every function carries introspectable metadata:
 
 ```typescript
-checkAge.meta
+checkAge.__tjs
 // {
-//   name: 'checkAge',
-//   params: [
-//     { name: 'name', type: 'string', example: 'Anne' },
-//     { name: 'age', type: 'number', example: 17, default: 17 }
-//   ],
-//   returns: { type: { canDrink: 'boolean' }, example: { canDrink: false } },
-//   source: 'users.tjs:42:1'  // in debug builds
+//   params: {
+//     name: { type: { kind: 'string' }, required: true },
+//     age: { type: { kind: 'integer' }, required: false, default: 17 }
+//   },
+//   returns: { type: { kind: 'object' } },
+//   source: 'users.tjs:42'
 // }
 ```
 
@@ -975,9 +973,9 @@ The type metadata captures the asymmetry:
 
 This matches real-world APIs (DOM, dates, etc.) without TypeScript's painful workarounds.
 
-## 15. `==` That Works (via Is/IsNot)
+## 15. `==` That Works
 
-JavaScript's `==` is broken (type coercion chaos). TJS provides `Is` and `IsNot` operators as stepping stones toward eventually fixing `==` and `!=`:
+JavaScript's `==` is broken (type coercion chaos). With `TjsEquals` (or `TjsStrict`), TJS fixes `==`/`!=` to use honest equality (no coercion, unwraps boxed primitives). `Is`/`IsNot` provide explicit deep structural comparison:
 
 | Operator | Behavior                                                                                  |
 | -------- | ----------------------------------------------------------------------------------------- |
@@ -1012,13 +1010,16 @@ p1 === p2  // false (different objects)
 
 ### Implementation Status
 
-- ✅ `Is()` and `IsNot()` functions in runtime
+- ✅ `Eq()`/`NotEq()` honest equality (== and != with `TjsEquals`)
+- ✅ `Is()`/`IsNot()` deep structural comparison
 - ✅ Infix syntax transformation (`a Is b` → `Is(a, b)`)
-- ✅ Legacy JS/TS code works unchanged (uses native `==`/`!=`)
+- ✅ Custom equality protocol (`[tjsEquals]` symbol and `.Equals` method)
+- ✅ Honest `typeof` (`typeof null` → `'null'` with `TjsEquals`)
+- ✅ Legacy JS/TS code works unchanged without `TjsEquals` directive
 
-## 16. Death to Semicolons
+## 16. Death to Semicolons (`TjsStandard`)
 
-Newlines are meaningful. This:
+With the `TjsStandard` directive, newlines are meaningful. This:
 
 ```typescript
 foo()

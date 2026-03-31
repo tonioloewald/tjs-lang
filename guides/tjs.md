@@ -160,17 +160,10 @@ Type Name = 'Alice'
 Type Count = 0
 Type Age = +18              // positive number
 
-// Type with description and default
-Type Name 'a person name' = 'Alice'
-
-// Type with example (for testing/documentation)
-Type User 'registered user' {
+// Type with description and example
+Type User {
+  description: 'a registered user'
   example: { name: '', age: 0 }
-}
-
-// Type with both default and example
-Type PositiveAge = +1 {
-  example: 30
 }
 
 // Type with predicate (auto-generates type guard from example)
@@ -330,11 +323,13 @@ function sum(numbers: [0]) -> 0 {
 
 ### Performance Characteristics
 
-| Mode              | Overhead | Use Case                                 |
-| ----------------- | -------- | ---------------------------------------- |
-| Default (safe)    | ~50x     | API boundaries, user input               |
-| `unsafe {}` block | ~1.2x    | Hot loops within validated functions     |
-| `(!)` function    | 0x       | Internal utilities, performance critical |
+| Mode              | Overhead | Use Case                                |
+| ----------------- | -------- | --------------------------------------- |
+| `safety none`     | 1.0x     | Metadata only, no wrappers              |
+| `safety inputs`   | ~1.5x    | Production with validation (single-arg) |
+| `safety all`      | ~14x     | Debug — validates inputs and outputs    |
+| `(!)` function    | 1.0x     | Hot paths — explicit opt-out            |
+| `unsafe {}` block | 1.0x     | Hot loops within validated functions    |
 
 Use `(!)` for internal functions that are called frequently with known-good data. Keep public APIs safe.
 
@@ -462,14 +457,13 @@ test('async operations work') {
 
 ### Removed/Discouraged
 
-| Feature        | Reason                      |
-| -------------- | --------------------------- |
-| `var`          | Use `let` or `const`        |
-| `class`        | Use functions and objects   |
-| `this`         | Explicit context passing    |
-| `new` (mostly) | Factory functions preferred |
-| `throw`        | Return errors as values     |
-| `for...in`     | Use `Object.keys()`         |
+| Feature  | Reason                                                 |
+| -------- | ------------------------------------------------------ |
+| `var`    | Use `let` or `const` (`TjsNoVar` makes `var` an error) |
+| `new`    | With `TjsClass`, classes are callable without `new`    |
+| `throw`  | Return errors as values (monadic errors)               |
+| `eval()` | Use `Eval()` or `SafeFunction()` (`TjsNoeval` bans it) |
+| `Date`   | With `TjsDate`, use `Timestamp`/`LegalDate` instead    |
 
 ### Added
 
@@ -505,7 +499,9 @@ interface User {
 }
 
 // TJS - concrete example
-const User = { name: '', age: 0, email = '' }
+Type User {
+  example: { name: '', age: 0, email: '' }
+}
 ```
 
 ### Runtime Preservation
