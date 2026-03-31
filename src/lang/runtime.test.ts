@@ -1035,4 +1035,86 @@ describe('Error history ring buffer', () => {
     expect(errors()).toHaveLength(0)
     expect(getErrorCount()).toBe(0)
   })
+
+  it('catches unhandled errors from transpiled functions', () => {
+    const { tjs } = require('./index')
+    const savedTjs = globalThis.__tjs
+
+    try {
+      // installRuntime sets up globalThis.__tjs with the global runtime
+      // Emitted code calls createRuntime() to get a child — we need to
+      // access the child's error buffer via the __tjs local in the emitted code
+      const runtime = require('./runtime').createRuntime()
+      globalThis.__tjs = runtime
+
+      const result = tjs(`
+function greet(name: 'World') -> 'Hello, World' {
+  return 'Hello, ' + name
+}
+
+function process(x: 0) -> 0 {
+  return x * 2
+}
+`)
+      // The emitted code creates its own child runtime via createRuntime().
+      // We need to capture that child's __tjs to check its error buffer.
+      const mod = new Function(result.code + '\nreturn { greet, process, __tjs }')()
+
+      // Clear any errors from transpilation
+      mod.__tjs.clearErrors()
+
+      // Call with correct types — no errors
+      mod.greet('Alice')
+      mod.process(5)
+      expect(mod.__tjs.errors()).toHaveLength(0)
+
+      // Call with wrong type — error returned but not checked
+      mod.greet(42) // returns MonadicError, caller ignores it
+      mod.process('not a number') // same
+
+      // The errors are captured in history even though nobody checked them
+      const recent = mod.__tjs.errors()
+      expect(recent).toHaveLength(2)
+      expect(recent[0].path).toContain('greet.name')
+      expect(recent[0].expected).toBe('string')
+      expect(recent[1].path).toContain('process.x')
+      expect(recent[1].expected).toBe('integer')
+    } finally {
+      globalThis.__tjs = savedTjs
+    }
+  })
+
+  it('supports the test workflow: clear, run, check', () => {
+    const { tjs } = require('./index')
+    const savedTjs = globalThis.__tjs
+
+    try {
+      const runtime = require('./runtime').createRuntime()
+      globalThis.__tjs = runtime
+
+      const result = tjs(`
+function add(a: 1, b: 2) -> 3 {
+  return a + b
+}
+`)
+      const mod = new Function(result.code + '\nreturn { add, __tjs }')()
+
+      // Test workflow: clear → run → check for unexpected errors
+      mod.__tjs.clearErrors()
+
+      mod.add(10, 20) // correct types
+      mod.add(1, 2)   // correct types
+
+      expect(mod.__tjs.errors()).toHaveLength(0)
+      expect(mod.__tjs.getErrorCount()).toBe(0)
+
+      // Now introduce a bad call
+      mod.add('x', 'y') // wrong types
+
+      expect(mod.__tjs.errors()).toHaveLength(1)
+      expect(mod.__tjs.getErrorCount()).toBe(1)
+    } finally {
+      globalThis.__tjs = savedTjs
+    }
+  })
 })

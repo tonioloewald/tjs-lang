@@ -1463,6 +1463,8 @@ export function createRuntime() {
     wrapClass,
     compareVersions,
     versionsCompatible,
+    // Create child runtime instances
+    createRuntime,
     // Debug mode (instance-specific)
     configure: instanceConfigure,
     getConfig: instanceGetConfig,
