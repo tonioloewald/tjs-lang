@@ -272,14 +272,16 @@ export function renderTestResults(
   const passed = tests.filter((t: any) => t.passed).length
   const failed = tests.filter((t: any) => !t.passed).length
 
-  // Set gutter markers for failed tests
-  const failedTests = tests.filter((t: any) => !t.passed && t.line)
-  if (failedTests.length > 0) {
+  // Set gutter markers for ALL tests (pass and fail)
+  const testsWithLines = tests.filter((t: any) => t.line)
+  if (testsWithLines.length > 0) {
     editor.setMarkers(
-      failedTests.map((t: any) => ({
+      testsWithLines.map((t: any) => ({
         line: t.line,
-        message: t.error || t.description,
-        severity: 'error' as const,
+        message: t.passed
+          ? `✓ ${t.description}`
+          : `✗ ${t.description}: ${t.error || 'failed'}`,
+        severity: t.passed ? ('info' as const) : ('error' as const),
       }))
     )
   } else {
@@ -300,11 +302,10 @@ export function renderTestResults(
       ? ' <span class="sig-badge">signature</span>'
       : ''
     const dataLine = test.line ? ` data-line="${test.line}"` : ''
-    html += `<li class="${cls}"${dataLine}>${icon} ${test.description}${sigBadge}`
+    const clickable = test.line ? ' clickable-test' : ''
+    html += `<li class="${cls}${clickable}"${dataLine}>${icon} ${test.description}${sigBadge}`
     if (!test.passed && test.error) {
-      html += `<div class="test-error${
-        test.line ? ' clickable-error' : ''
-      }"${dataLine}>${test.error}</div>`
+      html += `<div class="test-error">${test.error}</div>`
     }
     html += `</li>`
   }
@@ -312,8 +313,8 @@ export function renderTestResults(
 
   outputEl.innerHTML = html
 
-  // Add click handlers for clickable errors
-  outputEl.querySelectorAll('.clickable-error').forEach((el) => {
+  // Add click handlers — any test with a line number is clickable
+  outputEl.querySelectorAll('.clickable-test').forEach((el) => {
     el.addEventListener('click', (e) => {
       const line = parseInt(
         (e.currentTarget as HTMLElement).dataset.line || '0',
@@ -587,14 +588,13 @@ export const sharedPlaygroundStyles: Record<string, Record<string, string>> = {
     fontFamily: 'var(--font-mono, monospace)',
   },
 
-  ':host .clickable-error': {
+  ':host .clickable-test': {
     cursor: 'pointer',
-    textDecoration: 'underline',
-    textDecorationStyle: 'dotted',
   },
 
-  ':host .clickable-error:hover': {
-    background: 'rgba(220, 38, 38, 0.2)',
+  ':host .clickable-test:hover': {
+    textDecoration: 'underline',
+    textDecorationStyle: 'dotted',
   },
 
   ':host .sig-badge': {
