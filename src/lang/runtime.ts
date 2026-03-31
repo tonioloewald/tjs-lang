@@ -181,7 +181,7 @@ export function typeError(
 ): MonadicError {
   const actual = value === null ? 'null' : typeof value
   // Capture call stack in debug mode (getStack returns [] if not in debug mode)
-  const stack = (config.callStacks || config.debug) ? getStack() : undefined
+  const stack = config.callStacks || config.debug ? getStack() : undefined
   const err = new MonadicError(
     `Expected ${expected} for '${path}', got ${actual}`,
     path,
@@ -189,6 +189,15 @@ export function typeError(
     actual,
     stack
   )
+
+  // Track in error history ring buffer (zero cost on happy path)
+  if (config.trackErrors !== false) {
+    const size = config.maxErrors ?? ERROR_BUF_SIZE
+    errorBuffer[errorHead] = err
+    errorHead = (errorHead + 1) % size
+    if (errorBufCount < size) errorBufCount++
+    errorTotal++
+  }
 
   // Log to console if configured (includes source location from path)
   if (config.logTypeErrors) {
@@ -260,6 +269,12 @@ export interface TJSConfig {
   callStacks?: boolean
   /** Ring buffer size for call stack tracking (default: 64) */
   maxStackSize?: number
+  /** Track recent type errors in a ring buffer (default: true).
+   *  Zero cost on happy path — only writes when an error occurs.
+   *  Lets you catch monadic errors that were silently ignored. */
+  trackErrors?: boolean
+  /** Ring buffer size for error tracking (default: 64) */
+  maxErrors?: number
   /** Log type errors to console.error when they occur (default: false) */
   logTypeErrors?: boolean
   /** Throw type errors instead of returning them (default: false).
@@ -274,6 +289,8 @@ const DEFAULT_CONFIG: TJSConfig = {
   requireReturnTypes: false,
   callStacks: false,
   maxStackSize: 64,
+  trackErrors: true,
+  maxErrors: 64,
 }
 
 /** Current runtime configuration */
@@ -284,6 +301,13 @@ const STACK_SIZE = 64
 const callStackBuffer: string[] = new Array(STACK_SIZE).fill('')
 let callStackHead = 0
 let callStackCount = 0
+
+/** Ring buffer for error history — zero cost on happy path */
+const ERROR_BUF_SIZE = 64
+const errorBuffer: any[] = new Array(ERROR_BUF_SIZE).fill(null)
+let errorHead = 0
+let errorBufCount = 0
+let errorTotal = 0
 
 /** Unsafe mode depth - when > 0, skip validation in wrap() */
 let unsafeDepth = 0
@@ -365,15 +389,51 @@ export function getStack(): string[] {
 }
 
 /**
+ * Get recent type errors (newest last).
+ * Only tracks when trackErrors is enabled (default: true).
+ */
+export function errors(): MonadicError[] {
+  if (config.trackErrors === false || errorBufCount === 0) return []
+  const size = config.maxErrors ?? ERROR_BUF_SIZE
+  const result: MonadicError[] = []
+  const start = (errorHead - errorBufCount + size) % size
+  for (let i = 0; i < errorBufCount; i++) {
+    result.push(errorBuffer[(start + i) % size])
+  }
+  return result
+}
+
+/**
+ * Clear error history. Returns the cleared errors.
+ */
+export function clearErrors(): MonadicError[] {
+  const cleared = errors()
+  errorHead = 0
+  errorBufCount = 0
+  errorTotal = 0
+  return cleared
+}
+
+/**
+ * Total error count since last clear (may exceed buffer size).
+ */
+export function getErrorCount(): number {
+  return errorTotal
+}
+
+/**
  * Reset runtime state to defaults
  *
- * Resets: config, callStack, unsafeDepth
+ * Resets: config, callStack, errors, unsafeDepth
  * Use this in test teardown to prevent state leaking between tests.
  */
 export function resetRuntime(): void {
   config = { ...DEFAULT_CONFIG }
   callStackHead = 0
   callStackCount = 0
+  errorHead = 0
+  errorBufCount = 0
+  errorTotal = 0
   unsafeDepth = 0
 }
 
@@ -909,7 +969,7 @@ export function wrap<T extends (...args: any[]) => any>(
   meta: FunctionMeta
 ): T {
   // Always attach metadata for introspection/autocomplete
-  (fn as any).__tjs = meta
+  ;(fn as any).__tjs = meta
   // Lazy JSON Schema generation — only computed when called
   ;(fn as any).__tjs.schema = () => functionMetaToJSONSchema(meta)
 
@@ -1174,6 +1234,11 @@ export function createRuntime() {
   const instanceStackBuffer: string[] = new Array(instStackSize).fill('')
   let instanceStackHead = 0
   let instanceStackCount = 0
+  const instErrorSize = instanceConfig.maxErrors ?? ERROR_BUF_SIZE
+  const instanceErrorBuffer: any[] = new Array(instErrorSize).fill(null)
+  let instanceErrorHead = 0
+  let instanceErrorBufCount = 0
+  let instanceErrorTotal = 0
   let instanceUnsafeDepth = 0
 
   // Per-instance stateful functions
@@ -1194,8 +1259,12 @@ export function createRuntime() {
   }
 
   function instancePopStack(): void {
-    if ((instanceConfig.callStacks || instanceConfig.debug) && instanceStackCount > 0) {
-      instanceStackHead = (instanceStackHead - 1 + instStackSize) % instStackSize
+    if (
+      (instanceConfig.callStacks || instanceConfig.debug) &&
+      instanceStackCount > 0
+    ) {
+      instanceStackHead =
+        (instanceStackHead - 1 + instStackSize) % instStackSize
       instanceStackCount--
     }
   }
@@ -1203,7 +1272,8 @@ export function createRuntime() {
   function instanceGetStack(): string[] {
     if (instanceStackCount === 0) return []
     const result: string[] = []
-    const start = (instanceStackHead - instanceStackCount + instStackSize) % instStackSize
+    const start =
+      (instanceStackHead - instanceStackCount + instStackSize) % instStackSize
     for (let i = 0; i < instanceStackCount; i++) {
       result.push(instanceStackBuffer[(start + i) % instStackSize])
     }
@@ -1214,6 +1284,9 @@ export function createRuntime() {
     instanceConfig = { ...DEFAULT_CONFIG }
     instanceStackHead = 0
     instanceStackCount = 0
+    instanceErrorHead = 0
+    instanceErrorBufCount = 0
+    instanceErrorTotal = 0
     instanceUnsafeDepth = 0
   }
 
@@ -1299,7 +1372,10 @@ export function createRuntime() {
     value: unknown
   ): MonadicError {
     const actual = value === null ? 'null' : typeof value
-    const stack = (instanceConfig.callStacks || instanceConfig.debug) ? instanceGetStack() : undefined
+    const stack =
+      instanceConfig.callStacks || instanceConfig.debug
+        ? instanceGetStack()
+        : undefined
     const err = new MonadicError(
       `Expected ${expected} for '${path}', got ${actual}`,
       path,
@@ -1307,6 +1383,14 @@ export function createRuntime() {
       actual,
       stack
     )
+
+    // Track in error history
+    if (instanceConfig.trackErrors !== false) {
+      instanceErrorBuffer[instanceErrorHead] = err
+      instanceErrorHead = (instanceErrorHead + 1) % instErrorSize
+      if (instanceErrorBufCount < instErrorSize) instanceErrorBufCount++
+      instanceErrorTotal++
+    }
 
     if (instanceConfig.logTypeErrors) {
       console.error(`[TJS TypeError] ${err.message}`)
@@ -1318,6 +1402,28 @@ export function createRuntime() {
     return err
   }
 
+  function instanceErrors(): MonadicError[] {
+    if (instanceConfig.trackErrors === false || instanceErrorBufCount === 0) return []
+    const result: MonadicError[] = []
+    const start = (instanceErrorHead - instanceErrorBufCount + instErrorSize) % instErrorSize
+    for (let i = 0; i < instanceErrorBufCount; i++) {
+      result.push(instanceErrorBuffer[(start + i) % instErrorSize])
+    }
+    return result
+  }
+
+  function instanceClearErrors(): MonadicError[] {
+    const cleared = instanceErrors()
+    instanceErrorHead = 0
+    instanceErrorBufCount = 0
+    instanceErrorTotal = 0
+    return cleared
+  }
+
+  function instanceGetErrorCount(): number {
+    return instanceErrorTotal
+  }
+
   function instanceError(
     message: string,
     details?: Partial<Omit<TJSError, '$error' | 'message'>>
@@ -1327,7 +1433,10 @@ export function createRuntime() {
       message,
       ...details,
     }
-    if ((instanceConfig.callStacks || instanceConfig.debug) && instanceStackCount > 0) {
+    if (
+      (instanceConfig.callStacks || instanceConfig.debug) &&
+      instanceStackCount > 0
+    ) {
       const fullStack = details?.path
         ? [...instanceGetStack(), details.path]
         : instanceGetStack()
@@ -1360,6 +1469,9 @@ export function createRuntime() {
     pushStack: instancePushStack,
     popStack: instancePopStack,
     getStack: instanceGetStack,
+    errors: instanceErrors,
+    clearErrors: instanceClearErrors,
+    getErrorCount: instanceGetErrorCount,
     resetRuntime: instanceResetRuntime,
     // Unsafe mode (instance-specific)
     enterUnsafe: instanceEnterUnsafe,
@@ -1438,6 +1550,9 @@ export const runtime = {
   pushStack,
   popStack,
   getStack,
+  errors,
+  clearErrors,
+  getErrorCount,
   resetRuntime,
   // Unsafe mode
   enterUnsafe,

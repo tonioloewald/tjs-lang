@@ -14,11 +14,15 @@ import {
   getStack,
   pushStack,
   popStack,
+  errors,
+  clearErrors,
+  getErrorCount,
   resetRuntime,
   enterUnsafe,
   exitUnsafe,
   isUnsafeMode,
   TJSError,
+  typeError,
   typeOf,
   isNativeType,
   Is,
@@ -951,5 +955,84 @@ describe('tjsEquals symbol protocol', () => {
 
   it('is a global symbol accessible via Symbol.for', () => {
     expect(tjsEquals).toBe(Symbol.for('tjs.equals'))
+  })
+})
+
+describe('Error history ring buffer', () => {
+  beforeEach(() => {
+    resetRuntime()
+  })
+
+  afterEach(() => {
+    resetRuntime()
+  })
+
+  it('tracks errors by default', () => {
+    const err = typeError('fn.x', 'string', 42)
+    const recent = errors()
+    expect(recent).toHaveLength(1)
+    expect(recent[0]).toBe(err)
+  })
+
+  it('tracks multiple errors', () => {
+    typeError('fn.a', 'string', 1)
+    typeError('fn.b', 'number', 'x')
+    typeError('fn.c', 'boolean', null)
+    const recent = errors()
+    expect(recent).toHaveLength(3)
+    expect(recent[0].path).toBe('fn.a')
+    expect(recent[2].path).toBe('fn.c')
+  })
+
+  it('ring buffer wraps at maxErrors', () => {
+    configure({ maxErrors: 4 })
+    for (let i = 0; i < 6; i++) {
+      typeError(`fn.x${i}`, 'string', i)
+    }
+    const recent = errors()
+    expect(recent).toHaveLength(4)
+    // Should have the last 4 errors (x2..x5)
+    expect(recent[0].path).toBe('fn.x2')
+    expect(recent[3].path).toBe('fn.x5')
+  })
+
+  it('getErrorCount tracks total even after buffer wraps', () => {
+    configure({ maxErrors: 4 })
+    for (let i = 0; i < 10; i++) {
+      typeError('fn.x', 'string', i)
+    }
+    expect(getErrorCount()).toBe(10)
+    expect(errors()).toHaveLength(4)
+  })
+
+  it('clearErrors returns cleared errors and resets', () => {
+    typeError('fn.a', 'string', 1)
+    typeError('fn.b', 'number', 'x')
+    const cleared = clearErrors()
+    expect(cleared).toHaveLength(2)
+    expect(cleared[0].path).toBe('fn.a')
+    expect(errors()).toHaveLength(0)
+    expect(getErrorCount()).toBe(0)
+  })
+
+  it('can be disabled with configure', () => {
+    configure({ trackErrors: false })
+    typeError('fn.x', 'string', 42)
+    expect(errors()).toHaveLength(0)
+    expect(getErrorCount()).toBe(0)
+  })
+
+  it('resetRuntime clears error history', () => {
+    typeError('fn.x', 'string', 42)
+    expect(errors()).toHaveLength(1)
+    resetRuntime()
+    expect(errors()).toHaveLength(0)
+    expect(getErrorCount()).toBe(0)
+  })
+
+  it('zero cost on happy path', () => {
+    // No errors created — errors() should return empty
+    expect(errors()).toHaveLength(0)
+    expect(getErrorCount()).toBe(0)
   })
 })
