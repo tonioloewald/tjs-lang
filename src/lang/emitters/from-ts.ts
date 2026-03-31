@@ -122,7 +122,14 @@ interface TypeResolutionContext {
   visited?: Set<string>
   /** Type parameter constraints and defaults from enclosing generic function/class */
   typeParams?: Map<string, { constraint?: ts.TypeNode; default?: ts.TypeNode }>
+  /** Cache resolved type alias/interface results to avoid redundant traversals */
+  resolvedCache?: Map<string, TypeInfo>
+  /** Current resolution depth — bail to 'any' when too deep */
+  depth?: number
 }
+
+/** Maximum type resolution depth before degrading to 'any' */
+const MAX_TYPE_DEPTH = 20
 
 /**
  * DOM interface types — not constructible but common in TS signatures.
@@ -646,6 +653,13 @@ function typeToInfo(
 ): TypeInfo {
   if (!type) return { kind: 'any' }
 
+  // Bail on deeply nested type resolution to prevent exponential traversal
+  const depth = ctx?.depth ?? 0
+  if (depth > MAX_TYPE_DEPTH) return { kind: 'any' }
+  // Increment depth for recursive calls (mutating ctx would be wrong since
+  // sibling types share the same ctx; spread creates a child scope)
+  ctx = ctx ? { ...ctx, depth: depth + 1 } : undefined
+
   switch (type.kind) {
     case ts.SyntaxKind.StringKeyword:
       return { kind: 'string' }
@@ -802,17 +816,27 @@ function typeToInfo(
 
       // Resolve type aliases
       if (ctx?.typeAliases?.has(typeName)) {
+        // Check cache first
+        if (ctx.resolvedCache?.has(typeName)) {
+          return ctx.resolvedCache.get(typeName)!
+        }
         const visited = ctx.visited ?? new Set<string>()
         if (visited.has(typeName)) {
           return { kind: 'any' } // Circular reference
         }
         visited.add(typeName)
         const resolvedType = ctx.typeAliases.get(typeName)!
-        return typeToInfo(resolvedType, { ...ctx, visited })
+        const result = typeToInfo(resolvedType, { ...ctx, visited })
+        ctx.resolvedCache?.set(typeName, result)
+        return result
       }
 
       // Resolve interfaces
       if (ctx?.interfaces?.has(typeName)) {
+        // Check cache first
+        if (ctx.resolvedCache?.has(typeName)) {
+          return ctx.resolvedCache.get(typeName)!
+        }
         const visited = ctx.visited ?? new Set<string>()
         if (visited.has(typeName)) {
           return { kind: 'any' } // Circular reference
@@ -851,7 +875,9 @@ function typeToInfo(
             shape[propName] = typeToInfo(member.type, { ...ctx, visited })
           }
         }
-        return { kind: 'object', shape }
+        const result = { kind: 'object' as const, shape }
+        ctx.resolvedCache?.set(typeName, result)
+        return result
       }
 
       // Check type parameter constraints/defaults from enclosing context
@@ -2406,6 +2432,7 @@ export function fromTS(
     interfaces,
     sourceFile,
     warnings,
+    resolvedCache: new Map(),
   }
 
   // Pre-scan: detect function overload groups
