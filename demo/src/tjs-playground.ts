@@ -1232,8 +1232,8 @@ export class TJSPlayground extends Component<TJSPlaygroundParts> {
       return
     }
 
-    // Show JS output immediately after successful transpilation
-    this.parts.outputTabs.value = 0 // JS is first tab (index 0)
+    // Show Docs tab by default; Preview tab takes over if DOM content appears
+    this.parts.outputTabs.value = 3 // Docs (index 3)
 
     this.parts.statusBar.textContent = 'Running...'
 
