@@ -24,8 +24,8 @@ export const styleSpec = {
     _fontMono: "'SF Mono', Monaco, 'Cascadia Code', Consolas, monospace",
     _fontSize: '15px',
     _lineHeight: '1.6',
-    _xinTabsSelectedColor: vars.brandColor,
-    _tosiTabsSelectedColor: vars.brandColor,
+    _xinTabsSelectedColor: '#3ea9f5',
+    _tosiTabsSelectedColor: '#3ea9f5',
     // Light mode colors
     _background: '#ffffff',
     _textColor: '#1f2937',
@@ -42,8 +42,8 @@ export const styleSpec = {
     _codeBorder: '#374151',
     _linkColor: '#818cf8',
     // tosi-tabs uses these
-    _tosiTabsSelectedColor: '#818cf8',
-    _xinTabsSelectedColor: '#818cf8',
+    _tosiTabsSelectedColor: '#3ea9f5',
+    _xinTabsSelectedColor: '#3ea9f5',
     _tosiTabsBarColor: '#374151',
   },
 
