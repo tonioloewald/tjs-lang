@@ -14,15 +14,15 @@ TJS delivers **runtime type safety with near-zero overhead**. The key insight: s
 
 ### The Performance Story
 
-| Mode            | Overhead  | Use Case                                        |
-| --------------- | --------- | ----------------------------------------------- |
-| `safety none`   | **1.0x**  | Production - metadata only, no wrappers         |
-| `safety inputs` | **~1.5x** | Production with validation                      |
-| `safety all`    | ~14x      | Debug - validates inputs and outputs            |
-| `(!) unsafe`    | **1.0x**  | Hot paths - explicit opt-out                    |
-| WASM blocks     | **<1.0x** | Heavy computation - faster than JS              |
+| Mode            | Overhead       | Use Case                                |
+| --------------- | -------------- | --------------------------------------- |
+| `safety none`   | **1.0x**       | Production - metadata only, no wrappers |
+| `safety inputs` | **~1.15-1.3x** | Production with validation              |
+| `safety all`    | ~14x           | Debug - validates inputs and outputs    |
+| `(!) unsafe`    | **1.0x**       | Hot paths - explicit opt-out            |
+| WASM blocks     | **<1.0x**      | Heavy computation - faster than JS      |
 
-Inline validation = **~1.5x overhead** with full runtime type checking.
+Inline validation = **~1.15x overhead** on real-world functions with full runtime type checking. Trivial functions (e.g. `x * 2`) show ~1.3x because the `typeof`/`instanceof` checks dominate.
 
 ### Why Inline Validation Wins
 
@@ -64,7 +64,7 @@ No schema interpretation. JIT-friendly. **20x faster** than Zod/io-ts style vali
 
 ### What You Get
 
-- **Runtime safety in production** - 1.5x overhead is acceptable
+- **Runtime safety in production** - ~1.15x overhead on real functions
 - **Autocomplete always works** - `__tjs` metadata attached regardless of safety
 - **Monadic errors** - type failures return error objects, not exceptions
 - **Escape hatches** - `(!)` for hot functions, `unsafe {}` for hot blocks
@@ -91,12 +91,13 @@ The AST is the source of truth. Today we emit JavaScript. Tomorrow:
 **Runtime Validation Overhead:**
 
 ```
-Plain function call:     0.5ms / 100K calls (baseline)
-safety: 'none':          0.5ms / 100K calls (~1.0x) - no wrapper
-safety: 'inputs':        0.8ms / 100K calls (~1.5x) - inline validation*
-safety: 'all':           7.0ms / 100K calls (~14x) - validates args + return
+Plain function call:     1.2ms / 1M calls (baseline)
+safety: 'none':          1.2ms / 1M calls (~1.0x) - no wrapper
+safety: 'inputs':        1.4ms / 1M calls (~1.15x) - inline validation*
+safety: 'all':           ~14x / 1M calls - validates args + return
 
-* Inline type checks generated at transpile time
+* Inline typeof/instanceof checks, no try/finally, no schema interpretation
+  ~1.15x for functions with real work, ~1.3x for trivial functions
 ```
 
 **Why inline validation is fast:**

@@ -42,8 +42,8 @@ TJS is **purely additive**. It adds type annotations, runtime validation, and me
 
 | Addition               | When                                      | Overhead                      |
 | ---------------------- | ----------------------------------------- | ----------------------------- |
-| Parameter validation   | Function entry (unless `!` unsafe)        | ~1.5x on that function        |
-| Return type validation | Function exit (only with `safety all`)    | ~1.5x on that function        |
+| Parameter validation   | Function entry (unless `!` unsafe)        | ~1.15-1.3x on that function   |
+| Return type validation | Function exit (only with `safety all`)    | ~1.15-1.3x on that function   |
 | `__tjs` metadata       | Transpile time                            | Zero runtime cost             |
 | `wrapClass` Proxy      | Class declaration (with `TjsClass`)       | One-time, on constructor only |
 | Structural equality    | Only when `==`/`!=` used with `TjsEquals` | Per-comparison                |
@@ -1016,14 +1016,14 @@ function greet(name: '', age = 0) -> '' { ... }
 
 ## Performance
 
-| Mode            | Overhead  | Use Case                        |
-| --------------- | --------- | ------------------------------- |
-| `safety none`   | **1.0x**  | Metadata only, no validation    |
-| `safety inputs` | **~1.5x** | Production (single-arg objects) |
-| `(!) unsafe`    | **1.0x**  | Hot paths                       |
-| `wasm {}`       | **<1.0x** | Compute-heavy code              |
+| Mode            | Overhead       | Use Case                     |
+| --------------- | -------------- | ---------------------------- |
+| `safety none`   | **1.0x**       | Metadata only, no validation |
+| `safety inputs` | **~1.15-1.3x** | Production                   |
+| `(!) unsafe`    | **1.0x**       | Hot paths                    |
+| `wasm {}`       | **<1.0x**      | Compute-heavy code           |
 
-### Why 1.5x, Not 25x
+### Why ~1.15x, Not 25x
 
 Most validators interpret schemas at runtime (~25x overhead). TJS generates inline checks at transpile time:
 
