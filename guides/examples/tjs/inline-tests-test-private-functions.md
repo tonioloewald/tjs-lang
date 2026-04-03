@@ -66,8 +66,7 @@ function isStrongPassword(password: '') -! { strong: true, issues: [''] } {
 // PUBLIC API (this is all that gets exported)
 // ============================================================
 
-export function createUser(input: { email: '', password: '' })
-  -! { id: '', email: '', passwordHash: '' } | { error: '', code: 0 } {
+export function createUser(input: { email: '', password: '' }) -! { id: '', email: '', passwordHash: '' } | { error: '', code: 0 } {
 
   // Validate email (using private helper)
   const cleanEmail = sanitize(input.email)

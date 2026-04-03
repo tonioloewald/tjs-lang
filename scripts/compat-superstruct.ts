@@ -88,8 +88,12 @@ async function main() {
     console.log('Cloning Superstruct...')
     mkdirSync(COMPAT_DIR, { recursive: true })
     const { exitCode } = await run([
-      'git', 'clone', '--depth', '1',
-      'https://github.com/ianstormtaylor/superstruct.git', REPO_DIR,
+      'git',
+      'clone',
+      '--depth',
+      '1',
+      'https://github.com/ianstormtaylor/superstruct.git',
+      REPO_DIR,
     ])
     if (exitCode !== 0) {
       console.error('Failed to clone Superstruct')
@@ -176,7 +180,7 @@ async function main() {
     const json = JSON.parse(jsonStr)
     const passed = json.numPassedTests ?? 0
     const failed = json.numFailedTests ?? 0
-    const total = json.numTotalTests ?? (passed + failed)
+    const total = json.numTotalTests ?? passed + failed
 
     console.log('━'.repeat(50))
     console.log(`  Total:  ${total}`)

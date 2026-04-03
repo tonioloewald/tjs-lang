@@ -53,7 +53,12 @@ function findSourceFiles(dir: string): string[] {
   const files: string[] = []
   for (const entry of readdirSync(dir, { withFileTypes: true })) {
     if (entry.isDirectory()) {
-      if (entry.name === 'test' || entry.name === 'tests' || entry.name === '__tests__') continue
+      if (
+        entry.name === 'test' ||
+        entry.name === 'tests' ||
+        entry.name === '__tests__'
+      )
+        continue
       files.push(...findSourceFiles(join(dir, entry.name)))
     } else if (
       entry.name.endsWith('.ts') &&
@@ -89,8 +94,12 @@ async function main() {
     console.log('Cloning ts-pattern...')
     mkdirSync(COMPAT_DIR, { recursive: true })
     const { exitCode } = await run([
-      'git', 'clone', '--depth', '1',
-      'https://github.com/gvergnaud/ts-pattern.git', REPO_DIR,
+      'git',
+      'clone',
+      '--depth',
+      '1',
+      'https://github.com/gvergnaud/ts-pattern.git',
+      REPO_DIR,
     ])
     if (exitCode !== 0) {
       console.error('Failed to clone ts-pattern')
@@ -115,15 +124,16 @@ async function main() {
   // Skip type-only files (src/types/) — they contain no runtime code
   console.log('\nTranspiling source files...')
   const allSourceFiles = findSourceFiles(SRC_DIR)
-  const sourceFiles = allSourceFiles.filter(f => {
+  const sourceFiles = allSourceFiles.filter((f) => {
     // Skip pure type files — they're type-level only, no runtime code
     const rel = f.replace(SRC_DIR + '/', '')
     if (rel.startsWith('types/')) {
       const content = readFileSync(f, 'utf-8').trim()
       // If file only has types/interfaces/imports (no runtime code), skip
-      const hasRuntime = content.split('\n').some(line => {
+      const hasRuntime = content.split('\n').some((line) => {
         const trimmed = line.trim()
-        return trimmed &&
+        return (
+          trimmed &&
           !trimmed.startsWith('//') &&
           !trimmed.startsWith('*') &&
           !trimmed.startsWith('/*') &&
@@ -132,6 +142,7 @@ async function main() {
           !trimmed.startsWith('export interface ') &&
           !trimmed.startsWith('type ') &&
           !trimmed.startsWith('interface ')
+        )
       })
       if (!hasRuntime) {
         console.log(`  ⊘ ${rel} (types only, skipped)`)
@@ -191,7 +202,9 @@ async function main() {
   // Remove any extra jest config files to avoid conflicts, then write ours
   const jestConfigJs = join(REPO_DIR, 'jest.config.js')
   const jestConfigCjs = join(REPO_DIR, 'jest.config.cjs')
-  try { unlinkSync(jestConfigJs) } catch {}
+  try {
+    unlinkSync(jestConfigJs)
+  } catch {}
   const patchedConfig = `module.exports = {
   testEnvironment: 'node',
   testMatch: ["**/tests/**/*.test.ts"],
@@ -209,20 +222,24 @@ async function main() {
   writeFileSync(jestConfigCjs, patchedConfig)
 
   // Create permissive tsconfig
-  const tsconfigCompat = JSON.stringify({
-    compilerOptions: {
-      target: 'es2020',
-      module: 'commonjs',
-      moduleResolution: 'node',
-      esModuleInterop: true,
-      strict: false,
-      noImplicitAny: false,
-      skipLibCheck: true,
-      declaration: false,
-      isolatedModules: true,
+  const tsconfigCompat = JSON.stringify(
+    {
+      compilerOptions: {
+        target: 'es2020',
+        module: 'commonjs',
+        moduleResolution: 'node',
+        esModuleInterop: true,
+        strict: false,
+        noImplicitAny: false,
+        skipLibCheck: true,
+        declaration: false,
+        isolatedModules: true,
+      },
+      include: ['src/**/*', 'tests/**/*'],
     },
-    include: ['src/**/*', 'tests/**/*'],
-  }, null, 2)
+    null,
+    2
+  )
   writeFileSync(join(REPO_DIR, 'tsconfig.compat.json'), tsconfigCompat)
 
   // ── Step 5: Run tests ──
@@ -240,7 +257,7 @@ async function main() {
     const json = JSON.parse(jsonStr)
     const passed = json.numPassedTests ?? 0
     const failed = json.numFailedTests ?? 0
-    const total = json.numTotalTests ?? (passed + failed)
+    const total = json.numTotalTests ?? passed + failed
     const suitesFailed = json.numFailedTestSuites ?? 0
 
     console.log('━'.repeat(50))
@@ -262,9 +279,9 @@ async function main() {
           const assertions = suite.assertionResults || []
           if (assertions.length === 0 && suite.message) {
             console.log(`  ✗ ${suiteName} (failed to run)`)
-            const firstLine = suite.message.split('\n').find(
-              (l: string) => l.trim() && !l.includes('at ')
-            )
+            const firstLine = suite.message
+              .split('\n')
+              .find((l: string) => l.trim() && !l.includes('at '))
             if (firstLine) console.log(`    ${firstLine.trim().slice(0, 120)}`)
             shown++
           }
@@ -277,7 +294,8 @@ async function main() {
                 const firstLine = msg
                   .split('\n')
                   .find((l: string) => l.trim() && !l.includes('at '))
-                if (firstLine) console.log(`    ${firstLine.trim().slice(0, 120)}`)
+                if (firstLine)
+                  console.log(`    ${firstLine.trim().slice(0, 120)}`)
               }
               shown++
             }

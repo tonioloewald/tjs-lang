@@ -5,8 +5,6 @@
 Classes you can call like functions. Multiple constructors.
 
 ```tjs
-TjsClass
-
 /*#
 ## The Problem
 
@@ -19,9 +17,9 @@ And you can't have multiple constructors:
 
     // Want Point(1, 2) AND Point({x: 1, y: 2})? Too bad.
 
-## TJS Classes (TjsClass)
+## TJS Classes (on by default)
 
-With `TjsClass`, classes are callable without `new`.
+In native TJS, classes are callable without `new` by default — no directive needed.
 Multiple `constructor()` declarations dispatch by signature.
 */
 

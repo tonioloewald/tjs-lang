@@ -5,6 +5,7 @@
 Complete REST-style Todo API with persistence
 
 ```tjs
+TjsCompat
 /**
  * # Todo API Service
  *

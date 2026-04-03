@@ -5,6 +5,7 @@
 A complete backend service with typed endpoints - save this first!
 
 ```tjs
+TjsCompat
 /**
  * # User Service
  *

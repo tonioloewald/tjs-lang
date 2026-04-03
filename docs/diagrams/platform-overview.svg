@@ -1,4 +1,4 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 720 340" font-family="system-ui, -apple-system, sans-serif">
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 720 350" font-family="system-ui, -apple-system, sans-serif">
   <style>
     /* TJS Brand Palette (from icon + Lottie animation) */
     :root {
@@ -50,7 +50,7 @@
 
   <!-- Column: Language -->
   <g class="shadow">
-    <rect x="20" y="68" width="220" height="252" rx="8" class="col-bg"/>
+    <rect x="20" y="68" width="220" height="262" rx="8" class="col-bg"/>
   </g>
   <rect x="20" y="68" width="220" height="36" rx="8" class="col-header"/>
   <rect x="20" y="92" width="220" height="12" class="col-header"/>
@@ -71,7 +71,7 @@
 
   <!-- Column: Runtime -->
   <g class="shadow">
-    <rect x="250" y="68" width="220" height="252" rx="8" class="col-bg"/>
+    <rect x="250" y="68" width="220" height="262" rx="8" class="col-bg"/>
   </g>
   <rect x="250" y="68" width="220" height="36" rx="8" class="col-header"/>
   <rect x="250" y="92" width="220" height="12" class="col-header"/>
@@ -92,7 +92,7 @@
 
   <!-- Column: Safe Execution -->
   <g class="shadow">
-    <rect x="480" y="68" width="220" height="252" rx="8" class="col-bg"/>
+    <rect x="480" y="68" width="220" height="262" rx="8" class="col-bg"/>
   </g>
   <rect x="480" y="68" width="220" height="36" rx="8" class="col-header"/>
   <rect x="480" y="92" width="220" height="12" class="col-header"/>
@@ -108,7 +108,7 @@
 
   <text x="590" y="228" text-anchor="middle" class="arrow-text">&#x2193;</text>
 
-  <g class="box-tjs"><rect x="512" y="240" width="156" height="32" rx="6"/></g>
+  <g class="box-tjs"><rect x="512" y="236" width="156" height="44" rx="6"/></g>
   <text x="590" y="255" text-anchor="middle" class="label-lg" fill="#005028">Gas-Limited VM</text>
-  <text x="590" y="269" text-anchor="middle" class="label-sm" fill="#005028">+ Injected Capabilities</text>
+  <text x="590" y="270" text-anchor="middle" class="label-sm" fill="#005028">+ Injected Capabilities</text>
 </svg>

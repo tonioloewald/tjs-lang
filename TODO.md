@@ -111,9 +111,9 @@
   - startOf/endOf Month/Quarter/Year/Week
 - [x] Portable predicate helpers: isValidUrl, isValidTimestamp, isValidLegalDate
 
-### TJS Mode System (JS is now the default)
+### TJS Mode System (native TJS has all modes ON by default; TS-originated code defaults to OFF)
 
-- [x] Invert mode system - JS semantics are default, improvements opt-in
+- [x] Invert mode system - native TJS enables all modes; TS-originated/AJS code defaults to JS semantics
 - [x] TjsEquals directive - structural == and != (null == undefined)
 - [x] TjsClass directive - classes callable without new
 - [x] TjsDate directive - bans Date constructor/methods

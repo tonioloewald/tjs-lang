@@ -5,8 +5,6 @@
 Classes with multiple constructor signatures, dispatched automatically
 
 ```tjs
-TjsClass
-
 /*#
 ## Polymorphic Constructors
 
@@ -14,8 +12,8 @@ Classes can have multiple constructor declarations. The first becomes the
 real JS constructor; the rest become factory functions that produce
 correct `instanceof` results.
 
-Combined with TjsClass (callable without `new`), this gives you
-clean, expressive object creation.
+Classes are callable without `new` by default in native TJS, giving you
+clean, expressive object creation with no directive needed.
 */
 
 class Point {
@@ -29,7 +27,7 @@ class Point {
     this.y = coords.y
   }
 
-  distanceTo(other: { x: 0.0, y: 0.0 }) {
+  distanceTo(other: { x: 0.0, y: 0.0 }) -> 0.0 {
     const dx = this.x - other.x
     const dy = this.y - other.y
     return Math.sqrt(dx * dx + dy * dy)

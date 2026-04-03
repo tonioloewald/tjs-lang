@@ -451,6 +451,10 @@ interface SignatureTestInfo {
   defaults?: Record<string, unknown>
   line: number
   isAsync?: boolean
+  /** For class method tests: the class name */
+  className?: string
+  /** For class method tests: args to pass to the first constructor */
+  constructorArgs?: unknown[]
 }
 
 /**
@@ -513,6 +517,100 @@ export function extractSignatureTestInfos(
       })
     } catch {
       // Skip if parsing fails - will be reported as error during execution
+    }
+  }
+
+  // Extract class method signature tests
+  // Find class declarations and their first constructor's params,
+  // then find methods with return type markers (-> or -?)
+  const classRegex = /class\s+(\w+)(?:\s+extends\s+\w+)?\s*\{/g
+  let classMatch
+  while ((classMatch = classRegex.exec(sourceWithoutComments)) !== null) {
+    const className = classMatch[1]
+    const classBodyStart = classMatch.index + classMatch[0].length
+
+    // Find the matching closing brace for the class body
+    let braceDepth = 1
+    let classBodyEnd = classBodyStart
+    for (let i = classBodyStart; i < sourceWithoutComments.length; i++) {
+      if (sourceWithoutComments[i] === '{') braceDepth++
+      else if (sourceWithoutComments[i] === '}') {
+        braceDepth--
+        if (braceDepth === 0) {
+          classBodyEnd = i
+          break
+        }
+      }
+    }
+    const classBody = sourceWithoutComments.slice(classBodyStart, classBodyEnd)
+
+    // Find the first constructor's params
+    const ctorRegex = /constructor\s*\(([^)]*)\)/
+    const ctorMatch = ctorRegex.exec(classBody)
+    if (!ctorMatch) continue
+
+    const ctorParamsStr = ctorMatch[1]
+    const ctorParamExamples = extractParamExamples(ctorParamsStr)
+    if (ctorParamsStr.trim() && ctorParamExamples.length === 0) continue
+
+    let ctorArgs: unknown[]
+    try {
+      ctorArgs = ctorParamExamples.map((p) => new Function(`return ${p}`)())
+    } catch {
+      continue
+    }
+
+    // Find methods with return type markers inside the class body
+    const methodRegex = /(async\s+)?(\w+)\s*\(([^)]*)\)\s*(-[>?])\s*/g
+    let methodMatch
+    while ((methodMatch = methodRegex.exec(classBody)) !== null) {
+      const methodName = methodMatch[2]
+      // Skip constructors and special names
+      if (methodName === 'constructor') continue
+
+      const isAsync = !!methodMatch[1]
+      const paramsStr = methodMatch[3]
+      const returnMarker = methodMatch[4]
+
+      if (returnMarker === '-!') continue
+
+      // Calculate line number from position in original source
+      const methodPosInSource = classBodyStart + methodMatch.index
+      const lineNumber = sourceWithoutComments
+        .slice(0, methodPosInSource)
+        .split('\n').length
+
+      const afterMarker = classBody.slice(
+        methodMatch.index + methodMatch[0].length
+      )
+      const returnExample = extractReturnExampleFromSource(afterMarker)
+      if (!returnExample) continue
+
+      const paramExamples = extractParamExamples(paramsStr)
+      if (paramsStr.trim() && paramExamples.length === 0) continue
+
+      try {
+        const parsed = parseReturnExample(returnExample)
+        if (!parsed) continue
+
+        const args = paramExamples.map((p) => new Function(`return ${p}`)())
+
+        infos.push({
+          funcName: methodName,
+          args,
+          expected: parsed.pattern,
+          defaults:
+            Object.keys(parsed.defaults).length > 0
+              ? parsed.defaults
+              : undefined,
+          line: lineNumber,
+          isAsync,
+          className,
+          constructorArgs: ctorArgs,
+        })
+      } catch {
+        // Skip if parsing fails
+      }
     }
   }
 
@@ -586,13 +684,23 @@ export function runAllTests(
 
   // Build signature test execution code
   const sigTestBodies = syncSigTestInfos
-    .map(
-      (info, i) => `
-    // Signature test ${i}: ${info.funcName}
+    .map((info, i) => {
+      const testLabel = info.className
+        ? `${info.className}.${info.funcName}`
+        : info.funcName
+      const callExpr = info.className
+        ? `new ${info.className}(${(info.constructorArgs || [])
+            .map((a) => JSON.stringify(a))
+            .join(', ')}).${info.funcName}(${info.args
+            .map((a) => JSON.stringify(a))
+            .join(', ')})`
+        : `${info.funcName}(${info.args
+            .map((a) => JSON.stringify(a))
+            .join(', ')})`
+      return `
+    // Signature test ${i}: ${testLabel}
     try {
-      let __actual = ${info.funcName}(${info.args
-        .map((a) => JSON.stringify(a))
-        .join(', ')});
+      let __actual = ${callExpr};
       const __expected = ${JSON.stringify(info.expected)};${
         info.defaults
           ? `
@@ -603,15 +711,13 @@ export function runAllTests(
       if (__deepEqual(__actual, __expected)) {
         __sigTestResults.push({ idx: ${i}, passed: true });
       } else {
-        __sigTestResults.push({ idx: ${i}, passed: false, error: 'Expected ' + __format(__expected) + ' at \\'${
-        info.funcName
-      }\\', got ' + __format(__actual) });
+        __sigTestResults.push({ idx: ${i}, passed: false, error: 'Expected ' + __format(__expected) + ' at \\'${testLabel}\\', got ' + __format(__actual) });
       }
     } catch (e) {
       __sigTestResults.push({ idx: ${i}, passed: false, error: e.message || String(e) });
     }
   `
-    )
+    })
     .join('\n')
 
   // Install real TJS runtime for test execution
@@ -747,8 +853,11 @@ export function runAllTests(
         !r.passed &&
         r.error &&
         /is not defined$/.test(r.error)
+      const label = info.className
+        ? `${info.className}.${info.funcName}`
+        : info.funcName
       results.push({
-        description: `${info.funcName} signature example`,
+        description: `${label} signature example`,
         passed: isImportError ? true : r.passed,
         error: isImportError ? undefined : r.error,
         isSignatureTest: true,
@@ -771,8 +880,11 @@ export function runAllTests(
       })
     }
     for (const info of syncSigTestInfos) {
+      const label = info.className
+        ? `${info.className}.${info.funcName}`
+        : info.funcName
       results.push({
-        description: `${info.funcName} signature example`,
+        description: `${label} signature example`,
         passed: isUnresolvedRef,
         error: isUnresolvedRef
           ? undefined
@@ -785,8 +897,11 @@ export function runAllTests(
 
   // Add skipped results for async signature tests
   for (const info of asyncSigTestInfos) {
+    const label = info.className
+      ? `${info.className}.${info.funcName}`
+      : info.funcName
     results.push({
-      description: `${info.funcName} signature example`,
+      description: `${label} signature example`,
       passed: true,
       isSignatureTest: true,
       line: info.line,

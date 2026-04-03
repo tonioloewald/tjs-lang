@@ -36,17 +36,17 @@ TJS is **purely additive**. It adds type annotations, runtime validation, and me
 - **Prototype chains** — preserved. `wrapClass()` uses a Proxy only on the class constructor (to allow calling without `new`), not on instances.
 - **Module semantics** — TJS preserves ES module `import`/`export` exactly. Lazy getters, circular dependencies, and re-exports work the same as in JS.
 - **`this` binding** — unchanged. Arrow functions, `.bind()`, `.call()`, `.apply()` all work normally.
-- **Regular expressions, JSON, Math, Date** — all standard built-ins are available and unmodified (though `TjsDate` directive can optionally ban `Date` in favor of safer alternatives).
+- **Regular expressions, JSON, Math, Date** — all standard built-ins are available and unmodified (though `Date` is banned by default in native TJS via `TjsDate` in favor of safer alternatives like `Timestamp`/`LegalDate`; use `TjsCompat` to restore it).
 
 **What TJS adds (and when):**
 
-| Addition               | When                                      | Overhead                      |
-| ---------------------- | ----------------------------------------- | ----------------------------- |
-| Parameter validation   | Function entry (unless `!` unsafe)        | ~1.15-1.3x on that function   |
-| Return type validation | Function exit (only with `safety all`)    | ~1.15-1.3x on that function   |
-| `__tjs` metadata       | Transpile time                            | Zero runtime cost             |
-| `wrapClass` Proxy      | Class declaration (with `TjsClass`)       | One-time, on constructor only |
-| Structural equality    | Only when `==`/`!=` used with `TjsEquals` | Per-comparison                |
+| Addition               | When                                            | Overhead                      |
+| ---------------------- | ----------------------------------------------- | ----------------------------- |
+| Parameter validation   | Function entry (unless `!` unsafe)              | ~1.15-1.3x on that function   |
+| Return type validation | Function exit (only with `safety all`)          | ~1.15-1.3x on that function   |
+| `__tjs` metadata       | Transpile time                                  | Zero runtime cost             |
+| `wrapClass` Proxy      | Class declaration (on by default in native TJS) | One-time, on constructor only |
+| Structural equality    | `==`/`!=` (on by default in native TJS)         | Per-comparison                |
 
 If TJS doesn't understand something in your code, it passes it through unchanged. There is no "TJS runtime" that interposes between your code and the JS engine — just the inline checks you can see in the transpiled output.
 
@@ -483,12 +483,11 @@ via `import { tjsEquals } from 'tjs-lang/lang'` or `__tjs.tjsEquals` at runtime.
 
 ### Callable Without `new`
 
-With the `TjsClass` directive, classes declared in your file are wrapped
-so they can be called without `new`:
+In native TJS, classes are automatically wrapped so they can be called
+without `new` (the `TjsClass` mode is on by default). For TS-originated
+code, add the `TjsClass` directive to enable this:
 
 ```typescript
-TjsClass
-
 class User {
   constructor(name: '') {
     this.name = name
@@ -507,7 +506,7 @@ and `new User('Alice')` always produce the same result — an instance.
 **What gets wrapped:** Only `class` declarations in your `.tjs` file.
 Specifically:
 
-- `class Foo { }` in a file with `TjsClass` → wrapped
+- `class Foo { }` in native TJS (or with `TjsClass` directive) → wrapped
 - Built-in globals (`Boolean`, `Number`, `String`, `Array`) → **never touched**
 - Old-style constructor functions (`function Foo() { }` with `Foo.prototype`) → **never touched**
 
@@ -601,11 +600,9 @@ describe(true) // MonadicError: no matching overload
 
 ### Polymorphic Constructors
 
-Classes can have multiple constructor signatures. The first becomes the real JS constructor; additional variants become factory functions:
+Classes can have multiple constructor signatures (enabled by default in native TJS via `TjsClass`). The first becomes the real JS constructor; additional variants become factory functions:
 
 ```typescript
-TjsClass
-
 class Point {
   constructor(x: 0.0, y: 0.0) {
     this.x = x
@@ -794,11 +791,11 @@ Since monadic errors don't throw, they can silently vanish if nobody checks the 
 
 ```typescript
 // Errors are tracked automatically (on by default, zero cost on happy path)
-greet(42)              // returns MonadicError, caller ignores it
-processOrder('bad')    // same
+greet(42) // returns MonadicError, caller ignores it
+processOrder('bad') // same
 
 // Check what failed recently
-const recent = __tjs.errors()     // → recent MonadicErrors (newest last, max 64)
+const recent = __tjs.errors() // → recent MonadicErrors (newest last, max 64)
 for (const err of recent) {
   console.log(err.message, err.path)
 }
@@ -806,10 +803,10 @@ for (const err of recent) {
 // Testing workflow: clear → run → check for surprises
 __tjs.clearErrors()
 runMyCode()
-expect(__tjs.errors()).toEqual([])  // no unexpected type errors
+expect(__tjs.errors()).toEqual([]) // no unexpected type errors
 
 // Total count survives ring buffer wrapping
-__tjs.getErrorCount()  // → total since last clear
+__tjs.getErrorCount() // → total since last clear
 ```
 
 ### Runtime Configuration

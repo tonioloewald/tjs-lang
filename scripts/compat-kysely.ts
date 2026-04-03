@@ -12,12 +12,7 @@
  */
 
 import { fromTS } from '../src/lang/emitters/from-ts'
-import {
-  existsSync,
-  readFileSync,
-  mkdirSync,
-  readdirSync,
-} from 'fs'
+import { existsSync, readFileSync, mkdirSync, readdirSync } from 'fs'
 import { join } from 'path'
 
 const ROOT = join(import.meta.dir, '..')
@@ -42,7 +37,11 @@ function findSourceFiles(dir: string): string[] {
 }
 
 async function run(cmd: string[], opts: { cwd?: string } = {}) {
-  const proc = Bun.spawn(cmd, { cwd: opts.cwd, stdout: 'inherit', stderr: 'inherit' })
+  const proc = Bun.spawn(cmd, {
+    cwd: opts.cwd,
+    stdout: 'inherit',
+    stderr: 'inherit',
+  })
   return { exitCode: await proc.exited }
 }
 
@@ -59,12 +58,20 @@ async function main() {
   if (!existsSync(REPO_DIR)) {
     console.log('Cloning Kysely...')
     mkdirSync(COMPAT_DIR, { recursive: true })
-    await run(['git', 'clone', '--depth', '1', 'https://github.com/kysely-org/kysely.git', REPO_DIR])
+    await run([
+      'git',
+      'clone',
+      '--depth',
+      '1',
+      'https://github.com/kysely-org/kysely.git',
+      REPO_DIR,
+    ])
   }
 
   console.log('Transpiling source files...')
   const sourceFiles = findSourceFiles(SRC_DIR)
-  let ok = 0, fail = 0
+  let ok = 0,
+    fail = 0
   const errors: string[] = []
 
   for (const filePath of sourceFiles) {
@@ -88,10 +95,13 @@ async function main() {
 
   if (fail > 0) {
     console.log('\nFailures:')
-    errors.forEach(e => console.log(e))
+    errors.forEach((e) => console.log(e))
   } else {
     console.log(`\n  All ${ok} source files transpile cleanly!\n`)
   }
 }
 
-main().catch(e => { console.error(e); process.exit(1) })
+main().catch((e) => {
+  console.error(e)
+  process.exit(1)
+})

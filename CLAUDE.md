@@ -52,6 +52,14 @@ bun run docs                # Generate documentation
 # Build standalone CLI binaries
 bun run build:cli           # Compiles tjs + tjsx to dist/
 
+# Compatibility testing (transpile popular TS libraries with fromTS)
+bun scripts/compat-zod.ts          # Zod validation library
+bun scripts/compat-effect.ts       # Effect (HKTs, intersections)
+bun scripts/compat-radash.ts       # Radash utilities
+bun scripts/compat-superstruct.ts  # Superstruct validation
+bun scripts/compat-ts-pattern.ts   # ts-pattern matching
+bun scripts/compat-kysely.ts       # Kysely SQL builder
+
 # Deployment (Firebase)
 bun run deploy              # Build demo + deploy functions + hosting
 bun run deploy:hosting      # Hosting only (serves from .demo/)
@@ -139,7 +147,7 @@ TJS supports transpiling TypeScript to JavaScript with runtime type validation. 
 **Step 1: TypeScript → TJS** (`fromTS`)
 
 ```typescript
-import { fromTS } from 'tosijs/lang/from-ts'
+import { fromTS } from 'tjs-lang/lang/from-ts'
 
 const tsSource = `
 function greet(name: string): string {
@@ -157,7 +165,7 @@ const result = fromTS(tsSource, { emitTJS: true })
 **Step 2: TJS → JavaScript** (`tjs`)
 
 ```typescript
-import { tjs } from 'tosijs/lang'
+import { tjs } from 'tjs-lang/lang'
 
 const tjsSource = `
 function greet(name: '') -> '' {
@@ -172,8 +180,8 @@ const jsResult = tjs(tjsSource)
 **Full Chain Example:**
 
 ```typescript
-import { fromTS } from 'tosijs/lang/from-ts'
-import { tjs } from 'tosijs/lang'
+import { fromTS } from 'tjs-lang/lang/from-ts'
+import { tjs } from 'tjs-lang/lang'
 
 // TypeScript source with type annotations
 const tsSource = `
@@ -290,10 +298,11 @@ Full syntax documentation is in [`CLAUDE-TJS-SYNTAX.md`](CLAUDE-TJS-SYNTAX.md). 
 - **Numeric narrowing**: `3.14` = float, `42` = integer, `+0` = non-negative integer
 - **Return types**: `function add(a: 0, b: 0) -> 0 { ... }` (arrow syntax, not colon)
 - **Safety markers**: `!` = unsafe (skip validation), `?` = safe (explicit validation)
-- **Mode directives**: `TjsStrict`, `TjsEquals`, `TjsClass`, etc. — opt-in at file top
+- **Mode defaults**: Native TJS has all modes ON by default (`TjsEquals`, `TjsClass`, `TjsDate`, `TjsNoeval`, `TjsNoVar`, `TjsStandard`). TS-originated code (`fromTS`) and AJS/VM code get modes OFF. `TjsCompat` directive explicitly disables all modes. `TjsStrict` enables all modes (useful for TS-originated code opting in).
+- **Bang access**: `x!.foo` — returns MonadicError if `x` is null/undefined, otherwise bare `x.foo`. Chains propagate: `x!.foo!.bar`.
 - **Type/Generic/FunctionPredicate**: Three declaration forms for runtime type predicates
 - **`const!`**: Compile-time immutability, zero runtime cost
-- **Equality**: `==`/`!=` = honest (no coercion), `===`/`!==` = identity, `Is`/`IsNot` = deep structural
+- **Equality**: `==`/`!=` = structural equality by default in native TJS (via `Is`/`IsNot`), `===`/`!==` = identity
 - **Polymorphic functions**: Multiple same-name declarations merge into arity/type dispatcher
 - **`extend` blocks**: Local class extensions without prototype pollution
 - **WASM blocks**: Inline WebAssembly compiled at transpile time, with SIMD intrinsics and `wasmBuffer()` zero-copy arrays
@@ -304,10 +313,10 @@ Full syntax documentation is in [`CLAUDE-TJS-SYNTAX.md`](CLAUDE-TJS-SYNTAX.md). 
 ```typescript
 import { configure } from 'tjs-lang/lang'
 
-configure({ logTypeErrors: true })   // Log type errors to console
+configure({ logTypeErrors: true }) // Log type errors to console
 configure({ throwTypeErrors: true }) // Throw instead of return (debugging)
-configure({ callStacks: true })      // Track call stacks in errors (~2x overhead)
-configure({ trackErrors: false })    // Disable error history (on by default)
+configure({ callStacks: true }) // Track call stacks in errors (~2x overhead)
+configure({ trackErrors: false }) // Disable error history (on by default)
 ```
 
 #### Error History
@@ -315,8 +324,8 @@ configure({ trackErrors: false })    // Disable error history (on by default)
 Type errors are tracked in a ring buffer (on by default, zero cost on happy path):
 
 ```typescript
-__tjs.errors()        // → recent MonadicErrors (newest last, max 64)
-__tjs.clearErrors()   // → returns and clears the buffer
+__tjs.errors() // → recent MonadicErrors (newest last, max 64)
+__tjs.clearErrors() // → returns and clears the buffer
 __tjs.getErrorCount() // → total since last clear (survives buffer wrap)
 ```
 
@@ -373,7 +382,7 @@ Both `llmBattery` and `vector` can be `undefined`/`null` if LM Studio isn't avai
 
 ### Bun Plugin
 
-`bunfig.toml` preloads `src/bun-plugin/tjs-plugin.ts` which enables importing `.tjs` files directly in bun. It also aliases `tjs-lang` to `./src/index.ts` for local development (monorepo-style resolution).
+`bunfig.toml` preloads `src/bun-plugin/tjs-plugin.ts` which enables importing `.tjs` files directly in bun (transpiled on-the-fly). It also aliases `tjs-lang` to `./src/index.ts` for local development, so `import { tjs } from 'tjs-lang'` resolves to the source tree without needing `npm link` or a published package.
 
 ### Code Style
 
@@ -401,9 +410,25 @@ The `docs/` directory contains real documentation (markdown), not build artifact
 
 - `DOCS-TJS.md` — TJS language guide
 - `DOCS-AJS.md` — AJS runtime guide
+- `TJS-FOR-JS.md` — TJS guide for JavaScript developers (syntax differences, gotchas)
+- `TJS-FOR-TS.md` — TJS guide for TypeScript developers (migration, interop)
 - `CONTEXT.md` — Architecture deep dive
-- `AGENTS.md` — Agent workflow instructions (issue tracking with `bd`, mandatory push-before-done). **Critical**: work is NOT complete until `git push` succeeds; use `bd ready` to find work, `bd close <id>` to complete
+- `AGENTS.md` — Agent workflow instructions (issue tracking with `bd`, mandatory push-before-done)
 - `PLAN.md` — Roadmap
+
+### Issue Tracking with `bd`
+
+The project uses `bd` (beads) for issue tracking. Key commands:
+
+```bash
+bd ready                          # Find available work
+bd show <id>                      # View issue details
+bd update <id> --status in_progress  # Claim work
+bd close <id>                     # Complete work
+bd sync                           # Sync with git
+```
+
+**Critical rule**: Work is NOT complete until `git push` succeeds. Never stop before pushing — work stranded locally is work lost. If push fails, resolve and retry.
 
 ### Known Gotcha: `tjs()` Returns an Object, Not a String
 

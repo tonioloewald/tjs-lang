@@ -1126,6 +1126,82 @@ describe('signature tests (transpile-time)', () => {
     )
     expect(addTest?.passed).toBe(true)
   })
+
+  it('should run signature tests for class methods using first constructor', () => {
+    const result = tjs(
+      `
+      class Point {
+        constructor(x: 0.0, y: 0.0) {
+          this.x = x
+          this.y = y
+        }
+
+        distanceTo(other: { x: 3.0, y: 4.0 }) -> 5.0 {
+          const dx = this.x - other.x
+          const dy = this.y - other.y
+          return Math.sqrt(dx * dx + dy * dy)
+        }
+      }
+    `,
+      { runTests: 'report' }
+    )
+    expect(result.testResults).toBeDefined()
+    const sigTest = result.testResults!.find((t: any) =>
+      t.description.includes('Point.distanceTo')
+    )
+    expect(sigTest).toBeDefined()
+    expect(sigTest?.passed).toBe(true)
+    expect(sigTest?.isSignatureTest).toBe(true)
+  })
+
+  it('should fail class method signature test when return value is wrong', () => {
+    expect(() =>
+      tjs(`
+        class Adder {
+          constructor(base: 10) {
+            this.base = base
+          }
+
+          add(x: 5) -> 100 {
+            return this.base + x
+          }
+        }
+      `)
+    ).toThrow(/Expected.*got/)
+  })
+
+  it('should run signature tests for methods on classes with multiple constructors', () => {
+    const result = tjs(
+      `
+      TjsClass
+
+      class Point {
+        constructor(x: 0.0, y: 0.0) {
+          this.x = x
+          this.y = y
+        }
+
+        constructor(coords: { x: 0.0, y: 0.0 }) {
+          this.x = coords.x
+          this.y = coords.y
+        }
+
+        distanceTo(other: { x: 3.0, y: 4.0 }) -> 5.0 {
+          const dx = this.x - other.x
+          const dy = this.y - other.y
+          return Math.sqrt(dx * dx + dy * dy)
+        }
+      }
+    `,
+      { runTests: 'report' }
+    )
+    expect(result.testResults).toBeDefined()
+    const sigTest = result.testResults!.find((t: any) =>
+      t.description.includes('Point.distanceTo')
+    )
+    expect(sigTest).toBeDefined()
+    expect(sigTest?.passed).toBe(true)
+  })
 })
 
 // =============================================================================
@@ -1550,5 +1626,145 @@ describe('SyntaxError formatting', () => {
       expect(formatted).toContain('function foo')
       expect(formatted).toContain('^')
     }
+  })
+})
+
+// =============================================================================
+// BANG ACCESS (!.) — asserted non-null member access
+// =============================================================================
+
+describe('bang access (!.)', () => {
+  // Helper to run TJS code and return the result of calling test()
+  function runBang(source: string): unknown {
+    const result = tjs(source, { runTests: false })
+    const fn = new Function(result.code + '\nreturn test')()
+    return fn()
+  }
+
+  it('should access property on non-null object', () => {
+    expect(
+      runBang(`
+      function test() {
+        const x = { foo: 42 }
+        return x!.foo
+      }
+    `)
+    ).toBe(42)
+  })
+
+  it('should return MonadicError on null', () => {
+    const result = runBang(`
+      function test() {
+        const x = null
+        return x!.foo
+      }
+    `)
+    expect(isMonadicError(result)).toBe(true)
+  })
+
+  it('should return MonadicError on undefined', () => {
+    const result = runBang(`
+      function test() {
+        let x
+        return x!.foo
+      }
+    `)
+    expect(isMonadicError(result)).toBe(true)
+  })
+
+  it('should propagate MonadicError through chains', () => {
+    const result = runBang(`
+      function test() {
+        const x = null
+        return x!.foo!.bar
+      }
+    `)
+    expect(isMonadicError(result)).toBe(true)
+  })
+
+  it('should handle member chains before !.', () => {
+    expect(
+      runBang(`
+      function test() {
+        const x = { y: { foo: 99 } }
+        return x.y!.foo
+      }
+    `)
+    ).toBe(99)
+  })
+
+  it('should handle function call before !.', () => {
+    expect(
+      runBang(`
+      function getObj() { return { val: 7 } }
+      function test() {
+        return getObj()!.val
+      }
+    `)
+    ).toBe(7)
+  })
+
+  it('should return MonadicError when function returns null', () => {
+    const result = runBang(`
+      function getNull() { return null }
+      function test() {
+        return getNull()!.val
+      }
+    `)
+    expect(isMonadicError(result)).toBe(true)
+  })
+
+  it('should handle bracket access before !.', () => {
+    expect(
+      runBang(`
+      function test() {
+        const arr = [{ name: 'first' }]
+        return arr[0]!.name
+      }
+    `)
+    ).toBe('first')
+  })
+
+  it('should not transform !. inside strings', () => {
+    const result = tjs(
+      `
+      function test() { return "x!.foo" }
+    `,
+      { runTests: false }
+    )
+    expect(result.code).toContain('"x!.foo"')
+    expect(result.code).not.toContain('__tjs.bang')
+  })
+
+  it('should not transform !. inside comments', () => {
+    const result = tjs(
+      `
+      // x!.foo should not be transformed
+      function test() { return 1 }
+    `,
+      { runTests: false }
+    )
+    expect(result.code).not.toContain('__tjs.bang')
+  })
+
+  it('should work alongside ?. optional chaining', () => {
+    expect(
+      runBang(`
+      function test() {
+        const x = { y: { z: 5 } }
+        return x?.y!.z
+      }
+    `)
+    ).toBe(5)
+  })
+
+  it('emitted standalone JS includes bang inline stub', () => {
+    const result = tjs(
+      `
+      function test() { const x = {}; return x!.foo }
+    `,
+      { runTests: false }
+    )
+    expect(result.code).toContain('function bang(')
   })
 })

@@ -795,7 +795,7 @@ export function transpileToJS(
   const needsFunctionPredicate = /\bFunctionPredicate\(/.test(code)
   const needsEnum = /\bEnum\(/.test(code)
   const needsUnion = /\bUnion\(/.test(code)
-  const needsIsBounded = code.includes('IsBounded(')
+  const needsBang = code.includes('__tjs.bang(')
   const needsSafeEval = preprocessed.tjsModes.tjsSafeEval
 
   const needsRuntime =
@@ -811,7 +811,7 @@ export function transpileToJS(
     needsFunctionPredicate ||
     needsEnum ||
     needsUnion ||
-    needsIsBounded ||
+    needsBang ||
     needsSafeEval
 
   if (needsRuntime) {
@@ -888,9 +888,18 @@ export function transpileToJS(
         `function Union(d,...v){const vals=v.flat();return{description:d,check:x=>vals.includes(x),values:vals,__runtimeType:true}}`
       )
     }
-    if (needsIsBounded) {
+    // Bang access (!.) — asserted non-null member access
+    if (needsBang) {
+      // bang depends on typeError and isMonadicError — ensure they're inlined
+      if (!needsTypeError) {
+        inlineParts.push(
+          `class MonadicError extends Error{constructor(m,p,e,a,c){super(m);this.name='MonadicError';this.path=p;this.expected=e;this.actual=a;this.callStack=c}}`,
+          `function typeError(p,e,v){const a=v===null?'null':typeof v;const err=new MonadicError('Expected '+e+" for '"+p+"', got "+a,p,e,a);const c=globalThis.__tjs?.getConfig?.();if(c?.logTypeErrors)console.error('[TJS TypeError] '+err.message);if(c?.throwTypeErrors)throw err;return err}`,
+          `function isMonadicError(v){return v instanceof Error&&v.name==='MonadicError'&&'path' in v}`
+        )
+      }
       inlineParts.push(
-        `function IsBounded(v){return typeof v==='number'&&isFinite(v)&&!isNaN(v)}`
+        `function bang(o,p){if(o===null||o===undefined)return typeError('bang.'+p,'non-null',o);if(isMonadicError(o))return o;return o[p]}`
       )
     }
 
@@ -913,7 +922,13 @@ export function transpileToJS(
     if (needsFunctionPredicate) fallbackEntries.push('FunctionPredicate')
     if (needsEnum) fallbackEntries.push('Enum')
     if (needsUnion) fallbackEntries.push('Union')
-    if (needsIsBounded) fallbackEntries.push('IsBounded')
+    if (needsBang) {
+      fallbackEntries.push('bang')
+      // Ensure typeError/isMonadicError are in fallback even if not otherwise needed
+      if (!needsTypeError) {
+        fallbackEntries.push('typeError', 'isMonadicError')
+      }
+    }
 
     const fallbackObj =
       fallbackEntries.length > 0

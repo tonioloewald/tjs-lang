@@ -49,6 +49,7 @@ import {
   validateNoEval,
   validateNoVar,
   transformConstBang,
+  transformBangAccess,
   transformExtensionCalls,
 } from './parser-transforms'
 
@@ -80,19 +81,42 @@ export function preprocess(
   const unsafeFunctions = new Set<string>()
   const safeFunctions = new Set<string>()
 
-  // TJS modes - all default to false (JS-compatible by default)
-  const tjsModes: TjsModes = {
-    tjsEquals: false,
-    tjsClass: false,
-    tjsDate: false,
-    tjsNoeval: false,
-    tjsStandard: false,
-    tjsSafeEval: false,
-    tjsNoVar: false,
+  // Detect whether this source was emitted by fromTS (TS-originated)
+  // The /* tjs <- filename */ annotation is the signal
+  const isFromTS = /\/\*\s*tjs\s*<-\s*\S+\s*\*\//.test(source)
+
+  // Native TJS: all modes ON by default (TJS is its own language)
+  // TS-originated or VM target (AJS): all modes OFF, safety none (JS-compatible)
+  const isCompat = isFromTS || options.vmTarget
+  const tjsModes: TjsModes = isCompat
+    ? {
+        tjsEquals: false,
+        tjsClass: false,
+        tjsDate: false,
+        tjsNoeval: false,
+        tjsStandard: false,
+        tjsSafeEval: false,
+        tjsNoVar: false,
+      }
+    : {
+        tjsEquals: true,
+        tjsClass: true,
+        tjsDate: true,
+        tjsNoeval: true,
+        tjsStandard: true,
+        tjsSafeEval: false, // opt-in only (adds import)
+        tjsNoVar: true,
+      }
+
+  // Safety: native TJS defaults to 'inputs' (runtime default),
+  // TS-originated and VM targets default to 'none'
+  if (isCompat) {
+    moduleSafety = 'none'
   }
 
   // Handle module-level safety directive: safety none | safety inputs | safety all
   // Must be at the start of the file (possibly after comments/whitespace)
+  // Explicit directive always overrides the default
   const safetyMatch = source.match(
     /^(\s*(?:\/\/[^\n]*\n|\/\*[\s\S]*?\*\/\s*)*)\s*safety\s+(none|inputs|all)\b/
   )
@@ -106,10 +130,11 @@ export function preprocess(
   }
 
   // Handle TJS mode directives (can appear in any order after safety)
-  // TjsStrict enables all TJS modes
+  // TjsStrict enables all TJS modes (useful for TS-originated code opting in)
+  // TjsCompat disables all TJS modes (useful for native TJS opting out)
   // Individual modes: TjsEquals, TjsClass, TjsDate, TjsNoeval, TjsStandard, TjsSafeEval
   const directivePattern =
-    /^(\s*(?:\/\/[^\n]*\n|\/\*[\s\S]*?\*\/\s*)*)\s*(TjsStrict|TjsEquals|TjsClass|TjsDate|TjsNoeval|TjsNoVar|TjsStandard|TjsSafeEval)\b/
+    /^(\s*(?:\/\/[^\n]*\n|\/\*[\s\S]*?\*\/\s*)*)\s*(TjsStrict|TjsCompat|TjsEquals|TjsClass|TjsDate|TjsNoeval|TjsNoVar|TjsStandard|TjsSafeEval)\b/
 
   let match
   while ((match = source.match(directivePattern))) {
@@ -123,6 +148,15 @@ export function preprocess(
       tjsModes.tjsNoeval = true
       tjsModes.tjsNoVar = true
       tjsModes.tjsStandard = true
+    } else if (directive === 'TjsCompat') {
+      // Disable all TJS modes (JS-compatible)
+      tjsModes.tjsEquals = false
+      tjsModes.tjsClass = false
+      tjsModes.tjsDate = false
+      tjsModes.tjsNoeval = false
+      tjsModes.tjsNoVar = false
+      tjsModes.tjsStandard = false
+      tjsModes.tjsSafeEval = false
     } else if (directive === 'TjsEquals') {
       tjsModes.tjsEquals = true
     } else if (directive === 'TjsClass') {
@@ -157,6 +191,10 @@ export function preprocess(
   // Transform const! declarations — validate immutability and emit as const
   // Must happen before acorn parsing since const! is not valid JS
   source = transformConstBang(source)
+
+  // Transform !. bang access to __tjs.bang() calls
+  // Must happen before acorn parsing since !. is not valid JS
+  source = transformBangAccess(source)
 
   // Transform Is/IsNot infix operators to function calls
   // a Is b -> Is(a, b)

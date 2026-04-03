@@ -85,8 +85,12 @@ async function main() {
     console.log('Cloning Zod...')
     mkdirSync(COMPAT_DIR, { recursive: true })
     const { exitCode } = await run([
-      'git', 'clone', '--depth', '1',
-      'https://github.com/colinhacks/zod.git', REPO_DIR,
+      'git',
+      'clone',
+      '--depth',
+      '1',
+      'https://github.com/colinhacks/zod.git',
+      REPO_DIR,
     ])
     if (exitCode !== 0) {
       console.error('Failed to clone Zod')
@@ -168,11 +172,7 @@ async function main() {
   writeFileSync(vitestConfig, patched)
 
   const { stdout, stderr, exitCode } = await run(
-    [
-      'npx', 'vitest', 'run',
-      '--reporter=json',
-      '--project=zod',
-    ],
+    ['npx', 'vitest', 'run', '--reporter=json', '--project=zod'],
     { cwd: REPO_DIR, capture: true }
   )
 
@@ -184,7 +184,7 @@ async function main() {
     const json = JSON.parse(jsonStr)
     const passed = json.numPassedTests ?? 0
     const failed = json.numFailedTests ?? 0
-    const total = json.numTotalTests ?? (passed + failed)
+    const total = json.numTotalTests ?? passed + failed
 
     console.log('━'.repeat(50))
     console.log(`  Total:  ${total}`)

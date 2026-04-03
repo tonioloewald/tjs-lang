@@ -1,4 +1,4 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 660 380" font-family="system-ui, -apple-system, sans-serif">
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 660 420" font-family="system-ui, -apple-system, sans-serif">
   <style>
     /* TJS Brand Palette */
     .bg { fill: #fafafa; stroke: #e4e4e4; }
@@ -52,61 +52,79 @@
     </marker>
   </defs>
 
-  <rect width="660" height="380" rx="12" class="bg"/>
+  <rect width="660" height="420" rx="12" class="bg"/>
 
   <!-- COMPILE TIME -->
-  <g class="shadow">
-    <rect x="20" y="16" width="620" height="130" rx="8" class="section-compile"/>
+  <g id="section-compile" class="section shadow">
+    <rect x="20" y="16" width="620" height="140" rx="8" class="section-compile"/>
   </g>
   <text x="40" y="42" class="section-label-compile">COMPILE TIME</text>
 
-  <rect x="40" y="56" width="200" height="36" rx="6" class="box-code"/>
-  <text x="140" y="73" text-anchor="middle" class="label-mono text-dark">greet(name: 'World')</text>
-  <text x="140" y="84" text-anchor="middle" class="label-xs text-muted">source</text>
+  <!-- Source code: two-line box, h=44 -->
+  <g id="node-source" class="node flow-step">
+    <rect x="40" y="56" width="200" height="44" rx="6" class="box-code"/>
+    <text x="140" y="75" text-anchor="middle" class="label-mono text-dark">greet(name: 'World')</text>
+    <text x="140" y="90" text-anchor="middle" class="label-xs text-muted">source</text>
+  </g>
 
-  <line x1="245" y1="74" x2="290" y2="74" class="arrow" marker-end="url(#arr)"/>
+  <line x1="245" y1="78" x2="290" y2="78" class="arrow connector" marker-end="url(#arr)"/>
 
-  <rect x="295" y="56" width="100" height="36" rx="6" class="box-action"/>
-  <text x="345" y="78" text-anchor="middle" class="label text-action">Parse</text>
+  <g id="node-parse" class="node flow-step">
+    <rect x="295" y="60" width="100" height="36" rx="6" class="box-action"/>
+    <text x="345" y="83" text-anchor="middle" class="label text-action">Parse</text>
+  </g>
 
-  <line x1="400" y1="74" x2="445" y2="74" class="arrow" marker-end="url(#arr)"/>
+  <line x1="400" y1="78" x2="445" y2="78" class="arrow connector" marker-end="url(#arr)"/>
 
-  <rect x="450" y="56" width="170" height="36" rx="6" class="box-action"/>
-  <text x="535" y="73" text-anchor="middle" class="label text-action">Extract type</text>
-  <text x="535" y="85" text-anchor="middle" class="label-xs text-action">name = string</text>
+  <!-- Extract type: two-line box, h=44 -->
+  <g id="node-extract" class="node flow-step">
+    <rect x="450" y="56" width="170" height="44" rx="6" class="box-action"/>
+    <text x="535" y="75" text-anchor="middle" class="label text-action">Extract type</text>
+    <text x="535" y="90" text-anchor="middle" class="label-xs text-action">name = string</text>
+  </g>
 
   <!-- Arrow between sections -->
-  <line x1="330" y1="146" x2="330" y2="180" class="arrow" marker-end="url(#arr)"/>
+  <line x1="330" y1="156" x2="330" y2="194" class="arrow connector" marker-end="url(#arr)"/>
 
-  <!-- RUNTIME -->
-  <g class="shadow">
-    <rect x="20" y="184" width="620" height="180" rx="8" class="section-runtime"/>
+  <!-- RUNTIME — expanded to h=210 -->
+  <g id="section-runtime" class="section shadow">
+    <rect x="20" y="198" width="620" height="210" rx="8" class="section-runtime"/>
   </g>
-  <text x="40" y="210" class="section-label-runtime">RUNTIME</text>
+  <text x="40" y="224" class="section-label-runtime">RUNTIME</text>
 
-  <rect x="40" y="222" width="280" height="32" rx="6" class="box-metadata"/>
-  <text x="180" y="242" text-anchor="middle" class="label-mono text-dark">greet.__tjs = { params: { name: ... } }</text>
+  <g id="node-metadata" class="node">
+    <rect x="40" y="238" width="280" height="34" rx="6" class="box-metadata"/>
+    <text x="180" y="260" text-anchor="middle" class="label-mono text-dark">greet.__tjs = { params: { name: ... } }</text>
+  </g>
 
-  <rect x="40" y="274" width="140" height="32" rx="6" class="box-error"/>
-  <text x="110" y="294" text-anchor="middle" class="label-mono-sm text-error">greet(123)</text>
+  <g id="node-call" class="node">
+    <rect x="40" y="292" width="140" height="34" rx="6" class="box-error"/>
+    <text x="110" y="314" text-anchor="middle" class="label-mono-sm text-error">greet(123)</text>
+  </g>
 
-  <line x1="185" y1="290" x2="230" y2="290" class="arrow" marker-end="url(#arr)"/>
+  <line x1="185" y1="309" x2="230" y2="309" class="arrow connector" marker-end="url(#arr)"/>
 
   <!-- Diamond -->
-  <polygon points="310,268 370,290 310,312 250,290" class="diamond"/>
-  <text x="310" y="294" text-anchor="middle" fill="#8b6914" class="label" font-size="12">Type Check</text>
+  <g id="gate-type-check" class="gate">
+    <polygon points="310,286 374,309 310,332 246,309" class="diamond"/>
+    <text x="310" y="313" text-anchor="middle" fill="#8b6914" font-size="12" class="label">Type Check</text>
+  </g>
 
   <!-- Pass -->
-  <line x1="370" y1="290" x2="420" y2="290" class="arrow-pass" marker-end="url(#arr-pass)"/>
-  <text x="395" y="283" text-anchor="middle" class="text-pass">Pass</text>
+  <line x1="374" y1="309" x2="424" y2="309" class="arrow-pass connector" marker-end="url(#arr-pass)"/>
+  <text x="399" y="301" text-anchor="middle" class="text-pass">Pass</text>
 
-  <rect x="425" y="274" width="100" height="32" rx="6" class="box-pass"/>
-  <text x="475" y="294" text-anchor="middle" class="label" fill="#005028">Execute</text>
+  <g id="node-execute" class="node outcome-pass">
+    <rect x="429" y="293" width="100" height="34" rx="6" class="box-pass"/>
+    <text x="479" y="314" text-anchor="middle" class="label" fill="#005028">Execute</text>
+  </g>
 
   <!-- Fail -->
-  <line x1="310" y1="312" x2="310" y2="335" class="arrow-fail" marker-end="url(#arr-fail)"/>
-  <text x="330" y="328" class="text-fail">Fail</text>
+  <line x1="310" y1="332" x2="310" y2="358" class="arrow-fail connector" marker-end="url(#arr-fail)"/>
+  <text x="330" y="350" class="text-fail">Fail</text>
 
-  <rect x="230" y="338" width="160" height="28" rx="6" class="box-error"/>
-  <text x="310" y="356" text-anchor="middle" class="label-sm text-error">MonadicError (no throw)</text>
+  <g id="node-error" class="node outcome-fail">
+    <rect x="225" y="362" width="170" height="34" rx="6" class="box-error"/>
+    <text x="310" y="383" text-anchor="middle" class="label-sm text-error">MonadicError (no throw)</text>
+  </g>
 </svg>

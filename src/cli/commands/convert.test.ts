@@ -43,16 +43,18 @@ describe('tjs convert - TS to JS pipeline', () => {
 
       expect(jsResult.code).toContain('function greet')
       expect(jsResult.code).toContain('__tjs')
-      expect(jsResult.code).toContain('pushStack')
+      // TS-originated code (/* tjs <- */) gets safety 'none', so no validation
+      expect(jsResult.code).toContain('"unsafe": true')
     })
 
-    it('includes runtime type validation', () => {
+    it('TS-originated code skips runtime validation (safety none)', () => {
       const tjsResult = fromTS(TS_SIMPLE, { emitTJS: true })
       const jsResult = tjs(tjsResult.code, { runTests: 'report' })
 
-      // Should have type checking for string param
-      expect(jsResult.code).toContain("typeof name !== 'string'")
-      expect(jsResult.code).toContain('typeError')
+      // TS-originated code (/* tjs <- */) gets safety 'none', no type checks
+      expect(jsResult.code).not.toContain("typeof name !== 'string'")
+      expect(jsResult.code).not.toContain('typeError')
+      expect(jsResult.code).toContain('"unsafe": true')
     })
 
     it('includes type metadata on functions', () => {
@@ -154,7 +156,8 @@ function getAge(): number { return 30 }
 
       expect(stdout).toContain('function greet')
       expect(stdout).toContain('__tjs')
-      expect(stdout).toContain('typeError')
+      // TS-originated code gets safety 'none', so no typeError validation
+      expect(stdout).toContain('"unsafe": true')
     })
 
     it('converts a single TS file to TJS with --emit-tjs', async () => {

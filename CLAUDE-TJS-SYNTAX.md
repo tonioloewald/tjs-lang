@@ -20,7 +20,7 @@ const p2 = new Point(10, 20) // Still works, but linter warns
 // Warning: Unnecessary 'new' keyword. In TJS, classes are callable without 'new'
 ```
 
-The `wrapClass()` function in the runtime uses a Proxy to intercept calls and auto-construct. Only `class` declarations in `.tjs` files with `TjsClass` are wrapped — built-in constructors (`Boolean`, `Number`, `String`, etc.) and old-style `function` + `prototype` constructors are never touched because they may have intentional dual behavior (e.g., `Boolean(0)` returns `false` but `new Boolean(0)` returns a truthy wrapper object).
+The `wrapClass()` function in the runtime uses a Proxy to intercept calls and auto-construct. In native TJS, `TjsClass` is on by default, so all `class` declarations are wrapped. TS-originated code requires an explicit `TjsClass` directive. Built-in constructors (`Boolean`, `Number`, `String`, etc.) and old-style `function` + `prototype` constructors are never touched because they may have intentional dual behavior (e.g., `Boolean(0)` returns `false` but `new Boolean(0)` returns a truthy wrapper object).
 
 ## Function Parameters
 
@@ -75,6 +75,18 @@ unsafe {
   fastPath(data)
 }
 ```
+
+## Bang Access (`!.`)
+
+Asserted non-null member access. Returns a MonadicError if the target is null or undefined, and propagates existing MonadicErrors through chains.
+
+```typescript
+x!.foo // MonadicError if x is null/undefined, otherwise bare x.foo
+x!.foo!.bar // propagates — if x!.foo is a MonadicError, x!.foo!.bar returns it
+obj!.a!.b!.c // safe deep access, first null/error short-circuits the chain
+```
+
+Unlike optional chaining (`?.`), which silently returns `undefined`, bang access produces a trackable MonadicError on null/undefined. On other errors (e.g., accessing a property that throws), it throws as usual.
 
 ## Type Declarations
 
@@ -169,21 +181,28 @@ safety all      // Validate everything (debug mode)
 
 ## TJS Mode Directives
 
-JavaScript semantics are the default. TJS improvements are opt-in via file-level directives:
+Native TJS (`.tjs` files) has all modes ON by default: `TjsEquals`, `TjsClass`, `TjsDate`, `TjsNoeval`, `TjsNoVar`, `TjsStandard`. The default safety level is `inputs`.
+
+TS-originated code (from `fromTS`, detected by the `/* tjs <- */` annotation) and AJS/VM code get all modes OFF with safety `none`, matching plain JavaScript semantics.
 
 ```typescript
-TjsStrict // Enables ALL modes below at once
-
+// Individual modes (on by default in native TJS, off by default in TS-originated/AJS)
 TjsEquals // == and != use honest equality (Eq/NotEq) — no coercion, unwraps boxed primitives
 TjsClass // Classes callable without new, explicit new is banned
 TjsDate // Date is banned, use Timestamp/LegalDate instead
 TjsNoeval // eval() and new Function() are banned
 TjsNoVar // var declarations are syntax errors — use const or let
 TjsStandard // Newlines as statement terminators (prevents ASI footguns)
-TjsSafeEval // Include Eval/SafeFunction in runtime for dynamic code
+TjsSafeEval // Include Eval/SafeFunction in runtime for dynamic code (always opt-in, adds an import)
+
+// Meta-directives
+TjsStrict // Enables ALL modes (useful for TS-originated code opting in to TJS semantics)
+TjsCompat // Disables ALL modes (for gradual migration or JS interop in native TJS files)
 ```
 
-Multiple directives can be combined. Place them at the top of the file before any code.
+`TjsSafeEval` is always opt-in regardless of file origin because it adds a runtime import.
+
+Individual directives still work for selective enable/disable. Multiple directives can be combined. Place them at the top of the file before any code.
 
 ## Compile-Time Immutability (`const!`)
 
@@ -260,7 +279,7 @@ TypeScript files can include `/* @tjs ... */` comments that `fromTS` uses to enr
 the TJS output. The TS compiler ignores them as regular comments.
 
 ```typescript
-/* @tjs TjsClass TjsEquals */ // Enable TJS mode directives
+/* @tjs TjsClass TjsEquals */ // Enable TJS modes in TS-originated code
 /* @tjs-skip */ // Skip this declaration entirely
 /* @tjs example: { name: 'Alice' } */ // Custom example value for Type
 /* @tjs predicate(x) { return x > 0 } */ // Custom runtime predicate
@@ -268,7 +287,8 @@ the TJS output. The TS compiler ignores them as regular comments.
 ```
 
 Mode directives (`TjsClass`, `TjsEquals`, etc.) are emitted at the top of the `.tjs`
-output and gate features like `private → #` conversion (only with `TjsClass`).
+output. These are mainly useful for TS-originated code (where modes are off by
+default) to opt in to TJS features like `private → #` conversion (`TjsClass`).
 
 ## Polymorphic Functions
 
@@ -290,11 +310,9 @@ Dispatch order: arity first, then type specificity, then declaration order. Ambi
 
 ## Polymorphic Constructors
 
-Classes can have multiple constructor signatures (requires `TjsClass` directive):
+Classes can have multiple constructor signatures (`TjsClass` is on by default in native TJS):
 
 ```typescript
-TjsClass
-
 class Point {
   constructor(x: 0.0, y: 0.0) {
     this.x = x

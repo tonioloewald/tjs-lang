@@ -5,6 +5,7 @@
 Uses date-fns for date formatting via ESM import
 
 ```tjs
+TjsCompat
 /**
  * # Date Formatting with Imports
  *

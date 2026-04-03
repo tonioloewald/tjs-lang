@@ -5,8 +5,6 @@
 Ban var, enforce immutability. Zero runtime cost.
 
 ```tjs
-TjsNoVar
-
 /*#
 ## var Is Dead
 
@@ -15,7 +13,7 @@ JavaScript's `var` is a footgun:
 - Allows accidental redeclaration
 - Leaks out of `for` loops
 
-`TjsNoVar` (or `TjsStrict`) makes `var` a compile error.
+In native TJS, `var` is a compile error by default — no directive needed.
 `const` and `let` work normally.
 
 ## const! — Compile-Time Immutability

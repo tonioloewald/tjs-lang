@@ -247,11 +247,11 @@ if (isError(result)) {
 Since monadic errors don't throw, they can silently vanish. TJS tracks recent type errors in a ring buffer so you always know what failed:
 
 ```javascript
-greet(42)  // returns MonadicError, caller ignores it
+greet(42) // returns MonadicError, caller ignores it
 
 // Find it later
-__tjs.errors()        // → recent errors (newest last, max 64)
-__tjs.clearErrors()   // → clear and return them
+__tjs.errors() // → recent errors (newest last, max 64)
+__tjs.clearErrors() // → clear and return them
 __tjs.getErrorCount() // → total since last clear
 
 // Testing pattern: clear → run → check
@@ -479,13 +479,13 @@ test('async operations work') {
 
 ### Removed/Discouraged
 
-| Feature  | Reason                                                 |
-| -------- | ------------------------------------------------------ |
-| `var`    | Use `let` or `const` (`TjsNoVar` makes `var` an error) |
-| `new`    | With `TjsClass`, classes are callable without `new`    |
-| `throw`  | Return errors as values (monadic errors)               |
-| `eval()` | Use `Eval()` or `SafeFunction()` (`TjsNoeval` bans it) |
-| `Date`   | With `TjsDate`, use `Timestamp`/`LegalDate` instead    |
+| Feature  | Reason                                                        |
+| -------- | ------------------------------------------------------------- |
+| `var`    | Use `let` or `const` (`TjsNoVar` makes `var` an error)        |
+| `new`    | Classes are callable without `new` (`TjsClass` on by default) |
+| `throw`  | Return errors as values (monadic errors)                      |
+| `eval()` | Use `Eval()` or `SafeFunction()` (`TjsNoeval` bans it)        |
+| `Date`   | With `TjsDate`, use `Timestamp`/`LegalDate` instead           |
 
 ### Added
 

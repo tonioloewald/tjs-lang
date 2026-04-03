@@ -1,0 +1,277 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 720 900"
+     font-family="system-ui, -apple-system, sans-serif">
+  <style>
+    /* Palette and semantic classes */
+    .header-primary { fill: #181340; }
+    .header-monolithic { fill: #ff6b6b; }
+    .header-microservice { fill: #51cf66; }
+
+    .box-monolithic { fill: #fff5f5; stroke: #ff1c24; stroke-width: 2; }
+    .box-microservice { fill: #f0fff5; stroke: #006736; stroke-width: 2; }
+    .box-client { fill: #eef6ff; stroke: #3da8f4; stroke-width: 2; }
+    .box-neutral { fill: #f5f5f5; stroke: #9e9e9e; stroke-width: 1.5; }
+
+    .section-header { fill: white; font-weight: 600; font-size: 14px; }
+    .section-label { fill: white; font-weight: 600; font-size: 16px; }
+    .box-label { fill: #181340; font-size: 12px; font-weight: 500; }
+    .box-label-small { fill: #181340; font-size: 11px; }
+    .text-muted { fill: #9e9e9e; font-size: 10px; }
+    .text-annotation { fill: #555; font-size: 10px; }
+
+    .arrow { stroke: #9e9e9e; stroke-width: 2; fill: none; }
+    .arrow-monolithic { stroke: #ff1c24; stroke-width: 2; fill: none; }
+    .arrow-microservice { stroke: #006736; stroke-width: 2; fill: none; }
+    .arrow-dashed { stroke: #9e9e9e; stroke-width: 2; fill: none; stroke-dasharray: 5,5; }
+
+    .title { fill: #181340; font-size: 18px; font-weight: 700; }
+    .section-title { fill: white; font-size: 14px; font-weight: 600; }
+
+    .comparison-label { fill: #181340; font-size: 11px; font-weight: 600; }
+  </style>
+
+  <defs>
+    <marker id="arr-mono" viewBox="0 0 10 10" refX="9" refY="5"
+            markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0 0 L10 5 L0 10z" fill="#ff1c24"/>
+    </marker>
+    <marker id="arr-micro" viewBox="0 0 10 10" refX="9" refY="5"
+            markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0 0 L10 5 L0 10z" fill="#006736"/>
+    </marker>
+    <marker id="arr-neutral" viewBox="0 0 10 10" refX="9" refY="5"
+            markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0 0 L10 5 L0 10z" fill="#9e9e9e"/>
+    </marker>
+  </defs>
+
+  <!-- Title -->
+  <text x="360" y="35" text-anchor="middle" class="title">Monolithic vs Microservice Architecture</text>
+  <text x="360" y="55" text-anchor="middle" class="text-muted">How a user request flows through each approach</text>
+
+  <!-- ========== MONOLITHIC SECTION ========== -->
+  <g id="section-monolithic" class="section">
+    <!-- Section header background -->
+    <rect x="20" y="75" width="320" height="40" class="header-monolithic" rx="4"/>
+    <text x="180" y="102" text-anchor="middle" class="section-label">Monolithic Architecture</text>
+
+    <!-- Client node -->
+    <g id="node-mono-client" class="node">
+      <rect x="45" y="135" width="270" height="40" class="box-client" rx="4"/>
+      <!-- text_y = 135 + (40/2) + (12*0.35) = 135 + 20 + 4.2 = 159.2 -->
+      <text x="180" y="159" text-anchor="middle" class="box-label">User/Client Request</text>
+    </g>
+
+    <!-- Arrow down -->
+    <line x1="180" y1="175" x2="180" y2="205" class="arrow-monolithic" marker-end="url(#arr-mono)"/>
+
+    <!-- API Gateway node -->
+    <g id="node-mono-gateway" class="node">
+      <rect x="45" y="205" width="270" height="40" class="box-monolithic" rx="4"/>
+      <!-- text_y = 205 + (40/2) + (12*0.35) = 205 + 20 + 4.2 = 229.2 -->
+      <text x="180" y="229" text-anchor="middle" class="box-label">API Gateway</text>
+    </g>
+
+    <!-- Arrow down -->
+    <line x1="180" y1="245" x2="180" y2="275" class="arrow-monolithic" marker-end="url(#arr-mono)"/>
+
+    <!-- Single Monolithic Server node -->
+    <g id="node-mono-server" class="node">
+      <rect x="45" y="275" width="270" height="120" class="box-monolithic" rx="4"/>
+      <!-- Title: text_y = 275 + (120/2) + (12*0.35) - offset_up = 275 + 60 + 4.2 - 28 = 311.2 -->
+      <text x="180" y="305" text-anchor="middle" class="box-label" font-weight="600">Single Monolithic Server</text>
+
+      <!-- Internal routing (shown as lines) -->
+      <line x1="60" y1="325" x2="300" y2="325" class="arrow" stroke-dasharray="3,3"/>
+
+      <!-- All components inside the same process -->
+      <!-- Users Service: text_y = 275 + 35 + (10*0.35) = 314.5 -->
+      <text x="120" y="340" text-anchor="middle" class="box-label-small" font-size="10">Users Service</text>
+
+      <!-- Products Service: text_y = similar calculation -->
+      <text x="240" y="340" text-anchor="middle" class="box-label-small" font-size="10">Products Service</text>
+
+      <!-- Orders Service -->
+      <text x="180" y="365" text-anchor="middle" class="box-label-small" font-size="10">Orders Service</text>
+
+      <!-- Database -->
+      <text x="180" y="385" text-anchor="middle" class="box-label-small" font-size="10">Shared Database</text>
+    </g>
+
+    <!-- Arrow down -->
+    <line x1="180" y1="395" x2="180" y2="425" class="arrow-monolithic" marker-end="url(#arr-mono)"/>
+
+    <!-- Response node -->
+    <g id="node-mono-response" class="node">
+      <rect x="45" y="425" width="270" height="40" class="box-monolithic" rx="4"/>
+      <!-- text_y = 425 + (40/2) + (12*0.35) = 425 + 20 + 4.2 = 449.2 -->
+      <text x="180" y="449" text-anchor="middle" class="box-label">Response to Client</text>
+    </g>
+
+    <!-- Characteristics box -->
+    <rect x="45" y="485" width="270" height="100" class="box-neutral" rx="4" stroke-dasharray="3,3"/>
+    <!-- Title: text_y = 485 + 8 + 11 = 504 -->
+    <text x="180" y="504" text-anchor="middle" class="comparison-label">Characteristics:</text>
+    <!-- Point 1 -->
+    <text x="55" y="523" class="text-annotation">• Single deployment unit</text>
+    <!-- Point 2 -->
+    <text x="55" y="540" class="text-annotation">• All code in one process</text>
+    <!-- Point 3 -->
+    <text x="55" y="557" class="text-annotation">• Shared database</text>
+    <!-- Point 4 -->
+    <text x="55" y="574" class="text-annotation">• One failure = whole app down</text>
+  </g>
+
+  <!-- ========== MICROSERVICE SECTION ========== -->
+  <g id="section-microservice" class="section">
+    <!-- Section header background -->
+    <rect x="380" y="75" width="320" height="40" class="header-microservice" rx="4"/>
+    <text x="540" y="102" text-anchor="middle" class="section-label">Microservice Architecture</text>
+
+    <!-- Client node -->
+    <g id="node-micro-client" class="node">
+      <rect x="405" y="135" width="270" height="40" class="box-client" rx="4"/>
+      <!-- text_y = 135 + (40/2) + (12*0.35) = 135 + 20 + 4.2 = 159.2 -->
+      <text x="540" y="159" text-anchor="middle" class="box-label">User/Client Request</text>
+    </g>
+
+    <!-- Arrow down -->
+    <line x1="540" y1="175" x2="540" y2="205" class="arrow-microservice" marker-end="url(#arr-micro)"/>
+
+    <!-- API Gateway node -->
+    <g id="node-micro-gateway" class="node">
+      <rect x="405" y="205" width="270" height="40" class="box-microservice" rx="4"/>
+      <!-- text_y = 205 + (40/2) + (12*0.35) = 205 + 20 + 4.2 = 229.2 -->
+      <text x="540" y="229" text-anchor="middle" class="box-label">API Gateway / Service Router</text>
+    </g>
+
+    <!-- Arrow down -->
+    <line x1="540" y1="245" x2="540" y2="275" class="arrow-microservice" marker-end="url(#arr-micro)"/>
+
+    <!-- Three independent services -->
+    <g id="services-container">
+      <!-- Users Service -->
+      <g id="node-micro-users" class="node">
+        <rect x="405" y="275" width="75" height="80" class="box-microservice" rx="4"/>
+        <!-- text_y = 275 + (80/2) + (11*0.35) = 275 + 40 + 3.85 = 318.85 -->
+        <text x="442.5" y="319" text-anchor="middle" class="box-label" font-size="11">Users</text>
+        <!-- text_y = 275 + 50 + 11 = 336 -->
+        <text x="442.5" y="336" text-anchor="middle" class="box-label-small" font-size="9">Service</text>
+        <!-- DB label: text_y = 275 + 65 = 340 -->
+        <text x="442.5" y="352" text-anchor="middle" class="box-label-small" font-size="8">+ DB</text>
+      </g>
+
+      <!-- Products Service -->
+      <g id="node-micro-products" class="node">
+        <rect x="492" y="275" width="75" height="80" class="box-microservice" rx="4"/>
+        <!-- text_y = 275 + (80/2) + (11*0.35) = 318.85 -->
+        <text x="529.5" y="319" text-anchor="middle" class="box-label" font-size="11">Products</text>
+        <text x="529.5" y="336" text-anchor="middle" class="box-label-small" font-size="9">Service</text>
+        <text x="529.5" y="352" text-anchor="middle" class="box-label-small" font-size="8">+ DB</text>
+      </g>
+
+      <!-- Orders Service -->
+      <g id="node-micro-orders" class="node">
+        <rect x="579" y="275" width="75" height="80" class="box-microservice" rx="4"/>
+        <!-- text_y = 275 + (80/2) + (11*0.35) = 318.85 -->
+        <text x="616.5" y="319" text-anchor="middle" class="box-label" font-size="11">Orders</text>
+        <text x="616.5" y="336" text-anchor="middle" class="box-label-small" font-size="9">Service</text>
+        <text x="616.5" y="352" text-anchor="middle" class="box-label-small" font-size="8">+ DB</text>
+      </g>
+    </g>
+
+    <!-- Arrows from gateway to services -->
+    <line x1="495" y1="245" x2="442.5" y2="275" class="arrow-microservice" marker-end="url(#arr-micro)"/>
+    <line x1="540" y1="245" x2="529.5" y2="275" class="arrow-microservice" marker-end="url(#arr-micro)"/>
+    <line x1="585" y1="245" x2="616.5" y2="275" class="arrow-microservice" marker-end="url(#arr-micro)"/>
+
+    <!-- Service-to-service communication (dotted) -->
+    <line x1="480" y1="310" x2="492" y2="310" class="arrow-dashed"/>
+    <line x1="567" y1="310" x2="579" y2="310" class="arrow-dashed"/>
+
+    <!-- Arrows down from services -->
+    <line x1="442.5" y1="355" x2="442.5" y2="385" class="arrow-microservice" marker-end="url(#arr-micro)"/>
+    <line x1="529.5" y1="355" x2="529.5" y2="385" class="arrow-microservice" marker-end="url(#arr-micro)"/>
+    <line x1="616.5" y1="355" x2="616.5" y2="385" class="arrow-microservice" marker-end="url(#arr-micro)"/>
+
+    <!-- Response aggregation node -->
+    <g id="node-micro-aggregate" class="node">
+      <rect x="405" y="385" width="270" height="40" class="box-microservice" rx="4"/>
+      <!-- text_y = 385 + (40/2) + (12*0.35) = 385 + 20 + 4.2 = 409.2 -->
+      <text x="540" y="409" text-anchor="middle" class="box-label">Aggregate &amp; Response</text>
+    </g>
+
+    <!-- Arrow down -->
+    <line x1="540" y1="425" x2="540" y2="455" class="arrow-microservice" marker-end="url(#arr-micro)"/>
+
+    <!-- Final response node -->
+    <g id="node-micro-response" class="node">
+      <rect x="405" y="455" width="270" height="40" class="box-microservice" rx="4"/>
+      <!-- text_y = 455 + (40/2) + (12*0.35) = 455 + 20 + 4.2 = 479.2 -->
+      <text x="540" y="479" text-anchor="middle" class="box-label">Response to Client</text>
+    </g>
+
+    <!-- Characteristics box -->
+    <rect x="405" y="515" width="270" height="100" class="box-neutral" rx="4" stroke-dasharray="3,3"/>
+    <!-- Title: text_y = 515 + 8 + 11 = 534 -->
+    <text x="540" y="534" text-anchor="middle" class="comparison-label">Characteristics:</text>
+    <!-- Point 1 -->
+    <text x="415" y="553" class="text-annotation">• Independent services</text>
+    <!-- Point 2 -->
+    <text x="415" y="570" class="text-annotation">• Decentralized data</text>
+    <!-- Point 3 -->
+    <text x="415" y="587" class="text-annotation">• Service-to-service calls</text>
+    <!-- Point 4 -->
+    <text x="415" y="604" class="text-annotation">• Isolated failures</text>
+  </g>
+
+  <!-- ========== FLOW COMPARISON CALLOUT ========== -->
+  <g id="comparison-detail">
+    <!-- Request flow detail -->
+    <rect x="20" y="630" width="680" height="250" class="box-neutral" rx="4" stroke-dasharray="3,3" stroke-width="1.5"/>
+
+    <!-- Title: text_y = 630 + 22 + 14 = 666 -->
+    <text x="360" y="666" text-anchor="middle" class="section-title" font-size="13" fill="#181340" font-weight="600">Request Flow Comparison</text>
+
+    <!-- Monolithic flow detail -->
+    <g id="mono-flow-detail">
+      <!-- Header -->
+      <text x="60" y="700" class="comparison-label" font-size="11" fill="#ff1c24" font-weight="600">Monolithic Approach:</text>
+
+      <!-- Flow steps -->
+      <!-- text_y = 710 + (20*0.35) = 717 -->
+      <text x="60" y="717" class="text-annotation" font-size="10">1. Request arrives at single API endpoint</text>
+      <!-- text_y = 728 + (20*0.35) = 735 -->
+      <text x="60" y="735" class="text-annotation" font-size="10">2. Single process routes internally</text>
+      <!-- text_y = 746 + (20*0.35) = 753 -->
+      <text x="60" y="753" class="text-annotation" font-size="10">3. All business logic runs in same memory space</text>
+      <!-- text_y = 764 + (20*0.35) = 771 -->
+      <text x="60" y="771" class="text-annotation" font-size="10">4. Single database transaction</text>
+      <!-- text_y = 782 + (20*0.35) = 789 -->
+      <text x="60" y="789" class="text-annotation" font-size="10">5. Response returned directly</text>
+
+      <!-- Highlight -->
+      <text x="60" y="810" class="comparison-label" font-size="10" fill="#ff1c24">⚠ Tight coupling, scaling challenges</text>
+    </g>
+
+    <!-- Microservice flow detail -->
+    <g id="micro-flow-detail">
+      <!-- Header -->
+      <text x="380" y="700" class="comparison-label" font-size="11" fill="#006736" font-weight="600">Microservice Approach:</text>
+
+      <!-- Flow steps -->
+      <!-- text_y calculations same as above -->
+      <text x="380" y="717" class="text-annotation" font-size="10">1. Request routed to API Gateway</text>
+      <text x="380" y="735" class="text-annotation" font-size="10">2. Gateway dispatches to relevant services</text>
+      <text x="380" y="753" class="text-annotation" font-size="10">3. Services handle independently (+ own DB)</text>
+      <text x="380" y="771" class="text-annotation" font-size="10">4. Services may call each other if needed</text>
+      <text x="380" y="789" class="text-annotation" font-size="10">5. Gateway aggregates &amp; responds</text>
+
+      <!-- Highlight -->
+      <text x="380" y="810" class="comparison-label" font-size="10" fill="#006736">✓ Loose coupling, independent scaling</text>
+    </g>
+  </g>
+
+  <!-- ========== BOTTOM ANNOTATION ========== -->
+  <text x="360" y="900" text-anchor="middle" class="text-muted" font-size="9">Red: Single point of failure risk  |  Green: Resilient isolation</text>
+</svg>

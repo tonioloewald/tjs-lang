@@ -73,7 +73,9 @@ async function main() {
   const fullPipeline = args.includes('--full')
   const clean = args.includes('--clean')
 
-  const mode = fullPipeline ? 'full pipeline (TS → TJS → JS)' : 'direct (TS → JS)'
+  const mode = fullPipeline
+    ? 'full pipeline (TS → TJS → JS)'
+    : 'direct (TS → JS)'
   console.log(`\n  Radash Compatibility Test — ${mode}\n`)
 
   // ── Step 0: Clean if requested ──
@@ -87,8 +89,12 @@ async function main() {
     console.log('Cloning Radash...')
     mkdirSync(COMPAT_DIR, { recursive: true })
     const { exitCode } = await run([
-      'git', 'clone', '--depth', '1',
-      'https://github.com/sodiray/radash.git', RADASH_DIR,
+      'git',
+      'clone',
+      '--depth',
+      '1',
+      'https://github.com/sodiray/radash.git',
+      RADASH_DIR,
     ])
     if (exitCode !== 0) {
       console.error('Failed to clone Radash')
@@ -184,21 +190,25 @@ async function main() {
   writeFileSync(jestConfigPath, patchedConfig)
 
   // Create a permissive tsconfig that won't choke on transpiled JS in .ts files
-  const tsconfigCompat = JSON.stringify({
-    compilerOptions: {
-      target: 'es2020',
-      module: 'commonjs',
-      moduleResolution: 'node',
-      esModuleInterop: true,
-      strict: false,
-      noImplicitAny: false,
-      skipLibCheck: true,
-      declaration: false,
-      // isolatedModules makes ts-jest strip types without full type-checking
-      isolatedModules: true,
+  const tsconfigCompat = JSON.stringify(
+    {
+      compilerOptions: {
+        target: 'es2020',
+        module: 'commonjs',
+        moduleResolution: 'node',
+        esModuleInterop: true,
+        strict: false,
+        noImplicitAny: false,
+        skipLibCheck: true,
+        declaration: false,
+        // isolatedModules makes ts-jest strip types without full type-checking
+        isolatedModules: true,
+      },
+      include: ['src/**/*'],
     },
-    include: ['src/**/*'],
-  }, null, 2)
+    null,
+    2
+  )
   writeFileSync(join(RADASH_DIR, 'tsconfig.compat.json'), tsconfigCompat)
 
   // ── Step 5: Run tests ──
@@ -235,9 +245,9 @@ async function main() {
               // Show first line of failure message
               const msg = tr.failureMessages?.[0]
               if (msg) {
-                const firstLine = msg.split('\n').find(
-                  (l: string) => l.trim() && !l.includes('at ')
-                )
+                const firstLine = msg
+                  .split('\n')
+                  .find((l: string) => l.trim() && !l.includes('at '))
                 if (firstLine) {
                   console.log(`    ${firstLine.trim().slice(0, 120)}`)
                 }
@@ -254,12 +264,18 @@ async function main() {
       for (const suite of json.testResults) {
         if (suite.status === 'failed') {
           const assertions = suite.assertionResults || []
-          const failedAssertions = assertions.filter((tr: any) => tr.status === 'failed')
-          const allSameError = failedAssertions.length > 0 && failedAssertions.every(
-            (tr: any) =>
-              tr.failureMessages?.[0]?.includes("fake timers") ||
-              tr.failureMessages?.[0]?.includes("read only property 'performance'")
+          const failedAssertions = assertions.filter(
+            (tr: any) => tr.status === 'failed'
           )
+          const allSameError =
+            failedAssertions.length > 0 &&
+            failedAssertions.every(
+              (tr: any) =>
+                tr.failureMessages?.[0]?.includes('fake timers') ||
+                tr.failureMessages?.[0]?.includes(
+                  "read only property 'performance'"
+                )
+            )
           if (allSameError) {
             upstreamFailures.push(suite.name.replace(RADASH_DIR + '/', ''))
           }
@@ -268,17 +284,27 @@ async function main() {
     }
 
     if (upstreamFailures.length > 0) {
-      const upstreamCount = json.testResults
-        ?.filter((s: any) => upstreamFailures.includes(
-          s.name.replace(RADASH_DIR + '/', '')
-        ))
-        ?.reduce((n: number, s: any) =>
-          n + (s.assertionResults?.filter((t: any) => t.status === 'failed')?.length || 0), 0) || 0
-      console.log(`\n  Note: ${upstreamCount} failures are pre-existing upstream issues`)
+      const upstreamCount =
+        json.testResults
+          ?.filter((s: any) =>
+            upstreamFailures.includes(s.name.replace(RADASH_DIR + '/', ''))
+          )
+          ?.reduce(
+            (n: number, s: any) =>
+              n +
+              (s.assertionResults?.filter((t: any) => t.status === 'failed')
+                ?.length || 0),
+            0
+          ) || 0
+      console.log(
+        `\n  Note: ${upstreamCount} failures are pre-existing upstream issues`
+      )
       console.log(`  (broken fake timers in: ${upstreamFailures.join(', ')})`)
       const actualFailed = numFailedTests - upstreamCount
       if (actualFailed === 0) {
-        console.log(`\n  TJS transpilation: ${numPassedTests}/${numPassedTests} tests passed!\n`)
+        console.log(
+          `\n  TJS transpilation: ${numPassedTests}/${numPassedTests} tests passed!\n`
+        )
       }
     } else if (numPassedTests === numTotalTests) {
       console.log('\n  All tests passed!\n')

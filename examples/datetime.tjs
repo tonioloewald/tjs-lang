@@ -3,6 +3,7 @@
 // - Setter accepts string, number, or null
 // - Getter returns a Date object
 
+TjsCompat
 TjsClass
 
 class DateTime {

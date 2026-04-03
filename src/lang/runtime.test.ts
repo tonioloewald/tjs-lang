@@ -1058,7 +1058,9 @@ function process(x: 0) -> 0 {
 `)
       // The emitted code creates its own child runtime via createRuntime().
       // We need to capture that child's __tjs to check its error buffer.
-      const mod = new Function(result.code + '\nreturn { greet, process, __tjs }')()
+      const mod = new Function(
+        result.code + '\nreturn { greet, process, __tjs }'
+      )()
 
       // Clear any errors from transpilation
       mod.__tjs.clearErrors()
@@ -1103,7 +1105,7 @@ function add(a: 1, b: 2) -> 3 {
       mod.__tjs.clearErrors()
 
       mod.add(10, 20) // correct types
-      mod.add(1, 2)   // correct types
+      mod.add(1, 2) // correct types
 
       expect(mod.__tjs.errors()).toHaveLength(0)
       expect(mod.__tjs.getErrorCount()).toBe(0)

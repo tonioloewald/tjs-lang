@@ -173,7 +173,7 @@ JavaScript's `==` is notoriously broken (type coercion). Its `===` doesn't do st
 [1, 2] === [1, 2]           // false (different references)
 { a: 1 } === { a: 1 }       // false (different references)
 
-// TJS (with structural equality enabled)
+// TJS (structural equality is on by default)
 [1, 2] == [1, 2]            // true (same structure)
 { a: 1 } == { a: 1 }        // true (same structure)
 [1, 2] === [1, 2]           // false (different references, identity check)
@@ -531,8 +531,11 @@ TJS is opinionated. Here's what changes:
 | `typeof null === 'object'` | `typeOf(null) === 'null'`     | JS got this wrong in 1995       |
 
 Nothing is taken away. `new` still works. `===` still works. You can write
-plain JavaScript in a `.tjs` file and it works. The additions are opt-in via
-syntax (`:` annotations, `->` returns, `Type` declarations).
+plain JavaScript in a `.tjs` file and it works. The type-related additions
+use explicit syntax (`:` annotations, `->` returns, `Type` declarations).
+Behavioral modes like structural equality, callable classes, and honest
+`typeof` are enabled by default in native TJS files. Use `TjsCompat` at the
+top of a file to disable all modes for gradual migration or JS interop.
 
 ---
 

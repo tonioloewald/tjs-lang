@@ -5,8 +5,6 @@
 JavaScript `==` is broken. TJS fixes it without breaking anything.
 
 ```tjs
-TjsEquals
-
 /*#
 ## The Problem with JavaScript ==
 
@@ -22,13 +20,15 @@ JavaScript's `===` fixes coercion but can't compare values:
     new String('hi') === 'hi'    // false in JS (different types)
     new Boolean(false) === false // false in JS (object vs primitive)
 
-## TJS Equality (TjsEquals)
+## TJS Honest Equality (on by default)
 
 `==` becomes **honest equality**: no coercion, but unwraps
 boxed primitives. Fast O(1) — no deep comparison.
 
 `Is` / `IsNot` are **structural equality**: deep comparison
 for when you explicitly need it. O(n) cost is visible.
+
+Honest equality is on by default in native TJS — no directive needed.
 */
 
 // --- Honest equality (==) fixes coercion ---

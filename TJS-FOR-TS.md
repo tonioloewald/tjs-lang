@@ -329,7 +329,7 @@ const p = Point(10, 20)  // no 'new' needed
 Key differences:
 
 - `private` is stripped by default (TS `private` is compile-time only).
-  With `TjsClass`, `private` converts to `#` (true JS runtime privacy).
+  With `TjsClass` (on by default in native TJS, add via `/* @tjs TjsClass */` for TS-originated code), `private` converts to `#` (true JS runtime privacy).
 - Type annotations become example values
 - With `TjsClass`, `new` is optional (linter warns against it)
 
@@ -537,10 +537,10 @@ function processOrder(order: { items: [{ id: 0, qty: 0 }], total: 0 }) -> { stat
 
 ### Honest Equality
 
-TypeScript inherits JavaScript's broken equality. TJS fixes it with `TjsEquals`:
+TypeScript inherits JavaScript's broken equality. Native TJS fixes this by default. For TS-originated code, add the `TjsEquals` directive (or use `/* @tjs TjsEquals */` in the source `.ts` file):
 
 ```javascript
-TjsEquals
+TjsEquals  // needed for TS-originated code; native TJS has this on by default
 
 // == is honest: no coercion, unwraps boxed primitives
 0 == ''                           // false (JS: true!)
@@ -709,7 +709,7 @@ Annotate your `.ts` files with `/* @tjs ... */` comments to enrich
 the TJS output. The TS compiler ignores them.
 
 ```typescript
-/* @tjs TjsClass TjsEquals */ // Enable TJS mode directives
+/* @tjs TjsClass TjsEquals */ // Enable TJS modes (off by default in TS-originated code)
 
 /* @tjs-skip */ // Skip this type declaration
 export type Unboxed<T> = T extends { value: infer U } ? U : T

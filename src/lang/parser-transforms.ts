@@ -539,10 +539,30 @@ export function insertAsiProtection(source: string): string {
 
   const lines = source.split('\n')
   const result: string[] = []
+  let inBlockComment = false
 
   for (let i = 0; i < lines.length; i++) {
     const line = lines[i]
     const prevLine = i > 0 ? lines[i - 1] : ''
+
+    // Track block comment state
+    if (inBlockComment) {
+      result.push(line)
+      if (line.includes('*/')) inBlockComment = false
+      continue
+    }
+
+    // Check if this line opens a block comment
+    const commentOpen = line.indexOf('/*')
+    const commentClose = line.indexOf('*/')
+    if (
+      commentOpen !== -1 &&
+      (commentClose === -1 || commentClose < commentOpen)
+    ) {
+      inBlockComment = true
+      result.push(line)
+      continue
+    }
 
     // Check if this line starts with a problematic character
     if (i > 0 && continuationStarts.test(line)) {
@@ -3108,4 +3128,239 @@ export function validateNoEval(source: string): string {
   }
 
   return source
+}
+
+/**
+ * Transform bang access (!.) to __tjs.bang() calls.
+ *
+ * x!.foo       → __tjs.bang(x,'foo')
+ * x.y!.foo     → __tjs.bang(x.y,'foo')
+ * fn()!.foo    → __tjs.bang(fn(),'foo')
+ * arr[0]!.foo  → __tjs.bang(arr[0],'foo')
+ * x!.foo!.bar  → __tjs.bang(__tjs.bang(x,'foo'),'bar')
+ *
+ * If the source is null/undefined, returns MonadicError.
+ * If the source is a MonadicError, propagates it.
+ * Otherwise, performs a bare property access (throws as usual).
+ */
+export function transformBangAccess(source: string): string {
+  // Quick bail — no !. in source at all
+  if (!source.includes('!.')) return source
+
+  let result = ''
+  let i = 0
+
+  // State tracking for strings/comments
+  type State =
+    | 'normal'
+    | 'string-single'
+    | 'string-double'
+    | 'string-template'
+    | 'line-comment'
+    | 'block-comment'
+  let state: State = 'normal'
+  let templateDepth = 0
+
+  while (i < source.length) {
+    const ch = source[i]
+    const next = source[i + 1]
+
+    // State transitions
+    if (state === 'normal') {
+      if (ch === '/' && next === '/') {
+        state = 'line-comment'
+        result += ch
+        i++
+        continue
+      }
+      if (ch === '/' && next === '*') {
+        state = 'block-comment'
+        result += ch
+        i++
+        continue
+      }
+      if (ch === "'") {
+        state = 'string-single'
+        result += ch
+        i++
+        continue
+      }
+      if (ch === '"') {
+        state = 'string-double'
+        result += ch
+        i++
+        continue
+      }
+      if (ch === '`') {
+        state = 'string-template'
+        templateDepth++
+        result += ch
+        i++
+        continue
+      }
+
+      // Detect bang access: ! followed by . followed by a word char (not digit)
+      if (
+        ch === '!' &&
+        next === '.' &&
+        i + 2 < source.length &&
+        /[a-zA-Z_$]/.test(source[i + 2])
+      ) {
+        // Scan backward in `result` to find the expression start
+        const exprEnd = result.length
+        const exprStart = findExprStartBackward(result)
+
+        if (exprStart < exprEnd) {
+          const expr = result.slice(exprStart)
+          result = result.slice(0, exprStart)
+
+          // Scan forward to capture the property name after !.
+          let j = i + 2
+          while (j < source.length && /[\w$]/.test(source[j])) j++
+          const prop = source.slice(i + 2, j)
+
+          result += `__tjs.bang(${expr},'${prop}')`
+          i = j
+          continue
+        }
+      }
+
+      result += ch
+      i++
+    } else if (state === 'line-comment') {
+      result += ch
+      if (ch === '\n') state = 'normal'
+      i++
+    } else if (state === 'block-comment') {
+      result += ch
+      if (ch === '*' && next === '/') {
+        result += next
+        state = 'normal'
+        i += 2
+      } else {
+        i++
+      }
+    } else if (state === 'string-single') {
+      result += ch
+      if (ch === '\\') {
+        result += next || ''
+        i += 2
+      } else if (ch === "'") {
+        state = 'normal'
+        i++
+      } else {
+        i++
+      }
+    } else if (state === 'string-double') {
+      result += ch
+      if (ch === '\\') {
+        result += next || ''
+        i += 2
+      } else if (ch === '"') {
+        state = 'normal'
+        i++
+      } else {
+        i++
+      }
+    } else if (state === 'string-template') {
+      result += ch
+      if (ch === '\\') {
+        result += next || ''
+        i += 2
+      } else if (ch === '`') {
+        templateDepth--
+        state = templateDepth > 0 ? 'string-template' : 'normal'
+        i++
+      } else if (ch === '$' && next === '{') {
+        result += next
+        i += 2
+        state = 'normal'
+      } else {
+        i++
+      }
+    } else {
+      result += ch
+      i++
+    }
+  }
+
+  return result
+}
+
+/**
+ * Scan backward through `text` to find the start of the expression
+ * that ends at the last character of `text`.
+ *
+ * Handles: identifiers, member chains (. and ?.), function calls (),
+ * computed access [], and nested combinations.
+ */
+function findExprStartBackward(text: string): number {
+  let pos = text.length - 1
+
+  // Skip trailing whitespace
+  while (pos >= 0 && /\s/.test(text[pos])) pos--
+  if (pos < 0) return text.length
+
+  // Walk backward consuming expression parts
+  while (pos >= 0) {
+    const ch = text[pos]
+
+    if (/[\w$]/.test(ch)) {
+      // Identifier — consume word chars
+      while (pos >= 0 && /[\w$]/.test(text[pos])) pos--
+      // Check if preceded by . or ?. (member chain continues)
+      if (pos >= 0 && text[pos] === '.') {
+        if (pos >= 1 && text[pos - 1] === '?') {
+          pos -= 2
+        } else {
+          pos--
+        }
+        continue
+      }
+      return pos + 1
+    } else if (ch === ')') {
+      pos = findMatchingOpen(text, pos, '(', ')')
+      if (pos < 0) return 0
+      pos--
+      if (pos >= 0 && /[\w$]/.test(text[pos])) continue
+      if (pos >= 0 && text[pos] === '.') {
+        if (pos >= 1 && text[pos - 1] === '?') pos -= 2
+        else pos--
+        continue
+      }
+      return pos + 1
+    } else if (ch === ']') {
+      pos = findMatchingOpen(text, pos, '[', ']')
+      if (pos < 0) return 0
+      pos--
+      if (pos >= 0 && /[\w$]/.test(text[pos])) continue
+      if (pos >= 0 && text[pos] === '.') {
+        if (pos >= 1 && text[pos - 1] === '?') pos -= 2
+        else pos--
+        continue
+      }
+      return pos + 1
+    } else {
+      return pos + 1
+    }
+  }
+
+  return 0
+}
+
+/** Find the matching opening bracket/paren scanning backward from `pos`. */
+function findMatchingOpen(
+  text: string,
+  pos: number,
+  open: string,
+  close: string
+): number {
+  let depth = 1
+  pos--
+  while (pos >= 0 && depth > 0) {
+    if (text[pos] === close) depth++
+    else if (text[pos] === open) depth--
+    if (depth > 0) pos--
+  }
+  return pos
 }

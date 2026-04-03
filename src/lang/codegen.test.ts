@@ -1066,7 +1066,7 @@ function test() -! 0 {
     it('without TjsStandard, IIFE would be footgun (JS behavior)', () => {
       // This demonstrates the footgun that TjsStandard prevents
       // Without the directive, the code passes through unchanged
-      const tjsSource = `
+      const tjsSource = `TjsCompat
 function getNumber() -! 0 { return 42 }
 function test() -! 0 {
   const x = getNumber
@@ -1195,7 +1195,7 @@ function greet(user: { name: string; age: number }): string {
 `
       const { code: tjsCode } = fromTS(ts, { emitTJS: true })
       // Already has -! from TS transpiler
-      const { code: jsCode } = tjs(tjsCode)
+      const { code: jsCode } = tjs('safety inputs\n' + tjsCode)
 
       const greet = new Function(jsCode + '; return greet')()
 
@@ -1221,7 +1221,7 @@ function add(a: number, b: number): number {
 `
       const { code: tjsCode } = fromTS(ts, { emitTJS: true })
       // Already has -! from TS transpiler
-      const { code: jsCode } = tjs(tjsCode)
+      const { code: jsCode } = tjs('safety inputs\n' + tjsCode)
 
       const add = new Function(jsCode + '; return add')()
 
@@ -1510,8 +1510,10 @@ function transform(value: string): string {
         filename: 'src/processors/data.ts',
       })
 
-      // TJS → JS
-      const { code: jsCode } = tjs(tjsCode)
+      // TJS → JS — inject safety directive after the tjs annotation line
+      const { code: jsCode } = tjs(
+        tjsCode.replace(/(\/\* tjs <- [^*]+ \*\/)/, '$1\nsafety inputs')
+      )
 
       // Execute and trigger errors
       const fns = new Function(
@@ -1538,6 +1540,7 @@ function transform(value: string): string {
     it('preserves line annotations through TJS intermediate', () => {
       // TJS with explicit line annotations (as if from TS transpilation)
       const tjsSource = `/* tjs <- lib/utils.ts */
+safety inputs
 
 /* line 15 */
 function helper(x: 0) -! 0 {
@@ -1563,6 +1566,7 @@ function helper(x: 0) -! 0 {
 
       try {
         const tjsSource = `/* tjs <- src/chain.ts */
+safety inputs
 
 /* line 10 */
 function outer(x: 0) -! 0 {
@@ -1651,6 +1655,7 @@ function add(a: 0, b: 0) -! 0 {
 
       try {
         const { code } = tjs(`/* tjs <- src/app.ts */
+safety inputs
 /* line 1 */
 function outer(x: 0) -! 0 {
   return inner(x)
@@ -1709,6 +1714,7 @@ function greet(name: '') -! '' {
 
       try {
         const { code } = tjs(`/* tjs <- src/pipeline.ts */
+safety inputs
 /* line 1 */
 function a(x: 0) -! 0 { return b(x) }
 /* line 3 */

@@ -14,8 +14,7 @@ Uses lodash-es for utility functions via ESM import
 import { groupBy, sortBy, uniqBy, debounce, chunk } from 'lodash-es'
 
 // Group items by a key
-function groupUsers(users: [{ name: '', dept: '' }], key: 'dept')
-  -> { [key: '']: [{ name: '', dept: '' }] } {
+function groupUsers(users: [{ name: '', dept: '' }], key: 'dept') -> { [key: '']: [{ name: '', dept: '' }] } {
   return groupBy(users, key)
 }
 

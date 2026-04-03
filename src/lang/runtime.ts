@@ -601,20 +601,6 @@ export function TypeOf(value: unknown): string {
   return typeof value
 }
 
-/**
- * Check if a number is bounded (finite and not NaN).
- * The question you're actually asking when you reach for isNaN or isFinite.
- *
- * IsBounded(42)        → true
- * IsBounded(3.14)      → true
- * IsBounded(NaN)       → false
- * IsBounded(Infinity)  → false
- * IsBounded(-Infinity) → false
- * IsBounded('hello')   → false
- */
-export function IsBounded(value: unknown): boolean {
-  return typeof value === 'number' && isFinite(value) && !isNaN(value)
-}
 export function Eq(a: unknown, b: unknown): boolean {
   // Unwrap boxed primitives
   if (a instanceof String || a instanceof Number || a instanceof Boolean) {
@@ -1403,9 +1389,12 @@ export function createRuntime() {
   }
 
   function instanceErrors(): MonadicError[] {
-    if (instanceConfig.trackErrors === false || instanceErrorBufCount === 0) return []
+    if (instanceConfig.trackErrors === false || instanceErrorBufCount === 0)
+      return []
     const result: MonadicError[] = []
-    const start = (instanceErrorHead - instanceErrorBufCount + instErrorSize) % instErrorSize
+    const start =
+      (instanceErrorHead - instanceErrorBufCount + instErrorSize) %
+      instErrorSize
     for (let i = 0; i < instanceErrorBufCount; i++) {
       result.push(instanceErrorBuffer[(start + i) % instErrorSize])
     }
@@ -1445,12 +1434,27 @@ export function createRuntime() {
     return err
   }
 
+  /**
+   * Bang access (!.) — asserted non-null member access.
+   * Returns MonadicError if obj is null, undefined, or already a MonadicError.
+   * Otherwise returns obj[prop] (bare access — throws as usual on other errors).
+   */
+  function instanceBang(obj: unknown, prop: string): unknown {
+    if (obj === null || obj === undefined) {
+      return instanceTypeError(`bang.${prop}`, 'non-null', obj)
+    }
+    if (isMonadicError(obj)) return obj
+    return (obj as any)[prop]
+  }
+
   return {
     version: TJS_VERSION,
     // Monadic error handling
     MonadicError,
     typeError: instanceTypeError,
     isMonadicError,
+    // Bang access (!.)
+    bang: instanceBang,
     // Legacy error handling
     isError,
     error: instanceError,
@@ -1510,8 +1514,6 @@ export function createRuntime() {
     NotEq,
     // Honest typeof (typeof with TjsEquals)
     TypeOf,
-    // Number utilities
-    IsBounded,
     tjsEquals,
     // Extensions
     registerExtension: instanceRegisterExtension,
@@ -1596,8 +1598,6 @@ export const runtime = {
   NotEq,
   // Honest typeof (used by typeof with TjsEquals)
   TypeOf,
-  // Number utilities
-  IsBounded,
 }
 
 /**

@@ -71,7 +71,11 @@ async function main() {
   const clean = process.argv.includes('--clean')
   const runTests = process.argv.includes('--test')
 
-  console.log(`\n  Effect Compatibility Test — ${runTests ? 'transpile + test' : 'transpilation only'}\n`)
+  console.log(
+    `\n  Effect Compatibility Test — ${
+      runTests ? 'transpile + test' : 'transpilation only'
+    }\n`
+  )
 
   if (clean && existsSync(REPO_DIR)) {
     await run(['rm', '-rf', REPO_DIR])
@@ -81,8 +85,12 @@ async function main() {
     console.log('Cloning Effect...')
     mkdirSync(COMPAT_DIR, { recursive: true })
     const { exitCode } = await run([
-      'git', 'clone', '--depth', '1',
-      'https://github.com/Effect-TS/effect.git', REPO_DIR,
+      'git',
+      'clone',
+      '--depth',
+      '1',
+      'https://github.com/Effect-TS/effect.git',
+      REPO_DIR,
     ])
     if (exitCode !== 0) {
       console.error('Failed to clone Effect')
@@ -96,7 +104,8 @@ async function main() {
   // Transpile
   console.log('\nTranspiling source files...')
   const sourceFiles = findSourceFiles(SRC_DIR)
-  let ok = 0, fail = 0
+  let ok = 0,
+    fail = 0
   const errors: string[] = []
 
   for (const filePath of sourceFiles) {
@@ -122,7 +131,7 @@ async function main() {
 
   if (fail > 0) {
     console.log('\nTranspilation failures:')
-    errors.forEach(e => console.log(e))
+    errors.forEach((e) => console.log(e))
   } else {
     console.log(`\n  All ${ok} source files transpile cleanly!`)
   }
@@ -146,7 +155,7 @@ async function main() {
       const json = JSON.parse(jsonStr)
       const passed = json.numPassedTests ?? 0
       const failed = json.numFailedTests ?? 0
-      const total = json.numTotalTests ?? (passed + failed)
+      const total = json.numTotalTests ?? passed + failed
       console.log('━'.repeat(50))
       console.log(`  Total:  ${total}`)
       console.log(`  Passed: ${passed}`)
@@ -167,4 +176,7 @@ async function main() {
   console.log()
 }
 
-main().catch(e => { console.error(e); process.exit(1) })
+main().catch((e) => {
+  console.error(e)
+  process.exit(1)
+})

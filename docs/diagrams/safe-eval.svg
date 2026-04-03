@@ -48,10 +48,10 @@
   <rect width="600" height="420" rx="12" class="bg"/>
 
   <!-- Untrusted Code -->
-  <g class="shadow">
+  <g id="node-untrusted" class="node shadow">
     <rect x="210" y="16" width="180" height="40" rx="8" class="box-untrusted"/>
+    <text x="300" y="41" text-anchor="middle" class="text-untrusted">Untrusted Code</text>
   </g>
-  <text x="300" y="41" text-anchor="middle" class="text-untrusted">Untrusted Code</text>
 
   <!-- Trunk -->
   <line x1="300" y1="56" x2="300" y2="86" class="arrow"/>

@@ -628,6 +628,7 @@ describe('Class Syntax', () => {
     const { transpile } = require('./index')
     expect(() =>
       transpile(`
+      TjsCompat
       class Greeter {
         greet() {
           return 'Hello'
@@ -854,7 +855,8 @@ describe('Real-World Patterns', () => {
     }).code
     // TJS should have union annotation
     expect(tjsCode).toContain('excited: false | undefined')
-    const jsResult = tjs(tjsCode)
+    // TS-originated code defaults to safety none — add safety inputs to test validation
+    const jsResult = tjs('safety inputs\n' + tjsCode)
     // JS should not have default or bitwise OR — `:` means required
     expect(jsResult.code).not.toMatch(/excited = false/)
     expect(jsResult.code).not.toMatch(/excited = false \| undefined/)

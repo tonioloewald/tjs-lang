@@ -33,7 +33,7 @@ is already being allocated anyway).
 
 // --- Basic: detect silent failures ---
 
-function greet(name: 'World') -> 'Hello, World' {
+function greet(name: 'World') -> 'Hello, World!' {
   return `Hello, ${name}!`
 }
 
@@ -64,7 +64,7 @@ for (const err of recent) {
 
 __tjs.clearErrors()
 
-function processOrder(id: 0, name: '') -> { status: '' } {
+function processOrder(id: 0, name: '') -> { status: 'processed  #0' } {
   return { status: `processed ${name} #${id}` }
 }
 

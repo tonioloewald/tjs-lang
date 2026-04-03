@@ -810,6 +810,7 @@ test 'always fails' { throw new Error('intentional') }
       // Classes are not supported in AJS/VM - they're a TJS-only feature
       expect(() =>
         transpile(`
+        TjsCompat
         class Foo {}
       `)
       ).toThrow('Classes are not supported')

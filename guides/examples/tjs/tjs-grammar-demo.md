@@ -26,14 +26,13 @@ All other features are exercised in the runnable code below:
 
 ```tjs
 // ═══════════════════════════════════════════════════════════
-// 1. SAFETY DIRECTIVE & TJS MODES
-// These must appear before any other code.
+// 1. SAFETY DIRECTIVE
+// Must appear before any other code.
 // ═══════════════════════════════════════════════════════════
 
 safety inputs
 
-TjsEquals
-TjsClass
+// TjsEquals, TjsClass, TjsNoVar are all on by default in native TJS.
 
 /*#
 # TJS Grammar Reference
@@ -44,7 +43,7 @@ feature with a test proving it works.
 ## Quick Index
 | Feature | Section |
 |---------|---------|
-| Safety & modes | `safety`, `TjsEquals`, `TjsClass` |
+| Safety directive | `safety` |
 | Parameters | Colon `:`, optional `=`, destructured `{}` |
 | Numeric narrowing | `42` int, `3.14` float, `+0` non-negative |
 | Return types | `->`, `-?`, `-!` |
@@ -55,7 +54,7 @@ feature with a test proving it works.
 | Polymorphic functions | Same name, different signatures |
 | Polymorphic constructors | Multiple `constructor()` |
 | Local extensions | `extend String { ... }` |
-| Equality | `==` structural, `===` identity, `Is`/`IsNot` |
+| Equality | `==` honest, `===` identity, `Is`/`IsNot` |
 | Try without catch | Monadic error conversion |
 | Inline tests | Test blocks |
 | TDoc comments | Slash-star-hash markdown blocks |
@@ -177,7 +176,7 @@ test 'bare assignments' {
 /*#
 ## Classes
 
-With `TjsClass` enabled, classes are callable without `new`.
+Classes are callable without `new` by default in native TJS.
 */
 
 class Point {
@@ -281,10 +280,10 @@ See the **Local Extensions** example for a runnable demo.
 /*#
 ## Equality
 
-With `TjsEquals` enabled (at the top of this file):
-- `==` / `!=` use structural comparison (deep value equality)
+Honest equality is on by default in native TJS:
+- `==` / `!=` use honest equality (no coercion, unwraps boxed primitives)
 - `===` / `!==` are identity checks (same reference)
-- `Is` / `IsNot` are explicit structural operators (any mode)
+- `Is` / `IsNot` are explicit structural operators (deep comparison)
 
     const a = { x: 1, y: [2, 3] }
     const b = { x: 1, y: [2, 3] }
@@ -369,7 +368,7 @@ and API docs. Every such block you've seen above is a TDoc.
 
 console.log('TJS Grammar Reference — all tests passed!')
 console.log('Features demonstrated:', [
-  'safety directive', 'TJS modes', 'colon params', 'optional params',
+  'safety directive', 'colon params', 'optional params',
   'destructured params', 'numeric narrowing',
   'return types (-> -? -!)', 'safety markers (! ?)',
   'Type', 'Generic', 'Enum', 'Union', 'bare assignments',
