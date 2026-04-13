@@ -44,7 +44,7 @@ Param types: `i32` (integer), `f32`/`f64` (float), `Float32Array`, etc.
 
 // --- Basic: integer math in WASM ---
 
-function addInts(! a: 0, b: 0) -! 0 {
+function addInts(! a: 0, b: 0):! 0 {
   return wasm {
     a + b
   } fallback {
@@ -52,7 +52,7 @@ function addInts(! a: 0, b: 0) -! 0 {
   }
 }
 
-function factorial(! n: 0) -! 0 {
+function factorial(! n: 0):! 0 {
   return wasm {
     let result = 1
     for (let i = 2; i <= n; i++) {
@@ -67,7 +67,7 @@ function factorial(! n: 0) -! 0 {
 
 // --- Float math ---
 
-function lerp(! a: 0.0, b: 0.0, t: 0.0) -! 0.0 {
+function lerp(! a: 0.0, b: 0.0, t: 0.0):! 0.0 {
   return wasm {
     a + (b - a) * t
   } fallback {
@@ -77,7 +77,7 @@ function lerp(! a: 0.0, b: 0.0, t: 0.0) -! 0.0 {
 
 // --- Array processing ---
 
-function sumArray(! arr: Float32Array, len: 0) -! 0.0 {
+function sumArray(! arr: Float32Array, len: 0):! 0.0 {
   return wasm {
     let sum = 0.0
     for (let i = 0; i < len; i++) {

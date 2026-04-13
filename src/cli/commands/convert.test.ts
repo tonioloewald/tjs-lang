@@ -113,7 +113,7 @@ function getAge(): number { return 30 }
     it('produces TJS with return type annotations', () => {
       const result = fromTS(TS_SIMPLE, { emitTJS: true })
 
-      expect(result.code).toContain("-! ''")
+      expect(result.code).toContain(":! ''")
     })
 
     it('preserves inline test comments', () => {
@@ -172,7 +172,7 @@ function getAge(): number { return 30 }
       await proc.exited
 
       expect(stdout).toContain("name: ''")
-      expect(stdout).toContain("-! ''")
+      expect(stdout).toContain(":! ''")
       expect(stdout).not.toContain('__tjs')
     })
 

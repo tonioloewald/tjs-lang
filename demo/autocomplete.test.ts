@@ -54,7 +54,7 @@ describe('getCompletions', () => {
 
     it('should suggest types after return arrow', () => {
       const completions = getCompletions({
-        source: 'function foo() -> ',
+        source: 'function foo(): ',
         position: 18,
       })
 

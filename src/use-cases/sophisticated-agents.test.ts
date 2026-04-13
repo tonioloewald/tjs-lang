@@ -86,8 +86,8 @@ describe('Use Case: Sophisticated Agents', () => {
     )
 
     expect(result.result.answer).toBe('A')
-    // Attempt 0: "Paris" (Invalid) -> attempts becomes 1
-    // Attempt 1: "A" (Valid) -> success
+    // Attempt 0: "Paris" (Invalid): attempts becomes 1
+    // Attempt 1: "A" (Valid): success
     // So attempts variable ends at 1.
     expect(result.result.attempts).toBe(1)
     expect(caps.llmBattery.predict).toHaveBeenCalledTimes(2)

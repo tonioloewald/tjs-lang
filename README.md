@@ -47,16 +47,16 @@ Write typed JavaScript where the type _is_ an example. No split-brain validation
 
 ```typescript
 // TJS: The type is an example AND a test
-function greet(name: 'World') -> 'Hello, World!' {
+function greet(name: 'World'): 'Hello, World!' {
   return `Hello, ${name}!`
 }
 // At transpile time: greet('World') is called and checked against 'Hello, World!'
 
 // Runtime: The type becomes a contract
-console.log(greet.__tjs.params)  // { name: { type: 'string', example: 'World', required: true } }
+console.log(greet.__tjs.params) // { name: { type: 'string', example: 'World', required: true } }
 
 // Safety: Errors are values, not crashes
-const result = greet(123)        // MonadicError: Expected string for 'greet.name', got number
+const result = greet(123) // MonadicError: Expected string for 'greet.name', got number
 ```
 
 **Why it matters:**
@@ -168,7 +168,7 @@ console.log(result) // { result: 42 }
 import { tjs } from 'tjs-lang'
 
 const { code, metadata } = tjs`
-  function add(a: 0, b: 0) -> 0 {
+  function add(a: 0, b: 0): 0 {
     return a + b
   }
 `

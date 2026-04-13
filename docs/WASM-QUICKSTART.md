@@ -29,7 +29,7 @@ JavaScript file.
 ## Your First WASM Block
 
 ```tjs
-function add(! a: 0, b: 0) -! 0 {
+function add(! a: 0, b: 0):! 0 {
   return wasm {
     a + b
   } fallback {
@@ -45,7 +45,7 @@ console.log(add(3, 4))  // 7 — computed in WASM
 - `wasm { }` — JS-like syntax compiled to WASM bytecode at transpile time
 - `fallback { }` — JS fallback if WASM isn't available (e.g., older runtimes)
 - `!` — unsafe marker, skips runtime type checking for speed
-- `-!` — assert-returns, the return type contract
+- `:!` — assert-returns, the return type contract
 
 Run it:
 
@@ -207,7 +207,7 @@ Use them for long-lived buffers, not temporary scratch space.
 ### Dot product (horizontal SIMD reduction)
 
 ```tjs
-function dot(! a: Float32Array, b: Float32Array, len: 0) -! 0.0 {
+function dot(! a: Float32Array, b: Float32Array, len: 0):! 0.0 {
   return wasm {
     let acc = f32x4_splat(0.0)
     for (let i = 0; i < len; i += 4) {

@@ -9,7 +9,7 @@ Type Name = "World"
 
 const StringBox = Box("")
 
-function demo() -> { passed: 0, failed: 0 } {
+function demo(): { passed: 0, failed: 0 } {
   let passed = 0
   let failed = 0
 

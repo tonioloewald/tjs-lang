@@ -35,7 +35,7 @@ AJS looks like JavaScript but has strict differences. You must adhere to these r
   - RIGHT: `function factorial(n: 5)` - bare number literal
 - **No Return Type Annotations:** Do NOT add return types after the parameter list.
   - WRONG: `function foo(x: 0): number { ... }`
-  - WRONG: `function foo(x: 0) -> number { ... }`
+  - WRONG: `function foo(x: 0): number { ... }`
   - RIGHT: `function foo(x: 0) { ... }`
 - **No Classes:** Do NOT use `class`, `new`, `this`, or `prototype`.
 - **No Async/Await:** Do NOT use `async` or `await`. All functions are implicitly asynchronous.

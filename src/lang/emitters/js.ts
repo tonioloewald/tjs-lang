@@ -5,7 +5,7 @@
  * Unlike the AST emitter (for AgentJS), this outputs executable JS code.
  *
  * Input:
- *   function greet(name: 'world') -> '' {
+ *   function greet(name: 'world'): '' {
  *     return `Hello, ${name}!`
  *   }
  *
@@ -493,11 +493,11 @@ function extractFunctionReturnType(
   source: string,
   funcName: string
 ): string | null {
-  // Match: function funcName(params) -> returnExample {
-  // or: function funcName(params) -? returnExample {
-  // or: function funcName(params) -! returnExample {
+  // Match: function funcName(params): returnExample {
+  // or: function funcName(params):? returnExample {
+  // or: function funcName(params):! returnExample {
   const regex = new RegExp(
-    `function\\s+${funcName}\\s*\\([^)]*\\)\\s*(-[>?!])\\s*`,
+    `function\\s+${funcName}\\s*\\([^)]*\\)\\s*(:[?!]?)\\s*`,
     'g'
   )
   const match = regex.exec(source)
@@ -509,15 +509,14 @@ function extractFunctionReturnType(
 
 /**
  * Extract return safety marker for a specific function from source
- * Returns 'safe' for -?, 'unsafe' for -!, undefined for -> or no marker
+ * Returns 'safe' for :?, 'unsafe' for :!, undefined for : or no marker
  */
 function extractFunctionReturnSafety(
   source: string,
   funcName: string
 ): 'safe' | 'unsafe' | undefined {
-  // Match: function funcName(params) -X where X is >, ?, or !
   const regex = new RegExp(
-    `function\\s+${funcName}\\s*\\([^)]*\\)\\s*-([>?!])`,
+    `function\\s+${funcName}\\s*\\([^)]*\\)\\s*:([?!]?)`,
     'g'
   )
   const match = regex.exec(source)
@@ -526,7 +525,7 @@ function extractFunctionReturnSafety(
   const marker = match[1]
   if (marker === '?') return 'safe'
   if (marker === '!') return 'unsafe'
-  return undefined // -> is the default, no special safety flag
+  return undefined // : is the default, no special safety flag
 }
 
 /**
@@ -584,7 +583,7 @@ export function transpileToJS(
   // Extract test/mock blocks before parsing (they're not valid JS)
   const { code: cleanSource, tests, mocks, testRunner } = extractTests(source)
 
-  // Parse the cleaned source (handles TJS syntax like x: 'type' and -> ReturnType)
+  // Parse the cleaned source (handles TJS syntax like x: 'type' and : ReturnType)
   const {
     ast: program,
     originalSource,
@@ -1066,7 +1065,7 @@ interface SafetyOptions {
   unsafe?: boolean
   /** Function marked with (?) - always validate inputs */
   safe?: boolean
-  /** Return type safety: 'safe' (-?) or 'unsafe' (-!) */
+  /** Return type safety: 'safe' (:?) or 'unsafe' (:!) */
   returnSafety?: 'safe' | 'unsafe'
 }
 
@@ -1128,9 +1127,9 @@ function generateTypeMetadata(
     }
     // Add return safety flags
     if (safety.returnSafety === 'safe') {
-      metadata.safeReturn = true // -? forces output validation
+      metadata.safeReturn = true // :? forces output validation
     } else if (safety.returnSafety === 'unsafe') {
-      metadata.unsafeReturn = true // -! skips output validation
+      metadata.unsafeReturn = true // :! skips output validation
     }
   }
 

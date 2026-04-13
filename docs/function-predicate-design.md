@@ -20,20 +20,20 @@ signature." Currently:
    just like `0` means "integer" and `''` means "string"
 2. **FunctionPredicate should work like Type/Generic** — same pattern of
    predicate-based checking, introspection via metadata
-3. **The return contract is part of the type** — `->`, `-?`, and `-!` are
+3. **The return contract is part of the type** — `:`, `:?`, and `:!` are
    meaningful distinctions in the function's contract
 
 ## The Three Return Contracts
 
 | Marker | Name | Meaning |
 |--------|------|---------|
-| `->` | `returns` | Verified at transpile time (signature test) |
-| `-?` | `checkedReturns` | Verified at transpile time AND runtime |
-| `-!` | `assertReturns` | Declared but not verified (metadata only) |
+| `:` | `returns` | Verified at transpile time (signature test) |
+| `:?` | `checkedReturns` | Verified at transpile time AND runtime |
+| `:!` | `assertReturns` | Declared but not verified (metadata only) |
 
 These are not just build options — they describe the **trust level** of
-the function's return type. A function with `-?` makes a stronger promise
-than one with `-!`.
+the function's return type. A function with `:?` makes a stronger promise
+than one with `:!`.
 
 ## Syntax: Function as Type Example
 
@@ -41,7 +41,7 @@ The most TJS-idiomatic approach — a function IS its own type:
 
 ```tjs
 // This function's signature IS a type
-function formatter(input: '', options: { locale: 'en' }) -? '' {
+function formatter(input: '', options: { locale: 'en' }):? '' {
   return input
 }
 
@@ -91,7 +91,7 @@ FunctionPredicate Callback {
 Create a type from an existing function's metadata:
 
 ```tjs
-function myFormatter(input: '', options: { locale: 'en' }) -? '' {
+function myFormatter(input: '', options: { locale: 'en' }):? '' {
   return input
 }
 

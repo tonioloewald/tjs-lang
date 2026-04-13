@@ -7,7 +7,7 @@ Typed async/await patterns
 ```tjs
 // Async functions work naturally
 
-async function fetchUser(id: 'user-1') -> { name: '', email: '' } {
+async function fetchUser(id: 'user-1'): { name: '', email: '' } {
   // Simulated API call
   await new Promise(resolve => setTimeout(resolve, 100))
   return {
@@ -16,7 +16,7 @@ async function fetchUser(id: 'user-1') -> { name: '', email: '' } {
   }
 }
 
-async function fetchUsers(ids: ['']) -> [{ name: '', email: '' }] {
+async function fetchUsers(ids: ['']): [{ name: '', email: '' }] {
   return Promise.all(ids.map(id => fetchUser(id)))
 }
 

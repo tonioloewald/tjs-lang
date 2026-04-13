@@ -101,7 +101,7 @@ describe('typeDescriptorToTS', () => {
 describe('generateDTS', () => {
   it('should generate declarations for exported functions', () => {
     const source = `
-export function greet(name: 'Alice') -> '' {
+export function greet(name: 'Alice'): '' {
   return \`Hello, \${name}!\`
 }
 `
@@ -115,7 +115,7 @@ export function greet(name: 'Alice') -> '' {
 
   it('should handle optional parameters', () => {
     const source = `
-export function greet(name = 'world') -> '' {
+export function greet(name = 'world'): '' {
   return \`Hello, \${name}!\`
 }
 `
@@ -127,7 +127,7 @@ export function greet(name = 'world') -> '' {
 
   it('should handle multiple parameters and return types', () => {
     const source = `
-export function add(a: 0, b: 0) -> 0 {
+export function add(a: 0, b: 0): 0 {
   return a + b
 }
 `
@@ -141,11 +141,11 @@ export function add(a: 0, b: 0) -> 0 {
 
   it('should skip non-exported functions when exports exist', () => {
     const source = `
-function helper(x: '') -> '' {
+function helper(x: ''): '' {
   return x.toUpperCase()
 }
 
-export function greet(name: 'Alice') -> '' {
+export function greet(name: 'Alice'): '' {
   return helper(name)
 }
 `
@@ -158,7 +158,7 @@ export function greet(name: 'Alice') -> '' {
 
   it('should treat all functions as exported when no exports exist', () => {
     const source = `
-function add(a: 0, b: 0) -> 0 {
+function add(a: 0, b: 0): 0 {
   return a + b
 }
 `
@@ -170,7 +170,7 @@ function add(a: 0, b: 0) -> 0 {
 
   it('should handle object parameter shapes', () => {
     const source = `
-export function createUser(user: { name: '', age: 0 }) -> { id: 0, name: '' } {
+export function createUser(user: { name: '', age: 0 }): { id: 0, name: '' } {
   return { id: 1, name: user.name }
 }
 `
@@ -183,7 +183,7 @@ export function createUser(user: { name: '', age: 0 }) -> { id: 0, name: '' } {
 
   it('should handle nullable parameters', () => {
     const source = `
-export function find(id: 0 | null) -> '' {
+export function find(id: 0 | null): '' {
   return id ? 'found' : 'not found'
 }
 `
@@ -213,7 +213,7 @@ export function area(w: 0.0, h: 0.0) {
   it('should include JSDoc from TDoc comments', () => {
     const source = `
 /*# Greet a person by name */
-function greet(name: 'Alice') -> '' {
+function greet(name: 'Alice'): '' {
   return \`Hello, \${name}!\`
 }
 `
@@ -225,7 +225,7 @@ function greet(name: 'Alice') -> '' {
 
   it('should wrap in module declaration when moduleName is given', () => {
     const source = `
-export function add(a: 0, b: 0) -> 0 {
+export function add(a: 0, b: 0): 0 {
   return a + b
 }
 `
@@ -239,7 +239,7 @@ export function add(a: 0, b: 0) -> 0 {
 
   it('should handle array return types', () => {
     const source = `
-export function getNames(count: 0) -> [''] {
+export function getNames(count: 0): [''] {
   return Array(count).fill('test')
 }
 `
@@ -393,7 +393,7 @@ describe('generateDTS — Type declarations', () => {
     const source = `
 export Type Name = 'World'
 
-export function greet(name: Name) -> '' {
+export function greet(name: Name): '' {
   return \`Hello, \${name}!\`
 }
 `
@@ -614,7 +614,7 @@ export class Point {
   }
 }
 
-export function greet(name: '') -> '' {
+export function greet(name: ''): '' {
   return \`Hello, \${name}!\`
 }
 `

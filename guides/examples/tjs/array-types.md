@@ -24,16 +24,16 @@ test 'stats calculates correctly' {
   expect(s.avg).toBe(20)
 }
 
-function sum(numbers: [3, 7]) -> 10 {
+function sum(numbers: [3, 7]): 10 {
   return numbers.reduce((a, b) => a + b, 0)
 }
 
-function average(numbers: [10, 30]) -> 20 {
+function average(numbers: [10, 30]): 20 {
   if (numbers.length === 0) return 0
   return sum(numbers) / numbers.length
 }
 
-function stats(data: [10, 20, 30]) -> { min: 10, max: 30, avg: 20 } {
+function stats(data: [10, 20, 30]): { min: 10, max: 30, avg: 20 } {
   if (data.length === 0) {
     return { min: 0, max: 0, avg: 0 }
   }

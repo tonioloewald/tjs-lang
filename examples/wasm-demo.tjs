@@ -3,7 +3,7 @@
 
 // --- 1. Basic WASM: integer addition ---
 
-function add(! a: 0, b: 0) -! 0 {
+function add(! a: 0, b: 0):! 0 {
   return wasm {
     a + b
   } fallback {
@@ -15,7 +15,7 @@ console.log('add(3, 4):', add(3, 4))
 
 // --- 2. Float math: linear interpolation ---
 
-function lerp(! a: 0.0, b: 0.0, t: 0.0) -! 0.0 {
+function lerp(! a: 0.0, b: 0.0, t: 0.0):! 0.0 {
   return wasm {
     a + (b - a) * t
   } fallback {
@@ -46,7 +46,7 @@ console.log('scale([1..8], 10):', Array.from(data))
 
 // --- 4. SIMD dot product with horizontal reduction ---
 
-function dot(! a: Float32Array, b: Float32Array, len: 0) -! 0.0 {
+function dot(! a: Float32Array, b: Float32Array, len: 0):! 0.0 {
   return wasm {
     let acc = f32x4_splat(0.0)
     for (let i = 0; i < len; i += 4) {

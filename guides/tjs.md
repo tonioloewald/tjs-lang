@@ -3,7 +3,7 @@
 TJS is a typed superset of JavaScript where **types are examples**.
 
 ```javascript
-function greet(name: 'World', times: 3) -> '' {
+function greet(name: 'World', times: 3): '' {
   let result = ''
   let i = 0
   while (i < times) {
@@ -39,7 +39,7 @@ That's exactly how TJS works. The example _is_ the type:
 function greet(name: string, times: number): string
 
 // TJS - the example IS the documentation
-function greet(name: 'World', times: 3) -> ''
+function greet(name: 'World', times: 3): ''
 ```
 
 ## Core Concepts
@@ -80,17 +80,17 @@ The colon `:` means required, equals `=` means optional:
 
 ```javascript
 function createUser(
-  name: 'Anonymous',     // required string
-  email: 'user@example.com',  // required string
-  age = 0,               // optional number (defaults to 0)
-  role = 'user'          // optional string (defaults to 'user')
-) -> { id: '', name: '', email: '', age: 0, role: '' } {
+  name: 'Anonymous', // required string
+  email: 'user@example.com', // required string
+  age = 0, // optional number (defaults to 0)
+  role = 'user' // optional string (defaults to 'user')
+): { id: '', name: '', email: '', age: 0, role: '' } {
   return {
     id: crypto.randomUUID(),
     name,
     email,
     age,
-    role
+    role,
   }
 }
 
@@ -100,19 +100,19 @@ createUser('Bob', 'bob@example.com', 30)
 createUser('Carol', 'carol@example.com', 25, 'admin')
 
 // Invalid - missing required params:
-createUser('Dave')  // Error: missing required parameter 'email'
+createUser('Dave') // Error: missing required parameter 'email'
 ```
 
 ### 3. Return Type Annotation
 
-Use `->` to declare the return type:
+Use `:` to declare the return type:
 
 ```javascript
-function add(a: 0, b: 0) -> 0 {
+function add(a: 0, b: 0): 0 {
   return a + b
 }
 
-function getUser(id: '') -> { name: '', email: '' } | null {
+function getUser(id: ''): { name: '', email: '' } | null {
   // Returns user object or null
 }
 ```
@@ -122,7 +122,7 @@ function getUser(id: '') -> { name: '', email: '' } | null {
 Use `|` for unions (same as TypeScript):
 
 ```javascript
-function parseInput(value: '' | 0 | null) -> '' {
+function parseInput(value: '' | 0 | null): '' {
   if (value === null) return 'null'
   if (typeof value === 'number') return `number: ${value}`
   return `string: ${value}`
@@ -134,7 +134,7 @@ function parseInput(value: '' | 0 | null) -> '' {
 When you genuinely don't know the type:
 
 ```javascript
-function identity(x: any) -> any {
+function identity(x: any): any {
   return x
 }
 ```
@@ -144,7 +144,7 @@ Generics from TypeScript become `any` but preserve metadata:
 ```javascript
 // TypeScript: function identity<T>(x: T): T
 // TJS: any, but __tjs.typeParams captures the generic info
-function identity(x: any) -> any {
+function identity(x: any): any {
   return x
 }
 // identity.__tjs.typeParams = { T: {} }
@@ -269,13 +269,13 @@ On by default. Zero cost on the happy path — only writes when an error occurs.
 TJS functions are wrapped with runtime type validation by default:
 
 ```javascript
-function add(a: 0, b: 0) -> 0 {
+function add(a: 0, b: 0): 0 {
   return a + b
 }
 
-add(1, 2)      // 3
-add('1', 2)    // Error: expected number, got string
-add(null, 2)   // Error: expected number, got null
+add(1, 2) // 3
+add('1', 2) // Error: expected number, got string
+add(null, 2) // Error: expected number, got null
 ```
 
 This provides excellent error messages and catches type mismatches at runtime.
@@ -286,12 +286,12 @@ Control input validation with markers after the opening paren:
 
 ```javascript
 // (?) - Safe function: force input validation
-function safeAdd(? a: 0, b: 0) -> 0 {
+function safeAdd(? a: 0, b: 0): 0 {
   return a + b
 }
 
 // (!) - Unsafe function: skip input validation
-function fastAdd(! a: 0, b: 0) -> 0 {
+function fastAdd(! a: 0, b: 0): 0 {
   return a + b
 }
 
@@ -301,29 +301,29 @@ fastAdd('1', 2)    // NaN (no validation, garbage in = garbage out)
 
 The `!` is borrowed from TypeScript's non-null assertion operator - it means "I know what I'm doing, trust me."
 
-### Return Type Safety: `->`, `-?`, `-!`
+### Return Type Safety: `:`, `:?`, `:!`
 
-Control output validation with different arrow styles:
+Control output validation with different colon styles:
 
 ```javascript
-// -> normal return type (validation depends on module settings)
-function add(a: 0, b: 0) -> 0 { return a + b }
+// : normal return type (validation depends on module settings)
+function add(a: 0, b: 0): 0 { return a + b }
 
-// -? force output validation (safe return)
-function critical(a: 0, b: 0) -? 0 { return a + b }
+// :? force output validation (safe return)
+function critical(a: 0, b: 0):? 0 { return a + b }
 
-// -! skip output validation (unsafe return)
-function fast(a: 0, b: 0) -! 0 { return a + b }
+// :! skip output validation (unsafe return)
+function fast(a: 0, b: 0):! 0 { return a + b }
 ```
 
 Combine input and output markers for full control:
 
 ```javascript
 // Fully safe: validate inputs AND outputs
-function critical(? x: 0) -? 0 { return x * 2 }
+function critical(? x: 0):? 0 { return x * 2 }
 
 // Fully unsafe: skip all validation
-function blazingFast(! x: 0) -! 0 { return x * 2 }
+function blazingFast(! x: 0):! 0 { return x * 2 }
 ```
 
 ### The `unsafe` Block
@@ -331,7 +331,7 @@ function blazingFast(! x: 0) -! 0 { return x * 2 }
 For unsafe sections within a safe function, use `unsafe {}`:
 
 ```javascript
-function sum(numbers: [0]) -> 0 {
+function sum(numbers: [0]): 0 {
   // Parameters are validated, but the inner loop is unsafe
   unsafe {
     let total = 0
@@ -531,14 +531,14 @@ Type User {
 TypeScript erases types at compile time. TJS preserves them:
 
 ```javascript
-function greet(name: 'World') -> '' {
+function greet(name: 'World'): '' {
   return `Hello, ${name}!`
 }
 
 // At runtime:
 greet.__tjs = {
   params: { name: { type: 'string', required: true } },
-  returns: { type: 'string' }
+  returns: { type: 'string' },
 }
 ```
 
@@ -558,7 +558,7 @@ TypeScript generics become `any` in TJS, but constraints are preserved:
 function process<T extends { id: number }>(item: T): T
 
 // TJS - constraint becomes validatable schema
-function process(item: any) -> any
+function process(item: any): any
 // process.__tjs.typeParams = { T: { constraint: '{ id: 0 }' } }
 ```
 
@@ -580,20 +580,23 @@ If you need these, you probably need to rethink your approach. TJS favors simple
 Every TJS function has attached metadata:
 
 ```javascript
-function createUser(name: 'Anonymous', age = 0) -> { id: '', name: '', age: 0 } {
+function createUser(name: 'Anonymous', age = 0): { id: '', name: '', age: 0 } {
   return { id: crypto.randomUUID(), name, age }
 }
 
 createUser.__tjs = {
   params: {
     name: { type: 'string', required: true, default: 'Anonymous' },
-    age: { type: 'number', required: false, default: 0 }
+    age: { type: 'number', required: false, default: 0 },
   },
-  returns: { type: 'object', shape: { id: 'string', name: 'string', age: 'number' } },
+  returns: {
+    type: 'object',
+    shape: { id: 'string', name: 'string', age: 'number' },
+  },
   // For generic functions:
   typeParams: {
-    T: { constraint: '{ id: 0 }', default: null }
-  }
+    T: { constraint: '{ id: 0 }', default: null },
+  },
 }
 ```
 
@@ -660,12 +663,12 @@ function send(
 
 ```javascript
 // Public API - safe by default
-export function createUser(name: '', email: '') -> { id: '', name: '', email: '' } {
+export function createUser(name: '', email: ''): { id: '', name: '', email: '' } {
   return createUserImpl(name, email)
 }
 
 // Internal - mark as unsafe for speed
-function createUserImpl(! name: '', email: '') -> { id: '', name: '', email: '' } {
+function createUserImpl(! name: '', email: ''): { id: '', name: '', email: '' } {
   return { id: crypto.randomUUID(), name, email }
 }
 ```
@@ -674,13 +677,13 @@ function createUserImpl(! name: '', email: '') -> { id: '', name: '', email: '' 
 
 ```javascript
 // Bad
-function divide(a: 0, b: 0) -> 0 {
+function divide(a: 0, b: 0): 0 {
   if (b === 0) throw new Error('Division by zero')
   return a / b
 }
 
 // Good
-function divide(a: 0, b: 0) -> 0 {
+function divide(a: 0, b: 0): 0 {
   if (b === 0) return error('Division by zero')
   return a / b
 }
@@ -705,7 +708,7 @@ TJS transpiles to standard JavaScript:
 
 ```javascript
 // Input (TJS)
-function greet(name: 'World') -> '' {
+function greet(name: 'World'): '' {
   return `Hello, ${name}!`
 }
 
@@ -715,7 +718,7 @@ function greet(name = 'World') {
 }
 greet.__tjs = {
   params: { name: { type: 'string', required: true, default: 'World' } },
-  returns: { type: 'string' }
+  returns: { type: 'string' },
 }
 ```
 

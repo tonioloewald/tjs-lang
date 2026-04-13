@@ -222,7 +222,7 @@ describe('json-schema', () => {
       const runtime = createRuntime()
       try {
         globalThis.__tjs = runtime
-        const result = tjs(`function greet(name: 'World') -> 'Hello, World' {
+        const result = tjs(`function greet(name: 'World'): 'Hello, World' {
   return 'Hello, ' + name
 }`)
         const fn = new Function(result.code + '\nreturn greet')()
@@ -242,7 +242,7 @@ describe('json-schema', () => {
       try {
         globalThis.__tjs = runtime
         installRuntime()
-        const result = tjs(`function greet(name: 'World') -> 'Hello, World' {
+        const result = tjs(`function greet(name: 'World'): 'Hello, World' {
   return 'Hello, ' + name
 }`)
         const fn = new Function(result.code + '\nreturn greet')()

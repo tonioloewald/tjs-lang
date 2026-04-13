@@ -21,16 +21,16 @@ In TJS, the example value after `:` IS the type:
 | `...nums: [0]` | rest param, array of integers |
 */
 
-function greet(name: 'World') -> 'Hello, World!' {
+function greet(name: 'World'): 'Hello, World!' {
   return `Hello, ${name}!`
 }
 
 // Numeric type narrowing — all valid JS syntax
-function clampIndex(index: +0, max: +0) -> +0 {
+function clampIndex(index: +0, max: +0): +0 {
   return Math.min(index, max)
 }
 
-function mix(a: 0.0, b: 0.0, t: 0.0) -> 0.0 {
+function mix(a: 0.0, b: 0.0, t: 0.0): 0.0 {
   return a + (b - a) * t
 }
 
@@ -56,11 +56,11 @@ test 'floats accept any number' {
 }
 
 // Rest params — the array example IS the type
-function sum(...nums: [1, 2, 3]) -> 6 {
+function sum(...nums: [1, 2, 3]): 6 {
   return nums.reduce((a = 0, b: 0) => a + b, 0)
 }
 
-function mean(...values: [1.0, 2.0, 3.0, 2.0]) -> 2.0 {
+function mean(...values: [1.0, 2.0, 3.0, 2.0]): 2.0 {
   return values.length
     ? values.reduce((sum = 0.0, x: 1.0) => sum + x) / values.length
     : 0.0

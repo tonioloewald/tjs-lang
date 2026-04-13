@@ -14,17 +14,17 @@ Uses lodash-es for utility functions via ESM import
 import { groupBy, sortBy, uniqBy, debounce, chunk } from 'lodash-es'
 
 // Group items by a key
-function groupUsers(users: [{ name: '', dept: '' }], key: 'dept') -> { [key: '']: [{ name: '', dept: '' }] } {
+function groupUsers(users: [{ name: '', dept: '' }], key: 'dept'): { [key: '']: [{ name: '', dept: '' }] } {
   return groupBy(users, key)
 }
 
 // Sort items by property
-function sortByAge(users: [{ name: '', age: 0 }]) -> [{ name: '', age: 0 }] {
+function sortByAge(users: [{ name: '', age: 0 }]): [{ name: '', age: 0 }] {
   return sortBy(users, ['age'])
 }
 
 // Remove duplicates by property
-function uniqueByEmail(users: [{ email: '', name: '' }]) -> [{ email: '', name: '' }] {
+function uniqueByEmail(users: [{ email: '', name: '' }]): [{ email: '', name: '' }] {
   return uniqBy(users, 'email')
 }
 
@@ -37,7 +37,7 @@ function paginate(items: [''], pageSize: 10) {
 // Process data pipeline
 function processUserData(input: {
   users: [{ id: 0, name: '', email: '', dept: '' }]
-}) -> {
+}): {
   byDept: { [key: '']: [{ id: 0, name: '', email: '', dept: '' }] },
   unique: [{ id: 0, name: '', email: '', dept: '' }],
   count: 0

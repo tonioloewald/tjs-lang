@@ -26,7 +26,7 @@ let nextId = 1
 export function createUser(input: {
   name: 'Alice',
   email: 'alice@example.com'
-}) -! { id: 0, name: '', email: '', createdAt: '' } {
+}):! { id: 0, name: '', email: '', createdAt: '' } {
   const user = {
     id: nextId++,
     name: input.name,
@@ -38,7 +38,7 @@ export function createUser(input: {
 }
 
 // Get user by ID (returns empty object if not found - union types not yet supported)
-export function getUser(input: { id: 1 }) -! { id: 0, name: '', email: '', createdAt: '' } {
+export function getUser(input: { id: 1 }):! { id: 0, name: '', email: '', createdAt: '' } {
   return users.get(input.id) || { id: 0, name: '', email: '', createdAt: '' }
 }
 
@@ -47,7 +47,7 @@ export function updateUser(input: {
   id: 1,
   name: 'Alice',
   email: 'alice@example.com'
-}) -! { id: 0, name: '', email: '', createdAt: '' } {
+}):! { id: 0, name: '', email: '', createdAt: '' } {
   const existing = users.get(input.id)
   if (!existing) return { id: 0, name: '', email: '', createdAt: '' }
 
@@ -57,23 +57,21 @@ export function updateUser(input: {
 }
 
 // Delete a user
-export function deleteUser(input: { id: 1 }) -! { success: true, deleted: 0 } {
+export function deleteUser(input: { id: 1 }):! { success: true, deleted: 0 } {
   const existed = users.has(input.id)
   users.delete(input.id)
   return { success: existed, deleted: existed ? input.id : 0 }
 }
 
 // List all users
-export function listUsers(input: { limit: 10, offset: 0 })
-  -! { users: [{ id: 0, name: '', email: '', createdAt: '' }], total: 0 } {
+export function listUsers(input: { limit: 10, offset: 0 }):! { users: [{ id: 0, name: '', email: '', createdAt: '' }], total: 0 } {
   const all = [...users.values()]
   const slice = all.slice(input.offset, input.offset + input.limit)
   return { users: slice, total: all.length }
 }
 
 // Search users by name
-export function searchUsers(input: { query: '' })
-  -! { users: [{ id: 0, name: '', email: '', createdAt: '' }] } {
+export function searchUsers(input: { query: '' }):! { users: [{ id: 0, name: '', email: '', createdAt: '' }] } {
   const query = input.query.toLowerCase()
   const matches = [...users.values()].filter(u =>
     u.name.toLowerCase().includes(query)

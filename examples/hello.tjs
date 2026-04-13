@@ -2,7 +2,7 @@
 
 Type Name = 'World'
 
-function greet(name: Name) -> '' {
+function greet(name: Name): '' {
   return `Hello, ${name}!`
 }
 

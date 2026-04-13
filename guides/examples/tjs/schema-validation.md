@@ -17,7 +17,7 @@ function createUser(
   name: 'anonymous',
   email: 'user@example.com',
   age: +0
-) -> { name: '', email: '', age: 0 } {
+): { name: '', email: '', age: 0 } {
   return { name, email, age }
 }
 
@@ -25,7 +25,7 @@ function transfer(
   from: '',
   to: '',
   amount: 0.0
-) -> { from: '', to: '', amount: 0.0 } {
+): { from: '', to: '', amount: 0.0 } {
   return { from, to, amount }
 }
 

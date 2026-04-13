@@ -162,7 +162,7 @@ TypeScript describes types abstractly. TJS describes them concretely:
 function greet(name: string): string { ... }
 
 // TJS: what's an EXAMPLE of this?
-function greet(name: 'World') -> '' { ... }
+function greet(name: 'World'): '' { ... }
 ```
 
 `'World'` tells TJS: this is a string, it's required, and here's a valid
@@ -236,9 +236,9 @@ Required properties use `:`, optional ones use `=`.
 
 ```typescript
 // TypeScript                              // TJS
-function add(a: number, b: number): number    function add(a: 0, b: 0) -> 0
-function getUser(): { name: string }          function getUser() -> { name: '' }
-function fetchData(): Promise<string[]>       function fetchData() -> ['']
+function add(a: number, b: number): number    function add(a: 0, b: 0): 0
+function getUser(): { name: string }          function getUser(): { name: '' }
+function fetchData(): Promise<string[]>       function fetchData(): ['']
 ```
 
 The `fromTS` converter unwraps `Promise<T>` in return type annotations --
@@ -318,12 +318,12 @@ class Point {
     this.#y = y
   }
 
-  distanceTo(other: Point) -> 0 {
+  distanceTo(other: Point): 0 {
     return Math.sqrt((this.#x - other.#x) ** 2 + (this.#y - other.#y) ** 2)
   }
 }
 
-const p = Point(10, 20)  // no 'new' needed
+const p = Point(10, 20) // no 'new' needed
 ```
 
 Key differences:
@@ -383,7 +383,7 @@ metadata but types become `any`. This is a place where manual review helps.
 function find(id: number): User | null { ... }
 
 // TJS
-function find(id: 0) -> { name: '', age: 0 } || null { ... }
+function find(id: 0): { name: '', age: 0 } || null { ... }
 ```
 
 TJS distinguishes `null` from `undefined` -- they're different types, just
@@ -530,7 +530,9 @@ TJS:
 
 ```javascript
 // Types are checked at runtime. One source of truth.
-function processOrder(order: { items: [{ id: 0, qty: 0 }], total: 0 }) -> { status: '' } {
+function processOrder(order: { items: [{ id: 0, qty: 0 }], total: 0 }): {
+  status: '',
+} {
   // If order doesn't match, caller gets a MonadicError -- no crash.
 }
 ```
@@ -578,7 +580,7 @@ function divide(a: number, b: number): number {
 // Caller forgets try/catch? Crash.
 
 // TJS -- errors flow through the pipeline
-function divide(a: 0, b: 0) -> 0 {
+function divide(a: 0, b: 0): 0 {
   if (b === 0) return MonadicError('Division by zero')
   return a / b
 }
@@ -611,7 +613,7 @@ always values, never exceptions.
 ### Inline Tests
 
 ```javascript
-function fibonacci(n: 0) -> 0 {
+function fibonacci(n: 0): 0 {
   if (n <= 1) return n
   return fibonacci(n - 1) + fibonacci(n - 2)
 }
@@ -760,7 +762,7 @@ function first<T extends { id: number }>(items: T[]): T {
 }
 
 // Converted TJS — uses constraint shape, not 'any'
-function first(items: [{ id: 0.0 }]) -! { id: 0.0 } { ... }
+function first(items: [{ id: 0.0 }]):! { id: 0.0 } { ... }
 ```
 
 Generic defaults also work: `<T = string>` uses `string` as the example.
@@ -819,9 +821,9 @@ your function breaks on 0 (division, array index), the automatic signature
 test will catch it immediately. Choose examples that exercise the
 happy path.
 
-**Return types generate tests.** `-> 0` means TJS will call your function
+**Return types generate tests.** `: 0` means TJS will call your function
 with the parameter examples and check the result. If your function has
-side effects or requires setup, use `-! 0` to skip the signature test.
+side effects or requires setup, use `:! 0` to skip the signature test.
 
 **Structural equality changes behavior.** If your code relies on `==`
 for type coercion (comparing numbers to strings, etc.), you'll need to
@@ -883,7 +885,7 @@ Type CartItem {
   example: { product: { id: '', name: '', price: 0.0, tags: [''] }, quantity: +0 }
 }
 
-function calculateTotal(items: [CartItem], taxRate = 0.1) -> 0.0 {
+function calculateTotal(items: [CartItem], taxRate = 0.1): 0.0 {
   const subtotal = items.reduce(
     (sum, item) => sum + item.product.price * item.quantity,
     0
@@ -891,7 +893,7 @@ function calculateTotal(items: [CartItem], taxRate = 0.1) -> 0.0 {
   return Math.round(subtotal * (1 + taxRate) * 100) / 100
 }
 
-function applyDiscount(total: 0.0, code: '' || null) -> { final: 0.0, discount: 0.0 } {
+function applyDiscount(total: 0.0, code: '' || null): { final: 0.0, discount: 0.0 } {
   const discounts = {
     SAVE10: 0.1,
     SAVE20: 0.2,
@@ -934,9 +936,11 @@ TJS eliminates source maps. Every function carries its source identity
 in `__tjs` metadata:
 
 ```javascript
-function add(a: 0, b: 0) -> 0 { return a + b }
+function add(a: 0, b: 0): 0 {
+  return a + b
+}
 
-add.__tjs.source  // "mymodule.tjs:3"
+add.__tjs.source // "mymodule.tjs:3"
 ```
 
 - **Zero-config debugging:** If a function fails validation, the error
@@ -966,7 +970,7 @@ You can wrap them in a TJS boundary to get runtime safety:
 import { rawGeocode } from 'legacy-geo-pkg'
 
 // Wrap to validate at your system boundary
-function geocode(addr: '') -> { lat: 0.0, lon: 0.0 } {
+function geocode(addr: ''): { lat: 0.0, lon: 0.0 } {
   return rawGeocode(addr)
 }
 ```

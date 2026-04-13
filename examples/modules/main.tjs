@@ -2,7 +2,7 @@
 
 import { add, multiply } from './math.tjs'
 
-export function calculate(x: 0, y: 0) -> 0 {
+export function calculate(x: 0, y: 0): 0 {
   // (x + y) * 2
   return multiply(add(x, y), 2)
 }

@@ -151,11 +151,11 @@ describe('Bootstrap Canary', () => {
         Basic arithmetic operations.
         */
 
-        function add(a: 0, b: 0) -> 0 {
+        function add(a: 0, b: 0): 0 {
           return a + b
         }
 
-        function multiply(x: 1, y: 1) -> 1 {
+        function multiply(x: 1, y: 1): 1 {
           return x * y
         }
       `)
@@ -182,14 +182,14 @@ describe('Bootstrap Canary', () => {
 
       // A self-contained TJS test
       const tjsSource = `
-        function add(a: 0, b: 0) -> 0 {
+        function add(a: 0, b: 0): 0 {
           return a + b
         }
         /* @test add(1, 2) is 3 */
         /* @test add(-1, 1) is 0 */
         /* @test add(0, 0) is 0 */
 
-        function greet(name: 'World') -> 'Hello, World!' {
+        function greet(name: 'World'): 'Hello, World!' {
           return 'Hello, ' + name + '!'
         }
         /* @test greet('TJS') is 'Hello, TJS!' */
@@ -541,7 +541,7 @@ describe('Bootstrap Canary', () => {
 
       // Test colon shorthand -> default params
       const result1 = parserModule.preprocess(`
-        function greet(name: 'World') -> '' {
+        function greet(name: 'World'): '' {
           return 'Hello, ' + name + '!'
         }
       `)
@@ -550,7 +550,7 @@ describe('Bootstrap Canary', () => {
 
       // Test arrow return type extraction
       const result2 = parserModule.preprocess(`
-        function add(a: 0, b: 0) -> 0 {
+        function add(a: 0, b: 0): 0 {
           return a + b
         }
       `)
@@ -650,7 +650,7 @@ describe('Bootstrap Canary', () => {
       // Test cases - various TJS syntax
       const testCases = [
         `function f(x: 0) { return x }`,
-        `function g(a: '', b = 1) -> '' { return a }`,
+        `function g(a: '', b = 1): '' { return a }`,
         `function h(! fast: 0) { return fast }`,
         `Type Foo { example: { x: 0 } }`,
         `Generic Bar<T> { predicate(x, T) { return true } }`,

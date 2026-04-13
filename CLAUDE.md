@@ -157,7 +157,7 @@ function greet(name: string): string {
 
 const result = fromTS(tsSource, { emitTJS: true })
 // result.code contains TJS:
-// function greet(name: '') -> '' {
+// function greet(name: ''): '' {
 //   return \`Hello, \${name}!\`
 // }
 ```
@@ -168,7 +168,7 @@ const result = fromTS(tsSource, { emitTJS: true })
 import { tjs } from 'tjs-lang/lang'
 
 const tjsSource = `
-function greet(name: '') -> '' {
+function greet(name: ''): '' {
   return \`Hello, \${name}!\`
 }
 `
@@ -296,7 +296,7 @@ Full syntax documentation is in [`CLAUDE-TJS-SYNTAX.md`](CLAUDE-TJS-SYNTAX.md). 
 
 - **Colon shorthand**: `function foo(x: 'hello')` — colon value is an _example_, not a type. This is the most common LLM mistake.
 - **Numeric narrowing**: `3.14` = float, `42` = integer, `+0` = non-negative integer
-- **Return types**: `function add(a: 0, b: 0) -> 0 { ... }` (arrow syntax, not colon)
+- **Return types**: `function add(a: 0, b: 0): 0 { ... }` (colon syntax, same as TypeScript)
 - **Safety markers**: `!` = unsafe (skip validation), `?` = safe (explicit validation)
 - **Mode defaults**: Native TJS has all modes ON by default (`TjsEquals`, `TjsClass`, `TjsDate`, `TjsNoeval`, `TjsNoVar`, `TjsStandard`). TS-originated code (`fromTS`) and AJS/VM code get modes OFF. `TjsCompat` directive explicitly disables all modes. `TjsStrict` enables all modes (useful for TS-originated code opting in).
 - **Bang access**: `x!.foo` — returns MonadicError if `x` is null/undefined, otherwise bare `x.foo`. Chains propagate: `x!.foo!.bar`.

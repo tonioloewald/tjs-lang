@@ -19,7 +19,7 @@ A TypeScript-like language where **types are examples**:
 
 ```typescript
 // TJS - types via example values
-function greet(name: 'World', times: 3) -> '' {
+function greet(name: 'World', times: 3): '' {
   return `Hello, ${name}!`.repeat(times)
 }
 
@@ -59,7 +59,7 @@ Converts TypeScript to TJS syntax:
 function greet(name: string, age?: number): string { ... }
 
 // Converts to TJS
-function greet(name: '', age = 0) -> '' { ... }
+function greet(name: '', age = 0): '' { ... }
 ```
 
 Handles: interfaces → Type, type aliases, enums → Enum, literal unions → Union, classes with private fields, generics, utility types.
@@ -89,7 +89,7 @@ const u = User('Alice') // No 'new' needed
 Tests live next to code:
 
 ```typescript
-function double(x: 0) -> 0 { return x * 2 }
+function double(x: 0): 0 { return x * 2 }
 
 test('doubles numbers') {
   expect(double(5)).toBe(10)

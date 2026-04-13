@@ -144,7 +144,7 @@ Every function has a `.signature` property for self-documentation:
 function search(
   query: 'example query',
   limit = 10
-) -> [{ title: 'Example Title', url: 'https://example.com' }] {
+): [{ title: 'Example Title', url: 'https://example.com' }] {
   // implementation
 }
 
@@ -154,9 +154,17 @@ search.signature = {
   description: 'Search the knowledge base',
   parameters: {
     query: { type: 'string', required: true, description: 'The search query' },
-    limit: { type: 'number', required: false, default: 10, description: 'Max results to return' }
+    limit: {
+      type: 'number',
+      required: false,
+      default: 10,
+      description: 'Max results to return',
+    },
   },
-  returns: { type: 'array', items: { type: 'object', shape: { title: 'string', url: 'string' } } }
+  returns: {
+    type: 'array',
+    items: { type: 'object', shape: { title: 'string', url: 'string' } },
+  },
 }
 ```
 
@@ -207,10 +215,10 @@ greet({ greeting: 'Hi' })  // { message: "Hi, World!" }
 
 ### Return Types
 
-Return types can be specified with arrow syntax:
+Return types can be specified with colon syntax:
 
 ```javascript
-function search(query: 'search term') -> { results: [], count: 0 } {
+function search(query: 'search term'): { results: [], count: 0 } {
   // Must return object with results array and count number
 }
 ```
@@ -497,9 +505,9 @@ let bad = filter({ name: 'Alice' }, { name: 'string', age: 0 })
 **Note:** Return values are automatically filtered when a return type is declared. This makes return types act as projections:
 
 ```javascript
-function getUser(id: 'user-123') -> { name: 'string', email: 'string' } {
-  let user = fetchUser({ id })  // might return { name, email, password, ... }
-  return { user }               // password automatically stripped
+function getUser(id: 'user-123'): { name: 'string', email: 'string' } {
+  let user = fetchUser({ id }) // might return { name, email, password, ... }
+  return { user } // password automatically stripped
 }
 ```
 

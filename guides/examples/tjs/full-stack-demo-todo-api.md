@@ -23,8 +23,7 @@ let nextId = 1
 // UpdateInput: { id: 1, title: 'Buy milk', completed: false }
 
 // POST /todos - Create
-export function createTodo(input: { title: 'New todo' })
-  -! { id: 0, title: '', completed: false, createdAt: '' } {
+export function createTodo(input: { title: 'New todo' }):! { id: 0, title: '', completed: false, createdAt: '' } {
   const todo = {
     id: nextId++,
     title: input.title,
@@ -36,14 +35,12 @@ export function createTodo(input: { title: 'New todo' })
 }
 
 // GET /todos/:id - Read one (returns empty if not found)
-export function getTodo(input: { id: 1 })
-  -! { id: 0, title: '', completed: false, createdAt: '' } {
+export function getTodo(input: { id: 1 }):! { id: 0, title: '', completed: false, createdAt: '' } {
   return todos.get(input.id) || { id: 0, title: '', completed: false, createdAt: '' }
 }
 
 // GET /todos - Read all (with optional filter)
-export function listTodos(input = { completed: false })
-  -! { todos: [{ id: 0, title: '', completed: false, createdAt: '' }] } {
+export function listTodos(input = { completed: false }):! { todos: [{ id: 0, title: '', completed: false, createdAt: '' }] } {
   let items = [...todos.values()]
 
   if (input.completed !== undefined) {
@@ -54,8 +51,7 @@ export function listTodos(input = { completed: false })
 }
 
 // PUT /todos/:id - Update (returns empty if not found)
-export function updateTodo(input: { id: 1, title: '', completed: false })
-  -! { id: 0, title: '', completed: false, createdAt: '' } {
+export function updateTodo(input: { id: 1, title: '', completed: false }):! { id: 0, title: '', completed: false, createdAt: '' } {
   const existing = todos.get(input.id)
   if (!existing) return { id: 0, title: '', completed: false, createdAt: '' }
 
@@ -69,15 +65,14 @@ export function updateTodo(input: { id: 1, title: '', completed: false })
 }
 
 // DELETE /todos/:id - Delete
-export function deleteTodo(input: { id: 1 }) -! { deleted: true } {
+export function deleteTodo(input: { id: 1 }):! { deleted: true } {
   const existed = todos.has(input.id)
   todos.delete(input.id)
   return { deleted: existed }
 }
 
 // PATCH /todos/:id/toggle - Toggle completion (returns empty if not found)
-export function toggleTodo(input: { id: 1 })
-  -! { id: 0, title: '', completed: false, createdAt: '' } {
+export function toggleTodo(input: { id: 1 }):! { id: 0, title: '', completed: false, createdAt: '' } {
   const todo = todos.get(input.id)
   if (!todo) return { id: 0, title: '', completed: false, createdAt: '' }
 
@@ -86,7 +81,7 @@ export function toggleTodo(input: { id: 1 })
 }
 
 // DELETE /todos/completed - Clear completed
-export function clearCompleted(input: {}) -! { cleared: 0 } {
+export function clearCompleted(input: {}):! { cleared: 0 } {
   let cleared = 0
   for (const [id, todo] of todos) {
     if (todo.completed) {

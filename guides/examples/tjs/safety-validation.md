@@ -35,7 +35,7 @@ Per-function overrides:
 
 // --- Input validation catches bad callers ---
 
-function sayHello(name: 'World') -> 'Hello, World!' {
+function sayHello(name: 'World'): 'Hello, World!' {
   return `Hello, ${name}!`
 }
 
@@ -56,7 +56,7 @@ test 'null returns an error' {
 
 // --- Numeric narrowing catches subtle bugs ---
 
-function setAge(age: +0) -> +0 {
+function setAge(age: +0): +0 {
   return age
 }
 
@@ -74,7 +74,7 @@ test 'float rejected (age must be integer)' {
 
 // --- Unsafe functions skip validation (fast path) ---
 
-function fastAdd(! a: 0, b: 0) -> 0 {
+function fastAdd(! a: 0, b: 0): 0 {
   return a + b
 }
 
@@ -86,11 +86,11 @@ test 'unsafe function skips checks (trusted callers only)' {
 
 // --- Errors propagate through function chains ---
 
-function cleanName(name: '') -> '' {
+function cleanName(name: ''): '' {
   return name.trim()
 }
 
-function upperCase(name: '') -> '' {
+function upperCase(name: ''): '' {
   return name.toUpperCase()
 }
 
@@ -106,7 +106,7 @@ test 'valid input flows through the chain' {
 
 // --- Try without catch: convert exceptions to errors ---
 
-function parseJSON(s: '{}') -! {} {
+function parseJSON(s: '{}'):! {} {
   try {
     return JSON.parse(s)
   }

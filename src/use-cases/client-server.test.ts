@@ -78,7 +78,7 @@ describe('Use Case: Client-Server', () => {
     }
 
     // 3. Verify
-    // store.get('secret_id') -> 'Server Value for secret_id'
+    // store.get('secret_id'): 'Server Value for secret_id'
     // template -> 'Echo: Server Value for secret_id'
     expect(response.status).toBe(200)
     expect(data.result).toEqual({

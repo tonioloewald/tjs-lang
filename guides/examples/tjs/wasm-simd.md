@@ -48,7 +48,7 @@ function scale(! arr: Float32Array, len: 0, factor: 0.0) {
 
 // --- Dot product (sum of element-wise products) ---
 
-function dot(! a: Float32Array, b: Float32Array, len: 0) -! 0.0 {
+function dot(! a: Float32Array, b: Float32Array, len: 0):! 0.0 {
   return wasm {
     let acc = f32x4_splat(0.0)
     for (let i = 0; i < len; i += 4) {

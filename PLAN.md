@@ -131,7 +131,7 @@ This makes `safety: 'inputs'` viable for **production**.
 **The `(!) unsafe` marker:**
 
 ```typescript
-function hot(! x: 0) -> 0 { return x * 2 }
+function hot(! x: 0): 0 { return x * 2 }
 ```
 
 - Returns original function even with `safety: inputs`
@@ -205,11 +205,11 @@ configure({ debug: true })
 
 ```typescript
 // Types ARE examples - self-documenting
-function greet(name: 'World', times: 3) -> '' {
+function greet(name: 'World', times: 3): '' {
   return (name + '!').repeat(times)
 }
 
-// Autocomplete shows: greet(name: string, times: number) -> string
+// Autocomplete shows: greet(name: string, times: number): string
 // With examples: greet('World', 3)
 ```
 
@@ -218,7 +218,7 @@ function greet(name: 'World', times: 3) -> '' {
 ```typescript
 safety none  // This module skips validation
 
-function hot(x: 0) -> 0 {
+function hot(x: 0): 0 {
   return x * 2  // No wrapper, but autocomplete still works
 }
 ```
@@ -761,8 +761,12 @@ Skip redundant type checks when types are already proven. The transpiler tracks 
 **Scenario 1: Chained Functions**
 
 ```typescript
-function validate(x: 0) -> 0 { return x * 2 }
-function process(x: 0) -> 0 { return x + 1 }
+function validate(x: 0): 0 {
+  return x * 2
+}
+function process(x: 0): 0 {
+  return x + 1
+}
 
 // Source
 const result = process(validate(input))
@@ -771,14 +775,16 @@ const result = process(validate(input))
 // Optimized: validate's return type matches process's input - skip second check
 
 // Transpiled (optimized)
-const _v = validate(input)  // validates input once
-const result = process.__unchecked(_v)  // skips redundant check
+const _v = validate(input) // validates input once
+const result = process.__unchecked(_v) // skips redundant check
 ```
 
 **Scenario 2: Loop Bodies**
 
 ```typescript
-function double(x: 0) -> 0 { return x * 2 }
+function double(x: 0): 0 {
+  return x * 2
+}
 const nums = [1, 2, 3]
 
 // Source
@@ -788,17 +794,22 @@ nums.map(double)
 // Optimized: nums is number[], so each element is number - skip all checks
 
 // Transpiled (optimized)
-nums.map(double.__unchecked)  // zero validation overhead in loop
+nums.map(double.__unchecked) // zero validation overhead in loop
 ```
 
 **Scenario 3: Subtype Relationships**
 
 ```typescript
-const PositiveInt = Type('positive integer', n => Number.isInteger(n) && n > 0)
-function increment(x: 0) -> 0 { return x + 1 }
+const PositiveInt = Type(
+  'positive integer',
+  (n) => Number.isInteger(n) && n > 0
+)
+function increment(x: 0): 0 {
+  return x + 1
+}
 
 const val: PositiveInt = 5
-increment(val)  // PositiveInt is subtype of number - skip check
+increment(val) // PositiveInt is subtype of number - skip check
 ```
 
 **Implementation:**
@@ -855,7 +866,7 @@ Unlike TypeBox (which precompiles via eval and can't handle dynamic types), we c
 Functions are self-describing. A single signature provides types, examples, and tests:
 
 ```typescript
-function checkAge(name: 'Anne', age = 17) -> { canDrink: false } {
+function checkAge(name: 'Anne', age = 17): { canDrink: false } {
   return { canDrink: age >= 21 }
 }
 ```

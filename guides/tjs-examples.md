@@ -10,7 +10,7 @@ TJS types ARE example values - self-documenting and runtime-checkable:
 
 ```javascript
 // The example IS the type AND the documentation
-function greet(name: 'World', times: 3) -> '' {
+function greet(name: 'World', times: 3): '' {
   let result = ''
   for (let i = 0; i < times; i++) {
     result = result + `Hello, ${name}! `
@@ -19,7 +19,7 @@ function greet(name: 'World', times: 3) -> '' {
 }
 
 // greet.__tjs shows: name: string, times: number -> string
-console.log(greet('TJS', 2))  // "Hello, TJS! Hello, TJS!"
+console.log(greet('TJS', 2)) // "Hello, TJS! Hello, TJS!"
 ```
 
 ## Type Declarations with Defaults
@@ -33,7 +33,7 @@ Type Count = 0
 Type PositiveAge = +18  // positive number
 
 // Use types as parameter annotations
-function introduce(name: Name, age: PositiveAge) -> '' {
+function introduce(name: Name, age: PositiveAge): '' {
   return `Hi, I'm ${name} and I'm ${age} years old`
 }
 
@@ -89,7 +89,7 @@ test 'email validation' {
 }
 
 // The test code is stripped from the transpiled output
-function sendEmail(to: Email) -> { sent: true } {
+function sendEmail(to: Email): { sent: true } {
   return { sent: true }
 }
 ```
@@ -100,17 +100,17 @@ Control validation with `(!)` and `(?)`:
 
 ```javascript
 // Default: safe function with validation
-function safeAdd(a: 0, b: 0) -> 0 {
+function safeAdd(a: 0, b: 0): 0 {
   return a + b
 }
 
 // (!) Unsafe: skip input validation for performance
-function fastAdd(! a: 0, b: 0) -> 0 {
+function fastAdd(! a: 0, b: 0): 0 {
   return a + b
 }
 
 // (?) Force safe: always validate even if module is unsafe
-function alwaysSafe(? data: { x: 0 }) -> 0 {
+function alwaysSafe(? data: { x: 0 }): 0 {
   return data.x * 2
 }
 
@@ -147,7 +147,7 @@ console.log(result) // 15
 Errors are values, not exceptions:
 
 ```javascript
-function divide(a: 0, b: 0) -> 0 {
+function divide(a: 0, b: 0): 0 {
   if (b === 0) {
     return error('Division by zero')
   }
@@ -190,7 +190,7 @@ Union Status 'task status' {
   'pending' | 'active' | 'done'
 }
 
-function updateTask(id: '', status: Status) -> { updated: true } {
+function updateTask(id: '', status: Status): { updated: true } {
   console.log(`Task ${id} -> ${status}`)
   return { updated: true }
 }

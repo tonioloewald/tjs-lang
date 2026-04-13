@@ -53,11 +53,11 @@ function log(...args: ['', 0, true]) { } // args: array<string | integer | boole
 ## Return Types
 
 ```typescript
-// Return type annotation (arrow syntax)
-function add(a: 0, b: 0) -> 0 { return a + b }
+// Return type annotation (colon syntax)
+function add(a: 0, b: 0): 0 { return a + b }
 
 // Object return type
-function getUser(id: 0) -> { name: '', age: 0 } { ... }
+function getUser(id: 0): { name: '', age: 0 } { ... }
 ```
 
 ## Safety Markers
@@ -155,9 +155,9 @@ FunctionPredicate Callback {
 FunctionPredicate Handler(existingFn, 'description')
 
 // Return contracts:
-// ->  returns (standard)
-// -!  assertReturns (throws on mismatch)
-// -?  checkedReturns (wraps in MonadicError)
+// :   returns (standard)
+// :!  assertReturns (throws on mismatch)
+// :?  checkedReturns (wraps in MonadicError)
 ```
 
 Runtime creates a `RuntimeType` that checks `typeof === 'function'`. The spec includes params, returns, and returnContract. In `fromTS`, TS function type aliases (`type Cb = (x: number) => void`) emit FunctionPredicate declarations automatically.
@@ -360,7 +360,7 @@ TJS supports inline WebAssembly for performance-critical code. WASM blocks are c
 ### Syntax
 
 ```typescript
-const add = wasm (a: i32, b: i32) -> i32 {
+const add = wasm (a: i32, b: i32): i32 {
   local.get $a
   local.get $b
   i32.add
@@ -400,7 +400,7 @@ const add = await (async () => {
 WASM blocks support explicit SIMD via `f32x4_*` intrinsics:
 
 ```typescript
-const scale = wasm (arr: Float32Array, len: 0, factor: 0.0) -> 0 {
+const scale = wasm (arr: Float32Array, len: 0, factor: 0.0): 0 {
   let s = f32x4_splat(factor)
   for (let i = 0; i < len; i += 4) {
     let off = i * 4

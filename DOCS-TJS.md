@@ -15,7 +15,9 @@ TJS is a typed superset of JavaScript where **types are concrete values**, not a
 function greet(name: string): string
 
 // TJS: concrete example value
-function greet(name: 'World') -> '' { return `Hello, ${name}!` }
+function greet(name: 'World'): '' {
+  return `Hello, ${name}!`
+}
 ```
 
 The example `'World'` tells TJS that `name` is a string. The example `''` tells TJS the return type is a string. Types are inferred from the examples you provide.
@@ -38,7 +40,7 @@ TJS is **purely additive**. It adds type annotations, runtime validation, and me
 - **`this` binding** — unchanged. Arrow functions, `.bind()`, `.call()`, `.apply()` all work normally.
 - **Regular expressions, JSON, Math, Date** — all standard built-ins are available and unmodified (though `Date` is banned by default in native TJS via `TjsDate` in favor of safer alternatives like `Timestamp`/`LegalDate`; use `TjsCompat` to restore it).
 
-**What TJS adds (and when):**
+**What TJS adds (and when): **
 
 | Addition               | When                                            | Overhead                      |
 | ---------------------- | ----------------------------------------------- | ----------------------------- |
@@ -60,7 +62,7 @@ TJS compiles in the browser. No webpack, no node_modules, no build server.
 import { tjs } from 'tjs-lang'
 
 const code = tjs`
-  function add(a: 0, b: 0) -> 0 {
+  function add(a: 0, b: 0): 0 {
     return a + b
   }
 `
@@ -204,11 +206,11 @@ the JS output (JS doesn't allow defaults on rest params) but captured in
 `__tjs` metadata:
 
 ```typescript
-function sum(...nums: [1, 2, 3]) -> 6 {
+function sum(...nums: [1, 2, 3]): 6 {
   return nums.reduce((a = 0, b: 0) => a + b, 0)
 }
 
-function mean(...values: [1.0, 2.0, 3.0, 2.0]) -> 2.0 {
+function mean(...values: [1.0, 2.0, 3.0, 2.0]): 2.0 {
   return values.length
     ? values.reduce((sum = 0.0, x: 1.0) => sum + x) / values.length
     : 0.0
@@ -217,7 +219,7 @@ function mean(...values: [1.0, 2.0, 3.0, 2.0]) -> 2.0 {
 
 Signature tests work with rest params — the example array elements are
 spread as individual arguments. `mean(1.0, 2.0, 3.0, 2.0)` is called
-and the result is checked against the `-> 2.0` expected return using
+and the result is checked against the `: 2.0` expected return using
 exact value comparison (deepEqual).
 
 The array example tells TJS the element type. `[0]` means "array of
@@ -230,16 +232,16 @@ function log(...args: ['info', 42, true]) {}
 // args type: array<string | integer | boolean>
 ```
 
-### Return Types (Arrow Syntax)
+### Return Types (Colon Syntax)
 
-Return types use `->`:
+Return types use `:`:
 
 ```typescript
-function add(a: 0, b: 0) -> 0 {
+function add(a: 0, b: 0): 0 {
   return a + b
 }
 
-function getUser(id: 0) -> { name: '', age: 0 } {
+function getUser(id: 0): { name: ''; age: 0 } {
   return { name: 'Alice', age: 30 }
 }
 ```
@@ -249,12 +251,14 @@ function getUser(id: 0) -> { name: '', age: 0 } {
 Arrays use bracket syntax with an example element:
 
 ```typescript
-function sum(numbers: [0]) -> 0 {        // array of numbers
+function sum(numbers: [0]): 0 {
+  // array of numbers
   return numbers.reduce((a, b) => a + b, 0)
 }
 
-function names(users: [{ name: '' }]) {  // array of objects
-  return users.map(u => u.name)
+function names(users: [{ name: '' }]) {
+  // array of objects
+  return users.map((u) => u.name)
 }
 ```
 
@@ -330,7 +334,7 @@ Type PositiveNumber {
 Types can be used in function signatures:
 
 ```typescript
-function greet(name: Name) -> '' {
+function greet(name: Name): '' {
   return `Hello, ${name}!`
 }
 ```
@@ -402,10 +406,10 @@ Discriminated unions:
 ```typescript
 const Shape = Union('kind', {
   circle: { radius: 0 },
-  rectangle: { width: 0, height: 0 }
+  rectangle: { width: 0, height: 0 },
 })
 
-function area(shape: Shape) -> 0 {
+function area(shape: Shape): 0 {
   if (shape.kind === 'circle') {
     return Math.PI * shape.radius ** 2
   }
@@ -681,7 +685,7 @@ Extensions work on any type: `String`, `Number`, `Array`, `Boolean`, custom clas
 Every TJS function carries its type information:
 
 ```typescript
-function createUser(input: { name: '', age: 0 }) -> { id: 0 } {
+function createUser(input: { name: ''; age: 0 }): { id: 0 } {
   return { id: 123 }
 }
 
@@ -734,7 +738,7 @@ User.strip({ name: 'Alice', age: 30, secret: 'pw' })
 ```typescript
 import { functionMetaToJSONSchema } from 'tjs-lang/lang'
 
-function createUser(name: '', age: 0) -> { id: 0, name: '' } {
+function createUser(name: '', age: 0): { id: 0; name: '' } {
   return { id: 1, name }
 }
 
@@ -835,7 +839,7 @@ Both `logTypeErrors` and `throwTypeErrors` work on the shared runtime and isolat
 Tests live next to code:
 
 ```typescript
-function double(x: 0) -> 0 { return x * 2 }
+function double(x: 0): 0 { return x * 2 }
 
 test('doubles numbers') {
   expect(double(5)).toBe(10)
@@ -854,7 +858,7 @@ Tests are extracted at compile time and can be:
 Drop into WebAssembly for compute-heavy code:
 
 ```typescript
-function vectorDot(a: [0], b: [0]) -> 0 {
+function vectorDot(a: [0], b: [0]): 0 {
   let sum = 0
   wasm {
     for (let i = 0; i < a.length; i++) {
@@ -872,7 +876,7 @@ Variables are captured automatically. Falls back to JS if WASM unavailable.
 For compute-heavy workloads, use f32x4 SIMD intrinsics to process 4 float32 values per instruction:
 
 ```typescript
-const scale = wasm (arr: Float32Array, len: 0, factor: 0.0) -> 0 {
+const scale = wasm (arr: Float32Array, len: 0, factor: 0.0): 0 {
   let s = f32x4_splat(factor)
   for (let i = 0; i < len; i += 4) {
     let off = i * 4
@@ -979,7 +983,7 @@ TJS files can import any JavaScript or TypeScript library. The imported code run
 import { rawGeocode } from 'legacy-geo-pkg'
 
 // Wrap at the boundary — rawGeocode is unchecked, geocode validates its output
-function geocode(addr: '') -> { lat: 0.0, lon: 0.0 } {
+function geocode(addr: ''): { lat: 0.0; lon: 0.0 } {
   return rawGeocode(addr)
 }
 ```
@@ -1033,7 +1037,7 @@ bun src/cli/tjs.ts convert file.ts
 function greet(name: string, age?: number): string { ... }
 
 // Converts to TJS
-function greet(name: '', age = 0) -> '' { ... }
+function greet(name: '', age = 0): '' { ... }
 ```
 
 ### What Gets Converted
@@ -1117,11 +1121,11 @@ MyConfig = { debug: true } // becomes: const MyConfig = { ... }
 
 ### Common Transpilation Errors
 
-**"Unexpected token"** — Usually means TJS-specific syntax (`:` params, `->` returns, `Type`, `Generic`) wasn't recognized. Check:
+**"Unexpected token"** — Usually means TJS-specific syntax (`:` params, `:` returns, `Type`, `Generic`) wasn't recognized. Check:
 
 - Is the file being parsed as TJS (not plain JS)?
 - Are `Type`/`Generic`/`Union` declarations at the top level (not inside functions)?
-- Is the `->` return type before the function body `{`?
+- Is the `: returnType` before the function body `{`?
 
 **"Type is not defined" / "Generic is not defined"** — These become `const Name = Type(...)` / `const Name = Generic(...)` after preprocessing. If you see this at runtime, the TJS runtime (`createRuntime()`) wasn't installed, or the file wasn't transpiled through TJS.
 
@@ -1129,10 +1133,14 @@ MyConfig = { debug: true } // becomes: const MyConfig = { ... }
 
 ```typescript
 // BAD: example 0 causes division by zero
-function inverse(x: 0) -> 0.0 { return 1 / x }
+function inverse(x: 0): 0.0 {
+  return 1 / x
+}
 
 // GOOD: example 1 works
-function inverse(x: 1) -> 0.0 { return 1 / x }
+function inverse(x: 1): 0.0 {
+  return 1 / x
+}
 ```
 
 **Monadic errors instead of exceptions** — TJS validation returns `MonadicError` objects (with `$error: true`), it doesn't throw. Check with `isMonadicError(result)`, not `try/catch`:

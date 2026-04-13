@@ -13,10 +13,28 @@ describe('Transpiler', () => {
 
     it('should extract return type annotation', () => {
       const result = preprocess(
-        `function foo(x: 'string') -> { result: 'string' } { }`
+        `function foo(x: 'string'): { result: 'string' } { }`
       )
       expect(result.returnType).toBe(`{ result: 'string' }`)
       expect(result.source).not.toContain('->')
+    })
+
+    it('should extract colon-style return type annotation', () => {
+      const result = preprocess(
+        `function foo(x: 'string'): { result: 'string' } { }`
+      )
+      expect(result.returnType).toBe(`{ result: 'string' }`)
+      expect(result.source).not.toContain('): ')
+    })
+
+    it('should extract colon-style return type with safety markers', () => {
+      const safe = preprocess(`function foo(x: 0):? 0 { }`)
+      expect(safe.returnType).toBe('0')
+      expect(safe.returnSafety).toBe('safe')
+
+      const unsafe = preprocess(`function foo(x: 0):! 0 { }`)
+      expect(unsafe.returnType).toBe('0')
+      expect(unsafe.returnSafety).toBe('unsafe')
     })
 
     it('should handle multiple parameters', () => {
@@ -44,7 +62,7 @@ describe('Transpiler', () => {
 
     it('should handle rest param with array type example', () => {
       const result = preprocess(
-        `function mean(...values: [1.0, 2.0, 3.0]) -> 2.0 { return 0 }`
+        `function mean(...values: [1.0, 2.0, 3.0]): 2.0 { return 0 }`
       )
       expect(result.source).toContain('...values)')
       expect(result.source).not.toContain('[1.0')
@@ -417,20 +435,20 @@ test 'always fails' { throw new Error('intentional') }
     })
 
     it('should generate correct runtime validation for integer', () => {
-      const result = tjs(`function test(n: 1) -> 1 { return n }`)
+      const result = tjs(`function test(n: 1): 1 { return n }`)
       // Should check Number.isInteger
       expect(result.code).toContain('Number.isInteger')
     })
 
     it('should generate correct runtime validation for non-negative-integer', () => {
-      const result = tjs(`function test(n: +1) -> 1 { return n }`)
+      const result = tjs(`function test(n: +1): 1 { return n }`)
       // Should check Number.isInteger AND >= 0
       expect(result.code).toContain('Number.isInteger')
       expect(result.code).toContain('< 0')
     })
 
     it('should validate integer at runtime', () => {
-      const result = tjs(`function check(n: 1) -> 1 { return n }`)
+      const result = tjs(`function check(n: 1): 1 { return n }`)
       const savedTjs = globalThis.__tjs
       globalThis.__tjs = createRuntime()
       try {
@@ -446,7 +464,7 @@ test 'always fails' { throw new Error('intentional') }
     })
 
     it('should validate non-negative-integer at runtime', () => {
-      const result = tjs(`function check(n: +1) -> 1 { return n }`)
+      const result = tjs(`function check(n: +1): 1 { return n }`)
       const savedTjs = globalThis.__tjs
       globalThis.__tjs = createRuntime()
       try {
@@ -466,7 +484,7 @@ test 'always fails' { throw new Error('intentional') }
     })
 
     it('should validate float (number) accepts all numbers at runtime', () => {
-      const result = tjs(`function check(n: 0.0) -> 0.0 { return n }`)
+      const result = tjs(`function check(n: 0.0): 0.0 { return n }`)
       const savedTjs = globalThis.__tjs
       globalThis.__tjs = createRuntime()
       try {
@@ -695,7 +713,7 @@ test 'always fails' { throw new Error('intentional') }
 
         This demonstrates TJS doc comments.
         */
-        function greet(name: 'World') -> '' {
+        function greet(name: 'World'): '' {
           return 'Hello, ' + name + '!'
         }
       `)
@@ -715,7 +733,7 @@ test 'always fails' { throw new Error('intentional') }
 
         \`code example\`
         */
-        function test(x: 0) -> 0 {
+        function test(x: 0): 0 {
           return x
         }
       `)
@@ -730,7 +748,7 @@ test 'always fails' { throw new Error('intentional') }
           Indented content here.
           More indented content.
         */
-        function test(x: 0) -> 0 {
+        function test(x: 0): 0 {
           return x
         }
       `)
@@ -748,7 +766,7 @@ test 'always fails' { throw new Error('intentional') }
         /*#
         TJS doc description
         */
-        function test(x: 0) -> 0 {
+        function test(x: 0): 0 {
           return x
         }
       `)
@@ -768,7 +786,7 @@ test 'always fails' { throw new Error('intentional') }
         /*#
         Function-specific documentation.
         */
-        function test(x: 0) -> 0 {
+        function test(x: 0): 0 {
           return x
         }
       `)
@@ -786,7 +804,7 @@ test 'always fails' { throw new Error('intentional') }
 
         const someVar = 123
 
-        function test(x: 0) -> 0 {
+        function test(x: 0): 0 {
           return x
         }
       `)

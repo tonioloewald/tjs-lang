@@ -1048,11 +1048,11 @@ describe('Error history ring buffer', () => {
       globalThis.__tjs = runtime
 
       const result = tjs(`
-function greet(name: 'World') -> 'Hello, World' {
+function greet(name: 'World'): 'Hello, World' {
   return 'Hello, ' + name
 }
 
-function process(x: 0) -> 0 {
+function process(x: 0): 0 {
   return x * 2
 }
 `)
@@ -1095,7 +1095,7 @@ function process(x: 0) -> 0 {
       globalThis.__tjs = runtime
 
       const result = tjs(`
-function add(a: 1, b: 2) -> 3 {
+function add(a: 1, b: 2): 3 {
   return a + b
 }
 `)

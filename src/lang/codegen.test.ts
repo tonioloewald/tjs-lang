@@ -94,28 +94,28 @@ describe('TS → TJS conversion quality', () => {
       const ts = `function getName(): string { return 'test' }`
       const { code } = fromTS(ts, { emitTJS: true })
 
-      expect(code).toContain("-! ''")
+      expect(code).toContain(":! ''")
     })
 
     it('converts number return type to -! syntax', () => {
       const ts = `function getCount(): number { return 42 }`
       const { code } = fromTS(ts, { emitTJS: true })
 
-      expect(code).toContain('-! 0')
+      expect(code).toContain(':! 0')
     })
 
     it('converts boolean return type to -! syntax', () => {
       const ts = `function isValid(): boolean { return true }`
       const { code } = fromTS(ts, { emitTJS: true })
 
-      expect(code).toContain('-! false')
+      expect(code).toContain(':! false')
     })
 
     it('converts object return type to -! syntax', () => {
       const ts = `function getUser(): { name: string; age: number } { return { name: '', age: 0 } }`
       const { code } = fromTS(ts, { emitTJS: true })
 
-      expect(code).toContain('-!')
+      expect(code).toContain(':!')
       expect(code).toContain("name: ''")
       expect(code).toContain('age: 0')
     })
@@ -124,22 +124,22 @@ describe('TS → TJS conversion quality', () => {
       const ts = `function getItems(): string[] { return [] }`
       const { code } = fromTS(ts, { emitTJS: true })
 
-      expect(code).toContain("-! ['']")
+      expect(code).toContain(":! ['']")
     })
 
     it('omits void return type', () => {
       const ts = `function doSomething(): void { console.log('done') }`
       const { code } = fromTS(ts, { emitTJS: true })
 
-      expect(code).not.toContain('-!')
-      expect(code).not.toContain('->')
+      expect(code).not.toContain(':!')
+      expect(code).not.toMatch(/\)\s*:/)
     })
 
     it('handles Promise return types by unwrapping', () => {
       const ts = `async function fetchData(): Promise<string> { return 'data' }`
       const { code } = fromTS(ts, { emitTJS: true })
 
-      expect(code).toContain("-! ''")
+      expect(code).toContain(":! ''")
       expect(code).not.toContain('Promise')
     })
   })
@@ -236,7 +236,7 @@ class Calculator {
 `
       const { code } = fromTS(ts, { emitTJS: true })
 
-      expect(code).toContain('add(a: 0.0, b: 0.0) -! 0.0')
+      expect(code).toContain('add(a: 0.0, b: 0.0):! 0.0')
     })
 
     it('converts getters and setters', () => {
@@ -277,7 +277,7 @@ class MathUtils {
 `
       const { code } = fromTS(ts, { emitTJS: true })
 
-      expect(code).toContain('static double(x: 0.0) -! 0.0')
+      expect(code).toContain('static double(x: 0.0):! 0.0')
     })
 
     it('converts async methods', () => {
@@ -291,7 +291,7 @@ class Api {
       const { code } = fromTS(ts, { emitTJS: true })
 
       expect(code).toContain('async fetch')
-      expect(code).toContain("-! ''")
+      expect(code).toContain(":! ''")
     })
   })
 
@@ -344,7 +344,7 @@ class Api {
 
       expect(code).toContain('function double')
       expect(code).toContain('x: 0')
-      expect(code).toContain('-! 0')
+      expect(code).toContain(':! 0')
     })
 
     it('converts arrow function with block body', () => {
@@ -399,7 +399,7 @@ describe('TJS → JS transpilation quality', () => {
 
   describe('__tjs metadata', () => {
     it('includes param types in metadata', () => {
-      const source = `function greet(name: 'World') -> 'World' { return name }`
+      const source = `function greet(name: 'World'): 'World' { return name }`
       const { code, types } = tjs(source)
 
       expect(code).toContain('__tjs')
@@ -408,7 +408,7 @@ describe('TJS → JS transpilation quality', () => {
     })
 
     it('includes return type in metadata', () => {
-      const source = `function double(x: 0) -> 0 { return x * 2 }`
+      const source = `function double(x: 0): 0 { return x * 2 }`
       const { code, types } = tjs(source)
 
       expect(code).toContain('__tjs')
@@ -430,15 +430,15 @@ describe('TJS → JS transpilation quality', () => {
 describe('documentation generation quality', () => {
   describe('function signatures', () => {
     it('preserves original signature in markdown', () => {
-      const source = `function greet(name: 'World') -> '' { return name }`
+      const source = `function greet(name: 'World'): '' { return name }`
       const { markdown } = generateDocs(source)
 
       // Signature is preserved as-is - the types ARE the docs
-      expect(markdown).toContain("function greet(name: 'World') -> ''")
+      expect(markdown).toContain("function greet(name: 'World'): ''")
     })
 
     it('preserves optional params with defaults', () => {
-      const source = `function greet(name = 'World') -> '' { return name }`
+      const source = `function greet(name = 'World'): '' { return name }`
       const { markdown } = generateDocs(source)
 
       expect(markdown).toContain("name = 'World'")
@@ -447,7 +447,7 @@ describe('documentation generation quality', () => {
 
   describe('signature as documentation', () => {
     it('shows params in signature', () => {
-      const source = `function add(a: 0, b: 0) -> 0 { return a + b }`
+      const source = `function add(a: 0, b: 0): 0 { return a + b }`
       const { markdown } = generateDocs(source)
 
       expect(markdown).toContain('a: 0')
@@ -455,10 +455,10 @@ describe('documentation generation quality', () => {
     })
 
     it('shows return type in signature', () => {
-      const source = `function double(x: 0) -> 0 { return x * 2 }`
+      const source = `function double(x: 0): 0 { return x * 2 }`
       const { markdown } = generateDocs(source)
 
-      expect(markdown).toContain('-> 0')
+      expect(markdown).toContain(': 0')
     })
   })
 })
@@ -577,10 +577,10 @@ function greet(name: string): string {
 `
       const { code } = fromTS(ts, { emitTJS: true })
 
-      // All functions should be present (TS transpiler uses -! to skip signature tests)
-      expect(code).toContain('function add(a: 0.0, b: 0.0) -! 0.0')
-      expect(code).toContain('function multiply(a: 0.0, b: 0.0) -! 0.0')
-      expect(code).toContain("function greet(name: '') -! ''")
+      // All functions should be present (TS transpiler uses :! to skip signature tests)
+      expect(code).toContain('function add(a: 0.0, b: 0.0):! 0.0')
+      expect(code).toContain('function multiply(a: 0.0, b: 0.0):! 0.0')
+      expect(code).toContain("function greet(name: ''):! ''")
 
       // Should be valid TJS (no TypeScript syntax remaining)
       expect(code).not.toContain(': number')
@@ -653,7 +653,7 @@ console.log(second())
       const ts = `function test(): number { return 42 }`
       const { code } = fromTS(ts, { emitTJS: true })
 
-      expect(code).toContain('-! 0')
+      expect(code).toContain(':! 0')
       expect(code).not.toContain(': number')
     })
 
@@ -709,15 +709,15 @@ describe('Pipeline Step 2: TJS → JS', () => {
     it('transpiles multiple functions correctly', () => {
       // Use -! to skip signature tests (we're testing transpilation, not return values)
       const tjsSource = `
-function add(a: 0, b: 0) -! 0 {
+function add(a: 0, b: 0):! 0 {
   return a + b
 }
 
-function multiply(a: 0, b: 0) -! 0 {
+function multiply(a: 0, b: 0):! 0 {
   return a * b
 }
 
-function greet(name: '') -! '' {
+function greet(name: ''):! '' {
   return 'Hello, ' + name
 }
 `
@@ -742,11 +742,11 @@ function greet(name: '') -! '' {
     it('each function has correct metadata', () => {
       // Use -! to skip signature tests
       const tjsSource = `
-function add(a: 0, b: 0) -! 0 {
+function add(a: 0, b: 0):! 0 {
   return a + b
 }
 
-function greet(name: '', excited = false) -! '' {
+function greet(name: '', excited = false):! '' {
   return excited ? name + '!' : name
 }
 `
@@ -768,7 +768,7 @@ function greet(name: '', excited = false) -! '' {
     it('produces executable JavaScript', () => {
       // Use -! to skip signature test
       const tjsSource = `
-function double(x: 0) -! 0 {
+function double(x: 0):! 0 {
   return x * 2
 }
 `
@@ -782,7 +782,7 @@ function double(x: 0) -! 0 {
     it('includes runtime validation', () => {
       // Use -! to skip signature test
       const tjsSource = `
-function greet(name: '') -! '' {
+function greet(name: ''):! '' {
   return 'Hello, ' + name
 }
 `
@@ -799,7 +799,7 @@ function greet(name: '') -! '' {
     it('__tjs metadata is valid JSON structure', () => {
       // Use -! to skip signature test
       const tjsSource = `
-function test(a: 0, b: '') -! true {
+function test(a: 0, b: ''):! true {
   return a > 0
 }
 `
@@ -819,7 +819,7 @@ function test(a: 0, b: '') -! true {
     it('runs inline tests during transpilation', () => {
       // Use -! to skip signature test - we only want to count explicit tests
       const tjsSource = `
-function add(a: 0, b: 0) -! 0 {
+function add(a: 0, b: 0):! 0 {
   return a + b
 }
 
@@ -841,7 +841,7 @@ test 'add works' {
     // TjsEquals directive enables structural equality transformation.
 
     it('preserves == as-is by default (JS semantics)', () => {
-      const tjsSource = `function isEqual(a: {x: 0}, b: {x: 0}) -! true { return a == b }`
+      const tjsSource = `function isEqual(a: {x: 0}, b: {x: 0}):! true { return a == b }`
       const { code } = tjs(tjsSource)
 
       // Without TjsEquals, == is NOT transformed
@@ -851,7 +851,7 @@ test 'add works' {
 
     it('transforms == to Eq() with TjsEquals directive', () => {
       const tjsSource = `TjsEquals
-function isEqual(a: {x: 0}, b: {x: 0}) -! true { return a == b }`
+function isEqual(a: {x: 0}, b: {x: 0}):! true { return a == b }`
       const { code } = tjs(tjsSource)
 
       // Should transform == to Eq()
@@ -862,7 +862,7 @@ function isEqual(a: {x: 0}, b: {x: 0}) -! true { return a == b }`
 
     it('transforms != to NotEq() with TjsEquals directive', () => {
       const tjsSource = `TjsEquals
-function notEqual(a: {x: 0}, b: {x: 0}) -! true { return a != b }`
+function notEqual(a: {x: 0}, b: {x: 0}):! true { return a != b }`
       const { code } = tjs(tjsSource)
 
       // Should transform != to NotEq()
@@ -872,7 +872,7 @@ function notEqual(a: {x: 0}, b: {x: 0}) -! true { return a != b }`
 
     it('preserves === for identity comparison', () => {
       const tjsSource = `TjsEquals
-function isSame(a: {x: 0}, b: {x: 0}) -! true { return a === b }`
+function isSame(a: {x: 0}, b: {x: 0}):! true { return a === b }`
       const { code } = tjs(tjsSource)
 
       // Should preserve === unchanged
@@ -883,7 +883,7 @@ function isSame(a: {x: 0}, b: {x: 0}) -! true { return a === b }`
 
     it('does NOT add Is/IsNot imports when not needed', () => {
       // Use unsafe (!) to skip all validation, then no __tjs needed
-      const tjsSource = `function add(! a: 0, b: 0) -! 0 { return a + b }`
+      const tjsSource = `function add(! a: 0, b: 0):! 0 { return a + b }`
       const { code } = tjs(tjsSource)
 
       // No equality ops and fully unsafe = no __tjs reference
@@ -895,7 +895,7 @@ function isSame(a: {x: 0}, b: {x: 0}) -! true { return a === b }`
 
     it('adds only Eq when only == is used with TjsEquals', () => {
       const tjsSource = `TjsEquals
-function eq(a: 0, b: 0) -! true { return a == b }`
+function eq(a: 0, b: 0):! true { return a == b }`
       const { code } = tjs(tjsSource)
 
       expect(code).toContain('Eq(')
@@ -905,7 +905,7 @@ function eq(a: 0, b: 0) -! true { return a == b }`
 
     it('adds only NotEq when only != is used with TjsEquals', () => {
       const tjsSource = `TjsEquals
-function neq(a: 0, b: 0) -! true { return a != b }`
+function neq(a: 0, b: 0):! true { return a != b }`
       const { code } = tjs(tjsSource)
 
       expect(code).toContain('NotEq(')
@@ -914,7 +914,7 @@ function neq(a: 0, b: 0) -! true { return a != b }`
 
     it('adds both Eq and NotEq when both == and != are used with TjsEquals', () => {
       const tjsSource = `TjsEquals
-function test(a: 0, b: 0) -! true { return a == b || a != b }`
+function test(a: 0, b: 0):! true { return a == b || a != b }`
       const { code } = tjs(tjsSource)
 
       expect(code).toContain('Eq(')
@@ -923,7 +923,7 @@ function test(a: 0, b: 0) -! true { return a == b || a != b }`
 
     it('does NOT add imports for === only even with TjsEquals', () => {
       const tjsSource = `TjsEquals
-function strict(a: 0, b: 0) -! true { return a === b }`
+function strict(a: 0, b: 0):! true { return a === b }`
       const { code } = tjs(tjsSource)
 
       expect(code).not.toContain('const { Is')
@@ -935,7 +935,7 @@ function strict(a: 0, b: 0) -! true { return a === b }`
       installRuntime()
 
       const tjsSource = `TjsEquals
-function isEqual(! a: null, b: null) -! true { return a == b }`
+function isEqual(! a: null, b: null):! true { return a == b }`
       const { code } = tjs(tjsSource)
 
       const isEqual = new Function(code + '; return isEqual')()
@@ -952,7 +952,7 @@ function isEqual(! a: null, b: null) -! true { return a == b }`
   describe('TjsStandard (ASI protection)', () => {
     it('inserts semicolon before IIFE to prevent footgun', () => {
       const tjsSource = `TjsStandard
-function test() -! 0 {
+function test():! 0 {
   const x = 1
   (() => console.log('iife'))()
   return x
@@ -965,7 +965,7 @@ function test() -! 0 {
 
     it('inserts semicolon before array literal on new line', () => {
       const tjsSource = `TjsStandard
-function test() -! 0 {
+function test():! 0 {
   const x = 1
   [1, 2, 3].forEach(console.log)
   return x
@@ -978,7 +978,7 @@ function test() -! 0 {
 
     it('does NOT insert semicolon when previous line has operator', () => {
       const tjsSource = `TjsStandard
-function test() -! 0 {
+function test():! 0 {
   const result = 1 +
     (2 + 3)
   return result
@@ -994,7 +994,7 @@ function test() -! 0 {
     it('does NOT insert semicolon after opening brace', () => {
       // Test that we don't add ; after [ or {
       const tjsSource = `TjsStandard
-function test() -! 0 {
+function test():! 0 {
   const arr = [
     (x => x + 1)
   ]
@@ -1009,7 +1009,7 @@ function test() -! 0 {
 
     it('does NOT insert semicolon after return keyword', () => {
       const tjsSource = `TjsStandard
-function test() -! 0 {
+function test():! 0 {
   return (
     1 + 2
   )
@@ -1023,7 +1023,7 @@ function test() -! 0 {
 
     it('does NOT insert semicolon after comma (multi-line array)', () => {
       const tjsSource = `TjsStandard
-function test() -! [] {
+function test():! [] {
   return [
     1,
     (2 + 3),
@@ -1038,7 +1038,7 @@ function test() -! [] {
 
     it('TjsStrict enables TjsStandard', () => {
       const tjsSource = `TjsStrict
-function test() -! 0 {
+function test():! 0 {
   const x = 1
   (() => console.log('iife'))()
   return x
@@ -1051,7 +1051,7 @@ function test() -! 0 {
 
     it('works correctly at runtime', () => {
       const tjsSource = `TjsStandard
-function test() -! 0 {
+function test():! 0 {
   let result = 42
   (() => { result = result + 1 })()
   return result
@@ -1067,8 +1067,8 @@ function test() -! 0 {
       // This demonstrates the footgun that TjsStandard prevents
       // Without the directive, the code passes through unchanged
       const tjsSource = `TjsCompat
-function getNumber() -! 0 { return 42 }
-function test() -! 0 {
+function getNumber():! 0 { return 42 }
+function test():! 0 {
   const x = getNumber
   (() => {})()
   return 1
@@ -1098,7 +1098,7 @@ function calculate(a: number, b: number, operation: string): number {
       expect(tjsCode).toContain('a: 0')
       expect(tjsCode).toContain('b: 0')
       expect(tjsCode).toContain("operation: ''")
-      expect(tjsCode).toContain('-! 0') // TS transpiler uses -! to skip signature tests
+      expect(tjsCode).toContain(':! 0') // TS transpiler uses :! to skip signature tests
 
       // Step 3: TJS → JS (already has -! from TS transpiler)
       const { code: jsCode, types } = tjs(tjsCode)
@@ -1287,7 +1287,7 @@ describe('Monadic error handling', () => {
   describe('error pass-through (monadic propagation)', () => {
     it('passes through Error input without processing', () => {
       const tjsSource = `
-function double(x: 0) -! 0 {
+function double(x: 0):! 0 {
   return x * 2
 }
 `
@@ -1305,7 +1305,7 @@ function double(x: 0) -! 0 {
 
     it('passes through error in multi-param function', () => {
       const tjsSource = `
-function add(a: 0, b: 0) -! 0 {
+function add(a: 0, b: 0):! 0 {
   return a + b
 }
 `
@@ -1323,15 +1323,15 @@ function add(a: 0, b: 0) -! 0 {
 
     it('propagates error through function chain', () => {
       const tjsSource = `
-function step1(x: 0) -! 0 {
+function step1(x: 0):! 0 {
   return x * 2
 }
 
-function step2(x: 0) -! 0 {
+function step2(x: 0):! 0 {
   return x + 10
 }
 
-function step3(x: 0) -! 0 {
+function step3(x: 0):! 0 {
   return x / 2
 }
 `
@@ -1350,7 +1350,7 @@ function step3(x: 0) -! 0 {
   describe('type error emission', () => {
     it('returns MonadicError on type mismatch', () => {
       const tjsSource = `
-function greet(name: '') -! '' {
+function greet(name: ''):! '' {
   return 'Hello, ' + name
 }
 `
@@ -1370,7 +1370,7 @@ function greet(name: '') -! '' {
 
     it('includes path for nested params', () => {
       const tjsSource = `
-function process({ name: '', age: 0 }) -! '' {
+function process({ name: '', age: 0 }):! '' {
   return name + ' is ' + age
 }
 `
@@ -1387,7 +1387,7 @@ function process({ name: '', age: 0 }) -! '' {
 
     it('user code cannot accidentally process error as data', () => {
       const tjsSource = `
-function getData(id: 0) -! { value: 0 } {
+function getData(id: 0):! { value: 0 } {
   return { value: id * 10 }
 }
 `
@@ -1411,7 +1411,7 @@ function getData(id: 0) -! { value: 0 } {
   describe('error vs valid value distinction', () => {
     it('valid values pass through normally', () => {
       const tjsSource = `
-function double(x: 0) -! 0 {
+function double(x: 0):! 0 {
   return x * 2
 }
 `
@@ -1425,7 +1425,7 @@ function double(x: 0) -! 0 {
 
     it('distinguishes Error from error-like objects', () => {
       const tjsSource = `
-function process(data: { error: false }) -! { error: false } {
+function process(data: { error: false }):! { error: false } {
   return data
 }
 `
@@ -1451,7 +1451,7 @@ function process(data: { error: false }) -! { error: false } {
   describe('unsafe functions skip validation entirely', () => {
     it('unsafe function skips all validation including error pass-through', () => {
       const tjsSource = `
-function fastDouble(! x: 0) -! 0 {
+function fastDouble(! x: 0):! 0 {
   return x * 2
 }
 `
@@ -1473,7 +1473,7 @@ function fastDouble(! x: 0) -! 0 {
   describe('source location tracking', () => {
     it('error includes source file and line (no debug mode)', () => {
       const tjsSource = `
-function greet(name: '') -! '' {
+function greet(name: ''):! '' {
   return 'Hello, ' + name
 }
 `
@@ -1543,7 +1543,7 @@ function transform(value: string): string {
 safety inputs
 
 /* line 15 */
-function helper(x: 0) -! 0 {
+function helper(x: 0):! 0 {
   return x + 1
 }
 `
@@ -1569,24 +1569,24 @@ function helper(x: 0) -! 0 {
 safety inputs
 
 /* line 10 */
-function outer(x: 0) -! 0 {
+function outer(x: 0):! 0 {
   return middle(x * 2)
 }
 
 /* line 20 */
-function middle(x: 0) -! 0 {
+function middle(x: 0):! 0 {
   return inner(x + 10)
 }
 
 /* line 30 */
-function inner(x: '') -! '' {
+function inner(x: ''):! '' {
   return x.toUpperCase()
 }
 `
         const { code } = tjs(tjsSource)
         const fns = new Function(code + '; return { outer, middle, inner }')()
 
-        // outer(5) -> middle(10) -> inner(20) fails (20 is not a string)
+        // outer(5): middle(10): inner(20) fails (20 is not a string)
         const err = fns.outer(5)
 
         expect(err).toBeInstanceOf(MonadicError)
@@ -1609,7 +1609,7 @@ function inner(x: '') -! '' {
       configure({ debug: false })
 
       const tjsSource = `
-function test(x: 0) -! 0 {
+function test(x: 0):! 0 {
   return x * 2
 }
 `
@@ -1631,7 +1631,7 @@ function test(x: 0) -! 0 {
 
       try {
         const { code } = tjs(`
-function add(a: 0, b: 0) -! 0 {
+function add(a: 0, b: 0):! 0 {
   return a + b
 }
 `)
@@ -1657,11 +1657,11 @@ function add(a: 0, b: 0) -! 0 {
         const { code } = tjs(`/* tjs <- src/app.ts */
 safety inputs
 /* line 1 */
-function outer(x: 0) -! 0 {
+function outer(x: 0):! 0 {
   return inner(x)
 }
 /* line 5 */
-function inner(x: '') -! '' {
+function inner(x: ''):! '' {
   return x.toUpperCase()
 }
 `)
@@ -1683,7 +1683,7 @@ function inner(x: '') -! '' {
 
       try {
         const { code } = tjs(`
-function greet(name: '') -! '' {
+function greet(name: ''):! '' {
   return 'Hello, ' + name
 }
 `)
@@ -1716,13 +1716,13 @@ function greet(name: '') -! '' {
         const { code } = tjs(`/* tjs <- src/pipeline.ts */
 safety inputs
 /* line 1 */
-function a(x: 0) -! 0 { return b(x) }
+function a(x: 0):! 0 { return b(x) }
 /* line 3 */
-function b(x: 0) -! 0 { return c(x) }
+function b(x: 0):! 0 { return c(x) }
 /* line 5 */
-function c(x: 0) -! 0 { return d(x) }
+function c(x: 0):! 0 { return d(x) }
 /* line 7 */
-function d(x: '') -! '' { return x.toUpperCase() }
+function d(x: ''):! '' { return x.toUpperCase() }
 `)
         const fns = new Function(code + '; return { a, b, c, d }')()
         const err = fns.a(99)
@@ -1746,11 +1746,11 @@ function d(x: '') -! '' { return x.toUpperCase() }
   describe('input-side error propagation', () => {
     it('error from inner function caught by outer input check', () => {
       const { code } = tjs(`
-function step1(x: '') -! '' {
+function step1(x: ''):! '' {
   return x.toUpperCase()
 }
 
-function step2(x: '') -! '' {
+function step2(x: ''):! '' {
   return x + '!'
 }
 `)
@@ -1766,9 +1766,9 @@ function step2(x: '') -! '' {
 
     it('error identity preserved through chain', () => {
       const { code } = tjs(`
-function a(x: '') -! '' { return x }
-function b(x: '') -! '' { return x }
-function c(x: '') -! '' { return x }
+function a(x: ''):! '' { return x }
+function b(x: ''):! '' { return x }
+function c(x: ''):! '' { return x }
 `)
       const fns = new Function(code + '; return { a, b, c }')()
 
@@ -1786,9 +1786,9 @@ function c(x: '') -! '' { return x }
 
     it('multi-level nested call propagation', () => {
       const { code } = tjs(`
-function validate(x: '') -! '' { return x }
-function transform(x: '') -! '' { return x.toUpperCase() }
-function format(x: '') -! '' { return x + '!' }
+function validate(x: ''):! '' { return x }
+function transform(x: ''):! '' { return x.toUpperCase() }
+function format(x: ''):! '' { return x + '!' }
 `)
       const fns = new Function(
         code + '; return { validate, transform, format }'
@@ -1806,7 +1806,7 @@ function format(x: '') -! '' { return x + '!' }
       const bodyExecuted = false
 
       const { code } = tjs(`
-function process(x: '') -! '' {
+function process(x: ''):! '' {
   globalThis.__test_body_ran = true
   return x.toUpperCase()
 }
@@ -1833,7 +1833,7 @@ function process(x: '') -! '' {
   describe('return type default keys', () => {
     it('signature test passes when optional key is absent', () => {
       const result = tjs(`
-function divide(a: 10, b: 2) -> { value: 5, error = '' } {
+function divide(a: 10, b: 2): { value: 5, error = '' } {
   return { value: a / b }
 }
 `)
@@ -1844,7 +1844,7 @@ function divide(a: 10, b: 2) -> { value: 5, error = '' } {
 
     it('signature test passes when optional key is present', () => {
       const result = tjs(`
-function divide(a: 10, b: 0) -> { value: 0, error = 'Division by zero' } {
+function divide(a: 10, b: 0): { value: 0, error = 'Division by zero' } {
   if (b === 0) return { value: 0, error: 'Division by zero' }
   return { value: a / b }
 }
@@ -1856,7 +1856,7 @@ function divide(a: 10, b: 0) -> { value: 0, error = 'Division by zero' } {
 
     it('works with non-string defaults', () => {
       const result = tjs(`
-function lookup(key: 'x') -> { value: 'found', count = 0 } {
+function lookup(key: 'x'): { value: 'found', count = 0 } {
   return { value: 'found' }
 }
 `)
@@ -1869,7 +1869,7 @@ function lookup(key: 'x') -> { value: 'found', count = 0 } {
       // Transpiler throws on signature test failure, so we catch it
       expect(() =>
         tjs(`
-function broken(x: 0) -> { value: 0, error = '' } {
+function broken(x: 0): { value: 0, error = '' } {
   return { error: 'oops' }
 }
 `)
@@ -1878,7 +1878,7 @@ function broken(x: 0) -> { value: 0, error = '' } {
 
     it('inline tests can check default keys', () => {
       const result = tjs(`
-function divide(a: 10, b: 2) -> { value: 5, error = '' } {
+function divide(a: 10, b: 2): { value: 5, error = '' } {
   if (b === 0) return { value: NaN, error: 'Division by zero' }
   return { value: a / b }
 }
@@ -1900,7 +1900,7 @@ test 'normal division works' {
 
     it('type metadata parses return type with defaults', () => {
       const result = tjs(`
-function divide(a: 10, b: 2) -> { value: 5, error = '' } {
+function divide(a: 10, b: 2): { value: 5, error = '' } {
   return { value: a / b }
 }
 `)
@@ -1913,7 +1913,7 @@ function divide(a: 10, b: 2) -> { value: 5, error = '' } {
 
     it('-? runtime validation passes when optional key is absent', () => {
       const result = tjs(`
-function divide(a: 10, b: 2) -? { value: 5, error = '' } {
+function divide(a: 10, b: 2):? { value: 5, error = '' } {
   return { value: a / b }
 }
 `)
@@ -1928,7 +1928,7 @@ function divide(a: 10, b: 2) -? { value: 5, error = '' } {
     it('-? with simple return type rejects wrong type at runtime', () => {
       // Use a simple return type (string) where checkType works
       const result = tjs(`
-function greet(name: 'World') -? 'Hello, World' {
+function greet(name: 'World'):? 'Hello, World' {
   return 'Hello, ' + name
 }
 `)
@@ -1942,7 +1942,7 @@ function greet(name: 'World') -? 'Hello, World' {
 
     it('__tjs metadata includes return defaults', () => {
       const result = tjs(`
-function divide(a: 10, b: 2) -? { value: 5, error = '' } {
+function divide(a: 10, b: 2):? { value: 5, error = '' } {
   return { value: a / b }
 }
 `)
@@ -2051,7 +2051,7 @@ describe('TS overloads → TJS → JS full pipeline', () => {
 
 describe('rest parameter metadata', () => {
   it('should capture typed rest param in metadata', () => {
-    const result = tjs(`function sum(...nums: [0]) -> 0 { return 0 }`, {
+    const result = tjs(`function sum(...nums: [0]): 0 { return 0 }`, {
       runTests: false,
     })
     const info = result.types.sum
@@ -2063,7 +2063,7 @@ describe('rest parameter metadata', () => {
 
   it('should capture rest param with float array type', () => {
     const result = tjs(
-      `function mean(...values: [1.0, 2.0]) -> 0.0 { return 0 }`,
+      `function mean(...values: [1.0, 2.0]): 0.0 { return 0 }`,
       { runTests: false }
     )
     const info = result.types.mean
@@ -2074,7 +2074,7 @@ describe('rest parameter metadata', () => {
 
   it('should capture heterogeneous rest param as union', () => {
     const result = tjs(
-      `function log(...args: ['hello', 42, true]) -> 0 { return 0 }`,
+      `function log(...args: ['hello', 42, true]): 0 { return 0 }`,
       { runTests: false }
     )
     const info = result.types.log

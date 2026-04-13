@@ -47,7 +47,7 @@ function execCode(code: string): any[] {
 describe('TJS roundtrip - code should just work', () => {
   test('basic function with type annotations', () => {
     const source = `
-function add(a: 0, b: 0) -> 0 {
+function add(a: 0, b: 0): 0 {
   return a + b
 }
 console.log(add(2, 3))
@@ -61,7 +61,7 @@ console.log(add(2, 3))
 
   test('template literals (backticks)', () => {
     const source = `
-function greet(name: 'World') -> '' {
+function greet(name: 'World'): '' {
   return \`Hello, \${name}!\`
 }
 console.log(greet('TJS'))
@@ -75,7 +75,7 @@ console.log(greet('TJS'))
 
   test('inline tests execute at transpile time', () => {
     const source = `
-function double(x: 0) -> 0 {
+function double(x: 0): 0 {
   return x * 2
 }
 

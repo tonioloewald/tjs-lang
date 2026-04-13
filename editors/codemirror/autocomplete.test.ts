@@ -58,48 +58,48 @@ function getObjectBeforeDot(source: string, dotPos: number): string | null {
 // Curated property completions (simplified version of ajs-language.ts)
 const PROPERTY_COMPLETIONS: Record<string, Completion[]> = {
   console: [
-    { label: 'log', type: 'method', detail: '(...args: any[]) -> void' },
-    { label: 'error', type: 'method', detail: '(...args: any[]) -> void' },
-    { label: 'warn', type: 'method', detail: '(...args: any[]) -> void' },
-    { label: 'info', type: 'method', detail: '(...args: any[]) -> void' },
-    { label: 'debug', type: 'method', detail: '(...args: any[]) -> void' },
-    { label: 'table', type: 'method', detail: '(data: any) -> void' },
-    { label: 'clear', type: 'method', detail: '() -> void' },
+    { label: 'log', type: 'method', detail: '(...args: any[]): void' },
+    { label: 'error', type: 'method', detail: '(...args: any[]): void' },
+    { label: 'warn', type: 'method', detail: '(...args: any[]): void' },
+    { label: 'info', type: 'method', detail: '(...args: any[]): void' },
+    { label: 'debug', type: 'method', detail: '(...args: any[]): void' },
+    { label: 'table', type: 'method', detail: '(data: any): void' },
+    { label: 'clear', type: 'method', detail: '(): void' },
   ],
   Math: [
-    { label: 'floor', type: 'method', detail: '(x: number) -> number' },
-    { label: 'ceil', type: 'method', detail: '(x: number) -> number' },
-    { label: 'round', type: 'method', detail: '(x: number) -> number' },
-    { label: 'abs', type: 'method', detail: '(x: number) -> number' },
-    { label: 'min', type: 'method', detail: '(...values: number[]) -> number' },
-    { label: 'max', type: 'method', detail: '(...values: number[]) -> number' },
-    { label: 'sqrt', type: 'method', detail: '(x: number) -> number' },
-    { label: 'pow', type: 'method', detail: '(base, exp) -> number' },
-    { label: 'random', type: 'method', detail: '() -> number' },
+    { label: 'floor', type: 'method', detail: '(x: number): number' },
+    { label: 'ceil', type: 'method', detail: '(x: number): number' },
+    { label: 'round', type: 'method', detail: '(x: number): number' },
+    { label: 'abs', type: 'method', detail: '(x: number): number' },
+    { label: 'min', type: 'method', detail: '(...values: number[]): number' },
+    { label: 'max', type: 'method', detail: '(...values: number[]): number' },
+    { label: 'sqrt', type: 'method', detail: '(x: number): number' },
+    { label: 'pow', type: 'method', detail: '(base, exp): number' },
+    { label: 'random', type: 'method', detail: '(): number' },
     { label: 'PI', type: 'property', detail: 'number' },
     { label: 'E', type: 'property', detail: 'number' },
   ],
   JSON: [
-    { label: 'parse', type: 'method', detail: '(text: string) -> any' },
-    { label: 'stringify', type: 'method', detail: '(value: any) -> string' },
+    { label: 'parse', type: 'method', detail: '(text: string): any' },
+    { label: 'stringify', type: 'method', detail: '(value: any): string' },
   ],
   Object: [
-    { label: 'keys', type: 'method', detail: '(obj: object) -> string[]' },
-    { label: 'values', type: 'method', detail: '(obj: object) -> any[]' },
+    { label: 'keys', type: 'method', detail: '(obj: object): string[]' },
+    { label: 'values', type: 'method', detail: '(obj: object): any[]' },
     {
       label: 'entries',
       type: 'method',
-      detail: '(obj: object) -> [string, any][]',
+      detail: '(obj: object): [string, any][]',
     },
     {
       label: 'assign',
       type: 'method',
-      detail: '(target, ...sources) -> object',
+      detail: '(target, ...sources): object',
     },
   ],
   Array: [
-    { label: 'isArray', type: 'method', detail: '(value: any) -> boolean' },
-    { label: 'from', type: 'method', detail: '(iterable) -> any[]' },
+    { label: 'isArray', type: 'method', detail: '(value: any): boolean' },
+    { label: 'from', type: 'method', detail: '(iterable): any[]' },
   ],
 }
 
@@ -220,7 +220,7 @@ function getCompletions(ctx: CompletionContext): Completion[] {
         completions.push({
           label: metadata.name,
           type: 'function',
-          detail: `(${params}) -> ${returnType}`,
+          detail: `(${params}): ${returnType}`,
         })
       }
     }
@@ -260,7 +260,7 @@ describe('Autocomplete', () => {
 
   describe('Return type context (after ->)', () => {
     it('suggests types after arrow', () => {
-      const { source, position } = parseSource('function foo(x: 0) -> |')
+      const { source, position } = parseSource('function foo(x: 0): |')
       const completions = getCompletions({ source, position })
 
       expect(completions.some((c) => c.label === '{}')).toBe(true)
@@ -425,7 +425,7 @@ const after = 2
 
   describe('With transpiled metadata', () => {
     it('extracts function signature from transpiled code', () => {
-      const source = `function add(a: 0, b: 0) -> 0 {
+      const source = `function add(a: 0, b: 0): 0 {
   return a + b
 }`
       const metadata = getMetadata(source)
@@ -437,7 +437,7 @@ const after = 2
     })
 
     it('extracts example-based types', () => {
-      const source = `function greet(name: 'World', times = 1) -! '' {
+      const source = `function greet(name: 'World', times = 1):! '' {
   return 'Hello ' + name
 }`
       const metadata = getMetadata(source)
@@ -450,7 +450,7 @@ const after = 2
     })
 
     it('handles object return types', () => {
-      const source = `function createUser(name: '', age: 0) -> { name: '', age: 0 } {
+      const source = `function createUser(name: '', age: 0): { name: '', age: 0 } {
   return { name, age }
 }`
       const metadata = getMetadata(source)

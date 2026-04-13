@@ -25,7 +25,9 @@ TJS flips the script on types. Instead of describing what a value _could_ be, yo
 function greet(name: string): string
 
 // TJS: show a concrete example
-function greet(name: 'World') -> '' { return `Hello, ${name}!` }
+function greet(name: 'World'): '' {
+  return `Hello, ${name}!`
+}
 ```
 
 The type _is_ the example. The example _is_ the documentation. One thing, not three.
@@ -211,7 +213,7 @@ import { tjs, AgentVM } from 'tjs-lang'
 
 // TJS: types as examples, runs in browser
 const greet = tjs`
-  function greet(name: 'World') -> '' {
+  function greet(name: 'World'): '' {
     return 'Hello, ' + name + '!'
   }
 `

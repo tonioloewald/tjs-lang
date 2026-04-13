@@ -66,7 +66,7 @@ console.log(createUser.__tjs)
 When agents need compute, you don't leave TJS. You drop into `wasm {}`:
 
 ```typescript
-function vectorDot(a: [0], b: [0]) -> 0 {
+function vectorDot(a: [0], b: [0]): 0 {
   let sum = 0
   wasm {
     for (let i = 0; i < a.length; i++) {
@@ -156,7 +156,9 @@ If the endpoint lives forever while agents change constantly, docs must live in 
  * const result = createUser({ name: 'Test', email: 'test@test.com', age: 25 })
  * expect(result.id).toBeNumber()
  */
-function createUser(input: { name: 'Alice', email: 'a@b.com', age: 30 }) -> { id: 0 } {
+function createUser(input: { name: 'Alice'; email: 'a@b.com'; age: 30 }): {
+  id: 0
+} {
   return store.insert('users', input)
 }
 ```

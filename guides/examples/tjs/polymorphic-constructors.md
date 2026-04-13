@@ -27,7 +27,7 @@ class Point {
     this.y = coords.y
   }
 
-  distanceTo(other: { x: 0.0, y: 0.0 }) -> 0.0 {
+  distanceTo(other: { x: 0.0, y: 0.0 }): 0.0 {
     const dx = this.x - other.x
     const dy = this.y - other.y
     return Math.sqrt(dx * dx + dy * dy)

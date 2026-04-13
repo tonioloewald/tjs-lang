@@ -18,7 +18,7 @@ describe('TJS Emitter', () => {
 
     it('should preserve return type annotation in metadata', () => {
       const result = transpileToJS(`
-        function add(a: 0, b: 0) -> 0 {
+        function add(a: 0, b: 0): 0 {
           return a + b
         }
       `)
@@ -76,7 +76,7 @@ describe('TJS Emitter', () => {
 
     it('should generate __tjs metadata object', () => {
       const result = transpileToJS(`
-        function greet(name: 'world') -> 'Hello, world!' {
+        function greet(name: 'world'): 'Hello, world!' {
           return \`Hello, \${name}!\`
         }
       `)
@@ -192,7 +192,7 @@ function greet(name: 'world') {
     it('should handle object return type', () => {
       // Object types are valid return types
       const result = transpileToJS(`
-        function test(x: 0) -> { result: 0 } {
+        function test(x: 0): { result: 0 } {
           return { result: x }
         }
       `)
@@ -205,7 +205,7 @@ function greet(name: 'world') {
   describe('Unsafe functions with (!) syntax', () => {
     it('should mark function as unsafe when using (!) syntax', () => {
       const result = transpileToJS(`
-        function fastAdd(! a: 0, b: 0) -> 0 {
+        function fastAdd(! a: 0, b: 0): 0 {
           return a + b
         }
       `)
@@ -214,7 +214,7 @@ function greet(name: 'world') {
 
     it('should NOT mark function as unsafe without (!) syntax', () => {
       const result = transpileToJS(`
-        function safeAdd(a: 0, b: 0) -> 0 {
+        function safeAdd(a: 0, b: 0): 0 {
           return a + b
         }
       `)
@@ -251,7 +251,7 @@ function greet(name: 'world') {
 
     it('should preserve type metadata for unsafe functions', () => {
       const result = transpileToJS(`
-        function compute(! x: 0, y: 'str') -> 0 {
+        function compute(! x: 0, y: 'str'): 0 {
           return x
         }
       `)
@@ -280,8 +280,8 @@ function greet(name: 'world') {
 
     it('should handle multiple functions', () => {
       const result = transpileToJS(`
-        function add(a: 0, b: 0) -> 0 { return a + b }
-        function mul(a: 0, b: 0) -> 0 { return a * b }
+        function add(a: 0, b: 0): 0 { return a + b }
+        function mul(a: 0, b: 0): 0 { return a * b }
       `)
 
       expect(result.code).toContain('add.__tjs')
@@ -293,7 +293,7 @@ function greet(name: 'world') {
 
     it('should insert __tjs immediately after each function', () => {
       const result = transpileToJS(`
-        function greet(name: 'World') -> 'Hello, World' { return 'Hello, ' + name }
+        function greet(name: 'World'): 'Hello, World' { return 'Hello, ' + name }
         console.log(greet.__tjs)
       `)
 
@@ -307,7 +307,7 @@ function greet(name: 'world') {
 
     it('should compile validation inline (no wrapper)', () => {
       const result = transpileToJS(`
-        function greet(name: 'World') -> 'Hello, World' { return 'Hello, ' + name }
+        function greet(name: 'World'): 'Hello, World' { return 'Hello, ' + name }
       `)
 
       // Should NOT have wrapper pattern
@@ -324,11 +324,11 @@ function greet(name: 'world') {
       const result = transpileToJS(`
         const VERSION = '1.0'
 
-        function greet(name: 'World') -> 'Hello, World' { return 'Hello, ' + name }
+        function greet(name: 'World'): 'Hello, World' { return 'Hello, ' + name }
 
         console.log(greet.__tjs)
 
-        function add(a: 1, b: 2) -> 3 { return a + b }
+        function add(a: 1, b: 2): 3 { return a + b }
 
         console.log(add.__tjs)
       `)
@@ -373,7 +373,7 @@ function greet(name: 'world') {
     it('should handle export function with __tjs metadata', () => {
       const result = transpileToJS(
         `
-        export function add(a: 1.0, b: 2.0) -> 3.0 {
+        export function add(a: 1.0, b: 2.0): 3.0 {
           return a + b
         }
       `,
@@ -389,7 +389,7 @@ function greet(name: 'world') {
     it('should handle export default function with __tjs metadata', () => {
       const result = transpileToJS(
         `
-        export default function greet(name: 'World') -> '' {
+        export default function greet(name: 'World'): '' {
           return 'Hello, ' + name
         }
       `,
@@ -405,11 +405,11 @@ function greet(name: 'world') {
         `
         import { helper } from './utils.tjs'
 
-        function internal(x: 0) -> 0 {
+        function internal(x: 0): 0 {
           return x * 2
         }
 
-        export function api(y: 0) -> 0 {
+        export function api(y: 0): 0 {
           return internal(helper(y))
         }
       `,
@@ -444,7 +444,7 @@ function greet(name: 'world') {
     it('should generate inline validation for exported functions', () => {
       const result = transpileToJS(
         `
-        export function add(a: 0, b: 0) -> 0 {
+        export function add(a: 0, b: 0): 0 {
           return a + b
         }
       `,
@@ -462,13 +462,13 @@ function greet(name: 'world') {
 # Example
 
 \`\`\`javascript
-export function add(a: 0, b: 0) -> 0 {
+export function add(a: 0, b: 0): 0 {
   return a + b
 }
 \`\`\`
 */
 
-function realFunction(x: 5) -> 10 {
+function realFunction(x: 5): 10 {
   return x * 2
 }
       `,
@@ -493,7 +493,7 @@ add.__tjs = { params: { a: { type: { kind: 'number' } }, b: { type: { kind: 'num
       const mainSource = `
 import { add } from 'mymath'
 
-function doubleAdd(x: 5) -> 20 {
+function doubleAdd(x: 5): 20 {
   return add(x, x) * 2
 }
 `
@@ -521,7 +521,7 @@ multiply.__tjs = { params: { a: { type: { kind: 'number' } }, b: { type: { kind:
       const mainSource = `
 import { multiply } from 'mymath'
 
-function square(x: 0) -> 0 {
+function square(x: 0): 0 {
   return multiply(x, x)
 }
 

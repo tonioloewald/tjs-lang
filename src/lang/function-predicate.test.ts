@@ -200,7 +200,7 @@ describe('FunctionPredicate regression fixes', () => {
 
   it('should handle FunctionPredicate call in return type position', () => {
     const result = tjs(
-      "function makeStyle(spec: {}) -! FunctionPredicate('function', { params: { el: {} } }) {\n  return (el) => el\n}",
+      "function makeStyle(spec: {}):! FunctionPredicate('function', { params: { el: {} } }) {\n  return (el) => el\n}",
       { runTests: false }
     )
     // Should not error — FunctionPredicate(...) is a valid return type

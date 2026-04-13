@@ -35,10 +35,10 @@ Use `(!)` to mark functions as unsafe for performance-critical code:
 
 ```javascript
 // Safe (default) - validates types at runtime
-function add(a: 0, b: 0) -> 0 { return a + b }
+function add(a: 0, b: 0): 0 { return a + b }
 
 // Unsafe - no validation, maximum performance
-function fastAdd(! a: 0, b: 0) -> 0 { return a + b }
+function fastAdd(! a: 0, b: 0): 0 { return a + b }
 ```
 
 Performance comparison:

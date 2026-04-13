@@ -78,7 +78,7 @@ function fixCommonMistakes(code: string): string {
   )
 
   // Fix TypeScript-style type annotations on parameters
-  // e.g., (x: string) -> (x: 'example') or (x: number) -> (x: 0)
+  // e.g., (x: string): (x: 'example') or (x: number): (x: 0)
   // Only do this for standalone type keywords, not example values
   code = code.replace(/:\s*string\b(?!\s*[=)])/g, ": ''")
   code = code.replace(/:\s*number\b(?!\s*[=)])/g, ': 0')

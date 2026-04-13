@@ -28,7 +28,7 @@ function createUser(
   email: 'user@example.com',
   age = 0,
   admin = false
-) -> { name: 'anonymous', email: 'user@example.com', age: 0, admin: false } {
+): { name: 'anonymous', email: 'user@example.com', age: 0, admin: false } {
   return { name, email, age, admin }
 }
 

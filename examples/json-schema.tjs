@@ -30,7 +30,7 @@ console.log('Union schema:', JSON.stringify(Direction.toJSONSchema()))
 
 // --- Function signatures → JSON Schema ---
 
-function createUser(name: '', age: 0) -> { id: 0, name: '' } {
+function createUser(name: '', age: 0): { id: 0, name: '' } {
   return { id: 1, name }
 }
 

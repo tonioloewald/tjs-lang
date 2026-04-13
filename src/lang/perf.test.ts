@@ -38,7 +38,7 @@ describe('TJS Performance', () => {
       // Create a simple test file
       const testFile = '/tmp/perf-test.tjs'
       const { writeFileSync } = await import('fs')
-      writeFileSync(testFile, `function add(a: 1, b: 2) -> 3 { return a + b }`)
+      writeFileSync(testFile, `function add(a: 1, b: 2): 3 { return a + b }`)
 
       const cliPath = path.join(import.meta.dir, '../cli/tjsx.ts')
 
@@ -120,7 +120,7 @@ describe('TJS Performance', () => {
 
       // TJS transpiled
       const tjsResult = tjs(`
-        function tjsDouble(x: 0) -> 0 {
+        function tjsDouble(x: 0): 0 {
           return x * 2
         }
       `)
@@ -128,7 +128,7 @@ describe('TJS Performance', () => {
 
       // TJS with unsafe (!) - no validation wrapper
       const unsafeResult = tjs(`
-        function unsafeDouble(! x: 0) -> 0 {
+        function unsafeDouble(! x: 0): 0 {
           return x * 2
         }
       `)
@@ -172,7 +172,7 @@ describe('TJS Performance', () => {
 
       // TJS transpiled
       const tjsResult = tjs(`
-        function tjsTransform(x: 0, y: 0) -> { sum: 0, product: 0 } {
+        function tjsTransform(x: 0, y: 0): { sum: 0, product: 0 } {
           return { sum: x + y, product: x * y }
         }
       `)
@@ -182,7 +182,7 @@ describe('TJS Performance', () => {
 
       // TJS with unsafe (!) - no validation wrapper
       const unsafeResult = tjs(`
-        function unsafeTransform(! x: 0, y: 0) -> { sum: 0, product: 0 } {
+        function unsafeTransform(! x: 0, y: 0): { sum: 0, product: 0 } {
           return { sum: x + y, product: x * y }
         }
       `)
@@ -225,7 +225,7 @@ describe('TJS Performance', () => {
 
       // TJS transpiled
       const tjsResult = tjs(`
-        function tjsSum(arr: [0]) -> 0 {
+        function tjsSum(arr: [0]): 0 {
           let sum = 0
           for (const n of arr) sum += n
           return sum
@@ -235,7 +235,7 @@ describe('TJS Performance', () => {
 
       // TJS with unsafe (!) - no validation wrapper
       const unsafeResult = tjs(`
-        function unsafeSum(! arr: [0]) -> 0 {
+        function unsafeSum(! arr: [0]): 0 {
           let sum = 0
           for (const n of arr) sum += n
           return sum
@@ -281,7 +281,7 @@ describe('TJS Performance', () => {
 
       // TJS - loop inside function body
       const tjsResult = tjs(`
-        function tjsIntensive(n: 0) -> 0 {
+        function tjsIntensive(n: 0): 0 {
           let sum = 0
           for (let i = 0; i < n; i++) {
             sum += i * i
@@ -295,7 +295,7 @@ describe('TJS Performance', () => {
 
       // TJS unsafe (!) - no validation wrapper
       const unsafeResult = tjs(`
-        function unsafeIntensive(! n: 0) -> 0 {
+        function unsafeIntensive(! n: 0): 0 {
           let sum = 0
           for (let i = 0; i < n; i++) {
             sum += i * i
@@ -338,7 +338,7 @@ describe('TJS Performance', () => {
     it('should measure error path overhead for try block', () => {
       // TJS try-without-catch converts exceptions to monadic errors
       const tryResult = tjs(`
-        function tryThrow(x: 0) -> 0 {
+        function tryThrow(x: 0): 0 {
           try {
             if (x < 0) throw new Error('negative')
             return x
@@ -456,7 +456,7 @@ describe('TJS Performance', () => {
 
       // TJS unsafe (!) version - no wrapper at all
       const unsafeResult = tjs(`
-        function unsafeAdd(! a: 0, b: 0) -> 0 {
+        function unsafeAdd(! a: 0, b: 0): 0 {
           return a + b
         }
       `)

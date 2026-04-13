@@ -8,15 +8,15 @@ Functions that take or return functions
 // TJS handles higher-order functions
 // Note: Function type annotations use simple syntax
 
-function mapStrings(arr: [''], fn = (x) => x) -> [''] {
+function mapStrings(arr: [''], fn = (x) => x): [''] {
   return arr.map(fn)
 }
 
-function filterNumbers(arr: [0], predicate = (x) => true) -> [0] {
+function filterNumbers(arr: [0], predicate = (x) => true): [0] {
   return arr.filter(predicate)
 }
 
-function compose(f = (x) => x, g = (x) => x) -> 0 {
+function compose(f = (x) => x, g = (x) => x): 0 {
   // Returns a composed function, demo returns result
   const composed = (x) => f(g(x))
   return composed(5)

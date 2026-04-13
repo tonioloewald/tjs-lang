@@ -28,22 +28,22 @@ Test internals without exporting them - the killer feature
 const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
 
 // Private: Validate email format
-function isValidEmail(email: '') -> false {
+function isValidEmail(email: ''): false {
   return EMAIL_REGEX.test(email)
 }
 
 // Private: Sanitize user input
-function sanitize(input: '') -> '' {
+function sanitize(input: ''): '' {
   return input.trim().toLowerCase()
 }
 
 // Private: Generate a unique ID
-function generateId(prefix: 'user') -! '' {
+function generateId(prefix: 'user'):! '' {
   return prefix + '_' + Math.random().toString(36).slice(2, 10)
 }
 
 // Private: Hash password (simplified for demo)
-function hashPassword(password: '') -> 'hashed_0' {
+function hashPassword(password: ''): 'hashed_0' {
   let hash = 0
   for (let i = 0; i < password.length; i++) {
     hash = ((hash << 5) - hash) + password.charCodeAt(i)
@@ -53,7 +53,7 @@ function hashPassword(password: '') -> 'hashed_0' {
 }
 
 // Private: Check password strength
-function isStrongPassword(password: '') -! { strong: true, issues: [''] } {
+function isStrongPassword(password: ''):! { strong: true, issues: [''] } {
   const issues = []
   if (password.length < 8) issues.push('Must be at least 8 characters')
   if (!/[A-Z]/.test(password)) issues.push('Must contain uppercase letter')
@@ -66,7 +66,7 @@ function isStrongPassword(password: '') -! { strong: true, issues: [''] } {
 // PUBLIC API (this is all that gets exported)
 // ============================================================
 
-export function createUser(input: { email: '', password: '' }) -! { id: '', email: '', passwordHash: '' } | { error: '', code: 0 } {
+export function createUser(input: { email: '', password: '' }):! { id: '', email: '', passwordHash: '' } | { error: '', code: 0 } {
 
   // Validate email (using private helper)
   const cleanEmail = sanitize(input.email)

@@ -307,34 +307,28 @@ export function transformParenExpressions(
       const processedParams = processParamString(params, ctx, true)
       result += processedParams + ')'
 
-      // Check what follows the closing paren: whitespace then -> or -? or -! (return type)
+      // Check what follows the closing paren: return type annotation (:, :?, :!)
       let j = i
       while (j < source.length && /\s/.test(source[j])) j++
 
-      const returnArrow = source.slice(j, j + 2)
-      if (
-        returnArrow === '->' ||
-        returnArrow === '-?' ||
-        returnArrow === '-!'
-      ) {
-        // Extract return type
-        j += 2
-        // Skip whitespace after arrow
+      if (source[j] === ':') {
+        const colonMarker = source.slice(j, j + 2)
+        let safety: 'safe' | 'unsafe' | undefined
+        if (colonMarker === ':?' || colonMarker === ':!') {
+          j += 2
+          safety = colonMarker === ':?' ? 'safe' : 'unsafe'
+        } else {
+          j += 1
+        }
         while (j < source.length && /\s/.test(source[j])) j++
 
         const typeResult = extractReturnTypeValue(source, j)
         if (typeResult) {
-          const { type, endPos: typeEnd } = typeResult
-          // Record first return type for metadata
           if (firstReturnType === undefined) {
-            firstReturnType = type
-            if (returnArrow === '-?') {
-              firstReturnSafety = 'safe'
-            } else if (returnArrow === '-!') {
-              firstReturnSafety = 'unsafe'
-            }
+            firstReturnType = typeResult.type
+            if (safety) firstReturnSafety = safety
           }
-          i = typeEnd
+          i = typeResult.endPos
         }
       }
       continue
@@ -398,27 +392,17 @@ export function transformParenExpressions(
       const processedParams = processParamString(params, ctx, true)
       result += processedParams + ')'
 
-      // Check for return type annotation: ) -> type, ) -! type, ) -? type, ): type
+      // Check for return type annotation: ): type, ):! type, ):? type
       let j = i
       while (j < source.length && /\s/.test(source[j])) j++
 
-      // Handle ->, -!, -? return type (TJS style)
-      const returnArrow = source.slice(j, j + 2)
-      if (
-        returnArrow === '->' ||
-        returnArrow === '-!' ||
-        returnArrow === '-?'
-      ) {
-        j += 2
-        while (j < source.length && /\s/.test(source[j])) j++
-        const typeResult = extractReturnTypeValue(source, j)
-        if (typeResult) {
-          i = typeResult.endPos
+      if (source[j] === ':') {
+        const colonMarker = source.slice(j, j + 2)
+        if (colonMarker === ':?' || colonMarker === ':!') {
+          j += 2
+        } else {
+          j++
         }
-      }
-      // Handle : return type (TS style) - just strip it
-      else if (source[j] === ':') {
-        j++
         while (j < source.length && /\s/.test(source[j])) j++
         const typeResult = extractReturnTypeValue(source, j)
         if (typeResult) {
@@ -448,15 +432,15 @@ export function transformParenExpressions(
       let j = endPos
       while (j < source.length && /\s/.test(source[j])) j++
 
-      // Check for return type annotation on arrow function: ) -> type =>
+      // Check for return type annotation on arrow function: ): type =>
       let arrowReturnType: string | undefined
-      const returnArrow = source.slice(j, j + 2)
-      if (
-        returnArrow === '->' ||
-        returnArrow === '-?' ||
-        returnArrow === '-!'
-      ) {
-        j += 2
+      if (source[j] === ':') {
+        const colonMarker = source.slice(j, j + 2)
+        if (colonMarker === ':?' || colonMarker === ':!') {
+          j += 2
+        } else {
+          j++
+        }
         while (j < source.length && /\s/.test(source[j])) j++
         const typeResult = extractReturnTypeValue(source, j)
         if (typeResult) {

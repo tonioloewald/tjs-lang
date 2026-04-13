@@ -101,7 +101,7 @@ describe('Use Case: RAG Processor', () => {
         // We need robust resolve?
         // Since we can't import resolveValue, we rely on ctx.capabilities.llm.embed
         // But wait, 'text' in step might be 'args.query' string if resolved by builder?
-        // Builder: Agent.args('query') -> { $kind: 'arg', path: 'query' }
+        // Builder: Agent.args('query'): { $kind: 'arg', path: 'query' }
         // So step.text is that object.
         // We need resolveValue logic.
         // But I can't import resolveValue.

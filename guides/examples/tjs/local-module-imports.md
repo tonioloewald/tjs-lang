@@ -17,11 +17,11 @@ You can import from modules saved in the playground!
 ## Try it:
 1. First, create and save a module named "mymath":
 
-    export function add(a: 0, b: 0) -> 0 {
+    export function add(a: 0, b: 0): 0 {
       return a + b
     }
 
-    export function multiply(a: 0, b: 0) -> 0 {
+    export function multiply(a: 0, b: 0): 0 {
       return a * b
     }
 
@@ -32,7 +32,7 @@ You can import from modules saved in the playground!
 // Change 'mymath' to match whatever name you used when saving
 import { add, multiply } from 'mymath'
 
-function calculate(x: 0, y: 0) -> 0 {
+function calculate(x: 0, y: 0): 0 {
   // (x + y) * 2
   return multiply(add(x, y), 2)
 }

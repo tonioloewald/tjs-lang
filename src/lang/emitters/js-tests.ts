@@ -105,7 +105,7 @@ function typeMatches(
     }
   }
 
-  // Primitive types - check type only (used by -? runtime validation)
+  // Primitive types - check type only (used by :? runtime validation)
   if (typeof pattern === 'number') {
     if (typeof actual === 'number') return { matches: true }
     return {
@@ -468,10 +468,10 @@ export function extractSignatureTestInfos(
   // Strip comments to avoid matching functions inside doc comments/code examples
   const sourceWithoutComments = stripComments(originalSource)
 
-  // Match function declarations with return type marker (-> or -?)
-  // Skip -! which means "don't test"
-  // Pattern: [async] function name(params) -> returnExample {
-  const funcRegex = /(async\s+)?function\s+(\w+)\s*\(([^)]*)\)\s*(-[>?])\s*/g
+  // Match function declarations with return type marker (: or :?)
+  // Skip :! which means "don't test"
+  // Pattern: [async] function name(params): returnExample {
+  const funcRegex = /(async\s+)?function\s+(\w+)\s*\(([^)]*)\)\s*(:[?!]?)\s*/g
 
   let match
   while ((match = funcRegex.exec(sourceWithoutComments)) !== null) {
@@ -485,8 +485,8 @@ export function extractSignatureTestInfos(
       .slice(0, match.index)
       .split('\n').length
 
-    // -! means skip test
-    if (returnMarker === '-!') continue
+    // :! means skip test
+    if (returnMarker === ':!') continue
 
     // Extract return example - handle nested braces/brackets
     const afterMarker = sourceWithoutComments.slice(
@@ -522,7 +522,7 @@ export function extractSignatureTestInfos(
 
   // Extract class method signature tests
   // Find class declarations and their first constructor's params,
-  // then find methods with return type markers (-> or -?)
+  // then find methods with return type markers (: or :?)
   const classRegex = /class\s+(\w+)(?:\s+extends\s+\w+)?\s*\{/g
   let classMatch
   while ((classMatch = classRegex.exec(sourceWithoutComments)) !== null) {
@@ -561,7 +561,7 @@ export function extractSignatureTestInfos(
     }
 
     // Find methods with return type markers inside the class body
-    const methodRegex = /(async\s+)?(\w+)\s*\(([^)]*)\)\s*(-[>?])\s*/g
+    const methodRegex = /(async\s+)?(\w+)\s*\(([^)]*)\)\s*(:[?!]?)\s*/g
     let methodMatch
     while ((methodMatch = methodRegex.exec(classBody)) !== null) {
       const methodName = methodMatch[2]
@@ -572,7 +572,7 @@ export function extractSignatureTestInfos(
       const paramsStr = methodMatch[3]
       const returnMarker = methodMatch[4]
 
-      if (returnMarker === '-!') continue
+      if (returnMarker === ':!') continue
 
       // Calculate line number from position in original source
       const methodPosInSource = classBodyStart + methodMatch.index
@@ -1086,14 +1086,14 @@ function evalArrayExpression(node: any): unknown[] {
 }
 
 /**
- * Extract and run signature tests for ALL functions with -> return types
+ * Extract and run signature tests for ALL functions with return type annotations
  * Parses the original source to find function signatures
  *
  * Current limitations (future work):
  * - Only tests top-level `function` declarations (not arrow functions yet)
  * - Nested functions (inside other functions/blocks) are not excluded yet
  *   and will fail if tested since they're not in global scope
- * - Arrow functions like `Foo = (x: 5) -> 10 => {}` not yet supported
+ * - Arrow functions like `Foo = (x: 5): 10 => {}` not yet supported
  */
 function runAllSignatureTests(
   originalSource: string,
@@ -1105,10 +1105,10 @@ function runAllSignatureTests(
   // Strip comments to avoid matching functions inside doc comments/code examples
   const sourceWithoutComments = stripComments(originalSource)
 
-  // Match function declarations with return type marker (-> or -?)
-  // Skip -! which means "don't test"
-  // Pattern: function name(params) -> returnExample {
-  const funcRegex = /function\s+(\w+)\s*\(([^)]*)\)\s*(-[>?])\s*/g
+  // Match function declarations with return type marker (: or :?)
+  // Skip :! which means "don't test"
+  // Pattern: function name(params): returnExample {
+  const funcRegex = /function\s+(\w+)\s*\(([^)]*)\)\s*(:[?!]?)\s*/g
 
   let match
   while ((match = funcRegex.exec(sourceWithoutComments)) !== null) {
@@ -1121,8 +1121,8 @@ function runAllSignatureTests(
       .slice(0, match.index)
       .split('\n').length
 
-    // -! means skip test
-    if (returnMarker === '-!') continue
+    // :! means skip test
+    if (returnMarker === ':!') continue
 
     // Extract return example - handle nested braces/brackets
     // Use stripped source since match.index is from that

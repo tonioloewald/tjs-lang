@@ -12,11 +12,11 @@ describe('generateDocs', () => {
   describe('basic output', () => {
     it('extracts function signatures in document order', () => {
       const source = `
-function first(x: 5) -> 10 {
+function first(x: 5): 10 {
   return x * 2
 }
 
-function second(a: '', b: 0) -> '' {
+function second(a: '', b: 0): '' {
   return a + b
 }
 `
@@ -56,12 +56,12 @@ More docs here.
 /*#
 # First Section
 */
-function first(x: 0) -> 0 { return x }
+function first(x: 0): 0 { return x }
 
 /*#
 # Second Section
 */
-function second(x: 0) -> 0 { return x }
+function second(x: 0): 0 { return x }
 `
       const result = generateDocs(source)
 
@@ -77,14 +77,14 @@ function second(x: 0) -> 0 { return x }
 
   describe('function signatures', () => {
     it('captures full signature with params and return type', () => {
-      const source = `function greet(name: 'World') -> '' { return name }`
+      const source = `function greet(name: 'World'): '' { return name }`
       const result = generateDocs(source)
 
       const func = result.items[0] as any
       expect(func.type).toBe('function')
       expect(func.signature).toContain('greet')
       expect(func.signature).toContain("name: 'World'")
-      expect(func.signature).toContain("-> ''")
+      expect(func.signature).toContain(": ''")
     })
 
     it('captures optional params with defaults', () => {
@@ -173,11 +173,11 @@ This is documentation.
     })
 
     it('renders function signatures as code blocks', () => {
-      const source = `function double(x: 5) -> 10 { return x * 2 }`
+      const source = `function double(x: 5): 10 { return x * 2 }`
       const result = generateDocs(source)
 
       expect(result.markdown).toContain('```tjs')
-      expect(result.markdown).toContain('function double(x: 5) -> 10')
+      expect(result.markdown).toContain('function double(x: 5): 10')
       expect(result.markdown).toContain('```')
     })
 
@@ -186,11 +186,11 @@ This is documentation.
 /*#
 Intro
 */
-function first(x: 0) -> 0 { return x }
+function first(x: 0): 0 { return x }
 /*#
 Middle
 */
-function second(x: 0) -> 0 { return x }
+function second(x: 0): 0 { return x }
 `
       const result = generateDocs(source)
 
@@ -208,11 +208,11 @@ function second(x: 0) -> 0 { return x }
 A collection of math functions.
 */
 
-function double(x: 5) -> 10 {
+function double(x: 5): 10 {
   return x * 2
 }
 
-function triple(x: 3) -> 9 {
+function triple(x: 3): 9 {
   return x * 3
 }
 
@@ -275,13 +275,13 @@ These functions are pure.
     it('handles mixed TJS and TypeScript in same file', () => {
       const source = `
 function tsFunc(x: number): number { return x }
-function tjsFunc(x: 0) -> 0 { return x }
+function tjsFunc(x: 0): 0 { return x }
 `
       const result = generateDocs(source)
 
       expect(result.items).toHaveLength(2)
       expect((result.items[0] as any).signature).toContain(': number')
-      expect((result.items[1] as any).signature).toContain('-> 0')
+      expect((result.items[1] as any).signature).toContain(': 0')
     })
   })
 })
@@ -299,7 +299,7 @@ describe('generateDocsMarkdown', () => {
   })
 
   it('renders function with type metadata', () => {
-    const source = `function greet(name: 'World') -> '' { return name }`
+    const source = `function greet(name: 'World'): '' { return name }`
     const types = {
       greet: {
         params: {
@@ -313,7 +313,7 @@ describe('generateDocsMarkdown', () => {
 
     expect(result).toContain('## greet')
     expect(result).toContain('```tjs')
-    expect(result).toContain("function greet(name: 'World') -> ''")
+    expect(result).toContain("function greet(name: 'World'): ''")
     expect(result).toContain('**Parameters:**')
     expect(result).toContain('`name`: string')
     expect(result).toContain('(e.g. `"World"`)')
@@ -341,13 +341,13 @@ describe('generateDocsMarkdown', () => {
   it('works without type metadata', () => {
     const source = `
 /*# Intro */
-function foo(x: 0) -> 0 { return x }
+function foo(x: 0): 0 { return x }
 `
     const result = generateDocsMarkdown(source, undefined)
 
     expect(result).toContain('Intro')
     expect(result).toContain('## foo')
-    expect(result).toContain('function foo(x: 0) -> 0')
+    expect(result).toContain('function foo(x: 0): 0')
     // No params/returns since no type metadata
     expect(result).not.toContain('**Parameters:**')
   })
@@ -355,9 +355,9 @@ function foo(x: 0) -> 0 { return x }
   it('preserves document order with interleaved docs and functions', () => {
     const source = `
 /*# Section 1 */
-function first(x: 0) -> 0 { return x }
+function first(x: 0): 0 { return x }
 /*# Section 2 */
-function second(x: 0) -> 0 { return x }
+function second(x: 0): 0 { return x }
 /*# Conclusion */
 `
     const types = {
@@ -409,14 +409,14 @@ function greet(name: string): string {
     const source = `
 /*# Module header */
 
-function first(x: 0) -> 0 {
+function first(x: 0): 0 {
   /*# Comment inside first - should be ignored */
   return x
 }
 
 /*# Between first and second */
 
-function second(y: '') -> '' {
+function second(y: ''): '' {
   /*# Comment inside second - should be ignored */
   return y
 }

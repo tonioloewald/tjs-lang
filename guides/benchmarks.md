@@ -27,10 +27,10 @@ Safe TJS functions use `wrap()` for monadic type validation:
 
 ```javascript
 // Safe (default) - validates types at runtime
-function add(a: 0, b: 0) -> 0 { return a + b }
+function add(a: 0, b: 0): 0 { return a + b }
 
 // Unsafe - no validation, plain JS performance
-function fastAdd(! a: 0, b: 0) -> 0 { return a + b }
+function fastAdd(! a: 0, b: 0): 0 { return a + b }
 ```
 
 | Mode       | Overhead | Use Case                        |
@@ -43,7 +43,7 @@ function fastAdd(! a: 0, b: 0) -> 0 { return a + b }
 **Critical insight**: Wrapping the outer function in `unsafe {}` does NOT help if the inner helper is safe:
 
 ```javascript
-function process(arr: [0]) -> 0 {
+function process(arr: [0]): 0 {
   unsafe {
     let sum = 0
     for (const x of arr) {
@@ -57,7 +57,7 @@ function process(arr: [0]) -> 0 {
 **Fix**: Mark the helper as unsafe:
 
 ```javascript
-function double(! x: 0) -> 0 { return x * 2 }  // No validation overhead
+function double(! x: 0): 0 { return x * 2 }  // No validation overhead
 ```
 
 ### `unsafe {}` Block

@@ -46,7 +46,7 @@ feature with a test proving it works.
 | Safety directive | `safety` |
 | Parameters | Colon `:`, optional `=`, destructured `{}` |
 | Numeric narrowing | `42` int, `3.14` float, `+0` non-negative |
-| Return types | `->`, `-?`, `-!` |
+| Return types | `:`, `:?`, `:!` |
 | Safety markers | `(! ...)` unsafe, `(? ...)` safe |
 | Type/Generic/Enum/Union | See above (requires full runtime) |
 | Bare assignments | `Uppercase = ...` |
@@ -73,22 +73,22 @@ Question mark `?:` = optional (TS-style).
 */
 
 // Required params (colon shorthand)
-function greet(name: 'Alice') -> 'Hello, Alice' {
+function greet(name: 'Alice'): 'Hello, Alice' {
   return 'Hello, ' + name
 }
 
 // Optional params (equals = default)
-function greetOpt(name = 'World') -> 'Hello, World' {
+function greetOpt(name = 'World'): 'Hello, World' {
   return 'Hello, ' + name
 }
 
 // Destructured object params (colon = required, equals = optional)
-function createUser({ name: 'Anon', role = 'user' }) -> { name: 'Anon', role: 'user' } {
+function createUser({ name: 'Anon', role = 'user' }): { name: 'Anon', role: 'user' } {
   return { name, role }
 }
 
 // Numeric type narrowing: 42 = integer, 3.14 = float, +0 = non-negative int
-function calc(count: 42, rate: 3.14, index: +0) -> 131.88 {
+function calc(count: 42, rate: 3.14, index: +0): 131.88 {
   return (count + index) * rate
 }
 
@@ -106,18 +106,18 @@ test 'parameter syntax' {
 /*#
 ## Return Types
 
-`->` signature test at transpile time.
-`-?` signature test + runtime output validation.
-`-!` skip signature test entirely.
+`:` signature test at transpile time.
+`:?` signature test + runtime output validation.
+`:!` skip signature test entirely.
 */
 
-// -> : transpile-time check (double(5) must equal 10)
-function double(x: 5) -> 10 {
+// : transpile-time check (double(5) must equal 10)
+function double(x: 5): 10 {
   return x * 2
 }
 
-// -! : skip test (useful when return shape varies)
-function safeDivide(a: 10, b: 2) -! 5 {
+// :! skip test (useful when return shape varies)
+function safeDivide(a: 10, b: 2):! 5 {
   if (b === 0) return { error: 'div by zero' }
   return a / b
 }
@@ -138,11 +138,11 @@ test 'return types' {
 `?` = safe (force validation even inside `unsafe` blocks).
 */
 
-function fastAdd(! a: 0, b: 0) -> 0 {
+function fastAdd(! a: 0, b: 0): 0 {
   return a + b
 }
 
-function safeAdd(? a: 0, b: 0) -> 0 {
+function safeAdd(? a: 0, b: 0): 0 {
   return a + b
 }
 
@@ -303,7 +303,7 @@ Honest equality is on by default in native TJS:
 A bare `try` block auto-converts exceptions to monadic errors.
 */
 
-function parseJSON(s: '{"a":1}') -! { a: 1 } {
+function parseJSON(s: '{"a":1}'):! { a: 1 } {
   try {
     return JSON.parse(s)
   }
@@ -327,7 +327,7 @@ output. They have full access to the module scope, so you
 can test private functions without exporting them.
 */
 
-function _private(x: 0) -> 0 {
+function _private(x: 0): 0 {
   return x * x
 }
 
@@ -346,7 +346,7 @@ Standard ES module syntax works. Functions and values
 can be exported for use by other modules.
 */
 
-export function publicHelper(x: 0) -> 1 {
+export function publicHelper(x: 0): 1 {
   return x + 1
 }
 
@@ -370,7 +370,7 @@ console.log('TJS Grammar Reference — all tests passed!')
 console.log('Features demonstrated:', [
   'safety directive', 'colon params', 'optional params',
   'destructured params', 'numeric narrowing',
-  'return types (-> -? -!)', 'safety markers (! ?)',
+  'return types (: :? :!)', 'safety markers (! ?)',
   'Type', 'Generic', 'Enum', 'Union', 'bare assignments',
   'classes', 'polymorphic functions', 'polymorphic constructors',
   'local extensions', 'structural equality', 'Is/IsNot',

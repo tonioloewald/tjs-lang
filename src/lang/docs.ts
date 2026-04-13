@@ -67,10 +67,10 @@ export function generateDocs(source: string): DocResult {
 
   // Find all doc blocks and functions, sort by position
   const docPattern = /\/\*#([\s\S]*?)\*\//g
-  // Match both TJS (-> returnType) and TypeScript (: returnType) function syntax
+  // Match TJS function syntax with return type annotations (:, :?, :!)
   // Return type can be quoted string with spaces (e.g. 'Hello, World!')
   const funcPattern =
-    /function\s+(\w+)\s*\(([^)]*)\)\s*(?:(-[>?!])\s*('[^']*'|"[^"]*"|[^\s{]+)|:\s*(\w+))?\s*\{/g
+    /function\s+(\w+)\s*\(([^)]*)\)\s*(?:(:[?!]?)\s*('[^']*'|"[^"]*"|[^\s{]+))?\s*\{/g
 
   type Match = { type: 'doc' | 'function'; index: number; data: any }
   const matches: Match[] = []
@@ -107,14 +107,11 @@ export function generateDocs(source: string): DocResult {
     const name = match[1]
     const params = match[2]
     const returnMarker = match[3] || ''
-    const tjsReturnType = match[4] || ''
-    const tsReturnType = match[5] || ''
+    const returnType = match[4] || ''
 
     let signature = `function ${name}(${params})`
-    if (returnMarker) {
-      signature += ` ${returnMarker} ${tjsReturnType}`
-    } else if (tsReturnType) {
-      signature += `: ${tsReturnType}`
+    if (returnMarker && returnType) {
+      signature += `${returnMarker} ${returnType}`
     }
 
     matches.push({

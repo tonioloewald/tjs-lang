@@ -1,14 +1,14 @@
 // Math utilities module
 
-export function add(a: 0, b: 0) -> 0 {
+export function add(a: 0, b: 0): 0 {
   return a + b
 }
 
-export function subtract(a: 0, b: 0) -> 0 {
+export function subtract(a: 0, b: 0): 0 {
   return a - b
 }
 
-export function multiply(a: 0, b: 0) -> 0 {
+export function multiply(a: 0, b: 0): 0 {
   return a * b
 }
 

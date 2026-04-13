@@ -155,7 +155,7 @@ describe('Union Types', () => {
 
   test('union return type with | (nullable object)', () => {
     const { metadata } = transpileToJS(`
-      function find(id: 0) -! { name: '' } | null {
+      function find(id: 0):! { name: '' } | null {
         return null
       }
     `)
@@ -228,7 +228,7 @@ describe('Return Types', () => {
   test('simple return type', () => {
     // Use -! to skip signature test (testing metadata, not return value match)
     const { metadata } = transpileToJS(`
-      function greet(name: '') -! '' {
+      function greet(name: ''):! '' {
         return 'Hello, ' + name
       }
     `)
@@ -238,7 +238,7 @@ describe('Return Types', () => {
   test('object return type', () => {
     // Use -! to skip signature test (testing metadata, not return value match)
     const { metadata } = transpileToJS(`
-      function makeUser(name: '') -! { name: '', id: 0 } {
+      function makeUser(name: ''):! { name: '', id: 0 } {
         return { name, id: 1 }
       }
     `)
@@ -248,7 +248,7 @@ describe('Return Types', () => {
 
   test('array return type', () => {
     const { metadata } = transpileToJS(`
-      function toArray(item: '') -> [''] {
+      function toArray(item: ''): [''] {
         return [item]
       }
     `)
@@ -258,7 +258,7 @@ describe('Return Types', () => {
 
   test('nested array return ([[x]])', () => {
     const { metadata } = transpileToJS(`
-      function chunk(items: [''], size: 1) -> [['']] {
+      function chunk(items: [''], size: 1): [['']] {
         const result = []
         for (let i = 0; i < items.length; i += size) {
           result.push(items.slice(i, i + size))
@@ -900,7 +900,7 @@ describe('fromTS generators', () => {
       emitTJS: true,
     })
     // Return annotation should be the yield type (number -> 0.0)
-    expect(result.code).toContain('-!')
+    expect(result.code).toContain(':!')
     expect(result.code).toContain('0.0')
   })
 
@@ -909,7 +909,7 @@ describe('fromTS generators', () => {
       "async function* words(): AsyncGenerator<string> { yield 'hi' }",
       { emitTJS: true }
     )
-    expect(result.code).toContain('-!')
+    expect(result.code).toContain(':!')
     expect(result.code).toMatch(/''/)
   })
 
@@ -1647,7 +1647,7 @@ describe('DOM Types', () => {
       { emitTJS: true }
     )
     // Return type should be {} not degraded
-    expect(result.code).toContain('-! {}')
+    expect(result.code).toContain(':! {}')
   })
 
   test('DOM callback type preserves annotation', () => {

@@ -36,7 +36,7 @@ async function post(req: {
     fuel: 1000      // Max compute units (like gas)
   },
   headers: { authorization: '' }
-}) -> { result: {}, fuelUsed: 0, status: '' } | { error: '', fuelUsed: 0 } {
+}): { result: {}, fuelUsed: 0, status: '' } | { error: '', fuelUsed: 0 } {
 
   // 1. Parse the agent (it's just code as data)
   let ast

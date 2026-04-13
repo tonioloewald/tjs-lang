@@ -119,7 +119,7 @@ TJS's syntax extensions are modest. The engine changes would be:
 
 ### Lexer
 - Recognize `:` in parameter context (already a valid token, just needs context-sensitive handling)
-- `->` as return type arrow (new token, or reuse existing with context)
+- `:` for return types uses context-sensitive handling (already a valid token)
 - `Type`, `Generic`, `Union`, `Enum` as contextual keywords
 - `extend` as contextual keyword
 - `wasm` as contextual keyword
@@ -127,7 +127,7 @@ TJS's syntax extensions are modest. The engine changes would be:
 
 ### Parser
 - Desugar `:` params to `=` defaults (same as transpiler does today)
-- Desugar `->` return annotations to metadata
+- Desugar `:` return annotations to metadata
 - Desugar `Type`/`Generic`/`Union`/`Enum` declarations to `const` + function calls
 - Desugar `extend` blocks to `.call()` rewriting
 - Desugar `wasm {}` blocks (or hand off to WASM compiler)

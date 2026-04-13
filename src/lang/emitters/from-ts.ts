@@ -15,7 +15,7 @@
  * }
  *
  * // Output TJS:
- * function greet(name: '', age = 0) -> '' {
+ * function greet(name: '', age = 0): '' {
  *   return `Hello, ${name}!`
  * }
  *
@@ -1502,14 +1502,14 @@ function transformFunctionToTJS(
   const returnExample = node.type
     ? typeToExample(node.type, undefined, warnings, resolveCtx)
     : ''
-  // Use -! to skip signature tests - TS types are compile-time only,
+  // Use :! to skip signature tests - TS types are compile-time only,
   // the example values won't necessarily match runtime behavior
   const returnAnnotation =
     returnExample &&
     returnExample !== 'undefined' &&
     returnExample !== 'any' &&
     !returnExample.startsWith('new ') // new Set(), new Map() etc. aren't valid TJS literals
-      ? ` -! ${returnExample}`
+      ? `:! ${returnExample}`
       : ''
 
   // Track degraded return type
@@ -1622,7 +1622,7 @@ function emitOverloadGroup(
       : ''
     const returnAnnotation =
       returnExample && returnExample !== 'undefined' && returnExample !== 'any'
-        ? ` -! ${returnExample}`
+        ? `:! ${returnExample}`
         : ''
 
     const { line } = sourceFile.getLineAndCharacterOfPosition(
@@ -1749,12 +1749,12 @@ function transformClassToTJS(
       const returnExample = member.type
         ? typeToExample(member.type, undefined, warnings, resolveCtx)
         : ''
-      // Use -! to skip signature tests for TS-transpiled code
+      // Use :! to skip signature tests for TS-transpiled code
       const returnAnnotation =
         returnExample &&
         returnExample !== 'undefined' &&
         returnExample !== 'any'
-          ? ` -! ${returnExample}`
+          ? `:! ${returnExample}`
           : ''
 
       let body = '{ }'
@@ -1795,7 +1795,7 @@ function transformClassToTJS(
         returnExample !== 'undefined' &&
         returnExample !== 'any' &&
         !returnExample.startsWith('new ')
-          ? ` -> ${returnExample}`
+          ? `: ${returnExample}`
           : ''
 
       let body = '{ }'

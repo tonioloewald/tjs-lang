@@ -20,7 +20,7 @@ describe('Use Case: Malicious Actor', () => {
     expect(result.error).toBeDefined()
     expect(result.error?.message).toBe('Out of Fuel')
 
-    // 2. Run with enough fuel (simulated) -> Should fail eventually or return if limited loops
+    // 2. Run with enough fuel (simulated): Should fail eventually or return if limited loops
     // In this case condition is always true, so it loops forever.
     // Even with 1000000 fuel, it will exhaust it.
   })

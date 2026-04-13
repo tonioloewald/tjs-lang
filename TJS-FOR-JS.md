@@ -79,12 +79,12 @@ function greet(name) {
 }
 
 // TJS - name is required and must be a string (like 'World')
-function greet(name: 'World') -> '' {
+function greet(name: 'World'): '' {
   return `Hello, ${name}!`
 }
 ```
 
-The `: 'World'` means "required, must be a string, here's an example." The `-> ''` means "returns a string." These aren't abstract type annotations -- they're concrete values the system can use for testing, documentation, and validation.
+The `: 'World'` means "required, must be a string, here's an example." The `: ''` means "returns a string." These aren't abstract type annotations -- they're concrete values the system can use for testing, documentation, and validation.
 
 | You Write         | TJS Infers                    |
 | ----------------- | ----------------------------- |
@@ -148,21 +148,21 @@ integer returns a monadic error.
 
 ### 3. Return Type Annotations
 
-TJS uses `->` for return types:
+TJS uses `:` for return types (same as TypeScript):
 
 ```javascript
 // Returns an integer
-function add(a: 0, b: 0) -> 0 {
+function add(a: 0, b: 0): 0 {
   return a + b
 }
 
 // Returns an object with specific shape
-function getUser(id: 0) -> { name: '', age: 0 } {
+function getUser(id: 0): { name: '', age: 0 } {
   return { name: 'Alice', age: 30 }
 }
 ```
 
-The return type example doubles as an automatic test. When you write `-> 0`, TJS will call `add(0, 0)` at transpile time and verify the result is a number.
+The return type example doubles as an automatic test. When you write `: 0`, TJS will call `add(0, 0)` at transpile time and verify the result is a number.
 
 ### 4. Equality That Works
 
@@ -214,12 +214,12 @@ for objects that might be circular, or define an `.Equals` method.
 In JavaScript, type errors crash your program. In TJS, they're values:
 
 ```javascript
-function double(x: 0) -> 0 {
+function double(x: 0): 0 {
   return x * 2
 }
 
-double(5)       // 10
-double('oops')  // { $error: true, message: "Expected number for 'double.x', got string" }
+double(5) // 10
+double('oops') // { $error: true, message: "Expected number for 'double.x', got string" }
 ```
 
 No `try`/`catch`. No crashes. The caller gets a clear error value they can inspect:
@@ -325,12 +325,12 @@ all the way down.
 Types work in function signatures:
 
 ```javascript
-function sendWelcome(email: Email, name: Name) -> '' {
+function sendWelcome(email: Email, name: Name): '' {
   return `Welcome, ${name}! Confirmation sent to ${email}.`
 }
 
-sendWelcome('alice@example.com', 'Alice')  // works
-sendWelcome('not-an-email', 'Alice')       // MonadicError
+sendWelcome('alice@example.com', 'Alice') // works
+sendWelcome('not-an-email', 'Alice') // MonadicError
 ```
 
 TJS also ships common types out of the box: `TString`, `TNumber`,
@@ -392,7 +392,7 @@ NumberBox.check({ value: 'nope' }) // false
 Every TJS function carries its type information at runtime via `__tjs`:
 
 ```javascript
-function createUser(input: { name: '', age: 0 }) -> { id: 0 } {
+function createUser(input: { name: '', age: 0 }): { id: 0 } {
   return { id: 123 }
 }
 
@@ -447,7 +447,7 @@ unsafe {
 Tests live next to the code they test and run at transpile time:
 
 ```javascript
-function isPrime(n: 2) -> true {
+function isPrime(n: 2): true {
   if (n < 2) return false
   for (let i = 2; i * i <= n; i++) {
     if (n % i === 0) return false
@@ -463,7 +463,7 @@ test 'prime detection' {
 ```
 
 Tests are stripped from production output. They're also generated
-automatically from return type annotations -- `-> true` means TJS will call
+automatically from return type annotations -- `: true` means TJS will call
 `isPrime(2)` and verify it returns a boolean.
 
 ---
@@ -473,7 +473,7 @@ automatically from return type annotations -- `-> true` means TJS will call
 For compute-heavy code, drop into WebAssembly:
 
 ```javascript
-const add = wasm (a: i32, b: i32) -> i32 {
+const add = wasm (a: i32, b: i32): i32 {
   local.get $a
   local.get $b
   i32.add
@@ -532,7 +532,7 @@ TJS is opinionated. Here's what changes:
 
 Nothing is taken away. `new` still works. `===` still works. You can write
 plain JavaScript in a `.tjs` file and it works. The type-related additions
-use explicit syntax (`:` annotations, `->` returns, `Type` declarations).
+use explicit syntax (`:` annotations, `:` return types, `Type` declarations).
 Behavioral modes like structural equality, callable classes, and honest
 `typeof` are enabled by default in native TJS files. Use `TjsCompat` at the
 top of a file to disable all modes for gradual migration or JS interop.
@@ -566,7 +566,7 @@ bun src/cli/tjs.ts test file.tjs    # Run inline tests
 import { tjs } from 'tjs-lang'
 
 const output = tjs`
-  function add(a: 0, b: 0) -> 0 {
+  function add(a: 0, b: 0): 0 {
     return a + b
   }
 `
@@ -581,10 +581,12 @@ When validation fails, the error tells you exactly which function and
 parameter failed, in which source file:
 
 ```javascript
-function add(a: 0, b: 0) -> 0 { return a + b }
+function add(a: 0, b: 0): 0 {
+  return a + b
+}
 
-add.__tjs.source  // "mymodule.tjs:3"
-add('oops', 1)    // MonadicError { path: "mymodule.tjs:3:add.a", expected: "integer", actual: "string" }
+add.__tjs.source // "mymodule.tjs:3"
+add('oops', 1) // MonadicError { path: "mymodule.tjs:3:add.a", expected: "integer", actual: "string" }
 ```
 
 No source maps. No build artifacts. The function _knows where it came from_.

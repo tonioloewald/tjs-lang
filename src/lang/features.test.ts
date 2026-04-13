@@ -675,14 +675,14 @@ function greet(name: 'World') {
 
   it('safety none should skip validation code in output', () => {
     // With safety (default) - should have validation
-    const safe = tjs(`function add(a: 0, b: 0) -> 0 { return a + b }`)
+    const safe = tjs(`function add(a: 0, b: 0): 0 { return a + b }`)
     expect(safe.code).toContain('__tjs.typeError')
     expect(safe.code).toContain('__tjs.pushStack')
     expect(safe.code).toContain("typeof a !== 'number'")
 
     // Without safety - should NOT have validation
     const unsafe = tjs(`safety none
-function add(a: 0, b: 0) -> 0 { return a + b }`)
+function add(a: 0, b: 0): 0 { return a + b }`)
     expect(unsafe.code).not.toContain('__tjs.typeError')
     expect(unsafe.code).not.toContain('__tjs.pushStack')
     expect(unsafe.code).not.toContain("typeof a !== 'number'")
@@ -693,8 +693,8 @@ function add(a: 0, b: 0) -> 0 { return a + b }`)
 
   it('safety none should work with multiple functions', () => {
     const result = tjs(`safety none
-function add(a: 0, b: 0) -> 0 { return a + b }
-function multiply(a: 0, b: 0) -> 0 { return a * b }`)
+function add(a: 0, b: 0): 0 { return a + b }
+function multiply(a: 0, b: 0): 0 { return a * b }`)
 
     // No validation for either function
     expect(result.code).not.toContain('__tjs.typeError')
@@ -708,8 +708,8 @@ function multiply(a: 0, b: 0) -> 0 { return a * b }`)
 describe('unsafe function marker (!)', () => {
   it('(!) should skip validation for that function only', () => {
     const result = tjs(`
-function safeAdd(a: 0, b: 0) -> 0 { return a + b }
-function unsafeAdd(! a: 0, b: 0) -> 0 { return a + b }
+function safeAdd(a: 0, b: 0): 0 { return a + b }
+function unsafeAdd(! a: 0, b: 0): 0 { return a + b }
 `)
     // Safe function has validation
     expect(result.code).toContain('__tjs.pushStack')
@@ -730,7 +730,7 @@ function unsafeAdd(! a: 0, b: 0) -> 0 { return a + b }
   })
 
   it('(!) function metadata should have unsafe: true', () => {
-    const result = tjs(`function fast(! x: 0) -> 0 { return x * 2 }`)
+    const result = tjs(`function fast(! x: 0): 0 { return x * 2 }`)
     expect(result.code).toContain('"unsafe": true')
   })
 })
@@ -738,26 +738,26 @@ function unsafeAdd(! a: 0, b: 0) -> 0 { return a + b }
 describe('safe vs unsafe comparison', () => {
   it('safe function should have validation, unsafe should not', () => {
     // Safe function (default)
-    const safe = tjs(`function double(x: 0) -> 0 { return x * 2 }`)
+    const safe = tjs(`function double(x: 0): 0 { return x * 2 }`)
     expect(safe.code).toContain("typeof x !== 'number'")
     expect(safe.code).toContain('__tjs.typeError')
 
     // Unsafe via (!) marker
-    const unsafeMarker = tjs(`function double(! x: 0) -> 0 { return x * 2 }`)
+    const unsafeMarker = tjs(`function double(! x: 0): 0 { return x * 2 }`)
     expect(unsafeMarker.code).not.toContain("typeof x !== 'number'")
     expect(unsafeMarker.code).not.toContain('__tjs.typeError')
 
     // Unsafe via safety none
     const unsafeModule = tjs(`safety none
-function double(x: 0) -> 0 { return x * 2 }`)
+function double(x: 0): 0 { return x * 2 }`)
     expect(unsafeModule.code).not.toContain("typeof x !== 'number'")
     expect(unsafeModule.code).not.toContain('__tjs.typeError')
   })
 
   it('both (!) and safety none should produce equivalent unsafe output', () => {
-    const viaMarker = tjs(`function add(! a: 0, b: 0) -> 0 { return a + b }`)
+    const viaMarker = tjs(`function add(! a: 0, b: 0): 0 { return a + b }`)
     const viaDirective = tjs(`safety none
-function add(a: 0, b: 0) -> 0 { return a + b }`)
+function add(a: 0, b: 0): 0 { return a + b }`)
 
     // Both should lack validation
     expect(viaMarker.code).not.toContain('__tjs.pushStack')
@@ -772,7 +772,7 @@ function add(a: 0, b: 0) -> 0 { return a + b }`)
 describe('safe function syntax (?)', () => {
   it('should parse (?) function marker', () => {
     const result = tjs(`
-      function validated(? x: 0) -> 0 {
+      function validated(? x: 0): 0 {
         return x * 2
       }
     `)
@@ -871,7 +871,7 @@ function test() {
 describe('return type safety arrows', () => {
   it('should parse -> as normal return type', () => {
     const result = tjs(`
-      function add(a: 0, b: 0) -> 0 {
+      function add(a: 0, b: 0): 0 {
         return a + b
       }
     `)
@@ -883,7 +883,7 @@ describe('return type safety arrows', () => {
 
   it('should parse -? as safe return (force output validation)', () => {
     const result = tjs(`
-      function add(a: 0, b: 0) -? 0 {
+      function add(a: 0, b: 0):? 0 {
         return a + b
       }
     `)
@@ -894,7 +894,7 @@ describe('return type safety arrows', () => {
 
   it('should parse -! as unsafe return (skip output validation)', () => {
     const result = tjs(`
-      function add(a: 0, b: 0) -! 0 {
+      function add(a: 0, b: 0):! 0 {
         return a + b
       }
     `)
@@ -905,7 +905,7 @@ describe('return type safety arrows', () => {
 
   it('should combine (?) with -? for fully safe function', () => {
     const result = tjs(`
-      function critical(? x: 0) -? 0 {
+      function critical(? x: 0):? 0 {
         return x * 2
       }
     `)
@@ -916,7 +916,7 @@ describe('return type safety arrows', () => {
 
   it('should combine (!) with -! for fully unsafe function', () => {
     const result = tjs(`
-      function fast(! x: 0) -! 0 {
+      function fast(! x: 0):! 0 {
         return x * 2
       }
     `)
@@ -934,7 +934,7 @@ describe('signature tests (transpile-time)', () => {
 
   it('-> should run signature test at transpile time', () => {
     const result = tjs(`
-      function double(x: 5) -> 10 {
+      function double(x: 5): 10 {
         return x * 2
       }
     `)
@@ -947,7 +947,7 @@ describe('signature tests (transpile-time)', () => {
     // double(5) returns 10, but expected "" — value mismatch
     expect(() =>
       tjs(`
-        function double(x: 5) -> "" {
+        function double(x: 5): "" {
           return x * 2
         }
       `)
@@ -956,7 +956,7 @@ describe('signature tests (transpile-time)', () => {
 
   it('-? should run signature test at transpile time', () => {
     const result = tjs(`
-      function double(x: 5) -? 10 {
+      function double(x: 5):? 10 {
         return x * 2
       }
     `)
@@ -967,7 +967,7 @@ describe('signature tests (transpile-time)', () => {
   it('-? should pass when example is consistent', () => {
     // double(5) returns 10, -> 10 is the exact expected result
     const result = tjs(`
-      function double(x: 5) -? 10 {
+      function double(x: 5):? 10 {
         return x * 2
       }
     `)
@@ -978,7 +978,7 @@ describe('signature tests (transpile-time)', () => {
     // getString(5) returns 10, but expected "" — value mismatch
     expect(() =>
       tjs(`
-        function getString(x: 5) -? "" {
+        function getString(x: 5):? "" {
           return x * 2
         }
       `)
@@ -988,7 +988,7 @@ describe('signature tests (transpile-time)', () => {
   it('-! should skip signature test entirely', () => {
     // This would fail if tested, but -! skips the test
     const result = tjs(`
-      function double(x: 5) -! 999 {
+      function double(x: 5):! 999 {
         return x * 2
       }
     `)
@@ -997,7 +997,7 @@ describe('signature tests (transpile-time)', () => {
 
   it('-> with object return should test structure', () => {
     const result = tjs(`
-      function getPoint(x: 3, y: 4) -> { x: 3, y: 4 } {
+      function getPoint(x: 3, y: 4): { x: 3, y: 4 } {
         return { x, y }
       }
     `)
@@ -1007,7 +1007,7 @@ describe('signature tests (transpile-time)', () => {
   it('-> with object return should pass when example is consistent', () => {
     // getPoint(3, 4) returns {x: 3, y: 4}, -> matches exactly
     const result = tjs(`
-      function getPoint(x: 3, y: 4) -> { x: 3, y: 4 } {
+      function getPoint(x: 3, y: 4): { x: 3, y: 4 } {
         return { x, y }
       }
     `)
@@ -1017,7 +1017,7 @@ describe('signature tests (transpile-time)', () => {
   it('-> with object return should fail on value mismatch', () => {
     expect(() =>
       tjs(`
-        function getPoint(x: 3, y: 4) -> { x: "", y: "" } {
+        function getPoint(x: 3, y: 4): { x: "", y: "" } {
           return { x, y }
         }
       `)
@@ -1027,7 +1027,7 @@ describe('signature tests (transpile-time)', () => {
   it('should skip signature tests for async functions', () => {
     const result = tjs(
       `
-      async function fetchData(id: 'test-1') -> { name: '', id: '' } {
+      async function fetchData(id: 'test-1'): { name: '', id: '' } {
         return { name: 'Test', id }
       }
     `,
@@ -1042,11 +1042,11 @@ describe('signature tests (transpile-time)', () => {
   it('should handle top-level await in module code during tests', () => {
     const result = tjs(
       `
-      function double(x: 5) -> 10 {
+      function double(x: 5): 10 {
         return x * 2
       }
 
-      async function fetchThing(id: '') -> '' {
+      async function fetchThing(id: ''): '' {
         return id
       }
 
@@ -1069,7 +1069,7 @@ describe('signature tests (transpile-time)', () => {
 
       const UserSchema = Schema({ name: '', age: 0 })
 
-      function validateUser(data: { name: '', age: 0 }) -> { valid: true, errors: [''] } {
+      function validateUser(data: { name: '', age: 0 }): { valid: true, errors: [''] } {
         return { valid: true, errors: [] }
       }
     `,
@@ -1090,7 +1090,7 @@ describe('signature tests (transpile-time)', () => {
       `
       import { parseISO, format } from 'date-fns'
 
-      function formatDate(date: '2024-01-15', pattern: 'yyyy-MM-dd') -> '' {
+      function formatDate(date: '2024-01-15', pattern: 'yyyy-MM-dd'): '' {
         const parsed = parseISO(date)
         return format(parsed, pattern)
       }
@@ -1109,11 +1109,11 @@ describe('signature tests (transpile-time)', () => {
   it('should test sync functions alongside async functions', () => {
     const result = tjs(
       `
-      function add(a: 2, b: 3) -> 5 {
+      function add(a: 2, b: 3): 5 {
         return a + b
       }
 
-      async function fetchSum(a: 0, b: 0) -> 0 {
+      async function fetchSum(a: 0, b: 0): 0 {
         return a + b
       }
     `,
@@ -1136,7 +1136,7 @@ describe('signature tests (transpile-time)', () => {
           this.y = y
         }
 
-        distanceTo(other: { x: 3.0, y: 4.0 }) -> 5.0 {
+        distanceTo(other: { x: 3.0, y: 4.0 }): 5.0 {
           const dx = this.x - other.x
           const dy = this.y - other.y
           return Math.sqrt(dx * dx + dy * dy)
@@ -1162,7 +1162,7 @@ describe('signature tests (transpile-time)', () => {
             this.base = base
           }
 
-          add(x: 5) -> 100 {
+          add(x: 5): 100 {
             return this.base + x
           }
         }
@@ -1186,7 +1186,7 @@ describe('signature tests (transpile-time)', () => {
           this.y = coords.y
         }
 
-        distanceTo(other: { x: 3.0, y: 4.0 }) -> 5.0 {
+        distanceTo(other: { x: 3.0, y: 4.0 }): 5.0 {
           const dx = this.x - other.x
           const dy = this.y - other.y
           return Math.sqrt(dx * dx + dy * dy)
@@ -1219,7 +1219,7 @@ describe('signature test canaries — exact value matching', () => {
     // add(2,3) returns 5, but -> says 0 — must fail
     expect(() =>
       tjs(`
-        function add(a: 2, b: 3) -> 0 {
+        function add(a: 2, b: 3): 0 {
           return a + b
         }
       `)
@@ -1230,7 +1230,7 @@ describe('signature test canaries — exact value matching', () => {
     // greet('World') returns 'Hello, World!', but -> says '' — must fail
     expect(() =>
       tjs(
-        "function greet(name: 'World') -> '' {\n  return 'Hello, ' + name + '!'\n}"
+        "function greet(name: 'World'): '' {\n  return 'Hello, ' + name + '!'\n}"
       )
     ).toThrow(/Expected.*got/)
   })
@@ -1239,7 +1239,7 @@ describe('signature test canaries — exact value matching', () => {
     // getPoint(3,4) returns {x:3,y:4}, but -> says {x:0,y:0} — must fail
     expect(() =>
       tjs(`
-        function getPoint(x: 3, y: 4) -> { x: 0, y: 0 } {
+        function getPoint(x: 3, y: 4): { x: 0, y: 0 } {
           return { x, y }
         }
       `)
@@ -1250,7 +1250,7 @@ describe('signature test canaries — exact value matching', () => {
     // -? runs signature test AND runtime validation
     expect(() =>
       tjs(`
-        function double(x: 5) -? 0 {
+        function double(x: 5):? 0 {
           return x * 2
         }
       `)
@@ -1260,7 +1260,7 @@ describe('signature test canaries — exact value matching', () => {
   it('CANARY: -! does NOT run signature test (wrong value is OK)', () => {
     // -! skips the test — wrong return example is just metadata
     const result = tjs(`
-      function double(x: 5) -! 999 {
+      function double(x: 5):! 999 {
         return x * 2
       }
     `)
@@ -1269,7 +1269,7 @@ describe('signature test canaries — exact value matching', () => {
 
   it('CANARY: -> passes with correct exact values', () => {
     const result = tjs(`
-      function add(a: 2, b: 3) -> 5 {
+      function add(a: 2, b: 3): 5 {
         return a + b
       }
     `)
@@ -1279,7 +1279,7 @@ describe('signature test canaries — exact value matching', () => {
 
   it('CANARY: -> passes with correct string value', () => {
     const result = tjs(
-      "function greet(name: 'World') -> 'Hello, World!' {\n  return 'Hello, ' + name + '!'\n}"
+      "function greet(name: 'World'): 'Hello, World!' {\n  return 'Hello, ' + name + '!'\n}"
     )
     expect(result.testResults).toHaveLength(1)
     expect(result.testResults![0].passed).toBe(true)
@@ -1287,7 +1287,7 @@ describe('signature test canaries — exact value matching', () => {
 
   it('CANARY: -> passes with correct object values', () => {
     const result = tjs(`
-      function getPoint(x: 3, y: 4) -> { x: 3, y: 4 } {
+      function getPoint(x: 3, y: 4): { x: 3, y: 4 } {
         return { x, y }
       }
     `)
@@ -1298,7 +1298,7 @@ describe('signature test canaries — exact value matching', () => {
   it('CANARY: -? runtime validation checks type only (not value)', () => {
     // -? validates at runtime that return TYPE matches (number, not 10)
     // The runtime check should pass even if the value differs from annotation
-    const result = tjs('function double(x: 5) -? 10 { return x * 2 }', {
+    const result = tjs('function double(x: 5):? 10 { return x * 2 }', {
       runTests: false,
     })
     const savedTjs = globalThis.__tjs

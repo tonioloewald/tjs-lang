@@ -33,7 +33,7 @@ describe('Unbundled transitive imports', () => {
   it('should share runtime across files importing each other', async () => {
     // File A: exports a validated function
     const aSource = `
-      export function double(x: 0) -! 0 {
+      export function double(x: 0):! 0 {
         return x * 2
       }
     `
@@ -43,7 +43,7 @@ describe('Unbundled transitive imports', () => {
     const bSource = `
       import { double } from './a.js'
 
-      export function quadruple(x: 0) -! 0 {
+      export function quadruple(x: 0):! 0 {
         return double(double(x))
       }
     `
@@ -63,7 +63,7 @@ describe('Unbundled transitive imports', () => {
   it('should propagate MonadicError across file boundaries', async () => {
     // File C: validates input
     const cSource = `
-      export function validateName(name: '') -! '' {
+      export function validateName(name: ''):! '' {
         return name.trim()
       }
     `
@@ -73,7 +73,7 @@ describe('Unbundled transitive imports', () => {
     const dSource = `
       import { validateName } from './c.js'
 
-      export function greetUser(name: '') -! '' {
+      export function greetUser(name: ''):! '' {
         const clean = validateName(name)
         if (clean instanceof Error) return clean
         return 'Hello, ' + clean + '!'
@@ -131,11 +131,11 @@ describe('Unbundled transitive imports', () => {
   it('should not create duplicate MonadicError classes at runtime', async () => {
     // Both files have inline MonadicError but should use shared runtime
     const e1Source = `
-      export function check1(x: '') -! '' { return x }
+      export function check1(x: ''):! '' { return x }
     `
     const e2Source = `
       import { check1 } from './e1.js'
-      export function check2(x: '') -! '' { return check1(x) }
+      export function check2(x: ''):! '' { return check1(x) }
     `
 
     writeFileSync(join(TEMP_DIR, 'e1.js'), tjs(e1Source).code)
@@ -150,14 +150,14 @@ describe('Unbundled transitive imports', () => {
   })
 
   it('should handle three-level import chains', async () => {
-    const l1 = `export function inc(x: 0) -! 0 { return x + 1 }`
+    const l1 = `export function inc(x: 0):! 0 { return x + 1 }`
     const l2 = `
       import { inc } from './l1.js'
-      export function incTwice(x: 0) -! 0 { return inc(inc(x)) }
+      export function incTwice(x: 0):! 0 { return inc(inc(x)) }
     `
     const l3 = `
       import { incTwice } from './l2.js'
-      export function incFour(x: 0) -! 0 { return incTwice(incTwice(x)) }
+      export function incFour(x: 0):! 0 { return incTwice(incTwice(x)) }
     `
 
     writeFileSync(join(TEMP_DIR, 'l1.js'), tjs(l1).code)

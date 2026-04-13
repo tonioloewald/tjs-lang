@@ -1,4 +1,4 @@
-function parseVersion(version: '') -> { major: 0, minor: 0, patch: 0 } {
+function parseVersion(version: ''): { major: 0, minor: 0, patch: 0 } {
     const [major = 0, minor = 0, patch = 0] = version.split('.').map(Number);
     return { major, minor, patch };
 }
@@ -15,7 +15,7 @@ function compareVersions(a: '', b: '') {
     return 0;
 }
 
-function versionsCompatible(a: '', b: '') -> true {
+function versionsCompatible(a: '', b: ''): true {
     const va = parseVersion(a);
     const vb = parseVersion(b);
     return va.major === vb.major;
@@ -40,7 +40,7 @@ function exitUnsafe() {
         unsafeDepth--;
 }
 
-function isUnsafeMode() -> true {
+function isUnsafeMode(): true {
     return unsafeDepth > 0;
 }
 
@@ -69,7 +69,7 @@ function popStack() {
     }
 }
 
-function getStack() -> [''] {
+function getStack(): [''] {
     return [...callStack];
 }
 
@@ -121,7 +121,7 @@ function composeErrors(errors: [null], funcName = '') {
     });
 }
 
-function typeOf(value: any) -> '' {
+function typeOf(value: any): '' {
     if (value === null)
         return 'null';
     if (value === undefined)
@@ -140,7 +140,7 @@ function typeOf(value: any) -> '' {
     return 'object';
 }
 
-function isNativeType(value: any, typeName: '') -> true {
+function isNativeType(value: any, typeName: ''): true {
     if (value === null || value === undefined)
         return false;
     if (typeof value !== 'object' && typeof value !== 'function')
@@ -156,7 +156,7 @@ function isNativeType(value: any, typeName: '') -> true {
     return false;
 }
 
-function checkType(value: any, expected: '', path = '') -> any | null {
+function checkType(value: any, expected: '', path = ''): any | null {
     // If value is already an error, propagate it
     if (isError(value))
         return value;
@@ -199,7 +199,7 @@ Type ParamMeta {
   example: { type: null, required: true, default: null, loc: { start: 0, end: 0 } }
 }
 
-function validateArgs(args: {}, meta: { params: {} }, funcName = '') -> any | null {
+function validateArgs(args: {}, meta: { params: {} }, funcName = ''): any | null {
     for (const [name, param] of Object.entries(meta.params)) {
         const value = args[name];
         // Check if any arg is already an error - propagate first one
@@ -235,7 +235,7 @@ Type FunctionMeta {
   example: { params: {}, returns: { type: null, safe: true }, unsafe: true, safe: true, unsafeReturn: true, safeReturn: true, name: '' }
 }
 
-function shouldValidateInputs(meta: any) -> true {
+function shouldValidateInputs(meta: any): true {
     // Per-function flags take precedence
     if (meta.unsafe)
         return false;
@@ -248,7 +248,7 @@ function shouldValidateInputs(meta: any) -> true {
     return config.safety !== 'none';
 }
 
-function shouldValidateOutputs(meta: any) -> true {
+function shouldValidateOutputs(meta: any): true {
     // No return type declared = no validation
     if (!meta.returns)
         return false;
@@ -586,7 +586,7 @@ function installRuntime() {
     return runtime;
 }
 
-function emitRuntimeWrapper(funcName: '') -> '' {
+function emitRuntimeWrapper(funcName: ''): '' {
     return `
 // TJS runtime wrapper (skips unsafe functions)
 if (typeof ${funcName}.__tjs === 'object' && !${funcName}.__tjs.unsafe && typeof globalThis.__tjs?.wrap === 'function') {
@@ -595,7 +595,7 @@ if (typeof ${funcName}.__tjs === 'object' && !${funcName}.__tjs.unsafe && typeof
 `.trim();
 }
 
-function emitClassWrapper(className: '') -> '' {
+function emitClassWrapper(className: ''): '' {
     return `
 // TJS class wrapper (callable without new)
 if (typeof globalThis.__tjs?.wrapClass === 'function') {

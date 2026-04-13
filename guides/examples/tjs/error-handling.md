@@ -17,15 +17,15 @@ No try/catch needed. No manual error checking between calls.
 
 // --- Error propagation through a pipeline ---
 
-function validate(name: '') -> '' {
+function validate(name: ''): '' {
   return name.trim()
 }
 
-function greet(name: '') -> 'Hello, !' {
+function greet(name: ''): 'Hello, !' {
   return `Hello, ${name}!`
 }
 
-function shout(text: '') -> '' {
+function shout(text: ''): '' {
   return text.toUpperCase()
 }
 
@@ -52,7 +52,7 @@ test 'error identity is preserved (same object, not a copy)' {
 
 // --- Result pattern for domain errors ---
 
-function divide(a: 10, b: 2) -> { value: 5 } {
+function divide(a: 10, b: 2): { value: 5 } {
   if (b === 0) {
     return { value: NaN, error: 'Division by zero' }
   }

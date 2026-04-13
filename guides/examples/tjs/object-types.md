@@ -19,15 +19,15 @@ test 'createPoint returns correct structure' {
   expect(p.y).toBe(10)
 }
 
-function getFullName(person: { first: '', last: '' }) -> ' ' {
+function getFullName(person: { first: '', last: '' }): ' ' {
   return person.first + ' ' + person.last
 }
 
-function createPoint(x: 0, y: 0) -> { x: 0, y: 0 } {
+function createPoint(x: 0, y: 0): { x: 0, y: 0 } {
   return { x, y }
 }
 
-function distance(p1: { x: 0, y: 0 }, p2: { x: 0, y: 0 }) -> 0 {
+function distance(p1: { x: 0, y: 0 }, p2: { x: 0, y: 0 }): 0 {
   const dx = p2.x - p1.x
   const dy = p2.y - p1.y
   return Math.sqrt(dx * dx + dy * dy)
