@@ -2,14 +2,18 @@
 /**
  * Build script for TJS bundles
  *
+ * Uses esbuild for correct ESM re-export handling.
+ *
  * Produces separate bundles for different use cases:
- * - tjs-vm.js        - VM runtime only (universal endpoint)
- * - tjs-batteries.js - LLM, vector, store ops (optional runtime)
- * - tjs-transpiler.js - TJS/AJS transpiler (no TS compiler)
- * - tjs-full.js      - Everything including fromTS + TS compiler
+ * - index.js          - Everything (VM + lang + fromTS)
+ * - tjs-vm.js         - VM runtime only (AgentVM, atoms)
+ * - tjs-batteries.js  - LLM, vector, store ops
+ * - tjs-lang.js       - TJS/AJS transpiler (no TS compiler)
+ * - tjs-eval.js       - Safe eval (VM + transpiler)
+ * - tjs-from-ts.js    - TS→TJS converter (needs typescript)
  */
 
-import { build } from 'bun'
+import { buildSync } from 'esbuild'
 import { gzipSync } from 'zlib'
 import { readFileSync, mkdirSync, existsSync } from 'fs'
 import { join } from 'path'
@@ -32,32 +36,38 @@ const targets: BuildTarget[] = [
   {
     name: 'index',
     entry: './src/index.ts',
-    external: ['acorn', 'tosijs-schema', 'typescript'],
-    description: 'Main entry point (same as tjs-full)',
+    external: ['acorn', 'tosijs-schema', 'typescript', 'node:readline'],
+    description: 'Main entry (VM + lang + fromTS)',
   },
   {
     name: 'tjs-vm',
     entry: './src/vm/index.ts',
     external: ['tosijs-schema'],
-    description: 'VM runtime (universal endpoint)',
+    description: 'VM runtime only',
   },
   {
     name: 'tjs-batteries',
     entry: './src/batteries/index.ts',
-    external: ['tosijs-schema'],
+    external: ['tosijs-schema', 'node:readline'],
     description: 'LLM, vector, store ops',
   },
   {
-    name: 'tjs-transpiler',
+    name: 'tjs-lang',
     entry: './src/lang/transpiler.ts',
     external: ['acorn', 'tosijs-schema'],
     description: 'TJS/AJS transpiler (no TS)',
   },
   {
-    name: 'tjs-full',
-    entry: './src/index.ts',
+    name: 'tjs-eval',
+    entry: './src/lang/eval.ts',
+    external: ['acorn', 'tosijs-schema'],
+    description: 'Safe eval (VM + transpiler)',
+  },
+  {
+    name: 'tjs-from-ts',
+    entry: './src/lang/emitters/from-ts.ts',
     external: ['acorn', 'tosijs-schema', 'typescript'],
-    description: 'Full bundle with TS support',
+    description: 'TS→TJS converter (needs typescript)',
   },
 ]
 
@@ -67,18 +77,17 @@ function formatSize(bytes: number): string {
   return `${(bytes / 1024 / 1024).toFixed(2)} MB`
 }
 
-async function buildTarget(
-  target: BuildTarget
-): Promise<{ raw: number; gzip: number }> {
+function buildTarget(target: BuildTarget): { raw: number; gzip: number } {
   const outfile = join(distDir, `${target.name}.js`)
 
-  await build({
-    entrypoints: [target.entry],
-    outdir: distDir,
-    naming: `${target.name}.js`,
+  buildSync({
+    entryPoints: [target.entry],
+    outfile,
+    bundle: true,
     minify: true,
-    sourcemap: 'external',
-    target: 'browser',
+    sourcemap: true,
+    format: 'esm',
+    platform: 'neutral',
     external: target.external,
   })
 
@@ -88,7 +97,7 @@ async function buildTarget(
   return { raw: content.length, gzip: gzipped.length }
 }
 
-async function main() {
+function main() {
   console.log('Building TJS bundles...\n')
   console.log('─'.repeat(65))
   console.log(
@@ -103,7 +112,7 @@ async function main() {
 
   for (const target of targets) {
     try {
-      const { raw, gzip } = await buildTarget(target)
+      const { raw, gzip } = buildTarget(target)
       totalRaw += raw
       totalGzip += gzip
 
@@ -127,10 +136,13 @@ async function main() {
   )
   console.log('')
 
-  // Show what a minimal endpoint needs
-  console.log('Minimal universal endpoint: tjs-vm.js')
-  console.log('With LLM/vector support:    tjs-vm.js + tjs-batteries.js')
-  console.log('Browser playground:         tjs-full.js (includes TS compiler)')
+  // Show what each subpath provides
+  console.log('tjs-lang           → Everything (needs typescript)')
+  console.log('tjs-lang/vm        → VM only (AgentVM, atoms)')
+  console.log('tjs-lang/lang      → TJS/AJS transpiler (no TS compiler)')
+  console.log('tjs-lang/eval      → Safe eval (VM + transpiler)')
+  console.log('tjs-lang/lang/from-ts → TS→TJS (needs typescript)')
+  console.log('tjs-lang/batteries → LLM, vector, store ops')
 }
 
-main().catch(console.error)
+main()

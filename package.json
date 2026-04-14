@@ -1,6 +1,6 @@
 {
   "name": "tjs-lang",
-  "version": "0.7.3",
+  "version": "0.7.4",
   "description": "Type-safe JavaScript dialect with runtime validation, sandboxed VM execution, and AI agent orchestration. Transpiles TypeScript to validated JS with fuel-metered execution for untrusted code.",
   "keywords": [
     "typescript",
@@ -31,22 +31,27 @@
     "./eval": {
       "bun": "./src/lang/eval.ts",
       "types": "./dist/src/lang/eval.d.ts",
-      "default": "./dist/lang/eval.js"
+      "default": "./dist/tjs-eval.js"
     },
     "./lang": {
-      "bun": "./src/lang/index.ts",
-      "types": "./dist/src/lang/index.d.ts",
-      "default": "./dist/lang/index.js"
-    },
-    "./lang/eval": {
-      "bun": "./src/lang/eval.ts",
-      "types": "./dist/src/lang/eval.d.ts",
-      "default": "./dist/lang/eval.js"
+      "bun": "./src/lang/transpiler.ts",
+      "types": "./dist/src/lang/transpiler.d.ts",
+      "default": "./dist/tjs-lang.js"
     },
     "./lang/from-ts": {
       "bun": "./src/lang/emitters/from-ts.ts",
       "types": "./dist/src/lang/emitters/from-ts.d.ts",
-      "default": "./dist/lang/emitters/from-ts.js"
+      "default": "./dist/tjs-from-ts.js"
+    },
+    "./vm": {
+      "bun": "./src/vm/index.ts",
+      "types": "./dist/src/vm/index.d.ts",
+      "default": "./dist/tjs-vm.js"
+    },
+    "./batteries": {
+      "bun": "./src/batteries/index.ts",
+      "types": "./dist/src/batteries/index.d.ts",
+      "default": "./dist/tjs-batteries.js"
     },
     "./src": "./src/index.ts",
     "./editors/monaco": "./editors/monaco/ajs-monarch.js",
@@ -94,6 +99,7 @@
     "acorn-walk": "^8.3.4",
     "chokidar": "^4.0.3",
     "codemirror": "^6.0.2",
+    "esbuild": "^0.28.0",
     "eslint": "^8.57.1",
     "firebase": "^10.12.0",
     "firebase-admin": "^13.6.0",
