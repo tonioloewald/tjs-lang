@@ -822,8 +822,8 @@ export function transpileToJS(
     // Core: MonadicError + typeError (needed by almost all validated functions)
     if (needsTypeError) {
       inlineParts.push(
-        `class MonadicError extends Error{constructor(m,p,e,a,c){super(m);this.name='MonadicError';this.path=p;this.expected=e;this.actual=a;this.callStack=c}}`,
-        `function typeError(p,e,v){const a=v===null?'null':typeof v;const err=new MonadicError('Expected '+e+" for '"+p+"', got "+a,p,e,a);const c=globalThis.__tjs?.getConfig?.();if(c?.logTypeErrors)console.error('[TJS TypeError] '+err.message);if(c?.throwTypeErrors)throw err;return err}`,
+        `class MonadicError extends Error{constructor(m,p,e,a,c,r){super(m);this.name='MonadicError';this.path=p;this.expected=e;this.actual=a;this.callStack=c;this.reason=r}}`,
+        `function typeError(p,e,v,r){const a=v===null?'null':typeof v;const m=r?'Expected '+e+" for '"+p+"': "+r:'Expected '+e+" for '"+p+"', got "+a;const err=new MonadicError(m,p,e,a,undefined,r);const c=globalThis.__tjs?.getConfig?.();if(c?.logTypeErrors)console.error('[TJS TypeError] '+err.message);if(c?.throwTypeErrors)throw err;return err}`,
         `function isMonadicError(v){return v instanceof Error&&v.name==='MonadicError'&&'path' in v}`
       )
     }
@@ -892,8 +892,8 @@ export function transpileToJS(
       // bang depends on typeError and isMonadicError — ensure they're inlined
       if (!needsTypeError) {
         inlineParts.push(
-          `class MonadicError extends Error{constructor(m,p,e,a,c){super(m);this.name='MonadicError';this.path=p;this.expected=e;this.actual=a;this.callStack=c}}`,
-          `function typeError(p,e,v){const a=v===null?'null':typeof v;const err=new MonadicError('Expected '+e+" for '"+p+"', got "+a,p,e,a);const c=globalThis.__tjs?.getConfig?.();if(c?.logTypeErrors)console.error('[TJS TypeError] '+err.message);if(c?.throwTypeErrors)throw err;return err}`,
+          `class MonadicError extends Error{constructor(m,p,e,a,c,r){super(m);this.name='MonadicError';this.path=p;this.expected=e;this.actual=a;this.callStack=c;this.reason=r}}`,
+          `function typeError(p,e,v,r){const a=v===null?'null':typeof v;const m=r?'Expected '+e+" for '"+p+"': "+r:'Expected '+e+" for '"+p+"', got "+a;const err=new MonadicError(m,p,e,a,undefined,r);const c=globalThis.__tjs?.getConfig?.();if(c?.logTypeErrors)console.error('[TJS TypeError] '+err.message);if(c?.throwTypeErrors)throw err;return err}`,
           `function isMonadicError(v){return v instanceof Error&&v.name==='MonadicError'&&'path' in v}`
         )
       }

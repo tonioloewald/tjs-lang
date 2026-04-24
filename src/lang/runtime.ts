@@ -142,13 +142,16 @@ export class MonadicError extends Error {
   readonly actual?: string
   /** TJS call stack (only in debug mode) - shows source locations */
   readonly callStack?: string[]
+  /** Why the check failed (from predicate reason strings) */
+  readonly reason?: string
 
   constructor(
     message: string,
     path: string,
     expected?: string,
     actual?: string,
-    callStack?: string[]
+    callStack?: string[],
+    reason?: string
   ) {
     super(message)
     this.name = 'MonadicError'
@@ -156,6 +159,7 @@ export class MonadicError extends Error {
     this.expected = expected
     this.actual = actual
     this.callStack = callStack
+    this.reason = reason
     // Maintains proper stack trace in V8 environments
     if (Error.captureStackTrace) {
       Error.captureStackTrace(this, MonadicError)
@@ -177,18 +181,16 @@ export class MonadicError extends Error {
 export function typeError(
   path: string,
   expected: string,
-  value: unknown
+  value: unknown,
+  reason?: string
 ): MonadicError {
   const actual = value === null ? 'null' : typeof value
   // Capture call stack in debug mode (getStack returns [] if not in debug mode)
   const stack = config.callStacks || config.debug ? getStack() : undefined
-  const err = new MonadicError(
-    `Expected ${expected} for '${path}', got ${actual}`,
-    path,
-    expected,
-    actual,
-    stack
-  )
+  const msg = reason
+    ? `Expected ${expected} for '${path}': ${reason}`
+    : `Expected ${expected} for '${path}', got ${actual}`
+  const err = new MonadicError(msg, path, expected, actual, stack, reason)
 
   // Track in error history ring buffer (zero cost on happy path)
   if (config.trackErrors !== false) {
@@ -238,6 +240,8 @@ export interface TJSError {
   stack?: string[]
   expected?: string
   actual?: string
+  /** Why the check failed (from predicate reason strings) */
+  reason?: string
   cause?: Error | TJSError
   /** Source location for error reporting */
   loc?: { start: number; end: number }
@@ -779,7 +783,9 @@ export function isNativeType(value: unknown, typeName: string): boolean {
  */
 export function checkType(
   value: unknown,
-  expected: string | { check: (v: unknown) => boolean; description: string },
+  expected:
+    | string
+    | { check: (v: unknown) => boolean | string; description: string },
   path?: string
 ): TJSError | null {
   // If value is already an error, propagate it
@@ -791,11 +797,17 @@ export function checkType(
     expected !== null &&
     'check' in expected
   ) {
-    if (expected.check(value)) return null
-    return error(`Expected ${expected.description} but got ${typeOf(value)}`, {
+    const result = expected.check(value)
+    if (result === true) return null
+    const reason = typeof result === 'string' ? result : undefined
+    const msg = reason
+      ? `Expected ${expected.description} for '${path}': ${reason}`
+      : `Expected ${expected.description} but got ${typeOf(value)}`
+    return error(msg, {
       path,
       expected: expected.description,
       actual: typeOf(value),
+      reason,
     })
   }
 
@@ -828,7 +840,9 @@ export function checkType(
 }
 
 /** Type specifier - either a string name or a RuntimeType */
-type TypeSpec = string | { check: (v: unknown) => boolean; description: string }
+type TypeSpec =
+  | string
+  | { check: (v: unknown) => boolean | string; description: string }
 
 /** Parameter metadata with optional location */
 interface ParamMeta {

@@ -35,12 +35,12 @@ type Schema = Base<any> | JSONSchema
 export interface RuntimeType<T = unknown> {
   /** Human-readable description of the type */
   readonly description: string
-  /** Check if a value matches this type */
-  check(value: unknown): value is T
+  /** Check if a value matches this type. Returns true on pass, false on fail, or a reason string on fail. */
+  check(value: unknown): boolean | string
   /** The underlying schema (if schema-based) */
   readonly schema?: Schema
-  /** The predicate function (if predicate-based) */
-  readonly predicate?: (value: unknown) => boolean
+  /** The predicate function (if predicate-based). May return a reason string on failure. */
+  readonly predicate?: (value: unknown) => boolean | string
   /** Example value (for documentation and signature testing) */
   readonly example?: T
   /** Multiple example values (from schema metadata, for autocomplete hints) */
@@ -99,7 +99,7 @@ function isJSONSchema(value: unknown): value is JSONSchema {
 export function Type<T = unknown>(
   descriptionOrSchema: string | Schema,
   predicateOrSchemaOrExample?:
-    | ((value: unknown) => boolean)
+    | ((value: unknown) => boolean | string)
     | Schema
     | T
     | undefined,
@@ -108,7 +108,7 @@ export function Type<T = unknown>(
 ): RuntimeType<T> {
   // Parse arguments
   let description: string
-  let predicate: ((value: unknown) => boolean) | undefined
+  let predicate: ((value: unknown) => boolean | string) | undefined
   let schema: Schema | undefined
   let example: T | undefined = exampleArg
   let defaultValue: T | undefined = defaultArg
@@ -119,7 +119,9 @@ export function Type<T = unknown>(
 
     if (typeof predicateOrSchemaOrExample === 'function') {
       // Type(description, predicate, example?, default?)
-      predicate = predicateOrSchemaOrExample as (value: unknown) => boolean
+      predicate = predicateOrSchemaOrExample as (
+        value: unknown
+      ) => boolean | string
       // If we have example, infer schema from it for the type guard in predicate
       if (example !== undefined) {
         schema = s.infer(example)
@@ -176,7 +178,8 @@ export function Type<T = unknown>(
   }
 
   // Build the check function
-  const check = (value: unknown): value is T => {
+  // Returns true on pass, false on fail, or a reason string on fail
+  const check = (value: unknown): boolean | string => {
     if (predicate) {
       return predicate(value)
     }
@@ -264,46 +267,59 @@ function schemaToDescription(schema: Schema): string {
 // ============================================================================
 
 /** String type */
-export const TString = Type<string>(
-  'string',
-  (v: unknown) => typeof v === 'string'
-)
+export const TString = Type<string>('string', (v: unknown) => {
+  if (typeof v === 'string') return true
+  return `expected string, got ${v === null ? 'null' : typeof v}`
+})
 
 /** Number type */
-export const TNumber = Type<number>(
-  'number',
-  (v: unknown) => typeof v === 'number'
-)
+export const TNumber = Type<number>('number', (v: unknown) => {
+  if (typeof v === 'number') return true
+  return `expected number, got ${v === null ? 'null' : typeof v}`
+})
 
 /** Boolean type */
-export const TBoolean = Type<boolean>(
-  'boolean',
-  (v: unknown) => typeof v === 'boolean'
-)
+export const TBoolean = Type<boolean>('boolean', (v: unknown) => {
+  if (typeof v === 'boolean') return true
+  return `expected boolean, got ${v === null ? 'null' : typeof v}`
+})
 
 /** Integer type */
-export const TInteger = Type<number>(
-  'integer',
-  (v: unknown) => typeof v === 'number' && Number.isInteger(v)
-)
+export const TInteger = Type<number>('integer', (v: unknown) => {
+  if (typeof v !== 'number')
+    return `expected integer, got ${v === null ? 'null' : typeof v}`
+  if (!Number.isInteger(v)) return `${v} is not an integer`
+  return true
+})
 
 /** Positive integer type */
-export const TPositiveInt = Type<number>(
-  'positive integer',
-  (v: unknown) => typeof v === 'number' && Number.isInteger(v) && v > 0
-)
+export const TPositiveInt = Type<number>('positive integer', (v: unknown) => {
+  if (typeof v !== 'number')
+    return `expected positive integer, got ${v === null ? 'null' : typeof v}`
+  if (!Number.isInteger(v)) return `${v} is not an integer`
+  if (v <= 0) return `${v} is not positive`
+  return true
+})
 
 /** Non-empty string type */
 export const TNonEmptyString = Type<string>(
   'non-empty string',
-  (v: unknown) => typeof v === 'string' && v.length > 0
+  (v: unknown) => {
+    if (typeof v !== 'string')
+      return `expected string, got ${v === null ? 'null' : typeof v}`
+    if (v.length === 0) return 'string is empty'
+    return true
+  }
 )
 
 /** Email type (basic validation) */
-export const TEmail = Type<string>(
-  'email address',
-  (v: unknown) => typeof v === 'string' && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(v)
-)
+export const TEmail = Type<string>('email address', (v: unknown) => {
+  if (typeof v !== 'string')
+    return `expected string, got ${v === null ? 'null' : typeof v}`
+  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(v))
+    return `"${v}" is not a valid email`
+  return true
+})
 
 /**
  * Check if a string is a valid URL (portable helper for predicates)
@@ -319,18 +335,23 @@ export const isValidUrl = (v: string): boolean => {
 }
 
 /** URL type */
-export const TUrl = Type<string>(
-  'URL',
-  (v: unknown) => typeof v === 'string' && isValidUrl(v)
-)
+export const TUrl = Type<string>('URL', (v: unknown) => {
+  if (typeof v !== 'string')
+    return `expected string, got ${v === null ? 'null' : typeof v}`
+  if (!isValidUrl(v)) return `"${v}" is not a valid URL`
+  return true
+})
 
 /** UUID type */
-export const TUuid = Type<string>(
-  'UUID',
-  (v: unknown) =>
-    typeof v === 'string' &&
-    /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(v)
-)
+export const TUuid = Type<string>('UUID', (v: unknown) => {
+  if (typeof v !== 'string')
+    return `expected string, got ${v === null ? 'null' : typeof v}`
+  if (
+    !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(v)
+  )
+    return `"${v}" is not a valid UUID`
+  return true
+})
 
 /**
  * Check if a string is a valid ISO 8601 timestamp (portable helper for predicates)
@@ -371,7 +392,7 @@ export const LegalDate = Type<string>(
 export function Nullable<T>(type: RuntimeType<T>): RuntimeType<T | null> {
   return Type<T | null>(
     `${type.description} or null`,
-    (v: unknown) => v === null || type.check(v)
+    (v: unknown) => v === null || type.check(v) === true
   )
 }
 
@@ -381,7 +402,7 @@ export function Optional<T>(
 ): RuntimeType<T | null | undefined> {
   return Type<T | null | undefined>(
     `${type.description} (optional)`,
-    (v: unknown) => v === null || v === undefined || type.check(v)
+    (v: unknown) => v === null || v === undefined || type.check(v) === true
   )
 }
 
@@ -434,14 +455,17 @@ export function Union<T extends unknown[]>(
   types.push(...restTypes)
 
   const description = types.map((t) => t.description).join(' | ')
-  return Type(description, (v: unknown) => types.some((t) => t.check(v)))
+  return Type(description, (v: unknown) =>
+    types.some((t) => t.check(v) === true)
+  )
 }
 
 /** Create an array type */
 export function TArray<T>(itemType: RuntimeType<T>): RuntimeType<T[]> {
   return Type<T[]>(
     `array of ${itemType.description}`,
-    (v: unknown) => Array.isArray(v) && v.every((item) => itemType.check(item))
+    (v: unknown) =>
+      Array.isArray(v) && v.every((item) => itemType.check(item) === true)
   )
 }
 
@@ -467,7 +491,7 @@ export interface GenericType<TParams extends string[] = string[]> {
  */
 function typeParamToCheck(param: TypeParam): (value: unknown) => boolean {
   if (isRuntimeType(param)) {
-    return (v) => param.check(v)
+    return (v) => param.check(v) === true
   }
   // Check if it's a schema builder (has .schema property)
   if (param && typeof param === 'object' && 'schema' in param) {
@@ -820,21 +844,23 @@ function _createFunctionPredicate(
     returnContract,
     toJSONSchema: () => ({ description: name, type: 'function' as any }),
     strip: (value: unknown) => value,
-    // eslint-disable-next-line @typescript-eslint/ban-types
-    check: (value: unknown): value is Function => {
-      if (typeof value !== 'function') return false
+    check: (value: unknown): boolean | string => {
+      if (typeof value !== 'function')
+        return `expected function, got ${
+          value === null ? 'null' : typeof value
+        }`
 
       // Structural validation: check arity and __tjs metadata
       const expectedArity = Object.keys(params).length
       if (expectedArity > 0) {
-        // Check function.length (number of params before first default)
         // eslint-disable-next-line @typescript-eslint/ban-types
         const fn = value as Function
         const meta = (fn as any).__tjs
         if (meta?.params) {
           // Has TJS metadata — check param count matches
           const metaParamCount = Object.keys(meta.params).length
-          if (metaParamCount !== expectedArity) return false
+          if (metaParamCount !== expectedArity)
+            return `expected ${expectedArity} params, got ${metaParamCount}`
 
           // Check param type kinds match where both sides have type info
           const expectedKeys = Object.keys(params)
@@ -849,7 +875,7 @@ function _createFunctionPredicate(
                 metaInfo.type.kind !== expectedKind &&
                 metaInfo.type.kind !== 'any'
               )
-                return false
+                return `param '${expectedKeys[i]}' expected ${expectedKind}, got ${metaInfo.type.kind}`
             }
           }
         }

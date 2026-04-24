@@ -12,9 +12,11 @@ describe('FunctionPredicate runtime', () => {
     })
     expect(Callback.check(() => {})).toBe(true)
     expect(Callback.check((x: number) => String(x))).toBe(true)
-    expect(Callback.check(42)).toBe(false)
-    expect(Callback.check('not a function')).toBe(false)
-    expect(Callback.check(null)).toBe(false)
+    expect(Callback.check(42)).toBe('expected function, got number')
+    expect(Callback.check('not a function')).toBe(
+      'expected function, got string'
+    )
+    expect(Callback.check(null)).toBe('expected function, got null')
   })
 
   it('should create from existing typed function', () => {
@@ -73,7 +75,7 @@ describe('FunctionPredicate runtime', () => {
         x: { type: { kind: 'integer' }, example: 0 },
       },
     }
-    expect(Binop.check(wrongArity)).toBe(false)
+    expect(Binop.check(wrongArity)).toBe('expected 2 params, got 1')
   })
 
   it('should reject function with wrong param types via __tjs metadata', () => {
@@ -93,7 +95,7 @@ describe('FunctionPredicate runtime', () => {
     ;(badFn as any).__tjs = {
       params: { n: { type: { kind: 'integer' }, example: 0 } },
     }
-    expect(StrFn.check(badFn)).toBe(false)
+    expect(StrFn.check(badFn)).toBe("param 'name' expected string, got integer")
   })
 
   it('should accept function with any-typed params', () => {
@@ -230,7 +232,7 @@ describe('Generic FunctionPredicate runtime', () => {
     expect(StringCreator.returns).toBe('')
     expect(StringCreator.params.x).toBe('')
     expect(StringCreator.check(() => {})).toBe(true)
-    expect(StringCreator.check(42)).toBe(false)
+    expect(StringCreator.check(42)).toBe('expected function, got number')
   })
 
   it('should use default type arg when none provided', () => {

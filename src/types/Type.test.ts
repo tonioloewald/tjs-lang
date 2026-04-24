@@ -207,8 +207,8 @@ describe('Built-in Types', () => {
   it('TString validates strings', () => {
     expect(TString.check('hello')).toBe(true)
     expect(TString.check('')).toBe(true)
-    expect(TString.check(123)).toBe(false)
-    expect(TString.check(null)).toBe(false)
+    expect(TString.check(123)).toBe('expected string, got number')
+    expect(TString.check(null)).toBe('expected string, got null')
   })
 
   it('TNumber validates numbers', () => {
@@ -216,60 +216,64 @@ describe('Built-in Types', () => {
     expect(TNumber.check(0)).toBe(true)
     expect(TNumber.check(-1.5)).toBe(true)
     expect(TNumber.check(NaN)).toBe(true) // NaN is typeof number
-    expect(TNumber.check('123')).toBe(false)
+    expect(TNumber.check('123')).toBe('expected number, got string')
   })
 
   it('TBoolean validates booleans', () => {
     expect(TBoolean.check(true)).toBe(true)
     expect(TBoolean.check(false)).toBe(true)
-    expect(TBoolean.check(1)).toBe(false)
-    expect(TBoolean.check('true')).toBe(false)
+    expect(TBoolean.check(1)).toBe('expected boolean, got number')
+    expect(TBoolean.check('true')).toBe('expected boolean, got string')
   })
 
   it('TInteger validates integers', () => {
     expect(TInteger.check(1)).toBe(true)
     expect(TInteger.check(0)).toBe(true)
     expect(TInteger.check(-5)).toBe(true)
-    expect(TInteger.check(1.5)).toBe(false)
-    expect(TInteger.check('1')).toBe(false)
+    expect(TInteger.check(1.5)).toBe('1.5 is not an integer')
+    expect(TInteger.check('1')).toBe('expected integer, got string')
   })
 
   it('TPositiveInt validates positive integers', () => {
     expect(TPositiveInt.check(1)).toBe(true)
     expect(TPositiveInt.check(100)).toBe(true)
-    expect(TPositiveInt.check(0)).toBe(false)
-    expect(TPositiveInt.check(-1)).toBe(false)
-    expect(TPositiveInt.check(1.5)).toBe(false)
+    expect(TPositiveInt.check(0)).toBe('0 is not positive')
+    expect(TPositiveInt.check(-1)).toBe('-1 is not positive')
+    expect(TPositiveInt.check(1.5)).toBe('1.5 is not an integer')
   })
 
   it('TNonEmptyString validates non-empty strings', () => {
     expect(TNonEmptyString.check('hello')).toBe(true)
     expect(TNonEmptyString.check('a')).toBe(true)
-    expect(TNonEmptyString.check('')).toBe(false)
-    expect(TNonEmptyString.check(123)).toBe(false)
+    expect(TNonEmptyString.check('')).toBe('string is empty')
+    expect(TNonEmptyString.check(123)).toBe('expected string, got number')
   })
 
   it('TEmail validates email addresses', () => {
     expect(TEmail.check('user@example.com')).toBe(true)
     expect(TEmail.check('a@b.c')).toBe(true)
-    expect(TEmail.check('invalid')).toBe(false)
-    expect(TEmail.check('no@domain')).toBe(false)
-    expect(TEmail.check('@example.com')).toBe(false)
+    expect(TEmail.check('invalid')).toBe('"invalid" is not a valid email')
+    expect(TEmail.check('no@domain')).toBe('"no@domain" is not a valid email')
+    expect(TEmail.check('@example.com')).toBe(
+      '"@example.com" is not a valid email'
+    )
   })
 
   it('TUrl validates URLs', () => {
     expect(TUrl.check('https://example.com')).toBe(true)
     expect(TUrl.check('http://localhost:3000')).toBe(true)
     expect(TUrl.check('ftp://files.example.com')).toBe(true)
-    expect(TUrl.check('not-a-url')).toBe(false)
-    expect(TUrl.check('example.com')).toBe(false)
+    expect(TUrl.check('not-a-url')).toBe('"not-a-url" is not a valid URL')
+    expect(TUrl.check('example.com')).toBe('"example.com" is not a valid URL')
   })
 
   it('TUuid validates UUIDs', () => {
     expect(TUuid.check('550e8400-e29b-41d4-a716-446655440000')).toBe(true)
     expect(TUuid.check('550E8400-E29B-41D4-A716-446655440000')).toBe(true)
-    expect(TUuid.check('not-a-uuid')).toBe(false)
-    expect(TUuid.check('550e8400-e29b-41d4-a716')).toBe(false)
+    expect(TUuid.check('not-a-uuid')).toBe('"not-a-uuid" is not a valid UUID')
+    expect(TUuid.check('550e8400-e29b-41d4-a716')).toBe(
+      '"550e8400-e29b-41d4-a716" is not a valid UUID'
+    )
   })
 })
 
@@ -674,5 +678,50 @@ describe('Enum', () => {
     expect(HttpStatus.check(418)).toBe(false) // I'm a teapot - not in enum
     expect(HttpStatus.names[200]).toBe('OK')
     expect(HttpStatus.members.NotFound).toBe(404)
+  })
+})
+
+describe('predicate reason strings', () => {
+  it('Type() passes through reason strings from predicates', () => {
+    const EvenNumber = Type<number>('even number', (v: unknown) => {
+      if (typeof v !== 'number') return 'not a number'
+      if (v % 2 !== 0) return `${v} is odd`
+      return true
+    })
+
+    expect(EvenNumber.check(4)).toBe(true)
+    expect(EvenNumber.check(3)).toBe('3 is odd')
+    expect(EvenNumber.check('x')).toBe('not a number')
+  })
+
+  it('schema-based types still return boolean', () => {
+    const StringType = Type('a string', s.string)
+    expect(StringType.check('hello')).toBe(true)
+    expect(StringType.check(42)).toBe(false)
+  })
+
+  it('Nullable correctly handles reason-returning predicates', () => {
+    const EvenNumber = Type<number>('even number', (v: unknown) => {
+      if (typeof v !== 'number') return 'not a number'
+      if (v % 2 !== 0) return `${v} is odd`
+      return true
+    })
+    const NullableEven = Nullable(EvenNumber)
+
+    expect(NullableEven.check(null)).toBe(true)
+    expect(NullableEven.check(4)).toBe(true)
+    expect(NullableEven.check(3)).toBe(false) // reason lost in combinator, but correctly fails
+  })
+
+  it('TArray correctly handles reason-returning predicates', () => {
+    const Positive = Type<number>('positive', (v: unknown) => {
+      if (typeof v !== 'number') return 'not a number'
+      if (v <= 0) return `${v} is not positive`
+      return true
+    })
+    const PositiveArray = TArray(Positive)
+
+    expect(PositiveArray.check([1, 2, 3])).toBe(true)
+    expect(PositiveArray.check([1, -1, 3])).toBe(false)
   })
 })

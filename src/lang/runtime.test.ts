@@ -28,6 +28,9 @@ import {
   Is,
   IsNot,
   tjsEquals,
+  checkType,
+  MonadicError,
+  isMonadicError,
 } from './runtime'
 import { Eval, SafeFunction } from './eval'
 
@@ -1118,5 +1121,60 @@ function add(a: 1, b: 2): 3 {
     } finally {
       globalThis.__tjs = savedTjs
     }
+  })
+})
+
+describe('predicate reason strings', () => {
+  it('typeError includes reason in message and field', () => {
+    const err = typeError('foo.bar', 'even number', 3, 'value is odd')
+    expect(err.message).toContain('value is odd')
+    expect(err.message).toContain('foo.bar')
+    expect(err.reason).toBe('value is odd')
+    expect(isMonadicError(err)).toBe(true)
+  })
+
+  it('typeError without reason works as before', () => {
+    const err = typeError('foo.bar', 'string', 42)
+    expect(err.message).toContain('got number')
+    expect(err.reason).toBeUndefined()
+  })
+
+  it('checkType captures reason from predicate', () => {
+    const EvenType = {
+      check: (v: unknown): boolean | string => {
+        if (typeof v !== 'number') return `expected number, got ${typeof v}`
+        if (v % 2 !== 0) return `${v} is odd`
+        return true
+      },
+      description: 'even number',
+    }
+
+    // Pass
+    expect(checkType(4, EvenType, 'test.val')).toBeNull()
+
+    // Fail with reason
+    const err = checkType(3, EvenType, 'test.val')
+    expect(err).not.toBeNull()
+    expect(err!.message).toContain('3 is odd')
+    expect(err!.reason).toBe('3 is odd')
+
+    // Fail with different reason
+    const err2 = checkType('x', EvenType, 'test.val')
+    expect(err2).not.toBeNull()
+    expect(err2!.message).toContain('expected number, got string')
+  })
+
+  it('checkType works with boolean-only predicates', () => {
+    const PositiveType = {
+      check: (v: unknown) => typeof v === 'number' && v > 0,
+      description: 'positive number',
+    }
+
+    expect(checkType(5, PositiveType, 'x')).toBeNull()
+
+    const err = checkType(-1, PositiveType, 'x')
+    expect(err).not.toBeNull()
+    expect(err!.message).toContain('positive number')
+    expect(err!.reason).toBeUndefined()
   })
 })
