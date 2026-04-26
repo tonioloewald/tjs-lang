@@ -527,7 +527,9 @@ export function transformIsOperators(source: string): string {
  */
 export function insertAsiProtection(source: string): string {
   // Characters that can continue a previous expression (ASI footguns)
-  const continuationStarts = /^[\s]*[([/+\-`]/
+  // Only (, [, and ` — these are the real hazards where ASI causes bugs.
+  // +, -, / at line start are continuations or literals, not footguns.
+  const continuationStarts = /^[\s]*[([`]/
 
   // Characters/patterns that indicate the previous line expects continuation
   // (don't insert semicolon after these)
