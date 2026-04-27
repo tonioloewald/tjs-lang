@@ -1,0 +1,77 @@
+# tjs-lang
+
+> A typed JavaScript platform: TJS (a TS-like language with runtime type validation), AJS (a gas-metered VM for executing untrusted agent code), and a single-pass toolchain (transpile + lint + test + docs). Types survive to runtime as contracts, examples, and tests. Inline WASM, monadic errors, safe eval, capability-based sandboxing.
+
+This file is a navigation index for AI agents. It does not contain the docs themselves — it points to them. Read the linked files in the order suggested below.
+
+## Read this first (avoids the #1 LLM mistake)
+
+- [CLAUDE-TJS-SYNTAX.md](CLAUDE-TJS-SYNTAX.md) — TJS syntax reference. Critical: `function foo(x: 'default')` is NOT a TypeScript string-literal type. The colon value is an **example**; `'default'` widens to `string`. LLMs get this wrong constantly.
+- [CLAUDE.md](CLAUDE.md) — project overview, common commands, architecture, security model, and key APIs.
+
+## Language guides
+
+- [DOCS-TJS.md](DOCS-TJS.md) — TJS language guide (the long form).
+- [DOCS-AJS.md](DOCS-AJS.md) — AJS runtime guide (gas-metered sandboxed VM).
+- [TJS-FOR-JS.md](TJS-FOR-JS.md) — for JavaScript developers: syntax differences, gotchas.
+- [TJS-FOR-TS.md](TJS-FOR-TS.md) — for TypeScript developers: migration, interop, what changes.
+- [guides/tjs.md](guides/tjs.md) and [guides/ajs.md](guides/ajs.md) — usage-oriented walkthroughs.
+- [guides/patterns.md](guides/patterns.md) — common patterns and idioms.
+- [guides/tjs-examples.md](guides/tjs-examples.md) — annotated example programs.
+- [guides/ajs-llm-prompt.md](guides/ajs-llm-prompt.md) — prompt template for asking LLMs to write AJS.
+
+## Architecture and internals
+
+- [CONTEXT.md](CONTEXT.md) — architecture deep dive (two-layer design, atom system, value resolution).
+- [docs/function-predicate-design.md](docs/function-predicate-design.md) — Type / Generic / FunctionPredicate design.
+- [docs/generic-dts-design.md](docs/generic-dts-design.md) — `.d.ts` generation from TJS.
+- [docs/WASM-QUICKSTART.md](docs/WASM-QUICKSTART.md) — inline WASM, SIMD, `wasmBuffer()`.
+- [docs/native-engine-integration.md](docs/native-engine-integration.md) — embedding into a native runtime.
+
+## Examples and live code
+
+- [examples/](examples/) — standalone `.tjs` example files (`hello.tjs`, `datetime.tjs`, `generic-demo.tjs`).
+- [tjs-src/](tjs-src/) — the TJS runtime, written in TJS itself (self-hosting reference).
+- Playground: https://tjs-platform.web.app — try TJS in a browser.
+
+## Package entry points (what to import)
+
+- `tjs-lang` → `src/index.ts` — main entry: `Agent`, `AgentVM`, `ajs`, `tjs`.
+- `tjs-lang/lang` → `src/lang/transpiler.ts` — language tools only: `tjs`, `transpile`.
+- `tjs-lang/lang/from-ts` → `src/lang/emitters/from-ts.ts` — TypeScript → TJS/JS transpilation.
+- `tjs-lang/vm` → `src/vm/index.ts` — VM and atoms.
+- `tjs-lang/eval` → `src/lang/eval.ts` — `Eval`, `SafeFunction`.
+- `tjs-lang/batteries` → `src/batteries/index.ts` — LM Studio integration (lazy, local-only).
+
+## Source map (for code-reading agents)
+
+- `src/lang/parser.ts` — TJS parser (colon shorthand, safety markers, return-type extraction).
+- `src/lang/parser-transforms.ts` — Type / Generic / FunctionPredicate block transforms.
+- `src/lang/emitters/js.ts` — emits JavaScript with `__tjs` metadata.
+- `src/lang/emitters/from-ts.ts` — TypeScript → TJS/JS, including class metadata.
+- `src/lang/emitters/dts.ts` — `.d.ts` generation.
+- `src/lang/runtime.ts` — TJS runtime: monadic errors, `checkType`, `createRuntime`.
+- `src/lang/inference.ts` — infer `TypeDescriptor` from example values.
+- `src/lang/json-schema.ts` — JSON Schema from `TypeDescriptor`.
+- `src/lang/wasm.ts` — WASM bytecode emission.
+- `src/lang/linter.ts` — static analysis (unused vars, unreachable code).
+- `src/vm/runtime.ts` — atom implementations, expression sandboxing, fuel charging (security-critical, ~3000 lines).
+- `src/vm/vm.ts` — `AgentVM` class.
+- `src/vm/atoms/` — individual atom definitions; `batteries.ts` has LLM/vector/store atoms.
+- `src/builder.ts` — fluent `TypedBuilder` API for constructing AST without source.
+- `src/cli/tjs.ts` — CLI: `check`, `run`, `types`, `emit`, `convert`, `test`.
+
+## Common gotchas
+
+- `tjs(source)` returns `{ code, types, metadata, testResults, ... }`. Use `.code` for the transpiled JS string.
+- Errors are `MonadicError` (check with `isMonadicError()`), not native `Error`. Errors are returned, not thrown.
+- AJS: `null.foo.bar` returns `undefined` (uses `?.` semantics) — does NOT throw like JS.
+- AJS: computed member access with variables (`items[i]`) is a transpile-time error; use `.map`/`.reduce` atoms.
+- Native TJS has all safety modes ON by default. `TjsCompat` disables them. `fromTS` output has them OFF unless `TjsStrict` is added.
+
+## Tracking and process
+
+- [TODO.md](TODO.md) — open work, organized by area. Move done items to the **Completed** section.
+- [PLAN.md](PLAN.md) — roadmap.
+- [AGENTS.md](AGENTS.md) — session-completion checklist (canonical). Hard rule: not done until `git push` succeeds.
+- [README.md](README.md) — public-facing pitch.

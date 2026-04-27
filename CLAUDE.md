@@ -12,6 +12,8 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 - **AJS** — Agent language that compiles to JSON AST for safe, sandboxed execution with fuel limits and injected capabilities. Code travels to data.
 - **Toolchain** — Compresses transpilation, linting, testing, and documentation generation into one pass. Includes inline WASM with SIMD, polymorphic dispatch, local class extensions, and a browser-based playground.
 
+> **TJS syntax is NOT TypeScript.** Full reference: [`CLAUDE-TJS-SYNTAX.md`](CLAUDE-TJS-SYNTAX.md). The single most common LLM mistake is treating `function foo(x: 'default')` as a TypeScript string-literal type. It is _not_ — the colon value is an **example**, and `'default'` widens to `string`. See the syntax doc before writing or modifying TJS source.
+
 ## Common Commands
 
 ```bash
@@ -52,13 +54,7 @@ bun run docs                # Generate documentation
 # Build standalone CLI binaries
 bun run build:cli           # Compiles tjs + tjsx to dist/
 
-# Compatibility testing (transpile popular TS libraries with fromTS)
-bun scripts/compat-zod.ts          # Zod validation library
-bun scripts/compat-effect.ts       # Effect (HKTs, intersections)
-bun scripts/compat-radash.ts       # Radash utilities
-bun scripts/compat-superstruct.ts  # Superstruct validation
-bun scripts/compat-ts-pattern.ts   # ts-pattern matching
-bun scripts/compat-kysely.ts       # Kysely SQL builder
+# Compatibility testing — see scripts/compat-*.ts (zod, effect, radash, superstruct, ts-pattern, kysely)
 
 # Deployment (Firebase)
 bun run deploy              # Build demo + deploy functions + hosting
@@ -72,15 +68,15 @@ bun run functions:serve     # Local functions emulator
 ### Two-Layer Design
 
 1. **Builder Layer** (`src/builder.ts`): Fluent API that constructs AST nodes. Contains no execution logic.
-2. **Runtime Layer** (`src/vm/runtime.ts`): Executes AST nodes. Contains all atom implementations (~2900 lines, security-critical).
+2. **Runtime Layer** (`src/vm/runtime.ts`): Executes AST nodes. Contains all atom implementations (~3024 lines, security-critical).
 
 ### Key Source Files
 
 - `src/index.ts` - Main entry, re-exports everything
-- `src/vm/runtime.ts` - All atom implementations, expression evaluation, fuel charging (~3000 lines, security-critical)
-- `src/vm/vm.ts` - AgentVM class (~226 lines)
+- `src/vm/runtime.ts` - All atom implementations, expression evaluation, fuel charging (~3024 lines, security-critical)
+- `src/vm/vm.ts` - AgentVM class (~247 lines)
 - `src/vm/atoms/batteries.ts` - Battery atoms (vector search, LLM, store operations)
-- `src/builder.ts` - TypedBuilder fluent API (~19KB)
+- `src/builder.ts` - TypedBuilder fluent API (~757 lines / ~19KB)
 - `src/lang/parser.ts` - TJS parser with colon shorthand, unsafe markers, return type extraction
 - `src/lang/parser-transforms.ts` - Type, Generic, and FunctionPredicate block/function form transforms
 - `src/lang/emitters/ast.ts` - Emits Agent99 AST from parsed source
@@ -97,7 +93,7 @@ bun run functions:serve     # Local functions emulator
 - `src/batteries/` - LM Studio integration (lazy init, model audit, vector search)
 - `src/store/` - Store implementations for persistence
 - `src/rbac/` - Role-based access control
-- `src/use-cases/` - Integration tests and real-world examples (28 test files)
+- `src/use-cases/` - Integration tests and real-world examples (30 test files)
 - `src/cli/tjs.ts` - CLI tool for check/run/types/emit/convert/test commands
 - `src/cli/tjsx.ts` - JSX/component runner
 - `src/cli/playground.ts` - Local playground server
@@ -246,7 +242,7 @@ AJS expressions behave differently from JavaScript in several important ways:
 - Unit tests alongside source files (`*.test.ts`)
 - Integration tests in `src/use-cases/` (RAG, orchestration, malicious actors)
 - Security tests in `src/use-cases/malicious-actor.test.ts`
-- Language tests split across 14 files in `src/lang/` (lang.test.ts, features.test.ts, codegen.test.ts, parser.test.ts, from-ts.test.ts, wasm.test.ts, etc.)
+- Language tests split across 16 files in `src/lang/` (lang.test.ts, features.test.ts, codegen.test.ts, parser.test.ts, from-ts.test.ts, wasm.test.ts, etc.)
 
 Coverage targets: 98% lines on `src/vm/runtime.ts` (security-critical), 80%+ overall.
 
@@ -408,31 +404,39 @@ The `docs/` directory contains real documentation (markdown), not build artifact
 
 ### Additional Documentation
 
+- `llms.txt` — agent-facing navigation index (ships in npm bundle); points to docs and source entry points
 - `DOCS-TJS.md` — TJS language guide
 - `DOCS-AJS.md` — AJS runtime guide
 - `TJS-FOR-JS.md` — TJS guide for JavaScript developers (syntax differences, gotchas)
 - `TJS-FOR-TS.md` — TJS guide for TypeScript developers (migration, interop)
 - `CONTEXT.md` — Architecture deep dive
-- `AGENTS.md` — Agent workflow instructions (issue tracking with `bd`, mandatory push-before-done)
+- `AGENTS.md` — Agent workflow instructions (session-completion checklist, push-before-done rule)
+- `TODO.md` — Open work, organized by area; move items to the **Completed** section when done
 - `PLAN.md` — Roadmap
 
-### Issue Tracking with `bd`
+### Keeping This File and `llms.txt` Current
 
-The project uses `bd` (beads) for issue tracking. Key commands:
+Update both files when you change something an agent needs to discover:
 
-```bash
-bd ready                          # Find available work
-bd show <id>                      # View issue details
-bd update <id> --status in_progress  # Claim work
-bd close <id>                     # Complete work
-bd sync                           # Sync with git
-```
+- **New top-level markdown doc** → add to "Additional Documentation" here AND to the appropriate section of `llms.txt`.
+- **New package entry point** (subpath export in `package.json`) → add to "Package Entry Points" here AND to "Package entry points" in `llms.txt`.
+- **New CLI command or `bun run` script** → add to "Common Commands".
+- **Renamed or moved key source file** → update "Key Source Files" here AND "Source map" in `llms.txt`.
+- **New language mode / safety directive** → add to the TJS Syntax Reference section.
 
-**Critical rule**: Work is NOT complete until `git push` succeeds. Never stop before pushing — work stranded locally is work lost. If push fails, resolve and retry.
+Skip stale-prone precision (exact line counts, file sizes) for new entries — they drift silently. The existing `~3024` etc. are kept current opportunistically, not on every commit.
 
-### Known Gotcha: `tjs()` Returns an Object, Not a String
+### Tracking Work
 
-`tjs(source)` returns `{ code, types, metadata, testResults, ... }`. Use `.code` to get the transpiled JavaScript string. This is a common mistake.
+Work is tracked in plain markdown — no external issue tracker. Open items live in `TODO.md` (organized by area). When you start a task, find or add the relevant entry; when you finish, check the box and (for substantial work) move it to the Completed section with a short note.
+
+### Landing the Plane (Session Completion Checklist)
+
+See `AGENTS.md` for the canonical session-completion checklist. Hard rule: work is not complete until `git push` succeeds — never stop before pushing, never `--no-verify` to bypass hooks.
+
+### Common Gotcha
+
+`tjs(source)` returns `{ code, types, metadata, testResults, ... }` — use `.code` for the transpiled JS string.
 
 ### Running Emitted TJS Code
 

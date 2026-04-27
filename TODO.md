@@ -17,6 +17,10 @@
 
 ## Language Features
 
+- [ ] Intra-function type safety — bring TJS to parity with TS / good linters
+  - [ ] **Tier 1 (lint):** `TjsTypedLet` mode — warn/error on `let` without type annotation. Follows the `TjsNoVar` precedent (`src/lang/parser.ts:214`). Severity gated by mode (info under `TjsStandard`, error under `TjsStrict`). ~30 lines in `src/lang/linter.ts`.
+  - [ ] **Tier 2 (compile-time inference):** infer `TypeDescriptor` from initializer (already have `src/lang/inference.ts`), store per-decl in scope, walk subsequent `AssignmentExpression` nodes, warn on type-incompatible reassignment. ~200–300 lines, linter-only, no codegen changes.
+  - [ ] **Tier 3 (runtime checks, long-term):** rewrite `let x = e` / `x = e` in the JS emitter to `__tjs.checkType(...)` so out-of-band assignments return MonadicError. Open design questions: closed-over `let`s, uninitialized `let x`, perf cost of per-assignment call. Defer until we see how Tier 1+2 land.
 - [ ] Portable Type predicates - expression-only AJS subset (no loops, no async, serializable)
 - [ ] Sync AJS / AJS-to-JS compilation - for type-checked AJS that passes static analysis, transpile to native JS with fuel injection points. Enables both type safety guarantees AND native performance for RBAC rules, predicates, etc.
 - [ ] Self-contained transpiler output (no runtime dependency)
@@ -87,7 +91,6 @@
 
 - [x] Rename from tosijs-agent to tjs-lang
 - [x] Update all references in package.json, docs, scripts
-- [x] Remove bd (beads) issue tracker, replace with TODO.md
 
 ### Timestamp & LegalDate Utilities
 

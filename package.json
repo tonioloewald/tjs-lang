@@ -76,7 +76,8 @@
     "demo",
     "tjs-lang.svg",
     "CONTEXT.md",
-    "CLAUDE.md"
+    "CLAUDE.md",
+    "llms.txt"
   ],
   "sideEffects": false,
   "repository": {
