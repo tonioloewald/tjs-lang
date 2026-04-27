@@ -657,6 +657,12 @@ export function runAllTests(
   // Build mock setup
   const mockSetup = mocks.map((m) => m.body).join('\n')
 
+  // Test bodies may reference Is/IsNot/Eq/NotEq/TypeOf — these come from the
+  // == / != / typeof source-level transforms applied to test bodies in js.ts.
+  // The module's own destructuring may not include them (if the module never
+  // uses ==), so each test block re-destructures into its own block scope.
+  const testRuntimeImports = `const { Is, IsNot, Eq, NotEq, TypeOf } = globalThis.__tjs ?? {};`
+
   // Build test execution code that runs all tests in sequence
   const testBodies = tests
     .map((t, i) => {
@@ -668,6 +674,7 @@ export function runAllTests(
       return `
     // Test ${i}: ${t.description}
     try {
+      ${testRuntimeImports}
       ${body}
       __testResults.push({ idx: ${i}, passed: true });
     } catch (e) {

@@ -56,6 +56,52 @@ import {
 // Re-export transformExtensionCalls for js.ts
 export { transformExtensionCalls } from './parser-transforms'
 
+/**
+ * Strip single-line comments (//) from source.
+ * Replaces comment content with spaces to preserve character offsets.
+ * Skips // inside strings and block comments.
+ */
+export function stripLineComments(source: string): string {
+  let result = ''
+  let i = 0
+  while (i < source.length) {
+    const ch = source[i]
+    // String literals — skip to closing quote
+    if (ch === "'" || ch === '"' || ch === '`') {
+      const quote = ch
+      result += ch
+      i++
+      while (i < source.length && source[i] !== quote) {
+        if (source[i] === '\\') {
+          result += source[i++]
+        }
+        if (i < source.length) result += source[i++]
+      }
+      if (i < source.length) result += source[i++] // closing quote
+      continue
+    }
+    // Block comment — pass through (may contain //)
+    if (ch === '/' && source[i + 1] === '*') {
+      const end = source.indexOf('*/', i + 2)
+      const slice = end === -1 ? source.slice(i) : source.slice(i, end + 2)
+      result += slice
+      i += slice.length
+      continue
+    }
+    // Line comment — replace with spaces to preserve offsets
+    if (ch === '/' && source[i + 1] === '/') {
+      const nl = source.indexOf('\n', i)
+      const end = nl === -1 ? source.length : nl
+      result += ' '.repeat(end - i)
+      i = end // leave \n for next iteration
+      continue
+    }
+    result += ch
+    i++
+  }
+  return result
+}
+
 export function preprocess(
   source: string,
   options: PreprocessOptions = {}
@@ -181,6 +227,11 @@ export function preprocess(
       '$1'
     )
   }
+
+  // Strip single-line comments early — they confuse brace matching,
+  // ASI protection, and test extraction (e.g. apostrophes in comments)
+  // Preserves line structure by keeping the newline
+  source = stripLineComments(source)
 
   // TjsStandard mode: insert semicolons to prevent ASI footguns
   // Must happen early before other transformations modify line structure

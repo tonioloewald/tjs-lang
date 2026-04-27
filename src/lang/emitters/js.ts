@@ -53,7 +53,12 @@ import {
   extractTDoc,
   preprocess,
   transformExtensionCalls,
+  stripLineComments,
 } from '../parser'
+import {
+  transformEqualityToStructural,
+  transformIsOperators,
+} from '../parser-transforms'
 import type { TypeDescriptor, ParameterDescriptor } from '../types'
 import { inferTypeFromValue, parseParameter } from '../inference'
 import { extractTests } from '../tests'
@@ -576,6 +581,10 @@ export function transpileToJS(
   } = options
   const warnings: string[] = []
 
+  // Strip single-line comments early — apostrophes in comments (e.g. "don't")
+  // confuse brace matching in test extraction and other transforms
+  source = stripLineComments(source)
+
   // Extract source file annotation if present (from TS transpilation)
   const sourceFileAnnotation = extractSourceFileAnnotation(source)
   const effectiveFilename = sourceFileAnnotation || filename
@@ -599,6 +608,23 @@ export function transpileToJS(
 
   // Preprocess source (handles TJS syntax transformations)
   const preprocessed = preprocess(cleanSource)
+
+  // Apply the same source-level equality transforms to extracted test/mock
+  // bodies so they observe the module's TJS semantics (e.g. structural ==).
+  // Test bodies are extracted as raw text before parse(), so they would
+  // otherwise run with native JS == coercion regardless of TjsEquals mode.
+  for (const t of tests) {
+    t.body = transformIsOperators(t.body)
+    if (preprocessed.tjsModes.tjsEquals) {
+      t.body = transformEqualityToStructural(t.body)
+    }
+  }
+  for (const m of mocks) {
+    m.body = transformIsOperators(m.body)
+    if (preprocessed.tjsModes.tjsEquals) {
+      m.body = transformEqualityToStructural(m.body)
+    }
+  }
 
   // Build types map for all functions
   const allTypes: Record<string, TJSTypeInfo> = {}

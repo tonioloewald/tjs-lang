@@ -153,6 +153,28 @@ describe('Inline Tests', () => {
     expect(result.tests[0].body).toContain('assert')
   })
 
+  it('should extract test descriptions containing other quote types', () => {
+    // Regression: previously the regex excluded all quote chars from
+    // descriptions, so `test 'has "quotes"' { }` was silently dropped.
+    const result = extractTests(`
+      test 'typeof null is "null"' {
+        assert(true)
+      }
+      test "single 'apostrophe' inside" {
+        assert(true)
+      }
+      test \`backticks with "double" and 'single'\` {
+        assert(true)
+      }
+    `)
+    expect(result.tests.length).toBe(3)
+    expect(result.tests[0].description).toBe('typeof null is "null"')
+    expect(result.tests[1].description).toBe("single 'apostrophe' inside")
+    expect(result.tests[2].description).toBe(
+      `backticks with "double" and 'single'`
+    )
+  })
+
   it('should remove tests from output code', () => {
     const result = extractTests(`
       function add(a, b) { return a + b }

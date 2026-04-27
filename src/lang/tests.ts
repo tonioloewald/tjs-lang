@@ -106,15 +106,17 @@ function extractEmbeddedTests(source: string): ExtractedTest[] {
   const tests: ExtractedTest[] = []
 
   // Match: /*test 'description' { ... }*/  or  /*test { ... }*/
+  // Each quote type gets its own alternative so the description can contain
+  // the other quote types (e.g. `test 'typeof null is "null"' {`).
   const embeddedRegex =
-    /\/\*test\s+(['"`])([^'"`]*)\1\s*\{([\s\S]*?)\}\s*\*\/|\/\*test\s*\{([\s\S]*?)\}\s*\*\//g
+    /\/\*test\s+'([^']*)'\s*\{([\s\S]*?)\}\s*\*\/|\/\*test\s+"([^"]*)"\s*\{([\s\S]*?)\}\s*\*\/|\/\*test\s+`([^`]*)`\s*\{([\s\S]*?)\}\s*\*\/|\/\*test\s*\{([\s\S]*?)\}\s*\*\//g
 
   let match
   while ((match = embeddedRegex.exec(source)) !== null) {
-    // Group 2 = description for quoted, group 3 = body for quoted
-    // Group 4 = body for anonymous
-    const desc = match[2] || `embedded test ${tests.length + 1}`
-    const body = (match[3] || match[4] || '').trim()
+    // Groups: 1/3/5 = description for ' " ` ; 2/4/6 = body for ' " ` ; 7 = body for anonymous
+    const desc =
+      match[1] || match[3] || match[5] || `embedded test ${tests.length + 1}`
+    const body = (match[2] || match[4] || match[6] || match[7] || '').trim()
 
     tests.push({
       description: desc,
@@ -145,8 +147,10 @@ export function extractTests(source: string): TestExtractionResult {
   //   test { ... }                   (anonymous test)
   //   test 'description' { ... }     (canonical TJS)
   //   test('description') { ... }    (also valid - parenthesized string is still a string)
+  // Each quote type has its own alternative so the description can contain
+  // the other quote types (e.g. `test 'typeof null is "null"' {`).
   const testRegex =
-    /test\s+(['"`])([^'"`]*)\1\s*\{|test\s*\(\s*(['"`])([^'"`]*)\3\s*\)\s*\{|test\s*\{/g
+    /test\s+'([^']*)'\s*\{|test\s+"([^"]*)"\s*\{|test\s+`([^`]*)`\s*\{|test\s*\(\s*'([^']*)'\s*\)\s*\{|test\s*\(\s*"([^"]*)"\s*\)\s*\{|test\s*\(\s*`([^`]*)`\s*\)\s*\{|test\s*\{/g
   const mockRegex = /mock\s*\{/g
 
   let cleanCode = source
@@ -164,8 +168,17 @@ export function extractTests(source: string): TestExtractionResult {
       continue
     }
 
-    // Description is in group 2 for `test 'desc'`, group 4 for `test('desc')`, or undefined for `test {`
-    const desc = match[2] || match[4] || `test ${tests.length + 1}`
+    // Groups 1/2/3 = `test 'desc'` / `test "desc"` / `test \`desc\``
+    // Groups 4/5/6 = parenthesized variants
+    // No group when description is omitted
+    const desc =
+      match[1] ||
+      match[2] ||
+      match[3] ||
+      match[4] ||
+      match[5] ||
+      match[6] ||
+      `test ${tests.length + 1}`
     const bodyStart = match.index + match[0].length
 
     // Find matching closing brace

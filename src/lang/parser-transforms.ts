@@ -594,6 +594,201 @@ export function insertAsiProtection(source: string): string {
 }
 
 /**
+ * Replace `typeof X` with `TypeOf(X)` outside string/template/comment/regex bodies.
+ * X may be `ident`, `ident.foo`, `ident?.foo`, etc. Anything that doesn't look
+ * like a simple identifier expression (e.g. `typeof (x + 1)`) is left alone.
+ */
+function transformTypeofKeyword(source: string): string {
+  type Match = { keywordStart: number; operandEnd: number; operand: string }
+  const matches: Match[] = []
+  let i = 0
+  let state: TokenizerState = 'normal'
+  const templateStack: number[] = []
+
+  while (i < source.length) {
+    const char = source[i]
+    const nextChar = source[i + 1]
+
+    switch (state) {
+      case 'single-string':
+        if (char === '\\' && i + 1 < source.length) {
+          i += 2
+          continue
+        }
+        if (char === "'") state = 'normal'
+        i++
+        continue
+      case 'double-string':
+        if (char === '\\' && i + 1 < source.length) {
+          i += 2
+          continue
+        }
+        if (char === '"') state = 'normal'
+        i++
+        continue
+      case 'template-string':
+        if (char === '\\' && i + 1 < source.length) {
+          i += 2
+          continue
+        }
+        if (char === '$' && nextChar === '{') {
+          i += 2
+          templateStack.push(1)
+          state = 'normal'
+          continue
+        }
+        if (char === '`') state = 'normal'
+        i++
+        continue
+      case 'line-comment':
+        if (char === '\n') state = 'normal'
+        i++
+        continue
+      case 'block-comment':
+        if (char === '*' && nextChar === '/') {
+          i += 2
+          state = 'normal'
+          continue
+        }
+        i++
+        continue
+      case 'regex':
+        if (char === '\\' && i + 1 < source.length) {
+          i += 2
+          continue
+        }
+        if (char === '[') {
+          i++
+          while (i < source.length && source[i] !== ']') {
+            if (source[i] === '\\' && i + 1 < source.length) i += 2
+            else i++
+          }
+          if (i < source.length) i++
+          continue
+        }
+        if (char === '/') {
+          i++
+          while (i < source.length && /[gimsuy]/.test(source[i])) i++
+          state = 'normal'
+          continue
+        }
+        i++
+        continue
+      case 'normal':
+        if (templateStack.length > 0) {
+          if (char === '{') {
+            templateStack[templateStack.length - 1]++
+          } else if (char === '}') {
+            templateStack[templateStack.length - 1]--
+            if (templateStack[templateStack.length - 1] === 0) {
+              templateStack.pop()
+              i++
+              state = 'template-string'
+              continue
+            }
+          }
+        }
+        if (char === "'") {
+          i++
+          state = 'single-string'
+          continue
+        }
+        if (char === '"') {
+          i++
+          state = 'double-string'
+          continue
+        }
+        if (char === '`') {
+          i++
+          state = 'template-string'
+          continue
+        }
+        if (char === '/' && nextChar === '/') {
+          i += 2
+          state = 'line-comment'
+          continue
+        }
+        if (char === '/' && nextChar === '*') {
+          i += 2
+          state = 'block-comment'
+          continue
+        }
+        if (char === '/') {
+          let j = i - 1
+          while (j >= 0 && /\s/.test(source[j])) j--
+          const beforeChar = j >= 0 ? source[j] : ''
+          const isRegexContext =
+            !beforeChar ||
+            /[=(!,;:{[&|?+\-*%<>~^]/.test(beforeChar) ||
+            (j >= 5 &&
+              /\b(return|case|throw|in|of|typeof|instanceof|new|delete|void)$/.test(
+                source.slice(Math.max(0, j - 10), j + 1)
+              ))
+          if (isRegexContext) {
+            i++
+            state = 'regex'
+            continue
+          }
+        }
+
+        // Detect `typeof <ident-chain>` — only when preceded by a non-word
+        // boundary and followed by whitespace then an identifier.
+        if (
+          char === 't' &&
+          source.slice(i, i + 6) === 'typeof' &&
+          (i === 0 || !/[\w$]/.test(source[i - 1])) &&
+          /\s/.test(source[i + 6] ?? '')
+        ) {
+          let j = i + 6
+          while (j < source.length && /\s/.test(source[j])) j++
+          if (j < source.length && /[a-zA-Z_$]/.test(source[j])) {
+            const operandStart = j
+            while (j < source.length && /[\w$]/.test(source[j])) j++
+            // Optional `.name` or `?.name` chains
+            while (j < source.length) {
+              if (source[j] === '.' && /[a-zA-Z_$]/.test(source[j + 1] ?? '')) {
+                j++
+                while (j < source.length && /[\w$]/.test(source[j])) j++
+              } else if (
+                source[j] === '?' &&
+                source[j + 1] === '.' &&
+                /[a-zA-Z_$]/.test(source[j + 2] ?? '')
+              ) {
+                j += 2
+                while (j < source.length && /[\w$]/.test(source[j])) j++
+              } else {
+                break
+              }
+            }
+            matches.push({
+              keywordStart: i,
+              operandEnd: j,
+              operand: source.slice(operandStart, j),
+            })
+            i = j
+            continue
+          }
+        }
+        break
+    }
+    i++
+  }
+
+  if (matches.length === 0) return source
+
+  // Apply replacements from end to start so earlier positions remain valid.
+  let result = source
+  for (let k = matches.length - 1; k >= 0; k--) {
+    const m = matches[k]
+    result =
+      result.slice(0, m.keywordStart) +
+      `TypeOf(${m.operand})` +
+      result.slice(m.operandEnd)
+  }
+  return result
+}
+
+/**
  * Transform == and != to Is() and IsNot() calls
  *
  * In TJS normal mode:
@@ -606,11 +801,11 @@ export function insertAsiProtection(source: string): string {
  * 2. Transform from end to start (so positions remain valid)
  */
 export function transformEqualityToStructural(source: string): string {
-  // Transform typeof to TypeOf() — fixes typeof null === 'object'
-  source = source.replace(
-    /\btypeof\s+([a-zA-Z_$][\w$.]*(?:\?\.[\w$]+)*)/g,
-    'TypeOf($1)'
-  )
+  // Transform typeof to TypeOf() — fixes typeof null === 'object'.
+  // Uses the same tokenizer state machine as the equality pass so it skips
+  // string/template/comment/regex bodies (a regex replace would rewrite
+  // 'typeof x' inside string literals).
+  source = transformTypeofKeyword(source)
 
   // First pass: find all == and != positions (outside strings/comments/regex)
   const equalityOps: Array<{ pos: number; op: '==' | '!=' }> = []
@@ -2642,9 +2837,43 @@ export function extractAndRunTests(
         let depth = 1
         let k = bodyStart
 
-        // Find matching closing brace
+        // Find matching closing brace (skip strings and comments)
+        let inStr: string | null = null
+        let escaped = false
         while (k < source.length && depth > 0) {
           const char = source[k]
+          if (escaped) {
+            escaped = false
+            k++
+            continue
+          }
+          if (char === '\\' && inStr) {
+            escaped = true
+            k++
+            continue
+          }
+          if (inStr) {
+            if (char === inStr) inStr = null
+            k++
+            continue
+          }
+          // Line comment — skip to end of line
+          if (char === '/' && source[k + 1] === '/') {
+            const nl = source.indexOf('\n', k)
+            k = nl === -1 ? source.length : nl + 1
+            continue
+          }
+          // Block comment — skip to */
+          if (char === '/' && source[k + 1] === '*') {
+            const end = source.indexOf('*/', k + 2)
+            k = end === -1 ? source.length : end + 2
+            continue
+          }
+          if (char === "'" || char === '"' || char === '`') {
+            inStr = char
+            k++
+            continue
+          }
           if (char === '{') depth++
           else if (char === '}') depth--
           k++

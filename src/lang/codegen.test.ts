@@ -947,6 +947,46 @@ function isEqual(! a: null, b: null):! true { return a == b }`
       // No coercion: 0 != '' (unlike JS ==)
       expect(isEqual(0, '')).toBe(false)
     })
+
+    it('typeof transform skips string/template/comment bodies (regression)', () => {
+      // Previously the typeof→TypeOf rewrite was a naive regex that also
+      // mangled `'typeof x'` inside string literals. The replacement is now
+      // tokenizer-aware.
+      const tjsSource = `
+const label = 'typeof null is null'
+const tpl = \`type marker: typeof x\`
+// typeof y
+const t = typeof null
+`
+      const { code } = tjs(tjsSource)
+      expect(code).toContain("'typeof null is null'")
+      expect(code).toContain('`type marker: typeof x`')
+      expect(code).toContain('TypeOf(null)')
+    })
+
+    it('applies TjsEquals to test/mock bodies (regression)', () => {
+      // Native TJS has TjsEquals on by default. Test bodies are extracted as
+      // raw text before parsing, so == inside them must also be transformed.
+      const tjsSource = `const foo = '' == false
+
+test 'top-level == is transformed' {
+  expect(foo).toBe(false)
+}
+
+test '== inside test block is transformed' {
+  expect('' == false).toBe(false)
+  expect('' != false).toBe(true)
+}
+
+test '=== identity is preserved' {
+  expect('' === false).toBe(false)
+  expect(0 === 0).toBe(true)
+}
+`
+      const { testResults } = tjs(tjsSource, { runTests: 'report' })
+      const failures = (testResults || []).filter((r) => !r.passed)
+      expect(failures).toEqual([])
+    })
   })
 
   describe('TjsStandard (ASI protection)', () => {
