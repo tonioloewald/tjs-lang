@@ -6,7 +6,11 @@
  */
 
 import { describe, it, expect } from 'bun:test'
-import { generateDocs, generateDocsMarkdown } from './docs'
+import {
+  generateDocs,
+  generateDocsMarkdown,
+  prettifyTestBody,
+} from './docs'
 
 describe('generateDocs', () => {
   describe('basic output', () => {
@@ -450,5 +454,127 @@ function second(y: ''): '' {
     expect(firstPos).toBeLessThan(betweenPos)
     expect(betweenPos).toBeLessThan(secondPos)
     expect(secondPos).toBeLessThan(afterPos)
+  })
+})
+
+describe('prettifyTestBody', () => {
+  it('translates toBe', () => {
+    expect(prettifyTestBody('expect(x).toBe(y)')).toBe('x  // → y')
+  })
+
+  it('translates toEqual to ≡', () => {
+    expect(prettifyTestBody('expect(a).toEqual(b)')).toBe('a  // ≡ b')
+  })
+
+  it('handles balanced parens in expression', () => {
+    expect(
+      prettifyTestBody('expect(Boolean(new Boolean(false))).toBe(false)')
+    ).toBe('Boolean(new Boolean(false))  // → false')
+  })
+
+  it('handles balanced parens in expected value', () => {
+    expect(prettifyTestBody('expect(x).toBe(f(1, 2))')).toBe(
+      'x  // → f(1, 2)'
+    )
+  })
+
+  it('handles toBeTruthy / toBeFalsy / toBeNull / toBeUndefined', () => {
+    expect(prettifyTestBody('expect(x).toBeTruthy()')).toBe('x  // → truthy')
+    expect(prettifyTestBody('expect(x).toBeFalsy()')).toBe('x  // → falsy')
+    expect(prettifyTestBody('expect(x).toBeNull()')).toBe('x  // → null')
+    expect(prettifyTestBody('expect(x).toBeUndefined()')).toBe(
+      'x  // → undefined'
+    )
+  })
+
+  it('translates toContain / toThrow / toBeNaN', () => {
+    expect(prettifyTestBody('expect(arr).toContain(3)')).toBe(
+      'arr  // → contains 3'
+    )
+    expect(prettifyTestBody('expect(fn).toThrow()')).toBe('fn  // → throws')
+    expect(prettifyTestBody('expect(x).toBeNaN()')).toBe('x  // → NaN')
+  })
+
+  it('translates toBeGreaterThan / toBeLessThan', () => {
+    expect(prettifyTestBody('expect(x).toBeGreaterThan(5)')).toBe(
+      'x  // → > 5'
+    )
+    expect(prettifyTestBody('expect(y).toBeLessThan(10)')).toBe(
+      'y  // → < 10'
+    )
+  })
+
+  it('preserves non-expect lines', () => {
+    expect(prettifyTestBody('console.log("hi")')).toBe('console.log("hi")')
+    expect(prettifyTestBody('const x = 5')).toBe('const x = 5')
+  })
+
+  it('handles multiple expects on separate lines', () => {
+    const input = '  expect(x).toBe(1)\n  expect(y).toBeTruthy()'
+    const expected = '  x  // → 1\n  y  // → truthy'
+    expect(prettifyTestBody(input)).toBe(expected)
+  })
+
+  it('does not touch parens inside string literals', () => {
+    // The `expect(...)` inside the string literal should NOT be transformed
+    expect(prettifyTestBody(`const s = "expect(fake).toBe(impossible)"`)).toBe(
+      `const s = "expect(fake).toBe(impossible)"`
+    )
+  })
+
+  it('falls back gracefully on unknown matchers', () => {
+    expect(prettifyTestBody('expect(x).somethingWeird(y)')).toBe(
+      'x  // .somethingWeird(y)'
+    )
+  })
+})
+
+describe('generateDocsMarkdown — test cases section', () => {
+  it('renders each named test as a "### Test Cases: <name>" heading with prettified body', () => {
+    const source = `
+test 'x is 5' {
+  expect(x).toBe(5)
+}
+test 'y is truthy' {
+  expect(y).toBeTruthy()
+}
+`
+    const md = generateDocsMarkdown(source)
+    expect(md).toContain('### Test Cases: x is 5')
+    expect(md).toContain('x  // → 5')
+    expect(md).toContain('### Test Cases: y is truthy')
+    expect(md).toContain('y  // → truthy')
+  })
+
+  it('skips anonymous tests (no description)', () => {
+    const source = `
+test {
+  expect(x).toBe(5)
+}
+`
+    const md = generateDocsMarkdown(source)
+    expect(md).not.toContain('Test Cases:')
+  })
+
+  it('integrates with doc blocks and functions', () => {
+    const source = `
+/*#
+# Module
+Some intro.
+*/
+
+function add(a: 0, b: 0): 0 {
+  return a + b
+}
+
+test 'add(2, 3) is 5' {
+  expect(add(2, 3)).toBe(5)
+}
+`
+    const md = generateDocsMarkdown(source)
+    expect(md).toContain('# Module')
+    expect(md).toContain('## add')
+    expect(md).toContain('### Test Cases: add(2, 3) is 5')
+    expect(md).toContain('add(2, 3)  // → 5')
   })
 })

@@ -4,10 +4,14 @@
  * Dead simple: walk source in order, emit what you find.
  * - Doc blocks render as markdown
  * - Function signatures render as code blocks
+ * - Inline `test 'name' { ... }` blocks render as "Test Cases" section
+ *   with `expect(...).toBe(...)` style assertions translated to comments
  *
  * No magic pairing. No attachment logic. The signature IS the docs.
  * Doc blocks are just editorial commentary when you need it.
  */
+
+import { extractTests } from './tests'
 
 /**
  * Compute brace depth at each position in source.
@@ -222,5 +226,142 @@ export function generateDocsMarkdown(
     }
   }
 
+  // Append test cases as documentation. Each test's description names
+  // what it asserts; the body is rendered with expect(...).toBe(...) etc.
+  // translated to inline `// → ...` comments. Anonymous tests
+  // (auto-named `test 1`, `test 2`, ...) are skipped — they read as
+  // smoke tests, not documentation.
+  const { tests } = extractTests(source)
+  for (const test of tests) {
+    if (!test.description) continue
+    if (/^test \d+$/.test(test.description)) continue
+    markdown += `### Test Cases: ${test.description}\n\n`
+    markdown += '```tjs\n'
+    markdown += prettifyTestBody(test.body).trim() + '\n'
+    markdown += '```\n\n'
+  }
+
   return markdown.trim() || '*No documentation available*'
+}
+
+/**
+ * Translate `expect(actual).matcher(expected)` calls into inline comments
+ * for documentation rendering. Other lines (setup, console.log, etc.) are
+ * preserved as-is.
+ *
+ *   expect(x).toBe(y)         → x  // → y
+ *   expect(x).toEqual(y)      → x  // ≡ y  (deep equality)
+ *   expect(x).toBeTruthy()    → x  // → truthy
+ *   expect(x).toBeFalsy()     → x  // → falsy
+ *   expect(x).toBeNull()      → x  // → null
+ *   expect(x).toBeUndefined() → x  // → undefined
+ *   expect(x).toContain(y)    → x  // → contains y
+ *   expect(x).toThrow()       → x  // → throws
+ *   expect(x).toBeGreaterThan(n) → x  // → > n
+ *   expect(x).toBeLessThan(n)    → x  // → < n
+ *   expect(x).toBeNaN()       → x  // → NaN
+ *
+ * Uses balanced-paren scanning so nested calls (`expect(f(a, b)).toBe(c)`)
+ * work correctly.
+ */
+export function prettifyTestBody(body: string): string {
+  let i = 0
+  let out = ''
+  let inStr: string | null = null
+  while (i < body.length) {
+    const c = body[i]
+    const prev = i > 0 ? body[i - 1] : ''
+    // Track string-literal state so `"expect(fake).toBe(...)"` inside a
+    // string is preserved verbatim.
+    if (inStr) {
+      out += c
+      if (c === inStr && prev !== '\\') inStr = null
+      i++
+      continue
+    }
+    if (c === '"' || c === "'" || c === '`') {
+      inStr = c
+      out += c
+      i++
+      continue
+    }
+
+    if (body.slice(i).startsWith('expect(')) {
+      const argStart = i + 'expect('.length
+      const argEnd = findMatchingParen(body, argStart)
+      if (argEnd > argStart) {
+        const after = body.slice(argEnd + 1)
+        const matcherMatch = after.match(/^\.(\w+)(\()?/)
+        if (matcherMatch && matcherMatch[2] === '(') {
+          const matcherStart = argEnd + 1 + matcherMatch[0].length
+          const matcherEnd = findMatchingParen(body, matcherStart)
+          if (matcherEnd >= matcherStart) {
+            const actual = body.slice(argStart, argEnd)
+            const matcherName = matcherMatch[1]
+            const expected = body.slice(matcherStart, matcherEnd)
+            out += renderMatcher(actual, matcherName, expected)
+            i = matcherEnd + 1
+            continue
+          }
+        }
+      }
+    }
+    out += c
+    i++
+  }
+  return out
+}
+
+/** Find the index of the `)` that matches the open paren at position `open-1`. */
+function findMatchingParen(s: string, open: number): number {
+  let depth = 1
+  let i = open
+  let inStr: string | null = null
+  while (i < s.length) {
+    const c = s[i]
+    const prev = i > 0 ? s[i - 1] : ''
+    if (inStr) {
+      if (c === inStr && prev !== '\\') inStr = null
+    } else {
+      if (c === '"' || c === "'" || c === '`') inStr = c
+      else if (c === '(') depth++
+      else if (c === ')') {
+        depth--
+        if (depth === 0) return i
+      }
+    }
+    i++
+  }
+  return -1
+}
+
+function renderMatcher(actual: string, matcher: string, expected: string): string {
+  const a = actual.trim()
+  const e = expected.trim()
+  switch (matcher) {
+    case 'toBe':
+      return `${a}  // → ${e}`
+    case 'toEqual':
+      return `${a}  // ≡ ${e}`
+    case 'toBeTruthy':
+      return `${a}  // → truthy`
+    case 'toBeFalsy':
+      return `${a}  // → falsy`
+    case 'toBeNull':
+      return `${a}  // → null`
+    case 'toBeUndefined':
+      return `${a}  // → undefined`
+    case 'toContain':
+      return `${a}  // → contains ${e}`
+    case 'toThrow':
+      return `${a}  // → throws`
+    case 'toBeGreaterThan':
+      return `${a}  // → > ${e}`
+    case 'toBeLessThan':
+      return `${a}  // → < ${e}`
+    case 'toBeNaN':
+      return `${a}  // → NaN`
+    default:
+      return `${a}  // .${matcher}(${e})`
+  }
 }
