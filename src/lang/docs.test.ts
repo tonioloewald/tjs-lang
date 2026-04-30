@@ -529,6 +529,58 @@ describe('prettifyTestBody', () => {
   })
 })
 
+describe('function extraction', () => {
+  it('captures simple function signatures', () => {
+    const md = generateDocsMarkdown(`function add(a: 0, b: 0): 0 { return a + b }`)
+    expect(md).toContain('## add')
+    expect(md).toContain('function add(a: 0, b: 0): 0')
+  })
+
+  it('handles arrow-function defaults (params with nested parens)', () => {
+    // Regression: the old funcPattern used [^)]* and broke on `(x) => x`
+    const source = `
+function mapStrings(arr: [''], fn = (x) => x): [''] {
+  return arr.map(fn)
+}
+function compose(f = (x) => x, g = (x) => x): 0 {
+  return f(g(5))
+}
+`
+    const md = generateDocsMarkdown(source)
+    expect(md).toContain('## mapStrings')
+    expect(md).toContain("function mapStrings(arr: [''], fn = (x) => x): ['']")
+    expect(md).toContain('## compose')
+    expect(md).toContain('function compose(f = (x) => x, g = (x) => x): 0')
+  })
+
+  it('handles object/array example values in params', () => {
+    const md = generateDocsMarkdown(
+      `function f(p: { a: 0, b: '' }, q: [0]): {} { return p }`
+    )
+    expect(md).toContain("function f(p: { a: 0, b: '' }, q: [0]): {}")
+  })
+
+  it('handles return-type annotation with quoted string', () => {
+    const md = generateDocsMarkdown(
+      `function greet(name: 'World'): 'Hello, World!' { return \`Hello, \${name}!\` }`
+    )
+    expect(md).toContain("function greet(name: 'World'): 'Hello, World!'")
+  })
+
+  it('does not extract nested function declarations', () => {
+    const source = `
+function outer() {
+  function nested() { return 1 }
+  return nested
+}
+`
+    const result = generateDocs(source)
+    const fns = result.items.filter((i) => i.type === 'function')
+    expect(fns.length).toBe(1)
+    expect(fns[0].name).toBe('outer')
+  })
+})
+
 describe('class extraction', () => {
   it('extracts a class with constructor and methods', () => {
     const source = `

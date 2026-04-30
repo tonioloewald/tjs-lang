@@ -134,10 +134,10 @@ export function generateDocs(source: string): DocResult {
 
   // Find all doc blocks, functions, and classes; sort by position
   const docPattern = /\/\*#([\s\S]*?)\*\//g
-  // Match TJS function syntax with return type annotations (:, :?, :!)
-  // Return type can be quoted string with spaces (e.g. 'Hello, World!')
-  const funcPattern =
-    /function\s+(\w+)\s*\(([^)]*)\)\s*(?:(:[?!]?)\s*('[^']*'|"[^"]*"|[^\s{]+))?\s*\{/g
+  // Match the START of a function declaration. Params (which can contain
+  // nested parens like `fn = (x) => x`) are captured by balanced-paren
+  // scanning below, NOT by this regex.
+  const funcPattern = /\bfunction\s+(\w+)\s*\(/g
   const classPattern = /\bclass\s+(\w+)(?:\s+extends\s+(\w+))?\s*\{/g
 
   type Match = { type: 'doc' | 'function' | 'class'; index: number; data: any }
@@ -173,16 +173,52 @@ export function generateDocs(source: string): DocResult {
 
   while ((match = funcPattern.exec(source)) !== null) {
     if (isInComment[match.index]) continue
+    if (braceDepthAt[match.index] !== 0) continue
     const name = match[1]
-    const params = match[2]
-    const returnMarker = match[3] || ''
-    const returnType = match[4] || ''
-
-    let signature = `function ${name}(${params})`
-    if (returnMarker && returnType) {
-      signature += `${returnMarker} ${returnType}`
+    const parenOpen = match.index + match[0].length - 1 // position of `(`
+    const parenClose = findMatchingParen(source, parenOpen + 1)
+    if (parenClose === -1) continue
+    const params = source.slice(parenOpen + 1, parenClose)
+    // Optional return-type annotation between `)` and `{`:
+    //   ): T  /  ):? T  /  ):! T
+    // T can be: primitive (`0`, `''`), object (`{ x: 0 }`), array (`[0]`),
+    // or string literal (`'Hello, World!'`). Use depth-tracking with a
+    // "started" flag so the FIRST `{` inside the type opens the type
+    // block (not the body) and the `{` AFTER depth returns to 0 is the body.
+    let after = parenClose + 1
+    let returnAnnotation = ''
+    while (after < source.length && /\s/.test(source[after])) after++
+    if (source[after] === ':') {
+      const annoStart = after
+      after++ // past `:`
+      let depth = 0
+      let inStr: string | null = null
+      let started = false
+      while (after < source.length) {
+        const c = source[after]
+        const prev = after > 0 ? source[after - 1] : ''
+        if (inStr) {
+          if (c === inStr && prev !== '\\') inStr = null
+        } else if (c === '"' || c === "'" || c === '`') {
+          inStr = c
+          started = true
+        } else if (c === '{') {
+          if (depth === 0 && started) break // body opens here
+          depth++
+          started = true
+        } else if (c === '(' || c === '[') {
+          depth++
+          started = true
+        } else if (c === '}' || c === ')' || c === ']') {
+          depth--
+        } else if (!/\s/.test(c)) {
+          started = true
+        }
+        after++
+      }
+      returnAnnotation = source.slice(annoStart, after).trimEnd()
     }
-
+    const signature = `function ${name}(${params})${returnAnnotation}`
     matches.push({
       type: 'function',
       index: match.index,

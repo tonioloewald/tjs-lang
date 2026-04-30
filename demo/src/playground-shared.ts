@@ -272,16 +272,17 @@ export function renderTestResults(
   const passed = tests.filter((t: any) => t.passed).length
   const failed = tests.filter((t: any) => !t.passed).length
 
-  // Set gutter markers for ALL tests (pass and fail)
-  const testsWithLines = tests.filter((t: any) => t.line)
-  if (testsWithLines.length > 0) {
+  // Mark only FAILED tests in the editor. Passing tests appear in the
+  // results panel and don't need an underline — `severity: 'info'` was
+  // rendering as a grey squiggle on every passing test's line, which is
+  // visual noise.
+  const failedWithLines = tests.filter((t: any) => t.line && !t.passed)
+  if (failedWithLines.length > 0) {
     editor.setMarkers(
-      testsWithLines.map((t: any) => ({
+      failedWithLines.map((t: any) => ({
         line: t.line,
-        message: t.passed
-          ? `✓ ${t.description}`
-          : `✗ ${t.description}: ${t.error || 'failed'}`,
-        severity: t.passed ? ('info' as const) : ('error' as const),
+        message: `✗ ${t.description}: ${t.error || 'failed'}`,
+        severity: 'error' as const,
       }))
     )
   } else {
