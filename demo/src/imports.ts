@@ -1,17 +1,48 @@
 /**
- * Playground Import Resolver — TFS Edition
+ * Playground Import Resolver
  *
- * Rewrites bare import specifiers to /tfs/ URLs.
- * The TFS service worker handles CDN resolution and caching.
+ * Rewrites bare import specifiers to absolute JSDelivr CDN URLs with the
+ * `/+esm` suffix (which returns a self-contained Rollup-bundled ESM module
+ * with CJS-to-ESM transformation, dependencies inlined, and process
+ * polyfilled).
  *
  * Flow:
  *   import { x } from 'tosijs@1.3.11'
- *   → rewritten to: import { x } from '/tfs/tosijs@1.3.11'
- *   → service worker intercepts /tfs/tosijs@1.3.11
- *   → fetches from jsdelivr CDN, caches, returns ESM
+ *   → import { x } from 'https://cdn.jsdelivr.net/npm/tosijs@1.3.11/+esm'
  *
- * No import maps needed.
+ * Why direct URLs and not /tfs/ + service worker:
+ *   The playground iframe uses a sandboxed blob: URL. Service workers do
+ *   not reliably intercept fetches from sandboxed blob iframes (Chrome
+ *   quirk — tracked across multiple bug reports). Direct CDN URLs work in
+ *   every iframe context. The browser's HTTP cache provides equivalent
+ *   caching for repeated loads.
+ *
+ * The TFS service worker (demo/src/tfs-worker.js) remains in place for
+ * non-iframe contexts (e.g. direct navigation to /tfs/...).
  */
+
+const CDN_BASE = 'https://cdn.jsdelivr.net/npm'
+
+/**
+ * Convert a bare specifier (`react`, `react-dom/client`, `@scope/pkg@1.0`)
+ * to an absolute JSDelivr `/+esm` URL.
+ */
+function bareToCdnUrl(spec: string): string {
+  let parsed: { name: string; version: string; subpath: string } | null = null
+
+  if (spec.startsWith('@')) {
+    // Scoped: @scope/pkg, @scope/pkg@version, @scope/pkg/subpath, etc.
+    const m = spec.match(/^(@[^/]+\/[^/@]+)(?:@([^/]+))?(\/.*)?$/)
+    if (m) parsed = { name: m[1], version: m[2] || 'latest', subpath: m[3] || '' }
+  } else {
+    const m = spec.match(/^([^/@]+)(?:@([^/]+))?(\/.*)?$/)
+    if (m) parsed = { name: m[1], version: m[2] || 'latest', subpath: m[3] || '' }
+  }
+
+  if (!parsed) return spec // invalid — leave as-is
+
+  return `${CDN_BASE}/${parsed.name}@${parsed.version}${parsed.subpath}/+esm`
+}
 
 /**
  * Extract bare import specifiers from source code.
@@ -33,15 +64,13 @@ export function extractImports(source: string): string[] {
 }
 
 /**
- * Rewrite bare import specifiers to absolute /tfs/ URLs.
- * Uses location.origin so it works in blob iframes.
- * Skips relative (./) and absolute (/) paths.
+ * Rewrite bare import specifiers to absolute JSDelivr `/+esm` URLs.
+ * Skips relative (./), absolute (/), and already-absolute http(s):// paths.
  *
  * Before: import { tosi } from 'tosijs'
- * After:  import { tosi } from 'http://localhost:8699/tfs/tosijs'
+ * After:  import { tosi } from 'https://cdn.jsdelivr.net/npm/tosijs@latest/+esm'
  */
 export function rewriteImports(source: string): string {
-  const origin = typeof location !== 'undefined' ? location.origin : ''
   return source.replace(
     /((?:import|export)\s+(?:[\w\s{},*]+\s+from\s+)?)(['"])([^'"]+)\2/g,
     (match, prefix, quote, specifier) => {
@@ -54,7 +83,7 @@ export function rewriteImports(source: string): string {
       ) {
         return match
       }
-      return `${prefix}${quote}${origin}/tfs/${specifier}${quote}`
+      return `${prefix}${quote}${bareToCdnUrl(specifier)}${quote}`
     }
   )
 }

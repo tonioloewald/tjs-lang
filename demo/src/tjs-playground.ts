@@ -1259,8 +1259,8 @@ export class TJSPlayground extends Component<TJSPlaygroundParts> {
       const cssContent = this.parts.cssEditor.value
       const jsCode = this.lastTranspileResult.code
 
-      // Rewrite bare import specifiers to /tfs/ URLs
-      // The TFS service worker handles CDN resolution and caching
+      // Rewrite bare import specifiers to absolute JSDelivr /+esm URLs
+      // (sandboxed blob iframes can't reliably use the SW)
       const rewrittenCode = rewriteImports(jsCode)
 
       // Extract import statements — they must be at the top of the module

@@ -710,7 +710,7 @@ export class TSPlayground extends Component<TSPlaygroundParts> {
       const cssContent = this.parts.cssEditor.value
       const jsCode = this.lastJsCode
 
-      // Rewrite bare imports to /tfs/ URLs
+      // Rewrite bare imports to absolute JSDelivr /+esm URLs
       const rewrittenCode = rewriteImports(jsCode)
 
       // Create iframe document
