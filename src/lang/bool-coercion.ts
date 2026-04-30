@@ -26,6 +26,7 @@
  * Always-on under TjsStandard.
  */
 
+import * as acorn from 'acorn'
 import type { Program, Node } from 'acorn'
 
 export interface BoolCoercionPatch {
@@ -273,4 +274,41 @@ function dedupeNested(patches: BoolCoercionPatch[]): BoolCoercionPatch[] {
     // else: contained inside the last kept patch — drop
   }
   return kept
+}
+
+/**
+ * Source-text wrapper: parse, rewrite, re-emit. Used for code that's
+ * extracted before the main parse (test/mock bodies) but still needs the
+ * coercion rewrite to behave consistently with the rest of the module.
+ *
+ * Wraps the body in a function so top-level statements like `expect(...)`
+ * parse as a Program. Returns the original source unchanged if parsing
+ * fails (rather than throwing — a bad test body would already have been
+ * caught by the main parse).
+ */
+export function rewriteBoolCoercionInSource(source: string): string {
+  let ast: Program
+  try {
+    ast = acorn.parse(`function __wrap__(){${source}}`, {
+      ecmaVersion: 2022,
+      sourceType: 'module',
+      locations: false,
+    }) as Program
+  } catch {
+    return source
+  }
+  const wrapped = `function __wrap__(){${source}}`
+  const patches = rewriteBoolCoercion(ast, wrapped)
+  if (patches.length === 0) return source
+
+  // Apply patches right-to-left
+  patches.sort((a, b) => b.start - a.start)
+  let out = wrapped
+  for (const p of patches) {
+    out = out.slice(0, p.start) + p.newText + out.slice(p.end)
+  }
+  // Strip the wrapper
+  const prefix = 'function __wrap__(){'
+  const suffix = '}'
+  return out.slice(prefix.length, out.length - suffix.length)
 }

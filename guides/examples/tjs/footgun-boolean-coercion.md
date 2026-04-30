@@ -143,7 +143,8 @@ test 'side effects fire exactly once per evaluation' {
 
 test '?? is unchanged' {
   // ?? only fires for null/undefined, not for "falsy"
-  expect((new Boolean(false)) ?? 'fb' instanceof Boolean).toBe(true)
+  const r = (new Boolean(false)) ?? 'fb'
+  expect(r instanceof Boolean).toBe(true)
   expect(null ?? 'fb').toBe('fb')
 }
 

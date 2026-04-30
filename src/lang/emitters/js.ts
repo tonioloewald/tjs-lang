@@ -69,7 +69,10 @@ import {
 } from './js-tests'
 export { stripModuleSyntax, stripTjsPreamble } from './js-tests'
 import { generateWasmBootstrap } from './js-wasm'
-import { rewriteBoolCoercion } from '../bool-coercion'
+import {
+  rewriteBoolCoercion,
+  rewriteBoolCoercionInSource,
+} from '../bool-coercion'
 
 export interface TJSTranspileOptions {
   /** Filename for error messages */
@@ -619,11 +622,17 @@ export function transpileToJS(
     if (preprocessed.tjsModes.tjsEquals) {
       t.body = transformEqualityToStructural(t.body)
     }
+    if (preprocessed.tjsModes.tjsStandard) {
+      t.body = rewriteBoolCoercionInSource(t.body)
+    }
   }
   for (const m of mocks) {
     m.body = transformIsOperators(m.body)
     if (preprocessed.tjsModes.tjsEquals) {
       m.body = transformEqualityToStructural(m.body)
+    }
+    if (preprocessed.tjsModes.tjsStandard) {
+      m.body = rewriteBoolCoercionInSource(m.body)
     }
   }
 

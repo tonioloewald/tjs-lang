@@ -949,7 +949,7 @@ function runTestBlocks(
       const tjsStub = `
         const __saved_tjs = globalThis.__tjs;
         class __MonadicError extends Error { constructor(m,p,e,a,c){super(m);this.name='MonadicError';this.path=p;this.expected=e;this.actual=a;this.callStack=c;} }
-        const __stub_tjs = { version: '0.0.0', MonadicError: __MonadicError, pushStack: () => {}, popStack: () => {}, getStack: () => [], typeError: (path, expected, value) => new __MonadicError(\`Type error at \${path}: expected \${expected}\`, path, expected, typeof value), createRuntime: function() { return this; } };
+        const __stub_tjs = { version: '0.0.0', MonadicError: __MonadicError, pushStack: () => {}, popStack: () => {}, getStack: () => [], typeError: (path, expected, value) => new __MonadicError(\`Type error at \${path}: expected \${expected}\`, path, expected, typeof value), toBool: (v) => (v instanceof Boolean || v instanceof Number || v instanceof String) ? Boolean(v.valueOf()) : Boolean(v), createRuntime: function() { return this; } };
         globalThis.__tjs = __stub_tjs;
       `
       const tjsRestore = `globalThis.__tjs = __saved_tjs;`
@@ -1308,7 +1308,7 @@ function runSignatureTest(
     const tjsStub = `
       const __saved_tjs = globalThis.__tjs;
       class __MonadicError extends Error { constructor(m,p,e,a,c){super(m);this.name='MonadicError';this.path=p;this.expected=e;this.actual=a;this.callStack=c;} }
-      const __stub_tjs = { version: '0.0.0', MonadicError: __MonadicError, pushStack: () => {}, popStack: () => {}, getStack: () => [], typeError: (path, expected, value) => new __MonadicError(\`Type error at \${path}: expected \${expected}\`, path, expected, typeof value), createRuntime: function() { return this; } };
+      const __stub_tjs = { version: '0.0.0', MonadicError: __MonadicError, pushStack: () => {}, popStack: () => {}, getStack: () => [], typeError: (path, expected, value) => new __MonadicError(\`Type error at \${path}: expected \${expected}\`, path, expected, typeof value), toBool: (v) => (v instanceof Boolean || v instanceof Number || v instanceof String) ? Boolean(v.valueOf()) : Boolean(v), createRuntime: function() { return this; } };
       globalThis.__tjs = __stub_tjs;
     `
     const tjsRestore = `globalThis.__tjs = __saved_tjs;`

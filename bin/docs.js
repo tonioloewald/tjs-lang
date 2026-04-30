@@ -54,7 +54,10 @@ function extractDescription(content) {
 }
 
 function metadata(content, filePath) {
-  let source = content.match(/<\!\-\-(\{.*\})\-\->|\/\*(\{.*\})\*\//)
+  // Only the FIRST non-blank line may be frontmatter. Matching anywhere in
+  // the file produces false positives when docs document the format itself
+  // (e.g. CLAUDE.md showing an example of <!--{...}--> ).
+  let source = content.match(/^\s*(?:<\!\-\-(\{.*\})\-\->|\/\*(\{.*\})\*\/)/)
   let data = {}
   if (source) {
     try {
