@@ -14,6 +14,59 @@
 import { extractTests } from './tests'
 
 /**
+ * Build a per-character boolean indicating whether the position is inside
+ * a `/* ... *​/` block comment or `// ... \n` line comment. Used so that
+ * class/function patterns don't match prose text inside `/*# ... *​/` doc
+ * blocks (e.g. `class Point { ... }` shown as an illustrative snippet).
+ */
+function computeInComment(source: string): boolean[] {
+  const inComment = new Array<boolean>(source.length).fill(false)
+  let i = 0
+  while (i < source.length) {
+    const c = source[i]
+    const n = source[i + 1]
+    // Skip string literals so // and /* inside them are ignored
+    if (c === '"' || c === "'" || c === '`') {
+      const q = c
+      i++
+      while (i < source.length) {
+        if (source[i] === '\\') {
+          i += 2
+          continue
+        }
+        if (source[i] === q) {
+          i++
+          break
+        }
+        i++
+      }
+      continue
+    }
+    if (c === '/' && n === '/') {
+      while (i < source.length && source[i] !== '\n') {
+        inComment[i] = true
+        i++
+      }
+      continue
+    }
+    if (c === '/' && n === '*') {
+      const start = i
+      i += 2
+      while (i < source.length - 1 && !(source[i] === '*' && source[i + 1] === '/')) {
+        i++
+      }
+      // include closing `*​/`
+      const end = Math.min(source.length, i + 2)
+      for (let k = start; k < end; k++) inComment[k] = true
+      i = end
+      continue
+    }
+    i++
+  }
+  return inComment
+}
+
+/**
  * Compute brace depth at each position in source.
  * Used to filter out constructs inside function bodies.
  */
@@ -55,6 +108,12 @@ export interface DocResult {
 export type DocItem =
   | { type: 'doc'; content: string }
   | { type: 'function'; name: string; signature: string }
+  | {
+      type: 'class'
+      name: string
+      extendsName?: string
+      members: string[] // constructor / method signatures, no bodies
+    }
 
 /**
  * Generate documentation from TJS source
@@ -68,15 +127,20 @@ export function generateDocs(source: string): DocResult {
   // Build brace depth map to identify top-level constructs
   // This filters out doc blocks inside function bodies
   const braceDepthAt = computeBraceDepths(source)
+  // Track positions inside /* */ and // comments so we don't extract
+  // illustrative `class Foo { ... }` / `function bar() { ... }` text
+  // shown in `/*# ... */` doc blocks as real declarations.
+  const isInComment = computeInComment(source)
 
-  // Find all doc blocks and functions, sort by position
+  // Find all doc blocks, functions, and classes; sort by position
   const docPattern = /\/\*#([\s\S]*?)\*\//g
   // Match TJS function syntax with return type annotations (:, :?, :!)
   // Return type can be quoted string with spaces (e.g. 'Hello, World!')
   const funcPattern =
     /function\s+(\w+)\s*\(([^)]*)\)\s*(?:(:[?!]?)\s*('[^']*'|"[^"]*"|[^\s{]+))?\s*\{/g
+  const classPattern = /\bclass\s+(\w+)(?:\s+extends\s+(\w+))?\s*\{/g
 
-  type Match = { type: 'doc' | 'function'; index: number; data: any }
+  type Match = { type: 'doc' | 'function' | 'class'; index: number; data: any }
   const matches: Match[] = []
 
   let match
@@ -108,6 +172,7 @@ export function generateDocs(source: string): DocResult {
   }
 
   while ((match = funcPattern.exec(source)) !== null) {
+    if (isInComment[match.index]) continue
     const name = match[1]
     const params = match[2]
     const returnMarker = match[3] || ''
@@ -125,6 +190,23 @@ export function generateDocs(source: string): DocResult {
     })
   }
 
+  while ((match = classPattern.exec(source)) !== null) {
+    if (braceDepthAt[match.index] !== 0) continue
+    if (isInComment[match.index]) continue
+    const name = match[1]
+    const extendsName = match[2] || undefined
+    const bodyStart = match.index + match[0].length // just past `{`
+    const bodyEnd = findMatchingBrace(source, bodyStart - 1)
+    if (bodyEnd === -1) continue
+    const body = source.slice(bodyStart, bodyEnd)
+    const members = extractClassMembers(body)
+    matches.push({
+      type: 'class',
+      index: match.index,
+      data: { name, extendsName, members },
+    })
+  }
+
   // Sort by position in source
   matches.sort((a, b) => a.index - b.index)
 
@@ -132,11 +214,18 @@ export function generateDocs(source: string): DocResult {
   for (const m of matches) {
     if (m.type === 'doc') {
       items.push({ type: 'doc', content: m.data })
-    } else {
+    } else if (m.type === 'function') {
       items.push({
         type: 'function',
         name: m.data.name,
         signature: m.data.signature,
+      })
+    } else if (m.type === 'class') {
+      items.push({
+        type: 'class',
+        name: m.data.name,
+        extendsName: m.data.extendsName,
+        members: m.data.members,
       })
     }
   }
@@ -144,15 +233,111 @@ export function generateDocs(source: string): DocResult {
   // Generate markdown
   const markdown = items
     .map((item) => {
-      if (item.type === 'doc') {
-        return item.content
-      } else {
+      if (item.type === 'doc') return item.content
+      if (item.type === 'function') {
         return `\`\`\`tjs\n${item.signature}\n\`\`\``
       }
+      // class
+      return `\`\`\`tjs\n${formatClassSignature(item)}\n\`\`\``
     })
     .join('\n\n')
 
   return { items, markdown }
+}
+
+/**
+ * Format a class as a signature-only block:
+ *
+ *   class Color extends Hue {
+ *     constructor(r: +0, g: +0, b: +0)
+ *     constructor(hex: '#000000')
+ *     toString()
+ *   }
+ */
+function formatClassSignature(item: {
+  name: string
+  extendsName?: string
+  members: string[]
+}): string {
+  const head = item.extendsName
+    ? `class ${item.name} extends ${item.extendsName} {`
+    : `class ${item.name} {`
+  if (item.members.length === 0) return `${head}\n}`
+  const body = item.members.map((m) => `  ${m}`).join('\n')
+  return `${head}\n${body}\n}`
+}
+
+/**
+ * Find the index of the `}` matching the `{` at position `open`.
+ * Returns -1 if no match. Aware of strings and template literals so
+ * braces inside them don't confuse the count.
+ */
+function findMatchingBrace(s: string, open: number): number {
+  let depth = 0
+  let i = open
+  let inStr: string | null = null
+  while (i < s.length) {
+    const c = s[i]
+    const prev = i > 0 ? s[i - 1] : ''
+    if (inStr) {
+      if (c === inStr && prev !== '\\') inStr = null
+    } else {
+      if (c === '"' || c === "'" || c === '`') inStr = c
+      else if (c === '{') depth++
+      else if (c === '}') {
+        depth--
+        if (depth === 0) return i
+      }
+    }
+    i++
+  }
+  return -1
+}
+
+/**
+ * Extract member signatures from a class body. Handles:
+ *   - constructors (including multiple)
+ *   - regular methods: `name(params) { ... }`
+ *   - async / static / get / set modifiers
+ *   - private fields with `#` prefix
+ *   - return-type annotations: `name(p): ReturnType { ... }`
+ *
+ * Returns the bare signature without the body, like
+ *   `static load(path: '')`
+ *   `get magnitude(): 0.0`
+ */
+function extractClassMembers(body: string): string[] {
+  const members: string[] = []
+  // Build brace depth WITHIN the body so we only pick top-level members
+  const depthInBody = computeBraceDepths(body)
+  // Match: optional modifier(s) + name + `(`
+  // Modifiers can chain: `static async`, `static get`
+  const memberPattern =
+    /(?:^|\n)\s*((?:(?:static|async|get|set)\s+)*)(constructor|#?\w+)\s*\(/g
+  let match
+  while ((match = memberPattern.exec(body)) !== null) {
+    // Skip if not at depth 0 of the body (i.e., inside a method body)
+    if (depthInBody[match.index] !== 0) continue
+    const modifiers = match[1].trim()
+    const name = match[2]
+    const parenOpen = match.index + match[0].length - 1
+    const parenClose = findMatchingParen(body, parenOpen + 1)
+    if (parenClose === -1) continue
+    const params = body.slice(parenOpen, parenClose + 1)
+    // Optional return-type annotation between `)` and `{`
+    let after = parenClose + 1
+    let returnAnnotation = ''
+    while (after < body.length && /\s/.test(body[after])) after++
+    if (body[after] === ':') {
+      // Capture `: <type>` or `:?<type>` or `:!<type>` — stop at `{`
+      const annoStart = after
+      while (after < body.length && body[after] !== '{') after++
+      returnAnnotation = body.slice(annoStart, after).trimEnd()
+    }
+    const prefix = modifiers ? `${modifiers} ` : ''
+    members.push(`${prefix}${name}${params}${returnAnnotation}`)
+  }
+  return members
 }
 
 /**
@@ -223,6 +408,16 @@ export function generateDocsMarkdown(
       if (info?.returns) {
         markdown += `**Returns:** ${info.returns.kind || 'void'}\n\n`
       }
+    } else if (item.type === 'class') {
+      markdown += `## ${item.name}\n\n`
+      const head = item.extendsName
+        ? `class ${item.name} extends ${item.extendsName} {`
+        : `class ${item.name} {`
+      const body =
+        item.members.length === 0
+          ? ''
+          : '\n' + item.members.map((m) => `  ${m}`).join('\n') + '\n'
+      markdown += '```tjs\n' + head + body + '}\n```\n\n'
     }
   }
 

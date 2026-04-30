@@ -529,6 +529,130 @@ describe('prettifyTestBody', () => {
   })
 })
 
+describe('class extraction', () => {
+  it('extracts a class with constructor and methods', () => {
+    const source = `
+class Point {
+  constructor(x: 0, y: 0) {
+    this.x = x
+    this.y = y
+  }
+
+  magnitude() {
+    return Math.sqrt(this.x * this.x + this.y * this.y)
+  }
+
+  toString() {
+    return \`(\${this.x}, \${this.y})\`
+  }
+}
+`
+    const md = generateDocsMarkdown(source)
+    expect(md).toContain('## Point')
+    expect(md).toContain('class Point {')
+    expect(md).toContain('constructor(x: 0, y: 0)')
+    expect(md).toContain('magnitude()')
+    expect(md).toContain('toString()')
+    // Method bodies should NOT appear
+    expect(md).not.toContain('this.x = x')
+    expect(md).not.toContain('Math.sqrt')
+  })
+
+  it('extracts multiple constructors', () => {
+    const source = `
+class Color {
+  constructor(r: +0, g: +0, b: +0) { this.r = r; this.g = g; this.b = b }
+  constructor(hex: '#000000') { /* parse */ }
+  toString() { return 'rgb(...)' }
+}
+`
+    const md = generateDocsMarkdown(source)
+    expect(md).toContain('constructor(r: +0, g: +0, b: +0)')
+    expect(md).toContain("constructor(hex: '#000000')")
+    expect(md).toContain('toString()')
+  })
+
+  it('renders extends clause', () => {
+    const source = `
+class ColorWithAlpha extends Color {
+  constructor(r: 0, g: 0, b: 0, a: 1.0) { super(r, g, b); this.a = a }
+}
+`
+    const md = generateDocsMarkdown(source)
+    expect(md).toContain('class ColorWithAlpha extends Color {')
+  })
+
+  it('handles static / async / get / set modifiers', () => {
+    const source = `
+class Thing {
+  static load(path: '') { return path }
+  async fetch() { return null }
+  get name() { return 'x' }
+  set name(v: '') { this._name = v }
+}
+`
+    const md = generateDocsMarkdown(source)
+    expect(md).toContain("static load(path: '')")
+    expect(md).toContain('async fetch()')
+    expect(md).toContain('get name()')
+    expect(md).toContain("set name(v: '')")
+  })
+
+  it('captures return type annotations', () => {
+    const source = `
+class Math2 {
+  add(a: 0, b: 0): 0 { return a + b }
+}
+`
+    const md = generateDocsMarkdown(source)
+    expect(md).toContain('add(a: 0, b: 0): 0')
+  })
+
+  it('does NOT extract `class Foo` text inside /*# */ doc blocks', () => {
+    // The doc-block prose is rendered as-is, but we should NOT emit a
+    // "## FakeClass" heading from the prose's `class FakeClass` mention.
+    const source = `
+/*#
+## Example
+Don't write this:
+
+    class FakeClass { constructor(x) {} }
+*/
+
+class RealClass {
+  constructor() {}
+}
+`
+    const result = generateDocs(source)
+    const classItems = result.items.filter((i) => i.type === 'class')
+    expect(classItems.length).toBe(1)
+    expect(classItems[0].name).toBe('RealClass')
+  })
+
+  it('does NOT extract `function` text inside /*# */ doc blocks', () => {
+    const source = `
+/*#
+Don't write this:
+
+    function fakeFn() {}
+*/
+
+function realFn() { return 1 }
+`
+    const result = generateDocs(source)
+    const fnItems = result.items.filter((i) => i.type === 'function')
+    expect(fnItems.length).toBe(1)
+    expect(fnItems[0].name).toBe('realFn')
+  })
+
+  it('handles a class with no members', () => {
+    const md = generateDocsMarkdown('class Empty {}')
+    expect(md).toContain('## Empty')
+    expect(md).toContain('class Empty {')
+    expect(md).toContain('}')
+  })
+})
+
 describe('generateDocsMarkdown — test cases section', () => {
   it('renders each named test as a "### <name> (test cases)" heading with prettified body', () => {
     const source = `
