@@ -1328,6 +1328,11 @@ function generateTypeCheckExpr(
       // For nested objects, just check it's an object (deep validation is separate)
       check = `(typeof ${fieldPath} !== 'object' || ${fieldPath} === null || Array.isArray(${fieldPath}))`
       break
+    case 'function':
+      // Shape isn't validated at call time (we don't introspect arity or
+      // call the function with probes) — just check it IS callable.
+      check = `typeof ${fieldPath} !== 'function'`
+      break
     case 'union': {
       const checks = (type as any).members
         .map((m: TypeDescriptor) => generateTypeCheckExpr(fieldPath, m))

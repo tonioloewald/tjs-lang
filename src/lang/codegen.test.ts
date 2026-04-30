@@ -1446,6 +1446,24 @@ function getData(id: 0):! { value: 0 } {
       // But error properties are accessible
       expect(result.message).toContain('Expected integer')
     })
+
+    it('returns MonadicError when a function param receives a non-function', () => {
+      const { code } = tjs(
+        `function f(fn = (x) => x): 0 { return fn(5) }`
+      )
+      const f = new Function(code + '; return f')()
+
+      // Passing a function: works
+      expect(f((n: number) => n * 2)).toBe(10)
+
+      // Passing a non-function: MonadicError
+      for (const bad of [42, 'hello', { x: 1 }, [1, 2], true]) {
+        const result = f(bad)
+        expect(result).toBeInstanceOf(MonadicError)
+        expect(result.expected).toBe('function')
+        expect(result.path).toContain('f.fn')
+      }
+    })
   })
 
   describe('error vs valid value distinction', () => {
