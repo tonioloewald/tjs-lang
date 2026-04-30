@@ -395,6 +395,63 @@ The playground is hosted on Firebase (`tjs-platform.web.app`). Demo build output
 
 The `docs/` directory contains real documentation (markdown), not build artifacts. See `docs/README.md` for the documentation index.
 
+### Playground Examples
+
+The playground (https://tjs-platform.web.app) shows interactive TJS and AJS examples in a navigable sidebar. Examples live as markdown files with embedded code blocks, NOT as raw `.tjs` files.
+
+**Where they live:**
+
+- TJS playground examples: `guides/examples/tjs/<slug>.md`
+- AJS playground examples: `guides/examples/ajs/<slug>.md` (assumed parallel structure)
+
+**File format:**
+
+```markdown
+<!--{"section":"tjs","type":"example","group":"basics","order":16}-->
+
+# Example Title
+
+Short intro paragraph (plain markdown).
+
+​```tjs
+/*#
+## Optional H2 — markdown rendered above the code in the playground
+Explain the concept here. Use markdown freely.
+*/
+
+// Then the actual TJS code
+function demo() { ... }
+
+test 'a description' {
+  expect(...).toBe(...)
+}
+​```
+```
+
+Frontmatter fields: `section` (`tjs`/`ajs`), `type: "example"`, `group` (`basics`/`advanced`/etc.), `order` (numeric, controls sidebar position). The H1 becomes the example title in the nav.
+
+**Registration:**
+
+Examples are auto-discovered by `bin/docs.js` (run via `bun run docs`), which walks the markdown tree, parses frontmatter, extracts the `tjs`/`ajs` code block, and writes the result to `demo/docs.json`. The demo loads `docs.json` at runtime — no other registration step.
+
+**After adding/editing an example:** run `bun run docs` and commit the regenerated `demo/docs.json` alongside the `.md` file. (The docs builder also runs as part of `bun run build:demo` and `bun run deploy`.)
+
+**Testing playground examples:**
+
+The CLI (`bun src/cli/tjs.ts run`) does NOT inject the test-block `expect` harness — that's a playground-only thing. So running an extracted code block via the CLI prints "expect is not defined" for any `test { expect(...) }` blocks even though they pass in the playground. To verify an example:
+
+1. **Console-log behavior** (works via CLI): extract the `tjs` code block and run it.
+   ```bash
+   awk '/^```tjs$/{flag=1; next} /^```$/{flag=0} flag' \
+     guides/examples/tjs/<slug>.md > /tmp/example.tjs
+   bun src/cli/tjs.ts run /tmp/example.tjs
+   ```
+   Verify the printed output matches the expected behavior shown in the example's comments.
+
+2. **Test blocks**: spin up the dev server (`bun run start`) and load the example in the playground UI to confirm tests pass under the real `expect` harness.
+
+3. **Frontmatter / registration**: after `bun run docs`, grep `demo/docs.json` for the slug to confirm it was picked up with the right `section`/`group`/`order`.
+
 ### Additional Directories
 
 - `tjs-src/` — TJS runtime written in TJS itself (self-hosting)
@@ -424,6 +481,7 @@ Update both files when you change something an agent needs to discover:
 - **New CLI command or `bun run` script** → add to "Common Commands".
 - **Renamed or moved key source file** → update "Key Source Files" here AND "Source map" in `llms.txt`.
 - **New language mode / safety directive** → add to the TJS Syntax Reference section.
+- **New playground example** → add to `guides/examples/{tjs,ajs}/<slug>.md`, then `bun run docs` to regenerate `demo/docs.json`. See "Playground Examples" above.
 
 Skip stale-prone precision (exact line counts, file sizes) for new entries — they drift silently. The existing `~3024` etc. are kept current opportunistically, not on every commit.
 
@@ -435,9 +493,11 @@ Work is tracked in plain markdown — no external issue tracker. Open items live
 
 See `AGENTS.md` for the canonical session-completion checklist. Hard rule: work is not complete until `git push` succeeds — never stop before pushing, never `--no-verify` to bypass hooks.
 
-### Common Gotcha
+### Common Gotchas
 
-`tjs(source)` returns `{ code, types, metadata, testResults, ... }` — use `.code` for the transpiled JS string.
+- **`tjs(source)` returns an object, not a string.** It returns `{ code, types, metadata, testResults, ... }` — use `.code` for the transpiled JS string.
+- **Prettier mangles bare-expression code blocks in markdown.** Code blocks tagged ` ```js` get reformatted; bare expressions like `'5' == 5` and `[1] == 1` on consecutive lines collapse into one expression with ASI guards. Use `<!-- prettier-ignore -->` directly above the code fence to preserve hand-formatted JS examples (or tag the block as `text`/`tjs`/`ts` instead — Prettier ignores those).
+- **`tjs-lang` package alias only works inside the project** (set in `bunfig.toml`). Test scripts written in `/tmp` won't resolve `import { tjs } from 'tjs-lang/lang'` to the local source — they'll resolve to whatever's in `node_modules`. For ad-hoc experiments outside the repo, use absolute paths: `import { tjs } from '/Users/.../tjs-lang/src/lang/index'`.
 
 ### Running Emitted TJS Code
 
