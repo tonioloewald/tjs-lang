@@ -1515,6 +1515,40 @@ function getData(id: 0):! { value: 0 } {
         expect(r).toBeInstanceOf(MonadicError)
         expect(r.path).toContain('k.make(return)')
       })
+
+      it('module-level errors do not attribute to function declaration line', () => {
+        // Reported case: an error in top-level imperative code (here `x` is
+        // undefined) caused signature tests to fail with `line: 1` (the
+        // function declaration's line), so the editor marked line 1 instead
+        // of letting the user find the actual error on line 5.
+        const { testResults } = tjs(
+          `function f(s: ''): 0 { return s.length }\n\nconsole.log(x)`,
+          { runTests: 'report' }
+        )
+        const sig = testResults?.find((t) => t.isSignatureTest)
+        expect(sig).toBeDefined()
+        expect(sig?.passed).toBe(false)
+        expect(sig?.error).toContain('Module execution failed')
+        // Critical: no line attribution → editor won't mark a misleading line
+        expect(sig?.line).toBeUndefined()
+      })
+
+      it('propagates a referenced function\'s signature (cross-ref)', () => {
+        // `counter = strLength` should give `counter` strLength's signature
+        // `(s: '') => 0`, even though the AST default is just an Identifier.
+        const src = `function strLength(s: ''): 0 { return s.length }
+function map(arr: [''], counter = strLength): [0] { return arr.map(counter) }`
+        const r = tjs(src)
+        const counterType = r.types?.map?.params?.counter?.type
+        expect(counterType?.kind).toBe('function')
+        expect(counterType?.params).toEqual([
+          { name: 's', type: { kind: 'string' } },
+        ])
+        expect(counterType?.returns).toEqual({ kind: 'integer' })
+
+        // wrapFn should be emitted now (signature is non-trivial)
+        expect(r.code).toContain('__tjs.wrapFn')
+      })
     })
   })
 

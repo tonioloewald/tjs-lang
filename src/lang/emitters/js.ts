@@ -689,6 +689,41 @@ export function transpileToJS(
     warnings.push(...funcWarnings)
     allTypes[funcName] = types
 
+    // Cross-reference inference: when a parameter default is a bare
+    // identifier referring to a previously-declared TJS function, use that
+    // function's signature as the parameter's type. So
+    //
+    //   function strLength(s: ''): 0 { ... }
+    //   function map(arr: [''], counter = strLength) { ... }
+    //
+    // makes `counter`'s type `(s: string) => integer` (instead of `any`),
+    // which means the wrapFn check fires when a wrong-shape callback is
+    // passed at the call site.
+    for (const param of func.params) {
+      if (
+        param.type === 'AssignmentPattern' &&
+        param.left.type === 'Identifier' &&
+        param.right.type === 'Identifier'
+      ) {
+        const localName = param.left.name
+        const refName = (param.right as any).name as string
+        const refInfo = allTypes[refName]
+        if (refInfo && types.params[localName]) {
+          const fnParams = Object.entries(refInfo.params).map(([n, p]) => ({
+            name: n,
+            type: p.type,
+          }))
+          const fnReturns =
+            (refInfo as any).returns ?? ({ kind: 'any' } as TypeDescriptor)
+          types.params[localName].type = {
+            kind: 'function',
+            params: fnParams,
+            returns: fnReturns,
+          }
+        }
+      }
+    }
+
     // Clean up param defaults in the emitted JS.
     // After colon→equals transform, `x: false | undefined` becomes
     // `x = false | undefined` in the parsed source.

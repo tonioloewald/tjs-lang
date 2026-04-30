@@ -876,6 +876,13 @@ export function runAllTests(
     // skip tests gracefully rather than marking them as failures
     const isUnresolvedRef = hasUnresolvedImports && e instanceof ReferenceError
 
+    // The error came from module-level code (e.g. an undefined identifier
+    // in `console.log(... x ...)`), NOT from the function/test under test.
+    // Don't attribute a line — otherwise the editor would mark the function
+    // declaration's line as the error site, misleading the user about where
+    // the actual problem is. The test still appears as failed in the test
+    // list with the explanatory message; the user finds the real error
+    // through the runtime console.
     for (const test of tests) {
       results.push({
         description: test.description,
@@ -883,7 +890,6 @@ export function runAllTests(
         error: isUnresolvedRef
           ? undefined
           : `Module execution failed: ${e.message}`,
-        line: test.line,
       })
     }
     for (const info of syncSigTestInfos) {
@@ -897,7 +903,6 @@ export function runAllTests(
           ? undefined
           : `Module execution failed: ${e.message}`,
         isSignatureTest: true,
-        line: info.line,
       })
     }
   }
