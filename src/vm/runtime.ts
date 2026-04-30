@@ -451,7 +451,9 @@ export type ExprNode =
   | {
       $expr: 'member'
       object: ExprNode
-      property: string
+      // string for static `obj.foo` and literal-indexed `arr[0]`;
+      // ExprNode for variable-indexed `arr[i]` (evaluated at runtime).
+      property: string | ExprNode
       computed?: boolean
       optional?: boolean
     }
