@@ -1,47 +1,41 @@
 /**
  * Playground Import Resolver
  *
- * Rewrites bare import specifiers to absolute JSDelivr CDN URLs with the
- * `/+esm` suffix (which returns a self-contained Rollup-bundled ESM module
- * with CJS-to-ESM transformation, dependencies inlined, and process
- * polyfilled).
+ * Rewrites bare import specifiers to absolute esm.sh URLs.
  *
  * Flow:
- *   import { x } from 'tosijs@1.3.11'
- *   → import { x } from 'https://cdn.jsdelivr.net/npm/tosijs@1.3.11/+esm'
+ *   import { x } from 'tosijs'
+ *   → import { x } from 'https://esm.sh/tosijs'
+ *
+ * Why esm.sh and not jsdelivr `/+esm`:
+ *   Both serve ESM, but jsdelivr's `/+esm` bundles each module's
+ *   dependencies inline. That breaks React, which has a peer-dep
+ *   relationship between `react` and `react-dom`: each gets its own
+ *   bundled copy of React, the dispatcher isn't shared, and `useState`
+ *   crashes with "Cannot read properties of null".
+ *
+ *   esm.sh dedupes by URL — `react-dom/client` references react via the
+ *   same `/react@VERSION/...` path the user's `import 'react'` resolves
+ *   to, so the browser loads ONE instance.
  *
  * Why direct URLs and not /tfs/ + service worker:
- *   The playground iframe uses a sandboxed blob: URL. Service workers do
- *   not reliably intercept fetches from sandboxed blob iframes (Chrome
- *   quirk — tracked across multiple bug reports). Direct CDN URLs work in
- *   every iframe context. The browser's HTTP cache provides equivalent
- *   caching for repeated loads.
+ *   The playground iframe is sandboxed and loaded from a blob: URL.
+ *   Service workers do not reliably intercept fetches from sandboxed
+ *   blob iframes (Chrome quirk). Direct CDN URLs work everywhere.
  *
  * The TFS service worker (demo/src/tfs-worker.js) remains in place for
- * non-iframe contexts (e.g. direct navigation to /tfs/...).
+ * direct /tfs/ navigation only — it's not on the iframe code path.
  */
 
-const CDN_BASE = 'https://cdn.jsdelivr.net/npm'
+const CDN_BASE = 'https://esm.sh'
 
 /**
  * Convert a bare specifier (`react`, `react-dom/client`, `@scope/pkg@1.0`)
- * to an absolute JSDelivr `/+esm` URL.
+ * to an absolute esm.sh URL. esm.sh accepts the spec as-is — it parses
+ * scope/version/subpath internally.
  */
 function bareToCdnUrl(spec: string): string {
-  let parsed: { name: string; version: string; subpath: string } | null = null
-
-  if (spec.startsWith('@')) {
-    // Scoped: @scope/pkg, @scope/pkg@version, @scope/pkg/subpath, etc.
-    const m = spec.match(/^(@[^/]+\/[^/@]+)(?:@([^/]+))?(\/.*)?$/)
-    if (m) parsed = { name: m[1], version: m[2] || 'latest', subpath: m[3] || '' }
-  } else {
-    const m = spec.match(/^([^/@]+)(?:@([^/]+))?(\/.*)?$/)
-    if (m) parsed = { name: m[1], version: m[2] || 'latest', subpath: m[3] || '' }
-  }
-
-  if (!parsed) return spec // invalid — leave as-is
-
-  return `${CDN_BASE}/${parsed.name}@${parsed.version}${parsed.subpath}/+esm`
+  return `${CDN_BASE}/${spec}`
 }
 
 /**
