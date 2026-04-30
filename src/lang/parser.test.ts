@@ -1068,6 +1068,43 @@ test 'always fails' { throw new Error('intentional') }
     })
   })
 
+  describe('stray `=>` on function declarations', () => {
+    it('errors clearly on `function f(...): T => { body }`', () => {
+      // A common mistake — writing arrow-function syntax on a regular
+      // function declaration. Without the dedicated check, the `=>` falls
+      // through to Acorn which complains at a misleading position.
+      expect(() =>
+        tjs(`function f(s: '', n = 0): 0 => {
+  return s.length + n
+}`)
+      ).toThrow(/Unexpected '=>' after function declaration/)
+    })
+
+    it('errors with column pointing at the `=>` (not earlier in the line)', () => {
+      let caught: any
+      try {
+        tjs(`function f(): 0 => { return 0 }`)
+      } catch (e) {
+        caught = e
+      }
+      expect(caught).toBeDefined()
+      // The `=>` is at column 17 (1-indexed): `function f(): 0 ` is 16 chars
+      expect(caught.column).toBe(16)
+    })
+
+    it('does not error on regular function declarations', () => {
+      expect(() =>
+        tjs(`function f(s: ''): 0 { return s.length }`)
+      ).not.toThrow()
+    })
+
+    it('does not error on real arrow function expressions', () => {
+      expect(() =>
+        tjs(`const f = (s = '') => s.length`)
+      ).not.toThrow()
+    })
+  })
+
   describe('let type annotations (TjsSafeAssign)', () => {
     it("strips `: <example>` from `let x: ''` and records annotation", () => {
       const r = parse(`let x: ''`)

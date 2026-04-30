@@ -12,6 +12,7 @@ import type {
   ContextFrame,
   TjsModes,
 } from './parser-types'
+import { locAt } from './parser-transforms'
 
 export function transformParenExpressions(
   source: string,
@@ -331,6 +332,26 @@ export function transformParenExpressions(
           i = typeResult.endPos
         }
       }
+
+      // Catch a common mistake: writing `=> {` after a function declaration's
+      // return type (or after `)`), as if it were an arrow function. Without
+      // this check, the `=>` would pass through to Acorn, which complains
+      // with a generic "Unexpected token" at a misleading position.
+      let arrowCheck = i
+      while (arrowCheck < source.length && /\s/.test(source[arrowCheck]))
+        arrowCheck++
+      if (
+        source[arrowCheck] === '=' &&
+        source[arrowCheck + 1] === '>'
+      ) {
+        throw new SyntaxError(
+          "Unexpected '=>' after function declaration. " +
+            'Function declarations use `function name(params) { body }`, ' +
+            'not arrow syntax. Remove the `=>`.',
+          locAt(ctx.originalSource, arrowCheck),
+          ctx.originalSource
+        )
+      }
       continue
     }
 
@@ -408,6 +429,19 @@ export function transformParenExpressions(
         if (typeResult) {
           i = typeResult.endPos
         }
+      }
+
+      // Same `=>` check for class methods.
+      let k = i
+      while (k < source.length && /\s/.test(source[k])) k++
+      if (source[k] === '=' && source[k + 1] === '>') {
+        throw new SyntaxError(
+          "Unexpected '=>' after method declaration. " +
+            'Methods use `name(params) { body }`, not arrow syntax. ' +
+            'Remove the `=>`.',
+          locAt(ctx.originalSource, k),
+          ctx.originalSource
+        )
       }
 
       continue
