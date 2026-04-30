@@ -1321,7 +1321,9 @@ export class TJSPlayground extends Component<TJSPlaygroundParts> {
         delete iframe.dataset.blobUrl
       }
 
-      const sessionId = `tjs-${Date.now()}-${Math.random().toString(36).slice(2)}`
+      const sessionId = `tjs-${Date.now()}-${Math.random()
+        .toString(36)
+        .slice(2)}`
       const registered = await registerIframeContent(sessionId, iframeDoc)
 
       if (registered) {

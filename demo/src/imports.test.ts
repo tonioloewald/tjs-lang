@@ -53,9 +53,9 @@ describe('rewriteImports', () => {
   })
 
   it('should handle react-dom/client', () => {
-    expect(rewriteImports(`import { createRoot } from 'react-dom/client'`)).toBe(
-      `import { createRoot } from '/tfs/react-dom/client'`
-    )
+    expect(
+      rewriteImports(`import { createRoot } from 'react-dom/client'`)
+    ).toBe(`import { createRoot } from '/tfs/react-dom/client'`)
   })
 
   it('should handle scoped packages', () => {

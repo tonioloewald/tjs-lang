@@ -125,9 +125,8 @@ export async function registerIframeContent(
     }
     // Safety: if the SW never replies, don't hang the playground forever
     setTimeout(() => settle(false), 500)
-    sw.postMessage(
-      { type: 'register-iframe', sessionId, html },
-      [channel.port2]
-    )
+    sw.postMessage({ type: 'register-iframe', sessionId, html }, [
+      channel.port2,
+    ])
   })
 }

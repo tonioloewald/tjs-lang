@@ -458,18 +458,12 @@ function generateInlineValidationCode(
     // wrap it so its arguments and return value are validated on every call.
     // Skipped when shape is unspecified or contains non-simple kinds.
     if (param.type.kind === 'function') {
-      const shapeCheck = generateFunctionShapeCheck(
-        paramName,
-        param.type,
-        path
-      )
+      const shapeCheck = generateFunctionShapeCheck(paramName, param.type, path)
       if (shapeCheck) {
         lines.push(shapeCheck)
         // checkFnShape returns either the function unchanged or a
         // MonadicError. Re-check Error propagation after the assignment.
-        lines.push(
-          `if (${paramName} instanceof Error) return ${paramName};`
-        )
+        lines.push(`if (${paramName} instanceof Error) return ${paramName};`)
       }
     }
   }

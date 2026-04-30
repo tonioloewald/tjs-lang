@@ -340,10 +340,7 @@ export function transformParenExpressions(
       let arrowCheck = i
       while (arrowCheck < source.length && /\s/.test(source[arrowCheck]))
         arrowCheck++
-      if (
-        source[arrowCheck] === '=' &&
-        source[arrowCheck + 1] === '>'
-      ) {
+      if (source[arrowCheck] === '=' && source[arrowCheck + 1] === '>') {
         throw new SyntaxError(
           "Unexpected '=>' after function declaration. " +
             'Function declarations use `function name(params) { body }`, ' +

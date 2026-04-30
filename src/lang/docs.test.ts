@@ -6,11 +6,7 @@
  */
 
 import { describe, it, expect } from 'bun:test'
-import {
-  generateDocs,
-  generateDocsMarkdown,
-  prettifyTestBody,
-} from './docs'
+import { generateDocs, generateDocsMarkdown, prettifyTestBody } from './docs'
 
 describe('generateDocs', () => {
   describe('basic output', () => {
@@ -473,9 +469,7 @@ describe('prettifyTestBody', () => {
   })
 
   it('handles balanced parens in expected value', () => {
-    expect(prettifyTestBody('expect(x).toBe(f(1, 2))')).toBe(
-      'x  // → f(1, 2)'
-    )
+    expect(prettifyTestBody('expect(x).toBe(f(1, 2))')).toBe('x  // → f(1, 2)')
   })
 
   it('handles toBeTruthy / toBeFalsy / toBeNull / toBeUndefined', () => {
@@ -496,12 +490,8 @@ describe('prettifyTestBody', () => {
   })
 
   it('translates toBeGreaterThan / toBeLessThan', () => {
-    expect(prettifyTestBody('expect(x).toBeGreaterThan(5)')).toBe(
-      'x  // → > 5'
-    )
-    expect(prettifyTestBody('expect(y).toBeLessThan(10)')).toBe(
-      'y  // → < 10'
-    )
+    expect(prettifyTestBody('expect(x).toBeGreaterThan(5)')).toBe('x  // → > 5')
+    expect(prettifyTestBody('expect(y).toBeLessThan(10)')).toBe('y  // → < 10')
   })
 
   it('preserves non-expect lines', () => {
@@ -531,7 +521,9 @@ describe('prettifyTestBody', () => {
 
 describe('function extraction', () => {
   it('captures simple function signatures', () => {
-    const md = generateDocsMarkdown(`function add(a: 0, b: 0): 0 { return a + b }`)
+    const md = generateDocsMarkdown(
+      `function add(a: 0, b: 0): 0 { return a + b }`
+    )
     expect(md).toContain('## add')
     expect(md).toContain('function add(a: 0, b: 0): 0')
   })
@@ -586,7 +578,7 @@ function outer() {
     // eslint-disable-next-line @typescript-eslint/no-var-requires
     const { tjs } = require('./index')
 
-    it("renders an arrow-default param as `(x: any) => any` (not `function`)", () => {
+    it('renders an arrow-default param as `(x: any) => any` (not `function`)', () => {
       const r = tjs(`function f(fn = (x) => x): 0 { return 0 }`)
       const md = generateDocsMarkdown(r.code, r.types)
       expect(md).toContain('`fn`: (x: any) => any')

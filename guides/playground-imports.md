@@ -79,12 +79,12 @@ Current allowlist: `react`, `react-dom`. Easy to extend in the SW source.
 When you want to override the default routing, prefix the spec with a
 CDN name. The first path segment is treated as the hint:
 
-| Hint | Resolves to | Use when |
-| --- | --- | --- |
-| `jsdelivr/<spec>` | `https://cdn.jsdelivr.net/npm/<spec>/+esm` | Force JSDelivr (e.g. for a peer-dep package not on the allowlist) |
-| `esmsh/<spec>` | `https://esm.sh/<spec>` | Force esm.sh (e.g. for a different React-like package needing peer-dep dedup) |
-| `unpkg/<spec>` | `https://unpkg.com/<spec>?module` | UNPKG, returns ESM via `?module` |
-| `github/<user>/<repo>[@ref]/<path>` | `https://esm.sh/gh/<user>/<repo>[@ref]/<path>` | Load directly from a GitHub repo (esm.sh handles fetching + transformation) |
+| Hint                                | Resolves to                                    | Use when                                                                      |
+| ----------------------------------- | ---------------------------------------------- | ----------------------------------------------------------------------------- |
+| `jsdelivr/<spec>`                   | `https://cdn.jsdelivr.net/npm/<spec>/+esm`     | Force JSDelivr (e.g. for a peer-dep package not on the allowlist)             |
+| `esmsh/<spec>`                      | `https://esm.sh/<spec>`                        | Force esm.sh (e.g. for a different React-like package needing peer-dep dedup) |
+| `unpkg/<spec>`                      | `https://unpkg.com/<spec>?module`              | UNPKG, returns ESM via `?module`                                              |
+| `github/<user>/<repo>[@ref]/<path>` | `https://esm.sh/gh/<user>/<repo>[@ref]/<path>` | Load directly from a GitHub repo (esm.sh handles fetching + transformation)   |
 
 The hint name occupies what would normally be the package name slot, so
 named imports work normally:

@@ -17,9 +17,9 @@ import type { TypeDescriptor } from './types'
 
 /**
  * Build a per-character boolean indicating whether the position is inside
- * a `/* ... *​/` block comment or `// ... \n` line comment. Used so that
- * class/function patterns don't match prose text inside `/*# ... *​/` doc
- * blocks (e.g. `class Point { ... }` shown as an illustrative snippet).
+ * a block comment or line comment. Used so that class/function patterns
+ * don't match prose text inside doc blocks (e.g. `class Point { ... }`
+ * shown as an illustrative snippet).
  */
 function computeInComment(source: string): boolean[] {
   const inComment = new Array<boolean>(source.length).fill(false)
@@ -54,10 +54,13 @@ function computeInComment(source: string): boolean[] {
     if (c === '/' && n === '*') {
       const start = i
       i += 2
-      while (i < source.length - 1 && !(source[i] === '*' && source[i + 1] === '/')) {
+      while (
+        i < source.length - 1 &&
+        !(source[i] === '*' && source[i + 1] === '/')
+      ) {
         i++
       }
-      // include closing `*​/`
+      // include closing `*/`
       const end = Math.min(source.length, i + 2)
       for (let k = start; k < end; k++) inComment[k] = true
       i = end
@@ -587,7 +590,11 @@ function safeJsonExample(value: unknown): string | null {
   }
 }
 
-function renderMatcher(actual: string, matcher: string, expected: string): string {
+function renderMatcher(
+  actual: string,
+  matcher: string,
+  expected: string
+): string {
   const a = actual.trim()
   const e = expected.trim()
   switch (matcher) {

@@ -409,6 +409,7 @@ The playground (https://tjs-platform.web.app) shows interactive TJS and AJS exam
 
 **File format:**
 
+<!-- prettier-ignore -->
 ```markdown
 <!--{"section":"tjs","type":"example","group":"basics","order":16}-->
 
@@ -444,11 +445,13 @@ Examples are auto-discovered by `bin/docs.js` (run via `bun run docs`), which wa
 The CLI (`bun src/cli/tjs.ts run`) does NOT inject the test-block `expect` harness — that's a playground-only thing. So running an extracted code block via the CLI prints "expect is not defined" for any `test { expect(...) }` blocks even though they pass in the playground. To verify an example:
 
 1. **Console-log behavior** (works via CLI): extract the `tjs` code block and run it.
-   ```bash
+
+   ````bash
    awk '/^```tjs$/{flag=1; next} /^```$/{flag=0} flag' \
      guides/examples/tjs/<slug>.md > /tmp/example.tjs
    bun src/cli/tjs.ts run /tmp/example.tjs
-   ```
+   ````
+
    Verify the printed output matches the expected behavior shown in the example's comments.
 
 2. **Test blocks**: spin up the dev server (`bun run start`) and load the example in the playground UI to confirm tests pass under the real `expect` harness.

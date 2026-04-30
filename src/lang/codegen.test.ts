@@ -1448,9 +1448,7 @@ function getData(id: 0):! { value: 0 } {
     })
 
     it('returns MonadicError when a function param receives a non-function', () => {
-      const { code } = tjs(
-        `function f(fn = (x) => x): 0 { return fn(5) }`
-      )
+      const { code } = tjs(`function f(fn = (x) => x): 0 { return fn(5) }`)
       const f = new Function(code + '; return f')()
 
       // Passing a function: works
@@ -1506,17 +1504,13 @@ function map(arr: [''], counter = strLength): [0] { return arr.map(counter) }`)
       it('does not emit checkFnShape when shape is empty (all-any)', () => {
         // `(x) => x` infers params=[{x: any}], returns: any
         // → nothing useful to check → emitter omits the call
-        const { code: code3 } = tjs(
-          `function h(fn = (x) => x): 0 { return 0 }`
-        )
+        const { code: code3 } = tjs(`function h(fn = (x) => x): 0 { return 0 }`)
         expect(code3).not.toContain('__tjs.checkFnShape')
       })
 
       it('emits checkFnShape when only the return type is known', () => {
         // `() => 5` infers no params, returns: integer
-        const { code } = tjs(
-          `function k(make = () => 5): 0 { return make() }`
-        )
+        const { code } = tjs(`function k(make = () => 5): 0 { return make() }`)
         expect(code).toContain('__tjs.checkFnShape')
       })
 
@@ -1524,9 +1518,7 @@ function map(arr: [''], counter = strLength): [0] { return arr.map(counter) }`)
         // The "errors propagate, not accumulate" rule: when an array
         // input contains a MonadicError, the receiving function emits
         // that error directly instead of saying "expected array, got X".
-        const { code } = tjs(
-          `function first(s: ['hi']): 'hi' { return s[0] }`
-        )
+        const { code } = tjs(`function first(s: ['hi']): 'hi' { return s[0] }`)
         const fns = new Function(code + '\nreturn { first }')()
         const fakeError = Object.assign(new Error('preexisting'), {
           name: 'MonadicError',
@@ -1567,16 +1559,14 @@ function map(arr: [''], counter = strLength): [0] { return arr.map(counter) }`)
 function mapStrings(s: ['hello', 'foo'], counter = strLength): [5, 3] {
   return s.map(counter)
 }`)
-        const fns = new Function(
-          code + '\nreturn { mapStrings }'
-        )()
+        const fns = new Function(code + '\nreturn { mapStrings }')()
         const r = fns.mapStrings(['hello', 'world'], (x: string) => false)
         // Untyped arrow → no checks → array of booleans (no error pollution)
         expect(r).toEqual([false, false])
         expect(r.every((v: any) => v instanceof Error)).toBe(false)
       })
 
-      it('propagates a referenced function\'s signature (cross-ref)', () => {
+      it("propagates a referenced function's signature (cross-ref)", () => {
         // `counter = strLength` should give `counter` strLength's signature
         // `(s: '') => 0`, even though the AST default is just an Identifier.
         const src = `function strLength(s: ''): 0 { return s.length }

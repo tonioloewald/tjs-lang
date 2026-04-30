@@ -1099,9 +1099,7 @@ test 'always fails' { throw new Error('intentional') }
     })
 
     it('does not error on real arrow function expressions', () => {
-      expect(() =>
-        tjs(`const f = (s = '') => s.length`)
-      ).not.toThrow()
+      expect(() => tjs(`const f = (s = '') => s.length`)).not.toThrow()
     })
   })
 
