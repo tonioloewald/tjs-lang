@@ -66,11 +66,12 @@ footgun, handled by the `Is` operator (see below).
 
 Raw JS `==` coerces wildly across types:
 
+<!-- prettier-ignore -->
 ```js
-'5' == 5          // true
-'' == false       // true
-0 == ''           // true
-[1] == 1          // true
+'5' == 5     // true
+'' == false  // true
+0 == ''      // true
+[1] == 1     // true
 ```
 
 …and `NaN` is famously unequal to itself, which makes "is this a real
