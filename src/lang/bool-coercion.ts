@@ -262,9 +262,7 @@ function collectChildren(node: Node): Node[] {
  */
 function dedupeNested(patches: BoolCoercionPatch[]): BoolCoercionPatch[] {
   // Sort by start asc, end desc (outermost first for equal starts)
-  const sorted = [...patches].sort(
-    (a, b) => a.start - b.start || b.end - a.end
-  )
+  const sorted = [...patches].sort((a, b) => a.start - b.start || b.end - a.end)
   const kept: BoolCoercionPatch[] = []
   let lastEnd = -1
   for (const p of sorted) {

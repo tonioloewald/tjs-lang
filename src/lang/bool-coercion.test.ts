@@ -31,7 +31,9 @@ describe('Boolean coercion rewriter (TjsStandard)', () => {
 
   describe('truthiness contexts unwrap boxed primitives', () => {
     it('fixes `if (new Boolean(false))`', () => {
-      const out = run(`function f(){ if (new Boolean(false)) return 'truthy'; return 'falsy' }`)
+      const out = run(
+        `function f(){ if (new Boolean(false)) return 'truthy'; return 'falsy' }`
+      )
       expect(out).toBe('falsy')
     })
 
@@ -74,9 +76,7 @@ describe('Boolean coercion rewriter (TjsStandard)', () => {
 
   describe('logical operators preserve value-returning semantics', () => {
     it('`new Boolean(false) || x` returns x', () => {
-      const out = run(
-        `function f(){ return (new Boolean(false)) || 'right' }`
-      )
+      const out = run(`function f(){ return (new Boolean(false)) || 'right' }`)
       expect(out).toBe('right')
     })
 
@@ -88,9 +88,7 @@ describe('Boolean coercion rewriter (TjsStandard)', () => {
     })
 
     it('`new Boolean(false) && x` returns the wrapper (falsy LHS short-circuits)', () => {
-      const out = run(
-        `function f(){ return (new Boolean(false)) && 'right' }`
-      )
+      const out = run(`function f(){ return (new Boolean(false)) && 'right' }`)
       expect(typeof out).toBe('object')
       expect(out.valueOf()).toBe(false)
     })

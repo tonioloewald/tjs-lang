@@ -2130,7 +2130,7 @@ export async function registerWasmBlock(block: WasmBlock): Promise<boolean> {
   }
 
   // Register globally
-  (globalThis as any)[block.id] = result.fn
+  ;(globalThis as any)[block.id] = result.fn
 
   return true
 }

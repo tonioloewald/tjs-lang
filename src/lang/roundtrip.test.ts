@@ -16,7 +16,7 @@ import { Is, IsNot, MonadicError } from './runtime'
 
 // Set up the minimal runtime needed for transpiled code
 beforeAll(() => {
-  (globalThis as any).__tjs = {
+  ;(globalThis as any).__tjs = {
     Is,
     IsNot,
     pushStack: () => {},
