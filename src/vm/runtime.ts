@@ -1132,8 +1132,12 @@ export function evaluateExpr(node: ExprNode, ctx: RuntimeContext): any {
         return undefined
       }
 
-      const prop = node.property
-      assertSafeProperty(prop)
+      // Property is either a static string or a computed expression node (e.g. arr[i])
+      const prop =
+        typeof node.property === 'object' && node.property !== null
+          ? evaluateExpr(node.property, ctx)
+          : node.property
+      assertSafeProperty(String(prop))
 
       return obj?.[prop]
     }
@@ -1524,6 +1528,7 @@ export const whileLoop = defineAtom(
       if ((ctx.fuel.current -= 0.1) <= 0) throw new Error('Out of Fuel')
       await seq.exec({ op: 'seq', steps: step.body } as any, ctx)
       if (ctx.output !== undefined) return
+      if (ctx.error) return // Propagate monadic errors out of the loop
     }
   },
   { docs: 'While Loop', timeoutMs: 0, cost: 0.1 }

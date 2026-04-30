@@ -25,7 +25,7 @@ interface StoreBattery {
 interface LLMBattery {
   predict(
     system: string,
-    user: string,
+    user: string | any[], // string for single-turn, message array for multi-turn
     tools?: any[],
     responseFormat?: any
   ): Promise<any>
@@ -140,7 +140,7 @@ export const llmPredictBattery = defineAtom(
   'llmPredictBattery',
   s.object({
     system: s.string.optional,
-    user: s.string,
+    user: s.union([s.string, s.array(s.any)]), // string or message array for multi-turn
     tools: s.array(s.any).optional,
     responseFormat: s.any.optional,
   }),

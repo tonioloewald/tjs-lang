@@ -1,9 +1,12 @@
 import { describe, it, expect, beforeAll, afterAll } from 'bun:test'
 import { mkdtempSync, writeFileSync, readFileSync, rmSync } from 'fs'
-import { join } from 'path'
+import { join, resolve } from 'path'
 import { tmpdir } from 'os'
 import { fromTS } from '../../lang/emitters/from-ts'
 import { tjs } from '../../lang'
+
+const REPO_ROOT = resolve(import.meta.dir, '../../..')
+const BUN = process.execPath
 
 const TS_SIMPLE = `
 function greet(name: string): string {
@@ -146,8 +149,8 @@ function getAge(): number { return 30 }
       const inputPath = join(tmpDir, 'hello.ts')
       writeFileSync(inputPath, TS_SIMPLE)
 
-      const proc = Bun.spawn(['bun', 'src/cli/tjs.ts', 'convert', inputPath], {
-        cwd: '/Users/tonioloewald/tjs-lang',
+      const proc = Bun.spawn([BUN, 'src/cli/tjs.ts', 'convert', inputPath], {
+        cwd: REPO_ROOT,
         stdout: 'pipe',
         stderr: 'pipe',
       })
@@ -165,8 +168,8 @@ function getAge(): number { return 30 }
       writeFileSync(inputPath, TS_SIMPLE)
 
       const proc = Bun.spawn(
-        ['bun', 'src/cli/tjs.ts', 'convert', '--emit-tjs', inputPath],
-        { cwd: '/Users/tonioloewald/tjs-lang', stdout: 'pipe', stderr: 'pipe' }
+        [BUN, 'src/cli/tjs.ts', 'convert', '--emit-tjs', inputPath],
+        { cwd: REPO_ROOT, stdout: 'pipe', stderr: 'pipe' }
       )
       const stdout = await new Response(proc.stdout).text()
       await proc.exited
@@ -181,8 +184,8 @@ function getAge(): number { return 30 }
       writeFileSync(inputPath, TS_WITH_TESTS)
 
       const proc = Bun.spawn(
-        ['bun', 'src/cli/tjs.ts', 'convert', '-V', inputPath],
-        { cwd: '/Users/tonioloewald/tjs-lang', stdout: 'pipe', stderr: 'pipe' }
+        [BUN, 'src/cli/tjs.ts', 'convert', '-V', inputPath],
+        { cwd: REPO_ROOT, stdout: 'pipe', stderr: 'pipe' }
       )
       const stderr = await new Response(proc.stderr).text()
       await proc.exited
@@ -194,8 +197,8 @@ function getAge(): number { return 30 }
       const inputPath = join(tmpDir, 'failing.ts')
       writeFileSync(inputPath, TS_WITH_FAILING_TEST)
 
-      const proc = Bun.spawn(['bun', 'src/cli/tjs.ts', 'convert', inputPath], {
-        cwd: '/Users/tonioloewald/tjs-lang',
+      const proc = Bun.spawn([BUN, 'src/cli/tjs.ts', 'convert', inputPath], {
+        cwd: REPO_ROOT,
         stdout: 'pipe',
         stderr: 'pipe',
       })
@@ -227,8 +230,8 @@ function getAge(): number { return 30 }
       writeFileSync(join(srcDir, 'types.d.ts'), `// declaration file`)
 
       const proc = Bun.spawn(
-        ['bun', 'src/cli/tjs.ts', 'convert', srcDir, '-o', outDir],
-        { cwd: '/Users/tonioloewald/tjs-lang', stdout: 'pipe', stderr: 'pipe' }
+        [BUN, 'src/cli/tjs.ts', 'convert', srcDir, '-o', outDir],
+        { cwd: REPO_ROOT, stdout: 'pipe', stderr: 'pipe' }
       )
       await proc.exited
 
@@ -259,7 +262,7 @@ function getAge(): number { return 30 }
 
       const proc = Bun.spawn(
         [
-          'bun',
+          BUN,
           'src/cli/tjs.ts',
           'convert',
           '--emit-tjs',
@@ -267,7 +270,7 @@ function getAge(): number { return 30 }
           '-o',
           outDir,
         ],
-        { cwd: '/Users/tonioloewald/tjs-lang', stdout: 'pipe', stderr: 'pipe' }
+        { cwd: REPO_ROOT, stdout: 'pipe', stderr: 'pipe' }
       )
       await proc.exited
 

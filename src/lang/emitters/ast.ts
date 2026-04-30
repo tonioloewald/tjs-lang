@@ -1420,13 +1420,14 @@ function expressionToExprNode(
             ...(isOptional && { optional: true }),
           }
         }
-        // For computed with variable, we'd need more complex handling
-        throw new TranspileError(
-          'Computed member access with variables not yet supported',
-          getLocation(expr),
-          ctx.source,
-          ctx.filename
-        )
+        // Computed with expression (e.g. arr[i]) — emit as member with expr property
+        return {
+          $expr: 'member',
+          object: obj,
+          property: expressionToExprNode(prop, ctx),
+          computed: true,
+          ...(isOptional && { optional: true }),
+        }
       }
 
       const propName = (mem.property as Identifier).name
@@ -1641,11 +1642,9 @@ function expressionToValue(expr: Expression, ctx: TransformContext): any {
       }
 
       if (mem.computed) {
-        // arr[0] - would need runtime evaluation
-        return `${objValue}[${expressionToValue(
-          mem.property as Expression,
-          ctx
-        )}]`
+        // Computed member (arr[i] or arr[0]) — always emit as $expr node so the
+        // runtime evaluates the index rather than treating it as a string path.
+        return expressionToExprNode(expr, ctx)
       }
 
       const prop = (mem.property as Identifier).name

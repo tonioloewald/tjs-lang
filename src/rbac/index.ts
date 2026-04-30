@@ -46,7 +46,7 @@ export {
   interpretRuleResult,
   hasRoleLevel,
   buildRuleContext,
-} from './rules.js'
+} from './rules.tjs'
 
 /**
  * Security rule definition
@@ -125,7 +125,7 @@ import {
   validateSchema,
   buildRuleContext,
   interpretRuleResult,
-} from './rules.js'
+} from './rules.tjs'
 
 /**
  * Create an RBAC instance with a store backend
