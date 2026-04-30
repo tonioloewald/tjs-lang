@@ -1,21 +1,38 @@
 /**
  * TFS — TJS File System Service Worker
  *
- * Intercepts /tfs/ requests and resolves them to CDN modules.
- * Handles caching, version resolution, and ESM serving.
+ * Acts as a tiny in-browser server for the playground iframe:
  *
- * URL format: /tfs/package@version/subpath
- *   /tfs/tosijs@1.3.11          → jsdelivr CDN
- *   /tfs/tosijs@latest           → jsdelivr CDN (latest)
- *   /tfs/lodash-es@4.17.21      → jsdelivr CDN
- *   /tfs/@scope/pkg@1.0.0       → jsdelivr CDN (scoped)
+ *   /iframe/<sessionId>   → playground HTML registered via postMessage
+ *   /tfs/<spec>           → CDN module via esm.sh
  *
- * If no version specified, defaults to @latest.
+ * The iframe is loaded from a same-origin /iframe/<id> URL (instead of
+ * a blob: URL) so the SW controls it. Every fetch from inside the iframe
+ * — module imports, future virtual-module reads, future fetch() mocks —
+ * goes through this SW.
+ *
+ * Why esm.sh: dedupes packages with peer dependencies (like react +
+ * react-dom) by URL. JSDelivr's `/+esm` bundles deps inline, which
+ * gives react-dom its own copy of React → useState crashes.
+ *
+ * URL format for /tfs/:
+ *   /tfs/tosijs                  → esm.sh/tosijs
+ *   /tfs/tosijs@1.6.1            → esm.sh/tosijs@1.6.1
+ *   /tfs/lodash-es/debounce      → esm.sh/lodash-es/debounce
+ *   /tfs/@scope/pkg@1.0.0        → esm.sh/@scope/pkg@1.0.0
+ *   /tfs/__status                → cache stats
+ *   /tfs/__clear                 → drop the cache
  */
 
-const SW_VERSION = 'tfs-v2-jsdelivr-esm' // bump on SW changes to force refresh
+const SW_VERSION = 'tfs-v3-iframe-host'
 const CACHE_NAME = SW_VERSION
-const CDN_BASE = 'https://cdn.jsdelivr.net/npm'
+const CDN_BASE = 'https://esm.sh'
+
+// In-memory store of iframe HTML by session ID. Populated via postMessage
+// from the playground when running code; consumed when the iframe fetches
+// /iframe/<sessionId>. Lost on SW restart, which is fine — the playground
+// re-registers each run.
+const iframeContents = new Map()
 
 self.addEventListener('install', () => {
   console.log(`[TFS] installing ${SW_VERSION}`)
@@ -26,7 +43,7 @@ self.addEventListener('activate', (event) => {
   console.log(`[TFS] activating ${SW_VERSION}`)
   event.waitUntil(
     (async () => {
-      // Drop any old caches from previous SW versions
+      // Drop caches from previous SW versions
       const keys = await caches.keys()
       await Promise.all(
         keys.filter((k) => k !== CACHE_NAME).map((k) => caches.delete(k))
@@ -36,103 +53,122 @@ self.addEventListener('activate', (event) => {
   )
 })
 
+// Receive iframe HTML registrations from the playground.
+// Replies on event.ports[0] (if provided) so the playground can await
+// the registration before setting iframe.src.
+self.addEventListener('message', (event) => {
+  const data = event.data
+  if (!data || typeof data !== 'object') return
+
+  if (data.type === 'register-iframe') {
+    iframeContents.set(data.sessionId, data.html)
+    if (event.ports && event.ports[0]) {
+      event.ports[0].postMessage({ type: 'iframe-registered' })
+    }
+  } else if (data.type === 'unregister-iframe') {
+    iframeContents.delete(data.sessionId)
+  }
+})
+
+self.addEventListener('fetch', (event) => {
+  const url = new URL(event.request.url)
+
+  // /iframe/<sessionId> — serve the registered HTML
+  if (url.pathname.startsWith('/iframe/')) {
+    const sessionId = url.pathname.slice('/iframe/'.length)
+    event.respondWith(serveIframeRequest(sessionId))
+    return
+  }
+
+  // /tfs/<spec> — proxy to esm.sh
+  if (url.pathname.startsWith('/tfs/')) {
+    const tfsPath = url.pathname.slice(5)
+    if (!tfsPath) return
+
+    if (tfsPath === '__status') {
+      event.respondWith(serveStatus())
+      return
+    }
+    if (tfsPath === '__clear') {
+      event.respondWith(serveClear())
+      return
+    }
+
+    const parsed = parseTfsPath(tfsPath)
+    if (!parsed) {
+      event.respondWith(new Response('invalid tfs path', { status: 400 }))
+      return
+    }
+    event.respondWith(serveTfsRequest(parsed))
+    return
+  }
+
+  // Anything else: let it pass through to the network
+})
+
+function serveIframeRequest(sessionId) {
+  const html = iframeContents.get(sessionId)
+  if (!html) {
+    return new Response(
+      `iframe content not found for session ${sessionId} — playground may not have registered yet`,
+      { status: 404, headers: { 'Content-Type': 'text/plain' } }
+    )
+  }
+  return new Response(html, {
+    status: 200,
+    headers: {
+      'Content-Type': 'text/html',
+      // No-cache: each playground run registers fresh content
+      'Cache-Control': 'no-store',
+    },
+  })
+}
+
+async function serveStatus() {
+  const cache = await caches.open(CACHE_NAME)
+  const keys = await cache.keys()
+  return new Response(
+    JSON.stringify({
+      version: CACHE_NAME,
+      cdn: CDN_BASE,
+      cached: keys.map((k) => new URL(k.url).pathname),
+      iframeSessions: [...iframeContents.keys()],
+    }),
+    { headers: { 'Content-Type': 'application/json' } }
+  )
+}
+
+async function serveClear() {
+  await caches.delete(CACHE_NAME)
+  return new Response('cache cleared', { status: 200 })
+}
+
 /**
  * Parse a TFS path into package name, version, and subpath.
  *
- * Examples:
  *   tosijs@1.3.11         → { name: 'tosijs', version: '1.3.11', subpath: '' }
- *   tosijs                → { name: 'tosijs', version: 'latest', subpath: '' }
+ *   tosijs                → { name: 'tosijs', version: '', subpath: '' }
  *   tosijs@1.3.11/utils   → { name: 'tosijs', version: '1.3.11', subpath: '/utils' }
  *   @scope/pkg@1.0.0      → { name: '@scope/pkg', version: '1.0.0', subpath: '' }
  *   @scope/pkg@1.0.0/sub  → { name: '@scope/pkg', version: '1.0.0', subpath: '/sub' }
  */
 function parseTfsPath(path) {
-  // Scoped packages: @scope/name@version/subpath
   if (path.startsWith('@')) {
-    const match = path.match(/^(@[^/]+\/[^/@]+)(?:@([^/]+))?(\/.*)?$/)
-    if (match) {
-      return {
-        name: match[1],
-        version: match[2] || 'latest',
-        subpath: match[3] || '',
-      }
-    }
+    const m = path.match(/^(@[^/]+\/[^/@]+)(?:@([^/]+))?(\/.*)?$/)
+    if (m) return { name: m[1], version: m[2] || '', subpath: m[3] || '' }
   }
-
-  // Regular packages: name@version/subpath
-  const match = path.match(/^([^/@]+)(?:@([^/]+))?(\/.*)?$/)
-  if (match) {
-    return {
-      name: match[1],
-      version: match[2] || 'latest',
-      subpath: match[3] || '',
-    }
-  }
-
+  const m = path.match(/^([^/@]+)(?:@([^/]+))?(\/.*)?$/)
+  if (m) return { name: m[1], version: m[2] || '', subpath: m[3] || '' }
   return null
 }
 
-self.addEventListener('fetch', (event) => {
-  const url = new URL(event.request.url)
-
-  // Only intercept /tfs/ requests
-  if (!url.pathname.startsWith('/tfs/')) return
-
-  console.log(
-    `[TFS ${SW_VERSION}] intercept ${url.pathname} (client: ${event.clientId || 'none'})`
-  )
-
-  const tfsPath = url.pathname.slice(5) // strip '/tfs/'
-  if (!tfsPath) return
-
-  // Special: /tfs/__status
-  if (tfsPath === '__status') {
-    event.respondWith(
-      caches.open(CACHE_NAME).then(async (cache) => {
-        const keys = await cache.keys()
-        return new Response(
-          JSON.stringify({
-            version: CACHE_NAME,
-            cached: keys.map((k) => new URL(k.url).pathname),
-          }),
-          { headers: { 'Content-Type': 'application/json' } }
-        )
-      })
-    )
-    return
-  }
-
-  // Special: /tfs/__clear
-  if (tfsPath === '__clear') {
-    event.respondWith(
-      caches
-        .delete(CACHE_NAME)
-        .then(() => new Response('cache cleared', { status: 200 }))
-    )
-    return
-  }
-
-  const parsed = parseTfsPath(tfsPath)
-  if (!parsed) {
-    event.respondWith(new Response('invalid tfs path', { status: 400 }))
-    return
-  }
-
-  event.respondWith(serveTfsRequest(parsed, event.request))
-})
-
-async function serveTfsRequest({ name, version, subpath }, request) {
+async function serveTfsRequest({ name, version, subpath }) {
   const cache = await caches.open(CACHE_NAME)
-
-  // Use JSDelivr's `/+esm` suffix: returns a self-contained ESM bundle
-  // with CJS-to-ESM transformation, dependencies inlined, and process
-  // polyfilled. Works for both ESM-native packages (tosijs, lodash-es)
-  // and CJS packages (react, react-dom). Skip the resolveEntryPoint step
-  // — JSDelivr handles entry resolution for `/+esm` URLs directly.
-  const cdnUrl = `${CDN_BASE}/${name}@${version}${subpath}/+esm`
+  // esm.sh: omit version means latest; include version inline (`react@18`).
+  const versionPart = version ? `@${version}` : ''
+  const cdnUrl = `${CDN_BASE}/${name}${versionPart}${subpath}`
   const cacheKey = new Request(cdnUrl)
 
-  // Check cache
   const cached = await cache.match(cacheKey)
   if (cached) {
     return new Response(cached.body, {
@@ -145,7 +181,6 @@ async function serveTfsRequest({ name, version, subpath }, request) {
     })
   }
 
-  // Fetch from CDN
   try {
     const response = await fetch(cdnUrl)
     if (!response.ok) {
@@ -153,28 +188,15 @@ async function serveTfsRequest({ name, version, subpath }, request) {
     }
 
     let body = await response.text()
-    const origin = new URL(request.url).origin
-    const pkgBase = `${CDN_BASE}/${name}@${version}`
 
-    // Rewrite imports in fetched module:
-    // - Bare specifiers → /tfs/ URLs (transitive deps, single copy)
-    // - Relative imports → absolute CDN URLs (sibling files within package)
+    // esm.sh's response uses esm.sh-relative paths (`/react@VERSION/...`).
+    // Loaded from the playground origin, those would resolve back to us
+    // instead of esm.sh. Rewrite to absolute esm.sh URLs so the browser
+    // fetches them directly (bypassing this SW) AND dedupes cross-package
+    // peer-dep references like react ↔ react-dom.
     body = body.replace(
-      /((?:import|export)\s+(?:[\w\s{},*]+\s+from\s+)?)(['"])([^'"]+)\2/g,
-      (match, prefix, quote, spec) => {
-        if (spec.startsWith('http://') || spec.startsWith('https://'))
-          return match
-        if (spec.startsWith('./') || spec.startsWith('../')) {
-          const dir = subpath.replace(/\/[^/]*$/, '')
-          // Add .js extension if missing (CDN requires it)
-          const specWithExt = /\.\w+$/.test(spec) ? spec : `${spec}.js`
-          const resolved = new URL(specWithExt, `${pkgBase}${dir}/`).href
-          return `${prefix}${quote}${resolved}${quote}`
-        }
-        if (spec.startsWith('/')) return match
-        // Bare specifier → route through /tfs/ for dedup
-        return `${prefix}${quote}${origin}/tfs/${spec}${quote}`
-      }
+      /((?:import|export)\s+(?:[\w\s{},*]+\s+from\s+)?)(['"])(\/[^'"]+)\2/g,
+      (_match, prefix, quote, path) => `${prefix}${quote}${CDN_BASE}${path}${quote}`
     )
 
     await cache.put(

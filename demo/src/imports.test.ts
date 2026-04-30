@@ -34,41 +34,39 @@ describe('extractImports', () => {
 })
 
 describe('rewriteImports', () => {
-  const CDN = 'https://esm.sh'
-
-  it('should rewrite bare specifiers to esm.sh URLs', () => {
+  it('should rewrite bare specifiers to /tfs/ URLs', () => {
     expect(rewriteImports(`import { foo } from 'tosijs'`)).toBe(
-      `import { foo } from '${CDN}/tosijs'`
+      `import { foo } from '/tfs/tosijs'`
     )
   })
 
   it('should preserve versioned specifiers', () => {
     expect(rewriteImports(`import { x } from 'tosijs@1.3.11'`)).toBe(
-      `import { x } from '${CDN}/tosijs@1.3.11'`
+      `import { x } from '/tfs/tosijs@1.3.11'`
     )
   })
 
   it('should handle subpath imports', () => {
     expect(
       rewriteImports(`import { debounce } from 'lodash-es/debounce'`)
-    ).toBe(`import { debounce } from '${CDN}/lodash-es/debounce'`)
+    ).toBe(`import { debounce } from '/tfs/lodash-es/debounce'`)
   })
 
-  it('should handle react-dom/client (the React Todo case)', () => {
+  it('should handle react-dom/client', () => {
     expect(rewriteImports(`import { createRoot } from 'react-dom/client'`)).toBe(
-      `import { createRoot } from '${CDN}/react-dom/client'`
+      `import { createRoot } from '/tfs/react-dom/client'`
     )
   })
 
   it('should handle scoped packages', () => {
     expect(rewriteImports(`import { x } from '@scope/pkg'`)).toBe(
-      `import { x } from '${CDN}/@scope/pkg'`
+      `import { x } from '/tfs/@scope/pkg'`
     )
   })
 
   it('should handle scoped packages with version and subpath', () => {
     expect(rewriteImports(`import { x } from '@scope/pkg@1.0.0/sub'`)).toBe(
-      `import { x } from '${CDN}/@scope/pkg@1.0.0/sub'`
+      `import { x } from '/tfs/@scope/pkg@1.0.0/sub'`
     )
   })
 
@@ -93,13 +91,13 @@ describe('rewriteImports', () => {
   it('should handle multiple imports', () => {
     const source = `import { a } from 'pkg-a'\nimport { b } from 'pkg-b'`
     const result = rewriteImports(source)
-    expect(result).toContain(`from '${CDN}/pkg-a'`)
-    expect(result).toContain(`from '${CDN}/pkg-b'`)
+    expect(result).toContain(`from '/tfs/pkg-a'`)
+    expect(result).toContain(`from '/tfs/pkg-b'`)
   })
 
   it('should handle re-exports', () => {
     expect(rewriteImports(`export { foo } from 'pkg'`)).toBe(
-      `export { foo } from '${CDN}/pkg'`
+      `export { foo } from '/tfs/pkg'`
     )
   })
 })

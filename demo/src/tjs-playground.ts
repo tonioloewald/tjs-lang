@@ -25,7 +25,11 @@ import {
 import { codeMirror, CodeMirror } from '../../editors/codemirror/component'
 import { tjs, generateDTS, type TJSTranspileOptions } from '../../src/lang'
 import { generateDocsMarkdown } from './docs-utils'
-import { rewriteImports, extractImports } from './imports'
+import {
+  rewriteImports,
+  extractImports,
+  registerIframeContent,
+} from './imports'
 import {
   buildIframeDoc,
   createIframeMessageHandler,
@@ -1304,18 +1308,36 @@ export class TJSPlayground extends Component<TJSPlaygroundParts> {
       })
       window.addEventListener('message', messageHandler)
 
-      // Set iframe content using blob URL instead of srcdoc
-      // This allows import maps to work with external URLs
+      // Load the iframe from a same-origin URL the TFS service worker
+      // serves. This makes the iframe SW-controlled, so its module imports
+      // (and future virtual-module reads) go through the SW. blob: URLs
+      // can't do this — Chrome SWs don't intercept fetches from sandboxed
+      // blob iframes.
       const iframe = this.parts.previewFrame
-      const blob = new Blob([iframeDoc], { type: 'text/html' })
-      const blobUrl = URL.createObjectURL(blob)
 
-      // Clean up previous blob URL if any
+      // Clean up previous blob URL if any (legacy fallback path)
       if (iframe.dataset.blobUrl) {
         URL.revokeObjectURL(iframe.dataset.blobUrl)
+        delete iframe.dataset.blobUrl
       }
-      iframe.dataset.blobUrl = blobUrl
-      iframe.src = blobUrl
+
+      const sessionId = `tjs-${Date.now()}-${Math.random().toString(36).slice(2)}`
+      const registered = await registerIframeContent(sessionId, iframeDoc)
+
+      if (registered) {
+        iframe.src = `/iframe/${sessionId}`
+      } else {
+        // SW unavailable — fall back to blob: (no SW interception, but
+        // CDN imports still work via the absolute URLs in the rewritten
+        // /tfs/ paths once the SW is back).
+        console.warn(
+          '[playground] SW unavailable, falling back to blob: iframe'
+        )
+        const blob = new Blob([iframeDoc], { type: 'text/html' })
+        const blobUrl = URL.createObjectURL(blob)
+        iframe.dataset.blobUrl = blobUrl
+        iframe.src = blobUrl
+      }
 
       // Wait a bit for execution, then clean up listener
       setTimeout(() => {

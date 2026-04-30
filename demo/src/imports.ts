@@ -1,42 +1,30 @@
 /**
  * Playground Import Resolver
  *
- * Rewrites bare import specifiers to absolute esm.sh URLs.
+ * Rewrites bare import specifiers to /tfs/<spec> URLs. The TFS service
+ * worker (demo/src/tfs-worker.js) intercepts those, proxies to esm.sh,
+ * and rewrites esm.sh's relative paths to absolute esm.sh URLs.
  *
  * Flow:
  *   import { x } from 'tosijs'
- *   → import { x } from 'https://esm.sh/tosijs'
+ *   → import { x } from '/tfs/tosijs'
+ *   → SW intercepts, fetches https://esm.sh/tosijs
+ *   → SW rewrites response to use absolute esm.sh URLs for sub-modules
+ *   → browser fetches sub-modules directly from esm.sh (cross-origin,
+ *     bypasses this SW), enabling peer-dep dedup
  *
- * Why esm.sh and not jsdelivr `/+esm`:
- *   Both serve ESM, but jsdelivr's `/+esm` bundles each module's
- *   dependencies inline. That breaks React, which has a peer-dep
- *   relationship between `react` and `react-dom`: each gets its own
- *   bundled copy of React, the dispatcher isn't shared, and `useState`
- *   crashes with "Cannot read properties of null".
+ * The /tfs/ indirection — instead of writing esm.sh URLs directly into
+ * user code — exists so the SW can:
+ *   - cache responses across page loads
+ *   - intercept future virtual-module paths (/vmod/...) for IDE features
+ *   - swap the CDN backend without changing emitted code
  *
- *   esm.sh dedupes by URL — `react-dom/client` references react via the
- *   same `/react@VERSION/...` path the user's `import 'react'` resolves
- *   to, so the browser loads ONE instance.
- *
- * Why direct URLs and not /tfs/ + service worker:
- *   The playground iframe is sandboxed and loaded from a blob: URL.
- *   Service workers do not reliably intercept fetches from sandboxed
- *   blob iframes (Chrome quirk). Direct CDN URLs work everywhere.
- *
- * The TFS service worker (demo/src/tfs-worker.js) remains in place for
- * direct /tfs/ navigation only — it's not on the iframe code path.
+ * For this to work, the playground iframe must be SAME-ORIGIN with the
+ * page (so the SW controls it). See tjs-playground.ts: the iframe loads
+ * from /iframe/<sessionId>, which the SW serves from a postMessage-fed
+ * in-memory store. blob: URLs do NOT work — Chrome SWs don't intercept
+ * fetches from sandboxed blob iframes.
  */
-
-const CDN_BASE = 'https://esm.sh'
-
-/**
- * Convert a bare specifier (`react`, `react-dom/client`, `@scope/pkg@1.0`)
- * to an absolute esm.sh URL. esm.sh accepts the spec as-is — it parses
- * scope/version/subpath internally.
- */
-function bareToCdnUrl(spec: string): string {
-  return `${CDN_BASE}/${spec}`
-}
 
 /**
  * Extract bare import specifiers from source code.
@@ -58,17 +46,16 @@ export function extractImports(source: string): string[] {
 }
 
 /**
- * Rewrite bare import specifiers to absolute JSDelivr `/+esm` URLs.
+ * Rewrite bare import specifiers to /tfs/<spec> URLs.
  * Skips relative (./), absolute (/), and already-absolute http(s):// paths.
  *
  * Before: import { tosi } from 'tosijs'
- * After:  import { tosi } from 'https://cdn.jsdelivr.net/npm/tosijs@latest/+esm'
+ * After:  import { tosi } from '/tfs/tosijs'
  */
 export function rewriteImports(source: string): string {
   return source.replace(
     /((?:import|export)\s+(?:[\w\s{},*]+\s+from\s+)?)(['"])([^'"]+)\2/g,
     (match, prefix, quote, specifier) => {
-      // Skip relative and absolute paths — only rewrite bare specifiers
       if (
         specifier.startsWith('.') ||
         specifier.startsWith('/') ||
@@ -77,7 +64,7 @@ export function rewriteImports(source: string): string {
       ) {
         return match
       }
-      return `${prefix}${quote}${bareToCdnUrl(specifier)}${quote}`
+      return `${prefix}${quote}/tfs/${specifier}${quote}`
     }
   )
 }
@@ -107,4 +94,40 @@ export async function registerTFS(): Promise<boolean> {
     console.error('TFS registration failed:', error)
     return false
   }
+}
+
+/**
+ * Register an iframe's HTML with the SW under a session ID, then resolve
+ * once the SW confirms registration. The caller can then set the iframe's
+ * src to `/iframe/<sessionId>` and the SW will serve the registered HTML.
+ *
+ * Resolves to false if the SW isn't active (caller should fall back to
+ * blob: URL — the iframe will work but won't have SW interception).
+ */
+export async function registerIframeContent(
+  sessionId: string,
+  html: string
+): Promise<boolean> {
+  const sw = navigator.serviceWorker?.controller
+  if (!sw) return false
+
+  return new Promise<boolean>((resolve) => {
+    const channel = new MessageChannel()
+    let settled = false
+    const settle = (ok: boolean) => {
+      if (settled) return
+      settled = true
+      channel.port1.close()
+      resolve(ok)
+    }
+    channel.port1.onmessage = (e) => {
+      settle(e.data?.type === 'iframe-registered')
+    }
+    // Safety: if the SW never replies, don't hang the playground forever
+    setTimeout(() => settle(false), 500)
+    sw.postMessage(
+      { type: 'register-iframe', sessionId, html },
+      [channel.port2]
+    )
+  })
 }

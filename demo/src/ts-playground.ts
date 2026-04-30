@@ -18,7 +18,7 @@ import {
 } from 'tosijs-ui'
 import { codeMirror, CodeMirror } from '../../editors/codemirror/component'
 import { tjs } from '../../src/lang'
-import { rewriteImports } from './imports'
+import { rewriteImports, registerIframeContent } from './imports'
 import { generateDocsMarkdown } from './docs-utils'
 import {
   buildIframeDoc,
@@ -746,17 +746,31 @@ export class TSPlayground extends Component<TSPlaygroundParts> {
       })
       window.addEventListener('message', this._messageHandler)
 
-      // Set iframe content using blob URL instead of srcdoc
-      // (srcdoc can cause double-execution in some browsers)
+      // Load iframe from a SW-served same-origin URL so the SW controls
+      // the iframe's fetches. blob: URLs do not get SW interception in
+      // sandboxed contexts (Chrome quirk). See tjs-playground.ts.
       const iframe = this.parts.previewFrame
-      const blob = new Blob([iframeDoc], { type: 'text/html' })
-      const blobUrl = URL.createObjectURL(blob)
 
       if (iframe.dataset.blobUrl) {
         URL.revokeObjectURL(iframe.dataset.blobUrl)
+        delete iframe.dataset.blobUrl
       }
-      iframe.dataset.blobUrl = blobUrl
-      iframe.src = blobUrl
+
+      const sessionId = `ts-${Date.now()}-${Math.random().toString(36).slice(2)}`
+      const registered = await registerIframeContent(sessionId, iframeDoc)
+
+      if (registered) {
+        iframe.src = `/iframe/${sessionId}`
+      } else {
+        // SW not active — fall back to blob: (no SW; CDN imports will fail)
+        console.warn(
+          '[ts-playground] SW unavailable, falling back to blob: iframe'
+        )
+        const blob = new Blob([iframeDoc], { type: 'text/html' })
+        const blobUrl = URL.createObjectURL(blob)
+        iframe.dataset.blobUrl = blobUrl
+        iframe.src = blobUrl
+      }
     } catch (e: any) {
       this.log(`Error: ${e.message}`)
       this.parts.statusBar.textContent = 'Error'
