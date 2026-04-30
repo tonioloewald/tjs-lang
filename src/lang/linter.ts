@@ -10,7 +10,14 @@
  * POC: Focus on variable usage first, then type checking.
  */
 
-import type { Program, Node, Identifier, VariableDeclaration } from 'acorn'
+import type {
+  Program,
+  Node,
+  Identifier,
+  VariableDeclaration,
+  AssignmentExpression,
+  Expression,
+} from 'acorn'
 import { parse } from './parser'
 import * as walk from 'acorn-walk'
 
@@ -36,8 +43,16 @@ export interface LintOptions {
   unreachableCode?: boolean
   /** Warn about explicit `new` keyword usage (TJS makes classes callable without new) */
   noExplicitNew?: boolean
+  /**
+   * Check `let` declarations for missing type information and forbid literal
+   * undefined/null assignments to typed lets. If undefined, the parser's
+   * `TjsSafeAssign` mode controls whether the rule runs.
+   */
+  safeAssign?: boolean
   /** Filename for error messages */
   filename?: string
+  /** Treat safeAssign violations as errors instead of warnings (TjsStrict semantics) */
+  strict?: boolean
 }
 
 const DEFAULT_OPTIONS: LintOptions = {
@@ -56,12 +71,16 @@ export function lint(source: string, options: LintOptions = {}): LintResult {
 
   // Parse the source
   let program: Program
+  let letAnnotations: Map<string, string> = new Map()
+  let safeAssignMode = false
   try {
     const result = parse(source, {
       filename: opts.filename,
       colonShorthand: true,
     })
     program = result.ast
+    letAnnotations = result.letAnnotations
+    safeAssignMode = result.tjsModes.tjsSafeAssign
   } catch (error: any) {
     return {
       diagnostics: [
@@ -76,6 +95,11 @@ export function lint(source: string, options: LintOptions = {}): LintResult {
       valid: false,
     }
   }
+  const safeAssignEnabled =
+    opts.safeAssign !== undefined ? opts.safeAssign : safeAssignMode
+  const safeAssignSeverity: LintDiagnostic['severity'] = opts.strict
+    ? 'error'
+    : 'warning'
 
   // Track variable declarations and usages per scope
   const scopes: Scope[] = [createScope()] // Global scope
@@ -177,6 +201,80 @@ export function lint(source: string, options: LintOptions = {}): LintResult {
     })
   }
 
+  // TjsSafeAssign: lets need an initializer or `: <example>` annotation, and
+  // typed lets must not be (re)assigned literal undefined/null/void 0.
+  if (safeAssignEnabled) {
+    // First pass: track which lets are "typed" (annotated OR have a non-nullish initializer)
+    const typedLets = new Set<string>()
+    walk.simple(program, {
+      VariableDeclaration(node: VariableDeclaration) {
+        if (node.kind !== 'let') return
+        for (const d of node.declarations) {
+          if (d.id.type !== 'Identifier') continue
+          const name = d.id.name
+          const annotated = letAnnotations.has(name)
+          const init = d.init
+          if (annotated) {
+            typedLets.add(name)
+          } else if (init && !isLiteralNullish(init)) {
+            typedLets.add(name)
+          }
+        }
+      },
+    })
+
+    // Declaration-site rule: missing type information
+    walk.simple(program, {
+      VariableDeclaration(node: VariableDeclaration) {
+        if (node.kind !== 'let') return
+        for (const d of node.declarations) {
+          if (d.id.type !== 'Identifier') continue
+          const name = d.id.name
+          if (letAnnotations.has(name)) continue
+          if (!d.init) {
+            diagnostics.push({
+              severity: safeAssignSeverity,
+              message: `'let ${name}' has no initializer or type annotation. Add an initializer (let ${name} = ...) or annotate (let ${name}: <example>).`,
+              line: (d as any).loc?.start?.line,
+              column: (d as any).loc?.start?.column,
+              rule: 'safe-assign-let-needs-type',
+            })
+          } else if (isLiteralNullish(d.init)) {
+            diagnostics.push({
+              severity: safeAssignSeverity,
+              message: `'let ${name}' is initialized to ${describeNullish(
+                d.init
+              )} with no type annotation. Annotate (let ${name}: <example>) to record the intended type.`,
+              line: (d as any).loc?.start?.line,
+              column: (d as any).loc?.start?.column,
+              rule: 'safe-assign-let-needs-type',
+            })
+          }
+        }
+      },
+    })
+
+    // Use-site rule: literal undefined/null assigned to a typed let
+    walk.simple(program, {
+      AssignmentExpression(node: AssignmentExpression) {
+        if (node.operator !== '=') return
+        if (node.left.type !== 'Identifier') return
+        const name = (node.left as Identifier).name
+        if (!typedLets.has(name)) return
+        if (!isLiteralNullish(node.right)) return
+        diagnostics.push({
+          severity: safeAssignSeverity,
+          message: `Cannot assign ${describeNullish(
+            node.right
+          )} to typed let '${name}'.`,
+          line: (node as any).loc?.start?.line,
+          column: (node as any).loc?.start?.column,
+          rule: 'safe-assign-no-nullish',
+        })
+      },
+    })
+  }
+
   // Check for explicit `new` keyword usage
   // In TJS, classes are callable without `new`, so using `new` is unnecessary
   if (opts.noExplicitNew) {
@@ -224,6 +322,31 @@ interface Declaration {
 
 function createScope(): Scope {
   return { declarations: new Map() }
+}
+
+/**
+ * Is the given expression a literal that evaluates to undefined or null?
+ * Catches: `undefined`, `null`, `void 0`, `void <any-literal>`.
+ */
+function isLiteralNullish(node: Expression | null | undefined): boolean {
+  if (!node) return false
+  if (node.type === 'Identifier' && (node as Identifier).name === 'undefined') {
+    return true
+  }
+  if (node.type === 'Literal' && (node as any).value === null) return true
+  if (node.type === 'UnaryExpression' && (node as any).operator === 'void') {
+    return true
+  }
+  return false
+}
+
+function describeNullish(node: Expression): string {
+  if (node.type === 'Identifier') return 'undefined'
+  if (node.type === 'Literal' && (node as any).value === null) return 'null'
+  if (node.type === 'UnaryExpression' && (node as any).operator === 'void') {
+    return 'void <expr> (undefined)'
+  }
+  return 'a nullish value'
 }
 
 function addDeclaration(scope: Scope, node: Node, kind: Declaration['kind']) {

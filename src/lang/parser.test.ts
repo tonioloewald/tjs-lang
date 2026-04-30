@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'bun:test'
 import { transpile, ajs, tjs } from './index'
-import { preprocess } from './parser'
+import { preprocess, parse } from './parser'
 import { createRuntime, isMonadicError } from './runtime'
 
 describe('Transpiler', () => {
@@ -1065,6 +1065,43 @@ test 'always fails' { throw new Error('intentional') }
       expect(varSetStep.op).toBe('varSet')
       expect(varSetStep.value.$expr).toBe('logical')
       expect(varSetStep.value.op).toBe('??')
+    })
+  })
+
+  describe('let type annotations (TjsSafeAssign)', () => {
+    it("strips `: <example>` from `let x: ''` and records annotation", () => {
+      const r = parse(`let x: ''`)
+      expect(r.letAnnotations.get('x')).toBe("''")
+    })
+
+    it('strips `: <example>` from `let x: 0 = 5` and keeps the initializer', () => {
+      const r = parse(`let x: 0 = 5`)
+      expect(r.letAnnotations.get('x')).toBe('0')
+      const decl = r.ast.body[0] as any
+      expect(decl.type).toBe('VariableDeclaration')
+      expect(decl.declarations[0].init).not.toBeNull()
+    })
+
+    it('handles object-literal example with nested braces', () => {
+      const r = parse(
+        `function f() { let result: { ok: false }; return result }`
+      )
+      expect(r.letAnnotations.get('result')).toBe('{ ok: false }')
+    })
+
+    it('does not strip `:` inside string literals', () => {
+      const r = parse(`let s = 'a:b:c'`)
+      expect(r.letAnnotations.size).toBe(0)
+    })
+
+    it('TjsSafeAssign mode is on by default in native TJS', () => {
+      const r = parse(`let x = 0`)
+      expect(r.tjsModes.tjsSafeAssign).toBe(true)
+    })
+
+    it('TjsCompat directive disables TjsSafeAssign', () => {
+      const r = parse(`TjsCompat\nlet x = 0`)
+      expect(r.tjsModes.tjsSafeAssign).toBe(false)
     })
   })
 })

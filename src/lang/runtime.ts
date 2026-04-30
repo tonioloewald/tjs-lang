@@ -969,7 +969,7 @@ export function wrap<T extends (...args: any[]) => any>(
   meta: FunctionMeta
 ): T {
   // Always attach metadata for introspection/autocomplete
-  ;(fn as any).__tjs = meta
+  (fn as any).__tjs = meta
   // Lazy JSON Schema generation — only computed when called
   ;(fn as any).__tjs.schema = () => functionMetaToJSONSchema(meta)
 

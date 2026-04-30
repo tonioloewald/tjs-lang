@@ -3595,3 +3595,310 @@ function findMatchingOpen(
   }
   return pos
 }
+
+/**
+ * Transform `let x: <example>` and `let x: <example> = value` declarations.
+ *
+ * Strips the `: <example>` annotation so Acorn can parse, and records the
+ * variable name + example text so the linter and (later) type inference can
+ * use the annotation. Acorn rejects the colon since it is not valid JS.
+ *
+ *   let x: ''           → let x         (annotation: x → '')
+ *   let x: 0 = 5        → let x = 5     (annotation: x → 0)
+ *   let result: { ok: false } = ...     (annotation: result → { ok: false })
+ *
+ * Only `let` is processed. `const` always has an initializer, so the type
+ * is always inferable. `var` is rejected by TjsNoVar mode.
+ */
+export function transformLetTypeAnnotations(source: string): {
+  source: string
+  annotations: Map<string, string>
+} {
+  const annotations = new Map<string, string>()
+  if (!source.includes('let ')) return { source, annotations }
+
+  type Replacement = { start: number; end: number; replacement: string }
+  const replacements: Replacement[] = []
+
+  let i = 0
+  let state: TokenizerState = 'normal'
+  const templateStack: number[] = []
+
+  while (i < source.length) {
+    const char = source[i]
+    const nextChar = source[i + 1]
+
+    switch (state) {
+      case 'single-string':
+        if (char === '\\' && i + 1 < source.length) {
+          i += 2
+          continue
+        }
+        if (char === "'") state = 'normal'
+        i++
+        continue
+      case 'double-string':
+        if (char === '\\' && i + 1 < source.length) {
+          i += 2
+          continue
+        }
+        if (char === '"') state = 'normal'
+        i++
+        continue
+      case 'template-string':
+        if (char === '\\' && i + 1 < source.length) {
+          i += 2
+          continue
+        }
+        if (char === '$' && nextChar === '{') {
+          i += 2
+          templateStack.push(1)
+          state = 'normal'
+          continue
+        }
+        if (char === '`') state = 'normal'
+        i++
+        continue
+      case 'line-comment':
+        if (char === '\n') state = 'normal'
+        i++
+        continue
+      case 'block-comment':
+        if (char === '*' && nextChar === '/') {
+          i += 2
+          state = 'normal'
+          continue
+        }
+        i++
+        continue
+      case 'regex':
+        if (char === '\\' && i + 1 < source.length) {
+          i += 2
+          continue
+        }
+        if (char === '[') {
+          i++
+          while (i < source.length && source[i] !== ']') {
+            if (source[i] === '\\' && i + 1 < source.length) i += 2
+            else i++
+          }
+          if (i < source.length) i++
+          continue
+        }
+        if (char === '/') {
+          i++
+          while (i < source.length && /[gimsuy]/.test(source[i])) i++
+          state = 'normal'
+          continue
+        }
+        i++
+        continue
+      case 'normal':
+        if (templateStack.length > 0) {
+          if (char === '{') {
+            templateStack[templateStack.length - 1]++
+          } else if (char === '}') {
+            templateStack[templateStack.length - 1]--
+            if (templateStack[templateStack.length - 1] === 0) {
+              templateStack.pop()
+              i++
+              state = 'template-string'
+              continue
+            }
+          }
+        }
+        if (char === "'") {
+          i++
+          state = 'single-string'
+          continue
+        }
+        if (char === '"') {
+          i++
+          state = 'double-string'
+          continue
+        }
+        if (char === '`') {
+          i++
+          state = 'template-string'
+          continue
+        }
+        if (char === '/' && nextChar === '/') {
+          i += 2
+          state = 'line-comment'
+          continue
+        }
+        if (char === '/' && nextChar === '*') {
+          i += 2
+          state = 'block-comment'
+          continue
+        }
+        if (char === '/') {
+          let j = i - 1
+          while (j >= 0 && /\s/.test(source[j])) j--
+          const beforeChar = j >= 0 ? source[j] : ''
+          const isRegexContext =
+            !beforeChar ||
+            /[=(!,;:{[&|?+\-*%<>~^]/.test(beforeChar) ||
+            (j >= 5 &&
+              /\b(return|case|throw|in|of|typeof|instanceof|new|delete|void)$/.test(
+                source.slice(Math.max(0, j - 10), j + 1)
+              ))
+          if (isRegexContext) {
+            i++
+            state = 'regex'
+            continue
+          }
+        }
+
+        // Detect `let <ident> :` at top-level normal state
+        if (
+          char === 'l' &&
+          source.slice(i, i + 4) === 'let ' &&
+          (i === 0 || !/[\w$]/.test(source[i - 1]))
+        ) {
+          // Skip past `let` and whitespace
+          let j = i + 4
+          while (j < source.length && /\s/.test(source[j])) j++
+          // Match identifier
+          if (j < source.length && /[a-zA-Z_$]/.test(source[j])) {
+            const nameStart = j
+            while (j < source.length && /[\w$]/.test(source[j])) j++
+            const nameEnd = j
+            const varName = source.slice(nameStart, nameEnd)
+            // Skip whitespace; require a `:` (not `::` or part of `?:`)
+            let k = j
+            while (k < source.length && /\s/.test(source[k])) k++
+            if (
+              k < source.length &&
+              source[k] === ':' &&
+              source[k + 1] !== ':'
+            ) {
+              const colonPos = k
+              // Skip whitespace after colon
+              let exStart = colonPos + 1
+              while (
+                exStart < source.length &&
+                /[ \t]/.test(source[exStart])
+              ) {
+                exStart++
+              }
+              // Scan example expression until `=`, `,`, `;`, or newline at depth 0
+              const exEnd = scanExampleEnd(source, exStart)
+              if (exEnd > exStart) {
+                const example = source.slice(exStart, exEnd).trim()
+                annotations.set(varName, example)
+                replacements.push({
+                  start: nameEnd,
+                  end: exEnd,
+                  replacement: '',
+                })
+                i = exEnd
+                continue
+              }
+            }
+          }
+        }
+        break
+    }
+    i++
+  }
+
+  if (replacements.length === 0) return { source, annotations }
+
+  // Apply right-to-left to preserve positions
+  let result = source
+  for (let k = replacements.length - 1; k >= 0; k--) {
+    const r = replacements[k]
+    result = result.slice(0, r.start) + r.replacement + result.slice(r.end)
+  }
+  return { source: result, annotations }
+}
+
+/**
+ * Scan forward from `start` and return the position where the example
+ * expression ends. Stops at `=`, `,`, `;`, or a newline when paren/brace/
+ * bracket depth is 0. Skips through nested brackets, strings, and templates.
+ */
+function scanExampleEnd(source: string, start: number): number {
+  let i = start
+  let parens = 0
+  let braces = 0
+  let brackets = 0
+  let state: 'normal' | 'sq' | 'dq' | 'tpl' = 'normal'
+  const templateStack: number[] = []
+  while (i < source.length) {
+    const c = source[i]
+    if (state === 'sq') {
+      if (c === '\\') {
+        i += 2
+        continue
+      }
+      if (c === "'") state = 'normal'
+      i++
+      continue
+    }
+    if (state === 'dq') {
+      if (c === '\\') {
+        i += 2
+        continue
+      }
+      if (c === '"') state = 'normal'
+      i++
+      continue
+    }
+    if (state === 'tpl') {
+      if (c === '\\') {
+        i += 2
+        continue
+      }
+      if (c === '$' && source[i + 1] === '{') {
+        templateStack.push(1)
+        state = 'normal'
+        i += 2
+        continue
+      }
+      if (c === '`') state = 'normal'
+      i++
+      continue
+    }
+    // normal
+    if (templateStack.length > 0) {
+      if (c === '{') templateStack[templateStack.length - 1]++
+      else if (c === '}') {
+        templateStack[templateStack.length - 1]--
+        if (templateStack[templateStack.length - 1] === 0) {
+          templateStack.pop()
+          state = 'tpl'
+          i++
+          continue
+        }
+      }
+    }
+    if (c === "'") {
+      state = 'sq'
+      i++
+      continue
+    }
+    if (c === '"') {
+      state = 'dq'
+      i++
+      continue
+    }
+    if (c === '`') {
+      state = 'tpl'
+      i++
+      continue
+    }
+    if (c === '(') parens++
+    else if (c === ')') parens--
+    else if (c === '{') braces++
+    else if (c === '}') braces--
+    else if (c === '[') brackets++
+    else if (c === ']') brackets--
+    if (parens === 0 && braces === 0 && brackets === 0) {
+      if (c === '=' || c === ',' || c === ';' || c === '\n') return i
+    }
+    i++
+  }
+  return i
+}

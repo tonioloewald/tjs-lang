@@ -144,6 +144,8 @@ export interface TjsModes {
   tjsSafeEval: boolean
   /** TjsNoVar: var declarations are syntax errors */
   tjsNoVar: boolean
+  /** TjsSafeAssign: let declarations need an initializer or `: example` annotation; literal undefined/null/void 0 assigned to typed lets is flagged */
+  tjsSafeAssign: boolean
 }
 
 /**

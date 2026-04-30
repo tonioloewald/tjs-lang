@@ -51,6 +51,7 @@ import {
   transformConstBang,
   transformBangAccess,
   transformExtensionCalls,
+  transformLetTypeAnnotations,
 } from './parser-transforms'
 
 // Re-export transformExtensionCalls for js.ts
@@ -120,6 +121,7 @@ export function preprocess(
   testErrors: string[]
   polymorphicNames: Set<string>
   extensions: Map<string, Set<string>>
+  letAnnotations: Map<string, string>
 } {
   const originalSource = source
   let moduleSafety: 'none' | 'inputs' | 'all' | undefined
@@ -143,6 +145,7 @@ export function preprocess(
         tjsStandard: false,
         tjsSafeEval: false,
         tjsNoVar: false,
+        tjsSafeAssign: false,
       }
     : {
         tjsEquals: true,
@@ -152,6 +155,7 @@ export function preprocess(
         tjsStandard: true,
         tjsSafeEval: false, // opt-in only (adds import)
         tjsNoVar: true,
+        tjsSafeAssign: true,
       }
 
   // Safety: native TJS defaults to 'inputs' (runtime default),
@@ -180,7 +184,7 @@ export function preprocess(
   // TjsCompat disables all TJS modes (useful for native TJS opting out)
   // Individual modes: TjsEquals, TjsClass, TjsDate, TjsNoeval, TjsStandard, TjsSafeEval
   const directivePattern =
-    /^(\s*(?:\/\/[^\n]*\n|\/\*[\s\S]*?\*\/\s*)*)\s*(TjsStrict|TjsCompat|TjsEquals|TjsClass|TjsDate|TjsNoeval|TjsNoVar|TjsStandard|TjsSafeEval)\b/
+    /^(\s*(?:\/\/[^\n]*\n|\/\*[\s\S]*?\*\/\s*)*)\s*(TjsStrict|TjsCompat|TjsEquals|TjsClass|TjsDate|TjsNoeval|TjsNoVar|TjsStandard|TjsSafeEval|TjsSafeAssign)\b/
 
   let match
   while ((match = source.match(directivePattern))) {
@@ -194,6 +198,7 @@ export function preprocess(
       tjsModes.tjsNoeval = true
       tjsModes.tjsNoVar = true
       tjsModes.tjsStandard = true
+      tjsModes.tjsSafeAssign = true
     } else if (directive === 'TjsCompat') {
       // Disable all TJS modes (JS-compatible)
       tjsModes.tjsEquals = false
@@ -203,6 +208,7 @@ export function preprocess(
       tjsModes.tjsNoVar = false
       tjsModes.tjsStandard = false
       tjsModes.tjsSafeEval = false
+      tjsModes.tjsSafeAssign = false
     } else if (directive === 'TjsEquals') {
       tjsModes.tjsEquals = true
     } else if (directive === 'TjsClass') {
@@ -217,6 +223,8 @@ export function preprocess(
       tjsModes.tjsStandard = true
     } else if (directive === 'TjsSafeEval') {
       tjsModes.tjsSafeEval = true
+    } else if (directive === 'TjsSafeAssign') {
+      tjsModes.tjsSafeAssign = true
     }
 
     // Remove the directive from source
@@ -246,6 +254,13 @@ export function preprocess(
   // Transform !. bang access to __tjs.bang() calls
   // Must happen before acorn parsing since !. is not valid JS
   source = transformBangAccess(source)
+
+  // Transform `let x: <example>` declarations: strip annotation and record
+  // varName -> example. Must happen before paren transforms so the colon
+  // is not confused with TS-style annotations on params/returns.
+  const letAnnoResult = transformLetTypeAnnotations(source)
+  source = letAnnoResult.source
+  const letAnnotations = letAnnoResult.annotations
 
   // Transform Is/IsNot infix operators to function calls
   // a Is b -> Is(a, b)
@@ -371,6 +386,7 @@ export function preprocess(
     testErrors: testResult.errors,
     polymorphicNames: polyResult.polymorphicNames,
     extensions: extResult.extensions,
+    letAnnotations,
   }
 }
 
@@ -392,6 +408,8 @@ export function parse(
   wasmBlocks: WasmBlock[]
   tests: TestBlock[]
   testErrors: string[]
+  letAnnotations: Map<string, string>
+  tjsModes: TjsModes
 } {
   const {
     filename = '<source>',
@@ -412,6 +430,8 @@ export function parse(
     wasmBlocks,
     tests,
     testErrors,
+    letAnnotations,
+    tjsModes,
   } = colonShorthand
     ? preprocess(source, { vmTarget })
     : {
@@ -426,6 +446,17 @@ export function parse(
         wasmBlocks: [] as WasmBlock[],
         tests: [] as TestBlock[],
         testErrors: [] as string[],
+        letAnnotations: new Map<string, string>(),
+        tjsModes: {
+          tjsEquals: false,
+          tjsClass: false,
+          tjsDate: false,
+          tjsNoeval: false,
+          tjsStandard: false,
+          tjsSafeEval: false,
+          tjsNoVar: false,
+          tjsSafeAssign: false,
+        } as TjsModes,
       }
 
   try {
@@ -448,6 +479,8 @@ export function parse(
       wasmBlocks,
       tests,
       testErrors,
+      letAnnotations,
+      tjsModes,
     }
   } catch (e: any) {
     // Convert Acorn error to our error type

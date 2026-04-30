@@ -3,7 +3,7 @@
  */
 
 import { describe, it, expect } from 'bun:test'
-import { lint } from './linter'
+import { lint, type LintDiagnostic } from './linter'
 
 describe('TJS Linter', () => {
   describe('no-explicit-new rule', () => {
@@ -143,6 +143,111 @@ describe('TJS Linter', () => {
       const result = lint('function {{{')
       expect(result.valid).toBe(false)
       expect(result.diagnostics[0].rule).toBe('parse-error')
+    })
+  })
+
+  describe('safe-assign rule (TjsSafeAssign)', () => {
+    const onlySafeAssign = (result: { diagnostics: LintDiagnostic[] }) =>
+      result.diagnostics.filter((d) => d.rule.startsWith('safe-assign'))
+
+    it('flags `let x` with no initializer or annotation', () => {
+      const result = lint(`function f() { let x; return x }`)
+      const diags = onlySafeAssign(result)
+      expect(diags.length).toBe(1)
+      expect(diags[0].rule).toBe('safe-assign-let-needs-type')
+      expect(diags[0].severity).toBe('warning')
+      expect(diags[0].message).toContain("'let x'")
+    })
+
+    it('flags `let x = undefined` with no annotation', () => {
+      const result = lint(`function f() { let x = undefined; return x }`)
+      const diags = onlySafeAssign(result)
+      expect(diags.length).toBe(1)
+      expect(diags[0].rule).toBe('safe-assign-let-needs-type')
+      expect(diags[0].message).toContain('undefined')
+    })
+
+    it('flags `let x = null` with no annotation', () => {
+      const result = lint(`function f() { let x = null; return x }`)
+      const diags = onlySafeAssign(result)
+      expect(diags.length).toBe(1)
+      expect(diags[0].rule).toBe('safe-assign-let-needs-type')
+    })
+
+    it('flags `let x = void 0` with no annotation', () => {
+      const result = lint(`function f() { let x = void 0; return x }`)
+      const diags = onlySafeAssign(result)
+      expect(diags.length).toBe(1)
+      expect(diags[0].rule).toBe('safe-assign-let-needs-type')
+    })
+
+    it('accepts `let x = 0` (inferable initializer)', () => {
+      const result = lint(`function f() { let x = 0; return x }`)
+      expect(onlySafeAssign(result).length).toBe(0)
+    })
+
+    it("accepts `let x: ''` (annotation, no init)", () => {
+      const result = lint(`function f() { let x: ''; return x }`)
+      expect(onlySafeAssign(result).length).toBe(0)
+    })
+
+    it("accepts `let x: '' = 'hi'` (annotation + init)", () => {
+      const result = lint(`function f() { let x: '' = 'hi'; return x }`)
+      expect(onlySafeAssign(result).length).toBe(0)
+    })
+
+    it('flags `x = undefined` reassignment to a typed let', () => {
+      const result = lint(
+        `function f() { let x = 'hi'; x = undefined; return x }`
+      )
+      const diags = onlySafeAssign(result)
+      expect(diags.length).toBe(1)
+      expect(diags[0].rule).toBe('safe-assign-no-nullish')
+      expect(diags[0].message).toContain("'x'")
+    })
+
+    it('flags `x = null` reassignment to an annotated let', () => {
+      const result = lint(`function f() { let x: 0; x = null; return x }`)
+      const diags = onlySafeAssign(result)
+      expect(diags.length).toBe(1)
+      expect(diags[0].rule).toBe('safe-assign-no-nullish')
+    })
+
+    it('does not flag `x = "hi"` reassignment', () => {
+      const result = lint(
+        `function f() { let x = 'a'; x = 'b'; return x }`
+      )
+      expect(onlySafeAssign(result).length).toBe(0)
+    })
+
+    it('does not run rule under TjsCompat directive', () => {
+      const result = lint(`
+        TjsCompat
+        function f() { let x; return x }
+      `)
+      expect(onlySafeAssign(result).length).toBe(0)
+    })
+
+    it('emits errors (not warnings) under strict option', () => {
+      const result = lint(`function f() { let x; return x }`, {
+        strict: true,
+      })
+      const diags = onlySafeAssign(result)
+      expect(diags.length).toBe(1)
+      expect(diags[0].severity).toBe('error')
+      expect(result.valid).toBe(false)
+    })
+
+    it('safeAssign: false option disables the rule even in native TJS', () => {
+      const result = lint(`function f() { let x; return x }`, {
+        safeAssign: false,
+      })
+      expect(onlySafeAssign(result).length).toBe(0)
+    })
+
+    it('does not flag const declarations', () => {
+      const result = lint(`function f() { const x = 0; return x }`)
+      expect(onlySafeAssign(result).length).toBe(0)
     })
   })
 })
