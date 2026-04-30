@@ -42,6 +42,24 @@ const JSDELIVR = 'https://cdn.jsdelivr.net/npm'
 const ESM_SH = 'https://esm.sh'
 const ESM_SH_PACKAGES = new Set(['react', 'react-dom'])
 
+// Explicit per-import CDN hints (first path segment in the spec).
+// Lets users force a specific CDN when default routing picks the wrong one.
+//
+//   import x from 'jsdelivr/tosijs@1.6'        → JSDelivr
+//   import x from 'esmsh/react@18'             → esm.sh
+//   import x from 'unpkg/preact'               → UNPKG
+//   import x from 'github/user/repo@main/file' → esm.sh's /gh/ route
+//
+// Hint name `esm` would conflict with the popular `esm` npm package, so we
+// use `esmsh`. `jsdelivr`, `unpkg`, `github` are not taken as bare top-level
+// npm packages.
+const CDN_HINTS = {
+  jsdelivr: (rest) => `${JSDELIVR}/${rest}/+esm`,
+  esmsh: (rest) => `${ESM_SH}/${rest}`,
+  unpkg: (rest) => `https://unpkg.com/${rest}?module`,
+  github: (rest) => `${ESM_SH}/gh/${rest}`,
+}
+
 // In-memory store of iframe HTML by session ID. Populated via postMessage
 // from the playground when running code; consumed when the iframe fetches
 // /iframe/<sessionId>. Lost on SW restart, which is fine — the playground
@@ -168,10 +186,18 @@ async function serveClear() {
  *   lodash-es/get   → https://cdn.jsdelivr.net/npm/lodash-es@latest/get/+esm
  */
 function buildCdnUrl(name, version, subpath) {
+  // Explicit hint: `<cdn>/<rest>` where <cdn> is a known CDN name
+  if (CDN_HINTS[name] && subpath) {
+    // subpath starts with `/` — strip it. The version slot is unused for
+    // hinted specifiers since the inner spec carries its own version.
+    return CDN_HINTS[name](subpath.slice(1))
+  }
+  // Allowlist override (peer-dep packages must use esm.sh)
   if (ESM_SH_PACKAGES.has(name)) {
     const versionPart = version ? `@${version}` : ''
     return `${ESM_SH}/${name}${versionPart}${subpath}`
   }
+  // Default: JSDelivr `/+esm`
   const versionPart = version ? `@${version}` : '@latest'
   return `${JSDELIVR}/${name}${versionPart}${subpath}/+esm`
 }

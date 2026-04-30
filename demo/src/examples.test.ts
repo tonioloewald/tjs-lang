@@ -37,6 +37,7 @@ describe('TJS Playground Examples with tests', () => {
     'React Todo (Comparison)', // comparison example, not runnable
     'tosijs Todo App', // requires tosijs runtime
     'Full-Stack Demo: Client App', // requires saved module
+    'CDN Hints (overriding the default)', // imports tosijs and date-fns
   ])
 
   for (const example of tjsExamples) {

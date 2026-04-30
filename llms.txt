@@ -19,6 +19,7 @@ This file is a navigation index for AI agents. It does not contain the docs them
 - [guides/patterns.md](guides/patterns.md) — common patterns and idioms.
 - [guides/tjs-examples.md](guides/tjs-examples.md) — annotated example programs.
 - [guides/footguns.md](guides/footguns.md) — JS footguns TJS quietly fixes (boxed-primitive coercion, ==/!=, typeof null, uninitialized let, etc.).
+- [guides/playground-imports.md](guides/playground-imports.md) — how the playground resolves `import` statements: TFS service worker, default JSDelivr `/+esm`, esm.sh allowlist for React, CDN hints (`jsdelivr/`, `esmsh/`, `unpkg/`, `github/`), full-URL passthrough.
 - [guides/ajs-llm-prompt.md](guides/ajs-llm-prompt.md) — prompt template for asking LLMs to write AJS.
 
 ## Architecture and internals

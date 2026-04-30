@@ -463,6 +463,7 @@ The CLI (`bun src/cli/tjs.ts run`) does NOT inject the test-block `expect` harne
 
 - `llms.txt` — agent-facing navigation index (ships in npm bundle); points to docs and source entry points
 - `guides/footguns.md` — JS footguns TJS fixes (boxed-primitive truthiness, `==` coercion, `typeof null`, uninitialized `let`, etc.). Demo: `examples/js-footguns-fixed.tjs`.
+- `guides/playground-imports.md` — how the playground/dev-server resolves bare imports: TFS service worker, default JSDelivr `/+esm` routing, esm.sh allowlist for peer-dep packages (React), CDN hints (`jsdelivr/`, `esmsh/`, `unpkg/`, `github/`), and full-URL passthrough.
 - `DOCS-TJS.md` — TJS language guide
 - `DOCS-AJS.md` — AJS runtime guide
 - `TJS-FOR-JS.md` — TJS guide for JavaScript developers (syntax differences, gotchas)
