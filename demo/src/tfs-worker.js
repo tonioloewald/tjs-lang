@@ -60,37 +60,6 @@ function parseTfsPath(path) {
   return null
 }
 
-/**
- * Resolve the ESM entry point for a package.
- * Fetches package.json and checks exports → module → main.
- */
-async function resolveEntryPoint(name, version) {
-  const pkgUrl = `${CDN_BASE}/${name}@${version}/package.json`
-  const res = await fetch(pkgUrl)
-  if (!res.ok) return null
-
-  const pkg = await res.json()
-
-  // Check exports field first (modern ESM)
-  // exports can be { ".": { import: "..." } } or { import: "..." } directly
-  if (pkg.exports) {
-    const dot = pkg.exports['.'] ?? pkg.exports
-    if (typeof dot === 'string') return dot
-    if (dot?.import)
-      return typeof dot.import === 'string' ? dot.import : dot.import.default
-    if (dot?.default) return dot.default
-  }
-
-  // module field (bundler convention)
-  if (pkg.module) return pkg.module
-
-  // main field (fallback)
-  if (pkg.main) return pkg.main
-
-  // Default
-  return '/index.js'
-}
-
 self.addEventListener('fetch', (event) => {
   const url = new URL(event.request.url)
 
@@ -139,22 +108,12 @@ self.addEventListener('fetch', (event) => {
 async function serveTfsRequest({ name, version, subpath }, request) {
   const cache = await caches.open(CACHE_NAME)
 
-  // Resolve entry point if no subpath
-  if (!subpath) {
-    const entry = await resolveEntryPoint(name, version)
-    if (!entry) {
-      return new Response(`package not found: ${name}@${version}`, {
-        status: 404,
-      })
-    }
-    subpath = entry.startsWith('/')
-      ? entry
-      : entry.startsWith('./')
-      ? entry.slice(1)
-      : `/${entry}`
-  }
-
-  const cdnUrl = `${CDN_BASE}/${name}@${version}${subpath}`
+  // Use JSDelivr's `/+esm` suffix: returns a self-contained ESM bundle
+  // with CJS-to-ESM transformation, dependencies inlined, and process
+  // polyfilled. Works for both ESM-native packages (tosijs, lodash-es)
+  // and CJS packages (react, react-dom). Skip the resolveEntryPoint step
+  // — JSDelivr handles entry resolution for `/+esm` URLs directly.
+  const cdnUrl = `${CDN_BASE}/${name}@${version}${subpath}/+esm`
   const cacheKey = new Request(cdnUrl)
 
   // Check cache
