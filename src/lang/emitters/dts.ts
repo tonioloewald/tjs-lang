@@ -82,16 +82,12 @@ export function typeDescriptorToTS(td: TypeDescriptor): string {
       base = 'any'
       break
     case 'function': {
-      const arity = td.arity ?? 0
-      if (arity === 0) {
-        base = '() => any'
-      } else {
-        const args = Array.from(
-          { length: arity },
-          (_, i) => `arg${i}: any`
-        ).join(', ')
-        base = `(${args}) => any`
-      }
+      const params = td.params ?? []
+      const returns = td.returns ? typeDescriptorToTS(td.returns) : 'any'
+      const args = params
+        .map((p) => `${p.name}: ${typeDescriptorToTS(p.type)}`)
+        .join(', ')
+      base = `(${args}) => ${returns}`
       break
     }
     default:

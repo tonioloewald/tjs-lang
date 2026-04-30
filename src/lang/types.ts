@@ -33,8 +33,11 @@ export interface TypeDescriptor {
   members?: TypeDescriptor[]
   /** For destructured parameters: full parameter descriptors */
   destructuredParams?: Record<string, ParameterDescriptor>
-  /** For functions: the arity (number of declared parameters) */
-  arity?: number
+  /** For functions: declared parameters with names and inferred types */
+  params?: Array<{ name: string; type: TypeDescriptor }>
+  /** For functions: inferred return type. Concise arrow bodies infer from
+   * the expression; block bodies and complex expressions stay `any`. */
+  returns?: TypeDescriptor
 }
 
 /** Describes a function parameter */

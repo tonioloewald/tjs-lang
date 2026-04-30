@@ -97,20 +97,45 @@ describe('typeDescriptorToTS', () => {
     expect(typeDescriptorToTS(td)).toBe('{ x: number } | null')
   })
 
-  it('renders function kind with arity', () => {
-    expect(typeDescriptorToTS({ kind: 'function', arity: 0 })).toBe(
-      '() => any'
-    )
-    expect(typeDescriptorToTS({ kind: 'function', arity: 1 })).toBe(
-      '(arg0: any) => any'
-    )
-    expect(typeDescriptorToTS({ kind: 'function', arity: 2 })).toBe(
-      '(arg0: any, arg1: any) => any'
-    )
+  it('renders function kind with named params and return type', () => {
+    expect(
+      typeDescriptorToTS({
+        kind: 'function',
+        params: [],
+        returns: { kind: 'any' },
+      })
+    ).toBe('() => any')
+    expect(
+      typeDescriptorToTS({
+        kind: 'function',
+        params: [{ name: 'x', type: { kind: 'any' } }],
+        returns: { kind: 'any' },
+      })
+    ).toBe('(x: any) => any')
+    expect(
+      typeDescriptorToTS({
+        kind: 'function',
+        params: [
+          { name: 'a', type: { kind: 'integer' } },
+          { name: 'b', type: { kind: 'integer' } },
+        ],
+        returns: { kind: 'integer' },
+      })
+    ).toBe('(a: number, b: number) => number')
   })
 
-  it('renders function kind without arity (defaults to no args)', () => {
+  it('renders function kind with no fields (defaults)', () => {
     expect(typeDescriptorToTS({ kind: 'function' })).toBe('() => any')
+  })
+
+  it('renders function with object return type', () => {
+    expect(
+      typeDescriptorToTS({
+        kind: 'function',
+        params: [],
+        returns: { kind: 'object', shape: { a: { kind: 'integer' } } },
+      })
+    ).toBe('() => { a: number }')
   })
 })
 

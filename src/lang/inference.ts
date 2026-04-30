@@ -140,9 +140,26 @@ export function inferTypeFromValue(node: Expression): TypeDescriptor {
     case 'ArrowFunctionExpression':
     case 'FunctionExpression': {
       // Function example value (e.g. `fn = (x) => x` or `cb = function() {}`).
-      // Capture arity so .d.ts and validation can be more specific than `any`.
-      const params = (node as any).params as any[]
-      return { kind: 'function', arity: params.length }
+      // Capture parameter names + types and (for concise arrow bodies)
+      // infer the return type from the body expression.
+      const fn = node as any
+      const params: Array<{ name: string; type: TypeDescriptor }> =
+        fn.params.map((p: any) => paramShape(p))
+
+      // Concise arrow body: body IS the return expression, so we can
+      // infer its type. Block bodies (function expressions, multi-line
+      // arrows) stay `any` — scanning return statements is a separate
+      // can of worms.
+      let returns: TypeDescriptor = { kind: 'any' }
+      if (
+        fn.type === 'ArrowFunctionExpression' &&
+        fn.body &&
+        fn.body.type !== 'BlockStatement'
+      ) {
+        returns = inferTypeFromValue(fn.body)
+      }
+
+      return { kind: 'function', params, returns }
     }
 
     case 'UnaryExpression': {
@@ -174,6 +191,35 @@ export function inferTypeFromValue(node: Expression): TypeDescriptor {
     default:
       return { kind: 'any' }
   }
+}
+
+/**
+ * Extract a function-parameter shape from a Pattern AST node. Used when
+ * we encounter a function/arrow EXAMPLE value and want to record what
+ * its declared parameters look like for documentation and .d.ts emit.
+ *
+ * Plain identifier (`x`)              → { name: 'x', type: any }
+ * Default value (`x = 0`)             → { name: 'x', type: integer }
+ * Rest (`...args`)                    → { name: '...args', type: array }
+ * Destructuring (`{a}`, `[x]`)        → name: '?', type: any (we'd need
+ *                                       to mirror parseParameter to do
+ *                                       this properly; not worth the
+ *                                       complexity for example values)
+ */
+function paramShape(p: any): { name: string; type: TypeDescriptor } {
+  if (p.type === 'Identifier') {
+    return { name: p.name, type: { kind: 'any' } }
+  }
+  if (p.type === 'AssignmentPattern' && p.left?.type === 'Identifier') {
+    return { name: p.left.name, type: inferTypeFromValue(p.right) }
+  }
+  if (p.type === 'RestElement' && p.argument?.type === 'Identifier') {
+    return {
+      name: `...${p.argument.name}`,
+      type: { kind: 'array', items: { kind: 'any' } },
+    }
+  }
+  return { name: '?', type: { kind: 'any' } }
 }
 
 /**

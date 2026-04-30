@@ -579,6 +579,39 @@ function outer() {
     expect(fns.length).toBe(1)
     expect(fns[0].name).toBe('outer')
   })
+
+  describe('function param rendering in docs', () => {
+    // We need transpiled type metadata for the param-table renderer.
+    // Use the lang index's `tjs()` to get types.
+    // eslint-disable-next-line @typescript-eslint/no-var-requires
+    const { tjs } = require('./index')
+
+    it("renders an arrow-default param as `(x: any) => any` (not `function`)", () => {
+      const r = tjs(`function f(fn = (x) => x): 0 { return 0 }`)
+      const md = generateDocsMarkdown(r.code, r.types)
+      expect(md).toContain('`fn`: (x: any) => any')
+    })
+
+    it('infers return type from concise arrow body', () => {
+      const r = tjs(`function f(make = () => 5): 0 { return 0 }`)
+      const md = generateDocsMarkdown(r.code, r.types)
+      expect(md).toContain('`make`: () => number')
+    })
+
+    it('infers param types from arrow defaults', () => {
+      const r = tjs(
+        `function f(reduce = (acc = 0, x = 0) => 0): 0 { return 0 }`
+      )
+      const md = generateDocsMarkdown(r.code, r.types)
+      expect(md).toContain('`reduce`: (acc: number, x: number) => number')
+    })
+
+    it('does not show `e.g. undefined` for function example values', () => {
+      const r = tjs(`function f(fn = (x) => x): 0 { return 0 }`)
+      const md = generateDocsMarkdown(r.code, r.types)
+      expect(md).not.toContain('undefined')
+    })
+  })
 })
 
 describe('class extraction', () => {

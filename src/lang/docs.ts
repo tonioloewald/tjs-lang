@@ -12,6 +12,7 @@
  */
 
 import { extractTests } from './tests'
+import { typeDescriptorToTS } from './emitters/dts'
 
 /**
  * Build a per-character boolean indicating whether the position is inside
@@ -431,11 +432,16 @@ export function generateDocsMarkdown(
         markdown += '**Parameters:**\n'
         for (const [paramName, paramInfo] of Object.entries(info.params)) {
           const required = paramInfo.required ? '' : ' *(optional)*'
-          const typeStr = paramInfo.type?.kind || 'any'
-          const example =
+          const typeStr = paramInfo.type
+            ? typeDescriptorToTS(paramInfo.type)
+            : 'any'
+          // Skip the `(e.g. ...)` for non-serializable example values
+          // (functions JSON.stringify to undefined, which renders ugly).
+          const exampleStr =
             paramInfo.example !== undefined
-              ? ` (e.g. \`${JSON.stringify(paramInfo.example)}\`)`
-              : ''
+              ? safeJsonExample(paramInfo.example)
+              : null
+          const example = exampleStr ? ` (e.g. \`${exampleStr}\`)` : ''
           markdown += `- \`${paramName}\`: ${typeStr}${required}${example}\n`
         }
         markdown += '\n'
@@ -564,6 +570,20 @@ function findMatchingParen(s: string, open: number): number {
     i++
   }
   return -1
+}
+
+/**
+ * JSON-stringify an example value, returning null if the result wouldn't
+ * be useful (e.g. functions stringify to `undefined`, which renders ugly).
+ */
+function safeJsonExample(value: unknown): string | null {
+  if (typeof value === 'function') return null
+  try {
+    const s = JSON.stringify(value)
+    return s === undefined ? null : s
+  } catch {
+    return null
+  }
 }
 
 function renderMatcher(actual: string, matcher: string, expected: string): string {
