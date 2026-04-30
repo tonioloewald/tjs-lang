@@ -137,6 +137,14 @@ export function inferTypeFromValue(node: Expression): TypeDescriptor {
       return { kind: 'any' }
     }
 
+    case 'ArrowFunctionExpression':
+    case 'FunctionExpression': {
+      // Function example value (e.g. `fn = (x) => x` or `cb = function() {}`).
+      // Capture arity so .d.ts and validation can be more specific than `any`.
+      const params = (node as any).params as any[]
+      return { kind: 'function', arity: params.length }
+    }
+
     case 'UnaryExpression': {
       const op = (node as any).operator
       const arg = (node as any).argument

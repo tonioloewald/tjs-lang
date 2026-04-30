@@ -96,6 +96,22 @@ describe('typeDescriptorToTS', () => {
     }
     expect(typeDescriptorToTS(td)).toBe('{ x: number } | null')
   })
+
+  it('renders function kind with arity', () => {
+    expect(typeDescriptorToTS({ kind: 'function', arity: 0 })).toBe(
+      '() => any'
+    )
+    expect(typeDescriptorToTS({ kind: 'function', arity: 1 })).toBe(
+      '(arg0: any) => any'
+    )
+    expect(typeDescriptorToTS({ kind: 'function', arity: 2 })).toBe(
+      '(arg0: any, arg1: any) => any'
+    )
+  })
+
+  it('renders function kind without arity (defaults to no args)', () => {
+    expect(typeDescriptorToTS({ kind: 'function' })).toBe('() => any')
+  })
 })
 
 describe('generateDTS', () => {

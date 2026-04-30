@@ -22,6 +22,7 @@ export interface TypeDescriptor {
     | 'array'
     | 'object'
     | 'union'
+    | 'function'
     | 'any'
   nullable?: boolean
   /** For arrays: the element type */
@@ -32,6 +33,8 @@ export interface TypeDescriptor {
   members?: TypeDescriptor[]
   /** For destructured parameters: full parameter descriptors */
   destructuredParams?: Record<string, ParameterDescriptor>
+  /** For functions: the arity (number of declared parameters) */
+  arity?: number
 }
 
 /** Describes a function parameter */
