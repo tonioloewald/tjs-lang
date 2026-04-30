@@ -13,15 +13,27 @@
  * If no version specified, defaults to @latest.
  */
 
-const CACHE_NAME = 'tfs-v1'
+const SW_VERSION = 'tfs-v2-jsdelivr-esm' // bump on SW changes to force refresh
+const CACHE_NAME = SW_VERSION
 const CDN_BASE = 'https://cdn.jsdelivr.net/npm'
 
 self.addEventListener('install', () => {
+  console.log(`[TFS] installing ${SW_VERSION}`)
   self.skipWaiting()
 })
 
 self.addEventListener('activate', (event) => {
-  event.waitUntil(clients.claim())
+  console.log(`[TFS] activating ${SW_VERSION}`)
+  event.waitUntil(
+    (async () => {
+      // Drop any old caches from previous SW versions
+      const keys = await caches.keys()
+      await Promise.all(
+        keys.filter((k) => k !== CACHE_NAME).map((k) => caches.delete(k))
+      )
+      await clients.claim()
+    })()
+  )
 })
 
 /**
@@ -65,6 +77,10 @@ self.addEventListener('fetch', (event) => {
 
   // Only intercept /tfs/ requests
   if (!url.pathname.startsWith('/tfs/')) return
+
+  console.log(
+    `[TFS ${SW_VERSION}] intercept ${url.pathname} (client: ${event.clientId || 'none'})`
+  )
 
   const tfsPath = url.pathname.slice(5) // strip '/tfs/'
   if (!tfsPath) return
