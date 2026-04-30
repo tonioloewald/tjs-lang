@@ -18,6 +18,7 @@ This file is a navigation index for AI agents. It does not contain the docs them
 - [guides/tjs.md](guides/tjs.md) and [guides/ajs.md](guides/ajs.md) — usage-oriented walkthroughs.
 - [guides/patterns.md](guides/patterns.md) — common patterns and idioms.
 - [guides/tjs-examples.md](guides/tjs-examples.md) — annotated example programs.
+- [guides/footguns.md](guides/footguns.md) — JS footguns TJS quietly fixes (boxed-primitive coercion, ==/!=, typeof null, uninitialized let, etc.).
 - [guides/ajs-llm-prompt.md](guides/ajs-llm-prompt.md) — prompt template for asking LLMs to write AJS.
 
 ## Architecture and internals
@@ -30,7 +31,7 @@ This file is a navigation index for AI agents. It does not contain the docs them
 
 ## Examples and live code
 
-- [examples/](examples/) — standalone `.tjs` example files (`hello.tjs`, `datetime.tjs`, `generic-demo.tjs`).
+- [examples/](examples/) — standalone `.tjs` example files (`hello.tjs`, `datetime.tjs`, `generic-demo.tjs`, `js-footguns-fixed.tjs`).
 - [tjs-src/](tjs-src/) — the TJS runtime, written in TJS itself (self-hosting reference).
 - Playground: https://tjs-platform.web.app — try TJS in a browser.
 

@@ -69,6 +69,7 @@ import {
 } from './js-tests'
 export { stripModuleSyntax, stripTjsPreamble } from './js-tests'
 import { generateWasmBootstrap } from './js-wasm'
+import { rewriteBoolCoercion } from '../bool-coercion'
 
 export interface TJSTranspileOptions {
   /** Filename for error messages */
@@ -780,6 +781,18 @@ export function transpileToJS(
     }
   }
 
+  // Boolean coercion rewrite (TjsStandard). Rewrites every truthiness
+  // context (`if`, `while`, `for`, `do/while`, `!`, `&&`, `||`, `?:`,
+  // and `Boolean(x)` calls) to call `__tjs.toBool` so boxed primitives
+  // unwrap before coercion. See src/lang/bool-coercion.ts.
+  if (preprocessed.tjsModes.tjsStandard) {
+    const boolPatches = rewriteBoolCoercion(program, preprocessed.source)
+    for (const p of boolPatches) {
+      deletions.push({ start: p.start, end: p.end })
+      insertions.push({ position: p.start, text: p.newText })
+    }
+  }
+
   // Apply deletions first (reverse order to maintain offsets), then insertions.
   // Deletions strip | union suffixes from param defaults in the output JS.
   deletions.sort((a, b) => b.start - a.start)
@@ -821,6 +834,7 @@ export function transpileToJS(
   const needsEnum = /\bEnum\(/.test(code)
   const needsUnion = /\bUnion\(/.test(code)
   const needsBang = code.includes('__tjs.bang(')
+  const needsToBool = code.includes('__tjs.toBool(')
   const needsSafeEval = preprocessed.tjsModes.tjsSafeEval
 
   const needsRuntime =
@@ -837,6 +851,7 @@ export function transpileToJS(
     needsEnum ||
     needsUnion ||
     needsBang ||
+    needsToBool ||
     needsSafeEval
 
   if (needsRuntime) {
@@ -913,6 +928,13 @@ export function transpileToJS(
         `function Union(d,...v){const vals=v.flat();return{description:d,check:x=>vals.includes(x),values:vals,__runtimeType:true}}`
       )
     }
+    // toBool — honest truthiness (unwraps boxed primitives)
+    if (needsToBool) {
+      inlineParts.push(
+        `function toBool(v){if(v instanceof Boolean||v instanceof Number||v instanceof String)return Boolean(v.valueOf());return Boolean(v)}`
+      )
+    }
+
     // Bang access (!.) — asserted non-null member access
     if (needsBang) {
       // bang depends on typeError and isMonadicError — ensure they're inlined
@@ -947,6 +969,7 @@ export function transpileToJS(
     if (needsFunctionPredicate) fallbackEntries.push('FunctionPredicate')
     if (needsEnum) fallbackEntries.push('Enum')
     if (needsUnion) fallbackEntries.push('Union')
+    if (needsToBool) fallbackEntries.push('toBool')
     if (needsBang) {
       fallbackEntries.push('bang')
       // Ensure typeError/isMonadicError are in fallback even if not otherwise needed

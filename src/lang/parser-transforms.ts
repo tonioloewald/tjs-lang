@@ -3776,10 +3776,7 @@ export function transformLetTypeAnnotations(source: string): {
               const colonPos = k
               // Skip whitespace after colon
               let exStart = colonPos + 1
-              while (
-                exStart < source.length &&
-                /[ \t]/.test(source[exStart])
-              ) {
+              while (exStart < source.length && /[ \t]/.test(source[exStart])) {
                 exStart++
               }
               // Scan example expression until `=`, `,`, `;`, or newline at depth 0

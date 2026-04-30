@@ -605,6 +605,26 @@ export function TypeOf(value: unknown): string {
   return typeof value
 }
 
+/**
+ * Honest boolean coercion. Like `Boolean(x)` but unwraps boxed primitives
+ * first, fixing the JS footgun `Boolean(new Boolean(false)) === true`.
+ *
+ * Under TjsStandard, the source rewriter wraps every truthiness context
+ * (if/while/for/do-while conditions, `!`, `&&`, `||`, ternary, and
+ * top-level `Boolean(x)` calls) with this function so a boxed `false`
+ * actually behaves as `false`.
+ */
+export function toBool(value: unknown): boolean {
+  if (
+    value instanceof Boolean ||
+    value instanceof Number ||
+    value instanceof String
+  ) {
+    return Boolean((value as any).valueOf())
+  }
+  return Boolean(value)
+}
+
 export function Eq(a: unknown, b: unknown): boolean {
   // Unwrap boxed primitives
   if (a instanceof String || a instanceof Number || a instanceof Boolean) {
@@ -1528,6 +1548,8 @@ export function createRuntime() {
     NotEq,
     // Honest typeof (typeof with TjsEquals)
     TypeOf,
+    // Honest truthiness (unwraps boxed primitives)
+    toBool,
     tjsEquals,
     // Extensions
     registerExtension: instanceRegisterExtension,
@@ -1612,6 +1634,8 @@ export const runtime = {
   NotEq,
   // Honest typeof (used by typeof with TjsEquals)
   TypeOf,
+  // Honest truthiness (used in TjsStandard for boxed-primitive coercion)
+  toBool,
 }
 
 /**

@@ -405,6 +405,7 @@ The `docs/` directory contains real documentation (markdown), not build artifact
 ### Additional Documentation
 
 - `llms.txt` — agent-facing navigation index (ships in npm bundle); points to docs and source entry points
+- `guides/footguns.md` — JS footguns TJS fixes (boxed-primitive truthiness, `==` coercion, `typeof null`, uninitialized `let`, etc.). Demo: `examples/js-footguns-fixed.tjs`.
 - `DOCS-TJS.md` — TJS language guide
 - `DOCS-AJS.md` — AJS runtime guide
 - `TJS-FOR-JS.md` — TJS guide for JavaScript developers (syntax differences, gotchas)

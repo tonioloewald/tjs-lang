@@ -214,9 +214,7 @@ describe('TJS Linter', () => {
     })
 
     it('does not flag `x = "hi"` reassignment', () => {
-      const result = lint(
-        `function f() { let x = 'a'; x = 'b'; return x }`
-      )
+      const result = lint(`function f() { let x = 'a'; x = 'b'; return x }`)
       expect(onlySafeAssign(result).length).toBe(0)
     })
 

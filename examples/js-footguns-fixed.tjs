@@ -1,0 +1,75 @@
+// JS footguns that TJS quietly fixes.
+//
+// Run with:  bun src/cli/tjs.ts run examples/js-footguns-fixed.tjs
+//
+// Each section shows the raw JS gotcha and the fixed TJS behavior.
+
+// ============================================================
+// Footgun 1: Boxed primitives are truthy in boolean coercion
+// ============================================================
+//
+// In raw JS, `new Boolean(false)` is an Object — therefore truthy.
+// `Boolean(new Boolean(false))` returns `true`, even though the value
+// inside the wrapper is `false`. Same trap for `if`, `!`, `&&`, `||`,
+// `?:`, `while`, and `for`.
+//
+// Native TJS rewrites every truthiness context to unwrap boxed primitives
+// first (via `__tjs.toBool`). Always-on under TjsStandard.
+
+const boxedFalse = new Boolean(false)
+
+console.log('Boolean(new Boolean(false)) →', Boolean(boxedFalse))
+//   raw JS: true
+//   TJS:    false  ✓
+
+console.log('!new Boolean(false)         →', !boxedFalse)
+//   raw JS: false
+//   TJS:    true   ✓
+
+console.log('if (new Boolean(false))     →',
+  (boxedFalse ? 'truthy branch' : 'falsy branch')
+)
+//   raw JS: 'truthy branch'
+//   TJS:    'falsy branch'  ✓
+
+console.log('boxedFalse || "fallback"    →', boxedFalse || 'fallback')
+//   raw JS: Boolean { false }   (the wrapper, since JS thinks it's truthy)
+//   TJS:    'fallback'  ✓
+
+
+// ============================================================
+// Footgun 2: == coerces wildly; NaN is never equal to itself
+// ============================================================
+//
+// Raw JS `==` coerces unrelated types ("'5' == 5" is true!). It also
+// declares NaN unequal to itself, which makes "is this a real number?"
+// checks awkward.
+//
+// Native TJS rewrites `==` to honest equality (no coercion across
+// types, NaN equals NaN, null equals undefined, boxed primitives
+// unwrap). For deep structural equality of objects/arrays use
+// `Is(...)` / `IsNot(...)`.
+
+console.log("'5' == 5                    →", '5' == 5)
+//   raw JS: true   (silently coerces)
+//   TJS:    false  ✓
+
+console.log('NaN == NaN                  →', NaN == NaN)
+//   raw JS: false  (NaN is "not equal to itself")
+//   TJS:    true   ✓
+
+console.log('Is({a:1}, {a:1})            →', Is({ a: 1 }, { a: 1 }))
+//   raw JS: n/a    (no Is operator)
+//   TJS:    true   ✓  (deep structural equality)
+
+
+// ============================================================
+// Footgun 3: typeof null === 'object'
+// ============================================================
+//
+// One of the original JS bugs, preserved forever for backward compat.
+// Native TJS's `typeof` returns 'null' for null.
+
+console.log('typeof null                 →', typeof null)
+//   raw JS: 'object'
+//   TJS:    'null'  ✓

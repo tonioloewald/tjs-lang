@@ -273,6 +273,24 @@ new Set([1,2]) Is new Set([2,1]) // true  (Sets are order-independent)
 
 With `TjsEquals`, `typeof null` returns `'null'` instead of `'object'` (JS's oldest bug). All other typeof results are unchanged. Transforms `typeof expr` to `TypeOf(expr)`.
 
+## Honest Boolean Coercion (TjsStandard)
+
+Raw JS: `Boolean(new Boolean(false)) === true` (a boxed primitive is an Object → truthy). Same trap for `if`, `!`, `&&`, `||`, `?:`, `while`, `for`, `do/while`. The spec's `ToBoolean` operation has no override hook (`Symbol.toPrimitive` doesn't fire for boolean coercion).
+
+Native TJS rewrites every truthiness context to `__tjs.toBool(x)`, which unwraps boxed primitives before coercing. Always-on under `TjsStandard`.
+
+```typescript
+Boolean(new Boolean(false))    // false  ✓
+if (new Boolean(false)) ...    // does not enter  ✓
+!new Boolean(false)            // true   ✓
+new Boolean(false) || 'x'      // 'x'    ✓
+new Boolean(false) ? 'a' : 'b' // 'b'    ✓
+```
+
+`&&` / `||` rewrites preserve JS's value-returning semantics (`a && b` returns `a` when falsy, else `b`). `??` is intentionally not touched (it checks null/undefined, not truthiness). `===` / `!==` are not touched (use `Is` for structural).
+
+See [`guides/footguns.md`](guides/footguns.md) for the broader list of JS footguns TJS fixes, with a runnable example at [`examples/js-footguns-fixed.tjs`](examples/js-footguns-fixed.tjs).
+
 ## `@tjs` Annotations in TypeScript Source
 
 TypeScript files can include `/* @tjs ... */` comments that `fromTS` uses to enrich
