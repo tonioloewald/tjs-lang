@@ -530,7 +530,7 @@ describe('prettifyTestBody', () => {
 })
 
 describe('generateDocsMarkdown — test cases section', () => {
-  it('renders each named test as a "### Test Cases: <name>" heading with prettified body', () => {
+  it('renders each named test as a "### <name> (test cases)" heading with prettified body', () => {
     const source = `
 test 'x is 5' {
   expect(x).toBe(5)
@@ -540,9 +540,9 @@ test 'y is truthy' {
 }
 `
     const md = generateDocsMarkdown(source)
-    expect(md).toContain('### Test Cases: x is 5')
+    expect(md).toContain('### x is 5 (test cases)')
     expect(md).toContain('x  // → 5')
-    expect(md).toContain('### Test Cases: y is truthy')
+    expect(md).toContain('### y is truthy (test cases)')
     expect(md).toContain('y  // → truthy')
   })
 
@@ -553,7 +553,7 @@ test {
 }
 `
     const md = generateDocsMarkdown(source)
-    expect(md).not.toContain('Test Cases:')
+    expect(md).not.toContain('(test cases)')
   })
 
   it('integrates with doc blocks and functions', () => {
@@ -574,7 +574,7 @@ test 'add(2, 3) is 5' {
     const md = generateDocsMarkdown(source)
     expect(md).toContain('# Module')
     expect(md).toContain('## add')
-    expect(md).toContain('### Test Cases: add(2, 3) is 5')
+    expect(md).toContain('### add(2, 3) is 5 (test cases)')
     expect(md).toContain('add(2, 3)  // → 5')
   })
 })

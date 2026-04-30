@@ -235,7 +235,7 @@ export function generateDocsMarkdown(
   for (const test of tests) {
     if (!test.description) continue
     if (/^test \d+$/.test(test.description)) continue
-    markdown += `### Test Cases: ${test.description}\n\n`
+    markdown += `### ${test.description} (test cases)\n\n`
     markdown += '```tjs\n'
     markdown += prettifyTestBody(test.body).trim() + '\n'
     markdown += '```\n\n'
