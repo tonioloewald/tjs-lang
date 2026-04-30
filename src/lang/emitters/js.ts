@@ -1388,9 +1388,24 @@ function generateTypeCheckExpr(
       return `${fieldPath} !== null` // nullable doesn't apply to null itself
     case 'undefined':
       return `${fieldPath} !== undefined`
-    case 'array':
-      check = `!Array.isArray(${fieldPath})`
+    case 'array': {
+      // Always require an Array. If item type is known and non-trivial,
+      // also validate every item — `arr: [0]` means "array of integers",
+      // not "any array". Without this, a function returning
+      // `[MonadicError, MonadicError]` would pass the `: [0]` return-
+      // type check (it's an array) and surface a confusing array-of-
+      // errors to the caller.
+      const itemCheck =
+        type.items && type.items.kind !== 'any'
+          ? generateTypeCheckExpr('__a', type.items)
+          : null
+      if (itemCheck) {
+        check = `(!Array.isArray(${fieldPath}) || ${fieldPath}.some(__a => ${itemCheck}))`
+      } else {
+        check = `!Array.isArray(${fieldPath})`
+      }
       break
+    }
     case 'object':
       // For nested objects, just check it's an object (deep validation is separate)
       check = `(typeof ${fieldPath} !== 'object' || ${fieldPath} === null || Array.isArray(${fieldPath}))`
