@@ -1,9 +1,11 @@
 <!--{"section":"tjs","type":"example","group":"basics","order":16}-->
 
-# Honest Boolean Coercion
+# JS Footgun: `Boolean(new Boolean(false))`
 
-`Boolean(new Boolean(false))` returns `true` in raw JavaScript. TJS fixes
-that — and every other place where boxed primitives leak the wrong truthiness.
+`Boolean(new Boolean(false))` returns `true` in raw JavaScript — one of the
+language's nastiest footguns. TJS fixes it, along with every other place
+where boxed primitives leak the wrong truthiness (`if`, `!`, `&&`, `||`,
+`?:`, `while`, `for`).
 
 ```tjs
 /*#
