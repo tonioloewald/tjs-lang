@@ -13,6 +13,7 @@
 
 import { extractTests } from './tests'
 import { typeDescriptorToTS } from './emitters/dts'
+import type { TypeDescriptor } from './types'
 
 /**
  * Build a per-character boolean indicating whether the position is inside
@@ -381,7 +382,7 @@ function extractClassMembers(body: string): string[] {
  * Type metadata for a function parameter
  */
 export interface ParamTypeInfo {
-  type?: { kind: string }
+  type?: TypeDescriptor
   required?: boolean
   example?: any
 }
@@ -391,7 +392,7 @@ export interface ParamTypeInfo {
  */
 export interface FunctionTypeInfo {
   params?: Record<string, ParamTypeInfo>
-  returns?: { kind: string }
+  returns?: TypeDescriptor
 }
 
 /**

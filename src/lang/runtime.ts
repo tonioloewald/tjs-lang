@@ -936,49 +936,6 @@ export function checkFnShape(
   return fn
 }
 
-/**
- * Type-check a value against a simple kind name. Returns a MonadicError
- * (via typeError) on failure, null on success. Mirrors the inline
- * `__checkSimple` helper in the standalone runtime so wrapped errors
- * use the same MonadicError shape as the rest of the validation code.
- */
-function checkSimpleKind(
-  value: unknown,
-  expected: string,
-  path: string
-): MonadicError | null {
-  if (expected === 'any') return null
-  const t = typeof value
-  if (expected === 'integer') {
-    if (t !== 'number' || !Number.isInteger(value)) {
-      return typeError(path, expected, value)
-    }
-    return null
-  }
-  if (expected === 'non-negative-integer') {
-    if (t !== 'number' || !Number.isInteger(value) || (value as number) < 0) {
-      return typeError(path, expected, value)
-    }
-    return null
-  }
-  if (expected === 'null') {
-    if (value !== null) return typeError(path, expected, value)
-    return null
-  }
-  if (expected === 'undefined') {
-    if (value !== undefined) return typeError(path, expected, value)
-    return null
-  }
-  if (expected === 'object') {
-    if (t !== 'object' || value === null || Array.isArray(value)) {
-      return typeError(path, expected, value)
-    }
-    return null
-  }
-  if (t !== expected) return typeError(path, expected, value)
-  return null
-}
-
 /** Parameter metadata with optional location */
 interface ParamMeta {
   type: TypeSpec
