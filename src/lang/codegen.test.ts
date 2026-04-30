@@ -1465,55 +1465,79 @@ function getData(id: 0):! { value: 0 } {
       }
     })
 
-    describe('wrapFn — validating proxy for typed function params', () => {
-      const { code } = tjs(
-        `function f(fn = (x: 0) => 0): 0 { return fn(5) }`
-      )
-      const f = new Function(code + '; return f')()
-
-      it('passes a correctly-typed function through unchanged', () => {
-        expect(f((n: number) => n + 1)).toBe(6)
+    describe('checkFnShape — pass-time shape check for function params', () => {
+      it('passes a correctly-typed TJS function through unchanged', () => {
+        // strLength has __tjs metadata declaring (string) => integer,
+        // matching counter's expected shape via cross-ref inference.
+        const { code } = tjs(`function strLength(s: ''): 0 { return s.length }
+function map(arr: [''], counter = strLength): [0] { return arr.map(counter) }`)
+        const fns = new Function(code + '\nreturn { strLength, map }')()
+        expect(fns.map(['hello', 'hi'])).toEqual([5, 2])
       })
 
-      it('returns MonadicError when callback returns wrong type', () => {
-        const r = f(((n: number) => 'oops') as any)
+      it('returns ONE MonadicError when a typed callback has the wrong return shape', () => {
+        // badFn declares (string) => boolean — counter expects (string) => integer.
+        const { code } = tjs(`function strLength(s: ''): 0 { return s.length }
+function badFn(s: ''): true { return true }
+function map(arr: [''], counter = strLength): [0] { return arr.map(counter) }`)
+        const fns = new Function(code + '\nreturn { badFn, map }')()
+        const r = fns.map(['hi', 'world'], fns.badFn)
         expect(r).toBeInstanceOf(MonadicError)
         expect(r.expected).toBe('integer')
-        expect(r.path).toContain('f.fn(return)')
+        expect(r.path).toContain('map.counter(return)')
       })
 
-      it('returns MonadicError when callback receives wrong arg type', () => {
-        // Build a function whose body invokes its callback with wrong arg
-        const { code: code2 } = tjs(
-          `function g(cb = (x: 0) => 0): 0 { return cb('not-an-integer') }`
-        )
-        const g = new Function(code2 + '; return g')()
-        const r = g((n: number) => n)
-        expect(r).toBeInstanceOf(MonadicError)
-        expect(r.expected).toBe('integer')
-        expect(r.path).toContain('g.cb(arg0)')
+      it('passes untyped arrows through unchanged (no per-call wrapping)', () => {
+        // x => false has no __tjs metadata. checkFnShape sees no metadata
+        // and returns the function unchanged. The body runs unmolested
+        // and returns whatever the body returns. The user's mental model:
+        // "if I pass an untyped function, you trust it".
+        const { code } = tjs(`function strLength(s: ''): 0 { return s.length }
+function map(arr: [''], counter = strLength): [0] { return arr.map(counter) }`)
+        const fns = new Function(code + '\nreturn { map }')()
+        // (x) => false returns boolean for each call. Result is array of
+        // booleans, NOT array of MonadicErrors. The outer return doesn't
+        // validate items by default (no :?).
+        const r = fns.map(['hi', 'world'], (x: string) => false)
+        expect(Array.isArray(r)).toBe(true)
+        expect(r).toEqual([false, false])
       })
 
-      it('does not wrap when shape is empty (untyped arrow)', () => {
+      it('does not emit checkFnShape when shape is empty (all-any)', () => {
         // `(x) => x` infers params=[{x: any}], returns: any
-        // → all-any → no wrap needed → emitter omits the wrapFn call
+        // → nothing useful to check → emitter omits the call
         const { code: code3 } = tjs(
           `function h(fn = (x) => x): 0 { return 0 }`
         )
-        expect(code3).not.toContain('__tjs.wrapFn')
+        expect(code3).not.toContain('__tjs.checkFnShape')
       })
 
-      it('wraps when only the return type is known', () => {
+      it('emits checkFnShape when only the return type is known', () => {
         // `() => 5` infers no params, returns: integer
-        const { code: code4 } = tjs(
+        const { code } = tjs(
           `function k(make = () => 5): 0 { return make() }`
         )
-        expect(code4).toContain('__tjs.wrapFn')
-        const k = new Function(code4 + '; return k')()
-        // Return-type mismatch caught
-        const r = k(() => 'oops' as any)
-        expect(r).toBeInstanceOf(MonadicError)
-        expect(r.path).toContain('k.make(return)')
+        expect(code).toContain('__tjs.checkFnShape')
+      })
+
+      it('array param with embedded MonadicError propagates the first error', () => {
+        // The "errors propagate, not accumulate" rule: when an array
+        // input contains a MonadicError, the receiving function emits
+        // that error directly instead of saying "expected array, got X".
+        const { code } = tjs(
+          `function first(s: ['hi']): 'hi' { return s[0] }`
+        )
+        const fns = new Function(code + '\nreturn { first }')()
+        const fakeError = Object.assign(new Error('preexisting'), {
+          name: 'MonadicError',
+          path: 'somewhere.x',
+          expected: 'integer',
+          actual: 'string',
+        })
+        const r = fns.first([fakeError, 'world'])
+        expect(r).toBeInstanceOf(Error)
+        expect(r.path).toBe('somewhere.x') // the propagated error, not a new one
+        expect(r.message).toBe('preexisting')
       })
 
       it('module-level errors do not attribute to function declaration line', () => {
@@ -1533,6 +1557,25 @@ function getData(id: 0):! { value: 0 } {
         expect(sig?.line).toBeUndefined()
       })
 
+      it("user's reported case: x => false passes through cleanly", () => {
+        // The original frustration: `mapStrings(['hi'], x => false)` was
+        // producing array of MonadicErrors. Now untyped arrows pass
+        // through and the function body runs unmolested.
+        const { code } = tjs(`function strLength(s: 'hello'): 5 {
+  return s.length
+}
+function mapStrings(s: ['hello', 'foo'], counter = strLength): [5, 3] {
+  return s.map(counter)
+}`)
+        const fns = new Function(
+          code + '\nreturn { mapStrings }'
+        )()
+        const r = fns.mapStrings(['hello', 'world'], (x: string) => false)
+        // Untyped arrow → no checks → array of booleans (no error pollution)
+        expect(r).toEqual([false, false])
+        expect(r.every((v: any) => v instanceof Error)).toBe(false)
+      })
+
       it('propagates a referenced function\'s signature (cross-ref)', () => {
         // `counter = strLength` should give `counter` strLength's signature
         // `(s: '') => 0`, even though the AST default is just an Identifier.
@@ -1546,8 +1589,8 @@ function map(arr: [''], counter = strLength): [0] { return arr.map(counter) }`
         ])
         expect(counterType?.returns).toEqual({ kind: 'integer' })
 
-        // wrapFn should be emitted now (signature is non-trivial)
-        expect(r.code).toContain('__tjs.wrapFn')
+        // checkFnShape should be emitted (signature is non-trivial)
+        expect(r.code).toContain('__tjs.checkFnShape')
       })
     })
   })

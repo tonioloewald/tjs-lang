@@ -865,39 +865,75 @@ type TypeSpec =
   | { check: (v: unknown) => boolean | string; description: string }
 
 /**
- * Wrap a callback so its arguments and return value are validated on every
- * invocation. Used by emitted code when a function-typed parameter has a
- * declared shape (e.g. `fn = (x: 0) => 0` declares `(integer) => integer`).
+ * Check that a passed-in function's declared shape matches the expected
+ * shape. Returns the function unchanged on a match, or a MonadicError on
+ * mismatch. Untyped functions (no `__tjs` metadata — anonymous arrows
+ * like `x => false`) pass through unchanged on the assumption that the
+ * caller knows what they're doing; they accept any args and return
+ * whatever they return.
  *
- * Returns a NEW function that:
- *   - Type-checks each positional arg against `paramTypes` (extra args
- *     pass through unchecked)
- *   - Calls the original function (preserving `this` via .apply)
- *   - Type-checks the return value against `returnType` (skipped for 'any')
- *   - Returns a MonadicError on either failure (instead of throwing)
+ * This is a ONE-SHOT check at pass time, NOT a per-call wrapper. The TJS
+ * design call: a wrong-shape callback is ONE error at the boundary, not
+ * N errors when the receiving function invokes the callback N times.
  *
- * Wrapping is the TJS way: explicit cost users opted into by writing typed
- * params. They can disable it by marking the OUTER function unsafe with `(!)`.
+ * Compatibility rules (deliberately permissive — strict subtyping is a
+ * separate, larger feature):
+ *   - For each expected param: the actual function may declare fewer
+ *     params (extras simply not used). If both declare a kind, they
+ *     must match exactly. Either side being `any` always matches.
+ *   - For the return type: same exact-match rule when both are known.
  */
-export function wrapFn(
+export function checkFnShape(
   fn: unknown,
-  paramTypes: string[],
-  returnType: string,
+  expectedParamKinds: string[],
+  expectedReturnKind: string,
   path: string
 ): unknown {
   if (typeof fn !== 'function') return fn // outer "is callable" check already ran
-  return function (this: unknown, ...args: unknown[]) {
-    for (let i = 0; i < paramTypes.length; i++) {
-      const err = checkSimpleKind(args[i], paramTypes[i], `${path}(arg${i})`)
-      if (err) return err
+  const meta = (fn as any).__tjs
+  if (!meta || !meta.params) return fn // untyped — let it run
+
+  const actualEntries = Object.entries(meta.params) as Array<
+    [string, { type?: { kind?: string } }]
+  >
+  for (let i = 0; i < expectedParamKinds.length; i++) {
+    const expectedKind = expectedParamKinds[i]
+    if (expectedKind === 'any') continue
+    const actual = actualEntries[i]
+    if (!actual) continue // function takes fewer params, OK
+    const actualKind = actual[1]?.type?.kind
+    if (!actualKind || actualKind === 'any') continue
+    if (actualKind !== expectedKind) {
+      return new MonadicError(
+        `Expected (...arg${i}: ${expectedKind}, ...) for '${path}', ` +
+          `but callback declares arg${i} as ${actualKind}`,
+        `${path}(arg${i})`,
+        expectedKind,
+        actualKind
+      )
     }
-    const result = (fn as (...a: unknown[]) => unknown).apply(this, args)
-    if (returnType !== 'any') {
-      const err = checkSimpleKind(result, returnType, `${path}(return)`)
-      if (err) return err
-    }
-    return result
   }
+
+  if (expectedReturnKind !== 'any' && meta.returns) {
+    // Metadata's `returns` is `{ type: TypeDescriptor, defaults?: ... }`,
+    // but defensively also accept a bare TypeDescriptor.
+    const actualReturnKind = meta.returns.type?.kind ?? meta.returns.kind
+    if (
+      actualReturnKind &&
+      actualReturnKind !== 'any' &&
+      actualReturnKind !== expectedReturnKind
+    ) {
+      return new MonadicError(
+        `Expected callback returning ${expectedReturnKind} for '${path}', ` +
+          `but callback returns ${actualReturnKind}`,
+        `${path}(return)`,
+        expectedReturnKind,
+        actualReturnKind
+      )
+    }
+  }
+
+  return fn
 }
 
 /**
@@ -1577,7 +1613,7 @@ export function createRuntime() {
     checkType,
     validateArgs,
     wrap,
-    wrapFn,
+    checkFnShape,
     wrapClass,
     compareVersions,
     versionsCompatible,
@@ -1661,7 +1697,7 @@ export const runtime = {
   checkType,
   validateArgs,
   wrap,
-  wrapFn,
+  checkFnShape,
   wrapClass,
   compareVersions,
   versionsCompatible,

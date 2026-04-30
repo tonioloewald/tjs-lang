@@ -423,6 +423,19 @@ function generateInlineValidationCode(
   // 2. Type checks with proper error emission
   for (const [paramName, param] of params) {
     const path = `${pathPrefix}${funcName}.${paramName}`
+
+    // For array params: if the array contains a MonadicError, propagate
+    // the first one we find instead of failing the type check with
+    // "expected array, got X". This is the "errors propagate, not
+    // accumulate" rule — a function receiving an array of values where
+    // one is an error should surface that error, not say the array's
+    // shape is wrong.
+    if (param.type.kind === 'array') {
+      lines.push(
+        `if (Array.isArray(${paramName})) { for (const __i of ${paramName}) { if (__i instanceof Error && __i.path !== undefined) return __i } }`
+      )
+    }
+
     const typeCheck = generateTypeCheckExpr(paramName, param.type)
 
     if (typeCheck) {
@@ -445,8 +458,19 @@ function generateInlineValidationCode(
     // wrap it so its arguments and return value are validated on every call.
     // Skipped when shape is unspecified or contains non-simple kinds.
     if (param.type.kind === 'function') {
-      const wrap = generateFunctionWrapCall(paramName, param.type, path)
-      if (wrap) lines.push(wrap)
+      const shapeCheck = generateFunctionShapeCheck(
+        paramName,
+        param.type,
+        path
+      )
+      if (shapeCheck) {
+        lines.push(shapeCheck)
+        // checkFnShape returns either the function unchanged or a
+        // MonadicError. Re-check Error propagation after the assignment.
+        lines.push(
+          `if (${paramName} instanceof Error) return ${paramName};`
+        )
+      }
     }
   }
 
@@ -697,8 +721,8 @@ export function transpileToJS(
     //   function map(arr: [''], counter = strLength) { ... }
     //
     // makes `counter`'s type `(s: string) => integer` (instead of `any`),
-    // which means the wrapFn check fires when a wrong-shape callback is
-    // passed at the call site.
+    // which means the checkFnShape pass-time check fires when a wrong-
+    // shape callback is passed at the call site.
     for (const param of func.params) {
       if (
         param.type === 'AssignmentPattern' &&
@@ -887,7 +911,7 @@ export function transpileToJS(
   const needsUnion = /\bUnion\(/.test(code)
   const needsBang = code.includes('__tjs.bang(')
   const needsToBool = code.includes('__tjs.toBool(')
-  const needsWrapFn = code.includes('__tjs.wrapFn(')
+  const needsCheckFnShape = code.includes('__tjs.checkFnShape(')
   const needsSafeEval = preprocessed.tjsModes.tjsSafeEval
 
   const needsRuntime =
@@ -905,7 +929,7 @@ export function transpileToJS(
     needsUnion ||
     needsBang ||
     needsToBool ||
-    needsWrapFn ||
+    needsCheckFnShape ||
     needsSafeEval
 
   if (needsRuntime) {
@@ -989,9 +1013,9 @@ export function transpileToJS(
       )
     }
 
-    // wrapFn — validating wrapper for function-typed params with declared shape
-    if (needsWrapFn) {
-      // wrapFn depends on typeError; ensure it's inlined
+    // checkFnShape — pass-time shape check for function-typed params
+    if (needsCheckFnShape) {
+      // checkFnShape depends on MonadicError; ensure it's inlined
       if (!needsTypeError) {
         inlineParts.push(
           `class MonadicError extends Error{constructor(m,p,e,a,c,r){super(m);this.name='MonadicError';this.path=p;this.expected=e;this.actual=a;this.callStack=c;this.reason=r}}`,
@@ -999,10 +1023,8 @@ export function transpileToJS(
           `function isMonadicError(v){return v instanceof Error&&v.name==='MonadicError'&&'path' in v}`
         )
       }
-      // Minimal checkType handling SIMPLE_KINDS: typeof checks + integer/non-negative-integer specials.
       inlineParts.push(
-        `function __checkSimple(v,e,p){if(e==='any')return null;const t=typeof v;if(e==='integer'){if(t!=='number'||!Number.isInteger(v))return typeError(p,e,v);return null}if(e==='non-negative-integer'){if(t!=='number'||!Number.isInteger(v)||v<0)return typeError(p,e,v);return null}if(e==='null'){if(v!==null)return typeError(p,e,v);return null}if(e==='undefined'){if(v!==undefined)return typeError(p,e,v);return null}if(e==='object'){if(t!=='object'||v===null||Array.isArray(v))return typeError(p,e,v);return null}if(t!==e)return typeError(p,e,v);return null}`,
-        `function wrapFn(fn,paramTypes,returnType,path){if(typeof fn!=='function')return fn;return function(...args){for(let i=0;i<paramTypes.length;i++){const err=__checkSimple(args[i],paramTypes[i],path+'(arg'+i+')');if(err)return err}const r=fn.apply(this,args);if(returnType!=='any'){const err=__checkSimple(r,returnType,path+'(return)');if(err)return err}return r}}`
+        `function checkFnShape(fn,expectedParams,expectedReturn,path){if(typeof fn!=='function')return fn;const meta=fn.__tjs;if(!meta||!meta.params)return fn;const entries=Object.entries(meta.params);for(let i=0;i<expectedParams.length;i++){const e=expectedParams[i];if(e==='any')continue;const a=entries[i];if(!a)continue;const ak=a[1]&&a[1].type&&a[1].type.kind;if(!ak||ak==='any')continue;if(ak!==e)return new MonadicError("Expected (...arg"+i+": "+e+", ...) for '"+path+"', but callback declares arg"+i+" as "+ak,path+"(arg"+i+")",e,ak)}if(expectedReturn!=='any'&&meta.returns){const ar=(meta.returns.type&&meta.returns.type.kind)||meta.returns.kind;if(ar&&ar!=='any'&&ar!==expectedReturn)return new MonadicError("Expected callback returning "+expectedReturn+" for '"+path+"', but callback returns "+ar,path+"(return)",expectedReturn,ar)}return fn}`
       )
     }
 
@@ -1041,9 +1063,8 @@ export function transpileToJS(
     if (needsEnum) fallbackEntries.push('Enum')
     if (needsUnion) fallbackEntries.push('Union')
     if (needsToBool) fallbackEntries.push('toBool')
-    if (needsWrapFn) {
-      fallbackEntries.push('wrapFn')
-      // wrapFn pulls in typeError/isMonadicError too if not already
+    if (needsCheckFnShape) {
+      fallbackEntries.push('checkFnShape')
       if (!needsTypeError) fallbackEntries.push('typeError', 'isMonadicError')
     }
     if (needsBang) {
@@ -1455,14 +1476,17 @@ const SIMPLE_KINDS = new Set([
 ])
 
 /**
- * Generate a `__tjs.wrapFn(...)` call that re-binds `paramName` to a
- * validating proxy. Returns null when the function shape can't be
- * represented as simple TypeSpec strings (deep object shapes, unions,
- * arrays-with-items) — those would need RuntimeType wrappers and are
- * out of scope for the inline emit. Returns null when the shape is
- * empty (no params + 'any' return) — nothing useful to check.
+ * Generate a `__tjs.checkFnShape(...)` call that validates a passed-in
+ * function's declared shape against the expected shape ONCE at pass time.
+ * On mismatch the param is reassigned to a MonadicError; the existing
+ * `if (param instanceof Error) return param` check above handles
+ * propagation. On match the param is unchanged. Untyped functions
+ * (no `__tjs` metadata — anonymous arrows) pass through unchanged.
+ *
+ * Returns null when the expected shape can't be represented as simple
+ * TypeSpec strings, or when there's nothing useful to check (all-`any`).
  */
-function generateFunctionWrapCall(
+function generateFunctionShapeCheck(
   paramName: string,
   type: TypeDescriptor,
   path: string
@@ -1476,13 +1500,11 @@ function generateFunctionWrapCall(
   const allSimple =
     paramKinds.every((k) => k && SIMPLE_KINDS.has(k)) &&
     SIMPLE_KINDS.has(fnReturns.kind)
-  // "useful" means at least one non-'any' check. `(x) => x` infers all-any
-  // — wrapping it would be pure overhead with no validation.
   const hasUsefulCheck =
     paramKinds.some((k) => k !== 'any') || fnReturns.kind !== 'any'
   if (!allSimple || !hasUsefulCheck) return null
   const paramTypesJson = JSON.stringify(paramKinds)
-  return `if (typeof ${paramName} === 'function') ${paramName} = __tjs.wrapFn(${paramName}, ${paramTypesJson}, '${fnReturns.kind}', '${path}');`
+  return `if (typeof ${paramName} === 'function') ${paramName} = __tjs.checkFnShape(${paramName}, ${paramTypesJson}, '${fnReturns.kind}', '${path}');`
 }
 
 /**
