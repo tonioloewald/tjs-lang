@@ -864,6 +864,85 @@ type TypeSpec =
   | string
   | { check: (v: unknown) => boolean | string; description: string }
 
+/**
+ * Wrap a callback so its arguments and return value are validated on every
+ * invocation. Used by emitted code when a function-typed parameter has a
+ * declared shape (e.g. `fn = (x: 0) => 0` declares `(integer) => integer`).
+ *
+ * Returns a NEW function that:
+ *   - Type-checks each positional arg against `paramTypes` (extra args
+ *     pass through unchecked)
+ *   - Calls the original function (preserving `this` via .apply)
+ *   - Type-checks the return value against `returnType` (skipped for 'any')
+ *   - Returns a MonadicError on either failure (instead of throwing)
+ *
+ * Wrapping is the TJS way: explicit cost users opted into by writing typed
+ * params. They can disable it by marking the OUTER function unsafe with `(!)`.
+ */
+export function wrapFn(
+  fn: unknown,
+  paramTypes: string[],
+  returnType: string,
+  path: string
+): unknown {
+  if (typeof fn !== 'function') return fn // outer "is callable" check already ran
+  return function (this: unknown, ...args: unknown[]) {
+    for (let i = 0; i < paramTypes.length; i++) {
+      const err = checkSimpleKind(args[i], paramTypes[i], `${path}(arg${i})`)
+      if (err) return err
+    }
+    const result = (fn as (...a: unknown[]) => unknown).apply(this, args)
+    if (returnType !== 'any') {
+      const err = checkSimpleKind(result, returnType, `${path}(return)`)
+      if (err) return err
+    }
+    return result
+  }
+}
+
+/**
+ * Type-check a value against a simple kind name. Returns a MonadicError
+ * (via typeError) on failure, null on success. Mirrors the inline
+ * `__checkSimple` helper in the standalone runtime so wrapped errors
+ * use the same MonadicError shape as the rest of the validation code.
+ */
+function checkSimpleKind(
+  value: unknown,
+  expected: string,
+  path: string
+): MonadicError | null {
+  if (expected === 'any') return null
+  const t = typeof value
+  if (expected === 'integer') {
+    if (t !== 'number' || !Number.isInteger(value)) {
+      return typeError(path, expected, value)
+    }
+    return null
+  }
+  if (expected === 'non-negative-integer') {
+    if (t !== 'number' || !Number.isInteger(value) || (value as number) < 0) {
+      return typeError(path, expected, value)
+    }
+    return null
+  }
+  if (expected === 'null') {
+    if (value !== null) return typeError(path, expected, value)
+    return null
+  }
+  if (expected === 'undefined') {
+    if (value !== undefined) return typeError(path, expected, value)
+    return null
+  }
+  if (expected === 'object') {
+    if (t !== 'object' || value === null || Array.isArray(value)) {
+      return typeError(path, expected, value)
+    }
+    return null
+  }
+  if (t !== expected) return typeError(path, expected, value)
+  return null
+}
+
 /** Parameter metadata with optional location */
 interface ParamMeta {
   type: TypeSpec
@@ -1498,6 +1577,7 @@ export function createRuntime() {
     checkType,
     validateArgs,
     wrap,
+    wrapFn,
     wrapClass,
     compareVersions,
     versionsCompatible,
@@ -1581,6 +1661,7 @@ export const runtime = {
   checkType,
   validateArgs,
   wrap,
+  wrapFn,
   wrapClass,
   compareVersions,
   versionsCompatible,

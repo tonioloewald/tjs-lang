@@ -1464,6 +1464,58 @@ function getData(id: 0):! { value: 0 } {
         expect(result.path).toContain('f.fn')
       }
     })
+
+    describe('wrapFn — validating proxy for typed function params', () => {
+      const { code } = tjs(
+        `function f(fn = (x: 0) => 0): 0 { return fn(5) }`
+      )
+      const f = new Function(code + '; return f')()
+
+      it('passes a correctly-typed function through unchanged', () => {
+        expect(f((n: number) => n + 1)).toBe(6)
+      })
+
+      it('returns MonadicError when callback returns wrong type', () => {
+        const r = f(((n: number) => 'oops') as any)
+        expect(r).toBeInstanceOf(MonadicError)
+        expect(r.expected).toBe('integer')
+        expect(r.path).toContain('f.fn(return)')
+      })
+
+      it('returns MonadicError when callback receives wrong arg type', () => {
+        // Build a function whose body invokes its callback with wrong arg
+        const { code: code2 } = tjs(
+          `function g(cb = (x: 0) => 0): 0 { return cb('not-an-integer') }`
+        )
+        const g = new Function(code2 + '; return g')()
+        const r = g((n: number) => n)
+        expect(r).toBeInstanceOf(MonadicError)
+        expect(r.expected).toBe('integer')
+        expect(r.path).toContain('g.cb(arg0)')
+      })
+
+      it('does not wrap when shape is empty (untyped arrow)', () => {
+        // `(x) => x` infers params=[{x: any}], returns: any
+        // → all-any → no wrap needed → emitter omits the wrapFn call
+        const { code: code3 } = tjs(
+          `function h(fn = (x) => x): 0 { return 0 }`
+        )
+        expect(code3).not.toContain('__tjs.wrapFn')
+      })
+
+      it('wraps when only the return type is known', () => {
+        // `() => 5` infers no params, returns: integer
+        const { code: code4 } = tjs(
+          `function k(make = () => 5): 0 { return make() }`
+        )
+        expect(code4).toContain('__tjs.wrapFn')
+        const k = new Function(code4 + '; return k')()
+        // Return-type mismatch caught
+        const r = k(() => 'oops' as any)
+        expect(r).toBeInstanceOf(MonadicError)
+        expect(r.path).toContain('k.make(return)')
+      })
+    })
   })
 
   describe('error vs valid value distinction', () => {

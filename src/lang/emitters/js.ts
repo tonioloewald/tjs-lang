@@ -440,6 +440,14 @@ function generateInlineValidationCode(
         )
       }
     }
+
+    // If the param is a function with declared shape (e.g. `fn = (x: 0) => 0`),
+    // wrap it so its arguments and return value are validated on every call.
+    // Skipped when shape is unspecified or contains non-simple kinds.
+    if (param.type.kind === 'function') {
+      const wrap = generateFunctionWrapCall(paramName, param.type, path)
+      if (wrap) lines.push(wrap)
+    }
   }
 
   if (lines.length === 0) return null
@@ -844,6 +852,7 @@ export function transpileToJS(
   const needsUnion = /\bUnion\(/.test(code)
   const needsBang = code.includes('__tjs.bang(')
   const needsToBool = code.includes('__tjs.toBool(')
+  const needsWrapFn = code.includes('__tjs.wrapFn(')
   const needsSafeEval = preprocessed.tjsModes.tjsSafeEval
 
   const needsRuntime =
@@ -861,6 +870,7 @@ export function transpileToJS(
     needsUnion ||
     needsBang ||
     needsToBool ||
+    needsWrapFn ||
     needsSafeEval
 
   if (needsRuntime) {
@@ -944,6 +954,23 @@ export function transpileToJS(
       )
     }
 
+    // wrapFn — validating wrapper for function-typed params with declared shape
+    if (needsWrapFn) {
+      // wrapFn depends on typeError; ensure it's inlined
+      if (!needsTypeError) {
+        inlineParts.push(
+          `class MonadicError extends Error{constructor(m,p,e,a,c,r){super(m);this.name='MonadicError';this.path=p;this.expected=e;this.actual=a;this.callStack=c;this.reason=r}}`,
+          `function typeError(p,e,v,r){const a=v===null?'null':typeof v;const m=r?'Expected '+e+" for '"+p+"': "+r:'Expected '+e+" for '"+p+"', got "+a;const err=new MonadicError(m,p,e,a,undefined,r);const c=globalThis.__tjs?.getConfig?.();if(c?.logTypeErrors)console.error('[TJS TypeError] '+err.message);if(c?.throwTypeErrors)throw err;return err}`,
+          `function isMonadicError(v){return v instanceof Error&&v.name==='MonadicError'&&'path' in v}`
+        )
+      }
+      // Minimal checkType handling SIMPLE_KINDS: typeof checks + integer/non-negative-integer specials.
+      inlineParts.push(
+        `function __checkSimple(v,e,p){if(e==='any')return null;const t=typeof v;if(e==='integer'){if(t!=='number'||!Number.isInteger(v))return typeError(p,e,v);return null}if(e==='non-negative-integer'){if(t!=='number'||!Number.isInteger(v)||v<0)return typeError(p,e,v);return null}if(e==='null'){if(v!==null)return typeError(p,e,v);return null}if(e==='undefined'){if(v!==undefined)return typeError(p,e,v);return null}if(e==='object'){if(t!=='object'||v===null||Array.isArray(v))return typeError(p,e,v);return null}if(t!==e)return typeError(p,e,v);return null}`,
+        `function wrapFn(fn,paramTypes,returnType,path){if(typeof fn!=='function')return fn;return function(...args){for(let i=0;i<paramTypes.length;i++){const err=__checkSimple(args[i],paramTypes[i],path+'(arg'+i+')');if(err)return err}const r=fn.apply(this,args);if(returnType!=='any'){const err=__checkSimple(r,returnType,path+'(return)');if(err)return err}return r}}`
+      )
+    }
+
     // Bang access (!.) — asserted non-null member access
     if (needsBang) {
       // bang depends on typeError and isMonadicError — ensure they're inlined
@@ -979,6 +1006,11 @@ export function transpileToJS(
     if (needsEnum) fallbackEntries.push('Enum')
     if (needsUnion) fallbackEntries.push('Union')
     if (needsToBool) fallbackEntries.push('toBool')
+    if (needsWrapFn) {
+      fallbackEntries.push('wrapFn')
+      // wrapFn pulls in typeError/isMonadicError too if not already
+      if (!needsTypeError) fallbackEntries.push('typeError', 'isMonadicError')
+    }
     if (needsBang) {
       fallbackEntries.push('bang')
       // Ensure typeError/isMonadicError are in fallback even if not otherwise needed
@@ -1357,6 +1389,51 @@ function generateTypeCheckExpr(
 
 // Alias for backward compatibility with other functions that use this
 const generateTypeCheck = generateTypeCheckExpr
+
+/** Kinds checkType can validate by string name (no RuntimeType needed). */
+const SIMPLE_KINDS = new Set([
+  'string',
+  'number',
+  'integer',
+  'non-negative-integer',
+  'boolean',
+  'function',
+  'any',
+  'undefined',
+  'null',
+  'object', // checkType handles this via typeof
+])
+
+/**
+ * Generate a `__tjs.wrapFn(...)` call that re-binds `paramName` to a
+ * validating proxy. Returns null when the function shape can't be
+ * represented as simple TypeSpec strings (deep object shapes, unions,
+ * arrays-with-items) — those would need RuntimeType wrappers and are
+ * out of scope for the inline emit. Returns null when the shape is
+ * empty (no params + 'any' return) — nothing useful to check.
+ */
+function generateFunctionWrapCall(
+  paramName: string,
+  type: TypeDescriptor,
+  path: string
+): string | null {
+  const fnParams = (type.params ?? []) as Array<{
+    name: string
+    type: TypeDescriptor
+  }>
+  const fnReturns = type.returns ?? { kind: 'any' as const }
+  const paramKinds = fnParams.map((p) => p.type?.kind)
+  const allSimple =
+    paramKinds.every((k) => k && SIMPLE_KINDS.has(k)) &&
+    SIMPLE_KINDS.has(fnReturns.kind)
+  // "useful" means at least one non-'any' check. `(x) => x` infers all-any
+  // — wrapping it would be pure overhead with no validation.
+  const hasUsefulCheck =
+    paramKinds.some((k) => k !== 'any') || fnReturns.kind !== 'any'
+  if (!allSimple || !hasUsefulCheck) return null
+  const paramTypesJson = JSON.stringify(paramKinds)
+  return `if (typeof ${paramName} === 'function') ${paramName} = __tjs.wrapFn(${paramName}, ${paramTypesJson}, '${fnReturns.kind}', '${path}');`
+}
 
 /**
  * Generate the complete function wrapper with inline validation
