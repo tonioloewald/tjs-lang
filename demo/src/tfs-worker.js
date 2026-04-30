@@ -4,29 +4,43 @@
  * Acts as a tiny in-browser server for the playground iframe:
  *
  *   /iframe/<sessionId>   → playground HTML registered via postMessage
- *   /tfs/<spec>           → CDN module via esm.sh
+ *   /tfs/<spec>           → CDN module (JSDelivr by default, esm.sh for
+ *                           packages that need peer-dep dedup like React)
  *
  * The iframe is loaded from a same-origin /iframe/<id> URL (instead of
  * a blob: URL) so the SW controls it. Every fetch from inside the iframe
  * — module imports, future virtual-module reads, future fetch() mocks —
  * goes through this SW.
  *
- * Why esm.sh: dedupes packages with peer dependencies (like react +
- * react-dom) by URL. JSDelivr's `/+esm` bundles deps inline, which
- * gives react-dom its own copy of React → useState crashes.
- *
  * URL format for /tfs/:
- *   /tfs/tosijs                  → esm.sh/tosijs
- *   /tfs/tosijs@1.6.1            → esm.sh/tosijs@1.6.1
- *   /tfs/lodash-es/debounce      → esm.sh/lodash-es/debounce
- *   /tfs/@scope/pkg@1.0.0        → esm.sh/@scope/pkg@1.0.0
+ *   /tfs/tosijs                  → JSDelivr `/+esm`
+ *   /tfs/lodash-es/debounce      → JSDelivr `/+esm`
+ *   /tfs/react                   → esm.sh (peer-dep dedup with react-dom)
+ *   /tfs/react-dom/client        → esm.sh
+ *   /tfs/@scope/pkg@1.0.0        → JSDelivr `/+esm`
  *   /tfs/__status                → cache stats
  *   /tfs/__clear                 → drop the cache
  */
 
-const SW_VERSION = 'tfs-v3-iframe-host'
+const SW_VERSION = 'tfs-v4-mixed-cdn'
 const CACHE_NAME = SW_VERSION
-const CDN_BASE = 'https://esm.sh'
+
+// Default CDN. JSDelivr's `/+esm` returns a self-contained Rollup-bundled
+// ESM module — works cleanly for ESM-native packages (tosijs, lodash-es)
+// AND CJS packages (most things). Bundles dependencies inline.
+const JSDELIVR = 'https://cdn.jsdelivr.net/npm'
+
+// esm.sh override for packages with tricky peer-dependency requirements.
+// React + react-dom can't both bundle React inline (the dispatcher state
+// is module-scoped — two copies → useState() crashes with null). esm.sh
+// builds these with `external: react` so the user's `import 'react'`
+// and react-dom's internal react reference resolve to the SAME URL.
+//
+// Caveat: esm.sh wraps SOME ESM-native packages as CJS-with-default-only,
+// breaking named imports. Tested: tosijs is broken, lodash-es is broken.
+// Only use it where the peer-dep dedup matters more than named imports.
+const ESM_SH = 'https://esm.sh'
+const ESM_SH_PACKAGES = new Set(['react', 'react-dom'])
 
 // In-memory store of iframe HTML by session ID. Populated via postMessage
 // from the playground when running code; consumed when the iframe fetches
@@ -130,7 +144,7 @@ async function serveStatus() {
   return new Response(
     JSON.stringify({
       version: CACHE_NAME,
-      cdn: CDN_BASE,
+      cdn: { default: JSDELIVR, esmSh: [...ESM_SH_PACKAGES] },
       cached: keys.map((k) => new URL(k.url).pathname),
       iframeSessions: [...iframeContents.keys()],
     }),
@@ -141,6 +155,25 @@ async function serveStatus() {
 async function serveClear() {
   await caches.delete(CACHE_NAME)
   return new Response('cache cleared', { status: 200 })
+}
+
+/**
+ * Build the CDN URL for a parsed TFS path. JSDelivr `/+esm` by default;
+ * esm.sh for packages in ESM_SH_PACKAGES.
+ *
+ *   react           → https://esm.sh/react
+ *   react-dom/client → https://esm.sh/react-dom/client
+ *   tosijs          → https://cdn.jsdelivr.net/npm/tosijs@latest/+esm
+ *   tosijs@1.6.1    → https://cdn.jsdelivr.net/npm/tosijs@1.6.1/+esm
+ *   lodash-es/get   → https://cdn.jsdelivr.net/npm/lodash-es@latest/get/+esm
+ */
+function buildCdnUrl(name, version, subpath) {
+  if (ESM_SH_PACKAGES.has(name)) {
+    const versionPart = version ? `@${version}` : ''
+    return `${ESM_SH}/${name}${versionPart}${subpath}`
+  }
+  const versionPart = version ? `@${version}` : '@latest'
+  return `${JSDELIVR}/${name}${versionPart}${subpath}/+esm`
 }
 
 /**
@@ -164,9 +197,7 @@ function parseTfsPath(path) {
 
 async function serveTfsRequest({ name, version, subpath }) {
   const cache = await caches.open(CACHE_NAME)
-  // esm.sh: omit version means latest; include version inline (`react@18`).
-  const versionPart = version ? `@${version}` : ''
-  const cdnUrl = `${CDN_BASE}/${name}${versionPart}${subpath}`
+  const cdnUrl = buildCdnUrl(name, version, subpath)
   const cacheKey = new Request(cdnUrl)
 
   const cached = await cache.match(cacheKey)
@@ -190,14 +221,18 @@ async function serveTfsRequest({ name, version, subpath }) {
     let body = await response.text()
 
     // esm.sh's response uses esm.sh-relative paths (`/react@VERSION/...`).
-    // Loaded from the playground origin, those would resolve back to us
+    // Loaded from the playground origin those would resolve back to us
     // instead of esm.sh. Rewrite to absolute esm.sh URLs so the browser
-    // fetches them directly (bypassing this SW) AND dedupes cross-package
-    // peer-dep references like react ↔ react-dom.
-    body = body.replace(
-      /((?:import|export)\s+(?:[\w\s{},*]+\s+from\s+)?)(['"])(\/[^'"]+)\2/g,
-      (_match, prefix, quote, path) => `${prefix}${quote}${CDN_BASE}${path}${quote}`
-    )
+    // fetches them directly AND dedupes cross-package peer-dep references
+    // (react ↔ react-dom). JSDelivr `/+esm` responses are self-contained
+    // and don't have any `/...` paths, so this is a no-op for them.
+    if (cdnUrl.startsWith(ESM_SH)) {
+      body = body.replace(
+        /((?:import|export)\s+(?:[\w\s{},*]+\s+from\s+)?)(['"])(\/[^'"]+)\2/g,
+        (_match, prefix, quote, path) =>
+          `${prefix}${quote}${ESM_SH}${path}${quote}`
+      )
+    }
 
     await cache.put(
       cacheKey,
