@@ -261,15 +261,7 @@ function getAge(): number { return 30 }
       )
 
       const proc = Bun.spawn(
-        [
-          BUN,
-          'src/cli/tjs.ts',
-          'convert',
-          '--emit-tjs',
-          srcDir,
-          '-o',
-          outDir,
-        ],
+        [BUN, 'src/cli/tjs.ts', 'convert', '--emit-tjs', srcDir, '-o', outDir],
         { cwd: REPO_ROOT, stdout: 'pipe', stderr: 'pipe' }
       )
       await proc.exited
