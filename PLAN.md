@@ -1122,6 +1122,12 @@ target(args?) {
 - **Single source**: Don't maintain separate WASM/shader files
 - **Type-safe boundary**: Args translated automatically at the boundary
 
+### WASM Libraries (cross-file, composable)
+
+The current `wasm {}` block model is single-file — wasm runs inline inside the function that wraps it. The next step is letting tjs source files declare reusable `wasm function`s that other files can import, with module composition at transpile time so intra-library calls stay inside the wasm module (no JS↔wasm boundary). First stdlib target: `tjs-lang/linalg`.
+
+Full design and phased implementation plan: [`wasm-library-plan.md`](./wasm-library-plan.md). Phase 0 (assumption verification against the current codebase) is complete; the prerequisite work is module consolidation (one module per file, currently N) and a transpile-time module loader.
+
 ## 18. Classes and Components
 
 TJS embraces classes, but eliminates JS footguns and enables cross-platform UI components.

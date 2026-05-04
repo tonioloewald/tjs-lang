@@ -485,6 +485,7 @@ The CLI (`bun src/cli/tjs.ts run`) does NOT inject the test-block `expect` harne
 - `AGENTS.md` — Agent workflow instructions (session-completion checklist, push-before-done rule)
 - `TODO.md` — Open work, organized by area; move items to the **Completed** section when done
 - `PLAN.md` — Roadmap
+- `wasm-library-plan.md` — Cross-file WASM library design (composable `wasm function` declarations, transpile-time module composition, linalg stdlib). Phase 0 done; see plan for prereqs.
 - `MANIFESTO-BUILDER.md` / `MANIFESTO-ENTERPRISE.md` — Positioning docs (audience-targeted pitches)
 - `benchmarks.md` — Top-level benchmark results (separate from `guides/benchmarks.md`)
 
