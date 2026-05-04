@@ -6,12 +6,12 @@ Complete REST-style Todo API with persistence
 
 ```tjs
 TjsCompat
-/**
- * # Todo API Service
- *
- * A REST-style API for todo management.
- * Demonstrates a more complete service pattern.
- */
+/*#
+## Todo API Service
+
+A REST-style API for todo management.
+Demonstrates a more complete service pattern.
+*/
 
 // Simulated persistence layer
 const todos = new Map()

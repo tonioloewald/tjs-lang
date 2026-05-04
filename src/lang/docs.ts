@@ -120,6 +120,34 @@ export type DocItem =
       members: string[] // constructor / method signatures, no bodies
     }
 
+// Dedent a block of text by the smallest leading-whitespace indent
+// found across non-empty lines.
+function dedent(content: string): string {
+  const lines = content.split('\n')
+  const minIndent = lines
+    .filter((line) => line.trim().length > 0)
+    .reduce((min, line) => {
+      const indent = line.match(/^(\s*)/)?.[1].length || 0
+      return Math.min(min, indent)
+    }, Infinity)
+  if (minIndent === 0 || minIndent === Infinity) return content
+  return lines.map((line) => line.slice(minIndent)).join('\n')
+}
+
+// Strip the leading ` * ` from each line of a JSDoc comment body.
+// The first line (between `/**` and the first newline) is left alone —
+// content can appear there directly. Empty `*`-only lines become blank.
+function stripJSDocAsterisks(content: string): string {
+  const lines = content.split('\n')
+  return lines
+    .map((line, i) => {
+      if (i === 0) return line
+      // Remove optional leading whitespace, then `*`, then optional single space
+      return line.replace(/^[ \t]*\*[ \t]?/, '')
+    })
+    .join('\n')
+}
+
 /**
  * Generate documentation from TJS source
  *
@@ -137,8 +165,12 @@ export function generateDocs(source: string): DocResult {
   // shown in `/*# ... */` doc blocks as real declarations.
   const isInComment = computeInComment(source)
 
-  // Find all doc blocks, functions, and classes; sort by position
+  // Find all doc blocks, functions, and classes; sort by position.
+  // Two doc-block flavors are recognized:
+  //   /*# ... */   — TJS native: content is markdown verbatim
+  //   /** ... */   — JSDoc: each line's leading ` * ` is stripped, then markdown
   const docPattern = /\/\*#([\s\S]*?)\*\//g
+  const jsdocPattern = /\/\*\*([\s\S]*?)\*\//g
   // Match the START of a function declaration. Params (which can contain
   // nested parens like `fn = (x) => x`) are captured by balanced-paren
   // scanning below, NOT by this regex.
@@ -155,24 +187,26 @@ export function generateDocs(source: string): DocResult {
       continue
     }
 
-    // Dedent content
-    let content = match[1]
-    const lines = content.split('\n')
-    const minIndent = lines
-      .filter((line) => line.trim().length > 0)
-      .reduce((min, line) => {
-        const indent = line.match(/^(\s*)/)?.[1].length || 0
-        return Math.min(min, indent)
-      }, Infinity)
-
-    if (minIndent > 0 && minIndent < Infinity) {
-      content = lines.map((line) => line.slice(minIndent)).join('\n')
-    }
+    const content = dedent(match[1]).trim()
+    if (!content) continue
 
     matches.push({
       type: 'doc',
       index: match.index,
-      data: content.trim(),
+      data: content,
+    })
+  }
+
+  while ((match = jsdocPattern.exec(source)) !== null) {
+    if (braceDepthAt[match.index] !== 0) continue
+
+    const content = dedent(stripJSDocAsterisks(match[1])).trim()
+    if (!content) continue
+
+    matches.push({
+      type: 'doc',
+      index: match.index,
+      data: content,
     })
   }
 

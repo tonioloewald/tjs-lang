@@ -5,23 +5,23 @@
 One endpoint. Any logic. Zero deployment. This is the whole thing.
 
 ```tjs
-/**
- * # The Universal Endpoint
- *
- * This is the entire backend industry in 50 lines.
- *
- * What this replaces:
- * - GraphQL servers
- * - REST API forests
- * - Firebase/Lambda/Vercel Functions
- * - Kubernetes deployments
- * - The backend priesthood
- *
- * How it works:
- * 1. Client sends logic (not just data)
- * 2. Server executes it with bounded resources
- * 3. That's it. That's the whole thing.
- */
+/*#
+## The Universal Endpoint
+
+This is the entire backend industry in 50 lines.
+
+What this replaces:
+- GraphQL servers
+- REST API forests
+- Firebase/Lambda/Vercel Functions
+- Kubernetes deployments
+- The backend priesthood
+
+How it works:
+1. Client sends logic (not just data)
+2. Server executes it with bounded resources
+3. That's it. That's the whole thing.
+*/
 
 import { AgentVM, ajs, coreAtoms } from 'tjs-lang'
 

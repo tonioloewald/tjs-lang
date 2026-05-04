@@ -9,21 +9,23 @@ the spec with a CDN hint.
 
 ```tjs
 TjsCompat
-/**
- * # Per-import CDN hints
- *
- * The first path segment of the import spec selects the CDN:
- *
- *   jsdelivr/<spec>            → JSDelivr `/+esm` (the default)
- *   esmsh/<spec>               → esm.sh (peer-dep dedup, e.g. React)
- *   unpkg/<spec>               → UNPKG with ?module
- *   github/<user>/<repo>/<path> → esm.sh's /gh/ route
- *
- * No hint = default routing (JSDelivr, with esm.sh allowlist for React).
- *
- * For full URLs (your own host, raw.githubusercontent.com, etc.) just
- * write the URL — it's left untouched.
- */
+/*#
+## Per-import CDN hints
+
+The first path segment of the import spec selects the CDN:
+
+| Hint | Resolves to |
+|------|-------------|
+| `jsdelivr/<spec>` | JSDelivr `/+esm` (the default) |
+| `esmsh/<spec>` | esm.sh (peer-dep dedup, e.g. React) |
+| `unpkg/<spec>` | UNPKG with `?module` |
+| `github/<user>/<repo>/<path>` | esm.sh's `/gh/` route |
+
+No hint = default routing (JSDelivr, with esm.sh allowlist for React).
+
+For full URLs (your own host, raw.githubusercontent.com, etc.) just
+write the URL — it's left untouched.
+*/
 
 // Default routing: JSDelivr
 import { tosi, elements } from 'tosijs'
@@ -52,7 +54,7 @@ const state = tosi({
 
 document.body.append(
   div(
-    h1({ bindText: () => `Count: ${state.count}` }),
+    h1({ bindText: state.count }),
     button({ onClick: state.inc }, '+1')
   )
 )

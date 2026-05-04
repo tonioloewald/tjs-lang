@@ -157,6 +157,154 @@ function second(x: 0): 0 { return x }
     })
   })
 
+  describe('JSDoc-style doc blocks', () => {
+    it('extracts /** */ blocks and strips leading asterisks', () => {
+      const source = `
+/**
+ * # Title
+ *
+ * Body line 1
+ * Body line 2
+ */
+`
+      const result = generateDocs(source)
+
+      expect(result.items).toHaveLength(1)
+      const doc = result.items[0] as any
+      expect(doc.type).toBe('doc')
+      expect(doc.content).toBe('# Title\n\nBody line 1\nBody line 2')
+    })
+
+    it('handles single-line JSDoc', () => {
+      const source = `/** A short note. */`
+      const result = generateDocs(source)
+
+      const doc = result.items[0] as any
+      expect(doc.type).toBe('doc')
+      expect(doc.content).toBe('A short note.')
+    })
+
+    it('preserves markdown lists and tables', () => {
+      const source = `
+/**
+ * ## Options
+ *
+ * | Flag | Meaning |
+ * |------|---------|
+ * | \`-v\` | verbose |
+ *
+ * - first
+ * - second
+ */
+`
+      const result = generateDocs(source)
+
+      const doc = result.items[0] as any
+      expect(doc.content).toContain('## Options')
+      expect(doc.content).toContain('| Flag | Meaning |')
+      expect(doc.content).toContain('- first')
+    })
+
+    it('leaves @param / @returns as plain markdown', () => {
+      const source = `
+/**
+ * Square the input.
+ *
+ * @param x - the input
+ * @returns the squared value
+ */
+function square(x: 0): 0 { return x * x }
+`
+      const result = generateDocs(source)
+
+      const doc = result.items[0] as any
+      expect(doc.content).toContain('@param x - the input')
+      expect(doc.content).toContain('@returns the squared value')
+    })
+
+    it('skips JSDoc inside function bodies', () => {
+      const source = `
+function outer() {
+  /**
+   * Should not be extracted — inside a body.
+   */
+  return 1
+}
+`
+      const result = generateDocs(source)
+
+      // Only the function itself, no doc item
+      const docs = result.items.filter((i) => i.type === 'doc')
+      expect(docs).toHaveLength(0)
+    })
+
+    it('skips empty JSDoc blocks', () => {
+      const source = `
+/**
+ *
+ */
+function f() {}
+`
+      const result = generateDocs(source)
+
+      const docs = result.items.filter((i) => i.type === 'doc')
+      expect(docs).toHaveLength(0)
+    })
+
+    it('does not treat /* ... */ as a doc comment', () => {
+      const source = `
+/* just a regular block comment */
+function f() {}
+`
+      const result = generateDocs(source)
+
+      const docs = result.items.filter((i) => i.type === 'doc')
+      expect(docs).toHaveLength(0)
+    })
+
+    it('interleaves JSDoc with functions in document order', () => {
+      const source = `
+/**
+ * # First
+ */
+function first(x: 0): 0 { return x }
+
+/**
+ * # Second
+ */
+function second(x: 0): 0 { return x }
+`
+      const result = generateDocs(source)
+
+      expect(result.items).toHaveLength(4)
+      expect(result.items[0].type).toBe('doc')
+      expect((result.items[0] as any).content).toContain('# First')
+      expect(result.items[1].type).toBe('function')
+      expect(result.items[2].type).toBe('doc')
+      expect((result.items[2] as any).content).toContain('# Second')
+      expect(result.items[3].type).toBe('function')
+    })
+
+    it('coexists with /*# blocks in the same file', () => {
+      const source = `
+/*#
+## TJS-native
+*/
+
+/**
+ * ## JSDoc-native
+ */
+function f(x: 0): 0 { return x }
+`
+      const result = generateDocs(source)
+
+      const docs = result.items.filter((i) => i.type === 'doc') as any[]
+      expect(docs).toHaveLength(2)
+      expect(docs[0].content).toContain('TJS-native')
+      expect(docs[1].content).toContain('JSDoc-native')
+    })
+  })
+
   describe('markdown output', () => {
     it('renders doc blocks as plain markdown', () => {
       const source = `

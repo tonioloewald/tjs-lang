@@ -5,20 +5,20 @@
 Test internals without exporting them - the killer feature
 
 ```tjs
-/**
- * # Testing Private Functions
- *
- * This is the killer feature of inline tests:
- * You can test functions WITHOUT exporting them.
- *
- * Traditional testing requires you to either:
- * - Export internal helpers (pollutes your API)
- * - Test only through public interface (incomplete coverage)
- * - Use hacks like rewire/proxyquire (brittle)
- *
- * TJS inline tests have full access to the module scope.
- * Test everything. Export only what you need.
- */
+/*#
+## Testing Private Functions
+
+This is the killer feature of inline tests:
+You can test functions WITHOUT exporting them.
+
+Traditional testing requires you to either:
+- Export internal helpers (pollutes your API)
+- Test only through public interface (incomplete coverage)
+- Use hacks like rewire/proxyquire (brittle)
+
+TJS inline tests have full access to the module scope.
+Test everything. Export only what you need.
+*/
 
 // ============================================================
 // PRIVATE HELPERS (not exported, but fully testable!)

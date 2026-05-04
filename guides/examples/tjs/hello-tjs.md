@@ -19,7 +19,13 @@ In TJS, the example value after `:` IS the type:
 | `name = 'default'` | string (optional, defaults to 'default') |
 | `data: { x: 0, y: 0 }` | object with shape |
 | `...nums: [0]` | rest param, array of integers |
+
+Incidentally, you're looking at inline markdown docs...
 */
+
+/**
+ * But **jsDoc** is also supported.
+ */
 
 function greet(name: 'World'): 'Hello, World!' {
   return `Hello, ${name}!`

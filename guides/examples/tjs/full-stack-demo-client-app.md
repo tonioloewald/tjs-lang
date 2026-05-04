@@ -5,19 +5,19 @@
 Frontend that calls the User Service - run after saving user-service!
 
 ```tjs
-/**
- * # Client Application
- *
- * A frontend that calls the User Service.
- *
- * **First:** Run the "User Service" example and save it as "user-service"
- * **Then:** Run this client to see full-stack in action
- *
- * This demonstrates:
- * - Importing local TJS modules
- * - Type-safe service calls
- * - Error handling
- */
+/*#
+## Client Application
+
+A frontend that calls the User Service.
+
+**First:** Run the "User Service" example and save it as "user-service"
+**Then:** Run this client to see full-stack in action
+
+This demonstrates:
+- Importing local TJS modules
+- Type-safe service calls
+- Error handling
+*/
 
 // Import from local module (saved in playground)
 import { createUser, getUser, listUsers, searchUsers } from 'user-service'

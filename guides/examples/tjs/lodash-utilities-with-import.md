@@ -5,11 +5,11 @@
 Uses lodash-es for utility functions via ESM import
 
 ```tjs
-/**
- * # Lodash Utilities with Type Safety
- *
- * Demonstrates using lodash-es with TJS runtime validation.
- */
+/*#
+## Lodash Utilities with Type Safety
+
+Demonstrates using lodash-es with TJS runtime validation.
+*/
 
 import { groupBy, sortBy, uniqBy, debounce, chunk } from 'lodash-es'
 

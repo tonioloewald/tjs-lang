@@ -6,12 +6,12 @@ Uses date-fns for date formatting via ESM import
 
 ```tjs
 TjsCompat
-/**
- * # Date Formatting with Imports
- *
- * This example demonstrates importing an external ESM module
- * (date-fns) and using it with TJS type safety.
- */
+/*#
+## Date Formatting with Imports
+
+This example demonstrates importing an external ESM module
+(date-fns) and using it with TJS type safety.
+*/
 
 import { format, formatDistance, addDays, parseISO } from 'date-fns'
 

@@ -423,14 +423,14 @@ console.log('(2 + 3) * 4 =', calc.add(2).add(3).multiply(4).getResult())
     description:
       'Complete example showing the TS -> TJS -> JS value proposition',
     group: 'advanced',
-    code: `/**
- * THE FULL PICTURE
- *
- * TypeScript promises type safety.
- * TJS delivers it at RUNTIME.
- *
- * This is what "TS keeps its promise" means.
- */
+    code: `/*#
+## The Full Picture
+
+TypeScript promises type safety.
+TJS delivers it at RUNTIME.
+
+This is what "TS keeps its promise" means.
+*/
 
 // Define your types with standard TypeScript syntax
 interface Product {

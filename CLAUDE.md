@@ -426,6 +426,12 @@ Explain the concept here. Use markdown freely.
 // Then the actual TJS code
 function demo() { ... }
 
+/**
+ * JSDoc-style /** ... *​/ blocks are also extracted as docs.
+ * Leading ` * ` is stripped from each line; the rest renders as markdown.
+ * Use this when porting TS source where JSDoc is already idiomatic.
+ */
+
 test 'a description' {
   expect(...).toBe(...)
 }
