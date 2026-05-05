@@ -128,3 +128,13 @@ Notes from integrating `tjs-lang` VM into a production Firebase application (sno
 4. `const` in loop body → compile-time error or per-iteration scope
 5. Multiple function declarations → allow helpers alongside one `agent` entry point
 6. `typescript` lazy-load in main entry (Cloud Run compatibility)
+
+---
+
+## 12. `s.string.optional` rejects `null` — only accepts `undefined`
+
+**Issue:** The `llmPredictBattery` output schema uses `s.string.optional` for `content`. When the LLM responds with tool calls and no text, our battery capability returned `content: null`. The schema validation rejected this because `s.string.optional` accepts `undefined` (absent) but not `null`.
+
+**Workaround:** Return `content: undefined` instead of `content: null` from the battery capability.
+
+**Desired fix:** Document clearly that `.optional` means "may be absent/undefined" not "may be null". Consider whether `s.string.nullable` or similar should be added, or whether the output schema for `llmPredictBattery` should explicitly allow null content (since the Anthropic API returns null content when only returning tool calls).
