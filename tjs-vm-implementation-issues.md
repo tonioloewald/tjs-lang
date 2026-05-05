@@ -138,3 +138,32 @@ Notes from integrating `tjs-lang` VM into a production Firebase application (sno
 **Workaround:** Return `content: undefined` instead of `content: null` from the battery capability.
 
 **Desired fix:** Document clearly that `.optional` means "may be absent/undefined" not "may be null". Consider whether `s.string.nullable` or similar should be added, or whether the output schema for `llmPredictBattery` should explicitly allow null content (since the Anthropic API returns null content when only returning tool calls).
+
+---
+
+## 13. `defineAtom` `timeoutMs` — unclear if per-atom timeout is actually enforced
+
+**Issue:** `defineAtom` accepts `timeoutMs` (default 1000ms) and applies a `Promise.race` per atom call. We added `timeoutMs: 120000` to `llmPredictBattery` to support real LLM calls. However:
+- The original 1000ms default should cause all slow LLM calls to fail, yet the tjs-lang LLM integration tests (which use a slow local LM Studio) apparently pass
+- The prod deployment still shows "Atom 'llmPredictBattery' timed out" errors very quickly (< 5s)
+- Whether this timeout mechanism is correctly enforced in practice is unclear
+
+**Questions for tjs-lang:**
+1. Is `timeoutMs` in `defineAtom` actually enforced as a per-atom wall-clock timeout?
+2. If so, how do the slow LM Studio integration tests pass with the 1000ms default?
+3. Is there a way to pass a per-atom timeout override at `vm.run()` time (e.g. via `costOverrides`)?
+4. Should the batteries have `timeoutMs: 0` (disabled) since their timeout is application-specific?
+
+**Current workaround:** None working yet. The LLM call goes client → server (universal endpoint) → Vertex AI, and times out before Vertex AI responds.
+
+---
+
+## Summary: Recommended tjs-lang fixes (priority order)
+
+1. Clarify and fix `defineAtom` `timeoutMs` behavior — critical blocker for LLM battery use
+2. `llmPredictBattery` timeout → 120s (or 0 = disabled, let the app control it)
+3. Export `ajs` from `tjs-lang/vm` (DX / ease of use)
+4. Export `batteryAtoms` in TypeScript types for `tjs-lang/vm`
+5. `const` in loop body → compile-time error or per-iteration scope
+6. Multiple function declarations → allow helpers alongside one `agent` entry point
+7. `typescript` lazy-load in main entry (Cloud Run compatibility)
