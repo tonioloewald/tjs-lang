@@ -1524,9 +1524,10 @@ function double(x: 0, y: 0) {
     expect(result.wasmCompiled?.[0].success).toBe(true)
     expect(result.wasmCompiled?.[0].byteLength).toBeGreaterThan(0)
 
-    // Output should contain base64-encoded WASM
-    expect(result.code).toContain('__wasmBlocks')
-    expect(result.code).toContain('b64:')
+    // Output should contain base64-encoded WASM. After Phase 0.5 consolidation
+    // the emitter ships one module per file and a per-export metadata table.
+    expect(result.code).toContain('__wasmExports')
+    expect(result.code).toContain('__wasmModuleB64')
 
     // Execute with async function to allow WASM instantiation
     const fn = new Function(

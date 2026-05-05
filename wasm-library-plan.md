@@ -30,6 +30,36 @@ see "Implementation plan" for the new Phase 0.5 / Phase 0.75 prereqs.
 4. **Stdlib as educational artifact.** Linalg first. Each function readable as TJS wrapper → scalar wasm → SIMD wasm progression.
 5. **Safety by construction.** Wasm functions are pure compute. The transpiler enforces it. Escape hatch exists (`(! ...)`) but is rare and visible.
 
+## Canonical end-to-end demo
+
+The acceptance test for Phases 1, 0.75, and 3 — and the conceptual goal of the whole plan — is the **vector search refactor**.
+
+The existing playground example `guides/examples/tjs/wasm-vector-search.md` computes cosine similarity over a corpus of f32 embeddings inside a single inline `wasm {}` block (`dot`, `magA`, `magB` all in one big SIMD loop). That's the baseline.
+
+The cross-file version replaces the kernel body with three calls into `tjs-lang/linalg`:
+
+```ts
+import { dot, norm_sq } from 'tjs-lang/linalg'
+
+function simdSearch(corpus: Ptr<f32>, query: Ptr<f32>, count: i32, dim: i32): i32 {
+  // ... outer loop over rows of corpus ...
+  const d  = dot(query, corpusRow, dim)
+  const ma = norm_sq(query, dim)
+  const mb = norm_sq(corpusRow, dim)
+  const score = d / Math.sqrt(ma * mb)
+  // ... track best score, return best index ...
+}
+```
+
+**Done means all four hold:**
+
+1. **Correctness.** Library version returns the same `bestIdx` as the inline baseline across all benchmark configs (10K×128, 10K×256, 10K×512, 50K×128).
+2. **Performance.** Within ~5% of the inline baseline. Engine JIT inlines `dot` and `norm_sq` at runtime, so call overhead is negligible after warmup.
+3. **Module shape.** The consumer's emitted wasm module contains `dot` and `norm_sq` as local functions (not imports). Only `env.memory` is imported.
+4. **Boundary form works too.** `tjs-lang/linalg` distributed as transpiled `.js` (Phase 4) instantiates a working library for plain-JS consumers — slightly slower per call, same results.
+
+When the vector search example imports `dot` from `linalg` and the four conditions above all hold, the cross-file wasm story is real.
+
 ---
 
 ## Design
@@ -205,13 +235,14 @@ Playground examples link these three side-by-side as the educational artifact.
 ### ✅ Phase 0 — verify assumptions (½ day, complete)
 Done 2026-05-04. See assumption table above.
 
-### Phase 0.5 — module consolidation (~2 days, **new prereq**)
-Refactor `js-wasm.ts` so all `wasm {}` blocks in a file lower into **one** `WebAssembly.Module` with N exports, sharing the existing `__wasmMem`. Today each block is its own module (per A2 finding). This is the foundation: once one-module-per-file lands, "module composition" becomes mechanical.
+### ✅ Phase 0.5 — module consolidation (complete, 2026-05-04)
+Done. Refactored `src/lang/wasm.ts` to expose `compileBlocksToModule(blocks)` which produces one `WebAssembly.Module` with N exports (named `compute_0`, `compute_1`, ...) sharing one imported memory. `src/lang/emitters/js-wasm.ts` now emits a single `WebAssembly.compile` + `WebAssembly.instantiate` per file regardless of how many `wasm {}` blocks are present.
 
-- Collect all compiled-block bytecodes during emit
-- Generate a single module with N exported functions
-- Single `WebAssembly.compile` + `WebAssembly.instantiate` per file
-- Existing per-block test cases should all still pass (behavior unchanged from caller's perspective)
+- New public API: `compileBlocksToModule(blocks: WasmBlock[]): MultiBlockCompileResult`
+- Internal refactor: extracted `compileBlockToFunction` + `buildMultiFunctionModule`; legacy `compileToWasm` now delegates (single-function case)
+- 7 new tests in `wasm.test.ts` under `describe('module consolidation (Phase 0.5)')` covering multi-export modules, failure isolation, void/value mixing, and bootstrap-emits-one-compile-call
+- All 1913 fast-suite tests pass
+- Iframe variant (`generateWasmInstantiationCode`) left as-is for now — single-block API used by playground; consistency cleanup deferred
 
 ### Phase 0.75 — transpile-time module loader (~3 days, **new prereq**)
 Add a hook that, given an import specifier, can read the target `.tjs`, parse it, and surface its `wasm function` declarations and their call graph. Today the transpiler preserves imports verbatim and the bun plugin re-transpiles each file on demand at runtime (per A4 finding) — that path is fine for regular JS interop but doesn't give us the static info we need for cross-file wasm composition.

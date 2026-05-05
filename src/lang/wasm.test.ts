@@ -5,6 +5,7 @@
 import { describe, it, expect } from 'bun:test'
 import {
   compileToWasm,
+  compileBlocksToModule,
   instantiateWasm,
   registerWasmBlock,
   createWasmFunction,
@@ -1617,8 +1618,10 @@ function inc(arr: Float32Array, len: 0) {
 }
 `
         const result = tjs(source)
-        // The wrapper should check buffer identity
-        expect(result.code).toContain('a.buffer===mem.buffer')
+        // The wrapper should check buffer identity against the shared memory.
+        // After Phase 0.5 consolidation there's one __wasmMem per file, so
+        // wrappers reference it directly (no per-block `mem` alias).
+        expect(result.code).toContain('a.buffer===__wasmMem.buffer')
       })
     })
 
@@ -1874,6 +1877,250 @@ function simdScale(arr: Float32Array, len: 0, factor: 0.0) {
           delete globalThis.wasmBuffer
         }
       })
+    })
+  })
+})
+
+describe('module consolidation (Phase 0.5)', () => {
+  describe('compileBlocksToModule', () => {
+    it('emits one module with N exports for N blocks', async () => {
+      const blocks: WasmBlock[] = [
+        {
+          id: 'b0',
+          captures: ['a: f64', 'b: f64'],
+          body: 'return a + b',
+          hasReturn: true,
+        } as WasmBlock,
+        {
+          id: 'b1',
+          captures: ['x: f64', 'y: f64'],
+          body: 'return x * y',
+          hasReturn: true,
+        } as WasmBlock,
+      ]
+
+      const result = compileBlocksToModule(blocks)
+      expect(result.exports).toHaveLength(2)
+      expect(result.exports[0]).toMatchObject({ id: 'b0', exportName: 'compute_0' })
+      expect(result.exports[1]).toMatchObject({ id: 'b1', exportName: 'compute_1' })
+
+      // Instantiate and confirm both exports work
+      const instance = await instantiateWasm(result.bytes)
+      const add = instance.exports.compute_0 as (a: number, b: number) => number
+      const mul = instance.exports.compute_1 as (a: number, b: number) => number
+      expect(add(2, 3)).toBe(5)
+      expect(mul(4, 5)).toBe(20)
+    })
+
+    it('preserves input order in results, including failures', () => {
+      const blocks: WasmBlock[] = [
+        {
+          id: 'ok0',
+          captures: ['a: f64'],
+          body: 'return a + 1',
+          hasReturn: true,
+        } as WasmBlock,
+        {
+          id: 'bad',
+          captures: ['x: f64'],
+          // Syntax error — fails compilation
+          body: 'this is not valid js {{{',
+          hasReturn: true,
+        } as WasmBlock,
+        {
+          id: 'ok1',
+          captures: ['b: f64'],
+          body: 'return b * 2',
+          hasReturn: true,
+        } as WasmBlock,
+      ]
+
+      const result = compileBlocksToModule(blocks)
+      expect(result.results).toHaveLength(3)
+      expect(result.results[0]).toMatchObject({ id: 'ok0', success: true })
+      expect(result.results[1]).toMatchObject({ id: 'bad', success: false })
+      expect(result.results[2]).toMatchObject({ id: 'ok1', success: true })
+
+      // Only the two successful blocks become exports
+      expect(result.exports).toHaveLength(2)
+      expect(result.exports.map((e) => e.id)).toEqual(['ok0', 'ok1'])
+      // Export indices are dense (0, 1) — no gap from the failed block
+      expect(result.exports.map((e) => e.exportName)).toEqual([
+        'compute_0',
+        'compute_1',
+      ])
+    })
+
+    it('produces empty bytes when no blocks compile', () => {
+      const blocks: WasmBlock[] = [
+        {
+          id: 'bad',
+          captures: ['x: f64'],
+          body: 'this is not valid js {{{',
+          hasReturn: true,
+        } as WasmBlock,
+      ]
+
+      const result = compileBlocksToModule(blocks)
+      expect(result.exports).toHaveLength(0)
+      expect(result.bytes.length).toBe(0)
+      expect(result.results[0].success).toBe(false)
+    })
+
+    it('imports memory only when at least one function needs it', () => {
+      // Pure-arithmetic block: no memory needed
+      const noMemBlocks: WasmBlock[] = [
+        {
+          id: 'b0',
+          captures: ['a: f64'],
+          body: 'return a + 1',
+          hasReturn: true,
+        } as WasmBlock,
+      ]
+      const noMemResult = compileBlocksToModule(noMemBlocks)
+      expect(noMemResult.needsMemory).toBe(false)
+      // Should instantiate with no imports
+      expect(async () => {
+        await instantiateWasm(noMemResult.bytes)
+      }).not.toThrow()
+
+      // Mixed: one block uses Float32Array (needs memory), one doesn't.
+      // The whole module imports memory; the pure block coexists fine.
+      const mixedBlocks: WasmBlock[] = [
+        {
+          id: 'b0',
+          captures: ['a: f64'],
+          body: 'return a + 1',
+          hasReturn: true,
+        } as WasmBlock,
+        {
+          id: 'b1',
+          captures: ['arr: Float32Array', 'len: f64'],
+          body: 'for (let i = 0; i < len; i++) arr[i] = arr[i] + 1.0',
+          hasReturn: false,
+        } as WasmBlock,
+      ]
+      const mixedResult = compileBlocksToModule(mixedBlocks)
+      expect(mixedResult.needsMemory).toBe(true)
+      expect(mixedResult.exports).toHaveLength(2)
+    })
+
+    it('handles void and value-returning functions in the same module', async () => {
+      const blocks: WasmBlock[] = [
+        {
+          id: 'sum',
+          captures: ['a: f64', 'b: f64'],
+          body: 'return a + b',
+          hasReturn: true,
+        } as WasmBlock,
+        {
+          id: 'noop',
+          captures: ['x: f64'],
+          body: 'let y = x', // No return — void function
+          hasReturn: false,
+        } as WasmBlock,
+      ]
+
+      const result = compileBlocksToModule(blocks)
+      expect(result.exports).toHaveLength(2)
+
+      const instance = await instantiateWasm(result.bytes)
+      const sum = instance.exports.compute_0 as (a: number, b: number) => number
+      const noop = instance.exports.compute_1 as (x: number) => void
+      expect(sum(7, 8)).toBe(15)
+      expect(noop(42)).toBeUndefined()
+    })
+  })
+
+  describe('emitted bootstrap (single WebAssembly.compile per file)', () => {
+    it('two wasm blocks in one source produce ONE compile call', async () => {
+      const { tjs } = await import('./index')
+      const source = `
+function inc(arr: Float32Array, len: 0) {
+  wasm {
+    for (let i = 0; i < len; i++) { arr[i] = arr[i] + 1.0 }
+  } fallback {
+    for (let i = 0; i < len; i++) arr[i] += 1
+  }
+}
+
+function dbl(arr: Float32Array, len: 0) {
+  wasm {
+    for (let i = 0; i < len; i++) { arr[i] = arr[i] * 2.0 }
+  } fallback {
+    for (let i = 0; i < len; i++) arr[i] *= 2
+  }
+}
+`
+      const result = tjs(source)
+
+      // The hallmark of consolidation: exactly one compile call across all blocks
+      const compileCalls = (result.code.match(/WebAssembly\.compile\(/g) || [])
+        .length
+      expect(compileCalls).toBe(1)
+
+      // Both functions appear under their own export names in the module
+      expect(result.code).toContain('"compute_0"')
+      expect(result.code).toContain('"compute_1"')
+    })
+
+    it('two wasm functions actually run after consolidated bootstrap', async () => {
+      const { tjs } = await import('./index')
+      const { createRuntime } = await import('./runtime')
+      const source = `
+function inc(arr: Float32Array, len: 0) {
+  wasm {
+    for (let i = 0; i < len; i++) { arr[i] = arr[i] + 1.0 }
+  } fallback {
+    for (let i = 0; i < len; i++) arr[i] += 1
+  }
+}
+
+function dbl(arr: Float32Array, len: 0) {
+  wasm {
+    for (let i = 0; i < len; i++) { arr[i] = arr[i] * 2.0 }
+  } fallback {
+    for (let i = 0; i < len; i++) arr[i] *= 2
+  }
+}
+`
+      const result = tjs(source)
+      const savedTjs = globalThis.__tjs
+      try {
+        globalThis.__tjs = createRuntime()
+        // Wrap in IIFE so the emitted `const __tjs = ...` doesn't clash with
+        // the outer parameter; expose the user functions via globalThis.
+        await new Function(
+          '__tjs',
+          `return (async () => { ${result.code}\n` +
+            `globalThis.__test_inc = inc;\n` +
+            `globalThis.__test_dbl = dbl;\n` +
+            `})();`
+        )(globalThis.__tjs)
+
+        // Wait for the single async bootstrap (one instantiate) to complete
+        await new Promise((r) => setTimeout(r, 100))
+
+        const wasmBuffer = (globalThis as any).wasmBuffer
+        expect(typeof wasmBuffer).toBe('function')
+
+        const buf = wasmBuffer(Float32Array, 4)
+        buf[0] = 1
+        buf[1] = 2
+        buf[2] = 3
+        buf[3] = 4
+
+        ;(globalThis as any).__test_inc(buf, 4) // [2, 3, 4, 5]
+        expect(Array.from(buf)).toEqual([2, 3, 4, 5])
+
+        ;(globalThis as any).__test_dbl(buf, 4) // [4, 6, 8, 10]
+        expect(Array.from(buf)).toEqual([4, 6, 8, 10])
+      } finally {
+        globalThis.__tjs = savedTjs
+        delete (globalThis as any).wasmBuffer
+        delete (globalThis as any).__test_inc
+        delete (globalThis as any).__test_dbl
+      }
     })
   })
 })

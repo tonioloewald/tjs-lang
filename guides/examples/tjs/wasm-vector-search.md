@@ -19,6 +19,25 @@ between JS and WASM. The SIMD search kernel processes 4 vector dimensions
 per instruction and loops over the entire corpus in one WASM call.
 
 Click **Run Benchmark** to generate random vectors and measure throughput.
+
+**Future milestone:** today this example computes `dot`, `magA`, and `magB`
+inline inside one `wasm {}` block. Once the wasm-library plan ships
+([wasm-library-plan.md](https://github.com/tonioloewald/tjs-lang/blob/main/wasm-library-plan.md)),
+the body of this kernel becomes three calls into `tjs-lang/linalg`:
+
+```ts
+import { dot, norm_sq } from 'tjs-lang/linalg'
+// ...inside the loop:
+const d = dot(query, corpusRow, dim)
+const ma = norm_sq(query, dim)
+const mb = norm_sq(corpusRow, dim)
+const score = d / Math.sqrt(ma * mb)
+```
+
+The composed wasm module ends up with `dot` and `norm_sq` as local functions —
+the engine JIT inlines them at runtime, so performance should match the all-inline
+version within a few percent. That equivalence is the acceptance criterion for
+Phases 1, 0.75, and 3 of the wasm-library plan.
 */
 
 // SIMD corpus search — single WASM call over entire corpus

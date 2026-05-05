@@ -1802,63 +1802,35 @@ function parseTypeAnnotation(capture: string): TypedParam {
   return { name, type: typeMap[typeStr] ?? 'f64' }
 }
 
-/** Build a complete WASM module */
-function buildModule(
-  params: TypedParam[],
-  bodyCode: number[],
-  localTypes: WasmValueType[],
-  needsMemory: boolean,
+/**
+ * Per-function intermediate: everything needed to embed one function inside
+ * a (single- or multi-function) WASM module.
+ */
+interface CompiledFunction {
+  params: TypedParam[]
+  bodyCode: number[]
+  localTypes: WasmValueType[]
+  needsMemory: boolean
   hasReturn: boolean
-): number[] {
-  // Magic number and version
-  const header = [0x00, 0x61, 0x73, 0x6d, 0x01, 0x00, 0x00, 0x00]
+}
 
-  // Type section: function signature
+/** Encode a single function signature as a Type-section entry body */
+function encodeFuncType(params: TypedParam[], hasReturn: boolean): number[] {
   const paramWasmTypes = params.map((p) => Type[p.type])
   const returnSpec = hasReturn ? [0x01, Type.f64] : [0x00] // one f64 return OR void
-  const typeSection = encodeSection(Section.type, [
-    0x01, // one type
+  return [
     0x60, // func type
     ...encodeULEB128(params.length),
     ...paramWasmTypes,
     ...returnSpec,
-  ])
+  ]
+}
 
-  // Memory section (if needed)
-  const memorySection: number[] = []
-  if (needsMemory) {
-    // Import memory from JS instead of declaring it
-    // This lets us share memory with typed arrays
-  }
-
-  // Import section for memory
-  let importSection: number[] = []
-  if (needsMemory) {
-    importSection = encodeSection(Section.import, [
-      0x01, // one import
-      ...encodeString('env'),
-      ...encodeString('memory'),
-      0x02, // memory
-      0x00, // flags: no max
-      0x01, // initial: 1 page (64KB)
-    ])
-  }
-
-  // Function section: function 0 has type 0
-  const funcSection = encodeSection(Section.function, [
-    0x01, // one function
-    0x00, // type index 0
-  ])
-
-  // Export section: export function as "compute"
-  const exportSection = encodeSection(Section.export, [
-    0x01, // one export
-    ...encodeString('compute'),
-    0x00, // export kind: function
-    0x00, // function index 0
-  ])
-
-  // Code section
+/** Encode the locals + body bytes for one function as a Code-section entry */
+function encodeFuncBody(
+  bodyCode: number[],
+  localTypes: WasmValueType[]
+): number[] {
   // Encode locals: group by type
   const localGroups: number[][] = []
   if (localTypes.length > 0) {
@@ -1883,22 +1855,96 @@ function buildModule(
 
   const funcBody = [...localsEncoded, ...bodyCode, Op.end]
 
+  // The Code-section entry is a length-prefixed sequence of (locals + body)
+  return [...encodeULEB128(funcBody.length), ...funcBody]
+}
+
+/** Encode the memory-import section (used when any function needs memory) */
+function encodeMemoryImport(): number[] {
+  return encodeSection(Section.import, [
+    0x01, // one import
+    ...encodeString('env'),
+    ...encodeString('memory'),
+    0x02, // memory
+    0x00, // flags: no max
+    0x01, // initial: 1 page (64KB)
+  ])
+}
+
+/** Build a complete WASM module containing N functions. */
+function buildMultiFunctionModule(
+  functions: CompiledFunction[],
+  exportNames: string[]
+): number[] {
+  if (functions.length !== exportNames.length) {
+    throw new Error('functions and exportNames length mismatch')
+  }
+
+  // Magic number and version
+  const header = [0x00, 0x61, 0x73, 0x6d, 0x01, 0x00, 0x00, 0x00]
+
+  // Type section: one entry per function (no dedup; modules are tiny)
+  const typeEntries = functions.map((f) =>
+    encodeFuncType(f.params, f.hasReturn)
+  )
+  const typeSection = encodeSection(Section.type, [
+    ...encodeULEB128(typeEntries.length),
+    ...typeEntries.flat(),
+  ])
+
+  // Import section: shared memory if any function needs it
+  const anyNeedsMemory = functions.some((f) => f.needsMemory)
+  const importSection = anyNeedsMemory ? encodeMemoryImport() : []
+
+  // Function section: each function references its own type by index
+  const funcSection = encodeSection(Section.function, [
+    ...encodeULEB128(functions.length),
+    ...functions.map((_, i) => encodeULEB128(i)).flat(),
+  ])
+
+  // Export section: each function exported under its given name
+  const exportSection = encodeSection(Section.export, [
+    ...encodeULEB128(functions.length),
+    ...exportNames
+      .map((name, i) => [
+        ...encodeString(name),
+        0x00, // export kind: function
+        ...encodeULEB128(i), // function index
+      ])
+      .flat(),
+  ])
+
+  // Code section: one body per function
+  const codeBodies = functions.map((f) =>
+    encodeFuncBody(f.bodyCode, f.localTypes)
+  )
   const codeSection = encodeSection(Section.code, [
-    0x01, // one function
-    ...encodeULEB128(funcBody.length),
-    ...funcBody,
+    ...encodeULEB128(codeBodies.length),
+    ...codeBodies.flat(),
   ])
 
   // Assemble module
   const sections = [...header, ...typeSection]
-
-  if (importSection.length > 0) {
-    sections.push(...importSection)
-  }
-
+  if (importSection.length > 0) sections.push(...importSection)
   sections.push(...funcSection, ...exportSection, ...codeSection)
-
   return sections
+}
+
+/**
+ * Build a single-function module. Kept for the per-block path (legacy
+ * `compileToWasm`, `createWasmFunction`). Always exports `compute`.
+ */
+function buildModule(
+  params: TypedParam[],
+  bodyCode: number[],
+  localTypes: WasmValueType[],
+  needsMemory: boolean,
+  hasReturn: boolean
+): number[] {
+  return buildMultiFunctionModule(
+    [{ params, bodyCode, localTypes, needsMemory, hasReturn }],
+    ['compute']
+  )
 }
 
 // ============================================================================
@@ -1922,9 +1968,27 @@ export interface WasmCompileResult {
 }
 
 /**
- * Compile a WASM block to WebAssembly
+ * Per-block compile result: the intermediate before module wrapping.
+ * Used to compose multiple blocks into a single multi-function module.
  */
-export function compileToWasm(block: WasmBlock): WasmCompileResult {
+interface BlockCompileResult {
+  success: boolean
+  /** Compiled function pieces (when success === true) */
+  fn?: CompiledFunction
+  /** WAT disassembly (when success === true) */
+  wat?: string
+  /** Warnings (always present) */
+  warnings: string[]
+  /** Error message (when success === false) */
+  error?: string
+}
+
+/**
+ * Compile a WASM block to its function-level intermediate (params, bytecode,
+ * locals, etc.) WITHOUT wrapping in a module. Used by both the single-block
+ * path (`compileToWasm`) and the multi-block path (`compileBlocksToModule`).
+ */
+function compileBlockToFunction(block: WasmBlock): BlockCompileResult {
   try {
     // Parse type annotations from captures
     const params = block.captures.map(parseTypeAnnotation)
@@ -1939,9 +2003,8 @@ export function compileToWasm(block: WasmBlock): WasmCompileResult {
       ast = acorn.parse(wrapped, { ecmaVersion: 2022 }) as acorn.Program
     } catch (e: any) {
       return {
-        bytes: new Uint8Array(),
-        warnings: [],
         success: false,
+        warnings: [],
         error: `Parse error: ${e.message}`,
       }
     }
@@ -1959,42 +2022,160 @@ export function compileToWasm(block: WasmBlock): WasmCompileResult {
       code.push(...compileStatement(stmt, ctx))
     }
 
-    // Check for errors
     if (ctx.errors.length > 0) {
       return {
-        bytes: new Uint8Array(),
-        warnings: ctx.warnings,
         success: false,
+        warnings: ctx.warnings,
         error: ctx.errors.join('; '),
       }
     }
 
-    // Build the module
-    const moduleBytes = buildModule(
-      params,
-      code,
-      ctx.localTypes,
-      ctx.needsMemory,
-      ctx.hasReturn
-    )
-
-    // Generate WAT disassembly for debugging
-    const watText = disassemble(code, params, ctx.localTypes)
-
     return {
-      bytes: new Uint8Array(moduleBytes),
-      warnings: ctx.warnings,
       success: true,
-      needsMemory: ctx.needsMemory,
-      wat: watText,
+      fn: {
+        params,
+        bodyCode: code,
+        localTypes: ctx.localTypes,
+        needsMemory: ctx.needsMemory,
+        hasReturn: ctx.hasReturn,
+      },
+      wat: disassemble(code, params, ctx.localTypes),
+      warnings: ctx.warnings,
     }
   } catch (e: any) {
     return {
-      bytes: new Uint8Array(),
-      warnings: [],
       success: false,
+      warnings: [],
       error: e.message,
     }
+  }
+}
+
+/**
+ * Compile a single WASM block to a complete WebAssembly module.
+ * The module exports a single function named `compute`.
+ */
+export function compileToWasm(block: WasmBlock): WasmCompileResult {
+  const r = compileBlockToFunction(block)
+  if (!r.success || !r.fn) {
+    return {
+      bytes: new Uint8Array(),
+      warnings: r.warnings,
+      success: false,
+      error: r.error,
+    }
+  }
+  const moduleBytes = buildModule(
+    r.fn.params,
+    r.fn.bodyCode,
+    r.fn.localTypes,
+    r.fn.needsMemory,
+    r.fn.hasReturn
+  )
+  return {
+    bytes: new Uint8Array(moduleBytes),
+    warnings: r.warnings,
+    success: true,
+    needsMemory: r.fn.needsMemory,
+    wat: r.wat,
+  }
+}
+
+// ============================================================================
+// Multi-block module composition (one module, N exports)
+// ============================================================================
+
+/** Per-export metadata produced by compileBlocksToModule */
+export interface BlockExport {
+  /** Original block ID (assigned by the parser) */
+  id: string
+  /** Export name in the composed module (e.g. 'compute_0') */
+  exportName: string
+  /** Capture annotations (preserved for runtime wrapper) */
+  captures: string[]
+  /** Whether this function reads/writes memory */
+  needsMemory: boolean
+  /** WAT disassembly */
+  wat: string
+}
+
+/** Result of composing multiple blocks into one module */
+export interface MultiBlockCompileResult {
+  /** The composed module bytes, or empty if all blocks failed */
+  bytes: Uint8Array
+  /** Per-block compile status (preserves input order) */
+  results: {
+    id: string
+    success: boolean
+    error?: string
+    /** Index into `exports` (only when success === true) */
+    exportIndex?: number
+  }[]
+  /** Successfully-compiled exports (in module-index order) */
+  exports: BlockExport[]
+  /** True if any included function needs memory */
+  needsMemory: boolean
+  /** Aggregated warnings from all blocks */
+  warnings: string[]
+}
+
+/**
+ * Compile N WASM blocks into a single WebAssembly module with N exports.
+ * Failed blocks are skipped (their slot in `results` records the error)
+ * but do not abort compilation of the rest.
+ *
+ * Exports are named `compute_0`, `compute_1`, ... in input order, skipping
+ * indices that correspond to failed blocks.
+ */
+export function compileBlocksToModule(
+  blocks: WasmBlock[]
+): MultiBlockCompileResult {
+  const results: MultiBlockCompileResult['results'] = []
+  const compiledFns: CompiledFunction[] = []
+  const exports: BlockExport[] = []
+  const warnings: string[] = []
+
+  for (const block of blocks) {
+    const r = compileBlockToFunction(block)
+    warnings.push(...r.warnings)
+    if (!r.success || !r.fn) {
+      results.push({ id: block.id, success: false, error: r.error })
+      continue
+    }
+    const exportIndex = compiledFns.length
+    const exportName = `compute_${exportIndex}`
+    compiledFns.push(r.fn)
+    exports.push({
+      id: block.id,
+      exportName,
+      captures: block.captures,
+      needsMemory: r.fn.needsMemory,
+      wat: r.wat ?? '',
+    })
+    results.push({ id: block.id, success: true, exportIndex })
+  }
+
+  if (compiledFns.length === 0) {
+    return {
+      bytes: new Uint8Array(),
+      results,
+      exports: [],
+      needsMemory: false,
+      warnings,
+    }
+  }
+
+  const moduleBytes = buildMultiFunctionModule(
+    compiledFns,
+    exports.map((e) => e.exportName)
+  )
+
+  return {
+    bytes: new Uint8Array(moduleBytes),
+    results,
+    exports,
+    needsMemory: exports.some((e) => e.needsMemory),
+    warnings,
   }
 }
 
