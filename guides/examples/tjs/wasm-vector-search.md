@@ -23,16 +23,9 @@ Click **Run Benchmark** to generate random vectors and measure throughput.
 **Future milestone:** today this example computes `dot`, `magA`, and `magB`
 inline inside one `wasm {}` block. Once the wasm-library plan ships
 ([wasm-library-plan.md](https://github.com/tonioloewald/tjs-lang/blob/main/wasm-library-plan.md)),
-the body of this kernel becomes three calls into `tjs-lang/linalg`:
-
-```ts
-import { dot, norm_sq } from 'tjs-lang/linalg'
-// ...inside the loop:
-const d = dot(query, corpusRow, dim)
-const ma = norm_sq(query, dim)
-const mb = norm_sq(corpusRow, dim)
-const score = d / Math.sqrt(ma * mb)
-```
+the body of this kernel becomes three calls into `tjs-lang/linalg` —
+`d = dot(query, row, dim)`, `ma = norm_sq(query, dim)`,
+`mb = norm_sq(row, dim)`, then `score = d / Math.sqrt(ma * mb)`.
 
 The composed wasm module ends up with `dot` and `norm_sq` as local functions —
 the engine JIT inlines them at runtime, so performance should match the all-inline

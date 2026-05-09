@@ -244,14 +244,17 @@ Done. Refactored `src/lang/wasm.ts` to expose `compileBlocksToModule(blocks)` wh
 - All 1913 fast-suite tests pass
 - Iframe variant (`generateWasmInstantiationCode`) left as-is for now — single-block API used by playground; consistency cleanup deferred
 
-### Phase 0.75 — transpile-time module loader (~3 days, **new prereq**)
-Add a hook that, given an import specifier, can read the target `.tjs`, parse it, and surface its `wasm function` declarations and their call graph. Today the transpiler preserves imports verbatim and the bun plugin re-transpiles each file on demand at runtime (per A4 finding) — that path is fine for regular JS interop but doesn't give us the static info we need for cross-file wasm composition.
+### ✅ Phase 0.75 — transpile-time module loader (complete, 2026-05-07)
+Done. New `src/lang/module-loader.ts` provides a `ModuleLoader` class with `resolve(spec, importerPath)` and `load(spec, importerPath)`. Resolution rules: URLs / data: → null (runtime resolves these); relative/absolute paths → fs lookup with `.tjs` / `.ts` / `.js` extension fallback and `index.<ext>` directory resolution; bare specifiers (`tjs-lang/linalg`) → walk up looking for `node_modules/<spec>`, with optional `bareSpecifierRoots` for monorepos and tests. Loaded modules expose `imports` (specifier + local + imported + namespace flag) and `exports` (name + kind: function/class/variable/re-export/unknown).
 
-- Synchronous file read for filesystem paths (`./math.tjs`)
-- Lazy/cached read for package specs (`tjs-lang/linalg`)
-- Parse imported source enough to enumerate `wasm function` declarations and their internal calls
-- Fail clearly when a target can't be resolved (preserves verbatim-import behavior for non-tjs imports)
-- Reusable for future static analysis (type-flow, dead-code, etc.)
+- New public exports from `src/lang/index.ts`: `ModuleLoader`, `inMemoryFileSystem`, plus types
+- `inMemoryFileSystem(files)` helper for hermetic tests
+- LRU-style cache with configurable limit; `clearCache()` for forced reload
+- 24 tests in `module-loader.test.ts` covering relative/absolute/parent paths, extension fallback, directory imports, node_modules walk, bareSpecifierRoots, URL rejection, missing-file null, parse-failure null, cache hit/miss, eviction
+- Pure additive — transpiler behavior unchanged. Phase 3 will be the first caller
+- All 1938 fast-suite tests pass
+
+**Caveat (worth flagging for Phase 1):** `parseTjs` runs the full preprocessor before we see the AST, which means `export class Foo {}` shows up as a variable export (the preprocessor rewrites class declarations into `wrapClass(class)` form). For Phase 3's needs this is fine — we'll be looking at function/wasm-function bodies, not class structure. If we ever need to surface the original class shape, the loader can expose the pre-preprocessor source alongside the parsed AST.
 
 ### Phase 1 — `wasm function` declaration syntax (1–2 days)
 - Add parser support for `(export)? wasm function name(...): RetType { ... }`.

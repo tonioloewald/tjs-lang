@@ -75,6 +75,15 @@ export {
   type ParamTypeInfo,
 } from './docs'
 export {
+  ModuleLoader,
+  inMemoryFileSystem,
+  type ModuleLoaderOptions,
+  type FileSystem,
+  type LoadedModule,
+  type ImportEntry,
+  type ExportEntry,
+} from './module-loader'
+export {
   extractTests,
   assertFunction,
   expectFunction,
