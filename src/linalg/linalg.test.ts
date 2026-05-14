@@ -56,16 +56,22 @@ async function dynamicImportLibrary(transpiled: string): Promise<any> {
 }
 
 describe('tjs-lang/linalg v1', () => {
-  it('source file transpiles cleanly: both wasm functions compile', async () => {
+  it('source file transpiles cleanly: all wasm functions compile', async () => {
     const { tjs } = await import('../lang/index')
     const result = tjs(LINALG_SOURCE, { runTests: false })
 
     expect(result.wasmCompiled).toBeDefined()
-    expect(result.wasmCompiled).toHaveLength(2)
+    // v1 surface: dot, norm_sq, dot_at, norm_sq_at
+    expect(result.wasmCompiled).toHaveLength(4)
     expect(result.wasmCompiled!.every((b) => b.success)).toBe(true)
 
     const ids = result.wasmCompiled!.map((b) => b.id).sort()
-    expect(ids).toEqual(['__tjs_wasm_dot', '__tjs_wasm_norm_sq'])
+    expect(ids).toEqual([
+      '__tjs_wasm_dot',
+      '__tjs_wasm_dot_at',
+      '__tjs_wasm_norm_sq',
+      '__tjs_wasm_norm_sq_at',
+    ])
 
     // One consolidated WebAssembly.Module per file
     const compileCalls = (result.code.match(/WebAssembly\.compile\(/g) || [])

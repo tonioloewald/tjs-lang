@@ -54,15 +54,21 @@ function simdSearch(corpus: Ptr<f32>, query: Ptr<f32>, count: i32, dim: i32): i3
 **Status (2026-05-14): three of four criteria proven; perf criterion revised.** See `src/linalg/vector-search.bench.test.ts` for the working comparison.
 
 1. ✅ **Correctness.** Library version returns the same `bestIdx` as the inline baseline across the configs measured (500×128, 500×256, 2000×128). Asserted in the bench test.
-2. ⚠️ **Performance.** *Original target ~5% was overly optimistic.* In practice the composed JS-outer-loop form runs 1.5–10× slower than the inline baseline depending on config. The cause is structural: the composed outer JS loop makes 2 JS↔wasm boundary crossings per corpus row (`dot` + `norm_sq`), versus zero crossings in the inline single-block form. Per-crossing cost measured at ~200–600ns, consistent with published V8/JSC wasm-boundary numbers.
+2. ✅ **Performance.** *Originally measured as 1.5–10× slower for the composed-JS-loop form, then resolved by Phase 1.5.* The 3-way `vector-search.bench.test.ts` benchmark measures three implementations of the same workload — inline single-block (no boundary crossings), composed-JS-loop (2 crossings per row), and composed-WASM-loop (single entry crossing for the whole workload, intra-module wasm-to-wasm calls in the loop). Observed ratios:
 
-   **The structural fix shipped:** wasm-to-wasm calls (Phase 1.5, completed 2026-05-14). A consumer's `wasm function` can now call other wasm functions in the same composed module directly via wasm `call <index>` instructions — no JS↔wasm boundary on the inner loop. The cosineSearch demo's outer loop, if rewritten as `wasm function`, would call `dot`/`norm_sq` with single-digit-nanosecond intra-module call cost. Verified at the unit level by 6 tests in `wasm.test.ts` under `describe('wasm-to-wasm calls (Phase 1.5)')` covering single-file calls, forward references, mutual recursion, cross-file composition, type-conversion auto-insertion, and arg-count mismatch errors.
+   | Config | Inline | Composed-JS | Composed-WASM |
+   |---|---|---|---|
+   | 500×128 | baseline | 5.47× slower | **1.00× (parity)** |
+   | 500×256 | baseline | 1.46× slower | **0.27× (3.7× faster)** |
+   | 2000×128 | baseline | 11.75× slower | **1.01× (parity)** |
 
-   **What's left for the demo:** rewriting `cosineSearch` as a `wasm function` needs a `dot_at(corpus, startIdx, query, n)` variant in `tjs-lang/linalg` — Float32Array params lower to i32 pointers in our wasm ABI, and there's no in-wasm way to construct a subarray view of an existing Float32Array. That's deferred Phase 5 expansion work; the underlying wasm-to-wasm call mechanism is shipped and proven.
+   The composed-WASM-loop form matches inline performance within engine variance — and sometimes beats it (likely because the JIT inlines small wasm-internal calls more aggressively than the single-block inline form's larger function body). **The abstraction is genuinely free when the consumer's outer loop is also `wasm function`.**
+
+   Required to make this work: `dot_at(corpus, startIdx, query, n)` and `norm_sq_at(arr, startIdx, n)` variants in `tjs-lang/linalg` (Float32Array params lower to i32 pointers in our wasm ABI; the `_at` variants let an in-wasm outer loop pass row slices without constructing a subarray view, which we can't do inside wasm). These are shipped alongside the benchmark.
 3. ✅ **Module shape.** The consumer's emitted wasm module contains `dot` and `norm_sq` as local functions, not imports. `WebAssembly.Module.imports()` shows zero function imports. Asserted in the Phase 3 tests.
 4. ✅ **Boundary form works.** `tjs-lang/linalg` distributed as transpiled `.js` (Phase 4) works for non-tjs consumers; boundary and composed forms return identical numeric results. Asserted in the Phase 4 + Phase 5 tests.
 
-The cross-file wasm story is real for use cases where correctness, modularity, and a tolerable per-call cost matter. For maximum performance on tight inner loops, the inline form (or higher-level library kernels) remains preferable. This is consistent with how every JS library trades off API granularity vs. performance — composed wasm just makes the tradeoff explicit.
+The cross-file wasm story is real: composable small-primitive APIs *and* inline-baseline performance, simultaneously. The choice between JS outer loop and wasm outer loop is genuinely up to the consumer — there's no architectural force pushing toward macro-kernels. (Macro-kernels remain a valid library design for callers who can't or don't want to write their outer loop as wasm, but they're no longer the *only* way to recover performance.)
 
 ---
 

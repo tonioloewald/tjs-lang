@@ -61,3 +61,59 @@ export wasm function norm_sq(a: Float32Array, n: i32): f64 {
     + f32x4_extract_lane(acc, 2)
     + f32x4_extract_lane(acc, 3)
 }
+
+/**
+ * Dot product against a SLICE of a packed corpus: computes the dot product
+ * of `query[0..n]` against `corpus[startIdx..startIdx+n]`. Element indices
+ * are f32 indices, not bytes (startIdx * 4 bytes from `corpus`'s base).
+ *
+ * Designed for the cross-file canonical-demo pattern: a consumer's
+ * `wasm function` outer loop iterates over packed corpus rows and calls
+ * `dot_at` via wasm-to-wasm `call <index>` instructions — no JS↔wasm
+ * boundary in the inner loop.
+ *
+ * `startIdx` and `n` must each be a multiple of 4. `query` must have at
+ * least `n` elements; `corpus` must have at least `startIdx + n` elements.
+ */
+export wasm function dot_at(
+  corpus: Float32Array,
+  startIdx: i32,
+  query: Float32Array,
+  n: i32
+): f64 {
+  let acc = f32x4_splat(0.0)
+  let base = startIdx * 4
+  for (let i = 0; i < n; i += 4) {
+    let cOff = base + i * 4
+    let qOff = i * 4
+    let cv = f32x4_load(corpus, cOff)
+    let qv = f32x4_load(query, qOff)
+    acc = f32x4_add(acc, f32x4_mul(cv, qv))
+  }
+  return f32x4_extract_lane(acc, 0)
+    + f32x4_extract_lane(acc, 1)
+    + f32x4_extract_lane(acc, 2)
+    + f32x4_extract_lane(acc, 3)
+}
+
+/**
+ * Sum-of-squares over a SLICE of a packed array: computes
+ * `sum(arr[startIdx..startIdx+n] ** 2)`. Mirrors `dot_at`'s pattern for
+ * computing the norm of a corpus row without allocating a subarray view.
+ *
+ * `startIdx` and `n` must each be a multiple of 4. `arr` must have at
+ * least `startIdx + n` elements.
+ */
+export wasm function norm_sq_at(arr: Float32Array, startIdx: i32, n: i32): f64 {
+  let acc = f32x4_splat(0.0)
+  let base = startIdx * 4
+  for (let i = 0; i < n; i += 4) {
+    let off = base + i * 4
+    let v = f32x4_load(arr, off)
+    acc = f32x4_add(acc, f32x4_mul(v, v))
+  }
+  return f32x4_extract_lane(acc, 0)
+    + f32x4_extract_lane(acc, 1)
+    + f32x4_extract_lane(acc, 2)
+    + f32x4_extract_lane(acc, 3)
+}
