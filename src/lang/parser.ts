@@ -264,6 +264,14 @@ export function preprocess(
   source = letAnnoResult.source
   const letAnnotations = letAnnoResult.annotations
 
+  // Extract `wasm function NAME(...) { ... }` declarations EARLY, before
+  // any source-level transforms that would mangle wasm-body text. In
+  // particular, the equality transforms below rewrite `==` to `Eq()` and
+  // `Is`/`IsNot` to function calls — wasm bodies use literal operators
+  // and shouldn't be affected.
+  const wasmFunctions = extractWasmFunctions(source)
+  source = wasmFunctions.source
+
   // Transform Is/IsNot infix operators to function calls
   // a Is b -> Is(a, b)
   // a IsNot b -> IsNot(a, b)
@@ -291,16 +299,6 @@ export function preprocess(
   // Transform bare assignments to const declarations
   // Foo = ... -> const Foo = ...
   source = transformBareAssignments(source)
-
-  // Extract `wasm function NAME(...) { ... }` declarations BEFORE the paren
-  // transformer runs. `wasm function` params use wasm type syntax (i32, f64,
-  // Float32Array) — they're NOT tjs example-based annotations and must not be
-  // rewritten into the `name = example` default-value form. Pulling them out
-  // here keeps them in their authored `name: type` form. The wrapper functions
-  // we emit have plain JS params and go through the rest of the pipeline as
-  // regular tjs functions.
-  const wasmFunctions = extractWasmFunctions(source)
-  source = wasmFunctions.source
 
   // Phase 3: cross-file wasm-function composition. When a ModuleLoader is
   // supplied, resolve `import { ... } from '<spec>'` statements at transpile

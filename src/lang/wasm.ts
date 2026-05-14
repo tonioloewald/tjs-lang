@@ -596,6 +596,21 @@ interface TypedParam {
 // Compilation Context
 // ============================================================================
 
+/**
+ * Signature of a wasm function in the current module. Used to resolve
+ * cross-function calls (wasm-to-wasm `call <index>` instructions) without
+ * routing through JS. Populated by compileBlocksToModule before compiling
+ * any individual body, so forward references and mutual recursion work.
+ */
+export interface ModuleFunctionSig {
+  /** Function index in the composed module */
+  index: number
+  /** Parameter types (used for arg-type checking + auto-conversion) */
+  params: TypedParam[]
+  /** Whether this function returns a value (f64) or is void */
+  hasReturn: boolean
+}
+
 interface CompileContext {
   /** Parameter definitions */
   params: TypedParam[]
@@ -621,9 +636,19 @@ interface CompileContext {
   wat: string[]
   /** Current indentation level for WAT */
   watIndent: number
+  /**
+   * Other wasm functions in the same composed module that this body can
+   * call directly via `call <index>` instructions (no JS↔wasm boundary).
+   * Populated when compiling via compileBlocksToModule; empty for the
+   * single-block compileToWasm path.
+   */
+  moduleFunctions: Map<string, ModuleFunctionSig>
 }
 
-function createContext(params: TypedParam[]): CompileContext {
+function createContext(
+  params: TypedParam[],
+  moduleFunctions: Map<string, ModuleFunctionSig> = new Map()
+): CompileContext {
   const ctx: CompileContext = {
     params,
     locals: new Map(),
@@ -637,6 +662,7 @@ function createContext(params: TypedParam[]): CompileContext {
     hasReturn: false,
     wat: [],
     watIndent: 1,
+    moduleFunctions,
   }
 
   // Add params to locals map
@@ -939,6 +965,10 @@ function inferExprType(
         const name = (call.callee as acorn.Identifier).name
         if (name === 'f32x4_extract_lane') return 'f32'
         if (name.startsWith('f32x4_') || name === 'v128_load') return 'v128'
+        // Wasm-to-wasm call: returns f64 if the called function has a return,
+        // or i32 (the dummy 0 pushed for void calls — see compileWasmFunctionCall)
+        const fn = ctx.moduleFunctions.get(name)
+        if (fn) return fn.hasReturn ? 'f64' : 'i32'
       }
       return 'f64'
     }
@@ -1579,14 +1609,118 @@ function compileCall(
 
   // Handle SIMD intrinsics: f32x4_xxx(...), v128_load(...)
   if (node.callee.type === 'Identifier') {
-    const name = (node.callee as acorn.Identifier).name
-    if (name.startsWith('f32x4_') || name.startsWith('v128_')) {
-      return compileSIMDCall(name, node.arguments as acorn.Expression[], ctx)
+    const calleeName = (node.callee as acorn.Identifier).name
+    if (calleeName.startsWith('f32x4_') || calleeName.startsWith('v128_')) {
+      return compileSIMDCall(
+        calleeName,
+        node.arguments as acorn.Expression[],
+        ctx
+      )
+    }
+
+    // Wasm-to-wasm call: the callee is another `wasm function` in the same
+    // composed module. This is the cross-function `call <index>` path —
+    // the consumer's wasm body calls a library kernel directly, with no
+    // JS↔wasm boundary crossing.
+    const fn = ctx.moduleFunctions.get(calleeName)
+    if (fn) {
+      return compileWasmFunctionCall(
+        fn,
+        calleeName,
+        node.arguments as acorn.Expression[],
+        ctx
+      )
     }
   }
 
   ctx.errors.push(`Unsupported function call: ${node.callee.type}`)
   return [Op.f64_const, ...encodeF64(0)]
+}
+
+/**
+ * Emit a `call <index>` to another wasm function in the same module.
+ * Each argument is compiled and, if its inferred type doesn't match the
+ * called function's parameter type, an explicit conversion instruction is
+ * inserted (truncate for f→i, promote/demote for f32↔f64, etc.).
+ * Void-returning calls push a dummy `i32.const 0` so an enclosing
+ * ExpressionStatement's automatic drop has something to discard.
+ */
+function compileWasmFunctionCall(
+  fn: ModuleFunctionSig,
+  name: string,
+  args: acorn.Expression[],
+  ctx: CompileContext
+): number[] {
+  if (args.length !== fn.params.length) {
+    ctx.errors.push(
+      `wasm function ${name} expects ${fn.params.length} arguments, got ${args.length}`
+    )
+    return [Op.f64_const, ...encodeF64(0)]
+  }
+
+  const code: number[] = []
+  for (let i = 0; i < args.length; i++) {
+    const arg = args[i]
+    const paramType = fn.params[i].type
+    const argType = inferExprType(arg, ctx)
+    code.push(...compileExpression(arg, ctx))
+    // Insert conversion when arg type doesn't match param type.
+    // Source target: argType → paramType.
+    if (argType !== paramType) {
+      const conv = convertOp(argType, paramType)
+      if (conv === undefined) {
+        ctx.errors.push(
+          `wasm function ${name} param ${i} expects ${paramType}, got ${argType} (no conversion available)`
+        )
+      } else if (conv !== null) {
+        code.push(conv)
+      }
+    }
+  }
+
+  code.push(Op.call, ...encodeULEB128(fn.index))
+
+  // Void calls don't leave a value on the stack — push a dummy i32 0 so
+  // ExpressionStatement's drop has something to remove. Same pattern used
+  // by f32x4_store (line ~1632) for stores that have no return value.
+  if (!fn.hasReturn) {
+    code.push(Op.i32_const, 0)
+  }
+
+  return code
+}
+
+/**
+ * Return the wasm opcode that converts `from` to `to`, or:
+ *   - `null` when no conversion is needed (types match — but caller should
+ *     have already checked this; included for safety)
+ *   - `undefined` when no conversion is available (e.g. anything ↔ v128)
+ */
+function convertOp(
+  from: WasmValueType,
+  to: WasmValueType
+): number | null | undefined {
+  if (from === to) return null
+  // v128 isn't convertible to/from scalar types
+  if (from === 'v128' || to === 'v128') return undefined
+  // i64 conversions aren't in the current opcode table — skip for now
+  if (from === 'i64' || to === 'i64') return undefined
+  switch (`${from}->${to}`) {
+    case 'f64->i32':
+      return Op.i32_trunc_f64_s
+    case 'f32->i32':
+      return Op.i32_trunc_f32_s
+    case 'i32->f64':
+      return Op.f64_convert_i32_s
+    case 'i32->f32':
+      return Op.f32_convert_i32_s
+    case 'f32->f64':
+      return Op.f64_promote_f32
+    case 'f64->f32':
+      return Op.f32_demote_f64
+    default:
+      return undefined
+  }
 }
 
 /** Compile SIMD intrinsic calls */
@@ -1987,8 +2121,17 @@ interface BlockCompileResult {
  * Compile a WASM block to its function-level intermediate (params, bytecode,
  * locals, etc.) WITHOUT wrapping in a module. Used by both the single-block
  * path (`compileToWasm`) and the multi-block path (`compileBlocksToModule`).
+ *
+ * @param moduleFunctions Map of other wasm functions in the same composed
+ *   module. When the body calls one of these by name, the compiler emits a
+ *   `call <index>` instruction instead of treating it as an unknown
+ *   identifier. Empty by default (single-block compilation has nothing to
+ *   call into).
  */
-function compileBlockToFunction(block: WasmBlock): BlockCompileResult {
+function compileBlockToFunction(
+  block: WasmBlock,
+  moduleFunctions: Map<string, ModuleFunctionSig> = new Map()
+): BlockCompileResult {
   try {
     // Parse type annotations from captures
     const params = block.captures.map(parseTypeAnnotation)
@@ -2014,7 +2157,7 @@ function compileBlockToFunction(block: WasmBlock): BlockCompileResult {
     const body = funcDecl.body.body
 
     // Create compilation context
-    const ctx = createContext(params)
+    const ctx = createContext(params, moduleFunctions)
 
     // Compile statements
     const code: number[] = []
@@ -2130,29 +2273,64 @@ export interface MultiBlockCompileResult {
 export function compileBlocksToModule(
   blocks: WasmBlock[]
 ): MultiBlockCompileResult {
+  // Pre-pass: assign a function index to every block and build the
+  // moduleFunctions map for NAMED wasm functions. Done before compiling
+  // any body, so wasm-to-wasm `call <index>` instructions resolve
+  // regardless of declaration order (forward references and mutual
+  // recursion both work).
+  //
+  // To keep call-instruction indices valid even when individual blocks
+  // fail compilation, indices are assigned densely from the input list
+  // and any failed block is replaced by a stub function with the same
+  // signature (returns 0 for value-returning, no-op for void). Callers
+  // never observe failed indices being skipped or renumbered.
+  const moduleFunctions = new Map<string, ModuleFunctionSig>()
+  const preSignatures: { params: TypedParam[]; hasReturn: boolean }[] = []
+  for (let i = 0; i < blocks.length; i++) {
+    const b = blocks[i]
+    const params = b.captures.map(parseTypeAnnotation)
+    const hasReturn = b.returnType !== undefined
+    preSignatures.push({ params, hasReturn })
+    if (b.name) {
+      moduleFunctions.set(b.name, { index: i, params, hasReturn })
+    }
+  }
+
+  // Pass 2: compile each block with the full map in scope. Failed
+  // blocks are replaced by stubs (same signature, trivial body).
   const results: MultiBlockCompileResult['results'] = []
   const compiledFns: CompiledFunction[] = []
   const exports: BlockExport[] = []
   const warnings: string[] = []
 
-  for (const block of blocks) {
-    const r = compileBlockToFunction(block)
+  for (let i = 0; i < blocks.length; i++) {
+    const block = blocks[i]
+    const r = compileBlockToFunction(block, moduleFunctions)
     warnings.push(...r.warnings)
     if (!r.success || !r.fn) {
+      // Emit a stub so the function index stays valid (callers' encoded
+      // `call <i>` instructions still target a real wasm function — it
+      // just returns a default value or does nothing).
       results.push({ id: block.id, success: false, error: r.error })
+      compiledFns.push(stubFunction(preSignatures[i]))
+      exports.push({
+        id: block.id,
+        exportName: `compute_${i}`,
+        captures: block.captures,
+        needsMemory: false,
+        wat: `(failed: ${r.error ?? 'unknown error'})`,
+      })
       continue
     }
-    const exportIndex = compiledFns.length
-    const exportName = `compute_${exportIndex}`
     compiledFns.push(r.fn)
     exports.push({
       id: block.id,
-      exportName,
+      exportName: `compute_${i}`,
       captures: block.captures,
       needsMemory: r.fn.needsMemory,
       wat: r.wat ?? '',
     })
-    results.push({ id: block.id, success: true, exportIndex })
+    results.push({ id: block.id, success: true, exportIndex: i })
   }
 
   if (compiledFns.length === 0) {
@@ -2176,6 +2354,30 @@ export function compileBlocksToModule(
     exports,
     needsMemory: exports.some((e) => e.needsMemory),
     warnings,
+  }
+}
+
+/**
+ * Build a stub `CompiledFunction` matching the given signature. Used in
+ * place of failed-compilation results so function indices remain valid
+ * for any wasm-to-wasm calls that target this slot. The stub's behavior
+ * is intentionally bland: return 0.0 for f64-returning, do nothing for
+ * void. (Callers shouldn't end up here if their own compilation
+ * succeeded — failed targets should be reported via the results array.)
+ */
+function stubFunction(sig: {
+  params: TypedParam[]
+  hasReturn: boolean
+}): CompiledFunction {
+  const bodyCode: number[] = sig.hasReturn
+    ? [Op.f64_const, ...encodeF64(0)]
+    : []
+  return {
+    params: sig.params,
+    bodyCode,
+    localTypes: [],
+    needsMemory: false,
+    hasReturn: sig.hasReturn,
   }
 }
 

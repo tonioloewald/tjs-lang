@@ -54,7 +54,11 @@ function simdSearch(corpus: Ptr<f32>, query: Ptr<f32>, count: i32, dim: i32): i3
 **Status (2026-05-14): three of four criteria proven; perf criterion revised.** See `src/linalg/vector-search.bench.test.ts` for the working comparison.
 
 1. ✅ **Correctness.** Library version returns the same `bestIdx` as the inline baseline across the configs measured (500×128, 500×256, 2000×128). Asserted in the bench test.
-2. ⚠️ **Performance.** *Original target ~5% was overly optimistic.* In practice the composed form runs 1.5–10× slower than the inline baseline depending on config. The cause is structural, not a bug: the composed outer JS loop makes 2 JS↔wasm boundary crossings per corpus row (`dot` + `norm_sq`), versus zero crossings in the inline single-block form. Engine JIT inlines small wasm functions but it can't eliminate the boundary itself. **Getting back to inline-baseline parity requires either (a) wasm-to-wasm calls so the outer loop is also wasm, calling library kernels from inside wasm — a backend feature gap — or (b) higher-level kernels in `tjs-lang/linalg` like `cosine_search(corpus, query, count, dim)` that do the whole workload in one wasm call. (b) is the cheaper near-term path and matches how production linalg libraries (gl-matrix, BLAS) typically shape their APIs.**
+2. ⚠️ **Performance.** *Original target ~5% was overly optimistic.* In practice the composed JS-outer-loop form runs 1.5–10× slower than the inline baseline depending on config. The cause is structural: the composed outer JS loop makes 2 JS↔wasm boundary crossings per corpus row (`dot` + `norm_sq`), versus zero crossings in the inline single-block form. Per-crossing cost measured at ~200–600ns, consistent with published V8/JSC wasm-boundary numbers.
+
+   **The structural fix shipped:** wasm-to-wasm calls (Phase 1.5, completed 2026-05-14). A consumer's `wasm function` can now call other wasm functions in the same composed module directly via wasm `call <index>` instructions — no JS↔wasm boundary on the inner loop. The cosineSearch demo's outer loop, if rewritten as `wasm function`, would call `dot`/`norm_sq` with single-digit-nanosecond intra-module call cost. Verified at the unit level by 6 tests in `wasm.test.ts` under `describe('wasm-to-wasm calls (Phase 1.5)')` covering single-file calls, forward references, mutual recursion, cross-file composition, type-conversion auto-insertion, and arg-count mismatch errors.
+
+   **What's left for the demo:** rewriting `cosineSearch` as a `wasm function` needs a `dot_at(corpus, startIdx, query, n)` variant in `tjs-lang/linalg` — Float32Array params lower to i32 pointers in our wasm ABI, and there's no in-wasm way to construct a subarray view of an existing Float32Array. That's deferred Phase 5 expansion work; the underlying wasm-to-wasm call mechanism is shipped and proven.
 3. ✅ **Module shape.** The consumer's emitted wasm module contains `dot` and `norm_sq` as local functions, not imports. `WebAssembly.Module.imports()` shows zero function imports. Asserted in the Phase 3 tests.
 4. ✅ **Boundary form works.** `tjs-lang/linalg` distributed as transpiled `.js` (Phase 4) works for non-tjs consumers; boundary and composed forms return identical numeric results. Asserted in the Phase 4 + Phase 5 tests.
 
@@ -331,6 +335,26 @@ All 1961 fast-suite tests pass.
 - Playground examples with the three-layer layout (wrapper → scalar → SIMD)
 - Benchmark vs gl-matrix
 - Production `.js` bundle for `dist/tjs-linalg.js`
+
+### ✅ Phase 1.5 — wasm-to-wasm function calls (complete, 2026-05-14, originally deferred)
+
+Done. A `wasm function` body can now call other wasm functions in the same composed module via wasm `call <index>` instructions — no JS↔wasm boundary on intra-module calls.
+
+**The architectural payoff:** with Phase 3 composition + Phase 1.5 wasm-to-wasm, both the library kernels and any outer-loop logic the consumer writes can compile to wasm and stay inside the boundary. Library APIs can be small composable primitives (the idiomatic shape) AND the consumer's hot inner loop can use them at zero per-call cost. This closes the architectural critique that the canonical-demo perf finding raised — composed wasm is no longer forced to choose between idiomatic API granularity and performance.
+
+**Mechanism:**
+- `compileBlocksToModule` does a pre-pass over the input blocks, assigning function indices and building a `Map<name, {index, params, hasReturn}>` for every NAMED `wasm function`. This runs BEFORE compiling any body, so forward references and mutual recursion work
+- `WasmBlock` gained an optional `returnType` field, populated by `extractWasmFunctions`. The pre-pass uses presence/absence to determine `hasReturn` without compiling the body
+- Failed blocks become stub functions (same signature, trivial body returning 0 / no-op for void) so call indices stay valid across the module
+- `compileCall` extended: when the callee is an `Identifier` matching a known wasm function, emit args + `Op.call` + function-index instead of erroring
+- Argument types are validated against the called function's signature; mismatches get auto-converted via the standard wasm conversion opcodes (`f64_promote_f32`, `i32_trunc_f64_s`, etc.) when safe, or reported as errors when not
+- Void-returning calls push a dummy `i32.const 0` so `ExpressionStatement`'s automatic `drop` has something to discard (same pattern used by `f32x4_store`)
+
+**Critical ordering fix made while shipping this:** `extractWasmFunctions` now runs even earlier in `preprocess()` — before `transformIsOperators` and `transformEqualityToStructural`. Previously, `n == 0` inside a wasm function body was rewritten to `Eq(n, 0)` (TJS structural equality) before the extractor pulled the body, then the wasm compiler couldn't compile the unknown `Eq` call. Inline `wasm{}` blocks have the same pre-existing bug; they're a follow-up.
+
+6 new tests in `wasm.test.ts` under `describe('wasm-to-wasm calls (Phase 1.5)')`: single-file calls, forward references (caller before callee in source), mutual recursion (isEven/isOdd), cross-file calls via Phase 3 composition, type-conversion auto-insertion (f64 arg → i32 param via truncate), arg-count mismatch with a clear error message.
+
+All 1977 fast-suite tests pass.
 
 ### ✅ Phase 6 — docs (complete, 2026-05-14)
 

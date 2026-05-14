@@ -55,6 +55,14 @@ export interface WasmBlock {
    * `wasm {}` blocks have no name and don't participate in composition.
    */
   name?: string
+  /**
+   * Declared return-type annotation, e.g. `'f64'`. Only set for top-level
+   * `wasm function NAME(...): RetType` declarations; presence/absence is
+   * used to determine `hasReturn` BEFORE the body is compiled, so the
+   * function index map can be built up-front for wasm-to-wasm calls.
+   * Inline blocks have no declared return type.
+   */
+  returnType?: string
   /** The body (JS subset that compiles to WASM, also used as fallback) */
   body: string
   /** Explicit fallback body (only if different from body) */

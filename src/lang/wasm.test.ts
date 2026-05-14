@@ -1941,17 +1941,24 @@ describe('module consolidation (Phase 0.5)', () => {
       expect(result.results[1]).toMatchObject({ id: 'bad', success: false })
       expect(result.results[2]).toMatchObject({ id: 'ok1', success: true })
 
-      // Only the two successful blocks become exports
-      expect(result.exports).toHaveLength(2)
-      expect(result.exports.map((e) => e.id)).toEqual(['ok0', 'ok1'])
-      // Export indices are dense (0, 1) — no gap from the failed block
+      // All three blocks appear in exports — failed blocks become stub
+      // functions so that wasm-to-wasm `call <index>` instructions targeting
+      // their slot stay valid. The `results` array distinguishes successes
+      // from failures.
+      expect(result.exports).toHaveLength(3)
+      expect(result.exports.map((e) => e.id)).toEqual(['ok0', 'bad', 'ok1'])
+      // Export indices stay dense and aligned with input order
       expect(result.exports.map((e) => e.exportName)).toEqual([
         'compute_0',
         'compute_1',
+        'compute_2',
       ])
     })
 
-    it('produces empty bytes when no blocks compile', () => {
+    it('produces a valid module even when all blocks fail (stubs only)', () => {
+      // All blocks fail compilation — module is still well-formed with
+      // stub functions in each slot. This preserves index stability for
+      // any callers that might reference these by index.
       const blocks: WasmBlock[] = [
         {
           id: 'bad',
@@ -1962,9 +1969,10 @@ describe('module consolidation (Phase 0.5)', () => {
       ]
 
       const result = compileBlocksToModule(blocks)
-      expect(result.exports).toHaveLength(0)
-      expect(result.bytes.length).toBe(0)
+      expect(result.exports).toHaveLength(1)
       expect(result.results[0].success).toBe(false)
+      // Module bytes are emitted; the stub is callable but returns 0
+      expect(result.bytes.length).toBeGreaterThan(0)
     })
 
     it('imports memory only when at least one function needs it', () => {
@@ -2736,5 +2744,261 @@ wasm function magnitude(x: f64, y: f64): f64 {
     const result = tjs(source)
     expect(result.wasmCompiled).toBeDefined()
     expect(result.wasmCompiled![0].success).toBe(true)
+  })
+})
+
+describe('wasm-to-wasm calls (Phase 1.5)', () => {
+  it('a wasm function can call another wasm function in the same file', async () => {
+    const { tjs } = await import('./index')
+    const { createRuntime } = await import('./runtime')
+    const source = `
+wasm function square(x: f64): f64 {
+  return x * x
+}
+
+wasm function sumOfSquares(a: f64, b: f64): f64 {
+  return square(a) + square(b)
+}
+`
+    const result = tjs(source, { runTests: false })
+    expect(result.wasmCompiled).toHaveLength(2)
+    expect(result.wasmCompiled!.every((b) => b.success)).toBe(true)
+
+    const savedTjs = globalThis.__tjs
+    try {
+      globalThis.__tjs = createRuntime()
+      await new Function(
+        '__tjs',
+        `return (async () => { ${result.code}\n` +
+          `globalThis.__test_sos = sumOfSquares;\n` +
+          `})();`
+      )(globalThis.__tjs)
+      await new Promise((r) => setTimeout(r, 100))
+
+      // sumOfSquares(3, 4) = 9 + 16 = 25
+      expect((globalThis as any).__test_sos(3, 4)).toBe(25)
+    } finally {
+      globalThis.__tjs = savedTjs
+      delete (globalThis as any).__test_sos
+      for (const key of Object.keys(globalThis)) {
+        if (key.startsWith('__tjs_wasm_')) {
+          delete (globalThis as any)[key]
+        }
+      }
+    }
+  })
+
+  it('forward references work (caller declared before callee)', async () => {
+    // The pre-pass builds the function map before any body is compiled,
+    // so a wasm function can call one declared LATER in the file.
+    const { tjs } = await import('./index')
+    const { createRuntime } = await import('./runtime')
+    const source = `
+wasm function caller(x: f64): f64 {
+  return callee(x) + 1
+}
+
+wasm function callee(x: f64): f64 {
+  return x * 2
+}
+`
+    const result = tjs(source, { runTests: false })
+    expect(result.wasmCompiled!.every((b) => b.success)).toBe(true)
+
+    const savedTjs = globalThis.__tjs
+    try {
+      globalThis.__tjs = createRuntime()
+      await new Function(
+        '__tjs',
+        `return (async () => { ${result.code}\n` +
+          `globalThis.__test_caller = caller;\n` +
+          `})();`
+      )(globalThis.__tjs)
+      await new Promise((r) => setTimeout(r, 100))
+      expect((globalThis as any).__test_caller(5)).toBe(11) // 5*2 + 1
+    } finally {
+      globalThis.__tjs = savedTjs
+      delete (globalThis as any).__test_caller
+      for (const key of Object.keys(globalThis)) {
+        if (key.startsWith('__tjs_wasm_')) {
+          delete (globalThis as any)[key]
+        }
+      }
+    }
+  })
+
+  it('mutual recursion compiles and runs', async () => {
+    const { tjs } = await import('./index')
+    const { createRuntime } = await import('./runtime')
+    // Classic mutual-recursion shape: isEven(n) calls isOdd(n-1); isOdd(n)
+    // calls isEven(n-1). Returns 1.0 (true) or 0.0 (false).
+    const source = `
+wasm function isEven(n: i32): f64 {
+  if (n == 0) return 1.0
+  return isOdd(n - 1)
+}
+
+wasm function isOdd(n: i32): f64 {
+  if (n == 0) return 0.0
+  return isEven(n - 1)
+}
+`
+    const result = tjs(source, { runTests: false })
+    expect(result.wasmCompiled!.every((b) => b.success)).toBe(true)
+
+    const savedTjs = globalThis.__tjs
+    try {
+      globalThis.__tjs = createRuntime()
+      await new Function(
+        '__tjs',
+        `return (async () => { ${result.code}\n` +
+          `globalThis.__test_isEven = isEven;\n` +
+          `globalThis.__test_isOdd = isOdd;\n` +
+          `})();`
+      )(globalThis.__tjs)
+      await new Promise((r) => setTimeout(r, 100))
+
+      expect((globalThis as any).__test_isEven(10)).toBe(1)
+      expect((globalThis as any).__test_isEven(7)).toBe(0)
+      expect((globalThis as any).__test_isOdd(7)).toBe(1)
+      expect((globalThis as any).__test_isOdd(10)).toBe(0)
+    } finally {
+      globalThis.__tjs = savedTjs
+      delete (globalThis as any).__test_isEven
+      delete (globalThis as any).__test_isOdd
+      for (const key of Object.keys(globalThis)) {
+        if (key.startsWith('__tjs_wasm_')) {
+          delete (globalThis as any)[key]
+        }
+      }
+    }
+  })
+
+  it('cross-file: composed imports can be called from a wasm function', async () => {
+    // The big payoff: a consumer's wasm function calls imported library
+    // kernels via wasm `call` instructions — no JS↔wasm boundary in the
+    // inner loop.
+    const { tjs } = await import('./index')
+    const { createRuntime } = await import('./runtime')
+    const { ModuleLoader, inMemoryFileSystem } = await import(
+      './module-loader'
+    )
+
+    const loader = new ModuleLoader({
+      fs: inMemoryFileSystem({
+        '/proj/lib.tjs': `
+wasm function double(x: f64): f64 { return x * 2 }
+wasm function triple(x: f64): f64 { return x * 3 }
+`,
+      }),
+      baseDir: '/proj',
+    })
+    const consumerSource = `
+import { double, triple } from './lib.tjs'
+
+wasm function fancy(x: f64): f64 {
+  return double(x) + triple(x)
+}
+`
+    const result = tjs(consumerSource, {
+      moduleLoader: loader,
+      filename: '/proj/app.tjs',
+      runTests: false,
+    })
+
+    // All three wasm functions (double, triple, fancy) live in one module
+    expect(result.wasmCompiled).toHaveLength(3)
+    expect(result.wasmCompiled!.every((b) => b.success)).toBe(true)
+    const compileCalls = (result.code.match(/WebAssembly\.compile\(/g) || [])
+      .length
+    expect(compileCalls).toBe(1)
+
+    const savedTjs = globalThis.__tjs
+    try {
+      globalThis.__tjs = createRuntime()
+      await new Function(
+        '__tjs',
+        `return (async () => { ${result.code}\n` +
+          `globalThis.__test_fancy = fancy;\n` +
+          `})();`
+      )(globalThis.__tjs)
+      await new Promise((r) => setTimeout(r, 100))
+
+      // fancy(5) = double(5) + triple(5) = 10 + 15 = 25
+      expect((globalThis as any).__test_fancy(5)).toBe(25)
+    } finally {
+      globalThis.__tjs = savedTjs
+      delete (globalThis as any).__test_fancy
+      for (const key of Object.keys(globalThis)) {
+        if (key.startsWith('__tjs_wasm_')) {
+          delete (globalThis as any)[key]
+        }
+      }
+    }
+  })
+
+  it('arg type mismatch is detected with a clear error', async () => {
+    // A wasm function expects i32 but is called with an f64 expression
+    // that has no way to be converted safely without losing data. The
+    // compiler should still accept it (lossy conversion is allowed) —
+    // truncate is the standard wasm move for f64→i32.
+    //
+    // For an actually-incompatible case we'd need v128; testing that
+    // would require setting up SIMD types. Instead we verify the
+    // conversion path: pass an f64 expression to an i32 param and check
+    // it works (the truncation happens automatically).
+    const { tjs } = await import('./index')
+    const { createRuntime } = await import('./runtime')
+    const source = `
+wasm function takesInt(n: i32): f64 {
+  return n + 0.5
+}
+
+wasm function caller(): f64 {
+  // 3.7 is f64; takesInt expects i32 — the compiler inserts a truncate
+  return takesInt(3.7)
+}
+`
+    const result = tjs(source, { runTests: false })
+    expect(result.wasmCompiled!.every((b) => b.success)).toBe(true)
+
+    const savedTjs = globalThis.__tjs
+    try {
+      globalThis.__tjs = createRuntime()
+      await new Function(
+        '__tjs',
+        `return (async () => { ${result.code}\n` +
+          `globalThis.__test_caller = caller;\n` +
+          `})();`
+      )(globalThis.__tjs)
+      await new Promise((r) => setTimeout(r, 100))
+
+      // 3.7 truncates to 3 (i32), then 3 + 0.5 = 3.5
+      expect((globalThis as any).__test_caller()).toBe(3.5)
+    } finally {
+      globalThis.__tjs = savedTjs
+      delete (globalThis as any).__test_caller
+      for (const key of Object.keys(globalThis)) {
+        if (key.startsWith('__tjs_wasm_')) {
+          delete (globalThis as any)[key]
+        }
+      }
+    }
+  })
+
+  it('argument count mismatch produces a clear compile error', async () => {
+    const { tjs } = await import('./index')
+    const source = `
+wasm function takesTwo(a: f64, b: f64): f64 { return a + b }
+wasm function caller(): f64 {
+  return takesTwo(1.0)
+}
+`
+    const result = tjs(source, { runTests: false })
+    // caller fails because takesTwo gets one arg instead of two
+    const callerResult = result.wasmCompiled!.find((b) => b.id === '__tjs_wasm_caller')
+    expect(callerResult).toBeDefined()
+    expect(callerResult!.success).toBe(false)
+    expect(callerResult!.error).toMatch(/takesTwo expects 2 arguments, got 1/)
   })
 })

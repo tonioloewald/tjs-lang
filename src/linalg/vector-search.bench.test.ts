@@ -84,7 +84,18 @@ function inlineSearch(corpus: Float32Array, query: Float32Array, count: 0, dim: 
 
 // The composed version — outer JS loop calling imported linalg kernels.
 // Each iteration calls dot() and norm_sq() (twice for the corpus row;
-// once for the query, hoisted outside the loop).
+// once for the query, hoisted outside the loop). Pays a JS↔wasm boundary
+// crossing per call.
+//
+// Note: a fully wasm-to-wasm version would be an `export wasm function
+// cosineSearch(corpus, query, count, dim)` that loops internally and
+// calls `dot`/`norm_sq` via wasm `call` instructions. To make that work
+// with the v1 linalg API requires a `dot_at(corpus, startIdx, query, n)`
+// variant taking a start-index parameter — Float32Array params lower to
+// i32 pointers in our wasm ABI, and there's no in-wasm way to construct
+// a "subarray" view today. That's deferred Phase 5 expansion work; the
+// wasm-to-wasm call mechanism itself is verified by the Phase 1.5 unit
+// tests in wasm.test.ts.
 const COMPOSED_SOURCE = `
 import { dot, norm_sq } from './linalg.tjs'
 
@@ -95,11 +106,7 @@ function composedSearch(corpus, query, count, dim) {
 
   let bestIdx = 0
   let bestScore = -2
-  const stride = dim * 4 // bytes per row
 
-  // Create a view onto each corpus row by sharing the same underlying buffer.
-  // dot/norm_sq take Float32Array params; passing a subarray (zero-copy)
-  // works because the wrapper detects the shared buffer and uses byteOffset.
   for (let v = 0; v < count; v++) {
     const row = corpus.subarray(v * dim, (v + 1) * dim)
     const d = dot(query, row, dim)

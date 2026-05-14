@@ -358,6 +358,7 @@ export function extractWasmFunctions(source: string): {
     const block: WasmBlock = {
       id,
       name, // enables Phase 3 cross-file matching against imported symbols
+      returnType, // undefined when the user wrote no `: T` annotation
       body,
       captures,
       start: matchStart,
@@ -376,9 +377,6 @@ export function extractWasmFunctions(source: string): {
 
     result += wrapper
     i = k
-
-    // Silence unused-variable warning until we wire return-type validation
-    void returnType
   }
 
   return { source: result, blocks }
