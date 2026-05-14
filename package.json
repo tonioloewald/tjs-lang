@@ -53,6 +53,10 @@
       "types": "./dist/src/batteries/index.d.ts",
       "default": "./dist/tjs-batteries.js"
     },
+    "./linalg": {
+      "bun": "./src/linalg/index.tjs",
+      "default": "./dist/tjs-linalg.js"
+    },
     "./src": "./src/index.ts",
     "./editors/monaco": "./editors/monaco/ajs-monarch.js",
     "./editors/codemirror": "./editors/codemirror/ajs-language.js",

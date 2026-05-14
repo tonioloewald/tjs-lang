@@ -136,6 +136,7 @@ import { tjs, transpile } from 'tjs-lang/lang' // Language tools only
 import { fromTS } from 'tjs-lang/lang/from-ts' // TypeScript transpilation
 import { AgentVM } from 'tjs-lang/vm' // VM only (smaller bundle)
 import { batteryAtoms } from 'tjs-lang/batteries' // LM Studio batteries
+import { dot, norm_sq } from 'tjs-lang/linalg' // SIMD linear-algebra kernels
 // Editor integrations: 'tjs-lang/editors/monaco', '/codemirror', '/ace'
 ```
 

@@ -1,0 +1,63 @@
+/*#
+# tjs-lang/linalg
+
+Linear algebra primitives implemented as WebAssembly SIMD kernels.
+
+This is the v1 minimum surface — enough to support the canonical
+vector-search demo (cosine similarity via `dot` and `norm_sq`). Future
+versions will add the full vector / matrix / 3D groups documented in
+`wasm-library-plan.md` §5.
+
+**Memory model.** Inputs are `Float32Array`s allocated via `wasmBuffer()`
+when zero-copy is desired (recommended for hot loops). Regular
+`Float32Array`s also work — the wasm wrapper copies in/out per call.
+Per the wasm-library plan's memory discipline, these functions never
+allocate; they read from caller-supplied buffers and return scalars.
+
+**Length precondition.** `n` must be a multiple of 4 (the SIMD lane
+width). Callers that have non-multiple-of-4 vectors should pad with
+zeros (cheap, doesn't affect dot product or sum-of-squares results).
+*/
+
+/**
+ * Dot product of two f32 vectors. Returns the sum of element-wise products.
+ *
+ * `a` and `b` must have length `n`; `n` must be a multiple of 4.
+ * Returns f64 (sufficient precision; wasm backend's only scalar return type).
+ */
+export wasm function dot(a: Float32Array, b: Float32Array, n: i32): f64 {
+  let acc = f32x4_splat(0.0)
+  for (let i = 0; i < n; i += 4) {
+    let off = i * 4
+    let av = f32x4_load(a, off)
+    let bv = f32x4_load(b, off)
+    acc = f32x4_add(acc, f32x4_mul(av, bv))
+  }
+  return f32x4_extract_lane(acc, 0)
+    + f32x4_extract_lane(acc, 1)
+    + f32x4_extract_lane(acc, 2)
+    + f32x4_extract_lane(acc, 3)
+}
+
+/**
+ * Squared L2 norm of an f32 vector. Returns the sum of squares.
+ *
+ * For the actual norm, take `Math.sqrt(norm_sq(a, n))` on the JS side.
+ * Returning the squared value avoids the wasm-side sqrt (cheaper) and
+ * is sufficient for many use cases (cosine similarity divides by
+ * `sqrt(norm_sq(a) * norm_sq(b))`, which can be one sqrt instead of two).
+ *
+ * `n` must be a multiple of 4.
+ */
+export wasm function norm_sq(a: Float32Array, n: i32): f64 {
+  let acc = f32x4_splat(0.0)
+  for (let i = 0; i < n; i += 4) {
+    let off = i * 4
+    let av = f32x4_load(a, off)
+    acc = f32x4_add(acc, f32x4_mul(av, av))
+  }
+  return f32x4_extract_lane(acc, 0)
+    + f32x4_extract_lane(acc, 1)
+    + f32x4_extract_lane(acc, 2)
+    + f32x4_extract_lane(acc, 3)
+}

@@ -306,11 +306,31 @@ Tests (4 new under `describe('boundary distribution form (Phase 4)')`):
 
 All 1961 fast-suite tests pass.
 
-### Phase 5 — linalg stdlib (1 week)
-- Implement vector / matrix / 3D groups, all with `out`-parameter API per §6.
-- Both scalar and SIMD versions.
-- Playground examples with the three-layer layout.
-- Benchmark vs gl-matrix and similar.
+### ⏳ Phase 5 — linalg stdlib (MVP complete, 2026-05-14; expansion in progress)
+
+**MVP done.** `src/linalg/index.tjs` ships with two `wasm function`s — `dot(a, b, n)` and `norm_sq(a, n)`, both f32x4 SIMD implementations operating on `Float32Array` inputs. These are the minimum needed to unlock the canonical vector-search demo (cosine similarity = `dot(a,b) / sqrt(norm_sq(a) * norm_sq(b))`). Subpath export `tjs-lang/linalg` added to `package.json` (bun → `.tjs` source; production `.js` bundle path declared, build to be wired in a follow-up).
+
+5 tests in `src/linalg/linalg.test.ts`:
+1. Source transpiles cleanly, both functions compile, one consolidated `WebAssembly.Module`
+2. Boundary form: dynamic ESM import works; library is self-contained
+3. Correctness against a JS scalar reference across multiple sizes (4, 16, 64, 128, 256)
+4. Phase 3 composition end-to-end: consumer importing `dot` + `norm_sq` and building cosine similarity returns 1.0 for identical vectors and ~0 for orthogonal ones
+5. Equivalence: boundary and composed forms return identical numeric results for the same library source
+
+**Caveats / follow-ups for the full Phase 5 surface:**
+
+- **`n` must be a multiple of 4.** Current SIMD kernels assume aligned vector lengths. Documented in the source; callers pad as needed. A future tail-loop variant could relax this.
+- **Returns are f64.** Per the Phase 1.5 backend limitation, all returns are f64 (the only scalar return type the bytecode builder emits today). Sufficient for `dot` / `norm_sq` (caller can downcast to f32 if needed) and for cosine similarity.
+- **No `out` parameters yet.** The two MVP functions return scalars, so the `out`-parameter API (for vector/matrix results that can't be scalar) is not yet exercised. Will land with `add`/`sub`/`scale`/`matmul`.
+- **No package.json `exports` `dist/` bundle yet.** The `bun` resolution works today (via the `.tjs` plugin); production `.js` bundling for non-bun consumers needs a one-line addition to `scripts/build.ts`. Follow-up.
+
+**Remaining work (deferred from MVP):**
+- Vector: `norm`, `normalize`, `add`, `sub`, `scale`, `lerp`
+- Matrix: `matmul`, `transpose`, `identity`, `inverse_3x3`, `inverse_4x4`
+- 3D: `cross`, `quat_mul`, `mat4_from_quat`, `look_at`, `perspective`
+- Playground examples with the three-layer layout (wrapper → scalar → SIMD)
+- Benchmark vs gl-matrix
+- Production `.js` bundle for `dist/tjs-linalg.js`
 
 ### Phase 6 — docs (2 days)
 - New `DOCS-WASM.md` covering authoring, importing, the memory discipline.
