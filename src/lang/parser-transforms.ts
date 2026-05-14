@@ -223,6 +223,167 @@ export function extractWasmBlocks(source: string): {
   return { source: result, blocks }
 }
 
+/**
+ * Extract top-level `wasm function NAME(params): RetType { body }` declarations.
+ *
+ * Unlike `extractWasmBlocks` (which finds `wasm { ... }` blocks nested inside
+ * regular tjs functions with auto-captured variables), this extractor finds
+ * top-level wasm function declarations with explicit parameters and an
+ * optional return type. The body is the wasm-subset source.
+ *
+ * Each declaration becomes a `WasmBlock` whose `captures` array holds the
+ * function's parameters with their type annotations (e.g. `['a: Float32Array',
+ * 'b: Float32Array', 'n: i32']`). The block ID is derived from the function
+ * name (`__tjs_wasm_<name>`), so the JS-side wrapper can reference it.
+ *
+ * The declaration is replaced in source with a regular JS function that
+ * forwards its args to the wasm export, preserving the `export` modifier
+ * if present:
+ *
+ *   (export)? wasm function dot(a: Float32Array, b: Float32Array, n: f64): f64 {
+ *     <wasm-source>
+ *   }
+ *
+ *   becomes:
+ *
+ *   (export)? function dot(a, b, n) { return globalThis.__tjs_wasm_dot(a, b, n) }
+ *
+ * This runs BEFORE `extractWasmBlocks` so its output (a regular JS function
+ * wrapper) isn't disturbed by the inline-block scanner.
+ *
+ * Return-type note: the underlying wasm bytecode builder currently emits f64
+ * or void return types only. The declared `: RetType` annotation is parsed
+ * and preserved on the block, but not yet validated against the backend's
+ * capabilities — `: f64` and omitted-return work today; other types (`: i32`,
+ * `: f32`, `: v128`) will be supported when the bytecode builder grows
+ * per-function return-type encoding.
+ */
+export function extractWasmFunctions(source: string): {
+  source: string
+  blocks: WasmBlock[]
+} {
+  const blocks: WasmBlock[] = []
+  let result = ''
+  let i = 0
+
+  while (i < source.length) {
+    // Match: `(export )?wasm function NAME(` (with leading whitespace allowed)
+    // The leading `\b` ensures we don't match inside identifiers like `mywasm`.
+    const declRe = /^\b(export\s+)?wasm\s+function\s+(\w+)\s*\(/
+    const m = source.slice(i).match(declRe)
+    if (!m) {
+      result += source[i]
+      i++
+      continue
+    }
+
+    const hasExport = !!m[1]
+    const name = m[2]
+    const matchStart = i
+
+    // After the opening `(`: scan balanced parens for the params block
+    const parensStart = i + m[0].length
+    let parenDepth = 1
+    let j = parensStart
+    while (j < source.length && parenDepth > 0) {
+      if (source[j] === '(') parenDepth++
+      else if (source[j] === ')') parenDepth--
+      j++
+    }
+    if (parenDepth !== 0) {
+      // Unmatched parens — leave source alone and move on
+      result += source[i]
+      i++
+      continue
+    }
+    const paramsSource = source.slice(parensStart, j - 1)
+    // j now points just past the closing `)`
+
+    // Optional return-type annotation: `: TYPE` (TYPE is a single identifier).
+    // Pointer-style annotations like `Ptr<f32>` are reserved for a follow-up.
+    let returnType: string | undefined
+    let afterReturnType = j
+    const retMatch = source.slice(j).match(/^\s*:\s*(\w+)/)
+    if (retMatch) {
+      returnType = retMatch[1]
+      afterReturnType = j + retMatch[0].length
+    }
+
+    // Expect `{` next (with leading whitespace)
+    const braceMatch = source.slice(afterReturnType).match(/^\s*\{/)
+    if (!braceMatch) {
+      // Not a wasm function decl after all — pass through
+      result += source[i]
+      i++
+      continue
+    }
+
+    // Find body via balanced braces
+    const bodyStart = afterReturnType + braceMatch[0].length
+    let braceDepth = 1
+    let k = bodyStart
+    while (k < source.length && braceDepth > 0) {
+      if (source[k] === '{') braceDepth++
+      else if (source[k] === '}') braceDepth--
+      k++
+    }
+    if (braceDepth !== 0) {
+      result += source[i]
+      i++
+      continue
+    }
+    const body = source.slice(bodyStart, k - 1)
+    // k now points just past the closing `}`
+
+    // Parse params into the existing `captures` shape used by the wasm
+    // compiler: each entry is either `name` or `name: type`.
+    const captures = parseWasmFunctionParams(paramsSource)
+
+    const id = `__tjs_wasm_${name}`
+    const block: WasmBlock = {
+      id,
+      body,
+      captures,
+      start: matchStart,
+      end: k,
+    }
+    blocks.push(block)
+
+    // Generate the JS wrapper function. The wasm runtime sets globalThis[id]
+    // (with type-aware marshalling already baked into the wrapper); we just
+    // forward args. Preserve `export` if present.
+    const argNames = captures.map((c) => c.split(':')[0].trim())
+    const exportKeyword = hasExport ? 'export ' : ''
+    const wrapper = `${exportKeyword}function ${name}(${argNames.join(
+      ', '
+    )}) { return globalThis.${id}(${argNames.join(', ')}) }`
+
+    result += wrapper
+    i = k
+
+    // Silence unused-variable warning until we wire return-type validation
+    void returnType
+  }
+
+  return { source: result, blocks }
+}
+
+/**
+ * Split a parameter list source into individual param strings.
+ * Returns entries like `name` (no type) or `name: type` (with type).
+ * Type values are single identifiers (`i32`, `Float32Array`, etc.) — generic
+ * forms like `Ptr<f32>` are reserved for a follow-up phase.
+ */
+function parseWasmFunctionParams(paramsSource: string): string[] {
+  const trimmed = paramsSource.trim()
+  if (!trimmed) return []
+  // Simple comma split is fine for the current type syntax (no generics yet).
+  return trimmed
+    .split(',')
+    .map((s) => s.trim())
+    .filter((s) => s.length > 0)
+}
+
 /** Check if an identifier is a WASM SIMD intrinsic (not a captured variable) */
 function isWasmIntrinsic(name: string): boolean {
   return name.startsWith('f32x4_') || name.startsWith('v128_')

@@ -31,6 +31,7 @@ import { transformParenExpressions } from './parser-params'
 import {
   transformTryWithoutCatch,
   extractWasmBlocks,
+  extractWasmFunctions,
   transformIsOperators,
   insertAsiProtection,
   transformEqualityToStructural,
@@ -290,6 +291,16 @@ export function preprocess(
   // Foo = ... -> const Foo = ...
   source = transformBareAssignments(source)
 
+  // Extract `wasm function NAME(...) { ... }` declarations BEFORE the paren
+  // transformer runs. `wasm function` params use wasm type syntax (i32, f64,
+  // Float32Array) — they're NOT tjs example-based annotations and must not be
+  // rewritten into the `name = example` default-value form. Pulling them out
+  // here keeps them in their authored `name: type` form. The wrapper functions
+  // we emit have plain JS params and go through the rest of the pipeline as
+  // regular tjs functions.
+  const wasmFunctions = extractWasmFunctions(source)
+  source = wasmFunctions.source
+
   // Unified paren expression transformer
   // Handles: function params, arrow params, return types, safe/unsafe markers
   // Model: open paren can be ( or (? or (!, close can be ) or )-> or )-? or )-!
@@ -324,8 +335,16 @@ export function preprocess(
   source = polyResult.source
 
   // Extract WASM blocks: wasm(args) { ... } fallback { ... }
+  // `wasm function` declarations are already extracted earlier in the pipeline
+  // (see above, before transformParenExpressions). This finds the remaining
+  // inline `wasm { ... }` blocks inside regular tjs functions.
   const wasmBlocks = extractWasmBlocks(source)
   source = wasmBlocks.source
+
+  // Combine both flavors of wasm blocks for the downstream emitter.
+  // They're indistinguishable from the compiler's perspective — both have
+  // an id, body, captures, and need the same module composition treatment.
+  const allWasmBlocks = [...wasmFunctions.blocks, ...wasmBlocks.blocks]
 
   // Extract and run test blocks: test 'desc'? { body }
   // Tests run at transpile time and are stripped from output
@@ -381,7 +400,7 @@ export function preprocess(
     requiredParams,
     unsafeFunctions,
     safeFunctions,
-    wasmBlocks: wasmBlocks.blocks,
+    wasmBlocks: allWasmBlocks,
     tests: testResult.tests,
     testErrors: testResult.errors,
     polymorphicNames: polyResult.polymorphicNames,

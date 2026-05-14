@@ -2124,3 +2124,176 @@ function dbl(arr: Float32Array, len: 0) {
     })
   })
 })
+
+describe('wasm function declarations (Phase 1)', () => {
+  it('extracts a top-level wasm function as a WasmBlock', async () => {
+    const { tjs } = await import('./index')
+    const source = `
+wasm function add(a: f64, b: f64): f64 {
+  return a + b
+}
+`
+    const result = tjs(source)
+    expect(result.wasmCompiled).toBeDefined()
+    expect(result.wasmCompiled).toHaveLength(1)
+    expect(result.wasmCompiled![0]).toMatchObject({
+      id: '__tjs_wasm_add',
+      success: true,
+    })
+  })
+
+  it('emits a regular JS wrapper that forwards to the wasm export', async () => {
+    const { tjs } = await import('./index')
+    const source = `
+wasm function add(a: f64, b: f64): f64 {
+  return a + b
+}
+`
+    const result = tjs(source)
+    // The declaration is replaced with a wrapper function — that wrapper
+    // forwards to globalThis.__tjs_wasm_add, which the bootstrap sets up.
+    expect(result.code).toContain('function add(a, b)')
+    expect(result.code).toContain('globalThis.__tjs_wasm_add(a, b)')
+  })
+
+  it('preserves the export modifier on the wrapper', async () => {
+    const { tjs } = await import('./index')
+    const source = `
+export wasm function mul(a: f64, b: f64): f64 {
+  return a * b
+}
+`
+    const result = tjs(source)
+    expect(result.code).toContain('export function mul(a, b)')
+    expect(result.code).toContain('globalThis.__tjs_wasm_mul(a, b)')
+  })
+
+  it('runs end-to-end: declare wasm function, call it, get correct result', async () => {
+    const { tjs } = await import('./index')
+    const { createRuntime } = await import('./runtime')
+    const source = `
+wasm function add(a: f64, b: f64): f64 {
+  return a + b
+}
+
+wasm function sub(a: f64, b: f64): f64 {
+  return a - b
+}
+`
+    const result = tjs(source)
+    const savedTjs = globalThis.__tjs
+    try {
+      globalThis.__tjs = createRuntime()
+      await new Function(
+        '__tjs',
+        `return (async () => { ${result.code}\n` +
+          `globalThis.__test_add = add;\n` +
+          `globalThis.__test_sub = sub;\n` +
+          `})();`
+      )(globalThis.__tjs)
+
+      // Wait for the async bootstrap to complete
+      await new Promise((r) => setTimeout(r, 100))
+
+      expect((globalThis as any).__test_add(3, 4)).toBe(7)
+      expect((globalThis as any).__test_sub(10, 7)).toBe(3)
+    } finally {
+      globalThis.__tjs = savedTjs
+      delete (globalThis as any).__test_add
+      delete (globalThis as any).__test_sub
+    }
+  })
+
+  it('works with Float32Array parameters (zero-copy via wasmBuffer)', async () => {
+    const { tjs } = await import('./index')
+    const { createRuntime } = await import('./runtime')
+    const source = `
+wasm function scaleArray(arr: Float32Array, len: f64, factor: f64) {
+  for (let i = 0; i < len; i++) {
+    arr[i] = arr[i] * factor
+  }
+}
+`
+    const result = tjs(source)
+    const savedTjs = globalThis.__tjs
+    try {
+      globalThis.__tjs = createRuntime()
+      await new Function(
+        '__tjs',
+        `return (async () => { ${result.code}\n` +
+          `globalThis.__test_scale = scaleArray;\n` +
+          `})();`
+      )(globalThis.__tjs)
+
+      await new Promise((r) => setTimeout(r, 100))
+
+      const wasmBuffer = (globalThis as any).wasmBuffer
+      expect(typeof wasmBuffer).toBe('function')
+      const buf = wasmBuffer(Float32Array, 4)
+      buf[0] = 1
+      buf[1] = 2
+      buf[2] = 3
+      buf[3] = 4
+      ;(globalThis as any).__test_scale(buf, 4, 3.0)
+      expect(Array.from(buf)).toEqual([3, 6, 9, 12])
+    } finally {
+      globalThis.__tjs = savedTjs
+      delete (globalThis as any).wasmBuffer
+      delete (globalThis as any).__test_scale
+    }
+  })
+
+  it('coexists with inline wasm {} blocks in the same file', async () => {
+    const { tjs } = await import('./index')
+    // No return-type annotation on `inline` — auto signature tests would
+    // call the function at transpile time before wasm is instantiated and
+    // fail because the dispatch returns undefined. The functional check is
+    // about block extraction + module consolidation, not the auto-test.
+    const source = `
+wasm function topLevel(a: f64, b: f64): f64 {
+  return a * b
+}
+
+function inline(x: 0, y: 0) {
+  return wasm {
+    return x + y
+  }
+}
+`
+    const result = tjs(source, { runTests: false })
+    expect(result.wasmCompiled).toHaveLength(2)
+    const ids = result.wasmCompiled!.map((b) => b.id).sort()
+    expect(ids[0]).toBe('__tjs_wasm_0') // inline block
+    expect(ids[1]).toBe('__tjs_wasm_topLevel') // named wasm function
+    // Both compile into the same consolidated module — verify exactly one
+    // WebAssembly.compile call in the output.
+    const compileCalls = (result.code.match(/WebAssembly\.compile\(/g) || [])
+      .length
+    expect(compileCalls).toBe(1)
+  })
+
+  it('handles wasm function with no params', async () => {
+    const { tjs } = await import('./index')
+    const source = `
+wasm function answer(): f64 {
+  return 42
+}
+`
+    const result = tjs(source)
+    expect(result.wasmCompiled).toHaveLength(1)
+    expect(result.wasmCompiled![0].success).toBe(true)
+    expect(result.code).toContain('function answer()')
+    expect(result.code).toContain('globalThis.__tjs_wasm_answer()')
+  })
+
+  it('does not match identifiers that contain "wasm" (e.g. mywasm)', async () => {
+    const { tjs } = await import('./index')
+    const source = `
+function mywasm(x: 0): 0 { return x }
+`
+    const result = tjs(source)
+    // No wasm blocks should be extracted from this — the source contains no
+    // actual `wasm function` declaration.
+    expect(result.wasmCompiled ?? []).toHaveLength(0)
+  })
+})

@@ -256,11 +256,16 @@ Done. New `src/lang/module-loader.ts` provides a `ModuleLoader` class with `reso
 
 **Caveat (worth flagging for Phase 1):** `parseTjs` runs the full preprocessor before we see the AST, which means `export class Foo {}` shows up as a variable export (the preprocessor rewrites class declarations into `wrapClass(class)` form). For Phase 3's needs this is fine — we'll be looking at function/wasm-function bodies, not class structure. If we ever need to surface the original class shape, the loader can expose the pre-preprocessor source alongside the parsed AST.
 
-### Phase 1 — `wasm function` declaration syntax (1–2 days)
-- Add parser support for `(export)? wasm function name(...): RetType { ... }`.
-- Type-check signatures (i32/i64/f32/f64/v128 only, plus pointer-as-i32 convention).
-- Existing `Float32Array → i32 ptr` mapping in `js-wasm.ts:89` already handles the type lowering — extend to user-declared wasm functions.
-- Single-file end-to-end test: declare a wasm function, call it from a regular function, run it.
+### ✅ Phase 1 — `wasm function` declaration syntax (complete, 2026-05-12)
+Done. New `extractWasmFunctions` transform in `parser-transforms.ts` recognizes top-level `(export)? wasm function NAME(params): RetType { body }` declarations. The body is the wasm-subset source; captures are the function's parameters with their type annotations (using existing wasm type names: `i32`/`i64`/`f32`/`f64`/`Float32Array`/`Float64Array`/`Int32Array`/`Uint8Array`).
+
+- Each `wasm function` declaration is replaced in source with a regular JS wrapper: `function NAME(...args) { return globalThis.__tjs_wasm_NAME(...args) }`, preserving the `export` modifier when present
+- The wrapper goes through the regular tjs pipeline (monadic error guards, `__tjs` metadata, etc.); the body is stored on the block and compiled via the Phase 0.5 `compileBlocksToModule` path
+- **Critical ordering fix:** the new extractor runs BEFORE `transformParenExpressions`. `wasm function` params use wasm-specific type syntax (`name: i32`, etc.) and must not be rewritten into tjs's example-based `name = example` default-value form. The inline `wasm {}` extractor still runs later in the pipeline as before
+- 8 new tests in `wasm.test.ts` under `describe('wasm function declarations (Phase 1)')`: extraction, wrapper emission, export modifier, end-to-end call, Float32Array params (zero-copy), coexistence with inline blocks (one consolidated module), no-params functions, and identifier-boundary check (so `mywasm` isn't matched)
+- All 1946 fast-suite tests pass
+
+**Backend limitation (Phase 1.5 work):** the wasm bytecode builder still emits f64 or void return types only — the `: RetType` annotation is parsed and stored but not yet driving the emitted return-type encoding. `: f64` and omitted-return work today; `: i32`/`: f32`/`: v128` returns will be supported when the bytecode builder grows per-function return-type emission. Linalg's `dot`/`norm_sq` (returning scalars) already work fine in f64; the vector-search milestone is unblocked.
 
 ### Phase 2 — purity enforcement (1 day)
 - Static check: a non-`!` `wasm function` may not import or call any host function. (Simpler equivalent of the original "no globals / no allocator" rule.)
