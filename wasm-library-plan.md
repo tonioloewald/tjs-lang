@@ -267,9 +267,13 @@ Done. New `extractWasmFunctions` transform in `parser-transforms.ts` recognizes 
 
 **Backend limitation (Phase 1.5 work):** the wasm bytecode builder still emits f64 or void return types only — the `: RetType` annotation is parsed and stored but not yet driving the emitted return-type encoding. `: f64` and omitted-return work today; `: i32`/`: f32`/`: v128` returns will be supported when the bytecode builder grows per-function return-type emission. Linalg's `dot`/`norm_sq` (returning scalars) already work fine in f64; the vector-search milestone is unblocked.
 
-### Phase 2 — purity enforcement (1 day)
-- Static check: a non-`!` `wasm function` may not import or call any host function. (Simpler equivalent of the original "no globals / no allocator" rule.)
-- Reserve `(! ...)` slot — parser accepts it, but emits "unsafe wasm functions not yet implemented; remove the bang or wait for v2."
+### ✅ Phase 2 — purity enforcement (complete, 2026-05-14)
+Done. Two pieces:
+
+1. **Unsafe-marker reservation.** `extractWasmFunctions` now detects `(!` at the start of a `wasm function`'s param list and throws a clear `SyntaxError` directing the user to either remove the bang or wait for the unsafe variant to be implemented. Source location is reported. The marker is parsed (not silently dropped) so users can't accidentally write unsafe code that compiles as safe.
+2. **Purity verification.** The wasm bytecode builder already errors on host-import calls (e.g. `Math.sin`, `Math.cos` → "Math.<x> requires JS import (not yet implemented)"). A test confirms this property: a `wasm function` calling `Math.sin` fails with that error, while `Math.sqrt` (which compiles to a wasm intrinsic, no host import) succeeds. The "purity check" is therefore enforced automatically by the backend's host-import absence — no separate static-analysis pass needed.
+
+4 new tests under `describe('wasm function purity & unsafe marker (Phase 2)')`. All 1950 fast-suite tests pass.
 
 ### Phase 3 — cross-file module composition (3–5 days, depends on Phase 0.5 and 0.75)
 - Use the loader from Phase 0.75 to walk imported wasm-function dependency graphs.

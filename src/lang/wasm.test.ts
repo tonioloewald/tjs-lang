@@ -2297,3 +2297,62 @@ function mywasm(x: 0): 0 { return x }
     expect(result.wasmCompiled ?? []).toHaveLength(0)
   })
 })
+
+describe('wasm function purity & unsafe marker (Phase 2)', () => {
+  it('rejects `wasm function (! ...)` with a clear error', async () => {
+    const { tjs } = await import('./index')
+    const source = `
+wasm function dangerous(! aPtr: i32, n: i32): f64 {
+  return 0
+}
+`
+    expect(() => tjs(source)).toThrow(/Unsafe wasm functions/)
+    expect(() => tjs(source)).toThrow(/dangerous/)
+    expect(() => tjs(source)).toThrow(/reserved for a future phase/)
+  })
+
+  it('accepts wasm function without the bang marker', async () => {
+    const { tjs } = await import('./index')
+    const source = `
+wasm function safe(a: f64, b: f64): f64 {
+  return a + b
+}
+`
+    expect(() => tjs(source)).not.toThrow()
+  })
+
+  it('purity: host-import calls in a wasm function body fail with a clear error', async () => {
+    // Math.sin requires a host import; the wasm bytecode builder doesn't
+    // support that path today, so this fails at compile time. This test
+    // documents the property: wasm function bodies are pure compute — any
+    // host-import call is a compile error.
+    const { tjs } = await import('./index')
+    const source = `
+wasm function tryHostCall(x: f64): f64 {
+  return Math.sin(x)
+}
+`
+    const result = tjs(source)
+    // Block extraction succeeds but compilation fails
+    expect(result.wasmCompiled).toBeDefined()
+    expect(result.wasmCompiled).toHaveLength(1)
+    expect(result.wasmCompiled![0].success).toBe(false)
+    expect(result.wasmCompiled![0].error).toMatch(/Math\.sin/)
+    expect(result.wasmCompiled![0].error).toMatch(/import/i)
+  })
+
+  it('purity: inline Math ops that DO compile (sqrt, abs, etc.) work fine', async () => {
+    // sqrt, abs, floor, ceil, min, max compile to wasm intrinsics — no host
+    // imports needed. Confirms the constraint is "no host imports", not
+    // "no Math.* at all".
+    const { tjs } = await import('./index')
+    const source = `
+wasm function magnitude(x: f64, y: f64): f64 {
+  return Math.sqrt(x * x + y * y)
+}
+`
+    const result = tjs(source)
+    expect(result.wasmCompiled).toBeDefined()
+    expect(result.wasmCompiled![0].success).toBe(true)
+  })
+})

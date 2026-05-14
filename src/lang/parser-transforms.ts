@@ -296,8 +296,23 @@ export function extractWasmFunctions(source: string): {
       i++
       continue
     }
-    const paramsSource = source.slice(parensStart, j - 1)
+    let paramsSource = source.slice(parensStart, j - 1)
     // j now points just past the closing `)`
+
+    // Phase 2: detect `(!` — reserved syntax for unsafe wasm functions
+    // (will allow host-import calls, side-effecting globals, etc.).
+    // Implementation deferred; for now we reject with a clear message so
+    // users either remove the bang or know to wait.
+    const unsafeMatch = paramsSource.match(/^\s*!/)
+    if (unsafeMatch) {
+      throw new SyntaxError(
+        `Unsafe wasm functions (with \`!\` marker) are reserved for a ` +
+          `future phase. Remove the bang from \`wasm function ${name}\` ` +
+          `to declare it as a regular (pure) wasm function, or wait until ` +
+          `the unsafe variant is implemented.`,
+        locAt(source, matchStart)
+      )
+    }
 
     // Optional return-type annotation: `: TYPE` (TYPE is a single identifier).
     // Pointer-style annotations like `Ptr<f32>` are reserved for a follow-up.
