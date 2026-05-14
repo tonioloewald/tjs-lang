@@ -332,10 +332,17 @@ All 1961 fast-suite tests pass.
 - Benchmark vs gl-matrix
 - Production `.js` bundle for `dist/tjs-linalg.js`
 
-### Phase 6 — docs (2 days)
-- New `DOCS-WASM.md` covering authoring, importing, the memory discipline.
-- TJS-FOR-JS / TJS-FOR-TS additions.
-- Playground tutorial: "Write a fast dot product."
+### ✅ Phase 6 — docs (complete, 2026-05-14)
+
+Done. Three docs touched:
+
+- **`DOCS-WASM.md`** — new canonical WASM reference. Covers both flavors (inline blocks and `wasm function` declarations) side-by-side, parameter and return type rules, SIMD intrinsics, the JS-owns-memory invariant and bump-allocator caveat, the cross-file composition story (Phase 3 ModuleLoader path), the two distribution forms (composed vs. boundary), purity + reserved `(!)` marker, the `tjs-lang/linalg` quick-reference, and the full list of v1 limitations as a single "current limitations" section.
+- **`TJS-FOR-JS.md`** § "WASM Blocks" — added a "Reusable WASM Functions" subsection showing the `export wasm function` form, cross-file imports, and the `tjs-lang/linalg` one-liner usage example. Links to DOCS-WASM.md for the full story.
+- **`guides/examples/tjs/wasm-functions.md`** — new playground example showing both `dot_scalar` and `dot_simd` as `wasm function` declarations side-by-side. Demonstrates the three-layer educational pattern from § 5 (TJS wrapper auto-generated, scalar wasm readable, SIMD wasm optimized) inside a single file. Verifies the two implementations agree numerically. Registered in `demo/docs.json` (entry #39).
+
+`CLAUDE.md` Additional Documentation list updated to include DOCS-WASM.md. `wasm-library-plan.md` is the design doc; DOCS-WASM.md is the user-facing reference; `docs/WASM-QUICKSTART.md` is the original 5-minute introduction (for inline blocks).
+
+All 1970 fast-suite tests pass.
 
 ### Phase 7 (deferred) — escape hatch implementation
 Only if stdlib hits a real wall. Implement `(! ...)` per §3, including the import-site bang requirement.

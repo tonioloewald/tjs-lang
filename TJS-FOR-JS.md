@@ -485,6 +485,37 @@ add(1, 2)  // 3, runs as native WASM
 WASM is compiled at transpile time and embedded as base64 in the output.
 No separate `.wasm` files.
 
+### Reusable WASM Functions
+
+For a kernel that other files can import, use a top-level `wasm function`
+declaration:
+
+```javascript
+export wasm function dot(a: Float32Array, b: Float32Array, n: i32): f64 {
+  // ... SIMD f32x4 implementation ...
+}
+```
+
+Other files can import it directly:
+
+```javascript
+import { dot } from './my-lib.tjs'
+// `dot` is composed into your file's wasm module at transpile time
+// — no JS↔WASM boundary on intra-library calls
+```
+
+The first stdlib built on this is `tjs-lang/linalg` — SIMD vector kernels
+ready to use:
+
+```javascript
+import { dot, norm_sq } from 'tjs-lang/linalg'
+const cos = dot(a, b, n) / Math.sqrt(norm_sq(a, n) * norm_sq(b, n))
+```
+
+See [`DOCS-WASM.md`](DOCS-WASM.md) for the full story — declaration syntax,
+the JS-owns-memory model, cross-file composition, and the two distribution
+forms (composed vs. boundary).
+
 ---
 
 ## Safe Eval
