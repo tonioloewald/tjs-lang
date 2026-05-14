@@ -20,17 +20,22 @@ per instruction and loops over the entire corpus in one WASM call.
 
 Click **Run Benchmark** to generate random vectors and measure throughput.
 
-**Future milestone:** today this example computes `dot`, `magA`, and `magB`
-inline inside one `wasm {}` block. Once the wasm-library plan ships
-([wasm-library-plan.md](https://github.com/tonioloewald/tjs-lang/blob/main/wasm-library-plan.md)),
-the body of this kernel becomes three calls into `tjs-lang/linalg` —
-`d = dot(query, row, dim)`, `ma = norm_sq(query, dim)`,
-`mb = norm_sq(row, dim)`, then `score = d / Math.sqrt(ma * mb)`.
+**Cross-file equivalent:** today this example computes `dot`, `magA`, and `magB`
+inline inside one `wasm {}` block. The same workload can also be expressed by
+importing `tjs-lang/linalg` and using `dot` + `norm_sq` from a JS outer loop —
+proven correct in `src/linalg/vector-search.bench.test.ts` (same `bestIdx`
+across configs, composed-not-imported module shape verified).
 
-The composed wasm module ends up with `dot` and `norm_sq` as local functions —
-the engine JIT inlines them at runtime, so performance should match the all-inline
-version within a few percent. That equivalence is the acceptance criterion for
-Phases 1, 0.75, and 3 of the wasm-library plan.
+**The honest perf tradeoff:** in the composed form the outer loop is JS, so
+each corpus row costs 2 JS↔wasm boundary crossings (`dot` + `norm_sq`). The
+inline form does the whole workload in one wasm call. So composed runs
+roughly 1.5–10× slower for fine-grained kernel usage, even though the wasm
+module shape is identical. For maximum throughput on hot inner loops, keep
+this example's inline form; for modularity / reuse / correctness, the
+imported form works fine. A `cosine_search` kernel in `tjs-lang/linalg` would
+combine both wins — that's the natural next step. See
+[`wasm-library-plan.md`](https://github.com/tonioloewald/tjs-lang/blob/main/wasm-library-plan.md)
+§ "Canonical end-to-end demo" for the full story.
 */
 
 // SIMD corpus search — single WASM call over entire corpus

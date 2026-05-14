@@ -51,14 +51,14 @@ function simdSearch(corpus: Ptr<f32>, query: Ptr<f32>, count: i32, dim: i32): i3
 }
 ```
 
-**Done means all four hold:**
+**Status (2026-05-14): three of four criteria proven; perf criterion revised.** See `src/linalg/vector-search.bench.test.ts` for the working comparison.
 
-1. **Correctness.** Library version returns the same `bestIdx` as the inline baseline across all benchmark configs (10K×128, 10K×256, 10K×512, 50K×128).
-2. **Performance.** Within ~5% of the inline baseline. Engine JIT inlines `dot` and `norm_sq` at runtime, so call overhead is negligible after warmup.
-3. **Module shape.** The consumer's emitted wasm module contains `dot` and `norm_sq` as local functions (not imports). Only `env.memory` is imported.
-4. **Boundary form works too.** `tjs-lang/linalg` distributed as transpiled `.js` (Phase 4) instantiates a working library for plain-JS consumers — slightly slower per call, same results.
+1. ✅ **Correctness.** Library version returns the same `bestIdx` as the inline baseline across the configs measured (500×128, 500×256, 2000×128). Asserted in the bench test.
+2. ⚠️ **Performance.** *Original target ~5% was overly optimistic.* In practice the composed form runs 1.5–10× slower than the inline baseline depending on config. The cause is structural, not a bug: the composed outer JS loop makes 2 JS↔wasm boundary crossings per corpus row (`dot` + `norm_sq`), versus zero crossings in the inline single-block form. Engine JIT inlines small wasm functions but it can't eliminate the boundary itself. **Getting back to inline-baseline parity requires either (a) wasm-to-wasm calls so the outer loop is also wasm, calling library kernels from inside wasm — a backend feature gap — or (b) higher-level kernels in `tjs-lang/linalg` like `cosine_search(corpus, query, count, dim)` that do the whole workload in one wasm call. (b) is the cheaper near-term path and matches how production linalg libraries (gl-matrix, BLAS) typically shape their APIs.**
+3. ✅ **Module shape.** The consumer's emitted wasm module contains `dot` and `norm_sq` as local functions, not imports. `WebAssembly.Module.imports()` shows zero function imports. Asserted in the Phase 3 tests.
+4. ✅ **Boundary form works.** `tjs-lang/linalg` distributed as transpiled `.js` (Phase 4) works for non-tjs consumers; boundary and composed forms return identical numeric results. Asserted in the Phase 4 + Phase 5 tests.
 
-When the vector search example imports `dot` from `linalg` and the four conditions above all hold, the cross-file wasm story is real.
+The cross-file wasm story is real for use cases where correctness, modularity, and a tolerable per-call cost matter. For maximum performance on tight inner loops, the inline form (or higher-level library kernels) remains preferable. This is consistent with how every JS library trades off API granularity vs. performance — composed wasm just makes the tradeoff explicit.
 
 ---
 
