@@ -428,6 +428,40 @@ export function composeImportedWasmFunctions(
   // wasm function in twice if it's imported from multiple specifiers.
   const composedNames = new Set<string>()
 
+  /**
+   * Pull a wasm function into the consumer's composition and recursively
+   * pull in any other wasm functions it calls from the same source module.
+   *
+   * Transitive walking is required for correctness: if `outer` calls
+   * `inner` and the consumer only imports `outer`, we still need `inner`
+   * in the consumer's wasm module — otherwise outer's body's
+   * `call <inner-index>` instruction would reference a function index
+   * that doesn't exist. The wasm compiler would (correctly) reject the
+   * call at body-compile time.
+   *
+   * The body scan uses word-boundary regex against the known wasm-function
+   * names in the source module. False positives (matching a method call
+   * `obj.inner(x)` or a shadowed local) only cause bloat — not correctness
+   * problems — and TJS wasm bodies don't use either of those forms anyway.
+   */
+  function pullInTransitively(
+    block: WasmBlock,
+    sourceModuleFns: Map<string, WasmBlock>
+  ): void {
+    if (composedNames.has(block.id)) return
+    composedBlocks.push(block)
+    composedNames.add(block.id)
+    // Scan the body for calls to other wasm functions in this source module
+    for (const [name, target] of sourceModuleFns) {
+      if (name === block.name) continue // self isn't transitive
+      if (composedNames.has(target.id)) continue
+      const callRe = new RegExp(`\\b${name}\\s*\\(`)
+      if (callRe.test(block.body)) {
+        pullInTransitively(target, sourceModuleFns)
+      }
+    }
+  }
+
   // Match `import { ... } from 'spec'` or `import { ... } from "spec"`.
   // Default imports, namespace imports, and side-effect imports are left
   // alone — only named-bindings are candidates for wasm composition.
@@ -473,13 +507,13 @@ export function composeImportedWasmFunctions(
           remainingBindings.push(part)
           continue
         }
-        // Composed: pull the block in (once) and emit a local wrapper
-        // that uses the LOCAL name (in case of `as` renames) but forwards
-        // to the wasm export's original id.
-        if (!composedNames.has(wasmBlock.id)) {
-          composedBlocks.push(wasmBlock)
-          composedNames.add(wasmBlock.id)
-        }
+        // Composed: pull the block in (with any transitive callees from
+        // the same source module) and emit a local wrapper that uses the
+        // LOCAL name (in case of `as` renames) but forwards to the wasm
+        // export's original id. Transitive walking is what makes
+        // `import { outer } from 'lib'` work when outer internally calls
+        // inner — both end up in the consumer's composed module.
+        pullInTransitively(wasmBlock, importedWasmFunctions)
         const argNames = wasmBlock.captures.map((c) =>
           c.split(':')[0].trim()
         )

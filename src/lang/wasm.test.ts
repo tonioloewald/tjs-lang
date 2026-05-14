@@ -2686,6 +2686,172 @@ import { add, mul } from './linalg.tjs'
       delete (globalThis as any).__test_mul
     }
   })
+
+  describe('tree-shaking & transitive deps', () => {
+    async function loaderWith(files: Record<string, string>) {
+      const { ModuleLoader, inMemoryFileSystem } = await import(
+        './module-loader'
+      )
+      return new ModuleLoader({
+        fs: inMemoryFileSystem(files),
+        baseDir: '/proj',
+      })
+    }
+
+    it('only pulls in explicitly-imported wasm functions (tree-shaking)', async () => {
+      const { tjs } = await import('./index')
+      const loader = await loaderWith({
+        '/proj/lib.tjs': `
+wasm function wanted(x: f64): f64 { return x * 2 }
+wasm function unwanted(x: f64): f64 { return x + 999 }
+wasm function also_unwanted(x: f64): f64 { return x - 1 }
+`,
+      })
+      const source = `
+import { wanted } from './lib.tjs'
+function go() { return wanted(5) }
+`
+      const result = tjs(source, {
+        moduleLoader: loader,
+        filename: '/proj/app.tjs',
+        runTests: false,
+      })
+      // Only `wanted` should be in the composed module
+      expect(result.wasmCompiled).toHaveLength(1)
+      expect(result.wasmCompiled![0].id).toBe('__tjs_wasm_wanted')
+    })
+
+    it('pulls in transitive wasm-to-wasm callees automatically', async () => {
+      // `outer` calls `inner`; the consumer imports only `outer`. Without
+      // transitive walking, outer's body's `call <inner-index>` would fail
+      // (the inner function wouldn't be in the consumer's module). With
+      // transitive walking, both end up in the composed module.
+      const { tjs } = await import('./index')
+      const { createRuntime } = await import('./runtime')
+      const loader = await loaderWith({
+        '/proj/lib.tjs': `
+wasm function inner(x: f64): f64 { return x * 2 }
+wasm function outer(x: f64): f64 { return inner(x) + 1 }
+`,
+      })
+      const source = `
+import { outer } from './lib.tjs'
+`
+      const result = tjs(source, {
+        moduleLoader: loader,
+        filename: '/proj/app.tjs',
+        runTests: false,
+      })
+      // Both pulled in
+      expect(result.wasmCompiled).toHaveLength(2)
+      expect(result.wasmCompiled!.every((b) => b.success)).toBe(true)
+      const ids = result.wasmCompiled!.map((b) => b.id).sort()
+      expect(ids).toEqual(['__tjs_wasm_inner', '__tjs_wasm_outer'])
+
+      // Run end-to-end to confirm the call actually works
+      const savedTjs = globalThis.__tjs
+      try {
+        globalThis.__tjs = createRuntime()
+        await new Function(
+          '__tjs',
+          `return (async () => { ${result.code}\n` +
+            `globalThis.__test_outer = outer;\n` +
+            `})();`
+        )(globalThis.__tjs)
+        await new Promise((r) => setTimeout(r, 100))
+        // outer(5) = inner(5) + 1 = 10 + 1 = 11
+        expect((globalThis as any).__test_outer(5)).toBe(11)
+      } finally {
+        globalThis.__tjs = savedTjs
+        delete (globalThis as any).__test_outer
+        for (const key of Object.keys(globalThis)) {
+          if (key.startsWith('__tjs_wasm_')) {
+            delete (globalThis as any)[key]
+          }
+        }
+      }
+    })
+
+    it('handles multi-step transitive chains', async () => {
+      // a → b → c. Importing only `a` should pull in b and c.
+      const { tjs } = await import('./index')
+      const loader = await loaderWith({
+        '/proj/lib.tjs': `
+wasm function c(x: f64): f64 { return x + 1 }
+wasm function b(x: f64): f64 { return c(x) * 2 }
+wasm function a(x: f64): f64 { return b(x) + 3 }
+wasm function unrelated(x: f64): f64 { return x }
+`,
+      })
+      const source = `
+import { a } from './lib.tjs'
+`
+      const result = tjs(source, {
+        moduleLoader: loader,
+        filename: '/proj/app.tjs',
+        runTests: false,
+      })
+      // a, b, c pulled in; unrelated is not
+      expect(result.wasmCompiled).toHaveLength(3)
+      const ids = result.wasmCompiled!.map((b) => b.id).sort()
+      expect(ids).toEqual(['__tjs_wasm_a', '__tjs_wasm_b', '__tjs_wasm_c'])
+    })
+
+    it('handles mutual recursion across the import boundary', async () => {
+      // Two mutually-recursive library functions. Importing either one
+      // should pull in both.
+      const { tjs } = await import('./index')
+      const loader = await loaderWith({
+        '/proj/lib.tjs': `
+wasm function ping(n: i32): f64 {
+  if (n == 0) return 0.0
+  return pong(n - 1) + 1
+}
+wasm function pong(n: i32): f64 {
+  if (n == 0) return 0.0
+  return ping(n - 1) + 1
+}
+`,
+      })
+      const source = `
+import { ping } from './lib.tjs'
+`
+      const result = tjs(source, {
+        moduleLoader: loader,
+        filename: '/proj/app.tjs',
+        runTests: false,
+      })
+      expect(result.wasmCompiled).toHaveLength(2)
+      expect(result.wasmCompiled!.every((b) => b.success)).toBe(true)
+    })
+
+    it('does not over-pull when an identifier appears as a substring', async () => {
+      // The body's regex scan uses word-boundary anchors. A function named
+      // `add` shouldn't trigger if the body has `add2` or `_add` or similar.
+      const { tjs } = await import('./index')
+      const loader = await loaderWith({
+        '/proj/lib.tjs': `
+wasm function add(a: f64, b: f64): f64 { return a + b }
+wasm function user(x: f64): f64 {
+  // The local "_add" is just a variable name — not a call to add()
+  let _add = x * 2
+  return _add + 1
+}
+`,
+      })
+      const source = `
+import { user } from './lib.tjs'
+`
+      const result = tjs(source, {
+        moduleLoader: loader,
+        filename: '/proj/app.tjs',
+        runTests: false,
+      })
+      // user is pulled in; add is NOT (word-boundary regex doesn't match _add as add)
+      expect(result.wasmCompiled).toHaveLength(1)
+      expect(result.wasmCompiled![0].id).toBe('__tjs_wasm_user')
+    })
+  })
 })
 
 describe('wasm function purity & unsafe marker (Phase 2)', () => {
