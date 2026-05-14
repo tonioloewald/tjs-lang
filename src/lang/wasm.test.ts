@@ -2298,6 +2298,156 @@ function mywasm(x: 0): 0 { return x }
   })
 })
 
+describe('boundary distribution form (Phase 4)', () => {
+  // Write the transpiled library to a tmp .mjs file and dynamically import
+  // it. This is the most authentic test of the boundary form: real ESM
+  // resolution, real exports, real WebAssembly instantiation.
+  async function dynamicImportLibrary(transpiled: string): Promise<any> {
+    const { tmpdir } = await import('node:os')
+    const { join } = await import('node:path')
+    const { writeFileSync, unlinkSync } = await import('node:fs')
+    const path = join(
+      tmpdir(),
+      `tjs-lib-${Date.now()}-${Math.random().toString(36).slice(2, 8)}.mjs`
+    )
+    writeFileSync(path, transpiled)
+    try {
+      const mod = await import(path)
+      // Wait for the async wasm bootstrap inside the module to finish.
+      // The bootstrap runs as a top-level IIFE; instantiation is async.
+      await new Promise((r) => setTimeout(r, 100))
+      return mod
+    } finally {
+      try {
+        unlinkSync(path)
+      } catch {
+        /* ignore */
+      }
+    }
+  }
+
+  it('emits a self-contained ES module with exported wasm wrappers', async () => {
+    const { tjs } = await import('./index')
+    const librarySource = `
+export wasm function add(a: f64, b: f64): f64 { return a + b }
+export wasm function mul(a: f64, b: f64): f64 { return a * b }
+`
+    const result = tjs(librarySource, { runTests: false })
+
+    // Both wrappers exported
+    expect(result.code).toContain('export function add(a, b)')
+    expect(result.code).toContain('export function mul(a, b)')
+
+    // Each wrapper forwards to its globalThis-registered wasm function
+    expect(result.code).toContain('globalThis.__tjs_wasm_add(a, b)')
+    expect(result.code).toContain('globalThis.__tjs_wasm_mul(a, b)')
+
+    // The wasm module is base64-embedded and instantiated at the top
+    expect(result.code).toContain('__wasmModuleB64')
+    expect(result.code).toContain('WebAssembly.compile')
+
+    // No external runtime setup required — the inline __tjs fallback
+    // covers everything actually used. (Only the helpers this file needs
+    // are inlined, so simple wasm-wrapper libraries get a small fallback;
+    // libraries with type checks would also inline MonadicError etc.)
+    expect(result.code).toContain('globalThis.__tjs?.createRuntime?.()')
+  })
+
+  it('dynamic import of the boundary form gives a working module', async () => {
+    const { tjs } = await import('./index')
+    const librarySource = `
+export wasm function add(a: f64, b: f64): f64 { return a + b }
+export wasm function mul(a: f64, b: f64): f64 { return a * b }
+`
+    const result = tjs(librarySource, { runTests: false })
+
+    const lib = await dynamicImportLibrary(result.code)
+    expect(typeof lib.add).toBe('function')
+    expect(typeof lib.mul).toBe('function')
+    expect(lib.add(7, 5)).toBe(12)
+    expect(lib.mul(6, 7)).toBe(42)
+  })
+
+  it('boundary form and composed form return identical results', async () => {
+    // Same library source, consumed two different ways:
+    //  - boundary:  transpile → write to disk → dynamic import → call exports
+    //  - composed:  Phase 3 — moduleLoader pulls the wasm body into the
+    //               consumer's own module
+    // Both should produce the same numeric results.
+    const { tjs } = await import('./index')
+    const { createRuntime } = await import('./runtime')
+    const { ModuleLoader, inMemoryFileSystem } = await import(
+      './module-loader'
+    )
+
+    const librarySource = `
+export wasm function dot3(
+  ax: f64, ay: f64, az: f64,
+  bx: f64, by: f64, bz: f64
+): f64 {
+  return ax * bx + ay * by + az * bz
+}
+`
+    // Boundary form
+    const libCompiled = tjs(librarySource, { runTests: false })
+    const lib = await dynamicImportLibrary(libCompiled.code)
+    const boundary = lib.dot3(1, 2, 3, 4, 5, 6)
+
+    // Composed form (Phase 3 path)
+    const loader = new ModuleLoader({
+      fs: inMemoryFileSystem({ '/proj/linalg.tjs': librarySource }),
+      baseDir: '/proj',
+    })
+    const consumerSource = `
+import { dot3 } from './linalg.tjs'
+`
+    const consumerCompiled = tjs(consumerSource, {
+      moduleLoader: loader,
+      filename: '/proj/app.tjs',
+      runTests: false,
+    })
+
+    let composed: number
+    const savedTjs = globalThis.__tjs
+    try {
+      globalThis.__tjs = createRuntime()
+      await new Function(
+        '__tjs',
+        `return (async () => { ${consumerCompiled.code}\n` +
+          `globalThis.__test_dot3 = dot3;\n` +
+          `})();`
+      )(globalThis.__tjs)
+      await new Promise((r) => setTimeout(r, 100))
+      composed = (globalThis as any).__test_dot3(1, 2, 3, 4, 5, 6)
+    } finally {
+      globalThis.__tjs = savedTjs
+      delete (globalThis as any).__test_dot3
+    }
+
+    expect(boundary).toBe(composed)
+    expect(boundary).toBe(1 * 4 + 2 * 5 + 3 * 6) // 32 — pen-and-paper truth
+  })
+
+  it('boundary form library works for a plain JS consumer (no tjs involvement)', async () => {
+    // Build the library, write to disk, import it, then call from a
+    // plain JS function (simulating a consumer with no tjs in the chain).
+    // The library's wasm bootstrap should run, the wrapper should be
+    // callable, and the wasm function should produce correct results.
+    const { tjs } = await import('./index')
+    const librarySource = `
+export wasm function square(x: f64): f64 { return x * x }
+`
+    const result = tjs(librarySource, { runTests: false })
+    const lib = await dynamicImportLibrary(result.code)
+
+    // Use the import from a plain JS function — no tjs runtime involved
+    function jsConsumer(x: number): number {
+      return lib.square(x) + 1
+    }
+    expect(jsConsumer(5)).toBe(26)
+  })
+})
+
 describe('cross-file wasm composition (Phase 3)', () => {
   // Build a minimal ModuleLoader backed by an in-memory FS for hermetic tests
   async function buildLoader(files: Record<string, string>) {

@@ -293,10 +293,18 @@ Done. New `composeImportedWasmFunctions(source, { loader, importerPath })` in `p
 
 **Wiring change worth flagging:** `transpileToJS` previously called `preprocess(cleanSource)` without options, separately from the `parse()` call that handled options. Phase 3 needed the loader to reach the standalone preprocess call too, so it now passes `{ moduleLoader, filename }`. This makes the two preprocess invocations consistent.
 
-### Phase 4 — JS distribution form (2 days)
-- Emitter: produce a standalone `.js` from a tjs library with the wasm module base64-embedded. The boundary-form wrapper generation reuses Phase 1's wrapper codegen with a different output mode (cross-boundary call instead of intra-module call) — same source produces both forms.
-- `package.json` `exports` routing for the dual distribution.
-- Test: same library, consumed once by tjs (composed) and once by plain JS (boundary), both produce identical results.
+### ✅ Phase 4 — JS distribution form (complete, 2026-05-14)
+Done — and it turned out to require essentially no new emitter code, because the boundary form was already what Phases 0.5 and 1 produce. A library file with `export wasm function dot(...)` transpiles to a self-contained ES module: bootstrap at top (one `WebAssembly.compile` + `instantiate`), `globalThis.__tjs_wasm_<name>` set per export, and `export function <name>(...)` wrappers that forward through `globalThis`. Same bytes, two wrappers — exactly the "same source, two forms" claim made it true at the bytecode level.
+
+Tests (4 new under `describe('boundary distribution form (Phase 4)')`):
+1. **Self-contained output:** transpiled library has exported wrappers, base64-embedded wasm module, no external runtime setup required (inline `__tjs` fallback covers everything used).
+2. **Real dynamic import:** library written to a tmp `.mjs` file, loaded via `await import(path)`, exported functions are callable and return correct results — this is the most authentic test of a real ESM consumer.
+3. **Equivalence:** same library source consumed two ways (boundary form via dynamic import, composed form via Phase 3 moduleLoader). Both return identical numeric results for `dot3(1,2,3,4,5,6)`. This is the Phase 4 acceptance criterion #4 from the canonical demo.
+4. **Plain JS consumer:** library imported and used from a plain JS function (no tjs runtime involvement); the wasm bootstrap runs, the wrapper is callable, results are correct.
+
+**package.json `exports` routing** is not new infrastructure — it's just how a published library declares the dual layout (`src/*.tjs` for tjs consumers, `dist/index.js` for everyone else). The transpilation that produces `dist/index.js` is what `tjs(librarySource)` does today. No code changes were needed in Phase 4 for the routing itself; documentation and an example layout can be added when `tjs-lang/linalg` ships (Phase 5).
+
+All 1961 fast-suite tests pass.
 
 ### Phase 5 — linalg stdlib (1 week)
 - Implement vector / matrix / 3D groups, all with `out`-parameter API per §6.
