@@ -1,5 +1,13 @@
 # WASM Libraries in tjs — Design & Plan
 
+> **Status: shipped in v0.8.0 (tag `v0.8.0`, 2026-05-14).**
+>
+> All planned phases — 0 (verify assumptions), 0.5 (module consolidation), 0.75 (transpile-time module loader), 1 (`wasm function` declarations), 1.5 (wasm-to-wasm `call <index>` instructions), 2 (purity + reserved `(!)` marker), 3 (cross-file composition with tree-shaking and transitive walking), 4 (boundary distribution form), 5 MVP (`tjs-lang/linalg`), 6 (docs) — are complete. The canonical 3-way vector-search benchmark proves the composed-WASM-loop matches inline single-block performance.
+>
+> User-facing reference: [`DOCS-WASM.md`](DOCS-WASM.md). Deferred follow-ups (linalg expansion, i32/f32/v128 return types in the bytecode emitter, top-K kernels, playground ModuleLoader integration, etc.) are tracked in `TODO.md` under "Cross-file WASM Libraries (v0.8.0) — Deferred follow-ups."
+>
+> The phase-by-phase notes below are kept as the design rationale + implementation history, useful for contributors making future changes to the wasm pipeline.
+
 ## Phase 0 status: COMPLETE (2026-05-04)
 
 Assumptions A1–A7 verified against `src/lang/wasm.ts`, `src/lang/emitters/js-wasm.ts`,

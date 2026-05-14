@@ -27,7 +27,9 @@ This file is a navigation index for AI agents. It does not contain the docs them
 - [CONTEXT.md](CONTEXT.md) — architecture deep dive (two-layer design, atom system, value resolution).
 - [docs/function-predicate-design.md](docs/function-predicate-design.md) — Type / Generic / FunctionPredicate design.
 - [docs/generic-dts-design.md](docs/generic-dts-design.md) — `.d.ts` generation from TJS.
-- [docs/WASM-QUICKSTART.md](docs/WASM-QUICKSTART.md) — inline WASM, SIMD, `wasmBuffer()`.
+- [docs/WASM-QUICKSTART.md](docs/WASM-QUICKSTART.md) — inline WASM, SIMD, `wasmBuffer()` (5-minute intro).
+- [DOCS-WASM.md](DOCS-WASM.md) — canonical WASM reference: both inline `wasm{}` blocks and top-level `wasm function` declarations, memory model, cross-file composition (Phase 3), boundary distribution form (Phase 4), tjs-lang/linalg, current limitations.
+- [wasm-library-plan.md](wasm-library-plan.md) — cross-file WASM library design + phased implementation history. Shipped in v0.8.0; see plan for what's deferred.
 - [docs/native-engine-integration.md](docs/native-engine-integration.md) — embedding into a native runtime.
 
 ## Examples and live code
@@ -44,6 +46,7 @@ This file is a navigation index for AI agents. It does not contain the docs them
 - `tjs-lang/vm` → `src/vm/index.ts` — VM and atoms.
 - `tjs-lang/eval` → `src/lang/eval.ts` — `Eval`, `SafeFunction`.
 - `tjs-lang/batteries` → `src/batteries/index.ts` — LM Studio integration (lazy, local-only).
+- `tjs-lang/linalg` → `src/linalg/index.tjs` — SIMD linear-algebra kernels (`dot`, `norm_sq`, `dot_at`, `norm_sq_at`).
 
 ## Source map (for code-reading agents)
 
@@ -55,7 +58,10 @@ This file is a navigation index for AI agents. It does not contain the docs them
 - `src/lang/runtime.ts` — TJS runtime: monadic errors, `checkType`, `createRuntime`.
 - `src/lang/inference.ts` — infer `TypeDescriptor` from example values.
 - `src/lang/json-schema.ts` — JSON Schema from `TypeDescriptor`.
-- `src/lang/wasm.ts` — WASM bytecode emission.
+- `src/lang/wasm.ts` — WASM bytecode emission. Multi-function module composition; wasm-to-wasm `call <index>` resolution; per-function index map for cross-call resolution (v0.8.0).
+- `src/lang/emitters/js-wasm.ts` — JS bootstrap emitter for compiled wasm modules (one `WebAssembly.compile` per file).
+- `src/lang/module-loader.ts` — transpile-time `.tjs`/`.ts`/`.js` module loader; used by cross-file `wasm function` composition (v0.8.0).
+- `src/linalg/index.tjs` — `tjs-lang/linalg` stdlib source (v0.8.0).
 - `src/lang/linter.ts` — static analysis (unused vars, unreachable code).
 - `src/vm/runtime.ts` — atom implementations, expression sandboxing, fuel charging (security-critical, ~3000 lines).
 - `src/vm/vm.ts` — `AgentVM` class.

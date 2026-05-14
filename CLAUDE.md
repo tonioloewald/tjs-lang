@@ -87,7 +87,10 @@ bun run functions:serve     # Local functions emulator
 - `src/lang/json-schema.ts` - JSON Schema generation from TypeDescriptors and example values
 - `src/lang/linter.ts` - Static analysis (unused vars, unreachable code, no-explicit-new)
 - `src/lang/runtime.ts` - TJS runtime (monadic errors, type checking, wrapClass)
-- `src/lang/wasm.ts` - WASM compiler (opcodes, disassembler, bytecode generation)
+- `src/lang/wasm.ts` - WASM compiler (opcodes, disassembler, bytecode generation; multi-function module composition; wasm-to-wasm `call <index>` resolution)
+- `src/lang/emitters/js-wasm.ts` - JS bootstrap emitter for compiled wasm modules (one `WebAssembly.compile` per file, name→export-index table, type-aware wrappers)
+- `src/lang/module-loader.ts` - Transpile-time `.tjs`/`.ts`/`.js` module loader (Phase 0.75); used by cross-file `wasm function` composition
+- `src/linalg/` - `tjs-lang/linalg` stdlib subpath (f32x4 SIMD vector kernels)
 - `src/types/` - Type system definitions (Type.ts, Generic.ts)
 - `src/transpiler/` - AJS transpiler (source → AST)
 - `src/batteries/` - LM Studio integration (lazy init, model audit, vector search)
@@ -487,7 +490,7 @@ The CLI (`bun src/cli/tjs.ts run`) does NOT inject the test-block `expect` harne
 - `TODO.md` — Open work, organized by area; move items to the **Completed** section when done
 - `PLAN.md` — Roadmap
 - `DOCS-WASM.md` — Canonical WASM reference: inline blocks, `wasm function` declarations, memory model, cross-file composition, `tjs-lang/linalg`, current limitations
-- `wasm-library-plan.md` — Cross-file WASM library design (composable `wasm function` declarations, transpile-time module composition, linalg stdlib). Phases 0–5 complete; see plan for current status.
+- `wasm-library-plan.md` — Cross-file WASM library design (composable `wasm function` declarations, transpile-time module composition, linalg stdlib). **Shipped in v0.8.0** — all phases (0.5, 0.75, 1, 1.5, 2, 3, 4, 5 MVP, 6) complete. See the plan for what's deferred (linalg expansion, i32/f32/v128 return types, etc.).
 - `MANIFESTO-BUILDER.md` / `MANIFESTO-ENTERPRISE.md` — Positioning docs (audience-targeted pitches)
 - `benchmarks.md` — Top-level benchmark results (separate from `guides/benchmarks.md`)
 

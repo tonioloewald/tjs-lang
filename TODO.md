@@ -61,6 +61,37 @@
   - SIMD cosine similarity demonstrated in vector search demo
   - TODO: integrate as a battery atom with auto-detect + fallback
 
+## Cross-file WASM Libraries (v0.8.0)
+
+Shipped in v0.8.0 — design + history in `wasm-library-plan.md`, user-facing reference in `DOCS-WASM.md`.
+
+- [x] Module consolidation: one `WebAssembly.Module` per file with N exports (was N separate modules sharing memory)
+- [x] Transpile-time `ModuleLoader` (`src/lang/module-loader.ts`) — opt-in `.tjs`/`.ts`/`.js` resolution
+- [x] `(export)? wasm function NAME(params): RetType { body }` declaration syntax
+- [x] Purity enforcement (backend already rejects host imports) + `(!)` unsafe marker reserved
+- [x] Cross-file composition: `import { dot } from 'tjs-lang/linalg'` resolves at transpile time
+- [x] Wasm-to-wasm `call <index>` instructions (Phase 1.5) — no JS↔wasm boundary on intra-module calls
+- [x] Tree-shaking + transitive dep walking in cross-file composition (only reached functions get pulled in)
+- [x] Boundary distribution form: same source → self-contained `.js` for non-tjs consumers
+- [x] `tjs-lang/linalg` MVP — `dot`, `norm_sq`, `dot_at`, `norm_sq_at` (f32x4 SIMD)
+- [x] Canonical 3-way vector-search benchmark proves composed-WASM matches inline perf
+- [x] DOCS-WASM.md + TJS-FOR-JS.md additions + playground examples (`wasm-functions.md`, `wasm-library-author.md`, `wasm-library-consumer.md`)
+- [x] JSDoc `/** */` blocks extracted by playground docs renderer
+
+### Deferred follow-ups
+
+- [ ] Wire `ModuleLoader` into the playground's `tjs()` invocation so cross-file composition works inside the playground (today the playground resolves imports at runtime — works but uses the boundary form). See `Playground - Module Management` section above for the full note. **High priority — the canonical wasm-library demo runs at boundary-form perf in the playground until this lands.**
+- [ ] `i32` / `f32` / `v128` return types in wasm bytecode emitter (currently all returns are f64-or-void). Parsed today via `: RetType` annotation but not driving emission. Needed for top-K (i32 indices) and any wasm function that naturally returns f32 from SIMD.
+- [ ] `tjs-lang/linalg` expansion beyond MVP:
+  - Vector: `norm`, `normalize`, `add`, `sub`, `scale`, `lerp` (use `out` parameter for buffer results)
+  - Matrix: `matmul`, `transpose`, `identity`, `inverse_3x3`, `inverse_4x4`
+  - 3D: `cross`, `quat_mul`, `mat4_from_quat`, `look_at`, `perspective`
+  - Batched kernels: `cosine_search(corpus, query, count, dim) → bestIdx`, `top_k_cosine(corpus, query, count, dim, k, outIdx, outScores)` (one boundary crossing for the whole workload regardless of K)
+- [ ] gl-matrix benchmark — measure linalg vs the standard JS vector library at realistic scale
+- [ ] Production `dist/tjs-linalg.js` bundle wired into `scripts/build.ts` (currently `bun` resolves the `.tjs` source directly; production consumers need the pre-transpiled `.js`)
+- [ ] SIMD tail-loop for `n` not a multiple of 4 (today callers must pad)
+- [ ] Inline `wasm{}` blocks still subject to `==` → `Eq()` rewrite (the inline-block extractor runs after `transformEqualityToStructural`; the new `wasm function` extractor runs before it). Fix: move `extractWasmBlocks` earlier in `preprocess()` too. Pre-existing bug, not introduced by v0.8.0.
+
 ## Editor
 
 - [ ] Embedded AJS syntax highlighting

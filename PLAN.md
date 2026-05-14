@@ -529,6 +529,7 @@ The AST is the source of truth. Targets are just emission strategies.
 | 15  | Asymmetric get/set     | ✅     | JS native get/set captures asymmetric types                     |
 | 16  | `==` that works        | ✅     | Eq/NotEq + Is/IsNot, on by default in native TJS, honest typeof |
 | 17  | WASM blocks            | ✅     | Full: SIMD intrinsics, wasmBuffer, fallback, base64 embed       |
+| 17a | WASM libraries         | ✅     | v0.8.0: `wasm function` declarations, cross-file composition, wasm-to-wasm calls, `tjs-lang/linalg` MVP, module consolidation (one `WebAssembly.Module` per file), tree-shaking + transitive walk. See `wasm-library-plan.md`. |
 | 18  | Death to `new`         | ✅     | wrapClass + no-explicit-new lint rule                           |
 | 19  | Linter                 | ✅     | unused vars, unreachable code, no-explicit-new                  |
 | 20  | TS→TJS converter       | ✅     | `tjs convert` — proven on Zod, Effect, Radash, etc.             |
