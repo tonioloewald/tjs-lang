@@ -32,6 +32,7 @@ import {
   transformTryWithoutCatch,
   extractWasmBlocks,
   extractWasmFunctions,
+  composeImportedWasmFunctions,
   transformIsOperators,
   insertAsiProtection,
   transformEqualityToStructural,
@@ -301,6 +302,18 @@ export function preprocess(
   const wasmFunctions = extractWasmFunctions(source)
   source = wasmFunctions.source
 
+  // Phase 3: cross-file wasm-function composition. When a ModuleLoader is
+  // supplied, resolve `import { ... } from '<spec>'` statements at transpile
+  // time. Any imported names that correspond to `wasm function` declarations
+  // in the source module get pulled into the consumer's wasm module, with
+  // the import statement rewritten to a local JS wrapper. No loader supplied
+  // = no behavior change (imports stay verbatim, runtime resolves them).
+  const importedWasm = composeImportedWasmFunctions(source, {
+    loader: options.moduleLoader,
+    importerPath: options.filename,
+  })
+  source = importedWasm.source
+
   // Unified paren expression transformer
   // Handles: function params, arrow params, return types, safe/unsafe markers
   // Model: open paren can be ( or (? or (!, close can be ) or )-> or )-? or )-!
@@ -341,10 +354,17 @@ export function preprocess(
   const wasmBlocks = extractWasmBlocks(source)
   source = wasmBlocks.source
 
-  // Combine both flavors of wasm blocks for the downstream emitter.
-  // They're indistinguishable from the compiler's perspective — both have
+  // Combine all flavors of wasm blocks for the downstream emitter.
+  // They're indistinguishable from the compiler's perspective — all have
   // an id, body, captures, and need the same module composition treatment.
-  const allWasmBlocks = [...wasmFunctions.blocks, ...wasmBlocks.blocks]
+  //   - wasmFunctions: top-level `wasm function NAME(...)` decls in this file
+  //   - importedWasm:  cross-file `wasm function`s pulled in via Phase 3
+  //   - wasmBlocks:    inline `wasm { ... }` blocks nested in tjs functions
+  const allWasmBlocks = [
+    ...wasmFunctions.blocks,
+    ...importedWasm.blocks,
+    ...wasmBlocks.blocks,
+  ]
 
   // Extract and run test blocks: test 'desc'? { body }
   // Tests run at transpile time and are stripped from output
@@ -452,7 +472,11 @@ export function parse(
     letAnnotations,
     tjsModes,
   } = colonShorthand
-    ? preprocess(source, { vmTarget })
+    ? preprocess(source, {
+        vmTarget,
+        moduleLoader: options.moduleLoader,
+        filename: options.filename,
+      })
     : {
         source,
         returnType: undefined,

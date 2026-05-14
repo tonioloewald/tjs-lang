@@ -101,6 +101,15 @@ export interface TJSTranspileOptions {
    * Used when tests depend on imported modules.
    */
   resolvedImports?: Record<string, string>
+  /**
+   * Optional ModuleLoader for cross-file `wasm function` composition (Phase 3
+   * of the wasm-library plan). When provided, `import { dot } from
+   * 'tjs-lang/linalg'`-style imports are resolved at transpile time and any
+   * matching `wasm function` declarations are composed into this file's
+   * consolidated WebAssembly.Module. When omitted, imports are preserved
+   * verbatim (default behavior — runtime resolves them).
+   */
+  moduleLoader?: any
 }
 
 /** Result of running tests at transpile time */
@@ -631,13 +640,19 @@ export function transpileToJS(
   } = parse(cleanSource, {
     filename,
     colonShorthand: true,
+    moduleLoader: options.moduleLoader,
   })
 
   // Find ALL functions in the program
   const functions = findAllFunctions(program)
 
   // Preprocess source (handles TJS syntax transformations)
-  const preprocessed = preprocess(cleanSource)
+  // Pass through the moduleLoader so Phase 3 cross-file wasm composition
+  // sees imported `wasm function` declarations.
+  const preprocessed = preprocess(cleanSource, {
+    moduleLoader: options.moduleLoader,
+    filename,
+  })
 
   // Apply the same source-level equality transforms to extracted test/mock
   // bodies so they observe the module's TJS semantics (e.g. structural ==).

@@ -15,6 +15,17 @@ export interface ParseOptions {
    * When true, skips == to Is() transformation since the VM handles == correctly.
    */
   vmTarget?: boolean
+  /**
+   * Optional ModuleLoader for cross-file `wasm function` composition (Phase 3).
+   * When provided, imports are resolved at transpile time and matching wasm
+   * functions are composed into the consumer's WebAssembly.Module. When
+   * omitted, imports are preserved verbatim (the default — runtime resolves
+   * them as before).
+   *
+   * Type is left as `any` here to avoid a circular import with module-loader.ts;
+   * callers should pass a `ModuleLoader` instance.
+   */
+  moduleLoader?: any
 }
 
 /**
@@ -37,6 +48,13 @@ export interface ParseOptions {
 export interface WasmBlock {
   /** Unique ID for this block */
   id: string
+  /**
+   * Declared function name (only set for top-level `wasm function NAME(...)`
+   * declarations — Phase 1+). Used by Phase 3 cross-file composition to
+   * match an imported symbol against a wasm function declaration. Inline
+   * `wasm {}` blocks have no name and don't participate in composition.
+   */
+  name?: string
   /** The body (JS subset that compiles to WASM, also used as fallback) */
   body: string
   /** Explicit fallback body (only if different from body) */
@@ -83,6 +101,13 @@ export interface PreprocessOptions {
    * Default: false (transform == to Is() for TJS code running in regular JS)
    */
   vmTarget?: boolean
+  /**
+   * Optional ModuleLoader for cross-file `wasm function` composition (Phase 3).
+   * See ParseOptions.moduleLoader for details.
+   */
+  moduleLoader?: any
+  /** Path of the file being preprocessed (used as importer context). */
+  filename?: string
 }
 
 /**

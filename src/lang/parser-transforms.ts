@@ -357,6 +357,7 @@ export function extractWasmFunctions(source: string): {
     const id = `__tjs_wasm_${name}`
     const block: WasmBlock = {
       id,
+      name, // enables Phase 3 cross-file matching against imported symbols
       body,
       captures,
       start: matchStart,
@@ -381,6 +382,133 @@ export function extractWasmFunctions(source: string): {
   }
 
   return { source: result, blocks }
+}
+
+/**
+ * Phase 3: cross-file wasm-function composition.
+ *
+ * Scans the consumer's source for `import { name1, name2, ... } from 'spec'`
+ * statements. For each, resolves the spec via the supplied ModuleLoader; if
+ * the imported file is tjs/ts and one of the imported names corresponds to a
+ * `wasm function` declared there, the function's WasmBlock is pulled into the
+ * consumer's compilation and replaced in source by a local JS wrapper. The
+ * import statement is rewritten to remove the satisfied names (or removed
+ * entirely if every imported name was wasm-composed).
+ *
+ * This is the heart of the cross-file composition story: imported wasm
+ * functions become local functions in the consumer's single WebAssembly.Module
+ * (via the Phase 0.5 consolidated-module path). The library's transpiled .js
+ * is NOT involved — the source is consumed at transpile time.
+ *
+ * Caller is responsible for providing a configured ModuleLoader. When no
+ * loader is supplied (the common case before Phase 3 is fully wired up), this
+ * function returns the source unchanged with an empty blocks array.
+ *
+ * @param source the consumer's source (after extractWasmFunctions on its own
+ *               wasm functions, before transformParenExpressions)
+ * @param options.loader the ModuleLoader to resolve imports through
+ * @param options.importerPath the path of the file being transpiled (used as
+ *               the resolver's importer context); optional
+ * @returns updated source + the list of imported wasm function blocks
+ */
+export function composeImportedWasmFunctions(
+  source: string,
+  options: {
+    loader?: {
+      load(specifier: string, importerPath?: string): {
+        parseResult: { wasmBlocks: WasmBlock[] }
+      } | null
+    }
+    importerPath?: string
+  }
+): { source: string; blocks: WasmBlock[] } {
+  const { loader, importerPath } = options
+  if (!loader) return { source, blocks: [] }
+
+  const composedBlocks: WasmBlock[] = []
+  // Track imported names that have been composed, so we don't pull the same
+  // wasm function in twice if it's imported from multiple specifiers.
+  const composedNames = new Set<string>()
+
+  // Match `import { ... } from 'spec'` or `import { ... } from "spec"`.
+  // Default imports, namespace imports, and side-effect imports are left
+  // alone — only named-bindings are candidates for wasm composition.
+  // Multiline imports are supported via the [^}]*? non-greedy match.
+  const importRe = /^(\s*)import\s*\{([^}]*?)\}\s*from\s*(['"])([^'"]+)\3\s*;?\s*$/gm
+
+  const replaced = source.replace(
+    importRe,
+    (match, indent: string, bindings: string, _quote, spec: string) => {
+      const mod = loader.load(spec, importerPath)
+      if (!mod) return match // not a loadable tjs/ts module — leave as-is
+
+      const importedWasmFunctions = new Map<string, WasmBlock>()
+      for (const b of mod.parseResult.wasmBlocks) {
+        if (b.name) importedWasmFunctions.set(b.name, b)
+      }
+      if (importedWasmFunctions.size === 0) return match // no wasm here
+
+      // Parse the bindings list: `{ a, b as c, d }`
+      // Each binding is `name` or `name as local` (we keep `local` as the
+      // local name; for wasm-composed names, `local` must equal the wasm
+      // function name since the local wrapper uses the original name).
+      const parts = bindings
+        .split(',')
+        .map((p) => p.trim())
+        .filter((p) => p.length > 0)
+
+      const wrappers: string[] = []
+      const remainingBindings: string[] = []
+
+      for (const part of parts) {
+        const m = part.match(/^(\w+)(?:\s+as\s+(\w+))?$/)
+        if (!m) {
+          // Couldn't parse — be conservative and keep it as-is
+          remainingBindings.push(part)
+          continue
+        }
+        const imported = m[1]
+        const local = m[2] ?? m[1]
+        const wasmBlock = importedWasmFunctions.get(imported)
+        if (!wasmBlock) {
+          // Not a wasm function in the source module — keep the import
+          remainingBindings.push(part)
+          continue
+        }
+        // Composed: pull the block in (once) and emit a local wrapper
+        // that uses the LOCAL name (in case of `as` renames) but forwards
+        // to the wasm export's original id.
+        if (!composedNames.has(wasmBlock.id)) {
+          composedBlocks.push(wasmBlock)
+          composedNames.add(wasmBlock.id)
+        }
+        const argNames = wasmBlock.captures.map((c) =>
+          c.split(':')[0].trim()
+        )
+        wrappers.push(
+          `function ${local}(${argNames.join(
+            ', '
+          )}) { return globalThis.${wasmBlock.id}(${argNames.join(', ')}) }`
+        )
+      }
+
+      const wrapperBlock = wrappers.join('\n')
+
+      if (remainingBindings.length === 0) {
+        // All names were composed — drop the import statement entirely
+        return wrapperBlock ? `${indent}${wrapperBlock}` : `${indent}`
+      }
+      // Some names remain — keep them as a smaller import
+      const trimmedImport = `${indent}import { ${remainingBindings.join(
+        ', '
+      )} } from '${spec}'`
+      return wrapperBlock
+        ? `${trimmedImport}\n${indent}${wrapperBlock}`
+        : trimmedImport
+    }
+  )
+
+  return { source: replaced, blocks: composedBlocks }
 }
 
 /**

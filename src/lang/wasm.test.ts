@@ -2298,6 +2298,238 @@ function mywasm(x: 0): 0 { return x }
   })
 })
 
+describe('cross-file wasm composition (Phase 3)', () => {
+  // Build a minimal ModuleLoader backed by an in-memory FS for hermetic tests
+  async function buildLoader(files: Record<string, string>) {
+    const { ModuleLoader, inMemoryFileSystem } = await import('./module-loader')
+    return new ModuleLoader({
+      fs: inMemoryFileSystem(files),
+      baseDir: '/proj',
+    })
+  }
+
+  it('composes an imported wasm function into the consumer module', async () => {
+    const { tjs } = await import('./index')
+    const loader = await buildLoader({
+      '/proj/linalg.tjs': `
+wasm function dot(a: f64, b: f64): f64 {
+  return a * b
+}
+`,
+    })
+    const source = `
+import { dot } from './linalg.tjs'
+
+function compute(a: 0.0, b: 0.0): 0.0 {
+  return dot(a, b)
+}
+`
+    const result = tjs(source, {
+      moduleLoader: loader,
+      filename: '/proj/app.tjs',
+      runTests: false,
+    })
+
+    // The imported wasm function got composed in
+    expect(result.wasmCompiled).toBeDefined()
+    expect(result.wasmCompiled).toHaveLength(1)
+    expect(result.wasmCompiled![0]).toMatchObject({
+      id: '__tjs_wasm_dot',
+      success: true,
+    })
+
+    // The import statement was rewritten to a local wrapper
+    expect(result.code).not.toContain("import { dot } from './linalg.tjs'")
+    expect(result.code).toContain('function dot(a, b)')
+    expect(result.code).toContain('globalThis.__tjs_wasm_dot(a, b)')
+  })
+
+  it('keeps imports unchanged when no loader is supplied', async () => {
+    const { tjs } = await import('./index')
+    const source = `
+import { dot } from './linalg.tjs'
+
+function compute(a: 0.0, b: 0.0): 0.0 {
+  return dot(a, b)
+}
+`
+    // No moduleLoader option — default behavior preserved
+    const result = tjs(source, { runTests: false })
+    expect(result.code).toContain("import { dot } from './linalg.tjs'")
+    expect(result.wasmCompiled ?? []).toHaveLength(0)
+  })
+
+  it('preserves imports that do NOT resolve to wasm functions', async () => {
+    const { tjs } = await import('./index')
+    const loader = await buildLoader({
+      '/proj/regular.tjs': `
+export function helper(x: 0.0): 0.0 { return x + 1.0 }
+`,
+    })
+    const source = `
+import { helper } from './regular.tjs'
+
+function compute(x: 0.0): 0.0 {
+  return helper(x)
+}
+`
+    const result = tjs(source, {
+      moduleLoader: loader,
+      filename: '/proj/app.tjs',
+      runTests: false,
+    })
+    // `helper` is a regular function, not a wasm function — import stays
+    expect(result.code).toContain("import { helper } from './regular.tjs'")
+    expect(result.wasmCompiled ?? []).toHaveLength(0)
+  })
+
+  it('handles mixed imports (some wasm, some regular) in one statement', async () => {
+    const { tjs } = await import('./index')
+    const loader = await buildLoader({
+      '/proj/lib.tjs': `
+wasm function fast(a: f64): f64 { return a * 2 }
+export function slow(x: 0.0): 0.0 { return x + 1.0 }
+`,
+    })
+    const source = `
+import { fast, slow } from './lib.tjs'
+
+function compute(x: 0.0): 0.0 {
+  return fast(x) + slow(x)
+}
+`
+    const result = tjs(source, {
+      moduleLoader: loader,
+      filename: '/proj/app.tjs',
+      runTests: false,
+    })
+    // fast was composed; slow remains imported
+    expect(result.wasmCompiled).toHaveLength(1)
+    expect(result.wasmCompiled![0].id).toBe('__tjs_wasm_fast')
+    expect(result.code).toContain('function fast(a)')
+    expect(result.code).toContain('globalThis.__tjs_wasm_fast(a)')
+    // The remaining import keeps `slow` only
+    expect(result.code).toMatch(/import\s*\{\s*slow\s*\}\s*from/)
+    expect(result.code).not.toMatch(
+      /import\s*\{\s*fast\s*,\s*slow\s*\}\s*from/
+    )
+  })
+
+  it('composes multiple wasm functions from one library', async () => {
+    const { tjs } = await import('./index')
+    const loader = await buildLoader({
+      '/proj/linalg.tjs': `
+wasm function dot(a: f64, b: f64): f64 { return a * b }
+wasm function add(a: f64, b: f64): f64 { return a + b }
+wasm function unused(x: f64): f64 { return x }
+`,
+    })
+    const source = `
+import { dot, add } from './linalg.tjs'
+
+function compute(a: 0.0, b: 0.0): 0.0 {
+  return add(dot(a, b), b)
+}
+`
+    const result = tjs(source, {
+      moduleLoader: loader,
+      filename: '/proj/app.tjs',
+      runTests: false,
+    })
+    expect(result.wasmCompiled).toHaveLength(2)
+    const ids = result.wasmCompiled!.map((b) => b.id).sort()
+    expect(ids).toEqual(['__tjs_wasm_add', '__tjs_wasm_dot'])
+    // One consolidated WebAssembly.Module per file (Phase 0.5 acceptance)
+    const compileCalls = (result.code.match(/WebAssembly\.compile\(/g) || [])
+      .length
+    expect(compileCalls).toBe(1)
+  })
+
+  it('module shape: composed functions are local (no extra imports beyond env.memory)', async () => {
+    // This is the Phase 3 acceptance criterion: imported wasm functions
+    // are LOCAL to the consumer's module, not imported at the wasm level.
+    const { tjs } = await import('./index')
+    const { compileBlocksToModule } = await import('./wasm')
+    const loader = await buildLoader({
+      '/proj/linalg.tjs': `
+wasm function dot(a: f64, b: f64): f64 { return a * b }
+`,
+    })
+    const source = `
+import { dot } from './linalg.tjs'
+function compute(a: 0.0, b: 0.0): 0.0 { return dot(a, b) }
+`
+    tjs(source, {
+      moduleLoader: loader,
+      filename: '/proj/app.tjs',
+      runTests: false,
+    })
+
+    // Now compile the loaded module's wasm blocks and inspect the bytes.
+    // The wasm binary format: after the magic + version, sections appear.
+    // Section 2 is "import" — we want to verify ONLY env.memory is imported
+    // (no host function imports).
+    const linalgBlocks = (await loader.load('./linalg.tjs', '/proj/app.tjs'))!
+      .parseResult.wasmBlocks
+    const composed = compileBlocksToModule(linalgBlocks)
+    expect(composed.exports).toHaveLength(1)
+    expect(composed.exports[0].id).toBe('__tjs_wasm_dot')
+
+    // The composed module needs no memory for a pure-scalar `dot(a, b) = a*b`
+    expect(composed.needsMemory).toBe(false)
+
+    // Confirm the bytecode parses as a valid WebAssembly.Module
+    const mod = new WebAssembly.Module(composed.bytes)
+    expect(mod).toBeInstanceOf(WebAssembly.Module)
+
+    // Inspect imports: should have NO function imports.
+    // WebAssembly.Module.imports returns [{ module, name, kind }, ...]
+    const imports = WebAssembly.Module.imports(mod)
+    const functionImports = imports.filter((i) => i.kind === 'function')
+    expect(functionImports).toHaveLength(0)
+  })
+
+  it('end-to-end: imported wasm function runs and produces correct results', async () => {
+    const { tjs } = await import('./index')
+    const { createRuntime } = await import('./runtime')
+    const loader = await buildLoader({
+      '/proj/linalg.tjs': `
+wasm function add(a: f64, b: f64): f64 { return a + b }
+wasm function mul(a: f64, b: f64): f64 { return a * b }
+`,
+    })
+    const source = `
+import { add, mul } from './linalg.tjs'
+`
+    const result = tjs(source, {
+      moduleLoader: loader,
+      filename: '/proj/app.tjs',
+      runTests: false,
+    })
+
+    const savedTjs = globalThis.__tjs
+    try {
+      globalThis.__tjs = createRuntime()
+      await new Function(
+        '__tjs',
+        `return (async () => { ${result.code}\n` +
+          `globalThis.__test_add = add;\n` +
+          `globalThis.__test_mul = mul;\n` +
+          `})();`
+      )(globalThis.__tjs)
+
+      await new Promise((r) => setTimeout(r, 100))
+
+      expect((globalThis as any).__test_add(2, 3)).toBe(5)
+      expect((globalThis as any).__test_mul(4, 5)).toBe(20)
+    } finally {
+      globalThis.__tjs = savedTjs
+      delete (globalThis as any).__test_add
+      delete (globalThis as any).__test_mul
+    }
+  })
+})
+
 describe('wasm function purity & unsafe marker (Phase 2)', () => {
   it('rejects `wasm function (! ...)` with a clear error', async () => {
     const { tjs } = await import('./index')

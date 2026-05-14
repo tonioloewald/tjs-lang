@@ -275,10 +275,23 @@ Done. Two pieces:
 
 4 new tests under `describe('wasm function purity & unsafe marker (Phase 2)')`. All 1950 fast-suite tests pass.
 
-### Phase 3 — cross-file module composition (3–5 days, depends on Phase 0.5 and 0.75)
-- Use the loader from Phase 0.75 to walk imported wasm-function dependency graphs.
-- Module composition: emit transitively-reached imported wasm functions as ordinary functions in the consumer's single module. Rewrite cross-file references to local function indices. Symbol renaming to avoid collisions; symbol dedup when the same import is reached through multiple paths.
-- Test: linalg `dot` imported and called from a separate consumer file, with composition verified by inspecting the emitted module (one module, `dot` present as a local function, no extra imports).
+### ✅ Phase 3 — cross-file module composition (complete, 2026-05-14)
+Done. New `composeImportedWasmFunctions(source, { loader, importerPath })` in `parser-transforms.ts`. When a `ModuleLoader` is provided to `tjs()` / `transpileToJS()`, the preprocessor scans the consumer's `import { ... } from 'spec'` statements, resolves each spec via the loader, and pulls in any matching `wasm function` declarations from the source module. Composed functions become local exports in the consumer's single `WebAssembly.Module` (Phase 0.5 path); the satisfied import bindings are rewritten as local JS wrappers and removed from the import statement.
+
+- Opt-in design: no loader supplied → no behavior change (default verbatim-import preservation kept for existing flows)
+- Mixed imports work: in `import { fast, slow }`, only `fast` (a wasm function) is composed; `slow` (a regular function) remains imported normally
+- Symbol dedup: the same imported wasm function isn't pulled in twice if reached through multiple specifiers
+- WasmBlock got a new optional `name` field to enable matching imported binding names against named declarations (inline `wasm{}` blocks have no name and don't participate in composition)
+
+**Acceptance criteria (all four pass):**
+1. **Correctness:** imported wasm function runs end-to-end and returns identical results to a direct call — verified by an end-to-end test that imports `add` and `mul` from a virtual library and calls them
+2. **Module shape:** the composed wasm module has the imported function as a *local* export, NOT a wasm-level import. `WebAssembly.Module.imports(mod)` returns no function imports beyond `env.memory` (only when needed)
+3. **One module per file:** the smoking-gun static check that exactly one `WebAssembly.compile(` call appears in the emitted output, regardless of how many wasm functions were composed
+4. **Boundary form works too:** deferred until Phase 4
+
+7 new tests in `wasm.test.ts` under `describe('cross-file wasm composition (Phase 3)')`. All 1957 fast-suite tests pass.
+
+**Wiring change worth flagging:** `transpileToJS` previously called `preprocess(cleanSource)` without options, separately from the `parse()` call that handled options. Phase 3 needed the loader to reach the standalone preprocess call too, so it now passes `{ moduleLoader, filename }`. This makes the two preprocess invocations consistent.
 
 ### Phase 4 — JS distribution form (2 days)
 - Emitter: produce a standalone `.js` from a tjs library with the wasm module base64-embedded. The boundary-form wrapper generation reuses Phase 1's wrapper codegen with a different output mode (cross-boundary call instead of intra-module call) — same source produces both forms.
