@@ -14,9 +14,10 @@
  */
 
 import { describe, it, expect } from 'bun:test'
-import { readFileSync } from 'node:fs'
+import { readFileSync, realpathSync } from 'node:fs'
 import { join } from 'node:path'
 import { tmpdir } from 'node:os'
+import { pathToFileURL } from 'node:url'
 import { writeFileSync, unlinkSync } from 'node:fs'
 
 const LINALG_PATH = join(import.meta.dir, 'index.tjs')
@@ -41,8 +42,13 @@ async function dynamicImportLibrary(transpiled: string): Promise<any> {
     `linalg-test-${Date.now()}-${Math.random().toString(36).slice(2, 8)}.mjs`
   )
   writeFileSync(path, transpiled)
+  // Resolve macOS /var → /private/var symlink and use file:// URL — bun's
+  // resolver in subsequent test cases (after a `new Function(emittedCode)`
+  // execution earlier in the same file) fails on bare absolute paths with
+  // "Cannot find module ... from ''". This form is robust to that state.
+  const url = pathToFileURL(realpathSync(path)).href
   try {
-    const mod = await import(path)
+    const mod = await import(url)
     // Wait for the async wasm bootstrap inside the module to finish
     await new Promise((r) => setTimeout(r, 100))
     return mod

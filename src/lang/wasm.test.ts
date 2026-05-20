@@ -2317,14 +2317,20 @@ describe('boundary distribution form (Phase 4)', () => {
   async function dynamicImportLibrary(transpiled: string): Promise<any> {
     const { tmpdir } = await import('node:os')
     const { join } = await import('node:path')
-    const { writeFileSync, unlinkSync } = await import('node:fs')
+    const { writeFileSync, unlinkSync, realpathSync } = await import('node:fs')
+    const { pathToFileURL } = await import('node:url')
     const path = join(
       tmpdir(),
       `tjs-lib-${Date.now()}-${Math.random().toString(36).slice(2, 8)}.mjs`
     )
     writeFileSync(path, transpiled)
+    // Resolve macOS /var → /private/var symlink and use file:// URL — bun's
+    // resolver in subsequent test cases (after a `new Function(emittedCode)`
+    // execution earlier in the same file) fails on bare absolute paths with
+    // "Cannot find module ... from ''". This form is robust to that state.
+    const url = pathToFileURL(realpathSync(path)).href
     try {
-      const mod = await import(path)
+      const mod = await import(url)
       // Wait for the async wasm bootstrap inside the module to finish.
       // The bootstrap runs as a top-level IIFE; instantiation is async.
       await new Promise((r) => setTimeout(r, 100))
