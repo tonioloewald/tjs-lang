@@ -113,7 +113,11 @@ createAgent(source, vm)     // Creates callable agent
 
 // VM
 const vm = new AgentVM(customAtoms)
-await vm.run(ast, args, { fuel, capabilities, timeoutMs, trace })
+await vm.run(ast, args, {
+  fuel, capabilities, timeoutMs, trace,
+  costOverrides: { atomOp: 5 },             // per-atom fuel cost override
+  timeoutOverrides: { atomOp: 60_000 },     // per-atom wall-clock override (ms; 0 disables)
+})
 
 // Builder
 Agent.take(schema).varSet(...).httpFetch(...).return(schema)
@@ -208,7 +212,7 @@ fn('a', 'b') // Returns { error: 'type mismatch', ... }
 **Design Notes:**
 
 - The two steps are intentionally separate for tree-shaking (TS support is optional)
-- `fromTS` lives in a separate entry point (`tosijs/lang/from-ts`)
+- `fromTS` lives in a separate entry point (`tjs-lang/lang/from-ts`)
 - Import only what you need to keep bundle size minimal
 - Each step is independently testable (see `src/lang/codegen.test.ts`)
 - Constrained generics (`<T extends { id: number }>`) use the constraint as the example value instead of `any`
@@ -249,7 +253,7 @@ AJS expressions behave differently from JavaScript in several important ways:
 - Unit tests alongside source files (`*.test.ts`)
 - Integration tests in `src/use-cases/` (RAG, orchestration, malicious actors)
 - Security tests in `src/use-cases/malicious-actor.test.ts`
-- Language tests split across 17 files in `src/lang/` (lang.test.ts, features.test.ts, codegen.test.ts, parser.test.ts, from-ts.test.ts, wasm.test.ts, etc.)
+- Language tests split across 18 files in `src/lang/` (lang.test.ts, features.test.ts, codegen.test.ts, parser.test.ts, from-ts.test.ts, wasm.test.ts, etc.)
 - LLM integration tests (run via full `bun test`, skipped by `SKIP_LLM_TESTS`) need a local **LM Studio** server with a chat + embedding model loaded. Setup and the hard-won gotchas (model load failures, leaked-VRAM stray `node` worker, updating runtimes, CORS, the audit-cache parallel race) are in [`docs/lm-studio-setup.md`](docs/lm-studio-setup.md).
 
 Coverage targets: 98% lines on `src/vm/runtime.ts` (security-critical), 80%+ overall.

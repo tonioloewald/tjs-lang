@@ -151,6 +151,11 @@ export type CostOverride =
   | number
   | ((input: any, ctx: RuntimeContext) => number)
 
+/** Timeout override: static number (ms) or dynamic function. 0 disables. */
+export type TimeoutOverride =
+  | number
+  | ((input: any, ctx: RuntimeContext) => number)
+
 export interface RuntimeContext {
   fuel: { current: number }
   args: Record<string, any>
@@ -165,6 +170,7 @@ export interface RuntimeContext {
   warnings?: string[] // Non-fatal warnings (e.g., console.warn)
   signal?: AbortSignal // External abort signal for timeout enforcement
   costOverrides?: Record<string, CostOverride> // Per-atom cost overrides
+  timeoutOverrides?: Record<string, TimeoutOverride> // Per-atom timeout overrides (ms, 0 disables)
   context?: Record<string, any> // Immutable request-scoped metadata (auth, permissions, etc.)
   runCodeDepth?: number // Track nested runCode calls to prevent infinite recursion
 }
@@ -1363,18 +1369,25 @@ export function defineAtom<I extends Record<string, any>, O = any>(
         return
       }
 
-      // 3. Execution with Timeout
+      // 3. Execution with Timeout (per-atom override > atom default)
+      const overrideTimeout = ctx.timeoutOverrides?.[op]
+      const baseTimeout =
+        overrideTimeout !== undefined ? overrideTimeout : timeoutMs
+      const effectiveTimeout =
+        typeof baseTimeout === 'function'
+          ? baseTimeout(inputData, ctx)
+          : baseTimeout
       let timer: any
       const execute = async () => fn(step as I, ctx)
 
       result =
-        timeoutMs > 0
+        effectiveTimeout > 0
           ? await Promise.race([
               execute(),
               new Promise<never>((_, reject) => {
                 timer = setTimeout(
                   () => reject(new Error(`Atom '${op}' timed out`)),
-                  timeoutMs
+                  effectiveTimeout
                 )
               }),
             ]).finally(() => clearTimeout(timer))

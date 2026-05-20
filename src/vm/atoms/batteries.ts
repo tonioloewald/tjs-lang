@@ -167,7 +167,11 @@ export const llmPredictBattery = defineAtom(
       resolvedFormat
     )
   },
-  { docs: 'Generate completion using LLM battery', cost: 100 }
+  {
+    docs: 'Generate completion using LLM battery',
+    cost: 100,
+    timeoutMs: 120000,
+  }
 )
 
 // Vision battery interface (multimodal)

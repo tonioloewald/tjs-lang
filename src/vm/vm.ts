@@ -4,6 +4,7 @@ import {
   type RunResult,
   type RuntimeContext,
   type CostOverride,
+  type TimeoutOverride,
   coreAtoms,
   AgentError,
   isProcedureToken,
@@ -13,8 +14,8 @@ import { TypedBuilder, type BaseNode, type BuilderType } from '../builder'
 import { validate } from 'tosijs-schema'
 import { transpile } from '../lang/core'
 
-/** Default timeout multiplier: milliseconds per fuel unit */
-const FUEL_TO_MS = 10 // 1000 fuel = 10 seconds
+/** Default run-level timeout when none specified (IO-friendly; agents are typically IO-bound) */
+const DEFAULT_RUN_TIMEOUT_MS = 60_000
 
 export class AgentVM<M extends Record<string, Atom<any, any>>> {
   readonly atoms: typeof coreAtoms & M
@@ -77,9 +78,10 @@ export class AgentVM<M extends Record<string, Atom<any, any>>> {
       fuel?: number
       capabilities?: Capabilities
       trace?: boolean
-      timeoutMs?: number // Override automatic timeout (fuel * FUEL_TO_MS)
+      timeoutMs?: number // Wall-clock cap on the whole run (default 60s)
       signal?: AbortSignal // External abort signal (e.g., from caller)
       costOverrides?: Record<string, CostOverride> // Per-atom fuel cost overrides
+      timeoutOverrides?: Record<string, TimeoutOverride> // Per-atom timeout overrides (ms, 0 disables)
       context?: Record<string, any> // Request-scoped metadata (auth, permissions, etc.)
     } = {}
   ): Promise<RunResult> {
@@ -105,9 +107,9 @@ export class AgentVM<M extends Record<string, Atom<any, any>>> {
 
     const startFuel = options.fuel ?? 1000
 
-    // Calculate timeout from fuel budget (generous: 10ms per fuel unit)
-    // Can be overridden with explicit timeoutMs option
-    const timeoutMs = options.timeoutMs ?? startFuel * FUEL_TO_MS
+    // Run-level wall-clock timeout. Agents are typically IO-bound, so the
+    // default is a fixed 60s rather than a fuel-derived formula.
+    const timeoutMs = options.timeoutMs ?? DEFAULT_RUN_TIMEOUT_MS
 
     // Default Capabilities
     const capabilities = options.capabilities ?? {}
@@ -160,6 +162,7 @@ export class AgentVM<M extends Record<string, Atom<any, any>>> {
       output: undefined,
       signal: controller.signal,
       costOverrides: options.costOverrides,
+      timeoutOverrides: options.timeoutOverrides,
       context: options.context,
       warnings, // Shared warnings array
     }
@@ -197,7 +200,7 @@ export class AgentVM<M extends Record<string, Atom<any, any>>> {
           controller.signal.addEventListener('abort', () => {
             reject(
               new Error(
-                `Execution timeout after ${timeoutMs}ms (fuel: ${startFuel}). Consider increasing fuel or optimizing your agent.`
+                `Execution timeout after ${timeoutMs}ms. Pass a higher \`timeoutMs\` to vm.run() or set per-atom \`timeoutOverrides\` for slow IO atoms.`
               )
             )
           })
@@ -205,7 +208,7 @@ export class AgentVM<M extends Record<string, Atom<any, any>>> {
           if (controller.signal.aborted) {
             reject(
               new Error(
-                `Execution timeout after ${timeoutMs}ms (fuel: ${startFuel}). Consider increasing fuel or optimizing your agent.`
+                `Execution timeout after ${timeoutMs}ms. Pass a higher \`timeoutMs\` to vm.run() or set per-atom \`timeoutOverrides\` for slow IO atoms.`
               )
             )
           }
@@ -219,7 +222,7 @@ export class AgentVM<M extends Record<string, Atom<any, any>>> {
         controller.signal.aborted
       ) {
         ctx.error = new AgentError(
-          `Execution timeout after ${timeoutMs}ms (fuel: ${startFuel}). Consider increasing fuel or optimizing your agent.`,
+          `Execution timeout after ${timeoutMs}ms. Pass a higher \`timeoutMs\` to vm.run() or set per-atom \`timeoutOverrides\` for slow IO atoms.`,
           'vm.run'
         )
       } else {

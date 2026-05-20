@@ -103,6 +103,29 @@ Shipped in v0.8.0 — design + history in `wasm-library-plan.md`, user-facing re
 - [ ] Dim/hide the preview tab if nothing ever changed it
 - [ ] Single source of truth for version number. I note the badge displayed in console is not matching the version. No hardwired versions -- version number is pulled from package.json and written to version.ts somewhere and that is the single source of truth.
 
+## Production integration feedback (snowfox-app)
+
+Outstanding items from real-world VM integration. See conversation notes; ranked by hours-burned.
+
+- [ ] **`resolveValue` doesn't recurse into plain object literals** — atoms with structured input get `{$expr}` children unresolved. Need canonical `deepResolve(value, ctx)` helper.
+- [ ] **Browser-safe entry point (`tjs-lang/browser`)** — main entry pulls `node:fs/promises` (CLI/playground); breaks webpack 4 and similar bundlers.
+- [ ] **`evaluateExpr` diagnostics** — when a node has missing required fields, wrap with op name + step location instead of raw `Cannot read properties of undefined`.
+- [ ] **Single-function rule / `TOOL_LIBRARY` antipattern** — non-trivial. In AJS the parser rejects multiple `function` declarations and the emitter treats *every* call as an atom (call sites become `{op: funcName}`). Allowing helpers means either:
+  1. **Inline helpers at transform time** (no AST/runtime changes; recursion not supported; minimal blast radius — recommended starting point for the TOOL_LIBRARY pattern).
+  2. **Add a `callLocal` atom + per-agent procedure table** (general; supports recursion; new AST node + runtime atom + scope rules).
+
+  See `src/lang/parser.ts:541` (validateSingleFunction) and `src/lang/emitters/ast.ts:1029` (transformCallExpression). For now, the documented workaround is to send pre-compiled AST instead of source.
+- [ ] **`typescript` lazy-load in main entry** — `import { ajs } from 'tjs-lang'` pulls TS compiler at import time, crashing Cloud Run. Defer `import('typescript')` until the TS path is invoked.
+- [ ] **`const` inside `while` loop body** — `constSet` re-runs each iteration and throws "Cannot reassign const variable". Either compile-time error or per-iteration scope.
+- [ ] **AgentVM: warn on unknown atoms referenced in source** — currently fails at execution time with `Unknown Atom: foo` and no hint about `batteryAtoms` / user-defined atoms.
+
+### Completed in current session
+
+- [x] `llmPredictBattery` now has `timeoutMs: 120000` (was using default 1000ms — broken for any real LLM call) + regression test in `batteries.test.ts`.
+- [x] `typesVersions` fallback in `package.json` so legacy `moduleResolution: node` consumers can resolve `tjs-lang/vm`, `tjs-lang/lang`, `tjs-lang/batteries` etc.
+- [x] **Per-atom `timeoutMs` override** — `vm.run({ timeoutOverrides: { llmPredictBattery: 60000 } })` now works, mirroring the existing `costOverrides` pattern. Supports `number` and `(input, ctx) => number`; `0` disables the per-atom timeout. New `TimeoutOverride` type exported from `tjs-lang/vm`. See `src/use-cases/timeout-overrides.test.ts`.
+- [x] **Dropped `vm.run` default `timeoutMs = fuel × 10ms` formula** — now a fixed `60_000` ms default. Updated timeout error message to point at `timeoutMs` / `timeoutOverrides` instead of "increase fuel".
+
 ## Infrastructure
 
 - [ ] Make playground components reusable for others

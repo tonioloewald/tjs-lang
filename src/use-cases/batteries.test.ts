@@ -252,4 +252,8 @@ describe('Batteries Included', () => {
     expect(msg.tool_calls[0].function.name).toBe('get_weather')
     expect(msg.tool_calls[0].function.arguments).toBe('{"city":"Paris"}')
   })
+
+  it('LLM battery atoms have IO-friendly timeouts', () => {
+    expect(llmPredictBattery.timeoutMs).toBeGreaterThanOrEqual(60000)
+  })
 })
