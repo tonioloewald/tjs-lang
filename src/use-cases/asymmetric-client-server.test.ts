@@ -82,7 +82,6 @@ describe('Use Case: Asymmetric Client-Server', () => {
 
     // Note: In a real scenario, client imports definitions (types/schema) but not heavy deps.
     // Here we reuse the atom definitions from 'batteries.ts' for the builder schema.
-    // eslint-disable-next-line @typescript-eslint/no-var-requires
     const { coreAtoms } = require('../runtime')
     const clientBuilder = Agent.custom({
       ...coreAtoms,
@@ -154,7 +153,6 @@ describe('Use Case: Asymmetric Client-Server', () => {
       llmPredictBattery,
     })
 
-    // eslint-disable-next-line @typescript-eslint/no-var-requires
     const { coreAtoms } = require('../runtime')
     const logic = Agent.custom({ ...coreAtoms, storeVectorize })
       .step({ op: 'storeVectorize', text: 'fail' })

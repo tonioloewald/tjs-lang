@@ -72,7 +72,7 @@ export function lint(source: string, options: LintOptions = {}): LintResult {
   // Parse the source
   let program: Program
   let letAnnotations: Map<string, string> = new Map()
-  let safeAssignMode = false
+  let safeAssignMode: boolean
   try {
     const result = parse(source, {
       filename: opts.filename,

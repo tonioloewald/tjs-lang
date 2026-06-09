@@ -1149,7 +1149,6 @@ export function transpileToJS(
     | { id: string; success: boolean; error?: string; byteLength?: number }[]
     | undefined
   if (preprocessed.wasmBlocks.length > 0) {
-    wasmCompiled = []
     const wasmBootstrap = generateWasmBootstrap(preprocessed.wasmBlocks)
     if (wasmBootstrap.code) {
       code = wasmBootstrap.code + '\n' + code

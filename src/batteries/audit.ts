@@ -225,13 +225,13 @@ export async function auditModels(baseUrl: string): Promise<ModelAudit[]> {
   const cachedData = await readCache(baseUrl)
 
   // 2. Get current model list from server
-  let serverModelIds: string[] = []
+  let serverModelIds: string[]
   try {
     const res = await fetch(`${baseUrl}/models`)
     if (!res.ok) throw new Error('Could not connect')
     const data = (await res.json()) as { data: { id: string }[] }
     serverModelIds = data.data.map((m) => m.id).sort()
-  } catch (e) {
+  } catch {
     // If we have cache and server is unavailable, use cache
     if (cachedData) {
       console.log('⚠️ LM Studio unavailable, using cached model audit.')
@@ -270,7 +270,7 @@ export async function auditModels(baseUrl: string): Promise<ModelAudit[]> {
     let type: ModelAudit['type'] = 'Unknown'
     let structured = false
     let vision = false
-    let statusMsg = ''
+    let statusMsg: string
     let dimension: number | undefined = undefined
 
     const isLLM = await checkLLM(baseUrl, model.id)

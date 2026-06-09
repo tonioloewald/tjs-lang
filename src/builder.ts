@@ -1,6 +1,5 @@
 import { coreAtoms, type Atom, type OpCode, type ExprNode } from './runtime'
 
-// eslint-disable-next-line @typescript-eslint/no-unused-vars
 type _AtomMap = typeof coreAtoms
 
 // --- Condition String Parser ---
@@ -358,7 +357,6 @@ export interface ArgRef {
 // --- Typed Builder ---
 
 // Helper to extract input type from Atom definition
-// eslint-disable-next-line @typescript-eslint/no-unused-vars
 type AtomInput<T> = T extends Atom<infer I, any> ? I : never
 
 // The Builder instance type with dynamic methods inferred from AtomMap
@@ -523,7 +521,6 @@ export class TypedBuilder<M extends Record<string, Atom<any, any>>> {
   return(schema: any): BuilderType<M> {
     const atom = this.atoms['return']
     if (!atom) throw new Error("Atom 'return' not found")
-    // eslint-disable-next-line @typescript-eslint/no-unused-vars
     const _schema = schema.schema ?? schema
     return this.add(atom.create({ schema: _schema }))
   }

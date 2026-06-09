@@ -296,7 +296,7 @@ export function extractWasmFunctions(source: string): {
       i++
       continue
     }
-    let paramsSource = source.slice(parensStart, j - 1)
+    const paramsSource = source.slice(parensStart, j - 1)
     // j now points just past the closing `)`
 
     // Phase 2: detect `(!` — reserved syntax for unsafe wasm functions
@@ -413,7 +413,10 @@ export function composeImportedWasmFunctions(
   source: string,
   options: {
     loader?: {
-      load(specifier: string, importerPath?: string): {
+      load(
+        specifier: string,
+        importerPath?: string
+      ): {
         parseResult: { wasmBlocks: WasmBlock[] }
       } | null
     }
@@ -466,7 +469,8 @@ export function composeImportedWasmFunctions(
   // Default imports, namespace imports, and side-effect imports are left
   // alone — only named-bindings are candidates for wasm composition.
   // Multiline imports are supported via the [^}]*? non-greedy match.
-  const importRe = /^(\s*)import\s*\{([^}]*?)\}\s*from\s*(['"])([^'"]+)\3\s*;?\s*$/gm
+  const importRe =
+    /^(\s*)import\s*\{([^}]*?)\}\s*from\s*(['"])([^'"]+)\3\s*;?\s*$/gm
 
   const replaced = source.replace(
     importRe,
@@ -514,13 +518,11 @@ export function composeImportedWasmFunctions(
         // `import { outer } from 'lib'` work when outer internally calls
         // inner — both end up in the consumer's composed module.
         pullInTransitively(wasmBlock, importedWasmFunctions)
-        const argNames = wasmBlock.captures.map((c) =>
-          c.split(':')[0].trim()
-        )
+        const argNames = wasmBlock.captures.map((c) => c.split(':')[0].trim())
         wrappers.push(
-          `function ${local}(${argNames.join(
-            ', '
-          )}) { return globalThis.${wasmBlock.id}(${argNames.join(', ')}) }`
+          `function ${local}(${argNames.join(', ')}) { return globalThis.${
+            wasmBlock.id
+          }(${argNames.join(', ')}) }`
         )
       }
 
@@ -3376,15 +3378,7 @@ export function transformPolymorphicConstructors(
       })
     }
 
-    // Keep the first constructor in the class, remove the rest
-    // Build new class body with only the first constructor
-    let newBody = body.slice(0, ctors[0].fullEnd)
-    // Skip subsequent constructors
-    const afterLastCtor = ctors[ctors.length - 1].fullEnd
-    newBody += body.slice(afterLastCtor)
-
-    // But we need to remove just the extra constructors, keeping other methods
-    // Better approach: remove constructors 2..N from the body
+    // Remove the extra constructors, keeping the first constructor and other methods
     let cleanBody = body
     for (let i = ctors.length - 1; i >= 1; i--) {
       const ctor = ctors[i]

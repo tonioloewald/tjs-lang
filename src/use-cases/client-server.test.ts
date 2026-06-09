@@ -116,7 +116,7 @@ describe('Use Case: Client-Server', () => {
         let data
         try {
           data = JSON.parse(text)
-        } catch (e) {
+        } catch {
           console.error('Failed to parse concurrent response:', text)
           return { status: 500, result: text }
         }

@@ -1525,7 +1525,7 @@ function transformFunctionToTJS(
   }
 
   // Get function body and strip TypeScript syntax using ts.transpileModule
-  let body = ''
+  let body: string
   if (node.body) {
     const bodyText = ts.isBlock(node.body)
       ? node.body.getText(sourceFile)

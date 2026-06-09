@@ -686,7 +686,7 @@ export interface FunctionPredicateSpec {
 }
 
 /** A runtime type that validates function signatures */
-// eslint-disable-next-line @typescript-eslint/ban-types
+// eslint-disable-next-line @typescript-eslint/no-unsafe-function-type
 export interface FunctionPredicateType extends RuntimeType<Function> {
   /** Parameter specification */
   readonly params: Record<string, any>
@@ -755,7 +755,7 @@ function kindOfExample(example: unknown): string | null {
  */
 export function FunctionPredicate(
   name: string,
-  // eslint-disable-next-line @typescript-eslint/ban-types
+  // eslint-disable-next-line @typescript-eslint/no-unsafe-function-type
   specOrFn: FunctionPredicateSpec | Function | (string | [string, TypeParam])[],
   specBuilder?: (...typeArgs: any[]) => FunctionPredicateSpec
 ): FunctionPredicateType | GenericFunctionPredicateType {
@@ -794,18 +794,18 @@ export function FunctionPredicate(
     return factory
   }
 
-  /* eslint-disable @typescript-eslint/ban-types */
+  /* eslint-disable @typescript-eslint/no-unsafe-function-type */
   return _createFunctionPredicate(
     name,
     specOrFn as FunctionPredicateSpec | Function
   )
-  /* eslint-enable @typescript-eslint/ban-types */
+  /* eslint-enable @typescript-eslint/no-unsafe-function-type */
 }
 
 /** Internal: create a non-generic FunctionPredicateType */
 function _createFunctionPredicate(
   name: string,
-  // eslint-disable-next-line @typescript-eslint/ban-types
+  // eslint-disable-next-line @typescript-eslint/no-unsafe-function-type
   specOrFn: FunctionPredicateSpec | Function
 ): FunctionPredicateType {
   let params: Record<string, any> = {}
@@ -853,7 +853,7 @@ function _createFunctionPredicate(
       // Structural validation: check arity and __tjs metadata
       const expectedArity = Object.keys(params).length
       if (expectedArity > 0) {
-        // eslint-disable-next-line @typescript-eslint/ban-types
+        // eslint-disable-next-line @typescript-eslint/no-unsafe-function-type
         const fn = value as Function
         const meta = (fn as any).__tjs
         if (meta?.params) {

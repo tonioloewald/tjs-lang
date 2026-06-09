@@ -14,7 +14,6 @@
 import { describe, it, expect, beforeAll, afterAll } from 'bun:test'
 import { fromTS } from '../lang/emitters/from-ts'
 import { tjs } from '../lang'
-import { createRuntime } from '../lang/runtime'
 import { mkdirSync, writeFileSync, rmSync, existsSync } from 'fs'
 import { join } from 'path'
 

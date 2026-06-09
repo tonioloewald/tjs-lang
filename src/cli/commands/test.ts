@@ -123,7 +123,7 @@ export async function test(
   const pluginPath = getPluginPath()
 
   // Determine what to test
-  let testFiles: string[] = []
+  let testFiles: string[]
 
   if (!input) {
     // Find all .test.tjs files in current directory

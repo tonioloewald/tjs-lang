@@ -89,7 +89,8 @@ export function getLLMCapability(
       } catch (e: any) {
         if (e.cause?.code === 'ECONNREFUSED') {
           throw new Error(
-            'No LLM provider configured. Please start LM Studio or provide an API key.'
+            'No LLM provider configured. Please start LM Studio or provide an API key.',
+            { cause: e }
           )
         }
         throw e
@@ -117,7 +118,8 @@ export function getLLMCapability(
       } catch (e: any) {
         if (e.cause?.code === 'ECONNREFUSED') {
           throw new Error(
-            'No LLM provider configured. Please start LM Studio or provide an API key.'
+            'No LLM provider configured. Please start LM Studio or provide an API key.',
+            { cause: e }
           )
         }
         throw e

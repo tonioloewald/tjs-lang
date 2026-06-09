@@ -2202,7 +2202,7 @@ export const fetch = defineAtom(
         }
       } catch (e: any) {
         if (e.message.includes('allowedFetchDomains')) throw e
-        throw new Error(`Invalid URL: ${url}`)
+        throw new Error(`Invalid URL: ${url}`, { cause: e })
       }
     }
 
@@ -2476,7 +2476,7 @@ export const transpileCode = defineAtom(
     try {
       return ctx.capabilities.code.transpile(resolvedCode)
     } catch (e: any) {
-      throw new Error(`Code transpilation failed: ${e.message}`)
+      throw new Error(`Code transpilation failed: ${e.message}`, { cause: e })
     }
   },
   { docs: 'Transpile AsyncJS code to AST', cost: 1 }
@@ -2538,7 +2538,7 @@ export const runCode = defineAtom(
     try {
       ast = ctx.capabilities.code.transpile(resolvedCode)
     } catch (e: any) {
-      throw new Error(`Code transpilation failed: ${e.message}`)
+      throw new Error(`Code transpilation failed: ${e.message}`, { cause: e })
     }
 
     if (ast.op !== 'seq') {

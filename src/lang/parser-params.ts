@@ -276,7 +276,7 @@ export function transformParenExpressions(
 
       // Check for safety marker right after opening paren: (? or (!
       const afterParen = source[i + matchLen]
-      let safetyMarker: '?' | '!' | null = null
+      let safetyMarker: '?' | '!' | null
       let paramStart = i + matchLen
 
       if (afterParen === '?' || afterParen === '!') {

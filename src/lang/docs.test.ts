@@ -723,7 +723,6 @@ function outer() {
   describe('function param rendering in docs', () => {
     // We need transpiled type metadata for the param-table renderer.
     // Use the lang index's `tjs()` to get types.
-    // eslint-disable-next-line @typescript-eslint/no-var-requires
     const { tjs } = require('./index')
 
     it('renders an arrow-default param as `(x: any) => any` (not `function`)', () => {

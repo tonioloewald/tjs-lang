@@ -94,7 +94,9 @@ export class AgentVM<M extends Record<string, Atom<any, any>>> {
         try {
           ast = transpile(astOrToken).ast as BaseNode
         } catch (e: any) {
-          throw new Error(`AJS transpilation failed: ${e.message}`)
+          throw new Error(`AJS transpilation failed: ${e.message}`, {
+            cause: e,
+          })
         }
       }
     } else {
