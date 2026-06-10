@@ -142,6 +142,22 @@ Slow network calls can't hang your servers.
 
 ---
 
+## The Universal Endpoint: One Security Model, Front to Back
+
+**Most systems mirror their security. TJS keeps one copy of it.**
+
+Because the VM is environment-agnostic and every capability is injected, the _same_ agent program runs unchanged in your data center and inside the browser client. Not a client SDK that re-implements the server's rules and drifts out of sync — the _same program_, under the _same capability + fuel + RBAC envelope_, enforced identically in both places.
+
+The RBAC rules themselves are TJS — portable, serializable data, not compiled server code — so a request denied in the browser is denied for the _same reason_, by the _same rule_, as it would be on the server. You audit one security model, not two that are supposed to agree.
+
+The payoff in production: tools come in matched pairs. A client `getRecords` answers from data already loaded in the browser — **zero round-trips** — and falls back to the server-side `getRecords` only on a genuine miss. Same contract, same authorization, and the fallback was never written into the program; it lives in the atom. Code travels to the data instead of the data travelling to the code.
+
+**Two security surfaces to keep in sync is two surfaces to get wrong. One is one.**
+
+→ Full architecture: [The Universal Endpoint](docs/universal-endpoint.md)
+
+---
+
 ## Threat Model
 
 | Threat                  | Defense                                              |
@@ -272,4 +288,5 @@ The guest can only reach resources you explicitly provide. Everything else is bl
 - [TJS Documentation](DOCS-TJS.md) — The language reference
 - [AJS Documentation](DOCS-AJS.md) — The agent runtime
 - [Builder's Manifesto](MANIFESTO-BUILDER.md) — For when you want speed
+- [The Universal Endpoint](docs/universal-endpoint.md) — One agent, one security model, running in the data center and the browser
 - [Technical Context](CONTEXT.md) — Deep dive into architecture
