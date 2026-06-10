@@ -320,6 +320,10 @@ const registerCallback = ajs`
 
 ## 5. Production Considerations
 
+### Isomorphic Deployment (Universal Endpoint)
+
+Because the VM is environment-agnostic and all IO is injected via capabilities, the _same_ agent program runs unchanged in the data center and in the browser client — with **one security model spanning both** (capabilities + fuel + portable TJS RBAC rules). Atoms are the seam: a client `getRecords` can serve already-loaded data and fall back to the server-side `getRecords` only on a miss, eliminating round-trips. This emerged for free from the sandboxing design rather than being built for. See [`docs/universal-endpoint.md`](docs/universal-endpoint.md).
+
 ### Recursive Agent Fuel
 
 When an agent calls sub-agents via `agentRun`, each sub-agent gets its own fuel budget (passed via the capability). Fuel is **not shared** across the call tree by default.

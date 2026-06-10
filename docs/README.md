@@ -20,6 +20,7 @@ ASTs that run sandboxed with fuel (gas) limits.
 | Document | Description |
 |----------|-------------|
 | [Technical Context](https://github.com/tonioloewald/tjs-lang/blob/main/CONTEXT.md) | Architecture deep dive, design decisions |
+| [The Universal Endpoint](https://github.com/tonioloewald/tjs-lang/blob/main/docs/universal-endpoint.md) | Isomorphic atoms: the same agent + one security model running in the data center and the browser client |
 | [WASM Quick Start](https://github.com/tonioloewald/tjs-lang/blob/main/docs/WASM-QUICKSTART.md) | Build WASM-accelerated libraries with zero toolchain setup |
 | [Design Patterns](https://github.com/tonioloewald/tjs-lang/blob/main/guides/patterns.md) | Common patterns in TJS and AJS |
 | [Schema Validation](https://github.com/tonioloewald/tjs-lang/blob/main/guides/tosijs-schema.md) | Working with tosijs-schema |
