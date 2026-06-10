@@ -1901,8 +1901,14 @@ describe('module consolidation (Phase 0.5)', () => {
 
       const result = compileBlocksToModule(blocks)
       expect(result.exports).toHaveLength(2)
-      expect(result.exports[0]).toMatchObject({ id: 'b0', exportName: 'compute_0' })
-      expect(result.exports[1]).toMatchObject({ id: 'b1', exportName: 'compute_1' })
+      expect(result.exports[0]).toMatchObject({
+        id: 'b0',
+        exportName: 'compute_0',
+      })
+      expect(result.exports[1]).toMatchObject({
+        id: 'b1',
+        exportName: 'compute_1',
+      })
 
       // Instantiate and confirm both exports work
       const instance = await instantiateWasm(result.bytes)
@@ -2117,10 +2123,8 @@ function dbl(arr: Float32Array, len: 0) {
         buf[1] = 2
         buf[2] = 3
         buf[3] = 4
-
         ;(globalThis as any).__test_inc(buf, 4) // [2, 3, 4, 5]
         expect(Array.from(buf)).toEqual([2, 3, 4, 5])
-
         ;(globalThis as any).__test_dbl(buf, 4) // [4, 6, 8, 10]
         expect(Array.from(buf)).toEqual([4, 6, 8, 10])
       } finally {
@@ -2384,9 +2388,7 @@ export wasm function mul(a: f64, b: f64): f64 { return a * b }
     // Both should produce the same numeric results.
     const { tjs } = await import('./index')
     const { createRuntime } = await import('./runtime')
-    const { ModuleLoader, inMemoryFileSystem } = await import(
-      './module-loader'
-    )
+    const { ModuleLoader, inMemoryFileSystem } = await import('./module-loader')
 
     const librarySource = `
 export wasm function dot3(
@@ -2568,9 +2570,7 @@ function compute(x: 0.0): 0.0 {
     expect(result.code).toContain('globalThis.__tjs_wasm_fast(a)')
     // The remaining import keeps `slow` only
     expect(result.code).toMatch(/import\s*\{\s*slow\s*\}\s*from/)
-    expect(result.code).not.toMatch(
-      /import\s*\{\s*fast\s*,\s*slow\s*\}\s*from/
-    )
+    expect(result.code).not.toMatch(/import\s*\{\s*fast\s*,\s*slow\s*\}\s*from/)
   })
 
   it('composes multiple wasm functions from one library', async () => {
@@ -3046,9 +3046,7 @@ wasm function isOdd(n: i32): f64 {
     // inner loop.
     const { tjs } = await import('./index')
     const { createRuntime } = await import('./runtime')
-    const { ModuleLoader, inMemoryFileSystem } = await import(
-      './module-loader'
-    )
+    const { ModuleLoader, inMemoryFileSystem } = await import('./module-loader')
 
     const loader = new ModuleLoader({
       fs: inMemoryFileSystem({
@@ -3162,7 +3160,9 @@ wasm function caller(): f64 {
 `
     const result = tjs(source, { runTests: false })
     // caller fails because takesTwo gets one arg instead of two
-    const callerResult = result.wasmCompiled!.find((b) => b.id === '__tjs_wasm_caller')
+    const callerResult = result.wasmCompiled!.find(
+      (b) => b.id === '__tjs_wasm_caller'
+    )
     expect(callerResult).toBeDefined()
     expect(callerResult!.success).toBe(false)
     expect(callerResult!.error).toMatch(/takesTwo expects 2 arguments, got 1/)

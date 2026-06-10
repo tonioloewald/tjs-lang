@@ -18,15 +18,15 @@ see "Implementation plan" for the new Phase 0.5 / Phase 0.75 prereqs.
 
 ## Base assumptions (verified)
 
-| # | Assumption | Status | Finding (with citation) |
-|---|---|---|---|
-| A1 | `wasm {}` blocks today are inline expressions inside a tjs function, not standalone exportable units. There is no `wasm function name(...)` declaration syntax yet. | ✅ true | Current form is inline `wasm { ... }` block inside a regular function, with optional `fallback { ... }` (`wasm.test.ts:1518`). Captures (free variables) become wasm function params automatically (`emitters/js-wasm.ts:89`). The `const x = wasm(...){...}` expression form mentioned in `CLAUDE-TJS-SYNTAX.md:381` doesn't appear in tests — likely vestigial. **Phase 1 (declaration syntax) is real new work.** |
-| A2 | All `wasm {}` content in a tjs source file is currently compiled into a single `WebAssembly.Module` per file. Linear memory is shared within a file. | ⚠️ partly false | Each `wasm {}` block compiles to its **own** `WebAssembly.Module` — they're separate modules instantiated independently (`js-wasm.ts:97-103`). They *do* share one linear memory (64MB / 1024 pages, `js-wasm.ts:92`) by importing it via `{env: {memory: __wasmMem}}`. So: **N modules per file, 1 memory per file.** Need a new "consolidate to one module" step — see Phase 0.5. |
-| A3 | `wasmBuffer()` is the JS-side primitive for getting a typed-array view backed by the wasm module's linear memory. Allocation lifetime is tied to JS GC. | ❌ false on lifetime | `wasmBuffer()` uses a **bump allocator** with no free (`__woff` only increments — `js-wasm.ts:94`). Allocations are permanent for program lifetime. JS owns the *view* (typed array), but the underlying bytes never get reclaimed — there is no GC link. `CLAUDE-TJS-SYNTAX.md:465` confirms: "Uses a bump allocator — allocations persist for program lifetime (no deallocation)." **Implication: §6 wording is wrong, and the stdlib API must be allocate-once-mutate-in-place.** |
-| A4 | The transpiler can resolve `import` statements at transpile time and read the imported `.tjs` source. Cross-file dependency tracking already exists for non-wasm symbols. | ❌ false | Transpiler preserves imports verbatim — no cross-file resolution. `transpiler.test.ts:355` confirms: `expect(result.code).toContain("import { add } from './math.tjs'")`. The bun plugin (`src/bun-plugin/tjs-plugin.ts`) re-transpiles each `.tjs` file independently at runtime when imported. **There is no transpile-time module loader.** This is the real long pole — see Phase 0.75. |
-| A5 | Transpiled `.js` output already supports embedding `WebAssembly.Module` bytes (base64 or fetched). This is how single-file wasm blocks reach the browser/node today. | ✅ true | `js-wasm.ts:36-44` produces base64-embedded wasm in self-contained JS. The "boundary distribution form" the plan describes IS the current form. |
-| A6 | `(! ...)` after the open paren is the established tjs unsafe-function marker. Same semantics here. | ✅ notation only | Fine. |
-| A7 | tjs has no existing multi-module wasm linking, no shared `WebAssembly.Memory` import, no allocator. Greenfield. | ✅ true | No `WebAssembly.Table`, no real linking, no cross-module calls. Memory is shared because it's imported into each module separately — but each module is otherwise standalone. Greenfield for composition. |
+| #   | Assumption                                                                                                                                                                | Status               | Finding (with citation)                                                                                                                                                                                                                                                                                                                                                                                                                                                              |
+| --- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| A1  | `wasm {}` blocks today are inline expressions inside a tjs function, not standalone exportable units. There is no `wasm function name(...)` declaration syntax yet.       | ✅ true              | Current form is inline `wasm { ... }` block inside a regular function, with optional `fallback { ... }` (`wasm.test.ts:1518`). Captures (free variables) become wasm function params automatically (`emitters/js-wasm.ts:89`). The `const x = wasm(...){...}` expression form mentioned in `CLAUDE-TJS-SYNTAX.md:381` doesn't appear in tests — likely vestigial. **Phase 1 (declaration syntax) is real new work.**                                                                 |
+| A2  | All `wasm {}` content in a tjs source file is currently compiled into a single `WebAssembly.Module` per file. Linear memory is shared within a file.                      | ⚠️ partly false      | Each `wasm {}` block compiles to its **own** `WebAssembly.Module` — they're separate modules instantiated independently (`js-wasm.ts:97-103`). They _do_ share one linear memory (64MB / 1024 pages, `js-wasm.ts:92`) by importing it via `{env: {memory: __wasmMem}}`. So: **N modules per file, 1 memory per file.** Need a new "consolidate to one module" step — see Phase 0.5.                                                                                                  |
+| A3  | `wasmBuffer()` is the JS-side primitive for getting a typed-array view backed by the wasm module's linear memory. Allocation lifetime is tied to JS GC.                   | ❌ false on lifetime | `wasmBuffer()` uses a **bump allocator** with no free (`__woff` only increments — `js-wasm.ts:94`). Allocations are permanent for program lifetime. JS owns the _view_ (typed array), but the underlying bytes never get reclaimed — there is no GC link. `CLAUDE-TJS-SYNTAX.md:465` confirms: "Uses a bump allocator — allocations persist for program lifetime (no deallocation)." **Implication: §6 wording is wrong, and the stdlib API must be allocate-once-mutate-in-place.** |
+| A4  | The transpiler can resolve `import` statements at transpile time and read the imported `.tjs` source. Cross-file dependency tracking already exists for non-wasm symbols. | ❌ false             | Transpiler preserves imports verbatim — no cross-file resolution. `transpiler.test.ts:355` confirms: `expect(result.code).toContain("import { add } from './math.tjs'")`. The bun plugin (`src/bun-plugin/tjs-plugin.ts`) re-transpiles each `.tjs` file independently at runtime when imported. **There is no transpile-time module loader.** This is the real long pole — see Phase 0.75.                                                                                          |
+| A5  | Transpiled `.js` output already supports embedding `WebAssembly.Module` bytes (base64 or fetched). This is how single-file wasm blocks reach the browser/node today.      | ✅ true              | `js-wasm.ts:36-44` produces base64-embedded wasm in self-contained JS. The "boundary distribution form" the plan describes IS the current form.                                                                                                                                                                                                                                                                                                                                      |
+| A6  | `(! ...)` after the open paren is the established tjs unsafe-function marker. Same semantics here.                                                                        | ✅ notation only     | Fine.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                |
+| A7  | tjs has no existing multi-module wasm linking, no shared `WebAssembly.Memory` import, no allocator. Greenfield.                                                           | ✅ true              | No `WebAssembly.Table`, no real linking, no cross-module calls. Memory is shared because it's imported into each module separately — but each module is otherwise standalone. Greenfield for composition.                                                                                                                                                                                                                                                                            |
 
 ---
 
@@ -49,9 +49,14 @@ The cross-file version replaces the kernel body with three calls into `tjs-lang/
 ```ts
 import { dot, norm_sq } from 'tjs-lang/linalg'
 
-function simdSearch(corpus: Ptr<f32>, query: Ptr<f32>, count: i32, dim: i32): i32 {
+function simdSearch(
+  corpus: Ptr<f32>,
+  query: Ptr<f32>,
+  count: i32,
+  dim: i32
+): i32 {
   // ... outer loop over rows of corpus ...
-  const d  = dot(query, corpusRow, dim)
+  const d = dot(query, corpusRow, dim)
   const ma = norm_sq(query, dim)
   const mb = norm_sq(corpusRow, dim)
   const score = d / Math.sqrt(ma * mb)
@@ -62,21 +67,22 @@ function simdSearch(corpus: Ptr<f32>, query: Ptr<f32>, count: i32, dim: i32): i3
 **Status (2026-05-14): three of four criteria proven; perf criterion revised.** See `src/linalg/vector-search.bench.test.ts` for the working comparison.
 
 1. ✅ **Correctness.** Library version returns the same `bestIdx` as the inline baseline across the configs measured (500×128, 500×256, 2000×128). Asserted in the bench test.
-2. ✅ **Performance.** *Originally measured as 1.5–10× slower for the composed-JS-loop form, then resolved by Phase 1.5.* The 3-way `vector-search.bench.test.ts` benchmark measures three implementations of the same workload — inline single-block (no boundary crossings), composed-JS-loop (2 crossings per row), and composed-WASM-loop (single entry crossing for the whole workload, intra-module wasm-to-wasm calls in the loop). Observed ratios:
+2. ✅ **Performance.** _Originally measured as 1.5–10× slower for the composed-JS-loop form, then resolved by Phase 1.5._ The 3-way `vector-search.bench.test.ts` benchmark measures three implementations of the same workload — inline single-block (no boundary crossings), composed-JS-loop (2 crossings per row), and composed-WASM-loop (single entry crossing for the whole workload, intra-module wasm-to-wasm calls in the loop). Observed ratios:
 
-   | Config | Inline | Composed-JS | Composed-WASM |
-   |---|---|---|---|
-   | 500×128 | baseline | 5.47× slower | **1.00× (parity)** |
-   | 500×256 | baseline | 1.46× slower | **0.27× (3.7× faster)** |
-   | 2000×128 | baseline | 11.75× slower | **1.01× (parity)** |
+   | Config   | Inline   | Composed-JS   | Composed-WASM           |
+   | -------- | -------- | ------------- | ----------------------- |
+   | 500×128  | baseline | 5.47× slower  | **1.00× (parity)**      |
+   | 500×256  | baseline | 1.46× slower  | **0.27× (3.7× faster)** |
+   | 2000×128 | baseline | 11.75× slower | **1.01× (parity)**      |
 
    The composed-WASM-loop form matches inline performance within engine variance — and sometimes beats it (likely because the JIT inlines small wasm-internal calls more aggressively than the single-block inline form's larger function body). **The abstraction is genuinely free when the consumer's outer loop is also `wasm function`.**
 
    Required to make this work: `dot_at(corpus, startIdx, query, n)` and `norm_sq_at(arr, startIdx, n)` variants in `tjs-lang/linalg` (Float32Array params lower to i32 pointers in our wasm ABI; the `_at` variants let an in-wasm outer loop pass row slices without constructing a subarray view, which we can't do inside wasm). These are shipped alongside the benchmark.
+
 3. ✅ **Module shape.** The consumer's emitted wasm module contains `dot` and `norm_sq` as local functions, not imports. `WebAssembly.Module.imports()` shows zero function imports. Asserted in the Phase 3 tests.
 4. ✅ **Boundary form works.** `tjs-lang/linalg` distributed as transpiled `.js` (Phase 4) works for non-tjs consumers; boundary and composed forms return identical numeric results. Asserted in the Phase 4 + Phase 5 tests.
 
-The cross-file wasm story is real: composable small-primitive APIs *and* inline-baseline performance, simultaneously. The choice between JS outer loop and wasm outer loop is genuinely up to the consumer — there's no architectural force pushing toward macro-kernels. (Macro-kernels remain a valid library design for callers who can't or don't want to write their outer loop as wasm, but they're no longer the *only* way to recover performance.)
+The cross-file wasm story is real: composable small-primitive APIs _and_ inline-baseline performance, simultaneously. The choice between JS outer loop and wasm outer loop is genuinely up to the consumer — there's no architectural force pushing toward macro-kernels. (Macro-kernels remain a valid library design for callers who can't or don't want to write their outer loop as wasm, but they're no longer the _only_ way to recover performance.)
 
 ---
 
@@ -88,7 +94,7 @@ The cross-file wasm story is real: composable small-primitive APIs *and* inline-
 
 Today this is N modules per file sharing one memory; Phase 0.5 unifies to one module per file. After that, the rest of the design lands cleanly on the existing memory model.
 
-Cross-file: each `.tjs` consumer file produces *its own* module. Library wasm functions are composed into the consumer's module at transpile time, not linked at runtime.
+Cross-file: each `.tjs` consumer file produces _its own_ module. Library wasm functions are composed into the consumer's module at transpile time, not linked at runtime.
 
 ### 2. Authoring a wasm library
 
@@ -139,7 +145,7 @@ export wasm function weird_thing(! aPtr: i32, n: i32): i32 {
 
 Two consequences of `(! ...)` on a wasm function:
 
-1. **Never composed.** The function is *not* emitted into the consumer's module. Instead, it ships as its own separate `WebAssembly.Module` and is called across the wasm/JS boundary, even when the consumer is tjs. This matters because unsafe functions may carry module-level state (allocator heap, globals) — composing them into each consumer's module would give every consumer its own private copy of that state, with subtly different behavior depending on who imported what. Keeping unsafe functions in their own module means there's one shared instance with one consistent state.
+1. **Never composed.** The function is _not_ emitted into the consumer's module. Instead, it ships as its own separate `WebAssembly.Module` and is called across the wasm/JS boundary, even when the consumer is tjs. This matters because unsafe functions may carry module-level state (allocator heap, globals) — composing them into each consumer's module would give every consumer its own private copy of that state, with subtly different behavior depending on who imported what. Keeping unsafe functions in their own module means there's one shared instance with one consistent state.
 2. **Visible at import.** The transpiler refuses to import `weird_thing` without acknowledging unsafety:
 
 ```ts
@@ -154,8 +160,8 @@ Rationale: the user pays a complexity tax (writing `!`), but in return gets pred
 
 > **Design note (revised):** earlier drafts called this "inlining" and described
 > splicing imported function bodies into the consumer's module at the bytecode
-> level. That was unnecessarily complex. The actual operation is *module
-> composition*: imported `wasm function`s are emitted as ordinary functions
+> level. That was unnecessarily complex. The actual operation is _module
+> composition_: imported `wasm function`s are emitted as ordinary functions
 > inside the consumer's single module, with cross-file references rewritten to
 > local function indices. The wasm engine's JIT (V8/SpiderMonkey/JSC) handles
 > any actual body inlining at runtime, and intra-module call overhead is
@@ -195,6 +201,7 @@ tjs-lang/linalg/
 ```
 
 `package.json` `exports` field routes:
+
 - tjs transpiler → prefers `src/*.tjs`
 - everything else → resolves to `dist/index.js`
 
@@ -206,14 +213,15 @@ tjs-lang/linalg/
 
 ```ts
 // Linalg API shape — out parameter, no per-call allocation
-add(a, b, out)        // out is preallocated by caller, mutated in place
+add(a, b, out) // out is preallocated by caller, mutated in place
 matmul(a, b, out)
-dot(a, b)             // returns scalar — no buffer needed
+dot(a, b) // returns scalar — no buffer needed
 ```
 
-Allocate-per-call APIs (`const result = add(a, b)`) are explicitly *not* offered. That convenience would silently leak memory in any long-running program. The price of zero-cost zero-copy is that the caller manages buffers — it's the right tradeoff for a compute kernel library, the wrong one for general-purpose code.
+Allocate-per-call APIs (`const result = add(a, b)`) are explicitly _not_ offered. That convenience would silently leak memory in any long-running program. The price of zero-cost zero-copy is that the caller manages buffers — it's the right tradeoff for a compute kernel library, the wrong one for general-purpose code.
 
 The "JS allocates" invariant eliminates:
+
 - Cross-block allocator coordination
 - Lifetime / ownership questions across library boundaries
 - Fragmentation across imported libraries
@@ -224,7 +232,7 @@ The "JS allocates" invariant eliminates:
 
 **v1 requires SIMD.** Wasm SIMD has been stable in V8 (Chrome 91, May 2021), SpiderMonkey (Firefox 89), and JSC (Safari 16.4) for years. Writing a non-SIMD scalar fallback alongside every SIMD function would double the maintenance surface and educational complexity for a vanishingly small audience. If this proves wrong — or if a runtime emerges where this matters — we revisit; the cost of changing later is lower than the cost of carrying scalar duplicates from the start.
 
-The three-layer educational story (TJS wrapper → scalar wasm → SIMD wasm) is preserved in source for *readability* — authors write the scalar version first, then the SIMD version side-by-side. Only the SIMD path ships as runtime code.
+The three-layer educational story (TJS wrapper → scalar wasm → SIMD wasm) is preserved in source for _readability_ — authors write the scalar version first, then the SIMD version side-by-side. Only the SIMD path ships as runtime code.
 
 ---
 
@@ -232,10 +240,10 @@ The three-layer educational story (TJS wrapper → scalar wasm → SIMD wasm) is
 
 Initial surface area, sized to be "useful, not exhaustive":
 
-| Group | Functions |
-|---|---|
-| Vector | `dot`, `norm`, `normalize`, `add`, `sub`, `scale`, `lerp` |
-| Matrix | `matmul`, `transpose`, `identity`, `inverse_3x3`, `inverse_4x4` |
+| Group       | Functions                                                       |
+| ----------- | --------------------------------------------------------------- |
+| Vector      | `dot`, `norm`, `normalize`, `add`, `sub`, `scale`, `lerp`       |
+| Matrix      | `matmul`, `transpose`, `identity`, `inverse_3x3`, `inverse_4x4` |
 | 3D-specific | `cross`, `quat_mul`, `mat4_from_quat`, `look_at`, `perspective` |
 
 Each ships with three layers visible in source:
@@ -251,9 +259,11 @@ Playground examples link these three side-by-side as the educational artifact.
 ## Implementation plan
 
 ### ✅ Phase 0 — verify assumptions (½ day, complete)
+
 Done 2026-05-04. See assumption table above.
 
 ### ✅ Phase 0.5 — module consolidation (complete, 2026-05-04)
+
 Done. Refactored `src/lang/wasm.ts` to expose `compileBlocksToModule(blocks)` which produces one `WebAssembly.Module` with N exports (named `compute_0`, `compute_1`, ...) sharing one imported memory. `src/lang/emitters/js-wasm.ts` now emits a single `WebAssembly.compile` + `WebAssembly.instantiate` per file regardless of how many `wasm {}` blocks are present.
 
 - New public API: `compileBlocksToModule(blocks: WasmBlock[]): MultiBlockCompileResult`
@@ -263,6 +273,7 @@ Done. Refactored `src/lang/wasm.ts` to expose `compileBlocksToModule(blocks)` wh
 - Iframe variant (`generateWasmInstantiationCode`) left as-is for now — single-block API used by playground; consistency cleanup deferred
 
 ### ✅ Phase 0.75 — transpile-time module loader (complete, 2026-05-07)
+
 Done. New `src/lang/module-loader.ts` provides a `ModuleLoader` class with `resolve(spec, importerPath)` and `load(spec, importerPath)`. Resolution rules: URLs / data: → null (runtime resolves these); relative/absolute paths → fs lookup with `.tjs` / `.ts` / `.js` extension fallback and `index.<ext>` directory resolution; bare specifiers (`tjs-lang/linalg`) → walk up looking for `node_modules/<spec>`, with optional `bareSpecifierRoots` for monorepos and tests. Loaded modules expose `imports` (specifier + local + imported + namespace flag) and `exports` (name + kind: function/class/variable/re-export/unknown).
 
 - New public exports from `src/lang/index.ts`: `ModuleLoader`, `inMemoryFileSystem`, plus types
@@ -275,6 +286,7 @@ Done. New `src/lang/module-loader.ts` provides a `ModuleLoader` class with `reso
 **Caveat (worth flagging for Phase 1):** `parseTjs` runs the full preprocessor before we see the AST, which means `export class Foo {}` shows up as a variable export (the preprocessor rewrites class declarations into `wrapClass(class)` form). For Phase 3's needs this is fine — we'll be looking at function/wasm-function bodies, not class structure. If we ever need to surface the original class shape, the loader can expose the pre-preprocessor source alongside the parsed AST.
 
 ### ✅ Phase 1 — `wasm function` declaration syntax (complete, 2026-05-12)
+
 Done. New `extractWasmFunctions` transform in `parser-transforms.ts` recognizes top-level `(export)? wasm function NAME(params): RetType { body }` declarations. The body is the wasm-subset source; captures are the function's parameters with their type annotations (using existing wasm type names: `i32`/`i64`/`f32`/`f64`/`Float32Array`/`Float64Array`/`Int32Array`/`Uint8Array`).
 
 - Each `wasm function` declaration is replaced in source with a regular JS wrapper: `function NAME(...args) { return globalThis.__tjs_wasm_NAME(...args) }`, preserving the `export` modifier when present
@@ -286,6 +298,7 @@ Done. New `extractWasmFunctions` transform in `parser-transforms.ts` recognizes 
 **Backend limitation (Phase 1.5 work):** the wasm bytecode builder still emits f64 or void return types only — the `: RetType` annotation is parsed and stored but not yet driving the emitted return-type encoding. `: f64` and omitted-return work today; `: i32`/`: f32`/`: v128` returns will be supported when the bytecode builder grows per-function return-type emission. Linalg's `dot`/`norm_sq` (returning scalars) already work fine in f64; the vector-search milestone is unblocked.
 
 ### ✅ Phase 2 — purity enforcement (complete, 2026-05-14)
+
 Done. Two pieces:
 
 1. **Unsafe-marker reservation.** `extractWasmFunctions` now detects `(!` at the start of a `wasm function`'s param list and throws a clear `SyntaxError` directing the user to either remove the bang or wait for the unsafe variant to be implemented. Source location is reported. The marker is parsed (not silently dropped) so users can't accidentally write unsafe code that compiles as safe.
@@ -294,6 +307,7 @@ Done. Two pieces:
 4 new tests under `describe('wasm function purity & unsafe marker (Phase 2)')`. All 1950 fast-suite tests pass.
 
 ### ✅ Phase 3 — cross-file module composition (complete, 2026-05-14)
+
 Done. New `composeImportedWasmFunctions(source, { loader, importerPath })` in `parser-transforms.ts`. When a `ModuleLoader` is provided to `tjs()` / `transpileToJS()`, the preprocessor scans the consumer's `import { ... } from 'spec'` statements, resolves each spec via the loader, and pulls in any matching `wasm function` declarations from the source module. Composed functions become local exports in the consumer's single `WebAssembly.Module` (Phase 0.5 path); the satisfied import bindings are rewritten as local JS wrappers and removed from the import statement.
 
 - Opt-in design: no loader supplied → no behavior change (default verbatim-import preservation kept for existing flows)
@@ -302,8 +316,9 @@ Done. New `composeImportedWasmFunctions(source, { loader, importerPath })` in `p
 - WasmBlock got a new optional `name` field to enable matching imported binding names against named declarations (inline `wasm{}` blocks have no name and don't participate in composition)
 
 **Acceptance criteria (all four pass):**
+
 1. **Correctness:** imported wasm function runs end-to-end and returns identical results to a direct call — verified by an end-to-end test that imports `add` and `mul` from a virtual library and calls them
-2. **Module shape:** the composed wasm module has the imported function as a *local* export, NOT a wasm-level import. `WebAssembly.Module.imports(mod)` returns no function imports beyond `env.memory` (only when needed)
+2. **Module shape:** the composed wasm module has the imported function as a _local_ export, NOT a wasm-level import. `WebAssembly.Module.imports(mod)` returns no function imports beyond `env.memory` (only when needed)
 3. **One module per file:** the smoking-gun static check that exactly one `WebAssembly.compile(` call appears in the emitted output, regardless of how many wasm functions were composed
 4. **Boundary form works too:** deferred until Phase 4
 
@@ -312,9 +327,11 @@ Done. New `composeImportedWasmFunctions(source, { loader, importerPath })` in `p
 **Wiring change worth flagging:** `transpileToJS` previously called `preprocess(cleanSource)` without options, separately from the `parse()` call that handled options. Phase 3 needed the loader to reach the standalone preprocess call too, so it now passes `{ moduleLoader, filename }`. This makes the two preprocess invocations consistent.
 
 ### ✅ Phase 4 — JS distribution form (complete, 2026-05-14)
+
 Done — and it turned out to require essentially no new emitter code, because the boundary form was already what Phases 0.5 and 1 produce. A library file with `export wasm function dot(...)` transpiles to a self-contained ES module: bootstrap at top (one `WebAssembly.compile` + `instantiate`), `globalThis.__tjs_wasm_<name>` set per export, and `export function <name>(...)` wrappers that forward through `globalThis`. Same bytes, two wrappers — exactly the "same source, two forms" claim made it true at the bytecode level.
 
 Tests (4 new under `describe('boundary distribution form (Phase 4)')`):
+
 1. **Self-contained output:** transpiled library has exported wrappers, base64-embedded wasm module, no external runtime setup required (inline `__tjs` fallback covers everything used).
 2. **Real dynamic import:** library written to a tmp `.mjs` file, loaded via `await import(path)`, exported functions are callable and return correct results — this is the most authentic test of a real ESM consumer.
 3. **Equivalence:** same library source consumed two ways (boundary form via dynamic import, composed form via Phase 3 moduleLoader). Both return identical numeric results for `dot3(1,2,3,4,5,6)`. This is the Phase 4 acceptance criterion #4 from the canonical demo.
@@ -329,6 +346,7 @@ All 1961 fast-suite tests pass.
 **MVP done.** `src/linalg/index.tjs` ships with two `wasm function`s — `dot(a, b, n)` and `norm_sq(a, n)`, both f32x4 SIMD implementations operating on `Float32Array` inputs. These are the minimum needed to unlock the canonical vector-search demo (cosine similarity = `dot(a,b) / sqrt(norm_sq(a) * norm_sq(b))`). Subpath export `tjs-lang/linalg` added to `package.json` (bun → `.tjs` source; production `.js` bundle path declared, build to be wired in a follow-up).
 
 5 tests in `src/linalg/linalg.test.ts`:
+
 1. Source transpiles cleanly, both functions compile, one consolidated `WebAssembly.Module`
 2. Boundary form: dynamic ESM import works; library is self-contained
 3. Correctness against a JS scalar reference across multiple sizes (4, 16, 64, 128, 256)
@@ -343,6 +361,7 @@ All 1961 fast-suite tests pass.
 - **No package.json `exports` `dist/` bundle yet.** The `bun` resolution works today (via the `.tjs` plugin); production `.js` bundling for non-bun consumers needs a one-line addition to `scripts/build.ts`. Follow-up.
 
 **Remaining work (deferred from MVP):**
+
 - Vector: `norm`, `normalize`, `add`, `sub`, `scale`, `lerp`
 - Matrix: `matmul`, `transpose`, `identity`, `inverse_3x3`, `inverse_4x4`
 - 3D: `cross`, `quat_mul`, `mat4_from_quat`, `look_at`, `perspective`
@@ -357,6 +376,7 @@ Done. A `wasm function` body can now call other wasm functions in the same compo
 **The architectural payoff:** with Phase 3 composition + Phase 1.5 wasm-to-wasm, both the library kernels and any outer-loop logic the consumer writes can compile to wasm and stay inside the boundary. Library APIs can be small composable primitives (the idiomatic shape) AND the consumer's hot inner loop can use them at zero per-call cost. This closes the architectural critique that the canonical-demo perf finding raised — composed wasm is no longer forced to choose between idiomatic API granularity and performance.
 
 **Mechanism:**
+
 - `compileBlocksToModule` does a pre-pass over the input blocks, assigning function indices and building a `Map<name, {index, params, hasReturn}>` for every NAMED `wasm function`. This runs BEFORE compiling any body, so forward references and mutual recursion work
 - `WasmBlock` gained an optional `returnType` field, populated by `extractWasmFunctions`. The pre-pass uses presence/absence to determine `hasReturn` without compiling the body
 - Failed blocks become stub functions (same signature, trivial body returning 0 / no-op for void) so call indices stay valid across the module
@@ -383,6 +403,7 @@ Done. Three docs touched:
 All 1970 fast-suite tests pass.
 
 ### Phase 7 (deferred) — escape hatch implementation
+
 Only if stdlib hits a real wall. Implement `(! ...)` per §3, including the import-site bang requirement.
 
 ---
@@ -398,7 +419,7 @@ Only if stdlib hits a real wall. Implement `(! ...)` per §3, including the impo
 ## Open questions
 
 1. **Library duplication across boundary-form deps.** If an app imports two third-party libraries A and B (both shipped as transpiled `.js` per Phase 4), and both internally use `linalg`, each carries its own embedded copy of `linalg`'s wasm. There's no cross-package dedup — same as how every JS dep carries its own copy of `lodash` unless explicitly hoisted. **For v1, accept this.** It matches existing JS ecosystem behavior, and the tjs-to-tjs path (composition) already gives the win where it matters most. A future "shared wasm module registry" (runtime-side, peer-dep style) could dedup at the cost of new infrastructure — defer until someone hits a real bundle-size wall.
-2. **Versioning collisions.** If two transitive deps in a tjs consumer's import graph resolve to *different* versions of `linalg` (one v1.2, one v1.3), how does composition handle it? Strict separate copies (correct, larger output) vs. error-out (forces the user to dedup) vs. pick-one (silent risk). Probably "error out with a clear message" until someone has a concrete need otherwise.
+2. **Versioning collisions.** If two transitive deps in a tjs consumer's import graph resolve to _different_ versions of `linalg` (one v1.2, one v1.3), how does composition handle it? Strict separate copies (correct, larger output) vs. error-out (forces the user to dedup) vs. pick-one (silent risk). Probably "error out with a clear message" until someone has a concrete need otherwise.
 
 ---
 
@@ -406,4 +427,4 @@ Only if stdlib hits a real wall. Implement `(! ...)` per §3, including the impo
 
 - Not a general-purpose wasm linker. No multi-module runtime, no shared memory imports, no `WebAssembly.Table` coordination. The transpile-time module composition approach sidesteps all of it.
 - Not a substitute for hand-written wasm. Authors who need an arena allocator, threads, or shared memory should write their own `.wasm` and import it as a regular WebAssembly module — outside this system.
-- Not a path to non-tjs authors writing wasm libraries for tjs consumers. Library *authors* must use tjs. Library *consumers* can use anything.
+- Not a path to non-tjs authors writing wasm libraries for tjs consumers. Library _authors_ must use tjs. Library _consumers_ can use anything.

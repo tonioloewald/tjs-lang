@@ -510,39 +510,39 @@ The AST is the source of truth. Targets are just emission strategies.
 
 ## Implementation Status
 
-| #   | Feature                | Status | Notes                                                           |
-| --- | ---------------------- | ------ | --------------------------------------------------------------- |
-| 1   | Type()                 | ✅     | Full form with description + predicate, Union, Generic, Enum    |
-| 2   | target()               | ❌     | Conditional compilation                                         |
-| 3   | Monadic Errors         | ✅     | MonadicError with path, expected, actual, callStack             |
-| 4   | test() blocks          | ✅     | extractTests, assert/expect, mock blocks, CLI                   |
-| 5   | Pragmatic natives      | ⏳     | Some constructor checks exist                                   |
-| 6   | Multi-target           | ❌     | Future - JS only for now                                        |
-| 7   | Safety levels          | ✅     | none/inputs/all + (!)/(?) + unsafe {}                           |
-| 8   | Module-level safety    | ✅     | `safety none` directive parsed and passed                       |
-| 9   | Single-pass            | ✅     | Bun plugin: direct `bun file.tjs` execution                     |
-| 10  | Module system          | ✅     | IndexedDB store, esm.sh CDN, pinned versions                    |
-| 11  | Autocomplete           | ✅     | CodeMirror integration, globals, introspection                  |
-| 12  | Eval() / SafeFunction  | ✅     | Both exported and tested in runtime                             |
-| 13  | Function introspection | ✅     | \_\_tjs metadata with params, returns, examples                 |
-| 14  | Generic()              | ✅     | Runtime-checkable generics with TPair, TRecord                  |
-| 15  | Asymmetric get/set     | ✅     | JS native get/set captures asymmetric types                     |
-| 16  | `==` that works        | ✅     | Eq/NotEq + Is/IsNot, on by default in native TJS, honest typeof |
-| 17  | WASM blocks            | ✅     | Full: SIMD intrinsics, wasmBuffer, fallback, base64 embed       |
+| #   | Feature                | Status | Notes                                                                                                                                                                                                                          |
+| --- | ---------------------- | ------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| 1   | Type()                 | ✅     | Full form with description + predicate, Union, Generic, Enum                                                                                                                                                                   |
+| 2   | target()               | ❌     | Conditional compilation                                                                                                                                                                                                        |
+| 3   | Monadic Errors         | ✅     | MonadicError with path, expected, actual, callStack                                                                                                                                                                            |
+| 4   | test() blocks          | ✅     | extractTests, assert/expect, mock blocks, CLI                                                                                                                                                                                  |
+| 5   | Pragmatic natives      | ⏳     | Some constructor checks exist                                                                                                                                                                                                  |
+| 6   | Multi-target           | ❌     | Future - JS only for now                                                                                                                                                                                                       |
+| 7   | Safety levels          | ✅     | none/inputs/all + (!)/(?) + unsafe {}                                                                                                                                                                                          |
+| 8   | Module-level safety    | ✅     | `safety none` directive parsed and passed                                                                                                                                                                                      |
+| 9   | Single-pass            | ✅     | Bun plugin: direct `bun file.tjs` execution                                                                                                                                                                                    |
+| 10  | Module system          | ✅     | IndexedDB store, esm.sh CDN, pinned versions                                                                                                                                                                                   |
+| 11  | Autocomplete           | ✅     | CodeMirror integration, globals, introspection                                                                                                                                                                                 |
+| 12  | Eval() / SafeFunction  | ✅     | Both exported and tested in runtime                                                                                                                                                                                            |
+| 13  | Function introspection | ✅     | \_\_tjs metadata with params, returns, examples                                                                                                                                                                                |
+| 14  | Generic()              | ✅     | Runtime-checkable generics with TPair, TRecord                                                                                                                                                                                 |
+| 15  | Asymmetric get/set     | ✅     | JS native get/set captures asymmetric types                                                                                                                                                                                    |
+| 16  | `==` that works        | ✅     | Eq/NotEq + Is/IsNot, on by default in native TJS, honest typeof                                                                                                                                                                |
+| 17  | WASM blocks            | ✅     | Full: SIMD intrinsics, wasmBuffer, fallback, base64 embed                                                                                                                                                                      |
 | 17a | WASM libraries         | ✅     | v0.8.0: `wasm function` declarations, cross-file composition, wasm-to-wasm calls, `tjs-lang/linalg` MVP, module consolidation (one `WebAssembly.Module` per file), tree-shaking + transitive walk. See `wasm-library-plan.md`. |
-| 18  | Death to `new`         | ✅     | wrapClass + no-explicit-new lint rule                           |
-| 19  | Linter                 | ✅     | unused vars, unreachable code, no-explicit-new                  |
-| 20  | TS→TJS converter       | ✅     | `tjs convert` — proven on Zod, Effect, Radash, etc.             |
-| 21  | Docs generation        | ✅     | Auto-generated with emit, --no-docs, --docs-dir                 |
-| 22  | Class support          | ✅     | TS→TJS class conversion, private→#, Proxy wrap                  |
-| 23  | JSON Schema            | ✅     | Type.toJSONSchema(), Type.strip(), fn.\_\_tjs.schema()          |
-| 24  | Error history          | ✅     | Ring buffer of recent MonadicErrors, on by default              |
-| 25  | Polymorphic functions  | ✅     | Multiple same-name declarations merge into dispatcher           |
-| 26  | Local class extensions | ✅     | `extend String { }` without prototype pollution                 |
-| 27  | `const!`               | ✅     | Compile-time immutability, zero runtime cost                    |
-| 28  | FunctionPredicate      | ✅     | First-class function types with params/returns/contract         |
-| 29  | `.d.ts` generation     | ✅     | `generateDTS()` from TJS transpilation results                  |
-| 30  | `@tjs` annotations     | ✅     | `/* @tjs ... */` comments enrich TS→TJS output                  |
+| 18  | Death to `new`         | ✅     | wrapClass + no-explicit-new lint rule                                                                                                                                                                                          |
+| 19  | Linter                 | ✅     | unused vars, unreachable code, no-explicit-new                                                                                                                                                                                 |
+| 20  | TS→TJS converter       | ✅     | `tjs convert` — proven on Zod, Effect, Radash, etc.                                                                                                                                                                            |
+| 21  | Docs generation        | ✅     | Auto-generated with emit, --no-docs, --docs-dir                                                                                                                                                                                |
+| 22  | Class support          | ✅     | TS→TJS class conversion, private→#, Proxy wrap                                                                                                                                                                                 |
+| 23  | JSON Schema            | ✅     | Type.toJSONSchema(), Type.strip(), fn.\_\_tjs.schema()                                                                                                                                                                         |
+| 24  | Error history          | ✅     | Ring buffer of recent MonadicErrors, on by default                                                                                                                                                                             |
+| 25  | Polymorphic functions  | ✅     | Multiple same-name declarations merge into dispatcher                                                                                                                                                                          |
+| 26  | Local class extensions | ✅     | `extend String { }` without prototype pollution                                                                                                                                                                                |
+| 27  | `const!`               | ✅     | Compile-time immutability, zero runtime cost                                                                                                                                                                                   |
+| 28  | FunctionPredicate      | ✅     | First-class function types with params/returns/contract                                                                                                                                                                        |
+| 29  | `.d.ts` generation     | ✅     | `generateDTS()` from TJS transpilation results                                                                                                                                                                                 |
+| 30  | `@tjs` annotations     | ✅     | `/* @tjs ... */` comments enrich TS→TJS output                                                                                                                                                                                 |
 
 ### fromTS Transpiler Compatibility
 

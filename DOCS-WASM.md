@@ -12,10 +12,10 @@ For the cross-file libraries design rationale, see [`wasm-library-plan.md`](wasm
 
 TJS supports two related ways of writing WebAssembly:
 
-| Flavor | Syntax | Use when |
-|---|---|---|
-| **Inline block** | `wasm { ... }` inside a regular function | One-off acceleration of a hot inner loop in a single function; you want a JS fallback |
-| **Top-level declaration** | `wasm function NAME(...): T { ... }` at module scope | Reusable kernel that other files (or this one) may want to import |
+| Flavor                    | Syntax                                               | Use when                                                                              |
+| ------------------------- | ---------------------------------------------------- | ------------------------------------------------------------------------------------- |
+| **Inline block**          | `wasm { ... }` inside a regular function             | One-off acceleration of a hot inner loop in a single function; you want a JS fallback |
+| **Top-level declaration** | `wasm function NAME(...): T { ... }` at module scope | Reusable kernel that other files (or this one) may want to import                     |
 
 Both flavors compile to the same `WebAssembly.Module` per file (one module per
 file, multiple exported functions), and both share one linear memory.
@@ -73,18 +73,18 @@ to the wasm export. Callers see a normal JavaScript function.
 syntax. (Inside a `wasm function`, `name: 'hello'` would be a type error, not
 an example value.)
 
-| Annotation | WASM type | Notes |
-|---|---|---|
-| `name: i32` | `i32` | 32-bit signed integer |
-| `name: i64` | `i64` | 64-bit signed integer |
-| `name: f32` | `f32` | 32-bit float |
-| `name: f64` | `f64` | 64-bit float |
-| `name: number` | `f64` | Alias |
-| `name: int` | `i32` | Alias |
+| Annotation           | WASM type       | Notes                                 |
+| -------------------- | --------------- | ------------------------------------- |
+| `name: i32`          | `i32`           | 32-bit signed integer                 |
+| `name: i64`          | `i64`           | 64-bit signed integer                 |
+| `name: f32`          | `f32`           | 32-bit float                          |
+| `name: f64`          | `f64`           | 64-bit float                          |
+| `name: number`       | `f64`           | Alias                                 |
+| `name: int`          | `i32`           | Alias                                 |
 | `name: Float32Array` | `i32` (pointer) | Pointer to f32 array in linear memory |
-| `name: Float64Array` | `i32` (pointer) | Pointer to f64 array |
-| `name: Int32Array` | `i32` (pointer) | Pointer to i32 array |
-| `name: Uint8Array` | `i32` (pointer) | Pointer to u8 array |
+| `name: Float64Array` | `i32` (pointer) | Pointer to f64 array                  |
+| `name: Int32Array`   | `i32` (pointer) | Pointer to i32 array                  |
+| `name: Uint8Array`   | `i32` (pointer) | Pointer to u8 array                   |
 
 The JS-side wrapper auto-marshals typed arrays: if you pass a regular
 `Float32Array`, the wrapper copies it into wasm memory and back; if you pass a
@@ -212,12 +212,14 @@ const result = tjs(appSource, {
 Same source produces two outputs depending on how the library is consumed:
 
 **Composed form** (tjs-to-tjs, when the consumer transpiles with a loader):
+
 - Library's wasm functions become local exports in the consumer's module
 - One `WebAssembly.compile` per consumer file
 - Intra-module calls between the consumer's own wasm and the imported wasm are
   pure wasm calls (no JS↔wasm boundary)
 
 **Boundary form** (when the library is consumed as a published `.js`):
+
 - Library transpiles to a self-contained `.js` with embedded wasm + JS wrappers
 - Consumer imports the `.js` via normal ESM
 - Each call from JS into a library wrapper crosses the JS↔wasm boundary
@@ -237,6 +239,7 @@ my-lib/
 ```
 
 `package.json` `exports`:
+
 ```json
 "exports": {
   "./my-lib": {

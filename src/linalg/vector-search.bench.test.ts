@@ -30,10 +30,7 @@ import { describe, it, expect } from 'bun:test'
 import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
 
-const LINALG_SOURCE = readFileSync(
-  join(import.meta.dir, 'index.tjs'),
-  'utf8'
-)
+const LINALG_SOURCE = readFileSync(join(import.meta.dir, 'index.tjs'), 'utf8')
 
 // The inline baseline — single wasm{} block computing dot, magA, magB
 // together. Mirrors what guides/examples/tjs/wasm-vector-search.md does.
@@ -161,7 +158,12 @@ async function loadVariant(
   fnName: string,
   varName: string
 ): Promise<{
-  search: (corpus: Float32Array, query: Float32Array, count: number, dim: number) => number
+  search: (
+    corpus: Float32Array,
+    query: Float32Array,
+    count: number,
+    dim: number
+  ) => number
   wasmBuffer: (Ctor: any, len: number) => any
 }> {
   await new Function(
@@ -296,13 +298,28 @@ describe('Canonical demo: vector-search across three forms', () => {
         const warmCount = Math.min(100, cfg.count)
         for (let w = 0; w < 3; w++) {
           inline.search(inlineCorpus, inlineQuery, warmCount, cfg.dim)
-          composedJs.search(composedJsCorpus, composedJsQuery, warmCount, cfg.dim)
-          composedWasm.search(composedWasmCorpus, composedWasmQuery, warmCount, cfg.dim)
+          composedJs.search(
+            composedJsCorpus,
+            composedJsQuery,
+            warmCount,
+            cfg.dim
+          )
+          composedWasm.search(
+            composedWasmCorpus,
+            composedWasmQuery,
+            warmCount,
+            cfg.dim
+          )
         }
 
         // Time inline
         const inlineStart = performance.now()
-        const inlineIdx = inline.search(inlineCorpus, inlineQuery, cfg.count, cfg.dim)
+        const inlineIdx = inline.search(
+          inlineCorpus,
+          inlineQuery,
+          cfg.count,
+          cfg.dim
+        )
         const inlineMs = performance.now() - inlineStart
 
         // Time composed JS-outer-loop
@@ -352,9 +369,13 @@ describe('Canonical demo: vector-search across three forms', () => {
         const jsRatio = t.composedJsMs / t.inlineMs
         const wasmRatio = t.composedWasmMs / t.inlineMs
         console.log(
-          `  ${t.label.padEnd(12)} | ${t.inlineMs.toFixed(2).padStart(8)} | ${t.composedJsMs
+          `  ${t.label.padEnd(12)} | ${t.inlineMs
             .toFixed(2)
-            .padStart(11)} | ${jsRatio.toFixed(2).padStart(6)}x | ${t.composedWasmMs
+            .padStart(8)} | ${t.composedJsMs
+            .toFixed(2)
+            .padStart(11)} | ${jsRatio
+            .toFixed(2)
+            .padStart(6)}x | ${t.composedWasmMs
             .toFixed(2)
             .padStart(13)} | ${wasmRatio.toFixed(2).padStart(5)}x`
         )

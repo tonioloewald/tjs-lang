@@ -380,9 +380,9 @@ function collectExports(ast: any): ExportEntry[] {
         decl?.type === 'ArrowFunctionExpression'
           ? 'function'
           : decl?.type === 'ClassDeclaration' ||
-              decl?.type === 'ClassExpression'
-            ? 'class'
-            : 'unknown'
+            decl?.type === 'ClassExpression'
+          ? 'class'
+          : 'unknown'
       exports.push({ name: 'default', kind })
     } else if (node.type === 'ExportAllDeclaration') {
       // export * from './other'
@@ -407,8 +407,7 @@ function collectExports(ast: any): ExportEntry[] {
 export function inMemoryFileSystem(
   files: Map<string, string> | Record<string, string>
 ): FileSystem {
-  const map =
-    files instanceof Map ? files : new Map(Object.entries(files))
+  const map = files instanceof Map ? files : new Map(Object.entries(files))
   // Normalize separators so path.resolve()'s output matches map keys
   const normalize = (p: string) => p.split('/').join(sep)
   const lookup = (p: string) => map.get(p) ?? map.get(normalize(p)) ?? null

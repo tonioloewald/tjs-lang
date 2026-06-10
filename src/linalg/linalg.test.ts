@@ -203,8 +203,14 @@ function cosine(a, b, n) {
       // Orthogonal vectors → cosine 0
       const ox = wasmBuffer(Float32Array, 4)
       const oy = wasmBuffer(Float32Array, 4)
-      ox[0] = 1; ox[1] = 0; ox[2] = 0; ox[3] = 0
-      oy[0] = 0; oy[1] = 1; oy[2] = 0; oy[3] = 0
+      ox[0] = 1
+      ox[1] = 0
+      ox[2] = 0
+      ox[3] = 0
+      oy[0] = 0
+      oy[1] = 1
+      oy[2] = 0
+      oy[3] = 0
       const ortho = (globalThis as any).__test_cosine(ox, oy, 4)
       expect(ortho).toBeCloseTo(0, 4)
     } finally {

@@ -39,7 +39,9 @@ describe('ModuleLoader.resolve', () => {
       '/proj/app.tjs': 'import { x } from "./math.tjs"',
       '/proj/math.tjs': 'export const x = 1',
     })
-    expect(loader.resolve('./math.tjs', p`/proj/app.tjs`)).toBe(p`/proj/math.tjs`)
+    expect(loader.resolve('./math.tjs', p`/proj/app.tjs`)).toBe(
+      p`/proj/math.tjs`
+    )
   })
 
   it('resolves relative paths against baseDir when no importer is given', () => {
@@ -71,7 +73,9 @@ describe('ModuleLoader.resolve', () => {
     const loader = loaderWith({
       '/proj/legacy.ts': 'export const a = 1',
     })
-    expect(loader.resolve('./legacy', p`/proj/app.tjs`)).toBe(p`/proj/legacy.ts`)
+    expect(loader.resolve('./legacy', p`/proj/app.tjs`)).toBe(
+      p`/proj/legacy.ts`
+    )
   })
 
   it('prefers .tjs when multiple extensions exist', () => {
@@ -97,9 +101,9 @@ describe('ModuleLoader.resolve', () => {
       '/proj/node_modules/tjs-lang/linalg/index.tjs': 'export const dot = 1',
       '/proj/src/inner/app.tjs': 'import { dot } from "tjs-lang/linalg"',
     })
-    expect(
-      loader.resolve('tjs-lang/linalg', p`/proj/src/inner/app.tjs`)
-    ).toBe(p`/proj/node_modules/tjs-lang/linalg/index.tjs`)
+    expect(loader.resolve('tjs-lang/linalg', p`/proj/src/inner/app.tjs`)).toBe(
+      p`/proj/node_modules/tjs-lang/linalg/index.tjs`
+    )
   })
 
   it('checks bareSpecifierRoots before walking node_modules', () => {
