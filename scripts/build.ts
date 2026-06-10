@@ -118,6 +118,7 @@ function main() {
 
   let totalRaw = 0
   let totalGzip = 0
+  const failures: string[] = []
 
   for (const target of targets) {
     try {
@@ -131,6 +132,7 @@ function main() {
         ).padStart(12)}   ${target.description}`
       )
     } catch (e: any) {
+      failures.push(target.name)
       console.log(
         `${target.name.padEnd(20)} ${'FAILED'.padStart(12)}   ${e.message}`
       )
@@ -152,6 +154,18 @@ function main() {
   console.log('tjs-lang/eval      → Safe eval (VM + transpiler)')
   console.log('tjs-lang/lang/from-ts → TS→TJS (needs typescript)')
   console.log('tjs-lang/batteries → LLM, vector, store ops')
+
+  // Fail noisily: a failed bundle is a broken package entry point. Exiting
+  // non-zero stops `bun run make`, CI, and release scripts so it can't ship
+  // silently (as the index bundle did from v0.8.0 until v0.8.1).
+  if (failures.length > 0) {
+    console.error(
+      `\n✖ Build failed: ${
+        failures.length
+      } bundle(s) did not build — ${failures.join(', ')}`
+    )
+    process.exit(1)
+  }
 }
 
 main()
