@@ -204,6 +204,21 @@ function renderTable(results) {
   table.innerHTML = html
 }
 
+// Measure per-call time robustly: run until at least minMs of wall-clock has
+// elapsed, then divide by the iteration count. A single sub-millisecond pass
+// can't be timed where performance.now() is coarse (Firefox clamps to ~1ms),
+// which would make a fast SIMD result read as 0ms and the speedup Infinity.
+function timePerOp(fn, minMs = 25) {
+  let iters = 0
+  let result
+  const start = performance.now()
+  do {
+    result = fn()
+    iters++
+  } while (performance.now() - start < minMs)
+  return { perOp: (performance.now() - start) / iters, result }
+}
+
 async function runConfig(cfg) {
   const size = cfg.count * cfg.dim
 
@@ -229,22 +244,17 @@ async function runConfig(cfg) {
     jsSearch(jsCorpus, jsQuery, Math.min(500, cfg.count), cfg.dim)
   }
 
-  // Time SIMD (uses pre-allocated wasmBuffer — zero copy)
-  const simdStart = performance.now()
-  const simdIdx = simdSearch(corpus, query, cfg.count, cfg.dim)
-  const simdTime = performance.now() - simdStart
-
-  // Time JS
-  const jsStart = performance.now()
-  const jsIdx = jsSearch(jsCorpus, jsQuery, cfg.count, cfg.dim)
-  const jsTime = performance.now() - jsStart
+  // Time SIMD (pre-allocated wasmBuffer — zero copy) and JS, each averaged over
+  // enough iterations to exceed coarse timer resolution (see timePerOp above).
+  const simd = timePerOp(() => simdSearch(corpus, query, cfg.count, cfg.dim))
+  const js = timePerOp(() => jsSearch(jsCorpus, jsQuery, cfg.count, cfg.dim))
 
   return {
     label: cfg.label,
-    simdTime,
-    jsTime,
-    speedup: jsTime / simdTime,
-    match: simdIdx === jsIdx,
+    simdTime: simd.perOp,
+    jsTime: js.perOp,
+    speedup: simd.perOp > 0 ? js.perOp / simd.perOp : Infinity,
+    match: simd.result === js.result,
   }
 }
 
