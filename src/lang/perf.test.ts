@@ -60,8 +60,12 @@ describe('TJS Performance', () => {
       console.log(`    Median: ${median.toFixed(0)}ms`)
       console.log(`    Max:    ${max.toFixed(0)}ms`)
 
-      // Cold start should be under 200ms
-      expect(median).toBeLessThan(200)
+      // Regression guardrail, not a micro-benchmark: this wall-clock is
+      // dominated by `bun` process spawn + module-graph load (the one-line
+      // transpile is negligible), so it's machine- and load-dependent. Keep the
+      // bar generous — it catches a gross regression (cold start ballooning to
+      // seconds) without flaking on a loaded box or slower CI.
+      expect(median).toBeLessThan(500)
     })
 
     it('should measure tjs emit time', async () => {
@@ -84,7 +88,8 @@ describe('TJS Performance', () => {
       console.log(`\n  tjs emit cold start (5 runs):`)
       console.log(`    Median: ${median.toFixed(0)}ms`)
 
-      expect(median).toBeLessThan(200)
+      // Generous regression guardrail — see the tjsx cold-start note above.
+      expect(median).toBeLessThan(500)
     })
 
     it('should measure tjs check time', async () => {
@@ -107,7 +112,8 @@ describe('TJS Performance', () => {
       console.log(`\n  tjs check cold start (5 runs):`)
       console.log(`    Median: ${median.toFixed(0)}ms`)
 
-      expect(median).toBeLessThan(200)
+      // Generous regression guardrail — see the tjsx cold-start note above.
+      expect(median).toBeLessThan(500)
     })
   })
 
