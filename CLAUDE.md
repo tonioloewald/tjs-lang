@@ -250,6 +250,7 @@ AJS expressions behave differently from JavaScript in several important ways:
 - Integration tests in `src/use-cases/` (RAG, orchestration, malicious actors)
 - Security tests in `src/use-cases/malicious-actor.test.ts`
 - Language tests split across 17 files in `src/lang/` (lang.test.ts, features.test.ts, codegen.test.ts, parser.test.ts, from-ts.test.ts, wasm.test.ts, etc.)
+- LLM integration tests (run via full `bun test`, skipped by `SKIP_LLM_TESTS`) need a local **LM Studio** server with a chat + embedding model loaded. Setup and the hard-won gotchas (model load failures, leaked-VRAM stray `node` worker, updating runtimes, CORS, the audit-cache parallel race) are in [`docs/lm-studio-setup.md`](docs/lm-studio-setup.md).
 
 Coverage targets: 98% lines on `src/vm/runtime.ts` (security-critical), 80%+ overall.
 

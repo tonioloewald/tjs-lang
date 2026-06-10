@@ -23,6 +23,7 @@ ASTs that run sandboxed with fuel (gas) limits.
 | [WASM Quick Start](https://github.com/tonioloewald/tjs-lang/blob/main/docs/WASM-QUICKSTART.md) | Build WASM-accelerated libraries with zero toolchain setup |
 | [Design Patterns](https://github.com/tonioloewald/tjs-lang/blob/main/guides/patterns.md) | Common patterns in TJS and AJS |
 | [Schema Validation](https://github.com/tonioloewald/tjs-lang/blob/main/guides/tosijs-schema.md) | Working with tosijs-schema |
+| [LM Studio Setup](https://github.com/tonioloewald/tjs-lang/blob/main/docs/lm-studio-setup.md) | Running the LLM test suite locally — install, model loading, leaked-VRAM/CORS gotchas |
 
 ## Examples
 
