@@ -73,7 +73,10 @@ export function getLLMCapability(
             model: model.id,
             messages,
             temperature: 0.7,
-            tools,
+            // Only include tools when non-empty: an empty tools array makes
+            // LM Studio apply a tool-call grammar that can't be combined with
+            // a structured-output response_format ("lazy grammar" 400).
+            ...(tools && tools.length > 0 ? { tools } : {}),
             response_format: responseFormat,
           }),
         })
