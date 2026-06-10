@@ -130,6 +130,20 @@ Follow-ups from the ESLint 8 → 10 + typescript-eslint 5 → 8 flat-config migr
 - [ ] **Dev-dependency vulns (none shipped to consumers).** `npm audit` shows 28, all dev/peer: Firebase SDK + admin stack, the vitest/vite/esbuild/rollup chain (vitest _critical_, genuinely used by 5 test files → needs v3 major), happy-dom, valibot, ws. Plus one eslint-transitive straggler: `flatted@3.3.3` via `file-entry-cache → flat-cache` (non-major fix).
 - [ ] **Resolve the `marked` peer conflict** — `tosijs-ui` peers on `marked@^16`, repo pins `marked@9.1.6` (bun warns + installs; npm refuses without `--legacy-peer-deps`).
 
+## Self-hosting (TS feature coverage)
+
+Four `it.skip` cases in `src/use-cases/self-hosting.test.ts` — advanced TS that the
+TS→TJS path can't yet handle. Un-skip as support lands:
+
+- [ ] Class with private fields and methods (gated on class support)
+- [ ] Builder pattern with method chaining (gated on class support)
+- [ ] Complex decorator patterns (requires `experimentalDecorators`)
+- [ ] Module augmentation (type-only, no runtime code)
+
+(Also 4 unconditional skips in `src/lang/metadata-cache.test.ts` — the transpile
+metadata-cache feature is stubbed: store/retrieve, version-invalidation, merge,
+prune.)
+
 ## Batteries / LLM tests
 
 - [ ] **Audit misclassifies models under concurrent probing.** Many test files call `LocalModels.audit()` at once, sharing one `.models.cache.json` (cwd, 24h TTL). Clearing the cache before a parallel `bun test` makes several audits probe LM Studio simultaneously and classifications come back scrambled (embedding models tagged `LLM`, an LLM tagged `Embedding`). Tests stay green only by luck of ordering. Fix: serialize the audit, harden the probes, or isolate the cache per run. Workaround documented in [`docs/lm-studio-setup.md`](docs/lm-studio-setup.md). Surfaced 2026-06-10 while getting the LLM suite green.

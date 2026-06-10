@@ -36,7 +36,16 @@ const targets: BuildTarget[] = [
   {
     name: 'index',
     entry: './src/index.ts',
-    external: ['acorn', 'tosijs-schema', 'typescript', 'node:readline'],
+    external: [
+      'acorn',
+      'tosijs-schema',
+      'typescript',
+      'node:readline',
+      // module-loader.ts uses these for transpile-time .tjs/.ts/.js resolution
+      // (node-only); externalize so the neutral bundle resolves rather than fails.
+      'node:fs',
+      'node:path',
+    ],
     description: 'Main entry (VM + lang + fromTS)',
   },
   {
