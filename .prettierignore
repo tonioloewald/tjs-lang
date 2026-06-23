@@ -1,4 +1,17 @@
-# artifacts
+# Build artifacts / generated output (never format these)
 dist
+.demo
 docs
+coverage
 .compat-tests
+demo/docs.json
+**/*.min.js
+
+# Dependencies and sub-projects that carry their own tooling
+node_modules
+functions
+
+# Lockfiles
+bun.lock
+bun.lockb
+package-lock.json
