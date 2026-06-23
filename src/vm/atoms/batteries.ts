@@ -51,7 +51,12 @@ export const storeVectorize = defineAtom(
     const resolvedText = resolveValue(text, ctx)
     return vectorCap.embed(resolvedText)
   },
-  { docs: 'Generate embeddings using vector battery', cost: 20 }
+  // Network embedding call; a cold model can exceed the 1s atom default.
+  {
+    docs: 'Generate embeddings using vector battery',
+    cost: 20,
+    timeoutMs: 60000,
+  }
 )
 
 // store.createCollection
@@ -97,7 +102,12 @@ export const storeVectorAdd = defineAtom(
 
     return storeCap.vectorAdd(resolvedColl, resolvedDoc)
   },
-  { docs: 'Add a document to a vector store collection', cost: 5 }
+  // May embed the doc via the store (network IO); allow for a cold model.
+  {
+    docs: 'Add a document to a vector store collection',
+    cost: 5,
+    timeoutMs: 60000,
+  }
 )
 
 // store.search (Vector Search)
