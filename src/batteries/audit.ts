@@ -190,9 +190,10 @@ async function checkEmbedding(
   }
 }
 
-// Tiny 1x1 red PNG as base64 for vision testing
+// 32x32 solid-red PNG (base64). NOT 1x1 — degenerate sizes are rejected by
+// real vision preprocessors (e.g. gemma: "Cannot handle this data type (1,1,1)").
 const TINY_TEST_IMAGE =
-  'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8DwHwAFBQIAX8jx0gAAAABJRU5ErkJggg=='
+  'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAACAAAAAgCAIAAAD8GO2jAAAAMUlEQVR4nGO4o6FBU8QwasFoEI2motF8MFpUjJamo/XBaJU52qoYbReNNh01hkg+AACGobA9N+tfoAAAAABJRU5ErkJggg=='
 
 async function checkVision(baseUrl: string, modelId: string): Promise<boolean> {
   try {

@@ -148,9 +148,11 @@ TJS return-marker semantics (reference for when AJS enforcement lands): `)-!` ne
 - [x] **Replaced `vm.run` default `timeoutMs = fuel × 10ms` formula** — now derived from the registered atoms as `max(per-atom timeoutMs) × 2`, floored at 60s (`AgentVM.defaultRunTimeout`). A fixed 60s default (interim) was shorter than the 120s `llmVision`/`llmPredictBattery` budgets, so vision/LLM calls timed out mid-call on slower models; the atom-derived default always covers the slowest atom (and a chained pair) and self-adjusts to custom slow atoms. Updated timeout error message to point at `timeoutMs` / `timeoutOverrides` instead of "increase fuel".
 - [x] **`storeVectorize` / `storeVectorAdd` get `timeoutMs: 60000`** — both make embedding network calls but had the 1s atom default, so a cold embedding model timed out. (Same class as the llmVision/llmPredict 120s budgets, missed for the store atoms.) Local ops (`storeSearch`, `storeCreateCollection`) keep the default.
 
+- [x] **Vision-detection probe used a degenerate 1×1 PNG** — real vision preprocessors reject it (gemma-4-e4b: HTTP 400 "Cannot handle this data type: (1,1,1)"), so a genuinely multimodal model was false-negatived as `vision: false` and vision examples skipped with "no vision model available". Probe now uses a valid 32×32 PNG (gemma returns 200). `src/batteries/audit.ts`.
+
 ### Deferred (surfaced this session)
 
-- [ ] **Model-audit vision detection is a coarse heuristic** (`src/batteries/audit.ts:216`) — "if the model accepts a tiny 1×1 PNG via `image_url` without erroring, it's vision-capable." False-negatives a real multimodal model that rejects that specific probe (e.g. `google/gemma-4-e4b` in LM Studio reads as `vision: false`, so vision examples skip instead of running), and would false-positive a text model that tolerates the format. Make it check the *response* (does the model actually describe the image?) and/or use a real small image. Not a correctness bug — vision tests skip gracefully when no model is detected.
+- [ ] **Model-audit vision detection still only checks `res.ok`** (`audit.ts` checkVision) — a text model that _tolerates_ the multimodal format without erroring would false-positive. Stronger: check the _response content_ (does the model actually describe the image?). Lower priority now that the 1×1 false-negative is fixed.
 
 ## Infrastructure
 
