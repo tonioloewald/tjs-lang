@@ -603,6 +603,106 @@ export function validateSingleFunction(
 }
 
 /**
+ * Extract top-level function declarations from the parsed program.
+ *
+ * Returns `{ entry, helpers }` where:
+ *   - `entry` is the last function declaration (the agent's entry point)
+ *   - `helpers` are all preceding function declarations, looked up by name
+ *
+ * This matches the natural "helpers first, agent last" pattern, including
+ * the TOOL_LIBRARY use case where helper async wrappers are prepended
+ * before the user-supplied agent function.
+ *
+ * Same top-level construct restrictions as `validateSingleFunction`:
+ * imports, exports, and classes are rejected.
+ */
+export function extractFunctions(
+  ast: Program,
+  filename?: string
+): { entry: FunctionDeclaration; helpers: Map<string, FunctionDeclaration> } {
+  // Top-level construct checks (same as validateSingleFunction)
+  for (const node of ast.body) {
+    if (node.type === 'ImportDeclaration') {
+      throw new SyntaxError(
+        'Imports are not supported. All atoms must be registered with the VM.',
+        node.loc?.start || { line: 1, column: 0 },
+        undefined,
+        filename
+      )
+    }
+
+    if (
+      node.type === 'ExportNamedDeclaration' ||
+      node.type === 'ExportDefaultDeclaration'
+    ) {
+      throw new SyntaxError(
+        'Exports are not supported. The function is automatically exported.',
+        node.loc?.start || { line: 1, column: 0 },
+        undefined,
+        filename
+      )
+    }
+
+    if (node.type === 'ClassDeclaration') {
+      throw new SyntaxError(
+        'Classes are not supported. Agent99 uses functional composition.',
+        node.loc?.start || { line: 1, column: 0 },
+        undefined,
+        filename
+      )
+    }
+  }
+
+  const functions = ast.body.filter(
+    (node): node is FunctionDeclaration => node.type === 'FunctionDeclaration'
+  )
+
+  if (functions.length === 0) {
+    throw new SyntaxError(
+      'Source must contain a function declaration',
+      { line: 1, column: 0 },
+      undefined,
+      filename
+    )
+  }
+
+  const entry = functions[functions.length - 1]
+  const helpers = new Map<string, FunctionDeclaration>()
+
+  for (let i = 0; i < functions.length - 1; i++) {
+    const fn = functions[i]
+    const name = fn.id?.name
+    if (!name) {
+      throw new SyntaxError(
+        'Helper function must have a name',
+        fn.loc?.start || { line: 1, column: 0 },
+        undefined,
+        filename
+      )
+    }
+    if (helpers.has(name)) {
+      throw new SyntaxError(
+        `Duplicate helper function name: ${name}`,
+        fn.loc?.start || { line: 1, column: 0 },
+        undefined,
+        filename
+      )
+    }
+    if (name === entry.id?.name) {
+      throw new SyntaxError(
+        `Helper function cannot share a name with the entry function: ${name}`,
+        fn.loc?.start || { line: 1, column: 0 },
+        undefined,
+        filename
+      )
+    }
+    helpers.set(name, fn)
+  }
+
+  return { entry, helpers }
+}
+
+/**
  * Extract TDoc comment from before a function
  *
  * TJS doc comments use /\*# ... \*\/ syntax and preserve full markdown content.

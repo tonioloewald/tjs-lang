@@ -27,11 +27,17 @@ import type {
   TranspileResult,
   FunctionSignature,
 } from './types'
-import { parse, validateSingleFunction } from './parser'
+import { parse, extractFunctions } from './parser'
 import { transformFunction } from './emitters/ast'
 
 export * from './types'
-export { parse, preprocess, extractTDoc } from './parser'
+export {
+  parse,
+  preprocess,
+  extractTDoc,
+  validateSingleFunction,
+  extractFunctions,
+} from './parser'
 export { transformFunction } from './emitters/ast'
 export {
   transpileToJS,
@@ -177,15 +183,16 @@ export function transpile(
   })
 
   // Validate structure
-  const func = validateSingleFunction(program, options.filename)
+  const { entry, helpers } = extractFunctions(program, options.filename)
 
   // Transform to Agent99 AST
   const { ast, signature, warnings } = transformFunction(
-    func,
+    entry,
     originalSource,
     returnType,
     options,
-    requiredParams
+    requiredParams,
+    helpers.size > 0 ? helpers : undefined
   )
 
   return {

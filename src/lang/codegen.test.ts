@@ -1543,8 +1543,11 @@ function map(arr: [''], counter = strLength): [0] { return arr.map(counter) }`)
         )
         const sig = testResults?.find((t) => t.isSignatureTest)
         expect(sig).toBeDefined()
+        // The module couldn't execute (runtime ReferenceError on `x`), so the
+        // test couldn't run → inconclusive, never a build-blocking failure.
         expect(sig?.passed).toBe(false)
-        expect(sig?.error).toContain('Module execution failed')
+        expect(sig?.inconclusive).toBe(true)
+        expect(sig?.error).toContain('could not be executed')
         // Critical: no line attribution → editor won't mark a misleading line
         expect(sig?.line).toBeUndefined()
       })

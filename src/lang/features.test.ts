@@ -1097,14 +1097,15 @@ describe('signature tests (transpile-time)', () => {
     `,
       { runTests: 'report' }
     )
-    // Should have a signature test result that's skipped (passed), not failed
+    // The test can't run (unresolved import) → inconclusive, not failed.
+    // Inconclusive never blocks transpilation (see PRINCIPLES.md).
     expect(result.testResults).toBeDefined()
     const sigTest = result.testResults!.find((t: any) =>
       t.description.includes('validateUser')
     )
     expect(sigTest).toBeDefined()
-    expect(sigTest?.passed).toBe(true)
-    expect(sigTest?.error).toBeUndefined()
+    expect(sigTest?.passed).toBe(false)
+    expect(sigTest?.inconclusive).toBe(true)
   })
 
   it('should skip tests gracefully when imports are unresolved (function-level)', () => {
@@ -1124,8 +1125,8 @@ describe('signature tests (transpile-time)', () => {
       t.description.includes('formatDate')
     )
     expect(sigTest).toBeDefined()
-    expect(sigTest?.passed).toBe(true)
-    expect(sigTest?.error).toBeUndefined()
+    expect(sigTest?.passed).toBe(false)
+    expect(sigTest?.inconclusive).toBe(true)
   })
 
   it('should test sync functions alongside async functions', () => {

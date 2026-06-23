@@ -1119,8 +1119,11 @@ export function transpileToJS(
     )
 
     // Check for failures and throw only if runTests === true (strict mode)
-    // 'only' and 'report' modes return results without throwing
-    const failures = testResults.filter((r) => !r.passed)
+    // 'only' and 'report' modes return results without throwing.
+    // Inconclusive results (a test that couldn't *run* — undefined refs like AJS
+    // atoms, or a module the harness can't execute) never block transpilation:
+    // that would turn subset-legal code illegal. See PRINCIPLES.md.
+    const failures = testResults.filter((r) => !r.passed && !r.inconclusive)
     if (failures.length > 0 && runTests === true) {
       const errorLines = failures.map((f) => {
         if (f.isSignatureTest) {

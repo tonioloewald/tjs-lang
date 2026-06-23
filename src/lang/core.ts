@@ -12,7 +12,7 @@ import type {
   FunctionSignature,
   TypeDescriptor,
 } from './types'
-import { parse, validateSingleFunction } from './parser'
+import { parse, extractFunctions } from './parser'
 import { transformFunction } from './emitters/ast'
 import {
   transpileToJS,
@@ -26,6 +26,7 @@ export {
   preprocess,
   extractTDoc,
   validateSingleFunction,
+  extractFunctions,
 } from './parser'
 export { transformFunction } from './emitters/ast'
 
@@ -47,14 +48,15 @@ export function transpile(
     vmTarget: true,
   })
 
-  const func = validateSingleFunction(program, options.filename)
+  const { entry, helpers } = extractFunctions(program, options.filename)
 
   const { ast, signature, warnings } = transformFunction(
-    func,
+    entry,
     originalSource,
     returnType,
     options,
-    requiredParams
+    requiredParams,
+    helpers.size > 0 ? helpers : undefined
   )
 
   return {

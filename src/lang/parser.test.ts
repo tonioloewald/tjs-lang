@@ -814,13 +814,19 @@ test 'always fails' { throw new Error('intentional') }
   })
 
   describe('Error handling', () => {
-    it('should reject multiple functions', () => {
-      expect(() =>
-        transpile(`
-        function a() {}
-        function b() {}
+    it('accepts multiple functions as local helpers (last is the entry)', () => {
+      // Multiple top-level functions are now the local-helpers feature: the
+      // last declaration is the entry point, the rest are helpers called by
+      // name via callLocal. See use-cases/local-helpers.test.ts for semantics.
+      const { ast } = transpile(`
+        function helper(x: 0): 0 { return x }
+        function main(n: 0): 0 {
+          const r = helper(n)
+          return r
+        }
       `)
-      ).toThrow('Only a single function')
+      // Unused/used helpers are collected onto the root node by name.
+      expect((ast as any).helpers?.helper).toBeDefined()
     })
 
     it('should require a function when only a class is provided', () => {

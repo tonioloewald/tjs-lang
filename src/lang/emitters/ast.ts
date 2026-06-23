@@ -124,7 +124,8 @@ export function transformFunction(
   source: string,
   returnTypeAnnotation: string | undefined,
   options: TranspileOptions = {},
-  requiredParamsFromPreprocess?: Set<string>
+  requiredParamsFromPreprocess?: Set<string>,
+  helpers?: Map<string, FunctionDeclaration>
 ): {
   ast: BaseNode
   signature: FunctionSignature
@@ -175,6 +176,9 @@ export function transformFunction(
     source,
     filename: options.filename || '<source>',
     options,
+    helpers,
+    helperSteps: helpers ? new Map() : undefined,
+    helperTransforming: helpers ? new Set() : undefined,
   }
 
   // Transform function body
@@ -244,8 +248,21 @@ export function transformFunction(
   // Generate input schema for runtime validation
   const inputSchema = parametersToJsonSchema(signatureParams)
 
+  // Collect transitively-used helper bodies (transformed once) onto the root
+  // node. The VM installs these into ctx.helpers so callLocal can dispatch by
+  // name — call sites stay tiny and recursion is a runtime loop.
+  const helperBodies =
+    ctx.helperSteps && ctx.helperSteps.size > 0
+      ? Object.fromEntries(ctx.helperSteps)
+      : undefined
+
   return {
-    ast: { op: 'seq', steps, inputSchema },
+    ast: {
+      op: 'seq',
+      steps,
+      inputSchema,
+      ...(helperBodies && { helpers: helperBodies }),
+    },
     signature,
     warnings: ctx.warnings,
   }
@@ -1079,6 +1096,34 @@ function transformCallExpression(
     // This would be caught above, but just in case
   }
 
+  // Helper call? Emit callLocal referencing the helper by name. The body is
+  // transformed once and stored in ctx.helperSteps (collected onto the seq
+  // node), so call sites stay tiny and recursion is just a runtime loop.
+  if (ctx.helpers?.has(funcName)) {
+    const paramNames = ensureHelperTransformed(funcName, ctx, expr)
+    const argExprs = expr.arguments.map((arg) =>
+      expressionToValue(arg as Expression, ctx)
+    )
+    if (argExprs.length !== paramNames.length) {
+      throw new TranspileError(
+        `Helper '${funcName}' expects ${paramNames.length} argument(s), got ${argExprs.length}`,
+        getLocation(expr),
+        ctx.source,
+        ctx.filename
+      )
+    }
+    return {
+      step: {
+        op: 'callLocal',
+        name: funcName,
+        args: argExprs,
+        ...(resultVar && { result: resultVar }),
+        ...(resultVar && isConst && { resultConst: true }),
+      },
+      resultVar,
+    }
+  }
+
   // Check if it's a known atom
   // For now, we assume any function call is an atom call
   // The VM will validate at runtime
@@ -1095,6 +1140,89 @@ function transformCallExpression(
     },
     resultVar,
   }
+}
+
+/**
+ * Ensure a helper's body has been transformed once into `ctx.helperSteps`,
+ * returning its parameter names (for arity checking at the call site).
+ *
+ * Bodies are stored by name and called by reference at runtime, so recursion
+ * is fine: when a helper references itself (or a mutually-recursive sibling)
+ * the call site only needs the param names — the steps are filled in when the
+ * in-progress transform completes. The `helperTransforming` set just prevents
+ * re-entering a transform that's already underway.
+ */
+function ensureHelperTransformed(
+  name: string,
+  ctx: TransformContext,
+  callSite: CallExpression
+): string[] {
+  const fn = ctx.helpers!.get(name)!
+  // Accept plain identifiers (`x`) and example/default params (`x: 0` → `x = 0`
+  // after colon-shorthand desugaring). Destructuring isn't supported in v1.
+  // Helpers are arity-checked and called with explicit args, so the example/
+  // default is never applied — we only need the parameter name and position.
+  const paramNames: string[] = []
+  for (const param of fn.params) {
+    let id: Identifier | undefined
+    if (param.type === 'Identifier') {
+      id = param as Identifier
+    } else if (
+      param.type === 'AssignmentPattern' &&
+      (param as any).left?.type === 'Identifier'
+    ) {
+      id = (param as any).left as Identifier
+    }
+    if (!id) {
+      throw new TranspileError(
+        `Helper '${name}' parameters must be plain identifiers (optionally with an example value); destructuring is not supported`,
+        param.loc?.start ?? getLocation(callSite),
+        ctx.source,
+        ctx.filename
+      )
+    }
+    paramNames.push(id.name)
+  }
+
+  // Already transformed, or transform already underway (recursive reference):
+  // the call site only needs paramNames; the body is/will be in helperSteps.
+  if (ctx.helperSteps!.has(name) || ctx.helperTransforming!.has(name)) {
+    return paramNames
+  }
+
+  ctx.helperTransforming!.add(name)
+  try {
+    // Transform the helper body in a fresh inner context — isolated locals,
+    // params as the only known identifiers; helpers map is shared so it can
+    // call (and recurse into) other helpers.
+    const helperCtx: TransformContext = {
+      depth: 0,
+      locals: new Map(),
+      parameters: new Map(
+        paramNames.map((p) => [
+          p,
+          {
+            name: p,
+            type: { kind: 'any' as const },
+            required: true,
+          } as ParameterDescriptor,
+        ])
+      ),
+      atoms: ctx.atoms,
+      warnings: ctx.warnings,
+      source: ctx.source,
+      filename: ctx.filename,
+      options: ctx.options,
+      helpers: ctx.helpers,
+      helperSteps: ctx.helperSteps,
+      helperTransforming: ctx.helperTransforming,
+    }
+    const bodySteps = transformBlock(fn.body, helperCtx)
+    ctx.helperSteps!.set(name, { steps: bodySteps, paramNames })
+  } finally {
+    ctx.helperTransforming!.delete(name)
+  }
+  return paramNames
 }
 
 /**
@@ -1544,6 +1672,21 @@ function expressionToExprNode(
       // Handle global function calls (e.g., parseInt(x), parseFloat(x))
       if (call.callee.type === 'Identifier') {
         const funcName = (call.callee as Identifier).name
+
+        // Helper calls cannot be nested inside expressions — like template
+        // literals and complex calls, they must live at statement level so the
+        // expression sandbox stays call-free. Lift to a temp first.
+        if (ctx.helpers?.has(funcName)) {
+          throw new TranspileError(
+            `Helper '${funcName}' cannot be called inside an expression. ` +
+              `Assign its result to a variable first: ` +
+              `const result = ${funcName}(...); then use result.`,
+            getLocation(expr),
+            ctx.source,
+            ctx.filename
+          )
+        }
+
         return {
           $expr: 'call',
           callee: funcName,

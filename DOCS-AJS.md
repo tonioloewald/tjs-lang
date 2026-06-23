@@ -193,6 +193,53 @@ let fallback = a || defaultValue
 let nullish = a ?? defaultValue
 ```
 
+### Local helper functions
+
+An agent source file may declare **multiple** top-level functions. The **last**
+declaration is the entry point; the ones before it are **helpers** the entry (or
+other helpers) can call by name:
+
+```javascript
+function double(x) {
+  return x * 2
+}
+
+function addOne(x) {
+  const d = double(x) // helpers can call earlier helpers
+  return d + 1
+}
+
+function main(n) {
+  const a = double(n)
+  const b = addOne(n)
+  return { a, b } // only the entry must return an object
+}
+```
+
+Helpers behave like ordinary functions, with a few deliberate rules:
+
+- **Top-level siblings, not closures.** A helper sees only its own parameters —
+  never the caller's locals. This keeps them predictable and reusable.
+- **They may return any value** (number, string, array, object). Only the
+  _entry_ function is held to the object-return contract.
+- **Recursion is allowed.** Helpers may call themselves or each other. Runaway
+  recursion is bounded by fuel/timeout, with a hard call-depth cap (256) that
+  surfaces as a normal monadic error — never a host crash.
+- **Call them at statement level.** Like template literals, a helper call cannot
+  be nested inside a larger expression — lift it to a variable first:
+
+  ```javascript
+  // Fails at transpile time:
+  return { v: double(n) + 1 }
+
+  // Do this instead:
+  const d = double(n)
+  return { v: d + 1 }
+  ```
+
+Helper bodies are compiled once and dispatched by name, so calling a helper many
+times (or in a loop) doesn't bloat the agent's AST.
+
 ### What's Forbidden
 
 | Feature                    | Why Forbidden                                     |

@@ -110,17 +110,36 @@ Outstanding items from real-world VM integration. See conversation notes; ranked
 - [ ] **`resolveValue` doesn't recurse into plain object literals** — atoms with structured input get `{$expr}` children unresolved. Need canonical `deepResolve(value, ctx)` helper.
 - [ ] **Browser-safe entry point (`tjs-lang/browser`)** — main entry pulls `node:fs/promises` (CLI/playground); breaks webpack 4 and similar bundlers.
 - [ ] **`evaluateExpr` diagnostics** — when a node has missing required fields, wrap with op name + step location instead of raw `Cannot read properties of undefined`.
-- [ ] **Single-function rule / `TOOL_LIBRARY` antipattern** — non-trivial. In AJS the parser rejects multiple `function` declarations and the emitter treats *every* call as an atom (call sites become `{op: funcName}`). Allowing helpers means either:
-  1. **Inline helpers at transform time** (no AST/runtime changes; recursion not supported; minimal blast radius — recommended starting point for the TOOL_LIBRARY pattern).
-  2. **Add a `callLocal` atom + per-agent procedure table** (general; supports recursion; new AST node + runtime atom + scope rules).
-
-  See `src/lang/parser.ts:541` (validateSingleFunction) and `src/lang/emitters/ast.ts:1029` (transformCallExpression). For now, the documented workaround is to send pre-compiled AST instead of source.
 - [ ] **`typescript` lazy-load in main entry** — `import { ajs } from 'tjs-lang'` pulls TS compiler at import time, crashing Cloud Run. Defer `import('typescript')` until the TS path is invoked.
 - [ ] **`const` inside `while` loop body** — `constSet` re-runs each iteration and throws "Cannot reassign const variable". Either compile-time error or per-iteration scope.
 - [ ] **AgentVM: warn on unknown atoms referenced in source** — currently fails at execution time with `Unknown Atom: foo` and no hint about `batteryAtoms` / user-defined atoms.
 
+## Language subset invariant (TJS ⊇ AJS) — see PRINCIPLES.md
+
+**Invariant:** every legal AJS source must be legal TJS source (and options-off
+TJS ⊇ JS). TJS may do _more_ with the same source but must never _reject_ it.
+Engraved in `PRINCIPLES.md`. **Now holds** — restored via the signature-test
+changes below; guarded by `src/lang/subset-invariant.test.ts`.
+
+- [x] **Signature tests: inconclusive (not error) when un-runnable** — a signature test that can't execute (undefined references like AJS atoms `httpFetch`, or a harness that can't run the module) is now reported as `inconclusive: true` (a warning carrying the reason), never a transpile error. Only a test that _runs and mismatches_ stays a hard failure. New `inconclusive` field on `TestResult`; the strict-mode throw in `js.ts` skips inconclusive results. (Playground: surface the `inconclusive` flag distinctly — see playground TODO.)
+- [x] **Multi-function signature-test harness** — the realistic newline-separated multi-function source already executed and validates correctly; only the _same-line_ `} function` edge case failed the harness ("Unexpected keyword 'function'"). That failure is now inconclusive (non-fatal) rather than a transpile error, so the invariant holds either way. (Making same-line two-functions actually execute is a nice-to-have, not required.)
+- [x] **Subset guard test** — `src/lang/subset-invariant.test.ts`: representative AJS snippets (helpers with typed sigs, atom-call + return type, helper calling an atom) asserted valid as _both_ AJS and TJS; plain JS asserted valid under options-off TJS; plus controls (un-runnable → inconclusive, genuine mismatch → still throws).
+
+- [ ] **Playground: surface inconclusive signature tests** — show `TestResult.inconclusive` as a distinct state (warning, not pass/fail) in the test panel.
+
+### Deferred enrichment (parity, not invariant)
+
+AJS and TJS share one parser, so AJS already _accepts_ the full signature syntax — input `(!`/`(?` and return `)-!`/`)-?`/`)->` markers, colon/return examples — they just aren't _enforced_ in AJS. Closing that is a nice-to-have, separate from the subset invariant above.
+
+TJS return-marker semantics (reference for when AJS enforcement lands): `)-!` never checks the return + **bypasses the build-time signature test**; `)-?` always checks at runtime; `)->` checks only under global `safety: 'all'`; plain `): T` captures the type + runs the build-time signature test but isn't runtime-asserted (default `safety: 'inputs'`). In AJS today every signature behaves like `)-!` on the return and gets only coarse JSON-Schema validation on inputs (and `n: 0` integer examples currently emit a no-op `{}` schema — a bug).
+
+- [ ] **Signature-as-test in AJS** — TJS already runs the signature example as a transpile-time test (`scale(x:1.5,factor:0.5):0.75` with an inconsistent body fails with "Expected 0.75, got 1.5", `isSignatureTest:true`). AJS runs nothing. The VM can execute the function with the example inputs directly, so AJS is well-positioned to run the same check. Opt-in at first (don't break existing untested agents).
+- [ ] **Enrich AJS entry input schema** — `parametersToJsonSchema` currently coarsens examples (`1.5`→`{type:number}`) and, worse, `n: 0` (integer example) emits `{}` — a no-op that validates nothing. JSON Schema can express `{type:integer}` and `{minimum:0}`; capture int / non-negative / number distinctions so the entry contract isn't silently dropped. (Full predicate parity with TJS `checkType` isn't reachable in JSON Schema — defer.)
+- [ ] **Validate helper params** — helper bodies currently bind args by position with no validation (only arity is checked at transpile). For least-astonishment, helpers should honor their param examples like the entry function once AJS enforcement lands.
+
 ### Completed in current session
 
+- [x] **Local helper functions / `TOOL_LIBRARY` pattern** — AJS agent source may now declare multiple top-level functions: the **last** is the entry point, the rest are helpers. Implemented **option 2** (by-reference `callLocal` + per-agent helper table), chosen over inlining because it supports recursion (bounded by fuel/timeout + a `MAX_CALL_DEPTH=256` host-stack guard) and keeps the AST compact (helper bodies stored once, not duplicated per call site — matters since AJS AST travels as data). Helpers run in isolated scopes (top-level siblings, no closure over caller locals). Helper calls must live at statement level (can't be nested in expressions, like template literals); recursion is a runtime loop, not a transpile error. See `src/use-cases/local-helpers.test.ts`, `extractFunctions` (parser), `ensureHelperTransformed`/`callLocal` emit (emitters/ast.ts), `callLocal` atom (vm/runtime.ts).
 - [x] `llmPredictBattery` now has `timeoutMs: 120000` (was using default 1000ms — broken for any real LLM call) + regression test in `batteries.test.ts`.
 - [x] `typesVersions` fallback in `package.json` so legacy `moduleResolution: node` consumers can resolve `tjs-lang/vm`, `tjs-lang/lang`, `tjs-lang/batteries` etc.
 - [x] **Per-atom `timeoutMs` override** — `vm.run({ timeoutOverrides: { llmPredictBattery: 60000 } })` now works, mirroring the existing `costOverrides` pattern. Supports `number` and `(input, ctx) => number`; `0` disables the per-atom timeout. New `TimeoutOverride` type exported from `tjs-lang/vm`. See `src/use-cases/timeout-overrides.test.ts`.

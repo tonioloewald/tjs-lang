@@ -18,6 +18,13 @@ export interface TestResult {
   error?: string
   /** Whether this was an implicit signature test */
   isSignatureTest?: boolean
+  /**
+   * The test could not be *run* (e.g. it references a name TJS can't resolve at
+   * build time — like an AJS atom — or the harness couldn't execute the module).
+   * Inconclusive ≠ failed: it never blocks transpilation. Surfaced as a warning
+   * (e.g. in the playground). See PRINCIPLES.md ("more, never illegal").
+   */
+  inconclusive?: boolean
   /** Source line number (1-indexed) where the test or error occurred */
   line?: number
   /** Source column number (1-indexed) */
@@ -678,7 +685,7 @@ export function runAllTests(
       ${body}
       __testResults.push({ idx: ${i}, passed: true });
     } catch (e) {
-      __testResults.push({ idx: ${i}, passed: false, error: e.message || String(e) });
+      __testResults.push({ idx: ${i}, passed: false, isRef: e instanceof ReferenceError, error: e.message || String(e) });
     }
   `
     })
@@ -721,7 +728,10 @@ export function runAllTests(
         __sigTestResults.push({ idx: ${i}, passed: false, error: 'Expected ' + __format(__expected) + ' at \\'${testLabel}\\', got ' + __format(__actual) });
       }
     } catch (e) {
-      __sigTestResults.push({ idx: ${i}, passed: false, error: e.message || String(e) });
+      // The function threw on its example inputs — the example couldn't be
+      // *evaluated* (e.g. it calls an atom that doesn't exist at build time).
+      // That's inconclusive, not a mismatch. Never block transpilation on it.
+      __sigTestResults.push({ idx: ${i}, passed: false, threw: true, error: e.message || String(e) });
     }
   `
     })
@@ -834,62 +844,62 @@ export function runAllTests(
       typeMatches
     )
 
-    // Map block test results
+    // Map block test results. A block test that threw a ReferenceError
+    // couldn't *run* (it names something TJS can't resolve at build time, e.g.
+    // an AJS atom) → inconclusive, not failed. An assertion failure (plain
+    // Error from expect()) is a genuine failure.
     for (const r of blockResults) {
       const test = tests[r.idx]
-      // Skip block tests that fail due to unresolved imports
-      const isImportError =
-        hasUnresolvedImports &&
+      const inconclusive =
         !r.passed &&
-        r.error &&
-        /is not defined$/.test(r.error)
+        (r.isRef ||
+          (hasUnresolvedImports && r.error && /is not defined$/.test(r.error)))
       results.push({
         description: test.description,
-        passed: isImportError ? true : r.passed,
-        error: isImportError ? undefined : r.error,
+        passed: r.passed,
+        inconclusive: inconclusive || undefined,
+        error: r.error,
         line: test.line,
       })
     }
 
-    // Map signature test results
+    // Map signature test results. A test that *threw* (couldn't evaluate the
+    // example) is inconclusive; only a clean value-mismatch is a failure.
     for (const r of sigTestResults) {
       const info = syncSigTestInfos[r.idx]
-      // Skip signature tests that fail due to unresolved imports
-      const isImportError =
-        hasUnresolvedImports &&
+      const inconclusive =
         !r.passed &&
-        r.error &&
-        /is not defined$/.test(r.error)
+        (r.threw ||
+          (hasUnresolvedImports && r.error && /is not defined$/.test(r.error)))
       const label = info.className
         ? `${info.className}.${info.funcName}`
         : info.funcName
       results.push({
         description: `${label} signature example`,
-        passed: isImportError ? true : r.passed,
-        error: isImportError ? undefined : r.error,
+        passed: r.passed,
+        inconclusive: inconclusive || undefined,
+        error: r.error,
         isSignatureTest: true,
         line: info.line,
       })
     }
   } catch (e: any) {
-    // If module fails due to unresolved imports (ReferenceError from stripped imports),
-    // skip tests gracefully rather than marking them as failures
-    const isUnresolvedRef = hasUnresolvedImports && e instanceof ReferenceError
-
-    // The error came from module-level code (e.g. an undefined identifier
-    // in `console.log(... x ...)`), NOT from the function/test under test.
-    // Don't attribute a line — otherwise the editor would mark the function
-    // declaration's line as the error site, misleading the user about where
-    // the actual problem is. The test still appears as failed in the test
-    // list with the explanatory message; the user finds the real error
-    // through the runtime console.
+    // The whole module failed to execute, so NO test could run — every result
+    // here is inconclusive, never a failure. Making transpilation fail because
+    // an auto-generated test harness couldn't execute the module would turn
+    // legal code illegal (e.g. a module referencing AJS atoms, or — an edge —
+    // two top-level functions on one line). See PRINCIPLES.md.
+    //
+    // No line is attributed: the error came from module-level execution, not a
+    // specific function, and mis-attributing it would point the editor at the
+    // wrong site. The message is preserved as a warning on each result.
+    const note = `Module could not be executed for testing: ${e.message}`
     for (const test of tests) {
       results.push({
         description: test.description,
-        passed: isUnresolvedRef,
-        error: isUnresolvedRef
-          ? undefined
-          : `Module execution failed: ${e.message}`,
+        passed: false,
+        inconclusive: true,
+        error: note,
       })
     }
     for (const info of syncSigTestInfos) {
@@ -898,10 +908,9 @@ export function runAllTests(
         : info.funcName
       results.push({
         description: `${label} signature example`,
-        passed: isUnresolvedRef,
-        error: isUnresolvedRef
-          ? undefined
-          : `Module execution failed: ${e.message}`,
+        passed: false,
+        inconclusive: true,
+        error: note,
         isSignatureTest: true,
       })
     }

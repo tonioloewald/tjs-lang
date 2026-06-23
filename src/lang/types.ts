@@ -225,6 +225,21 @@ export interface TransformContext {
   filename: string
   /** Options */
   options: TranspileOptions
+  /**
+   * Helper functions (top-level functions declared before the entry function).
+   * Calls to these names emit `callLocal` instead of treating them as atom calls.
+   */
+  helpers?: Map<string, any /* FunctionDeclaration */>
+  /**
+   * Cache of transformed helper bodies. Lazily populated as helpers are
+   * referenced from the entry function (or from other helpers).
+   */
+  helperSteps?: Map<string, { steps: any[]; paramNames: string[] }>
+  /**
+   * Names of helpers currently being transformed. Used to detect direct or
+   * transitive recursion.
+   */
+  helperTransforming?: Set<string>
 }
 
 /** Create a child context for nested scopes */
@@ -239,6 +254,9 @@ export function createChildContext(parent: TransformContext): TransformContext {
     source: parent.source,
     filename: parent.filename,
     options: parent.options,
+    helpers: parent.helpers,
+    helperSteps: parent.helperSteps,
+    helperTransforming: parent.helperTransforming,
   }
 }
 

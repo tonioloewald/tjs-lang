@@ -173,6 +173,9 @@ export interface RuntimeContext {
   timeoutOverrides?: Record<string, TimeoutOverride> // Per-atom timeout overrides (ms, 0 disables)
   context?: Record<string, any> // Immutable request-scoped metadata (auth, permissions, etc.)
   runCodeDepth?: number // Track nested runCode calls to prevent infinite recursion
+  localCall?: boolean // Inside a callLocal helper body — return may be a non-object scalar
+  helpers?: Record<string, { steps: any[]; paramNames: string[] }> // Local helper bodies, called by name
+  callDepth?: number // Helper call nesting depth — guards against host-stack overflow on deep recursion
 }
 
 export type AtomExec = (step: any, ctx: RuntimeContext) => Promise<void>
@@ -1575,8 +1578,11 @@ export const ret = defineAtom(
     if ('value' in step) {
       const res = resolveValue(step.value, ctx)
 
-      // Enforce object returns — agents must return objects for composability
+      // Enforce object returns — agents must return objects for composability.
+      // Helper bodies (callLocal) are exempt: they're internal calls and may
+      // return scalars, arrays, etc. like ordinary functions.
       if (
+        !ctx.localCall &&
         res !== undefined &&
         res !== null &&
         !isAgentError(res) &&
@@ -1797,6 +1803,71 @@ export const scope = defineAtom(
     if (scopedCtx.output !== undefined) ctx.output = scopedCtx.output
   },
   { docs: 'Create new scope', timeoutMs: 0, cost: 0.1 }
+)
+
+/**
+ * Maximum helper-call nesting depth. Fuel + timeout bound the total *work* a
+ * recursive helper can do, but deeply-nested `await seq.exec` would overflow
+ * the host JS stack (an uncatchable RangeError) before fuel runs out. This cap
+ * converts runaway recursion into a clean monadic error instead.
+ */
+export const MAX_CALL_DEPTH = 256
+
+export const callLocal = defineAtom(
+  'callLocal',
+  s.object({
+    name: s.string,
+    args: s.array(s.any),
+  }),
+  undefined,
+  async ({ name, args }, ctx) => {
+    const helper = ctx.helpers?.[name as string]
+    if (!helper) {
+      ctx.error = new AgentError(`Unknown helper: ${name}`, 'callLocal')
+      return ctx.error
+    }
+
+    const depth = (ctx.callDepth ?? 0) + 1
+    if (depth > MAX_CALL_DEPTH) {
+      ctx.error = new AgentError(
+        `Maximum helper call depth (${MAX_CALL_DEPTH}) exceeded — likely infinite recursion in '${name}'`,
+        'callLocal'
+      )
+      return ctx.error
+    }
+
+    // Resolve each argument expression in the caller's scope
+    const resolvedArgs = (args as any[]).map((arg) => resolveValue(arg, ctx))
+
+    // Isolated scope: helpers are top-level sibling functions, not nested
+    // closures, so they see ONLY their params — never the caller's locals.
+    // Capabilities/fuel/resolver/etc. are shared via the spread; state and
+    // consts start fresh. localCall exempts the helper's `return` from the
+    // agent object-return contract (helpers may return scalars/arrays like
+    // ordinary functions). callDepth guards against host-stack overflow.
+    const scopedCtx: RuntimeContext = {
+      ...ctx,
+      state: {},
+      consts: new Set(),
+      output: undefined,
+      error: undefined,
+      localCall: true,
+      callDepth: depth,
+    }
+    for (let i = 0; i < helper.paramNames.length; i++) {
+      scopedCtx.state[helper.paramNames[i]] = resolvedArgs[i]
+    }
+
+    await seq.exec({ op: 'seq', steps: helper.steps } as any, scopedCtx)
+
+    // Propagate errors but NOT output — the helper's return becomes this
+    // atom's result, captured into the caller's named result variable by
+    // the standard exec wrapper. Unlike `scope`, it does not bubble up
+    // to ctx.output (so a helper return doesn't exit the caller agent).
+    if (scopedCtx.error) ctx.error = scopedCtx.error
+    return scopedCtx.output
+  },
+  { docs: 'Invoke a local helper function by name', timeoutMs: 0, cost: 0.1 }
 )
 
 // 3. List (Cost 1)
@@ -3004,6 +3075,7 @@ export const coreAtoms = {
   varsLet,
   varsExport,
   scope,
+  callLocal,
   map,
   filter,
   reduce,

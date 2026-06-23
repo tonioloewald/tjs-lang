@@ -165,6 +165,7 @@ export class AgentVM<M extends Record<string, Atom<any, any>>> {
       timeoutOverrides: options.timeoutOverrides,
       context: options.context,
       warnings, // Shared warnings array
+      helpers: (ast as any).helpers, // Local helper bodies, called by name via callLocal
     }
 
     if (options.trace) {
