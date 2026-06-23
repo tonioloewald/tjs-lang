@@ -59,7 +59,25 @@ export function myFunction() {
 }
 ```
 
-If you don't use any TJS features, your code is just JavaScript. No lock-in.
+The _syntax_ above is all valid TJS. But note the next section: when you transpile **native TJS**, TJS also _improves_ some runtime behaviour (structural `==`, honest truthiness, …). Those improvements are exactly the point of writing TJS — but they would change the meaning of existing JavaScript.
+
+So TJS gates them on a **dialect**:
+
+```javascript
+import { tjs } from 'tjs-lang/lang'
+
+tjs(jsSource) //                    → native TJS (improvements ON — the default)
+tjs(jsSource, { dialect: 'js' }) // → plain JS  (semantics preserved, untouched)
+```
+
+For file-based tools, the extension is the dialect — `.js`/`.mjs` ⇒ `dialect: 'js'`, `.tjs` ⇒ native. Use the canonical helper so every tool agrees:
+
+```javascript
+import { tjs, dialectForFilename } from 'tjs-lang/lang'
+tjs(source, { dialect: dialectForFilename(filename) })
+```
+
+With `dialect: 'js'` (or a `.js` file), if you don't use any TJS features your code is just JavaScript — same behaviour, no lock-in. (TypeScript goes through `fromTS` instead.)
 
 This extends to advanced patterns too: **Proxies**, **WeakMap/WeakSet**, **Symbols**, **generators**, **async iterators**, **`Object.defineProperty`** — all work identically. TJS adds type checks at function boundaries; it doesn't wrap or intercept any JS runtime behavior.
 

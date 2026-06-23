@@ -21,7 +21,7 @@ import {
   existsSync,
 } from 'fs'
 import { join, basename, dirname, extname } from 'path'
-import { tjs } from '../../lang'
+import { tjs, dialectForFilename } from '../../lang'
 import { generateDocs } from '../../lang/docs'
 import { generateDTS } from '../../lang/emitters/dts'
 
@@ -84,9 +84,11 @@ async function emitFile(
   const filename = basename(inputPath)
 
   try {
-    // Use 'report' mode to get test results without throwing
+    // Use 'report' mode to get test results without throwing.
+    // `.js`/`.mjs` ⇒ plain-JS semantics preserved; `.tjs` ⇒ native modes.
     const result = tjs(source, {
       filename,
+      dialect: dialectForFilename(inputPath),
       debug: options.debug,
       runTests: 'report',
     })

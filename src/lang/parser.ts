@@ -135,9 +135,17 @@ export function preprocess(
   // The /* tjs <- filename */ annotation is the signal
   const isFromTS = /\/\*\s*tjs\s*<-\s*\S+\s*\*\//.test(source)
 
-  // Native TJS: all modes ON by default (TJS is its own language)
-  // TS-originated or VM target (AJS): all modes OFF, safety none (JS-compatible)
-  const isCompat = isFromTS || options.vmTarget
+  // Native TJS: all modes ON by default (TJS is its own language).
+  // Plain JS (dialect: 'js'), TS-originated, or VM target: all modes OFF +
+  // safety none, so the source's own semantics are preserved (JS-compatible).
+  // An explicit `dialect` is authoritative; otherwise infer from the fromTS
+  // annotation / vmTarget. See PRINCIPLES.md (TJS ⊇ JS).
+  const isCompat =
+    options.dialect === 'js'
+      ? true
+      : options.dialect === 'tjs'
+      ? false
+      : isFromTS || options.vmTarget
   const tjsModes: TjsModes = isCompat
     ? {
         tjsEquals: false,
@@ -452,6 +460,7 @@ export function parse(
     filename = '<source>',
     colonShorthand = true,
     vmTarget = false,
+    dialect,
   } = options
 
   // Preprocess for custom syntax
@@ -472,6 +481,7 @@ export function parse(
   } = colonShorthand
     ? preprocess(source, {
         vmTarget,
+        dialect,
         moduleLoader: options.moduleLoader,
         filename: options.filename,
       })

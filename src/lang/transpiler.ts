@@ -16,6 +16,14 @@ export { transpile, ajs, tjs, createAgent, getToolDefinitions } from './core'
 // Parser
 export { parse, preprocess, extractTDoc } from './parser'
 
+// Dialect resolution for file-based tooling (extension → dialect)
+export {
+  dialectForFilename,
+  sourceKindForFilename,
+  type Dialect,
+  type SourceKind,
+} from './dialect'
+
 // AST emitter
 export { transformFunction } from './emitters/ast'
 

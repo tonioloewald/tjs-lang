@@ -3,13 +3,14 @@
  */
 
 import { readFileSync } from 'fs'
-import { tjs } from '../../lang'
+import { tjs, dialectForFilename } from '../../lang'
 
 export async function check(file: string): Promise<void> {
   const source = readFileSync(file, 'utf-8')
 
   try {
-    const result = tjs(source)
+    // `.js`/`.mjs` ⇒ plain-JS semantics preserved; `.tjs` ⇒ native modes.
+    const result = tjs(source, { dialect: dialectForFilename(file) })
 
     // Report function info from types
     if (result.types && Object.keys(result.types).length > 0) {

@@ -14,10 +14,17 @@ AJS                 ⊆   TJS
 Two hard invariants:
 
 1. **TJS ⊇ JavaScript.** With no modes toggled on, every legal JavaScript
-   program is legal TJS. TJS _adds_ meaning (types-as-examples, runtime
-   contracts, monadic errors) but never removes the ability to transpile valid
-   JS. Turning modes on (`TjsStandard`, `TjsNoVar`, `TjsEquals`, …) may restrict
-   what's accepted — but that is always **opt-in**.
+   program is legal TJS _with the same meaning_. TJS _adds_ capability
+   (types-as-examples, runtime contracts, monadic errors) but never removes the
+   ability to transpile valid JS, and never silently changes its semantics.
+   TJS's footgun-removal modes (`TjsStandard`, `TjsEquals`, honest truthiness,
+   …) _do_ change behaviour — so they are gated on the **dialect** (below), not
+   applied to plain JS.
+
+   `.tjs` is a **better language, not just JS** — choosing it (the `.tjs`
+   extension, `dialect: 'tjs'`, or a bare string, which defaults to native TJS)
+   is the opt-in to those modes. Plain JS reaches semantics-preserving transpile
+   via `dialect: 'js'` (or the `TjsCompat` directive).
 
 2. **TJS ⊇ AJS.** Every legal AJS source is legal TJS source. `ajs(src)` and
    `tjs(src)` may do _different and more_ with the same string — TJS may enforce
@@ -55,6 +62,30 @@ Very Good Thing™ — but it must obey the rule above:
 
 Without this, AJS agents (which call atoms and may declare return types) and
 multi-function helper sources would be illegal TJS — breaking invariant 2.
+
+## Dialect resolution (how invariant 1 is operationalized)
+
+The unit of opt-in is the **dialect**, and `tjs()` takes it explicitly:
+
+| input                          | modes        | meaning                          |
+| ------------------------------ | ------------ | -------------------------------- |
+| `tjs(src, { dialect: 'js' })`  | OFF          | plain JS — semantics preserved   |
+| `tjs(src, { dialect: 'tjs' })` | ON           | native TJS                       |
+| `tjs(src)` (bare string)       | ON (default) | native TJS (back-compat default) |
+| `fromTS(src)` then `tjs(...)`  | OFF          | TypeScript → TJS → JS            |
+
+For **file-based tooling** (CLIs, bundler plugins, module loaders, doc systems),
+the dialect is the file extension. There is one canonical mapping — exported as
+`dialectForFilename` / `sourceKindForFilename` from `tjs-lang/lang` — that all
+tools must share so `.js` is never silently "improved" into different semantics:
+
+- `.js` / `.mjs` / `.cjs` → `dialect: 'js'` (preserve; TJS still reserves the
+  right to add _better diagnostics_, never to change behaviour)
+- `.tjs` → native TJS (the better language)
+- `.ts` / `.mts` / `.cts` → `fromTS` (TS → TJS → JS)
+
+A bare string defaults to native TJS only because it has no extension to consult;
+any tool that knows the source's origin should pass `dialect` (or use the helper).
 
 ## Why this matters
 

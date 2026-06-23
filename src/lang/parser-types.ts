@@ -16,6 +16,17 @@ export interface ParseOptions {
    */
   vmTarget?: boolean
   /**
+   * Source dialect — tells the transpiler what kind of source this string is:
+   * - `'tjs'`: native TJS, all footgun-removal modes ON (structural `==`,
+   *   `TjsStandard`, etc.). This is the default for a bare string.
+   * - `'js'`: plain JavaScript — modes OFF and `safety: 'none'`, so the source's
+   *   own semantics are preserved (no `==`→`Eq`, no truthiness rewrite, etc.).
+   *
+   * Authoritative when set; otherwise the dialect is inferred (the fromTS
+   * annotation and `vmTarget` ⇒ JS-compatible). See PRINCIPLES.md (TJS ⊇ JS).
+   */
+  dialect?: 'js' | 'tjs'
+  /**
    * Optional ModuleLoader for cross-file `wasm function` composition (Phase 3).
    * When provided, imports are resolved at transpile time and matching wasm
    * functions are composed into the consumer's WebAssembly.Module. When
@@ -109,6 +120,12 @@ export interface PreprocessOptions {
    * Default: false (transform == to Is() for TJS code running in regular JS)
    */
   vmTarget?: boolean
+  /**
+   * Source dialect: `'js'` ⇒ modes OFF / `safety: 'none'` (preserve plain-JS
+   * semantics); `'tjs'` ⇒ native modes ON. Authoritative when set; otherwise
+   * inferred from the fromTS annotation / `vmTarget`. See ParseOptions.dialect.
+   */
+  dialect?: 'js' | 'tjs'
   /**
    * Optional ModuleLoader for cross-file `wasm function` composition (Phase 3).
    * See ParseOptions.moduleLoader for details.

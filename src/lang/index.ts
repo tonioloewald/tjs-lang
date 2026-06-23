@@ -38,6 +38,12 @@ export {
   validateSingleFunction,
   extractFunctions,
 } from './parser'
+export {
+  dialectForFilename,
+  sourceKindForFilename,
+  type Dialect,
+  type SourceKind,
+} from './dialect'
 export { transformFunction } from './emitters/ast'
 export {
   transpileToJS,

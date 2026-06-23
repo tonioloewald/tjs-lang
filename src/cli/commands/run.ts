@@ -8,15 +8,19 @@ import { readFileSync } from 'fs'
 import { resolve } from 'path'
 import { preprocess } from '../../lang/parser'
 import { transpileToJS } from '../../lang/emitters/js'
+import { dialectForFilename } from '../../lang/dialect'
 import * as runtime from '../../lang/runtime'
 
 export async function run(file: string): Promise<void> {
   const absolutePath = resolve(file)
   const source = readFileSync(absolutePath, 'utf-8')
 
+  // `.js`/`.mjs` ⇒ plain-JS semantics preserved; `.tjs` ⇒ native modes.
+  const dialect = dialectForFilename(file)
+
   try {
     // Preprocess: transforms Type, Generic, Union declarations, runs tests
-    const preprocessed = preprocess(source)
+    const preprocessed = preprocess(source, { dialect })
 
     if (preprocessed.testErrors.length > 0) {
       console.error('Test failures:')
@@ -27,7 +31,7 @@ export async function run(file: string): Promise<void> {
     }
 
     // Transpile to JS
-    const result = transpileToJS(preprocessed.source)
+    const result = transpileToJS(preprocessed.source, { dialect })
 
     if (result.warnings && result.warnings.length > 0) {
       for (const warning of result.warnings) {

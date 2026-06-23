@@ -82,6 +82,18 @@ export interface TJSTranspileOptions {
   /** Mode: 'dev' | 'strict' | 'production' */
   mode?: 'dev' | 'strict' | 'production'
   /**
+   * Source dialect — what kind of source this string is:
+   * - `'tjs'` (default for a bare string): native TJS, footgun-removal modes ON
+   *   (structural `==`, `TjsStandard`, etc.).
+   * - `'js'`: plain JavaScript — modes OFF, `safety: 'none'`; the source's own
+   *   semantics are preserved (no `==`→`Eq`, no truthiness rewrite, no input
+   *   validation). Use this when feeding tjs() a vanilla `.js` string so it
+   *   transpiles without changing meaning. See PRINCIPLES.md (TJS ⊇ JS).
+   *
+   * For TypeScript, use the `fromTS` entry point (TS → TJS → JS).
+   */
+  dialect?: 'js' | 'tjs'
+  /**
    * Test execution mode:
    * - true (default): run tests at transpile time, throw on failure
    * - false: skip tests entirely (production build)
@@ -640,6 +652,7 @@ export function transpileToJS(
   } = parse(cleanSource, {
     filename,
     colonShorthand: true,
+    dialect: options.dialect,
     moduleLoader: options.moduleLoader,
   })
 
@@ -650,6 +663,7 @@ export function transpileToJS(
   // Pass through the moduleLoader so Phase 3 cross-file wasm composition
   // sees imported `wasm function` declarations.
   const preprocessed = preprocess(cleanSource, {
+    dialect: options.dialect,
     moduleLoader: options.moduleLoader,
     filename,
   })
