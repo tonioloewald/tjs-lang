@@ -146,6 +146,11 @@ TJS return-marker semantics (reference for when AJS enforcement lands): `)-!` ne
 - [x] `typesVersions` fallback in `package.json` so legacy `moduleResolution: node` consumers can resolve `tjs-lang/vm`, `tjs-lang/lang`, `tjs-lang/batteries` etc.
 - [x] **Per-atom `timeoutMs` override** — `vm.run({ timeoutOverrides: { llmPredictBattery: 60000 } })` now works, mirroring the existing `costOverrides` pattern. Supports `number` and `(input, ctx) => number`; `0` disables the per-atom timeout. New `TimeoutOverride` type exported from `tjs-lang/vm`. See `src/use-cases/timeout-overrides.test.ts`.
 - [x] **Replaced `vm.run` default `timeoutMs = fuel × 10ms` formula** — now derived from the registered atoms as `max(per-atom timeoutMs) × 2`, floored at 60s (`AgentVM.defaultRunTimeout`). A fixed 60s default (interim) was shorter than the 120s `llmVision`/`llmPredictBattery` budgets, so vision/LLM calls timed out mid-call on slower models; the atom-derived default always covers the slowest atom (and a chained pair) and self-adjusts to custom slow atoms. Updated timeout error message to point at `timeoutMs` / `timeoutOverrides` instead of "increase fuel".
+- [x] **`storeVectorize` / `storeVectorAdd` get `timeoutMs: 60000`** — both make embedding network calls but had the 1s atom default, so a cold embedding model timed out. (Same class as the llmVision/llmPredict 120s budgets, missed for the store atoms.) Local ops (`storeSearch`, `storeCreateCollection`) keep the default.
+
+### Deferred (surfaced this session)
+
+- [ ] **Model-audit vision detection is a coarse heuristic** (`src/batteries/audit.ts:216`) — "if the model accepts a tiny 1×1 PNG via `image_url` without erroring, it's vision-capable." False-negatives a real multimodal model that rejects that specific probe (e.g. `google/gemma-4-e4b` in LM Studio reads as `vision: false`, so vision examples skip instead of running), and would false-positive a text model that tolerates the format. Make it check the *response* (does the model actually describe the image?) and/or use a real small image. Not a correctness bug — vision tests skip gracefully when no model is detected.
 
 ## Infrastructure
 
