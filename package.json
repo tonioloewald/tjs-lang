@@ -1,6 +1,6 @@
 {
   "name": "tjs-lang",
-  "version": "0.8.1",
+  "version": "0.8.2",
   "description": "Type-safe JavaScript dialect with runtime validation, sandboxed VM execution, and AI agent orchestration. Transpiles TypeScript to validated JS with fuel-metered execution for untrusted code.",
   "keywords": [
     "typescript",
@@ -24,11 +24,21 @@
   "types": "./dist/src/index.d.ts",
   "typesVersions": {
     "*": {
-      "eval": ["./dist/src/lang/eval.d.ts"],
-      "lang": ["./dist/src/lang/transpiler.d.ts"],
-      "lang/from-ts": ["./dist/src/lang/emitters/from-ts.d.ts"],
-      "vm": ["./dist/src/vm/index.d.ts"],
-      "batteries": ["./dist/src/batteries/index.d.ts"]
+      "eval": [
+        "./dist/src/lang/eval.d.ts"
+      ],
+      "lang": [
+        "./dist/src/lang/transpiler.d.ts"
+      ],
+      "lang/from-ts": [
+        "./dist/src/lang/emitters/from-ts.d.ts"
+      ],
+      "vm": [
+        "./dist/src/vm/index.d.ts"
+      ],
+      "batteries": [
+        "./dist/src/batteries/index.d.ts"
+      ]
     }
   },
   "exports": {
