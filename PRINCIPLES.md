@@ -87,6 +87,31 @@ tools must share so `.js` is never silently "improved" into different semantics:
 A bare string defaults to native TJS only because it has no extension to consult;
 any tool that knows the source's origin should pass `dialect` (or use the helper).
 
+### Routing all three dialects (the canonical recipe)
+
+There is intentionally **no one-call `js | ts | tjs` helper** in `tjs-lang/lang`:
+the TS path needs the TypeScript compiler, and folding it in would drag TS into
+the lean, TS-free `tjs-lang/lang` bundle. So a tool that handles all three (a doc
+system, a bundler plugin) routes explicitly — `js`/`tjs` through `tjs()` (cheap,
+no TS), `ts` through `fromTS` (imported from the separate, TS-aware entry):
+
+```js
+import { tjs, sourceKindForFilename } from 'tjs-lang/lang'
+import { fromTS } from 'tjs-lang/lang/from-ts' // pulls in the TS compiler — only on the ts path
+
+function transpileFence(source, kindOrFilename) {
+  const kind = /\.[mc]?[jt]s$|\.tjs$/.test(kindOrFilename)
+    ? sourceKindForFilename(kindOrFilename)
+    : kindOrFilename // 'js' | 'ts' | 'tjs'
+  if (kind === 'ts') return tjs(fromTS(source, { emitTJS: true }).code).code
+  return tjs(source, { dialect: kind }).code // 'js' | 'tjs'
+}
+```
+
+Importing `fromTS` from its own subpath keeps the TS compiler out of consumers
+that only ever touch `js`/`tjs`. (A future `transpileSource` sugar may wrap this,
+but only from a TS-aware entry — never from `tjs-lang/lang`.)
+
 ## Why this matters
 
 - **AJS portability.** AJS agents ("code travels to data": sandboxed,

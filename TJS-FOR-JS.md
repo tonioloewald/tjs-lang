@@ -77,7 +77,20 @@ import { tjs, dialectForFilename } from 'tjs-lang/lang'
 tjs(source, { dialect: dialectForFilename(filename) })
 ```
 
-With `dialect: 'js'` (or a `.js` file), if you don't use any TJS features your code is just JavaScript — same behaviour, no lock-in. (TypeScript goes through `fromTS` instead.)
+Handling `.ts` too (a doc system, a bundler plugin)? Route the TS path through `fromTS`, imported from its own entry so the TypeScript compiler only loads when you actually transpile TS — `tjs-lang/lang` itself stays TS-free:
+
+```javascript
+import { tjs, sourceKindForFilename } from 'tjs-lang/lang'
+import { fromTS } from 'tjs-lang/lang/from-ts' // TS compiler — only on the ts path
+
+const kind = sourceKindForFilename(filename) // 'js' | 'ts' | 'tjs'
+const code =
+  kind === 'ts'
+    ? tjs(fromTS(source, { emitTJS: true }).code).code
+    : tjs(source, { dialect: kind }).code
+```
+
+With `dialect: 'js'` (or a `.js` file), if you don't use any TJS features your code is just JavaScript — same behaviour, no lock-in.
 
 This extends to advanced patterns too: **Proxies**, **WeakMap/WeakSet**, **Symbols**, **generators**, **async iterators**, **`Object.defineProperty`** — all work identically. TJS adds type checks at function boundaries; it doesn't wrap or intercept any JS runtime behavior.
 
