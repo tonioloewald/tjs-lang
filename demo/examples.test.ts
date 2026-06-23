@@ -448,9 +448,13 @@ describe('Playground Examples', () => {
             args.imageUrl = '/test-shapes.jpg'
           }
 
-          // Use the SAME capabilities as the playground
+          // Use the SAME capabilities as the playground.
+          // Vision inference on a local model can take a while; give it an
+          // explicit budget well above the slow-atom timeout so the test is
+          // deterministic regardless of the run-level default.
           const runResult = await vm.run(result.ast, args, {
             fuel: 100000,
+            timeoutMs: 180000,
             capabilities: {
               fetch: httpFetch,
               llm: llmCapability || mockLLM,
@@ -466,7 +470,7 @@ describe('Playground Examples', () => {
         } finally {
           trackTestEnd()
         }
-      }, 120000)
+      }, 240000) // bun-test timeout above the vm timeoutMs (180s) + overhead
     } else if (needsRetry) {
       // Examples that use runCode need retry due to LLM variability
       it(`${example.name} - runs successfully`, async () => {

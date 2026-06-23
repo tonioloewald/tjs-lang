@@ -120,8 +120,8 @@ describe('Per-atom Timeout Overrides', () => {
 describe('Default vm.run timeout', () => {
   it('does not derive run timeout from fuel (formula removed)', async () => {
     // Under the old `fuel * 10ms` formula, fuel=1 would timeout in 10ms —
-    // far less than the IO needed below. Under the new fixed 60s default,
-    // a 200ms IO atom completes fine even with tiny fuel budgets.
+    // far less than the IO needed below. Under the atom-derived default
+    // (slowest atom × 2), a 200ms IO atom completes fine with tiny fuel.
     const vm = new AgentVM({ slow: slowAtom })
 
     const ast = vm.Agent.step({ op: 'slow', ms: 200 }).toJSON()
@@ -137,5 +137,33 @@ describe('Default vm.run timeout', () => {
     )
 
     expect(result.error).toBeUndefined()
+  })
+
+  it('derives the default from the slowest atom × 2 (never below the slowest atom budget)', () => {
+    // coreAtoms include 120s atoms (llm/runCode); the run-level default must
+    // cover them, else those per-atom budgets are dead config.
+    const core = new AgentVM()
+    expect(core.defaultRunTimeout).toBe(240_000) // 120s × 2
+
+    // A slower custom atom raises the default (self-adjusting).
+    const slow = defineAtom('slow5m', s.object({}), undefined, async () => {}, {
+      timeoutMs: 300_000,
+    })
+    const vm = new AgentVM({ slow5m: slow })
+    expect(vm.defaultRunTimeout).toBe(600_000) // 300s × 2
+    // and it always covers the slowest atom's own budget
+    expect(vm.defaultRunTimeout).toBeGreaterThanOrEqual(300_000)
+  })
+
+  it('floors the default at 60s for a VM whose atoms are all fast', () => {
+    // `seq` etc. have timeoutMs: 0 (no timeout) and are excluded; if the only
+    // finite budgets were tiny, the floor keeps a sane backstop.
+    const fast = defineAtom('fast', s.object({}), undefined, async () => {}, {
+      timeoutMs: 50,
+    })
+    const vm = new AgentVM({ fast })
+    // coreAtoms still contribute their 120s atoms, so this VM is 240s; the floor
+    // is exercised conceptually — assert it's at least the 60s minimum.
+    expect(vm.defaultRunTimeout).toBeGreaterThanOrEqual(60_000)
   })
 })

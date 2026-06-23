@@ -14,14 +14,47 @@ import { TypedBuilder, type BaseNode, type BuilderType } from '../builder'
 import { validate } from 'tosijs-schema'
 import { transpile } from '../lang/core'
 
-/** Default run-level timeout when none specified (IO-friendly; agents are typically IO-bound) */
-const DEFAULT_RUN_TIMEOUT_MS = 60_000
+/**
+ * Floor for the run-level default timeout. The actual default is derived from
+ * the registered atoms (slowest atom × 2 — see `defaultRunTimeout`), but never
+ * drops below this for a VM whose atoms are all fast.
+ */
+const MIN_DEFAULT_RUN_TIMEOUT_MS = 60_000
 
 export class AgentVM<M extends Record<string, Atom<any, any>>> {
   readonly atoms: typeof coreAtoms & M
 
+  private _defaultRunTimeout?: number
+
   constructor(customAtoms: M = {} as M) {
     this.atoms = { ...coreAtoms, ...customAtoms }
+  }
+
+  /**
+   * Default run-level wall-clock timeout when `run()` is given no explicit
+   * `timeoutMs`. Derived as `max(per-atom timeoutMs) × 2` over the registered
+   * atoms (with headroom for an agent that chains a couple of slow calls), so
+   * the run-level backstop can never be shorter than the slowest single atom's
+   * own budget — otherwise that per-atom budget would be dead config (e.g.
+   * `llmVision`/`llmPredictBattery` are 120s; a fixed 60s run default would kill
+   * them mid-call). Atoms with `timeoutMs: 0` (no timeout, e.g. `seq`) are
+   * excluded; the result is floored at {@link MIN_DEFAULT_RUN_TIMEOUT_MS}.
+   * Self-adjusting: registering a slower custom atom raises the default.
+   */
+  get defaultRunTimeout(): number {
+    if (this._defaultRunTimeout === undefined) {
+      let slowest = 0
+      for (const atom of Object.values(this.atoms)) {
+        // undefined timeoutMs means the per-atom default (1000ms); 0 means none.
+        const t = (atom as any).timeoutMs ?? 1000
+        if (t > 0 && t > slowest) slowest = t
+      }
+      this._defaultRunTimeout = Math.max(
+        MIN_DEFAULT_RUN_TIMEOUT_MS,
+        slowest * 2
+      )
+    }
+    return this._defaultRunTimeout
   }
 
   get builder(): BuilderType<typeof coreAtoms & M> {
@@ -78,7 +111,7 @@ export class AgentVM<M extends Record<string, Atom<any, any>>> {
       fuel?: number
       capabilities?: Capabilities
       trace?: boolean
-      timeoutMs?: number // Wall-clock cap on the whole run (default 60s)
+      timeoutMs?: number // Wall-clock cap on the whole run (default: slowest atom × 2, min 60s — see defaultRunTimeout)
       signal?: AbortSignal // External abort signal (e.g., from caller)
       costOverrides?: Record<string, CostOverride> // Per-atom fuel cost overrides
       timeoutOverrides?: Record<string, TimeoutOverride> // Per-atom timeout overrides (ms, 0 disables)
@@ -107,9 +140,10 @@ export class AgentVM<M extends Record<string, Atom<any, any>>> {
 
     const startFuel = options.fuel ?? 1000
 
-    // Run-level wall-clock timeout. Agents are typically IO-bound, so the
-    // default is a fixed 60s rather than a fuel-derived formula.
-    const timeoutMs = options.timeoutMs ?? DEFAULT_RUN_TIMEOUT_MS
+    // Run-level wall-clock timeout. Agents are typically IO-bound; the default
+    // is derived from the registered atoms (slowest × 2) so it always covers the
+    // slowest atom's own budget. See `defaultRunTimeout`.
+    const timeoutMs = options.timeoutMs ?? this.defaultRunTimeout
 
     // Default Capabilities
     const capabilities = options.capabilities ?? {}

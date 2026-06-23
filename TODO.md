@@ -145,7 +145,7 @@ TJS return-marker semantics (reference for when AJS enforcement lands): `)-!` ne
 - [x] `llmPredictBattery` now has `timeoutMs: 120000` (was using default 1000ms — broken for any real LLM call) + regression test in `batteries.test.ts`.
 - [x] `typesVersions` fallback in `package.json` so legacy `moduleResolution: node` consumers can resolve `tjs-lang/vm`, `tjs-lang/lang`, `tjs-lang/batteries` etc.
 - [x] **Per-atom `timeoutMs` override** — `vm.run({ timeoutOverrides: { llmPredictBattery: 60000 } })` now works, mirroring the existing `costOverrides` pattern. Supports `number` and `(input, ctx) => number`; `0` disables the per-atom timeout. New `TimeoutOverride` type exported from `tjs-lang/vm`. See `src/use-cases/timeout-overrides.test.ts`.
-- [x] **Dropped `vm.run` default `timeoutMs = fuel × 10ms` formula** — now a fixed `60_000` ms default. Updated timeout error message to point at `timeoutMs` / `timeoutOverrides` instead of "increase fuel".
+- [x] **Replaced `vm.run` default `timeoutMs = fuel × 10ms` formula** — now derived from the registered atoms as `max(per-atom timeoutMs) × 2`, floored at 60s (`AgentVM.defaultRunTimeout`). A fixed 60s default (interim) was shorter than the 120s `llmVision`/`llmPredictBattery` budgets, so vision/LLM calls timed out mid-call on slower models; the atom-derived default always covers the slowest atom (and a chained pair) and self-adjusts to custom slow atoms. Updated timeout error message to point at `timeoutMs` / `timeoutOverrides` instead of "increase fuel".
 
 ## Infrastructure
 
