@@ -255,28 +255,36 @@ export function renderConsoleMessages(
 
 /**
  * Render test results HTML with clickable error links and editor gutter markers.
- * Returns pass/fail counts so callers can update tab indicators.
+ * Returns pass/fail/inconclusive counts so callers can update tab indicators.
  */
 export function renderTestResults(
   tests: any[],
   outputEl: HTMLElement,
   editor: CodeMirror,
   goToLine: (line: number) => void
-): { passed: number; failed: number } {
+): { passed: number; failed: number; inconclusive: number } {
   if (!tests || tests.length === 0) {
     outputEl.textContent = 'No tests defined'
     editor.clearMarkers()
-    return { passed: 0, failed: 0 }
+    return { passed: 0, failed: 0, inconclusive: 0 }
   }
 
   const passed = tests.filter((t: any) => t.passed).length
-  const failed = tests.filter((t: any) => !t.passed).length
+  // Inconclusive = the test couldn't *run* (e.g. it calls an AJS atom that
+  // doesn't exist at build time). It is neither pass nor fail — surface it as
+  // a distinct warning state and keep it out of the failure count, so legal
+  // AJS doesn't read as broken in the playground. See PRINCIPLES.md.
+  const inconclusive = tests.filter(
+    (t: any) => !t.passed && t.inconclusive
+  ).length
+  const failed = tests.filter((t: any) => !t.passed && !t.inconclusive).length
 
-  // Mark only FAILED tests in the editor. Passing tests appear in the
-  // results panel and don't need an underline — `severity: 'info'` was
-  // rendering as a grey squiggle on every passing test's line, which is
-  // visual noise.
-  const failedWithLines = tests.filter((t: any) => t.line && !t.passed)
+  // Mark only genuine FAILURES in the editor. Passing tests don't need an
+  // underline (it reads as visual noise), and an inconclusive test isn't a
+  // failure — a red squiggle would wrongly imply the code is broken.
+  const failedWithLines = tests.filter(
+    (t: any) => t.line && !t.passed && !t.inconclusive
+  )
   if (failedWithLines.length > 0) {
     editor.setMarkers(
       failedWithLines.map((t: any) => ({
@@ -294,19 +302,29 @@ export function renderTestResults(
   if (failed > 0) {
     html += `, <strong class="test-failed">${failed} failed</strong>`
   }
+  if (inconclusive > 0) {
+    html += `, <strong class="test-inconclusive">${inconclusive} inconclusive</strong>`
+  }
   html += `</div><ul class="test-list">`
 
   for (const test of tests) {
-    const icon = test.passed ? '✓' : '✗'
-    const cls = test.passed ? 'test-pass' : 'test-fail'
+    const state = test.passed
+      ? 'pass'
+      : test.inconclusive
+      ? 'inconclusive'
+      : 'fail'
+    const icon = test.passed ? '✓' : test.inconclusive ? '—' : '✗'
     const sigBadge = test.isSignatureTest
       ? ' <span class="sig-badge">signature</span>'
       : ''
     const dataLine = test.line ? ` data-line="${test.line}"` : ''
     const clickable = test.line ? ' clickable-test' : ''
-    html += `<li class="${cls}${clickable}"${dataLine}>${icon} ${test.description}${sigBadge}`
-    if (!test.passed && test.error) {
-      html += `<div class="test-error">${test.error}</div>`
+    html += `<li class="test-${state}${clickable}"${dataLine}>${icon} ${test.description}${sigBadge}`
+    if (test.error) {
+      // Inconclusive notes are warnings (couldn't run), not failures.
+      const noteCls = test.inconclusive ? 'test-note' : 'test-error'
+      const prefix = test.inconclusive ? 'could not run — ' : ''
+      html += `<div class="${noteCls}">${prefix}${test.error}</div>`
     }
     html += `</li>`
   }
@@ -327,7 +345,7 @@ export function renderTestResults(
     })
   })
 
-  return { passed, failed }
+  return { passed, failed, inconclusive }
 }
 
 // ---------------------------------------------------------------------------
@@ -584,6 +602,20 @@ export const sharedPlaygroundStyles: Record<string, Record<string, string>> = {
     marginTop: '4px',
     padding: '8px',
     background: 'rgba(220, 38, 38, 0.1)',
+    borderRadius: '4px',
+    fontSize: '13px',
+    fontFamily: 'var(--font-mono, monospace)',
+  },
+
+  ':host .test-inconclusive': {
+    color: '#d97706',
+  },
+
+  ':host .test-note': {
+    marginLeft: '20px',
+    marginTop: '4px',
+    padding: '8px',
+    background: 'rgba(217, 119, 6, 0.1)',
     borderRadius: '4px',
     fontSize: '13px',
     fontFamily: 'var(--font-mono, monospace)',

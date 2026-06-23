@@ -149,7 +149,7 @@ export class TJSPlayground extends Component<TJSPlaygroundParts> {
   // Split mode
   private _splitMode: null | 'code' | 'output' = null
   private _splitChannel: BroadcastChannel | null = null
-  private _splitSessionId: string = ''
+  private _splitSessionId = ''
 
   // Build flags state
   private buildFlags = {
@@ -860,21 +860,27 @@ export class TJSPlayground extends Component<TJSPlaygroundParts> {
 
   private updateTestResults(result: any) {
     const tests = result.testResults
-    const { passed, failed } = renderTestResults(
+    const { passed, failed, inconclusive } = renderTestResults(
       tests,
       this.parts.testsOutput,
       this.parts.tjsEditor,
       (line) => this.goToSourceLine(line)
     )
-    this.updateTestsTabLabel(passed, failed)
+    this.updateTestsTabLabel(passed, failed, inconclusive)
   }
 
-  private updateTestsTabLabel(passed: number, failed: number) {
+  private updateTestsTabLabel(
+    passed: number,
+    failed: number,
+    inconclusive = 0
+  ) {
     const tabs = this.parts.outputTabs
     if (!tabs) return
 
     if (failed > 0) {
       tabs.style.setProperty('--test-indicator-color', '#dc2626')
+    } else if (inconclusive > 0) {
+      tabs.style.setProperty('--test-indicator-color', '#d97706')
     } else if (passed > 0) {
       tabs.style.setProperty('--test-indicator-color', '#16a34a')
     } else {
@@ -1394,7 +1400,7 @@ export class TJSPlayground extends Component<TJSPlaygroundParts> {
   }
 
   // Navigate to a specific line in the source editor
-  goToSourceLine(line: number, column: number = 1) {
+  goToSourceLine(line: number, column = 1) {
     this.parts.inputTabs.value = 0 // Switch to TJS tab (first tab)
     // Wait for tab switch and editor resize before scrolling
     setTimeout(() => {

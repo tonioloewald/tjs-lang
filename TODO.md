@@ -125,7 +125,7 @@ changes below; guarded by `src/lang/subset-invariant.test.ts`.
 - [x] **Multi-function signature-test harness** — the realistic newline-separated multi-function source already executed and validates correctly; only the _same-line_ `} function` edge case failed the harness ("Unexpected keyword 'function'"). That failure is now inconclusive (non-fatal) rather than a transpile error, so the invariant holds either way. (Making same-line two-functions actually execute is a nice-to-have, not required.)
 - [x] **Subset guard test** — `src/lang/subset-invariant.test.ts`: representative AJS snippets (helpers with typed sigs, atom-call + return type, helper calling an atom) asserted valid as _both_ AJS and TJS; plain JS asserted valid under options-off TJS; plus controls (un-runnable → inconclusive, genuine mismatch → still throws).
 
-- [ ] **Playground: surface inconclusive signature tests** — show `TestResult.inconclusive` as a distinct state (warning, not pass/fail) in the test panel.
+- [x] **Playground: surface inconclusive signature tests** — `renderTestResults` (demo/src/playground-shared.ts) now counts inconclusive separately, renders them with a distinct amber `test-inconclusive`/`test-note` style and a `—` icon (not the ✗ failure), keeps them out of the failure count and editor error markers, and turns the tests-tab indicator amber when only inconclusive. Verified with a happy-dom unit test incl. real transpiler output (`demo/src/playground-test-results.test.ts`).
 
 ### Deferred enrichment (parity, not invariant)
 
