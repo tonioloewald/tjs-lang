@@ -264,7 +264,7 @@ Coverage targets: 98% lines on `src/vm/runtime.ts` (security-critical), 80%+ ove
 
 ### Adding a New Atom
 
-1. Define with `defineAtom(opCode, inputSchema, outputSchema, implementation, { cost, timeoutMs, docs })`
+1. Define with `defineAtom(opCode, inputSchema, outputSchema, implementation, { cost, timeoutMs, docs, effects })`
 2. Add to `src/vm/atoms/` and export from `src/vm/atoms/index.ts`
 3. Add tests
 4. Run `bun run test:fast`
@@ -274,6 +274,7 @@ Coverage targets: 98% lines on `src/vm/runtime.ts` (security-critical), 80%+ ove
 - `cost` can be static number or dynamic: `(input, ctx) => number`
 - `timeoutMs` defaults to 1000ms; use `0` for no timeout (e.g., `seq`)
 - Atoms are always async; fuel deduction is automatic in the `exec` wrapper
+- `effects` defaults to `'pure'`; **set `'io'` for any atom that touches `ctx.capabilities` (fetch/store/llm/agent/code), is nondeterministic (random/uuid), or has side effects (console)**. This drives predicate-safety (a predicate may only call pure atoms — see `experiments/predicates/`). Core IO atoms are tagged centrally via `EFFECTFUL_CORE_OPS` in `runtime.ts`; the invariant is guarded by `src/vm/atom-effects.test.ts`.
 
 ### Debugging Agents
 

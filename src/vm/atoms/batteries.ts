@@ -229,3 +229,15 @@ export const llmVision = defineAtom(
   },
   { docs: 'Analyze images using a vision model', timeoutMs: 120000, cost: 150 }
 )
+
+// Every battery atom is IO (embedding/LLM/vector-store network calls).
+for (const atom of [
+  storeVectorize,
+  storeCreateCollection,
+  storeVectorAdd,
+  storeSearch,
+  llmPredictBattery,
+  llmVision,
+]) {
+  atom.effects = 'io'
+}

@@ -180,6 +180,18 @@ export interface RuntimeContext {
 
 export type AtomExec = (step: any, ctx: RuntimeContext) => Promise<void>
 
+/**
+ * Effect classification of an atom.
+ * - `'pure'`: deterministic, no IO, no capability access, no observable side
+ *   effects — safe inside a synchronous predicate (see the predicate verifier).
+ * - `'io'`: touches `ctx.capabilities` (fetch/store/llm/agent/code), or is
+ *   nondeterministic (random/uuid), or has side effects (console). Not allowed
+ *   in a predicate.
+ * Defaults to `'pure'`; effectful atoms must opt into `'io'`. The invariant
+ * "anything touching ctx.capabilities is tagged 'io'" is guarded by a test.
+ */
+export type AtomEffects = 'pure' | 'io'
+
 export interface AtomDef {
   op: OpCode
   inputSchema: any
@@ -188,6 +200,7 @@ export interface AtomDef {
   docs?: string
   timeoutMs?: number
   cost?: number | ((input: any, ctx: RuntimeContext) => number)
+  effects?: AtomEffects
 }
 
 // eslint-disable-next-line @typescript-eslint/no-unused-vars
@@ -199,6 +212,8 @@ export interface AtomOptions {
   docs?: string
   timeoutMs?: number
   cost?: number | ((input: any, ctx: RuntimeContext) => number)
+  /** Effect class — defaults to `'pure'`; effectful atoms set `'io'`. */
+  effects?: AtomEffects
 }
 
 export interface RunResult {
@@ -1347,6 +1362,7 @@ export function defineAtom<I extends Record<string, any>, O = any>(
     docs = '',
     timeoutMs = 1000,
     cost = 1,
+    effects = 'pure',
   } = typeof options === 'string' ? { docs: options } : options
 
   const exec: AtomExec = async (step: any, ctx: RuntimeContext) => {
@@ -1446,6 +1462,7 @@ export function defineAtom<I extends Record<string, any>, O = any>(
     docs,
     timeoutMs,
     cost,
+    effects,
     create: (input: I) => ({ op, ...input }),
   }
 }
@@ -3113,4 +3130,38 @@ export const coreAtoms = {
   storeProcedure,
   releaseProcedure,
   clearExpiredProcedures,
+}
+
+/**
+ * Effectful core atoms — anything that touches `ctx.capabilities`
+ * (fetch/store/llm/agent/code), is nondeterministic (random/uuid), or has
+ * observable side effects (console). Tagged centrally so the list reads as one
+ * audit surface; a test asserts every capability-touching atom is in here.
+ * Everything else defaults to `effects: 'pure'`.
+ */
+export const EFFECTFUL_CORE_OPS = [
+  'httpFetch',
+  'storeGet',
+  'storeSet',
+  'storeQuery',
+  'storeVectorSearch',
+  'llmPredict',
+  'agentRun',
+  'transpileCode',
+  'runCode',
+  'random',
+  'uuid',
+  'consoleLog',
+  'consoleWarn',
+  'consoleError',
+  'storeProcedure',
+  'releaseProcedure',
+  'clearExpiredProcedures',
+  'cache',
+  'memoize',
+] as const
+
+for (const op of EFFECTFUL_CORE_OPS) {
+  const atom = (coreAtoms as Record<string, AtomDef>)[op]
+  if (atom) atom.effects = 'io'
 }

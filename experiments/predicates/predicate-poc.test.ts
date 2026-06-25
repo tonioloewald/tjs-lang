@@ -1,6 +1,34 @@
 import { describe, it, expect } from 'bun:test'
-import { verifyPredicates, compilePredicates } from './verify'
+import { verifyPredicates, compilePredicates, effectfulFrom } from './verify'
 import { CSS_PREDICATE_SOURCE } from './css.predicates'
+import { coreAtoms } from '../../src/vm/runtime'
+
+describe('predicate PoC — driven by the real atom `effects` tag', () => {
+  const effectful = effectfulFrom(coreAtoms as any)
+
+  it('derives the effectful set from `effects: "io"` atoms', () => {
+    expect(effectful.has('httpFetch')).toBe(true) // io atom
+    expect(effectful.has('llmPredict')).toBe(true) // io atom
+    expect(effectful.has('map')).toBe(false) // pure atom
+  })
+
+  it('rejects a predicate that calls a real io-tagged atom', () => {
+    const r = verifyPredicates(`function isUp(u) { return httpFetch(u) }`, {
+      effectful,
+    })
+    expect(r.safe).toBe(false)
+    expect(r.diagnostics[0].message).toMatch(/httpFetch.*IO/)
+  })
+
+  it('accepts a predicate composed only of pure ops + other predicates', () => {
+    const r = verifyPredicates(
+      `function isShort(s) { return s.length < 10 }
+       function isTag(s) { return isShort(s) && s.startsWith('#') }`,
+      { effectful }
+    )
+    expect(r.safe).toBe(true)
+  })
+})
 
 describe('predicate PoC — verifier', () => {
   it('certifies the CSS predicate cluster predicate-safe', () => {

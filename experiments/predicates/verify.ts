@@ -54,26 +54,51 @@ const PURE_GLOBALS = new Set([
 
 /**
  * Names that perform IO / are effectful — calling any of these makes a function
- * NOT predicate-safe. (In the real system this is the atom `effects: 'io'` tag;
- * here it's a static list of the battery/IO atom + global names.)
+ * NOT predicate-safe. This now derives from the real atom `effects: 'io'` tag
+ * (the keystone): pass `effectfulFrom(atomRegistry)`. The literals here are the
+ * non-atom globals a predicate also must not call.
+ */
+const NON_ATOM_EFFECTFUL = ['fetch', 'sleep', 'now', 'Date']
+
+/**
+ * Convenience default when no atom registry is supplied: non-atom globals plus
+ * the well-known IO atom names. `effectfulFrom(registry)` is the authoritative,
+ * tag-driven source — prefer it.
  */
 const DEFAULT_EFFECTFUL = new Set([
+  ...NON_ATOM_EFFECTFUL,
   'httpFetch',
-  'fetch',
+  'storeGet',
+  'storeSet',
+  'storeQuery',
+  'storeVectorSearch',
   'llmPredict',
-  'llmPredictBattery',
-  'llmVision',
+  'agentRun',
+  'transpileCode',
+  'runCode',
+  'random',
+  'uuid',
   'storeVectorize',
   'storeSearch',
   'storeVectorAdd',
-  'storeGet',
-  'storeSet',
-  'runCode',
-  'sleep',
-  'now',
-  'Date',
-  'random',
+  'llmPredictBattery',
+  'llmVision',
 ])
+
+/**
+ * Build the effectful-name set from a VM atom registry: every atom tagged
+ * `effects: 'io'` (plus the non-atom globals). This is how the predicate
+ * verifier consumes the atom-effects classification.
+ */
+export function effectfulFrom(
+  atoms: Record<string, { op?: string; effects?: 'pure' | 'io' }>
+): Set<string> {
+  const set = new Set(NON_ATOM_EFFECTFUL)
+  for (const [name, atom] of Object.entries(atoms)) {
+    if (atom?.effects === 'io') set.add(atom.op ?? name)
+  }
+  return set
+}
 
 /**
  * Verify every top-level function in `source` is predicate-safe. Because safety
@@ -172,7 +197,7 @@ export function compilePredicates(
   // The cluster is verified pure/synchronous → native fast path. In native JS
   // the ergonomic composition (calls in expressions, named callbacks, recursion)
   // works directly — which is the whole point.
-   
+
   const factory = new Function(`${source}\n;return { ${exports.join(', ')} };`)
   return factory()
 }
