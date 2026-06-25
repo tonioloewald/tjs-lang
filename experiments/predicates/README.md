@@ -62,9 +62,39 @@ leaves (`NAMED_COLORS`, timing keywords, `var(--`/`calc(` stubs) exposed as a
 `string` fallback on **both** axes — precise validation **and** useful
 suggestions — instead of trading one for the other.
 
+## Performance (ballpark — native-compiled predicates)
+
+Two phases: **verification** is one-time at definition/build (irrelevant);
+**validation** is the only hot path, and CSS validation runs at theme-define /
+style-apply time, not per frame. Micro-bench on a theme-sized spec (50 selectors,
+450 leaf values), PoC predicates, `bun`:
+
+| op                                          | cost                    |
+| ------------------------------------------- | ----------------------- |
+| validate whole theme `isStyleObject(theme)` | ~0.13 ms (~8K themes/s) |
+| per-value `isColorValue`                    | 0.1 µs (~12M/s)         |
+| per-value `isAnimation` (tokenize + every)  | 0.6 µs (~1.7M/s)        |
+| ReDoS check: 100K-char adversarial string   | 0.195 ms (linear)       |
+
+Not a performance monster — a whole theme is a fraction of a ms. Notes:
+
+- This is the **native-compile payoff** measured; through the VM interpreter it
+  would be orders of magnitude slower.
+- Cost scales with **branches-per-value**, not library size (validating a
+  `color` never touches the animation predicates), so a complete CSS impl is not
+  meaningfully slower per-value.
+- **Regexes are the one lever to watch — for _safety_, not speed.** They're the
+  only unbounded-compute primitive and **fuel can't interrupt mid-`.test()`**.
+  These are linear; a catastrophic-backtracking regex would be a ReDoS hole
+  fuel-bounding can't catch → "lint predicate regexes for catastrophic patterns"
+  belongs in the verifier's safety checks.
+
+**TODO when the full CSS impl exists:** re-run this against a real production
+theme (e.g. tosijs's) with the complete predicate set, to confirm on real data.
+
 ## Files
 
 - `verify.ts` — `verifyPredicates` (transitive, located diagnostics) +
-  `compilePredicates` (verify → native fast path).
+  `compilePredicates` (verify → native fast path) + `effectfulFrom(registry)`.
 - `css.predicates.ts` — the CSS torture corpus (named-composition style).
-- `predicate-poc.test.ts` — the proof.
+- `predicate-poc.test.ts` — the proof + the real-atom-`effects`-tag wiring.
