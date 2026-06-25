@@ -24,6 +24,17 @@ export {
   type SourceKind,
 } from './dialect'
 
+// Predicate-safety: verify a cluster of pure, synchronous, composable predicates
+export {
+  verifyPredicate,
+  compilePredicate,
+  effectfulFromAtoms,
+  formatPredicateDiagnostics,
+  type PredicateDiagnostic,
+  type PredicateVerifyResult,
+  type VerifyPredicateOptions,
+} from './predicate'
+
 // AST emitter
 export { transformFunction } from './emitters/ast'
 

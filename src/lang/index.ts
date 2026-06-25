@@ -44,6 +44,15 @@ export {
   type Dialect,
   type SourceKind,
 } from './dialect'
+export {
+  verifyPredicate,
+  compilePredicate,
+  effectfulFromAtoms,
+  formatPredicateDiagnostics,
+  type PredicateDiagnostic,
+  type PredicateVerifyResult,
+  type VerifyPredicateOptions,
+} from './predicate'
 export { transformFunction } from './emitters/ast'
 export {
   transpileToJS,
