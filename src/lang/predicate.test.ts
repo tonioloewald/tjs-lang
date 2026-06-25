@@ -3,6 +3,7 @@ import {
   verifyPredicate,
   compilePredicate,
   effectfulFromAtoms,
+  PredicateFuelExhausted,
 } from './predicate'
 import { coreAtoms } from '../vm/runtime'
 
@@ -110,7 +111,23 @@ describe('verifyPredicate — cross-source composition (knownPredicates)', () =>
   })
 })
 
-describe('compilePredicate — native fast path', () => {
+describe('verifyPredicate — rejects loops (#3: keeps work fuel-bounded)', () => {
+  it('while / for / for-of are rejected; recursion + array methods are not', () => {
+    expect(why(`function f(n){ while(n>0){ n=n-1 } return n }`)[0]).toMatch(
+      /loops are not allowed/
+    )
+    expect(ok(`function f(n){ for(let i=0;i<n;i++){} return n }`)).toBe(false)
+    expect(ok(`function f(a){ for(const x of a){} return a }`)).toBe(false)
+    // the sanctioned forms still pass:
+    expect(
+      ok(
+        `function f(a){ return a.every(isShort) } function isShort(s){ return s.length<5 }`
+      )
+    ).toBe(true)
+  })
+})
+
+describe('compilePredicate — fuel-bounded + global-shadowed (#3)', () => {
   it('verified predicates compile and run; IO ones throw at definition time', () => {
     const m = compilePredicate(
       `function isHex(v){ return typeof v == 'string' && /^#[0-9a-f]{3,8}$/i.test(v) }
@@ -125,5 +142,43 @@ describe('compilePredicate — native fast path', () => {
     expect(() =>
       compilePredicate(`function f(v){ return fetch(v) }`, ['f'])
     ).toThrow(/Not predicate-safe/)
+  })
+
+  it('runaway recursion exhausts fuel instead of hanging', () => {
+    // verifier allows recursion (call-bounded); the runtime fuel stops it.
+    const m = compilePredicate(`function loop(n){ return loop(n) }`, ['loop'], {
+      fuel: 5000,
+    })
+    expect(() => m.loop(1)).toThrow(PredicateFuelExhausted)
+  })
+
+  it('a huge array exhausts fuel via the per-element callback', () => {
+    const m = compilePredicate(
+      `function isPos(x){ return x > 0 }
+       function allPos(a){ return a.every(isPos) }`,
+      ['allPos'],
+      { fuel: 1000 }
+    )
+    expect(m.allPos([1, 2, 3])).toBe(true) // small input fine
+    const big = Array.from({ length: 100000 }, () => 1)
+    expect(() => m.allPos(big)).toThrow(PredicateFuelExhausted)
+  })
+
+  it('each top-level call gets a fresh budget (no cross-call starvation)', () => {
+    const m = compilePredicate(
+      `function rec(n){ if (n <= 0) { return true } return rec(n - 1) }`,
+      ['rec'],
+      { fuel: 10000 }
+    )
+    // 500 deep, well under budget — and repeatable because budget resets
+    for (let i = 0; i < 5; i++) expect(m.rec(500)).toBe(true)
+  })
+
+  it('shadows effectful globals to undefined (defense-in-depth)', () => {
+    // even if a global slipped past the verifier, it is undefined at runtime
+    const m = compilePredicate(`function usesGlobal(){ return typeof fetch }`, [
+      'usesGlobal',
+    ])
+    expect(m.usesGlobal()).toBe('undefined')
   })
 })

@@ -30,9 +30,11 @@ export {
   compilePredicate,
   effectfulFromAtoms,
   formatPredicateDiagnostics,
+  PredicateFuelExhausted,
   type PredicateDiagnostic,
   type PredicateVerifyResult,
   type VerifyPredicateOptions,
+  type CompilePredicateOptions,
 } from './predicate'
 
 // AST emitter

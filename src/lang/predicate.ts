@@ -238,6 +238,11 @@ export function verifyPredicate(
         column: n?.loc?.start?.column ?? 0,
       })
 
+    const loop = (n: any) =>
+      flag(
+        'loops are not allowed — iterate with recursion or array methods (every/some/map/filter/reduce) so work stays fuel-bounded',
+        n
+      )
     walk.simple(fn, {
       AwaitExpression(n: any) {
         flag('`await` not allowed — predicates must be synchronous', n)
@@ -245,6 +250,11 @@ export function verifyPredicate(
       NewExpression(n: any) {
         flag('`new` not allowed in a predicate (non-pure construction)', n)
       },
+      WhileStatement: loop,
+      DoWhileStatement: loop,
+      ForStatement: loop,
+      ForInStatement: loop,
+      ForOfStatement: loop,
       CallExpression(n: any) {
         const callee = n.callee
         // Bare call: f(...)
@@ -305,18 +315,67 @@ export function formatPredicateDiagnostics(d: PredicateDiagnostic[]): string {
     .join('\n')
 }
 
+/** Thrown when a predicate exceeds its fuel budget (likely a pathological input). */
+export class PredicateFuelExhausted extends Error {
+  constructor(budget: number) {
+    super(`predicate exceeded its fuel budget (${budget})`)
+    this.name = 'PredicateFuelExhausted'
+  }
+}
+
+export interface CompilePredicateOptions extends VerifyPredicateOptions {
+  /** Max fuel per top-level predicate call (default 1,000,000). */
+  fuel?: number
+}
+
 /**
- * Verify, then compile the cluster to native synchronous JS functions. Throws
- * (with located diagnostics) at definition time if not predicate-safe.
+ * Inject `__fuel()` at every function-body entry and comma-wrap expression-body
+ * arrows, by splicing at source offsets (no codegen needed). Because loops are
+ * rejected, function-entry fuel bounds all iteration: recursion costs fuel per
+ * call, and array-method callbacks (`xs.every(p)`) cost fuel per element via the
+ * callback's own entry.
+ */
+function injectFuel(source: string): string {
+  const ast = acorn.parse(source, { ecmaVersion: 'latest' }) as any
+  // Each edit: [offset, text]. Applied descending so offsets stay valid.
+  const edits: Array<[number, string]> = []
+  const enterBlockBody = (n: any) => edits.push([n.body.start + 1, '__fuel();'])
+  walk.simple(ast, {
+    FunctionDeclaration: enterBlockBody,
+    FunctionExpression: enterBlockBody,
+    ArrowFunctionExpression(n: any) {
+      if (n.body.type === 'BlockStatement') {
+        edits.push([n.body.start + 1, '__fuel();'])
+      } else {
+        // expression-body arrow: `x => EXPR`  →  `x => (__fuel(), EXPR)`
+        edits.push([n.body.start, '(__fuel(), '])
+        edits.push([n.body.end, ')'])
+      }
+    },
+  })
+  edits.sort((a, b) => b[0] - a[0])
+  let out = source
+  for (const [off, text] of edits)
+    out = out.slice(0, off) + text + out.slice(off)
+  return out
+}
+
+/**
+ * Verify, then compile the cluster to native synchronous JS functions —
+ * **fuel-bounded and global-shadowed**. Throws (with located diagnostics) at
+ * definition time if not predicate-safe.
  *
- * NOTE: interim native runner via `new Function`; the rigorous path is an
- * AJS-AST → JS emitter preserving AJS semantics + fuel injection. Use only on
- * trusted/verified predicate source.
+ * Each compiled predicate runs with a fresh fuel budget; a runaway input throws
+ * `PredicateFuelExhausted` rather than hanging. The effectful globals are
+ * shadowed to `undefined` as defense-in-depth beneath the static verifier.
+ *
+ * NOTE: preserves JS semantics (no structural-`==` rewrite yet — a future
+ * opt-in). Emission is offset-spliced source, not a full AJS-AST→JS codegen.
  */
 export function compilePredicate(
   source: string,
   exportNames: string[],
-  opts?: VerifyPredicateOptions
+  opts: CompilePredicateOptions = {}
 ): Record<string, (...args: any[]) => any> {
   const result = verifyPredicate(source, opts)
   if (!result.safe)
@@ -324,8 +383,43 @@ export function compilePredicate(
       `Not predicate-safe:\n${formatPredicateDiagnostics(result.diagnostics)}`
     )
 
-  const factory = new Function(
-    `${source}\n;return { ${exportNames.join(', ')} };`
+  const budget = opts.fuel ?? 1_000_000
+  const instrumented = injectFuel(source)
+
+  // Shadow the effectful globals to undefined (defense-in-depth under the
+  // verifier), and inject the fuel hook. `new Function` params shadow globals.
+  // Exclude reserved words that can't be parameter names (still verifier-rejected).
+  const shadowed = EFFECTFUL_GLOBALS.filter(
+    (g) => g !== 'import' && g !== 'eval' && g !== 'arguments'
   )
-  return factory()
+  const factory = new Function(
+    '__fuel',
+    ...shadowed,
+    `"use strict";\n${instrumented}\n;return { ${exportNames.join(', ')} };`
+  )
+
+  let fuel = 0
+  const fuelHook = () => {
+    if (--fuel < 0) throw new PredicateFuelExhausted(budget)
+  }
+  const raw = factory(fuelHook, ...shadowed.map(() => undefined))
+
+  // Each top-level call gets a fresh budget; inner composed calls share it.
+  // A stack overflow (deep recursion past the JS frame limit before fuel runs
+  // out) is the same "runaway" signal, so normalize it to PredicateFuelExhausted.
+  const wrapped: Record<string, (...args: any[]) => any> = {}
+  for (const name of exportNames) {
+    const fn = raw[name]
+    wrapped[name] = (...args: any[]) => {
+      fuel = budget
+      try {
+        return fn(...args)
+      } catch (e) {
+        if (e instanceof RangeError && /stack/i.test(e.message))
+          throw new PredicateFuelExhausted(budget)
+        throw e
+      }
+    }
+  }
+  return wrapped
 }
