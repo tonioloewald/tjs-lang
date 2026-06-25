@@ -64,8 +64,8 @@ to **prove it and spread it**:
   - Caveat: if the function never inspects the param, no error needs to fire — propagation is on-check, not eager.
   - Partial coverage today: input-validation in emitted JS scans top-level array params for an embedded MonadicError and re-propagates it (commit `3db372d`). Other paths likely miss this — return values, deeper nesting (object fields, arrays-of-arrays), function-typed params whose callbacks return arrays containing errors, etc.
   - Investigate: where does a MonadicError survive past a boundary as data? Audit `checkType` in `src/lang/runtime.ts`, the emitted-JS validation prefix in `src/lang/emitters/js.ts`, and `checkFnShape` interaction with array returns.
-- [ ] Portable Type predicates - expression-only AJS subset (no loops, no async, serializable)
-- [ ] Sync AJS / AJS-to-JS compilation - for type-checked AJS that passes static analysis, transpile to native JS with fuel injection points. Enables both type safety guarantees AND native performance for RBAC rules, predicates, etc.
+- [x] Portable Type predicates — expression-only AJS subset (no loops/async, serializable). **Done** as the predicate engine — see the "Predicate types" section above (`src/lang/predicate.ts`).
+- [x] Sync AJS / AJS-to-JS compilation — verified-pure predicates compile to native JS with fuel-injection points. **Done** (`compilePredicate`); see "Predicate types" above. (Generalizing this to arbitrary type-checked AJS beyond predicates is the future "propagate verify→native" item.)
 - [ ] Self-contained transpiler output (no runtime dependency)
   - Currently transpiled code references `globalThis.__tjs` for pushStack/popStack, typeError, Is/IsNot
   - Requires runtime to be installed or a stub (see playground's manual \_\_tjs stub)
