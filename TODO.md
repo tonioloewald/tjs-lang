@@ -1,5 +1,41 @@
 # TJS-Lang TODO
 
+## Predicate types — "AJS is JSON-Schema's missing piece"
+
+The thesis (see the blog draft): JSON-Schema / TS can't express types that need
+**computation**; verified-pure, composable AJS predicates can — serializable
+(the AJS AST), safe (no IO, fuel-bounded), and compiled to native JS so they're
+fast. CSS is the torture-test proof. The engine is built and green on `main`;
+what remains is **delivery, measurement, and reach** — not invention.
+
+**Done (engine):**
+
+- [x] Atom `effects: 'pure' | 'io'` keystone — classified, guarded (`src/vm/atom-effects.test.ts`).
+- [x] `verifyPredicate` / `compilePredicate` — `src/lang/predicate.ts`, exported from `tjs-lang/lang`. Transitive closure check, pure-method whitelist, registry-driven effects.
+- [x] Fuel-bounded, global-shadowed native compiler (loops rejected; `__fuel()` at function entry; per-call budget; stack-overflow normalized to `PredicateFuelExhausted`). Zero measurable perf cost.
+- [x] PoC + CSS torture set + perf ballpark in `experiments/predicates/` (theme ~0.13ms, ReDoS-linear).
+
+**Remaining (delivery / north star):**
+
+- [ ] **#4 Autocomplete `suggest()` companion** — enumerable leaves (named colors, keyword tokens, `var(--`/`calc(` stubs) so predicates beat the TS `string` fallback on _both_ validation and suggestions.
+- [ ] **#5 Wire into `FunctionPredicate` / `Type`** — predicate bodies authored in this verified-safe substrate; the real consumer.
+- [ ] **#6 (north star) tosijs-schema serialized-predicate keyword** — a `$predicate` (AJS AST) keyword that naive validators ignore and predicate-aware ones run. This is the blog's literal payoff; it's the screenshot that sells the thesis. **Highest leverage.**
+- [ ] **Real CSS predicate library** — productionize beyond the PoC corpus (the tosijs CSS replacement). Recursive structure is plain `$ref` JSON-Schema; only leaf value-grammar needs `$predicate` (progressive enhancement). Schema validates the _serialized/data_ form; `Color` instances + bare-number→`px` are runtime conveniences (duck-typeable via `.toString()` where wanted).
+- [ ] **Regex-linting in the verifier** — the ReDoS path-forward the blog commits to: reject catastrophic-backtracking patterns (the one unbounded primitive fuel can't interrupt). Until then, predicates are "no worse than `pattern`, with the bounded-tokenizer option."
+
+## "Safe is fast" — the campaign (measurement + propagation, not invention)
+
+The architecture already makes the safe path the fast path: boundary-level checks
+(a few comparisons per _call_, not per-op), verify→native for validation, inline
+WASM/SIMD for hot loops, zero-cost happy-path errors. The strip-the-safety
+transpiler option is the Obj-C-`IMP`-cache / Rust-`unsafe` move — it wins the perf
+argument precisely because, in practice, you leave the safety on. What's left is
+to **prove it and spread it**:
+
+- [ ] **Systematic overhead benchmark** — TJS-checked function call vs raw call across representative code (not just predicates), so "safe is fast" is backed by numbers, not just architecture. (Doubles as the CSS-post perf data — re-run on the _real_ tosijs theme with the full predicate set, confirming the ~0.1ms claim on real data.)
+- [ ] **Propagate verify→native** — weave it under the type system / tosijs so the capability is pervasive, not just an engine + PoC.
+- [ ] Frame the announcement around data + a real framework running it, not a promise. The blog draft is the spec: its present-tense claims (#6, the CSS lib, the real-theme number) must be true before publishing.
+
 ## Playground - Error Navigation
 
 - [ ] Test errors: click should navigate to source location
@@ -110,7 +146,7 @@ Outstanding items from real-world VM integration. See conversation notes; ranked
 - [ ] **`resolveValue` doesn't recurse into plain object literals** — atoms with structured input get `{$expr}` children unresolved. Need canonical `deepResolve(value, ctx)` helper.
 - [ ] **Browser-safe entry point (`tjs-lang/browser`)** — main entry pulls `node:fs/promises` (CLI/playground); breaks webpack 4 and similar bundlers.
 - [ ] **`evaluateExpr` diagnostics** — when a node has missing required fields, wrap with op name + step location instead of raw `Cannot read properties of undefined`.
-- [ ] **`typescript` not resolvable from the main entry** *(confirmed live in 0.8.0–0.8.2 via fresh `npm install` + Node import)* — `import 'tjs-lang'` throws `Cannot find package 'typescript' imported from dist/index.js`. Cause: `src/lang/index.ts:62` statically re-exports `fromTS`, dragging the TS compiler (~4MB) into `dist/index.js`; `typescript` is only a devDependency, never declared, so Node consumers without it can't import the main entry at all (and it pulls TS at import time → also crashes Cloud Run). The lean `tjs-lang/lang` entry is fine (no fromTS). **Not a 0.8.2 regression** — pre-existing. Fix options: (a) drop the static `fromTS` re-export from the main entry so it's reached only via `tjs-lang/lang/from-ts` (matches the documented usage; makes `import 'tjs-lang'` TS-free) — cleanest, mild breaking change for top-level `fromTS` importers; (b) declare `typescript` as a `peerDependency` (+ optional meta) or `optionalDependency` so it's at least provided/signalled. Recommend (a) + lazy-load. Cut in 0.8.3.
+- [ ] **`typescript` not resolvable from the main entry** _(confirmed live in 0.8.0–0.8.2 via fresh `npm install` + Node import)_ — `import 'tjs-lang'` throws `Cannot find package 'typescript' imported from dist/index.js`. Cause: `src/lang/index.ts:62` statically re-exports `fromTS`, dragging the TS compiler (~4MB) into `dist/index.js`; `typescript` is only a devDependency, never declared, so Node consumers without it can't import the main entry at all (and it pulls TS at import time → also crashes Cloud Run). The lean `tjs-lang/lang` entry is fine (no fromTS). **Not a 0.8.2 regression** — pre-existing. Fix options: (a) drop the static `fromTS` re-export from the main entry so it's reached only via `tjs-lang/lang/from-ts` (matches the documented usage; makes `import 'tjs-lang'` TS-free) — cleanest, mild breaking change for top-level `fromTS` importers; (b) declare `typescript` as a `peerDependency` (+ optional meta) or `optionalDependency` so it's at least provided/signalled. Recommend (a) + lazy-load. Cut in 0.8.3.
 - [ ] **`const` inside `while` loop body** — `constSet` re-runs each iteration and throws "Cannot reassign const variable". Either compile-time error or per-iteration scope.
 - [ ] **AgentVM: warn on unknown atoms referenced in source** — currently fails at execution time with `Unknown Atom: foo` and no hint about `batteryAtoms` / user-defined atoms.
 
