@@ -51,6 +51,7 @@ import {
 } from '../ajs-syntax'
 import { FORBIDDEN_KEYWORDS as TJS_FORBIDDEN_LIST } from '../tjs-syntax'
 import { collectScopeSymbols } from '../scope-symbols'
+import type { IntrospectMember } from '../introspect-value'
 
 /**
  * Forbidden keywords in AsyncJS - these will be highlighted as errors
@@ -342,6 +343,26 @@ export interface AutocompleteConfig {
    * e.g., { elements: Proxy, div: HTMLDivElement }
    */
   getLiveBindings?: () => Record<string, any> | undefined
+  /**
+   * Async member completion from the introspection bridge: given a dotted path
+   * (`todoApp.items`), returns the value's REAL runtime members from the user's
+   * executed scope in a sandbox — including proxy-generated ones nothing static
+   * can see. Used as a fallback when the path doesn't resolve in sync bindings.
+   */
+  getMembers?: (path: string) => Promise<IntrospectMember[] | undefined>
+}
+
+/** Map a serializable introspection member into a CodeMirror completion. */
+function memberToCompletion(m: IntrospectMember): CMCompletion {
+  if (m.type === 'method') {
+    const hasArgs = m.detail !== '()'
+    return snippetCompletion(`${m.label}(${hasArgs ? '${1}' : ''})`, {
+      label: m.label,
+      type: 'method',
+      detail: m.detail,
+    })
+  }
+  return { label: m.label, type: 'property', detail: m.detail }
 }
 
 // TJS keywords with snippets
@@ -1299,32 +1320,9 @@ function getCompletionsFromLiveBinding(
   name: string,
   liveBindings?: Record<string, any>
 ): CMCompletion[] {
-  // Debug: log what we're looking for and what we have
-  console.debug(
-    '[autocomplete] Looking for:',
-    name,
-    'in bindings:',
-    liveBindings ? Object.keys(liveBindings) : 'none'
-  )
-
   // First, check if we have a live binding for this name
   if (liveBindings && name in liveBindings) {
-    const value = liveBindings[name]
-    console.debug(
-      '[autocomplete] Found binding:',
-      name,
-      '=',
-      value,
-      'type:',
-      typeof value
-    )
-    const completions = introspectObject(value)
-    console.debug(
-      '[autocomplete] Introspection returned',
-      completions.length,
-      'completions'
-    )
-    return completions
+    return introspectObject(liveBindings[name])
   }
 
   // Special case: if the name looks like it could be an HTML element variable,
@@ -1402,7 +1400,10 @@ function getCompletionsFromPath(
   liveBindings?: Record<string, any>
 ): CMCompletion[] {
   const value = resolvePath(path, liveBindings)
-  if (value != null && (typeof value === 'object' || typeof value === 'function')) {
+  if (
+    value != null &&
+    (typeof value === 'object' || typeof value === 'function')
+  ) {
     return introspectObject(value)
   }
   if (!path.includes('.')) {
@@ -1472,7 +1473,9 @@ function getPlaceholderForParam(name: string, info: any): string {
  * Exported for headless testing — it touches only DOM-free CodeMirror APIs.
  */
 export function tjsCompletionSource(config: AutocompleteConfig = {}) {
-  return (context: CMCompletionContext): CompletionResult | null => {
+  return async (
+    context: CMCompletionContext
+  ): Promise<CompletionResult | null> => {
     try {
       // Get word at cursor
       const word = context.matchBefore(/[\w$]*/)
@@ -1515,11 +1518,19 @@ export function tjsCompletionSource(config: AutocompleteConfig = {}) {
             if (!path.includes('.')) {
               options = getPropertyCompletions(path)
             }
-            // Then introspect the live value the path resolves to (imports +,
-            // once the bridge lands, the user's own executed bindings).
+            // Then introspect the live value the path resolves to in the sync
+            // bindings (resolved imports).
             if (options.length === 0) {
               const liveBindings = config.getLiveBindings?.()
               options = getCompletionsFromPath(path, liveBindings)
+            }
+            // Finally, the introspection bridge: the user's REAL executed scope
+            // (`todoApp.items` → the live array's members), incl. proxy members.
+            if (options.length === 0 && config.getMembers) {
+              const members = await config.getMembers(path)
+              if (members && members.length) {
+                options = members.map(memberToCompletion)
+              }
             }
           }
         }
