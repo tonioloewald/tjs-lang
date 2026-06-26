@@ -98,7 +98,30 @@ export function buildIframeDoc(options: IframeDocOptions): string {
     introspectionBridge = false,
   } = options
 
-  const bridgeScript = introspectionBridge ? introspectionBridgeScript() : ''
+  // Introspection sandbox: run user code at MODULE TOP LEVEL (no try-wrap) so
+  // top-level `const`/`let` are module-scoped and the bridge's direct `eval` can
+  // see them. The listener is installed first; it's invoked later (at query
+  // time), by when the module — and `todoApp` — has fully initialised. Ready is
+  // posted up front so globals/imports stay introspectable even if user code
+  // throws partway. No try/catch precisely because a block would re-scope the
+  // declarations away from `eval`.
+  if (introspectionBridge) {
+    return `<!DOCTYPE html>
+<html>
+<head>
+  <style>:root { color-scheme: ${darkMode ? 'dark' : 'light dark'} }</style>
+  ${importMapScript}
+</head>
+<body>
+  ${runtimeScriptTag}
+  <script type="module">
+    ${importStatements.join('\n    ')}
+${introspectionBridgeScript()}
+    ${jsCode}
+  </script>
+</body>
+</html>`
+  }
 
   const colorScheme = darkMode ? 'dark' : 'light dark'
 
@@ -171,7 +194,6 @@ ${CONSOLE_CAPTURE_SCRIPT}
     } catch (e) {
       parent.postMessage({ type: 'error', message: e.message }, '*');
     }
-${bridgeScript}
   </script>
 </body>
 </html>`
@@ -198,7 +220,6 @@ ${CONSOLE_CAPTURE_SCRIPT}
     } catch (e) {
       parent.postMessage({ type: 'error', message: e.message }, '*');
     }
-${bridgeScript}
   </script>
 </body>
 </html>`
