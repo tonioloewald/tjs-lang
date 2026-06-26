@@ -53,13 +53,16 @@ the `introspection-autocomplete` memory.
       `todoApp`, `h1`…`button` now complete; `h1` shows `∈ elements`. Tests:
       `demo/src/scope-symbols.test.ts` (11) + provider regression in
       `demo/autocomplete.test.ts`.
-- [ ] **Increment 1b — introspection bridge** — a hidden, disposable sandbox
-      iframe (reusing `buildIframeDoc`/`postMessage`) that runs the last
-      successfully-parsing prefix on a statement boundary, keeps a direct-`eval`
-      handle into module scope, and answers `introspectScope()` (names) /
-      `introspectMember(expr)` (real own+proto props of a live value). Cache the
-      last good scope. Member access (`todoApp.` → `items`/`newItem`/`addItem`)
-      then comes from runtime truth — incl. tosijs's proxy-generated members.
+- [x] **Increment 1b — introspection bridge** — done. (i) path-aware member
+      resolution in `ajs-language.ts` (`getPathBeforeDot`/`resolvePath`/
+      `getCompletionsFromPath`) so `todoApp.items.` resolves, not just `todoApp.`.
+      (ii) `editors/introspect-value.ts` (serializable, self-contained, injectable)
+      + async `AutocompleteConfig.getMembers` + `demo/src/introspection-bridge.ts`
+      (hidden disposable iframe, reuses the run pipeline, direct-`eval` handle into
+      module scope, caches last good sandbox) wired via `getMembers` in the
+      playground. Tested headlessly through the real `tjsCompletionSource`; the
+      iframe round-trip is browser-only (live-verify). **NEEDS LIVE VERIFICATION
+      in the running playground.**
 - [ ] **Increment 2 — richer hints from real values** — function arity, `__tjs`
       metadata when present, signature help from the live function.
 - [ ] **Increment 3 — the `elementParts`/`style` CSS leaf** — once a symbol is
