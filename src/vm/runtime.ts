@@ -1,69 +1,30 @@
 import { s, validate, filter as schemaFilter } from 'tosijs-schema'
 
-/** Well-known symbol for custom equality (matches src/lang/runtime.ts) */
-const tjsEquals = Symbol.for('tjs.equals')
-
 /**
- * Structural equality for AJS expressions.
- * Mirrors the TJS Is() function: symbol → .Equals → structural.
+ * AJS `==`/`!=` equality — **footgun-free `===`**, consistent with TJS `Eq`
+ * (`src/lang/runtime.ts`). NOT structural: it unwraps boxed primitives, treats
+ * `null`/`undefined` as equal and `NaN` as equal to itself, but does NOT coerce
+ * across types, and distinct objects/arrays are distinct (`[1,2] != [1,2]`).
+ *
+ * (Originally the VM did deep structural comparison here — an early, unconsidered
+ * divergence from TJS `==`. Structural equality is an explicit operation: in TJS
+ * it's the `Is`/`IsNot` function; AJS can grow an `Is` atom if/when needed.)
  */
-function isStructurallyEqual(a: unknown, b: unknown): boolean {
-  // Symbol protocol
-  if (
-    a !== null &&
-    typeof a === 'object' &&
-    typeof (a as any)[tjsEquals] === 'function'
-  ) {
-    return (a as any)[tjsEquals](b)
+function eqValue(a: unknown, b: unknown): boolean {
+  if (a instanceof String || a instanceof Number || a instanceof Boolean) {
+    a = a.valueOf()
   }
-  if (
-    b !== null &&
-    typeof b === 'object' &&
-    typeof (b as any)[tjsEquals] === 'function'
-  ) {
-    return (b as any)[tjsEquals](a)
+  if (b instanceof String || b instanceof Number || b instanceof Boolean) {
+    b = b.valueOf()
   }
-
-  // .Equals method
-  if (
-    a !== null &&
-    typeof a === 'object' &&
-    typeof (a as any).Equals === 'function'
-  ) {
-    return (a as any).Equals(b)
-  }
-  if (
-    b !== null &&
-    typeof b === 'object' &&
-    typeof (b as any).Equals === 'function'
-  ) {
-    return (b as any).Equals(a)
-  }
-
   if (a === b) return true
-
-  // Nullish equality (null == undefined)
-  if ((a === null || a === undefined) && (b === null || b === undefined))
+  if (typeof a === 'number' && typeof b === 'number' && isNaN(a) && isNaN(b)) {
     return true
-
-  if (a === null || a === undefined || b === null || b === undefined)
-    return false
-
-  if (typeof a !== typeof b) return false
-  if (typeof a !== 'object') return false
-
-  // Arrays
-  if (Array.isArray(a) && Array.isArray(b)) {
-    if (a.length !== b.length) return false
-    return a.every((v, i) => isStructurallyEqual(v, b[i]))
   }
-  if (Array.isArray(a) !== Array.isArray(b)) return false
-
-  // Objects
-  const keysA = Object.keys(a as object)
-  const keysB = Object.keys(b as object)
-  if (keysA.length !== keysB.length) return false
-  return keysA.every((k) => isStructurallyEqual((a as any)[k], (b as any)[k]))
+  if ((a === null || a === undefined) && (b === null || b === undefined)) {
+    return true
+  }
+  return false
 }
 
 // --- Monadic Error Type ---
@@ -1204,9 +1165,9 @@ export function evaluateExpr(node: ExprNode, ctx: RuntimeContext): any {
         case '<=':
           return left <= right
         case '==':
-          return isStructurallyEqual(left, right)
+          return eqValue(left, right)
         case '!=':
-          return !isStructurallyEqual(left, right)
+          return !eqValue(left, right)
         case '===':
           return left === right
         case '!==':

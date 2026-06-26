@@ -596,8 +596,8 @@ describe('Edge Cases', () => {
     expect(result.result.res).toEqual({ value: 42 })
   })
 
-  describe('structural equality in expressions', () => {
-    it('== compares arrays structurally', async () => {
+  describe('footgun-free equality in expressions (== is NOT structural)', () => {
+    it('distinct arrays are NOT equal (== matches TJS, not structural)', async () => {
       const ast = {
         op: 'seq',
         steps: [
@@ -621,10 +621,10 @@ describe('Edge Cases', () => {
         ],
       } as any
       const result = await vm.run(ast, {})
-      expect(result.result.res).toBe(true)
+      expect(result.result.res).toBe(false) // distinct arrays — NOT structural
     })
 
-    it('== compares objects structurally', async () => {
+    it('distinct objects are NOT equal (== matches TJS, not structural)', async () => {
       const ast = {
         op: 'seq',
         steps: [
@@ -648,7 +648,7 @@ describe('Edge Cases', () => {
         ],
       } as any
       const result = await vm.run(ast, {})
-      expect(result.result.res).toBe(true)
+      expect(result.result.res).toBe(false) // distinct objects — NOT structural
     })
 
     it('== does not coerce types', async () => {
@@ -678,7 +678,7 @@ describe('Edge Cases', () => {
       expect(result.result.res).toBe(false) // no coercion
     })
 
-    it('!= returns true for structurally different objects', async () => {
+    it('!= returns true for distinct objects', async () => {
       const ast = {
         op: 'seq',
         steps: [

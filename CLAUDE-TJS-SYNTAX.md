@@ -256,7 +256,7 @@ new Set([1,2]) Is new Set([2,1]) // true  (Sets are order-independent)
 
 **Implementation Notes:**
 
-- **AJS (VM)**: The VM's expression evaluator (`src/vm/runtime.ts`) uses `isStructurallyEqual()` for `==`/`!=`
+- **AJS (VM)**: The VM's expression evaluator (`src/vm/runtime.ts`) uses footgun-free `eqValue()` for `==`/`!=` — same semantics as TJS `Eq` (NOT structural). (Earlier the VM did deep structural comparison here; that early divergence was removed so AJS `==` matches TJS `==`.)
 - **TJS (browser/Node)**: Source transformation converts `==` to `Eq()` and `!=` to `NotEq()` calls
 - **`===` and `!==`**: Always preserved as identity checks, never transformed
 - `Eq()`/`NotEq()` — fast honest equality (unwraps boxed primitives, nullish equality, reference for objects)
