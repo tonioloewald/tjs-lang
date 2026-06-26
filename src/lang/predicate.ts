@@ -315,6 +315,131 @@ export function formatPredicateDiagnostics(d: PredicateDiagnostic[]): string {
     .join('\n')
 }
 
+// --- suggestion mining (#4: autocomplete companion) -------------------------
+
+export interface Suggestion {
+  value: string
+  /**
+   * `'value'` — a concrete candidate (a keyword/literal the predicate accepts);
+   * `'stub'`  — a partial completion to keep typing (e.g. `var(--`, `calc(`),
+   *             mined from a `startsWith(...)` guard. TS's `string` fallback
+   *             offers neither; a finite TS union offers only `'value'`.
+   */
+  kind: 'value' | 'stub'
+}
+
+export interface SuggestOptions extends CompilePredicateOptions {
+  /** Only return candidates relevant to the text typed so far. */
+  prefix?: string
+  /** Cap the number of suggestions (default 50). */
+  limit?: number
+  /**
+   * Run each mined *value* through the compiled entry predicate and keep only
+   * those that actually pass — so completions are guaranteed valid, not merely
+   * enumerated. Default true when the cluster is predicate-safe; stubs are never
+   * validated (they're partial by construction).
+   */
+  validate?: boolean
+  /** Entry predicate to validate against (default: last top-level function). */
+  entry?: string
+}
+
+const isStringLiteral = (n: any): n is { value: string } =>
+  n && n.type === 'Literal' && typeof n.value === 'string'
+
+/**
+ * Mine a predicate cluster's source for autocomplete candidates. Two sources:
+ *   - **values** — string literals compared with `==`/`===` and members of
+ *     array literals (the keyword sets a predicate checks membership against).
+ *   - **stubs** — the argument of a `.startsWith(...)` guard, surfaced as a
+ *     partial completion (`var(--`, `calc(`) the user keeps typing.
+ *
+ * Pure syntactic mining over the parsed source — no execution. By default the
+ * mined *values* are then run through the compiled entry predicate, so the
+ * returned set is exactly what the predicate accepts (a literal that only ever
+ * appears in a `!=` / negative context is dropped). This is the autocomplete
+ * win over a TS `string` fallback (which suggests nothing) and over a finite TS
+ * union (which can't offer the open-ended `var(--`/`calc(` stubs).
+ */
+export function suggest(
+  source: string,
+  opts: SuggestOptions = {}
+): Suggestion[] {
+  let ast: any
+  try {
+    ast = acorn.parse(source, { ecmaVersion: 'latest' })
+  } catch {
+    return []
+  }
+
+  const values = new Set<string>()
+  const stubs = new Set<string>()
+  walk.simple(ast, {
+    BinaryExpression(n: any) {
+      if (n.operator === '==' || n.operator === '===') {
+        if (isStringLiteral(n.left)) values.add(n.left.value)
+        if (isStringLiteral(n.right)) values.add(n.right.value)
+      }
+    },
+    ArrayExpression(n: any) {
+      for (const el of n.elements) if (isStringLiteral(el)) values.add(el.value)
+    },
+    CallExpression(n: any) {
+      const callee = n.callee
+      if (callee.type !== 'MemberExpression' || callee.computed) return
+      const method = callee.property.name
+      const arg = n.arguments[0]
+      if (!isStringLiteral(arg)) return
+      if (method === 'startsWith') stubs.add(arg.value)
+      // `.includes('x')` / `.endsWith('x')` aren't standalone completions:
+      // includes-arg is a substring, endsWith-arg is a tail — skip both.
+    },
+  })
+
+  // Validate mined values against the predicate unless told not to / unsafe.
+  let accept: ((v: string) => boolean) | null = null
+  if (opts.validate !== false) {
+    const verified = verifyPredicate(source, opts)
+    if (verified.safe && verified.predicates.length) {
+      const entry =
+        opts.entry ?? verified.predicates[verified.predicates.length - 1]
+      try {
+        const mod = compilePredicate(source, [entry], opts)
+        const fn = mod[entry]
+        accept = (v) => {
+          try {
+            return fn(v) === true
+          } catch {
+            return false // fuel exhaustion / runtime miss → not a suggestion
+          }
+        }
+      } catch {
+        accept = null // not compilable → fall back to raw mining
+      }
+    }
+  }
+
+  const out: Suggestion[] = []
+  for (const v of values)
+    if (!accept || accept(v)) out.push({ value: v, kind: 'value' })
+  for (const s of stubs) out.push({ value: s, kind: 'stub' })
+
+  let filtered = out
+  if (opts.prefix) {
+    const p = opts.prefix
+    filtered = out.filter(
+      (s) =>
+        s.value.startsWith(p) || (s.kind === 'stub' && p.startsWith(s.value))
+    )
+  }
+  filtered.sort(
+    (a, b) =>
+      (a.kind === b.kind ? 0 : a.kind === 'value' ? -1 : 1) ||
+      a.value.localeCompare(b.value)
+  )
+  return opts.limit ? filtered.slice(0, opts.limit) : filtered
+}
+
 /** Thrown when a predicate exceeds its fuel budget (likely a pathological input). */
 export class PredicateFuelExhausted extends Error {
   constructor(budget: number) {

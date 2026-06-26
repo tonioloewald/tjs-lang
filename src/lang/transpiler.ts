@@ -28,6 +28,7 @@ export {
 export {
   verifyPredicate,
   compilePredicate,
+  suggest,
   effectfulFromAtoms,
   formatPredicateDiagnostics,
   PredicateFuelExhausted,
@@ -35,6 +36,8 @@ export {
   type PredicateVerifyResult,
   type VerifyPredicateOptions,
   type CompilePredicateOptions,
+  type Suggestion,
+  type SuggestOptions,
 } from './predicate'
 
 // Predicate-aware JSON-Schema: the `$predicate` keyword (computational types)

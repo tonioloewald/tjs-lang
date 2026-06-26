@@ -47,6 +47,7 @@ export {
 export {
   verifyPredicate,
   compilePredicate,
+  suggest,
   effectfulFromAtoms,
   formatPredicateDiagnostics,
   PredicateFuelExhausted,
@@ -54,6 +55,8 @@ export {
   type PredicateVerifyResult,
   type VerifyPredicateOptions,
   type CompilePredicateOptions,
+  type Suggestion,
+  type SuggestOptions,
 } from './predicate'
 export {
   compilePredicateSchema,
