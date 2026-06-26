@@ -48,7 +48,7 @@ TJS is **purely additive**. It adds type annotations, runtime validation, and me
 | Return type validation | Function exit (only with `safety all`)          | ~1.15-1.3x on that function   |
 | `__tjs` metadata       | Transpile time                                  | Zero runtime cost             |
 | `wrapClass` Proxy      | Class declaration (on by default in native TJS) | One-time, on constructor only |
-| Structural equality    | `==`/`!=` (on by default in native TJS)         | Per-comparison                |
+| Footgun-free equality  | `==`/`!=` (on by default in native TJS)         | Per-comparison                |
 
 If TJS doesn't understand something in your code, it passes it through unchanged. There is no "TJS runtime" that interposes between your code and the JS engine — just the inline checks you can see in the transpiled output.
 
@@ -432,7 +432,13 @@ function setStatus(status: Status) {}
 
 ## Structural Equality: Is / IsNot
 
-JavaScript's `==` is broken (type coercion). TJS provides structural equality:
+JavaScript's `==` is broken (type coercion) and `===` is identity-only. For
+deep structural comparison, TJS provides `Is` / `IsNot`:
+
+> Note: TJS's `==` / `!=` are **not** structural — they are footgun-free `===`
+> (no coercion, unwraps boxed primitives, `null == undefined`). Distinct objects
+> are genuinely distinct: `{ a: 1 } == { a: 1 }` is `false`. Use `Is` (below)
+> for deep structural comparison.
 
 ```typescript
 // Structural comparison - no coercion
@@ -462,7 +468,7 @@ const proxy = new Proxy({
   [tjsEquals](other) { return target Is other }
 }, {})
 
-proxy == { x: 1, y: 2 }  // true — delegates to target
+proxy Is { x: 1, y: 2 }  // true — delegates to target
 ```
 
 **2. `.Equals` method** (simple, works on any object or class):

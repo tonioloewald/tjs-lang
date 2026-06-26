@@ -314,7 +314,7 @@ Full syntax documentation is in [`CLAUDE-TJS-SYNTAX.md`](CLAUDE-TJS-SYNTAX.md). 
 - **Bang access**: `x!.foo` — returns MonadicError if `x` is null/undefined, otherwise bare `x.foo`. Chains propagate: `x!.foo!.bar`.
 - **Type/Generic/FunctionPredicate**: Three declaration forms for runtime type predicates
 - **`const!`**: Compile-time immutability, zero runtime cost
-- **Equality**: `==`/`!=` = structural equality by default in native TJS (via `Is`/`IsNot`), `===`/`!==` = identity
+- **Equality**: `==`/`!=` in native TJS (via `Eq`/`NotEq` under `TjsEquals`) are **footgun-free `===`** — they unwrap boxed primitives (`new Boolean(false) == false`) and treat `null`/`undefined` as equal, but do **NOT** coerce types (`'5' != 5`, `'' != false`) and are **NOT structural** (distinct objects/arrays are distinct: `{a:1} != {a:1}` — a real distinction, and structural `==` would be a silent O(n) hit). For deep structural comparison use the `Is`/`IsNot` function (or a type's `.Equals` hook). `===`/`!==` = strict identity.
 - **Polymorphic functions**: Multiple same-name declarations merge into arity/type dispatcher
 - **`extend` blocks**: Local class extensions without prototype pollution
 - **WASM blocks**: Inline WebAssembly compiled at transpile time, with SIMD intrinsics and `wasmBuffer()` zero-copy arrays

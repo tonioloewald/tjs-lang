@@ -59,7 +59,7 @@ export function myFunction() {
 }
 ```
 
-The _syntax_ above is all valid TJS. But note the next section: when you transpile **native TJS**, TJS also _improves_ some runtime behaviour (structural `==`, honest truthiness, …). Those improvements are exactly the point of writing TJS — but they would change the meaning of existing JavaScript.
+The _syntax_ above is all valid TJS. But note the next section: when you transpile **native TJS**, TJS also _improves_ some runtime behaviour (footgun-free `==`, honest truthiness, …). Those improvements are exactly the point of writing TJS — but they would change the meaning of existing JavaScript.
 
 So TJS gates them on a **dialect**:
 
@@ -197,29 +197,41 @@ The return type example doubles as an automatic test. When you write `: 0`, TJS 
 
 ### 4. Equality That Works
 
-JavaScript's `==` is notoriously broken (type coercion). Its `===` doesn't do structural comparison. TJS fixes this:
+JavaScript's `==` is notoriously broken (type coercion). TJS fixes `==` to be a
+**footgun-free `===`** — and adds `Is` for deep structural comparison:
 
 ```javascript
 // JavaScript
-[1, 2] === [1, 2]           // false (different references)
-{ a: 1 } === { a: 1 }       // false (different references)
+'5' == 5                    // true  (coercion — footgun!)
+0 == false                  // true  (coercion — footgun!)
+new Boolean(false) == false // false (boxed primitive — footgun!)
 
-// TJS (structural equality is on by default)
-[1, 2] == [1, 2]            // true (same structure)
-{ a: 1 } == { a: 1 }        // true (same structure)
-[1, 2] === [1, 2]           // false (different references, identity check)
+// TJS (footgun-free == is on by default)
+'5' == 5                    // false (no coercion)
+0 == false                  // false (no coercion)
+new Boolean(false) == false // true  (unwraps boxed primitives)
+null == undefined           // true  (nullish equality)
+NaN == NaN                  // true  (JS gets this wrong)
+
+// TJS == is NOT structural — distinct objects are distinct:
+[1, 2] == [1, 2]            // false (different references)
+{ a: 1 } == { a: 1 }        // false (different references)
+
+// For deep structural comparison, use Is:
+[1, 2] Is [1, 2]            // true (same structure)
+{ a: 1 } Is { a: 1 }        // true (same structure)
 ```
 
 TJS redefines the operators:
 
-| Operator | JavaScript          | TJS                   |
-| -------- | ------------------- | --------------------- |
-| `==`     | Coercive equality   | Structural equality   |
-| `!=`     | Coercive inequality | Structural inequality |
-| `===`    | Strict equality     | Identity (same ref)   |
-| `!==`    | Strict inequality   | Not same reference    |
+| Operator | JavaScript          | TJS                                                                                           |
+| -------- | ------------------- | --------------------------------------------------------------------------------------------- |
+| `==`     | Coercive equality   | Footgun-free `===` (no coercion, unwraps boxed, `null==undefined`); NOT structural — use `Is` |
+| `!=`     | Coercive inequality | Negation of the above                                                                         |
+| `===`    | Strict equality     | Identity (same ref) — unchanged from JS                                                       |
+| `!==`    | Strict inequality   | Not same reference — unchanged from JS                                                        |
 
-You can also use the explicit forms `Is` and `IsNot`:
+For deep structural comparison, use the explicit forms `Is` and `IsNot`:
 
 ```javascript
 user Is expectedUser       // structural deep equality
@@ -237,8 +249,8 @@ class Point {
 Point(1, 2) Is Point(1, 2)  // true, uses .Equals
 ```
 
-Note: structural equality does not handle circular references. Use `===`
-for objects that might be circular, or define an `.Equals` method.
+Note: `Is` (structural comparison) does not handle circular references. Use `==`
+or `===` for objects that might be circular, or define an `.Equals` method.
 
 ### 5. Errors Are Values, Not Exceptions
 
@@ -586,7 +598,7 @@ TJS is opinionated. Here's what changes:
 
 | JavaScript                 | TJS                           | Why                             |
 | -------------------------- | ----------------------------- | ------------------------------- |
-| `==` (type coercion)       | `==` (structural equality)    | Coercion is a bug factory       |
+| `==` (type coercion)       | `==` (footgun-free `===`)     | Coercion is a bug factory       |
 | Exceptions for type bugs   | Monadic error values          | Exceptions escape, values don't |
 | `new ClassName()`          | `ClassName()` preferred       | Cleaner, more functional        |
 | No runtime types           | `__tjs` metadata on functions | Types should exist at runtime   |
@@ -595,7 +607,7 @@ TJS is opinionated. Here's what changes:
 Nothing is taken away. `new` still works. `===` still works. You can write
 plain JavaScript in a `.tjs` file and it works. The type-related additions
 use explicit syntax (`:` annotations, `:` return types, `Type` declarations).
-Behavioral modes like structural equality, callable classes, and honest
+Behavioral modes like footgun-free `==`, callable classes, and honest
 `typeof` are enabled by default in native TJS files. Use `TjsCompat` at the
 top of a file to disable all modes for gradual migration or JS interop.
 

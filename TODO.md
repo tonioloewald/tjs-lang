@@ -37,6 +37,24 @@ to **prove it and spread it**:
 - [ ] **Propagate verify→native** — weave it under the type system / tosijs so the capability is pervasive, not just an engine + PoC.
 - [ ] Frame the announcement around data + a real framework running it, not a promise. The blog draft is the spec: its present-tense claims (#6, the CSS lib, the real-theme number) must be true before publishing.
 
+## Editors - published `.js` is stale (address sooner rather than later)
+
+- [ ] **The `tjs-lang/editors/*` subpaths ship hand-maintained `.js` files that
+      are NOT built from the `.ts` sources.** `editors/codemirror/ajs-language.js`
+      is from Jan 2026 (~7.5KB, an old standalone CDN-example impl) while
+      `ajs-language.ts` is the real ~51KB implementation (used by the playground,
+      which bundles from source). So none of the autocomplete work (scope model,
+      introspection bridge, member completion) reaches npm consumers of
+      `tjs-lang/editors/codemirror` — they get months-old code. Same for
+      monaco/ace `.js`. **Fix: add a build step that compiles/bundles
+      `editors/**/\*.ts`→ the published`.js`(wire into`scripts/build.ts`/
+   `bun run make`) so it stays current automatically.\*\* Not urgent for active
+      use cases (user isn't consuming tjs-lang externally yet) but flagged to do
+      soon. Context: tosijs-ui's live-example/doc engine now uses tjs (replacing
+      sucrase) and is evolving into a portable embeddable playground/IDE — it'll
+      switch from ACE to CodeMirror and will want working autocomplete, at which
+      point this matters.
+
 ## Playground - Introspection-driven autocomplete
 
 The current completion provider was regex-based and useless on real examples
@@ -56,13 +74,11 @@ the `introspection-autocomplete` memory.
 - [x] **Increment 1b — introspection bridge** — done. (i) path-aware member
       resolution in `ajs-language.ts` (`getPathBeforeDot`/`resolvePath`/
       `getCompletionsFromPath`) so `todoApp.items.` resolves, not just `todoApp.`.
-      (ii) `editors/introspect-value.ts` (serializable, self-contained, injectable)
-      + async `AutocompleteConfig.getMembers` + `demo/src/introspection-bridge.ts`
+      (ii) `editors/introspect-value.ts` (serializable, self-contained, injectable) + async `AutocompleteConfig.getMembers` + `demo/src/introspection-bridge.ts`
       (hidden disposable iframe, reuses the run pipeline, direct-`eval` handle into
       module scope, caches last good sandbox) wired via `getMembers` in the
       playground. Tested headlessly through the real `tjsCompletionSource`.
-      **Verified working well live** (destructured locals + `todoApp.items.push`
-      + proxy members).
+      **Verified working well live** (destructured locals + `todoApp.items.push` + proxy members).
 - [ ] **Increment 2 — richer hints from real values** — function arity, `__tjs`
       metadata when present, signature help from the live function.
 - [ ] **Increment 3 — argument-type-driven completion (PINNED) — the convergence

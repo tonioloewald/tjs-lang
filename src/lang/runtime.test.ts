@@ -27,6 +27,8 @@ import {
   isNativeType,
   Is,
   IsNot,
+  Eq,
+  NotEq,
   tjsEquals,
   checkType,
   MonadicError,
@@ -1176,5 +1178,49 @@ describe('predicate reason strings', () => {
     expect(err).not.toBeNull()
     expect(err!.message).toContain('positive number')
     expect(err!.reason).toBeUndefined()
+  })
+})
+
+// `==`/`!=` (which transpile to Eq/NotEq under TjsEquals) are **footgun-free
+// `===`**, NOT structural. They unwrap boxed primitives and treat null/undefined
+// as equal — but distinct objects/arrays are genuinely distinct (a real
+// distinction, and structural `==` would be a silent O(n) perf hit). Deep
+// structural comparison is the separate `Is`/`IsNot` function. This block pins
+// that design so docs/behavior can't drift back to "== is structural".
+describe('equality semantics — == (Eq) is footgun-free, NOT structural', () => {
+  it('fixes the boxed-primitive footgun (unlike ===)', () => {
+    expect(Eq(new Boolean(false), false)).toBe(true)
+    expect(Eq(new Number(5), 5)).toBe(true)
+    expect(Eq(new String('x'), 'x')).toBe(true)
+  })
+
+  it('does NOT coerce across types (unlike JS ==)', () => {
+    expect(Eq('5', 5)).toBe(false)
+    expect(Eq('', false)).toBe(false)
+    expect(Eq(0, false)).toBe(false)
+    expect(Eq(1, true)).toBe(false)
+    expect(Eq(null, 0)).toBe(false)
+  })
+
+  it('treats null and undefined as equal; NaN as equal to itself', () => {
+    expect(Eq(null, undefined)).toBe(true)
+    expect(Eq(NaN, NaN)).toBe(true)
+  })
+
+  it('is NOT structural — distinct objects/arrays are distinct', () => {
+    expect(Eq({ a: 1 }, { a: 1 })).toBe(false)
+    expect(Eq([1, 2], [1, 2])).toBe(false)
+    const shared = { a: 1 }
+    expect(Eq(shared, shared)).toBe(true) // identity still holds
+    expect(NotEq([1, 2], [1, 2])).toBe(true)
+  })
+
+  it('Is/IsNot ARE structural — that is the deep-comparison path', () => {
+    expect(Is({ a: 1 }, { a: 1 })).toBe(true)
+    expect(Is([1, 2], [1, 2])).toBe(true)
+    expect(Is({ a: { b: [1] } }, { a: { b: [1] } })).toBe(true)
+    expect(IsNot([1, 2], [1, 3])).toBe(true)
+    // and Is is not fooled into structural-comparing unequal shapes
+    expect(Is({ a: 1 }, { a: 2 })).toBe(false)
   })
 })

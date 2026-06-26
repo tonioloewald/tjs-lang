@@ -150,7 +150,7 @@ You don't need to migrate anything. The libraries work from TypeScript.
 
 # Part 2: Migrating to TJS
 
-If you want the full TJS experience -- runtime types, structural equality,
+If you want the full TJS experience -- runtime types, honest equality,
 monadic errors, inline tests -- here's how to convert.
 
 ## The Core Idea: Types as Examples
@@ -825,9 +825,12 @@ happy path.
 with the parameter examples and check the result. If your function has
 side effects or requires setup, use `:! 0` to skip the signature test.
 
-**Structural equality changes behavior.** If your code relies on `==`
-for type coercion (comparing numbers to strings, etc.), you'll need to
-update those comparisons. This is almost always a bug fix.
+**Honest equality changes behavior.** Native TJS `==` is a footgun-free
+`===` — no coercion (it unwraps boxed primitives and treats `null`/`undefined`
+as equal, but does not coerce across types), and it is **not** structural. If
+your code relies on `==` for type coercion (comparing numbers to strings, etc.),
+you'll need to update those comparisons. This is almost always a bug fix. For
+deep structural comparison, use `Is`/`IsNot`.
 
 ---
 
@@ -1000,11 +1003,12 @@ If you're building a Proxy-heavy library (reactive state, ORMs, etc.),
 TJS will not interfere. The transpiled output is plain JavaScript with
 some `typeof` checks at function entry points.
 
-### Does structural equality (`==`) handle circular references?
+### Does `Is`/`IsNot` (structural comparison) handle circular references?
 
-No. Circular structures will cause infinite recursion. Use identity
-comparison (`===`) for objects that might be circular, or define a
-custom `.Equals` method on the class.
+No. (Note that `==` is not structural — it is footgun-free `===`, so it never
+recurses. Only `Is`/`IsNot` do deep comparison.) Circular structures will cause
+infinite recursion in `Is`/`IsNot`. Use `==` or identity comparison (`===`) for
+objects that might be circular, or define a custom `.Equals` method on the class.
 
 ### What happens to TypeScript's `strict` mode checks?
 
