@@ -6,6 +6,7 @@
  */
 
 import type { CodeMirror } from '../../editors/codemirror/component'
+import { INTROSPECT_VALUE_SOURCE } from '../../editors/introspect-value'
 
 // ---------------------------------------------------------------------------
 // TJS Runtime for iframe — loaded from a built file, not a hand-maintained stub.
@@ -48,6 +49,32 @@ export interface IframeDocOptions {
   autoCallTjsFunction?: boolean
   /** Whether parent is in dark mode — sets color-scheme on iframe */
   darkMode?: boolean
+  /**
+   * Install the introspection bridge: after the user's code runs, a message
+   * listener answers `{type:'tjs-introspect', id, path}` by evaluating `path` in
+   * module scope and returning the value's real members. Used by the hidden
+   * autocomplete sandbox (IntrospectionBridge), not the visible preview.
+   */
+  introspectionBridge?: boolean
+}
+
+/**
+ * Script (injected at module top-level, after the user's code) that answers
+ * member-introspection queries from the parent. `eval(path)` is a DIRECT eval in
+ * the module's lexical scope, so it sees the user's top-level `const`/`let`
+ * bindings (e.g. `todoApp.items`). Runs only in the hidden sandbox.
+ */
+function introspectionBridgeScript(): string {
+  return `
+    const __introspectValue = ${INTROSPECT_VALUE_SOURCE};
+    window.addEventListener('message', (e) => {
+      const d = e.data;
+      if (!d || d.type !== 'tjs-introspect') return;
+      let members = [];
+      try { members = __introspectValue(eval(d.path)); } catch (_e) {}
+      parent.postMessage({ type: 'tjs-introspect-result', id: d.id, members }, '*');
+    });
+    parent.postMessage({ type: 'tjs-bridge-ready' }, '*');`
 }
 
 /**
@@ -68,7 +95,10 @@ export function buildIframeDoc(options: IframeDocOptions): string {
     parentBindings = false,
     autoCallTjsFunction = false,
     darkMode = false,
+    introspectionBridge = false,
   } = options
+
+  const bridgeScript = introspectionBridge ? introspectionBridgeScript() : ''
 
   const colorScheme = darkMode ? 'dark' : 'light dark'
 
@@ -141,6 +171,7 @@ ${CONSOLE_CAPTURE_SCRIPT}
     } catch (e) {
       parent.postMessage({ type: 'error', message: e.message }, '*');
     }
+${bridgeScript}
   </script>
 </body>
 </html>`
@@ -167,6 +198,7 @@ ${CONSOLE_CAPTURE_SCRIPT}
     } catch (e) {
       parent.postMessage({ type: 'error', message: e.message }, '*');
     }
+${bridgeScript}
   </script>
 </body>
 </html>`

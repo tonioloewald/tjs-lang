@@ -43,6 +43,7 @@ import {
   buildAutocompleteContext,
   type AutocompleteContext,
 } from './autocomplete-context'
+import { IntrospectionBridge } from './introspection-bridge'
 
 // Available modules for autocomplete introspection
 const AVAILABLE_MODULES: Record<string, any> = {
@@ -166,6 +167,8 @@ export class TJSPlayground extends Component<TJSPlaygroundParts> {
   private autocompleteContext: AutocompleteContext | null = null
   private contextUpdateTimer: ReturnType<typeof setTimeout> | null = null
   private contextBuildPromise: Promise<void> | null = null
+  // Hidden sandbox for runtime-truth member completion (todoApp.items, …)
+  private introspectionBridge: IntrospectionBridge | null = null
 
   /**
    * Get metadata for autocomplete - returns all discovered functions
@@ -186,6 +189,15 @@ export class TJSPlayground extends Component<TJSPlaygroundParts> {
   }
 
   /**
+   * Member completion from the introspection bridge — the user's REAL executed
+   * scope (`todoApp.items` → the live array). Returns undefined if the sandbox
+   * isn't ready, so the provider falls back to static completions.
+   */
+  private getMembers = (path: string) => {
+    return this.introspectionBridge?.members(path) ?? Promise.resolve(undefined)
+  }
+
+  /**
    * Update autocomplete context (debounced)
    * Called when editor content changes.
    * Keeps last good context if new build fails.
@@ -197,6 +209,14 @@ export class TJSPlayground extends Component<TJSPlaygroundParts> {
 
     const doBuild = async () => {
       const source = this.parts.tjsEditor.value
+
+      // Refresh the introspection sandbox (runtime-truth member completion).
+      // Independent of import-binding resolution below; failures are swallowed
+      // inside the bridge (keeps the last good sandbox).
+      if (!this.introspectionBridge) {
+        this.introspectionBridge = new IntrospectionBridge()
+      }
+      void this.introspectionBridge.refresh(source)
 
       try {
         const newContext = await buildAutocompleteContext(source)
@@ -649,6 +669,7 @@ export class TJSPlayground extends Component<TJSPlaygroundParts> {
       this.parts.tjsEditor.autocomplete = {
         getMetadata: this.getMetadataForAutocomplete,
         getLiveBindings: this.getLiveBindings,
+        getMembers: this.getMembers,
       }
 
       // Build initial autocomplete context immediately
