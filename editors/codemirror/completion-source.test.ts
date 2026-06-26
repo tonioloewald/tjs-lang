@@ -44,3 +44,41 @@ describe('tjsCompletionSource — scope-aware locals (live provider)', () => {
     expect(opts.find((o) => o.label === 'h1')?.detail).toBe('∈ elements')
   })
 })
+
+describe('tjsCompletionSource — member completion via live bindings (1b)', () => {
+  // Stand in for the introspection bridge: the user's executed scope, live.
+  const liveBindings = {
+    todoApp: {
+      items: ['bathe the cat'],
+      newItem: '',
+      addItem() {},
+    },
+  }
+  const source = (tail: string) => `const x = 1\n${tail}`
+  const memberLabels = (tail: string) => {
+    const src = source(tail)
+    const state = EditorState.create({ doc: src })
+    const ctx = new CompletionContext(state, src.length, true)
+    const result = tjsCompletionSource({ getLiveBindings: () => liveBindings })(
+      ctx
+    )
+    return (result?.options ?? []).map((o) => o.label)
+  }
+
+  it('todoApp. → its real properties (items, newItem, addItem)', () => {
+    const labels = memberLabels('todoApp.')
+    expect(labels).toContain('items')
+    expect(labels).toContain('newItem')
+    expect(labels).toContain('addItem')
+  })
+
+  it('todoApp.items. → array methods (push, map) — nested path resolves', () => {
+    const labels = memberLabels('todoApp.items.')
+    expect(labels).toContain('push')
+    expect(labels).toContain('map')
+  })
+
+  it('unknown path resolves to nothing (no crash)', () => {
+    expect(memberLabels('todoApp.nope.')).toEqual([])
+  })
+})

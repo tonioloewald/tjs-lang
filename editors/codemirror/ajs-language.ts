@@ -1364,14 +1364,51 @@ function getCompletionsFromLiveBinding(
 }
 
 /**
- * Extract the object name before a dot from source
- * e.g., "console." -> "console", "Math.floor" -> "Math"
+ * Extract the full dotted member path before a dot, e.g. `todoApp.items.` ->
+ * `todoApp.items`. Only plain identifier chains (no calls / index access) — good
+ * enough to walk a live value for member completion.
  */
-function getObjectBeforeDot(source: string, dotPos: number): string | null {
-  // Look backwards from the dot to find the identifier
+function getPathBeforeDot(source: string, dotPos: number): string | null {
   const before = source.slice(0, dotPos)
-  const match = before.match(/(\w+)\s*$/)
-  return match ? match[1] : null
+  const match = before.match(
+    /([A-Za-z_$][\w$]*(?:\s*\.\s*[A-Za-z_$][\w$]*)*)\s*$/
+  )
+  return match ? match[1].replace(/\s+/g, '') : null
+}
+
+/** Walk a dotted path against a bindings object, returning the resolved value. */
+function resolvePath(path: string, bindings?: Record<string, any>): any {
+  if (!bindings) return undefined
+  const parts = path.split('.')
+  let value: any = bindings[parts[0]]
+  for (let i = 1; i < parts.length && value != null; i++) {
+    try {
+      value = value[parts[i]]
+    } catch {
+      return undefined
+    }
+  }
+  return value
+}
+
+/**
+ * Member completions for a dotted path resolved against live bindings — the
+ * core of introspection-driven completion. `todoApp.items.` resolves the array
+ * and introspects it (push/map/…). Single-segment names that don't resolve fall
+ * back to the element-type heuristic.
+ */
+function getCompletionsFromPath(
+  path: string,
+  liveBindings?: Record<string, any>
+): CMCompletion[] {
+  const value = resolvePath(path, liveBindings)
+  if (value != null && (typeof value === 'object' || typeof value === 'function')) {
+    return introspectObject(value)
+  }
+  if (!path.includes('.')) {
+    return getCompletionsFromLiveBinding(path, liveBindings)
+  }
+  return []
 }
 
 /**
@@ -1471,16 +1508,18 @@ export function tjsCompletionSource(config: AutocompleteConfig = {}) {
         if (/expect\s*\([^)]*\)\s*\.$/.test(before)) {
           options = EXPECT_MATCHERS
         } else {
-          // Try to get object name and introspect its properties
-          const objName = getObjectBeforeDot(source, word.from - 1)
-          if (objName) {
-            // First try curated/global completions
-            options = getPropertyCompletions(objName)
-
-            // If no completions found, try live bindings (imports, variables)
+          // Resolve the full dotted path so `todoApp.items.` works, not just
+          // `todoApp.`. Curated/global completions are keyed by a single name.
+          const path = getPathBeforeDot(source, word.from - 1)
+          if (path) {
+            if (!path.includes('.')) {
+              options = getPropertyCompletions(path)
+            }
+            // Then introspect the live value the path resolves to (imports +,
+            // once the bridge lands, the user's own executed bindings).
             if (options.length === 0) {
               const liveBindings = config.getLiveBindings?.()
-              options = getCompletionsFromLiveBinding(objName, liveBindings)
+              options = getCompletionsFromPath(path, liveBindings)
             }
           }
         }
