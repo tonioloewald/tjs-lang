@@ -60,14 +60,26 @@ the `introspection-autocomplete` memory.
       + async `AutocompleteConfig.getMembers` + `demo/src/introspection-bridge.ts`
       (hidden disposable iframe, reuses the run pipeline, direct-`eval` handle into
       module scope, caches last good sandbox) wired via `getMembers` in the
-      playground. Tested headlessly through the real `tjsCompletionSource`; the
-      iframe round-trip is browser-only (live-verify). **NEEDS LIVE VERIFICATION
-      in the running playground.**
+      playground. Tested headlessly through the real `tjsCompletionSource`.
+      **Verified working well live** (destructured locals + `todoApp.items.push`
+      + proxy members).
 - [ ] **Increment 2 — richer hints from real values** — function arity, `__tjs`
       metadata when present, signature help from the live function.
-- [ ] **Increment 3 — the `elementParts`/`style` CSS leaf** — once a symbol is
-      known as an element factory, complete its `style` keys + per-property values
-      via the predicate-schema + `suggest()` work (`src/lang/predicate.ts`).
+- [ ] **Increment 3 — argument-type-driven completion (PINNED) — the convergence
+      point.** Infer an argument's type from the callee and complete inside it:
+      `h1({ style: { color: ⎸ } })` → arg0 is `ElementPart` → suggest `style` →
+      CSS values. A vanilla JS function exposes only `.length`/`.name`, so this
+      needs the callee to carry `__tjs` whose param is a type-as-example (itself an
+      introspectable value — the bridge reads its keys; `style`'s value is a CSS
+      predicate → `suggest()`). **Precondition / the pin: rewrite tosijs `style` +
+      the elementCreator in TJS** so creators carry `__tjs` example-typed params —
+      then it's pure introspection + `suggest()`, no special-casing, no `.d.ts`
+      parsing (the "smaller declaration files" payoff). Works TODAY for the user's
+      OWN example-typed object-param functions via `getMetadata`/`getSignatureHelp`;
+      the one missing primitive is **call-context detection** (enclosing call +
+      callee path + arg index + nested-key-vs-value) — unit-testable like
+      `collectScopeSymbols`. The `elementParts`/`style` CSS leaf rides this via the
+      predicate-schema + `suggest()` work (`src/lang/predicate.ts`).
 - [ ] **Increment 4 — completions-as-functions** — let a value/type carry a
       `suggest` hook (annotation / `__suggest`) the bridge calls; transpiles away
       under build options (dev-only, like the strip-safety pattern). The third leg
