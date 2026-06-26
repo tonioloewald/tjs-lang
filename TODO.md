@@ -37,6 +37,18 @@ to **prove it and spread it**:
 - [ ] **Propagate verify→native** — weave it under the type system / tosijs so the capability is pervasive, not just an engine + PoC.
 - [ ] Frame the announcement around data + a real framework running it, not a promise. The blog draft is the spec: its present-tense claims (#6, the CSS lib, the real-theme number) must be true before publishing.
 
+## Testing - watch items (don't fix yet)
+
+- [ ] **Flaky LLM assertion (low priority — leave unless it recurs).**
+      `src/batteries/models.integration.test.ts:55` asserts `res.content.length > 5`
+      for `predict('the color of the sky is')`. These tests have been reliable for
+      a long time; a one-off failure (2026-06) was traced to non-deterministic /
+      terse model output (isolated re-run passed, probe returned a normal 32-char
+      reply) — most likely just a poor model choice that run, NOT a code bug. If it
+      starts failing regularly: harden to assert non-empty string + tolerate empty
+      `content` when a reasoning field is present (or use a prompt that demands a
+      full sentence). Until then, leave as-is.
+
 ## Editors - published `.js` is stale (address sooner rather than later)
 
 - [ ] **The `tjs-lang/editors/*` subpaths ship hand-maintained `.js` files that
@@ -48,7 +60,7 @@ to **prove it and spread it**:
       `tjs-lang/editors/codemirror` — they get months-old code. Same for
       monaco/ace `.js`. **Fix: add a build step that compiles/bundles
       `editors/**/\*.ts`→ the published`.js`(wire into`scripts/build.ts`/
-   `bun run make`) so it stays current automatically.\*\* Not urgent for active
+ `bun run make`) so it stays current automatically.\*\* Not urgent for active
       use cases (user isn't consuming tjs-lang externally yet) but flagged to do
       soon. Context: tosijs-ui's live-example/doc engine now uses tjs (replacing
       sucrase) and is evolving into a portable embeddable playground/IDE — it'll
