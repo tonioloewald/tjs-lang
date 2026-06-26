@@ -5,7 +5,10 @@
  * Uses __tjs metadata for rich type information.
  */
 
-import { collectScopeSymbols, type ScopeSymbol } from './scope-symbols'
+import {
+  collectScopeSymbols,
+  type ScopeSymbol,
+} from '../../editors/scope-symbols'
 
 export interface Completion {
   /** The text to insert */

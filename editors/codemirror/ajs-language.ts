@@ -50,6 +50,7 @@ import {
   FORBIDDEN_PATTERN,
 } from '../ajs-syntax'
 import { FORBIDDEN_KEYWORDS as TJS_FORBIDDEN_LIST } from '../tjs-syntax'
+import { collectScopeSymbols } from '../scope-symbols'
 
 /**
  * Forbidden keywords in AsyncJS - these will be highlighted as errors
@@ -614,6 +615,41 @@ function extractVariables(source: string, position: number): CMCompletion[] {
     })
   }
   return completions
+}
+
+/**
+ * Scope-aware locals: replaces the regex `extractFunctions`/`extractVariables`
+ * (which missed ALL destructuring — and the tosijs examples bind everything via
+ * destructuring, so nothing was suggested). Parses with acorn (acorn-loose
+ * fallback for mid-edit source) and walks binding patterns. Falls back to the
+ * regex extractors only if parsing yields nothing, so the list never goes blank.
+ */
+function completionsFromScope(
+  source: string,
+  position: number
+): CMCompletion[] {
+  const symbols = collectScopeSymbols(source, position)
+  if (symbols.length === 0) {
+    return [...extractFunctions(source), ...extractVariables(source, position)]
+  }
+  return symbols.map((s) => {
+    const detail =
+      s.origin?.member && s.origin.expr
+        ? `∈ ${s.origin.expr}`
+        : s.kind === 'import' && s.origin?.module
+        ? `import '${s.origin.module}'`
+        : s.kind === 'parameter'
+        ? 'parameter'
+        : undefined
+    if (s.kind === 'function') {
+      return snippetCompletion(`${s.name}($1)`, {
+        label: s.name,
+        type: 'function',
+        detail,
+      })
+    }
+    return { label: s.name, type: 'variable', detail }
+  })
 }
 
 /**
@@ -1203,7 +1239,7 @@ function introspectObject(obj: any): CMCompletion[] {
 
         if (valueType === 'function') {
           // Try to get function signature from length
-          const fn = value as Function
+          const fn = value as (...args: unknown[]) => unknown
           const paramCount = fn.length
           const params =
             paramCount > 0
@@ -1395,9 +1431,10 @@ function getPlaceholderForParam(name: string, info: any): string {
 }
 
 /**
- * Create TJS/AJS completion source
+ * Create TJS/AJS completion source.
+ * Exported for headless testing — it touches only DOM-free CodeMirror APIs.
  */
-function tjsCompletionSource(config: AutocompleteConfig = {}) {
+export function tjsCompletionSource(config: AutocompleteConfig = {}) {
   return (context: CMCompletionContext): CompletionResult | null => {
     try {
       // Get word at cursor
@@ -1462,8 +1499,7 @@ function tjsCompletionSource(config: AutocompleteConfig = {}) {
           ...TJS_COMPLETIONS,
           ...RUNTIME_COMPLETIONS,
           ...GLOBAL_COMPLETIONS,
-          ...extractFunctions(source),
-          ...extractVariables(source, pos),
+          ...completionsFromScope(source, pos),
         ]
 
         // Add metadata-based completions if available
