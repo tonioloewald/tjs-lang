@@ -7,8 +7,14 @@ import { s, validate, filter as schemaFilter } from 'tosijs-schema'
  * across types, and distinct objects/arrays are distinct (`[1,2] != [1,2]`).
  *
  * (Originally the VM did deep structural comparison here — an early, unconsidered
- * divergence from TJS `==`. Structural equality is an explicit operation: in TJS
- * it's the `Is`/`IsNot` function; AJS can grow an `Is` atom if/when needed.)
+ * divergence from TJS `==`. It was also a SECURITY hole: a single `==` node costs
+ * a flat EXPR_FUEL_COST, but the structural walk charged nothing per element, so
+ * `==` on an attacker-controlled large structure was an unbounded-work / fuel-
+ * bypass DoS — exactly what AJS exists to prevent. `eqValue` is O(1).
+ *
+ * Structural equality is an explicit operation: in TJS it's the `Is`/`IsNot`
+ * function; AJS can grow an `Is` atom if/when needed — but it MUST be fuel-metered
+ * per element compared, or it reintroduces the same DoS.)
  */
 function eqValue(a: unknown, b: unknown): boolean {
   if (a instanceof String || a instanceof Number || a instanceof Boolean) {
