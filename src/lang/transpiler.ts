@@ -37,6 +37,16 @@ export {
   type CompilePredicateOptions,
 } from './predicate'
 
+// Predicate-aware JSON-Schema: the `$predicate` keyword (computational types)
+export {
+  compilePredicateSchema,
+  validatePredicateSchema,
+  type PredicateSchema,
+  type SchemaError,
+  type SchemaValidationResult,
+  type PredicateSchemaOptions,
+} from './predicate-schema'
+
 // AST emitter
 export { transformFunction } from './emitters/ast'
 

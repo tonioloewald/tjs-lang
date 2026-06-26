@@ -19,7 +19,8 @@ what remains is **delivery, measurement, and reach** — not invention.
 
 - [ ] **#4 Autocomplete `suggest()` companion** — enumerable leaves (named colors, keyword tokens, `var(--`/`calc(` stubs) so predicates beat the TS `string` fallback on _both_ validation and suggestions.
 - [ ] **#5 Wire into `FunctionPredicate` / `Type`** — predicate bodies authored in this verified-safe substrate; the real consumer.
-- [ ] **#6 (north star) tosijs-schema serialized-predicate keyword** — a `$predicate` (AJS AST) keyword that naive validators ignore and predicate-aware ones run. This is the blog's literal payoff; it's the screenshot that sells the thesis. **Highest leverage.**
+- [x] **#6 (tjs-lang side) the `$predicate` keyword + reference evaluator** — `src/lang/predicate-schema.ts` (`compilePredicateSchema` / `validatePredicateSchema`, exported from `tjs-lang/lang`). A JSON-Schema node carries `$predicate` (predicate-cluster _source_; trivially serializable, the verifier makes it safe to run). Structural keywords (type/properties/required/items) validate for everyone; `$predicate` runs only for aware validators → progressive enhancement. Demoed on CSS (`experiments/predicates/css-schema.demo.test.ts`): same JSON, naive sees `string`, aware validates var()/calc()/!important + recursion. Gotcha noted: embed predicate source via `String.raw` (regex backslashes) — moot in real JSON.
+- [ ] **#6 (production) wire `$predicate` into tosijs-schema** — the "incoming version" from the blog: tosijs-schema (separate repo) evaluates `$predicate` via this engine. The tjs-lang format + evaluator are ready to consume. **The remaining north-star step.**
 - [ ] **Real CSS predicate library** — productionize beyond the PoC corpus (the tosijs CSS replacement). Recursive structure is plain `$ref` JSON-Schema; only leaf value-grammar needs `$predicate` (progressive enhancement). Schema validates the _serialized/data_ form; `Color` instances + bare-number→`px` are runtime conveniences (duck-typeable via `.toString()` where wanted).
 - [ ] **Regex-linting in the verifier** — the ReDoS path-forward the blog commits to: reject catastrophic-backtracking patterns (the one unbounded primitive fuel can't interrupt). Until then, predicates are "no worse than `pattern`, with the bounded-tokenizer option."
 
@@ -35,6 +36,12 @@ to **prove it and spread it**:
 - [ ] **Systematic overhead benchmark** — TJS-checked function call vs raw call across representative code (not just predicates), so "safe is fast" is backed by numbers, not just architecture. (Doubles as the CSS-post perf data — re-run on the _real_ tosijs theme with the full predicate set, confirming the ~0.1ms claim on real data.)
 - [ ] **Propagate verify→native** — weave it under the type system / tosijs so the capability is pervasive, not just an engine + PoC.
 - [ ] Frame the announcement around data + a real framework running it, not a promise. The blog draft is the spec: its present-tense claims (#6, the CSS lib, the real-theme number) must be true before publishing.
+
+## Playground - Leverage tjs documentation system
+
+- [ ] tosijs-ui essentially encapsulates most of what we've done with playgrounds in a more reusable way
+- [ ] where necessary identify shortcomings in tosijs-ui's build / doc system
+- [ ] fold in anything we add / need beyond the new build / doc system
 
 ## Playground - Error Navigation
 

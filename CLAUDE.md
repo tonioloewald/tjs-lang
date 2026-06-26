@@ -87,6 +87,7 @@ bun run functions:serve     # Local functions emulator
 - `src/lang/json-schema.ts` - JSON Schema generation from TypeDescriptors and example values
 - `src/lang/linter.ts` - Static analysis (unused vars, unreachable code, no-explicit-new)
 - `src/lang/predicate.ts` - Predicate-safety verifier: certifies a cluster of pure, synchronous, composable predicates (reads the atom `effects` tag via `effectfulFromAtoms`); verified predicates compile to native JS. Exported from `tjs-lang/lang`. See `experiments/predicates/` (CSS torture set + perf)
+- `src/lang/predicate-schema.ts` - Predicate-aware JSON-Schema: the `$predicate` keyword (computational types). `compilePredicateSchema`/`validatePredicateSchema` — structure for naive validators, `$predicate` for aware ones (progressive enhancement). The serializable-into-JSON-Schema endgame; exported from `tjs-lang/lang`
 - `src/lang/runtime.ts` - TJS runtime (monadic errors, type checking, wrapClass)
 - `src/lang/wasm.ts` - WASM compiler (opcodes, disassembler, bytecode generation; multi-function module composition; wasm-to-wasm `call <index>` resolution)
 - `src/lang/emitters/js-wasm.ts` - JS bootstrap emitter for compiled wasm modules (one `WebAssembly.compile` per file, name→export-index table, type-aware wrappers)

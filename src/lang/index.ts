@@ -55,6 +55,14 @@ export {
   type VerifyPredicateOptions,
   type CompilePredicateOptions,
 } from './predicate'
+export {
+  compilePredicateSchema,
+  validatePredicateSchema,
+  type PredicateSchema,
+  type SchemaError,
+  type SchemaValidationResult,
+  type PredicateSchemaOptions,
+} from './predicate-schema'
 export { transformFunction } from './emitters/ast'
 export {
   transpileToJS,
