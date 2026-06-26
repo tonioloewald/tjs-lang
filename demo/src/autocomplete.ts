@@ -5,6 +5,8 @@
  * Uses __tjs metadata for rich type information.
  */
 
+import { collectScopeSymbols, type ScopeSymbol } from './scope-symbols'
+
 export interface Completion {
   /** The text to insert */
   label: string
@@ -278,6 +280,40 @@ function isInTestBlock(source: string, position: number): boolean {
 }
 
 /**
+ * Completions from the scope-aware symbol model (acorn-based, destructuring-aware).
+ * Subsumes the old regex `extractFunctions`/`extractVariables`, which missed all
+ * destructuring. Falls back to the regex extractors only if parsing yields
+ * nothing (so the list never goes blank on pathological input).
+ */
+function completionsFromScope(source: string, position: number): Completion[] {
+  const symbols = collectScopeSymbols(source, position)
+  if (symbols.length === 0) {
+    return [...extractFunctions(source), ...extractVariables(source, position)]
+  }
+  return symbols.map((s) => scopeSymbolToCompletion(s))
+}
+
+function scopeSymbolToCompletion(s: ScopeSymbol): Completion {
+  const kind: Completion['kind'] =
+    s.kind === 'function' ? 'function' : 'variable'
+  // For a destructured binding, show where it came from — `h1  ∈ elements`.
+  const detail =
+    s.origin?.member && s.origin.expr
+      ? `∈ ${s.origin.expr}`
+      : s.kind === 'import' && s.origin?.module
+      ? `import '${s.origin.module}'`
+      : s.kind === 'parameter'
+      ? 'parameter'
+      : undefined
+  return {
+    label: s.name,
+    kind,
+    detail,
+    snippet: kind === 'function' ? `${s.name}($1)` : undefined,
+  }
+}
+
+/**
  * Extract function names from source
  */
 function extractFunctions(source: string): Completion[] {
@@ -418,8 +454,7 @@ export function getCompletions(ctx: CompletionContext): Completion[] {
     completions = [
       ...TJS_KEYWORDS,
       ...RUNTIME_COMPLETIONS,
-      ...extractFunctions(source),
-      ...extractVariables(source, position),
+      ...completionsFromScope(source, position),
     ]
 
     // Add metadata-based completions

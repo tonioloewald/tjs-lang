@@ -37,6 +37,39 @@ to **prove it and spread it**:
 - [ ] **Propagate verify→native** — weave it under the type system / tosijs so the capability is pervasive, not just an engine + PoC.
 - [ ] Frame the announcement around data + a real framework running it, not a promise. The blog draft is the spec: its present-tense claims (#6, the CSS lib, the real-theme number) must be true before publishing.
 
+## Playground - Introspection-driven autocomplete
+
+The current completion provider was regex-based and useless on real examples
+(`extractVariables` matched only `const NAME =`, missing ALL destructuring — and
+the tosijs examples bind everything via destructuring). Direction: introspection,
+Chrome-console style — run the user's actual code and read real values; predicates
+fill the value-grammar leaf (a runtime string can't reveal valid CSS colors). See
+the `introspection-autocomplete` memory.
+
+- [x] **Increment 1a — scope-aware symbol model** — `demo/src/scope-symbols.ts`
+      (`collectScopeSymbols`, acorn + acorn-loose fallback, destructuring-aware,
+      position-scoped, origin-tracking). Wired into `demo/src/autocomplete.ts`
+      (replaces the regex extractors, with regex as never-go-blank fallback).
+      `todoApp`, `h1`…`button` now complete; `h1` shows `∈ elements`. Tests:
+      `demo/src/scope-symbols.test.ts` (11) + provider regression in
+      `demo/autocomplete.test.ts`.
+- [ ] **Increment 1b — introspection bridge** — a hidden, disposable sandbox
+      iframe (reusing `buildIframeDoc`/`postMessage`) that runs the last
+      successfully-parsing prefix on a statement boundary, keeps a direct-`eval`
+      handle into module scope, and answers `introspectScope()` (names) /
+      `introspectMember(expr)` (real own+proto props of a live value). Cache the
+      last good scope. Member access (`todoApp.` → `items`/`newItem`/`addItem`)
+      then comes from runtime truth — incl. tosijs's proxy-generated members.
+- [ ] **Increment 2 — richer hints from real values** — function arity, `__tjs`
+      metadata when present, signature help from the live function.
+- [ ] **Increment 3 — the `elementParts`/`style` CSS leaf** — once a symbol is
+      known as an element factory, complete its `style` keys + per-property values
+      via the predicate-schema + `suggest()` work (`src/lang/predicate.ts`).
+- [ ] **Increment 4 — completions-as-functions** — let a value/type carry a
+      `suggest` hook (annotation / `__suggest`) the bridge calls; transpiles away
+      under build options (dev-only, like the strip-safety pattern). The third leg
+      of "a language, not a type system."
+
 ## Playground - Leverage tjs documentation system
 
 - [ ] tosijs-ui essentially encapsulates most of what we've done with playgrounds in a more reusable way

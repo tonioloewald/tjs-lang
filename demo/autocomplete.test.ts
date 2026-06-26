@@ -40,6 +40,43 @@ describe('getCompletions', () => {
     })
   })
 
+  describe('destructured bindings (scope-aware)', () => {
+    // Regression: the old regex `const NAME =` extractor missed all
+    // destructuring, so the tosijs todo example suggested nothing.
+    const todo = `import { elements, tosi } from 'tosijs'
+const { todoApp } = tosi({ todoApp: { items: [], newItem: '' } })
+const { h1, ul, template, li, label, input, button } = elements
+`
+
+    it('suggests destructured locals (todoApp, h1, button)', () => {
+      const completions = getCompletions({
+        source: todo,
+        position: todo.length,
+      })
+      const labels = completions.map((c) => c.label)
+      expect(labels).toContain('todoApp')
+      expect(labels).toContain('h1')
+      expect(labels).toContain('button')
+    })
+
+    it('shows where a destructured binding came from', () => {
+      const completions = getCompletions({
+        source: todo,
+        position: todo.length,
+      })
+      expect(completions.find((c) => c.label === 'h1')?.detail).toBe(
+        '∈ elements'
+      )
+    })
+
+    it('filters destructured locals by prefix', () => {
+      const src = todo + 'tod'
+      const completions = getCompletions({ source: src, position: src.length })
+      expect(completions.map((c) => c.label)).toContain('todoApp')
+      expect(completions.every((c) => c.label.startsWith('tod'))).toBe(true)
+    })
+  })
+
   describe('type completions', () => {
     it('should suggest types after colon', () => {
       const completions = getCompletions({
