@@ -312,3 +312,51 @@ describe('@tjs annotations', () => {
     })
   })
 })
+
+// Regression: TS→TJS must never emit TJS that won't re-parse. These real-world
+// shapes (from tosijs) used to leak raw TS into Type/Generic blocks — generic
+// interfaces emitted raw member types in `declaration {}`, and intersections /
+// complex types emitted MULTI-LINE `// TS:` comments whose lines 2+ leaked as
+// raw TS. fromTS now converts members via typeToExample and collapses
+// un-representable bodies to a single-line comment (graceful degradation).
+describe('TS→TJS round-trips (no raw-TS leak into TJS blocks)', () => {
+  const { tjs } = require('./index') as { tjs: (s: string) => { code: string } }
+  const roundTrips = (ts: string) => {
+    const emitted = fromTS(ts, { emitTJS: true }).code
+    expect(() => tjs(emitted)).not.toThrow() // emitted TJS must re-parse
+    return emitted
+  }
+
+  it('generic interface with complex members (arrow, generic arrow, call-sig)', () => {
+    const out = roundTrips(`export interface Acc<T = any> {
+      value: T
+      path: string
+      touch: () => void
+      bind: <E extends Element = Element>(el: E, b: any) => void
+      find: { (selector: (item: any) => any, value: any): any }
+    }`)
+    // members converted to examples, not raw TS
+    expect(out).toContain("path: ''")
+    expect(out).toContain('touch: FunctionPredicate')
+    expect(out).not.toMatch(/path: string\b/) // no raw type leak
+  })
+
+  it('intersection type alias (typeof / index signature) degrades, single-line', () => {
+    const out = roundTrips(`export type ProxyObj = Props<object> & {
+      [key: string]: ProxyObj | string | null
+    }`)
+    // un-representable → comment-only Type, collapsed to one line (no leak)
+    expect(out).toMatch(/\/\/ TS:.*&/)
+    expect(out).not.toMatch(/\n\s*\[key: string\]:/) // the body didn't leak raw
+  })
+
+  it('generic type alias with object body + arrow member', () => {
+    roundTrips(`export type Wrap<T> = { value: T; build: (x: T) => T }`)
+  })
+
+  it('plain type alias with arrow + union return still works', () => {
+    roundTrips(
+      `export type AnyFunction = (...args: any[]) => any | Promise<any>`
+    )
+  })
+})

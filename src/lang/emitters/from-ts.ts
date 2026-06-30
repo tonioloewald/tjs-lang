@@ -1095,19 +1095,33 @@ function transformGenericInterfaceToGeneric(
   if (declarationAnnotation?.text) {
     parts.push(`declaration ${declarationAnnotation.text}`)
   } else {
-    // Auto-generate declaration block from interface members
+    // Auto-generate declaration block from interface members. Each member's
+    // type is converted to a TJS example via `typeToExample` (the same converter
+    // the non-generic interface path uses) rather than emitted as raw TS — so
+    // `path: string` → `path: ''`, `touch: () => void` → a FunctionPredicate
+    // example, and un-representable shapes (call-signature objects, etc.) degrade
+    // to a safe placeholder instead of producing TJS that won't re-parse.
+    // (The `@tjs declaration { … }` annotation path above is verbatim and
+    // unaffected — authors can still hand-write precise type signatures.)
     const declMembers: string[] = []
     for (const member of node.members) {
       if (ts.isPropertySignature(member) && member.name) {
         const propName = member.name.getText(sourceFile)
         const optional = member.questionToken ? '?' : ''
-        const typeText = member.type ? member.type.getText(sourceFile) : 'any'
-        declMembers.push(`${propName}${optional}: ${typeText}`)
+        const example = member.type
+          ? typeToExample(member.type, undefined, warnings)
+          : 'null'
+        declMembers.push(`${propName}${optional}: ${example}`)
       } else if (ts.isMethodSignature(member) && member.name) {
-        // Method: name(params): returnType
-        const methodText = member.getText(sourceFile).trim()
-        // Remove trailing semicolon if present
-        declMembers.push(methodText.replace(/;$/, ''))
+        // Method → a function example built from its return type (params are
+        // descriptive; the predicate above does the actual runtime check).
+        const propName = member.name.getText(sourceFile)
+        const ret = member.type
+          ? typeToExample(member.type, undefined, warnings)
+          : 'null'
+        declMembers.push(
+          `${propName}: FunctionPredicate('function', { returns: ${ret} })`
+        )
       }
     }
     if (declMembers.length > 0) {
@@ -1288,10 +1302,17 @@ function transformTypeAliasToType(
 
   const example = typeToExample(node.type, undefined, warnings)
 
-  // 'any' and 'undefined' — preserve original TS body for DTS round-tripping
+  // 'any' and 'undefined' — un-representable in TJS (intersections with
+  // `typeof`/index signatures, etc.). Degrade to an empty Type (validates as
+  // anything) and preserve the original TS body as a SINGLE-LINE comment so the
+  // DTS emitter can recover it. The collapse is essential: a multi-line type
+  // body would leave lines 2+ uncommented = raw TS leaking into the block =
+  // unparseable. (Representable shapes never reach here — they convert above.)
   if (example === 'any' || example === 'undefined') {
-    const originalType = node.type.getText(sourceFile).trim()
-    // Include the TS type body so the DTS emitter can recover it
+    const originalType = node.type
+      .getText(sourceFile)
+      .trim()
+      .replace(/\s+/g, ' ')
     return `Type ${typeName} {\n  // TS: ${originalType}\n}`
   }
 
@@ -1423,25 +1444,35 @@ function transformGenericTypeAliasToGeneric(
     const typeBody = node.type
 
     if (typeBody && ts.isTypeLiteralNode(typeBody)) {
-      // Object type literal: { item: T; count: number }
+      // Object type literal: { item: T; count: number }. Convert each member's
+      // type to a TJS example (degrades gracefully) rather than emitting raw TS.
       const declMembers: string[] = []
       for (const member of typeBody.members) {
         if (ts.isPropertySignature(member) && member.name) {
           const propName = member.name.getText(sourceFile)
           const optional = member.questionToken ? '?' : ''
-          const typeText = member.type ? member.type.getText(sourceFile) : 'any'
-          declMembers.push(`${propName}${optional}: ${typeText}`)
+          const example = member.type
+            ? typeToExample(member.type, undefined, warnings)
+            : 'null'
+          declMembers.push(`${propName}${optional}: ${example}`)
         } else if (ts.isMethodSignature(member) && member.name) {
-          declMembers.push(member.getText(sourceFile).trim().replace(/;$/, ''))
+          const propName = member.name.getText(sourceFile)
+          const ret = member.type
+            ? typeToExample(member.type, undefined, warnings)
+            : 'null'
+          declMembers.push(
+            `${propName}: FunctionPredicate('function', { returns: ${ret} })`
+          )
         }
       }
       if (declMembers.length > 0) {
         parts.push(`declaration {\n    ${declMembers.join('\n    ')}\n  }`)
       }
     } else if (typeBody) {
-      // Complex type (conditional, mapped, intersection, etc.)
-      // Pass through the TS type body verbatim
-      const typeText = typeBody.getText(sourceFile).trim()
+      // Complex type (conditional, mapped, intersection, …) — un-representable.
+      // Keep the TS body as a SINGLE-LINE comment (collapse newlines, else lines
+      // 2+ leak as raw TS and won't re-parse).
+      const typeText = typeBody.getText(sourceFile).trim().replace(/\s+/g, ' ')
       parts.push(`declaration {\n    // TS: ${typeText}\n  }`)
     }
   }
