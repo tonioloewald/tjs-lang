@@ -147,7 +147,29 @@ import { AgentVM } from 'tjs-lang/vm' // VM only (smaller bundle)
 import { batteryAtoms } from 'tjs-lang/batteries' // LM Studio batteries
 import { dot, norm_sq } from 'tjs-lang/linalg' // SIMD linear-algebra kernels
 // Editor integrations: 'tjs-lang/editors/monaco', '/codemirror', '/ace'
+
+// Self-contained BROWSER bundles — drop-in via import() from any CDN, no
+// import-map/config (acorn + tosijs-schema inlined):
+const { tjs } = await import(
+  'https://cdn.jsdelivr.net/npm/tjs-lang/dist/tjs-browser.js'
+)
+// TS→TJS in the browser: lazy-loads the TypeScript compiler from a CDN on first call:
+const { fromTS } = await import(
+  'https://cdn.jsdelivr.net/npm/tjs-lang/dist/tjs-browser-from-ts.js'
+)
+// → exports: 'tjs-lang/browser' (TJS/AJS) and 'tjs-lang/browser/from-ts' (TS).
 ```
+
+**Browser bundles + CDN reality** (build targets `tjs-browser` / `tjs-browser-from-ts`
+in `scripts/build.ts`; `src/lang/browser.ts`, `browser-from-ts.ts`, `ts-cdn-shim.ts`):
+the TJS/AJS bundle is fully self-contained → loads from **any** CDN (jsDelivr,
+unpkg, esm.sh). The TS path lazy-loads the `typescript` compiler from a CDN on
+demand (Proxy shim aliased over `from-ts`'s `typescript` import; no source change).
+**Verified in a real browser: esm.sh is the ONLY CDN that reliably serves
+`typescript`** (~700ms) — jsDelivr `+esm` / esm.run time out on its ~10MB CJS,
+skypack is dead. So `DEFAULT_TYPESCRIPT_URL = https://esm.sh/typescript@5`,
+overridable via `fromTS(src, { typescriptUrl })` or by preloading
+`globalThis.__TJS_TS__`. Self-containment guarded by `src/lang/browser-bundle.test.ts`.
 
 ### Transpiler Chain (TS → TJS → JS)
 

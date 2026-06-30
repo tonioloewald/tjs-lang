@@ -29,6 +29,8 @@ interface BuildTarget {
   name: string
   entry: string
   external?: string[]
+  /** Module specifier → replacement path (esbuild alias). */
+  alias?: Record<string, string>
   description: string
 }
 
@@ -78,6 +80,27 @@ const targets: BuildTarget[] = [
     external: ['acorn', 'tosijs-schema', 'typescript'],
     description: 'TS→TJS converter (needs typescript)',
   },
+  {
+    // Self-contained browser bundle: acorn + tosijs-schema INLINED (no
+    // externals), so a single `import('https://cdn/.../tjs-browser.js')` works
+    // on any CDN with zero import-map/config. TJS+AJS transpiler; no TypeScript.
+    name: 'tjs-browser',
+    entry: './src/lang/browser.ts',
+    external: [],
+    description: 'Self-contained browser transpiler (TJS/AJS, no deps)',
+  },
+  {
+    // Browser TS→TJS: acorn + tosijs-schema inlined; `typescript` is lazy-loaded
+    // from a CDN at call time (configurable, default jsDelivr) so the bundle
+    // stays small and only pays the ~MB TS cost when you actually transpile TS.
+    name: 'tjs-browser-from-ts',
+    entry: './src/lang/browser-from-ts.ts',
+    external: [],
+    // Swap the static `typescript` import for the lazy CDN Proxy shim so the
+    // compiler isn't inlined (~MB) — it's fetched on demand at call time.
+    alias: { typescript: './src/lang/ts-cdn-shim.ts' },
+    description: 'Browser TS→TJS (lazy-loads typescript from CDN)',
+  },
 ]
 
 function formatSize(bytes: number): string {
@@ -98,6 +121,7 @@ function buildTarget(target: BuildTarget): { raw: number; gzip: number } {
     format: 'esm',
     platform: 'neutral',
     external: target.external,
+    alias: target.alias,
   })
 
   const content = readFileSync(outfile)

@@ -44,6 +44,8 @@ This file is a navigation index for AI agents. It does not contain the docs them
 - `tjs-lang` → `src/index.ts` — main entry: `Agent`, `AgentVM`, `ajs`, `tjs`.
 - `tjs-lang/lang` → `src/lang/transpiler.ts` — language tools only: `tjs`, `transpile`.
 - `tjs-lang/lang/from-ts` → `src/lang/emitters/from-ts.ts` — TypeScript → TJS/JS transpilation.
+- `tjs-lang/browser` → `src/lang/browser.ts` (dist `tjs-browser.js`) — **self-contained** TJS/AJS transpiler (acorn + tosijs-schema inlined); `import()` from any CDN, zero config.
+- `tjs-lang/browser/from-ts` → `src/lang/browser-from-ts.ts` (dist `tjs-browser-from-ts.js`) — browser TS→TJS; lazy-loads the `typescript` compiler from a CDN (default `https://esm.sh/typescript@5` — the only CDN that serves it reliably; jsDelivr `+esm`/esm.run time out). Override with `fromTS(src, { typescriptUrl })` or preload `globalThis.__TJS_TS__`.
 - `tjs-lang/vm` → `src/vm/index.ts` — VM and atoms.
 - `tjs-lang/eval` → `src/lang/eval.ts` — `Eval`, `SafeFunction`.
 - `tjs-lang/batteries` → `src/batteries/index.ts` — LM Studio integration (lazy, local-only).

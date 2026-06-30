@@ -60,7 +60,7 @@ to **prove it and spread it**:
       `tjs-lang/editors/codemirror` — they get months-old code. Same for
       monaco/ace `.js`. **Fix: add a build step that compiles/bundles
       `editors/**/\*.ts`→ the published`.js`(wire into`scripts/build.ts`/
- `bun run make`) so it stays current automatically.\*\* Not urgent for active
+`bun run make`) so it stays current automatically.\*\* Not urgent for active
       use cases (user isn't consuming tjs-lang externally yet) but flagged to do
       soon. Context: tosijs-ui's live-example/doc engine now uses tjs (replacing
       sucrase) and is evolving into a portable embeddable playground/IDE — it'll
