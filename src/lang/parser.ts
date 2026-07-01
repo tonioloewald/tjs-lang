@@ -304,9 +304,14 @@ export function preprocess(
   source = transformUnionDeclarations(source)
   source = transformEnumDeclarations(source)
 
-  // Transform bare assignments to const declarations
-  // Foo = ... -> const Foo = ...
-  source = transformBareAssignments(source)
+  // Transform bare assignments to const declarations (native-TJS convenience):
+  // Foo = ... -> const Foo = ...  Gated by TjsSafeAssign — OFF for plain JS
+  // (dialect: 'js'), TS-originated, and VM targets, so a JS reassignment like
+  // `B = value` (of an already-declared `let B`) is never rewritten. See
+  // PRINCIPLES.md (TJS ⊇ JS): plain JS must pass through unchanged.
+  if (tjsModes.tjsSafeAssign) {
+    source = transformBareAssignments(source)
+  }
 
   // Phase 3: cross-file wasm-function composition. When a ModuleLoader is
   // supplied, resolve `import { ... } from '<spec>'` statements at transpile

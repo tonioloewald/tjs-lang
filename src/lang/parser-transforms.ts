@@ -3126,12 +3126,19 @@ ${branches.join('\n')}
  * where the identifier starts with uppercase (to avoid breaking normal assignments)
  */
 export function transformBareAssignments(source: string): string {
+  // A bare `Foo = …` is auto-const'd only on FIRST assignment. If the name is
+  // already declared (let/const/var/function/class) anywhere in the source, the
+  // statement is a REASSIGNMENT — leave it alone, or we'd emit a duplicate/
+  // shadowing `const` (e.g. `let B = null; … B = x` → wrongly `const B = x`).
+  const declared = new Set<string>()
+  const declRe = /\b(?:let|const|var|function|class)\s+([A-Z][a-zA-Z0-9_]*)/g
+  for (let m; (m = declRe.exec(source)); ) declared.add(m[1])
+
   // Match: start of line/statement, uppercase identifier, =, not ==
-  // Negative lookbehind for const/let/var to avoid double-declaring
   return source.replace(
-    /(?<=^|[;\n{])\s*([A-Z][a-zA-Z0-9_]*)\s*=(?!=)/gm,
-    (match, name) => {
-      // Check if already has const/let/var before it
+    /(?<=^|[;\n{])(\s*)([A-Z][a-zA-Z0-9_]*)\s*=(?!=)/gm,
+    (match, _ws, name) => {
+      if (declared.has(name)) return match // reassignment of a declared binding
       return match.replace(name, `const ${name}`)
     }
   )
