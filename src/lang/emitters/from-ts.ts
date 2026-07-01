@@ -2333,7 +2333,10 @@ function extractDocComments(
   source: string
 ): Array<{ content: string; index: number }> {
   const comments: Array<{ content: string; index: number }> = []
-  const docRegex = /\/\*#[\s\S]*?\*\//g
+  // Line-start `/*#` only (whitespace-only before it); a mid-line `/*#` (after
+  // code, or inside a string) is an ordinary block comment. Lookbehind is
+  // zero-width, so match.index stays on `/*#` for the brace-depth check below.
+  const docRegex = /(?<=^[ \t]*)\/\*#[\s\S]*?\*\//gm
 
   // Track brace depth to identify top-level comments
   let braceDepth = 0

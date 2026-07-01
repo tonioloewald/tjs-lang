@@ -149,8 +149,9 @@ function findMarkdownFiles(dirs, ignore) {
         markdownFiles.push(doc)
       } else if (['.ts', '.js'].includes(extname(file))) {
         const content = readFileSync(filePath, 'utf8')
-        // Match /*# ... */ blocks (inline markdown documentation)
-        const docs = content.match(/\/\*#[\s\S]+?\*\//g) || []
+        // Match line-start /*# ... */ blocks (inline markdown docs). A /*# after
+        // code on the line, or inside a string, is an ordinary block comment.
+        const docs = content.match(/(?<=^[ \t]*)\/\*#[\s\S]+?\*\//gm) || []
         if (docs.length) {
           const markdown = docs.map((s) => s.substring(3, s.length - 2).trim())
           const text = markdown.join('\n\n---\n\n')

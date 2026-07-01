@@ -742,7 +742,11 @@ export function extractTDoc(
   // This preserves full markdown content
   // Find the LAST /*# ... */ block and verify it immediately precedes the function
   // (only whitespace and line comments allowed between)
-  const allDocBlocks = [...beforeFunc.matchAll(/\/\*#([\s\S]*?)\*\//g)]
+  // Line-start `/*#` only — a `/*#` after code (or in a string) isn't a doc
+  // comment. Lookbehind keeps match.index/length on the `/*#…*/` span.
+  const allDocBlocks = [
+    ...beforeFunc.matchAll(/(?<=^[ \t]*)\/\*#([\s\S]*?)\*\//gm),
+  ]
   if (allDocBlocks.length > 0) {
     const lastBlock = allDocBlocks[allDocBlocks.length - 1]
     const afterBlock = beforeFunc.substring(

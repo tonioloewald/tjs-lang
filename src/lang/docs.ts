@@ -169,8 +169,12 @@ export function generateDocs(source: string): DocResult {
   // Two doc-block flavors are recognized:
   //   /*# ... */   — TJS native: content is markdown verbatim
   //   /** ... */   — JSDoc: each line's leading ` * ` is stripped, then markdown
-  const docPattern = /\/\*#([\s\S]*?)\*\//g
-  const jsdocPattern = /\/\*\*([\s\S]*?)\*\//g
+  // Only a line-start doc comment (whitespace-only before the `/`) counts; a
+  // `/*#` or `/**` after code on the line — or inside a string — is an ordinary
+  // block comment, not documentation. The lookbehind keeps match.index on the
+  // `/` (no position shift for callers).
+  const docPattern = /(?<=^[ \t]*)\/\*#([\s\S]*?)\*\//gm
+  const jsdocPattern = /(?<=^[ \t]*)\/\*\*([\s\S]*?)\*\//gm
   // Match the START of a function declaration. Params (which can contain
   // nested parens like `fn = (x) => x`) are captured by balanced-paren
   // scanning below, NOT by this regex.
