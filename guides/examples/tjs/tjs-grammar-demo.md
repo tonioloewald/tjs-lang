@@ -158,7 +158,11 @@ test 'safety markers' {
 /*#
 ## Bare Assignments
 
-Uppercase identifiers auto-get `const`.
+Uppercase identifiers auto-get `const` — a native-TJS convenience (off for plain
+JS / TS / VM). It fires only on the **first** assignment of an undeclared name;
+a reassignment of an already-declared binding (`let B = null; B = 2`) is left
+alone. Since the first assignment becomes `const`, use `let` if you need it to
+change later.
 */
 
 Greeting = 'Hello'

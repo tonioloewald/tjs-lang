@@ -1104,6 +1104,16 @@ Foo = Type('test', 'example') // becomes: const Foo = Type(...)
 MyConfig = { debug: true } // becomes: const MyConfig = { ... }
 ```
 
+This is a **native-TJS** convenience (mode `TjsSafeAssign`). It's **off** for
+plain JS (`dialect: 'js'`), TS-originated, and VM code — those are left exactly
+as written. And it only fires on the **first assignment of an undeclared**
+uppercase name; a reassignment of a binding you already declared
+(`let B = null; … B = 2`) is untouched.
+
+> **Footgun:** the first assignment becomes a `const`, so a later `Foo = …` in
+> the same file will throw. If a value needs to change, declare it with `let`
+> (`let Foo = …`) rather than relying on the bare-assignment shorthand.
+
 ---
 
 ## Limitations

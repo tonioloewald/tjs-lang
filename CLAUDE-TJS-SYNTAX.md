@@ -170,6 +170,14 @@ Foo = Type('test', 'example') // becomes: const Foo = Type(...)
 MyConfig = { debug: true } // becomes: const MyConfig = { ... }
 ```
 
+Gated by `TjsSafeAssign` — a **native-TJS** convenience only. It is **off** in
+plain JS (`dialect: 'js'`), TS-originated, and VM code, so those pass through
+unchanged (TJS ⊇ JS). It applies **only to the first assignment of an otherwise-
+undeclared** uppercase name: a reassignment of an already-declared binding
+(`let B = null; … B = 2`) is left untouched. Footgun: because the first
+assignment becomes `const`, a later `Foo = …` in the same TJS file throws
+(const reassignment) — declare `let Foo` up front if you need it mutable.
+
 ## Module Safety Directive
 
 ```typescript

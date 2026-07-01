@@ -315,7 +315,12 @@ const Config = { debug: true, version: '1.0' }
 const MaxRetries = 3
 ```
 
-Lowercase identifiers behave normally.
+Lowercase identifiers behave normally. This is a **native-TJS** feature — it's
+off when you transpile a plain-JS file (`dialect: 'js'`), so JS keeps its own
+semantics. It also only applies to the **first** assignment of an
+otherwise-undeclared uppercase name: `let B = null; … B = 2` (a reassignment) is
+left alone. Since the first assignment becomes a `const`, use `let Foo = …` up
+front if `Foo` needs to change later — otherwise a later `Foo = …` throws.
 
 ---
 

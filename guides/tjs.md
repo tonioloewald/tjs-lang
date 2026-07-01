@@ -225,6 +225,12 @@ MyConfig = { debug: true }
 const MyConfig = { debug: true }
 ```
 
+Native-TJS only (mode `TjsSafeAssign`) — off for plain JS (`dialect: 'js'`),
+TS, and VM code. Fires only on the **first** assignment of an undeclared
+uppercase name; a reassignment of an already-declared binding
+(`let B = null; … B = 2`) is untouched. Because the first assignment becomes
+`const`, declare `let Foo` if you need `Foo` to change later.
+
 ## Runtime Features
 
 ### Monadic Error Handling
@@ -489,24 +495,24 @@ test('async operations work') {
 
 ### Added
 
-| Feature           | Purpose                                     |
-| ----------------- | ------------------------------------------- |
-| `: example`       | Required parameter with type                |
-| `= example`       | Optional parameter with default             |
-| `-> Type`         | Return type annotation                      |
-| `-? Type`         | Return type with forced output validation   |
-| `-! Type`         | Return type with skipped output validation  |
-| `(?)`             | Mark function as safe (force validation)    |
-| `(!)`             | Mark function as unsafe (skip validation)   |
-| `test 'name' {}`  | Compile-time test block (evaporates)        |
-| `mock {}`         | Test setup block                            |
-| `unsafe {}`       | Skip validation for a block                 |
-| `\|\|` in types   | Union types                                 |
-| `Type Name = val` | Define runtime type with default            |
-| `Generic<T>`      | Define a parameterized runtime type         |
-| `Foo = ...`       | Bare assignment (auto-adds `const`)         |
-| `SafeFunction`    | Safe typed async replacement for `Function` |
-| `Eval`            | Safe typed async replacement for `eval()`   |
+| Feature           | Purpose                                                        |
+| ----------------- | -------------------------------------------------------------- |
+| `: example`       | Required parameter with type                                   |
+| `= example`       | Optional parameter with default                                |
+| `-> Type`         | Return type annotation                                         |
+| `-? Type`         | Return type with forced output validation                      |
+| `-! Type`         | Return type with skipped output validation                     |
+| `(?)`             | Mark function as safe (force validation)                       |
+| `(!)`             | Mark function as unsafe (skip validation)                      |
+| `test 'name' {}`  | Compile-time test block (evaporates)                           |
+| `mock {}`         | Test setup block                                               |
+| `unsafe {}`       | Skip validation for a block                                    |
+| `\|\|` in types   | Union types                                                    |
+| `Type Name = val` | Define runtime type with default                               |
+| `Generic<T>`      | Define a parameterized runtime type                            |
+| `Foo = ...`       | Bare assignment — auto-`const` (native TJS, first assign only) |
+| `SafeFunction`    | Safe typed async replacement for `Function`                    |
+| `Eval`            | Safe typed async replacement for `eval()`                      |
 
 ## Differences from TypeScript
 
