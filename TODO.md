@@ -71,6 +71,34 @@ to **prove it and spread it**:
 - [ ] **Propagate verify→native** — weave it under the type system / tosijs so the capability is pervasive, not just an engine + PoC.
 - [ ] Frame the announcement around data + a real framework running it, not a promise. The blog draft is the spec: its present-tense claims (#6, the CSS lib, the real-theme number) must be true before publishing.
 
+## Compat tests — currency check (2026-07-02: all green against current HEAD)
+
+Re-ran all six `scripts/compat-*.ts` with `--clean` (fresh `git clone --depth 1`,
+i.e. current upstream HEAD). The TS→TJS path transpiles every library with **zero
+failures** and passes **100% of runnable upstream tests**:
+
+| Library     | Transpile        | Upstream tests        |
+| ----------- | ---------------- | --------------------- |
+| zod         | 116 files/~30K LOC | 1959/1959 pass       |
+| effect      | 363/363 files    | (transpile-only)      |
+| ts-pattern  | 17/17 files      | 453/453 pass          |
+| superstruct | 8/8 files        | 225/225 pass          |
+| radash      | (all)            | 340/340 pass¹         |
+| kysely      | 303/303 files    | (transpile-only; needs DB) |
+
+¹ radash also surfaces 47 *pre-existing upstream* failures in `src/tests/async.test.ts`
+(broken fake-timers — "Can't install fake timers twice"); the harness annotates
+these as not-our-fault. All 340 TJS-transpilation assertions pass.
+
+- [ ] **Harness gap: compat scripts shell out to `pnpm` (zod, effect) which may not
+      be in `$PATH`.** Worked around 2026-07-02 with a corepack-backed `pnpm` shim
+      (`corepack pnpm` → 11.9.0). Consider making the scripts use `corepack pnpm`
+      (or `bun`) directly so they run out-of-the-box. radash/superstruct/ts-pattern
+      use `npm` (available); kysely/effect are transpile-only.
+- [ ] **Compat tests are manual + unpinned (not in CI).** They clone HEAD, so they
+      drift silently — re-run periodically (this was the first refresh since Mar 30).
+      Optional: pin to release tags for reproducibility, or add a lightweight CI job.
+
 ## Testing - watch items (don't fix yet)
 
 - [ ] **Flaky LLM assertion (low priority — leave unless it recurs).**
