@@ -68,15 +68,15 @@ bun run functions:serve     # Local functions emulator
 ### Two-Layer Design
 
 1. **Builder Layer** (`src/builder.ts`): Fluent API that constructs AST nodes. Contains no execution logic.
-2. **Runtime Layer** (`src/vm/runtime.ts`): Executes AST nodes. Contains all atom implementations (~3024 lines, security-critical).
+2. **Runtime Layer** (`src/vm/runtime.ts`): Executes AST nodes. Contains all atom implementations (~3134 lines, security-critical).
 
 ### Key Source Files
 
 - `src/index.ts` - Main entry, re-exports everything
-- `src/vm/runtime.ts` - All atom implementations, expression evaluation, fuel charging (~3024 lines, security-critical)
+- `src/vm/runtime.ts` - All atom implementations, expression evaluation, fuel charging (~3134 lines, security-critical)
 - `src/vm/vm.ts` - AgentVM class (~247 lines)
 - `src/vm/atoms/batteries.ts` - Battery atoms (vector search, LLM, store operations)
-- `src/builder.ts` - TypedBuilder fluent API (~757 lines / ~19KB)
+- `src/builder.ts` - TypedBuilder fluent API (~754 lines / ~19KB)
 - `src/lang/parser.ts` - TJS parser with colon shorthand, unsafe markers, return type extraction
 - `src/lang/parser-transforms.ts` - Type, Generic, and FunctionPredicate block/function form transforms
 - `src/lang/emitters/ast.ts` - Emits Agent99 AST from parsed source

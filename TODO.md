@@ -1,18 +1,23 @@
 # TJS-Lang TODO
 
-## ▶ Resume here — 0.8.7 is committed + tagged but NOT published
+## ▶ Resume here — 0.8.7 IS published (verified 2026-07-02)
 
-npm is at **0.8.6**; **0.8.7 was never published** (committed, tag `v0.8.7` at HEAD,
-main == origin). To ship it: `bun run make && npm publish` (dist is gitignored —
-build first; publish is user-only, fingerprint auth). 0.8.7 bundles: the
-bare-assignment gating fix, the doc-comment line-start fix, and the tightened
+`npm view tjs-lang version` → **0.8.7** (published; tag `v0.8.7` at HEAD, main ==
+origin). The previous "committed but unpublished" note is resolved. 0.8.7 bundles:
+the bare-assignment gating fix, the doc-comment line-start fix, and the tightened
 bare-assignment docs.
 
-After publishing 0.8.7:
+Remaining post-publish follow-ups (both cross-repo / manual — NOT verified done):
 
-- [ ] Bump **tosijs** CDN pin `code-transform.ts` `tjs-lang@0.8.6` → `@0.8.7`
-      (unblocks the `b3d`/Babylon live example — the `B = BABYLON` bug).
-- [ ] `bun run deploy:hosting` to refresh the playground/site with the tightened docs.
+- [ ] Bump the **tosijs-ui** live-example CDN pin. As of 2026-07-02 it's at
+      `tjs-lang@0.8.2` in `../tosijs-ui/src/live-example/code-transform.ts`
+      (`TJS_CDN` / `FROM_TS_CDN`), and `../tosijs` bun.lock installs `@0.8.6`.
+      Bump both to `@0.8.7` and rebuild `../tosijs/docs/iife.js` (unblocks the
+      `b3d`/Babylon live example — the `B = BABYLON` bug). Correction: earlier
+      note said `code-transform.ts` was at `@0.8.6` and lived in `tosijs`; it's
+      actually `@0.8.2` and lives in `tosijs-ui`.
+- [ ] `bun run deploy:hosting` to refresh the playground/site with the tightened
+      docs (status unverified — check whether the live site already reflects 0.8.7).
 
 **Session shipped (0.8.3→0.8.7):** predicate engine (#1–#4, #6 tjs-side) + `suggest()`;
 `==` is footgun-free (TJS + AJS, DoS-safe); self-contained browser bundles
