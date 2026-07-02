@@ -111,23 +111,26 @@ these as not-our-fault. All 340 TJS-transpilation assertions pass.
       `content` when a reasoning field is present (or use a prompt that demands a
       full sentence). Until then, leave as-is.
 
-## Editors - published `.js` is stale (address sooner rather than later)
+## Editors - published `.js` is stale — FIXED 2026-07-02
 
-- [ ] **The `tjs-lang/editors/*` subpaths ship hand-maintained `.js` files that
-      are NOT built from the `.ts` sources.** `editors/codemirror/ajs-language.js`
-      is from Jan 2026 (~7.5KB, an old standalone CDN-example impl) while
-      `ajs-language.ts` is the real ~51KB implementation (used by the playground,
-      which bundles from source). So none of the autocomplete work (scope model,
-      introspection bridge, member completion) reaches npm consumers of
-      `tjs-lang/editors/codemirror` — they get months-old code. Same for
-      monaco/ace `.js`. **Fix: add a build step that compiles/bundles
-      `editors/**/\*.ts`→ the published`.js`(wire into`scripts/build.ts`/
-`bun run make`) so it stays current automatically.\*\* Not urgent for active
-      use cases (user isn't consuming tjs-lang externally yet) but flagged to do
-      soon. Context: tosijs-ui's live-example/doc engine now uses tjs (replacing
-      sucrase) and is evolving into a portable embeddable playground/IDE — it'll
-      switch from ACE to CodeMirror and will want working autocomplete, at which
-      point this matters.
+- [x] **The `tjs-lang/editors/*` subpaths shipped hand-maintained `.js` files that
+      were NOT built from the `.ts` sources.** `editors/codemirror/ajs-language.js`
+      was from Jan 2026 (~7.5KB, an old CDN-example impl exporting a stale
+      `createAjsExtension` API) while `ajs-language.ts` is the real ~51KB
+      implementation. So none of the autocomplete work (scope model, introspection
+      bridge, member completion) reached npm consumers — they got months-old code.
+      Same for monaco/ace. **Fixed:** `scripts/build-editors.ts` bundles each entry
+      from its `.ts` (esbuild, ESM, unminified; externalizes the framework it
+      augments — `@codemirror/*`/`@lezer/*`/`codemirror`/`monaco-editor`/`ace-builds`
+      — plus the acorn stack, which are tjs-lang runtime deps; inlines the internal
+      editor logic). Wired into `bun run make` (+ standalone `bun run build:editors`).
+      The 3 `.js` are prettier-ignored (`editors/**/*.js`) so they stay
+      byte-identical to esbuild output, and `editors/editors-build.test.ts`
+      re-bundles in memory and asserts byte-equality with the committed files —
+      so a `.ts` edit without a rebuild fails CI (no more silent drift). Verified:
+      all 3 bundles import cleanly and expose their real `.ts` exports
+      (codemirror → `tjsCompletionSource`/`ajsEditorExtension`/`ajs`/
+      `tjsEditorExtension`/`ajsLanguage`/`FORBIDDEN_KEYWORDS`).
 
 ## Playground - Introspection-driven autocomplete
 

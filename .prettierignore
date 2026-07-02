@@ -6,6 +6,9 @@ coverage
 .compat-tests
 demo/docs.json
 **/*.min.js
+# Editor entry points are bundled from their .ts sources by scripts/build-editors.ts
+# (esbuild output — must stay byte-identical to the build, guarded by a test).
+editors/**/*.js
 
 # Dependencies and sub-projects that carry their own tooling
 node_modules

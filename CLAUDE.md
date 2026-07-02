@@ -20,7 +20,8 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 # Development
 bun run format              # ESLint fix + Prettier
 bun run test:fast           # Core tests (skips LLM & benchmarks)
-bun run make                # Full build (clean, format, grammars, tsc, esbuild)
+bun run make                # Full build (clean, format, grammars, editors, tsc, esbuild)
+bun run build:editors       # Bundle editors/{codemirror,monaco,ace}/*.ts → published *.js
 bun run dev                 # Development server with file watcher
 bun run start               # Build demo + start dev server
 bun run latest              # Clean reinstall (rm node_modules + bun install)
