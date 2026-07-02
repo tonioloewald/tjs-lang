@@ -13,7 +13,8 @@
  */
 
 import { describe, test, expect } from 'bun:test'
-import { transpileToJS, fromTS, tjs } from './index'
+import { transpileToJS, tjs } from './index'
+import { fromTS } from './emitters/from-ts'
 
 // Helper to get the first function's metadata from the Record
 function getFirstFunc(metadata: Record<string, any>) {

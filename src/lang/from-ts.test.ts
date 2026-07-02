@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'bun:test'
-import { fromTS } from './index'
+import { fromTS } from './emitters/from-ts'
 
 describe('TypeScript to TJS Transpiler', () => {
   describe('fromTS with emitTJS', () => {

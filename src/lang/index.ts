@@ -80,11 +80,16 @@ export {
   typeDescriptorToTS,
   type GenerateDTSOptions,
 } from './emitters/dts'
-export {
-  fromTS,
-  type FromTSOptions,
-  type FromTSResult,
-} from './emitters/from-ts'
+// `fromTS` is intentionally NOT re-exported here: it pulls the TypeScript
+// compiler (~4-10MB, only a devDependency) into the main `tjs-lang` entry, which
+// crashes Node consumers that don't have `typescript` installed with
+// `Cannot find package 'typescript'` (and pulls TS at import time, breaking
+// constrained runtimes like Cloud Run). Import the value from the dedicated,
+// documented subpath instead:
+//   import { fromTS } from 'tjs-lang/lang/from-ts'
+// The types are safe to re-export — `export type` is erased at build time, so it
+// adds no runtime dependency.
+export type { FromTSOptions, FromTSResult } from './emitters/from-ts'
 export * from './inference'
 export { Schema } from './schema'
 export {
