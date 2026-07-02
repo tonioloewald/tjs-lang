@@ -1,5 +1,34 @@
 # TJS-Lang TODO
 
+## ▶ Resume here — 0.8.7 is committed + tagged but NOT published
+
+npm is at **0.8.6**; **0.8.7 was never published** (committed, tag `v0.8.7` at HEAD,
+main == origin). To ship it: `bun run make && npm publish` (dist is gitignored —
+build first; publish is user-only, fingerprint auth). 0.8.7 bundles: the
+bare-assignment gating fix, the doc-comment line-start fix, and the tightened
+bare-assignment docs.
+
+After publishing 0.8.7:
+
+- [ ] Bump **tosijs** CDN pin `code-transform.ts` `tjs-lang@0.8.6` → `@0.8.7`
+      (unblocks the `b3d`/Babylon live example — the `B = BABYLON` bug).
+- [ ] `bun run deploy:hosting` to refresh the playground/site with the tightened docs.
+
+**Session shipped (0.8.3→0.8.7):** predicate engine (#1–#4, #6 tjs-side) + `suggest()`;
+`==` is footgun-free (TJS + AJS, DoS-safe); self-contained browser bundles
+(`tjs-lang/browser` + `/browser/from-ts`, lazy-loads TS from esm.sh — the only CDN
+that serves it); from-ts no longer leaks raw TS into Type/Generic blocks; playground
+autocomplete rebuilt (scope model + introspection bridge, `editors/scope-symbols.ts`,
+`demo/src/introspection-bridge.ts`); bare-assignment auto-const gated to native TJS +
+first-assign-only; doc comments must start a line. Tags v0.8.4/v0.8.5 backfilled;
+v0.8.3 has no commit (published from an uncommitted tree — harmless gap).
+
+**Big-picture next (see memories):** consolidate onto tosijs-ui's doc-system /
+`<tosi-example>` (transpile-option toggles, port the CodeMirror autocomplete, dogfood
+tjs-lang's own docs → verified book/ePub/PDF), then retire the bespoke playground.
+Pinned: argument-type-driven completion (needs TJS-native tosijs so element factories
+carry `__tjs`). See [[introspection-autocomplete]], [[predicate-types-direction]].
+
 ## Predicate types — "AJS is JSON-Schema's missing piece"
 
 The thesis (see the blog draft): JSON-Schema / TS can't express types that need
