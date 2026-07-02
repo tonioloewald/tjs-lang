@@ -108,6 +108,17 @@ Type EvenNumber {
 }
 ```
 
+**Verified predicates (transpile-time).** A `Type` predicate body is run through
+the predicate-safety verifier when it is transpiled. If it is **predicate-safe**
+(pure and synchronous — no loops, `await`, `new`, or effectful/IO calls; iterate
+with `every`/`some`/`map`/recursion), it compiles to a **fuel-bounded native
+guard**: a runaway input can't hang or crash validation — it just returns `false`
+("not a valid instance"). Native-TJS equality/`typeof` inside the predicate
+(`==` → `Eq`, `typeof` → `TypeOf`, and `Is`/`IsNot`) still verifies. A predicate
+that can't be verified (e.g. it uses a `for` loop or calls `fetch`) is **not
+rejected** — it falls back to running as a plain function (TJS ⊇ JS). Prefer the
+verifiable style so your type guards are safe to run on untrusted data.
+
 ## Generic Declarations
 
 ```typescript

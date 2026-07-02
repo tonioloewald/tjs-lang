@@ -67,6 +67,16 @@ const PURE_GLOBALS = new Set([
   'Boolean',
   'Array',
   'Object',
+  // TJS-injected pure helpers. Native-TJS predicate bodies are rewritten before
+  // they reach the verifier: `==`/`!=` → `Eq`/`NotEq`, the explicit `Is`/`IsNot`
+  // operators → `Is`/`IsNot`, `typeof x` → `TypeOf(x)`. All are pure, total
+  // functions (footgun-free equality / structural equality / safe typeof), so a
+  // predicate that uses TJS equality still verifies as predicate-safe.
+  'Eq',
+  'NotEq',
+  'Is',
+  'IsNot',
+  'TypeOf',
 ])
 
 /** Namespaces whose static methods are pure (with effectful exceptions below). */
@@ -547,4 +557,87 @@ export function compilePredicate(
     }
   }
   return wrapped
+}
+
+export interface EmitPredicateResult {
+  /** True iff the cluster passed predicate-safety verification. */
+  safe: boolean
+  /**
+   * When `safe`, a self-contained JS **expression** that evaluates to the guard
+   * function `(...args) => boolean`. Inline it directly into transpiler output —
+   * it carries its own fuel counter (no global `__fuel`, no runtime dependency
+   * on the predicate engine or the `PredicateFuelExhausted` class). Undefined
+   * when `!safe`.
+   */
+  code?: string
+  /** Verifier diagnostics (the reasons, when `!safe`). */
+  diagnostics: PredicateDiagnostic[]
+}
+
+/**
+ * Verify a predicate cluster and, if safe, emit a **self-contained source
+ * expression** for its guard — the transpile-time counterpart to
+ * `compilePredicate` (which evals to live closures). This is what lets a
+ * verified `Type`/`FunctionPredicate` predicate compile to a fuel-bounded native
+ * guard in standalone output: no import of this module, no shared runtime.
+ *
+ * Fuel model mirrors `compilePredicate` (function-entry `__fuel()` bounds all
+ * iteration since loops are rejected), but because a guard answers a boolean
+ * question, a runaway input **returns `false`** ("not a valid instance of this
+ * type") instead of throwing — DoS-safe validation that never crashes the caller.
+ * A deep-recursion stack overflow is the same runaway signal, normalized the
+ * same way.
+ *
+ * The runtime effectful-global shadow that `compilePredicate` applies is omitted
+ * here on purpose: a `safe` cluster provably references no effectful global (the
+ * static verifier guarantees it), so the shadow would only bloat emitted output.
+ *
+ * @param source      the predicate cluster (one or more `function` declarations)
+ * @param entryName   which declared function is the guard entry point
+ * @param opts        verify options + `fuel` budget (default 1,000,000)
+ */
+export function emitVerifiedPredicate(
+  source: string,
+  entryName: string,
+  opts: CompilePredicateOptions = {}
+): EmitPredicateResult {
+  const result = verifyPredicate(source, opts)
+  if (!result.safe) {
+    return { safe: false, diagnostics: result.diagnostics }
+  }
+  if (!result.predicates.includes(entryName)) {
+    return {
+      safe: false,
+      diagnostics: [
+        {
+          predicate: entryName,
+          message: `entry predicate '${entryName}' not found in the verified cluster`,
+          line: 0,
+          column: 0,
+        },
+      ],
+    }
+  }
+
+  const budget = opts.fuel ?? 1_000_000
+  const instrumented = injectFuel(source)
+
+  // A self-contained IIFE: fuel counter in a closure, guard entry re-armed per
+  // top-level call, runaway (fuel or stack) → `false`.
+  const code =
+    `(() => {` +
+    `let __f = 0;` +
+    `const __fuel = () => { if (--__f < 0) throw new RangeError('tjs:predicate-fuel'); };` +
+    `${instrumented}` +
+    `return (...__a) => {` +
+    `__f = ${budget};` +
+    `try { return !!${entryName}(...__a); }` +
+    `catch (e) {` +
+    `if (e instanceof RangeError && /tjs:predicate-fuel|stack/i.test(e.message)) return false;` +
+    `throw e;` +
+    `}` +
+    `};` +
+    `})()`
+
+  return { safe: true, code, diagnostics: [] }
 }

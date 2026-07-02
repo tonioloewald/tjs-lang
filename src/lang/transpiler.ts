@@ -28,6 +28,7 @@ export {
 export {
   verifyPredicate,
   compilePredicate,
+  emitVerifiedPredicate,
   suggest,
   effectfulFromAtoms,
   formatPredicateDiagnostics,
@@ -36,6 +37,7 @@ export {
   type PredicateVerifyResult,
   type VerifyPredicateOptions,
   type CompilePredicateOptions,
+  type EmitPredicateResult,
   type Suggestion,
   type SuggestOptions,
 } from './predicate'

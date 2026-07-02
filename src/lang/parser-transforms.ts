@@ -42,6 +42,24 @@ import type {
   TokenizerState,
 } from './parser-types'
 import { extractJSValue } from './parser-params'
+import { emitVerifiedPredicate } from './predicate'
+
+/**
+ * If a `Type`/`FunctionPredicate` predicate body verifies as predicate-safe
+ * (pure, synchronous, no loops/IO), return a self-contained fuel-bounded guard
+ * **expression** to inline in place of the raw arrow; otherwise return null so
+ * the caller falls back to the unverified body (never rejects — see
+ * PRINCIPLES.md, TJS ⊇ JS). This is the transpile-time consumer of the predicate
+ * engine: a safe predicate "earns" the native fast path and DoS-safe validation.
+ */
+function verifiedGuardExpr(params: string, body: string): string | null {
+  // Synthesize a named declaration the verifier can analyze. The body has
+  // already been through the TJS equality/typeof rewrites (Eq/NotEq/Is/IsNot/
+  // TypeOf), all whitelisted as pure in the verifier.
+  const fnSource = `function __pred(${params}) { ${body} }`
+  const r = emitVerifiedPredicate(fnSource, '__pred')
+  return r.safe ? r.code! : null
+}
 
 export function transformTryWithoutCatch(source: string): string {
   let result = ''
@@ -1127,12 +1145,15 @@ function transformTypeofKeyword(source: string): string {
 }
 
 /**
- * Transform == and != to Is() and IsNot() calls
+ * Transform == and != to Eq() and NotEq() calls
  *
  * In TJS normal mode:
- *   a == b   -> Is(a, b)     (structural equality)
- *   a != b   -> IsNot(a, b)  (structural inequality)
+ *   a == b   -> Eq(a, b)     (footgun-free ===: unwraps boxed primitives,
+ *                             null == undefined, but does NOT coerce types and
+ *                             is NOT structural — see PRINCIPLES/guides)
+ *   a != b   -> NotEq(a, b)
  *   a === b  -> a === b      (identity, unchanged)
+ * (For deep structural equality use the explicit `Is`/`IsNot` operators.)
  *
  * Uses a two-pass algorithm:
  * 1. Find all == and != positions (outside strings/comments/regex)
@@ -1737,17 +1758,27 @@ export function transformTypeDeclarations(source: string): string {
         // Build Type() call with appropriate arguments
         // Type(description, predicateOrExample, example?, default?)
         if (predicateMatch && example) {
-          // Predicate + example
+          // Predicate + example: the example is the base schema, the predicate
+          // refines it. Verify the predicate → fuel-bounded native guard; the
+          // example schema check stays as an outer gate (constructed once via an
+          // IIFE, not per call). Falls back to the raw arrow when unverifiable.
           const params = predicateMatch[1].trim()
           const body = predicateMatch[2].trim()
           const defaultArg = defaultValue ? `, ${defaultValue}` : ''
-          result += `const ${typeName} = Type('${description}', (${params}) => { if (!globalThis.__tjs?.validate(${params}, globalThis.__tjs?.infer(${example}))) return false; ${body} }, ${example}${defaultArg})`
+          const schemaGate = `globalThis.__tjs?.validate(${params}, globalThis.__tjs?.infer(${example}))`
+          const guard = verifiedGuardExpr(params, body)
+          const fn = guard
+            ? `(__g => (${params}) => (${schemaGate} ? __g(${params}) : false))(${guard})`
+            : `(${params}) => { if (!${schemaGate}) return false; ${body} }`
+          result += `const ${typeName} = Type('${description}', ${fn}, ${example}${defaultArg})`
         } else if (predicateMatch) {
-          // Predicate only
+          // Predicate only: verify → fuel-bounded native guard, else raw arrow.
           const params = predicateMatch[1].trim()
           const body = predicateMatch[2].trim()
           const defaultArg = defaultValue ? `, undefined, ${defaultValue}` : ''
-          result += `const ${typeName} = Type('${description}', (${params}) => { ${body} }${defaultArg})`
+          const guard = verifiedGuardExpr(params, body)
+          const fn = guard ?? `(${params}) => { ${body} }`
+          result += `const ${typeName} = Type('${description}', ${fn}${defaultArg})`
         } else if (example) {
           // Example only (becomes validation schema)
           const defaultArg = defaultValue ? `, ${defaultValue}` : ''
