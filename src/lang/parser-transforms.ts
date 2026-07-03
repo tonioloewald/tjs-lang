@@ -52,12 +52,22 @@ import { emitVerifiedPredicate } from './predicate'
  * PRINCIPLES.md, TJS ⊇ JS). This is the transpile-time consumer of the predicate
  * engine: a safe predicate "earns" the native fast path and DoS-safe validation.
  */
-function verifiedGuardExpr(params: string, body: string): string | null {
+function verifiedGuardExpr(
+  params: string,
+  body: string,
+  knownPredicates?: string[]
+): string | null {
   // Synthesize a named declaration the verifier can analyze. The body has
   // already been through the TJS equality/typeof rewrites (Eq/NotEq/Is/IsNot/
-  // TypeOf), all whitelisted as pure in the verifier.
+  // TypeOf), all whitelisted as pure in the verifier. `knownPredicates` lets a
+  // Generic predicate compose with its type-param checks (`checkT(x[0])`) — the
+  // verifier treats those calls as composition with another safe predicate.
   const fnSource = `function __pred(${params}) { ${body} }`
-  const r = emitVerifiedPredicate(fnSource, '__pred')
+  const r = emitVerifiedPredicate(
+    fnSource,
+    '__pred',
+    knownPredicates ? { knownPredicates: new Set(knownPredicates) } : {}
+  )
   return r.safe ? r.code! : null
 }
 
@@ -2065,11 +2075,14 @@ export function transformGenericDeclarations(source: string): string {
           )
         })
 
+        // Verify the (type-param-rewritten) body, composing with the type-param
+        // checks; safe → fuel-bounded native guard, else the raw arrow.
+        const paramList = [valueParam, ...typeCheckParams].join(', ')
+        const guard = verifiedGuardExpr(paramList, body, typeCheckParams)
+        const fn = guard ?? `(${paramList}) => { ${body} }`
         result += `const ${genericName} = Generic([${typeParams.join(
           ', '
-        )}], (${valueParam}, ${typeCheckParams.join(
-          ', '
-        )}) => { ${body} }, '${description}')`
+        )}], ${fn}, '${description}')`
       } else {
         // No predicate - create a generic that always passes
         result += `const ${genericName} = Generic([${typeParams.join(
