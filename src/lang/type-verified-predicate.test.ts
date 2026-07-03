@@ -9,8 +9,35 @@
  */
 import { describe, it, expect } from 'bun:test'
 import { preprocess } from './parser'
+import { tjs } from './index'
 
 const src = (s: string) => preprocess(s).source
+
+describe('multiple verified predicates in one module (no name collision)', () => {
+  // Regression: each verified guard used a fixed `function __pred`, so two in
+  // one module collided — the polymorphic-merge transform saw duplicate names
+  // and either errored ("ambiguous signatures") or renamed to `__pred$1`,
+  // breaking the guard IIFE at runtime. Names are now per-declaration.
+  it('transpiles two Type predicates without a `__pred` clash', () => {
+    const out = tjs(
+      `Type A 'a' { predicate(x) { return x > 0 } }\n` +
+        `Type B 'b' { predicate(x) { return x < 0 } }`
+    )
+    expect(out.code).not.toContain('__pred$')
+    expect(out.code).toContain('__pred_A')
+    expect(out.code).toContain('__pred_B')
+  })
+
+  it('transpiles a Type + Generic predicate together', () => {
+    const out = tjs(
+      `Type Pos 'positive' { predicate(x) { return x > 0 } }\n` +
+        `Generic Box<T> { description: 'b', predicate(x, T) { return T(x.value) } }`
+    )
+    expect(out.code).not.toContain('__pred$')
+    expect(out.code).toContain('__pred_Pos')
+    expect(out.code).toContain('__pred_Box')
+  })
+})
 
 describe('Type predicate → verified fuel-bounded guard', () => {
   it('compiles a safe predicate-only Type to a fuel-bounded guard', () => {

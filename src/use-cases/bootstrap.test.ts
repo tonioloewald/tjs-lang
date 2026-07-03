@@ -14,6 +14,7 @@
 import { describe, it, expect } from 'bun:test'
 import { fromTS } from '../lang/emitters/from-ts'
 import { tjs } from '../lang'
+import { emitVerifiedPredicate } from '../lang/predicate'
 import * as fs from 'fs'
 import * as path from 'path'
 
@@ -528,10 +529,16 @@ describe('Bootstrap Canary', () => {
       // Step 2: Execute the combined transpiled parser modules
       const execStart = performance.now()
 
-      const parserModule = new Function(`
+      // parser-transforms.ts calls emitVerifiedPredicate (from predicate.ts, an
+      // acorn-backed engine module not in this parser-only bundle) — inject the
+      // native one so the self-hosted preprocess can verify Type/Generic predicates.
+      const parserModule = new Function(
+        'emitVerifiedPredicate',
+        `
         ${combinedCode}
         return { preprocess };
-      `)()
+      `
+      )(emitVerifiedPredicate)
       const execTime = performance.now() - execStart
 
       expect(typeof parserModule.preprocess).toBe('function')
@@ -639,10 +646,13 @@ describe('Bootstrap Canary', () => {
         combinedCode += stripped + '\n'
       }
 
-      const bootstrappedParser = new Function(`
+      const bootstrappedParser = new Function(
+        'emitVerifiedPredicate',
+        `
         ${combinedCode}
         return { preprocess };
-      `)()
+      `
+      )(emitVerifiedPredicate)
 
       // Import native parser
       const nativeParser = require('../lang/parser')

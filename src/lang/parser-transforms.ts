@@ -53,6 +53,7 @@ import { emitVerifiedPredicate } from './predicate'
  * engine: a safe predicate "earns" the native fast path and DoS-safe validation.
  */
 function verifiedGuardExpr(
+  name: string,
   params: string,
   body: string,
   knownPredicates?: string[]
@@ -62,10 +63,17 @@ function verifiedGuardExpr(
   // TypeOf), all whitelisted as pure in the verifier. `knownPredicates` lets a
   // Generic predicate compose with its type-param checks (`checkT(x[0])`) — the
   // verifier treats those calls as composition with another safe predicate.
-  const fnSource = `function __pred(${params}) { ${body} }`
+  //
+  // The entry function is named per-declaration (`__pred_<Type>`), not a fixed
+  // `__pred`: the guard IIFEs are inlined into the module, and two identically-
+  // named nested `function __pred`s would be picked up by the polymorphic-merge
+  // transform (which runs after this one) as ambiguous overloads. Type/Generic
+  // names are unique within a module, so this is collision-free and deterministic.
+  const entry = `__pred_${name}`
+  const fnSource = `function ${entry}(${params}) { ${body} }`
   const r = emitVerifiedPredicate(
     fnSource,
-    '__pred',
+    entry,
     knownPredicates ? { knownPredicates: new Set(knownPredicates) } : {}
   )
   return r.safe ? r.code! : null
@@ -1776,7 +1784,7 @@ export function transformTypeDeclarations(source: string): string {
           const body = predicateMatch[2].trim()
           const defaultArg = defaultValue ? `, ${defaultValue}` : ''
           const schemaGate = `globalThis.__tjs?.validate(${params}, globalThis.__tjs?.infer(${example}))`
-          const guard = verifiedGuardExpr(params, body)
+          const guard = verifiedGuardExpr(typeName, params, body)
           const fn = guard
             ? `(__g => (${params}) => (${schemaGate} ? __g(${params}) : false))(${guard})`
             : `(${params}) => { if (!${schemaGate}) return false; ${body} }`
@@ -1786,7 +1794,7 @@ export function transformTypeDeclarations(source: string): string {
           const params = predicateMatch[1].trim()
           const body = predicateMatch[2].trim()
           const defaultArg = defaultValue ? `, undefined, ${defaultValue}` : ''
-          const guard = verifiedGuardExpr(params, body)
+          const guard = verifiedGuardExpr(typeName, params, body)
           const fn = guard ?? `(${params}) => { ${body} }`
           result += `const ${typeName} = Type('${description}', ${fn}${defaultArg})`
         } else if (example) {
@@ -2078,7 +2086,12 @@ export function transformGenericDeclarations(source: string): string {
         // Verify the (type-param-rewritten) body, composing with the type-param
         // checks; safe → fuel-bounded native guard, else the raw arrow.
         const paramList = [valueParam, ...typeCheckParams].join(', ')
-        const guard = verifiedGuardExpr(paramList, body, typeCheckParams)
+        const guard = verifiedGuardExpr(
+          genericName,
+          paramList,
+          body,
+          typeCheckParams
+        )
         const fn = guard ?? `(${paramList}) => { ${body} }`
         result += `const ${genericName} = Generic([${typeParams.join(
           ', '
