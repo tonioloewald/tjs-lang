@@ -752,3 +752,68 @@ export function emitVerifiedPredicate(
 
   return { safe: true, code, diagnostics: [] }
 }
+
+// --- $predicate evaluator (#6: the tosijs-schema integration point) ---------
+
+export interface PredicateEvaluatorOptions extends CompilePredicateOptions {
+  /**
+   * Called once per source that fails to verify/compile. Default: `console.warn`.
+   * The evaluator fails **closed** on such a source (returns `false`), so an
+   * unverifiable `$predicate` can never validate a value as `true`.
+   */
+  onUnsafe?: (source: string, error: Error) => void
+}
+
+/**
+ * Build a pluggable `$predicate` evaluator: `(source, value) => boolean`.
+ *
+ * This is the bridge for a predicate-aware JSON-Schema validator that lives in
+ * another package (e.g. `tosijs-schema`, which cannot depend on `tjs-lang` — the
+ * dependency runs the other way). Such a validator stays zero-dep and exposes a
+ * hook; a consumer that has this engine injects an evaluator built here.
+ *
+ * Each distinct source is verified + compiled **once** and cached, so repeated
+ * validation is just a native call. Semantics match `compilePredicateSchema`:
+ * the LAST top-level function is the entry; a source that isn't predicate-safe
+ * (or throws / exhausts fuel at runtime) yields `false` — never a thrown error
+ * mid-validation, never a silent pass.
+ */
+export function createPredicateEvaluator(
+  opts: PredicateEvaluatorOptions = {}
+): (source: string, value: unknown) => boolean {
+  const { onUnsafe, ...compileOpts } = opts
+  const cache = new Map<string, ((value: unknown) => boolean) | null>()
+  const warned = new Set<string>()
+
+  return (source: string, value: unknown): boolean => {
+    let fn = cache.get(source)
+    if (fn === undefined) {
+      try {
+        const names = verifyPredicate(source, compileOpts).predicates
+        const entry = names[names.length - 1]
+        if (!entry) throw new Error('$predicate declares no function')
+        const mod = compilePredicate(source, [entry], compileOpts)
+        fn = mod[entry] as (value: unknown) => boolean
+      } catch (e) {
+        fn = null // fail closed
+        if (!warned.has(source)) {
+          warned.add(source)
+          const err = e instanceof Error ? e : new Error(String(e))
+          if (onUnsafe) onUnsafe(source, err)
+          // eslint-disable-next-line no-console
+          else
+            console.warn(
+              `[tjs-lang] $predicate not verifiable — failing closed: ${err.message}`
+            )
+        }
+      }
+      cache.set(source, fn)
+    }
+    if (fn === null) return false
+    try {
+      return fn(value) === true
+    } catch {
+      return false // fuel exhaustion / runtime miss → not valid
+    }
+  }
+}
