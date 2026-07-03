@@ -94,6 +94,7 @@ bun run functions:serve     # Local functions emulator
 - `src/lang/emitters/js-wasm.ts` - JS bootstrap emitter for compiled wasm modules (one `WebAssembly.compile` per file, name→export-index table, type-aware wrappers)
 - `src/lang/module-loader.ts` - Transpile-time `.tjs`/`.ts`/`.js` module loader (Phase 0.75); used by cross-file `wasm function` composition
 - `src/linalg/` - `tjs-lang/linalg` stdlib subpath (f32x4 SIMD vector kernels)
+- `src/css/` - `tjs-lang/css` subpath: CSS validators built from verified-safe predicates (`predicates.ts` = canonical serializable source; `index.ts` = compiled validators + `suggestColor` + `verifyCss`). The predicate-types thesis made real — phase 1 is the color grammar; lengths/shorthands/recursive-structure are later phases (TODO #4)
 - `src/types/` - Type system definitions (Type.ts, Generic.ts)
 - `src/transpiler/` - AJS transpiler (source → AST)
 - `src/batteries/` - LM Studio integration (lazy init, model audit, vector search)
@@ -147,6 +148,7 @@ import { fromTS } from 'tjs-lang/lang/from-ts' // TypeScript transpilation
 import { AgentVM } from 'tjs-lang/vm' // VM only (smaller bundle)
 import { batteryAtoms } from 'tjs-lang/batteries' // LM Studio batteries
 import { dot, norm_sq } from 'tjs-lang/linalg' // SIMD linear-algebra kernels
+import { isColor, suggestColor } from 'tjs-lang/css' // CSS validators (verified predicates)
 // Editor integrations: 'tjs-lang/editors/monaco', '/codemirror', '/ace'
 
 // Self-contained BROWSER bundles — drop-in via import() from any CDN, no

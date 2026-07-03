@@ -50,6 +50,7 @@ This file is a navigation index for AI agents. It does not contain the docs them
 - `tjs-lang/eval` → `src/lang/eval.ts` — `Eval`, `SafeFunction`.
 - `tjs-lang/batteries` → `src/batteries/index.ts` — LM Studio integration (lazy, local-only).
 - `tjs-lang/linalg` → `src/linalg/index.tjs` — SIMD linear-algebra kernels (`dot`, `norm_sq`, `dot_at`, `norm_sq_at`).
+- `tjs-lang/css` → `src/css/index.ts` — CSS validators built from verified-safe predicates (`isColor`, `isColorValue`, `suggestColor`, `verifyCss`). Phase 1 = colors; the predicate-types thesis made real.
 
 ## Source map (for code-reading agents)
 

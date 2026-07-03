@@ -81,6 +81,13 @@ const targets: BuildTarget[] = [
     description: 'TS→TJS converter (needs typescript)',
   },
   {
+    name: 'tjs-css',
+    entry: './src/css/index.ts',
+    // Pulls the predicate engine (verify/compile/suggest), which uses acorn.
+    external: ['acorn', 'acorn-walk', 'tosijs-schema'],
+    description: 'CSS validators (verified predicates)',
+  },
+  {
     // Self-contained browser bundle: acorn + tosijs-schema INLINED (no
     // externals), so a single `import('https://cdn/.../tjs-browser.js')` works
     // on any CDN with zero import-map/config. TJS+AJS transpiler; no TypeScript.

@@ -44,6 +44,9 @@
       ],
       "batteries": [
         "./dist/src/batteries/index.d.ts"
+      ],
+      "css": [
+        "./dist/src/css/index.d.ts"
       ]
     }
   },
@@ -89,6 +92,11 @@
     "./linalg": {
       "bun": "./src/linalg/index.tjs",
       "default": "./dist/tjs-linalg.js"
+    },
+    "./css": {
+      "bun": "./src/css/index.ts",
+      "types": "./dist/src/css/index.d.ts",
+      "default": "./dist/tjs-css.js"
     },
     "./src": "./src/index.ts",
     "./editors/monaco": "./editors/monaco/ajs-monarch.js",
