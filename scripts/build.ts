@@ -88,6 +88,14 @@ const targets: BuildTarget[] = [
     description: 'CSS validators (verified predicates)',
   },
   {
+    name: 'tjs-schema',
+    entry: './src/schema/index.ts',
+    // tosijs-schema MUST be external: it holds the single global $predicate
+    // evaluator, so a bundled duplicate would register on the wrong instance.
+    external: ['acorn', 'acorn-walk', 'tosijs-schema'],
+    description: 'tosijs-schema + predicate support (pre-wired)',
+  },
+  {
     // Self-contained browser bundle: acorn + tosijs-schema INLINED (no
     // externals), so a single `import('https://cdn/.../tjs-browser.js')` works
     // on any CDN with zero import-map/config. TJS+AJS transpiler; no TypeScript.

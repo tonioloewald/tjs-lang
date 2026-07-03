@@ -47,6 +47,9 @@
       ],
       "css": [
         "./dist/src/css/index.d.ts"
+      ],
+      "schema": [
+        "./dist/src/schema/index.d.ts"
       ]
     }
   },
@@ -98,6 +101,11 @@
       "types": "./dist/src/css/index.d.ts",
       "default": "./dist/tjs-css.js"
     },
+    "./schema": {
+      "bun": "./src/schema/index.ts",
+      "types": "./dist/src/schema/index.d.ts",
+      "default": "./dist/tjs-schema.js"
+    },
     "./src": "./src/index.ts",
     "./editors/monaco": "./editors/monaco/ajs-monarch.js",
     "./editors/codemirror": "./editors/codemirror/ajs-language.js",
@@ -124,7 +132,10 @@
     "CLAUDE.md",
     "llms.txt"
   ],
-  "sideEffects": false,
+  "sideEffects": [
+    "./src/schema/index.ts",
+    "./dist/tjs-schema.js"
+  ],
   "repository": {
     "type": "git",
     "url": "https://github.com/tonioloewald/tjs-lang.git"
@@ -186,6 +197,6 @@
     "acorn": "^8.15.0",
     "acorn-loose": "^8.5.2",
     "acorn-walk": "^8.3.4",
-    "tosijs-schema": "^1.3.0"
+    "tosijs-schema": "^1.4.0"
   }
 }
