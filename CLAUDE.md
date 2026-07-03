@@ -94,7 +94,7 @@ bun run functions:serve     # Local functions emulator
 - `src/lang/emitters/js-wasm.ts` - JS bootstrap emitter for compiled wasm modules (one `WebAssembly.compile` per file, name→export-index table, type-aware wrappers)
 - `src/lang/module-loader.ts` - Transpile-time `.tjs`/`.ts`/`.js` module loader (Phase 0.75); used by cross-file `wasm function` composition
 - `src/linalg/` - `tjs-lang/linalg` stdlib subpath (f32x4 SIMD vector kernels)
-- `src/css/` - `tjs-lang/css` subpath: CSS validators built from verified-safe predicates (`predicates.ts` = canonical serializable source; `index.ts` = compiled validators + `suggestColor` + `verifyCss`). The predicate-types thesis made real — phase 1 is the color grammar; lengths/shorthands/recursive-structure are later phases (TODO #4)
+- `src/css/` - `tjs-lang/css` subpath: CSS validators built from verified-safe predicates. `predicates.ts` (colors), `dimensions.ts` (lengths/numbers/angles/times/keywords), `style.ts` (recursive style-object structure + the `$predicate` JSON-Schema builders `cssStyleSchema`/`cssColorSchema`); `index.ts` = compiled validators + `suggestColor` + `verifyCss` (verifies all clusters). The predicate-types thesis made real — phases 1/2/4 done (colors, dimensions, recursive structure + progressive-enhancement schema); shorthands (phase 3) + perf (phase 5) remain (TODO #4)
 - `src/types/` - Type system definitions (Type.ts, Generic.ts)
 - `src/transpiler/` - AJS transpiler (source → AST)
 - `src/batteries/` - LM Studio integration (lazy init, model audit, vector search)

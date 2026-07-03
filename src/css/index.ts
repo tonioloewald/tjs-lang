@@ -30,6 +30,7 @@ import {
   CSS_LENGTH_UNITS,
   CSS_GLOBAL_KEYWORDS,
 } from './dimensions'
+import { CSS_STYLE_SOURCE, CSS_STYLE_ENTRIES } from './style'
 
 export {
   CSS_COLOR_SOURCE,
@@ -42,11 +43,19 @@ export {
   CSS_LENGTH_UNITS,
   CSS_GLOBAL_KEYWORDS,
 } from './dimensions'
+export {
+  CSS_STYLE_SOURCE,
+  CSS_STYLE_ENTRIES,
+  cssStyleSchema,
+  cssColorSchema,
+  cssDimensionSchema,
+} from './style'
 
 /** Every predicate-source cluster the library ships, keyed for verify/drift. */
 const CSS_SOURCES: Record<string, string> = {
   color: CSS_COLOR_SOURCE,
   dimension: CSS_DIMENSION_SOURCE,
+  style: CSS_STYLE_SOURCE,
 }
 
 type ColorValidators = Record<
@@ -79,6 +88,21 @@ function dimensionValidators(): DimensionValidators {
     ) as DimensionValidators
   }
   return _dimension
+}
+
+type StyleValidators = Record<
+  (typeof CSS_STYLE_ENTRIES)[number],
+  (v: unknown) => boolean
+>
+let _style: StyleValidators | null = null
+function styleValidators(): StyleValidators {
+  if (!_style) {
+    _style = compilePredicate(
+      CSS_STYLE_SOURCE,
+      CSS_STYLE_ENTRIES as unknown as string[]
+    ) as StyleValidators
+  }
+  return _style
 }
 
 /** Is `v` a valid CSS color (named, hex, rgb/hsl, modern fn, or `var(--…)`)? */
@@ -117,6 +141,27 @@ export const isDimension = (v: unknown): boolean =>
 /** Is `v` a CSS-wide keyword (`inherit`/`initial`/`unset`/`revert`/`revert-layer`)? */
 export const isGlobalKeyword = (v: unknown): boolean =>
   dimensionValidators().isGlobalKeyword(v)
+
+// --- recursive style-object structure (phase 4) -----------------------------
+
+/**
+ * Is `v` a valid CSS **style object** — an open, recursive map of CSS properties
+ * to values and selectors/at-rules to nested style objects? Validates the whole
+ * structure (keys are properties or selectors; property values are style values,
+ * selector values are nested rules), recursively and fuel-bounded. This is the
+ * shape TS/JSON-Schema can't express.
+ */
+export const isStyleObject = (v: unknown): boolean =>
+  styleValidators().isStyleObject(v)
+/** Is `v` a valid leaf CSS value (a known color/dimension/keyword, else a non-empty string / finite number)? */
+export const isStyleValue = (v: unknown): boolean =>
+  styleValidators().isStyleValue(v)
+/** Is `k` a CSS property name (`color`, `--custom`, `-webkit-foo`)? */
+export const isCssProperty = (k: unknown): boolean =>
+  styleValidators().isCssProperty(k)
+/** Is `k` a selector or at-rule key (nests a rule) rather than a property? */
+export const isSelectorOrAtRule = (k: unknown): boolean =>
+  styleValidators().isSelectorOrAtRule(k)
 
 /**
  * Verify every CSS predicate-source cluster is predicate-safe (pure,
