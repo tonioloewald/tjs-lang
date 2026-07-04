@@ -179,6 +179,17 @@ export const isStyleObject = (v: unknown): boolean =>
 /** Is `v` a valid leaf CSS value (a known color/dimension/keyword, else a non-empty string / finite number)? */
 export const isStyleValue = (v: unknown): boolean =>
   styleValidators().isStyleValue(v)
+/**
+ * Property-AWARE leaf check: given the property name, tightens the closed value
+ * grammars (color/animation/transition) so `isStyleValueFor('color', 'notacolor')`
+ * is `false` while `isStyleValueFor('padding', 'anything')` stays permissive.
+ * This is what makes {@link isStyleObject} catch real value errors.
+ */
+export const isStyleValueFor = (prop: unknown, val: unknown): boolean =>
+  (styleValidators().isStyleValueFor as (p: unknown, v: unknown) => boolean)(
+    prop,
+    val
+  )
 /** Is `k` a CSS property name (`color`, `--custom`, `-webkit-foo`)? */
 export const isCssProperty = (k: unknown): boolean =>
   styleValidators().isCssProperty(k)

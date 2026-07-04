@@ -13,7 +13,12 @@
 import type { PredicateSchema } from '../lang/predicate-schema'
 import { CSS_DIMENSION_SOURCE } from './dimensions'
 
-const CSS_SHORTHAND_FRAGMENT = `
+/**
+ * The shorthand classifiers alone (no leaf cluster prepended). Exported so the
+ * combined style cluster (`style.ts`) can compose them for property-aware
+ * validation without re-including the dimension source.
+ */
+export const CSS_SHORTHAND_FRAGMENT = `
 var ANIM_TIMING = ['linear','ease','ease-in','ease-out','ease-in-out','step-start','step-end']
 var ANIM_DIRECTION = ['normal','reverse','alternate','alternate-reverse']
 var ANIM_FILLMODE = ['none','forwards','backwards','both']

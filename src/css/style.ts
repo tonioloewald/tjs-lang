@@ -21,9 +21,15 @@
 import type { PredicateSchema } from '../lang/predicate-schema'
 import { CSS_COLOR_SOURCE } from './predicates'
 import { CSS_DIMENSION_SOURCE } from './dimensions'
+import { CSS_SHORTHAND_FRAGMENT } from './shorthands'
 
 /** The recursive structure predicates, layered on the leaf clusters. */
 const CSS_STRUCTURE_FRAGMENT = `
+// Properties whose value grammar is CLOSED — a value that fails the leaf
+// predicate is genuinely invalid, so it's safe to enforce (normalized:
+// lower-cased, dashes stripped, so 'background-color' === 'backgroundColor').
+var CSS_COLOR_PROPS = ['color','backgroundcolor','bordercolor','bordertopcolor','borderrightcolor','borderbottomcolor','borderleftcolor','outlinecolor','caretcolor','columnrulecolor','textdecorationcolor','accentcolor','fill','stroke','floodcolor','stopcolor','lightingcolor']
+
 function isCssProperty(k) {
   // custom property (--foo) OR a standard/vendor-prefixed property (-webkit-…).
   return typeof k === 'string' && /^(--[a-z0-9-]+|-?[a-z][a-z0-9-]*)$/i.test(k)
@@ -41,11 +47,27 @@ function isStyleValue(val) {
   return isColorValue(val) || isDimension(val) || isGlobalKeyword(val)
       || isCssVar(val) || isCssCalc(val) || val.length > 0
 }
+function cssPropNorm(prop) {
+  return typeof prop === 'string' ? prop.toLowerCase().replace(/-/g, '') : ''
+}
+// Property-AWARE value check: tighten only the closed value grammars (color,
+// animation, transition) — a wrong value there is a real error; everything else
+// stays permissive (keyword-heavy props like width/display accept idents we don't
+// enumerate, so enforcing would false-reject valid CSS). Universal escapes
+// (global keyword / var() / calc()) are valid on any property.
+function isStyleValueFor(prop, val) {
+  if (isGlobalKeyword(val) || isCssVar(val) || isCssCalc(val)) { return true }
+  var p = cssPropNorm(prop)
+  if (CSS_COLOR_PROPS.includes(p)) { return isColorValue(val) }
+  if (p === 'animation') { return isAnimation(val) }
+  if (p === 'transition') { return isTransition(val) }
+  return isStyleValue(val)
+}
 function isStyleEntry(pair) {
   var k = pair[0]
   var val = pair[1]
   if (isSelectorOrAtRule(k)) { return isStyleObject(val) }
-  if (isCssProperty(k)) { return isStyleValue(val) }
+  if (isCssProperty(k)) { return isStyleValueFor(k, val) }
   return false
 }
 function isStyleObject(o) {
@@ -55,18 +77,25 @@ function isStyleObject(o) {
 `
 
 /**
- * The full CSS style predicate cluster: color + dimension leaves + recursive
- * structure. Entry = `isStyleObject` (last function). Serializable — this is
- * exactly what a `$predicate` schema carries.
+ * The full CSS style predicate cluster: color + dimension + shorthand leaves +
+ * recursive, property-aware structure. Entry = `isStyleObject` (last function).
+ * Serializable — this is exactly what a `$predicate` schema carries.
  */
 export const CSS_STYLE_SOURCE =
-  CSS_COLOR_SOURCE + '\n' + CSS_DIMENSION_SOURCE + '\n' + CSS_STRUCTURE_FRAGMENT
+  CSS_COLOR_SOURCE +
+  '\n' +
+  CSS_DIMENSION_SOURCE +
+  '\n' +
+  CSS_SHORTHAND_FRAGMENT +
+  '\n' +
+  CSS_STRUCTURE_FRAGMENT
 
 /** Entry predicates exported by the style cluster (for compile/verify). */
 export const CSS_STYLE_ENTRIES = [
   'isCssProperty',
   'isSelectorOrAtRule',
   'isStyleValue',
+  'isStyleValueFor',
   'isStyleObject',
 ] as const
 
