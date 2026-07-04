@@ -156,6 +156,43 @@ Built in `experiments/ambient/` (`probe.ts` + two demo tests, 7 green):
 Net: the probe→derive→verify→conform loop works end-to-end on a real host object;
 the open work is sourcing the used-surface scope (trace) and the behavioral half.
 
+### Real-browser findings (via haltija `/eval`, live Chrome — 2026-07-03)
+
+Confirmed against a real browser (not happy-dom), which sharpened three points:
+
+- **Builtins don't honor `new`.** `new HTMLDivElement()` → `TypeError: Failed to
+  construct 'HTMLDivElement': Illegal constructor`. You **don't need `new`** — the
+  shape is on the constructor's `.prototype` chain
+  (`HTMLDivElement → HTMLElement → Element → Node → EventTarget`), readable
+  statically, no instance, no side effects. Cleaner than instantiating.
+- **The manager vends the type.** `document.createElement('div').constructor ===
+  HTMLDivElement` (and `'a' → HTMLAnchorElement`, `'input' → HTMLInputElement`).
+  So a factory's output gives you _both_ a live example (real default values — the
+  "types are examples" leaf) _and_ the type identity (`.constructor` → name +
+  `.constructor.prototype` → the surface). Two complementary probe sources that
+  cross-check.
+- **Structural contracts are realm-portable; `instanceof` is not — proved.** An
+  `<iframe>`'s input: `instanceof HTMLInputElement` (top realm) = **false**, but
+  the structural predicate (`typeof x.value === 'string' && x.tagName === 'INPUT'`)
+  = **true**. This is the whole argument in one line: nominal DOM types are
+  realm-bound (the stand-in problem _is_ a realm problem), a derived structural
+  predicate crosses realms. (happy-dom couldn't show this — it shares one
+  `HTMLInputElement` across `Window`s; the real browser does.)
+- **Bonus — the stand-in already diverges from reality.** Real Chrome's `style`
+  has **678 own keys** (CSS properties as own props); happy-dom's had ~1 (on the
+  proto). Same object, wildly different probe result — exactly the conformance gap
+  the harness exists to catch, and proof that you must probe _reality_, not a
+  stand-in, to derive the contract.
+
+### Generalizes beyond the DOM — Node/Bun internals
+
+The probe is environment-agnostic: `process`, `Buffer`, `node:fs`, `Bun.*`,
+`globalThis` are ambient objects with the same shape. Derive a used-surface
+contract from the _real_ runtime and certify a stand-in — e.g. "does my `process`
+usage survive in the browser polyfill?" or "does Bun's `process` satisfy the
+contract my code derived from Node's?". It's the realm/stand-in problem one level
+up: cross-_runtime_ portability instead of cross-_frame_. Same tool.
+
 ## Open questions
 
 - Where's the line between "derive automatically" and "author, then verify
