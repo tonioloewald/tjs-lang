@@ -125,6 +125,37 @@ predicates_ (`tjs-lang/css`). So the loop is concrete and small:
   `isDimension`, …), so this exercises probe → contract → conformance end-to-end
   while reusing what phases 1–5 built.
 
+## Findings from the first spike (2026-07-03)
+
+Built in `experiments/ambient/` (`probe.ts` + two demo tests, 7 green):
+
+- **The `event.target` predicate is ordinary.** `hasValueTarget(e)` (reads
+  `e.target.value`, the thing TS rejects) verifies pure/safe, compiles native, and
+  is total — no throw on a missing target. The cast TS demands buys nothing a
+  predicate doesn't. (`event-target.demo.test.ts`.)
+- **Host objects hide their surface on the prototype.** Probed a real
+  `CSSStyleDeclaration` via happy-dom: `Object.keys(style)` is nearly empty, yet
+  `typeof style.color === 'string'` and `typeof style.setProperty === 'function'`.
+  So a naive own-enumerable probe derives an empty contract — **the probe must
+  walk the prototype chain** (`getOwnPropertyNames` per proto) or check a scoped
+  key list. `probeShape` now does both.
+- **Scope to the used surface — the full proto chain is huge.** An `HTMLElement`'s
+  chain is hundreds of props; a whole-shape contract would be enormous and
+  over-specified. A `keys: [...]` scope (the surface a program actually touches,
+  traced from the real env) is the right input. Demonstrated: a 4-key contract for
+  `style` verifies safe, accepts a real happy-dom `style` and a conforming hand
+  stub, rejects a plain object missing the methods.
+- **Reading accessors during a probe can have side effects** (`offsetWidth` forces
+  layout). A scoped key list bounds this; a stricter probe would read property
+  _descriptors_ rather than the values. Getters that throw are skipped.
+- **CSS convergence holds.** Leaf values off the real object ride the existing
+  `tjs-lang/css` predicates (`isColorValue(style.color)`), so shape-gate (contract)
+  + value-grammar (css) compose — the recursive style structure from CSS phase 4
+  is the same shape a DOM-derived contract would target.
+
+Net: the probe→derive→verify→conform loop works end-to-end on a real host object;
+the open work is sourcing the used-surface scope (trace) and the behavioral half.
+
 ## Open questions
 
 - Where's the line between "derive automatically" and "author, then verify
