@@ -38,6 +38,36 @@ That predicate is exactly what the verifier accepts (member access is pure;
 So the thought: instead of hand-writing these, could tooling **probe a real
 ambient environment and derive the predicate contracts automatically?**
 
+## The payoff: author against an environment you're not running in
+
+The headline use (user, 2026-07-03): **type-checking and autocompletion against a
+non-ambient runtime — editing in a Node-based toolchain while _targeting_ the
+browser** (or the reverse, or Electron, or a specific Bun). Normally you have no
+target environment to introspect, so you fall back to a hand-maintained
+`.d.ts` (`lib.dom`) that drifts from what the engine actually does.
+
+Because a probed contract is a **serializable predicate**, it decouples _capture_
+from _consumption_ in time and space: probe the real target once (locally or in
+CI), bottle the contract, and a Node-side editor/typechecker consumes it with **no
+target present**. It beats a `.d.ts` on three axes:
+
+- **Grounded in reality, not a drifting spec** — it's what the target _actually_
+  exposes (we watched happy-dom diverge 678 vs 1 own-keys from real Chrome; a
+  captured contract is the real number).
+- **Target-specific and versioned** — capture from the _actual_ target (this
+  browser, this Electron, this Bun), selectable/pinned, not a lowest-common-
+  denominator lib.
+- **The same artifact validates at runtime** — a `.d.ts` evaporates; a predicate
+  contract can stay as a boundary guard, and its enumerable leaves feed
+  `suggest()` completions with real values.
+
+Why it's plausible _here_ and not a research project: the contract format already
+exists (`$predicate` / `tjs-lang/schema`), the autocomplete provider already has
+an introspection hook (`getMembers` — point it at a captured contract instead of a
+live object), and this is exactly the metadata the pinned "argument-type-driven
+completion" item wants (e.g. `createElement`'s tag→type return shapes), sourced
+from reality instead of hand-authored. See [[introspection-autocomplete]].
+
 ## Contract vs. shim — the distinction that decides feasibility
 
 "A predicate that stands in for the DOM" can mean two very different things:
