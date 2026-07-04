@@ -31,6 +31,7 @@ import {
   CSS_GLOBAL_KEYWORDS,
 } from './dimensions'
 import { CSS_STYLE_SOURCE, CSS_STYLE_ENTRIES } from './style'
+import { CSS_SHORTHAND_SOURCE, CSS_SHORTHAND_ENTRIES } from './shorthands'
 
 export {
   CSS_COLOR_SOURCE,
@@ -50,12 +51,19 @@ export {
   cssColorSchema,
   cssDimensionSchema,
 } from './style'
+export {
+  CSS_SHORTHAND_SOURCE,
+  CSS_SHORTHAND_ENTRIES,
+  cssAnimationSchema,
+  cssTransitionSchema,
+} from './shorthands'
 
 /** Every predicate-source cluster the library ships, keyed for verify/drift. */
 const CSS_SOURCES: Record<string, string> = {
   color: CSS_COLOR_SOURCE,
   dimension: CSS_DIMENSION_SOURCE,
   style: CSS_STYLE_SOURCE,
+  shorthand: CSS_SHORTHAND_SOURCE,
 }
 
 type ColorValidators = Record<
@@ -103,6 +111,21 @@ function styleValidators(): StyleValidators {
     ) as StyleValidators
   }
   return _style
+}
+
+type ShorthandValidators = Record<
+  (typeof CSS_SHORTHAND_ENTRIES)[number],
+  (v: unknown) => boolean
+>
+let _shorthand: ShorthandValidators | null = null
+function shorthandValidators(): ShorthandValidators {
+  if (!_shorthand) {
+    _shorthand = compilePredicate(
+      CSS_SHORTHAND_SOURCE,
+      CSS_SHORTHAND_ENTRIES as unknown as string[]
+    ) as ShorthandValidators
+  }
+  return _shorthand
 }
 
 /** Is `v` a valid CSS color (named, hex, rgb/hsl, modern fn, or `var(--…)`)? */
@@ -162,6 +185,18 @@ export const isCssProperty = (k: unknown): boolean =>
 /** Is `k` a selector or at-rule key (nests a rule) rather than a property? */
 export const isSelectorOrAtRule = (k: unknown): boolean =>
   styleValidators().isSelectorOrAtRule(k)
+
+// --- order-flexible shorthands (phase 3) ------------------------------------
+
+/** Is `v` a valid CSS `animation` shorthand (comma-separated, order-free tokens)? */
+export const isAnimation = (v: unknown): boolean =>
+  shorthandValidators().isAnimation(v)
+/** Is `v` a valid CSS `transition` shorthand (comma-separated layers)? */
+export const isTransition = (v: unknown): boolean =>
+  shorthandValidators().isTransition(v)
+/** Is `v` a CSS `<easing-function>` (keyword, `cubic-bezier(…)`, `steps(…)`, `linear(…)`)? */
+export const isTimingFunction = (v: unknown): boolean =>
+  shorthandValidators().isTimingFunction(v)
 
 /**
  * Verify every CSS predicate-source cluster is predicate-safe (pure,
