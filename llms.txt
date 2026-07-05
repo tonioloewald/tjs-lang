@@ -52,6 +52,8 @@ This file is a navigation index for AI agents. It does not contain the docs them
 - `tjs-lang/linalg` → `src/linalg/index.tjs` — SIMD linear-algebra kernels (`dot`, `norm_sq`, `dot_at`, `norm_sq_at`).
 - `tjs-lang/css` → `src/css/index.ts` — CSS validators built from verified-safe predicates (`isColor`, `isColorValue`, `suggestColor`, `verifyCss`). Phase 1 = colors; the predicate-types thesis made real.
 - `tjs-lang/schema` → `src/schema/index.ts` — tosijs-schema pre-wired with `$predicate` support (auto-registers the predicate engine on import). Drop-in for `tosijs-schema`; needs `tosijs-schema@^1.4.0`.
+- `tjs-lang/runtime` → `src/lang/runtime.ts` — the TJS runtime (`createRuntime`, `installRuntime`, `Eq`/`NotEq`/`Is`/`IsNot`/`TypeOf`, `checkType`, `isMonadicError`) for emitted `.tjs` code + downstream integrations.
+- `tjs-lang/bun-plugin` → `src/bun-plugin/tjs-plugin.ts` — Bun `onLoad` plugin for native `.tjs` imports (bun-only; `preload` it in bunfig.toml).
 
 ## Source map (for code-reading agents)
 

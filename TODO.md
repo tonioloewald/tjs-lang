@@ -97,6 +97,41 @@ examples" ⇒ "contracts from observed values."
       real-`tosijs`-theme measurement (blocked by `theme.ts` needing `HTMLElement`).
 - [ ] **Generalize**: probe record → `verifyPredicate`-certified contract cluster + `suggest()` leaves + a `$predicate` schema + `.d.ts`-ish editor view.
 
+## tosijs 2.0 port feedback (DX log: `../tosijs/TJS-PORT-DX.md`, 2026-07-04)
+
+Real dogfooding of native `.tjs` from the tosijs port + `tosijs-ui` live-examples.
+Strongly validates the predicate-types/CSS/ambient direction (their §1b "ask the
+browser via `CSS.supports`" is the ambient-contracts idea, independently; folded
+into `docs/ambient-contracts.md`). Triaged items:
+
+- [x] **#2 export `tjs-lang/runtime` + `tjs-lang/bun-plugin`** — DONE 2026-07-05.
+      Subpaths + `tjs-runtime` bundle (26KB/8.9KB gz) so adoption is one line, not
+      reaching into `src/`. (`tjs-lang/runtime` = createRuntime/Eq/Is/checkType/…;
+      `tjs-lang/bun-plugin` = bun-only `.tjs` onLoad.)
+- [x] **#3 `TjsDate` error mentions `performance.now()`** — DONE 2026-07-05. The
+      `new Date()`/`Date.now()` messages now point at `performance.now()` for a
+      monotonic counter (timing/id) alongside `Timestamp.now()` for wall-clock.
+- [x] **#6 ship `tjs-lang/css`** — DONE this session (subpath + bundle); **needs an
+      npm publish** before tosijs can adopt it (currently repo-only, not in 0.8.7).
+- [x] **#8 `isStyleObject`/`shorthands.ts` standalone import** — resolved; builds
+      clean on current `main` (was a point-in-time issue pre-refactor).
+- [ ] **#9 surface predicate verification in the `tjs()` result** — a `Type` with a
+      pure predicate vs one calling `CSS.supports` (effectful) emit identically;
+      `result.types`/`warnings`/`metadata` are empty, so no "did this predicate
+      verify or fall back?" signal. **= the #5 warn/strict-on-fallback tail**, now
+      consumer-confirmed. Needs the warnings channel `preprocess`→`transpileToJS`.
+- [ ] **#7 `isCssProperty` is loose** — accepts `align-kontent` (any identifier).
+      Wants a closed property set (+`--custom`/vendor prefixes). Natural home for
+      the `CSS.supports`/ambient approach (§1b); the hand-set is the Node fallback.
+- [ ] **#1 `toBool`-per-conditional hot-path tax** (~10% runtime, ~19% size on
+      by-path). Skip the wrap when an operand is provably primitive/typed; and/or
+      document the "`TjsCompat` for hot internals" pattern prominently.
+- [ ] **#4 mode control is add-only** — want a per-mode `off` (e.g. `TjsStandard
+    off`); today it's `TjsCompat` + re-enable the rest.
+- [ ] **#5 (their numbering) `Eq` ToPrimitive fallback** — nice-to-have; consult
+      `Symbol.toPrimitive`/`valueOf` on objects, or an explicit `[TjsCompareValue]`
+      protocol. tosijs works around it (box over a `Number` wrapper), NOT blocking.
+
 ## "Safe is fast" — the campaign (measurement + propagation, not invention)
 
 The architecture already makes the safe path the fast path: boundary-level checks

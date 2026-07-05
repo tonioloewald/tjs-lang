@@ -88,6 +88,14 @@ const targets: BuildTarget[] = [
     description: 'CSS validators (verified predicates)',
   },
   {
+    name: 'tjs-runtime',
+    entry: './src/lang/runtime.ts',
+    // The TJS runtime (createRuntime/installRuntime/Eq/Is/checkType/…) for
+    // emitted .tjs code + downstream integrations. Uses tosijs-schema.
+    external: ['tosijs-schema'],
+    description: 'TJS runtime (Eq/Is/checkType/createRuntime)',
+  },
+  {
     name: 'tjs-schema',
     entry: './src/schema/index.ts',
     // tosijs-schema MUST be external: it holds the single global $predicate

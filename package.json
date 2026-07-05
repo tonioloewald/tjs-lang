@@ -50,6 +50,9 @@
       ],
       "schema": [
         "./dist/src/schema/index.d.ts"
+      ],
+      "runtime": [
+        "./dist/src/lang/runtime.d.ts"
       ]
     }
   },
@@ -105,6 +108,14 @@
       "bun": "./src/schema/index.ts",
       "types": "./dist/src/schema/index.d.ts",
       "default": "./dist/tjs-schema.js"
+    },
+    "./runtime": {
+      "bun": "./src/lang/runtime.ts",
+      "types": "./dist/src/lang/runtime.d.ts",
+      "default": "./dist/tjs-runtime.js"
+    },
+    "./bun-plugin": {
+      "bun": "./src/bun-plugin/tjs-plugin.ts"
     },
     "./src": "./src/index.ts",
     "./editors/monaco": "./editors/monaco/ajs-monarch.js",

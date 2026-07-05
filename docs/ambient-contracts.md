@@ -155,6 +155,33 @@ predicates_ (`tjs-lang/css`). So the loop is concrete and small:
   `isDimension`, …), so this exercises probe → contract → conformance end-to-end
   while reusing what phases 1–5 built.
 
+## Ask the environment directly — `CSS.supports` (tosijs-ui port finding)
+
+The tosijs 2.0 port arrived at the same idea from the other side (see
+`../tosijs/TJS-PORT-DX.md`): the strongest form of "probe reality" for CSS is to
+**ask the browser's own validator** — `CSS.supports(prop, value)` is exact, always
+current with the engine's real support (vendor prefixes, new features, the full
+`calc()`/`var()` grammar), and zero-maintenance. It closes the exact gap the
+hand-authored grammar has: `isCssProperty('align-kontent')` returns `true`
+(identifier-shaped), but `CSS.supports('align-kontent', …)` in a real browser
+returns `false`. Property names for autocomplete come from the same place (a
+throwaway element's `.style` keys / `CSSStyleDeclaration.prototype`).
+
+This sharpens the contract-vs-fallback split by **when** validation runs:
+
+- **Runtime, in a browser** → `CSS.supports` is ground truth (exact, free). A
+  `CSS.supports`-based check is predicate-_safe to run_ but references the ambient
+  `CSS` object, so it can't be statically _verified_ (it's effectful/ambient).
+- **Transpile-time / SSR / Node** → no `CSS`, so the hand-authored grammar
+  predicates (`isColor`/`isLength`/`isStyleValueFor`) are the portable fallback.
+
+So the ideal CSS-value check prefers `CSS.supports` when `typeof CSS !== 'undefined'`
+and falls back to the grammar predicate otherwise — which is exactly the
+probe-reality / portable-fallback pairing this whole note is about, one leaf down.
+**Caveat (verified, and it's the same "the stand-in lies" finding): happy-dom
+stubs `CSS.supports` to return `true` for everything** (even `width: banana`) — so
+tests can't rely on it; ground truth needs a real browser or a real CSS engine.
+
 ## Findings from the first spike (2026-07-03)
 
 Built in `experiments/ambient/` (`probe.ts` + two demo tests, 7 green):

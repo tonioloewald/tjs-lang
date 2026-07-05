@@ -151,6 +151,9 @@ import { batteryAtoms } from 'tjs-lang/batteries' // LM Studio batteries
 import { dot, norm_sq } from 'tjs-lang/linalg' // SIMD linear-algebra kernels
 import { isColor, suggestColor } from 'tjs-lang/css' // CSS validators (verified predicates)
 import { s, validate } from 'tjs-lang/schema' // tosijs-schema pre-wired with $predicate support
+import { createRuntime, Eq, isMonadicError } from 'tjs-lang/runtime' // TJS runtime (for emitted .tjs / integrations)
+// Bun: enable native .tjs imports — `preload = ["tjs-lang/bun-plugin"]` in bunfig.toml, or:
+import 'tjs-lang/bun-plugin' // registers the .tjs onLoad plugin + installs __tjs (bun-only)
 // Editor integrations: 'tjs-lang/editors/monaco', '/codemirror', '/ace'
 
 // Self-contained BROWSER bundles — drop-in via import() from any CDN, no

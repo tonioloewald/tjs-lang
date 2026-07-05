@@ -3599,11 +3599,12 @@ export function validateNoDate(source: string): string {
     {
       pattern: /\bnew\s+Date\b/,
       message:
-        'new Date() is not allowed in TjsDate mode. Use Timestamp.now() or Timestamp.from()',
+        'new Date() is not allowed in TjsDate mode. Use Timestamp.now()/Timestamp.from() for wall-clock dates, or performance.now() for a monotonic counter (timing, id generation)',
     },
     {
       pattern: /\bDate\.now\b/,
-      message: 'Date.now() is not allowed in TjsDate mode. Use Timestamp.now()',
+      message:
+        'Date.now() is not allowed in TjsDate mode. Use Timestamp.now() for a wall-clock date, or performance.now() for a monotonic counter (timing, id generation)',
     },
     {
       pattern: /\bDate\.parse\b/,
