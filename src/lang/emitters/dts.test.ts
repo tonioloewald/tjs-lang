@@ -166,6 +166,37 @@ export function greet(name = 'world'): '' {
     expect(dts).toContain('name?: string')
   })
 
+  // #11: a bare (untyped) param is a required *position* in a signature, not an
+  // optional *contract* — runtime `required:false` (wild-west JS) must not leak
+  // into dts optionality, or the auto .d.ts is INVALID TS (ts1016: an optional
+  // param can't precede a required one), not merely loose.
+  it('emits bare params as required positions (valid TS, not a?: before b)', () => {
+    const dts = generateDTS(
+      transpileToJS('export function f(a, b: 0) { return a }', {
+        runTests: false,
+      }),
+      'export function f(a, b: 0) { return a }'
+    )
+    expect(dts).toContain('f(a: any, b: number)')
+    expect(dts).not.toContain('a?:') // was `f(a?: any, b: number)` — invalid TS
+  })
+
+  it('keeps deliberate optionals (default / ?) optional', () => {
+    const src = "export function g(a = 1, b?: '') { return a }"
+    const dts = generateDTS(transpileToJS(src, { runTests: false }), src)
+    expect(dts).toContain('a?: number')
+    expect(dts).toContain('b?: string')
+  })
+
+  it('demotes an optional-before-required to required (no ts1016)', () => {
+    // `h(a = 1, b)` — a is a default (optional) but a required position (bare b)
+    // follows it, so a must be emitted required to keep the signature valid.
+    const src = 'export function h(a = 1, b) { return a }'
+    const dts = generateDTS(transpileToJS(src, { runTests: false }), src)
+    expect(dts).toContain('h(a: number, b: any)')
+    expect(dts).not.toContain('a?:')
+  })
+
   it('should handle multiple parameters and return types', () => {
     const source = `
 export function add(a: 0, b: 0): 0 {

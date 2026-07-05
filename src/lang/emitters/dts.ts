@@ -109,11 +109,30 @@ function functionDeclToTS(
   exported: boolean,
   isDefault: boolean
 ): string {
-  const params = Object.entries(info.params)
-    .map(([pName, p]) => {
-      const optional = !p.required
+  // DTS optionality is NOT the runtime `required` flag. Runtime `required` is a
+  // *contract* check: a bare (untyped) JS param is wild-west — `required:false`
+  // so the runtime doesn't reject omitting it — but it's still a required
+  // *position* in the signature, not an optional *contract*. A param is emitted
+  // optional only if (a) it's a DELIBERATE optional — a default value or `?`
+  // marker, both of which set `default` (a bare param has no `default` at all) —
+  // and (b) no required param follows it (TS forbids an optional param before a
+  // required one; ts1016). Deriving optionality from `!required` leaked wild-west
+  // omittability into the dts and produced INVALID TS (#11).
+  const entries = Object.entries(info.params)
+  const optionalFlags: boolean[] = new Array(entries.length)
+  let requiredFollows = false
+  for (let i = entries.length - 1; i >= 0; i--) {
+    const p = entries[i][1] as (typeof entries)[number][1] & {
+      default?: unknown
+    }
+    const deliberateOptional = !p.required && p.default !== undefined
+    optionalFlags[i] = deliberateOptional && !requiredFollows
+    if (!optionalFlags[i]) requiredFollows = true
+  }
+  const params = entries
+    .map(([pName, p], i) => {
       const tsType = typeDescriptorToTS(p.type)
-      return optional ? `${pName}?: ${tsType}` : `${pName}: ${tsType}`
+      return optionalFlags[i] ? `${pName}?: ${tsType}` : `${pName}: ${tsType}`
     })
     .join(', ')
 

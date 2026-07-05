@@ -57,6 +57,14 @@ export {
 // AST emitter
 export { transformFunction } from './emitters/ast'
 
+// .d.ts emitter — the express-controlled migration bridge for a TS importer
+// graph (see ../tosijs/TJS-PORT-DX.md). Needs to be reachable from `tjs-lang/lang`.
+export {
+  generateDTS,
+  typeDescriptorToTS,
+  type GenerateDTSOptions,
+} from './emitters/dts'
+
 // JS emitter (TJS -> JS)
 export { transpileToJS } from './emitters/js'
 export type {

@@ -127,10 +127,38 @@ into `docs/ambient-contracts.md`). Triaged items:
       by-path). Skip the wrap when an operand is provably primitive/typed; and/or
       document the "`TjsCompat` for hot internals" pattern prominently.
 - [ ] **#4 mode control is add-only** — want a per-mode `off` (e.g. `TjsStandard
-    off`); today it's `TjsCompat` + re-enable the rest.
+  off`); today it's `TjsCompat` + re-enable the rest.
 - [ ] **#5 (their numbering) `Eq` ToPrimitive fallback** — nice-to-have; consult
       `Symbol.toPrimitive`/`valueOf` on objects, or an explicit `[TjsCompareValue]`
       protocol. tosijs works around it (box over a `Number` wrapper), NOT blocking.
+- [x] **#10 export `generateDTS` from `tjs-lang/lang` — DONE 2026-07-05.** Added to
+      `src/lang/transpiler.ts` (`generateDTS`/`typeDescriptorToTS`/`GenerateDTSOptions`);
+      the `.d.ts` migration bridge is now reachable from the published `./lang` subpath.
+- [x] **#11 bare params emitted as optional `.d.ts` (INVALID TS) — FIXED 2026-07-05.**
+      Root cause: the dts derived optionality from the runtime `required` flag
+      (`optional = !required`), leaking JS "wild-west" omittability into the dts. But
+      **runtime `required` (a contract check — a bare JS param is `required:false`
+      so it isn't runtime-rejected) is a different question from dts optionality (a
+      deliberate optional _contract_).** Fix in `dts.ts:functionDeclToTS` (runtime
+      untouched, so TJS ⊇ JS preserved): a param is dts-optional iff it has a
+      `default`/`?` marker (both set `default`; a bare param has none) **and** no
+      required param follows it (TS forbids optional-before-required, ts1016). Now
+      `f(a, b: 0)` → `f(a: any, b: number)` (was `f(a?: any, …)` = invalid);
+      `h(a=1, b)` → `h(a: number, b: any)` (a demoted). Repro + 3 tests in
+      `dts.test.ts`. **Framing note (user):** judge TJS by its _native_ type system
+      (examples/predicates), not by `.d.ts` polish — `.d.ts` is an express-controlled
+      migration bridge (`declaration{}`/`// TS:`/keep `tsc`) — but the bridge must
+      emit _valid_ TS, which this restores.
+- [ ] **#12 dts emitter ignores arrow-const signatures** — `export const id = () =>`
+      emits `id: any`; only `function` decls get a typed signature. Convenience-path
+      roughness (per the reframing, not the yardstick), but worth honoring
+      annotations on arrow consts so porting needn't rewrite them as `function`s.
+
+**Reframing (user, 2026-07-05):** the end game is **replacing TS with a true JS
+superset** (examples-as-types, predicates-as-functions), NOT being a better `tsc`.
+So auto-`.d.ts` quality is a _migration-bridge convenience_, judged by correctness
+(must emit valid TS — #11) not polish; the yardstick is TJS's native type system
+(the predicate/CSS/ambient work). See `../tosijs/TJS-PORT-DX.md` header.
 
 ## "Safe is fast" — the campaign (measurement + propagation, not invention)
 
