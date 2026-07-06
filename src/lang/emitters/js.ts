@@ -682,18 +682,26 @@ export function transpileToJS(
 
   // Mirror unverifiable Type/Generic predicates into `warnings` (they still
   // compile — as plain functions — but aren't fuel-bounded / safe on untrusted
-  // data). The full per-predicate status is returned as `predicates`.
-  for (const p of preprocessed.predicates) {
-    if (!p.verified) {
-      warnings.push(
-        `${p.kind} '${
-          p.name
-        }': predicate is not verifiable, compiled as a plain function (not fuel-bounded, not safe on untrusted data)${
-          p.reason ? ` — ${p.reason.replace(/\s+/g, ' ').trim()}` : ''
-        }`
-      )
-    }
+  // data). The full per-predicate status is returned as `predicates`. Under the
+  // explicit `TjsStrict` opt-in these escalate to a transpile error (the subset
+  // invariant: warn by default, error only when the author asked for strict).
+  const unverified = preprocessed.predicates.filter((p) => !p.verified)
+  const predicateMsg = (p: PredicateVerification) =>
+    `${p.kind} '${
+      p.name
+    }': predicate is not verifiable, compiled as a plain function (not fuel-bounded, not safe on untrusted data)${
+      p.reason ? ` — ${p.reason.replace(/\s+/g, ' ').trim()}` : ''
+    }`
+  if (unverified.length && preprocessed.tjsModes.tjsStrict) {
+    throw new Error(
+      `TjsStrict: ${
+        unverified.length
+      } predicate(s) could not be verified:\n${unverified
+        .map((p) => `  ${predicateMsg(p)}`)
+        .join('\n')}`
+    )
   }
+  for (const p of unverified) warnings.push(predicateMsg(p))
   const predicateReport = preprocessed.predicates.length
     ? preprocessed.predicates
     : undefined

@@ -158,6 +158,7 @@ export function preprocess(
         tjsSafeEval: false,
         tjsNoVar: false,
         tjsSafeAssign: false,
+        tjsStrict: false,
       }
     : {
         tjsEquals: true,
@@ -168,6 +169,10 @@ export function preprocess(
         tjsSafeEval: false, // opt-in only (adds import)
         tjsNoVar: true,
         tjsSafeAssign: true,
+        // Native TJS has all modes on by default, but is NOT "strict" unless the
+        // author writes the `TjsStrict` directive — that opt-in is what escalates
+        // e.g. unverifiable predicates from a warning to a hard error.
+        tjsStrict: false,
       }
 
   // Safety: native TJS defaults to 'inputs' (runtime default),
@@ -203,7 +208,8 @@ export function preprocess(
     const directive = match[2]
 
     if (directive === 'TjsStrict') {
-      // Enable all TJS modes
+      // Enable all TJS modes + mark strict (the author's explicit opt-in, which
+      // escalates soft diagnostics like unverifiable predicates to hard errors).
       tjsModes.tjsEquals = true
       tjsModes.tjsClass = true
       tjsModes.tjsDate = true
@@ -211,6 +217,7 @@ export function preprocess(
       tjsModes.tjsNoVar = true
       tjsModes.tjsStandard = true
       tjsModes.tjsSafeAssign = true
+      tjsModes.tjsStrict = true
     } else if (directive === 'TjsCompat') {
       // Disable all TJS modes (JS-compatible)
       tjsModes.tjsEquals = false
@@ -519,6 +526,7 @@ export function parse(
           tjsSafeEval: false,
           tjsNoVar: false,
           tjsSafeAssign: false,
+          tjsStrict: false,
         } as TjsModes,
       }
 

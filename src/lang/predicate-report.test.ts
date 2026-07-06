@@ -52,3 +52,27 @@ describe('predicate verification is reported on the transpile result', () => {
     expect(tjs('function f() { return 1 }').predicates).toBeUndefined()
   })
 })
+
+describe('TjsStrict escalates an unverifiable predicate to a transpile error', () => {
+  const bad =
+    "Type Bad 'bad' { predicate(xs) { for (const x of xs) {} return true } }"
+
+  it('warns (does not throw) without the directive', () => {
+    const r = tjs(bad)
+    expect(r.predicates?.[0]?.verified).toBe(false)
+    expect(r.warnings?.length).toBeGreaterThan(0)
+  })
+
+  it('throws under TjsStrict, naming the predicate + reason', () => {
+    expect(() => tjs('TjsStrict\n' + bad)).toThrow(
+      /TjsStrict.*could not be verified/s
+    )
+    expect(() => tjs('TjsStrict\n' + bad)).toThrow(/Bad/)
+  })
+
+  it('does NOT throw under TjsStrict when the predicate verifies', () => {
+    const r = tjs("TjsStrict\nType Pos 'p' { predicate(x) { return x > 0 } }")
+    expect(r.predicates?.[0]?.verified).toBe(true)
+    expect(r.warnings).toBeUndefined()
+  })
+})

@@ -196,6 +196,13 @@ export interface TjsModes {
   tjsNoVar: boolean
   /** TjsSafeAssign: let declarations need an initializer or `: example` annotation; literal undefined/null/void 0 assigned to typed lets is flagged */
   tjsSafeAssign: boolean
+  /**
+   * TjsStrict: the author explicitly opted into strict semantics (via the
+   * `TjsStrict` directive). Distinct from "all modes on" (native TJS's default) —
+   * only `true` when the directive is present. Escalates soft diagnostics (e.g. an
+   * unverifiable `Type`/`Generic` predicate) from a warning to a transpile error.
+   */
+  tjsStrict: boolean
 }
 
 /**
