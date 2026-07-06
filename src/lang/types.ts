@@ -97,6 +97,23 @@ export interface TranspileWarning {
   source?: string
 }
 
+/**
+ * Per-declaration report of whether a `Type`/`Generic` predicate body verified
+ * as predicate-safe (→ compiled to a fuel-bounded, DoS-safe native guard) or
+ * fell back to a plain unverified function (still valid — TJS ⊇ JS — but not
+ * fuel-bounded or safe to run on untrusted data). Surfaced on the transpile
+ * result so tools can flag unverifiable predicates.
+ */
+export interface PredicateVerification {
+  /** The `Type` / `Generic` declaration name. */
+  name: string
+  kind: 'Type' | 'Generic'
+  /** True → verified + compiled to a native guard; false → raw-function fallback. */
+  verified: boolean
+  /** When `!verified`, the verifier's reason(s). */
+  reason?: string
+}
+
 /** Source map for debugging */
 export interface SourceMap {
   version: 3

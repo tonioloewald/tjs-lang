@@ -119,4 +119,5 @@ export type {
   TranspileOptions,
   TranspileResult,
   TranspileWarning,
+  PredicateVerification,
 } from './types'

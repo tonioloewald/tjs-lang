@@ -59,7 +59,11 @@ import {
   transformEqualityToStructural,
   transformIsOperators,
 } from '../parser-transforms'
-import type { TypeDescriptor, ParameterDescriptor } from '../types'
+import type {
+  TypeDescriptor,
+  ParameterDescriptor,
+  PredicateVerification,
+} from '../types'
 import { inferTypeFromValue, parseParameter } from '../inference'
 import { extractTests } from '../tests'
 import {
@@ -137,6 +141,14 @@ export interface TJSTranspileResult {
   metadata: Record<string, TJSTypeInfo>
   /** Any warnings during transpilation */
   warnings?: string[]
+  /**
+   * Per-`Type`/`Generic` predicate verification status: `verified` → compiled to
+   * a fuel-bounded, DoS-safe native guard; `!verified` → fell back to a plain
+   * function (valid, but not fuel-bounded / not safe on untrusted data — its
+   * `reason` is the verifier diagnostic). Unverified entries are also mirrored
+   * into `warnings`. Lets tools flag unverifiable predicates.
+   */
+  predicates?: PredicateVerification[]
   /** Generated test runner code (if tests were present) - DEPRECATED, tests now run at transpile time */
   testRunner?: string
   /** Number of tests extracted */
@@ -668,6 +680,24 @@ export function transpileToJS(
     filename,
   })
 
+  // Mirror unverifiable Type/Generic predicates into `warnings` (they still
+  // compile — as plain functions — but aren't fuel-bounded / safe on untrusted
+  // data). The full per-predicate status is returned as `predicates`.
+  for (const p of preprocessed.predicates) {
+    if (!p.verified) {
+      warnings.push(
+        `${p.kind} '${
+          p.name
+        }': predicate is not verifiable, compiled as a plain function (not fuel-bounded, not safe on untrusted data)${
+          p.reason ? ` — ${p.reason.replace(/\s+/g, ' ').trim()}` : ''
+        }`
+      )
+    }
+  }
+  const predicateReport = preprocessed.predicates.length
+    ? preprocessed.predicates
+    : undefined
+
   // Apply the same source-level equality transforms to extracted test/mock
   // bodies so they observe the module's TJS semantics (e.g. structural ==).
   // Test bodies are extracted as raw text before parse(), so they would
@@ -1158,6 +1188,7 @@ export function transpileToJS(
       metadata: allTypes,
       testResults,
       testCount: testResults?.length,
+      predicates: predicateReport,
     }
   }
 
@@ -1178,6 +1209,7 @@ export function transpileToJS(
     types: allTypes,
     metadata: allTypes, // alias for runtime compatibility
     warnings: warnings.length > 0 ? warnings : undefined,
+    predicates: predicateReport,
     testRunner: tests.length > 0 ? testRunner : undefined,
     testCount: tests.length > 0 ? tests.length : undefined,
     testResults,

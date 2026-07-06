@@ -8,6 +8,7 @@
 import * as acorn from 'acorn'
 import type { Program, FunctionDeclaration } from 'acorn'
 import { SyntaxError } from './types'
+import type { PredicateVerification } from './types'
 
 // Re-export types so external callers don't need to change imports
 export type {
@@ -124,6 +125,7 @@ export function preprocess(
   polymorphicNames: Set<string>
   extensions: Map<string, Set<string>>
   letAnnotations: Map<string, string>
+  predicates: PredicateVerification[]
 } {
   const originalSource = source
   let moduleSafety: 'none' | 'inputs' | 'all' | undefined
@@ -298,8 +300,12 @@ export function preprocess(
   // Generic Bar<T, U> { ... } -> const Bar = Generic(...)
   // Union Dir 'up' | 'down' -> const Dir = Union(...)
   // Enum Status { Pending, Active, Done } -> const Status = Enum(...)
-  source = transformTypeDeclarations(source)
-  source = transformGenericDeclarations(source)
+  // Collect per-predicate verification status (Type/Generic predicate bodies:
+  // verified → native guard, or fell back to a raw function). Surfaced on the
+  // transpile result so tools can flag unverifiable predicates.
+  const predicates: PredicateVerification[] = []
+  source = transformTypeDeclarations(source, predicates)
+  source = transformGenericDeclarations(source, predicates)
   source = transformFunctionPredicateDeclarations(source)
   source = transformUnionDeclarations(source)
   source = transformEnumDeclarations(source)
@@ -437,6 +443,7 @@ export function preprocess(
     polymorphicNames: polyResult.polymorphicNames,
     extensions: extResult.extensions,
     letAnnotations,
+    predicates,
   }
 }
 

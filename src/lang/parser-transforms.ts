@@ -42,7 +42,8 @@ import type {
   TokenizerState,
 } from './parser-types'
 import { extractJSValue } from './parser-params'
-import { emitVerifiedPredicate } from './predicate'
+import { emitVerifiedPredicate, formatPredicateDiagnostics } from './predicate'
+import type { PredicateVerification } from './types'
 
 /**
  * If a `Type`/`FunctionPredicate` predicate body verifies as predicate-safe
@@ -54,9 +55,11 @@ import { emitVerifiedPredicate } from './predicate'
  */
 function verifiedGuardExpr(
   name: string,
+  kind: 'Type' | 'Generic',
   params: string,
   body: string,
-  knownPredicates?: string[]
+  knownPredicates?: string[],
+  report?: PredicateVerification[]
 ): string | null {
   // Synthesize a named declaration the verifier can analyze. The body has
   // already been through the TJS equality/typeof rewrites (Eq/NotEq/Is/IsNot/
@@ -76,7 +79,19 @@ function verifiedGuardExpr(
     entry,
     knownPredicates ? { knownPredicates: new Set(knownPredicates) } : {}
   )
-  return r.safe ? r.code! : null
+  if (r.safe) {
+    report?.push({ name, kind, verified: true })
+    return r.code!
+  }
+  report?.push({
+    name,
+    kind,
+    verified: false,
+    // The verifier names the synthesized entry `__pred_<Name>`; surface the
+    // declaration name in the user-facing reason instead.
+    reason: formatPredicateDiagnostics(r.diagnostics).replace(/__pred_/g, ''),
+  })
+  return null
 }
 
 export function transformTryWithoutCatch(source: string): string {
@@ -1659,7 +1674,10 @@ function findRightOperandBoundary(
  *
  * When predicate + example: auto-generate type guard from example
  */
-export function transformTypeDeclarations(source: string): string {
+export function transformTypeDeclarations(
+  source: string,
+  report?: PredicateVerification[]
+): string {
   let result = ''
   let i = 0
 
@@ -1784,7 +1802,14 @@ export function transformTypeDeclarations(source: string): string {
           const body = predicateMatch[2].trim()
           const defaultArg = defaultValue ? `, ${defaultValue}` : ''
           const schemaGate = `globalThis.__tjs?.validate(${params}, globalThis.__tjs?.infer(${example}))`
-          const guard = verifiedGuardExpr(typeName, params, body)
+          const guard = verifiedGuardExpr(
+            typeName,
+            'Type',
+            params,
+            body,
+            undefined,
+            report
+          )
           const fn = guard
             ? `(__g => (${params}) => (${schemaGate} ? __g(${params}) : false))(${guard})`
             : `(${params}) => { if (!${schemaGate}) return false; ${body} }`
@@ -1794,7 +1819,14 @@ export function transformTypeDeclarations(source: string): string {
           const params = predicateMatch[1].trim()
           const body = predicateMatch[2].trim()
           const defaultArg = defaultValue ? `, undefined, ${defaultValue}` : ''
-          const guard = verifiedGuardExpr(typeName, params, body)
+          const guard = verifiedGuardExpr(
+            typeName,
+            'Type',
+            params,
+            body,
+            undefined,
+            report
+          )
           const fn = guard ?? `(${params}) => { ${body} }`
           result += `const ${typeName} = Type('${description}', ${fn}${defaultArg})`
         } else if (example) {
@@ -1987,7 +2019,10 @@ export function transformFunctionPredicateDeclarations(source: string): string {
  *   const Pair = Generic(['T', 'U'], (obj, checkT, checkU) => { ... }, '...')
  *   const Container = Generic(['T', ['U', '']], (obj, checkT, checkU) => { ... }, '...')
  */
-export function transformGenericDeclarations(source: string): string {
+export function transformGenericDeclarations(
+  source: string,
+  report?: PredicateVerification[]
+): string {
   let result = ''
   let i = 0
 
@@ -2088,9 +2123,11 @@ export function transformGenericDeclarations(source: string): string {
         const paramList = [valueParam, ...typeCheckParams].join(', ')
         const guard = verifiedGuardExpr(
           genericName,
+          'Generic',
           paramList,
           body,
-          typeCheckParams
+          typeCheckParams,
+          report
         )
         const fn = guard ?? `(${paramList}) => { ${body} }`
         result += `const ${genericName} = Generic([${typeParams.join(
