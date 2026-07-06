@@ -1,32 +1,39 @@
 # TJS-Lang TODO
 
-## ▶ Resume here — 0.8.7 IS published (verified 2026-07-02)
+## ▶ Resume here — 0.9.0 PREPPED, awaiting `npm publish` (user/fingerprint)
 
-`npm view tjs-lang version` → **0.8.7** (published; tag `v0.8.7` at HEAD, main ==
-origin). The previous "committed but unpublished" note is resolved. 0.8.7 bundles:
-the bare-assignment gating fix, the doc-comment line-start fix, and the tightened
-bare-assignment docs.
+Version bumped to **0.9.0** in package.json; **dist is built** (`bun run make`,
+0.9.0 inlined into `tjs-runtime`) and **validated end-to-end in Node from the
+packed tarball** (fresh `npm install`, NO typescript): `import 'tjs-lang'` works
+(gap #1 fix confirmed), and `tjs-lang/{lang,css,schema,runtime,vm}` +
+`editors/codemirror` all resolve; `tjs-lang/schema` batteries-included validates
+`cssColorSchema`/`cssStyleSchema`. **To publish: `npm publish` from this working
+dir** (no prepublishOnly hook, so dist must be present — it is; don't `rm -rf dist`
+first). Tag `v0.9.0` at the release commit.
 
-Remaining post-publish follow-ups (both cross-repo / manual — NOT verified done):
+**0.9.0 ships (25+ commits since 0.8.7):** predicate verification wired into
+`Type` **and** `Generic` (fuel-bounded DoS-safe native guards, graceful fallback)
 
-- [ ] Bump the **tosijs-ui** live-example CDN pin. As of 2026-07-02 it's at
-      `tjs-lang@0.8.2` in `../tosijs-ui/src/live-example/code-transform.ts`
-      (`TJS_CDN` / `FROM_TS_CDN`), and `../tosijs` bun.lock installs `@0.8.6`.
-      Bump both to `@0.8.7` and rebuild `../tosijs/docs/iife.js` (unblocks the
-      `b3d`/Babylon live example — the `B = BABYLON` bug). Correction: earlier
-      note said `code-transform.ts` was at `@0.8.6` and lived in `tosijs`; it's
-      actually `@0.8.2` and lives in `tosijs-ui`.
-- [ ] `bun run deploy:hosting` to refresh the playground/site with the tightened
-      docs (status unverified — check whether the live site already reflects 0.8.7).
+- ReDoS lint + per-predicate verification status on the `tjs()` result
+  (`result.predicates`/`warnings`); `$predicate` keyword + `createPredicateEvaluator`
+- **`tjs-lang/schema`** (tosijs-schema `1.4.0` pre-wired, batteries-included);
+  **`tjs-lang/css`** (full CSS predicate library — colors/dimensions/shorthands/
+  recursive structure + `$predicate` schema builders + property-aware validation,
+  ~0.5ms/theme); **`tjs-lang/runtime`** + **`tjs-lang/bun-plugin`** exports;
+  `generateDTS` reachable from `tjs-lang/lang` + the bare-param `.d.ts` fix (valid
+  TS); `editors/*` rebuilt-from-source (fixes tosijs-ui autocomplete blocker);
+  `TjsDate` `performance.now()` hint. **Mild breaking change:** `fromTS` no longer
+  re-exported from the main entry — use `tjs-lang/lang/from-ts`.
 
-**Session shipped (0.8.3→0.8.7):** predicate engine (#1–#4, #6 tjs-side) + `suggest()`;
-`==` is footgun-free (TJS + AJS, DoS-safe); self-contained browser bundles
-(`tjs-lang/browser` + `/browser/from-ts`, lazy-loads TS from esm.sh — the only CDN
-that serves it); from-ts no longer leaks raw TS into Type/Generic blocks; playground
-autocomplete rebuilt (scope model + introspection bridge, `editors/scope-symbols.ts`,
-`demo/src/introspection-bridge.ts`); bare-assignment auto-const gated to native TJS +
-first-assign-only; doc comments must start a line. Tags v0.8.4/v0.8.5 backfilled;
-v0.8.3 has no commit (published from an uncommitted tree — harmless gap).
+**Post-publish (unblocks the two experiments):**
+
+- [ ] tosijs port (`../tosijs`) — adopt `tjs-lang/css`/`schema`/`runtime`, the dts
+      bridge; bump its `tjs-lang` dep to `^0.9.0`.
+- [ ] tosijs-ui (`../tosijs-ui`) — adopt the CodeMirror autocomplete
+      (`tjsEditorExtension`/`tjsCompletionSource`, now shipped); bump the
+      live-example CDN pin (`code-transform.ts` `TJS_CDN`/`FROM_TS_CDN`, currently
+      `@0.8.2`) to `@0.9.0`.
+- [ ] `bun run deploy:hosting` to refresh the playground/site.
 
 **Big-picture next (see memories):** consolidate onto tosijs-ui's doc-system /
 `<tosi-example>` (transpile-option toggles, port the CodeMirror autocomplete, dogfood
