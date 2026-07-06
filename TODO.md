@@ -116,8 +116,7 @@ into `docs/ambient-contracts.md`). Triaged items:
 - [x] **#8 `isStyleObject`/`shorthands.ts` standalone import** — resolved; builds
       clean on current `main` (was a point-in-time issue pre-refactor).
 - [x] **#9 surface predicate verification in the `tjs()` result — DONE 2026-07-05.**
-      `result.predicates: PredicateVerification[]` (per-Type/Generic verified status
-      + reason) + unverified ones mirrored into `result.warnings`. See the #5
+      `result.predicates: PredicateVerification[]` (per-Type/Generic verified status + reason) + unverified ones mirrored into `result.warnings`. See the #5
       warn-on-fallback entry above for details. (Strict-mode escalation still open.)
 - [ ] **#7 `isCssProperty` is loose** — accepts `align-kontent` (any identifier).
       Wants a closed property set (+`--custom`/vendor prefixes). Natural home for
@@ -126,7 +125,7 @@ into `docs/ambient-contracts.md`). Triaged items:
       by-path). Skip the wrap when an operand is provably primitive/typed; and/or
       document the "`TjsCompat` for hot internals" pattern prominently.
 - [ ] **#4 mode control is add-only** — want a per-mode `off` (e.g. `TjsStandard
-  off`); today it's `TjsCompat` + re-enable the rest.
+off`); today it's `TjsCompat` + re-enable the rest.
 - [ ] **#5 (their numbering) `Eq` ToPrimitive fallback** — nice-to-have; consult
       `Symbol.toPrimitive`/`valueOf` on objects, or an explicit `[TjsCompareValue]`
       protocol. tosijs works around it (box over a `Number` wrapper), NOT blocking.

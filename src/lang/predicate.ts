@@ -800,7 +800,6 @@ export function createPredicateEvaluator(
           warned.add(source)
           const err = e instanceof Error ? e : new Error(String(e))
           if (onUnsafe) onUnsafe(source, err)
-          // eslint-disable-next-line no-console
           else
             console.warn(
               `[tjs-lang] $predicate not verifiable — failing closed: ${err.message}`
