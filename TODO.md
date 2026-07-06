@@ -1,15 +1,18 @@
 # TJS-Lang TODO
 
-## ▶ Resume here — 0.9.0 PREPPED, awaiting `npm publish` (user/fingerprint)
+## ▶ Resume here — 0.9.0 PUBLISHED (verified on npm 2026-07-06)
 
-Version bumped to **0.9.0** in package.json; **dist is built** (`bun run make`,
-0.9.0 inlined into `tjs-runtime`) and **validated end-to-end in Node from the
-packed tarball** (fresh `npm install`, NO typescript): `import 'tjs-lang'` works
-(gap #1 fix confirmed), and `tjs-lang/{lang,css,schema,runtime,vm}` +
-`editors/codemirror` all resolve; `tjs-lang/schema` batteries-included validates
-`cssColorSchema`/`cssStyleSchema`. **To publish: `npm publish` from this working
-dir** (no prepublishOnly hook, so dist must be present — it is; don't `rm -rf dist`
-first). Tag `v0.9.0` at the release commit.
+`npm view tjs-lang version` → **0.9.0** (published; tag `v0.9.0` at commit
+`577d543`, main == origin). Verified live from the real registry via a fresh Node
+`npm install` (NO typescript): `import 'tjs-lang'` works (gap #1 fix confirmed),
+and `tjs-lang/{lang,css,schema,runtime,vm}` + `editors/codemirror` resolve;
+`tjs-lang/schema` batteries-included validates `cssColorSchema`/`cssStyleSchema`
+end-to-end. Reminder for the next release: no `prepublishOnly` hook, so run
+`bun run make` before `npm publish` (dist must be present).
+
+Adoption of 0.9.0 in `../tosijs` and `../tosijs-ui` is owned by THOSE repos' own
+agents — don't drive their bumps from here; expect feedback to flow back via
+`../tosijs/TJS-PORT-DX.md` + `../tosijs-ui/TJS-FEEDBACK.md`.
 
 **0.9.0 ships (25+ commits since 0.8.7):** predicate verification wired into
 `Type` **and** `Generic` (fuel-bounded DoS-safe native guards, graceful fallback)
