@@ -1210,6 +1210,21 @@ export function transpileToJS(
       code = wasmBootstrap.code + '\n' + code
     }
     wasmCompiled = wasmBootstrap.results
+    // Surface WASM compile failures as warnings (they were only in
+    // `wasmCompiled` before, so a `wasm{}` block that can't compile fell back to
+    // its `fallback{}` SILENTLY — the worst failure mode for a perf feature).
+    // The full status stays on `wasmCompiled`; this just makes it visible.
+    for (const w of wasmCompiled) {
+      if (!w.success) {
+        warnings.push(
+          `wasm{} block '${
+            w.id
+          }' did not compile — running the fallback{} (JS)${
+            w.error ? `: ${w.error}` : ''
+          }`
+        )
+      }
+    }
   }
 
   return {

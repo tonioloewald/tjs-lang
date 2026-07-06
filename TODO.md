@@ -177,13 +177,14 @@ Second real consumer — the **live-example transpiler** + a first inline-WASM d
       session's editors-build-from-source fix (gap #2). The built
       `editors/codemirror/ajs-language.js` now exports them (grep=6). **Ships in the
       next release** — this was the blocker for tosijs-ui's runtime-value autocomplete.
-- [ ] **UI-#1 a `wasm{}` block that can't compile falls back SILENTLY** — no error/
-      warning; only tell is `globalThis.__tjs_wasm_N` undefined. Worst failure mode
-      for a perf feature. Same shape as the predicate-verification report just
-      shipped: surface wasm compile/fallback status (the result already has a
-      `wasmCompiled[]` field with `success`/`error` — verify it captures the
-      loop-nesting fallback and/or add a `console.warn` in dev). **Good first
-      follow-up** (mirrors the predicate work).
+- [x] **UI-#1 silent `wasm{}` fallback — FIXED 2026-07-06.** The signal already
+      existed on `result.wasmCompiled` (per-block `success:false` + `error`) but
+      wasn't where consumers look, so a block that couldn't compile fell back to
+      `fallback{}` (JS) silently. Now `transpileToJS` mirrors each failed block into
+      `result.warnings` (`"wasm{} block '<id>' did not compile — running the
+    fallback{} (JS): <reason>"`) — same pattern as the predicate report. Verified:
+      a triple-nested-loop block warns (`out is not a typed array parameter`), a
+      working SIMD block doesn't. Tests: `src/lang/wasm-fallback-warning.test.ts` (2).
 - [ ] **UI-#5 / UI-#1 document the supported `wasm{}` control-flow subset** and make
       anything outside it an error, not a silent fallback (triple-nested fill fell
       back invisibly; single-loop + scalar-return compile).
