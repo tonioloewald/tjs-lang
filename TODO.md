@@ -158,6 +158,41 @@ So auto-`.d.ts` quality is a _migration-bridge convenience_, judged by correctne
 (must emit valid TS — #11) not polish; the yardstick is TJS's native type system
 (the predicate/CSS/ambient work). See `../tosijs/TJS-PORT-DX.md` header.
 
+## tosijs-ui adoption feedback (`../tosijs-ui/TJS-FEEDBACK.md`, vs 0.8.7)
+
+Second real consumer — the **live-example transpiler** + a first inline-WASM demo.
+
+- [x] **UI-#7 stale `editors/codemirror` build (missing `tjsEditorExtension`/
+      `tjsCompletionSource`/`AutocompleteConfig`) — RESOLVED on `main`** by this
+      session's editors-build-from-source fix (gap #2). The built
+      `editors/codemirror/ajs-language.js` now exports them (grep=6). **Ships in the
+      next release** — this was the blocker for tosijs-ui's runtime-value autocomplete.
+- [ ] **UI-#1 a `wasm{}` block that can't compile falls back SILENTLY** — no error/
+      warning; only tell is `globalThis.__tjs_wasm_N` undefined. Worst failure mode
+      for a perf feature. Same shape as the predicate-verification report just
+      shipped: surface wasm compile/fallback status (the result already has a
+      `wasmCompiled[]` field with `success`/`error` — verify it captures the
+      loop-nesting fallback and/or add a `console.warn` in dev). **Good first
+      follow-up** (mirrors the predicate work).
+- [ ] **UI-#5 / UI-#1 document the supported `wasm{}` control-flow subset** and make
+      anything outside it an error, not a silent fallback (triple-nested fill fell
+      back invisibly; single-loop + scalar-return compile).
+- [ ] **UI-#2 async WASM has no awaitable ready signal** — bootstrap is
+      fire-and-forget `(async()=>{ … __tjs_wasm_N = fn })()`, so sync calls right
+      after transpile hit the JS fallback. Expose `__tjs_wasm_ready` / a
+      `tjsWasmReady()` / await-on-first-call.
+- [ ] **UI-#3 no public WASM enable/disable toggle** for the "WASM vs JS N×" demo
+      (only lever is nulling the internal `__tjs_wasm_N`). Add `setWasmEnabled(false)`.
+- [ ] **UI-#4 `wasm{}` int→float coercion is per-op → silent integer division**
+      (`x / w` with both i32 → int div, promotes only at the next op). Document
+      prominently + optionally lint mixed i32/i32 division feeding a float context.
+- [ ] **UI-#6 (biggest) `f32x4` has no compare/select/min/max** — arithmetic-only
+      intrinsics rule out data-dependent SIMD (SIMD Mandelbrot, clamp/saturate,
+      branch-free lane `if`). Add `f32x4_lt/le/gt/ge/eq` (→ mask), `f32x4_select`/
+      bitselect, `f32x4_min/max`. Positive data point: a branchless `f32x4` kernel
+      measured ~2.0× vs JS fallback — SIMD is where the leverage is, so this unlocks
+      the interesting kernels.
+
 ## "Safe is fast" — the campaign (measurement + propagation, not invention)
 
 The architecture already makes the safe path the fast path: boundary-level checks
