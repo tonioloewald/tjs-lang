@@ -328,6 +328,50 @@ shorter vectors with zeros.
 
 ---
 
+## Supported subset inside `wasm{}` / `wasm function`
+
+A `wasm{}` body is a **small, typed subset** of JS, not arbitrary code. Anything
+outside it makes an inline block fall back to its `fallback{}` (and now emits a
+warning — see § Runtime). Supported:
+
+- **Numeric locals:** `let x = <expr>` (i32 or f64, inferred from the initializer).
+- **`for` loops** with numeric bounds — `for (let i = 0; i < n; i += k) { … }` —
+  including **nested** loops. `break` / `continue` work.
+- **`if` / `else`** and the logical operators `&&` / `||`.
+- **Arithmetic / comparison** on i32 and f64 (see the coercion gotcha below).
+- **Typed-array element access** — `arr[i]` reads/writes, where `arr` is a typed-
+  array **parameter** (annotated `Float32Array` / `Float64Array` / `Int32Array` /
+  `Uint8Array`, marshaled to a pointer). A plain `[0.0]` example-typed param is a
+  JS array, **not** a wasm pointer — annotate it as `Float32Array`.
+- **Math intrinsics:** `sqrt`, `abs`, `floor`, `ceil`, `min`, `max`, `sin`, `cos`,
+  `log`, `exp`, `pow`.
+- **SIMD:** the full `f32x4_*` set (see § SIMD intrinsics).
+
+Not supported (→ fallback + warning): allocation (JS owns all memory), function
+calls other than the intrinsics above, closures, objects/strings, `try`/`catch`,
+`while` (use `for`). Watch the `result.warnings` / `result.wasmCompiled` to catch
+a block that fell back.
+
+### Numeric gotcha: i32 / i32 is **integer** division
+
+Types are inferred per operand, and coercion to f64 happens **per binary op**, at
+the _next_ operator — so a division where both operands are i32 (loop vars,
+`0`-annotated params, integer literals) does **integer** division and truncates,
+even in a float-heavy kernel:
+
+```tjs
+// x and w are i32 (loop var / param): x / w truncates to 0 for all x < w,
+// so (x / w - 0.5) is (0 - 0.5) everywhere — a constant, silently wrong.
+let bad = x / w - 0.5
+// Force float early by adding 0.0 to one operand:
+let fx = x + 0.0
+let good = fx / w - 0.5          // now f64 division
+```
+
+This bit a real Mandelbrot kernel. Rule of thumb: in a float kernel, seed your
+integer loop vars into f64 (`let fx = i + 0.0`) before dividing. (A compile-time
+lint for i32/i32 division feeding a float context is a tracked follow-up.)
+
 ## Current limitations (v1)
 
 These are real constraints worth knowing about. Most are scoped follow-ups

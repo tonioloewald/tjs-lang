@@ -185,9 +185,12 @@ Second real consumer — the **live-example transpiler** + a first inline-WASM d
 fallback{} (JS): <reason>"`) — same pattern as the predicate report. Verified:
       a triple-nested-loop block warns (`out is not a typed array parameter`), a
       working SIMD block doesn't. Tests: `src/lang/wasm-fallback-warning.test.ts` (2).
-- [ ] **UI-#5 / UI-#1 document the supported `wasm{}` control-flow subset** and make
-      anything outside it an error, not a silent fallback (triple-nested fill fell
-      back invisibly; single-loop + scalar-return compile).
+- [x] **UI-#5 document the supported `wasm{}` control-flow subset — DONE 2026-07-06.**
+      DOCS-WASM.md § "Supported subset" lists what's allowed (numeric locals, nested
+      `for` with numeric bounds, `if`/`else`, `&&`/`||`, typed-array element access,
+      math intrinsics, SIMD) and what falls back. Anything unsupported now _warns_
+      (UI-#1) rather than silently falling back. (Making it a hard _error_ instead
+      of a warned fallback would violate the `fallback{}` contract, so warn is right.)
 - [x] **UI-#2 awaitable WASM ready signal — DONE 2026-07-06.** Each module's
       instantiation promise is pushed onto `globalThis.__tjs_wasm_pending`, and
       `globalThis.__tjs_wasm_ready()` awaits them all — so `await __tjs_wasm_ready()`
@@ -200,9 +203,14 @@ fallback{} (JS): <reason>"`) — same pattern as the predicate report. Verified:
       poking internal `__tjs_wasm_<id>` globals. Added to the dispatch guard in
       `extractWasmBlocks` (`__tjs_wasm_enabled !== false && globalThis.<id> ? …`);
       test via a spy on the export. Both documented in DOCS-WASM.md § Runtime.
-- [ ] **UI-#4 `wasm{}` int→float coercion is per-op → silent integer division**
-      (`x / w` with both i32 → int div, promotes only at the next op). Document
-      prominently + optionally lint mixed i32/i32 division feeding a float context.
+- [~] **UI-#4 `wasm{}` int→float coercion is per-op → silent integer division**
+  (`x / w` with both i32 → int div, promotes only at the next op). **Documented
+  2026-07-06** (DOCS-WASM.md § "Numeric gotcha" — the footgun + `x + 0.0` fix).
+  **Still open: the auto-lint** — warn at compile when a `/` has two i32 operands
+  (division dispatch, `wasm.ts:1144`). Needs a wasm-compile _warnings_ channel
+  (the compiler only has `ctx.errors` → `wasmCompiled[].error`); add
+  `ctx.warnings` → per-block warnings → mirror into `result.warnings` (same
+  pattern as the silent-fallback surfacing).
 - [x] **UI-#6 `f32x4` compare/select/min/max — DONE 2026-07-06.** Added to the
       wasm compiler (`src/lang/wasm.ts`): `f32x4_min`/`f32x4_max` (arithmetic),
       `f32x4_eq`/`ne`/`lt`/`gt`/`le`/`ge` (return a v128 lane **mask**), and
