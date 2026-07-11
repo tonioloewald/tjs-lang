@@ -1,15 +1,14 @@
 # TJS-Lang TODO
 
-## ▶ Resume here — 0.9.1 PREPPED, awaiting `npm publish` (user/fingerprint)
+## ▶ Resume here — 0.9.1 SHIPPED (npm `latest` = 0.9.1, tag `v0.9.1` pushed)
 
-Version bumped to **0.9.1**; **dist built** (`bun run make`, 0.9.1 inlined into
-`tjs-runtime`) and **validated end-to-end in Node from the packed tarball** (fresh
+**0.9.1 is published** — npm `latest` = 0.9.1, git tag `v0.9.1` on the remote,
+`main` pushed. Release validated end-to-end in Node from the packed tarball (fresh
 `npm install`, NO typescript): `import 'tjs-lang'` works, `tjs-lang/{lang,css,
 schema,runtime,vm}` resolve, the predicate-verification report + `TjsStrict` throw
 work, a SIMD min/max kernel compiles to WASM, and the `__tjs_wasm_ready`/
-`__tjs_wasm_enabled` controls are in the emitted output. **To publish: `npm
-publish` from this working dir** (no prepublishOnly hook — dist must be present;
-it is; don't `rm -rf dist`). Tag `v0.9.1` at the release commit (done locally).
+`__tjs_wasm_enabled` controls are in the emitted output. **Next up is the
+"Post-publish" block below** (deploy:hosting + the two experiment adoptions).
 
 **0.9.1 ships (post-0.9.0):** `TjsStrict` escalates unverifiable predicates to a
 transpile error (+`tjsStrict` mode flag); the **full tosijs-ui WASM feedback** —
