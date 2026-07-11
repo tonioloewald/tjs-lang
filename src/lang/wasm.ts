@@ -1173,6 +1173,18 @@ function compileBinaryExpr(
     return [Op.f64_const, ...encodeF64(0)]
   }
 
+  // Lint the i32/i32 division footgun: `/` with two integer operands (loop vars,
+  // `0`-annotated params, int literals) does TRUNCATING integer division, and the
+  // coercion to f64 only happens at the *next* operator — so `x / w - 0.5` is
+  // silently `0 - 0.5` for all `x < w`. Warn once per block; add `+ 0.0` to an
+  // operand to force f64 division. (UI-#4 — this is a warning, not an error:
+  // integer division may be intended.)
+  if (node.operator === '/' && opType === 'i32') {
+    const msg =
+      "integer division: '/' with two i32 operands truncates (result coerces to f64 only at the next operator). Add `+ 0.0` to an operand to force f64 division."
+    if (!ctx.warnings.includes(msg)) ctx.warnings.push(msg)
+  }
+
   return [...leftCode, ...rightCode, opcode]
 }
 

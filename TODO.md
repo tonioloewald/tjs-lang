@@ -217,14 +217,14 @@ fallback{} (JS): <reason>"`) — same pattern as the predicate report. Verified:
       poking internal `__tjs_wasm_<id>` globals. Added to the dispatch guard in
       `extractWasmBlocks` (`__tjs_wasm_enabled !== false && globalThis.<id> ? …`);
       test via a spy on the export. Both documented in DOCS-WASM.md § Runtime.
-- [~] **UI-#4 `wasm{}` int→float coercion is per-op → silent integer division**
-  (`x / w` with both i32 → int div, promotes only at the next op). **Documented
-  2026-07-06** (DOCS-WASM.md § "Numeric gotcha" — the footgun + `x + 0.0` fix).
-  **Still open: the auto-lint** — warn at compile when a `/` has two i32 operands
-  (division dispatch, `wasm.ts:1144`). Needs a wasm-compile _warnings_ channel
-  (the compiler only has `ctx.errors` → `wasmCompiled[].error`); add
-  `ctx.warnings` → per-block warnings → mirror into `result.warnings` (same
-  pattern as the silent-fallback surfacing).
+- [x] **UI-#4 silent i32/i32 integer division — DONE 2026-07-06.** Documented
+      (DOCS-WASM.md § "Numeric gotcha" — footgun + `x + 0.0` fix) **and** auto-linted:
+      the wasm binary-expr compiler warns when `/` has two i32 operands (loop vars /
+      int literals), once per block, via the existing `ctx.warnings` channel — plumbed
+      through `compileBlocksToModule.warnings` → `generateWasmBootstrap.warnings` →
+      mirrored into `result.warnings`. Fires only on genuine i32/i32 (i32/f64 is fine).
+      Tests: `src/lang/wasm-intdiv-lint.test.ts` (3). **Closes the entire tosijs-ui WASM
+      feedback (UI-#1..#7).**
 - [x] **UI-#6 `f32x4` compare/select/min/max — DONE 2026-07-06.** Added to the
       wasm compiler (`src/lang/wasm.ts`): `f32x4_min`/`f32x4_max` (arithmetic),
       `f32x4_eq`/`ne`/`lt`/`gt`/`le`/`ge` (return a v128 lane **mask**), and

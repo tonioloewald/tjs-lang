@@ -1225,6 +1225,8 @@ export function transpileToJS(
         )
       }
     }
+    // Compile-time wasm lints (e.g. i32/i32 integer division — UI-#4).
+    for (const w of wasmBootstrap.warnings) warnings.push(`wasm{}: ${w}`)
   }
 
   return {

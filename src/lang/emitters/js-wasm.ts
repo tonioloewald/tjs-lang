@@ -19,6 +19,8 @@ export function generateWasmBootstrap(blocks: WasmBlock[]): {
     error?: string
     byteLength?: number
   }[]
+  /** Compile-time lints (e.g. i32/i32 integer-division) across all blocks. */
+  warnings: string[]
 } {
   const compiled = compileBlocksToModule(blocks)
 
@@ -40,7 +42,7 @@ export function generateWasmBootstrap(blocks: WasmBlock[]): {
   })
 
   if (compiled.exports.length === 0) {
-    return { code: '', results }
+    return { code: '', results, warnings: compiled.warnings }
   }
 
   // WAT comment block — one section per included function
@@ -113,5 +115,5 @@ for(const{id,n,c,m}of __wasmExports){
   // Strip the temporary _exportName field before returning to caller.
   const publicResults = results.map(({ _exportName: _, ...rest }) => rest)
 
-  return { code, results: publicResults }
+  return { code, results: publicResults, warnings: compiled.warnings }
 }
