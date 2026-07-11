@@ -1824,14 +1824,14 @@ function compileSIMDCall(
     case 'f32x4_div':
     case 'f32x4_min':
     case 'f32x4_max':
-    // comparisons: two v128 → a v128 lane mask (all-1s where true, all-0s else)
     case 'f32x4_eq':
     case 'f32x4_ne':
     case 'f32x4_lt':
     case 'f32x4_gt':
     case 'f32x4_le':
     case 'f32x4_ge': {
-      // Binary v128 op: f(a, b) → v128
+      // Binary v128 op: f(a, b) → v128. The comparisons (eq/ne/lt/gt/le/ge)
+      // return a v128 lane mask (all-1s where true, all-0s else).
       code.push(...compileExpression(args[0], ctx))
       code.push(...compileExpression(args[1], ctx))
       const opMap: Record<string, number> = {

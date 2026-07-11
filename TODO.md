@@ -1,18 +1,32 @@
 # TJS-Lang TODO
 
-## ▶ Resume here — 0.9.0 PUBLISHED (verified on npm 2026-07-06)
+## ▶ Resume here — 0.9.1 PREPPED, awaiting `npm publish` (user/fingerprint)
 
-`npm view tjs-lang version` → **0.9.0** (published; tag `v0.9.0` at commit
-`577d543`, main == origin). Verified live from the real registry via a fresh Node
-`npm install` (NO typescript): `import 'tjs-lang'` works (gap #1 fix confirmed),
-and `tjs-lang/{lang,css,schema,runtime,vm}` + `editors/codemirror` resolve;
-`tjs-lang/schema` batteries-included validates `cssColorSchema`/`cssStyleSchema`
-end-to-end. Reminder for the next release: no `prepublishOnly` hook, so run
-`bun run make` before `npm publish` (dist must be present).
+Version bumped to **0.9.1**; **dist built** (`bun run make`, 0.9.1 inlined into
+`tjs-runtime`) and **validated end-to-end in Node from the packed tarball** (fresh
+`npm install`, NO typescript): `import 'tjs-lang'` works, `tjs-lang/{lang,css,
+schema,runtime,vm}` resolve, the predicate-verification report + `TjsStrict` throw
+work, a SIMD min/max kernel compiles to WASM, and the `__tjs_wasm_ready`/
+`__tjs_wasm_enabled` controls are in the emitted output. **To publish: `npm
+publish` from this working dir** (no prepublishOnly hook — dist must be present;
+it is; don't `rm -rf dist`). Tag `v0.9.1` at the release commit (done locally).
 
-Adoption of 0.9.0 in `../tosijs` and `../tosijs-ui` is owned by THOSE repos' own
-agents — don't drive their bumps from here; expect feedback to flow back via
-`../tosijs/TJS-PORT-DX.md` + `../tosijs-ui/TJS-FEEDBACK.md`.
+**0.9.1 ships (post-0.9.0):** `TjsStrict` escalates unverifiable predicates to a
+transpile error (+`tjsStrict` mode flag); the **full tosijs-ui WASM feedback** —
+silent-`wasm{}`-fallback surfaced into `result.warnings` (UI-#1), `await
+__tjs_wasm_ready()` (UI-#2), `__tjs_wasm_enabled` toggle (UI-#3), i32/i32-division
+
+- supported-subset docs (UI-#4/#5), and **`f32x4` min/max/compare/select** for
+  data-dependent SIMD (UI-#6). No breaking changes.
+
+**Prev (0.9.0, published 2026-07-06):** predicate verification (Type/Generic guards,
+ReDoS lint, per-predicate report), `tjs-lang/css`, `tjs-lang/schema`,
+`tjs-lang/runtime` + `/bun-plugin`, dts bare-param fix + `generateDTS` export,
+editors-from-source. Mild breaking: `fromTS` off the main entry.
+
+Adoption in `../tosijs` and `../tosijs-ui` is owned by THOSE repos' agents — don't
+drive their bumps from here; feedback flows back via `TJS-PORT-DX.md` /
+`TJS-FEEDBACK.md`. 0.9.1 unblocks tosijs-ui's inline-WASM workstream.
 
 **0.9.0 ships (25+ commits since 0.8.7):** predicate verification wired into
 `Type` **and** `Generic` (fuel-bounded DoS-safe native guards, graceful fallback)
