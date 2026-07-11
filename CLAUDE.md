@@ -21,6 +21,11 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 bun run format              # ESLint fix + Prettier
 bun run test:fast           # Core tests (skips LLM & benchmarks)
 bun run make                # Full build (clean, format, grammars, editors, tsc, esbuild)
+                            #   Named `make`, NOT `build`, on purpose: `bun build` is a Bun
+                            #   builtin (the bundler). If a `build` script existed, `bun build`
+                            #   would silently run the builtin instead of the script while
+                            #   `bun run build` ran the script — an ever-present footgun where
+                            #   the two commands diverge. Don't add a `build` script.
 bun run build:editors       # Bundle editors/{codemirror,monaco,ace}/*.ts → published *.js
 bun run dev                 # Development server with file watcher
 bun run start               # Build demo + start dev server
