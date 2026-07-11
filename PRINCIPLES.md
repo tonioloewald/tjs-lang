@@ -122,3 +122,24 @@ but only from a TS-aware entry — never from `tjs-lang/lang`.)
 - **Guardable.** These are testable properties: keep a fixture of representative
   AJS/JS snippets asserted to `tjs()` (and the JS to options-off TJS) **without
   throwing**, so a regression is caught immediately.
+
+## North star: JSON-Schema + predicates as the single source of truth for types
+
+**A TJS type is canonically a JSON-Schema node, optionally carrying a `$predicate`
+(a verified-pure predicate cluster) for the computational part JSON-Schema can't
+express.** Examples-as-types, TS-derived types, `Type`/`Generic`, and
+`TypeDescriptor` are surface syntax or internal _projections_ of that one form —
+not competing sources of truth.
+
+Use it as a **decision lens**: for any architecture/impl choice, ask _"does this
+move types toward — or away from — being fully expressible as JSON-Schema +
+`$predicate`?"_ New type power should come from a JSON-Schema keyword or a
+predicate, never a bespoke `TypeDescriptor` field that can't round-trip. dts,
+validation, inference, and autocomplete should _derive from_ the canonical form.
+
+This is what makes types **data** (serializable, inspectable, cross-language). The
+unlock is a small, portable **reference VM for the predicate subset** (pure,
+loop-free, fuel-bounded — a few hundred lines in any language, ideally smaller than
+a JS runtime), so `$predicate` runs anywhere — carried as a **serialized AST**, not
+just source, so a non-JS runtime needn't embed a JS parser. Strategic (possibly
+post-1.0); full design in [`docs/type-system-north-star.md`](docs/type-system-north-star.md).

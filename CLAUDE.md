@@ -516,7 +516,8 @@ The CLI (`bun src/cli/tjs.ts run`) does NOT inject the test-block `expect` harne
 
 ### Additional Documentation
 
-- `PRINCIPLES.md` — **non-negotiable language invariants**: options-off TJS ⊇ JS, and TJS ⊇ AJS. A richer layer may do _more_ with the same source but must never make subset-legal code _illegal_ (e.g. un-runnable signature tests are inconclusive, not errors). Read before changing parser/transpiler acceptance or signature-test behavior; a subset violation is a bug.
+- `PRINCIPLES.md` — **non-negotiable language invariants**: options-off TJS ⊇ JS, and TJS ⊇ AJS. A richer layer may do _more_ with the same source but must never make subset-legal code _illegal_ (e.g. un-runnable signature tests are inconclusive, not errors). Read before changing parser/transpiler acceptance or signature-test behavior; a subset violation is a bug. Also carries the **type-system north star** (JSON-Schema + `$predicate` as the single source of truth for types — a decision lens).
+- `docs/type-system-north-star.md` — the north-star design note: JSON-Schema + `$predicate` as the canonical type representation; the decision lens ("closer to or further from?"); and the small portable predicate-VM (serialized-AST, cross-language) that unlocks it. Strategic (possibly post-1.0).
 - `llms.txt` — agent-facing navigation index (ships in npm bundle); points to docs and source entry points
 - `guides/footguns.md` — JS footguns TJS fixes (boxed-primitive truthiness, `==` coercion, `typeof null`, uninitialized `let`, etc.). Demo: `examples/js-footguns-fixed.tjs`.
 - `guides/playground-imports.md` — how the playground/dev-server resolves bare imports: TFS service worker, default JSDelivr `/+esm` routing, esm.sh allowlist for peer-dep packages (React), CDN hints (`jsdelivr/`, `esmsh/`, `unpkg/`, `github/`), and full-URL passthrough.
