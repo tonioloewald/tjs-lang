@@ -182,18 +182,24 @@ Second real consumer — the **live-example transpiler** + a first inline-WASM d
       wasn't where consumers look, so a block that couldn't compile fell back to
       `fallback{}` (JS) silently. Now `transpileToJS` mirrors each failed block into
       `result.warnings` (`"wasm{} block '<id>' did not compile — running the
-  fallback{} (JS): <reason>"`) — same pattern as the predicate report. Verified:
+fallback{} (JS): <reason>"`) — same pattern as the predicate report. Verified:
       a triple-nested-loop block warns (`out is not a typed array parameter`), a
       working SIMD block doesn't. Tests: `src/lang/wasm-fallback-warning.test.ts` (2).
 - [ ] **UI-#5 / UI-#1 document the supported `wasm{}` control-flow subset** and make
       anything outside it an error, not a silent fallback (triple-nested fill fell
       back invisibly; single-loop + scalar-return compile).
-- [ ] **UI-#2 async WASM has no awaitable ready signal** — bootstrap is
-      fire-and-forget `(async()=>{ … __tjs_wasm_N = fn })()`, so sync calls right
-      after transpile hit the JS fallback. Expose `__tjs_wasm_ready` / a
-      `tjsWasmReady()` / await-on-first-call.
-- [ ] **UI-#3 no public WASM enable/disable toggle** for the "WASM vs JS N×" demo
-      (only lever is nulling the internal `__tjs_wasm_N`). Add `setWasmEnabled(false)`.
+- [x] **UI-#2 awaitable WASM ready signal — DONE 2026-07-06.** Each module's
+      instantiation promise is pushed onto `globalThis.__tjs_wasm_pending`, and
+      `globalThis.__tjs_wasm_ready()` awaits them all — so `await __tjs_wasm_ready()`
+      before the first call guarantees the WASM path instead of racing the
+      fallback. `src/lang/emitters/js-wasm.ts` (bootstrap wrapper); tests
+      `src/lang/wasm-ready.test.ts` (ready resolves + multi-module accumulation).
+- [x] **UI-#3 public WASM enable/disable toggle — DONE 2026-07-06.**
+      `globalThis.__tjs_wasm_enabled = false` forces every block to its
+      `fallback{}` (JS) even when WASM is ready — the A/B benchmark lever without
+      poking internal `__tjs_wasm_<id>` globals. Added to the dispatch guard in
+      `extractWasmBlocks` (`__tjs_wasm_enabled !== false && globalThis.<id> ? …`);
+      test via a spy on the export. Both documented in DOCS-WASM.md § Runtime.
 - [ ] **UI-#4 `wasm{}` int→float coercion is per-op → silent integer division**
       (`x / w` with both i32 → int div, promotes only at the next op). Document
       prominently + optionally lint mixed i32/i32 division feeding a float context.

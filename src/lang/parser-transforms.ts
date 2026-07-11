@@ -260,7 +260,10 @@ export function extractWasmBlocks(source: string): {
           ? `globalThis.${block.id}(${captureArgs})`
           : `globalThis.${block.id}()`
 
-      const dispatch = `(globalThis.${block.id} ? ${wasmCall} : (() => {${fallbackCode}})())`
+      // `globalThis.__tjs_wasm_enabled === false` forces the fallback path even
+      // when the WASM is instantiated — a public toggle for A/B benchmarking
+      // (WASM vs JS) without poking the internal `__tjs_wasm_<id>` globals (UI-#3).
+      const dispatch = `((globalThis.__tjs_wasm_enabled !== false && globalThis.${block.id}) ? ${wasmCall} : (() => {${fallbackCode}})())`
 
       result += dispatch
       i = matchEnd

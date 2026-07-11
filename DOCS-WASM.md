@@ -40,6 +40,27 @@ function double(arr: Float32Array, len: 0) {
 
 See `docs/WASM-QUICKSTART.md` for a thorough walkthrough.
 
+### Runtime: readiness, silent-fallback warnings, and the enable toggle
+
+Inline `wasm{}` blocks instantiate **asynchronously** (`WebAssembly.compile` +
+`instantiate` in a fire-and-forget IIFE), so code that runs synchronously right
+after transpile+eval takes the JS `fallback{}` — the module isn't ready yet.
+Three runtime controls (all on `globalThis`):
+
+- **`await globalThis.__tjs_wasm_ready()`** — resolves once every emitted module's
+  WASM has instantiated. Await it before your first call to guarantee the WASM
+  path instead of racing the fallback. (Modules push their instantiation promise
+  onto `globalThis.__tjs_wasm_pending`; `__tjs_wasm_ready()` awaits them all.)
+- **`globalThis.__tjs_wasm_enabled = false`** — forces every block to run its
+  `fallback{}` (JS) even when the WASM is instantiated. A public A/B toggle for
+  "WASM vs JS, N×" benchmarking without poking the internal `__tjs_wasm_<id>`
+  globals. Set back to `true` (or delete) to re-enable.
+- **Silent-fallback is now surfaced.** A block that _can't compile_ (unsupported
+  construct) still falls back — but that used to be invisible. The failure is now
+  in `result.wasmCompiled` (per-block `success:false` + `error`) **and** mirrored
+  into `result.warnings` (`"wasm{} block '<id>' did not compile — running the
+fallback{} (JS): <reason>"`), so it no longer looks like WASM "worked."
+
 ### Top-level declarations
 
 The Phase 1+ form. Declared with explicit parameters and return type, at module

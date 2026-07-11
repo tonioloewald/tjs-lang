@@ -72,7 +72,9 @@ export function generateWasmBootstrap(blocks: WasmBlock[]): {
   const anyNeedsMemory = compiled.needsMemory
 
   const code = `${watComments}
-;(async()=>{
+;(globalThis.__tjs_wasm_pending??=[]);
+globalThis.__tjs_wasm_ready??=(()=>Promise.all(globalThis.__tjs_wasm_pending));
+globalThis.__tjs_wasm_pending.push((async()=>{
 const __wasmExports=[${exportData}];
 const __wasmModuleB64=${JSON.stringify(moduleBase64)};
 const __b64ToBytes=s=>{const b=atob(s),a=new Uint8Array(b.length);for(let i=0;i<b.length;i++)a[i]=b.charCodeAt(i);return a};
@@ -105,7 +107,7 @@ for(const{id,n,c,m}of __wasmExports){
         if(a.buffer===__wasmMem.buffer) continue;
         const ab=new Uint8Array(a.buffer,a.byteOffset,a.byteLength);off=(off+15)&~15;ab.set(mv.slice(off,off+ab.length));off+=ab.length}}
     return r};
-}})();
+}})().catch(()=>{}));
 `.trim()
 
   // Strip the temporary _exportName field before returning to caller.
