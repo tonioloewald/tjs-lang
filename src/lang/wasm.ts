@@ -262,6 +262,19 @@ const SimdOp = {
   f32x4_sub: 0xe5,
   f32x4_mul: 0xe6,
   f32x4_div: 0xe7,
+  f32x4_min: 0xe8,
+  f32x4_max: 0xe9,
+
+  // f32x4 comparisons → v128 lane mask (all-1s / all-0s per lane)
+  f32x4_eq: 0x41,
+  f32x4_ne: 0x42,
+  f32x4_lt: 0x43,
+  f32x4_gt: 0x44,
+  f32x4_le: 0x45,
+  f32x4_ge: 0x46,
+
+  // Lane-wise blend: bitselect(a, b, mask) — bits of a where mask=1, else b.
+  v128_bitselect: 0x52,
 } as const
 
 /** Reverse lookup for SIMD opcodes */
@@ -1808,8 +1821,17 @@ function compileSIMDCall(
     case 'f32x4_add':
     case 'f32x4_sub':
     case 'f32x4_mul':
-    case 'f32x4_div': {
-      // Binary v128 op: f32x4_add(a, b) → v128
+    case 'f32x4_div':
+    case 'f32x4_min':
+    case 'f32x4_max':
+    // comparisons: two v128 → a v128 lane mask (all-1s where true, all-0s else)
+    case 'f32x4_eq':
+    case 'f32x4_ne':
+    case 'f32x4_lt':
+    case 'f32x4_gt':
+    case 'f32x4_le':
+    case 'f32x4_ge': {
+      // Binary v128 op: f(a, b) → v128
       code.push(...compileExpression(args[0], ctx))
       code.push(...compileExpression(args[1], ctx))
       const opMap: Record<string, number> = {
@@ -1817,8 +1839,33 @@ function compileSIMDCall(
         f32x4_sub: SimdOp.f32x4_sub,
         f32x4_mul: SimdOp.f32x4_mul,
         f32x4_div: SimdOp.f32x4_div,
+        f32x4_min: SimdOp.f32x4_min,
+        f32x4_max: SimdOp.f32x4_max,
+        f32x4_eq: SimdOp.f32x4_eq,
+        f32x4_ne: SimdOp.f32x4_ne,
+        f32x4_lt: SimdOp.f32x4_lt,
+        f32x4_gt: SimdOp.f32x4_gt,
+        f32x4_le: SimdOp.f32x4_le,
+        f32x4_ge: SimdOp.f32x4_ge,
       }
       code.push(...encodeSIMD(opMap[name]))
+      return code
+    }
+
+    case 'f32x4_select': {
+      // Branch-free lane blend: f32x4_select(mask, a, b) → a where the mask lane
+      // is true (all-1s, e.g. from a compare), b where false. Maps to
+      // v128.bitselect(a, b, mask) — bits of a where mask=1, of b where mask=0.
+      if (args.length !== 3) {
+        ctx.errors.push(
+          `f32x4_select expects (mask, a, b) — 3 args, got ${args.length}`
+        )
+        return [Op.f64_const, ...encodeF64(0)]
+      }
+      code.push(...compileExpression(args[1], ctx)) // a (bitselect v1)
+      code.push(...compileExpression(args[2], ctx)) // b (bitselect v2)
+      code.push(...compileExpression(args[0], ctx)) // mask
+      code.push(...encodeSIMD(SimdOp.v128_bitselect))
       return code
     }
 

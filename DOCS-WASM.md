@@ -109,9 +109,27 @@ f64 and cast on the JS side.
 v1 of the wasm-library plan **requires SIMD baseline**. All the f32x4
 intrinsics from inline blocks work in `wasm function` bodies:
 
-`f32x4_splat`, `f32x4_load`, `f32x4_store`, `f32x4_extract_lane`,
-`f32x4_replace_lane`, `f32x4_add`, `f32x4_sub`, `f32x4_mul`, `f32x4_div`,
-`f32x4_neg`, `f32x4_sqrt`.
+- **memory / lanes:** `f32x4_splat`, `f32x4_load`, `f32x4_store`,
+  `f32x4_extract_lane`, `f32x4_replace_lane`
+- **arithmetic:** `f32x4_add`, `f32x4_sub`, `f32x4_mul`, `f32x4_div`,
+  `f32x4_neg`, `f32x4_sqrt`, `f32x4_min`, `f32x4_max`
+- **comparisons** (return a v128 lane **mask** — all-1s where true, all-0s else):
+  `f32x4_eq`, `f32x4_ne`, `f32x4_lt`, `f32x4_gt`, `f32x4_le`, `f32x4_ge`
+- **branch-free blend:** `f32x4_select(mask, a, b)` — picks lane `a` where the
+  mask lane is true, `b` where false (compiles to `v128.bitselect`).
+
+The compare → mask → `select` trio is what makes **data-dependent** SIMD possible
+(clamp/saturate, conditional blends, per-lane escape masking à la SIMD Mandelbrot)
+— not just branchless arithmetic. Example, a branch-free clamp:
+
+```tjs
+let lo = f32x4_splat(0.0)
+let hi = f32x4_splat(1.0)
+let clamped = f32x4_min(f32x4_max(v, lo), hi)          // via min/max
+// or, equivalently, via a mask + select:
+let tooBig = f32x4_gt(v, hi)                            // → lane mask
+let out = f32x4_select(tooBig, hi, clamped)            // hi where v>hi, else clamped
+```
 
 Lengths must be multiples of 4 for SIMD loops. Callers pad as needed.
 

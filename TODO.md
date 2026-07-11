@@ -182,7 +182,7 @@ Second real consumer — the **live-example transpiler** + a first inline-WASM d
       wasn't where consumers look, so a block that couldn't compile fell back to
       `fallback{}` (JS) silently. Now `transpileToJS` mirrors each failed block into
       `result.warnings` (`"wasm{} block '<id>' did not compile — running the
-    fallback{} (JS): <reason>"`) — same pattern as the predicate report. Verified:
+  fallback{} (JS): <reason>"`) — same pattern as the predicate report. Verified:
       a triple-nested-loop block warns (`out is not a typed array parameter`), a
       working SIMD block doesn't. Tests: `src/lang/wasm-fallback-warning.test.ts` (2).
 - [ ] **UI-#5 / UI-#1 document the supported `wasm{}` control-flow subset** and make
@@ -197,12 +197,17 @@ Second real consumer — the **live-example transpiler** + a first inline-WASM d
 - [ ] **UI-#4 `wasm{}` int→float coercion is per-op → silent integer division**
       (`x / w` with both i32 → int div, promotes only at the next op). Document
       prominently + optionally lint mixed i32/i32 division feeding a float context.
-- [ ] **UI-#6 (biggest) `f32x4` has no compare/select/min/max** — arithmetic-only
-      intrinsics rule out data-dependent SIMD (SIMD Mandelbrot, clamp/saturate,
-      branch-free lane `if`). Add `f32x4_lt/le/gt/ge/eq` (→ mask), `f32x4_select`/
-      bitselect, `f32x4_min/max`. Positive data point: a branchless `f32x4` kernel
-      measured ~2.0× vs JS fallback — SIMD is where the leverage is, so this unlocks
-      the interesting kernels.
+- [x] **UI-#6 `f32x4` compare/select/min/max — DONE 2026-07-06.** Added to the
+      wasm compiler (`src/lang/wasm.ts`): `f32x4_min`/`f32x4_max` (arithmetic),
+      `f32x4_eq`/`ne`/`lt`/`gt`/`le`/`ge` (return a v128 lane **mask**), and
+      `f32x4_select(mask, a, b)` (branch-free blend → `v128.bitselect`). The
+      compare→mask→select trio unlocks **data-dependent SIMD** (clamp/saturate,
+      per-lane escape masking, SIMD Mandelbrot) — previously impossible with the
+      arithmetic-only set. Routed via the existing `startsWith('f32x4_')` dispatch;
+      all `f32x4_*` return `v128`. Executed as real WASM + verified correct
+      (`src/lang/wasm-simd-ops.test.ts`, 7 — max/min, each comparison through
+      select, clamp). Documented in DOCS-WASM.md with the clamp example. Ships in
+      the NEXT release (0.9.0 already out).
 
 ## "Safe is fast" — the campaign (measurement + propagation, not invention)
 
