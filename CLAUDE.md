@@ -11,7 +11,6 @@
 > voice concerns, flag inconsistencies, and suggest improvements as you work. Continuous
 > improvement is the goal — see the repo's `CONTRIBUTING.md`.
 
-
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
 ## Project Overview
@@ -65,12 +64,15 @@ bun src/cli/tjs.ts test <file>     # Run inline tests in a TJS file
 
 # Type checking & other
 bun run typecheck           # tsc --noEmit (type check without emitting)
+bun run lint                # ESLint, no --fix (format does the fixing)
 bun run test:llm            # LM Studio integration tests
 bun run bench               # Vector search benchmarks
 bun run docs                # Generate documentation
 
-# Build standalone CLI binaries
-bun run build:cli           # Compiles tjs + tjsx to dist/
+# Partial builds (all subsumed by `make`; useful when iterating on one target)
+bun run build:bundles       # esbuild only — scripts/build.ts → dist/*.js
+bun run build:demo          # Playground/demo → .demo/ (Firebase hosting root)
+bun run build:cli           # Standalone binaries: tjs + tjsx → dist/
 
 # Compatibility testing — see scripts/compat-*.ts (zod, effect, radash, superstruct, ts-pattern, kysely)
 
@@ -97,6 +99,12 @@ bun run functions:serve     # Local functions emulator
 - `src/builder.ts` - TypedBuilder fluent API (~754 lines / ~19KB)
 - `src/lang/parser.ts` - TJS parser with colon shorthand, unsafe markers, return type extraction
 - `src/lang/parser-transforms.ts` - Type, Generic, and FunctionPredicate block/function form transforms
+- `src/lang/core.ts` - Transpiler core **without** the TypeScript dependency; import from here (not `./index`) to avoid pulling in the TS compiler
+- `src/lang/dialect.ts` - `dialect` resolution + the canonical extension→dialect helpers (`dialectForFilename` / `sourceKindForFilename`); the modes-on/off decision lives here
+- `src/lang/tests.ts` - Inline `test '…' { }` block extraction and runner generation
+- `src/lang/docs.ts` - Doc generation (walk source in order, signature IS the docs)
+- `src/lang/schema.ts` - `Schema(x)` — infer-by-example over tosijs-schema, plus fixed `typeof` (`null` → `'null'`)
+- `src/lang/metadata-cache.ts` - IndexedDB cache of transpile results (playground/autocomplete fast path)
 - `src/lang/emitters/ast.ts` - Emits Agent99 AST from parsed source
 - `src/lang/emitters/js.ts` - Emits JavaScript with `__tjs` metadata
 - `src/lang/emitters/from-ts.ts` - TypeScript to TJS/JS transpiler with class metadata extraction
@@ -308,6 +316,17 @@ AJS expressions behave differently from JavaScript in several important ways:
 Coverage targets: 98% lines on `src/vm/runtime.ts` (security-critical), 80%+ overall.
 
 **Bug fix rule:** Always create a reproduction test case before fixing a bug.
+
+### Guardrail Tests (don't "fix" these by editing the test)
+
+A handful of tests encode promises rather than behavior. If one goes red, the
+change broke an invariant — reason about the invariant first; updating the
+expectation is almost always the wrong move.
+
+- `src/lang/subset-invariant.test.ts` — JS ⊆ TJS (modes off) and AJS ⊆ TJS (`PRINCIPLES.md`). A richer layer may do _more_ with the same source, never reject subset-legal source.
+- `src/vm/atom-effects.test.ts` — every atom touching `ctx.capabilities` / nondeterminism / side effects is tagged `effects: 'io'`. Predicate-safety verification reads this tag, so a mis-tagged atom silently certifies an impure predicate.
+- `src/lang/redos-lint.test.ts` — the predicate verifier fails _closed_ on catastrophic-backtracking regexes (a regex match is opaque to the fuel counter). Over-flagging only costs the "verified" badge; certifying a dangerous pattern is a broken promise.
+- `src/lang/browser-bundle.test.ts` — the browser bundle stays self-contained (no external imports), which is what lets it load from any CDN.
 
 ## Key Patterns
 
@@ -530,6 +549,9 @@ The CLI (`bun src/cli/tjs.ts run`) does NOT inject the test-block `expect` harne
 - `guides/` — Usage patterns, benchmarks, examples (`patterns.md`, `benchmarks.md`, `tjs-examples.md`)
 - `examples/` — Standalone TJS example files (`hello.tjs`, `datetime.tjs`, `generic-demo.tjs`)
 - `editors/` — Syntax highlighting for Monaco, CodeMirror, Ace, VSCode
+- `experiments/` — Design spikes that run as tests (`*.demo.test.ts`), not shipped code. `predicates/` = the predicate-types thesis (CSS torture set, perf, `suggest`); `ambient/` = probing real DOM/host objects to derive verified-predicate contracts (`docs/ambient-contracts.md`)
+- `scripts/` — Build (`build.ts`, `build-demo.ts`, `build-editors.ts`) and the `compat-*.ts` ecosystem checks (zod, effect, radash, superstruct, ts-pattern, kysely)
+- `functions/` — Firebase Cloud Functions, own build (`.tjs` source → transpile → bundle); deploy separately with `bun run functions:deploy`
 
 ### Additional Documentation
 

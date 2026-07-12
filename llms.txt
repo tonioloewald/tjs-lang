@@ -32,6 +32,9 @@ This file is a navigation index for AI agents. It does not contain the docs them
 - [DOCS-WASM.md](DOCS-WASM.md) — canonical WASM reference: both inline `wasm{}` blocks and top-level `wasm function` declarations, memory model, cross-file composition (Phase 3), boundary distribution form (Phase 4), tjs-lang/linalg, current limitations.
 - [wasm-library-plan.md](wasm-library-plan.md) — cross-file WASM library design + phased implementation history. Shipped in v0.8.0; see plan for what's deferred.
 - [docs/native-engine-integration.md](docs/native-engine-integration.md) — embedding into a native runtime.
+- [docs/universal-endpoint.md](docs/universal-endpoint.md) — isomorphic atoms: the same agent and one security model running in the data center and in the browser client.
+- [docs/type-system-north-star.md](docs/type-system-north-star.md) — **the type-system north star**: JSON-Schema + `$predicate` as the single source of truth for types, the decision lens ("does this get us closer or further?"), and the portable predicate-VM that unlocks it. Strategic, possibly post-1.0.
+- [docs/ambient-contracts.md](docs/ambient-contracts.md) — probing real ambient environments (DOM/host objects) to derive serializable verified-predicate *contracts*, plus a conformance harness for stand-ins.
 
 ## Examples and live code
 
@@ -50,7 +53,7 @@ This file is a navigation index for AI agents. It does not contain the docs them
 - `tjs-lang/eval` → `src/lang/eval.ts` — `Eval`, `SafeFunction`.
 - `tjs-lang/batteries` → `src/batteries/index.ts` — LM Studio integration (lazy, local-only).
 - `tjs-lang/linalg` → `src/linalg/index.tjs` — SIMD linear-algebra kernels (`dot`, `norm_sq`, `dot_at`, `norm_sq_at`).
-- `tjs-lang/css` → `src/css/index.ts` — CSS validators built from verified-safe predicates (`isColor`, `isColorValue`, `suggestColor`, `verifyCss`). Phase 1 = colors; the predicate-types thesis made real.
+- `tjs-lang/css` → `src/css/index.ts` — CSS validators built from verified-safe predicates: colors (`isColor`, `isColorValue`), dimensions (`isLength`, `isAngle`, `isTime`, …), order-flexible shorthands (`isAnimation`, `isTransition`), style objects (`isStyleObject`, `isStyleValueFor`), plus `suggestColor` and `verifyCss`. The predicate-types thesis made real.
 - `tjs-lang/schema` → `src/schema/index.ts` — tosijs-schema pre-wired with `$predicate` support (auto-registers the predicate engine on import). Drop-in for `tosijs-schema`; needs `tosijs-schema@^1.4.0`.
 - `tjs-lang/runtime` → `src/lang/runtime.ts` — the TJS runtime (`createRuntime`, `installRuntime`, `Eq`/`NotEq`/`Is`/`IsNot`/`TypeOf`, `checkType`, `isMonadicError`) for emitted `.tjs` code + downstream integrations.
 - `tjs-lang/bun-plugin` → `src/bun-plugin/tjs-plugin.ts` — Bun `onLoad` plugin for native `.tjs` imports (bun-only; `preload` it in bunfig.toml).
@@ -65,6 +68,10 @@ This file is a navigation index for AI agents. It does not contain the docs them
 - `src/lang/runtime.ts` — TJS runtime: monadic errors, `checkType`, `createRuntime`.
 - `src/lang/inference.ts` — infer `TypeDescriptor` from example values.
 - `src/lang/json-schema.ts` — JSON Schema from `TypeDescriptor`.
+- `src/lang/predicate.ts` — the predicate-safety verifier: certifies a cluster of pure, synchronous, composable predicates (reads each atom's `effects` tag), compiles verified ones to native JS, and mines them for autocomplete via `suggest()`. Exported from `tjs-lang/lang`.
+- `src/lang/predicate-schema.ts` — the `$predicate` JSON-Schema keyword (computational types): structure for naive validators, `$predicate` for aware ones. Progressive enhancement.
+- `src/lang/core.ts` — transpiler core **without** the TypeScript dependency (import from here, not `./index`, to keep the TS compiler out of a bundle).
+- `src/lang/dialect.ts` — dialect resolution + `dialectForFilename`/`sourceKindForFilename`; where the modes-on/off decision lives.
 - `src/lang/wasm.ts` — WASM bytecode emission. Multi-function module composition; wasm-to-wasm `call <index>` resolution; per-function index map for cross-call resolution (v0.8.0).
 - `src/lang/emitters/js-wasm.ts` — JS bootstrap emitter for compiled wasm modules (one `WebAssembly.compile` per file).
 - `src/lang/module-loader.ts` — transpile-time `.tjs`/`.ts`/`.js` module loader; used by cross-file `wasm function` composition (v0.8.0).
@@ -88,5 +95,6 @@ This file is a navigation index for AI agents. It does not contain the docs them
 
 - [TODO.md](TODO.md) — open work, organized by area. Move done items to the **Completed** section.
 - [PLAN.md](PLAN.md) — roadmap.
+- [CHANGELOG.md](CHANGELOG.md) — per-release notes (Keep a Changelog). Add an entry under a new version at release time.
 - [AGENTS.md](AGENTS.md) — session-completion checklist (canonical). Hard rule: not done until `git push` succeeds.
 - [README.md](README.md) — public-facing pitch.
