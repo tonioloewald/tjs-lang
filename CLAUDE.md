@@ -30,6 +30,12 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 ```bash
 # Development
 bun run format              # ESLint fix + Prettier
+bun run format:check        # Same checks, no writes (CI / verification)
+                            #   A pre-commit hook (.githooks/pre-commit, wired up by the
+                            #   `prepare` script) runs these on STAGED FILES ONLY, so it
+                            #   can't block you on pre-existing issues elsewhere. It's a
+                            #   backstop for "committed without running format" — it does
+                            #   not typecheck or test. Never bypass it with --no-verify.
 bun run test:fast           # Core tests (skips LLM & benchmarks)
 bun run make                # Full build (clean, format, grammars, editors, tsc, esbuild)
                             #   Named `make`, NOT `build`, on purpose: `bun build` is a Bun

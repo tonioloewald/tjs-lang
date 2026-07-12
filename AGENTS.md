@@ -21,6 +21,11 @@ When ending a work session that touched code, complete **all** steps below in or
    bun run typecheck    # tsc --noEmit
    bun run test:fast    # core tests (or `bun test` for full suite)
    ```
+   A `pre-commit` hook (`.githooks/pre-commit`, enabled by the `prepare` script on
+   `bun install`) backstops step one by checking **staged files only** — it catches a file
+   committed without ever passing through Prettier, and won't block you on pre-existing
+   problems elsewhere. It is a backstop, not a substitute: it does not typecheck or test.
+   `bun run format:check` runs the same checks repo-wide.
 3. **Commit** — focused commits with clear messages. Don't bundle unrelated changes.
 4. **Push to remote** — mandatory:
    ```bash

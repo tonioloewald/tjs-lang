@@ -183,7 +183,9 @@
   },
   "scripts": {
     "format": "bun eslint src --fix && bun prettier --write .",
+    "format:check": "bun eslint src && bun prettier --check .",
     "lint": "eslint src",
+    "prepare": "git config core.hooksPath .githooks || true",
     "build:grammars": "bun editors/build-grammars.ts",
     "build:editors": "bun scripts/build-editors.ts",
     "test:fast": "SKIP_LLM_TESTS=1 SKIP_BENCHMARKS=1 bun test",

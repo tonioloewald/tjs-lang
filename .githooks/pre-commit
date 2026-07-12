@@ -1,0 +1,45 @@
+#!/bin/sh
+#
+# Staged-files-only quality gate.
+#
+# Deliberately NOT repo-wide: pre-existing problems in files you aren't touching
+# must never block your commit (practices/code-quality.md). For the full sweep,
+# run `bun run format:check`.
+#
+# This catches the class of mistake that motivated it: a file committed without
+# ever passing through Prettier. (tjs-lang's CHANGELOG went in unformatted, and
+# with it a `+` bullet that CommonMark was silently eating.)
+#
+# Never bypass with --no-verify. Fix the cause.
+
+set -e
+
+staged=$(git diff --cached --name-only --diff-filter=ACMR)
+[ -z "$staged" ] && exit 0
+
+fail() {
+  echo ""
+  echo "  pre-commit: $1"
+  echo "  Fix with:  bun run format    (then re-stage)"
+  echo ""
+  exit 1
+}
+
+# Prettier — every staged file it can parse. Files in .prettierignore are skipped
+# by prettier itself, even when named explicitly.
+formattable=$(printf '%s\n' "$staged" |
+  grep -E '\.(ts|tsx|js|jsx|mjs|cjs|json|md|css|scss|html|yml|yaml)$' || true)
+if [ -n "$formattable" ]; then
+  printf '%s\n' "$formattable" | xargs bun prettier --check ||
+    fail "staged files are not Prettier-clean (see above)"
+fi
+
+# ESLint — staged TypeScript under src/ only (that's what eslint.config.js covers).
+# Exits non-zero on errors, not warnings, so the existing warning backlog is fine.
+lintable=$(printf '%s\n' "$staged" | grep -E '^src/.*\.tsx?$' || true)
+if [ -n "$lintable" ]; then
+  printf '%s\n' "$lintable" | xargs bun eslint ||
+    fail "staged files have ESLint errors (see above)"
+fi
+
+exit 0
