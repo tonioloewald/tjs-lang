@@ -9,8 +9,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
-- Type-system north-star design note (`docs/type-system-north-star.md`): JSON-Schema
-  + `$predicate` as the single source of truth for TJS types.
+- Type-system north-star design note (`docs/type-system-north-star.md`):
+  JSON-Schema + `$predicate` as the single source of truth for TJS types.
 
 ### Documentation
 

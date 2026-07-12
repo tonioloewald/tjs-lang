@@ -327,6 +327,7 @@ expectation is almost always the wrong move.
 - `src/vm/atom-effects.test.ts` — every atom touching `ctx.capabilities` / nondeterminism / side effects is tagged `effects: 'io'`. Predicate-safety verification reads this tag, so a mis-tagged atom silently certifies an impure predicate.
 - `src/lang/redos-lint.test.ts` — the predicate verifier fails _closed_ on catastrophic-backtracking regexes (a regex match is opaque to the fuel counter). Over-flagging only costs the "verified" badge; certifying a dangerous pattern is a broken promise.
 - `src/lang/browser-bundle.test.ts` — the browser bundle stays self-contained (no external imports), which is what lets it load from any CDN.
+- `src/docs-index.test.ts` — `llms.txt` indexes every top-level/`docs/` markdown file and every `package.json` entry point, and all its links resolve. Enforces the "update both" rule below. To exempt something, add it to the allowlist in that file **with a reason** — an unexplained exemption is a silent hole.
 
 ## Key Patterns
 
@@ -577,7 +578,9 @@ The CLI (`bun src/cli/tjs.ts run`) does NOT inject the test-block `expect` harne
 
 ### Keeping This File and `llms.txt` Current
 
-Update both files when you change something an agent needs to discover:
+Update both files when you change something an agent needs to discover. The
+first two are enforced by `src/docs-index.test.ts` — a new doc or entry point
+that isn't indexed fails the test rather than quietly going unfindable.
 
 - **New top-level markdown doc** → add to "Additional Documentation" here AND to the appropriate section of `llms.txt`.
 - **New package entry point** (subpath export in `package.json`) → add to "Package Entry Points" here AND to "Package entry points" in `llms.txt`.

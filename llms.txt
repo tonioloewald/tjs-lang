@@ -35,6 +35,8 @@ This file is a navigation index for AI agents. It does not contain the docs them
 - [docs/universal-endpoint.md](docs/universal-endpoint.md) — isomorphic atoms: the same agent and one security model running in the data center and in the browser client.
 - [docs/type-system-north-star.md](docs/type-system-north-star.md) — **the type-system north star**: JSON-Schema + `$predicate` as the single source of truth for types, the decision lens ("does this get us closer or further?"), and the portable predicate-VM that unlocks it. Strategic, possibly post-1.0.
 - [docs/ambient-contracts.md](docs/ambient-contracts.md) — probing real ambient environments (DOM/host objects) to derive serializable verified-predicate *contracts*, plus a conformance harness for stand-ins.
+- [benchmarks.md](benchmarks.md) — top-level benchmark results (see also [guides/benchmarks.md](guides/benchmarks.md)).
+- [docs/lm-studio-setup.md](docs/lm-studio-setup.md) — running the LLM test suite locally: install, model loading, and the leaked-VRAM / CORS / audit-cache gotchas.
 
 ## Examples and live code
 
@@ -57,6 +59,7 @@ This file is a navigation index for AI agents. It does not contain the docs them
 - `tjs-lang/schema` → `src/schema/index.ts` — tosijs-schema pre-wired with `$predicate` support (auto-registers the predicate engine on import). Drop-in for `tosijs-schema`; needs `tosijs-schema@^1.4.0`.
 - `tjs-lang/runtime` → `src/lang/runtime.ts` — the TJS runtime (`createRuntime`, `installRuntime`, `Eq`/`NotEq`/`Is`/`IsNot`/`TypeOf`, `checkType`, `isMonadicError`) for emitted `.tjs` code + downstream integrations.
 - `tjs-lang/bun-plugin` → `src/bun-plugin/tjs-plugin.ts` — Bun `onLoad` plugin for native `.tjs` imports (bun-only; `preload` it in bunfig.toml).
+- `tjs-lang/editors/monaco`, `tjs-lang/editors/codemirror`, `tjs-lang/editors/ace` → syntax highlighting (bundled from `editors/{monaco,codemirror,ace}/*.ts` by `scripts/build-editors.ts`).
 
 ## Source map (for code-reading agents)
 
@@ -98,3 +101,4 @@ This file is a navigation index for AI agents. It does not contain the docs them
 - [CHANGELOG.md](CHANGELOG.md) — per-release notes (Keep a Changelog). Add an entry under a new version at release time.
 - [AGENTS.md](AGENTS.md) — session-completion checklist (canonical). Hard rule: not done until `git push` succeeds.
 - [README.md](README.md) — public-facing pitch.
+- [MANIFESTO-BUILDER.md](MANIFESTO-BUILDER.md) and [MANIFESTO-ENTERPRISE.md](MANIFESTO-ENTERPRISE.md) — positioning docs (audience-targeted pitches: the individual builder, and the enterprise).
