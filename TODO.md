@@ -99,7 +99,7 @@ evidence.
 - [ ] Consider: a `severity` floor in config (`recordLevel`) if notice volume ever becomes
       noise. Not speculative-building it until there's a real complaint.
 
-## Playground vs the tosijs-ui doc system — DECIDED: hybrid, gated on tosijs-ui 1.7
+## Playground vs the tosijs-ui doc system — DECIDED: hybrid. NOT gated (1.6.22 ships it)
 
 Researched 2026-07-13. **The question was already half-answered, in the wrong direction:**
 `bin/docs.js:1-8` says verbatim _"Adapted from tosijs-ui's docs.js"_ — it is a **fork of the
@@ -127,12 +127,37 @@ execution, console capture, test harness, introspection autocomplete) and hand-r
 - **The AJS VM playground stays bespoke.** Fuel, trace, capabilities, LLM batteries have no
   home in a component-library doc system, and pushing them there would invert the layering.
 
-**🚩 GATING FACT: `tosijs-ui/site` is unreleased.** It's in 1.7.0-beta.1; we have **1.5.23**
-installed and `dist/doc-system/` does not exist in it. **Do not start until 1.7 ships.**
+**NOT BLOCKED — the "gated on 1.7" note that was here was WRONG** (the research pass read the
+local repo's beta branch, not npm; corrected 2026-07-13). **npm `latest` = `tosijs-ui@1.6.22`
+and it ships the whole thing:** `dist/doc-system/` + `site/` (orchestrator, check-examples,
+dev-server, epub) + `live-example/` — 66 files. It **already speaks TJS**: live-example
+references `tjs-lang/browser`, `tjs-lang/browser/from-ts`, `__TJS_LOCAL_BASE` and a `dialect`
+option — it already consumes our browser bundles. Only the CM6 / "first-class tjs" polish is
+1.7-beta. We're pinned at `^1.4.7` (1.5.23 installed); bump to `^1.6.22`.
+
+**First blocker, found by actually trying the bump:** `bun run build:demo` then fails with
+`Could not resolve: "tjs-lang/browser"`. tosijs-ui's live-example imports it, and esbuild has
+no `node_modules/tjs-lang` to resolve against from _inside_ the package. Needs a
+self-reference alias in `scripts/build-demo.ts` — note `exports["./browser"]` has no `bun`
+condition and points at built `dist/`, so the demo build would also start depending on
+`build:bundles`.
+
+**The right shape for AJS — a language-plugin registry in `live-example` (Tonio, 2026-07-13).**
+Don't teach tosijs-ui about AJS: that makes a component library depend on `tjs-lang/vm` (a
+gas-metered VM) and inverts the layering. Invert it instead — tosijs-ui exposes a plugin
+contract and the **consumer** registers languages, so the VM dependency stays in our demo.
+The contract must be bigger than "transform", because AJS is a different _execution model_,
+not a dialect: it doesn't console.log, it returns a result + **trace** + **fuel**, and needs
+**capabilities** injected. So a plugin owns `transform()`, optionally `run()`, and — critically
+— its own **output panels**; otherwise the doc system has to understand what a trace is, which
+is the same layering violation in a different coat. **The test that the abstraction is real:
+`js`/`ts`/`tjs` must themselves be re-expressible as built-in plugins on that contract.**
 
 - [x] Delete the dead playground code found on the way (1,479 lines: old regex autocomplete + its test, `service-host.ts`, `module-sw.ts`) — done, independent of this decision
-- [ ] **Blocked on tosijs-ui 1.7.** Then: phase 1 = swap docs/nav/site (~1–2 wks); phase 2 =
-      playground as an in-page component (~2–4 wks, riskier)
+- [ ] File the language-plugin RFC upstream in tosijs-ui (drafted)
+- [ ] Bump `tosijs-ui` → `^1.6.22`; fix the `tjs-lang/browser` self-reference in the demo build
+- [ ] Phase 1 = swap docs/nav/site (~1–2 wks); phase 2 = playground as an in-page component
+      (~2–4 wks, riskier — and cheaper if the plugin RFC lands first)
 - [ ] Migration hazards, known in advance: frontmatter taxonomy differs (`section`/`group`/
       `order` → `parent`/`pin`/`order`) so all 59 example files need rewriting **and CLAUDE.md
       documents the current format**; every hash deep-link (`#view=tjs&example=Foo`) breaks →
