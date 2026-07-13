@@ -18,6 +18,7 @@ import {
   clearErrors,
   getErrorCount,
   createRuntime,
+  TJS_VERSION,
   record,
   records,
   clearRecords,
@@ -1123,11 +1124,69 @@ describe('flight recorder', () => {
     expect(records()).toHaveLength(0) // but the ring is empty
   })
 
-  it('an isolated runtime keeps its own recorder', () => {
-    const rt = createRuntime()
-    rt.record({ source: 'app', severity: 'notice', message: 'instance-only' })
-    expect(rt.records()).toHaveLength(1)
-    expect(records()).toHaveLength(0) // module-level ring untouched
+  it('an isolated runtime keeps its own ring, and mirrors nowhere with no global', () => {
+    const g = globalThis as any
+    const saved = g.__tjs
+    delete g.__tjs
+    try {
+      const rt = createRuntime()
+      rt.record({ source: 'app', severity: 'notice', message: 'instance-only' })
+      expect(rt.records()).toHaveLength(1)
+      expect(records()).toHaveLength(0) // nothing to mirror into
+    } finally {
+      g.__tjs = saved
+    }
+  })
+
+  describe('mirroring to the installed global runtime', () => {
+    const g = globalThis as any
+    let saved: any
+
+    beforeEach(() => {
+      saved = g.__tjs
+    })
+    afterEach(() => {
+      g.__tjs = saved
+    })
+
+    it('mirrors instance records into the global black box', () => {
+      // Emitted modules each call createRuntime(), so without mirroring a page
+      // with three TJS modules would have three separate black boxes.
+      g.__tjs = { record, records, version: TJS_VERSION }
+      const modA = createRuntime()
+      const modB = createRuntime()
+
+      modA.record({ source: 'wasm', severity: 'notice', message: 'from A' })
+      modB.record({ source: 'vm', severity: 'warning', message: 'from B' })
+
+      // Each module still sees only its own...
+      expect(modA.records()).toHaveLength(1)
+      expect(modB.records()).toHaveLength(1)
+      // ...but the global recorder saw the whole flight.
+      expect(records().map((r) => r.message)).toEqual(['from A', 'from B'])
+    })
+
+    it('does not recurse when the global IS an instance', () => {
+      const rt = createRuntime()
+      g.__tjs = rt // the self-mirror trap
+      expect(() =>
+        rt.record({ source: 'app', severity: 'notice', message: 'x' })
+      ).not.toThrow()
+      expect(rt.records()).toHaveLength(1) // recorded once, not forever
+    })
+
+    it('survives a global runtime whose record() throws', () => {
+      g.__tjs = {
+        record() {
+          throw new Error('boom')
+        },
+      }
+      const rt = createRuntime()
+      expect(() =>
+        rt.record({ source: 'app', severity: 'notice', message: 'x' })
+      ).not.toThrow()
+      expect(rt.records()).toHaveLength(1) // local ring still got it
+    })
   })
 
   it('clearErrors returns cleared errors and resets', () => {

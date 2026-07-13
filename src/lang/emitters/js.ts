@@ -48,6 +48,28 @@
 
 import type { FunctionDeclaration, Program } from 'acorn'
 import { parseExpressionAt } from 'acorn'
+
+// ---------------------------------------------------------------------------
+// Inline runtime core, emitted into standalone output when no shared runtime is
+// installed. Single definitions — these were once copy-pasted three times.
+// ---------------------------------------------------------------------------
+
+const INLINE_MONADIC_ERROR = `class MonadicError extends Error{constructor(m,p,e,a,c,r){super(m);this.name='MonadicError';this.path=p;this.expected=e;this.actual=a;this.callStack=c;this.reason=r}}`
+
+/**
+ * The inline typeError also reports to the flight recorder when a shared
+ * runtime is installed — otherwise emitted code that fell back to the inline
+ * runtime would be a plane with no black box, and `__tjs.records()` would come
+ * back empty while things were quietly failing.
+ *
+ * Reads `globalThis.__tjs` at CALL time, not module-init time, so installing
+ * the runtime after a module loads still starts capturing its errors. The
+ * try/catch is the recorder's prime directive: recording must never change the
+ * behavior of the program it records.
+ */
+const INLINE_TYPE_ERROR = `function typeError(p,e,v,r){const a=v===null?'null':typeof v;const m=r?'Expected '+e+" for '"+p+"': "+r:'Expected '+e+" for '"+p+"', got "+a;const err=new MonadicError(m,p,e,a,undefined,r);const g=globalThis.__tjs;const c=g?.getConfig?.();try{g?.record?.({source:'type',severity:'error',message:err.message,error:err})}catch{}if(c?.logTypeErrors)console.error('[TJS TypeError] '+err.message);if(c?.throwTypeErrors)throw err;return err}`
+
+const INLINE_IS_MONADIC_ERROR = `function isMonadicError(v){return v instanceof Error&&v.name==='MonadicError'&&'path' in v}`
 import {
   parse,
   extractTDoc,
@@ -971,6 +993,11 @@ export function transpileToJS(
   const needsEnum = /\bEnum\(/.test(code)
   const needsUnion = /\bUnion\(/.test(code)
   const needsBang = code.includes('__tjs.bang(')
+  // checkFnShape and bang both build MonadicErrors, so they pull in the core too
+  const needsMonadicCore =
+    needsTypeError ||
+    code.includes('__tjs.checkFnShape(') ||
+    code.includes('__tjs.bang(')
   const needsToBool = code.includes('__tjs.toBool(')
   const needsCheckFnShape = code.includes('__tjs.checkFnShape(')
   const needsSafeEval = preprocessed.tjsModes.tjsSafeEval
@@ -999,12 +1026,19 @@ export function transpileToJS(
     // a minimal self-contained runtime. Only includes functions actually used.
     const inlineParts: string[] = []
 
-    // Core: MonadicError + typeError (needed by almost all validated functions)
-    if (needsTypeError) {
+    // Core: MonadicError + typeError + isMonadicError.
+    //
+    // checkFnShape and bang also need these, and each used to inline its own
+    // copy behind `if (!needsTypeError)` — three identical copies of the same
+    // source string. Nothing forced them to stay in sync, and if a file ever
+    // needed checkFnShape AND bang without typeError, both would have declared
+    // `class MonadicError` in the same scope (a SyntaxError). Pushed once, from
+    // one definition, so neither drift nor collision is possible.
+    if (needsMonadicCore) {
       inlineParts.push(
-        `class MonadicError extends Error{constructor(m,p,e,a,c,r){super(m);this.name='MonadicError';this.path=p;this.expected=e;this.actual=a;this.callStack=c;this.reason=r}}`,
-        `function typeError(p,e,v,r){const a=v===null?'null':typeof v;const m=r?'Expected '+e+" for '"+p+"': "+r:'Expected '+e+" for '"+p+"', got "+a;const err=new MonadicError(m,p,e,a,undefined,r);const c=globalThis.__tjs?.getConfig?.();if(c?.logTypeErrors)console.error('[TJS TypeError] '+err.message);if(c?.throwTypeErrors)throw err;return err}`,
-        `function isMonadicError(v){return v instanceof Error&&v.name==='MonadicError'&&'path' in v}`
+        INLINE_MONADIC_ERROR,
+        INLINE_TYPE_ERROR,
+        INLINE_IS_MONADIC_ERROR
       )
     }
 
@@ -1075,30 +1109,16 @@ export function transpileToJS(
     }
 
     // checkFnShape — pass-time shape check for function-typed params
+    // (MonadicError/typeError already inlined above via needsMonadicCore)
     if (needsCheckFnShape) {
-      // checkFnShape depends on MonadicError; ensure it's inlined
-      if (!needsTypeError) {
-        inlineParts.push(
-          `class MonadicError extends Error{constructor(m,p,e,a,c,r){super(m);this.name='MonadicError';this.path=p;this.expected=e;this.actual=a;this.callStack=c;this.reason=r}}`,
-          `function typeError(p,e,v,r){const a=v===null?'null':typeof v;const m=r?'Expected '+e+" for '"+p+"': "+r:'Expected '+e+" for '"+p+"', got "+a;const err=new MonadicError(m,p,e,a,undefined,r);const c=globalThis.__tjs?.getConfig?.();if(c?.logTypeErrors)console.error('[TJS TypeError] '+err.message);if(c?.throwTypeErrors)throw err;return err}`,
-          `function isMonadicError(v){return v instanceof Error&&v.name==='MonadicError'&&'path' in v}`
-        )
-      }
       inlineParts.push(
         `function checkFnShape(fn,expectedParams,expectedReturn,path){if(typeof fn!=='function')return fn;const meta=fn.__tjs;if(!meta||!meta.params)return fn;const entries=Object.entries(meta.params);for(let i=0;i<expectedParams.length;i++){const e=expectedParams[i];if(e==='any')continue;const a=entries[i];if(!a)continue;const ak=a[1]&&a[1].type&&a[1].type.kind;if(!ak||ak==='any')continue;if(ak!==e)return new MonadicError("Expected (...arg"+i+": "+e+", ...) for '"+path+"', but callback declares arg"+i+" as "+ak,path+"(arg"+i+")",e,ak)}if(expectedReturn!=='any'&&meta.returns){const ar=(meta.returns.type&&meta.returns.type.kind)||meta.returns.kind;if(ar&&ar!=='any'&&ar!==expectedReturn)return new MonadicError("Expected callback returning "+expectedReturn+" for '"+path+"', but callback returns "+ar,path+"(return)",expectedReturn,ar)}return fn}`
       )
     }
 
     // Bang access (!.) — asserted non-null member access
+    // (MonadicError/typeError already inlined above via needsMonadicCore)
     if (needsBang) {
-      // bang depends on typeError and isMonadicError — ensure they're inlined
-      if (!needsTypeError) {
-        inlineParts.push(
-          `class MonadicError extends Error{constructor(m,p,e,a,c,r){super(m);this.name='MonadicError';this.path=p;this.expected=e;this.actual=a;this.callStack=c;this.reason=r}}`,
-          `function typeError(p,e,v,r){const a=v===null?'null':typeof v;const m=r?'Expected '+e+" for '"+p+"': "+r:'Expected '+e+" for '"+p+"', got "+a;const err=new MonadicError(m,p,e,a,undefined,r);const c=globalThis.__tjs?.getConfig?.();if(c?.logTypeErrors)console.error('[TJS TypeError] '+err.message);if(c?.throwTypeErrors)throw err;return err}`,
-          `function isMonadicError(v){return v instanceof Error&&v.name==='MonadicError'&&'path' in v}`
-        )
-      }
       inlineParts.push(
         `function bang(o,p){if(o===null||o===undefined)return typeError('bang.'+p,'non-null',o);if(isMonadicError(o))return o;return o[p]}`
       )
@@ -1111,7 +1131,8 @@ export function transpileToJS(
 
     // Build __tjs object from inlined functions (fallback when no shared runtime)
     const fallbackEntries: string[] = []
-    if (needsTypeError) fallbackEntries.push('typeError', 'isMonadicError')
+    // One source of truth: whoever pulled in the core gets it in the fallback.
+    if (needsMonadicCore) fallbackEntries.push('typeError', 'isMonadicError')
     if (needsStack) fallbackEntries.push('pushStack', 'popStack', 'getStack')
     if (needsEq) fallbackEntries.push('Eq')
     if (needsNotEq) fallbackEntries.push('NotEq')
@@ -1124,17 +1145,8 @@ export function transpileToJS(
     if (needsEnum) fallbackEntries.push('Enum')
     if (needsUnion) fallbackEntries.push('Union')
     if (needsToBool) fallbackEntries.push('toBool')
-    if (needsCheckFnShape) {
-      fallbackEntries.push('checkFnShape')
-      if (!needsTypeError) fallbackEntries.push('typeError', 'isMonadicError')
-    }
-    if (needsBang) {
-      fallbackEntries.push('bang')
-      // Ensure typeError/isMonadicError are in fallback even if not otherwise needed
-      if (!needsTypeError) {
-        fallbackEntries.push('typeError', 'isMonadicError')
-      }
-    }
+    if (needsCheckFnShape) fallbackEntries.push('checkFnShape')
+    if (needsBang) fallbackEntries.push('bang')
 
     const fallbackObj =
       fallbackEntries.length > 0

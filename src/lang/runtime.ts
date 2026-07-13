@@ -348,6 +348,39 @@ export interface RecordFilter {
 }
 
 /**
+ * Sink a recorder copies each entry to. Receives the calling recorder's own
+ * `record` so it can refuse to mirror into itself — see `globalMirror`.
+ */
+type Mirror = (entry: TJSRecord, selfRecord: (e: TJSRecord) => void) => void
+
+/**
+ * Instance recorders mirror into the installed global runtime.
+ *
+ * `createRuntime()` deliberately isolates config/stack/errors so transpiled
+ * modules don't leak state into each other — but a page with three TJS modules
+ * would then have three separate black boxes, and "what happened before the
+ * crash?" has no single answer. So an instance keeps its own ring (isolated
+ * `errors()`, unchanged semantics) *and* reports to the global recorder, which
+ * is the one place that sees the whole flight.
+ *
+ * Guarded three ways:
+ *  - no global runtime, or no `record` on it → no-op
+ *  - the global IS this recorder (someone did `globalThis.__tjs = createRuntime()`)
+ *    → skip, or `record` would call itself forever
+ *  - a throwing global can't take the program down with it — a recorder that
+ *    changes behavior is not a recorder
+ */
+const globalMirror: Mirror = (entry, selfRecord) => {
+  const g = (globalThis as any).__tjs
+  if (!g || typeof g.record !== 'function' || g.record === selfRecord) return
+  try {
+    g.record(entry)
+  } catch {
+    // Never let recording break the program it is recording.
+  }
+}
+
+/**
  * The flight recorder: a bounded ring of everything the runtime noticed.
  *
  * Built as a factory because there are two of these — the module-level
@@ -358,7 +391,7 @@ export interface RecordFilter {
  * Bias: record liberally. A false alarm costs one ring slot. A missing entry
  * costs a debugging session with no evidence.
  */
-function createRecorder(readConfig: () => TJSConfig) {
+function createRecorder(readConfig: () => TJSConfig, mirror?: Mirror) {
   const buffer: (TJSRecord | null)[] = new Array(ERROR_BUF_SIZE).fill(null)
   let head = 0
   let count = 0
@@ -380,7 +413,7 @@ function createRecorder(readConfig: () => TJSConfig) {
     return result
   }
 
-  return {
+  const api = {
     record(entry: TJSRecord): void {
       // Zero cost when off — this is the happy path for every typeError call.
       if (readConfig().trackErrors === false) return
@@ -390,6 +423,7 @@ function createRecorder(readConfig: () => TJSConfig) {
       if (count < n) count++
       recordTotal++
       if (entry.severity === 'error') errorTotal++
+      mirror?.(entry, api.record)
     },
 
     /**
@@ -441,8 +475,11 @@ function createRecorder(readConfig: () => TJSConfig) {
       recordTotal = 0
     },
   }
+
+  return api
 }
 
+/** The module-level recorder. No mirror — it IS the sink instances mirror to. */
 const recorder = createRecorder(() => config)
 
 /** Unsafe mode depth - when > 0, skip validation in wrap() */
@@ -1492,7 +1529,7 @@ export function createRuntime() {
   const instanceStackBuffer: string[] = new Array(instStackSize).fill('')
   let instanceStackHead = 0
   let instanceStackCount = 0
-  const instanceRecorder = createRecorder(() => instanceConfig)
+  const instanceRecorder = createRecorder(() => instanceConfig, globalMirror)
   let instanceUnsafeDepth = 0
 
   // Per-instance stateful functions
