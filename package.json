@@ -118,6 +118,10 @@
       "bun": "./src/bun-plugin/tjs-plugin.ts"
     },
     "./src": "./src/index.ts",
+    "./editors": {
+      "bun": "./editors/index.ts",
+      "default": "./editors/index.js"
+    },
     "./editors/monaco": "./editors/monaco/ajs-monarch.js",
     "./editors/codemirror": "./editors/codemirror/ajs-language.js",
     "./editors/ace": "./editors/ace/ajs-mode.js"

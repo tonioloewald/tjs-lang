@@ -195,6 +195,12 @@ import { createRuntime, Eq, isMonadicError } from 'tjs-lang/runtime' // TJS runt
 // Bun: enable native .tjs imports — `preload = ["tjs-lang/bun-plugin"]` in bunfig.toml, or:
 import 'tjs-lang/bun-plugin' // registers the .tjs onLoad plugin + installs __tjs (bun-only)
 // Editor integrations: 'tjs-lang/editors/monaco', '/codemirror', '/ace'
+// Framework-free editor primitives (acorn only — no CodeMirror/Monaco/Ace):
+import {
+  collectScopeSymbols, // AST scope extraction (destructuring included; carries `origin`)
+  introspectValue, // live value → members
+  scopeCaptureEpilogue, // capture a run's top-level bindings IN-RUN (no re-execution)
+} from 'tjs-lang/editors'
 
 // Self-contained BROWSER bundles — drop-in via import() from any CDN, no
 // import-map/config (acorn + tosijs-schema inlined):

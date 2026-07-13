@@ -68,6 +68,16 @@ export function bundleEditor(
 
 export const editorTargets: EditorTarget[] = [
   {
+    name: 'core',
+    entry: 'editors/index.ts',
+    outfile: 'editors/index.js',
+    // Framework-free: acorn only (a real tjs-lang dependency, resolved at the
+    // consumer). No @codemirror/*, no monaco, no ace — that's the point.
+    external: ['acorn', 'acorn-loose', 'acorn-walk'],
+    description:
+      'Framework-free editor primitives (scope symbols, introspection)',
+  },
+  {
     name: 'codemirror',
     entry: 'editors/codemirror/ajs-language.ts',
     outfile: 'editors/codemirror/ajs-language.js',
