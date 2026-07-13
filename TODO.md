@@ -81,13 +81,58 @@ evidence.
       `.catch(()=>{})`) + non-`wasmBuffer` copy penalty (#9); VM fuel/timeout/capability
       denial via the single `new AgentError()` choke point. Once per site, never per call.
 - [x] Docs: CLAUDE.md, `guides/tjs.md`, CHANGELOG, playground example (`error-history.md`)
-- [ ] **Decision needed:** predicate-verification misses. These are _transpile_-time, and
-      already surface in `result.warnings` / the verification report — a runtime ring may
-      be the wrong home. Don't wire by reflex.
+- [x] **DECIDED (2026-07-13): transpile-time issues do not belong in the ring.** The
+      recorder is a _runtime_ black box. Anything we know at transpile time should be a
+      warning or a lint error — you can fix that before you ship, which is strictly better
+      than discovering it in a post-mortem. So predicate-verification misses stay in
+      `result.warnings` / the verification report, and are NOT wired to `record()`.
+      The boundary: **known at build time → lint. Only observable while running → record.**
+- [ ] **#9 as a lint rule** — the copy penalty is the one case that wants both. It is
+      _surfaced_ at runtime now (a notice, once per export), but it is often knowable
+      statically: a `new Float32Array(...)` (i.e. not `wasmBuffer(...)`) flowing into a
+      `wasm function` call in the same file is a local dataflow question. Make that a lint
+      — a transpile-time error is the honest end state, since the failure mode is a
+      performance _lie_ ("⚡ SIMD" while running slower than JS). Runtime notice stays as
+      the backstop for arrays that arrive from elsewhere.
 - [ ] Playground: a panel that shows `records()` live. The black box is only worth having
       if someone reads it.
 - [ ] Consider: a `severity` floor in config (`recordLevel`) if notice volume ever becomes
       noise. Not speculative-building it until there's a real complaint.
+
+## Formatting as part of the one pass (idea, 2026-07-13)
+
+**The pitch:** the toolchain already compresses transpile + lint + test + docs into a
+single pass. Formatting is the missing quarter. Make it an option — `tjs format`, or a
+`format: true` transpile option — for people willing to live with our opinions. No config,
+no plugin, no bikeshedding, no separate Prettier/ESLint dependency in the consuming repo.
+
+**The strong argument isn't convenience, it's that no alternative exists.** Prettier
+cannot format `.tjs` at all, and never will without a TJS parser: `function foo(x: 'World')`
+is a syntax error to every JS/TS parser on earth, and so are `wasm {}`, `test '…' {}`,
+`extend`, and `Type`/`Generic` blocks. Today `.tjs` files are formatted by hand or not at
+all. **We already have the parser.** Formatting is close to free once the AST is in hand —
+and it is the only tool that _can_ do it.
+
+Dogfooding bonus: today's session found Prettier mangling markdown twice (fenced code
+collapsed by ASI guards; a wrapped `+` eaten as a bullet). An opinionated formatter that
+understands our own languages doesn't inherit someone else's edge cases.
+
+**What makes it hard — be honest before starting:**
+
+- A formatter needs **full-fidelity round-tripping**: comments, blank lines, doc blocks
+  (`/*# … */`), and inline WASM must survive byte-exact where untouched. The current parser
+  is regex-transforms + acorn in places and drops trivia — see the parser-architecture
+  reassessment note. **This is the forcing function for a real lexer/CST**, not a side quest.
+- **Idempotency is the whole ballgame:** `format(format(x)) === format(x)`, on every fixture,
+  or people lose trust in one commit. Property-test it.
+- Formatting must never change semantics. Same prime directive as the recorder.
+
+**Non-goal:** options. One opinion, take it or leave it. The moment there's a config file
+we've rebuilt Prettier and inherited its problems.
+
+**Sequencing:** this is downstream of the parser question. Don't bolt a pretty-printer onto
+regex transforms — it will be a source of subtle corruption exactly like the two Prettier
+bugs above.
 
 ## Predicate types — "AJS is JSON-Schema's missing piece"
 
