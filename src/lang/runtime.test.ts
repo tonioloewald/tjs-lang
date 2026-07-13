@@ -17,6 +17,12 @@ import {
   errors,
   clearErrors,
   getErrorCount,
+  createRuntime,
+  record,
+  records,
+  clearRecords,
+  getRecordCount,
+  getDroppedCount,
   resetRuntime,
   enterUnsafe,
   exitUnsafe,
@@ -1008,6 +1014,120 @@ describe('Error history ring buffer', () => {
     }
     expect(getErrorCount()).toBe(10)
     expect(errors()).toHaveLength(4)
+  })
+})
+
+/**
+ * The flight recorder. The load-bearing property is the FIRST test: notices and
+ * warnings must never leak into errors(), because the documented idiom
+ * (clearErrors → run → expect no errors) would start failing on events that are
+ * not errors — silently breaking every such test in the wild.
+ */
+describe('flight recorder', () => {
+  beforeEach(() => {
+    resetRuntime()
+    clearRecords()
+  })
+  afterEach(() => resetRuntime())
+
+  it('keeps notices and warnings OUT of errors()', () => {
+    typeError('fn.x', 'string', 42)
+    record({ source: 'wasm', severity: 'notice', message: 'fell back to JS' })
+    record({ source: 'wasm', severity: 'warning', message: 'copied buffer' })
+
+    expect(errors()).toHaveLength(1) // the type error, and only that
+    expect(errors()[0].path).toBe('fn.x')
+    expect(getErrorCount()).toBe(1)
+
+    expect(records()).toHaveLength(3) // but the recorder saw everything
+    expect(getRecordCount()).toBe(3)
+  })
+
+  it('records type errors as records too, tagged source: type', () => {
+    typeError('fn.x', 'string', 42)
+    const [entry] = records()
+    expect(entry.source).toBe('type')
+    expect(entry.severity).toBe('error')
+    expect(entry.error?.path).toBe('fn.x')
+  })
+
+  it('filters by source and severity', () => {
+    record({ source: 'wasm', severity: 'notice', message: 'a' })
+    record({ source: 'vm', severity: 'warning', message: 'b' })
+    record({ source: 'vm', severity: 'notice', message: 'c' })
+
+    expect(records({ source: 'vm' }).map((r) => r.message)).toEqual(['b', 'c'])
+    expect(records({ severity: 'notice' }).map((r) => r.message)).toEqual([
+      'a',
+      'c',
+    ])
+    expect(
+      records({ source: 'vm', severity: 'notice' }).map((r) => r.message)
+    ).toEqual(['c'])
+  })
+
+  it('carries a structured payload', () => {
+    record({
+      source: 'wasm',
+      severity: 'notice',
+      message: 'block did not compile',
+      data: { block: '__tjs_wasm_0', reason: 'WhileStatement' },
+    })
+    expect(records()[0].data).toEqual({
+      block: '__tjs_wasm_0',
+      reason: 'WhileStatement',
+    })
+  })
+
+  it('makes ring-wrap loss legible instead of silent', () => {
+    configure({ maxErrors: 4 })
+    for (let i = 0; i < 10; i++) {
+      record({ source: 'app', severity: 'notice', message: `n${i}` })
+    }
+    expect(records()).toHaveLength(4) // buffer holds 4
+    expect(getRecordCount()).toBe(10) // but 10 happened
+    expect(getDroppedCount()).toBe(6) // and 6 were lost to wrap
+    expect(records().map((r) => r.message)).toEqual(['n6', 'n7', 'n8', 'n9'])
+  })
+
+  it('is zero-cost when trackErrors is off', () => {
+    configure({ trackErrors: false })
+    record({ source: 'app', severity: 'notice', message: 'ignored' })
+    typeError('fn.x', 'string', 42)
+    expect(records()).toHaveLength(0)
+    expect(errors()).toHaveLength(0)
+    expect(getRecordCount()).toBe(0)
+  })
+
+  it('recording never changes behavior — typeError still returns its error', () => {
+    const err = typeError('fn.x', 'string', 42)
+    expect(isMonadicError(err)).toBe(true)
+    expect(err.path).toBe('fn.x')
+  })
+
+  it('clearRecords empties the whole ring and returns it', () => {
+    typeError('fn.x', 'string', 42)
+    record({ source: 'wasm', severity: 'notice', message: 'a' })
+    const cleared = clearRecords()
+    expect(cleared).toHaveLength(2)
+    expect(records()).toHaveLength(0)
+    expect(getRecordCount()).toBe(0)
+    expect(errors()).toHaveLength(0)
+  })
+
+  it('clearErrors clears the whole ring but returns only errors (back-compat)', () => {
+    typeError('fn.x', 'string', 42)
+    record({ source: 'wasm', severity: 'notice', message: 'a' })
+    const cleared = clearErrors()
+    expect(cleared).toHaveLength(1) // just the error
+    expect(records()).toHaveLength(0) // but the ring is empty
+  })
+
+  it('an isolated runtime keeps its own recorder', () => {
+    const rt = createRuntime()
+    rt.record({ source: 'app', severity: 'notice', message: 'instance-only' })
+    expect(rt.records()).toHaveLength(1)
+    expect(records()).toHaveLength(0) // module-level ring untouched
   })
 
   it('clearErrors returns cleared errors and resets', () => {

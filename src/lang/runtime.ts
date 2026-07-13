@@ -191,14 +191,14 @@ export function typeError(
     : `Expected ${expected} for '${path}', got ${actual}`
   const err = new MonadicError(msg, path, expected, actual, stack, reason)
 
-  // Track in error history ring buffer (zero cost on happy path)
-  if (config.trackErrors !== false) {
-    const size = config.maxErrors ?? ERROR_BUF_SIZE
-    errorBuffer[errorHead] = err
-    errorHead = (errorHead + 1) % size
-    if (errorBufCount < size) errorBufCount++
-    errorTotal++
-  }
+  // Track in the flight recorder (zero cost on happy path)
+  recorder.record({
+    source: 'type',
+    severity: 'error',
+    message: msg,
+    error: err,
+    stack,
+  })
 
   // Log to console if configured (includes source location from path)
   if (config.logTypeErrors) {
@@ -307,10 +307,143 @@ let callStackCount = 0
 
 /** Ring buffer for error history — zero cost on happy path */
 const ERROR_BUF_SIZE = 64
-const errorBuffer: any[] = new Array(ERROR_BUF_SIZE).fill(null)
-let errorHead = 0
-let errorBufCount = 0
-let errorTotal = 0
+
+/** Where a record came from. Open-ended: subsystems may add their own. */
+export type RecordSource =
+  | 'type'
+  | 'vm'
+  | 'wasm'
+  | 'predicate'
+  | 'app'
+  | (string & {})
+
+/**
+ * How bad it is.
+ *
+ * `error` — something went wrong. Only these show up in `errors()`.
+ * `warning` — something degraded; probably wanted, definitely not fatal.
+ * `notice` — something worth knowing *after the fact*. May well be a false
+ *   alarm. A wasm block falling back to JS is fine right up until the day your
+ *   perf claim is a lie — so it gets recorded, not raised.
+ */
+export type RecordSeverity = 'error' | 'warning' | 'notice'
+
+/** One entry in the flight recorder. */
+export interface TJSRecord {
+  source: RecordSource
+  severity: RecordSeverity
+  message: string
+  /** The MonadicError, when this record wraps one (severity 'error'). */
+  error?: MonadicError
+  /** Structured payload — whatever the source thinks a reader will want. */
+  data?: unknown
+  /** Call stack, when `callStacks`/`debug` is on. */
+  stack?: string[]
+}
+
+/** Filter for `records()`. Omitted fields match everything. */
+export interface RecordFilter {
+  source?: RecordSource
+  severity?: RecordSeverity
+}
+
+/**
+ * The flight recorder: a bounded ring of everything the runtime noticed.
+ *
+ * Built as a factory because there are two of these — the module-level
+ * singleton, and a private one per `createRuntime()` instance. They were once
+ * two hand-maintained copies of the same ring; a recorder with two
+ * implementations is a recorder with holes, so both now come from here.
+ *
+ * Bias: record liberally. A false alarm costs one ring slot. A missing entry
+ * costs a debugging session with no evidence.
+ */
+function createRecorder(readConfig: () => TJSConfig) {
+  const buffer: (TJSRecord | null)[] = new Array(ERROR_BUF_SIZE).fill(null)
+  let head = 0
+  let count = 0
+  let errorTotal = 0
+  let recordTotal = 0
+
+  const size = () => readConfig().maxErrors ?? ERROR_BUF_SIZE
+
+  /** All buffered records, oldest first. */
+  const all = (): TJSRecord[] => {
+    if (readConfig().trackErrors === false || count === 0) return []
+    const n = size()
+    const result: TJSRecord[] = []
+    const start = (head - count + n) % n
+    for (let i = 0; i < count; i++) {
+      const entry = buffer[(start + i) % n]
+      if (entry) result.push(entry)
+    }
+    return result
+  }
+
+  return {
+    record(entry: TJSRecord): void {
+      // Zero cost when off — this is the happy path for every typeError call.
+      if (readConfig().trackErrors === false) return
+      const n = size()
+      buffer[head] = entry
+      head = (head + 1) % n
+      if (count < n) count++
+      recordTotal++
+      if (entry.severity === 'error') errorTotal++
+    },
+
+    /**
+     * Type errors only — the documented `clearErrors()` → run → `errors()`
+     * idiom depends on notices NOT showing up here. Widening this would
+     * silently break every "no unexpected errors" test in the wild.
+     */
+    errors(): MonadicError[] {
+      const result: MonadicError[] = []
+      for (const entry of all()) {
+        if (entry.severity === 'error' && entry.error) result.push(entry.error)
+      }
+      return result
+    },
+
+    records(filter?: RecordFilter): TJSRecord[] {
+      const entries = all()
+      if (!filter) return entries
+      return entries.filter(
+        (e) =>
+          (filter.source === undefined || e.source === filter.source) &&
+          (filter.severity === undefined || e.severity === filter.severity)
+      )
+    },
+
+    clear(): TJSRecord[] {
+      const cleared = all()
+      head = 0
+      count = 0
+      errorTotal = 0
+      recordTotal = 0
+      return cleared
+    },
+
+    getErrorCount: () => errorTotal,
+    getRecordCount: () => recordTotal,
+
+    /**
+     * Records overwritten by ring wrap since the last clear. A liberal
+     * recorder wraps often, and "you lost N entries" must be legible rather
+     * than silent — otherwise the black box lies by omission.
+     */
+    getDroppedCount: () => Math.max(0, recordTotal - count),
+
+    reset(): void {
+      head = 0
+      count = 0
+      errorTotal = 0
+      recordTotal = 0
+    },
+  }
+}
+
+const recorder = createRecorder(() => config)
 
 /** Unsafe mode depth - when > 0, skip validation in wrap() */
 let unsafeDepth = 0
@@ -394,34 +527,70 @@ export function getStack(): string[] {
 /**
  * Get recent type errors (newest last).
  * Only tracks when trackErrors is enabled (default: true).
+ *
+ * Type errors ONLY — warnings and notices live in `records()`. Keeping this
+ * narrow preserves the documented idiom:
+ *
+ *   clearErrors(); runMyCode(); if (errors().length) // something failed
  */
 export function errors(): MonadicError[] {
-  if (config.trackErrors === false || errorBufCount === 0) return []
-  const size = config.maxErrors ?? ERROR_BUF_SIZE
-  const result: MonadicError[] = []
-  const start = (errorHead - errorBufCount + size) % size
-  for (let i = 0; i < errorBufCount; i++) {
-    result.push(errorBuffer[(start + i) % size])
-  }
-  return result
+  return recorder.errors()
 }
 
 /**
- * Clear error history. Returns the cleared errors.
+ * Everything the runtime noticed (newest last) — the flight recorder.
+ *
+ * Unlike `errors()`, this includes warnings and notices: a wasm block that fell
+ * back to JS, a typed array copied on every call, a predicate that ran
+ * interpreted. Individually these may be false alarms; after an incident they
+ * are the evidence.
+ *
+ *   records()                            // everything
+ *   records({ source: 'wasm' })          // just wasm
+ *   records({ severity: 'notice' })      // just the near-misses
+ */
+export function records(filter?: RecordFilter): TJSRecord[] {
+  return recorder.records(filter)
+}
+
+/**
+ * Record an event. Never throws, never changes behavior — if writing to the
+ * recorder could alter the outcome, it would not be a recorder.
+ */
+export function record(entry: TJSRecord): void {
+  recorder.record(entry)
+}
+
+/**
+ * Clear error history. Returns the cleared errors (type errors only, for
+ * back-compat); clears the whole recorder, since it is one ring.
  */
 export function clearErrors(): MonadicError[] {
-  const cleared = errors()
-  errorHead = 0
-  errorBufCount = 0
-  errorTotal = 0
+  const cleared = recorder.errors()
+  recorder.clear()
   return cleared
 }
 
+/** Clear the recorder. Returns everything it held. */
+export function clearRecords(): TJSRecord[] {
+  return recorder.clear()
+}
+
 /**
- * Total error count since last clear (may exceed buffer size).
+ * Total *error* count since last clear (may exceed buffer size).
  */
 export function getErrorCount(): number {
-  return errorTotal
+  return recorder.getErrorCount()
+}
+
+/** Total records of every severity since last clear (may exceed buffer size). */
+export function getRecordCount(): number {
+  return recorder.getRecordCount()
+}
+
+/** Records lost to ring wrap since the last clear. */
+export function getDroppedCount(): number {
+  return recorder.getDroppedCount()
 }
 
 /**
@@ -434,9 +603,7 @@ export function resetRuntime(): void {
   config = { ...DEFAULT_CONFIG }
   callStackHead = 0
   callStackCount = 0
-  errorHead = 0
-  errorBufCount = 0
-  errorTotal = 0
+  recorder.reset()
   unsafeDepth = 0
 }
 
@@ -1325,11 +1492,7 @@ export function createRuntime() {
   const instanceStackBuffer: string[] = new Array(instStackSize).fill('')
   let instanceStackHead = 0
   let instanceStackCount = 0
-  const instErrorSize = instanceConfig.maxErrors ?? ERROR_BUF_SIZE
-  const instanceErrorBuffer: any[] = new Array(instErrorSize).fill(null)
-  let instanceErrorHead = 0
-  let instanceErrorBufCount = 0
-  let instanceErrorTotal = 0
+  const instanceRecorder = createRecorder(() => instanceConfig)
   let instanceUnsafeDepth = 0
 
   // Per-instance stateful functions
@@ -1375,9 +1538,7 @@ export function createRuntime() {
     instanceConfig = { ...DEFAULT_CONFIG }
     instanceStackHead = 0
     instanceStackCount = 0
-    instanceErrorHead = 0
-    instanceErrorBufCount = 0
-    instanceErrorTotal = 0
+    instanceRecorder.reset()
     instanceUnsafeDepth = 0
   }
 
@@ -1475,13 +1636,14 @@ export function createRuntime() {
       stack
     )
 
-    // Track in error history
-    if (instanceConfig.trackErrors !== false) {
-      instanceErrorBuffer[instanceErrorHead] = err
-      instanceErrorHead = (instanceErrorHead + 1) % instErrorSize
-      if (instanceErrorBufCount < instErrorSize) instanceErrorBufCount++
-      instanceErrorTotal++
-    }
+    // Track in the flight recorder
+    instanceRecorder.record({
+      source: 'type',
+      severity: 'error',
+      message: err.message,
+      error: err,
+      stack,
+    })
 
     if (instanceConfig.logTypeErrors) {
       console.error(`[TJS TypeError] ${err.message}`)
@@ -1494,28 +1656,17 @@ export function createRuntime() {
   }
 
   function instanceErrors(): MonadicError[] {
-    if (instanceConfig.trackErrors === false || instanceErrorBufCount === 0)
-      return []
-    const result: MonadicError[] = []
-    const start =
-      (instanceErrorHead - instanceErrorBufCount + instErrorSize) %
-      instErrorSize
-    for (let i = 0; i < instanceErrorBufCount; i++) {
-      result.push(instanceErrorBuffer[(start + i) % instErrorSize])
-    }
-    return result
+    return instanceRecorder.errors()
   }
 
   function instanceClearErrors(): MonadicError[] {
-    const cleared = instanceErrors()
-    instanceErrorHead = 0
-    instanceErrorBufCount = 0
-    instanceErrorTotal = 0
+    const cleared = instanceRecorder.errors()
+    instanceRecorder.clear()
     return cleared
   }
 
   function instanceGetErrorCount(): number {
-    return instanceErrorTotal
+    return instanceRecorder.getErrorCount()
   }
 
   function instanceError(
@@ -1584,6 +1735,12 @@ export function createRuntime() {
     errors: instanceErrors,
     clearErrors: instanceClearErrors,
     getErrorCount: instanceGetErrorCount,
+    // Flight recorder — the whole stream, not just type errors
+    record: instanceRecorder.record,
+    records: instanceRecorder.records,
+    clearRecords: instanceRecorder.clear,
+    getRecordCount: instanceRecorder.getRecordCount,
+    getDroppedCount: instanceRecorder.getDroppedCount,
     resetRuntime: instanceResetRuntime,
     // Unsafe mode (instance-specific)
     enterUnsafe: instanceEnterUnsafe,
@@ -1666,6 +1823,12 @@ export const runtime = {
   errors,
   clearErrors,
   getErrorCount,
+  // Flight recorder — the whole stream, not just type errors
+  record,
+  records,
+  clearRecords,
+  getRecordCount,
+  getDroppedCount,
   resetRuntime,
   // Unsafe mode
   enterUnsafe,
