@@ -13,10 +13,9 @@ work, a SIMD min/max kernel compiles to WASM, and the `__tjs_wasm_ready`/
 **0.9.1 ships (post-0.9.0):** `TjsStrict` escalates unverifiable predicates to a
 transpile error (+`tjsStrict` mode flag); the **full tosijs-ui WASM feedback** —
 silent-`wasm{}`-fallback surfaced into `result.warnings` (UI-#1), `await
-__tjs_wasm_ready()` (UI-#2), `__tjs_wasm_enabled` toggle (UI-#3), i32/i32-division
-
-- supported-subset docs (UI-#4/#5), and **`f32x4` min/max/compare/select** for
-  data-dependent SIMD (UI-#6). No breaking changes.
+__tjs_wasm_ready()` (UI-#2), `__tjs_wasm_enabled` toggle (UI-#3),
+i32/i32-division lint + supported-subset docs (UI-#4/#5), and **`f32x4`
+min/max/compare/select** for data-dependent SIMD (UI-#6). No breaking changes.
 
 **Prev (0.9.0, published 2026-07-06):** predicate verification (Type/Generic guards,
 ReDoS lint, per-predicate report), `tjs-lang/css`, `tjs-lang/schema`,
@@ -56,6 +55,39 @@ drive their bumps from here; feedback flows back via `TJS-PORT-DX.md` /
 tjs-lang's own docs → verified book/ePub/PDF), then retire the bespoke playground.
 Pinned: argument-type-driven completion (needs TJS-native tosijs so element factories
 carry `__tjs`). See [[introspection-autocomplete]], [[predicate-types-direction]].
+
+## Flight recorder (GitHub #17) — SHIPPED (unreleased), 2026-07-13
+
+The `__tjs` ring buffer is now a black box for the whole runtime, not a type-error
+log. `record()` / `records(filter?)` / `clearRecords()` / `getRecordCount()` /
+`getDroppedCount()`, tagged by `source` + `severity`.
+
+**Why it matters:** monadic errors are _returned, not thrown_, which makes failures
+trivially easy to ignore. The recorder is the antidote to our own central design
+choice — and it records **near-misses**, not just errors, because the failures that
+cost a week are the quiet ones (a `wasm{}` block that fell back to JS while the page
+claims "⚡ SIMD"; a typed array copied every call and slower than the JS it replaced).
+A false alarm costs one ring slot; a missing entry costs a debugging session with no
+evidence.
+
+- [x] Phase 1 — one `createRecorder()` shared by the module runtime and every
+      `createRuntime()` instance (it was implemented twice); `errors()` stays
+      type-errors-only so the documented clear→run→expect-none idiom survives
+- [x] Phase 2 — emitted code wired in; instance recorders mirror to the global runtime
+      (a page with 3 TJS modules had 3 separate black boxes); inline fallback reports
+      once a runtime is installed, even if it loaded before one existed; de-duplicated
+      the triplicated inline `MonadicError`/`typeError` core (latent `SyntaxError`)
+- [x] Phase 3 — instruments: wasm fallback + wasm instantiation failure (was a bare
+      `.catch(()=>{})`) + non-`wasmBuffer` copy penalty (#9); VM fuel/timeout/capability
+      denial via the single `new AgentError()` choke point. Once per site, never per call.
+- [x] Docs: CLAUDE.md, `guides/tjs.md`, CHANGELOG, playground example (`error-history.md`)
+- [ ] **Decision needed:** predicate-verification misses. These are _transpile_-time, and
+      already surface in `result.warnings` / the verification report — a runtime ring may
+      be the wrong home. Don't wire by reflex.
+- [ ] Playground: a panel that shows `records()` live. The black box is only worth having
+      if someone reads it.
+- [ ] Consider: a `severity` floor in config (`recordLevel`) if notice volume ever becomes
+      noise. Not speculative-building it until there's a real complaint.
 
 ## Predicate types — "AJS is JSON-Schema's missing piece"
 

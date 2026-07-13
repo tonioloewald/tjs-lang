@@ -9,8 +9,38 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Flight recorder** (#17). The `__tjs` error ring buffer is now a black box for the whole
+  runtime, not just a type-error log. New API on the module, the runtime object, and every
+  `createRuntime()` instance: `record(entry)`, `records(filter?)`, `clearRecords()`,
+  `getRecordCount()`, `getDroppedCount()`. Records carry a `source`
+  (`type`/`wasm`/`vm`/`app`/…) and a `severity` (`error`/`warning`/`notice`), and can be
+  filtered by either.
+  - **Reports today:** type errors; `wasm{}` blocks that fell back to JS or failed to
+    instantiate; typed arrays copied in and out on every call because they weren't
+    allocated with `wasmBuffer()` (previously silent, and can be slower than plain JS);
+    every VM failure — fuel exhaustion, atom timeout, capability denial.
+  - **Records once per site, never per call** — a recorder that fires inside a hot loop
+    becomes the performance problem it exists to detect.
+  - **`errors()` is unchanged** and still returns type errors _only_, so the documented
+    `clearErrors()` → run → expect-none idiom keeps working. Notices never leak into it.
+  - Emitted modules mirror their records into the installed global runtime, so a page with
+    several TJS modules has one flight history rather than N isolated ones. Standalone
+    emitted code (inline fallback runtime) starts reporting as soon as a runtime is
+    installed, even if it loaded before one existed.
+  - Recording never throws, never logs unbidden, and never alters control flow.
 - Type-system north-star design note (`docs/type-system-north-star.md`):
   JSON-Schema + `$predicate` as the single source of truth for TJS types.
+
+### Fixed
+
+- WASM module instantiation failures were swallowed by a bare `.catch(() => {})` in the
+  emitted bootstrap — the module vanished without a trace while every `wasm{}` block in
+  the file silently ran its JS fallback. Now recorded as a warning.
+- The inline runtime core (`MonadicError` + `typeError` + `isMonadicError`) was emitted
+  from three copy-pasted source strings. A file needing `checkFnShape` **and** bang access
+  without `typeError` would have declared `class MonadicError` twice in one scope (a
+  `SyntaxError` in the emitted output). Not reachable in practice — but held shut by
+  coincidence, not design. Now one definition, emitted once.
 
 ### Documentation
 
@@ -18,6 +48,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   only tjs-lang-specific divergences.
 - Explained why the full build is named `make`, not `build` (`bun build` is a Bun
   builtin — a `build` script would be silently shadowed).
+- `src/docs-index.test.ts` enforces that `llms.txt` indexes every top-level/`docs/`
+  markdown file and every `package.json` entry point, and that its links resolve.
+- Added a `pre-commit` hook (`.githooks/`, enabled by the `prepare` script) that checks
+  **staged files only** with Prettier and ESLint, plus a repo-wide `bun run format:check`.
 
 ## [0.9.1] — 2026-07-11
 

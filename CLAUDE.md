@@ -164,10 +164,19 @@ Type('user', { name: '', age: 0 }).toJSONSchema()  // → JSON Schema object
 Type('user', { name: '', age: 0 }).strip(value)     // → strip extra fields
 functionMetaToJSONSchema(fn.__tjs)                   // → { input, output } schemas
 
-// Error History (on by default, zero cost on happy path)
-__tjs.errors()          // → recent MonadicErrors (ring buffer, max 64)
+// Flight Recorder (on by default, zero cost on happy path)
+__tjs.errors()          // → recent MonadicErrors — TYPE ERRORS ONLY (assert on this)
 __tjs.clearErrors()     // → returns and clears
-__tjs.getErrorCount()   // → total since last clear
+__tjs.getErrorCount()   // → total type errors since last clear
+
+__tjs.records(filter?)  // → EVERYTHING the runtime noticed: type errors, plus
+                        //   wasm fallbacks, buffer-copy penalties, VM AgentErrors…
+                        //   filter: { source?: 'type'|'vm'|'wasm'|'app'|…,
+                        //             severity?: 'error'|'warning'|'notice' }
+__tjs.record(entry)     // → record your own; never throws, never changes behavior
+__tjs.clearRecords()    // → returns and clears the whole ring
+__tjs.getRecordCount()  // → total records of every severity
+__tjs.getDroppedCount() // → records lost to ring wrap (evidence loss, made legible)
 ```
 
 ### Package Entry Points
@@ -404,17 +413,35 @@ configure({ callStacks: true }) // Track call stacks in errors (~2x overhead)
 configure({ trackErrors: false }) // Disable error history (on by default)
 ```
 
-#### Error History
+#### Flight Recorder (error history)
 
-Type errors are tracked in a ring buffer (on by default, zero cost on happy path):
+A bounded ring of everything the runtime noticed — on by default, zero cost on the happy path. It is the antidote to the language's own central choice: errors that are **returned, not thrown** are trivially easy to ignore, so the runtime remembers them.
 
 ```typescript
+// Type errors only — the assertion surface
 __tjs.errors() // → recent MonadicErrors (newest last, max 64)
-__tjs.clearErrors() // → returns and clears the buffer
-__tjs.getErrorCount() // → total since last clear (survives buffer wrap)
+__tjs.clearErrors() // → returns and clears
+__tjs.getErrorCount() // → total type errors since last clear (survives wrap)
+
+// The whole flight — errors AND the near-misses that aren't errors yet
+__tjs.records() // → TJSRecord[] { source, severity, message, data?, error? }
+__tjs.records({ source: 'wasm' }) // → filter by source and/or severity
+__tjs.record({ source: 'app', severity: 'notice', message: '…', data: {} })
+__tjs.clearRecords()
+__tjs.getRecordCount() // → every severity
+__tjs.getDroppedCount() // → lost to ring wrap
 ```
 
-Use for debugging (find silent failures), testing (`clearErrors()` → run → check), and monitoring.
+**Two rules govern the design, and both are load-bearing:**
+
+1. **`errors()` stays narrow.** It returns type errors and nothing else. Warnings and notices would silently break the documented idiom (`clearErrors()` → run → expect none) by failing tests on events that are not errors. Guarded by a test.
+2. **Record liberally; never change behavior.** The bar for recording is "might be useful after the fact", not "definitely a bug" — a false alarm costs one ring slot, a missing entry costs a debugging session with no evidence. Recording never throws, never logs unbidden, and never alters control flow. If it could, it would not be a recorder.
+
+**What reports today:** type errors (`source: 'type'`), `wasm{}` blocks that fell back or failed to instantiate and typed arrays copied on every call because they weren't allocated with `wasmBuffer()` (`'wasm'`), and every VM failure — fuel exhaustion, atom timeout, capability denial (`'vm'`, via `globalThis` so `tjs-lang/vm` keeps its own bundle). Each records **once per site, not per call**: a recorder that fires inside a hot loop becomes the performance problem it exists to detect.
+
+**Instances mirror to the global.** Emitted modules each call `createRuntime()`, which is isolated by design — so an instance keeps its own `errors()` but mirrors its records into the installed global runtime. Otherwise a page with three TJS modules would have three separate black boxes.
+
+Adding a subsystem that can silently degrade or swallow a failure? Route it into the recorder rather than inventing a side channel.
 
 #### Standalone JS Output
 

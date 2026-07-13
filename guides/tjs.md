@@ -248,15 +248,15 @@ if (isError(result)) {
 }
 ```
 
-### Error History
+### The Flight Recorder
 
-Since monadic errors don't throw, they can silently vanish. TJS tracks recent type errors in a ring buffer so you always know what failed:
+Since monadic errors don't throw, they can silently vanish. TJS keeps a bounded ring of what the runtime noticed, so you always know what failed:
 
 ```javascript
 greet(42) // returns MonadicError, caller ignores it
 
 // Find it later
-__tjs.errors() // → recent errors (newest last, max 64)
+__tjs.errors() // → recent type errors (newest last, max 64)
 __tjs.clearErrors() // → clear and return them
 __tjs.getErrorCount() // → total since last clear
 
@@ -268,7 +268,40 @@ if (__tjs.errors().length > 0) {
 }
 ```
 
-On by default. Zero cost on the happy path — only writes when an error occurs.
+On by default. Zero cost on the happy path — only writes when something happens.
+
+#### It records more than errors
+
+The failures that cost you a week are rarely the loud ones. A `wasm{}` block that quietly fell back to JavaScript is _fine_ — until your page claims "⚡ SIMD" and is running plain JS. A typed array passed without `wasmBuffer()` is _fine_ — except it's copied in and out on every call, and can be **slower** than the JS it replaced. Nothing throws. Every test is green.
+
+So the runtime records those too, and `records()` gives you the whole flight:
+
+```javascript
+__tjs.records() // → everything: type errors, wasm fallbacks, VM failures…
+__tjs.records({ source: 'wasm' }) // → filter by source…
+__tjs.records({ severity: 'notice' }) // → …and/or severity
+
+// Your own code can report. Record what you'd want after an incident,
+// not just what you're certain is broken.
+__tjs.record({
+  source: 'app',
+  severity: 'notice',
+  message: 'cache miss on user lookup',
+  data: { userId: 42 },
+})
+
+__tjs.getRecordCount() // → total, every severity
+__tjs.getDroppedCount() // → how many were lost to ring wrap
+```
+
+Each entry carries a `source` (`type`, `wasm`, `vm`, `predicate`, `app`, …) and a `severity` (`error`, `warning`, `notice`).
+
+Two rules make it trustworthy:
+
+- **`errors()` stays narrow.** It returns type errors and _only_ type errors. If notices leaked into it, every `clearErrors() → run → expect none` test would start failing on things that aren't errors.
+- **Recording never changes behavior.** It doesn't throw, doesn't log unbidden, and doesn't touch control flow — a recorder that alters the flight isn't a recorder. It also fires once per site, never once per call, so it can't become the performance problem it exists to detect.
+
+The bias is deliberate: a false alarm costs one slot in a ring buffer, while a missing entry costs a debugging session with no evidence. When in doubt, it records.
 
 ### Safe by Default
 
