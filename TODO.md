@@ -130,6 +130,23 @@ understands our own languages doesn't inherit someone else's edge cases.
 **Non-goal:** options. One opinion, take it or leave it. The moment there's a config file
 we've rebuilt Prettier and inherited its problems.
 
+**But the opinion must be STABLE, not merely singular — this is the whole liability.**
+Prettier's sin isn't having opinions, it's that they _changed_: v3 reflows the entire tree,
+which is why every repo in this stack pins v2 and `practices/code-quality.md` says "don't
+upgrade it." If TJS's canonical form drifts between versions, every upgrade rewrites
+everyone's files and we've reinvented the pain with our own logo on it. So:
+
+- **The canonical form is part of the compatibility surface.** Version it, freeze it, and
+  change it only with the seriousness of a syntax change (i.e. essentially never; a major
+  at the very least).
+- Corollary: get it right before it ships, because "we'll tune the defaults later" is the
+  exact failure mode. Cheap now, impossible to retrofit once files exist in the wild.
+
+**What this deletes** (the measure of the win): `format:check`, the pre-commit hook,
+`.prettierrc.json`, `.prettierignore`, every `<!-- prettier-ignore -->` escape hatch, the
+"run format before committing" step in AGENTS.md, CI format gates, and formatting-only
+diffs in review. All of that scaffolding exists _only because formatting is a bolt-on_.
+
 **The precedent, and the half everyone forgets (Tonio, 2026-07-13):** HyperTalk and
 RealBasic — two of the most productive environments ever built — simply said _we will
 format your code_. But the thing they got right was **when**, not what. They reformatted a
