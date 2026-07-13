@@ -99,6 +99,47 @@ evidence.
 - [ ] Consider: a `severity` floor in config (`recordLevel`) if notice volume ever becomes
       noise. Not speculative-building it until there's a real complaint.
 
+## Playground vs the tosijs-ui doc system — DECIDED: hybrid, gated on tosijs-ui 1.7
+
+Researched 2026-07-13. **The question was already half-answered, in the wrong direction:**
+`bin/docs.js:1-8` says verbatim _"Adapted from tosijs-ui's docs.js"_ — it is a **fork of the
+very system we were asking whether to adopt**, and it has fallen behind. Meanwhile tosijs-ui
+has independently re-implemented five of the playground's mechanisms (split mode, iframe
+execution, console capture, test harness, introspection autocomplete) and hand-rolled a
+**worse copy of our own scope extractor because we don't export it** (that is GitHub #10).
+**Both repos are reimplementing each other's work.**
+
+**Decision: hybrid, and the improvements flow BOTH ways.**
+
+- **Doc-site machinery → tosijs-ui owns it; we consume.** Its `site` system is a strict
+  superset of ours: static prerendered pages per doc (we're a hash-routed SPA with no SEO),
+  sitemap/robots/llms.txt/ePub, search, a `firebase` host preset, and `checkExamples` —
+  which transpiles every example _at build time_, so a broken example fails the build
+  instead of failing silently when someone opens the page. Replacing ~1,800–2,200 of our
+  lines with something better on every axis.
+- **Language machinery → we own it; tosijs-ui consumes.** Export `collectScopeSymbols`
+  (#10), the completion source (#13), and the transpile seam. **This raises #10's priority:
+  it isn't a nice-to-have, it is the thing forcing a downstream repo to maintain a worse
+  fork.**
+- **Import resolution (TFS) → ours.** tosijs-ui has _explicitly declined_ to own it and
+  wants us to (`doc-system-roadmap.md:41-45`); today it's buried in `demo/`. Promoting it to
+  a real export would give their live examples real npm packages — which they currently lack.
+- **The AJS VM playground stays bespoke.** Fuel, trace, capabilities, LLM batteries have no
+  home in a component-library doc system, and pushing them there would invert the layering.
+
+**🚩 GATING FACT: `tosijs-ui/site` is unreleased.** It's in 1.7.0-beta.1; we have **1.5.23**
+installed and `dist/doc-system/` does not exist in it. **Do not start until 1.7 ships.**
+
+- [x] Delete the dead playground code found on the way (1,479 lines: old regex autocomplete + its test, `service-host.ts`, `module-sw.ts`) — done, independent of this decision
+- [ ] **Blocked on tosijs-ui 1.7.** Then: phase 1 = swap docs/nav/site (~1–2 wks); phase 2 =
+      playground as an in-page component (~2–4 wks, riskier)
+- [ ] Migration hazards, known in advance: frontmatter taxonomy differs (`section`/`group`/
+      `order` → `parent`/`pin`/`order`) so all 59 example files need rewriting **and CLAUDE.md
+      documents the current format**; every hash deep-link (`#view=tjs&example=Foo`) breaks →
+      needs redirects (net a large SEO win, but a real one-time break); `checkExamples: true`
+      will likely fail the build on first adoption, exposing examples that only "worked"
+      because nobody opened them (a benefit — budget for the cleanup)
+
 ## Formatting as part of the one pass (idea, 2026-07-13)
 
 **The pitch:** the toolchain already compresses transpile + lint + test + docs into a
