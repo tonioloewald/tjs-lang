@@ -130,9 +130,32 @@ understands our own languages doesn't inherit someone else's edge cases.
 **Non-goal:** options. One opinion, take it or leave it. The moment there's a config file
 we've rebuilt Prettier and inherited its problems.
 
+**The precedent, and the half everyone forgets (Tonio, 2026-07-13):** HyperTalk and
+RealBasic — two of the most productive environments ever built — simply said _we will
+format your code_. But the thing they got right was **when**, not what. They reformatted a
+line the moment you left it. The canonical form was the _only_ form you ever saw: no
+unformatted state, nothing to diff against, no format-on-save, no pre-commit hook, no CI
+check, no formatting noise in a merge. Formatting wasn't a tool you ran; it was a property
+of the surface you typed into.
+
+gofmt proves the opinionated half works — but gofmt is still **batch**. It concedes that
+unformatted code exists and sweeps up afterwards. HyperCard and RealBasic never conceded
+that. **Take both halves.**
+
+We are unusually able to: we ship the editor integrations (Monaco/CodeMirror/Ace), the
+parser, AND the playground. Nobody else can format `.tjs`, because nobody else can parse it.
+
+- **Format-on-entry, not just `tjs format`.** The CLI/transpile-option version is table
+  stakes; the editor version is the actual prize.
+- The hard part is formatting code that is **momentarily invalid** mid-keystroke.
+  HyperTalk dodged it by being line-oriented (reformat a line only on exit). Our dodge:
+  `acorn-loose` is _already a dependency_ — the error-tolerant parse is sitting there.
+- **Never reformat the line the caret is on.** Every format-as-you-type implementation dies
+  by fighting the typist.
+
 **Sequencing:** this is downstream of the parser question. Don't bolt a pretty-printer onto
 regex transforms — it will be a source of subtle corruption exactly like the two Prettier
-bugs above.
+bugs found today.
 
 ## Predicate types — "AJS is JSON-Schema's missing piece"
 
