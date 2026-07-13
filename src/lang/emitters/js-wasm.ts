@@ -77,6 +77,7 @@ export function generateWasmBootstrap(blocks: WasmBlock[]): {
 ;(globalThis.__tjs_wasm_pending??=[]);
 globalThis.__tjs_wasm_ready??=(()=>Promise.all(globalThis.__tjs_wasm_pending));
 globalThis.__tjs_wasm_pending.push((async()=>{
+const __rec=e=>{try{globalThis.__tjs?.record?.(e)}catch{}};
 const __wasmExports=[${exportData}];
 const __wasmModuleB64=${JSON.stringify(moduleBase64)};
 const __b64ToBytes=s=>{const b=atob(s),a=new Uint8Array(b.length);for(let i=0;i<b.length;i++)a[i]=b.charCodeAt(i);return a};
@@ -96,12 +97,13 @@ for(const{id,n,c,m}of __wasmExports){
   const params=c.map(__parseType);
   const hasArrays=params.some(p=>p.a);
   if(!hasArrays){globalThis[id]=compute;continue}
+  let __copied=false;
   globalThis[id]=function(...args){
     const mv=new Uint8Array(__wasmMem.buffer);let off=__woff;const ptrs=[];
     for(let i=0;i<params.length;i++){const p=params[i],a=args[i];
       if(p.a&&a?.buffer){
         if(a.buffer===__wasmMem.buffer){ptrs.push(a.byteOffset)}
-        else{const ab=new Uint8Array(a.buffer,a.byteOffset,a.byteLength);off=(off+15)&~15;mv.set(ab,off);ptrs.push(off);off+=ab.length}
+        else{if(!__copied){__copied=true;__rec({source:'wasm',severity:'notice',message:"'"+id+"' was passed a typed array outside wasm memory — copying in and out on every call. This can be SLOWER than plain JS. Allocate it with wasmBuffer() to pass it zero-copy.",data:{fn:id,param:p.n,bytes:a.byteLength}})}const ab=new Uint8Array(a.buffer,a.byteOffset,a.byteLength);off=(off+15)&~15;mv.set(ab,off);ptrs.push(off);off+=ab.length}
       } else ptrs.push(a)}
     const r=compute(...ptrs);off=__woff;
     for(let i=0;i<params.length;i++){const p=params[i],a=args[i];
@@ -109,7 +111,7 @@ for(const{id,n,c,m}of __wasmExports){
         if(a.buffer===__wasmMem.buffer) continue;
         const ab=new Uint8Array(a.buffer,a.byteOffset,a.byteLength);off=(off+15)&~15;ab.set(mv.slice(off,off+ab.length));off+=ab.length}}
     return r};
-}})().catch(()=>{}));
+}})().catch(e=>{try{globalThis.__tjs?.record?.({source:'wasm',severity:'warning',message:'wasm module failed to instantiate — every wasm{} block in this file is running its JS fallback: '+((e&&e.message)||e),data:{error:String(e)}})}catch{}}));
 `.trim()
 
   // Strip the temporary _exportName field before returning to caller.

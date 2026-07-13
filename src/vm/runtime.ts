@@ -40,6 +40,29 @@ function eqValue(a: unknown, b: unknown): boolean {
  * When an atom fails, it stores an AgentError instead of throwing.
  * Subsequent atoms check for errors and pass them through without executing.
  */
+/**
+ * Report to the TJS flight recorder, if one is installed.
+ *
+ * Deliberately reached through `globalThis` rather than imported: the VM ships
+ * as its own bundle (`tjs-lang/vm`) and must not pull the language runtime in
+ * behind it. No runtime installed → no-op. A throwing recorder is swallowed —
+ * recording must never change the behavior of the program it records.
+ */
+function recordVmEvent(entry: {
+  source: string
+  severity: string
+  message: string
+  data?: unknown
+}): void {
+  const g = globalThis as any
+  if (!g.__tjs || typeof g.__tjs.record !== 'function') return
+  try {
+    g.__tjs.record(entry)
+  } catch {
+    // The recorder is not allowed to take the VM down with it.
+  }
+}
+
 export class AgentError {
   readonly $error = true as const
   readonly message: string
@@ -50,6 +73,17 @@ export class AgentError {
     this.message = message
     this.op = op
     this.cause = cause
+
+    // Every VM failure — fuel exhaustion, atom timeout, capability denial,
+    // atom throw — is constructed here. Recording at the single choke point
+    // means the black box cannot miss one, and costs nothing on the happy path
+    // (an AgentError is already the slow path).
+    recordVmEvent({
+      source: 'vm',
+      severity: 'error',
+      message,
+      data: { op, cause: cause?.message },
+    })
   }
 
   toString(): string {

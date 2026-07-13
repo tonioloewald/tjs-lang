@@ -422,7 +422,11 @@ function createRecorder(readConfig: () => TJSConfig, mirror?: Mirror) {
       head = (head + 1) % n
       if (count < n) count++
       recordTotal++
-      if (entry.severity === 'error') errorTotal++
+      // Counts what errors() returns, and nothing else. A VM AgentError is
+      // severity 'error' but carries no MonadicError, so it lands in records()
+      // without inflating getErrorCount() — otherwise getErrorCount() and
+      // errors().length would disagree, and both are public.
+      if (entry.severity === 'error' && entry.error) errorTotal++
       mirror?.(entry, api.record)
     },
 
