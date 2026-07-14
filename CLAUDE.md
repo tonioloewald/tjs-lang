@@ -343,6 +343,22 @@ AJS expressions behave differently from JavaScript in several important ways:
 
 Coverage targets: 98% lines on `src/vm/runtime.ts` (security-critical), 80%+ overall.
 
+### Full run before tagging (project-specific gate)
+
+`test:fast` sets both `SKIP_LLM_TESTS=1` and `SKIP_BENCHMARKS=1` — fine for the
+inner loop, but it skips exactly the two categories most likely to rot unseen.
+**Before tagging or publishing a version, run the full suite: plain `bun test`,
+nothing skipped.** tjs-lang is foundational; a skipped-in-CI benchmark or an LLM
+regression that ships is expensive to trace back. (This gate exists because the
+vector-search benchmark drifted to a 27× flake unnoticed — it was measuring a
+single sub-millisecond call. Diverges from the shared `releasing.md` default,
+which is fine with a fast pre-tag check; here the full run is the gate.)
+
+- Requires **LM Studio** up with a chat + embedding model (see the setup doc
+  above). A cold server fails the first run on model load — warm it, then judge.
+- Green = 0 fail. Vision tests self-skip without a vision model loaded; that's
+  expected, not a failure. Full run is ~3 min.
+
 **Bug fix rule:** Always create a reproduction test case before fixing a bug.
 
 ### Guardrail Tests (don't "fix" these by editing the test)
