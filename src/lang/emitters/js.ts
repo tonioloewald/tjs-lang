@@ -992,6 +992,9 @@ export function transpileToJS(
   const needsFunctionPredicate = /\bFunctionPredicate\(/.test(code)
   const needsEnum = /\bEnum\(/.test(code)
   const needsUnion = /\bUnion\(/.test(code)
+  // `.toJSONSchema()` / `.strip()` on a runtime type — only inline the
+  // example→schema helper for files that actually call them.
+  const needsExampleSchema = /\.(toJSONSchema|strip)\(/.test(code)
   const needsBang = code.includes('__tjs.bang(')
   // checkFnShape and bang both build MonadicErrors, so they pull in the core too
   const needsMonadicCore =
@@ -1075,15 +1078,72 @@ export function transpileToJS(
     }
 
     // Type system constructors — these need tosijs-schema for full
-    // functionality but we provide a working fallback
-    if (needsType) {
+    // functionality but we provide a working fallback.
+    //
+    // NOTE these are ALWAYS used, even when a shared runtime is installed: the
+    // emitted code calls them bare, and these declarations shadow. Do not
+    // "improve" that into `const Type = globalThis.__tjs?.Type ?? …` without
+    // reconciling the two implementations first — they are not drop-in
+    // equivalents, and swapping silently changes behavior. The real `Type`
+    // THROWS on `Type(description)` with no example where the stub is permissive,
+    // and the real `FunctionPredicate.check()` returns an error message where the
+    // stub returns `false`. Same source, different answers, depending only on
+    // whether a runtime happened to be installed.
+    //
+    // The consequence to be aware of: the stubs carry none of the real type's API
+    // (no `.toJSONSchema()`, no `.strip()`), so emitted code cannot use it. That
+    // is why examples/json-schema.tjs imports the standalone
+    // `functionMetaToJSONSchema` from `tjs-lang/lang` rather than calling
+    // `Type(…).toJSONSchema()`.
+    // `.toJSONSchema()` / `.strip()` — derived purely from the example value, so
+    // the stub can carry them without tosijs-schema. A TJS type that survives to
+    // runtime but can't describe itself there isn't much of a runtime type; this
+    // is the whole "types are examples that survive" claim, and it did not work
+    // from inside .tjs code at all (examples/json-schema.tjs died on
+    // `User.toJSONSchema is not a function`). Emitted only when actually used, so
+    // files that don't ask for a schema pay nothing.
+    if (needsExampleSchema) {
       inlineParts.push(
-        `function Type(d,p,e){const t={description:d,__runtimeType:true};if(typeof p==='function'){t.check=p;t.default=e??null}else{const ex=e??p;t.default=ex;t.check=v=>{if(ex===null)return true;return typeof v===typeof ex}}return t}`
+        `function __ex2js(v){if(v===null)return{type:'null'};if(v===undefined)return{};const t=typeof v;if(t==='string')return{type:'string'};if(t==='number')return Number.isInteger(v)?{type:'integer'}:{type:'number'};if(t==='boolean')return{type:'boolean'};if(Array.isArray(v))return v.length?{type:'array',items:__ex2js(v[0])}:{type:'array'};if(t==='object'){const p={},r=[];for(const k of Object.keys(v)){p[k]=__ex2js(v[k]);r.push(k)}return{type:'object',properties:p,required:r,additionalProperties:false}}return{}}`
+      )
+    }
+    if (needsType) {
+      // `check` matches the value against the EXAMPLE, structurally.
+      //
+      // It used to be `typeof v === typeof ex`, which for an object example means
+      // *any* object passes: `User.check({ name: 'Alice' })` returned true for a
+      // type requiring name+age+email. A validator that answers "yes" to everything
+      // is worse than no validator — examples/json-schema.tjs printed
+      // "Missing field: true" and looked like it worked.
+      inlineParts.push(
+        `function __match(v,ex){if(ex===null)return v===null;if(ex===undefined)return true;const t=typeof ex;if(t==='string'||t==='number'||t==='boolean')return typeof v===t;if(Array.isArray(ex)){if(!Array.isArray(v))return false;return ex.length?v.every(x=>__match(x,ex[0])):true}if(t==='object'){if(!v||typeof v!=='object'||Array.isArray(v))return false;return Object.keys(ex).every(k=>k in v&&__match(v[k],ex[k]))}return v===ex}`
+      )
+      const typeExtras = needsExampleSchema
+        ? `t.toJSONSchema=()=>t.__ex===undefined?{}:__ex2js(t.__ex);t.strip=v=>{const ex=t.__ex;if(!ex||typeof ex!=='object'||!v||typeof v!=='object')return v;const o={};for(const k of Object.keys(ex))if(k in v)o[k]=v[k];return o};`
+        : ''
+      inlineParts.push(
+        `function Type(d,p,e){const t={description:d,__runtimeType:true};if(typeof p==='function'){t.check=p;t.default=e??null}else{const ex=e??p;t.default=ex;t.__ex=ex;t.check=v=>__match(v,ex)}${typeExtras}return t}`
       )
     }
     if (needsGeneric) {
+      // A generic's predicate receives (value, ...typeChecks) — its type params
+      // arrive as CHECK FUNCTIONS, not as the raw type arguments. That is the
+      // whole point of the form:
+      //
+      //   Generic Box<T> { predicate(obj, T) { … && T(obj.value) } }
+      //   const StringBox = Box('')
+      //
+      // The real `Generic` (src/types/Type.ts) runs each type argument through
+      // `typeParamToCheck` first. This fallback used to spread the raw args
+      // straight into the predicate, so `T` was the string `''` and calling it
+      // threw "checkT is not a function" — every generic in emitted standalone
+      // code was dead on arrival (examples/generic-demo.tjs).
+      //
+      // The inline runtime has no tosijs-schema, so an example value checks by
+      // `typeof`, exactly as the inline `Type` fallback above does. A RuntimeType
+      // defers to its own `.check`; a bare predicate function is used as-is.
       inlineParts.push(
-        `function Generic(tp,pred,d){const f=(...args)=>{const t={description:d||'generic',__runtimeType:true,check:v=>pred(v,...args)};return t};f.__runtimeType=true;f.description=d;return f}`
+        `function Generic(tp,pred,d){const c=a=>{if(a===null||a===undefined)return()=>true;if(a.__runtimeType&&typeof a.check==='function')return v=>a.check(v)===true;if(typeof a==='function')return v=>a(v)===true;return v=>typeof v===typeof a};const f=(...args)=>{const ck=args.map(c);const t={description:d||'generic',__runtimeType:true,check:v=>pred(v,...ck)};return t};f.__runtimeType=true;f.description=d;return f}`
       )
     }
     if (needsFunctionPredicate) {
@@ -1091,14 +1151,18 @@ export function transpileToJS(
         `function FunctionPredicate(n,s,b){if(Array.isArray(s)&&b){const f=(...a)=>FunctionPredicate(n,b(...a));f.typeParamNames=s.map(p=>Array.isArray(p)?p[0]:p);f.description=n;f.__runtimeType=true;return f}const spec=typeof s==='function'?{}:s||{};return{description:n,params:spec.params||{},returns:spec.returns,returnContract:spec.returnContract||'assertReturns',check:v=>typeof v==='function',__runtimeType:true}}`
       )
     }
+    // An enum/union is a closed set of values, so its schema is just that set.
+    const setSchema = needsExampleSchema
+      ? `,toJSONSchema:()=>({enum:vals})`
+      : ''
     if (needsEnum) {
       inlineParts.push(
-        `function Enum(d,m){const vals=typeof m==='object'?Object.values(m):[];return{description:d,check:v=>vals.includes(v),values:vals,__runtimeType:true}}`
+        `function Enum(d,m){const vals=typeof m==='object'?Object.values(m):[];return{description:d,check:v=>vals.includes(v),values:vals,__runtimeType:true${setSchema}}}`
       )
     }
     if (needsUnion) {
       inlineParts.push(
-        `function Union(d,...v){const vals=v.flat();return{description:d,check:x=>vals.includes(x),values:vals,__runtimeType:true}}`
+        `function Union(d,...v){const vals=v.flat();return{description:d,check:x=>vals.includes(x),values:vals,__runtimeType:true${setSchema}}}`
       )
     }
     // toBool — honest truthiness (unwraps boxed primitives)

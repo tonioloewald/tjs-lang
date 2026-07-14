@@ -9,7 +9,12 @@ Type Name = "World"
 
 const StringBox = Box("")
 
-function demo(): { passed: 0, failed: 0 } {
+// The return example is a WORKED example, not just a type: TJS calls demo() at
+// transpile time and asserts the result matches. So this signature is a real
+// build-time assertion that all three checks below pass and none fail — if a
+// check breaks, transpilation fails. (Use `:!` when you only mean "returns an
+// object shaped like this".)
+function demo(): { passed: 3, failed: 0 } {
   let passed = 0
   let failed = 0
 

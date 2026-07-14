@@ -33,6 +33,35 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Every file in `examples/` works again, and a guardrail keeps it that way**
+  (`src/examples.test.ts` runs each through `tjs check` _and_ `tjs run`). Five of the
+  seven were broken; nothing caught it because nothing ran them. Beyond the `tjs run`
+  and WASM bugs below, this surfaced:
+  - **`tjs run` could not run any file with an `import` or an `export`.** It evaluated
+    emitted code with `new AsyncFunction(code)`, and `import`/`export` are module-only
+    syntax — a `SyntaxError` inside a function body. It even reported the failure as a
+    syntax error in the _source_, pointing at a line the user never wrote. The emitted
+    module is now written beside the source and imported, so relative and bare imports
+    resolve exactly as they would for the original file.
+  - **`tjs run` executed your program twice.** The transpile-time test harness _evaluates
+    the module_ to run signature tests, and then `run` evaluated it again — so every
+    top-level side effect fired twice (`console.log('hi')` printed `hi` twice). Running a
+    program no longer tests it; that is what `tjs test` / `tjs check` are for (the same
+    position the Bun plugin already took).
+  - **Generics were dead on arrival in emitted code.** A generic's predicate receives its
+    type parameters as **check functions** — `Generic Box<T> { predicate(obj, T) { … T(obj.value) } }`
+    — but the inline runtime spread the raw type _arguments_ in, so `T` was the string
+    `''` and calling it threw `checkT is not a function`.
+  - **A runtime type's `check()` accepted anything of the right `typeof`.** For an object
+    example that means _any_ object passed: `User.check({ name: 'Alice' })` returned `true`
+    for a type requiring `name`+`age`+`email`. It now matches the example structurally. A
+    validator that answers "yes" to everything is worse than no validator.
+  - **`.toJSONSchema()` / `.strip()` did not exist in emitted code**, so a TJS type could
+    not describe itself from inside TJS — the "types are examples that survive to runtime"
+    claim, unmet. Both are now emitted (only for files that use them).
+  - **`tjs-lang/lang` did not export `functionMetaToJSONSchema`.** `src/lang/index.ts` did,
+    but the subpath resolves to `src/lang/transpiler.ts`, and the two had drifted — so the
+    documented import failed with "Export not found".
 - **WASM now instantiates synchronously**, so an exported `wasm function` can be called
   the moment its module is imported. The bootstrap was a fire-and-forget `async` IIFE, so
   nothing was bound to `globalThis` until a microtask later. An inline `wasm{} fallback{}`

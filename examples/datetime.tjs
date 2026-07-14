@@ -21,7 +21,13 @@ class DateTime {
     return this.#value
   }
 
-  toString(): '' {
+  // `:!` — the `''` is a TYPE example ("returns a string"), not a worked example.
+  // A bare `:` would make this a signature test: TJS would construct a DateTime
+  // from the constructor's example and assert toString() === '', which it never
+  // is. Use `:!` whenever the return example describes the type rather than the
+  // answer. (This is exactly what `fromTS` emits when converting TypeScript's
+  // `toString(): string`.)
+  toString():! '' {
     return this.#value.toISOString()
   }
 }
