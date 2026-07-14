@@ -33,6 +33,42 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **WASM now instantiates synchronously**, so an exported `wasm function` can be called
+  the moment its module is imported. The bootstrap was a fire-and-forget `async` IIFE, so
+  nothing was bound to `globalThis` until a microtask later. An inline `wasm{} fallback{}`
+  block survives that window (it runs the JS fallback), but a `wasm function` declaration
+  has **no** fallback — it calls the global directly. So
+  `import { dot } from 'tjs-lang/linalg'; dot(a, b, 3)` threw
+  `__tjs_wasm_dot is not a function`: a shipped entry point that could not be imported and
+  used. `new WebAssembly.Module` is synchronous everywhere except a browser main thread
+  with a >4KB module, which is now the only case that takes the async path —
+  `__tjs_wasm_ready()` still resolves in both and remains what to await in a browser.
+- **Inline `wasm{}` block ids are no longer a per-file counter.** Every module's first
+  block claimed `globalThis.__tjs_wasm_0`, so two modules with inline wasm blocks
+  overwrote each other's binding — and since the emitted call site guards the wasm path
+  on that global merely _existing_, module A could find module B's compiled function and
+  call it with A's captured variables. Ids are now salted with a content hash of the
+  module (`__tjs_wasm_<hash>_<n>`), which is deterministic, so the metadata cache is
+  unaffected. Named `wasm function` declarations keep their exact `__tjs_wasm_<name>` id —
+  that name is the cross-file composition contract.
+- **A `wasm{}` block that failed to compile could still be called.** It was left in the
+  module as a stub (correct — function indices must stay stable for other blocks'
+  `call <i>`) but was _also_ exported and bound to `globalThis`, which made the call
+  site's guard see a function and take the wasm path into a body that never compiled,
+  invoking it with captures that don't exist in that scope. Failed blocks are no longer
+  bound. (Reachable before this release too: the async instantiation window merely hid it
+  from any caller that ran synchronously.)
+- **`tjs run` was preprocessing every file twice** — it called `preprocess()` and then
+  handed the already-preprocessed source to `transpileToJS`, which preprocesses
+  internally. The first pass consumes the `wasm` blocks, so the emitter never saw them,
+  emitted no wasm bootstrap, and ran the file with `wasmBuffer` undefined while every
+  `wasm{}` block silently fell back to JS. It produced correct answers, which is why it
+  went unnoticed.
+- **`tjs run` injected a runtime prelude that collided with the emitted code.** It
+  declared `const { Type, Generic, ... }`, while emitted code inlines its own
+  `function Type` fallback — `const Type` plus `function Type` in one scope is a
+  `SyntaxError`, reported against a line number the source file did not have. Emitted code
+  is standalone by design; the prelude is gone.
 - WASM module instantiation failures were swallowed by a bare `.catch(() => {})` in the
   emitted bootstrap — the module vanished without a trace while every `wasm{}` block in
   the file silently ran its JS fallback. Now recorded as a warning.
@@ -42,8 +78,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `SyntaxError` in the emitted output). Not reachable in practice — but held shut by
   coincidence, not design. Now one definition, emitted once.
 
+### Performance
+
+- The Bun plugin (`preload`ed by `bunfig.toml`) no longer loads the whole transpiler at
+  startup just to register a `.tjs` `onLoad` hook that most invocations never fire. The
+  import moved inside the callback, cutting `bun` startup **in this repo** from ~34ms to
+  ~18ms (bun's cold floor is ~11ms, so the preload had made it start _slower than node_).
+  This is a saving per invocation — every `bun test`, every CLI run. It defers the
+  transpiler rather than adding work: a run that does import a `.tjs` pays the same total.
+
 ### Documentation
 
+- `MEMORY-PROFILE.md`: what transpilation actually costs under bun vs node. `fromTS` calls
+  only the TypeScript **parser and emitter** (`createSourceFile` + `transpileModule`),
+  never `createProgram` or a type checker, so its memory is bounded by the largest file
+  seen rather than by project size — a whole 36.7k-line project costs about half of what
+  `tsc` costs to check it once. Also records a measured, unfixed inefficiency:
+  `transpileModule` is called once per top-level statement **and per class member** (89
+  times for one 1,930-line file), which is ~70–80% of `fromTS` wall time and roughly 3×
+  the cost of a single whole-file call.
 - CLAUDE.md now defers cross-project defaults to `../tosijs-coding-practices`, recording
   only tjs-lang-specific divergences.
 - Explained why the full build is named `make`, not `build` (`bun build` is a Bun

@@ -5,8 +5,7 @@
  */
 
 import { readFileSync } from 'fs'
-import { resolve } from 'path'
-import { preprocess } from '../../lang/parser'
+import { resolve, basename } from 'path'
 import { transpileToJS } from '../../lang/emitters/js'
 import { dialectForFilename } from '../../lang/dialect'
 import * as runtime from '../../lang/runtime'
@@ -19,19 +18,13 @@ export async function run(file: string): Promise<void> {
   const dialect = dialectForFilename(file)
 
   try {
-    // Preprocess: transforms Type, Generic, Union declarations, runs tests
-    const preprocessed = preprocess(source, { dialect })
-
-    if (preprocessed.testErrors.length > 0) {
-      console.error('Test failures:')
-      for (const err of preprocessed.testErrors) {
-        console.error(`  ${err}`)
-      }
-      process.exit(1)
-    }
-
-    // Transpile to JS
-    const result = transpileToJS(preprocessed.source, { dialect })
+    // transpileToJS preprocesses internally. This used to call preprocess()
+    // first and hand it the ALREADY-preprocessed source — so every source was
+    // preprocessed twice. The first pass consumes the `wasm` blocks, so the
+    // second pass saw none, emitted no wasm bootstrap, and the file ran with
+    // `wasmBuffer` undefined while every wasm{} block silently fell back to JS.
+    // It produced correct answers, which is exactly why nobody noticed.
+    const result = transpileToJS(source, { dialect, filename: basename(file) })
 
     if (result.warnings && result.warnings.length > 0) {
       for (const warning of result.warnings) {
@@ -47,14 +40,15 @@ export async function run(file: string): Promise<void> {
       async function () {}
     ).constructor
 
-    // Wrap code in an async IIFE to support top-level await
-    const wrappedCode = `
-      const { Type, Generic, Union, Enum, FunctionPredicate, isRuntimeType, wrap, error, isError } = __runtime__;
-      ${result.code}
-    `
-
-    const fn = new AsyncFunction('__runtime__', wrappedCode)
-    await fn(runtime)
+    // Emitted code is standalone: it reads globalThis.__tjs (installed above) and
+    // inlines its own fallbacks for whichever of Type/Generic/Union/Enum/
+    // FunctionPredicate it actually uses. A prelude destructuring those same names
+    // off the runtime therefore collides with the inline definitions — `const Type`
+    // plus the emitted `function Type` in one scope is a SyntaxError, which surfaced
+    // as a bogus "syntax error" attributed to a line number the source file didn't
+    // even have. Hand it the code and nothing else.
+    const fn = new AsyncFunction(result.code)
+    await fn()
   } catch (error: any) {
     if (error.name === 'SyntaxError' && error.formatWithContext) {
       // Use enhanced error formatting with source context

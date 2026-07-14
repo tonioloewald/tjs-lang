@@ -80,9 +80,8 @@ describe('tjs-lang/linalg v1', () => {
     ])
 
     // One consolidated WebAssembly.Module per file
-    const compileCalls = (result.code.match(/WebAssembly\.compile\(/g) || [])
-      .length
-    expect(compileCalls).toBe(1)
+    const modules = (result.code.match(/const __wasmModuleB64=/g) || []).length
+    expect(modules).toBe(1)
   })
 
   it('boundary form: dynamic import gives a working library', async () => {
@@ -179,9 +178,8 @@ function cosine(a, b, n) {
     expect(result.wasmCompiled).toHaveLength(2)
     const ids = result.wasmCompiled!.map((b) => b.id).sort()
     expect(ids).toEqual(['__tjs_wasm_dot', '__tjs_wasm_norm_sq'])
-    const compileCalls = (result.code.match(/WebAssembly\.compile\(/g) || [])
-      .length
-    expect(compileCalls).toBe(1)
+    const modules = (result.code.match(/const __wasmModuleB64=/g) || []).length
+    expect(modules).toBe(1)
 
     // Run the consumer and verify the cosine function works correctly
     const savedTjs = globalThis.__tjs

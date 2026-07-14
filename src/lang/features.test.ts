@@ -1419,7 +1419,10 @@ function double(arr: []) {
 
     // Should have extracted the WASM block
     expect(result.wasmBlocks.length).toBe(1)
-    expect(result.wasmBlocks[0].id).toBe('__tjs_wasm_0')
+    // `__tjs_wasm_<moduleHash>_<index>`. The hash salt is what keeps two modules'
+    // inline blocks from both claiming `globalThis.__tjs_wasm_0`, so assert the
+    // shape rather than a literal id.
+    expect(result.wasmBlocks[0].id).toMatch(/^__tjs_wasm_[a-z0-9]+_0$/)
     expect(result.wasmBlocks[0].body).toContain('arr[i] *= 2')
     // arr should be auto-captured
     expect(result.wasmBlocks[0].captures).toContain('arr')
@@ -1448,7 +1451,7 @@ function transform(data: []) {
 }`)
 
     // Should replace wasm block with dispatch
-    expect(result.source).toContain('globalThis.__tjs_wasm_0')
+    expect(result.source).toContain(`globalThis.${result.wasmBlocks[0].id}`)
     expect(result.source).not.toContain('wasm {')
   })
 
@@ -1466,7 +1469,9 @@ function compute(x: 0, y: 0) {
     expect(result.wasmBlocks[0].captures).toContain('y')
     expect(result.wasmBlocks[0].captures).toContain('multiplier')
     // Dispatch should pass captures
-    expect(result.source).toContain('__tjs_wasm_0(multiplier, x, y)')
+    expect(result.source).toContain(
+      `${result.wasmBlocks[0].id}(multiplier, x, y)`
+    )
   })
 
   it('should not capture locally declared variables', () => {
@@ -1502,10 +1507,13 @@ function process(a: [], b: []) {
 }`)
 
     expect(result.wasmBlocks.length).toBe(2)
-    expect(result.wasmBlocks[0].id).toBe('__tjs_wasm_0')
-    expect(result.wasmBlocks[1].id).toBe('__tjs_wasm_1')
-    expect(result.source).toContain('globalThis.__tjs_wasm_0')
-    expect(result.source).toContain('globalThis.__tjs_wasm_1')
+    // Same module ⇒ same hash salt, distinct indices.
+    expect(result.wasmBlocks[0].id).toMatch(/^__tjs_wasm_[a-z0-9]+_0$/)
+    expect(result.wasmBlocks[1].id).toMatch(/^__tjs_wasm_[a-z0-9]+_1$/)
+    const tag = (id: string) => id.split('_').slice(0, -1).join('_')
+    expect(tag(result.wasmBlocks[1].id)).toBe(tag(result.wasmBlocks[0].id))
+    expect(result.source).toContain(`globalThis.${result.wasmBlocks[0].id}`)
+    expect(result.source).toContain(`globalThis.${result.wasmBlocks[1].id}`)
   })
 
   it('should compile WASM at transpile time and embed in output', async () => {

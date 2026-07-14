@@ -81,8 +81,10 @@ bun run docs                # Generate documentation
 
 # Partial builds (all subsumed by `make`; useful when iterating on one target)
 bun run build:bundles       # esbuild only — scripts/build.ts → dist/*.js
+bun run build:grammars      # editors/build-grammars.ts → the VSCode/TextMate grammars
 bun run build:demo          # Playground/demo → .demo/ (Firebase hosting root)
 bun run build:cli           # Standalone binaries: tjs + tjsx → dist/
+                            #   NOT part of `make` — the binaries aren't published.
 
 # Compatibility testing — see scripts/compat-*.ts (zod, effect, radash, superstruct, ts-pattern, kysely)
 
@@ -109,6 +111,7 @@ bun run functions:serve     # Local functions emulator
 - `src/builder.ts` - TypedBuilder fluent API (~754 lines / ~19KB)
 - `src/lang/parser.ts` - TJS parser with colon shorthand, unsafe markers, return type extraction
 - `src/lang/parser-transforms.ts` - Type, Generic, and FunctionPredicate block/function form transforms
+- `src/lang/transpiler.ts` - The `tjs-lang/lang` entry point. Imports the source files directly (never `./index`, which reaches `from-ts` and drags in the TS compiler)
 - `src/lang/core.ts` - Transpiler core **without** the TypeScript dependency; import from here (not `./index`) to avoid pulling in the TS compiler
 - `src/lang/dialect.ts` - `dialect` resolution + the canonical extension→dialect helpers (`dialectForFilename` / `sourceKindForFilename`); the modes-on/off decision lives here
 - `src/lang/tests.ts` - Inline `test '…' { }` block extraction and runner generation
@@ -353,6 +356,9 @@ expectation is almost always the wrong move.
 - `src/lang/redos-lint.test.ts` — the predicate verifier fails _closed_ on catastrophic-backtracking regexes (a regex match is opaque to the fuel counter). Over-flagging only costs the "verified" badge; certifying a dangerous pattern is a broken promise.
 - `src/lang/browser-bundle.test.ts` — the browser bundle stays self-contained (no external imports), which is what lets it load from any CDN.
 - `src/docs-index.test.ts` — `llms.txt` indexes every top-level/`docs/` markdown file and every `package.json` entry point, and all its links resolve. Enforces the "update both" rule below. To exempt something, add it to the allowlist in that file **with a reason** — an unexplained exemption is a silent hole.
+- `src/index-tsfree.test.ts` — the TypeScript compiler is reachable **only** via the explicit `tjs-lang/lang/from-ts` subpath, never through the main entry. `typescript` is a devDependency, so a static re-export of `fromTS` anywhere in the main graph makes `import 'tjs-lang'` hard-fail for Node consumers who don't have it installed (it shipped that way once — snowfox found it in production).
+- `src/package-exports.test.ts` — every package the shipped files import is declared in `package.json`. A hoisted `node_modules` resolves undeclared imports fine locally and breaks in a consumer's isolated install; this reads what the published files actually import and demands it be declared (`editors/codemirror` shipped importing five `@codemirror/*` packages with no `peerDependencies` block at all — #16).
+- `editors/editors-build.test.ts` — the committed `editors/**/*.js` are byte-identical to a fresh bundle of the adjacent `.ts`. They're build artifacts that are committed (so `npm publish` ships them without a build), which means editing the `.ts` without running `bun run build:editors` would otherwise silently ship months-old code.
 
 ## Key Patterns
 
@@ -462,7 +468,15 @@ it's used instead.
 
 ## Dependencies
 
-Runtime (shipped): `acorn` (JS parser, ~30KB), `tosijs-schema` (validation, ~5KB). Both have zero transitive dependencies.
+Runtime (shipped): `acorn` (JS parser, ~30KB) and its two satellites — `acorn-walk`
+(AST traversal; the linter and the predicate verifier) and `acorn-loose` (error-tolerant
+parse; scope extraction has to work on the half-typed source in an editor buffer) — plus
+`tosijs-schema` (validation, ~5KB). All have zero transitive dependencies.
+
+Peer (optional): the five `@codemirror/*` packages that `tjs-lang/editors/codemirror`
+imports. Declared `optional: true`, so nobody who isn't using the CodeMirror integration
+installs them — but declared, because an undeclared import resolves by hoisting luck here
+and hard-fails in a consumer's isolated install (guarded by `src/package-exports.test.ts`).
 
 ## Forbidden Properties (Security)
 
