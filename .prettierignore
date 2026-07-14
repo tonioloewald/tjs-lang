@@ -9,6 +9,9 @@ demo/docs.json
 # Editor entry points are bundled from their .ts sources by scripts/build-editors.ts
 # (esbuild output — must stay byte-identical to the build, guarded by a test).
 editors/**/*.js
+# Declarations are emitted by tsc (tsconfig.editors.json) — formatting them would
+# make the committed files differ from a fresh emit.
+editors/**/*.d.ts
 
 # Dependencies and sub-projects that carry their own tooling
 node_modules

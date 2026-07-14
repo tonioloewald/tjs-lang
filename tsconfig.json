@@ -15,5 +15,16 @@
     "allowJs": true,
     "types": ["bun-types", "@types/jsdom"]
   },
-  "exclude": ["**/*.test.ts", "**/*.test.tsx", "editors/**", "functions/**"]
+  // `editors/**` used to be excluded wholesale, so the editor sources — including
+  // the CodeMirror integration and the scope extractor we now publish — were
+  // NEVER typechecked. They are now, except monaco/ace: those import their
+  // frameworks type-only, and installing `monaco-editor` + `ace-builds` purely
+  // to typecheck two thin adapters would add ~127MB to every install.
+  "exclude": [
+    "**/*.test.ts",
+    "**/*.test.tsx",
+    "editors/monaco/**",
+    "editors/ace/**",
+    "functions/**"
+  ]
 }

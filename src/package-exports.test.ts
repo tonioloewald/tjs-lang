@@ -95,6 +95,30 @@ describe('package.json exports', () => {
     expect(missing).toEqual([])
   })
 
+  it('ships types for every editors subpath that has them, and they exist', () => {
+    // #12: `./editors/codemirror` shipped with no `.d.ts` and no `types`
+    // condition, so consumers re-declared AutocompleteConfig by hand. The
+    // declarations are emitted by tsc and committed next to the .js.
+    //
+    // monaco/ace are knowingly untyped — typing them means installing
+    // monaco-editor + ace-builds (~127MB) to check two thin adapters. When that
+    // changes, add them here.
+    const mustBeTyped = ['./editors', './editors/codemirror']
+
+    for (const subpath of mustBeTyped) {
+      const entry = (pkg.exports as any)[subpath]
+      expect(typeof entry).toBe('object')
+      expect(entry.types).toBeTruthy()
+      expect(existsSync(join(ROOT, entry.types))).toBe(true)
+
+      // `types` must precede `default`, or the resolver never sees it.
+      const conditions = Object.keys(entry)
+      expect(conditions.indexOf('types')).toBeLessThan(
+        conditions.indexOf('default')
+      )
+    }
+  })
+
   it('declares every bare import of every published editors bundle', () => {
     // The editors bundles are committed to the repo (not built into dist/), so
     // they are always checkable — and they are where this bug actually lives.

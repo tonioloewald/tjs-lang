@@ -53,6 +53,12 @@
       ],
       "runtime": [
         "./dist/src/lang/runtime.d.ts"
+      ],
+      "editors": [
+        "./editors/index.d.ts"
+      ],
+      "editors/codemirror": [
+        "./editors/codemirror/ajs-language.d.ts"
       ]
     }
   },
@@ -120,10 +126,14 @@
     "./src": "./src/index.ts",
     "./editors": {
       "bun": "./editors/index.ts",
+      "types": "./editors/index.d.ts",
       "default": "./editors/index.js"
     },
+    "./editors/codemirror": {
+      "types": "./editors/codemirror/ajs-language.d.ts",
+      "default": "./editors/codemirror/ajs-language.js"
+    },
     "./editors/monaco": "./editors/monaco/ajs-monarch.js",
-    "./editors/codemirror": "./editors/codemirror/ajs-language.js",
     "./editors/ace": "./editors/ace/ajs-mode.js"
   },
   "bin": {
@@ -197,7 +207,7 @@
     "lint": "eslint src",
     "prepare": "git config core.hooksPath .githooks || true",
     "build:grammars": "bun editors/build-grammars.ts",
-    "build:editors": "bun scripts/build-editors.ts",
+    "build:editors": "bun scripts/build-editors.ts && tsc -p tsconfig.editors.json",
     "test:fast": "SKIP_LLM_TESTS=1 SKIP_BENCHMARKS=1 bun test",
     "test:llm": "bun test src/batteries/models.integration.test.ts",
     "bench": "bun bin/benchmarks.ts",

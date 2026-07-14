@@ -1,0 +1,29 @@
+{
+  // Declaration emit for the published `tjs-lang/editors*` entry points.
+  //
+  // Separate from tsconfig.build.json because that one emits to `dist/` with no
+  // rootDir — un-excluding editors there would scatter the .d.ts into
+  // `dist/editors/…`, away from the .js they describe. These land NEXT TO their
+  // .js and are committed, exactly like the bundles (so `npm publish` ships them
+  // without a build).
+  //
+  // monaco/ace are excluded: they import their frameworks type-only, and pulling
+  // in `monaco-editor` + `ace-builds` (~127MB) to type two thin adapters is a bad
+  // trade. Their subpaths stay untyped for now — see GitHub #12.
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "noEmit": false,
+    "declaration": true,
+    "emitDeclarationOnly": true,
+    "rootDir": "editors",
+    "outDir": "editors",
+    "allowImportingTsExtensions": false
+  },
+  "include": ["editors/**/*.ts"],
+  "exclude": [
+    "**/*.test.ts",
+    "editors/monaco/**",
+    "editors/ace/**",
+    "editors/build-grammars.ts"
+  ]
+}

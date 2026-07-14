@@ -43,7 +43,11 @@ bun run make                # Full build (clean, format, grammars, editors, tsc,
                             #   would silently run the builtin instead of the script while
                             #   `bun run build` ran the script — an ever-present footgun where
                             #   the two commands diverge. Don't add a `build` script.
-bun run build:editors       # Bundle editors/{codemirror,monaco,ace}/*.ts → published *.js
+bun run build:editors       # Bundle editors/*.ts → published *.js, then emit *.d.ts
+                            #   (tsc -p tsconfig.editors.json). Both are committed, so
+                            #   `npm publish` ships them without a build. monaco/ace are
+                            #   NOT typed: that needs monaco-editor + ace-builds (~127MB)
+                            #   installed to check two thin adapters.
 bun run dev                 # Development server with file watcher
 bun run start               # Build demo + start dev server
 bun run latest              # Clean reinstall (rm node_modules + bun install)
