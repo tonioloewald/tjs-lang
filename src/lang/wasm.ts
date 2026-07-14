@@ -2299,6 +2299,15 @@ export interface BlockExport {
   needsMemory: boolean
   /** WAT disassembly */
   wat: string
+  /**
+   * This block FAILED to compile and is only present as a stub, to keep the
+   * module's function indices stable for other blocks' `call <i>` instructions.
+   * It must never be bound to `globalThis[id]`: the emitted JS guards the wasm
+   * path on `globalThis.__tjs_wasm_N` being a function, so binding a stub makes
+   * a failed block look available and takes the wasm path into a body that was
+   * never compiled. Callers must filter these out when emitting exports.
+   */
+  failed?: boolean
 }
 
 /** Result of composing multiple blocks into one module */
@@ -2378,6 +2387,7 @@ export function compileBlocksToModule(
         captures: block.captures,
         needsMemory: false,
         wat: `(failed: ${r.error ?? 'unknown error'})`,
+        failed: true,
       })
       continue
     }

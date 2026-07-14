@@ -312,35 +312,48 @@ describe('Canonical demo: vector-search across three forms', () => {
           )
         }
 
-        // Time inline
-        const inlineStart = performance.now()
-        const inlineIdx = inline.search(
-          inlineCorpus,
-          inlineQuery,
-          cfg.count,
-          cfg.dim
-        )
-        const inlineMs = performance.now() - inlineStart
+        // Time each variant over REPS calls, not one.
+        //
+        // Each `search()` here takes a fraction of a millisecond, and this used to
+        // time a SINGLE call — then assert 2× and 3× ratios on that one sample.
+        // At ~0.45ms per measurement that is timer noise, not a benchmark: the
+        // test failed intermittently on ratios that swung from 0.45× to 27×
+        // between runs, on identical code. Widening the threshold (the previous
+        // response to the flakiness) treats the symptom; the measurement itself
+        // was unsound. Summing REPS calls puts each timing in the tens of
+        // milliseconds, where the ratios are stable and actually mean something.
+        const REPS = 50
+        const timeSearch = (
+          fn: (...a: any[]) => number,
+          corpus: Float32Array,
+          query: Float32Array
+        ): { ms: number; idx: number } => {
+          const start = performance.now()
+          let idx = -1
+          for (let r = 0; r < REPS; r++) {
+            idx = fn(corpus, query, cfg.count, cfg.dim)
+          }
+          return { ms: performance.now() - start, idx }
+        }
 
-        // Time composed JS-outer-loop
-        const composedJsStart = performance.now()
-        const composedJsIdx = composedJs.search(
+        const inlineRun = timeSearch(inline.search, inlineCorpus, inlineQuery)
+        const composedJsRun = timeSearch(
+          composedJs.search,
           composedJsCorpus,
-          composedJsQuery,
-          cfg.count,
-          cfg.dim
+          composedJsQuery
         )
-        const composedJsMs = performance.now() - composedJsStart
-
-        // Time composed wasm-outer-loop
-        const composedWasmStart = performance.now()
-        const composedWasmIdx = composedWasm.search(
+        const composedWasmRun = timeSearch(
+          composedWasm.search,
           composedWasmCorpus,
-          composedWasmQuery,
-          cfg.count,
-          cfg.dim
+          composedWasmQuery
         )
-        const composedWasmMs = performance.now() - composedWasmStart
+
+        const inlineMs = inlineRun.ms
+        const composedJsMs = composedJsRun.ms
+        const composedWasmMs = composedWasmRun.ms
+        const inlineIdx = inlineRun.idx
+        const composedJsIdx = composedJsRun.idx
+        const composedWasmIdx = composedWasmRun.idx
 
         // All three implementations must agree on best index
         expect(composedJsIdx).toBe(inlineIdx)

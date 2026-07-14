@@ -2046,7 +2046,7 @@ describe('module consolidation (Phase 0.5)', () => {
     })
   })
 
-  describe('emitted bootstrap (single WebAssembly.compile per file)', () => {
+  describe('emitted bootstrap (single wasm module per file)', () => {
     it('two wasm blocks in one source produce ONE compile call', async () => {
       const { tjs } = await import('./index')
       const source = `
@@ -2068,10 +2068,15 @@ function dbl(arr: Float32Array, len: 0) {
 `
       const result = tjs(source)
 
-      // The hallmark of consolidation: exactly one compile call across all blocks
-      const compileCalls = (result.code.match(/WebAssembly\.compile\(/g) || [])
+      // The hallmark of consolidation: all blocks land in ONE embedded module.
+      // (This used to count `WebAssembly.compile(` calls. The bootstrap now
+      // instantiates synchronously via `new WebAssembly.Module` and only falls
+      // back to the async API on a browser main thread, so counting one API's
+      // name no longer expresses the invariant. The embedded module constant
+      // does, and it is what "consolidation" actually means.)
+      const modules = (result.code.match(/const __wasmModuleB64=/g) || [])
         .length
-      expect(compileCalls).toBe(1)
+      expect(modules).toBe(1)
 
       // Both functions appear under their own export names in the module
       expect(result.code).toContain('"compute_0"')
@@ -2274,14 +2279,19 @@ function inline(x: 0, y: 0) {
 `
     const result = tjs(source, { runTests: false })
     expect(result.wasmCompiled).toHaveLength(2)
-    const ids = result.wasmCompiled!.map((b) => b.id).sort()
-    expect(ids[0]).toBe('__tjs_wasm_0') // inline block
-    expect(ids[1]).toBe('__tjs_wasm_topLevel') // named wasm function
+    const ids = result.wasmCompiled!.map((b) => b.id)
+    // A named `wasm function` keeps its exact name — that IS the cross-file
+    // composition contract, so it must never be hashed.
+    expect(ids).toContain('__tjs_wasm_topLevel')
+    // The anonymous inline block is salted with the module's content hash, so
+    // two modules can't both claim `globalThis.__tjs_wasm_0`.
+    expect(ids.filter((id) => id !== '__tjs_wasm_topLevel')[0]).toMatch(
+      /^__tjs_wasm_[a-z0-9]+_0$/
+    )
     // Both compile into the same consolidated module — verify exactly one
-    // WebAssembly.compile call in the output.
-    const compileCalls = (result.code.match(/WebAssembly\.compile\(/g) || [])
-      .length
-    expect(compileCalls).toBe(1)
+    // embedded module in the output.
+    const modules = (result.code.match(/const __wasmModuleB64=/g) || []).length
+    expect(modules).toBe(1)
   })
 
   it('handles wasm function with no params', async () => {
@@ -2360,9 +2370,11 @@ export wasm function mul(a: f64, b: f64): f64 { return a * b }
     expect(result.code).toContain('globalThis.__tjs_wasm_add(a, b)')
     expect(result.code).toContain('globalThis.__tjs_wasm_mul(a, b)')
 
-    // The wasm module is base64-embedded and instantiated at the top
+    // The wasm module is base64-embedded and instantiated at the top —
+    // synchronously, so an importer can call an exported wasm function
+    // immediately instead of racing instantiation.
     expect(result.code).toContain('__wasmModuleB64')
-    expect(result.code).toContain('WebAssembly.compile')
+    expect(result.code).toContain('new WebAssembly.Module(')
 
     // No external runtime setup required — the inline __tjs fallback
     // covers everything actually used. (Only the helpers this file needs
@@ -2604,9 +2616,8 @@ function compute(a: 0.0, b: 0.0): 0.0 {
     const ids = result.wasmCompiled!.map((b) => b.id).sort()
     expect(ids).toEqual(['__tjs_wasm_add', '__tjs_wasm_dot'])
     // One consolidated WebAssembly.Module per file (Phase 0.5 acceptance)
-    const compileCalls = (result.code.match(/WebAssembly\.compile\(/g) || [])
-      .length
-    expect(compileCalls).toBe(1)
+    const modules = (result.code.match(/const __wasmModuleB64=/g) || []).length
+    expect(modules).toBe(1)
   })
 
   it('module shape: composed functions are local (no extra imports beyond env.memory)', async () => {
@@ -3079,9 +3090,8 @@ wasm function fancy(x: f64): f64 {
     // All three wasm functions (double, triple, fancy) live in one module
     expect(result.wasmCompiled).toHaveLength(3)
     expect(result.wasmCompiled!.every((b) => b.success)).toBe(true)
-    const compileCalls = (result.code.match(/WebAssembly\.compile\(/g) || [])
-      .length
-    expect(compileCalls).toBe(1)
+    const modules = (result.code.match(/const __wasmModuleB64=/g) || []).length
+    expect(modules).toBe(1)
 
     const savedTjs = globalThis.__tjs
     try {

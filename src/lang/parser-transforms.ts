@@ -161,17 +161,48 @@ export function transformTryWithoutCatch(source: string): string {
  *   }
  *
  * Output:
- *   (globalThis.__tjs_wasm_0
- *     ? globalThis.__tjs_wasm_0(captures...)
+ *   (globalThis.__tjs_wasm_a1b2c3_0
+ *     ? globalThis.__tjs_wasm_a1b2c3_0(captures...)
  *     : (() => { body })())
  *
  * Variables are auto-captured from the body.
+ *
+ * The `a1b2c3` is a content hash of the module (see `moduleTag`). Inline blocks
+ * used to be numbered by a per-FILE counter — `__tjs_wasm_0`, `__tjs_wasm_1` —
+ * so EVERY module's first block claimed `globalThis.__tjs_wasm_0`. Two modules
+ * with an inline wasm block silently overwrote each other's binding, and since
+ * the emitted call site guards the wasm path on that global merely *existing*,
+ * module B could look up the name, find module A's compiled function, and call
+ * it with B's captures. Salting with the module's content hash makes the id
+ * unique per module while staying fully deterministic (same source ⇒ same id),
+ * which the metadata cache and the tests both rely on.
+ *
+ * NOTE: named `wasm function` declarations keep their `__tjs_wasm_<name>` id
+ * (see `transformWasmFunctions`) — that name IS the cross-file composition
+ * contract, and hashing it would break importing a wasm function by name.
  */
+
+/**
+ * FNV-1a over the source, base36 — a short, stable, dependency-free tag that
+ * distinguishes one module's inline blocks from another's. Not cryptographic:
+ * it only needs to make accidental collisions between two hand-written source
+ * files vanishingly unlikely, not resist an attacker.
+ */
+function moduleTag(source: string): string {
+  let h = 0x811c9dc5
+  for (let i = 0; i < source.length; i++) {
+    h ^= source.charCodeAt(i)
+    h = Math.imul(h, 0x01000193) >>> 0
+  }
+  return h.toString(36)
+}
+
 export function extractWasmBlocks(source: string): {
   source: string
   blocks: WasmBlock[]
 } {
   const blocks: WasmBlock[] = []
+  const tag = moduleTag(source)
   let result = ''
   let i = 0
   let blockId = 0
@@ -236,7 +267,7 @@ export function extractWasmBlocks(source: string): {
 
       // Create the block record
       const block: WasmBlock = {
-        id: `__tjs_wasm_${blockId}`,
+        id: `__tjs_wasm_${tag}_${blockId}`,
         body,
         fallback: fallbackBody,
         captures,

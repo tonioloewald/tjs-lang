@@ -79,6 +79,21 @@ export * from './inference'
 // Schema
 export { Schema } from './schema'
 
+// JSON Schema
+//
+// `src/lang/index.ts` has always exported these, but THIS file is what the
+// `tjs-lang/lang` subpath actually resolves to — so the documented
+// `import { functionMetaToJSONSchema } from 'tjs-lang/lang'` (CLAUDE.md, and
+// examples/json-schema.tjs) failed with "Export not found". The two lang
+// surfaces had drifted. `json-schema.ts` imports nothing but a type, so it costs
+// the lean TS-free bundle nothing.
+export {
+  typeDescriptorToJSONSchema,
+  exampleToJSONSchema,
+  functionMetaToJSONSchema,
+  type JSONSchemaObject,
+} from './json-schema'
+
 // Linter
 export { lint } from './linter'
 export type { LintResult, LintDiagnostic, LintOptions } from './linter'
