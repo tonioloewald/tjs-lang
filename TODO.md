@@ -124,6 +124,8 @@ execution, console capture, test harness, introspection autocomplete) and hand-r
 - **Import resolution (TFS) → ours.** tosijs-ui has _explicitly declined_ to own it and
   wants us to (`doc-system-roadmap.md:41-45`); today it's buried in `demo/`. Promoting it to
   a real export would give their live examples real npm packages — which they currently lack.
+  **Tracked: [#20](https://github.com/tonioloewald/tjs-lang/issues/20)** (DRY the routing out
+  of `tfs-worker.js`/`bin/dev.ts` first, then export `tjs-lang/tfs` + ship the SW as an asset).
 - **The AJS VM playground stays bespoke.** Fuel, trace, capabilities, LLM batteries have no
   home in a component-library doc system, and pushing them there would invert the layering.
 
@@ -159,7 +161,7 @@ is the same layering violation in a different coat. **The test that the abstract
       plugins for live-example — invert the hardcoded js|ts|tjs dialect switch"). Covers the
       `transform()`/`run()`/`panels` contract, the "js/ts/tjs must be re-expressible as
       plugins" acceptance test, and the reciprocal exports we owe (collectScopeSymbols #10 —
-      done; completion source #13 — open; promote TFS import resolution to a real export).
+      done; completion source #13 — open; promote TFS import resolution to a real export — #20).
       Still OPEN with no upstream movement; adoption is tosijs-ui's call (don't drive from here).
 - [ ] Bump `tosijs-ui` → `^1.6.22`; fix the `tjs-lang/browser` self-reference in the demo build
 - [ ] Phase 1 = swap docs/nav/site (~1–2 wks); phase 2 = playground as an in-page component
