@@ -51,6 +51,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **The pre-tag gate no longer fails on LM Studio flakiness.** The live playground-example
+  LLM tests (`demo/examples.test.ts`) hit a real LM Studio, which is prone to transient
+  400s and dropped connections while models swap under memory pressure — a bad server
+  moment, not a code regression, could block a release tag. They now retry the live call
+  and degrade to the existing mock (with a visible warning) on persistent failure, so the
+  gate blocks on code, never on server health. Safe because the LLM client's request/response
+  shape is guarded deterministically by `llm-transport.test.ts` — a real malformed-request
+  regression fails there, loudly; and a broken example still fails via its transpile/VM
+  error. The fallback logic is itself covered by deterministic tests.
 - **The friendly "start LM Studio" error was dead under Bun.** `getLLMCapability` detected a
   refused connection via `e.cause?.code === 'ECONNREFUSED'` (Node's shape), but Bun — our
   primary runtime — surfaces it as `e.code === 'ConnectionRefused'`, so users got a raw

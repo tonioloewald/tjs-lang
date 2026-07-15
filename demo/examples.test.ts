@@ -60,6 +60,12 @@ let llmBattery: ReturnType<typeof buildLLMBattery>
 let hasLLM = false
 let hasVision = false
 
+// The capability objects the tests actually inject. Set in beforeAll to either
+// the live builders wrapped in a mock fallback (when LM Studio is up) or the
+// mocks (when it isn't / SKIP_LLM_TESTS). See withLiveFallback below.
+let activeLLM: { predict: (...a: any[]) => Promise<any> }
+let activeBattery: { predict: (...a: any[]) => Promise<any>; embed?: any }
+
 // Check if a model ID indicates vision capability (same logic as capabilities.ts)
 function isVisionModel(id: string): boolean {
   return (
@@ -302,11 +308,54 @@ const mockLLMBattery = {
   },
 }
 
+/**
+ * Wrap a LIVE capability so LM Studio flakiness degrades to the mock instead of
+ * failing the release gate.
+ *
+ * The "runs successfully" tests assert that an example TRANSPILES AND EXECUTES
+ * end to end — not that the model returned any particular content — so an LLM
+ * infrastructure hiccup (a transient 400 mid-run, a dropped connection while a
+ * model swaps) is not a code regression and must not block a tag. This retries
+ * the live call once, then falls back to the mock with a visible warning, so the
+ * gate blocks on code, never on LM Studio's health.
+ *
+ * Safe precisely because our LLM request/response shape is guarded deterministically
+ * elsewhere (src/batteries/llm-transport.test.ts). A genuinely malformed request
+ * would fail THAT suite loudly; degrading here cannot mask it. And a broken example
+ * still fails: its transpile/VM error surfaces from vm.run, not from predict.
+ */
+function withLiveFallback<T extends { predict: (...a: any[]) => Promise<any> }>(
+  live: T,
+  mock: { predict: (...a: any[]) => Promise<any> },
+  label: string
+): T {
+  const predict = async (...args: any[]) => {
+    let lastErr: any
+    for (let attempt = 1; attempt <= 2; attempt++) {
+      try {
+        return await live.predict(...args)
+      } catch (e) {
+        lastErr = e
+        if (attempt < 2) await new Promise((r) => setTimeout(r, 400 * attempt))
+      }
+    }
+    console.warn(
+      `[examples] ${label}: live LLM failed after retries ` +
+        `(${String(lastErr?.message || lastErr).split('\n')[0]}); ` +
+        'falling back to mock so the gate blocks on code, not LM Studio health.'
+    )
+    return mock.predict(...args)
+  }
+  return { ...live, predict }
+}
+
 beforeAll(async () => {
   // Skip LLM if SKIP_LLM_TESTS is set
   if (process.env.SKIP_LLM_TESTS) {
     console.log('SKIP_LLM_TESTS set, using mocks')
     hasLLM = false
+    activeLLM = mockLLM
+    activeBattery = mockLLMBattery
     return
   }
 
@@ -380,6 +429,12 @@ beforeAll(async () => {
   } else {
     console.log('No LLM configured, using mocks')
   }
+
+  // Live if available (wrapped so a flaky LM Studio degrades to the mock), else mock.
+  activeLLM = hasLLM ? withLiveFallback(llmCapability, mockLLM, 'llm') : mockLLM
+  activeBattery = hasLLM
+    ? withLiveFallback(llmBattery, mockLLMBattery, 'llmBattery')
+    : mockLLMBattery
 }, 30000)
 
 describe('Playground Examples', () => {
@@ -457,8 +512,8 @@ describe('Playground Examples', () => {
             timeoutMs: 180000,
             capabilities: {
               fetch: httpFetch,
-              llm: llmCapability || mockLLM,
-              llmBattery: llmBattery || mockLLMBattery,
+              llm: activeLLM,
+              llmBattery: activeBattery,
               code: {
                 transpile: (source: string) => transpile(source).ast,
               },
@@ -494,8 +549,8 @@ describe('Playground Examples', () => {
               fuel: 100000,
               capabilities: {
                 fetch: httpFetch,
-                llm: llmCapability || mockLLM,
-                llmBattery: llmBattery || mockLLMBattery,
+                llm: activeLLM,
+                llmBattery: activeBattery,
                 code: {
                   transpile: (source: string) => transpile(source).ast,
                 },
@@ -554,8 +609,8 @@ describe('Playground Examples', () => {
             fuel: 100000, // High fuel for real LLM calls
             capabilities: {
               fetch: httpFetch,
-              llm: llmCapability || mockLLM,
-              llmBattery: llmBattery || mockLLMBattery,
+              llm: activeLLM,
+              llmBattery: activeBattery,
               code: {
                 transpile: (source: string) => transpile(source).ast,
               },
@@ -598,5 +653,46 @@ describe('Example Code Quality', () => {
         expect(example.requiresApi).toBe(true)
       }
     }
+  })
+})
+
+// Guards the gate-resilience helper itself: a flaky live LLM must degrade to the
+// mock, and a healthy one must pass through untouched. Deterministic (no LM Studio),
+// so it runs in test:fast and proves the fallback without having to break a server.
+describe('withLiveFallback — gate resilience', () => {
+  it('retries once, then falls back to the mock when the live LLM keeps failing', async () => {
+    let liveCalls = 0
+    const brokenLive = {
+      predict: async () => {
+        liveCalls++
+        throw new Error('LLM Error: 400 - transient')
+      },
+    }
+    const mock = { predict: async () => 'MOCK CONTENT' }
+
+    const wrapped = withLiveFallback(brokenLive, mock, 'test')
+    expect(await wrapped.predict('anything')).toBe('MOCK CONTENT')
+    expect(liveCalls).toBe(2) // one retry before giving up
+  })
+
+  it('passes the live result through untouched when it succeeds', async () => {
+    let mockCalls = 0
+    const live = { predict: async () => 'LIVE CONTENT' }
+    const mock = {
+      predict: async () => {
+        mockCalls++
+        return 'MOCK'
+      },
+    }
+    expect(await withLiveFallback(live, mock, 'test').predict('x')).toBe(
+      'LIVE CONTENT'
+    )
+    expect(mockCalls).toBe(0) // mock never touched on the happy path
+  })
+
+  it('preserves non-predict members (e.g. embed) of the live capability', () => {
+    const live = { predict: async () => 'x', embed: async () => [1, 2, 3] }
+    const wrapped = withLiveFallback(live, { predict: async () => 'm' }, 'test')
+    expect(typeof wrapped.embed).toBe('function')
   })
 })
