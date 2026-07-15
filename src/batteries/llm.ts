@@ -46,6 +46,17 @@ function buildUserMessage(user: UserContent): { role: string; content: any } {
 
 const DEFAULT_BASE_URL = 'http://localhost:1234/v1'
 
+/**
+ * A refused connection surfaces differently per runtime: Node hangs it on
+ * `e.cause.code === 'ECONNREFUSED'`, Bun (our primary runtime) puts
+ * `e.code === 'ConnectionRefused'` at the top level. Checking only the Node
+ * shape meant the friendly "start LM Studio" guidance never fired under Bun —
+ * users got a raw "Unable to connect" instead. Detect both.
+ */
+function isConnectionRefused(e: any): boolean {
+  return e?.cause?.code === 'ECONNREFUSED' || e?.code === 'ConnectionRefused'
+}
+
 export function getLLMCapability(
   models: LocalModels,
   baseUrl = DEFAULT_BASE_URL
@@ -90,7 +101,7 @@ export function getLLMCapability(
         const data = await response.json()
         return data.choices[0]?.message ?? { content: '' }
       } catch (e: any) {
-        if (e.cause?.code === 'ECONNREFUSED') {
+        if (isConnectionRefused(e)) {
           throw new Error(
             'No LLM provider configured. Please start LM Studio or provide an API key.',
             { cause: e }
@@ -119,7 +130,7 @@ export function getLLMCapability(
         const data = await response.json()
         return data.data[0]?.embedding ?? []
       } catch (e: any) {
-        if (e.cause?.code === 'ECONNREFUSED') {
+        if (isConnectionRefused(e)) {
           throw new Error(
             'No LLM provider configured. Please start LM Studio or provide an API key.',
             { cause: e }

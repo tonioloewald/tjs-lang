@@ -31,8 +31,31 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Type-system north-star design note (`docs/type-system-north-star.md`):
   JSON-Schema + `$predicate` as the single source of truth for TJS types.
 
+### Changed
+
+- **LLM tests restructured into three lanes by what they prove**, cutting the LLM cost of
+  the pre-tag gate from ~82s (two files) to ~4s while _adding_ deterministic coverage:
+  - **Plumbing → `test:fast`.** The real LM Studio HTTP client (`getLLMCapability`) now has
+    deterministic coverage (`src/batteries/llm-transport.test.ts`, ~40ms) against an
+    in-process fixture server. It was previously exercised _only_ live — backwards for code
+    we own. (`batteries.test.ts` didn't cover it either: it mocks a _reimplementation_ of
+    predict/embed, not the real client.)
+  - **Live smoke pared.** `models.integration.test.ts` audited five times (once per test);
+    it now audits once in `beforeAll` and keeps only predict + embed shape checks. ~28s → ~4s.
+  - **AJS grokkability is its own advisory lane** (`bun run test:grok`, behind
+    `RUN_GROK_TESTS`, not in the gate). It measures whether a pinned small model
+    (gemma-4-e2b) can write valid AJS — a load-bearing AJS premise — as a success _rate_
+    over N samples vs a bar, and **never fails on the rate** (model variance ≠ code
+    regression). Replaces `transpiler-llm.test.ts`, whose `withRetry(1-of-3)` passed on a
+    33% success rate and couldn't tell a healthy 90% from a degraded 35%.
+
 ### Fixed
 
+- **The friendly "start LM Studio" error was dead under Bun.** `getLLMCapability` detected a
+  refused connection via `e.cause?.code === 'ECONNREFUSED'` (Node's shape), but Bun — our
+  primary runtime — surfaces it as `e.code === 'ConnectionRefused'`, so users got a raw
+  "Unable to connect" instead of the actionable message. Now detects both. (Found by the new
+  deterministic transport tests.)
 - **Every file in `examples/` works again, and a guardrail keeps it that way**
   (`src/examples.test.ts` runs each through `tjs check` _and_ `tjs run`). Five of the
   seven were broken; nothing caught it because nothing ran them. Beyond the `tjs run`

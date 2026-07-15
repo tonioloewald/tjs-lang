@@ -75,7 +75,10 @@ bun src/cli/tjs.ts test <file>     # Run inline tests in a TJS file
 # Type checking & other
 bun run typecheck           # tsc --noEmit (type check without emitting)
 bun run lint                # ESLint, no --fix (format does the fixing)
-bun run test:llm            # LM Studio integration tests
+bun run test:llm            # LM Studio live smoke (audit + predict + embed)
+bun run test:grok           # AJS grokkability vs a pinned small model (advisory,
+                            #   never blocks; reports a success rate). Needs
+                            #   gemma-4-e2b loaded — override with GROK_MODEL.
 bun run bench               # Vector search benchmarks
 bun run docs                # Generate documentation
 
@@ -339,7 +342,16 @@ AJS expressions behave differently from JavaScript in several important ways:
 - Integration tests in `src/use-cases/` (RAG, orchestration, malicious actors)
 - Security tests in `src/use-cases/malicious-actor.test.ts`
 - Language tests split across 18 files in `src/lang/` (lang.test.ts, features.test.ts, codegen.test.ts, parser.test.ts, from-ts.test.ts, wasm.test.ts, etc.)
-- LLM integration tests (run via full `bun test`, skipped by `SKIP_LLM_TESTS`) need a local **LM Studio** server with a chat + embedding model loaded. Setup and the hard-won gotchas (model load failures, leaked-VRAM stray `node` worker, updating runtimes, CORS, the audit-cache parallel race) are in [`docs/lm-studio-setup.md`](docs/lm-studio-setup.md).
+
+### How anything touching a model is tested (three lanes)
+
+The rule: **test our code deterministically, use a real model only for what only a real model can prove.** "LLM tests" used to be one slow bucket (~82s in two files); it's now three lanes by _what they prove_:
+
+1. **Deterministic plumbing (`test:fast`, always runs).** Our LM Studio HTTP client — request shape, response parsing, error mapping — is covered by `src/batteries/llm-transport.test.ts` against an in-process fixture server (real localhost socket, no external network), ~40ms. This is the code we own; it should never depend on a model being up. (Historically it did — it was only exercised live, which is backwards.)
+2. **Live smoke (`bun test`, gated by `SKIP_LLM_TESTS`).** `src/batteries/models.integration.test.ts` — the irreducible "our client still works against a real LM Studio": audit once, then predict + embed. Asserts _shape_ (a string, a vector), never content. Needs a chat + embedding model loaded. In the pre-tag gate; ~4s.
+3. **AJS grokkability (`bun run test:grok`, advisory, NOT in the gate).** `src/use-cases/ajs-grokkability.test.ts` measures whether a **small pinned model** (gemma-4-e2b) can write valid AJS — a load-bearing premise of AJS, and un-mockable (a mock would just re-test the transpiler). Runs N samples/task, reports a success rate vs a bar, and **never fails on the rate** (a bad model run is variance, not a code regression). Behind `RUN_GROK_TESTS`, so a plain `bun test` never runs it. Run it deliberately when the AJS format or `guides/ajs-llm-prompt.md` changes, or on a cadence. Tunable: `GROK_MODEL`, `GROK_SAMPLES`, `GROK_THRESHOLD`.
+
+LM Studio setup and the hard-won gotchas (model load failures, leaked-VRAM stray `node` worker, CORS, the audit-cache parallel race) are in [`docs/lm-studio-setup.md`](docs/lm-studio-setup.md).
 
 Coverage targets: 98% lines on `src/vm/runtime.ts` (security-critical), 80%+ overall.
 
@@ -357,7 +369,13 @@ which is fine with a fast pre-tag check; here the full run is the gate.)
 - Requires **LM Studio** up with a chat + embedding model (see the setup doc
   above). A cold server fails the first run on model load — warm it, then judge.
 - Green = 0 fail. Vision tests self-skip without a vision model loaded; that's
-  expected, not a failure. Full run is ~3 min.
+  expected, not a failure. Full run is ~3 min (benchmarks dominate; the live LLM
+  smoke is ~4s).
+- The gate runs the deterministic set + the live smoke + benchmarks. It does **not**
+  run AJS grokkability — that lane is advisory and behind `RUN_GROK_TESTS`, so a
+  plain `bun test` skips it (see the three lanes above). Keeping a non-deterministic
+  model-behavior measurement out of a hard blocker is deliberate: a small model's
+  bad run must never block a release.
 
 **This gate is enforced, not just documented.** `.githooks/pre-push` (wired by the
 `prepare` script, same as pre-commit) runs the full suite whenever a push carries a
