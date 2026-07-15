@@ -154,7 +154,13 @@ is the same layering violation in a different coat. **The test that the abstract
 `js`/`ts`/`tjs` must themselves be re-expressible as built-in plugins on that contract.**
 
 - [x] Delete the dead playground code found on the way (1,479 lines: old regex autocomplete + its test, `service-host.ts`, `module-sw.ts`) — done, independent of this decision
-- [ ] File the language-plugin RFC upstream in tosijs-ui (drafted)
+- [x] File the language-plugin RFC upstream in tosijs-ui — **filed 2026-07-13 as
+      [tosijs-ui#12](https://github.com/tonioloewald/tosijs-ui/issues/12)** ("RFC: language
+      plugins for live-example — invert the hardcoded js|ts|tjs dialect switch"). Covers the
+      `transform()`/`run()`/`panels` contract, the "js/ts/tjs must be re-expressible as
+      plugins" acceptance test, and the reciprocal exports we owe (collectScopeSymbols #10 —
+      done; completion source #13 — open; promote TFS import resolution to a real export).
+      Still OPEN with no upstream movement; adoption is tosijs-ui's call (don't drive from here).
 - [ ] Bump `tosijs-ui` → `^1.6.22`; fix the `tjs-lang/browser` self-reference in the demo build
 - [ ] Phase 1 = swap docs/nav/site (~1–2 wks); phase 2 = playground as an in-page component
       (~2–4 wks, riskier — and cheaper if the plugin RFC lands first)
