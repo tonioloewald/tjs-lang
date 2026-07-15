@@ -1,0 +1,65 @@
+#!/bin/sh
+#
+# Pre-tag gate: the FULL test suite must pass before a version tag can ship.
+#
+# Git has no `git tag` hook, so this fires on `git push` and gates only the pushes
+# that carry a tag ref. Publishing is done from the pushed tag, so gating the tag's
+# arrival at the remote is the real release gate — you can create a local tag
+# freely, you just can't push (and therefore can't ship) one with a red suite.
+#
+# Why the FULL suite and not `test:fast`: test:fast sets SKIP_LLM_TESTS=1 and
+# SKIP_BENCHMARKS=1 — exactly the two categories most likely to rot unseen. A
+# benchmark drifted to a 27x flake precisely because CI never ran it. For a
+# foundational project the full run is the tag gate (CLAUDE.md → "Full run before
+# tagging"; docs/lm-studio-setup.md for the LM Studio prerequisite).
+#
+# Non-tag pushes (branches, main) are untouched — this exits immediately for them.
+#
+# Escape hatch: `git push --no-verify` skips this. Only for a tag whose full suite
+# you have ALREADY run green by hand — never to dodge a real failure.
+
+set -e
+
+fail() {
+  echo ""
+  echo "  pre-push: $1"
+  echo ""
+  exit 1
+}
+
+# Does this push carry a real (non-delete) tag ref? pre-push feeds one line per ref
+# on stdin: "<local ref> <local sha> <remote ref> <remote sha>". A delete has an
+# all-zero local sha, which we skip.
+pushing_tag=0
+while read -r local_ref local_sha _remote_ref _remote_sha; do
+  case "$local_ref" in
+  refs/tags/*)
+    case "$local_sha" in
+    *[!0]*) pushing_tag=1 ;; # any non-zero char ⇒ a real tag, not a delete
+    esac
+    ;;
+  esac
+done
+
+[ "$pushing_tag" -eq 0 ] && exit 0
+
+echo "pre-push: tag detected — running the FULL suite before it ships (~3 min)."
+
+# The full suite includes LLM integration tests, which need LM Studio up with a
+# chat + embedding model. A cold server fails the first run on model load, so
+# check reachability first and give a clear message instead of a wall of failures.
+if ! curl -s --max-time 5 http://localhost:1234/v1/models >/dev/null 2>&1; then
+  fail "LM Studio not reachable on :1234 — the full suite needs a chat + embedding
+  model loaded (docs/lm-studio-setup.md). Start it (and warm the models), then push
+  the tag again. To ship anyway after running the suite green another way:
+  git push --no-verify"
+fi
+
+# Full suite: no SKIP_LLM_TESTS, no SKIP_BENCHMARKS. Vision tests self-skip without
+# a vision model — that is expected and does not fail the run.
+bun test ||
+  fail "full test suite failed — do NOT ship this tag. Fix the failures above,
+  re-tag if needed, and push again."
+
+echo "pre-push: full suite green — tag cleared to ship."
+exit 0

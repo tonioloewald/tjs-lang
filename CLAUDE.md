@@ -359,6 +359,15 @@ which is fine with a fast pre-tag check; here the full run is the gate.)
 - Green = 0 fail. Vision tests self-skip without a vision model loaded; that's
   expected, not a failure. Full run is ~3 min.
 
+**This gate is enforced, not just documented.** `.githooks/pre-push` (wired by the
+`prepare` script, same as pre-commit) runs the full suite whenever a push carries a
+tag ref, and blocks the push if it fails. Git has no `git tag` hook, so this fires
+on tag _push_ — you can create a local tag freely, you just can't ship one (publish
+is done from the pushed tag) with a red suite. Branch/`main` pushes are untouched.
+The hook refuses early with a clear message if LM Studio isn't reachable. Escape
+hatch: `git push --no-verify`, only for a tag whose suite you have already run green
+by hand — never to dodge a real failure.
+
 **Bug fix rule:** Always create a reproduction test case before fixing a bug.
 
 ### Guardrail Tests (don't "fix" these by editing the test)
