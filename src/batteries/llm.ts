@@ -52,6 +52,9 @@ const DEFAULT_BASE_URL = 'http://localhost:1234/v1'
  * `e.code === 'ConnectionRefused'` at the top level. Checking only the Node
  * shape meant the friendly "start LM Studio" guidance never fired under Bun —
  * users got a raw "Unable to connect" instead. Detect both.
+ *
+ * Filed upstream: oven-sh/bun#34397 (see UPSTREAM.md). Drop the Bun branch if Bun
+ * aligns its fetch error shape with Node.
  */
 function isConnectionRefused(e: any): boolean {
   return e?.cause?.code === 'ECONNREFUSED' || e?.code === 'ConnectionRefused'

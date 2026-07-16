@@ -684,6 +684,7 @@ The CLI (`bun src/cli/tjs.ts run`) does NOT inject the test-block `expect` harne
 - `wasm-library-plan.md` — Cross-file WASM library design (composable `wasm function` declarations, transpile-time module composition, linalg stdlib). **Shipped in v0.8.0** — all phases (0.5, 0.75, 1, 1.5, 2, 3, 4, 5 MVP, 6) complete. See the plan for what's deferred (linalg expansion, i32/f32/v128 return types, etc.).
 - `MANIFESTO-BUILDER.md` / `MANIFESTO-ENTERPRISE.md` — Positioning docs (audience-targeted pitches)
 - `benchmarks.md` — Top-level benchmark results (separate from `guides/benchmarks.md`)
+- `UPSTREAM.md` — dependency bugs filed upstream + worked around locally (the paper trail for removing each workaround once upstream lands)
 
 ### Keeping This File and `llms.txt` Current
 

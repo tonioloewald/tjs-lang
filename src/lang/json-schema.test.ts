@@ -6,7 +6,7 @@ import {
 } from './json-schema'
 // Also used directly in tests below
 import type { TypeDescriptor } from './types'
-import { Type, TString, TInteger } from '../types/Type'
+import { Type, TString } from '../types/Type'
 import { tjs } from './index'
 import { createRuntime, installRuntime } from './runtime'
 

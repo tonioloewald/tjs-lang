@@ -37,6 +37,7 @@ This file is a navigation index for AI agents. It does not contain the docs them
 - [docs/ambient-contracts.md](docs/ambient-contracts.md) — probing real ambient environments (DOM/host objects) to derive serializable verified-predicate *contracts*, plus a conformance harness for stand-ins.
 - [benchmarks.md](benchmarks.md) — top-level benchmark results (see also [guides/benchmarks.md](guides/benchmarks.md)).
 - [MEMORY-PROFILE.md](MEMORY-PROFILE.md) — memory and speed of transpilation under bun vs node: what `fromTS` actually calls (parser + emitter, never a type checker), why its footprint is bounded, the bun/node allocator and startup differences, and how to measure retention without fooling yourself.
+- [UPSTREAM.md](UPSTREAM.md) — dependency bugs filed upstream and worked around locally (Bun/tosijs/…); the paper trail for removing each workaround once upstream lands.
 - [docs/lm-studio-setup.md](docs/lm-studio-setup.md) — running the LLM test suite locally: install, model loading, and the leaked-VRAM / CORS / audit-cache gotchas.
 
 ## Examples and live code
