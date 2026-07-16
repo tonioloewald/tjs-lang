@@ -9,6 +9,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Framework-free editor primitives** — a new `tjs-lang/editors` entry point exporting
+  `collectScopeSymbols` (AST scope extraction, destructuring included, carries `origin`),
+  `introspectValue` (live value → members), and `scopeCaptureEpilogue` (capture a run's
+  top-level bindings in-run, no re-execution). Acorn-only, no CodeMirror/Monaco/Ace
+  dependency. Closes **#10** — downstream consumers (tosijs-ui) were hand-rolling a worse
+  regex copy of the scope extractor because it wasn't exported.
+- **`tjs-lang/editors/codemirror` now ships types.** The editor build emits `.d.ts` and the
+  export declares a `types` condition, so consumers stop re-declaring `AutocompleteConfig` by
+  hand (**#12**). The five `@codemirror/*` packages the CodeMirror integration imports are now
+  declared as optional `peerDependencies` — an undeclared import resolved locally by hoisting
+  and hard-failed in a consumer's isolated install (**#16**).
+- **`functionMetaToJSONSchema` is now exported from `tjs-lang/lang`** (it was only on
+  `src/lang/index.ts`, which the subpath doesn't resolve to — the documented import failed
+  with "Export not found"). Emitted standalone code also carries `.toJSONSchema()` / `.strip()`
+  on its inline `Type`/`Enum`/`Union` stubs when a file uses them, so a TJS type can describe
+  itself at runtime from inside emitted `.js`.
 - **Flight recorder** (#17). The `__tjs` error ring buffer is now a black box for the whole
   runtime, not just a type-error log. New API on the module, the runtime object, and every
   `createRuntime()` instance: `record(entry)`, `records(filter?)`, `clearRecords()`,
@@ -16,9 +32,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   (`type`/`wasm`/`vm`/`app`/…) and a `severity` (`error`/`warning`/`notice`), and can be
   filtered by either.
   - **Reports today:** type errors; `wasm{}` blocks that fell back to JS or failed to
-    instantiate; typed arrays copied in and out on every call because they weren't
-    allocated with `wasmBuffer()` (previously silent, and can be slower than plain JS);
-    every VM failure — fuel exhaustion, atom timeout, capability denial.
+    instantiate (surfacing the previously-silent fallback, **#15**); typed arrays copied in
+    and out on every call because they weren't allocated with `wasmBuffer()` — previously
+    silent and can be slower than plain JS (**#9**); every VM failure — fuel exhaustion,
+    atom timeout, capability denial.
   - **Records once per site, never per call** — a recorder that fires inside a hot loop
     becomes the performance problem it exists to detect.
   - **`errors()` is unchanged** and still returns type errors _only_, so the documented

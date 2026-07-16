@@ -258,4 +258,88 @@ describe('json-schema', () => {
       }
     })
   })
+  // The EMITTED inline-runtime stubs — the Type/Enum/Union that standalone .js
+  // carries when no shared runtime is installed. A distinct code path from the
+  // real `Type` above, and the one commit f4e923c fixed: `check` used to be
+  // `typeof v === typeof ex`, so ANY object satisfied any object type. The only
+  // prior exercise was examples/json-schema.tjs via `tjs run`, which console.logs
+  // and exits 0 either way — reverting the fix left the whole suite green. These
+  // assert the emitted behavior directly, with globalThis.__tjs removed so the
+  // inline stub (not the real runtime) is what runs.
+  describe('emitted inline-runtime types (standalone, no shared runtime)', () => {
+    const runStandalone = (source: string, returnName: string) => {
+      const { code } = tjs(source)
+      const saved = (globalThis as any).__tjs
+      delete (globalThis as any).__tjs // force the inline stub, not a real runtime
+      try {
+        return new Function(code + `\nreturn ${returnName}`)()
+      } finally {
+        ;(globalThis as any).__tjs = saved
+      }
+    }
+
+    // `check` is always emitted for a Type; `.strip()`/`.toJSONSchema()` are only
+    // inlined when the source references them (tree-shaking, `needsExampleSchema`),
+    // so this fixture touches both so all three facets are present on `User`.
+    const USER_SRC = `Type User {
+  description: 'a registered user'
+  example: { name: '', age: 0, email: '' }
+}
+const _schema = User.toJSONSchema()
+const _stripped = User.strip({})`
+
+    it('Type.check matches the example STRUCTURALLY, not just by typeof', () => {
+      const User = runStandalone(USER_SRC, 'User')
+      // The regression this guards: a missing field must FAIL. Pre-fix (check was
+      // `typeof v === typeof ex`) this returned true — any object passed.
+      expect(User.check({ name: 'Alice' })).toBe(false)
+      expect(User.check({ name: 'Alice', age: 30, email: 'a@b.com' })).toBe(
+        true
+      )
+      // Wrong field type fails.
+      expect(
+        User.check({ name: 'Alice', age: 'thirty', email: 'a@b.com' })
+      ).toBe(false)
+      // Non-objects fail.
+      expect(User.check('nope')).toBe(false)
+      expect(User.check(null)).toBe(false)
+    })
+
+    it('Type.strip keeps example keys and drops the rest', () => {
+      const User = runStandalone(USER_SRC, 'User')
+      expect(
+        User.strip({ name: 'Alice', age: 30, email: 'a@b.com', password: 'x' })
+      ).toEqual({ name: 'Alice', age: 30, email: 'a@b.com' })
+    })
+
+    it('Type.toJSONSchema derives an object schema from the example', () => {
+      const User = runStandalone(USER_SRC, 'User')
+      expect(User.toJSONSchema()).toEqual({
+        type: 'object',
+        properties: {
+          name: { type: 'string' },
+          age: { type: 'integer' },
+          email: { type: 'string' },
+        },
+        required: ['name', 'age', 'email'],
+        additionalProperties: false,
+      })
+    })
+
+    it('Enum/Union emit an enum schema of their values', () => {
+      const Status = runStandalone(
+        `const Status = Enum('status', { Active: 1, Inactive: 0 })
+const _s = Status.toJSONSchema()`,
+        'Status'
+      )
+      expect(Status.toJSONSchema()).toEqual({ enum: [1, 0] })
+
+      const Dir = runStandalone(
+        `const Dir = Union('direction', ['up', 'down'])
+const _d = Dir.toJSONSchema()`,
+        'Dir'
+      )
+      expect(Dir.toJSONSchema()).toEqual({ enum: ['up', 'down'] })
+    })
+  })
 })

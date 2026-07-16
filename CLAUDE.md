@@ -361,10 +361,13 @@ Coverage targets: 98% lines on `src/vm/runtime.ts` (security-critical), 80%+ ove
 inner loop, but it skips exactly the two categories most likely to rot unseen.
 **Before tagging or publishing a version, run the full suite: plain `bun test`,
 nothing skipped.** tjs-lang is foundational; a skipped-in-CI benchmark or an LLM
-regression that ships is expensive to trace back. (This gate exists because the
-vector-search benchmark drifted to a 27× flake unnoticed — it was measuring a
-single sub-millisecond call. Diverges from the shared `releasing.md` default,
-which is fine with a fast pre-tag check; here the full run is the gate.)
+regression that ships is expensive to trace back. This is the shared
+`releasing.md` step 3 rule — **"name every lane and run every lane… no
+exceptions"** — made a hard, enforced gate, not a divergence from it. The
+vector-search benchmark drifting to a 27× flake unnoticed (it measured a single
+sub-millisecond call) is exactly the "a lane not in CI rots silently" failure that
+rule exists to prevent — this repo just moved the enforcement from convention to a
+pre-push hook.)
 
 - Requires **LM Studio** up with a chat + embedding model (see the setup doc
   above). A cold server fails the first run on model load — warm it, then judge.

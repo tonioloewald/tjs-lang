@@ -161,4 +161,35 @@ describe('devDependencies cover what the repo imports', () => {
 
     expect([...undeclared]).toEqual([])
   })
+
+  // The `tjs-lang/lang` subpath resolves to src/lang/transpiler.ts (NOT
+  // src/lang/index.ts) on every path — bun's source condition and the built
+  // dist/node condition alike. The two are hand-maintained parallel export
+  // surfaces, and they have drifted: `functionMetaToJSONSchema` was documented
+  // as a `tjs-lang/lang` import and re-exported from index.ts, but missing from
+  // transpiler.ts, so the documented import failed with "Export not found".
+  //
+  // This is a narrow guard on the documented surface (the full "make transpiler.ts
+  // the single source" refactor is tracked in TODO.md). If you document a new
+  // `tjs-lang/lang` import, add it here — a name reachable from index.ts but not
+  // transpiler.ts is not reachable by consumers.
+  it('the tjs-lang/lang subpath (transpiler.ts) exports every documented name', async () => {
+    const lang = await import('./lang/transpiler')
+    const documented = [
+      'tjs',
+      'transpile',
+      'ajs',
+      'preprocess',
+      'parse',
+      'Schema',
+      'lint',
+      'dialectForFilename',
+      'sourceKindForFilename',
+      'functionMetaToJSONSchema',
+      'typeDescriptorToJSONSchema',
+      'exampleToJSONSchema',
+    ]
+    const missing = documented.filter((n) => !(n in lang))
+    expect(missing).toEqual([])
+  })
 })
