@@ -57,21 +57,17 @@ tracked, non-blocking follow-ups.
       none were addressed in `v0.9.1..HEAD`; check none are stale-closable. (#20 is NOT
       invalidated by deleting `module-sw.ts` — TFS survives as `demo/src/tfs-worker.js`.)
 
-**Shared `tosijs-coding-practices` (the compounding, cross-repo insights — offered, not yet done):**
+**Shared `tosijs-coding-practices` — DONE (landed 2026-07-16, commit `bc2bb89`):**
 
-- [ ] Add the tjs-lang instance to `releasing.md` step 3's citation list: the vector-search
-      benchmark drifted to a 27× flake because `test:fast` skips `SKIP_BENCHMARKS` — "a lane
-      not in CI rots silently," made concrete.
-- [ ] `practices/testing.md` (near "Keep test tiers separate"): the **three-lane LLM taxonomy**
-      — (a) cover the client you own with a fixture server (only the model needs to be live);
-      (b) put non-deterministic model tests in an advisory lane reporting a success _rate_ vs a
-      bar, never a hard gate; (c) name the k-of-n retry-mask anti-pattern.
-- [ ] `releasing.md` (Tagging): document the **pre-push tag-gate mechanism** — no `git tag`
-      hook exists, so `pre-push` reads ref lines on stdin and gates only pushes carrying a
-      non-delete `refs/tags/*` (exits 0 otherwise), plus an LM-Studio-reachability preflight.
-      Attribute to tjs-lang `.githooks/pre-push`.
-- [ ] `UPSTREAM.md` convention (filed-upstream + local-workaround paper trail) may be worth
-      generalizing into the shared practices as a pattern.
+- [x] `releasing.md` step 3 — the vector-search 27× benchmark-flake citation ("a skipped lane
+      rots silently").
+- [x] `practices/testing.md` — the **three-lane LLM taxonomy** (fixture-server client / tiny
+      live smoke / advisory rate lane) + the k-of-n retry-mask anti-pattern; refreshed the
+      tjs-lang project note.
+- [x] `releasing.md` Tagging — the **pre-push tag-gate mechanism** (no `git tag` hook → gate the
+      tag push via stdin ref lines + reachability preflight).
+- [x] `UPSTREAM.md` convention — already generalized in `cross-project.md` (lines 88-111); not
+      duplicated.
 
 ## ▶ Resume here — 0.9.1 SHIPPED (npm `latest` = 0.9.1, tag `v0.9.1` pushed)
 
