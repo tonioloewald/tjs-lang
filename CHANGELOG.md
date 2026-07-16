@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.10.0] — 2026-07-16
+
+Minor bump — additive features and fixes, no breaking changes.
+
 ### Added
 
 - **Framework-free editor primitives** — a new `tjs-lang/editors` entry point exporting
