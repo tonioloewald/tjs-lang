@@ -190,11 +190,14 @@ execution, console capture, test harness, introspection autocomplete) and hand-r
   (#10), the completion source (#13), and the transpile seam. **This raises #10's priority:
   it isn't a nice-to-have, it is the thing forcing a downstream repo to maintain a worse
   fork.**
-- **Import resolution (TFS) → ours.** tosijs-ui has _explicitly declined_ to own it and
-  wants us to (`doc-system-roadmap.md:41-45`); today it's buried in `demo/`. Promoting it to
-  a real export would give their live examples real npm packages — which they currently lack.
-  **Tracked: [#20](https://github.com/tonioloewald/tjs-lang/issues/20)** (DRY the routing out
-  of `tfs-worker.js`/`bin/dev.ts` first, then export `tjs-lang/tfs` + ship the SW as an asset).
+- **Import resolution (TFS) → ours. SHIPPED 2026-07-17 (#20 closed, commit `85350ad`)** as
+  **`tjs-lang/import-resolver`** (+ raw worker asset `./import-resolver/worker`): one routing
+  core (`src/import-resolver/resolve.ts`) replaced the three diverged copies; dev-server
+  fallback aligned; playground dogfoods the export; `/iframe/` stayed demo-only; config
+  travels via query string on the worker URL. Adoption is tosijs-ui's move now. Deferred
+  follow-ups (non-blocking): IndexedDB persistent caching; promote `/iframe/` to an opt-in
+  export if a second consumer wants it; delete the (aligned, likely-dead) `bin/dev.ts`
+  fallback after confirming nothing hits it; a fixture SW-in-a-real-worker integration test.
 - **The AJS VM playground stays bespoke.** Fuel, trace, capabilities, LLM batteries have no
   home in a component-library doc system, and pushing them there would invert the layering.
 
