@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.10.1] — 2026-07-17
+
+Patch — a critical fix, no API changes. One behavior change (`Is()` on cyclic
+graphs now answers instead of crashing), noted under Changed.
+
 ### Fixed
 
 - **Exponential blowup in deep-equal/format on shared-reference object graphs** (#21 —
