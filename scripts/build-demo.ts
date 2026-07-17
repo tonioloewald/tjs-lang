@@ -48,8 +48,23 @@ if (!runtimeResult.success) {
   process.exit(1)
 }
 
-// Copy static files (including TFS service worker — must not be bundled)
-await $`cp demo/index.html demo/static/favicon.svg demo/static/photo-*.jpg demo/static/tosi-platform.json tjs-lang.svg demo/src/tfs-worker.js .demo/`
+// Build the TFS service worker (demo/src/tfs-worker.ts composes the shared
+// import-resolver core from src/import-resolver/ with the playground's
+// /iframe/ protocol). esbuild IIFE, not Bun.build ESM — a classic worker
+// (registered without {type:'module'}) rejects import/export.
+const { buildSync } = await import('esbuild')
+buildSync({
+  entryPoints: ['./demo/src/tfs-worker.ts'],
+  outfile: './.demo/tfs-worker.js',
+  bundle: true,
+  minify: true,
+  format: 'iife',
+  platform: 'browser',
+  target: ['chrome100', 'firefox100', 'safari15'],
+})
+
+// Copy static files
+await $`cp demo/index.html demo/static/favicon.svg demo/static/photo-*.jpg demo/static/tosi-platform.json tjs-lang.svg .demo/`
 await $`cp -r demo/static/texts .demo/`
 await $`mkdir -p .demo/docs && cp -r docs/diagrams .demo/docs/ 2>/dev/null || true`
 

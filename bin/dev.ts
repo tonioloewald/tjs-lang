@@ -13,6 +13,12 @@ import { watch } from 'fs'
 import { join } from 'path'
 import { $, spawn } from 'bun'
 import pkg from '../package.json'
+import {
+  parseTfsPath,
+  buildCdnUrl,
+  rewriteEsmShBody,
+  ESM_SH,
+} from '../src/import-resolver/resolve'
 
 const VERSION = pkg.version
 
@@ -77,8 +83,22 @@ async function buildDemo() {
       naming: 'tjs-runtime.js',
     })
 
-    // Copy static files (including TFS service worker — must not be bundled)
-    await $`cp demo/index.html demo/static/favicon.svg demo/static/photo-*.jpg demo/static/tosi-platform.json tjs-lang.svg demo/src/tfs-worker.js .demo/`
+    // Build the TFS service worker (shared import-resolver core + /iframe/
+    // protocol; see demo/src/tfs-worker.ts). esbuild IIFE — a classic worker
+    // rejects import/export, so Bun.build's ESM output won't do.
+    const { buildSync } = await import('esbuild')
+    buildSync({
+      entryPoints: ['./demo/src/tfs-worker.ts'],
+      outfile: './.demo/tfs-worker.js',
+      bundle: true,
+      minify: false,
+      format: 'iife',
+      platform: 'browser',
+      target: ['chrome100', 'firefox100', 'safari15'],
+    })
+
+    // Copy static files
+    await $`cp demo/index.html demo/static/favicon.svg demo/static/photo-*.jpg demo/static/tosi-platform.json tjs-lang.svg .demo/`
     await $`cp -r demo/static/texts .demo/`
     await $`mkdir -p .demo/docs && cp -r docs/diagrams .demo/docs/ 2>/dev/null || true`
 
@@ -196,99 +216,34 @@ const server = Bun.serve({
       })
     }
 
-    // TFS proxy — resolve npm packages from jsdelivr CDN
-    // This is the server-side fallback when the service worker can't intercept
-    // (e.g. blob iframes, first load before SW is active)
+    // Server-side /tfs/ fallback — used when the service worker can't
+    // intercept (blob iframes, first load before SW activation).
+    //
+    // #20: routing now comes from src/import-resolver/resolve.ts — the same
+    // parseTfsPath/buildCdnUrl the service worker uses — so the fallback
+    // resolves IDENTICALLY to the primary path (JSDelivr /+esm + esm.sh
+    // allowlist + CDN hints). The previous handler here was a diverged
+    // reimplementation (raw JSDelivr + its own package.json exports
+    // resolution + hand-rolled import rewriting): a package could work
+    // through the SW and break through the fallback, or vice versa.
     if (pathname.startsWith('/tfs/')) {
       const tfsPath = pathname.slice(5)
-      const CDN_BASE = 'https://cdn.jsdelivr.net/npm'
-
-      // Parse package@version/subpath
-      let name: string, version: string, subpath: string
-      if (tfsPath.startsWith('@')) {
-        const match = tfsPath.match(/^(@[^/]+\/[^/@]+)(?:@([^/]+))?(\/.*)?$/)
-        if (match) {
-          name = match[1]
-          version = match[2] || 'latest'
-          subpath = match[3] || ''
-        } else {
-          return new Response('invalid tfs path', { status: 400 })
-        }
-      } else {
-        const match = tfsPath.match(/^([^/@]+)(?:@([^/]+))?(\/.*)?$/)
-        if (match) {
-          name = match[1]
-          version = match[2] || 'latest'
-          subpath = match[3] || ''
-        } else {
-          return new Response('invalid tfs path', { status: 400 })
-        }
+      const parsed = parseTfsPath(tfsPath)
+      if (!parsed) {
+        return new Response('invalid tfs path', { status: 400 })
       }
+      const cdnUrl = buildCdnUrl(parsed.name, parsed.version, parsed.subpath)
 
       try {
-        // If no subpath, resolve ESM entry point from package.json
-        if (!subpath) {
-          const pkgRes = await fetch(
-            `${CDN_BASE}/${name}@${version}/package.json`
-          )
-          if (pkgRes.ok) {
-            const pkg = await pkgRes.json()
-            const exp = pkg.exports
-            let entryPath: string | null = null
-
-            if (exp) {
-              // exports can be { ".": { import: "..." } } or { import: "..." }
-              const dot = exp['.'] ?? exp
-              if (typeof dot === 'string') entryPath = dot
-              else if (dot?.import)
-                entryPath =
-                  typeof dot.import === 'string'
-                    ? dot.import
-                    : dot.import?.default
-              else if (dot?.default) entryPath = dot.default
-            }
-            if (!entryPath) entryPath = pkg.module || pkg.main || '/index.js'
-            subpath = entryPath!.startsWith('/')
-              ? entryPath!
-              : entryPath!.startsWith('./')
-              ? entryPath!.slice(1)
-              : `/${entryPath}`
-          }
-        }
-
-        const cdnUrl = `${CDN_BASE}/${name}@${version}${subpath}`
         const cdnRes = await fetch(cdnUrl)
         if (!cdnRes.ok) {
-          return new Response(`package not found: ${name}@${version}`, {
-            status: 404,
-          })
+          return new Response(`package not found: ${cdnUrl}`, { status: 404 })
         }
 
         let body = await cdnRes.text()
-        const origin = new URL(req.url).origin
-        const pkgBase = `${CDN_BASE}/${name}@${version}`
-
-        // Rewrite imports in the fetched module:
-        // - Bare specifiers → /tfs/ (transitive deps)
-        // - Relative imports → absolute CDN URLs (sibling files)
-        body = body.replace(
-          /((?:import|export)\s+(?:[\w\s{},*]+\s+from\s+)?)(['"])([^'"]+)\2/g,
-          (match: string, prefix: string, quote: string, spec: string) => {
-            if (spec.startsWith('http://') || spec.startsWith('https://'))
-              return match
-            if (spec.startsWith('./') || spec.startsWith('../')) {
-              // Relative import → resolve against CDN package path
-              const dir = subpath ? subpath.replace(/\/[^/]*$/, '') : '/dist'
-              // Add .js extension if missing (CDN requires it)
-              const specWithExt = /\.\w+$/.test(spec) ? spec : `${spec}.js`
-              const resolved = new URL(specWithExt, `${pkgBase}${dir}/`).href
-              return `${prefix}${quote}${resolved}${quote}`
-            }
-            if (spec.startsWith('/')) return match
-            // Bare specifier → route through /tfs/
-            return `${prefix}${quote}${origin}/tfs/${spec}${quote}`
-          }
-        )
+        if (cdnUrl.startsWith(ESM_SH)) {
+          body = rewriteEsmShBody(body)
+        }
 
         return new Response(body, {
           headers: {

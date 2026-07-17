@@ -136,6 +136,7 @@ bun run functions:serve     # Local functions emulator
 - `src/lang/module-loader.ts` - Transpile-time `.tjs`/`.ts`/`.js` module loader (Phase 0.75); used by cross-file `wasm function` composition
 - `src/linalg/` - `tjs-lang/linalg` stdlib subpath (f32x4 SIMD vector kernels)
 - `src/schema/` - `tjs-lang/schema` subpath: **tosijs-schema pre-wired with `$predicate` support**. Re-exports the whole tosijs-schema surface and auto-registers `createPredicateEvaluator()` on import (batteries-included), so JSON-Schema validation is predicate-aware with zero wiring. Lives here (not in tosijs-schema) because tjs-lang depends on tosijs-schema — the reverse would be circular. `tosijs-schema` is externalized in the bundle (single instance → single global evaluator). Requires `tosijs-schema@^1.4.0` (the `setPredicateEvaluator` hook).
+- `src/import-resolver/` - `tjs-lang/import-resolver` subpath (#20): bundler-free bare imports in the browser. `resolve.ts` = the PURE routing single-source-of-truth (`parseTfsPath`/`buildCdnUrl`/`rewriteImports`/config codec — shared by the worker, the demo worker, and `bin/dev.ts`'s fallback, which used to be three diverged copies); `worker-core.ts` = the SW fetch/cache pipeline; `worker.ts` → esbuild IIFE → `dist/import-resolver-worker.js` (raw-asset export `./import-resolver/worker`); `index.ts` = client (`registerImportResolver` — config reaches the worker as a query string on its script URL, so client rewrite and worker routing can't disagree). The playground's `/iframe/` protocol stays in `demo/src/tfs-worker.ts`, composed on top — it is NOT part of the export.
 - `src/css/` - `tjs-lang/css` subpath: CSS validators built from verified-safe predicates. `predicates.ts` (colors), `dimensions.ts` (lengths/numbers/angles/times/keywords), `shorthands.ts` (order-flexible `animation`/`transition` — paren-aware tokenize + classify), `style.ts` (recursive style-object structure + the `$predicate` JSON-Schema builders `cssStyleSchema`/`cssColorSchema`); `index.ts` = compiled validators + `suggestColor` + `verifyCss` (verifies all clusters). The predicate-types thesis made real — phases 1/2/3(animation+transition)/4 done; font/background shorthands + perf (phase 5) remain (TODO #4)
 - `src/types/` - Type system definitions (Type.ts, Generic.ts)
 - `src/transpiler/` - AJS transpiler (source → AST)
@@ -201,6 +202,12 @@ import { batteryAtoms } from 'tjs-lang/batteries' // LM Studio batteries
 import { dot, norm_sq } from 'tjs-lang/linalg' // SIMD linear-algebra kernels
 import { isColor, suggestColor } from 'tjs-lang/css' // CSS validators (verified predicates)
 import { s, validate } from 'tjs-lang/schema' // tosijs-schema pre-wired with $predicate support
+// Bundler-free bare imports in the browser (#20) — rewrite specifiers to a
+// same-origin prefix; a service worker resolves them to a CDN and caches.
+// The worker ships as the raw asset 'tjs-lang/import-resolver/worker'
+// (dist/import-resolver-worker.js): copy it to your public ROOT (SWs are
+// origin-scoped) and call registerImportResolver({ prefix, workerUrl, scope }).
+import { registerImportResolver, rewriteImports } from 'tjs-lang/import-resolver'
 import { createRuntime, Eq, isMonadicError } from 'tjs-lang/runtime' // TJS runtime (for emitted .tjs / integrations)
 // Bun: enable native .tjs imports — `preload = ["tjs-lang/bun-plugin"]` in bunfig.toml, or:
 import 'tjs-lang/bun-plugin' // registers the .tjs onLoad plugin + installs __tjs (bun-only)

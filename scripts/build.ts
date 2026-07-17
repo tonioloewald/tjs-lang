@@ -124,6 +124,12 @@ const targets: BuildTarget[] = [
     alias: { typescript: './src/lang/ts-cdn-shim.ts' },
     description: 'Browser TS→TJS (lazy-loads typescript from CDN)',
   },
+  {
+    name: 'tjs-import-resolver',
+    entry: './src/import-resolver/index.ts',
+    external: [],
+    description: 'Bundler-free bare imports (SW client, #20)',
+  },
 ]
 
 function formatSize(bytes: number): string {
@@ -194,6 +200,42 @@ function main() {
   )
   console.log('')
 
+  // The import-resolver SERVICE WORKER cannot join targets[]: those build
+  // format:'esm'/platform:'neutral', and a classic worker (which is how
+  // registerImportResolver registers it — no {type:'module'}) rejects any
+  // residual import/export. IIFE guarantees none. Shipped as the raw asset
+  // export `tjs-lang/import-resolver/worker`; consumers copy it to their
+  // public root (a SW is origin-scoped — it can't load from a CDN).
+  try {
+    const workerOutfile = join(distDir, 'import-resolver-worker.js')
+    buildSync({
+      entryPoints: ['./src/import-resolver/worker.ts'],
+      outfile: workerOutfile,
+      bundle: true,
+      minify: true,
+      sourcemap: true,
+      format: 'iife',
+      platform: 'browser',
+      target: ['chrome100', 'firefox100', 'safari15'],
+    })
+    const workerContent = readFileSync(workerOutfile)
+    console.log(
+      `${'import-resolver-worker'.padEnd(20)} ${formatSize(
+        workerContent.length
+      ).padStart(12)} ${formatSize(gzipSync(workerContent).length).padStart(
+        12
+      )}   Import-resolver service worker (raw asset)`
+    )
+  } catch (e: any) {
+    failures.push('import-resolver-worker')
+    console.log(
+      `${'import-resolver-worker'.padEnd(20)} ${'FAILED'.padStart(12)}   ${
+        e.message
+      }`
+    )
+  }
+  console.log('')
+
   // Show what each subpath provides
   console.log('tjs-lang           → Everything (needs typescript)')
   console.log('tjs-lang/vm        → VM only (AgentVM, atoms)')
@@ -201,6 +243,9 @@ function main() {
   console.log('tjs-lang/eval      → Safe eval (VM + transpiler)')
   console.log('tjs-lang/lang/from-ts → TS→TJS (needs typescript)')
   console.log('tjs-lang/batteries → LLM, vector, store ops')
+  console.log(
+    'tjs-lang/import-resolver → Bundler-free bare imports (+ /worker asset)'
+  )
 
   // Fail noisily: a failed bundle is a broken package entry point. Exiting
   // non-zero stops `bun run make`, CI, and release scripts so it can't ship

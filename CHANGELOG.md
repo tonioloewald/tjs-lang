@@ -7,6 +7,34 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **`tjs-lang/import-resolver`** (#20) — the playground's bundler-free bare-import
+  machinery (TFS), promoted from `demo/` to a real export so doc systems (tosijs-ui's
+  live-example) can own import resolution instead of hand-rolling it. `rewriteImports`
+  rewrites bare specifiers to a configurable same-origin prefix (`/tfs/` default, e.g.
+  `/lib/`); a service worker resolves them to a CDN — JSDelivr `/+esm` by default, an
+  esm.sh allowlist for peer-dep dedup (react/react-dom), `jsdelivr/`·`esmsh/`·`unpkg/`·
+  `github/` hints — and caches via the Cache API.
+  - The worker ships as the raw classic-script asset **`tjs-lang/import-resolver/worker`**
+    (`dist/import-resolver-worker.js`, esbuild IIFE, 2.9KB): a service worker is
+    origin-scoped, so consumers copy it into their public root and call
+    `registerImportResolver({ prefix, workerUrl, scope })`. Config travels to the worker
+    as a **query string on its registered script URL** — available before the first
+    intercepted fetch and durable across worker restarts — so the client rewrite and the
+    worker's routing derive from one `ResolverConfig` and cannot disagree.
+  - **The routing now has exactly one implementation** (`src/import-resolver/resolve.ts`,
+    pure, zero-dependency). It previously lived in three diverged copies: the demo
+    client, the demo service worker, and a materially different reimplementation in the
+    dev server (raw JSDelivr + its own package.json-exports resolution — a package could
+    resolve differently through the fallback than through the worker). The dev server and
+    the playground worker now consume the shared core; the playground's `/iframe/`
+    protocol stays demo-only, composed on top.
+  - The previously-untested routing core is now covered (`resolve.test.ts`: parsing, CDN
+    routing, hints, config round-trip, a client↔worker prefix-agreement guard, and an
+    anti-drift smoke that parses the built worker as a classic script and checks the
+    routing is embedded).
+
 ## [0.10.1] — 2026-07-17
 
 Patch — a critical fix, no API changes. One behavior change (`Is()` on cyclic

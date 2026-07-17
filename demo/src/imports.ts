@@ -1,99 +1,35 @@
 /**
- * Playground Import Resolver
+ * Playground TFS glue — a thin shim over `tjs-lang/import-resolver`.
  *
- * Rewrites bare import specifiers to /tfs/<spec> URLs. The TFS service
- * worker (demo/src/tfs-worker.js) intercepts those, proxies to esm.sh,
- * and rewrites esm.sh's relative paths to absolute esm.sh URLs.
+ * The import-rewriting and CDN-routing logic that used to live here (one of
+ * three diverged copies, #20) moved to src/import-resolver/ and is exported
+ * as `tjs-lang/import-resolver`. This file keeps only what is playground-
+ * specific:
+ *   - registerTFS: registers the DEMO worker (/tfs-worker.js — the shared
+ *     resolver composed with the /iframe/ protocol, see tfs-worker.ts)
+ *   - registerIframeContent: the /iframe/ postMessage protocol client
  *
- * Flow:
- *   import { x } from 'tosijs'
- *   → import { x } from '/tfs/tosijs'
- *   → SW intercepts, fetches https://esm.sh/tosijs
- *   → SW rewrites response to use absolute esm.sh URLs for sub-modules
- *   → browser fetches sub-modules directly from esm.sh (cross-origin,
- *     bypasses this SW), enabling peer-dep dedup
+ * rewriteImports/extractImports are re-exported from the package source so
+ * the playground consumers exercise the very code consumers get from npm.
  *
- * The /tfs/ indirection — instead of writing esm.sh URLs directly into
- * user code — exists so the SW can:
- *   - cache responses across page loads
- *   - intercept future virtual-module paths (/vmod/...) for IDE features
- *   - swap the CDN backend without changing emitted code
- *
- * For this to work, the playground iframe must be SAME-ORIGIN with the
- * page (so the SW controls it). See tjs-playground.ts: the iframe loads
- * from /iframe/<sessionId>, which the SW serves from a postMessage-fed
- * in-memory store. blob: URLs do NOT work — Chrome SWs don't intercept
- * fetches from sandboxed blob iframes.
+ * For this to work, the playground iframe must be SAME-ORIGIN with the page
+ * (so the SW controls it). See tjs-playground.ts: the iframe loads from
+ * /iframe/<sessionId>, which the SW serves from a postMessage-fed in-memory
+ * store. blob: URLs do NOT work — Chrome SWs don't intercept fetches from
+ * sandboxed blob iframes.
  */
 
-/**
- * Extract bare import specifiers from source code.
- * Used by the test runner to resolve local modules.
- */
-export function extractImports(source: string): string[] {
-  const imports: string[] = []
-  const importRegex =
-    /(?:import|export)\s+(?:[\w\s{},*]+\s+from\s+)?['"]([^'"]+)['"]/g
+import { registerImportResolver } from '../../src/import-resolver'
 
-  let match
-  while ((match = importRegex.exec(source)) !== null) {
-    const specifier = match[1]
-    if (!specifier.startsWith('.') && !specifier.startsWith('/')) {
-      imports.push(specifier)
-    }
-  }
-  return [...new Set(imports)]
-}
+export { rewriteImports, extractImports } from '../../src/import-resolver'
 
 /**
- * Rewrite bare import specifiers to /tfs/<spec> URLs.
- * Skips relative (./), absolute (/), and already-absolute http(s):// paths.
- *
- * Before: import { tosi } from 'tosijs'
- * After:  import { tosi } from '/tfs/tosijs'
- */
-export function rewriteImports(source: string): string {
-  return source.replace(
-    /((?:import|export)\s+(?:[\w\s{},*]+\s+from\s+)?)(['"])([^'"]+)\2/g,
-    (match, prefix, quote, specifier) => {
-      if (
-        specifier.startsWith('.') ||
-        specifier.startsWith('/') ||
-        specifier.startsWith('http://') ||
-        specifier.startsWith('https://')
-      ) {
-        return match
-      }
-      return `${prefix}${quote}/tfs/${specifier}${quote}`
-    }
-  )
-}
-
-/**
- * Register the TFS service worker.
- * Call this early in app startup.
- * Auto-reloads on first install so the worker is active immediately.
+ * Register the playground's TFS service worker (the shared import resolver +
+ * the /iframe/ protocol). Call this early in app startup. Auto-reloads on
+ * first install so the worker is active immediately.
  */
 export async function registerTFS(): Promise<boolean> {
-  if (!('serviceWorker' in navigator)) {
-    console.warn('Service workers not supported — TFS unavailable')
-    return false
-  }
-
-  try {
-    await navigator.serviceWorker.register('/tfs-worker.js', { scope: '/' })
-
-    // First load — no controller yet. Reload so the worker can intercept.
-    if (!navigator.serviceWorker.controller) {
-      window.location.reload()
-      return false
-    }
-
-    return true
-  } catch (error) {
-    console.error('TFS registration failed:', error)
-    return false
-  }
+  return registerImportResolver({ workerUrl: '/tfs-worker.js' })
 }
 
 /**
