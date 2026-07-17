@@ -7,6 +7,37 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **Exponential blowup in deep-equal/format on shared-reference object graphs** (#21 —
+  critical; same defect class as [oven-sh/bun#34178](https://github.com/oven-sh/bun/issues/34178),
+  and since tjs ships its own `expect`, Bun's fix did not cover us). A DAG built as
+  `{a: n, b: n}` per level has O(depth) nodes but a 2^depth unfolded tree:
+  - `format()` re-serialized shared references via raw `JSON.stringify` — 21MB at depth 20,
+    verified OOM at depth 28 under bun/JSC — whenever an assertion **failed**. It now marks
+    revisited objects as `[shared]` (which also fixes true cycles, where `JSON.stringify`
+    used to throw and eat the assertion message) and hard-caps output at 16KB.
+  - `deepEqual` walked all 2^depth paths on **every** assertion (~61s at depth 30). It now
+    memoizes visited pairs — a revisit is assumed equal (sound: any `false` short-circuits
+    to the top) — collapsing the walk to O(nodes).
+  - Fixed in all **five** copies (the issue named one): the injected `expectFunction`
+    (`tests.ts`), the transpile-time harness's `__deepEqual` and `__format`/`formatValue`
+    (`js-tests.ts`, which also had no depth bound), the runtime `Is()`, and the emitted
+    inline `Is`. Guarded by `src/lang/dag-safety.test.ts`, calibrated so a regression fails
+    cleanly (timeouts / message-length assertions) instead of killing the machine.
+  - `Is()` stays allocation-free on the hot path: pair memoization only engages past
+    recursion depth 8 (exponential blowup requires depth; a shallow shared graph pays at
+    most a small constant factor). Measured: flat/nested small-object compares within noise
+    of pre-fix (~29ns/58ns per call); `Is(dag(30), dag(30))` went from **101s to 3.2ms**.
+
+### Changed
+
+- **`Is()` on two distinct-but-cyclic graphs now terminates and returns their structural
+  equality** (bisimulation semantics). Previously it recursed until stack overflow
+  (`RangeError`). This is a behavior change to a language primitive, strictly in the
+  direction of "gives an answer instead of crashing" — but if anything relied on the throw,
+  note it here. Same applies to the test-harness `deepEqual`s.
+
 ## [0.10.0] — 2026-07-16
 
 Minor bump — additive features and fixes, no breaking changes.

@@ -45,35 +45,59 @@ function fuzzyEqual(a: unknown, b: unknown, epsilon = 1e-9): boolean {
 }
 
 /**
- * Deep equality check with fuzzy float comparison
+ * Deep equality check with fuzzy float comparison.
+ *
+ * #21: pair-memoized — without the memo, shared-reference graphs (DAGs)
+ * compared in O(2^depth) (~61s at depth 30) and distinct-but-cyclic graphs
+ * recursed forever. A revisited pair is assumed equal (sound: any false
+ * short-circuits every .every() to the top, so a memoized pair either proved
+ * true or is still in progress higher in this stack). Lazily allocated —
+ * primitive/flat compares never touch it. Injected into transpile-time test
+ * harnesses as __deepEqual; four sibling copies share the invariant (tests.ts
+ * expectFunction, runtime Is, emitted inline Is) — dag-safety.test.ts guards
+ * them together.
  */
 function deepEqual(a: unknown, b: unknown): boolean {
-  if (a === b) return true
-  // NaN === NaN is false in JS, but NaN should equal NaN in tests
-  if (
-    typeof a === 'number' &&
-    typeof b === 'number' &&
-    Number.isNaN(a) &&
-    Number.isNaN(b)
-  )
-    return true
-  if (fuzzyEqual(a, b)) return true
-  if (a === null || b === null) return a === b
-  if (a === undefined || b === undefined) return a === b
-  if (typeof a !== typeof b) return false
-  if (typeof a !== 'object') return false
+  let seen: WeakMap<object, WeakSet<object>> | null = null
+  const go = (a: unknown, b: unknown): boolean => {
+    if (a === b) return true
+    // NaN === NaN is false in JS, but NaN should equal NaN in tests
+    if (
+      typeof a === 'number' &&
+      typeof b === 'number' &&
+      Number.isNaN(a) &&
+      Number.isNaN(b)
+    )
+      return true
+    if (fuzzyEqual(a, b)) return true
+    if (a === null || b === null) return a === b
+    if (a === undefined || b === undefined) return a === b
+    if (typeof a !== typeof b) return false
+    if (typeof a !== 'object') return false
 
-  if (Array.isArray(a) && Array.isArray(b)) {
-    if (a.length !== b.length) return false
-    return a.every((v, i) => deepEqual(v, b[i]))
+    if (seen === null) seen = new WeakMap()
+    let set = seen.get(a as object)
+    if (set) {
+      if (set.has(b as object)) return true
+    } else {
+      set = new WeakSet()
+      seen.set(a as object, set)
+    }
+    set.add(b as object)
+
+    if (Array.isArray(a) && Array.isArray(b)) {
+      if (a.length !== b.length) return false
+      return a.every((v, i) => go(v, b[i]))
+    }
+
+    if (Array.isArray(a) !== Array.isArray(b)) return false
+
+    const keysA = Object.keys(a as object)
+    const keysB = Object.keys(b as object)
+    if (keysA.length !== keysB.length) return false
+    return keysA.every((k) => go((a as any)[k], (b as any)[k]))
   }
-
-  if (Array.isArray(a) !== Array.isArray(b)) return false
-
-  const keysA = Object.keys(a as object)
-  const keysB = Object.keys(b as object)
-  if (keysA.length !== keysB.length) return false
-  return keysA.every((k) => deepEqual((a as any)[k], (b as any)[k]))
+  return go(a, b)
 }
 
 /**
@@ -202,8 +226,38 @@ function typeOf(v: unknown): string {
 /**
  * Format a value for error messages - uses cleaner object notation
  * Multi-line for objects with 3+ properties
+ *
+ * #21: shared-reference-aware and depth-capped. The per-level fanout
+ * truncation (8 entries / 3 items) never bounded DEPTH, so a `{a: n, b: n}`
+ * DAG still expanded 2^depth — and `indent` is no proxy for depth (the 1-2
+ * entry single-line path recurses without bumping it). Revisited objects
+ * render as [shared] (collapses DAGs and true cycles), depth caps at
+ * MAX_FORMAT_DEPTH, and the top-level result is clamped so no failure
+ * message can allocate unboundedly. Injected into transpile-time harnesses
+ * as __format.
  */
-function formatValue(v: unknown, indent = 0): string {
+const MAX_FORMAT_DEPTH = 6
+const MAX_FORMAT_LENGTH = 16384
+
+function formatValue(
+  v: unknown,
+  indent = 0,
+  depth = 0,
+  seen?: WeakSet<object>
+): string {
+  const result = formatValueInner(v, indent, depth, seen)
+  if (depth === 0 && result.length > MAX_FORMAT_LENGTH) {
+    return result.slice(0, MAX_FORMAT_LENGTH) + '…[truncated]'
+  }
+  return result
+}
+
+function formatValueInner(
+  v: unknown,
+  indent: number,
+  depth: number,
+  seen?: WeakSet<object>
+): string {
   if (v === null) return 'null'
   if (v === undefined) return 'undefined'
   if (typeof v === 'string') return JSON.stringify(v)
@@ -211,16 +265,26 @@ function formatValue(v: unknown, indent = 0): string {
   if (typeof v === 'boolean') return String(v)
   if (Array.isArray(v)) {
     if (v.length === 0) return '[]'
+    if (!seen) seen = new WeakSet()
+    if (seen.has(v)) return '[shared]'
+    seen.add(v)
+    if (depth >= MAX_FORMAT_DEPTH) return '[…]'
     if (v.length <= 3)
-      return `[${v.map((x) => formatValue(x, indent)).join(', ')}]`
+      return `[${v
+        .map((x) => formatValue(x, indent, depth + 1, seen))
+        .join(', ')}]`
     return `[${v
       .slice(0, 3)
-      .map((x) => formatValue(x, indent))
+      .map((x) => formatValue(x, indent, depth + 1, seen))
       .join(', ')}, ...]`
   }
   if (typeof v === 'object') {
     const entries = Object.entries(v)
     if (entries.length === 0) return '{}'
+    if (!seen) seen = new WeakSet()
+    if (seen.has(v)) return '[shared]'
+    seen.add(v)
+    if (depth >= MAX_FORMAT_DEPTH) return '{…}'
 
     const formatKey = (k: string) =>
       /^[a-zA-Z_$][a-zA-Z0-9_$]*$/.test(k) ? k : JSON.stringify(k)
@@ -228,7 +292,10 @@ function formatValue(v: unknown, indent = 0): string {
     // Single line for 1-2 properties
     if (entries.length <= 2) {
       const formatted = entries
-        .map(([k, val]) => `${formatKey(k)}: ${formatValue(val, indent)}`)
+        .map(
+          ([k, val]) =>
+            `${formatKey(k)}: ${formatValue(val, indent, depth + 1, seen)}`
+        )
         .join(', ')
       return `{${formatted}}`
     }
@@ -239,7 +306,13 @@ function formatValue(v: unknown, indent = 0): string {
     const formatted = entries
       .slice(0, 8)
       .map(
-        ([k, val]) => `${pad}${formatKey(k)}: ${formatValue(val, indent + 1)}`
+        ([k, val]) =>
+          `${pad}${formatKey(k)}: ${formatValue(
+            val,
+            indent + 1,
+            depth + 1,
+            seen
+          )}`
       )
       .join(',\n')
     const suffix = entries.length > 8 ? `,\n${pad}...` : ''

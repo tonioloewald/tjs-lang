@@ -662,6 +662,41 @@ export function resetRuntime(): void {
  * Usage: `a Is b` transforms to `Is(a, b)`
  */
 export function Is(a: unknown, b: unknown): boolean {
+  return goIs(a, b, 0, null)
+}
+
+/**
+ * #21: past MEMO_DEPTH, memoize visited (a, b) pairs and treat a revisit as
+ * equal. Without this, shared-reference graphs (DAGs — O(depth) nodes,
+ * 2^depth unfolded paths) took exponential time (~61s at depth 30), and
+ * DISTINCT-but-cyclic graphs recursed forever (stack overflow).
+ *
+ * Assuming true on revisit is sound (coinductive/bisimulation equality): any
+ * `false` short-circuits every `.every`/loop straight to the top, so a pair
+ * found in the memo either already returned true or is still being proven
+ * higher in this same stack.
+ *
+ * The depth threshold keeps the hot path free: flat and typically-nested
+ * compares (depth < MEMO_DEPTH) never allocate and never touch the memo —
+ * measured unchanged vs pre-fix (~29ns flat / ~58ns nested per call). A
+ * shallow shared graph pays at most a 2^MEMO_DEPTH constant factor over
+ * linear (negligible); exponential blowup NEEDS depth, and past the
+ * threshold every branch is memoized, so total work stays bounded. Cycles
+ * grow depth unconditionally, so they always cross the threshold and
+ * terminate.
+ *
+ * Same defect class exists in four sibling copies (deliberate bundle-isolated
+ * duplicates): tests.ts expectFunction, js-tests.ts __deepEqual/formatValue,
+ * and the emitted inline Is in emitters/js.ts. Fix all five together.
+ */
+const MEMO_DEPTH = 8
+
+function goIs(
+  a: unknown,
+  b: unknown,
+  depth: number,
+  memo: WeakMap<object, WeakSet<object>> | null
+): boolean {
   // Check for [tjsEquals] symbol protocol (highest priority)
   if (
     a !== null &&
@@ -733,6 +768,20 @@ export function Is(a: unknown, b: unknown): boolean {
   // Primitives that aren't === are not equal
   if (typeof a !== 'object') return false
 
+  // Both sides are objects from here on. Past the threshold, memoize the pair
+  // (see MEMO_DEPTH above) — revisit ⇒ equal.
+  if (depth >= MEMO_DEPTH) {
+    if (memo === null) memo = new WeakMap()
+    let set = memo.get(a as object)
+    if (set) {
+      if (set.has(b as object)) return true
+    } else {
+      set = new WeakSet()
+      memo.set(a as object, set)
+    }
+    set.add(b as object)
+  }
+
   // Sets — order-independent element equality
   if (a instanceof Set && b instanceof Set) {
     if ((a as Set<unknown>).size !== (b as Set<unknown>).size) return false
@@ -748,7 +797,8 @@ export function Is(a: unknown, b: unknown): boolean {
       return false
     for (const [k, v] of a as Map<unknown, unknown>) {
       if (!(b as Map<unknown, unknown>).has(k)) return false
-      if (!Is(v, (b as Map<unknown, unknown>).get(k))) return false
+      if (!goIs(v, (b as Map<unknown, unknown>).get(k), depth + 1, memo))
+        return false
     }
     return true
   }
@@ -766,7 +816,7 @@ export function Is(a: unknown, b: unknown): boolean {
   // Arrays
   if (Array.isArray(a) && Array.isArray(b)) {
     if (a.length !== b.length) return false
-    return a.every((v, i) => Is(v, b[i]))
+    return a.every((v, i) => goIs(v, b[i], depth + 1, memo))
   }
   if (Array.isArray(a) !== Array.isArray(b)) return false
 
@@ -774,7 +824,7 @@ export function Is(a: unknown, b: unknown): boolean {
   const keysA = Object.keys(a as object)
   const keysB = Object.keys(b as object)
   if (keysA.length !== keysB.length) return false
-  return keysA.every((k) => Is((a as any)[k], (b as any)[k]))
+  return keysA.every((k) => goIs((a as any)[k], (b as any)[k], depth + 1, memo))
 }
 
 /**

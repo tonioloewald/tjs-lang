@@ -355,28 +355,73 @@ function assert(condition, message) {
  */
 export const expectFunction = `
 function expect(actual) {
+  // #21: pair-memoized past the same checks — without the memo, comparing
+  // shared-reference graphs (DAGs) walked all 2^depth unfolded paths (~61s at
+  // depth 30) and distinct-but-cyclic graphs recursed forever. A revisited
+  // pair is assumed equal (sound: any false short-circuits every .every()
+  // straight to the top, so a memoized pair either proved true or is still in
+  // progress higher in this stack). Lazily allocated — primitive and flat
+  // compares never touch it. Same defect family lives in four sibling copies
+  // (runtime Is, emitted inline Is, js-tests __deepEqual/formatValue); keep
+  // them in sync (dag-safety.test.ts).
   const deepEqual = (a, b) => {
-    if (a === b) return true
-    if (a === null || b === null) return a === b
-    if (a === undefined || b === undefined) return a === undefined && b === undefined
-    if (typeof a !== typeof b) return false
-    if (typeof a !== 'object') return a === b
-    if (Array.isArray(a) !== Array.isArray(b)) return false
-    if (Array.isArray(a)) {
-      if (a.length !== b.length) return false
-      return a.every((v, i) => deepEqual(v, b[i]))
+    let seen = null
+    const go = (a, b) => {
+      if (a === b) return true
+      if (a === null || b === null) return a === b
+      if (a === undefined || b === undefined) return a === undefined && b === undefined
+      if (typeof a !== typeof b) return false
+      if (typeof a !== 'object') return a === b
+      if (Array.isArray(a) !== Array.isArray(b)) return false
+      if (seen === null) seen = new WeakMap()
+      let set = seen.get(a)
+      if (set) {
+        if (set.has(b)) return true
+      } else {
+        set = new WeakSet()
+        seen.set(a, set)
+      }
+      set.add(b)
+      if (Array.isArray(a)) {
+        if (a.length !== b.length) return false
+        return a.every((v, i) => go(v, b[i]))
+      }
+      const keysA = Object.keys(a)
+      const keysB = Object.keys(b)
+      if (keysA.length !== keysB.length) return false
+      return keysA.every(k => go(a[k], b[k]))
     }
-    const keysA = Object.keys(a)
-    const keysB = Object.keys(b)
-    if (keysA.length !== keysB.length) return false
-    return keysA.every(k => deepEqual(a[k], b[k]))
+    return go(a, b)
   }
 
+  // #21: raw JSON.stringify re-expands shared references — 2^depth output,
+  // verified OOM at depth 28 under bun/JSC — and THROWS on true cycles,
+  // eating the assertion message. Mark revisits as [shared] (collapses DAGs
+  // and cycles alike) and hard-cap the output so no failure message can
+  // allocate unboundedly.
   const format = (v) => {
     if (v === null) return 'null'
     if (v === undefined) return 'undefined'
     if (typeof v === 'string') return JSON.stringify(v)
-    if (typeof v === 'object') return JSON.stringify(v)
+    if (typeof v === 'object') {
+      const seen = new WeakSet()
+      let out
+      try {
+        out = JSON.stringify(v, (key, val) => {
+          if (val !== null && typeof val === 'object') {
+            if (seen.has(val)) return '[shared]'
+            seen.add(val)
+          }
+          return val
+        })
+      } catch (e) {
+        out = String(v)
+      }
+      if (typeof out === 'string' && out.length > 16384) {
+        out = out.slice(0, 16384) + '…[truncated]'
+      }
+      return out
+    }
     return String(v)
   }
 
