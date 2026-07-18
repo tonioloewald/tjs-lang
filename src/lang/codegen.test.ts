@@ -1247,10 +1247,14 @@ function greet(user: { name: string; age: number }): string {
       const invalidResult = greet('not an object')
       expect(invalidResult).toBeInstanceOf(Error)
 
-      // Note: Current validation checks type (object vs primitive),
-      // not deep property validation. Missing properties pass type check.
+      // Stage 0 of dictionary defaults (docs/dictionary-defaults.md): required
+      // object params now enforce their MEMBER contract, with a precise path.
+      // (In real TS, greet({name: 'Bob'}) is a compile error — the runtime
+      // contract now matches the static one the TS→TJS chain advertises.
+      // Before 2026-07-18 this passed: validation was typeof-object only.)
       const missingProps = greet({ name: 'Bob' })
-      expect(missingProps).toBe('Hello, Bob') // This works (no deep validation)
+      expect(missingProps).toBeInstanceOf(Error)
+      expect((missingProps as any).path).toContain('greet.user.age')
     })
 
     it('validates primitive types at runtime', () => {

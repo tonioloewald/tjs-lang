@@ -24,9 +24,11 @@ typeof-only while the full shape sits unused in `fn.__tjs.params`).
       descriptor walker is the generic fallback.** Bonus: the mandated agreement check
       caught a real hole — prototype-name payload keys (`toString`) dodged excess policy
       via `in`; fixed (null-prototype descriptor maps) + regression test.
-- [ ] Stage 0 — **member-level param validation** (prerequisite, valuable alone): make the
-      emitted check consume the already-emitted shape descriptor. Also fixes the current
-      `Type.check` (strict since 0.10.1) vs param-check (typeof-only) inconsistency.
+- [x] Stage 0 — **member-level param validation. DONE 2026-07-18**: colon-form object
+      params (positional + destructured) get recursive member checks with precise paths
+      from the already-emitted shape metadata; `=` form untouched (scope-guarded by
+      tests). Fixed the `Type.check` vs param-check inconsistency. 2515 tests green;
+      one TS-chain test updated (it documented the old gap apologetically).
 - [ ] Stage 1 — transpiler: purity check, template hoisting, descriptor emission, dev
       deep-freeze, required-marker grammar (OQ1 — `!` doesn't parse in literals; spike used
       a `required(example)` wrapper), excess-key lint for literal call sites.

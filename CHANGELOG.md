@@ -7,6 +7,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- **Colon-form object params now enforce their member contract** (Stage 0 of
+  dictionary defaults, `docs/dictionary-defaults.md`). `function f(args: {x: 0, y: 0})`
+  has always documented "an object with integer x and y," but the emitted check was
+  `typeof args === 'object'` only — partial payloads, wrong member types, and garbage
+  members all passed while the full shape sat unused in `fn.__tjs.params`. Members are
+  now required and type-checked (recursively, arrays included) with precise error paths
+  (`f.args.pos.y`), matching `typeMatches` and the inline `Type.check` semantics. Excess
+  members are still ignored (the excess-key policy belongs to the forthcoming merge
+  mode). **Scope:** required (colon-form) params only — the JS-legal `=` form keeps
+  plain-JS semantics, and code that hasn't opted into validation is unaffected. For
+  TS-originated code this makes the runtime contract match what TypeScript itself
+  enforces statically (`greet({name})` against `{name: string; age: number}` is a TS
+  compile error — and now a runtime `MonadicError` too).
+
 ## [0.11.0] — 2026-07-18
 
 Minor bump — two new entry points (`./import-resolver`, `./import-resolver/worker`),

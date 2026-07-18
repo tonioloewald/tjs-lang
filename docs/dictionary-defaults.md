@@ -370,10 +370,14 @@ Spike-first; each stage lands independently.
   e.g. `toString`, matched the descriptor's prototype chain via `in` and
   dodged both validation and the excess policy; fixed with null-prototype
   descriptor maps + a regression test).
-- **Stage 0 — member-level param validation** (prerequisite, valuable alone).
-  Make the emitted check consume the already-emitted shape descriptor:
-  member types, requiredness. Fixes the current `Type.check` ↔ param-check
-  inconsistency. Mode-gated where it changes acceptance.
+- **Stage 0 — member-level param validation. DONE 2026-07-18** (`generateMemberCheckLines`
+  in `emitters/js.ts`; suite: `src/lang/member-validation.test.ts`). Colon-form (required)
+  object params — positional and destructured — get recursive member checks with precise
+  paths, derived from the same shape metadata that was already emitted. Excess members
+  ignored (OQ2 is mode territory). Scope-guarded by tests: the `=` form keeps plain-JS
+  semantics. One suite update: the TS-chain test that apologetically documented
+  "missing properties pass" now asserts the error (real TS rejects that call statically).
+  Resolves the `Type.check` ↔ param-check inconsistency.
 - **Stage 1 — transpiler.** Purity check (§6.1) with compile errors; template
   hoisting; descriptor emission; dev-build deep-freeze; required-marker
   grammar per resolved OQ1; the excess-key literal-call-site lint.

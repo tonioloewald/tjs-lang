@@ -446,6 +446,7 @@ function generateInlineValidationCode(
           lines.push(
             `if (${typeCheck}) return __tjs.typeError('${path}', '${expectedType}', ${fieldName});`
           )
+          lines.push(...generateMemberCheckLines(fieldName, path, fieldType))
         } else {
           lines.push(
             `if (${fieldName} !== undefined && ${typeCheck}) return __tjs.typeError('${path}', '${expectedType}', ${fieldName});`
@@ -502,6 +503,9 @@ function generateInlineValidationCode(
         lines.push(
           `if (${typeCheck}) return __tjs.typeError('${path}', '${expectedType}', ${paramName});`
         )
+        // Stage 0: colon-form object params get member-level checks (the
+        // object-ness line above guards these accesses).
+        lines.push(...generateMemberCheckLines(paramName, path, param.type))
       } else {
         lines.push(
           `if (${paramName} !== undefined && ${typeCheck}) return __tjs.typeError('${path}', '${expectedType}', ${paramName});`
@@ -1547,6 +1551,58 @@ export function generateInlineValidation(
  * Returns an expression that evaluates to true when type is INVALID
  * Returns null if no check needed (e.g., 'any' type)
  */
+/**
+ * Stage 0 of dictionary defaults (docs/dictionary-defaults.md): member-level
+ * checks for REQUIRED (colon-form) object params.
+ *
+ * `args: {x: 0, y: 0}` has always documented a member contract, but the
+ * emitted check was typeof-only — partials, wrong member types, and garbage
+ * members passed while the full shape sat unused in fn.__tjs.params (measured
+ * 2026-07-18). These lines enforce it, one statement per member so every error
+ * carries a precise path ('fn.args.pos.y'), mirroring typeMatches / the
+ * inline Type.check semantics: declared members required + type-checked,
+ * EXCESS members ignored (excess policy belongs to the merge mode, OQ2).
+ *
+ * Scope: required params only. The `=` form is JS-legal syntax and keeps
+ * atomic-JS default semantics until the merge MODE lands (spec §3) — do not
+ * extend this to defaulted params without that gating.
+ *
+ * Ordering matters: the caller emits the parent object-ness check FIRST, and
+ * nested member lines recurse after their own object-ness line, so deeper
+ * accesses (`args.pos.x`) are always guarded by an earlier return.
+ */
+function generateMemberCheckLines(
+  accessExpr: string,
+  displayPath: string,
+  type: TypeDescriptor
+): string[] {
+  const lines: string[] = []
+  if (type.kind !== 'object' || !type.shape) return lines
+  for (const [key, memberType] of Object.entries(type.shape)) {
+    const identSafe = /^[A-Za-z_$][A-Za-z0-9_$]*$/.test(key)
+    const memberExpr = identSafe
+      ? `${accessExpr}.${key}`
+      : `${accessExpr}[${JSON.stringify(key)}]`
+    const memberPath = `${displayPath}.${key}`
+    const check = generateTypeCheckExpr(memberExpr, memberType)
+    if (check) {
+      const expected =
+        memberType.kind === 'union'
+          ? (memberType as any).members.map((m: any) => m.kind).join(' | ')
+          : memberType.kind
+      lines.push(
+        `if (${check}) return __tjs.typeError('${memberPath}', '${expected}', ${memberExpr});`
+      )
+    }
+    if (memberType.kind === 'object' && memberType.shape) {
+      lines.push(
+        ...generateMemberCheckLines(memberExpr, memberPath, memberType)
+      )
+    }
+  }
+  return lines
+}
+
 function generateTypeCheckExpr(
   fieldPath: string,
   type: TypeDescriptor
