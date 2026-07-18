@@ -94,9 +94,19 @@ function cloneThenFill(p: Partial<Opts> = {}): Opts {
   return out
 }
 
-/** REFERENCE ONLY — INCORRECT: drops nested defaults on partials. */
+/** TIER 1 (status quo, INCORRECT): drops nested defaults on partials. */
 function shallowSpread(p: Partial<Opts> = {}): Opts {
   return { ...DEFAULTS, ...p } as Opts
+}
+
+/**
+ * TIER 1 (status quo, INCORRECT): the corrupting idiom — merges INTO the
+ * shared defaults object, poisoning every future call. Timed against a
+ * sacrificial defaults copy; its corruption is demonstrated by test below.
+ */
+const SACRIFICIAL = structuredClone(DEFAULTS)
+function mutatingAssign(p: Partial<Opts> = {}): Opts {
+  return Object.assign(SACRIFICIAL, p) as Opts
 }
 
 // ---------------------------------------------------------------------------
@@ -145,26 +155,53 @@ describe.skipIf(!!process.env.SKIP_BENCHMARKS)(
         expect(ours).toEqual(genericDeepMerge(DEFAULTS, p))
         expect(ours).toEqual(cloneThenFill(p as any))
       }
-      // …and show the incorrect one genuinely differs (nested default lost):
+      // …and demonstrate what each status-quo idiom actually breaks —
+      // tier 1's speed is what "accepting the footgun" buys; THIS is what it
+      // costs:
+      // (a) shallow spread: nested defaults silently lost
       expect(shallowSpread(PARTIAL_NESTED).position.y).toBeUndefined()
       expect(
         (merge(descriptor, DEFAULTS, PARTIAL_NESTED as any, STRIP) as any)
           .position.y
       ).toBe(0)
+      // (b) mutating assign: the shared defaults object is CORRUPTED — a call
+      // with {fov: 30} changes what every later no-payload call receives.
+      const poisoned = structuredClone(DEFAULTS)
+      Object.assign(poisoned, { fov: 30 })
+      expect((Object.assign(poisoned, {}) as Opts).fov).toBe(30) // not 60
+      // ours: template untouched by any amount of merging (I1, dev-frozen)
+      expect(DEFAULTS.fov).toBe(60)
     })
 
     it('complete payload: check-then-fill is by-reference; correct baselines allocate', () => {
       console.log('\n=== complete payload (the hot path) ===')
-      const ours = bench('check-then-fill (returns payload by ref)', () =>
+      const ours = bench('[TIER 3] check-then-fill (payload by ref)', () =>
         merge(descriptor, DEFAULTS, COMPLETE, STRIP)
       )
-      const spread = bench('per-shape spread (canonical bar)', () =>
-        perShapeSpread(COMPLETE)
+      const spread = bench(
+        '[TIER 2] per-shape spread (correct hand-roll)',
+        () => perShapeSpread(COMPLETE)
       )
-      bench('generic deep-merge', () => genericDeepMerge(DEFAULTS, COMPLETE))
-      bench('structuredClone-then-fill', () => cloneThenFill(COMPLETE))
-      bench('[INCORRECT, reference] shallow spread', () =>
+      bench('[TIER 2] generic deep-merge', () =>
+        genericDeepMerge(DEFAULTS, COMPLETE)
+      )
+      bench('[TIER 2] structuredClone-then-fill', () => cloneThenFill(COMPLETE))
+      const t1a = bench('[TIER 1, INCORRECT] shallow spread', () =>
         shallowSpread(COMPLETE)
+      )
+      const t1b = bench('[TIER 1, INCORRECT] mutating assign', () =>
+        mutatingAssign(COMPLETE)
+      )
+
+      // The deliverable: one honest sentence (practices/performance.md).
+      const ns = (ms: number) => ((ms * 1e6) / N).toFixed(0)
+      console.log(
+        `\n  COST STORY: dictionary defaults cost ${ns(ours)} ns/op vs the ` +
+          `footguns' ${ns(Math.min(t1a, t1b))} and the careful hand-roll's ` +
+          `${ns(
+            spread
+          )} — and buy member validation, merged nested defaults, ` +
+          `and incorruptible shared defaults.`
       )
 
       // Identity, not equality: the zero-OUTPUT-allocation proof.
@@ -176,33 +213,40 @@ describe.skipIf(!!process.env.SKIP_BENCHMARKS)(
 
     it('one member absent: fill path competitive with the canonical bar', () => {
       console.log('\n=== one absent member ===')
-      const ours = bench('check-then-fill', () =>
+      const ours = bench('[TIER 3] check-then-fill', () =>
         merge(descriptor, DEFAULTS, ONE_ABSENT as any, STRIP)
       )
-      const spread = bench('per-shape spread (canonical bar)', () =>
-        perShapeSpread(ONE_ABSENT)
+      const spread = bench(
+        '[TIER 2] per-shape spread (correct hand-roll)',
+        () => perShapeSpread(ONE_ABSENT)
       )
-      bench('generic deep-merge', () => genericDeepMerge(DEFAULTS, ONE_ABSENT))
-      bench('structuredClone-then-fill', () => cloneThenFill(ONE_ABSENT))
+      bench('[TIER 2] generic deep-merge', () =>
+        genericDeepMerge(DEFAULTS, ONE_ABSENT)
+      )
+      bench('[TIER 2] structuredClone-then-fill', () =>
+        cloneThenFill(ONE_ABSENT)
+      )
       expect(ours).toBeLessThan(spread * 10)
     })
 
     it('nested partial + no-arg', () => {
       console.log('\n=== nested partial ===')
-      bench('check-then-fill', () =>
+      bench('[TIER 3] check-then-fill', () =>
         merge(descriptor, DEFAULTS, PARTIAL_NESTED as any, STRIP)
       )
-      bench('per-shape spread (canonical bar)', () =>
+      bench('[TIER 2] per-shape spread (correct hand-roll)', () =>
         perShapeSpread(PARTIAL_NESTED)
       )
       console.log('\n=== no-arg (full default clone) ===')
-      const ours = bench('check-then-fill (fresh clone)', () =>
+      const ours = bench('[TIER 3] check-then-fill (fresh clone)', () =>
         merge(descriptor, DEFAULTS, undefined, STRIP)
       )
       const sc = bench('structuredClone(DEFAULTS)', () =>
         structuredClone(DEFAULTS)
       )
-      bench('per-shape spread (canonical bar)', () => perShapeSpread())
+      bench('[TIER 2] per-shape spread (correct hand-roll)', () =>
+        perShapeSpread()
+      )
       // Our literal-walking clone should beat structuredClone comfortably.
       expect(ours).toBeLessThan(sc * 2)
     })

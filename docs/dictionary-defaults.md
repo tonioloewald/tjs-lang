@@ -343,6 +343,16 @@ Spike-first; each stage lands independently.
   result to be a baseline. `structuredClone`-then-fill is the safe-but-slow
   correct variant and stays in the comparison.
 
+  Per direction, the benchmark reports a **three-tier cost story** (now also a
+  shared practice — `tosijs-coding-practices/practices/performance.md`,
+  "Benchmarking a footgun-pave"): tier 1 = the status-quo footguns, timed but
+  labeled incorrect with their breakage demonstrated by test (shallow spread
+  loses nested defaults; mutating assign corrupts the shared defaults object);
+  tier 2 = the clean correct hand-roll (the honest bar); tier 3 = the feature.
+  **The sentence the numbers support: dictionary defaults cost ~531 ns/op vs
+  the footguns' ~85 and the careful hand-roll's ~276 — and buy member
+  validation, merged nested defaults, and incorruptible shared defaults.**
+
   **Results (2026-07-18, M1 Pro, bun 1.3.14, 8-member/3-nested shape, 200k
   iterations):** the descriptor-driven walker WITH full member validation runs
   ~543 ns/op on a complete payload vs ~284 for the canonical per-shape spread
