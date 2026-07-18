@@ -95,7 +95,10 @@ const kindOf = (v: unknown): MemberDescriptor['kind'] => {
 export function buildDescriptor(
   template: Record<string, unknown>
 ): ShapeDescriptor {
-  const members: Record<string, MemberDescriptor> = {}
+  // Null prototype: membership tests ('key in members') must be OWN-only —
+  // with a normal object, payload keys like 'toString' match the prototype
+  // chain and dodge both validation and the excess policy.
+  const members: Record<string, MemberDescriptor> = Object.create(null)
   for (const key of Object.keys(template)) {
     const value = template[key]
     if (isRequiredMarker(value)) {
@@ -198,15 +201,28 @@ export function merge(
     return out
   }
 
-  // §5.6: prototype-pollution guard — reject outright, never merge around it.
+  // Pass 1 over PAYLOAD keys: §5.6 pollution guard + excess detection.
+  // `excess` is lazily allocated — the common no-excess case allocates nothing
+  // (Spike B showed the old unconditional filter allocating two arrays per
+  // call per level).
+  let excess: string[] | null = null
   for (const key of Object.keys(payload)) {
     if (FORBIDDEN_PROPERTIES.has(key)) {
       return new MergeError(`${path}.${key}`, 'safe key', 'forbidden key')
     }
+    if (!(key in descriptor.members)) {
+      // null-prototype map ⇒ own-only membership (the 'toString' hole)
+      if (options.excess === 'error') {
+        return new MergeError(`${path}.${key}`, 'declared key', 'excess key')
+      }
+      ;(excess ??= []).push(key)
+    }
   }
 
-  // Phase 1: read-only scan (validate present, note absent, police excess).
-  const absent: string[] = []
+  // Pass 2 over DESCRIPTOR members: validate present, note absent, recurse
+  // into nested dictionaries. Single pass; scratch state lazily allocated.
+  let absent: string[] | null = null
+  let nested: Record<string, unknown> | null = null
   for (const key of Object.keys(descriptor.members)) {
     const m = descriptor.members[key]
     const present =
@@ -216,99 +232,63 @@ export function merge(
       if (m.state === 'required') {
         return new MergeError(`${path}.${key}`, `required ${m.kind}`, 'absent')
       }
-      absent.push(key)
+      ;(absent ??= []).push(key)
       continue
     }
     const value = payload[key]
     if (m.kind === 'object' && m.members) {
-      if (value === null) {
-        return new MergeError(`${path}.${key}`, 'object', 'null')
+      if (value === null || kindOf(value) !== 'object') {
+        return new MergeError(
+          `${path}.${key}`,
+          'object',
+          value === null ? 'null' : kindOf(value)
+        )
       }
-      if (kindOf(value) !== 'object') {
-        return new MergeError(`${path}.${key}`, 'object', kindOf(value))
-      }
-      // Recursion is handled in the fill phase (it may allocate); here we
-      // only pre-validate by recursing in scan-only fashion via merge itself —
-      // see fill below. Nothing to do in the scan.
+      const innerTemplate = (() => {
+        const t = template[key]
+        return isRequiredMarker(t)
+          ? (t.example as Record<string, unknown>)
+          : (t as Record<string, unknown>)
+      })()
+      const inner = merge(
+        { members: m.members },
+        innerTemplate,
+        value as Record<string, unknown>,
+        options,
+        `${path}.${key}`
+      )
+      if (inner instanceof MergeError) return inner
+      if (inner !== value) (nested ??= Object.create(null))[key] = inner
     } else {
       const err = checkValue(m, value, `${path}.${key}`)
       if (err) return err
     }
   }
 
-  const excessKeys = Object.keys(payload).filter(
-    (k) => !(k in descriptor.members)
-  )
-  if (excessKeys.length > 0 && options.excess === 'error') {
-    return new MergeError(
-      `${path}.${excessKeys[0]}`,
-      'declared key',
-      'excess key'
-    )
-  }
-
-  // Phase 2: nested dictionaries — recurse (each returns payload-by-reference
-  // when complete, so this stays allocation-free for complete payloads).
-  const nestedResults: Record<string, unknown> = {}
-  let nestedChanged = false
-  for (const key of Object.keys(descriptor.members)) {
-    const m = descriptor.members[key]
-    if (
-      m.kind !== 'object' ||
-      !m.members ||
-      absent.includes(key) ||
-      !Object.prototype.hasOwnProperty.call(payload, key) ||
-      payload[key] === undefined
-    ) {
-      continue
-    }
-    const inner = merge(
-      { members: m.members },
-      (m.state === 'required'
-        ? // required-object members have no template value to fill from;
-          // their nested defaulted members still fill from the marker example
-          ((): Record<string, unknown> => {
-            const t = template[key]
-            return isRequiredMarker(t)
-              ? (t.example as Record<string, unknown>)
-              : (t as Record<string, unknown>)
-          })()
-        : template[key]) as Record<string, unknown>,
-      payload[key] as Record<string, unknown>,
-      options,
-      `${path}.${key}`
-    )
-    if (inner instanceof MergeError) return inner
-    if (inner !== payload[key]) {
-      nestedResults[key] = inner
-      nestedChanged = true
-    }
-  }
-
-  // I3: complete payload, nothing nested changed, no stripping needed ⇒
-  // return the payload by reference. Zero allocation.
-  const mustStrip = excessKeys.length > 0 && options.excess === 'strip'
-  if (absent.length === 0 && !nestedChanged && !mustStrip) {
+  // I3: complete payload, nothing nested changed, nothing to strip ⇒ the
+  // payload itself, by reference. Zero output allocation.
+  const mustStrip = excess !== null && options.excess === 'strip'
+  if (absent === null && nested === null && !mustStrip) {
     return payload
   }
 
-  // Phase 3: build ONE fresh output. Present members from the payload (or
-  // their merged nested result), absent members cloned from the template.
+  // Fill: ONE fresh output — present members from the payload (or merged
+  // nested result), absent members cloned from the template (I2).
   if (mustStrip && options.onExcess) {
-    for (const k of excessKeys) options.onExcess(`${path}.${k}`)
+    for (const k of excess!) options.onExcess(`${path}.${k}`)
   }
   const out: Record<string, unknown> = {}
   for (const key of Object.keys(descriptor.members)) {
-    if (absent.includes(key)) {
+    if (absent !== null && absent.includes(key)) {
       out[key] = cloneValue(template[key])
-    } else if (key in nestedResults) {
-      out[key] = nestedResults[key]
+    } else if (nested !== null && key in nested) {
+      out[key] = nested[key]
     } else if (Object.prototype.hasOwnProperty.call(payload, key)) {
       out[key] = payload[key]
     }
   }
-  if (options.excess === 'passthrough') {
-    for (const k of excessKeys) out[k] = payload[k]
+  if (options.excess === 'passthrough' && excess !== null) {
+    for (const k of excess) out[k] = payload[k]
   }
   return out
 }

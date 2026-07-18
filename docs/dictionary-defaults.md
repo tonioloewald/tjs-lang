@@ -332,10 +332,34 @@ Spike-first; each stage lands independently.
   policy, prototype-pollution attempts, invariants I1–I3, and the js-dialect
   gate (JS semantics preserved when the mode is off). The suite is the spec's
   executable form and survives into the final implementation.
-- **Spike B — perf validation.** Check-then-fill vs the status-quo hand-rolls
-  (spread / assign / structuredClone) on realistic tosijs-3d option shapes:
-  complete payload (must be ≈ validation-only, zero allocation), one-absent,
-  no-arg.
+- **Spike B — perf validation.** Check-then-fill benchmarked **against a
+  canonical CORRECT implementation** — the careful hand-written per-shape
+  merge (`{...D, ...p, pos: {...D.pos, ...p.pos}}`) and a correct generic
+  recursive merge — on realistic tosijs-3d option shapes: complete payload
+  (must be ≈ validation-only, zero output allocation), one-absent, no-arg.
+  The broken idioms (shallow spread, mutating assign) may appear as reference
+  rows only, clearly labeled incorrect: **benchmarking against code that
+  doesn't do the job is meaningless** — a baseline must produce the same
+  result to be a baseline. `structuredClone`-then-fill is the safe-but-slow
+  correct variant and stays in the comparison.
+
+  **Results (2026-07-18, M1 Pro, bun 1.3.14, 8-member/3-nested shape, 200k
+  iterations):** the descriptor-driven walker WITH full member validation runs
+  ~543 ns/op on a complete payload vs ~284 for the canonical per-shape spread
+  (which validates nothing) and ~1990 for structuredClone-then-fill; no-arg
+  clone beats `structuredClone` 7× (241 vs 1773); I3 holds (complete payload
+  returned by identity — zero output allocation). **Design conclusion:** the
+  ~2× premium over hand-written merge is the price of the generic walk, not of
+  validation per se — so Stage 1 should emit **shape-specialized
+  merge+validate code** per signature (exact precedent:
+  `generateTypeCheckExpr` already emits per-shape validation), with the
+  descriptor-driven walker as the generic/runtime fallback. Two bonus
+  findings from the agreement check the directive forced: all correct
+  implementations must agree before timing — and making them agree exposed a
+  real semantics hole (payload keys named after `Object.prototype` members,
+  e.g. `toString`, matched the descriptor's prototype chain via `in` and
+  dodged both validation and the excess policy; fixed with null-prototype
+  descriptor maps + a regression test).
 - **Stage 0 — member-level param validation** (prerequisite, valuable alone).
   Make the emitted check consume the already-emitted shape descriptor:
   member types, requiredness. Fixes the current `Type.check` ↔ param-check

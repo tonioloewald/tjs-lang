@@ -204,6 +204,21 @@ describe('spike A: dictionary defaults (docs/dictionary-defaults.md)', () => {
       })
     }
 
+    it("prototype-name keys ('toString') are EXCESS, not silently admitted", () => {
+      // Found writing Spike B: the excess test used `in`, so payload keys that
+      // exist on Object.prototype matched the descriptor's prototype chain and
+      // were neither validated nor stripped — and could even survive an
+      // identity return. They must behave as ordinary excess keys.
+      const stripped = m({ label: 'hi', toString: 5 })
+      expect(stripped).not.toBeInstanceOf(MergeError)
+      expect(Object.prototype.hasOwnProperty.call(stripped, 'toString')).toBe(
+        false
+      )
+      const errored = m({ label: 'hi', toString: 5 }, { excess: 'error' })
+      expect(errored).toBeInstanceOf(MergeError)
+      expect((errored as MergeError).path).toBe('args.toString')
+    })
+
     it('non-enumerable and inherited keys do not participate', () => {
       const payload = Object.create({ inherited: 1 })
       payload.label = 'hi'

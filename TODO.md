@@ -15,8 +15,15 @@ typeof-only while the full shape sits unused in `fn.__tjs.params`).
       arrays-as-values, all three excess-key policies, prototype-pollution via JSON vector,
       I1–I3 invariants, required-wrapper stand-in, JS-semantics mode-gate reference).
       Mutation-tested (aliasing bug caught by I2). Evidence collected for OQ2–OQ4.
-- [ ] Spike B — perf: check-then-fill vs spread/assign/structuredClone on tosijs-3d-shaped
-      options; complete payload must be zero-allocation.
+- [x] Spike B — perf, DONE 2026-07-18 (`perf.bench.test.ts`, SKIP_BENCHMARKS-gated):
+      benchmarked against CANONICAL CORRECT implementations per Tonio's directive (broken
+      idioms are labeled reference rows only — a baseline must do the same job). Walker
+      w/ full validation ~543ns/op complete vs ~284 unvalidated per-shape spread; no-arg
+      clone 7× faster than structuredClone; I3 identity-return holds. **Conclusion: Stage 1
+      emits shape-specialized merge+validate code (generateTypeCheckExpr precedent);
+      descriptor walker is the generic fallback.** Bonus: the mandated agreement check
+      caught a real hole — prototype-name payload keys (`toString`) dodged excess policy
+      via `in`; fixed (null-prototype descriptor maps) + regression test.
 - [ ] Stage 0 — **member-level param validation** (prerequisite, valuable alone): make the
       emitted check consume the already-emitted shape descriptor. Also fixes the current
       `Type.check` (strict since 0.10.1) vs param-check (typeof-only) inconsistency.
