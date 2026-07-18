@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.11.0] — 2026-07-18
+
+Minor bump — two new entry points (`./import-resolver`, `./import-resolver/worker`),
+no breaking changes. This is the release tosijs-ui's doc system builds against.
+
 ### Added
 
 - **`tjs-lang/import-resolver`** (#20) — the playground's bundler-free bare-import
@@ -34,6 +39,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     routing, hints, config round-trip, a client↔worker prefix-agreement guard, and an
     anti-drift smoke that parses the built worker as a classic script and checks the
     routing is embedded).
+
+### Documentation
+
+- `docs/dictionary-defaults.md` — design spec for **merge-on-partial object arguments**
+  (WebIDL-dictionary semantics for options bags), a gated native-TJS mode. Includes the
+  measured finding that member-level object-param validation doesn't exist yet (the
+  emitted check is typeof-only; the full shape metadata goes unused). Spike A (semantics
+  harness + 33-case table suite) lives in `experiments/dictionary-defaults/`.
 
 ## [0.10.1] — 2026-07-17
 
