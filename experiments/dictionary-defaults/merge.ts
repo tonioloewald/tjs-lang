@@ -17,7 +17,12 @@
  *   transpiler-recognized marker would produce.
  */
 
-/** Marker for required members (OQ1 stand-in). */
+/**
+ * Marker for required members — OQ1 stand-in, now CUT from v1 (2026-07-18):
+ * required-ness lives at the PARAM level (`:` vs `=`), so a defaults object
+ * has no required members by construction; mixed shapes use separate params.
+ * Retained here only as evidence the wrapper mechanism works if ever needed.
+ */
 const REQUIRED = Symbol('dict-defaults.required')
 
 export interface RequiredMarker {
