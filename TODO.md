@@ -1,5 +1,32 @@
 # TJS-Lang TODO
 
+## Dictionary defaults — merge-on-partial object args (spec landed, Spike A done 2026-07-18)
+
+WebIDL-dictionary semantics for options bags: `(args = {x: 0, y: 0})` + partial payload
+merges per-member instead of JS's atomic default-or-payload. **A gated native-TJS mode**
+(like TjsEquals) — measured reality: partials currently pass through with JS semantics, so
+this changes valid-program meaning and must be off under `dialect: 'js'`/fromTS. Full spec:
+[docs/dictionary-defaults.md](docs/dictionary-defaults.md) (incl. the finding that
+member-level object-param validation doesn't exist today — the emitted check is
+typeof-only while the full shape sits unused in `fn.__tjs.params`).
+
+- [x] Spike A — semantics harness (`experiments/dictionary-defaults/`): standalone
+      check-then-fill merge + 33-case table suite (absence/undefined/null matrix, recursion,
+      arrays-as-values, all three excess-key policies, prototype-pollution via JSON vector,
+      I1–I3 invariants, required-wrapper stand-in, JS-semantics mode-gate reference).
+      Mutation-tested (aliasing bug caught by I2). Evidence collected for OQ2–OQ4.
+- [ ] Spike B — perf: check-then-fill vs spread/assign/structuredClone on tosijs-3d-shaped
+      options; complete payload must be zero-allocation.
+- [ ] Stage 0 — **member-level param validation** (prerequisite, valuable alone): make the
+      emitted check consume the already-emitted shape descriptor. Also fixes the current
+      `Type.check` (strict since 0.10.1) vs param-check (typeof-only) inconsistency.
+- [ ] Stage 1 — transpiler: purity check, template hoisting, descriptor emission, dev
+      deep-freeze, required-marker grammar (OQ1 — `!` doesn't parse in literals; spike used
+      a `required(example)` wrapper), excess-key lint for literal call sites.
+- [ ] Stage 2 — runtime integration; subsume the shallow `__defaults` merge in js-tests.ts.
+- [ ] Stage 3 — descriptor-driven test generation + deep-partial `.d.ts` emission.
+- [ ] Stage 4 — dogfood on tosijs-3d options-heavy entry points.
+
 ## Pre-release review follow-ups (0.10.0, GO_WITH_FOLLOWUPS — 2026-07-16)
 
 Verdict was GO with 0 blockers. The four confirmed majors were fixed before tag
