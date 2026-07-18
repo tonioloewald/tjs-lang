@@ -1,6 +1,6 @@
 # Dictionary Defaults (Merge-on-Partial Object Arguments)
 
-**Status:** Spike A in progress (`experiments/dictionary-defaults/`)
+**Status:** Spikes A+B done; Stage 0 shipped (member validation); Stage 1 unblocked (OQ1 resolved)
 **Feature class:** Language semantics + runtime — **a gated native-TJS mode**
 **Characterization:** JS footgun pave
 
@@ -136,17 +136,31 @@ a mode making a JS-legal construct a compile error.
 
 ## 5. Semantics
 
-### 5.1 Member states
+### 5.1 Member states — resolved: required-ness lives at the PARAM level
 
-| State         | Declaration                                 | Absent key             | Present key                  |
-| ------------- | ------------------------------------------- | ---------------------- | ---------------------------- |
-| **Defaulted** | `x: 0`                                      | Filled with default    | Type-checked against example |
-| **Required**  | _(marker TBD — OQ1; spike uses a wrapper)_  | **Runtime type error** | Type-checked                 |
+**`:` is the required marker; `=` is the defaulted marker. tjs already has
+both, at the level where required-ness actually belongs** (Tonio, 2026-07-18 —
+resolving OQ1). No member-level marker exists or is needed:
 
-> The draft had a third "Unchecked" state marked `x!`. **Dropped:** `!` does
-> not parse inside object literals (verified), and it is the param/access
-> safety marker, not a member marker. If an unchecked-member state proves
-> necessary it needs its own grammar argument; it is not carried by default.
+| Declaration       | The param | Its members                                            |
+| ----------------- | --------- | ------------------------------------------------------ |
+| `(args: {x: 0})`  | required  | ALL required + type-checked (Stage 0, shipped)         |
+| `(args = {x: 0})` | defaulted | ALL defaulted — merge-on-partial (the mode, this spec) |
+
+A "required member inside a _defaults_ object" is a contradiction in terms —
+if the caller must supply it, it is not a default. The mixed case (a required
+id plus defaulted options) uses **separate parameters** —
+`(id: '', opts = {...})` — which is the platform convention this spec is built
+on (`addEventListener(type, listener, options)`: required positionals, then a
+dictionary of defaults). The draft's WebIDL-keeps-required argument is
+answered, not rejected: required things live in the colon form; the error
+still fires at the call site, just from the declaration level that already
+expresses it.
+
+> The draft also had an "Unchecked" member state marked `x!`. Dropped: `!`
+> does not parse inside object literals (verified), and it is the param/access
+> safety marker. Spike A's `required(example)` wrapper is likewise **cut** —
+> retained in the spike only as evidence the mechanism works if ever needed.
 
 ### 5.2 Trigger condition
 
@@ -304,12 +318,11 @@ runtime type-error channel (`__tjs.typeError` → `MonadicError`) with a path
 
 ## 9. Open questions
 
-1. **Required marker (OQ1).** `!` is unavailable (does not parse in literals).
-   Spike A represents required-ness via a transpiler-recognizable wrapper —
-   `required(example)` — which costs nothing to recognize statically since the
-   transpiler already evaluates the literal for the §6.1 purity check. Whether
-   that wrapper (or another spelling) becomes the grammar is a Stage 1
-   decision. **Blocking for Stage 1, not for the spikes.**
+1. **Required marker (OQ1). RESOLVED 2026-07-18 — no marker.** `:` vs `=` at
+   the param level IS the required/defaulted distinction (§5.1); members of a
+   default object are defaults by construction. Mixed shapes use separate
+   params (platform convention). The spike's `required(example)` wrapper is
+   cut from v1 (kept in the spike as evidence the mechanism works).
 2. **Excess-key policy (OQ2).** §5.4 carries the recommendation
    (strip + record + literal-call-site lint); Spike A implements all three
    candidate policies behind a switch to generate comparative evidence.
@@ -379,8 +392,9 @@ Spike-first; each stage lands independently.
   "missing properties pass" now asserts the error (real TS rejects that call statically).
   Resolves the `Type.check` ↔ param-check inconsistency.
 - **Stage 1 — transpiler.** Purity check (§6.1) with compile errors; template
-  hoisting; descriptor emission; dev-build deep-freeze; required-marker
-  grammar per resolved OQ1; the excess-key literal-call-site lint.
+  hoisting; descriptor emission; dev-build deep-freeze; the excess-key
+  literal-call-site lint; shape-specialized merge codegen (Spike B
+  conclusion). (No required-marker grammar: OQ1 resolved as no-marker, §5.1.)
 - **Stage 2 — runtime integration.** Wire the Spike A merge into the
   validation pass as a phase. Subsume the js-tests shallow defaults-merge.
 - **Stage 3 — test generation + dts.** Descriptor-driven fixtures; deep-partial
