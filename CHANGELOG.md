@@ -32,6 +32,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Required-ness needs no new syntax: `:` params are required (member-validated since
     Stage 0), `=` params are defaulted — mixed shapes use separate params, the platform
     convention.
+  - **`.d.ts` output is deep-partial for dictionary params:** `generateDTS` emits
+    `args?: { pos?: { x?: number; y?: number }; label?: string }` so TypeScript callers can
+    pass the partials tjs accepts. Mode-gated (the transpile result now carries `tjsModes`);
+    dialect-js output keeps required members, where partials genuinely aren't valid.
 
 ### Changed
 

@@ -253,3 +253,26 @@ function g(args = live) { return args }`,
     })
   })
 })
+
+describe('deep-partial .d.ts for dictionary-default params (Stage 3)', () => {
+  it('native: caller-facing type is deep-partial (members optional, recursively)', async () => {
+    const { generateDTS } = await import('./index')
+    const src = `export function place(args = {pos: {x: 0, y: 0}, label: ''}) { return args }`
+    const result = tjs(src)
+    const dts = generateDTS(result as any, src)
+    // A caller passing {pos: {x: 5}} is valid tjs — the dts must admit it.
+    expect(dts).toContain(
+      'args?: { pos?: { x?: number; y?: number }; label?: string }'
+    )
+  })
+
+  it("dialect 'js': members stay required (atomic JS default — partial is NOT valid)", async () => {
+    const { generateDTS } = await import('./index')
+    const src = `export function place(args = {pos: {x: 0, y: 0}, label: ''}) { return args }`
+    const result = tjs(src, { dialect: 'js' })
+    const dts = generateDTS(result as any, src)
+    expect(dts).toContain(
+      'args?: { pos: { x: number; y: number }; label: string }'
+    )
+  })
+})

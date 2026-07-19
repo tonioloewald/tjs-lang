@@ -155,6 +155,12 @@ export type { TestResult } from './js-tests'
 import type { TestResult } from './js-tests'
 
 export interface TJSTranspileResult {
+  /**
+   * The TJS modes in effect for this transpilation (dialect + directives).
+   * Lets downstream tooling (e.g. generateDTS's deep-partial emission for
+   * TjsDictDefaults params) know the semantics without re-deriving them.
+   */
+  tjsModes?: import('../parser-types').TjsModes
   /** The transpiled JavaScript code */
   code: string
   /** Type information for the function(s) - Record of function name to type info */
@@ -1342,6 +1348,7 @@ export function transpileToJS(
     testCount: tests.length > 0 ? tests.length : undefined,
     testResults,
     wasmCompiled,
+    tjsModes: preprocessed.tjsModes,
   }
 }
 

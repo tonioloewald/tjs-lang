@@ -410,10 +410,27 @@ Spike-first; each stage lands independently.
   destructured-param dictionary defaults. Note: `!`-unsafe functions skip the
   merge along with all validation (consistent with `!`). (No required-marker
   grammar: OQ1 resolved as no-marker, §5.1.)
-- **Stage 2 — runtime integration.** Wire the Spike A merge into the
-  validation pass as a phase. Subsume the js-tests shallow defaults-merge.
-- **Stage 3 — test generation + dts.** Descriptor-driven fixtures; deep-partial
-  `.d.ts` emission.
+- **Stage 2 — runtime integration. RESOLVED 2026-07-19 — subsumed by Stage 1,
+  with one finding.** The specialized codegen IS the runtime integration (no
+  separate walker phase to wire). The js-tests `__defaults` shallow
+  `Object.assign` turned out NOT to be a divergent copy of this merge: the
+  return-example default grammar (`{a: 1, b = 2}`) is **top-level-only by
+  construction** (`parseReturnExample` transforms `=` at depth 1 only), so the
+  shallow merge exactly matches what the grammar can express. Documented here;
+  extending return-example defaults to nesting is a separate feature nobody
+  has asked for.
+- **Stage 3 — dts DONE 2026-07-19; fixture generation deliberately dropped.**
+  `generateDTS` now emits **deep-partial** caller-facing types for
+  dictionary-default params (`args?: { pos?: { x?: number; y?: number } }`) —
+  `place({pos: {x: 5}})` is valid tjs and must be valid TS for callers. Gated
+  on the mode via `result.tjsModes` (now carried on the transpile result);
+  dialect-js output keeps required members (partials genuinely aren't valid
+  there). Arrays are not partialized (values, replaced wholesale). The §8
+  auto-generated fixture set (one-member-absent per member, etc.) is
+  **dropped, not deferred**: those fixtures re-test the LANGUAGE's merge —
+  covered once, centrally, by `dict-defaults.test.ts` — not the user's code.
+  The existing no-arg signature test already exercises user logic under full
+  defaults, which is the per-function value.
 - **Stage 4 — dogfood.** Convert tosijs-3d options-heavy entry points; delete
   their hand-rolled merges; diff under existing suites.
 

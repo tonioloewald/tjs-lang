@@ -101,13 +101,34 @@ export function typeDescriptorToTS(td: TypeDescriptor): string {
 }
 
 /**
+ * Deep-partial rendering for TjsDictDefaults params (docs/dictionary-defaults.md,
+ * Stage 3). Under the mode, `(args = {pos: {x: 0, y: 0}})` accepts any partial
+ * at any depth — `place({pos: {x: 5}})` is valid tjs — so the caller-facing
+ * .d.ts must say `{ pos?: { x?: number } }`, not demand complete objects. The
+ * body-facing truth (everything present after the merge) is a runtime
+ * guarantee the dts cannot express per-side; the caller side wins here.
+ * Arrays are values (replaced wholesale), so their element types are NOT
+ * partialized.
+ */
+function typeDescriptorToDeepPartialTS(td: TypeDescriptor): string {
+  if (td.kind === 'object' && td.shape && Object.keys(td.shape).length > 0) {
+    const fields = Object.entries(td.shape)
+      .map(([k, v]) => `${k}?: ${typeDescriptorToDeepPartialTS(v)}`)
+      .join('; ')
+    return `{ ${fields} }`
+  }
+  return typeDescriptorToTS(td)
+}
+
+/**
  * Generate a function declaration line for .d.ts
  */
 function functionDeclToTS(
   name: string,
   info: TJSTypeInfo,
   exported: boolean,
-  isDefault: boolean
+  isDefault: boolean,
+  dictDefaults = false
 ): string {
   // DTS optionality is NOT the runtime `required` flag. Runtime `required` is a
   // *contract* check: a bare (untyped) JS param is wild-west — `required:false`
@@ -131,7 +152,21 @@ function functionDeclToTS(
   }
   const params = entries
     .map(([pName, p], i) => {
-      const tsType = typeDescriptorToTS(p.type)
+      const pd = p as (typeof entries)[number][1] & { default?: unknown }
+      // TjsDictDefaults: an `= {object literal}` param merges partials at any
+      // depth, so the caller-facing type is deep-partial.
+      const isDict =
+        dictDefaults &&
+        optionalFlags[i] &&
+        p.type.kind === 'object' &&
+        p.type.shape &&
+        pd.default !== undefined &&
+        pd.default !== null &&
+        typeof pd.default === 'object' &&
+        !Array.isArray(pd.default)
+      const tsType = isDict
+        ? typeDescriptorToDeepPartialTS(p.type)
+        : typeDescriptorToTS(p.type)
       return optionalFlags[i] ? `${pName}?: ${tsType}` : `${pName}: ${tsType}`
     })
     .join(', ')
@@ -642,7 +677,15 @@ export function generateDTS(
       lines.push(`/** ${info.description} */`)
     }
 
-    lines.push(functionDeclToTS(name, info, true, isDefault))
+    lines.push(
+      functionDeclToTS(
+        name,
+        info,
+        true,
+        isDefault,
+        !!result.tjsModes?.tjsDictDefaults
+      )
+    )
     emitted.add(name)
   }
 

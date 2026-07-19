@@ -36,8 +36,13 @@ typeof-only while the full shape sits unused in `fn.__tjs.params`).
       3× faster than the careful hand-roll (276), faster than the incorrect shallow spread
       (107), while validating members.** Deferred: excess-key literal-call-site lint;
       destructured-param dict defaults.
-- [ ] Stage 2 — runtime integration; subsume the shallow `__defaults` merge in js-tests.ts.
-- [ ] Stage 3 — descriptor-driven test generation + deep-partial `.d.ts` emission.
+- [x] Stage 2 — RESOLVED 2026-07-19: subsumed by Stage 1's specialized codegen. The
+      js-tests `__defaults` shallow merge is NOT a divergent copy — return-example
+      defaults are top-level-only by grammar, so shallow assign matches exactly.
+- [x] Stage 3 — dts DONE 2026-07-19: deep-partial caller-facing types for dict-default
+      params (mode-gated via `result.tjsModes`, now on the transpile result; dialect-js
+      unchanged). Fixture auto-generation dropped-not-deferred: it would re-test the
+      language's merge (covered centrally), not user code.
 - [ ] Stage 4 — dogfood on tosijs-3d options-heavy entry points.
 
 ## Pre-release review follow-ups (0.10.0, GO_WITH_FOLLOWUPS — 2026-07-16)
