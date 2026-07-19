@@ -29,10 +29,13 @@ typeof-only while the full shape sits unused in `fn.__tjs.params`).
       from the already-emitted shape metadata; `=` form untouched (scope-guarded by
       tests). Fixed the `Type.check` vs param-check inconsistency. 2515 tests green;
       one TS-chain test updated (it documented the old gap apologetically).
-- [ ] Stage 1 — transpiler (UNBLOCKED: OQ1 resolved 2026-07-18 — no marker; `:` vs `=` at
-      the param level IS required/defaulted, mixed shapes use separate params): purity
-      check, template hoisting, shape-specialized merge codegen (Spike B conclusion),
-      TjsDictDefaults mode gating, dev deep-freeze, excess-key lint for literal call sites.
+- [x] Stage 1 — transpiler CORE DONE 2026-07-19: TjsDictDefaults mode (native-on, dialect
+      gated) + specialized merge codegen with inlined literal fills (no hoisted template
+      needed — fills are fresh by construction), purity compile-error, excess-strip +
+      once-per-site recorder notice, pollution rejection. **Measured: complete 91 ns/op —
+      3× faster than the careful hand-roll (276), faster than the incorrect shallow spread
+      (107), while validating members.** Deferred: excess-key literal-call-site lint;
+      destructured-param dict defaults.
 - [ ] Stage 2 — runtime integration; subsume the shallow `__defaults` merge in js-tests.ts.
 - [ ] Stage 3 — descriptor-driven test generation + deep-partial `.d.ts` emission.
 - [ ] Stage 4 — dogfood on tosijs-3d options-heavy entry points.

@@ -7,6 +7,32 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **Dictionary defaults — the `TjsDictDefaults` mode** (`docs/dictionary-defaults.md`).
+  In native tjs, `(args = {x: 0, y: 0})` now has WebIDL-dictionary semantics: each member
+  individually defaulted, partial payloads merged per member (recursively —
+  `place({pos: {x: 5}})` keeps `pos.y` and every other default), members type-checked with
+  precise error paths, `undefined` members treated as absent, example-`null` members
+  nullable-any, arrays replaced wholesale (element-checked), excess keys stripped with a
+  once-per-site flight-recorder notice naming them, and prototype-pollution keys
+  (`__proto__`/`constructor`/`prototype`) rejected outright. Complete payloads return by
+  identity — zero allocation.
+  - **Faster than hand-rolling it, correct or not:** the merge is emitted as
+    shape-specialized code per signature; measured 91 ns/op on a complete 8-member/3-nested
+    payload vs 276 for the careful hand-written spread merge and 107 for the _incorrect_
+    shallow spread — while validating every member (three-tier methodology in
+    `experiments/dictionary-defaults/perf.bench.test.ts`).
+  - **Mode-gated per PRINCIPLES.md:** ON in native `.tjs` (like `TjsEquals`), OFF under
+    `dialect: 'js'`, `fromTS`, VM targets, and `TjsCompat` — JS-legal source keeps atomic
+    JS default semantics exactly. `TjsStrict` enables it; `TjsDictDefaults` is a standalone
+    directive. Impure object-literal defaults (`{x: mkX()}`) are a compile error in native
+    mode (compute in the body, or use a colon-form param); non-literal defaults
+    (`args = live`, `x = 0`, `list = []`) are untouched.
+  - Required-ness needs no new syntax: `:` params are required (member-validated since
+    Stage 0), `=` params are defaulted — mixed shapes use separate params, the platform
+    convention.
+
 ### Changed
 
 - **Colon-form object params now enforce their member contract** (Stage 0 of

@@ -197,6 +197,13 @@ export interface TjsModes {
   /** TjsSafeAssign: let declarations need an initializer or `: example` annotation; literal undefined/null/void 0 assigned to typed lets is flagged */
   tjsSafeAssign: boolean
   /**
+   * TjsDictDefaults: `(args = {x: 0, y: 0})` gets WebIDL-dictionary semantics —
+   * per-member defaults with merge-on-partial, member validation, excess-key
+   * strip + recorder notice (docs/dictionary-defaults.md). Native-only; OFF for
+   * dialect 'js'/fromTS/VM so JS-legal source keeps atomic JS defaults.
+   */
+  tjsDictDefaults: boolean
+  /**
    * TjsStrict: the author explicitly opted into strict semantics (via the
    * `TjsStrict` directive). Distinct from "all modes on" (native TJS's default) —
    * only `true` when the directive is present. Escalates soft diagnostics (e.g. an

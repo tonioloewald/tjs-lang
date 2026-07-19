@@ -391,10 +391,25 @@ Spike-first; each stage lands independently.
   semantics. One suite update: the TS-chain test that apologetically documented
   "missing properties pass" now asserts the error (real TS rejects that call statically).
   Resolves the `Type.check` ↔ param-check inconsistency.
-- **Stage 1 — transpiler.** Purity check (§6.1) with compile errors; template
-  hoisting; descriptor emission; dev-build deep-freeze; the excess-key
-  literal-call-site lint; shape-specialized merge codegen (Spike B
-  conclusion). (No required-marker grammar: OQ1 resolved as no-marker, §5.1.)
+- **Stage 1 — transpiler. CORE DONE 2026-07-19** (`TjsDictDefaults` mode +
+  shape-specialized merge codegen; suite: `src/lang/dict-defaults.test.ts`).
+  What shipped: the mode (native-on, off for dialect 'js'/fromTS/VM/TjsCompat,
+  `TjsStrict` enables, standalone `TjsDictDefaults` directive); the §6.1 purity
+  compile-error; merge-on-partial emitted as specialized code per signature —
+  inlined literal fills (fresh by construction, so the hoisted-template +
+  deep-freeze machinery proved unnecessary: no shared template exists to
+  corrupt); §5.2 undefined⇒fill and example-null⇒nullable-any; recursion;
+  arrays-as-values with element checks; excess-strip with a once-per-site
+  flight-recorder notice naming the stripped keys; prototype-pollution
+  rejection; identity return on complete clean payloads.
+  **Measured (same shape/harness as Spike B): complete 91 ns/op, partial 73,
+  no-arg 134 — 3× faster than the careful hand-roll (276) and faster than the
+  INCORRECT shallow spread (107), while validating every member.** The cost
+  story inverts: the paved path beats both doing it right by hand and doing it
+  wrong. Deferred from Stage 1: the excess-key literal-call-site lint;
+  destructured-param dictionary defaults. Note: `!`-unsafe functions skip the
+  merge along with all validation (consistent with `!`). (No required-marker
+  grammar: OQ1 resolved as no-marker, §5.1.)
 - **Stage 2 — runtime integration.** Wire the Spike A merge into the
   validation pass as a phase. Subsume the js-tests shallow defaults-merge.
 - **Stage 3 — test generation + dts.** Descriptor-driven fixtures; deep-partial

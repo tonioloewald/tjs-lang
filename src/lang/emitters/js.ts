@@ -414,7 +414,8 @@ function extractFunctionTypeInfo(
 function generateInlineValidationCode(
   funcName: string,
   types: TJSTypeInfo,
-  source?: string
+  source?: string,
+  dictDefaults = false
 ): { preamble: string; suffix: string } | null {
   const lines: string[] = []
   // Include source in path if available: "src/file.ts:42:funcName.param"
@@ -506,6 +507,21 @@ function generateInlineValidationCode(
         // Stage 0: colon-form object params get member-level checks (the
         // object-ness line above guards these accesses).
         lines.push(...generateMemberCheckLines(paramName, path, param.type))
+      } else if (
+        dictDefaults &&
+        param.type.kind === 'object' &&
+        param.type.shape &&
+        param.default !== undefined &&
+        param.default !== null &&
+        typeof param.default === 'object' &&
+        !Array.isArray(param.default)
+      ) {
+        // Stage 1 (TjsDictDefaults): `= {object literal}` params get
+        // merge-on-partial. Replaces the shallow optional check entirely —
+        // the merge validates object-ness and members itself.
+        lines.push(
+          ...generateDictMergeLines(paramName, path, param.type, param.default)
+        )
       } else {
         lines.push(
           `if (${paramName} !== undefined && ${typeCheck}) return __tjs.typeError('${path}', '${expectedType}', ${paramName});`
@@ -926,7 +942,8 @@ export function transpileToJS(
       const validation = generateInlineValidationCode(
         funcName,
         types,
-        sourceStr
+        sourceStr,
+        preprocessed.tjsModes.tjsDictDefaults
       )
       if (validation && func.body && func.body.start !== undefined) {
         // Insert preamble right after the opening brace
@@ -1551,6 +1568,196 @@ export function generateInlineValidation(
  * Returns an expression that evaluates to true when type is INVALID
  * Returns null if no check needed (e.g., 'any' type)
  */
+/**
+ * Stage 1 of dictionary defaults (docs/dictionary-defaults.md): the
+ * TjsDictDefaults mode. `(args = {x: 0, y: 0})` in native tjs gets
+ * WebIDL-dictionary semantics — per-member defaults with merge-on-partial —
+ * emitted as SHAPE-SPECIALIZED code (Spike B: the generic walker costs ~2x the
+ * hand-written merge; specialization is how the feature reaches parity while
+ * also validating).
+ *
+ * The JS signature default is kept: by the time this preamble runs, a missing/
+ * undefined argument has already become a fresh full literal (JS evaluates
+ * default expressions per call), which IS the spec's §5.5 no-arg semantics.
+ * The preamble therefore only: validates object-ness, scans members
+ * (validate present / fill absent from inlined literals), rejects
+ * prototype-pollution keys, strips excess keys (with a once-per-site
+ * flight-recorder notice), and rebuilds — or, when the payload is complete
+ * and clean, leaves it untouched (identity, zero allocation — I3).
+ *
+ * Fills are INLINED literals (JSON of the parsed default value), so every fill
+ * is fresh by construction — there is no shared template object to corrupt
+ * (the spec's hoisted-template + deep-freeze machinery is unnecessary in the
+ * specialized path; I1/I2 hold by construction).
+ */
+function assertPureDictTemplate(
+  displayPath: string,
+  type: TypeDescriptor,
+  template: any
+): void {
+  const ALLOWED = new Set([
+    'string',
+    'number',
+    'integer',
+    'non-negative-integer',
+    'boolean',
+    'null',
+    'array',
+    'object',
+  ])
+  if (type.kind !== 'object' || !type.shape) return
+  for (const [key, member] of Object.entries(type.shape)) {
+    const mpath = `${displayPath}.${key}`
+    const impure =
+      !ALLOWED.has(member.kind) ||
+      template === null ||
+      typeof template !== 'object' ||
+      !(key in template)
+    if (impure) {
+      throw new Error(
+        `Dictionary default for '${mpath}' must be a pure literal — ` +
+          `member '${key}' is not a clonable literal value. Compute impure ` +
+          `values inside the function body, or use a colon-form (required) ` +
+          `parameter. (TjsDictDefaults mode; disable with TjsCompat or ` +
+          `dialect: 'js'.)`
+      )
+    }
+    if (member.kind === 'object' && member.shape) {
+      assertPureDictTemplate(mpath, member, template[key])
+    }
+  }
+}
+
+function generateDictMergeLines(
+  paramName: string,
+  displayPath: string,
+  type: TypeDescriptor,
+  template: any
+): string[] {
+  assertPureDictTemplate(displayPath, type, template)
+  const lines: string[] = []
+  let uidCounter = 0
+  const uid = () => `__dd${uidCounter++}`
+
+  // Post-JS-default, the param is never undefined — check object-ness flat out.
+  lines.push(
+    `if (typeof ${paramName} !== 'object' || ${paramName} === null || Array.isArray(${paramName})) return __tjs.typeError('${displayPath}', 'object', ${paramName});`
+  )
+  emitDictLevel(
+    paramName,
+    displayPath,
+    type.shape!,
+    template,
+    lines,
+    uid,
+    paramName,
+    null
+  )
+  return lines
+}
+
+function emitDictLevel(
+  access: string,
+  displayPath: string,
+  shape: Record<string, TypeDescriptor>,
+  template: any,
+  lines: string[],
+  uid: () => string,
+  reassignTarget: string,
+  parentChangedVar: string | null
+): void {
+  const keys = Object.keys(shape)
+  const declaredCount = keys.length
+  const p = uid()
+
+  // Own-key census: prototype-pollution rejection + excess detection without
+  // allocating (the excess-key COLLECTION only runs on the cold strip path).
+  lines.push(`let ${p}n = 0;`)
+  lines.push(
+    `for (const ${p}k in ${access}) { if (Object.prototype.hasOwnProperty.call(${access}, ${p}k)) { if (${p}k === '__proto__' || ${p}k === 'constructor' || ${p}k === 'prototype') return __tjs.typeError('${displayPath}.' + ${p}k, 'safe key', ${p}k); ${p}n++; } }`
+  )
+  lines.push(`let ${p}f = 0;`)
+  lines.push(`let ${p}c = false;`)
+
+  const memberVars: Array<[string, string]> = []
+  for (const key of keys) {
+    const member = shape[key]
+    const identSafe = /^[A-Za-z_$][A-Za-z0-9_$]*$/.test(key)
+    const acc = identSafe
+      ? `${access}.${key}`
+      : `${access}[${JSON.stringify(key)}]`
+    const mpath = `${displayPath}.${key}`
+    const v = uid()
+    memberVars.push([key, v])
+    const fillLiteral = JSON.stringify(template[key])
+
+    lines.push(`let ${v} = ${acc};`)
+    lines.push(
+      `if (${v} === undefined) { ${v} = ${fillLiteral}; ${p}f++; ${p}c = true; }`
+    )
+
+    if (member.kind === 'object' && member.shape) {
+      lines.push(
+        `else if (typeof ${v} !== 'object' || ${v} === null || Array.isArray(${v})) return __tjs.typeError('${mpath}', 'object', ${v});`
+      )
+      lines.push(`else {`)
+      emitDictLevel(
+        v,
+        mpath,
+        member.shape,
+        template[key],
+        lines,
+        uid,
+        v,
+        `${p}c`
+      )
+      lines.push(`}`)
+    } else if (member.kind === 'null') {
+      // §5.2: example-null member admits any value (nullable any) — no check.
+    } else {
+      const check = generateTypeCheckExpr(v, member)
+      if (check) {
+        lines.push(
+          `else if (${check}) return __tjs.typeError('${mpath}', '${member.kind}', ${v});`
+        )
+      }
+    }
+  }
+
+  // Rebuild when anything filled/changed, or when excess keys must be
+  // stripped. Complete clean payloads fall through untouched (I3).
+  const excessExpr = `${p}n > ${declaredCount} - ${p}f`
+  const declaredMiss = keys
+    .map((k) => `${p}k3 !== ${JSON.stringify(k)}`)
+    .join(' && ')
+  const rebuild = `{ ${memberVars
+    .map(([k, v]) =>
+      /^[A-Za-z_$][A-Za-z0-9_$]*$/.test(k)
+        ? `${k}: ${v}`
+        : `${JSON.stringify(k)}: ${v}`
+    )
+    .join(', ')} }`
+  lines.push(`if (${p}f > 0 || ${p}c || ${excessExpr}) {`)
+  // Once-per-site excess notice — the flight-recorder discipline: record
+  // liberally, never change behavior; once per site, never per call.
+  // displayPath embeds file:line, so it is globally unique per site.
+  lines.push(
+    `  if ((${excessExpr}) && !(globalThis.__tjsDDNoticed ??= new Set()).has('${displayPath}')) {`
+  )
+  lines.push(`    globalThis.__tjsDDNoticed.add('${displayPath}');`)
+  lines.push(`    const ${p}x = [];`)
+  lines.push(
+    `    for (const ${p}k3 in ${access}) if (Object.prototype.hasOwnProperty.call(${access}, ${p}k3) && ${declaredMiss}) ${p}x.push(${p}k3);`
+  )
+  lines.push(
+    `    __tjs.record?.({ source: 'type', severity: 'notice', message: "excess key(s) [" + ${p}x.join(', ') + "] stripped at '${displayPath}' (dictionary defaults)", data: { path: '${displayPath}', keys: ${p}x } });`
+  )
+  lines.push(`  }`)
+  lines.push(`  ${reassignTarget} = ${rebuild};`)
+  if (parentChangedVar) lines.push(`  ${parentChangedVar} = true;`)
+  lines.push(`}`)
+}
+
 /**
  * Stage 0 of dictionary defaults (docs/dictionary-defaults.md): member-level
  * checks for REQUIRED (colon-form) object params.

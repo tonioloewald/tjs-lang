@@ -128,12 +128,16 @@ describe('member-level validation of colon-form object params (Stage 0)', () => 
   })
 
   describe('scope guards — what Stage 0 must NOT change', () => {
-    it('`=` form (JS-legal) is untouched: partials and wrong types pass through', () => {
-      const f = compile(
-        `function place2(args = {x: 0, y: 0}) { return args }`,
-        'place2'
-      )
-      // Plain JS semantics preserved until the merge MODE lands (spec §3).
+    it('`=` form keeps plain-JS semantics when the MODE is off (dialect js)', () => {
+      // History: this guard originally pinned "the = form is untouched" in
+      // native tjs — true between Stage 0 and Stage 1. Stage 1 then landed
+      // TjsDictDefaults, which deliberately changes the native = form to
+      // merge-on-partial (dict-defaults.test.ts covers it). The invariant
+      // that MUST hold forever is the dialect gate: JS-legal source under
+      // dialect 'js' keeps atomic JS default semantics, member-unchecked.
+      const src = `function place2(args = {x: 0, y: 0}) { return args }`
+      const { code } = tjs(src, { dialect: 'js' })
+      const f = new Function(code + '\nreturn place2')()
       expect(f({ x: 5 })).toEqual({ x: 5 })
       expect(f({ x: 's' })).toEqual({ x: 's' })
       expect(f()).toEqual({ x: 0, y: 0 })

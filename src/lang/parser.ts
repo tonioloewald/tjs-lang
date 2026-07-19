@@ -158,6 +158,7 @@ export function preprocess(
         tjsSafeEval: false,
         tjsNoVar: false,
         tjsSafeAssign: false,
+        tjsDictDefaults: false,
         tjsStrict: false,
       }
     : {
@@ -169,6 +170,7 @@ export function preprocess(
         tjsSafeEval: false, // opt-in only (adds import)
         tjsNoVar: true,
         tjsSafeAssign: true,
+        tjsDictDefaults: true,
         // Native TJS has all modes on by default, but is NOT "strict" unless the
         // author writes the `TjsStrict` directive — that opt-in is what escalates
         // e.g. unverifiable predicates from a warning to a hard error.
@@ -201,7 +203,7 @@ export function preprocess(
   // TjsCompat disables all TJS modes (useful for native TJS opting out)
   // Individual modes: TjsEquals, TjsClass, TjsDate, TjsNoeval, TjsStandard, TjsSafeEval
   const directivePattern =
-    /^(\s*(?:\/\/[^\n]*\n|\/\*[\s\S]*?\*\/\s*)*)\s*(TjsStrict|TjsCompat|TjsEquals|TjsClass|TjsDate|TjsNoeval|TjsNoVar|TjsStandard|TjsSafeEval|TjsSafeAssign)\b/
+    /^(\s*(?:\/\/[^\n]*\n|\/\*[\s\S]*?\*\/\s*)*)\s*(TjsStrict|TjsCompat|TjsEquals|TjsClass|TjsDate|TjsNoeval|TjsNoVar|TjsStandard|TjsSafeEval|TjsSafeAssign|TjsDictDefaults)\b/
 
   let match
   while ((match = source.match(directivePattern))) {
@@ -217,6 +219,7 @@ export function preprocess(
       tjsModes.tjsNoVar = true
       tjsModes.tjsStandard = true
       tjsModes.tjsSafeAssign = true
+      tjsModes.tjsDictDefaults = true
       tjsModes.tjsStrict = true
     } else if (directive === 'TjsCompat') {
       // Disable all TJS modes (JS-compatible)
@@ -228,6 +231,7 @@ export function preprocess(
       tjsModes.tjsStandard = false
       tjsModes.tjsSafeEval = false
       tjsModes.tjsSafeAssign = false
+      tjsModes.tjsDictDefaults = false
     } else if (directive === 'TjsEquals') {
       tjsModes.tjsEquals = true
     } else if (directive === 'TjsClass') {
@@ -244,6 +248,8 @@ export function preprocess(
       tjsModes.tjsSafeEval = true
     } else if (directive === 'TjsSafeAssign') {
       tjsModes.tjsSafeAssign = true
+    } else if (directive === 'TjsDictDefaults') {
+      tjsModes.tjsDictDefaults = true
     }
 
     // Remove the directive from source
@@ -526,6 +532,7 @@ export function parse(
           tjsSafeEval: false,
           tjsNoVar: false,
           tjsSafeAssign: false,
+          tjsDictDefaults: false,
           tjsStrict: false,
         } as TjsModes,
       }
