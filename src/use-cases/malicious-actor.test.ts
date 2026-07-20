@@ -238,6 +238,43 @@ describe('Use Case: Malicious Actor', () => {
     }
   })
 
+  // methodCall is allowlisted to standard built-in methods (SAFE_METHOD_NAMES).
+  // call/apply/bind live only on Function.prototype and are absent from the
+  // allowlist, so a leaked function reference could not be re-invoked with a
+  // chosen `this` — defense in depth behind the membrane.
+  describe('methodCall allowlist', () => {
+    const callExpr = (method: string) =>
+      Agent.take(s.object({}))
+        .varSet({ key: 'obj', value: 'hello' })
+        .varSet({
+          key: 'leak',
+          value: {
+            $expr: 'methodCall',
+            object: { $expr: 'ident', name: 'obj' },
+            method,
+            arguments: [],
+          },
+        })
+        .return(s.object({ leak: s.any }))
+        .toJSON()
+
+    it('rejects Function.prototype escape hatches (call/apply/bind)', async () => {
+      for (const method of ['call', 'apply', 'bind', 'constructor']) {
+        const result = await VM.run(callExpr(method), {})
+        expect(result.error).toBeDefined()
+        expect(result.error?.message).toMatch(
+          /Security Error|not callable|forbidden/i
+        )
+      }
+    })
+
+    it('allows standard string methods', async () => {
+      const result = await VM.run(callExpr('toUpperCase'), {})
+      expect(result.error).toBeUndefined()
+      expect(result.result.leak).toBe('HELLO')
+    })
+  })
+
   // The capability boundary is the VM's one seam to the host realm. Every value
   // a capability returns is deep-copied through a structured-clone membrane
   // before it enters guest state: pure data crosses (with fresh identity),

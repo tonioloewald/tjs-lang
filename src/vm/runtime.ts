@@ -1163,6 +1163,70 @@ export const builtins: Record<string, any> = {
   })(),
 }
 
+/**
+ * Allowlist of method names `methodCall` may invoke — defense in depth behind
+ * the capability membrane. Two facts make this safe *and* non-breaking:
+ *   - The membrane guarantees guest values are plain data (de-prototyped by
+ *     structuredClone), so `obj[method]` can only ever resolve to a standard
+ *     built-in prototype method — never a custom/host method.
+ *   - Builtin objects (Math/JSON/Object/Array/…) are curated proxies that
+ *     already reject unknown statics at their `get` trap.
+ * So allowing exactly {standard prototype methods} ∪ {builtin statics} permits
+ * everything a guest legitimately calls and nothing else. The teeth: `call`,
+ * `apply`, and `bind` live only on `Function.prototype` — absent here — so even
+ * if a function reference ever leaked past the membrane, `methodCall` could not
+ * use it to re-enter arbitrary host code with a chosen `this`/args.
+ */
+const SAFE_METHOD_NAMES: Set<string> = (() => {
+  const names = new Set<string>()
+  for (const proto of [
+    String.prototype,
+    Array.prototype,
+    Number.prototype,
+    Boolean.prototype,
+    Object.prototype,
+    Date.prototype,
+  ]) {
+    for (const name of Object.getOwnPropertyNames(proto)) {
+      if (!FORBIDDEN_PROPERTIES.has(name)) names.add(name)
+    }
+  }
+  // Builtin static members (Math.floor, JSON.stringify, Object.keys, Array.from,
+  // Number.isNaN, …). Each builtin is a proxy over a plain `supported` object,
+  // so Object.keys returns its curated members.
+  for (const key of Object.keys(builtins)) {
+    const b = (builtins as Record<string, any>)[key]
+    if (b && typeof b === 'object') {
+      for (const name of Object.keys(b)) {
+        if (!FORBIDDEN_PROPERTIES.has(name)) names.add(name)
+      }
+    }
+  }
+  // The VM's own guest-facing wrapper types (Date, Set) are factory functions
+  // whose statics (`Date.now`) and instance methods (`.add`/`.format`/`.union`/
+  // `.has`, …) live on the wrapper, not on any standard prototype. Enumerate
+  // them from live samples so the allowlist tracks the factories without drift.
+  const addOwn = (o: any) => {
+    if (!o) return
+    for (const name of Object.getOwnPropertyNames(o)) {
+      if (!FORBIDDEN_PROPERTIES.has(name)) names.add(name)
+    }
+  }
+  try {
+    const dateFactory = (builtins as any).Date
+    if (typeof dateFactory === 'function') {
+      addOwn(dateFactory) // now, parse
+      addOwn(dateFactory(0)) // add, diff, format, isBefore, …
+    }
+    const setFactory = (builtins as any).Set
+    if (typeof setFactory === 'function') addOwn(setFactory([])) // add, has, union, …
+  } catch {
+    // Sampling must never break module load; the standard prototype + static
+    // names above still cover the built-in surface.
+  }
+  return names
+})()
+
 // Built-ins that are NOT available with helpful messages
 const unsupportedBuiltins: Record<string, string> = {
   RegExp: 'RegExp is not available. Use string methods or the regexMatch atom.',
@@ -1436,6 +1500,15 @@ export function evaluateExpr(node: ExprNode, ctx: RuntimeContext): any {
 
       const method = node.method
       assertSafeProperty(method)
+
+      // Defense in depth: only standard built-in methods may be invoked. See
+      // SAFE_METHOD_NAMES — this rejects call/apply/bind and any non-standard
+      // method, so a leaked host reference can't be used to re-enter host code.
+      if (!SAFE_METHOD_NAMES.has(method)) {
+        throw new Error(
+          `Security Error: method '${method}' is not callable in AsyncJS`
+        )
+      }
 
       if (obj === null || obj === undefined) {
         throw new Error(`Cannot call method '${method}' on ${obj}`)

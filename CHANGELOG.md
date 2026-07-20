@@ -27,6 +27,15 @@ the return of '<op>'`), and gives clean data fresh identity so guest mutation ca
   structured-cloneable data — a capability that returned a live `Response` must now return
   the fields the guest reads as a plain object (`{ ok, status, body }`); the default fetch
   path already normalizes to parsed body / text / data-URL and is unaffected.
+- **`methodCall` is now allowlisted, not blocklisted.** Guest method invocations
+  (`str.toUpperCase()`, `arr.includes(x)`, `d.format()`, …) are restricted to an allowlist
+  computed from the standard built-in prototypes, the curated builtin statics, and the VM's
+  own wrapper types (Date/Set) — replacing the previous name-blocklist that admitted any
+  method not literally named `__proto__`/`constructor`/`prototype`. Behind the membrane
+  (guest values are plain data) this permits everything a guest legitimately calls and
+  nothing else; the teeth are that `call`/`apply`/`bind` live only on `Function.prototype`
+  and are therefore rejected, so a leaked function reference can't be re-invoked with a
+  chosen `this`.
 
 ### Added
 
