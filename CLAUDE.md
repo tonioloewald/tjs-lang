@@ -164,6 +164,7 @@ await vm.run(ast, args, {
   fuel, capabilities, timeoutMs, trace,
   costOverrides: { atomOp: 5 },             // per-atom fuel cost override
   timeoutOverrides: { atomOp: 60_000 },     // per-atom wall-clock override (ms; 0 disables)
+  membraneMaxBytes: 4 * 1024 * 1024,        // cap on a capability return's size (default 4MB)
 })
 
 // Builder
@@ -317,6 +318,8 @@ fn('a', 'b') // Returns { error: 'type mismatch', ... }
 ### Security Model
 
 - **Capability-based**: VM has zero IO by default; inject `fetch`, `store`, `llm` via capabilities
+- **Capability-boundary membrane**: every `effects: 'io'` atom return is deep-copied through `structuredClone` before it enters guest state — so a capability can't hand the guest a live host reference (an object with callable methods it could invoke via `methodCall`, or a shared object it could mutate). A budgeted, cycle-safe pre-walk rejects functions / oversized payloads _before_ the clone allocates (`membraneMaxBytes` run option, default 4MB — the OOM guard). Custom capabilities must therefore return structured-cloneable data (see Custom Atoms Must)
+- **`methodCall` allowlist**: guest method calls are restricted to standard built-in methods (`src/vm/runtime.ts` `SAFE_METHOD_NAMES`); `call`/`apply`/`bind` (Function.prototype-only) are rejected
 - **Fuel metering**: Every atom has a cost; execution stops when fuel exhausted
 - **Timeout enforcement**: Default `fuel × 10ms`; explicit `timeoutMs` overrides
 - **Monadic errors**: Errors wrapped in `AgentError` (VM) / `MonadicError` (TJS), not thrown (prevents exception exploits). Use `isMonadicError()` to check — `isError()` is deprecated
@@ -444,6 +447,11 @@ Enable tracing: `vm.run(ast, args, { trace: true })` returns `TraceEvent[]` with
 - Be non-blocking (no synchronous CPU-heavy work)
 - Respect `ctx.signal` for cancellation
 - Access IO only via `ctx.capabilities`
+- **Return structured-cloneable data only** — no live host references, functions, or
+  method-carrying objects (e.g. a `Response`; normalize to `{ ok, status, body }`). Every
+  `effects: 'io'` return crosses a `structuredClone` capability membrane before it reaches
+  guest state; a non-cloneable or oversized return is rejected with a `MonadicError`
+  (`Capability boundary rejected the return of '<op>'`). See the Security Model.
 
 ### Value Resolution
 
@@ -540,11 +548,16 @@ and hard-fails in a consumer's isolated install (guarded by `src/package-exports
 
 ## Forbidden Properties (Security)
 
-The following property names are blocked in expression evaluation to prevent prototype pollution:
+The following property names are blocked to prevent prototype pollution:
 
 - `__proto__`, `constructor`, `prototype`
 
-These are hardcoded in `runtime.ts` and checked during member access in `evaluateExpr()`.
+The canonical list lives in `src/forbidden-keys.ts` (one source, imported by the VM and the
+linter; the dict-default emitter derives its check string from it). It's enforced at two
+points in the VM: **member access** in `evaluateExpr()`/`methodCall`, and **scope writes** —
+a guest variable named `__proto__` (via `varSet`/`constSet`/`varsLet`/`varsImport` or an atom
+result `.as('__proto__')`) is rejected rather than mutating the scope object's prototype. The
+dictionary-default merge also rejects these keys in incoming payloads.
 
 ## Batteries System
 

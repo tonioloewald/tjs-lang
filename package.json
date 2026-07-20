@@ -221,7 +221,7 @@
     "test:llm": "bun test src/batteries/models.integration.test.ts",
     "test:grok": "RUN_GROK_TESTS=1 bun test src/use-cases/ajs-grokkability.test.ts",
     "bench": "bun bin/benchmarks.ts",
-    "make": "rm -rf dist && bun format && bun run build:grammars && bun run build:editors && tsc -p tsconfig.build.json && bun scripts/build.ts",
+    "make": "rm -rf dist && bun format && bun run docs && bun run build:grammars && bun run build:editors && tsc -p tsconfig.build.json && bun scripts/build.ts",
     "build:bundles": "bun scripts/build.ts",
     "typecheck": "tsc --noEmit",
     "latest": "rm -rf node_modules && bun install",

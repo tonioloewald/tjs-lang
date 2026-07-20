@@ -1,5 +1,39 @@
 # TJS-Lang TODO
 
+## Pre-release review follow-ups (0.12.0 — VM security + dict-defaults, 2026-07-20)
+
+The 0.12.0 review (nine-lens, BLOCK) surfaced two blockers (dict-default uid collision;
+VM star-height-2 ReDoS) — **both fixed before tag** — plus these follow-ups. Cheap docs /
+correctness / dryness items were done in the same pass; the rest are deferred here:
+
+- [ ] **Recorder `recordOnce(siteKey, entry)` seam** (ecosystem; ties to #17). The
+      dict-default excess-key notice dedups via a private `globalThis.__tjsDDNoticed` outside the
+      flight recorder — `__tjs.clearRecords()` doesn't reset it, and it's a third divergent
+      "record once per site" mechanism. Give the recorder a `recordOnce` and route the notice
+      (and future once-per-site notices) through it.
+- [ ] **Extract one `isDictDefaultParam(type, default)` predicate** (dryness). The 5-conjunct
+      detection is duplicated across the JS emitter (`emitters/js.ts`) and the `.d.ts` emitter
+      (`emitters/dts.ts`) and has already drifted (`dts` adds `optionalFlags[i]`). Contract pair —
+      extract and reconcile so they can't diverge.
+- [ ] **Coverage backfill** (test-coverage): membrane cyclic / shared-reference return
+      (the `seen` WeakSet branch) + Date/typed-array passthrough; a focused test that a real
+      method-carrying `Response` is rejected at the boundary; `TjsDictDefaults` standalone
+      directive + `TjsStrict` escalation; nested-impure dict-default template compile error.
+- [ ] **Membrane pre-walk garbage trim** (efficiency; safety>perf tradeoff kept): the
+      budget pre-walk allocates a `{v,depth}` wrapper per node + an `Object.keys` array per
+      object. Trim transient garbage (`for..in` + hasOwnProperty, parallel arrays) without
+      changing the double-traversal.
+- [ ] **Hoist `IDENT_RE` + a `memberAccess(base, key)` helper** in `emitters/js.ts`
+      (dryness nit) — the ident-safe regex and dot-vs-bracket access are triplicated.
+- [ ] **Snowfox heads-up** (ecosystem): the capability-membrane contract change (a live
+      `Response` return now hard-fails) affects the known VM embedder. Give them a heads-up /
+      release-notes callout before they upgrade past 0.11.0.
+
+**Resolved by this release** (retired from High Priority): `memory-gas-capability-limits` —
+the budgeted, cycle-safe membrane pre-walk + `membraneMaxBytes` (default 4MB) caps capability
+**payload** size and rejects oversized returns before the clone allocates. (Unbounded in-run
+**state** growth — building large objects atom-by-atom — remains a separate, open gap.)
+
 ## Dictionary defaults — merge-on-partial object args (spec landed, Spike A done 2026-07-18)
 
 WebIDL-dictionary semantics for options bags: `(args = {x: 0, y: 0})` + partial payload

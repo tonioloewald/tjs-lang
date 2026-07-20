@@ -1,6 +1,6 @@
 # Dictionary Defaults (Merge-on-Partial Object Arguments)
 
-**Status:** Spikes A+B done; Stage 0 shipped (member validation); Stage 1 unblocked (OQ1 resolved)
+**Status:** Shipped (0.12.0). Spikes A+B done; Stage 0 (colon-form member validation), Stage 1 (the `TjsDictDefaults` `=` merge mode), and Stage 3 (deep-partial `.d.ts`) all shipped, plus the `dict-default-excess-key` lint. Stage 4 (dogfood in tosijs-3d) is the remaining follow-up.
 **Feature class:** Language semantics + runtime — **a gated native-TJS mode**
 **Characterization:** JS footgun pave
 

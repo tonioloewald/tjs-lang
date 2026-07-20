@@ -97,6 +97,29 @@ the return of '<op>'`), and gives clean data fresh identity so guest mutation ca
 
 ### Changed
 
+- **Behavior change (native `.tjs` only): existing `= {object literal}` params now
+  merge-on-partial, validate members, and strip excess keys.** This is the visible face of
+  the `TjsDictDefaults` mode above, called out separately because it changes code that was
+  already legal. Before, `function f(o = {x: 0, tag: ''})` treated the object as an atomic
+  JS default with no validation; now:
+
+  - `f({x: 5})` → `{x: 5, tag: ''}` (was `{x: 5}` — `tag` is filled from the default),
+  - `f({x: 's'})` → `MonadicError` (was `{x: 's'}` — members are type-checked),
+  - `f({x: 1, extra: 9})` → `{x: 1, tag: ''}` + a once-per-site recorder notice (was
+    `{x: 1, tag: '', extra: 9}` — excess keys are stripped).
+
+  It transpiles either way, so a break is only visible at runtime. **Migration:** to keep
+  the old atomic-default semantics, set `dialect: 'js'`, add the `TjsCompat` directive, or
+  use a non-object default. The new excess-key lint (`dict-default-excess-key`) flags stray
+  literal-call-site keys statically.
+
+- **Behavior change (VM embedders): capability returns must be structured-cloneable data,
+  and guest `methodCall` is allowlisted.** Repeated here from **Security** because it breaks
+  custom-capability consumers: a capability that returned a live `Response` (or any object
+  carrying methods / host references) now hard-fails at the boundary with `Capability
+boundary rejected the return of '<op>'`. **Migration:** normalize returns to plain data
+  (`Response` → `{ ok, status, body }`); the default `httpFetch` already does. Tune the size
+  cap with the `membraneMaxBytes` run option (default 4 MB).
 - **Colon-form object params now enforce their member contract** (Stage 0 of
   dictionary defaults, `docs/dictionary-defaults.md`). `function f(args: {x: 0, y: 0})`
   has always documented "an object with integer x and y," but the emitted check was
