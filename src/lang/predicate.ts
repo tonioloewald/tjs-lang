@@ -22,6 +22,9 @@
  */
 import * as acorn from 'acorn'
 import * as walk from 'acorn-walk'
+// ReDoS star-height detection lives in the shared, dependency-free `src/redos.ts`
+// so the predicate verifier and the VM's regexMatch reject the same shapes.
+import { reDoSRisk } from '../redos'
 
 export interface PredicateDiagnostic {
   /** Name of the predicate the problem is in. */
@@ -91,101 +94,6 @@ const PURE_NAMESPACES = new Set([
 
 /** Static members that are NOT pure even on a pure namespace. */
 const EFFECTFUL_STATICS = new Set(['Math.random', 'Date.now'])
-
-/**
- * A match at `pattern[pos]` for an *unbounded* quantifier (`*`, `+`, `{n,}` and
- * their lazy `?` variants) — the repetitions that drive backtracking blowups.
- * `?`, `{n}` and `{n,m}` are bounded, so they don't count. Returns the consumed
- * length, or 0 if there's no unbounded quantifier here.
- */
-function unboundedQuantifierLen(pattern: string, pos: number): number {
-  const c = pattern[pos]
-  let len = 0
-  if (c === '*' || c === '+') {
-    len = 1
-  } else if (c === '{') {
-    // `{n,}` is unbounded; `{n}` / `{n,m}` are bounded.
-    const m = pattern.slice(pos).match(/^\{\d+,\}/)
-    if (m) len = m[0].length
-  }
-  if (len === 0) return 0
-  // A trailing `?` makes it lazy — still unbounded, still backtracks.
-  if (pattern[pos + len] === '?') len++
-  return len
-}
-
-/**
- * Conservative ReDoS detector: flags a regex whose **star height is ≥ 2** — an
- * unbounded quantifier nested inside a group that is itself unbounded-quantified
- * (the classic `(a+)+`, `(a*)*`, `([a-z]+)*`, `(.*)*` exponential-backtracking
- * shapes). A predicate verifier should fail closed: over-flagging a safe pattern
- * only costs it its "verified" badge (it still runs), whereas certifying a
- * dangerous one is a broken safety promise.
- *
- * Not caught (known limitation, documented): *polynomial* ReDoS from adjacent
- * overlapping quantifiers (`\d+\d+$`, `a.*a.*a`) and alternation-overlap
- * (`(a|a)*`). The exponential class above is the one the safety story commits to.
- *
- * @returns a reason string if risky, else null.
- */
-function reDoSRisk(pattern: string): string | null {
-  // Per-group frame: did this group contain an unbounded quantifier?
-  const stack: Array<{ hadUnbounded: boolean }> = []
-  let i = 0
-  let inClass = false
-  while (i < pattern.length) {
-    const c = pattern[i]
-    if (c === '\\') {
-      i += 2 // skip an escaped char (regex escapes are 2 chars here)
-      continue
-    }
-    if (inClass) {
-      if (c === ']') inClass = false
-      i++
-      continue
-    }
-    if (c === '[') {
-      inClass = true
-      i++
-      continue
-    }
-    if (c === '(') {
-      stack.push({ hadUnbounded: false })
-      i++
-      continue
-    }
-    if (c === ')') {
-      const frame = stack.pop() ?? { hadUnbounded: false }
-      const qlen = unboundedQuantifierLen(pattern, i + 1)
-      if (qlen > 0) {
-        // This group is itself unbounded-repeated. If it already contained an
-        // unbounded quantifier, that's star height ≥ 2 → catastrophic.
-        if (frame.hadUnbounded)
-          return 'an unbounded quantifier is nested inside another (e.g. `(a+)+`)'
-        // The parent group now contains an unbounded repetition (this group).
-        if (stack.length) stack[stack.length - 1].hadUnbounded = true
-        i += 1 + qlen
-        continue
-      }
-      // No quantifier on this group, but if it contained an unbounded
-      // repetition, that repetition lives in the parent's scope too — propagate
-      // so `((a+))+` is caught the same as `(a+)+`.
-      if (frame.hadUnbounded && stack.length)
-        stack[stack.length - 1].hadUnbounded = true
-      i++
-      continue
-    }
-    // An unbounded quantifier on a plain atom at the current nesting level.
-    const qlen = unboundedQuantifierLen(pattern, i)
-    if (qlen > 0) {
-      if (stack.length) stack[stack.length - 1].hadUnbounded = true
-      i += qlen
-      continue
-    }
-    i++
-  }
-  return null
-}
 
 /**
  * Instance methods known to be pure regardless of receiver type. A method call

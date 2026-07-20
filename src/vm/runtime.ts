@@ -1,4 +1,5 @@
 import { s, validate, filter as schemaFilter } from 'tosijs-schema'
+import { reDoSRisk, alternationOverlapRisk } from '../redos'
 
 /**
  * AJS `==`/`!=` equality — **footgun-free `===`**, consistent with TJS `Eq`
@@ -522,31 +523,19 @@ function isBlockedUrl(urlString: string): boolean {
 }
 
 /**
- * ReDoS Protection: Detect regex patterns likely to cause catastrophic backtracking.
- * Patterns with nested quantifiers on overlapping character classes are dangerous.
+ * ReDoS Protection: reject patterns likely to cause catastrophic backtracking.
+ * The regex engine's backtracking is opaque to the fuel counter, so this is
+ * backed by hard length caps on both the pattern and the input it runs against.
  */
-// Bound the ReDoS search space regardless of pattern shape: the regex engine's
-// backtracking is opaque to the fuel counter, so the heuristic below (which can
-// only ever catch known shapes) is backed by hard length caps on both the
-// pattern and the input it runs against.
 const MAX_REGEX_PATTERN_LENGTH = 1000
 const MAX_REGEX_INPUT_LENGTH = 100_000
 
 function isSuspiciousRegex(pattern: string): boolean {
-  // Nested quantifiers where the OUTER quantifier is +, *, or an unbounded {n,}
-  // repetition of a group that itself contains a + or * quantifier:
-  // (a+)+  (a*)*  (a+)*  (a+){2,}  — all catastrophic.
-  if (/\([^)]*[+*][^)]*\)(?:[+*]|\{\d*,\})/.test(pattern)) return true
-
-  // Overlapping alternation with quantifiers: (a|a)+
-  if (/\(([^|)]+)\|\1\)[+*]/.test(pattern)) return true
-
-  // Common ReDoS patterns
-  if (/\(\.\*\)\+/.test(pattern)) return true // (.*)+
-  if (/\(\.\+\)\+/.test(pattern)) return true // (.+)+
-  if (/\(\[.*\]\+\)\+/.test(pattern)) return true // ([...]+)+
-
-  return false
+  // Rigorous star-height≥2 detection, shared with the predicate verifier
+  // (`src/redos.ts`) — catches the whole exponential class INCLUDING nested
+  // groups like `((a+))+` that a flat regex heuristic misses. Supplemented by
+  // the alternation-overlap case reDoSRisk deliberately doesn't model.
+  return reDoSRisk(pattern) !== null || alternationOverlapRisk(pattern)
 }
 
 // --- Helpers ---

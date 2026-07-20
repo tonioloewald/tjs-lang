@@ -484,6 +484,11 @@ function generateInlineValidationCode(
   }
 
   // 2. Type checks with proper error emission
+  // One uid counter shared across ALL dict-default params in this function —
+  // each param's merge preamble declares `let __ddN…` at the function's top
+  // level, so per-call counters would collide (two object-default params both
+  // starting at __dd0 → duplicate `let`, a SyntaxError).
+  const dictUid = { n: 0 }
   for (const [paramName, param] of params) {
     const path = `${pathPrefix}${funcName}.${paramName}`
 
@@ -526,7 +531,13 @@ function generateInlineValidationCode(
         // merge-on-partial. Replaces the shallow optional check entirely —
         // the merge validates object-ness and members itself.
         lines.push(
-          ...generateDictMergeLines(paramName, path, param.type, param.default)
+          ...generateDictMergeLines(
+            paramName,
+            path,
+            param.type,
+            param.default,
+            dictUid
+          )
         )
       } else {
         lines.push(
@@ -1639,12 +1650,12 @@ function generateDictMergeLines(
   paramName: string,
   displayPath: string,
   type: TypeDescriptor,
-  template: any
+  template: any,
+  uidCounter: { n: number }
 ): string[] {
   assertPureDictTemplate(displayPath, type, template)
   const lines: string[] = []
-  let uidCounter = 0
-  const uid = () => `__dd${uidCounter++}`
+  const uid = () => `__dd${uidCounter.n++}`
 
   // Post-JS-default, the param is never undefined — check object-ness flat out.
   lines.push(

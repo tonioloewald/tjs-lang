@@ -99,6 +99,33 @@ describe('dictionary defaults — the TjsDictDefaults mode (Stage 1)', () => {
     })
   })
 
+  describe('multiple dict-default params (uid collision regression)', () => {
+    it('two object-default params both transpile AND execute (no duplicate let)', () => {
+      // Regression: each param emits a `let __ddN…` merge preamble at the
+      // function top level; a per-param uid counter made both start at __dd0,
+      // producing `Cannot declare a let variable twice`. One shared counter fixes it.
+      const f = compile(
+        `function place(a = {x: 0, y: 0}, b = {w: 1, h: 1}) { return [a, b] }`,
+        'place'
+      )
+      expect(f({ x: 5 }, { h: 9 })).toEqual([
+        { x: 5, y: 0 },
+        { w: 1, h: 9 },
+      ])
+    })
+
+    it('nested + flat object-default params in one function', () => {
+      const f = compile(
+        `function f(a = {pos: {x: 0, y: 0}}, b = {w: 1, h: 1}) { return [a, b] }`,
+        'f'
+      )
+      expect(f({ pos: { x: 3 } }, { w: 7 })).toEqual([
+        { pos: { x: 3, y: 0 } },
+        { w: 7, h: 1 },
+      ])
+    })
+  })
+
   describe('recursion', () => {
     it('nested partial merges per key, per level', () => {
       const move = compile(NESTED, 'move')

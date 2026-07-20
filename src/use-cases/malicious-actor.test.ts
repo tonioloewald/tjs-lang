@@ -206,6 +206,10 @@ describe('Use Case: Malicious Actor', () => {
       '(.+)+', // Dot-plus with quantifier
       '([a-z]+)+', // Character class with nested quantifiers
       '(a+){2,}', // quantified quantified group (unbounded outer)
+      '((a+))+$', // star-height-2 through a NESTED group — the flat heuristic
+      // missed this; the shared reDoSRisk star-height detector catches it
+      '(([a-z]+))*', // deeper-nested star-height-2
+      '(a|a)+', // alternation overlap (reDoSRisk supplement)
     ]
 
     for (const pattern of redosPatterns) {
