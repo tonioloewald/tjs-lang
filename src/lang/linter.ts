@@ -53,6 +53,12 @@ export interface LintOptions {
   filename?: string
   /** Treat safeAssign violations as errors instead of warnings (TjsStrict semantics) */
   strict?: boolean
+  /**
+   * Flag object-literal call-site keys that aren't members of a dictionary-default
+   * (`=`) object param — a typo like `place({x, y, treshold})` that the runtime
+   * silently strips. If undefined, follows the parser's `TjsDictDefaults` mode.
+   */
+  dictDefaultExcessKeys?: boolean
 }
 
 const DEFAULT_OPTIONS: LintOptions = {
@@ -73,6 +79,7 @@ export function lint(source: string, options: LintOptions = {}): LintResult {
   let program: Program
   let letAnnotations: Map<string, string> = new Map()
   let safeAssignMode: boolean
+  let dictDefaultsMode: boolean
   try {
     const result = parse(source, {
       filename: opts.filename,
@@ -81,6 +88,7 @@ export function lint(source: string, options: LintOptions = {}): LintResult {
     program = result.ast
     letAnnotations = result.letAnnotations
     safeAssignMode = result.tjsModes.tjsSafeAssign
+    dictDefaultsMode = result.tjsModes.tjsDictDefaults
   } catch (error: any) {
     return {
       diagnostics: [
@@ -302,6 +310,62 @@ export function lint(source: string, options: LintOptions = {}): LintResult {
     })
   }
 
+  // Dictionary-default excess keys: an object-literal argument passed to a `=`
+  // object param carries a key the param doesn't declare. The runtime strips it
+  // (with a once-per-site notice), but at a LITERAL call site it's almost always
+  // a typo — flag it statically. Mode-gated: only meaningful when TjsDictDefaults
+  // is on (under dialect:'js'/TjsCompat the `=` form is an atomic JS default with
+  // no member contract, so no key is "excess").
+  const excessEnabled =
+    opts.dictDefaultExcessKeys !== undefined
+      ? opts.dictDefaultExcessKeys
+      : dictDefaultsMode
+  if (excessEnabled) {
+    // funcName -> per-position shape (null for non-dict-default params)
+    const dictShapes = new Map<string, Array<DictShape | null>>()
+    const collect = (name: string | undefined, params: any[]) => {
+      if (!name) return
+      const shapes = params.map((p) =>
+        p.type === 'AssignmentPattern' &&
+        p.left.type === 'Identifier' &&
+        p.right.type === 'ObjectExpression'
+          ? shapeFromObjectExpr(p.right)
+          : null
+      )
+      if (shapes.some(Boolean)) dictShapes.set(name, shapes)
+    }
+    walk.simple(program, {
+      FunctionDeclaration(node: any) {
+        collect(node.id?.name, node.params)
+      },
+      VariableDeclarator(node: any) {
+        if (
+          node.id?.type === 'Identifier' &&
+          (node.init?.type === 'ArrowFunctionExpression' ||
+            node.init?.type === 'FunctionExpression')
+        ) {
+          collect(node.id.name, node.init.params)
+        }
+      },
+    })
+
+    if (dictShapes.size > 0) {
+      walk.simple(program, {
+        CallExpression(node: any) {
+          if (node.callee.type !== 'Identifier') return
+          const shapes = dictShapes.get(node.callee.name)
+          if (!shapes) return
+          node.arguments.forEach((arg: any, i: number) => {
+            const shape = shapes[i]
+            if (shape && arg.type === 'ObjectExpression') {
+              checkExcessKeys(arg, shape, node.callee.name, diagnostics)
+            }
+          })
+        },
+      })
+    }
+  }
+
   return {
     diagnostics,
     valid: diagnostics.filter((d) => d.severity === 'error').length === 0,
@@ -309,6 +373,71 @@ export function lint(source: string, options: LintOptions = {}): LintResult {
 }
 
 // --- Internal types and helpers ---
+
+/** A declared object-param shape: top-level keys + nested object shapes. */
+interface DictShape {
+  keys: Set<string>
+  nested: Map<string, DictShape>
+}
+
+const DICT_FORBIDDEN_KEYS = new Set(['__proto__', 'constructor', 'prototype'])
+
+function propKeyName(key: any): string | null {
+  if (!key) return null
+  if (key.type === 'Identifier') return key.name
+  if (key.type === 'Literal' && typeof key.value === 'string') return key.value
+  return null
+}
+
+function shapeFromObjectExpr(obj: any): DictShape {
+  const keys = new Set<string>()
+  const nested = new Map<string, DictShape>()
+  for (const p of obj.properties) {
+    if (p.type !== 'Property' || p.computed) continue
+    const key = propKeyName(p.key)
+    if (key == null) continue
+    keys.add(key)
+    if (p.value.type === 'ObjectExpression') {
+      nested.set(key, shapeFromObjectExpr(p.value))
+    }
+  }
+  return { keys, nested }
+}
+
+function checkExcessKeys(
+  argObj: any,
+  shape: DictShape,
+  path: string,
+  diagnostics: LintDiagnostic[]
+): void {
+  for (const p of argObj.properties) {
+    // A spread may legitimately contribute declared keys; skip the whole object
+    // rather than false-flag (we can't know statically what the spread adds).
+    if (p.type === 'SpreadElement') return
+  }
+  for (const p of argObj.properties) {
+    if (p.type !== 'Property' || p.computed) continue
+    const key = propKeyName(p.key)
+    if (key == null) continue
+    if (DICT_FORBIDDEN_KEYS.has(key)) continue // rejected at runtime; a different concern
+    if (!shape.keys.has(key)) {
+      diagnostics.push({
+        severity: 'warning',
+        message: `'${key}' is not a member of ${path}'s dictionary parameter and will be stripped at runtime`,
+        line: (p as any).loc?.start?.line,
+        column: (p as any).loc?.start?.column,
+        rule: 'dict-default-excess-key',
+      })
+    } else if (p.value.type === 'ObjectExpression' && shape.nested.has(key)) {
+      checkExcessKeys(
+        p.value,
+        shape.nested.get(key)!,
+        `${path}.${key}`,
+        diagnostics
+      )
+    }
+  }
+}
 
 interface Scope {
   declarations: Map<string, Declaration>

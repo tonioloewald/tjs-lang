@@ -87,6 +87,13 @@ the return of '<op>'`), and gives clean data fresh identity so guest mutation ca
     `args?: { pos?: { x?: number; y?: number }; label?: string }` so TypeScript callers can
     pass the partials tjs accepts. Mode-gated (the transpile result now carries `tjsModes`);
     dialect-js output keeps required members, where partials genuinely aren't valid.
+  - **Lint catches excess keys at literal call sites** (`dict-default-excess-key`). The
+    runtime strips an undeclared key with a once-per-site notice, but at a literal call site
+    (`place({x, y, treshold})`) it's almost always a typo — the linter now flags it
+    statically, recursing into nested object literals (`move({pos: {x, z}})` →
+    `move.pos`). Mode-gated on `TjsDictDefaults`; skips arguments carrying a spread (the
+    spread may supply the key) and non-literal arguments; covers named functions and
+    arrow/function expressions bound to a const.
 
 ### Changed
 

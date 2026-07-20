@@ -248,4 +248,83 @@ describe('TJS Linter', () => {
       expect(onlySafeAssign(result).length).toBe(0)
     })
   })
+
+  describe('dict-default-excess-key rule', () => {
+    const excess = (r: { diagnostics: LintDiagnostic[] }) =>
+      r.diagnostics.filter((d) => d.rule === 'dict-default-excess-key')
+
+    it('flags an excess key at a literal call site (native tjs)', () => {
+      const result = lint(
+        `function place(args = {x: 0, y: 0}) { return args }
+place({ x: 1, y: 2, treshold: 0.5 })`
+      )
+      const diags = excess(result)
+      expect(diags.length).toBe(1)
+      expect(diags[0].severity).toBe('warning')
+      expect(diags[0].message).toContain('treshold')
+      expect(diags[0].message).toContain('place')
+    })
+
+    it('does not flag a call whose keys are all declared members', () => {
+      const result = lint(
+        `function place(args = {x: 0, y: 0}) { return args }
+place({ x: 1, y: 2 })`
+      )
+      expect(excess(result).length).toBe(0)
+    })
+
+    it('flags a nested excess key with the nested path', () => {
+      const result = lint(
+        `function move(args = {pos: {x: 0, y: 0}, label: ''}) { return args }
+move({ pos: { x: 5, z: 9 }, label: 'a' })`
+      )
+      const diags = excess(result)
+      expect(diags.length).toBe(1)
+      expect(diags[0].message).toContain('z')
+      expect(diags[0].message).toContain('move.pos')
+    })
+
+    it('does not flag when a spread may contribute the keys', () => {
+      const result = lint(
+        `function place(args = {x: 0, y: 0}) { return args }
+const extra = { treshold: 1 }
+place({ ...extra, x: 1 })`
+      )
+      expect(excess(result).length).toBe(0)
+    })
+
+    it('ignores prototype-pollution keys (a separate runtime concern)', () => {
+      const result = lint(
+        `function place(args = {x: 0, y: 0}) { return args }
+place({ x: 1, __proto__: {} })`
+      )
+      expect(excess(result).length).toBe(0)
+    })
+
+    it('is mode-gated: dialect js has no member contract, so no excess', () => {
+      const result = lint(
+        `function place(args = {x: 0, y: 0}) { return args }
+place({ x: 1, treshold: 2 })`,
+        { dictDefaultExcessKeys: false }
+      )
+      expect(excess(result).length).toBe(0)
+    })
+
+    it('works for arrow functions assigned to a const', () => {
+      const result = lint(
+        `const place = (args = {x: 0, y: 0}) => args
+place({ x: 1, treshold: 2 })`
+      )
+      expect(excess(result).length).toBe(1)
+    })
+
+    it('does not flag non-literal arguments', () => {
+      const result = lint(
+        `function place(args = {x: 0, y: 0}) { return args }
+const payload = { treshold: 1 }
+place(payload)`
+      )
+      expect(excess(result).length).toBe(0)
+    })
+  })
 })
