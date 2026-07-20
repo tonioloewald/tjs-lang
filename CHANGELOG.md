@@ -44,6 +44,19 @@ the return of '<op>'`), and gives clean data fresh identity so guest mutation ca
   `fc00::/7`, link-local `fe80::/10`, and IPv4-mapped addresses (`::ffff:7f00:1` = 127.0.0.1)
   that embed a blocked IPv4. WHATWG URL normalization already collapses shorthand/decimal
   IPv4 (`127.1`, `2130706433`) to canonical form before the check.
+- **`regexMatch` ReDoS hardening — length caps + a wider heuristic.** The regex engine's
+  backtracking is opaque to the fuel counter, so `regexMatch` now fails closed on three
+  fronts: a pattern-length cap (1000 chars), an input-length cap (100 000 chars, checked
+  after coercing the value to a string), and an extended suspicious-pattern check that also
+  catches a quantified group repeated by an unbounded outer quantifier (`(a+){2,}`) in
+  addition to the existing `(a+)+`/`(.*)+` forms. Safe patterns (including bounded
+  `(abc){3}` and grouped captures like `(\d{3})-(\d{4})`) are unaffected.
+- **VM scope variables can't be named a forbidden property.** Binding a variable named
+  `__proto__`/`constructor`/`prototype` (via `varSet`/`constSet`/`varsLet`/`varsImport` or
+  an atom result `.as('__proto__')`) is now rejected — previously such a name would mutate
+  the scope object's own prototype chain (`createChildScope` uses `Object.create(state)`)
+  instead of creating a binding. No global prototype pollution was possible, but the scope
+  corruption is now closed at the write sites, mirroring the member-access guard.
 
 ### Added
 

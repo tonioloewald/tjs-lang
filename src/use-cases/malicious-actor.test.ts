@@ -205,6 +205,7 @@ describe('Use Case: Malicious Actor', () => {
       '(.*)+', // Dot-star with quantifier
       '(.+)+', // Dot-plus with quantifier
       '([a-z]+)+', // Character class with nested quantifiers
+      '(a+){2,}', // quantified quantified group (unbounded outer)
     ]
 
     for (const pattern of redosPatterns) {
@@ -220,6 +221,33 @@ describe('Use Case: Malicious Actor', () => {
       expect(result.error).toBeDefined()
       expect(result.error?.message).toMatch(/Suspicious regex pattern rejected/)
     }
+  })
+
+  it('should cap regex pattern and input length (ReDoS length guard)', async () => {
+    const VM = new AgentVM()
+
+    // Over-long pattern rejected before compilation
+    const longPattern = 'a'.repeat(1001)
+    const r1 = await VM.run(
+      Agent.take(s.object({ input: s.string }))
+        .regexMatch({ pattern: longPattern, value: 'args.input' })
+        .as('m')
+        .return(s.object({ m: s.boolean }))
+        .toJSON(),
+      { input: 'x' }
+    )
+    expect(r1.error?.message).toMatch(/pattern too long/)
+
+    // Over-long input rejected before .test runs
+    const r2 = await VM.run(
+      Agent.take(s.object({ input: s.string }))
+        .regexMatch({ pattern: '^a+$', value: 'args.input' })
+        .as('m')
+        .return(s.object({ m: s.boolean }))
+        .toJSON(),
+      { input: 'a'.repeat(100_001) }
+    )
+    expect(r2.error?.message).toMatch(/input too long/)
   })
 
   it('should allow safe regex patterns', async () => {
@@ -244,6 +272,26 @@ describe('Use Case: Malicious Actor', () => {
       expect(result.error).toBeUndefined()
       expect(typeof result.result.matched).toBe('boolean')
     }
+  })
+
+  // Scope variables can't be named a forbidden property — assigning to a
+  // variable named __proto__/constructor would mutate the scope object's own
+  // prototype chain (createChildScope uses Object.create(ctx.state)) instead of
+  // creating a binding.
+  describe('scope variable-name guard', () => {
+    it('rejects binding a variable named __proto__/constructor/prototype', async () => {
+      for (const name of ['__proto__', 'constructor', 'prototype']) {
+        const ast = Agent.take(s.object({}))
+          .varSet({ key: name, value: { polluted: true } })
+          .return(s.object({}))
+          .toJSON()
+        const result = await VM.run(ast, {})
+        expect(result.error).toBeDefined()
+        expect(result.error?.message).toMatch(/Security Error|forbidden/i)
+      }
+      // and no global pollution occurred
+      expect(({} as any).polluted).toBeUndefined()
+    })
   })
 
   // methodCall is allowlisted to standard built-in methods (SAFE_METHOD_NAMES).

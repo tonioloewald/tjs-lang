@@ -525,9 +525,18 @@ function isBlockedUrl(urlString: string): boolean {
  * ReDoS Protection: Detect regex patterns likely to cause catastrophic backtracking.
  * Patterns with nested quantifiers on overlapping character classes are dangerous.
  */
+// Bound the ReDoS search space regardless of pattern shape: the regex engine's
+// backtracking is opaque to the fuel counter, so the heuristic below (which can
+// only ever catch known shapes) is backed by hard length caps on both the
+// pattern and the input it runs against.
+const MAX_REGEX_PATTERN_LENGTH = 1000
+const MAX_REGEX_INPUT_LENGTH = 100_000
+
 function isSuspiciousRegex(pattern: string): boolean {
-  // Nested quantifiers: (a+)+ or (a*)* or (a+)*
-  if (/\([^)]*[+*][^)]*\)[+*]/.test(pattern)) return true
+  // Nested quantifiers where the OUTER quantifier is +, *, or an unbounded {n,}
+  // repetition of a group that itself contains a + or * quantifier:
+  // (a+)+  (a*)*  (a+)*  (a+){2,}  — all catastrophic.
+  if (/\([^)]*[+*][^)]*\)(?:[+*]|\{\d*,\})/.test(pattern)) return true
 
   // Overlapping alternation with quantifiers: (a|a)+
   if (/\(([^|)]+)\|\1\)[+*]/.test(pattern)) return true
@@ -1656,6 +1665,7 @@ export function defineAtom<I extends Record<string, any>, O = any>(
 
       // 4. Result - always set if step.result is specified (even for undefined values)
       if (step.result) {
+        assertSafeProperty(step.result) // an atom result bound to __proto__/constructor would corrupt the scope
         if (ctx.consts.has(step.result)) {
           throw new Error(`Cannot reassign const variable '${step.result}'`)
         }
@@ -1974,6 +1984,7 @@ export const varSet = defineAtom(
   s.object({ key: s.string, value: s.any }),
   undefined,
   async ({ key, value }, ctx) => {
+    assertSafeProperty(key) // a variable named __proto__/constructor would mutate the scope object's prototype
     if (ctx.consts.has(key)) {
       throw new Error(`Cannot reassign const variable '${key}'`)
     }
@@ -1987,6 +1998,7 @@ export const constSet = defineAtom(
   s.object({ key: s.string, value: s.any }),
   undefined,
   async ({ key, value }, ctx) => {
+    assertSafeProperty(key)
     if (ctx.consts.has(key)) {
       throw new Error(`Cannot reassign const variable '${key}'`)
     }
@@ -2018,10 +2030,12 @@ export const varsImport = defineAtom(
   async ({ keys }, ctx) => {
     if (Array.isArray(keys)) {
       for (const key of keys) {
+        assertSafeProperty(key)
         ctx.state[key] = resolveValue({ $kind: 'arg', path: key }, ctx)
       }
     } else {
       for (const [alias, path] of Object.entries(keys)) {
+        assertSafeProperty(alias)
         ctx.state[alias] = resolveValue({ $kind: 'arg', path: path }, ctx)
       }
     }
@@ -2039,6 +2053,7 @@ export const varsLet = defineAtom(
   async (step, ctx) => {
     for (const key of Object.keys(step)) {
       if (key === 'op' || key === 'result') continue
+      assertSafeProperty(key)
       ctx.state[key] = resolveValue(step[key], ctx)
     }
   },
@@ -2366,15 +2381,29 @@ export const regexMatch = defineAtom(
   }),
   s.boolean,
   async ({ pattern, value }, ctx: RuntimeContext) => {
-    // ReDoS protection: reject patterns likely to cause catastrophic backtracking
+    // ReDoS protection: the regex engine's backtracking is opaque to the fuel
+    // counter, so cap both the pattern and the input, and reject known-dangerous
+    // pattern shapes — fail closed on all three.
+    if (pattern.length > MAX_REGEX_PATTERN_LENGTH) {
+      throw new Error(
+        `Regex pattern too long (${pattern.length} > ${MAX_REGEX_PATTERN_LENGTH})`
+      )
+    }
     if (isSuspiciousRegex(pattern)) {
       throw new Error(
         `Suspicious regex pattern rejected (potential ReDoS): ${pattern}`
       )
     }
     const resolvedValue = resolveValue(value, ctx)
+    const input =
+      typeof resolvedValue === 'string' ? resolvedValue : String(resolvedValue)
+    if (input.length > MAX_REGEX_INPUT_LENGTH) {
+      throw new Error(
+        `Regex input too long (${input.length} > ${MAX_REGEX_INPUT_LENGTH})`
+      )
+    }
     const p = new RegExp(pattern)
-    return p.test(resolvedValue)
+    return p.test(input)
   },
   {
     docs: 'Returns true if the value matches the regex pattern.',
