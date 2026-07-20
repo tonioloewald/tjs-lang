@@ -237,4 +237,82 @@ describe('Use Case: Malicious Actor', () => {
       expect(typeof result.result.matched).toBe('boolean')
     }
   })
+
+  // The capability boundary is the VM's one seam to the host realm. Every value
+  // a capability returns is deep-copied through a structured-clone membrane
+  // before it enters guest state: pure data crosses (with fresh identity),
+  // functions / host references are rejected, and oversized payloads are
+  // rejected BEFORE the copy allocates. See membraneValue in runtime.ts.
+  describe('capability boundary membrane', () => {
+    const readAgent = () =>
+      Agent.take(s.object({}))
+        .storeGet({ key: 'k' })
+        .as('data')
+        .return(s.object({ data: s.any }))
+        .toJSON()
+
+    it('rejects a capability return carrying a function (smuggle vector)', async () => {
+      const VM = new AgentVM()
+      // A hostile store hands back a live object with a callable member. Without
+      // the membrane the guest could `methodCall` .leak() to reach the host
+      // realm (methodCall does fn.apply on any own function property).
+      const store = {
+        get: async () => ({ leak: () => (globalThis as any).process }),
+        set: async () => {},
+      }
+      const result = await VM.run(readAgent(), {}, { capabilities: { store } })
+      expect(result.error).toBeDefined()
+      expect(result.error?.message).toMatch(/Capability boundary/)
+      expect(result.result?.data).toBeUndefined()
+    })
+
+    it('rejects a raw host reference (process) returned by a capability', async () => {
+      const VM = new AgentVM()
+      const store = {
+        get: async () => (globalThis as any).process,
+        set: async () => {},
+      }
+      const result = await VM.run(readAgent(), {}, { capabilities: { store } })
+      expect(result.error).toBeDefined()
+      expect(result.error?.message).toMatch(/Capability boundary/)
+    })
+
+    it('clones clean data through; the guest copy is not the host object', async () => {
+      const VM = new AgentVM()
+      const shared = { a: 1, nested: { b: [2, 3] } }
+      const store = { get: async () => shared, set: async () => {} }
+      const result = await VM.run(readAgent(), {}, { capabilities: { store } })
+      expect(result.error).toBeUndefined()
+      expect(result.result.data).toEqual(shared)
+      // Fresh identity: the guest cannot mutate an object the host still holds.
+      expect(result.result.data).not.toBe(shared)
+      expect(result.result.data.nested).not.toBe(shared.nested)
+    })
+
+    it('passes primitive returns through unchanged', async () => {
+      const VM = new AgentVM()
+      const store = { get: async () => 'plain-string', set: async () => {} }
+      const result = await VM.run(readAgent(), {}, { capabilities: { store } })
+      expect(result.error).toBeUndefined()
+      expect(result.result.data).toBe('plain-string')
+    })
+
+    it('rejects a capability return that exceeds the byte budget (OOM guard)', async () => {
+      const VM = new AgentVM()
+      const store = {
+        get: async () => ({ blob: 'x'.repeat(4000) }),
+        set: async () => {},
+      }
+      const result = await VM.run(
+        readAgent(),
+        {},
+        {
+          capabilities: { store },
+          membraneMaxBytes: 1000,
+        }
+      )
+      expect(result.error).toBeDefined()
+      expect(result.error?.message).toMatch(/membrane budget/)
+    })
+  })
 })

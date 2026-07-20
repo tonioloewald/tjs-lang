@@ -173,6 +173,7 @@ export interface RuntimeContext {
   costOverrides?: Record<string, CostOverride> // Per-atom cost overrides
   timeoutOverrides?: Record<string, TimeoutOverride> // Per-atom timeout overrides (ms, 0 disables)
   context?: Record<string, any> // Immutable request-scoped metadata (auth, permissions, etc.)
+  membraneMaxBytes?: number // Cap on the estimated size of a capability return crossing into guest state (default MEMBRANE_MAX_BYTES)
   runCodeDepth?: number // Track nested runCode calls to prevent infinite recursion
   localCall?: boolean // Inside a callLocal helper body — return may be a non-object scalar
   helpers?: Record<string, { steps: any[]; paramNames: string[] }> // Local helper bodies, called by name
@@ -296,6 +297,132 @@ function generateProcedureToken(): string {
  * Accessing these could allow prototype pollution or sandbox escape.
  */
 const FORBIDDEN_PROPERTIES = new Set(['__proto__', 'constructor', 'prototype'])
+
+/**
+ * Capability-boundary membrane.
+ *
+ * Every value a capability (`fetch`, `store`, `llm`, `agent`, `code`, …) hands
+ * back is host-authored data crossing into guest state. Without a membrane the
+ * guest receives the *live host reference*: it can then invoke methods on it
+ * (see `methodCall`), read prototype chains, or mutate an object the host still
+ * holds — a sandbox escape and a mutation-aliasing hazard. The value model
+ * inside the VM is JSON-ish (plain objects/arrays/primitives + structured-clone
+ * builtins), so the correct crossing is a deep copy of *pure data only*.
+ *
+ * `membraneValue` does two things at the single choke point where an io-atom's
+ * return lands in guest state:
+ *   1. A budgeted, cycle-safe pre-walk that rejects anything non-data (function,
+ *      symbol, bigint) with a precise reason BEFORE allocating a copy, and caps
+ *      the estimated serialized size so a hostile/broken capability can't OOM
+ *      the VM by returning a giant payload. (`structuredClone` alone would
+ *      allocate the whole copy first, then maybe reject — the pre-walk fails
+ *      cheap and fails closed.)
+ *   2. `structuredClone`, which produces a de-prototyped deep copy (throwing on
+ *      anything the pre-walk missed — defense in depth) with fresh identity, so
+ *      the guest can neither reach the host object nor mutate a shared one.
+ *
+ * Primitives carry no reference and need no copy — fast path, zero allocation.
+ * Only `effects: 'io'` atoms are membraned (pure atoms operate on data already
+ * inside the VM); the budget is `ctx.membraneMaxBytes ?? MEMBRANE_MAX_BYTES`.
+ */
+const MEMBRANE_MAX_BYTES = 4 * 1024 * 1024 // 4MB — generous for data, cheap to reject a runaway
+const MEMBRANE_MAX_DEPTH = 10_000 // reject absurd nesting before it can stack-overflow the walk / clone
+
+type MembraneResult =
+  | { ok: true; value: unknown }
+  | { ok: false; reason: string }
+
+function membraneValue(value: unknown, maxBytes: number): MembraneResult {
+  // Fast path: primitives are pure data with no reachable reference.
+  if (value === null || value === undefined) return { ok: true, value }
+  const t = typeof value
+  if (t === 'boolean' || t === 'number') return { ok: true, value }
+  if (t === 'string') {
+    if ((value as string).length * 2 > maxBytes) {
+      return {
+        ok: false,
+        reason: `string exceeds ${maxBytes}-byte membrane budget`,
+      }
+    }
+    return { ok: true, value }
+  }
+  if (t === 'function' || t === 'symbol' || t === 'bigint') {
+    return {
+      ok: false,
+      reason: `a ${t} cannot cross the capability boundary into guest state`,
+    }
+  }
+
+  // Objects/arrays: iterative, cycle-safe pre-walk for kind + budget.
+  let bytes = 0
+  const seen = new WeakSet<object>()
+  const stack: Array<{ v: any; depth: number }> = [{ v: value, depth: 0 }]
+  while (stack.length) {
+    const { v, depth } = stack.pop()!
+    if (v === null || v === undefined) {
+      bytes += 8
+      continue
+    }
+    const vt = typeof v
+    if (vt === 'function' || vt === 'symbol' || vt === 'bigint') {
+      return {
+        ok: false,
+        reason: `capability return contains a ${vt}, which cannot cross into guest state`,
+      }
+    }
+    if (vt === 'string') {
+      bytes += (v as string).length * 2 + 8
+      if (bytes > maxBytes) return membraneOverBudget(maxBytes)
+      continue
+    }
+    if (vt !== 'object') {
+      bytes += 8
+      continue
+    }
+    if (depth > MEMBRANE_MAX_DEPTH) {
+      return {
+        ok: false,
+        reason: 'capability return exceeds membrane depth limit',
+      }
+    }
+    if (seen.has(v)) continue // cycle / shared ref — structuredClone preserves it; don't recount
+    seen.add(v)
+    bytes += 16
+    if (bytes > maxBytes) return membraneOverBudget(maxBytes)
+    if (Array.isArray(v)) {
+      for (let i = 0; i < v.length; i++)
+        stack.push({ v: v[i], depth: depth + 1 })
+    } else if (v instanceof Date || ArrayBuffer.isView(v)) {
+      // structured-clone builtins with safe prototypes and bounded, opaque size.
+      bytes += 32
+      if (bytes > maxBytes) return membraneOverBudget(maxBytes)
+    } else {
+      for (const k of Object.keys(v)) {
+        bytes += k.length * 2 + 8
+        stack.push({ v: (v as any)[k], depth: depth + 1 })
+      }
+      if (bytes > maxBytes) return membraneOverBudget(maxBytes)
+    }
+  }
+
+  try {
+    return { ok: true, value: structuredClone(value) }
+  } catch (e: any) {
+    return {
+      ok: false,
+      reason: `capability return is not structured-cloneable: ${
+        e?.message || e
+      }`,
+    }
+  }
+}
+
+function membraneOverBudget(maxBytes: number): MembraneResult {
+  return {
+    ok: false,
+    reason: `capability return exceeds the ${maxBytes}-byte membrane budget`,
+  }
+}
 
 /**
  * Throws if the property name is forbidden for security reasons.
@@ -1418,6 +1545,27 @@ export function defineAtom<I extends Record<string, any>, O = any>(
         if (ctx.consts.has(step.result)) {
           throw new Error(`Cannot reassign const variable '${step.result}'`)
         }
+        // Capability-boundary membrane: an io atom's return value is host data
+        // crossing into guest state. Deep-copy pure data (rejecting functions /
+        // oversized payloads) so the guest can neither reach a host reference
+        // nor mutate a shared object. Pure atoms operate on data already inside
+        // the VM and need no crossing. See membraneValue.
+        // Read atom.effects (not the captured `effects` default): io tagging is
+        // applied post-construction via EFFECTFUL_CORE_OPS, mutating atom.effects.
+        if (atom.effects === 'io' && result !== undefined) {
+          const crossed = membraneValue(
+            result,
+            ctx.membraneMaxBytes ?? MEMBRANE_MAX_BYTES
+          )
+          if (!crossed.ok) {
+            ctx.error = new AgentError(
+              `Capability boundary rejected the return of '${op}': ${crossed.reason}`,
+              op
+            )
+            return
+          }
+          result = crossed.value
+        }
         // Validate output against schema (skip for undefined results)
         if (
           result !== undefined &&
@@ -1455,7 +1603,7 @@ export function defineAtom<I extends Record<string, any>, O = any>(
     }
   }
 
-  return {
+  const atom = {
     op,
     inputSchema,
     outputSchema,
@@ -1466,6 +1614,7 @@ export function defineAtom<I extends Record<string, any>, O = any>(
     effects,
     create: (input: I) => ({ op, ...input }),
   }
+  return atom
 }
 
 // --- Core Atoms ---

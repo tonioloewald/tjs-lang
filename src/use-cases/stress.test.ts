@@ -217,12 +217,15 @@ describe('Capability Failure Modes', () => {
   it('should handle fetch returning non-ok status gracefully', async () => {
     const vm = new AgentVM()
 
+    // A capability must return structured-cloneable DATA — the boundary membrane
+    // (runtime.ts membraneValue) rejects a live Response carrying .text()/.json()
+    // methods, since a guest could methodCall them to reach the host realm. A
+    // well-behaved fetch capability returns the fields the guest reads as data.
     const notFoundFetch = mock(async () => ({
       ok: false,
       status: 404,
       statusText: 'Not Found',
-      text: async () => 'Resource not found',
-      json: async () => ({ error: 'not found' }),
+      body: 'Resource not found',
     }))
 
     // Agent that checks response status and handles errors
@@ -465,10 +468,10 @@ describe('Capability Failure Modes', () => {
       if (callCount < 3) {
         throw new Error('Temporary failure')
       }
+      // Plain data — the membrane rejects capability returns carrying methods.
       return {
         ok: true,
-        json: async () => ({ data: 'success' }),
-        text: async () => '{"data":"success"}',
+        body: { data: 'success' },
       }
     })
 

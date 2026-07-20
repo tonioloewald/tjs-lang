@@ -7,6 +7,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Security
+
+- **Capability-boundary membrane on the VM.** Every value an `effects: 'io'` atom
+  returns (`httpFetch`, `storeGet`/`storeQuery`/vector search, `llmPredict`, `agentRun`,
+  `runCode`/`transpileCode`, …) is now deep-copied through a structured-clone membrane
+  before it enters guest state, at a single choke point in the atom exec wrapper. This
+  closes a defense-in-depth hole surfaced by an adversarial review: previously a
+  capability could hand the guest a **live host reference** — an object carrying callable
+  methods (e.g. a `Response` with `.json()`/`.text()`, or any object with a function
+  property) — which the guest could then invoke via `methodCall` to reach the host realm,
+  or mutate while the host still held it. The membrane rejects functions, symbols, and
+  other non-cloneable host references with a `MonadicError` (`Capability boundary rejected
+the return of '<op>'`), and gives clean data fresh identity so guest mutation can't
+  alias host state. A budgeted, cycle-safe pre-walk caps the estimated payload size
+  (`membraneMaxBytes` run option, default 4 MB) and **rejects oversized returns before the
+  copy allocates**, so a hostile or broken capability can't OOM the VM through the
+  capability boundary. **Contract change:** custom capabilities must return
+  structured-cloneable data — a capability that returned a live `Response` must now return
+  the fields the guest reads as a plain object (`{ ok, status, body }`); the default fetch
+  path already normalizes to parsed body / text / data-URL and is unaffected.
+
 ### Added
 
 - **Dictionary defaults — the `TjsDictDefaults` mode** (`docs/dictionary-defaults.md`).
