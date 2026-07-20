@@ -87,6 +87,7 @@ import type {
   PredicateVerification,
 } from '../types'
 import { inferTypeFromValue, parseParameter } from '../inference'
+import { FORBIDDEN_KEYS } from '../../forbidden-keys'
 import { extractTests } from '../tests'
 import {
   runAllTests,
@@ -1691,8 +1692,11 @@ function emitDictLevel(
   // Own-key census: prototype-pollution rejection + excess detection without
   // allocating (the excess-key COLLECTION only runs on the cold strip path).
   lines.push(`let ${p}n = 0;`)
+  const forbiddenCheck = FORBIDDEN_KEYS.map(
+    (k) => `${p}k === ${JSON.stringify(k)}`
+  ).join(' || ')
   lines.push(
-    `for (const ${p}k in ${access}) { if (Object.prototype.hasOwnProperty.call(${access}, ${p}k)) { if (${p}k === '__proto__' || ${p}k === 'constructor' || ${p}k === 'prototype') return __tjs.typeError('${displayPath}.' + ${p}k, 'safe key', ${p}k); ${p}n++; } }`
+    `for (const ${p}k in ${access}) { if (Object.prototype.hasOwnProperty.call(${access}, ${p}k)) { if (${forbiddenCheck}) return __tjs.typeError('${displayPath}.' + ${p}k, 'safe key', ${p}k); ${p}n++; } }`
   )
   lines.push(`let ${p}f = 0;`)
   lines.push(`let ${p}c = false;`)
@@ -1762,14 +1766,20 @@ function emitDictLevel(
   lines.push(
     `  if ((${excessExpr}) && !(globalThis.__tjsDDNoticed ??= new Set()).has('${displayPath}')) {`
   )
-  lines.push(`    globalThis.__tjsDDNoticed.add('${displayPath}');`)
   lines.push(`    const ${p}x = [];`)
   lines.push(
     `    for (const ${p}k3 in ${access}) if (Object.prototype.hasOwnProperty.call(${access}, ${p}k3) && ${declaredMiss}) ${p}x.push(${p}k3);`
   )
+  // Only record (and consume the once-guard) when there are REAL excess keys.
+  // The count-based excessExpr also fires for a present-but-undefined member
+  // (counted as a payload key AND as filled), which would otherwise emit a
+  // spurious "excess key(s) [] stripped" notice with an empty list.
+  lines.push(`    if (${p}x.length > 0) {`)
+  lines.push(`      globalThis.__tjsDDNoticed.add('${displayPath}');`)
   lines.push(
-    `    __tjs.record?.({ source: 'type', severity: 'notice', message: "excess key(s) [" + ${p}x.join(', ') + "] stripped at '${displayPath}' (dictionary defaults)", data: { path: '${displayPath}', keys: ${p}x } });`
+    `      __tjs.record?.({ source: 'type', severity: 'notice', message: "excess key(s) [" + ${p}x.join(', ') + "] stripped at '${displayPath}' (dictionary defaults)", data: { path: '${displayPath}', keys: ${p}x } });`
   )
+  lines.push(`    }`)
   lines.push(`  }`)
   lines.push(`  ${reassignTarget} = ${rebuild};`)
   if (parentChangedVar) lines.push(`  ${parentChangedVar} = true;`)

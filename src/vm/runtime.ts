@@ -1,5 +1,6 @@
 import { s, validate, filter as schemaFilter } from 'tosijs-schema'
 import { reDoSRisk, alternationOverlapRisk } from '../redos'
+import { FORBIDDEN_KEYS_SET } from '../forbidden-keys'
 
 /**
  * AJS `==`/`!=` equality — **footgun-free `===`**, consistent with TJS `Eq`
@@ -297,7 +298,7 @@ function generateProcedureToken(): string {
  * Properties that are forbidden to access for security reasons.
  * Accessing these could allow prototype pollution or sandbox escape.
  */
-const FORBIDDEN_PROPERTIES = new Set(['__proto__', 'constructor', 'prototype'])
+const FORBIDDEN_PROPERTIES = FORBIDDEN_KEYS_SET
 
 /**
  * Capability-boundary membrane.
@@ -465,16 +466,19 @@ function isBlockedIPv4(host: string): boolean {
 
 /**
  * True if an IPv6 host (brackets already stripped, lowercased) is loopback,
- * unspecified, unique-local, link-local, or an IPv4-mapped address embedding a
- * blocked IPv4. Closes the SSRF bypass where `[fc00::1]`/`[fe80::1]` and
- * `[::ffff:7f00:1]` (= 127.0.0.1) reached the network.
+ * unspecified, unique-local, link-local, or an embedded-IPv4 address (both the
+ * IPv4-*mapped* `::ffff:` form and the deprecated IPv4-*compatible* `::` form)
+ * that resolves to a blocked IPv4. Closes the SSRF bypass where `[fc00::1]`,
+ * `[fe80::1]`, `[::ffff:7f00:1]`, and `[::7f00:1]` (all = 127.0.0.1) reached the
+ * network.
  */
 function isBlockedIPv6(host: string): boolean {
   if (host === '::1' || host === '::') return true // loopback / unspecified
   if (/^f[cd]/.test(host)) return true // unique-local fc00::/7 (fc00–fdff)
   if (/^fe[89ab]/.test(host)) return true // link-local fe80::/10
-  // IPv4-mapped (::ffff:a.b.c.d, or hex-group form ::ffff:7f00:1)
-  const mapped = /^::ffff:(.+)$/.exec(host)
+  // Embedded IPv4: mapped `::ffff:a.b.c.d` / `::ffff:7f00:1`, or the deprecated
+  // IPv4-compatible `::a.b.c.d` / `::7f00:1` (both normalize to the hex form).
+  const mapped = /^::(?:ffff:)?(.+)$/.exec(host)
   if (mapped) {
     const v4 = ipv4FromMappedTail(mapped[1])
     if (v4 && isBlockedIPv4(v4)) return true

@@ -213,6 +213,20 @@ describe('dictionary defaults — the TjsDictDefaults mode (Stage 1)', () => {
       expect(notices.length).toBe(1)
     })
 
+    it('a present-undefined member does NOT emit a spurious empty excess notice', () => {
+      const rt = (globalThis as any).__tjs
+      rt.clearRecords?.()
+      delete (globalThis as any).__tjsDDNoticed
+      const place = compile(FLAT, 'place')
+      // {x: undefined, y: 3}: x fills from default, no key is actually excess —
+      // the count heuristic used to fire "excess key(s) [] stripped".
+      place({ x: undefined, y: 3 })
+      const notices = (rt.records?.({ severity: 'notice' }) ?? []).filter(
+        (r: any) => String(r.message).includes('excess')
+      )
+      expect(notices.length).toBe(0)
+    })
+
     it('prototype-pollution keys are rejected outright', () => {
       const place = compile(FLAT, 'place')
       const payload = JSON.parse('{"x":1,"y":2,"__proto__":{"polluted":1}}')

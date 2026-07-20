@@ -20,6 +20,7 @@ import type {
 } from 'acorn'
 import { parse } from './parser'
 import * as walk from 'acorn-walk'
+import { FORBIDDEN_KEYS_SET } from '../forbidden-keys'
 
 export interface LintDiagnostic {
   severity: 'error' | 'warning' | 'info'
@@ -380,8 +381,6 @@ interface DictShape {
   nested: Map<string, DictShape>
 }
 
-const DICT_FORBIDDEN_KEYS = new Set(['__proto__', 'constructor', 'prototype'])
-
 function propKeyName(key: any): string | null {
   if (!key) return null
   if (key.type === 'Identifier') return key.name
@@ -419,7 +418,7 @@ function checkExcessKeys(
     if (p.type !== 'Property' || p.computed) continue
     const key = propKeyName(p.key)
     if (key == null) continue
-    if (DICT_FORBIDDEN_KEYS.has(key)) continue // rejected at runtime; a different concern
+    if (FORBIDDEN_KEYS_SET.has(key)) continue // rejected at runtime; a different concern
     if (!shape.keys.has(key)) {
       diagnostics.push({
         severity: 'warning',

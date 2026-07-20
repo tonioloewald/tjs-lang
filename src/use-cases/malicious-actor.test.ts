@@ -159,6 +159,8 @@ describe('Use Case: Malicious Actor', () => {
       'http://[fc00::1]/', // IPv6 unique-local
       'http://[fe80::1]/', // IPv6 link-local
       'http://[::ffff:7f00:1]/', // IPv4-mapped IPv6 loopback
+      'http://[::7f00:1]/', // IPv4-compatible IPv6 loopback (deprecated form)
+      'http://[::127.0.0.1]/', // IPv4-compatible, dotted (normalizes to ::7f00:1)
     ]
 
     for (const url of ssrfUrls) {
