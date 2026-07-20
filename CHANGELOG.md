@@ -109,9 +109,11 @@ the return of '<op>'`), and gives clean data fresh identity so guest mutation ca
     `{x: 1, tag: '', extra: 9}` — excess keys are stripped).
 
   It transpiles either way, so a break is only visible at runtime. **Migration:** to keep
-  the old atomic-default semantics, set `dialect: 'js'`, add the `TjsCompat` directive, or
-  use a non-object default. The new excess-key lint (`dict-default-excess-key`) flags stray
-  literal-call-site keys statically.
+  the old atomic-default semantics, set `dialect: 'js'`, add the `TjsCompat` directive, mark
+  the function `unsafe` (skips all its validation, the merge included), or use a non-object
+  default. There is no per-mode "off" directive to disable only `TjsDictDefaults` yet (see
+  #7). The new excess-key lint (`dict-default-excess-key`) flags stray literal-call-site keys
+  statically.
 
 - **Behavior change (VM embedders): capability returns must be structured-cloneable data,
   and guest `methodCall` is allowlisted.** Repeated here from **Security** because it breaks

@@ -413,5 +413,75 @@ describe('Use Case: Malicious Actor', () => {
       expect(result.error).toBeDefined()
       expect(result.error?.message).toMatch(/membrane budget/)
     })
+
+    it('budgets binary + collection payloads (TypedArray/ArrayBuffer/Map/Set)', async () => {
+      // The budget pre-walk must charge the REAL size of these — a flat estimate
+      // let a 500MB Uint8Array or a 500-entry Map cross a tiny budget while
+      // structuredClone then allocated the whole thing (the OOM the guard exists
+      // to stop). Each is well over a 1000-byte budget.
+      const VM = new AgentVM()
+      const payloads: Array<[string, unknown]> = [
+        ['Uint8Array', new Uint8Array(50_000)],
+        ['ArrayBuffer', new ArrayBuffer(50_000)],
+        ['Map', new Map(Array.from({ length: 500 }, (_, i) => [i, i]))],
+        ['Set', new Set(Array.from({ length: 500 }, (_, i) => i))],
+        ['array of primitives', Array.from({ length: 500 }, (_, i) => i)],
+      ]
+      for (const [name, val] of payloads) {
+        const store = { get: async () => val, set: async () => {} }
+        const result = await VM.run(
+          readAgent(),
+          {},
+          { capabilities: { store }, membraneMaxBytes: 1000 }
+        )
+        expect(result.error, `${name} should be rejected`).toBeDefined()
+        expect(result.error?.message).toMatch(/membrane budget/)
+      }
+    })
+
+    it('kind-checks Map/Set contents (a function value is rejected)', async () => {
+      const VM = new AgentVM()
+      const store = {
+        get: async () => new Map([['leak', () => (globalThis as any).process]]),
+        set: async () => {},
+      }
+      const result = await VM.run(readAgent(), {}, { capabilities: { store } })
+      expect(result.error).toBeDefined()
+      expect(result.error?.message).toMatch(/Capability boundary/)
+    })
+
+    it('small binary/collection payloads pass through, cloned', async () => {
+      const VM = new AgentVM()
+      const store = {
+        get: async () => new Map([['a', 1]]),
+        set: async () => {},
+      }
+      const result = await VM.run(readAgent(), {}, { capabilities: { store } })
+      expect(result.error).toBeUndefined()
+      expect([...(result.result.data as Map<string, number>)]).toEqual([
+        ['a', 1],
+      ])
+    })
+
+    it('terminates on a cyclic capability return (clone once, no infinite walk)', async () => {
+      const VM = new AgentVM()
+      const cyclic: any = { name: 'node' }
+      cyclic.self = cyclic // cycle
+      const store = { get: async () => cyclic, set: async () => {} }
+      const result = await VM.run(readAgent(), {}, { capabilities: { store } })
+      expect(result.error).toBeUndefined()
+      expect(result.result.data.name).toBe('node')
+      expect(result.result.data.self).toBe(result.result.data) // cycle preserved, fresh identity
+    })
+
+    it('rejects an over-deep capability return (depth limit)', async () => {
+      const VM = new AgentVM()
+      let deep: any = {}
+      for (let i = 0; i < 11_000; i++) deep = { next: deep }
+      const store = { get: async () => deep, set: async () => {} }
+      const result = await VM.run(readAgent(), {}, { capabilities: { store } })
+      expect(result.error).toBeDefined()
+      expect(result.error?.message).toMatch(/depth limit/)
+    })
   })
 })

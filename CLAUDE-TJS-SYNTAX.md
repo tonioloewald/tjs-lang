@@ -36,6 +36,16 @@ function calc(index: +0) { }             // non-negative integer -- + prefix
 // Optional param with default
 function greet(name = 'Alice') { }       // name is optional, defaults to 'Alice'
 
+// Object-literal default = a dictionary (merge-on-partial), NOT an atomic default
+function place(args = { x: 0, y: 0 }) { }
+// place({ x: 5 })      -> { x: 5, y: 0 }   each member defaulted individually
+// place({ x: 's' })    -> MonadicError     members are type-checked
+// place({ x: 1, z: 9 })-> { x: 1, y: 0 }   excess keys stripped (+ recorder notice)
+// This is the TjsDictDefaults mode (on in native .tjs, off under dialect:'js'/
+// TjsCompat/fromTS). Full spec: docs/dictionary-defaults.md. To opt a single
+// param out of the merge, mark it unsafe (`!`); to opt the whole file out, use
+// `dialect: 'js'` or the `TjsCompat` directive.
+
 // Object parameter with shape
 function createUser(user: { name: '', age: 0 }) { }
 
@@ -200,7 +210,7 @@ safety all      // Validate everything (debug mode)
 
 ## TJS Mode Directives
 
-Native TJS (`.tjs` files) has all modes ON by default: `TjsEquals`, `TjsClass`, `TjsDate`, `TjsNoeval`, `TjsNoVar`, `TjsStandard`. The default safety level is `inputs`.
+Native TJS (`.tjs` files) has all modes ON by default: `TjsEquals`, `TjsClass`, `TjsDate`, `TjsNoeval`, `TjsNoVar`, `TjsStandard`, `TjsDictDefaults`. The default safety level is `inputs`.
 
 TS-originated code (from `fromTS`, detected by the `/* tjs <- */` annotation) and AJS/VM code get all modes OFF with safety `none`, matching plain JavaScript semantics.
 
@@ -212,6 +222,7 @@ TjsDate // Date is banned, use Timestamp/LegalDate instead
 TjsNoeval // eval() and new Function() are banned
 TjsNoVar // var declarations are syntax errors — use const or let
 TjsStandard // Newlines as statement terminators (prevents ASI footguns)
+TjsDictDefaults // `= {object literal}` params merge-on-partial + validate members (see below)
 TjsSafeEval // Include Eval/SafeFunction in runtime for dynamic code (always opt-in, adds an import)
 
 // Meta-directives

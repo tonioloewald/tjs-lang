@@ -37,7 +37,7 @@ bun run format:check        # Same checks, no writes (CI / verification)
                             #   backstop for "committed without running format" — it does
                             #   not typecheck or test. Never bypass it with --no-verify.
 bun run test:fast           # Core tests (skips LLM & benchmarks)
-bun run make                # Full build (clean, format, grammars, editors, tsc, esbuild)
+bun run make                # Full build (clean, format, docs, grammars, editors, tsc, esbuild)
                             #   Named `make`, NOT `build`, on purpose: `bun build` is a Bun
                             #   builtin (the bundler). If a `build` script existed, `bun build`
                             #   would silently run the builtin instead of the script while

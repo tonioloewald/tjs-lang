@@ -363,6 +363,7 @@ function membraneValue(value: unknown, maxBytes: number): MembraneResult {
     const { v, depth } = stack.pop()!
     if (v === null || v === undefined) {
       bytes += 8
+      if (bytes > maxBytes) return membraneOverBudget(maxBytes)
       continue
     }
     const vt = typeof v
@@ -378,7 +379,10 @@ function membraneValue(value: unknown, maxBytes: number): MembraneResult {
       continue
     }
     if (vt !== 'object') {
+      // number / boolean — a large array/Map/Set of primitives must still be
+      // budgeted, so check here too (this branch used to `continue` unchecked).
       bytes += 8
+      if (bytes > maxBytes) return membraneOverBudget(maxBytes)
       continue
     }
     if (depth > MEMBRANE_MAX_DEPTH) {
@@ -394,10 +398,31 @@ function membraneValue(value: unknown, maxBytes: number): MembraneResult {
     if (Array.isArray(v)) {
       for (let i = 0; i < v.length; i++)
         stack.push({ v: v[i], depth: depth + 1 })
-    } else if (v instanceof Date || ArrayBuffer.isView(v)) {
-      // structured-clone builtins with safe prototypes and bounded, opaque size.
-      bytes += 32
+    } else if (v instanceof Date) {
+      bytes += 32 // fixed-size builtin
       if (bytes > maxBytes) return membraneOverBudget(maxBytes)
+    } else if (ArrayBuffer.isView(v)) {
+      // TypedArray / DataView — charge the REAL backing size, not a flat
+      // estimate: a 500MB Uint8Array must not cross a small budget.
+      bytes += (v as ArrayBufferView).byteLength
+      if (bytes > maxBytes) return membraneOverBudget(maxBytes)
+    } else if (v instanceof ArrayBuffer) {
+      bytes += v.byteLength
+      if (bytes > maxBytes) return membraneOverBudget(maxBytes)
+    } else if (v instanceof Map) {
+      // Walk entries so a large Map is both budgeted and kind-checked (a Map
+      // value could itself be a function / host ref). structuredClone clones
+      // both keys and values, so both cross the boundary.
+      bytes += 16
+      if (bytes > maxBytes) return membraneOverBudget(maxBytes)
+      for (const [mk, mv] of v as Map<any, any>) {
+        stack.push({ v: mk, depth: depth + 1 })
+        stack.push({ v: mv, depth: depth + 1 })
+      }
+    } else if (v instanceof Set) {
+      bytes += 16
+      if (bytes > maxBytes) return membraneOverBudget(maxBytes)
+      for (const sv of v as Set<any>) stack.push({ v: sv, depth: depth + 1 })
     } else {
       for (const k of Object.keys(v)) {
         bytes += k.length * 2 + 8
