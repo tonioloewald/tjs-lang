@@ -86,6 +86,7 @@ import type {
   ParameterDescriptor,
   PredicateVerification,
 } from '../types'
+import { isDictDefaultParam } from '../types'
 import { inferTypeFromValue, parseParameter } from '../inference'
 import { FORBIDDEN_KEYS } from '../../forbidden-keys'
 import { extractTests } from '../tests'
@@ -100,6 +101,19 @@ import {
   rewriteBoolCoercion,
   rewriteBoolCoercionInSource,
 } from '../bool-coercion'
+
+/** A key safe to emit as `base.key` (else it must be bracket-accessed). */
+const IDENT_RE = /^[A-Za-z_$][A-Za-z0-9_$]*$/
+/** Emit member access, dot for ident-safe keys, bracket (JSON-quoted) otherwise. */
+function memberAccess(base: string, key: string): string {
+  return IDENT_RE.test(key)
+    ? `${base}.${key}`
+    : `${base}[${JSON.stringify(key)}]`
+}
+/** Emit an object-literal key, bare for ident-safe keys, JSON-quoted otherwise. */
+function propKey(key: string): string {
+  return IDENT_RE.test(key) ? key : JSON.stringify(key)
+}
 
 export interface TJSTranspileOptions {
   /** Filename for error messages */
@@ -521,12 +535,7 @@ function generateInlineValidationCode(
         lines.push(...generateMemberCheckLines(paramName, path, param.type))
       } else if (
         dictDefaults &&
-        param.type.kind === 'object' &&
-        param.type.shape &&
-        param.default !== undefined &&
-        param.default !== null &&
-        typeof param.default === 'object' &&
-        !Array.isArray(param.default)
+        isDictDefaultParam(param.type, param.default)
       ) {
         // Stage 1 (TjsDictDefaults): `= {object literal}` params get
         // merge-on-partial. Replaces the shallow optional check entirely —
@@ -1704,10 +1713,7 @@ function emitDictLevel(
   const memberVars: Array<[string, string]> = []
   for (const key of keys) {
     const member = shape[key]
-    const identSafe = /^[A-Za-z_$][A-Za-z0-9_$]*$/.test(key)
-    const acc = identSafe
-      ? `${access}.${key}`
-      : `${access}[${JSON.stringify(key)}]`
+    const acc = memberAccess(access, key)
     const mpath = `${displayPath}.${key}`
     const v = uid()
     memberVars.push([key, v])
@@ -1753,11 +1759,7 @@ function emitDictLevel(
     .map((k) => `${p}k3 !== ${JSON.stringify(k)}`)
     .join(' && ')
   const rebuild = `{ ${memberVars
-    .map(([k, v]) =>
-      /^[A-Za-z_$][A-Za-z0-9_$]*$/.test(k)
-        ? `${k}: ${v}`
-        : `${JSON.stringify(k)}: ${v}`
-    )
+    .map(([k, v]) => `${propKey(k)}: ${v}`)
     .join(', ')} }`
   lines.push(`if (${p}f > 0 || ${p}c || ${excessExpr}) {`)
   // Once-per-site excess notice — the flight-recorder discipline: record
@@ -1814,10 +1816,7 @@ function generateMemberCheckLines(
   const lines: string[] = []
   if (type.kind !== 'object' || !type.shape) return lines
   for (const [key, memberType] of Object.entries(type.shape)) {
-    const identSafe = /^[A-Za-z_$][A-Za-z0-9_$]*$/.test(key)
-    const memberExpr = identSafe
-      ? `${accessExpr}.${key}`
-      : `${accessExpr}[${JSON.stringify(key)}]`
+    const memberExpr = memberAccess(accessExpr, key)
     const memberPath = `${displayPath}.${key}`
     const check = generateTypeCheckExpr(memberExpr, memberType)
     if (check) {

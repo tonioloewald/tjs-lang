@@ -365,6 +365,27 @@ describe('Use Case: Malicious Actor', () => {
       expect(result.result?.data).toBeUndefined()
     })
 
+    it('rejects a live Response from a custom fetch capability (the real consumer path)', async () => {
+      const VM = new AgentVM()
+      // The contract change consumers actually hit: a custom `fetch` capability
+      // that returns a Response-shaped object carrying .text()/.json() methods.
+      // The membrane rejects it — capabilities must return plain data.
+      const fetchAgent = Agent.take(s.object({}))
+        .httpFetch({ url: 'http://localhost:8080/api' })
+        .as('res')
+        .return(s.object({ res: s.any }))
+        .toJSON()
+      const fetch = async () => ({
+        ok: true,
+        status: 200,
+        text: async () => 'body',
+        json: async () => ({ body: true }),
+      })
+      const result = await VM.run(fetchAgent, {}, { capabilities: { fetch } })
+      expect(result.error).toBeDefined()
+      expect(result.error?.message).toMatch(/Capability boundary/)
+    })
+
     it('rejects a raw host reference (process) returned by a capability', async () => {
       const VM = new AgentVM()
       const store = {

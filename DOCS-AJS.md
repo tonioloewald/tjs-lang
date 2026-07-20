@@ -101,6 +101,14 @@ const capabilities = {
 await vm.run(agent, args, { capabilities })
 ```
 
+**Capabilities must return structured-cloneable plain data.** Every value a capability
+returns crosses a `structuredClone` membrane before it reaches guest state, so it must not
+carry functions or live host references — a `fetch` capability returning a live `Response`
+(with `.json()`/`.text()`) is **rejected** at the boundary; return the fields the guest reads
+as a plain object (`{ ok, status, body }`). Oversized returns are also rejected before the
+copy allocates; the cap is the `membraneMaxBytes` run option (default 4 MB), which you may
+need to raise for large-JSON or base64 `dataUrl` payloads.
+
 ---
 
 ## Input/Output Contract

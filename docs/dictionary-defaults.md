@@ -215,8 +215,9 @@ evaluated per call — so hoist-plus-clone is observably identical. Verified.)
 ### 5.6 Prototype safety
 
 Only own enumerable string keys participate. `__proto__`, `constructor`, and
-`prototype` in a payload are rejected outright — reusing the existing
-`FORBIDDEN_PROPERTIES` set (`src/vm/runtime.ts`), not a new list. Merge is
+`prototype` in a payload are rejected outright — deriving the check from the
+canonical `FORBIDDEN_KEYS` list (`src/forbidden-keys.ts`), the single source
+shared by the VM guards, the linter, and this emitter, not a new list. Merge is
 exactly where prototype pollution lives; this closes the class cheaply.
 
 ---

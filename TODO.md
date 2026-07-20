@@ -28,17 +28,16 @@ correctness / dryness items were done in the same pass; the rest are deferred he
 - [ ] **Snowfox heads-up** (ecosystem): the capability-membrane contract change (a live
       `Response` return now hard-fails) affects the known VM embedder. Give them a heads-up /
       release-notes callout before they upgrade past 0.11.0.
-- [ ] **Extract one `isDictDefaultParam(param, dictDefaultsMode)` helper** (dryness, major)
-      imported by both `src/lang/emitters/js.ts` and `src/lang/emitters/dts.ts` — the
-      qualifying predicate is inlined in both; the runtime-merge gate and the deep-partial-type
-      gate MUST agree or the `.d.ts` advertises a partial the runtime rejects (or vice versa).
-- [ ] **httpFetch-layer membrane test** (coverage): the fetch-capability contract change is
-      only exercised via the store atom; add a test driving `.httpFetch()` with a custom
-      `fetch` returning a `Response`-shaped object, asserting membrane rejection.
-- [ ] **DOCS-AJS.md Capability Injection note**: custom capabilities must return
-      structured-cloneable plain data; non-cloneable/oversized returns are rejected at the
-      membrane (`membraneMaxBytes`, default 4MB). Call out the large-JSON / base64 `dataUrl`
-      case (can exceed 4MB) and whether the default should grow or the dataUrl path be exempt.
+- [x] **Extract one `isDictDefaultParam(type, default)` helper** (dryness, major) — DONE
+      (`src/lang/types.ts`), imported by both the js and dts emitters so the runtime-merge
+      gate and the deep-partial-type gate can't diverge.
+- [x] **httpFetch-layer membrane test** (coverage) — DONE (`malicious-actor.test.ts`: a custom
+      `fetch` returning a `Response`-shaped object with `.text()`/`.json()` is rejected).
+- [x] **DOCS-AJS.md Capability Injection note** — DONE (structured-cloneable-only + the
+      `membraneMaxBytes` large-JSON/`dataUrl` caveat). The open _decision_ — grow the 4MB
+      default or exempt the `dataUrl` path — remains for a future release.
+- [x] **Hoist `IDENT_RE` + `memberAccess`/`propKey` helpers** in `emitters/js.ts` (dryness nit)
+      — DONE (the ident-safe member-access was triplicated).
 
 **Resolved by this release** (retired from High Priority): `memory-gas-capability-limits` —
 the budgeted, cycle-safe membrane pre-walk + `membraneMaxBytes` (default 4MB) caps capability

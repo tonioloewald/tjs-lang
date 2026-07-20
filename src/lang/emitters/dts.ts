@@ -21,6 +21,7 @@
  */
 
 import type { TypeDescriptor } from '../types'
+import { isDictDefaultParam } from '../types'
 import type { TJSTranspileResult, TJSTypeInfo } from './js'
 
 /**
@@ -158,12 +159,7 @@ function functionDeclToTS(
       const isDict =
         dictDefaults &&
         optionalFlags[i] &&
-        p.type.kind === 'object' &&
-        p.type.shape &&
-        pd.default !== undefined &&
-        pd.default !== null &&
-        typeof pd.default === 'object' &&
-        !Array.isArray(pd.default)
+        isDictDefaultParam(p.type, pd.default)
       const tsType = isDict
         ? typeDescriptorToDeepPartialTS(p.type)
         : typeDescriptorToTS(p.type)

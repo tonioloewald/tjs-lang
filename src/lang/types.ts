@@ -308,3 +308,27 @@ export function getLocation(node: Node): { line: number; column: number } {
   }
   return { line: 1, column: 0 }
 }
+
+/**
+ * True if a parameter's `(type, default)` pair qualifies as a TjsDictDefaults
+ * dictionary param — an `= {object literal}` default over an object shape. The
+ * SINGLE source of truth for this test: the JS emitter's merge gate and the
+ * `.d.ts` emitter's deep-partial gate must agree, or the caller-facing type
+ * advertises a partial the runtime rejects (or vice versa). Callers add their
+ * own context gates (the `dictDefaults` mode flag; the `.d.ts` optional-param
+ * flag) around this.
+ */
+export function isDictDefaultParam(
+  type: TypeDescriptor | undefined,
+  defaultValue: unknown
+): boolean {
+  return (
+    !!type &&
+    type.kind === 'object' &&
+    !!type.shape &&
+    defaultValue !== undefined &&
+    defaultValue !== null &&
+    typeof defaultValue === 'object' &&
+    !Array.isArray(defaultValue)
+  )
+}
