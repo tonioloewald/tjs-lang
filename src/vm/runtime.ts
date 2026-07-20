@@ -445,6 +445,53 @@ const BLOCKED_HOSTS = new Set([
   'metadata.google.internal',
 ])
 
+/**
+ * True if a dotted-decimal IPv4 host is loopback, private, link-local, or
+ * "this host" — the SSRF-sensitive ranges. WHATWG URL already normalizes IPv4
+ * shorthand and decimal/hex forms (`127.1`, `2130706433` → `127.0.0.1`) before
+ * we see the host, so matching the canonical dotted form is sufficient.
+ */
+function isBlockedIPv4(host: string): boolean {
+  return (
+    /^127\./.test(host) || // loopback 127.0.0.0/8 (incl. 127.0.0.2, not just .1)
+    /^10\./.test(host) || // private 10.0.0.0/8
+    /^192\.168\./.test(host) || // private 192.168.0.0/16
+    /^172\.(1[6-9]|2\d|3[01])\./.test(host) || // private 172.16.0.0/12
+    /^169\.254\./.test(host) || // link-local 169.254.0.0/16 (incl. cloud metadata)
+    /^0\./.test(host) // "this host" 0.0.0.0/8
+  )
+}
+
+/**
+ * True if an IPv6 host (brackets already stripped, lowercased) is loopback,
+ * unspecified, unique-local, link-local, or an IPv4-mapped address embedding a
+ * blocked IPv4. Closes the SSRF bypass where `[fc00::1]`/`[fe80::1]` and
+ * `[::ffff:7f00:1]` (= 127.0.0.1) reached the network.
+ */
+function isBlockedIPv6(host: string): boolean {
+  if (host === '::1' || host === '::') return true // loopback / unspecified
+  if (/^f[cd]/.test(host)) return true // unique-local fc00::/7 (fc00–fdff)
+  if (/^fe[89ab]/.test(host)) return true // link-local fe80::/10
+  // IPv4-mapped (::ffff:a.b.c.d, or hex-group form ::ffff:7f00:1)
+  const mapped = /^::ffff:(.+)$/.exec(host)
+  if (mapped) {
+    const v4 = ipv4FromMappedTail(mapped[1])
+    if (v4 && isBlockedIPv4(v4)) return true
+  }
+  return false
+}
+
+/** Decode the tail of an IPv4-mapped IPv6 address to dotted-decimal, or null. */
+function ipv4FromMappedTail(tail: string): string | null {
+  if (tail.includes('.')) return tail // already dotted (::ffff:127.0.0.1)
+  const groups = tail.split(':')
+  if (groups.length !== 2) return null
+  const hi = parseInt(groups[0], 16)
+  const lo = parseInt(groups[1], 16)
+  if (Number.isNaN(hi) || Number.isNaN(lo)) return null
+  return `${(hi >> 8) & 0xff}.${hi & 0xff}.${(lo >> 8) & 0xff}.${lo & 0xff}`
+}
+
 function isBlockedUrl(urlString: string): boolean {
   try {
     const url = new URL(urlString)
@@ -462,19 +509,13 @@ function isBlockedUrl(urlString: string): boolean {
     // Block internal suffixes
     if (host.endsWith('.internal') || host.endsWith('.local')) return true
 
-    // Block AWS/cloud metadata IP
-    if (host === '169.254.169.254') return true
-
-    // Block private IP ranges
-    if (
-      /^10\./.test(host) ||
-      /^192\.168\./.test(host) ||
-      /^172\.(1[6-9]|2\d|3[01])\./.test(host)
-    ) {
-      return true
+    // IPv6 literals arrive bracketed (e.g. "[fe80::1]"); strip for range checks.
+    if (host.startsWith('[') && host.endsWith(']')) {
+      return isBlockedIPv6(host.slice(1, -1))
     }
 
-    return false
+    // Block loopback / private / link-local IPv4 ranges
+    return isBlockedIPv4(host)
   } catch {
     return true // Invalid URL = blocked
   }

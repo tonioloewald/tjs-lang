@@ -151,6 +151,14 @@ describe('Use Case: Malicious Actor', () => {
       'file:///etc/passwd', // File protocol
       'http://metadata.google.internal/', // GCP metadata
       'http://evil.internal/', // Internal suffix
+      'http://127.0.0.2/', // loopback /8 (not just .1)
+      'http://127.1/', // shorthand loopback (URL-normalized)
+      'http://2130706433/', // decimal-encoded 127.0.0.1
+      'http://0.0.0.0/', // "this host"
+      'http://169.254.169.253/', // link-local /16 (not just metadata IP)
+      'http://[fc00::1]/', // IPv6 unique-local
+      'http://[fe80::1]/', // IPv6 link-local
+      'http://[::ffff:7f00:1]/', // IPv4-mapped IPv6 loopback
     ]
 
     for (const url of ssrfUrls) {

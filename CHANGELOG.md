@@ -36,6 +36,14 @@ the return of '<op>'`), and gives clean data fresh identity so guest mutation ca
   nothing else; the teeth are that `call`/`apply`/`bind` live only on `Function.prototype`
   and are therefore rejected, so a leaked function reference can't be re-invoked with a
   chosen `this`.
+- **SSRF guard (`isBlockedUrl`) now covers full private/loopback ranges.** Previously only
+  `127.0.0.1` (not the rest of `127.0.0.0/8`, so `127.0.0.2` passed) and the single cloud
+  metadata IP were blocked, and IPv6 private ranges weren't checked at all. Now blocks all
+  of loopback `127/8`, `0/8`, private `10/8` · `172.16/12` · `192.168/16`, link-local
+  `169.254/16` (the whole cloud-metadata range), and — for IPv6 — `::1`/`::`, unique-local
+  `fc00::/7`, link-local `fe80::/10`, and IPv4-mapped addresses (`::ffff:7f00:1` = 127.0.0.1)
+  that embed a blocked IPv4. WHATWG URL normalization already collapses shorthand/decimal
+  IPv4 (`127.1`, `2130706433`) to canonical form before the check.
 
 ### Added
 
