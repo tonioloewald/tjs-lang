@@ -28,6 +28,17 @@ correctness / dryness items were done in the same pass; the rest are deferred he
 - [ ] **Snowfox heads-up** (ecosystem): the capability-membrane contract change (a live
       `Response` return now hard-fails) affects the known VM embedder. Give them a heads-up /
       release-notes callout before they upgrade past 0.11.0.
+- [ ] **Extract one `isDictDefaultParam(param, dictDefaultsMode)` helper** (dryness, major)
+      imported by both `src/lang/emitters/js.ts` and `src/lang/emitters/dts.ts` — the
+      qualifying predicate is inlined in both; the runtime-merge gate and the deep-partial-type
+      gate MUST agree or the `.d.ts` advertises a partial the runtime rejects (or vice versa).
+- [ ] **httpFetch-layer membrane test** (coverage): the fetch-capability contract change is
+      only exercised via the store atom; add a test driving `.httpFetch()` with a custom
+      `fetch` returning a `Response`-shaped object, asserting membrane rejection.
+- [ ] **DOCS-AJS.md Capability Injection note**: custom capabilities must return
+      structured-cloneable plain data; non-cloneable/oversized returns are rejected at the
+      membrane (`membraneMaxBytes`, default 4MB). Call out the large-JSON / base64 `dataUrl`
+      case (can exceed 4MB) and whether the default should grow or the dataUrl path be exempt.
 
 **Resolved by this release** (retired from High Priority): `memory-gas-capability-limits` —
 the budgeted, cycle-safe membrane pre-walk + `membraneMaxBytes` (default 4MB) caps capability

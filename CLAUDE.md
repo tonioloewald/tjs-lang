@@ -127,7 +127,9 @@ bun run functions:serve     # Local functions emulator
 - `src/lang/emitters/dts.ts` - .d.ts declaration file generator from TJS transpilation results
 - `src/lang/inference.ts` - Type inference from example values
 - `src/lang/json-schema.ts` - JSON Schema generation from TypeDescriptors and example values
-- `src/lang/linter.ts` - Static analysis (unused vars, unreachable code, no-explicit-new)
+- `src/lang/linter.ts` - Static analysis (unused vars, unreachable code, no-explicit-new, dict-default-excess-key)
+- `src/redos.ts` - Shared, dependency-free ReDoS star-height detector (`reDoSRisk`); single source for the predicate verifier AND the VM's `regexMatch` (safe in the lean `tjs-lang/vm` bundle)
+- `src/forbidden-keys.ts` - Canonical prototype-pollution key list (`FORBIDDEN_KEYS`); single source for the VM member/scope guards, the linter, and the dict-default emitter
 - `src/lang/predicate.ts` - Predicate-safety verifier: certifies a cluster of pure, synchronous, composable predicates (reads the atom `effects` tag via `effectfulFromAtoms`); verified predicates compile to native JS. Also `suggest()` — mines a cluster for autocomplete completions (keyword sets → `value`s, `startsWith` guards → open-ended `stub`s like `var(--`; mined values run through the compiled predicate so they're guaranteed valid). Exported from `tjs-lang/lang`. See `experiments/predicates/` (CSS torture set + perf + suggest demo)
 - `src/lang/predicate-schema.ts` - Predicate-aware JSON-Schema: the `$predicate` keyword (computational types). `compilePredicateSchema`/`validatePredicateSchema` — structure for naive validators, `$predicate` for aware ones (progressive enhancement). The serializable-into-JSON-Schema endgame; exported from `tjs-lang/lang`
 - `src/lang/runtime.ts` - TJS runtime (monadic errors, type checking, wrapClass)

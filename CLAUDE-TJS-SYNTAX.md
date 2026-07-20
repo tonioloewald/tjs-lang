@@ -42,9 +42,11 @@ function place(args = { x: 0, y: 0 }) { }
 // place({ x: 's' })    -> MonadicError     members are type-checked
 // place({ x: 1, z: 9 })-> { x: 1, y: 0 }   excess keys stripped (+ recorder notice)
 // This is the TjsDictDefaults mode (on in native .tjs, off under dialect:'js'/
-// TjsCompat/fromTS). Full spec: docs/dictionary-defaults.md. To opt a single
-// param out of the merge, mark it unsafe (`!`); to opt the whole file out, use
-// `dialect: 'js'` or the `TjsCompat` directive.
+// TjsCompat/fromTS). Full spec: docs/dictionary-defaults.md. To keep atomic JS
+// defaults: mark the whole FUNCTION unsafe with a leading `!` in the param list
+// (`function place(! args = {…}) {}`) — note this disables ALL of that
+// function's validation, not just the merge — or use `dialect: 'js'` / the
+// `TjsCompat` directive for the whole file. There is no per-param merge opt-out.
 
 // Object parameter with shape
 function createUser(user: { name: '', age: 0 }) { }

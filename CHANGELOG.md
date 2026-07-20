@@ -7,7 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.12.0] — 2026-07-20
+
+Minor bump with **breaking changes** — see **Changed**. Lands the `TjsDictDefaults` mode and
+five VM-security fixes from a two-round adversarial review. Closes **zero** open GitHub issues
+(this release is security + dict-defaults, both internally driven); the per-mode opt-out those
+security/dict-defaults changes make more acute is tracked as #7, still open.
+
 ### Security
+
+> **Affected versions:** the SSRF, ReDoS, capability-membrane, `methodCall`, and scope-name
+> fixes below address vulnerabilities present in **0.11.0 and all earlier releases**. Pinned
+> consumers (VM embedders) should upgrade.
 
 - **Capability-boundary membrane on the VM.** Every value an `effects: 'io'` atom
   returns (`httpFetch`, `storeGet`/`storeQuery`/vector search, `llmPredict`, `agentRun`,
@@ -496,7 +507,11 @@ No breaking changes.
 Releases before 0.8.0 predate this changelog. See the git tags (`git tag`) and
 `git log` for that history.
 
-[Unreleased]: https://github.com/tonioloewald/tjs-lang/compare/v0.9.1...HEAD
+[Unreleased]: https://github.com/tonioloewald/tjs-lang/compare/v0.12.0...HEAD
+[0.12.0]: https://github.com/tonioloewald/tjs-lang/compare/v0.11.0...v0.12.0
+[0.11.0]: https://github.com/tonioloewald/tjs-lang/compare/v0.10.1...v0.11.0
+[0.10.1]: https://github.com/tonioloewald/tjs-lang/compare/v0.10.0...v0.10.1
+[0.10.0]: https://github.com/tonioloewald/tjs-lang/compare/v0.9.1...v0.10.0
 [0.9.1]: https://github.com/tonioloewald/tjs-lang/compare/v0.9.0...v0.9.1
 [0.9.0]: https://github.com/tonioloewald/tjs-lang/compare/v0.8.7...v0.9.0
 [0.8.7]: https://github.com/tonioloewald/tjs-lang/compare/v0.8.2...v0.8.7
