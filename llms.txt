@@ -85,8 +85,10 @@ This file is a navigation index for AI agents. It does not contain the docs them
 - `src/lang/emitters/js-wasm.ts` — JS bootstrap emitter for compiled wasm modules (one `WebAssembly.compile` per file).
 - `src/lang/module-loader.ts` — transpile-time `.tjs`/`.ts`/`.js` module loader; used by cross-file `wasm function` composition (v0.8.0).
 - `src/linalg/index.tjs` — `tjs-lang/linalg` stdlib source (v0.8.0).
-- `src/lang/linter.ts` — static analysis (unused vars, unreachable code).
-- `src/vm/runtime.ts` — atom implementations, expression sandboxing, fuel charging (security-critical, ~3000 lines).
+- `src/lang/linter.ts` — static analysis (unused vars, unreachable code, no-explicit-new, `dict-default-excess-key`).
+- `src/redos.ts` — shared, dependency-free ReDoS star-height detector (`reDoSRisk`); single source for the predicate verifier AND the VM's `regexMatch` (safe in the lean `tjs-lang/vm` bundle).
+- `src/forbidden-keys.ts` — canonical prototype-pollution key list (`FORBIDDEN_KEYS`); single source for the VM member/scope guards, the linter, and the dict-default emitter.
+- `src/vm/runtime.ts` — atom implementations, expression sandboxing, fuel charging, the capability-boundary structured-clone membrane (security-critical, ~3000 lines).
 - `src/vm/vm.ts` — `AgentVM` class.
 - `src/vm/atoms/` — individual atom definitions; `batteries.ts` has LLM/vector/store atoms.
 - `src/builder.ts` — fluent `TypedBuilder` API for constructing AST without source.
