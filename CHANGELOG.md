@@ -453,19 +453,45 @@ No breaking changes.
 
 ## [0.8.7] — 2026-07-01
 
+### Fixed
+
+- Bare-assignment auto-`const` must not touch plain JS or redeclare bindings.
+- A doc comment must start a line (mid-line `/*#` and `/**` are ignored).
+
+## [0.8.6] — 2026-06-30
+
+### Fixed
+
+- TS→TJS (`fromTS`) never leaks raw TS into `Type`/`Generic` blocks.
+
+## [0.8.5] — 2026-06-30
+
+### Added
+
+- Self-contained browser bundles for in-browser transpilation (`tjs-lang/browser`).
+
+### Fixed
+
+- AJS `==` is footgun-free (not structural), consistent with TJS. (Recorded that the
+  old structural `==` was also a fuel-bypass DoS; a future `Is` atom must be fuel-metered.)
+
+## [0.8.4] — 2026-06-26
+
 ### Added
 
 - First-class **predicate-safety verifier** (`src/lang/predicate.ts`) + fuel-bounded,
   global-shadowed native predicate compiler.
 - Atom `effects: 'pure' | 'io'` tag — the predicate-safety keystone.
+- The `$predicate` JSON-Schema keyword + reference evaluator.
 - `suggest()` — autocomplete completions mined from predicate clusters.
 - Introspection-driven, destructuring-aware playground autocomplete (scope-aware
   symbol model + runtime-truth member completion via an introspection bridge).
 
-### Fixed
+### Changed
 
-- Bare-assignment auto-`const` must not touch plain JS or redeclare bindings.
-- A doc comment must start a line (mid-line `/*#` and `/**` are ignored).
+- `==` is footgun-free (not structural) — stale docs corrected and pinned with tests.
+
+_(No `0.8.3` was tagged — the version was skipped.)_
 
 ## [0.8.2] — 2026-06-24
 
@@ -585,7 +611,10 @@ playground + editor integrations (Monaco / CodeMirror / Ace, linter, autocomplet
 [0.10.0]: https://github.com/tonioloewald/tjs-lang/compare/v0.9.1...v0.10.0
 [0.9.1]: https://github.com/tonioloewald/tjs-lang/compare/v0.9.0...v0.9.1
 [0.9.0]: https://github.com/tonioloewald/tjs-lang/compare/v0.8.7...v0.9.0
-[0.8.7]: https://github.com/tonioloewald/tjs-lang/compare/v0.8.2...v0.8.7
+[0.8.7]: https://github.com/tonioloewald/tjs-lang/compare/v0.8.6...v0.8.7
+[0.8.6]: https://github.com/tonioloewald/tjs-lang/compare/v0.8.5...v0.8.6
+[0.8.5]: https://github.com/tonioloewald/tjs-lang/compare/v0.8.4...v0.8.5
+[0.8.4]: https://github.com/tonioloewald/tjs-lang/compare/v0.8.2...v0.8.4
 [0.8.2]: https://github.com/tonioloewald/tjs-lang/compare/v0.8.1...v0.8.2
 [0.8.1]: https://github.com/tonioloewald/tjs-lang/compare/v0.8.0...v0.8.1
 [0.8.0]: https://github.com/tonioloewald/tjs-lang/compare/v0.7.8...v0.8.0
