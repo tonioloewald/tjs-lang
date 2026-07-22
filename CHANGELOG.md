@@ -502,10 +502,81 @@ No breaking changes.
   transpile-time module composition (wasm-to-wasm `call` resolution), and the
   `tjs-lang/linalg` SIMD stdlib subpath. See `wasm-library-plan.md`.
 
----
+> Entries below 0.8.0 are **backfilled coarsely from the git tags and log** (they
+> predated this changelog). Only `v0.2.0`, `v0.7.6`, `v0.7.7`, `v0.7.8` were tagged
+> before 0.8.0, so the long `0.2.0 → 0.7.6` span is summarized as one entry rather
+> than split across untagged versions.
 
-Releases before 0.8.0 predate this changelog. See the git tags (`git tag`) and
-`git log` for that history.
+## [0.7.8] — 2026-04-30
+
+### Added / Fixed
+
+- AJS agent-loop fixes (PR #2): computed member access `arr[i]` in expressions,
+  `while` error propagation (no more infinite fuel burn on a failing body), battery
+  user type widened for multi-turn messages.
+- Runtime: validate function-typed params on every call, pass-time function-shape
+  checks, deep array validation (`arr: [0]` checks element types, not just
+  array-ness), array-error propagation through nested params.
+- Inference: rich function shapes (params + return types); `function` kind for
+  arrow/function-expression defaults.
+- Docs: classes and `test { }` blocks render as documentation; function-extraction fixes.
+- Playground: SW-served iframe (all iframe fetches route through TFS), per-package /
+  per-import CDN routing (JSDelivr `/+esm` default, esm.sh for React peer-dep dedup).
+
+## [0.7.7] — 2026-04-27
+
+### Fixed
+
+- Protect string literals from code transformations.
+
+## [0.7.6] — 2026-04-26
+
+The long feature-accretion phase (202 commits since 0.2.0, no intermediate tags —
+coarse summary):
+
+### Added
+
+- **Inline WASM**: compiled at transpile time (with WAT comments), SIMD (v128/f32x4)
+  intrinsics, `wasmBuffer()` zero-copy memory + vector search (~5× speedup), iframe
+  instantiation.
+- **FunctionPredicate**: first-class function types, generic `FunctionPredicate<T>`,
+  structural validation, `.d.ts` emission.
+- **JSON Schema generation** from TJS types + function signatures; `Type.strip()`;
+  ecosystem compat tests (Zod, Effect, Radash, Superstruct, ts-pattern, Kysely).
+- **Complete `.d.ts` emission**: constants, type aliases, rest params, auto-populated
+  declaration blocks for round-tripping; DOM type handling in `fromTS` (130+ types).
+- **Error-history ring buffer** (flight recorder) for catching silent monadic errors.
+- **Honest equality**: `==` split into `Eq` (honest equality) vs `Is` (structural),
+  `tjsEquals` symbol protocol, VM structural equality; `typeof null === 'null'`;
+  `NaN == NaN` is true; `IsBounded()`.
+- `TjsNoVar` + `const!` (compile-time immutability, zero runtime cost); standalone JS
+  output (emitted code runs without runtime setup); `@tjs` annotations and
+  `/* @tjs ... */` mode directives in TS source.
+- **Playground TFS service worker**: dynamic module resolution, specifiers rewritten
+  directly to `/tfs/` URLs (import maps dropped); Firebase infra (Auth, Cloud
+  Functions with `Eval`).
+
+### Changed
+
+- ASI protection fixes (was breaking WASM multiline expressions); predicate reason
+  strings in diagnostic type errors.
+
+## [0.2.0] — 2026-01-29
+
+The foundational release: the TJS→JS transpiler (runtime type metadata), the
+TypeScript→TJS converter, the AJS gas-metered VM (fuel metering, capability
+injection, monadic errors), the builder API, stored procedures (AST-as-token),
+`Eval()` safe eval, proportional fuel charging for memory-allocating ops, and the
+playground + editor integrations (Monaco / CodeMirror / Ace, linter, autocomplete POC).
+
+### Changed
+
+- **BREAKING — VM return flattened to value-based** (`202e72a`): `return` now takes a
+  value directly (`{ op: 'return', value: {...} }`) instead of schema-based state
+  extraction. Removed the `__result__` wrapper and the nested `seq` blocks around
+  returns, so `vm.run()`'s result is exactly the value you return — no envelope, no
+  intermediate wrapping. This is the VM-return-flattening change; it landed in **0.2.0**
+  (before 0.7.8) and was only recorded in the git log until this backfill.
 
 [Unreleased]: https://github.com/tonioloewald/tjs-lang/compare/v0.12.0...HEAD
 [0.12.0]: https://github.com/tonioloewald/tjs-lang/compare/v0.11.0...v0.12.0
@@ -517,4 +588,8 @@ Releases before 0.8.0 predate this changelog. See the git tags (`git tag`) and
 [0.8.7]: https://github.com/tonioloewald/tjs-lang/compare/v0.8.2...v0.8.7
 [0.8.2]: https://github.com/tonioloewald/tjs-lang/compare/v0.8.1...v0.8.2
 [0.8.1]: https://github.com/tonioloewald/tjs-lang/compare/v0.8.0...v0.8.1
-[0.8.0]: https://github.com/tonioloewald/tjs-lang/releases/tag/v0.8.0
+[0.8.0]: https://github.com/tonioloewald/tjs-lang/compare/v0.7.8...v0.8.0
+[0.7.8]: https://github.com/tonioloewald/tjs-lang/compare/v0.7.7...v0.7.8
+[0.7.7]: https://github.com/tonioloewald/tjs-lang/compare/v0.7.6...v0.7.7
+[0.7.6]: https://github.com/tonioloewald/tjs-lang/compare/v0.2.0...v0.7.6
+[0.2.0]: https://github.com/tonioloewald/tjs-lang/releases/tag/v0.2.0
