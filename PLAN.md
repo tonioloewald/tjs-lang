@@ -4,7 +4,7 @@
 
 TJS is a practical language that targets multiple runtimes. The type system is _descriptive_ rather than _prescriptive_ - types explain what they are, validate at runtime, and degrade gracefully. No TypeScript gymnastics.
 
-The runtime is JavaScript today, but it's _our_ JavaScript - the sandboxed expression evaluator, the fuel-metered VM. When we target LLVM or SwiftUI, we compile our AST, not arbitrary JS.
+The runtime is JavaScript today, but it's _our_ JavaScript - the sandboxed expression evaluator, the fuel-metered VM. Because the AST (not arbitrary JS) is the source of truth, other emission targets are _possible_; but the strategic center of gravity is the **type system**, not the backend — see "The North Star" below.
 
 ---
 
@@ -74,13 +74,33 @@ No schema interpretation. JIT-friendly. **20x faster** than Zod/io-ts style vali
 
 The idiomatic way to write TJS (single structured argument) is also the fastest way. Language design and performance goals are aligned - you don't have to choose between clean code and fast code.
 
-### Future: Compile to LLVM
+### The North Star: predicates as JSON-Schema's missing computational half
 
-The AST is the source of truth. Today we emit JavaScript. Tomorrow:
+The strategic direction is **JSON-Schema + `$predicate` as the single source of truth
+for TJS types.** A TJS type is example-driven and validates at runtime; the deeper insight
+is that a _verified predicate_ — a pure, fuel-bounded, composable function — is the
+computational half JSON-Schema lacks. Structure for naive validators, `$predicate` for
+aware ones (progressive enhancement). Shipped toward it:
 
-- LLVM IR for native binaries
-- Compete with Go and Rust on performance
-- Same type safety, same developer experience
+- **Predicate-safety verifier** (`src/lang/predicate.ts`, 0.8.4) — certifies a cluster of
+  pure predicates and compiles them to native JS. This is where **"safe is fast"** comes from.
+- **The `$predicate` JSON-Schema keyword** (0.9.0) — makes computational types serializable;
+  `tjs-lang/schema` wires it into tosijs-schema, batteries-included.
+- **`tjs-lang/css`** (0.9.0) — real CSS validators built from verified predicates: the thesis
+  made concrete.
+- **A portable predicate representation** (serialized AST, not source) is the cross-language
+  unlock — the same predicate runs in any host with a small predicate-VM.
+
+The active campaign is **"safe is fast"**: measure the overhead, then propagate
+verified→native compilation so the safe path _is_ the fast path. See
+`docs/type-system-north-star.md` and `PRINCIPLES.md`.
+
+### Beyond the north star: multi-target native emission (speculative)
+
+The AST is the source of truth, so emitting something other than JS (LLVM IR, Swift, Kotlin)
+is _possible_ — but it's **not clearly a win yet**. The performance case over "our JS +
+`wasm {}` for hot paths" is unproven, and it's a large investment. Parked as a
+someday-maybe, explicitly _beyond_ the north star — not a near-term goal.
 
 ---
 
@@ -561,12 +581,14 @@ Scripts: `bun scripts/compat-radash.ts`, `compat-superstruct.ts`, `compat-ts-pat
 
 ## Next Up
 
-| Priority | Feature                    | Why                                                        |
-| -------- | -------------------------- | ---------------------------------------------------------- |
-| 1        | **JSON Schema from types** | Full schema emission for API contracts, OpenAPI generation |
-| 2        | **Tacit proxies**          | Transpiler-assisted implicit namespaces (see Ideas)        |
-| 3        | **target()**               | Conditional compilation for build flags                    |
-| 4        | **Multi-target emission**  | LLVM, SwiftUI, Android (long-term)                         |
+| Priority | Feature                      | Why                                                                                                                                      |
+| -------- | ---------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------- |
+| 1        | **"Safe is fast" campaign**  | Measure overhead → propagate verified-predicate → native. The north star.                                                                |
+| 2        | **Per-mode `off` directive** | Mode control is add-only (#7); made acute by dict-defaults/security in 0.12.0                                                            |
+| 3        | **`target()`**               | Conditional compilation for build flags                                                                                                  |
+| 4        | **Tacit proxies**            | Transpiler-assisted implicit namespaces (see Ideas)                                                                                      |
+| —        | ~~JSON Schema from types~~   | Mostly shipped (`Type.toJSONSchema()`/`strip()`, `$predicate`, `functionMetaToJSONSchema`); only OpenAPI gen + a `tjs schema` CLI remain |
+| —        | ~~Multi-target emission~~    | Beyond the north star, speculative (see Philosophy) — not near-term                                                                      |
 
 ## 7. Safety Levels and Flags
 
@@ -1125,9 +1147,11 @@ target(args?) {
 
 ### WASM Libraries (cross-file, composable)
 
-The current `wasm {}` block model is single-file — wasm runs inline inside the function that wraps it. The next step is letting tjs source files declare reusable `wasm function`s that other files can import, with module composition at transpile time so intra-library calls stay inside the wasm module (no JS↔wasm boundary). First stdlib target: `tjs-lang/linalg`.
-
-Full design and phased implementation plan: [`wasm-library-plan.md`](./wasm-library-plan.md). Phase 0 (assumption verification against the current codebase) is complete; the prerequisite work is module consolidation (one module per file, currently N) and a transpile-time module loader.
+**✅ Shipped in 0.8.0.** tjs source files can declare reusable `wasm function`s that other
+files import, with module composition at transpile time so intra-library calls stay inside the
+wasm module (no JS↔wasm boundary). First stdlib target `tjs-lang/linalg` shipped. Full design:
+[`wasm-library-plan.md`](./wasm-library-plan.md) (all phases complete). Deferred follow-ups
+(linalg expansion, i32/f32/v128 return types) live in `TODO.md`.
 
 ## 18. Classes and Components
 
