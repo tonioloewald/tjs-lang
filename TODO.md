@@ -1,5 +1,8 @@
 # TJS-Lang TODO
 
+> Shipped/completed history lives in [`TODO-ARCHIVE.md`](./TODO-ARCHIVE.md) (and
+> `CHANGELOG.md`, complete back to 0.2.0). This file is the **live backlog** only.
+
 ## Pre-release review follow-ups (0.12.0 — VM security + dict-defaults, 2026-07-20)
 
 The 0.12.0 review (nine-lens, BLOCK) surfaced two blockers (dict-default uid collision;
@@ -147,62 +150,6 @@ tracked, non-blocking follow-ups.
       tag push via stdin ref lines + reachability preflight).
 - [x] `UPSTREAM.md` convention — already generalized in `cross-project.md` (lines 88-111); not
       duplicated.
-
-## ▶ Resume here — 0.9.1 SHIPPED (npm `latest` = 0.9.1, tag `v0.9.1` pushed)
-
-**0.9.1 is published** — npm `latest` = 0.9.1, git tag `v0.9.1` on the remote,
-`main` pushed. Release validated end-to-end in Node from the packed tarball (fresh
-`npm install`, NO typescript): `import 'tjs-lang'` works, `tjs-lang/{lang,css,
-schema,runtime,vm}` resolve, the predicate-verification report + `TjsStrict` throw
-work, a SIMD min/max kernel compiles to WASM, and the `__tjs_wasm_ready`/
-`__tjs_wasm_enabled` controls are in the emitted output. **Next up is the
-"Post-publish" block below** (deploy:hosting + the two experiment adoptions).
-
-**0.9.1 ships (post-0.9.0):** `TjsStrict` escalates unverifiable predicates to a
-transpile error (+`tjsStrict` mode flag); the **full tosijs-ui WASM feedback** —
-silent-`wasm{}`-fallback surfaced into `result.warnings` (UI-#1), `await
-__tjs_wasm_ready()` (UI-#2), `__tjs_wasm_enabled` toggle (UI-#3),
-i32/i32-division lint + supported-subset docs (UI-#4/#5), and **`f32x4`
-min/max/compare/select** for data-dependent SIMD (UI-#6). No breaking changes.
-
-**Prev (0.9.0, published 2026-07-06):** predicate verification (Type/Generic guards,
-ReDoS lint, per-predicate report), `tjs-lang/css`, `tjs-lang/schema`,
-`tjs-lang/runtime` + `/bun-plugin`, dts bare-param fix + `generateDTS` export,
-editors-from-source. Mild breaking: `fromTS` off the main entry.
-
-Adoption in `../tosijs` and `../tosijs-ui` is owned by THOSE repos' agents — don't
-drive their bumps from here; feedback flows back via `TJS-PORT-DX.md` /
-`TJS-FEEDBACK.md`. 0.9.1 unblocks tosijs-ui's inline-WASM workstream.
-
-**0.9.0 ships (25+ commits since 0.8.7):** predicate verification wired into
-`Type` **and** `Generic` (fuel-bounded DoS-safe native guards, graceful fallback)
-
-- ReDoS lint + per-predicate verification status on the `tjs()` result
-  (`result.predicates`/`warnings`); `$predicate` keyword + `createPredicateEvaluator`
-- **`tjs-lang/schema`** (tosijs-schema `1.4.0` pre-wired, batteries-included);
-  **`tjs-lang/css`** (full CSS predicate library — colors/dimensions/shorthands/
-  recursive structure + `$predicate` schema builders + property-aware validation,
-  ~0.5ms/theme); **`tjs-lang/runtime`** + **`tjs-lang/bun-plugin`** exports;
-  `generateDTS` reachable from `tjs-lang/lang` + the bare-param `.d.ts` fix (valid
-  TS); `editors/*` rebuilt-from-source (fixes tosijs-ui autocomplete blocker);
-  `TjsDate` `performance.now()` hint. **Mild breaking change:** `fromTS` no longer
-  re-exported from the main entry — use `tjs-lang/lang/from-ts`.
-
-**Post-publish (unblocks the two experiments):**
-
-- [ ] tosijs port (`../tosijs`) — adopt `tjs-lang/css`/`schema`/`runtime`, the dts
-      bridge; bump its `tjs-lang` dep to `^0.9.0`.
-- [ ] tosijs-ui (`../tosijs-ui`) — adopt the CodeMirror autocomplete
-      (`tjsEditorExtension`/`tjsCompletionSource`, now shipped); bump the
-      live-example CDN pin (`code-transform.ts` `TJS_CDN`/`FROM_TS_CDN`, currently
-      `@0.8.2`) to `@0.9.0`.
-- [ ] `bun run deploy:hosting` to refresh the playground/site.
-
-**Big-picture next (see memories):** consolidate onto tosijs-ui's doc-system /
-`<tosi-example>` (transpile-option toggles, port the CodeMirror autocomplete, dogfood
-tjs-lang's own docs → verified book/ePub/PDF), then retire the bespoke playground.
-Pinned: argument-type-driven completion (needs TJS-native tosijs so element factories
-carry `__tjs`). See [[introspection-autocomplete]], [[predicate-types-direction]].
 
 ## Flight recorder (GitHub #17) — SHIPPED in 0.10.0 (2026-07-16)
 
@@ -526,61 +473,6 @@ So auto-`.d.ts` quality is a _migration-bridge convenience_, judged by correctne
 (must emit valid TS — #11) not polish; the yardstick is TJS's native type system
 (the predicate/CSS/ambient work). See `../tosijs/TJS-PORT-DX.md` header.
 
-## tosijs-ui adoption feedback (`../tosijs-ui/TJS-FEEDBACK.md`, vs 0.8.7)
-
-Second real consumer — the **live-example transpiler** + a first inline-WASM demo.
-
-- [x] **UI-#7 stale `editors/codemirror` build (missing `tjsEditorExtension`/
-      `tjsCompletionSource`/`AutocompleteConfig`) — RESOLVED on `main`** by this
-      session's editors-build-from-source fix (gap #2). The built
-      `editors/codemirror/ajs-language.js` now exports them (grep=6). **Ships in the
-      next release** — this was the blocker for tosijs-ui's runtime-value autocomplete.
-- [x] **UI-#1 silent `wasm{}` fallback — FIXED 2026-07-06.** The signal already
-      existed on `result.wasmCompiled` (per-block `success:false` + `error`) but
-      wasn't where consumers look, so a block that couldn't compile fell back to
-      `fallback{}` (JS) silently. Now `transpileToJS` mirrors each failed block into
-      `result.warnings` (`"wasm{} block '<id>' did not compile — running the
-fallback{} (JS): <reason>"`) — same pattern as the predicate report. Verified:
-      a triple-nested-loop block warns (`out is not a typed array parameter`), a
-      working SIMD block doesn't. Tests: `src/lang/wasm-fallback-warning.test.ts` (2).
-- [x] **UI-#5 document the supported `wasm{}` control-flow subset — DONE 2026-07-06.**
-      DOCS-WASM.md § "Supported subset" lists what's allowed (numeric locals, nested
-      `for` with numeric bounds, `if`/`else`, `&&`/`||`, typed-array element access,
-      math intrinsics, SIMD) and what falls back. Anything unsupported now _warns_
-      (UI-#1) rather than silently falling back. (Making it a hard _error_ instead
-      of a warned fallback would violate the `fallback{}` contract, so warn is right.)
-- [x] **UI-#2 awaitable WASM ready signal — DONE 2026-07-06.** Each module's
-      instantiation promise is pushed onto `globalThis.__tjs_wasm_pending`, and
-      `globalThis.__tjs_wasm_ready()` awaits them all — so `await __tjs_wasm_ready()`
-      before the first call guarantees the WASM path instead of racing the
-      fallback. `src/lang/emitters/js-wasm.ts` (bootstrap wrapper); tests
-      `src/lang/wasm-ready.test.ts` (ready resolves + multi-module accumulation).
-- [x] **UI-#3 public WASM enable/disable toggle — DONE 2026-07-06.**
-      `globalThis.__tjs_wasm_enabled = false` forces every block to its
-      `fallback{}` (JS) even when WASM is ready — the A/B benchmark lever without
-      poking internal `__tjs_wasm_<id>` globals. Added to the dispatch guard in
-      `extractWasmBlocks` (`__tjs_wasm_enabled !== false && globalThis.<id> ? …`);
-      test via a spy on the export. Both documented in DOCS-WASM.md § Runtime.
-- [x] **UI-#4 silent i32/i32 integer division — DONE 2026-07-06.** Documented
-      (DOCS-WASM.md § "Numeric gotcha" — footgun + `x + 0.0` fix) **and** auto-linted:
-      the wasm binary-expr compiler warns when `/` has two i32 operands (loop vars /
-      int literals), once per block, via the existing `ctx.warnings` channel — plumbed
-      through `compileBlocksToModule.warnings` → `generateWasmBootstrap.warnings` →
-      mirrored into `result.warnings`. Fires only on genuine i32/i32 (i32/f64 is fine).
-      Tests: `src/lang/wasm-intdiv-lint.test.ts` (3). **Closes the entire tosijs-ui WASM
-      feedback (UI-#1..#7).**
-- [x] **UI-#6 `f32x4` compare/select/min/max — DONE 2026-07-06.** Added to the
-      wasm compiler (`src/lang/wasm.ts`): `f32x4_min`/`f32x4_max` (arithmetic),
-      `f32x4_eq`/`ne`/`lt`/`gt`/`le`/`ge` (return a v128 lane **mask**), and
-      `f32x4_select(mask, a, b)` (branch-free blend → `v128.bitselect`). The
-      compare→mask→select trio unlocks **data-dependent SIMD** (clamp/saturate,
-      per-lane escape masking, SIMD Mandelbrot) — previously impossible with the
-      arithmetic-only set. Routed via the existing `startsWith('f32x4_')` dispatch;
-      all `f32x4_*` return `v128`. Executed as real WASM + verified correct
-      (`src/lang/wasm-simd-ops.test.ts`, 7 — max/min, each comparison through
-      select, clamp). Documented in DOCS-WASM.md with the clamp example. Ships in
-      the NEXT release (0.9.0 already out).
-
 ## "Safe is fast" — the campaign (measurement + propagation, not invention)
 
 The architecture already makes the safe path the fast path: boundary-level checks
@@ -633,27 +525,6 @@ these as not-our-fault. All 340 TJS-transpilation assertions pass.
       starts failing regularly: harden to assert non-empty string + tolerate empty
       `content` when a reasoning field is present (or use a prompt that demands a
       full sentence). Until then, leave as-is.
-
-## Editors - published `.js` is stale — FIXED 2026-07-02
-
-- [x] **The `tjs-lang/editors/*` subpaths shipped hand-maintained `.js` files that
-      were NOT built from the `.ts` sources.** `editors/codemirror/ajs-language.js`
-      was from Jan 2026 (~7.5KB, an old CDN-example impl exporting a stale
-      `createAjsExtension` API) while `ajs-language.ts` is the real ~51KB
-      implementation. So none of the autocomplete work (scope model, introspection
-      bridge, member completion) reached npm consumers — they got months-old code.
-      Same for monaco/ace. **Fixed:** `scripts/build-editors.ts` bundles each entry
-      from its `.ts` (esbuild, ESM, unminified; externalizes the framework it
-      augments — `@codemirror/*`/`@lezer/*`/`codemirror`/`monaco-editor`/`ace-builds`
-      — plus the acorn stack, which are tjs-lang runtime deps; inlines the internal
-      editor logic). Wired into `bun run make` (+ standalone `bun run build:editors`).
-      The 3 `.js` are prettier-ignored (`editors/**/*.js`) so they stay
-      byte-identical to esbuild output, and `editors/editors-build.test.ts`
-      re-bundles in memory and asserts byte-equality with the committed files —
-      so a `.ts` edit without a rebuild fails CI (no more silent drift). Verified:
-      all 3 bundles import cleanly and expose their real `.ts` exports
-      (codemirror → `tjsCompletionSource`/`ajsEditorExtension`/`ajs`/
-      `tjsEditorExtension`/`ajsLanguage`/`FORBIDDEN_KEYWORDS`).
 
 ## Playground - Introspection-driven autocomplete
 
@@ -907,56 +778,3 @@ prune.)
 - [ ] **Audit misclassifies models under concurrent probing.** Many test files call `LocalModels.audit()` at once, sharing one `.models.cache.json` (cwd, 24h TTL). Clearing the cache before a parallel `bun test` makes several audits probe LM Studio simultaneously and classifications come back scrambled (embedding models tagged `LLM`, an LLM tagged `Embedding`). Tests stay green only by luck of ordering. Fix: serialize the audit, harden the probes, or isolate the cache per run. Workaround documented in [`docs/lm-studio-setup.md`](docs/lm-studio-setup.md). Surfaced 2026-06-10 while getting the LLM suite green.
 
 ---
-
-## Completed (this session)
-
-### Project Rename
-
-- [x] Rename from tosijs-agent to tjs-lang
-- [x] Update all references in package.json, docs, scripts
-
-### Timestamp & LegalDate Utilities
-
-- [x] Timestamp - pure functions, 1-based months, no Date warts (53 tests)
-  - now, from, parse, tryParse
-  - addDays/Hours/Minutes/Seconds/Weeks/Months/Years
-  - diff, diffSeconds/Minutes/Hours/Days
-  - year/month/day/hour/minute/second/millisecond/dayOfWeek
-  - toLocal, format, formatDate, formatTime, toDate
-  - isBefore/isAfter/isEqual/min/max
-  - startOf/endOf Day/Month/Year
-- [x] LegalDate - pure functions, YYYY-MM-DD strings (55 tests)
-  - today, todayIn, from, parse, tryParse
-  - addDays/Weeks/Months/Years
-  - diff, diffMonths, diffYears
-  - year/month/day/dayOfWeek/weekOfYear/dayOfYear/quarter
-  - isLeapYear, daysInMonth, daysInYear
-  - toTimestamp, toUnix, fromUnix
-  - format, formatLong, formatShort
-  - isBefore/isAfter/isEqual/min/max/isBetween
-  - startOf/endOf Month/Quarter/Year/Week
-- [x] Portable predicate helpers: isValidUrl, isValidTimestamp, isValidLegalDate
-
-### TJS Mode System (native TJS has all modes ON by default; TS-originated code defaults to OFF)
-
-- [x] Invert mode system - native TJS enables all modes; TS-originated/AJS code defaults to JS semantics
-- [x] TjsEquals directive - structural == and != (null == undefined)
-- [x] TjsClass directive - classes callable without new
-- [x] TjsDate directive - bans Date constructor/methods
-- [x] TjsNoeval directive - bans eval() and new Function()
-- [x] TjsStrict directive - enables all of the above
-- [x] TjsSafeEval directive - includes Eval/SafeFunction for dynamic code execution
-- [x] Updated Is() for nullish equality (null == undefined)
-- [x] Added Is/IsNot tests (structural equality, nullish handling)
-- [x] TjsStandard directive - newlines as statement terminators (prevents ASI footguns)
-- [x] WASM POC - wasm {} blocks with parsing, fallback mechanism, basic numeric compilation
-- [x] Eval/SafeFunction - proper VM-backed implementation with fuel metering and capabilities
-
-### Bundle Size Optimization
-
-- [x] Separated Eval/SafeFunction into standalone module (eval.ts)
-- [x] Created core.ts - AJS transpiler without TypeScript dependency
-- [x] Fixed tjs-transpiler bundle: 4.14MB → 88.9KB (27KB gzipped)
-- [x] Runtime is now ~5KB gzipped (just Is/IsNot, wrap, Type, etc.)
-- [x] Eval adds ~27KB gzipped (VM + AJS transpiler, no TypeScript)
-- [x] TypeScript only bundled in playground (5.8MB) for real-time TS transpilation
