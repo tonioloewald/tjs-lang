@@ -104,8 +104,9 @@ This file is a navigation index for AI agents. It does not contain the docs them
 
 ## Tracking and process
 
-- [TODO.md](TODO.md) — open work, organized by area. Move done items to the **Completed** section.
-- [PLAN.md](PLAN.md) — roadmap.
+- [TODO.md](TODO.md) — the live backlog, organized by area.
+- [TODO-ARCHIVE.md](TODO-ARCHIVE.md) — shipped/completed history moved out of TODO.md (CHANGELOG is the authoritative shipped record).
+- [PLAN.md](PLAN.md) — roadmap (north star: the predicate-types / `$predicate` direction).
 - [CHANGELOG.md](CHANGELOG.md) — per-release notes (Keep a Changelog). Add an entry under a new version at release time.
 - [AGENTS.md](AGENTS.md) — session-completion checklist (canonical). Hard rule: not done until `git push` succeeds.
 - [README.md](README.md) — public-facing pitch.
