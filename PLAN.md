@@ -424,9 +424,9 @@ When transpiled with `--debug`:
 
 - ✅ Monadic errors (AgentError class)
 - ✅ try {} without catch transforms
-- ⏳ Error introspection (op and message, not full stack)
-- ❌ --debug source mapping
-- ❌ Call stack in errors
+- ✅ Error introspection — the flight recorder (`__tjs.records()/record()`, source+severity, VM/wasm capture; shipped 0.10.0)
+- ✅ Call stack in errors — opt-in via `configure({ callStacks: true })`
+- ❌ --debug source mapping (still open)
 
 ## 4. test('description') {} Blocks
 
@@ -1301,5 +1301,7 @@ Next steps:
 
 ## Non-Goals
 
-- Full JS semantics (we're a subset that's portable)
+- ~~Full JS semantics (we're a subset that's portable)~~ — **superseded:** TJS is now a
+  _superset_ of JS (TJS ⊇ JS, PRINCIPLES.md). The `dialect: 'js'` mode preserves plain-JS
+  semantics; native `.tjs` adds modes on top. JS is a subset of TJS, not the reverse.
 - Convoluted TS type gymnastics (maximum effort - best-effort conversion, ignore what we can't handle)

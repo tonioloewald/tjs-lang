@@ -11,20 +11,13 @@ correctness / dryness items were done in the same pass; the rest are deferred he
       flight recorder — `__tjs.clearRecords()` doesn't reset it, and it's a third divergent
       "record once per site" mechanism. Give the recorder a `recordOnce` and route the notice
       (and future once-per-site notices) through it.
-- [ ] **Extract one `isDictDefaultParam(type, default)` predicate** (dryness). The 5-conjunct
-      detection is duplicated across the JS emitter (`emitters/js.ts`) and the `.d.ts` emitter
-      (`emitters/dts.ts`) and has already drifted (`dts` adds `optionalFlags[i]`). Contract pair —
-      extract and reconcile so they can't diverge.
-- [ ] **Coverage backfill** (test-coverage): membrane cyclic / shared-reference return
-      (the `seen` WeakSet branch) + Date/typed-array passthrough; a focused test that a real
-      method-carrying `Response` is rejected at the boundary; `TjsDictDefaults` standalone
-      directive + `TjsStrict` escalation; nested-impure dict-default template compile error.
+- [ ] **Coverage backfill (remaining)** (test-coverage): `TjsDictDefaults` standalone directive + `TjsStrict` escalation gating tests; nested-impure dict-default template compile error.
+      (The membrane cyclic/shared-ref, depth-limit, container-budget, and real-`Response`-rejection
+      tests landed with the 0.12.0 blocker fix.)
 - [ ] **Membrane pre-walk garbage trim** (efficiency; safety>perf tradeoff kept): the
       budget pre-walk allocates a `{v,depth}` wrapper per node + an `Object.keys` array per
       object. Trim transient garbage (`for..in` + hasOwnProperty, parallel arrays) without
       changing the double-traversal.
-- [ ] **Hoist `IDENT_RE` + a `memberAccess(base, key)` helper** in `emitters/js.ts`
-      (dryness nit) — the ident-safe regex and dot-vs-bracket access are triplicated.
 - [ ] **Snowfox heads-up** (ecosystem): the capability-membrane contract change (a live
       `Response` return now hard-fails) affects the known VM embedder. Give them a heads-up /
       release-notes callout before they upgrade past 0.11.0.
@@ -140,11 +133,8 @@ tracked, non-blocking follow-ups.
 - [ ] **#11** (WASM ready/enable as `__`-prefixed globals): comment that 0.10.0's sync
       instantiation means most callers no longer need to await readiness (partial relief); the
       public non-underscore `wasmReady()` ask stands. Leave open.
-- [ ] On tagging 0.10.0, add "fixed in v0.10.0" close-comments to the already-CLOSED **#10,
-      #12, #15, #16** so the trail is legible to the consumer (tosijs-ui) who filed them.
-- [ ] Re-confirm disposition of still-open **#3/#4/#5/#6/#7/#13/#14/#18/#20** before tag —
-      none were addressed in `v0.9.1..HEAD`; check none are stale-closable. (#20 is NOT
-      invalidated by deleting `module-sw.ts` — TFS survives as `demo/src/tfs-worker.js`.)
+- [x] Close-comment the tosijs-ui issues fixed in 0.10.0 (#10/#12/#15/#16) — done at tag time.
+      (#20 subsequently shipped in 0.11.0 as `tjs-lang/import-resolver`.)
 
 **Shared `tosijs-coding-practices` — DONE (landed 2026-07-16, commit `bc2bb89`):**
 
@@ -214,7 +204,7 @@ tjs-lang's own docs → verified book/ePub/PDF), then retire the bespoke playgro
 Pinned: argument-type-driven completion (needs TJS-native tosijs so element factories
 carry `__tjs`). See [[introspection-autocomplete]], [[predicate-types-direction]].
 
-## Flight recorder (GitHub #17) — SHIPPED (unreleased), 2026-07-13
+## Flight recorder (GitHub #17) — SHIPPED in 0.10.0 (2026-07-16)
 
 The `__tjs` ring buffer is now a black box for the whole runtime, not a type-error
 log. `record()` / `records(filter?)` / `clearRecords()` / `getRecordCount()` /
@@ -432,7 +422,10 @@ what remains is **delivery, measurement, and reach** — not invention.
   - [x] **Warn + strict-error on fallback (= #9 from the tosijs port) — DONE 2026-07-05/06.** `tjs()` surfaces per-predicate verification status: `result.predicates: PredicateVerification[]` (`{name, kind:'Type'|'Generic', verified, reason?}`), and each unverified predicate is mirrored into `result.warnings`. Plumbed transform → `preprocess` return (`predicates`) → `transpileToJS` result; `verifiedGuardExpr` reports verified/fallback with the verifier reason (internal `__pred_` name stripped). Exported `PredicateVerification` from `tjs-lang/lang`. **Strict escalation (2026-07-06):** under the explicit `TjsStrict` directive an unverifiable predicate throws a transpile error (subset invariant: warn by default, error only on opt-in). Added a distinguishing `tjsStrict` flag to `TjsModes` (native TJS has all modes on by default but is NOT strict unless the directive is written); checked in `transpileToJS`. Tests: `src/lang/predicate-report.test.ts` (8, incl. strict throws / non-strict warns / strict+safe passes).
   - [x] **Extend to `Generic` — DONE 2026-07-03.** Generic-Type predicates now verify too: the type-param checks (`T(x)` → `checkT(x)`) are passed as `knownPredicates`, so the verifier treats them as composition with another safe predicate. Safe → fuel-bounded guard, else raw fallback. `verifiedGuardExpr` gained a `knownPredicates` arg; wired into `transformGenericDeclarations`. Tests: `src/lang/generic-verified-predicate.test.ts` (3); verified the guard composes when given a real check fn (`guard({value:5}, isNum)=true`).
   - [ ] **`FunctionPredicate` — confirm no verify step.** It declares a function _shape_ (params/returns), not a boolean predicate body, so there's likely nothing to verify. Confirm and close.
-  - [ ] **Pre-existing (surfaced 2026-07-03, orthogonal to verification): standalone `Generic` runtime passes raw type-args, not resolved check functions.** The inline emitted `Generic(tp, pred, d)` stub does `check: v => pred(v, ...args)`, so `Box(0).check({value:5})` calls the predicate with `checkT = 0` (the example) → `checkT is not a function`. Affects generic type-param _composition_ at runtime in standalone output, independent of (and predating) the verification work — the verified guard itself composes correctly when handed real check functions. Check whether the full `createRuntime().Generic` resolves type-args into predicates and, if so, why the emitted standalone stub doesn't.
+  - [x] **Standalone `Generic` runtime passed raw type-args, not resolved check functions** —
+        `Box(0).check({value:5})` threw `checkT is not a function`. FIXED in 0.10.0 (CHANGELOG:
+        "Generics were dead on arrival in emitted code … the inline runtime spread the raw type
+        arguments in").
 - [x] **#6 (tjs-lang side) the `$predicate` keyword + reference evaluator** — `src/lang/predicate-schema.ts` (`compilePredicateSchema` / `validatePredicateSchema`, exported from `tjs-lang/lang`). A JSON-Schema node carries `$predicate` (predicate-cluster _source_; trivially serializable, the verifier makes it safe to run). Structural keywords (type/properties/required/items) validate for everyone; `$predicate` runs only for aware validators → progressive enhancement. Demoed on CSS (`experiments/predicates/css-schema.demo.test.ts`): same JSON, naive sees `string`, aware validates var()/calc()/!important + recursion. Gotcha noted: embed predicate source via `String.raw` (regex backslashes) — moot in real JSON.
 - [x] **#6 (production) wire `$predicate` into tosijs-schema — DONE 2026-07-03.** The blog's payoff, working across both repos. Design constraint: **tjs-lang depends on tosijs-schema**, so tosijs-schema can't depend on tjs-lang (circular) — solved with a **pluggable evaluator**. tosijs-schema (sibling repo, committed, NOT published): `$predicate?: string` on `JSONSchema`, a `PredicateEvaluator` type + `setPredicateEvaluator`/`getPredicateEvaluator`, and a run-`$predicate`-after-type-check hook in `walk` — stays zero-dep; ignores `$predicate` until an evaluator is registered (progressive enhancement). tjs-lang: `createPredicateEvaluator(opts)` in `src/lang/predicate.ts` (verify+compile+cache per source; **fails closed** — unverifiable/runaway source → `false`, never throws mid-validation), exported from `tjs-lang/lang`. Tests: `src/lang/predicate-evaluator.test.ts` (4), tosijs-schema `src/predicate.test.ts` (6, incl. naive-vs-aware). **End-to-end verified**: real engine + real hook + `cssStyleSchema()` → good=true / bad-key=false / non-object=false; naive (evaluator cleared) passes bad-key on structure alone. Blocked on publishing tosijs-schema before tjs-lang can consume the hook from npm (don't publish without asking).
   - [x] **Pre-wired predicate-enhanced schema export — DONE 2026-07-03.** tosijs-schema `1.4.0` published (with the `$predicate` hook); tjs-lang dep bumped to `^1.4.0`. New **`tjs-lang/schema`** subpath (`src/schema/index.ts`): re-exports the whole tosijs-schema surface and auto-registers `createPredicateEvaluator()` on import (batteries-included — `import { s, validate } from 'tjs-lang/schema'` and `$predicate` nodes validate with zero wiring). `installPredicateSupport(opts)` for custom re-install; `predicateSupportInstalled()` to check. `tosijs-schema` externalized in the bundle (single instance → one global evaluator); the entry is in `sideEffects` (the auto-register must survive tree-shaking). Bundle `dist/tjs-schema.js` 5.7KB/2.7KB gz. Tested against the **real published** tosijs-schema (`src/schema/schema.test.ts`, 6): registers on import, validates cssColorSchema/cssStyleSchema out of the box, opt-out → structural-only, custom fuel. This closes the #6 north-star loop end-to-end.
