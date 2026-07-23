@@ -45,4 +45,18 @@ describe('bare assignments (auto-const) — TJS-only, first-assignment-only', ()
   it('never rewrites lowercase identifiers (only uppercase convention)', () => {
     expect(code('foo = 1', 'tjs')).not.toContain('const foo')
   })
+
+  // Issue #22: a bare-identifier RHS is an alias/reassignment (possibly of a
+  // host-scope binding this transform can't see), NOT a definition. Native tjs
+  // must not auto-const it, even with no local declaration in the snippet.
+  it('dialect:tjs — bare-identifier alias is NOT auto-consted (no local decl)', () => {
+    expect(code('B = BABYLON', 'tjs')).not.toContain('const B')
+    const inCb = code('const s = g({ m(el, BABYLON) { B = BABYLON } })', 'tjs')
+    expect(inCb).not.toContain('const B')
+  })
+
+  it('dialect:tjs — the feature still fires for a definition RHS (Type / object / call)', () => {
+    expect(code('Foo = { debug: true }', 'tjs')).toContain('const Foo')
+    expect(code('Bar = mkThing()', 'tjs')).toContain('const Bar')
+  })
 })

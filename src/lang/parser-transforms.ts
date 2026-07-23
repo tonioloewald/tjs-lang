@@ -3265,8 +3265,16 @@ export function transformBareAssignments(source: string): string {
   // Match: start of line/statement, uppercase identifier, =, not ==
   return source.replace(
     /(?<=^|[;\n{])(\s*)([A-Z][a-zA-Z0-9_]*)\s*=(?!=)/gm,
-    (match, _ws, name) => {
+    (match, _ws, name, offset: number, str: string) => {
       if (declared.has(name)) return match // reassignment of a declared binding
+      // A bare-identifier RHS (`B = BABYLON`) is an ALIAS — a reassignment of a
+      // binding that may live in an enclosing/host scope this source-level
+      // transform can't see (it bit tosijs-3d: `let B = null` in the host, a
+      // `/*# */` example does `B = BABYLON`, auto-const shadowed the host `B`).
+      // The feature targets `UPPER = <definition>` (Type(...)/object/call), so
+      // skip when the whole RHS is a plain identifier. Issue #22.
+      const rhs = str.slice(offset + match.length)
+      if (/^\s*[a-zA-Z_$][\w$]*\s*(?=[;\n,)}\]]|$)/.test(rhs)) return match
       return match.replace(name, `const ${name}`)
     }
   )

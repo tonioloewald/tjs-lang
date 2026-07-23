@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **Bare-assignment auto-`const` no longer captures an all-caps alias** (#22). In native tjs,
+  `B = BABYLON` was rewritten to `const B = …`; when `B` was declared in an enclosing/host
+  scope the source-level transform can't see (e.g. a `/*# */` example inside a module that
+  already `let B`s), the injected `const` shadowed the outer binding — it bit tosijs-3d demos.
+  A bare-identifier RHS is now treated as an alias/reassignment and left alone; the feature
+  still fires for definition RHSs (`Foo = Type(…)`, `Foo = { … }`, `Bar = mk()`).
+
 ## [0.12.0] — 2026-07-20
 
 Minor bump with **breaking changes** — see **Changed**. Lands the `TjsDictDefaults` mode and
