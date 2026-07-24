@@ -364,6 +364,30 @@ what remains is **delivery, measurement, and reach** — not invention.
 **Remaining (delivery / north star):**
 
 - [x] **#4 Autocomplete `suggest()` companion** — `src/lang/predicate.ts` (`suggest`, exported from `tjs-lang/lang`). Mines a cluster for completions: keyword sets (array literals + `==` literals) → `value` suggestions, `startsWith(...)` guards → open-ended `stub`s (`var(--`/`calc(`). Mined values are run through the compiled entry predicate so suggestions are _guaranteed valid_, not just enumerated. Beats both TS modes: a `string` fallback offers nothing, a finite union can't offer the open-ended stubs. Prefix-filtered + limited. Tests: `src/lang/suggest.test.ts`, demo `experiments/predicates/suggest.demo.test.ts`.
+- [ ] **#4b Curated completions — per-value descriptions + cursor placement (0.13.0).**
+      A predicate encodes _validity_; a curated table adds _presentation_. Extend `Suggestion`
+      with `description?` (→ CM `info` / Monaco docs) and `template?` (a snippet string with a
+      cursor stop, e.g. `fixed(${})` → caret inside the parens). Let a predicate declare an
+      authored completion table, **merged with and validated against** the auto-mined set (mined
+      values stay guaranteed-valid; curated entries layer description + template on top). The
+      editor side is already done — the CodeMirror adapter uses `snippetCompletion(...)` with
+      `${}` cursor stops and `info:` everywhere (e.g. `foo(${1})`, `isError(${value})`); this is
+      just threading the two new fields from `suggest()` through the adapter mapping. Use the
+      `${}`/`$0` snippet convention (not a bare `|`, which collides with real values). Motivating
+      case: `'number'`/`'currency'`/`'fixed'` as plain values + `{value:'fixed()', description:
+'fixed-point, N decimals', template:'fixed(${})'}`.
+- [ ] **#4c AI-discoverability of curated descriptions via introspection (0.13.0).** The
+      curated per-value descriptions (#4b) must land on the SAME introspection surface that
+      already carries param/function descriptions, so an AI writing tjs can read them without an
+      editor. **Already discoverable today:** doc-comment (`/*# */`/JSDoc) descriptions flow into
+      `TypeDescriptor`/`ParameterDescriptor.description` (parser.ts), into `__tjs` param metadata
+      (js.ts), and out as JSDoc `/** … */` in the emitted `.d.ts` (dts.ts:672). **Gap:** a
+      predicate's _accepted-value set with per-value descriptions_ isn't attached anywhere
+      introspectable — `suggest()` returns bare values. Wire the #4b table into `fn.__tjs`
+      (e.g. `params[x].completions`) and consider surfacing it in the `.d.ts` (a JSDoc `@example`
+      list or a union-of-literals with a trailing comment) so both runtime introspection and
+      static `.d.ts` tooling can see "this param accepts number|currency|fixed|fixed(N); fixed(N)
+      = fixed-point with N decimals."
 - [~] **#5 Wire into `FunctionPredicate` / `Type`** — predicate bodies authored in this verified-safe substrate; the real consumer.
   - [x] **`Type … { predicate(x){…} }` — DONE 2026-07-02.** A `Type` predicate body now runs through the verifier at transpile time: if predicate-safe it compiles to a self-contained, fuel-bounded native guard (DoS-safe — a runaway input returns `false`, never hangs/throws to the caller); if not, it falls back to the raw arrow (never rejected — TJS ⊇ JS). New `emitVerifiedPredicate(source, entryName, opts)` in `src/lang/predicate.ts` (the transpile-time counterpart to `compilePredicate`, emits a self-contained IIFE **source string** — no engine/`__tjs` runtime dep), exported from `tjs-lang/lang`. Wired into both predicate branches of `transformTypeDeclarations` (the example schema-gate is preserved as an outer check). The verifier now whitelists the TJS-injected pure helpers `Eq`/`NotEq`/`Is`/`IsNot`/`TypeOf`, so native-TJS predicates using `==`/`typeof` still verify. Tests: `src/lang/emit-verified-predicate.test.ts` (7), `src/lang/type-verified-predicate.test.ts` (5); runtime-smoke verified `Pos.check(5)=true / check(-1)=false`.
   - [x] **Warn + strict-error on fallback (= #9 from the tosijs port) — DONE 2026-07-05/06.** `tjs()` surfaces per-predicate verification status: `result.predicates: PredicateVerification[]` (`{name, kind:'Type'|'Generic', verified, reason?}`), and each unverified predicate is mirrored into `result.warnings`. Plumbed transform → `preprocess` return (`predicates`) → `transpileToJS` result; `verifiedGuardExpr` reports verified/fallback with the verifier reason (internal `__pred_` name stripped). Exported `PredicateVerification` from `tjs-lang/lang`. **Strict escalation (2026-07-06):** under the explicit `TjsStrict` directive an unverifiable predicate throws a transpile error (subset invariant: warn by default, error only on opt-in). Added a distinguishing `tjsStrict` flag to `TjsModes` (native TJS has all modes on by default but is NOT strict unless the directive is written); checked in `transpileToJS`. Tests: `src/lang/predicate-report.test.ts` (8, incl. strict throws / non-strict warns / strict+safe passes).

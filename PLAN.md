@@ -581,14 +581,15 @@ Scripts: `bun scripts/compat-radash.ts`, `compat-superstruct.ts`, `compat-ts-pat
 
 ## Next Up
 
-| Priority | Feature                      | Why                                                                                                                                      |
-| -------- | ---------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------- |
-| 1        | **"Safe is fast" campaign**  | Measure overhead → propagate verified-predicate → native. The north star.                                                                |
-| 2        | **Per-mode `off` directive** | Mode control is add-only (#7); made acute by dict-defaults/security in 0.12.0                                                            |
-| 3        | **`target()`**               | Conditional compilation for build flags                                                                                                  |
-| 4        | **Tacit proxies**            | Transpiler-assisted implicit namespaces (see Ideas)                                                                                      |
-| —        | ~~JSON Schema from types~~   | Mostly shipped (`Type.toJSONSchema()`/`strip()`, `$predicate`, `functionMetaToJSONSchema`); only OpenAPI gen + a `tjs schema` CLI remain |
-| —        | ~~Multi-target emission~~    | Beyond the north star, speculative (see Philosophy) — not near-term                                                                      |
+| Priority | Feature                           | Why                                                                                                                                                                                                    |
+| -------- | --------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| 1        | **"Safe is fast" campaign**       | Measure overhead → propagate verified-predicate → native. The north star.                                                                                                                              |
+| 2        | **Per-mode `off` directive**      | Mode control is add-only (#7); made acute by dict-defaults/security in 0.12.0                                                                                                                          |
+| 3        | **Curated predicate completions** | `suggest()` gains per-value descriptions + cursor-placement templates, discoverable both in editors AND by an AI via introspection (`__tjs`/`.d.ts`). 0.13.0 candidate; TODO §Predicate types #4b/#4c. |
+| 4        | **`target()`**                    | Conditional compilation for build flags                                                                                                                                                                |
+| 5        | **Tacit proxies**                 | Transpiler-assisted implicit namespaces (see Ideas)                                                                                                                                                    |
+| —        | ~~JSON Schema from types~~        | Mostly shipped (`Type.toJSONSchema()`/`strip()`, `$predicate`, `functionMetaToJSONSchema`); only OpenAPI gen + a `tjs schema` CLI remain                                                               |
+| —        | ~~Multi-target emission~~         | Beyond the north star, speculative (see Philosophy) — not near-term                                                                                                                                    |
 
 ## 7. Safety Levels and Flags
 
