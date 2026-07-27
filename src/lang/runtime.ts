@@ -327,7 +327,6 @@ function warnLateConfigureOnce(): void {
     'modules (e.g. an import-order-first `configure-tjs` module). See ' +
     'https://github.com/tonioloewald/tjs-lang/issues/23'
   try {
-    // eslint-disable-next-line no-console
     console.warn(msg)
   } catch {
     // never let the warning break the program
