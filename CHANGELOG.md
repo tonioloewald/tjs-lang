@@ -24,6 +24,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   capture (the instance's `createRuntime()`), so configuring before any module loads never warns.
   (Making config a live post-eval read is a deeper change to the intentional per-instance
   isolation — deferred to 0.13.0; a silent no-op was the worst outcome and is now gone.)
+- **`==` inside an inline `wasm { }` block is no longer rewritten to `Eq(...)`** (L807). In
+  native tjs the `==`→`Eq()` (and `Is`/`IsNot`→call) transforms ran before inline wasm-block
+  extraction, so a `wasm { if (a == b) … }` body became `Eq(a, b)` — which the wasm compiler
+  can't compile, silently falling back to JS. Wasm bodies are now masked across just those two
+  operator transforms and restored before extraction, so the wasm compiles; a following
+  `fallback { }` (real JS) still gets the normal rewrite. `wasm function` declarations were
+  already unaffected (extracted earlier).
 
 ## [0.12.0] — 2026-07-20
 

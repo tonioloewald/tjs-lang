@@ -3183,4 +3183,22 @@ wasm function caller(): f64 {
     expect(callerResult!.success).toBe(false)
     expect(callerResult!.error).toMatch(/takesTwo expects 2 arguments, got 1/)
   })
+
+  it('== inside an inline wasm{} block compiles (not rewritten to Eq) — L807', async () => {
+    const { tjs } = await import('./index')
+    // In native tjs, the == -> Eq() rewrite used to run BEFORE inline wasm{}
+    // extraction, so the wasm compiler saw `Eq(a,b)` (a call) and failed,
+    // silently falling back to JS. Inline blocks are now extracted first.
+    const source = `function eq(a: 0, b: 0):! 0 {
+  let x = 0
+  wasm {
+    if (a == b) { x = 1 }
+  }
+  return x
+}`
+    const result = tjs(source, { runTests: false })
+    const block = result.wasmCompiled![0]
+    expect(block.success).toBe(true)
+    expect(block.error).toBeUndefined()
+  })
 })

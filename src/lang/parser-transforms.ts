@@ -197,6 +197,61 @@ function moduleTag(source: string): string {
   return h.toString(36)
 }
 
+/**
+ * Mask the BODY of every inline `wasm { ... }` block behind an operator-free
+ * comment placeholder, so the source-level operator transforms (`==`→`Eq()`,
+ * `Is`/`IsNot`→calls) don't rewrite wasm code — the wasm compiler can't compile
+ * `Eq(a,b)` and would silently fall back to JS (L807). Only the wasm body is
+ * masked; a following `fallback { ... }` is JS and keeps its normal rewrite.
+ * Pair with `unmaskWasmBodies` after the operator transforms; the real
+ * `extractWasmBlocks` (run later, post paren/poly transforms for correct
+ * variable capture) then sees the restored bodies untouched.
+ */
+export function maskWasmBodies(source: string): {
+  source: string
+  masks: string[]
+} {
+  const masks: string[] = []
+  let result = ''
+  let i = 0
+  while (i < source.length) {
+    const m = source.slice(i).match(/^\bwasm\s*\{/)
+    if (m) {
+      const bodyStart = i + m[0].length
+      let depth = 1
+      let j = bodyStart
+      while (j < source.length && depth > 0) {
+        const c = source[j]
+        if (c === '{') depth++
+        else if (c === '}') depth--
+        j++
+      }
+      if (depth === 0) {
+        const id = masks.length
+        masks.push(source.slice(bodyStart, j - 1))
+        // `wasm {` + operator-free comment placeholder + `}` — balanced braces,
+        // nothing for the operator transforms to touch.
+        result += `${m[0]} /*__WASM_MASK_${id}__*/ }`
+        i = j
+        continue
+      }
+    }
+    result += source[i]
+    i++
+  }
+  return { source: result, masks }
+}
+
+/** Restore the wasm bodies masked by `maskWasmBodies`. */
+export function unmaskWasmBodies(source: string, masks: string[]): string {
+  let result = source
+  for (let id = 0; id < masks.length; id++) {
+    // Function replacer so `$` in a wasm body isn't treated as a replacement token.
+    result = result.replace(`/*__WASM_MASK_${id}__*/`, () => masks[id])
+  }
+  return result
+}
+
 export function extractWasmBlocks(source: string): {
   source: string
   blocks: WasmBlock[]

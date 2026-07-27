@@ -32,6 +32,8 @@ import { transformParenExpressions } from './parser-params'
 import {
   transformTryWithoutCatch,
   extractWasmBlocks,
+  maskWasmBodies,
+  unmaskWasmBodies,
   extractWasmFunctions,
   composeImportedWasmFunctions,
   transformIsOperators,
@@ -295,6 +297,15 @@ export function preprocess(
   const wasmFunctions = extractWasmFunctions(source)
   source = wasmFunctions.source
 
+  // Inline `wasm { ... }` blocks are extracted LATE (they need the surrounding
+  // function's params/structure transformed first, for variable capture). But
+  // the operator transforms below rewrite `==`→`Eq(...)` and `Is`/`IsNot`→calls,
+  // which would mangle a wasm body (the wasm compiler can't compile `Eq(a,b)` and
+  // silently falls back to JS — L807). So mask the wasm bodies across just those
+  // two transforms, then restore them untouched for the real extraction later.
+  const wasmMask = maskWasmBodies(source)
+  source = wasmMask.source
+
   // Transform Is/IsNot infix operators to function calls
   // a Is b -> Is(a, b)
   // a IsNot b -> IsNot(a, b)
@@ -307,6 +318,11 @@ export function preprocess(
   if (tjsModes.tjsEquals && !options.vmTarget) {
     source = transformEqualityToStructural(source)
   }
+
+  // Restore wasm bodies now that the operator transforms have run — the real
+  // inline-`wasm{}` extraction (below, post paren/poly transforms) sees them
+  // untouched, and variable capture works as before. (L807.)
+  source = unmaskWasmBodies(source, wasmMask.masks)
 
   // Transform Type, Generic, Union, and Enum declarations
   // Type Foo { ... } -> const Foo = Type(...)
@@ -378,8 +394,9 @@ export function preprocess(
   source = polyResult.source
 
   // Extract WASM blocks: wasm(args) { ... } fallback { ... }
-  // `wasm function` declarations are already extracted earlier in the pipeline
-  // (see above, before transformParenExpressions). This finds the remaining
+  // `wasm function` declarations are already extracted earlier in the pipeline;
+  // inline wasm bodies were masked across the operator transforms and restored
+  // (see above) so their `==`/`Is` weren't rewritten. This finds the remaining
   // inline `wasm { ... }` blocks inside regular tjs functions.
   const wasmBlocks = extractWasmBlocks(source)
   source = wasmBlocks.source
