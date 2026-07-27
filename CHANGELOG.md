@@ -15,6 +15,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   already `let B`s), the injected `const` shadowed the outer binding — it bit tosijs-3d demos.
   A bare-identifier RHS is now treated as an alias/reassignment and left alone; the feature
   still fires for definition RHSs (`Foo = Type(…)`, `Foo = { … }`, `Bar = mk()`).
+- **`configure()` after a converted module loaded now warns instead of silently doing nothing**
+  (#23). A converted module snapshots its config when it captures the runtime
+  (`globalThis.__tjs.createRuntime()`) at import, so `configure()` called after the module graph
+  evaluated reached nothing — which made tosijs's debug/safe bundles inert. It now emits a loud
+  one-time `console.warn` (+ a recorder `warning`) pointing at the import-order requirement,
+  reliably distinguishing the install (bare module-level `createRuntime()`) from a module's
+  capture (the instance's `createRuntime()`), so configuring before any module loads never warns.
+  (Making config a live post-eval read is a deeper change to the intentional per-instance
+  isolation — deferred to 0.13.0; a silent no-op was the worst outcome and is now gone.)
 
 ## [0.12.0] — 2026-07-20
 

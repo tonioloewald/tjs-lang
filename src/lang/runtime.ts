@@ -299,6 +299,42 @@ const DEFAULT_CONFIG: TJSConfig = {
 /** Current runtime configuration */
 let config: TJSConfig = { ...DEFAULT_CONFIG }
 
+/**
+ * Late-configure guard (#23). A converted module snapshots its config when it
+ * captures the runtime (`globalThis.__tjs.createRuntime()` at module-eval time),
+ * so `configure()` called *after* the module graph has evaluated reaches nothing
+ * — a silent no-op that made tosijs's debug/safe bundles inert. We can't fix
+ * that silently in a patch (making config a live global read changes the
+ * intentional per-instance isolation), but a silent no-op is the worst outcome,
+ * so warn loudly instead.
+ *
+ * `modulesCaptured` distinguishes an emitted module's capture from the install:
+ * during `globalThis.__tjs = createRuntime()` the RHS runs while `globalThis.__tjs`
+ * is still undefined; an emitted `globalThis.__tjs.createRuntime()` runs while it
+ * is already set. So a createRuntime call that sees an installed global IS a
+ * post-install capture. Configuring after that can't reach it.
+ */
+let modulesCaptured = false
+let warnedLateConfigure = false
+
+function warnLateConfigureOnce(): void {
+  if (warnedLateConfigure || !modulesCaptured) return
+  warnedLateConfigure = true
+  const msg =
+    'TJS: configure() was called after a converted module already captured the ' +
+    'runtime — the change will NOT reach modules that already evaluated (their ' +
+    'config was snapshotted at import). Configure before importing converted ' +
+    'modules (e.g. an import-order-first `configure-tjs` module). See ' +
+    'https://github.com/tonioloewald/tjs-lang/issues/23'
+  try {
+    // eslint-disable-next-line no-console
+    console.warn(msg)
+  } catch {
+    // never let the warning break the program
+  }
+  recorder.record({ source: 'app', severity: 'warning', message: msg })
+}
+
 /** Ring buffer for call stack tracking — fixed size, zero allocation */
 const STACK_SIZE = 64
 const callStackBuffer: string[] = new Array(STACK_SIZE).fill('')
@@ -516,6 +552,7 @@ export function isUnsafeMode(): boolean {
  */
 export function configure(options: TJSConfig): void {
   config = { ...config, ...options }
+  warnLateConfigureOnce()
 }
 
 /**
@@ -646,6 +683,8 @@ export function resetRuntime(): void {
   callStackCount = 0
   recorder.reset()
   unsafeDepth = 0
+  modulesCaptured = false
+  warnedLateConfigure = false
 }
 
 /**
@@ -1589,6 +1628,7 @@ export function createRuntime() {
   // Per-instance stateful functions
   function instanceConfigure(options: TJSConfig): void {
     instanceConfig = { ...instanceConfig, ...options }
+    warnLateConfigureOnce()
   }
 
   function instanceGetConfig(): TJSConfig {
@@ -1815,8 +1855,15 @@ export function createRuntime() {
     wrapClass,
     compareVersions,
     versionsCompatible,
-    // Create child runtime instances
-    createRuntime,
+    // Create child runtime instances. Emitted/converted modules capture their
+    // runtime via THIS method (`globalThis.__tjs.createRuntime()`) at module-eval
+    // time — whereas the top-level install calls the bare module-level
+    // `createRuntime()`. Flag the former so a later configure() knows a module
+    // already snapshotted its config and can warn it won't reach it (#23).
+    createRuntime: () => {
+      modulesCaptured = true
+      return createRuntime()
+    },
     // Debug mode (instance-specific)
     configure: instanceConfigure,
     getConfig: instanceGetConfig,
