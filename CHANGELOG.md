@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Security / Chore
+
+- **Dropped `vitest` and `valibot` from devDependencies** — removing a whole vulnerable
+  dependency chain (incl. a critical `vitest` UI-server advisory) that was dev-only and
+  unused: the repo's framework is `bun:test`. Six files that imported `{ describe, it, expect }`
+  from `vitest` (and thereby **errored out under `bun test`** — a silent coverage hole across
+  the timeout/cost-override/request-context/store tests) were migrated to `bun:test` and now
+  run. `valibot` was used only by a compile-only type-inference file, switched to the shipped
+  `tosijs-schema`. `@happy-dom/global-registrator` bumped to a fixed happy-dom (≥20.8.9).
+  (The published package's runtime deps — `acorn`/`acorn-loose`/`acorn-walk`/`tosijs-schema` —
+  carry no advisories; consumers were never exposed.)
+
 ### Fixed
 
 - **Bare-assignment auto-`const` no longer captures an all-caps alias** (#22). In native tjs,

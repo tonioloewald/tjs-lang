@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeAll } from 'vitest'
+import { describe, it, expect, beforeAll } from 'bun:test'
 import { getStoreCapability, cosineSimilarity } from './store'
 
 describe('Vector Store', () => {

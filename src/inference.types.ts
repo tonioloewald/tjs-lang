@@ -1,9 +1,9 @@
 /* eslint-disable @typescript-eslint/no-unused-vars */
-import { expect, test } from 'vitest'
+import { expect, test } from 'bun:test'
 import { Agent } from './builder'
 import { AgentVM } from './vm'
 import { defineAtom } from './runtime'
-import * as s from 'valibot'
+import { s } from 'tosijs-schema'
 
 // This file is for type inference testing.
 // It should compile without errors if the types are correct.
@@ -20,8 +20,8 @@ test('Inference Checks', () => {
   // --- Agent.custom ---
   const customAtom = defineAtom(
     'customOp',
-    s.object({ input: s.string() }),
-    s.string(),
+    s.object({ input: s.string }),
+    s.string,
     async (input) => input.input
   )
   const atoms = { customOp: customAtom }
