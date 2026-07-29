@@ -57,7 +57,15 @@ bun test                    # Full test suite
 bun test src/path/to/file.test.ts  # Single test file
 bun test --test-name-pattern "pattern"  # Run tests matching pattern
 SKIP_LLM_TESTS=1 bun test   # Skip LLM integration tests
+SKIP_AUDIT=1 bun test       # Skip the `bun audit` dependency gate (needs network)
 bun test --coverage         # With coverage report
+
+# Dependency-audit gate: src/dependency-audit.test.ts fails on any high/critical
+# `bun audit` advisory not covered by a live entry in `audit-exemptions.ts`.
+# Exemptions are time-gated — each has a `reason` + `until` date and LAPSES on that
+# date (forcing a re-fix/renew). Runs in the full `bun test`; test:fast sets SKIP_AUDIT=1.
+# When a high+ advisory appears with no clean fix (dev/deploy-only transitive), add a
+# dated exemption; when upstream fixes it, the gate warns to delete the dead entry.
 
 # Efficient test debugging - capture once, query multiple times
 bun test 2>&1 | tee /tmp/test-results.txt | tail -20  # Run and save

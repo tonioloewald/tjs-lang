@@ -9,6 +9,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Security / Chore
 
+- **`bun audit` gate with time-gated exemptions.** A new pre-tag lane
+  (`src/dependency-audit.test.ts`) fails the suite on any **high or critical** advisory that
+  isn't covered by a live entry in `audit-exemptions.ts`. Exemptions are deliberate and dated:
+  each carries a `reason` and an `until` date, and **lapses on that date** (the advisory then
+  fails the gate again, forcing a re-fix or a renewed justification) — not a permanent silence.
+  A dead exemption (advisory no longer reported) warns to be removed. The gate runs in the full
+  `bun test` (pre-tag) run, is skipped by `test:fast` (`SKIP_AUDIT=1` — it needs the network),
+  and self-skips offline so a network blip can't red the suite. The current exemptions are all
+  dev/deploy-only transitive advisories (eslint→brace-expansion/flatted, firebase→undici/form-data)
+  with no upstream fix yet.
 - **Dropped `vitest` and `valibot` from devDependencies** — removing a whole vulnerable
   dependency chain (incl. a critical `vitest` UI-server advisory) that was dev-only and
   unused: the repo's framework is `bun:test`. Six files that imported `{ describe, it, expect }`
