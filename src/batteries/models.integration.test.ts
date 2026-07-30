@@ -29,7 +29,7 @@ describe.skipIf(process.env.SKIP_LLM_TESTS)('LM Studio live smoke', () => {
     caps = getLLMCapability(models)
   }, 120_000)
 
-  it('audit classifies a live model list (>=1 LLM, >=1 embedding)', () => {
+  it('audit resolves a usable LLM + embedding model', () => {
     const all = models.getModels()
     expect(all.length).toBeGreaterThan(0)
 
@@ -37,9 +37,22 @@ describe.skipIf(process.env.SKIP_LLM_TESTS)('LM Studio live smoke', () => {
     expect(llm.type).toBe('LLM')
 
     const embedding = models.getEmbedding()
-    expect(embedding.dimension).toBeGreaterThan(0)
+    expect(embedding.type).toBe('Embedding')
 
-    console.log(`Live LLM: ${llm.id} | embedding: ${embedding.id}`)
+    // Two legitimate paths to a model (see config.ts):
+    //  - DISCOVERED (LM Studio lists /v1/models) → the audit probed it, so it
+    //    knows the embedding dimension.
+    //  - DECLARED via TJS_EMBEDDING_MODEL (mlx-omni-server returns an empty list
+    //    and loads on demand) → not probed, so dimension is unknown until first
+    //    use. The embed() test below proves the vector is real either way.
+    const declared = embedding.status.includes('declared via env')
+    if (!declared) expect(embedding.dimension).toBeGreaterThan(0)
+
+    console.log(
+      `Live LLM: ${llm.id} | embedding: ${embedding.id}${
+        declared ? ' (declared via env)' : ''
+      }`
+    )
   })
 
   it('predict() round-trips to a real chat completion', async () => {

@@ -13,10 +13,11 @@ source) / llama (Meta-adjacent) to **MLX** (Apple-silicon native, open source) o
       batteries already speak plain OpenAI-compatible HTTP, so the backend is a config
       choice. User-facing "start LM Studio" guidance made backend-neutral.
       Setup: [`docs/mlx-setup.md`](docs/mlx-setup.md).
-- [ ] **(1) Agent-flow testing on MLX — the priority** (it's current friction). Run
-      `mlx-omni-server`, point `TJS_LLM_BASE_URL` at it, and get the live-smoke +
-      grokkability lanes green against MLX. Lane 1 (fixture-server transport tests) needs
-      no backend and already passes, so a machine without MLX still runs the fast suite.
+- [x] **(1) Agent-flow testing on MLX — WORKING (2026-07-30).** mlx-omni-server installed via
+      uv, Qwen2.5-1.5B + bge-small pre-downloaded, live smoke (audit + predict + embed) green
+      against MLX with no LM Studio. Needed `TJS_LLM_MODEL`/`TJS_EMBEDDING_MODEL` because
+      mlx-omni-server returns an empty /v1/models (loads on demand) — see docs/mlx-setup.md.
+      Remaining: point the grokkability lane at an MLX model (`GROK_MODEL`).
 - [ ] **(4) `speak()` capability — TTS with voice + acting directions** (ariosto). The
       research-gated piece: `mlx-omni-server` exposes `/v1/audio/speech`, but _style/emotion
       control_ varies by model (Dia / Orpheus / CSM / Kokoro — MLX ports differ). Spike the

@@ -27,23 +27,52 @@ OpenAI-compatible API the batteries already speak.
 
 ## Setup
 
+Verified end-to-end on macOS 26.5 / Apple silicon, 2026-07-30.
+
 ```bash
-# 1. install (Apple silicon)
-pip install mlx-omni-server          # or: uv tool install mlx-omni-server
+# 1. install. Use uv — it manages its own Python; the system python3 here is
+#    Xcode's 3.9, too old for MLX, and shouldn't be polluted anyway.
+brew install uv
+uv tool install mlx-omni-server      # binary lands in ~/.local/bin
 
-# 2. run it (default port 10240)
-mlx-omni-server                      # add --port 10240 to be explicit
+# 2. PRE-DOWNLOAD the models you want (see "on-demand loading" below — the server
+#    will NOT fetch them for you). Small, capable, non-Meta defaults:
+hf download mlx-community/Qwen2.5-1.5B-Instruct-4bit   # chat  (~840MB)
+hf download mlx-community/bge-small-en-v1.5-bf16       # embed (~65MB)
 
-# 3. point tjs-lang at it
+# 3. run the server (default port 10240)
+mlx-omni-server --port 10240
+
+# 4. point tjs-lang at it, naming the models
 export TJS_LLM_BASE_URL=http://localhost:10240/v1
+export TJS_LLM_MODEL=mlx-community/Qwen2.5-1.5B-Instruct-4bit
+export TJS_EMBEDDING_MODEL=mlx-community/bge-small-en-v1.5-bf16
 
-# 4. verify the batteries see models
+# 5. verify
 bun run test:llm                     # live smoke: audit + predict + embed
 ```
 
-Models download from Hugging Face on first use (the `mlx-community/*` repos are the
-MLX-converted ones). A chat model **and** an embedding model must be resolvable for the
-full smoke to pass; the audit caches its classification for 24h (`.models.cache.json`).
+### Two gotchas that will bite you (both cost real time here)
+
+**1. `/v1/models` returns an empty list — you must name your models.** LM Studio lists
+the models it has loaded, so the batteries could *discover* and classify them. mlx-omni-server
+loads a model on demand from the id in each request, so it has nothing to enumerate and
+returns `{"data": []}` — discovery finds nothing and every call fails with "No LLM available"
+even though the server works perfectly. Hence `TJS_LLM_MODEL` / `TJS_EMBEDDING_MODEL`: name
+them and the audit is skipped (a capability probe would load a whole model just to ask about
+it). A declared model is trusted, not probed — so its embedding `dimension` is unknown until
+first use, which is expected, not a failure.
+
+**2. The server does not download models; it serves what's cached.** It passes
+`local_files_only=True` to HuggingFace, so an unknown model id fails with a confusing
+"outgoing traffic has been disabled" (even with a working connection). Pre-download with
+`hf download <id>` — the `hf` CLI ships inside the uv tool env
+(`~/.local/share/uv/tools/mlx-omni-server/bin`).
+
+**A third, environment-specific one:** if `pyenv` is on the PATH with no usable `python`
+shim, the server dies at startup with `Failed to inspect Python interpreter … pyenv: python:
+command not found`. Put a real Python first on the PATH (the tool's own env works:
+`export PATH="$HOME/.local/share/uv/tools/mlx-omni-server/bin:$PATH"`).
 
 ## How this maps onto the three test lanes
 
@@ -60,6 +89,12 @@ point of having it:
 
 ## Status
 
-Backend-agnostic config landed (this doc + `src/batteries/config.ts`). Still ahead for the
-broader "shared LLM harness" direction: a `speak()` capability for TTS with voice + acting
-directions (ariosto), and the cross-project consumption shape. See `TODO.md`.
+**Use-case 1 (agent-flow testing) works on MLX today** — the live smoke (audit + predict +
+embed) is green against `mlx-omni-server` with no LM Studio involved. Backend-agnostic config
++ explicit model naming landed (`src/batteries/config.ts`).
+
+Still ahead for the broader "shared LLM harness" direction: a `speak()` capability for TTS
+with voice + acting directions (ariosto — `mlx-omni-server` exposes `/v1/audio/speech`, and
+its install pulled `vocos-mlx`, so the plumbing is there; the open question is which model
+actually follows *acting directions*), offline/self-hosted coding, and the cross-project
+consumption shape. See `TODO.md`.
