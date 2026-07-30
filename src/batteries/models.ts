@@ -1,6 +1,7 @@
 import { auditModels, type ModelAudit } from './audit'
+import { LLM_BASE_URL } from './config'
 
-const DEFAULT_BASE_URL = 'http://localhost:1234/v1'
+const DEFAULT_BASE_URL = LLM_BASE_URL
 
 export class LocalModels {
   private models: ModelAudit[] = []

@@ -1,8 +1,12 @@
 import { LocalModels } from './models'
+import { LLM_BASE_URL } from './config'
 
 /**
  * LLM Capability Battery
- * Bridges to local LM Studio instance via HTTP.
+ *
+ * Bridges to a local **OpenAI-compatible** server over HTTP — MLX
+ * (`mlx-omni-server` / `mlx_lm.server`), LM Studio, or any other. Point it with
+ * the `TJS_LLM_BASE_URL` env var; see `./config.ts` and `docs/mlx-setup.md`.
  */
 
 /**
@@ -44,7 +48,7 @@ function buildUserMessage(user: UserContent): { role: string; content: any } {
   return { role: 'user', content }
 }
 
-const DEFAULT_BASE_URL = 'http://localhost:1234/v1'
+const DEFAULT_BASE_URL = LLM_BASE_URL
 
 /**
  * A refused connection surfaces differently per runtime: Node hangs it on
@@ -106,7 +110,9 @@ export function getLLMCapability(
       } catch (e: any) {
         if (isConnectionRefused(e)) {
           throw new Error(
-            'No LLM provider configured. Please start LM Studio or provide an API key.',
+            'No local LLM server reachable at ' +
+              baseUrl +
+              '. Start your backend (MLX: mlx-omni-server, or LM Studio) or set TJS_LLM_BASE_URL.',
             { cause: e }
           )
         }
@@ -135,7 +141,9 @@ export function getLLMCapability(
       } catch (e: any) {
         if (isConnectionRefused(e)) {
           throw new Error(
-            'No LLM provider configured. Please start LM Studio or provide an API key.',
+            'No local LLM server reachable at ' +
+              baseUrl +
+              '. Start your backend (MLX: mlx-omni-server, or LM Studio) or set TJS_LLM_BASE_URL.',
             { cause: e }
           )
         }

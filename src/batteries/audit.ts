@@ -235,10 +235,12 @@ export async function auditModels(baseUrl: string): Promise<ModelAudit[]> {
   } catch {
     // If we have cache and server is unavailable, use cache
     if (cachedData) {
-      console.log('⚠️ LM Studio unavailable, using cached model audit.')
+      console.log('⚠️ Local LLM server unavailable, using cached model audit.')
       return cachedData
     }
-    console.error('❌ Failed to connect to LM Studio.')
+    console.error(
+      '❌ Failed to connect to the local LLM server (set TJS_LLM_BASE_URL to point at it).'
+    )
     return []
   }
 

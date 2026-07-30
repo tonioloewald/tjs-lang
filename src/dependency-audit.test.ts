@@ -29,15 +29,28 @@ function ghsaOf(a: any): string {
   )
 }
 
-/** Run `bun audit --json`; returns the package→advisories map, or null if unavailable. */
+/**
+ * Run `bun audit --json`; returns the package→advisories map, or null (fail-open)
+ * if the audit couldn't run. Two lessons borrowed from tosijs-ui's audit-guard:
+ *  - **Empty stdout means the audit FAILED, never "clean."** A clean tree exits 0
+ *    with `{}` (non-empty); no-lockfile/offline exits non-zero with EMPTY stdout.
+ *    So parse the JSON (an empty `{}` is a legitimate clean result) and treat only
+ *    truly-empty output as "couldn't check" → skip, don't green-light.
+ *  - **Bound it with a timeout.** A sync audit can hang forever on a captive portal
+ *    / VPN coming up / a black-holed registry; a hung fetch must not freeze the
+ *    suite. On timeout we fail open (same as offline) — an advisory we couldn't
+ *    fetch must not ground you.
+ */
+const AUDIT_TIMEOUT_MS = 20_000
 function runAudit(): Record<string, any[]> | null {
   try {
     const proc = Bun.spawnSync(['bun', 'audit', '--json'], {
       stdout: 'pipe',
       stderr: 'pipe',
+      timeout: AUDIT_TIMEOUT_MS,
     })
     const out = proc.stdout.toString().trim()
-    if (!out) return null
+    if (!out) return null // empty = the audit failed (offline / no lockfile / killed)
     const parsed = JSON.parse(out)
     return parsed && typeof parsed === 'object' ? parsed : null
   } catch {

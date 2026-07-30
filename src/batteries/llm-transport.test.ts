@@ -171,13 +171,14 @@ describe('getLLMCapability — the real LM Studio HTTP client', () => {
     }
   })
 
-  it('a refused connection becomes the friendly "no provider" message', async () => {
+  it('a refused connection becomes friendly, backend-neutral guidance', async () => {
     // Port 1 is never listening — the connect is refused (ECONNREFUSED), which
     // the client is supposed to translate into actionable guidance rather than a
-    // raw socket error.
+    // raw socket error. The guidance names the URL it tried and the env var that
+    // repoints it (the backend is any OpenAI-compatible server — MLX, LM Studio…).
     const { predict } = getLLMCapability(fakeModels, 'http://localhost:1/v1')
     await expect(predict('sys', 'x')).rejects.toThrow(
-      /No LLM provider configured/
+      /No local LLM server reachable at http:\/\/localhost:1\/v1.*TJS_LLM_BASE_URL/
     )
   })
 })

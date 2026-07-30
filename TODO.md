@@ -3,6 +3,32 @@
 > Shipped/completed history lives in [`TODO-ARCHIVE.md`](./TODO-ARCHIVE.md) (and
 > `CHANGELOG.md`, complete back to 0.2.0). This file is the **live backlog** only.
 
+## MLX as the shared local-AI harness (direction, 2026-07-30)
+
+tjs-lang is the most foundational + LLM-adjacent library in the stack, so its batteries
+should be **the common LLM harness across projects**. Backend moves from LM Studio (closed
+source) / llama (Meta-adjacent) to **MLX** (Apple-silicon native, open source) on the new Mac.
+
+- [x] **Backend-agnostic config** — `src/batteries/config.ts` + `TJS_LLM_BASE_URL`; the
+      batteries already speak plain OpenAI-compatible HTTP, so the backend is a config
+      choice. User-facing "start LM Studio" guidance made backend-neutral.
+      Setup: [`docs/mlx-setup.md`](docs/mlx-setup.md).
+- [ ] **(1) Agent-flow testing on MLX — the priority** (it's current friction). Run
+      `mlx-omni-server`, point `TJS_LLM_BASE_URL` at it, and get the live-smoke +
+      grokkability lanes green against MLX. Lane 1 (fixture-server transport tests) needs
+      no backend and already passes, so a machine without MLX still runs the fast suite.
+- [ ] **(4) `speak()` capability — TTS with voice + acting directions** (ariosto). The
+      research-gated piece: `mlx-omni-server` exposes `/v1/audio/speech`, but _style/emotion
+      control_ varies by model (Dia / Orpheus / CSM / Kokoro — MLX ports differ). Spike the
+      model question BEFORE designing the API, so we don't promise direction-following the
+      backend can't deliver.
+- [ ] **(2) Offline/self-hosted coding** — a coding model through the same harness.
+- [ ] **(3) Narrative engines (ariosto)** — consumption shape for another repo: VM
+      capabilities, a direct client, or both? Decide when (1) is solid.
+- [ ] **Harness export shape** — keep generalizing `tjs-lang/batteries`, or introduce a
+      cleaner `tjs-lang/harness` (text + embed + vision + speech) that batteries and other
+      projects both build on?
+
 ## Pre-release review follow-ups (0.12.0 — VM security + dict-defaults, 2026-07-20)
 
 The 0.12.0 review (nine-lens, BLOCK) surfaced two blockers (dict-default uid collision;
