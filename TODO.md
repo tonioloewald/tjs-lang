@@ -18,11 +18,23 @@ source) / llama (Meta-adjacent) to **MLX** (Apple-silicon native, open source) o
       against MLX with no LM Studio. Needed `TJS_LLM_MODEL`/`TJS_EMBEDDING_MODEL` because
       mlx-omni-server returns an empty /v1/models (loads on demand) — see docs/mlx-setup.md.
       Remaining: point the grokkability lane at an MLX model (`GROK_MODEL`).
-- [ ] **(4) `speak()` capability — TTS with voice + acting directions** (ariosto). The
-      research-gated piece: `mlx-omni-server` exposes `/v1/audio/speech`, but _style/emotion
-      control_ varies by model (Dia / Orpheus / CSM / Kokoro — MLX ports differ). Spike the
-      model question BEFORE designing the API, so we don't promise direction-following the
-      backend can't deliver.
+- [~] **(4) `speak()` capability — TTS with voice + acting directions** (ariosto).
+  **Spiked 2026-07-30 — see `docs/mlx-setup.md` "TTS / voice".** Established: the speech
+  endpoint forwards arbitrary model params (`extra = "allow"`), so a `speak()` capability
+  needs no forked endpoint. Chatterbox (MIT) works and clones voices well, but its only
+  control is an `exaggeration` scalar — measured acoustically across 6 emotion presets it
+  moves _duration_ and almost nothing else, and sad↔happy came out barely more distinct
+  than sad↔hesitant. **A scalar can't encode valence**, so parameter-mapping a direction is
+  a dead end; with Chatterbox, emotion must come from a per-emotion reference-clip voice
+  bank (+ exaggeration as an intensity trim).
+  - [ ] **Audition an instruct-taking model — NEEDS EARS (blocked while remote).**
+        `qwen3_tts` takes `instruct="<style text>"` + `voice` + `ref_audio` — a real
+        acting-direction interface. Also `moss_tts`, `higgs_audio_v3`, `omnivoice`,
+        `voxcpm2`, `zonos2`. Audition BEFORE designing the API: if direction-following is
+        good, `speak(text, {voice, direction})` passes straight through; if not, fall back to
+        the voice-bank design and the LLM selects clip + intensity instead.
+- [ ] **(5) Local OCR** (low priority, noted 2026-07-30). Rides the same capability pattern —
+      an MLX-VLM vision model, or a dedicated OCR model, behind an `ocr()`/vision capability.
 - [ ] **(2) Offline/self-hosted coding** — a coding model through the same harness.
 - [ ] **(3) Narrative engines (ariosto)** — consumption shape for another repo: VM
       capabilities, a direct client, or both? Decide when (1) is solid.

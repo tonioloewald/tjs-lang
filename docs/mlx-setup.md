@@ -87,6 +87,67 @@ point of having it:
 3. **AJS grokkability** (`bun run test:grok`, advisory) — needs a small pinned model;
    set `GROK_MODEL` to an MLX model id.
 
+## TTS / voice: spike findings (2026-07-30)
+
+For the narrative/voice use-case (ariosto: "specific voices with acting directions"), the
+server's `/v1/audio/speech` is backed by `mlx_audio`, which ships ~40 TTS families. Two things
+make it workable as a harness target:
+
+- **The request schema is `extra = "allow"`** and forwards unknown fields straight to
+  `mlx_audio`'s `generate_audio(**extra)`. So model-specific params (`exaggeration`,
+  `instruct`, …) pass through the standard OpenAI-shaped endpoint. That's the escape hatch a
+  `speak()` capability needs — no forked endpoint required.
+- Models are **pre-downloaded, not fetched on demand** (same as chat — see gotcha 2 above).
+
+### Chatterbox: good voice cloning, but the emotion control is intensity, not emotion
+
+**Verified working** (`mlx-community/chatterbox-fp16`, MIT) — 24kHz WAV, ~1.5–2.6s per short
+line. Caveat: Chatterbox is a **pure voice-cloning model with no built-in voices**; the
+`Chatterbox-TTS-*` repos omit `conds.safetensors` and fail outright with "No conditionals
+available". Use `chatterbox-fp16` (ships default conditionals) or supply `audio_prompt`.
+
+Its only emotion control is an `exaggeration` scalar (0–~1.5, saturates above that).
+**Measured across six presets** (sad/happy/nervous/hesitant/sly/angry, same line, mapped to
+exaggeration+cfg_weight), acoustic analysis says the scalar does **not** encode emotion:
+
+| preset   | dur   | loudness | pitch  |
+| -------- | ----- | -------- | ------ |
+| sly      | 2.00s | 0.095    | 131 Hz |
+| sad      | 2.12s | 0.088    | 121 Hz |
+| hesitant | 2.12s | 0.091    | 133 Hz |
+| nervous  | 2.16s | 0.089    | 163 Hz |
+| happy    | 2.88s | 0.083    | 138 Hz |
+| angry    | 3.96s | 0.098    | 144 Hz |
+
+Loudness is flat (±15%) and pitch nearly so; **duration is the only thing that really moves**.
+In normalized feature distance the closest pairs are sad↔hesitant (1.59) and sly↔hesitant
+(1.75) — and damningly, **sad↔happy (2.25) is barely more distinct than sad↔hesitant**. A single
+intensity scalar cannot encode *valence*, so "sad" and "happy" are not separable this way.
+
+**Conclusion:** parameter-mapping a direction onto `exaggeration` is a dead end. With
+Chatterbox, distinct emotions must come from **reference audio** — a voice bank per character
+per emotion (`narrator-sad.wav`, `narrator-sly.wav`), with `exaggeration` as an intensity trim.
+
+### The better fit: models that take a text instruction
+
+`mlx_audio` includes families with a natural-language style/instruction interface —
+`qwen3_tts`, `moss_tts`, `higgs_audio_v3`, `omnivoice`, `voxcpm2`, `zonos2`, `bailingmm`,
+`irodori_tts`, `tada`. Most promising: **`qwen3_tts`** (Alibaba), whose API is exactly the
+shape the use-case wants:
+
+```python
+generate(text, voice=..., instruct="Instruction text for voice style",
+         ref_audio=..., speed=..., ...)
+```
+
+That is a real acting-direction interface (direction as *text*), plus `voice` and `ref_audio`
+cloning. **Not yet auditioned** — quality/direction-following is unverified and needs ears.
+
+**Open question for the `speak()` API:** if an instruct-model follows directions well, the
+capability is `speak(text, {voice, direction})` passed straight through. If not, it falls back
+to the voice-bank design, and the LLM's job becomes *selecting a clip + intensity* rather than
+writing a direction string. Audition before designing.
+
 ## Status
 
 **Use-case 1 (agent-flow testing) works on MLX today** — the live smoke (audit + predict +
