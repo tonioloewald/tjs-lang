@@ -164,3 +164,60 @@ and directly informs how much to invest in making TJS legible to small models.
   "pass" the TJS arm without writing TJS.
 - Vary ONE thing per experiment. The within-language feedback A/B (executed verdict vs
   type error) is confound-free; the cross-language comparison never will be.
+
+---
+
+# Surface-syntax probe — speculative language features (2026-07-31)
+
+`surface-probe.ts`. One program (`sum of i² for i=1..4` = 30) rendered in six surfaces;
+the model is asked only what it **returns**. Comprehension rather than generation, so
+syntaxes that don't exist yet can be probed without writing a parser — including ones we
+are merely considering.
+
+| surface       | rate (N=5) | wrong answers      |
+| ------------- | ---------- | ------------------ |
+| braces        | 20%        | 20, 20, 20, 20     |
+| bracesNoSemi  | 20%        | 20, 20, 20, 20     |
+| endKeyword    | 20%        | 20, 20, 20, 20     |
+| indent        | 0%         | 20, 20, 13, 20, 20 |
+| indentNeutral | 0%         | **10** ×5          |
+| sexpr         | 0%         | **10** ×5          |
+
+## Read the error modes, not the rates
+
+**The rates are not usable.** Everything scores 0–20%: at 1.5B the model can't reliably
+trace a 4-iteration accumulator loop in ANY surface. Same calibration failure as the first
+spike — the instrument is saturated at the floor, and a 20-vs-0 gap at N=5 is noise.
+
+**The error modes are usable, and they're clean:**
+
+- Familiar surfaces (braces / `end` / Python-indent) all fail the SAME way (`20`) — the
+  model computes something structured but wrong.
+- Unfamiliar surfaces (indentNeutral, sexpr) fail a DIFFERENT way (`10` ×5, unanimous):
+  it **silently drops the `i * i` and sums `i`**. It loses a semantic detail rather than
+  mis-executing.
+
+That distinction is the interesting result. A surface that recruits a strong prior gets the
+_structure_ attended to; an unfamiliar one degrades by quietly dropping content. For a
+language whose pitch is agent-legibility, "fails by omission, silently" is a far worse
+failure mode than "fails by arithmetic".
+
+**Directly relevant to a choice we already made:** `braces` and `bracesNoSemi` are
+indistinguishable (20%, identical error mode). No evidence semicolon-elision costs
+comprehension — mild support for `TjsStandard`, which was chosen on taste.
+
+**Familiarity is not separable here, and shouldn't be.** `indentNeutral` isolates layout
+from vocabulary and does _worse_ than Python-shaped `indent`, which suggests the Python
+result is largely vocabulary/prior transfer rather than indentation itself. A surface that
+recruits a prior IS cheaper for the model — that's a genuine design finding, not a confound
+to apologise for.
+
+## Before this is worth anything
+
+1. **Calibrate the program** so the baseline lands ~50–70%, not ~10%. Trace-a-loop is too
+   hard at 1.5B; use fewer iterations or simpler arithmetic.
+2. **Scale the model** — run the same probe across sizes. The _ordering_ of surfaces as
+   models grow is the real question, and where a "transition boundary" would show up.
+3. **N≥20 per cell** before believing any rate.
+4. Then, and only then, promote a winning surface to a generation test — comprehension
+   measures whether a model can read a surface, not whether it can write one.
