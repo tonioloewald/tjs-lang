@@ -7,6 +7,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- **Diagnostics for constructs AJS deliberately lacks now SHOW the fix.** `Unsupported
+statement type: ForStatement` was accurate and useless: an A/B over diagnostic text
+  (`experiments/agent-legibility/error-message-ab.ts`) measured the repair rate each message
+  actually produces — worked example **80%**, prose remedy 50%, our shipped message **0%**,
+  saying nothing at all **0%**. On the `for`-loop case, prose advice scored 0/5 while the
+  same remedy shown as code scored 5/5. `for`, `for...in`, `switch` and `do...while` errors
+  now carry a worked correction. Pure message text; no compiler change.
+  - Guarded by `src/lang/diagnostic-remedy.test.ts` — deterministic, no model needed: every
+    remedy must contain real code, name a supported alternative, reach the thrown message,
+    and **correspond to a construct the transpiler actually rejects**. That last check caught
+    a first draft claiming `for...of` was unsupported (it isn't) — a diagnostic for a
+    restriction that doesn't exist teaches a false limit and is worse than none.
+
 ### Added
 
 - **Canonical form for verified predicates** (`canonicalizePredicate` / `predicateKey`,

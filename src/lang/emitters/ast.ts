@@ -340,12 +340,63 @@ export function transformStatement(
 
     default:
       throw new TranspileError(
-        `Unsupported statement type: ${stmt.type}`,
+        `Unsupported statement type: ${stmt.type}${remedyFor(stmt.type)}`,
         getLocation(stmt),
         ctx.source,
         ctx.filename
       )
   }
+}
+
+/**
+ * Worked corrections for the constructs AJS deliberately lacks.
+ *
+ * Measured, not guessed: an A/B over diagnostic text
+ * (`experiments/agent-legibility/error-message-ab.ts`) found our accurate-but-bare
+ * messages produced a **0%** repair rate — statistically identical to telling the model
+ * nothing at all. Prose advice ("rewrite it as a while loop") reached 50%; the same
+ * remedy **shown as code** reached 80%. On the `for`-loop case specifically, prose scored
+ * 0/5 and the worked example 5/5.
+ *
+ * So these are examples, not sentences, and that is the whole point. A diagnostic that
+ * names the defect correctly and leaves the reader to invent the fix is accurate and
+ * useless — to a model, and to a human meeting the language for the first time.
+ *
+ * Guarded by `src/lang/diagnostic-remedy.test.ts`: every construct listed here must keep
+ * a remedy containing actual code.
+ */
+export const CONSTRUCT_REMEDIES: Record<string, string> = {
+  ForStatement: `AJS has no \`for\` loops. Use \`while\` with a counter:
+  let i = 0
+  while (i < items.length) {
+    // ...
+    i = i + 1
+  }`,
+  ForInStatement: `AJS has no \`for...in\`. Get the keys and walk them with \`while\`:
+  let ks = keys({ obj: data })
+  let i = 0
+  while (i < ks.length) {
+    let k = ks[i]
+    i = i + 1
+  }`,
+  SwitchStatement: `AJS has no \`switch\`. Use \`if\`/\`else if\`:
+  if (kind == 'a') {
+    // ...
+  } else if (kind == 'b') {
+    // ...
+  }`,
+  DoWhileStatement: `AJS has no \`do...while\`. Use \`while\`, running the body check first:
+  let i = 0
+  while (i < n) {
+    // ...
+    i = i + 1
+  }`,
+}
+
+/** Append a worked correction when we have one for this construct. */
+function remedyFor(type: string): string {
+  const remedy = CONSTRUCT_REMEDIES[type]
+  return remedy ? `. ${remedy}` : ''
 }
 
 /**
