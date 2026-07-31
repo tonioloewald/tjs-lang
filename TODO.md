@@ -29,6 +29,24 @@ first-class — `: string` meaning a string — with types-by-example kept as th
       Note `fromTS` (`tjs convert`) already handles the full language — this item is about
       making the _paste-it-in_ path work, which is a much lower-friction first experience
       than "run the converter", and is the on-ramp A10 is really about.
+- [ ] **Asymmetric types have NO declaration syntax — and the plausible spelling
+      silently does nothing.** Measured 2026-07-31: asymmetry works only where there is a
+      real runtime getter/setter to annotate (`set value(v: '' | 0)` + `get value()` on a
+      class — the computed-property case). For a plain data property on an ambient type —
+      the motivating `<input>.value`, which _reads_ `string` but _accepts_ `string | number`
+      — there is no way to express it.
+      Worse, the obvious spelling **parses and is dropped**: `Type Field { get value(): ''
+set value(v: '' | 0) }` emits `Type('Field')` — no shape, no asymmetry, no validation.
+      Same failure class as `s: string` inferring `any`: looks like it works, does nothing.
+
+  - [ ] Decide the declaration syntax (get/set inside a `Type` body is the natural
+        candidate) and make it carry both types into the descriptor.
+  - [ ] Until then it should **error**, not silently emit an empty Type.
+  - This is load-bearing for the "TypeScript's good parts" positioning (A10) — asymmetric
+    declarations are one of its three named pillars, and TS handles them badly, so it's a
+    real differentiator rather than parity work. It also converges with
+    `docs/ambient-contracts.md`, where `<input>.value` / `e.target.value` is the anchor case.
+
 - [ ] **Numeric defaults: `n = 5` must infer NUMBER, not integer — TS compatibility.**
       **The governing principle: TJS may extend TypeScript, but must never be _narrower_
       than it.** `function f(n = 5)` is already legal TS/JS, where it infers `number`.
