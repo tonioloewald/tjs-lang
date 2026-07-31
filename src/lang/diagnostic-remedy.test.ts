@@ -22,6 +22,7 @@
  * names the problem is a regression, however true it is.
  */
 import { describe, it, expect } from 'bun:test'
+import { ajs } from '../index'
 import { ajs } from '../transpiler/index'
 import { CONSTRUCT_REMEDIES } from './emitters/ast'
 
@@ -99,6 +100,29 @@ describe('unsupported-construct diagnostics carry a worked remedy', () => {
       const remedy = CONSTRUCT_REMEDIES[construct]
       // Compare on the first line: the transpiler may wrap/indent the rest.
       expect(message).toContain(remedy.split('\n')[0])
+    })
+  }
+})
+
+describe('remedies are spec, not strings', () => {
+  // Once an error message teaches, it is load-bearing specification and deserves what
+  // spec gets. The sharpest version of that: a remedy we hand a model must be code the
+  // model can actually run. A remedy that does not compile is worse than none — it
+  // spends the one repair attempt we get and teaches a wrong lesson with our authority.
+  //
+  // The snippets are fragments (AJS requires a function declaration), so they are
+  // compiled inside a wrapper that supplies the identifiers they reference.
+  const WRAPPER_PARAMS = `items: [], data: {}, kind: '', n: 0`
+
+  for (const [construct, remedy] of Object.entries(CONSTRUCT_REMEDIES)) {
+    it(`${construct}: the suggested repair actually compiles`, () => {
+      const code = remedy.split('\n').slice(1).join('\n')
+      const src = `function demo(${WRAPPER_PARAMS}) {\n${code}\n  return 0\n}`
+      expect(
+        () => ajs(src),
+        `the remedy shown for ${construct} does not compile — we would be handing a ` +
+          `model broken code with our authority behind it:\n${src}`
+      ).not.toThrow()
     })
   }
 })

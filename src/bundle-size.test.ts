@@ -70,7 +70,11 @@ describe('README bundle-size table matches the built bundles', () => {
         ['gzip', c.gz, actual.gz],
       ] as const) {
         const off = Math.abs(real - claimed) / Math.max(claimed, 1)
-        if (off > TOLERANCE) {
+        // The table is written in whole KB, so its own resolution is 1 KB: a bundle
+        // moving 3.4→3.6 KB rounds 3→4 and reads as "33% off" while nothing meaningful
+        // changed. Require BOTH a relative drift and a delta the table can actually
+        // express, or small bundles produce noise that trains people to ignore this.
+        if (off > TOLERANCE && Math.abs(real - claimed) > 1) {
           drifted.push(
             `${
               c.file

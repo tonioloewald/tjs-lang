@@ -123,6 +123,36 @@ but only from a TS-aware entry — never from `tjs-lang/lang`.)
   AJS/JS snippets asserted to `tjs()` (and the JS to options-off TJS) **without
   throwing**, so a regression is caught immediately.
 
+## The safety layer absorbs termination, so the surface layer optimizes for legibility
+
+**AJS bans `for` and keeps `while`.** Against the prior art this looks backwards. Starlark
+made the opposite call — `for` allowed, `while` banned — and was right to, because
+Starlark's termination guarantee **lives in the syntax**: loops range over finite iterables,
+so the bounded form is the safe one and the unbounded form must go.
+
+Banning the bounded form and keeping the unbounded one would be indefensible under those
+rules. It is correct under ours, because **our termination guarantee does not live in the
+syntax — it lives in fuel** (see `S1`/`S4` in [ASSUMPTIONS.md](ASSUMPTIONS.md)). Every
+evaluation step charges, and execution stops when the budget is gone. Bounded execution is a
+precondition of running at all, so the halting question never reaches the grammar.
+
+Once fuel carries the halting proof, syntax is **freed from having to encode safety** and can
+be chosen on legibility for the authors alone. And for a small model `while` is one concept
+(condition, body), where C-style `for` compresses three clauses of mutable-counter footgun
+into a header. AJS's authors are small models, so `while` wins on the only axis left.
+
+**The general rule, and why it is written down:** when a lower layer takes on a duty
+completely, the layers above it stop paying for that duty and should be re-optimized for
+something else. Concretely, **every construct choice in AJS may ignore termination entirely
+and ask only: "what does a 4B model write correctly?"** That question has a measurable answer
+(`experiments/agent-legibility/`), which makes this a design principle with a test attached
+rather than a matter of taste.
+
+The same shape recurs elsewhere: the capability membrane absorbs host-reference safety, so
+atom authors write ordinary data-returning functions; verified predicates absorb purity, so
+predicate authors write ordinary JavaScript. When you find yourself paying for a guarantee
+twice, one of the two payments is the bug.
+
 ## North star: JSON-Schema + predicates as the single source of truth for types
 
 **A TJS type is canonically a JSON-Schema node, optionally carrying a `$predicate`

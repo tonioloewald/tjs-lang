@@ -1,5 +1,152 @@
 # TJS-Lang TODO
 
+## Action items — the "eval is solved _architecturally_" audit (list of 2026-07-29)
+
+Verdict this list was answering: **halting — solved, and provably, not just practically.
+Eval — solved architecturally; whether it is solved _in fact_ is what the items below
+close.** The through-line: the gap between "we designed it out" and "we verified it's out".
+Status re-checked against source 2026-07-31.
+
+### 1. Cost-model soundness (the "by proof" gap) — MOSTLY DONE
+
+- [x] **Audit atoms for the `==` bug pattern** (work proportional to operand _size_ charged
+      at flat cost). Found a **live bypass in shipped 0.12.0**: `jsonStringify` serialized
+      **2,000,000 elements for 1.2 fuel** under a 10-fuel budget. Fixed with
+      `chargeForSize`/`sizeHint`; fuel now scales linearly (2.9 → 19.1 → 190.1).
+- [ ] **Finish the sweep against the named list** — string concat, array spread,
+      `Object.assign`, `JSON.parse`, `sort`, `join`, template literals, and
+      `structuredClone` _in the membrane itself_. The bug class is fixed and the mechanism
+      exists; what's missing is evidence that every listed site uses it.
+- [x] **Allocation metering + hard live-heap cap.** `maxHeapBytes` (64MB default),
+      `trackHeapWrite`, `estimateBytes`, per-key accounting. Refuted `S2` on the way: fuel
+      is a _time_ budget, and at ~10KB/fuel a legitimate 100k budget bought ~1GB of live
+      string. 26 doublings of 1KB now stops.
+- [x] **Write the cost invariant down as one sentence** — _"every evaluation step charges
+      fuel ≥ c·(work + allocation)"_ — and test marginal scaling
+      (`src/vm/cost-invariant.test.ts`).
+- [ ] **Property-test it by fuzzing** — generate programs, measure actual wall time and RSS
+      against fuel charged, flag ratio blow-ups. **Not started** (no fuzz test exists). This
+      is the cheap mechanical substitute for a mechanized proof, and the thing that finds
+      the _next_ `==` before an attacker does. Highest-value remaining item in §1.
+- [ ] **Write the AJS operational semantics as a document.** Not started. Doesn't need Coq.
+      Implementation-as-spec means every refactor can silently move the security model.
+
+### 2. Membrane hardening — PARTIAL
+
+- [x] Membrane at one choke point; budgeted, cycle-safe pre-walk rejects functions and
+      oversized payloads _before_ the clone allocates (`membraneMaxBytes`, 4MB default).
+      OOM guard extended to TypedArray/ArrayBuffer/Map/Set real byte sizes.
+- [ ] **Reject accessor properties before cloning.** **NOT DONE — verified absent**
+      (no `getOwnPropertyDescriptor` anywhere in `src/vm/runtime.ts`). `structuredClone`
+      reads own enumerable properties, so a getter or proxy trap on a capability's return
+      **runs code during the crossing**. Threat model is a _broken or hostile capability_
+      rather than a guest escape, but it is exactly the "we designed it out / we verified
+      it's out" gap this list is about, and the fix is cheap. **Do this one next in §2.**
+- [ ] **Enforce, don't assert, "pure atoms never return host references."** The membrane
+      covers `effects: 'io'` atoms only. Add a debug-mode membrane on pure atoms that
+      screams in CI, or membrane everything and eat the cost.
+- [ ] **Fuzz the membrane directly** — cyclic, accessor-laden, revoked-proxy, giant, deeply
+      nested, Symbol-keyed returns; every one must fail closed with bounded work.
+
+### 3. Teardown — LARGELY OPEN
+
+- [~] `ctx.signal` (AbortSignal) exists and the runtime checks it at execution points;
+  "respect `ctx.signal`" is documented as part of the custom-atom contract. What's
+  missing is that it's a _contract_, not an enforcement.
+- [ ] **Bound teardown with a separate small non-refillable budget**; on exhaustion,
+      abandon-and-signal. **Cancellation must never be a path that _starts_ unmetered work.**
+- [ ] **Test that `finally`-style cleanup can't swallow fuel exhaustion and resume the
+      guest.**
+
+### 4. Open-graph blast radius — THE BIGGEST GAP (essentially not started)
+
+Named in the original priority-three. Almost nothing here has moved.
+
+- [ ] **Carry the budget in the request** — hops decrement the _caller's_ fuel envelope
+      instead of minting fresh local fuel. Today `X-Agent-Depth` is **cooperative** (`S5`,
+      ⚠️ nuanced): it stops accidental loops and friendly infrastructure, not an adversarial
+      endpoint that drops the header. Without carried budgets, one cheap entry point
+      _multiplies_ across the graph instead of dividing.
+- [ ] **Per-capability quotas separate from fuel** — call counts, byte budgets, spend caps
+      on fetch/llm/store. Fuel meters VM work; these meter the work you summon _outside_ the
+      VM, which fuel is blind to. (An LLM capability is the obvious money-shaped hole.)
+- [ ] **Attenuation as a first-class op** — a capability handed to a sub-agent should be
+      wrappable with a smaller quota without bespoke wrapper code each time.
+- [~] **Default-deny egress + per-run wall-clock ceiling.** SSRF-range blocking shipped
+  (`isBlockedIPv4`/`isBlockedIPv6`) and a domain allowlist exists
+  (`ctx.context.allowedFetchDomains`, `isDomainAllowed`), plus `timeoutMs`. Remaining
+  question is whether the allowlist is genuinely VM-config-level and default-deny rather
+  than opt-in.
+
+### 5. Process — PARTIAL
+
+- [~] **Adversarial review.** A structured 5-fix adversarial review ran and shipped in
+  0.12.0 — but it was _internal_. The point of the item stands: **you wrote it, so you
+  can't red-team it.** An outside human week still hasn't happened (`S6`, 🔍 untested).
+- [ ] **Escape-attempt corpus as a permanent suite** — vm2 CVEs, SES challenges,
+      prototype-chain tricks, translated into AJS attempts that must all fail. **Not
+      started.** This is `S6`, it was in the original priority-three, and it's the
+      regression armor every future refactor needs. The vm2 lesson is that sandboxes die
+      from the exploit class the author didn't imagine.
+- [x] **Fix the README numbers and the "self-hosting" wording.** Done, and made
+      self-maintaining: `src/bundle-size.test.ts` re-measures the built bundles and fails on >10% drift, requiring a dated "Measured at vX" qualifier. Re-measured 2026-07-31
+      (v0.13.0: VM 76 KB gz). Refuted `L4` — _every_ row of the original table was stale.
+
+### Scorecard against the stated priority-three
+
+| Priority                                      | Status                                     |
+| --------------------------------------------- | ------------------------------------------ |
+| **1** — allocation metering + atom cost audit | ✅ **done** (found a live bypass doing it) |
+| **4** — carried budgets + capability quotas   | ❌ **not started** — now the biggest gap   |
+| **5** — escape corpus                         | ❌ **not started**                         |
+
+---
+
+## Other open action items (2026-07-31)
+
+### Ship it
+
+- [ ] **Cut 0.13.0.** 42+ commits since v0.12.0, including **two security fixes to shipped
+      code** (§1: the fuel bypass and the heap ceiling). Those are on `main` only. Full
+      `bun test` gate (not `test:fast`), then user publishes.
+
+### Errors as curriculum (upgrades)
+
+Once an error message teaches, it is load-bearing **spec**, not a string.
+
+- [x] Remedies show code, not prose (A1: 80% vs 50% for prose vs 0% for bare diagnostics).
+- [x] **Every suggested repair actually compiles** — guarded per-construct in
+      `diagnostic-remedy.test.ts`. A remedy that doesn't compile is worse than none: it
+      spends the one repair attempt we get and teaches a wrong lesson with our authority.
+- [ ] **Remedy = a transform of THEIR code, not a canonical example.** Small models paste
+      literally, so a generic snippet's variable names overwrite theirs and the repair takes
+      two round trips instead of one. We have the AST; the rewrite is mechanical. Start with
+      `ForStatement` → the equivalent `while` over _their_ init/test/update.
+- [ ] **Version the curated errors.** They're spec; spec gets versions so consumers can pin
+      and diff what the compiler teaches.
+- [ ] **Test that each curated error fires on its trigger** (we currently test the remedy's
+      content and compilability, not that the intended construct produces it).
+- [ ] **Give errors a seat in the benchmark harness**, keyed by
+      **repair-rate-per-error-message** — the metric that says which lessons the curriculum
+      teaches _well_, not which messages we like. Prediction worth publishing next to the A3
+      result: errors that _show code_ beat errors that _explain rules_ by a wide margin.
+
+### Cheap open questions (assumptions ledger)
+
+- [ ] **A9 — does autocomplete help?** Testable **with no model at all**: truncate valid
+      programs, measure hit@k of `suggest()` against the real next token. Cheapest open item
+      on the board, and it feeds the autocomplete work A10's resolution reshaped.
+- [ ] **A8 — do executed verdicts repair better than type errors?** Must be run
+      **within-TJS** (same language, vary only the feedback string) or training-data
+      asymmetry confounds it.
+
+### Doc accuracy
+
+- [ ] **Verify the "no computed member access with variables" gotcha in `CLAUDE.md`.**
+      `ks[i]` compiles fine inside an AJS function (found 2026-07-31 while compile-testing
+      remedies), so the note is stale, path-specific, or wrong. Agent-facing guidance that
+      warns off a working construct is a real cost.
+
 ## Strategic: "TypeScript's good parts" as an on-ramp to types-by-example (2026-07-31)
 
 Open question (ledger **A10**): would TJS be more discoverable if TS-style annotations were
