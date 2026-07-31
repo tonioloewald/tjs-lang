@@ -950,3 +950,45 @@ prune.)
 - [ ] **Audit misclassifies models under concurrent probing.** Many test files call `LocalModels.audit()` at once, sharing one `.models.cache.json` (cwd, 24h TTL). Clearing the cache before a parallel `bun test` makes several audits probe LM Studio simultaneously and classifications come back scrambled (embedding models tagged `LLM`, an LLM tagged `Embedding`). Tests stay green only by luck of ordering. Fix: serialize the audit, harden the probes, or isolate the cache per run. Workaround documented in [`docs/lm-studio-setup.md`](docs/lm-studio-setup.md). Surfaced 2026-06-10 while getting the LLM suite green.
 
 ---
+
+### Pattern-constrained string types (`/…/ as string`) — DESIGN DECIDED, parser work open
+
+TypeScript cannot express "a string matching this pattern" without template-literal-type
+gymnastics, and what it does express is erased before it can protect anything. This is the
+finest grain on the example ladder, and it maps onto JSON Schema's **native `pattern`
+keyword** — no `$predicate` extension needed, so even a naive validator enforces it.
+
+**Spelling (decided 2026-07-31).** A bare `/…/` must NOT mean this: a regexp is a legitimate
+_value_, so under the example rule `s: /^\d+$/` denotes a **RegExp**, exactly as `s: 5`
+denotes a number. The pattern meaning is explicit:
+
+- `s: /^\d{5}$/ as string` — a string matching the pattern
+- `s: /^\d{5}$/ as '12345'` — same, **plus a worked example**; the example is surfaced as the
+  default by autocomplete and can drive signature tests
+
+Legal-TS-ness is not a constraint here (TS has no regexp types), and `as` reads naturally to
+a TS user.
+
+- [x] Descriptor/emitter/JSON-Schema plumbing (`pattern`/`flags` on `TypeDescriptor`,
+      runtime check, native `pattern` in JSON Schema, flags → looser type since JSON Schema
+      has no flag equivalent). Tested at descriptor level in `ts-type-names.test.ts`.
+- [ ] **Parser pre-transform** — this is the whole remaining job, and it is NOT an inference
+      change. Annotations are parsed as part of the **whole-source** acorn parse (params
+      become `AssignmentPattern`s, `src/lang/inference.ts:290`), so `s: /re/ as string`
+      breaks the entire function parse. `as` must be rewritten to something acorn accepts
+      **before** the parse — in `src/lang/parser.ts`'s colon-shorthand transform, e.g. to a
+      sentinel `CallExpression` that `inferTypeFromValue` recognises.
+- [ ] Autocomplete: surface the example as the default completion.
+- [ ] Signature tests from the example.
+
+### Asymmetric get/set types — RE-SCOPED (no longer a positioning pillar)
+
+Per A12: the general case is already covered — **computed properties work**, and **proxy
+behaviour is effectively computed types**. Asymmetry is chiefly wanted for **autocomplete**
+and for **describing external/ambient types**, which is a tooling/contracts concern.
+
+- [ ] Fold into `docs/ambient-contracts.md` rather than pursuing as a language feature.
+- [ ] Still true and still bad: the plausible declaration spelling
+      (`Type Field { get value(): ''; set value(v: '' | 0) }`) silently emits
+      `Type('Field')` — no shape, no validation. **Make it an ERROR** (same silent-nothing
+      class as `s: string` → `any`). This is worth doing regardless of the re-scope.

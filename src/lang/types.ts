@@ -18,6 +18,13 @@ export interface TypeDescriptor {
    * degradation: `any` means unconstrained and we honour it.
    */
   unresolved?: string
+  /**
+   * For `kind: 'string'` declared with a REGEXP example (`s: /^\d{5}$/`) — the value
+   * must be a string AND match. This is finer grain than TypeScript can express without
+   * template-literal-type gymnastics, and unlike those it survives to runtime.
+   */
+  pattern?: string
+  flags?: string
   kind:
     | 'string'
     | 'number'

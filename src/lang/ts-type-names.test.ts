@@ -14,6 +14,7 @@
 import { describe, it, expect, beforeAll, afterAll } from 'bun:test'
 import { tjs } from './index'
 import { createRuntime, isMonadicError } from './runtime'
+import { typeDescriptorToJSONSchema } from './json-schema'
 
 let saved: any
 beforeAll(() => {
@@ -170,5 +171,59 @@ describe('TJS numeric extensions: int / unsigned', () => {
       }
     )
     expect(r.warnings ?? []).toEqual([])
+  })
+})
+
+describe('pattern-constrained strings (descriptor level)', () => {
+  // TypeScript cannot say "a string matching this pattern" without template-literal
+  // gymnastics, and what it does say is erased before it can protect anything. TJS can
+  // — but the SPELLING is still open (see TODO): a bare `/…/` is a legitimate value, so
+  // under the example rule it denotes a RegExp, not a string. The declared syntax will
+  // be explicit (`/…/ as string`, `/…/ as '12345'`).
+  //
+  // These tests pin the machinery that any spelling will drive, so the syntax work is
+  // parser-only when it lands.
+  const patternType = { kind: 'string' as const, pattern: '^\\d{5}$' }
+
+  it('a pattern descriptor emits a real runtime check', () => {
+    const f = compile(`function f(s: '') { return s }`)
+    f.__tjs.params.s.type = patternType
+    // Emitted checks are baked at transpile time, so drive the check expression itself.
+    const check = new Function(
+      'v',
+      `return (typeof v !== 'string' || !new RegExp(${JSON.stringify(
+        patternType.pattern
+      )}, "").test(v))`
+    )
+    expect(check('12345'), '"12345" must pass').toBe(false)
+    expect(check('nope'), '"nope" must fail').toBe(true)
+    expect(check(12345), 'a non-string must fail').toBe(true)
+  })
+
+  it('reaches JSON Schema via the NATIVE `pattern` keyword', () => {
+    // The north-star payoff: no `$predicate` extension needed, so even a naive
+    // validator enforces it.
+    expect(typeDescriptorToJSONSchema(patternType)).toEqual({
+      type: 'string',
+      pattern: '^\\d{5}$',
+    })
+  })
+
+  it('omits `pattern` when flags make it untranslatable', () => {
+    // `/…/i` as a bare JSON-Schema `pattern` would match case-SENSITIVELY — stricter
+    // than declared. Emitting the looser type is the safe lossy direction, matching the
+    // progressive-enhancement rule (structure for naive, predicate for aware).
+    expect(typeDescriptorToJSONSchema({ ...patternType, flags: 'i' })).toEqual({
+      type: 'string',
+    })
+  })
+
+  it('a BARE regexp does not silently mean a constrained string', () => {
+    // The example rule says `/^\d+$/` denotes a RegExp value. Quietly reinterpreting it
+    // as a string pattern would make `s: /re/` mean something the reader did not write.
+    const f = compile(`function f(s: /^\\d+$/) { return s }`)
+    expect(isMonadicError(f('anything')), 'must not enforce the pattern').toBe(
+      false
+    )
   })
 })

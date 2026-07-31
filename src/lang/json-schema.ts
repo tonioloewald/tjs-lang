@@ -32,7 +32,15 @@ export function typeDescriptorToJSONSchema(
 
   switch (td.kind) {
     case 'string':
-      return { type: 'string' }
+      // A regexp type example lands on JSON Schema's NATIVE `pattern` keyword — no
+      // `$predicate` extension needed, so even a naive validator enforces it.
+      // Flags have no JSON-Schema equivalent; when any are set we emit the looser
+      // `{type:'string'}` rather than a pattern that would be wrong (e.g. `/…/i`
+      // applied case-SENSITIVELY). Permissive-when-naive is the same progressive
+      // -enhancement rule the `$predicate` work follows.
+      return td.pattern && !td.flags
+        ? { type: 'string', pattern: td.pattern }
+        : { type: 'string' }
     case 'number':
       return { type: 'number' }
     case 'integer':

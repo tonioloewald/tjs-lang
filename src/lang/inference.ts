@@ -68,6 +68,12 @@ export function inferTypeFromValue(node: Expression): TypeDescriptor {
   switch (node.type) {
     case 'Literal': {
       const value = (node as any).value
+      // NOTE: a bare regexp literal is NOT treated as a pattern-constrained string.
+      // A regexp is a legitimate *value*, so under the example rule `s: /^\d+$/`
+      // denotes a RegExp exactly as `s: 5` denotes a number. The pattern-as-string
+      // meaning needs an explicit spelling — `/…/ as string` — which requires a
+      // parser-level pre-transform (see TODO "regexp string types"). Until then this
+      // degrades to best-effort rather than quietly meaning something else.
       if (value === null) {
         return { kind: 'null' }
       }

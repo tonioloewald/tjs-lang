@@ -1437,6 +1437,10 @@ function findAllFunctions(program: Program): FunctionDeclaration[] {
 function serializeType(t: TypeDescriptor): any {
   const result: any = { kind: t.kind }
   if (t.nullable) result.nullable = true
+  if (t.pattern) {
+    result.pattern = t.pattern
+    if (t.flags) result.flags = t.flags
+  }
   if (t.items) result.items = serializeType(t.items)
   if (t.shape) {
     result.shape = Object.fromEntries(
@@ -1876,7 +1880,12 @@ function generateTypeCheckExpr(
 
   switch (type.kind) {
     case 'string':
-      check = `typeof ${fieldPath} !== 'string'`
+      // A regexp-derived string type checks BOTH stringness and the pattern.
+      check = type.pattern
+        ? `(typeof ${fieldPath} !== 'string' || !new RegExp(${JSON.stringify(
+            type.pattern
+          )}, ${JSON.stringify(type.flags ?? '')}).test(${fieldPath}))`
+        : `typeof ${fieldPath} !== 'string'`
       break
     case 'number':
       check = `typeof ${fieldPath} !== 'number'`
