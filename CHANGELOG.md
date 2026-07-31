@@ -19,6 +19,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `chargeForSize()` on both operand and allocated result, using the same per-char/per-element
   constants as the expression path; fuel now scales linearly with N. Affects 0.12.0 and
   earlier — anyone relying on fuel as a DoS bound against untrusted input should upgrade.
+- **Live-heap ceiling (`maxHeapBytes`, default 64 MB)** — the _space_ budget to fuel's _time_
+  budget. Fuel meters cumulative work, which bounds how much a program allocates over its
+  lifetime but says nothing about how much it holds at once: `x = x + x` charges honestly, yet
+  at ~10 KB-per-fuel a legitimate 100,000-fuel budget still buys roughly a gigabyte of live
+  string. A run that exhausts host memory has taken the process down regardless of how honestly
+  it paid. Guest scope writes (`varSet`/`constSet` and atom-result bindings) are now accounted
+  against the ceiling with a bounded, cycle-safe estimator; accounting is **per key**, so
+  overwriting a variable frees its budget and ordinary loops don't false-positive. Verified: 26
+  doublings of 1 KB (~64 GB unchecked) stops at the ceiling with unlimited fuel.
 - **New `src/vm/cost-invariant.test.ts`** pins the invariant mechanically: each size-sensitive
   atom is driven at growing N and must show _marginal_ fuel scaling (a flat-charged atom scores
   exactly 0 marginal fuel — the bug's signature). Cheap stand-in for a mechanized proof of the

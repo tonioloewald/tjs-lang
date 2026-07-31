@@ -117,6 +117,7 @@ export class AgentVM<M extends Record<string, Atom<any, any>>> {
       timeoutOverrides?: Record<string, TimeoutOverride> // Per-atom timeout overrides (ms, 0 disables)
       context?: Record<string, any> // Request-scoped metadata (auth, permissions, etc.)
       membraneMaxBytes?: number // Cap on the estimated size of a capability return crossing into guest state (default 4MB)
+      maxHeapBytes?: number // Ceiling on bytes held live in guest scope (default 64MB). Fuel bounds work; this bounds peak memory.
     } = {}
   ): Promise<RunResult> {
     // Resolve string input to AST
@@ -200,6 +201,7 @@ export class AgentVM<M extends Record<string, Atom<any, any>>> {
       timeoutOverrides: options.timeoutOverrides,
       context: options.context,
       membraneMaxBytes: options.membraneMaxBytes,
+      maxHeapBytes: options.maxHeapBytes,
       warnings, // Shared warnings array
       helpers: (ast as any).helpers, // Local helper bodies, called by name via callLocal
     }

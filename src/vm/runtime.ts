@@ -176,6 +176,9 @@ export interface RuntimeContext {
   timeoutOverrides?: Record<string, TimeoutOverride> // Per-atom timeout overrides (ms, 0 disables)
   context?: Record<string, any> // Immutable request-scoped metadata (auth, permissions, etc.)
   membraneMaxBytes?: number // Cap on the estimated size of a capability return crossing into guest state (default MEMBRANE_MAX_BYTES)
+  maxHeapBytes?: number // Ceiling on bytes held live in guest scope (default MAX_HEAP_BYTES). Fuel bounds work; this bounds peak memory.
+  heapBytes?: number // Running estimate of live guest-state bytes
+  heapPerKey?: Map<string, number> // Per-key sizes, so overwriting a variable frees its budget
   runCodeDepth?: number // Track nested runCode calls to prevent infinite recursion
   localCall?: boolean // Inside a callLocal helper body — return may be a non-object scalar
   helpers?: Record<string, { steps: any[]; paramNames: string[] }> // Local helper bodies, called by name
@@ -1362,6 +1365,109 @@ function sizeHint(v: any): number {
  *
  * @returns false if fuel is exhausted (caller must stop; ctx.error is set).
  */
+/**
+ * Hard ceiling on the bytes a single run may hold live in guest scope.
+ *
+ * Fuel meters *cumulative* work, which bounds how much a program can allocate over
+ * its lifetime but says nothing about how much it holds at once. Measured: string
+ * doubling (`x = x + x`) charges correctly, yet at the ~10KB-per-fuel rate a
+ * legitimate 100,000-fuel budget still buys roughly a gigabyte of live string. Fuel
+ * is a *time* budget; this is the *space* budget, and you need both — a run that
+ * exhausts host memory has taken the process down regardless of how honestly it paid
+ * for the privilege.
+ */
+const MAX_HEAP_BYTES = 64 * 1024 * 1024 // 64MB
+
+/**
+ * Bounded, cycle-safe byte estimate for a guest value.
+ *
+ * Stops as soon as it exceeds `cap`: the estimator must never become the cost it is
+ * trying to measure (the same discipline as `sizeHint` — a metering function whose
+ * own cost scales with its input is the bug it exists to prevent). Overestimating
+ * shared references is deliberate: for a safety ceiling, conservative means fail-closed.
+ */
+function estimateBytes(value: any, cap: number): number {
+  let bytes = 0
+  const seen = new WeakSet<object>()
+  const stack = [value]
+  while (stack.length && bytes <= cap) {
+    const v = stack.pop()
+    if (v === null || v === undefined) continue
+    const t = typeof v
+    if (t === 'string') {
+      bytes += (v as string).length * 2
+      continue
+    }
+    if (t !== 'object') {
+      bytes += 8
+      continue
+    }
+    if (seen.has(v)) continue
+    seen.add(v)
+    bytes += 16
+    if (ArrayBuffer.isView(v)) {
+      bytes += (v as ArrayBufferView).byteLength
+    } else if (v instanceof ArrayBuffer) {
+      bytes += v.byteLength
+    } else if (Array.isArray(v)) {
+      for (let i = 0; i < v.length && bytes <= cap; i++) stack.push(v[i])
+    } else if (v instanceof Map) {
+      for (const [k, mv] of v) {
+        stack.push(k)
+        stack.push(mv)
+        if (bytes > cap) break
+      }
+    } else if (v instanceof Set) {
+      for (const sv of v) {
+        stack.push(sv)
+        if (bytes > cap) break
+      }
+    } else if (!(v instanceof Date)) {
+      for (const k of Object.keys(v)) {
+        bytes += k.length * 2
+        stack.push((v as any)[k])
+        if (bytes > cap) break
+      }
+    }
+  }
+  return bytes
+}
+
+/**
+ * Account a value being bound into guest scope against the run's live-heap ceiling.
+ *
+ * Per-key accounting (replace, don't accumulate) so overwriting a big variable frees
+ * its budget — otherwise a loop that reuses one variable would false-positive.
+ *
+ * @returns false if the ceiling is exceeded (caller must stop; ctx.error is set).
+ */
+function trackHeapWrite(
+  ctx: RuntimeContext,
+  key: string,
+  value: any,
+  op: string
+): boolean {
+  const cap = ctx.maxHeapBytes ?? MAX_HEAP_BYTES
+  if (!ctx.heapPerKey) ctx.heapPerKey = new Map()
+  const size = estimateBytes(value, cap)
+  const prev = ctx.heapPerKey.get(key) ?? 0
+  const total = (ctx.heapBytes ?? 0) - prev + size
+  ctx.heapPerKey.set(key, size)
+  ctx.heapBytes = total
+  if (total > cap) {
+    ctx.error = new AgentError(
+      `Heap limit exceeded: guest state holds ~${Math.round(
+        total / 1048576
+      )}MB, limit ${Math.round(cap / 1048576)}MB. ` +
+        `Fuel bounds total work; this bounds peak memory. Raise it with the ` +
+        `maxHeapBytes run option if the workload genuinely needs it.`,
+      op
+    )
+    return false
+  }
+  return true
+}
+
 function chargeForSize(ctx: RuntimeContext, value: any, op: string): boolean {
   if (!ctx.fuel) return true
   const n = sizeHint(value)
@@ -1766,6 +1872,10 @@ export function defineAtom<I extends Record<string, any>, O = any>(
           ctx.error = new AgentError(`Output validation failed for '${op}'`, op)
           return
         }
+        // Space budget: an atom result is the other way large values enter guest
+        // scope (a capability return, a big parse). Fuel already charged for the
+        // work; this bounds what the run HOLDS.
+        if (!trackHeapWrite(ctx, step.result, result, op)) return
         ctx.state[step.result] = result
         // Mark as const if resultConst is set
         if (step.resultConst) {
@@ -2055,7 +2165,9 @@ export const varSet = defineAtom(
     if (ctx.consts.has(key)) {
       throw new Error(`Cannot reassign const variable '${key}'`)
     }
-    ctx.state[key] = resolveValue(value, ctx)
+    const v = resolveValue(value, ctx)
+    if (!trackHeapWrite(ctx, key, v, 'varSet')) return undefined
+    ctx.state[key] = v
   },
   { docs: 'Set Variable', cost: 0.1 }
 )
@@ -2072,7 +2184,9 @@ export const constSet = defineAtom(
     if (key in ctx.state) {
       throw new Error(`Cannot redeclare variable '${key}' as const`)
     }
-    ctx.state[key] = resolveValue(value, ctx)
+    const cv = resolveValue(value, ctx)
+    if (!trackHeapWrite(ctx, key, cv, 'constSet')) return undefined
+    ctx.state[key] = cv
     ctx.consts.add(key)
   },
   { docs: 'Set Const Variable (immutable)', cost: 0.1 }

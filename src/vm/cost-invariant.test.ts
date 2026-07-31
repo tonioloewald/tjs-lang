@@ -168,3 +168,78 @@ describe('cost invariant: fuel tracks operand size', () => {
     expect(res.error?.message).toBe('Out of Fuel')
   }, 60_000)
 })
+
+/**
+ * The SPACE budget, complementing the time budget above.
+ *
+ * Fuel meters cumulative work, which bounds how much a program allocates over its
+ * lifetime but not how much it holds at once. Measured: `x = x + x` charges honestly,
+ * yet at ~10KB-per-fuel a legitimate 100,000-fuel budget still buys ~1GB of live
+ * string — a run can pay full price and still take the host down. `maxHeapBytes`
+ * (default 64MB) bounds peak live guest state.
+ */
+describe('heap ceiling: peak live state is bounded', () => {
+  const double = {
+    $expr: 'binary',
+    op: '+',
+    left: { $expr: 'ident', name: 'x' },
+    right: { $expr: 'ident', name: 'x' },
+  }
+
+  const doubling = (iters: number) => {
+    const steps: any[] = [{ op: 'varSet', key: 'x', value: 'a'.repeat(1024) }]
+    for (let i = 0; i < iters; i++)
+      steps.push({ op: 'varSet', key: 'x', value: double })
+    steps.push({ op: 'return', value: {} })
+    return { op: 'seq', steps }
+  }
+
+  it('stops exponential growth even with effectively unlimited fuel', async () => {
+    // 26 doublings of 1KB = ~64GB if left alone. Fuel is not the thing stopping it.
+    const res = await VM.run(doubling(26) as any, {}, { fuel: 10_000_000 })
+    expect(res.error?.message).toMatch(/Heap limit exceeded/)
+  }, 60_000)
+
+  it('respects an explicit maxHeapBytes', async () => {
+    const res = await VM.run(
+      doubling(20) as any,
+      {},
+      {
+        fuel: 10_000_000,
+        maxHeapBytes: 1024 * 1024, // 1MB
+      }
+    )
+    expect(res.error?.message).toMatch(/Heap limit exceeded/)
+  }, 60_000)
+
+  it('overwriting a variable frees its budget (no false positive)', async () => {
+    // Per-key accounting: assigning a big value repeatedly to the SAME key must not
+    // accumulate, or an ordinary loop would trip the ceiling.
+    const steps: any[] = []
+    for (let i = 0; i < 50; i++)
+      steps.push({ op: 'varSet', key: 'buf', value: 'x'.repeat(200_000) })
+    steps.push({ op: 'return', value: {} })
+    const res = await VM.run(
+      { op: 'seq', steps } as any,
+      {},
+      { fuel: 10_000_000 }
+    )
+    expect(res.error).toBeUndefined()
+  }, 60_000)
+
+  it('ordinary programs are unaffected', async () => {
+    const res = await VM.run(
+      {
+        op: 'seq',
+        steps: [
+          { op: 'varSet', key: 'a', value: 'hello' },
+          { op: 'varSet', key: 'b', value: [1, 2, 3] },
+          { op: 'return', value: {} },
+        ],
+      } as any,
+      {},
+      { fuel: 1000 }
+    )
+    expect(res.error).toBeUndefined()
+  })
+})
