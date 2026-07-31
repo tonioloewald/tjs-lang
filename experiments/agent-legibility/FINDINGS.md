@@ -84,3 +84,83 @@ loudly only because `any[]` isn't parseable as an example.
 **Recommended next experiment:** the _within-TJS_ A/B from (4a). Same language, same tasks, only
 the feedback string differs (executed verdict vs. a types-only complaint). It isolates the
 mechanism, is immune to the training-data asymmetry, and is cheap to run locally.
+
+---
+
+# Guidance A/B — optimizing our own documentation (2026-07-31)
+
+`guidance-ab.ts`. Same model, tasks, samples and temperature; **only the guidance text
+varies**. AJS (not TJS) because AJS is the language explicitly designed for small models.
+Judged as production would: transpile → run in the VM → check the result.
+
+| variant        | size | rate (N=9) | dominant failures               |
+| -------------- | ---- | ---------- | ------------------------------- |
+| **cheatsheet** | 0.6k | **67%**    | 2× wrong result, 1× syntax      |
+| full (shipped) | 7.6k | 33%        | 3× ForStatement, 2× Out of Fuel |
+| examplesOnly   | 5.7k | 33%        | 3× ForStatement, misc           |
+| none           | 0.1k | 0%         | 6× ForStatement, 3× Out of Fuel |
+
+## Findings
+
+**1. A 0.6k cheat sheet beats our 7.6k shipped guide by 2×.** Twelve times shorter, twice
+as effective, on the language we designed for small models.
+
+**2. Guidance is worth a lot — but it isn't monotonic.** `none` scores 0%, so docs matter
+enormously; yet the _longest_ guide is half as good as the shortest useful one. There is a
+sweet spot, and we are on the wrong side of it.
+
+**3. Adding the missing rule did NOT fix it — the negative result that matters.** The
+dominant failure was `ForStatement` (models write `for` loops; AJS has none), and the
+shipped guide had no explicit prohibition while the cheatsheet did. Obvious hypothesis:
+add the rule. **Added it, re-measured, no change** — still 33%, still 3× ForStatement.
+
+So the cheatsheet's advantage is _not_ the specific rule. The plausible mechanism is
+**signal-to-noise**: a small model given 7.6k of prose loses the constraints; the same
+constraints in 0.6k land. This is exactly the kind of thing intuition gets backwards —
+"the guide is missing a rule, add a rule" is wrong, and we'd have shipped it believing
+otherwise.
+
+**Actionable:** ship a short cheat sheet as the _primary_ small-model prompt and demote
+the long guide to reference. Verify with a higher-N run before committing to it.
+
+**Caveat:** N=9 per variant. The rate gaps (67 vs 33) are suggestive, not conclusive; the
+failure histograms are the robust part. Raise `GUIDANCE_SAMPLES` before acting on a
+smaller gap than this one.
+
+---
+
+# The research programme this is really part of
+
+The spike + A/B were single cells of a much larger matrix. Design it explicitly so results
+compose instead of accumulating as anecdotes.
+
+**Axis 1 — language:** JS · TS · TJS · AJS. (JS is the essential control: it is what every
+model knows best, so it calibrates how much of any result is _familiarity_ rather than
+_legibility_.)
+
+**Axis 2 — capability.** Each needs its own task design and its own judge; conflating them
+is what made the first spike ambiguous:
+
+| capability             | question                                          | judged by                  |
+| ---------------------- | ------------------------------------------------- | -------------------------- |
+| origination            | can it write correct code from a spec?            | execute against cases      |
+| bug reasoning          | given failing code + a verdict, can it repair?    | execute after repair       |
+| syntax-error reasoning | given a compile error, can it fix it?             | compiles                   |
+| syntax inference       | given only examples, can it produce valid syntax? | parses                     |
+| syntax guessing        | given NO guidance, what does it assume?           | parses (+ what it assumed) |
+| comprehension          | can it predict what code does?                    | matches actual output      |
+| doc usefulness         | which guidance variant maximises the above?       | A/B, as above              |
+
+**Axis 3 — model size.** The interesting result is not a single number but the
+**transition boundary**: at what scale does each language become tractable? AJS should be
+tractable far smaller than TJS; _where_ that crossover sits is a real, publishable finding
+and directly informs how much to invest in making TJS legible to small models.
+
+**Design rules learned the hard way (all four from the first spike):**
+
+- Positive control per cell, or a broken harness reads as a strong negative result.
+- Calibrate difficulty to ~50% first-attempt, or the repair loop never runs.
+- Measure **idiom adoption** separately from correctness — TJS ⊇ JS means a model can
+  "pass" the TJS arm without writing TJS.
+- Vary ONE thing per experiment. The within-language feedback A/B (executed verdict vs
+  type error) is confound-free; the cross-language comparison never will be.

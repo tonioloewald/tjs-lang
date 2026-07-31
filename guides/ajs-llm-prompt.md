@@ -37,6 +37,12 @@ AJS looks like JavaScript but has strict differences. You must adhere to these r
   - WRONG: `function foo(x: 0): number { ... }`
   - WRONG: `function foo(x: 0): number { ... }`
   - RIGHT: `function foo(x: 0) { ... }`
+- **No `for` Loops — use `while`:** `for`, `for...of` and `for...in` are NOT supported.
+  Every loop is a `while` with an explicit counter you decrement yourself.
+  - WRONG: `for (let i = 0; i < n; i++) { total = total + i }`
+  - RIGHT: `let i = 1
+    while (i <= n) { total = total + i; i = i + 1 }`
+  - Always change the counter inside the loop, or the run exhausts its fuel.
 - **No Classes:** Do NOT use `class`, `new`, `this`, or `prototype`.
 - **No Async/Await:** Do NOT use `async` or `await`. All functions are implicitly asynchronous.
   - WRONG: `let x = await fetch(...)`
