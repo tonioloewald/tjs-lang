@@ -12,7 +12,7 @@ import {
   transpileToJS,
 } from './index'
 import { preprocess } from './parser'
-import { createRuntime, isMonadicError } from './runtime'
+import { isMonadicError } from './runtime'
 import { Schema } from './schema'
 
 describe('Schema callable', () => {

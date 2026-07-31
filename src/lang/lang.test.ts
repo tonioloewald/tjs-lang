@@ -5,16 +5,6 @@ import { createRuntime, isMonadicError } from './runtime'
 
 describe('Polymorphic functions', () => {
   // Helper to compile and execute TJS code with polymorphic functions
-  function compilePoly(source: string) {
-    const result = tjs(source)
-    const savedTjs = globalThis.__tjs
-    globalThis.__tjs = createRuntime()
-    try {
-      return { result, runtime: globalThis.__tjs }
-    } finally {
-      globalThis.__tjs = savedTjs
-    }
-  }
 
   function runPoly(source: string, funcName: string) {
     const result = tjs(source)

@@ -10,7 +10,6 @@ import type {
   TokenizerState,
   StructuralContext,
   ContextFrame,
-  TjsModes,
 } from './parser-types'
 import { locAt } from './parser-transforms'
 

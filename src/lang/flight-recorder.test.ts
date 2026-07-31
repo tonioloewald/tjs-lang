@@ -10,7 +10,7 @@
  */
 import { describe, it, expect, beforeEach, afterEach } from 'bun:test'
 import { tjs } from './index'
-import { createRuntime, records, clearRecords } from './runtime'
+import { createRuntime, clearRecords } from './runtime'
 
 const g = globalThis as any
 

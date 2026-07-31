@@ -124,7 +124,6 @@ import {
   selectAccessRule,
   validateSchema,
   buildRuleContext,
-  interpretRuleResult,
 } from './rules.tjs'
 
 /**

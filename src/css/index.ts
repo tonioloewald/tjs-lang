@@ -19,17 +19,8 @@ import {
   type PredicateVerifyResult,
   type Suggestion,
 } from '../lang/predicate'
-import {
-  CSS_COLOR_SOURCE,
-  CSS_COLOR_ENTRIES,
-  CSS_NAMED_COLORS,
-} from './predicates'
-import {
-  CSS_DIMENSION_SOURCE,
-  CSS_DIMENSION_ENTRIES,
-  CSS_LENGTH_UNITS,
-  CSS_GLOBAL_KEYWORDS,
-} from './dimensions'
+import { CSS_COLOR_SOURCE, CSS_COLOR_ENTRIES } from './predicates'
+import { CSS_DIMENSION_SOURCE, CSS_DIMENSION_ENTRIES } from './dimensions'
 import { CSS_STYLE_SOURCE, CSS_STYLE_ENTRIES } from './style'
 import { CSS_SHORTHAND_SOURCE, CSS_SHORTHAND_ENTRIES } from './shorthands'
 

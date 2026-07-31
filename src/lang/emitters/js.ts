@@ -70,13 +70,7 @@ const INLINE_MONADIC_ERROR = `class MonadicError extends Error{constructor(m,p,e
 const INLINE_TYPE_ERROR = `function typeError(p,e,v,r){const a=v===null?'null':typeof v;const m=r?'Expected '+e+" for '"+p+"': "+r:'Expected '+e+" for '"+p+"', got "+a;const err=new MonadicError(m,p,e,a,undefined,r);const g=globalThis.__tjs;const c=g?.getConfig?.();try{g?.record?.({source:'type',severity:'error',message:err.message,error:err})}catch{}if(c?.logTypeErrors)console.error('[TJS TypeError] '+err.message);if(c?.throwTypeErrors)throw err;return err}`
 
 const INLINE_IS_MONADIC_ERROR = `function isMonadicError(v){return v instanceof Error&&v.name==='MonadicError'&&'path' in v}`
-import {
-  parse,
-  extractTDoc,
-  preprocess,
-  transformExtensionCalls,
-  stripLineComments,
-} from '../parser'
+import { parse, extractTDoc, preprocess, stripLineComments } from '../parser'
 import {
   transformEqualityToStructural,
   transformIsOperators,

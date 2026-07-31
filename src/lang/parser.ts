@@ -59,7 +59,8 @@ import {
   transformLetTypeAnnotations,
 } from './parser-transforms'
 
-// Re-export transformExtensionCalls for js.ts
+// Re-exported for the test emitter (`emitters/js-tests.ts`), which transforms
+// extension calls inside test bodies.
 export { transformExtensionCalls } from './parser-transforms'
 
 /**

@@ -38,7 +38,6 @@ import {
   NotEq,
   tjsEquals,
   checkType,
-  MonadicError,
   isMonadicError,
 } from './runtime'
 import { Eval, SafeFunction } from './eval'

@@ -1500,7 +1500,7 @@ function map(arr: [''], counter = strLength): [0] { return arr.map(counter) }`)
         // (x) => false returns boolean for each call. Result is array of
         // booleans, NOT array of MonadicErrors. The outer return doesn't
         // validate items by default (no :?).
-        const r = fns.map(['hi', 'world'], (x: string) => false)
+        const r = fns.map(['hi', 'world'], (_x: string) => false)
         expect(Array.isArray(r)).toBe(true)
         expect(r).toEqual([false, false])
       })
@@ -1567,7 +1567,7 @@ function mapStrings(s: ['hello', 'foo'], counter = strLength): [5, 3] {
   return s.map(counter)
 }`)
         const fns = new Function(code + '\nreturn { mapStrings }')()
-        const r = fns.mapStrings(['hello', 'world'], (x: string) => false)
+        const r = fns.mapStrings(['hello', 'world'], (_x: string) => false)
         // Untyped arrow → no checks → array of booleans (no error pollution)
         expect(r).toEqual([false, false])
         expect(r.every((v: any) => v instanceof Error)).toBe(false)
@@ -1987,8 +1987,6 @@ function format(x: ''):! '' { return x + '!' }
     })
 
     it('error short-circuits function body', () => {
-      const bodyExecuted = false
-
       const { code } = tjs(`
 function process(x: ''):! '' {
   globalThis.__test_body_ran = true

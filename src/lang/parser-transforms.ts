@@ -37,7 +37,6 @@ function extractBalancedValue(
 import type {
   WasmBlock,
   TestBlock,
-  ExtensionInfo,
   PolyVariant,
   TokenizerState,
 } from './parser-types'
@@ -2496,7 +2495,6 @@ export function transformExtendDeclarations(source: string): {
 
     // Find matching closing brace
     const blockEnd = findFunctionBodyEnd(source, blockStart)
-    const blockBody = source.slice(blockStart + 1, blockEnd - 1).trim()
 
     // Parse methods from the block body
     // Match: methodName(params) { body } or async methodName(params) { body }
@@ -2513,7 +2511,6 @@ export function transformExtendDeclarations(source: string): {
         continue
       }
 
-      const methodIndent = methodMatch[1]
       const isAsync = !!methodMatch[2]
       const methodName = methodMatch[3]
 
@@ -2560,7 +2557,6 @@ export function transformExtendDeclarations(source: string): {
 
       // Find matching closing brace for the method body
       const methodBodyEnd = findFunctionBodyEnd(bodySource, afterParams)
-      const fullMethodText = bodySource.slice(j, methodBodyEnd).trim()
 
       // Build: methodName: function(params) { body }
       // Transform TJS colon params (name: value) to JS defaults (name = value)
@@ -3593,7 +3589,6 @@ export function transformPolymorphicConstructors(
     for (let i = 1; i < ctors.length; i++) {
       const ctor = ctors[i]
       // Parse params for type checking in dispatcher
-      const params = parseParamList(ctor.paramStr, requiredParams)
       const hasRest = ctor.paramStr.includes('...')
       if (hasRest) {
         const loc = locAt(source, bodyStart + ctor.fullStart)

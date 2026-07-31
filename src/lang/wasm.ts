@@ -301,11 +301,6 @@ function encodeSIMDMemarg(
   ]
 }
 
-/** Emit WAT instruction to context */
-function wat(ctx: CompileContext, instruction: string): void {
-  ctx.wat.push('  '.repeat(ctx.watIndent) + instruction)
-}
-
 // ============================================================================
 // LEB128 Encoding
 // ============================================================================
@@ -361,10 +356,6 @@ function encodeSection(id: number, contents: number[]): number[] {
   return [id, ...encodeULEB128(contents.length), ...contents]
 }
 
-function encodeVector(items: number[][]): number[] {
-  return [...encodeULEB128(items.length), ...items.flat()]
-}
-
 // ============================================================================
 // Disassembly (for debugging)
 // ============================================================================
@@ -404,7 +395,7 @@ function disassemble(
 
   // Function signature
   const paramStr = params
-    .map((p, i) => `(param $${p.name} ${p.type})`)
+    .map((p, _i) => `(param $${p.name} ${p.type})`)
     .join(' ')
   const localStr = localTypes
     .map((t, i) => `(local $L${params.length + i} ${t})`)
@@ -481,7 +472,7 @@ function disassemble(
       op === Op.i32_load ||
       op === Op.i32_store
     ) {
-      const [align, len1] = decodeULEB128(code, i)
+      const [_align, len1] = decodeULEB128(code, i)
       i += len1
       const [offset, len2] = decodeULEB128(code, i)
       i += len2
