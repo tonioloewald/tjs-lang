@@ -45,6 +45,19 @@ first-class — `: string` meaning a string — with types-by-example kept as th
     legacy octal in sloppy mode, and a hard syntax error in strict mode ("decimal integer
     literals with a leading zero are forbidden"). TJS emits modules, which are always
     strict, so `05` can never appear in TJS source at all.
+    - **DECISION POINT — if we drop JS-legality, don't pick a colliding symbol.** `.tjs`
+      need not be legal JS ("change the extension, get the new stuff"), and repurposing
+      legacy octal would remove a footgun while gaining syntax — the argument is sound.
+      But leading-zero is the _worst_ free option because it already means something,
+      inconsistently: `05`→5 and `08`→8 (luck: invalid octal digits fall back to
+      decimal) but **`010`→8** and **`017`→15**. `n = 010` meaning "unsigned, default
+      10" would be read as **8** by every human, editor, linter and JS-trained model —
+      and it fails _silently_, only above 7. Our own A4 finding (models pattern-match
+      hard against priors) says a marker colliding with a wrong existing meaning is
+      precisely the failure mode to avoid.
+      Prefer a symbol with **no** existing meaning: `5u` / `u5` / `5i` are all clean
+      syntax errors today. `5u` additionally carries a _helpful_ prior (C/C++/Rust
+      unsigned suffix) and stays unambiguous at any magnitude: `10u` reads as 10.
     - [ ] **Support `n: number = 5` / `n: +0 = 5` — it currently DOESN'T PARSE.** The type
           lives on the other side of the colon, so it can never be ambiguous with the
           default value. Needs no new syntax: it's the standard TS spelling, which makes
