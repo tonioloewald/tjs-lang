@@ -16,7 +16,7 @@
 
 **AJS is another language.** It's a language for safe evaluation with injected capabilities and a gas limit. It's the language tjs allows you to Eval and use to create a SafeFunction. It also has its own VM and runtime to allow you to build **universal endpoints**. It's a language that's easy for agents to write and comprehend. It can be converted into an AST and run remotely.
 
-**TJS is also a toolchain.** It transpiles itself into JavaScript. It transpiles TypeScript into itself and then into JS. It turns function definitions into runtime contracts, documentation, and simple tests. It uses types both as contracts and examples. It allows inline tests of private module internals that disappear at runtime. It compresses transpilation, linting, testing, and documentation generation into a single fast pass. As for bundling? It allows it but it targets an unbundled web.
+**TJS is also a toolchain.** It transpiles its own source into JavaScript — the transpiler is written in TypeScript, and running it through its own TS→TJS→JS pipeline yields a bootstrapped transpiler whose output matches the native one exactly (`src/use-cases/bootstrap.test.ts`). That's a compiler that processes its own source, not (yet) a compiler written in its own language. It transpiles TypeScript into TJS and then into JS. It turns function definitions into runtime contracts, documentation, and simple tests. It uses types both as contracts and examples. It allows inline tests of private module internals that disappear at runtime. It compresses transpilation, linting, testing, and documentation generation into a single fast pass. As for bundling? It allows it but it targets an unbundled web.
 
 ![TJS Platform Overview](docs/diagrams/platform-overview.svg)
 
@@ -138,6 +138,28 @@ const { result, fuelUsed } = await Eval({
 
 The untrusted code thinks it has `fetch`, but it only has _your_ `fetch`. No CSP violations. No infinite loops. No access to anything you didn't explicitly grant.
 
+**What the sandbox guarantees, and what it doesn't** (as of v0.12.0 — be precise here, because
+a security claim you can't cash is worse than none):
+
+- **Termination is guaranteed, not decided.** Fuel metering sidesteps the halting problem
+  rather than solving it: every atom costs fuel and execution stops when it runs out, so a
+  program either finishes or is killed. There is no "will it halt?" question to answer.
+- **No ambient authority.** The VM has zero IO by default; the only way out is a capability you
+  inject. Every atom touching one is tagged `effects: 'io'` and that tagging is itself
+  test-guarded, so the audit surface is enumerable.
+- **The guest holds data, not references.** Capability returns cross a `structuredClone`
+  membrane, so a guest can't reach a host object or mutate one you still hold.
+- **Layered and tested — not formally proven.** The properties above are structural and could
+  in principle be proven; today they are enforced by construction and covered by an adversarial
+  test suite. Treat "proven" as the roadmap, not the current state.
+- **Known gap: cross-endpoint amplification.** Recursive agent calls are bounded by a depth
+  header (`X-Agent-Depth`, max 10), but that is **cooperative** — it stops accidental loops and
+  friendly infrastructure, not an adversarial endpoint that simply drops the header. If you
+  expose completely open endpoints, rate-limit them.
+- **Out of scope:** timing side channels, JS-engine JIT bugs, and memory-level attacks. A
+  JS-in-JS sandbox cannot address those; put process isolation underneath if your threat model
+  includes them.
+
 ![Safe Eval: Capability-Based Security](docs/diagrams/safe-eval.svg)
 
 ## Quick Start
@@ -200,16 +222,21 @@ Since TJS compiles itself, the playground is the full engine running entirely in
 
 ## Bundle Size
 
-The cost of "safe eval"—compare to a 200MB Docker image:
+The cost of "safe eval"—compare to a 200MB Docker image. **Measured at v0.12.0**; each row is
+a standalone entry point, not an increment (import only what you need):
 
-| Bundle                    | Size   | Gzipped   |
-| ------------------------- | ------ | --------- |
-| VM only                   | 218 KB | **66 KB** |
-| + Batteries (LLM, vector) | 14 KB  | 5 KB      |
-| + Transpiler              | 5 KB   | 2 KB      |
-| Full (with TS support)    | 230 KB | 71 KB     |
+| Entry point                   | Bundle           | Size   | Gzipped   |
+| ----------------------------- | ---------------- | ------ | --------- |
+| `tjs-lang/vm` (VM only)       | tjs-vm.js        | 250 KB | **74 KB** |
+| `tjs-lang/batteries`          | tjs-batteries.js | 9 KB   | 3 KB      |
+| `tjs-lang/lang` (transpiler)  | tjs-lang.js      | 208 KB | 64 KB     |
+| `tjs-lang` (full, TS support) | index.js         | 290 KB | 90 KB     |
 
-**Dependencies:** `acorn` (JS parser), `tosijs-schema` (validation). Both have zero transitive dependencies.
+> These numbers are **verified by `src/bundle-size.test.ts`**, which re-measures the built
+> bundles and fails if this table drifts — so they can go stale by at most one release.
+
+**Dependencies:** `acorn` + `acorn-walk`/`acorn-loose` (JS parsing), `tosijs-schema`
+(validation). All have zero transitive dependencies.
 
 ## Documentation
 
