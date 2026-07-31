@@ -406,6 +406,37 @@ function extractFunctionTypeInfo(
     }
   }
 
+  // Best-effort degradation should TEACH, not just happen silently.
+  //
+  // TJS implements the sound parts of TypeScript and best-efforts the rest — but a
+  // parameter that quietly became `any` is exactly the failure the "types survive to
+  // runtime" pitch exists to prevent, and the user has no way to know it happened.
+  // So say so, and point at the ladder that gets the safety back:
+  //
+  //   foo: number  → validates (sound TS type)
+  //   foo: 3       → validates AND is a worked example
+  //   foo: 3.0     → same, as a float
+  //   Predicate    → arbitrary constraints, checked at runtime, composable
+  //
+  // Worked suggestions rather than prose is deliberate: measured, a remedy shown as
+  // code repaired 80% where the same advice as prose repaired 50% and a bare
+  // diagnostic 0% (ASSUMPTIONS.md A1, experiments/agent-legibility).
+  for (const [name, descriptor] of Object.entries(params)) {
+    // `unresolved` is set only when an annotation DEGRADED; an explicit `any`
+    // carries no marker, because honouring `any` isn't a degradation.
+    const annotated = descriptor.type?.unresolved
+    if (annotated) {
+      warnings.push(
+        `'${name}: ${annotated}' could not be resolved to a runtime type, so it is ` +
+          `unchecked (best effort). For real runtime safety give an example ` +
+          `(${name}: 3), a sound type (${name}: number), or a predicate:\n` +
+          `  Type ${
+            String(annotated).replace(/\W/g, '') || 'Thing'
+          } { predicate(v) { return typeof v === 'object' && v !== null } }`
+      )
+    }
+  }
+
   // Build type info object
   const types: TJSTypeInfo = {
     name: func.id?.name || 'anonymous',

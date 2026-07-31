@@ -11,6 +11,13 @@ import type { SeqNode } from '../builder'
 
 /** Represents a type extracted from value patterns */
 export interface TypeDescriptor {
+  /**
+   * Set when an annotation could NOT be resolved to a runtime type and degraded to
+   * `any` — carries the original text so tooling can say what was dropped and suggest
+   * a remedy. Absent when `any` was asked for explicitly, because that isn't a
+   * degradation: `any` means unconstrained and we honour it.
+   */
+  unresolved?: string
   kind:
     | 'string'
     | 'number'

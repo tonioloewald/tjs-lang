@@ -20,12 +20,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   example type (`s: string` ≡ `s: ''`). `any`/`unknown`/`void`/`never` remain unconstrained
   because that is what they mean; an unresolvable user type still degrades to best-effort
   rather than erroring, which preserves TJS ⊇ JS.
+
   - **Deliberately still best-effort:** conditional types, mapped types, recursive
     templates, `infer` — the undecidable type-level metaprogramming TJS answers with a
     _predicate function_ you can read, test and run.
   - Known gap: `string[]` doesn't parse (use `['']`). It fails **loudly**, which is the
     acceptable interim state — a parse error tells you to fix something; the old silent
     `any` removed your type checking and said nothing.
+
+- **Best-effort type degradation now teaches instead of happening silently.** When an
+  annotation can't be resolved to a runtime type it still degrades to `any` (by design —
+  TJS ⊇ JS), but the transpiler now emits a warning naming what was dropped and showing the
+  ladder back to safety: an example (`foo: 3`), a sound type (`foo: number`), or a
+  `Type … { predicate(v) { … } }`. The suggestion is **shown as code**, per the measured
+  finding that a remedy shown repairs 80% where the same advice as prose repairs 50% and a
+  bare diagnostic 0%. No warning when `any`/`unknown` was asked for explicitly — honouring
+  `any` isn't a degradation, and warning there would train people to ignore the channel.
 
 ### Changed
 

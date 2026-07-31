@@ -85,3 +85,31 @@ describe('sound TS type names are honoured as runtime types', () => {
     ).toThrow()
   })
 })
+
+describe('best-effort degradation teaches the ladder', () => {
+  it('an unresolvable type warns and suggests example / sound type / predicate', () => {
+    const r = tjs(`function f(a: MyThing) { return a }`, { runTests: false })
+    const w = (r.warnings ?? []).join('\n')
+    expect(w).toContain('MyThing')
+    expect(w).toContain('best effort')
+    // Show the remedy, don't just describe it (A1: shown remedies repaired 80%,
+    // prose 50%, bare diagnostics 0%).
+    expect(w).toMatch(/Type MyThing \{ predicate/)
+  })
+
+  it('does NOT warn when `any`/`unknown` was asked for explicitly', () => {
+    // Honouring `any` is not a degradation — warning here would train users to
+    // ignore the channel, which is how a useful warning becomes noise.
+    const r = tjs(`function f(a: any, b: unknown) { return a }`, {
+      runTests: false,
+    })
+    expect(r.warnings ?? []).toEqual([])
+  })
+
+  it('does NOT warn for sound types or examples', () => {
+    const r = tjs(`function f(a: string, b: 3, c: 3.0) { return a }`, {
+      runTests: false,
+    })
+    expect(r.warnings ?? []).toEqual([])
+  })
+})

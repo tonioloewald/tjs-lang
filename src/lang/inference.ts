@@ -179,8 +179,9 @@ export function inferTypeFromValue(node: Expression): TypeDescriptor {
       const tsType = TS_TYPE_NAMES[(node as any).name]
       if (tsType) return { ...tsType }
       // Unknown identifier: a user-defined type we can't resolve statically.
-      // Best-effort — see the module note.
-      return { kind: 'any' }
+      // Best-effort by design — but MARK it, so the transpiler can tell the user what
+      // it dropped and how to get the safety back, instead of silently erasing a type.
+      return { kind: 'any', unresolved: (node as any).name }
     }
 
     case 'TSArrayType' as any: {
