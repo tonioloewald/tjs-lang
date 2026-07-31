@@ -284,3 +284,57 @@ and the single most valuable follow-up.
 Still untested from the speculative list: **adversarial indentation** (mixed tabs/spaces,
 where Python's whitespace sensitivity should become a liability), and a **Python-subset
 analog of AJS** compared against AJS proper.
+
+---
+
+# Our error messages are worth exactly nothing (2026-07-31)
+
+`error-message-ab.ts`. Broken code + ONE error-message variant → ask for a fix → judge by
+transpiling and running. Message text is the only variable. N=10 per variant.
+
+| variant     | repair rate |                                     |
+| ----------- | ----------- | ----------------------------------- |
+| withExample | **80%**     | ours + a worked correction          |
+| withFix     | 50%         | ours + prose telling you what to do |
+| silent      | 0%          | "that didn't work"                  |
+| **actual**  | **0%**      | **what we ship today**              |
+
+**Our diagnostics perform identically to saying nothing.** They are accurate — `Unsupported
+statement type: ForStatement at <source>:3:2` correctly names the defect — and they cause
+zero repairs. Accuracy without remedy is decoration.
+
+The per-case breakdown sharpens it. For the `for`-loop defect:
+
+- prose remedy ("AJS has no `for` loops — rewrite as a `while` with a counter"): **0/5**
+- the same remedy _shown_ as three lines of code: **5/5**
+
+Telling didn't work. Showing did.
+
+## The pattern across three experiments
+
+This is now the third independent result pointing the same way:
+
+1. Guidance A/B: adding the missing prose rule changed nothing; the terse sheet **with an
+   example** doubled the success rate.
+2. Surface probe: models fail by silently dropping semantics they can't pattern-match.
+3. Error messages: prose remedy 50%, **worked example 80%, status quo 0%**.
+
+**Models repair from examples, not from rules.** Every place we currently spend prose —
+guides, diagnostics, docs — is a candidate for "replace the paragraph with three lines of
+code".
+
+## Actionable
+
+Attach a worked correction to the diagnostics for the constructs AJS deliberately lacks
+(`for`/`for…of`, non-object returns, `new`, `class`, `await`). This is pure message text —
+no compiler change — and the measured delta is 0% → 80% on repair.
+
+## Limitation: this is single-shot, and real coding iterates
+
+Each cell here is one attempt: broken code → one message → one fix. Real use is a loop —
+fix, re-run, get the _next_ error, fix again. That matters because a diagnostic's value
+compounds or decays across turns: a message that gets you 60% of the way may beat one that
+solves it outright but teaches nothing transferable, and a bad message may waste the whole
+budget. **The iterated version is the more honest experiment**, and it's the same shape as
+the `harness.ts` repair loop — wire the message variants into that loop and measure
+_iterations-to-green_ rather than one-shot repair rate.
