@@ -211,7 +211,7 @@
   "scripts": {
     "format": "bun eslint src --fix && bun prettier --write .",
     "format:check": "bun eslint src && bun prettier --check .",
-    "lint": "eslint src",
+    "lint": "eslint src --max-warnings 0",
     "prepare": "git config core.hooksPath .githooks || true",
     "build:grammars": "bun editors/build-grammars.ts",
     "build:editors": "bun scripts/build-editors.ts && tsc -p tsconfig.editors.json",
