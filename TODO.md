@@ -19,6 +19,16 @@ first-class — `: string` meaning a string — with types-by-example kept as th
       same tasks, no guidance, TS-style vs example-style — which does a model produce
       correctly without being taught? Do it at two model sizes; A7 says the answer may
       differ, and where it flips is the interesting number.
+- [ ] **Close the paste-in-TS gap.** Measured 2026-07-31 — of 10 common TS constructs,
+      **5 port by paste**: primitives, unions, optional params (`a?: string`), object
+      literals, return types. Five fail, ranked by how often real TS code hits them: - [ ] **`T[]` — highest value by far.** The most common annotation after the
+      primitives; currently a parse error. TJS spelling is `['']`, so this is a
+      source rewrite (`X[]` → `[X]`) in annotation position, not a type-system change. - [ ] **`interface` declarations** — reserved word today. Erasable: an interface is a
+      shape, so it can become a `Type` declaration or be stripped. - [ ] **`as` casts** — purely erasable; strip them. - [ ] **generics `<T>` / `Array<T>`** — the real design work, and where the
+      "predicate instead of type-level metaprogramming" answer has to be concrete.
+      Note `fromTS` (`tjs convert`) already handles the full language — this item is about
+      making the _paste-it-in_ path work, which is a much lower-friction first experience
+      than "run the converter", and is the on-ramp A10 is really about.
 - [ ] Decide only after the above. The two are not exclusive: accepting TS shapes does not
       require abandoning examples, and "TS's good parts + examples when you want the test
       for free" is a strictly larger pitch than either alone.
