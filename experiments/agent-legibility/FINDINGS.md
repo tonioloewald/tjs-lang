@@ -221,3 +221,66 @@ to apologise for.
 3. **N≥20 per cell** before believing any rate.
 4. Then, and only then, promote a winning surface to a generation test — comprehension
    measures whether a model can read a surface, not whether it can write one.
+
+---
+
+# It was never the syntax: state-threading beats mutation 4:1 (2026-07-31)
+
+Recalibrated the probe (`sum 1..4 = 10`; the `i*i` version pinned every surface at 0–20%,
+and an instrument at its floor measures nothing). Re-run, N=5:
+
+| surface             | style              | rate |
+| ------------------- | ------------------ | ---- |
+| **sexpr**           | recursive/threaded | 80%  |
+| **bracesRecursive** | recursive/threaded | 80%  |
+| braces              | mutation           | 20%  |
+| bracesNoSemi        | mutation           | 20%  |
+| indent (Python)     | mutation           | 20%  |
+| indentNeutral       | mutation           | 20%  |
+| endKeyword          | mutation           | 20%  |
+
+## The result, and the near-miss
+
+First reading was "**s-expressions win 80% vs 20% — Lisp really is better for agents.**"
+That would have been wrong, and wrong in a way that flattered a hypothesis we already
+liked.
+
+The s-expr variant differed from the others in **two** ways: parenthesised surface _and_
+functional state-threading (a recursive loop with an explicit accumulator) instead of
+mutating variables. Adding `bracesRecursive` — ordinary JS braces, same recursive style —
+separates them. It scores **80%, identical to s-expr**.
+
+**So the advantage is the paradigm, not the syntax.** Parentheses contributed nothing.
+Every surface that _mutates_ state across iterations scores 20%; every surface that
+_threads_ state explicitly scores 80%, regardless of how it's spelled.
+
+Mechanically this is unsurprising in hindsight: mutation requires the model to maintain a
+hidden register across iterations, while threaded state puts every value in the text it's
+attending to. But it was invisible until one variable was changed at a time.
+
+## Why this matters more than a syntax result
+
+- It is **actionable for both languages**: constructs that thread state explicitly are
+  dramatically more legible to models than mutation loops. AJS has no `for`, and its
+  `map`/`filter`/`reduce` atoms are already threaded — this says lean _harder_ that way,
+  and that a `while`-with-counter idiom is the expensive one to teach. (Note the guidance
+  A/B's dominant failure was models reaching for `for` loops — the construct this probe
+  says is also the hardest for them to reason about.)
+- It **reframes the Lisp hypothesis**. Lisp may well suit agents, but on this evidence
+  because of its functional idiom, not its uniform syntax or its scarcity of priors.
+  Worth separating those in any future test.
+- It **weakens the indentation question**. Python-shaped layout scored the same 20% as
+  braces once paradigm was held constant — the earlier apparent Python effect was
+  vocabulary/prior transfer, and neither layout nor brackets moved the needle here.
+
+## Standing caveats
+
+N=5, one 1.5B model, comprehension only. The 80/20 split is large and the mechanism is
+plausible, but this needs N≥20 and a model sweep before it's load-bearing. Specifically
+untested: whether the gap **narrows with scale** (a bigger model may track mutation fine,
+making this a small-model-only effect) — which is exactly the transition-boundary question
+and the single most valuable follow-up.
+
+Still untested from the speculative list: **adversarial indentation** (mixed tabs/spaces,
+where Python's whitespace sensitivity should become a liability), and a **Python-subset
+analog of AJS** compared against AJS proper.

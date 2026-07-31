@@ -29,11 +29,14 @@ const SAMPLES = Number(process.env.PROBE_SAMPLES ?? 4)
 
 /**
  * One program, many surfaces. Semantics identical in every variant:
- *   total = 0; i = 1; while i <= 4: total = total + i*i; i = i + 1  →  30
+ *   total = 0; i = 1; while i <= 4: total = total + i; i = i + 1  →  10
+ * Calibrated DOWN from `i*i` (=30): at 1.5B every surface scored 0-20% on the harder
+ * program, i.e. the instrument was saturated at the floor and could not discriminate
+ * between surfaces at all. An instrument pinned at its floor measures nothing.
  * A loop with an accumulator forces the model to actually track state rather than
  * pattern-match a known snippet.
  */
-const ANSWER = 30
+const ANSWER = 10
 
 const SURFACES: Record<string, string> = {
   /** C/JS-family braces + semicolons. Maximum JS prior. */
@@ -41,7 +44,7 @@ const SURFACES: Record<string, string> = {
   let total = 0;
   let i = 1;
   while (i <= 4) {
-    total = total + i * i;
+    total = total + i;
     i = i + 1;
   }
   return total;
@@ -52,7 +55,7 @@ const SURFACES: Record<string, string> = {
   let total = 0
   let i = 1
   while (i <= 4) {
-    total = total + i * i
+    total = total + i
     i = i + 1
   }
   return total
@@ -63,7 +66,7 @@ const SURFACES: Record<string, string> = {
     total = 0
     i = 1
     while i <= 4:
-        total = total + i * i
+        total = total + i
         i = i + 1
     return total`,
 
@@ -72,7 +75,7 @@ const SURFACES: Record<string, string> = {
     let total = 0
     let i = 1
     loop while i <= 4
-        total = total + i * i
+        total = total + i
         i = i + 1
     give total`,
 
@@ -80,15 +83,32 @@ const SURFACES: Record<string, string> = {
   sexpr: `(define (f)
   (let loop ((total 0) (i 1))
     (if (<= i 4)
-        (loop (+ total (* i i)) (+ i 1))
+        (loop (+ total i) (+ i 1))
         total)))`,
+
+  /**
+   * CONFOUND CONTROL. The s-expr variant differs from the others in TWO ways: parenthesised
+   * surface AND functional state-threading (a recursive loop with an explicit accumulator)
+   * instead of mutation. If s-expr's advantage is really about immutability rather than
+   * parentheses, this brace-syntax recursive version should score like s-expr, not like the
+   * other brace variants. Changing one thing at a time is the whole game.
+   */
+  bracesRecursive: `function f() {
+  function loop(total, i) {
+    if (i <= 4) {
+      return loop(total + i, i + 1)
+    }
+    return total
+  }
+  return loop(0, 1)
+}`,
 
   /** Explicit end-markers instead of braces or layout (Lua/Ruby family). */
   endKeyword: `function f()
   local total = 0
   local i = 1
   while i <= 4 do
-    total = total + i * i
+    total = total + i
     i = i + 1
   end
   return total
@@ -132,7 +152,7 @@ async function main() {
       if (got === ANSWER) ok++
     }
     rows.push({ name, ok, answers })
-    // Wrong answers are diagnostic: 10 = summed i not i², 20 = off-by-one bound,
+    // Wrong answers are diagnostic: 6 = stopped at i<4, 15 = ran to i=5, etc.
     // etc. WHICH way a surface misleads is more useful than the bare rate.
     const wrong = answers.filter((a) => a !== ANSWER)
     console.log(
