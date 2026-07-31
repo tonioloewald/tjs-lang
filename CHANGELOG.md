@@ -7,6 +7,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **Sound TypeScript type names now produce real runtime checks** — restoring a stated
+  design goal that had quietly gone missing: _implement the parts of TypeScript that aren't
+  Turing-complete damage, and best-effort only the rest._ In native TJS,
+  `function f(s: string)` inferred **`any`**, so it transpiled cleanly, looked typed, and
+  validated **nothing** — the worst possible outcome in a language whose pitch is that types
+  survive to runtime, and it hit the annotation newcomers and models reach for first
+  (ASSUMPTIONS.md A7). `string`, `number`, `boolean`, `bigint`, `object`, `null`,
+  `undefined` and unions of them now check at runtime, agreeing exactly with the equivalent
+  example type (`s: string` ≡ `s: ''`). `any`/`unknown`/`void`/`never` remain unconstrained
+  because that is what they mean; an unresolvable user type still degrades to best-effort
+  rather than erroring, which preserves TJS ⊇ JS.
+  - **Deliberately still best-effort:** conditional types, mapped types, recursive
+    templates, `infer` — the undecidable type-level metaprogramming TJS answers with a
+    _predicate function_ you can read, test and run.
+  - Known gap: `string[]` doesn't parse (use `['']`). It fails **loudly**, which is the
+    acceptable interim state — a parse error tells you to fix something; the old silent
+    `any` removed your type checking and said nothing.
+
 ### Changed
 
 - **Diagnostics for constructs AJS deliberately lacks now SHOW the fix.** `Unsupported

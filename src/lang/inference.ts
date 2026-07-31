@@ -18,6 +18,38 @@ import { getLocation, TranspileError } from './types'
 /**
  * Infer type from a value expression (example value)
  */
+/**
+ * Sound TypeScript type names, honoured as real runtime types.
+ *
+ * TJS's design line: **implement the parts of TypeScript that aren't Turing-complete
+ * damage; best-effort the rest.** These are the sound, decidable primitives — they map
+ * cleanly onto a runtime check, so writing `s: string` gets you an actual string check,
+ * exactly as `s: ''` does.
+ *
+ * What is deliberately NOT here (falls through to `any`, best-effort by design):
+ * conditional types, mapped types, recursive templates, `infer` — the type-level
+ * metaprogramming that is undecidable, unreadable, and erased at runtime. TJS's answer to
+ * those is a **predicate function**: a real function you can read, test and run, which
+ * survives to runtime instead of evaporating. That substitution is the point of the
+ * project, not a limitation of it.
+ */
+const TS_TYPE_NAMES: Record<string, TypeDescriptor> = {
+  string: { kind: 'string' },
+  number: { kind: 'number' },
+  boolean: { kind: 'boolean' },
+  bigint: { kind: 'number' },
+  object: { kind: 'object' },
+  // `any`/`unknown` are honest about being unconstrained — they mean what they say.
+  any: { kind: 'any' },
+  unknown: { kind: 'any' },
+  // `void`/`never` only appear in return position; treat as unconstrained rather than
+  // inventing a runtime check that would reject every real value.
+  void: { kind: 'any' },
+  never: { kind: 'any' },
+  null: { kind: 'null' },
+  undefined: { kind: 'undefined' },
+}
+
 export function inferTypeFromValue(node: Expression): TypeDescriptor {
   switch (node.type) {
     case 'Literal': {
@@ -133,8 +165,31 @@ export function inferTypeFromValue(node: Expression): TypeDescriptor {
       if ((node as any).name === 'undefined') {
         return { kind: 'undefined' }
       }
-      // Other identifiers in type position aren't valid example types
+      // A bare TS type NAME in type position is honoured as that type.
+      //
+      // TJS's stated goal is to implement the parts of TypeScript that aren't
+      // Turing-complete damage and best-effort only the rest. `string` is the most
+      // basic sound type there is, and it used to land here and degrade to `any` —
+      // so `function f(s: string)` transpiled cleanly, looked typed, and validated
+      // NOTHING. That is the worst possible outcome in a language whose pitch is
+      // "types that survive to runtime", and it hit the annotation newcomers and
+      // models reach for first (measured: ASSUMPTIONS.md A7).
+      //
+      // Only genuinely unsound/undecidable constructs should fall through to `any`.
+      const tsType = TS_TYPE_NAMES[(node as any).name]
+      if (tsType) return { ...tsType }
+      // Unknown identifier: a user-defined type we can't resolve statically.
+      // Best-effort — see the module note.
       return { kind: 'any' }
+    }
+
+    case 'TSArrayType' as any: {
+      // `string[]` — array of a sound element type.
+      const el = (node as any).elementType
+      return {
+        kind: 'array',
+        items: el ? inferTypeFromValue(el) : { kind: 'any' },
+      }
     }
 
     case 'ArrowFunctionExpression':

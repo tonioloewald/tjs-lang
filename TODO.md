@@ -1,5 +1,28 @@
 # TJS-Lang TODO
 
+## Strategic: "TypeScript's good parts" as an on-ramp to types-by-example (2026-07-31)
+
+Open question (ledger **A10**): would TJS be more discoverable if TS-style annotations were
+first-class — `: string` meaning a string — with types-by-example kept as the power feature
+(you also get the signature test and the doc) rather than the only way in?
+
+- [ ] **Fix the silent hazard first — this is a bug regardless of the strategic call.**
+      `function f(s: string)` currently infers `any` and validates NOTHING, while
+      transpiling cleanly. The syntax models and newcomers reach for most naturally
+      (measured: ledger A7) yields an unvalidated function in a language whose pitch is
+      "types that survive to runtime". Either make it mean what it says, or reject it with
+      a worked remedy — silently meaning `any` is the one unacceptable option.
+- [ ] **Note the cheapness:** because `: string` means `any` today, teaching it to mean
+      "string" is largely **non-breaking** — it adds checking where there was none rather
+      than changing existing behaviour. The pivot is far smaller than it looks.
+- [ ] **Test discoverability rather than argue it** (`experiments/agent-legibility/`):
+      same tasks, no guidance, TS-style vs example-style — which does a model produce
+      correctly without being taught? Do it at two model sizes; A7 says the answer may
+      differ, and where it flips is the interesting number.
+- [ ] Decide only after the above. The two are not exclusive: accepting TS shapes does not
+      require abandoning examples, and "TS's good parts + examples when you want the test
+      for free" is a strictly larger pitch than either alone.
+
 > Shipped/completed history lives in [`TODO-ARCHIVE.md`](./TODO-ARCHIVE.md) (and
 > `CHANGELOG.md`, complete back to 0.2.0). This file is the **live backlog** only.
 
