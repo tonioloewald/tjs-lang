@@ -8,6 +8,7 @@ This file is a navigation index for AI agents. It does not contain the docs them
 
 - [CLAUDE-TJS-SYNTAX.md](CLAUDE-TJS-SYNTAX.md) — TJS syntax reference. Critical: `function foo(x: 'default')` is NOT a TypeScript string-literal type. The colon value is an **example**; `'default'` widens to `string`. LLMs get this wrong constantly.
 - [CLAUDE.md](CLAUDE.md) — project overview, common commands, architecture, security model, and key APIs.
+- [ASSUMPTIONS.md](ASSUMPTIONS.md) — **the assumptions ledger**: every load-bearing belief (security, cost model, agent legibility, language) with a verdict — supported / refuted / nuanced / untested — and a link to the evidence. Read this to find out what we actually know versus what we merely believe; several entries are ❌ refuted with the fix recorded.
 - [PRINCIPLES.md](PRINCIPLES.md) — **non-negotiable language invariants**: options-off TJS ⊇ JS, and TJS ⊇ AJS. A richer layer may do *more* with the same source but must never make subset-legal code illegal (e.g. un-runnable signature tests are inconclusive, not errors). The opt-in unit is the **dialect**: `tjs(src, { dialect: 'js' })` preserves plain-JS semantics, `'tjs'` (default) is native; file tools map extension→dialect via `dialectForFilename`/`sourceKindForFilename` from `tjs-lang/lang`. TypeScript routes through `fromTS` (`tjs-lang/lang/from-ts`) so the lean lang bundle stays TS-free — the full `js | ts | tjs` routing recipe is in PRINCIPLES.md. A violation is a bug.
 
 ## Language guides

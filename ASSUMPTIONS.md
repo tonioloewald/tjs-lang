@@ -1,0 +1,75 @@
+<!--{"section": "home", "order": 5, "navTitle": "Assumptions"}-->
+
+# Assumptions ledger
+
+Every design decision here rests on a belief about how code, models, or attackers behave.
+Most such beliefs are never checked. This is the list of ours, each with a **verdict** and a
+link to the evidence.
+
+**The point is the verdict column.** Detail lives in linked documents; this page exists so
+the current state of what we actually know is readable in thirty seconds, and so a refuted
+assumption is impossible to miss.
+
+| Status           | Meaning                                  |
+| ---------------- | ---------------------------------------- |
+| ✅ **supported** | tested, held up                          |
+| ❌ **refuted**   | tested, was wrong — and what we changed  |
+| ⚠️ **nuanced**   | true only under conditions worth knowing |
+| 🔍 **untested**  | believed, not yet measured               |
+
+---
+
+## Security & cost model
+
+| #   | Assumption                                               | Verdict                                                                                                                                                                                                                      | Evidence                                                           |
+| --- | -------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------ |
+| S1  | Fuel bounds the work a program can do                    | ❌→✅ **was refuted, now fixed** — size-proportional atoms charged a flat cost; `jsonStringify` serialized **2,000,000 elements for 1.2 fuel** under a 10-fuel budget. Fixed with `chargeForSize`; fuel now scales linearly. | [`cost-invariant.test.ts`](src/vm/cost-invariant.test.ts)          |
+| S2  | Fuel also bounds memory                                  | ❌→✅ **was refuted, now fixed** — fuel is a _time_ budget; at ~10KB/fuel a legitimate 100k budget bought ~1GB of live string. Added `maxHeapBytes` (64MB default).                                                          | [`cost-invariant.test.ts`](src/vm/cost-invariant.test.ts)          |
+| S3  | A capability can't hand the guest a live host reference  | ✅ **supported** — enforced by the structured-clone membrane at one choke point; adversarially tested.                                                                                                                       | [`malicious-actor.test.ts`](src/use-cases/malicious-actor.test.ts) |
+| S4  | Termination is guaranteed                                | ✅ **supported by construction** — fuel makes bounded execution a precondition; the halting question never arises. Not _formally proven_ — see the honest scope note in the README.                                          | [README](README.md#safe-eval)                                      |
+| S5  | Recursive agent calls can't amplify across an open graph | ⚠️ **nuanced** — the `X-Agent-Depth` guard is **cooperative**; it stops accidental loops and friendly infrastructure, not an adversarial endpoint that drops the header.                                                     | [README](README.md#safe-eval)                                      |
+| S6  | Our sandbox resists a determined attacker                | 🔍 **untested** — layered and adversarially reviewed, never externally red-teamed. An escape-attempt corpus (vm2 CVEs, SES challenges) is the open item.                                                                     | —                                                                  |
+
+## Agent legibility
+
+| #   | Assumption                                                             | Verdict                                                                                                                                                                                                                                      | Evidence                                                                                                                 |
+| --- | ---------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------ |
+| A1  | Our error messages help a model fix its code                           | ❌ **refuted** — shipped diagnostics produced a **0%** repair rate, identical to saying nothing. Worked examples: 80%. **Fixed**: remedies now show code, locked by a deterministic test.                                                    | [FINDINGS](experiments/agent-legibility/FINDINGS.md) · [`diagnostic-remedy.test.ts`](src/lang/diagnostic-remedy.test.ts) |
+| A2  | More documentation helps small models                                  | ❌ **refuted** — a 0.6k cheat sheet beat our 7.6k guide **2×**; adding the missing prose rule changed nothing. Guidance matters enormously (no guidance = 0%) but is **not monotonic**.                                                      | [FINDINGS](experiments/agent-legibility/FINDINGS.md)                                                                     |
+| A3  | Models learn our rules from prose                                      | ❌ **refuted, three times independently** — prose rule added to the guide: no change. Prose remedy in a diagnostic: 50% vs 80% for the same remedy shown as code. **Models repair from examples, not rules.**                                | [FINDINGS](experiments/agent-legibility/FINDINGS.md)                                                                     |
+| A4  | Syntax choice (braces/indentation/parens) drives model comprehension   | ❌ **refuted** — it's the **paradigm**, not the surface. Explicit state-threading scored 80% and mutation 20% _regardless of syntax_; s-expressions and braces tied once the paradigm was held constant.                                     | [FINDINGS](experiments/agent-legibility/FINDINGS.md)                                                                     |
+| A5  | Newline-terminated statements (`TjsStandard`) don't hurt comprehension | ⚠️ **weakly supported** — braces-with-semicolons and braces-without were indistinguishable (same rate, same error mode). N=5; suggestive only.                                                                                               | [FINDINGS](experiments/agent-legibility/FINDINGS.md)                                                                     |
+| A6  | AJS is easy for small models to write                                  | ⚠️ **nuanced** — achievable (67% with a good cheat sheet) but sensitive to guidance; the dominant failure is reaching for `for` loops.                                                                                                       | [`ajs-grokkability.test.ts`](src/use-cases/ajs-grokkability.test.ts)                                                     |
+| A7  | Small models can write TJS                                             | ❌ **refuted, and not expected to hold** — a 1.5B model reverts to TypeScript syntax even when told otherwise, and emits **hybrids** (`nums: [number]`) that TJS quietly accepts. TJS targets larger models; AJS is the small-model surface. | [FINDINGS](experiments/agent-legibility/FINDINGS.md)                                                                     |
+| A8  | Executed verdicts repair better than type errors                       | 🔍 **untested** — the obvious experiment is confounded by training-data asymmetry. The clean version is **within-TJS**: same language, vary only the feedback string.                                                                        | [FINDINGS](experiments/agent-legibility/FINDINGS.md)                                                                     |
+| A9  | Autocomplete meaningfully helps                                        | 🔍 **untested** — and testable _without a model_: truncate valid programs and measure hit@k of `suggest()` against the real next token.                                                                                                      | —                                                                                                                        |
+
+## Language & platform
+
+| #   | Assumption                                                                    | Verdict                                                                                                                                                                                            | Evidence                                                                                                                                         |
+| --- | ----------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------ |
+| L1  | TJS is a superset of JS (`dialect: 'js'` preserves JS semantics)              | ✅ **supported** — enforced as a guardrail; a subset violation is a bug.                                                                                                                           | [`subset-invariant.test.ts`](src/lang/subset-invariant.test.ts)                                                                                  |
+| L2  | A verified predicate can serve as cache key, pushdown payload and auth object | ✅ **supported** — canonical form collapses formatting/naming, distinguishes meaning and cluster helpers; demonstrated end-to-end. ⚠️ _structural_: refactoring into a local mints a new identity. | [`predicate-canonical.test.ts`](src/lang/predicate-canonical.test.ts) · [`predicate-pushdown.test.ts`](src/use-cases/predicate-pushdown.test.ts) |
+| L3  | Verified predicates compile to fast native JS ("safe is fast")                | ⚠️ **nuanced** — measured on one workload (~0.5ms to validate a whole theme); the systematic overhead campaign that would generalise it is unfinished.                                             | [`css/perf.bench.test.ts`](src/css/perf.bench.test.ts)                                                                                           |
+| L4  | Published bundle-size claims are accurate                                     | ❌→✅ **was refuted, now guarded** — every row of the README table was stale (VM 66→74KB gz). Corrected, dated, and pinned by a test that fails on drift.                                          | [`bundle-size.test.ts`](src/bundle-size.test.ts)                                                                                                 |
+| L5  | Emitted code runs standalone without a runtime                                | ✅ **supported** — inline fallback runtime; guarded.                                                                                                                                               | [`codegen.test.ts`](src/lang/codegen.test.ts)                                                                                                    |
+
+---
+
+## How to add to this ledger
+
+1. **State the assumption as something that could be false.** "Our errors are helpful" is
+   checkable; "our errors are good" is not.
+2. **Build the cheapest probe that could refute it.** `experiments/agent-legibility/` has
+   runnable examples. Comprehension probes need no parser; autocomplete probes need no model.
+3. **Record the verdict here in one line**, with the number that decides it. Detail goes in
+   the linked document — this page must stay skimmable.
+4. **Act on refutations**, then encode the fix as a _deterministic_ test where possible. The
+   experiment justifies the invariant; the invariant then holds without rerunning the
+   experiment. (A1 → `diagnostic-remedy.test.ts` is the worked example.)
+
+**Methodological lessons paid for in this repo**, worth reading before designing a probe:
+an apparatus that fails closed looks exactly like a strong negative result (a harness bug
+scored 0/8 while the model was correct); an instrument saturated at its floor discriminates
+nothing; and changing two things at once will hand you a confident, wrong conclusion — a
+"Lisp wins" result evaporated once syntax and paradigm were separated.
