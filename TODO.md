@@ -29,10 +29,25 @@ first-class — `: string` meaning a string — with types-by-example kept as th
       Note `fromTS` (`tjs convert`) already handles the full language — this item is about
       making the _paste-it-in_ path work, which is a much lower-friction first experience
       than "run the converter", and is the on-ramp A10 is really about.
-- [ ] **Numeric examples: make a bare integer literal infer FLOAT, not integer.**
-      With sound TS types now honoured, `n: number` (float) and `n: 0` (integer) diverge —
-      and `n: 0` **silently rejects 3.5**. A porter writing the example form gets a
-      _narrower_ type than the TypeScript they came from: wrong direction for an on-ramp.
+- [ ] **Numeric defaults: `n = 5` must infer NUMBER, not integer — TS compatibility.**
+      **The governing principle: TJS may extend TypeScript, but must never be _narrower_
+      than it.** `function f(n = 5)` is already legal TS/JS, where it infers `number`.
+      Measured 2026-07-31: native TJS infers _integer_ and **rejects `f(5.5)`**, which
+      TypeScript accepts — so pasted TS silently changes behaviour and starts refusing
+      valid input. (`dialect: 'js'` is unaffected, so the JS invariant holds; this is a
+      native-TJS/TS-porting bug.)
+
+  - **This is narrower than the earlier "bare literal = float" proposal, and better
+    justified.** The two positions are NOT the same case:
+    - `n = 5` (default) — TS says `number`. TJS saying integer **narrows** it. Bug.
+    - `n: 5` (annotation) — TS says the literal type _exactly 5_ (rejects 5.5); TJS says
+      integer (also rejects 5.5). TJS is **wider** than TS here — a legitimate extension,
+      and the sense in which `3`-means-integer "obviously extends TypeScript".
+  - **So fix only the default position.** Blast radius drops accordingly: ~285 `= <int>`
+    sites vs ~929 `: <int>` annotations that need not change at all.
+  - Unsigned-with-positive-default remains available and explicit: `n = +5` (already works,
+    prettier-safe). A bare positive integer can NOT signify unsigned, because TS/JS have
+    already claimed it as `number`.
 
   - Measured 2026-07-31: **this is ONE change, not three.** `+5` already infers
     non-negative-integer and `-5` already infers signed integer — exactly the proposed
