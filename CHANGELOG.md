@@ -7,6 +7,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **`int` and `unsigned` — the numeric types TypeScript never had.** TS has a single
+  numeric type, so "this is a count / index / id" is inexpressible and ends up policed by
+  comments or hand-written asserts. `n: int` rejects a float, `n: unsigned` (alias `uint`)
+  rejects a negative, and `float` is an explicit spelling of `number`. These **extend**
+  TypeScript rather than narrowing it — `number` still means number, so pasted TS is
+  unaffected.
+  - **The example forms are shorthand for exactly these, and carry a worked value too:**
+    `n: int` ≡ `n: 5`, `n: unsigned` ≡ `n: +5`, `n: number` ≡ `n: 5.0`. That equivalence
+    is pinned by a test: two spellings of one type that disagree would mean one of them is
+    lying to the reader.
+
 ### Fixed
 
 - **Sound TypeScript type names now produce real runtime checks** — restoring a stated

@@ -36,6 +36,20 @@ import { getLocation, TranspileError } from './types'
 const TS_TYPE_NAMES: Record<string, TypeDescriptor> = {
   string: { kind: 'string' },
   number: { kind: 'number' },
+  // --- TJS extensions: the numeric types TypeScript never had -------------------
+  // TS has one numeric type, so "this is a count/index/id" is inexpressible and
+  // ends up policed by comments or runtime asserts. These name the distinction
+  // directly, and they EXTEND rather than narrow TS: `number` keeps meaning number,
+  // so pasted TypeScript is unaffected.
+  //
+  // The example forms are shorthand for exactly these, and carry a worked value too:
+  //   n: int       ==  n: 5     (integer)
+  //   n: unsigned  ==  n: +5    (non-negative integer)
+  //   n: number    ==  n: 5.0   (float)
+  int: { kind: 'integer' },
+  unsigned: { kind: 'non-negative-integer' },
+  uint: { kind: 'non-negative-integer' },
+  float: { kind: 'number' },
   boolean: { kind: 'boolean' },
   bigint: { kind: 'number' },
   object: { kind: 'object' },

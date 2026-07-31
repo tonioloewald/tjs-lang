@@ -113,3 +113,62 @@ describe('best-effort degradation teaches the ladder', () => {
     expect(r.warnings ?? []).toEqual([])
   })
 })
+
+describe('TJS numeric extensions: int / unsigned', () => {
+  // TypeScript has ONE numeric type, so "this is a count/index/id" is inexpressible
+  // and ends up policed by comments or hand-written asserts. These name it directly.
+  // Crucially they EXTEND TS rather than narrowing it — `number` still means number,
+  // so pasted TypeScript is unaffected.
+  it('int rejects a float; unsigned rejects a negative', () => {
+    const i = compile(`function f(n: int) { return n }`)
+    expect(i(5)).toBe(5)
+    expect(isMonadicError(i(3.5))).toBe(true)
+
+    const u = compile(`function f(n: unsigned) { return n }`)
+    expect(u(5)).toBe(5)
+    expect(isMonadicError(u(-1))).toBe(true)
+  })
+
+  it('the named type and its example shorthand are the SAME type', () => {
+    // The example form is shorthand for the named type that also carries a worked
+    // value. If the two spellings ever disagree, one of them is lying to the reader.
+    const pairs: Array<[string, string, unknown]> = [
+      ['int', '5', 3.5],
+      ['unsigned', '+5', -1],
+      ['number', '5.0', 'x'],
+      ['float', '5.0', 'x'],
+    ]
+    for (const [named, example, bad] of pairs) {
+      const a = compile(`function f(n: ${named}) { return n }`)
+      const b = compile(`function f(n: ${example}) { return n }`)
+      expect(
+        isMonadicError(a(bad)),
+        `\`n: ${named}\` and \`n: ${example}\` must agree on ${JSON.stringify(
+          bad
+        )}`
+      ).toBe(isMonadicError(b(bad)))
+    }
+  })
+
+  it('`uint` is an alias for unsigned', () => {
+    const u = compile(`function f(n: uint) { return n }`)
+    expect(isMonadicError(u(-1))).toBe(true)
+    expect(u(3)).toBe(3)
+  })
+
+  it('naming them does not narrow plain `number` (pasted TS is unaffected)', () => {
+    const n = compile(`function f(n: number) { return n }`)
+    expect(isMonadicError(n(3.5))).toBe(false)
+    expect(isMonadicError(n(-1))).toBe(false)
+  })
+
+  it('they no longer trigger the unresolved-type warning', () => {
+    const r = tjs(
+      `function f(a: int, b: unsigned, c: uint, d: float) { return a }`,
+      {
+        runTests: false,
+      }
+    )
+    expect(r.warnings ?? []).toEqual([])
+  })
+})
