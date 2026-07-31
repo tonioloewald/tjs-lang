@@ -43,6 +43,12 @@ export {
   type Suggestion,
   type SuggestOptions,
 } from './predicate'
+export {
+  canonicalizePredicate,
+  predicateKey,
+  PredicateNotVerifiedError,
+  type CanonicalPredicate,
+} from './predicate-canonical'
 
 // Predicate-aware JSON-Schema: the `$predicate` keyword (computational types)
 export {

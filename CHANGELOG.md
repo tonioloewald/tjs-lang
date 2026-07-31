@@ -7,6 +7,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **Canonical form for verified predicates** (`canonicalizePredicate` / `predicateKey`,
+  exported from `tjs-lang/lang`). A verified predicate is pure, total, serializable and
+  composable; giving it a **canonical form** makes it an _identity_, which is what lets one
+  object serve as **cache key**, **pushdown payload** (send the predicate to `store.query`
+  instead of dragging rows to the code), **auth object** (a permission _is_ a predicate), and
+  the substrate for safe macro splicing. Predicates differing only in formatting, comments or
+  local variable names now share a key; differences in operator, literal _value_, field name,
+  or any helper in the cluster do not.
+  - **Verification is a precondition, not an option** — identity implies "same input ⇒ same
+    result", which an impure predicate doesn't satisfy however identical its syntax, so
+    canonicalizing an unverified cluster throws `PredicateNotVerifiedError`.
+  - **Deliberately not an optimizer:** commutative operands are _not_ reordered. That would be
+    a claim about totality and cost, not just purity — and a canonicalizer you can't trust
+    isn't usable as an auth object.
+  - The convenience `key` is FNV-1a and **documented as non-cryptographic**: fine for cache
+    bucketing (a collision costs a miss), insufficient where an adversary picks the input
+    (cache poisoning, auth) — hash the `canonical` string with SHA-256 for those.
+
 ### Security
 
 - **Fuel bypass: size-proportional atoms charged a flat cost** — the `==` bug class, found

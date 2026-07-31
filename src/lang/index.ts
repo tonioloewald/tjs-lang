@@ -63,6 +63,12 @@ export {
   type SuggestOptions,
 } from './predicate'
 export {
+  canonicalizePredicate,
+  predicateKey,
+  PredicateNotVerifiedError,
+  type CanonicalPredicate,
+} from './predicate-canonical'
+export {
   compilePredicateSchema,
   validatePredicateSchema,
   type PredicateSchema,

@@ -79,6 +79,7 @@ This file is a navigation index for AI agents. It does not contain the docs them
 - `src/lang/inference.ts` — infer `TypeDescriptor` from example values.
 - `src/lang/json-schema.ts` — JSON Schema from `TypeDescriptor`.
 - `src/lang/predicate.ts` — the predicate-safety verifier: certifies a cluster of pure, synchronous, composable predicates (reads each atom's `effects` tag), compiles verified ones to native JS, and mines them for autocomplete via `suggest()`. Exported from `tjs-lang/lang`.
+- `src/lang/predicate-canonical.ts` — canonical form for verified predicates: the identity that makes one object a cache key, a `store.query` pushdown payload, an auth object, and a macro-splice substrate. Verification is a precondition (an impure predicate can't have an identity).
 - `src/lang/predicate-schema.ts` — the `$predicate` JSON-Schema keyword (computational types): structure for naive validators, `$predicate` for aware ones. Progressive enhancement.
 - `src/lang/core.ts` — transpiler core **without** the TypeScript dependency (import from here, not `./index`, to keep the TS compiler out of a bundle).
 - `src/lang/dialect.ts` — dialect resolution + `dialectForFilename`/`sourceKindForFilename`; where the modes-on/off decision lives.
