@@ -39,29 +39,31 @@ first-class — `: string` meaning a string — with types-by-example kept as th
     scheme. Only the bare positive literal is wrong.
   - `(5)` for signed should NOT be added: parens are ambiguous (`(5)` ≡ `5` in JS) and
     `-5` already covers it.
-  - **The `=` (default) case needs `n: T = default`, not a new marker.** `+5`/`-5` can't
-    double as markers where the default is a real value (`n = -5` means the default IS
-    minus five). A leading-zero marker (`05`) is ruled out empirically: it's **octal** —
-    legacy octal in sloppy mode, and a hard syntax error in strict mode ("decimal integer
-    literals with a leading zero are forbidden"). TJS emits modules, which are always
-    strict, so `05` can never appear in TJS source at all.
-    - **DECISION POINT — if we drop JS-legality, don't pick a colliding symbol.** `.tjs`
-      need not be legal JS ("change the extension, get the new stuff"), and repurposing
-      legacy octal would remove a footgun while gaining syntax — the argument is sound.
-      But leading-zero is the _worst_ free option because it already means something,
-      inconsistently: `05`→5 and `08`→8 (luck: invalid octal digits fall back to
-      decimal) but **`010`→8** and **`017`→15**. `n = 010` meaning "unsigned, default
-      10" would be read as **8** by every human, editor, linter and JS-trained model —
-      and it fails _silently_, only above 7. Our own A4 finding (models pattern-match
-      hard against priors) says a marker colliding with a wrong existing meaning is
-      precisely the failure mode to avoid.
-      Prefer a symbol with **no** existing meaning: `5u` / `u5` / `5i` are all clean
-      syntax errors today. `5u` additionally carries a _helpful_ prior (C/C++/Rust
-      unsigned suffix) and stays unambiguous at any magnitude: `10u` reads as 10.
-    - [ ] **Support `n: number = 5` / `n: +0 = 5` — it currently DOESN'T PARSE.** The type
-          lives on the other side of the colon, so it can never be ambiguous with the
-          default value. Needs no new syntax: it's the standard TS spelling, which makes
-          this a paste-in-TS gap too — and a more common one in real code than `T[]`.
+  - **RESOLVED — the `=` case already works: `n = +5`.** Measured 2026-07-31: it infers
+    `non-negative-integer` with `default = 5` — unsigned type, positive default — and
+    **prettier preserves the unary `+`**. No new marker syntax is needed. (`n = -5` gives
+    signed with default -5; `n = 5` signed; `n = 5.0` float.)
+  - **Markers considered and eliminated, so this isn't re-litigated:**
+    - `05` (repurposed legacy octal) — the "`.tjs` needn't be legal JS" argument is sound,
+      but leading-zero is the worst free option _because_ it already means something,
+      inconsistently: `05`→5, `08`→8 (luck — invalid octal digits fall back to decimal) but
+      **`010`→8**, **`017`→15**. Silently misreads above 7, in the direction that yields a
+      plausible wrong number rather than an error. Also a hard syntax error in strict mode,
+      which is what modules are.
+    - `(5)` — better than `05` in that parens never change the value, but **unrecoverable**
+      twice over: prettier _strips_ redundant parens (`n = (5)` → `n = 5`, and our own build
+      runs prettier), and acorn discards them before we see them (`(5)` parses to
+      `Literal { value: 5, raw: "5" }` — `raw` is `"5"`, so there's nothing to recover).
+      Detecting it would need raw-source inspection, the fragile hackery that has already
+      bitten this repo twice. Secondary: in accounting convention `(5)` reads as _negative_
+      five, backwards from the intent.
+    - `5u` — the best candidate _if one is ever needed_: a clean syntax error today (no
+      prior to fight), survives formatting, unambiguous at any magnitude, and borrows a
+      helpful C/C++/Rust prior. Not needed now that `+5` is confirmed to work.
+  - **On `3` meaning integer:** not legal TS (where `3` is a literal type meaning _exactly_
+    3), but an obvious _extension_ of it — the example reads as "an integer, like 3". That
+    is the current behaviour and it is defensible; the open question is only whether bare
+    `3` should widen to float for alignment with `n: number` (below).
   - **Migration cost is real:** ~245 bare-integer examples in docs/examples, ~540 in
     `src`. Every intentional integer silently WIDENS — that fails safe (a lost check, not
     a false rejection) but it fails _quietly_. Wants a codemod (`: 0` → `: +0` where the
