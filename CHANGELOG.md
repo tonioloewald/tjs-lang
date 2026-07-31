@@ -7,6 +7,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Security
+
+- **Fuel bypass: size-proportional atoms charged a flat cost** — the `==` bug class, found
+  again by a cost-model audit. `defineAtom`'s `cost:` is charged once per call regardless of
+  operand width, so any atom whose work scales with input size was effectively unmetered.
+  Measured before the fix: **`jsonStringify` serialized a 2,000,000-element array for 1.2 fuel
+  and completed under a 10-fuel budget.** `join`, `split`, `jsonParse` and `template` were the
+  same. (The expression path already charged proportionally in `methodCall` — the atom path
+  had diverged, which is how it survived.) Those atoms now charge via a shared
+  `chargeForSize()` on both operand and allocated result, using the same per-char/per-element
+  constants as the expression path; fuel now scales linearly with N. Affects 0.12.0 and
+  earlier — anyone relying on fuel as a DoS bound against untrusted input should upgrade.
+- **New `src/vm/cost-invariant.test.ts`** pins the invariant mechanically: each size-sensitive
+  atom is driven at growing N and must show _marginal_ fuel scaling (a flat-charged atom scores
+  exactly 0 marginal fuel — the bug's signature). Cheap stand-in for a mechanized proof of the
+  cost model; it catches the next flat-charged O(n) atom rather than relying on someone
+  noticing. **Adding a size-sensitive atom means adding a case there.**
+
 ### Security / Chore
 
 - **`bun audit` gate with time-gated exemptions.** A new pre-tag lane

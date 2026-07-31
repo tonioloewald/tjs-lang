@@ -1329,6 +1329,55 @@ const STRING_FUEL_PER_CHAR = 0.0001
 /** Fuel cost per element for array allocation operations */
 const ARRAY_FUEL_PER_ELEMENT = 0.001
 
+/**
+ * O(1) size hint for a value — the operand "width" an atom's work scales with.
+ *
+ * Deliberately shallow: reading `.length` / `Object.keys().length` is cheap, and a
+ * metering function whose own cost scales with the input is the bug it exists to
+ * prevent. Deep structure is charged when the atom's *result* is measured
+ * (`chargeForSize` below), so a deep operand still pays on the way out.
+ */
+function sizeHint(v: any): number {
+  if (typeof v === 'string') return v.length
+  if (Array.isArray(v)) return v.length
+  if (v && typeof v === 'object') return Object.keys(v).length
+  return 0
+}
+
+/**
+ * Charge fuel proportional to the size of an atom's operand or result, and fail
+ * closed when the budget is gone.
+ *
+ * **This is the `==` bug class generalized.** A flat `cost:` charges the same fuel
+ * for one element as for two million, so any atom whose work scales with operand
+ * SIZE is a fuel-bypass: measured before this existed, `jsonStringify` of a
+ * 2,000,000-element array cost 1.2 fuel and completed under a 10-fuel budget.
+ * Fuel that doesn't track work isn't a budget, it's decoration.
+ *
+ * Cost model: strings by character, arrays/objects by element/key — the same
+ * constants `methodCall` already uses for allocating expression methods, so the
+ * expression and atom paths meter identically (they diverged, which is how this
+ * survived: `JSON.stringify` in an *expression* charged, the `jsonStringify`
+ * *atom* did not).
+ *
+ * @returns false if fuel is exhausted (caller must stop; ctx.error is set).
+ */
+function chargeForSize(ctx: RuntimeContext, value: any, op: string): boolean {
+  if (!ctx.fuel) return true
+  const n = sizeHint(value)
+  if (n > 0) {
+    ctx.fuel.current -=
+      typeof value === 'string'
+        ? n * STRING_FUEL_PER_CHAR
+        : n * ARRAY_FUEL_PER_ELEMENT
+  }
+  if (ctx.fuel.current <= 0) {
+    ctx.error = new AgentError('Out of Fuel', op)
+    return false
+  }
+  return true
+}
+
 /** Methods that allocate new arrays/strings and need proportional charging */
 const ALLOCATING_METHODS = new Set([
   // Array methods that create new arrays
@@ -2366,16 +2415,26 @@ export const split = defineAtom(
   'split',
   s.object({ str: s.string, sep: s.string }),
   s.array(s.string),
-  async ({ str, sep }, ctx) =>
-    resolveValue(str, ctx).split(resolveValue(sep, ctx)),
+  async ({ str, sep }, ctx) => {
+    const input = resolveValue(str, ctx)
+    if (!chargeForSize(ctx, input, 'split')) return undefined
+    const out = input.split(resolveValue(sep, ctx))
+    chargeForSize(ctx, out, 'split') // splitting allocates one string per piece
+    return out
+  },
   { docs: 'Split String', cost: 1 }
 )
 export const join = defineAtom(
   'join',
   s.object({ list: s.array(s.string), sep: s.string }),
   s.string,
-  async ({ list, sep }, ctx) =>
-    resolveValue(list, ctx).join(resolveValue(sep, ctx)),
+  async ({ list, sep }, ctx) => {
+    const input = resolveValue(list, ctx)
+    if (!chargeForSize(ctx, input, 'join')) return undefined
+    const out = input.join(resolveValue(sep, ctx))
+    chargeForSize(ctx, out, 'join') // charge the concatenated result too
+    return out
+  },
   { docs: 'Join String', cost: 1 }
 )
 export const template = defineAtom(
@@ -2384,9 +2443,15 @@ export const template = defineAtom(
   s.string,
   async ({ tmpl, vars }: { tmpl: string; vars: Record<string, any> }, ctx) => {
     const resolvedTmpl = resolveValue(tmpl, ctx)
-    return resolvedTmpl.replace(/\{\{(\w+)\}\}/g, (_: string, key: string) =>
-      String(resolveValue(vars[key], ctx) ?? '')
+    if (!chargeForSize(ctx, resolvedTmpl, 'template')) return undefined
+    const out = resolvedTmpl.replace(
+      /\{\{(\w+)\}\}/g,
+      (_: string, key: string) => String(resolveValue(vars[key], ctx) ?? '')
     )
+    // Interpolation is an amplifier: a short template with a huge substitution
+    // produces a large string, so charge the RESULT, not just the template.
+    chargeForSize(ctx, out, 'template')
+    return out
   },
   { docs: 'String Template', cost: 1 }
 )
@@ -2984,14 +3049,29 @@ export const jsonParse = defineAtom(
   'jsonParse',
   s.object({ str: s.string }),
   s.any,
-  async ({ str }, ctx) => JSON.parse(resolveValue(str, ctx)),
+  async ({ str }, ctx) => {
+    const input = resolveValue(str, ctx)
+    // Charge for the INPUT before parsing — parse cost scales with the source
+    // text, and pre-charging bounds the damage of a single oversized call.
+    if (!chargeForSize(ctx, input, 'jsonParse')) return undefined
+    const out = JSON.parse(input)
+    chargeForSize(ctx, out, 'jsonParse') // true-up on the allocated result
+    return out
+  },
   { docs: 'Parse JSON', cost: 1 }
 )
 export const jsonStringify = defineAtom(
   'jsonStringify',
   s.object({ value: s.any }),
   s.string,
-  async ({ value }, ctx) => JSON.stringify(resolveValue(value, ctx)),
+  async ({ value }, ctx) => {
+    const input = resolveValue(value, ctx)
+    // Pre-charge on the operand's width, then true-up on the serialized length.
+    if (!chargeForSize(ctx, input, 'jsonStringify')) return undefined
+    const out = JSON.stringify(input)
+    chargeForSize(ctx, out, 'jsonStringify')
+    return out
+  },
   { docs: 'Stringify JSON', cost: 1 }
 )
 export const xmlParse = defineAtom(
