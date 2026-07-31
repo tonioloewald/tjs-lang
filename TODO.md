@@ -30,20 +30,33 @@ first-class — `: string` meaning a string — with types-by-example kept as th
       making the _paste-it-in_ path work, which is a much lower-friction first experience
       than "run the converter", and is the on-ramp A10 is really about.
 - [ ] **Numeric examples: make a bare integer literal infer FLOAT, not integer.**
-      Motivation: with sound TS types now honoured, `n: number` (float) and `n: 0`
-      (integer) diverge — and `n: 0` **silently rejects 3.5**. A porter who writes the
-      example form gets a _narrower_ type than the TS they came from, which is the wrong
-      direction for an on-ramp. - **Measured 2026-07-31: this is ONE change, not three.** `+5` already infers
-      non-negative-integer and `-5` already infers signed integer, which is exactly the
-      proposed scheme. Only the bare positive literal is wrong. (`(5)` for signed is not
-      needed and shouldn't be added — parens are ambiguous, `(5)` ≡ `5` in JS, and `-5`
-      already covers it.) - **The cost is real and must be paid deliberately:** ~245 bare-integer examples in
-      docs/examples and ~540 in `src`. Every intentional integer silently WIDENS —
-      losing a check rather than gaining a false rejection, so it fails safe, but it
-      fails quietly. Migration wants a codemod (`: 0` → `: +0` where the intent is a
-      count/index/id) plus a release note, not a flag day. - Sequence it AFTER the A10 positioning call — if TJS leads with "TypeScript's good
-      parts", alignment with `number` is clearly right; if examples stay the identity,
-      the natural reading of `5` as an integer is worth more.
+      With sound TS types now honoured, `n: number` (float) and `n: 0` (integer) diverge —
+      and `n: 0` **silently rejects 3.5**. A porter writing the example form gets a
+      _narrower_ type than the TypeScript they came from: wrong direction for an on-ramp.
+
+  - Measured 2026-07-31: **this is ONE change, not three.** `+5` already infers
+    non-negative-integer and `-5` already infers signed integer — exactly the proposed
+    scheme. Only the bare positive literal is wrong.
+  - `(5)` for signed should NOT be added: parens are ambiguous (`(5)` ≡ `5` in JS) and
+    `-5` already covers it.
+  - **The `=` (default) case needs `n: T = default`, not a new marker.** `+5`/`-5` can't
+    double as markers where the default is a real value (`n = -5` means the default IS
+    minus five). A leading-zero marker (`05`) is ruled out empirically: it's **octal** —
+    legacy octal in sloppy mode, and a hard syntax error in strict mode ("decimal integer
+    literals with a leading zero are forbidden"). TJS emits modules, which are always
+    strict, so `05` can never appear in TJS source at all.
+    - [ ] **Support `n: number = 5` / `n: +0 = 5` — it currently DOESN'T PARSE.** The type
+          lives on the other side of the colon, so it can never be ambiguous with the
+          default value. Needs no new syntax: it's the standard TS spelling, which makes
+          this a paste-in-TS gap too — and a more common one in real code than `T[]`.
+  - **Migration cost is real:** ~245 bare-integer examples in docs/examples, ~540 in
+    `src`. Every intentional integer silently WIDENS — that fails safe (a lost check, not
+    a false rejection) but it fails _quietly_. Wants a codemod (`: 0` → `: +0` where the
+    intent is a count/index/id) plus a release note, not a flag day.
+  - Sequence AFTER the A10 positioning call: if TJS leads with "TypeScript's good parts",
+    aligning with `number` is clearly right; if examples stay the identity, `5` reading
+    naturally as an integer is worth more.
+
 - [ ] Decide only after the above. The two are not exclusive: accepting TS shapes does not
       require abandoning examples, and "TS's good parts + examples when you want the test
       for free" is a strictly larger pitch than either alone.
