@@ -114,6 +114,32 @@ export interface Capabilities {
     get: (key: string) => Promise<any>
     set: (key: string, value: any) => Promise<void>
     query?: (query: any) => Promise<any[]>
+    /**
+     * Predicate pushdown: filter at the data instead of dragging rows to the code.
+     *
+     * Takes a **canonical verified predicate** (produced by `canonicalizePredicate`
+     * from `tjs-lang/lang`) — pure, total, serializable, and carrying a stable
+     * `key` the store can cache on. The VM never parses it; it is data in flight,
+     * which is what keeps the acorn-dependent canonicalizer out of the lean
+     * `tjs-lang/vm` bundle.
+     *
+     * **Optional by design.** A store that can't evaluate predicates simply doesn't
+     * implement this, and the guest filters with the ordinary `filter` atom — the
+     * same progressive-enhancement shape as `$predicate` in JSON Schema (structure
+     * for naive consumers, computation for aware ones). Pushdown is an optimization
+     * you opt into, never a correctness requirement.
+     */
+    queryPredicate?: (query: {
+      collection?: string
+      /** Canonical predicate: `{ key, canonical, ast, entry }`. */
+      predicate: {
+        key: string
+        canonical: string
+        ast: unknown
+        entry: string
+      }
+      limit?: number
+    }) => Promise<any[]>
     vectorSearch?: (
       collection: string,
       vector: number[],
@@ -2886,6 +2912,67 @@ export const storeQuery = defineAtom(
     ctx.capabilities.store?.query?.(resolveValue(query, ctx)) ?? [],
   { docs: 'Store Query', cost: 5 }
 )
+
+/*#
+## storeQueryWhere (predicate pushdown)
+
+Send the *predicate* to the data instead of dragging rows to the code.
+
+`predicate` is a **canonical verified predicate** — build it at author/transpile time
+with `canonicalizePredicate()` from `tjs-lang/lang`, then pass the resulting object.
+Because it is verified pure and canonical, it is safe to ship, cheap to compare, and
+carries a stable `key` the store can cache on (two spellings of the same predicate hit
+the same cache entry).
+
+```javascript
+// canonical form produced outside the VM; the VM forwards it as data
+const rows = storeQueryWhere({ collection: 'users', predicate: adultPredicate })
+```
+
+Requires a store that implements `queryPredicate`. If it doesn't, this fails with a
+message pointing at the ordinary `storeQuery` + `filter` path rather than silently
+returning everything — a filter that silently doesn't filter is an authorization bug.
+*/
+export const storeQueryWhere = defineAtom(
+  'storeQueryWhere',
+  s.object({
+    predicate: s.any,
+    collection: s.string.optional,
+    limit: s.number.optional,
+  }),
+  s.array(s.any),
+  async ({ predicate, collection, limit }, ctx) => {
+    const pred = resolveValue(predicate, ctx)
+    if (
+      !pred ||
+      typeof pred !== 'object' ||
+      typeof pred.canonical !== 'string'
+    ) {
+      throw new Error(
+        'storeQueryWhere: `predicate` must be a canonical verified predicate ' +
+          '({ key, canonical, ast, entry }) — build one with canonicalizePredicate() ' +
+          'from tjs-lang/lang.'
+      )
+    }
+    const store = ctx.capabilities.store
+    if (!store?.queryPredicate) {
+      // Fail loudly rather than degrading to an unfiltered read: callers use this to
+      // narrow data, and silently returning everything would be a data-exposure bug.
+      throw new Error(
+        "Capability 'store.queryPredicate' missing — this store can't evaluate " +
+          'predicates. Use storeQuery + filter, or provide queryPredicate.'
+      )
+    }
+    return (
+      (await store.queryPredicate({
+        collection: resolveValue(collection, ctx),
+        predicate: pred,
+        limit: resolveValue(limit, ctx),
+      })) ?? []
+    )
+  },
+  { docs: 'Store Query (predicate pushdown)', cost: 5 }
+)
 export const vectorSearch = defineAtom(
   'storeVectorSearch',
   s.object({
@@ -3616,6 +3703,7 @@ export const coreAtoms = {
   storeGet,
   storeSet,
   storeQuery,
+  storeQueryWhere,
   storeVectorSearch: vectorSearch,
   llmPredict,
   agentRun,
@@ -3649,6 +3737,7 @@ export const EFFECTFUL_CORE_OPS = [
   'storeGet',
   'storeSet',
   'storeQuery',
+  'storeQueryWhere',
   'storeVectorSearch',
   'llmPredict',
   'agentRun',

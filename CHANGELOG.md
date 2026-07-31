@@ -17,6 +17,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   the substrate for safe macro splicing. Predicates differing only in formatting, comments or
   local variable names now share a key; differences in operator, literal _value_, field name,
   or any helper in the cluster do not.
+
   - **Verification is a precondition, not an option** — identity implies "same input ⇒ same
     result", which an impure predicate doesn't satisfy however identical its syntax, so
     canonicalizing an unverified cluster throws `PredicateNotVerifiedError`.
@@ -26,6 +27,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - The convenience `key` is FNV-1a and **documented as non-cryptographic**: fine for cache
     bucketing (a collision costs a miss), insufficient where an adversary picks the input
     (cache poisoning, auth) — hash the `canonical` string with SHA-256 for those.
+
+- **Predicate pushdown (`storeQueryWhere` + `store.queryPredicate`)** — send the _predicate_
+  to the data instead of dragging rows to the code. The atom takes a **canonical verified
+  predicate** and forwards it as data; the store evaluates it and can cache on its stable
+  `key`, so two spellings of the same rule hit the same cache entry. **The VM never parses
+  it** — that's what keeps the acorn-dependent canonicalizer out of the lean `tjs-lang/vm`
+  bundle and lets the same payload travel to a remote store. `queryPredicate` is **optional**
+  (progressive enhancement, like `$predicate` in JSON Schema); a store without it makes
+  `storeQueryWhere` **fail loudly** rather than degrade to an unfiltered read — silently
+  returning rows the caller meant to exclude is a data-exposure bug, not a fallback.
+  - Known, deliberate limitation: canonicalization is **structural**, so refactoring a
+    predicate (hoisting a subexpression into a local) mints a new identity. Collapsing those
+    would mean inlining, i.e. optimizing — and a canonicalizer that rewrites more than
+    spelling isn't one you can trust as an auth object.
 
 ### Security
 

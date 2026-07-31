@@ -76,6 +76,19 @@ describe('canonical predicates: identity is meaning, not spelling', () => {
     expect(() => JSON.parse(canonical)).not.toThrow()
   })
 
+  it('canonicalization is STRUCTURAL: introducing a local changes identity', () => {
+    // An honest limitation, worth knowing because it affects cache hit rates.
+    // `return p.age >= 18` and `const a = p.age; return a >= 18` compute the same
+    // thing but are different ASTs, and collapsing them would mean INLINING —
+    // an optimization. We deliberately don't optimize (see the module header):
+    // a canonicalizer that rewrites meaning-preserving-but-nontrivially is one you
+    // can't trust as an auth object. Refactoring a predicate's structure mints a
+    // new identity; reformatting and renaming do not.
+    const direct = `function f(p) { return p.age >= 18 }`
+    const viaLocal = `function f(p) { const a = p.age; return a >= 18 }`
+    expect(predicateKey(direct)).not.toBe(predicateKey(viaLocal))
+  })
+
   it('refuses to mint an identity for an unverified (impure) predicate', () => {
     // Identity implies "same input ⇒ same result". Date.now() breaks that, so a key
     // would be a lie — two runs of the *same* canonical form can disagree.
