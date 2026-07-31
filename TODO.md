@@ -29,6 +29,21 @@ first-class — `: string` meaning a string — with types-by-example kept as th
       Note `fromTS` (`tjs convert`) already handles the full language — this item is about
       making the _paste-it-in_ path work, which is a much lower-friction first experience
       than "run the converter", and is the on-ramp A10 is really about.
+- [ ] **Numeric examples: make a bare integer literal infer FLOAT, not integer.**
+      Motivation: with sound TS types now honoured, `n: number` (float) and `n: 0`
+      (integer) diverge — and `n: 0` **silently rejects 3.5**. A porter who writes the
+      example form gets a _narrower_ type than the TS they came from, which is the wrong
+      direction for an on-ramp. - **Measured 2026-07-31: this is ONE change, not three.** `+5` already infers
+      non-negative-integer and `-5` already infers signed integer, which is exactly the
+      proposed scheme. Only the bare positive literal is wrong. (`(5)` for signed is not
+      needed and shouldn't be added — parens are ambiguous, `(5)` ≡ `5` in JS, and `-5`
+      already covers it.) - **The cost is real and must be paid deliberately:** ~245 bare-integer examples in
+      docs/examples and ~540 in `src`. Every intentional integer silently WIDENS —
+      losing a check rather than gaining a false rejection, so it fails safe, but it
+      fails quietly. Migration wants a codemod (`: 0` → `: +0` where the intent is a
+      count/index/id) plus a release note, not a flag day. - Sequence it AFTER the A10 positioning call — if TJS leads with "TypeScript's good
+      parts", alignment with `number` is clearly right; if examples stay the identity,
+      the natural reading of `5` as an integer is worth more.
 - [ ] Decide only after the above. The two are not exclusive: accepting TS shapes does not
       require abandoning examples, and "TS's good parts + examples when you want the test
       for free" is a strictly larger pitch than either alone.
