@@ -23,6 +23,7 @@
 import { describe, it, expect } from 'bun:test'
 import { tjs } from './index'
 import { createRuntime, isMonadicError } from './runtime'
+import { fromTS } from './emitters/from-ts'
 
 const compile = (src: string) => tjs(src, { runTests: false })
 
@@ -229,5 +230,95 @@ describe('semantic drift: legal TS/JS that TJS reads differently', () => {
     } finally {
       ;(globalThis as any).__tjs = saved
     }
+  })
+})
+
+describe('the rename seam: acceptance is necessary but NOT sufficient', () => {
+  // TJS deliberately fixes footguns TypeScript keeps, and a `.tjs` extension turns those
+  // modes ON. So "paste your .ts and rename it" is not the paved path — it is a semantic
+  // change disguised as a file operation. The real flow is **transpile TS → TJS, then
+  // change the extension**, and the transpile step has to carry the footgun rewrites.
+  //
+  // Today it doesn't, and the two ways through both fail:
+  //
+  //   keep the `/* tjs <- … */` marker  → modes stay OFF. Safe, but the file never
+  //                                       becomes real TJS; you get none of the fixes.
+  //   drop the marker (tidy the header) → modes turn ON. `var` errors loudly (fine),
+  //                                       and `==` silently changes meaning (not fine).
+  //
+  // These tests pin the seam so the conversion work has a target and so neither behavior
+  // changes by accident. See TODO "Paving the TS → TJS path".
+  const FOOTGUNS = [
+    `function check(a: string, b: number) {`,
+    `  if (a == b) return true`,
+    `  return false`,
+    `}`,
+  ].join('\n')
+
+  it('converted output keeps JS `==` semantics while the marker is present', () => {
+    const converted = fromTS(FOOTGUNS, { emitTJS: true }).code
+    expect(converted).toContain('/* tjs <-')
+    const js = compile(converted).code
+    expect(
+      js.includes('Eq('),
+      'with the fromTS marker, modes are OFF and `==` must keep JS semantics'
+    ).toBe(false)
+  })
+
+  it('dropping the marker flips `==` to TJS equality — a SILENT semantic change', () => {
+    const converted = fromTS(FOOTGUNS, { emitTJS: true }).code
+    const stripped = converted.replace(/\/\* tjs <- [^*]*\*\/\n?/, '')
+    const js = compile(stripped).code
+    expect(
+      js.includes('Eq('),
+      'without the marker `==` compiles to Eq — same source, different meaning. This is ' +
+        'the seam: the conversion must rewrite comparisons rather than leave them to ' +
+        'change meaning based on a header comment.'
+    ).toBe(true)
+  })
+
+  it('GAP: conversion emits no warning about semantics that will change', () => {
+    // The conversion knows it is handing you code whose `==` will mean something else the
+    // moment the file is really TJS, and says nothing. Flip this expectation when the
+    // converter learns to warn (or to rewrite).
+    const r = fromTS(FOOTGUNS, { emitTJS: true })
+    expect(
+      (r.warnings ?? []).length,
+      'if this is non-zero the converter now warns — update this test and the TODO'
+    ).toBe(0)
+  })
+})
+
+describe('the migration ladder (Crockford/JSLint model)', () => {
+  // JSLint worked because adoption was PROGRESSIVE: you kept your JavaScript, the tool
+  // named each bad part and why, and you tightened one rule at a time. TJS's modes support
+  // exactly that shape — `TjsCompat` turns everything off (your TS semantics, unchanged),
+  // and each named mode opts back in individually.
+  //
+  // This is the mechanism the whole TS → TJS on-ramp rests on, so it is pinned here. What
+  // is still missing is the JSLint *experience* on top of it: a report of what each mode
+  // would change, and warnings at the sites. See TODO "Paving the TS → TJS path".
+  const src = (d: string) =>
+    `${d}\nfunction f(a: 0, b: 0) { if (a == b) return 1\n return 0 }`
+  const usesTjsEquality = (d: string) => compile(src(d)).code.includes('Eq(')
+
+  it('TjsCompat turns all modes OFF — your TypeScript semantics, unchanged', () => {
+    expect(usesTjsEquality('TjsCompat')).toBe(false)
+  })
+
+  it('a mode can be opted back into INDIVIDUALLY on top of TjsCompat', () => {
+    // The rung-at-a-time property. Without this the on-ramp is all-or-nothing and the
+    // Crockford model is unavailable.
+    expect(usesTjsEquality('TjsCompat\nTjsEquals')).toBe(true)
+  })
+
+  it('the same works on top of the fromTS marker', () => {
+    // So a converted file can graduate one mode at a time without hand-editing headers.
+    expect(usesTjsEquality('/* tjs <- x.ts */')).toBe(false)
+    expect(usesTjsEquality('/* tjs <- x.ts */\nTjsEquals')).toBe(true)
+  })
+
+  it('native TJS (no directive) has modes ON', () => {
+    expect(usesTjsEquality('')).toBe(true)
   })
 })

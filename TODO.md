@@ -44,6 +44,76 @@ releases that require consumers to change syntax" we are avoiding.
 - [ ] **(d) class member annotations + modifiers** — `x: number = 1`, `private readonly`.
 - [ ] **(e) `as` casts** — also unblocks the decided `/…/ as string` regexp spelling.
 
+### The on-ramp is the product: TS → TJS as the Crockford/JSLint ladder
+
+**Priority note (2026-08-01, user):** _getting this right matters more than speed to
+release_ — this is the change that unblocks adoption personally, because it makes switching
+to TJS feel exactly like reading _JavaScript: The Good Parts_ and adopting JSLint.
+
+That analogy is the design spec. JSLint worked because adoption was **progressive**: you
+kept your JavaScript, the tool **named each bad part and why**, and you tightened **one rule
+at a time**. Nobody had to rewrite a codebase to start.
+
+**The mechanism already exists** (pinned in `src/lang/ts-compat.test.ts`):
+
+```
+TjsCompat               → all modes OFF — your TypeScript semantics, unchanged
+TjsCompat + TjsEquals   → opt back into exactly one mode
+```
+
+So the language supports the ladder today. **What is missing is the JSLint experience on top
+of it** — the report and the site-level guidance. That is the actual work, and it is tooling,
+not language design.
+
+**Target flow:**
+
+1. `tjs convert foo.ts` → `foo.tjs` that starts at **`TjsCompat`** — byte-for-byte the same
+   behavior as the TypeScript it came from. **Adoption starts at zero risk.**
+2. The converter emits a **report**: for each mode, how many sites it would affect, what
+   would change at each, and which are auto-fixable.
+3. You enable **one mode**, fix the (few, listed) flagged sites, re-run, commit. Repeat.
+4. When every mode is on, the directive can be dropped — the file is real TJS. **Graduation,
+   not a permanent crutch.**
+
+Each rung is small, reviewable, and independently revertable. That is the whole point, and it
+is why "convert then rename" beats "rename and hope".
+
+### Sub-tasks (the seam acceptance alone does not close)
+
+**Acceptance is necessary but not sufficient.** TJS deliberately fixes footguns TypeScript
+keeps, and a `.tjs` extension turns those modes ON — so "paste your `.ts` and rename it" is
+a semantic change disguised as a file operation. **The real flow is: transpile TS → TJS,
+then change the extension.** The transpile step must carry the footgun rewrites, and today
+it carries none. Both routes fail (pinned by tests in `src/lang/ts-compat.test.ts`):
+
+| after `fromTS`                        | outcome                                                                                         |
+| ------------------------------------- | ----------------------------------------------------------------------------------------------- |
+| **keep** the `/* tjs <- … */` marker  | modes stay OFF — safe, but the file never becomes real TJS. You get none of the fixes, forever. |
+| **drop** the marker (tidy the header) | modes turn ON: `var` errors loudly (fine), and **`==` silently changes meaning** (not fine).    |
+
+And `fromTS` emits **zero warnings** about any of it.
+
+- [ ] **Rewrite comparisons during conversion.** `==`/`!=` mean different things either side
+      of the boundary. Where intent is provable, rewrite (note `x != null` is already safe:
+      TJS `Eq` treats null and undefined as equal, so the idiomatic null-ish guard survives
+      — confirm and encode that). Where it isn't, see below.
+- [ ] **Insert warning comments where a rewrite can't be perfect.** A gnarly coercion we
+      can't prove should become a visible `// TJS: this comparison coerced in TS; verify`
+      marker in the output, not a silent pass-through. This is the "errors are curriculum"
+      rule applied to migration: show the site, don't just degrade.
+- [ ] **Rewrite `var` → `let`/`const`** as part of conversion rather than erroring later
+      (it's mechanical, and erroring after the rename is a worse experience than fixing it
+      during the convert that exists to do exactly this).
+- [ ] **Make the marker a graduation, not a permanent crutch.** There is currently no path
+      from "TS-compat TJS" (modes off) to "real TJS" (modes on). Conversion should aim to
+      produce a file that is _safe with modes on_, so the marker can be dropped — and should
+      say what still blocks that.
+- [ ] **`tjs convert` becomes the documented on-ramp**, not rename-and-hope. Wire the above
+      into the CLI and the docs; it is the paved path.
+- [ ] **Sweep the other modes for the same seam** — `TjsDate`, `TjsClass`, `TjsStandard`,
+      `TjsDictDefaults`. Each is a footgun fix, so each is a potential silent meaning change
+      on rename. `==` is the one we've confirmed; it is unlikely to be the only one.
+
 ### Release sequencing (recommendation, pending user decision)
 
 - [ ] **0.12.1 — security patch, zero syntax surface.** Cherry-pick the two VM fixes (the
