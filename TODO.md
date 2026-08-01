@@ -1,5 +1,39 @@
 # TJS-Lang TODO
 
+# CRITICAL PATH: correctly handling TypeScript (2026-08-01)
+
+**This is now front and centre.** It unlocks everything else and is the only route to
+adopting TJS completely for our own projects — which makes **our own codebase the acceptance
+test**, with numbers instead of opinions.
+
+## Scoreboard (`src/lang/dogfood-convert.test.ts`, ratcheted)
+
+| stage                                | now              | target                                      |
+| ------------------------------------ | ---------------- | ------------------------------------------- |
+| 1. TS → TJS emit                     | **100%** (92/92) | hold                                        |
+| 2. converted output COMPILES         | **89%** (82/92)  | **100%** — anything less is a converter bug |
+| 3. graduation to real TJS (modes on) | **74%** (68/92)  | 100%                                        |
+
+Plus `ts-compat.test.ts` acceptance **12/25** and `ts-tightness.test.ts` **7/12**.
+
+## Order of work (dependency order, not preference)
+
+1. [ ] **Stage-2 bugs — converted code that doesn't compile.** Blocks everything: no other
+       promise is testable while conversion emits broken source.
+   - [x] **Regex literals read as comments** (`/\*\//`, `/\/\//`) — fixed; +2 files.
+         Found by dogfood, invisible to unit tests.
+   - [ ] Remaining stage-2 failures: polymorphic-dispatch collisions the converter
+         _creates itself_, rest params in polymorphic functions, other `Unexpected
+token`s.
+2. [ ] **Observe mode** — the zero-risk entry point, and the only value we can deliver to a
+       TS coder who never converts anything. Independent of 1, so it can run in parallel.
+3. [ ] **Converter rewrite + guidance pass** (`==`, `var`, `n = 5` → `5.0`) — obligations 1
+       and 3 of the conversion contract. Needs 1 done to be meaningful.
+4. [ ] **Acceptance gaps** — `T[]`, `n: T = default`, then angle brackets (4 gaps, 1 cause).
+5. [ ] **Tightness** — arrow params first (they validate nothing today and arrows are
+       everywhere), then literal unions / rest / tuples.
+6. [ ] **`tjs-convert-in-place`** — UX on top; only worth it once 1–3 are solid.
+
 # 1.0 release scope (2026-08-01)
 
 ## The list
