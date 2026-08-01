@@ -1,5 +1,55 @@
 # TJS-Lang TODO
 
+# 1.0 release scope (2026-08-01)
+
+## The list
+
+- [ ] **Migrate to tosijs-ui for the build / demo system**
+- [ ] **Emit our manifesto as _TypeScript: The Good Parts_**
+- [ ] **Emit our tutorial as our K&R**
+- [ ] **Make a backend available by default for the VM** so examples all just work
+- [ ] **Finish and smooth the TS → TJS on-ramp** (acceptance 12/25, tightness 7/12, the
+      ladder, the converter's rewrite+guidance pass)
+- [ ] **Finish, smooth, and tighten the AJS VM**
+- [ ] **Turn all errors into teaching points** where possible
+- [ ] **Turn all doubt into guidance** where possible
+- [ ] **Test our assumptions** about legibility, token usage, etc. — and **publish the
+      harness and the findings**
+- [ ] **Exemplify our own claims**: self-hosted for real, literate programming demonstrated,
+      transparent, consistent
+
+## Additions — what the list doesn't cover
+
+Ordered by how much damage each does if 1.0 ships without it.
+
+- [ ] **Close the security ledger, explicitly.** "Tighten the AJS VM" is doing a lot of
+      quiet work here. The pitch is _safe eval_, so 1.0 should not ship with `S6`
+      (🔍 untested — never externally red-teamed) as the headline caveat. Specifically:
+      the **escape-attempt corpus** (vm2 CVEs, SES challenges), **§4 open-graph blast
+      radius** — carried budgets and per-capability quotas, on which _no work has been
+      done_ — the **membrane accessor-property gap**, and the **cost-invariant fuzzer**.
+      An outside week of red-teaming is worth more than another thousand unit tests.
+- [ ] **A stability contract — this is what 1.0 MEANS.** What is public API vs internal?
+      What may change in a minor? Which surfaces are experimental? Right now nothing states
+      it, and after 1.0 every accident becomes a promise. Include: the emitted `__tjs`
+      metadata shape, the mode directives, `MonadicError`'s shape, and the atom set.
+- [ ] **Version the curated error messages.** Follows directly from "errors as teaching
+      points": once they teach, people depend on them, so at 1.0 they are spec and need
+      versioning and fires-on-trigger tests — not just good copy.
+- [ ] **Enforce the conversion contract mechanically.** The on-ramp's load-bearing promise
+      (_equivalent_ behavior) is currently kept by hand. Needs the behavioral-equivalence
+      harness before 1.0, or the guarantee is a claim rather than a property.
+- [ ] **State the non-goals.** A short "what TJS deliberately does not do" (no sound type
+      system, no type-level metaprogramming, no whole-program inference…). Cheap, and it
+      converts a stream of "why doesn't it…" into a design position.
+- [ ] **Upgrade path from 0.x**, given how much has moved since 0.12.0.
+- [ ] **Resolve or soften the performance claim.** `L3` ("safe is fast") is ⚠️ nuanced —
+      measured on exactly one workload. At 1.0 either finish the campaign or state the
+      claim narrowly; a load-bearing marketing claim resting on one benchmark is the same
+      failure class as the stale bundle table (`L4`).
+- [ ] **Runtime/platform matrix.** Node, Bun, Deno, browsers, and a fresh-install check of
+      the published tarball (Bun reads `src/`, which has hidden Node packaging bugs before).
+
 ## TypeScript++ — the release-shape decision (2026-08-01)
 
 **Goal: TypeScript++, not JavaScript++.** Paste a `.ts` file in, change the extension, it
