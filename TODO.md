@@ -18,6 +18,66 @@
 - [ ] **Exemplify our own claims**: self-hosted for real, literate programming demonstrated,
       transparent, consistent
 
+## Observe mode — check, record, keep going (MISSING; migration's bottom rung)
+
+**Verified absent 2026-08-01.** `TJSConfig` offers exactly three behaviors — return a
+`MonadicError` (default), also log it (`logTypeErrors`), or throw (`throwTypeErrors`). **All
+three change program behavior**: the emitted check is `if (bad) return __tjs.typeError(...)`,
+so a violation _replaces the function's result_.
+
+There is no way to say **"validate everything, record every violation, and carry on with the
+original value."** That is the mode you want when pointing TJS at a legacy codebase: a
+complete report of every type violation, breaking nothing. It is JSLint for runtime types,
+and it is the natural **bottom rung of the ladder** — the zero-risk step before `TjsCompat`.
+
+It also completes the flight recorder's premise. The recorder exists because returned errors
+are easy to ignore; observe mode is the setting where you _deliberately_ ignore them and read
+the recording instead.
+
+- [ ] Add the config (`observeTypeErrors`, or better a `mode: 'enforce' | 'observe'` — the
+      boolean-soup shape is already at four flags).
+- [ ] **Emitter change required.** `if (bad) return __tjs.typeError(...)` must become
+      `if (bad) { const e = __tjs.typeError(...); if (e) return e }` so `typeError` can
+      record and return falsy in observe mode. One extra branch per check.
+- [ ] **Keep the inline runtime stub in sync** — emitted code calls the inline `typeError`
+      bare, so observe mode must work in standalone output too, or it silently enforces
+      there (see CLAUDE.md, "the inline runtime is NOT the real runtime").
+- [ ] Report: aggregate the recording into "here is every type violation in your codebase",
+      grouped by site — the deliverable that makes this worth turning on.
+
+## Adoption-intent harness — "would you switch?" (assumption testing)
+
+The legibility harness measures whether a model can _write_ TJS. This measures something we
+have never tested and which is closer to the actual product question: **after working with
+it, would you adopt it?** Give a model real tasks, then ask for a reasoned verdict.
+
+**Tasks (each is also a DX probe):**
+
+- [ ] Convert legacy TS/JS to TJS.
+- [ ] Read an error and correct the code.
+- [ ] Read the _emitted_ code and explain what it does.
+- [ ] Interpret our comments and guidance (the converter's "upgrade" comments, remedies).
+- [ ] Larger models only: **assess and reflect on the process** — where it helped, where it
+      got in the way.
+
+**Two levels of success, scored separately — they are different products:**
+
+1. **"I'd use TJS instead of tsc for the DX alone"** — inline tests, docs from signatures,
+   the flight recorder, observe mode. _This bar does not require anyone to believe in
+   runtime types_, which makes it the easier and probably the more important one to clear
+   first.
+2. **"I'd switch for the capabilities"** — runtime type safety, inline WASM, fewer footguns,
+   safe eval.
+
+- [ ] Report **level-1 and level-2 rates separately**, plus the reasons given. The reasons
+      are the real output: a "no" that names a specific missing thing is worth more than a
+      "yes".
+- [ ] Run it against the SAME tasks in plain TS as a control, or "would you switch?" measures
+      nothing but agreeableness.
+- [ ] Beware the obvious bias: a model asked "would you switch?" by the thing's author tends
+      to say yes. Prefer forced comparisons and specific commitments ("which of these two
+      files would you rather maintain, and why") over direct approval questions.
+
 ## Additions — what the list doesn't cover
 
 Ordered by how much damage each does if 1.0 ships without it.
