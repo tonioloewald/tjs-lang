@@ -18,6 +18,41 @@
 - [ ] **Exemplify our own claims**: self-hosted for real, literate programming demonstrated,
       transparent, consistent
 
+## Value for the TS coder who NEVER switches (the wedge, 2026-08-01)
+
+**The strategic question:** how much can we deliver to someone who keeps writing `.ts` and
+renames nothing? Because that is what turns adoption from a decision into a local upgrade —
+_"oh, if I change this one file to `.tjs` I get inline wasm."_
+
+**Hard constraint (user):** _we are explicitly NOT adding runtime type checking to TS that
+crashes TS._ Enforcement on TS-origin code would return `MonadicError`s where TypeScript ran
+fine — breaking working code and violating obligation 1 of the conversion contract. Measured
+2026-08-01: converted TS currently does **not** validate (the `/* tjs <- */` marker suppresses
+it). **That is correct behavior, not a bug.**
+
+**So the wedge is OBSERVE MODE, not enforcement** — the only form of type checking that
+_cannot_ crash TS, because it records and returns the original value. It is the one feature
+that makes "point TJS at your TypeScript" a zero-risk proposition.
+
+What a non-switching TS coder could get, all without changing a line:
+
+- [ ] **Observe mode** — every annotation they already wrote, checked at runtime, violations
+      recorded, behavior unchanged. **TypeScript erases these; we don't.** This is the whole
+      pitch, and it is safe by construction.
+- [ ] **Flight recorder** — the report that makes observe mode worth turning on.
+- [ ] **Docs from signatures**, generated from annotations they already have.
+- [ ] **Inline tests via `/* @tjs test '…' { } */`** — the passthrough already exists as a
+      mechanism; verify it survives the `.ts` path and make it a first-class story.
+- [ ] Then, and only then, per-file graduation: rename ONE file to get inline wasm, safe
+      eval, dict defaults. The switch stops being a migration and becomes a feature request.
+
+**Open question, deliberately not "fixed":** an explicit `safety: 'inputs'` is currently
+ignored for marker-bearing source (`dialect: 'tjs'` and stripping the marker both enable
+validation, the explicit option does not). Explicit-beats-inferred is the usual rule, but
+here the guard is protecting the no-crashing-TS constraint. Decide whether an explicit opt-in
+should be honoured — it is the difference between "we won't do this to you" and "you may not
+have this".
+
 ## Observe mode — check, record, keep going (MISSING; migration's bottom rung)
 
 **Verified absent 2026-08-01.** `TJSConfig` offers exactly three behaviors — return a

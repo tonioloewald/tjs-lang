@@ -184,6 +184,13 @@ only remaining decision is rewrite-or-annotate. Obligation 1 is what makes oblig
 3 safe to be ambitious about: you can afford to teach aggressively precisely because you have
 promised never to surprise.
 
+**Corollary — we do not add runtime type checking to TypeScript that crashes it.** Enforcing
+annotations on converted TS would return errors where `tsc`-clean code ran fine; that is
+obligation 1 violated, however well-intentioned. The value still gets delivered, but through
+**observe mode** — check, record, return the original value — which is the only form of type
+checking that cannot break the program it is inspecting. This is why TS-origin code has
+validation off by default, and it is a design position, not an oversight.
+
 **Enforcement (open):** obligation 1 is behavioral and therefore testable — run the
 TypeScript and its conversion against the same inputs and require identical observable
 results. Until that harness exists this is a contract we keep by hand, which is weaker than
