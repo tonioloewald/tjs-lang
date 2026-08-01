@@ -63,6 +63,46 @@ contact instead of documenting it elsewhere.
 - [ ] **(d) class member annotations + modifiers** — `x: number = 1`, `private readonly`.
 - [ ] **(e) `as` casts** — also unblocks the decided `/…/ as string` regexp spelling.
 
+## Tightness: catch everything tsc catches (2026-08-01)
+
+**Acceptance is not enforcement.** `ts-compat.test.ts` measures whether syntax _parses_;
+`ts-tightness.test.ts` measures whether an accepted declaration actually _rejects what
+TypeScript would reject_. A type that parses and validates nothing is the `s: string` → `any`
+failure again — it looks typed, transpiles clean, and protects nothing.
+
+**Score: 7/12 simple declarations enforce as tightly as tsc.**
+
+Tight today: `string` / `number` / `boolean`, object shapes (wrong member type **and**
+missing member), unions of primitives, nullable unions.
+
+**Goal: catch everything tsc catches**, minus the places tsc is stupidly strict — and those
+must be named individually, not waved at, or "we're less strict on purpose" becomes cover for
+every hole.
+
+- [ ] **BUG — optional param with a TS type name emits broken code.** `n?: number` emits
+      `function f(n = number)`; **omitting the argument** (the entire point of an optional
+      param) throws `number is not defined`. Passing one is fine, which is why it hid.
+      **The fix needs a side channel:** `processParamString` produces ONE string feeding both
+      the acorn parse and the emitted source, so simply stripping the annotation drops the
+      only carrier of the type and silently degrades the param to `any` (tried, reverted —
+      loud beats silent). Record the type name alongside `ctx.requiredParams` so the emitter
+      can omit the default while inference keeps the type.
+- [ ] **Arrow function params are not validated at all** — only `function` declarations get
+      boundary checks. Arrows are everywhere in real TypeScript, so this is likely the
+      highest-impact row here.
+- [ ] **Literal union `x: 'a' | 'b'` does not narrow.** Each literal is read as an EXAMPLE, so
+      both widen to `string` and the union collapses. **The one place the examples model
+      genuinely collides with TS semantics** — a TS literal union should probably be honoured
+      as an enum. Design decision, not just a missing check.
+- [ ] **Rest params `...xs: number[]` are not validated.**
+- [ ] **Tuple `p: [number, string]` does not check position types.**
+- [ ] **Then: expression-level linting** toward tsc parity — call sites first (we already
+      have declared param types at transpile time, so `f('x')` vs `f(n: number)` needs no
+      dataflow), then local flow. See the spike in `experiments/static-types/`.
+- [ ] Extend the corpus past _simple_ declarations. Complex ones ("better than no effort
+      where possible") are a harder problem and deserve their own pass — but the simple set
+      must be airtight first, because that is what people paste.
+
 ## "TJS is TJS" — retiring modes into syntax (direction, 2026-08-01)
 
 **End state: not a pile of modes, but one language that emits legal, correct TJS.** Modes are

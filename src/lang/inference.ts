@@ -64,6 +64,24 @@ const TS_TYPE_NAMES: Record<string, TypeDescriptor> = {
   undefined: { kind: 'undefined' },
 }
 
+/**
+ * Is this annotation a bare TYPE NAME rather than an example VALUE?
+ *
+ * Matters because the colon shorthand rewrites `x: ann` to `x = ann`, which is right when
+ * `ann` is an example (`n?: 0` → `n = 0`) and produces a dangling identifier when it is a
+ * type (`n?: number` → `n = number`, a ReferenceError waiting to happen).
+ *
+ * `undefined`/`NaN`/`Infinity` are bare identifiers that ARE values, so they are excluded.
+ */
+export function isTypeNameAnnotation(text: string): boolean {
+  const t = text.trim()
+  if (!/^[A-Za-z_$][A-Za-z0-9_$]*$/.test(t)) return false
+  if (t === 'undefined' || t === 'NaN' || t === 'Infinity') return false
+  // A known TS/TJS type name, or any other bare identifier — an unresolved user type like
+  // `MyThing` is equally not a value.
+  return true
+}
+
 export function inferTypeFromValue(node: Expression): TypeDescriptor {
   switch (node.type) {
     case 'Literal': {
