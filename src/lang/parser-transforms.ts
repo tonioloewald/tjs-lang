@@ -3731,12 +3731,12 @@ export function wrapClassDeclarations(
 export function validateNoDate(source: string, warnings?: string[]): string {
   // The footgun is the Date OBJECT — mutable, timezone-dependent, and the source of most
   // date bugs. The numeric statics are not: `Date.now()`, `Date.parse()` and `Date.UTC()`
-  // all return a plain number and are perfectly well-behaved.
+  // all return a plain number and are perfectly well-behaved, so they are WARNINGS.
   //
-  // They used to be hard errors recommending `Timestamp.now()` — which returns an ISO
-  // STRING. Following that advice silently breaks arithmetic like `Date.now() - start`.
-  // A remedy that does not work is worse than no remedy, so the statics are now warnings
-  // with honest wording, and may be tightened later. Good coders act on warnings.
+  // They were briefly hard errors recommending `Timestamp.now()` back when that returned
+  // an ISO STRING — advice which silently broke arithmetic like `Date.now() - start`. A
+  // remedy that does not work is worse than no remedy. Timestamp is now epoch-ms based, so
+  // the recommendation is finally true, and these stay warnings that may tighten later.
   const errors = [
     {
       pattern: /\bnew\s+Date\b/,
@@ -3748,7 +3748,7 @@ export function validateNoDate(source: string, warnings?: string[]): string {
     {
       pattern: /\bDate\.now\b/,
       message:
-        'Date.now() returns a number and is safe, but prefer performance.now() for elapsed time (monotonic, unaffected by clock changes). NOTE: Timestamp.now() is NOT a drop-in — it returns an ISO string, not a number.',
+        'Date.now() is safe (it returns a number). Timestamp.now() is a drop-in with the same type and meaning; performance.now() is better for elapsed time, being monotonic and unaffected by clock changes.',
     },
     {
       pattern: /\bDate\.parse\b/,

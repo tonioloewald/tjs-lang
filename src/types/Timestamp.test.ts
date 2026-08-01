@@ -3,31 +3,39 @@ import { Timestamp } from './Timestamp'
 
 describe('Timestamp', () => {
   // Fixed timestamp for deterministic tests
-  const ts = '2024-06-15T14:30:45.123Z'
-  const ts2 = '2024-06-20T10:00:00.000Z'
+  // Fixtures are Timestamps (epoch ms). `iso()` renders them for assertions.
+  const ts = Timestamp.parse('2024-06-15T14:30:45.123Z')
+  const ts2 = Timestamp.parse('2024-06-20T10:00:00.000Z')
+  /** Assert on the readable rendering of a Timestamp. */
+  const asIso = (t: number) => Timestamp.iso(t)
 
   describe('isValid', () => {
-    it('accepts valid ISO timestamps', () => {
-      expect(Timestamp.isValid('2024-01-15T10:30:00.000Z')).toBe(true)
-      expect(Timestamp.isValid('2024-12-31T23:59:59.999Z')).toBe(true)
+    it('accepts finite numbers — a Timestamp IS a number now', () => {
       expect(Timestamp.isValid(ts)).toBe(true)
+      expect(Timestamp.isValid(0)).toBe(true)
+      expect(Timestamp.isValid(Date.now())).toBe(true)
     })
 
-    it('rejects invalid strings', () => {
-      expect(Timestamp.isValid('not a date')).toBe(false)
-      expect(Timestamp.isValid('2024-01-15')).toBe(false) // No T
-      expect(Timestamp.isValid('')).toBe(false)
+    it('rejects non-numbers and non-finite values', () => {
+      expect(Timestamp.isValid('2024-01-15T10:30:00.000Z')).toBe(false)
+      expect(Timestamp.isValid(NaN)).toBe(false)
+      expect(Timestamp.isValid(Infinity)).toBe(false)
+      expect(Timestamp.isValid(null)).toBe(false)
     })
 
-    it('rejects non-strings', () => {
-      expect(Timestamp.isValid(123 as any)).toBe(false)
-      expect(Timestamp.isValid(null as any)).toBe(false)
+    it('isValidISO still validates the STRING rendering', () => {
+      expect(Timestamp.isValidISO('2024-01-15T10:30:00.000Z')).toBe(true)
+      expect(Timestamp.isValidISO('2024-12-31T23:59:59.999Z')).toBe(true)
+      expect(Timestamp.isValidISO('not a date')).toBe(false)
+      expect(Timestamp.isValidISO('2024-01-15')).toBe(false) // No T
+      expect(Timestamp.isValidISO('')).toBe(false)
     })
   })
 
   describe('now', () => {
-    it('returns a valid ISO timestamp', () => {
+    it('returns a number — a genuine drop-in for Date.now()', () => {
       const result = Timestamp.now()
+      expect(typeof result).toBe('number')
       expect(Timestamp.isValid(result)).toBe(true)
     })
 
@@ -35,9 +43,8 @@ describe('Timestamp', () => {
       const before = Date.now()
       const result = Timestamp.now()
       const after = Date.now()
-      const resultMs = new Date(result).getTime()
-      expect(resultMs).toBeGreaterThanOrEqual(before)
-      expect(resultMs).toBeLessThanOrEqual(after)
+      expect(result).toBeGreaterThanOrEqual(before)
+      expect(result).toBeLessThanOrEqual(after)
     })
   })
 
@@ -45,25 +52,25 @@ describe('Timestamp', () => {
     it('creates timestamp from components with 1-based months', () => {
       // January is 1, not 0!
       const result = Timestamp.from(2024, 1, 15, 10, 30, 45, 123)
-      expect(result).toBe('2024-01-15T10:30:45.123Z')
+      expect(asIso(result)).toBe('2024-01-15T10:30:45.123Z')
     })
 
     it('handles December correctly', () => {
       const result = Timestamp.from(2024, 12, 31, 23, 59, 59, 999)
-      expect(result).toBe('2024-12-31T23:59:59.999Z')
+      expect(asIso(result)).toBe('2024-12-31T23:59:59.999Z')
     })
 
     it('defaults time components to zero', () => {
       const result = Timestamp.from(2024, 6, 15)
-      expect(result).toBe('2024-06-15T00:00:00.000Z')
+      expect(asIso(result)).toBe('2024-06-15T00:00:00.000Z')
     })
 
     it('handles partial time components', () => {
       const result = Timestamp.from(2024, 6, 15, 14)
-      expect(result).toBe('2024-06-15T14:00:00.000Z')
+      expect(asIso(result)).toBe('2024-06-15T14:00:00.000Z')
 
       const result2 = Timestamp.from(2024, 6, 15, 14, 30)
-      expect(result2).toBe('2024-06-15T14:30:00.000Z')
+      expect(asIso(result2)).toBe('2024-06-15T14:30:00.000Z')
     })
   })
 
@@ -278,17 +285,17 @@ describe('Timestamp', () => {
   describe('boundaries', () => {
     it('startOfDay', () => {
       const result = Timestamp.startOfDay(ts)
-      expect(result).toBe('2024-06-15T00:00:00.000Z')
+      expect(asIso(result)).toBe('2024-06-15T00:00:00.000Z')
     })
 
     it('endOfDay', () => {
       const result = Timestamp.endOfDay(ts)
-      expect(result).toBe('2024-06-15T23:59:59.999Z')
+      expect(asIso(result)).toBe('2024-06-15T23:59:59.999Z')
     })
 
     it('startOfMonth', () => {
       const result = Timestamp.startOfMonth(ts)
-      expect(result).toBe('2024-06-01T00:00:00.000Z')
+      expect(asIso(result)).toBe('2024-06-01T00:00:00.000Z')
     })
 
     it('endOfMonth', () => {
@@ -311,12 +318,12 @@ describe('Timestamp', () => {
 
     it('startOfYear', () => {
       const result = Timestamp.startOfYear(ts)
-      expect(result).toBe('2024-01-01T00:00:00.000Z')
+      expect(asIso(result)).toBe('2024-01-01T00:00:00.000Z')
     })
 
     it('endOfYear', () => {
       const result = Timestamp.endOfYear(ts)
-      expect(result).toBe('2024-12-31T23:59:59.999Z')
+      expect(asIso(result)).toBe('2024-12-31T23:59:59.999Z')
     })
   })
 

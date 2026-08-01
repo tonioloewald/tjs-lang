@@ -220,8 +220,12 @@ describe('LegalDate', () => {
   })
 
   describe('conversion', () => {
-    it('toTimestamp', () => {
-      expect(LegalDate.toTimestamp(date)).toBe('2024-06-15T00:00:00.000Z')
+    it('toTimestamp returns a Timestamp (number), midnight UTC', () => {
+      expect(LegalDate.toTimestamp(date)).toBe(Date.UTC(2024, 5, 15))
+    })
+
+    it('toTimestampISO returns the readable rendering', () => {
+      expect(LegalDate.toTimestampISO(date)).toBe('2024-06-15T00:00:00.000Z')
     })
 
     it('toUnix and fromUnix roundtrip', () => {

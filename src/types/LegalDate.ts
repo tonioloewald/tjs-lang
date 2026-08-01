@@ -319,7 +319,13 @@ export function daysInYear(y: number): number {
 /**
  * Convert to ISO timestamp (midnight UTC)
  */
-export function toTimestamp(date: LegalDateString): string {
+export function toTimestamp(date: LegalDateString): number {
+  // A LegalDate is a calendar day; its Timestamp is midnight UTC on that day.
+  return Timestamp.parse(date + 'T00:00:00.000Z')
+}
+
+/** The same instant as an ISO 8601 string, when you want the readable form. */
+export function toTimestampISO(date: LegalDateString): string {
   return date + 'T00:00:00.000Z'
 }
 
@@ -531,6 +537,7 @@ export const LegalDate = {
   daysInYear,
   // Conversion
   toTimestamp,
+  toTimestampISO,
   toUnix,
   fromUnix,
   // Formatting

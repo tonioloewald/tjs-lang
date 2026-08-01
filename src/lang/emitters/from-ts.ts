@@ -2560,6 +2560,24 @@ export function fromTS(
 
   const tjsFunctions: string[] = []
   const seenTypeNames = new Set<string>() // Track emitted type names to avoid duplicates
+
+  // Names that exist as VALUES at runtime. A type alias sharing one of these must not be
+  // promoted to a runtime `Type`, or the emitted file declares the identifier twice.
+  const valueNames = new Set<string>()
+  for (const stmt of sourceFile.statements) {
+    if (ts.isVariableStatement(stmt)) {
+      for (const d of stmt.declarationList.declarations) {
+        if (ts.isIdentifier(d.name)) valueNames.add(d.name.text)
+      }
+    } else if (
+      (ts.isFunctionDeclaration(stmt) || ts.isClassDeclaration(stmt)) &&
+      stmt.name
+    ) {
+      valueNames.add(stmt.name.text)
+    } else if (ts.isEnumDeclaration(stmt)) {
+      valueNames.add(stmt.name.text)
+    }
+  }
   const metadata: Record<string, FunctionTypeInfo> = {}
   const classMetadata: Record<string, ClassTypeInfo> = {}
 
@@ -2842,6 +2860,20 @@ export function fromTS(
           // @tjs-skip — omit this declaration entirely
           if (annotations?.some((a) => a.kind === 'skip')) {
             // Skip — do not emit
+          } else if (valueNames.has(typeName)) {
+            // A TYPE and a VALUE may share a name in TypeScript — `type Foo = …` plus
+            // `const Foo = { … }` is an everyday pattern (Date itself is declared that
+            // way), because the alias is erased at runtime.
+            //
+            // Turning the alias into a runtime `Type Foo` is normally an UPGRADE, but here
+            // it collides with the value and the file stops compiling — obligation 1
+            // violated. Fall back to erasing the alias, exactly as TypeScript does, and
+            // say what we could not do.
+            tjsFunctions.push(
+              `/* TJS: type alias \`${typeName}\` not promoted to a runtime Type — a value ` +
+                `of the same name is declared in this file. TypeScript erases the alias, so ` +
+                `behavior is unchanged. */`
+            )
           } else {
             const typeDecl = transformTypeAliasToType(
               statement,
