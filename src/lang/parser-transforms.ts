@@ -3753,8 +3753,13 @@ export function validateNoDate(source: string): string {
     },
   ]
 
+  // Scan a LITERAL-MASKED copy. `new Date()` written inside a string or template is not
+  // a use of Date — this repo's own emitters generate code containing these constructs,
+  // and the CSS library builds TJS source in templates. Rejecting those is a false alarm
+  // that makes a legal file unbuildable.
+  const scan = maskLiterals(source)
   for (const { pattern, message } of datePatterns) {
-    if (pattern.test(source)) {
+    if (pattern.test(scan)) {
       throw new Error(message)
     }
   }
@@ -3859,10 +3864,13 @@ export function transformConstBang(source: string): string {
 }
 
 export function validateNoVar(source: string): string {
-  // Match var declarations at statement level (not inside strings/comments)
+  // Match var declarations at statement level. The "not inside strings/comments" part
+  // used to be a claim in this comment rather than a property of the code: `var` inside a
+  // template — as in `src/css/*`, which GENERATES TJS source — was rejected as a real
+  // declaration. The mask makes the claim true.
   // Catches: var x, var x = ..., var {x} = ..., var [x] = ...
   const varPattern = /(?<![a-zA-Z_$])\bvar\s+/
-  if (varPattern.test(source)) {
+  if (varPattern.test(maskLiterals(source))) {
     throw new Error(
       'var is not allowed in TjsNoVar mode. Use const or let instead.'
     )
@@ -3874,7 +3882,8 @@ export function validateNoEval(source: string): string {
   // Match eval() calls - but not Eval() (capital E)
   // Use negative lookbehind to avoid matching inside words
   const evalPattern = /(?<![A-Za-z_$])\beval\s*\(/
-  if (evalPattern.test(source)) {
+  const scan = maskLiterals(source)
+  if (evalPattern.test(scan)) {
     throw new Error(
       'eval() is not allowed in TjsNoeval mode. Use Eval() from TJS runtime for safe evaluation.'
     )
@@ -3882,7 +3891,7 @@ export function validateNoEval(source: string): string {
 
   // Match new Function() - but not SafeFunction or other *Function names
   const functionPattern = /\bnew\s+Function\s*\(/
-  if (functionPattern.test(source)) {
+  if (functionPattern.test(scan)) {
     throw new Error(
       'new Function() is not allowed in TjsNoeval mode. Use SafeFunction() from TJS runtime.'
     )

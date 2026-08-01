@@ -144,7 +144,7 @@ describe.skipIf(SKIP)(
         // remaining failure is a legitimate footgun site (new Date/Date.now 9, var 4,
         // new Function 3) — no parse errors and no converter bugs. That makes this number
         // a clean work queue for the converter's rewrite-and-guidance pass.
-        expect(r.graduates.ok / r.total).toBeGreaterThanOrEqual(0.82)
+        expect(r.graduates.ok / r.total).toBeGreaterThanOrEqual(0.87)
       },
       { timeout: 180_000 }
     )
