@@ -12,6 +12,7 @@ import type {
   ContextFrame,
 } from './parser-types'
 import { locAt } from './parser-transforms'
+import { isRegexStart, findRegexEnd } from '../strip-comments'
 
 export function transformParenExpressions(
   source: string,
@@ -561,6 +562,10 @@ function extractBalancedContent(
   let i = start
   let inString = false
   let stringChar = ''
+  // Trailing context OUTSIDE any literal, for telling a regex from a division. Keeps a
+  // short tail rather than one character because `isRegexStart` also recognises keywords
+  // (`return /re/`), which a single char cannot express.
+  let sigTail = open
 
   while (i < source.length && depth > 0) {
     const char = source[i]
@@ -572,8 +577,20 @@ function extractBalancedContent(
     } else if (inString && char === stringChar && source[i - 1] !== '\\') {
       inString = false
     } else if (!inString) {
+      // REGEX LITERALS. A `)` inside a character class — `/[)\]']/` — used to close the
+      // enclosing paren, so `if (/[)\]']/.test(c))` handed the caller the fragment `/[`
+      // and every function after it went untransformed. Skip the literal whole.
+      if (char === '/' && isRegexStart(sigTail)) {
+        const end = findRegexEnd(source, i)
+        if (end !== -1) {
+          i = end + 1
+          sigTail = '/'
+          continue
+        }
+      }
       if (char === open) depth++
       else if (char === close) depth--
+      sigTail = (sigTail + char).slice(-24)
     }
     i++
   }

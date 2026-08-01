@@ -16,7 +16,7 @@
  * heuristic and is sufficient here — we only need to know how far to skip, so the rare
  * ambiguous case costs us nothing worse than today's behavior.
  */
-function isRegexStart(emitted: string): boolean {
+export function isRegexStart(emitted: string): boolean {
   let j = emitted.length - 1
   while (j >= 0 && /\s/.test(emitted[j])) j--
   if (j < 0) return true // start of input
@@ -56,7 +56,7 @@ const REGEX_PRECEDING_KEYWORDS = new Set([
  * Index of the closing `/` of the regex literal starting at `start`, or -1.
  * Honours escapes and character classes, inside which `/` is a literal character.
  */
-function findRegexEnd(source: string, start: number): number {
+export function findRegexEnd(source: string, start: number): number {
   let k = start + 1
   let inClass = false
   while (k < source.length) {

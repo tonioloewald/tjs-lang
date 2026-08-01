@@ -12,7 +12,11 @@
  */
 
 import { describe, it, expect } from 'bun:test'
-import { stripLineComments } from '../strip-comments'
+import {
+  stripLineComments,
+  isRegexStart,
+  findRegexEnd,
+} from '../strip-comments'
 import { fromTS } from '../lang/emitters/from-ts'
 import { tjs } from '../lang'
 import { emitVerifiedPredicate } from '../lang/predicate'
@@ -539,11 +543,13 @@ describe('Bootstrap Canary', () => {
       const parserModule = new Function(
         'emitVerifiedPredicate',
         'stripLineComments',
+        'isRegexStart',
+        'findRegexEnd',
         `
         ${combinedCode}
         return { preprocess };
       `
-      )(emitVerifiedPredicate, stripLineComments)
+      )(emitVerifiedPredicate, stripLineComments, isRegexStart, findRegexEnd)
       const execTime = performance.now() - execStart
 
       expect(typeof parserModule.preprocess).toBe('function')
@@ -654,11 +660,13 @@ describe('Bootstrap Canary', () => {
       const bootstrappedParser = new Function(
         'emitVerifiedPredicate',
         'stripLineComments',
+        'isRegexStart',
+        'findRegexEnd',
         `
         ${combinedCode}
         return { preprocess };
       `
-      )(emitVerifiedPredicate, stripLineComments)
+      )(emitVerifiedPredicate, stripLineComments, isRegexStart, findRegexEnd)
 
       // Import native parser
       const nativeParser = require('../lang/parser')
