@@ -1,5 +1,62 @@
 # TJS-Lang TODO
 
+## TypeScript++ — the release-shape decision (2026-08-01)
+
+**Goal: TypeScript++, not JavaScript++.** Paste a `.ts` file in, change the extension, it
+works — with TJS's extras available when you want them. **We are at 48% (12/25)** on an
+ordinary-TypeScript corpus (`src/lang/ts-compat.test.ts`, which prints the score and fails
+if a gap silently closes or a supported case regresses).
+
+The failures are not exotic — `string[]`, `interface`, `type`, generics, `as`, class field
+types, `enum`, `Record<K,V>`. **Essentially no real-world TS file pastes in clean today.**
+
+### The distinction that drives release shape
+
+- **Acceptance gaps** — TJS rejects syntax TS allows. Closing one is purely **additive**:
+  nothing that worked stops working (guarded by `subset-invariant.test.ts`). **These never
+  force a consumer to edit code**, so they can land in any release.
+- **Semantic drift** — a spelling that is legal TS _and_ legal JS which TJS reads
+  differently. Closing one **changes the behavior of code people already wrote**. This is
+  the only category that creates churn.
+
+**Release rule (adopted):** _every semantic realignment ships with or before the release
+that claims TypeScript++, never after._ One migration, once, in the release that delivers
+the payoff — instead of a trickle of small breaking changes, which is exactly the "bunch of
+releases that require consumers to change syntax" we are avoiding.
+
+### Known semantic drift — must land in the TypeScript++ release
+
+- [ ] **`function f(n = 5)` infers integer; TypeScript infers `number`.** So we reject
+      `f(3.5)` on a signature that is legal TS _and_ legal JS. Pinned by a DRIFT test.
+      ~285 default sites in this repo alone. **This is the breaking change**; it belongs in
+      0.13.0, not after it.
+- [ ] Audit for any other drift of the same class before cutting (the corpus has a
+      dedicated `describe` block for these — add rows as found).
+
+### Acceptance gaps, grouped by ROOT CAUSE (6 jobs, not 13)
+
+- [ ] **(b) angle-bracket type arguments** — one root cause behind four failures
+      (`Array<T>`, `Promise<T>`, `Record<K,V>`, `function f<T>()`). Highest leverage.
+- [ ] **(a) `T[]` suffix** — the single most common annotation in real TS.
+- [ ] **(f) `n: T = default`** — annotated param with a default; extremely common in pasted
+      TS, and adjacent to the drift item above.
+- [ ] **(c) type-level declaration forms** — `interface`, `type`, `enum`, `import type`.
+- [ ] **(d) class member annotations + modifiers** — `x: number = 1`, `private readonly`.
+- [ ] **(e) `as` casts** — also unblocks the decided `/…/ as string` regexp spelling.
+
+### Release sequencing (recommendation, pending user decision)
+
+- [ ] **0.12.1 — security patch, zero syntax surface.** Cherry-pick the two VM fixes (the
+      size-proportional fuel bypass and the live-heap ceiling) onto `v0.12.0`. Consumers get
+      the fixes with **no migration at all**. Removes the pressure to ship the language work
+      before it is coherent.
+- [ ] **0.13.0 — "TypeScript++" as one coherent release.** All six acceptance groups + the
+      `n = 5` realignment + docs/examples rewritten **once**, in TS-first spellings.
+
+**Do not** ship TJS-flavored workarounds as the documented way (`['']` for `string[]`) and
+then support the real spelling later — that is doc churn plus a second migration, and it is
+the trap this section exists to avoid.
+
 ## Action items — the "eval is solved _architecturally_" audit (list of 2026-07-29)
 
 Verdict this list was answering: **halting — solved, and provably, not just practically.
