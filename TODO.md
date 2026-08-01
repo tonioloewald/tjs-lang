@@ -33,19 +33,26 @@ Plus `ts-compat.test.ts` acceptance **12/25** and `ts-tightness.test.ts` **7/12*
          rejects rest params, so `ajs(strings, ...values)` produced code our own language
          refuses. Now falls back to the implementation (which is all TypeScript actually
          runs) plus a comment naming the upgrade we skipped. +2 files.
-   - [ ] **`greet` declared twice inside TEMPLATE STRINGS (1).** `create-app.ts` holds
-         project-scaffolding templates; two unrelated `greet` definitions live inside
-         separate template literals and the polymorphic detector treats them as variants
-         of one function. **The scanner isn't literal-aware** — same family as the
-         regex-in-comment bug. Fix by making the polymorphic scan skip string/template
-         contents.
-   - [ ] **Location mapping is wrong after preprocessing (5).** `parser.ts`, `tests.ts`,
-         `parser-params.ts`, `js-tests.ts`, `parser-transforms.ts`. All bisect to COMMENTS
-         rather than code, none reproduce in isolation, and every reported position points
-         **past end-of-line**. Fix the position mapping FIRST — bad locations make every
-         other failure harder to diagnose, and may be masking the real trigger here.
-   - [ ] **`interface` reserved (1).** `from-ts.ts` — a known acceptance gap (item 4), not
-         a converter bug.
+   - [x] **Embedded-test extraction ignored line comments (1).** Documentation that
+         _mentions_ the test syntax was extracted as a real test — `from-ts.ts` did it to
+         its own doc comment.
+   - [x] **Paren extraction wasn't regex-aware (1).** A `)` inside a character class
+         closed the enclosing paren, handing the caller the fragment `/[` and leaving
+         every later function untransformed.
+   - [x] **Escaped backslash desynced the string scanner (3).** Closing strings via the
+         lookback `source[i-1] !== '\\'` is wrong for `'\\'`, a line this codebase writes
+         constantly. One fix cleared three files.
+   - [x] **Polymorphic detection scanned string literals (1).** `create-app.ts` ships
+         scaffolding templates containing `function greet(...)`. Fixed with a shared
+         `maskLiterals` in `src/strip-comments.ts`.
+   - [ ] **LAST ONE — `from-ts.ts` emits `export function fromTS` TWICE**, once converted
+         and once verbatim (the raw copy still has `Map<string, ts.TypeNode>`), so
+         `collectTypes` nested inside it collides with itself. A duplicate-emission bug in
+         the converter, not a scanner bug — every scanner class is now closed.
+   - [x] **Location mapping "bug" — DISSOLVED.** The five past-end-of-line positions were
+         a symptom, not a cause: a scanner desync upstream left later functions
+         untransformed, so acorn failed far from the real damage. Fixing the scanners
+         fixed the positions.
 
 2. [ ] **Observe mode** — the zero-risk entry point, and the only value we can deliver to a
        TS coder who never converts anything. Independent of 1, so it can run in parallel.
