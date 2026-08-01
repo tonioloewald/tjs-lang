@@ -20,21 +20,25 @@ Plus `ts-compat.test.ts` acceptance **12/25** and `ts-tightness.test.ts` **7/12*
 
 1. [ ] **Stage-2 bugs — converted code that doesn't compile.** Blocks everything: no other
        promise is testable while conversion emits broken source.
+
    - [x] **Regex literals read as comments** (`/\*\//`, `/\/\//`) — fixed; +2 files.
          Found by dogfood, invisible to unit tests.
    - [x] **`as` casts survived in parameter defaults** — `getText()` returns raw source,
          so `m = {} as M` emitted an unparseable default. Now dropped WITH a
          `/* TJS: dropped … */` note, per "we don't erase TypeScript". +1 file.
-   - [ ] **Remaining 9, by class:** - **Polymorphic collisions the converter CREATES ITSELF** (3): `create-app.ts`
-         ambiguous variants; `core.ts` + `index.ts` rest params in polymorphic `ajs`.
-         The converter emits same-name functions that TJS's own dispatcher then rejects
-         — we generate code our own language refuses. Likely the highest-value class. - **Location mapping is wrong after preprocessing** (5): `parser.ts`, `tests.ts`,
-         `parser-params.ts`, `js-tests.ts`, `parser-transforms.ts`. All bisect to
-         COMMENTS rather than code, none reproduce in isolation, and every reported
-         position points **past end-of-line**. Fix the position mapping first — bad
-         locations make every other failure harder to diagnose, and may well be masking
-         the real trigger here. - **`interface` reserved** (1): `from-ts.ts` — a known acceptance gap (item 4),
-         not a converter bug.
+   - [ ] **Remaining 9 — polymorphic collisions the converter CREATES ITSELF (3).**
+         `create-app.ts` (ambiguous variants); `core.ts` and `index.ts` (rest params in
+         polymorphic `ajs`). The converter emits same-name functions that TJS's own
+         dispatcher then rejects — we generate code our own language refuses. Likely the
+         highest-value class.
+   - [ ] **Location mapping is wrong after preprocessing (5).** `parser.ts`, `tests.ts`,
+         `parser-params.ts`, `js-tests.ts`, `parser-transforms.ts`. All bisect to COMMENTS
+         rather than code, none reproduce in isolation, and every reported position points
+         **past end-of-line**. Fix the position mapping FIRST — bad locations make every
+         other failure harder to diagnose, and may be masking the real trigger here.
+   - [ ] **`interface` reserved (1).** `from-ts.ts` — a known acceptance gap (item 4), not
+         a converter bug.
+
 2. [ ] **Observe mode** — the zero-risk entry point, and the only value we can deliver to a
        TS coder who never converts anything. Independent of 1, so it can run in parallel.
 3. [ ] **Converter rewrite + guidance pass** (`==`, `var`, `n = 5` → `5.0`) — obligations 1
