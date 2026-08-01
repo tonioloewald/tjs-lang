@@ -172,7 +172,12 @@ export interface TraceEvent {
   error?: string
   fuelBefore: number
   fuelAfter: number
-  timestamp: string
+  /**
+   * Epoch milliseconds. A number rather than an ISO string: traces get sorted and
+   * subtracted far more often than they get read, and it matches `Timestamp`, which is
+   * epoch-ms based. Render with `Timestamp.iso()` when a human needs to see it.
+   */
+  timestamp: number
 }
 
 /** Cost override: static number or dynamic function */
@@ -1924,7 +1929,7 @@ export function defineAtom<I extends Record<string, any>, O = any>(
           error,
           fuelBefore,
           fuelAfter: ctx.fuel.current,
-          timestamp: new Date().toISOString(),
+          timestamp: Date.now(),
         })
       }
     }
@@ -3549,7 +3554,7 @@ export const consoleLog = defineAtom(
         result: msg,
         fuelBefore: ctx.fuel.current,
         fuelAfter: ctx.fuel.current,
-        timestamp: new Date().toISOString(),
+        timestamp: Date.now(),
       })
     }
   },
@@ -3575,7 +3580,7 @@ export const consoleWarn = defineAtom(
         result: msg,
         fuelBefore: ctx.fuel.current,
         fuelAfter: ctx.fuel.current,
-        timestamp: new Date().toISOString(),
+        timestamp: Date.now(),
       })
     }
   },

@@ -140,12 +140,12 @@ describe.skipIf(SKIP)(
           'we are emitting TJS that does not build'
         ).toBe(1)
 
-        // Stage 3 — the ladder's scoreboard. 89/93 as of 2026-08-01; the only remaining
-        // failures are `new Date()`, which stays a hard error because the Date OBJECT is
-        // the actual footgun (mutable, timezone-dependent) and `Timestamp` is a real
-        // alternative. Everything else that used to fail here was either a false positive
-        // (literal-blind validators) or a construct we now FLAG rather than reject.
-        expect(r.graduates.ok / r.total).toBeGreaterThanOrEqual(0.95)
+        // Stage 3 — the ladder's scoreboard. 91/93 as of 2026-08-01. The only two
+        // remaining are `Timestamp.ts` and `LegalDate.ts`, which use `new Date()` BECAUSE
+        // THEY ARE the alternative it points you to — the general pattern that a polyfill
+        // violates the rule it exists to enable. They want a per-file mode opt-out, not a
+        // rewrite; the ladder already supports that.
+        expect(r.graduates.ok / r.total).toBeGreaterThanOrEqual(0.97)
       },
       { timeout: 180_000 }
     )

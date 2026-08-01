@@ -1629,7 +1629,24 @@ function findLeftOperandBoundary(source: string, opPos: number): number {
       return i + 1
     }
 
-    // Ternary operators
+    // Ternary operators.
+    //
+    // NOT optional chaining: `?.`, `?.[` and `?.(` are part of the OPERAND, not a
+    // boundary. Treating them as one split `o?.b != null` into `o?` + `.b`, emitting
+    // `o?NotEq(.b, null)?` — so the single most idiomatic null check in JavaScript did
+    // not compile in native TJS. `??` is likewise one token, and being nullish
+    // coalescing it binds looser than `==`, so it IS a boundary — but a two-character
+    // one, hence the `i + 2`.
+    if (char === '?' && source[i + 1] === '.') {
+      i--
+      continue
+    }
+    if (char === '?' && prevChar === '?') {
+      return i + 1
+    }
+    if (char === '?' && source[i + 1] === '?') {
+      return i + 2
+    }
     if (char === '?' || char === ':') {
       return i + 1
     }

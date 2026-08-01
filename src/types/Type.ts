@@ -358,8 +358,9 @@ export const TUuid = Type<string>('UUID', (v: unknown) => {
  * This will become an AJS builtin
  */
 export const isValidTimestamp = (v: string): boolean => {
-  const d = new Date(v)
-  return !isNaN(d.getTime()) && v.includes('T')
+  // Date.parse returns a number — no need to allocate a mutable Date just to ask
+  // whether a string parses.
+  return !Number.isNaN(Date.parse(v)) && v.includes('T')
 }
 
 /**
@@ -368,8 +369,7 @@ export const isValidTimestamp = (v: string): boolean => {
  */
 export const isValidLegalDate = (v: string): boolean => {
   if (!/^\d{4}-\d{2}-\d{2}$/.test(v)) return false
-  const d = new Date(v + 'T00:00:00Z')
-  return !isNaN(d.getTime())
+  return !Number.isNaN(Date.parse(v + 'T00:00:00Z'))
 }
 
 /** ISO 8601 timestamp string (e.g., "2024-01-15T10:30:00Z") */
