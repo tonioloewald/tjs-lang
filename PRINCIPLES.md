@@ -184,6 +184,14 @@ only remaining decision is rewrite-or-annotate. Obligation 1 is what makes oblig
 3 safe to be ambitious about: you can afford to teach aggressively precisely because you have
 promised never to surprise.
 
+**Corollary — we do not erase TypeScript, we upgrade or annotate it.** Removing a construct
+is permitted only when it is _genuinely_ a runtime no-op (`as`, `satisfies`, `!`, type-only
+imports), and even then the removal is **noted at the site**, because the author wrote it and
+a silent deletion discards intent the reader may need. Where the construct carries
+information TJS can use, the correct treatment is an **upgrade**, not a deletion: `m = {} as M`
+is a type annotation in disguise and should eventually become `m: M = {}`. Anything that is
+not a no-op is never dropped — it is rewritten to preserve meaning, or flagged.
+
 **Corollary — we do not add runtime type checking to TypeScript that crashes it.** Enforcing
 annotations on converted TS would return errors where `tsc`-clean code ran fine; that is
 obligation 1 violated, however well-intentioned. The value still gets delivered, but through

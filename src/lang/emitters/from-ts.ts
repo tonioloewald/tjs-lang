@@ -1923,6 +1923,80 @@ function transformClassToTJS(
 /**
  * Helper to transform parameters to TJS format
  */
+/**
+ * Text of a parameter's default value, with type-only wrappers removed — and a note saying
+ * so, because **we do not silently erase TypeScript.**
+ *
+ * `param.initializer.getText()` returns raw source, so `m = {} as M` kept the cast and the
+ * emitted TJS failed to parse (`as` is not valid in a parameter default). Dropping it is
+ * safe — `as`/`satisfies`/`!` have no runtime effect, so removing them cannot change
+ * behavior (conversion contract, obligation 1) — but it DOES discard something the author
+ * wrote, so obligation 3 applies: leave guidance at the site rather than quietly deleting
+ * intent. `m = {} as M` is a type annotation in disguise, and once `n: T = default` is
+ * supported it should become an UPGRADE rather than a deletion.
+ *
+ * Unwraps repeatedly, since `x as unknown as T` and `(x as T)!` both occur in the wild.
+ */
+function initializerText(
+  init: ts.Expression,
+  sourceFile: ts.SourceFile
+): { text: string; erased: string[] } {
+  let node: ts.Expression = init
+  const erased: string[] = []
+  for (;;) {
+    if (ts.isAsExpression(node)) {
+      erased.push(`as ${node.type.getText(sourceFile)}`)
+      node = node.expression
+      continue
+    }
+    if (ts.isSatisfiesExpression(node)) {
+      erased.push(`satisfies ${node.type.getText(sourceFile)}`)
+      node = node.expression
+      continue
+    }
+    if (ts.isTypeAssertionExpression(node)) {
+      erased.push(`<${node.type.getText(sourceFile)}>`)
+      node = node.expression
+      continue
+    }
+    if (ts.isNonNullExpression(node)) {
+      erased.push('!')
+      node = node.expression
+      continue
+    }
+    if (ts.isParenthesizedExpression(node)) {
+      // Only unwrap parens that exist SOLELY to hold a cast — otherwise keep them, since
+      // they may be carrying precedence.
+      const inner = node.expression
+      if (
+        ts.isAsExpression(inner) ||
+        ts.isSatisfiesExpression(inner) ||
+        ts.isTypeAssertionExpression(inner)
+      ) {
+        node = inner
+        continue
+      }
+    }
+    break
+  }
+  return { text: node.getText(sourceFile), erased }
+}
+
+/**
+ * A parameter default plus, when something type-only was removed, an inline note.
+ * The comment is the deliverable: it makes the drop visible in the diff a human reviews.
+ */
+function initializerSource(
+  init: ts.Expression,
+  sourceFile: ts.SourceFile
+): string {
+  const { text, erased } = initializerText(init, sourceFile)
+  if (!erased.length) return text
+  return `${text} /* TJS: dropped \`${erased.join(
+    ' '
+  )}\` — type-only, no runtime effect */`
+}
+
 function transformParams(
   parameters: ts.NodeArray<ts.ParameterDeclaration>,
   sourceFile: ts.SourceFile,
@@ -1950,7 +2024,7 @@ function transformParams(
       }
     } else if (param.initializer) {
       // Has default value - use it directly
-      const defaultText = param.initializer.getText(sourceFile)
+      const defaultText = initializerSource(param.initializer, sourceFile)
       params.push(`${name} = ${defaultText}`)
     } else if (typeExample === 'any' || typeExample === 'undefined') {
       // any/undefined type - no annotation in TJS (bare name means any)
@@ -2013,7 +2087,7 @@ function extractFunctionMetadata(
     let defaultValue: any = undefined
     if (param.initializer) {
       // Try to extract literal default value
-      const initText = param.initializer.getText(sourceFile)
+      const initText = initializerSource(param.initializer, sourceFile)
       try {
         defaultValue = JSON.parse(initText)
       } catch {
@@ -2083,7 +2157,7 @@ function extractClassMetadata(
 
         let defaultValue: any = undefined
         if (param.initializer) {
-          const initText = param.initializer.getText(sourceFile)
+          const initText = initializerSource(param.initializer, sourceFile)
           try {
             defaultValue = JSON.parse(initText)
           } catch {
@@ -2114,7 +2188,7 @@ function extractClassMetadata(
 
         let defaultValue: any = undefined
         if (param.initializer) {
-          const initText = param.initializer.getText(sourceFile)
+          const initText = initializerSource(param.initializer, sourceFile)
           try {
             defaultValue = JSON.parse(initText)
           } catch {
