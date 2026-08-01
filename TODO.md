@@ -18,8 +18,14 @@ Plus `ts-compat.test.ts` acceptance **12/25** and `ts-tightness.test.ts` **7/12*
 
 ## Order of work (dependency order, not preference)
 
-1. [ ] **Stage-2 bugs — converted code that doesn't compile.** Blocks everything: no other
-       promise is testable while conversion emits broken source.
+1. [x] **Stage-2 bugs — DONE 2026-08-01: 93/93 (100%), pinned at `toBe(1)`.** Seven bugs;
+       FOUR were the same defect class (hand-rolled literal tracking) in four different
+       scanners, now sharing one implementation in `src/strip-comments.ts`. Stage 3 rose to
+       77/93 (83%) as a side effect, and every remaining graduation failure is now a
+       legitimate footgun site — `new Date`/`Date.now` (9), `var` (4), `new Function` (3) —
+       with no parse errors and no converter bugs left. That makes stage 3 a clean work
+       queue for the rewrite-and-guidance pass (item 3) rather than a mix of real bugs and
+       real work.
 
    - [x] **Regex literals read as comments** (`/\*\//`, `/\/\//`) — fixed; +2 files.
          Found by dogfood, invisible to unit tests.
@@ -45,10 +51,13 @@ Plus `ts-compat.test.ts` acceptance **12/25** and `ts-tightness.test.ts` **7/12*
    - [x] **Polymorphic detection scanned string literals (1).** `create-app.ts` ships
          scaffolding templates containing `function greet(...)`. Fixed with a shared
          `maskLiterals` in `src/strip-comments.ts`.
-   - [ ] **LAST ONE — `from-ts.ts` emits `export function fromTS` TWICE**, once converted
-         and once verbatim (the raw copy still has `Map<string, ts.TypeNode>`), so
-         `collectTypes` nested inside it collides with itself. A duplicate-emission bug in
-         the converter, not a scanner bug — every scanner class is now closed.
+   - [x] **Duplicate emission of `export function fromTS`.** The embedded-test regex
+         matched a `/*test` written INSIDE this file's own JSDoc — which documents the
+         syntax and spaces the closing marker (`}* /`) so it doesn't terminate the doc. The
+         lazy `[\s\S]*?\*\/` then ran to the next REAL close hundreds of lines later,
+         swallowed the region, and re-emitted it verbatim. Replaced the regex with a
+         scanner: block comments are consumed whole, so anything written inside one can
+         never be a candidate.
    - [x] **Location mapping "bug" — DISSOLVED.** The five past-end-of-line positions were
          a symptom, not a cause: a scanner desync upstream left later functions
          untransformed, so acorn failed far from the real damage. Fixing the scanners

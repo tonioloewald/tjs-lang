@@ -131,16 +131,20 @@ describe.skipIf(SKIP)(
         ).toBe(1)
 
         // Stage 2 — converted output that does NOT COMPILE is a straight converter bug: it
-        // breaks obligation 1 of the conversion contract before equivalence is even testable.
-        // Highest-priority number on this page. Raise the floor as bugs are fixed.
+        // breaks obligation 1 of the conversion contract before equivalence is even
+        // testable. Reached 100% on 2026-08-01 and pinned there deliberately: this is the
+        // floor the whole TS on-ramp rests on, and every point of slack here is a file
+        // someone cannot convert.
         expect(
           r.compiles.ok / r.total,
           'we are emitting TJS that does not build'
-        ).toBeGreaterThanOrEqual(0.98)
+        ).toBe(1)
 
-        // Stage 3 — the ladder's scoreboard, not a bug count. Most failures are legitimate
-        // footgun sites the converter should rewrite or flag with guidance.
-        expect(r.graduates.ok / r.total).toBeGreaterThanOrEqual(0.76)
+        // Stage 3 — the ladder's scoreboard, not a bug count. As of 2026-08-01 EVERY
+        // remaining failure is a legitimate footgun site (new Date/Date.now 9, var 4,
+        // new Function 3) — no parse errors and no converter bugs. That makes this number
+        // a clean work queue for the converter's rewrite-and-guidance pass.
+        expect(r.graduates.ok / r.total).toBeGreaterThanOrEqual(0.82)
       },
       { timeout: 180_000 }
     )

@@ -31,7 +31,6 @@
  */
 
 import ts from 'typescript'
-import { stripLineComments } from '../../strip-comments'
 import { emitClassWrapper } from '../runtime'
 
 export interface FromTSOptions {
@@ -2417,23 +2416,57 @@ function buildAnnotationMap(
   return result
 }
 
+/**
+ * Collect `/*test … *\/` block comments.
+ *
+ * SCANNED, not regex-matched. A regex cannot tell that a `/*test` occurrence is already
+ * INSIDE an open block comment — and this very file's JSDoc documents the syntax, writing
+ * the closing marker spaced (`}* /`) so it does not terminate the doc. A lazy
+ * `[\s\S]*?\*\/` then ran on to the next REAL close hundreds of lines later, swallowed the
+ * region, and re-emitted it verbatim. That is why `export function fromTS` appeared in the
+ * converted output twice — once transpiled, once as raw TypeScript.
+ *
+ * Walking the source makes that impossible by construction: a block comment is consumed
+ * whole, so anything written inside one is never a candidate. Strings and line comments are
+ * skipped for the same reason.
+ */
 function extractEmbeddedTestComments(source: string): string[] {
   const tests: string[] = []
-  // Matches a test block comment. (Deliberately not spelling the pattern out in prose
-  // here — a comment showing the syntax is exactly what this function used to extract
-  // from itself.)
-  const embeddedRegex =
-    /\/\*test\s+(['"`])([^'"`]*)\1\s*\{[\s\S]*?\}\s*\*\/|\/\*test\s*\{[\s\S]*?\}\s*\*\//g
+  const isTestOpener = (at: number) =>
+    /^\/\*test[\s{'"`]/.test(source.slice(at, at + 8))
 
-  // Scan with LINE COMMENTS BLANKED. A `//` comment that mentions the test syntax — as
-  // documentation routinely does — is not a test, and treating it as one promoted the
-  // example out of its line comment into a real block comment in the output, where its
-  // placeholder body (`{ ... }`) then failed to parse. `stripLineComments` blanks with
-  // spaces, so offsets are preserved and matches still index into the original source.
-  const scannable = stripLineComments(source)
-  let match
-  while ((match = embeddedRegex.exec(scannable)) !== null) {
-    tests.push(source.slice(match.index, match.index + match[0].length))
+  let i = 0
+  while (i < source.length) {
+    const ch = source[i]
+
+    // Strings — skipped whole, consuming escapes forward.
+    if (ch === "'" || ch === '"' || ch === '`') {
+      i++
+      while (i < source.length && source[i] !== ch) {
+        i += source[i] === '\\' ? 2 : 1
+      }
+      i++
+      continue
+    }
+
+    // Line comment — to end of line.
+    if (ch === '/' && source[i + 1] === '/') {
+      const nl = source.indexOf('\n', i)
+      i = nl === -1 ? source.length : nl
+      continue
+    }
+
+    // Block comment — consumed WHOLE, test or not. Anything nested inside one (including
+    // a documented example) is therefore never examined.
+    if (ch === '/' && source[i + 1] === '*') {
+      const close = source.indexOf('*/', i + 2)
+      const end = close === -1 ? source.length : close + 2
+      if (isTestOpener(i)) tests.push(source.slice(i, end))
+      i = end
+      continue
+    }
+
+    i++
   }
   return tests
 }
