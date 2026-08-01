@@ -12,10 +12,15 @@
  */
 
 import { describe, it, expect } from 'bun:test'
+// NOTE: the canary evaluates transpiled parser modules standalone, so every helper the
+// parser imports must be injected below. Adding an export to `src/strip-comments.ts` that
+// the parser uses means adding it here too — otherwise this fails with
+// "X is not defined" rather than anything that points at the cause.
 import {
   stripLineComments,
   isRegexStart,
   findRegexEnd,
+  maskLiterals,
 } from '../strip-comments'
 import { fromTS } from '../lang/emitters/from-ts'
 import { tjs } from '../lang'
@@ -545,11 +550,18 @@ describe('Bootstrap Canary', () => {
         'stripLineComments',
         'isRegexStart',
         'findRegexEnd',
+        'maskLiterals',
         `
         ${combinedCode}
         return { preprocess };
       `
-      )(emitVerifiedPredicate, stripLineComments, isRegexStart, findRegexEnd)
+      )(
+        emitVerifiedPredicate,
+        stripLineComments,
+        isRegexStart,
+        findRegexEnd,
+        maskLiterals
+      )
       const execTime = performance.now() - execStart
 
       expect(typeof parserModule.preprocess).toBe('function')
@@ -662,11 +674,18 @@ describe('Bootstrap Canary', () => {
         'stripLineComments',
         'isRegexStart',
         'findRegexEnd',
+        'maskLiterals',
         `
         ${combinedCode}
         return { preprocess };
       `
-      )(emitVerifiedPredicate, stripLineComments, isRegexStart, findRegexEnd)
+      )(
+        emitVerifiedPredicate,
+        stripLineComments,
+        isRegexStart,
+        findRegexEnd,
+        maskLiterals
+      )
 
       // Import native parser
       const nativeParser = require('../lang/parser')

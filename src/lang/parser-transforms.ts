@@ -6,6 +6,7 @@
  */
 
 import { SyntaxError } from './types'
+import { maskLiterals } from '../strip-comments'
 
 /**
  * Extract a brace-balanced value from source after a regex match.
@@ -3042,7 +3043,12 @@ export function transformPolymorphicFunctions(
     isAsync: boolean
   }[] = []
 
-  while ((match = funcPattern.exec(source)) !== null) {
+  // Scan a LITERAL-MASKED copy: a `function foo(...)` inside a string or template is not
+  // a declaration. `src/cli/create-app.ts` ships scaffolding templates containing example
+  // functions, and two of them were being grouped as ambiguous variants of one another.
+  // Offsets are preserved by the mask, so match indices still index into `source`.
+  const scanSource = maskLiterals(source)
+  while ((match = funcPattern.exec(scanSource)) !== null) {
     const exported = !!match[1]
     const isAsync = !!match[2]
     const name = match[3]

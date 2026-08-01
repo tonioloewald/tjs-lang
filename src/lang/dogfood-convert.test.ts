@@ -136,7 +136,7 @@ describe.skipIf(SKIP)(
         expect(
           r.compiles.ok / r.total,
           'we are emitting TJS that does not build'
-        ).toBeGreaterThanOrEqual(0.92)
+        ).toBeGreaterThanOrEqual(0.98)
 
         // Stage 3 — the ladder's scoreboard, not a bug count. Most failures are legitimate
         // footgun sites the converter should rewrite or flag with guidance.

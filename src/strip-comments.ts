@@ -141,3 +141,72 @@ export function stripLineComments(source: string): string {
   }
   return result
 }
+
+/**
+ * Blank the CONTENTS of strings, templates, regexes and comments, preserving length.
+ *
+ * Delimiters are kept so the result still tokenizes; only the insides become spaces. Since
+ * every offset is unchanged, a regex scan over the mask yields indices that index straight
+ * back into the original source.
+ *
+ * This exists because scanners that look for declarations with a plain regex find them
+ * inside string literals too — `src/cli/create-app.ts` holds project-scaffolding templates
+ * containing `function greet(...)`, and the polymorphic-dispatch detector treated two
+ * unrelated scaffold examples as ambiguous variants of one function.
+ *
+ * Template interpolations are blanked along with the rest: a `function` DECLARATION inside
+ * `${...}` is vanishingly rare, and treating one as a dispatch variant would be wrong
+ * anyway.
+ */
+export function maskLiterals(source: string): string {
+  const out = source.split('')
+  const blank = (from: number, to: number) => {
+    for (let k = from; k < to && k < out.length; k++) {
+      if (out[k] !== '\n') out[k] = ' '
+    }
+  }
+  let i = 0
+  let sigTail = ''
+  while (i < source.length) {
+    const ch = source[i]
+    if (ch === "'" || ch === '"' || ch === '`') {
+      let j = i + 1
+      while (j < source.length) {
+        if (source[j] === '\\') {
+          j += 2
+          continue
+        }
+        if (source[j] === ch) break
+        j++
+      }
+      blank(i + 1, j)
+      i = j + 1
+      sigTail = (sigTail + ch).slice(-24)
+      continue
+    }
+    if (ch === '/' && source[i + 1] === '/') {
+      const nl = source.indexOf('\n', i)
+      blank(i, nl === -1 ? source.length : nl)
+      i = nl === -1 ? source.length : nl
+      continue
+    }
+    if (ch === '/' && source[i + 1] === '*') {
+      const end = source.indexOf('*/', i + 2)
+      blank(i, end === -1 ? source.length : end + 2)
+      i = end === -1 ? source.length : end + 2
+      continue
+    }
+    if (ch === '/' && isRegexStart(sigTail)) {
+      const end = findRegexEnd(source, i)
+      if (end !== -1) {
+        blank(i + 1, end)
+        i = end + 1
+        sigTail = '/'
+        continue
+      }
+    }
+    if (!/\s/.test(ch)) sigTail = (sigTail + ch).slice(-24)
+    i++
+  }
+  return out.join('')
+}
