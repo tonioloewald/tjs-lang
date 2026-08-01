@@ -53,6 +53,38 @@ here the guard is protecting the no-crashing-TS constraint. Decide whether an ex
 should be honoured — it is the difference between "we won't do this to you" and "you may not
 have this".
 
+## `tjs-convert-in-place` — the file requests its own upgrade (idea, 2026-08-01)
+
+Add a marker to a `.ts` file; the transpiler converts it **in place** on the next run and
+leaves guidance comments. You read the diff and act on what it flagged.
+
+**Why this is the right shape.** It removes the last piece of ceremony from the on-ramp:
+no CLI incantation, no path arguments, no "which flag was it". It is per-file and
+incremental — exactly the ladder — and **the diff is the review**, which is the artifact
+developers already know how to read. It also puts the request where the work is, the same
+reason converter guidance goes at the site rather than in a migration guide.
+
+**Design decisions to make before building — this writes to source files, so the failure
+modes are the whole design:**
+
+- [ ] **Self-removing.** The marker must delete itself as part of the conversion, or every
+      subsequent build re-converts an already-converted file. Non-negotiable.
+- [ ] **Idempotent regardless**, because someone will re-add it or a merge will resurrect it.
+      Converting converted code must be a no-op, not a double conversion.
+- [ ] **Does the file get renamed to `.tjs`?** Leaving TJS content in a `.ts` file breaks
+      `tsc`, the editor, and everything else pointed at it. Options: rename (clean, but the
+      tool moves files), or emit **TjsCompat-level TJS that is still valid TS** and leave
+      renaming to the human as the next rung. The second is more in keeping with the ladder
+      and much less alarming.
+- [ ] **Builds must not silently write source.** A build that mutates its inputs is a
+      surprise with a bad blast radius (CI, watch loops, other people's checkouts). Gate it:
+      refuse on a dirty git tree, or restrict to an explicit `tjs convert --in-place` /
+      dev-server run, with the marker as the _selector_ rather than the trigger.
+- [ ] **Guidance comments are the deliverable**, per the conversion contract's obligation 3.
+      Every site we could not rewrite safely must be commented, so the diff is a to-do list.
+- [ ] Play well with Prettier/ESLint — output should already be formatted the project's way,
+      or the review diff is noise.
+
 ## Observe mode — check, record, keep going (MISSING; migration's bottom rung)
 
 **Verified absent 2026-08-01.** `TJSConfig` offers exactly three behaviors — return a
