@@ -31,6 +31,7 @@
  */
 
 import ts from 'typescript'
+import { stripLineComments } from '../../strip-comments'
 import { emitClassWrapper } from '../runtime'
 
 export interface FromTSOptions {
@@ -2418,13 +2419,21 @@ function buildAnnotationMap(
 
 function extractEmbeddedTestComments(source: string): string[] {
   const tests: string[] = []
-  // Match: /*test 'description' { ... }*/  or  /*test { ... }*/
+  // Matches a test block comment. (Deliberately not spelling the pattern out in prose
+  // here — a comment showing the syntax is exactly what this function used to extract
+  // from itself.)
   const embeddedRegex =
     /\/\*test\s+(['"`])([^'"`]*)\1\s*\{[\s\S]*?\}\s*\*\/|\/\*test\s*\{[\s\S]*?\}\s*\*\//g
 
+  // Scan with LINE COMMENTS BLANKED. A `//` comment that mentions the test syntax — as
+  // documentation routinely does — is not a test, and treating it as one promoted the
+  // example out of its line comment into a real block comment in the output, where its
+  // placeholder body (`{ ... }`) then failed to parse. `stripLineComments` blanks with
+  // spaces, so offsets are preserved and matches still index into the original source.
+  const scannable = stripLineComments(source)
   let match
-  while ((match = embeddedRegex.exec(source)) !== null) {
-    tests.push(match[0])
+  while ((match = embeddedRegex.exec(scannable)) !== null) {
+    tests.push(source.slice(match.index, match.index + match[0].length))
   }
   return tests
 }

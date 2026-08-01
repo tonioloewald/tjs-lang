@@ -5,6 +5,8 @@
  * Transform functions are in parser-transforms.ts, param processing in parser-params.ts.
  */
 
+import { stripLineComments } from '../strip-comments'
+export { stripLineComments } from '../strip-comments'
 import * as acorn from 'acorn'
 import type { Program, FunctionDeclaration } from 'acorn'
 import { SyntaxError } from './types'
@@ -62,145 +64,6 @@ import {
 // Re-exported for the test emitter (`emitters/js-tests.ts`), which transforms
 // extension calls inside test bodies.
 export { transformExtensionCalls } from './parser-transforms'
-
-/**
- * Strip single-line comments (//) from source.
- * Replaces comment content with spaces to preserve character offsets.
- * Skips // inside strings and block comments.
- */
-/**
- * Is a `/` at this point the start of a REGEX rather than a division operator?
- *
- * Decided by the last significant character emitted so far: after a value (identifier,
- * number, `)`, `]`) a slash is division; otherwise it opens a regex. This is the standard
- * heuristic and is sufficient here — we only need to know how far to skip, so the rare
- * ambiguous case costs us nothing worse than today's behavior.
- */
-function isRegexStart(emitted: string): boolean {
-  let j = emitted.length - 1
-  while (j >= 0 && /\s/.test(emitted[j])) j--
-  if (j < 0) return true // start of input
-  const c = emitted[j]
-  // A closing quote means a string literal just ended — strings are consumed whole, so a
-  // trailing quote is always a VALUE, and `'a' // b` is a comment, not a regex.
-  if (/[)\]'"`]/.test(c)) return false // (expr) / x, arr[0] / x, 'str' // comment
-  if (/[A-Za-z0-9_$]/.test(c)) {
-    // An identifier or number ends a value — UNLESS it is a keyword that expects an operand.
-    const word = (emitted
-      .slice(0, j + 1)
-      .match(/[A-Za-z_$][A-Za-z0-9_$]*$/) || [''])[0]
-    return REGEX_PRECEDING_KEYWORDS.has(word)
-  }
-  return true // after ( , = : [ ! & | ? { } ; and friends
-}
-
-/** Keywords after which a `/` opens a regex rather than dividing. */
-const REGEX_PRECEDING_KEYWORDS = new Set([
-  'return',
-  'typeof',
-  'instanceof',
-  'in',
-  'of',
-  'new',
-  'delete',
-  'void',
-  'throw',
-  'case',
-  'do',
-  'else',
-  'yield',
-  'await',
-])
-
-/**
- * Index of the closing `/` of the regex literal starting at `start`, or -1.
- * Honours escapes and character classes, inside which `/` is a literal character.
- */
-function findRegexEnd(source: string, start: number): number {
-  let k = start + 1
-  let inClass = false
-  while (k < source.length) {
-    const c = source[k]
-    if (c === '\\') {
-      k += 2
-      continue
-    }
-    if (c === '\n') return -1 // regex literals cannot span lines
-    if (inClass) {
-      if (c === ']') inClass = false
-    } else if (c === '[') {
-      inClass = true
-    } else if (c === '/') {
-      return k
-    }
-    k++
-  }
-  return -1
-}
-
-export function stripLineComments(source: string): string {
-  let result = ''
-  let i = 0
-  while (i < source.length) {
-    const ch = source[i]
-    // String literals — skip to closing quote
-    if (ch === "'" || ch === '"' || ch === '`') {
-      const quote = ch
-      result += ch
-      i++
-      while (i < source.length && source[i] !== quote) {
-        if (source[i] === '\\') {
-          result += source[i++]
-        }
-        if (i < source.length) result += source[i++]
-      }
-      if (i < source.length) result += source[i++] // closing quote
-      continue
-    }
-    // Block comment — pass through (may contain //)
-    if (ch === '/' && source[i + 1] === '*') {
-      const end = source.indexOf('*/', i + 2)
-      const slice = end === -1 ? source.slice(i) : source.slice(i, end + 2)
-      result += slice
-      i += slice.length
-      continue
-    }
-    // Line comment — replace with spaces to preserve offsets
-    if (ch === '/' && source[i + 1] === '/') {
-      const nl = source.indexOf('\n', i)
-      const end = nl === -1 ? source.length : nl
-      result += ' '.repeat(end - i)
-      i = end // leave \n for next iteration
-      continue
-    }
-    // Regex literal — skip it whole, exactly like a string.
-    //
-    // Without this, a regex whose BODY contains a close-comment marker or `//` gets read as a comment:
-    // scanning `/\*\//` reaches the trailing `\/` + `/`, calls it a line comment, and
-    // blanks the rest of the line, leaving an unterminated regex. That broke conversion of
-    // our own parser.ts and docs.ts — any codebase that matches comment syntax hits it.
-    //
-    // `/` is only a regex start in operand position; after a value it is division. The
-    // last significant character is enough to tell the two apart in practice.
-    //
-    // ORDER MATTERS: this runs AFTER the comment checks. `//` and `/*` are ALWAYS
-    // comments in JavaScript — an empty regex must be written `/(?:)/` — so checking
-    // regexes first would read `//` as an empty regex literal and stop stripping line
-    // comments entirely.
-    if (ch === '/' && isRegexStart(result)) {
-      const end = findRegexEnd(source, i)
-      if (end !== -1) {
-        result += source.slice(i, end + 1)
-        i = end + 1
-        continue
-      }
-      // Unterminated — fall through and let the parser report it properly.
-    }
-    result += ch
-    i++
-  }
-  return result
-}
 
 export function preprocess(
   source: string,

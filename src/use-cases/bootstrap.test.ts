@@ -12,6 +12,7 @@
  */
 
 import { describe, it, expect } from 'bun:test'
+import { stripLineComments } from '../strip-comments'
 import { fromTS } from '../lang/emitters/from-ts'
 import { tjs } from '../lang'
 import { emitVerifiedPredicate } from '../lang/predicate'
@@ -532,13 +533,17 @@ describe('Bootstrap Canary', () => {
       // parser-transforms.ts calls emitVerifiedPredicate (from predicate.ts, an
       // acorn-backed engine module not in this parser-only bundle) — inject the
       // native one so the self-hosted preprocess can verify Type/Generic predicates.
+      // Same for stripLineComments, which moved to the dependency-free
+      // `src/strip-comments.ts` so `emitters/from-ts.ts` could use it without dragging
+      // the whole parser into the browser bundle.
       const parserModule = new Function(
         'emitVerifiedPredicate',
+        'stripLineComments',
         `
         ${combinedCode}
         return { preprocess };
       `
-      )(emitVerifiedPredicate)
+      )(emitVerifiedPredicate, stripLineComments)
       const execTime = performance.now() - execStart
 
       expect(typeof parserModule.preprocess).toBe('function')
@@ -648,11 +653,12 @@ describe('Bootstrap Canary', () => {
 
       const bootstrappedParser = new Function(
         'emitVerifiedPredicate',
+        'stripLineComments',
         `
         ${combinedCode}
         return { preprocess };
       `
-      )(emitVerifiedPredicate)
+      )(emitVerifiedPredicate, stripLineComments)
 
       // Import native parser
       const nativeParser = require('../lang/parser')
