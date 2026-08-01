@@ -1613,6 +1613,37 @@ function emitOverloadGroup(
   const implName = `_${funcName}_impl`
   const results: string[] = []
 
+  // TS overloads map onto TJS polymorphic dispatch — an UPGRADE, since TS erases the
+  // signatures at runtime while TJS makes them real. But the upgrade is not always
+  // expressible: TJS dispatch rejects rest parameters in a variant, so a group like
+  //   function ajs(strings: TemplateStringsArray, ...values: any[]): SeqNode
+  // produces code our own language refuses, and the whole file fails to convert.
+  //
+  // Fall back to what TypeScript actually runs — the IMPLEMENTATION — and say what we
+  // could not do. Obligation 1 (behavior preserved: the implementation is the only thing
+  // that exists at runtime in TS) plus obligation 3 (name the upgrade we skipped).
+  const restInSignature = signatures.some((sig) =>
+    sig.parameters.some((p) => !!p.dotDotDotToken)
+  )
+  if (restInSignature) {
+    warnings?.push(
+      `Overloads for '${funcName}' use rest parameters, which TJS polymorphic dispatch ` +
+        `does not support. Emitted the implementation only — behavior is unchanged, but ` +
+        `the overload signatures are not enforced at runtime.`
+    )
+    const only = transformFunctionToTJS(
+      implementation,
+      sourceFile,
+      undefined,
+      warnings
+    )
+    return [
+      `/* TJS: ${signatures.length} overload signature(s) for \`${funcName}\` not ` +
+        `converted to polymorphic dispatch (rest parameters are unsupported there). ` +
+        `TypeScript erases these at runtime, so behavior is unchanged. */\n${only}`,
+    ]
+  }
+
   // Emit the implementation as a renamed private function
   const implParams = transformParams(
     implementation.parameters,

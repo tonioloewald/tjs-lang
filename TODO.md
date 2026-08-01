@@ -26,11 +26,19 @@ Plus `ts-compat.test.ts` acceptance **12/25** and `ts-tightness.test.ts` **7/12*
    - [x] **`as` casts survived in parameter defaults** — `getText()` returns raw source,
          so `m = {} as M` emitted an unparseable default. Now dropped WITH a
          `/* TJS: dropped … */` note, per "we don't erase TypeScript". +1 file.
-   - [ ] **Remaining 9 — polymorphic collisions the converter CREATES ITSELF (3).**
-         `create-app.ts` (ambiguous variants); `core.ts` and `index.ts` (rest params in
-         polymorphic `ajs`). The converter emits same-name functions that TJS's own
-         dispatcher then rejects — we generate code our own language refuses. Likely the
-         highest-value class.
+   - [x] **TS overloads with rest params (2).** `core.ts`/`index.ts`. The converter
+         already maps TS overloads onto TJS polymorphic dispatch — a genuine UPGRADE,
+         since TS erases overload signatures at runtime while TJS makes them real. What
+         was missing is a FALLBACK when the upgrade isn't expressible: TJS dispatch
+         rejects rest params, so `ajs(strings, ...values)` produced code our own language
+         refuses. Now falls back to the implementation (which is all TypeScript actually
+         runs) plus a comment naming the upgrade we skipped. +2 files.
+   - [ ] **`greet` declared twice inside TEMPLATE STRINGS (1).** `create-app.ts` holds
+         project-scaffolding templates; two unrelated `greet` definitions live inside
+         separate template literals and the polymorphic detector treats them as variants
+         of one function. **The scanner isn't literal-aware** — same family as the
+         regex-in-comment bug. Fix by making the polymorphic scan skip string/template
+         contents.
    - [ ] **Location mapping is wrong after preprocessing (5).** `parser.ts`, `tests.ts`,
          `parser-params.ts`, `js-tests.ts`, `parser-transforms.ts`. All bisect to COMMENTS
          rather than code, none reproduce in isolation, and every reported position points
