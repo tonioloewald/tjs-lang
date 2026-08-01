@@ -570,11 +570,21 @@ function extractBalancedContent(
   while (i < source.length && depth > 0) {
     const char = source[i]
 
-    // Handle string literals
+    // Handle string literals.
+    //
+    // Escapes are consumed FORWARD, not detected by looking back at `source[i - 1]`.
+    // The lookback is wrong for an escaped backslash: in `'\\'` the closing quote IS
+    // preceded by a backslash, so it read as escaped and the string never closed —
+    // desyncing everything after `if (char === '\\')`, a line this codebase has in
+    // several scanners.
+    if (inString && char === '\\') {
+      i += 2
+      continue
+    }
     if (!inString && (char === "'" || char === '"' || char === '`')) {
       inString = true
       stringChar = char
-    } else if (inString && char === stringChar && source[i - 1] !== '\\') {
+    } else if (inString && char === stringChar) {
       inString = false
     } else if (!inString) {
       // REGEX LITERALS. A `)` inside a character class — `/[)\]']/` — used to close the
