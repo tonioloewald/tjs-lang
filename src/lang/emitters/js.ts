@@ -774,6 +774,11 @@ export function transpileToJS(
     filename,
   })
 
+  // Mode violations that are FLAGGED rather than rejected (unsafe `new Function`, the
+  // numeric Date statics). They reach the caller as warnings so tooling and the converter
+  // can surface them at the site — "turn all doubt into guidance".
+  warnings.push(...preprocessed.modeWarnings)
+
   // Mirror unverifiable Type/Generic predicates into `warnings` (they still
   // compile — as plain functions — but aren't fuel-bounded / safe on untrusted
   // data). The full per-predicate status is returned as `predicates`. Under the

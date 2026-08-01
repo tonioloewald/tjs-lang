@@ -140,11 +140,12 @@ describe.skipIf(SKIP)(
           'we are emitting TJS that does not build'
         ).toBe(1)
 
-        // Stage 3 — the ladder's scoreboard, not a bug count. As of 2026-08-01 EVERY
-        // remaining failure is a legitimate footgun site (new Date/Date.now 9, var 4,
-        // new Function 3) — no parse errors and no converter bugs. That makes this number
-        // a clean work queue for the converter's rewrite-and-guidance pass.
-        expect(r.graduates.ok / r.total).toBeGreaterThanOrEqual(0.87)
+        // Stage 3 — the ladder's scoreboard. 89/93 as of 2026-08-01; the only remaining
+        // failures are `new Date()`, which stays a hard error because the Date OBJECT is
+        // the actual footgun (mutable, timezone-dependent) and `Timestamp` is a real
+        // alternative. Everything else that used to fail here was either a false positive
+        // (literal-blind validators) or a construct we now FLAG rather than reject.
+        expect(r.graduates.ok / r.total).toBeGreaterThanOrEqual(0.95)
       },
       { timeout: 180_000 }
     )

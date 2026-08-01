@@ -3728,40 +3728,46 @@ export function wrapClassDeclarations(
  * Validate that Date is not used (TjsDate mode)
  * Throws an error if Date constructor or static methods are found
  */
-export function validateNoDate(source: string): string {
-  // Match Date usage: new Date, Date.now, Date.parse, Date.UTC
-  const datePatterns = [
+export function validateNoDate(source: string, warnings?: string[]): string {
+  // The footgun is the Date OBJECT — mutable, timezone-dependent, and the source of most
+  // date bugs. The numeric statics are not: `Date.now()`, `Date.parse()` and `Date.UTC()`
+  // all return a plain number and are perfectly well-behaved.
+  //
+  // They used to be hard errors recommending `Timestamp.now()` — which returns an ISO
+  // STRING. Following that advice silently breaks arithmetic like `Date.now() - start`.
+  // A remedy that does not work is worse than no remedy, so the statics are now warnings
+  // with honest wording, and may be tightened later. Good coders act on warnings.
+  const errors = [
     {
       pattern: /\bnew\s+Date\b/,
       message:
         'new Date() is not allowed in TjsDate mode. Use Timestamp.now()/Timestamp.from() for wall-clock dates, or performance.now() for a monotonic counter (timing, id generation)',
     },
+  ]
+  const warns = [
     {
       pattern: /\bDate\.now\b/,
       message:
-        'Date.now() is not allowed in TjsDate mode. Use Timestamp.now() for a wall-clock date, or performance.now() for a monotonic counter (timing, id generation)',
+        'Date.now() returns a number and is safe, but prefer performance.now() for elapsed time (monotonic, unaffected by clock changes). NOTE: Timestamp.now() is NOT a drop-in — it returns an ISO string, not a number.',
     },
     {
       pattern: /\bDate\.parse\b/,
       message:
-        'Date.parse() is not allowed in TjsDate mode. Use Timestamp.parse()',
+        'Date.parse() returns a number and is safe, but its parsing of non-ISO input is implementation-defined. Prefer Timestamp.parse() when you want a timestamp value.',
     },
     {
       pattern: /\bDate\.UTC\b/,
       message:
-        'Date.UTC() is not allowed in TjsDate mode. Use Timestamp.from()',
+        'Date.UTC() returns a number and is safe. Timestamp.from() is preferred when you want a timestamp value rather than milliseconds.',
     },
   ]
 
-  // Scan a LITERAL-MASKED copy. `new Date()` written inside a string or template is not
-  // a use of Date — this repo's own emitters generate code containing these constructs,
-  // and the CSS library builds TJS source in templates. Rejecting those is a false alarm
-  // that makes a legal file unbuildable.
   const scan = maskLiterals(source)
-  for (const { pattern, message } of datePatterns) {
-    if (pattern.test(scan)) {
-      throw new Error(message)
-    }
+  for (const { pattern, message } of errors) {
+    if (pattern.test(scan)) throw new Error(message)
+  }
+  for (const { pattern, message } of warns) {
+    if (pattern.test(scan)) warnings?.push(message)
   }
 
   return source
@@ -3878,7 +3884,7 @@ export function validateNoVar(source: string): string {
   return source
 }
 
-export function validateNoEval(source: string): string {
+export function validateNoEval(source: string, warnings?: string[]): string {
   // Match eval() calls - but not Eval() (capital E)
   // Use negative lookbehind to avoid matching inside words
   const evalPattern = /(?<![A-Za-z_$])\beval\s*\(/
@@ -3890,10 +3896,16 @@ export function validateNoEval(source: string): string {
   }
 
   // Match new Function() - but not SafeFunction or other *Function names
+  // `new Function` is NOT abolished — it is simply unsafe, and there is no meaning-
+  // preserving rewrite (SafeFunction is sandboxed; swapping it changes what the code can
+  // do). So it is flagged, not replaced: comment the risk and let the author decide.
+  // `eval()` above stays an error — see the TODO note on whether the two should agree.
   const functionPattern = /\bnew\s+Function\s*\(/
   if (functionPattern.test(scan)) {
-    throw new Error(
-      'new Function() is not allowed in TjsNoeval mode. Use SafeFunction() from TJS runtime.'
+    warnings?.push(
+      'new Function() is unsafe: it evaluates arbitrary source with full ambient authority. ' +
+        'SafeFunction() from the TJS runtime is sandboxed, but it is NOT a drop-in — it ' +
+        'cannot reach globals — so this is flagged rather than rewritten.'
     )
   }
 

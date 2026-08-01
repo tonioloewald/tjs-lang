@@ -70,6 +70,8 @@ export function preprocess(
   options: PreprocessOptions = {}
 ): {
   source: string
+  /** Mode violations that are flagged rather than rejected — see validateNoDate/NoEval. */
+  modeWarnings: string[]
   returnType?: string
   returnSafety?: 'safe' | 'unsafe'
   moduleSafety?: 'none' | 'inputs' | 'all'
@@ -395,14 +397,20 @@ export function preprocess(
     source = wrapClassDeclarations(source, polyCtorResult.polyCtorClasses)
   }
 
+  // Mode checks. Some are hard errors (the construct is a genuine footgun with a
+  // meaning-preserving alternative); some are WARNINGS, where the construct is merely
+  // unsafe or unfashionable and any "fix" we could apply would change behavior. Flagging
+  // beats rewriting there — see the conversion contract in PRINCIPLES.md.
+  const modeWarnings: string[] = []
+
   // Validate TjsDate mode - check for Date usage
   if (tjsModes.tjsDate) {
-    source = validateNoDate(source)
+    source = validateNoDate(source, modeWarnings)
   }
 
   // Validate TjsNoeval mode - check for eval/Function usage
   if (tjsModes.tjsNoeval) {
-    source = validateNoEval(source)
+    source = validateNoEval(source, modeWarnings)
   }
 
   // Validate TjsNoVar mode - check for var declarations
@@ -416,6 +424,7 @@ export function preprocess(
 
   return {
     source,
+    modeWarnings,
     returnType,
     returnSafety,
     moduleSafety,
