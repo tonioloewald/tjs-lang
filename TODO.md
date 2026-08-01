@@ -63,6 +63,22 @@ contact instead of documenting it elsewhere.
 - [ ] **(d) class member annotations + modifiers** — `x: number = 1`, `private readonly`.
 - [ ] **(e) `as` casts** — also unblocks the decided `/…/ as string` regexp spelling.
 
+### Enforce the conversion contract (PRINCIPLES.md)
+
+The contract — **TS → equivalent-or-better TJS, with guidance to improve further** — is now a
+principle. Obligation 1 (_equivalent_) is behavioral, so it is testable rather than merely
+promised, and until the harness exists we are keeping a load-bearing guarantee by hand.
+
+- [ ] **Behavioral-equivalence harness**: run a TypeScript source and its conversion against
+      the same inputs; require identical observable results. Any divergence is either a
+      converter bug or a deliberate, documented "or better".
+- [ ] Seed it with the footgun corpus (`==`, `var`, `n = 5`, dates, classes) and grow it as
+      converter rewrites land — each rewrite arrives with the case that proves it preserved
+      meaning.
+- [ ] Where a rewrite can't be proven safe, the harness should assert a **guidance comment
+      was emitted** at that site (obligation 3), so "we couldn't fix it" is never
+      indistinguishable from "we didn't notice".
+
 ### The on-ramp is the product: TS → TJS as the Crockford/JSLint ladder
 
 **Priority note (2026-08-01, user):** _getting this right matters more than speed to

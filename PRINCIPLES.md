@@ -153,6 +153,42 @@ atom authors write ordinary data-returning functions; verified predicates absorb
 predicate authors write ordinary JavaScript. When you find yourself paying for a guarantee
 twice, one of the two payments is the bug.
 
+## Conversion contract: TS → equivalent-or-better TJS, with guidance to improve further
+
+**Every conversion of TypeScript to TJS must produce code that behaves the same or strictly
+better, and must point at the improvement it did not make for you.**
+
+Three obligations, in priority order — a later one may never be bought with an earlier one:
+
+1. **Equivalent.** The converted file behaves identically to the TypeScript it came from.
+   Never silently change semantics. Where TJS reads a spelling differently, **rewrite it to
+   preserve meaning** rather than letting the extension change it: `n = 5` (TypeScript
+   `number`) converts to `n = 5.0`, which accepts floats and still defaults to `5`.
+2. **Or better.** Where TJS can be safer at no cost to behavior, take it — runtime validation
+   from annotations TypeScript erases, real types on the boundary, footguns closed where the
+   fix is provably meaning-preserving.
+3. **With guidance to improve further.** Where we _could_ be better but can't prove the
+   rewrite safe, **say so at the site**: `// TJS: \`= 5\` narrows to an integer, \`= +5\` to
+   unsigned`. A gnarly coercion we can't rewrite becomes a visible marker, not a silent
+   pass-through.
+
+**Why this is a principle and not a feature.** It is correct independently of any particular
+roadmap — it improves the TS → TJS path no matter what else is or isn't built — and it makes
+adoption a ladder instead of a leap. Combined with per-mode directives (`TjsCompat`, then one
+mode at a time) it is the Crockford/JSLint dynamic: keep your code, be told what's bad and
+why, tighten one rule at a time. Nobody rewrites a codebase to start.
+
+It also decides questions that would otherwise be arguments. A spelling that TJS reads
+differently is **not** a breaking change to schedule; it is a **conversion job**, and the
+only remaining decision is rewrite-or-annotate. Obligation 1 is what makes obligations 2 and
+3 safe to be ambitious about: you can afford to teach aggressively precisely because you have
+promised never to surprise.
+
+**Enforcement (open):** obligation 1 is behavioral and therefore testable — run the
+TypeScript and its conversion against the same inputs and require identical observable
+results. Until that harness exists this is a contract we keep by hand, which is weaker than
+it should be for something load-bearing.
+
 ## North star: JSON-Schema + predicates as the single source of truth for types
 
 **A TJS type is canonically a JSON-Schema node, optionally carrying a `$predicate`
