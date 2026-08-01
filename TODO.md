@@ -63,6 +63,47 @@ contact instead of documenting it elsewhere.
 - [ ] **(d) class member annotations + modifiers** — `x: number = 1`, `private readonly`.
 - [ ] **(e) `as` casts** — also unblocks the decided `/…/ as string` regexp spelling.
 
+## "TJS is TJS" — retiring modes into syntax (direction, 2026-08-01)
+
+**End state: not a pile of modes, but one language that emits legal, correct TJS.** Modes are
+a _migration device_ — the rungs of the ladder — not a permanent part of the language. Which
+means **TJS's syntax has to absorb some of the work modes currently do.**
+
+- [ ] Decide, per mode, whether it retires into syntax, stays a migration rung, or becomes a
+      lint. (`TjsNoVar` is arguably syntax; `TjsDate` is arguably a lint; `TjsEquals` is
+      genuinely semantic and may need to just _be_ the language.)
+- [x] `(): number => Math.random()` and the other TS-annotated arrow shapes **already parse**
+      — verified. The one family failure is `async (): Promise<void> =>`, which is the known
+      angle-bracket root cause, not an arrow problem.
+- [ ] Every retirement must keep the ladder: a mode that becomes syntax still needs a
+      converter rewrite + guidance so existing code is carried across, per the conversion
+      contract.
+
+### Transpile-time type checking for variables — SPIKED, tractable
+
+**Scoping decision that makes this cheap (user):** locals need **no runtime checks** —
+boundary checks (params/returns) do the real work, and instrumenting every local assignment
+would be a performance nightmare. So this is a **lint**: best-effort, no soundness
+obligation, zero runtime cost, silent whenever unsure.
+
+Spike: `experiments/static-types/local-flow.demo.test.ts` (~90 lines, 6 tests). It catches
+type-changing reassignment, stays quiet on numeric widening and on un-inferable values.
+**The scaffolding already exists** — `linter.ts` has the scope chain (`Scope`,
+`Declaration`, `createScope`, `addDeclaration`), `inferTypeFromValue` turns an initializer
+into a `TypeDescriptor`, and function signatures are available at transpile time.
+
+- [ ] **Wire type flow into `linter.ts`** and reuse its scope chain. The spike's flat map
+      leaks a shadowed type out of its block and then slanders the outer variable — a FALSE
+      POSITIVE, which is the failure mode that matters: a missed error costs one bug, a
+      false positive on correct code gets the whole check switched off.
+- [ ] **Call-site checking is the highest-value case** and is _easier_ than local flow: we
+      already have declared parameter types at transpile time, so `f('x')` against
+      `f(n: number)` is a direct comparison with no dataflow at all. Do this first.
+- [ ] Branch merging (a join at merge points) is the step from tree-walking to real
+      dataflow. Scope it deliberately; it is where the cost jumps.
+- [ ] Governing rule: **never report unless sure.** The spike encodes it (numeric widening
+      is silent, un-inferable is silent) and it should stay a stated design constraint.
+
 ### Enforce the conversion contract (PRINCIPLES.md)
 
 The contract — **TS → equivalent-or-better TJS, with guidance to improve further** — is now a
