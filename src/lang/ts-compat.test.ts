@@ -191,45 +191,66 @@ describe('TypeScript conformance (are we TypeScript++ yet?)', () => {
   })
 })
 
-describe('semantic drift: legal TS/JS that TJS reads differently', () => {
-  // These are the ONLY changes that can force a consumer to edit working code, so they are
-  // enumerated separately and deliberately. Each must ship with or before the release that
-  // claims TypeScript++.
+describe('semantic drift is a CONVERSION job, not a breaking change', () => {
+  // `function f(n = 5)` is legal TS and legal JS. TypeScript infers `number`; TJS reads the
+  // initializer as an example and narrows to an integer. That looked like a forced breaking
+  // change — until you notice the converter can just rewrite it.
+  //
+  //     n = 5   (TS: number)   →   n = 5.0   + a comment naming the finer grain
+  //
+  // `5.0` accepts floats AND still defaults to 5, so meaning is preserved exactly, and the
+  // comment teaches the upgrade available at that exact site (`= 5` narrows to an integer,
+  // `= +5` to unsigned). Nobody has to edit working code, and the on-ramp does the teaching
+  // where it is relevant rather than in a migration guide nobody reads.
+  //
+  // This is the general converter rule: **preserve meaning, and comment the upgrade.**
   const saved = (globalThis as any).__tjs
+  const run = (src: string, v: unknown) => {
+    ;(globalThis as any).__tjs = createRuntime()
+    try {
+      const f = new Function(compile(src).code + '\nreturn f')()
+      return isMonadicError(f(v))
+    } finally {
+      ;(globalThis as any).__tjs = saved
+    }
+  }
 
-  it('DRIFT: `n = 5` means integer here, `number` in TypeScript', () => {
+  it('`n = 5` narrows to an integer — TJS meaning, deliberately kept', () => {
+    expect(run(`function f(n = 5) { return n }`, 3.5)).toBe(true)
+  })
+
+  it('`n = 5.0` is the rewrite: TS semantics preserved, default intact', () => {
+    // The whole reason no break is needed. If this ever stops holding, the conversion
+    // strategy loses its escape hatch and the breaking-change question comes back.
+    expect(
+      run(`function f(n = 5.0) { return n }`, 3.5),
+      '3.5 must be accepted'
+    ).toBe(false)
     ;(globalThis as any).__tjs = createRuntime()
     try {
       const f = new Function(
-        compile(`function f(n = 5) { return n }`).code + '\nreturn f'
+        compile(`function f(n = 5.0) { return n }`).code + '\nreturn f'
       )()
-      // TypeScript infers `number` from the initializer, so 3.5 is valid there.
-      // We currently infer an integer example and reject it.
-      const rejectsFloat = isMonadicError(f(3.5))
-      expect(
-        rejectsFloat,
-        'if this is false the drift is FIXED — remove this test and note the ' +
-          'behavior change in CHANGELOG as a breaking change'
-      ).toBe(true)
+      expect(f(undefined), 'the default must still be 5').toBe(5)
     } finally {
       ;(globalThis as any).__tjs = saved
     }
   })
 
+  it('the finer grain the comment should teach is real', () => {
+    expect(
+      run(`function f(n = 5) { return n }`, 3.5),
+      '= 5 rejects a float'
+    ).toBe(true)
+    expect(
+      run(`function f(n = +5) { return n }`, -1),
+      '= +5 rejects a negative'
+    ).toBe(true)
+  })
+
   it('no drift: `n: number` and `s = ""` already agree with TypeScript', () => {
-    ;(globalThis as any).__tjs = createRuntime()
-    try {
-      const n = new Function(
-        compile(`function f(n: number) { return n }`).code + '\nreturn f'
-      )()
-      expect(isMonadicError(n(3.5))).toBe(false)
-      const s = new Function(
-        compile(`function f(s = 'a') { return s }`).code + '\nreturn f'
-      )()
-      expect(isMonadicError(s('zz'))).toBe(false)
-    } finally {
-      ;(globalThis as any).__tjs = saved
-    }
+    expect(run(`function f(n: number) { return n }`, 3.5)).toBe(false)
+    expect(run(`function f(s = 'a') { return s }`, 'zz')).toBe(false)
   })
 })
 

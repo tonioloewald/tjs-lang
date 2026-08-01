@@ -24,14 +24,33 @@ that claims TypeScript++, never after._ One migration, once, in the release that
 the payoff — instead of a trickle of small breaking changes, which is exactly the "bunch of
 releases that require consumers to change syntax" we are avoiding.
 
-### Known semantic drift — must land in the TypeScript++ release
+### Semantic drift — a CONVERSION job, not a breaking change (resolved 2026-08-01)
 
-- [ ] **`function f(n = 5)` infers integer; TypeScript infers `number`.** So we reject
-      `f(3.5)` on a signature that is legal TS _and_ legal JS. Pinned by a DRIFT test.
-      ~285 default sites in this repo alone. **This is the breaking change**; it belongs in
-      0.13.0, not after it.
-- [ ] Audit for any other drift of the same class before cutting (the corpus has a
-      dedicated `describe` block for these — add rows as found).
+`function f(n = 5)` is legal TS and legal JS: TypeScript infers `number`, TJS reads the
+initializer as an example and narrows to an integer. That looked like a forced breaking
+change. It isn't — **the converter just rewrites it:**
+
+```
+n = 5     (TS: number)   →   n = 5.0   // TJS: `= 5` narrows to an integer, `= +5` to unsigned
+```
+
+Verified: `5.0` accepts floats **and** still defaults to `5`, so meaning is preserved
+exactly, and the comment teaches the finer grain **at the site where it is relevant** rather
+than in a migration guide nobody reads.
+
+**Consequence: there is currently NO required breaking change, so no forced migration and no
+"break once" release.** The release-sequencing question dissolves — see below.
+
+**The general converter rule, worth applying everywhere: _preserve meaning, and comment the
+upgrade._** Same shape as errors-as-curriculum — show the better option at the point of
+contact instead of documenting it elsewhere.
+
+- [x] `n = 5` → `n = 5.0` + upgrade comment. Rewrite verified; pinned in `ts-compat.test.ts`.
+- [ ] Implement it in the converter (currently only established as correct, not built).
+- [ ] **Sweep for other spellings that need the same treatment** — any legal-TS/JS form TJS
+      reads differently. Each one found is either a converter rewrite (good) or a genuine
+      break (needs a decision). The `==`/`var` cases are already known; the modes sweep in
+      the section above covers `TjsDate`/`TjsClass`/`TjsStandard`/`TjsDictDefaults`.
 
 ### Acceptance gaps, grouped by ROOT CAUSE (6 jobs, not 13)
 
@@ -114,18 +133,22 @@ And `fromTS` emits **zero warnings** about any of it.
       `TjsDictDefaults`. Each is a footgun fix, so each is a potential silent meaning change
       on rename. `==` is the one we've confirmed; it is unlikely to be the only one.
 
-### Release sequencing (recommendation, pending user decision)
+### Release sequencing — dissolved (2026-08-01)
 
-- [ ] **0.12.1 — security patch, zero syntax surface.** Cherry-pick the two VM fixes (the
-      size-proportional fuel bypass and the live-heap ceiling) onto `v0.12.0`. Consumers get
-      the fixes with **no migration at all**. Removes the pressure to ship the language work
-      before it is coherent.
-- [ ] **0.13.0 — "TypeScript++" as one coherent release.** All six acceptance groups + the
-      `n = 5` realignment + docs/examples rewritten **once**, in TS-first spellings.
+The plan was "break once, now, in 0.13.0" to keep the blast radius small. With `n = 5`
+handled by a converter rewrite there is **no break to schedule**: every remaining item is
+either additive acceptance (can't force an edit, guarded by `subset-invariant.test.ts`) or
+converter work (opt-in by definition).
 
-**Do not** ship TJS-flavored workarounds as the documented way (`['']` for `string[]`) and
-then support the real spelling later — that is doc churn plus a second migration, and it is
-the trap this section exists to avoid.
+So releases are unblocked from the language question entirely, and the ordering is just:
+ship the security fixes whenever convenient, land acceptance gaps as they finish, build the
+ladder without deadline pressure. Per the user's priority note, **the ladder is the
+valuable half — getting it right outranks shipping it early.**
+
+- [ ] Cut a release carrying the two VM security fixes (fuel bypass, heap ceiling) — they
+      exist only on `main`. No migration required of anyone. Note a clean backport onto
+      `v0.12.0` is NOT feasible (19 intervening commits; both cherry-picks conflict), so
+      this ships as 0.13.0 off `main` rather than a 0.12.1 patch.
 
 ## Action items — the "eval is solved _architecturally_" audit (list of 2026-07-29)
 
