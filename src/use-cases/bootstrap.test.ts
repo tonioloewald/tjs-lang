@@ -21,6 +21,8 @@ import {
   isRegexStart,
   findRegexEnd,
   maskLiterals,
+  maskUnsafe,
+  stripUnsafeMarkers,
 } from '../strip-comments'
 import { fromTS } from '../lang/emitters/from-ts'
 import { tjs } from '../lang'
@@ -551,6 +553,8 @@ describe('Bootstrap Canary', () => {
         'isRegexStart',
         'findRegexEnd',
         'maskLiterals',
+        'maskUnsafe',
+        'stripUnsafeMarkers',
         `
         ${combinedCode}
         return { preprocess };
@@ -560,7 +564,9 @@ describe('Bootstrap Canary', () => {
         stripLineComments,
         isRegexStart,
         findRegexEnd,
-        maskLiterals
+        maskLiterals,
+        maskUnsafe,
+        stripUnsafeMarkers
       )
       const execTime = performance.now() - execStart
 
@@ -675,6 +681,8 @@ describe('Bootstrap Canary', () => {
         'isRegexStart',
         'findRegexEnd',
         'maskLiterals',
+        'maskUnsafe',
+        'stripUnsafeMarkers',
         `
         ${combinedCode}
         return { preprocess };
@@ -684,7 +692,9 @@ describe('Bootstrap Canary', () => {
         stripLineComments,
         isRegexStart,
         findRegexEnd,
-        maskLiterals
+        maskLiterals,
+        maskUnsafe,
+        stripUnsafeMarkers
       )
 
       // Import native parser

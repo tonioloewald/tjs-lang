@@ -22,6 +22,30 @@ const p2 = new Point(10, 20) // Still works, but linter warns
 
 The `wrapClass()` function in the runtime uses a Proxy to intercept calls and auto-construct. In native TJS, `TjsClass` is on by default, so all `class` declarations are wrapped. TS-originated code requires an explicit `TjsClass` directive. Built-in constructors (`Boolean`, `Number`, `String`, etc.) and old-style `function` + `prototype` constructors are never touched because they may have intentional dual behavior (e.g., `Boolean(0)` returns `false` but `new Boolean(0)` returns a truthy wrapper object).
 
+## `unsafe <expression>` — the per-construct escape
+
+TJS's rules are **unconditional**: the file extension is the gate, the way ESM made
+`"use strict"` implicit. There is no per-file dialing.
+
+That works because a legitimate exception is expressible at the site:
+
+```js
+// `Timestamp` is the alternative — but this module IS Timestamp, so it must reach for Date.
+const d = unsafe new Date(ts)
+```
+
+`unsafe` exempts **one construct**, not a file. That distinction is the point: a whole-file
+opt-out also silences the _next_, accidental use. It has zero runtime cost — the marker is
+removed before emit.
+
+Two rules keep it from colliding with ordinary JavaScript, since a variable named `unsafe`
+is legal JS and must stay legal (TJS ⊇ JS):
+
+- It must be in **expression position**, so `obj.unsafe thing` is not a marker.
+- It must be on the **same line** as its expression. `unsafe foo()` on one line is not valid
+  JavaScript, so it can only be the marker; across a newline ASI makes `let r = unsafe` and
+  `foo()` two statements, and those are left alone.
+
 ## Function Parameters
 
 ```typescript

@@ -210,3 +210,92 @@ export function maskLiterals(source: string): string {
   }
   return out.join('')
 }
+
+/**
+ * Find `unsafe <expression>` spans.
+ *
+ * `unsafe` is the language's per-construct escape: it says "this construct, deliberately"
+ * at the site where the exception lives, so the rules themselves stay unconditional and the
+ * file extension remains the only gate. It replaces per-file mode dialing, which had to
+ * disable a rule for a whole file and therefore also silenced the NEXT, accidental use.
+ *
+ * Recognised only as `unsafe` + whitespace + the start of an identifier, so a variable
+ * named `unsafe`, a call `unsafe(x)`, and `unsafe.foo` are all left alone.
+ *
+ * Returns [start, end) spans covering the keyword AND its expression.
+ */
+export function findUnsafeSpans(source: string): Array<[number, number]> {
+  const spans: Array<[number, number]> = []
+  const masked = maskLiterals(source)
+  // SAME LINE only — `[ \t]`, not `\s`. `unsafe foo()` on one line is not valid
+  // JavaScript (two juxtaposed expressions), so it can only be the marker. Across a
+  // newline it IS valid — ASI makes `let r = unsafe` / `foo()` two statements — so a
+  // variable named `unsafe` at end of line must not be swallowed. Same ASI hazard every
+  // JS developer already knows from `return`.
+  const re = /\bunsafe[ \t]+(?=[A-Za-z_$])/g
+  let m: RegExpExecArray | null
+  while ((m = re.exec(masked)) !== null) {
+    // Expression-prefix position only, so `obj.unsafe thing` is not a marker. Reserving
+    // the word outright would be simpler but would make legal JavaScript illegal,
+    // breaking TJS ⊇ JS (PRINCIPLES.md).
+    if (!isRegexStart(masked.slice(0, m.index))) continue
+    const exprStart = m.index + m[0].length
+    spans.push([m.index, unsafeExpressionEnd(masked, exprStart)])
+  }
+  return spans
+}
+
+/**
+ * End of the expression guarded by `unsafe`, starting at `at`.
+ *
+ * Consumes a normal expression — identifiers, member access, calls, `new` — tracking
+ * bracket depth, and stops at the first top-level `,` `;` or closing bracket, or at a
+ * newline that is not inside brackets. That covers both `const d = unsafe new Date(ts)` and
+ * `f(unsafe Date.now(), x)`.
+ */
+function unsafeExpressionEnd(masked: string, at: number): number {
+  let i = at
+  let depth = 0
+  while (i < masked.length) {
+    const c = masked[i]
+    if (c === '(' || c === '[' || c === '{') depth++
+    else if (c === ')' || c === ']' || c === '}') {
+      if (depth === 0) break
+      depth--
+    } else if (depth === 0 && (c === ',' || c === ';')) break
+    else if (depth === 0 && c === '\n') break
+    i++
+  }
+  return i
+}
+
+/**
+ * Blank `unsafe <expression>` spans, preserving offsets — the view the rule checks see.
+ * A construct the author has explicitly taken responsibility for is not a violation.
+ */
+export function maskUnsafe(source: string): string {
+  const out = source.split('')
+  for (const [a, b] of findUnsafeSpans(source)) {
+    for (let k = a; k < b && k < out.length; k++) {
+      if (out[k] !== '\n') out[k] = ' '
+    }
+  }
+  return out.join('')
+}
+
+/**
+ * Remove the `unsafe` keyword, leaving the expression. Zero runtime cost: the marker is
+ * a compile-time assertion of intent, not a wrapper.
+ */
+export function stripUnsafeMarkers(source: string): string {
+  const spans = findUnsafeSpans(source)
+  if (!spans.length) return source
+  const out = source.split('')
+  for (const [a] of spans) {
+    // Blank just the keyword and its trailing whitespace; offsets are preserved so every
+    // position reported by later stages still lines up with the author's source.
+    const kw = /^unsafe\s+/.exec(source.slice(a))
+    if (kw) for (let k = a; k < a + kw[0].length; k++) out[k] = ' '
+  }
+  return out.join('')
+}

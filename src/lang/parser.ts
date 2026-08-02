@@ -5,7 +5,11 @@
  * Transform functions are in parser-transforms.ts, param processing in parser-params.ts.
  */
 
-import { stripLineComments } from '../strip-comments'
+import {
+  stripLineComments,
+  maskUnsafe,
+  stripUnsafeMarkers,
+} from '../strip-comments'
 export { stripLineComments } from '../strip-comments'
 import * as acorn from 'acorn'
 import type { Program, FunctionDeclaration } from 'acorn'
@@ -403,20 +407,31 @@ export function preprocess(
   // beats rewriting there — see the conversion contract in PRINCIPLES.md.
   const modeWarnings: string[] = []
 
+  // Rules are checked against a view with `unsafe <expr>` blanked out. `unsafe` is the
+  // per-construct escape: it says "this construct, deliberately" AT THE SITE, which is
+  // what lets the rules stay unconditional and the file extension stay the only gate.
+  // A whole-file opt-out would also silence the next, accidental use.
+  const ruleSource = maskUnsafe(source)
+
   // Validate TjsDate mode - check for Date usage
   if (tjsModes.tjsDate) {
-    source = validateNoDate(source, modeWarnings)
+    validateNoDate(ruleSource, modeWarnings)
   }
 
   // Validate TjsNoeval mode - check for eval/Function usage
   if (tjsModes.tjsNoeval) {
-    source = validateNoEval(source, modeWarnings)
+    validateNoEval(ruleSource, modeWarnings)
   }
 
   // Validate TjsNoVar mode - check for var declarations
   if (tjsModes.tjsNoVar) {
-    source = validateNoVar(source)
+    validateNoVar(ruleSource)
   }
+
+  // The `unsafe` marker has done its job — remove it so what follows is plain JS.
+  // Offsets are preserved (it is blanked, not deleted) so reported positions still line
+  // up with the author's source.
+  source = stripUnsafeMarkers(source)
 
   // Rewrite extension method calls on known-type receivers
   // Must happen after all other transforms so literals are in final form
