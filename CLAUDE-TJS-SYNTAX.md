@@ -28,15 +28,15 @@ TJS's `==` and `===` are fixed (see Equality Operators). A fixed **operator** ha
 construct to mark — it is still spelled the same — so `unsafe` cannot help. The escape is a
 **name**:
 
-| function                 | is exactly JavaScript's…                                          |
-| ------------------------ | ----------------------------------------------------------------- |
-| `LegacyEquals(a, b)`     | `a == b` (coercion and all)                                       |
-| `LegacyNot(a, b)`        | `a != b`                                                          |
-| `LegacyExactly(a, b)`    | `a === b` (NaN is not itself; a boxed primitive is not its value) |
-| `LegacyNotExactly(a, b)` | `a !== b`                                                         |
+| function                      | is exactly JavaScript's…                                          |
+| ----------------------------- | ----------------------------------------------------------------- |
+| `DangerousLegacyEquals(a, b)` | `a == b` (coercion and all)                                       |
+| `DangerousLegacyNot(a, b)`    | `a != b`                                                          |
+| `LegacyExactly(a, b)`         | `a === b` (NaN is not itself; a boxed primitive is not its value) |
+| `LegacyNotExactly(a, b)`      | `a !== b`                                                         |
 
 ```js
-if (LegacyEquals(input, 0)) { … }   // yes, I want '' and false to match 0
+if (DangerousLegacyEquals(input, 0)) { … }   // yes, I want '' and false to match 0
 ```
 
 `LegacyDefault(value)` is the same idea for parameter defaults. An object-literal default is

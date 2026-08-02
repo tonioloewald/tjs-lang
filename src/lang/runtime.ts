@@ -901,6 +901,17 @@ export function TypeOf(value: unknown): string {
 }
 
 /**
+ * The primitive inside a boxed String/Number/Boolean, read from the internal slot so an
+ * overridden `valueOf` cannot intercept it, throw, or lie. Non-boxed values pass through.
+ */
+function unwrapBoxed(v: unknown): unknown {
+  if (v instanceof String) return String.prototype.valueOf.call(v)
+  if (v instanceof Number) return Number.prototype.valueOf.call(v)
+  if (v instanceof Boolean) return Boolean.prototype.valueOf.call(v)
+  return v
+}
+
+/**
  * Honest boolean coercion. Like `Boolean(x)` but unwraps boxed primitives
  * first, fixing the JS footgun `Boolean(new Boolean(false)) === true`.
  *
@@ -921,13 +932,15 @@ export function toBool(value: unknown): boolean {
 }
 
 export function Eq(a: unknown, b: unknown): boolean {
-  // Unwrap boxed primitives
-  if (a instanceof String || a instanceof Number || a instanceof Boolean) {
-    a = a.valueOf()
-  }
-  if (b instanceof String || b instanceof Number || b instanceof Boolean) {
-    b = b.valueOf()
-  }
+  // Unwrap boxed primitives via the PROTOTYPE method, not `a.valueOf()`.
+  //
+  // A subclass can override `valueOf`, and calling it would let a comparison run arbitrary
+  // user code — it could throw, mutate, or simply lie about the value. `==` has exactly
+  // that hazard for every object, and `Eq` exists to be the safe path, so it must not
+  // reproduce a narrower version of it. The prototype method reads the internal slot
+  // directly: it cannot be intercepted and returns the true value.
+  a = unwrapBoxed(a)
+  b = unwrapBoxed(b)
 
   // Identical references or primitives
   if (a === b) return true
@@ -978,17 +991,31 @@ export function NotEq(a: unknown, b: unknown): boolean {
 //   null vs undefined             Legacy* false   ·  Eq true
 //   boxed String/Boolean vs prim  Legacy* varies  ·  Eq true (unwraps)
 
-/** JavaScript's `==`, coercion and all. */
-export function LegacyEquals(a: unknown, b: unknown): boolean {
+/**
+ * JavaScript's `==`, coercion and all.
+ *
+ * **Dangerous, not merely legacy** — and the name says so on purpose. Coercion invokes
+ * `valueOf()`/`toString()` on *any* object operand, so a comparison can run arbitrary user
+ * code: it can throw, mutate state, or lie about the value. That is a different order of
+ * hazard from the strict pair below, which only differ from TJS over NaN and boxing, and
+ * the naming should not flatten the two.
+ */
+export function DangerousLegacyEquals(a: unknown, b: unknown): boolean {
   return a == b
 }
 
-/** JavaScript's `!=`, coercion and all. */
-export function LegacyNot(a: unknown, b: unknown): boolean {
+/** JavaScript's `!=` — same coercion hazard as `DangerousLegacyEquals`. */
+export function DangerousLegacyNot(a: unknown, b: unknown): boolean {
   return a != b
 }
 
-/** JavaScript's `===`: NaN is not itself, and a boxed primitive is not its value. */
+/**
+ * JavaScript's `===`: NaN is not itself, and a boxed primitive is not its value.
+ *
+ * Deliberately NOT named "Dangerous": `===` performs no coercion, so it cannot reach user
+ * code. Its warts are wrong answers, not arbitrary execution. Friction proportional to
+ * risk — over-warning here would train people to ignore the word where it matters.
+ */
 export function LegacyExactly(a: unknown, b: unknown): boolean {
   return a === b
 }
@@ -1975,8 +2002,8 @@ export function createRuntime() {
     // Honest equality (== / != with TjsEquals)
     Eq,
     NotEq,
-    LegacyEquals,
-    LegacyNot,
+    DangerousLegacyEquals,
+    DangerousLegacyNot,
     LegacyExactly,
     LegacyNotExactly,
     LegacyDefault,
@@ -2073,8 +2100,8 @@ export const runtime = {
   // Honest equality (used by == and != with TjsEquals)
   Eq,
   NotEq,
-  LegacyEquals,
-  LegacyNot,
+  DangerousLegacyEquals,
+  DangerousLegacyNot,
   LegacyExactly,
   LegacyNotExactly,
   LegacyDefault,

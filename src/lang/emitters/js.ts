@@ -1066,8 +1066,8 @@ export function transpileToJS(
   const needsNotEq = code.includes('NotEq(')
   // Legacy equality bridges — emitted only when the author reached for one, which is the
   // point: they are deliberate, greppable escapes back to JavaScript's semantics.
-  const needsLegacyEquals = code.includes('LegacyEquals(')
-  const needsLegacyNot = code.includes('LegacyNot(')
+  const needsLegacyEquals = code.includes('DangerousLegacyEquals(')
+  const needsLegacyNot = code.includes('DangerousLegacyNot(')
   const needsLegacyExactly = code.includes('LegacyExactly(')
   const needsLegacyNotExactly = code.includes('LegacyNotExactly(')
   const needsLegacyDefault = code.includes('LegacyDefault(')
@@ -1139,7 +1139,7 @@ export function transpileToJS(
     // Eq/NotEq (honest equality)
     if (needsEq) {
       inlineParts.push(
-        `function Eq(a,b){if(a instanceof String||a instanceof Number||a instanceof Boolean)a=a.valueOf();if(b instanceof String||b instanceof Number||b instanceof Boolean)b=b.valueOf();if(a===b)return true;if(typeof a==='number'&&typeof b==='number'&&isNaN(a)&&isNaN(b))return true;if((a===null||a===undefined)&&(b===null||b===undefined))return true;return false}`
+        `function __ub(v){if(v instanceof String)return String.prototype.valueOf.call(v);if(v instanceof Number)return Number.prototype.valueOf.call(v);if(v instanceof Boolean)return Boolean.prototype.valueOf.call(v);return v}function Eq(a,b){a=__ub(a);b=__ub(b);if(a===b)return true;if(typeof a==='number'&&typeof b==='number'&&isNaN(a)&&isNaN(b))return true;if((a===null||a===undefined)&&(b===null||b===undefined))return true;return false}`
       )
     }
     if (needsNotEq) {
@@ -1148,10 +1148,10 @@ export function transpileToJS(
 
     // Legacy equality — JavaScript's own semantics, by explicit request.
     if (needsLegacyEquals) {
-      inlineParts.push(`function LegacyEquals(a,b){return a==b}`)
+      inlineParts.push(`function DangerousLegacyEquals(a,b){return a==b}`)
     }
     if (needsLegacyNot) {
-      inlineParts.push(`function LegacyNot(a,b){return a!=b}`)
+      inlineParts.push(`function DangerousLegacyNot(a,b){return a!=b}`)
     }
     if (needsLegacyExactly) {
       inlineParts.push(`function LegacyExactly(a,b){return a===b}`)

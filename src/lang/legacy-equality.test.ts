@@ -1,5 +1,5 @@
 /**
- * `LegacyEquals` / `LegacyNot` / `LegacyExactly` / `LegacyNotExactly` — bridges back to
+ * `DangerousLegacyEquals` / `DangerousLegacyNot` / `LegacyExactly` / `LegacyNotExactly` — bridges back to
  * JavaScript's equality.
  *
  * TJS fixes `==` and `===`, and a fixed OPERATOR has no construct to mark: it is still
@@ -15,8 +15,8 @@ import { tjs } from './index'
 import {
   createRuntime,
   Eq,
-  LegacyEquals,
-  LegacyNot,
+  DangerousLegacyEquals,
+  DangerousLegacyNot,
   LegacyExactly,
   LegacyNotExactly,
   LegacyDefault,
@@ -32,11 +32,11 @@ afterAll(() => {
 })
 
 describe('legacy equality reproduces JavaScript exactly', () => {
-  it('LegacyEquals coerces, where TJS `==` refuses to', () => {
-    expect(LegacyEquals(1, '1')).toBe(true)
+  it('DangerousLegacyEquals coerces, where TJS `==` refuses to', () => {
+    expect(DangerousLegacyEquals(1, '1')).toBe(true)
     expect(Eq(1, '1')).toBe(false)
-    expect(LegacyEquals(0, '')).toBe(true)
-    expect(LegacyEquals(false, [])).toBe(true)
+    expect(DangerousLegacyEquals(0, '')).toBe(true)
+    expect(DangerousLegacyEquals(false, [])).toBe(true)
   })
 
   it("LegacyExactly keeps JS's two famous warts", () => {
@@ -50,7 +50,7 @@ describe('legacy equality reproduces JavaScript exactly', () => {
 
   it('null vs undefined: legacy `===` separates, TJS `==` does not', () => {
     expect(LegacyExactly(null, undefined)).toBe(false)
-    expect(LegacyEquals(null, undefined)).toBe(true) // JS `==` also conflates
+    expect(DangerousLegacyEquals(null, undefined)).toBe(true) // JS `==` also conflates
     expect(Eq(null, undefined)).toBe(true)
   })
 
@@ -61,7 +61,7 @@ describe('legacy equality reproduces JavaScript exactly', () => {
       [null, undefined],
       [{}, {}],
     ] as Array<[unknown, unknown]>) {
-      expect(LegacyNot(a, b)).toBe(!LegacyEquals(a, b))
+      expect(DangerousLegacyNot(a, b)).toBe(!DangerousLegacyEquals(a, b))
       expect(LegacyNotExactly(a, b)).toBe(!LegacyExactly(a, b))
     }
   })
@@ -72,8 +72,8 @@ describe('they work in emitted standalone code', () => {
   // the source actually reached for one (see CLAUDE.md, "the inline runtime is NOT the
   // real runtime").
   const NAMES = [
-    ['LegacyEquals', true],
-    ['LegacyNot', false],
+    ['DangerousLegacyEquals', true],
+    ['DangerousLegacyNot', false],
     ['LegacyExactly', false],
     ['LegacyNotExactly', true],
   ] as const
@@ -93,7 +93,7 @@ describe('they work in emitted standalone code', () => {
     const code = tjs(`function f(a: 0, b: 0) { return a == b }`, {
       runTests: false,
     }).code
-    expect(code).not.toContain('function LegacyEquals(')
+    expect(code).not.toContain('function DangerousLegacyEquals(')
   })
 })
 
@@ -140,5 +140,54 @@ describe('LegacyDefault — per-parameter escape from dictionary defaults', () =
       }
     ).code
     expect(code).toContain('function LegacyDefault(')
+  })
+})
+
+describe('Eq cannot be made to run user code (the safe path must BE safe)', () => {
+  // `==` invokes valueOf()/toString() on any object operand, so a comparison can throw,
+  // mutate state, or lie. Eq exists to be the safe path, so it must not reproduce even a
+  // narrow version of that: it unwraps boxed primitives via the PROTOTYPE method, reading
+  // the internal slot, which an override cannot intercept.
+  class Bomb extends String {
+    valueOf(): string {
+      throw new Error('boom')
+    }
+  }
+  class Liar extends Number {
+    valueOf(): number {
+      return 999
+    }
+  }
+
+  it('an overridden valueOf on a boxed subclass cannot throw from inside Eq', () => {
+    expect(() => Eq(new Bomb('x'), 'x')).not.toThrow()
+    expect(Eq(new Bomb('x'), 'x')).toBe(true)
+  })
+
+  it('…and cannot lie about the value', () => {
+    expect(Eq(new Liar(5), 5)).toBe(true)
+    expect(Eq(new Liar(5), 999)).toBe(false)
+  })
+
+  it('a plain object with valueOf is untouched by Eq — but not by `==`', () => {
+    let called = false
+    const probe = {
+      valueOf() {
+        called = true
+        return 1
+      },
+    }
+    Eq(probe, 1)
+    expect(called, 'Eq must not coerce a plain object').toBe(false)
+
+    DangerousLegacyEquals(probe, 1)
+    expect(called, '`==` does — which is why the name says Dangerous').toBe(
+      true
+    )
+  })
+
+  it('unwrapping still works for ordinary boxed primitives', () => {
+    expect(Eq(new String('a'), 'a')).toBe(true)
+    expect(Eq(new Boolean(false), false)).toBe(true)
   })
 })

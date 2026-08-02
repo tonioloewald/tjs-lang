@@ -363,10 +363,10 @@ Abolishing a mode needs an escape, and there are **two kinds of rule**, needing 
 
 The second is the missing piece for `TjsEquals`/`TjsStandard`: there is no construct to
 mark, because the operator is still spelled the same — so the escape has to be a _name_.
-`LegacyEquals(a, b)` = JS `==` with coercion; `LegacyExactly(a, b)` = JS `===` (NaN unequal,
+`DangerousLegacyEquals(a, b)` = JS `==` with coercion; `LegacyExactly(a, b)` = JS `===` (NaN unequal,
 boxed not unwrapped). Named, greppable, and the word _legacy_ does the teaching.
 
-- [ ] Implement `LegacyEquals` / `LegacyExactly` in the runtime; they unblock abolishing
+- [ ] Implement `DangerousLegacyEquals` / `LegacyExactly` in the runtime; they unblock abolishing
       `TjsEquals`.
 
 ### `===` → `==` rewrite during conversion (obligation 2: upgrade where it is free)
