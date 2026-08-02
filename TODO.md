@@ -417,13 +417,37 @@ to `ABOLISHED_DIRECTIVES` so the removed word teaches instead of becoming a runt
 
 - [x] **`TjsDate`** — first one done. Raw `Date` is now always banned in `.tjs`; `unsafe new
 Date(x)` is the escape; `dialect: 'js'` unaffected.
-- [ ] `TjsNoVar`
-- [ ] `TjsNoeval`
-- [ ] `TjsEquals`
-- [ ] `TjsClass`
-- [ ] `TjsStandard`
-- [ ] `TjsDictDefaults`
-- [ ] `TjsSafeAssign`
+      **Audited 2026-08-02 — five are clear, two need a decision, one should not go.**
+
+- [ ] **`TjsNoVar`** — clear. `unsafe var x = 1` verified working (the marker handles
+      statements, not just expressions).
+- [ ] **`TjsNoeval`** — clear. `unsafe eval(s)` verified working.
+- [ ] **`TjsEquals`** — clear. The `Legacy*` bridges are the escape and they ship.
+- [ ] **`TjsClass`** — clear, and needs NO escape: wrapping is purely **additive**. Both
+      `Point(1,2)` and `new Point(1,2)` compile; explicit `new` is a lint warning, not a
+      ban. There is nothing to opt out of.
+- [ ] **`TjsSafeAssign`** — clear. The escape already exists and is documented: declare
+      `let Foo` up front instead of relying on bare-assignment auto-`const`.
+
+**Needs a decision before abolishing:**
+
+- [ ] **`TjsStandard` does TWO unrelated jobs** — ASI protection (statement termination) and
+      honest boolean coercion (`__tjs.toBool`). Abolishing the mode abolishes both at once,
+      and they deserve separate answers: nobody wants boxed-primitive truthiness, so that
+      half may need no escape at all, while changing statement boundaries is a far bigger
+      commitment. **Split it into two rules first**, then abolish each on its merits.
+- [ ] **`TjsDictDefaults` has no fine-grained escape.** The only way out today is marking the
+      whole FUNCTION unsafe with a leading `!`, which disables _all_ of that function's
+      validation rather than just the merge — an escape more destructive than the thing being
+      escaped, which violates friction-proportional-to-risk. Needs a per-param escape first.
+
+**Should NOT be abolished:**
+
+- [ ] **`TjsSafeEval` is not a rule** — it _includes_ `Eval`/`SafeFunction` in the runtime and
+      adds an import. Always-on would put weight in every bundle for a feature most files
+      never use. It is a build/bundling opt-in that happens to live in the mode list.
+      **Move it out of the mode system rather than abolishing it**, so "no modes" ends up
+      true.
 - [ ] **Then `TjsStrict`/`TjsCompat` themselves** — the meta-directives are the last per-file
       levers. `TjsCompat` in particular overlaps with `dialect: 'js'`, which is
       extension-driven and should be the only way to say it.
