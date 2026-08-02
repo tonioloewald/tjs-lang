@@ -148,3 +148,44 @@ describe('/* @tjs-unsafe */ — the bridge for TypeScript source', () => {
     ).toThrow(/new Date\(\) is not allowed/)
   })
 })
+
+describe('TjsSafeEval abolished — usage detection replaced it', () => {
+  // The mode existed for one reason: `import { Eval, SafeFunction }` should not be added
+  // to files that never use them. Detecting actual usage answers that question exactly,
+  // rather than asking the author to answer it — so the mode had nothing left to do.
+  const importsOf = (src: string) =>
+    (
+      tjs(src, { runTests: false }).code.match(
+        /^import \{([^}]*)\} from 'tjs-lang';/m
+      )?.[1] ?? ''
+    )
+      .split(',')
+      .map((s) => s.trim())
+      .filter(Boolean)
+
+  it('imports only what the code actually calls', () => {
+    expect(importsOf(`function f(s: '') { return Eval(s) }`)).toEqual(['Eval'])
+    expect(importsOf(`function f(s: '') { return SafeFunction(s) }`)).toEqual([
+      'SafeFunction',
+    ])
+    expect(
+      importsOf(`function f(s: '') { return Eval(s) + SafeFunction(s) }`)
+    ).toEqual(['Eval', 'SafeFunction'])
+  })
+
+  it('adds nothing when unused — the whole point of the old mode', () => {
+    expect(importsOf(`function f(a: 0) { return a + 1 }`)).toEqual([])
+  })
+
+  it('a mention inside a string does not pull in an import', () => {
+    // Detection runs on a literal-masked copy. Getting this wrong would put weight in a
+    // bundle because of a comment, which is exactly what the mode existed to prevent.
+    expect(importsOf(`function f() { return 'Eval(x)' }`)).toEqual([])
+  })
+
+  it('the directive now teaches instead of silently doing nothing', () => {
+    expect(() =>
+      tjs(`TjsSafeEval\nfunction f(a: 0) { return a }`, { runTests: false })
+    ).toThrow(/no longer a mode.*nothing to opt into/s)
+  })
+})

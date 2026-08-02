@@ -432,18 +432,45 @@ Date(x)` is the escape; `dialect: 'js'` unaffected.
 **Needs a decision before abolishing:**
 
 - [ ] **`TjsStandard` does TWO unrelated jobs** — ASI protection (statement termination) and
-      honest boolean coercion (`__tjs.toBool`). Abolishing the mode abolishes both at once,
-      and they deserve separate answers: nobody wants boxed-primitive truthiness, so that
-      half may need no escape at all, while changing statement boundaries is a far bigger
-      commitment. **Split it into two rules first**, then abolish each on its merits.
+      honest boolean coercion (`__tjs.toBool`). Worth **splitting into two rules** so each
+      can be reasoned about, but MEASURED 2026-08-02: both are abolishable, and my earlier
+      caution about statement boundaries was overblown.
+
+      The ASI half changes behavior in **exactly one** situation — a line beginning `(`,
+      `[` or a backtick that JavaScript would join to the previous line:
+
+      ```js
+      const x = g
+      (a)          // JS: calls g(a).  TJS: two statements.
+      ```
+
+      Everything else is untouched: binary-operator continuations, method chains,
+      multi-line ternaries and argument lists all still work. And the `;(…)` form behaves
+      identically in both, since the semicolon is already there — so anything formatted by
+      Prettier is unaffected. Nobody writes the bare form deliberately; the standard advice
+      is `;(…)` precisely because the bare form is a trap.
+
+      - [ ] Detect the pattern and **warn with a comment at the site** (obligation 3),
+            rather than treating it as a reason not to abolish.
+      - [ ] Boolean-coercion half likely needs no escape at all — boxed-primitive
+            truthiness is pure footgun. Confirm before assuming.
+
 - [ ] **`TjsDictDefaults` has no fine-grained escape.** The only way out today is marking the
       whole FUNCTION unsafe with a leading `!`, which disables _all_ of that function's
       validation rather than just the merge — an escape more destructive than the thing being
       escaped, which violates friction-proportional-to-risk. Needs a per-param escape first.
 
-**Should NOT be abolished:**
+**Abolished 2026-08-02 by removing the need for it:**
 
-- [ ] **`TjsSafeEval` is not a rule** — it _includes_ `Eval`/`SafeFunction` in the runtime and
+- [x] **`TjsSafeEval`** — the mode existed only so `import { Eval, SafeFunction }` was
+      opt-in. The emitter now detects actual usage (against a literal-masked copy) and
+      imports **only what is called**, which answers that question exactly instead of asking
+      the author to. Nothing left for the mode to do, so it is gone rather than relocated.
+
+Superseded note — it had been filed as "should not be abolished, move it out of the mode
+system". Making the import usage-driven was the better answer:
+
+- [ ] ~~**`TjsSafeEval` is not a rule**~~ — it _includes_ `Eval`/`SafeFunction` in the runtime and
       adds an import. Always-on would put weight in every bundle for a feature most files
       never use. It is a build/bundling opt-in that happens to live in the mode list.
       **Move it out of the mode system rather than abolishing it**, so "no modes" ends up

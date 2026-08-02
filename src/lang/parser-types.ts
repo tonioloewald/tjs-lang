@@ -190,8 +190,6 @@ export interface TjsModes {
   tjsNoeval: boolean
   /** TjsStandard: newlines as statement terminators (prevents ASI footguns) */
   tjsStandard: boolean
-  /** TjsSafeEval: include Eval/SafeFunction in runtime for dynamic code execution */
-  tjsSafeEval: boolean
   /** TjsNoVar: var declarations are syntax errors */
   tjsNoVar: boolean
   /** TjsSafeAssign: let declarations need an initializer or `: example` annotation; literal undefined/null/void 0 assigned to typed lets is flagged */

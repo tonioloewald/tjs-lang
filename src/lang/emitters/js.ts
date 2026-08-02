@@ -47,6 +47,7 @@
  */
 
 import type { FunctionDeclaration, Program } from 'acorn'
+import { maskLiterals } from '../../strip-comments'
 import { parseExpressionAt } from 'acorn'
 
 // ---------------------------------------------------------------------------
@@ -1087,7 +1088,6 @@ export function transpileToJS(
     code.includes('__tjs.bang(')
   const needsToBool = code.includes('__tjs.toBool(')
   const needsCheckFnShape = code.includes('__tjs.checkFnShape(')
-  const needsSafeEval = preprocessed.tjsModes.tjsSafeEval
 
   const needsRuntime =
     needsTypeError ||
@@ -1104,8 +1104,7 @@ export function transpileToJS(
     needsUnion ||
     needsBang ||
     needsToBool ||
-    needsCheckFnShape ||
-    needsSafeEval
+    needsCheckFnShape
 
   if (needsRuntime) {
     // Build standalone preamble — emitted JS must work without any setup.
@@ -1329,8 +1328,19 @@ export function transpileToJS(
   }
 
   // Add Eval/SafeFunction import when TjsSafeEval directive is present
-  if (needsSafeEval) {
-    code = `import { Eval, SafeFunction } from 'tjs-lang';\n` + code
+  // Import `Eval`/`SafeFunction` if and only if the emitted code actually calls them, and
+  // import only the ones used. This is what makes the old `TjsSafeEval` mode unnecessary:
+  // it existed solely so the import was opt-in, and usage detection answers that question
+  // exactly rather than asking the author to. Detected against a literal-masked copy, so a
+  // mention inside a string or comment does not pull in an import.
+  {
+    const scan = maskLiterals(code)
+    const used = ['Eval', 'SafeFunction'].filter((n) =>
+      new RegExp(`\\b${n}\\s*\\(`).test(scan)
+    )
+    if (used.length) {
+      code = `import { ${used.join(', ')} } from 'tjs-lang';\n` + code
+    }
   }
 
   // Run tests at transpile time if enabled

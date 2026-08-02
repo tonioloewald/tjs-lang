@@ -120,7 +120,6 @@ export function preprocess(
         tjsDate: false,
         tjsNoeval: false,
         tjsStandard: false,
-        tjsSafeEval: false,
         tjsNoVar: false,
         tjsSafeAssign: false,
         tjsDictDefaults: false,
@@ -132,7 +131,6 @@ export function preprocess(
         tjsDate: true,
         tjsNoeval: true,
         tjsStandard: true,
-        tjsSafeEval: false, // opt-in only (adds import)
         tjsNoVar: true,
         tjsSafeAssign: true,
         tjsDictDefaults: true,
@@ -169,6 +167,7 @@ export function preprocess(
   // would emit a ReferenceError at runtime, which teaches nothing — so name the change
   // and point at the replacement, per errors-as-curriculum.
   const ABOLISHED_DIRECTIVES: Record<string, string> = {
+    TjsSafeEval: `\`TjsSafeEval\` is no longer a mode. \`Eval\`/\`SafeFunction\` are imported automatically if and only if your code calls them, so there is nothing to opt into.`,
     TjsDate: `\`TjsDate\` is no longer a mode. Raw \`Date\` is always banned in .tjs — the file extension is the gate. For a deliberate exception, mark the construct: \`const d = unsafe new Date(x)\`.`,
   }
   for (const [name, guidance] of Object.entries(ABOLISHED_DIRECTIVES)) {
@@ -182,9 +181,9 @@ export function preprocess(
   }
 
   // TjsCompat disables all TJS modes (useful for native TJS opting out)
-  // Individual modes: TjsEquals, TjsClass, TjsDate, TjsNoeval, TjsStandard, TjsSafeEval
+  // Individual modes: TjsEquals, TjsClass, TjsNoeval, TjsStandard
   const directivePattern =
-    /^(\s*(?:\/\/[^\n]*\n|\/\*[\s\S]*?\*\/\s*)*)\s*(TjsStrict|TjsCompat|TjsEquals|TjsClass|TjsNoeval|TjsNoVar|TjsStandard|TjsSafeEval|TjsSafeAssign|TjsDictDefaults)\b/
+    /^(\s*(?:\/\/[^\n]*\n|\/\*[\s\S]*?\*\/\s*)*)\s*(TjsStrict|TjsCompat|TjsEquals|TjsClass|TjsNoeval|TjsNoVar|TjsStandard|TjsSafeAssign|TjsDictDefaults)\b/
 
   let match
   while ((match = source.match(directivePattern))) {
@@ -210,7 +209,6 @@ export function preprocess(
       tjsModes.tjsNoeval = false
       tjsModes.tjsNoVar = false
       tjsModes.tjsStandard = false
-      tjsModes.tjsSafeEval = false
       tjsModes.tjsSafeAssign = false
       tjsModes.tjsDictDefaults = false
     } else if (directive === 'TjsEquals') {
@@ -223,8 +221,6 @@ export function preprocess(
       tjsModes.tjsNoVar = true
     } else if (directive === 'TjsStandard') {
       tjsModes.tjsStandard = true
-    } else if (directive === 'TjsSafeEval') {
-      tjsModes.tjsSafeEval = true
     } else if (directive === 'TjsSafeAssign') {
       tjsModes.tjsSafeAssign = true
     } else if (directive === 'TjsDictDefaults') {
@@ -546,7 +542,6 @@ export function parse(
           tjsDate: false,
           tjsNoeval: false,
           tjsStandard: false,
-          tjsSafeEval: false,
           tjsNoVar: false,
           tjsSafeAssign: false,
           tjsDictDefaults: false,

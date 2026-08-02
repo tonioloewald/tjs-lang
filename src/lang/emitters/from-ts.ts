@@ -2307,7 +2307,6 @@ const VALID_TJS_MODES = new Set([
   'TjsNoeval',
   'TjsNoVar',
   'TjsStandard',
-  'TjsSafeEval',
 ])
 
 /**
