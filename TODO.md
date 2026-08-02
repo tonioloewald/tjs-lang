@@ -6,6 +6,29 @@
 adopting TJS completely for our own projects — which makes **our own codebase the acceptance
 test**, with numbers instead of opinions.
 
+## Formalise the AJS AST (decision 2026-08-02)
+
+**Decision: the formal AST contract is AJS's, not TJS's** — see PRINCIPLES.md for why
+(TJS has no tree to specify; the ecosystem has four JS ASTs already; TS's real gap is type
+erasure, which the type-representation north star addresses instead).
+
+**Binding consequence:** AJS's surface syntax may only grow into its AST — sugar that
+desugars into existing nodes, or a deliberate, versioned, ADDITIVE extension. Anything else
+does not ship. The AST is the spec; syntax is a projection of it.
+
+- [ ] **Version the AST.** It is unversioned today, which makes "additive extension" an
+      unenforceable promise. Prerequisite to everything else here.
+- [ ] **Write the spec** — the node set is small enough to state completely:
+      `arg`, `array`, `binary`, `call`, `conditional`, `ident`, `literal`, `logical`,
+      `member`, `object`, `unary`.
+- [ ] **Conformance suite** — the artifact that makes the spec real rather than aspirational,
+      and the thing an outside implementer can run.
+- [ ] **A guardrail test that the node set only grows**: a new kind is fine, a changed or
+      removed shape fails. Same shape as the other invariant tests — the promise should be
+      enforced, not documented.
+- [ ] When proposing AJS ergonomics, state which category the change is (sugar / additive
+      extension) **before** designing the syntax.
+
 ## Scoreboard (`src/lang/dogfood-convert.test.ts`, ratcheted)
 
 | stage                                | now              | target                                      |

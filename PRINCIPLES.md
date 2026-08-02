@@ -238,6 +238,42 @@ TypeScript and its conversion against the same inputs and require identical obse
 results. Until that harness exists this is a contract we keep by hand, which is weaker than
 it should be for something load-bearing.
 
+## The formal AST contract is AJS's, and syntax is subordinate to it
+
+**AJS's JSON AST is the specified artifact. TJS does not get one, and does not need one.**
+
+Why the scope is drawn there:
+
+- **TJS has no AST to specify.** It runs ~16 source-text transforms (`const!`, `!.`,
+  `==`→`Eq`, wasm extraction, parameter rewriting) and hands JS-parseable text to acorn.
+  Type information lives in `TypeDescriptor`, not in a syntax tree. Specifying a TJS AST
+  means building a real parser first — a large, separate decision.
+- **The ecosystem does not need a fifth JavaScript AST.** ESTree, Babel, SWC and
+  typescript-estree already compete; adding another dialect unifies nothing.
+- **TypeScript's conspicuous gap is not its AST — it is type erasure.** The formal artifact
+  worth offering is a serializable _type_ representation (JSON Schema + `$predicate`), which
+  is the north star below. That is a thing TS genuinely cannot do.
+- **AJS is small, subset-by-design, already JSON, and already has a consumer** — the VM
+  executes it. It is specifiable, and a spec would be load-bearing rather than decorative.
+
+### The consequence: AJS's surface syntax may only grow into its AST
+
+Making AJS _nicer_ — a better on-ramp for JS and TJS authors — is bounded by the contract.
+A proposed nicety must be one of:
+
+1. **Sugar that desugars into existing nodes.** Free: the AST is unchanged, and every
+   consumer keeps working.
+2. **A deliberate, versioned, ADDITIVE extension** — new node kinds only, never a changed
+   shape for an existing one, so previously-valid ASTs stay valid.
+
+If a nicety is neither, it does not ship. **The AST is the specification and the surface
+syntax is a projection of it** — not the other way round, which is how contracts erode: the
+usual failure is syntax growing first and the tree being patched to follow.
+
+Current node set (unversioned today — versioning it is prerequisite work):
+`arg`, `array`, `binary`, `call`, `conditional`, `ident`, `literal`, `logical`, `member`,
+`object`, `unary`.
+
 ## North star: JSON-Schema + predicates as the single source of truth for types
 
 **A TJS type is canonically a JSON-Schema node, optionally carrying a `$predicate`
