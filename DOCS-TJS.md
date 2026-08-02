@@ -38,7 +38,7 @@ TJS is **purely additive**. It adds type annotations, runtime validation, and me
 - **Prototype chains** — preserved. `wrapClass()` uses a Proxy only on the class constructor (to allow calling without `new`), not on instances.
 - **Module semantics** — TJS preserves ES module `import`/`export` exactly. Lazy getters, circular dependencies, and re-exports work the same as in JS.
 - **`this` binding** — unchanged. Arrow functions, `.bind()`, `.call()`, `.apply()` all work normally.
-- **Regular expressions, JSON, Math, Date** — all standard built-ins are available and unmodified (though `Date` is banned by default in native TJS via `TjsDate` in favor of safer alternatives like `Timestamp`/`LegalDate`; use `TjsCompat` to restore it).
+- **Regular expressions, JSON, Math, Date** — all standard built-ins are available and unmodified (though raw `Date` is not allowed in `.tjs` — use `unsafe new Date(x)` if you mean it, and `Timestamp`/`LegalDate` are the safer alternatives).
 
 **What TJS adds (and when): **
 
@@ -494,8 +494,8 @@ via `import { tjsEquals } from 'tjs-lang/lang'` or `__tjs.tjsEquals` at runtime.
 ### Callable Without `new`
 
 In native TJS, classes are automatically wrapped so they can be called
-without `new` (the `TjsClass` mode is on by default). For TS-originated
-code, add the `TjsClass` directive to enable this:
+without `new`. TS-originated code keeps JS semantics by default; add `TjsStrict`
+to opt it into full TJS:
 
 ```typescript
 class User {
@@ -516,7 +516,7 @@ and `new User('Alice')` always produce the same result — an instance.
 **What gets wrapped:** Only `class` declarations in your `.tjs` file.
 Specifically:
 
-- `class Foo { }` in native TJS (or with `TjsClass` directive) → wrapped
+- `class Foo { }` in native TJS → wrapped
 - Built-in globals (`Boolean`, `Number`, `String`, `Array`) → **never touched**
 - Old-style constructor functions (`function Foo() { }` with `Foo.prototype`) → **never touched**
 
@@ -610,7 +610,7 @@ describe(true) // MonadicError: no matching overload
 
 ### Polymorphic Constructors
 
-Classes can have multiple constructor signatures (enabled by default in native TJS via `TjsClass`). The first becomes the real JS constructor; additional variants become factory functions:
+Classes can have multiple constructor signatures. The first becomes the real JS constructor; additional variants become factory functions:
 
 ```typescript
 class Point {
@@ -1104,7 +1104,7 @@ Foo = Type('test', 'example') // becomes: const Foo = Type(...)
 MyConfig = { debug: true } // becomes: const MyConfig = { ... }
 ```
 
-This is a **native-TJS** convenience (mode `TjsSafeAssign`). It's **off** for
+This is a **native-TJS** convenience. It's **off** for
 plain JS (`dialect: 'js'`), TS-originated, and VM code — those are left exactly
 as written. And it only fires on the **first assignment of an undeclared**
 uppercase name; a reassignment of a binding you already declared

@@ -225,7 +225,7 @@ MyConfig = { debug: true }
 const MyConfig = { debug: true }
 ```
 
-Native-TJS only (mode `TjsSafeAssign`) — off for plain JS (`dialect: 'js'`),
+Native-TJS only — off for plain JS (`dialect: 'js'`),
 TS, and VM code. Fires only on the **first** assignment of an undeclared
 uppercase name; a reassignment of an already-declared binding
 (`let B = null; … B = 2`) is untouched. Because the first assignment becomes
@@ -518,13 +518,13 @@ test('async operations work') {
 
 ### Removed/Discouraged
 
-| Feature  | Reason                                                        |
-| -------- | ------------------------------------------------------------- |
-| `var`    | Use `let` or `const` (`TjsNoVar` makes `var` an error)        |
-| `new`    | Classes are callable without `new` (`TjsClass` on by default) |
-| `throw`  | Return errors as values (monadic errors)                      |
-| `eval()` | Use `Eval()` or `SafeFunction()` (`TjsNoeval` bans it)        |
-| `Date`   | With `TjsDate`, use `Timestamp`/`LegalDate` instead           |
+| Feature  | Reason                                                       |
+| -------- | ------------------------------------------------------------ |
+| `var`    | Use `let` or `const` — `var` is an error in `.tjs`           |
+| `new`    | Classes are callable without `new`                           |
+| `throw`  | Return errors as values (monadic errors)                     |
+| `eval()` | Use `Eval()` or `SafeFunction()` — bare `eval()` is an error |
+| `Date`   | Use `Timestamp`/`LegalDate`, or `unsafe new Date(x)`         |
 
 ### Added
 

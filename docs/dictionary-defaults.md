@@ -1,6 +1,6 @@
 # Dictionary Defaults (Merge-on-Partial Object Arguments)
 
-**Status:** Shipped (0.12.0). Spikes A+B done; Stage 0 (colon-form member validation), Stage 1 (the `TjsDictDefaults` `=` merge mode), and Stage 3 (deep-partial `.d.ts`) all shipped, plus the `dict-default-excess-key` lint. Stage 4 (dogfood in tosijs-3d) is the remaining follow-up.
+**Status:** Shipped (0.12.0). Spikes A+B done; Stage 0 (colon-form member validation), Stage 1 (the `=` merge behaviour; its mode directive was abolished 2026-08-02 and it is now unconditional in `.tjs`), and Stage 3 (deep-partial `.d.ts`) all shipped, plus the `dict-default-excess-key` lint. Stage 4 (dogfood in tosijs-3d) is the remaining follow-up.
 **Feature class:** Language semantics + runtime — **a gated native-TJS mode**
 **Characterization:** JS footgun pave
 
@@ -89,8 +89,8 @@ Two consequences:
 
 1. **This feature is a semantics change to valid native-TJS programs**, not an
    occupation of free space. Partial payloads work today, with JS semantics.
-   That is fine — it is exactly what native-TJS modes are _for_ (`TjsEquals`
-   changed `==` itself; `TjsDate` bans `new Date()`) — but it must be framed
+   That is fine — it is exactly what native-TJS rules are _for_ (honest equality
+   changed `==` itself; raw `new Date()` is not allowed) — but it must be framed
    and gated as a mode (§3).
 2. **Member-level object validation must be built regardless** (Stage 0). The
    merge is a phase of a validator that does not yet validate members. Bonus:
@@ -102,8 +102,8 @@ Two consequences:
 
 ## 3. Mode gating (the missing section, now load-bearing)
 
-Dictionary defaults are a **native-TJS mode** (working name: `TjsDictDefaults`),
-ON by default in native `.tjs` (like `TjsEquals` etc.), OFF under
+Dictionary defaults are **native-TJS behaviour**, unconditional in `.tjs`
+(the mode directive was abolished 2026-08-02), and OFF under
 `dialect: 'js'` and for `fromTS`-originated code, and disabled by `TjsCompat`.
 
 This is required by PRINCIPLES.md: `dialect: 'js'` must preserve plain-JS
@@ -112,7 +112,7 @@ semantics, and merge-on-partial observably changes them (`y === undefined` →
 choosing `.tjs` is the opt-in.
 
 The §6.1 purity restriction (compile error on impure default literals) is
-likewise native-mode-only; `TjsDate` banning `new Date()` is the precedent for
+likewise native-only; raw `new Date()` not being allowed is the precedent for
 a mode making a JS-legal construct a compile error.
 
 ---
@@ -392,10 +392,10 @@ Spike-first; each stage lands independently.
   semantics. One suite update: the TS-chain test that apologetically documented
   "missing properties pass" now asserts the error (real TS rejects that call statically).
   Resolves the `Type.check` ↔ param-check inconsistency.
-- **Stage 1 — transpiler. CORE DONE 2026-07-19** (`TjsDictDefaults` mode +
+- **Stage 1 — transpiler. CORE DONE 2026-07-19** (dictionary-default emit +
   shape-specialized merge codegen; suite: `src/lang/dict-defaults.test.ts`).
   What shipped: the mode (native-on, off for dialect 'js'/fromTS/VM/TjsCompat,
-  `TjsStrict` enables, standalone `TjsDictDefaults` directive); the §6.1 purity
+  `TjsStrict` enables it for TS-originated source); the §6.1 purity
   compile-error; merge-on-partial emitted as specialized code per signature —
   inlined literal fills (fresh by construction, so the hoisted-template +
   deep-freeze machinery proved unnecessary: no shared template exists to

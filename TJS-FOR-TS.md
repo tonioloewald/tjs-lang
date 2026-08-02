@@ -329,9 +329,9 @@ const p = Point(10, 20) // no 'new' needed
 Key differences:
 
 - `private` is stripped by default (TS `private` is compile-time only).
-  With `TjsClass` (on by default in native TJS, add via `/* @tjs TjsClass */` for TS-originated code), `private` converts to `#` (true JS runtime privacy).
+  In `.tjs` (or TS-originated code marked `/* @tjs TjsStrict */`), `private` converts to `#` (true JS runtime privacy).
 - Type annotations become example values
-- With `TjsClass`, `new` is optional (linter warns against it)
+- `new` is optional (the linter warns against it)
 
 ### Generics
 
@@ -539,10 +539,10 @@ function processOrder(order: { items: [{ id: 0, qty: 0 }], total: 0 }): {
 
 ### Honest Equality
 
-TypeScript inherits JavaScript's broken equality. Native TJS fixes this by default. For TS-originated code, add the `TjsEquals` directive (or use `/* @tjs TjsEquals */` in the source `.ts` file):
+TypeScript inherits JavaScript's broken equality. Native TJS fixes this. For TS-originated code, add `TjsStrict` (or `/* @tjs TjsStrict */` in the source `.ts` file):
 
 ```javascript
-TjsEquals  // needed for TS-originated code; native TJS has this on by default
+TjsStrict  // opts TS-originated code into full TJS; .tjs has this already
 
 // == is honest: no coercion, unwraps boxed primitives
 0 == ''                           // false (JS: true!)
@@ -647,7 +647,7 @@ overhead of `safety inputs` is negligible compared to the bugs it catches.
 #### Additional Safety Features
 
 ```javascript
-TjsNoVar              // var declarations are syntax errors
+// `var` is a syntax error in .tjs — no directive needed
 const! config = {}    // Compile-time immutability (zero runtime cost)
 
 // Debug mode: make type errors visible
@@ -698,7 +698,7 @@ console.log(result.code) // TJS source
 - Rest parameters (`...args: T[]`) → preserved with `...` prefix
 - Nullable types (`T | null`) → proper null guards in runtime checks
 - Optional params, default values
-- `private` → stripped (or `#` with `TjsClass`)
+- `private` → stripped (or `#` in full TJS)
 - Static getters/setters → `static` keyword preserved
 - `Promise<T>` → unwrapped return types
 - DOM types (130+) → `{}` (opaque object, keeps params annotated)
@@ -711,7 +711,7 @@ Annotate your `.ts` files with `/* @tjs ... */` comments to enrich
 the TJS output. The TS compiler ignores them.
 
 ```typescript
-/* @tjs TjsClass TjsEquals */ // Enable TJS modes (off by default in TS-originated code)
+/* @tjs TjsStrict */ // Opt into full TJS (TS-originated code gets JS semantics by default)
 
 /* @tjs-skip */ // Skip this type declaration
 export type Unboxed<T> = T extends { value: infer U } ? U : T

@@ -20,7 +20,7 @@ const p2 = new Point(10, 20) // Still works, but linter warns
 // Warning: Unnecessary 'new' keyword. In TJS, classes are callable without 'new'
 ```
 
-The `wrapClass()` function in the runtime uses a Proxy to intercept calls and auto-construct. In native TJS, `TjsClass` is on by default, so all `class` declarations are wrapped. TS-originated code requires an explicit `TjsClass` directive. Built-in constructors (`Boolean`, `Number`, `String`, etc.) and old-style `function` + `prototype` constructors are never touched because they may have intentional dual behavior (e.g., `Boolean(0)` returns `false` but `new Boolean(0)` returns a truthy wrapper object).
+The `wrapClass()` function in the runtime uses a Proxy to intercept calls and auto-construct. In `.tjs` all `class` declarations are wrapped; TS-originated code is not, unless it opts into full TJS with `TjsStrict`. Built-in constructors (`Boolean`, `Number`, `String`, etc.) and old-style `function` + `prototype` constructors are never touched because they may have intentional dual behavior (e.g., `Boolean(0)` returns `false` but `new Boolean(0)` returns a truthy wrapper object).
 
 ## Legacy equality — bridges back to JavaScript
 
@@ -110,7 +110,7 @@ function place(args = { x: 0, y: 0 }) { }
 // place({ x: 5 })      -> { x: 5, y: 0 }   each member defaulted individually
 // place({ x: 's' })    -> MonadicError     members are type-checked
 // place({ x: 1, z: 9 })-> { x: 1, y: 0 }   excess keys stripped (+ recorder notice)
-// This is the TjsDictDefaults mode (on in native .tjs, off under dialect:'js'/
+// Always on in .tjs; off under dialect:'js'/
 // TjsCompat/fromTS). Full spec: docs/dictionary-defaults.md. To keep atomic JS
 // defaults: mark the whole FUNCTION unsafe with a leading `!` in the param list
 // (`function place(! args = {…}) {}`) — note this disables ALL of that
@@ -262,7 +262,7 @@ Foo = Type('test', 'example') // becomes: const Foo = Type(...)
 MyConfig = { debug: true } // becomes: const MyConfig = { ... }
 ```
 
-Gated by `TjsSafeAssign` — a **native-TJS** convenience only. It is **off** in
+A **native-TJS** convenience only. It is **off** in
 plain JS (`dialect: 'js'`), TS-originated, and VM code, so those pass through
 unchanged (TJS ⊇ JS). It applies **only to the first assignment of an otherwise-
 undeclared** uppercase name: a reassignment of an already-declared binding
@@ -279,31 +279,57 @@ safety inputs   // Validate function inputs (default)
 safety all      // Validate everything (debug mode)
 ```
 
-## TJS Mode Directives
+## The rules of `.tjs` (there are no mode directives)
 
-Native TJS (`.tjs` files) has all modes ON by default: `TjsEquals`, `TjsClass`, `TjsDate`, `TjsNoeval`, `TjsNoVar`, `TjsStandard`, `TjsDictDefaults`. The default safety level is `inputs`.
+**The file extension is the gate**, the way ESM made `"use strict"` implicit. A `.tjs` file
+gets every rule, unconditionally. There is no per-file dial, and the nine mode directives
+that used to provide one were removed on 2026-08-02 — writing one now is an error that
+explains the replacement.
 
-TS-originated code (from `fromTS`, detected by the `/* tjs <- */` annotation) and AJS/VM code get all modes OFF with safety `none`, matching plain JavaScript semantics.
+| rule                                                        | what `.tjs` does                                                                          |
+| ----------------------------------------------------------- | ----------------------------------------------------------------------------------------- |
+| equality                                                    | `==`/`!=` are footgun-free — no coercion, boxed primitives unwrapped, `null == undefined` |
+| `typeof`                                                    | `typeof null` is `'null'`                                                                 |
+| truthiness                                                  | a boxed `new Boolean(false)` is falsy                                                     |
+| statements                                                  | newlines terminate statements                                                             |
+| classes                                                     | callable without `new` (additive — `new Point(1, 2)` still works)                         |
+| `Date`                                                      | not allowed; `Timestamp`/`LegalDate` replace it                                           |
+| `var`                                                       | not allowed; use `const`/`let`                                                            |
+| `eval()`                                                    | not allowed; `Eval()` is the sandboxed form                                               |
+| object-literal param defaults                               | dictionaries — per-member defaults, merged on partial, validated                          |
+| a first bare assignment to an undeclared `Capitalised` name | becomes `const`                                                                           |
+
+### Exceptions are expressed at the SITE, not per file
+
+A whole-file opt-out would also silence the _next_, accidental use. So each escape marks one
+construct:
+
+| you need                              | write                                                      |
+| ------------------------------------- | ---------------------------------------------------------- |
+| a banned construct, deliberately      | `unsafe new Date(x)`, `unsafe var x = 1`, `unsafe eval(s)` |
+| JavaScript's `==` / `!=`              | `DangerousLegacyEquals(a, b)` / `DangerousLegacyNot(a, b)` |
+| JavaScript's `===` / `!==`            | `LegacyExactly(a, b)` / `LegacyNotExactly(a, b)`           |
+| JavaScript's atomic parameter default | `args = LegacyDefault({ x: 0, y: 0 })`                     |
+| any of the above, from a `.ts` file   | `/* @tjs-unsafe */`                                        |
+
+### What is NOT a rule: dialect
+
+Two directives survive, because they answer a different question — _which language is this?_
 
 ```typescript
-// Individual modes (on by default in native TJS, off by default in TS-originated/AJS)
-TjsEquals // == and != use honest equality (Eq/NotEq) — no coercion, unwraps boxed primitives
-TjsClass // Classes callable without new, explicit new is banned
-TjsDate // Date is banned, use Timestamp/LegalDate instead
-TjsNoeval // eval() and new Function() are banned
-TjsNoVar // var declarations are syntax errors — use const or let
-TjsStandard // Newlines as statement terminators (prevents ASI footguns)
-TjsDictDefaults // `= {object literal}` params merge-on-partial + validate members (see below)
-TjsSafeEval // Include Eval/SafeFunction in runtime for dynamic code (always opt-in, adds an import)
-
-// Meta-directives
-TjsStrict // Enables ALL modes (useful for TS-originated code opting in to TJS semantics)
-TjsCompat // Disables ALL modes (for gradual migration or JS interop in native TJS files)
+TjsCompat // this file is JS-compatible: JS semantics, safety `none`
+TjsStrict // this file is full TJS (useful in TS-originated source, where the default is off)
 ```
 
-`TjsSafeEval` is always opt-in regardless of file origin because it adds a runtime import.
+Plain JS (`dialect: 'js'`), TS-originated code (detected by the `/* tjs <- */` annotation)
+and AJS/VM code all get JS semantics by default — otherwise TJS would stop being a superset
+of JavaScript. Normally the file extension answers this and you write neither directive.
 
-Individual directives still work for selective enable/disable. Multiple directives can be combined. Place them at the top of the file before any code.
+### Migrating is per-construct, not per-mode
+
+The old ladder was "turn the rules off, then re-enable them one at a time". That is gone, and
+what replaced it is finer: convert the file, then mark the individual sites that need the old
+behaviour. The accidental use is still caught, where a modes-off file silenced it.
 
 ## Compile-Time Immutability (`const!`)
 
@@ -325,7 +351,7 @@ When runtimes support records/tuples, `const!` can emit those instead.
 
 ## Equality Operators
 
-With `TjsEquals` (or `TjsStrict`), TJS fixes JavaScript's confusing `==` coercion without the performance cost of deep structural comparison.
+TJS fixes JavaScript's confusing `==` coercion without the performance cost of deep structural comparison. Always on in `.tjs`; see the Legacy bridges above for JavaScript's behaviour.
 
 | Operator    | Meaning                                      | Example                            |
 | ----------- | -------------------------------------------- | ---------------------------------- |
@@ -372,13 +398,13 @@ new Set([1,2]) Is new Set([2,1]) // true  (Sets are order-independent)
 
 ## Honest typeof
 
-With `TjsEquals`, `typeof null` returns `'null'` instead of `'object'` (JS's oldest bug). All other typeof results are unchanged. Transforms `typeof expr` to `TypeOf(expr)`.
+In `.tjs`, `typeof null` returns `'null'` instead of `'object'` (JS's oldest bug). All other typeof results are unchanged. Transforms `typeof expr` to `TypeOf(expr)`.
 
-## Honest Boolean Coercion (TjsStandard)
+## Honest Boolean Coercion
 
 Raw JS: `Boolean(new Boolean(false)) === true` (a boxed primitive is an Object → truthy). Same trap for `if`, `!`, `&&`, `||`, `?:`, `while`, `for`, `do/while`. The spec's `ToBoolean` operation has no override hook (`Symbol.toPrimitive` doesn't fire for boolean coercion).
 
-Native TJS rewrites every truthiness context to `__tjs.toBool(x)`, which unwraps boxed primitives before coercing. Always-on under `TjsStandard`.
+Native TJS rewrites every truthiness context to `__tjs.toBool(x)`, which unwraps boxed primitives before coercing. Always on — there is no legitimate opposite, so no escape is offered.
 
 ```typescript
 Boolean(new Boolean(false))    // false  ✓
@@ -398,16 +424,18 @@ TypeScript files can include `/* @tjs ... */` comments that `fromTS` uses to enr
 the TJS output. The TS compiler ignores them as regular comments.
 
 ```typescript
-/* @tjs TjsClass TjsEquals */ // Enable TJS modes in TS-originated code
+/* @tjs TjsStrict */ // Opt TS-originated code into full TJS semantics
+/* @tjs-unsafe */ // Mark the next construct as a deliberate exception
 /* @tjs-skip */ // Skip this declaration entirely
 /* @tjs example: { name: 'Alice' } */ // Custom example value for Type
 /* @tjs predicate(x) { return x > 0 } */ // Custom runtime predicate
 /* @tjs declaration { value: T } */ // Declaration block for Generic .d.ts
 ```
 
-Mode directives (`TjsClass`, `TjsEquals`, etc.) are emitted at the top of the `.tjs`
-output. These are mainly useful for TS-originated code (where modes are off by
-default) to opt in to TJS features like `private → #` conversion (`TjsClass`).
+`TjsStrict` is emitted at the top of the `.tjs` output. It is useful for TS-originated
+code, which gets JS semantics by default, to opt in to full TJS. `/* @tjs-unsafe */`
+becomes the `unsafe` marker — the bridge that lets a `.ts` file express an exception
+that `tsc` would otherwise reject.
 
 ## Polymorphic Functions
 
@@ -429,7 +457,7 @@ Dispatch order: arity first, then type specificity, then declaration order. Ambi
 
 ## Polymorphic Constructors
 
-Classes can have multiple constructor signatures (`TjsClass` is on by default in native TJS):
+Classes can have multiple constructor signatures:
 
 ```typescript
 class Point {

@@ -11,7 +11,7 @@ A runnable demo lives at [`examples/js-footguns-fixed.tjs`](../examples/js-footg
 bun src/cli/tjs.ts run examples/js-footguns-fixed.tjs
 ```
 
-All the fixes below are **always-on under `TjsStandard`** (the default for
+All the fixes below are **always on in `.tjs`** (the default for
 native TJS files). They are **off** under `TjsCompat`, in `fromTS`-emitted
 code, and in AJS/VM targets — so existing JS/TS semantics are preserved
 when you opt out.
@@ -104,7 +104,7 @@ mean "same reference."
 ## 3. `typeof null === 'object'`
 
 The original JS bug, preserved forever for backward compatibility.
-Under TjsEquals, `typeof` is rewritten to a runtime helper that returns
+In `.tjs`, `typeof` is rewritten to a runtime helper that returns
 `'null'` for `null`:
 
 ```tjs
@@ -143,7 +143,7 @@ Severity is warning by default, error under `TjsStrict`.
 
 Calling a class without `new` is a `TypeError` in strict mode and silently
 leaks to the global object in sloppy mode. TJS wraps user classes (under
-`TjsClass`, on by default) so they're callable both ways:
+always, in `.tjs`) so they're callable both ways:
 
 ```tjs
 class Point {
@@ -156,7 +156,7 @@ new Point(1, 2)   // ⚠ flagged by no-explicit-new linter rule (also works)
 
 ## 6. `var` hoisting and the temporal dead zone
 
-`TjsNoVar` (on by default) makes `var` declarations a parse error. Use
+`var` declarations are a parse error in `.tjs`. Use
 `let` and `const` exclusively, get block scoping, and avoid the entire
 class of "wait, that's hoisted?" bugs.
 

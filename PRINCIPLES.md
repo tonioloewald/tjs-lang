@@ -17,7 +17,7 @@ Two hard invariants:
    program is legal TJS _with the same meaning_. TJS _adds_ capability
    (types-as-examples, runtime contracts, monadic errors) but never removes the
    ability to transpile valid JS, and never silently changes its semantics.
-   TJS's footgun-removal modes (`TjsStandard`, `TjsEquals`, honest truthiness,
+   TJS's footgun-removal rules (statement termination, honest equality, honest truthiness,
    …) _do_ change behaviour — so they are gated on the **dialect** (below), not
    applied to plain JS.
 

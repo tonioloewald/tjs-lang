@@ -123,7 +123,7 @@ TJS's syntax extensions are modest. The engine changes would be:
 - `Type`, `Generic`, `Union`, `Enum` as contextual keywords
 - `extend` as contextual keyword
 - `wasm` as contextual keyword
-- `safety`, `TjsStrict`, `TjsEquals`, etc. as directives
+- `safety`, `TjsStrict`/`TjsCompat` (dialect) as directives
 
 ### Parser
 - Desugar `:` params to `=` defaults (same as transpiler does today)
@@ -136,7 +136,7 @@ TJS's syntax extensions are modest. The engine changes would be:
 ### Bytecode Compiler
 - Emit type guard bytecodes at function entry instead of `typeof` check sequences
 - Attach type metadata to function objects (replacing `.__tjs` property assignment)
-- Emit structural equality bytecodes for `==`/`!=` when `TjsEquals` is active
+- Emit honest-equality bytecodes for `==`/`!=` (unconditional in `.tjs`)
 
 ### JIT (DFG/FTL in JSC)
 - Use declared types as initial type assumptions (skip profiling warmup)

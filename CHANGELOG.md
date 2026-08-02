@@ -7,6 +7,62 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Removed — BREAKING
+
+- **All nine mode directives are abolished.** `TjsEquals`, `TjsClass`, `TjsDate`,
+  `TjsNoeval`, `TjsNoVar`, `TjsStandard`, `TjsDictDefaults`, `TjsSafeEval` and
+  `TjsSafeAssign` no longer exist. **The file extension is the gate** — a `.tjs` file gets
+  every rule, unconditionally — the way ESM made `"use strict"` implicit. Writing an
+  abolished directive is now an error that names the replacement rather than a bare
+  identifier that fails at runtime.
+
+  `TjsCompat` and `TjsStrict` survive, because they answer a different question — _which
+  language is this?_ That is **dialect**, not a rule. Plain JS, TS-originated code and
+  AJS/VM code still get JS semantics by default, so TJS remains a superset of JavaScript.
+
+  **Migration is per-construct, not per-file.** The old ladder ("turn the rules off, then
+  re-enable one at a time") is replaced by marking the individual sites that need the old
+  behaviour — which is strictly better, because a modes-off file also silenced the _next_,
+  accidental use.
+
+### Added
+
+- **`unsafe <expression>` — the per-construct escape.** Marks one construct as deliberate
+  at the site: `unsafe new Date(x)`, `unsafe var x = 1`, `unsafe eval(s)`. Zero runtime
+  cost. Recognised only in expression position and only on the same line as its expression,
+  so a variable named `unsafe` remains legal JavaScript.
+- **`/* @tjs-unsafe */`** — the same marker for TypeScript source, which cannot contain
+  TJS-only syntax because `tsc` rejects it.
+- **Legacy equality bridges** — `DangerousLegacyEquals`, `DangerousLegacyNot`,
+  `LegacyExactly`, `LegacyNotExactly`. A fixed _operator_ has no construct to mark, so the
+  escape is a name. The coercing pair is named "Dangerous" because `==` invokes
+  `valueOf()`/`toString()` on any object and can therefore throw or run arbitrary code; the
+  strict pair is not, because `===` cannot.
+- **`LegacyDefault(value)`** — per-parameter escape from dictionary defaults, restoring
+  JavaScript's atomic semantics for one parameter rather than disabling a whole function's
+  validation.
+- **ASI guidance.** Statement boundaries are the one place TJS and JavaScript disagree
+  (`const x = g` / `(a)` calls `g(a)` in JS, two statements in TJS). That case now warns at
+  the site with a line number instead of changing meaning silently.
+
+### Changed
+
+- **`Timestamp` is a number (epoch milliseconds), not an ISO string.** `diff` is `a - b`,
+  `isBefore` is `a < b`, sorting is the default comparator — and `Timestamp.now()` is a
+  genuine drop-in for `Date.now()`, which it was not before. `iso()` renders the readable
+  form; `isValidISO` validates it.
+
+### Fixed
+
+- **`Eq` can no longer be made to run user code.** It unwrapped boxed primitives with
+  `a.valueOf()`, which a subclass can override — so a comparison could throw, mutate, or
+  lie about the value. It now reads the internal slot via the prototype method.
+- **Optional chaining broke the `==`/`!=` rewrite.** `o?.b != null` did not compile: the
+  operand scanner treated `?.` as a ternary boundary. Every form was affected.
+- **Regex literals were read as comments.** A regex containing `*/` or `//` desynced the
+  scanner, and an escaped backslash (`'\\'`) desynced the string scanner — between them
+  these broke conversion of several of our own files.
+
 ### Added
 
 - **`int` and `unsigned` — the numeric types TypeScript never had.** TS has a single
