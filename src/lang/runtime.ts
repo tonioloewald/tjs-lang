@@ -999,6 +999,30 @@ export function LegacyNotExactly(a: unknown, b: unknown): boolean {
 }
 
 /**
+ * JavaScript's parameter-default semantics for an object literal.
+ *
+ * In TJS an object-literal default is a DICTIONARY: members are defaulted individually,
+ * merged on a partial argument, type-checked, and excess keys stripped. `f({x: 5})` against
+ * `f(args = {x: 0, y: 0})` yields `{x: 5, y: 0}`.
+ *
+ * JavaScript instead treats the whole object as one atomic value used only when the
+ * argument is `undefined`, so the same call yields `{x: 5}`. When that is genuinely what
+ * you want, say so:
+ *
+ *     function f(args = LegacyDefault({ x: 0, y: 0 })) { … }
+ *
+ * PER-PARAMETER, which is the point. The previous escape was marking the whole function
+ * unsafe with a leading `!` — that disables *all* of its validation, not just the merge,
+ * making the escape more destructive than the thing being escaped.
+ *
+ * Identity at runtime: the marker is compile-time, and the wrapper is what tells the
+ * emitter not to build dictionary semantics for this default.
+ */
+export function LegacyDefault<T>(value: T): T {
+  return value
+}
+
+/**
  * Check if a value is a TJS error
  */
 export function isError(value: unknown): value is TJSError {
@@ -1955,6 +1979,7 @@ export function createRuntime() {
     LegacyNot,
     LegacyExactly,
     LegacyNotExactly,
+    LegacyDefault,
     // Honest typeof (typeof with TjsEquals)
     TypeOf,
     // Honest truthiness (unwraps boxed primitives)
@@ -2052,6 +2077,7 @@ export const runtime = {
   LegacyNot,
   LegacyExactly,
   LegacyNotExactly,
+  LegacyDefault,
   // Honest typeof (used by typeof with TjsEquals)
   TypeOf,
   // Honest truthiness (used in TjsStandard for boxed-primitive coercion)

@@ -1070,6 +1070,7 @@ export function transpileToJS(
   const needsLegacyNot = code.includes('LegacyNot(')
   const needsLegacyExactly = code.includes('LegacyExactly(')
   const needsLegacyNotExactly = code.includes('LegacyNotExactly(')
+  const needsLegacyDefault = code.includes('LegacyDefault(')
   const needsTypeOf = code.includes('TypeOf(')
   // Type system constructors (from Type/Generic/FunctionPredicate/Enum/Union declarations)
   const needsType = /\bType\(/.test(code)
@@ -1157,6 +1158,9 @@ export function transpileToJS(
     }
     if (needsLegacyNotExactly) {
       inlineParts.push(`function LegacyNotExactly(a,b){return a!==b}`)
+    }
+    if (needsLegacyDefault) {
+      inlineParts.push(`function LegacyDefault(v){return v}`)
     }
 
     // TypeOf (honest typeof)

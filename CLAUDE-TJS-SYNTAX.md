@@ -39,6 +39,18 @@ construct to mark — it is still spelled the same — so `unsafe` cannot help. 
 if (LegacyEquals(input, 0)) { … }   // yes, I want '' and false to match 0
 ```
 
+`LegacyDefault(value)` is the same idea for parameter defaults. An object-literal default is
+a **dictionary** in TJS — members defaulted individually, merged on a partial argument,
+validated, excess keys stripped — where JavaScript treats it as one atomic value:
+
+```js
+function f(args = { x: 0, y: 0 }) {}                 // f({x:5}) → {x:5, y:0}
+function f(args = LegacyDefault({ x: 0, y: 0 })) {}  // f({x:5}) → {x:5}
+```
+
+It applies to **one parameter**, which matters: the older escape marked the whole function
+unsafe and disabled all of its validation, not just the merge.
+
 **The names are deliberately long.** `dangerouslySetInnerHTML` is the model: the friction is
 the feature. An escape should cost a moment's thought and be obvious in review, so there are
 no short aliases and none should be added.

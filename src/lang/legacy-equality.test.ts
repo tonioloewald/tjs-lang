@@ -19,6 +19,7 @@ import {
   LegacyNot,
   LegacyExactly,
   LegacyNotExactly,
+  LegacyDefault,
 } from './runtime'
 
 let saved: any
@@ -93,5 +94,51 @@ describe('they work in emitted standalone code', () => {
       runTests: false,
     }).code
     expect(code).not.toContain('function LegacyEquals(')
+  })
+})
+
+describe('LegacyDefault — per-parameter escape from dictionary defaults', () => {
+  // TJS treats an object-literal default as a DICTIONARY: members defaulted individually,
+  // merged on a partial argument, type-checked, excess keys stripped. JavaScript treats it
+  // as one atomic value used only when the argument is undefined.
+  //
+  // The escape has to be PER-PARAMETER. The previous one — marking the whole function
+  // unsafe with a leading `!` — disabled all of that function's validation rather than just
+  // the merge, making the escape more destructive than the thing being escaped.
+  const fn = (src: string) =>
+    new Function(tjs(src, { runTests: false }).code + '\nreturn f')()
+
+  it('a bare object literal merges on partial (TJS dictionary semantics)', () => {
+    const f = fn(`function f(args = {x: 0, y: 0}) { return args }`)
+    expect(f({ x: 5 })).toEqual({ x: 5, y: 0 })
+  })
+
+  it('LegacyDefault restores JavaScript: atomic, no merge', () => {
+    const f = fn(
+      `function f(args = LegacyDefault({x: 0, y: 0})) { return args }`
+    )
+    expect(f({ x: 5 })).toEqual({ x: 5 })
+  })
+
+  it('…and still applies the whole default when the argument is omitted', () => {
+    const f = fn(
+      `function f(args = LegacyDefault({x: 0, y: 0})) { return args }`
+    )
+    expect(f()).toEqual({ x: 0, y: 0 })
+  })
+
+  it('is identity at runtime — the marker is compile-time only', () => {
+    const obj = { a: 1 }
+    expect(LegacyDefault(obj)).toBe(obj)
+  })
+
+  it('is inlined into standalone output when used', () => {
+    const code = tjs(
+      `function f(args = LegacyDefault({x: 0})) { return args }`,
+      {
+        runTests: false,
+      }
+    ).code
+    expect(code).toContain('function LegacyDefault(')
   })
 })
