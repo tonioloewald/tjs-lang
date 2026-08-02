@@ -167,6 +167,8 @@ export function preprocess(
   // would emit a ReferenceError at runtime, which teaches nothing — so name the change
   // and point at the replacement, per errors-as-curriculum.
   const ABOLISHED_DIRECTIVES: Record<string, string> = {
+    TjsStandard: `\`TjsStandard\` is no longer a mode. .tjs always terminates statements at newlines and always uses honest truthiness (a boxed \`new Boolean(false)\` is falsy). Neither has an escape because neither has a legitimate opposite.`,
+    TjsDictDefaults: `\`TjsDictDefaults\` is no longer a mode. An object-literal parameter default is always a dictionary in .tjs — members defaulted individually, merged on a partial argument, validated. For JavaScript's atomic default, wrap it: \`args = LegacyDefault({ x: 0 })\`.`,
     TjsEquals: `\`TjsEquals\` is no longer a mode. \`==\`/\`!=\` are always footgun-free in .tjs (no coercion, boxed primitives unwrapped, null == undefined). For JavaScript's behaviour use \`DangerousLegacyEquals(a, b)\` / \`LegacyExactly(a, b)\`.`,
     TjsClass: `\`TjsClass\` is no longer a mode. Classes are always callable without \`new\` in .tjs — this is purely additive, \`new Point(1, 2)\` still works, so there is nothing to opt out of.`,
     TjsSafeAssign: `\`TjsSafeAssign\` is no longer a mode. A first bare assignment to an undeclared Capitalised name becomes \`const\` in .tjs. To keep it mutable, declare it yourself: \`let Foo = …\`.`,
@@ -191,7 +193,7 @@ export function preprocess(
   // TjsCompat disables all TJS modes (useful for native TJS opting out)
   // Individual modes: TjsEquals, TjsClass, TjsNoeval, TjsStandard
   const directivePattern =
-    /^(\s*(?:\/\/[^\n]*\n|\/\*[\s\S]*?\*\/\s*)*)\s*(TjsStrict|TjsCompat|TjsStandard|TjsDictDefaults)\b/
+    /^(\s*(?:\/\/[^\n]*\n|\/\*[\s\S]*?\*\/\s*)*)\s*(TjsStrict|TjsCompat)\b/
 
   let match
   while ((match = source.match(directivePattern))) {
@@ -219,10 +221,6 @@ export function preprocess(
       tjsModes.tjsStandard = false
       tjsModes.tjsSafeAssign = false
       tjsModes.tjsDictDefaults = false
-    } else if (directive === 'TjsStandard') {
-      tjsModes.tjsStandard = true
-    } else if (directive === 'TjsDictDefaults') {
-      tjsModes.tjsDictDefaults = true
     }
 
     // Remove the directive from source
@@ -239,10 +237,15 @@ export function preprocess(
   // Preserves line structure by keeping the newline
   source = stripLineComments(source)
 
-  // TjsStandard mode: insert semicolons to prevent ASI footguns
+  // Rules that are FLAGGED rather than rejected collect here and reach the caller as
+  // warnings, so tooling can surface them at the site — "turn all doubt into guidance".
+  const modeWarnings: string[] = []
+
+  // Statements terminate at newlines. See insertAsiProtection for the single case where
+  // that disagrees with JavaScript, which it warns about.
   // Must happen early before other transformations modify line structure
   if (tjsModes.tjsStandard) {
-    source = insertAsiProtection(source)
+    source = insertAsiProtection(source, modeWarnings)
   }
 
   // Transform const! declarations — validate immutability and emit as const
@@ -413,8 +416,6 @@ export function preprocess(
   // meaning-preserving alternative); some are WARNINGS, where the construct is merely
   // unsafe or unfashionable and any "fix" we could apply would change behavior. Flagging
   // beats rewriting there — see the conversion contract in PRINCIPLES.md.
-  const modeWarnings: string[] = []
-
   // Rules are checked against a view with `unsafe <expr>` blanked out. `unsafe` is the
   // per-construct escape: it says "this construct, deliberately" AT THE SITE, which is
   // what lets the rules stay unconditional and the file extension stay the only gate.

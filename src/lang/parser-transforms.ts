@@ -1003,7 +1003,10 @@ export function transformIsOperators(source: string): string {
  * - An operator that clearly continues (+, -, *, /, =, etc.)
  * - A keyword that expects continuation (return, throw, etc. followed by value)
  */
-export function insertAsiProtection(source: string): string {
+export function insertAsiProtection(
+  source: string,
+  warnings?: string[]
+): string {
   // Characters that can continue a previous expression (ASI footguns)
   // Only (, [, and ` — these are the real hazards where ASI causes bugs.
   // +, -, / at line start are continuations or literals, not footguns.
@@ -1056,7 +1059,21 @@ export function insertAsiProtection(source: string): string {
         !expectsContinuation.test(prevNoComment) &&
         !continueKeywords.test(prevNoComment)
       ) {
-        // Insert semicolon at start of this line (preserving whitespace)
+        // Insert semicolon at start of this line (preserving whitespace).
+        //
+        // This is the ONE place TJS and JavaScript disagree about statement boundaries,
+        // so it is also the one place worth telling the author about. JS would have joined
+        // these two lines — `const x = g` / `(a)` calls `g(a)` — and TJS does not. Nobody
+        // writes that deliberately (the idiom is a leading `;(…)`, precisely because the
+        // bare form is a trap), but "nobody" is not "no one", so say it at the site rather
+        // than changing meaning in silence.
+        warnings?.push(
+          `Line ${i + 1} starts with \`${
+            line.trim()[0]
+          }\`, which JavaScript would join to ` +
+            `the previous line. TJS treats them as separate statements. If you meant the ` +
+            `continuation, put it on one line or start this line with \`;\`.`
+        )
         const match = line.match(/^(\s*)/)
         const indent = match ? match[1] : ''
         const rest = line.slice(indent.length)

@@ -981,10 +981,9 @@ test '=== identity is preserved' {
     })
   })
 
-  describe('TjsStandard (ASI protection)', () => {
+  describe('ASI protection (unconditional since 2026-08-02)', () => {
     it('inserts semicolon before IIFE to prevent footgun', () => {
-      const tjsSource = `TjsStandard
-function test():! 0 {
+      const tjsSource = `function test():! 0 {
   const x = 1
   (() => console.log('iife'))()
   return x
@@ -996,8 +995,7 @@ function test():! 0 {
     })
 
     it('inserts semicolon before array literal on new line', () => {
-      const tjsSource = `TjsStandard
-function test():! 0 {
+      const tjsSource = `function test():! 0 {
   const x = 1
   [1, 2, 3].forEach(console.log)
   return x
@@ -1009,8 +1007,7 @@ function test():! 0 {
     })
 
     it('does NOT insert semicolon when previous line has operator', () => {
-      const tjsSource = `TjsStandard
-function test():! 0 {
+      const tjsSource = `function test():! 0 {
   const result = 1 +
     (2 + 3)
   return result
@@ -1025,8 +1022,7 @@ function test():! 0 {
 
     it('does NOT insert semicolon after opening brace', () => {
       // Test that we don't add ; after [ or {
-      const tjsSource = `TjsStandard
-function test():! 0 {
+      const tjsSource = `function test():! 0 {
   const arr = [
     (x => x + 1)
   ]
@@ -1040,8 +1036,7 @@ function test():! 0 {
     })
 
     it('does NOT insert semicolon after return keyword', () => {
-      const tjsSource = `TjsStandard
-function test():! 0 {
+      const tjsSource = `function test():! 0 {
   return (
     1 + 2
   )
@@ -1054,8 +1049,7 @@ function test():! 0 {
     })
 
     it('does NOT insert semicolon after comma (multi-line array)', () => {
-      const tjsSource = `TjsStandard
-function test():! [] {
+      const tjsSource = `function test():! [] {
   return [
     1,
     (2 + 3),
@@ -1082,8 +1076,7 @@ function test():! 0 {
     })
 
     it('works correctly at runtime', () => {
-      const tjsSource = `TjsStandard
-function test():! 0 {
+      const tjsSource = `function test():! 0 {
   let result = 42
   (() => { result = result + 1 })()
   return result

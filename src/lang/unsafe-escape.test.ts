@@ -189,3 +189,69 @@ describe('TjsSafeEval abolished — usage detection replaced it', () => {
     ).toThrow(/no longer a mode.*nothing to opt into/s)
   })
 })
+
+describe('all nine modes abolished — the extension is the gate', () => {
+  // Every directive is gone. The rules are simply how .tjs behaves, and exceptions are
+  // expressed at the site: `unsafe` for banned constructs, Legacy* for changed operator
+  // semantics, LegacyDefault for parameter defaults.
+  const ABOLISHED = [
+    'TjsDate',
+    'TjsSafeEval',
+    'TjsNoVar',
+    'TjsNoeval',
+    'TjsEquals',
+    'TjsClass',
+    'TjsSafeAssign',
+    'TjsStandard',
+    'TjsDictDefaults',
+  ]
+
+  for (const name of ABOLISHED) {
+    it(`${name} is gone, and says so`, () => {
+      expect(() => compile(`${name}\nfunction f(a: 0) { return a }`)).toThrow(
+        /no longer a mode/
+      )
+    })
+  }
+
+  it('is caught anywhere in the directive block, not just first', () => {
+    // Directives stacked, so anchoring the check at the start of the source missed every
+    // position but the first — it fell through to a bare identifier and died at runtime
+    // with "X is not defined". Found by examples/datetime.tjs.
+    expect(() =>
+      compile(`TjsCompat\nTjsClass\nfunction f(a: 0) { return a }`)
+    ).toThrow(/`TjsClass` is no longer a mode/)
+  })
+
+  it('TjsCompat survives — it is DIALECT, not a mode', () => {
+    // It answers "which language is this?", which the extension normally answers. Plain JS
+    // and TS-originated source must keep JS semantics or TJS stops being a superset.
+    expect(() =>
+      compile(`TjsCompat\nfunction f(a, b) { return a == b }`)
+    ).not.toThrow()
+  })
+})
+
+describe('ASI: the one place TJS and JS disagree about statement boundaries', () => {
+  it('warns at the site rather than silently changing meaning', () => {
+    const r = tjs(
+      `function f(a: 0) {\n  const g = () => 1\n  const x = g\n  (a)\n  return x\n}`,
+      { runTests: false }
+    )
+    const w = (r.warnings ?? []).join('\n')
+    expect(w).toMatch(/JavaScript would join to the previous line/)
+    expect(w, 'points at the offending line').toMatch(/Line 4/)
+  })
+
+  it('says nothing about ordinary code', () => {
+    const r = tjs(`function f(a: 0) { return a + 1 }`, { runTests: false })
+    expect(r.warnings ?? []).toEqual([])
+  })
+
+  it('says nothing when the previous line expects a continuation', () => {
+    const r = tjs(`function f(a: 0) {\n  const x = a +\n    1\n  return x\n}`, {
+      runTests: false,
+    })
+    expect(r.warnings ?? []).toEqual([])
+  })
+})
