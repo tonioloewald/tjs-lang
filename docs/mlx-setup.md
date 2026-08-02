@@ -69,9 +69,20 @@ attempt is a multi-gigabyte download, so it is not worth doing speculatively.
 OpenAI multimodal format. Chat, embeddings and the full `bun test` gate all work on MLX. The
 vision examples self-skip, which is expected rather than a failure.
 
-**To close it properly** you need all three: a gemma4 build whose weights load, plus teaching
-`src/batteries/llm.ts` the flattened image shape for this backend. Worth doing only if the
-vision lane starts earning its keep.
+### The likely right answer: run `mlx_vlm.server` for the vision lane
+
+`mlx-vlm` and `mlx-omni-server` are **different things**, and advice about one does not
+transfer. mlx-vlm ships its own OpenAI-compatible server (`python -m mlx_vlm.server`) whose
+whole purpose is VLMs — no `MLX_VLM_ONLY_MODELS` gate, so `Qwen2-VL`, `gemma-3n` and the
+rest work there. mlx-omni-server is a multi-modality *aggregator* that happens to bundle
+mlx_vlm and only routes `gemma4` to it.
+
+So the cheap path is two servers: mlx-omni-server for chat/embeddings, `mlx_vlm.server` on
+another port for vision, with `TJS_VISION_MODEL` pointed at the second. Untested here —
+recorded because it is the first thing to try, not because it is known to work.
+
+**Whichever route**, `src/batteries/llm.ts` may still need the flattened image shape; check
+the target server's schema before assuming the standard OpenAI block is accepted.
 
 ## Setup
 
