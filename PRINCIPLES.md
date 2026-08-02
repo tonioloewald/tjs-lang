@@ -153,6 +153,40 @@ atom authors write ordinary data-returning functions; verified predicates absorb
 predicate authors write ordinary JavaScript. When you find yourself paying for a guarantee
 twice, one of the two payments is the bug.
 
+## Make stupid stuff stand out, and look ugly and clumsy
+
+**The safe path gets the short, pretty spelling. The dangerous path is deliberately
+awkward.** Ergonomics is a safety mechanism: what a language makes _easy_ is what will be
+written, so the shape of the syntax is incentive design whether or not anyone intended it.
+
+`dangerouslySetInnerHTML` is the canonical example — nobody types it by accident, nobody
+skims past it in review, and its ugliness is doing real work.
+
+Applied here:
+
+| the good thing       | the escape           |
+| -------------------- | -------------------- |
+| `a == b`             | `LegacyEquals(a, b)` |
+| `Timestamp.now()`    | `unsafe new Date()`  |
+| a validated function | `function f(! x: 0)` |
+
+Each escape is longer, noisier, and harder to skim past than the thing it replaces. That is
+not an accident to be tidied up later.
+
+**Two consequences, both load-bearing:**
+
+1. **Never optimize the ergonomics of an escape hatch.** A short alias (`Leq`, `@unsafe`)
+   makes the dangerous path as cheap as the safe one and quietly deletes the entire
+   mechanism. Requests to add one are requests to remove the safety.
+2. **If the dangerous thing is easier to write than the safe thing, the design is wrong** —
+   and the fix belongs in the _safe_ path, not in a warning. This is why `Timestamp.now()`
+   became a drop-in for `Date.now()` instead of us writing a better diagnostic: the correct
+   response to "the unsafe way is more convenient" is to make the safe way convenient.
+
+The principle also says when NOT to add friction. An escape that is merely _unfamiliar_
+rather than _dangerous_ is just an obstacle — the ugliness has to be proportional to the
+risk, or it becomes noise people learn to ignore.
+
 ## Conversion contract: TS → equivalent-or-better TJS, with guidance to improve further
 
 **Every conversion of TypeScript to TJS must produce code that behaves the same or strictly
