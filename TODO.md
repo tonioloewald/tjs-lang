@@ -352,6 +352,54 @@ every hole.
       where possible") are a harder problem and deserve their own pass — but the simple set
       must be airtight first, because that is what people paste.
 
+## Two escape shapes, and the `===` → `==` rewrite (2026-08-02)
+
+Abolishing a mode needs an escape, and there are **two kinds of rule**, needing two kinds:
+
+| rule changes…                                        | escape                               | example               |
+| ---------------------------------------------------- | ------------------------------------ | --------------------- |
+| what is **allowed** (Date, `var`, `eval`)            | `unsafe <expr>` — mark the construct | `unsafe new Date(x)`  |
+| what an operator **means** (`==`, `===`, truthiness) | **named legacy functions**           | `LegacyExactly(a, b)` |
+
+The second is the missing piece for `TjsEquals`/`TjsStandard`: there is no construct to
+mark, because the operator is still spelled the same — so the escape has to be a _name_.
+`LegacyEquals(a, b)` = JS `==` with coercion; `LegacyExactly(a, b)` = JS `===` (NaN unequal,
+boxed not unwrapped). Named, greppable, and the word _legacy_ does the teaching.
+
+- [ ] Implement `LegacyEquals` / `LegacyExactly` in the runtime; they unblock abolishing
+      `TjsEquals`.
+
+### `===` → `==` rewrite during conversion (obligation 2: upgrade where it is free)
+
+Measured where `===` and `Eq` differ — **exactly four cases**, everything else agrees:
+
+| case                                                               | `===` | `Eq`                                         |
+| ------------------------------------------------------------------ | ----- | -------------------------------------------- |
+| `NaN` vs `NaN`                                                     | false | **true** (deliberate — "JS gets this wrong") |
+| `null` vs `undefined`                                              | false | **true**                                     |
+| boxed `String`/`Boolean` vs primitive                              | false | **true** (the fix)                           |
+| everything else — same-type primitives, distinct objects, `0`/`-0` | agree | agree                                        |
+
+So the rewrite is provably meaning-preserving for **statically-known strings and booleans**,
+and NOT for anything else:
+
+- [ ] **Rewrite `a === b` → `a == b` when both operands are annotated `string` or `boolean`.**
+      Silent; behavior identical. We already extract these types, so the information is there.
+- [ ] **Numbers: rewrite but COMMENT**, because of NaN. `Eq(NaN, NaN)` is true by design, so
+      the rewrite changes behavior in exactly that case — arguably an improvement, but
+      obligation 1 says say so rather than assume.
+- [ ] **Never rewrite `x === null` / `x === undefined`** — `Eq` conflates them. Flag instead.
+- [ ] **Unknown/other types: leave alone and flag.** Cannot prove, so do not touch.
+
+### Removing now-unnecessary defensive conversions
+
+Code written against JS's `==` often carries workarounds that TJS makes redundant:
+
+- [ ] `a.valueOf() === b.valueOf()` → `a == b` — **safe**, `Eq` already unwraps boxed
+      primitives. A genuine cleanup.
+- [ ] `String(a) === String(b)` → `a == b` — **NOT safe**: that coerces, and `Eq` does not
+      (`String(1) === String('1')` is true; `1 == '1'` is false). Flag it, do not rewrite.
+
 ## Abolishing the modes, one at a time (in progress, 2026-08-02)
 
 **Goal: the file extension is the only gate**, the way ESM made `"use strict"` implicit.
