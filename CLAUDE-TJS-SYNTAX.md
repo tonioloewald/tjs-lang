@@ -38,6 +38,18 @@ const d = unsafe new Date(ts)
 opt-out also silences the _next_, accidental use. It has zero runtime cost — the marker is
 removed before emit.
 
+### In TypeScript source: `/* @tjs-unsafe */`
+
+TJS-only syntax cannot appear in a `.ts` file — `tsc` rejects `unsafe new Date(x)` — so
+TypeScript sources use the `@tjs` comment channel instead:
+
+```ts
+const d = /* @tjs-unsafe */ new Date(ts)   // tsc sees a comment; conversion sees `unsafe`
+```
+
+Conversion replaces the annotation **in place**, so the marker lands exactly where it was:
+same line, immediately before its expression, which is what `unsafe` requires.
+
 Two rules keep it from colliding with ordinary JavaScript, since a variable named `unsafe`
 is legal JS and must stay legal (TJS ⊇ JS):
 

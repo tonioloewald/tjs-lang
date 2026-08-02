@@ -140,12 +140,15 @@ describe.skipIf(SKIP)(
           'we are emitting TJS that does not build'
         ).toBe(1)
 
-        // Stage 3 — the ladder's scoreboard. 91/93 as of 2026-08-01. The only two
-        // remaining are `Timestamp.ts` and `LegalDate.ts`, which use `new Date()` BECAUSE
-        // THEY ARE the alternative it points you to — the general pattern that a polyfill
-        // violates the rule it exists to enable. They want a per-file mode opt-out, not a
-        // rewrite; the ladder already supports that.
-        expect(r.graduates.ok / r.total).toBeGreaterThanOrEqual(0.97)
+        // Stage 3 — REACHED 100% on 2026-08-02 and pinned there. Every file we ship
+        // converts to TJS *and* graduates to it with the rules on. The last two were
+        // Timestamp.ts and LegalDate.ts, which use `new Date()` because they ARE the
+        // alternative the rule points you to; they now say so per-construct with
+        // `/* @tjs-unsafe */`, so an ACCIDENTAL `new Date()` added to them is still caught.
+        //
+        // This is "self-hosted for real" as a number rather than a claim. If it drops, we
+        // are shipping something we could not ourselves write in the language.
+        expect(r.graduates.ok / r.total).toBe(1)
       },
       { timeout: 180_000 }
     )

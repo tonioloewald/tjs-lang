@@ -2472,6 +2472,22 @@ function extractEmbeddedTestComments(source: string): string[] {
 }
 
 /**
+ * Turn `/* @tjs-unsafe *\/` annotations into the TJS `unsafe` marker.
+ *
+ * TJS-only syntax cannot appear in a `.ts` file — `tsc` rejects `unsafe new Date(x)` — so a
+ * TypeScript source that legitimately needs an exception has no way to say so. The `@tjs`
+ * comment channel is the bridge: `tsc` sees an ordinary comment, and conversion turns it
+ * into the real marker.
+ *
+ * Replaced in place (not stripped-then-inserted) so the marker lands exactly where the
+ * annotation was — same line, immediately before its expression, which is what `unsafe`
+ * requires.
+ */
+function applyUnsafeAnnotations(code: string): string {
+  return code.replace(/\/\*\s*@tjs-unsafe\s*\*\/\s*/g, 'unsafe ')
+}
+
+/**
  * Extract top-level TJS doc comments (/*# ... *\/) from source with position info.
  * These need to be preserved in TJS output in their original positions.
  * Comments inside function bodies are already preserved by the TS transpiler.
@@ -3037,7 +3053,9 @@ export function fromTS(
       embeddedTests.length > 0 ? '\n\n' + embeddedTests.join('\n\n') : ''
 
     return {
-      code: header + tjsFunctions.join('\n\n') + testsSection,
+      code: applyUnsafeAnnotations(
+        header + tjsFunctions.join('\n\n') + testsSection
+      ),
       warnings: warnings.length > 0 ? warnings : undefined,
     }
   }

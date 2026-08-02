@@ -13,6 +13,7 @@
 import { describe, it, expect } from 'bun:test'
 import { tjs } from './index'
 import { stripUnsafeMarkers, maskUnsafe } from '../strip-comments'
+import { fromTS } from './emitters/from-ts'
 
 const compile = (src: string) => tjs(src, { runTests: false })
 
@@ -118,5 +119,32 @@ describe('abolishing a mode (TjsDate was the first)', () => {
         dialect: 'js',
       })
     ).not.toThrow()
+  })
+})
+
+describe('/* @tjs-unsafe */ — the bridge for TypeScript source', () => {
+  // TJS-only syntax cannot appear in a .ts file: tsc rejects `unsafe new Date(x)`. Without
+  // a bridge, a TypeScript source that legitimately needs an exception has no way to say
+  // so — which is what kept our own Timestamp.ts and LegalDate.ts from graduating.
+  it('converts to the real marker and satisfies the rule', () => {
+    const ts = `export function f(x: number): number {\n  const d = /* @tjs-unsafe */ new Date(x)\n  return d.getTime()\n}\n`
+    const converted = fromTS(ts, { emitTJS: true }).code
+    expect(converted).toContain('unsafe new Date(')
+    expect(converted).not.toContain('@tjs-unsafe')
+
+    // …and the result compiles with the rule ON, which is the whole point.
+    expect(() =>
+      compile(converted.replace(/\/\* tjs <- [^*]*\*\/\n?/, ''))
+    ).not.toThrow()
+  })
+
+  it('an UNannotated new Date() in the same file is still caught', () => {
+    // The reason this is per-construct rather than per-file: the accidental one must
+    // still fail.
+    const ts = `export function f(x: number): number {\n  return new Date(x).getTime()\n}\n`
+    const converted = fromTS(ts, { emitTJS: true }).code
+    expect(() =>
+      compile(converted.replace(/\/\* tjs <- [^*]*\*\/\n?/, ''))
+    ).toThrow(/new Date\(\) is not allowed/)
   })
 })

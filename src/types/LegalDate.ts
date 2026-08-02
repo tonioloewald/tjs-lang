@@ -10,6 +10,13 @@
  * - All functions are pure (string in, string out)
  * - No mutable objects
  * - No timezone confusion (it's just a date)
+ *
+ * **Why `/* @tjs-unsafe *\/` on every `new Date(...)`:** this module IS the alternative that
+ * the no-raw-Date rule points you to, so it must reach for `Date` to implement it — the
+ * general shape that a polyfill violates the rule it exists to enable. The annotation marks
+ * each use as deliberate AT THE SITE, so the rule stays unconditional and an accidental
+ * `new Date()` added here later is still caught. `tsc` sees an ordinary comment; conversion
+ * turns it into the TJS `unsafe` marker.
  */
 
 import { Timestamp } from './Timestamp'
@@ -57,7 +64,7 @@ export function today(): LegalDateString {
  * Get today's date in a specific timezone
  */
 export function todayIn(timezone: string): LegalDateString {
-  const now = new Date()
+  const now = /* @tjs-unsafe */ new Date()
   const formatter = new Intl.DateTimeFormat('en-CA', {
     timeZone: timezone,
     year: 'numeric',
@@ -102,7 +109,7 @@ export function parse(input: string): LegalDateString {
   }
 
   // Otherwise, try to parse it
-  const d = new Date(input)
+  const d = /* @tjs-unsafe */ new Date(input)
   if (isNaN(d.getTime())) {
     throw new Error(`Invalid date string: ${input}`)
   }
@@ -201,8 +208,8 @@ export function addYears(
  */
 export function diff(a: LegalDateString, b: LegalDateString): number {
   const msPerDay = 24 * 60 * 60 * 1000
-  const aMs = new Date(a + 'T00:00:00Z').getTime()
-  const bMs = new Date(b + 'T00:00:00Z').getTime()
+  const aMs = /* @tjs-unsafe */ new Date(a + 'T00:00:00Z').getTime()
+  const bMs = /* @tjs-unsafe */ new Date(b + 'T00:00:00Z').getTime()
   return Math.round((aMs - bMs) / msPerDay)
 }
 
@@ -254,7 +261,7 @@ export function day(date: LegalDateString): number {
  * Get the day of week (1 = Monday, 7 = Sunday) - ISO 8601 convention
  */
 export function dayOfWeek(date: LegalDateString): number {
-  const d = new Date(date + 'T00:00:00Z').getUTCDay()
+  const d = /* @tjs-unsafe */ new Date(date + 'T00:00:00Z').getUTCDay()
   return d === 0 ? 7 : d // Convert Sunday from 0 to 7
 }
 
@@ -262,10 +269,12 @@ export function dayOfWeek(date: LegalDateString): number {
  * Get the ISO week number (1-53)
  */
 export function weekOfYear(date: LegalDateString): number {
-  const d = new Date(date + 'T00:00:00Z')
+  const d = /* @tjs-unsafe */ new Date(date + 'T00:00:00Z')
   const dayNum = d.getUTCDay() || 7
   d.setUTCDate(d.getUTCDate() + 4 - dayNum)
-  const yearStart = new Date(Date.UTC(d.getUTCFullYear(), 0, 1))
+  const yearStart = /* @tjs-unsafe */ new Date(
+    Date.UTC(d.getUTCFullYear(), 0, 1)
+  )
   return Math.ceil(((d.getTime() - yearStart.getTime()) / 86400000 + 1) / 7)
 }
 
@@ -333,14 +342,16 @@ export function toTimestampISO(date: LegalDateString): string {
  * Convert to Unix timestamp (seconds since epoch, midnight UTC)
  */
 export function toUnix(date: LegalDateString): number {
-  return Math.floor(new Date(date + 'T00:00:00Z').getTime() / 1000)
+  return Math.floor(
+    /* @tjs-unsafe */ new Date(date + 'T00:00:00Z').getTime() / 1000
+  )
 }
 
 /**
  * Create from Unix timestamp (seconds since epoch)
  */
 export function fromUnix(unix: number): LegalDateString {
-  const d = new Date(unix * 1000)
+  const d = /* @tjs-unsafe */ new Date(unix * 1000)
   return from(d.getUTCFullYear(), d.getUTCMonth() + 1, d.getUTCDate())
 }
 
@@ -355,7 +366,7 @@ export function format(
   date: LegalDateString,
   options?: Intl.DateTimeFormatOptions
 ): string {
-  const d = new Date(date + 'T00:00:00Z')
+  const d = /* @tjs-unsafe */ new Date(date + 'T00:00:00Z')
   const formatOptions: Intl.DateTimeFormatOptions = {
     timeZone: 'UTC',
     ...options,

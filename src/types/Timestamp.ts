@@ -19,6 +19,13 @@
  * - All functions are pure (number in, number out)
  * - No mutable objects
  * - UTC by default, explicit timezone for display
+ *
+ * **Why `/* @tjs-unsafe *\/` on every `new Date(...)`:** this module IS the alternative that
+ * the no-raw-Date rule points you to, so it must reach for `Date` to implement it — the
+ * general shape that a polyfill violates the rule it exists to enable. The annotation marks
+ * each use as deliberate AT THE SITE, so the rule stays unconditional and an accidental
+ * `new Date()` added here later is still caught. `tsc` sees an ordinary comment; conversion
+ * turns it into the TJS `unsafe` marker.
  */
 
 /**
@@ -52,7 +59,7 @@ export function now(): Timestamp {
 
 /** Render a timestamp as an ISO 8601 string — the readable form. */
 export function iso(ts: Timestamp): TimestampString {
-  return new Date(ts).toISOString()
+  return /* @tjs-unsafe */ new Date(ts).toISOString()
 }
 
 /**
@@ -120,7 +127,7 @@ export function addWeeks(ts: Timestamp, weeks: number): Timestamp {
  * Calendar arithmetic is not uniform, so this one still needs a Date internally.
  */
 export function addMonths(ts: Timestamp, months: number): Timestamp {
-  const d = new Date(ts)
+  const d = /* @tjs-unsafe */ new Date(ts)
   const targetMonth = d.getUTCMonth() + months
   d.setUTCMonth(targetMonth)
 
@@ -133,7 +140,7 @@ export function addMonths(ts: Timestamp, months: number): Timestamp {
 
 /** Add years, handling leap years correctly (Feb 29 + 1 year = Feb 28). */
 export function addYears(ts: Timestamp, years: number): Timestamp {
-  const d = new Date(ts)
+  const d = /* @tjs-unsafe */ new Date(ts)
   const originalDay = d.getUTCDate()
   d.setUTCFullYear(d.getUTCFullYear() + years)
 
@@ -173,37 +180,37 @@ export function diffDays(a: Timestamp, b: Timestamp): number {
 // ============================================================================
 
 export function year(ts: Timestamp): number {
-  return new Date(ts).getUTCFullYear()
+  return /* @tjs-unsafe */ new Date(ts).getUTCFullYear()
 }
 
 /** 1-based: 1 = January, 12 = December */
 export function month(ts: Timestamp): number {
-  return new Date(ts).getUTCMonth() + 1
+  return /* @tjs-unsafe */ new Date(ts).getUTCMonth() + 1
 }
 
 export function day(ts: Timestamp): number {
-  return new Date(ts).getUTCDate()
+  return /* @tjs-unsafe */ new Date(ts).getUTCDate()
 }
 
 export function hour(ts: Timestamp): number {
-  return new Date(ts).getUTCHours()
+  return /* @tjs-unsafe */ new Date(ts).getUTCHours()
 }
 
 export function minute(ts: Timestamp): number {
-  return new Date(ts).getUTCMinutes()
+  return /* @tjs-unsafe */ new Date(ts).getUTCMinutes()
 }
 
 export function second(ts: Timestamp): number {
-  return new Date(ts).getUTCSeconds()
+  return /* @tjs-unsafe */ new Date(ts).getUTCSeconds()
 }
 
 export function millisecond(ts: Timestamp): number {
-  return new Date(ts).getUTCMilliseconds()
+  return /* @tjs-unsafe */ new Date(ts).getUTCMilliseconds()
 }
 
 /** ISO 8601 convention: 1 = Monday, 7 = Sunday */
 export function dayOfWeek(ts: Timestamp): number {
-  const d = new Date(ts).getUTCDay()
+  const d = /* @tjs-unsafe */ new Date(ts).getUTCDay()
   return d === 0 ? 7 : d
 }
 
@@ -220,7 +227,9 @@ export function toLocal(
     timeZone: timezone,
     ...options,
   }
-  return new Intl.DateTimeFormat(undefined, formatOptions).format(new Date(ts))
+  return new Intl.DateTimeFormat(undefined, formatOptions).format(
+    /* @tjs-unsafe */ new Date(ts)
+  )
 }
 
 export function format(ts: Timestamp, timezone?: string): string {
@@ -298,7 +307,7 @@ export function startOfMonth(ts: Timestamp): Timestamp {
 }
 
 export function endOfMonth(ts: Timestamp): Timestamp {
-  const d = new Date(ts)
+  const d = /* @tjs-unsafe */ new Date(ts)
   d.setUTCMonth(d.getUTCMonth() + 1, 0) // Day 0 of next month = last day of this month
   d.setUTCHours(23, 59, 59, 999)
   return d.getTime()
