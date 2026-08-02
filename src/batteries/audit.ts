@@ -195,7 +195,10 @@ async function checkEmbedding(
 const TINY_TEST_IMAGE =
   'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAACAAAAAgCAIAAAD8GO2jAAAAMUlEQVR4nGO4o6FBU8QwasFoEI2motF8MFpUjJamo/XBaJU52qoYbReNNh01hkg+AACGobA9N+tfoAAAAABJRU5ErkJggg=='
 
-async function checkVision(baseUrl: string, modelId: string): Promise<boolean> {
+export async function checkVision(
+  baseUrl: string,
+  modelId: string
+): Promise<boolean> {
   try {
     const res = await fetchWithTimeout(`${baseUrl}/chat/completions`, {
       method: 'POST',

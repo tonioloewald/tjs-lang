@@ -7,6 +7,8 @@
 
 // Provide browser globals (document, window, etc.) for capabilities.ts
 import { GlobalRegistrator } from '@happy-dom/global-registrator'
+import { checkVision } from '../src/batteries/audit'
+import { VISION_MODEL, LLM_BASE_URL } from '../src/batteries/config'
 GlobalRegistrator.register()
 
 import { describe, it, expect, beforeAll, afterAll } from 'bun:test'
@@ -44,7 +46,11 @@ import {
 } from './src/capabilities'
 
 // Use the SAME code path as the playground
-const LM_STUDIO_URL = 'http://localhost:1234/v1'
+// The backend is a CONFIG choice, not a constant. This was pinned to LM Studio's port, so
+// the demo examples silently ran against nothing when the server was MLX — reporting
+// "0 models, 0 vision-capable" rather than an error. `LLM_BASE_URL` honours
+// TJS_LLM_BASE_URL and falls back to the LM Studio default.
+const LM_STUDIO_URL = LLM_BASE_URL
 
 // Test settings that mirror what the playground uses
 const testSettings: LLMSettings = {
@@ -365,66 +371,39 @@ beforeAll(async () => {
   hasLLM = llmCapability !== null
 
   if (hasLLM) {
-    // Check for vision models using the same getLocalModels function
+    // Vision capability, via the SHARED probe in batteries/audit.ts.
+    //
+    // This used to be a local copy, and it had drifted: it still sent a 1x1 PNG, which real
+    // vision preprocessors reject ("Cannot handle this data type: (1,1,1)"). That bug was
+    // found and fixed once — in audit.ts — and the duplicate here kept it alive, quietly
+    // false-negativing genuinely multimodal models so every vision test self-skipped.
+    //
+    // A DECLARED model is checked first, because on-demand servers (mlx-omni-server) report
+    // an EMPTY /v1/models: there is nothing to discover, so discovery alone finds no vision.
     try {
-      const models = await getLocalModels(LM_STUDIO_URL)
-      const visionModels = models.filter(isVisionModel)
-      console.log(
-        `LM Studio: ${models.length} models, ${visionModels.length} vision-capable`
-      )
-      if (visionModels.length > 0) {
-        console.log(`Vision models: ${visionModels.join(', ')}`)
-        // Actually test if vision works by sending a minimal request
+      if (VISION_MODEL) {
+        hasVision = await checkVision(LM_STUDIO_URL, VISION_MODEL)
+        console.log(
+          `Vision: ${VISION_MODEL} (declared) → ${
+            hasVision ? 'works' : 'NOT usable'
+          }`
+        )
+      } else {
+        const models = await getLocalModels(LM_STUDIO_URL)
+        const visionModels = models.filter(isVisionModel)
+        console.log(
+          `${models.length} models, ${visionModels.length} vision-capable`
+        )
         for (const model of visionModels) {
-          console.log(`🔍 Testing vision capability: ${model}`)
-          try {
-            const testResponse = await fetch(
-              `${LM_STUDIO_URL}/chat/completions`,
-              {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                  model,
-                  messages: [
-                    {
-                      role: 'user',
-                      content: [
-                        {
-                          type: 'text',
-                          text: 'test',
-                        },
-                        {
-                          type: 'image_url',
-                          image_url: {
-                            url: 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==',
-                          },
-                        },
-                      ],
-                    },
-                  ],
-                  max_tokens: 1,
-                }),
-              }
-            )
-            if (testResponse.ok) {
-              hasVision = true
-              console.log(`✅ Vision test for ${model}: works`)
-              break
-            } else {
-              const errorData = await testResponse.json().catch(() => ({}))
-              console.log(
-                `🧪 Vision test for ${model}: HTTP ${
-                  testResponse.status
-                } - ${JSON.stringify(errorData)}`
-              )
-            }
-          } catch (e: any) {
-            console.log(`🧪 Vision test for ${model}: ${e.message}`)
+          if (await checkVision(LM_STUDIO_URL, model)) {
+            hasVision = true
+            console.log(`Vision: ${model} → works`)
+            break
           }
         }
       }
     } catch (e) {
-      console.log('Could not fetch models:', e)
+      console.log('Could not determine vision capability:', e)
     }
   } else {
     console.log('No LLM configured, using mocks')

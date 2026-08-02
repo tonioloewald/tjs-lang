@@ -48,3 +48,12 @@ export const LLM_BASE_URL =
  */
 export const LLM_MODEL = env('TJS_LLM_MODEL')
 export const EMBEDDING_MODEL = env('TJS_EMBEDDING_MODEL')
+
+/**
+ * Vision-capable model, declared rather than discovered.
+ *
+ * Same reason as the two above: an on-demand server reports an EMPTY `/v1/models`, so a
+ * discovery pass finds nothing to probe and every vision test self-skips — which reads as
+ * "passing" while covering nothing.
+ */
+export const VISION_MODEL = env('TJS_VISION_MODEL')

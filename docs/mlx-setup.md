@@ -25,6 +25,32 @@ audit classifies each into LLM / embedding / vision / structured-output capable.
 including the TTS endpoint the narrative/voice work (ariosto) needs — behind the same
 OpenAI-compatible API the batteries already speak.
 
+## Vision: not available on mlx-omni-server (verified 2026-08-02, v0.5.3)
+
+**The vision tests cannot run against MLX.** This is a server limitation, not a model one,
+and it is worth writing down because it costs a multi-gigabyte download to rediscover.
+
+`/v1/chat/completions` declares `content` as `string | Array<{[k: string]: string}> | null`.
+The array form therefore accepts `{type:'text', text:'…'}` — every value is a string — but
+**rejects** `{type:'image_url', image_url:{url:'…'}}`, because `image_url` is a nested
+object. The request fails schema validation before any model is consulted:
+
+```
+"Input should be a valid string" … loc: ["body","messages",0,"content","str"]
+```
+
+The server also exposes `/anthropic/v1/messages`, whose schema *does* include a
+`RequestImageBlock`, but sending an image there returned `Internal Server Error` with
+`mlx-community/SmolVLM-Instruct-bf16`.
+
+**Consequence:** run the vision lane against LM Studio, which speaks the OpenAI multimodal
+format. Everything else — chat, embeddings, the full `bun test` gate — works on MLX; see
+above. The vision examples self-skip, which is expected rather than a failure.
+
+**If you want to close this**, the work is teaching `src/batteries/llm.ts` a second request
+shape for vision and routing it to `/anthropic/v1/messages` — worth doing only if the
+Anthropic endpoint's 500 turns out to be model-specific.
+
 ## Setup
 
 Verified end-to-end on macOS 26.5 / Apple silicon, 2026-07-30.
