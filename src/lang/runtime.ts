@@ -959,6 +959,45 @@ export function NotEq(a: unknown, b: unknown): boolean {
   return !Eq(a, b)
 }
 
+// ============================================================================
+// Legacy equality — bridges back to JavaScript's semantics
+// ============================================================================
+//
+// TJS fixes `==`/`===`, and a fixed operator has no construct to mark, because it is still
+// spelled the same. `unsafe` cannot help here: there is nothing at the site to point at.
+// So the escape is a NAME. Reaching for one is deliberate, greppable, and the word
+// `Legacy` does the teaching — you are asking for the behaviour TJS exists to correct.
+//
+// THE NAMES ARE DELIBERATELY LONG. `dangerouslySetInnerHTML` is the model: the friction is
+// the feature. A short alias (`Leq`, `Lne`) would make the escape as cheap to reach for as
+// the safe path, which defeats the point — an escape should cost a moment's thought and be
+// obvious in review. Do not add abbreviations.
+//
+// Where they differ from TJS equality, exactly:
+//   NaN vs NaN                    Legacy* false   ·  Eq true (JS gets this wrong)
+//   null vs undefined             Legacy* false   ·  Eq true
+//   boxed String/Boolean vs prim  Legacy* varies  ·  Eq true (unwraps)
+
+/** JavaScript's `==`, coercion and all. */
+export function LegacyEquals(a: unknown, b: unknown): boolean {
+  return a == b
+}
+
+/** JavaScript's `!=`, coercion and all. */
+export function LegacyNot(a: unknown, b: unknown): boolean {
+  return a != b
+}
+
+/** JavaScript's `===`: NaN is not itself, and a boxed primitive is not its value. */
+export function LegacyExactly(a: unknown, b: unknown): boolean {
+  return a === b
+}
+
+/** JavaScript's `!==`. */
+export function LegacyNotExactly(a: unknown, b: unknown): boolean {
+  return a !== b
+}
+
 /**
  * Check if a value is a TJS error
  */
@@ -1912,6 +1951,10 @@ export function createRuntime() {
     // Honest equality (== / != with TjsEquals)
     Eq,
     NotEq,
+    LegacyEquals,
+    LegacyNot,
+    LegacyExactly,
+    LegacyNotExactly,
     // Honest typeof (typeof with TjsEquals)
     TypeOf,
     // Honest truthiness (unwraps boxed primitives)
@@ -2005,6 +2048,10 @@ export const runtime = {
   // Honest equality (used by == and != with TjsEquals)
   Eq,
   NotEq,
+  LegacyEquals,
+  LegacyNot,
+  LegacyExactly,
+  LegacyNotExactly,
   // Honest typeof (used by typeof with TjsEquals)
   TypeOf,
   // Honest truthiness (used in TjsStandard for boxed-primitive coercion)

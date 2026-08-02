@@ -1063,6 +1063,12 @@ export function transpileToJS(
   const needsIsNot = code.includes('IsNot(')
   const needsEq = code.includes('Eq(')
   const needsNotEq = code.includes('NotEq(')
+  // Legacy equality bridges — emitted only when the author reached for one, which is the
+  // point: they are deliberate, greppable escapes back to JavaScript's semantics.
+  const needsLegacyEquals = code.includes('LegacyEquals(')
+  const needsLegacyNot = code.includes('LegacyNot(')
+  const needsLegacyExactly = code.includes('LegacyExactly(')
+  const needsLegacyNotExactly = code.includes('LegacyNotExactly(')
   const needsTypeOf = code.includes('TypeOf(')
   // Type system constructors (from Type/Generic/FunctionPredicate/Enum/Union declarations)
   const needsType = /\bType\(/.test(code)
@@ -1138,6 +1144,20 @@ export function transpileToJS(
     }
     if (needsNotEq) {
       inlineParts.push(`function NotEq(a,b){return!Eq(a,b)}`)
+    }
+
+    // Legacy equality — JavaScript's own semantics, by explicit request.
+    if (needsLegacyEquals) {
+      inlineParts.push(`function LegacyEquals(a,b){return a==b}`)
+    }
+    if (needsLegacyNot) {
+      inlineParts.push(`function LegacyNot(a,b){return a!=b}`)
+    }
+    if (needsLegacyExactly) {
+      inlineParts.push(`function LegacyExactly(a,b){return a===b}`)
+    }
+    if (needsLegacyNotExactly) {
+      inlineParts.push(`function LegacyNotExactly(a,b){return a!==b}`)
     }
 
     // TypeOf (honest typeof)

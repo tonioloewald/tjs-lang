@@ -22,6 +22,27 @@ const p2 = new Point(10, 20) // Still works, but linter warns
 
 The `wrapClass()` function in the runtime uses a Proxy to intercept calls and auto-construct. In native TJS, `TjsClass` is on by default, so all `class` declarations are wrapped. TS-originated code requires an explicit `TjsClass` directive. Built-in constructors (`Boolean`, `Number`, `String`, etc.) and old-style `function` + `prototype` constructors are never touched because they may have intentional dual behavior (e.g., `Boolean(0)` returns `false` but `new Boolean(0)` returns a truthy wrapper object).
 
+## Legacy equality — bridges back to JavaScript
+
+TJS's `==` and `===` are fixed (see Equality Operators). A fixed **operator** has no
+construct to mark — it is still spelled the same — so `unsafe` cannot help. The escape is a
+**name**:
+
+| function                 | is exactly JavaScript's…                                          |
+| ------------------------ | ----------------------------------------------------------------- |
+| `LegacyEquals(a, b)`     | `a == b` (coercion and all)                                       |
+| `LegacyNot(a, b)`        | `a != b`                                                          |
+| `LegacyExactly(a, b)`    | `a === b` (NaN is not itself; a boxed primitive is not its value) |
+| `LegacyNotExactly(a, b)` | `a !== b`                                                         |
+
+```js
+if (LegacyEquals(input, 0)) { … }   // yes, I want '' and false to match 0
+```
+
+**The names are deliberately long.** `dangerouslySetInnerHTML` is the model: the friction is
+the feature. An escape should cost a moment's thought and be obvious in review, so there are
+no short aliases and none should be added.
+
 ## `unsafe <expression>` — the per-construct escape
 
 TJS's rules are **unconditional**: the file extension is the gate, the way ESM made
