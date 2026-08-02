@@ -25,31 +25,53 @@ audit classifies each into LLM / embedding / vision / structured-output capable.
 including the TTS endpoint the narrative/voice work (ariosto) needs — behind the same
 OpenAI-compatible API the batteries already speak.
 
-## Vision: not available on mlx-omni-server (verified 2026-08-02, v0.5.3)
+## Vision on mlx-omni-server: possible in principle, blocked in practice (v0.5.3, 2026-08-02)
 
-**The vision tests cannot run against MLX.** This is a server limitation, not a model one,
-and it is worth writing down because it costs a multi-gigabyte download to rediscover.
+Investigated properly, because the first answer ("the server can't do vision") was wrong and
+the real picture is more useful. Three separate gates, in order:
 
-`/v1/chat/completions` declares `content` as `string | Array<{[k: string]: string}> | null`.
-The array form therefore accepts `{type:'text', text:'…'}` — every value is a string — but
-**rejects** `{type:'image_url', image_url:{url:'…'}}`, because `image_url` is a nested
-object. The request fails schema validation before any model is consulted:
+**1. The request schema.** `/v1/chat/completions` types `content` as
+`string | Array<{[k: string]: string}> | null`. The array form therefore accepts
+`{type:'text', text:'…'}` — all values are strings — but **rejects the standard OpenAI
+image block** `{type:'image_url', image_url:{url:'…'}}`, because `image_url` is a nested
+object. Pydantic refuses it before any model is consulted:
 
 ```
 "Input should be a valid string" … loc: ["body","messages",0,"content","str"]
 ```
 
-The server also exposes `/anthropic/v1/messages`, whose schema *does* include a
-`RequestImageBlock`, but sending an image there returned `Internal Server Error` with
-`mlx-community/SmolVLM-Instruct-bf16`.
+A **flattened** `{type:'image_url', image_url:'<data-uri>'}` does satisfy the schema and gets
+through to the handler. So our batteries would need a non-standard request shape.
 
-**Consequence:** run the vision lane against LM Studio, which speaks the OpenAI multimodal
-format. Everything else — chat, embeddings, the full `bun test` gate — works on MLX; see
-above. The vision examples self-skip, which is expected rather than a failure.
+**2. Architecture routing.** The server sends a model to `mlx_vlm` only if it matches:
 
-**If you want to close this**, the work is teaching `src/batteries/llm.ts` a second request
-shape for vision and routing it to `/anthropic/v1/messages` — worth doing only if the
-Anthropic endpoint's 500 turns out to be model-specific.
+```python
+MLX_VLM_ONLY_MODELS = {"gemma4"}      # chat/mlx/model_types.py
+```
+
+**One architecture.** Everything else falls through to `mlx_lm`, which has no vision
+support, and fails with `Model type <arch> not supported` — verified with
+`SmolVLM-Instruct-bf16` (`idefics3`), which mlx_vlm itself supports perfectly well. So the
+choice of VLM is not free: it must be gemma4.
+
+**3. Weight compatibility.** `mlx-community/gemma-4-e2b-it-4bit` routes correctly to
+`mlx_vlm` and then fails loading:
+
+```
+Received 2 parameters not in model:
+  language_model.model.per_layer_model_projection.biases, …scales
+```
+
+— a build/mlx_vlm-version skew, not a routing problem. Another gemma4 build may work; each
+attempt is a multi-gigabyte download, so it is not worth doing speculatively.
+
+**Practical answer:** run the vision lane against LM Studio, which speaks the standard
+OpenAI multimodal format. Chat, embeddings and the full `bun test` gate all work on MLX. The
+vision examples self-skip, which is expected rather than a failure.
+
+**To close it properly** you need all three: a gemma4 build whose weights load, plus teaching
+`src/batteries/llm.ts` the flattened image shape for this backend. Worth doing only if the
+vision lane starts earning its keep.
 
 ## Setup
 
