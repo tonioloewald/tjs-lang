@@ -29,7 +29,7 @@ describe('unsafe exempts one construct', () => {
   it('the rule still applies everywhere else — that is the whole point', () => {
     expect(() =>
       compile(`function f(x: 0) { return new Date(x).getTime() }`)
-    ).toThrow(/new Date\(\) is not allowed/)
+    ).toThrow(/`?new Date\(\)`? is not allowed/)
   })
 
   it('works for the other flagged constructs', () => {
@@ -97,10 +97,10 @@ describe('abolishing a mode (TjsDate was the first)', () => {
   // is how the mode system grew. `unsafe` replaces the lever, so the mode can go.
   it('the rule cannot be dialed off in native TJS', () => {
     const src = `function f(x: 0) { return new Date(x).getTime() }`
-    expect(() => compile(src)).toThrow(/new Date\(\) is not allowed/)
+    expect(() => compile(src)).toThrow(/`?new Date\(\)`? is not allowed/)
     // …and no directive rescues it, because there is no directive any more.
     expect(() => compile(`TjsStrict\n${src}`)).toThrow(
-      /new Date\(\) is not allowed/
+      /`?new Date\(\)`? is not allowed/
     )
   })
 
@@ -145,7 +145,7 @@ describe('/* @tjs-unsafe */ — the bridge for TypeScript source', () => {
     const converted = fromTS(ts, { emitTJS: true }).code
     expect(() =>
       compile(converted.replace(/\/\* tjs <- [^*]*\*\/\n?/, ''))
-    ).toThrow(/new Date\(\) is not allowed/)
+    ).toThrow(/`?new Date\(\)`? is not allowed/)
   })
 })
 

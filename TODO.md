@@ -442,9 +442,9 @@ to `ABOLISHED_DIRECTIVES` so the removed word teaches instead of becoming a runt
 Date(x)` is the escape; `dialect: 'js'` unaffected.
       **Audited 2026-08-02 — five are clear, two need a decision, one should not go.**
 
-- [ ] **`TjsNoVar`** — clear. `unsafe var x = 1` verified working (the marker handles
+- [x] **`TjsNoVar`** — DONE 2026-08-02. `unsafe var x = 1` is the escape. `unsafe var x = 1` verified working (the marker handles
       statements, not just expressions).
-- [ ] **`TjsNoeval`** — clear. `unsafe eval(s)` verified working.
+- [x] **`TjsNoeval`** — DONE 2026-08-02. `unsafe eval(src)` is the escape. `unsafe eval(s)` verified working.
 - [ ] **`TjsEquals`** — clear. The `Legacy*` bridges are the escape and they ship.
 - [ ] **`TjsClass`** — clear, and needs NO escape: wrapping is purely **additive**. Both
       `Point(1,2)` and `new Point(1,2)` compile; explicit `new` is a lint warning, not a

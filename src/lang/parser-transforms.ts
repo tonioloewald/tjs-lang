@@ -3758,7 +3758,7 @@ export function validateNoDate(source: string, warnings?: string[]): string {
     {
       pattern: /\bnew\s+Date\b/,
       message:
-        'new Date() is not allowed in TjsDate mode. Use Timestamp.now()/Timestamp.from() for wall-clock dates, or performance.now() for a monotonic counter (timing, id generation)',
+        '`new Date()` is not allowed in TJS — the Date object is mutable and timezone-dependent. Use Timestamp.now()/Timestamp.from() for wall-clock time, or performance.now() for a monotonic counter. To keep Date deliberately: `unsafe new Date(x)`.',
     },
   ]
   const warns = [
@@ -3895,7 +3895,7 @@ export function validateNoVar(source: string): string {
   const varPattern = /(?<![a-zA-Z_$])\bvar\s+/
   if (varPattern.test(maskLiterals(source))) {
     throw new Error(
-      'var is not allowed in TjsNoVar mode. Use const or let instead.'
+      '`var` is not allowed in TJS — use `const` or `let`. If you genuinely need function-scoped hoisting, mark it: `unsafe var x = 1`.'
     )
   }
   return source
@@ -3908,7 +3908,7 @@ export function validateNoEval(source: string, warnings?: string[]): string {
   const scan = maskLiterals(source)
   if (evalPattern.test(scan)) {
     throw new Error(
-      'eval() is not allowed in TjsNoeval mode. Use Eval() from TJS runtime for safe evaluation.'
+      '`eval()` is not allowed in TJS. Use `Eval()` from the TJS runtime for sandboxed evaluation, or mark a deliberate exception: `unsafe eval(src)`.'
     )
   }
 

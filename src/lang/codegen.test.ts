@@ -2274,21 +2274,25 @@ describe('rest parameter metadata', () => {
     expect(info.params.args.type.kind).toBe('array')
   })
 
-  describe('TjsNoVar', () => {
-    it('rejects var declarations', () => {
-      expect(() => tjs('TjsNoVar\nvar x = 1')).toThrow(
-        'var is not allowed in TjsNoVar mode'
-      )
+  describe('no `var` (abolished as a mode 2026-08-02 — now unconditional)', () => {
+    it('rejects var declarations without any directive', () => {
+      expect(() => tjs('var x = 1')).toThrow(/`?var`? is not allowed/)
+    })
+
+    it('`unsafe var` is the deliberate exception', () => {
+      expect(() => tjs('unsafe var x = 1')).not.toThrow()
     })
 
     it('allows const and let', () => {
-      const result = tjs('TjsNoVar\nconst x = 1\nlet y = 2')
+      const result = tjs('const x = 1\nlet y = 2')
       expect(result.code).toContain('const x = 1')
       expect(result.code).toContain('let y = 2')
     })
 
     it('is included in TjsStrict', () => {
-      expect(() => tjs('TjsStrict\nvar x = 1')).toThrow('var is not allowed')
+      expect(() => tjs('TjsStrict\nvar x = 1')).toThrow(
+        /`?var`? is not allowed/
+      )
     })
   })
 
