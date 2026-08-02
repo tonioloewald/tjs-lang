@@ -455,10 +455,27 @@ Date(x)` is the escape; `dialect: 'js'` unaffected.
       - [ ] Boolean-coercion half likely needs no escape at all — boxed-primitive
             truthiness is pure footgun. Confirm before assuming.
 
-- [ ] **`TjsDictDefaults` has no fine-grained escape.** The only way out today is marking the
-      whole FUNCTION unsafe with a leading `!`, which disables _all_ of that function's
-      validation rather than just the merge — an escape more destructive than the thing being
-      escaped, which violates friction-proportional-to-risk. Needs a per-param escape first.
+- [x] **`TjsDictDefaults` — escape solved, mode now abolishable.** `LegacyDefault({...})`
+      wraps a single parameter's default and restores JavaScript's atomic semantics. It is
+      PER-PARAMETER, which was the whole problem: the previous escape (a leading `!` on the
+      function) disabled _all_ of that function's validation rather than just the merge —
+      an escape more destructive than the thing being escaped.
+- [ ] **Converter: wrap object-literal defaults and invite the upgrade.** This is the
+      graduation-time trap. Converted TS keeps atomic defaults only because modes are off;
+      the moment a file graduates, `args = {x: 0, y: 0}` silently becomes a dictionary. So
+      conversion should wrap the default AND name the upgrade at the site:
+
+      ```js
+      // TJS: remove `LegacyDefault(…)` for per-member defaults, member validation and
+      // excess-key stripping — you probably want that.
+      function f(args = LegacyDefault({ x: 0, y: 0 })) {}
+      ```
+
+      Obligation 1 (meaning preserved through graduation) plus obligation 3. The comment is
+      the point: it makes the better behavior a one-word deletion rather than something to
+      discover.
+
+- [ ] Then abolish the `TjsDictDefaults` directive itself.
 
 **Abolished 2026-08-02 by removing the need for it:**
 
