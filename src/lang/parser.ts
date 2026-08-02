@@ -165,10 +165,26 @@ export function preprocess(
 
   // Handle TJS mode directives (can appear in any order after safety)
   // TjsStrict enables all TJS modes (useful for TS-originated code opting in)
+  // Modes that USED to be dialable and no longer are. Left as a bare identifier they
+  // would emit a ReferenceError at runtime, which teaches nothing — so name the change
+  // and point at the replacement, per errors-as-curriculum.
+  const ABOLISHED_DIRECTIVES: Record<string, string> = {
+    TjsDate: `\`TjsDate\` is no longer a mode. Raw \`Date\` is always banned in .tjs — the file extension is the gate. For a deliberate exception, mark the construct: \`const d = unsafe new Date(x)\`.`,
+  }
+  for (const [name, guidance] of Object.entries(ABOLISHED_DIRECTIVES)) {
+    if (
+      new RegExp(
+        `^\\s*(?://[^\\n]*\\n|/\\*[\\s\\S]*?\\*/\\s*)*\\s*${name}\\b`
+      ).test(source)
+    ) {
+      throw new Error(guidance)
+    }
+  }
+
   // TjsCompat disables all TJS modes (useful for native TJS opting out)
   // Individual modes: TjsEquals, TjsClass, TjsDate, TjsNoeval, TjsStandard, TjsSafeEval
   const directivePattern =
-    /^(\s*(?:\/\/[^\n]*\n|\/\*[\s\S]*?\*\/\s*)*)\s*(TjsStrict|TjsCompat|TjsEquals|TjsClass|TjsDate|TjsNoeval|TjsNoVar|TjsStandard|TjsSafeEval|TjsSafeAssign|TjsDictDefaults)\b/
+    /^(\s*(?:\/\/[^\n]*\n|\/\*[\s\S]*?\*\/\s*)*)\s*(TjsStrict|TjsCompat|TjsEquals|TjsClass|TjsNoeval|TjsNoVar|TjsStandard|TjsSafeEval|TjsSafeAssign|TjsDictDefaults)\b/
 
   let match
   while ((match = source.match(directivePattern))) {
@@ -201,8 +217,6 @@ export function preprocess(
       tjsModes.tjsEquals = true
     } else if (directive === 'TjsClass') {
       tjsModes.tjsClass = true
-    } else if (directive === 'TjsDate') {
-      tjsModes.tjsDate = true
     } else if (directive === 'TjsNoeval') {
       tjsModes.tjsNoeval = true
     } else if (directive === 'TjsNoVar') {
@@ -413,7 +427,12 @@ export function preprocess(
   // A whole-file opt-out would also silence the next, accidental use.
   const ruleSource = maskUnsafe(source)
 
-  // Validate TjsDate mode - check for Date usage
+  // Raw `Date` is banned in native TJS. ABOLISHED AS A MODE (2026-08-02): there is no
+  // `TjsDate` directive any more, so a `.tjs` file cannot dial this rule off — the
+  // extension is the gate, and `unsafe new Date(...)` is the per-construct escape.
+  //
+  // The flag itself survives because it still tracks DIALECT: plain JS and TS-originated
+  // source must keep raw Date, or TJS would stop being a superset of JS.
   if (tjsModes.tjsDate) {
     validateNoDate(ruleSource, modeWarnings)
   }

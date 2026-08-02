@@ -89,3 +89,34 @@ describe('unsafe does not break legal JavaScript (TJS ⊇ JS)', () => {
     expect(maskUnsafe(src)).toBe(src)
   })
 })
+
+describe('abolishing a mode (TjsDate was the first)', () => {
+  // The end state: the file extension is the only gate. A rule that can be dialed off
+  // per-file is not a rule, and once a per-file lever exists it needs a spelling — which
+  // is how the mode system grew. `unsafe` replaces the lever, so the mode can go.
+  it('the rule cannot be dialed off in native TJS', () => {
+    const src = `function f(x: 0) { return new Date(x).getTime() }`
+    expect(() => compile(src)).toThrow(/new Date\(\) is not allowed/)
+    // …and no directive rescues it, because there is no directive any more.
+    expect(() => compile(`TjsStrict\n${src}`)).toThrow(
+      /new Date\(\) is not allowed/
+    )
+  })
+
+  it('an abolished directive TEACHES instead of becoming a ReferenceError', () => {
+    // Left unhandled, a removed directive is just a bare identifier — it would emit
+    // `TjsDate is not defined` at runtime, which explains nothing.
+    expect(() => compile(`TjsDate\nfunction f(x: 0) { return x }`)).toThrow(
+      /no longer a mode.*unsafe new Date/s
+    )
+  })
+
+  it('plain JS keeps raw Date — abolishing a mode must not break TJS ⊇ JS', () => {
+    expect(() =>
+      tjs(`function f(x) { return new Date(x).getTime() }`, {
+        runTests: false,
+        dialect: 'js',
+      })
+    ).not.toThrow()
+  })
+})

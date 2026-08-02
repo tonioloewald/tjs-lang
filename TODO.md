@@ -352,6 +352,38 @@ every hole.
       where possible") are a harder problem and deserve their own pass — but the simple set
       must be airtight first, because that is what people paste.
 
+## Abolishing the modes, one at a time (in progress, 2026-08-02)
+
+**Goal: the file extension is the only gate**, the way ESM made `"use strict"` implicit.
+A rule that can be dialed off per file is not a rule — and once a per-file lever exists it
+needs a spelling, which is how the mode system grew in the first place.
+
+**The enabler shipped: `unsafe <expression>`** (`src/lang/unsafe-escape.test.ts`). It marks
+ONE construct as deliberate, at the site. That is what lets a rule become unconditional: a
+whole-file opt-out would also silence the next, _accidental_ use.
+
+**Procedure per mode** — remove the directive, keep the dialect-driven flag (plain JS and
+TS-originated source must keep the old behavior or TJS stops being a superset), add an entry
+to `ABOLISHED_DIRECTIVES` so the removed word teaches instead of becoming a runtime
+`ReferenceError`, then run the suite and the dogfood corpus.
+
+- [x] **`TjsDate`** — first one done. Raw `Date` is now always banned in `.tjs`; `unsafe new
+Date(x)` is the escape; `dialect: 'js'` unaffected.
+- [ ] `TjsNoVar`
+- [ ] `TjsNoeval`
+- [ ] `TjsEquals`
+- [ ] `TjsClass`
+- [ ] `TjsStandard`
+- [ ] `TjsDictDefaults`
+- [ ] `TjsSafeAssign`
+- [ ] **Then `TjsStrict`/`TjsCompat` themselves** — the meta-directives are the last per-file
+      levers. `TjsCompat` in particular overlaps with `dialect: 'js'`, which is
+      extension-driven and should be the only way to say it.
+- [ ] **Blocker for full self-hosting:** our own source is TypeScript, so it cannot contain
+      `unsafe` (tsc rejects it). `Timestamp.ts`/`LegalDate.ts` therefore sit at 91/93 on
+      stage 3. Needs the `/* @tjs … */` passthrough to inject TJS-only syntax from TS
+      source, or those files must become `.tjs`.
+
 ## "TJS is TJS" — retiring modes into syntax (direction, 2026-08-01)
 
 **End state: not a pile of modes, but one language that emits legal, correct TJS.** Modes are

@@ -2303,7 +2303,7 @@ const VALID_TJS_MODES = new Set([
   'TjsStrict',
   'TjsEquals',
   'TjsClass',
-  'TjsDate',
+  // 'TjsDate' removed 2026-08-02 — no longer a dialable mode; use `unsafe` at the site.
   'TjsNoeval',
   'TjsNoVar',
   'TjsStandard',
