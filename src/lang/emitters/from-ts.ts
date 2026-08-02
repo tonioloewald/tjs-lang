@@ -2301,8 +2301,6 @@ interface TjsAnnotation {
 /** Valid TJS mode directives */
 const VALID_TJS_MODES = new Set([
   'TjsStrict',
-  'TjsEquals',
-  'TjsClass',
   // 'TjsDate' removed 2026-08-02 — no longer a dialable mode; use `unsafe` at the site.
   'TjsStandard',
 ])

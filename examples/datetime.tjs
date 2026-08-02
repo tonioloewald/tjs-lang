@@ -2,19 +2,21 @@
 // - Constructor accepts string, number, or null
 // - Setter accepts string, number, or null
 // - Getter returns a Date object
-
-TjsCompat
-TjsClass
+//
+// Note the `unsafe new Date(...)` markers. Raw Date is not allowed in TJS — Timestamp
+// replaces it — but this example is specifically ABOUT wrapping Date, so each use says so
+// at the site. That is per-construct: an accidental `new Date()` added here later would
+// still be rejected.
 
 class DateTime {
   #value
 
   constructor(initial: '' | 0 | null) {
-    this.#value = initial === null ? new Date() : new Date(initial)
+    this.#value = initial === null ? unsafe new Date() : unsafe new Date(initial)
   }
 
   set value(v: '' | 0 | null) {
-    this.#value = v === null ? new Date() : new Date(v)
+    this.#value = v === null ? unsafe new Date() : unsafe new Date(v)
   }
 
   get value() {

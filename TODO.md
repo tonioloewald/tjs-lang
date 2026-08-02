@@ -445,11 +445,11 @@ Date(x)` is the escape; `dialect: 'js'` unaffected.
 - [x] **`TjsNoVar`** — DONE 2026-08-02. `unsafe var x = 1` is the escape. `unsafe var x = 1` verified working (the marker handles
       statements, not just expressions).
 - [x] **`TjsNoeval`** — DONE 2026-08-02. `unsafe eval(src)` is the escape. `unsafe eval(s)` verified working.
-- [ ] **`TjsEquals`** — clear. The `Legacy*` bridges are the escape and they ship.
-- [ ] **`TjsClass`** — clear, and needs NO escape: wrapping is purely **additive**. Both
+- [x] **`TjsEquals`** — DONE 2026-08-02 (`DangerousLegacyEquals`/`LegacyExactly` are the escapes). Was: clear. The `Legacy*` bridges are the escape and they ship.
+- [x] **`TjsClass`** — DONE 2026-08-02 (purely additive — no escape needed). Was: clear, and needs NO escape: wrapping is purely **additive**. Both
       `Point(1,2)` and `new Point(1,2)` compile; explicit `new` is a lint warning, not a
       ban. There is nothing to opt out of.
-- [ ] **`TjsSafeAssign`** — clear. The escape already exists and is documented: declare
+- [x] **`TjsSafeAssign`** — DONE 2026-08-02 (declare `let Foo` to keep it mutable). Was: clear. The escape already exists and is documented: declare
       `let Foo` up front instead of relying on bare-assignment auto-`const`.
 
 **Needs a decision before abolishing:**

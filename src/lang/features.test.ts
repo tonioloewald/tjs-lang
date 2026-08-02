@@ -1196,7 +1196,6 @@ describe('signature tests (transpile-time)', () => {
   it('should run signature tests for methods on classes with multiple constructors', () => {
     const result = tjs(
       `
-      TjsClass
 
       class Point {
         constructor(x: 0.0, y: 0.0) {

@@ -310,36 +310,41 @@ describe('the rename seam: acceptance is necessary but NOT sufficient', () => {
   })
 })
 
-describe('the migration ladder (Crockford/JSLint model)', () => {
-  // JSLint worked because adoption was PROGRESSIVE: you kept your JavaScript, the tool
-  // named each bad part and why, and you tightened one rule at a time. TJS's modes support
-  // exactly that shape — `TjsCompat` turns everything off (your TS semantics, unchanged),
-  // and each named mode opts back in individually.
+describe('the migration ladder is now PER-CONSTRUCT, not per-mode', () => {
+  // It used to be per-mode: `TjsCompat`, then turn rules back on one at a time. The mode
+  // abolitions removed that — the file extension is the gate, so there is no per-file dial.
   //
-  // This is the mechanism the whole TS → TJS on-ramp rests on, so it is pinned here. What
-  // is still missing is the JSLint *experience* on top of it: a report of what each mode
-  // would change, and warnings at the sites. See TODO "Paving the TS → TJS path".
+  // The ladder did not disappear; it got FINER. Instead of "turn on honest equality for
+  // this file", you convert the file and mark the individual sites that need the old
+  // behavior — `unsafe new Date(x)`, `DangerousLegacyEquals(a, b)`, `LegacyDefault({…})`.
+  // That is strictly better for the thing a ladder is for: the accidental use is still
+  // caught, where a mode-off file silenced it.
   const src = (d: string) =>
     `${d}\nfunction f(a: 0, b: 0) { if (a == b) return 1\n return 0 }`
   const usesTjsEquality = (d: string) => compile(src(d)).code.includes('Eq(')
 
-  it('TjsCompat turns all modes OFF — your TypeScript semantics, unchanged', () => {
+  it('native TJS has the rules on, with no directive needed', () => {
+    expect(usesTjsEquality('')).toBe(true)
+  })
+
+  it('TjsCompat still means JS-compatible — that one is DIALECT, not a mode', () => {
+    // It survives because it answers a different question: which language is this?
+    // Plain JS and TS-originated source must keep JS semantics or TJS stops being a
+    // superset. What is gone is dialing individual rules.
     expect(usesTjsEquality('TjsCompat')).toBe(false)
   })
 
-  it('a mode can be opted back into INDIVIDUALLY on top of TjsCompat', () => {
-    // The rung-at-a-time property. Without this the on-ramp is all-or-nothing and the
-    // Crockford model is unavailable.
-    expect(usesTjsEquality('TjsCompat\nTjsEquals')).toBe(true)
+  it('you can no longer opt a single rule back in — the directive is gone', () => {
+    expect(() => compile(src('TjsCompat\nTjsEquals'))).toThrow(
+      /`TjsEquals` is no longer a mode/
+    )
   })
 
-  it('the same works on top of the fromTS marker', () => {
-    // So a converted file can graduate one mode at a time without hand-editing headers.
-    expect(usesTjsEquality('/* tjs <- x.ts */')).toBe(false)
-    expect(usesTjsEquality('/* tjs <- x.ts */\nTjsEquals')).toBe(true)
-  })
-
-  it('native TJS (no directive) has modes ON', () => {
-    expect(usesTjsEquality('')).toBe(true)
+  it('the per-site escape is what replaced it', () => {
+    // Same intent — "I want JavaScript's behavior here" — but scoped to one expression
+    // rather than a whole file.
+    expect(() =>
+      compile(`function f(a: 0, b: '') { return DangerousLegacyEquals(a, b) }`)
+    ).not.toThrow()
   })
 })

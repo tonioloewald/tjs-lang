@@ -167,25 +167,31 @@ export function preprocess(
   // would emit a ReferenceError at runtime, which teaches nothing — so name the change
   // and point at the replacement, per errors-as-curriculum.
   const ABOLISHED_DIRECTIVES: Record<string, string> = {
+    TjsEquals: `\`TjsEquals\` is no longer a mode. \`==\`/\`!=\` are always footgun-free in .tjs (no coercion, boxed primitives unwrapped, null == undefined). For JavaScript's behaviour use \`DangerousLegacyEquals(a, b)\` / \`LegacyExactly(a, b)\`.`,
+    TjsClass: `\`TjsClass\` is no longer a mode. Classes are always callable without \`new\` in .tjs — this is purely additive, \`new Point(1, 2)\` still works, so there is nothing to opt out of.`,
+    TjsSafeAssign: `\`TjsSafeAssign\` is no longer a mode. A first bare assignment to an undeclared Capitalised name becomes \`const\` in .tjs. To keep it mutable, declare it yourself: \`let Foo = …\`.`,
     TjsNoVar: `\`TjsNoVar\` is no longer a mode. \`var\` is always rejected in .tjs — the file extension is the gate. For a deliberate exception, mark it: \`unsafe var x = 1\`.`,
     TjsNoeval: `\`TjsNoeval\` is no longer a mode. \`eval()\` is always rejected in .tjs. For a deliberate exception, mark it: \`unsafe eval(src)\`. (\`new Function()\` is a warning, not an error.)`,
     TjsSafeEval: `\`TjsSafeEval\` is no longer a mode. \`Eval\`/\`SafeFunction\` are imported automatically if and only if your code calls them, so there is nothing to opt into.`,
     TjsDate: `\`TjsDate\` is no longer a mode. Raw \`Date\` is always banned in .tjs — the file extension is the gate. For a deliberate exception, mark the construct: \`const d = unsafe new Date(x)\`.`,
   }
-  for (const [name, guidance] of Object.entries(ABOLISHED_DIRECTIVES)) {
-    if (
-      new RegExp(
-        `^\\s*(?://[^\\n]*\\n|/\\*[\\s\\S]*?\\*/\\s*)*\\s*${name}\\b`
-      ).test(source)
-    ) {
-      throw new Error(guidance)
-    }
+  // Scan the WHOLE leading directive block, not just the first line. Directives stack —
+  // `TjsCompat` followed by `TjsClass` was the documented ladder — so anchoring at the very
+  // start missed an abolished name in any position but the first, and it fell through to a
+  // bare identifier and a runtime "X is not defined". Found by examples/datetime.tjs.
+  for (const rawLine of source.split('\n')) {
+    const t = rawLine.trim()
+    if (!t || t.startsWith('//') || t.startsWith('/*') || t.startsWith('*'))
+      continue
+    if (!/^Tjs[A-Za-z]+$/.test(t)) break // past the directive block
+    const guidance = ABOLISHED_DIRECTIVES[t]
+    if (guidance) throw new Error(guidance)
   }
 
   // TjsCompat disables all TJS modes (useful for native TJS opting out)
   // Individual modes: TjsEquals, TjsClass, TjsNoeval, TjsStandard
   const directivePattern =
-    /^(\s*(?:\/\/[^\n]*\n|\/\*[\s\S]*?\*\/\s*)*)\s*(TjsStrict|TjsCompat|TjsEquals|TjsClass|TjsStandard|TjsSafeAssign|TjsDictDefaults)\b/
+    /^(\s*(?:\/\/[^\n]*\n|\/\*[\s\S]*?\*\/\s*)*)\s*(TjsStrict|TjsCompat|TjsStandard|TjsDictDefaults)\b/
 
   let match
   while ((match = source.match(directivePattern))) {
@@ -213,14 +219,8 @@ export function preprocess(
       tjsModes.tjsStandard = false
       tjsModes.tjsSafeAssign = false
       tjsModes.tjsDictDefaults = false
-    } else if (directive === 'TjsEquals') {
-      tjsModes.tjsEquals = true
-    } else if (directive === 'TjsClass') {
-      tjsModes.tjsClass = true
     } else if (directive === 'TjsStandard') {
       tjsModes.tjsStandard = true
-    } else if (directive === 'TjsSafeAssign') {
-      tjsModes.tjsSafeAssign = true
     } else if (directive === 'TjsDictDefaults') {
       tjsModes.tjsDictDefaults = true
     }

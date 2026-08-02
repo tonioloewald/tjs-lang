@@ -293,7 +293,7 @@ function process(a: 0, b: 0) { return a + b }
 
   describe('Polymorphic constructors', () => {
     function runClass(source: string, returnExpr: string) {
-      const result = tjs('TjsClass\n' + source)
+      const result = tjs('' + source)
       const savedTjs = globalThis.__tjs
       globalThis.__tjs = createRuntime()
       try {
