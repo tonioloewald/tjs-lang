@@ -274,6 +274,18 @@ export class AgentVM<M extends Record<string, Atom<any, any>>> {
       }
     } finally {
       clearTimeout(timeout)
+      // The run is over — cancel anything it still has in flight.
+      //
+      // Previously only the TIMEOUT aborted, so a run ending any other way (fuel
+      // exhaustion, an atom error, or plain success) cleared the timer and left outbound
+      // requests alive with nothing left to cancel them. A time box you can only rely on
+      // when it expires is not a time box.
+      //
+      // Signalling, not awaiting: we do not wait for capabilities to unwind. Waiting is
+      // exactly how graceful shutdown becomes the vulnerability — a capability that never
+      // settles would hold the run open, turning cancellation into a path that starts
+      // unmetered work.
+      controller.abort()
     }
 
     // If there's an error but no output was set, set the error as output

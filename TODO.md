@@ -1812,11 +1812,27 @@ Status re-checked against source 2026-07-31.
 
 Named in the original priority-three. Almost nothing here has moved.
 
-- [ ] **Carry the budget in the request** — hops decrement the _caller's_ fuel envelope
-      instead of minting fresh local fuel. Today `X-Agent-Depth` is **cooperative** (`S5`,
-      ⚠️ nuanced): it stops accidental loops and friendly infrastructure, not an adversarial
-      endpoint that drops the header. Without carried budgets, one cheap entry point
-      _multiplies_ across the graph instead of dividing.
+- [x] **~~Carry the budget in the request~~ — RE-SCOPED 2026-08-03: not achievable, and
+      pretending otherwise was the real problem.** Budget cannot pass from one agent to
+      another across a system boundary. All you can hand over is **tokens and data**; the
+      other side takes care of itself. A fuel envelope is meaningful only inside one VM.
+
+      **The honest blast radius is what we control ourselves**, and it is now three things:
+
+      - **A time box.** `timeoutMs` bounds every run. This is the guarantee that always
+        holds regardless of what is downstream.
+      - **Shutting our own outbound work down.** DONE — the run now aborts its
+        `AbortController` on *every* exit path, not only when the timeout fires. Previously
+        a run ending by fuel exhaustion, an atom error or plain success cleared the timer
+        and left in-flight requests alive with nothing left to cancel them. A time box you
+        can only rely on when it expires is not a time box.
+      - **Quotas on what we summon.** DONE — per-atom call caps (above).
+
+      And the constraint on all of it: **grace must not become the vulnerability.** Teardown
+      *signals*; it does not await cleanup. Waiting is precisely how cancellation turns into
+      a path that starts unmetered work — a capability that never settles would otherwise
+      hold the run open forever.
+
 - [x] **Per-capability quotas — CALL COUNTS DONE 2026-08-03.** `quotas: { httpFetch: 3 }`
       as a run option; enforced in the atom exec wrapper BEFORE fuel and before execution,
       so an exhausted quota costs nothing and cannot have already made the call it exists to
