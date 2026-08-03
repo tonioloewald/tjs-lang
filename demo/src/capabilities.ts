@@ -4,6 +4,13 @@
  * Used by both playground.ts and LiveExample contexts
  */
 
+import {
+  checkVision,
+  isEmbeddingModel,
+  looksLikeVisionModel,
+} from '../../src/batteries/audit'
+import { VISION_MODEL } from '../../src/batteries/config'
+
 // Module-level cache for LM Studio models, keyed by endpoint URL
 let cachedLocalModels: Map<string, string[]> = new Map()
 
@@ -442,116 +449,22 @@ export function buildLLMBattery(settings: LLMSettings) {
 
   type BatteryResult = { content?: string; tool_calls?: any[] }
 
-  // Get a test image for vision capability testing
-  const getTestImage = async (): Promise<string | null> => {
-    // Browser: synthesize with canvas (circle and square like test-shapes.jpg)
-    if (
-      typeof document !== 'undefined' &&
-      typeof document.createElement === 'function'
-    ) {
-      try {
-        const canvas = document.createElement('canvas')
-        canvas.width = 200
-        canvas.height = 200
-        const ctx = canvas.getContext('2d')
-        if (ctx) {
-          // White background
-          ctx.fillStyle = 'white'
-          ctx.fillRect(0, 0, 200, 200)
-          // Blue circle on left
-          ctx.fillStyle = '#3366cc'
-          ctx.beginPath()
-          ctx.arc(60, 100, 40, 0, Math.PI * 2)
-          ctx.fill()
-          // Red square on right
-          ctx.fillStyle = '#cc3333'
-          ctx.fillRect(100, 60, 80, 80)
-          return canvas.toDataURL('image/jpeg', 0.9)
-        }
-      } catch {}
-    }
-
-    // Node/Bun: read test-shapes.jpg from disk
-    try {
-      const fs = await import('fs')
-      const path = await import('path')
-      const imagePath = path.join(process.cwd(), 'test-data/test-shapes.jpg')
-      const buffer = fs.readFileSync(imagePath)
-      const base64 = buffer.toString('base64')
-      return `data:image/jpeg;base64,${base64}`
-    } catch {}
-
-    return null
-  }
-
-  // Test if a model can actually do vision
-  const testVisionCapability = async (model: string): Promise<boolean> => {
-    try {
-      const testImage = await getTestImage()
-      if (!testImage) {
-        console.log(`🧪 Vision test for ${model}: test image not available`)
-        return false
-      }
-
-      const response = await fetch(`${customLlmUrl}/chat/completions`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          model,
-          messages: [
-            {
-              role: 'user',
-              content: [
-                {
-                  type: 'text',
-                  text: 'What shapes do you see? Reply briefly.',
-                },
-                { type: 'image_url', image_url: { url: testImage } },
-              ],
-            },
-          ],
-          max_tokens: 30,
-          temperature: 0,
-        }),
-      })
-
-      if (!response.ok) {
-        const errorText = await response.text().catch(() => '')
-        console.log(
-          `🧪 Vision test for ${model}: HTTP ${
-            response.status
-          } - ${errorText.slice(0, 100)}`
-        )
-        return false
-      }
-
-      const data = await response.json()
-      const answer = (data.choices?.[0]?.message?.content || '').toLowerCase()
-      // Accept circle, square, or red (canvas generates red circle, test-shapes.jpg has circle+square)
-      const isCorrect =
-        answer.includes('circle') ||
-        answer.includes('square') ||
-        answer.includes('red')
-      console.log(
-        `🧪 Vision test for ${model}: "${answer}" - ${isCorrect ? '✓' : '✗'}`
-      )
-      return isCorrect
-    } catch (e) {
-      console.log(`🧪 Vision test for ${model}: failed - ${e}`)
-      return false
-    }
-  }
-
-  // Find a working vision model by testing candidates
+  // Find a working vision model by testing candidates.
+  //
+  // The probe is `checkVision` from the batteries — the SHARED one, deliberately. This used
+  // to be a local `testVisionCapability` that asserted on the model's ANSWER ("does the reply
+  // mention a circle?"), and that is the wrong question: gemma-4 is a thinking model that
+  // returns an empty `content`, so a genuinely multimodal model was judged blind, discovery
+  // fell through to `model: 'local-model'`, the server 400'd, and the demo's own vision tests
+  // failed. Ask about SHAPE, never content — a model that accepts the multimodal request
+  // supports vision, however poorly it then answers.
   const findVisionModel = async (): Promise<string | null> => {
     // A DECLARED model short-circuits discovery entirely. Discovery has to guess from a
     // model list, and guessing has failed here in three different ways — a name allowlist
     // that predated `gemma-4`, a canvas-synthesised probe image that happy-dom cannot
     // produce, and an empty model list. Naming the model is the one thing that cannot
     // misfire, which is why TJS_VISION_MODEL exists.
-    const declared =
-      typeof process !== 'undefined' ? process.env?.TJS_VISION_MODEL : undefined
-    if (declared) return declared
+    if (VISION_MODEL) return VISION_MODEL
 
     // Check cache first
     const cacheKey = customLlmUrl
@@ -561,23 +474,22 @@ export function buildLLMBattery(settings: LLMSettings) {
 
     const models = await getLocalModels(customLlmUrl)
 
-    // Name is a HINT for ordering, never a filter. This list had `gemma-3` but not
-    // `gemma-4`, so a genuinely vision-capable model was excluded and every vision call
-    // fell back to a text model — the same defect that makes mlx-omni-server refuse all
-    // VLMs but one. Only the probe below knows, because only it asks the model.
-    const likely = /(-vl|vl-|vision|llava|pixtral|gemma-?[3-9]|qwen[\d.]*-vl)/i
+    // Name is a HINT for ordering, never a filter — see `looksLikeVisionModel`.
     const uniqueCandidates = [
       ...new Set(
         models
-          .filter((id) => !/embed/i.test(id)) // an embeddings endpoint can't answer a chat probe
-          .sort((a, b) => Number(likely.test(b)) - Number(likely.test(a)))
+          .filter((id) => !isEmbeddingModel(id))
+          .sort(
+            (a, b) =>
+              Number(looksLikeVisionModel(b)) - Number(looksLikeVisionModel(a))
+          )
       ),
     ]
 
     // Test each candidate
     for (const model of uniqueCandidates) {
       console.log(`🔍 Testing vision capability: ${model}`)
-      if (await testVisionCapability(model)) {
+      if (await checkVision(customLlmUrl, model)) {
         verifiedVisionModels.set(cacheKey, model)
         return model
       }

@@ -19,6 +19,7 @@
  */
 import { describe, it, expect } from 'bun:test'
 import { getLLMCapability } from './llm'
+import { checkVision, isEmbeddingModel, looksLikeVisionModel } from './audit'
 import type { LocalModels } from './models'
 
 // getLLMCapability only ever calls .getLLM()/.getStructuredLLM()/.getEmbedding()
@@ -180,5 +181,130 @@ describe('getLLMCapability — the real LM Studio HTTP client', () => {
     await expect(predict('sys', 'x')).rejects.toThrow(
       /No local LLM server reachable at http:\/\/localhost:1\/v1.*TJS_LLM_BASE_URL/
     )
+  })
+})
+
+/**
+ * `checkVision` — the multimodal probe, on the fixture server.
+ *
+ * This existed with 0% function coverage in the fast lane, exercised only when a real
+ * model happened to be loaded. That gap is exactly how 0.13.0-beta.1 shipped a divergent
+ * SECOND probe in the demo which asserted on the model's ANSWER instead of the response
+ * SHAPE: a thinking model returning empty content was judged blind, and the demo's vision
+ * tests went red on a machine where vision worked fine.
+ *
+ * The contract these pin: ask about SHAPE, never content. A model that accepts the
+ * multimodal request supports vision, however uselessly it then answers.
+ */
+describe('checkVision — the multimodal capability probe', () => {
+  it('sends a standard OpenAI image_url block with a non-degenerate image', async () => {
+    const fx = fixtureLMStudio(() => ({
+      json: { choices: [{ message: { content: 'red' } }] },
+    }))
+    try {
+      expect(await checkVision(fx.baseUrl, 'some-vlm')).toBe(true)
+
+      expect(fx.captured).toHaveLength(1)
+      const { path, body } = fx.captured[0]!
+      expect(path).toBe('/v1/chat/completions')
+      expect(body.model).toBe('some-vlm')
+
+      // The content array is the part servers disagree about, so pin its shape:
+      // mlx-omni-server rejects this exact block at the Pydantic layer, and LM Studio
+      // requires it. Drift here is live, not hypothetical.
+      const content = body.messages[0].content
+      expect(Array.isArray(content)).toBe(true)
+      expect(content.map((c: any) => c.type)).toEqual(['text', 'image_url'])
+
+      // NOT 1x1 — degenerate sizes are rejected by real preprocessors ("Cannot handle
+      // this data type (1,1,1)"), which reads as "no vision model" rather than as a bug.
+      const url: string = content[1].image_url.url
+      expect(url.startsWith('data:image/png;base64,')).toBe(true)
+      expect(url.length).toBeGreaterThan(100)
+    } finally {
+      fx.stop()
+    }
+  })
+
+  it('judges on SHAPE, not content — an empty answer is still a vision model', async () => {
+    // gemma-4 is a thinking model: it accepts the image and returns content: ''. The
+    // content-based probe this replaces called that a failure. It is not.
+    const fx = fixtureLMStudio(() => ({
+      json: { choices: [{ message: { content: '' } }] },
+    }))
+    try {
+      expect(await checkVision(fx.baseUrl, 'gemma-4-e4b')).toBe(true)
+    } finally {
+      fx.stop()
+    }
+  })
+
+  it('a wrong answer is still a vision model', async () => {
+    const fx = fixtureLMStudio(() => ({
+      json: { choices: [{ message: { content: 'a photo of a dog' } }] },
+    }))
+    try {
+      expect(await checkVision(fx.baseUrl, 'bad-but-multimodal')).toBe(true)
+    } finally {
+      fx.stop()
+    }
+  })
+
+  it('non-2xx means no vision (the server rejected the multimodal request)', async () => {
+    const fx = fixtureLMStudio(() => ({
+      status: 400,
+      json: { error: 'This model does not support images' },
+    }))
+    try {
+      expect(await checkVision(fx.baseUrl, 'text-only-model')).toBe(false)
+    } finally {
+      fx.stop()
+    }
+  })
+
+  it('an unreachable server is false, not a throw', async () => {
+    // Callers use this to CHOOSE a model; it must never reject.
+    expect(await checkVision('http://localhost:1/v1', 'anything')).toBe(false)
+  })
+})
+
+describe('model name heuristics — a hint for ordering, never a filter', () => {
+  it('ranks known multimodal families, INCLUDING the ones added after it was written', () => {
+    // The regression this pins: the list said `gemma-3` and not `gemma-4`, in three
+    // separate copies, so a vision-capable model sorted last (and in one copy was
+    // excluded outright).
+    for (const id of [
+      'gemma-4-e4b',
+      'gemma-3-12b',
+      'qwen2.5-vl-7b',
+      'llava-1.5',
+      'pixtral-12b',
+      'some-vision-model',
+    ]) {
+      expect(looksLikeVisionModel(id)).toBe(true)
+    }
+  })
+
+  it('does not claim text-only models are multimodal', () => {
+    for (const id of ['qwen2.5-7b-instruct', 'llama-3.1-8b', 'mistral-7b']) {
+      expect(looksLikeVisionModel(id)).toBe(false)
+    }
+  })
+
+  it('recognises embedding endpoints, which cannot answer a chat probe', () => {
+    expect(isEmbeddingModel('text-embedding-nomic-v1.5')).toBe(true)
+    expect(isEmbeddingModel('qwen2.5-7b-instruct')).toBe(false)
+  })
+
+  it('DELIBERATELY under-matches: a missed embedding model costs one wasted probe', () => {
+    // `bge-small-en-v1.5` is an embedding model with no "embed" in its id, so this
+    // returns false and we will probe it and get a 400 back. That is the CHEAP error.
+    //
+    // The asymmetry is the whole design: this filter's only job is to avoid loading a
+    // model that cannot answer. Guessing "embedding" too eagerly would exclude a chat
+    // model from vision discovery entirely — which is precisely how the vision-name
+    // heuristic failed three times. A wasted probe is recoverable; an excluded
+    // candidate is invisible. Widen this only with evidence, not with intuition.
+    expect(isEmbeddingModel('bge-small-en-v1.5')).toBe(false)
   })
 })

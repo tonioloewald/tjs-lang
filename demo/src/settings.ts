@@ -12,6 +12,8 @@ import {
   getPendingRequests,
 } from './capabilities'
 
+import { looksLikeVisionModel } from '../../src/batteries/audit'
+
 const { div, button, span, label, input, h2, p, select, option } = elements
 
 // Settings dialog styles
@@ -325,15 +327,8 @@ export function showSettingsDialog(
                         btn.textContent = 'Rescan Models'
 
                         if (models.length > 0) {
-                          const visionModels = models.filter(
-                            (m) =>
-                              m.includes('-vl') ||
-                              m.includes('vl-') ||
-                              m.includes('vision') ||
-                              m.includes('llava') ||
-                              m.includes('gemma-3') ||
-                              m.includes('gemma3')
-                          )
+                          const visionModels =
+                            models.filter(looksLikeVisionModel)
                           statusEl.textContent =
                             `Found ${models.length} model(s)` +
                             (visionModels.length > 0

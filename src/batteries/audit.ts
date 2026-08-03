@@ -190,6 +190,24 @@ async function checkEmbedding(
   }
 }
 
+/**
+ * Does the model's NAME suggest vision? A hint for ORDERING probes, never a filter.
+ *
+ * This heuristic has now been wrong three times in three different copies — the last one
+ * listed `gemma-3` but not `gemma-4`, so a genuinely multimodal model was ranked last and,
+ * in the copy that also used it as a filter, excluded outright. It lives here, once,
+ * because a name-based guess that disagrees with itself across three files is worse than
+ * no guess at all. Only `checkVision` knows, because only it asks the model.
+ */
+export function looksLikeVisionModel(id: string): boolean {
+  return /(-vl|vl-|vision|llava|pixtral|gemma-?[3-9]|qwen[\d.]*-vl)/i.test(id)
+}
+
+/** Embeddings endpoints can't answer a chat probe; skip them rather than load them. */
+export function isEmbeddingModel(id: string): boolean {
+  return /embed/i.test(id)
+}
+
 // 32x32 solid-red PNG (base64). NOT 1x1 — degenerate sizes are rejected by
 // real vision preprocessors (e.g. gemma: "Cannot handle this data type (1,1,1)").
 const TINY_TEST_IMAGE =

@@ -7,7 +7,11 @@
 
 // Provide browser globals (document, window, etc.) for capabilities.ts
 import { GlobalRegistrator } from '@happy-dom/global-registrator'
-import { checkVision } from '../src/batteries/audit'
+import {
+  checkVision,
+  isEmbeddingModel,
+  looksLikeVisionModel,
+} from '../src/batteries/audit'
 import { VISION_MODEL, LLM_BASE_URL } from '../src/batteries/config'
 GlobalRegistrator.register()
 
@@ -77,14 +81,8 @@ let activeBattery: { predict: (...a: any[]) => Promise<any>; embed?: any }
 // and every vision example silently skipped. (Exactly the defect that makes
 // mlx-omni-server refuse all VLMs but one.) It is now only used to decide what to PROBE
 // FIRST; `checkVision` decides the answer, because it actually asks the model.
-function looksLikeVisionModel(id: string): boolean {
-  return /(-vl|vl-|vision|llava|pixtral|gemma-?[3-9]|qwen[\d.]*-vl)/i.test(id)
-}
-
-/** Embeddings endpoints can't answer a chat probe; skip them rather than load them. */
-function isEmbeddingModel(id: string): boolean {
-  return /embed/i.test(id)
-}
+// (`looksLikeVisionModel` / `isEmbeddingModel` now live in src/batteries/audit.ts —
+// three copies of the name heuristic had drifted apart, one of them stale.)
 
 // Mock fetch for HTTP APIs (weather, iTunes, GitHub) - these we still mock
 // because they're external APIs, not local LLM

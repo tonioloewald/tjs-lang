@@ -62,8 +62,13 @@ if ! curl -s --max-time 5 "$LLM_URL/models" >/dev/null 2>&1; then
   anyway after running the suite green another way: git push --no-verify"
 fi
 
-# Full suite: no SKIP_LLM_TESTS, no SKIP_BENCHMARKS. Vision tests self-skip without
-# a vision model — that is expected and does not fail the run.
+# Full suite: no SKIP_LLM_TESTS, no SKIP_BENCHMARKS.
+#
+# Vision tests self-skip when NO vision model is reachable — that is expected and does not
+# fail the run. They do NOT self-skip when one is present but the probe misjudges it: that
+# combination (a vision model loaded, judged blind by a content-based probe) is what turned
+# this gate red at 0.13.0-beta.1 while `test:fast` stayed green. If a vision test FAILS
+# rather than skips, the probe is wrong, not the model — see src/batteries/audit.ts.
 bun test ||
   fail "full test suite failed — do NOT ship this tag. Fix the failures above,
   re-tag if needed, and push again."
