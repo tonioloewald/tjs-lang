@@ -32,7 +32,8 @@ All other features are exercised in the runnable code below:
 
 safety inputs
 
-// TjsEquals, TjsClass, TjsNoVar are all on by default in native TJS.
+// Honest equality, callable-without-new classes and the `var` ban are simply how
+// `.tjs` behaves — there are no mode directives to enable them.
 
 /*#
 # TJS Grammar Reference

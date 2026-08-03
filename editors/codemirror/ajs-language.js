@@ -192,7 +192,7 @@ var FORBIDDEN_KEYWORDS2 = FORBIDDEN_KEYWORDS.filter(
     "throw",
     "import",
     "export",
-    // Class support (TjsClass mode)
+    // Class support (classes are callable without `new` in .tjs)
     "class",
     "extends",
     "super",
