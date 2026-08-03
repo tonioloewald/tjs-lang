@@ -10,6 +10,29 @@ Run them **in addition** to the nine.
 
 ---
 
+## 0. What tjs-lang IS — the standing obligations
+
+Lens 0 in the shared practices asks what *kind* of thing a project is, because the answer
+tunes every other lens. tjs-lang is three kinds at once, and the obligations compose:
+
+**A language.** Everything written in TJS inherits its bugs. A codegen defect ships into
+every consumer's output without them changing a line — which is why emitted-code correctness
+outranks almost everything, and why `examples.test.ts` and the dogfood corpus exist.
+
+**Its semantics are a contract.** Quietly changing what `==` means rewrites programs that
+already work. This is the whole reason an escape must exist *before* a rule tightens —
+`unsafe`, the `Legacy*` bridges, `LegacyDefault` — and why "make stupid stuff stand out"
+is a principle rather than a preference.
+
+**A sandbox VM.** Adversarial input is the normal case, not an edge case. "Would a hostile
+caller…" belongs in every pass, not only the security one.
+
+**It compiles itself.** A defect can hide behind itself, which is why the dogfood corpus is
+pinned at 100% on both stages rather than treated as a dashboard.
+
+**A published library.** A breaking change multiplies by its consumers — and the ones who
+notice last are the ones who trusted us most.
+
 ## 1. "Where else?" — the sibling-site lens
 
 **The dominant defect class in this codebase.** A fix lands in one copy and its structural
