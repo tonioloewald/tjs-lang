@@ -47,7 +47,6 @@
  */
 
 import type { FunctionDeclaration, Program } from 'acorn'
-import { maskLiterals } from '../../strip-comments'
 import { parseExpressionAt, parse as acornParse } from 'acorn'
 import * as walk from 'acorn-walk'
 
