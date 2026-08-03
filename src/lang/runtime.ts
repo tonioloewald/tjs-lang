@@ -94,9 +94,15 @@ function parseVersion(version: string): {
   major: number
   minor: number
   patch: number
+  prerelease: string
 } {
-  const [major = 0, minor = 0, patch = 0] = version.split('.').map(Number)
-  return { major, minor, patch }
+  // Split the prerelease suffix OFF first. Splitting the whole string on '.' turned
+  // '0.13.0-beta.1' into [0, 13, NaN, 1] — and because `NaN !== NaN`, two IDENTICAL
+  // prerelease versions compared as different, so every module that installed the runtime
+  // "upgraded" over the previous instance and discarded its flight-recorder records.
+  const [core = '', prerelease = ''] = version.split('-', 2)
+  const [major = 0, minor = 0, patch = 0] = core.split('.').map(Number)
+  return { major, minor, patch, prerelease }
 }
 
 /**
@@ -110,7 +116,13 @@ export function compareVersions(a: string, b: string): -1 | 0 | 1 {
   if (va.major !== vb.major) return va.major < vb.major ? -1 : 1
   if (va.minor !== vb.minor) return va.minor < vb.minor ? -1 : 1
   if (va.patch !== vb.patch) return va.patch < vb.patch ? -1 : 1
-  return 0
+
+  // Same numbers — semver says a RELEASE outranks its own prerelease, and identical
+  // prereleases are equal (the case whose absence caused the runtime to replace itself).
+  if (va.prerelease === vb.prerelease) return 0
+  if (!va.prerelease) return 1 // 0.13.0 > 0.13.0-beta.1
+  if (!vb.prerelease) return -1
+  return va.prerelease < vb.prerelease ? -1 : 1
 }
 
 /**
