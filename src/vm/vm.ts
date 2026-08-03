@@ -114,6 +114,8 @@ export class AgentVM<M extends Record<string, Atom<any, any>>> {
       timeoutMs?: number // Wall-clock cap on the whole run (default: slowest atom × 2, min 60s — see defaultRunTimeout)
       signal?: AbortSignal // External abort signal (e.g., from caller)
       costOverrides?: Record<string, CostOverride> // Per-atom fuel cost overrides
+      /** Per-atom call quotas — caps work summoned OUTSIDE the VM, which fuel cannot see. */
+      quotas?: Record<string, number>
       timeoutOverrides?: Record<string, TimeoutOverride> // Per-atom timeout overrides (ms, 0 disables)
       context?: Record<string, any> // Request-scoped metadata (auth, permissions, etc.)
       membraneMaxBytes?: number // Cap on the estimated size of a capability return crossing into guest state (default 4MB)
@@ -198,6 +200,8 @@ export class AgentVM<M extends Record<string, Atom<any, any>>> {
       output: undefined,
       signal: controller.signal,
       costOverrides: options.costOverrides,
+      quotas: options.quotas,
+      quotaUsed: {},
       timeoutOverrides: options.timeoutOverrides,
       context: options.context,
       membraneMaxBytes: options.membraneMaxBytes,

@@ -204,6 +204,19 @@ export interface RuntimeContext {
   warnings?: string[] // Non-fatal warnings (e.g., console.warn)
   signal?: AbortSignal // External abort signal for timeout enforcement
   costOverrides?: Record<string, CostOverride> // Per-atom cost overrides
+  /**
+   * Per-atom CALL QUOTAS — a hard cap on how many times an op may run.
+   *
+   * Fuel meters work done INSIDE the VM. It is blind to what an atom summons outside it:
+   * an `llmPredict` costing 50 fuel might cost real money, and a `httpFetch` costing 10
+   * might hammer someone else's service. A budget denominated in VM work cannot express
+   * "at most 3 model calls", so this does.
+   *
+   * Absent or unset op ⇒ unlimited, so it is purely additive.
+   */
+  quotas?: Record<string, number>
+  /** Calls made per op this run, for `quotas`. */
+  quotaUsed?: Record<string, number>
   timeoutOverrides?: Record<string, TimeoutOverride> // Per-atom timeout overrides (ms, 0 disables)
   context?: Record<string, any> // Immutable request-scoped metadata (auth, permissions, etc.)
   membraneMaxBytes?: number // Cap on the estimated size of a capability return crossing into guest state (default MEMBRANE_MAX_BYTES)
@@ -1849,6 +1862,24 @@ export function defineAtom<I extends Record<string, any>, O = any>(
     let error: string | undefined
 
     try {
+      // 2a. Quota — checked BEFORE fuel and before execution, so an exhausted quota
+      // costs nothing and cannot have already made the call it was meant to prevent.
+      const quota = ctx.quotas?.[op]
+      if (quota !== undefined) {
+        if (!ctx.quotaUsed) ctx.quotaUsed = {}
+        const used = ctx.quotaUsed[op] ?? 0
+        if (used >= quota) {
+          ctx.error = new AgentError(
+            `Quota exceeded for '${op}': ${quota} call${
+              quota === 1 ? '' : 's'
+            } allowed`,
+            op
+          )
+          return
+        }
+        ctx.quotaUsed[op] = used + 1
+      }
+
       // 2. Deduct Fuel (check for cost overrides first)
       const overrideCost = ctx.costOverrides?.[op]
       const baseCost = overrideCost !== undefined ? overrideCost : cost

@@ -1817,9 +1817,13 @@ Named in the original priority-three. Almost nothing here has moved.
       ⚠️ nuanced): it stops accidental loops and friendly infrastructure, not an adversarial
       endpoint that drops the header. Without carried budgets, one cheap entry point
       _multiplies_ across the graph instead of dividing.
-- [ ] **Per-capability quotas separate from fuel** — call counts, byte budgets, spend caps
-      on fetch/llm/store. Fuel meters VM work; these meter the work you summon _outside_ the
-      VM, which fuel is blind to. (An LLM capability is the obvious money-shaped hole.)
+- [x] **Per-capability quotas — CALL COUNTS DONE 2026-08-03.** `quotas: { httpFetch: 3 }`
+      as a run option; enforced in the atom exec wrapper BEFORE fuel and before execution,
+      so an exhausted quota costs nothing and cannot have already made the call it exists to
+      prevent. Unset ⇒ unlimited, so it is purely additive. This is the money-shaped hole:
+      fuel meters work INSIDE the VM and cannot express "at most three model calls". - [ ] Byte budgets and spend caps still open. The membrane already walks and sizes
+      every io return, so a byte quota can reuse that measurement rather than
+      re-walking.
 - [ ] **Attenuation as a first-class op** — a capability handed to a sub-agent should be
       wrappable with a smaller quota without bespoke wrapper code each time.
 - [~] **Default-deny egress + per-run wall-clock ceiling.** SSRF-range blocking shipped
