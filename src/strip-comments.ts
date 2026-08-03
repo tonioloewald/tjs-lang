@@ -232,17 +232,39 @@ export function findUnsafeSpans(source: string): Array<[number, number]> {
   // newline it IS valid — ASI makes `let r = unsafe` / `foo()` two statements — so a
   // variable named `unsafe` at end of line must not be swallowed. Same ASI hazard every
   // JS developer already knows from `return`.
-  const re = /\bunsafe[ \t]+(?=[A-Za-z_$])/g
+  //
+  // The negative lookahead is the other half of that argument, and it is load-bearing:
+  // `unsafe` followed by a WORD-SHAPED INFIX OPERATOR is an ordinary variable being
+  // operated on, not a marker. `unsafe instanceof Function` and `unsafe in obj` are both
+  // legal JavaScript, and without this they were swallowed as `unsafe <expr>` and the file
+  // failed to parse — legal JS made uncompilable, which is a TJS ⊇ JS violation
+  // (PRINCIPLES.md), and it fired in `dialect: 'js'` too, where there is no escape hatch.
+  const re = /\bunsafe[ \t]+(?!(?:instanceof|in|of)\b)(?=[A-Za-z_$])/g
   let m: RegExpExecArray | null
   while ((m = re.exec(masked)) !== null) {
-    // Expression-prefix position only, so `obj.unsafe thing` is not a marker. Reserving
-    // the word outright would be simpler but would make legal JavaScript illegal,
-    // breaking TJS ⊇ JS (PRINCIPLES.md).
+    // Member position is never a marker: `obj.unsafe`, `obj?.unsafe`. `isRegexStart` alone
+    // does NOT cover this — after a `.` it falls through to its permissive default and
+    // returns true, so `o.unsafe instanceof Function` was read as a marker.
+    if (lastSignificantChar(masked, m.index) === '.') continue
+    // Expression-prefix position only. Reserving the word outright would be simpler but
+    // would make legal JavaScript illegal, breaking TJS ⊇ JS (PRINCIPLES.md).
     if (!isRegexStart(masked.slice(0, m.index))) continue
     const exprStart = m.index + m[0].length
     spans.push([m.index, unsafeExpressionEnd(masked, exprStart)])
   }
   return spans
+}
+
+/**
+ * The last non-whitespace character before `index`, or `''` at the start of input.
+ *
+ * Safe to run on a literal-masked source only: `maskLiterals` blanks comments entirely
+ * (delimiters included), so skipping whitespace also skips comments.
+ */
+function lastSignificantChar(masked: string, index: number): string {
+  let j = index - 1
+  while (j >= 0 && /\s/.test(masked[j]!)) j--
+  return j >= 0 ? masked[j]! : ''
 }
 
 /**
@@ -272,15 +294,66 @@ function unsafeExpressionEnd(masked: string, at: number): number {
 /**
  * Blank `unsafe <expression>` spans, preserving offsets — the view the rule checks see.
  * A construct the author has explicitly taken responsibility for is not a violation.
+ *
+ * **The mask stops at a nested function body.** `unsafe` exempts ONE CONSTRUCT, not a
+ * region — that is the whole reason it replaced per-file mode dialing, which silenced the
+ * next, accidental use as well. But a bracketed expression can contain an arbitrary amount
+ * of unrelated authored code:
+ *
+ *     unsafe makeHandler({ onClick: () => { eval(src); var leaked = 1; new Date() } })
+ *
+ * Masking that whole span exempts three violations the author never took responsibility
+ * for, and the marker on the OUTER call is not a statement about the inside of a callback.
+ * So the mask covers the construct up to the point where a new function body begins, and
+ * everything inside that body is checked normally. Code that genuinely needs an exemption
+ * in there can carry its own `unsafe`, which is exactly the intended ergonomics.
  */
 export function maskUnsafe(source: string): string {
   const out = source.split('')
-  for (const [a, b] of findUnsafeSpans(source)) {
+  for (const [a, b] of unsafeRuleSpans(source)) {
     for (let k = a; k < b && k < out.length; k++) {
       if (out[k] !== '\n') out[k] = ' '
     }
   }
   return out.join('')
+}
+
+/**
+ * The [start, end) ranges a rule check should treat as exempt — `findUnsafeSpans` narrowed
+ * to stop at any nested function body.
+ *
+ * Exported because the LINTER needs the same answer as the compiler and previously did not
+ * have it: `lint('const d = unsafe new Date(0)')` reported `no-explicit-new` on source that
+ * `tjs()` compiled without complaint. The linter drives playground and editor diagnostics,
+ * so that disagreement is what a user sees FIRST — the compiler's own documented remedy,
+ * underlined as a mistake. One function, two consumers, no chance to drift.
+ */
+export function unsafeRuleSpans(source: string): Array<[number, number]> {
+  const masked = maskLiterals(source)
+  return findUnsafeSpans(source).map(([a, b]) => [
+    a,
+    Math.min(b, nestedFunctionBodyStart(masked, a, b)),
+  ])
+}
+
+/**
+ * Offset of the `{` opening the first nested function body within [a, b), else `b`.
+ *
+ * Recognises the two ways a body can open: after `=>`, and after the parameter list of a
+ * `function` expression. Anything else (an object literal, a block) is part of the guarded
+ * construct itself and stays masked.
+ */
+function nestedFunctionBodyStart(masked: string, a: number, b: number): number {
+  for (let i = a; i < b; i++) {
+    if (masked[i] !== '{') continue
+    const before = masked.slice(a, i)
+    // Arrow body: `… => {`
+    if (/=>\s*$/.test(before)) return i
+    // Function expression body: `function [name] (params) {`, allowing for the params
+    // spanning lines. The `[\s\S]` is deliberate — a formatted parameter list wraps.
+    if (/\bfunction\b[\s\S]*\)\s*$/.test(before)) return i
+  }
+  return b
 }
 
 /**

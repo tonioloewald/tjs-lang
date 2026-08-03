@@ -87,4 +87,56 @@ describe('Language subset invariants (PRINCIPLES.md)', () => {
       })
     }
   })
+
+  /**
+   * The language's own keywords must not steal identifiers from JavaScript.
+   *
+   * `unsafe` and the `Legacy*` bridges are ordinary-looking words, and JS programs are
+   * entitled to use them as names — `opts.unsafe` is a plausible option flag. Every one of
+   * these shipped BROKEN in 0.13.0-beta.1: the `unsafe` marker scanner matched after a `.`
+   * and could not tell an identifier followed by a word-shaped infix operator from the
+   * marker, so all three threw `SyntaxError` and did so in `dialect: 'js'` too, where
+   * there is no escape hatch to reach for.
+   *
+   * Both spellings are checked deliberately: `dialect: 'js'` is the programmatic promise,
+   * and a `.tjs` file must ALSO accept these, because they are legal JavaScript and TJS is
+   * a superset — the marker is a new meaning for a NEW syntactic position, not a reserved
+   * word.
+   */
+  describe('TJS ⊇ JS — language keywords do not steal identifiers', () => {
+    const identifierSnippets: Array<[string, string]> = [
+      [
+        'unsafe as a member, then infix',
+        `const o = {}\nconst r = o.unsafe instanceof Function`,
+      ],
+      [
+        'unsafe as an optional member',
+        `const o = {}\nconst r = o?.unsafe instanceof Function`,
+      ],
+      [
+        'unsafe as a variable, then instanceof',
+        `let unsafe = Date\nconst r = unsafe instanceof Function`,
+      ],
+      [
+        'unsafe as a variable, then in',
+        `let unsafe = 'a'\nconst r = unsafe in { a: 1 }`,
+      ],
+      [
+        'unsafe as a for-of binding',
+        `let unsafe\nfor (unsafe of [1, 2]) { console.log(unsafe) }`,
+      ],
+      ['unsafe as an option flag', `function f(o) { return o.unsafe ? 1 : 2 }`],
+      [
+        'unsafe as a declared function',
+        `function unsafe(x) { return x }\nconst r = unsafe(1)`,
+      ],
+    ]
+    for (const [label, src] of identifierSnippets) {
+      for (const dialect of ['js', 'tjs'] as const) {
+        it(`accepts legal JS (dialect: '${dialect}'): ${label}`, () => {
+          expect(() => tjs(src, { dialect, runTests: false })).not.toThrow()
+        })
+      }
+    }
+  })
 })

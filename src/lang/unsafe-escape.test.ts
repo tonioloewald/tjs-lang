@@ -255,3 +255,67 @@ describe('ASI: the one place TJS and JS disagree about statement boundaries', ()
     expect(r.warnings ?? []).toEqual([])
   })
 })
+
+/**
+ * `unsafe` exempts ONE CONSTRUCT, not a region.
+ *
+ * That distinction is the entire argument for replacing per-file mode directives: a mode
+ * disabled a rule for a whole file and therefore also silenced the NEXT, accidental use.
+ * A marker that swallows a bracketed expression containing arbitrary authored code has
+ * quietly reinvented the mode — `unsafe f({ onClick: () => { … } })` would exempt
+ * everything in that callback, which the author never took responsibility for.
+ *
+ * So the rule view stops at a nested function body. CLAUDE-TJS-SYNTAX.md's claim that it
+ * "exempts one construct, not a file" is now a property rather than a wish.
+ */
+describe('unsafe covers the construct, not everything nested inside it', () => {
+  it('does NOT exempt a `var` inside an arrow body in the guarded expression', () => {
+    expect(() =>
+      tjs(
+        `function f() {\n  return unsafe makeHandler({ onClick: () => { var leaked = 1; return leaked } })\n}`,
+        { runTests: false }
+      )
+    ).toThrow(/var/)
+  })
+
+  it('does NOT exempt a `new Date` inside a nested function expression', () => {
+    expect(() =>
+      tjs(
+        `function f() {\n  return unsafe wrap(function () { return new Date() })\n}`,
+        { runTests: false }
+      )
+    ).toThrow(/Date/)
+  })
+
+  it('DOES still exempt the guarded construct itself', () => {
+    expect(() =>
+      tjs(`function f(x: 0) { return unsafe new Date(x) }`, { runTests: false })
+    ).not.toThrow()
+  })
+
+  it('DOES still exempt a construct whose arguments span lines', () => {
+    expect(() =>
+      tjs(`function f(x: 0) {\n  return unsafe new Date(\n    x\n  )\n}`, {
+        runTests: false,
+      })
+    ).not.toThrow()
+  })
+
+  it('DOES still exempt a violation inside a plain object-literal argument', () => {
+    // An object literal is part of the construct, not a new scope of authored code.
+    expect(() =>
+      tjs(`function f(x: 0) { return mk(unsafe new Date(x), x) }`, {
+        runTests: false,
+      })
+    ).not.toThrow()
+  })
+
+  it('a nested body can carry its own marker — the intended ergonomics', () => {
+    expect(() =>
+      tjs(
+        `function f() {\n  return unsafe wrap(() => { return unsafe new Date() })\n}`,
+        { runTests: false }
+      )
+    ).not.toThrow()
+  })
+})

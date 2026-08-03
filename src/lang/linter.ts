@@ -21,6 +21,7 @@ import type {
 import { parse } from './parser'
 import * as walk from 'acorn-walk'
 import { FORBIDDEN_KEYS_SET } from '../forbidden-keys'
+import { unsafeRuleSpans } from '../strip-comments'
 
 export interface LintDiagnostic {
   severity: 'error' | 'warning' | 'info'
@@ -368,9 +369,61 @@ export function lint(source: string, options: LintOptions = {}): LintResult {
   }
 
   return {
-    diagnostics,
-    valid: diagnostics.filter((d) => d.severity === 'error').length === 0,
+    diagnostics: dropUnsafeGuarded(diagnostics, source),
+    valid:
+      dropUnsafeGuarded(diagnostics, source).filter(
+        (d) => d.severity === 'error'
+      ).length === 0,
   }
+}
+
+/**
+ * Rules the `unsafe` marker exempts — the ones that say "TJS prefers you didn't".
+ *
+ * Deliberately NOT every rule. `unsafe new Date(x)` is a statement about the Date, not a
+ * promise that the variable holding it gets used; `no-unused-vars` and `no-unreachable`
+ * describe the code's shape, which the marker says nothing about. Suppressing those too
+ * would make `unsafe` a general "stop looking at this line", which is the whole-file
+ * behavior it exists to replace.
+ */
+const UNSAFE_EXEMPT_RULES = new Set(['no-explicit-new'])
+
+/**
+ * Drop prescriptive diagnostics that fall inside an `unsafe <expr>` span.
+ *
+ * The linter parses through `preprocess`, which already blanks these spans for the
+ * compiler's own rule checks — but the AST walks run afterwards and knew nothing about it.
+ * The result was the compiler and the linter disagreeing about identical source, with the
+ * linter (which drives editor and playground diagnostics) underlining the remedy the
+ * compiler's own error message had just recommended.
+ */
+function dropUnsafeGuarded(
+  diagnostics: LintDiagnostic[],
+  source: string
+): LintDiagnostic[] {
+  if (!diagnostics.some((d) => UNSAFE_EXEMPT_RULES.has(d.rule))) {
+    return diagnostics
+  }
+  const spans = unsafeRuleSpans(source)
+  if (!spans.length) return diagnostics
+
+  // Offsets survive preprocessing: every `unsafe`-related rewrite blanks in place rather
+  // than deleting, precisely so reported positions still index the author's source.
+  const lineStart: number[] = [0]
+  for (let i = 0; i < source.length; i++) {
+    if (source[i] === '\n') lineStart.push(i + 1)
+  }
+  const offsetOf = (d: LintDiagnostic): number | null =>
+    d.line == null || d.column == null || lineStart[d.line - 1] == null
+      ? null
+      : lineStart[d.line - 1]! + d.column
+
+  return diagnostics.filter((d) => {
+    if (!UNSAFE_EXEMPT_RULES.has(d.rule)) return true
+    const at = offsetOf(d)
+    if (at == null) return true
+    return !spans.some(([a, b]) => at >= a && at < b)
+  })
 }
 
 // --- Internal types and helpers ---
