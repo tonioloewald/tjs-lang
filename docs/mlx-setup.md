@@ -69,6 +69,27 @@ attempt is a multi-gigabyte download, so it is not worth doing speculatively.
 OpenAI multimodal format. Chat, embeddings and the full `bun test` gate all work on MLX. The
 vision examples self-skip, which is expected rather than a failure.
 
+### Tried and failed, 2026-08-03 — three servers, three different breakages
+
+Recorded so nobody repeats it. **Every attempt failed for a DIFFERENT reason**, which is
+the useful signal: MLX vision on this stack is currently a moving target of version skew,
+not one fixable bug.
+
+| attempt | failure |
+| --- | --- |
+| `mlx-omni-server` + SmolVLM (`idefics3`) | `Model type idefics3 not supported` — routed to `mlx_lm`, because only `gemma4` reaches `mlx_vlm` |
+| `mlx-omni-server` + `gemma-4-e2b-it-4bit` | routed correctly, then `Received 2 parameters not in model: …per_layer_model_projection.biases/scales` — build/mlx_vlm skew |
+| `mlx-openai-server --model-type multimodal` + SmolVLM | server starts and lists the model, then `BatchGenerator.__init__() got an unexpected keyword argument 'kv_bits'` — the server's own dependency skew |
+
+Worth noting the third got furthest: `mlx-openai-server` accepts the **standard** OpenAI
+image block (no flattening needed) and its `/v1/models` actually lists the model, unlike
+omni. If its `kv_bits` skew is fixed upstream it is likely the cleanest drop-in.
+
+**Cost so far:** ~6.6GB of model downloads, none usable. Do not retry speculatively.
+
+**Current answer: use LM Studio for the vision lane.** Chat, embeddings and the full
+`bun test` gate all work on MLX today.
+
 ### The likely right answer: run `mlx_vlm.server` for the vision lane
 
 `mlx-vlm` and `mlx-omni-server` are **different things**, and advice about one does not
