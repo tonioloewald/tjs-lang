@@ -29,7 +29,7 @@ defineAtom(
     if (!el) throw new Error(`DOM: Element not found '${selector}'`)
     return el.textContent || ''
   },
-  { docs: 'Get text content of a DOM element.', cost: 1 }
+  { docs: 'Get text content of a DOM element.', cost: 1, effects: 'io' }
 )
 
 // dom.value
@@ -46,7 +46,7 @@ defineAtom(
     if (!el) throw new Error(`DOM: Element not found '${selector}'`)
     return el.value || ''
   },
-  { docs: 'Get value of a form element.', cost: 1 }
+  { docs: 'Get value of a form element.', cost: 1, effects: 'io' }
 )
 
 // dom.click
@@ -63,7 +63,7 @@ defineAtom(
     if (!el) throw new Error(`DOM: Element not found '${selector}'`)
     el.click()
   },
-  { docs: 'Click a DOM element.', cost: 1 }
+  { docs: 'Click a DOM element.', cost: 1, effects: 'io' }
 )
 
 // dom.input
@@ -83,7 +83,7 @@ defineAtom(
     el.dispatchEvent(new Event('input', { bubbles: true }))
     el.dispatchEvent(new Event('change', { bubbles: true }))
   },
-  { docs: 'Input text into a form element.', cost: 1 }
+  { docs: 'Input text into a form element.', cost: 1, effects: 'io' }
 )
 
 // localstorage.get
@@ -98,7 +98,7 @@ defineAtom(
     if (!caps) throw new Error("Capability Error: 'storage' is not available.")
     return caps.getItem(key) ?? undefined
   },
-  { docs: 'Get a value from LocalStorage.', cost: 1 }
+  { docs: 'Get a value from LocalStorage.', cost: 1, effects: 'io' }
 )
 
 // localstorage.set
@@ -114,7 +114,7 @@ defineAtom(
     if (!caps) throw new Error("Capability Error: 'storage' is not available.")
     caps.setItem(key, value)
   },
-  { docs: 'Set a value in LocalStorage.', cost: 1 }
+  { docs: 'Set a value in LocalStorage.', cost: 1, effects: 'io' }
 )
 
 // --- Default Browser Factory ---

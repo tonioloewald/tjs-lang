@@ -18,13 +18,25 @@ import { FORBIDDEN_KEYS_SET } from '../forbidden-keys'
  * function; AJS can grow an `Is` atom if/when needed — but it MUST be fuel-metered
  * per element compared, or it reintroduces the same DoS.)
  */
+/** Fail-soft boxed-primitive unwrap. See the TJS runtime's `unwrapBoxed` for the rationale. */
+function unwrapBoxedVM(v: unknown): unknown {
+  try {
+    if (v instanceof String) return String.prototype.valueOf.call(v)
+    if (v instanceof Number) return Number.prototype.valueOf.call(v)
+    if (v instanceof Boolean) return Boolean.prototype.valueOf.call(v)
+  } catch {
+    return v
+  }
+  return v
+}
+
 function eqValue(a: unknown, b: unknown): boolean {
-  if (a instanceof String || a instanceof Number || a instanceof Boolean) {
-    a = a.valueOf()
-  }
-  if (b instanceof String || b instanceof Number || b instanceof Boolean) {
-    b = b.valueOf()
-  }
+  // Slot reads, not `.valueOf()` — a boxed subclass must not get to run guest-supplied
+  // code inside the VM's own equality, and a throwing one must not escape as a raw
+  // exception. Same discipline as the TJS runtime's `Eq`/`toBool`; keeping the two in
+  // step is the point, since the VM is the copy an attacker reaches first.
+  a = unwrapBoxedVM(a)
+  b = unwrapBoxedVM(b)
   if (a === b) return true
   if (typeof a === 'number' && typeof b === 'number' && isNaN(a) && isNaN(b)) {
     return true
@@ -3984,6 +3996,16 @@ export const EFFECTFUL_CORE_OPS = [
   'clearExpiredProcedures',
   'cache',
   'memoize',
+  // Calls `ctx.capabilities.xml.parse(...)` and was tagged PURE — for two releases. The
+  // consequences are not cosmetic: an untagged return skips the structuredClone membrane,
+  // so a `DOMParser` result reached guest state as a LIVE HOST `Document`, prototype chain
+  // and all, with `methodCall` standing right there. The predicate verifier reads the same
+  // tag, so any cluster calling it was certified pure and compiled to native JS.
+  //
+  // `atom-effects.test.ts` could not catch it: it iterates THIS LIST, the same constant
+  // that assigns the tag, so it can only prove the list agrees with itself. See
+  // `atom-effects-scan.test.ts`, which reads what the bodies actually do.
+  'xmlParse',
 ] as const
 
 for (const op of EFFECTFUL_CORE_OPS) {

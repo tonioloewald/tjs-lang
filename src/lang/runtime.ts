@@ -747,46 +747,44 @@ function goIs(
   depth: number,
   memo: WeakMap<object, WeakSet<object>> | null
 ): boolean {
-  // Check for [tjsEquals] symbol protocol (highest priority)
-  if (
-    a !== null &&
-    typeof a === 'object' &&
-    typeof (a as any)[tjsEquals] === 'function'
-  ) {
-    return (a as any)[tjsEquals](b)
+  // Custom-equality protocol, in priority order: [tjsEquals], then .Equals (back-compat).
+  //
+  // PROBING is fail-soft; INVOKING is not, and the distinction is deliberate. Merely
+  // asking "does this object declare custom equality?" reads a property, and on a Proxy
+  // that runs a trap which can throw — so a hostile object could throw a raw exception out
+  // of `Is`, in a language whose promise is that errors are returned rather than thrown.
+  // An object that cannot be asked whether it has a custom equality does not have one.
+  //
+  // A hook that IS declared and then throws is different: that is the author's own code,
+  // opted into by declaring it, and swallowing its failure would hide a real bug in it.
+  const customEquals = (x: unknown): ((other: unknown) => boolean) | null => {
+    if (x === null || typeof x !== 'object') return null
+    try {
+      const viaSymbol = (x as any)[tjsEquals]
+      if (typeof viaSymbol === 'function') return viaSymbol.bind(x)
+      const viaMethod = (x as any).Equals
+      if (typeof viaMethod === 'function') return viaMethod.bind(x)
+    } catch {
+      return null
+    }
+    return null
   }
-  if (
-    b !== null &&
-    typeof b === 'object' &&
-    typeof (b as any)[tjsEquals] === 'function'
-  ) {
-    return (b as any)[tjsEquals](a)
-  }
+  const aEquals = customEquals(a)
+  if (aEquals) return aEquals(b)
+  const bEquals = customEquals(b)
+  if (bEquals) return bEquals(a)
 
-  // Check for .Equals method (backward compat)
-  if (
-    a !== null &&
-    typeof a === 'object' &&
-    typeof (a as any).Equals === 'function'
-  ) {
-    return (a as any).Equals(b)
-  }
-  if (
-    b !== null &&
-    typeof b === 'object' &&
-    typeof (b as any).Equals === 'function'
-  ) {
-    return (b as any).Equals(a)
-  }
-
-  // Unwrap boxed primitives (new String, new Number, new Boolean)
-  // so structural equality honors the intent: new String('foo') == 'foo'
-  if (a instanceof String || a instanceof Number || a instanceof Boolean) {
-    a = a.valueOf()
-  }
-  if (b instanceof String || b instanceof Number || b instanceof Boolean) {
-    b = b.valueOf()
-  }
+  // Unwrap boxed primitives (new String, new Number, new Boolean) so structural equality
+  // honors the intent: new String('foo') == 'foo'. Via the internal slot, like `Eq` and
+  // `toBool` — a `.valueOf()` call here let a boxed subclass run user code inside a
+  // structural comparison, and a throwing one threw out of `Is`.
+  //
+  // NOTE the deliberate ORDER: the `[tjsEquals]` / `.Equals` protocol dispatch above runs
+  // FIRST and is untouched. Those are opt-in hooks a type declares about itself, which is
+  // categorically different from a boxed primitive intercepting a comparison it never
+  // agreed to participate in.
+  a = unwrapBoxed(a)
+  b = unwrapBoxed(b)
 
   // Identical references or primitives
   if (a === b) return true
@@ -917,9 +915,21 @@ export function TypeOf(value: unknown): string {
  * overridden `valueOf` cannot intercept it, throw, or lie. Non-boxed values pass through.
  */
 function unwrapBoxed(v: unknown): unknown {
-  if (v instanceof String) return String.prototype.valueOf.call(v)
-  if (v instanceof Number) return Number.prototype.valueOf.call(v)
-  if (v instanceof Boolean) return Boolean.prototype.valueOf.call(v)
+  // Read the INTERNAL SLOT via the prototype method, never `v.valueOf()`. A subclass can
+  // override `valueOf`; the slot read cannot be intercepted, so it can neither run user
+  // code nor lie about the value.
+  //
+  // Fail-soft, because `instanceof` can still lie: a Proxy with a `Symbol.hasInstance`
+  // trap passes the guard and then makes the slot read throw a raw `TypeError` — out of
+  // `==`, in a language whose whole promise is that errors are RETURNED, not thrown.
+  // A value that will not yield a primitive slot simply is not a boxed primitive.
+  try {
+    if (v instanceof String) return String.prototype.valueOf.call(v)
+    if (v instanceof Number) return Number.prototype.valueOf.call(v)
+    if (v instanceof Boolean) return Boolean.prototype.valueOf.call(v)
+  } catch {
+    return v
+  }
   return v
 }
 
@@ -933,14 +943,13 @@ function unwrapBoxed(v: unknown): unknown {
  * actually behaves as `false`.
  */
 export function toBool(value: unknown): boolean {
-  if (
-    value instanceof Boolean ||
-    value instanceof Number ||
-    value instanceof String
-  ) {
-    return Boolean((value as any).valueOf())
-  }
-  return Boolean(value)
+  // Same slot-read discipline as `Eq`, and it matters MORE here: `toBool` is injected at
+  // every truthiness site in a `.tjs` file, so its reach is far wider than `==`'s. Calling
+  // `value.valueOf()` let a boxed subclass run arbitrary user code inside every `if`, and
+  // a throwing `valueOf` threw out of every `if`. The two disagreed outright: with a plain
+  // subclass, `Eq(e, false)` was true with zero user code run while `toBool(e)` ran user
+  // code and returned the opposite.
+  return Boolean(unwrapBoxed(value))
 }
 
 export function Eq(a: unknown, b: unknown): boolean {

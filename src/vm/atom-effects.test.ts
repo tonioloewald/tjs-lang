@@ -12,6 +12,13 @@ describe('atom effects classification (predicate-safety keystone)', () => {
   })
 
   it('the declared effectful core ops are all tagged io', () => {
+    // NOTE: this one is CIRCULAR and is kept only as a wiring check — it iterates
+    // EFFECTFUL_CORE_OPS, the same constant that assigns the tag, so it proves the list
+    // agrees with itself and cannot fail on an OMISSION. That is how `xmlParse` sat tagged
+    // `pure` while calling `ctx.capabilities.xml.parse(...)` for two releases.
+    //
+    // The test that can actually fail is `atom-effects-scan.test.ts`, which reads each
+    // atom's BODY and asks whether the tag matches what it does. Add new atoms there.
     for (const op of EFFECTFUL_CORE_OPS) {
       expect(coreAtoms[op as keyof typeof coreAtoms]?.effects, op).toBe('io')
     }
