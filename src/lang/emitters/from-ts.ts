@@ -31,11 +31,7 @@
  */
 
 import ts from 'typescript'
-import {
-  isEscapedAt,
-  maskLiteralsKeepComments,
-  scanLiterals,
-} from '../../strip-comments'
+import { maskLiteralsKeepComments, scanLiterals } from '../../strip-comments'
 import { emitClassWrapper } from '../runtime'
 
 export interface FromTSOptions {
