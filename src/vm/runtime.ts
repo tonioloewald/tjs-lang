@@ -457,19 +457,17 @@ function membraneValue(value: unknown, maxBytes: number): MembraneResult {
     bytes += 16
     if (bytes > maxBytes) return membraneOverBudget(maxBytes)
     if (Array.isArray(v)) {
-      // Descriptors here too: an array INDEX can be an accessor
-      // (`Object.defineProperty(arr, 0, { get() {…} })`), so `v[i]` would run host code
-      // for exactly the same reason the object branch did.
-      for (let i = 0; i < v.length; i++) {
-        const d = Object.getOwnPropertyDescriptor(v, i)
-        if (d && (d.get || d.set)) {
-          return {
-            ok: false,
-            reason: `capability return has an accessor at index ${i}; the boundary takes plain data only, because reading an accessor would execute host code`,
-          }
-        }
-        stack.push({ v: d ? d.value : undefined, depth: depth + 1 })
-      }
+      // `Object.keys` on an array yields its indices AND any non-index own enumerable
+      // property. Both are needed: the index branch was hardened separately and the
+      // non-index one was never visited at all, so `arr.meta = { get(){…} }` ran host
+      // code, leaked its return into guest state, leaked a thrown host message into
+      // `result.error`, and carried an unbudgeted 5MB string past a 4MB cap —
+      // `structuredClone` serialises those properties even though the walk skipped them.
+      const own = readOwnData(v, 'index')
+      if (!own.ok) return own
+      bytes += own.bytes
+      if (bytes > maxBytes) return membraneOverBudget(maxBytes)
+      for (const value of own.values) stack.push({ v: value, depth: depth + 1 })
     } else if (v instanceof Date) {
       bytes += 32 // fixed-size builtin
       if (bytes > maxBytes) return membraneOverBudget(maxBytes)
@@ -481,20 +479,47 @@ function membraneValue(value: unknown, maxBytes: number): MembraneResult {
     } else if (v instanceof ArrayBuffer) {
       bytes += v.byteLength
       if (bytes > maxBytes) return membraneOverBudget(maxBytes)
-    } else if (v instanceof Map) {
-      // Walk entries so a large Map is both budgeted and kind-checked (a Map
-      // value could itself be a function / host ref). structuredClone clones
-      // both keys and values, so both cross the boundary.
-      bytes += 16
-      if (bytes > maxBytes) return membraneOverBudget(maxBytes)
-      for (const [mk, mv] of v as Map<any, any>) {
-        stack.push({ v: mk, depth: depth + 1 })
-        stack.push({ v: mv, depth: depth + 1 })
+    } else if (v instanceof Map || v instanceof Set) {
+      // Walk entries so a large collection is both budgeted and kind-checked (a value
+      // could itself be a function / host ref). structuredClone clones keys and values,
+      // so both cross the boundary.
+      //
+      // Read through the INTRINSIC iterator, and refuse a subclass outright. `for (const
+      // x of v)` dispatches to `Symbol.iterator`, which a guest-supplied object controls,
+      // while `structuredClone` reads the internal slots — so the two disagreed, and a
+      // `class extends Map` with a lying iterator presented itself as EMPTY to this walk
+      // while 20,000 real entries crossed a 1024-byte `membraneMaxBytes` intact. Verified
+      // in both JSC and V8. Three guarantees failed at once: the documented OOM guard
+      // ("rejects oversized payloads BEFORE the clone allocates") was simply not enforced
+      // for Map/Set, MEMBRANE_MAX_DEPTH was evadable by nesting, and host code ran during
+      // the walk.
+      const proto = Object.getPrototypeOf(v)
+      const isMap = v instanceof Map
+      if (proto !== (isMap ? Map.prototype : Set.prototype)) {
+        return {
+          ok: false,
+          reason: `capability return contains a ${
+            isMap ? 'Map' : 'Set'
+          } subclass; the boundary takes plain data only, because a subclass can override how it is read`,
+        }
       }
-    } else if (v instanceof Set) {
       bytes += 16
       if (bytes > maxBytes) return membraneOverBudget(maxBytes)
-      for (const sv of v as Set<any>) stack.push({ v: sv, depth: depth + 1 })
+      // `.call` on the intrinsic method, driven by hand — never `for…of`, which would
+      // consult the object's own `Symbol.iterator` again.
+      const it = isMap
+        ? Map.prototype.entries.call(v as Map<any, any>)
+        : Set.prototype.values.call(v as Set<any>)
+      const next = it.next.bind(it)
+      for (let step = next(); !step.done; step = next()) {
+        if (isMap) {
+          const [mk, mv] = step.value as [any, any]
+          stack.push({ v: mk, depth: depth + 1 })
+          stack.push({ v: mv, depth: depth + 1 })
+        } else {
+          stack.push({ v: step.value, depth: depth + 1 })
+        }
+      }
     } else {
       // Read DESCRIPTORS, not values. `v[k]` invokes a getter — so the walk that
       // exists to keep host code out of guest state would itself run host code,
@@ -505,18 +530,11 @@ function membraneValue(value: unknown, maxBytes: number): MembraneResult {
       // Accessors are rejected rather than evaluated: there is no way to learn what
       // one returns without running it, and structuredClone would run it again
       // anyway. A capability must hand over plain data.
-      for (const k of Object.keys(v)) {
-        const d = Object.getOwnPropertyDescriptor(v, k)
-        if (d && (d.get || d.set)) {
-          return {
-            ok: false,
-            reason: `capability return has an accessor property '${k}'; the boundary takes plain data only, because reading an accessor would execute host code`,
-          }
-        }
-        bytes += k.length * 2 + 8
-        stack.push({ v: d ? d.value : undefined, depth: depth + 1 })
-      }
+      const own = readOwnData(v, 'property')
+      if (!own.ok) return own
+      bytes += own.bytes
       if (bytes > maxBytes) return membraneOverBudget(maxBytes)
+      for (const value of own.values) stack.push({ v: value, depth: depth + 1 })
     }
   }
 
@@ -530,6 +548,53 @@ function membraneValue(value: unknown, maxBytes: number): MembraneResult {
       }`,
     }
   }
+}
+
+/**
+ * Read an object's own enumerable data properties WITHOUT evaluating a single accessor.
+ *
+ * The one place the membrane is allowed to look at a host object's contents, so it is the
+ * one place this rule has to hold — and it has now been got wrong three times, in three
+ * branches, one at a time:
+ *
+ *   - the object branch read `v[k]` directly (fixed e803f4b)
+ *   - the array branch read `v[i]` directly (fixed c7959f4, the same defect one morning
+ *     later, in the twin nobody looked at)
+ *   - the array branch never visited non-index own properties at all, which
+ *     `structuredClone` serialises regardless
+ *
+ * Reading `v[k]` invokes a getter, so the walk that exists to keep host code OUT of guest
+ * state would itself execute host code — before `structuredClone` is reached and whatever
+ * the eventual verdict. A getter can throw (leaking host exception text into the guest's
+ * error), mutate, or stall, so this is a side-effect vector on the boundary, not only a
+ * data-leak one.
+ *
+ * Accessors are REJECTED rather than evaluated: there is no way to learn what one returns
+ * without running it, and `structuredClone` would run it a second time anyway. A capability
+ * hands over plain data or it hands over nothing.
+ */
+function readOwnData(
+  v: object,
+  what: 'index' | 'property'
+):
+  | { ok: true; values: unknown[]; bytes: number }
+  | { ok: false; reason: string } {
+  const values: unknown[] = []
+  let bytes = 0
+  for (const k of Object.keys(v)) {
+    const d = Object.getOwnPropertyDescriptor(v, k)
+    if (d && (d.get || d.set)) {
+      return {
+        ok: false,
+        reason: `capability return has an accessor ${
+          what === 'index' ? `at index ${k}` : `property '${k}'`
+        }; the boundary takes plain data only, because reading an accessor would execute host code`,
+      }
+    }
+    bytes += k.length * 2 + 8
+    values.push(d ? d.value : undefined)
+  }
+  return { ok: true, values, bytes }
 }
 
 function membraneOverBudget(maxBytes: number): MembraneResult {

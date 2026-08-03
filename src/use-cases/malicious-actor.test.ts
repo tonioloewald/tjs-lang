@@ -455,6 +455,127 @@ describe('Use Case: Malicious Actor', () => {
       expect(result.error?.message).toMatch(/Capability boundary/)
     })
 
+    /**
+     * The hostile-container corpus.
+     *
+     * Three branches of one walk were hardened one at a time, each after the same
+     * realisation, each missing its twin. These run the whole family through the boundary
+     * at once so the next branch cannot be forgotten quietly — and record the ones that
+     * are DEFENDED as well as the ones that were not, because "we checked and it holds"
+     * is the half that otherwise gets re-derived from scratch every review.
+     */
+    describe('hostile containers — every way to hide data from the walk', () => {
+      const rejects = async (make: () => unknown, maxBytes?: number) => {
+        const VM = new AgentVM()
+        const store = { get: async () => make(), set: async () => {} }
+        return VM.run(
+          readAgent(),
+          {},
+          {
+            capabilities: { store },
+            ...(maxBytes === undefined ? {} : { membraneMaxBytes: maxBytes }),
+          }
+        )
+      }
+
+      it('an ARRAY carrying a non-index getter does not run it', async () => {
+        // Never visited at all: the index branch was hardened, the non-index own
+        // properties of the same array were not — and structuredClone serialises them.
+        let invocations = 0
+        const result = await rejects(() => {
+          const arr: unknown[] = [1, 2, 3]
+          Object.defineProperty(arr, 'meta', {
+            enumerable: true,
+            configurable: true,
+            get() {
+              invocations++
+              return 'HOST-CODE-RAN'
+            },
+          })
+          return arr
+        })
+        expect(invocations, 'must not run an array property getter').toBe(0)
+        expect(result.error?.message).toMatch(/Capability boundary/)
+      })
+
+      it('a throwing array property getter does not leak host text', async () => {
+        const result = await rejects(() => {
+          const arr: unknown[] = [1]
+          Object.defineProperty(arr, 'boom', {
+            enumerable: true,
+            configurable: true,
+            get(): never {
+              throw new Error('HOST SECRET /etc/passwd')
+            },
+          })
+          return arr
+        })
+        expect(result.error?.message).not.toMatch(/HOST SECRET/)
+        expect(result.error?.message).toMatch(/Capability boundary/)
+      })
+
+      it('an array property cannot smuggle an oversized payload past the budget', async () => {
+        // 5MB hanging off an array, through a 4MB cap. The documented promise is that
+        // oversized payloads are rejected BEFORE the clone allocates.
+        const result = await rejects(() => {
+          const arr: unknown[] = [1]
+          ;(arr as any).big = 'x'.repeat(5 * 1024 * 1024)
+          return arr
+        }, 4 * 1024 * 1024)
+        expect(result.error?.message).toMatch(/Capability boundary/)
+      })
+
+      for (const kind of ['Map', 'Set'] as const) {
+        it(`a ${kind} subclass with a lying iterator cannot cross`, async () => {
+          // `for…of` consults the object's own Symbol.iterator; structuredClone reads the
+          // internal slots. So a subclass claiming to be EMPTY was walked as empty and
+          // budgeted as empty, while 20,000 real entries crossed a 1024-byte cap intact.
+          // Reproduced in both JSC and V8 before the fix.
+          const result = await rejects(() => {
+            if (kind === 'Map') {
+              class SneakyMap extends Map {
+                *[Symbol.iterator]() {}
+              }
+              const m = new SneakyMap()
+              for (let i = 0; i < 20_000; i++) m.set(`k${i}`, 'v'.repeat(50))
+              return m
+            }
+            class SneakySet extends Set {
+              *[Symbol.iterator]() {}
+            }
+            const st = new SneakySet()
+            for (let i = 0; i < 20_000; i++) st.add(`v${i}`.repeat(10))
+            return st
+          }, 1024)
+          expect(result.error?.message).toMatch(/Capability boundary/)
+        })
+      }
+
+      it('an ordinary Map still crosses — the fix must not ban plain data', async () => {
+        const VM = new AgentVM()
+        const store = {
+          get: async () => new Map([['a', 1]]),
+          set: async () => {},
+        }
+        const result = await VM.run(
+          readAgent(),
+          {},
+          { capabilities: { store } }
+        )
+        expect(result.error).toBeUndefined()
+        expect(result.result?.data).toBeInstanceOf(Map)
+      })
+
+      it('an oversized PLAIN Map is still rejected on budget', async () => {
+        const result = await rejects(() => {
+          const m = new Map<string, string>()
+          for (let i = 0; i < 20_000; i++) m.set(`k${i}`, 'v'.repeat(50))
+          return m
+        }, 1024)
+        expect(result.error?.message).toMatch(/Capability boundary/)
+      })
+    })
+
     it('rejects a raw host reference (process) returned by a capability', async () => {
       const VM = new AgentVM()
       const store = {
