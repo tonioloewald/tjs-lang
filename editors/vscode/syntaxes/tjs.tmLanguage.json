@@ -172,7 +172,7 @@
     "forbidden": {
       "patterns": [
         {
-          "match": "\\\\b(implements|interface|abstract|private|protected|public|yield|require|module|var|switch|case|default|with|void|debugger|eval|type|enum|namespace|declare|readonly|as|is|keyof|infer|never|unknown)\\\\b",
+          "match": "\\b(var|eval)\\b",
           "name": "invalid.illegal.forbidden.tjs"
         }
       ]
@@ -180,11 +180,11 @@
     "keywords": {
       "patterns": [
         {
-          "match": "\\\\b(function|return|if|else|while|for|of|in|try|catch|finally|let|const|test|mock|unsafe|async|await|throw|import|export|class|extends|super|this|new|static|typeof|instanceof|delete)\\\\b",
+          "match": "\\b(function|return|if|else|while|for|of|in|try|catch|finally|let|const|test|mock|unsafe|async|await|throw|import|export|class|extends|super|this|new|static|typeof|instanceof|delete)\\b",
           "name": "keyword.control.tjs"
         },
         {
-          "match": "\\\\b(true|false|null|undefined)\\\\b",
+          "match": "\\b(true|false|null|undefined)\\b",
           "name": "constant.language.tjs"
         }
       ]
@@ -192,7 +192,7 @@
     "builtins": {
       "patterns": [
         {
-          "match": "\\\\b(Date|Set|Map|Array|Object|String|Number|Boolean|RegExp|Error|JSON|Math|Schema|expect|assert)\\\\b",
+          "match": "\\b(Date|Set|Map|Array|Object|String|Number|Boolean|RegExp|Error|JSON|Math|Schema|expect|assert)\\b",
           "name": "support.class.tjs"
         }
       ]

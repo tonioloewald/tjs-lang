@@ -185,26 +185,14 @@ var TJS_KEYWORDS = [
   "delete"
 ];
 var KEYWORDS2 = [...KEYWORDS, ...TJS_KEYWORDS];
-var FORBIDDEN_KEYWORDS2 = FORBIDDEN_KEYWORDS.filter(
-  (k) => ![
-    "async",
-    "await",
-    "throw",
-    "import",
-    "export",
-    // Class support (classes are callable without `new` in .tjs)
-    "class",
-    "extends",
-    "super",
-    "this",
-    "new",
-    "static",
-    // Valid JS operators
-    "typeof",
-    "instanceof",
-    "delete"
-  ].includes(k)
-);
+var FORBIDDEN_KEYWORDS2 = [
+  // Rejected outright — `unsafe var x = 1` is the escape.
+  "var",
+  // Rejected as a CALL (`eval(...)`). Flagged as a token because that is the only usage
+  // anyone writes, and the remedy — `Eval()` from the runtime, or `unsafe eval(src)` —
+  // is worth surfacing at the site.
+  "eval"
+];
 var TYPE_CONSTRUCTORS2 = [
   ...TYPE_CONSTRUCTORS,
   "expect",
@@ -551,10 +539,45 @@ var TJS_COMPLETIONS = [
     type: "keyword",
     detail: "Mock setup block"
   }),
-  snippetCompletion("unsafe {\n	${}\n}", {
+  // `unsafe <expression>` — an EXPRESSION PREFIX, not a block.
+  //
+  // This used to insert `unsafe {\n\t\n}`, a form the language rejects outright: the block
+  // exempts nothing, so the editor shipped with the language was teaching a syntax error
+  // for that language's headline feature. It only became the headline feature this
+  // release, which is how a long-dead snippet became actively misleading.
+  snippetCompletion("unsafe ${expression}", {
     label: "unsafe",
     type: "keyword",
-    detail: "Skip type validation"
+    detail: "Take responsibility for ONE construct: unsafe new Date(x)"
+  }),
+  // The `Legacy*` bridges. None of these had a completion at all, so the entire escape
+  // vocabulary this release introduced was undiscoverable in the editor that ships with
+  // it. The verbose names are deliberate — see PRINCIPLES.md, "make stupid stuff stand
+  // out and look ugly and clumsy" — so the detail text has to explain why you'd want one.
+  snippetCompletion("DangerousLegacyEquals(${a}, ${b})", {
+    label: "DangerousLegacyEquals",
+    type: "function",
+    detail: "JS `==` with coercion \u2014 can run valueOf()/toString(). Prefer =="
+  }),
+  snippetCompletion("DangerousLegacyNot(${a}, ${b})", {
+    label: "DangerousLegacyNot",
+    type: "function",
+    detail: "JS `!=` with coercion. Prefer !="
+  }),
+  snippetCompletion("LegacyExactly(${a}, ${b})", {
+    label: "LegacyExactly",
+    type: "function",
+    detail: "JS `===` identity, no boxed-primitive unwrapping"
+  }),
+  snippetCompletion("LegacyNotExactly(${a}, ${b})", {
+    label: "LegacyNotExactly",
+    type: "function",
+    detail: "JS `!==` identity"
+  }),
+  snippetCompletion("LegacyDefault(${value})", {
+    label: "LegacyDefault",
+    type: "function",
+    detail: "Atomic JS default instead of per-member merge"
   })
 ];
 var TJS_TYPES = [

@@ -23,11 +23,11 @@ function buildVSCodeGrammar() {
   const grammarPath = join(editorsDir, 'vscode/syntaxes/ajs.tmLanguage.json')
 
   // Build regex patterns from arrays
-  const forbiddenPattern = `\\\\b(${FORBIDDEN_KEYWORDS.join('|')})\\\\b`
-  const keywordsPattern = `\\\\b(${KEYWORDS.filter(
+  const forbiddenPattern = `\\b(${FORBIDDEN_KEYWORDS.join('|')})\\b`
+  const keywordsPattern = `\\b(${KEYWORDS.filter(
     (k) => !['true', 'false', 'null', 'undefined'].includes(k)
-  ).join('|')})\\\\b`
-  const constantsPattern = `\\\\b(true|false|null|undefined)\\\\b`
+  ).join('|')})\\b`
+  const constantsPattern = `\\b(true|false|null|undefined)\\b`
 
   const grammar = {
     $schema:
@@ -111,7 +111,7 @@ function buildVSCodeGrammar() {
         comment: 'Auto-generated from editors/ajs-syntax.ts TYPE_CONSTRUCTORS',
         patterns: [
           {
-            match: `\\\\b(${TYPE_CONSTRUCTORS.join('|')})\\\\b`,
+            match: `\\b(${TYPE_CONSTRUCTORS.join('|')})\\b`,
             name: 'support.class.ajs',
           },
         ],
@@ -259,11 +259,11 @@ function buildTJSVSCodeGrammar() {
   const grammarPath = join(editorsDir, 'vscode/syntaxes/tjs.tmLanguage.json')
 
   // Build regex patterns from TJS arrays
-  const forbiddenPattern = `\\\\b(${TJS_FORBIDDEN.join('|')})\\\\b`
-  const keywordsPattern = `\\\\b(${TJS_KEYWORDS.filter(
+  const forbiddenPattern = `\\b(${TJS_FORBIDDEN.join('|')})\\b`
+  const keywordsPattern = `\\b(${TJS_KEYWORDS.filter(
     (k) => !['true', 'false', 'null', 'undefined'].includes(k)
-  ).join('|')})\\\\b`
-  const constantsPattern = `\\\\b(true|false|null|undefined)\\\\b`
+  ).join('|')})\\b`
+  const constantsPattern = `\\b(true|false|null|undefined)\\b`
 
   const grammar = {
     $schema:
@@ -384,7 +384,7 @@ function buildTJSVSCodeGrammar() {
       builtins: {
         patterns: [
           {
-            match: `\\\\b(${TJS_TYPE_CONSTRUCTORS.join('|')})\\\\b`,
+            match: `\\b(${TJS_TYPE_CONSTRUCTORS.join('|')})\\b`,
             name: 'support.class.tjs',
           },
         ],

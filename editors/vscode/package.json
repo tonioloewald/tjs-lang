@@ -1,7 +1,7 @@
 {
-  "name": "tjs-lang-ajs",
-  "displayName": "AsyncJS (tjs-lang)",
-  "description": "Syntax highlighting for AsyncJS - ajs`...` template literals and .ajs files",
+  "name": "tjs-lang",
+  "displayName": "TJS + AsyncJS (tjs-lang)",
+  "description": "Syntax highlighting for TJS (.tjs) and AsyncJS (.ajs, ajs`...` template literals)",
   "version": "0.1.0",
   "publisher": "tosijs",
   "repository": {
@@ -19,6 +19,13 @@
       "editor.tokenColorCustomizations": {
         "textMateRules": [
           {
+            "scope": "invalid.illegal.tjs",
+            "settings": {
+              "foreground": "#ff0000",
+              "fontStyle": "bold underline"
+            }
+          },
+          {
             "scope": "invalid.illegal.ajs",
             "settings": {
               "foreground": "#ff0000",
@@ -29,6 +36,18 @@
       }
     },
     "languages": [
+      {
+        "id": "tjs",
+        "aliases": [
+          "TJS",
+          "Typed JavaScript",
+          "tjs"
+        ],
+        "extensions": [
+          ".tjs"
+        ],
+        "configuration": "./language-configuration.json"
+      },
       {
         "id": "ajs",
         "aliases": [
@@ -42,6 +61,11 @@
       }
     ],
     "grammars": [
+      {
+        "language": "tjs",
+        "scopeName": "source.tjs",
+        "path": "./syntaxes/tjs.tmLanguage.json"
+      },
       {
         "language": "ajs",
         "scopeName": "source.ajs",

@@ -45,30 +45,32 @@ export const TJS_KEYWORDS = [
 export const KEYWORDS = [...AJS_KEYWORDS, ...TJS_KEYWORDS] as const
 
 /**
- * TJS forbidden keywords (fewer than AJS - TJS is less restrictive)
- * TJS allows: async/await, throw, import/export, class-related, and JS operators
+ * Constructs a `.tjs` file actually REJECTS.
+ *
+ * This used to be derived by subtracting a 14-item allow-list from AJS's 42-item forbidden
+ * list, which encoded the AJS sandbox's restrictions rather than TJS's. Measured against
+ * the real compiler: **41 of those 42 tokens are legal TJS.** `switch`/`case`/`default`
+ * are ordinary control flow, and `type`/`module`/`is`/`as`/`keyof`/`never` are ordinary
+ * identifiers — all painted red in the live playground and in every consumer of
+ * `tjs-lang/editors/codemirror`. One shipped example (`schema-validation.md`) got three
+ * false squiggles on the property name `type`.
+ *
+ * So the list is now built from what the compiler rejects, and
+ * `editors/forbidden-keywords.test.ts` drives every entry through `tjs()` to prove it —
+ * and every token REMOVED from the old list to prove those compile. A syntax highlighter
+ * that disagrees with the compiler teaches the language wrongly, and it is the first
+ * thing a new user sees.
+ *
+ * AJS keeps its own, much longer list: it is a sandbox, and its restrictions are real.
  */
-export const FORBIDDEN_KEYWORDS = AJS_FORBIDDEN.filter(
-  (k) =>
-    ![
-      'async',
-      'await',
-      'throw',
-      'import',
-      'export',
-      // Class support (classes are callable without `new` in .tjs)
-      'class',
-      'extends',
-      'super',
-      'this',
-      'new',
-      'static',
-      // Valid JS operators
-      'typeof',
-      'instanceof',
-      'delete',
-    ].includes(k)
-) as readonly string[]
+export const FORBIDDEN_KEYWORDS = [
+  // Rejected outright — `unsafe var x = 1` is the escape.
+  'var',
+  // Rejected as a CALL (`eval(...)`). Flagged as a token because that is the only usage
+  // anyone writes, and the remedy — `Eval()` from the runtime, or `unsafe eval(src)` —
+  // is worth surfacing at the site.
+  'eval',
+] as const satisfies readonly string[]
 
 /**
  * Type constructors (same as AJS plus TJS-specific)
@@ -100,8 +102,12 @@ export const TJS_PATTERNS = {
   // Mock block: mock { ... }
   mockBlock: /mock\s*\{/,
 
-  // Unsafe block: unsafe { ... }
-  unsafeBlock: /unsafe\s*\{/,
+  // `unsafe <expression>` — an expression PREFIX, not a block. There is no `unsafe { }`
+  // form; the block exempts nothing. Matched on the same line only, mirroring the
+  // compiler's own scanner (see src/strip-comments.ts findUnsafeSpans): across a newline
+  // `unsafe` is an ordinary identifier under ASI, and treating it as a marker would
+  // highlight legal JavaScript as a language construct.
+  unsafeExpression: /\bunsafe[ \t]+(?!(?:instanceof|in|of)\b)(?=[A-Za-z_$])/,
 
   // Colon type annotation: name: 'type' or name: 0
   colonType:

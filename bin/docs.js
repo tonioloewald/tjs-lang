@@ -16,11 +16,21 @@ const TRIM_REGEX = /^#+ |`/g
  * Extract the first code block from markdown content
  */
 function extractCodeBlock(content) {
-  const match = content.match(/```(\w+)?\n([\s\S]*?)```/)
+  // FENCE-LENGTH AWARE. CommonMark closes a fence only with a run of at least as many
+  // backticks as opened it, so an example whose CODE contains a triple-backtick (a regex
+  // matching markdown, say) opens with FOUR — and the old `/```(\w+)?\n([\s\S]*?)```/`
+  // stopped at the inner triple, cutting the example mid-expression.
+  //
+  // Two shipped AJS examples did exactly that, and both were served truncated in the live
+  // playground and in the npm package: `llm-code-solver` and `llm-code-generator` were cut
+  // at `code = code.replace(/` and failed to transpile with "Unterminated regular
+  // expression". They open with four backticks PRECISELY BECAUSE their code contains
+  // three, i.e. the authors did the right thing and the extractor punished them for it.
+  const match = content.match(/^(`{3,})(\w+)?\n([\s\S]*?)^\1\s*$/m)
   if (match) {
     return {
-      language: match[1] || 'javascript',
-      code: match[2].trim(),
+      language: match[2] || 'javascript',
+      code: match[3].trim(),
     }
   }
   return null

@@ -96,7 +96,7 @@
       "comment": "Auto-generated from editors/ajs-syntax.ts FORBIDDEN_KEYWORDS",
       "patterns": [
         {
-          "match": "\\\\b(new|class|extends|super|this|implements|interface|abstract|static|private|protected|public|async|await|yield|import|export|require|module|var|throw|switch|case|default|with|delete|void|typeof|instanceof|debugger|eval|type|enum|namespace|declare|readonly|as|is|keyof|infer|never|unknown)\\\\b",
+          "match": "\\b(new|class|extends|super|this|implements|interface|abstract|static|private|protected|public|async|await|yield|import|export|require|module|var|throw|switch|case|default|with|delete|void|typeof|instanceof|debugger|eval|type|enum|namespace|declare|readonly|as|is|keyof|infer|never|unknown)\\b",
           "name": "invalid.illegal.forbidden.ajs"
         }
       ]
@@ -105,11 +105,11 @@
       "comment": "Auto-generated from editors/ajs-syntax.ts KEYWORDS",
       "patterns": [
         {
-          "match": "\\\\b(function|return|if|else|while|for|of|in|try|catch|finally|let|const)\\\\b",
+          "match": "\\b(function|return|if|else|while|for|of|in|try|catch|finally|let|const)\\b",
           "name": "keyword.control.ajs"
         },
         {
-          "match": "\\\\b(true|false|null|undefined)\\\\b",
+          "match": "\\b(true|false|null|undefined)\\b",
           "name": "constant.language.ajs"
         }
       ]
@@ -118,7 +118,7 @@
       "comment": "Auto-generated from editors/ajs-syntax.ts TYPE_CONSTRUCTORS",
       "patterns": [
         {
-          "match": "\\\\b(Date|Set|Map|Array|Object|String|Number|Boolean|RegExp|Error|JSON|Math|Schema)\\\\b",
+          "match": "\\b(Date|Set|Map|Array|Object|String|Number|Boolean|RegExp|Error|JSON|Math|Schema)\\b",
           "name": "support.class.ajs"
         }
       ]

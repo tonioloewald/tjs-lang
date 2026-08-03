@@ -15,10 +15,25 @@ export declare const TJS_KEYWORDS: readonly ["test", "mock", "unsafe", "async", 
  */
 export declare const KEYWORDS: readonly ["function", "return", "if", "else", "while", "for", "of", "in", "try", "catch", "finally", "let", "const", "true", "false", "null", "undefined", "test", "mock", "unsafe", "async", "await", "throw", "import", "export", "class", "extends", "super", "this", "new", "static", "typeof", "instanceof", "delete"];
 /**
- * TJS forbidden keywords (fewer than AJS - TJS is less restrictive)
- * TJS allows: async/await, throw, import/export, class-related, and JS operators
+ * Constructs a `.tjs` file actually REJECTS.
+ *
+ * This used to be derived by subtracting a 14-item allow-list from AJS's 42-item forbidden
+ * list, which encoded the AJS sandbox's restrictions rather than TJS's. Measured against
+ * the real compiler: **41 of those 42 tokens are legal TJS.** `switch`/`case`/`default`
+ * are ordinary control flow, and `type`/`module`/`is`/`as`/`keyof`/`never` are ordinary
+ * identifiers — all painted red in the live playground and in every consumer of
+ * `tjs-lang/editors/codemirror`. One shipped example (`schema-validation.md`) got three
+ * false squiggles on the property name `type`.
+ *
+ * So the list is now built from what the compiler rejects, and
+ * `editors/forbidden-keywords.test.ts` drives every entry through `tjs()` to prove it —
+ * and every token REMOVED from the old list to prove those compile. A syntax highlighter
+ * that disagrees with the compiler teaches the language wrongly, and it is the first
+ * thing a new user sees.
+ *
+ * AJS keeps its own, much longer list: it is a sandbox, and its restrictions are real.
  */
-export declare const FORBIDDEN_KEYWORDS: readonly string[];
+export declare const FORBIDDEN_KEYWORDS: readonly ["var", "eval"];
 /**
  * Type constructors (same as AJS plus TJS-specific)
  */
@@ -35,7 +50,7 @@ export declare const TJS_PATTERNS: {
     unsafeFunction: RegExp;
     testBlock: RegExp;
     mockBlock: RegExp;
-    unsafeBlock: RegExp;
+    unsafeExpression: RegExp;
     colonType: RegExp;
 };
 /**

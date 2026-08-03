@@ -273,9 +273,21 @@ export function extractWasmBlocks(source: string): {
   let i = 0
   let blockId = 0
 
+  // Detect openers and count braces over a LITERAL-MASKED view; slice bodies from the real
+  // source. Scanning raw source meant a `wasm { ... }` written inside a DOC COMMENT was
+  // extracted and compiled — and the flagship `wasm-functions` playground example, whose
+  // intro prose necessarily says "Inline `wasm { ... }` blocks live inside a specific JS
+  // function", printed "did not compile — running the fallback{} (JS)" on every single
+  // run. The one place the syntax is guaranteed to appear in prose is the documentation
+  // for the syntax.
+  //
+  // Sibling of the same fix in `maskWasmBodies`; both scanners had the same blind spot,
+  // and fixing one of them would have left this one broken in exactly this way.
+  const masked = maskLiterals(source)
+
   while (i < source.length) {
     // Look for 'wasm {' or 'wasm{' - simple block without params
-    const wasmMatch = source.slice(i).match(/^\bwasm\s*\{/)
+    const wasmMatch = masked.slice(i).match(/^\bwasm\s*\{/)
     if (wasmMatch) {
       const matchStart = i
 
@@ -284,8 +296,8 @@ export function extractWasmBlocks(source: string): {
       let braceDepth = 1
       let j = bodyStart
 
-      while (j < source.length && braceDepth > 0) {
-        const char = source[j]
+      while (j < masked.length && braceDepth > 0) {
+        const char = masked[j]
         if (char === '{') braceDepth++
         else if (char === '}') braceDepth--
         j++
