@@ -36,6 +36,11 @@
  *   - testRunner: Generated code to execute tests
  */
 
+import {
+  isInsideComment as sharedIsInsideComment,
+  maskLiteralsKeepComments,
+} from '../strip-comments'
+
 // Note: parser could be used for more robust test extraction in future
 
 export interface ExtractedTest {
@@ -61,34 +66,41 @@ export interface TestExtractionResult {
 }
 
 /**
- * Check if a position in source is inside a comment
+ * Check if a position in source is inside a comment.
+ *
+ * Delegates to the shared string/regex-aware scanner. The hand-rolled version this
+ * replaces counted `/*` and `*\/` from the top of the file with no notion of string
+ * literals, so `const OPEN = '/*'` — or the ordinary glob `'**\/*.ts'`, or a line comment
+ * that merely MENTIONED `/*` — convinced it the rest of the file was one giant comment.
+ * Every `test { }` block after that point was then dropped, with no error, no warning and
+ * no recorder entry: the file simply reported zero tests. For a language whose thesis is
+ * that tests live in the source, silently reporting none is the worst available failure.
  */
 function isInsideComment(source: string, pos: number): boolean {
-  // Check for line comment - scan backwards to start of line
-  let lineStart = pos
-  while (lineStart > 0 && source[lineStart - 1] !== '\n') {
-    lineStart--
-  }
-  const lineBeforePos = source.slice(lineStart, pos)
-  if (lineBeforePos.includes('//')) {
-    return true
-  }
+  return sharedIsInsideComment(source, pos)
+}
 
-  // Check for block comment - find last /* and */ before pos
-  let i = 0
-  let inBlockComment = false
-  while (i < pos) {
-    if (!inBlockComment && source.slice(i, i + 2) === '/*') {
-      inBlockComment = true
-      i += 2
-    } else if (inBlockComment && source.slice(i, i + 2) === '*/') {
-      inBlockComment = false
-      i += 2
-    } else {
-      i++
-    }
-  }
-  return inBlockComment
+/**
+ * Recover a capture group's text from the ORIGINAL source.
+ *
+ * The regex runs over a masked view (string contents blanked) so it cannot be fooled by
+ * quoted syntax, but the text we want back is the real thing — a test body is mostly
+ * string literals, and handing back the blanked version would emit a test full of spaces.
+ * Since masking preserves length, the group's offset in the mask is its offset in the
+ * source.
+ */
+function sliceGroup(
+  source: string,
+  scanned: string,
+  match: RegExpExecArray,
+  group: number
+): string {
+  const text = match[group]
+  if (text === undefined) return ''
+  // Locate the group within the match by searching the masked match text; the group's
+  // content is unique enough in practice, and a miss falls back to the masked text.
+  const at = scanned.indexOf(text, match.index)
+  return at === -1 ? text : source.slice(at, at + text.length)
 }
 
 /**
@@ -105,6 +117,12 @@ function isInsideComment(source: string, pos: number): boolean {
 function extractEmbeddedTests(source: string): ExtractedTest[] {
   const tests: ExtractedTest[] = []
 
+  // Scan a view with STRING/TEMPLATE/REGEX contents blanked but comments intact — we are
+  // reading comments, so we cannot mask them, but we must not read a `/*test` that is
+  // merely quoted inside a string (documentation about this syntax does exactly that).
+  // Offsets are preserved, so every index below still points into the real source.
+  const scanned = maskLiteralsKeepComments(source)
+
   // Match: /*test 'description' { ... }*/  or  /*test { ... }*/
   // Each quote type gets its own alternative so the description can contain
   // the other quote types (e.g. `test 'typeof null is "null"' {`).
@@ -112,11 +130,16 @@ function extractEmbeddedTests(source: string): ExtractedTest[] {
     /\/\*test\s+'([^']*)'\s*\{([\s\S]*?)\}\s*\*\/|\/\*test\s+"([^"]*)"\s*\{([\s\S]*?)\}\s*\*\/|\/\*test\s+`([^`]*)`\s*\{([\s\S]*?)\}\s*\*\/|\/\*test\s*\{([\s\S]*?)\}\s*\*\//g
 
   let match
-  while ((match = embeddedRegex.exec(source)) !== null) {
+  while ((match = embeddedRegex.exec(scanned)) !== null) {
     // Groups: 1/3/5 = description for ' " ` ; 2/4/6 = body for ' " ` ; 7 = body for anonymous
     const desc =
       match[1] || match[3] || match[5] || `embedded test ${tests.length + 1}`
-    const body = (match[2] || match[4] || match[6] || match[7] || '').trim()
+    // Read the BODY back out of the original source at the matched offsets. The mask has
+    // the body's string literals blanked, and a test body is mostly string literals.
+    const bodyGroup = [2, 4, 6, 7].find((g) => match![g] !== undefined)
+    const body = bodyGroup
+      ? sliceGroup(source, scanned, match, bodyGroup).trim()
+      : ''
 
     tests.push({
       description: desc,

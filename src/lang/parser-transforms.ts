@@ -6,7 +6,7 @@
  */
 
 import { SyntaxError } from './types'
-import { maskLiterals } from '../strip-comments'
+import { maskLiterals, isEscapedAt } from '../strip-comments'
 
 /**
  * Extract a brace-balanced value from source after a regex match.
@@ -214,14 +214,23 @@ export function maskWasmBodies(source: string): {
   const masks: string[] = []
   let result = ''
   let i = 0
+  // Detect openers and count braces over a LITERAL-MASKED view; slice bodies out of the
+  // real source. Scanning raw source made `const open = 'wasm {'` a wasm block: brace
+  // counting then ran past the string, and the two lines of real code that followed were
+  // swallowed into the "body" and replaced by the placeholder. No error — the result still
+  // parsed — so the code simply vanished, and the round-trip did not restore it.
+  //
+  // This function is new in 471ee6e and is a REGRESSION: before it existed the `==` → `Eq`
+  // rewrite ran first, so the affected source was transpiled correctly.
+  const masked = maskLiterals(source)
   while (i < source.length) {
-    const m = source.slice(i).match(/^\bwasm\s*\{/)
+    const m = masked.slice(i).match(/^\bwasm\s*\{/)
     if (m) {
       const bodyStart = i + m[0].length
       let depth = 1
       let j = bodyStart
-      while (j < source.length && depth > 0) {
-        const c = source[j]
+      while (j < masked.length && depth > 0) {
+        const c = masked[j]
         if (c === '{') depth++
         else if (c === '}') depth--
         j++
@@ -230,8 +239,10 @@ export function maskWasmBodies(source: string): {
         const id = masks.length
         masks.push(source.slice(bodyStart, j - 1))
         // `wasm {` + operator-free comment placeholder + `}` — balanced braces,
-        // nothing for the operator transforms to touch.
-        result += `${m[0]} /*__WASM_MASK_${id}__*/ }`
+        // nothing for the operator transforms to touch. No padding spaces: they made the
+        // round-trip lossy (two spaces appeared in every restored body), which is a
+        // needless way for a masking pass to change the code it is only meant to hide.
+        result += `${m[0]}/*__WASM_MASK_${id}__*/}`
         i = j
         continue
       }
@@ -1533,7 +1544,7 @@ function findLeftOperandBoundary(source: string, opPos: number): number {
 
     // Handle string literals (scan backwards through them)
     if (inString) {
-      if (char === stringChar && prevChar !== '\\') {
+      if (char === stringChar && !isEscapedAt(source, i)) {
         inString = false
       }
       i--
@@ -1541,7 +1552,10 @@ function findLeftOperandBoundary(source: string, opPos: number): number {
     }
 
     // Check for string end (we're scanning backwards, so end is opening quote)
-    if ((char === '"' || char === "'" || char === '`') && prevChar !== '\\') {
+    if (
+      (char === '"' || char === "'" || char === '`') &&
+      !isEscapedAt(source, i)
+    ) {
       inString = true
       stringChar = char
       i--
@@ -1704,7 +1718,7 @@ function findRightOperandBoundary(
 
     // Handle string literals
     if (inString) {
-      if (char === stringChar && source[i - 1] !== '\\') {
+      if (char === stringChar && !isEscapedAt(source, i)) {
         inString = false
       }
       i++
@@ -1713,7 +1727,7 @@ function findRightOperandBoundary(
 
     if (
       (char === '"' || char === "'" || char === '`') &&
-      source[i - 1] !== '\\'
+      !isEscapedAt(source, i)
     ) {
       inString = true
       stringChar = char
@@ -2500,9 +2514,14 @@ export function transformExtendDeclarations(source: string): {
   let result = ''
   let i = 0
 
+  // Detection runs over the literal-masked view (offsets preserved); every slice comes from
+  // the real source. Otherwise an `extend Foo { … }` written inside a `/*# … *\/` doc
+  // comment — i.e. the documentation for this feature — is transformed as if it were code.
+  const maskedSource = maskLiterals(source)
+
   while (i < source.length) {
     // Look for 'extend' keyword at statement boundary
-    const remaining = source.slice(i)
+    const remaining = maskedSource.slice(i)
     const extendMatch = remaining.match(/^(\s*)extend\s+([A-Z]\w*)\s*\{/)
 
     if (!extendMatch) {
@@ -2740,7 +2759,7 @@ export function transformExtensionCalls(
       while (k >= 0 && bracketDepth > 0) {
         const ch = result[k]
         if (inStr) {
-          if (ch === inStr && (k === 0 || result[k - 1] !== '\\')) {
+          if (ch === inStr && !isEscapedAt(result, k)) {
             inStr = false
           }
         } else {
@@ -2967,71 +2986,19 @@ export function findFunctionBodyEnd(
   source: string,
   openBracePos: number
 ): number {
+  // Counted over a literal-masked view. The hand-rolled walk this replaces tracked strings
+  // and comments but had NO REGEX BRANCH, so a body containing `/^\}/` — or any regex
+  // holding an unbalanced brace or a lone quote — closed the function early and truncated
+  // everything after it. Sixth instance of the same blind spot in this one file.
+  const masked = maskLiterals(source)
   let depth = 1
   let i = openBracePos + 1
-  let inString: string | false = false
-  let inLineComment = false
-  let inBlockComment = false
-
-  while (i < source.length && depth > 0) {
-    const ch = source[i]
-    const next = i + 1 < source.length ? source[i + 1] : ''
-
-    // Line comment
-    if (inLineComment) {
-      if (ch === '\n') inLineComment = false
-      i++
-      continue
-    }
-
-    // Block comment
-    if (inBlockComment) {
-      if (ch === '*' && next === '/') {
-        inBlockComment = false
-        i += 2
-        continue
-      }
-      i++
-      continue
-    }
-
-    // String tracking
-    if (inString) {
-      if (ch === '\\') {
-        i += 2
-        continue
-      }
-      if (ch === inString) inString = false
-      i++
-      continue
-    }
-
-    // Start comments
-    if (ch === '/' && next === '/') {
-      inLineComment = true
-      i += 2
-      continue
-    }
-    if (ch === '/' && next === '*') {
-      inBlockComment = true
-      i += 2
-      continue
-    }
-
-    // Start strings
-    if (ch === "'" || ch === '"' || ch === '`') {
-      inString = ch
-      i++
-      continue
-    }
-
-    // Braces
+  while (i < masked.length && depth > 0) {
+    const ch = masked[i]
     if (ch === '{') depth++
-    if (ch === '}') depth--
-
+    else if (ch === '}') depth--
     i++
   }
-
   return i
 }
 
@@ -3528,7 +3495,13 @@ export function transformPolymorphicConstructors(
 ): { source: string; polyCtorClasses: Set<string> } {
   const polyCtorClasses = new Set<string>()
 
-  // Find classes with multiple constructors
+  // Find classes with multiple constructors.
+  //
+  // The SEARCH runs over a literal-masked view; every slice below still comes from the real
+  // source (masking preserves offsets). Without this, an illustrative `class Point { … }`
+  // written inside a `/*# … *\/` doc comment — which is exactly what a language's own
+  // documentation contains — was picked up as a real declaration to transform.
+  const maskedSource = maskLiterals(source)
   const classRegex = /\bclass\s+(\w+)(\s+extends\s+\w+)?\s*\{/g
   let classMatch
 
@@ -3541,7 +3514,7 @@ export function transformPolymorphicConstructors(
     body: string
   }[] = []
 
-  while ((classMatch = classRegex.exec(source)) !== null) {
+  while ((classMatch = classRegex.exec(maskedSource)) !== null) {
     const className = classMatch[1]
     const extendsClause = classMatch[2]?.trim() || ''
     const bodyStart = classMatch.index + classMatch[0].length - 1
@@ -3714,13 +3687,16 @@ export function wrapClassDeclarations(
   polyCtorClasses: Set<string> = new Set()
 ): string {
   // Match class declarations: class Name { or class Name extends Base {
-  // Capture the class name and find the full class body
+  // Capture the class name and find the full class body.
+  // Searched over the literal-masked view so a `class … {` shown inside a doc comment or a
+  // string is not wrapped as a real declaration; all slices use the real source.
+  const maskedSource = maskLiterals(source)
   const classRegex = /\bclass\s+(\w+)(\s+extends\s+\w+)?\s*\{/g
   let result = ''
   let lastIndex = 0
   let match
 
-  while ((match = classRegex.exec(source)) !== null) {
+  while ((match = classRegex.exec(maskedSource)) !== null) {
     const className = match[1]
     const extendsClause = match[2] || ''
     const classStart = match.index

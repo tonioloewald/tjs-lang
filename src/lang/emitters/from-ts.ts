@@ -31,6 +31,11 @@
  */
 
 import ts from 'typescript'
+import {
+  isEscapedAt,
+  maskLiteralsKeepComments,
+  scanLiterals,
+} from '../../strip-comments'
 import { emitClassWrapper } from '../runtime'
 
 export interface FromTSOptions {
@@ -2425,44 +2430,24 @@ function buildAnnotationMap(
  * skipped for the same reason.
  */
 function extractEmbeddedTestComments(source: string): string[] {
-  const tests: string[] = []
-  const isTestOpener = (at: number) =>
-    /^\/\*test[\s{'"`]/.test(source.slice(at, at + 8))
-
-  let i = 0
-  while (i < source.length) {
-    const ch = source[i]
-
-    // Strings — skipped whole, consuming escapes forward.
-    if (ch === "'" || ch === '"' || ch === '`') {
-      i++
-      while (i < source.length && source[i] !== ch) {
-        i += source[i] === '\\' ? 2 : 1
-      }
-      i++
-      continue
-    }
-
-    // Line comment — to end of line.
-    if (ch === '/' && source[i + 1] === '/') {
-      const nl = source.indexOf('\n', i)
-      i = nl === -1 ? source.length : nl
-      continue
-    }
-
-    // Block comment — consumed WHOLE, test or not. Anything nested inside one (including
-    // a documented example) is therefore never examined.
-    if (ch === '/' && source[i + 1] === '*') {
-      const close = source.indexOf('*/', i + 2)
-      const end = close === -1 ? source.length : close + 2
-      if (isTestOpener(i)) tests.push(source.slice(i, end))
-      i = end
-      continue
-    }
-
-    i++
-  }
-  return tests
+  // Delegates to the shared scanner. The hand-rolled walk this replaces skipped strings and
+  // comments but had NO REGEX BRANCH, so `const q = /['"]/` above a test comment made it
+  // read the regex's `'` as opening a string literal, run to the next quote somewhere else
+  // entirely, and desynchronise. Two opposite failures fell out of that one blind spot:
+  // a real `/*test … *\/` block was silently DROPPED from converted output, and — with
+  // `const q = /'/` above a JSDoc containing an apostrophe — a documentation example was
+  // PROMOTED into a real emitted test. The dogfood corpus scores emit/compile/graduate and
+  // can see neither.
+  //
+  // 81d4a0b replaced a regex with this walk and dropped the literal-awareness it had been
+  // getting by delegation; strip-comments.ts was extracted the same release, FOR this file.
+  return scanLiterals(source)
+    .filter(
+      (r) =>
+        r.kind === 'block-comment' &&
+        /^\/\*test[\s{'"`]/.test(source.slice(r.start, r.start + 8))
+    )
+    .map((r) => source.slice(r.start, r.end))
 }
 
 /**
@@ -2495,29 +2480,18 @@ function extractDocComments(
   // zero-width, so match.index stays on `/*#` for the brace-depth check below.
   const docRegex = /(?<=^[ \t]*)\/\*#[\s\S]*?\*\//gm
 
-  // Track brace depth to identify top-level comments
+  // Brace depth is counted over a view with string, template and REGEX contents blanked
+  // (comments kept — we are looking for one). The hand-rolled version tracked strings only,
+  // so an ordinary `const R = /}/` threw the depth negative and every doc comment after it
+  // was judged not-top-level and dropped. Masking preserves offsets, so the indices below
+  // still point into the real source.
+  const scanned = maskLiteralsKeepComments(source)
   let braceDepth = 0
-  let inString: string | null = null
-
-  // Scan source to find brace depths at each position
   const braceDepthAt: number[] = []
-  for (let i = 0; i < source.length; i++) {
-    const ch = source[i]
-    const prev = i > 0 ? source[i - 1] : ''
-
-    // Handle string literals
-    if (!inString && (ch === '"' || ch === "'" || ch === '`')) {
-      inString = ch
-    } else if (inString && ch === inString && prev !== '\\') {
-      inString = null
-    }
-
-    // Track braces only outside strings
-    if (!inString) {
-      if (ch === '{') braceDepth++
-      if (ch === '}') braceDepth--
-    }
-
+  for (let i = 0; i < scanned.length; i++) {
+    const ch = scanned[i]
+    if (ch === '{') braceDepth++
+    if (ch === '}') braceDepth--
     braceDepthAt[i] = braceDepth
   }
 

@@ -12,18 +12,22 @@
  */
 
 import { describe, it, expect } from 'bun:test'
-// NOTE: the canary evaluates transpiled parser modules standalone, so every helper the
-// parser imports must be injected below. Adding an export to `src/strip-comments.ts` that
-// the parser uses means adding it here too — otherwise this fails with
-// "X is not defined" rather than anything that points at the cause.
-import {
-  stripLineComments,
-  isRegexStart,
-  findRegexEnd,
-  maskLiterals,
-  maskUnsafe,
-  stripUnsafeMarkers,
-} from '../strip-comments'
+// The canary evaluates transpiled parser modules standalone, so every helper the parser
+// imports has to be injected into the `new Function` scope.
+//
+// This used to be a hand-written list, with a note telling the next person to remember to
+// update it. They did not — adding `isEscapedAt` to strip-comments.ts broke the canary with
+// "isEscapedAt is not defined", a message that points at the symptom and not the cause. So
+// the list is now DERIVED from the module's exports: a new export is injected automatically
+// and there is nothing left to forget. Same defect class this whole release is about — a
+// second copy of a fact, kept in sync by remembering.
+import * as stripComments from '../strip-comments'
+const STRIP_COMMENTS_EXPORTS = Object.keys(stripComments).filter(
+  (k) => typeof (stripComments as Record<string, unknown>)[k] === 'function'
+)
+const STRIP_COMMENTS_VALUES = STRIP_COMMENTS_EXPORTS.map(
+  (k) => (stripComments as Record<string, unknown>)[k]
+)
 import { fromTS } from '../lang/emitters/from-ts'
 import { tjs } from '../lang'
 import { emitVerifiedPredicate } from '../lang/predicate'
@@ -148,10 +152,15 @@ describe('Bootstrap Canary', () => {
       const strippedCode = result.code
         .replace(/^import\s+.*$/gm, '')
         .replace(/^export\s+/gm, '')
-      const module = new Function(`
+      // Same derived injection as the parser sites: docs.ts consumes the shared
+      // literal-aware scanner, and its imports are stripped for standalone execution.
+      const module = new Function(
+        ...STRIP_COMMENTS_EXPORTS,
+        `
         ${strippedCode}
         return { generateDocs };
-      `)()
+      `
+      )(...STRIP_COMMENTS_VALUES)
       const execTime = performance.now() - execStart
 
       // Test the bootstrapped docs functions
@@ -549,25 +558,12 @@ describe('Bootstrap Canary', () => {
       // the whole parser into the browser bundle.
       const parserModule = new Function(
         'emitVerifiedPredicate',
-        'stripLineComments',
-        'isRegexStart',
-        'findRegexEnd',
-        'maskLiterals',
-        'maskUnsafe',
-        'stripUnsafeMarkers',
+        ...STRIP_COMMENTS_EXPORTS,
         `
         ${combinedCode}
         return { preprocess };
       `
-      )(
-        emitVerifiedPredicate,
-        stripLineComments,
-        isRegexStart,
-        findRegexEnd,
-        maskLiterals,
-        maskUnsafe,
-        stripUnsafeMarkers
-      )
+      )(emitVerifiedPredicate, ...STRIP_COMMENTS_VALUES)
       const execTime = performance.now() - execStart
 
       expect(typeof parserModule.preprocess).toBe('function')
@@ -677,25 +673,12 @@ describe('Bootstrap Canary', () => {
 
       const bootstrappedParser = new Function(
         'emitVerifiedPredicate',
-        'stripLineComments',
-        'isRegexStart',
-        'findRegexEnd',
-        'maskLiterals',
-        'maskUnsafe',
-        'stripUnsafeMarkers',
+        ...STRIP_COMMENTS_EXPORTS,
         `
         ${combinedCode}
         return { preprocess };
       `
-      )(
-        emitVerifiedPredicate,
-        stripLineComments,
-        isRegexStart,
-        findRegexEnd,
-        maskLiterals,
-        maskUnsafe,
-        stripUnsafeMarkers
-      )
+      )(emitVerifiedPredicate, ...STRIP_COMMENTS_VALUES)
 
       // Import native parser
       const nativeParser = require('../lang/parser')

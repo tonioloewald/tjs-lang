@@ -12,7 +12,7 @@ import type {
   ContextFrame,
 } from './parser-types'
 import { locAt } from './parser-transforms'
-import { isRegexStart, findRegexEnd } from '../strip-comments'
+import { isRegexStart, findRegexEnd, isEscapedAt } from '../strip-comments'
 
 export function transformParenExpressions(
   source: string,
@@ -646,7 +646,7 @@ export function extractJSValue(
   if (firstChar === "'" || firstChar === '"' || firstChar === '`') {
     i++
     while (i < source.length) {
-      if (source[i] === firstChar && source[i - 1] !== '\\') {
+      if (source[i] === firstChar && !isEscapedAt(source, i)) {
         i++
         return { value: source.slice(valueStart, i), endPos: i }
       }
@@ -715,7 +715,7 @@ function extractReturnTypeValue(
       continue
     }
     if (inString) {
-      if (char === stringChar && source[i - 1] !== '\\') {
+      if (char === stringChar && !isEscapedAt(source, i)) {
         inString = false
         i++ // Move past closing quote
         // Just finished a string at depth 0
@@ -1255,7 +1255,7 @@ function hasColonNotEquals(param: string): boolean {
       continue
     }
     if (inString) {
-      if (char === stringChar && param[i - 1] !== '\\') inString = false
+      if (char === stringChar && !isEscapedAt(param, i)) inString = false
       continue
     }
 
@@ -1289,7 +1289,7 @@ function findTopLevelColon(param: string): number {
       continue
     }
     if (inString) {
-      if (char === stringChar && param[i - 1] !== '\\') inString = false
+      if (char === stringChar && !isEscapedAt(param, i)) inString = false
       continue
     }
 

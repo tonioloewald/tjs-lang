@@ -9,6 +9,31 @@
  */
 
 /**
+ * Is the character at `index` escaped by a preceding backslash?
+ *
+ * **Count the run; do not look at one character.** `source[i - 1] !== '\\'` is the naive
+ * form, and it is wrong for exactly the input that matters: in `'\\'` the character before
+ * the closing quote IS a backslash, but that backslash is itself escaped, so the quote
+ * closes the string. The naive check reads it as escaped, the scanner runs on past the end
+ * of the literal, and everything downstream desynchronises — usually surfacing as a
+ * baffling "Unexpected token" tens of characters later, and sometimes as a SILENT
+ * mis-transpile with no error at all.
+ *
+ * This idiom was hand-rolled in fifteen scanners across five files. It was fixed in one of
+ * them (bdfb847), whose own commit message noted the pattern recurs "in several scanners" —
+ * so the remaining fourteen kept the bug. It lives here now, once.
+ */
+export function isEscapedAt(source: string, index: number): boolean {
+  let backslashes = 0
+  let k = index - 1
+  while (k >= 0 && source[k] === '\\') {
+    backslashes++
+    k--
+  }
+  return backslashes % 2 === 1
+}
+
+/**
  * Is a `/` at this point the start of a REGEX rather than a division operator?
  *
  * Decided by the last significant character emitted so far: after a value (identifier,
@@ -142,6 +167,152 @@ export function stripLineComments(source: string): string {
   return result
 }
 
+/** A [start, end) range in the source, and what kind of region it is. */
+export interface LiteralRegion {
+  kind: 'string' | 'template' | 'regex' | 'line-comment' | 'block-comment'
+  /** Offset of the opening delimiter. */
+  start: number
+  /** Offset just past the closing delimiter. */
+  end: number
+  /** Offset of the first character INSIDE the delimiters. */
+  innerStart: number
+  /** Offset just past the last character inside the delimiters. */
+  innerEnd: number
+}
+
+/**
+ * THE scanner. Every source-rewriting pass in this codebase should consume this rather
+ * than hand-rolling its own literal tracking.
+ *
+ * One left-to-right pass classifying strings, templates, regex literals and comments. It
+ * has to be one pass, not four, because the states are mutually exclusive and mutually
+ * disambiguating: whether `/*` opens a comment depends on not being in a string, and
+ * whether `'` opens a string depends on not being in a comment. Every scanner that tracked
+ * only SOME of these got the others wrong.
+ *
+ * The bug class this exists to end, all of it shipped and all of it found in one release:
+ *   - a `'/*'` in a string silently disabled every `test { }` block in the file — no error,
+ *     no warning, no recorder entry, just zero tests where there were three
+ *   - `'**\/*.ts'`, an ordinary glob, did the same
+ *   - `const q = /['"]/` above a doc comment dropped an embedded test, and a `/'/` above a
+ *     JSDoc promoted a documentation example into a real emitted test
+ *   - `sep == '\\'` failed to transpile with "Unexpected token" 40 characters later
+ *
+ * None of these are exotic. They are what ordinary code looks like when it happens to
+ * mention the syntax the scanner is scanning for — which source-processing code does
+ * constantly, because it is code about code.
+ */
+export function scanLiterals(source: string): LiteralRegion[] {
+  const regions: LiteralRegion[] = []
+  let i = 0
+  let sigTail = ''
+  while (i < source.length) {
+    const ch = source[i]!
+    if (ch === "'" || ch === '"' || ch === '`') {
+      let j = i + 1
+      while (j < source.length) {
+        if (source[j] === '\\') {
+          j += 2
+          continue
+        }
+        if (source[j] === ch) break
+        j++
+      }
+      regions.push({
+        kind: ch === '`' ? 'template' : 'string',
+        start: i,
+        end: Math.min(j + 1, source.length),
+        innerStart: i + 1,
+        innerEnd: j,
+      })
+      i = j + 1
+      sigTail = (sigTail + ch).slice(-24)
+      continue
+    }
+    // ORDER MATTERS: `//` and `/*` are ALWAYS comments in JavaScript — an empty regex has
+    // to be written `/(?:)/` — so the comment checks must precede the regex check.
+    if (ch === '/' && source[i + 1] === '/') {
+      const nl = source.indexOf('\n', i)
+      const end = nl === -1 ? source.length : nl
+      regions.push({
+        kind: 'line-comment',
+        start: i,
+        end,
+        innerStart: i + 2,
+        innerEnd: end,
+      })
+      i = end
+      continue
+    }
+    if (ch === '/' && source[i + 1] === '*') {
+      const close = source.indexOf('*/', i + 2)
+      const end = close === -1 ? source.length : close + 2
+      regions.push({
+        kind: 'block-comment',
+        start: i,
+        end,
+        innerStart: i + 2,
+        innerEnd: close === -1 ? source.length : close,
+      })
+      i = end
+      continue
+    }
+    if (ch === '/' && isRegexStart(sigTail)) {
+      const close = findRegexEnd(source, i)
+      if (close !== -1) {
+        regions.push({
+          kind: 'regex',
+          start: i,
+          end: close + 1,
+          innerStart: i + 1,
+          innerEnd: close,
+        })
+        i = close + 1
+        sigTail = '/'
+        continue
+      }
+    }
+    if (!/\s/.test(ch)) sigTail = (sigTail + ch).slice(-24)
+    i++
+  }
+  return regions
+}
+
+/**
+ * The [start, end) ranges of every comment, string/regex-aware.
+ *
+ * `tests.ts` used to answer this by counting `/*` and `*\/` from the top of the file with
+ * no notion of string literals, so a single `const OPEN = '/*'` convinced it that the rest
+ * of the file was one enormous comment — and every `test { }` block after it vanished
+ * silently. For a language whose thesis is that tests live in the source, reporting zero
+ * tests instead of failing is the worst mode available.
+ */
+export function commentRanges(source: string): Array<[number, number]> {
+  return scanLiterals(source)
+    .filter((r) => r.kind === 'line-comment' || r.kind === 'block-comment')
+    .map((r) => [r.start, r.end] as [number, number])
+}
+
+/** Is `pos` inside a comment? Prefer `commentRanges` when testing many positions. */
+export function isInsideComment(source: string, pos: number): boolean {
+  return commentRanges(source).some(([a, b]) => pos >= a && pos < b)
+}
+
+function blankRegions(
+  source: string,
+  pick: (r: LiteralRegion) => [number, number] | null
+): string {
+  const out = source.split('')
+  for (const r of scanLiterals(source)) {
+    const range = pick(r)
+    if (!range) continue
+    for (let k = range[0]; k < range[1] && k < out.length; k++) {
+      if (out[k] !== '\n') out[k] = ' '
+    }
+  }
+  return out.join('')
+}
+
 /**
  * Blank the CONTENTS of strings, templates, regexes and comments, preserving length.
  *
@@ -159,56 +330,29 @@ export function stripLineComments(source: string): string {
  * anyway.
  */
 export function maskLiterals(source: string): string {
-  const out = source.split('')
-  const blank = (from: number, to: number) => {
-    for (let k = from; k < to && k < out.length; k++) {
-      if (out[k] !== '\n') out[k] = ' '
-    }
-  }
-  let i = 0
-  let sigTail = ''
-  while (i < source.length) {
-    const ch = source[i]
-    if (ch === "'" || ch === '"' || ch === '`') {
-      let j = i + 1
-      while (j < source.length) {
-        if (source[j] === '\\') {
-          j += 2
-          continue
-        }
-        if (source[j] === ch) break
-        j++
-      }
-      blank(i + 1, j)
-      i = j + 1
-      sigTail = (sigTail + ch).slice(-24)
-      continue
-    }
-    if (ch === '/' && source[i + 1] === '/') {
-      const nl = source.indexOf('\n', i)
-      blank(i, nl === -1 ? source.length : nl)
-      i = nl === -1 ? source.length : nl
-      continue
-    }
-    if (ch === '/' && source[i + 1] === '*') {
-      const end = source.indexOf('*/', i + 2)
-      blank(i, end === -1 ? source.length : end + 2)
-      i = end === -1 ? source.length : end + 2
-      continue
-    }
-    if (ch === '/' && isRegexStart(sigTail)) {
-      const end = findRegexEnd(source, i)
-      if (end !== -1) {
-        blank(i + 1, end)
-        i = end + 1
-        sigTail = '/'
-        continue
-      }
-    }
-    if (!/\s/.test(ch)) sigTail = (sigTail + ch).slice(-24)
-    i++
-  }
-  return out.join('')
+  return blankRegions(source, (r) =>
+    r.kind === 'line-comment' || r.kind === 'block-comment'
+      ? [r.start, r.end] // comments vanish entirely, delimiters included
+      : [r.innerStart, r.innerEnd]
+  )
+}
+
+/**
+ * Blank string, template and regex contents but LEAVE COMMENTS INTACT.
+ *
+ * The view for anything that extracts FROM comments — embedded `/*test … *\/` blocks, doc
+ * comments, `@tjs` annotations. Those passes cannot use `maskLiterals` (it erases the very
+ * thing they are reading) and so each hand-rolled its own partial scanner and got regex
+ * literals wrong: `const q = /['"]/` above a test comment dropped the test, and `const q =
+ * /'/` above a JSDoc promoted a documentation example into a real emitted test — a false
+ * negative and a false positive from the same blind spot.
+ */
+export function maskLiteralsKeepComments(source: string): string {
+  return blankRegions(source, (r) =>
+    r.kind === 'line-comment' || r.kind === 'block-comment'
+      ? null
+      : [r.innerStart, r.innerEnd]
+  )
 }
 
 /**

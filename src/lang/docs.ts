@@ -11,6 +11,8 @@
  * Doc blocks are just editorial commentary when you need it.
  */
 
+import { commentRanges, isEscapedAt, maskLiterals } from '../strip-comments'
+
 import { extractTests } from './tests'
 import { typeDescriptorToTS } from './emitters/dts'
 import type { TypeDescriptor } from './types'
@@ -22,51 +24,12 @@ import type { TypeDescriptor } from './types'
  * shown as an illustrative snippet).
  */
 function computeInComment(source: string): boolean[] {
+  // Delegates to the shared scanner, which — unlike the walk this replaces — has a REGEX
+  // branch. Without one, `const q = /"/` opened a phantom string literal that ran to the
+  // next quote, and every comment boundary after it was wrong.
   const inComment = new Array<boolean>(source.length).fill(false)
-  let i = 0
-  while (i < source.length) {
-    const c = source[i]
-    const n = source[i + 1]
-    // Skip string literals so // and /* inside them are ignored
-    if (c === '"' || c === "'" || c === '`') {
-      const q = c
-      i++
-      while (i < source.length) {
-        if (source[i] === '\\') {
-          i += 2
-          continue
-        }
-        if (source[i] === q) {
-          i++
-          break
-        }
-        i++
-      }
-      continue
-    }
-    if (c === '/' && n === '/') {
-      while (i < source.length && source[i] !== '\n') {
-        inComment[i] = true
-        i++
-      }
-      continue
-    }
-    if (c === '/' && n === '*') {
-      const start = i
-      i += 2
-      while (
-        i < source.length - 1 &&
-        !(source[i] === '*' && source[i + 1] === '/')
-      ) {
-        i++
-      }
-      // include closing `*/`
-      const end = Math.min(source.length, i + 2)
-      for (let k = start; k < end; k++) inComment[k] = true
-      i = end
-      continue
-    }
-    i++
+  for (const [a, b] of commentRanges(source)) {
+    for (let k = a; k < b && k < inComment.length; k++) inComment[k] = true
   }
   return inComment
 }
@@ -74,29 +37,26 @@ function computeInComment(source: string): boolean[] {
 /**
  * Compute brace depth at each position in source.
  * Used to filter out constructs inside function bodies.
+ *
+ * Counted over a literal-masked view, so braces inside strings, template literals, REGEX
+ * LITERALS and comments do not move the depth. The version this replaces tracked strings
+ * only, and the consequence was total rather than partial: a single `const R = /}/` — or
+ * the extremely common `/\$\{([^}]+)\}/g` — drove the depth negative, so every doc block
+ * and every function signature in the file failed the `depth === 0` test and
+ * `generateDocs` returned an EMPTY document. Verified: 2 items became 0.
+ *
+ * `bun run docs` walks markdown so it is unaffected, but `tjs emit` writes a sidecar `.md`
+ * per file by default — a user's emitted documentation just silently came out blank.
  */
 function computeBraceDepths(source: string): number[] {
+  const masked = maskLiterals(source)
   const depths: number[] = []
   let braceDepth = 0
-  let inString: string | null = null
 
-  for (let i = 0; i < source.length; i++) {
-    const ch = source[i]
-    const prev = i > 0 ? source[i - 1] : ''
-
-    // Handle string literals (skip braces inside strings)
-    if (!inString && (ch === '"' || ch === "'" || ch === '`')) {
-      inString = ch
-    } else if (inString && ch === inString && prev !== '\\') {
-      inString = null
-    }
-
-    // Track braces only outside strings
-    if (!inString) {
-      if (ch === '{') braceDepth++
-      if (ch === '}') braceDepth--
-    }
-
+  for (let i = 0; i < masked.length; i++) {
+    const ch = masked[i]
+    if (ch === '{') braceDepth++
+    if (ch === '}') braceDepth--
     depths[i] = braceDepth
   }
 
@@ -239,9 +199,8 @@ export function generateDocs(source: string): DocResult {
       let started = false
       while (after < source.length) {
         const c = source[after]
-        const prev = after > 0 ? source[after - 1] : ''
         if (inStr) {
-          if (c === inStr && prev !== '\\') inStr = null
+          if (c === inStr && !isEscapedAt(source, after)) inStr = null
         } else if (c === '"' || c === "'" || c === '`') {
           inStr = c
           started = true
@@ -352,23 +311,18 @@ function formatClassSignature(item: {
  * braces inside them don't confuse the count.
  */
 function findMatchingBrace(s: string, open: number): number {
+  // Masked view: braces inside strings, templates, REGEX LITERALS and comments are not
+  // structure. The previous version knew about strings only, so `/^\}/` inside a body
+  // closed it early and truncated everything after.
+  const masked = maskLiterals(s)
   let depth = 0
-  let i = open
-  let inStr: string | null = null
-  while (i < s.length) {
-    const c = s[i]
-    const prev = i > 0 ? s[i - 1] : ''
-    if (inStr) {
-      if (c === inStr && prev !== '\\') inStr = null
-    } else {
-      if (c === '"' || c === "'" || c === '`') inStr = c
-      else if (c === '{') depth++
-      else if (c === '}') {
-        depth--
-        if (depth === 0) return i
-      }
+  for (let i = open; i < masked.length; i++) {
+    const c = masked[i]
+    if (c === '{') depth++
+    else if (c === '}') {
+      depth--
+      if (depth === 0) return i
     }
-    i++
   }
   return -1
 }
@@ -549,12 +503,11 @@ export function prettifyTestBody(body: string): string {
   let inStr: string | null = null
   while (i < body.length) {
     const c = body[i]
-    const prev = i > 0 ? body[i - 1] : ''
     // Track string-literal state so `"expect(fake).toBe(...)"` inside a
     // string is preserved verbatim.
     if (inStr) {
       out += c
-      if (c === inStr && prev !== '\\') inStr = null
+      if (c === inStr && !isEscapedAt(body, i)) inStr = null
       i++
       continue
     }
@@ -593,14 +546,14 @@ export function prettifyTestBody(body: string): string {
 
 /** Find the index of the `)` that matches the open paren at position `open-1`. */
 function findMatchingParen(s: string, open: number): number {
+  const masked = maskLiterals(s)
   let depth = 1
   let i = open
   let inStr: string | null = null
-  while (i < s.length) {
-    const c = s[i]
-    const prev = i > 0 ? s[i - 1] : ''
+  while (i < masked.length) {
+    const c = masked[i]
     if (inStr) {
-      if (c === inStr && prev !== '\\') inStr = null
+      if (c === inStr && !isEscapedAt(masked, i)) inStr = null
     } else {
       if (c === '"' || c === "'" || c === '`') inStr = c
       else if (c === '(') depth++
