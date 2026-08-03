@@ -48,7 +48,8 @@
 
 import type { FunctionDeclaration, Program } from 'acorn'
 import { maskLiterals } from '../../strip-comments'
-import { parseExpressionAt } from 'acorn'
+import { parseExpressionAt, parse as acornParse } from 'acorn'
+import * as walk from 'acorn-walk'
 
 // ---------------------------------------------------------------------------
 // Inline runtime core, emitted into standalone output when no shared runtime is
@@ -1331,21 +1332,22 @@ export function transpileToJS(
     code = preamble + code
   }
 
-  // Add Eval/SafeFunction import when TjsSafeEval directive is present
-  // Import `Eval`/`SafeFunction` if and only if the emitted code actually calls them, and
-  // import only the ones used. This is what makes the old `TjsSafeEval` mode unnecessary:
-  // it existed solely so the import was opt-in, and usage detection answers that question
-  // exactly rather than asking the author to. Detected against a literal-masked copy, so a
-  // mention inside a string or comment does not pull in an import.
-  {
-    const scan = maskLiterals(code)
-    const used = ['Eval', 'SafeFunction'].filter((n) =>
-      new RegExp(`\\b${n}\\s*\\(`).test(scan)
-    )
-    if (used.length) {
-      code = `import { ${used.join(', ')} } from 'tjs-lang';\n` + code
-    }
-  }
+  // Import `Eval`/`SafeFunction` if and only if the emitted code actually calls them as
+  // FREE identifiers, and import only the ones used. This is what makes the old
+  // `TjsSafeEval` mode unnecessary: it existed solely so the import was opt-in, and usage
+  // detection answers that question exactly rather than asking the author to.
+  //
+  // Decided from the AST, not a regex. The regex version (`\bEval\s*\(` over a masked copy)
+  // shipped broken in three ways, all of them emitting JavaScript that does not parse:
+  //   - `import { Eval } from 'tjs-lang/eval'` — the DOCUMENTED form, and the one `fromTS`
+  //     faithfully preserves from a TypeScript file that must import it to typecheck — got
+  //     a second, duplicate import. So the documented TS → TJS → JS chain produced a module
+  //     that could not be loaded, and there was no correct authoring path for the feature.
+  //   - `function Eval(x) { … }` — legal JavaScript, and legal under `dialect: 'js'` too —
+  //     got an import placed above the declaration. A TJS ⊇ JS violation (PRINCIPLES.md).
+  //   - `o.Eval(x)` matched, because `\b` matches after a `.`, pulling a spurious import
+  //     into output that is supposed to be standalone.
+  code = addSafeEvalImports(code)
 
   // Run tests at transpile time if enabled
   let testResults: TestResult[] | undefined
@@ -2167,3 +2169,99 @@ function generatePositionalValidation(
 /**
  * Fuzzy comparison for floating point numbers
  */
+
+/**
+ * Prepend `import { Eval, SafeFunction } from 'tjs-lang'` — but only for names the module
+ * actually CALLS and does not already have a binding for.
+ *
+ * Two conditions, and both are load-bearing:
+ *
+ *  1. **Called as a bare identifier.** `Eval(x)` qualifies; `o.Eval(x)` does not, and
+ *     neither does the mere word `Eval` appearing as an argument or a property name.
+ *  2. **Not already bound anywhere in the module.** An import, a function declaration, a
+ *     `const`/`let`/`var`, a class, or a parameter with that name all mean the author has
+ *     their own `Eval` and injecting ours would be a duplicate declaration — a hard
+ *     SyntaxError, not a subtle bug.
+ *
+ * Condition 2 is deliberately whole-module rather than scope-precise. A local binding named
+ * `Eval` in one function alongside a genuine free `Eval()` call in another is vanishingly
+ * rare; emitting a module that does not parse is not. When the two conflict, decline to
+ * inject: the author gets an "Eval is not defined" naming exactly what to import, which is
+ * a diagnosis. A duplicate-declaration SyntaxError in generated code is a puzzle.
+ *
+ * If the code cannot be parsed we inject nothing. It is about to fail to parse for the
+ * caller too, and adding an import to broken output only obscures where the break is.
+ */
+function addSafeEvalImports(code: string): string {
+  const CANDIDATES = ['Eval', 'SafeFunction'] as const
+
+  // Cheap pre-filter: skip the parse entirely for the overwhelming majority of modules.
+  if (!CANDIDATES.some((n) => code.includes(n))) return code
+
+  let program: Program
+  try {
+    program = acornParse(code, {
+      ecmaVersion: 'latest',
+      sourceType: 'module',
+      allowReturnOutsideFunction: true,
+    }) as unknown as Program
+  } catch {
+    return code
+  }
+
+  const bound = new Set<string>()
+  const called = new Set<string>()
+
+  const bindPattern = (node: any): void => {
+    if (!node) return
+    switch (node.type) {
+      case 'Identifier':
+        bound.add(node.name)
+        break
+      case 'ObjectPattern':
+        for (const p of node.properties) {
+          bindPattern(p.type === 'RestElement' ? p.argument : p.value)
+        }
+        break
+      case 'ArrayPattern':
+        for (const el of node.elements) bindPattern(el)
+        break
+      case 'AssignmentPattern':
+        bindPattern(node.left)
+        break
+      case 'RestElement':
+        bindPattern(node.argument)
+        break
+    }
+  }
+
+  walk.full(program, (node: any) => {
+    switch (node.type) {
+      case 'ImportSpecifier':
+      case 'ImportDefaultSpecifier':
+      case 'ImportNamespaceSpecifier':
+        bound.add(node.local.name)
+        break
+      case 'FunctionDeclaration':
+      case 'FunctionExpression':
+      case 'ClassDeclaration':
+        if (node.id) bound.add(node.id.name)
+        if (node.params) for (const p of node.params) bindPattern(p)
+        break
+      case 'ArrowFunctionExpression':
+        for (const p of node.params) bindPattern(p)
+        break
+      case 'VariableDeclarator':
+        bindPattern(node.id)
+        break
+      case 'CallExpression':
+        if (node.callee?.type === 'Identifier') called.add(node.callee.name)
+        break
+    }
+  })
+
+  const needed = CANDIDATES.filter((n) => called.has(n) && !bound.has(n))
+  return needed.length
+    ? `import { ${needed.join(', ')} } from 'tjs-lang';\n` + code
+    : code
+}

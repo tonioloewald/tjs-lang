@@ -11,6 +11,7 @@
  * a compile-time assertion of intent, removed before emit.
  */
 import { describe, it, expect } from 'bun:test'
+import { parse as acornParse } from 'acorn'
 import { tjs } from './index'
 import { stripUnsafeMarkers, maskUnsafe } from '../strip-comments'
 import { fromTS } from './emitters/from-ts'
@@ -187,6 +188,78 @@ describe('TjsSafeEval abolished — usage detection replaced it', () => {
     expect(() =>
       tjs(`TjsSafeEval\nfunction f(a: 0) { return a }`, { runTests: false })
     ).toThrow(/no longer a mode.*nothing to opt into/s)
+  })
+
+  /**
+   * The injected import must never make the output un-loadable.
+   *
+   * The original detection was `\bEval\s*\(` over a literal-masked copy, which cannot see
+   * an existing binding and matches after a `.`. It shipped emitting JavaScript that does
+   * not parse — including for the DOCUMENTED import form, which `fromTS` faithfully
+   * preserves from any TypeScript file that uses `Eval` (it must import it to typecheck).
+   * There was no correct way to author the feature.
+   *
+   * These assert on the OUTPUT PARSING, which is the property that actually matters and
+   * the one the previous tests never checked — they only covered cases where injecting was
+   * the right answer, so every case where it was the wrong answer went unnoticed.
+   */
+  describe('never emits a module that cannot be parsed', () => {
+    const parses = (code: string) => {
+      try {
+        acornParse(code, { ecmaVersion: 'latest', sourceType: 'module' })
+        return true
+      } catch {
+        return false
+      }
+    }
+
+    const cases: Array<[label: string, src: string, injected: number]> = [
+      [
+        'the documented import form is not duplicated',
+        `import { Eval } from 'tjs-lang/eval'\nfunction f(src: '') { return Eval(src) }`,
+        0,
+      ],
+      [
+        'a user-declared function named Eval wins',
+        `function Eval(src: '') { return src }\nfunction f(s: '') { return Eval(s) }`,
+        0,
+      ],
+      [
+        'a user-declared const named Eval wins',
+        `const Eval = (s) => s\nfunction f(s: '') { return Eval(s) }`,
+        0,
+      ],
+      [
+        'a method named Eval is not a free call',
+        `const o = { Eval(s) { return s } }\nfunction f(s: '') { return o.Eval(s) }`,
+        0,
+      ],
+      [
+        'the bare word Eval is not a call',
+        `function f(s: '') { return 'Eval' + s }`,
+        0,
+      ],
+      [
+        'a genuine free call still gets its import',
+        `function f(src: '') { return Eval(src) }`,
+        1,
+      ],
+    ]
+
+    for (const [label, src, injected] of cases) {
+      // Both dialects: `dialect: 'js'` is the programmatic promise that plain JavaScript
+      // survives, and the regex version fired there too — so legal JS containing
+      // `function Eval(){}` was un-transpilable, with no escape hatch to reach for.
+      for (const dialect of ['tjs', 'js'] as const) {
+        it(`${label} (dialect: '${dialect}')`, () => {
+          const code = tjs(src, { runTests: false, dialect }).code
+          expect(
+            (code.match(/^import \{[^}]*\} from 'tjs-lang';$/gm) ?? []).length
+          ).toBe(injected)
+          expect(parses(code), 'emitted module must parse as ESM').toBe(true)
+        })
+      }
+    }
   })
 })
 
