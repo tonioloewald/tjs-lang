@@ -1719,6 +1719,42 @@ function trackHeapWrite(
   return true
 }
 
+/**
+ * THE ONLY WAY to bind a name into guest scope.
+ *
+ * Two guards belong together and were applied separately, so each was present at some
+ * sites and absent at others:
+ *
+ *   - `assertSafeProperty` — a guest variable named `__proto__`/`constructor` would
+ *     otherwise mutate the scope object's prototype
+ *   - `trackHeapWrite` — the live-heap ceiling (`maxHeapBytes`)
+ *
+ * `varSet`/`constSet` had both. `varsLet` and `varsImport` had only the first, so the heap
+ * ceiling was bypassed COMPLETELY by the two atoms whose whole job is binding variables:
+ * verified, the identical doubling program routed through `varsLet` held a 1GB string
+ * under the 64MB default cap, and `varsImport` bound a 40MB argument under a 1KB cap. The
+ * loop binds (`map`/`filter`/`reduce`/`forEach`) and the catch binding had neither.
+ *
+ * A ceiling with an unguarded door is not a ceiling, and the way this happened is
+ * instructive: nobody decided `varsLet` should be exempt — the accounting was added to the
+ * two atoms someone was looking at. `src/vm/state-writes.test.ts` now fails on any bare
+ * `ctx.state[…] =` outside this function, so the next binding atom cannot be written
+ * without it.
+ *
+ * @returns false if a limit was hit (caller must stop; ctx.error is set).
+ */
+function setStateVar(
+  ctx: RuntimeContext,
+  key: string,
+  value: unknown,
+  op: string
+): boolean {
+  assertSafeProperty(key)
+  if (!trackHeapWrite(ctx, key, value, op)) return false
+  ctx.state[key] = value
+  return true
+}
+
 function chargeForSize(ctx: RuntimeContext, value: any, op: string): boolean {
   if (!ctx.fuel) return true
   const n = sizeHint(value)
@@ -2145,7 +2181,7 @@ export function defineAtom<I extends Record<string, any>, O = any>(
         // scope (a capability return, a big parse). Fuel already charged for the
         // work; this bounds what the run HOLDS.
         if (!trackHeapWrite(ctx, step.result, result, op)) return
-        ctx.state[step.result] = result
+        if (!setStateVar(ctx, step.result, result, op)) return
         // Mark as const if resultConst is set
         if (step.resultConst) {
           ctx.consts.add(step.result)
@@ -2400,8 +2436,8 @@ export const tryCatch = defineAtom(
       // Store error message in state for catch block to access
       // Use the catch parameter name if provided, otherwise 'error'
       const paramName = step.catchParam || 'error'
-      ctx.state[paramName] = ctx.error.message
-      ctx.state['errorOp'] = ctx.error.op
+      if (!setStateVar(ctx, paramName, ctx.error.message, 'catch')) return
+      if (!setStateVar(ctx, 'errorOp', ctx.error.op, 'catch')) return
       // Clear the error - catch block handles it
       ctx.error = undefined
       // Execute catch block
@@ -2435,8 +2471,7 @@ export const varSet = defineAtom(
       throw new Error(`Cannot reassign const variable '${key}'`)
     }
     const v = resolveValue(value, ctx)
-    if (!trackHeapWrite(ctx, key, v, 'varSet')) return undefined
-    ctx.state[key] = v
+    if (!setStateVar(ctx, key, v, 'varSet')) return undefined
   },
   { docs: 'Set Variable', cost: 0.1 }
 )
@@ -2454,8 +2489,7 @@ export const constSet = defineAtom(
       throw new Error(`Cannot redeclare variable '${key}' as const`)
     }
     const cv = resolveValue(value, ctx)
-    if (!trackHeapWrite(ctx, key, cv, 'constSet')) return undefined
-    ctx.state[key] = cv
+    if (!setStateVar(ctx, key, cv, 'constSet')) return undefined
     ctx.consts.add(key)
   },
   { docs: 'Set Const Variable (immutable)', cost: 0.1 }
@@ -2480,13 +2514,13 @@ export const varsImport = defineAtom(
   async ({ keys }, ctx) => {
     if (Array.isArray(keys)) {
       for (const key of keys) {
-        assertSafeProperty(key)
-        ctx.state[key] = resolveValue({ $kind: 'arg', path: key }, ctx)
+        const v = resolveValue({ $kind: 'arg', path: key }, ctx)
+        if (!setStateVar(ctx, key, v, 'varsImport')) return undefined
       }
     } else {
       for (const [alias, path] of Object.entries(keys)) {
-        assertSafeProperty(alias)
-        ctx.state[alias] = resolveValue({ $kind: 'arg', path: path }, ctx)
+        const v = resolveValue({ $kind: 'arg', path: path }, ctx)
+        if (!setStateVar(ctx, alias, v, 'varsImport')) return undefined
       }
     }
   },
@@ -2503,8 +2537,8 @@ export const varsLet = defineAtom(
   async (step, ctx) => {
     for (const key of Object.keys(step)) {
       if (key === 'op' || key === 'result') continue
-      assertSafeProperty(key)
-      ctx.state[key] = resolveValue(step[key], ctx)
+      const v = resolveValue(step[key], ctx)
+      if (!setStateVar(ctx, key, v, 'varsLet')) return undefined
     }
   },
   {
@@ -2601,7 +2635,15 @@ export const callLocal = defineAtom(
       callDepth: depth,
     }
     for (let i = 0; i < helper.paramNames.length; i++) {
-      scopedCtx.state[helper.paramNames[i]] = resolvedArgs[i]
+      if (
+        !setStateVar(
+          scopedCtx,
+          helper.paramNames[i],
+          resolvedArgs[i],
+          'callLocal'
+        )
+      )
+        return undefined
     }
 
     await seq.exec({ op: 'seq', steps: helper.steps } as any, scopedCtx)
@@ -2647,7 +2689,7 @@ export const map = defineAtom(
       // Check abort signal for clean cancellation
       if (ctx.signal?.aborted) throw new Error('Execution aborted')
       const scopedCtx = createChildScope(ctx)
-      scopedCtx.state[as] = item
+      if (!setStateVar(scopedCtx, as, item, 'map')) return undefined
       await seq.exec({ op: 'seq', steps } as any, scopedCtx)
       results.push(scopedCtx.state['result'] ?? null)
     }
@@ -2682,7 +2724,7 @@ export const filter = defineAtom(
       // Check abort signal for clean cancellation
       if (ctx.signal?.aborted) throw new Error('Execution aborted')
       const scopedCtx = createChildScope(ctx)
-      scopedCtx.state[as] = item
+      if (!setStateVar(scopedCtx, as, item, 'filter')) return undefined
       const passes = evaluateExpr(condition, scopedCtx)
       if (passes) {
         results.push(item)
@@ -2723,8 +2765,8 @@ export const reduce = defineAtom(
       // Check abort signal for clean cancellation
       if (ctx.signal?.aborted) throw new Error('Execution aborted')
       const scopedCtx = createChildScope(ctx)
-      scopedCtx.state[as] = item
-      scopedCtx.state[accumulator] = acc
+      if (!setStateVar(scopedCtx, as, item, 'reduce')) return undefined
+      if (!setStateVar(scopedCtx, accumulator, acc, 'reduce')) return undefined
       await seq.exec({ op: 'seq', steps } as any, scopedCtx)
       acc = scopedCtx.state['result'] ?? acc
     }
@@ -2758,7 +2800,7 @@ export const find = defineAtom(
       // Check abort signal for clean cancellation
       if (ctx.signal?.aborted) throw new Error('Execution aborted')
       const scopedCtx = createChildScope(ctx)
-      scopedCtx.state[as] = item
+      if (!setStateVar(scopedCtx, as, item, 'find')) return undefined
       const matches = evaluateExpr(condition, scopedCtx)
       if (matches) {
         return item

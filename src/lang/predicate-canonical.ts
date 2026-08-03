@@ -157,16 +157,30 @@ function normalize(node: any, renames: Map<string, string>): any {
   if (node.type === 'Identifier' && renames.has(node.name)) {
     out.name = renames.get(node.name)
   }
-  // Property keys in non-computed member access are field names, not variables.
-  if (
-    (node.type === 'MemberExpression' || node.type === 'Property') &&
-    !node.computed &&
-    node.property?.type === 'Identifier'
-  ) {
+  // Field names are LITERALS, not variables — alpha-renaming one changes what the
+  // predicate reads. The two node types spell it differently, and that is the whole bug:
+  // a MemberExpression keeps it on `.property`, an ObjectExpression Property keeps it on
+  // `.key`. This guarded both on `node.property`, which a Property does not have, so the
+  // Property arm was DEAD and every object-literal key was alpha-renamed:
+  // `{ n: 10 }` canonicalized to `{ $0: 10 }` while the sibling `limits.n` correctly kept
+  // `n`. The canonical AST therefore read a field the source never named — and
+  // `storeQueryWhere` forwards this AST VERBATIM to `store.queryPredicate`, which is the
+  // silent-filter-failure its own comment calls "an authorization bug".
+  if (!node.computed && node.property?.type === 'Identifier') {
     out.property = normalize(
       { ...node.property, __literalKey: true },
       new Map()
     )
+  }
+  if (node.type === 'Property' && !node.computed) {
+    if (node.key?.type === 'Identifier') {
+      out.key = normalize({ ...node.key, __literalKey: true }, new Map())
+    }
+    // Shorthand `{ n }` is ONE token standing for two different things: a literal key and
+    // a variable reference. They canonicalize differently (the key is fixed, the value is
+    // renamed), so the shorthand must be expanded or the emitted form would claim a key
+    // and a value that no longer match.
+    if (node.shorthand) out.shorthand = false
   }
   return out
 }
