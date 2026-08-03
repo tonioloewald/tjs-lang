@@ -51,6 +51,28 @@ const CASES: Array<{
   build: (n: number) => { steps: any[]; args: Record<string, any> }
 }> = [
   {
+    // varSet/constSet were NOT in this list, and the heap-ceiling walker
+    // (`trackHeapWrite` → `estimateBytes`) runs on every one of them. The existing heap
+    // tests all used STRINGS, which `estimateBytes` measures in O(1) via `.length` — so
+    // the walk's real cost was invisible to this file. Measured before the fix: 500
+    // rebinds of a 300k-element array burned 28.8 SECONDS of pegged CPU for 50.2 fuel
+    // (574 ms per fuel unit) while a benign program charged the same 50.2 took 1ms.
+    //
+    // The operand MUST be a non-string, or this case re-tests nothing.
+    atom: 'varSet (heap walk over a structure)',
+    build: (n) => ({
+      steps: [{ op: 'varSet', key: 'v', value: { $kind: 'arg', path: 'd' } }],
+      args: { d: arr(n).map((x) => ({ x })) },
+    }),
+  },
+  {
+    atom: 'constSet (heap walk over a structure)',
+    build: (n) => ({
+      steps: [{ op: 'constSet', key: 'v', value: { $kind: 'arg', path: 'd' } }],
+      args: { d: arr(n).map((x) => ({ x })) },
+    }),
+  },
+  {
     atom: 'jsonStringify',
     build: (n) => ({
       steps: [

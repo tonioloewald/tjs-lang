@@ -235,8 +235,23 @@ export interface RuntimeContext {
   context?: Record<string, any> // Immutable request-scoped metadata (auth, permissions, etc.)
   membraneMaxBytes?: number // Cap on the estimated size of a capability return crossing into guest state (default MEMBRANE_MAX_BYTES)
   maxHeapBytes?: number // Ceiling on bytes held live in guest scope (default MAX_HEAP_BYTES). Fuel bounds work; this bounds peak memory.
-  heapBytes?: number // Running estimate of live guest-state bytes
-  heapPerKey?: Map<string, number> // Per-key sizes, so overwriting a variable frees its budget
+  /**
+   * Running estimate of live guest-state bytes, held in a SHARED OBJECT rather than as a
+   * plain number.
+   *
+   * `createChildScope` spreads the context, which copies a number by value while sharing a
+   * Map by reference — so the total and the per-key ledger drifted apart across scopes and
+   * the running total could go negative, silently buying back budget.
+   */
+  heapAccount?: { bytes: number }
+  /**
+   * Per-key size AND the reference it was measured from, so overwriting a variable frees
+   * its budget and re-binding an UNCHANGED reference costs nothing to re-measure.
+   *
+   * Shared by reference across child scopes on purpose — see `createChildScope`. It is the
+   * run's accounting ledger, not a per-scope one.
+   */
+  heapPerKey?: Map<string, { size: number; ref: unknown }>
   runCodeDepth?: number // Track nested runCode calls to prevent infinite recursion
   localCall?: boolean // Inside a callLocal helper body — return may be a non-object scalar
   helpers?: Record<string, { steps: any[]; paramNames: string[] }> // Local helper bodies, called by name
@@ -727,10 +742,17 @@ function isSuspiciousRegex(pattern: string): boolean {
  * Uses prototype inheritance so reads fall through to parent, but writes stay local.
  */
 export function createChildScope(ctx: RuntimeContext): RuntimeContext {
-  return {
+  const child: RuntimeContext = {
     ...ctx,
     state: Object.create(ctx.state),
   }
+  // `heapBytes` is a NUMBER, so the spread copies it by value while `heapPerKey` (a Map)
+  // is shared by reference. The two then drift: a child binding a key updates the shared
+  // ledger but only its own copy of the total, and when the parent later rebinds that key
+  // it subtracts a size it never added — driving the running total negative and silently
+  // buying back budget. Sharing the accounting object keeps the two halves together.
+  child.heapAccount = ctx.heapAccount ?? (ctx.heapAccount = { bytes: 0 })
+  return child
 }
 
 /**
@@ -1529,19 +1551,44 @@ function sizeHint(v: any): number {
 const MAX_HEAP_BYTES = 64 * 1024 * 1024 // 64MB
 
 /**
+ * Fuel charged per node visited while measuring a value's retained size.
+ *
+ * Matched to ARRAY_FUEL_PER_ELEMENT: walking a structure to measure it is the same order
+ * of work as walking it to copy it, and the two must be priced alike or the cheaper one
+ * becomes the bypass.
+ */
+const HEAP_WALK_FUEL_PER_NODE = 0.001
+
+/**
  * Bounded, cycle-safe byte estimate for a guest value.
  *
- * Stops as soon as it exceeds `cap`: the estimator must never become the cost it is
- * trying to measure (the same discipline as `sizeHint` — a metering function whose
- * own cost scales with its input is the bug it exists to prevent). Overestimating
- * shared references is deliberate: for a safety ceiling, conservative means fail-closed.
+ * Stops as soon as it exceeds `cap`: **the estimator must never become the cost it is
+ * trying to measure** (the same discipline as `sizeHint`). That sentence was already
+ * written here, and the code did not honour it — see `trackHeapWrite`, which called this
+ * on every bind with `cap` set to the ABSOLUTE 64MB ceiling, so the early exit could only
+ * fire for values that were about to abort the run anyway.
+ *
+ * Reports `nodes` as well as `bytes` so the caller can charge fuel for the walk. A
+ * traversal that costs the guest nothing is a fuel bypass however carefully it is bounded
+ * in space: it is synchronous, so neither the per-atom nor the run-level timeout can
+ * preempt it.
+ *
+ * Shared references are counted once (`seen`), which is a deliberate UNDER-estimate of
+ * retained bytes and an accurate estimate of walk cost. The previous comment claimed
+ * overestimating shared refs was deliberate and fail-closed; the WeakSet directly
+ * contradicted it, so the claim is now gone rather than merely wrong.
  */
-function estimateBytes(value: any, cap: number): number {
+function estimateBytes(
+  value: any,
+  cap: number
+): { bytes: number; nodes: number } {
   let bytes = 0
+  let nodes = 0
   const seen = new WeakSet<object>()
   const stack = [value]
   while (stack.length && bytes <= cap) {
     const v = stack.pop()
+    nodes++
     if (v === null || v === undefined) continue
     const t = typeof v
     if (t === 'string') {
@@ -1580,7 +1627,7 @@ function estimateBytes(value: any, cap: number): number {
       }
     }
   }
-  return bytes
+  return { bytes, nodes }
 }
 
 /**
@@ -1599,11 +1646,53 @@ function trackHeapWrite(
 ): boolean {
   const cap = ctx.maxHeapBytes ?? MAX_HEAP_BYTES
   if (!ctx.heapPerKey) ctx.heapPerKey = new Map()
-  const size = estimateBytes(value, cap)
-  const prev = ctx.heapPerKey.get(key) ?? 0
-  const total = (ctx.heapBytes ?? 0) - prev + size
-  ctx.heapPerKey.set(key, size)
-  ctx.heapBytes = total
+  const prevEntry = ctx.heapPerKey.get(key)
+
+  // IDENTITY FAST PATH. Re-binding the same reference under the same key cannot change
+  // the total, so there is nothing to re-measure. Without this, per-key accounting
+  // REPLACED rather than accumulated, meaning the same unchanged object was re-walked in
+  // full on every bind, forever — the dominant shape in an accumulator loop, and the
+  // difference between linear and quadratic on the most ordinary AJS program there is.
+  if (prevEntry && prevEntry.ref === value && typeof value === 'object') {
+    return true
+  }
+
+  // Measure against the REMAINING headroom, not the absolute ceiling. `cap` was the
+  // absolute 64MB, so the early exit only fired for values that would abort anyway and
+  // the estimator happily walked 300k nodes to discover it was under budget.
+  const prevSize = prevEntry?.size ?? 0
+  const account = (ctx.heapAccount ??= { bytes: 0 })
+  const headroom = cap - (account.bytes - prevSize)
+  const { bytes: size, nodes } = estimateBytes(value, Math.max(0, headroom))
+
+  // Charge for the walk. This is the invariant `cost-invariant.test.ts` exists to
+  // protect — every evaluation step charges fuel >= c*(work it performs) — and the heap
+  // ceiling reintroduced the exact class it was added one commit after closing
+  // (a73f93d "close the size-proportional fuel bypass (the `==` bug class, again)",
+  // then a3048f4). Measured before this line existed: 500 rebinds of a 300k-element
+  // array burned 28.8 SECONDS of pegged CPU for 50.2 fuel — 574 ms per fuel unit, versus
+  // 1ms total for a benign program charged the identical 50.2.
+  if (ctx.fuel) {
+    const before = ctx.fuel.current
+    ctx.fuel.current -= nodes * HEAP_WALK_FUEL_PER_NODE
+    if (ctx.fuel.current <= 0) {
+      // Claim the failure only if OUR charge is what crossed zero. If the budget was
+      // already gone when we got here, the op that spent it owns the diagnosis — stealing
+      // the attribution would point the user at the innocent `varSet` after an expression
+      // burned the whole budget one step earlier.
+      if (before > 0 && !ctx.error) {
+        // The canonical message, not a bespoke one. Fuel exhaustion is a single condition
+        // and consumers match on it; a second wording for the same thing is a trap for
+        // anyone who wrote `err.message === 'Out of Fuel'`. The op carries the detail.
+        ctx.error = new AgentError('Out of Fuel', op)
+      }
+      return false
+    }
+  }
+
+  const total = account.bytes - prevSize + size
+  ctx.heapPerKey.set(key, { size, ref: value })
+  account.bytes = total
   if (total > cap) {
     ctx.error = new AgentError(
       `Heap limit exceeded: guest state holds ~${Math.round(
