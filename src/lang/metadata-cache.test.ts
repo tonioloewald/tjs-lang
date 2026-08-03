@@ -8,6 +8,7 @@ import {
   type CachedTranspileResult,
   type CachedTJSResult,
 } from './metadata-cache'
+import { TJS_VERSION } from './runtime'
 
 describe('metadata-cache', () => {
   describe('hashSource', () => {
@@ -159,44 +160,84 @@ describe('metadata-cache', () => {
   })
 })
 
-// Browser-specific tests would go in a separate file
-// that runs in a browser environment with IndexedDB available
-describe('MetadataCache browser simulation', () => {
-  // These tests document the expected behavior when IndexedDB IS available
-  // They serve as documentation and can be run in browser test environments
-
-  it.skip('should store and retrieve transpile results', async () => {
-    // In browser:
-    // const cache = new MetadataCache()
-    // await cache.open()
-    //
-    // const result = { ast: {...}, signature: {...}, warnings: [] }
-    // await cache.setTranspile('function test() {}', result)
-    //
-    // const cached = await cache.getTranspile('function test() {}')
-    // expect(cached).toEqual(result)
+/**
+ * The four tests that used to live here were `it.skip` with EMPTY BODIES — every line a
+ * comment describing what a browser test would do. They were not skipped tests; they were
+ * prose wearing a test's clothes, and they read as coverage in every summary while
+ * asserting nothing. Four of the eight permanently-skipped tests in the whole repo.
+ *
+ * Two things replace them.
+ *
+ * FIRST, the part that does not need IndexedDB at all. Version invalidation — the property
+ * that matters most this release, since 50b670d changed version comparison — is not
+ * implemented by comparing versions at read time. It is implemented by BAKING the version
+ * into the cache key, so an entry written by a different version is simply never looked
+ * up. That is a pure function of `TJS_VERSION + source`, and it is tested below, headless.
+ *
+ * SECOND, the honest record of what is NOT covered: storage, retrieval, merge and prune
+ * all need a real IndexedDB. happy-dom does not provide one (checked: `indexedDB` is
+ * undefined under it) and `fake-indexeddb` is not a dependency. Adding one for this is a
+ * decision worth making deliberately rather than smuggling in — so the gap is stated here
+ * and in TODO.md instead of being papered over with skipped placeholders.
+ */
+describe('cache keys are version-scoped (headless — no IndexedDB needed)', () => {
+  it('the same source always produces the same key', async () => {
+    expect(await hashSource('function f() {}')).toBe(
+      await hashSource('function f() {}')
+    )
+    expect(hashSourceSync('function f() {}')).toBe(
+      hashSourceSync('function f() {}')
+    )
   })
 
-  it.skip('should invalidate on version change', async () => {
-    // In browser:
-    // Store entry with old version
-    // Entry should not be returned when TJS_VERSION differs
+  it('different sources produce different keys', async () => {
+    expect(await hashSource('function f() {}')).not.toBe(
+      await hashSource('function g() {}')
+    )
   })
 
-  it.skip('should merge transpile and TJS results', async () => {
-    // In browser:
-    // await cache.setTranspile(source, transpileResult)
-    // await cache.setTJS(source, tjsResult)
-    //
-    // const entry = await cache.get(source)
-    // expect(entry.transpile).toBeDefined()
-    // expect(entry.tjs).toBeDefined()
+  it('the key incorporates the TJS version — this IS the invalidation', async () => {
+    // Not a behavioural assertion but a STRUCTURAL one, because the version is a module
+    // constant and cannot be varied at run time. What can be proven is that the key
+    // depends on it: recompute the documented input by hand and check it agrees.
+    const source = 'function f() {}'
+    const encoder = new TextEncoder()
+    const expected = Array.from(
+      new Uint8Array(
+        await crypto.subtle.digest(
+          'SHA-256',
+          encoder.encode(`${TJS_VERSION}:${source}`)
+        )
+      )
+    )
+      .map((b) => b.toString(16).padStart(2, '0'))
+      .join('')
+    expect(await hashSource(source)).toBe(expected)
+
+    // And that a DIFFERENT version would yield a different key — which is what makes an
+    // entry from an older TJS unreachable rather than merely stale.
+    const otherVersion = Array.from(
+      new Uint8Array(
+        await crypto.subtle.digest(
+          'SHA-256',
+          encoder.encode(`0.0.0-not-this-version:${source}`)
+        )
+      )
+    )
+      .map((b) => b.toString(16).padStart(2, '0'))
+      .join('')
+    expect(await hashSource(source)).not.toBe(otherVersion)
   })
 
-  it.skip('should prune old entries', async () => {
-    // In browser:
-    // Store entries with old timestamps
-    // await cache.prune(1000) // 1 second
-    // Old entries should be removed
+  it('the sync fallback is version-scoped too', () => {
+    // Used where async is unavailable; a fallback that ignored the version would resurrect
+    // stale entries exactly where the code is least able to cope with them.
+    const source = 'function f() {}'
+    let hash = 5381
+    const input = `${TJS_VERSION}:${source}`
+    for (let i = 0; i < input.length; i++) {
+      hash = ((hash << 5) + hash + input.charCodeAt(i)) >>> 0
+    }
+    expect(hashSourceSync(source)).toBe(hash.toString(16))
   })
 })

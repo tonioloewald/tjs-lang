@@ -146,8 +146,19 @@ describe.skipIf(SKIP)(
         // alternative the rule points you to; they now say so per-construct with
         // `/* @tjs-unsafe */`, so an ACCIDENTAL `new Date()` added to them is still caught.
         //
-        // This is "self-hosted for real" as a number rather than a claim. If it drops, we
-        // are shipping something we could not ourselves write in the language.
+        // WHAT THIS PROVES, AND WHAT IT DOES NOT.
+        //
+        // It proves every file we ship converts to TJS and COMPILES with the rules on —
+        // "we could write our own codebase in this language" as a number rather than a
+        // claim. It does NOT prove the converted code still does the same thing: both
+        // stages discard `.code` without executing it. Measured during the pre-release
+        // review: 10 out of 10 semantics-breaking mutations to converted TJS
+        // (`!==` → `===`, dropped `?.`, `&&` → `||`) were counted `ok` by both stages.
+        //
+        // So this is a BUILD gate, not a behaviour gate, and the difference matters
+        // because "100% dogfooded" reads like the second. PRINCIPLES.md already concedes
+        // it under "Enforcement (open)"; a fourth stage executing the safely-runnable pure
+        // subset and diffing against the native module is the fix (TODO).
         expect(r.graduates.ok / r.total).toBe(1)
       },
       { timeout: 180_000 }

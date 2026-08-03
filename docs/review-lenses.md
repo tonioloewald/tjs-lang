@@ -17,7 +17,8 @@ tunes every other lens. tjs-lang is three kinds at once, and the obligations com
 
 **A language.** Everything written in TJS inherits its bugs. A codegen defect ships into
 every consumer's output without them changing a line — which is why emitted-code correctness
-outranks almost everything, and why `examples.test.ts` and the dogfood corpus exist.
+outranks almost everything, and why `examples.test.ts` (which RUNS its files) and the
+dogfood corpus (which compiles its files) exist.
 
 **Its semantics are a contract.** Quietly changing what `==` means rewrites programs that
 already work. This is the whole reason an escape must exist *before* a rule tightens —
@@ -28,7 +29,10 @@ is a principle rather than a preference.
 caller…" belongs in every pass, not only the security one.
 
 **It compiles itself.** A defect can hide behind itself, which is why the dogfood corpus is
-pinned at 100% on both stages rather than treated as a dashboard.
+pinned at 100% on both stages rather than treated as a dashboard — while remembering that
+those stages prove the converted code BUILDS, not that it still behaves the same. (Ten out
+of ten semantics-breaking mutations pass them.) `examples.test.ts` is the one that runs
+its files.
 
 **A published library.** A breaking change multiplies by its consumers — and the ones who
 notice last are the ones who trusted us most.

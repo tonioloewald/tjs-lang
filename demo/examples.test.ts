@@ -327,6 +327,16 @@ const mockLLMBattery = {
  * would fail THAT suite loudly; degrading here cannot mask it. And a broken example
  * still fails: its transpile/VM error surfaces from vm.run, not from predict.
  */
+/**
+ * How many predicts went LIVE vs fell back to the mock.
+ *
+ * Without this the lane can rot to all-mock and stay green forever: every example would
+ * still "run successfully", against a stub, proving nothing about the integration this
+ * suite exists to prove. Observed in a real run — five fallback warnings, all tests green.
+ * The floor is asserted at the end of the run (see the `describe` at the bottom).
+ */
+const liveCalls = { live: 0, fallback: 0 }
+
 function withLiveFallback<T extends { predict: (...a: any[]) => Promise<any> }>(
   live: T,
   mock: { predict: (...a: any[]) => Promise<any> },
@@ -336,12 +346,15 @@ function withLiveFallback<T extends { predict: (...a: any[]) => Promise<any> }>(
     let lastErr: any
     for (let attempt = 1; attempt <= 2; attempt++) {
       try {
-        return await live.predict(...args)
+        const result = await live.predict(...args)
+        liveCalls.live++
+        return result
       } catch (e) {
         lastErr = e
         if (attempt < 2) await new Promise((r) => setTimeout(r, 400 * attempt))
       }
     }
+    liveCalls.fallback++
     console.warn(
       `[examples] ${label}: live LLM failed after retries ` +
         `(${String(lastErr?.message || lastErr).split('\n')[0]}); ` +
@@ -677,5 +690,37 @@ describe('withLiveFallback — gate resilience', () => {
     const live = { predict: async () => 'x', embed: async () => [1, 2, 3] }
     const wrapped = withLiveFallback(live, { predict: async () => 'm' }, 'test')
     expect(typeof wrapped.embed).toBe('function')
+  })
+})
+
+/**
+ * The live lane must actually BE live.
+ *
+ * `withLiveFallback` degrades a transient LM Studio hiccup to the mock so the release gate
+ * blocks on code rather than on server health — which is right, and which also means the
+ * whole suite can silently become a mock suite and stay green forever. Observed in a real
+ * run: five fallback warnings, every test passing, nothing integrated.
+ *
+ * So: when a live LLM was configured, assert that most calls actually reached it. This is
+ * the difference between "the examples run" and "the examples run against the thing they
+ * claim to run against".
+ */
+describe('the live-LLM lane did not silently degrade to mocks', () => {
+  it('most predicts reached the real model', () => {
+    if (!hasLLM) {
+      // No model configured — mocks are the intended path, not a degradation.
+      expect(liveCalls.live + liveCalls.fallback).toBeGreaterThanOrEqual(0)
+      return
+    }
+    const total = liveCalls.live + liveCalls.fallback
+    if (total === 0) return // no example exercised predict in this run
+
+    const liveRatio = liveCalls.live / total
+    expect(
+      liveRatio,
+      `only ${liveCalls.live}/${total} predicts reached the live model — the rest fell ` +
+        `back to mocks. Green here would mean the integration is untested, not working. ` +
+        `Check LM Studio, or the request shape (src/batteries/llm-transport.test.ts).`
+    ).toBeGreaterThan(0.5)
   })
 })

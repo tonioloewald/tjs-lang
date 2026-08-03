@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'bun:test'
 import { fromTS } from './emitters/from-ts'
+import { tjs } from './index'
 
 describe('TypeScript to TJS Transpiler', () => {
   describe('fromTS with emitTJS', () => {
@@ -357,6 +358,59 @@ describe('TS→TJS round-trips (no raw-TS leak into TJS blocks)', () => {
   it('plain type alias with arrow + union return still works', () => {
     roundTrips(
       `export type AnyFunction = (...args: any[]) => any | Promise<any>`
+    )
+  })
+})
+
+/**
+ * Type-only wrappers in PARAMETER DEFAULTS.
+ *
+ * `param.initializer.getText()` returns raw source, so `m = {} as M` carried the cast into
+ * the emitted TJS, where `as` is not valid in a parameter default — the converted file
+ * simply would not parse. Fixed in 3f2428d by unwrapping at the AST level, repeatedly,
+ * since `x as unknown as T` and `(x as T)!` both occur in real code.
+ *
+ * That fix shipped with NO regression test, against this project's own hard rule. Proved
+ * by experiment during the pre-release review: reverting it left `test:fast` bit-identical,
+ * and it was caught only by the 130-second dogfood corpus behind SKIP_BENCHMARKS — which
+ * `test:fast` sets. Worse, the corpus's coverage of it was INCIDENTAL: exactly 2 of its 93
+ * files exercise this path at all.
+ *
+ * The drop is deliberately VISIBLE rather than silent, per the conversion contract in
+ * PRINCIPLES.md — we do not erase TypeScript, we upgrade it or comment on it.
+ */
+describe('type-only wrappers in parameter defaults', () => {
+  const convert = (ts: string) => fromTS(ts, { emitTJS: true }).code
+
+  const CASES: Array<[label: string, ts: string]> = [
+    ['as', `export function f(m = {} as any) { return m }`],
+    ['double as', `export function f(m = {} as unknown as any) { return m }`],
+    ['non-null assertion', `export function f(m = ({} as any)!) { return m }`],
+    ['satisfies', `export function f(m = {} satisfies object) { return m }`],
+    [
+      'in a constructor',
+      `export class C { constructor(m = {} as any) { this.m = m } }`,
+    ],
+  ]
+
+  for (const [label, ts] of CASES) {
+    it(`${label}: the converted TJS parses`, () => {
+      const converted = convert(ts)
+      // The actual regression: `as` reaching a parameter default made the output
+      // un-parseable, so the failure was a hard error two steps downstream.
+      expect(() => tjs(converted, { runTests: false })).not.toThrow()
+    })
+
+    it(`${label}: the drop is visible, not silent`, () => {
+      // "with guidance" is the third obligation of the conversion contract. A silently
+      // erased cast leaves the reader believing a type survived that did not.
+      expect(convert(ts)).toMatch(/TJS: dropped/)
+    })
+  }
+
+  it('does not annotate a default that had no cast to drop', () => {
+    expect(convert(`export function f(m = {}) { return m }`)).not.toMatch(
+      /TJS: dropped/
     )
   })
 })
