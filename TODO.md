@@ -1805,8 +1805,13 @@ Status re-checked against source 2026-07-31.
   missing is that it's a _contract_, not an enforcement.
 - [ ] **Bound teardown with a separate small non-refillable budget**; on exhaustion,
       abandon-and-signal. **Cancellation must never be a path that _starts_ unmetered work.**
-- [ ] **Test that `finally`-style cleanup can't swallow fuel exhaustion and resume the
-      guest.**
+- [x] **Fuel exhaustion cannot be caught and resumed — VERIFIED 2026-08-03.** `try` clears
+      `ctx.error` whenever a catch block exists, _including_ `Out of Fuel`, so a loop
+      wrapping its body in try/catch looked like it could run forever and defeat the
+      termination guarantee (S1/S4) outright. It cannot: clearing buys exactly one atom,
+      because the next charges against an already-exhausted budget and errors again. Pinned
+      in `cost-invariant.test.ts` with a positive control — a loop that silently never ran
+      would otherwise look like a passing security test.
 
 ### 4. Open-graph blast radius — THE BIGGEST GAP (essentially not started)
 
