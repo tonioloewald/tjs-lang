@@ -776,21 +776,19 @@ export function runAllTests(
         : info.funcName
       const callExpr = info.className
         ? `new ${info.className}(${(info.constructorArgs || [])
-            .map((a) => JSON.stringify(a))
+            .map(toSourceLiteral)
             .join(', ')}).${info.funcName}(${info.args
-            .map((a) => JSON.stringify(a))
+            .map(toSourceLiteral)
             .join(', ')})`
-        : `${info.funcName}(${info.args
-            .map((a) => JSON.stringify(a))
-            .join(', ')})`
+        : `${info.funcName}(${info.args.map(toSourceLiteral).join(', ')})`
       return `
     // Signature test ${i}: ${testLabel}
     try {
       let __actual = ${callExpr};
-      const __expected = ${JSON.stringify(info.expected)};${
+      const __expected = ${toSourceLiteral(info.expected)};${
         info.defaults
           ? `
-      const __defaults = ${JSON.stringify(info.defaults)};
+      const __defaults = ${toSourceLiteral(info.defaults)};
       if (typeof __actual === 'object' && __actual !== null) __actual = Object.assign({}, __defaults, __actual);`
           : ''
       }
@@ -1152,3 +1150,30 @@ function splitParams(paramsStr: string): string[] {
  * Compile WASM blocks and generate bootstrap code that embeds the compiled bytes
  * and instantiates them on load.
  */
+
+/**
+ * Serialise a value as JAVASCRIPT SOURCE, not as JSON.
+ *
+ * These call sites are generating code — the value has to come back as a literal the engine
+ * will re-evaluate. `JSON.stringify` was standing in for that and mostly works, but it
+ * THROWS on a BigInt rather than skipping it, so a single `x: 0n` example anywhere in a file
+ * took down the whole transpile with "JSON.stringify cannot serialize BigInt": no file, no
+ * line, no indication of which annotation was responsible.
+ *
+ * BigInt is the only value JSON cannot represent that TJS can legitimately hold as an
+ * example, so it is the only special case; everything else defers to JSON.stringify, which
+ * emits valid JS literal syntax for it.
+ */
+function toSourceLiteral(value: unknown): string {
+  if (typeof value === 'bigint') return `${value}n`
+  if (Array.isArray(value)) {
+    return `[${value.map(toSourceLiteral).join(', ')}]`
+  }
+  if (value && typeof value === 'object') {
+    const entries = Object.entries(value as Record<string, unknown>).map(
+      ([k, v]) => `${JSON.stringify(k)}: ${toSourceLiteral(v)}`
+    )
+    return `{${entries.join(', ')}}`
+  }
+  return JSON.stringify(value)
+}

@@ -51,7 +51,7 @@ const TS_TYPE_NAMES: Record<string, TypeDescriptor> = {
   uint: { kind: 'non-negative-integer' },
   float: { kind: 'number' },
   boolean: { kind: 'boolean' },
-  bigint: { kind: 'number' },
+  bigint: { kind: 'bigint' },
   object: { kind: 'object' },
   // `any`/`unknown` are honest about being unconstrained — they mean what they say.
   any: { kind: 'any' },
@@ -106,6 +106,12 @@ export function inferTypeFromValue(node: Expression): TypeDescriptor {
           return { kind: 'number' }
         }
         return { kind: 'integer' }
+      }
+      if (typeof value === 'bigint') {
+        // `0n` — the example form of `bigint`. `fromTS` emits exactly this for a TS
+        // `bigint` annotation, so without it the converter produced TJS its own parser
+        // rejected, and the two spellings of the same type disagreed.
+        return { kind: 'bigint' }
       }
       if (typeof value === 'boolean') {
         return { kind: 'boolean' }

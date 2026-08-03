@@ -797,17 +797,24 @@ function extractReturnTypeValue(
       let j = i
       if (source[j] === '-') j++ // Skip negative sign
       while (j < source.length && /\d/.test(source[j])) j++
+      let isIntegral = true
       // Handle decimal part
       if (j < source.length && source[j] === '.' && /\d/.test(source[j + 1])) {
+        isIntegral = false
         j++ // Skip decimal point
         while (j < source.length && /\d/.test(source[j])) j++
       }
       // Handle exponent (1e10, 1.5e-3)
       if (j < source.length && (source[j] === 'e' || source[j] === 'E')) {
+        isIntegral = false
         j++
         if (j < source.length && (source[j] === '+' || source[j] === '-')) j++
         while (j < source.length && /\d/.test(source[j])) j++
       }
+      // BigInt suffix — `0n`. Only after an integral literal, because `0.5n` and `1e3n`
+      // are not valid JavaScript. Without this the return position rejected the very
+      // example form `fromTS` emits for a TS `bigint`, so converted output did not parse.
+      if (isIntegral && j < source.length && source[j] === 'n') j++
       sawContent = true
       i = j
       // Check what's next

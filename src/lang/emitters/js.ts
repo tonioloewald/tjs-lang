@@ -1697,6 +1697,7 @@ function assertPureDictTemplate(
     'number',
     'integer',
     'non-negative-integer',
+    'bigint',
     'boolean',
     'null',
     'array',
@@ -1930,6 +1931,12 @@ function generateTypeCheckExpr(
     case 'non-negative-integer':
       check = `(typeof ${fieldPath} !== 'number' || !Number.isInteger(${fieldPath}) || ${fieldPath} < 0)`
       break
+    // A bigint is NOT a number: `typeof 10n === 'bigint'`, and the two do not mix under
+    // arithmetic. Mapping it to `number` (as this did) rejected every bigint AND accepted
+    // every number — inverted in both directions at once.
+    case 'bigint':
+      check = `typeof ${fieldPath} !== 'bigint'`
+      break
     case 'boolean':
       check = `typeof ${fieldPath} !== 'boolean'`
       break
@@ -1995,6 +2002,7 @@ const SIMPLE_KINDS = new Set([
   'number',
   'integer',
   'non-negative-integer',
+  'bigint',
   'boolean',
   'function',
   'any',

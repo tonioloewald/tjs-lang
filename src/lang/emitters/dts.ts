@@ -45,7 +45,12 @@ export function typeDescriptorToTS(td: TypeDescriptor): string {
     case 'number':
     case 'integer':
     case 'non-negative-integer':
+      // TS has one numeric type, so the three collapse. `bigint` does NOT — it is a
+      // distinct TS type and a distinct runtime `typeof`, and the two do not interoperate.
       base = 'number'
+      break
+    case 'bigint':
+      base = 'bigint'
       break
     case 'boolean':
       base = 'boolean'

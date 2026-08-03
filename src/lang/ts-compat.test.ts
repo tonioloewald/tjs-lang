@@ -348,3 +348,64 @@ describe('the migration ladder is now PER-CONSTRUCT, not per-mode', () => {
     ).not.toThrow()
   })
 })
+
+/**
+ * `bigint` — a real kind, not an alias for `number`.
+ *
+ * `TS_TYPE_NAMES` mapped `bigint` to `{ kind: 'number' }`, emitting `typeof n !== 'number'`.
+ * That is inverted in BOTH directions: every valid bigint was rejected, and every plain
+ * number was accepted. In 0.12.0 the annotation degraded to `any` and simply worked, so
+ * this was a working → 100%-broken regression, and it was the one entry in the CHANGELOG's
+ * "now check at runtime, agreeing exactly with the equivalent example type" table with no
+ * runtime test — which is exactly why nobody noticed.
+ *
+ * These EXECUTE the compiled function. A test that only inspected the descriptor would have
+ * passed against the broken mapping.
+ */
+describe('bigint is checked as bigint', () => {
+  const compile = (src: string, name: string) => {
+    const out = tjs(src, { runTests: false })
+    const prev = globalThis.__tjs
+    globalThis.__tjs = createRuntime()
+    try {
+      return new Function(out.code + `\nreturn ${name}`)()
+    } finally {
+      globalThis.__tjs = prev
+    }
+  }
+
+  // Both spellings of the same type must agree — they disagreed before: the named form
+  // rejected everything while the example form `0n` did not even parse.
+  const spellings: Array<[string, string]> = [
+    ['named type', `function g(n: bigint) { return n }`],
+    ['example value', `function g(n: 0n) { return n }`],
+    ['named, with return type', `function g(n: bigint): bigint { return n }`],
+    ['example, with return type', `function g(n: 0n): 0n { return n }`],
+  ]
+
+  for (const [label, src] of spellings) {
+    it(`accepts a bigint and rejects a number (${label})`, () => {
+      const g = compile(src, 'g')
+      expect(g(10n)).toBe(10n)
+      expect(isMonadicError(g(10))).toBe(true)
+      expect(isMonadicError(g('10'))).toBe(true)
+    })
+  }
+
+  it('a bigint example round-trips through fromTS back into tjs()', () => {
+    // fromTS emits `x: 0n` for a TS `bigint`, so the converter was producing TJS that its
+    // own parser rejected — the conversion contract's "equivalent" obligation, broken.
+    const converted = fromTS(
+      `export function g(x: bigint): bigint { return x }`,
+      { emitTJS: true }
+    ).code
+    expect(converted).toContain('0n')
+    expect(() => tjs(converted, { runTests: false })).not.toThrow()
+  })
+
+  it('`tjs types` can serialise a bigint example', () => {
+    // JSON.stringify THROWS on BigInt rather than skipping it, so one `0n` anywhere in a
+    // file took down the whole transpile with a message naming no file and no line.
+    expect(() => tjs(`function g(x: 0n): 0n { return x }`)).not.toThrow()
+  })
+})

@@ -30,6 +30,7 @@ export interface TypeDescriptor {
     | 'number'
     | 'integer'
     | 'non-negative-integer'
+    | 'bigint'
     | 'boolean'
     | 'null'
     | 'undefined'

@@ -47,6 +47,12 @@ export function typeDescriptorToJSONSchema(
       return { type: 'integer' }
     case 'non-negative-integer':
       return { type: 'integer', minimum: 0 }
+    case 'bigint':
+      // JSON has no bigint, and `JSON.stringify(1n)` throws. `integer` is the honest
+      // description of the VALUE domain (arbitrary precision, no bound — which is
+      // exactly what unbounded `integer` means in JSON Schema); how a bigint crosses
+      // the wire is a transport question this schema deliberately does not answer.
+      return { type: 'integer' }
     case 'boolean':
       return { type: 'boolean' }
     case 'null':
