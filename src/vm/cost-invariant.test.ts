@@ -44,6 +44,8 @@ async function fuelFor(
 
 const arr = (n: number) => Array.from({ length: n }, (_, i) => 'x' + i)
 const str = (n: number) => 'x'.repeat(n)
+const obj = (n: number) =>
+  Object.fromEntries(Array.from({ length: n }, (_, i) => [`k${i}`, `v${i}`]))
 
 /** Each case: how to invoke the atom with an operand of size N. */
 const CASES: Array<{
@@ -70,6 +72,77 @@ const CASES: Array<{
     build: (n) => ({
       steps: [{ op: 'constSet', key: 'v', value: { $kind: 'arg', path: 'd' } }],
       args: { d: arr(n).map((x) => ({ x })) },
+    }),
+  },
+  // The five that were still flat-charged at 0.13.0-beta.1. Each measured at 1.20 fuel
+  // for N=100 AND N=100,000 before `chargeForSize` was added — a 1000x size difference
+  // for identical cost.
+  {
+    atom: 'hash',
+    build: (n) => ({
+      steps: [{ op: 'hash', value: { $kind: 'arg', path: 'd' }, result: 'h' }],
+      args: { d: str(n) },
+    }),
+  },
+  {
+    atom: 'keys',
+    build: (n) => ({
+      steps: [{ op: 'keys', obj: { $kind: 'arg', path: 'd' }, result: 'k' }],
+      args: { d: obj(n) },
+    }),
+  },
+  {
+    atom: 'merge',
+    build: (n) => ({
+      steps: [
+        {
+          op: 'merge',
+          a: { $kind: 'arg', path: 'd' },
+          b: { $kind: 'arg', path: 'd' },
+          result: 'm',
+        },
+      ],
+      args: { d: obj(n) },
+    }),
+  },
+  {
+    atom: 'pick',
+    build: (n) => ({
+      // `pick` walks the KEY LIST, so that is the operand whose size must matter.
+      steps: [
+        {
+          op: 'pick',
+          obj: { $kind: 'arg', path: 'd' },
+          keys: { $kind: 'arg', path: 'ks' },
+          result: 'p',
+        },
+      ],
+      args: { d: obj(n), ks: Object.keys(obj(n)) },
+    }),
+  },
+  {
+    // LARGE INPUT, SMALL OUTPUT — deliberately. `omit` must walk the whole source object
+    // to know what to keep, and this is the shape the heap-write accounting cannot see:
+    // it charges for the RESULT, which here is one key. Measured flat: walking a
+    // 100,000-key object to produce a 1-key result cost 1.20 fuel, the same as N=1,000.
+    //
+    // It also matters WHEN the charge lands. Result accounting charges AFTER the work is
+    // done, so it can notice a 17-second stall but not prevent one; charging the operand
+    // up front is what actually bounds it.
+    atom: 'omit',
+    build: (n) => ({
+      steps: [
+        {
+          op: 'omit',
+          obj: { $kind: 'arg', path: 'd' },
+          keys: { $kind: 'arg', path: 'ks' },
+          result: 'o',
+        },
+      ],
+      args: {
+        d: obj(n),
+        ks: Array.from({ length: Math.max(0, n - 1) }, (_, i) => `k${i}`),
+      },
     }),
   },
   {
@@ -189,6 +262,141 @@ describe('cost invariant: fuel tracks operand size', () => {
     )
     expect(res.error?.message).toBe('Out of Fuel')
   }, 60_000)
+})
+
+/**
+ * ENUMERATION, not a list.
+ *
+ * The block above drives a HAND-WRITTEN set of cases, so it can only catch the atoms
+ * someone already suspected. That is exactly how five more flat-charged O(n) atoms
+ * survived it: `hash` cost 1.2 fuel for 1KB and for 1MB alike, and 400 `merge`s over a
+ * 400k-key object completed in 17.7 SECONDS having spent 400.3 fuel — a ~400x undercharge,
+ * in a VM whose entire safety story is that the budget is real.
+ *
+ * The CHANGELOG's "anyone relying on fuel as a DoS bound should upgrade" closed five
+ * atoms. It did not close the CLASS. So: walk the registry, and require every atom to be
+ * either DEMONSTRATED to scale or explicitly declared size-insensitive WITH A REASON.
+ * Adding an atom now forces the question rather than leaving it to be noticed later.
+ */
+describe('cost invariant: every atom is accounted for', () => {
+  /**
+   * Atoms whose work genuinely does not scale with operand size.
+   *
+   * Each needs a REASON. An unexplained entry is indistinguishable from an oversight,
+   * which is the failure mode this whole file exists to prevent.
+   */
+  const SIZE_INSENSITIVE: Record<string, string> = {
+    // Control flow and scoping — the work belongs to the steps they contain, and those
+    // are metered on their own account.
+    seq: 'dispatches nested steps; each is metered itself',
+    scope: 'dispatches nested steps',
+    if: 'evaluates one condition, dispatches one branch',
+    while: 'per-iteration cost is charged by the body',
+    repeat: 'per-iteration cost is charged by the body',
+    tryCatch: 'dispatches nested steps',
+    callLocal: 'the helper body is metered as it runs',
+    return: 'hands back an existing reference; no traversal',
+    throw: 'constructs one error',
+    noop: 'does nothing',
+
+    // O(1) reads and writes. Binding is separately charged by trackHeapWrite.
+    varSet: 'binds one name; the heap walk is charged by trackHeapWrite',
+    constSet: 'binds one name; the heap walk is charged by trackHeapWrite',
+    varsLet: 'binds names; charged by trackHeapWrite',
+    varsImport: 'binds names; charged by trackHeapWrite',
+    len: 'reads .length / key count without materialising anything',
+    get: 'one property read',
+    set: 'one property write',
+    has: 'one lookup',
+    first: 'one index read',
+    last: 'one index read',
+
+    // Arithmetic / comparison on scalars.
+    add: 'scalar arithmetic',
+    sub: 'scalar arithmetic',
+    mul: 'scalar arithmetic',
+    div: 'scalar arithmetic',
+    mod: 'scalar arithmetic',
+    eq: 'O(1) by design — see the note at the top of this file',
+    neq: 'O(1) by design',
+    gt: 'scalar comparison',
+    gte: 'scalar comparison',
+    lt: 'scalar comparison',
+    lte: 'scalar comparison',
+    not: 'one negation',
+    and: 'short-circuit on scalars',
+    or: 'short-circuit on scalars',
+
+    // IO: cost is dominated by the capability, which is separately timed and quota'd,
+    // and the RETURN crosses the membrane, which budgets its size.
+    httpFetch: 'capability-bound; return is size-checked by the membrane',
+    storeGet: 'capability-bound; return size-checked by the membrane',
+    storeSet: 'capability-bound',
+    storeQuery: 'capability-bound',
+    storeQueryWhere: 'capability-bound',
+    storeVectorSearch: 'capability-bound',
+    llmPredict: 'capability-bound',
+    agentRun: 'the nested run has its own fuel budget',
+    transpileCode: 'capability-bound',
+    runCode: 'the nested run has its own fuel budget',
+    xmlParse: 'capability-bound; return size-checked by the membrane',
+    consoleLog: 'writes one line',
+    consoleWarn: 'writes one line',
+    consoleError: 'writes one line',
+    random: 'one value',
+    uuid: 'one value',
+
+    // Collection iterators: the per-element cost is paid by the BODY steps they dispatch,
+    // exactly like `while`/`repeat`. The iterator itself does O(1) work per element.
+    map: 'per-element cost is charged by the body steps',
+    filter: 'per-element cost is charged by the body steps',
+    reduce: 'per-element cost is charged by the body steps',
+    find: 'per-element cost is charged by the body steps; short-circuits',
+
+    // O(1) amortised: mutates the array in place, no copy.
+    push: 'Array.prototype.push mutates in place — no traversal, no copy',
+
+    // Bounded by construction rather than by fuel: pattern and input length are hard-
+    // capped and dangerous shapes rejected, because backtracking is opaque to the fuel
+    // counter and no per-character charge could bound it. See MAX_REGEX_* / redos.ts.
+    regexMatch:
+      'input and pattern are hard-capped; ReDoS shapes rejected outright',
+
+    // O(names requested), which the guest writes out literally in the step — it cannot be
+    // large without the program itself being large.
+    varsExport:
+      'proportional to the literal key list in the step, not to any operand',
+
+    // Bookkeeping over a small fixed structure.
+    Error: 'constructs one error object',
+    try: 'dispatches nested steps',
+    varGet: 'one scope lookup',
+    cache:
+      'one map lookup/insert; the cached VALUE is charged where it is produced',
+    memoize: 'one map lookup; the memoized steps are metered when they run',
+    storeProcedure: 'registers one entry',
+    releaseProcedure: 'removes one entry',
+    clearExpiredProcedures:
+      'sweeps a registry the guest cannot grow without paying',
+  }
+
+  it('every registered atom either scales or is declared size-insensitive', () => {
+    // The cases driven above, by the atom they exercise.
+    const demonstrated = new Set(
+      CASES.map((c) => c.atom.replace(/ .*$/, '')) // strip the parenthetical label
+    )
+    const unaccounted = Object.keys(new AgentVM().atoms ?? {})
+      .filter((op) => !demonstrated.has(op) && !(op in SIZE_INSENSITIVE))
+      .sort()
+
+    expect(
+      unaccounted,
+      'each of these must EITHER get a CASES entry proving its fuel grows with operand ' +
+        'size, OR a SIZE_INSENSITIVE entry saying why it does not — an atom that walks ' +
+        'its operand for a flat cost is a fuel bypass, and fuel that does not track work ' +
+        'is not a budget'
+    ).toEqual([])
+  })
 })
 
 /**
