@@ -3738,6 +3738,51 @@ export function wrapClassDeclarations(
  * Validate that Date is not used (TjsDate mode)
  * Throws an error if Date constructor or static methods are found
  */
+/**
+ * Report EVERY occurrence of a banned construct, with a location, in one pass.
+ *
+ * The three unconditional rejections (`var`, `new Date`, `eval`) each threw on the first
+ * hit with no file, line or column — so fixing a file with three violations took three
+ * separate `tjs check` runs, each printing an identical positionless message, and the
+ * order they appeared in was the order the VALIDATORS ran rather than the order they
+ * appear in the source.
+ *
+ * `locAt` was sitting in this same file, and ~7 sibling diagnostics already threw
+ * `SyntaxError` with a location the CLI renders with source context.
+ *
+ * Reports at the FIRST occurrence (so the caret lands somewhere useful) and lists the
+ * remaining ones beneath it — a caret can only point at one place, but a fix list should
+ * be complete.
+ */
+function rejectAll(
+  source: string,
+  masked: string,
+  pattern: RegExp,
+  message: string
+): void {
+  const re = new RegExp(
+    pattern.source,
+    pattern.flags.includes('g') ? pattern.flags : pattern.flags + 'g'
+  )
+  const hits: number[] = []
+  let m: RegExpExecArray | null
+  while ((m = re.exec(masked)) !== null) {
+    hits.push(m.index)
+    if (m.index === re.lastIndex) re.lastIndex++ // zero-width guard
+  }
+  if (!hits.length) return
+
+  const locs = hits.map((at) => locAt(source, at))
+  const extra =
+    locs.length > 1
+      ? `\n\nAlso at: ${locs
+          .slice(1)
+          .map((l) => `line ${l.line}:${l.column}`)
+          .join(', ')} (${locs.length} occurrences in total)`
+      : ''
+  throw new SyntaxError(message + extra, locs[0])
+}
+
 export function validateNoDate(source: string, warnings?: string[]): string {
   // The footgun is the Date OBJECT — mutable, timezone-dependent, and the source of most
   // date bugs. The numeric statics are not: `Date.now()`, `Date.parse()` and `Date.UTC()`
@@ -3774,7 +3819,7 @@ export function validateNoDate(source: string, warnings?: string[]): string {
 
   const scan = maskLiterals(source)
   for (const { pattern, message } of errors) {
-    if (pattern.test(scan)) throw new Error(message)
+    rejectAll(source, scan, pattern, message)
   }
   for (const { pattern, message } of warns) {
     if (pattern.test(scan)) warnings?.push(message)
@@ -3886,11 +3931,12 @@ export function validateNoVar(source: string): string {
   // declaration. The mask makes the claim true.
   // Catches: var x, var x = ..., var {x} = ..., var [x] = ...
   const varPattern = /(?<![a-zA-Z_$])\bvar\s+/
-  if (varPattern.test(maskLiterals(source))) {
-    throw new Error(
-      '`var` is not allowed in TJS — use `const` or `let`. If you genuinely need function-scoped hoisting, mark it: `unsafe var x = 1`.'
-    )
-  }
+  rejectAll(
+    source,
+    maskLiterals(source),
+    varPattern,
+    '`var` is not allowed in TJS — use `const` or `let`. If you genuinely need function-scoped hoisting, mark it: `unsafe var x = 1`.'
+  )
   return source
 }
 
@@ -3899,12 +3945,12 @@ export function validateNoEval(source: string, warnings?: string[]): string {
   // Use negative lookbehind to avoid matching inside words
   const evalPattern = /(?<![A-Za-z_$])\beval\s*\(/
   const scan = maskLiterals(source)
-  if (evalPattern.test(scan)) {
-    throw new Error(
-      '`eval()` is not allowed in TJS. Use `Eval()` from the TJS runtime for sandboxed evaluation, or mark a deliberate exception: `unsafe eval(src)`.'
-    )
-  }
-
+  rejectAll(
+    source,
+    scan,
+    evalPattern,
+    '`eval()` is not allowed in TJS. Use `Eval()` from the TJS runtime for sandboxed evaluation, or mark a deliberate exception: `unsafe eval(src)`.'
+  )
   // Match new Function() - but not SafeFunction or other *Function names
   // `new Function` is NOT abolished — it is simply unsafe, and there is no meaning-
   // preserving rewrite (SafeFunction is sandboxed; swapping it changes what the code can

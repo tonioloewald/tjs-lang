@@ -22,8 +22,12 @@
  * names the problem is a regression, however true it is.
  */
 import { describe, it, expect } from 'bun:test'
-import { ajs } from '../index'
+// `ajs` was imported TWICE here, from '../index' and from '../transpiler/index'. Bun
+// tolerates it and silently takes the last one, so the file was ambiguous about which
+// entry point it asserted — and it is a hard SyntaxError under stricter ESM tooling.
+// Kept the direct import, which is the one that was actually winning.
 import { ajs } from '../transpiler/index'
+import { tjs } from './index'
 import { CONSTRUCT_REMEDIES } from './emitters/ast'
 
 /** Source that trips each unsupported construct. */
@@ -125,4 +129,66 @@ describe('remedies are spec, not strings', () => {
       ).not.toThrow()
     })
   }
+})
+
+/**
+ * The unconditional rejections report WHERE, and report ALL of them.
+ *
+ * `var`, `new Date` and `eval` each threw on the first hit with no file, line or column,
+ * so fixing a file with three violations took three separate `tjs check` runs, each
+ * printing an identical positionless message. Worse, the order they surfaced in was the
+ * order the VALIDATORS ran, not the order they appear in the source — so the first thing
+ * you were told to fix was rarely the first thing in the file.
+ *
+ * `locAt` was already in the same file, and ~7 sibling diagnostics already threw a located
+ * `SyntaxError` that the CLI renders with source context. This was an inconsistency, not a
+ * missing capability.
+ */
+describe('banned constructs report a location, and every occurrence', () => {
+  const cases: Array<[label: string, src: string, match: RegExp]> = [
+    ['var', 'function a() {\n  var x = 1\n  return x\n}', /var/],
+    ['new Date', 'function a() {\n  return new Date()\n}', /new Date/],
+    ['eval', "function a(s: '') {\n  return eval(s)\n}", /eval/],
+  ]
+
+  for (const [label, src, match] of cases) {
+    it(`${label} reports a line and column`, () => {
+      let caught: any
+      try {
+        tjs(src, { runTests: false })
+      } catch (e) {
+        caught = e
+      }
+      expect(caught, `${label} must be rejected`).toBeDefined()
+      expect(caught.message).toMatch(match)
+      // A positionless diagnostic makes the reader search the file for the offence.
+      expect(caught.line, `${label} must carry a line`).toBeGreaterThan(0)
+      expect(caught.column).toBeGreaterThanOrEqual(0)
+    })
+  }
+
+  it('lists EVERY occurrence, not just the first', () => {
+    // Three `var`s used to mean three round trips through the compiler.
+    let caught: any
+    try {
+      tjs(
+        'function a() {\n  var x = 1\n  var y = 2\n  var z = 3\n  return x\n}',
+        {
+          runTests: false,
+        }
+      )
+    } catch (e) {
+      caught = e
+    }
+    expect(caught.line, 'the caret lands on the FIRST one').toBe(2)
+    expect(caught.message).toMatch(/3 occurrences in total/)
+    expect(caught.message).toMatch(/line 3/)
+    expect(caught.message).toMatch(/line 4/)
+  })
+
+  it('says nothing when there is nothing to say', () => {
+    expect(() =>
+      tjs('function a() {\n  const x = 1\n  return x\n}', { runTests: false })
+    ).not.toThrow()
+  })
 })

@@ -83,6 +83,23 @@ export function isTypeNameAnnotation(text: string): boolean {
 }
 
 export function inferTypeFromValue(node: Expression): TypeDescriptor {
+  // `LegacyDefault(x)` is a WRAPPER, not a value: it asks for the plain-JS atomic default
+  // semantics instead of TJS's per-member merge. It says nothing about the type, so infer
+  // through it.
+  //
+  // Treating it as an opaque call made the wrapped param `any` — WEAKER than the plain-JS
+  // equivalent it exists to reproduce, which reports the full object shape. The generated
+  // .d.ts said `any` where `dialect: 'js'` said `{ x: number }`. The caller asked for
+  // atomic default semantics; they did not ask for the type to disappear.
+  if (
+    node.type === 'CallExpression' &&
+    (node as any).callee?.type === 'Identifier' &&
+    (node as any).callee.name === 'LegacyDefault' &&
+    (node as any).arguments?.length === 1
+  ) {
+    return inferTypeFromValue((node as any).arguments[0])
+  }
+
   switch (node.type) {
     case 'Literal': {
       const value = (node as any).value
