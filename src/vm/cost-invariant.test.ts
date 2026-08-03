@@ -243,3 +243,102 @@ describe('heap ceiling: peak live state is bounded', () => {
     expect(res.error).toBeUndefined()
   })
 })
+
+describe('the §1 sweep, verified rather than assumed', () => {
+  // The audit said "finish the sweep against the named list" — concat, slice, join, sort
+  // and friends. They were covered by ALLOCATING_METHODS all along, but nobody had
+  // MEASURED it, so the item sat open. Measuring it is the difference between believing
+  // and knowing, and it costs one test.
+  const withMethod = async (method: string, n: number, args: any[] = []) => {
+    const ast: any = {
+      op: 'seq',
+      steps: [
+        {
+          op: 'varSet',
+          key: 'a',
+          value: Array.from({ length: n }, (_, i) => i),
+        },
+        {
+          op: 'varSet',
+          key: 'out',
+          value: {
+            $expr: 'methodCall',
+            object: { $expr: 'ident', name: 'a' },
+            method,
+            arguments: args,
+          },
+        },
+      ],
+    }
+    const r = await new AgentVM().run(ast, {}, { fuel: 50_000_000 })
+    expect(r.error, `${method} should run cleanly`).toBeUndefined()
+    return r.fuelUsed
+  }
+
+  for (const method of ['concat', 'slice', 'join', 'toReversed', 'toSorted']) {
+    it(`${method} charges in proportion to size`, async () => {
+      const small = await withMethod(method, 1_000)
+      const large = await withMethod(method, 100_000)
+      // 100x the data must cost far more than a constant. Flat cost here would be the
+      // same bypass class as the jsonStringify one that shipped in 0.12.0.
+      expect(
+        large / small,
+        `${method} appears to charge a flat cost`
+      ).toBeGreaterThan(5)
+    })
+  }
+})
+
+describe('fuel exhaustion cannot be caught and resumed', () => {
+  // `try` clears ctx.error when a catch block exists — including "Out of Fuel". The worry
+  // was that a loop wrapping its body in try/catch could swallow exhaustion and run
+  // forever, defeating the termination guarantee (S1/S4) entirely.
+  //
+  // It cannot: clearing the error buys exactly one more atom, because the next one charges
+  // against an already-exhausted budget and errors again immediately.
+  const loop = (limit: number): any => ({
+    op: 'seq',
+    steps: [
+      { op: 'varSet', key: 'i', value: 0 },
+      {
+        op: 'while',
+        condition: {
+          $expr: 'binary',
+          op: '<',
+          left: { $expr: 'ident', name: 'i' },
+          right: limit,
+        },
+        body: [
+          {
+            op: 'try',
+            try: [{ op: 'varSet', key: 'x', value: 'work' }],
+            catch: [{ op: 'varSet', key: 'caught', value: true }],
+          },
+          {
+            op: 'varSet',
+            key: 'i',
+            value: {
+              $expr: 'binary',
+              op: '+',
+              left: { $expr: 'ident', name: 'i' },
+              right: 1,
+            },
+          },
+        ],
+      },
+    ],
+  })
+
+  it('a catch-everything loop still dies of fuel, near budget', async () => {
+    const r = await new AgentVM().run(loop(1e9), {}, { fuel: 50 })
+    expect(r.error?.message).toMatch(/Out of Fuel/)
+    // Near the budget, not far past it — the catch must not buy meaningful extra work.
+    expect(r.fuelUsed).toBeLessThan(60)
+  })
+
+  it('POSITIVE CONTROL: the same loop really does iterate when fuel allows', async () => {
+    // Without this, a loop that silently never ran would look like a passing security test.
+    const r = await new AgentVM().run(loop(20), {}, { fuel: 100_000 })
+    expect(r.fuelUsed, 'the loop must actually execute').toBeGreaterThan(5)
+  })
+})
