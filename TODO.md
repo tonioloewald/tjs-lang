@@ -1784,12 +1784,14 @@ Status re-checked against source 2026-07-31.
 - [x] Membrane at one choke point; budgeted, cycle-safe pre-walk rejects functions and
       oversized payloads _before_ the clone allocates (`membraneMaxBytes`, 4MB default).
       OOM guard extended to TypedArray/ArrayBuffer/Map/Set real byte sizes.
-- [ ] **Reject accessor properties before cloning.** **NOT DONE — verified absent**
-      (no `getOwnPropertyDescriptor` anywhere in `src/vm/runtime.ts`). `structuredClone`
-      reads own enumerable properties, so a getter or proxy trap on a capability's return
-      **runs code during the crossing**. Threat model is a _broken or hostile capability_
-      rather than a guest escape, but it is exactly the "we designed it out / we verified
-      it's out" gap this list is about, and the fix is cheap. **Do this one next in §2.**
+- [x] **Reject accessor properties before cloning. DONE 2026-08-03** — and it was worse
+      than described: the pre-walk read every own key with `v[k]`, so the machinery that
+      exists to keep host code out of guest state was itself _executing_ host code, before
+      `structuredClone` was reached and regardless of the verdict. Now reads
+      `Object.getOwnPropertyDescriptor` and rejects accessors outright — there is no way to
+      learn what a getter returns without running it. Two regression tests: a getter is
+      never invoked, and a throwing getter yields a clean monadic rejection rather than an
+      exception escaping the VM.
 - [ ] **Enforce, don't assert, "pure atoms never return host references."** The membrane
       covers `effects: 'io'` atoms only. Add a debug-mode membrane on pure atoms that
       screams in CI, or membrane everything and eat the cost.

@@ -386,6 +386,48 @@ describe('Use Case: Malicious Actor', () => {
       expect(result.error?.message).toMatch(/Capability boundary/)
     })
 
+    it('does not INVOKE an accessor while inspecting the return', async () => {
+      // The pre-walk read every own key with `v[k]`, which runs a getter. So the
+      // machinery that exists to stop host code reaching the guest was itself
+      // executing host code — before structuredClone was even reached, and
+      // regardless of whether the value was ultimately accepted.
+      //
+      // A getter can throw, mutate, or stall, so this is a side-effect vector on the
+      // boundary rather than only a data-leak one.
+      const VM = new AgentVM()
+      let invocations = 0
+      const store = {
+        get: async () => ({
+          ok: true,
+          get payload() {
+            invocations++
+            return 'harmless-looking'
+          },
+        }),
+        set: async () => {},
+      }
+      const result = await VM.run(readAgent(), {}, { capabilities: { store } })
+      expect(invocations, 'the membrane must not run a getter').toBe(0)
+      expect(result.error).toBeDefined()
+      expect(result.error?.message).toMatch(/Capability boundary/)
+    })
+
+    it('a throwing getter cannot take the VM down from inside the crossing', async () => {
+      const VM = new AgentVM()
+      const store = {
+        get: async () => ({
+          get boom(): never {
+            throw new Error('detonated inside the membrane')
+          },
+        }),
+        set: async () => {},
+      }
+      const result = await VM.run(readAgent(), {}, { capabilities: { store } })
+      // A clean monadic rejection, not a thrown host exception escaping the VM.
+      expect(result.error).toBeDefined()
+      expect(result.error?.message).not.toMatch(/detonated/)
+    })
+
     it('rejects a raw host reference (process) returned by a capability', async () => {
       const VM = new AgentVM()
       const store = {

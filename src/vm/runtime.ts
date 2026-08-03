@@ -458,9 +458,25 @@ function membraneValue(value: unknown, maxBytes: number): MembraneResult {
       if (bytes > maxBytes) return membraneOverBudget(maxBytes)
       for (const sv of v as Set<any>) stack.push({ v: sv, depth: depth + 1 })
     } else {
+      // Read DESCRIPTORS, not values. `v[k]` invokes a getter — so the walk that
+      // exists to keep host code out of guest state would itself run host code,
+      // before structuredClone is even reached and regardless of the verdict. A
+      // getter can throw, mutate, or stall, so that is a side-effect vector on the
+      // boundary, not merely a data-leak one.
+      //
+      // Accessors are rejected rather than evaluated: there is no way to learn what
+      // one returns without running it, and structuredClone would run it again
+      // anyway. A capability must hand over plain data.
       for (const k of Object.keys(v)) {
+        const d = Object.getOwnPropertyDescriptor(v, k)
+        if (d && (d.get || d.set)) {
+          return {
+            ok: false,
+            reason: `capability return has an accessor property '${k}'; the boundary takes plain data only, because reading an accessor would execute host code`,
+          }
+        }
         bytes += k.length * 2 + 8
-        stack.push({ v: (v as any)[k], depth: depth + 1 })
+        stack.push({ v: d ? d.value : undefined, depth: depth + 1 })
       }
       if (bytes > maxBytes) return membraneOverBudget(maxBytes)
     }
