@@ -132,3 +132,69 @@ describe('per-atom call quotas', () => {
     expect(result.error?.message).toMatch(/Quota exceeded/)
   })
 })
+
+describe('quota scope — the boundary, pinned so it cannot surprise anyone', () => {
+  // Found by asking "what attacks haven't we thought of?" hours after shipping quotas.
+  // A quota reads like a spend cap, and a spend cap that a guest can multiply is worse
+  // than none — so the boundary is documented AND tested rather than left to be discovered.
+  const nested = (
+    fetch: () => Promise<unknown>,
+    shared?: Record<string, number>
+  ) => {
+    const V = new AgentVM()
+    const inner: any = {
+      op: 'seq',
+      steps: [{ op: 'httpFetch', url: 'https://x/1', result: 'r' }],
+    }
+    const agent = {
+      run: async () =>
+        V.run(
+          inner,
+          {},
+          {
+            fuel: 1000,
+            capabilities: { fetch },
+            quotas: { httpFetch: 1 },
+            quotaUsed: shared,
+          }
+        ),
+    }
+    const outer: any = {
+      op: 'seq',
+      steps: [
+        { op: 'httpFetch', url: 'https://x/0', result: 'a' },
+        { op: 'agentRun', agentId: 'child', input: {}, result: 'b' },
+      ],
+    }
+    return V.run(
+      outer,
+      {},
+      {
+        fuel: 5000,
+        capabilities: { fetch, agent },
+        quotas: { httpFetch: 1 },
+        quotaUsed: shared,
+      }
+    )
+  }
+
+  it('a capability that re-enters the VM gets a FRESH quota (known limitation)', async () => {
+    let calls = 0
+    await nested(async () => {
+      calls++
+      return { ok: true, status: 200, body: 'x' }
+    })
+    // Two calls despite a quota of one: each run counts separately.
+    expect(calls).toBe(2)
+  })
+
+  it('…unless the host threads one counter through — then it holds', async () => {
+    let calls = 0
+    const shared: Record<string, number> = {}
+    await nested(async () => {
+      calls++
+      return { ok: true, status: 200, body: 'x' }
+    }, shared)
+    expect(calls, 'a shared counter caps the whole call tree').toBe(1)
+  })
+})

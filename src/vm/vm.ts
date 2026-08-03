@@ -116,6 +116,12 @@ export class AgentVM<M extends Record<string, Atom<any, any>>> {
       costOverrides?: Record<string, CostOverride> // Per-atom fuel cost overrides
       /** Per-atom call quotas — caps work summoned OUTSIDE the VM, which fuel cannot see. */
       quotas?: Record<string, number>
+      /**
+       * Shared quota counters. Pass the same object to nested runs to make a quota hold
+       * through re-entrancy — otherwise each run starts fresh and a capability that calls
+       * back into the VM multiplies its allowance.
+       */
+      quotaUsed?: Record<string, number>
       timeoutOverrides?: Record<string, TimeoutOverride> // Per-atom timeout overrides (ms, 0 disables)
       context?: Record<string, any> // Request-scoped metadata (auth, permissions, etc.)
       membraneMaxBytes?: number // Cap on the estimated size of a capability return crossing into guest state (default 4MB)
@@ -201,7 +207,7 @@ export class AgentVM<M extends Record<string, Atom<any, any>>> {
       signal: controller.signal,
       costOverrides: options.costOverrides,
       quotas: options.quotas,
-      quotaUsed: {},
+      quotaUsed: options.quotaUsed ?? {},
       timeoutOverrides: options.timeoutOverrides,
       context: options.context,
       membraneMaxBytes: options.membraneMaxBytes,

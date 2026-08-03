@@ -213,9 +213,23 @@ export interface RuntimeContext {
    * "at most 3 model calls", so this does.
    *
    * Absent or unset op ⇒ unlimited, so it is purely additive.
+   *
+   * **SCOPE — read this before treating a quota as a spend cap.** A quota counts calls
+   * within ONE run. A capability that starts a *new* `vm.run` gets a fresh counter, so an
+   * agent able to trigger re-entrancy can multiply its allowance. Inline sub-agents share
+   * the parent's context and therefore its counter; a capability calling back into the VM
+   * does not.
+   *
+   * To enforce a cap across nested runs, pass the SAME `quotaUsed` object to each — see
+   * `quotaUsed` below. Across a process or network boundary no such enforcement is
+   * possible: budget does not travel, only tokens and data do.
    */
   quotas?: Record<string, number>
-  /** Calls made per op this run, for `quotas`. */
+  /**
+   * Calls made per op, for `quotas`. Supplied by `vm.run`, but a host may pass its own
+   * object to share one budget across nested runs — the only way to make a quota hold
+   * through re-entrancy.
+   */
   quotaUsed?: Record<string, number>
   timeoutOverrides?: Record<string, TimeoutOverride> // Per-atom timeout overrides (ms, 0 disables)
   context?: Record<string, any> // Immutable request-scoped metadata (auth, permissions, etc.)
