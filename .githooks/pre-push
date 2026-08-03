@@ -45,14 +45,21 @@ done
 
 echo "pre-push: tag detected — running the FULL suite before it ships (~3 min)."
 
-# The full suite includes LLM integration tests, which need LM Studio up with a
-# chat + embedding model. A cold server fails the first run on model load, so
-# check reachability first and give a clear message instead of a wall of failures.
-if ! curl -s --max-time 5 http://localhost:1234/v1/models >/dev/null 2>&1; then
-  fail "LM Studio not reachable on :1234 — the full suite needs a chat + embedding
-  model loaded (docs/lm-studio-setup.md). Start it (and warm the models), then push
-  the tag again. To ship anyway after running the suite green another way:
-  git push --no-verify"
+# The full suite includes LLM integration tests, which need an OpenAI-compatible
+# server up with a chat + embedding model. A cold server fails the first run on
+# model load, so check reachability first and give a clear message instead of a
+# wall of failures.
+#
+# The BACKEND IS A CONFIG CHOICE, not a constant — LM Studio/Bionic on :1234, MLX
+# on :10240, anything else via TJS_LLM_BASE_URL. Hardcoding the port here would
+# fail a push for a perfectly healthy setup, which is the same defect that made the
+# demo tests silently probe nothing when the server was MLX.
+LLM_URL="${TJS_LLM_BASE_URL:-http://localhost:1234/v1}"
+if ! curl -s --max-time 5 "$LLM_URL/models" >/dev/null 2>&1; then
+  fail "no LLM server reachable at $LLM_URL — the full suite needs a chat +
+  embedding model loaded (docs/lm-studio-setup.md, docs/mlx-setup.md). Start it
+  (and warm the models), or set TJS_LLM_BASE_URL, then push the tag again. To ship
+  anyway after running the suite green another way: git push --no-verify"
 fi
 
 # Full suite: no SKIP_LLM_TESTS, no SKIP_BENCHMARKS. Vision tests self-skip without

@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.13.0-beta.1] — 2026-08-03
+
+**Beta.** The language changed shape: all nine mode directives are gone and the file
+extension is the only gate. Escapes are per-construct, so an accidental use is still
+caught. Published as a beta because that shape change deserves real use before it is
+called stable.
+
 ### Removed — BREAKING
 
 - **All nine mode directives are abolished.** `TjsEquals`, `TjsClass`, `TjsDate`,
