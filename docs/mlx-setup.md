@@ -80,10 +80,20 @@ not one fixable bug.
 | `mlx-omni-server` + SmolVLM (`idefics3`) | `Model type idefics3 not supported` — routed to `mlx_lm`, because only `gemma4` reaches `mlx_vlm` |
 | `mlx-omni-server` + `gemma-4-e2b-it-4bit` | routed correctly, then `Received 2 parameters not in model: …per_layer_model_projection.biases/scales` — build/mlx_vlm skew |
 | `mlx-openai-server --model-type multimodal` + SmolVLM | server starts and lists the model, then `BatchGenerator.__init__() got an unexpected keyword argument 'kv_bits'` — the server's own dependency skew |
+| `mlx-openai-server` + `gemma-4-e2b-it-4bit` | **identical** weight error to omni — so that failure is model-side, not server-side |
 
-Worth noting the third got furthest: `mlx-openai-server` accepts the **standard** OpenAI
+A fourth attempt closed the matrix: **gemma-4-e2b-it-4bit on `mlx-openai-server`** failed
+with the *identical* `per_layer_model_projection.biases/scales` error it produced on omni.
+Reproducing byte-for-byte on two independent servers proves that one is **model-side, not
+server-side** — the 4-bit build's weights do not match what mlx_vlm 0.4.4 expects.
+
+That is a useful narrowing, because the two failing parameter names are **quantization
+artifacts** (`.scales`, `.biases`). An **unquantized** gemma-4 build (bf16) has neither, so
+it is the obvious next thing to try — and the only attempt worth another download.
+
+Worth noting `mlx-openai-server` got furthest overall: it accepts the **standard** OpenAI
 image block (no flattening needed) and its `/v1/models` actually lists the model, unlike
-omni. If its `kv_bits` skew is fixed upstream it is likely the cleanest drop-in.
+omni. Its `kv_bits` skew is the other thing to watch upstream.
 
 **Cost so far:** ~6.6GB of model downloads, none usable. Do not retry speculatively.
 
