@@ -101,6 +101,12 @@ async function main() {
   )
   const testPattern = patternIdx !== -1 ? args[patternIdx + 1] : undefined
 
+  // `--max-warnings N` — let CI fail on type degradation without making every warning
+  // fatal, the same shape as eslint's flag so a project can adopt the checks gradually.
+  const maxWarningsIdx = args.findIndex((a) => a === '--max-warnings')
+  const maxWarnings =
+    maxWarningsIdx !== -1 ? Number(args[maxWarningsIdx + 1]) : undefined
+
   // Filter out flag arguments
   const filteredArgs = args.filter((a, i) => {
     if (a.startsWith('--') || a.startsWith('-')) return false
@@ -111,6 +117,7 @@ async function main() {
         args[i - 1] === '--output' ||
         args[i - 1] === '-t' ||
         args[i - 1] === '--test-name-pattern' ||
+        args[i - 1] === '--max-warnings' ||
         args[i - 1] === '--docs-dir')
     )
       return false
@@ -132,7 +139,7 @@ async function main() {
   try {
     switch (command) {
       case 'check':
-        await check(file)
+        await check(file, { maxWarnings })
         break
       case 'run':
         await run(file)

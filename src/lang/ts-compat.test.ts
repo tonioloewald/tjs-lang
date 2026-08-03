@@ -409,3 +409,78 @@ describe('bigint is checked as bigint', () => {
     expect(() => tjs(`function g(x: 0n): 0n { return x }`)).not.toThrow()
   })
 })
+
+/**
+ * `n?: number` — the single most common shape a TypeScript author pastes.
+ *
+ * The colon shorthand rewrites an optional param to `n = <annotation>`, which is right for
+ * an example (`n?: 0` → `n = 0`) and a DANGLING IDENTIFIER for a type name (`n?: number` →
+ * `n = number`). Calling the function threw `number is not defined` — emitted JavaScript
+ * that fails on the happy path.
+ *
+ * Long-standing, but this release made it far more likely: bare TS names now produce real
+ * runtime checks, so the annotation LOOKS like it works, and `int`/`unsigned`/`float` are
+ * newly encouraged.
+ */
+describe('optional params annotated with a type name', () => {
+  const compile = (src: string, name: string) => {
+    const out = tjs(src, { runTests: false })
+    const prev = globalThis.__tjs
+    globalThis.__tjs = createRuntime()
+    try {
+      return {
+        fn: new Function(out.code + `\nreturn ${name}`)(),
+        code: out.code,
+      }
+    } finally {
+      globalThis.__tjs = prev
+    }
+  }
+
+  for (const type of [
+    'number',
+    'int',
+    'unsigned',
+    'float',
+    'string',
+    'boolean',
+  ]) {
+    it(`g(n?: ${type}) is callable with no argument`, () => {
+      const { fn, code } = compile(`function g(n?: ${type}) { return n }`, 'g')
+      // The dangling default must be gone from the emitted signature…
+      expect(code).not.toMatch(new RegExp(`function g\\\\(n = ${type}\\\\)`))
+      // …and calling it must not throw.
+      expect(() => fn()).not.toThrow()
+      expect(fn()).toBeUndefined()
+    })
+  }
+
+  it('still CHECKS the type when an argument is supplied', () => {
+    // Deleting the default must not delete the type — that would trade a crash for a
+    // silent `any`, which is the worse of the two.
+    const { fn } = compile(`function g(n?: number) { return n }`, 'g')
+    expect(fn(5)).toBe(5)
+    expect(isMonadicError(fn('nope'))).toBe(true)
+  })
+
+  it('keeps an EXAMPLE default, which is a real value', () => {
+    const { fn, code } = compile(`function g(n?: 0) { return n }`, 'g')
+    expect(code).toMatch(/function g\(n = 0\)/)
+    expect(fn()).toBe(0)
+  })
+
+  it('an unresolved user type degrades to any, and says so', () => {
+    const result = tjs(`function g(n?: MyThing) { return n }`, {
+      runTests: false,
+    })
+    expect(result.warnings?.join('\n')).toMatch(/could not be resolved/)
+    const prev = globalThis.__tjs
+    globalThis.__tjs = createRuntime()
+    try {
+      const fn = new Function(result.code + '\nreturn g')()
+      expect(() => fn()).not.toThrow()
+    } finally {
+      globalThis.__tjs = prev
+    }
+  })
+})

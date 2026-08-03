@@ -4,13 +4,22 @@
 
 import { readFileSync } from 'fs'
 import { tjs, dialectForFilename } from '../../lang'
+import { enforceMaxWarnings, reportWarnings } from '../warnings'
 
-export async function check(file: string): Promise<void> {
+export async function check(
+  file: string,
+  options: { maxWarnings?: number } = {}
+): Promise<void> {
   const source = readFileSync(file, 'utf-8')
 
   try {
     // `.js`/`.mjs` ⇒ plain-JS semantics preserved; `.tjs` ⇒ native modes.
     const result = tjs(source, { dialect: dialectForFilename(file) })
+
+    // Warnings FIRST, and to stderr. This is the primary type-checking command — the one
+    // CI and agents run — and it used to hide the degradation diagnostic entirely,
+    // reporting `✓` for a file whose types had silently been dropped to `any`.
+    const warningCount = reportWarnings(file, result.warnings)
 
     // Report function info from types
     if (result.types && Object.keys(result.types).length > 0) {
@@ -29,6 +38,7 @@ export async function check(file: string): Promise<void> {
     } else {
       console.log(`✓ ${file} - Parsed successfully`)
     }
+    enforceMaxWarnings(warningCount, options.maxWarnings)
   } catch (error: any) {
     console.error(`✗ ${file}`)
     if (error.name === 'SyntaxError' && error.formatWithContext) {

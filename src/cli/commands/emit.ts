@@ -23,6 +23,7 @@ import {
 import { join, basename, dirname, extname } from 'path'
 import { tjs, dialectForFilename } from '../../lang'
 import { generateDocs } from '../../lang/docs'
+import { reportWarnings } from '../warnings'
 import { generateDTS } from '../../lang/emitters/dts'
 
 export interface EmitOptions {
@@ -92,6 +93,12 @@ async function emitFile(
       debug: options.debug,
       runTests: 'report',
     })
+
+    // Warnings to STDERR, so `tjs emit file.tjs > out.js` still produces clean output.
+    // `emit` was silent about degraded annotations, which is the worst place for it: the
+    // author is generating the artifact they will ship, and the moment to learn a type
+    // was dropped is before that, not after.
+    reportWarnings(inputPath, result.warnings)
 
     // Check test results
     const testResults = result.testResults || []

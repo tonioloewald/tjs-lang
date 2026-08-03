@@ -69,24 +69,44 @@ describe('TIGHT: enforces exactly as strictly as TypeScript', () => {
   }
 })
 
+/**
+ * GRADUATED from the work queue: optional params with a TS type name.
+ *
+ * `n?: number` used to emit `function f(n = number)` — a reference to an undefined
+ * variable — so calling it without the argument, which is the entire point of an optional
+ * parameter, threw `number is not defined`. Worse than loose: broken.
+ *
+ * The fix needed the side channel the old note predicted. Stripping the annotation in the
+ * parser was tried and reverted, because that string is also what inference reads to learn
+ * the type, so removing it degraded the param to `any` — trading a loud crash for a silent
+ * hole. The emitter deletes the default instead, driven by a `typeNameOptionals` set the
+ * parser records: `n?: MyThing` and `x = someVar` produce byte-identical AST, and only the
+ * parser knows which one was an annotation.
+ */
+describe('TIGHT: optional params with a type name are optional AND checked', () => {
+  it('is callable with no argument', () => {
+    const f = fn(`function f(n?: number) { return n }`)
+    expect(f()).toBeUndefined()
+    expect(f(1)).toBe(1)
+  })
+
+  it('still enforces the type when a value IS passed', () => {
+    // The half that must not be lost: deleting the default must not delete the type.
+    const f = fn(`function f(n?: number) { return n }`)
+    expect(isMonadicError(f('nope'))).toBe(true)
+  })
+
+  it('does not touch a genuine JS default that references a variable', () => {
+    // The regression this side channel exists to avoid — `x = someVar` looks identical
+    // to `n?: MyThing` in the AST, and an earlier attempt deleted both.
+    const f = fn(`const someVar = 5\nfunction f(x = someVar) { return x }`)
+    expect(f()).toBe(5)
+  })
+})
+
 describe('LOOSE: accepted syntax that does NOT enforce (work queue)', () => {
   // Each of these is a real hole: the annotation is there, the reader believes it means
   // something, and nothing checks it. Flip the expectation when you close one.
-
-  it('BUG: optional param with a TS type name emits broken code', () => {
-    // `n?: number` emits `function f(n = number)` — a reference to an undefined variable,
-    // so calling it throws `number is not defined`. Worse than loose: broken. The fix
-    // needs a side channel; stripping the annotation instead silently degrades the param
-    // to `any` (tried, reverted — loud beats silent). See TODO.
-    const f = fn(`function f(n?: number) { return n }`)
-    expect(
-      f(1),
-      'passing a value is fine — the default is never evaluated'
-    ).toBe(1)
-    // …but OMITTING it, which is the entire point of an optional parameter, evaluates
-    // `number` as an expression and throws.
-    expect(() => f()).toThrow(/number is not defined/)
-  })
 
   it("LOOSE: literal union `x: 'a' | 'b'` does not narrow", () => {
     // TS narrows to exactly two values; TJS reads each literal as an EXAMPLE, so both

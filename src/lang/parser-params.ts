@@ -13,12 +13,24 @@ import type {
 } from './parser-types'
 import { locAt } from './parser-transforms'
 import { isRegexStart, findRegexEnd, isEscapedAt } from '../strip-comments'
+import { isTypeNameAnnotation } from './inference'
 
 export function transformParenExpressions(
   source: string,
   ctx: {
     originalSource: string
     requiredParams: Set<string>
+    /**
+     * Optional params whose annotation was a bare TYPE NAME (`n?: number`), not an
+     * example value (`n?: 0`).
+     *
+     * The rewrite below has to emit `n = number` so acorn can parse it and inference can
+     * read the type off the identifier — but that default is a DANGLING REFERENCE at run
+     * time. The emitter deletes it, and needs this set to know which defaults are
+     * annotations rather than genuine JS defaults: `n?: MyThing` and `x = someVar` produce
+     * byte-identical AST, and only the parser knows which is which.
+     */
+    typeNameOptionals: Set<string>
     unsafeFunctions: Set<string>
     safeFunctions: Set<string>
   }
@@ -968,6 +980,7 @@ function processParamString(
   params: string,
   ctx: {
     requiredParams: Set<string>
+    typeNameOptionals: Set<string>
     unsafeFunctions: Set<string>
     safeFunctions: Set<string>
   },
@@ -977,6 +990,7 @@ function processParamString(
   const withArrows = transformParenExpressions(params, {
     originalSource: params,
     requiredParams: ctx.requiredParams,
+    typeNameOptionals: ctx.typeNameOptionals,
     unsafeFunctions: ctx.unsafeFunctions,
     safeFunctions: ctx.safeFunctions,
   }).source
@@ -1037,14 +1051,16 @@ function processParamString(
       sawOptional = true
       // Optional params are NOT tracked as required.
       //
-      // KNOWN BUG (see TODO "optional param with a TS type name"): when `type` is a type
-      // NAME rather than an example VALUE this emits `n = number` — a reference to an
-      // undefined variable, so `f(1)` throws `number is not defined` at call time.
-      // Stripping the default here is NOT the fix: this string feeds both the acorn parse
-      // and the emitted source, so dropping the annotation drops the only carrier of the
-      // type and silently degrades the param to `any`. The real fix needs a side channel
-      // (like `ctx.requiredParams`) recording the type name so the emitter can omit the
-      // default while inference keeps the type.
+      // `n?: number` legitimately becomes `n = number` HERE: this string feeds the acorn
+      // parse, and inference reads that identifier to learn the type. Dropping it would
+      // silently degrade the param to `any` — which is why the fix is not in this file.
+      //
+      // The EMITTER deletes the dangling default, so the type survives inference and the
+      // emitted JS is `function g(n)` — a genuinely optional parameter, which is what
+      // `n?: number` means. Before that, `g()` threw `number is not defined` at call time.
+      // It is recorded here rather than detected there because `n?: MyThing` and
+      // `x = someVar` produce byte-identical AST; only this branch knows the difference.
+      if (isTypeNameAnnotation(type)) ctx.typeNameOptionals.add(name)
       return `${name} = ${type}`
     }
 
@@ -1105,6 +1121,7 @@ function processDestructuredObjectParams(
   inner: string,
   ctx: {
     requiredParams: Set<string>
+    typeNameOptionals: Set<string>
     unsafeFunctions: Set<string>
     safeFunctions: Set<string>
   }

@@ -21,6 +21,7 @@ import {
 } from 'fs'
 import { join, basename, dirname, extname } from 'path'
 import { fromTS } from '../../lang/emitters/from-ts'
+import { reportWarnings } from '../warnings'
 import { tjs } from '../../lang'
 
 export interface ConvertOptions {
@@ -40,7 +41,7 @@ export async function convert(
 
   if (stats.isFile()) {
     // Single file conversion
-    await convertFile(input, output, verbose, emitTJS)
+    if (!(await convertFile(input, output, verbose, emitTJS))) process.exit(1)
   } else if (stats.isDirectory()) {
     // Directory conversion
     if (!output) {
@@ -48,31 +49,52 @@ export async function convert(
       console.error('Usage: tjs convert <dir> -o <outdir>')
       process.exit(1)
     }
-    await convertDirectory(input, output, recursive, verbose, emitTJS)
+    const tally = await convertDirectory(
+      input,
+      output,
+      recursive,
+      verbose,
+      emitTJS
+    )
+    // EXIT NON-ZERO on any failure. Reporting a failure and exiting 0 is worse than not
+    // reporting it: a CI step goes green while its output is incomplete.
+    if (tally.failed > 0) process.exit(1)
   } else {
     console.error(`Error: ${input} is not a file or directory`)
     process.exit(1)
   }
 }
 
+/**
+ * Convert one file. Returns false on failure — it does NOT swallow.
+ *
+ * It used to catch its own error and return normally whenever `outputPath` was set, so
+ * `convertDirectory`'s `catch { failed++ }` was UNREACHABLE: one good file and one bad
+ * file reported "2 converted, 0 failed, 0 skipped" and exited 0, with the bad file
+ * silently missing from the output. The failure then surfaced two steps later as
+ * `Could not resolve: "./schematic"` at bundle time (issue #24).
+ *
+ * In the release that headlines the TS→TJS on-ramp, a batch converter that reports success
+ * while dropping files makes the 100% dogfood claim unverifiable in anyone else's CI.
+ */
 async function convertFile(
   inputPath: string,
   outputPath?: string,
   verbose = false,
   emitTJS = false
-): Promise<void> {
+): Promise<boolean> {
   const source = readFileSync(inputPath, 'utf-8')
   const filename = basename(inputPath)
 
   try {
     const tjsResult = fromTS(source, { emitTJS: true, filename })
 
-    if (tjsResult.warnings && tjsResult.warnings.length > 0 && verbose) {
-      console.error(`Warnings for ${inputPath}:`)
-      for (const warning of tjsResult.warnings) {
-        console.error(`  - ${warning}`)
-      }
-    }
+    // Unconditional, not behind --verbose. Conversion is exactly the moment a TS author
+    // learns which annotations survived and which degraded to `any` — hiding the remedy
+    // behind a flag they have no reason to pass makes the guidance arrive never. This is
+    // the release's own measured finding: a shown remedy is repaired ~80% of the time, a
+    // bare diagnostic 0%.
+    reportWarnings(inputPath, tjsResult.warnings)
 
     let code: string
 
@@ -123,11 +145,10 @@ async function convertFile(
       // Output to stdout
       console.log(code)
     }
+    return true
   } catch (error: any) {
     console.error(`✗ ${inputPath}: ${error.message}`)
-    if (!outputPath) {
-      process.exit(1)
-    }
+    return false
   }
 }
 
@@ -137,7 +158,7 @@ async function convertDirectory(
   recursive: boolean,
   verbose: boolean,
   emitTJS: boolean
-): Promise<void> {
+): Promise<{ converted: number; failed: number; skipped: number }> {
   const entries = readdirSync(inputDir)
   let converted = 0
   let failed = 0
@@ -150,15 +171,18 @@ async function convertDirectory(
     const stats = statSync(inputPath)
 
     if (stats.isDirectory() && recursive) {
-      // Recurse into subdirectory
-      const subOutputDir = join(outputDir, entry)
-      await convertDirectory(
+      // Recurse into subdirectory — and CARRY THE TALLY UP. A nested failure used to
+      // vanish at the recursion boundary as well as at the try/catch.
+      const sub = await convertDirectory(
         inputPath,
-        subOutputDir,
+        subOutputDir(outputDir, entry),
         recursive,
         verbose,
         emitTJS
       )
+      converted += sub.converted
+      failed += sub.failed
+      skipped += sub.skipped
     } else if (stats.isFile() && extname(entry) === '.ts') {
       // Skip test files and declaration files
       if (entry.endsWith('.test.ts') || entry.endsWith('.d.ts')) {
@@ -170,12 +194,9 @@ async function convertDirectory(
       }
 
       const outputPath = join(outputDir, entry.replace(/\.ts$/, outExt))
-      try {
-        await convertFile(inputPath, outputPath, verbose, emitTJS)
+      if (await convertFile(inputPath, outputPath, verbose, emitTJS))
         converted++
-      } catch {
-        failed++
-      }
+      else failed++
     }
   }
 
@@ -184,4 +205,10 @@ async function convertDirectory(
       `\nDirectory ${inputDir}: ${converted} converted, ${failed} failed, ${skipped} skipped`
     )
   }
+  return { converted, failed, skipped }
+}
+
+/** Output directory for a recursed subdirectory. */
+function subOutputDir(outputDir: string, entry: string): string {
+  return join(outputDir, entry)
 }

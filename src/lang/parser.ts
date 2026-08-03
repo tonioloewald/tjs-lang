@@ -82,6 +82,7 @@ export function preprocess(
   tjsModes: TjsModes
   originalSource: string
   requiredParams: Set<string>
+  typeNameOptionals: Set<string>
   unsafeFunctions: Set<string>
   safeFunctions: Set<string>
   wasmBlocks: WasmBlock[]
@@ -95,6 +96,7 @@ export function preprocess(
   const originalSource = source
   let moduleSafety: 'none' | 'inputs' | 'all' | undefined
   const requiredParams = new Set<string>()
+  const typeNameOptionals = new Set<string>()
   const unsafeFunctions = new Set<string>()
   const safeFunctions = new Set<string>()
 
@@ -344,6 +346,7 @@ export function preprocess(
   } = transformParenExpressions(source, {
     originalSource,
     requiredParams,
+    typeNameOptionals,
     unsafeFunctions,
     safeFunctions,
   })
@@ -454,6 +457,7 @@ export function preprocess(
   return {
     source,
     modeWarnings,
+    typeNameOptionals,
     returnType,
     returnSafety,
     moduleSafety,

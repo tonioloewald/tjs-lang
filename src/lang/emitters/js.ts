@@ -928,10 +928,35 @@ export function transpileToJS(
             end: (param as any).right.end,
           })
         } else {
-          // Optional param with union — strip just the `| suffix`
           const right = (param as any).right
+          // Optional param with union — strip just the `| suffix`
           if (right.type === 'BinaryExpression' && right.operator === '|') {
             deletions.push({ start: right.left.end, end: right.end })
+          } else if (
+            right.type === 'Identifier' &&
+            preprocessed.typeNameOptionals.has(paramName)
+          ) {
+            // Optional param annotated with a bare TYPE NAME: `n?: number`.
+            //
+            // The colon shorthand rewrites that to `n = number`, which is right when the
+            // annotation is an example (`n?: 0` → `n = 0`) and a DANGLING IDENTIFIER when
+            // it is a type — so `g()` threw `number is not defined` at call time. Emitted
+            // JavaScript that throws on the happy path, from the single most common shape
+            // a TypeScript author pastes.
+            //
+            // The annotation cannot be dropped earlier: that same string feeds the acorn
+            // parse, and inference reads the identifier to learn the type, so stripping it
+            // in the parser would silently degrade the param to `any`. Deleting it HERE
+            // keeps the type and emits the correct JS — `function g(n)`, whose parameter
+            // is genuinely optional, which is exactly what `n?: number` means.
+            //
+            // Driven by the parser's `typeNameOptionals` set, NOT by inspecting the
+            // identifier: `n?: MyThing` and `x = someVar` produce byte-identical AST, and
+            // only the parser knows which was an annotation. Testing the name instead
+            // deleted genuine JS defaults that happened to reference a variable.
+            //
+            // The generated check already handles it: `n !== undefined && typeof n !== …`.
+            deletions.push({ start: (param as any).left.end, end: right.end })
           }
         }
       }
