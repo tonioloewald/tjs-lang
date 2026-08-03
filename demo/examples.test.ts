@@ -72,19 +72,18 @@ let hasVision = false
 let activeLLM: { predict: (...a: any[]) => Promise<any> }
 let activeBattery: { predict: (...a: any[]) => Promise<any>; embed?: any }
 
-// Check if a model ID indicates vision capability (same logic as capabilities.ts)
-function isVisionModel(id: string): boolean {
-  return (
-    id.includes('-vl') ||
-    id.includes('vl-') ||
-    id.includes('vision') ||
-    id.includes('llava') ||
-    id.includes('gemma-3') ||
-    id.includes('gemma3') ||
-    id.includes('qwen3-vl') ||
-    id.includes('qwen2.5-vl') ||
-    id.includes('pixtral')
-  )
+// A NAME HINT, not a filter. Model ids are a terrible way to detect multimodality — this
+// list had `gemma-3` but not `gemma-4`, so a genuinely vision-capable model was excluded
+// and every vision example silently skipped. (Exactly the defect that makes
+// mlx-omni-server refuse all VLMs but one.) It is now only used to decide what to PROBE
+// FIRST; `checkVision` decides the answer, because it actually asks the model.
+function looksLikeVisionModel(id: string): boolean {
+  return /(-vl|vl-|vision|llava|pixtral|gemma-?[3-9]|qwen[\d.]*-vl)/i.test(id)
+}
+
+/** Embeddings endpoints can't answer a chat probe; skip them rather than load them. */
+function isEmbeddingModel(id: string): boolean {
+  return /embed/i.test(id)
 }
 
 // Mock fetch for HTTP APIs (weather, iTunes, GitHub) - these we still mock
@@ -390,11 +389,18 @@ beforeAll(async () => {
         )
       } else {
         const models = await getLocalModels(LM_STUDIO_URL)
-        const visionModels = models.filter(isVisionModel)
+        // Probe likely candidates first, but do not EXCLUDE on the name — only
+        // `checkVision` knows, because only it asks.
+        const candidates = models
+          .filter((m) => !isEmbeddingModel(m))
+          .sort(
+            (a, b) =>
+              Number(looksLikeVisionModel(b)) - Number(looksLikeVisionModel(a))
+          )
         console.log(
-          `${models.length} models, ${visionModels.length} vision-capable`
+          `${models.length} models, ${candidates.length} chat candidates`
         )
-        for (const model of visionModels) {
+        for (const model of candidates) {
           if (await checkVision(LM_STUDIO_URL, model)) {
             hasVision = true
             console.log(`Vision: ${model} → works`)

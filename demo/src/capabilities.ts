@@ -544,6 +544,15 @@ export function buildLLMBattery(settings: LLMSettings) {
 
   // Find a working vision model by testing candidates
   const findVisionModel = async (): Promise<string | null> => {
+    // A DECLARED model short-circuits discovery entirely. Discovery has to guess from a
+    // model list, and guessing has failed here in three different ways — a name allowlist
+    // that predated `gemma-4`, a canvas-synthesised probe image that happy-dom cannot
+    // produce, and an empty model list. Naming the model is the one thing that cannot
+    // misfire, which is why TJS_VISION_MODEL exists.
+    const declared =
+      typeof process !== 'undefined' ? process.env?.TJS_VISION_MODEL : undefined
+    if (declared) return declared
+
     // Check cache first
     const cacheKey = customLlmUrl
     if (verifiedVisionModels.has(cacheKey)) {
@@ -552,17 +561,18 @@ export function buildLLMBattery(settings: LLMSettings) {
 
     const models = await getLocalModels(customLlmUrl)
 
-    // Candidates in priority order (most likely to support vision first)
-    const candidates = [
-      ...models.filter(
-        (id) => id.includes('-vl') || id.includes('vl-') || id.includes('llava')
+    // Name is a HINT for ordering, never a filter. This list had `gemma-3` but not
+    // `gemma-4`, so a genuinely vision-capable model was excluded and every vision call
+    // fell back to a text model — the same defect that makes mlx-omni-server refuse all
+    // VLMs but one. Only the probe below knows, because only it asks the model.
+    const likely = /(-vl|vl-|vision|llava|pixtral|gemma-?[3-9]|qwen[\d.]*-vl)/i
+    const uniqueCandidates = [
+      ...new Set(
+        models
+          .filter((id) => !/embed/i.test(id)) // an embeddings endpoint can't answer a chat probe
+          .sort((a, b) => Number(likely.test(b)) - Number(likely.test(a)))
       ),
-      ...models.filter((id) => id.includes('vision')),
-      ...models.filter((id) => id.includes('gemma-3') || id.includes('gemma3')),
     ]
-
-    // Remove duplicates
-    const uniqueCandidates = [...new Set(candidates)]
 
     // Test each candidate
     for (const model of uniqueCandidates) {
