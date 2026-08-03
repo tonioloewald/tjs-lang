@@ -1854,10 +1854,32 @@ Named in the original priority-three. Almost nothing here has moved.
   0.12.0 — but it was _internal_. The point of the item stands: **you wrote it, so you
   can't red-team it.** An outside human week still hasn't happened (`S6`, 🔍 untested).
 - [ ] **Escape-attempt corpus as a permanent suite** — vm2 CVEs, SES challenges,
-      prototype-chain tricks, translated into AJS attempts that must all fail. **Not
-      started.** This is `S6`, it was in the original priority-three, and it's the
-      regression armor every future refactor needs. The vm2 lesson is that sandboxes die
-      from the exploit class the author didn't imagine.
+      prototype-chain tricks, translated into AJS attempts that must all fail.
+
+      **Not starting from zero:** `malicious-actor.test.ts` already carries ~60 assertions
+      (prototype access, SSRF ranges, ReDoS, the methodCall allowlist, and the membrane
+      extensively). The corpus is for the classes we have NOT imagined, which is the whole
+      vm2 lesson.
+
+      **The translation is the value, not the copying.** AJS is an AST interpreter, not a
+      sandboxed realm, so most vm2 escapes have no direct analogue — there is no `Function`
+      to reach. Asking "what is the AJS *equivalent* of this CVE?" is what surfaces
+      undefended classes. Demonstrated 2026-08-03: enumerating accessor-invocation sites
+      found the array-index case, where the object-branch fix had already landed and nothing
+      systematically asked "where else?".
+
+      Candidate classes to enumerate, beyond what is covered:
+
+      - [ ] **Accessors everywhere** — object keys ✅, array indices ✅; Map/Set entries and
+            `Symbol`-keyed properties not yet audited.
+      - [ ] **Coercion hooks** — `Symbol.toPrimitive` / `valueOf` / `toString` reached by
+            binary operators or template interpolation during expression evaluation.
+      - [ ] **Proxy returns** from a capability — what does the membrane do with a Proxy?
+      - [ ] **Re-entrancy** — a capability that calls back into `vm.run` while the outer run
+            is live: shared fuel, shared state, shared quota counters.
+      - [ ] **Error paths** — anything building a stack trace or message from guest-supplied
+            data (the shape of vm2's `Error.prepareStackTrace` kill).
+
 - [x] **Fix the README numbers and the "self-hosting" wording.** Done, and made
       self-maintaining: `src/bundle-size.test.ts` re-measures the built bundles and fails on >10% drift, requiring a dated "Measured at vX" qualifier. Re-measured 2026-07-31
       (v0.13.0: VM 76 KB gz). Refuted `L4` — _every_ row of the original table was stale.

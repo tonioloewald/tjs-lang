@@ -428,6 +428,33 @@ describe('Use Case: Malicious Actor', () => {
       expect(result.error?.message).not.toMatch(/detonated/)
     })
 
+    it('does not invoke an accessor on an ARRAY INDEX either', async () => {
+      // The same defect as the object case, in the sibling branch of the same walk — the
+      // array path read `v[i]`, and an index CAN be an accessor. Exactly the class of miss
+      // an escape corpus exists to catch: the bug was understood, the fix landed in one
+      // branch, and nothing systematically asked "where else?".
+      const VM = new AgentVM()
+      let invocations = 0
+      const store = {
+        get: async () => {
+          const arr: unknown[] = []
+          Object.defineProperty(arr, 0, {
+            enumerable: true,
+            get() {
+              invocations++
+              return 'harmless-looking'
+            },
+          })
+          return arr
+        },
+        set: async () => {},
+      }
+      const result = await VM.run(readAgent(), {}, { capabilities: { store } })
+      expect(invocations, 'the membrane must not run an index getter').toBe(0)
+      expect(result.error).toBeDefined()
+      expect(result.error?.message).toMatch(/Capability boundary/)
+    })
+
     it('rejects a raw host reference (process) returned by a capability', async () => {
       const VM = new AgentVM()
       const store = {

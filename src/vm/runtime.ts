@@ -443,8 +443,19 @@ function membraneValue(value: unknown, maxBytes: number): MembraneResult {
     bytes += 16
     if (bytes > maxBytes) return membraneOverBudget(maxBytes)
     if (Array.isArray(v)) {
-      for (let i = 0; i < v.length; i++)
-        stack.push({ v: v[i], depth: depth + 1 })
+      // Descriptors here too: an array INDEX can be an accessor
+      // (`Object.defineProperty(arr, 0, { get() {…} })`), so `v[i]` would run host code
+      // for exactly the same reason the object branch did.
+      for (let i = 0; i < v.length; i++) {
+        const d = Object.getOwnPropertyDescriptor(v, i)
+        if (d && (d.get || d.set)) {
+          return {
+            ok: false,
+            reason: `capability return has an accessor at index ${i}; the boundary takes plain data only, because reading an accessor would execute host code`,
+          }
+        }
+        stack.push({ v: d ? d.value : undefined, depth: depth + 1 })
+      }
     } else if (v instanceof Date) {
       bytes += 32 // fixed-size builtin
       if (bytes > maxBytes) return membraneOverBudget(maxBytes)
