@@ -47,3 +47,44 @@ describe('compareVersions handles prerelease versions', () => {
     expect(versionsCompatible('1.0.0-beta.1', '0.13.0')).toBe(false)
   })
 })
+
+/**
+ * Prerelease ORDERING, per semver §11.
+ *
+ * `parseVersion` was fixed so identical prereleases compare equal (the bug that made
+ * `installRuntime` replace the runtime with itself and discard the flight recorder). The
+ * ORDERING half was left as a plain string compare, which gets the most common case
+ * exactly backwards: `'beta.2' > 'beta.10'`, because `'2' > '1'`. So the tenth beta looked
+ * OLDER than the second, and — combined with the same wholesale replacement — an older
+ * beta would "upgrade" over a newer one, discarding the recorder and any applied
+ * `configure()`.
+ *
+ * The examples below are lifted from the specification's own ordering clause, so this is
+ * pinned against the standard rather than against our reading of it.
+ */
+describe('prerelease ordering follows semver §11', () => {
+  const cases: Array<[lower: string, higher: string]> = [
+    // The regression: numeric identifiers compare NUMERICALLY.
+    ['0.13.0-beta.2', '0.13.0-beta.10'],
+    ['0.13.0-beta.9', '0.13.0-beta.10'],
+    // The spec's worked example, in order.
+    ['1.0.0-alpha', '1.0.0-alpha.1'],
+    ['1.0.0-alpha.1', '1.0.0-alpha.beta'], // numeric ranks BELOW alphanumeric
+    ['1.0.0-alpha.beta', '1.0.0-beta'],
+    ['1.0.0-beta', '1.0.0-beta.2'],
+    ['1.0.0-beta.2', '1.0.0-beta.11'],
+    ['1.0.0-beta.11', '1.0.0-rc.1'],
+    ['1.0.0-rc.1', '1.0.0'], // a release outranks its own prerelease
+  ]
+
+  for (const [lower, higher] of cases) {
+    it(`${lower} < ${higher}`, () => {
+      expect(compareVersions(lower, higher)).toBe(-1)
+      expect(compareVersions(higher, lower)).toBe(1)
+    })
+  }
+
+  it('identical prereleases are equal (the runtime-replacement bug)', () => {
+    expect(compareVersions('0.13.0-beta.1', '0.13.0-beta.1')).toBe(0)
+  })
+})

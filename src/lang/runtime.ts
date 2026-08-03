@@ -122,7 +122,38 @@ export function compareVersions(a: string, b: string): -1 | 0 | 1 {
   if (va.prerelease === vb.prerelease) return 0
   if (!va.prerelease) return 1 // 0.13.0 > 0.13.0-beta.1
   if (!vb.prerelease) return -1
-  return va.prerelease < vb.prerelease ? -1 : 1
+  return comparePrerelease(va.prerelease, vb.prerelease)
+}
+
+/**
+ * Compare prerelease tags per semver §11: split on `.`, compare identifier by identifier,
+ * NUMERIC identifiers numerically and alphanumeric ones lexically, with numeric ranking
+ * below alphanumeric; a shorter run of identifiers ranks below a longer one that shares
+ * its prefix.
+ *
+ * A plain string compare gets the common case exactly backwards — `'beta.2' > 'beta.10'`,
+ * because `'2' > '1'` — so the tenth beta looked OLDER than the second. Combined with
+ * `installRuntime`'s wholesale replacement, an older beta then "upgrades" over a newer one
+ * and discards the flight recorder and any applied `configure()`. That is the same shape
+ * as the bug this function was written to fix; it was fixed for the equality case and left
+ * wrong for the ordering case.
+ */
+function comparePrerelease(a: string, b: string): -1 | 0 | 1 {
+  const ap = a.split('.')
+  const bp = b.split('.')
+  for (let i = 0; i < Math.max(ap.length, bp.length); i++) {
+    const x = ap[i]
+    const y = bp[i]
+    if (x === undefined) return -1 // 1.0.0-alpha < 1.0.0-alpha.1
+    if (y === undefined) return 1
+    if (x === y) continue
+    const xn = /^\d+$/.test(x)
+    const yn = /^\d+$/.test(y)
+    if (xn && yn) return Number(x) < Number(y) ? -1 : 1
+    if (xn !== yn) return xn ? -1 : 1 // numeric identifiers rank lower
+    return x < y ? -1 : 1
+  }
+  return 0
 }
 
 /**
