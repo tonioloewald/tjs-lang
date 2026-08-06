@@ -916,6 +916,29 @@ export function transpileToJS(
     //   no JS default for required params, the value is a type annotation only.
     // - For union defaults, strip just the `| suffix` to avoid bitwise OR.
     for (const param of func.params) {
+      // Members of a DESTRUCTURED param get the same rule, and used not to: this loop only
+      // ever walked top-level params, and `{a: 2, b: 3}` is one ObjectPattern — so every
+      // member kept its `= value` and `:` (required) was unenforceable. `f({a: 2})` with a
+      // required `b` returned 5 instead of a MonadicError, because `b` had silently
+      // defaulted to its own example. The example is a TYPE and a worked value; it is not a
+      // default, and conflating the two makes "required" mean nothing in the one parameter
+      // shape people actually destructure.
+      if (param.type === 'ObjectPattern') {
+        for (const prop of (param as any).properties ?? []) {
+          if (prop.type !== 'Property') continue
+          const key = prop.key?.name ?? prop.key?.value
+          if (!key || !preprocessed.requiredParams.has(key)) continue
+          if (prop.value?.type !== 'AssignmentPattern') continue
+          // `{ b = 3 }` where b was written `b: 3` → emit `{ b }` and let the generated
+          // `typeof b !== …` check fire on absence, which it already does correctly.
+          deletions.push({
+            start: prop.value.left.end,
+            end: prop.value.right.end,
+          })
+        }
+        continue
+      }
+
       if (param.type === 'AssignmentPattern') {
         const paramName =
           (param as any).left?.name || (param as any).left?.value

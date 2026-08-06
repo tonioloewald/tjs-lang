@@ -5,6 +5,7 @@
  */
 
 import { transformExtensionCalls } from '../parser'
+import { maskLiterals } from '../../strip-comments'
 import { installRuntime } from '../runtime'
 import type { ExtractedTest, ExtractedMock } from '../tests'
 
@@ -1109,6 +1110,34 @@ function extractParamExamples(paramsStr: string): string[] {
     // Bare rest param without type: ...name — skip (no example to use)
     if (trimmed.startsWith('...')) continue
 
+    // Destructured object parameter: `{a: 2, b = 3}`.
+    //
+    // This used to fall through to the generic regex below, which matched from the first
+    // member name and produced the un-evaluatable fragment `2, b = 3}` — `new Function`
+    // threw, the enclosing `catch {}` swallowed it, and the function silently got NO
+    // signature test. So the language's headline promise ("the annotation is the test")
+    // quietly did not hold for the one parameter shape people destructure most.
+    //
+    // The call argument is built from REQUIRED members only. `:` members must be supplied;
+    // `=` members are omitted so the generated call exercises their defaults — which is
+    // the strictly stronger test, and not hypothetically so: it is exactly the path where a
+    // corrupted `'hello,'` default was returning `'hello,  alice!'`.
+    const objectPattern = trimmed.match(/^\{([\s\S]*)\}$/)
+    if (objectPattern) {
+      const supplied: string[] = []
+      for (const member of splitParams(objectPattern[1])) {
+        if (!member.trim()) continue
+        const binding = splitMemberBinding(member)
+        // Shorthand (`{a}`) or anything we can't read has no example, so there is no
+        // argument to synthesize and no honest signature test to run.
+        if (!binding) return []
+        if (binding.op === ':')
+          supplied.push(`${binding.name}: ${binding.value}`)
+      }
+      examples.push(`{${supplied.join(', ')}}`)
+      continue
+    }
+
     // Match: name: example or name = example (with optional safety markers)
     // Handle: (? name: example) or (! name: example)
     const match = trimmed.match(/(?:\(\s*[?!]\s*)?(\w+)\s*[:=]\s*(.+?)(?:\))?$/)
@@ -1127,23 +1156,60 @@ function extractParamExamples(paramsStr: string): string[] {
  * Split parameter string on commas, respecting nested structures
  */
 function splitParams(paramsStr: string): string[] {
+  // Scans a literal-masked view and slices from the original — a comma inside a string,
+  // template or regex is not a boundary. This is the same defect the sibling splitter in
+  // `parser-params.ts` had: `{a = 'x,'}` split mid-literal. Second instance of the family
+  // in the parameter path, so both now go through `maskLiterals`.
+  const masked = maskLiterals(paramsStr)
   const params: string[] = []
-  let current = ''
   let depth = 0
+  let start = 0
 
-  for (const char of paramsStr) {
+  for (let i = 0; i < masked.length; i++) {
+    const char = masked[i]
     if (char === '(' || char === '[' || char === '{') depth++
     else if (char === ')' || char === ']' || char === '}') depth--
     else if (char === ',' && depth === 0) {
-      params.push(current.trim())
-      current = ''
-      continue
+      params.push(paramsStr.slice(start, i).trim())
+      start = i + 1
     }
-    current += char
   }
 
-  if (current.trim()) params.push(current.trim())
+  const tail = paramsStr.slice(start).trim()
+  if (tail) params.push(tail)
   return params
+}
+
+/**
+ * Read one destructured member as `name`, its binding operator, and its value.
+ *
+ * The operator has to be found at DEPTH ZERO on a literal-masked view, because both
+ * characters occur freely inside a member's value: `a = { x: 1 }` binds with `=` despite
+ * containing a colon, and `a: 'x = y'` binds with `:` despite containing an equals. Reading
+ * whichever character appears first in the raw text gets both of those backwards.
+ */
+function splitMemberBinding(
+  member: string
+): { name: string; op: ':' | '='; value: string } | null {
+  const masked = maskLiterals(member)
+  let depth = 0
+
+  for (let i = 0; i < masked.length; i++) {
+    const char = masked[i]
+    if (char === '(' || char === '[' || char === '{') depth++
+    else if (char === ')' || char === ']' || char === '}') depth--
+    else if (depth === 0 && (char === ':' || char === '=')) {
+      const name = member.slice(0, i).trim()
+      if (!/^\w+$/.test(name)) return null
+      return {
+        name,
+        op: char as ':' | '=',
+        value: member.slice(i + 1).trim(),
+      }
+    }
+  }
+
+  return null
 }
 
 /**

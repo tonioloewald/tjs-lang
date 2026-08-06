@@ -176,7 +176,9 @@ describe('literal blindness — a trigger inside a literal is not structure', ()
       [
         'comma in a string default',
         `function f({a = 'x,', b: 'y'}) { return a + b }`,
-        'f({})',
+        // `b:` is REQUIRED, so it must be supplied; `a =` is defaulted, so omitting it
+        // is what exercises the corrupted default.
+        `f({b: 'y'})`,
         'x,y',
       ],
       [
@@ -204,7 +206,7 @@ describe('literal blindness — a trigger inside a literal is not structure', ()
         // unbalanced the scan and took the whole transpile down.
         'brace in a string default',
         `function f({a = '{', b: 'y'}) { return a + b }`,
-        'f({})',
+        `f({b: 'y'})`,
         '{y',
       ],
       [
@@ -212,7 +214,7 @@ describe('literal blindness — a trigger inside a literal is not structure', ()
         // drops comment handling fails here rather than silently.
         'comma in a comment',
         `function f({a = 1 /*, */, b: 'y'}) { return String(a) + b }`,
-        'f({})',
+        `f({b: 'y'})`,
         '1y',
       ],
     ]

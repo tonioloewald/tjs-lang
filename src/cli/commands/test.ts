@@ -116,6 +116,60 @@ function cleanupWrappers(wrappers: string[], tempDir: string): void {
   }
 }
 
+/**
+ * Run the inline `test '…' { }` blocks (and signature tests) of one source file.
+ *
+ * These run at TRANSPILE time — `tjs()` executes them and returns `testResults` — so this
+ * needs no test runner and no wrapper file. Reports every result and exits non-zero if any
+ * genuine failure occurred.
+ *
+ * `inconclusive` results are reported and do NOT fail the run: a test that could not be
+ * *executed* (it names something unresolvable at build time) is not a test that failed, and
+ * treating it as one would make legal code un-testable (PRINCIPLES.md).
+ */
+async function runInlineTests(file: string): Promise<void> {
+  const { readFileSync } = await import('fs')
+  const { tjs } = await import('../../lang')
+  const { dialectForFilename } = await import('../../lang')
+
+  let results
+  try {
+    const source = readFileSync(file, 'utf-8')
+    results =
+      tjs(source, {
+        filename: file,
+        dialect: dialectForFilename(file),
+        runTests: 'report',
+      }).testResults ?? []
+  } catch (e: any) {
+    console.error(`✗ ${file}: ${e.message}`)
+    process.exit(1)
+  }
+
+  if (results.length === 0) {
+    console.log(`${file}: no inline tests`)
+    return
+  }
+
+  let failed = 0
+  for (const r of results) {
+    const name = r.isSignatureTest ? `${r.description}` : `'${r.description}'`
+    const where = r.line ? `:${r.line}` : ''
+    if (r.passed) {
+      console.log(`  ✓ ${name}`)
+    } else if (r.inconclusive) {
+      console.log(`  ? ${name}${where} — inconclusive: ${r.error ?? ''}`)
+    } else {
+      failed++
+      console.error(`  ✗ ${name}${where} — ${r.error ?? 'failed'}`)
+    }
+  }
+
+  const passed = results.filter((r) => r.passed).length
+  console.log(`\n${file}: ${passed} passed, ${failed} failed`)
+  if (failed > 0) process.exit(1)
+}
+
 export async function test(
   input?: string,
   options: TestOptions = {}
@@ -134,14 +188,33 @@ export async function test(
   } else if (existsSync(input) && statSync(input).isDirectory()) {
     // Directory
     testFiles = findTestFiles(resolve(input))
+  } else if (existsSync(input)) {
+    // A source file that is not a `.test.tjs` wrapper — run ITS INLINE TESTS, which is
+    // what CLAUDE.md has always documented this command as doing and what it never did.
+    //
+    // It used to fall through to the branch below and reinterpret the path as a bun-test
+    // filter pattern, so `tjs test greeting.tjs` printed "No .test.tjs files found" and
+    // exited **0** — indistinguishable from a passing run, and identical to what a
+    // nonexistent path produced. A command that reports success while testing nothing is
+    // worse than one that errors, and this is the command a CI job or a reader following
+    // the docs types first.
+    await runInlineTests(resolve(input))
+    return
   } else {
-    // Treat as a filter pattern for bun test
-    testFiles = findTestFiles(process.cwd())
+    // Not a path at all — a filter pattern for bun test over discovered files.
+    console.error(`✗ No such file or directory: ${input}`)
+    process.exit(1)
   }
 
   if (testFiles.length === 0) {
-    console.log('No .test.tjs files found')
-    return
+    // Exiting 0 here is the same vacuous-success trap: a mis-pathed directory in CI would
+    // pass forever while running nothing.
+    console.error(
+      input
+        ? `✗ No .test.tjs files found in ${input}`
+        : '✗ No .test.tjs files found'
+    )
+    process.exit(1)
   }
 
   console.log(`Found ${testFiles.length} TJS test file(s)`)

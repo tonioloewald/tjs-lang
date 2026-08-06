@@ -12,6 +12,48 @@ findings were blockers; the review also caught that the beta's own changelog ent
 had omitted four VM security fixes entirely (now written up in their own section,
 below, since they shipped there).
 
+### Changed
+
+- **A required destructured member is now genuinely required.** `function f({a: 2, b: 3})`
+  called as `f({a: 2})` returned **5** — `b` had silently defaulted to its own example, so
+  `:` (required) was unenforceable in the one parameter shape people destructure most. The
+  colon value is a **type and a worked example, not a default**; conflating the two made
+  "required" mean nothing. It now returns a `MonadicError`. `=` members are unaffected:
+  `f({a: 2, b = 3})` called as `f({a: 17})` still gives 20.
+
+- **Destructured parameters generate signature tests.** `function f({a: 2, b: 3}): 5`
+  silently produced **no** signature test, while the near-identical
+  `function f(o = {a: 2, b: 3}): 5` produced one — so the language's headline promise, that
+  the annotation _is_ the test, quietly did not hold for destructuring. The generated call
+  supplies required (`:`) members and **omits defaulted (`=`) ones**, so the defaults are
+  exercised rather than bypassed — which is what would have caught the corrupted `'hello,'`
+  default below without anyone writing a test.
+
+### Fixed
+
+- **A comma inside a string literal split the parameter list mid-literal.**
+  `{what = 'hello,', who: 'alice'}` was split inside the string and the pieces rejoined with
+  `', '`, putting the comma back **with a space after it, inside the literal** — so
+  `greeting({who: 'fred'})` returned `"hello,  fred!"`. Silent: the output parsed, ran, and
+  returned a plausible wrong answer, and the corrupted value reached the emitted `__tjs`
+  metadata, the `.d.ts` and the JSON Schema. Templates and regexes were hit too —
+  `a = /,/` became `a = /, /`, a **different regex** — and a lone brace in a string
+  (`a = '{'`) broke bracket depth and failed the transpile outright.
+
+  Same literal-blindness family as the fifteen call sites consolidated earlier in this cycle;
+  it survived that sweep because it splits on **commas** rather than scanning quotes, so it
+  did not look like a literal scanner. Both parameter splitters now scan a `maskLiterals()`
+  view and slice from the original.
+
+- **`tjs test <file>` ignored its argument and always exited 0.** It was built around
+  `.test.tjs` wrapper files, so any other path fell into a branch that discarded it and
+  reinterpreted it as a filter pattern — printing "No .test.tjs files found" and exiting
+  **0**. A real file with a failing inline test and a path that did not exist produced
+  identical output and the same success code, which made it useless as a CI gate and
+  actively misleading as the first command a reader types. It now runs the file's inline
+  tests and signature tests, reports each with a line number, and exits non-zero on failure,
+  on a missing path, or on a directory scan that matches nothing.
+
 ### Security
 
 - **The capability membrane ran host code and defeated the byte budget on two of its
