@@ -1047,10 +1047,26 @@ export function transpileToJS(
       })
     }
 
+    // `:?` return validation, if asked for. Emitted in the SAME insertion as the
+    // metadata and before it, because both land at `func.end` and the wrapper rebinds
+    // the name — metadata assigned first would attach `__tjs` to the function the
+    // wrapper then replaces, silently losing every type descriptor on the file.
+    const returnWrapper =
+      !isUnsafe && returnSafety === 'safe'
+        ? generateReturnValidationWrapper(
+            funcName,
+            types,
+            `${funcLoc.file}:${funcLoc.line}`,
+            Boolean((func as any).async)
+          )
+        : null
+
     // Queue insertion of __tjs after function closing brace
     insertions.push({
       position: func.end,
-      text: `\n${typeMetadata}`,
+      text: returnWrapper
+        ? `\n${returnWrapper}\n${typeMetadata}`
+        : `\n${typeMetadata}`,
     })
 
     // Generate inline validation (to insert at start of function body)
@@ -2132,6 +2148,64 @@ function generateFunctionShapeCheck(
  *
  * For single named object params, same pattern with the actual param name.
  */
+/**
+ * `:?` — validate the RETURN value at runtime.
+ *
+ * This used to emit nothing. `:?` set `safeReturn: true` in the `__tjs` metadata and
+ * that was all: the flag was descriptive, nothing read it, and
+ * `function bad(x: 0):? 0 { return 'not a number' }` returned the string at runtime.
+ * The build-time signature test caught it, so the failure was invisible to anyone
+ * reading the docs, which describe `:?` as "runs the test AND runtime validation".
+ *
+ * It is the output half of the cheap-validation pattern: an O(1) refinement on the way
+ * in (`things: NonEmpty`) plus an O(1) check on the way out is a COMPLETE guarantee
+ * about what the function contributes to the program, at a fraction of the cost of
+ * scanning every element. That argument only holds if the return is actually checked.
+ *
+ * Emitted as a wrapper rather than by rewriting `return` statements: every exit path is
+ * covered without touching the body, which keeps source positions intact.
+ *
+ * A `MonadicError` passes through unchecked — an error is a legitimate return value in
+ * this language, and re-reporting it as a type error would bury the original cause.
+ */
+function generateReturnValidationWrapper(
+  funcName: string,
+  types: TJSTypeInfo,
+  sourceStr: string,
+  isAsync: boolean
+): string | null {
+  if (!types.returns) return null
+
+  const check = generateTypeCheckExpr('__r', types.returns)
+  if (!check) return null // `any` and friends — nothing to assert
+
+  const expected =
+    types.returns.typeName ??
+    (types.returns.kind === 'union'
+      ? (types.returns.members ?? []).map((m) => m.kind).join(' | ')
+      : types.returns.kind)
+
+  // Only unwrap for a DECLARED async function. Duck-typing any thenable would silently
+  // check the resolved value of a sync function that legitimately returns a promise,
+  // which is a different assertion than the one written.
+  const call = `_tjsret_${funcName}.apply(this, __a)`
+  const body = isAsync
+    ? `const __p = ${call}\n  return __p && typeof __p.then === 'function' ? __p.then(__validate_${funcName}) : __validate_${funcName}(__p)`
+    : `return __validate_${funcName}(${call})`
+
+  return `
+const _tjsret_${funcName} = ${funcName}
+function __validate_${funcName}(__r) {
+  if (__tjs.isMonadicError(__r)) return __r
+  if (${check}) return __tjs.typeError('${sourceStr}:${funcName}:return', '${expected}', __r)
+  return __r
+}
+${funcName} = function (...__a) {
+  ${body}
+}
+`.trim()
+}
+
 export function generateInlineWrapper(
   funcName: string,
   types: TJSTypeInfo,

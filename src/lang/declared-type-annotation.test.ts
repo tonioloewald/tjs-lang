@@ -113,3 +113,71 @@ function first(things: NonEmpty) { return things[0] }
     )
   })
 })
+
+/**
+ * `:?` validates the RETURN at runtime.
+ *
+ * It used to emit nothing at all — `:?` set `safeReturn: true` in the `__tjs` metadata
+ * and that was the whole implementation. The flag was descriptive, nothing read it, and
+ * CLAUDE.md documented the marker as "runs the test AND runtime validation" while only
+ * the build-time signature test ever fired.
+ *
+ * This is the output half of the cheap-validation pattern: an O(1) refinement in
+ * (`things: NonEmpty`) plus an O(1) check out is a complete guarantee about what the
+ * function contributes to the program, without scanning every element. The guarantee
+ * depends entirely on the return actually being checked.
+ */
+describe(':? validates the return value at runtime', () => {
+  it('catches a return that violates its own annotation', () => {
+    const src = `function bad(x: 0):? 0 { return 'not a number' }`
+    expect(call(src, 'bad(1)')).toBe('Error(integer)')
+  })
+
+  it('passes a correct return through untouched', () => {
+    const src = `function good(x: 0):? 0 { return x * 2 }`
+    expect(call(src, 'good(4)')).toBe(8)
+  })
+
+  it('plain `:` does NOT add a runtime return check', () => {
+    // `:` is a worked example — a build-time signature test. Adding a runtime cost
+    // to it would tax every annotated function in the language.
+    const src = `function plain(x: 0): 0 { return x }`
+    expect(call(src, 'plain(1)')).toBe(1)
+  })
+
+  it('lets a MonadicError through rather than re-reporting it', () => {
+    // An error is a legitimate return value here; wrapping it in a second type error
+    // would bury the original cause.
+    const src = [
+      `function inner(x: 0) { return x }`,
+      `function outer(y: ''):? 0 { return inner(y) }`,
+    ].join('\n')
+    const v = call(src, `outer('nope')`)
+    // The failure reported is the INNER parameter error, not a return-type error.
+    expect(v).toBe('Error(integer)')
+  })
+
+  it('the whole O(1)-in / O(1)-out pattern holds', () => {
+    const src = `Type NonEmpty {
+  description: 'an array with at least one element'
+  example: []
+  predicate(x) { return x.length > 0 }
+}
+function pick(things: NonEmpty):? 0 { return things[0] }
+`
+    expect(call(src, 'pick([7, 8])')).toBe(7)
+    expect(call(src, 'pick([])')).toBe('Error(NonEmpty)') // O(1) in
+    expect(call(src, `pick(['str'])`)).toBe('Error(integer)') // O(1) out
+  })
+
+  it('keeps the __tjs metadata on the wrapped function', () => {
+    // The wrapper rebinds the name, so metadata assigned first would attach to the
+    // function the wrapper then replaces — silently losing every type descriptor.
+    const code = tjs(`function f(x: 0):? 0 { return x }`, {
+      runTests: false,
+    }).code
+    const meta = new Function(`${code}\nreturn f.__tjs`)() as any
+    expect(meta?.params?.x).toBeDefined()
+    expect(meta?.returns).toBeDefined()
+  })
+})
