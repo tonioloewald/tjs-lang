@@ -165,13 +165,21 @@ export interface ContextFrame {
 /**
  * Unified paren expression transformer using state machine tokenizer
  *
- * Model: opening paren can be ( or (? or (!, closing can be ) or )->type or )-?type or )-!type
+ * Model: opening paren can be ( or (? or (!, closing can be ) or ): type / ):? type / ):! type
  *
  * This unifies handling of:
- * - Function declaration params: function foo(x: type) -> returnType { }
- * - Arrow function params: (x: type) => expr
+ * - Function declaration params: function foo(x: type): returnType { }
+ * - Arrow function params: (x: type) => expr, including (x: type): returnType => expr
  * - Safe/unsafe markers: function foo(?) or function foo(!)
- * - Return type annotations: ) -> type or ) -? type or ) -! type
+ * - Return type annotations: `): type` (worked example — runs a signature test),
+ *   `):! type` (type only — no signature test; what `fromTS` emits), and
+ *   `):? type` (signature test AND runtime return validation)
+ *
+ * TJS uses TypeScript's `:` spelling for return types and has no second syntax for
+ * them. This comment used to describe an arrow form (`) -> type`, `)-?type`, `)-!type`)
+ * which is not implemented anywhere — not on declarations, arrow functions or methods,
+ * and no test exercised it. Reading it as real costs you an afternoon deciding which of
+ * two syntaxes to teach, when there is only one.
  *
  * @param source The source code to transform
  * @param ctx Context for tracking required params, safe/unsafe functions, etc.

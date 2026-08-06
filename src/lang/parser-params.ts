@@ -476,7 +476,9 @@ export function transformParenExpressions(
       const fullContent = fullParamsResult.content
       const endPos = fullParamsResult.endPos
 
-      // Check what follows: whitespace then => (arrow function) or -> (return type on arrow)
+      // Check what follows: whitespace then `=>` (arrow function), optionally preceded
+      // by a `): type` return annotation. (`arrowReturnType` = the return type OF an arrow
+      // function; TJS has no arrow-shaped return syntax.)
       let j = endPos
       while (j < source.length && /\s/.test(source[j])) j++
 
