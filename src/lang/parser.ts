@@ -312,8 +312,10 @@ export function preprocess(
   // verified → native guard, or fell back to a raw function). Surfaced on the
   // transpile result so tools can flag unverifiable predicates.
   const predicates: PredicateVerification[] = []
+  // PARAMETERIZED first: it claims `Type X<T> { … }` before the scalar transform sees
+  // `Type X` and mis-reads the `<T>` that follows.
+  source = transformGenericDeclarations(source, predicates, declaredTypes)
   source = transformTypeDeclarations(source, predicates, declaredTypes)
-  source = transformGenericDeclarations(source, predicates)
   source = transformFunctionPredicateDeclarations(source)
   source = transformUnionDeclarations(source)
   source = transformEnumDeclarations(source)

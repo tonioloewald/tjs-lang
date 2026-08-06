@@ -2188,19 +2188,26 @@ export function transformFunctionPredicateDeclarations(source: string): string {
  */
 export function transformGenericDeclarations(
   source: string,
-  report?: PredicateVerification[]
+  report?: PredicateVerification[],
+  declaredTypes?: Set<string>
 ): string {
   let result = ''
   let i = 0
 
   while (i < source.length) {
     // Look for 'Generic' keyword followed by identifier and type params
+    // `Type X<T> { … }` and `Generic X<T> { … }` are the SAME declaration. TypeScript
+    // has one keyword (`type Box<T> = …`) and so does TJS now; `Generic` survives only as
+    // a deprecated alias. Two keywords made `type` → `Type` conversion non-mechanical —
+    // the converter would have to switch keyword on arity, and the downgrade switch back —
+    // which is disposal tax for no information, since `<T>` already says it is parameterized.
     const genericMatch = source
       .slice(i)
-      .match(/^\bGeneric\s+([A-Z][a-zA-Z0-9_]*)\s*<([^>]+)>\s*\{/)
+      .match(/^\b(Generic|Type)\s+([A-Z][a-zA-Z0-9_]*)\s*<([^>]+)>\s*\{/)
     if (genericMatch) {
-      const genericName = genericMatch[1]
-      const typeParamsStr = genericMatch[2]
+      const genericName = genericMatch[2]
+      const typeParamsStr = genericMatch[3]
+      declaredTypes?.add(genericName)
       const blockStart = i + genericMatch[0].length - 1
       const bodyStart = blockStart + 1
       let depth = 1

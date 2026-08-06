@@ -181,3 +181,60 @@ function pick(things: NonEmpty):? 0 { return things[0] }
     expect(meta?.returns).toBeDefined()
   })
 })
+
+/**
+ * `Type X<T>` and `Generic X<T>` are one declaration.
+ *
+ * TypeScript has a single keyword — `type Box<T> = …` — and TJS now does too. Two
+ * keywords made the `type` → `Type` conversion non-mechanical: the converter would have
+ * to switch keyword based on whether type parameters exist, and a downgrade back to
+ * TypeScript would have to switch it back. That is disposal tax for no information,
+ * since `<T>` already says the type is parameterized.
+ *
+ * It also oversold the feature. In TypeScript "generic" is where type-level
+ * metaprogramming starts; in TJS a type parameter is just another predicate passed in
+ * (`T(x.value)` — `T` is a function). Naming it `Generic` advertised a complexity the
+ * language deliberately does not have.
+ *
+ * `Generic` still works as a deprecated alias, so existing source keeps compiling.
+ */
+describe('Type X<T> subsumes Generic X<T>', () => {
+  const BODY = `{\n  predicate(x, T) { return typeof x === 'object' && x !== null && T(x.value) }\n}`
+
+  it('accepts the Type spelling', () => {
+    const code = tjs(`Type Box<T> ${BODY}`, { runTests: false }).code
+    expect(code).toContain('const Box = Generic(')
+  })
+
+  it('still accepts the deprecated Generic spelling', () => {
+    const code = tjs(`Generic Box<T> ${BODY}`, { runTests: false }).code
+    expect(code).toContain('const Box = Generic(')
+  })
+
+  it('emits identical code for both spellings', () => {
+    // If these ever diverge, one of the two is a second implementation — which is the
+    // thing unifying them was meant to prevent.
+    const a = tjs(`Type Box<T> ${BODY}`, { runTests: false }).code
+    const b = tjs(`Generic Box<T> ${BODY}`, { runTests: false }).code
+    expect(a).toBe(b)
+  })
+
+  it('does not disturb the scalar Type form', () => {
+    // The parameterized transform now runs FIRST, so it must not claim `Type Even {`.
+    const code = tjs(
+      `Type Even {\n  example: 2\n  predicate(x) { return x % 2 === 0 }\n}`,
+      { runTests: false }
+    ).code
+    expect(code).toContain('const Even = Type(')
+    expect(code).not.toContain('const Even = Generic(')
+  })
+
+  it('registers a parameterized type name for annotation resolution', () => {
+    // Generic declarations emit `Generic(...)` rather than `Type(...)`, so they were
+    // missed by the declared-name collection entirely — even `b: Box` with no type
+    // arguments could not resolve.
+    const src = `Type Box<T> ${BODY}\nfunction unbox(b: Box) { return b.value }`
+    const r = tjs(src, { runTests: false })
+    expect((r.warnings ?? []).filter((w) => /Box/.test(w))).toEqual([])
+  })
+})
