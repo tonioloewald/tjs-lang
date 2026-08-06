@@ -58,7 +58,7 @@ function dot(! a: Float32Array, b: Float32Array, len: 0):! 0.0 {
       acc = f32x4_add(acc, f32x4_mul(va, vb))
     }
     // Sum the 4 lanes
-    f32x4_extract_lane(acc, 0)
+    return f32x4_extract_lane(acc, 0)
       + f32x4_extract_lane(acc, 1)
       + f32x4_extract_lane(acc, 2)
       + f32x4_extract_lane(acc, 3)
@@ -93,9 +93,22 @@ const d = dot(a, b, SIZE)
 console.log('dot([1,1,...], [2,2,...], 1024):', d)
 
 // Benchmark
-const iters = 1000
-const t0 = performance.now()
-for (let i = 0; i < iters; i++) scale(arr, SIZE, 1.001)
-const elapsed = performance.now() - t0
-console.log(`${iters} scale ops on ${SIZE} floats: ${elapsed.toFixed(1)}ms`)
+// Measure per-op time by running until at least minMs of wall clock has elapsed,
+// then dividing. Timing a single sub-millisecond pass does not work: Firefox clamps
+// `performance.now()` to ~1ms for fingerprinting resistance, so a fast result reads
+// as 0.00ms — and on hardware faster than whatever the iteration count was tuned for,
+// a fixed count drifts back under the clock all by itself.
+function timePerOp(fn, minMs = 25) {
+  let iters = 0
+  const start = performance.now()
+  do {
+    fn()
+    iters++
+  } while (performance.now() - start < minMs)
+  return (performance.now() - start) / iters
+}
+
+const perOp = timePerOp(() => scale(arr, SIZE, 1.001))
+console.log(`scale on ${SIZE} floats: ${(perOp * 1000).toFixed(1)}us per op`)
+console.log(`  (${(SIZE / perOp / 1000).toFixed(1)} million floats/sec)`)
 ```

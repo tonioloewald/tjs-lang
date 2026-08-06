@@ -104,11 +104,28 @@ function normalize(! arr: Float32Array, len: 0) {
   }
 }
 
-const t0 = performance.now()
-normalize(data, SIZE)
-const elapsed = performance.now() - t0
+// Measure per-op time by running until at least minMs of wall clock has elapsed,
+// then dividing. Timing a single sub-millisecond pass does not work: Firefox clamps
+// `performance.now()` to ~1ms for fingerprinting resistance, so a fast result reads
+// as 0.00ms — and on hardware faster than whatever the iteration count was tuned for,
+// a fixed count drifts back under the clock all by itself.
+function timePerOp(fn, minMs = 25) {
+  let iters = 0
+  const start = performance.now()
+  do {
+    fn()
+    iters++
+  } while (performance.now() - start < minMs)
+  return (performance.now() - start) / iters
+}
 
-console.log(`Normalized ${SIZE} floats in ${elapsed.toFixed(2)}ms`)
+// Re-fill each pass: normalize() mutates `data`, and normalizing already-normalized
+// data is a different (cheaper) workload — timing it would measure the wrong thing.
+const perOp = timePerOp(() => {
+  for (let i = 0; i < SIZE; i++) data[i] = i * 0.01
+  normalize(data, SIZE)
+})
+console.log(`Normalized ${SIZE} floats in ${(perOp * 1000).toFixed(1)}us per pass`)
 console.log('First 4:', data[0].toFixed(4), data[1].toFixed(4), data[2].toFixed(4), data[3].toFixed(4))
 console.log('Last:', data[SIZE - 1].toFixed(4))
 ```
