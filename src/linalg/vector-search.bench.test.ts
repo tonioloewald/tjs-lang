@@ -322,7 +322,57 @@ describe('Canonical demo: vector-search across three forms', () => {
         // response to the flakiness) treats the symptom; the measurement itself
         // was unsound. Summing REPS calls puts each timing in the tens of
         // milliseconds, where the ratios are stable and actually mean something.
-        const REPS = 50
+        // …and REPS is now CALIBRATED, not a constant, because a constant is tuned to
+        // one machine and silently goes stale as hardware moves.
+        //
+        // 50 was chosen when the fastest variant took ~1.2ms over 50 calls. On an M5 Max
+        // that same work drops well under a millisecond, and the ratio — whose DENOMINATOR
+        // is the fastest variant — starts measuring timer resolution and core scheduling
+        // instead of the boundary tax. Observed there: the headline ratio swinging between
+        // ~20× and ~80× on identical code, which is the original sub-millisecond flake
+        // returning by a different route.
+        //
+        // So probe the fastest path and scale until IT takes ~5ms. Sizing against the
+        // fastest variant (not the slowest, and not a fixed count) is what keeps the
+        // denominator meaningful on hardware that doesn't exist yet. The probe is also
+        // extra warmup, which costs nothing.
+        // Calibration runs TWICE. A single pass measures a COLD loop: ten reps is not
+        // enough for the JIT to tier up, so per-call comes out high, REPS comes out low,
+        // and the smallest config still landed at ~1.5ms — undershooting the target it was
+        // calibrated for. The second pass measures an already-warm loop and rescales from
+        // a number that reflects steady state.
+        const TARGET_MS = 5
+        const clampReps = (perCallMs: number) =>
+          // Floor keeps it never weaker than the fixed 50 this replaces; the ceiling bounds
+          // total runtime, since the slowest variant is ~10x the one being calibrated.
+          Math.max(
+            50,
+            Math.min(20_000, Math.ceil(TARGET_MS / Math.max(perCallMs, 1e-5)))
+          )
+        const probe = (
+          fn: (...a: any[]) => number,
+          c: Float32Array,
+          q: Float32Array,
+          reps: number
+        ) => {
+          const t0 = performance.now()
+          for (let r = 0; r < reps; r++) fn(c, q, cfg.count, cfg.dim)
+          return (performance.now() - t0) / reps
+        }
+        // Calibrate against the FASTEST variant: it is the ratio DENOMINATOR, so it is the
+        // term that goes sub-millisecond first and takes the whole measurement with it.
+        const fastestCallMs = (reps: number) =>
+          Math.min(
+            probe(inline.search, inlineCorpus, inlineQuery, reps),
+            probe(
+              composedWasm.search,
+              composedWasmCorpus,
+              composedWasmQuery,
+              reps
+            )
+          )
+        const REPS = clampReps(fastestCallMs(clampReps(fastestCallMs(10))))
+
         const timeSearch = (
           fn: (...a: any[]) => number,
           corpus: Float32Array,
