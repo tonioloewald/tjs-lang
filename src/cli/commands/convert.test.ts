@@ -271,5 +271,52 @@ function getAge(): number { return 30 }
       expect(existsSync(join(outDir, 'utils.tjs'))).toBe(true)
       expect(existsSync(join(outDir, 'utils.js'))).toBe(false)
     })
+
+    /**
+     * Regression for the second half of #24, which shipped without one.
+     *
+     * `convertFile` caught its own error and returned normally whenever
+     * `outputPath` was set, so `convertDirectory`'s `catch { failed++ }` was
+     * unreachable: one good file and one bad file reported **"2 converted, 0
+     * failed"** and exited **0**, with the bad file silently missing. The
+     * failure surfaced two steps later as a bundler resolution error, which is
+     * the expensive part — a build tool that reports success while dropping
+     * output moves the diagnosis to a place with no evidence in it.
+     *
+     * The failure is forced at the WRITE, not the parse, on purpose. `fromTS`
+     * is error-tolerant by design (TypeScript's own parser recovers), so a
+     * malformed `.ts` file converts happily — there is no convenient "bad
+     * source" that trips this path. What the bug was about is any throw inside
+     * the try with `outputPath` set, and an unwritable destination is the
+     * deterministic, portable way to produce one.
+     */
+    it('counts a failed file and exits non-zero', async () => {
+      const { mkdirSync, existsSync } = await import('fs')
+      const srcDir = join(tmpDir, 'src-partial')
+      const outDir = join(tmpDir, 'out-partial')
+      mkdirSync(join(srcDir, 'sub'), { recursive: true })
+
+      writeFileSync(join(srcDir, 'good.ts'), TS_SIMPLE)
+      writeFileSync(join(srcDir, 'sub', 'blocked.ts'), TS_SIMPLE)
+
+      // `out-partial/sub` is a FILE, so writing `out-partial/sub/blocked.js`
+      // cannot succeed — while its sibling at the top level still can.
+      mkdirSync(outDir, { recursive: true })
+      writeFileSync(join(outDir, 'sub'), 'not a directory')
+
+      const proc = Bun.spawn(
+        [BUN, 'src/cli/tjs.ts', 'convert', srcDir, '-o', outDir],
+        { cwd: REPO_ROOT, stdout: 'pipe', stderr: 'pipe' }
+      )
+      const stdout = await new Response(proc.stdout).text()
+      const exitCode = await proc.exited
+
+      // The tally must report the drop…
+      expect(stdout).toContain('1 converted, 1 failed')
+      // …and the exit code must carry it, since that is what a build script reads.
+      expect(exitCode).not.toBe(0)
+      // The good file still converted — a partial failure is not an abort.
+      expect(existsSync(join(outDir, 'good.js'))).toBe(true)
+    })
   })
 })

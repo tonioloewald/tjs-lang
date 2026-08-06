@@ -1,0 +1,68 @@
+name: CI
+
+# There was no CI on this repo until 0.13.0. Everything was enforced by local
+# git hooks, which is fine right up until someone pushes from a machine where
+# `prepare` never ran — and it meant a whole class of rot (six test files that
+# imported a removed runner and therefore silently never ran, for several
+# releases) had nothing watching for it.
+#
+# Deliberately NOT the full suite. `bun test` needs a local model server, so
+# running it here would be red for a reason that isn't the code — and a red CI
+# people learn to ignore is worse than none. The full lane stays enforced by
+# `.githooks/pre-push` on tag pushes, where a human is present to warm the
+# server. See CLAUDE.md → "Full run before tagging".
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
+      - name: Install
+        run: bun install --frozen-lockfile
+
+      # Ordered cheapest-first so an obvious failure reports in seconds, but
+      # every step runs regardless (`if: always()`): three separate findings in
+      # one run beats fix-push-wait three times.
+      - name: Typecheck
+        if: always()
+        run: bun run typecheck
+
+      - name: Lint
+        if: always()
+        run: bun run lint
+
+      - name: Format
+        if: always()
+        run: bun run format:check
+
+      # SKIP_LLM_TESTS + SKIP_BENCHMARKS + SKIP_AUDIT — the model server and the
+      # advisory feed are both unavailable here. `bun audit` runs in the pre-tag
+      # lane instead, where the network is real.
+      - name: Test (fast lane)
+        if: always()
+        run: bun run test:fast
+
+      # The committed build artifacts (editors/*.js, the TextMate grammars,
+      # demo/docs.json) are checked in so `npm publish` ships them without a
+      # build — which means editing a source file without rebuilding silently
+      # ships stale output. Their guards live in the suite above; this proves the
+      # build that produces them still runs at all.
+      - name: Build
+        if: always()
+        run: bun run make

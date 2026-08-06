@@ -27,6 +27,11 @@ OpenAI-compatible API the batteries already speak.
 
 ## Vision on mlx-omni-server: possible in principle, blocked in practice (v0.5.3, 2026-08-02)
 
+> **Filed upstream** (gates 1 and 2 below): [mlx-omni-server#128](https://github.com/madroidmaq/mlx-omni-server/issues/128)
+> (schema rejects the standard `image_url` block) and
+> [#129](https://github.com/madroidmaq/mlx-omni-server/issues/129) (`MLX_VLM_ONLY_MODELS` gates
+> vision to one architecture). Gate 3 is model-side, not a server bug. Tracked in `UPSTREAM.md`.
+
 Investigated properly, because the first answer ("the server can't do vision") was wrong and
 the real picture is more useful. Three separate gates, in order:
 
@@ -93,7 +98,8 @@ it is the obvious next thing to try — and the only attempt worth another downl
 
 Worth noting `mlx-openai-server` got furthest overall: it accepts the **standard** OpenAI
 image block (no flattening needed) and its `/v1/models` actually lists the model, unlike
-omni. Its `kv_bits` skew is the other thing to watch upstream.
+omni. Its `kv_bits` skew is the other thing to watch upstream — filed as
+[mlx-openai-server#320](https://github.com/cubist38/mlx-openai-server/issues/320).
 
 **Cost so far:** ~6.6GB of model downloads, none usable. Do not retry speculatively.
 
@@ -144,7 +150,8 @@ bun run test:llm                     # live smoke: audit + predict + embed
 
 ### Two gotchas that will bite you (both cost real time here)
 
-**1. `/v1/models` returns an empty list — you must name your models.** LM Studio lists
+**1. `/v1/models` returns an empty list — you must name your models.** (Filed upstream:
+[mlx-omni-server#130](https://github.com/madroidmaq/mlx-omni-server/issues/130).) LM Studio lists
 the models it has loaded, so the batteries could *discover* and classify them. mlx-omni-server
 loads a model on demand from the id in each request, so it has nothing to enumerate and
 returns `{"data": []}` — discovery finds nothing and every call fails with "No LLM available"
