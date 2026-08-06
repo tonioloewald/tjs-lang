@@ -46,7 +46,7 @@ Param types: `i32` (integer), `f32`/`f64` (float), `Float32Array`, etc.
 
 function addInts(! a: 0, b: 0):! 0 {
   return wasm {
-    a + b
+    return a + b
   } fallback {
     return a + b
   }
@@ -58,6 +58,7 @@ function factorial(! n: 0):! 0 {
     for (let i = 2; i <= n; i++) {
       result = result * i
     }
+    return result
   } fallback {
     let result = 1
     for (let i = 2; i <= n; i++) result *= i
@@ -69,7 +70,7 @@ function factorial(! n: 0):! 0 {
 
 function lerp(! a: 0.0, b: 0.0, t: 0.0):! 0.0 {
   return wasm {
-    a + (b - a) * t
+    return a + (b - a) * t
   } fallback {
     return a + (b - a) * t
   }
@@ -84,6 +85,7 @@ function sumArray(! arr: Float32Array, len: 0):! 0.0 {
       let off = i * 4
       sum = sum + f32x4_extract_lane(f32x4_load(arr, off), 0)
     }
+    return sum
   } fallback {
     let sum = 0
     for (let i = 0; i < len; i++) sum += arr[i]

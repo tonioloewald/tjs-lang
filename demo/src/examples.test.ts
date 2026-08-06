@@ -53,3 +53,88 @@ describe('TJS Playground Examples with tests', () => {
     })
   }
 })
+
+/**
+ * The examples' TOP-LEVEL CODE must actually run.
+ *
+ * The two gates above check that an example *transpiles*, and that its inline
+ * `test { }` blocks pass. Neither executes the body — so an example with no inline
+ * tests was never run at all, and that is most of them.
+ *
+ * `wasm-simd.md` shipped with its headline SIMD operation returning `undefined`: the
+ * `wasm{}` block ended with a bare expression (`f32x4_extract_lane(acc, 0) + …`), i.e.
+ * the author assumed Rust-style implicit last-expression return. TJS has no such rule,
+ * so the block returned nothing. It compiled perfectly, had no inline tests, printed
+ * `dot(...): undefined` against its own comment promising 2048, and nothing noticed.
+ *
+ * This runs the body and asserts two things a reader would notice immediately:
+ * it doesn't throw, and it doesn't print `undefined`/`NaN` — the signature of a
+ * computation that silently produced nothing.
+ */
+describe('TJS Playground Examples actually run', () => {
+  /** Examples that cannot execute headlessly, and why. */
+  const CANNOT_RUN: Record<string, string> = {
+    Starfield: 'canvas + requestAnimationFrame animation loop',
+    'Vector Search Benchmark': 'builds a results table in the DOM',
+    'React Todo (Comparison)': 'React + DOM',
+    'tosijs Todo App': 'requires the tosijs runtime and DOM',
+    'CDN Hints (overriding the default)':
+      'imports tosijs and date-fns from a CDN',
+    'Date Formatting (with import)':
+      'bare import, unresolvable in this harness',
+    'Local Module Imports': 'imports a sibling module the playground provides',
+    'Lodash Utilities (with import)':
+      'bare import, unresolvable in this harness',
+    'Schema Validation': 'imports tosijs-schema',
+    'Full-Stack Demo: Client App':
+      'requires a saved module from another example',
+    'The Universal Endpoint': 'top-level import of a sibling module',
+    'Using a WASM Library': 'top-level import of a sibling wasm module',
+  }
+
+  /** Examples whose OUTPUT legitimately contains undefined/NaN, and why. */
+  const PRINTS_UNDEFINED: Record<string, string> = {
+    'Honest Equality':
+      'demonstrates `typeof undefined` and `null == undefined` — printing undefined IS the lesson',
+  }
+
+  const runnable = tjsExamples.filter((e: any) => !CANNOT_RUN[e.title])
+
+  test('a majority of examples are actually runnable (guards a vacuous pass)', () => {
+    // If the skip list ever grows to swallow everything, this gate stops meaning
+    // anything — which is the failure mode skip lists have.
+    expect(runnable.length).toBeGreaterThan(tjsExamples.length / 2)
+  })
+
+  for (const example of runnable) {
+    test(`"${example.title}" runs and produces real values`, async () => {
+      const { code } = tjs(example.code, { runTests: false })
+
+      // `export` is meaningless in this harness and `new Function` rejects it; the
+      // async IIFE carries the examples that use top-level await. Both are limits of
+      // the harness, not properties of the example — worth adapting to rather than
+      // adding to the skip list, since not running the body is the whole defect here.
+      const body = code.replace(
+        /^export\s+(?=(async\s+)?(function|const|let|var|class)\b)/gm,
+        ''
+      )
+
+      const lines: string[] = []
+      const realLog = console.log
+      console.log = (...args: unknown[]) => {
+        lines.push(args.map((a) => String(a)).join(' '))
+      }
+      try {
+        await new Function(`return (async () => { ${body} })()`)()
+      } finally {
+        console.log = realLog
+      }
+
+      if (PRINTS_UNDEFINED[example.title]) return
+
+      // A computation that silently produced nothing — what `dot()` printed.
+      const empty = lines.filter((l) => /\b(undefined|NaN)\b/.test(l))
+      expect(empty).toEqual([])
+    })
+  }
+})
