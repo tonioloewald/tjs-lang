@@ -159,6 +159,83 @@ describe('literal blindness — a trigger inside a literal is not structure', ()
     }
   })
 
+  describe('a destructured parameter list splits on real commas only', () => {
+    // `splitParameters` learned about COMMENTS and bracket depth and nothing else, so a
+    // comma inside a string, template or regex split the member list mid-literal. The
+    // pieces were then rejoined with `', '` — which put the comma back WITH A SPACE AFTER
+    // IT, inside the literal:
+    //
+    //   {what = 'hello,', who: 'alice'}   →   { what = 'hello, ', who = 'alice' }
+    //
+    // Silent: the output parses, runs, and returns a plausible wrong answer. Found by
+    // writing a hello-world example for the book, which is exactly the size of program
+    // where `'hello,'` is the natural thing to type.
+    const cases: Array<
+      [label: string, src: string, call: string, expected: unknown]
+    > = [
+      [
+        'comma in a string default',
+        `function f({a = 'x,', b: 'y'}) { return a + b }`,
+        'f({})',
+        'x,y',
+      ],
+      [
+        'comma in a colon example',
+        `function f({a: 'x,y', b: 2}) { return a + String(b) }`,
+        `f({a: 'x,y', b: 2})`,
+        'x,y2',
+      ],
+      [
+        'comma in a template default',
+        'function f({a = `p,q`, b: 1}) { return a + String(b) }',
+        'f({b: 1})',
+        'p,q1',
+      ],
+      [
+        // The nastiest of the family: `/,/` became `/, /`, a regex that no longer
+        // matches what it says. Nothing errors; it just stops finding commas.
+        'comma in a regex default',
+        `function f({a = /,/, b: 1}) { return a.test('x,y') }`,
+        'f({b: 1})',
+        true,
+      ],
+      [
+        // Bracket depth was counted through literals too, so a lone brace in a string
+        // unbalanced the scan and took the whole transpile down.
+        'brace in a string default',
+        `function f({a = '{', b: 'y'}) { return a + b }`,
+        'f({})',
+        '{y',
+      ],
+      [
+        // The one hiding place it DID know about — kept as a control, so a rewrite that
+        // drops comment handling fails here rather than silently.
+        'comma in a comment',
+        `function f({a = 1 /*, */, b: 'y'}) { return String(a) + b }`,
+        'f({})',
+        '1y',
+      ],
+    ]
+
+    for (const [label, src, call, expected] of cases) {
+      it(label, () => {
+        const out = tjs(src, { runTests: false }).code
+        const value = new Function(`${out}\nreturn ${call}`)()
+        expect(value).toEqual(expected)
+      })
+    }
+
+    it('leaves a literal containing a comma byte-identical', () => {
+      // Behaviour above proves the value is right; this pins the SPELLING, because the
+      // failure mode was a character migrating into a literal rather than a wrong result.
+      const out = tjs(`function f({a = 'x,', b: 'y'}) { return a + b }`, {
+        runTests: false,
+      }).code
+      expect(out).toContain(`a = 'x,'`)
+      expect(out).not.toContain(`a = 'x, '`)
+    })
+  })
+
   describe('wasm masking ignores a `wasm {` written in a literal', () => {
     it('does not treat a quoted `wasm {` as a block', () => {
       const src = `const open = 'wasm {'\nfunction g(a: 0, b: 0) { return a == b }\nconst close = '}'\n`

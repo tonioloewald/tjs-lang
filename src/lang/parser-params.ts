@@ -12,7 +12,12 @@ import type {
   ContextFrame,
 } from './parser-types'
 import { locAt } from './parser-transforms'
-import { isRegexStart, findRegexEnd, isEscapedAt } from '../strip-comments'
+import {
+  isRegexStart,
+  findRegexEnd,
+  isEscapedAt,
+  maskLiterals,
+} from '../strip-comments'
 import { isTypeNameAnnotation } from './inference'
 
 export function transformParenExpressions(
@@ -897,77 +902,44 @@ function extractReturnTypeValue(
 }
 
 /**
- * Split parameter string respecting nested braces/brackets
+ * Split a parameter list on its top-level commas.
+ *
+ * Scans a **literal-masked view** — same length, with string / template / regex contents
+ * and whole comments blanked — and slices the boundaries out of the ORIGINAL. So a comma
+ * or a brace inside a literal can never be structure, and nothing in the output is
+ * rewritten: what goes in comes back out byte-identical between the split points.
+ *
+ * It used to hand-roll comment tracking and bracket depth and know nothing about strings,
+ * which put it squarely in the literal-blindness family (`src/strip-comments.ts`). Splitting
+ * `{what = 'hello,', who: 'alice'}` mid-literal and rejoining the pieces with `', '` put the
+ * comma back WITH A SPACE AFTER IT, inside the string:
+ *
+ *   {what = 'hello,', who: 'alice'}   →   { what = 'hello, ', who = 'alice' }
+ *
+ * Silent — the output parses and runs and returns a plausible wrong answer — and it reached
+ * the emitted `__tjs` metadata too, so the wrong default propagated into `.d.ts` and JSON
+ * Schema. A regex default was worse still: `/,/` became `/, /`, which is a different regex.
+ * Pinned by `src/lang/literal-blindness.test.ts`.
  */
 function splitParameters(params: string): string[] {
+  const masked = maskLiterals(params)
   const result: string[] = []
-  let current = ''
   let depth = 0
-  let inLineComment = false
-  let inBlockComment = false
-  let i = 0
+  let start = 0
 
-  while (i < params.length) {
-    const char = params[i]
-    const nextChar = params[i + 1]
-
-    // Handle line comments - preserve them in output
-    if (!inBlockComment && char === '/' && nextChar === '/') {
-      inLineComment = true
-      current += '//'
-      i += 2
-      continue
+  for (let i = 0; i < masked.length; i++) {
+    const char = masked[i]
+    if (char === '(' || char === '{' || char === '[') depth++
+    else if (char === ')' || char === '}' || char === ']') depth--
+    else if (char === ',' && depth === 0) {
+      result.push(params.slice(start, i))
+      start = i + 1
     }
-
-    // Handle block comments - preserve them in output
-    if (!inLineComment && char === '/' && nextChar === '*') {
-      inBlockComment = true
-      current += '/*'
-      i += 2
-      continue
-    }
-
-    // End of line comment
-    if (inLineComment && char === '\n') {
-      inLineComment = false
-      current += char
-      i++
-      continue
-    }
-
-    // End of block comment - preserve closing
-    if (inBlockComment && char === '*' && nextChar === '/') {
-      inBlockComment = false
-      current += '*/'
-      i += 2
-      continue
-    }
-
-    // Inside comments - preserve the content
-    if (inLineComment || inBlockComment) {
-      current += char
-      i++
-      continue
-    }
-
-    if (char === '(' || char === '{' || char === '[') {
-      depth++
-      current += char
-    } else if (char === ')' || char === '}' || char === ']') {
-      depth--
-      current += char
-    } else if (char === ',' && depth === 0) {
-      result.push(current)
-      current = ''
-    } else {
-      current += char
-    }
-    i++
   }
 
-  if (current.trim()) {
-    result.push(current)
-  }
+  // A trailing comma leaves an empty tail, which is not a parameter.
+  const tail = params.slice(start)
+  if (tail.trim()) result.push(tail)
 
   return result
 }
