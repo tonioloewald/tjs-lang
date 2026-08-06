@@ -1825,7 +1825,17 @@ function findRightOperandBoundary(
  */
 export function transformTypeDeclarations(
   source: string,
-  report?: PredicateVerification[]
+  report?: PredicateVerification[],
+  /**
+   * Out-param: every `Type`/`Generic` name declared here.
+   *
+   * The emitter needs it to decide whether `n: EvenNumber` names a real runtime type.
+   * Without it a declared Type is built, verified and fuel-bounded — and then the
+   * annotation that names it degrades to `any`, so the function checks nothing while
+   * looking checked. Collected at the declaration sites rather than re-scanned from the
+   * transformed source, because re-scanning would be one more literal-blind pass.
+   */
+  declaredTypes?: Set<string>
 ): string {
   let result = ''
   let i = 0
@@ -1864,6 +1874,7 @@ export function transformTypeDeclarations(
           const value = descStringMatch[0].trim()
           // Preserve trailing whitespace (newlines) that was consumed by the regex
           const trailingWs = descStringMatch[0].slice(value.length)
+          declaredTypes?.add(typeName)
           result += `const ${typeName} = Type('${typeName}', ${value})${trailingWs}`
           i = afterString
           continue
@@ -1962,6 +1973,7 @@ export function transformTypeDeclarations(
           const fn = guard
             ? `(__g => (${params}) => (${schemaGate} ? __g(${params}) : false))(${guard})`
             : `(${params}) => { if (!${schemaGate}) return false; ${body} }`
+          declaredTypes?.add(typeName)
           result += `const ${typeName} = Type('${description}', ${fn}, ${example}${defaultArg})`
         } else if (predicateMatch) {
           // Predicate only: verify → fuel-bounded native guard, else raw arrow.
@@ -1977,16 +1989,20 @@ export function transformTypeDeclarations(
             report
           )
           const fn = guard ?? `(${params}) => { ${body} }`
+          declaredTypes?.add(typeName)
           result += `const ${typeName} = Type('${description}', ${fn}${defaultArg})`
         } else if (example) {
           // Example only (becomes validation schema)
           const defaultArg = defaultValue ? `, ${defaultValue}` : ''
+          declaredTypes?.add(typeName)
           result += `const ${typeName} = Type('${description}', undefined, ${example}${defaultArg})`
         } else if (defaultValue) {
           // Default only (infer schema from default)
+          declaredTypes?.add(typeName)
           result += `const ${typeName} = Type('${description}', ${defaultValue})`
         } else {
           // Empty block - error or description-only type
+          declaredTypes?.add(typeName)
           result += `const ${typeName} = Type('${description}')`
         }
 
@@ -1994,6 +2010,7 @@ export function transformTypeDeclarations(
         continue
       } else if (defaultValue) {
         // Simple form with default: Type Foo = 'value' or Type Foo 'desc' = 'value'
+        declaredTypes?.add(typeName)
         result += `const ${typeName} = Type('${description}', ${defaultValue})`
         i = posAfterDefault // Use position before whitespace was consumed
         continue
@@ -2006,6 +2023,7 @@ export function transformTypeDeclarations(
           )
         if (valueMatch) {
           const example = valueMatch[0]
+          declaredTypes?.add(typeName)
           result += `const ${typeName} = Type('${typeName}', ${example})`
           i = j + valueMatch[0].length
           continue

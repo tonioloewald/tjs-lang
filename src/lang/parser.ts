@@ -92,11 +92,14 @@ export function preprocess(
   extensions: Map<string, Set<string>>
   letAnnotations: Map<string, string>
   predicates: PredicateVerification[]
+  /** Names declared via `Type X {…}` / `Generic X<T> {…}` in this module. */
+  declaredTypes: Set<string>
 } {
   const originalSource = source
   let moduleSafety: 'none' | 'inputs' | 'all' | undefined
   const requiredParams = new Set<string>()
   const typeNameOptionals = new Set<string>()
+  const declaredTypes = new Set<string>()
   const unsafeFunctions = new Set<string>()
   const safeFunctions = new Set<string>()
 
@@ -309,7 +312,7 @@ export function preprocess(
   // verified → native guard, or fell back to a raw function). Surfaced on the
   // transpile result so tools can flag unverifiable predicates.
   const predicates: PredicateVerification[] = []
-  source = transformTypeDeclarations(source, predicates)
+  source = transformTypeDeclarations(source, predicates, declaredTypes)
   source = transformGenericDeclarations(source, predicates)
   source = transformFunctionPredicateDeclarations(source)
   source = transformUnionDeclarations(source)
@@ -473,6 +476,7 @@ export function preprocess(
     extensions: extResult.extensions,
     letAnnotations,
     predicates,
+    declaredTypes,
   }
 }
 

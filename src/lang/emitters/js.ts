@@ -247,7 +247,8 @@ function extractFunctionTypeInfo(
   originalSource: string,
   requiredParams: Set<string>,
   returnTypeStr: string | null,
-  inputSource?: string
+  inputSource?: string,
+  declaredTypes?: Set<string>
 ): { types: TJSTypeInfo; warnings: string[] } {
   const warnings: string[] = []
 
@@ -420,6 +421,14 @@ function extractFunctionTypeInfo(
     // `unresolved` is set only when an annotation DEGRADED; an explicit `any`
     // carries no marker, because honouring `any` isn't a degradation.
     const annotated = descriptor.type?.unresolved
+    // A name declared in THIS module as `Type X {…}` is not unresolved — it is the most
+    // resolved thing in the file. It used to degrade anyway, so a verified, fuel-bounded
+    // predicate sat one line above a function that named it and checked nothing, while the
+    // warning helpfully suggested declaring the Type the file had already declared.
+    if (annotated && declaredTypes?.has(String(annotated))) {
+      descriptor.type = { kind: 'declared', typeName: String(annotated) }
+      continue
+    }
     if (annotated) {
       warnings.push(
         `'${name}: ${annotated}' could not be resolved to a runtime type, so it is ` +
@@ -489,7 +498,7 @@ function generateInlineValidationCode(
       const typeCheck = generateTypeCheckExpr(fieldName, fieldType)
 
       if (typeCheck) {
-        const expectedType = fieldType.kind
+        const expectedType = fieldType.typeName ?? fieldType.kind
         if (isRequired) {
           lines.push(
             `if (${typeCheck}) return __tjs.typeError('${path}', '${expectedType}', ${fieldName});`
@@ -551,7 +560,9 @@ function generateInlineValidationCode(
       const expectedType =
         param.type.kind === 'union'
           ? (param.type as any).members.map((m: any) => m.kind).join(' | ')
-          : param.type.kind
+          : // A declared Type reports its NAME. "Expected declared" names the mechanism
+            // instead of the contract, which tells the reader nothing they can act on.
+            param.type.typeName ?? param.type.kind
       if (param.required) {
         lines.push(
           `if (${typeCheck}) return __tjs.typeError('${path}', '${expectedType}', ${paramName});`
@@ -869,7 +880,8 @@ export function transpileToJS(
       originalSource,
       requiredParams,
       returnTypeStr,
-      cleanSource
+      cleanSource,
+      preprocessed.declaredTypes
     )
     warnings.push(...funcWarnings)
     allTypes[funcName] = types
@@ -2027,6 +2039,20 @@ function generateTypeCheckExpr(
       check = `(${checks.join(' && ')})`
       break
     }
+    case 'declared':
+      // A `Type X {…}` declared in this module. `X.check(v)` already composes the
+      // example-inferred structure with the declared predicate — structure first, so the
+      // predicate can assume the shape rather than defending itself — and it gets `null`
+      // right, which a raw `typeof v === 'object'` does not.
+      //
+      // Guarded on the binding existing, because a Type declared AFTER the function that
+      // names it is still in TDZ at call time only if the call happens during module
+      // evaluation; the guard turns a would-be ReferenceError into "unchecked", which
+      // preserves TJS ⊇ JS rather than making a legal ordering illegal.
+      check = type.typeName
+        ? `(typeof ${type.typeName} !== 'undefined' && !${type.typeName}.check(${fieldPath}))`
+        : null
+      break
     case 'any':
       return null // No check needed
     default:
@@ -2199,7 +2225,7 @@ function generatePositionalValidation(
     const typeCheck = generateTypeCheck(paramName, param.type)
     if (typeCheck) {
       const path = `${funcName}.${paramName}`
-      const expectedType = param.type.kind
+      const expectedType = param.type.typeName ?? param.type.kind
       if (param.required) {
         lines.push(
           `if (${typeCheck}) return __tjs.typeError('${path}', '${expectedType}', ${paramName});`

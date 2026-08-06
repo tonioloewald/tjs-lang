@@ -38,7 +38,14 @@ export interface TypeDescriptor {
     | 'object'
     | 'union'
     | 'function'
+    | 'declared'
     | 'any'
+  /**
+   * For `kind: 'declared'` — the name of a `Type`/`Generic` declared in this module.
+   * The check is `<name>.check(v)`, which already composes example-inferred structure
+   * with the declared predicate (and gets `null` right, unlike raw `typeof`).
+   */
+  typeName?: string
   nullable?: boolean
   /** For arrays: the element type */
   items?: TypeDescriptor
