@@ -238,3 +238,62 @@ describe('Type X<T> subsumes Generic X<T>', () => {
     expect((r.warnings ?? []).filter((w) => /Box/.test(w))).toEqual([])
   })
 })
+
+/**
+ * Emitted `.js` must work with NO runtime installed.
+ *
+ * That is a documented contract — each file carries an inline minimal runtime as
+ * fallback — and routing annotations through declared types broke it in the worst
+ * direction. The `Type(…)` schema gate optional-chains to `globalThis.__tjs?.validate`,
+ * which the inline stub does not have (it is tosijs-schema). Chaining to `undefined`
+ * made the gate falsy, so the guard returned `false` and the type rejected EVERY value:
+ * `double(4)` errored standalone while returning 8 under the full runtime.
+ *
+ * Unchecked-but-working is the correct degradation (TJS ⊇ JS). Rejecting valid input is
+ * not — it turns a working program into a broken one based on nothing but whether a
+ * runtime happens to be loaded. The gate now fails OPEN.
+ *
+ * These tests run the emitted code with `globalThis.__tjs` removed, which is the only
+ * way to exercise the inline stub; every other test in this file runs with the real
+ * runtime present and would not have caught it.
+ */
+describe('emitted code with a declared type works standalone', () => {
+  const SRC = `Type Even {
+  description: 'an even number'
+  example: 2
+  predicate(x) { return x % 2 === 0 }
+}
+function double(n: Even) { return n * 2 }
+`
+
+  /** Run `expr` against the emitted code with NO global runtime installed. */
+  function standalone(expr: string): unknown {
+    const code = tjs(SRC, { runTests: false }).code
+    const saved = (globalThis as any).__tjs
+    try {
+      ;(globalThis as any).__tjs = undefined
+      const v = new Function(`${code}\nreturn ${expr}`)() as any
+      return v && v.name === 'MonadicError' ? `Error(${v.expected})` : v
+    } finally {
+      ;(globalThis as any).__tjs = saved
+    }
+  }
+
+  it('accepts a VALID value with no runtime installed', () => {
+    // The regression: this returned a MonadicError, so a standalone file rejected
+    // every value its own types were meant to accept.
+    expect(standalone('double(4)')).toBe(8)
+  })
+
+  it('still runs the predicate with no runtime installed', () => {
+    // Failing open loses the STRUCTURAL half of the check, not the predicate — the
+    // predicate is plain emitted JavaScript and needs nothing.
+    expect(standalone('double(3)')).toBe('Error(Even)')
+  })
+
+  it('agrees with the full-runtime result on valid input', () => {
+    const code = tjs(SRC, { runTests: false }).code
+    const withRuntime = new Function(`${code}\nreturn double(4)`)()
+    expect(standalone('double(4)')).toBe(withRuntime)
+  })
+})

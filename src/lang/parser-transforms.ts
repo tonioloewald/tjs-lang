@@ -1961,7 +1961,19 @@ export function transformTypeDeclarations(
           const params = predicateMatch[1].trim()
           const body = predicateMatch[2].trim()
           const defaultArg = defaultValue ? `, ${defaultValue}` : ''
-          const schemaGate = `globalThis.__tjs?.validate(${params}, globalThis.__tjs?.infer(${example}))`
+          // Structure-then-predicate: the example gives the shape, the predicate refines
+          // it — which is what lets a predicate be written tersely without re-checking
+          // the shape it can already assume.
+          //
+          // It must fail OPEN when no full runtime is installed. Emitted `.js` is
+          // documented to work standalone with only the inline stub, and the stub has no
+          // `validate`/`infer` (they are tosijs-schema). Optional-chaining to `undefined`
+          // made the gate falsy, so the whole check returned false and the type rejected
+          // EVERY value — `double(4)` errored in a standalone file while working under the
+          // full runtime. Unchecked-but-working is the correct degradation here (TJS ⊇ JS);
+          // rejecting valid input is not, and it only became reachable once annotations
+          // started routing through declared types.
+          const schemaGate = `(globalThis.__tjs?.validate ? globalThis.__tjs.validate(${params}, globalThis.__tjs.infer(${example})) : true)`
           const guard = verifiedGuardExpr(
             typeName,
             'Type',
