@@ -18,6 +18,10 @@
 
 import { validate, filter as schemaFilter, s, type Base } from 'tosijs-schema'
 import { exampleToJSONSchema, type JSONSchemaObject } from '../lang/json-schema'
+// The Timestamp/LegalDate predicates live with their implementations so the runtime
+// TYPE and the function module can never disagree about what a Timestamp is — they
+// did, for a whole release cycle. `./Timestamp` imports nothing, so this is a leaf edge.
+import * as TS from './Timestamp'
 
 /** JSON Schema object type (simplified) */
 type JSONSchema = {
@@ -354,14 +358,22 @@ export const TUuid = Type<string>('UUID', (v: unknown) => {
 })
 
 /**
- * Check if a string is a valid ISO 8601 timestamp (portable helper for predicates)
- * This will become an AJS builtin
+ * Is this a usable Timestamp — a finite number of milliseconds since the epoch?
+ * (Portable helper for predicates; this will become an AJS builtin.)
+ *
+ * **Changed in 0.13.0** alongside the representation flip: it used to take a
+ * string and validate ISO 8601. Leaving it pointed at the string form would have
+ * meant shipping a helper named `isValidTimestamp` that rejects every value
+ * `Timestamp.now()` produces. The ISO check is still here as
+ * {@link isValidISOTimestamp}.
  */
-export const isValidTimestamp = (v: string): boolean => {
-  // Date.parse returns a number — no need to allocate a mutable Date just to ask
-  // whether a string parses.
-  return !Number.isNaN(Date.parse(v)) && v.includes('T')
-}
+export const isValidTimestamp = (v: unknown): boolean => TS.isValid(v)
+
+/**
+ * Is this a valid ISO 8601 timestamp *string* — the readable rendering of a
+ * Timestamp, not its representation? (Portable helper; future AJS builtin.)
+ */
+export const isValidISOTimestamp = (v: string): boolean => TS.isValidISO(v)
 
 /**
  * Check if a string is a valid YYYY-MM-DD date (portable helper for predicates)
@@ -372,10 +384,26 @@ export const isValidLegalDate = (v: string): boolean => {
   return !Number.isNaN(Date.parse(v + 'T00:00:00Z'))
 }
 
-/** ISO 8601 timestamp string (e.g., "2024-01-15T10:30:00Z") */
-export const Timestamp = Type<string>(
+/**
+ * A point in time: milliseconds since the Unix epoch, UTC.
+ *
+ * This is the runtime type that lands in `__tjs`, so it is what a `.tjs` file
+ * annotating `t: Timestamp` actually gets checked against. Until 0.13.0 it
+ * validated an ISO **string** while `src/types/Timestamp.ts` had already become
+ * epoch-**milliseconds** — so `Timestamp.check(Timestamp.now())` was `false`,
+ * and the compiler's own `new Date()` diagnostic recommended a remedy this type
+ * rejected. Both spellings now mean the same thing, and share one predicate so
+ * they cannot drift apart again.
+ */
+export const Timestamp = Type<number>(
+  'timestamp (epoch milliseconds)',
+  (v: unknown) => isValidTimestamp(v)
+)
+
+/** ISO 8601 timestamp string (e.g., "2024-01-15T10:30:00.000Z") — a *rendering* of a Timestamp. */
+export const TimestampISO = Type<string>(
   'ISO 8601 timestamp',
-  (v: unknown) => typeof v === 'string' && isValidTimestamp(v)
+  (v: unknown) => typeof v === 'string' && isValidISOTimestamp(v)
 )
 
 /** Legal date string in YYYY-MM-DD format */

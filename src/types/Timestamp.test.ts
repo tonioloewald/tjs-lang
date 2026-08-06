@@ -365,3 +365,44 @@ describe('Timestamp', () => {
     })
   })
 })
+
+/**
+ * The runtime TYPE and the function module must agree about what a Timestamp is.
+ *
+ * They didn't. `src/types/Timestamp.ts` became epoch-milliseconds in 0.13.0-beta.1
+ * and the CHANGELOG announced it, but the `Timestamp` runtime type in `Type.ts` —
+ * the one re-exported into `__tjs`, and therefore the one a `.tjs` file annotating
+ * `t: Timestamp` is actually checked against — still validated an ISO string. So
+ * `Timestamp.check(Timestamp.now())` was `false`: the type rejected the only value
+ * its own constructor produces, and the compiler's `new Date()` diagnostic pointed
+ * users at that constructor by name.
+ *
+ * Two names for one concept in two files is the whole hazard, so these assert the
+ * agreement directly rather than either half in isolation.
+ */
+describe('Timestamp: the runtime type agrees with the module', () => {
+  it('the runtime type accepts what now() returns', async () => {
+    const { Timestamp: TimestampType } = await import('./Type')
+    expect(TimestampType.check(Timestamp.now())).toBe(true)
+    expect(
+      TimestampType.check(Timestamp.parse('2024-06-15T14:30:45.123Z'))
+    ).toBe(true)
+  })
+
+  it('the runtime type rejects the ISO rendering — that is TimestampISO', async () => {
+    const { Timestamp: TimestampType, TimestampISO } = await import('./Type')
+    const iso = Timestamp.iso(Timestamp.now())
+    expect(TimestampType.check(iso)).toBe(false)
+    expect(TimestampISO.check(iso)).toBe(true)
+    expect(TimestampISO.check(Timestamp.now())).toBe(false)
+  })
+
+  it('the exported predicates are the same predicates, not copies', async () => {
+    const { isValidTimestamp, isValidISOTimestamp } = await import('./Type')
+    const now = Timestamp.now()
+    const iso = Timestamp.iso(now)
+    expect(isValidTimestamp(now)).toBe(Timestamp.isValid(now))
+    expect(isValidTimestamp(iso)).toBe(Timestamp.isValid(iso))
+    expect(isValidISOTimestamp(iso)).toBe(Timestamp.isValidISO(iso))
+  })
+})

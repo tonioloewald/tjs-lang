@@ -102,6 +102,19 @@ function calc(rate: 3.14) { }            // number (float) -- has decimal point
 function calc(count: 42) { }             // integer -- whole number
 function calc(index: +0) { }             // non-negative integer -- + prefix
 
+// Every numeric type also has a NAME. Same type, no worked value.
+function calc(rate: float) { }           // ≡ 3.14  (explicit spelling of number)
+function calc(count: int) { }            // ≡ 42     -- rejects a float
+function calc(index: unsigned) { }       // ≡ +0     -- rejects a negative (alias: uint)
+
+// And the sound TypeScript names are real runtime checks (0.13.0), agreeing
+// exactly with the equivalent example: `s: string` ≡ `s: ''`.
+function f(s: string, n: number, b: boolean, u: string | null) { }
+// any/unknown/void/never stay unconstrained -- that is what they mean.
+// An unresolvable type still degrades to best-effort, but now WARNS and shows
+// the ladder back: an example (`x: 3`), a sound type (`x: number`), or a
+// `Type … { predicate(v) { … } }`.
+
 // Optional param with default
 function greet(name = 'Alice') { }       // name is optional, defaults to 'Alice'
 
@@ -110,12 +123,15 @@ function place(args = { x: 0, y: 0 }) { }
 // place({ x: 5 })      -> { x: 5, y: 0 }   each member defaulted individually
 // place({ x: 's' })    -> MonadicError     members are type-checked
 // place({ x: 1, z: 9 })-> { x: 1, y: 0 }   excess keys stripped (+ recorder notice)
-// Always on in .tjs; off under dialect:'js'/
-// TjsCompat/fromTS). Full spec: docs/dictionary-defaults.md. To keep atomic JS
-// defaults: mark the whole FUNCTION unsafe with a leading `!` in the param list
-// (`function place(! args = {…}) {}`) — note this disables ALL of that
-// function's validation, not just the merge — or use `dialect: 'js'` / the
-// `TjsCompat` directive for the whole file. There is no per-param merge opt-out.
+// Always on in .tjs; off under dialect:'js' / TjsCompat / fromTS.
+// Full spec: docs/dictionary-defaults.md.
+//
+// To keep JavaScript's atomic default, narrowest escape first:
+function place(args = LegacyDefault({ x: 0, y: 0 })) { }  // this ONE parameter
+// …or mark the whole FUNCTION unsafe with a leading `!` in the param list
+// (`function place(! args = {…}) {}`) — note that disables ALL of that
+// function's validation, not just the merge — or set `dialect: 'js'` /
+// `TjsCompat` for the whole file.
 
 // Object parameter with shape
 function createUser(user: { name: '', age: 0 }) { }

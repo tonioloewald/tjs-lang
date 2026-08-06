@@ -7,6 +7,232 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+Everything below came out of the full pre-release review of `0.13.0-beta.1`. Seven
+findings were blockers; the review also caught that the beta's own changelog entry
+had omitted four VM security fixes entirely (now written up in their own section,
+below, since they shipped there).
+
+### Security
+
+- **The capability membrane ran host code and defeated the byte budget on two of its
+  three walk branches.** The object branch was hardened, then array _indices_ the next
+  morning; two paths were never revisited. Affects **0.12.0 and earlier**, and both
+  branches of `0.13.0-beta.1`.
+
+  - An array's **non-index own enumerable properties were never visited at all**, while
+    `structuredClone` serialises them. A capability returning `[1,2,3]` with an
+    enumerable getter `meta` ran that getter and delivered `'HOST-CODE-RAN'` into guest
+    state; a throwing variant leaked host exception text into `result.error.message`,
+    which `malicious-actor.test.ts` explicitly forbids for the object branch. It was a
+    budget bypass too — `arr.big = 'x'.repeat(5MB)` crossed a 4 MB cap cleanly.
+  - **Map/Set were read with `for…of`**, which dispatches to a guest-overridable
+    `Symbol.iterator`, while `structuredClone` reads the internal slots. A
+    `class extends Map` with a lying iterator presented itself as **empty** to the walk
+    while 20,000 entries crossed a 1024-byte `membraneMaxBytes` intact (verified in both
+    JSC and V8). Three guarantees failed at once: the documented OOM guard was simply not
+    enforced for Map/Set, `MEMBRANE_MAX_DEPTH` was evadable by nesting, and host code ran.
+
+  One `readOwnData()` helper now serves the array and object branches, so they cannot
+  diverge again; collections are read through `Map.prototype.entries.call(v)` /
+  `Set.prototype.values.call(v)`, and a Map/Set whose prototype is not exactly the
+  intrinsic is refused.
+
+- **`xmlParse` was tagged `effects: 'pure'` while calling `ctx.capabilities.xml.parse`.**
+  That tag is what routes a return through the membrane _and_ what the predicate verifier
+  reads to certify a cluster safe to compile to native JS — so a `DOMParser` result reached
+  guest state as a **live host `Document`**, prototype chain and all, with `methodCall`
+  standing right there. Every atom in `atoms/browser.ts` was untagged as well.
+  `atom-effects.test.ts` could not have caught it: it iterates the same constant that
+  _assigns_ the tag, so it proves the list agrees with itself. New
+  `atom-effects-scan.test.ts` reads each atom's **body** and asks whether it touches a
+  capability, randomness, the clock, the network or the console.
+
+- **The live-heap ceiling was bypassed completely by two of the four binding atoms.**
+  `varSet`/`constSet` had both the prototype-pollution guard and heap accounting;
+  `varsLet` and `varsImport` — the two atoms whose entire job is binding variables — had
+  only the first, as did the loop binds and the catch binding. Verified: the identical
+  doubling program routed through `varsLet` held a **1 GB string under the 64 MB default
+  cap**. Every guest-scope write now goes through one `setStateVar()` helper, and
+  `state-writes.test.ts` fails on any bare `ctx.state[…] =` outside it.
+
+- **The heap-ceiling walker reintroduced the size-proportional fuel bypass** — the `==`
+  bug class, in the function next door to the commit that closed it. `estimateBytes` was
+  called with the absolute ceiling rather than remaining headroom, per-key accounting
+  _replaced_ rather than accumulated (so re-binding an unchanged object re-walked it in
+  full, forever), and the walk charged no fuel while being synchronous, so no timeout
+  could preempt it. Measured: **500 rebinds of a 300k-element array cost 28,838 ms of
+  pegged CPU for 50.2 fuel** — 574 ms per fuel unit, against 1 ms for a benign program
+  charged identically. Now **53 ms**. Also fixes an accounting split where
+  `createChildScope` copied the running total by value while sharing the per-key ledger by
+  reference, letting the total drift negative and silently buy back budget.
+
+- **`hash` and `omit` were flat-charged regardless of operand size.** `hash` digests every
+  byte and returns 64 chars, so result accounting sees nothing — 1 KB and 1 MB both cost
+  1.20 fuel. `omit` must walk the whole source object to know what to keep, so 100,000 keys
+  in and one key out cost the same as 1,000. `cost-invariant.test.ts` now **enumerates the
+  atom registry**: every atom needs either a case demonstrating marginal fuel growth or a
+  `SIZE_INSENSITIVE` entry saying why not.
+
+- **`vm.run` leaked an abort listener onto the caller's signal** — no `once`, no removal.
+  Measured **41.6 MB retained after 20,000 runs** against one shared signal, versus 1.59 MB
+  with no signal at all; a host running many short agents under a single cancellation scope
+  is the normal case. Now 1.46 MB.
+
+### Fixed
+
+- **`compareVersions` ordered prereleases lexically**, so `'beta.2' > 'beta.10'` — the
+  tenth beta looked _older_ than the second. Combined with `installRuntime`'s wholesale
+  replacement, an older beta "upgrades" over a newer one and **discards the flight
+  recorder and any applied `configure()`**. Now follows semver §11, pinned against the
+  specification's own worked ordering example. (The equality case was fixed in the beta;
+  this is the ordering case left behind.) Affects **every consumer of `0.13.0-beta.1`**.
+
+- **`unsafe` stole the identifier `unsafe` from JavaScript** — a `PRINCIPLES.md` TJS ⊇ JS
+  violation shipped by the escape hatch that exists to uphold compatibility, and present
+  under `dialect: 'js'` too. `{unsafe: Date}` + `o.unsafe instanceof Function`,
+  `let unsafe = Date; if (unsafe instanceof Function)`, and `unsafe in {a:1}` were all
+  `SyntaxError`. A related span defect let one marker un-ban an entire nested closure:
+  `unsafe makeHandler({ onClick: () => { eval(src); var leaked = 1 } })` transpiled with
+  zero warnings, quietly reinventing the whole-file mode that `unsafe` replaced.
+
+- **The literal-blindness class, ended.** A source-processing pass hand-rolls its own
+  literal tracking and silently mis-reads code that _mentions_ the syntax it scans for.
+  Since tjs-lang is code about code, its own source and documentation hit this constantly.
+  Five were fixed during the 0.13.0 cycle; the review found six more still live, in eight
+  files. All fifteen call sites now consume one `scanLiterals()` in `src/strip-comments.ts`.
+
+  - `isInsideComment` had no notion of strings, so `const OPEN = '/*'` — or the ordinary
+    glob `'**/*.ts'` — convinced it the rest of the file was one giant comment and **every
+    `test { }` block after it vanished**: no error, no warning, no recorder entry. For a
+    language whose thesis is that tests live in the source, silently reporting zero tests
+    is the worst available failure mode.
+  - The naive escape lookback `source[i-1] !== '\\'` in **fifteen** scanners across five
+    files. It is wrong for exactly the input that matters: in `'\\'` the character before
+    the closing quote _is_ a backslash, but an escaped one. `sep == '\\'` failed with
+    "Unexpected token" forty characters away.
+  - `computeBraceDepths` tracked strings but not regexes, so one `const R = /}/` — or the
+    very common `/\$\{([^}]+)\}/g` — drove the depth negative and `generateDocs` returned
+    an **empty document**. `tjs emit` writes a sidecar `.md` per file, so users' docs came
+    out blank.
+  - `extractEmbeddedTestComments` produced both a false negative and a false positive from
+    one blind spot: `const q = /['"]/` **dropped** a real embedded test, and `const q = /'/`
+    above a JSDoc **promoted a documentation example into a real emitted test**.
+  - `maskWasmBodies` matched `wasm {` inside a string and brace-counted past it, swallowing
+    the real code that followed. No error — the output still parsed.
+  - Fixing `findFunctionBodyEnd` exposed three latent bugs it had been accidentally
+    compensating for: the class, polymorphic-constructor and `extend` scanners were all
+    matching declarations written inside `/*# … */` doc comments — the language's own
+    documentation of those features.
+
+  New `src/lang/literal-blindness.test.ts` pins the class in `test:fast` (41 cases): each
+  trigger placed in a string, template, regex, comment and `wasm{}` body in turn.
+
+- **The `Eval`/`SafeFunction` auto-import emitted JavaScript that does not parse.** Usage
+  was detected with `\bEval\s*\(` over masked source, which never checked whether the name
+  was already bound and matches after a `.`. `import { Eval } from 'tjs-lang/eval'` — the
+  **documented** form in README, CLAUDE.md and TJS-FOR-TS.md — produced two imports and a
+  `SyntaxError`, so the documented TS → TJS → JS chain had no correct authoring path. It
+  also fired under `dialect: 'js'`, making legal JavaScript containing `function Eval(){}`
+  un-transpilable. Now decided from the AST: inject only for a call whose callee is a bare
+  identifier with no binding anywhere in the module.
+
+- **`bigint` was inverted in both directions.** `TS_TYPE_NAMES` mapped it to
+  `{ kind: 'number' }`, so `f(10n)` returned "Expected number … got bigint" and `f(10)` —
+  a plain number — **passed**. In 0.12.0 the annotation degraded to `any` and simply
+  worked, so this was working → 100% broken, on a type the beta's changelog advertised as
+  checking at runtime. Two adjacent defects made it unusable end to end even once the
+  check was right: `fromTS` emitted `x: 0n` that the return-position scanner rejected, and
+  a single `0n` anywhere in a file took down the whole transpile with "JSON.stringify
+  cannot serialize BigInt", naming no file and no line.
+
+- **`n?: number` emitted JavaScript that throws on the happy path.** The colon shorthand
+  rewrites an optional parameter to `n = <annotation>`, right for an example (`n?: 0` →
+  `n = 0`) and a **dangling identifier** for a type name — so `g()` threw
+  `number is not defined`. Long-standing, but this release made it far more likely: bare
+  TS names now produce real checks, so the annotation _looks_ like it works, and
+  `int`/`unsigned`/`float` are newly encouraged.
+
+- **Predicate canonicalization alpha-renamed object-literal keys.** Field names are
+  literals, not variables, and the two node types spell them differently, so the guard's
+  `Property` arm was dead: `{ n: 10 }` canonicalized to `{ $0: 10 }` — the canonical AST
+  read a field the source never named. That AST is forwarded verbatim by `storeQueryWhere`
+  to `store.queryPredicate`, making it the silent filter failure its own comment calls "an
+  authorization bug".
+
+- **`tjs check` hid the release's flagship diagnostic.** The command CI and coding agents
+  run printed `✓ file` for a file whose type had silently degraded, while `tjs run` on
+  identical source printed the full remedy; `tjs emit` was silent too. That directly
+  undercuts this release's own measured finding — a shown remedy is repaired ~80% of the
+  time, a bare diagnostic 0%. Warnings now go to **stderr** from check/emit/convert (so
+  `tjs emit f.tjs > out.js` still produces clean output), plus `--max-warnings N`.
+
+- **`tjs convert` reported success while dropping files** (#24). `convertFile` caught its
+  own error and returned normally whenever `outputPath` was set, so the caller's `catch`
+  was unreachable: one good file and one bad file reported "2 converted, 0 failed" and
+  exited 0, with the bad file silently missing. The failure surfaced two steps later as a
+  bundler resolution error.
+
+- **Unconditional rejections reported no location and stopped at the first occurrence.**
+  Fixing a file with three violations took three `tjs check` runs, each printing an
+  identical positionless message — in validator order, not source order. `var`, `new Date`
+  and `eval` now throw a located error at the first occurrence and list the rest beneath it.
+
+- **`LegacyDefault(...)` erased the parameter's type to `any`** — weaker than the plain-JS
+  equivalent it exists to reproduce. The caller asked for atomic default semantics; they
+  did not ask for the type to disappear.
+
+- **The shipped editor artifacts taught a language that isn't TJS.**
+
+  - The generated TextMate grammars **could never match anything**: `\\\\b` in a template
+    literal produces the string `\\b`, a literal backslash — so every keyword, forbidden
+    and builtin rule in both grammars was incapable of matching any input, for as long as
+    they have existed. The extension's advertised red-squiggle highlighting was dead.
+  - **`.tjs` had no VS Code support at all** — the grammar was regenerated on every build
+    and referenced by nothing, in the release whose central idea is that the file extension
+    _is_ the language gate.
+  - The TJS keyword model encoded **AJS's** restrictions. Measured against the real
+    compiler, **41 of 42 painted-red tokens are legal TJS**: `switch`/`case`/`default` are
+    ordinary control flow, `type`/`module`/`is`/`as`/`keyof`/`never` ordinary identifiers.
+  - The CodeMirror completion inserted `unsafe { … }`, a form the language rejects, and
+    offered no completion for `unsafe <expr>` or any `Legacy*` bridge — so this release's
+    entire escape vocabulary was undiscoverable in the editor.
+
+- **Two AJS playground examples shipped truncated**, and the flagship `wasm-functions`
+  example never compiled. `extractCodeBlock` was not fence-length aware, so examples
+  opening with four backticks (precisely because their code contains three) were cut
+  mid-expression; `extractWasmBlocks` compiled a `wasm { }` written in a **doc comment**,
+  so the example whose prose necessarily says "inline `wasm { … }` blocks" printed "did not
+  compile — running the fallback{} (JS)" on every run.
+
+### Changed
+
+- **`Timestamp` the runtime type is now a number, matching `Timestamp` the module.**
+  `0.13.0-beta.1` flipped the representation to epoch milliseconds and announced it, but
+  the runtime type in `Type.ts` — the one re-exported into `__tjs`, and therefore the one a
+  `.tjs` file annotating `t: Timestamp` is checked against — still validated an ISO
+  **string**. So `Timestamp.check(Timestamp.now())` was `false`: the type rejected the only
+  value its own constructor produces, while the compiler's `new Date()` diagnostic pointed
+  users at that constructor **by name**.
+
+  | Before (`0.13.0-beta.1`)            | Now                                    |
+  | ----------------------------------- | -------------------------------------- |
+  | `Timestamp` — ISO 8601 string       | `Timestamp` — epoch milliseconds       |
+  | (no equivalent)                     | `TimestampISO` — the ISO 8601 string   |
+  | `isValidTimestamp(v: string)` — ISO | `isValidTimestamp(v)` — epoch ms       |
+  | (no equivalent)                     | `isValidISOTimestamp(v: string)` — ISO |
+
+  If you were annotating an ISO string as `Timestamp`, use `TimestampISO`. Both spellings
+  now share one predicate with `src/types/Timestamp.ts`, so they cannot drift apart again.
+
+- **The npm package now ships its own documentation.** `llms.txt` is the agent-facing
+  navigation index and it ships — but **29 of its 43 links were 404 in the tarball**,
+  including `CLAUDE-TJS-SYNTAX.md`, the file it names as the thing to read first. The
+  guarding test resolved links against the repo root, certifying an artifact nobody
+  installs. The user-facing docs (`DOCS-*`, `TJS-FOR-*`, `PRINCIPLES`, `ASSUMPTIONS`,
+  `CHANGELOG`, `guides/`, `examples/`, `tjs-src/`) are now in `files`; repo-process docs
+  (TODO/PLAN/AGENTS/UPSTREAM) are linked absolutely on GitHub instead; and
+  `docs-index.test.ts` now resolves against `npm pack`'s own file list.
+
 ## [0.13.0-beta.1] — 2026-08-03
 
 **Beta.** The language changed shape: all nine mode directives are gone and the file
@@ -32,138 +258,49 @@ called stable.
   behaviour — which is strictly better, because a modes-off file also silenced the _next_,
   accidental use.
 
-### Added
-
-- **`unsafe <expression>` — the per-construct escape.** Marks one construct as deliberate
-  at the site: `unsafe new Date(x)`, `unsafe var x = 1`, `unsafe eval(s)`. Zero runtime
-  cost. Recognised only in expression position and only on the same line as its expression,
-  so a variable named `unsafe` remains legal JavaScript.
-- **`/* @tjs-unsafe */`** — the same marker for TypeScript source, which cannot contain
-  TJS-only syntax because `tsc` rejects it.
-- **Legacy equality bridges** — `DangerousLegacyEquals`, `DangerousLegacyNot`,
-  `LegacyExactly`, `LegacyNotExactly`. A fixed _operator_ has no construct to mark, so the
-  escape is a name. The coercing pair is named "Dangerous" because `==` invokes
-  `valueOf()`/`toString()` on any object and can therefore throw or run arbitrary code; the
-  strict pair is not, because `===` cannot.
-- **`LegacyDefault(value)`** — per-parameter escape from dictionary defaults, restoring
-  JavaScript's atomic semantics for one parameter rather than disabling a whole function's
-  validation.
-- **ASI guidance.** Statement boundaries are the one place TJS and JavaScript disagree
-  (`const x = g` / `(a)` calls `g(a)` in JS, two statements in TJS). That case now warns at
-  the site with a line number instead of changing meaning silently.
-
-### Changed
-
-- **`Timestamp` is a number (epoch milliseconds), not an ISO string.** `diff` is `a - b`,
-  `isBefore` is `a < b`, sorting is the default comparator — and `Timestamp.now()` is a
-  genuine drop-in for `Date.now()`, which it was not before. `iso()` renders the readable
-  form; `isValidISO` validates it.
-
-### Fixed
-
-- **`Eq` can no longer be made to run user code.** It unwrapped boxed primitives with
-  `a.valueOf()`, which a subclass can override — so a comparison could throw, mutate, or
-  lie about the value. It now reads the internal slot via the prototype method.
-- **Optional chaining broke the `==`/`!=` rewrite.** `o?.b != null` did not compile: the
-  operand scanner treated `?.` as a ternary boundary. Every form was affected.
-- **Regex literals were read as comments.** A regex containing `*/` or `//` desynced the
-  scanner, and an escaped backslash (`'\\'`) desynced the string scanner — between them
-  these broke conversion of several of our own files.
-
-### Added
-
-- **`int` and `unsigned` — the numeric types TypeScript never had.** TS has a single
-  numeric type, so "this is a count / index / id" is inexpressible and ends up policed by
-  comments or hand-written asserts. `n: int` rejects a float, `n: unsigned` (alias `uint`)
-  rejects a negative, and `float` is an explicit spelling of `number`. These **extend**
-  TypeScript rather than narrowing it — `number` still means number, so pasted TS is
-  unaffected.
-  - **The example forms are shorthand for exactly these, and carry a worked value too:**
-    `n: int` ≡ `n: 5`, `n: unsigned` ≡ `n: +5`, `n: number` ≡ `n: 5.0`. That equivalence
-    is pinned by a test: two spellings of one type that disagree would mean one of them is
-    lying to the reader.
-
-### Fixed
-
-- **Sound TypeScript type names now produce real runtime checks** — restoring a stated
-  design goal that had quietly gone missing: _implement the parts of TypeScript that aren't
-  Turing-complete damage, and best-effort only the rest._ In native TJS,
-  `function f(s: string)` inferred **`any`**, so it transpiled cleanly, looked typed, and
-  validated **nothing** — the worst possible outcome in a language whose pitch is that types
-  survive to runtime, and it hit the annotation newcomers and models reach for first
-  (ASSUMPTIONS.md A7). `string`, `number`, `boolean`, `bigint`, `object`, `null`,
-  `undefined` and unions of them now check at runtime, agreeing exactly with the equivalent
-  example type (`s: string` ≡ `s: ''`). `any`/`unknown`/`void`/`never` remain unconstrained
-  because that is what they mean; an unresolvable user type still degrades to best-effort
-  rather than erroring, which preserves TJS ⊇ JS.
-
-  - **Deliberately still best-effort:** conditional types, mapped types, recursive
-    templates, `infer` — the undecidable type-level metaprogramming TJS answers with a
-    _predicate function_ you can read, test and run.
-  - Known gap: `string[]` doesn't parse (use `['']`). It fails **loudly**, which is the
-    acceptable interim state — a parse error tells you to fix something; the old silent
-    `any` removed your type checking and said nothing.
-
-- **Best-effort type degradation now teaches instead of happening silently.** When an
-  annotation can't be resolved to a runtime type it still degrades to `any` (by design —
-  TJS ⊇ JS), but the transpiler now emits a warning naming what was dropped and showing the
-  ladder back to safety: an example (`foo: 3`), a sound type (`foo: number`), or a
-  `Type … { predicate(v) { … } }`. The suggestion is **shown as code**, per the measured
-  finding that a remedy shown repairs 80% where the same advice as prose repairs 50% and a
-  bare diagnostic 0%. No warning when `any`/`unknown` was asked for explicitly — honouring
-  `any` isn't a degradation, and warning there would train people to ignore the channel.
-
-### Changed
-
-- **Diagnostics for constructs AJS deliberately lacks now SHOW the fix.** `Unsupported
-statement type: ForStatement` was accurate and useless: an A/B over diagnostic text
-  (`experiments/agent-legibility/error-message-ab.ts`) measured the repair rate each message
-  actually produces — worked example **80%**, prose remedy 50%, our shipped message **0%**,
-  saying nothing at all **0%**. On the `for`-loop case, prose advice scored 0/5 while the
-  same remedy shown as code scored 5/5. `for`, `for...in`, `switch` and `do...while` errors
-  now carry a worked correction. Pure message text; no compiler change.
-  - Guarded by `src/lang/diagnostic-remedy.test.ts` — deterministic, no model needed: every
-    remedy must contain real code, name a supported alternative, reach the thrown message,
-    and **correspond to a construct the transpiler actually rejects**. That last check caught
-    a first draft claiming `for...of` was unsupported (it isn't) — a diagnostic for a
-    restriction that doesn't exist teaches a false limit and is worse than none.
-
-### Added
-
-- **Canonical form for verified predicates** (`canonicalizePredicate` / `predicateKey`,
-  exported from `tjs-lang/lang`). A verified predicate is pure, total, serializable and
-  composable; giving it a **canonical form** makes it an _identity_, which is what lets one
-  object serve as **cache key**, **pushdown payload** (send the predicate to `store.query`
-  instead of dragging rows to the code), **auth object** (a permission _is_ a predicate), and
-  the substrate for safe macro splicing. Predicates differing only in formatting, comments or
-  local variable names now share a key; differences in operator, literal _value_, field name,
-  or any helper in the cluster do not.
-
-  - **Verification is a precondition, not an option** — identity implies "same input ⇒ same
-    result", which an impure predicate doesn't satisfy however identical its syntax, so
-    canonicalizing an unverified cluster throws `PredicateNotVerifiedError`.
-  - **Deliberately not an optimizer:** commutative operands are _not_ reordered. That would be
-    a claim about totality and cost, not just purity — and a canonicalizer you can't trust
-    isn't usable as an auth object.
-  - The convenience `key` is FNV-1a and **documented as non-cryptographic**: fine for cache
-    bucketing (a collision costs a miss), insufficient where an adversary picks the input
-    (cache poisoning, auth) — hash the `canonical` string with SHA-256 for those.
-
-- **Predicate pushdown (`storeQueryWhere` + `store.queryPredicate`)** — send the _predicate_
-  to the data instead of dragging rows to the code. The atom takes a **canonical verified
-  predicate** and forwards it as data; the store evaluates it and can cache on its stable
-  `key`, so two spellings of the same rule hit the same cache entry. **The VM never parses
-  it** — that's what keeps the acorn-dependent canonicalizer out of the lean `tjs-lang/vm`
-  bundle and lets the same payload travel to a remote store. `queryPredicate` is **optional**
-  (progressive enhancement, like `$predicate` in JSON Schema); a store without it makes
-  `storeQueryWhere` **fail loudly** rather than degrade to an unfiltered read — silently
-  returning rows the caller meant to exclude is a data-exposure bug, not a fallback.
-  - Known, deliberate limitation: canonicalization is **structural**, so refactoring a
-    predicate (hoisting a subexpression into a local) mints a new identity. Collapsing those
-    would mean inlining, i.e. optimizing — and a canonicalizer that rewrites more than
-    spelling isn't one you can trust as an auth object.
-
 ### Security
+
+> The four items immediately below shipped in `0.13.0-beta.1` and were **omitted from this
+> entry at the time** — found by the pre-release review of the beta. They are recorded here,
+> under the version that actually contains them, rather than backdated into `[Unreleased]`.
+
+- **The capability membrane executed host code while inspecting it.** The pre-walk read
+  every own key with `v[k]`, which **invokes a getter** — so the machinery whose entire job
+  is keeping host code out of guest state was itself running host code, before
+  `structuredClone` was reached and regardless of whether the value was ultimately accepted.
+  The rejection path ran them too, so even a refused value had already executed. A getter
+  can throw, mutate, or stall, making this a side-effect vector on the boundary rather than
+  only a data leak. The walk now reads `Object.getOwnPropertyDescriptor` and **rejects
+  accessor properties outright** — not evaluated-then-checked, because there is no way to
+  learn what a getter returns without running it. **Breaking for capability authors:** see
+  the migration note under _Changed_. Affects **0.12.0 and earlier**.
+
+- **The run's `AbortController` was aborted only when the timeout fired.** Any other
+  ending — fuel exhaustion, an atom error, or plain success — cleared the timer and left
+  in-flight requests alive with nothing left to cancel them. A time box you can only rely on
+  when it expires is not a time box. It now aborts in `finally`, on every exit path.
+  Teardown **signals**; it does not await cleanup, because waiting is exactly how
+  cancellation becomes a path that starts unmetered work. Affects **0.12.0 and earlier**.
+
+- **Per-atom call quotas** (`quotas: { llmPredict: 3, httpFetch: 10 }`). Fuel meters work
+  done _inside_ the VM and is blind to what an atom summons outside it: an `llmPredict`
+  costing 50 fuel may cost real money, a `httpFetch` costing 10 may hammer someone else's
+  service. Enforced in the atom exec wrapper **before** both fuel and execution — an
+  exhausted quota must not have already made the call it exists to prevent, and must not
+  also drain the budget. An unset op is unlimited, so this is purely additive.
+
+  **Scope, honestly: a quota counts calls within ONE run.** A capability that starts a _new_
+  `vm.run` gets a fresh counter, so an agent able to trigger re-entrancy can multiply its
+  allowance. Pass the same `quotaUsed` object to each nested run to enforce a shared cap.
+  Across a process or network boundary no such enforcement is possible — budget does not
+  travel, only tokens and data do. Documented in DOCS-AJS.md and pinned by
+  `src/vm/quotas.test.ts`.
+
+- **`installRuntime` replaced the runtime with itself and discarded the flight recorder.**
+  Identical prerelease versions did not compare equal, so a second import of the same
+  version counted as an upgrade and wholesale-replaced the installed runtime — taking the
+  error history and any applied `configure()` with it. (The _ordering_ half of this bug
+  survived into the beta; see `[Unreleased]`.)
 
 - **Fuel bypass: size-proportional atoms charged a flat cost** — the `==` bug class, found
   again by a cost-model audit. `defineAtom`'s `cost:` is charged once per call regardless of
@@ -212,7 +349,148 @@ statement type: ForStatement` was accurate and useless: an A/B over diagnostic t
   (The published package's runtime deps — `acorn`/`acorn-loose`/`acorn-walk`/`tosijs-schema` —
   carry no advisories; consumers were never exposed.)
 
+### Added
+
+- **`unsafe <expression>` — the per-construct escape.** Marks one construct as deliberate
+  at the site: `unsafe new Date(x)`, `unsafe var x = 1`, `unsafe eval(s)`. Zero runtime
+  cost. Recognised only in expression position and only on the same line as its expression,
+  so a variable named `unsafe` remains legal JavaScript.
+- **`/* @tjs-unsafe */`** — the same marker for TypeScript source, which cannot contain
+  TJS-only syntax because `tsc` rejects it.
+- **Legacy equality bridges** — `DangerousLegacyEquals`, `DangerousLegacyNot`,
+  `LegacyExactly`, `LegacyNotExactly`. A fixed _operator_ has no construct to mark, so the
+  escape is a name. The coercing pair is named "Dangerous" because `==` invokes
+  `valueOf()`/`toString()` on any object and can therefore throw or run arbitrary code; the
+  strict pair is not, because `===` cannot.
+- **`LegacyDefault(value)`** — per-parameter escape from dictionary defaults, restoring
+  JavaScript's atomic semantics for one parameter rather than disabling a whole function's
+  validation.
+- **ASI guidance.** Statement boundaries are the one place TJS and JavaScript disagree
+  (`const x = g` / `(a)` calls `g(a)` in JS, two statements in TJS). That case now warns at
+  the site with a line number instead of changing meaning silently.
+
+- **`int` and `unsigned` — the numeric types TypeScript never had.** TS has a single
+  numeric type, so "this is a count / index / id" is inexpressible and ends up policed by
+  comments or hand-written asserts. `n: int` rejects a float, `n: unsigned` (alias `uint`)
+  rejects a negative, and `float` is an explicit spelling of `number`. These **extend**
+  TypeScript rather than narrowing it — `number` still means number, so pasted TS is
+  unaffected.
+
+  - **The example forms are shorthand for exactly these, and carry a worked value too:**
+    `n: int` ≡ `n: 5`, `n: unsigned` ≡ `n: +5`, `n: number` ≡ `n: 5.0`. That equivalence
+    is pinned by a test: two spellings of one type that disagree would mean one of them is
+    lying to the reader.
+
+- **Canonical form for verified predicates** (`canonicalizePredicate` / `predicateKey`,
+  exported from `tjs-lang/lang`). A verified predicate is pure, total, serializable and
+  composable; giving it a **canonical form** makes it an _identity_, which is what lets one
+  object serve as **cache key**, **pushdown payload** (send the predicate to `store.query`
+  instead of dragging rows to the code), **auth object** (a permission _is_ a predicate), and
+  the substrate for safe macro splicing. Predicates differing only in formatting, comments or
+  local variable names now share a key; differences in operator, literal _value_, field name,
+  or any helper in the cluster do not.
+
+  - **Verification is a precondition, not an option** — identity implies "same input ⇒ same
+    result", which an impure predicate doesn't satisfy however identical its syntax, so
+    canonicalizing an unverified cluster throws `PredicateNotVerifiedError`.
+  - **Deliberately not an optimizer:** commutative operands are _not_ reordered. That would be
+    a claim about totality and cost, not just purity — and a canonicalizer you can't trust
+    isn't usable as an auth object.
+  - The convenience `key` is FNV-1a and **documented as non-cryptographic**: fine for cache
+    bucketing (a collision costs a miss), insufficient where an adversary picks the input
+    (cache poisoning, auth) — hash the `canonical` string with SHA-256 for those.
+
+- **Predicate pushdown (`storeQueryWhere` + `store.queryPredicate`)** — send the _predicate_
+  to the data instead of dragging rows to the code. The atom takes a **canonical verified
+  predicate** and forwards it as data; the store evaluates it and can cache on its stable
+  `key`, so two spellings of the same rule hit the same cache entry. **The VM never parses
+  it** — that's what keeps the acorn-dependent canonicalizer out of the lean `tjs-lang/vm`
+  bundle and lets the same payload travel to a remote store. `queryPredicate` is **optional**
+  (progressive enhancement, like `$predicate` in JSON Schema); a store without it makes
+  `storeQueryWhere` **fail loudly** rather than degrade to an unfiltered read — silently
+  returning rows the caller meant to exclude is a data-exposure bug, not a fallback.
+  - Known, deliberate limitation: canonicalization is **structural**, so refactoring a
+    predicate (hoisting a subexpression into a local) mints a new identity. Collapsing those
+    would mean inlining, i.e. optimizing — and a canonicalizer that rewrites more than
+    spelling isn't one you can trust as an auth object.
+
+### Changed
+
+- **BREAKING for capability authors: the boundary takes plain data only — no accessor
+  properties.** A getter is host code, so a membrane that ran one while inspecting a
+  payload would be executing the thing it exists to keep out. This bites the obvious shape,
+  which is exactly what a host wrapping a `Response` tends to write:
+
+  ```js
+  // Rejected: `status` is a getter — code wearing a data costume.
+  return { ok: res.ok, get status() { return res.status }, body }
+
+  // Fix: read it once, hand over the value.
+  return { ok: res.ok, status: res.status, body }
+  ```
+
+  Spreading is not the fix and fails **silently**: a `Response` keeps `ok`/`status`/
+  `headers` on its _prototype_, so `{ ...res }` is `{}` — it crosses cleanly and delivers
+  nothing. Build the object literally, naming each field. Rejection is a `MonadicError`
+  (`Capability boundary rejected the return of '<op>': … accessor property '<name>'`), not
+  a throw.
+
+- **`Timestamp` is a number (epoch milliseconds), not an ISO string.** `diff` is `a - b`,
+  `isBefore` is `a < b`, sorting is the default comparator — and `Timestamp.now()` is a
+  genuine drop-in for `Date.now()`, which it was not before. `iso()` renders the readable
+  form; `isValidISO` validates it.
+
+- **Diagnostics for constructs AJS deliberately lacks now SHOW the fix.** `Unsupported
+statement type: ForStatement` was accurate and useless: an A/B over diagnostic text
+  (`experiments/agent-legibility/error-message-ab.ts`) measured the repair rate each message
+  actually produces — worked example **80%**, prose remedy 50%, our shipped message **0%**,
+  saying nothing at all **0%**. On the `for`-loop case, prose advice scored 0/5 while the
+  same remedy shown as code scored 5/5. `for`, `for...in`, `switch` and `do...while` errors
+  now carry a worked correction. Pure message text; no compiler change.
+  - Guarded by `src/lang/diagnostic-remedy.test.ts` — deterministic, no model needed: every
+    remedy must contain real code, name a supported alternative, reach the thrown message,
+    and **correspond to a construct the transpiler actually rejects**. That last check caught
+    a first draft claiming `for...of` was unsupported (it isn't) — a diagnostic for a
+    restriction that doesn't exist teaches a false limit and is worse than none.
+
 ### Fixed
+
+- **`Eq` can no longer be made to run user code.** It unwrapped boxed primitives with
+  `a.valueOf()`, which a subclass can override — so a comparison could throw, mutate, or
+  lie about the value. It now reads the internal slot via the prototype method.
+- **Optional chaining broke the `==`/`!=` rewrite.** `o?.b != null` did not compile: the
+  operand scanner treated `?.` as a ternary boundary. Every form was affected.
+- **Regex literals were read as comments.** A regex containing `*/` or `//` desynced the
+  scanner, and an escaped backslash (`'\\'`) desynced the string scanner — between them
+  these broke conversion of several of our own files.
+
+- **Sound TypeScript type names now produce real runtime checks** — restoring a stated
+  design goal that had quietly gone missing: _implement the parts of TypeScript that aren't
+  Turing-complete damage, and best-effort only the rest._ In native TJS,
+  `function f(s: string)` inferred **`any`**, so it transpiled cleanly, looked typed, and
+  validated **nothing** — the worst possible outcome in a language whose pitch is that types
+  survive to runtime, and it hit the annotation newcomers and models reach for first
+  (ASSUMPTIONS.md A7). `string`, `number`, `boolean`, `bigint`, `object`, `null`,
+  `undefined` and unions of them now check at runtime, agreeing exactly with the equivalent
+  example type (`s: string` ≡ `s: ''`). `any`/`unknown`/`void`/`never` remain unconstrained
+  because that is what they mean; an unresolvable user type still degrades to best-effort
+  rather than erroring, which preserves TJS ⊇ JS.
+
+  - **Deliberately still best-effort:** conditional types, mapped types, recursive
+    templates, `infer` — the undecidable type-level metaprogramming TJS answers with a
+    _predicate function_ you can read, test and run.
+  - Known gap: `string[]` doesn't parse (use `['']`). It fails **loudly**, which is the
+    acceptable interim state — a parse error tells you to fix something; the old silent
+    `any` removed your type checking and said nothing.
+
+- **Best-effort type degradation now teaches instead of happening silently.** When an
+  annotation can't be resolved to a runtime type it still degrades to `any` (by design —
+  TJS ⊇ JS), but the transpiler now emits a warning naming what was dropped and showing the
+  ladder back to safety: an example (`foo: 3`), a sound type (`foo: number`), or a
+  `Type … { predicate(v) { … } }`. The suggestion is **shown as code**, per the measured
+  finding that a remedy shown repairs 80% where the same advice as prose repairs 50% and a
+  bare diagnostic 0%. No warning when `any`/`unknown` was asked for explicitly — honouring
+  `any` isn't a degradation, and warning there would train people to ignore the channel.
 
 - **Bare-assignment auto-`const` no longer captures an all-caps alias** (#22). In native tjs,
   `B = BABYLON` was rewritten to `const B = …`; when `B` was declared in an enclosing/host

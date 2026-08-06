@@ -5,10 +5,22 @@
  * index exists for — which is how `predicate.ts`, the north-star doc, and the
  * CHANGELOG all went missing without anyone noticing.
  *
- * Three checks, all cheap:
+ * Four checks, all cheap:
  *   1. every top-level and `docs/` markdown file is linked from llms.txt
  *   2. every `exports` subpath in package.json is named in llms.txt
- *   3. every relative link in llms.txt actually resolves
+ *   3. every relative link in llms.txt actually resolves in the repo
+ *   4. every relative link ALSO resolves in the published tarball
+ *
+ * Check 4 exists because checks 1–3 certified the wrong artifact. `llms.txt`
+ * ships in the npm package, so the copy that matters is the one a consumer
+ * reads from `node_modules` — and resolving its links against the repo root
+ * said "complete" while **29 of 43 were 404 in the tarball**, including
+ * `CLAUDE-TJS-SYNTAX.md`, the doc llms.txt names as the thing to read first.
+ * A relative link is a promise about the artifact it ships inside.
+ *
+ * Two ways to keep it green: ship the file (add it to `files` in package.json),
+ * or link it absolutely on GitHub — which is right for repo-process docs
+ * (TODO/PLAN/AGENTS) that describe the repository rather than the package.
  *
  * To exempt something, add it to the allowlist below WITH A REASON. The reason
  * is the point — an unexplained exemption is just a silent hole.
@@ -29,6 +41,9 @@ const UNINDEXED_DOCS: Record<string, string> = {
   '.haltija.md': 'local browser-debugging tool setup, not part of the package',
 }
 
+/** Where a doc that doesn't ship in the package is linked instead. */
+const BLOB = 'https://github.com/tonioloewald/tjs-lang/blob/main/'
+
 /** Entry points deliberately absent from the agent index, and why. */
 const UNINDEXED_EXPORTS: Record<string, string> = {
   './src': 'raw-source escape hatch, not a supported import',
@@ -41,9 +56,12 @@ describe('llms.txt is a complete index', () => {
       ...globSync('docs/*.md', { cwd: ROOT }),
     ].map((p) => p.replaceAll('\\', '/'))
 
+    // Indexed either way: a package-relative link (the doc ships) or an absolute
+    // GitHub link (a repo-process doc that deliberately doesn't). Both are real
+    // index entries; only the second survives check 4.
     const missing = docs
       .filter((d) => !UNINDEXED_DOCS[d])
-      .filter((d) => !llms.includes(`(${d})`))
+      .filter((d) => !llms.includes(`(${d})`) && !llms.includes(`${BLOB}${d})`))
 
     expect(missing).toEqual([])
   })
@@ -60,13 +78,51 @@ describe('llms.txt is a complete index', () => {
   })
 
   it('has no broken relative links', () => {
-    const links = [...llms.matchAll(/\]\((?!https?:)([^)]+)\)/g)].map(
-      (m) => m[1]
-    )
-
-    expect(links.length).toBeGreaterThan(10) // the regex still finds links
-    const broken = links.filter((l) => !existsSync(join(ROOT, l)))
+    expect(RELATIVE_LINKS.length).toBeGreaterThan(10) // the regex still finds links
+    const broken = RELATIVE_LINKS.filter((l) => !existsSync(join(ROOT, l)))
 
     expect(broken).toEqual([])
   })
+
+  it('has no relative link that 404s in the published package', () => {
+    const shipped = publishedFiles()
+    const isShipped = (link: string) => {
+      const p = link.split('#')[0].replace(/^\.\//, '')
+      if (!p) return true // a bare '#anchor' is same-document
+      // A directory link (`examples/`) is satisfied by anything shipped under it.
+      return p.endsWith('/')
+        ? shipped.some((f) => f.startsWith(p))
+        : shipped.includes(p)
+    }
+
+    const missing = RELATIVE_LINKS.filter((l) => !isShipped(l))
+    expect(missing).toEqual([])
+  })
 })
+
+const RELATIVE_LINKS = [
+  ...new Set([...llms.matchAll(/\]\((?!https?:)([^)]+)\)/g)].map((m) => m[1])),
+]
+
+/**
+ * The file list `npm publish` would actually produce — npm's own packlist, not a
+ * re-implementation of its `files`/`.npmignore` precedence rules. Modelling those
+ * by hand is how you get a guard that agrees with itself and disagrees with npm.
+ *
+ * Deliberately throws rather than degrading to "assume everything ships": a probe
+ * that can't run must fail the test, not silently certify. `--dry-run` writes no
+ * tarball; it costs ~0.9s.
+ */
+function publishedFiles(): string[] {
+  const { execFileSync } =
+    require('child_process') as typeof import('child_process')
+  const out = execFileSync('npm', ['pack', '--dry-run', '--json'], {
+    cwd: ROOT,
+    encoding: 'utf8',
+    stdio: ['ignore', 'pipe', 'ignore'],
+  })
+  const parsed = JSON.parse(out) as Array<{ files: Array<{ path: string }> }>
+  const files = parsed[0]?.files?.map((f) => f.path)
+  if (!files?.length) throw new Error('npm pack --dry-run returned no files')
+  return files
+}

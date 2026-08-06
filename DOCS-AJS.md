@@ -109,6 +109,71 @@ as a plain object (`{ ok, status, body }`). Oversized returns are also rejected 
 copy allocates; the cap is the `membraneMaxBytes` run option (default 4 MB), which you may
 need to raise for large-JSON or base64 `dataUrl` payloads.
 
+**Accessor properties are rejected too (0.13.0 — breaking).** A getter is host code, and a
+membrane that ran one while inspecting a payload would be executing the very thing it exists
+to keep out. The pre-walk reads own property _descriptors_ and never invokes an accessor, so
+it rejects rather than silently evaluating:
+
+```typescript
+// Rejected: `status` is a getter — code wearing a data costume.
+return { ok: res.ok, get status() { return res.status }, body }
+
+// Fine: read it once, hand over the value.
+return { ok: res.ok, status: res.status, body }
+```
+
+Spreading is not the fix and fails **silently**: a `Response` keeps `ok`/`status`/`headers`
+on its prototype, so `{ ...res }` is `{}` — it crosses the boundary cleanly and delivers
+nothing. Build the object literally, naming each field.
+
+### Live-Heap Ceiling
+
+Fuel meters _work_, so it is a **time** budget. It bounds how much a program allocates over
+its lifetime but says nothing about how much it holds **at once**: `x = x + x` charges
+honestly, yet a legitimate 100,000-fuel budget still buys roughly a gigabyte of live string.
+A run that exhausts host memory has taken the process down however honestly it paid.
+
+```typescript
+await vm.run(agent, args, {
+  fuel: 100_000,
+  maxHeapBytes: 64 * 1024 * 1024, // default 64 MB — the SPACE budget
+})
+```
+
+Accounting is **per key**, so overwriting a variable frees its budget and ordinary loops
+don't false-positive.
+
+### Per-Atom Call Quotas
+
+Fuel is denominated in VM work, so it cannot express "at most 3 model calls" — an
+`llmPredict` costing 50 fuel might cost real money, and a `httpFetch` costing 10 might
+hammer someone else's service. Quotas cap **calls**, not work:
+
+```typescript
+await vm.run(agent, args, {
+  fuel: 10_000,
+  quotas: { llmPredict: 3, httpFetch: 10 }, // an op you don't list is unlimited
+})
+```
+
+**Scope — read this before treating a quota as a spend cap.** A quota counts calls within
+**one run**. A capability that starts a _new_ `vm.run` gets a fresh counter, so an agent able
+to trigger re-entrancy can multiply its allowance. Inline sub-agents share the parent's
+context and therefore its counter; a capability calling back into the VM does not.
+
+To enforce a cap across nested runs, pass the **same `quotaUsed` object** to each:
+
+```typescript
+const quotaUsed = {} // one shared ledger
+const opts = { quotas: { llmPredict: 3 }, quotaUsed }
+await vm.run(outerAgent, args, { ...opts, capabilities })
+await vm.run(innerAgent, args, { ...opts, capabilities }) // draws from the same 3
+```
+
+Across a process or network boundary no such enforcement is possible: budget does not
+travel, only tokens and data do. The honest guarantee is over what we control — a time box
+on every run, abort on every exit path, and quotas on what we summon.
+
 ---
 
 ## Input/Output Contract

@@ -33,6 +33,7 @@ import {
   TUrl,
   TUuid,
   Timestamp,
+  TimestampISO,
   LegalDate,
   // Built-in generics
   TPair,
@@ -40,6 +41,7 @@ import {
   // Portable predicate helpers (future AJS builtins)
   isValidUrl,
   isValidTimestamp,
+  isValidISOTimestamp,
   isValidLegalDate,
 } from '../types/Type'
 
@@ -64,11 +66,13 @@ export {
   TUrl,
   TUuid,
   Timestamp,
+  TimestampISO,
   LegalDate,
   TPair,
   TRecord,
   isValidUrl,
   isValidTimestamp,
+  isValidISOTimestamp,
   isValidLegalDate,
 }
 
@@ -2143,6 +2147,7 @@ export const runtime = {
   TUrl,
   TUuid,
   Timestamp,
+  TimestampISO,
   LegalDate,
   TPair,
   TRecord,

@@ -175,6 +175,9 @@ await vm.run(ast, args, {
   costOverrides: { atomOp: 5 },             // per-atom fuel cost override
   timeoutOverrides: { atomOp: 60_000 },     // per-atom wall-clock override (ms; 0 disables)
   membraneMaxBytes: 4 * 1024 * 1024,        // cap on a capability return's size (default 4MB)
+  maxHeapBytes: 64 * 1024 * 1024,           // ceiling on bytes held LIVE in guest scope (default 64MB)
+  quotas: { llmPredict: 3, httpFetch: 10 }, // per-atom CALL caps; absent op ⇒ unlimited
+  quotaUsed,                                // share one counter across nested runs (see below)
 })
 
 // Builder
@@ -328,10 +331,12 @@ fn('a', 'b') // Returns { error: 'type mismatch', ... }
 ### Security Model
 
 - **Capability-based**: VM has zero IO by default; inject `fetch`, `store`, `llm` via capabilities
-- **Capability-boundary membrane**: every `effects: 'io'` atom return is deep-copied through `structuredClone` before it enters guest state — so a capability can't hand the guest a live host reference (an object with callable methods it could invoke via `methodCall`, or a shared object it could mutate). A budgeted, cycle-safe pre-walk rejects functions / oversized payloads _before_ the clone allocates (`membraneMaxBytes` run option, default 4MB — the OOM guard). Custom capabilities must therefore return structured-cloneable data (see Custom Atoms Must)
+- **Capability-boundary membrane**: every `effects: 'io'` atom return is deep-copied through `structuredClone` before it enters guest state — so a capability can't hand the guest a live host reference (an object with callable methods it could invoke via `methodCall`, or a shared object it could mutate). A budgeted, cycle-safe pre-walk rejects functions / oversized payloads _before_ the clone allocates (`membraneMaxBytes` run option, default 4MB — the OOM guard). Custom capabilities must therefore return **plain data**: no functions, and **no accessor properties** — the walk reads own descriptors and never invokes a getter, so a getter is host code the membrane would otherwise run (see Custom Atoms Must)
 - **`methodCall` allowlist**: guest method calls are restricted to standard built-in methods (`src/vm/runtime.ts` `SAFE_METHOD_NAMES`); `call`/`apply`/`bind` (Function.prototype-only) are rejected
-- **Fuel metering**: Every atom has a cost; execution stops when fuel exhausted
-- **Timeout enforcement**: Default `fuel × 10ms`; explicit `timeoutMs` overrides
+- **Fuel metering**: Every atom has a cost; execution stops when fuel exhausted. Fuel meters _work_, so it is the **time** budget
+- **Live-heap ceiling**: `maxHeapBytes` (default 64MB) is the **space** budget. Fuel bounds how much a program allocates over its lifetime but says nothing about how much it holds at once; a run that exhausts host memory has taken the process down however honestly it paid
+- **Per-atom call quotas**: `quotas: { llmPredict: 3 }` caps how many times an op may run — fuel is denominated in VM work and cannot express "at most 3 model calls". Absent op ⇒ unlimited. **A quota counts calls within ONE run**: a capability that starts a _new_ `vm.run` gets a fresh counter, so an agent able to trigger re-entrancy can multiply its allowance. To hold a cap across nested runs, pass the **same `quotaUsed` object** to each. Across a process or network boundary no such enforcement is possible — budget does not travel, only tokens and data do
+- **Timeout enforcement**: Default `fuel × 10ms`; explicit `timeoutMs` overrides. Every exit path aborts outbound work, so a timed-out run never leaves a live `fetch` behind
 - **Monadic errors**: Errors wrapped in `AgentError` (VM) / `MonadicError` (TJS), not thrown (prevents exception exploits). Use `isMonadicError()` to check — `isError()` is deprecated
 - **Expression sandboxing**: ExprNode AST evaluation, blocked prototype access
 
@@ -462,6 +467,21 @@ Enable tracing: `vm.run(ast, args, { trace: true })` returns `TraceEvent[]` with
   `effects: 'io'` return crosses a `structuredClone` capability membrane before it reaches
   guest state; a non-cloneable or oversized return is rejected with a `MonadicError`
   (`Capability boundary rejected the return of '<op>'`). See the Security Model.
+- **No accessor properties** (0.13.0). A getter is host code, and a membrane that ran it
+  while inspecting a payload would be executing the very thing it exists to keep out. The
+  walk reads own property _descriptors_ and never invokes one, so an accessor is rejected
+  rather than silently evaluated. This bites the obvious shape:
+
+  ```js
+  // Rejected — `status` is a getter, so this is code wearing a data costume.
+  return { ok: res.ok, get status() { return res.status }, body }
+  // Fix: read it once, hand over the value.
+  return { ok: res.ok, status: res.status, body }
+  ```
+
+  Spreading the host object is not the fix either, and fails **silently**: a `Response`
+  keeps `ok`/`status`/`headers` on its _prototype_, so `{ ...res }` is `{}` — it crosses
+  the membrane cleanly and delivers nothing. Build the object literally, naming each field.
 
 ### Value Resolution
 

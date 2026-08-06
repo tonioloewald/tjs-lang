@@ -86,10 +86,19 @@ bun src/cli/tjs.ts types file.tjs   # Output type metadata
 ### Parameter Types (Colon Syntax)
 
 > **Not TypeScript.** TJS colon syntax looks like TypeScript but has different
-> semantics. The value after `:` is a **concrete example**, not a type name.
-> Write `name: 'Alice'` (example value), not `name: string` (type name).
-> TJS infers the type from the example: `'Alice'` → string, `0` → integer,
-> `true` → boolean.
+> semantics. The value after `:` is normally a **concrete example**:
+> `name: 'Alice'` means "a string, and here is one" — TJS infers the type from
+> the example (`'Alice'` → string, `0` → integer, `true` → boolean). It is _not_
+> a string-literal type; `'Alice'` widens to `string`.
+>
+> **Type names also work, and are real checks** (0.13.0). `string`, `number`,
+> `boolean`, `bigint`, `object`, `null`, `undefined`, unions of those, and TJS's
+> own `int` / `unsigned` / `uint` / `float` each validate at runtime, agreeing
+> exactly with the equivalent example (`s: string` ≡ `s: ''`). Prefer an example
+> where you have one — it documents and tests as well as types — but a type name
+> is a first-class annotation, not a degradation. `any` / `unknown` / `void` /
+> `never` stay unconstrained because that is what they mean, and an unresolvable
+> type still degrades to best-effort **with a warning naming what was dropped**.
 
 Required parameters use colon syntax with an example value:
 
@@ -103,7 +112,8 @@ function toggle(flag: true) {}   // flag is required, type: boolean
 
 ### Numeric Types
 
-TJS distinguishes three numeric types using valid JavaScript syntax:
+TJS distinguishes three numeric types, and gives you two ways to say each — an
+example value (valid JavaScript syntax), or a name:
 
 ```typescript
 function process(
@@ -111,7 +121,23 @@ function process(
   count: 42,     // integer -- whole number, no decimal
   index: +0      // non-negative integer -- prefixed with +
 ) {}
+
+function process(
+  rate: float,      // ≡ 3.14  (float is an explicit spelling of number)
+  count: int,       // ≡ 42
+  index: unsigned   // ≡ +0    (alias: uint)
+) {}
 ```
+
+**These extend TypeScript rather than narrowing it.** TS has a single numeric
+type, so "this is a count / an index / an id" is inexpressible and ends up
+policed by comments or hand-written asserts. `number` still means `number`, so
+pasted TypeScript is unaffected — `int` and `unsigned` are additions, not
+redefinitions.
+
+The two spellings are the same type; the example form carries a worked value
+too. That equivalence is pinned by a test, because two spellings of one type
+that disagreed would mean one of them was lying to the reader.
 
 | You Write | Type Inferred          | Runtime Validation              |
 | --------- | ---------------------- | ------------------------------- |

@@ -1018,7 +1018,7 @@ This matches real-world APIs (DOM, dates, etc.) without TypeScript's painful wor
 
 ## 15. `==` That Works
 
-JavaScript's `==` is broken (type coercion chaos). In native TJS, `==`/`!=` use honest equality by default (no coercion, unwraps boxed primitives). TS-originated code retains JS semantics unless `TjsEquals` or `TjsStrict` is added. `Is`/`IsNot` provide explicit deep structural comparison:
+JavaScript's `==` is broken (type coercion chaos). In native TJS, `==`/`!=` use honest equality by default (no coercion, unwraps boxed primitives). TS-originated code retains JS semantics unless the file is native `.tjs` or `TjsStrict` sets the dialect. `Is`/`IsNot` provide explicit deep structural comparison:
 
 | Operator | Behavior                                                                                  |
 | -------- | ----------------------------------------------------------------------------------------- |
@@ -1058,11 +1058,11 @@ p1 === p2  // false (different objects)
 - ✅ Infix syntax transformation (`a Is b` → `Is(a, b)`)
 - ✅ Custom equality protocol (`[tjsEquals]` symbol and `.Equals` method)
 - ✅ Honest `typeof` (`typeof null` → `'null'` — enabled by default in native TJS)
-- ✅ TS-originated code retains JS semantics unless `TjsEquals` or `TjsStrict` added
+- ✅ TS-originated code retains JS semantics unless the dialect says otherwise (`TjsStrict`)
 
-## 16. Death to Semicolons (`TjsStandard`)
+## 16. Death to Semicolons
 
-In native TJS, `TjsStandard` is on by default, so newlines are meaningful. TS-originated code retains JS semantics unless `TjsStandard` or `TjsStrict` is added. This:
+In native TJS newlines are meaningful — unconditionally, because the file extension is the gate. TS-originated code retains JS semantics unless `TjsStrict` sets the dialect. This:
 
 ```typescript
 foo()

@@ -19,10 +19,12 @@ export {
   TUrl,
   TUuid,
   Timestamp as TimestampType,
+  TimestampISO,
   LegalDate as LegalDateType,
   // Portable predicate helpers
   isValidUrl,
   isValidTimestamp,
+  isValidISOTimestamp,
   isValidLegalDate,
   // Combinators
   Nullable,
