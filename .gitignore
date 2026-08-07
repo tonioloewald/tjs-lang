@@ -156,3 +156,4 @@ src/**/*.d.ts.map
 # Firebase deploy caches — regenerated on every `firebase deploy`, and they churn
 # hundreds of lines per release. Not source, not an artifact anyone consumes.
 .firebase/
+.dogfood-*/

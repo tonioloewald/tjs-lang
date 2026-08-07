@@ -36,7 +36,6 @@ import {
   mkdirSync,
 } from 'node:fs'
 import { join, resolve, dirname, relative } from 'node:path'
-import { tmpdir } from 'node:os'
 
 const REPO = resolve(import.meta.dir, '../..')
 const SRC = join(REPO, 'src')
@@ -129,16 +128,23 @@ const KNOWN_CONVERSION_FAILURES = new Map<string, string>([
  * Measured 2026-08-07 over 112 convertible suites:
  *
  *     original :  2013 pass,   0 fail,  4805 assertions
- *     converted:  1604 pass, 130 fail,  3644 assertions
+ *     converted:  1909 pass, 104 fail,  4518 assertions
  *
- * So converting our own test suites breaks 130 tests and loses **1161 assertions —
- * about a quarter of them**. That is the honest state of the "TJS is a better
- * TypeScript" claim measured where it is hardest, and nothing measured it before.
+ * So conversion preserves **94% of assertions** and 95% of passing tests. The remaining
+ * gap is 287 assertions and 104 tests, plus 9 suites that will not convert at all.
+ *
+ * The first version of this file recorded 1161 and 130 — inflated fourfold, because the
+ * converted suites were written to os.tmpdir() and 26 of them then failed with "Cannot
+ * find package" as module resolution walked up from /tmp and never reached our
+ * node_modules. The harness was failing and being scored as the language failing. It is
+ * the exact trap this repo already has written down: an apparatus that fails closed
+ * looks precisely like a strong negative result. Re-measured with the files written
+ * inside the repo.
  *
  * Asserting parity today would leave the gate permanently red, and a permanently red
  * gate is one nobody reads. So this is a floor that may only improve.
  */
-const BASELINE = { assertionsLost: 1161, testsBroken: 130 }
+const BASELINE = { assertionsLost: 287, testsBroken: 104 }
 
 /**
  * Improve by this much and the test asks you to lower `BASELINE`.
@@ -210,7 +216,12 @@ describe('dogfood: our own test suites survive conversion', () => {
   }
 
   const suites = testSuites()
-  const tmp = mkdtempSync(join(tmpdir(), 'tjs-dogfood-tests-'))
+  // INSIDE the repo, not os.tmpdir(). A converted suite still imports bare packages
+  // (`acorn`, `tosijs-schema`), and module resolution walks UP from the file — so from
+  // /tmp it never reaches our node_modules and 26 suites failed with "Cannot find
+  // package". That is the harness failing, scored as the language failing: it inflated
+  // the measured gap by about a quarter before anyone looked at what the errors said.
+  const tmp = mkdtempSync(join(REPO, '.dogfood-'))
 
   it('has a corpus worth measuring', () => {
     // A skip list that swallowed the corpus would make everything below vacuous.
