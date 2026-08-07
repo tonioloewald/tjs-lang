@@ -100,3 +100,42 @@ export function double(n: Even) { return n * 2 }
     expect(out).not.toContain('double(n: any)')
   })
 })
+
+/**
+ * An agent with NO declared parameters accepts arguments; one WITH them still rejects
+ * undeclared extras.
+ *
+ * `parametersToJsonSchema` closed the object unconditionally, so a function that
+ * declared no parameters got `{properties: {}, additionalProperties: false}` — "this
+ * accepts no arguments at all", which is a far stronger claim than "none were
+ * declared". `Eval` builds exactly such an agent and its whole job is receiving an
+ * arbitrary context bag, so its schema forbade the thing it exists to do.
+ *
+ * It shipped because tosijs-schema 1.4.0 did not enforce `additionalProperties: false`.
+ * So neither the declared check nor any check ran, and `Eval` validated its context
+ * args not at all. 1.5.0 enforces it; the upgrade did not break us, it found us — which
+ * is why the fix is here and not a version pin.
+ */
+describe('an empty parameter list does not forbid arguments', () => {
+  it('Eval accepts an arbitrary context bag', async () => {
+    const { Eval } = await import('./eval')
+    expect(
+      (await Eval({ code: 'a + b', context: { a: 1, b: 2 } })).result
+    ).toBe(3)
+  })
+
+  it('Eval still works with an empty context', async () => {
+    const { Eval } = await import('./eval')
+    expect((await Eval({ code: '1 + 1', context: {} })).result).toBe(2)
+  })
+
+  it('a DECLARED parameter list still closes the object', async () => {
+    // The fix must not turn every agent into an open bag — a declared parameter list is
+    // a contract the author wrote, and excess keys should still be rejected.
+    const { transpile } = await import('./index')
+    const ast: any = transpile(`function add({ a, b }) { return a + b }`, {
+      vmTarget: true,
+    }).ast
+    expect(ast?.inputSchema?.additionalProperties).toBe(false)
+  })
+})

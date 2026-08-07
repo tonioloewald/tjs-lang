@@ -112,7 +112,23 @@ function parametersToJsonSchema(
     type: 'object',
     properties,
     required: required.length > 0 ? required : undefined,
-    additionalProperties: false,
+    // NO DECLARED PARAMETERS MEANS UNCONSTRAINED, NOT FORBIDDEN.
+    //
+    // Closing an EMPTY property set says "this agent accepts no arguments at all",
+    // which is a much stronger claim than "none were declared" — and it is wrong for
+    // the case that hit it: `Eval` builds an agent whose caller supplies an arbitrary
+    // context bag (`{a: 1, b: 2}`), so its schema said "nothing permitted" while its
+    // whole job was accepting whatever it was given.
+    //
+    // That mismatch shipped because tosijs-schema 1.4.0 did not enforce
+    // `additionalProperties: false`. So neither the declared check NOR any check was
+    // running, and `Eval` validated its context args not at all. 1.5.0 enforces it and
+    // the bug surfaced immediately — the upgrade did not break us, it found us.
+    //
+    // Declared parameters still close the object; that is a real contract the author
+    // wrote. This only stops an EMPTY one from asserting something nobody meant.
+    additionalProperties:
+      Object.keys(properties).length === 0 ? undefined : false,
   }
 }
 
