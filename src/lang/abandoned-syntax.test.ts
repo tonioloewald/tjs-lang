@@ -123,3 +123,64 @@ describe('forms that never existed, or stopped existing', () => {
     expect(reject('function f(a: 2, b: 3):? 5 { return a + b }')).toBeNull()
   })
 })
+
+/**
+ * Decided-but-unbuilt syntax must fail LOUDLY, not silently accept everything.
+ *
+ * The same hazard as the abandoned forms above, pointed forwards instead of backwards —
+ * and with a shorter fuse, because the person writing it has been told it is the
+ * recommended spelling.
+ *
+ * `predicate => expr` and `predicate { return expr }` were decided as the terse forms
+ * (mirroring arrow-function bodies: `=>` implies the return, `{ }` requires it). Neither
+ * is implemented. Both parsed cleanly and fell through to a Type with NO predicate —
+ * measured: `predicate => Even % 2 === 0` returned `true` for 3, so the type accepted
+ * every value while looking like it checked one.
+ *
+ * Left alone, that form works "fine", lands in an example, ships in the playground, and
+ * becomes something we must either implement or break.
+ */
+describe('unbuilt predicate forms are rejected, not ignored', () => {
+  const EXAMPLE = 'Type Even {\n  example: 2\n'
+
+  it('rejects `predicate => …`', () => {
+    const msg = reject(`${EXAMPLE}  predicate => Even % 2 === 0\n}`)
+    expect(msg).toContain('predicate(x)')
+  })
+
+  it('rejects `predicate { … }`', () => {
+    const msg = reject(`${EXAMPLE}  predicate { return Even % 2 === 0 }\n}`)
+    expect(msg).toContain('predicate(x)')
+  })
+
+  it('rejects an unbuilt form on a parameterized type too', () => {
+    expect(reject('Type Box<T> {\n  predicate => T(Box.value)\n}')).toContain(
+      'predicate(x)'
+    )
+  })
+
+  it('the implemented form still works, and still CHECKS', () => {
+    // The control. A guard that rejected every predicate would satisfy the three
+    // assertions above just as well.
+    const src = `${EXAMPLE}  predicate(x) { return x % 2 === 0 }\n}`
+    expect(reject(src)).toBeNull()
+    const code = tjs(src, { runTests: false }).code
+    const [ok, bad] = new Function(
+      `${code}\nreturn [Even.check(4), Even.check(3)]`
+    )() as boolean[]
+    expect([ok, bad]).toEqual([true, false])
+  })
+
+  it('a Type with no predicate at all is still fine', () => {
+    // Not every type needs one — the example alone is a real check.
+    expect(reject('Type Even {\n  example: 2\n}')).toBeNull()
+  })
+
+  it('does not fire on the word "predicate" inside a string', () => {
+    // Scanned through maskLiterals; this file has produced enough literal-blindness
+    // bugs to warrant the control.
+    expect(
+      reject(`Type Even {\n  description: 'has a predicate'\n  example: 2\n}`)
+    ).toBeNull()
+  })
+})

@@ -1811,6 +1811,47 @@ function findRightOperandBoundary(
 }
 
 /**
+ * A `predicate` written in a form we do not recognise must be an ERROR, never ignored.
+ *
+ * `predicate(x) { … }` is the only implemented spelling. The two shorter forms that were
+ * DECIDED but not built — `predicate => expr` and `predicate { return expr }` — parsed
+ * cleanly and fell through to a Type with no predicate at all, i.e. one that **accepts
+ * every value**. Measured: `predicate => Even % 2 === 0` returned `true` for 3.
+ *
+ * That is the drift hazard pointed forwards instead of backwards. A form that silently
+ * accepts everything looks like it works, lands in an example, ships in the playground,
+ * and then becomes something we must either implement or break. An abandoned form that
+ * still parses is bad; an UNBUILT form that still parses is the same trap with a shorter
+ * fuse, because the person writing it has been told it is the recommended spelling.
+ *
+ * So fail loudly and name the form that exists. When the short forms are implemented this
+ * guard narrows rather than disappears — it should still catch the next unrecognised one.
+ */
+function assertPredicateFormRecognized(
+  typeName: string,
+  body: string,
+  matched: RegExpMatchArray | null,
+  source: string,
+  offset: number
+): void {
+  if (matched) return
+  // Mask literals first: a `predicate` mentioned inside an example string or a
+  // description is not a declaration. This file has produced enough literal-blindness
+  // bugs to know better than to scan raw source.
+  if (!/\bpredicate\b/.test(maskLiterals(body))) return
+  throw new SyntaxError(
+    `\`${typeName}\` declares a \`predicate\` in a form TJS does not implement yet, so it ` +
+      `would be IGNORED and the type would accept every value.\n\n` +
+      `  Use the function form:\n` +
+      `    predicate(x) { return /* … */ }\n\n` +
+      `  \`predicate => …\` and \`predicate { … }\` are decided but not built. They are ` +
+      `rejected rather than ignored precisely so a type that checks nothing cannot ship ` +
+      `looking like one that does.`,
+    locAt(source, offset)
+  )
+}
+
+/**
  * Transform Type block declarations
  *
  * Syntax forms:
@@ -1949,6 +1990,13 @@ export function transformTypeDeclarations(
 
         const predicateMatch = blockBody.match(
           /predicate\s*\(([^)]*)\)\s*\{([^]*)\}/
+        )
+        assertPredicateFormRecognized(
+          typeName,
+          blockBody,
+          predicateMatch,
+          source,
+          i
         )
 
         // Build Type() call with appropriate arguments
@@ -2279,6 +2327,13 @@ export function transformGenericDeclarations(
       const descMatch = parsedBody.match(/description\s*:\s*(['"`])([^]*?)\1/)
       const predicateMatch = parsedBody.match(
         /predicate\s*\(([^)]*)\)\s*\{([^]*)\}/
+      )
+      assertPredicateFormRecognized(
+        genericName,
+        parsedBody,
+        predicateMatch,
+        source,
+        i
       )
 
       const description = descMatch ? descMatch[2] : genericName
