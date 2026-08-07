@@ -28,20 +28,18 @@ export interface AuditExemption {
 
 export const AUDIT_EXEMPTIONS: AuditExemption[] = [
   // --- eslint tooling chain (dev-only; not in any shipped bundle) --------------
-  {
-    ghsa: 'GHSA-3jxr-9vmj-r5cp',
-    package: 'brace-expansion',
-    reason:
-      'DoS via {} expansion. Transitive under eslint/typescript-eslint → minimatch → brace-expansion. Dev lint tooling only, never bundled or shipped. Waiting on an eslint/minimatch release that pulls the patched brace-expansion.',
-    until: '2026-10-27',
-  },
-  {
-    ghsa: 'GHSA-mh99-v99m-4gvg',
-    package: 'brace-expansion',
-    reason:
-      'Second brace-expansion DoS advisory; same dev-only eslint chain as above.',
-    until: '2026-10-27',
-  },
+  //
+  // The three brace-expansion advisories (GHSA-3jxr-9vmj-r5cp, GHSA-mh99-v99m-4gvg,
+  // GHSA-rgw5-rvv9-x895) are GONE as of 2026-08-07, resolved rather than re-exempted:
+  // an `overrides` entry in package.json pins the transitive resolution to ^5.0.9,
+  // past the `<5.0.8` affected range. An override rather than a dependency, because we
+  // never import it — `bun update brace-expansion` puts it in runtime `dependencies`
+  // beside acorn, which would declare a dependency the package does not have.
+  //
+  // Worth recording that the exemptions were dated 2026-10-27 and the fix landed
+  // months early: the two live ones only surfaced as removable because a THIRD
+  // advisory appeared with no exemption and failed the gate. Without that, the gate
+  // would have stayed quietly green on a fixable advisory until October.
   {
     ghsa: 'GHSA-25h7-pfq9-p65f',
     package: 'flatted',
