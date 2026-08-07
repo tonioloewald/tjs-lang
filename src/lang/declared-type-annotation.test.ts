@@ -297,3 +297,79 @@ function double(n: Even) { return n * 2 }
     expect(standalone('double(4)')).toBe(withRuntime)
   })
 })
+
+/**
+ * An EMPTY example carries no structural information, so it must not constrain.
+ *
+ * `example: {}` says "an object". It does not say "an object with no properties" — but
+ * `infer({})` produces a closed empty schema, and once tosijs-schema 1.5.0 began
+ * enforcing `additionalProperties` correctly, that schema started rejecting every object
+ * with any key at all. A type whose structural half was meant to be "it's an object"
+ * silently became "it's the empty object", and its predicate never ran.
+ *
+ * A regression from the 1.5.0 upgrade, in the SIBLING of the function fixed for the same
+ * defect the same day — `parametersToJsonSchema` learned that an empty parameter list
+ * does not forbid arguments, and this path was not checked. Empty shape means
+ * unconstrained, in both places.
+ *
+ * The pattern that exposed it is the one worth keeping: property names that DECLARE
+ * their own types (`isFoo` boolean, `intFoo` integer, `countFoo` cardinal) over an OPEN
+ * key set. TypeScript cannot express that — an index signature forces one type for all
+ * keys, and a mapped type needs the keys enumerated in advance. A predicate reads the
+ * name and decides, which is the whole argument for predicates in six lines.
+ */
+describe('an empty example does not close the shape', () => {
+  const PREFIX = `Type PrefixTyped {
+  description: 'an object whose property NAMES declare their types'
+  example: {}
+  predicate(o) {
+    return Object.entries(o).every(([k, v]) =>
+      k.startsWith('is')    ? typeof v === 'boolean'
+    : k.startsWith('int')   ? Number.isInteger(v)
+    : k.startsWith('count') ? Number.isInteger(v) && v >= 0
+    : true
+    )
+  }
+}
+function render(props: PrefixTyped) { return Object.keys(props).length }
+`
+
+  it('accepts an object whose names and values agree', () => {
+    expect(
+      call(PREFIX, 'render({ isOpen: true, intWidth: 40, countItems: 3 })')
+    ).toBe(3)
+  })
+
+  it('rejects each prefix violation', () => {
+    expect(call(PREFIX, `render({ isOpen: 'yes' })`)).toBe('Error(PrefixTyped)')
+    expect(call(PREFIX, 'render({ intWidth: 4.5 })')).toBe('Error(PrefixTyped)')
+    expect(call(PREFIX, 'render({ countItems: -1 })')).toBe(
+      'Error(PrefixTyped)'
+    )
+  })
+
+  it('leaves unprefixed keys unconstrained', () => {
+    expect(call(PREFIX, `render({ label: 'anything' })`)).toBe(1)
+  })
+
+  it('the predicate is VERIFIED, so the check is fuel-bounded', () => {
+    // It iterates with `every` rather than a loop, which is what keeps it verifiable —
+    // and verification is what makes an O(keys) check safe to run on untrusted input.
+    const r = tjs(PREFIX, { runTests: false })
+    const p = (r.predicates ?? []).find((x: any) => x.name === 'PrefixTyped')
+    expect(p?.verified).toBe(true)
+  })
+
+  it('a NON-empty example still closes the object', () => {
+    // The fix must not turn every example into an open bag: excess keys remain an error
+    // when the author actually described a shape.
+    const src = `Type Point {
+  example: { x: 0, y: 0 }
+  predicate(p) { return true }
+}
+function f(p: Point) { return p.x }
+`
+    expect(call(src, 'f({ x: 1, y: 2 })')).toBe(1)
+    expect(call(src, 'f({ x: 1, y: 2, z: 3 })')).toBe('Error(Point)')
+  })
+})

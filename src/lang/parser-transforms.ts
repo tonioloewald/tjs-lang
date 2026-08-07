@@ -2021,7 +2021,25 @@ export function transformTypeDeclarations(
           // full runtime. Unchecked-but-working is the correct degradation here (TJS ⊇ JS);
           // rejecting valid input is not, and it only became reachable once annotations
           // started routing through declared types.
-          const schemaGate = `(globalThis.__tjs?.validate ? globalThis.__tjs.validate(${params}, globalThis.__tjs.infer(${example})) : true)`
+          // An EMPTY example carries no structural information, so it must not constrain.
+          //
+          // `example: {}` says "an object"; it does not say "an object with no
+          // properties". But `infer({})` produces a closed empty schema, and once
+          // tosijs-schema 1.5.0 started enforcing `additionalProperties` correctly that
+          // schema began rejecting every object with any key at all — so a type whose
+          // structural half was meant to be "it's an object" silently became "it's the
+          // empty object", and the predicate never got a chance to run.
+          //
+          // Exactly the defect fixed in `parametersToJsonSchema` the same day, in the
+          // sibling function twenty lines away, which I did not check. Empty shape =
+          // unconstrained, in both places.
+          //
+          // A NON-empty example still closes the object: excess keys are a real error
+          // when the author described a shape.
+          const emptyExample = /^\{\s*\}$/.test(example.trim())
+          const schemaGate = emptyExample
+            ? 'true'
+            : `(globalThis.__tjs?.validate ? globalThis.__tjs.validate(${params}, globalThis.__tjs.infer(${example})) : true)`
           const guard = verifiedGuardExpr(
             typeName,
             'Type',
