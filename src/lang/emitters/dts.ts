@@ -23,6 +23,7 @@
 import type { TypeDescriptor } from '../types'
 import { isDictDefaultParam } from '../types'
 import type { TJSTranspileResult, TJSTypeInfo } from './js'
+import { maskLiterals } from '../../strip-comments'
 
 /**
  * Convert a TypeDescriptor to a TypeScript type string.
@@ -39,6 +40,17 @@ export function typeDescriptorToTS(td: TypeDescriptor): string {
   let base: string
 
   switch (td.kind) {
+    case 'declared':
+      // A `Type`/`Type<T>` declared in this module. Emit the NAME, so `.d.ts` consumers
+      // see `n: Even` rather than `n: any` — the type exists, it is checked at runtime,
+      // and erasing it here throws away the one thing TypeScript tooling could still use.
+      //
+      // A parameterized use arrives as its factory call (`Box(0)`), which is the runtime
+      // spelling, not the type spelling; take the base name. Recovering the ARGUMENTS as
+      // TS type arguments needs the declaration block (see `declarations` below) and is
+      // not attempted from the call text.
+      base = (td.typeName ?? 'unknown').split('(')[0].trim()
+      break
     case 'string':
       base = 'string'
       break
@@ -266,6 +278,9 @@ function detectFunctionPredicates(
   source: string
 ): Map<string, FunctionPredicateInfo> {
   const result = new Map<string, FunctionPredicateInfo>()
+  // Brace matching over a literal-masked view — a `}` inside a string, template or regex
+  // is not structure. See the note in `detectGenerics`.
+  const masked = maskLiterals(source)
 
   // Block form: FunctionPredicate Name { ... } or FunctionPredicate Name<T> { ... }
   const blockRe =
@@ -279,9 +294,9 @@ function detectFunctionPredicates(
     // Find matching closing brace
     let depth = 1
     let i = blockStart + 1
-    while (i < source.length && depth > 0) {
-      if (source[i] === '{') depth++
-      else if (source[i] === '}') depth--
+    while (i < masked.length && depth > 0) {
+      if (masked[i] === '{') depth++
+      else if (masked[i] === '}') depth--
       i++
     }
     const body = source.slice(blockStart + 1, i - 1)
@@ -518,8 +533,14 @@ function detectTypeDeclarations(source: string): Map<string, string> {
   }
 
   // Block with TS type body: Type Name { // TS: original type }
+  //
+  // The capture runs to END OF LINE, not to the next `}`. `// TS:` is a LINE comment, so
+  // the line is the boundary — and terminating on `}` truncated any type containing one:
+  // `` `/${string}/${number}` `` came back as `` `/${string `` because the brace inside
+  // `${string}` looked like the end of the block. A template-literal type is exactly the
+  // kind TJS preserves rather than executes, so it was the case most likely to be here.
   const tsBodyRe =
-    /^[ \t]*(?:export\s+)?Type\s+(\w+)\s*\{[^}]*\/\/\s*TS:\s*(.+?)(?:\n|\s*\})/gm
+    /^[ \t]*(?:export\s+)?Type\s+(\w+)\s*\{[^}]*\/\/\s*TS:\s*(.+)$/gm
   while ((m = tsBodyRe.exec(source)) !== null) {
     if (!result.has(m[1])) {
       result.set(m[1], `__ts__:${m[2].trim()}`) // prefix marks TS passthrough
@@ -547,7 +568,15 @@ interface GenericInfo {
 /** Detect Generic declarations, their type params, and optional declaration blocks */
 function detectGenerics(source: string): Map<string, GenericInfo> {
   const result = new Map<string, GenericInfo>()
-  const re = /^[ \t]*(?:export\s+)?Generic\s+(\w+)\s*<([^>]+)>\s*\{/gm
+  // `Type X<T>` and `Generic X<T>` are the same declaration since the 0.13.0 unification;
+  // this detector knew only the `Generic` spelling, so a parameterized `Type` emitted no
+  // .d.ts at all. Sibling left behind by that change.
+  const re = /^[ \t]*(?:export\s+)?(?:Generic|Type)\s+(\w+)\s*<([^>]+)>\s*\{/gm
+  // Brace matching runs over a literal-masked view: a `}` inside a string, template or
+  // regex is not structure. `export type Route = \`/\${string}/\${number}\`` truncated to
+  // `\`/\${string` because the `}` of `\${string}` closed the block early — the type came
+  // back from the round trip as a syntax error.
+  const masked = maskLiterals(source)
   let m
   while ((m = re.exec(source)) !== null) {
     const name = m[1]
@@ -565,6 +594,7 @@ function detectGenerics(source: string): Map<string, GenericInfo> {
       i++
     }
     const blockBody = source.slice(blockStart + 1, i - 1)
+    const maskedBody = masked.slice(blockStart + 1, i - 1)
 
     // Look for declaration { ... } within the block body
     let declaration: string | undefined
@@ -573,9 +603,9 @@ function detectGenerics(source: string): Map<string, GenericInfo> {
       const declStart = declMatch.index + declMatch[0].length - 1
       let dDepth = 1
       let j = declStart + 1
-      while (j < blockBody.length && dDepth > 0) {
-        if (blockBody[j] === '{') dDepth++
-        else if (blockBody[j] === '}') dDepth--
+      while (j < maskedBody.length && dDepth > 0) {
+        if (maskedBody[j] === '{') dDepth++
+        else if (maskedBody[j] === '}') dDepth--
         j++
       }
       declaration = blockBody.slice(declStart + 1, j - 1).trim()
