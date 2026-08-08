@@ -73,6 +73,54 @@ const TS_TYPE_NAMES: Record<string, TypeDescriptor> = {
  *
  * `undefined`/`NaN`/`Infinity` are bare identifiers that ARE values, so they are excluded.
  */
+/**
+ * A type ARGUMENT, as runtime source — the thing `Box<int>` needs `int` to be.
+ *
+ * A primitive kind has no runtime binding: `n: int` compiles to an inline
+ * `typeof n === 'number' && Number.isInteger(n)`, so `int` exists only at compile time and
+ * `Box(int)` would reference nothing. Mapping it to a PREDICATE is what makes a type
+ * argument expressible, and it needs no new machinery: `Generic` already accepts a bare
+ * predicate function as a type argument, and predicates compose — `Box<Box<int>>` works
+ * because a `Generic` result is itself a RuntimeType with its own `.check`.
+ *
+ * This is the general answer for any type that cannot be represented as a value, which is
+ * the direction `docs/type-system-north-star.md` argues for: a predicate IS the runtime
+ * representation of a computed type.
+ *
+ * Returns `null` for a name that is not a known primitive kind — a declared type name is
+ * already a runtime binding and needs no translation.
+ *
+ * Kept in agreement with the emitter's `generateTypeCheckExpr` by
+ * `src/lang/type-argument.test.ts`, which evaluates both over a shared corpus. They are
+ * separate because one produces a FAILURE expression for inline codegen and the other a
+ * predicate, and because the emitter must not become a dependency of the parser.
+ */
+export function typeArgumentSource(name: string): string | null {
+  const d = TS_TYPE_NAMES[name.trim()]
+  if (!d) return null
+  switch (d.kind) {
+    case 'string':
+    case 'number':
+    case 'boolean':
+    case 'bigint':
+      return `((v) => typeof v === '${d.kind}')`
+    case 'integer':
+      return `((v) => typeof v === 'number' && Number.isInteger(v))`
+    case 'non-negative-integer':
+      return `((v) => typeof v === 'number' && Number.isInteger(v) && v >= 0)`
+    case 'object':
+      return `((v) => v !== null && typeof v === 'object' && !Array.isArray(v))`
+    case 'null':
+      return `((v) => v === null)`
+    case 'undefined':
+      return `((v) => v === undefined)`
+    case 'any':
+      return `(() => true)`
+    default:
+      return null
+  }
+}
+
 export function isTypeNameAnnotation(text: string): boolean {
   const t = text.trim()
   if (!/^[A-Za-z_$][A-Za-z0-9_$]*$/.test(t)) return false
