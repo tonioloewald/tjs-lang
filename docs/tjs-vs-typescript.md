@@ -285,7 +285,7 @@ console.log(String(unbox({ value: 1.5 })).slice(0, 22))
 | --- | --- | --- |
 | result | — | `MonadicError: Expected` *(intended)* |
 
-Parsing and resolution were built and reverted: the annotation worked, but the inline runtime stub compares with `typeof`, so `Box<int>` accepted a float in standalone output. Blocked on the stub doing structural inference, not on the syntax.
+Parsing and resolution were built and reverted: the annotation worked, but the inline runtime stub compares with `typeof`, so `Box<int>` accepted a float in standalone output. Blocked on the stub doing structural inference, not on the syntax — the four measured disagreements, and why the stub is what actually ships, are in `docs/type-identity.md`.
 
 ---
 

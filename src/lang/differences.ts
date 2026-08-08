@@ -219,7 +219,7 @@ console.log(Box(0).check({ value: 7 }), Box(0).check({ value: 's' }))`,
 function unbox(b: Box<int>) { return b.value }
 console.log(String(unbox({ value: 1.5 })).slice(0, 22))`,
     tjs: { accepts: true, value: 'MonadicError: Expected' },
-    why: 'Parsing and resolution were built and reverted: the annotation worked, but the inline runtime stub compares with `typeof`, so `Box<int>` accepted a float in standalone output. Blocked on the stub doing structural inference, not on the syntax.',
+    why: 'Parsing and resolution were built and reverted: the annotation worked, but the inline runtime stub compares with `typeof`, so `Box<int>` accepted a float in standalone output. Blocked on the stub doing structural inference, not on the syntax — the four measured disagreements, and why the stub is what actually ships, are in `docs/type-identity.md`.',
   },
   {
     id: 'overload-dispatch',
