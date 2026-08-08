@@ -1789,6 +1789,37 @@ function transformClassToTJS(
         })
         body = replacePrivateRefs(transpiled.outputText.trim())
       }
+
+      // TypeScript PARAMETER PROPERTIES (`constructor(public x: number)`) are not
+      // annotations — they GENERATE `this.x = x`. They live on the parameter list, not
+      // in the body, so transpiling `member.body` alone drops them and every such field
+      // is `undefined` at runtime. The class still compiles and still runs, which is
+      // what made this expensive: nothing reported it. (The plain-JS path was always
+      // correct, because there tsc does its own downleveling.)
+      const paramProps = member.parameters
+        .filter((p) =>
+          p.modifiers?.some(
+            (m) =>
+              m.kind === ts.SyntaxKind.PublicKeyword ||
+              m.kind === ts.SyntaxKind.PrivateKeyword ||
+              m.kind === ts.SyntaxKind.ProtectedKeyword ||
+              m.kind === ts.SyntaxKind.ReadonlyKeyword
+          )
+        )
+        .map((p) => p.name.getText(sourceFile))
+      if (paramProps.length) {
+        const assigns = paramProps.map((n) => `this.${n} = ${n}`)
+        const inner = body.replace(/^\{|\}$/g, '').trim()
+        // AFTER `super(…)`, never before — touching `this` first throws, which is why
+        // TypeScript orders it this way too.
+        const sup = inner.match(/^\s*super\s*\([\s\S]*?\)\s*;?/)
+        const rest = sup ? inner.slice(sup[0].length).trim() : inner
+        const head = sup ? [sup[0].trim()] : []
+        body = `{\n    ${[...head, ...assigns, rest]
+          .filter(Boolean)
+          .join('\n    ')}\n  }`
+      }
+
       members.push(`  constructor(${params.join(', ')}) ${body}`)
     }
 

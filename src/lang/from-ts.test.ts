@@ -414,3 +414,55 @@ describe('type-only wrappers in parameter defaults', () => {
     )
   })
 })
+
+/**
+ * TypeScript parameter properties (`constructor(public x: number)`) are not annotations —
+ * they GENERATE `this.x = x`. They live on the parameter list, not in the body, so a
+ * converter that transpiles only `member.body` drops them silently and every field is
+ * `undefined` at runtime. The class still compiles and still runs, which is what makes it
+ * expensive: nothing reports it.
+ *
+ * Found by asking whether the corpus covered constructor overloads. It did — this was
+ * next to it.
+ */
+describe('fromTS — parameter properties', () => {
+  it('emits the assignments TypeScript would generate', () => {
+    const code = fromTS(
+      `class P { constructor(public x: number, private label: string) {} }`,
+      { emitTJS: true }
+    ).code
+    expect(code).toContain('this.x = x')
+    expect(code).toContain('this.label = label')
+  })
+
+  it('leaves a plain parameter alone', () => {
+    // The other direction: assigning every parameter would invent fields TS never had.
+    const code = fromTS(`class P { constructor(x: number) {} }`, {
+      emitTJS: true,
+    }).code
+    expect(code).not.toContain('this.x = x')
+  })
+
+  it('assigns AFTER super(), not before', () => {
+    // TypeScript orders it this way because touching `this` before `super()` throws.
+    const code = fromTS(
+      `class B { constructor(n: number) {} }
+class D extends B { constructor(public x: number) { super(x) } }`,
+      { emitTJS: true }
+    ).code
+    const sup = code.lastIndexOf('super(')
+    const assign = code.indexOf('this.x = x')
+    expect(assign).toBeGreaterThan(sup)
+  })
+
+  it('round-trips through TJS to a working object', () => {
+    // The assertion that would have caught this: the field actually holds the argument.
+    const tjsSrc = fromTS(`class P { constructor(public x: number) {} }`, {
+      emitTJS: true,
+    }).code.replace(/^\/\* tjs <- .*\*\/\n/, '')
+    const P = new Function(
+      tjs(tjsSrc, { filename: 'pp.tjs' }).code + '\nreturn P'
+    )() as any
+    expect(P(7).x).toBe(7)
+  })
+})
