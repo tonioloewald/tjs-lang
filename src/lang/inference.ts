@@ -105,7 +105,7 @@ export function typeArgumentSource(name: string): string | null {
     case 'bigint':
       return `((v) => typeof v === '${d.kind}')`
     case 'integer':
-      return `((v) => typeof v === 'number' && Number.isInteger(v))`
+      return `(Number.isInteger)`
     case 'non-negative-integer':
       return `((v) => typeof v === 'number' && Number.isInteger(v) && v >= 0)`
     case 'object':

@@ -18,7 +18,7 @@ import {
   isEscapedAt,
   maskLiterals,
 } from '../strip-comments'
-import { isTypeNameAnnotation } from './inference'
+import { isTypeNameAnnotation, typeArgumentSource } from './inference'
 
 export function transformParenExpressions(
   source: string,
@@ -36,6 +36,18 @@ export function transformParenExpressions(
      * byte-identical AST, and only the parser knows which is which.
      */
     typeNameOptionals: Set<string>
+    /**
+     * Types declared in this module (`Type X {…}`), so an annotation like `Box<int>` can
+     * be recognised as an APPLICATION of one rather than a comparison.
+     */
+    declaredTypes?: Set<string>
+    /**
+     * Hoisted `const __ta_… = Box(…)` declarations produced by type arguments. The caller
+     * prepends them, so an applied type is constructed ONCE per module instead of on
+     * every call — and so the annotation itself stays a bare identifier, which is the
+     * shape the emitter's declared-type path already handles.
+     */
+    hoistedTypeArgs?: HoistedTypeArg[]
     unsafeFunctions: Set<string>
     safeFunctions: Set<string>
   }
@@ -923,6 +935,119 @@ function extractReturnTypeValue(
  * Schema. A regex default was worse still: `/,/` became `/, /`, which is a different regex.
  * Pinned by `src/lang/literal-blindness.test.ts`.
  */
+
+/**
+ * `Box<int>` in annotation position -> a hoisted `const`, leaving a bare identifier.
+ *
+ *   function unbox(b: Box<int>)
+ *     -> const __ta_Box_1 = Box(Number.isInteger)
+ *        function unbox(b = __ta_Box_1)
+ *
+ * Applying a parameterized type is a CALL at run time — `Generic` returns a function and
+ * calling it yields the checked type — and a primitive argument becomes a PREDICATE, which
+ * is the only representation available for something with no runtime binding (`int`
+ * compiles to an inline check, so `Box(int)` would reference nothing).
+ *
+ * Hoisting rather than inlining the call buys two things. The type is built once per
+ * module instead of once per call; and the annotation stays an identifier, so the emitter's
+ * existing declared-type path handles it with no change — the alternative was teaching
+ * inference and codegen about call-shaped annotations, i.e. a second mechanism for
+ * something the first already does.
+ *
+ * Unambiguous in this position: an annotation is delimited by `,` or `)`, so `Box<int>)`
+ * cannot be a comparison. The identity of the argument is irrelevant — `Box<number>` and
+ * `Box<string>` are no more reserved than `int`.
+ *
+ * Returns the input unchanged unless the head is a type declared in this module, so
+ * ordinary annotations take exactly the path they took before.
+ */
+function rewriteTypeArguments(
+  type: string,
+  ctx: {
+    declaredTypes?: Set<string>
+    hoistedTypeArgs?: HoistedTypeArg[]
+  }
+): string {
+  if (!ctx.declaredTypes || !ctx.hoistedTypeArgs) return type
+  const expr = applyTypeArguments(type, ctx.declaredTypes)
+  if (expr === null) return type
+  // Named after the annotation, not `__ta_0`: this identifier IS what a type error says
+  // it expected, and "Expected __ta_0" tells the reader nothing about their own code.
+  const base = type
+    .trim()
+    .replace(/[^A-Za-z0-9_$]+/g, '_')
+    .replace(/_+$/, '')
+  let alias = base
+  for (let n = 2; ctx.declaredTypes.has(alias); n++) alias = `${base}_${n}`
+  // `head` is the type being applied. The caller places the declaration immediately after
+  // THAT type's own declaration: `Box` is a `const`, so a `const __ta_0 = Box(…)` placed
+  // before it hits the temporal dead zone at module evaluation.
+  ctx.hoistedTypeArgs.push({
+    alias,
+    head: expr.slice(0, expr.indexOf('(')),
+    text: `const ${alias} = ${expr}`,
+  })
+  // The alias is itself a declared type from here on, so the emitter checks with it.
+  ctx.declaredTypes.add(alias)
+  return alias
+}
+
+/** A `const __ta_N = Box(…)` to be emitted after `Box`'s own declaration. */
+export interface HoistedTypeArg {
+  alias: string
+  /** The type being applied — determines where the declaration must go. */
+  head: string
+  text: string
+}
+
+/** `Box<int>` -> `Box(Number.isInteger)`, or null when this is not an applied type. */
+function applyTypeArguments(
+  type: string,
+  declaredTypes: Set<string>
+): string | null {
+  const m = type.trim().match(/^([A-Z][A-Za-z0-9_$]*)\s*<(.+)>$/)
+  if (!m) return null
+  const [, name, argsSrc] = m
+  if (!declaredTypes.has(name)) return null
+  // Top-level split, so `Pair<Box<int>, int>` keeps its inner arguments together.
+  const args: string[] = []
+  let depth = 0
+  let start = 0
+  for (let i = 0; i < argsSrc.length; i++) {
+    const c = argsSrc[i]
+    if (c === '<' || c === '(' || c === '[' || c === '{') depth++
+    else if (c === '>' || c === ')' || c === ']' || c === '}') depth--
+    else if (c === ',' && depth === 0) {
+      args.push(argsSrc.slice(start, i))
+      start = i + 1
+    }
+  }
+  args.push(argsSrc.slice(start))
+  const resolved: string[] = []
+  for (const a of args) {
+    const t = a.trim()
+    if (!t) return null
+    // Nested application resolves recursively; a declared type is already a runtime
+    // binding and needs no translation.
+    const nested = applyTypeArguments(t, declaredTypes)
+    if (nested) {
+      resolved.push(nested)
+      continue
+    }
+    const prim = typeArgumentSource(t)
+    if (prim) {
+      resolved.push(prim)
+      continue
+    }
+    if (declaredTypes.has(t)) {
+      resolved.push(t)
+      continue
+    }
+    return null // an argument we cannot represent — leave the annotation alone
+  }
+  return `${name}(${resolved.join(', ')})`
+}
+
 function splitParameters(params: string): string[] {
   const masked = maskLiterals(params)
   const result: string[] = []
@@ -955,6 +1080,10 @@ function processParamString(
   ctx: {
     requiredParams: Set<string>
     typeNameOptionals: Set<string>
+    // Threaded through so a type argument can be recognised and hoisted; both are
+    // optional so every existing caller keeps working untouched.
+    declaredTypes?: Set<string>
+    hoistedTypeArgs?: HoistedTypeArg[]
     unsafeFunctions: Set<string>
     safeFunctions: Set<string>
   },
@@ -1054,7 +1183,7 @@ function processParamString(
     const colonPos = findTopLevelColon(trimmed)
     if (colonPos !== -1) {
       const name = trimmed.slice(0, colonPos).trim()
-      const type = trimmed.slice(colonPos + 1).trim()
+      const type = rewriteTypeArguments(trimmed.slice(colonPos + 1).trim(), ctx)
 
       checkDuplicate(name)
 

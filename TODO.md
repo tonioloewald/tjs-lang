@@ -2710,7 +2710,18 @@ the `introspection-autocomplete` memory.
 - [ ] Auto-discover and build local dependencies in module resolution
 - [ ] **Wire `ModuleLoader` into the playground's `tjs()` invocation** for transpile-time cross-file `wasm function` composition (Phase 3 of the wasm-library plan). Today the playground resolves imports at runtime via the local-module store — correct but uses the "boundary form" with a JS↔wasm crossing per call. With a ModuleLoader, imported `wasm function`s would be composed into the consumer's own `WebAssembly.Module` at transpile time, enabling wasm-to-wasm calls (single-digit nanosecond per-call cost). The `wasm-library-consumer.md` example flags this as a known gap. See `src/lang/module-loader.ts` (already shipped) and `wasm-library-plan.md` § Phase 3.
 
-## Language Features
+## Language
+
+- [ ] **`&&` inside a required parameter's DEFAULT corrupts emitted source.** While
+      building `Box<int>`, an annotation rewritten to `b = X(((v) => a && b))` produced
+      `Generi…c(['T` — a boolean-coercion patch applied at an offset belonging to a
+      different part of the file. Hand-written equivalent source does NOT corrupt, and the
+      shipped feature avoids the shape entirely by hoisting to a top-level `const`, so
+      nothing user-facing depends on it today. Still a real defect in the
+      insertions/deletions patching path, and it will bite the next transform that puts a
+      logical operator in a parameter default. Repro: make `typeArgumentSource` return an
+      `&&` predicate and inline it into the annotation instead of hoisting.
+      Features
 
 - [x] Honest boolean coercion (TjsStandard) — `Boolean(new Boolean(false))` and friends now return false. Source rewriter wraps every truthiness context (`if`/`while`/`for`/`do`/`!`/`&&`/`||`/`?:`, `Boolean(x)` calls) with `__tjs.toBool` which unwraps boxed primitives. Always-on under `TjsStandard`. Demo: `examples/js-footguns-fixed.tjs`. Doc: `guides/footguns.md`.
 - [ ] Intra-function type safety — bring TJS to parity with TS / good linters

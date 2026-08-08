@@ -208,7 +208,6 @@ console.log(Box(0).check({ value: 7 }), Box(0).check({ value: 's' }))`,
   },
   {
     id: 'generic-type-arguments',
-    status: 'proposed',
     topic: 'Type arguments in an annotation: `b: Box<int>`',
     snippet: `Type Box<T> {
   predicate(x, T) { return T(x.value) }
@@ -216,7 +215,7 @@ console.log(Box(0).check({ value: 7 }), Box(0).check({ value: 's' }))`,
 function unbox(b: Box<int>) { return b.value }
 console.log(String(unbox({ value: 1.5 })).slice(0, 22))`,
     tjs: { accepts: true, value: 'MonadicError: Expected' },
-    why: 'The semantics are DONE: the stub no longer compares with `typeof`, and a primitive kind has a predicate representation (`typeArgumentSource`), which composes — `Box<Box<int>>` works, proven in `type-argument.test.ts`. What remains is purely mechanical: the annotation rewrite changes source length, and a later boolean-coercion pass holds offsets computed before it, so `Box<int>` currently corrupts the emitted source. Blocked on WHERE the rewrite runs, not on syntax or semantics.',
+    why: "A parameterized type applied to arguments is a CALL at run time, and a primitive argument has no runtime binding — so it becomes a PREDICATE, the only representation available for a type that is not a value. The applied type is hoisted to a module-level `const` named after the annotation, so it is built once rather than per call and the emitter's existing declared-type path handles it unchanged. Composes: `Box<Box<int>>` works because a parameterized type is itself a valid type argument.",
   },
   {
     id: 'overload-dispatch',

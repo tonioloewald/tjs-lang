@@ -99,3 +99,58 @@ describe('a predicate works as a type argument, and composes', () => {
     }
   })
 })
+
+/**
+ * The annotation form, end to end — `b: Box<int>` in a real function signature.
+ *
+ * The applied type is hoisted to a module-level `const` named after the annotation, so it
+ * is constructed once rather than on every call, and the emitter's existing declared-type
+ * path checks it with no changes.
+ */
+describe('`b: Box<int>` in annotation position', () => {
+  const compile = (src: string) => {
+    const { code } = tjs(`Type Box<T> {\n  example: { value: T }\n}\n${src}`, {
+      filename: 'ta.tjs',
+    })
+    return { code, mod: new Function(`${code}\nreturn f`)() as any }
+  }
+
+  it('checks the type argument at the boundary', () => {
+    const { mod } = compile(`function f(b: Box<int>) { return b.value }`)
+    expect(mod({ value: 7 })).toBe(7)
+    expect(String(mod({ value: 1.5 }))).toContain('Expected Box_int')
+    expect(String(mod({ value: 's' }))).toContain('Expected Box_int')
+  })
+
+  it('distinguishes two applications of the same type', () => {
+    const { mod } = compile(`function f(b: Box<string>) { return b.value }`)
+    expect(mod({ value: 'a' })).toBe('a')
+    expect(String(mod({ value: 1 }))).toContain('Expected Box_string')
+  })
+
+  it('carries `unsigned` through, negatives included', () => {
+    const { mod } = compile(`function f(b: Box<unsigned>) { return b.value }`)
+    expect(mod({ value: 2 })).toBe(2)
+    expect(String(mod({ value: -1 }))).toContain('Expected Box_unsigned')
+  })
+
+  it('builds the applied type ONCE, not per call', () => {
+    // The reason for hoisting. Inlining `Box(…)` into the annotation would allocate a
+    // fresh RuntimeType on every invocation of a validated function.
+    const { code } = compile(`function f(b: Box<int>) { return b.value }`)
+    expect(code.match(/const Box_int = /g)?.length).toBe(1)
+  })
+
+  it('names the binding after the annotation, not a counter', () => {
+    // `Expected __ta_0` tells a reader nothing about their own code.
+    const { code } = compile(`function f(b: Box<int>) { return b.value }`)
+    expect(code).toContain('const Box_int =')
+    expect(code).not.toContain('__ta_')
+  })
+
+  it('leaves an ordinary annotation completely alone', () => {
+    // The control: every existing annotation must take exactly the path it took before.
+    const { code } = compile(`function f(b: Box) { return b.value }`)
+    expect(code).not.toContain('const Box_')
+  })
+})

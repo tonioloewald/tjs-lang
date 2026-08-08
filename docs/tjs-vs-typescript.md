@@ -259,10 +259,7 @@ The example already says WHERE the parameter goes, so `T` applied at that slot i
 
 ---
 
-### Type arguments in an annotation: `b: Box<int>` — PROPOSED
-
-> **Not implemented.** This row states what the language SHOULD do. It is
-> asserted RED by the test suite, and turns green only when someone builds it.
+### Type arguments in an annotation: `b: Box<int>`
 
 ```js
 Type Box<T> {
@@ -274,9 +271,9 @@ console.log(String(unbox({ value: 1.5 })).slice(0, 22))
 
 | | TypeScript | TJS |
 | --- | --- | --- |
-| result | — | `MonadicError: Expected` *(intended)* |
+| result | — | `MonadicError: Expected` |
 
-The semantics are DONE: the stub no longer compares with `typeof`, and a primitive kind has a predicate representation (`typeArgumentSource`), which composes — `Box<Box<int>>` works, proven in `type-argument.test.ts`. What remains is purely mechanical: the annotation rewrite changes source length, and a later boolean-coercion pass holds offsets computed before it, so `Box<int>` currently corrupts the emitted source. Blocked on WHERE the rewrite runs, not on syntax or semantics.
+A parameterized type applied to arguments is a CALL at run time, and a primitive argument has no runtime binding — so it becomes a PREDICATE, the only representation available for a type that is not a value. The applied type is hoisted to a module-level `const` named after the annotation, so it is built once rather than per call and the emitter's existing declared-type path handles it unchanged. Composes: `Box<Box<int>>` works because a parameterized type is itself a valid type argument.
 
 ---
 

@@ -33,7 +33,7 @@ import type {
   TjsModes,
 } from './parser-types'
 
-import { transformParenExpressions } from './parser-params'
+import { transformParenExpressions, type HoistedTypeArg } from './parser-params'
 
 import {
   transformTryWithoutCatch,
@@ -101,6 +101,8 @@ export function preprocess(
   const requiredParams = new Set<string>()
   const typeNameOptionals = new Set<string>()
   const declaredTypes = new Set<string>()
+  /** `const __ta_0 = Box(…)` declarations produced by type arguments (`b: Box<int>`). */
+  const hoistedTypeArgs: HoistedTypeArg[] = []
   const unsafeFunctions = new Set<string>()
   const safeFunctions = new Set<string>()
 
@@ -353,10 +355,31 @@ export function preprocess(
     originalSource,
     requiredParams,
     typeNameOptionals,
+    // Type declarations were transformed above, so `declaredTypes` is populated by now —
+    // which is what lets `Box<int>` be recognised as an APPLICATION of a declared type
+    // rather than a comparison.
+    declaredTypes,
+    hoistedTypeArgs,
     unsafeFunctions,
     safeFunctions,
   })
   source = transformedSource
+  // Applied types are constructed once, at module top, rather than on every call. They go
+  // AFTER the declarations they reference — `Box` must exist before `Box(…)` runs — and
+  // the Type/Generic transforms have already emitted those above.
+  for (const h of hoistedTypeArgs) {
+    // After the declaration it applies, never before it — `const Box = …` is in the
+    // temporal dead zone until its own line runs, so prepending threw
+    // "Cannot access 'Box' before initialization" at module load.
+    const decl = source.indexOf(`const ${h.head} =`)
+    if (decl === -1) {
+      source = `${source}\n${h.text}`
+      continue
+    }
+    const eol = source.indexOf('\n', decl)
+    const at = eol === -1 ? source.length : eol
+    source = `${source.slice(0, at)}\n${h.text}${source.slice(at)}`
+  }
 
   // NOTE: unsafe {} blocks removed - they provided no performance benefit because
   // the wrapper decision is made at transpile time. Use (!) on functions instead.

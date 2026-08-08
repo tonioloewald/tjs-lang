@@ -88,13 +88,22 @@ next step; building the walk before something measures it is not.
 
 ## What this blocks
 
-`Box<int>` — type arguments in an annotation — is listed as **proposed** in
-[TJS vs TypeScript](./tjs-vs-typescript.md). Parsing and resolution were built and
-reverted, and the reason is on this page rather than in the parser: the inline `Generic`
-stub coerces a type argument with `v => typeof v === typeof a`, so `Box<int>` accepted a
-float in standalone output. The syntax was never the blocker.
+Nothing, now. `Box<int>` — type arguments in an annotation — was the last **proposed**
+row in [TJS vs TypeScript](./tjs-vs-typescript.md), and it shipped once the disagreements
+above were closed. The blocker really was on this page rather than in the parser: the
+inline `Generic` stub coerced a type argument with `v => typeof v === typeof a`, so
+`Box<int>` accepted a float. It goes through `__match` now.
 
-Fixing cause 1 above is most of that row.
+The other half was that `int` has no runtime binding at all — it compiles to an inline
+check, so `Box(int)` would reference nothing. The answer generalises past this case: **a
+type that cannot be represented as a value can be represented as a predicate over values**,
+and the runtime was already predicate-shaped, so it needed no new mechanism. Predicates
+compose, which is what makes them sufficient rather than a special case for primitives —
+`Box<Box<int>>` works because a parameterized type is itself a valid type argument.
+
+Measured by `src/lang/type-argument.test.ts`, which also pins `Box<int>` against `n: int`
+on a shared corpus — two hand-rolled answers to "is this an int" being exactly how this
+page's defect class starts.
 
 ## One name, two implementations
 
