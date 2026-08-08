@@ -27,13 +27,22 @@
  *
  * All are one-directional — **the stub is more permissive** — from two causes:
  *
- *   1. **Numeric narrowing is lost.** `__match` bottoms out at `typeof v === 'number'`, so
- *      an example of `1` accepts `1.5`. The real runtime infers integer from `1` and
- *      rejects. This contradicts the documented rule that `42` is an integer example
- *      (`CLAUDE-TJS-SYNTAX.md`), so the stub is wrong against the spec, not merely
- *      different.
+ *   1. **Numeric narrowing is lost inside a shape.** `__match` bottoms out at
+ *      `typeof v === 'number'`, so an example of `1` accepts `1.5`. This contradicts the
+ *      documented rule that `42` is an integer example (`CLAUDE-TJS-SYNTAX.md`), so the
+ *      stub is wrong against the spec, not merely different from the real runtime.
+ *
+ *      FIXED for a top-level numeric example, by emitting the narrowing as a predicate
+ *      instead of leaving two inference engines to agree about it. Still lost when the
+ *      number is nested (`{ x: 1 }`, `[1]`), which needs a structural walk.
  *   2. **Shapes are open.** `__match` checks that the example's keys are present; the real
  *      runtime also rejects excess ones.
+ *
+ * A third kind surfaced later and is NOT a stub-vs-runtime disagreement at all: `+0` says
+ * non-negative integer, but `+0 === 0`, so the narrowing is destroyed at the source→value
+ * boundary and BOTH runtimes accepted `-1`. Fixed by the same mechanism. Those cases are
+ * marked `sourceNarrowing`, because comparing against a `Type()` built from the value asks
+ * the two arms different questions — there the value-constructed arm is the lossy one.
  *
  * Being more permissive means emitted code UNDER-validates. It never rejects something the
  * real runtime accepts, so `PRINCIPLES.md`'s subset invariant holds — this is a weaker
@@ -57,8 +66,28 @@ import { Type as RealType } from './runtime'
  * under test is what a user's `.tjs` file means, and a hand-built descriptor would skip the
  * emitter — which is where two of the four disagreements are introduced.
  */
-const CASES: Array<{ name: string; example: string; values: unknown[] }> = [
-  { name: 'Count', example: '1', values: [2, 1.5, -1, '2', true] },
+const CASES: Array<{
+  name: string
+  example: string
+  values: unknown[]
+  /**
+   * The example narrows by how it is WRITTEN, so a `Type()` built from the VALUE cannot
+   * see it — `+0 === 0`. On these cases the value-constructed arm is the lossy one, and
+   * emitted code being stricter is the fix working, not a violation.
+   */
+  sourceNarrowing?: true
+}> = [
+  { name: 'Int', example: '1', values: [2, 1.5, -1, '2', true] },
+  // A count is NON-NEGATIVE, so its example is `+0` — `1` only says "integer". This
+  // corpus originally called the `1` case `Count`, and the misnomer hid the fact that
+  // `+0` narrowing was not covered at all: it turned out to be lost in BOTH runtimes,
+  // because `+0 === 0` erases the distinction before either one sees it.
+  {
+    name: 'Count',
+    example: '+0',
+    values: [2, 0, -1, 1.5, '2'],
+    sourceNarrowing: true,
+  },
   { name: 'Frac', example: '1.5', values: [2, 1.5, '1.5'] },
   { name: 'Name', example: "''", values: ['a', 1, null] },
   {
@@ -77,8 +106,9 @@ const CASES: Array<{ name: string; example: string; values: unknown[] }> = [
  * a bare total would call that pair "no change" and hide both.
  */
 const KNOWN_DISAGREEMENTS = new Set([
-  'Count 1.5', // numeric narrowing lost
-  'Pt {"x":1.5,"y":1}', // …through a shape
+  // `Int 1.5` used to be here — fixed by emitting the narrowing as a predicate rather
+  // than leaving it to two inference engines to agree about.
+  'Pt {"x":1.5,"y":1}', // numeric narrowing lost through a shape
   'Nums [1.5]', // …through an array
   'Pt {"x":1,"y":1,"z":9}', // excess key accepted
 ])
@@ -120,6 +150,11 @@ describe('type identity: every mechanism answers the same question', () => {
         const key = `${c.name} ${JSON.stringify(v)}`
         const agree = (inline.check(v) === true) === (real.check(v) === true)
         if (!agree) found.add(key)
+        // On a `sourceNarrowing` case the two arms are not asked the same question — the
+        // value-constructed one was handed `0` where the source said `+0` — so a
+        // difference is expected and carries no information. The emitted side is checked
+        // against the SPEC in the dedicated block below instead.
+        if (c.sourceNarrowing) continue
         // A disagreement is only tolerated if it is one we already knew about; an
         // unlisted one fails here, naming the exact case.
         expect(agree || KNOWN_DISAGREEMENTS.has(key) ? 'ok' : key).toBe('ok')
@@ -146,6 +181,10 @@ describe('type identity: every mechanism answers the same question', () => {
     // a weaker promise. Stricter would mean emitted code REJECTS a value the language
     // accepts, which is a subset violation (`PRINCIPLES.md`) and a broken program.
     for (const c of CASES) {
+      // Skipped for the same reason as above: where the source narrows and the value
+      // cannot, emitted code being stricter than a lossy `Type(value)` is the fix
+      // working. The invariant still applies in full to every other case.
+      if (c.sourceNarrowing) continue
       const inline = inlineType(c.name, c.example)
       const real = RealType(
         c.name,
@@ -181,5 +220,55 @@ describe('type identity: one name, two implementations', () => {
     ])
     expect(pkg.checkType).toBe(runtime.checkType)
     expect(pkg.checkType).not.toBe(inference.checkType)
+  })
+})
+
+/**
+ * `+N` is a SOURCE-level narrowing — a `UnaryExpression`, not a value. `+0` in JavaScript
+ * *is* `0`, so passing the example through as a value destroys the non-negativity before
+ * any runtime sees it, and both the real runtime and the inline stub then infer plain
+ * integer from a bare `0`.
+ *
+ * The result was that the idiomatic way to declare a count accepted negative numbers, in
+ * every runtime, while the same constraint as a parameter (`n: +0`) rejected them
+ * correctly — because that path reads the source token.
+ *
+ * Found by asking why the type-identity corpus called something `Count` and gave it
+ * `example: 1`.
+ */
+describe('Type blocks preserve source-level numeric narrowing', () => {
+  const check = (src: string, v: unknown) => {
+    const { code } = tjs(`${src}\nfunction f(x: N) { return 'ok' }`, {
+      filename: 'n.tjs',
+    })
+    return (new Function(`${code}\nreturn N`)() as any).check(v) === true
+  }
+
+  it('`example: +0` rejects a negative, like `n: +0` does', () => {
+    expect(check('Type N { example: +0 }', -1)).toBe(false)
+    expect(check('Type N { example: +0 }', 2)).toBe(true)
+    expect(check('Type N { example: +0 }', 0)).toBe(true)
+  })
+
+  it('`example: +0` still rejects a float and a non-number', () => {
+    expect(check('Type N { example: +0 }', 1.5)).toBe(false)
+    expect(check('Type N { example: +0 }', '2')).toBe(false)
+  })
+
+  it('a plain integer example is unaffected — it accepts negatives', () => {
+    // The other direction: `1` means integer, NOT non-negative. Narrowing everything
+    // would be its own bug, and a silent one.
+    expect(check('Type N { example: 1 }', -1)).toBe(true)
+    expect(check('Type N { example: 1 }', 1.5)).toBe(false)
+  })
+
+  it('a user predicate still governs', () => {
+    // `+0` must refine, not replace: an explicit predicate is the more specific statement.
+    expect(
+      check('Type N { example: +0\n  predicate(x) { return x > 10 } }', 5)
+    ).toBe(false)
+    expect(
+      check('Type N { example: +0\n  predicate(x) { return x > 10 } }', 20)
+    ).toBe(true)
   })
 })

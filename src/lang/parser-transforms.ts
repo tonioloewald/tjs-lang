@@ -1827,6 +1827,32 @@ function findRightOperandBoundary(
  * So fail loudly and name the form that exists. When the short forms are implemented this
  * guard narrows rather than disappears — it should still catch the next unrecognised one.
  */
+/**
+ * The check a numeric example implies, as source — or `null` when the example is not a
+ * bare numeric literal.
+ *
+ * TJS narrows numbers by how they are WRITTEN (`CLAUDE-TJS-SYNTAX.md`): `3.14` is a float,
+ * `42` an integer, `+0` a non-negative integer. Only two of those survive as values —
+ * `+0 === 0` — so the distinction has to be captured here, from the token, or it is gone.
+ *
+ * Scoped to a top-level numeric literal on purpose. A number nested in an object or array
+ * example (`{ count: +0 }`) needs a structural walk to reach, and is still lost; that gap
+ * is recorded as a known disagreement in `type-identity.test.ts` rather than half-fixed
+ * here, where a partial version would look complete.
+ */
+export function numericNarrowingPredicate(example: string): string | null {
+  const src = example.trim()
+  const m = src.match(/^([+-]?)(\d[\d_]*(?:\.\d[\d_]*)?(?:[eE][+-]?\d+)?)$/)
+  if (!m) return null
+  const [, sign, digits] = m
+  // A float example says nothing an ordinary number check does not.
+  if (/[.eE]/.test(digits)) return null
+  const base = `typeof v === 'number' && Number.isInteger(v)`
+  // `-0` is written with an explicit minus and is still just an integer example; only a
+  // leading `+` asserts non-negativity.
+  return sign === '+' ? `(v) => ${base} && v >= 0` : `(v) => ${base}`
+}
+
 function assertPredicateFormRecognized(
   typeName: string,
   body: string,
@@ -2073,7 +2099,20 @@ export function transformTypeDeclarations(
           // Example only (becomes validation schema)
           const defaultArg = defaultValue ? `, ${defaultValue}` : ''
           declaredTypes?.add(typeName)
-          result += `const ${typeName} = Type('${description}', undefined, ${example}${defaultArg})`
+          // A numeric example's KIND is a fact about the source, not about the value:
+          // `+0` is a UnaryExpression, and `+0 === 0`, so passing the example through as
+          // a value destroys the non-negativity before any runtime sees it. Both the real
+          // runtime and the inline stub then infer from a bare `0` — which is why
+          // `Type N { example: +0 }` accepted `-1` everywhere, while `n: +0` (a path that
+          // reads the source token) correctly rejected it.
+          //
+          // So emit the narrowing as a predicate instead of hoping two separate inference
+          // engines agree about it. This is the only place that knows, and putting it in
+          // the emitted code makes the answer identical in both runtimes by construction.
+          const narrowing = numericNarrowingPredicate(example)
+          result += narrowing
+            ? `const ${typeName} = Type('${description}', ${narrowing}, ${example}${defaultArg})`
+            : `const ${typeName} = Type('${description}', undefined, ${example}${defaultArg})`
         } else if (defaultValue) {
           // Default only (infer schema from default)
           declaredTypes?.add(typeName)
