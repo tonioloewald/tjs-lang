@@ -51,6 +51,19 @@ export interface Difference {
   tjs: Outcome
   /** One line. Why the difference exists — not what it is. */
   why: string
+  /**
+   * `shipped` (default) — the row describes what the language DOES, and the test
+   * asserts it.
+   *
+   * `proposed` — the row describes what the language SHOULD do. The test asserts it
+   * does NOT yet, so a proposed row is red by design and turns green only when someone
+   * builds it — at which point the test says to promote it. That inversion is the point:
+   * the gap between DECIDED and BUILT is otherwise invisible, which is exactly how
+   * `predicate =>` spent weeks parsing cleanly and validating nothing. A proposal with
+   * no representation cannot be tracked, and a proposal that silently half-works is
+   * worse than one that fails.
+   */
+  status?: 'shipped' | 'proposed'
 }
 
 export const DIFFERENCES: Difference[] = [
@@ -157,5 +170,55 @@ function render(p: Prefixed) { return 1 }
 console.log(String(render({ isOpen: 'yes' })).slice(0, 22))`,
     tjs: { accepts: true, value: 'MonadicError: Expected' },
     why: 'An index signature forces one type across all keys and a mapped type needs them enumerated in advance, so TypeScript cannot express a convention over an OPEN key set. A predicate reads the name and decides.',
+  },
+  // ---------------------------------------------------------------------------------
+  // PROPOSED — decided, not built. Red by design; green means "promote to shipped".
+  // ---------------------------------------------------------------------------------
+  {
+    id: 'predicate-arrow',
+    status: 'proposed',
+    topic: 'Terse predicate: `predicate => expr`',
+    snippet: `Type Even {
+  example: 2
+  predicate => Even % 2 === 0
+}
+console.log(Even.check(4), Even.check(3))`,
+    tjs: { accepts: true, value: 'true false' },
+    why: 'Mirrors an arrow function body: `=>` implies the return, and the type name binds to the value under test. Today this is REJECTED rather than ignored — it used to parse and accept every value, which is worse.',
+  },
+  {
+    id: 'predicate-block',
+    status: 'proposed',
+    topic: 'Block predicate: `predicate { return expr }`',
+    snippet: `Type Even {
+  example: 2
+  predicate { return Even % 2 === 0 }
+}
+console.log(Even.check(4), Even.check(3))`,
+    tjs: { accepts: true, value: 'true false' },
+    why: 'The multi-line half of the same rule — a `{ }` body requires `return`, exactly as in JavaScript. Nothing new to learn, which is the argument for this spelling over an implicit last expression.',
+  },
+  {
+    id: 'generic-implicit-predicate',
+    status: 'proposed',
+    topic: 'A parameterized type needs no predicate to check its parameter',
+    snippet: `Type Box<T> {
+  example: { value: T }
+}
+console.log(Box(0).check({ value: 7 }), Box(0).check({ value: 's' }))`,
+    tjs: { accepts: true, value: 'true false' },
+    why: 'The example already says WHERE the parameter goes, so `T` applied at that slot is derivable and writing `predicate(x, T) { return T(x.value) }` is restating it. Today a predicate-less parameterized type accepts everything.',
+  },
+  {
+    id: 'generic-type-arguments',
+    status: 'proposed',
+    topic: 'Type arguments in an annotation: `b: Box<int>`',
+    snippet: `Type Box<T> {
+  predicate(x, T) { return T(x.value) }
+}
+function unbox(b: Box<int>) { return b.value }
+console.log(String(unbox({ value: 1.5 })).slice(0, 22))`,
+    tjs: { accepts: true, value: 'MonadicError: Expected' },
+    why: 'Parsing and resolution were built and reverted: the annotation worked, but the inline runtime stub compares with `typeof`, so `Box<int>` accepted a float in standalone output. Blocked on the stub doing structural inference, not on the syntax.',
   },
 ]

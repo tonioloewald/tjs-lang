@@ -206,6 +206,89 @@ An index signature forces one type across all keys and a mapped type needs them 
 
 ---
 
+### Terse predicate: `predicate => expr` — PROPOSED
+
+> **Not implemented.** This row states what the language SHOULD do. It is
+> asserted RED by the test suite, and turns green only when someone builds it.
+
+```js
+Type Even {
+  example: 2
+  predicate => Even % 2 === 0
+}
+console.log(Even.check(4), Even.check(3))
+```
+
+| | TypeScript | TJS |
+| --- | --- | --- |
+| result | — | `true false` *(intended)* |
+
+Mirrors an arrow function body: `=>` implies the return, and the type name binds to the value under test. Today this is REJECTED rather than ignored — it used to parse and accept every value, which is worse.
+
+---
+
+### Block predicate: `predicate { return expr }` — PROPOSED
+
+> **Not implemented.** This row states what the language SHOULD do. It is
+> asserted RED by the test suite, and turns green only when someone builds it.
+
+```js
+Type Even {
+  example: 2
+  predicate { return Even % 2 === 0 }
+}
+console.log(Even.check(4), Even.check(3))
+```
+
+| | TypeScript | TJS |
+| --- | --- | --- |
+| result | — | `true false` *(intended)* |
+
+The multi-line half of the same rule — a `{ }` body requires `return`, exactly as in JavaScript. Nothing new to learn, which is the argument for this spelling over an implicit last expression.
+
+---
+
+### A parameterized type needs no predicate to check its parameter — PROPOSED
+
+> **Not implemented.** This row states what the language SHOULD do. It is
+> asserted RED by the test suite, and turns green only when someone builds it.
+
+```js
+Type Box<T> {
+  example: { value: T }
+}
+console.log(Box(0).check({ value: 7 }), Box(0).check({ value: 's' }))
+```
+
+| | TypeScript | TJS |
+| --- | --- | --- |
+| result | — | `true false` *(intended)* |
+
+The example already says WHERE the parameter goes, so `T` applied at that slot is derivable and writing `predicate(x, T) { return T(x.value) }` is restating it. Today a predicate-less parameterized type accepts everything.
+
+---
+
+### Type arguments in an annotation: `b: Box<int>` — PROPOSED
+
+> **Not implemented.** This row states what the language SHOULD do. It is
+> asserted RED by the test suite, and turns green only when someone builds it.
+
+```js
+Type Box<T> {
+  predicate(x, T) { return T(x.value) }
+}
+function unbox(b: Box<int>) { return b.value }
+console.log(String(unbox({ value: 1.5 })).slice(0, 22))
+```
+
+| | TypeScript | TJS |
+| --- | --- | --- |
+| result | — | `MonadicError: Expected` *(intended)* |
+
+Parsing and resolution were built and reverted: the annotation worked, but the inline runtime stub compares with `typeof`, so `Box<int>` accepted a float in standalone output. Blocked on the stub doing structural inference, not on the syntax.
+
+---
+
 ## Adding a row
 
 Edit `src/lang/differences.ts`, then run `bun run docs:differences`. If

@@ -28,8 +28,16 @@ function cell(o: Outcome | undefined): string {
 
 function section(d: Difference): string {
   const lang = d.snippet.startsWith('declare') ? 'ts' : 'js'
+  const proposed = d.status === 'proposed'
   const parts = [
-    `### ${d.topic}`,
+    `### ${d.topic}${proposed ? ' — PROPOSED' : ''}`,
+    ...(proposed
+      ? [
+          '',
+          '> **Not implemented.** This row states what the language SHOULD do. It is',
+          '> asserted RED by the test suite, and turns green only when someone builds it.',
+        ]
+      : []),
     '',
     '```' + lang,
     d.snippet,
@@ -37,7 +45,9 @@ function section(d: Difference): string {
     '',
     `| | TypeScript | TJS |`,
     `| --- | --- | --- |`,
-    `| result | ${cell(d.ts)} | ${cell(d.tjs)} |`,
+    `| result | ${cell(d.ts)} | ${
+      proposed ? cell(d.tjs) + ' *(intended)*' : cell(d.tjs)
+    } |`,
     '',
     d.why,
   ]
@@ -94,6 +104,8 @@ which is the point. A row that cannot be executed does not belong on this page.
 
 writeFileSync(join(REPO, 'docs/tjs-vs-typescript.md'), doc)
 console.log(
-  `docs/tjs-vs-typescript.md — ${DIFFERENCES.length} differences, ` +
+  `docs/tjs-vs-typescript.md — ${DIFFERENCES.length} rows ` +
+    `(${DIFFERENCES.filter((d) => d.status !== 'proposed').length} shipped, ` +
+    `${DIFFERENCES.filter((d) => d.status === 'proposed').length} proposed), ` +
     `${DIFFERENCES.filter((d) => d.ts).length} verified against tsc`
 )

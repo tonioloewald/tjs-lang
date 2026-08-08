@@ -102,13 +102,28 @@ describe('every documented difference is real', () => {
       })
     }
 
-    it(`TJS: ${d.topic}`, () => {
+    it(`TJS: ${d.topic}${d.status === 'proposed' ? ' (proposed)' : ''}`, () => {
       const r = runTjs(d.tjsSnippet ?? d.snippet)
-      expect(r.accepts).toBe(d.tjs.accepts)
-      if (d.tjs.accepts && d.tjs.value !== undefined) {
-        // `toContain`, not equality: several rows assert on the front of a MonadicError
-        // whose tail carries a file path and a stack.
-        expect(r.output).toContain(d.tjs.value)
+      // `toContain`, not equality: several rows assert on the front of a MonadicError
+      // whose tail carries a file path and a stack.
+      const matches =
+        r.accepts === d.tjs.accepts &&
+        (!d.tjs.accepts ||
+          d.tjs.value === undefined ||
+          r.output.includes(d.tjs.value))
+
+      if (d.status === 'proposed') {
+        // INVERTED. A proposed row states what the language SHOULD do, so it must not
+        // hold yet — and the moment it does, this fails and asks for promotion. Without
+        // that second direction a shipped feature sits in the "planned" list forever,
+        // which is the same rot as a stale exemption.
+        expect(
+          matches
+            ? `'${d.id}' now behaves as proposed — set status: 'shipped' in differences.ts`
+            : 'not yet implemented'
+        ).toBe('not yet implemented')
+      } else {
+        expect(matches).toBe(true)
       }
     })
   }
@@ -117,6 +132,7 @@ describe('every documented difference is real', () => {
     // Otherwise it is not a difference and does not belong in the table — the file
     // filling up with agreements is how a comparison stops being informative.
     for (const d of DIFFERENCES) {
+      if (d.status === 'proposed') continue
       if (d.ts?.accepts && d.tjs.accepts) {
         expect(d.ts.value !== undefined && d.tjs.value !== undefined).toBe(true)
         expect(d.ts.value).not.toBe(d.tjs.value)
@@ -143,6 +159,8 @@ describe('docs/tjs-vs-typescript.md is generated and current', () => {
       'utf8'
     )
     const missing = DIFFERENCES.filter((d) => !doc.includes(`### ${d.topic}`))
+    // (the heading of a proposed row carries a ' — PROPOSED' suffix, so the topic is a
+    // prefix of it either way)
     expect(missing.map((d) => d.id)).toEqual([])
   })
 
@@ -153,9 +171,11 @@ describe('docs/tjs-vs-typescript.md is generated and current', () => {
       resolve(import.meta.dir, '../../docs/tjs-vs-typescript.md'),
       'utf8'
     )
+    // A proposed row's heading is `<topic> — PROPOSED`, so compare on the topic prefix.
     const topics = new Set(DIFFERENCES.map((d) => d.topic))
     const orphans = [...doc.matchAll(/^### (.+)$/gm)]
       .map((m) => m[1])
+      .map((h) => h.replace(/ — PROPOSED$/, ''))
       .filter((t) => !topics.has(t))
     expect(orphans).toEqual([])
   })
