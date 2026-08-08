@@ -289,6 +289,61 @@ Parsing and resolution were built and reverted: the annotation worked, but the i
 
 ---
 
+### Two functions with the same name
+
+```js
+function area(w: number) { return w * w }
+function area(w: number, h: number) { return w * h }
+console.log(area(3), area(3, 4))
+```
+
+The same program in TJS (the snippet above is TypeScript-only syntax):
+
+```js
+function area(w: 0.0) { return w * w }
+function area(w: 0.0, h: 0.0) { return w * h }
+console.log(area(3.0), area(3.0, 4.0))
+```
+
+| | TypeScript | TJS |
+| --- | --- | --- |
+| result | **rejected** | `9 12` |
+
+TypeScript HAS overloads, but they are signature declarations over ONE implementation — TS2393 for a second body — and they are erased entirely, so you write the dispatch by hand. TJS merges same-name declarations into a real arity/type dispatcher, so each case is its own function.
+
+---
+
+### `new` on a user class
+
+```js
+class P { constructor(x: 0) { this.x = x } }
+const p = new P(1)
+```
+
+| | TypeScript | TJS |
+| --- | --- | --- |
+| result | — | **rejected** |
+
+`P(1)` and `new P(2)` produce identical objects — a TJS class is CALLED — so `new` was decoration with the look of significance. Scoped to classes declared in the file: for a built-in `new` is MANDATORY (`new Float32Array(4)` throws without it), a limit found by shipping the general rule and watching eight examples break within a minute.
+
+---
+
+### Calling a class without `new`
+
+```js
+class P { constructor(x: 0) { this.x = x } }
+const p = P(1)
+console.log(p.x)
+```
+
+| | TypeScript | TJS |
+| --- | --- | --- |
+| result | — | `1` |
+
+A TJS class is called, not constructed — `new` adds nothing. In JavaScript (and TypeScript) calling a class without `new` is a TypeError, so the ceremony is mandatory even though it carries no information.
+
+---
+
 ## Adding a row
 
 Edit `src/lang/differences.ts`, then run `bun run docs:differences`. If

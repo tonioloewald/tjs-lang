@@ -4062,6 +4062,50 @@ export function validateNoVar(source: string): string {
   return source
 }
 
+/**
+ * `new X()` is an error in TJS. `unsafe new X()` is the per-site escape.
+ *
+ * It used to be a LINT for user classes while `new Date()` was a hard error — a rule for
+ * built-ins and a suggestion for your own code, which is not a rule. And on a user class
+ * it was a no-op with the look of significance: `P(1)` and `new P(2)` produce identical
+ * objects, same constructor, because a TJS class is CALLED. So `new` was ceremony that
+ * carried no information, compiled fine, and would eventually land in a codebase and
+ * harden into something we could not remove.
+ *
+ * Abolishing it costs nothing (the call form already works everywhere), retires the
+ * `no-explicit-new` lint in favour of the compiler, and makes `unsafe new` mean
+ * something instead of being decoration on top of decoration.
+ *
+ * SCOPED TO CLASSES DECLARED IN THIS FILE, and that limit was found by building the
+ * general rule and watching the corpus reject it. `new` is decoration only where TJS
+ * made the class callable; for a built-in it is MANDATORY — `new Float32Array(1024)`
+ * throws without it, as do Map, Set, Promise, RegExp and every typed array. Banning
+ * `new` outright broke eight shipped examples within a minute of landing.
+ *
+ * So the rule matches the case it was argued for and no other: a name declared `class X`
+ * in this source, where `X(1)` and `new X(1)` provably return the same object.
+ *
+ * `new Date()` keeps its own message: the remedy there is Timestamp, not "drop the
+ * keyword", and a generic diagnostic would send people to the wrong fix.
+ */
+export function validateNoNew(source: string): string {
+  const masked = maskLiterals(source)
+  const declared = [...masked.matchAll(/\bclass\s+([A-Z][A-Za-z0-9_$]*)/g)].map(
+    (m) => m[1]
+  )
+  if (declared.length === 0) return source
+
+  for (const name of declared) {
+    rejectAll(
+      source,
+      masked,
+      new RegExp(`(?<![a-zA-Z_$.])\\bnew\\s+${name}\\b`),
+      `\`new ${name}()\` is not allowed in TJS — a class is CALLED, so \`${name}(…)\` does exactly what \`new ${name}(…)\` does and returns the same object. Drop the keyword. To construct deliberately: \`unsafe new ${name}(…)\`.`
+    )
+  }
+  return source
+}
+
 export function validateNoEval(source: string, warnings?: string[]): string {
   // Match eval() calls - but not Eval() (capital E)
   // Use negative lookbehind to avoid matching inside words

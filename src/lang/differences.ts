@@ -221,4 +221,34 @@ console.log(String(unbox({ value: 1.5 })).slice(0, 22))`,
     tjs: { accepts: true, value: 'MonadicError: Expected' },
     why: 'Parsing and resolution were built and reverted: the annotation worked, but the inline runtime stub compares with `typeof`, so `Box<int>` accepted a float in standalone output. Blocked on the stub doing structural inference, not on the syntax.',
   },
+  {
+    id: 'overload-dispatch',
+    topic: 'Two functions with the same name',
+    snippet: `function area(w: number) { return w * w }
+function area(w: number, h: number) { return w * h }
+console.log(area(3), area(3, 4))`,
+    tjsSnippet: `function area(w: 0.0) { return w * w }
+function area(w: 0.0, h: 0.0) { return w * h }
+console.log(area(3.0), area(3.0, 4.0))`,
+    ts: { accepts: false },
+    tjs: { accepts: true, value: '9 12' },
+    why: 'TypeScript HAS overloads, but they are signature declarations over ONE implementation — TS2393 for a second body — and they are erased entirely, so you write the dispatch by hand. TJS merges same-name declarations into a real arity/type dispatcher, so each case is its own function.',
+  },
+  {
+    id: 'explicit-new',
+    topic: '`new` on a user class',
+    snippet: `class P { constructor(x: 0) { this.x = x } }
+const p = new P(1)`,
+    tjs: { accepts: false },
+    why: '`P(1)` and `new P(2)` produce identical objects — a TJS class is CALLED — so `new` was decoration with the look of significance. Scoped to classes declared in the file: for a built-in `new` is MANDATORY (`new Float32Array(4)` throws without it), a limit found by shipping the general rule and watching eight examples break within a minute.',
+  },
+  {
+    id: 'call-without-new',
+    topic: 'Calling a class without `new`',
+    snippet: `class P { constructor(x: 0) { this.x = x } }
+const p = P(1)
+console.log(p.x)`,
+    tjs: { accepts: true, value: '1' },
+    why: 'A TJS class is called, not constructed — `new` adds nothing. In JavaScript (and TypeScript) calling a class without `new` is a TypeError, so the ceremony is mandatory even though it carries no information.',
+  },
 ]

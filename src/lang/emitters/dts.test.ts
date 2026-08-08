@@ -389,7 +389,7 @@ class Internal {
 }
 
 export function make(n: 0) {
-  return new Internal(n)
+  return Internal(n)
 }
 `
     const result = transpileToJS(source, { runTests: false })

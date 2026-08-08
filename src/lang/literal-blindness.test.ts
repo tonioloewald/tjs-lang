@@ -295,10 +295,14 @@ describe('literal blindness — a trigger inside a literal is not structure', ()
     })
 
     it('still flags an unguarded one', () => {
+      // `new Foo()` on a locally-declared class became a COMPILE ERROR, so the linter
+      // now reports the parse failure rather than the `no-explicit-new` suggestion.
+      // That is still agreement — which is what this test is about — and it is the
+      // stronger form: the compiler enforces it instead of advising it.
       const src = 'class Foo {}\nconst d = new Foo()\nconsole.log(d)'
-      expect(lint(src).diagnostics.map((d) => d.rule)).toContain(
-        'no-explicit-new'
-      )
+      const diags = lint(src).diagnostics
+      expect(diags.length).toBeGreaterThan(0)
+      expect(diags[0].message).toContain('a class is CALLED')
     })
   })
 })

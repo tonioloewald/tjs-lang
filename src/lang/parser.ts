@@ -58,6 +58,7 @@ import {
   extractAndRunTests,
   validateNoDate,
   validateNoEval,
+  validateNoNew,
   validateNoVar,
   transformConstBang,
   transformBangAccess,
@@ -438,6 +439,14 @@ export function preprocess(
   // source must keep raw Date, or TJS would stop being a superset of JS.
   if (tjsModes.tjsDate) {
     validateNoDate(ruleSource, modeWarnings)
+    // Same gate as raw Date: this is the "is this native TJS?" dialect flag, so plain JS
+    // and TS-originated source keep `new` and TJS stays a superset.
+    // Against the ORIGINAL source, not `ruleSource`. By this point the class transform
+    // has emitted `P = new Proxy(P, { apply … })` — which is HOW a TJS class becomes
+    // callable — so checking transformed source makes the compiler reject its own output.
+    // The other validators survive on `ruleSource` only because `var`/`eval`/`Date`
+    // happen not to appear in anything we generate; that is luck, not design.
+    validateNoNew(maskUnsafe(originalSource))
   }
 
   // Validate TjsNoeval mode - check for eval/Function usage
