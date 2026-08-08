@@ -206,10 +206,7 @@ An index signature forces one type across all keys and a mapped type needs them 
 
 ---
 
-### Terse predicate: `predicate => expr` — PROPOSED
-
-> **Not implemented.** This row states what the language SHOULD do. It is
-> asserted RED by the test suite, and turns green only when someone builds it.
+### Terse predicate: `predicate => expr`
 
 ```js
 Type Even {
@@ -221,16 +218,13 @@ console.log(Even.check(4), Even.check(3))
 
 | | TypeScript | TJS |
 | --- | --- | --- |
-| result | — | `true false` *(intended)* |
+| result | — | `true false` |
 
-Mirrors an arrow function body: `=>` implies the return, and the type name binds to the value under test. Today this is REJECTED rather than ignored — it used to parse and accept every value, which is worse.
+Mirrors an arrow function body: `=>` implies the return, and the type name binds to the value under test. It used to parse and accept every value, then was rejected outright rather than ignored; now it is normalised into the function form, so it inherits predicate verification and fuel bounding rather than re-implementing them.
 
 ---
 
-### Block predicate: `predicate { return expr }` — PROPOSED
-
-> **Not implemented.** This row states what the language SHOULD do. It is
-> asserted RED by the test suite, and turns green only when someone builds it.
+### Block predicate: `predicate { return expr }`
 
 ```js
 Type Even {
@@ -242,7 +236,7 @@ console.log(Even.check(4), Even.check(3))
 
 | | TypeScript | TJS |
 | --- | --- | --- |
-| result | — | `true false` *(intended)* |
+| result | — | `true false` |
 
 The multi-line half of the same rule — a `{ }` body requires `return`, exactly as in JavaScript. Nothing new to learn, which is the argument for this spelling over an implicit last expression.
 

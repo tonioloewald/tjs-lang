@@ -176,7 +176,6 @@ console.log(String(render({ isOpen: 'yes' })).slice(0, 22))`,
   // ---------------------------------------------------------------------------------
   {
     id: 'predicate-arrow',
-    status: 'proposed',
     topic: 'Terse predicate: `predicate => expr`',
     snippet: `Type Even {
   example: 2
@@ -184,11 +183,10 @@ console.log(String(render({ isOpen: 'yes' })).slice(0, 22))`,
 }
 console.log(Even.check(4), Even.check(3))`,
     tjs: { accepts: true, value: 'true false' },
-    why: 'Mirrors an arrow function body: `=>` implies the return, and the type name binds to the value under test. Today this is REJECTED rather than ignored — it used to parse and accept every value, which is worse.',
+    why: 'Mirrors an arrow function body: `=>` implies the return, and the type name binds to the value under test. It used to parse and accept every value, then was rejected outright rather than ignored; now it is normalised into the function form, so it inherits predicate verification and fuel bounding rather than re-implementing them.',
   },
   {
     id: 'predicate-block',
-    status: 'proposed',
     topic: 'Block predicate: `predicate { return expr }`',
     snippet: `Type Even {
   example: 2

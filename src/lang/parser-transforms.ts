@@ -1828,6 +1828,68 @@ function findRightOperandBoundary(
  * guard narrows rather than disappears — it should still catch the next unrecognised one.
  */
 /**
+ * Rewrite the two short predicate spellings into the function form the rest of the
+ * pipeline already understands.
+ *
+ *   predicate => EXPR          ->  predicate(TypeName) { return EXPR }
+ *   predicate { BODY }         ->  predicate(TypeName) { BODY }
+ *
+ * The type name binds to the value under test, which is the decided design: it reads as
+ * "an `Even` is a value where `Even % 2 === 0`". Normalising here rather than teaching the
+ * emitter a second shape means the short forms inherit predicate VERIFICATION, fuel
+ * bounding and the `$predicate` schema path for free — three places a parallel
+ * implementation would have had to be kept in step.
+ *
+ * On a generic, the type parameters follow the value, matching `predicate(x, T)`.
+ *
+ * Literal-aware, because this file's dominant defect class is scanning raw source for a
+ * keyword and finding one inside a string.
+ */
+export function normalizePredicateForms(
+  body: string,
+  typeName: string,
+  typeParams: string[] = []
+): string {
+  const params = [typeName, ...typeParams].join(', ')
+  let out = body
+  for (let guard = 0; guard < 8; guard++) {
+    const masked = maskLiterals(out)
+    // `predicate(` is the function form and must not match here — both patterns require
+    // the next non-space character to be `=>` or `{`.
+    const m = masked.match(/\bpredicate\s*(=>|\{)/)
+    if (!m || m.index === undefined) return out
+    const start = m.index
+    const isArrow = m[1] === '=>'
+    const after = start + m[0].length
+    let end: number
+    let inner: string
+    if (isArrow) {
+      // An arrow predicate is a single expression, so it ends at the line — the same rule
+      // a reader applies. Running to the end of the block would swallow sibling members.
+      const nl = masked.indexOf('\n', after)
+      end = nl === -1 ? out.length : nl
+      inner = `return ${out.slice(after, end).trim().replace(/;$/, '')}`
+    } else {
+      // Brace-match on the MASKED view so a `}` inside a string cannot end the body.
+      let depth = 1
+      let j = after
+      while (j < masked.length && depth > 0) {
+        if (masked[j] === '{') depth++
+        else if (masked[j] === '}') depth--
+        j++
+      }
+      if (depth !== 0) return out // unbalanced — leave it for the recognizer to reject
+      end = j
+      inner = out.slice(after, j - 1).trim()
+    }
+    out = `${out.slice(0, start)}predicate(${params}) { ${inner} }${out.slice(
+      end
+    )}`
+  }
+  return out
+}
+
+/**
  * The check a numeric example implies, as source — or `null` when the example is not a
  * bare numeric literal.
  *
@@ -1868,11 +1930,12 @@ function assertPredicateFormRecognized(
   throw new SyntaxError(
     `\`${typeName}\` declares a \`predicate\` in a form TJS does not implement yet, so it ` +
       `would be IGNORED and the type would accept every value.\n\n` +
-      `  Use the function form:\n` +
-      `    predicate(x) { return /* … */ }\n\n` +
-      `  \`predicate => …\` and \`predicate { … }\` are decided but not built. They are ` +
-      `rejected rather than ignored precisely so a type that checks nothing cannot ship ` +
-      `looking like one that does.`,
+      `  The forms that exist:\n` +
+      `    predicate(x) { return /* … */ }   // function form\n` +
+      `    predicate => /* … */              // one-liner; the type name IS the value\n` +
+      `    predicate { return /* … */ }      // block; \`return\` required, as in JS\n\n` +
+      `  Anything else is rejected rather than ignored, precisely so a type that checks ` +
+      `nothing cannot ship looking like one that does.`,
     locAt(source, offset)
   )
 }
@@ -1992,7 +2055,7 @@ export function transformTypeDeclarations(
           continue
         }
 
-        const blockBody = source.slice(bodyStart, k - 1).trim()
+        let blockBody = source.slice(bodyStart, k - 1).trim()
         const blockEnd = k
 
         // Parse block body for description (old syntax fallback), example, predicate
@@ -2014,6 +2077,9 @@ export function transformTypeDeclarations(
           }
         }
 
+        // `predicate => …` / `predicate { … }` become the function form before anything
+        // else looks at the body, so every downstream stage sees one shape.
+        blockBody = normalizePredicateForms(blockBody, typeName)
         const predicateMatch = blockBody.match(
           /predicate\s*\(([^)]*)\)\s*\{([^]*)\}/
         )
@@ -2382,6 +2448,17 @@ export function transformGenericDeclarations(
       }
 
       const descMatch = parsedBody.match(/description\s*:\s*(['"`])([^]*?)\1/)
+      // Same normalisation as the `Type` site. On a generic the type parameters follow
+      // the value, so `predicate => T(Box.value)` becomes `predicate(Box, T) { … }` —
+      // matching the function form's `predicate(x, T)`.
+      parsedBody = normalizePredicateForms(
+        parsedBody,
+        genericName,
+        typeParamsStr
+          .split(',')
+          .map((p) => p.trim().split('=')[0].trim())
+          .filter(Boolean)
+      )
       const predicateMatch = parsedBody.match(
         /predicate\s*\(([^)]*)\)\s*\{([^]*)\}/
       )

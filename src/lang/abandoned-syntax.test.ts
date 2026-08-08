@@ -140,21 +140,48 @@ describe('forms that never existed, or stopped existing', () => {
  * Left alone, that form works "fine", lands in an example, ships in the playground, and
  * becomes something we must either implement or break.
  */
-describe('unbuilt predicate forms are rejected, not ignored', () => {
+describe('every predicate form checks — and an unbuilt one still fails closed', () => {
   const EXAMPLE = 'Type Even {\n  example: 2\n'
 
-  it('rejects `predicate => …`', () => {
-    const msg = reject(`${EXAMPLE}  predicate => Even % 2 === 0\n}`)
-    expect(msg).toContain('predicate(x)')
+  /** Compile a Type and ask it about 4 and 3. */
+  const checks = (src: string): boolean[] =>
+    new Function(
+      `${
+        tjs(src, { runTests: false }).code
+      }\nreturn [Even.check(4), Even.check(3)]`
+    )() as boolean[]
+
+  // These three used to assert REJECTION: the forms were decided but unbuilt, and the
+  // tombstone existed so a type that validated nothing could not ship looking like one
+  // that did. They are built now, so the guard flips from "must be refused" to "must
+  // actually check" — the same promise, at the other end.
+  it('`predicate => …` checks', () => {
+    expect(checks(`${EXAMPLE}  predicate => Even % 2 === 0\n}`)).toEqual([
+      true,
+      false,
+    ])
   })
 
-  it('rejects `predicate { … }`', () => {
-    const msg = reject(`${EXAMPLE}  predicate { return Even % 2 === 0 }\n}`)
-    expect(msg).toContain('predicate(x)')
+  it('`predicate { … }` checks', () => {
+    expect(
+      checks(`${EXAMPLE}  predicate { return Even % 2 === 0 }\n}`)
+    ).toEqual([true, false])
   })
 
-  it('rejects an unbuilt form on a parameterized type too', () => {
-    expect(reject('Type Box<T> {\n  predicate => T(Box.value)\n}')).toContain(
+  it('all three spellings agree', () => {
+    // They normalise to one shape, so a divergence here means the rewrite changed
+    // meaning rather than just spelling.
+    const fn = checks(`${EXAMPLE}  predicate(x) { return x % 2 === 0 }\n}`)
+    expect(checks(`${EXAMPLE}  predicate => Even % 2 === 0\n}`)).toEqual(fn)
+    expect(
+      checks(`${EXAMPLE}  predicate { return Even % 2 === 0 }\n}`)
+    ).toEqual(fn)
+  })
+
+  it('a form that is still unbuilt is still rejected', () => {
+    // The tombstone narrows rather than disappearing — it must keep catching the NEXT
+    // unrecognised spelling, or a future one silently validates nothing.
+    expect(reject(`${EXAMPLE}  predicate: (x) => x % 2 === 0\n}`)).toContain(
       'predicate(x)'
     )
   })
