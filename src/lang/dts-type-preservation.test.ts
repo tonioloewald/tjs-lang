@@ -139,3 +139,67 @@ describe('an empty parameter list does not forbid arguments', () => {
     expect(ast?.inputSchema?.additionalProperties).toBe(false)
   })
 })
+
+/**
+ * Accessors emit as accessors, with independent read and write types.
+ *
+ * They used to emit as METHODS — `get value(): ''` became `value(): any` — because the
+ * class scanner skipped the `get`/`set` keyword and then matched the name as an ordinary
+ * method. A consumer following that declaration writes `f.value()` and gets a runtime
+ * error, so the .d.ts was worse than none.
+ *
+ * Fixing it delivers read/write asymmetry for free, which is the interesting part.
+ * TypeScript has supported `get x(): A` / `set x(v: B)` since **4.3** — verified by
+ * bisection: 4.2.4 rejects it with "'get' and 'set' accessor must have the same type",
+ * 4.3.5 accepts it. But it works only where properties are written out BY HAND. Mapped
+ * types still cannot carry asymmetry (microsoft/TypeScript#43826, open five years), so
+ * anything DERIVED — a proxy, a generic wrapper, `{[K in keyof T]: …}` — loses it.
+ *
+ * A generated declaration is hand-written as far as TypeScript is concerned. So codegen
+ * walks straight around the hole that blocks the type-level route, and every accessor TJS
+ * emits gets the asymmetry TS could express all along but the DOM never will:
+ * `lib.dom.d.ts` declares `value: string`, and widening it now would break every codebase
+ * that spreads or maps over elements.
+ */
+describe('accessors emit as accessors, with asymmetric read/write types', () => {
+  const SRC = `export class Field {
+  constructor() { this._v = '' }
+  get value(): '' { return this._v }
+  set value(x) { this._v = String(x) }
+  get count(): 0 { return this._v.length }
+  describe(prefix: ''): '' { return prefix + this._v }
+}
+`
+
+  it('emits a getter as a getter, with its declared type', () => {
+    expect(dts(SRC)).toContain('get value(): string;')
+  })
+
+  it('emits a setter as a setter', () => {
+    const out = dts(SRC)
+    expect(out).toContain('set value(x: any);')
+    // The old shape actively misled: it said the property was callable.
+    expect(out).not.toContain('value(): any;')
+    expect(out).not.toContain('value(x: any): any;')
+  })
+
+  it('read and write types are INDEPENDENT', () => {
+    // The whole point. Narrow on read, wide on write — the `input.value = 42` shape.
+    const out = dts(SRC)
+    expect(out).toMatch(/get value\(\): string;/)
+    expect(out).toMatch(/set value\(x: any\);/)
+  })
+
+  it('a getter-only accessor emits no setter', () => {
+    const out = dts(SRC)
+    expect(out).toContain('get count(): number;')
+    expect(out).not.toContain('set count(')
+  })
+
+  it('ordinary methods still emit as methods, and now carry their return type', () => {
+    // The return-type scanner looked for `-> TYPE`, a syntax that was never implemented,
+    // so EVERY class member returned `any` — accessors and plain methods alike.
+    const out = dts(SRC)
+    expect(out).toContain('describe(prefix: string): string;')
+  })
+})

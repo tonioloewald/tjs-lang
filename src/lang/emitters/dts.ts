@@ -338,7 +338,13 @@ function detectFunctionPredicates(
 interface ClassInfo {
   name: string
   constructorParams: string // raw param string, e.g. "x: 0.0, y: 0.0"
-  methods: { name: string; params: string; returnType: string | null }[]
+  methods: {
+    name: string
+    params: string
+    returnType: string | null
+    /** `get`/`set` emit as accessors; anything else is an ordinary method. */
+    kind: 'get' | 'set' | 'method'
+  }[]
 }
 
 /**
@@ -407,16 +413,40 @@ function detectClasses(source: string): Map<string, ClassInfo> {
 
         // Only match method declarations at class body level (depth 0)
         if (bodyDepth === 0) {
-          const methodMatch = classBody.slice(pos).match(/^(\w+)\s*\(/)
-          if (methodMatch) {
-            const name = methodMatch[1]
-            if (name === 'constructor' || name === 'get' || name === 'set') {
-              // Skip past the keyword to avoid re-matching a suffix
+          // ACCESSORS FIRST. `get value()` does not match the bare-method pattern
+          // (`^(\w+)\s*\(` needs the paren straight after the name), so the scanner used
+          // to skip the `get` keyword and then match `value(` as an ordinary method —
+          // emitting `value(): any` for a PROPERTY. A consumer following that .d.ts
+          // writes `f.value()` and gets a runtime error, so the declaration was worse
+          // than none.
+          //
+          // Emitting them properly also gets read/write asymmetry for free, which is the
+          // whole point: TypeScript has supported `get x(): A` / `set x(v: B)` since 4.3,
+          // but ONLY where properties are written out by hand. Mapped types still cannot
+          // carry it (microsoft/TypeScript#43826, open five years), so anything DERIVED
+          // loses it. Generated declarations are hand-written as far as TS is concerned,
+          // so codegen walks straight around the hole.
+          const accessorMatch = classBody
+            .slice(pos)
+            .match(/^(get|set)\s+(\w+)\s*\(/)
+          const methodMatch = accessorMatch
+            ? null
+            : classBody.slice(pos).match(/^(\w+)\s*\(/)
+
+          if (accessorMatch || methodMatch) {
+            const kind = (accessorMatch?.[1] ?? 'method') as
+              | 'get'
+              | 'set'
+              | 'method'
+            const name = accessorMatch ? accessorMatch[2] : methodMatch![1]
+            const matched = (accessorMatch ?? methodMatch!)[0]
+
+            if (name === 'constructor') {
               pos += name.length
               continue
             } else {
               // Find matching close paren
-              const parenStart = pos + methodMatch[0].length - 1
+              const parenStart = pos + matched.length - 1
               let depth = 1
               let j = parenStart + 1
               while (j < classBody.length && depth > 0) {
@@ -426,11 +456,14 @@ function detectClasses(source: string): Map<string, ClassInfo> {
               }
               const params = classBody.slice(parenStart + 1, j - 1).trim()
 
-              // Check for return type annotation: -> Type
-              const afterParen = classBody.slice(j).match(/^\s*->\s*(.+?)\s*\{/)
+              // Return type annotation is `: TYPE`, not `-> TYPE`. The arrow form was
+              // described by parser-types.ts comments for months and implemented nowhere,
+              // so this matched nothing and EVERY class member returned `any` — including
+              // ordinary methods, not just accessors.
+              const afterParen = classBody.slice(j).match(/^\s*:\s*(.+?)\s*\{/)
               const returnType = afterParen ? afterParen[1].trim() : null
 
-              methods.push({ name, params, returnType })
+              methods.push({ name, params, returnType, kind })
               pos = j
               continue
             }
@@ -746,7 +779,23 @@ export function generateDTS(
       }
       for (const method of classInfo.methods) {
         const mParams = method.params ? tjsParamsToTS(method.params) : ''
-        lines.push(`  ${method.name}(${mParams}): any;`)
+        const mReturn = method.returnType
+          ? inferTSTypeFromExample(method.returnType)
+          : 'any'
+
+        if (method.kind === 'get') {
+          // `get value(): ''` → `get value(): string`
+          lines.push(`  get ${method.name}(): ${mReturn};`)
+        } else if (method.kind === 'set') {
+          // The setter's parameter type is whatever the author declared, INDEPENDENT of
+          // the getter's — which is the whole point. TypeScript has allowed this since
+          // 4.3 for hand-written properties, and a generated declaration is hand-written
+          // as far as TS is concerned. An untyped setter param stays `any`, which is
+          // exactly right for the `input.value = 42` shape: reads narrow, writes wide.
+          lines.push(`  set ${method.name}(${mParams || 'value: any'});`)
+        } else {
+          lines.push(`  ${method.name}(${mParams}): ${mReturn};`)
+        }
       }
       lines.push(`}`)
     }
