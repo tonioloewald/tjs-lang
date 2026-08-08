@@ -41,68 +41,50 @@ actually the stub answering twice.
 
 ## Where they disagree today
 
-Three remain, all one-directional: **the stub is more permissive than the real runtime.**
+**Nowhere in the corpus.** The list is empty, and the harness stays.
 
-| Type | Value | inline stub | real runtime |
+Four cases used to live here:
+
+| Type | Value | was | cause |
 | --- | --- | --- | --- |
-| `Type Pt { example: { x: 1, y: 1 } }` | `{ x: 1.5, y: 1 }` | accepts | rejects |
-| `Type Nums { example: [1] }` | `[1.5]` | accepts | rejects |
-| `Type Pt { example: { x: 1, y: 1 } }` | `{ x: 1, y: 1, z: 9 }` | accepts | rejects |
+| `Type Int { example: 1 }` | `1.5` | stub accepted | narrowing lost at the source→value boundary |
+| `Type Pt { example: { x: 1, y: 1 } }` | `{ x: 1.5, y: 1 }` | stub accepted | narrowing lost through a shape |
+| `Type Nums { example: [1] }` | `[1.5]` | stub accepted | narrowing lost through an array |
+| `Type Pt { example: { x: 1, y: 1 } }` | `{ x: 1, y: 1, z: 9 }` | stub accepted | shape left open |
 
-Two causes:
+They closed in two moves, and the split is the useful part:
 
-1. **Numeric narrowing is lost.** `__match` bottoms out at `typeof v === 'number'`, so an
-   example of `1` accepts `1.5`. This contradicts the documented rule that `42` is an
-   *integer* example (`CLAUDE-TJS-SYNTAX.md`) — the stub is wrong against the spec, not
-   merely different from #1. **Fixed for a top-level numeric example** (see below); still
-   lost when the number is nested, which needs a structural walk of the example.
-2. **Shapes are open.** `__match` checks the example's keys are present; #1 also rejects
-   excess ones.
+1. **Source-level facts** — `+0` means non-negative, and `+0 === 0`, so nothing downstream
+   can recover it. The emitter writes the check into the emitted code as a predicate.
+   This is the only case that genuinely needed the source.
+2. **Value-derivable facts** — everything else. `Number.isInteger(example)` and the
+   example's key set are both readable from the value the stub already holds, so `__match`
+   enforces them directly. No source information required, and no second mechanism.
 
-## A third kind: narrowing destroyed before either runtime sees it
+The first attempt at (2) was a structural walk over the example AST, on the assumption
+that narrowing through a shape needed the source the way `+0` did. It does not: an integer
+example is still an integer when it arrives as a value. The walk was written and then
+deleted in favour of six clauses in `__match`.
 
-`+0` means *non-negative integer* — and `+0 === 0`. The example was passed through as a
-**value**, so the sign was gone before any runtime could infer from it, and #1 and #2 both
-accepted `-1`. Not a disagreement: they agreed, and were both wrong.
+**Making the stub stricter broke nothing** — full suite, examples included. That is worth
+recording, because it was the risk that justified treating this as a ratchet rather than a
+fix: emitted code that starts rejecting values is a subset violation, and the reason it
+was safe here is that every value newly rejected was one the real runtime already refused.
 
-| declaration | `-1` | `1.5` |
-| --- | --- | --- |
-| `function g(n: +0)` | rejects | rejects |
-| `Type Count { example: +0 }` *(before)* | **accepts** | **accepts** |
-| `Type Count { example: +0 }` *(after)* | rejects | rejects |
+### Why the harness stays
 
-The parameter path was always right because it reads the source token. The `Type` block
-did not, so the idiomatic way to declare a count accepted negatives everywhere.
+An empty list is the goal state, not a reason to delete the apparatus. What it buys now is
+that the NEXT divergence fails on the commit that introduces it, rather than being
+discovered later by someone probing one case at a time. Both directions are still
+enforced: an unlisted disagreement fails, and a listed one that stops happening also fails,
+asking to be deleted — so a fix cannot rot into slack a regression could occupy.
 
-**The fix is the general one**, and it is the move that makes #1 and #2 tractable: a
-numeric example's kind is a fact about the *source*, so the emitter — the only place that
-still knows — writes the check into the emitted code as a predicate, rather than handing a
-bare value to two inference engines and hoping they agree. Both runtimes then give the same
-answer by construction.
+### A gap the corpus does not yet cover
 
-One consequence worth stating, because it looks like a regression: emitted code is now
-**stricter** than `Type(name, undefined, +0)` called directly, since that call really was
-handed `0`. The value-constructed API is the lossy arm there, not the authority. The test
-marks those cases `sourceNarrowing` and checks the emitted side against the spec instead of
-against a weaker sibling.
-
-Note what is *not* in the table: a bare `n: int` parameter (#3) always narrowed correctly.
-That was the clue — one constraint written two ways disagreed *within a single file*, which
-is what pointed at the source/value boundary rather than at either runtime.
-
-### Why this is a ratchet and not a blocker
-
-More permissive means emitted code **under-validates**. It never rejects a value the
-language accepts, so the subset invariant in [`PRINCIPLES.md`](../PRINCIPLES.md) holds: a
-weaker promise, not a broken program. The test therefore asserts the direction as a hard
-rule — *the stub must never be stricter* — and holds the remaining cases in a list that may
-only shrink. (The exception is a `sourceNarrowing` case, where being stricter than a
-value-constructed `Type()` is correct; those are checked against the spec instead.)
-
-The list is individual cases, not a count, so a fixed one and a new one cannot cancel out.
-Both directions are enforced: an unlisted disagreement fails, and a listed one that stops
-happening also fails, asking to be deleted. (An entry that quietly stops applying is how an
-expired exemption reserves slack for a future regression.)
+`+0` NESTED in a shape (`Type P { example: { count: +0 } }`) is still lost — the emitted
+predicate covers a top-level scalar only. It is the one case that would need the
+structural walk, and it is not currently measured. Adding it to the corpus is the honest
+next step; building the walk before something measures it is not.
 
 ## What this blocks
 

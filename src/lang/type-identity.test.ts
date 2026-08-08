@@ -105,12 +105,15 @@ const CASES: Array<{
  * Listed individually rather than counted so a FIXED one and a NEW one cannot cancel out —
  * a bare total would call that pair "no change" and hide both.
  */
-const KNOWN_DISAGREEMENTS = new Set([
-  // `Int 1.5` used to be here — fixed by emitting the narrowing as a predicate rather
-  // than leaving it to two inference engines to agree about.
-  'Pt {"x":1.5,"y":1}', // numeric narrowing lost through a shape
-  'Nums [1.5]', // …through an array
-  'Pt {"x":1,"y":1,"z":9}', // excess key accepted
+const KNOWN_DISAGREEMENTS = new Set<string>([
+  // EMPTY — the corpus agrees. Four cases lived here:
+  //   `Int 1.5`               fixed by emitting the narrowing as a predicate
+  //   `Pt {x:1.5,y:1}`        \
+  //   `Nums [1.5]`             > fixed in `__match`: both are derivable from the example
+  //   `Pt {x:1,y:1,z:9}`      /  VALUE, so the stub never needed source information
+  //
+  // Keep the mechanism. An empty list is the goal state, not a reason to delete the
+  // harness — it is what makes the NEXT divergence fail on the commit that introduces it.
 ])
 
 /** The `Type` an emitted standalone file actually runs — the inline stub. */

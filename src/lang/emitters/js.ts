@@ -1299,7 +1299,15 @@ export function transpileToJS(
       // is worse than no validator — examples/json-schema.tjs printed
       // "Missing field: true" and looked like it worked.
       inlineParts.push(
-        `function __match(v,ex){if(ex===null)return v===null;if(ex===undefined)return true;const t=typeof ex;if(t==='string'||t==='number'||t==='boolean')return typeof v===t;if(Array.isArray(ex)){if(!Array.isArray(v))return false;return ex.length?v.every(x=>__match(x,ex[0])):true}if(t==='object'){if(!v||typeof v!=='object'||Array.isArray(v))return false;return Object.keys(ex).every(k=>k in v&&__match(v[k],ex[k]))}return v===ex}`
+        // Two constraints here are derivable from the example VALUE, so the stub can
+        // enforce them without knowing anything about the source — and until it did, it
+        // disagreed with the real runtime on exactly these (see docs/type-identity.md):
+        //   - an INTEGER example narrows: `{ x: 1 }` must not accept `{ x: 1.5 }`.
+        //     (A float example stays permissive: `1.5` describes any number.)
+        //   - a NON-EMPTY object example CLOSES the shape: excess keys are a real error
+        //     when the author described a shape. `{}` still means "an object", not "the
+        //     empty object" — the distinction that bit `parametersToJsonSchema`.
+        `function __match(v,ex){if(ex===null)return v===null;if(ex===undefined)return true;const t=typeof ex;if(t==='number')return typeof v==='number'&&(Number.isInteger(ex)?Number.isInteger(v):true);if(t==='string'||t==='boolean')return typeof v===t;if(Array.isArray(ex)){if(!Array.isArray(v))return false;return ex.length?v.every(x=>__match(x,ex[0])):true}if(t==='object'){if(!v||typeof v!=='object'||Array.isArray(v))return false;const ks=Object.keys(ex);if(ks.length&&!Object.keys(v).every(k=>k in ex))return false;return ks.every(k=>k in v&&__match(v[k],ex[k]))}return v===ex}`
       )
       const typeExtras = needsExampleSchema
         ? `t.toJSONSchema=()=>t.__ex===undefined?{}:__ex2js(t.__ex);t.strip=v=>{const ex=t.__ex;if(!ex||typeof ex!=='object'||!v||typeof v!=='object')return v;const o={};for(const k of Object.keys(ex))if(k in v)o[k]=v[k];return o};`
