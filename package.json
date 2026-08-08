@@ -234,7 +234,7 @@
     "test:llm": "bun test src/batteries/models.integration.test.ts",
     "test:grok": "RUN_GROK_TESTS=1 bun test src/use-cases/ajs-grokkability.test.ts",
     "bench": "bun bin/benchmarks.ts",
-    "make": "rm -rf dist && bun format && bun run docs && bun run build:grammars && bun run build:editors && tsc -p tsconfig.build.json && bun scripts/build.ts",
+    "make": "rm -rf dist && bun format && bun run docs && bun run docs:differences && bun run build:grammars && bun run build:editors && tsc -p tsconfig.build.json && bun scripts/build.ts",
     "build:bundles": "bun scripts/build.ts",
     "typecheck": "tsc --noEmit",
     "latest": "rm -rf node_modules && bun install",
@@ -247,7 +247,8 @@
     "functions:serve": "cd functions && npm run serve",
     "deploy:hosting": "bun run build:demo && firebase deploy --only hosting",
     "deploy": "bun run build:demo && bun run functions:deploy && firebase deploy --only hosting",
-    "start": "bun run build:demo && bun run dev"
+    "start": "bun run build:demo && bun run dev",
+    "docs:differences": "bun scripts/build-differences.ts"
   },
   "dependencies": {
     "acorn": "^8.15.0",

@@ -13,6 +13,7 @@ This file is a navigation index for AI agents. It does not contain the docs them
 
 ## Language guides
 
+- [docs/tjs-vs-typescript.md](docs/tjs-vs-typescript.md) — **start here for "how is this different?"**. Every row is EXECUTED against `tsc --strict` and TJS by `src/lang/differences.test.ts`, so the page reports what the compilers actually do rather than what someone believed. Generated from `src/lang/differences.ts`; do not hand-edit.
 - [DOCS-TJS.md](DOCS-TJS.md) — TJS language guide (the long form).
 - [DOCS-AJS.md](DOCS-AJS.md) — AJS runtime guide (gas-metered sandboxed VM).
 - [TJS-FOR-JS.md](TJS-FOR-JS.md) — for JavaScript developers: syntax differences, gotchas.
