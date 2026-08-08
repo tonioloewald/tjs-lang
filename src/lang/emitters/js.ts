@@ -1290,7 +1290,7 @@ export function transpileToJS(
         `function __ex2js(v){if(v===null)return{type:'null'};if(v===undefined)return{};const t=typeof v;if(t==='string')return{type:'string'};if(t==='number')return Number.isInteger(v)?{type:'integer'}:{type:'number'};if(t==='boolean')return{type:'boolean'};if(Array.isArray(v))return v.length?{type:'array',items:__ex2js(v[0])}:{type:'array'};if(t==='object'){const p={},r=[];for(const k of Object.keys(v)){p[k]=__ex2js(v[k]);r.push(k)}return{type:'object',properties:p,required:r,additionalProperties:false}}return{}}`
       )
     }
-    if (needsType) {
+    if (needsType || needsGeneric) {
       // `check` matches the value against the EXAMPLE, structurally.
       //
       // It used to be `typeof v === typeof ex`, which for an object example means
@@ -1330,11 +1330,15 @@ export function transpileToJS(
       // threw "checkT is not a function" — every generic in emitted standalone
       // code was dead on arrival (examples/generic-demo.tjs).
       //
-      // The inline runtime has no tosijs-schema, so an example value checks by
-      // `typeof`, exactly as the inline `Type` fallback above does. A RuntimeType
-      // defers to its own `.check`; a bare predicate function is used as-is.
+      // A raw example type argument checks through `__match`, exactly as the inline
+      // `Type` fallback does. It used to be `typeof v === typeof a`, which is the
+      // weakest answer available: `Box(0)` accepted `1.5`, because both are 'number'.
+      // That was the documented blocker for `Box<int>` — the syntax was never the
+      // problem — and it is fixed by reusing the matcher rather than by a second
+      // hand-rolled comparison, which is how the two drifted apart in the first place.
+      // A RuntimeType defers to its own `.check`; a bare predicate function is used as-is.
       inlineParts.push(
-        `function Generic(tp,pred,d){const c=a=>{if(a===null||a===undefined)return()=>true;if(a.__runtimeType&&typeof a.check==='function')return v=>a.check(v)===true;if(typeof a==='function')return v=>a(v)===true;return v=>typeof v===typeof a};const f=(...args)=>{const ck=args.map(c);const t={description:d||'generic',__runtimeType:true,check:v=>pred(v,...ck)};return t};f.__runtimeType=true;f.description=d;return f}`
+        `function Generic(tp,pred,d){const c=a=>{if(a===null||a===undefined)return()=>true;if(a.__runtimeType&&typeof a.check==='function')return v=>a.check(v)===true;if(typeof a==='function')return v=>a(v)===true;return v=>__match(v,a)};const f=(...args)=>{const ck=args.map(c);const t={description:d||'generic',__runtimeType:true,check:v=>pred(v,...ck)};return t};f.__runtimeType=true;f.description=d;return f}`
       )
     }
     if (needsFunctionPredicate) {

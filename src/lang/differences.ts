@@ -198,14 +198,13 @@ console.log(Even.check(4), Even.check(3))`,
   },
   {
     id: 'generic-implicit-predicate',
-    status: 'proposed',
     topic: 'A parameterized type needs no predicate to check its parameter',
     snippet: `Type Box<T> {
   example: { value: T }
 }
 console.log(Box(0).check({ value: 7 }), Box(0).check({ value: 's' }))`,
     tjs: { accepts: true, value: 'true false' },
-    why: 'The example already says WHERE the parameter goes, so `T` applied at that slot is derivable and writing `predicate(x, T) { return T(x.value) }` is restating it. Today a predicate-less parameterized type accepts everything.',
+    why: 'The example already says WHERE the parameter goes, so `T` applied at that slot is derivable and writing `predicate(x, T) { return T(x.value) }` restates it. Until this was built, omitting the predicate emitted `Generic([...], () => true)` — a parameterized type that accepted every value while looking like it checked one.',
   },
   {
     id: 'generic-type-arguments',

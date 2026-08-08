@@ -41,6 +41,7 @@ import type {
   PolyVariant,
   TokenizerState,
 } from './parser-types'
+import { parse } from 'acorn'
 import { extractJSValue } from './parser-params'
 import { emitVerifiedPredicate, formatPredicateDiagnostics } from './predicate'
 import type { PredicateVerification } from './types'
@@ -1828,6 +1829,103 @@ function findRightOperandBoundary(
  * guard narrows rather than disappears — it should still catch the next unrecognised one.
  */
 /**
+ * Derive a parameterized type's predicate from its example.
+ *
+ *   Type Box<T> { example: { value: T } }
+ *     -> (v, T) => v !== null && typeof v === 'object' && … && T(v?.["value"])
+ *
+ * The example already says WHERE the parameter goes, so requiring
+ * `predicate(x, T) { return T(x.value) }` alongside it is asking the author to state the
+ * same thing twice — and until this existed, omitting it produced `Generic([…], () => true)`,
+ * a parameterized type that accepted every value while looking like it checked one.
+ *
+ * A type parameter arrives as a CHECK FUNCTION (`Generic` maps its arguments through
+ * `typeParamToCheck` first), so `T` at a slot compiles to a call at that slot.
+ *
+ * Returns `null` when the example contains no type parameter at all — there is nothing a
+ * derived predicate would add over the ordinary example schema, and replacing a
+ * well-tested mechanism with an equivalent one is how they drift apart.
+ */
+export function genericPredicateFromExample(
+  example: string,
+  typeParams: string[]
+): string | null {
+  if (!typeParams.length) return null
+  const params = new Set(typeParams)
+  let usesParam = false
+
+  const walk = (node: any, path: string): string => {
+    if (node.type === 'Identifier' && params.has(node.name)) {
+      usesParam = true
+      return `${node.name}(${path})`
+    }
+    if (node.type === 'ObjectExpression') {
+      const parts = [
+        `${path} !== null && typeof ${path} === 'object' && !Array.isArray(${path})`,
+      ]
+      const keys: string[] = []
+      for (const p of node.properties) {
+        if (p.type !== 'Property' || p.computed) continue
+        const key =
+          p.key.type === 'Identifier' ? p.key.name : String(p.key.value)
+        keys.push(key)
+        const sub = `${path}?.[${JSON.stringify(key)}]`
+        parts.push(`${JSON.stringify(key)} in ${path}`)
+        parts.push(walk(p.value, sub))
+      }
+      // A described shape is closed, matching `__match` and the real runtime.
+      if (keys.length) {
+        parts.push(
+          `Object.keys(${path}).every((k) => ${JSON.stringify(
+            keys
+          )}.includes(k))`
+        )
+      }
+      return `(${parts.filter((p) => p !== 'true').join(' && ')})`
+    }
+    if (node.type === 'ArrayExpression') {
+      const first = node.elements[0]
+      if (!first) return `Array.isArray(${path})`
+      return `(Array.isArray(${path}) && ${path}.every((__e) => ${walk(
+        first,
+        '__e'
+      )}))`
+    }
+    const isUnary = node.type === 'UnaryExpression'
+    const lit = isUnary ? node.argument : node
+    if (lit?.type === 'Literal') {
+      const val = lit.value
+      if (val === null) return `${path} === null`
+      if (typeof val === 'number') {
+        const base = `typeof ${path} === 'number'`
+        if (!Number.isInteger(val)) return base
+        const int = `${base} && Number.isInteger(${path})`
+        return isUnary && node.operator === '+'
+          ? `(${int} && ${path} >= 0)`
+          : `(${int})`
+      }
+      return `typeof ${path} === ${JSON.stringify(typeof val)}`
+    }
+    return 'true' // an element we cannot read must not constrain
+  }
+
+  try {
+    const parsed = parse(`(${example})`, { ecmaVersion: 2022 }) as any
+    const expr = parsed.body[0]?.expression
+    if (!expr) return null
+    const body = walk(expr, 'v')
+    if (!usesParam) return null
+    return `(v, ${typeParams.join(', ')}) => ${body}`
+  } catch (e) {
+    // An example we cannot parse is one we must not narrow — but a bare `catch` here
+    // once swallowed a ReferenceError from a missing import and returned `null`, which
+    // is indistinguishable from "nothing to derive". Only syntax errors are expected.
+    if (!(e instanceof globalThis.SyntaxError)) throw e
+    return null
+  }
+}
+
+/**
  * Rewrite the two short predicate spellings into the function form the rest of the
  * pipeline already understands.
  *
@@ -2447,6 +2545,17 @@ export function transformGenericDeclarations(
         parsedBody = parsedBody.slice(0, declIdx) + parsedBody.slice(dj)
       }
 
+      // The example is what lets a parameterized type check its parameter without a
+      // hand-written predicate restating where that parameter goes.
+      let genericExample: string | undefined
+      const exKeyword = parsedBody.match(/example\s*:\s*/)
+      if (exKeyword) {
+        const extracted = extractJSValue(
+          parsedBody,
+          exKeyword.index! + exKeyword[0].length
+        )
+        if (extracted) genericExample = extracted.value.trim()
+      }
       const descMatch = parsedBody.match(/description\s*:\s*(['"`])([^]*?)\1/)
       // Same normalisation as the `Type` site. On a generic the type parameters follow
       // the value, so `predicate => T(Box.value)` becomes `predicate(Box, T) { … }` —
@@ -2509,10 +2618,22 @@ export function transformGenericDeclarations(
           ', '
         )}], ${fn}, '${description}')`
       } else {
-        // No predicate - create a generic that always passes
-        result += `const ${genericName} = Generic([${typeParams.join(
-          ', '
-        )}], () => true, '${description}')`
+        // No predicate: derive one from the example, which already says where each type
+        // parameter goes. Falls back to always-passing only when there is nothing to
+        // derive from — a parameterized type with no example and no predicate really
+        // does constrain nothing.
+        const derived = genericExample
+          ? genericPredicateFromExample(
+              genericExample,
+              typeParamsStr
+                .split(',')
+                .map((p) => p.trim().split('=')[0].trim())
+                .filter(Boolean)
+            )
+          : null
+        result += `const ${genericName} = Generic([${typeParams.join(', ')}], ${
+          derived ?? '() => true'
+        }, '${description}')`
       }
 
       i = blockEnd

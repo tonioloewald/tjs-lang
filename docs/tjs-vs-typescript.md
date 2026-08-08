@@ -242,10 +242,7 @@ The multi-line half of the same rule — a `{ }` body requires `return`, exactly
 
 ---
 
-### A parameterized type needs no predicate to check its parameter — PROPOSED
-
-> **Not implemented.** This row states what the language SHOULD do. It is
-> asserted RED by the test suite, and turns green only when someone builds it.
+### A parameterized type needs no predicate to check its parameter
 
 ```js
 Type Box<T> {
@@ -256,9 +253,9 @@ console.log(Box(0).check({ value: 7 }), Box(0).check({ value: 's' }))
 
 | | TypeScript | TJS |
 | --- | --- | --- |
-| result | — | `true false` *(intended)* |
+| result | — | `true false` |
 
-The example already says WHERE the parameter goes, so `T` applied at that slot is derivable and writing `predicate(x, T) { return T(x.value) }` is restating it. Today a predicate-less parameterized type accepts everything.
+The example already says WHERE the parameter goes, so `T` applied at that slot is derivable and writing `predicate(x, T) { return T(x.value) }` restates it. Until this was built, omitting the predicate emitted `Generic([...], () => true)` — a parameterized type that accepted every value while looking like it checked one.
 
 ---
 
