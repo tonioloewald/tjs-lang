@@ -10,7 +10,7 @@
  * **Goal: catch everything tsc catches** — minus the places tsc is stupidly strict, which
  * are called out individually rather than waved at.
  *
- * Current score: **9/12 tight**. Each LOOSE row is a specific piece of work, and each is
+ * Current score: **10/12 tight**. Each LOOSE row is a specific piece of work, and each is
  * expressed as a failing-if-fixed assertion so closing one is impossible to miss.
  */
 import { describe, it, expect, beforeAll, afterAll } from 'bun:test'
@@ -130,10 +130,11 @@ describe('LOOSE: accepted syntax that does NOT enforce (work queue)', () => {
     expect(arrow('ok')).toBe('ok')
   })
 
-  it('LOOSE: rest params `...xs: number[]` are not validated', () => {
-    expect(rejects(`function f(...xs: number[]) { return xs }`, 'x')).toBe(
-      false
-    )
+  it('TIGHT: rest params `...xs: number[]` are validated', () => {
+    // Never a rest-param gap: `...xs: [0]` item-checked all along. The failure was `T[]`,
+    // and the rest annotation is read from the ORIGINAL source (JS forbids defaults on
+    // rest params), so the rewrite had to be applied at that site too.
+    expect(rejects(`function f(...xs: number[]) { return xs }`, 'x')).toBe(true)
   })
 
   it('LOOSE: tuple `p: [number, string]` does not check position types', () => {
@@ -143,9 +144,9 @@ describe('LOOSE: accepted syntax that does NOT enforce (work queue)', () => {
   })
 
   it('reports the tightness score', () => {
-    // 9 tight / 12 measured. Moves as rows above are closed; kept visible so "we support
+    // 10 tight / 12 measured. Moves as rows above are closed; kept visible so "we support
     // TypeScript" can never quietly mean "we parse TypeScript".
-    console.log('  TS tightness: 9/12 declarations enforce as strictly as tsc')
+    console.log('  TS tightness: 10/12 declarations enforce as strictly as tsc')
     expect(true).toBe(true)
   })
 })

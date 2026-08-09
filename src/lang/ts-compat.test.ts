@@ -91,14 +91,16 @@ const CASES: Array<{ name: string; src: string; supported: boolean }> = [
     supported: true,
   },
 
-  // --- acceptance gaps: additive to fix, no consumer churn ---
-  // Grouped by root cause, because they are far fewer than 13 separate jobs.
-  // (a) `T[]` suffix
+  // (a) `T[]` suffix — CLOSED. Rewrites to the array-example spelling (`['']`), so it
+  // inherits item checking rather than adding a second array representation.
   {
     name: 'array T[]',
     src: `function f(a: string[]) { return a }`,
-    supported: false,
+    supported: true,
   },
+
+  // --- acceptance gaps: additive to fix, no consumer churn ---
+  // Grouped by root cause, because they are far fewer than 13 separate jobs.
   // (b) angle-bracket type arguments — one root cause behind four failures
   {
     name: 'Array<T>',

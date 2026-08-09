@@ -103,7 +103,7 @@ Plus `ts-compat.test.ts` acceptance **12/25** and `ts-tightness.test.ts` **7/12*
 - [ ] **Emit our manifesto as _TypeScript: The Good Parts_**
 - [ ] **Emit our tutorial as our K&R**
 - [ ] **Make a backend available by default for the VM** so examples all just work
-- [ ] **Finish and smooth the TS → TJS on-ramp** (acceptance 12/25, tightness 7/12, the
+- [ ] **Finish and smooth the TS → TJS on-ramp** (acceptance 13/25, tightness 7/12, the
       ladder, the converter's rewrite+guidance pass)
 - [ ] **Finish, smooth, and tighten the AJS VM**
 - [ ] **Turn all errors into teaching points** where possible
@@ -328,7 +328,10 @@ contact instead of documenting it elsewhere.
 
 - [ ] **(b) angle-bracket type arguments** — one root cause behind four failures
       (`Array<T>`, `Promise<T>`, `Record<K,V>`, `function f<T>()`). Highest leverage.
-- [ ] **(a) `T[]` suffix** — the single most common annotation in real TS.
+- [x] **(a) `T[]` suffix** — DONE 2026-08-09. Rewrites to the array-example spelling
+      (`xs: number[]` -> `xs: [0.0]`), so item checking, `.d.ts` and JSON-Schema come for
+      free. Also closed the "rest params are not validated" row, which was a misdiagnosis:
+      `...xs: [0]` always worked; `...xs: number[]` failed because of `T[]`.
 - [ ] **(f) `n: T = default`** — annotated param with a default; extremely common in pasted
       TS, and adjacent to the drift item above.
 - [ ] **(c) type-level declaration forms** — `interface`, `type`, `enum`, `import type`.
@@ -342,7 +345,7 @@ contact instead of documenting it elsewhere.
 TypeScript would reject_. A type that parses and validates nothing is the `s: string` → `any`
 failure again — it looks typed, transpiles clean, and protects nothing.
 
-**Score: 9/12 simple declarations enforce as tightly as tsc.**
+**Score: 10/12 simple declarations enforce as tightly as tsc.**
 
 Tight today: `string` / `number` / `boolean`, object shapes (wrong member type **and**
 missing member), unions of primitives, nullable unions.

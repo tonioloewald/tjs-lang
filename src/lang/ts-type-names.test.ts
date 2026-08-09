@@ -76,14 +76,18 @@ describe('sound TS type names are honoured as runtime types', () => {
     expect(isMonadicError(f(42))).toBe(false)
   })
 
-  it('KNOWN GAP: `string[]` does not parse — but fails LOUDLY, not silently', () => {
-    // The TJS spelling is `['']`. TS's `T[]` suffix isn't parseable as an expression,
-    // so it throws. That's an acceptable interim state precisely because it is loud:
-    // a parse error tells you to fix something, whereas the old silent `any` told you
-    // nothing while removing your type checking.
-    expect(() =>
-      tjs(`function f(a: string[]) { return a }`, { runTests: false })
-    ).toThrow()
+  it('`string[]` parses and enforces', () => {
+    // Was a known gap: `T[]` is not an expression, so the colon rewrite produced a syntax
+    // error. It now rewrites to the array-example spelling `['']`, inheriting item
+    // checking rather than adding a second array representation. See array-suffix.test.ts.
+    const f = new Function(
+      `${
+        tjs(`function f(a: string[]) { return a.length }`, { runTests: false })
+          .code
+      }\nreturn f`
+    )() as any
+    expect(f(['a'])).toBe(1)
+    expect(String(f([1]))).toContain('MonadicError')
   })
 })
 

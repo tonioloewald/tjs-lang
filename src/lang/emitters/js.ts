@@ -82,7 +82,11 @@ import type {
   PredicateVerification,
 } from '../types'
 import { isDictDefaultParam } from '../types'
-import { inferTypeFromValue, parseParameter } from '../inference'
+import {
+  inferTypeFromValue,
+  parseParameter,
+  typeNameExample,
+} from '../inference'
 import { FORBIDDEN_KEYS } from '../../forbidden-keys'
 import { extractTests } from '../tests'
 import {
@@ -242,6 +246,18 @@ function isParamRequiredInSource(
 /**
  * Extract type info for a single function declaration
  */
+/** `number[]` -> `[0.0]` for a rest annotation; `null` when not an array suffix. */
+function restTypeSuffix(type: string): string | null {
+  const t = type.trim()
+  if (!t.endsWith('[]')) return null
+  const inner = t.slice(0, -2).trim()
+  if (!inner) return null
+  const nested = restTypeSuffix(inner)
+  if (nested !== null) return `[${nested}]`
+  const example = typeNameExample(inner)
+  return example ? `[${example}]` : null
+}
+
 function extractFunctionTypeInfo(
   func: FunctionDeclaration,
   originalSource: string,
@@ -351,7 +367,16 @@ function extractFunctionTypeInfo(
         )
         if (restTypeMatch) {
           try {
-            const typeExpr = parseExpressionAt(restTypeMatch[1].trim(), 0, {
+            // `T[]` needs the same rewrite the param transform applies to ordinary
+            // annotations. A rest param's type is read from the ORIGINAL source (JS
+            // forbids defaults on rest params, so the annotation is stripped rather than
+            // rewritten), which meant `...xs: number[]` arrived here unrewritten, failed
+            // to parse, and fell through to the bare-`array` catch — accepting `['x']`.
+            // `...xs: [0]` worked all along, so this was never a rest-param gap: it was
+            // `T[]`.
+            const restSrc =
+              restTypeSuffix(restTypeMatch[1].trim()) ?? restTypeMatch[1].trim()
+            const typeExpr = parseExpressionAt(restSrc, 0, {
               ecmaVersion: 2022,
             })
             const restItemType = inferTypeFromValue(typeExpr as any)

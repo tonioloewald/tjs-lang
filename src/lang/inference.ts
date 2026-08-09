@@ -95,6 +95,38 @@ const TS_TYPE_NAMES: Record<string, TypeDescriptor> = {
  * separate because one produces a FAILURE expression for inline codegen and the other a
  * predicate, and because the emitter must not become a dependency of the parser.
  */
+/**
+ * The canonical EXAMPLE for a type name, as source — `number` -> `0.0`, `int` -> `0`.
+ *
+ * Lets `xs: number[]` be rewritten to `xs: [0.0]`, which is a form the array path already
+ * handles correctly. Rewriting to the existing spelling rather than teaching the emitter a
+ * second array representation is the same choice made for `Box<int>`: one mechanism, and
+ * `T[]` inherits item checking, `.d.ts` emit and JSON-Schema for free.
+ *
+ * `float` and `number` are `0.0` because TS's `number` must keep meaning "any number" —
+ * narrowing it would reject valid pasted TypeScript.
+ */
+export function typeNameExample(name: string): string | null {
+  switch (name.trim()) {
+    case 'number':
+    case 'float':
+      return '0.0'
+    case 'int':
+      return '0'
+    case 'unsigned':
+    case 'uint':
+      return '+0'
+    case 'string':
+      return "''"
+    case 'boolean':
+      return 'false'
+    case 'bigint':
+      return '0n'
+    default:
+      return null
+  }
+}
+
 export function typeArgumentSource(name: string): string | null {
   const d = TS_TYPE_NAMES[name.trim()]
   if (!d) return null

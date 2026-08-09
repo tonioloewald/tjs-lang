@@ -18,7 +18,11 @@ import {
   isEscapedAt,
   maskLiterals,
 } from '../strip-comments'
-import { isTypeNameAnnotation, typeArgumentSource } from './inference'
+import {
+  isTypeNameAnnotation,
+  typeArgumentSource,
+  typeNameExample,
+} from './inference'
 
 export function transformParenExpressions(
   source: string,
@@ -980,6 +984,16 @@ function rewriteTypeArguments(
     hoistedTypeArgs?: HoistedTypeArg[]
   }
 ): string {
+  // `T[]` -> the array-example spelling, which the array path already handles:
+  //   xs: number[]     ->  xs: [0.0]
+  //   xs: string[][]   ->  xs: [['']]
+  // Rewriting to the existing form rather than adding a second array representation means
+  // `T[]` inherits item checking, `.d.ts` emit and JSON-Schema with no new code — and it
+  // makes REST params work, since `...xs: T[]` was never a rest-param gap at all: the
+  // annotation simply did not parse.
+  const arr = rewriteArraySuffix(type)
+  if (arr !== null) return arr
+
   if (!ctx.declaredTypes || !ctx.hoistedTypeArgs) return type
   const expr = applyTypeArguments(type, ctx.declaredTypes)
   if (expr === null) return type
@@ -1010,6 +1024,20 @@ export interface HoistedTypeArg {
   /** The type being applied — determines where the declaration must go. */
   head: string
   text: string
+}
+
+/** `number[]` -> `[0.0]`, `string[][]` -> `[['']]`; `null` when not an array suffix. */
+function rewriteArraySuffix(type: string): string | null {
+  const t = type.trim()
+  if (!t.endsWith('[]')) return null
+  const inner = t.slice(0, -2).trim()
+  if (!inner) return null
+  const nested = rewriteArraySuffix(inner)
+  if (nested !== null) return `[${nested}]`
+  const example = typeNameExample(inner)
+  // An unknown element type is left alone rather than guessed at — a wrong example would
+  // validate against the wrong thing, which is worse than not validating.
+  return example ? `[${example}]` : null
 }
 
 /** `Box<int>` -> `Box(Number.isInteger)`, or null when this is not an applied type. */
