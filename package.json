@@ -254,7 +254,7 @@
     "acorn": "^8.15.0",
     "acorn-loose": "^8.5.2",
     "acorn-walk": "^8.3.4",
-    "tosijs-schema": "^1.5.0"
+    "tosijs-schema": "^1.5.1"
   },
   "peerDependencies": {
     "@codemirror/autocomplete": "^6.0.0",

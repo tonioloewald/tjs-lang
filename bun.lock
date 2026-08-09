@@ -8,7 +8,7 @@
         "acorn": "^8.15.0",
         "acorn-loose": "^8.5.2",
         "acorn-walk": "^8.3.4",
-        "tosijs-schema": "^1.5.0",
+        "tosijs-schema": "^1.5.1",
       },
       "devDependencies": {
         "@codemirror/autocomplete": "^6.20.0",
@@ -828,7 +828,7 @@
 
     "tosijs": ["tosijs@1.6.1", "", {}, "sha512-fIUAW4B3PmIQe/m7kcdnfcB00OZadXmDffjTUr6SqWYkRvnJOKCWuiCSYgVZAU5i3WxGFGrdJBEv7KcM7VmxsA=="],
 
-    "tosijs-schema": ["tosijs-schema@1.5.0", "", {}, "sha512-BYElbSs4s0qKBrCgg+7A/dIhx0lYsJs7lKoxZdBX0m3DjCYH2z5NJy9wm+4Ms6VhKlf9G1u6vkhhamu/bKqXnQ=="],
+    "tosijs-schema": ["tosijs-schema@1.5.1", "", {}, "sha512-ovWLISVLE8LBHQhX8mr3JKH2/fYFDs55fbdpIUxuXQCYB0ugSu1pTj9wA4zhQtdkxHH+MBXT1Zo7yQrtm6zQKg=="],
 
     "tosijs-ui": ["tosijs-ui@1.5.23", "", { "peerDependencies": { "marked": "^16.4.2", "sucrase": "^3.35.0", "tosijs": "^1.6.0" }, "optionalPeers": ["sucrase"] }, "sha512-xtj6qwu7Y0DfK7a8taBKV5QonHqM9f65CqcpQEmZghAChFTd9G/JBrLX4epLHB7rAtdCvJCB1cNAzXxAd047kA=="],
 
