@@ -39,9 +39,21 @@ export declare const FORBIDDEN_KEYWORDS: readonly ["var", "eval"];
  */
 export declare const TYPE_CONSTRUCTORS: readonly ["Date", "Set", "Map", "Array", "Object", "String", "Number", "Boolean", "RegExp", "Error", "JSON", "Math", "Schema", "expect", "assert"];
 /**
- * TJS operators (same as AJS plus return type arrow)
+ * TJS operators.
+ *
+ * NOT `->`. That was a return-type arrow the parser never implemented — the compiler
+ * rejects `function f(n: 0) -> 0 {}` outright — yet every generated grammar highlighted it
+ * as a valid operator, in the playground and in every consumer of
+ * `tjs-lang/editors/codemirror`. An editor that paints an abandoned form as legitimate
+ * teaches it, which is worse than not highlighting at all: the reader trusts the colour.
+ *
+ * The same defect class the differences harness was built for — `docs/tjs-vs-typescript.md`
+ * lists "an editor completion suggesting a form the compiler rejects" among the six false
+ * claims one review cycle turned up. This was another live one.
+ *
+ * Guarded by `editors/grammars.test.ts`.
  */
-export declare const OPERATORS: readonly ["=", "+=", "-=", "*=", "/=", "%=", "==", "===", "!=", "!==", "<", ">", "<=", ">=", "+", "-", "*", "/", "%", "**", "&&", "||", "??", "!", "&", "|", "^", "~", "<<", ">>", ">>>", "?", ":", ".", "?.", "?.(", "?.[", "...", "->"];
+export declare const OPERATORS: readonly ["=", "+=", "-=", "*=", "/=", "%=", "==", "===", "!=", "!==", "<", ">", "<=", ">=", "+", "-", "*", "/", "%", "**", "&&", "||", "??", "!", "&", "|", "^", "~", "<<", ">>", ">>>", "?", ":", ".", "?.", "?.(", "?.[", "..."];
 /**
  * TJS-specific syntax patterns
  */

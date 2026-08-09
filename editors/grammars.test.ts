@@ -2,6 +2,7 @@ import { describe, it, expect } from 'bun:test'
 import { readFileSync, existsSync } from 'fs'
 import { join } from 'path'
 import { tjs } from '../src/lang'
+import { OPERATORS } from './tjs-syntax'
 
 /**
  * The generated grammars must actually MATCH something.
@@ -138,5 +139,34 @@ describe('editor snippets are legal TJS', () => {
         runTests: false,
       })
     ).toThrow(/Date/)
+  })
+})
+
+/**
+ * An editor must not paint abandoned syntax as legitimate.
+ *
+ * `->` shipped in `OPERATORS` long after the parser stopped accepting it — it was a
+ * return-type arrow that was never implemented. Highlighting is a claim: the reader trusts
+ * the colour, so an editor that renders a rejected form as a valid operator teaches it.
+ *
+ * This is the editor-side twin of `src/lang/abandoned-syntax.test.ts`, which stops the
+ * COMPILER from silently accepting a form we retired. Both directions are needed: the
+ * compiler rejecting `->` did not stop the grammar from advertising it for months.
+ */
+describe('grammars do not advertise abandoned syntax', () => {
+  it('`->` is not an operator', () => {
+    expect((OPERATORS as readonly string[]).includes('->')).toBe(false)
+  })
+
+  it('every generated grammar is likewise free of it', () => {
+    // The source list and the built artifacts are separate things; this repo has already
+    // shipped a stale committed artifact (`demo/docs.json` taught nine abolished
+    // directives for days), so check what actually ships.
+    for (const f of ['tjs.tmLanguage.json', 'ajs.tmLanguage.json']) {
+      const path = join(vscodeDir, 'syntaxes', f)
+      if (!existsSync(path)) continue
+      const text = readFileSync(path, 'utf-8')
+      expect(`${f}:${text.includes('->')}`).toBe(`${f}:false`)
+    }
   })
 })

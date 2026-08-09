@@ -200,7 +200,7 @@ var TYPE_CONSTRUCTORS2 = [
   "assert"
   // simple assertions
 ];
-var OPERATORS2 = [...OPERATORS, "->"];
+var OPERATORS2 = [...OPERATORS];
 
 // editors/scope-symbols.ts
 import * as acorn from "acorn";

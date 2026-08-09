@@ -314,8 +314,12 @@ function buildTJSVSCodeGrammar() {
         patterns: [{ include: '$self' }],
       },
       'return-type': {
+        // `): TYPE`, not `) -> TYPE`. The arrow was never implemented — the compiler
+        // rejects it — and highlighting it taught a form that does not exist. The same
+        // wrong scanner lived in the `.d.ts` emitter and was fixed there too.
+        // `:!` and `:?` are the safety-marked spellings and must highlight as well.
         match:
-          '\\)\\s*(->)\\s*(\\{[^}]+\\}|\'[^\']*\'|"[^"]*"|\\[[^\\]]*\\]|\\w+)',
+          '\\)\\s*(:[!?]?)\\s*(\\{[^}]+\\}|\'[^\']*\'|"[^"]*"|\\[[^\\]]*\\]|\\w+)',
         captures: {
           '1': { name: 'keyword.operator.return-type.tjs' },
           '2': { name: 'support.type.return.tjs' },
@@ -444,7 +448,6 @@ function buildTJSVSCodeGrammar() {
       },
       operators: {
         patterns: [
-          { match: '->', name: 'keyword.operator.return-type.tjs' },
           {
             match: '\\?\\?|&&|\\|\\||!|===|!==|==|!=|>=|<=|>|<',
             name: 'keyword.operator.logical.tjs',

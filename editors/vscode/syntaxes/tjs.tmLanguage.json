@@ -96,7 +96,7 @@
       ]
     },
     "return-type": {
-      "match": "\\)\\s*(->)\\s*(\\{[^}]+\\}|'[^']*'|\"[^\"]*\"|\\[[^\\]]*\\]|\\w+)",
+      "match": "\\)\\s*(:[!?]?)\\s*(\\{[^}]+\\}|'[^']*'|\"[^\"]*\"|\\[[^\\]]*\\]|\\w+)",
       "captures": {
         "1": {
           "name": "keyword.operator.return-type.tjs"
@@ -268,10 +268,6 @@
     },
     "operators": {
       "patterns": [
-        {
-          "match": "->",
-          "name": "keyword.operator.return-type.tjs"
-        },
         {
           "match": "\\?\\?|&&|\\|\\||!|===|!==|==|!=|>=|<=|>|<",
           "name": "keyword.operator.logical.tjs"
