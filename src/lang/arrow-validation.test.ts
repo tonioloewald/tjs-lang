@@ -1,0 +1,95 @@
+/**
+ * An annotated ARROW parameter is checked, exactly like a `function` parameter.
+ *
+ * Until this existed, only top-level `function` declarations got boundary checks —
+ * `findAllFunctions` walked `program.body` and matched `FunctionDeclaration` and nothing
+ * else. So:
+ *
+ *     function decl(n: 0) { return n }      decl('x')   -> MonadicError
+ *     const arrow = (n: 0) => n             arrow('x')  -> 'x'
+ *
+ * The same annotation, silently unenforced depending on which spelling you used. That is
+ * the failure mode this project treats as worse than no type at all — it parses, it looks
+ * typed, and it protects nothing — and it is the one `predicate =>` was tombstoned for.
+ * Arrows and `const fn = function …` are most of real TypeScript, so this was the largest
+ * silent hole in the language.
+ *
+ * Scoped to a NAMED binding (`const f = …`), because the name is what the error message
+ * reports and what `__tjs` metadata attaches to. An anonymous callback argument has
+ * neither and is a separate problem.
+ */
+import { describe, it, expect } from 'bun:test'
+import { tjs } from './index'
+
+/** Compile and evaluate, returning the named bindings. */
+function build(src: string, names: string[]): Record<string, any> {
+  const { code } = tjs(src, { filename: 'arrow.tjs', runTests: false })
+  return new Function(`${code}\nreturn { ${names.join(', ')} }`)()
+}
+
+const isErr = (v: unknown) => String(v).startsWith('MonadicError')
+
+describe('arrow and function-expression params are validated', () => {
+  it('an arrow rejects a bad argument, like a declaration does', () => {
+    const m = build(
+      `function decl(n: 0) { return n }\nconst arrow = (n: 0) => n`,
+      ['decl', 'arrow']
+    )
+    // The control and the subject must agree — that is the entire point.
+    expect(isErr(m.decl('x'))).toBe(true)
+    expect(isErr(m.arrow('x'))).toBe(true)
+    expect(m.arrow(3)).toBe(3)
+  })
+
+  it('a block-bodied arrow is validated too', () => {
+    const m = build(`const f = (n: 0) => { return n * 2 }`, ['f'])
+    expect(isErr(f_call(m, 'x'))).toBe(true)
+    expect(m.f(3)).toBe(6)
+  })
+
+  it('`const f = function (…)` is validated', () => {
+    const m = build(`const f = function (n: 0) { return n }`, ['f'])
+    expect(isErr(m.f('x'))).toBe(true)
+    expect(m.f(3)).toBe(3)
+  })
+
+  it('multiple params, and a good call still passes through', () => {
+    const m = build(`const add = (a: 0, b: 0) => a + b`, ['add'])
+    expect(m.add(2, 3)).toBe(5)
+    expect(isErr(m.add(2, 'x'))).toBe(true)
+    expect(isErr(m.add('x', 3))).toBe(true)
+  })
+
+  it('an UNANNOTATED arrow is untouched', () => {
+    // The control that matters most: TJS ⊇ JS. A plain arrow must keep working, and must
+    // not acquire checks it never asked for.
+    const m = build(`const f = (n) => n`, ['f'])
+    expect(m.f('x')).toBe('x')
+    expect(m.f(3)).toBe(3)
+  })
+
+  it('an exported arrow is validated', () => {
+    const { code } = tjs(`export const f = (n: 0) => n`, {
+      filename: 'arrow.tjs',
+      runTests: false,
+    })
+    // `export` is stripped for evaluation; the check must survive it.
+    const f = new Function(
+      `${code.replace(/^export /gm, '')}\nreturn f`
+    )() as any
+    expect(isErr(f('x'))).toBe(true)
+    expect(f(3)).toBe(3)
+  })
+
+  it('carries `__tjs` metadata, like a declaration', () => {
+    // Docs, .d.ts emit and introspection all read this; an arrow that validates but
+    // reports nothing about itself is only half-integrated.
+    const m = build(`const f = (n: 0) => n`, ['f'])
+    expect(m.f.__tjs?.params?.n).toBeTruthy()
+  })
+})
+
+/** `m.f(x)` with the argument applied — kept separate so the assertion reads cleanly. */
+function f_call(m: Record<string, any>, arg: unknown): unknown {
+  return m.f(arg)
+}

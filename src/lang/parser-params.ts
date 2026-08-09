@@ -298,9 +298,21 @@ export function transformParenExpressions(
     }
 
     // Look for function declarations: function name( or function name (
-    const funcMatch = source.slice(i).match(/^function\s+(\w+)\s*\(/)
+    //
+    // The name is OPTIONAL: `const f = function (n: 0) {}` is a function expression, and
+    // requiring a name here meant its annotated params never reached the colon-shorthand
+    // rewrite — so the file did not parse at all, while the identical arrow did. A
+    // spelling should not decide whether the language accepts your code.
+    // `\s+name` OR straight to `(`. Writing this as `\s*(\w*)\s*\(` instead matched
+    // `functionMetaToJSONSchema(` as the keyword plus a name of `MetaToJSONSchema` —
+    // an identifier that merely STARTS with the keyword. Caught by examples/json-schema.tjs.
+    const funcMatch = source.slice(i).match(/^function(?:\s+(\w+))?\s*\(/)
     if (funcMatch) {
-      const funcName = funcMatch[1]
+      // Keep the ORIGINAL spelling in the output — a function expression may genuinely
+      // have no name, and inventing one both changes the emitted code and creates an
+      // identifier the metadata then references but nothing declares.
+      const declaredName = funcMatch[1]
+      const funcName = declaredName || 'anonymous'
       const matchLen = funcMatch[0].length
 
       // Check for safety marker right after opening paren: (? or (!
@@ -318,7 +330,7 @@ export function transformParenExpressions(
         }
       }
 
-      result += `function ${funcName}(`
+      result += declaredName ? `function ${declaredName}(` : `function (`
       i = paramStart
 
       // Find matching ) using balanced counting

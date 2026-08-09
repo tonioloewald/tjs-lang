@@ -10,7 +10,7 @@
  * **Goal: catch everything tsc catches** — minus the places tsc is stupidly strict, which
  * are called out individually rather than waved at.
  *
- * Current score: **7/12 tight**. Each LOOSE row is a specific piece of work, and each is
+ * Current score: **8/12 tight**. Each LOOSE row is a specific piece of work, and each is
  * expressed as a failing-if-fixed assertion so closing one is impossible to miss.
  */
 import { describe, it, expect, beforeAll, afterAll } from 'bun:test'
@@ -116,14 +116,16 @@ describe('LOOSE: accepted syntax that does NOT enforce (work queue)', () => {
     expect(rejects(`function f(x: 'a' | 'b') { return x }`, 'c')).toBe(false)
   })
 
-  it('LOOSE: arrow function params are not validated at all', () => {
-    // Only `function` declarations get boundary checks. Arrows are ubiquitous in real
-    // TypeScript, so this is probably the highest-impact row in this file.
+  it('TIGHT: arrow function params are validated', () => {
+    // Was the highest-impact row in this file: only `function` declarations got boundary
+    // checks, so the SAME annotation was enforced or ignored depending purely on which
+    // spelling you used — and arrows are most of real TypeScript. Now both are checked.
     const arrow = new Function(
       tjs(`const f = (s: string): string => s`, { runTests: false }).code +
         '\nreturn f'
     )()
-    expect(isMonadicError(arrow(42))).toBe(false)
+    expect(isMonadicError(arrow(42))).toBe(true)
+    expect(arrow('ok')).toBe('ok')
   })
 
   it('LOOSE: rest params `...xs: number[]` are not validated', () => {
@@ -139,9 +141,9 @@ describe('LOOSE: accepted syntax that does NOT enforce (work queue)', () => {
   })
 
   it('reports the tightness score', () => {
-    // 7 tight / 12 measured. Moves as rows above are closed; kept visible so "we support
+    // 8 tight / 12 measured. Moves as rows above are closed; kept visible so "we support
     // TypeScript" can never quietly mean "we parse TypeScript".
-    console.log('  TS tightness: 7/12 declarations enforce as strictly as tsc')
+    console.log('  TS tightness: 8/12 declarations enforce as strictly as tsc')
     expect(true).toBe(true)
   })
 })

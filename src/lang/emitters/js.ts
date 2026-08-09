@@ -999,8 +999,22 @@ export function transpileToJS(
 
     // Determine safety options
     // Module-level "safety none" makes ALL functions unsafe (no validation)
+    // `unsafeFunctions` is keyed by NAME, and only the `function` branch of the param
+    // transform records it — an arrow has no name at that stage, so `(! a: 0)` was
+    // dropped. That was harmless while arrows went unvalidated and became a real bug the
+    // moment they didn't: the marker asks for NO checks and got them anyway.
+    //
+    // The transform already leaves `/* unsafe */` in the parameter list, so read that
+    // rather than thread binding names back through the parser — it is the same fact,
+    // recorded where both sides can see it.
+    const paramsSrc =
+      func.params.length && func.body
+        ? preprocessed.source.slice(func.start, (func.body as any).start)
+        : ''
     const isUnsafe =
-      preprocessed.moduleSafety === 'none' || unsafeFunctions.has(funcName)
+      preprocessed.moduleSafety === 'none' ||
+      unsafeFunctions.has(funcName) ||
+      paramsSrc.includes('/* unsafe */')
     const isSafe = preprocessed.safeFunctions.has(funcName)
     // Extract return safety per-function from original source
     const returnSafety = extractFunctionReturnSafety(cleanSource, funcName)
@@ -1061,9 +1075,10 @@ export function transpileToJS(
           )
         : null
 
-    // Queue insertion of __tjs after function closing brace
+    // Queue insertion of __tjs after function closing brace — or, for a named arrow,
+    // after the `const` statement that binds it (see `__metaEnd`).
     insertions.push({
-      position: func.end,
+      position: (func as any).__metaEnd ?? func.end,
       text: returnWrapper
         ? `\n${returnWrapper}\n${typeMetadata}`
         : `\n${typeMetadata}`,
@@ -1080,16 +1095,31 @@ export function transpileToJS(
         preprocessed.tjsModes.tjsDictDefaults
       )
       if (validation && func.body && func.body.start !== undefined) {
-        // Insert preamble right after the opening brace
-        insertions.push({
-          position: func.body.start + 1,
-          text: `\n  ${validation.preamble}\n`,
-        })
-        if (validation.suffix) {
+        if ((func as any).__exprBody) {
+          // A concise arrow body has no braces to insert into, so grow one:
+          //   (n: 0) => n   ->   (n: 0) => { <checks> return n }
+          // The expression is preserved verbatim between them, so evaluation order and
+          // `this` binding are untouched.
           insertions.push({
-            position: func.body.end - 1,
-            text: `\n  ${validation.suffix}\n`,
+            position: func.body.start,
+            text: `{\n  ${validation.preamble}\n  return `,
           })
+          insertions.push({
+            position: func.body.end,
+            text: validation.suffix ? `\n  ${validation.suffix}\n}` : `\n}`,
+          })
+        } else {
+          // Insert preamble right after the opening brace
+          insertions.push({
+            position: func.body.start + 1,
+            text: `\n  ${validation.preamble}\n`,
+          })
+          if (validation.suffix) {
+            insertions.push({
+              position: func.body.end - 1,
+              text: `\n  ${validation.suffix}\n`,
+            })
+          }
         }
       }
     }
@@ -1533,6 +1563,40 @@ export function transpileToJS(
 function findAllFunctions(program: Program): FunctionDeclaration[] {
   const functions: FunctionDeclaration[] = []
 
+  /**
+   * `const f = (n: 0) => n` — an arrow or function expression bound to a name.
+   *
+   * These used to be skipped entirely, so the SAME annotation was enforced or ignored
+   * depending only on which spelling you used. Arrows are most of real TypeScript, which
+   * made this the largest silent hole in the language: it parsed, it looked typed, and it
+   * checked nothing.
+   *
+   * Two things differ from a declaration, and both are recorded on the node:
+   *   `__metaEnd` — `NAME.__tjs = {…}` must land after the whole STATEMENT. The arrow's
+   *     own `end` is inside the `const`, so appending there would splice metadata into the
+   *     initializer.
+   *   `__exprBody` — a concise body (`=> n`) has no braces to insert a preamble into, so
+   *     the emitter has to grow one.
+   */
+  const collectNamed = (decl: any, stmtEnd: number): void => {
+    if (decl?.type !== 'VariableDeclaration') return
+    for (const d of decl.declarations) {
+      const init = d.init
+      if (
+        d.id?.type !== 'Identifier' ||
+        (init?.type !== 'ArrowFunctionExpression' &&
+          init?.type !== 'FunctionExpression')
+      ) {
+        continue
+      }
+      // An arrow has `id: null`; the binding name is the only name it has.
+      if (!init.id) init.id = d.id
+      init.__metaEnd = stmtEnd
+      init.__exprBody = init.body?.type !== 'BlockStatement'
+      functions.push(init as FunctionDeclaration)
+    }
+  }
+
   for (const node of program.body) {
     if (node.type === 'FunctionDeclaration') {
       functions.push(node)
@@ -1546,6 +1610,10 @@ function findAllFunctions(program: Program): FunctionDeclaration[] {
       node.declaration?.type === 'FunctionDeclaration'
     ) {
       functions.push(node.declaration as FunctionDeclaration)
+    } else if (node.type === 'VariableDeclaration') {
+      collectNamed(node, node.end)
+    } else if (node.type === 'ExportNamedDeclaration') {
+      collectNamed(node.declaration, node.end)
     }
   }
 

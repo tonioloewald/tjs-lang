@@ -342,7 +342,7 @@ contact instead of documenting it elsewhere.
 TypeScript would reject_. A type that parses and validates nothing is the `s: string` → `any`
 failure again — it looks typed, transpiles clean, and protects nothing.
 
-**Score: 7/12 simple declarations enforce as tightly as tsc.**
+**Score: 8/12 simple declarations enforce as tightly as tsc.**
 
 Tight today: `string` / `number` / `boolean`, object shapes (wrong member type **and**
 missing member), unions of primitives, nullable unions.
@@ -351,16 +351,23 @@ missing member), unions of primitives, nullable unions.
 must be named individually, not waved at, or "we're less strict on purpose" becomes cover for
 every hole.
 
-- [ ] **BUG — optional param with a TS type name emits broken code.** `n?: number` emits
+- [x] **BUG — optional param with a TS type name emits broken code.** FIXED (verified
+      2026-08-09: `f()` returns normally). Was: `n?: number` emitted
       `function f(n = number)`; **omitting the argument** (the entire point of an optional
-      param) throws `number is not defined`. Passing one is fine, which is why it hid.
+      param) threw `number is not defined`. Passing one is fine, which is why it hid.
       **The fix needs a side channel:** `processParamString` produces ONE string feeding both
       the acorn parse and the emitted source, so simply stripping the annotation drops the
       only carrier of the type and silently degrades the param to `any` (tried, reverted —
       loud beats silent). Record the type name alongside `ctx.requiredParams` so the emitter
       can omit the default while inference keeps the type.
-- [ ] **Arrow function params are not validated at all** — only `function` declarations get
-      boundary checks. Arrows are everywhere in real TypeScript, so this is likely the
+- [x] **Arrow function params are not validated at all** — DONE 2026-08-09. `findAllFunctions`
+      walked `program.body` for `FunctionDeclaration` and nothing else, so `const f = (n: 0) => n`
+      accepted anything while the identical `function` rejected it. Now both are checked, incl.
+      concise bodies (a block is grown around the expression), `const f = function (…)`, and
+      exported bindings. `(!)` is honoured via the `/* unsafe */` marker the param transform
+      already leaves, since `unsafeFunctions` is keyed by a name an arrow does not have.
+      Was: only `function` declarations get boundary checks. Arrows are everywhere in real
+      TypeScript, so this was likely the
       highest-impact row here.
 - [ ] **Literal union `x: 'a' | 'b'` does not narrow.** Each literal is read as an EXAMPLE, so
       both widen to `string` and the union collapses. **The one place the examples model
