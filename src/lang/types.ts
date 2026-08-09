@@ -25,7 +25,18 @@ export interface TypeDescriptor {
    */
   pattern?: string
   flags?: string
+  /**
+   * For `kind: 'literal-union'` — the members, as VALUES.
+   *
+   * A literal union is PRAGMATIC, not formal: membership is the language's `==`, so
+   * `'yes' | 'no'` is satisfied by `new String('yes')`, and `+0 | +1` is identical to
+   * `0 | 1` because the source-level narrowing does not survive into a value. Stored
+   * canonicalised (boxed unwrapped, `undefined` folded to `null`) so an O(1) `Set`
+   * membership test and the language's `==` cannot disagree.
+   */
+  values?: unknown[]
   kind:
+    | 'literal-union'
     | 'string'
     | 'number'
     | 'integer'

@@ -10,7 +10,7 @@
  * **Goal: catch everything tsc catches** — minus the places tsc is stupidly strict, which
  * are called out individually rather than waved at.
  *
- * Current score: **8/12 tight**. Each LOOSE row is a specific piece of work, and each is
+ * Current score: **9/12 tight**. Each LOOSE row is a specific piece of work, and each is
  * expressed as a failing-if-fixed assertion so closing one is impossible to miss.
  */
 import { describe, it, expect, beforeAll, afterAll } from 'bun:test'
@@ -108,12 +108,14 @@ describe('LOOSE: accepted syntax that does NOT enforce (work queue)', () => {
   // Each of these is a real hole: the annotation is there, the reader believes it means
   // something, and nothing checks it. Flip the expectation when you close one.
 
-  it("LOOSE: literal union `x: 'a' | 'b'` does not narrow", () => {
-    // TS narrows to exactly two values; TJS reads each literal as an EXAMPLE, so both
-    // widen to `string` and the union collapses to `string`. This is the one place the
-    // examples model genuinely collides with TS semantics — a TS literal union should
-    // probably be honoured as an enum. Design decision, not just a missing check.
-    expect(rejects(`function f(x: 'a' | 'b') { return x }`, 'c')).toBe(false)
+  it("TIGHT: literal union `x: 'a' | 'b'` narrows to its members", () => {
+    // The one place the examples model bends. Read as examples, `'a' | 'b'` widens to
+    // `string | string` and means what `''` means — so it says NOTHING, and a form that is
+    // vacuous under our reading and obvious under the reader's should be read their way.
+    // Decided 2026-08-09; the union is PRAGMATIC, so membership is `==` (a boxed
+    // `new String('a')` is a member). See `literal-union.test.ts`.
+    expect(rejects(`function f(x: 'a' | 'b') { return x }`, 'c')).toBe(true)
+    expect(rejects(`function f(x: 'a' | 'b') { return x }`, 'a')).toBe(false)
   })
 
   it('TIGHT: arrow function params are validated', () => {
@@ -141,9 +143,9 @@ describe('LOOSE: accepted syntax that does NOT enforce (work queue)', () => {
   })
 
   it('reports the tightness score', () => {
-    // 8 tight / 12 measured. Moves as rows above are closed; kept visible so "we support
+    // 9 tight / 12 measured. Moves as rows above are closed; kept visible so "we support
     // TypeScript" can never quietly mean "we parse TypeScript".
-    console.log('  TS tightness: 8/12 declarations enforce as strictly as tsc')
+    console.log('  TS tightness: 9/12 declarations enforce as strictly as tsc')
     expect(true).toBe(true)
   })
 })

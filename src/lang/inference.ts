@@ -130,6 +130,60 @@ export function isTypeNameAnnotation(text: string): boolean {
   return true
 }
 
+/**
+ * The VALUES of a union expression when every member is a literal, else `null`.
+ *
+ * Canonicalised on the way in — `undefined` folded to `null` — so a `Set` membership test
+ * agrees with the language's `==`. `Set.has` is SameValueZero, which disagrees with `Eq`
+ * on boxed primitives and on `undefined`-against-`null`; normalising here and at the probe
+ * keeps the fast path and the semantics identical (`equality-invariants.test.ts`).
+ */
+function literalUnionValues(node: any): unknown[] | null {
+  const out: unknown[] = []
+  const walk = (n: any): boolean => {
+    if (!n) return false
+    if (n.type === 'BinaryExpression' && n.operator === '|') {
+      return walk(n.left) && walk(n.right)
+    }
+    if (n.type === 'Literal') {
+      out.push(n.value === undefined ? null : n.value)
+      return true
+    }
+    // `+1` / `-1` are UnaryExpressions over a literal. `+1` and `1` are the same VALUE, so
+    // the union does not distinguish them — `+0 | +1` is `0 | 1`.
+    if (
+      n.type === 'UnaryExpression' &&
+      (n.operator === '+' || n.operator === '-') &&
+      n.argument?.type === 'Literal' &&
+      typeof n.argument.value === 'number'
+    ) {
+      out.push(n.operator === '-' ? -n.argument.value : n.argument.value)
+      return true
+    }
+    if (n.type === 'Identifier' && n.name === 'undefined') {
+      out.push(null)
+      return true
+    }
+    return false
+  }
+  if (!walk(node)) return null
+  if (!out.length) return null
+  // ONLY when the example reading would be VACUOUS — that is the whole justification.
+  //
+  // `'a' | 'b'` widens to `string | string`, which means what `''` means, so it says
+  // nothing and must have been meant as a set. But `0 | ''` widens to `integer | string`,
+  // which is a genuine, useful statement — so the example rule still holds there and the
+  // union stays a union of TYPES. Same test, opposite answers, and the difference is
+  // exactly whether the author told us anything by writing `|`.
+  //
+  // Judged on `typeof` of the values rather than the inferred kind, so `1 | 2.5`
+  // (integer + float) is still one set: a union with its own supertype is vacuous too.
+  const kinds = new Set(out.map((v) => typeof v))
+  if (kinds.size !== 1) return null
+  // De-duplicate by value: `1 | 1.0` is a ONE-member union.
+  return [...new Set(out)]
+}
+
 export function inferTypeFromValue(node: Expression): TypeDescriptor {
   // `LegacyDefault(x)` is a WRAPPER, not a value: it asks for the plain-JS atomic default
   // semantics instead of TJS's per-member merge. It says nothing about the type, so infer
@@ -261,6 +315,20 @@ export function inferTypeFromValue(node: Expression): TypeDescriptor {
         if (leftType.kind === 'null') {
           return { ...rightType, nullable: true }
         }
+        // A union whose members are ALL literals is a closed SET of values, not a union
+        // of their widened types.
+        //
+        // Under the example rule `'a'` means "a string", so `'a' | 'b'` would widen to
+        // `string | string` and collapse — meaning exactly what `''` means. A form that
+        // carries no information under our reading, and an obvious one under the reader's,
+        // should be read the way they meant it: nobody writes `'a' | 'b'` for "any string".
+        //
+        // PRAGMATIC, not formal. Membership is the language's `==`, so `new String('yes')`
+        // satisfies `'yes' | 'no'`, and `+0 | +1` is identical to `0 | 1` because
+        // source-level numeric narrowing does not survive into a value (see
+        // `equality-invariants.test.ts`).
+        const values = literalUnionValues(node)
+        if (values) return { kind: 'literal-union', values }
         return {
           kind: 'union',
           members: [leftType, rightType],

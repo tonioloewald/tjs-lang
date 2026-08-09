@@ -342,7 +342,7 @@ contact instead of documenting it elsewhere.
 TypeScript would reject_. A type that parses and validates nothing is the `s: string` → `any`
 failure again — it looks typed, transpiles clean, and protects nothing.
 
-**Score: 8/12 simple declarations enforce as tightly as tsc.**
+**Score: 9/12 simple declarations enforce as tightly as tsc.**
 
 Tight today: `string` / `number` / `boolean`, object shapes (wrong member type **and**
 missing member), unions of primitives, nullable unions.

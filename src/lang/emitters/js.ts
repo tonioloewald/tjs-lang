@@ -498,7 +498,7 @@ function generateInlineValidationCode(
       const typeCheck = generateTypeCheckExpr(fieldName, fieldType)
 
       if (typeCheck) {
-        const expectedType = fieldType.typeName ?? fieldType.kind
+        const expectedType = expectedLabel(fieldType)
         if (isRequired) {
           lines.push(
             `if (${typeCheck}) return __tjs.typeError('${path}', '${expectedType}', ${fieldName});`
@@ -557,12 +557,8 @@ function generateInlineValidationCode(
     const typeCheck = generateTypeCheckExpr(paramName, param.type)
 
     if (typeCheck) {
-      const expectedType =
-        param.type.kind === 'union'
-          ? (param.type as any).members.map((m: any) => m.kind).join(' | ')
-          : // A declared Type reports its NAME. "Expected declared" names the mechanism
-            // instead of the contract, which tells the reader nothing they can act on.
-            param.type.typeName ?? param.type.kind
+      // A declared Type reports its NAME, a union its members — see `expectedLabel`.
+      const expectedType = expectedLabel(param.type)
       if (param.required) {
         lines.push(
           `if (${typeCheck}) return __tjs.typeError('${path}', '${expectedType}', ${paramName});`
@@ -1178,6 +1174,7 @@ export function transpileToJS(
   const needsLegacyNotExactly = code.includes('LegacyNotExactly(')
   const needsLegacyDefault = code.includes('LegacyDefault(')
   const needsTypeOf = code.includes('TypeOf(')
+  const needsOneOf = code.includes('__oneOf(')
   // Type system constructors (from Type/Generic/FunctionPredicate/Enum/Union declarations)
   const needsType = /\bType\(/.test(code)
   const needsGeneric = /\bGeneric\(/.test(code)
@@ -1318,6 +1315,15 @@ export function transpileToJS(
     if (needsExampleSchema) {
       inlineParts.push(
         `function __ex2js(v){if(v===null)return{type:'null'};if(v===undefined)return{};const t=typeof v;if(t==='string')return{type:'string'};if(t==='number')return Number.isInteger(v)?{type:'integer'}:{type:'number'};if(t==='boolean')return{type:'boolean'};if(Array.isArray(v))return v.length?{type:'array',items:__ex2js(v[0])}:{type:'array'};if(t==='object'){const p={},r=[];for(const k of Object.keys(v)){p[k]=__ex2js(v[k]);r.push(k)}return{type:'object',properties:p,required:r,additionalProperties:false}}return{}}`
+      )
+    }
+    if (needsOneOf) {
+      // Literal-union membership. Canonicalises the probe — unwrap boxed primitives via
+      // the PROTOTYPE method (a subclass `valueOf` must not be able to intercept a type
+      // check), fold `undefined` to `null` — then a plain `indexOf`, which is
+      // SameValueZero and therefore already right for `NaN`.
+      inlineParts.push(
+        `function __oneOf(v,ms){if(v instanceof Number)v=Number.prototype.valueOf.call(v);else if(v instanceof String)v=String.prototype.valueOf.call(v);else if(v instanceof Boolean)v=Boolean.prototype.valueOf.call(v);else if(v===undefined)v=null;return ms.indexOf(v)!==-1}`
       )
     }
     if (needsType || needsGeneric) {
@@ -2063,6 +2069,23 @@ function generateMemberCheckLines(
   return lines
 }
 
+/**
+ * What a type error says it EXPECTED.
+ *
+ * "Expected literal-union" or "Expected declared" names the mechanism instead of the
+ * contract, which tells the reader nothing they can act on. A literal union reports its
+ * members, so the message is the fix.
+ */
+function expectedLabel(t: any): string {
+  if (t?.kind === 'literal-union' && Array.isArray(t.values)) {
+    return t.values.map((v: unknown) => JSON.stringify(v)).join(' | ')
+  }
+  if (t?.kind === 'union' && Array.isArray(t.members)) {
+    return t.members.map((m: any) => expectedLabel(m)).join(' | ')
+  }
+  return t?.typeName ?? t?.kind
+}
+
 function generateTypeCheckExpr(
   fieldPath: string,
   type: TypeDescriptor
@@ -2127,6 +2150,16 @@ function generateTypeCheckExpr(
       // call the function with probes) — just check it IS callable.
       check = `typeof ${fieldPath} !== 'function'`
       break
+    case 'literal-union': {
+      const vals = (type as any).values as unknown[]
+      if (!vals?.length) return null
+      // Membership is the language's `==`, so this cannot be a `Set.has` or a `===` chain:
+      // both are SameValueZero and would reject `new String('yes')` for `'yes' | 'no'`,
+      // and `undefined` for a union containing `null`. `__oneOf` canonicalises the probe
+      // the same way the members were canonicalised at inference time.
+      check = `!__oneOf(${fieldPath}, ${JSON.stringify(vals)})`
+      break
+    }
     case 'union': {
       const checks = (type as any).members
         .map((m: TypeDescriptor) => generateTypeCheckExpr(fieldPath, m))
