@@ -1026,6 +1026,28 @@ export interface HoistedTypeArg {
   text: string
 }
 
+/**
+ * Index of a top-level `=` that is an ASSIGNMENT, or -1.
+ *
+ * Skips `==`/`===`/`!=`/`>=`/`<=` and the arrow of `=>`, so an annotation whose example
+ * contains a comparison or a callback (`[(x) => x]`) is not mistaken for a default.
+ */
+function topLevelAssignment(src: string): number {
+  const masked = maskLiterals(src)
+  let depth = 0
+  for (let i = 0; i < masked.length; i++) {
+    const c = masked[i]
+    if (c === '(' || c === '[' || c === '{') depth++
+    else if (c === ')' || c === ']' || c === '}') depth--
+    else if (c === '=' && depth === 0) {
+      if (masked[i + 1] === '=' || masked[i + 1] === '>') continue
+      if ('=!<>'.includes(masked[i - 1] ?? '')) continue
+      return i
+    }
+  }
+  return -1
+}
+
 /** `number[]` -> `[0.0]`, `string[][]` -> `[['']]`; `null` when not an array suffix. */
 function rewriteArraySuffix(type: string): string | null {
   const t = type.trim()
@@ -1181,6 +1203,28 @@ function processParamString(
       const restColonPos = findTopLevelColon(trimmed)
       if (restColonPos !== -1) {
         const restName = trimmed.slice(0, restColonPos).trim()
+        // A DEFAULT on a rest param is meaningless, and silently dropping it is the
+        // "looks like it does something" failure this project treats as worse than an
+        // error. JS rejects `...xs = [1]` outright — but the annotated form
+        // `...xs: number[] = [1]` slipped past, because the annotation is stripped here
+        // and the leftover `= [1]` went with it. `f()` returned `[]`, not `[1]`.
+        //
+        // A rest parameter is ALWAYS bound, to `[]` when no arguments are passed, so
+        // there is no absent case for a default to fill.
+        const annotation = trimmed.slice(restColonPos + 1)
+        const eq = topLevelAssignment(annotation)
+        if (eq !== -1) {
+          throw new SyntaxError(
+            `A rest parameter cannot have a default. \`${restName}\` is always bound — ` +
+              `to \`[]\` when no arguments are passed — so \`= ${annotation
+                .slice(eq + 1)
+                .trim()}\` could never apply.\n\n` +
+              `  Drop it:  ${restName}: ${annotation.slice(0, eq).trim()}\n\n` +
+              `JavaScript rejects \`${restName} = …\` for the same reason; only the ` +
+              `annotated spelling slipped through.`,
+            locAt(trimmed, 0)
+          )
+        }
         return restName
       }
       return param

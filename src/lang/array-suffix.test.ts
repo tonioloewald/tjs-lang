@@ -86,3 +86,58 @@ describe('rest params enforce their element type', () => {
     expect(rejected(f(1, 2))).toBe(true)
   })
 })
+
+/**
+ * A rest parameter cannot have a default, and saying so beats dropping it.
+ *
+ * JavaScript rejects `...xs = [1]` outright, and TJS inherited that — but the ANNOTATED
+ * spelling `...xs: number[] = [1]` slipped through, because the annotation is stripped at
+ * this point (JS forbids the default, so the type is read from the original source later)
+ * and the leftover `= [1]` was stripped along with it. The result compiled, looked like it
+ * set a default, and `f()` returned `[]`.
+ *
+ * A rest parameter is ALWAYS bound — to `[]` when no arguments are passed — so there is no
+ * absent case for a default to fill. It is not merely unsupported; it cannot mean anything.
+ */
+describe('rest params reject a default', () => {
+  const compile = (src: string) =>
+    tjs(src, { filename: 'as.tjs', runTests: false })
+
+  it('rejects the annotated spelling that used to slip through', () => {
+    expect(() =>
+      compile(`function f(...xs: number[] = [1]) { return xs }`)
+    ).toThrow(/rest parameter cannot have a default/)
+  })
+
+  it('rejects it with the example spelling too', () => {
+    expect(() => compile(`function f(...xs: [0] = [1]) { return xs }`)).toThrow(
+      /rest parameter cannot have a default/
+    )
+  })
+
+  it('explains WHY, and shows the fix', () => {
+    // Errors-as-curriculum: a worked example repaired 80% where prose repaired 50% and a
+    // bare diagnostic 0% (ASSUMPTIONS.md A1).
+    try {
+      compile(`function f(...xs: number[] = [1]) { return xs }`)
+      throw new Error('should have thrown')
+    } catch (e: any) {
+      expect(e.message).toContain('always bound')
+      expect(e.message).toContain('...xs: number[]')
+    }
+  })
+
+  it('a rest param with no default is unaffected', () => {
+    expect(() =>
+      compile(`function f(...xs: number[]) { return xs }`)
+    ).not.toThrow()
+  })
+
+  it('an arrow INSIDE the annotation is not mistaken for a default', () => {
+    // `=>` contains `=`; scanning for a bare `=` would reject a legitimate callback
+    // element type.
+    expect(() =>
+      compile(`function f(...fns: [(x) => x]) { return fns }`)
+    ).not.toThrow()
+  })
+})
