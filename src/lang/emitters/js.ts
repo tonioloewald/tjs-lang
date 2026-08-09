@@ -1388,7 +1388,12 @@ export function transpileToJS(
       : ''
     if (needsEnum) {
       inlineParts.push(
-        `function Enum(d,m){const vals=typeof m==='object'?Object.values(m):[];return{description:d,check:v=>vals.includes(v),values:vals,__runtimeType:true${setSchema}}}`
+        // `members`/`names`/`keys` as well as `values` — the real `Enum` documents
+        // `Color.members.Red` as THE way to reference a member, and the stub carried only
+        // `values`, so that documented access returned `undefined` in every emitted file.
+        // The stub is not a fallback (it always wins in emitted code), so a field it omits
+        // is a field the language does not have — see docs/type-identity.md.
+        `function Enum(d,m){const mm=typeof m==='object'&&m?m:{};const vals=Object.values(mm);const names={};for(const k of Object.keys(mm))names[mm[k]]=k;return{description:d,check:v=>vals.includes(v),values:vals,members:mm,names,keys:Object.keys(mm),__runtimeType:true${setSchema}}}`
       )
     }
     if (needsUnion) {

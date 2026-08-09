@@ -320,8 +320,8 @@ export function preprocess(
   source = transformGenericDeclarations(source, predicates, declaredTypes)
   source = transformTypeDeclarations(source, predicates, declaredTypes)
   source = transformFunctionPredicateDeclarations(source)
-  source = transformUnionDeclarations(source)
-  source = transformEnumDeclarations(source)
+  source = transformUnionDeclarations(source, declaredTypes)
+  source = transformEnumDeclarations(source, declaredTypes)
 
   // Transform bare assignments to const declarations (native-TJS convenience):
   // Foo = ... -> const Foo = ...  Gated by TjsSafeAssign — OFF for plain JS

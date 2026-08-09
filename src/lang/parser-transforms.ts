@@ -2661,7 +2661,11 @@ export function transformGenericDeclarations(
  * Also supports inline form:
  *   Union Direction 'cardinal direction' 'up' | 'down' | 'left' | 'right'
  */
-export function transformUnionDeclarations(source: string): string {
+export function transformUnionDeclarations(
+  source: string,
+  /** Same registration as `Enum` above — a declared union is a runtime type. */
+  declaredTypes?: Set<string>
+): string {
   let result = ''
   let i = 0
 
@@ -2701,6 +2705,7 @@ export function transformUnionDeclarations(source: string): string {
 
         // Parse values: 'a' | 'b' | 'c' or "a" | "b" or mixed
         const values = parseUnionValues(blockBody)
+        declaredTypes?.add(unionName)
         result += `const ${unionName} = Union('${description}', [${values.join(
           ', '
         )}])`
@@ -2715,6 +2720,7 @@ export function transformUnionDeclarations(source: string): string {
 
         if (inlineValues) {
           const values = parseUnionValues(inlineValues)
+          declaredTypes?.add(unionName)
           result += `const ${unionName} = Union('${description}', [${values.join(
             ', '
           )}])`
@@ -2769,7 +2775,19 @@ function parseUnionValues(input: string): string[] {
  *   const Status = Enum('task status', { Pending: 0, Active: 1, Done: 2 })
  *   const Color = Enum('CSS color', { Red: 'red', Green: 'green', Blue: 'blue' })
  */
-export function transformEnumDeclarations(source: string): string {
+export function transformEnumDeclarations(
+  source: string,
+  /**
+   * Registers the enum name as a runtime type.
+   *
+   * Without it, `function f(c: Color)` degraded to `any` and emitted NO check, while
+   * warning that `Color` "could not be resolved to a runtime type" — the type the file
+   * declares three lines above. `Color.check()` worked the whole time; nothing asked it.
+   * Same omission as `Type`/`Generic` had, and the same fix: the declaration transform is
+   * the only place that knows the name exists.
+   */
+  declaredTypes?: Set<string>
+): string {
   let result = ''
   let i = 0
 
@@ -2809,6 +2827,7 @@ export function transformEnumDeclarations(source: string): string {
         .map(([key, value]) => `${key}: ${value}`)
         .join(', ')
 
+      declaredTypes?.add(enumName)
       result += `const ${enumName} = Enum('${description}', { ${membersStr} })`
       i = blockEnd
       continue
