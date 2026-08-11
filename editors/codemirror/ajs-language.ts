@@ -379,10 +379,66 @@ const TJS_COMPLETIONS: CMCompletion[] = [
   { label: 'catch', type: 'keyword', detail: 'Catch block' },
   { label: 'import', type: 'keyword', detail: 'Import module' },
   { label: 'export', type: 'keyword', detail: 'Export declaration' },
-  snippetCompletion("test('${description}') {\n\t${}\n}", {
+  // `test 'description' { … }` — the canonical spelling, used throughout the docs and
+  // every example in the repo. The parenthesised form also compiles, but completing it
+  // taught the one nothing is written in.
+  snippetCompletion("test '${description}' {\n\t${}\n}", {
     label: 'test',
     type: 'keyword',
     detail: 'Inline test block',
+  }),
+
+  // The DECLARATION forms. None of these had a completion, so the constructs that make
+  // TJS a different language from JS were undiscoverable in the editor that ships with it
+  // — the same silent-omission failure the grammars had.
+  snippetCompletion('Type ${Name} {\n\texample: ${0}\n}', {
+    label: 'Type',
+    type: 'keyword',
+    detail: 'A type, by example: Type Age { example: +0 }',
+  }),
+  snippetCompletion(
+    'Type ${Name} {\n\texample: ${0}\n\tpredicate => ${Name} > 0\n}',
+    {
+      label: 'Type (with predicate)',
+      type: 'keyword',
+      detail: 'The type name binds to the value under test',
+    }
+  ),
+  snippetCompletion('Generic ${Box}<${T}> {\n\texample: { value: ${T} }\n}', {
+    label: 'Generic',
+    type: 'keyword',
+    detail: 'Parameterized type; the example says where T goes',
+  }),
+  snippetCompletion(
+    "Enum ${Name} '${description}' {\n\t${Member} = '${value}'\n}",
+    {
+      label: 'Enum',
+      type: 'keyword',
+      detail: 'A closed set of named values',
+    }
+  ),
+  snippetCompletion("Union ${Name} '${description}' { ${1} | ${2} }", {
+    label: 'Union',
+    type: 'keyword',
+    detail: 'A closed set of values',
+  }),
+  snippetCompletion(
+    'FunctionPredicate ${Name} {\n\tparams: { ${x}: ${0} }\n\treturns: ${0}\n}',
+    {
+      label: 'FunctionPredicate',
+      type: 'keyword',
+      detail: 'A callback shape, checked at the boundary',
+    }
+  ),
+  snippetCompletion('extend ${ClassName} {\n\t${}\n}', {
+    label: 'extend',
+    type: 'keyword',
+    detail: 'Local class extension — no prototype pollution',
+  }),
+  snippetCompletion('wasm function ${name}(${n}: 0): 0 {\n\t${}\n}', {
+    label: 'wasm',
+    type: 'keyword',
+    detail: 'Inline WebAssembly, compiled at transpile time',
   }),
   snippetCompletion('mock {\n\t${}\n}', {
     label: 'mock',
@@ -432,10 +488,20 @@ const TJS_COMPLETIONS: CMCompletion[] = [
   }),
 ]
 
-// Type examples for after : or ->
+// Type examples offered after `:` — the annotation position.
+//
+// NOT "after : or ->": the arrow was a return-type syntax the parser never implemented.
+// The named narrowing types were absent entirely, so the distinction TJS exists to make
+// (`int` vs `float` vs `unsigned`) could not be discovered here.
 const TJS_TYPES: CMCompletion[] = [
-  { label: "''", type: 'type', detail: 'String type' },
-  { label: '0', type: 'type', detail: 'Number type' },
+  { label: "''", type: 'type', detail: 'String (example value)' },
+  { label: '0', type: 'type', detail: 'Integer (example value)' },
+  { label: '0.0', type: 'type', detail: 'Float (example value)' },
+  { label: '+0', type: 'type', detail: 'Non-negative integer (example value)' },
+  { label: 'int', type: 'type', detail: 'Integer' },
+  { label: 'unsigned', type: 'type', detail: 'Non-negative integer' },
+  { label: 'float', type: 'type', detail: 'Any number' },
+  { label: 'string', type: 'type', detail: 'Any string' },
   { label: 'true', type: 'type', detail: 'Boolean type' },
   { label: 'null', type: 'type', detail: 'Null type' },
   { label: 'undefined', type: 'type', detail: 'Undefined type' },
@@ -447,11 +513,19 @@ const TJS_TYPES: CMCompletion[] = [
 
 // Runtime functions
 const RUNTIME_COMPLETIONS: CMCompletion[] = [
+  // `isMonadicError` is the current one and had NO completion; `isError` is deprecated
+  // and had the only one, so the editor steered every user to the superseded API.
+  snippetCompletion('isMonadicError(${value})', {
+    label: 'isMonadicError',
+    type: 'function',
+    detail: '(value: any): boolean',
+    info: "Is this value a MonadicError? Import from 'tjs-lang/runtime'.",
+  }),
   snippetCompletion('isError(${value})', {
     label: 'isError',
     type: 'function',
-    detail: '(value: any) -> boolean',
-    info: 'Check if a value is a TJS error',
+    detail: 'DEPRECATED — use isMonadicError',
+    info: 'Kept for compatibility. New code should use isMonadicError().',
   }),
   snippetCompletion("error('${message}')", {
     label: 'error',
@@ -471,6 +545,21 @@ const RUNTIME_COMPLETIONS: CMCompletion[] = [
     detail: '(actual: any) -> Matchers',
     info: 'Test assertion',
   }),
+]
+
+/**
+ * Every completion this module offers, flattened — for introspection and for the audit.
+ *
+ * Exported because a completion is a CLAIM about the language, and a claim nothing can
+ * read is a claim nothing can check. `editors/vocabulary.test.ts` drives these against the
+ * real compiler; before that existed, the list offered `unsafe { }` (rejected outright),
+ * a deprecated `isError` with no `isMonadicError` beside it, and none of `Type`,
+ * `Generic`, `Enum`, `Union`, `FunctionPredicate`, `extend` or `wasm`.
+ */
+export const ALL_COMPLETIONS: CMCompletion[] = [
+  ...TJS_COMPLETIONS,
+  ...TJS_TYPES,
+  ...RUNTIME_COMPLETIONS,
 ]
 
 // JavaScript global objects and constructors

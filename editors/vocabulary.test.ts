@@ -32,6 +32,7 @@ import { describe, it, expect } from 'bun:test'
 import { readFileSync, existsSync } from 'fs'
 import { join } from 'path'
 import { tjs } from '../src/lang'
+import { ALL_COMPLETIONS } from './codemirror/ajs-language'
 import {
   KEYWORDS,
   TYPE_CONSTRUCTORS,
@@ -231,5 +232,109 @@ describe('patterns match the spellings that actually exist', () => {
         tjs(src, { filename: 'v.tjs', runTests: false })
       ).not.toThrow()
     }
+  })
+})
+
+/**
+ * The completions are claims too, and the noisiest kind — a completion does not merely
+ * colour existing text, it WRITES the text for you.
+ *
+ * This surface had shipped `unsafe { }`, a form the compiler rejects outright, as the
+ * completion for the language's headline feature. It also offered the deprecated
+ * `isError` with no `isMonadicError` beside it, and none of the declaration forms at all.
+ */
+describe('completions do not suggest what the compiler rejects', () => {
+  /**
+   * The snippet TEMPLATES, read from source.
+   *
+   * `snippetCompletion` keeps its template in a closure, so it cannot be recovered from
+   * the completion object — an earlier version of this test read `.apply`, silently fell
+   * back to the label, and would have passed while asserting nothing about the inserted
+   * text. What ships is the source, so check the source.
+   */
+  const source = readFileSync(
+    join(import.meta.dir, 'codemirror', 'ajs-language.ts'),
+    'utf-8'
+  )
+  const templates = [
+    ...source.matchAll(/snippetCompletion\(\s*(['"`])([\s\S]*?)\1/g),
+  ].map((m) => m[2])
+
+  it('offers the distinctive TJS vocabulary, not just JS keywords', () => {
+    // The silent-omission direction. `Type`/`Generic`/`Enum` had no completion, so the
+    // constructs that make this a different language were undiscoverable in its own editor.
+    const labels = new Set(ALL_COMPLETIONS.map((c: any) => String(c.label)))
+    for (const t of [
+      'Type',
+      'Generic',
+      'Enum',
+      'Union',
+      'FunctionPredicate',
+      'extend',
+      'wasm',
+      'int',
+      'unsigned',
+      'float',
+    ]) {
+      expect(`${t}:${labels.has(t)}`).toBe(`${t}:true`)
+    }
+  })
+
+  it('there are snippet templates to check at all', () => {
+    // Guards the reader above: a regex that matched nothing would make the next test
+    // vacuously green, which is the apparatus-fails-closed hazard.
+    expect(templates.length).toBeGreaterThan(10)
+  })
+
+  it('no template inserts `unsafe { }` or the abandoned arrow', () => {
+    for (const t of templates) {
+      expect(`${t.slice(0, 24)}:${/unsafe\s*\{/.test(t)}`).toBe(
+        `${t.slice(0, 24)}:false`
+      )
+      expect(`${t.slice(0, 24)}:${t.includes('->')}`).toBe(
+        `${t.slice(0, 24)}:false`
+      )
+    }
+  })
+
+  it('prefers the current API over the deprecated one', () => {
+    // `isError` may stay for compatibility, but it must not be the only thing offered,
+    // and it must say what it is.
+    const byLabel = new Map(
+      ALL_COMPLETIONS.map((c: any) => [String(c.label), c])
+    )
+    expect(byLabel.has('isMonadicError')).toBe(true)
+    expect(String(byLabel.get('isError')?.detail ?? '')).toContain('DEPRECATED')
+  })
+
+  it('the `test` snippet uses the canonical spelling', () => {
+    // Both compile, but only one is written anywhere in the docs or examples.
+    expect(templates.some((t) => t.startsWith("test '"))).toBe(true)
+    expect(templates.some((t) => t.startsWith('test('))).toBe(false)
+  })
+})
+
+/**
+ * A diagnostic is a teaching moment, so its remedy has to WORK.
+ *
+ * `new Date()` told the reader to use `Timestamp.now()`. `Timestamp` is exported from
+ * `tjs-lang` but is not a global, so following the advice verbatim produced a second
+ * error — `Timestamp is not defined` — from the message meant to resolve the first.
+ */
+describe('the `new Date()` remedy is runnable', () => {
+  it('names the import, not just the call', () => {
+    try {
+      tjs(`const d = new Date(0)`, { filename: 'v.tjs', runTests: false })
+      throw new Error('should have thrown')
+    } catch (e: any) {
+      expect(e.message).toContain("from 'tjs-lang'")
+      expect(e.message).toContain('Timestamp.now()')
+    }
+  })
+
+  it('and `Timestamp` really is exported from there', () => {
+    // The control: if it stopped being exported, the remedy would be wrong in the other
+    // direction and this says so.
+    expect(typeof (require('../src/index') as any).Timestamp).toBe('object')
   })
 })

@@ -555,10 +555,65 @@ var TJS_COMPLETIONS = [
   { label: "catch", type: "keyword", detail: "Catch block" },
   { label: "import", type: "keyword", detail: "Import module" },
   { label: "export", type: "keyword", detail: "Export declaration" },
-  snippetCompletion("test('${description}') {\n	${}\n}", {
+  // `test 'description' { … }` — the canonical spelling, used throughout the docs and
+  // every example in the repo. The parenthesised form also compiles, but completing it
+  // taught the one nothing is written in.
+  snippetCompletion("test '${description}' {\n	${}\n}", {
     label: "test",
     type: "keyword",
     detail: "Inline test block"
+  }),
+  // The DECLARATION forms. None of these had a completion, so the constructs that make
+  // TJS a different language from JS were undiscoverable in the editor that ships with it
+  // — the same silent-omission failure the grammars had.
+  snippetCompletion("Type ${Name} {\n	example: ${0}\n}", {
+    label: "Type",
+    type: "keyword",
+    detail: "A type, by example: Type Age { example: +0 }"
+  }),
+  snippetCompletion(
+    "Type ${Name} {\n	example: ${0}\n	predicate => ${Name} > 0\n}",
+    {
+      label: "Type (with predicate)",
+      type: "keyword",
+      detail: "The type name binds to the value under test"
+    }
+  ),
+  snippetCompletion("Generic ${Box}<${T}> {\n	example: { value: ${T} }\n}", {
+    label: "Generic",
+    type: "keyword",
+    detail: "Parameterized type; the example says where T goes"
+  }),
+  snippetCompletion(
+    "Enum ${Name} '${description}' {\n	${Member} = '${value}'\n}",
+    {
+      label: "Enum",
+      type: "keyword",
+      detail: "A closed set of named values"
+    }
+  ),
+  snippetCompletion("Union ${Name} '${description}' { ${1} | ${2} }", {
+    label: "Union",
+    type: "keyword",
+    detail: "A closed set of values"
+  }),
+  snippetCompletion(
+    "FunctionPredicate ${Name} {\n	params: { ${x}: ${0} }\n	returns: ${0}\n}",
+    {
+      label: "FunctionPredicate",
+      type: "keyword",
+      detail: "A callback shape, checked at the boundary"
+    }
+  ),
+  snippetCompletion("extend ${ClassName} {\n	${}\n}", {
+    label: "extend",
+    type: "keyword",
+    detail: "Local class extension \u2014 no prototype pollution"
+  }),
+  snippetCompletion("wasm function ${name}(${n}: 0): 0 {\n	${}\n}", {
+    label: "wasm",
+    type: "keyword",
+    detail: "Inline WebAssembly, compiled at transpile time"
   }),
   snippetCompletion("mock {\n	${}\n}", {
     label: "mock",
@@ -607,8 +662,14 @@ var TJS_COMPLETIONS = [
   })
 ];
 var TJS_TYPES = [
-  { label: "''", type: "type", detail: "String type" },
-  { label: "0", type: "type", detail: "Number type" },
+  { label: "''", type: "type", detail: "String (example value)" },
+  { label: "0", type: "type", detail: "Integer (example value)" },
+  { label: "0.0", type: "type", detail: "Float (example value)" },
+  { label: "+0", type: "type", detail: "Non-negative integer (example value)" },
+  { label: "int", type: "type", detail: "Integer" },
+  { label: "unsigned", type: "type", detail: "Non-negative integer" },
+  { label: "float", type: "type", detail: "Any number" },
+  { label: "string", type: "type", detail: "Any string" },
   { label: "true", type: "type", detail: "Boolean type" },
   { label: "null", type: "type", detail: "Null type" },
   { label: "undefined", type: "type", detail: "Undefined type" },
@@ -618,11 +679,19 @@ var TJS_TYPES = [
   { label: "any", type: "type", detail: "Any type" }
 ];
 var RUNTIME_COMPLETIONS = [
+  // `isMonadicError` is the current one and had NO completion; `isError` is deprecated
+  // and had the only one, so the editor steered every user to the superseded API.
+  snippetCompletion("isMonadicError(${value})", {
+    label: "isMonadicError",
+    type: "function",
+    detail: "(value: any): boolean",
+    info: "Is this value a MonadicError? Import from 'tjs-lang/runtime'."
+  }),
   snippetCompletion("isError(${value})", {
     label: "isError",
     type: "function",
-    detail: "(value: any) -> boolean",
-    info: "Check if a value is a TJS error"
+    detail: "DEPRECATED \u2014 use isMonadicError",
+    info: "Kept for compatibility. New code should use isMonadicError()."
   }),
   snippetCompletion("error('${message}')", {
     label: "error",
@@ -642,6 +711,11 @@ var RUNTIME_COMPLETIONS = [
     detail: "(actual: any) -> Matchers",
     info: "Test assertion"
   })
+];
+var ALL_COMPLETIONS = [
+  ...TJS_COMPLETIONS,
+  ...TJS_TYPES,
+  ...RUNTIME_COMPLETIONS
 ];
 var GLOBAL_COMPLETIONS = [
   // Console
@@ -1664,6 +1738,7 @@ function ajsLanguage(config = {}) {
   ]);
 }
 export {
+  ALL_COMPLETIONS,
   FORBIDDEN_KEYWORDS3 as FORBIDDEN_KEYWORDS,
   ajsEditorExtension as ajs,
   ajsEditorExtension,

@@ -22,7 +22,7 @@
  */
 import { LanguageSupport } from '@codemirror/language';
 import { Extension } from '@codemirror/state';
-import { CompletionContext as CMCompletionContext, CompletionResult } from '@codemirror/autocomplete';
+import { CompletionContext as CMCompletionContext, CompletionResult, Completion as CMCompletion } from '@codemirror/autocomplete';
 import type { IntrospectMember } from '../introspect-value';
 /**
  * Forbidden keywords in AsyncJS - these will be highlighted as errors
@@ -50,6 +50,16 @@ export interface AutocompleteConfig {
      */
     getMembers?: (path: string) => Promise<IntrospectMember[] | undefined>;
 }
+/**
+ * Every completion this module offers, flattened — for introspection and for the audit.
+ *
+ * Exported because a completion is a CLAIM about the language, and a claim nothing can
+ * read is a claim nothing can check. `editors/vocabulary.test.ts` drives these against the
+ * real compiler; before that existed, the list offered `unsafe { }` (rejected outright),
+ * a deprecated `isError` with no `isMonadicError` beside it, and none of `Type`,
+ * `Generic`, `Enum`, `Union`, `FunctionPredicate`, `extend` or `wasm`.
+ */
+export declare const ALL_COMPLETIONS: CMCompletion[];
 /**
  * Create TJS/AJS completion source.
  * Exported for headless testing — it touches only DOM-free CodeMirror APIs.

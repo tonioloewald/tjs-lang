@@ -4174,7 +4174,17 @@ export function validateNoDate(source: string, warnings?: string[]): string {
     {
       pattern: /\bnew\s+Date\b/,
       message:
-        '`new Date()` is not allowed in TJS — the Date object is mutable and timezone-dependent. Use Timestamp.now()/Timestamp.from() for wall-clock time, or performance.now() for a monotonic counter. To keep Date deliberately: `unsafe new Date(x)`.',
+        // Names the IMPORT, because `Timestamp` is not a global. Without it the remedy
+        // produced a second error — `Timestamp is not defined` — which is the
+        // errors-as-curriculum principle failing in the one place it matters most: the
+        // diagnostic IS the teaching moment, and following it verbatim did not work.
+        '`new Date()` is not allowed in TJS — the Date object is mutable and ' +
+        'timezone-dependent.\n\n' +
+        "  import { Timestamp } from 'tjs-lang'\n" +
+        '  const t = Timestamp.now()          // wall-clock, epoch ms\n' +
+        '  const t = Timestamp.from(iso)      // parse\n\n' +
+        'Or `performance.now()` for a monotonic counter — no import needed. ' +
+        'To keep Date deliberately: `unsafe new Date(x)`.',
     },
   ]
   const warns = [
