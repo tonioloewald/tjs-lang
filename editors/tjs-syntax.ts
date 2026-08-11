@@ -18,6 +18,21 @@ import {
  * TJS-specific keywords (in addition to AJS)
  */
 export const TJS_KEYWORDS = [
+  // The DECLARATION forms. Their absence meant a `.tjs` file got no highlighting for the
+  // constructs that make it TJS — the lists described AJS plus a handful of JS keywords.
+  'Type',
+  'Generic',
+  'Enum',
+  'Union',
+  'FunctionPredicate',
+  // Members of a `Type`/`Generic` block.
+  'predicate',
+  'example',
+  'description',
+  'declaration',
+  // Other TJS-only constructs.
+  'extend', // local class extensions
+  'wasm', // inline WebAssembly
   'test', // inline tests
   'mock', // test setup blocks
   'unsafe', // exception-catching blocks
@@ -79,6 +94,43 @@ export const TYPE_CONSTRUCTORS = [
   ...AJS_TYPE_CONSTRUCTORS,
   'expect', // test assertions
   'assert', // simple assertions
+  // TJS runtime functions. `Is`/`IsNot` have an INFIX spelling too (`a Is b`), which the
+  // compiler rewrites to the call form — both are real.
+  'Timestamp', // the `Date` replacement: epoch ms, immutable
+  'Is',
+  'IsNot',
+  'Eq',
+  'NotEq',
+  'TypeOf',
+] as const
+
+/**
+ * Type NAMES usable in an annotation (`n: int`).
+ *
+ * TJS's whole numeric-narrowing story lives here — `int`, `unsigned`, `float` — and none
+ * of it was highlighted, so the distinctive part of an annotation looked like an ordinary
+ * identifier.
+ *
+ * Duplicated from the compiler's `TS_TYPE_NAMES` rather than imported, because the editor
+ * bundles must not drag in the parser. `editors/vocabulary.test.ts` drives every entry
+ * through the real compiler, so the duplication cannot drift silently.
+ */
+export const TYPE_NAMES = [
+  'int',
+  'unsigned',
+  'uint',
+  'float',
+  'number',
+  'string',
+  'boolean',
+  'bigint',
+  'object',
+  'any',
+  'unknown',
+  'void',
+  'never',
+  'null',
+  'undefined',
 ] as const
 
 /**
@@ -102,14 +154,22 @@ export const OPERATORS = [...AJS_OPERATORS] as const
  * TJS-specific syntax patterns
  */
 export const TJS_PATTERNS = {
-  // Return type annotation: -> Type
-  returnType: /\)\s*->\s*(\{[^}]+\}|'[^']*'|"[^"]*"|\[[^\]]*\]|\w+)/,
+  // Return type annotation: `): Type`, with the safety-marked spellings `):!` and `):?`.
+  //
+  // This matched `) -> Type` — the arrow the parser never implemented — so return types
+  // were not highlighted at all while an abandoned form was. Same defect the grammar
+  // builder had; fixing one did not fix the other, which is why both are now covered by
+  // `editors/vocabulary.test.ts`.
+  returnType: /\)\s*:[!?]?\s*(\{[^}]+\}|'[^']*'|"[^"]*"|\[[^\]]*\]|\w+)/,
 
   // Unsafe function marker: function name(! or function name(!
   unsafeFunction: /function\s+(\w+)\s*\(\s*!/,
 
-  // Test block: test('description') { ... }
-  testBlock: /test\s*\(\s*(['"`])([^'"`]*)\1\s*\)\s*\{/,
+  // Test block. BOTH spellings are real: `test 'description' { … }` is the canonical one
+  // used throughout the docs and examples, and `test('description') { … }` also compiles.
+  // Only the parenthesised form was matched, so every example in the repo went
+  // unhighlighted.
+  testBlock: /test\s*(?:\(\s*)?(['"`])([^'"`]*)\1\s*\)?\s*\{/,
 
   // Mock block: mock { ... }
   mockBlock: /mock\s*\{/,

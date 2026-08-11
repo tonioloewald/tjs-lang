@@ -44,6 +44,10 @@
     }
   ],
   "repository": {
+    "type-names": {
+      "match": "\\b(int|unsigned|uint|float|number|string|boolean|bigint|object|any|unknown|void|never|null|undefined)\\b",
+      "name": "support.type.tjs"
+    },
     "test-block": {
       "begin": "\\b(test)\\s*\\(\\s*(['\"`])([^'\"`]*)(\\2)\\s*\\)\\s*\\{",
       "beginCaptures": {
@@ -180,7 +184,7 @@
     "keywords": {
       "patterns": [
         {
-          "match": "\\b(function|return|if|else|while|for|of|in|try|catch|finally|let|const|test|mock|unsafe|async|await|throw|import|export|class|extends|super|this|new|static|typeof|instanceof|delete)\\b",
+          "match": "\\b(function|return|if|else|while|for|of|in|try|catch|finally|let|const|Type|Generic|Enum|Union|FunctionPredicate|predicate|example|description|declaration|extend|wasm|test|mock|unsafe|async|await|throw|import|export|class|extends|super|this|new|static|typeof|instanceof|delete)\\b",
           "name": "keyword.control.tjs"
         },
         {
@@ -192,7 +196,7 @@
     "builtins": {
       "patterns": [
         {
-          "match": "\\b(Date|Set|Map|Array|Object|String|Number|Boolean|RegExp|Error|JSON|Math|Schema|expect|assert)\\b",
+          "match": "\\b(Date|Set|Map|Array|Object|String|Number|Boolean|RegExp|Error|JSON|Math|Schema|expect|assert|Timestamp|Is|IsNot|Eq|NotEq|TypeOf)\\b",
           "name": "support.class.tjs"
         }
       ]

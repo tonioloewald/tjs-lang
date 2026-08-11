@@ -11,6 +11,7 @@ import {
   KEYWORDS as TJS_KEYWORDS,
   FORBIDDEN_KEYWORDS as TJS_FORBIDDEN,
   TYPE_CONSTRUCTORS as TJS_TYPE_CONSTRUCTORS,
+  TYPE_NAMES as TJS_TYPE_NAMES,
   TJS_PATTERNS,
 } from './tjs-syntax'
 import { writeFileSync, readFileSync } from 'fs'
@@ -40,6 +41,7 @@ function buildVSCodeGrammar() {
       { include: '#function-def' },
       { include: '#forbidden' },
       { include: '#keywords' },
+      { include: '#type-names' },
       { include: '#builtins' },
       { include: '#type-parameters' },
       { include: '#numbers' },
@@ -264,6 +266,10 @@ function buildTJSVSCodeGrammar() {
     (k) => !['true', 'false', 'null', 'undefined'].includes(k)
   ).join('|')})\\b`
   const constantsPattern = `\\b(true|false|null|undefined)\\b`
+  // Type NAMES in annotation position. `int`, `unsigned` and `float` carry TJS's whole
+  // numeric-narrowing story and were rendered as ordinary identifiers, so the most
+  // distinctive part of an annotation looked like nothing at all.
+  const typeNamesPattern = `\\b(${TJS_TYPE_NAMES.join('|')})\\b`
 
   const grammar = {
     $schema:
@@ -286,6 +292,10 @@ function buildTJSVSCodeGrammar() {
       { include: '#operators' },
     ],
     repository: {
+      'type-names': {
+        match: typeNamesPattern,
+        name: 'support.type.tjs',
+      },
       'test-block': {
         begin: '\\b(test)\\s*\\(\\s*([\'"`])([^\'"`]*)(\\2)\\s*\\)\\s*\\{',
         beginCaptures: {

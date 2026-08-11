@@ -160,6 +160,23 @@ var FORBIDDEN_PATTERN = new RegExp(
 
 // editors/tjs-syntax.ts
 var TJS_KEYWORDS = [
+  // The DECLARATION forms. Their absence meant a `.tjs` file got no highlighting for the
+  // constructs that make it TJS — the lists described AJS plus a handful of JS keywords.
+  "Type",
+  "Generic",
+  "Enum",
+  "Union",
+  "FunctionPredicate",
+  // Members of a `Type`/`Generic` block.
+  "predicate",
+  "example",
+  "description",
+  "declaration",
+  // Other TJS-only constructs.
+  "extend",
+  // local class extensions
+  "wasm",
+  // inline WebAssembly
   "test",
   // inline tests
   "mock",
@@ -197,8 +214,17 @@ var TYPE_CONSTRUCTORS2 = [
   ...TYPE_CONSTRUCTORS,
   "expect",
   // test assertions
-  "assert"
+  "assert",
   // simple assertions
+  // TJS runtime functions. `Is`/`IsNot` have an INFIX spelling too (`a Is b`), which the
+  // compiler rewrites to the call form — both are real.
+  "Timestamp",
+  // the `Date` replacement: epoch ms, immutable
+  "Is",
+  "IsNot",
+  "Eq",
+  "NotEq",
+  "TypeOf"
 ];
 var OPERATORS2 = [...OPERATORS];
 

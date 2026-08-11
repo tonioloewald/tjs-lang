@@ -9,11 +9,11 @@
 /**
  * TJS-specific keywords (in addition to AJS)
  */
-export declare const TJS_KEYWORDS: readonly ["test", "mock", "unsafe", "async", "await", "throw", "import", "export", "class", "extends", "super", "this", "new", "static", "typeof", "instanceof", "delete"];
+export declare const TJS_KEYWORDS: readonly ["Type", "Generic", "Enum", "Union", "FunctionPredicate", "predicate", "example", "description", "declaration", "extend", "wasm", "test", "mock", "unsafe", "async", "await", "throw", "import", "export", "class", "extends", "super", "this", "new", "static", "typeof", "instanceof", "delete"];
 /**
  * All TJS keywords
  */
-export declare const KEYWORDS: readonly ["function", "return", "if", "else", "while", "for", "of", "in", "try", "catch", "finally", "let", "const", "true", "false", "null", "undefined", "test", "mock", "unsafe", "async", "await", "throw", "import", "export", "class", "extends", "super", "this", "new", "static", "typeof", "instanceof", "delete"];
+export declare const KEYWORDS: readonly ["function", "return", "if", "else", "while", "for", "of", "in", "try", "catch", "finally", "let", "const", "true", "false", "null", "undefined", "Type", "Generic", "Enum", "Union", "FunctionPredicate", "predicate", "example", "description", "declaration", "extend", "wasm", "test", "mock", "unsafe", "async", "await", "throw", "import", "export", "class", "extends", "super", "this", "new", "static", "typeof", "instanceof", "delete"];
 /**
  * Constructs a `.tjs` file actually REJECTS.
  *
@@ -37,7 +37,19 @@ export declare const FORBIDDEN_KEYWORDS: readonly ["var", "eval"];
 /**
  * Type constructors (same as AJS plus TJS-specific)
  */
-export declare const TYPE_CONSTRUCTORS: readonly ["Date", "Set", "Map", "Array", "Object", "String", "Number", "Boolean", "RegExp", "Error", "JSON", "Math", "Schema", "expect", "assert"];
+export declare const TYPE_CONSTRUCTORS: readonly ["Date", "Set", "Map", "Array", "Object", "String", "Number", "Boolean", "RegExp", "Error", "JSON", "Math", "Schema", "expect", "assert", "Timestamp", "Is", "IsNot", "Eq", "NotEq", "TypeOf"];
+/**
+ * Type NAMES usable in an annotation (`n: int`).
+ *
+ * TJS's whole numeric-narrowing story lives here — `int`, `unsigned`, `float` — and none
+ * of it was highlighted, so the distinctive part of an annotation looked like an ordinary
+ * identifier.
+ *
+ * Duplicated from the compiler's `TS_TYPE_NAMES` rather than imported, because the editor
+ * bundles must not drag in the parser. `editors/vocabulary.test.ts` drives every entry
+ * through the real compiler, so the duplication cannot drift silently.
+ */
+export declare const TYPE_NAMES: readonly ["int", "unsigned", "uint", "float", "number", "string", "boolean", "bigint", "object", "any", "unknown", "void", "never", "null", "undefined"];
 /**
  * TJS operators.
  *
