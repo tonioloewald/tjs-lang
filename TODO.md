@@ -2722,6 +2722,30 @@ the `introspection-autocomplete` memory.
 
 ## Language
 
+- [ ] **`parser-transforms.ts` fails self-hosting graduation (94/95).** Converts and
+      compiles as TypeScript; the converted TJS does not parse. Diagnosed this far: - Reported at `if (!(e instanceof globalThis.SyntaxError))`, but that location is
+      MISATTRIBUTED — the construct compiles standalone, and so does the whole enclosing
+      function (`genericPredicateFromExample`). - Bisection: the prefix + target passes; the failure appears only once
+      `normalizePredicateForms` (the next function) is added. **Minimal repro is those
+      two complete functions together** — either alone is fine. - With the pair, the error moves to a COMMENT containing
+      `` `example: { predicate: '' }` ``. That comment in isolation compiles fine. - So: an interaction between two adjacent functions, with the error location wrong.
+      Smells like a scanner span (regex-vs-division, or backticks in comments) opening in
+      one function and closing in the other. Every constituent piece converts standalone,
+      which is why it resisted four rounds of isolation.
+      Recipe: `fromTS(readFileSync('src/lang/parser-transforms.ts'), { emitTJS: true })`,
+      then `tjs()` the result; or slice the two functions out of the converted output.
+
+- [ ] **Two test files added 2026-08-11 fail conversion** (`lang/abandoned-syntax.test.ts`,
+      `lang/type-identity.test.ts`). Same shape: every construct converts standalone. Both
+      are files whose content is largely TJS source held as data, i.e. the pathological
+      case for any scanner. Listed in `KNOWN_CONVERSION_FAILURES`? **No — not yet added**,
+      deliberately, so the ratchet stays red until they are diagnosed rather than accepted.
+
+- [ ] **Vision playground examples FAIL rather than self-skip** without a vision model.
+      `CLAUDE.md` says they self-skip; the full gate on 2026-08-11 showed
+      `Vision: OCR` and `Vision: Classification` failing with gemma-4 + nomic-embed loaded.
+      Either the skip detection is wrong or gemma-4 is being read as vision-capable.
+
 - [ ] **`&&` inside a required parameter's DEFAULT corrupts emitted source.** While
       building `Box<int>`, an annotation rewritten to `b = X(((v) => a && b))` produced
       `Generi…c(['T` — a boolean-coercion patch applied at an offset belonging to a
