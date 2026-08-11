@@ -7,6 +7,8 @@ See CLAUDE.md for commands, architecture, and development patterns.
 
 TJS classes are wrapped to be callable without the `new` keyword:
 
+<!-- tjs-doc: expect-error -->
+
 ```typescript
 class Point {
   constructor(public x: number, public y: number) {}
@@ -44,6 +46,8 @@ construct to mark — it is still spelled the same — so `unsafe` cannot help. 
 | `DangerousLegacyNot(a, b)`    | `a != b`                                                          |
 | `LegacyExactly(a, b)`         | `a === b` (NaN is not itself; a boxed primitive is not its value) |
 | `LegacyNotExactly(a, b)`      | `a !== b`                                                         |
+
+<!-- tjs-doc: fragment -->
 
 ```js
 if (DangerousLegacyEquals(input, 0)) { … }   // yes, I want '' and false to match 0
@@ -102,6 +106,8 @@ is legal JS and must stay legal (TJS ⊇ JS):
   `foo()` two statements, and those are left alone.
 
 ## Function Parameters
+
+<!-- tjs-doc: fragment -->
 
 ```typescript
 // Required param with example value (colon shorthand)
@@ -182,6 +188,8 @@ function sum(...xs: number[]) { return xs.length }
 
 ## Return Types
 
+<!-- tjs-doc: fragment -->
+
 ```typescript
 // Return type annotation (colon syntax)
 function add(a: 0, b: 0): 0 { return a + b }
@@ -198,12 +206,15 @@ function fastAdd(! a: 0, b: 0) { return a + b }
 
 // Safe function (explicit validation)
 function safeAdd(? a: 0, b: 0) { return a + b }
+```
 
-// Unsafe block
-unsafe {
-  // All calls in here skip validation
-  fastPath(data)
-}
+There is **no `unsafe { }` block**. This section used to show one; the form was removed
+because it exempted nothing — the wrapper decision is made at transpile time, so a block
+could not skip anything a marker did not already skip. `unsafe` is an expression PREFIX:
+
+```typescript
+const d = unsafe new Date(0) // this one construct, deliberately
+const p = unsafe new Point(1, 2)
 ```
 
 ## Bang Access (`!.`)
@@ -263,6 +274,8 @@ rejected** — it falls back to running as a plain function (TJS ⊇ JS). Prefer
 verifiable style so your type guards are safe to run on untrusted data.
 
 ## Generic Declarations
+
+<!-- tjs-doc: fragment -->
 
 ```typescript
 // Simple generic
@@ -350,6 +363,8 @@ assignment becomes `const`, a later `Foo = …` in the same TJS file throws
 
 ## Module Safety Directive
 
+<!-- tjs-doc: fragment -->
+
 ```typescript
 // At top of file - sets default validation level
 safety none     // No validation (metadata only)
@@ -413,6 +428,8 @@ behaviour. The accidental use is still caught, where a modes-off file silenced i
 
 `const!` declares bindings whose properties cannot be mutated. Enforced at transpile time with zero runtime cost — emits as plain `const`.
 
+<!-- tjs-doc: expect-error -->
+
 ```typescript
 const! config = { debug: false, port: 8080 }
 console.log(config.port)   // OK — reads are fine
@@ -474,6 +491,8 @@ TJS fixes JavaScript's confusing `==` coercion without the performance cost of d
 | `a Is b`    | Deep structural equality (explicit)          | `{a:1} Is {a:1}` is `true`         |
 | `a IsNot b` | Deep structural inequality (explicit)        | `[1,2] IsNot [2,1]` is `true`      |
 
+<!-- tjs-doc: fragment -->
+
 ```typescript
 // == is honest: no coercion, unwraps boxed primitives
 'foo' == 'foo'                    // true
@@ -517,6 +536,8 @@ In `.tjs`, `typeof null` returns `'null'` instead of `'object'` (JS's oldest bug
 Raw JS: `Boolean(new Boolean(false)) === true` (a boxed primitive is an Object → truthy). Same trap for `if`, `!`, `&&`, `||`, `?:`, `while`, `for`, `do/while`. The spec's `ToBoolean` operation has no override hook (`Symbol.toPrimitive` doesn't fire for boolean coercion).
 
 Native TJS rewrites every truthiness context to `__tjs.toBool(x)`, which unwraps boxed primitives before coercing. Always on — there is no legitimate opposite, so no escape is offered.
+
+<!-- tjs-doc: fragment -->
 
 ```typescript
 Boolean(new Boolean(false))    // false  ✓
@@ -577,7 +598,7 @@ class Point {
     this.x = x
     this.y = y
   }
-  constructor(coords: { x: 0.0; y: 0.0 }) {
+  constructor(coords: { x: 0.0, y: 0.0 }) {
     this.x = coords.x
     this.y = coords.y
   }
@@ -618,13 +639,32 @@ TJS supports inline WebAssembly for performance-critical code. WASM blocks are c
 
 ### Syntax
 
+Two forms, both real; the assignment form this section used to show
+(`const add = wasm (…) { local.get $a … }`) was never implemented and is rejected.
+[`DOCS-WASM.md`](DOCS-WASM.md) is the canonical reference.
+
 ```typescript
-const add = wasm (a: i32, b: i32): i32 {
-  local.get $a
-  local.get $b
-  i32.add
+// Top-level declaration — a reusable kernel, importable across files.
+wasm function add(a: i32, b: i32): i32 {
+  return a + b
 }
 ```
+
+```typescript
+// Inline block — accelerate a hot loop inside an ordinary function. Free variables are
+// captured automatically and become wasm parameters.
+function scale(arr: Float32Array, len: 0, k: 0.0) {
+  wasm {
+    for (let i = 0; i < len; i++) {
+      arr[i] = arr[i] * k
+    }
+  }
+  return arr
+}
+```
+
+`wasm function` parameters use wasm type names (`i32`, `f64`, …), **not** TJS
+example-based annotations.
 
 ### Features
 
@@ -659,15 +699,18 @@ const add = await (async () => {
 WASM blocks support explicit SIMD via `f32x4_*` intrinsics:
 
 ```typescript
-const scale = wasm (arr: Float32Array, len: 0, factor: 0.0): 0 {
-  let s = f32x4_splat(factor)
-  for (let i = 0; i < len; i += 4) {
-    let off = i * 4
-    let v = f32x4_load(arr, off)
-    f32x4_store(arr, off, f32x4_mul(v, s))
+function scale(arr: Float32Array, len: 0, factor: 0.0) {
+  wasm {
+    let s = f32x4_splat(factor)
+    for (let i = 0; i < len; i += 4) {
+      let off = i * 4
+      let v = f32x4_load(arr, off)
+      f32x4_store(arr, off, f32x4_mul(v, s))
+    }
+  } fallback {
+    for (let i = 0; i < len; i++) arr[i] *= factor
   }
-} fallback {
-  for (let i = 0; i < len; i++) arr[i] *= factor
+  return arr
 }
 ```
 
