@@ -36,8 +36,26 @@ import { tjs } from './lang'
 
 const REPO = resolve(import.meta.dir, '..')
 
-/** Docs whose fenced TJS/TS blocks are contracts, not illustrations of other tools. */
-const DOCS = ['CLAUDE-TJS-SYNTAX.md']
+/**
+ * Docs whose fenced TJS/TS blocks are contracts, not illustrations of other tools.
+ *
+ * `TJS-FOR-TS.md` carries many side-by-side blocks where the TypeScript half is not valid
+ * TJS by design; those are `fragment`. That is a weaker guarantee than the reference gets,
+ * and the honest way to strengthen it is to make more of those snippets whole programs —
+ * a doc-editing job, not a harness one.
+ */
+const DOCS = [
+  'CLAUDE-TJS-SYNTAX.md',
+  'DOCS-TJS.md',
+  'DOCS-WASM.md',
+  'TJS-FOR-TS.md',
+  'TJS-FOR-JS.md',
+  'README.md',
+  'CONTEXT.md',
+  'guides/footguns.md',
+  'guides/patterns.md',
+  'docs/dictionary-defaults.md',
+]
 
 interface Snippet {
   doc: string

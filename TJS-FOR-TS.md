@@ -31,6 +31,8 @@ from your TypeScript codebase.
 The most common reason to reach for TJS from TypeScript: running untrusted
 code safely.
 
+<!-- tjs-doc: fragment -->
+
 ```typescript
 import { Eval, SafeFunction } from 'tjs-lang/eval'
 
@@ -127,6 +129,8 @@ const { result } = await vm.run(
 
 TJS is tree-shakeable. Import only what you need:
 
+<!-- tjs-doc: fragment -->
+
 ```typescript
 import { Agent, AgentVM, ajs, tjs } from 'tjs-lang' // Everything
 import { Eval, SafeFunction } from 'tjs-lang/eval' // Safe eval only
@@ -157,6 +161,8 @@ monadic errors, inline tests -- here's how to convert.
 
 TypeScript describes types abstractly. TJS describes them concretely:
 
+<!-- tjs-doc: fragment -->
+
 ```typescript
 // TypeScript: what TYPE is this?
 function greet(name: string): string { ... }
@@ -171,6 +177,8 @@ example. The example doubles as documentation and test data.
 ## Conversion Reference
 
 ### Primitives
+
+<!-- tjs-doc: fragment -->
 
 ```typescript
 // TypeScript                    // TJS
@@ -209,6 +217,8 @@ or `+0` (non-negative integer) where appropriate.
 
 ### Optional Parameters
 
+<!-- tjs-doc: fragment -->
+
 ```typescript
 // TypeScript                    // TJS
 function f(x?: string) {}
@@ -222,6 +232,8 @@ In TJS, `= value` means optional with that default. Same semantics, less syntax.
 
 ### Object Shapes
 
+<!-- tjs-doc: fragment -->
+
 ```typescript
 // TypeScript
 function createUser(opts: { name: string; age: number; email?: string }) {}
@@ -233,6 +245,8 @@ function createUser(opts: { name: '', age: 0, email = '' }) {}
 Required properties use `:`, optional ones use `=`.
 
 ### Return Types
+
+<!-- tjs-doc: fragment -->
 
 ```typescript
 // TypeScript                              // TJS
@@ -250,6 +264,8 @@ The return annotation also generates an automatic test: `add(0, 0)` must
 return a number. If it doesn't, you get an error at transpile time.
 
 ### Interfaces and Type Aliases
+
+<!-- tjs-doc: fragment -->
 
 ```typescript
 // TypeScript
@@ -272,6 +288,8 @@ Union Status 'account status' 'active' | 'inactive' | 'banned'
 
 ### Enums
 
+<!-- tjs-doc: fragment -->
+
 ```typescript
 // TypeScript
 enum Color {
@@ -289,6 +307,8 @@ Enum Color 'CSS color' {
 ```
 
 ### Classes
+
+<!-- tjs-doc: fragment -->
 
 ```typescript
 // TypeScript
@@ -339,6 +359,8 @@ TJS takes a different approach to generics. TypeScript has function-level
 type parameters (`<T>`) that vanish at runtime. TJS has `Generic` declarations
 that produce runtime-checkable type constructors:
 
+<!-- tjs-doc: fragment -->
+
 ```typescript
 // TypeScript -- compile-time only, gone at runtime
 function identity<T>(x: T): T { return x }
@@ -377,6 +399,8 @@ When converting from TypeScript, the `fromTS` converter preserves generic
 metadata but types become `any`. This is a place where manual review helps.
 
 ### Nullability
+
+<!-- tjs-doc: fragment -->
 
 ```typescript
 // TypeScript
@@ -425,6 +449,8 @@ TJS takes the opposite approach: `Type()` gives you a predicate function.
 If you can write a boolean expression, you can define a type. No type-level
 programming language to learn.
 
+<!-- tjs-doc: fragment -->
+
 ```javascript
 // TypeScript: branded types + manual validation
 type Email = string & { __brand: 'email' }
@@ -446,6 +472,8 @@ Type Email {
 
 The TJS `Type()` built-in handles everything from simple shapes to
 sophisticated domain constraints:
+
+<!-- tjs-doc: fragment -->
 
 ```javascript
 // Simple -- infer from example
@@ -541,6 +569,8 @@ function processOrder(order: { items: [{ id: 0, qty: 0 }], total: 0 }): {
 
 TypeScript inherits JavaScript's broken equality. Native TJS fixes this. For TS-originated code, add `TjsStrict` (or `/* @tjs TjsStrict */` in the source `.ts` file):
 
+<!-- tjs-doc: fragment -->
+
 ```javascript
 TjsStrict  // opts TS-originated code into full TJS; .tjs has this already
 
@@ -630,6 +660,8 @@ No separate test files, no test runner configuration.
 
 ### Safety Controls
 
+<!-- tjs-doc: fragment -->
+
 ```javascript
 safety none       // This module: skip all validation (performance)
 safety inputs     // This module: validate inputs only (default)
@@ -710,6 +742,8 @@ console.log(result.code) // TJS source
 Annotate your `.ts` files with `/* @tjs ... */` comments to enrich
 the TJS output. The TS compiler ignores them.
 
+<!-- tjs-doc: fragment -->
+
 ```typescript
 /* @tjs TjsStrict */ // Opt into full TJS (TS-originated code gets JS semantics by default)
 
@@ -754,6 +788,8 @@ bun src/cli/tjs.ts emit input.tjs  # emits .js, .d.ts, .md
 When the converter encounters a constrained generic like
 `<T extends { id: number }>`, it uses the constraint shape as the
 example value instead of falling back to `any`. This means:
+
+<!-- tjs-doc: fragment -->
 
 ```typescript
 // TypeScript
@@ -837,6 +873,8 @@ deep structural comparison, use `Is`/`IsNot`.
 ## Side-by-Side: A Complete Example
 
 ### TypeScript
+
+<!-- tjs-doc: fragment -->
 
 ```typescript
 interface Product {

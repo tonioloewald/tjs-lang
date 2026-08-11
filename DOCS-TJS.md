@@ -10,6 +10,8 @@ _Types as Examples. Zero Build. Runtime Metadata._
 
 TJS is a typed superset of JavaScript where **types are concrete values**, not abstract annotations.
 
+<!-- tjs-doc: fragment -->
+
 ```typescript
 // TypeScript: abstract type annotation
 function greet(name: string): string
@@ -212,6 +214,8 @@ tighter runtime validation.
 
 Object shapes are defined by example:
 
+<!-- tjs-doc: fragment -->
+
 ```typescript
 function createUser(user: { name: ''; age: 0 }) {}
 // user must be an object with string name and number age
@@ -314,6 +318,8 @@ function safeAdd(? a: 0, b: 0) { return a + b }
 
 Skip validation for a block of code:
 
+<!-- tjs-doc: fragment -->
+
 ```typescript
 unsafe {
   fastPath(data)
@@ -324,6 +330,8 @@ unsafe {
 ### Module Safety Directive
 
 Set the default validation level for an entire file:
+
+<!-- tjs-doc: fragment -->
 
 ```typescript
 safety none     // No validation (metadata only)
@@ -409,6 +417,8 @@ Generic BoxedProxy<T> {
 
 When emitting `.d.ts` via `tjs emit --dts`, this produces:
 
+<!-- tjs-doc: fragment -->
+
 ```typescript
 export interface BoxedProxy<T> {
   value: T
@@ -466,6 +476,8 @@ deep structural comparison, TJS provides `Is` / `IsNot`:
 > are genuinely distinct: `{ a: 1 } == { a: 1 }` is `false`. Use `Is` (below)
 > for deep structural comparison.
 
+<!-- tjs-doc: fragment -->
+
 ```typescript
 // Structural comparison - no coercion
 [1, 2] Is [1, 2]       // true
@@ -484,6 +496,8 @@ deep structural comparison, TJS provides `Is` / `IsNot`:
 Objects can define custom equality in two ways:
 
 **1. `[tjsEquals]` symbol protocol** (preferred for Proxies and advanced use):
+
+<!-- tjs-doc: fragment -->
 
 ```typescript
 import { tjsEquals } from 'tjs-lang/lang'
@@ -530,14 +544,18 @@ class User {
   }
 }
 
-// Both work identically:
-const u1 = User('Alice') // TJS way - clean
-const u2 = new User('Alice') // Also works (linter warns)
+const u1 = User('Alice') // the TJS way
+const u3 = unsafe new User('Alice') // deliberate, allowed
 ```
 
 The wrapping uses a Proxy on the constructor that intercepts bare calls
-and forwards them to `Reflect.construct`. This means `User('Alice')`
-and `new User('Alice')` always produce the same result — an instance.
+and forwards them to `Reflect.construct`, so `User('Alice')` and
+`new User('Alice')` produce the same result — an instance.
+
+**Which is exactly why `new` on a class declared in this file is an ERROR.** The two
+forms are indistinguishable, so the keyword was decoration with the look of
+significance. `unsafe new User('Alice')` is the per-site escape. Built-ins are
+untouched — `new Float32Array(4)` is mandatory and still required.
 
 **What gets wrapped:** Only `class` declarations in your `.tjs` file.
 Specifically:
@@ -583,7 +601,11 @@ When converting from TypeScript, `private foo` becomes `#foo`.
 
 Asymmetric types are captured:
 
+<!-- tjs-doc: fragment -->
+
 ```typescript
+// Illustrative: a wrapper around Date. `new Date(...)` needs `unsafe` in real .tjs —
+// see the Timestamp module (`import { Timestamp } from 'tjs-lang'`) for the shipped one.
 class Timestamp {
   #value
 
@@ -637,6 +659,8 @@ describe(true) // MonadicError: no matching overload
 ### Polymorphic Constructors
 
 Classes can have multiple constructor signatures. The first becomes the real JS constructor; additional variants become factory functions:
+
+<!-- tjs-doc: fragment -->
 
 ```typescript
 class Point {
@@ -715,6 +739,8 @@ Extensions work on any type: `String`, `Number`, `Array`, `Boolean`, custom clas
 ### `__tjs` Metadata
 
 Every TJS function carries its type information:
+
+<!-- tjs-doc: fragment -->
 
 ```typescript
 function createUser(input: { name: ''; age: 0 }): { id: 0 } {
@@ -907,6 +933,8 @@ Variables are captured automatically. Falls back to JS if WASM unavailable.
 
 For compute-heavy workloads, use f32x4 SIMD intrinsics to process 4 float32 values per instruction:
 
+<!-- tjs-doc: fragment -->
+
 ```typescript
 const scale = wasm (arr: Float32Array, len: 0, factor: 0.0): 0 {
   let s = f32x4_splat(factor)
@@ -1064,6 +1092,8 @@ Convert existing TypeScript:
 bun src/cli/tjs.ts convert file.ts
 ```
 
+<!-- tjs-doc: fragment -->
+
 ```typescript
 // TypeScript
 function greet(name: string, age?: number): string { ... }
@@ -1104,6 +1134,8 @@ function greet(name: '', age = 0): '' { ... }
 ### Why ~1.15x, Not 25x
 
 Most validators interpret schemas at runtime (~25x overhead). TJS generates inline checks at transpile time:
+
+<!-- tjs-doc: fragment -->
 
 ```typescript
 // Generated (JIT-friendly)
@@ -1172,6 +1204,8 @@ uppercase name; a reassignment of a binding you already declared
 **"Type is not defined" / "Generic is not defined"** — These become `const Name = Type(...)` / `const Name = Generic(...)` after preprocessing. If you see this at runtime, the TJS runtime (`createRuntime()`) wasn't installed, or the file wasn't transpiled through TJS.
 
 **Signature test failures** — TJS runs your function with its example values at transpile time. If the function fails with its own examples, transpilation reports an error. Fix the function or choose better examples:
+
+<!-- tjs-doc: fragment -->
 
 ```typescript
 // BAD: example 0 causes division by zero

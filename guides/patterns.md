@@ -48,6 +48,8 @@ const results = parallelFetch.fetchAll(urls)
 
 AJS doesn't have built-in retry. Implement with a while loop:
 
+<!-- tjs-doc: fragment -->
+
 ```javascript
 let attempts = 0
 let result = null
@@ -237,6 +239,8 @@ if (handler) {
 
 AJS uses monadic error handling. When an error occurs, subsequent atoms are skipped until a `try/catch` block handles it:
 
+<!-- tjs-doc: fragment -->
+
 ```javascript
 try {
   const data = fetch(url) // If this fails...
@@ -252,6 +256,8 @@ try {
 ### Graceful Degradation
 
 Use `try/catch` with fallbacks:
+
+<!-- tjs-doc: fragment -->
 
 ```javascript
 let result
@@ -274,6 +280,8 @@ return result
 ### Error Aggregation
 
 Collect errors without stopping execution:
+
+<!-- tjs-doc: fragment -->
 
 ```javascript
 const errors = []
@@ -347,6 +355,8 @@ const result = cache('weather-' + city, 3600000, () => {
 
 Monitor and limit computation:
 
+<!-- tjs-doc: fragment -->
+
 ```javascript
 // Check remaining fuel before expensive operation
 if (fuel.current < 100) {
@@ -413,6 +423,8 @@ Some JavaScript expressions have limitations in AJS due to the compilation model
 
 Template literals work at statement level but not inside other expressions:
 
+<!-- tjs-doc: fragment -->
+
 ```javascript
 // Works - statement level
 const greeting = `Hello, ${name}!`
@@ -428,6 +440,8 @@ const obj = { msg: msg } // Works
 ### Computed Member Access
 
 Dynamic property access with variables is not supported:
+
+<!-- tjs-doc: fragment -->
 
 ```javascript
 // Works - literal index

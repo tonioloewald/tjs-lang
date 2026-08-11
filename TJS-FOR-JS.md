@@ -200,6 +200,8 @@ The return type example doubles as an automatic test. When you write `: 0`, TJS 
 JavaScript's `==` is notoriously broken (type coercion). TJS fixes `==` to be a
 **footgun-free `===`** — and adds `Is` for deep structural comparison:
 
+<!-- tjs-doc: fragment -->
+
 ```javascript
 // JavaScript
 '5' == 5                    // true  (coercion — footgun!)
@@ -390,6 +392,8 @@ library needed.
 
 Compose types from other types:
 
+<!-- tjs-doc: fragment -->
+
 ```javascript
 Type OptionalEmail Nullable(Email)         // Email | null
 Type UserIds TArray(TPositiveInt)           // array of positive integers
@@ -461,6 +465,8 @@ external libraries in vanilla JavaScript.
 
 You control how much validation TJS applies:
 
+<!-- tjs-doc: fragment -->
+
 ```javascript
 // Per-module (top of file)
 safety none     // Metadata only -- no runtime checks (fastest)
@@ -479,6 +485,8 @@ overhead of `safety inputs` is negligible compared to the bugs it catches.
 ### Unsafe Blocks
 
 Skip validation for a hot inner loop:
+
+<!-- tjs-doc: fragment -->
 
 ```javascript
 unsafe {
@@ -519,6 +527,8 @@ automatically from return type annotations -- `: true` means TJS will call
 ## WASM Blocks
 
 For compute-heavy code, drop into WebAssembly:
+
+<!-- tjs-doc: fragment -->
 
 ```javascript
 const add = wasm (a: i32, b: i32): i32 {

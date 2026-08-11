@@ -24,6 +24,8 @@ It is important to understand that the builder is only for constructing the AST;
 
 You can access the builder via `Agent` (for core atoms) or `vm.Agent` (the recommended way to access both core and any custom atoms registered with the VM instance).
 
+<!-- tjs-doc: fragment -->
+
 ```typescript
 import { Agent, s, AgentVM } from 'tjs-lang'
 
@@ -232,6 +234,8 @@ The procedure store provides a built-in mechanism for storing ASTs as callable t
 
 ### Storage Model
 
+<!-- tjs-doc: fragment -->
+
 ```typescript
 // Module-level storage in runtime.ts
 const procedureStore = new Map<
@@ -331,6 +335,8 @@ When an agent calls sub-agents via `agentRun`, each sub-agent gets its own fuel 
 **Why:** The `agentRun` atom delegates to `ctx.capabilities.agent.run`, which the host implements. This gives operators full control over sub-agent resource allocation.
 
 **Patterns for shared fuel:**
+
+<!-- tjs-doc: fragment -->
 
 ```typescript
 // Option 1: Pass remaining fuel to children

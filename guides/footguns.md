@@ -23,6 +23,8 @@ when you opt out.
 A boxed primitive is an `Object`, and the spec's `ToBoolean` operation
 declares any `Object` truthy. The result:
 
+<!-- tjs-doc: fragment -->
+
 ```js
 Boolean(new Boolean(false))   // true   — wrong!
 if (new Boolean(false)) { ... }   // enters branch — wrong!
@@ -36,6 +38,8 @@ hook to fix this in plain JS. **TJS rewrites every truthiness context**
 (including `if`, `while`, `for`, `do`, `!`, `&&`, `||`, ternary, and
 top-level `Boolean(x)` calls) to call `__tjs.toBool(x)`, which unwraps
 boxed primitives before applying `ToBoolean`:
+
+<!-- tjs-doc: fragment -->
 
 ```tjs
 Boolean(new Boolean(false))    // false  ✓
@@ -67,6 +71,8 @@ footgun, handled by the `Is` operator (see below).
 Raw JS `==` coerces wildly across types:
 
 <!-- prettier-ignore -->
+<!-- tjs-doc: fragment -->
+
 ```js
 '5' == 5     // true
 '' == false  // true
@@ -80,6 +86,8 @@ number?" checks awkward.
 Native TJS rewrites `==` and `!=` to **honest equality** (the `Eq` /
 `NotEq` runtime functions):
 
+<!-- tjs-doc: fragment -->
+
 ```tjs
 '5' == 5          // false  ✓ (different types, no coercion)
 NaN == NaN        // true   ✓
@@ -91,6 +99,8 @@ is `true`.
 
 For **deep structural equality** of objects, arrays, Maps, and Sets, use
 the explicit `Is` / `IsNot` operators:
+
+<!-- tjs-doc: fragment -->
 
 ```tjs
 Is({a: 1}, {a: 1})    // true   ✓
@@ -142,17 +152,24 @@ Severity is warning by default, error under `TjsStrict`.
 ## 5. Classes that require `new`
 
 Calling a class without `new` is a `TypeError` in strict mode and silently
-leaks to the global object in sloppy mode. TJS wraps user classes (under
-always, in `.tjs`) so they're callable both ways:
+leaks to the global object in sloppy mode. TJS wraps user classes (always, in
+`.tjs`) so they are CALLED — and because the two forms then produce identical
+objects, `new` on a class declared in the file is an error rather than a synonym:
+
+<!-- tjs-doc: expect-error -->
 
 ```tjs
 class Point {
   constructor(x: 0, y: 0) { this.x = x; this.y = y }
 }
 
-Point(1, 2)       // ✓ works
-new Point(1, 2)   // ⚠ flagged by no-explicit-new linter rule (also works)
+Point(1, 2)              // ✓ the TJS way
+unsafe new Point(1, 2)   // ✓ deliberate
+new Point(1, 2)          // ✗ ERROR — the two forms are identical, so `new` said nothing
 ```
+
+Scoped to classes declared in the file. For a built-in, `new` is **mandatory**:
+`new Float32Array(4)` throws without it, so those are untouched.
 
 ## 6. `var` hoisting and the temporal dead zone
 
