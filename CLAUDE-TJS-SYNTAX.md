@@ -12,12 +12,22 @@ class Point {
   constructor(public x: number, public y: number) {}
 }
 
-// Both work identically:
-const p1 = Point(10, 20) // TJS way - clean
-const p2 = new Point(10, 20) // Still works, but linter warns
+const p1 = Point(10, 20) // the TJS way
+const p2 = new Point(10, 20) // ERROR — see below
+const p3 = unsafe new Point(10, 20) // deliberate, allowed
+```
 
-// The linter flags explicit `new` usage:
-// Warning: Unnecessary 'new' keyword. In TJS, classes are callable without 'new'
+**`new` on a class declared in this file is an ERROR**, not a warning. `P(1)` and
+`new P(2)` produce identical objects, so `new` was decoration with the look of
+significance — and it was meanwhile a hard error for `Date`, which made the rule
+"a suggestion for your own classes, a rule for built-ins".
+
+Scoped to classes declared in the same source. For a **built-in**, `new` is
+**mandatory** — `new Float32Array(4)` throws without it — so those are untouched:
+
+```typescript
+const buf = new Float32Array(4) // fine, and required
+const s = new Set([1, 2]) // fine
 ```
 
 The `wrapClass()` function in the runtime uses a Proxy to intercept calls and auto-construct. In `.tjs` all `class` declarations are wrapped; TS-originated code is not, unless it opts into full TJS with `TjsStrict`. Built-in constructors (`Boolean`, `Number`, `String`, etc.) and old-style `function` + `prototype` constructors are never touched because they may have intentional dual behavior (e.g., `Boolean(0)` returns `false` but `new Boolean(0)` returns a truthy wrapper object).
@@ -147,6 +157,29 @@ function sum(...nums: [0]) { }           // nums: array of integers
 function log(...args: ['', 0, true]) { } // args: array<string | integer | boolean>
 ```
 
+### Arrays
+
+Both spellings work, and they mean the same thing:
+
+```typescript
+function f(xs: [0]) { return xs.length } // example: array of integers
+function g(xs: number[]) { return xs.length } // TS suffix, rewritten to `[0.0]`
+function h(xs: string[][]) { return xs.length } // nests
+```
+
+Item types are checked, not just arrayness — `g(['x'])` is a `MonadicError`. `int[]`
+narrows where `number[]` deliberately does not, because `number` has to keep meaning
+"any number" for pasted TypeScript.
+
+Rest parameters use the same annotation and enforce the element type:
+
+```typescript
+function sum(...xs: number[]) { return xs.length }
+// sum(1, 'x') -> MonadicError
+// `...xs: number[] = [1]` is an ERROR: a rest param is always bound, to `[]`, so a
+// default could never apply.
+```
+
 ## Return Types
 
 ```typescript
@@ -197,6 +230,19 @@ Type User {
   example: { name: '', age: 0 }
 }
 
+// Three spellings of a predicate. `=>` is the one-liner, `{ }` requires `return` (as in
+// JavaScript), and the function form takes the value explicitly. In the first two the
+// TYPE NAME binds to the value under test, so it reads as a definition:
+Type Even {
+  example: 2
+  predicate => Even % 2 === 0
+}
+
+Type Positive {
+  example: 1
+  predicate { return Positive > 0 }
+}
+
 // Type with predicate (auto-generates type guard from example)
 Type EvenNumber {
   description: 'an even number'
@@ -226,6 +272,22 @@ Generic Box<T> {
     return typeof x === 'object' && x !== null && 'value' in x && T(x.value)
   }
 }
+
+// A predicate is OPTIONAL when the example says where the parameter goes — writing one
+// would restate the example. This checks `T` at the `value` slot:
+Type Box<T> {
+  example: { value: T }
+}
+
+// Applying a parameterized type in an annotation:
+function unbox(b: Box<int>) {
+  return b.value
+}
+// unbox({ value: 1 })    -> 1
+// unbox({ value: 1.5 })  -> MonadicError: Expected Box_int
+//
+// A primitive argument becomes a PREDICATE — `int` has no runtime binding, it compiles to
+// an inline check — and predicates compose, so `Box<Box<int>>` works.
 
 // Generic with default type parameter
 Generic Container<T, U = ''> {
@@ -364,6 +426,40 @@ items.push(4)              // ERROR — mutating method
 Catches: property assignment, compound assignment (`+=`), increment/decrement, `delete`, and mutating array methods (`push`, `pop`, `splice`, `shift`, `unshift`, `sort`, `reverse`, `fill`).
 
 When runtimes support records/tuples, `const!` can emit those instead.
+
+## Literal Unions
+
+A union whose members are **all literals of the same type** is a closed set of values, not
+a union of their widened types:
+
+```typescript
+function setMode(m: 'on' | 'off') { return m }
+// setMode('on')     -> 'on'
+// setMode('maybe')  -> MonadicError: Expected "on" | "off"
+```
+
+This is the one place the examples model bends, and the line is **vacuity**. Read as
+examples, `'a' | 'b'` widens to `string | string` — which means exactly what `''` means, so
+it says nothing, and nobody writes it meaning "any string". A form that is empty under our
+reading and obvious under the reader's is read the reader's way.
+
+A union that _does_ say something under the example rule keeps the example rule:
+
+```typescript
+function f(x: 0 | '') { return x } // integer OR string — still a union of TYPES
+// f(1) -> 1     f('s') -> 's'     f(true) -> MonadicError
+```
+
+**Membership is `==`, not `===`** — the union is pragmatic, not formal. Three consequences,
+all deliberate:
+
+```typescript
+setMode(new String('on')) // a member: `==` unwraps boxed primitives
+// `+0 | +1` is IDENTICAL to `0 | 1` — source-level narrowing does not survive into a value
+// `1 | 1.0` is a ONE-member union — they are the same value
+```
+
+Use an `Enum` when the set wants a name, a description, and reverse lookup.
 
 ## Equality Operators
 

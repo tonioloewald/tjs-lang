@@ -7,6 +7,126 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+Two bodies of work. **First**, the language stabilised in its own direction: the guiding
+rule became _a form that parses must mean something_, and every construct that parsed
+while validating nothing was either built or removed. **Second** (below, from "Everything
+below came out of the full pre-release review"), the pre-release review of
+`0.13.0-beta.1`.
+
+The through-line is worth stating because it explains why so many entries are small: the
+language now claims less by accident and checks more on purpose, and everything it claims
+is asserted by something that runs.
+
+### Added
+
+- **`predicate => expr` and `predicate { return expr }`.** The terse spellings are real.
+  The type name binds to the value under test, so `Type Even { example: 2\n predicate =>
+Even % 2 === 0 }` reads as "an `Even` is a value where…". Both normalise into the
+  function form, so they inherit predicate verification, fuel bounding and the
+  `$predicate` schema path rather than re-implementing them. `predicate =>` previously
+  parsed and accepted **every value**; it was then rejected outright; now it works.
+
+- **A parameterized type derives its predicate from its example.**
+  `Type Box<T> { example: { value: T } }` now checks its parameter — writing
+  `predicate(x, T) { return T(x.value) }` alongside it was restating what the example
+  already said. Previously a predicate-less parameterized type emitted
+  `Generic([...], () => true)`: it accepted everything while looking like it checked.
+
+- **Type arguments in an annotation: `b: Box<int>`.** A parameterized type applied to
+  arguments is a call at run time, and a primitive argument becomes a **predicate** —
+  the only representation available for a type that is not a value (`int` compiles to an
+  inline check, so `Box(int)` would reference nothing). Predicates compose, so
+  `Box<Box<int>>` works. The applied type is hoisted to a module-level `const` named after
+  the annotation, so it is built once rather than per call and errors read
+  `Expected Box_int`.
+
+- **`T[]` — the most common annotation in TypeScript.** `function f(xs: number[])` did not
+  parse at all. It now rewrites to the array-example spelling (`[0.0]`), inheriting item
+  checking, `.d.ts` emit and JSON-Schema. Nests (`string[][]`), and `int[]` narrows where
+  `number[]` deliberately does not.
+
+- **Literal unions narrow.** `function f(x: 'yes' | 'no')` rejects `'maybe'`. This is the
+  one place the examples model bends, and the line is **vacuity**: read as examples,
+  `'a' | 'b'` widens to `string | string` and means what `''` means, so it says nothing and
+  must have been meant as a set — whereas `0 | ''` widens to `integer | string`, which is a
+  real statement, and stays a union of types. Membership is the language's `==`, which is
+  a decision with consequences: `new String('yes')` is a member, `+0 | +1` is identical to
+  `0 | 1`, and `1 | 1.0` is a ONE-member union.
+
+### Changed
+
+- **`new` is not allowed on a class declared in the same file.** A TJS class is _called_ —
+  `P(1)` and `new P(2)` produce identical objects — so `new` was decoration with the look
+  of significance, and it was meanwhile a hard error for `Date`. `unsafe new P(1)` is the
+  per-site escape. Scoped to locally-declared classes: for a built-in, `new` is
+  **mandatory** (`new Float32Array(4)` throws without it).
+
+- **A rest parameter cannot have a default.** `...xs: number[] = [1]` compiled and did
+  nothing — `f()` returned `[]`. A rest parameter is always bound, to `[]` when nothing is
+  passed, so there is no absent case for a default to fill. JS rejects `...xs = [1]`
+  already; only the annotated spelling slipped through.
+
+### Fixed
+
+- **Arrow and function-expression parameters are validated.** The same annotation was
+  enforced or ignored depending purely on spelling: `function decl(n: 0)` rejected `'x'`
+  while `const arrow = (n: 0) => n` accepted it. Only top-level `function` declarations
+  ever got boundary checks. Arrows are most of real TypeScript, which made this the
+  largest silent hole in the language. `const f = function (n: 0) {}` did not even parse.
+
+- **Rest parameters enforce their element type.** `...xs: number[]` accepted `f(1, 'x')`.
+  (Not a rest-param bug: `...xs: [0]` was correct all along — the failure was `T[]`.)
+
+- **`Enum` and `Union` annotations are enforced.** `function f(c: Color)` emitted **no
+  check** and warned that `Color` "could not be resolved to a runtime type" — the type
+  declared three lines above it. `Color.check()` worked the whole time; nothing asked it.
+
+- **`Type N { example: +0 }` rejects negatives.** `+0` means non-negative integer, and
+  `+0 === 0`, so passing the example through as a value destroyed the narrowing before any
+  runtime saw it — the idiomatic way to declare a count accepted `-1` everywhere, while
+  `n: +0` (which reads the source token) was correct. The emitter now writes the check
+  into the emitted code.
+
+- **The inline runtime and the real runtime agree.** Emitted standalone `.js` accepted
+  values the real runtime rejects: an integer example accepting a float, directly and
+  through objects and arrays, and a described shape accepting excess keys. Since emitted
+  code calls `Type` **bare**, the inline stub always wins — so those were the shipped
+  semantics, not a fallback. All four disagreements are closed and the corpus is empty.
+
+- **`fromTS` emits TypeScript parameter properties.**
+  `class P { constructor(public x: number) {} }` converted to an empty constructor body,
+  so every such field was `undefined` at run time. Silent, and large for TS ports: a
+  parameter property is the idiomatic dependency-injected field.
+
+- **The `new Date()` remedy is runnable.** It advised `Timestamp.now()` without mentioning
+  that `Timestamp` must be imported, so following it produced a second error —
+  `Timestamp is not defined` — from the message meant to resolve the first. It now shows
+  the import and both call forms.
+
+- **The editors described a language that is not TJS.** The syntax lists were AJS plus a
+  handful of JS keywords: no `Type`, `Generic`, `Enum`, `Union`, `FunctionPredicate`,
+  `predicate`, `extend`, `wasm`, or any type name — `int`, `unsigned`, `float`. Meanwhile
+  `->` shipped as a valid operator, and the return-type pattern matched `) -> Type`, so
+  **real** return types went unhighlighted while an abandoned form was highlighted.
+  Completions had the same shape: nothing for the declaration forms, the deprecated
+  `isError` as the only error check, and the non-canonical `test('x')` snippet.
+
+### Documentation
+
+- **[TJS vs TypeScript vs JavaScript](docs/tjs-vs-typescript.md)** — a generated comparison
+  where every row is **executed** against `tsc --strict` and TJS on each test run. 18 rows.
+  It doubles as the language-design surface: a row can be marked `proposed`, which asserts
+  it red until someone builds it. All four proposals raised this cycle are now shipped.
+
+- **[Type identity](docs/type-identity.md)** — which mechanism answers "does value `v`
+  satisfy type `T`", which is authoritative, and where they disagreed. The load-bearing
+  fact: the inline stub is not a fallback, it always wins in emitted code.
+
+- **Equality invariants are pinned** (`src/lang/equality-invariants.test.ts`): `a === b`
+  implies `a == b`, verified exhaustively rather than argued; `+1`, `1` and `1.0` are one
+  value; and `==` is **not** `TypeOf(a) === TypeOf(b) && a == b` — under that rule
+  `null == undefined` would be false, and it is deliberately true.
+
 Everything below came out of the full pre-release review of `0.13.0-beta.1`. Seven
 findings were blockers; the review also caught that the beta's own changelog entry
 had omitted four VM security fixes entirely (now written up in their own section,
