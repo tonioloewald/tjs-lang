@@ -17,3 +17,25 @@ upstream repo from here** — file, don't fix.
 | [madroidmaq/mlx-omni-server#128](https://github.com/madroidmaq/mlx-omni-server/issues/128) | `/v1/chat/completions` types `content` as `list[dict[str, str]]`, so it **rejects the standard OpenAI image block** (`image_url` is a nested object) before any model is consulted. A flattened `{type:'image_url', image_url:'<data-uri>'}` does get through. | **None — deliberately not worked around.** Emitting a server-specific request shape from portable battery code is the wrong trade; vision on this backend is documented as blocked instead (`docs/mlx-setup.md`). Vision tests self-skip.                                   | The content-part union is typed structurally (or the flattened form is documented as a supported alias). Then `llmVision` can target this backend.                                                         |
 | [madroidmaq/mlx-omni-server#129](https://github.com/madroidmaq/mlx-omni-server/issues/129) | `MLX_VLM_ONLY_MODELS = {"gemma4"}` gates vision to **one architecture**; every other VLM falls through to `mlx_lm` and fails with `Model type <arch> not supported` — naming the model, not the routing decision that caused it.                               | None. Recorded in `docs/mlx-setup.md` as gate 2 of 3, with the full 4-combination matrix so nobody re-runs the investigation.                                                                                                                                               | Routing derives from `mlx_vlm`'s own registry, or the error names the gate. Until then, VLM choice on this backend is not free.                                                                            |
 | [cubist38/mlx-openai-server#320](https://github.com/cubist38/mlx-openai-server/issues/320) | `--model-type multimodal` starts, lists the model, then fails at generation with `BatchGenerator.__init__() got an unexpected keyword argument 'kv_bits'` — dependency skew, surfacing only after everything says the setup is correct.                        | None. This server otherwise got **furthest**: it accepts the standard OpenAI image block and its `/v1/models` actually lists the model, so it is the one to re-test first when this lands.                                                                                  | `kv_bits` skew resolved upstream. Then re-evaluate it as the vision backend ahead of mlx-omni-server.                                                                                                      |
+
+## tosijs-schema — no way to declare an OPEN object
+
+`s.object()` always emits `additionalProperties: false`, and there is no `.open` /
+`.passthrough` / options argument. That is the right default, but it leaves no spelling
+for "these fields, plus whatever the other side adds" — which is what you need whenever
+the shape belongs to a protocol you do not control.
+
+**How it bit us (2026-08-11):** the `llmPredictBattery` and `llmVision` atoms declared an
+OpenAI-compatible chat message with `s.object({ role, content, tool_calls })`. That was
+silently open until tosijs-schema 1.5.0 started enforcing `additionalProperties`
+correctly; from then on gemma-4's `reasoning_content` field failed output validation and
+every vision call errored.
+
+**Worked around locally** with `s.record(s.any)`, which is open but drops the field
+documentation. The named-fields-plus-open combination is not expressible today.
+
+**Suggested:** `s.object(props, { additionalProperties: true })`, or an `.open` modifier
+on the returned builder, so the JSON Schema keeps `properties`/`required` and relaxes only
+the closure.
+
+_Filed from tjs-lang; not yet an issue on the tosijs-schema repo._

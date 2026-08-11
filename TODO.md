@@ -2741,10 +2741,11 @@ the `introspection-autocomplete` memory.
       case for any scanner. Listed in `KNOWN_CONVERSION_FAILURES`? **No — not yet added**,
       deliberately, so the ratchet stays red until they are diagnosed rather than accepted.
 
-- [ ] **Vision playground examples FAIL rather than self-skip** without a vision model.
-      `CLAUDE.md` says they self-skip; the full gate on 2026-08-11 showed
-      `Vision: OCR` and `Vision: Classification` failing with gemma-4 + nomic-embed loaded.
-      Either the skip detection is wrong or gemma-4 is being read as vision-capable.
+- [x] **Vision playground examples FAIL rather than self-skip** — FIXED 2026-08-11, and
+      the diagnosis was wrong twice over: the skip logic was correct (`Vision:
+google/gemma-4-e2b → works`) and the model was fine. The atoms' OUTPUT schema
+      rejected the response, because gemma-4 returns `reasoning_content` and
+      `s.object()` closes the shape. See UPSTREAM.md.
 
 - [ ] **`&&` inside a required parameter's DEFAULT corrupts emitted source.** While
       building `Box<int>`, an annotation rewritten to `b = X(((v) => a && b))` produced

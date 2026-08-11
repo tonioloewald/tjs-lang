@@ -154,11 +154,21 @@ export const llmPredictBattery = defineAtom(
     tools: s.array(s.any).optional,
     responseFormat: s.any.optional,
   }),
-  s.object({
-    role: s.string.optional,
-    content: s.string.optional,
-    tool_calls: s.array(s.any).optional,
-  }),
+  // An OpenAI-compatible chat message is an OPEN shape, and this is a protocol we do not
+  // control: providers add `reasoning_content`, `refusal`, `annotations`, `audio`, and
+  // more, at their own pace. `s.object()` always emits `additionalProperties: false`, so
+  // pinning the fields here asserted a closed set that upstream never promised.
+  //
+  // It only surfaced when tosijs-schema 1.5.0 began enforcing `additionalProperties`
+  // correctly — the schema had been silently open, so the mistake cost nothing until the
+  // validator got it right. gemma-4 returns `reasoning_content`, and every vision call
+  // started failing output validation.
+  //
+  // `s.record(s.any)` is the open shape. The field list lives in `VisionBattery`/
+  // `LLMBattery` (TypeScript) and in the docs, which is where a description of someone
+  // else's protocol belongs — a runtime schema should reject what is WRONG, not what is
+  // merely newer than we are.
+  s.record(s.any),
   async ({ system, user, tools, responseFormat }, ctx) => {
     const llmCap = ctx.capabilities.llmBattery as unknown as LLMBattery
     if (!llmCap?.predict)
@@ -203,11 +213,21 @@ export const llmVision = defineAtom(
     images: s.array(s.string), // URLs or data URIs (data:image/...;base64,...)
     responseFormat: s.any.optional,
   }),
-  s.object({
-    role: s.string.optional,
-    content: s.string.optional,
-    tool_calls: s.array(s.any).optional,
-  }),
+  // An OpenAI-compatible chat message is an OPEN shape, and this is a protocol we do not
+  // control: providers add `reasoning_content`, `refusal`, `annotations`, `audio`, and
+  // more, at their own pace. `s.object()` always emits `additionalProperties: false`, so
+  // pinning the fields here asserted a closed set that upstream never promised.
+  //
+  // It only surfaced when tosijs-schema 1.5.0 began enforcing `additionalProperties`
+  // correctly — the schema had been silently open, so the mistake cost nothing until the
+  // validator got it right. gemma-4 returns `reasoning_content`, and every vision call
+  // started failing output validation.
+  //
+  // `s.record(s.any)` is the open shape. The field list lives in `VisionBattery`/
+  // `LLMBattery` (TypeScript) and in the docs, which is where a description of someone
+  // else's protocol belongs — a runtime schema should reject what is WRONG, not what is
+  // merely newer than we are.
+  s.record(s.any),
   async ({ system, prompt, images, responseFormat }, ctx) => {
     const llmCap = ctx.capabilities.llmBattery as unknown as VisionBattery
     if (!llmCap?.predict)
