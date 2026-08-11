@@ -1952,11 +1952,14 @@ export function normalizePredicateForms(
   let out = body
   for (let guard = 0; guard < 8; guard++) {
     const masked = maskLiterals(out)
-    // `predicate(` is the function form and must not match here — both patterns require
-    // the next non-space character to be `=>` or `{`.
-    const m = masked.match(/\bpredicate\s*(=>|\{)/)
-    if (!m || m.index === undefined) return out
-    const start = m.index
+    // Only a BLOCK MEMBER, never a key inside an example value — same reason as
+    // `topLevelPredicateOffsets`. `predicate(` is the function form and must not match
+    // here either; both patterns require the next non-space character to be `=>` or `{`.
+    const start = topLevelPredicateOffsets(out).find((i) =>
+      /^predicate\s*(=>|\{)/.test(masked.slice(i))
+    )
+    if (start === undefined) return out
+    const m = masked.slice(start).match(/^predicate\s*(=>|\{)/)!
     const isArrow = m[1] === '=>'
     const after = start + m[0].length
     let end: number
@@ -2013,6 +2016,39 @@ export function numericNarrowingPredicate(example: string): string | null {
   return sign === '+' ? `(v) => ${base} && v >= 0` : `(v) => ${base}`
 }
 
+/**
+ * Offsets of `predicate` appearing as a BLOCK MEMBER — brace-depth 0 within the body.
+ *
+ * A `Type` block's members sit at depth 0; anything deeper belongs to a VALUE. That
+ * distinction is load-bearing, and missing it broke conversion of four of our own files:
+ * a TypeScript interface with a field named `predicate` converts to
+ *
+ *     Type PredicateSchema { example: { predicate: '', description: '' } }
+ *
+ * and a depth-blind scan reads that nested key as a malformed predicate declaration.
+ * `maskLiterals` does not help — it is an object key, not a string — so the fix is
+ * structural rather than another masking pass.
+ *
+ * Caught by the full gate's converter stage, which is exactly the lane `test:fast` skips.
+ */
+function topLevelPredicateOffsets(body: string): number[] {
+  const masked = maskLiterals(body)
+  const out: number[] = []
+  let depth = 0
+  for (let i = 0; i < masked.length; i++) {
+    const c = masked[i]
+    if (c === '{' || c === '(' || c === '[') depth++
+    else if (c === '}' || c === ')' || c === ']') depth--
+    else if (depth === 0 && masked.startsWith('predicate', i)) {
+      const before = masked[i - 1] ?? ' '
+      const after = masked[i + 9] ?? ' '
+      if (!/[A-Za-z0-9_$]/.test(before) && !/[A-Za-z0-9_$]/.test(after))
+        out.push(i)
+    }
+  }
+  return out
+}
+
 function assertPredicateFormRecognized(
   typeName: string,
   body: string,
@@ -2021,10 +2057,9 @@ function assertPredicateFormRecognized(
   offset: number
 ): void {
   if (matched) return
-  // Mask literals first: a `predicate` mentioned inside an example string or a
-  // description is not a declaration. This file has produced enough literal-blindness
-  // bugs to know better than to scan raw source.
-  if (!/\bpredicate\b/.test(maskLiterals(body))) return
+  // Mask literals AND require brace-depth 0: a `predicate` inside an example string, a
+  // description, or an example VALUE (`example: { predicate: '' }`) is not a declaration.
+  if (topLevelPredicateOffsets(body).length === 0) return
   throw new SyntaxError(
     `\`${typeName}\` declares a \`predicate\` in a form TJS does not implement yet, so it ` +
       `would be IGNORED and the type would accept every value.\n\n` +

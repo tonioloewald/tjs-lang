@@ -31,7 +31,11 @@
  */
 
 import ts from 'typescript'
-import { maskLiteralsKeepComments, scanLiterals } from '../../strip-comments'
+import {
+  maskLiterals,
+  maskLiteralsKeepComments,
+  scanLiterals,
+} from '../../strip-comments'
 import { emitClassWrapper } from '../runtime'
 
 export interface FromTSOptions {
@@ -289,6 +293,39 @@ const domInterfaceTypes = new Set([
  *
  * @param warnings - Optional array to collect warnings about generic types
  */
+/**
+ * Length of a leading `super(...)` call, matched on BALANCED parens — or 0.
+ *
+ * A non-greedy `\([\s\S]*?\)` stops at the first `)`, which inside a multi-line
+ * ``super(`…${xs.join('\n')}`)`` is the one belonging to `join(...)`. The
+ * parameter-property assignment was then spliced into the middle of a template literal and
+ * the emitted class came out structurally scrambled — silently, since the converter
+ * reported success and only the downstream compile failed.
+ *
+ * Found by the full gate's converter stage, on our own `predicate-canonical.ts`.
+ */
+function leadingSuperCallLength(body: string): number {
+  const m = body.match(/^\s*super\s*\(/)
+  if (!m) return 0
+  let depth = 1
+  let i = m[0].length
+  let quote: string | null = null
+  for (; i < body.length && depth > 0; i++) {
+    const c = body[i]
+    if (quote) {
+      if (c === '\\') i++
+      else if (c === quote) quote = null
+      continue
+    }
+    if (c === "'" || c === '"' || c === '`') quote = c
+    else if (c === '(') depth++
+    else if (c === ')') depth--
+  }
+  if (depth !== 0) return 0
+  const tail = body.slice(i).match(/^\s*;?/)
+  return i + (tail ? tail[0].length : 0)
+}
+
 function typeToExample(
   type: ts.TypeNode | undefined,
   checker?: ts.TypeChecker,
@@ -1812,9 +1849,9 @@ function transformClassToTJS(
         const inner = body.replace(/^\{|\}$/g, '').trim()
         // AFTER `super(…)`, never before — touching `this` first throws, which is why
         // TypeScript orders it this way too.
-        const sup = inner.match(/^\s*super\s*\([\s\S]*?\)\s*;?/)
-        const rest = sup ? inner.slice(sup[0].length).trim() : inner
-        const head = sup ? [sup[0].trim()] : []
+        const supLen = leadingSuperCallLength(inner)
+        const rest = supLen ? inner.slice(supLen).trim() : inner
+        const head = supLen ? [inner.slice(0, supLen).trim()] : []
         body = `{\n    ${[...head, ...assigns, rest]
           .filter(Boolean)
           .join('\n    ')}\n  }`
@@ -3048,8 +3085,13 @@ export function fromTS(
       embeddedTests.length > 0 ? '\n\n' + embeddedTests.join('\n\n') : ''
 
     return {
-      code: applyUnsafeAnnotations(
-        header + tjsFunctions.join('\n\n') + testsSection
+      // `new X()` -> `X()` for classes declared here — see `dropRedundantNew`. This is
+      // the TJS-emitting return; the JS one below must NOT be rewritten, because plain
+      // JavaScript classes genuinely require `new`.
+      code: dropRedundantNew(
+        applyUnsafeAnnotations(
+          header + tjsFunctions.join('\n\n') + testsSection
+        )
       ),
       warnings: warnings.length > 0 ? warnings : undefined,
     }
@@ -3140,10 +3182,47 @@ export function fromTS(
     code += `\n${emitClassWrapper(className)}\n`
   }
 
+  // `new X()` -> `X()` for a class declared in THIS file.
+  //
+  // A TJS class is called, so the two forms produce identical objects and `new` on a
+  // locally-declared class is an error. Without this rewrite every converted TypeScript
+  // file that constructs its own classes fails to compile — our own source lost 7 of 95
+  // files to it — and the on-ramp asks the user to fix by hand something the converter
+  // can prove is safe. "Upgrade where it is free" is the conversion contract's second
+  // obligation; this is the clearest instance of it in the language.
+  //
+  // Scoped to locally-declared classes for the same reason the rule is: for a built-in,
+  // `new` is MANDATORY. (Applied at the TJS return above; the JS path below keeps `new`,
+  // since plain JavaScript classes really do require it.)
+
   return {
     code,
     types: metadata,
     classes: Object.keys(classMetadata).length > 0 ? classMetadata : undefined,
     warnings: warnings.length > 0 ? warnings : undefined,
   }
+}
+
+/** Rewrite `new X(` to `X(` for every `class X` declared in this source. */
+function dropRedundantNew(code: string): string {
+  const masked = maskLiterals(code)
+  const names = [...masked.matchAll(/\bclass\s+([A-Z][A-Za-z0-9_$]*)/g)].map(
+    (m) => m[1]
+  )
+  if (!names.length) return code
+  let out = code
+  for (const n of names) {
+    // Literal-aware: rebuilt from the masked view so a `new X(` inside a string or a
+    // comment (this repo's dominant defect class) is left alone.
+    const re = new RegExp(`(?<![A-Za-z0-9_$.])\\bnew\\s+${n}\\s*\\(`, 'g')
+    let result = ''
+    let last = 0
+    for (const m of maskLiterals(out).matchAll(re)) {
+      const i = m.index!
+      result += out.slice(last, i) + `${n}(`
+      last = i + m[0].length
+    }
+    out = result + out.slice(last)
+  }
+  return out
 }
