@@ -119,11 +119,12 @@ const report = (label: string, st: Stage, total: number) => {
  * right shape: a floor that may only improve, with a promote-check so a fix cannot rot
  * back into reclaimable slack.
  *
- * One file short today: `parser-transforms.ts`, whose converted output fails to parse
- * through an interaction between two adjacent functions. The error location it reports is
- * misattributed, which is why it survived several rounds of isolation — repro in TODO.md.
+ * Back to 95/95 on 2026-08-11, once the ASI guard stopped reading a `//` inside a template
+ * literal as a comment (`literal-blindness.test.ts`). `parser-transforms.ts` was the last
+ * holdout, and it failed on its OWN error messages: multi-line template concatenations
+ * documenting the predicate forms, whose lines contain `// function form`.
  */
-const GRADUATION_FLOOR = 94
+const GRADUATION_FLOOR = 95
 
 /** Improve by this much and the test asks for the floor to be raised. */
 const RATCHET_SLACK = 2

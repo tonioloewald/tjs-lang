@@ -1045,6 +1045,24 @@ export function insertAsiProtection(
     /\b(return|throw|yield|await|case|default|extends|new|typeof|void|delete|in|of|instanceof)\s*$/
 
   const lines = source.split('\n')
+  /**
+   * The same lines with STRING AND TEMPLATE CONTENT blanked out.
+   *
+   * The previous line has to be inspected for a trailing operator, and doing that on raw
+   * text with `replace(/\/\/.*$/, '')` reads a `//` inside a template literal as a
+   * comment. For
+   *
+   *     const m = `a // b` +
+   *       `c`
+   *
+   * that truncated the line to ``const m = `a``, which no longer ends in `+`, so this
+   * transform inserted a defensive semicolon and split one expression in two —
+   * ``+\n  ;`c` `` — which then failed to parse.
+   *
+   * Masked once for the whole source, not per line, because a template can span lines and
+   * a single line cannot tell whether it opened inside one.
+   */
+  const maskedLines = maskLiterals(source).split('\n')
   const result: string[] = []
   let inBlockComment = false
 
@@ -1073,10 +1091,10 @@ export function insertAsiProtection(
 
     // Check if this line starts with a problematic character
     if (i > 0 && continuationStarts.test(line)) {
-      // Get the previous line without trailing comment
-      const prevNoComment = prevLine
-        .replace(/\/\/.*$/, '')
-        .replace(/\/\*.*\*\/\s*$/, '')
+      // The previous line, comment- and literal-free. `maskLiterals` already removed
+      // comments AND blanked literal bodies, so a `//` inside a template cannot be
+      // mistaken for one — which is exactly what used to happen.
+      const prevNoComment = maskedLines[i - 1] ?? prevLine
 
       // Don't insert if prev line clearly expects continuation
       if (

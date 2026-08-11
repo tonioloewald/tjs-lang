@@ -2722,7 +2722,11 @@ the `introspection-autocomplete` memory.
 
 ## Language
 
-- [ ] **`parser-transforms.ts` fails self-hosting graduation (94/95).** Converts and
+- [x] **`parser-transforms.ts` fails self-hosting graduation (94/95)** — FIXED 2026-08-11.
+      Root cause: the ASI guard read a `//` inside a TEMPLATE LITERAL as a comment when
+      inspecting the previous line for a trailing operator, so
+      `` const m = `a // b` + `` looked like it ended in a backtick and got a defensive
+      semicolon that split the expression. Graduation back to 95/95. Original notes: Converts and
       compiles as TypeScript; the converted TJS does not parse. Diagnosed this far: - Reported at `if (!(e instanceof globalThis.SyntaxError))`, but that location is
       MISATTRIBUTED — the construct compiles standalone, and so does the whole enclosing
       function (`genericPredicateFromExample`). - Bisection: the prefix + target passes; the failure appears only once

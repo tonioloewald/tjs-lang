@@ -4,6 +4,7 @@ import { generateDocs } from './docs'
 import { lint } from './linter'
 import { fromTS } from './emitters/from-ts'
 import { maskWasmBodies, unmaskWasmBodies } from './parser-transforms'
+import { preprocess } from './parser'
 
 /**
  * The literal-blindness class, pinned in `test:fast`.
@@ -304,5 +305,48 @@ describe('literal blindness — a trigger inside a literal is not structure', ()
       expect(diags.length).toBeGreaterThan(0)
       expect(diags[0].message).toContain('a class is CALLED')
     })
+  })
+})
+
+/**
+ * The ASI guard must not read a `//` inside a template literal as a comment.
+ *
+ *     const m = `a // b` +
+ *       `c`
+ *
+ * It inspected the PREVIOUS line with `replace(/\/\/.*$/, '')` to decide whether that line
+ * expects a continuation. On the line above, that yields ``const m = `a`` — which no longer
+ * ends in `+` — so it inserted a defensive semicolon and split one expression into two:
+ * ``+\n  ;`c` ``. The result did not parse.
+ *
+ * Cost: `parser-transforms.ts` could not self-host, because its own error messages are
+ * multi-line template concatenations that document the predicate forms — and those lines
+ * contain `// function form`. The error was reported several lines away from the cause,
+ * which is why it survived repeated isolation attempts.
+ */
+describe('ASI guard is literal-aware', () => {
+  const t = (src: string) => tjs(src, { filename: 'asi.tjs', runTests: false })
+
+  it('a `//` inside a template does not break a concatenation', () => {
+    expect(() => t('const m = `a // b` +\n  `c`')).not.toThrow()
+  })
+
+  it('the shape that actually bit us — a multi-line message', () => {
+    expect(() =>
+      t(
+        'const m = `x` +\n  `  predicate(x) { return 1 }   // function form\\n` +\n  `y`'
+      )
+    ).not.toThrow()
+  })
+
+  it('and the real ASI trap is still guarded', () => {
+    // The control. A fix that stopped inserting semicolons entirely would satisfy the two
+    // assertions above and remove the protection they exist alongside.
+    expect(
+      preprocess('const x = g\n(a)', { filename: 'a.tjs' }).source
+    ).toContain(';(a)')
+    expect(
+      preprocess('const y = h\n`tpl`', { filename: 'a.tjs' }).source
+    ).toContain(';`tpl`')
   })
 })
