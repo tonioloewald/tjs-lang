@@ -2720,6 +2720,82 @@ the `introspection-autocomplete` memory.
 - [ ] Auto-discover and build local dependencies in module resolution
 - [ ] **Wire `ModuleLoader` into the playground's `tjs()` invocation** for transpile-time cross-file `wasm function` composition (Phase 3 of the wasm-library plan). Today the playground resolves imports at runtime via the local-module store — correct but uses the "boundary form" with a JS↔wasm crossing per call. With a ModuleLoader, imported `wasm function`s would be composed into the consumer's own `WebAssembly.Module` at transpile time, enabling wasm-to-wasm calls (single-digit nanosecond per-call cost). The `wasm-library-consumer.md` example flags this as a known gap. See `src/lang/module-loader.ts` (already shipped) and `wasm-library-plan.md` § Phase 3.
 
+## 0.13.0 pre-release review — BLOCK (2026-08-12)
+
+Full report, with repro steps and verified evidence for every item:
+[`docs/reviews/0.13.0-pre-release-review.md`](docs/reviews/0.13.0-pre-release-review.md).
+59 findings, 5 blockers, 20 confirmed majors. **`v0.13.0` was not tagged.**
+
+### Blockers — all five must land before the tag
+
+- [ ] **B1 `typeNameOptionals` is keyed by parameter NAME** (`src/lang/emitters/js.ts:993`,
+      regression from e120602). One function's `n?: number` deletes ANOTHER function's real
+      default: `function b(n = fallback)` emits `function b(n)` and `b()` returns
+      `undefined`. Silent — no warning, no recorder entry — and `b.__tjs` degrades to
+      `any`. Also hits arrow functions and class methods (a method emits
+      `m(value = string)`, a `ReferenceError` at call time). Legal JS whose meaning
+      changes: a `PRINCIPLES.md` TJS ⊇ JS violation.
+      **Fix:** key the side channel by SOURCE POSITION (`Set<number>` of `right.start`),
+      not by name. Regression test: two functions sharing a parameter name.
+
+- [ ] **B2 `maxHeapBytes` is bypassable by any guest program** (`src/vm/runtime.ts:1668`,
+      regression from 70ab7fd). `heapPerKey` is keyed by variable NAME and shared by
+      reference across `createChildScope`, so a child-scope bind of an existing name
+      REPLACES the parent's accounted size while the parent value stays live. Measured
+      against a 6MB cap: **RSS +672MB, 112× over**. Reachable from ordinary transpiled AJS
+      (`one.map(k0 => k0)` shadowing an outer name), not just hand-built AST. Every
+      child-scope binder is a vector: `map`/`filter`/`find`/`reduce` `as`, `callLocal`
+      params. Defeats a guarantee advertised in `DOCS-AJS.md` and `CHANGELOG.md`, in the
+      same release that hardened three other heap-ceiling holes.
+      **Fix:** scope-qualify the ledger — per-`RuntimeContext` map released on scope
+      discard, or key `${scopeId}:${key}`. Test: N keys each shadowed once must still trip.
+
+- [ ] **B3 `demo/docs.json` is stale AND ships ~6MB of Effect's documentation.** Twelve
+      documents differ from HEAD; the shipped `CLAUDE-TJS-SYNTAX.md` still contains
+      `new Point(10, 20) // Still works, but linter warns` and the never-implemented
+      `const add = wasm (…)` — the two claims `src/doc-snippets.test.ts` cites as its
+      reason for existing. Separately, a clean-tree regeneration yields 106 entries where
+      the committed file has 225: the extra 119 are `.compat-tests/effect/**`, whose
+      changelogs are the five largest entries in the shipped file. `package.json` `files`
+      includes `demo`, so `npm pack` carries a 7.1MB `docs.json`.
+      **Fix:** add `.compat-tests/` to `bin/docs.js`'s ignore list, regenerate from a clean
+      tree, commit — then add a freshness gate (see below).
+
+- [ ] **B4 `unsafe { … }` is taught in five shipped docs; the compiler rejects it.**
+      `DOCS-TJS.md:317`, `TJS-FOR-JS.md:485`, `guides/tjs.md:368/393/542`,
+      `guides/benchmarks.md:43,63` — the last inventing semantics AND quoting measured
+      overhead for a form that does not parse. `CLAUDE-TJS-SYNTAX.md:211` states it
+      correctly, and the fix travelled to exactly one file.
+      **And two of those blocks were annotated `<!-- tjs-doc: fragment -->` by the
+      auto-annotation pass in 3cad86c, so the new harness looks away from them.** That is
+      the exact risk flagged when that pass ran ("`fragment` says not-a-whole-program,
+      which is true, but it does not check them") and it materialised immediately.
+      **Fix:** correct all five docs; re-triage every auto-annotated `fragment` for
+      teaching-rejected-syntax rather than genuine fragmentation.
+
+- [ ] **B5 `tjs-playground` `kill -9`s processes it does not own**
+      (`src/cli/playground.ts:74-82`, byte-identical at `bin/dev.ts:28-37`). Bare
+      `lsof -ti:PORT` with no `-sTCP:LISTEN`, no identity check, no opt-out, kill block runs
+      unconditionally. Verified: Chrome's NetworkService helper is matched FIRST and
+      SIGKILLed. `--port` is unvalidated, so `tjs-playground --port 3000` kills a
+      consumer's dev server, announcing it as "Killing existing process on port 3000".
+      Undocumented in `--help`, README and CHANGELOG. Not introduced this cycle, but 0.13.0
+      publishes the bin.
+      **Fix:** ONE shared helper — `-sTCP:LISTEN`, positively identify the victim
+      (`ps -p PID -o comm=` must be bun/node), SIGTERM with grace before SIGKILL, and
+      **default to complaining rather than killing** (`--force` to reclaim). Document it.
+
+### Majors and below
+
+20 confirmed majors and ~25 minor/nit leads are itemised in the report, including: a TDZ
+crash in the declared-type guard (`typeof X !== 'undefined'` throws for a `const`-declared
+type), generated `.d.ts` no longer compiling under `tsc`, `tjs convert` emitting TJS that
+`tjs check` rejects, an un-memoized literal scanner tripling transpile cost, VM fuel up
+30–120% on unchanged loops, and `Timestamp` silently inverted.
+
+**The coverage lens returned NO findings** — the report flags this as a completeness gap
+rather than a clean bill of health. Worth re-running that lens alone.
+
 ## Language
 
 - [ ] **Stateful parsing primitives — stop hand-rolling depth counters** (direction,

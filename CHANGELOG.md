@@ -5,7 +5,13 @@ All notable changes to **tjs-lang** are documented here.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [0.13.0] — 2026-08-12
+## [Unreleased] — 0.13.0 pending
+
+> **Not released.** The pre-release review returned **BLOCK** on 2026-08-12 with five
+> verified blockers (two of them regressions from this cycle). See
+> [`docs/reviews/0.13.0-pre-release-review.md`](docs/reviews/0.13.0-pre-release-review.md)
+> and the blocker list at the top of `TODO.md`. `package.json` is bumped to 0.13.0; the
+> tag waits on the blockers.
 
 Two bodies of work. **First**, the language stabilised in its own direction: the guiding
 rule became _a form that parses must mean something_, and every construct that parsed
