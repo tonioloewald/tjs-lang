@@ -5,7 +5,7 @@ All notable changes to **tjs-lang** are documented here.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [0.13.0] — 2026-08-12
 
 Two bodies of work. **First**, the language stabilised in its own direction: the guiding
 rule became _a form that parses must mean something_, and every construct that parsed
