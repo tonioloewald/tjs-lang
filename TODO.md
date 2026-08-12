@@ -2739,11 +2739,26 @@ the `introspection-autocomplete` memory.
       Recipe: `fromTS(readFileSync('src/lang/parser-transforms.ts'), { emitTJS: true })`,
       then `tjs()` the result; or slice the two functions out of the converted output.
 
-- [ ] **Two test files added 2026-08-11 fail conversion** (`lang/abandoned-syntax.test.ts`,
-      `lang/type-identity.test.ts`). Same shape: every construct converts standalone. Both
-      are files whose content is largely TJS source held as data, i.e. the pathological
-      case for any scanner. Listed in `KNOWN_CONVERSION_FAILURES`? **No — not yet added**,
-      deliberately, so the ratchet stays red until they are diagnosed rather than accepted.
+- [ ] **Two test files fail conversion** (`lang/abandoned-syntax.test.ts`,
+      `lang/type-identity.test.ts`). Isolated 2026-08-12 to ONE top-level `describe` each: - `abandoned-syntax.test.ts` lines 83..130 of the converted output
+      ("every predicate form checks — and an unbuilt one still fails closed") - `type-identity.test.ts` lines 129..156
+      ("Type blocks preserve source-level numeric narrowing")
+      Both blocks hold TJS source as DATA — the pathological case for any scanner.
+
+      **Method note, because it cost time twice.** An earlier pass reported three culprits
+      in `type-identity.test.ts`; that was an artifact. The chunker counted only `{`/`}`,
+      so a `const X = new Set([...])` declaration swallowed the rest of the file and was
+      scored as failing. Count `(`/`[` too, over a `maskLiterals` view. Same lesson as the
+      `parser-transforms.ts` hunt: **the reported failure location is not where the bug
+      is**, so isolate by construction and re-check the isolation itself.
+
+      Ruled out so far: brace-skew from comments (`maskLiterals` masks comments); a
+      trailing `\` in a line comment; TJS source inside a template literal, with and
+      without `${}` interpolation; the ASI/`//`-in-template bug fixed in c64bcd3 (these
+      two still fail after it, `parser-transforms.ts` does not).
+
+      Recipe: `fromTS(readFileSync(f), { emitTJS: true })` then `tjs()`; or slice the
+      named line range out of the converted output.
 
 - [x] **Vision playground examples FAIL rather than self-skip** — FIXED 2026-08-11, and
       the diagnosis was wrong twice over: the skip logic was correct (`Vision:
