@@ -5,6 +5,8 @@ import { lint } from './linter'
 import { fromTS } from './emitters/from-ts'
 import { maskWasmBodies, unmaskWasmBodies } from './parser-transforms'
 import { preprocess } from './parser'
+import { readFileSync, readdirSync, statSync } from 'node:fs'
+import { join, resolve } from 'node:path'
 
 /**
  * The literal-blindness class, pinned in `test:fast`.
@@ -348,5 +350,73 @@ describe('ASI guard is literal-aware', () => {
     expect(
       preprocess('const y = h\n`tpl`', { filename: 'a.tjs' }).source
     ).toContain(';`tpl`')
+  })
+})
+
+/**
+ * Nobody strips comments with a raw regex.
+ *
+ * `maskLiterals` exists precisely so that "where do the literals and comments end" is
+ * answered ONCE. Every recurrence of this defect class has been a call site that
+ * hand-rolled it anyway — most recently the ASI guard, whose
+ * `prevLine.replace(/\/\/.*$/, '')` read a `//` inside a template literal as a comment and
+ * split an expression in two (c64bcd3). Three more of the same shape were sitting in the
+ * tree at that moment.
+ *
+ * So the rule is mechanical: outside `strip-comments.ts`, a raw `//`-stripping regex is a
+ * bug waiting to be found. Any genuine exception must say why, in the source, where the
+ * next reader will see it.
+ */
+describe('no shipped file strips comments with a raw regex', () => {
+  const ROOT = resolve(import.meta.dir, '..')
+
+  /** Every shipped `.ts` under src/, excluding tests and the scanner that owns this. */
+  const files = (): string[] => {
+    const out: string[] = []
+    ;(function walk(d: string) {
+      for (const e of readdirSync(d)) {
+        const p = join(d, e)
+        if (statSync(p).isDirectory()) walk(p)
+        else if (
+          p.endsWith('.ts') &&
+          !p.endsWith('.test.ts') &&
+          !p.endsWith('strip-comments.ts')
+        ) {
+          out.push(p)
+        }
+      }
+    })(ROOT)
+    return out
+  }
+
+  it('finds files to check', () => {
+    // Guards the assertion below: an empty sweep would pass vacuously.
+    expect(files().length).toBeGreaterThan(30)
+  })
+
+  it('has no unexplained raw comment-stripping regex', () => {
+    const offenders: string[] = []
+    for (const f of files()) {
+      const src = readFileSync(f, 'utf8')
+      const lines = src.split('\n')
+      lines.forEach((line, i) => {
+        // Skip comment lines FIRST. Without this the check flags the very comments that
+        // explain the hazard — a literal-blindness bug in the literal-blindness guard,
+        // which is funny exactly once and is also the whole argument for the shared
+        // scanner: hand-rolled scanning gets this wrong even when getting it right is
+        // the entire subject.
+        const code = line.trim()
+        if (code.startsWith('//') || code.startsWith('*')) return
+        // A `.replace(...)` whose pattern strips `//` to end-of-line.
+        if (!/\.replace\(\s*\/\\\/\\\/[^)]*\)/.test(line)) return
+        // An exception must be justified in the ten lines above it — the next reader has
+        // to be able to see WHY without archaeology.
+        const context = lines.slice(Math.max(0, i - 10), i).join('\n')
+        if (/NOT `maskLiterals`|literal-aware|missing primitive/.test(context))
+          return
+        offenders.push(`${f.replace(ROOT, 'src')}:${i + 1}`)
+      })
+    }
+    expect(offenders).toEqual([])
   })
 })

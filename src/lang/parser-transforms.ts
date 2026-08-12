@@ -740,10 +740,11 @@ function isWasmIntrinsic(name: string): boolean {
  * This is a simple heuristic - a full implementation would use proper AST analysis
  */
 function detectCaptures(body: string): string[] {
-  // Strip comments first to avoid extracting words from comments
-  const bodyWithoutComments = body
-    .replace(/\/\/[^\n]*/g, '') // line comments
-    .replace(/\/\*[\s\S]*?\*\//g, '') // block comments
+  // Comments AND literal bodies removed, via the shared scanner. A raw
+  // `.replace(/\/\/[^\n]*/g, '')` reads a `//` inside a template literal as a comment and
+  // truncates the line — the ASI bug (c64bcd3). It would also extract capture names from
+  // inside strings, which is the thing this strip exists to prevent.
+  const bodyWithoutComments = maskLiterals(body)
 
   // Collect identifiers that appear as property accesses (after a dot)
   const propertyOnly = new Set<string>()
@@ -4336,9 +4337,9 @@ export function transformConstBang(source: string): string {
 
   // Strip comments before checking mutations (avoid false positives
   // from code examples in TDoc comments)
-  const stripped = source
-    .replace(/\/\*[\s\S]*?\*\//g, '') // block comments
-    .replace(/\/\/[^\n]*/g, '') // line comments
+  // Shared scanner, not a raw regex: a `//` inside a template literal is not a comment,
+  // and a mutation-shaped string is not a mutation. Both are handled by masking.
+  const stripped = maskLiterals(source)
 
   // Check for mutations to immutable bindings
   for (const name of immutableNames) {

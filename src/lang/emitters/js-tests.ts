@@ -4,8 +4,8 @@
  * Handles transpile-time test execution, signature validation, and test utilities.
  */
 
-import { transformExtensionCalls } from '../parser'
 import { maskLiterals } from '../../strip-comments'
+import { transformExtensionCalls } from '../parser'
 import { installRuntime } from '../runtime'
 import type { ExtractedTest, ExtractedMock } from '../tests'
 
@@ -333,7 +333,14 @@ function stripComments(code: string): string {
     return '\n'.repeat(newlines)
   })
 
-  // Replace line comments
+  // NOT `maskLiterals` — this site needs comments GONE but literals INTACT (the strings
+  // here are test descriptions). `maskLiterals` blanks literal bodies too, which erases
+  // them. `maskLiteralsKeepComments` is the mirror image and no help either.
+  //
+  // So the raw regex stays for now, and it carries the ASI bug's shape: a `//` inside a
+  // template literal truncates the line. The missing primitive is a literal-aware
+  // `stripComments` that preserves literal CONTENT — filed with the other four in
+  // TODO.md, and this is the site that proves the set is incomplete.
   result = result.replace(/\/\/[^\n]*/g, '')
 
   return result
