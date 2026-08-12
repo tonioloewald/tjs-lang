@@ -4292,10 +4292,41 @@ export function transformConstBang(source: string): string {
   const immutableNames = new Set<string>()
 
   // Match: const! name = ... or const! { a, b } = ... or const! [a, b] = ...
+  const masked = maskLiterals(source)
   const constBangRe = /\bconst!\s+(\w+)\b/g
   let m
-  while ((m = constBangRe.exec(source)) !== null) {
+  while ((m = constBangRe.exec(masked)) !== null) {
     immutableNames.add(m[1])
+
+    // `const! x = 1` is REDUNDANT, and worse than redundant: `!` says this binding needs
+    // protection the plain form does not give, which implies the value is mutable. A
+    // primitive is not. `const x = 1` already provides everything `const!` could.
+    //
+    // What `const!` actually buys is DEEP immutability — `const c = { a: 1 }` happily
+    // allows `c.a = 2`, and `const!` rejects it at compile time. On a primitive there is
+    // nothing to deepen, so the marker states a distinction the language does not make.
+    //
+    // Rejected rather than warned, on the same ground as `new` on a local class: a form
+    // whose two spellings are provably identical is decoration with the look of
+    // significance, and this project keeps choosing to delete those. (One line to soften
+    // to a warning if that proves too strict in practice.)
+    //
+    // Scanned on the MASKED view and sliced from the original, so `'const! x = 1'` inside
+    // a string is not a declaration.
+    const after = source.slice(m.index + m[0].length)
+    const init = after.match(
+      /^\s*=\s*(-?\+?\d[\d_]*(?:\.\d+)?|'[^']*'|"[^"]*"|true|false|null|undefined)\s*(?:[;\n]|$)/
+    )
+    if (init) {
+      throw new SyntaxError(
+        `\`const! ${m[1]} = ${init[1]}\` is redundant — \`${init[1]}\` is a primitive, ` +
+          `and a primitive cannot be mutated.\n\n` +
+          `  const ${m[1]} = ${init[1]}\n\n` +
+          `\`const!\` adds DEEP immutability, which only differs for objects and arrays: ` +
+          `\`const c = { a: 1 }\` allows \`c.a = 2\`, and \`const! c = { a: 1 }\` rejects it.`,
+        locAt(source, m.index)
+      )
+    }
   }
 
   if (immutableNames.size === 0) return source

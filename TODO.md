@@ -2722,6 +2722,38 @@ the `introspection-autocomplete` memory.
 
 ## Language
 
+- [ ] **Stateful parsing primitives — stop hand-rolling depth counters** (direction,
+      2026-08-12). `maskLiterals` solved "where are the literals" and has 37 call sites.
+      Nothing solves "what is the STRUCTURE", so every caller re-implements it:
+      **106 hand-rolled `depth++`/`depth--` counters across 10 files**, only 2 of them in
+      `strip-comments.ts` where they belong.
+
+      The evidence is not archaeological — I wrote FIVE of them in this session alone:
+      `leadingSuperCallLength` (balanced parens, from-ts), `topLevelPredicateOffsets`
+      (depth-0 token, parser-transforms), `topLevelAssignment` (depth-0 `=`, parser-params),
+      the top-level comma split in `applyTypeArguments`, and a chunker in a probe —
+      **and the probe one was wrong**, counting `{}` but not `()[]`, which sent the
+      `type-identity.test.ts` diagnosis after three phantom targets. Someone who had spent
+      the whole day on this exact hazard still got it wrong on the sixth try. That is a
+      missing primitive, not carelessness.
+
+      Proposed, in `strip-comments.ts` (it already owns the masked view every one of these
+      needs), each literal- and comment-aware by construction:
+      - `findMatching(src, openPos)` — the balanced closer for `(`/`[`/`{`
+      - `splitTopLevel(src, sep)` — split at depth 0 (params, array elements, union members)
+      - `topLevelOffsets(src, pattern)` — pattern occurrences at depth 0
+      - `enclosingSpan(src, pos)` — the block containing a position
+
+      Then migrate call sites opportunistically, **as parsing bugs appear** rather than in
+      a big-bang rewrite — the same way `maskLiterals` absorbed fifteen sites. Grow the
+      lexer where it hurts; do not stop and write one.
+
+      Related and cheap, do first: three live bypasses of `maskLiterals` that strip
+      comments with a raw regex — `parser-transforms.ts:745` (detectCaptures),
+      `parser-transforms.ts:~4310` (const! mutation check), `emitters/js-tests.ts:337`.
+      Each is the exact shape of the ASI bug fixed in c64bcd3. Add a guard test that fails
+      on any raw `//`-stripping regex outside `strip-comments.ts`.
+
 - [x] **`parser-transforms.ts` fails self-hosting graduation (94/95)** — FIXED 2026-08-11.
       Root cause: the ASI guard read a `//` inside a TEMPLATE LITERAL as a comment when
       inspecting the previous line for a trailing operator, so

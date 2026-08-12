@@ -2283,9 +2283,15 @@ describe('rest parameter metadata', () => {
 
   describe('const!', () => {
     it('emits as plain const', () => {
-      const result = tjs('const! x = 42')
-      expect(result.code).toContain('const x = 42')
+      // On an OBJECT — `const! x = 42` is now rejected as redundant, since a primitive
+      // cannot be mutated and the marker would claim a distinction that does not exist.
+      const result = tjs('const! x = { a: 1 }')
+      expect(result.code).toContain('const x = { a: 1 }')
       expect(result.code).not.toContain('const!')
+    })
+
+    it('rejects `const!` on a primitive as redundant', () => {
+      expect(() => tjs('const! x = 42')).toThrow(/redundant/)
     })
 
     it('allows reads on immutable bindings', () => {
