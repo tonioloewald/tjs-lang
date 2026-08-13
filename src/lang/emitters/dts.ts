@@ -233,8 +233,12 @@ function detectExports(source: string): Map<string, ExportInfo> {
     result.set(m[2], { exported: true, isDefault: !!m[1] })
   }
 
-  // export Type Name
-  const typeRe = /^[ \t]*export\s+Type\s+(\w+)/gm
+  // export Type / Enum / Union Name
+  //
+  // `Enum` and `Union` were missing, so `export Enum Color` was treated as unexported —
+  // and since nothing emitted them at all, the omission was invisible until the generated
+  // `.d.ts` was first handed to `tsc` and came back TS2304.
+  const typeRe = /^[ \t]*export\s+(?:Type|Enum|Union)\s+(\w+)/gm
   while ((m = typeRe.exec(source)) !== null) {
     result.set(m[1], { exported: true, isDefault: false })
   }
@@ -559,8 +563,16 @@ function detectTypeDeclarations(source: string): Map<string, string> {
   }
 
   // Block: Type Name { ... example: <value> ... }
-  const blockRe =
-    /^[ \t]*(?:export\s+)?Type\s+(\w+)\s*\{[^}]*example\s*:\s*(.+?)(?:\n|\s*[,}])/gm
+  //
+  // The optional DESCRIPTION (`Type Even 'an even number' { … }`) is the canonical block
+  // form, and none of the patterns here allowed for it — so this one failed to match and
+  // the simple-form pattern above captured `'an even number' {` as the example. The
+  // generated `.d.ts` then said `type Even = string` for a type whose example is `0`.
+  const DESC = String.raw`(?:\s*(?:'[^']*'|"[^"]*"))?`
+  const blockRe = new RegExp(
+    String.raw`^[ \t]*(?:export\s+)?Type\s+(\w+)${DESC}\s*\{[^}]*example\s*:\s*(.+?)(?:\n|\s*[,}])`,
+    'gm'
+  )
   while ((m = blockRe.exec(source)) !== null) {
     result.set(m[1], m[2].trim())
   }
@@ -572,8 +584,10 @@ function detectTypeDeclarations(source: string): Map<string, string> {
   // `` `/${string}/${number}` `` came back as `` `/${string `` because the brace inside
   // `${string}` looked like the end of the block. A template-literal type is exactly the
   // kind TJS preserves rather than executes, so it was the case most likely to be here.
-  const tsBodyRe =
-    /^[ \t]*(?:export\s+)?Type\s+(\w+)\s*\{[^}]*\/\/\s*TS:\s*(.+)$/gm
+  const tsBodyRe = new RegExp(
+    String.raw`^[ \t]*(?:export\s+)?Type\s+(\w+)${DESC}\s*\{[^}]*//\s*TS:\s*(.+)$`,
+    'gm'
+  )
   while ((m = tsBodyRe.exec(source)) !== null) {
     if (!result.has(m[1])) {
       result.set(m[1], `__ts__:${m[2].trim()}`) // prefix marks TS passthrough
@@ -581,7 +595,10 @@ function detectTypeDeclarations(source: string): Map<string, string> {
   }
 
   // Empty block: Type Name {} (no example — degraded type, emit as any)
-  const emptyBlockRe = /^[ \t]*(?:export\s+)?Type\s+(\w+)\s*\{\s*\}/gm
+  const emptyBlockRe = new RegExp(
+    String.raw`^[ \t]*(?:export\s+)?Type\s+(\w+)${DESC}\s*\{\s*\}`,
+    'gm'
+  )
   while ((m = emptyBlockRe.exec(source)) !== null) {
     if (!result.has(m[1])) {
       result.set(m[1], '') // empty string signals "any"
@@ -708,6 +725,65 @@ function inferConstType(value: string): string {
  * @param options - Generation options
  * @returns The .d.ts file content as a string
  */
+
+/**
+ * `Enum Name 'desc' { Member = value … }` -> the member VALUES.
+ *
+ * Values only: the .d.ts models what a value of the type can BE, and TypeScript's own
+ * enums are a different (nominal) thing we are deliberately not emitting.
+ */
+function detectEnums(source: string): Map<string, string[]> {
+  const out = new Map<string, string[]>()
+  const view = maskLiterals(source)
+  const re =
+    /^[ \t]*(?:export\s+)?Enum\s+(\w+)(?:\s*(?:'[^']*'|"[^"]*"))?\s*\{/gm
+  let m
+  while ((m = re.exec(view)) !== null) {
+    const open = m.index + m[0].length - 1
+    let depth = 1
+    let i = open + 1
+    while (i < view.length && depth > 0) {
+      if (view[i] === '{') depth++
+      else if (view[i] === '}') depth--
+      i++
+    }
+    // Read members from the ORIGINAL source — masking blanks the literal values.
+    const body = source.slice(open + 1, i - 1)
+    const values: string[] = []
+    for (const line of body.split('\n')) {
+      const mm = line.match(/^\s*(\w+)\s*=\s*(.+?)\s*,?\s*$/)
+      if (!mm) continue
+      const raw = mm[2].trim()
+      const str = raw.match(/^'([^']*)'$/) ?? raw.match(/^"([^"]*)"$/)
+      values.push(str ? str[1] : raw)
+    }
+    out.set(m[1], values)
+  }
+  return out
+}
+
+/** `Union Name 'desc' { A | B }` -> the TS union text. */
+function detectUnions(source: string): Map<string, string> {
+  const out = new Map<string, string>()
+  const view = maskLiterals(source)
+  const re =
+    /^[ \t]*(?:export\s+)?Union\s+(\w+)(?:\s*(?:'[^']*'|"[^"]*"))?\s*\{/gm
+  let m
+  while ((m = re.exec(view)) !== null) {
+    const open = m.index + m[0].length - 1
+    let depth = 1
+    let i = open + 1
+    while (i < view.length && depth > 0) {
+      if (view[i] === '{') depth++
+      else if (view[i] === '}') depth--
+      i++
+    }
+    const body = source.slice(open + 1, i - 1).trim()
+    if (body) out.set(m[1], inferTSTypeFromExample(body))
+  }
+  return out
+}
+
 export function generateDTS(
   result: TJSTranspileResult,
   source: string,
@@ -811,23 +887,88 @@ export function generateDTS(
 
     const exportInfo = exports.get(name)
     const isExported = hasAnyExport ? !!exportInfo?.exported : true
-    if (!isExported) continue
 
     if (exampleStr.startsWith('__ts__:')) {
       // Preserved TS type body — emit verbatim as type alias
       const tsBody = exampleStr.slice(7)
+      if (!isExported) continue
       lines.push(`export type ${name} = ${tsBody};`)
     } else if (exampleStr === '') {
       // Empty Type {} — degraded from TS type alias, emit as type = any
+      if (!isExported) continue
       lines.push(`export type ${name} = any;`)
     } else {
       const tsType = inferTSTypeFromExample(exampleStr)
+      // BOTH a type and a value, because function signatures reference the name in TYPE
+      // position (`half(n: Even)`) while the runtime guard is a VALUE.
+      //
+      // Only the value was emitted, so the generated `.d.ts` did not compile — verified
+      // against `ts.createProgram` with `skipLibCheck: false`:
+      //   exported   -> TS2749 'Even' refers to a value, but is being used as a type
+      //   unexported -> TS2552 Cannot find name 'Odd'
+      // Before this release the same input produced `n: any` — lossy, but VALID, which is
+      // strictly better than a declaration file that fails to compile.
+      //
+      // The alias is the underlying primitive, not a brand: TypeScript cannot express
+      // "even number", so branding would reject every plain `number` a caller has. The
+      // predicate is enforced at runtime; the alias carries what TS can actually check.
+      //
+      // A NON-EXPORTED type still gets its alias, unexported, because an exported
+      // signature in the same file names it. Skipping it was what produced TS2552.
+      lines.push(`${isExported ? 'export ' : ''}type ${name} = ${tsType};`)
+      if (isExported) {
+        lines.push(
+          `export declare const ${name}: {` +
+            ` check(value: any): boolean;` +
+            ` default: ${tsType};` +
+            ` (value: any): boolean;` +
+            ` };`
+        )
+      }
+    }
+    emitted.add(name)
+  }
+
+  // Emit Enum and Union declarations.
+  //
+  // Neither produced ANY declaration, so `export function paint(c: Color)` referenced a
+  // name that did not exist in the file — TS2304, the generated `.d.ts` simply not
+  // compiling. They are the two declaration forms most likely to appear in a signature,
+  // because naming a closed set is exactly what people reach for them to do.
+  //
+  // An Enum becomes the union of its member VALUES, which is what TypeScript can check and
+  // is more precise than the underlying primitive. The runtime guard is emitted as a value
+  // beside it (same name, different namespace) so `Color.check(x)` still type-checks.
+  for (const [name, members] of detectEnums(source)) {
+    if (emitted.has(name)) continue
+    const exportInfo = exports.get(name)
+    const isExported = hasAnyExport ? !!exportInfo?.exported : true
+    const valueUnion = members.length
+      ? members.map((v) => JSON.stringify(v)).join(' | ')
+      : 'never'
+    lines.push(`${isExported ? 'export ' : ''}type ${name} = ${valueUnion};`)
+    if (isExported) {
       lines.push(
         `export declare const ${name}: {` +
           ` check(value: any): boolean;` +
-          ` default: ${tsType};` +
-          ` (value: any): boolean;` +
+          ` values: ${name}[];` +
+          ` members: Record<string, ${name}>;` +
+          ` names: Record<string, string>;` +
+          ` keys: string[];` +
           ` };`
+      )
+    }
+    emitted.add(name)
+  }
+
+  for (const [name, tsType] of detectUnions(source)) {
+    if (emitted.has(name)) continue
+    const exportInfo = exports.get(name)
+    const isExported = hasAnyExport ? !!exportInfo?.exported : true
+    lines.push(`${isExported ? 'export ' : ''}type ${name} = ${tsType};`)
+    if (isExported) {
+      lines.push(
+        `export declare const ${name}: { check(value: any): boolean; };`
       )
     }
     emitted.add(name)
