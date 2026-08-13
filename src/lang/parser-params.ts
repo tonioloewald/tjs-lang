@@ -24,6 +24,87 @@ import {
   typeNameExample,
 } from './inference'
 
+/**
+ * The key for a per-parameter side channel (`requiredParams`, `typeNameOptionals`).
+ *
+ * These sets carry facts the AST cannot: that `n = number` came from `n?: number` and is a
+ * dangling annotation rather than a default, and that `{x = 2}` came from `{x: 2}` and is
+ * required rather than defaulted. Both were keyed by bare NAME, for the whole module — so
+ * `function a(n?: number)` reached into `function b(n = fallback)` and deleted a default it
+ * had nothing to do with, emitting `function b(n)`. Legal JavaScript whose MEANING changed,
+ * silently: a `PRINCIPLES.md` TJS ⊇ JS violation.
+ *
+ * Keying by name AND the exact value text makes a collision require two functions to share
+ * a parameter name AND the identical annotation text, one written `n?: T` and the other
+ * `n = T` — which needs a real binding called `T` that is also used as a type elsewhere in
+ * the same module. Not airtight; a source POSITION would be, but positions do not survive
+ * the rewriting passes between here and the emitter. This closes the case that shipped.
+ *
+ * Whitespace is normalised so `n = number` and `n=number` agree.
+ */
+export function paramSideChannelKey(name: string, valueText: string): string {
+  return `${name.trim()}=${valueText.trim().replace(/\s+/g, ' ')}`
+}
+
+/**
+ * The subset of the module-wide `requiredParams` channel that belongs to ONE function.
+ *
+ * The channel is keyed `name=valueText`; this walks the function's own parameters, slices
+ * the value text acorn actually parsed, and returns the plain NAMES whose pair is present.
+ * Everything downstream — `parseParameter`, inference, the AST emitter — wants plain
+ * names, so the widening happens here, at the boundary, rather than teaching four
+ * consumers a key format.
+ *
+ * Lives beside `paramSideChannelKey` because THREE emitters consume this channel
+ * (`emitters/js.ts`, `emitters/ast.ts`, and inference through them). Narrowing it in one
+ * of them is how the first attempt at this fix produced a signature regression: the JS
+ * emitter reported `required: true` and the AST emitter, still reading raw keys, reported
+ * `false` for the same parameter.
+ *
+ * Without `parsedSource` the positions index into nothing, so it falls back to name-only
+ * behaviour rather than silently dropping every marker — an over-broad `required` is
+ * wrong, but a lost one turns a checked parameter into an unchecked one.
+ */
+export function localRequiredParams(
+  func: { params?: any[] },
+  requiredParams: Set<string> | undefined,
+  parsedSource?: string
+): Set<string> {
+  if (!requiredParams) return new Set()
+  if (!parsedSource) {
+    return new Set(
+      [...requiredParams].map((k) =>
+        k.includes('=') ? k.slice(0, k.indexOf('=')) : k
+      )
+    )
+  }
+  const local = new Set<string>()
+  const consider = (name: string | undefined, right: any) => {
+    if (!name || !right || typeof right.start !== 'number') return
+    const text = parsedSource.slice(right.start, right.end)
+    if (requiredParams.has(paramSideChannelKey(name, text))) local.add(name)
+  }
+  for (const param of func.params ?? []) {
+    const pattern =
+      param?.type === 'AssignmentPattern' &&
+      param.left?.type === 'ObjectPattern'
+        ? param.left
+        : param
+    if (pattern?.type === 'ObjectPattern') {
+      for (const prop of pattern.properties ?? []) {
+        if (prop.type !== 'Property') continue
+        const key = prop.key?.name ?? prop.key?.value
+        if (prop.value?.type === 'AssignmentPattern') {
+          consider(key, prop.value.right)
+        }
+      }
+    } else if (param?.type === 'AssignmentPattern') {
+      consider(param.left?.name, param.right)
+    }
+  }
+  return local
+}
+
 export function transformParenExpressions(
   source: string,
   ctx: {
@@ -1247,7 +1328,9 @@ function processParamString(
       // `n?: number` means. Before that, `g()` threw `number is not defined` at call time.
       // It is recorded here rather than detected there because `n?: MyThing` and
       // `x = someVar` produce byte-identical AST; only this branch knows the difference.
-      if (isTypeNameAnnotation(type)) ctx.typeNameOptionals.add(name)
+      if (isTypeNameAnnotation(type)) {
+        ctx.typeNameOptionals.add(paramSideChannelKey(name, type))
+      }
       return `${name} = ${type}`
     }
 
@@ -1279,7 +1362,7 @@ function processParamString(
       }
 
       if (trackRequired && /^\w+$/.test(name)) {
-        ctx.requiredParams.add(name)
+        ctx.requiredParams.add(paramSideChannelKey(name, type))
       }
       return `${name} = ${type}`
     }
@@ -1325,9 +1408,9 @@ function processDestructuredObjectParams(
     const nestedObjectMatch = trimmed.match(/^(\w+)\s*:\s*(\{[\s\S]*\})$/)
     if (nestedObjectMatch) {
       const [, name, objectLiteral] = nestedObjectMatch
-      ctx.requiredParams.add(name)
       // Process the inner object as an object literal (transform = to : for values)
       const processedLiteral = processObjectLiteralValue(objectLiteral)
+      ctx.requiredParams.add(paramSideChannelKey(name, processedLiteral))
       return `${name} = ${processedLiteral}`
     }
 
@@ -1335,9 +1418,9 @@ function processDestructuredObjectParams(
     const nestedArrayMatch = trimmed.match(/^(\w+)\s*:\s*(\[[\s\S]*\])$/)
     if (nestedArrayMatch) {
       const [, name, arrayLiteral] = nestedArrayMatch
-      ctx.requiredParams.add(name)
       // Process the inner array as an array literal
       const processedLiteral = processArrayLiteralValue(arrayLiteral)
+      ctx.requiredParams.add(paramSideChannelKey(name, processedLiteral))
       return `${name} = ${processedLiteral}`
     }
 
@@ -1345,7 +1428,7 @@ function processDestructuredObjectParams(
     const colonMatch = trimmed.match(/^(\w+)\s*:\s*([\s\S]+)$/)
     if (colonMatch) {
       const [, name, value] = colonMatch
-      ctx.requiredParams.add(name)
+      ctx.requiredParams.add(paramSideChannelKey(name, value))
       return `${name} = ${value}`
     }
 

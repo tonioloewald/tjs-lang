@@ -44,6 +44,7 @@ import {
   parseReturnType,
 } from '../inference'
 import { extractTDoc } from '../parser'
+import { localRequiredParams } from '../parser-params'
 
 /**
  * Convert TypeDescriptor to JSON Schema
@@ -141,7 +142,8 @@ export function transformFunction(
   returnTypeAnnotation: string | undefined,
   options: TranspileOptions = {},
   requiredParamsFromPreprocess?: Set<string>,
-  helpers?: Map<string, FunctionDeclaration>
+  helpers?: Map<string, FunctionDeclaration>,
+  processedSource?: string
 ): {
   ast: BaseNode
   signature: FunctionSignature
@@ -150,11 +152,20 @@ export function transformFunction(
   // Extract TDoc (/*# ... */) comments
   const tdoc = extractTDoc(source, func)
 
+  // The module-wide channel narrowed to THIS function — see `localRequiredParams`. It
+  // arrives keyed `name=valueText`, because a bare name is module-global and one
+  // function's `x: 0` was marking another function's `x = 5` required.
+  const requiredHere = localRequiredParams(
+    func,
+    requiredParamsFromPreprocess,
+    processedSource
+  )
+
   // Parse parameters
   const parameters = new Map<string, ParameterDescriptor>()
 
   for (const param of func.params) {
-    const parsed = parseParameter(param, requiredParamsFromPreprocess)
+    const parsed = parseParameter(param, requiredHere)
 
     // Handle destructured parameters - expand into individual params
     if (

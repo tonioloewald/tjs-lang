@@ -522,6 +522,12 @@ export function parse(
   options: ParseOptions = {}
 ): {
   ast: Program
+  /**
+   * The source acorn actually parsed — every AST position indexes into THIS, not
+   * `originalSource`. Callers that need the text behind a node (to read a parameter's
+   * value, say) were slicing `originalSource` or re-running `preprocess`; both drift.
+   */
+  processedSource: string
   returnType?: string
   returnSafety?: 'safe' | 'unsafe'
   moduleSafety?: 'none' | 'inputs' | 'all'
@@ -600,6 +606,7 @@ export function parse(
 
     return {
       ast,
+      processedSource,
       returnType,
       returnSafety,
       moduleSafety,

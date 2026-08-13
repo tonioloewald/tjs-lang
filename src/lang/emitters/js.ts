@@ -72,6 +72,7 @@ const INLINE_TYPE_ERROR = `function typeError(p,e,v,r){const a=v===null?'null':t
 
 const INLINE_IS_MONADIC_ERROR = `function isMonadicError(v){return v instanceof Error&&v.name==='MonadicError'&&'path' in v}`
 import { parse, extractTDoc, preprocess, stripLineComments } from '../parser'
+import { paramSideChannelKey, localRequiredParams } from '../parser-params'
 import {
   transformEqualityToStructural,
   transformIsOperators,
@@ -264,9 +265,20 @@ function extractFunctionTypeInfo(
   requiredParams: Set<string>,
   returnTypeStr: string | null,
   inputSource?: string,
-  declaredTypes?: Set<string>
+  declaredTypes?: Set<string>,
+  parsedSource?: string
 ): { types: TJSTypeInfo; warnings: string[] } {
   const warnings: string[] = []
+
+  // The module-wide side channel narrowed to THIS function.
+  //
+  // `requiredParams` arrives keyed by `name=valueText` (see `paramSideChannelKey`),
+  // because a bare name is module-global and one function's `{x: 2}` was marking another
+  // function's `{x = 5}` required — so `b({})` raised a type error for a parameter that
+  // had a perfectly good default. Everything downstream (`parseParameter`, inference)
+  // wants plain names, so the widening happens exactly once, here, at the only place that
+  // has both the AST and the source text the positions index into.
+  const localRequired = localRequiredParams(func, requiredParams, parsedSource)
 
   // Extract TDoc (/*# ... */) comments
   const tdoc = extractTDoc(originalSource, func)
@@ -289,7 +301,7 @@ function extractFunctionTypeInfo(
     const objectPattern =
       param.type === 'ObjectPattern' ? param : (param as any).left
 
-    const paramInfo = parseParameter(objectPattern, requiredParams)
+    const paramInfo = parseParameter(objectPattern, localRequired)
     if (paramInfo.type.kind === 'object' && paramInfo.type.destructuredParams) {
       destructuredShape = {}
       destructuredRequired = new Set()
@@ -312,17 +324,17 @@ function extractFunctionTypeInfo(
     // Traditional param handling (multiple params or non-destructured)
     for (const param of func.params) {
       if (param.type === 'Identifier') {
-        const paramInfo = parseParameter(param, requiredParams)
+        const paramInfo = parseParameter(param, localRequired)
         params[param.name] = {
           ...paramInfo,
-          required: requiredParams.has(param.name),
+          required: localRequired.has(param.name),
           description: tdoc.params[param.name],
         }
       } else if (
         param.type === 'AssignmentPattern' &&
         param.left.type === 'Identifier'
       ) {
-        const paramInfo = parseParameter(param, requiredParams)
+        const paramInfo = parseParameter(param, localRequired)
         // Determine if this param used `:` (required) or `=` (optional).
         // The global requiredParams set is name-based, which fails when
         // two functions share a param name with different syntax.
@@ -340,7 +352,7 @@ function extractFunctionTypeInfo(
         }
       } else if (param.type === 'ObjectPattern') {
         // Handle destructured object parameters (non-single case)
-        const paramInfo = parseParameter(param, requiredParams)
+        const paramInfo = parseParameter(param, localRequired)
         if (
           paramInfo.type.kind === 'object' &&
           paramInfo.type.destructuredParams
@@ -902,7 +914,8 @@ export function transpileToJS(
       requiredParams,
       returnTypeStr,
       cleanSource,
-      preprocessed.declaredTypes
+      preprocessed.declaredTypes,
+      preprocessed.source
     )
     warnings.push(...funcWarnings)
     allTypes[funcName] = types
@@ -960,8 +973,21 @@ export function transpileToJS(
         for (const prop of (param as any).properties ?? []) {
           if (prop.type !== 'Property') continue
           const key = prop.key?.name ?? prop.key?.value
-          if (!key || !preprocessed.requiredParams.has(key)) continue
+          if (!key) continue
           if (prop.value?.type !== 'AssignmentPattern') continue
+          // Pair-keyed, not name-keyed: `function a({x: 2})` used to delete the default
+          // out of `function b({x = 5})` in the same module, so `b({})` raised a type
+          // error for a parameter that had a default.
+          const valueText = preprocessed.source.slice(
+            prop.value.right.start,
+            prop.value.right.end
+          )
+          if (
+            !preprocessed.requiredParams.has(
+              paramSideChannelKey(key, valueText)
+            )
+          )
+            continue
           // `{ b = 3 }` where b was written `b: 3` → emit `{ b }` and let the generated
           // `typeof b !== …` check fire on absence, which it already does correctly.
           deletions.push({
@@ -990,7 +1016,9 @@ export function transpileToJS(
             deletions.push({ start: right.left.end, end: right.end })
           } else if (
             right.type === 'Identifier' &&
-            preprocessed.typeNameOptionals.has(paramName)
+            preprocessed.typeNameOptionals.has(
+              paramSideChannelKey(paramName, right.name)
+            )
           ) {
             // Optional param annotated with a bare TYPE NAME: `n?: number`.
             //
@@ -1145,6 +1173,52 @@ export function transpileToJS(
       }
     }
   }
+
+  // Class METHOD parameters get the same treatment, and used not to.
+  //
+  // `findAllFunctions` collects declarations, exports and named arrows — never methods —
+  // so the loop above never saw a single one. `class C { m(value?: string) {} }` shipped
+  // as `m(value = string)`: a dangling reference that throws `string is not defined` at
+  // call time, on the happy path, from the most common shape a TypeScript author pastes.
+  // No collision required, unlike the name-keyed side channel this sits beside; the
+  // deletion simply never ran.
+  //
+  // Deliberately narrow: this strips annotations that would otherwise be RUNTIME ERRORS.
+  // Giving methods full metadata and validation is a larger change (they have no entry in
+  // `allTypes`, and `wrapClass` is the mechanism for that) and is filed, not smuggled in
+  // here as a blocker fix.
+  const stripMethodAnnotations = (params: any[] | undefined): void => {
+    for (const param of params ?? []) {
+      if (param?.type !== 'AssignmentPattern') continue
+      const name = param.left?.name
+      const right = param.right
+      if (!name || !right || typeof right.start !== 'number') continue
+      const valueText = preprocessed.source.slice(right.start, right.end)
+      const key = paramSideChannelKey(name, valueText)
+      // `x: 0` — required, so the example is a type and never a default.
+      // `x?: T` — optional, and `T` is a dangling identifier.
+      if (
+        preprocessed.requiredParams.has(key) ||
+        (right.type === 'Identifier' && preprocessed.typeNameOptionals.has(key))
+      ) {
+        deletions.push({ start: param.left.end, end: right.end })
+      }
+    }
+  }
+  walk.simple(program as any, {
+    MethodDefinition(node: any) {
+      stripMethodAnnotations(node.value?.params)
+    },
+    PropertyDefinition(node: any) {
+      const v = node.value
+      if (
+        v?.type === 'ArrowFunctionExpression' ||
+        v?.type === 'FunctionExpression'
+      ) {
+        stripMethodAnnotations(v.params)
+      }
+    },
+  })
 
   // Boolean coercion rewrite (TjsStandard). Rewrites every truthiness
   // context (`if`, `while`, `for`, `do/while`, `!`, `&&`, `||`, `?:`,

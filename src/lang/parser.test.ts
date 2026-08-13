@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'bun:test'
 import { transpile, ajs, tjs } from './index'
 import { preprocess, parse } from './parser'
+import { paramSideChannelKey } from './parser-params'
 import { createRuntime, isMonadicError } from './runtime'
 
 describe('Transpiler', () => {
@@ -8,7 +9,12 @@ describe('Transpiler', () => {
     it('should transform colon shorthand to default syntax and track required params', () => {
       const result = preprocess(`function foo(x: 'string') { }`)
       expect(result.source).toContain(`x = 'string'`)
-      expect(result.requiredParams.has('x')).toBe(true)
+      // Keyed by name AND value text, not by bare name: a name is module-global, and one
+      // function's `x: 0` was marking another function's `x = 5` required. See
+      // `paramSideChannelKey` and `src/lang/param-sidechannel.test.ts`.
+      expect(
+        result.requiredParams.has(paramSideChannelKey('x', "'string'"))
+      ).toBe(true)
     })
 
     it('should extract return type annotation', () => {
@@ -42,9 +48,16 @@ describe('Transpiler', () => {
       expect(result.source).toContain(`a = 'string'`)
       expect(result.source).toContain(`b = 0`)
       expect(result.source).toContain(`c = 10`)
-      expect(result.requiredParams.has('a')).toBe(true)
-      expect(result.requiredParams.has('b')).toBe(true)
-      expect(result.requiredParams.has('c')).toBe(false)
+      expect(
+        result.requiredParams.has(paramSideChannelKey('a', "'string'"))
+      ).toBe(true)
+      expect(result.requiredParams.has(paramSideChannelKey('b', '0'))).toBe(
+        true
+      )
+      // `c = 10` is a genuine default, so it is not in the channel under any key.
+      expect([...result.requiredParams].some((k) => k.startsWith('c='))).toBe(
+        false
+      )
     })
 
     it('should reject duplicate parameter names', () => {

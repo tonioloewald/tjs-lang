@@ -597,7 +597,11 @@ describe('Bootstrap Canary', () => {
           return url
         }
       `)
-      expect(result3.requiredParams.has('url')).toBe(true)
+      // Keyed `name=valueText` — a bare name is module-global, and one function's
+      // `x: 0` was marking another function's `x = 5` required.
+      expect(
+        [...result3.requiredParams].some((k: string) => k.startsWith('url='))
+      ).toBe(true)
 
       // Test safety markers
       const result4 = parserModule.preprocess(`

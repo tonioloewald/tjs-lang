@@ -41,6 +41,7 @@ export function transpile(
     ast: program,
     returnType,
     originalSource,
+    processedSource,
     requiredParams,
   } = parse(source, {
     filename: options.filename,
@@ -56,7 +57,8 @@ export function transpile(
     returnType,
     options,
     requiredParams,
-    helpers.size > 0 ? helpers : undefined
+    helpers.size > 0 ? helpers : undefined,
+    processedSource
   )
 
   return {
