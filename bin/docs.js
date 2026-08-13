@@ -8,7 +8,7 @@
  */
 
 import { readFileSync, writeFileSync, readdirSync, statSync } from 'fs'
-import { join, extname, basename } from 'path'
+import { join, extname, basename, resolve } from 'path'
 
 const TRIM_REGEX = /^#+ |`/g
 
@@ -112,15 +112,30 @@ function findMarkdownFiles(dirs, ignore) {
 
   function traverseDirectory(dir, ignore) {
     const files = readdirSync(dir)
-    if (ignore.includes(basename(dir))) {
+    // A DOTTED directory is tooling or scratch by convention, never documentation we
+    // publish. The ignore list named `.git`, `.archive` and `.demo` individually, which
+    // made it an allowlist over a growing set: `.compat-tests/` — a scratch checkout of
+    // zod, effect, radash and friends — walked straight in, and Effect's changelogs became
+    // the five largest entries in the file we SHIP (7.1MB, 225 entries where a clean tree
+    // yields 106). `package.json` `files` includes `demo`, so `npm pack` carried them.
+    //
+    // Naming the class rather than the instance: the next scratch directory is somebody
+    // else's `.venv`, and nobody re-reads this list before creating one.
+    // `basename('.')` is `'.'`, so resolve first — otherwise the dot rule below skips the
+    // search root itself and the whole run yields zero documents.
+    const name = basename(resolve(dir))
+    if (ignore.includes(name) || name.startsWith('.')) {
       return
     }
 
     files.forEach((file) => {
       const filePath = join(dir, file)
 
-      // Skip if in ignore list
-      if (ignore.includes(file)) {
+      // Skip if in ignore list, or dot-prefixed. A dotFILE is local tooling for the same
+      // reason a dot-DIRECTORY is: `.haltija.md` is browser-debugging setup, already
+      // exempted from `llms.txt` as "not part of the package", and it has no business in
+      // the docs we serve and publish. One rule, both shapes.
+      if (ignore.includes(file) || file.startsWith('.')) {
         return
       }
 
@@ -187,6 +202,16 @@ function findMarkdownFiles(dirs, ignore) {
 }
 
 function saveAsJSON(data, outputFilePath) {
+  // A generation that finds (almost) nothing is a broken traversal, not a small project,
+  // and it must not overwrite a good file with a cheerful "Generated … with 0 documents".
+  // The dot-directory rule above did exactly that on its first draft.
+  if (data.length < 50) {
+    console.error(
+      `docs: refusing to write ${outputFilePath} — only ${data.length} documents found.\n` +
+        `That is a traversal bug (check the ignore rules), not a small repository.`
+    )
+    process.exit(1)
+  }
   const jsonData = JSON.stringify(data, null, 2)
   writeFileSync(outputFilePath, jsonData, 'utf8')
   console.log(`Generated ${outputFilePath} with ${data.length} documents`)

@@ -126,3 +126,66 @@ function publishedFiles(): string[] {
   if (!files?.length) throw new Error('npm pack --dry-run returned no files')
   return files
 }
+
+/**
+ * `demo/docs.json` is a SHIPPED, GENERATED artifact, and generated artifacts rot silently.
+ *
+ * It is the playground's entire content, and `package.json` `files` includes `demo`, so it
+ * also goes out in the npm tarball. Two independent failures had both already happened by
+ * 0.13.0:
+ *
+ *   - **Stale.** Twelve documents differed from HEAD. The shipped `CLAUDE-TJS-SYNTAX.md`
+ *     still taught `new Point(10, 20) // Still works, but linter warns` (a compile error)
+ *     and a WASM assignment form that was never implemented — the two claims
+ *     `src/doc-snippets.test.ts` cites as its whole reason for existing. Fixed in the repo,
+ *     still shipping to readers.
+ *   - **Bloated.** The traversal's ignore list named `.git`/`.archive`/`.demo`
+ *     individually, so `.compat-tests/` — a scratch checkout of zod, effect, radash and
+ *     friends — walked in. Effect's changelogs were the five largest entries in the file,
+ *     7.1MB of a third party's documentation in our package.
+ *
+ * Neither is visible by reading the diff of a release: nobody reviews a 7MB JSON blob. So
+ * the check is mechanical, and it is two-directional — content must match HEAD, and
+ * nothing may come from a directory we do not publish.
+ */
+describe('demo/docs.json is fresh and contains only our documentation', () => {
+  const docs = JSON.parse(
+    readFileSync(join(ROOT, 'demo', 'docs.json'), 'utf8')
+  ) as Array<{ path: string; filename: string; text?: string }>
+
+  it('was generated at all', () => {
+    // Apparatus. Every assertion below is vacuous over an empty array, and an empty
+    // generation is exactly the failure mode the builder's own guard exists to stop.
+    expect(docs.length).toBeGreaterThan(50)
+  })
+
+  it('carries no document from a scratch or unpublished directory', () => {
+    const foreign = docs
+      .map((d) => d.path.replace(/^\.\//, ''))
+      .filter((p) => p.split('/').some((seg) => seg.startsWith('.')))
+    expect(
+      foreign,
+      'a dotted directory is tooling or scratch — it must never reach the shipped docs'
+    ).toEqual([])
+  })
+
+  it('every markdown document matches the file on disk', () => {
+    // Only `.md` entries carry the whole file; a `.ts`/`.js` entry holds just its
+    // extracted `/*# … */` blocks, so comparing those to the file would be wrong.
+    const stale: string[] = []
+    for (const doc of docs) {
+      if (!doc.text || !doc.path.endsWith('.md')) continue
+      const abs = join(ROOT, doc.path.replace(/^\.\//, ''))
+      if (!existsSync(abs)) {
+        stale.push(`${doc.path} (indexed but missing on disk)`)
+        continue
+      }
+      if (readFileSync(abs, 'utf8') !== doc.text) stale.push(doc.path)
+    }
+    expect(
+      stale,
+      'run `bun run docs` and commit demo/docs.json — the playground and the npm ' +
+        'package serve THIS file, not the repository'
+    ).toEqual([])
+  })
+})
