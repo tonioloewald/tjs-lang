@@ -2720,15 +2720,30 @@ the `introspection-autocomplete` memory.
 - [ ] Auto-discover and build local dependencies in module resolution
 - [ ] **Wire `ModuleLoader` into the playground's `tjs()` invocation** for transpile-time cross-file `wasm function` composition (Phase 3 of the wasm-library plan). Today the playground resolves imports at runtime via the local-module store — correct but uses the "boundary form" with a JS↔wasm crossing per call. With a ModuleLoader, imported `wasm function`s would be composed into the consumer's own `WebAssembly.Module` at transpile time, enabling wasm-to-wasm calls (single-digit nanosecond per-call cost). The `wasm-library-consumer.md` example flags this as a known gap. See `src/lang/module-loader.ts` (already shipped) and `wasm-library-plan.md` § Phase 3.
 
-## 0.13.0 pre-release review — BLOCK (2026-08-12)
+## 0.13.0 pre-release review — blockers CLEARED (2026-08-13)
 
 Full report, with repro steps and verified evidence for every item:
 [`docs/reviews/0.13.0-pre-release-review.md`](docs/reviews/0.13.0-pre-release-review.md).
-59 findings, 5 blockers, 20 confirmed majors. **`v0.13.0` was not tagged.**
+59 findings, 5 blockers, 20 confirmed majors. **`v0.13.0` is still not tagged** — the
+majors are next, then a re-review.
 
-### Blockers — all five must land before the tag
+**All five blockers are fixed (2026-08-13), and three of them were bigger than filed:**
 
-- [ ] **B1 `typeNameOptionals` is keyed by parameter NAME** (`src/lang/emitters/js.ts:993`,
+- B2 was TWO defects. Besides the shared ledger, `createChildScope` spread `error` into a
+  detached slot that no call site copied back, so EVERY error raised inside any child
+  scope vanished and the run reported success — verified for the heap ceiling, for
+  `Unknown Atom`, and for the `__proto__` security guard. A source scan then found three
+  scope-construction sites beyond the ones the report named.
+- B1 was two defects. Besides the name-keyed side channel, CLASS METHODS never got the
+  parameter rewrites at all, so `m(value?: string)` shipped as `m(value = string)` — a
+  `ReferenceError` on the happy path, no collision required.
+- B4's re-triage found the harness did not cover `guides/tjs.md` or
+  `guides/benchmarks.md` at all, which is how a performance guide came to quote a
+  measured overhead for a construct that does not parse.
+
+### Blockers — all five landed
+
+- [x] **B1 `typeNameOptionals` is keyed by parameter NAME** (`src/lang/emitters/js.ts:993`,
       regression from e120602). One function's `n?: number` deletes ANOTHER function's real
       default: `function b(n = fallback)` emits `function b(n)` and `b()` returns
       `undefined`. Silent — no warning, no recorder entry — and `b.__tjs` degrades to
@@ -2738,7 +2753,7 @@ Full report, with repro steps and verified evidence for every item:
       **Fix:** key the side channel by SOURCE POSITION (`Set<number>` of `right.start`),
       not by name. Regression test: two functions sharing a parameter name.
 
-- [ ] **B2 `maxHeapBytes` is bypassable by any guest program** (`src/vm/runtime.ts:1668`,
+- [x] **B2 `maxHeapBytes` is bypassable by any guest program** (`src/vm/runtime.ts:1668`,
       regression from 70ab7fd). `heapPerKey` is keyed by variable NAME and shared by
       reference across `createChildScope`, so a child-scope bind of an existing name
       REPLACES the parent's accounted size while the parent value stays live. Measured
@@ -2750,7 +2765,7 @@ Full report, with repro steps and verified evidence for every item:
       **Fix:** scope-qualify the ledger — per-`RuntimeContext` map released on scope
       discard, or key `${scopeId}:${key}`. Test: N keys each shadowed once must still trip.
 
-- [ ] **B3 `demo/docs.json` is stale AND ships ~6MB of Effect's documentation.** Twelve
+- [x] **B3 `demo/docs.json` is stale AND ships ~6MB of Effect's documentation.** Twelve
       documents differ from HEAD; the shipped `CLAUDE-TJS-SYNTAX.md` still contains
       `new Point(10, 20) // Still works, but linter warns` and the never-implemented
       `const add = wasm (…)` — the two claims `src/doc-snippets.test.ts` cites as its
@@ -2761,7 +2776,7 @@ Full report, with repro steps and verified evidence for every item:
       **Fix:** add `.compat-tests/` to `bin/docs.js`'s ignore list, regenerate from a clean
       tree, commit — then add a freshness gate (see below).
 
-- [ ] **B4 `unsafe { … }` is taught in five shipped docs; the compiler rejects it.**
+- [x] **B4 `unsafe { … }` is taught in five shipped docs; the compiler rejects it.**
       `DOCS-TJS.md:317`, `TJS-FOR-JS.md:485`, `guides/tjs.md:368/393/542`,
       `guides/benchmarks.md:43,63` — the last inventing semantics AND quoting measured
       overhead for a form that does not parse. `CLAUDE-TJS-SYNTAX.md:211` states it
@@ -2773,7 +2788,7 @@ Full report, with repro steps and verified evidence for every item:
       **Fix:** correct all five docs; re-triage every auto-annotated `fragment` for
       teaching-rejected-syntax rather than genuine fragmentation.
 
-- [ ] **B5 `tjs-playground` `kill -9`s processes it does not own**
+- [x] **B5 `tjs-playground` `kill -9`s processes it does not own**
       (`src/cli/playground.ts:74-82`, byte-identical at `bin/dev.ts:28-37`). Bare
       `lsof -ti:PORT` with no `-sTCP:LISTEN`, no identity check, no opt-out, kill block runs
       unconditionally. Verified: Chrome's NetworkService helper is matched FIRST and
