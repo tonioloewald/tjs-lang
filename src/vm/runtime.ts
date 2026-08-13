@@ -1798,16 +1798,36 @@ function trackHeapWrite(
  * `ctx.state[…] =` outside this function, so the next binding atom cannot be written
  * without it.
  *
+ * ## `alias`
+ *
+ * Binds without heap accounting, for a value that is ALREADY retained by something else
+ * and so adds no new live bytes. Exactly one caller qualifies: the loop variable of
+ * `map`/`filter`/`find`/`reduce`, which is a reference INTO the array being iterated.
+ *
+ * Accounting it was wrong twice over. It double-counted — the array is already on the
+ * ledger (or is a program literal, bounded by the program) and the item is part of it — and
+ * because a fresh item cannot hit the identity fast path, every iteration ran a full
+ * `estimateBytes` walk. That made loop cost SIZE-SENSITIVE, which `cost-invariant.test.ts`
+ * explicitly promises it is not: measured against 0.13.0-beta.1, `filter` over 5000 records
+ * went from 101.2 fuel flat to 116.2 shallow / 166.2 deep. Deployed agents with budgets
+ * tuned on an earlier release start failing on unchanged code.
+ *
+ * `alias` is NOT a general escape hatch, and the accumulator of `reduce` is the case that
+ * shows why: `acc` is rebuilt each iteration and can grow without bound, so it stays fully
+ * accounted. The rule is "this value is already retained elsewhere", not "this binding is
+ * in a loop".
+ *
  * @returns false if a limit was hit (caller must stop; ctx.error is set).
  */
 function setStateVar(
   ctx: RuntimeContext,
   key: string,
   value: unknown,
-  op: string
+  op: string,
+  opts?: { alias?: boolean }
 ): boolean {
   assertSafeProperty(key)
-  if (!trackHeapWrite(ctx, key, value, op)) return false
+  if (!opts?.alias && !trackHeapWrite(ctx, key, value, op)) return false
   ctx.state[key] = value
   return true
 }
@@ -2768,7 +2788,8 @@ export const map = defineAtom(
       if (ctx.signal?.aborted) throw new Error('Execution aborted')
       const scopedCtx = createChildScope(ctx)
       try {
-        if (!setStateVar(scopedCtx, as, item, 'map')) return undefined
+        if (!setStateVar(scopedCtx, as, item, 'map', { alias: true }))
+          return undefined
         await seq.exec({ op: 'seq', steps } as any, scopedCtx)
         results.push(scopedCtx.state['result'] ?? null)
       } finally {
@@ -2807,7 +2828,8 @@ export const filter = defineAtom(
       if (ctx.signal?.aborted) throw new Error('Execution aborted')
       const scopedCtx = createChildScope(ctx)
       try {
-        if (!setStateVar(scopedCtx, as, item, 'filter')) return undefined
+        if (!setStateVar(scopedCtx, as, item, 'filter', { alias: true }))
+          return undefined
         const passes = evaluateExpr(condition, scopedCtx)
         if (passes) {
           results.push(item)
@@ -2852,7 +2874,10 @@ export const reduce = defineAtom(
       if (ctx.signal?.aborted) throw new Error('Execution aborted')
       const scopedCtx = createChildScope(ctx)
       try {
-        if (!setStateVar(scopedCtx, as, item, 'reduce')) return undefined
+        // The ITEM aliases the source array; the ACCUMULATOR below does not — it is rebuilt
+        // each iteration and can grow without bound, so it stays fully accounted.
+        if (!setStateVar(scopedCtx, as, item, 'reduce', { alias: true }))
+          return undefined
         if (!setStateVar(scopedCtx, accumulator, acc, 'reduce'))
           return undefined
         await seq.exec({ op: 'seq', steps } as any, scopedCtx)
@@ -2892,7 +2917,8 @@ export const find = defineAtom(
       if (ctx.signal?.aborted) throw new Error('Execution aborted')
       const scopedCtx = createChildScope(ctx)
       try {
-        if (!setStateVar(scopedCtx, as, item, 'find')) return undefined
+        if (!setStateVar(scopedCtx, as, item, 'find', { alias: true }))
+          return undefined
         const matches = evaluateExpr(condition, scopedCtx)
         if (matches) {
           return item

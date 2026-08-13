@@ -145,9 +145,50 @@ describe('a discarded scope releases its accounting', () => {
     expect(res.error?.message ?? 'ok').toBe('ok')
   })
 
-  it('a map binding a LARGE value per iteration still trips', async () => {
-    // Release must not become amnesia: if a single iteration genuinely exceeds the cap,
-    // the run must still stop. Guards against "release everything, account nothing".
+  it('release does not become amnesia: a value the GUEST binds still trips', async () => {
+    // Guards against "release everything, account nothing". Note it binds inside the loop
+    // BODY, which is where the guest actually allocates — see the note below on why the
+    // loop VARIABLE is deliberately not the right probe for this.
+    const res = await VM.run(
+      {
+        op: 'seq',
+        steps: [
+          {
+            op: 'map',
+            items: [1, 2, 3],
+            as: 'item',
+            steps: [
+              {
+                op: 'varSet',
+                key: 'held',
+                value: { $kind: 'arg', path: 'big' },
+              },
+            ],
+          },
+          { op: 'return', value: { ok: 1 } },
+        ],
+      } as any,
+      { big: chunk() } as any,
+      { fuel: 1e6, maxHeapBytes: 8 * 1024 }
+    )
+    expect(res.error?.message ?? 'completed').toMatch(/Heap limit exceeded/)
+  })
+
+  /**
+   * What `maxHeapBytes` is FOR, written down because an earlier version of this file got
+   * it wrong and the wrong version looked more secure.
+   *
+   * It bounds what the GUEST causes to be retained during a run. A large array written as
+   * a LITERAL in the AST is not that: the host parsed and materialised it before `run()`
+   * was ever called, so by the time any ceiling could speak, the memory is already
+   * allocated and the ceiling cannot un-allocate it. Charging the guest for it is a
+   * category error — and charging it once per loop iteration, which is what the code did,
+   * is that error multiplied by N.
+   *
+   * The size of an accepted program is the host's decision, made before the run.
+   * `maxHeapBytes` governs what happens after.
+   */
+  it('does not charge the guest for a literal the HOST already materialised', async () => {
     const res = await VM.run(
       {
         op: 'seq',
@@ -162,6 +203,24 @@ describe('a discarded scope releases its accounting', () => {
         ],
       } as any,
       {} as any,
+      { fuel: 1e6, maxHeapBytes: 8 * 1024 }
+    )
+    expect(res.error?.message ?? 'ok').toBe('ok')
+  })
+
+  it('but a guest-allocated array IS accounted, then iterating it is free', async () => {
+    // The other side, and the reason aliasing the loop variable is correct rather than
+    // merely cheaper: when the array comes from guest state it is already on the ledger,
+    // so charging again for each item is double-counting.
+    const res = await VM.run(
+      {
+        op: 'seq',
+        steps: [
+          { op: 'varSet', key: 'data', value: { $kind: 'arg', path: 'big' } },
+          { op: 'return', value: { ok: 1 } },
+        ],
+      } as any,
+      { big: chunk() } as any,
       { fuel: 1e6, maxHeapBytes: 8 * 1024 }
     )
     expect(res.error?.message ?? 'completed').toMatch(/Heap limit exceeded/)
@@ -205,5 +264,125 @@ describe('a discarded scope releases its accounting', () => {
       { fuel: 1e5 }
     )
     expect(res.error?.message ?? 'swallowed').toMatch(/forbidden/)
+  })
+})
+
+/**
+ * A loop VARIABLE aliases the array being iterated; an ACCUMULATOR does not.
+ *
+ * Accounting the loop item was wrong twice: it double-counted (the array is already on the
+ * ledger, and the item is part of it), and because a fresh item can never hit the identity
+ * fast path, every iteration ran a full `estimateBytes` walk. That made loop cost
+ * size-sensitive, which `cost-invariant.test.ts` explicitly promises it is not — measured
+ * against 0.13.0-beta.1, `filter` over 5000 records went from 101.2 fuel flat to 116.2
+ * shallow and 166.2 deep. Budgets tuned on an earlier release started failing on unchanged
+ * code, with nothing in the CHANGELOG to explain it.
+ *
+ * The exemption is "already retained elsewhere", NOT "in a loop". These tests pin both
+ * halves, because the second is the one an over-eager version of this fix would break.
+ */
+describe('iteration bindings alias, accumulators do not', () => {
+  const wide = (n: number) =>
+    Array.from({ length: n }, (_, i) => ({ id: i, keep: i % 2 === 0 }))
+  const deep = (n: number) =>
+    Array.from({ length: n }, (_, i) => ({
+      id: i,
+      keep: i % 2 === 0,
+      meta: { tags: ['a', 'b'], nested: { x: i, y: [1, 2, 3] } },
+    }))
+
+  const filterFuel = async (items: unknown[]) => {
+    const res = await VM.run(
+      {
+        op: 'seq',
+        steps: [
+          {
+            op: 'filter',
+            items,
+            as: 'r',
+            condition: {
+              $expr: 'member',
+              object: { $expr: 'ident', name: 'r' },
+              property: 'keep',
+            },
+          },
+          { op: 'return', value: { ok: 1 } },
+        ],
+      } as any,
+      {} as any,
+      { fuel: 1e7 }
+    )
+    expect(res.error?.message ?? 'ok').toBe('ok')
+    return res.fuelUsed ?? 0
+  }
+
+  it('costs the same for shallow and deep items', async () => {
+    // The invariant `cost-invariant.test.ts` declares for map/filter/reduce/find.
+    const [shallow, nested] = [
+      await filterFuel(wide(2000)),
+      await filterFuel(deep(2000)),
+    ]
+    expect(`${shallow.toFixed(1)} / ${nested.toFixed(1)}`).toBe(
+      `${shallow.toFixed(1)} / ${shallow.toFixed(1)}`
+    )
+  })
+
+  it('a value built INSIDE the loop is still accounted', async () => {
+    // The exemption covers the loop variable only. Anything the body binds goes through
+    // the ordinary path, so the ceiling still applies where the guest allocates.
+    const res = await VM.run(
+      {
+        op: 'seq',
+        steps: [
+          {
+            op: 'map',
+            items: [1, 2, 3],
+            as: 'i',
+            steps: [
+              {
+                op: 'varSet',
+                key: 'blob',
+                value: { $kind: 'arg', path: 'big' },
+              },
+            ],
+          },
+          { op: 'return', value: { ok: 1 } },
+        ],
+      } as any,
+      { big: chunk() } as any,
+      { fuel: 1e6, maxHeapBytes: 8 * 1024 }
+    )
+    expect(res.error?.message ?? 'completed').toMatch(/Heap limit exceeded/)
+  })
+
+  it("reduce's ACCUMULATOR is still accounted", async () => {
+    // The case that makes `alias` a rule rather than a shortcut: an accumulator is rebuilt
+    // each iteration and can grow without bound. Exempting it would reopen the
+    // accumulate-until-OOM attack the ceiling exists to stop.
+    const res = await VM.run(
+      {
+        op: 'seq',
+        steps: [
+          {
+            op: 'reduce',
+            items: [1, 2, 3, 4],
+            as: 'i',
+            accumulator: 'acc',
+            initial: [],
+            steps: [
+              {
+                op: 'varSet',
+                key: 'result',
+                value: { $kind: 'arg', path: 'big' },
+              },
+            ],
+          },
+          { op: 'return', value: { ok: 1 } },
+        ],
+      } as any,
+      { big: chunk() } as any,
+      { fuel: 1e6, maxHeapBytes: 8 * 1024 }
+    )
+    expect(res.error?.message ?? 'completed').toMatch(/Heap limit exceeded/)
   })
 })
