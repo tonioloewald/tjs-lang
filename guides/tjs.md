@@ -34,6 +34,8 @@ Consider how you'd explain a function to another developer:
 
 That's exactly how TJS works. The example _is_ the type:
 
+<!-- tjs-doc: fragment -->
+
 ```javascript
 // TypeScript
 function greet(name: string, times: number): string
@@ -47,6 +49,8 @@ function greet(name: 'World', times: 3): ''
 ### 1. Types by Example
 
 Instead of abstract type names, use example values:
+
+<!-- tjs-doc: fragment -->
 
 ```javascript
 // Strings
@@ -365,32 +369,32 @@ function critical(? x: 0):? 0 { return x * 2 }
 function blazingFast(! x: 0):! 0 { return x * 2 }
 ```
 
-### The `unsafe` Block
+### There Is No `unsafe { }` Block
 
-For unsafe sections within a safe function, use `unsafe {}`:
+`unsafe` is an expression PREFIX, not a block. The wrapper decision is made at transpile
+time, so a block could not skip anything a marker does not already skip.
+
+Mark the whole function `!` when it is a hot path over trusted data:
 
 ```javascript
-function sum(numbers: [0]): 0 {
-  // Parameters are validated, but the inner loop is unsafe
-  unsafe {
-    let total = 0
-    for (let i = 0; i < numbers.length; i++) {
-      total += numbers[i]
-    }
-    return total
+function sum(! numbers: [0]): 0 {
+  let total = 0
+  for (let i = 0; i < numbers.length; i++) {
+    total += numbers[i]
   }
+  return total
 }
 ```
 
 ### Performance Characteristics
 
-| Mode              | Overhead   | Use Case                             |
-| ----------------- | ---------- | ------------------------------------ |
-| `safety none`     | 1.0x       | Metadata only, no wrappers           |
-| `safety inputs`   | ~1.15-1.3x | Production with validation           |
-| `safety all`      | ~14x       | Debug — validates inputs and outputs |
-| `(!)` function    | 1.0x       | Hot paths — explicit opt-out         |
-| `unsafe {}` block | 1.0x       | Hot loops within validated functions |
+| Mode              | Overhead   | Use Case                                 |
+| ----------------- | ---------- | ---------------------------------------- |
+| `safety none`     | 1.0x       | Metadata only, no wrappers               |
+| `safety inputs`   | ~1.15-1.3x | Production with validation               |
+| `safety all`      | ~14x       | Debug — validates inputs and outputs     |
+| `(!)` function    | 1.0x       | Hot paths — explicit opt-out             |
+| `(!)` on a helper | 1.0x       | Hot loops — mark the helper, not a block |
 
 Use `(!)` for internal functions that are called frequently with known-good data. Keep public APIs safe.
 
@@ -472,6 +476,8 @@ function sendEmail(to: Email) {
 
 The transpiled output contains only:
 
+<!-- tjs-doc: fragment -->
+
 ```javascript
 const Email = Type('Email', ...)
 function sendEmail(to) { ... }
@@ -539,7 +545,7 @@ test('async operations work') {
 | `(!)`             | Mark function as unsafe (skip validation)                      |
 | `test 'name' {}`  | Compile-time test block (evaporates)                           |
 | `mock {}`         | Test setup block                                               |
-| `unsafe {}`       | Skip validation for a block                                    |
+| `unsafe expr`     | Opt ONE construct out (`unsafe new Date(0)`) — not a block     |
 | `\|\|` in types   | Union types                                                    |
 | `Type Name = val` | Define runtime type with default                               |
 | `Generic<T>`      | Define a parameterized runtime type                            |
@@ -550,6 +556,8 @@ test('async operations work') {
 ## Differences from TypeScript
 
 ### Types are Values
+
+<!-- tjs-doc: fragment -->
 
 ```typescript
 // TypeScript - abstract type
@@ -591,6 +599,8 @@ This enables:
 ### Generics
 
 TypeScript generics become `any` in TJS, but constraints are preserved:
+
+<!-- tjs-doc: fragment -->
 
 ```typescript
 // TypeScript
@@ -686,6 +696,8 @@ The plugin transpiles `.tjs` files on-the-fly with full runtime support (Type, G
 
 ### 1. Use Examples That Document
 
+<!-- tjs-doc: fragment -->
+
 ```javascript
 // Bad - meaningless example
 function send(to: '', subject: '', body: '') {}
@@ -714,6 +726,8 @@ function createUserImpl(! name: '', email: ''): { id: '', name: '', email: '' } 
 
 ### 3. Return Errors, Don't Throw
 
+<!-- tjs-doc: fragment -->
+
 ```javascript
 // Bad
 function divide(a: 0, b: 0): 0 {
@@ -730,6 +744,8 @@ function divide(a: 0, b: 0): 0 {
 
 ### 4. Keep Types Simple
 
+<!-- tjs-doc: fragment -->
+
 ```javascript
 // Bad - over-engineered
 function process(data: {
@@ -744,6 +760,8 @@ function process(data: { items: [Item] }) {}
 ## Transpilation
 
 TJS transpiles to standard JavaScript:
+
+<!-- tjs-doc: fragment -->
 
 ```javascript
 // Input (TJS)

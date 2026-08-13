@@ -314,17 +314,26 @@ Explicit validation (for emphasis):
 function safeAdd(? a: 0, b: 0) { return a + b }
 ```
 
-### Unsafe Blocks
+### There Is No `unsafe { }` Block
 
-Skip validation for a block of code:
+`unsafe` is an expression PREFIX, not a block. A wrapper decision is made at transpile
+time, so a block could not skip anything a marker does not already skip — the form was
+removed because it exempted nothing.
 
-<!-- tjs-doc: fragment -->
+To skip validation, mark the FUNCTION with `!`:
 
 ```typescript
-unsafe {
-  fastPath(data)
-  anotherHotFunction(moreData)
+function fastPath(! data: [0]) {
+  let total = 0
+  for (let i = 0; i < data.length; i++) total += data[i]
+  return total
 }
+```
+
+To opt one construct out, prefix it:
+
+```typescript
+const d = unsafe new Date(0)
 ```
 
 ### Module Safety Directive
@@ -601,20 +610,20 @@ When converting from TypeScript, `private foo` becomes `#foo`.
 
 Asymmetric types are captured:
 
-<!-- tjs-doc: fragment -->
-
 ```typescript
-// Illustrative: a wrapper around Date. `new Date(...)` needs `unsafe` in real .tjs —
-// see the Timestamp module (`import { Timestamp } from 'tjs-lang'`) for the shipped one.
+// A wrapper around Date. `new Date(…)` is rejected in TJS (mutable, time-dependent), so
+// each construction opts out explicitly with the `unsafe` PREFIX — see the shipped
+// Timestamp module (`import { Timestamp } from 'tjs-lang'`).
 class Timestamp {
   #value
 
   constructor(initial: '' | 0 | null) {
-    this.#value = initial === null ? new Date() : new Date(initial)
+    this.#value =
+      initial === null ? unsafe new Date() : unsafe new Date(initial)
   }
 
   set value(v: '' | 0 | null) {
-    this.#value = v === null ? new Date() : new Date(v)
+    this.#value = v === null ? unsafe new Date() : unsafe new Date(v)
   }
 
   get value() {

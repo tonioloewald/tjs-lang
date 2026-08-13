@@ -482,17 +482,16 @@ Use `!` (skip validation) only in hot loops where every microsecond counts
 and the data source is already trusted. In all other cases, the ~1.5x
 overhead of `safety inputs` is negligible compared to the bugs it catches.
 
-### Unsafe Blocks
+### There Is No `unsafe { }` Block
 
-Skip validation for a hot inner loop:
-
-<!-- tjs-doc: fragment -->
+`unsafe` is an expression PREFIX, not a block. To skip validation for a hot path, mark
+the FUNCTION with `!`:
 
 ```javascript
-unsafe {
-  for (let i = 0; i < million; i++) {
-    hotFunction(data[i])
-  }
+function hotLoop(! data: [0]) {
+  let total = 0
+  for (let i = 0; i < data.length; i++) total += data[i]
+  return total
 }
 ```
 

@@ -55,6 +55,14 @@ const DOCS = [
   'guides/footguns.md',
   'guides/patterns.md',
   'docs/dictionary-defaults.md',
+  // Added after 0.13.0's review. Neither was checked, and it showed: `guides/tjs.md`
+  // taught an `unsafe {}` block in prose AND in two reference tables, and
+  // `guides/benchmarks.md` went further — inventing semantics for it ("wraps code in
+  // try-catch") and quoting a measured overhead ("~1.3x") for a form that does not parse.
+  // A performance guide citing a benchmark of a nonexistent feature is the strongest
+  // possible argument for compiling the prose.
+  'guides/tjs.md',
+  'guides/benchmarks.md',
 ]
 
 interface Snippet {

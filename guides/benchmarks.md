@@ -40,17 +40,16 @@ function fastAdd(! a: 0, b: 0): 0 { return a + b }
 
 ### ⚠️ Safe Helpers in Loops
 
-**Critical insight**: Wrapping the outer function in `unsafe {}` does NOT help if the inner helper is safe:
+**Critical insight**: marking the OUTER function unsafe does not help if the inner helper
+is safe. Validation cost lives at the callee, so a hot loop pays for its helper:
 
 ```javascript
-function process(arr: [0]): 0 {
-  unsafe {
-    let sum = 0
-    for (const x of arr) {
-      sum += double(x)  // If double() is safe, still pays 12x per call!
-    }
-    return sum
+function process(! arr: [0]): 0 {
+  let sum = 0
+  for (const x of arr) {
+    sum += double(x)  // If double() is safe, still pays 12x per call!
   }
+  return sum
 }
 ```
 
@@ -60,13 +59,11 @@ function process(arr: [0]): 0 {
 function double(! x: 0): 0 { return x * 2 }  // No validation overhead
 ```
 
-### `unsafe {}` Block
+### There Is No `unsafe {}` Block
 
-The `unsafe {}` block wraps code in try-catch for error handling:
-
-- Converts exceptions to monadic errors
-- Does NOT affect validation of called functions
-- Minimal overhead (~1.3x)
+This section used to describe one, with semantics ("wraps code in try-catch") and a
+measured overhead ("~1.3x") for a form that does not parse. `unsafe` is an expression
+PREFIX (`unsafe new Date(0)`) or a function marker (`function f(! x: 0)`) — never a block.
 
 ## Recommendations
 
