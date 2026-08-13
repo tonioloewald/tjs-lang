@@ -2829,20 +2829,24 @@ than filed; each fix carries a guard that fails without it.
       `demo/docs.json` twelve documents stale underneath it. Now `git diff --exit-code` on
       the generated set, as `code-quality.md` prescribes.
 
-### Practices findings — for the shared repo, not this one
+### Practices findings — written back to the shared repo (2026-08-13)
 
-Four findings route to `../tosijs-coding-practices` rather than here, and are NOT resolved:
+All four landed in `../tosijs-coding-practices` as `cdd77eb` (committed there, not pushed —
+that is the user's call). Done AFTER the remediation wave, which is what `review.md:402`
+requires and what the finding was about.
 
-- [ ] Lens-8 write-back predates 55 commits (`practices/review.md:402` requires it to
-      postdate the last blocker-remediation wave).
-- [ ] Two practices docs still say tjs-lang has no CI (`practices/00-stack.md:122`,
-      `practices/review.md:11-19`, plus `practices/model-priors.md:281`). It has TWO gates
-      with deliberately different coverage and nothing enumerates both.
-- [ ] `grep -rin ratchet` over the whole practices repo returns ZERO hits — the
-      count-vs-rate lesson (a floor over a growing corpus reads growth as regression) is
-      recorded nowhere shared.
-- [ ] No shared guidance on compiling doc snippets as a test; the only doc-snippet
-      material is about fence tags.
+- [x] Lens-8 write-back now postdates the last blocker/major fix.
+- [x] Three stale CI claims corrected (`00-stack.md`, `review.md`, `model-priors.md`) —
+      tjs-lang gained `ci.yml` in 0.13.0 and now has TWO gates with different coverage,
+      which nothing enumerated.
+- [x] **A ratchet measures a RATE, not a count** — new `testing.md` section. `grep -rin
+ratchet` over the practices repo had returned ZERO hits.
+- [x] **Documentation snippets are code, so compile them** — new `testing.md` section,
+      including the escape-hatch hazard (a bulk `fragment` pass hid the exact defect the
+      harness was built for).
+- [x] Bonus, found while checking parallel mentions: `development.md` cited tjs-lang as an
+      example of gating generated artifacts in CI **while tjs-lang was not doing it**. True
+      as of today's CI change; the entry now states what the gate actually is.
 
 **The coverage lens returned NO findings** — the report flags this as a completeness gap
 rather than a clean bill of health. Re-run that lens alone before tagging.
