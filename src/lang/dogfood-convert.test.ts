@@ -123,8 +123,15 @@ const report = (label: string, st: Stage, total: number) => {
  * literal as a comment (`literal-blindness.test.ts`). `parser-transforms.ts` was the last
  * holdout, and it failed on its OWN error messages: multi-line template concatenations
  * documenting the predicate forms, whose lines contain `// function form`.
+ *
+ * Raised to 97 on 2026-08-13 by the PROMOTE-CHECK below — three literal-blindness fixes
+ * (the `try`/`catch` transform counting braces raw, `extractTests` matching `test {` in
+ * strings, and the return-type scanner having no case for a regex literal) each unblocked
+ * files that had never converted. The floor is raised because the check demanded it, which
+ * is the point of having one: a ratchet that only ever protects the number it was set at
+ * lets the gap between actual and asserted widen in silence.
  */
-const GRADUATION_FLOOR = 95
+const GRADUATION_FLOOR = 97
 
 /** Improve by this much and the test asks for the floor to be raised. */
 const RATCHET_SLACK = 2

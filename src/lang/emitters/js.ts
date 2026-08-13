@@ -72,7 +72,7 @@ const INLINE_TYPE_ERROR = `function typeError(p,e,v,r){const a=v===null?'null':t
 
 const INLINE_IS_MONADIC_ERROR = `function isMonadicError(v){return v instanceof Error&&v.name==='MonadicError'&&'path' in v}`
 import { parse, extractTDoc, preprocess, stripLineComments } from '../parser'
-import { paramSideChannelKey, localRequiredParams } from '../parser-params'
+
 import {
   transformEqualityToStructural,
   transformIsOperators,
@@ -236,6 +236,47 @@ export interface TJSTypeInfo {
  * be used to ask "is this ready yet". A `var` can — it exists (as `undefined`) from scope
  * entry, so reading it early is falsy instead of fatal.
  */
+/**
+ * Parameter names of `func` whose rewritten default carries `marker`.
+ *
+ * Reads the text between each parameter's `=` and its value in the source acorn actually
+ * parsed. Positional, so two functions sharing a parameter name and a literal cannot be
+ * confused for each other — the defect that made `function grow(factor = 1)` lose its
+ * default because some other function wrote `factor: 1`.
+ */
+function markedParams(
+  func: { params?: any[] },
+  offsets: Set<number> | undefined
+): Set<string> {
+  const found = new Set<string>()
+  if (!offsets?.size) return found
+  const consider = (name: string | undefined, _left: any, right: any) => {
+    if (!name || !right || typeof right.start !== 'number') return
+    if (offsets.has(right.end)) found.add(name)
+  }
+  for (const param of func.params ?? []) {
+    const pattern =
+      param?.type === 'AssignmentPattern' &&
+      param.left?.type === 'ObjectPattern'
+        ? param.left
+        : param
+    if (pattern?.type === 'ObjectPattern') {
+      for (const prop of pattern.properties ?? []) {
+        if (prop.type !== 'Property') continue
+        if (prop.value?.type !== 'AssignmentPattern') continue
+        consider(
+          prop.key?.name ?? prop.key?.value,
+          prop.value.left,
+          prop.value.right
+        )
+      }
+    } else if (param?.type === 'AssignmentPattern') {
+      consider(param.left?.name, param.left, param.right)
+    }
+  }
+  return found
+}
+
 function sentinelName(typeName: string): string {
   return `__tjs_has_${typeName.replace(/[^A-Za-z0-9_$]/g, '_')}`
 }
@@ -262,19 +303,19 @@ function extractFunctionTypeInfo(
   returnTypeStr: string | null,
   inputSource?: string,
   declaredTypes?: Set<string>,
-  parsedSource?: string
+  requiredValueOffsets?: Set<number>
 ): { types: TJSTypeInfo; warnings: string[] } {
   const warnings: string[] = []
 
-  // The module-wide side channel narrowed to THIS function.
+  // Which of THIS function's parameters are required, read from the marker the parser
+  // wrote between the `=` and the value.
   //
-  // `requiredParams` arrives keyed by `name=valueText` (see `paramSideChannelKey`),
-  // because a bare name is module-global and one function's `{x: 2}` was marking another
-  // function's `{x = 5}` required — so `b({})` raised a type error for a parameter that
-  // had a perfectly good default. Everything downstream (`parseParameter`, inference)
-  // wants plain names, so the widening happens exactly once, here, at the only place that
-  // has both the AST and the source text the positions index into.
-  const localRequired = localRequiredParams(func, requiredParams, parsedSource)
+  // Module-wide sets cannot answer this. Keyed by name they collided across functions;
+  // keyed by name plus value text they still collided on ordinary code — `factor: 1` in
+  // one function and `factor = 1` in another are the same key, so a legitimate default was
+  // deleted. A marker is positional by construction: each parameter carries its own
+  // answer, so nothing can reach across functions.
+  const localRequired = markedParams(func, requiredValueOffsets)
 
   // Extract TDoc (/*# ... */) comments
   const tdoc = extractTDoc(originalSource, func)
@@ -951,7 +992,7 @@ export function transpileToJS(
       returnTypeStr,
       cleanSource,
       preprocessed.declaredTypes,
-      preprocessed.source
+      preprocessed.requiredValueOffsets
     )
     warnings.push(...funcWarnings)
     allTypes[funcName] = types
@@ -1011,18 +1052,9 @@ export function transpileToJS(
           const key = prop.key?.name ?? prop.key?.value
           if (!key) continue
           if (prop.value?.type !== 'AssignmentPattern') continue
-          // Pair-keyed, not name-keyed: `function a({x: 2})` used to delete the default
-          // out of `function b({x = 5})` in the same module, so `b({})` raised a type
-          // error for a parameter that had a default.
-          const valueText = preprocessed.source.slice(
-            prop.value.right.start,
-            prop.value.right.end
-          )
-          if (
-            !preprocessed.requiredParams.has(
-              paramSideChannelKey(key, valueText)
-            )
-          )
+          // Positional, not a module-wide key: `function a({x: 2})` used to delete the
+          // default out of `function b({x = 2})` — same name, same literal, same key.
+          if (!preprocessed.requiredValueOffsets.has(prop.value.right.end))
             continue
           // `{ b = 3 }` where b was written `b: 3` → emit `{ b }` and let the generated
           // `typeof b !== …` check fire on absence, which it already does correctly.
@@ -1052,9 +1084,7 @@ export function transpileToJS(
             deletions.push({ start: right.left.end, end: right.end })
           } else if (
             right.type === 'Identifier' &&
-            preprocessed.typeNameOptionals.has(
-              paramSideChannelKey(paramName, right.name)
-            )
+            preprocessed.typeNameValueOffsets.has(right.end)
           ) {
             // Optional param annotated with a bare TYPE NAME: `n?: number`.
             //
@@ -1279,13 +1309,12 @@ export function transpileToJS(
       const name = param.left?.name
       const right = param.right
       if (!name || !right || typeof right.start !== 'number') continue
-      const valueText = preprocessed.source.slice(right.start, right.end)
-      const key = paramSideChannelKey(name, valueText)
       // `x: 0` — required, so the example is a type and never a default.
       // `x?: T` — optional, and `T` is a dangling identifier.
       if (
-        preprocessed.requiredParams.has(key) ||
-        (right.type === 'Identifier' && preprocessed.typeNameOptionals.has(key))
+        preprocessed.requiredValueOffsets.has(right.end) ||
+        (right.type === 'Identifier' &&
+          preprocessed.typeNameValueOffsets.has(right.end))
       ) {
         deletions.push({ start: param.left.end, end: right.end })
       }

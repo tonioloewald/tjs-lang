@@ -202,7 +202,21 @@ export function extractTests(source: string): TestExtractionResult {
   // We need to find matching braces for each test
   const testMatches: Array<{ start: number; end: number; desc: string }> = []
 
-  while ((match = testRegex.exec(source)) !== null) {
+  // Scan the MASKED view, not the raw source.
+  //
+  // This regex ran over raw text, so `test { }` written INSIDE a string or template was
+  // matched as a real test block and the extraction chopped the literal apart. Two files
+  // in this repo hit it the day it was noticed: a `--help` string containing
+  // "inline 'test { }' blocks", and a test file whose fixtures are TJS source held as
+  // DATA (`"test 'regex' {"`). Both failed to convert with "Unterminated template" /
+  // "Unterminated string constant" — errors pointing at the literal, not at the scanner.
+  //
+  // Same defect class as everything else in this file's history, and it survived a commit
+  // that hoisted the masked view three lines above without moving the regex onto it.
+  //
+  // Descriptions are recovered from the ORIGINAL source, since masking blanks exactly the
+  // text a description is made of.
+  while ((match = testRegex.exec(maskedSource)) !== null) {
     const start = match.index
 
     // Skip matches inside comments (but embedded tests were already extracted above)
@@ -213,14 +227,13 @@ export function extractTests(source: string): TestExtractionResult {
     // Groups 1/2/3 = `test 'desc'` / `test "desc"` / `test \`desc\``
     // Groups 4/5/6 = parenthesized variants
     // No group when description is omitted
-    const desc =
-      match[1] ||
-      match[2] ||
-      match[3] ||
-      match[4] ||
-      match[5] ||
-      match[6] ||
-      `test ${tests.length + 1}`
+    const descGroup = [1, 2, 3, 4, 5, 6].find(
+      (g) => match![g] !== undefined && match![g] !== null
+    )
+    const desc = descGroup
+      ? sliceGroup(source, maskedSource, match, descGroup).trim() ||
+        `test ${tests.length + 1}`
+      : `test ${tests.length + 1}`
     const bodyStart = match.index + match[0].length
 
     // Find matching closing brace
@@ -241,7 +254,7 @@ export function extractTests(source: string): TestExtractionResult {
   // Extract mock blocks
   const mockMatches: Array<{ start: number; end: number }> = []
 
-  while ((match = mockRegex.exec(source)) !== null) {
+  while ((match = mockRegex.exec(maskedSource)) !== null) {
     const start = match.index
     const bodyStart = match.index + match[0].length
 

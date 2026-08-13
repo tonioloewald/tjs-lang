@@ -33,7 +33,11 @@ import type {
   TjsModes,
 } from './parser-types'
 
-import { transformParenExpressions, type HoistedTypeArg } from './parser-params'
+import {
+  transformParenExpressions,
+  extractParamMarkers,
+  type HoistedTypeArg,
+} from './parser-params'
 
 import {
   transformTryWithoutCatch,
@@ -84,6 +88,13 @@ export function preprocess(
   originalSource: string
   requiredParams: Set<string>
   typeNameOptionals: Set<string>
+  /**
+   * Offsets IN `source` where a required parameter's value begins, and where a type-name
+   * optional's dangling annotation begins. Positional, so two parameters sharing a name
+   * and a literal cannot be confused — see `extractParamMarkers`.
+   */
+  requiredValueOffsets: Set<number>
+  typeNameValueOffsets: Set<number>
   unsafeFunctions: Set<string>
   safeFunctions: Set<string>
   wasmBlocks: WasmBlock[]
@@ -491,8 +502,16 @@ export function preprocess(
   // Must happen after all other transforms so literals are in final form
   source = transformExtensionCalls(source, extResult.extensions)
 
+  // Markers out, offsets in — see `extractParamMarkers`. Everything downstream (acorn, the
+  // wasm capture scanner, polymorphic detection, the emitted output) sees source that
+  // never contained a marker.
+  const marked = extractParamMarkers(source)
+  source = marked.source
+
   return {
     source,
+    requiredValueOffsets: marked.required,
+    typeNameValueOffsets: marked.typeName,
     modeWarnings,
     typeNameOptionals,
     returnType,
@@ -528,6 +547,8 @@ export function parse(
    * value, say) were slicing `originalSource` or re-running `preprocess`; both drift.
    */
   processedSource: string
+  /** Offsets in `processedSource` where a required parameter's value begins. */
+  requiredValueOffsets: Set<number>
   returnType?: string
   returnSafety?: 'safe' | 'unsafe'
   moduleSafety?: 'none' | 'inputs' | 'all'
@@ -551,6 +572,7 @@ export function parse(
   // Preprocess for custom syntax
   const {
     source: processedSource,
+    requiredValueOffsets,
     returnType,
     returnSafety,
     moduleSafety,
@@ -572,6 +594,7 @@ export function parse(
       })
     : {
         source,
+        requiredValueOffsets: new Set<number>(),
         returnType: undefined,
         returnSafety: undefined,
         moduleSafety: undefined,
@@ -607,6 +630,7 @@ export function parse(
     return {
       ast,
       processedSource,
+      requiredValueOffsets,
       returnType,
       returnSafety,
       moduleSafety,

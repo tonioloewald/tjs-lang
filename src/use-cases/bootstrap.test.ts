@@ -649,11 +649,11 @@ describe('Bootstrap Canary', () => {
           return url
         }
       `)
-      // Keyed `name=valueText` — a bare name is module-global, and one function's
-      // `x: 0` was marking another function's `x = 5` required.
-      expect(
-        [...result3.requiredParams].some((k: string) => k.startsWith('url='))
-      ).toBe(true)
+      // `requiredParams` is a coarse module-wide set of NAMES again. The precise,
+      // per-parameter answer is carried positionally (`requiredValueOffsets`), because
+      // no key over names or values can distinguish two functions that share both.
+      expect(result3.requiredParams.has('url')).toBe(true)
+      expect(result3.requiredValueOffsets.size).toBeGreaterThan(0)
 
       // Test safety markers
       const result4 = parserModule.preprocess(`

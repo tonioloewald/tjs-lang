@@ -139,3 +139,93 @@ function b({x = 5}) { return x }
     expect(String(a({}))).toContain('Error')
   })
 })
+
+/**
+ * SAME name, SAME value — the collision a keyed side channel cannot express.
+ *
+ * The first fix keyed by name; the second by name PLUS value text, and this file only ever
+ * paired values that DIFFER, so it passed against an implementation that still lost
+ * defaults on ordinary code. That is the vacuous-test failure mode in the very test
+ * written to prove the fix.
+ *
+ * Shared literals — `0`, `1`, `''`, `[]` — are what real parameters use. Every case here
+ * is legal JavaScript whose meaning changed silently (`PRINCIPLES.md` TJS ⊇ JS), and every
+ * one passes only because the parser now writes a POSITIONAL marker that cannot be keyed.
+ */
+describe('a shared name AND a shared value still keep the two apart', () => {
+  it('declaration beside declaration', () => {
+    expect(
+      load(
+        `
+function scale(factor: 1) { return factor }
+function grow(factor = 1) { return factor + 1 }
+`,
+        'grow'
+      )()
+    ).toBe(2)
+  })
+
+  it('declaration beside class method', () => {
+    const C = load(
+      `
+function step(amount: 1) { return amount }
+class Counter { bump(amount = 1) { return amount } }
+`,
+      'Counter'
+    )
+    expect(new C().bump()).toBe(1)
+  })
+
+  it('declaration beside arrow', () => {
+    expect(
+      load(
+        `
+function a(n: 0) { return n }
+const b = (n = 0) => n + 1
+`,
+        'b'
+      )()
+    ).toBe(1)
+  })
+
+  it('destructured member beside destructured member', () => {
+    // The verbatim case the previous fix's commit message claimed to close — it only
+    // closed it where the two values differ.
+    expect(
+      load(
+        `
+function a({x: 2}) { return x }
+function b({x = 2}) { return x }
+`,
+        'b'
+      )({})
+    ).toBe(2)
+  })
+
+  it('and the REQUIRED one is still required', () => {
+    // The control. Making everything optional would satisfy every test above.
+    expect(
+      String(
+        load(
+          `
+function scale(factor: 1) { return factor }
+function grow(factor = 1) { return factor + 1 }
+`,
+          'scale'
+        )()
+      )
+    ).toContain('Expected')
+  })
+
+  it('a string literal shared between two functions', () => {
+    expect(
+      load(
+        `
+function need(label: '') { return label }
+function want(label = '') { return label + '!' }
+`,
+        'want'
+      )()
+    ).toBe('!')
+  })
+})

@@ -25,84 +25,99 @@ import {
 } from './inference'
 
 /**
- * The key for a per-parameter side channel (`requiredParams`, `typeNameOptionals`).
+ * Markers the parser writes INTO the rewritten parameter, between the `=` and the value.
  *
- * These sets carry facts the AST cannot: that `n = number` came from `n?: number` and is a
- * dangling annotation rather than a default, and that `{x = 2}` came from `{x: 2}` and is
- * required rather than defaulted. Both were keyed by bare NAME, for the whole module — so
- * `function a(n?: number)` reached into `function b(n = fallback)` and deleted a default it
- * had nothing to do with, emitting `function b(n)`. Legal JavaScript whose MEANING changed,
- * silently: a `PRINCIPLES.md` TJS ⊇ JS violation.
+ * Two facts live only in the parser: that `n = number` came from `n?: number` (a dangling
+ * annotation, not a default) and that `x = 2` came from `x: 2` (required, not defaulted).
+ * The AST cannot carry them — `n?: MyThing` and `x = someVar` produce byte-identical trees.
  *
- * Keying by name AND the exact value text makes a collision require two functions to share
- * a parameter name AND the identical annotation text, one written `n?: T` and the other
- * `n = T` — which needs a real binding called `T` that is also used as a type elsewhere in
- * the same module. Not airtight; a source POSITION would be, but positions do not survive
- * the rewriting passes between here and the emitter. This closes the case that shipped.
+ * They were carried in module-wide SETS, first keyed by bare name and then by name plus
+ * value text. Both collide, and the second collides on ordinary code: any two parameters in
+ * a module sharing a name and a literal (`0`, `1`, `''`, `[]`) are indistinguishable, so
  *
- * Whitespace is normalised so `n = number` and `n=number` agree.
+ *     function scale(factor: 1) {…}
+ *     function grow(factor = 1) { return factor + 1 }   // grow() -> MonadicError, not 2
+ *
+ * silently lost a legitimate JavaScript default — a `PRINCIPLES.md` TJS ⊇ JS violation with
+ * a green suite, because the test that was meant to catch it only ever paired values that
+ * DIFFER.
+ *
+ * A marker cannot collide, because it is not a key: each occurrence carries its own answer,
+ * positionally, and travels with the parameter through every later rewrite. It is a block
+ * comment, so acorn ignores it and inference still reads the value it precedes.
+ *
+ * The emitter deletes the whole `= value` span for both marked cases, so markers do not
+ * reach the output; `stripParamMarkers` is the belt-and-braces sweep for any that survive a
+ * path that does not delete.
  */
-export function paramSideChannelKey(name: string, valueText: string): string {
-  return `${name.trim()}=${valueText.trim().replace(/\s+/g, ' ')}`
+export const PARAM_REQUIRED_MARKER = '/*!tjs-req*/'
+export const PARAM_TYPENAME_MARKER = '/*!tjs-opt*/'
+
+/** True when the text between a parameter's `=` and its value carries `marker`. */
+export function hasParamMarker(between: string, marker: string): boolean {
+  return between.includes(marker)
+}
+
+/** Remove markers from a fragment being read mid-transform (see `parseParamList`). */
+export function stripParamMarkers(code: string): string {
+  return code
+    .split(PARAM_REQUIRED_MARKER)
+    .join('')
+    .split(PARAM_TYPENAME_MARKER)
+    .join('')
 }
 
 /**
- * The subset of the module-wide `requiredParams` channel that belongs to ONE function.
+ * Strip every marker from the finished source, recording WHERE each one pointed.
  *
- * The channel is keyed `name=valueText`; this walks the function's own parameters, slices
- * the value text acorn actually parsed, and returns the plain NAMES whose pair is present.
- * Everything downstream — `parseParameter`, inference, the AST emitter — wants plain
- * names, so the widening happens here, at the boundary, rather than teaching four
- * consumers a key format.
+ * Run once, after all transforms. The marker is a carrier, not a payload: leaving it in
+ * the emitted source means every pass that reads parameter text has to know about it, and
+ * they do not — `typeSignatureForDefault` read the marker followed by `0` as `any`, so all
+ * polymorphic variants looked identical and legal overloads were rejected; the wasm
+ * capture scanner picked the marker up as an identifier. That is an unbounded set of
+ * consumers to teach.
  *
- * Lives beside `paramSideChannelKey` because THREE emitters consume this channel
- * (`emitters/js.ts`, `emitters/ast.ts`, and inference through them). Narrowing it in one
- * of them is how the first attempt at this fix produced a signature regression: the JS
- * emitter reported `required: true` and the AST emitter, still reading raw keys, reported
- * `false` for the same parameter.
+ * Converting to OFFSETS at the end gives both halves: the transforms get a carrier that
+ * cannot collide (unlike a name- or value-keyed set), and everything downstream — acorn,
+ * the wasm scanner, polymorphic detection, the emitted output — sees source that never
+ * contained a marker. The offsets are computed against the CLEANED string, so they are
+ * exactly the `end` acorn will report for the value each marker followed.
  *
- * Without `parsedSource` the positions index into nothing, so it falls back to name-only
- * behaviour rather than silently dropping every marker — an over-broad `required` is
- * wrong, but a lost one turns a checked parameter into an unchecked one.
+ * The marker trails its value rather than preceding it, because the passes that run
+ * BETWEEN emission and extraction match FORWARD from the `=`: the wasm capture scanner
+ * reads `xs = new Float32Array(0)` to recover a typed-array annotation, and a comment
+ * wedged after the `=` defeated it.
  */
-export function localRequiredParams(
-  func: { params?: any[] },
-  requiredParams: Set<string> | undefined,
-  parsedSource?: string
-): Set<string> {
-  if (!requiredParams) return new Set()
-  if (!parsedSource) {
-    return new Set(
-      [...requiredParams].map((k) =>
-        k.includes('=') ? k.slice(0, k.indexOf('=')) : k
-      )
-    )
+export function extractParamMarkers(src: string): {
+  source: string
+  required: Set<number>
+  typeName: Set<number>
+} {
+  const required = new Set<number>()
+  const typeName = new Set<number>()
+  if (
+    !src.includes(PARAM_REQUIRED_MARKER) &&
+    !src.includes(PARAM_TYPENAME_MARKER)
+  ) {
+    return { source: src, required, typeName }
   }
-  const local = new Set<string>()
-  const consider = (name: string | undefined, right: any) => {
-    if (!name || !right || typeof right.start !== 'number') return
-    const text = parsedSource.slice(right.start, right.end)
-    if (requiredParams.has(paramSideChannelKey(name, text))) local.add(name)
-  }
-  for (const param of func.params ?? []) {
-    const pattern =
-      param?.type === 'AssignmentPattern' &&
-      param.left?.type === 'ObjectPattern'
-        ? param.left
-        : param
-    if (pattern?.type === 'ObjectPattern') {
-      for (const prop of pattern.properties ?? []) {
-        if (prop.type !== 'Property') continue
-        const key = prop.key?.name ?? prop.key?.value
-        if (prop.value?.type === 'AssignmentPattern') {
-          consider(key, prop.value.right)
-        }
-      }
-    } else if (param?.type === 'AssignmentPattern') {
-      consider(param.left?.name, param.right)
+  let out = ''
+  let i = 0
+  while (i < src.length) {
+    const isReq = src.startsWith(PARAM_REQUIRED_MARKER, i)
+    const isOpt = !isReq && src.startsWith(PARAM_TYPENAME_MARKER, i)
+    if (isReq || isOpt) {
+      i += (isReq ? PARAM_REQUIRED_MARKER : PARAM_TYPENAME_MARKER).length
+      // Drop the single space emitted before the marker, so the value's END lands exactly
+      // at the offset recorded here.
+      if (out.endsWith(' ')) out = out.slice(0, -1)
+      ;(isReq ? required : typeName).add(out.length)
+      continue
     }
+    out += src[i]
+    i++
   }
-  return local
+  return { source: out, required, typeName }
 }
 
 export function transformParenExpressions(
@@ -841,6 +856,31 @@ function extractReturnTypeValue(
   while (i < source.length) {
     const char = source[i]
 
+    // A REGEX LITERAL is a legitimate example value — `s: /^\d+$/` denotes a RegExp under
+    // the example rule exactly as `s: 5` denotes a number, and `fromTS` maps the TS type
+    // `RegExp` to `/example/`. This scanner had no case for it, so the `/` fell through,
+    // the type ended mid-pattern, and `tjs convert` emitted `):! /example/ {` — which does
+    // not parse. Every TypeScript function returning a RegExp failed to convert; the
+    // parameter position handled it correctly all along, so the two disagreed.
+    if (!inString && char === '/') {
+      const end = findRegexEnd(source, i)
+      if (end !== -1 && isRegexStart(source.slice(start, i))) {
+        i = end + 1
+        // Flags (`/x/gi`).
+        while (i < source.length && /[a-z]/.test(source[i])) i++
+        sawContent = true
+        // A completed value at depth 0 ends the type — unless a union follows. Without
+        // this the next `{` is read as an opening bracket (the depth branch runs before
+        // the function-body check) and the whole body is swallowed into the "type".
+        if (depth === 0) {
+          let j = i
+          while (j < source.length && /\s/.test(source[j])) j++
+          if (source[j] !== '|' && source[j] !== '&') return makeResult(i)
+        }
+        continue
+      }
+    }
+
     // Handle string literals
     if (!inString && (char === "'" || char === '"' || char === '`')) {
       inString = true
@@ -1336,7 +1376,8 @@ function processParamString(
       // It is recorded here rather than detected there because `n?: MyThing` and
       // `x = someVar` produce byte-identical AST; only this branch knows the difference.
       if (isTypeNameAnnotation(type)) {
-        ctx.typeNameOptionals.add(paramSideChannelKey(name, type))
+        ctx.typeNameOptionals.add(name)
+        return `${name} = ${type} ${PARAM_TYPENAME_MARKER}`
       }
       return `${name} = ${type}`
     }
@@ -1369,7 +1410,8 @@ function processParamString(
       }
 
       if (trackRequired && /^\w+$/.test(name)) {
-        ctx.requiredParams.add(paramSideChannelKey(name, type))
+        ctx.requiredParams.add(name)
+        return `${name} = ${type} ${PARAM_REQUIRED_MARKER}`
       }
       return `${name} = ${type}`
     }
@@ -1417,8 +1459,8 @@ function processDestructuredObjectParams(
       const [, name, objectLiteral] = nestedObjectMatch
       // Process the inner object as an object literal (transform = to : for values)
       const processedLiteral = processObjectLiteralValue(objectLiteral)
-      ctx.requiredParams.add(paramSideChannelKey(name, processedLiteral))
-      return `${name} = ${processedLiteral}`
+      ctx.requiredParams.add(name)
+      return `${name} = ${processedLiteral} ${PARAM_REQUIRED_MARKER}`
     }
 
     // Check for nested destructured array: name: [ ... ]
@@ -1427,16 +1469,16 @@ function processDestructuredObjectParams(
       const [, name, arrayLiteral] = nestedArrayMatch
       // Process the inner array as an array literal
       const processedLiteral = processArrayLiteralValue(arrayLiteral)
-      ctx.requiredParams.add(paramSideChannelKey(name, processedLiteral))
-      return `${name} = ${processedLiteral}`
+      ctx.requiredParams.add(name)
+      return `${name} = ${processedLiteral} ${PARAM_REQUIRED_MARKER}`
     }
 
     // Handle simple colon syntax: name: 'value' -> name = 'value' (required)
     const colonMatch = trimmed.match(/^(\w+)\s*:\s*([\s\S]+)$/)
     if (colonMatch) {
       const [, name, value] = colonMatch
-      ctx.requiredParams.add(paramSideChannelKey(name, value))
-      return `${name} = ${value}`
+      ctx.requiredParams.add(name)
+      return `${name} = ${value} ${PARAM_REQUIRED_MARKER}`
     }
 
     // Handle equals syntax: name = value (optional, already valid JS)

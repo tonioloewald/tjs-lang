@@ -44,7 +44,6 @@ import {
   parseReturnType,
 } from '../inference'
 import { extractTDoc } from '../parser'
-import { localRequiredParams } from '../parser-params'
 
 /**
  * Convert TypeDescriptor to JSON Schema
@@ -143,7 +142,7 @@ export function transformFunction(
   options: TranspileOptions = {},
   requiredParamsFromPreprocess?: Set<string>,
   helpers?: Map<string, FunctionDeclaration>,
-  processedSource?: string
+  requiredValueOffsets?: Set<number>
 ): {
   ast: BaseNode
   signature: FunctionSignature
@@ -152,14 +151,22 @@ export function transformFunction(
   // Extract TDoc (/*# ... */) comments
   const tdoc = extractTDoc(source, func)
 
-  // The module-wide channel narrowed to THIS function — see `localRequiredParams`. It
-  // arrives keyed `name=valueText`, because a bare name is module-global and one
-  // function's `x: 0` was marking another function's `x = 5` required.
-  const requiredHere = localRequiredParams(
-    func,
-    requiredParamsFromPreprocess,
-    processedSource
-  )
+  // Read from the marker the parser wrote between each `=` and its value. Module-wide
+  // sets collided across functions — by name, and then still by name plus value text,
+  // since `factor: 1` and `factor = 1` in one module are the same key.
+  const requiredHere = new Set<string>()
+  if (requiredValueOffsets?.size) {
+    for (const param of func.params ?? []) {
+      const p = param as any
+      if (p?.type !== 'AssignmentPattern' || !p.right || !p.left?.name) continue
+      if (requiredValueOffsets.has(p.right.end)) requiredHere.add(p.left.name)
+    }
+  } else if (requiredParamsFromPreprocess) {
+    // No source to index into — fall back to the module-wide names rather than dropping
+    // every marker, since a lost `required` turns a checked parameter into an unchecked
+    // one, which is worse than an over-broad one.
+    for (const n of requiredParamsFromPreprocess) requiredHere.add(n)
+  }
 
   // Parse parameters
   const parameters = new Map<string, ParameterDescriptor>()

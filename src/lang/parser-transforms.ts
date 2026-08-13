@@ -8,6 +8,7 @@
 import { SyntaxError } from './types'
 import { maskLiterals, isEscapedAt, scanLiterals } from '../strip-comments'
 import { declaredClassNames } from './declared-classes'
+import { stripParamMarkers } from './parser-params'
 
 /**
  * Extract a brace-balanced value from source after a regex match.
@@ -100,18 +101,42 @@ export function transformTryWithoutCatch(source: string): string {
   let result = ''
   let i = 0
 
+  // Scanned over a MASKED view: a `{`/`}` inside a string, template, regex or comment is
+  // not structure. Counting them raw put the "closing brace" of a try block INSIDE a
+  // string literal — for `'  const re = /[}]/'` (a brace in a character class in a string)
+  // the depth hit zero early, no `catch` followed, and the generated monadic handler was
+  // spliced into the middle of the literal:
+  //
+  //   '  const re = /[}]/'  ->  '  const re = /[}…__tjs?.getStack?.()) }]/'
+  //
+  // Third instance of this defect class found in one day. The masked view is computed
+  // once; `result` is still built from the ORIGINAL source, so literals are preserved.
+  //
+  // `source.slice(i).match(…)` also allocated a copy of the remaining source on EVERY
+  // character — quadratic in file size for a scan that only ever needed to look at four
+  // characters. It reads the masked view in place now.
+  const masked = maskLiterals(source)
+  const tryAt = (at: number): number => {
+    // Length of `try\s*{` at `at`, or 0.
+    if (!masked.startsWith('try', at)) return 0
+    if (at > 0 && /[A-Za-z0-9_$]/.test(masked[at - 1])) return 0
+    let k = at + 3
+    while (k < masked.length && /\s/.test(masked[k])) k++
+    return masked[k] === '{' ? k + 1 - at : 0
+  }
+
   while (i < source.length) {
     // Look for 'try' keyword followed by '{'
-    const tryMatch = source.slice(i).match(/^\btry\s*\{/)
-    if (tryMatch) {
+    const tryLen = tryAt(i)
+    if (tryLen) {
       // Found 'try {', now find the matching closing brace
-      const startBrace = i + tryMatch[0].length - 1
+      const startBrace = i + tryLen - 1
       const bodyStart = startBrace + 1
       let depth = 1
       let j = bodyStart
 
-      while (j < source.length && depth > 0) {
-        const char = source[j]
+      while (j < masked.length && depth > 0) {
+        const char = masked[j]
         if (char === '{') depth++
         else if (char === '}') depth--
         j++
@@ -125,7 +150,7 @@ export function transformTryWithoutCatch(source: string): string {
       }
 
       // Check what comes after the closing brace
-      const afterTry = source.slice(j).match(/^\s*(catch|finally)\b/)
+      const afterTry = masked.slice(j).match(/^\s*(catch|finally)\b/)
 
       if (afterTry) {
         // Has catch or finally - leave it alone, copy the try block as-is
@@ -3360,7 +3385,7 @@ function typeCheckForDefault(argExpr: string, defaultValue: string): string {
  * Two params with the same signature at the same position are ambiguous.
  */
 function typeSignatureForDefault(defaultValue: string): string {
-  const dv = defaultValue.trim()
+  const dv = stripParamMarkers(defaultValue).trim()
   if (/^['"`]/.test(dv)) return 'string'
   if (dv === 'true' || dv === 'false') return 'boolean'
   if (dv === 'null') return 'null'
@@ -3382,6 +3407,14 @@ function parseParamList(
   paramStr: string,
   requiredParams: Set<string>
 ): { name: string; defaultValue: string; required: boolean }[] {
+  // Drop the parser's own required/type-name MARKERS before anything reads this text.
+  //
+  // They live between the `=` and the value so the emitter can tell a required parameter
+  // from a defaulted one positionally, but every consumer downstream wants the value it
+  // annotates. Left in, `typeSignatureForDefault` saw `/*!tjs-req*/ 0` and returned
+  // `'any'` for every parameter — so all polymorphic variants looked identical and legal
+  // overloads were rejected as ambiguous.
+  paramStr = stripParamMarkers(paramStr)
   const params: { name: string; defaultValue: string; required: boolean }[] = []
   let depth = 0
   let current = ''
