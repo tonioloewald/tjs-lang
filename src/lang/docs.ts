@@ -120,6 +120,9 @@ export function generateDocs(source: string): DocResult {
   // Build brace depth map to identify top-level constructs
   // This filters out doc blocks inside function bodies
   const braceDepthAt = computeBraceDepths(source)
+  // ONE masked view for every top-level scan below. Both loops used to re-mask the whole
+  // file per match, which is what made this quadratic in file size.
+  const maskedSource = maskLiterals(source)
   // Track positions inside /* */ and // comments so we don't extract
   // illustrative `class Foo { ... }` / `function bar() { ... }` text
   // shown in `/*# ... */` doc blocks as real declarations.
@@ -179,7 +182,7 @@ export function generateDocs(source: string): DocResult {
     if (braceDepthAt[match.index] !== 0) continue
     const name = match[1]
     const parenOpen = match.index + match[0].length - 1 // position of `(`
-    const parenClose = findMatchingParen(source, parenOpen + 1)
+    const parenClose = findMatchingParen(source, parenOpen + 1, maskedSource)
     if (parenClose === -1) continue
     const params = source.slice(parenOpen + 1, parenClose)
     // Optional return-type annotation between `)` and `{`:
@@ -234,7 +237,7 @@ export function generateDocs(source: string): DocResult {
     const name = match[1]
     const extendsName = match[2] || undefined
     const bodyStart = match.index + match[0].length // just past `{`
-    const bodyEnd = findMatchingBrace(source, bodyStart - 1)
+    const bodyEnd = findMatchingBrace(source, bodyStart - 1, maskedSource)
     if (bodyEnd === -1) continue
     const body = source.slice(bodyStart, bodyEnd)
     const members = extractClassMembers(body)
@@ -310,11 +313,15 @@ function formatClassSignature(item: {
  * Returns -1 if no match. Aware of strings and template literals so
  * braces inside them don't confuse the count.
  */
-function findMatchingBrace(s: string, open: number): number {
+function findMatchingBrace(s: string, open: number, view?: string): number {
   // Masked view: braces inside strings, templates, REGEX LITERALS and comments are not
   // structure. The previous version knew about strings only, so `/^\}/` inside a body
   // closed it early and truncated everything after.
-  const masked = maskLiterals(s)
+  //
+  // The view is passed in by callers that loop, because masking per iteration is
+  // quadratic — `generateDocs` on a 133KB file was 37.6ms and 538ms at 4x, scaling as the
+  // square. Masking preserves offsets, so an inherited view indexes identically.
+  const masked = view ?? maskLiterals(s)
   let depth = 0
   for (let i = open; i < masked.length; i++) {
     const c = masked[i]
@@ -343,6 +350,8 @@ function extractClassMembers(body: string): string[] {
   const members: string[] = []
   // Build brace depth WITHIN the body so we only pick top-level members
   const depthInBody = computeBraceDepths(body)
+  // Same hoist one level down: a class with N members re-masked its own body N times.
+  const maskedBody = maskLiterals(body)
   // Match: optional modifier(s) + name + `(`
   // Modifiers can chain: `static async`, `static get`
   const memberPattern =
@@ -354,7 +363,7 @@ function extractClassMembers(body: string): string[] {
     const modifiers = match[1].trim()
     const name = match[2]
     const parenOpen = match.index + match[0].length - 1
-    const parenClose = findMatchingParen(body, parenOpen + 1)
+    const parenClose = findMatchingParen(body, parenOpen + 1, maskedBody)
     if (parenClose === -1) continue
     const params = body.slice(parenOpen, parenClose + 1)
     // Optional return-type annotation between `)` and `{`
@@ -545,8 +554,9 @@ export function prettifyTestBody(body: string): string {
 }
 
 /** Find the index of the `)` that matches the open paren at position `open-1`. */
-function findMatchingParen(s: string, open: number): number {
-  const masked = maskLiterals(s)
+function findMatchingParen(s: string, open: number, view?: string): number {
+  // See `findMatchingBrace` — callers that loop pass a hoisted view.
+  const masked = view ?? maskLiterals(s)
   let depth = 1
   let i = open
   let inStr: string | null = null
