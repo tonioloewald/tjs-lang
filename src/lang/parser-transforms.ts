@@ -6,7 +6,7 @@
  */
 
 import { SyntaxError } from './types'
-import { maskLiterals, isEscapedAt } from '../strip-comments'
+import { maskLiterals, isEscapedAt, scanLiterals } from '../strip-comments'
 
 /**
  * Extract a brace-balanced value from source after a regex match.
@@ -1064,6 +1064,54 @@ export function insertAsiProtection(
    * a single line cannot tell whether it opened inside one.
    */
   const maskedLines = maskLiterals(source).split('\n')
+
+  /**
+   * Lines whose first non-whitespace character is INSIDE a literal — content or closing
+   * delimiter — and which therefore must never be touched.
+   *
+   * Masking alone is not enough here, and that is the subtlety the first fix missed:
+   * `maskLiterals` blanks a literal's CONTENT but keeps its DELIMITERS, so the closing
+   * backtick of a multi-line template still looks like a line-initial backtick. Both of
+   * these matched the raw test and had a `;` spliced into the string's value:
+   *
+   *     const s = `line one          const b = `a
+   *     (two) three`                 `
+   *
+   * The range is `[innerStart, end)` deliberately — content and closing delimiter, but NOT
+   * the opening one. A line that legitimately BEGINS a statement with a backtick
+   * (`` `template`.length ``) starts at `region.start`, is therefore not protected, and
+   * still gets its defensive semicolon. Protecting `[start, end)` would have silently
+   * dropped that case.
+   */
+  const literalLines = new Set<number>()
+  {
+    const lineOfOffset: number[] = new Array(source.length + 1)
+    let ln = 0
+    for (let i = 0; i <= source.length; i++) {
+      lineOfOffset[i] = ln
+      if (source[i] === '\n') ln++
+    }
+    const lineStart: number[] = [0]
+    for (let i = 0; i < source.length; i++) {
+      if (source[i] === '\n') lineStart.push(i + 1)
+    }
+    const firstNonWs = (i: number): number => {
+      let p = lineStart[i]
+      const limit = i + 1 < lineStart.length ? lineStart[i + 1] : source.length
+      while (p < limit && (source[p] === ' ' || source[p] === '\t')) p++
+      return p
+    }
+    for (const region of scanLiterals(source)) {
+      const from = lineOfOffset[region.innerStart] ?? 0
+      const to =
+        lineOfOffset[Math.max(region.innerStart, region.end - 1)] ?? from
+      for (let i = from; i <= to && i < lines.length; i++) {
+        const p = firstNonWs(i)
+        if (p >= region.innerStart && p < region.end) literalLines.add(i)
+      }
+    }
+  }
+
   const result: string[] = []
   let inBlockComment = false
 
@@ -1090,8 +1138,15 @@ export function insertAsiProtection(
       continue
     }
 
-    // Check if this line starts with a problematic character
-    if (i > 0 && continuationStarts.test(line)) {
+    // Check if this line starts with a problematic character.
+    //
+    // Tested against the MASKED line, not the raw one. A template literal spans lines and
+    // its interior is DATA: `c64bcd3` made the PREVIOUS-line test literal-aware and left
+    // this one raw, so the second physical line of a multi-line template starting with
+    // `(`, `[` or a backtick had a `;` spliced into the string's VALUE — and the warning
+    // told the author the opposite of what happened. `const b = \`a\n\`` evaluated to
+    // "a\n;". Masked, a line inside a literal is blank and cannot match.
+    if (i > 0 && !literalLines.has(i) && continuationStarts.test(line)) {
       // The previous line, comment- and literal-free. `maskLiterals` already removed
       // comments AND blanked literal bodies, so a `//` inside a template cannot be
       // mistaken for one — which is exactly what used to happen.
