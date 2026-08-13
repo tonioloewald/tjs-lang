@@ -260,8 +260,17 @@ export interface RuntimeContext {
    * Per-key size AND the reference it was measured from, so overwriting a variable frees
    * its budget and re-binding an UNCHANGED reference costs nothing to re-measure.
    *
-   * Shared by reference across child scopes on purpose — see `createChildScope`. It is the
-   * run's accounting ledger, not a per-scope one.
+   * **Per SCOPE, not per run** — and that is the whole guarantee. It used to be shared by
+   * reference across child scopes, keyed by bare variable name, so a child binding `x` was
+   * accounted as a REPLACEMENT of the parent's `x`: the parent's size was subtracted while
+   * the parent's value stayed perfectly alive in the parent scope object. Shadowing bought
+   * budget back. Measured against a 6MB cap: 112× over.
+   *
+   * A scope's ledger mirrors what that scope actually OWNS. Child state is
+   * `Object.create(parent.state)`, so a child write creates an own property and shadows
+   * rather than replaces; the ledger now says the same thing. `releaseScope` gives the
+   * bytes back when the scope is discarded — see `src/vm/heap-scope.test.ts`, which
+   * asserts both directions (shadowing must not free; discarding must).
    */
   heapPerKey?: Map<string, { size: number; ref: unknown }>
   runCodeDepth?: number // Track nested runCode calls to prevent infinite recursion
@@ -764,7 +773,55 @@ export function createChildScope(ctx: RuntimeContext): RuntimeContext {
   // it subtracts a size it never added — driving the running total negative and silently
   // buying back budget. Sharing the accounting object keeps the two halves together.
   child.heapAccount = ctx.heapAccount ?? (ctx.heapAccount = { bytes: 0 })
+
+  // The ledger, by contrast, must NOT be shared: a scope accounts what it owns. See the
+  // `heapPerKey` doc — sharing it made shadowing a name a way to free its budget.
+  child.heapPerKey = new Map()
+
+  // `error` is the one field that must be shared BY REFERENCE, and the spread made it a
+  // detached slot on every child. Nothing copied it back, so an error raised inside ANY
+  // child scope simply vanished and the run reported success: verified for the heap
+  // ceiling, for `Unknown Atom`, and for the `__proto__` security guard, all of which
+  // surface correctly at top level and were silently dropped inside `map`/`scope`.
+  //
+  // Fixed here rather than at the eight call sites on purpose. A per-site `if
+  // (scopedCtx.error) ctx.error = scopedCtx.error` is the shape this codebase has already
+  // been bitten by four times ("fixed in X, twin kept the bug" — the membrane, the vision
+  // probe, `varsLet`, the literal scanners); the ninth scope-creating atom would be
+  // written without it. An accessor cannot be forgotten. `tryCatch` deliberately clears
+  // `ctx.error`, and runs in the SAME scope, so it is unaffected.
+  Object.defineProperty(child, 'error', {
+    get: () => ctx.error,
+    set: (e: AgentError | undefined) => {
+      ctx.error = e
+    },
+    enumerable: true,
+    configurable: true,
+  })
   return child
+}
+
+/**
+ * Give back the heap budget a discarded scope was holding.
+ *
+ * The counterpart to the per-scope ledger, and load-bearing in the OPPOSITE direction: a
+ * scope whose entries are never released leaks accounting, so a `map` over a few thousand
+ * items would trip a ceiling it is nowhere near. That failure is fail-closed (a spurious
+ * error, not a bypass), which is precisely why it needs a test rather than trust — a cap
+ * that quietly enforces something nobody asked for is still a broken cap.
+ *
+ * Every `createChildScope` must be paired with this in a `finally`, which
+ * `src/vm/state-writes.test.ts` mechanises rather than leaving to memory.
+ */
+export function releaseScope(child: RuntimeContext): void {
+  const account = child.heapAccount
+  const ledger = child.heapPerKey
+  if (!account || !ledger || ledger.size === 0) return
+  for (const { size } of ledger.values()) account.bytes -= size
+  // Clamp: an under-run would hand the guest free budget, the exact drift the shared
+  // `heapAccount` object was introduced to stop.
+  if (account.bytes < 0) account.bytes = 0
+  ledger.clear()
 }
 
 /**
@@ -2578,9 +2635,13 @@ export const scope = defineAtom(
   undefined,
   async ({ steps }, ctx) => {
     const scopedCtx = createChildScope(ctx)
-    await seq.exec({ op: 'seq', steps } as any, scopedCtx)
-    // Propagate output/return up
-    if (scopedCtx.output !== undefined) ctx.output = scopedCtx.output
+    try {
+      await seq.exec({ op: 'seq', steps } as any, scopedCtx)
+      // Propagate output/return up
+      if (scopedCtx.output !== undefined) ctx.output = scopedCtx.output
+    } finally {
+      releaseScope(scopedCtx)
+    }
   },
   { docs: 'Create new scope', timeoutMs: 0, cost: 0.1 }
 )
@@ -2633,27 +2694,44 @@ export const callLocal = defineAtom(
       error: undefined,
       localCall: true,
       callDepth: depth,
+      // A FRESH ledger, like `createChildScope`. The spread shared the caller's by
+      // reference, so binding a parameter whose name matched a caller variable was
+      // accounted as replacing it — the caller's value stayed live and its budget came
+      // back. The guest names both sides (helper params and its own variables), so this
+      // was a second, independent route to the same bypass and it is not reached by the
+      // `createChildScope` fix: this atom builds its scope by hand.
+      heapPerKey: new Map(),
+      // `heapAccount` must stay SHARED (the spread already does this): a helper's live
+      // bytes count against the same run-wide total.
     }
-    for (let i = 0; i < helper.paramNames.length; i++) {
-      if (
-        !setStateVar(
-          scopedCtx,
-          helper.paramNames[i],
-          resolvedArgs[i],
-          'callLocal'
+    try {
+      for (let i = 0; i < helper.paramNames.length; i++) {
+        if (
+          !setStateVar(
+            scopedCtx,
+            helper.paramNames[i],
+            resolvedArgs[i],
+            'callLocal'
+          )
         )
-      )
-        return undefined
+          return undefined
+      }
+
+      await seq.exec({ op: 'seq', steps: helper.steps } as any, scopedCtx)
+
+      // Propagate errors but NOT output — the helper's return becomes this
+      // atom's result, captured into the caller's named result variable by
+      // the standard exec wrapper. Unlike `scope`, it does not bubble up
+      // to ctx.output (so a helper return doesn't exit the caller agent).
+      //
+      // This scope deliberately starts with `error: undefined` and is NOT built by
+      // `createChildScope`, so the error accessor does not apply — the explicit
+      // propagation below is the real mechanism here, not a redundant one.
+      if (scopedCtx.error) ctx.error = scopedCtx.error
+      return scopedCtx.output
+    } finally {
+      releaseScope(scopedCtx)
     }
-
-    await seq.exec({ op: 'seq', steps: helper.steps } as any, scopedCtx)
-
-    // Propagate errors but NOT output — the helper's return becomes this
-    // atom's result, captured into the caller's named result variable by
-    // the standard exec wrapper. Unlike `scope`, it does not bubble up
-    // to ctx.output (so a helper return doesn't exit the caller agent).
-    if (scopedCtx.error) ctx.error = scopedCtx.error
-    return scopedCtx.output
   },
   { docs: 'Invoke a local helper function by name', timeoutMs: 0, cost: 0.1 }
 )
@@ -2689,9 +2767,13 @@ export const map = defineAtom(
       // Check abort signal for clean cancellation
       if (ctx.signal?.aborted) throw new Error('Execution aborted')
       const scopedCtx = createChildScope(ctx)
-      if (!setStateVar(scopedCtx, as, item, 'map')) return undefined
-      await seq.exec({ op: 'seq', steps } as any, scopedCtx)
-      results.push(scopedCtx.state['result'] ?? null)
+      try {
+        if (!setStateVar(scopedCtx, as, item, 'map')) return undefined
+        await seq.exec({ op: 'seq', steps } as any, scopedCtx)
+        results.push(scopedCtx.state['result'] ?? null)
+      } finally {
+        releaseScope(scopedCtx)
+      }
     }
     return results
   },
@@ -2724,10 +2806,14 @@ export const filter = defineAtom(
       // Check abort signal for clean cancellation
       if (ctx.signal?.aborted) throw new Error('Execution aborted')
       const scopedCtx = createChildScope(ctx)
-      if (!setStateVar(scopedCtx, as, item, 'filter')) return undefined
-      const passes = evaluateExpr(condition, scopedCtx)
-      if (passes) {
-        results.push(item)
+      try {
+        if (!setStateVar(scopedCtx, as, item, 'filter')) return undefined
+        const passes = evaluateExpr(condition, scopedCtx)
+        if (passes) {
+          results.push(item)
+        }
+      } finally {
+        releaseScope(scopedCtx)
       }
     }
     return results
@@ -2765,10 +2851,15 @@ export const reduce = defineAtom(
       // Check abort signal for clean cancellation
       if (ctx.signal?.aborted) throw new Error('Execution aborted')
       const scopedCtx = createChildScope(ctx)
-      if (!setStateVar(scopedCtx, as, item, 'reduce')) return undefined
-      if (!setStateVar(scopedCtx, accumulator, acc, 'reduce')) return undefined
-      await seq.exec({ op: 'seq', steps } as any, scopedCtx)
-      acc = scopedCtx.state['result'] ?? acc
+      try {
+        if (!setStateVar(scopedCtx, as, item, 'reduce')) return undefined
+        if (!setStateVar(scopedCtx, accumulator, acc, 'reduce'))
+          return undefined
+        await seq.exec({ op: 'seq', steps } as any, scopedCtx)
+        acc = scopedCtx.state['result'] ?? acc
+      } finally {
+        releaseScope(scopedCtx)
+      }
     }
     return acc
   },
@@ -2800,10 +2891,14 @@ export const find = defineAtom(
       // Check abort signal for clean cancellation
       if (ctx.signal?.aborted) throw new Error('Execution aborted')
       const scopedCtx = createChildScope(ctx)
-      if (!setStateVar(scopedCtx, as, item, 'find')) return undefined
-      const matches = evaluateExpr(condition, scopedCtx)
-      if (matches) {
-        return item
+      try {
+        if (!setStateVar(scopedCtx, as, item, 'find')) return undefined
+        const matches = evaluateExpr(condition, scopedCtx)
+        if (matches) {
+          return item
+        }
+      } finally {
+        releaseScope(scopedCtx)
       }
     }
     return null
@@ -3355,17 +3450,24 @@ export const agentRun = defineAtom(
         consts: new Set(),
         output: undefined,
         error: undefined,
+        // Own ledger — the spread would share the caller's by reference, and a
+        // sub-agent binding a name the caller also uses would free the caller's budget.
+        heapPerKey: new Map(),
       }
 
-      const seqAtom = ctx.resolver('seq')
-      if (!seqAtom) throw new Error('seq atom not found')
-      await seqAtom.exec(ast, childCtx)
+      try {
+        const seqAtom = ctx.resolver('seq')
+        if (!seqAtom) throw new Error('seq atom not found')
+        await seqAtom.exec(ast, childCtx)
 
-      if (childCtx.error) {
-        throw new Error(childCtx.error.message || 'Sub-agent failed')
+        if (childCtx.error) {
+          throw new Error(childCtx.error.message || 'Sub-agent failed')
+        }
+
+        return childCtx.output
+      } finally {
+        releaseScope(childCtx)
       }
-
-      return childCtx.output
     }
 
     // Check if resolvedId is an AST object (has 'op' property)
@@ -3378,17 +3480,24 @@ export const agentRun = defineAtom(
         consts: new Set(),
         output: undefined,
         error: undefined,
+        // Own ledger — see the sibling branch above. Here the AST is guest-supplied, so
+        // the guest picks the binding names outright.
+        heapPerKey: new Map(),
       }
 
-      const seqAtom = ctx.resolver('seq')
-      if (!seqAtom) throw new Error('seq atom not found')
-      await seqAtom.exec(resolvedId, childCtx)
+      try {
+        const seqAtom = ctx.resolver('seq')
+        if (!seqAtom) throw new Error('seq atom not found')
+        await seqAtom.exec(resolvedId, childCtx)
 
-      if (childCtx.error) {
-        throw new Error(childCtx.error.message || 'Sub-agent failed')
+        if (childCtx.error) {
+          throw new Error(childCtx.error.message || 'Sub-agent failed')
+        }
+
+        return childCtx.output
+      } finally {
+        releaseScope(childCtx)
       }
-
-      return childCtx.output
     }
 
     // Fall back to capability-based agent lookup
@@ -3525,21 +3634,27 @@ export const runCode = defineAtom(
     // Create a child scope for the dynamic code execution
     // This isolates its variables but shares fuel, capabilities, trace
     const childCtx = createChildScope(ctx)
-    childCtx.args = resolvedArgs
-    childCtx.output = undefined
-    childCtx.runCodeDepth = currentDepth + 1 // Increment depth for nested calls
+    try {
+      childCtx.args = resolvedArgs
+      childCtx.output = undefined
+      childCtx.runCodeDepth = currentDepth + 1 // Increment depth for nested calls
 
-    // Execute the transpiled code in the child context
-    await seq.exec(ast as any, childCtx)
+      // Execute the transpiled code in the child context
+      await seq.exec(ast as any, childCtx)
 
-    // Propagate any error from child to parent
-    if (childCtx.error) {
-      ctx.error = childCtx.error
-      return
+      // Propagate any error from child to parent. Redundant since `createChildScope`
+      // made `error` a shared accessor, and kept because it is also the early RETURN —
+      // deleting it would change control flow, not just remove a duplicate assignment.
+      if (childCtx.error) {
+        ctx.error = childCtx.error
+        return
+      }
+
+      // Return the output from the dynamic code
+      return childCtx.output
+    } finally {
+      releaseScope(childCtx)
     }
-
-    // Return the output from the dynamic code
-    return childCtx.output
   },
   { docs: 'Run dynamically generated AsyncJS code', cost: 1 }
 )
@@ -3619,11 +3734,16 @@ export const memoize = defineAtom(
 
     // Execute steps in isolated scope
     const scopedCtx = createChildScope(ctx)
-    await seq.exec({ op: 'seq', steps } as any, scopedCtx)
+    let result: any
+    try {
+      await seq.exec({ op: 'seq', steps } as any, scopedCtx)
 
-    // Result is implicit from last step or explicit scope result variable?
-    // Convention: result variable or last output
-    const result = scopedCtx.output ?? scopedCtx.state['result']
+      // Result is implicit from last step or explicit scope result variable?
+      // Convention: result variable or last output
+      result = scopedCtx.output ?? scopedCtx.state['result']
+    } finally {
+      releaseScope(scopedCtx)
+    }
 
     // Store
     ctx.memo.set(k, result)
@@ -3682,8 +3802,13 @@ export const cache = defineAtom(
 
     // Execute
     const scopedCtx = createChildScope(ctx)
-    await seq.exec({ op: 'seq', steps } as any, scopedCtx)
-    const result = scopedCtx.output ?? scopedCtx.state['result']
+    let result: any
+    try {
+      await seq.exec({ op: 'seq', steps } as any, scopedCtx)
+      result = scopedCtx.output ?? scopedCtx.state['result']
+    } finally {
+      releaseScope(scopedCtx)
+    }
 
     // Store with TTL
     const expiry = Date.now() + (ttlMs ?? 24 * 3600 * 1000)
