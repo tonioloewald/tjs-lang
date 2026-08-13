@@ -20,7 +20,12 @@ import { emit } from './commands/emit'
 import { convert } from './commands/convert'
 import { test } from './commands/test'
 
-const VERSION = '0.6.45'
+// Read from package.json, like `bin/dev.ts` already does. Hard-coded, it drifted seven
+// minor versions: `tjs --version` reported 0.6.45 from a 0.13.0 package, so every bug
+// report filed with that output named the wrong release.
+import pkg from '../../package.json'
+
+const VERSION = pkg.version
 
 const HELP = `
 tjs - Typed JavaScript CLI
@@ -33,7 +38,8 @@ Commands:
   run <file>      Transpile and execute a TJS file
   types <file>    Output type metadata as JSON
   emit <file>     Output transpiled JavaScript (+ docs)
-  test [file]     Run .test.tjs test files
+  test [file]     Run tests — .test.tjs files, or the inline 'test { }' blocks
+                  of any .tjs file passed directly
   convert <src>   Convert TypeScript to JS (with runtime checks)
 
 Options:
@@ -46,8 +52,14 @@ Options:
   --docs-dir <d>  Output docs to separate directory (emit command)
   --jfdi          Emit even if tests fail (just fucking do it)
   --emit-tjs      Output intermediate TJS instead of JS (convert command)
-  -o <path>       Output path (for emit, convert commands)
-  -t <pattern>    Test name pattern (for test command)
+  -o, --output <path>
+                  Output path (for emit, convert commands)
+  -t, --test-name-pattern <pattern>
+                  Test name pattern (for test command)
+  --max-warnings <n>
+                  Fail if more than n warnings (check command only). Lets CI gate
+                  on type degradation without making every warning fatal — same
+                  shape as eslint's flag, so a project can adopt gradually.
   --verbose, -V   Verbose output
 
 Examples:

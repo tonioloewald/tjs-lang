@@ -7,11 +7,34 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased] — 0.13.0 pending
 
-> **Not released.** The pre-release review returned **BLOCK** on 2026-08-12 with five
-> verified blockers (two of them regressions from this cycle). See
+> **Not released yet.** The pre-release review returned **BLOCK** on 2026-08-12 with five
+> verified blockers and 20 confirmed majors. All five blockers and the correctness,
+> efficiency and DX majors are fixed (2026-08-13); the tag waits on a re-review. See
 > [`docs/reviews/0.13.0-pre-release-review.md`](docs/reviews/0.13.0-pre-release-review.md)
-> and the blocker list at the top of `TODO.md`. `package.json` is bumped to 0.13.0; the
-> tag waits on the blockers.
+> and the tracking section in `TODO.md`.
+
+### ⚠️ Upgrading — read this first
+
+Three changes alter behaviour without producing a type error, so none of them is caught
+by recompiling. The first two affect code that ran under **0.12.0**.
+
+- **`Timestamp` and `isValidTimestamp` now mean epoch MILLISECONDS, not an ISO 8601
+  string.** Both signatures WIDENED (`(v: string)` → `(v: unknown)`), and
+  `RuntimeType<T>.check(value: unknown)` never references `T`, so `tsc --strict` reports
+  zero diagnostics — `isValidTimestamp(isoString)` simply returns `false` where it
+  returned `true`. Use **`isValidISOTimestamp`** / **`TimestampISO`** for the string form,
+  or `Date.parse(s)` to convert. As of 0.13.0 the epoch form warns once per process when
+  handed a valid ISO string, naming the replacement.
+- **`tosijs-schema` ≥ 1.5.0 enforces `additionalProperties: false`**, which the battery
+  atoms' output schemas did not account for. An OpenAI-shaped message carrying
+  `refusal`/`annotations` failed with `Output validation failed for 'llmPredictBattery'` —
+  a hard `AgentError`, not a warning. Fixed here. **This affects already-released
+  versions:** 0.12.0 and 0.13.0-beta.1 both declare `tosijs-schema: ^1.4.0`, which
+  resolves to 1.5.x today, so a fresh `npm i` on an older tjs-lang can break with no
+  change on the consumer's side. Upgrading to 0.13.0 is the fix.
+- **VM budgets:** loop bindings (`map`/`filter`/`find`/`reduce`) no longer re-account the
+  loop variable, so per-iteration fuel is size-insensitive again and matches 0.12.x. If
+  you tuned a `fuel` budget against a 0.13.0 beta, it buys MORE work now, not less.
 
 Two bodies of work. **First**, the language stabilised in its own direction: the guiding
 rule became _a form that parses must mean something_, and every construct that parsed

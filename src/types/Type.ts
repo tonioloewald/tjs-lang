@@ -367,7 +367,59 @@ export const TUuid = Type<string>('UUID', (v: unknown) => {
  * `Timestamp.now()` produces. The ISO check is still here as
  * {@link isValidISOTimestamp}.
  */
-export const isValidTimestamp = (v: unknown): boolean => TS.isValid(v)
+let warnedISOTimestamp = false
+
+/**
+ * Warn ONCE when a caller passes a valid ISO 8601 string to the epoch-milliseconds form.
+ *
+ * `Timestamp` and `isValidTimestamp` changed MEANING in 0.13.0 while keeping their names,
+ * and both changes WIDEN the parameter type — `(v: string)` became `(v: unknown)`, and
+ * `RuntimeType<T>.check(value: unknown)` never references `T`. So `tsc --strict` reports
+ * zero diagnostics on `isValidTimestamp(isoString)`: it simply returns `false` where it
+ * returned `true` in 0.12.0, with no error, no recorder entry and nothing in the type
+ * system to notice. That is the worst shape a breaking change can take, and it breaks
+ * against 0.12.0, not merely against the beta.
+ *
+ * A valid ISO string reaching this function is unambiguous evidence of the old contract,
+ * so it is worth saying so out loud — once per process, following the `configure()`
+ * precedent in `lang/runtime.ts`: warn, record, and never let either break the program.
+ */
+function warnISOTimestampOnce(v: unknown): void {
+  if (warnedISOTimestamp) return
+  if (typeof v !== 'string' || !TS.isValidISO(v)) return
+  warnedISOTimestamp = true
+  const msg =
+    'TJS: `Timestamp` / `isValidTimestamp` mean epoch MILLISECONDS as of 0.13.0, not an ' +
+    'ISO 8601 string. This call passed a valid ISO string and got `false`, where 0.12.0 ' +
+    'returned `true`. For the string form use `isValidISOTimestamp` / `TimestampISO`; to ' +
+    'convert, `Date.parse(s)`.'
+  try {
+    console.warn(msg)
+  } catch {
+    // never let the warning break the program
+  }
+  try {
+    ;(globalThis as any).__tjs?.record?.({
+      source: 'type',
+      severity: 'warning',
+      message: msg,
+      data: { value: v },
+    })
+  } catch {
+    // the recorder is advisory; a missing runtime is not an error
+  }
+}
+
+export const isValidTimestamp = (v: unknown): boolean => {
+  const ok = TS.isValid(v)
+  if (!ok) warnISOTimestampOnce(v)
+  return ok
+}
+
+/** Test seam: lets the warn-once state be reset between cases. */
+export const __resetTimestampWarning = (): void => {
+  warnedISOTimestamp = false
+}
 
 /**
  * Is this a valid ISO 8601 timestamp *string* — the readable rendering of a
