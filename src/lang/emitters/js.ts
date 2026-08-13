@@ -228,6 +228,17 @@ export interface TJSTypeInfo {
  * Check if a param used `:` (required) or `=` (optional) in the raw source.
  * Finds the function's param list by name, then looks for `paramName:` vs `paramName =`.
  */
+/**
+ * The hoisted-`var` sentinel proving a declared type's binding has been INITIALISED.
+ *
+ * See the `case 'declared'` guard: `typeof X` throws for a `const` in TDZ, so it could not
+ * be used to ask "is this ready yet". A `var` can — it exists (as `undefined`) from scope
+ * entry, so reading it early is falsy instead of fatal.
+ */
+function sentinelName(typeName: string): string {
+  return `__tjs_has_${typeName.replace(/[^A-Za-z0-9_$]/g, '_')}`
+}
+
 function isParamRequiredInSource(
   source: string,
   funcName: string,
@@ -1171,6 +1182,37 @@ export function transpileToJS(
           }
         }
       }
+    }
+  }
+
+  // Hoisted sentinels for every type declared in this module.
+  //
+  // A `Type`/`Enum`/`Union`/`Generic` emits as `const X = …`, which is in TDZ until the
+  // declaration runs. The parameter guard needs to ask "has this been initialised yet"
+  // WITHOUT touching the binding, because `typeof X` on a `const` in TDZ throws the exact
+  // ReferenceError the guard exists to avoid — a legal JS ordering (calling a function
+  // declared above a type it names, during module evaluation) crashed at module load.
+  //
+  // `var` hoists and initialises to `undefined`, so the sentinel is readable from scope
+  // entry and the guard short-circuits. Emitted immediately AFTER the declaration, so it
+  // only becomes true once the type really exists.
+  for (const typeName of preprocessed.declaredTypes ?? []) {
+    for (const node of program.body as any[]) {
+      const decl =
+        node.type === 'VariableDeclaration'
+          ? node
+          : node.type === 'ExportNamedDeclaration' &&
+            node.declaration?.type === 'VariableDeclaration'
+          ? node.declaration
+          : null
+      if (!decl) continue
+      if (!decl.declarations?.some((d: any) => d.id?.name === typeName))
+        continue
+      insertions.push({
+        position: node.end,
+        text: `\nvar ${sentinelName(typeName)} = true;`,
+      })
+      break
     }
   }
 
@@ -2278,12 +2320,28 @@ function generateTypeCheckExpr(
       // predicate can assume the shape rather than defending itself — and it gets `null`
       // right, which a raw `typeof v === 'object'` does not.
       //
-      // Guarded on the binding existing, because a Type declared AFTER the function that
-      // names it is still in TDZ at call time only if the call happens during module
-      // evaluation; the guard turns a would-be ReferenceError into "unchecked", which
-      // preserves TJS ⊇ JS rather than making a legal ordering illegal.
+      // Guarded on the binding being INITIALISED, because a Type declared after the
+      // function that names it is in TDZ for any call made during module evaluation. The
+      // intent is to degrade to "unchecked" there — a legal JS ordering must not become a
+      // crash (TJS ⊇ JS).
+      //
+      // `typeof X` did NOT do that. `typeof` is only safe for an UNDECLARED identifier; a
+      // declared `const` in TDZ throws `ReferenceError: Cannot access 'X' before
+      // initialization` from the `typeof` itself. So the guard threw the very error it was
+      // written to prevent, at module load, and the comment describing the behaviour sat
+      // directly above the code contradicting it.
+      //
+      // The sentinel is a hoisted `var`, emitted immediately after each declared type (see
+      // `declaredTypeSentinels`). `var` initialises to `undefined` at scope entry, so
+      // reading it before the declaration is falsy rather than fatal, and the check
+      // short-circuits before it can touch the type binding. Zero runtime cost — no
+      // closure, no try/catch on a path that runs per argument per call.
       check = type.typeName
-        ? `(typeof ${type.typeName} !== 'undefined' && !${type.typeName}.check(${fieldPath}))`
+        ? `(typeof ${sentinelName(
+            type.typeName
+          )} !== 'undefined' && ${sentinelName(type.typeName)} && !${
+            type.typeName
+          }.check(${fieldPath}))`
         : null
       break
     case 'any':
