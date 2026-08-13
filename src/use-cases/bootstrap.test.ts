@@ -519,6 +519,57 @@ describe('Bootstrap Canary', () => {
       console.log(`    All results match native implementation`)
     })
 
+    it('the module list covers every local import of the bundled modules', () => {
+      // The strip-comments injection list was made DERIVED (see the header) precisely
+      // because a hand-written list with a "remember to update this" note did not get
+      // updated. The MODULE list is still hand-written, and it bit exactly the same way:
+      // splitting `declaredClassNames` into its own file broke this canary with
+      // "declaredClassNames is not defined" — a message naming the symptom, not the cause.
+      //
+      // Ordering stays manual (the bundle is concatenated, so dependencies come first),
+      // but COMPLETENESS does not have to. This reads what the bundled modules actually
+      // import from `../lang` and fails naming the missing file.
+      //
+      // Some imports are deliberately NOT bundled, so each exclusion is listed WITH ITS
+      // REASON — an unexplained exemption is a silent hole, which is the same rule
+      // `src/docs-index.test.ts` applies to its allowlist.
+      const EXCLUDED: Record<string, string> = {
+        'types.ts':
+          'error classes and type-only declarations; the transpiled bundle never ' +
+          'constructs them on the paths under test',
+        'inference.ts':
+          'acorn-backed engine module — out of scope for a parser-only bundle',
+        'predicate.ts':
+          'acorn-backed engine module; its one needed function, emitVerifiedPredicate, ' +
+          'is injected natively above',
+      }
+      const langDir = path.join(import.meta.dir, '../lang')
+      const listed = [
+        'parser-types.ts',
+        'declared-classes.ts',
+        'parser-params.ts',
+        'parser-transforms.ts',
+        'parser.ts',
+      ]
+      const missing: string[] = []
+      for (const file of listed) {
+        const src = fs.readFileSync(path.join(langDir, file), 'utf-8')
+        for (const m of src.matchAll(
+          /^import\s[\s\S]*?from\s+'\.\/([\w-]+)'/gm
+        )) {
+          const dep = `${m[1]}.ts`
+          if (listed.includes(dep) || dep in EXCLUDED) continue
+          if (fs.existsSync(path.join(langDir, dep))) {
+            missing.push(
+              `${file} imports ./${m[1]} — add '${dep}' to the bundle list, or to ` +
+                `EXCLUDED with a reason`
+            )
+          }
+        }
+      }
+      expect([...new Set(missing)]).toEqual([])
+    })
+
     it('should execute transpiled preprocess to transform TJS syntax', () => {
       const start = performance.now()
 
@@ -526,6 +577,7 @@ describe('Bootstrap Canary', () => {
       const langDir = path.join(import.meta.dir, '../lang')
       const moduleFiles = [
         'parser-types.ts',
+        'declared-classes.ts',
         'parser-params.ts',
         'parser-transforms.ts',
         'parser.ts',
@@ -659,6 +711,7 @@ describe('Bootstrap Canary', () => {
       const langDir = path.join(import.meta.dir, '../lang')
       const moduleFiles = [
         'parser-types.ts',
+        'declared-classes.ts',
         'parser-params.ts',
         'parser-transforms.ts',
         'parser.ts',

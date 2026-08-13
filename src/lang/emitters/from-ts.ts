@@ -31,11 +31,8 @@
  */
 
 import ts from 'typescript'
-import {
-  maskLiterals,
-  maskLiteralsKeepComments,
-  scanLiterals,
-} from '../../strip-comments'
+import { maskLiteralsKeepComments, scanLiterals } from '../../strip-comments'
+import { dropRedundantNew } from '../declared-classes'
 import { emitClassWrapper } from '../runtime'
 
 export interface FromTSOptions {
@@ -3201,28 +3198,4 @@ export function fromTS(
     classes: Object.keys(classMetadata).length > 0 ? classMetadata : undefined,
     warnings: warnings.length > 0 ? warnings : undefined,
   }
-}
-
-/** Rewrite `new X(` to `X(` for every `class X` declared in this source. */
-function dropRedundantNew(code: string): string {
-  const masked = maskLiterals(code)
-  const names = [...masked.matchAll(/\bclass\s+([A-Z][A-Za-z0-9_$]*)/g)].map(
-    (m) => m[1]
-  )
-  if (!names.length) return code
-  let out = code
-  for (const n of names) {
-    // Literal-aware: rebuilt from the masked view so a `new X(` inside a string or a
-    // comment (this repo's dominant defect class) is left alone.
-    const re = new RegExp(`(?<![A-Za-z0-9_$.])\\bnew\\s+${n}\\s*\\(`, 'g')
-    let result = ''
-    let last = 0
-    for (const m of maskLiterals(out).matchAll(re)) {
-      const i = m.index!
-      result += out.slice(last, i) + `${n}(`
-      last = i + m[0].length
-    }
-    out = result + out.slice(last)
-  }
-  return out
 }

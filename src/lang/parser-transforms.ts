@@ -7,6 +7,7 @@
 
 import { SyntaxError } from './types'
 import { maskLiterals, isEscapedAt, scanLiterals } from '../strip-comments'
+import { declaredClassNames } from './declared-classes'
 
 /**
  * Extract a brace-balanced value from source after a regex match.
@@ -4496,9 +4497,10 @@ export function validateNoVar(source: string): string {
  */
 export function validateNoNew(source: string): string {
   const masked = maskLiterals(source)
-  const declared = [...masked.matchAll(/\bclass\s+([A-Z][A-Za-z0-9_$]*)/g)].map(
-    (m) => m[1]
-  )
+  // ONE definition of "declared class", shared with the converter's rewriter. They were
+  // two regexes that disagreed about the paren-less form, so `tjs convert` emitted
+  // `const p = new Point;` and `tjs check` then rejected it — see `declared-classes.ts`.
+  const declared = declaredClassNames(source, masked)
   if (declared.length === 0) return source
 
   for (const name of declared) {
@@ -4506,7 +4508,10 @@ export function validateNoNew(source: string): string {
       source,
       masked,
       new RegExp(`(?<![a-zA-Z_$.])\\bnew\\s+${name}\\b`),
-      `\`new ${name}()\` is not allowed in TJS — a class is CALLED, so \`${name}(…)\` does exactly what \`new ${name}(…)\` does and returns the same object. Drop the keyword. To construct deliberately: \`unsafe new ${name}(…)\`.`
+      // Quote the CALL form as the fix, not as the source: the diagnostic used to say
+      // "`new Point()` is not allowed" for source that reads `new Point`, which sends the
+      // reader looking for a call site that is not there.
+      `\`new ${name}\` is not allowed in TJS — a class is CALLED, so \`${name}(…)\` does exactly what \`new ${name}(…)\` does and returns the same object. Drop the keyword. To construct deliberately: \`unsafe new ${name}(…)\`.`
     )
   }
   return source

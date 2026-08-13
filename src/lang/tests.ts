@@ -37,7 +37,6 @@
  */
 
 import {
-  isInsideComment as sharedIsInsideComment,
   maskLiteralsKeepComments,
   maskLiterals,
   commentRanges,
@@ -68,19 +67,17 @@ export interface TestExtractionResult {
 }
 
 /**
- * Check if a position in source is inside a comment.
+ * Comment detection is now done via `commentRanges` in `extractTests`, hoisted out of the
+ * per-match loop — see the comment there.
  *
- * Delegates to the shared string/regex-aware scanner. The hand-rolled version this
- * replaces counted `/*` and `*\/` from the top of the file with no notion of string
- * literals, so `const OPEN = '/*'` — or the ordinary glob `'**\/*.ts'`, or a line comment
- * that merely MENTIONED `/*` — convinced it the rest of the file was one giant comment.
- * Every `test { }` block after that point was then dropped, with no error, no warning and
- * no recorder entry: the file simply reported zero tests. For a language whose thesis is
- * that tests live in the source, silently reporting none is the worst available failure.
+ * The local wrapper this replaces delegated to the shared scanner, which was itself a fix:
+ * the hand-rolled version before it counted `/*` and `*\/` from the top of the file with
+ * no notion of string literals, so `const OPEN = '/*'` — or the ordinary glob
+ * `'**\/*.ts'` — convinced it the rest of the file was one giant comment, and every
+ * `test { }` block after that point was silently dropped. For a language whose thesis is
+ * that tests live in the source, reporting zero tests without a word is the worst
+ * available failure.
  */
-function isInsideComment(source: string, pos: number): boolean {
-  return sharedIsInsideComment(source, pos)
-}
 
 /**
  * Recover a capture group's text from the ORIGINAL source.
