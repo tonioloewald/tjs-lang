@@ -19,26 +19,23 @@ import {
   rewriteEsmShBody,
   ESM_SH,
 } from '../src/import-resolver/resolve'
+import { reclaimPort } from '../src/cli/port'
 
 const VERSION = pkg.version
 
 const PORT = 8699 // Homage to Agent-99
 
-// Kill any existing process on our port
-async function killExistingServer() {
-  try {
-    const result = await $`lsof -ti:${PORT}`.quiet()
-    const pids = result.text().trim().split('\n').filter(Boolean)
-    for (const pid of pids) {
-      console.log(`Killing existing process on port ${PORT} (PID: ${pid})`)
-      await $`kill -9 ${pid}`.quiet()
-    }
-  } catch {
-    // No process on port, that's fine
-  }
+// Make the port available, or explain and stop.
+//
+// This was a byte-identical copy of the playground's `kill -9 $(lsof -ti:PORT)`, and it
+// had the same defect: no `-sTCP:LISTEN`, so a browser CLIENT connected to the dev server
+// matched and was SIGKILLed. The dev server reclaims by default (`--force` is the
+// developer's own repeated `bun run dev`), but only from a JS runtime, and politely.
+const reclaimed = await reclaimPort(PORT, { force: true, label: 'dev server' })
+if (!reclaimed.free) {
+  console.error(reclaimed.message)
+  process.exit(1)
 }
-
-await killExistingServer()
 const DEMO_DIR = './demo'
 const DOCS_DIR = './.demo'
 const SRC_DIR = './src'

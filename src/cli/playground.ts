@@ -10,6 +10,7 @@
 import { watch } from 'fs'
 import { join } from 'path'
 import { $ } from 'bun'
+import { reclaimPort, validPort } from './port'
 
 const DEFAULT_PORT = 8699 // Homage to Agent-99
 
@@ -23,10 +24,15 @@ Options:
   -p, --port <port>   Port to serve on (default: ${DEFAULT_PORT})
   -h, --help          Show this help message
   --no-watch          Don't watch for file changes
+  --force             Stop an EARLIER PLAYGROUND still holding the port.
+                      Without this, an occupied port is reported and nothing is
+                      killed. A port held by anything that is not a JS runtime is
+                      never touched, with or without --force.
 
 Examples:
   tjs-playground
   tjs-playground --port 3000
+  tjs-playground --force
 `
 
 async function main() {
@@ -40,6 +46,10 @@ async function main() {
   // Parse port
   const portIdx = args.findIndex((a) => a === '-p' || a === '--port')
   const port = portIdx !== -1 ? parseInt(args[portIdx + 1], 10) : DEFAULT_PORT
+  if (!validPort(port)) {
+    console.error(`Invalid --port value: ${args[portIdx + 1]}`)
+    process.exit(1)
+  }
 
   const noWatch = args.includes('--no-watch')
 
@@ -71,16 +81,16 @@ async function main() {
     await buildDocs(rootDir)
   }
 
-  // Kill any existing process on our port
-  try {
-    const result = await $`lsof -ti:${port}`.quiet()
-    const pids = result.text().trim().split('\n').filter(Boolean)
-    for (const pid of pids) {
-      console.log(`Killing existing process on port ${port} (PID: ${pid})`)
-      await $`kill -9 ${pid}`.quiet()
-    }
-  } catch {
-    // No process on port
+  // Make the port available, or explain and stop. This used to `kill -9` whatever
+  // `lsof -ti:PORT` returned — which includes CLIENTS, so a browser tab open on the
+  // playground got its network process killed. See `reclaimPort`.
+  const reclaimed = await reclaimPort(port, {
+    force: args.includes('--force'),
+    label: 'playground',
+  })
+  if (!reclaimed.free) {
+    console.error(reclaimed.message)
+    process.exit(1)
   }
 
   // Build function
