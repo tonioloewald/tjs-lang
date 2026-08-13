@@ -202,7 +202,52 @@ export interface LiteralRegion {
  * mention the syntax the scanner is scanning for — which source-processing code does
  * constantly, because it is code about code.
  */
+/**
+ * Bounded memo, keyed by the exact source string.
+ *
+ * Consolidating fifteen hand-rolled literal scanners onto this one was the right
+ * correctness call and nothing memoized the result: one transpile calls it 175 times over
+ * ~35 distinct strings — 91% redundant, ~745KB rescanned, 17% of total transpile time.
+ * Callers legitimately ask repeatedly (each transform masks the source it was handed), and
+ * telling every caller to hoist is the coordination problem this module exists to remove.
+ *
+ * There is NO staleness surface: the function is pure, so the same string always has the
+ * same regions. The only cost is memory, which is why the cache is bounded and evicts in
+ * insertion order rather than growing with every string a long-lived process ever sees.
+ */
+const SCAN_CACHE_MAX = 24
+const scanCache = new Map<string, LiteralRegion[]>()
+
+/** Drop the memo. Exposed for benchmarks and for hosts that want the memory back. */
+export function clearLiteralCache(): void {
+  scanCache.clear()
+}
+
 export function scanLiterals(source: string): LiteralRegion[] {
+  const hit = scanCache.get(source)
+  if (hit) {
+    // Refresh recency so a string used throughout a transpile is not evicted by a burst
+    // of one-off scans.
+    scanCache.delete(source)
+    scanCache.set(source, hit)
+    return hit
+  }
+  // FROZEN, because the array is now shared between every caller for a given string.
+  // Two exported wrappers hand it straight back, so a caller that sorted or spliced it
+  // would silently corrupt the answer every later caller receives — a cache-poisoning
+  // bug with no symptom at the mutation site. Frozen, that becomes an immediate throw.
+  const computed = Object.freeze(
+    scanLiteralsUncached(source)
+  ) as LiteralRegion[]
+  if (scanCache.size >= SCAN_CACHE_MAX) {
+    const oldest = scanCache.keys().next().value
+    if (oldest !== undefined) scanCache.delete(oldest)
+  }
+  scanCache.set(source, computed)
+  return computed
+}
+
+function scanLiteralsUncached(source: string): LiteralRegion[] {
   const regions: LiteralRegion[] = []
   let i = 0
   let sigTail = ''
