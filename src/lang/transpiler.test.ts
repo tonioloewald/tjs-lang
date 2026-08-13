@@ -245,7 +245,13 @@ function greet(name: 'world') {
       const result = transpileToJS(`
         const add = (! a: 0, b: 0) => a + b
       `)
-      expect(result.code).toContain('(/* unsafe */ a = 0,b = 0) => a + b')
+      // `a = 0,b = 0` is what this asserted before, and it was the BUG: arrows were
+      // parsed with `trackRequired: false`, so the colon EXAMPLE survived as a JS
+      // default and `add()` returned 0 while the identical `function` form returned a
+      // MonadicError. `:` means required in every parameter shape, so the example must
+      // not become a default here either.
+      expect(result.code).toContain('(/* unsafe */ a,b) => a + b')
+      expect(result.code).toContain('"required": true')
       expect(result.code).not.toContain('!')
     })
 

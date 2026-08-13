@@ -93,3 +93,86 @@ describe('arrow and function-expression params are validated', () => {
 function f_call(m: Record<string, any>, arg: unknown): unknown {
   return m.f(arg)
 }
+
+/**
+ * An arrow is a function declaration by another spelling, and the two must agree.
+ *
+ * This file's original premise — "the control and the subject must agree" — was right, and
+ * it contained NO ZERO-ARGUMENT CALL anywhere, so the disagreement it existed to catch was
+ * invisible to it:
+ *
+ *     function g(n: 0) { … }      g()  ->  MonadicError      (`:` means required)
+ *     const f = (n: 0) => …       f()  ->  0                 (example became a default)
+ *
+ * Arrows were parsed with `trackRequired: false`, so the colon EXAMPLE silently became a
+ * JS DEFAULT — contradicting the language's central rule in the parameter shape most
+ * TypeScript actually uses. Separately, an arrow's `: T` return annotation was parsed by
+ * the preprocessor and thrown away: no `returns` metadata, no `:?` validation.
+ *
+ * Every test below calls with MISSING or WRONG arguments, because that is the only place
+ * "required" and "validated" are observable.
+ */
+describe('arrows and declarations agree about required parameters', () => {
+  const load = (src: string, name: string) =>
+    new Function(
+      `${tjs(src, { filename: 'p.tjs', runTests: false }).code}\nreturn ${name}`
+    )()
+
+  const FORMS: Array<[string, string]> = [
+    ['declaration', 'function subject(n: 0) { return n * 2 }'],
+    ['arrow', 'const subject = (n: 0) => n * 2'],
+    ['arrow with block body', 'const subject = (n: 0) => { return n * 2 }'],
+    ['function expression', 'const subject = function (n: 0) { return n * 2 }'],
+    ['async arrow', 'const subject = async (n: 0) => n * 2'],
+  ]
+
+  for (const [label, src] of FORMS) {
+    it(`${label}: a missing required argument is an error`, async () => {
+      const fn = load(src, 'subject')
+      expect(String(await fn())).toContain('Expected integer')
+    })
+
+    it(`${label}: a wrong-typed argument is an error`, async () => {
+      const fn = load(src, 'subject')
+      expect(String(await fn('x'))).toContain('Expected integer')
+    })
+
+    it(`${label}: a valid argument passes through`, async () => {
+      // The control. A form that rejected everything would satisfy both tests above.
+      expect(await load(src, 'subject')(3)).toBe(6)
+    })
+  }
+
+  it('`=` still means optional, in an arrow too', () => {
+    // The other direction: widening `:` to required must not drag `=` along with it.
+    expect(load('const f = (n = 5) => n * 2', 'f')()).toBe(10)
+  })
+})
+
+describe('an arrow return annotation is not thrown away', () => {
+  const load = (src: string, name: string) =>
+    new Function(
+      `${tjs(src, { filename: 'p.tjs', runTests: false }).code}\nreturn ${name}`
+    )()
+
+  it('produces `returns` metadata', () => {
+    const h = load('const h = (n: 0): 0 => n * 2', 'h')
+    expect(h.__tjs?.returns?.type?.kind).toBe('integer')
+  })
+
+  it('`:?` validates the return value', () => {
+    const bad = load("const bad = (n: 0):? 0 => 'not a number'", 'bad')
+    expect(String(bad(1))).toContain('Expected integer')
+  })
+
+  it('`:?` lets a correct return through', () => {
+    expect(load('const good = (n: 0):? 0 => n * 2', 'good')(2)).toBe(4)
+  })
+
+  it('survives a parameter default containing a paren', () => {
+    // The old extractor was `function\\s+NAME\\s*\\([^)]*\\)` — `[^)]*` cannot cross the
+    // `)` in `Math.max(1, 2)`, so the annotation was missed even for named functions.
+    const f = load('const f = (n = Math.max(1, 2)): 0 => n', 'f')
+    expect(f.__tjs?.returns?.type?.kind).toBe('integer')
+  })
+})

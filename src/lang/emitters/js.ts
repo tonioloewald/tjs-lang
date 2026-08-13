@@ -89,6 +89,7 @@ import {
   typeNameExample,
 } from '../inference'
 import { FORBIDDEN_KEYS } from '../../forbidden-keys'
+import { maskLiterals } from '../../strip-comments'
 import { extractTests } from '../tests'
 import {
   runAllTests,
@@ -239,22 +240,6 @@ function sentinelName(typeName: string): string {
   return `__tjs_has_${typeName.replace(/[^A-Za-z0-9_$]/g, '_')}`
 }
 
-function isParamRequiredInSource(
-  source: string,
-  funcName: string,
-  paramName: string
-): boolean {
-  if (!source || !funcName) return false
-  // Find the function declaration and its param list
-  const funcPattern = new RegExp(
-    `function\\s+${funcName}\\s*\\([^)]*?\\b${paramName}\\s*([=:])`,
-    's'
-  )
-  const match = source.match(funcPattern)
-  if (!match) return false
-  return match[1] === ':'
-}
-
 /**
  * Extract type info for a single function declaration
  */
@@ -346,15 +331,21 @@ function extractFunctionTypeInfo(
         param.left.type === 'Identifier'
       ) {
         const paramInfo = parseParameter(param, localRequired)
-        // Determine if this param used `:` (required) or `=` (optional).
-        // The global requiredParams set is name-based, which fails when
-        // two functions share a param name with different syntax.
-        // Use the raw input source to check the actual syntax.
-        const isRequired = isParamRequiredInSource(
-          inputSource || '',
-          func.id?.name || '',
-          param.left.name
-        )
+        // Did this param use `:` (required) or `=` (optional)?
+        //
+        // This used to re-read the ORIGINAL source with a regex anchored on
+        // `function NAME(`, because the module-wide `requiredParams` set was name-keyed
+        // and could not tell two functions apart. That regex could not match an ARROW at
+        // all, so `const f = (n: 0) => …` was always "not required": the colon example
+        // silently became a JS default and `f()` returned 0 where the identical
+        // `function g(n: 0)` returned a MonadicError. It was also `[^)]*?`-bounded and
+        // literal-blind, so a default containing `)` broke it.
+        //
+        // `localRequired` is the same channel, now keyed by name AND value text and
+        // narrowed to this function (see B1). It works for declarations, arrows, function
+        // expressions and methods alike, because it asks the parser rather than
+        // re-guessing from source shape.
+        const isRequired = localRequired.has(param.left.name)
         params[param.left.name] = {
           ...paramInfo,
           required: isRequired,
@@ -704,25 +695,69 @@ function transformReturnDefaults(str: string): string {
 }
 
 /**
- * Extract the return type string for a specific function from source
- * Returns null if no return type found
+ * Locate a named function's signature — declaration, arrow, or function expression — and
+ * return the `:` return annotation that follows its parameter list.
+ *
+ * This replaces two regexes that were both anchored on `function\s+NAME\s*\([^)]*\)`,
+ * and so shared two defects:
+ *
+ *   - An ARROW never matched. `const h = (n: 0): 0 => n * 2` got no `returns` metadata,
+ *     no signature test, and no `:?` return wrapper — the annotation was parsed by the
+ *     preprocessor and thrown away, silently. Arrows are most of real TypeScript.
+ *   - `[^)]*` cannot cross a `)`, so a default containing one (`(a = f(1)): 0`) ended the
+ *     match early and the annotation was missed. It was also literal-blind.
+ *
+ * Scans a MASKED view so a signature quoted in a string or comment is not one, and matches
+ * the parameter list by balanced parens rather than by "characters that are not `)`".
  */
+function findSignatureReturn(
+  source: string,
+  funcName: string
+): { type: string | null; safety: 'safe' | 'unsafe' | undefined } {
+  const masked = maskLiterals(source)
+  const escaped = funcName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+  // `function NAME(` or `const/let/var NAME = (` — the second covers arrows and function
+  // expressions alike, since both put the parameter list right after the `=`.
+  const anchor = new RegExp(
+    `(?:function\\s+${escaped}\\s*\\(|(?:const|let|var)\\s+${escaped}\\s*=\\s*(?:async\\s*)?(?:function\\s*)?\\()`,
+    'g'
+  )
+  const m = anchor.exec(masked)
+  if (!m) return { type: null, safety: undefined }
+
+  // Balanced scan from the opening paren.
+  let depth = 1
+  let i = m.index + m[0].length
+  while (i < masked.length && depth > 0) {
+    const c = masked[i]
+    if (c === '(') depth++
+    else if (c === ')') depth--
+    i++
+  }
+  if (depth !== 0) return { type: null, safety: undefined }
+
+  while (i < masked.length && /\s/.test(masked[i])) i++
+  if (masked[i] !== ':') return { type: null, safety: undefined }
+  i++
+  let safety: 'safe' | 'unsafe' | undefined
+  if (masked[i] === '?') {
+    safety = 'safe'
+    i++
+  } else if (masked[i] === '!') {
+    safety = 'unsafe'
+    i++
+  }
+  while (i < masked.length && /\s/.test(masked[i])) i++
+  // Read the example from the ORIGINAL source — masking blanks literal contents, and a
+  // return example is very often a literal.
+  return { type: extractReturnExampleFromSource(source.slice(i)), safety }
+}
+
 function extractFunctionReturnType(
   source: string,
   funcName: string
 ): string | null {
-  // Match: function funcName(params): returnExample {
-  // or: function funcName(params):? returnExample {
-  // or: function funcName(params):! returnExample {
-  const regex = new RegExp(
-    `function\\s+${funcName}\\s*\\([^)]*\\)\\s*(:[?!]?)\\s*`,
-    'g'
-  )
-  const match = regex.exec(source)
-  if (!match) return null
-
-  const afterMarker = source.slice(match.index + match[0].length)
-  return extractReturnExampleFromSource(afterMarker)
+  return findSignatureReturn(source, funcName).type
 }
 
 /**
@@ -733,17 +768,7 @@ function extractFunctionReturnSafety(
   source: string,
   funcName: string
 ): 'safe' | 'unsafe' | undefined {
-  const regex = new RegExp(
-    `function\\s+${funcName}\\s*\\([^)]*\\)\\s*:([?!]?)`,
-    'g'
-  )
-  const match = regex.exec(source)
-  if (!match) return undefined
-
-  const marker = match[1]
-  if (marker === '?') return 'safe'
-  if (marker === '!') return 'unsafe'
-  return undefined // : is the default, no special safety flag
+  return findSignatureReturn(source, funcName).safety
 }
 
 /**
@@ -1134,6 +1159,25 @@ export function transpileToJS(
             Boolean((func as any).async)
           )
         : null
+
+    // The wrapper rebinds the name, so a `const`-declared arrow has to become `let`.
+    //
+    // `NAME = function (...__a) {…}` is fine for a function DECLARATION (mutable binding)
+    // and a TypeError for a `const`. Until arrow return annotations were read, this path
+    // could not be reached by an arrow at all, so it crashed the moment it began working —
+    // "Attempted to assign to readonly property". Widening the keyword is confined to
+    // arrows that actually get a return wrapper, and only in the EMITTED JavaScript: TJS
+    // immutability is a compile-time property (`const!`), enforced before this point.
+    if (returnWrapper && (func as any).__declKind === 'const') {
+      const at = (func as any).__declStart as number
+      if (
+        typeof at === 'number' &&
+        preprocessed.source.startsWith('const', at)
+      ) {
+        deletions.push({ start: at, end: at + 'const'.length })
+        insertions.push({ position: at, text: 'let' })
+      }
+    }
 
     // Queue insertion of __tjs after function closing brace — or, for a named arrow,
     // after the `const` statement that binds it (see `__metaEnd`).
@@ -1745,6 +1789,13 @@ function findAllFunctions(program: Program): FunctionDeclaration[] {
       if (!init.id) init.id = d.id
       init.__metaEnd = stmtEnd
       init.__exprBody = init.body?.type !== 'BlockStatement'
+      // Where the binding was declared, and with what keyword. The return-safety wrapper
+      // rebinds the name (`NAME = function (...) {…}`), which a `const` forbids — and
+      // that path was unreachable for arrows until their return annotations started being
+      // read, so it crashed the moment it started working. Recorded here so the emitter
+      // can widen `const` to `let` for exactly the arrows that get wrapped.
+      init.__declKind = decl.kind
+      init.__declStart = decl.start
       functions.push(init as FunctionDeclaration)
     }
   }

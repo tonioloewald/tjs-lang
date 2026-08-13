@@ -630,8 +630,15 @@ export function transformParenExpressions(
           params = trimmedContent.slice(1)
         }
 
-        // Process the params
-        const processedParams = processParamString(params, ctx, false)
+        // Process the params, TRACKING REQUIRED — arrows follow the same rule as
+        // declarations, and used not to.
+        //
+        // With `trackRequired: false`, `const f = (n: 0) => n * 2` recorded nothing, so
+        // the emitter left `n = 0` in place and `f()` returned 0 while the identical
+        // `function g(n: 0)` returned a MonadicError. The colon value silently became a
+        // JS DEFAULT, which contradicts the language's central rule (`:` is required, `=`
+        // is defaulted) in the parameter shape most TypeScript actually uses.
+        const processedParams = processParamString(params, ctx, true)
         // Add safety marker as comment for arrow functions (since we can't track them by name)
         const safetyComment =
           safetyMarker === '?'
