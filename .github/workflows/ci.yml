@@ -66,3 +66,23 @@ jobs:
       - name: Build
         if: always()
         run: bun run make
+
+      # `make` REGENERATES committed artifacts, so running it and not looking at
+      # the result proves only that the build does not crash. `demo/docs.json`
+      # was demonstrably stale at 0.13.0-beta.1 — twelve documents behind HEAD,
+      # shipping claims the repo had already corrected — with this exact step
+      # running green above it.
+      #
+      # `code-quality.md` and `state-and-schema.md` both prescribe
+      # `git diff --exit-code` on the generated set. This is that.
+      - name: Generated artifacts are current
+        if: always()
+        run: |
+          if ! git diff --exit-code -- \
+            demo/docs.json \
+            'editors/**/*.js' \
+            'editors/**/*.d.ts' \
+            editors/vscode/syntaxes; then
+            echo "::error::'bun run make' changed committed artifacts. Run it locally and commit the result."
+            exit 1
+          fi

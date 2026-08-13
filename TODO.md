@@ -2800,16 +2800,52 @@ majors are next, then a re-review.
       (`ps -p PID -o comm=` must be bun/node), SIGTERM with grace before SIGKILL, and
       **default to complaining rather than killing** (`--force` to reclaim). Document it.
 
-### Majors and below
+### Majors — code majors DONE (2026-08-13)
 
-20 confirmed majors and ~25 minor/nit leads are itemised in the report, including: a TDZ
-crash in the declared-type guard (`typeof X !== 'undefined'` throws for a `const`-declared
-type), generated `.d.ts` no longer compiling under `tsc`, `tjs convert` emitting TJS that
-`tjs check` rejects, an un-memoized literal scanner tripling transpile cost, VM fuel up
-30–120% on unchanged loops, and `Timestamp` silently inverted.
+All correctness, efficiency, DX and blast-radius majors are fixed. Several were larger
+than filed; each fix carries a guard that fails without it.
+
+- [x] **Correctness (5).** ASI spliced a `;` into template-literal CONTENTS (`` `a\n` ``
+      evaluated to `"a\n;"`); `test { }` bodies truncated at a `}` in a regex or comment so
+      the runner reported `passed: true` having run no assertion; `tjs convert` emitted TJS
+      `tjs check` rejects (two implementations of one rule, now one module); the
+      declared-type TDZ guard threw the ReferenceError it existed to prevent; arrows did
+      not enforce `:` as required and discarded their return annotation.
+- [x] **Efficiency (4).** `extractTests` 6.89 → 0.84ms; `dropRedundantNew` 75.6 → 0.7ms
+      (108×); `generateDocs` 539 → 31.9ms at 534KB and now LINEAR; `scanLiterals` memoized
+      (transpile 14–47% faster). VM loop fuel back to 101.2 flat, matching v0.13.0-beta.1
+      exactly — and the accounting was wrong, not merely slow (a loop variable aliases the
+      array being iterated, so charging for it double-counted).
+- [x] **DX (3).** Generated `.d.ts` now compiles under `tsc` with `skipLibCheck: false`
+      (was TS2749/TS2552/TS2304); the `Timestamp` meaning flip warns once naming its
+      replacement; `tjs --version` reported **0.6.45** from a 0.13.0 package, and
+      `--max-warnings` was in no help text.
+- [x] **Blast radius (1).** CHANGELOG now opens with "Upgrading — read this first",
+      covering the Timestamp flip, the `tosijs-schema` `additionalProperties` breakage
+      (which affects ALREADY RELEASED versions via floating `^1.4.0`), and the VM budget
+      change.
+- [x] **CI artifact-drift gate.** CI ran `bun run make` and never checked whether it
+      CHANGED anything, which proves only that the build does not crash — with
+      `demo/docs.json` twelve documents stale underneath it. Now `git diff --exit-code` on
+      the generated set, as `code-quality.md` prescribes.
+
+### Practices findings — for the shared repo, not this one
+
+Four findings route to `../tosijs-coding-practices` rather than here, and are NOT resolved:
+
+- [ ] Lens-8 write-back predates 55 commits (`practices/review.md:402` requires it to
+      postdate the last blocker-remediation wave).
+- [ ] Two practices docs still say tjs-lang has no CI (`practices/00-stack.md:122`,
+      `practices/review.md:11-19`, plus `practices/model-priors.md:281`). It has TWO gates
+      with deliberately different coverage and nothing enumerates both.
+- [ ] `grep -rin ratchet` over the whole practices repo returns ZERO hits — the
+      count-vs-rate lesson (a floor over a growing corpus reads growth as regression) is
+      recorded nowhere shared.
+- [ ] No shared guidance on compiling doc snippets as a test; the only doc-snippet
+      material is about fence tags.
 
 **The coverage lens returned NO findings** — the report flags this as a completeness gap
-rather than a clean bill of health. Worth re-running that lens alone.
+rather than a clean bill of health. Re-run that lens alone before tagging.
 
 ## Language
 
