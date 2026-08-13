@@ -2720,6 +2720,46 @@ the `introspection-autocomplete` memory.
 - [ ] Auto-discover and build local dependencies in module resolution
 - [ ] **Wire `ModuleLoader` into the playground's `tjs()` invocation** for transpile-time cross-file `wasm function` composition (Phase 3 of the wasm-library plan). Today the playground resolves imports at runtime via the local-module store — correct but uses the "boundary form" with a JS↔wasm crossing per call. With a ModuleLoader, imported `wasm function`s would be composed into the consumer's own `WebAssembly.Module` at transpile time, enabling wasm-to-wasm calls (single-digit nanosecond per-call cost). The `wasm-library-consumer.md` example flags this as a known gap. See `src/lang/module-loader.ts` (already shipped) and `wasm-library-plan.md` § Phase 3.
 
+## 0.13.0 re-review (2026-08-13) — BLOCK cleared, 3 red tests OPEN
+
+Second review, base `af46fa2`, depth full: **63 findings, 2 blockers**. Both blockers were
+introduced by the FIRST round of fixes and are now closed (`fa34dfa`). Report:
+`/private/tmp/.../tasks/wto03qrmu.output` — copy it into `docs/reviews/` before it ages out.
+
+### Open — three red tests, all about EXCESS KEYS, pre-existing at `4c2a289`
+
+Verified by stash: they fail without the blocker fixes, so they are not from that work.
+They are one question asked twice, and the two tests want OPPOSITE answers:
+
+- [ ] `type-identity.test.ts` — "inline stub and real runtime agree on Pt" and "the stub is
+      never STRICTER than the real runtime". The inline stub REJECTS `{x:1,y:1,z:9}`
+      (excess key `z`); the real `Type` runtime ACCEPTS it. Not in `KNOWN_DISAGREEMENTS`.
+- [ ] `declared-type-annotation.test.ts` — "a NON-empty example still closes the object"
+      expects `Error(Point)` and gets `1`, i.e. it wants the excess key REJECTED.
+
+So one guard says the two mechanisms must agree (and the real one is permissive), while
+another says a non-empty example must close the shape. **Deciding which is right is a
+language decision, not a test fix**, and `docs/type-identity.md` is where the answer
+belongs once made. Do NOT widen `KNOWN_DISAGREEMENTS` to make the red go away — that
+reserves slack a future regression can occupy silently.
+
+### Structural gap the review named, still open
+
+- [ ] **Neither `test:fast` NOR CI can see a dogfood ratchet failure.** Both gate on
+      `SKIP_BENCHMARKS`, which `test:fast` sets and CI inherits. That is how the pre-tag
+      gate went red for a whole round of fixes without anything saying so. Either run the
+      ratchets in their own CI lane or stop gating them on the benchmark flag.
+
+### 14 majors from the re-review, not yet worked
+
+Including: literal-union params make `tjs check` exit 1 on the CHANGELOG's own example
+(`extractParamExamples` evaluates `'yes' | 'no'` as a bitwise OR → `0`); generated `.d.ts`
+declares a call signature the runtime lacks; `--force` SIGKILLs any bun/node/deno listener
+while `--help` promises it only stops "an earlier playground"; the "⚠️ Upgrading" box
+enumerates three silent changes and omits two worse ones; `findSignatureReturn`
+reintroduces O(F×N) re-masking that three commits this release removed; issue #4 is fixed
+by this release, still open, and our most recent public comment says the opposite.
+
 ## 0.13.0 pre-release review — blockers CLEARED (2026-08-13)
 
 Full report, with repro steps and verified evidence for every item:
