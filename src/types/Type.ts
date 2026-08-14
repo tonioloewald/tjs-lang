@@ -79,6 +79,53 @@ export function isRuntimeType(value: unknown): value is RuntimeType {
 /**
  * Check if a value is a tosijs-schema builder (has .schema property)
  */
+/**
+ * Re-open every object in a schema INFERRED FROM AN EXAMPLE.
+ *
+ * `s.infer({x: 0, y: 0})` emits `additionalProperties: false`, and tosijs-schema 1.5.0
+ * began enforcing it — so a declared type silently started rejecting values carrying an
+ * extra key. That is the wrong direction for TJS (decided 2026-08-14): TypeScript's
+ * excess-property check is a freshness lint on object literals, not a property of the
+ * type, and there is no `Exact<T>` to opt into, so a runtime check that closes the shape
+ * is stricter than anything the type system it mirrors can express.
+ *
+ * Applied ONLY where the schema came from an example. A schema the author WROTE — a
+ * builder or a literal JSON Schema passed to `Type()` — says what it means, so
+ * `additionalProperties: false` there is a deliberate choice and is left alone.
+ *
+ * Not applied to agent input schemas either (`parametersToJsonSchema`), which close on
+ * purpose: those describe a call boundary, and an undeclared argument there is a caller
+ * error rather than a passenger.
+ *
+ * The reason this needed finding twice: the first measurement was taken against a drifted
+ * `node_modules` holding five copies of the schema library, where the loaded copy did not
+ * enforce the flag. Deduplicating the install changed the answer.
+ */
+export function openInferredShapes(schema: any): any {
+  // CLONES rather than mutating. `strip()` needs the CLOSED schema — stripping is an
+  // explicit request to remove extra fields, which is the opposite of implicitly
+  // rejecting them, and mutating in place silently disabled it.
+  const clone =
+    typeof structuredClone === 'function'
+      ? structuredClone(schema?.schema ?? schema)
+      : JSON.parse(JSON.stringify(schema?.schema ?? schema))
+  const walk = (node: any): void => {
+    if (!node || typeof node !== 'object') return
+    if (Array.isArray(node)) {
+      node.forEach(walk)
+      return
+    }
+    if (node.type === 'object' && node.additionalProperties === false) {
+      node.additionalProperties = true
+    }
+    for (const key of Object.keys(node)) walk(node[key])
+  }
+  walk(clone)
+  // The builder keeps the JSON Schema on `.schema`; hand back a wrapper carrying the
+  // opened copy so `validate()` sees it, while the original stays closed for `strip()`.
+  return schema?.schema ? { ...schema, schema: clone } : clone
+}
+
 function isSchemaBuilder(value: unknown): value is Base<any> {
   return (
     value !== null &&
@@ -114,6 +161,8 @@ export function Type<T = unknown>(
   let description: string
   let predicate: ((value: unknown) => boolean | string) | undefined
   let schema: Schema | undefined
+  /** The un-opened schema, kept so `strip()` can still remove extra fields. */
+  let closedSchema: Schema | undefined
   let example: T | undefined = exampleArg
   let defaultValue: T | undefined = defaultArg
 
@@ -128,14 +177,16 @@ export function Type<T = unknown>(
       ) => boolean | string
       // If we have example, infer schema from it for the type guard in predicate
       if (example !== undefined) {
-        schema = s.infer(example)
+        closedSchema = s.infer(example)
+        schema = openInferredShapes(closedSchema)
       }
     } else if (
       predicateOrSchemaOrExample === undefined &&
       example !== undefined
     ) {
       // Type(description, undefined, example, default?) - example provides schema
-      schema = s.infer(example)
+      closedSchema = s.infer(example)
+      schema = openInferredShapes(closedSchema)
     } else if (isSchemaBuilder(predicateOrSchemaOrExample)) {
       // Type(description, schemaBuilder)
       schema = predicateOrSchemaOrExample
@@ -147,7 +198,8 @@ export function Type<T = unknown>(
       // This is the simple form: Type('Name', 'Alice')
       example = predicateOrSchemaOrExample as T
       defaultValue = example // In simple form, example IS the default
-      schema = s.infer(example)
+      closedSchema = s.infer(example)
+      schema = openInferredShapes(closedSchema)
     } else {
       throw new Error(
         'Type(description) requires a predicate, schema, or example'
@@ -217,8 +269,12 @@ export function Type<T = unknown>(
       return { description }
     },
     strip(value: unknown): unknown {
-      if (schema) {
-        return schemaFilter(value, schema)
+      // The CLOSED schema, deliberately. `check()` tolerates extra keys (they are fine in
+      // TJS); `strip()` is the caller explicitly asking for them to be removed, and it
+      // cannot do that against a schema that permits them.
+      const stripSchema = closedSchema ?? schema
+      if (stripSchema) {
+        return schemaFilter(value, stripSchema)
       }
       // No schema — can't strip, return as-is
       return value

@@ -9,6 +9,15 @@ const version = pkg.version
 
 console.log(`Building demo with version ${version}...`)
 
+// Clean the output directory first.
+//
+// `Bun.build` writes content-hashed chunk names and never removes what it did not
+// produce, so every build left its predecessors behind. Measured before this line:
+// `.demo` held 389 files and **864MB**, 358 of them older than a week — all dead chunks
+// no `index.html` referenced. `firebase deploy` uploads the directory, so the hosting
+// site accumulated them too. A clean build is 30 files and 35MB.
+await $`rm -rf .demo`
+
 // Build docs first
 await $`bun run docs`
 

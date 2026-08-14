@@ -43,6 +43,7 @@ import {
   isValidTimestamp,
   isValidISOTimestamp,
   isValidLegalDate,
+  openInferredShapes,
 } from '../types/Type'
 
 // Re-export Type utilities for consumers
@@ -2032,6 +2033,15 @@ export function createRuntime() {
     // Type system
     validate,
     infer: s.infer.bind(s),
+    /**
+     * `infer`, with every object left OPEN to extra keys.
+     *
+     * `s.infer` emits `additionalProperties: false`, which tosijs-schema 1.5.0 began
+     * enforcing — so emitted type guards silently started rejecting values carrying an
+     * extra key. Excess keys are fine in TJS (decided 2026-08-14); `infer` itself keeps
+     * the faithful schema, because `Schema()` and JSON-Schema export want it.
+     */
+    inferOpen: (value: unknown) => openInferredShapes(s.infer(value)),
     Type,
     isRuntimeType,
     Union,
@@ -2127,6 +2137,8 @@ export const runtime = {
   // Type system (used by transpiled Type declarations)
   validate,
   infer: s.infer.bind(s),
+  /** See the instance runtime's `inferOpen`. */
+  inferOpen: (value: unknown) => openInferredShapes(s.infer(value)),
   Type,
   isRuntimeType,
   Union,

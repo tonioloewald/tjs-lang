@@ -2364,7 +2364,7 @@ export function transformTypeDeclarations(
           const emptyExample = /^\{\s*\}$/.test(example.trim())
           const schemaGate = emptyExample
             ? 'true'
-            : `(globalThis.__tjs?.validate ? globalThis.__tjs.validate(${params}, globalThis.__tjs.infer(${example})) : true)`
+            : `(globalThis.__tjs?.validate ? globalThis.__tjs.validate(${params}, (globalThis.__tjs.inferOpen ?? globalThis.__tjs.infer)(${example})) : true)`
           const guard = verifiedGuardExpr(
             typeName,
             'Type',
