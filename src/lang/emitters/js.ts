@@ -1232,16 +1232,45 @@ export function transpileToJS(
         if ((func as any).__exprBody) {
           // A concise arrow body has no braces to insert into, so grow one:
           //   (n: 0) => n   ->   (n: 0) => { <checks> return n }
-          // The expression is preserved verbatim between them, so evaluation order and
-          // `this` binding are untouched.
-          insertions.push({
-            position: func.body.start,
-            text: `{\n  ${validation.preamble}\n  return `,
-          })
-          insertions.push({
-            position: func.body.end,
-            text: validation.suffix ? `\n  ${validation.suffix}\n}` : `\n}`,
-          })
+          //
+          // Anchored on the ARROW, not on `func.body`. A parenthesised concise body puts
+          // the `(` OUTSIDE the body node's span, so inserting at `body.start` dropped the
+          // opening brace inside the parens and the result parsed as an object literal:
+          //
+          //   (a, b) => ({ a, b })
+          //   -> (a, b) => ({ __tjs.pushStack(…); … return { a, b } })   // PARSE ERROR
+          //
+          // `(x, y) => ({ x, y })` is one of the most ordinary shapes in JavaScript, and
+          // it needs no annotation to break — plain JS in a `.tjs` file emitted output
+          // that would not parse, which is a PRINCIPLES.md "TJS ⊇ JS" subset violation.
+          // `tjs check` reported the file clean; only `tjs run` failed.
+          //
+          // Inserting just past the `=>` puts the brace outside any parens, so they nest
+          // instead of colliding, and the expression is still preserved verbatim —
+          // evaluation order and `this` binding are untouched.
+          const arrowAt = preprocessed.source.lastIndexOf('=>', func.body.start)
+          const openAt = arrowAt === -1 ? func.body.start : arrowAt + 2
+          if (validation.suffix) {
+            // The suffix (`popStack`) must run BEFORE returning, so bind the result
+            // first. Appending it after the `return` left it unreachable, and with
+            // `callStacks: true` the stack then grew without bound for every concise
+            // arrow — the leak was invisible because the code still parsed.
+            const tmp = `__tjs_r${func.body.start}`
+            insertions.push({
+              position: openAt,
+              text: ` {\n  ${validation.preamble}\n  const ${tmp} = (`,
+            })
+            insertions.push({
+              position: func.end,
+              text: `);\n  ${validation.suffix}\n  return ${tmp}\n}`,
+            })
+          } else {
+            insertions.push({
+              position: openAt,
+              text: ` {\n  ${validation.preamble}\n  return (`,
+            })
+            insertions.push({ position: func.end, text: `)\n}` })
+          }
         } else {
           // Insert preamble right after the opening brace
           insertions.push({

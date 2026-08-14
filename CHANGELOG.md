@@ -5,13 +5,19 @@ All notable changes to **tjs-lang** are documented here.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased] — 0.13.0 pending
+## [Unreleased]
 
-> **Not released yet.** The pre-release review returned **BLOCK** on 2026-08-12 with five
-> verified blockers and 20 confirmed majors. All five blockers and the correctness,
-> efficiency and DX majors are fixed (2026-08-13); the tag waits on a re-review. See
-> [`docs/reviews/0.13.0-pre-release-review.md`](docs/reviews/0.13.0-pre-release-review.md)
-> and the tracking section in `TODO.md`.
+_Nothing yet._
+
+## [0.13.0] — 2026-08-14
+
+> Reviewed three times before tagging. The first pass
+> ([report](docs/reviews/0.13.0-pre-release-review.md)) returned BLOCK on five blockers;
+> the second ([report](docs/reviews/0.13.0-review-2-af46fa2.md)) BLOCKed on two more that
+> the first round of fixes had introduced; the third and full-scope pass
+> ([report](docs/reviews/0.13.0-review-3-full.md)) BLOCKed on a parenthesised-arrow emit
+> bug, now fixed. Confirmed majors that remain open are itemised in `TODO.md` — none of
+> them silently changes behaviour, which is the bar that held the tag.
 
 ### ⚠️ Upgrading — read this first
 

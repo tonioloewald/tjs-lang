@@ -176,3 +176,87 @@ describe('an arrow return annotation is not thrown away', () => {
     expect(f.__tjs?.returns?.type?.kind).toBe('integer')
   })
 })
+
+/**
+ * A PARENTHESISED concise body emits JavaScript that parses.
+ *
+ * `(x, y) => ({ x, y })` is one of the most ordinary shapes in JavaScript — the parens are
+ * how you return an object literal at all. The validation preamble was anchored on
+ * `func.body`, whose span EXCLUDES those parens, so the opening brace landed inside them
+ * and the result parsed as an object literal:
+ *
+ *     (a, b) => ({ __tjs.pushStack('…'); … return { a, b } })
+ *     SyntaxError: Unexpected token '.'
+ *
+ * Three things made it worse than a formatting slip:
+ *
+ *   - It needs NO annotation. Plain JavaScript in a `.tjs` file emitted unparseable
+ *     output, which is a `PRINCIPLES.md` "TJS ⊇ JS" subset violation.
+ *   - `tjs check` reported the file clean. Only `tjs run` failed, at module load.
+ *   - `arrow-validation.test.ts` had no parenthesised case at all, so the suite was green.
+ *
+ * Every test here asserts the emitted code PARSES and returns the right value — checking
+ * the string would have missed it, and so would checking only that transpilation
+ * succeeded.
+ */
+describe('a parenthesised concise arrow body emits parseable JS', () => {
+  const load = (src: string, name: string) => {
+    const { code } = tjs(src, { filename: 'p.tjs', runTests: false })
+    // Parse first, with the failure naming the emitted line — a value assertion on
+    // unparseable code reports `new Function` noise instead of the defect.
+    try {
+      new Function(code)
+    } catch (e: any) {
+      throw new Error(`emitted JS does not parse: ${e.message}\n---\n${code}`, {
+        cause: e,
+      })
+    }
+    return new Function(`${code}\nreturn ${name}`)()
+  }
+
+  it('returns an object literal', () => {
+    expect(
+      load('const point = (x: 0, y: 0) => ({ x, y })', 'point')(1, 2)
+    ).toEqual({
+      x: 1,
+      y: 2,
+    })
+  })
+
+  it('works with NO annotations — this is plain JavaScript', () => {
+    // The subset violation. `.tjs` must not break legal JS.
+    expect(load('const plain = (a, b) => ({ a, b })', 'plain')(1, 2)).toEqual({
+      a: 1,
+      b: 2,
+    })
+  })
+
+  it('handles a parenthesised NON-object expression', () => {
+    // The paren is outside the body span whatever it wraps, so this failed too.
+    expect(load('const inc = (n: 0) => (n + 1)', 'inc')(4)).toBe(5)
+  })
+
+  it('handles an async parenthesised body', async () => {
+    const a = load('const a = async (n: 0) => ({ n })', 'a')
+    expect(await a(5)).toEqual({ n: 5 })
+  })
+
+  it('handles an exported one', () => {
+    const { code } = tjs('export const mk = (n: 0) => ({ n })', {
+      filename: 'p.tjs',
+      runTests: false,
+    })
+    expect(() => new Function(code.replace(/^export /gm, ''))).not.toThrow()
+  })
+
+  it('still VALIDATES — growing a body must not lose the checks', () => {
+    // The control. Emitting `=> ({x, y})` untouched would pass every test above.
+    const point = load('const point = (x: 0, y: 0) => ({ x, y })', 'point')
+    expect(String(point('a', 2))).toContain('Expected integer')
+  })
+
+  it('the unparenthesised forms still work', () => {
+    expect(load('const dbl = (n: 0) => n * 2', 'dbl')(3)).toBe(6)
+    expect(load('const box = (n: 0) => [n]', 'box')(3)).toEqual([3])
+  })
+})
