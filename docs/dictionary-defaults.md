@@ -11,6 +11,68 @@
 
 ---
 
+## ⚠️ Where we diverge from WebIDL — read this before using the spec as a reference
+
+This design borrows WebIDL's **dictionary** semantics, and the section numbers below
+(§5.x) refer to that spec. **One rule is deliberately different, and it is the one most
+likely to surprise you if you know WebIDL.**
+
+| | WebIDL §5.4 | **TJS** |
+| --- | --- | --- |
+| Excess keys in the payload | **stripped** | **passed through** |
+| Missing members | filled from the default | filled from the default (same) |
+| Wrong member type | rejected | rejected (same) |
+| `__proto__` / `constructor` / `prototype` | n/a | rejected outright |
+
+```javascript
+function place(args = { x: 0, y: 0 }) { return args }
+
+place({ x: 5, z: 9 })
+//  WebIDL:  { x: 5, y: 0 }          ← z is gone
+//  TJS:     { x: 5, y: 0, z: 9 }    ← z survives
+```
+
+**Why WebIDL strips, and why we should not.** A WebIDL dictionary is a **wire format**.
+Its job is to normalise an untrusted bag into exactly the declared shape before it crosses
+a boundary into browser internals, so anything undeclared is noise by definition. A TJS
+`= {…}` parameter is not a boundary — it is an **options bag inside one program**, and
+options bags in JavaScript routinely carry more than the callee declares. A caller
+forwards its own options; one object is passed to two functions; a component spreads
+props. Deleting the caller's data in that situation is not normalisation, it is loss.
+
+TJS shipped the WebIDL behaviour in 0.12.0, with a once-per-site flight-recorder notice so
+the loss was at least visible in a log. **Changed 2026-08-14** (0.13.0) for three reasons:
+
+1. **It is silent where it matters.** The notice appears in a recorder ring, not at the
+   call site, and once per site — so the second call that loses data says nothing.
+2. **It contradicted the rest of the language.** Nothing else in TJS removes or rejects an
+   excess key. Both structural checkers were opened in the same release, after they were
+   found to disagree with each other (`docs/type-identity.md`).
+3. **TypeScript cannot express the closed type this was enforcing.** TS's excess-property
+   check is a *freshness lint on object literals*, not a property of the type — assign
+   through a variable and the same object is accepted — and there is no `Exact<T>` to opt
+   into. A runtime rule stricter than anything the type system it mirrors can state is a
+   rule users cannot reason about.
+
+**What you lose:** if you were relying on a dictionary default to sanitise an untrusted
+payload, it no longer does. That was never a security boundary — the VM's capability
+membrane is — but if you want the WebIDL behaviour, strip explicitly:
+
+```javascript
+const clean = ({ x, y }) => ({ x, y })
+```
+
+**What did NOT change:** members are still validated, missing members still fill from the
+default (recursively), and the prototype-pollution keys are still rejected outright — that
+one is a security guard, not a normalisation policy.
+
+A performance note, since it cuts the friendly way: passing keys through means a
+**complete** payload carrying extra keys no longer needs a rebuild at all. It falls through
+on the untouched-identity path (invariant I3), where it used to be copied in order to be
+stripped.
+
+---
+
 ## 1. Problem statement
 
 JavaScript default parameters are atomic: `(args = {x: 0, y: 0})` means
@@ -271,7 +333,8 @@ Per call with a payload:
 
 1. **Scan** payload against the descriptor: validate present members' types,
    note absent defaulted members, error on absent required members, apply the
-   excess-key policy. Recurse into nested dictionaries.
+   excess-key policy (see the divergence note at the top — TJS passes them
+   through). Recurse into nested dictionaries.
 2. **Complete payload** → return the payload as-is. Zero allocation. This is
    the hot path and must stay a pure read-only scan.
 3. **Members absent** → build ONE fresh output object: present members from

@@ -188,39 +188,57 @@ describe('dictionary defaults — the TjsDictDefaults mode (Stage 1)', () => {
     })
   })
 
-  describe('excess keys: strip + flight-recorder notice (spec §5.4)', () => {
-    it('excess keys are stripped from the result', () => {
+  /**
+   * Excess keys PASS THROUGH — a deliberate divergence from WebIDL §5.4, which strips.
+   *
+   * WebIDL strips because a dictionary is a WIRE FORMAT: the point is to normalise an
+   * untrusted bag into exactly the declared shape before it crosses a boundary. A TJS
+   * `= {…}` parameter is not that. It is an options bag inside one program, and options
+   * bags in JavaScript routinely carry more than the callee declares — a caller forwards
+   * its own options, or passes one object to two functions.
+   *
+   * Stripping silently deleted the caller's data. The recorder notice made it visible in
+   * a log, not at the call site, and only once per site. And it disagreed with every
+   * other structural check in the language once those were opened: nothing else in TJS
+   * rejects or removes an excess key, and TypeScript cannot even express a closed object
+   * type (its excess-property check is a freshness lint on literals, not a property of
+   * the type).
+   *
+   * Decided 2026-08-14. See `docs/dictionary-defaults.md` → "Where we diverge from WebIDL".
+   */
+  describe('excess keys pass through (diverges from WebIDL §5.4)', () => {
+    it('excess keys survive into the merged result', () => {
       const place = compile(FLAT, 'place')
       const out = place({ x: 1, y: 2, treshold: 0.5 })
       expect(isMonadicError(out)).toBe(false)
-      expect(out).toEqual({ x: 1, y: 2 })
-      expect('treshold' in out).toBe(false)
+      expect(out).toEqual({ x: 1, y: 2, treshold: 0.5 })
     })
 
-    it('stripping records a notice ONCE per site, and never changes behavior', () => {
+    it('excess keys survive alongside a FILLED member', () => {
+      // The rebuild path — the one case that still allocates. The spread must come
+      // first so a filled member still wins.
+      const place = compile(FLAT, 'place')
+      expect(place({ x: 1, extra: 'kept' })).toEqual({
+        x: 1,
+        y: 0,
+        extra: 'kept',
+      })
+    })
+
+    it('a declared member always wins over the payload', () => {
+      // Spread-first ordering, stated as a test: if the payload could override a
+      // validated member the whole preamble would be decorative.
+      const place = compile(FLAT, 'place')
+      const out = place({ x: 5, y: 6, extra: 1 }) as Record<string, unknown>
+      expect(out.x).toBe(5)
+      expect(out.y).toBe(6)
+    })
+
+    it('nothing is recorded — passing data through is not an event', () => {
       const rt = (globalThis as any).__tjs
       rt.clearRecords?.()
-      // The once-guard is keyed by source site (file:line:fn.param). Under the
-      // test harness every compile of FLAT shares the '<source>' placeholder
-      // site, so an earlier test already tripped it — reset for a clean read.
-      delete (globalThis as any).__tjsDDNoticed
       const place = compile(FLAT, 'place')
       place({ x: 1, y: 2, extra: 1 })
-      place({ x: 1, y: 2, extra: 2 }) // second call: no second record
-      const notices = (rt.records?.({ severity: 'notice' }) ?? []).filter(
-        (r: any) => String(r.message).includes('extra')
-      )
-      expect(notices.length).toBe(1)
-    })
-
-    it('a present-undefined member does NOT emit a spurious empty excess notice', () => {
-      const rt = (globalThis as any).__tjs
-      rt.clearRecords?.()
-      delete (globalThis as any).__tjsDDNoticed
-      const place = compile(FLAT, 'place')
-      // {x: undefined, y: 3}: x fills from default, no key is actually excess —
-      // the count heuristic used to fire "excess key(s) [] stripped".
-      place({ x: undefined, y: 3 })
       const notices = (rt.records?.({ severity: 'notice' }) ?? []).filter(
         (r: any) => String(r.message).includes('excess')
       )

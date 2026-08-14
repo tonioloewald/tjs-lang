@@ -475,7 +475,12 @@ function checkExcessKeys(
     if (!shape.keys.has(key)) {
       diagnostics.push({
         severity: 'warning',
-        message: `'${key}' is not a member of ${path}'s dictionary parameter and will be stripped at runtime`,
+        // The CONSEQUENCE changed in 0.13.0 — excess keys pass through now rather than
+        // being stripped (see docs/dictionary-defaults.md → "Where we diverge from
+        // WebIDL"). The WARNING survives the change because its real value was never the
+        // stripping: an undeclared key at a call site is usually a TYPO, and a
+        // misspelled option that silently does nothing is the bug either way.
+        message: `'${key}' is not a member of ${path}'s dictionary parameter — check the spelling (it is passed through, so it will have no effect)`,
         line: (p as any).loc?.start?.line,
         column: (p as any).loc?.start?.column,
         rule: 'dict-default-excess-key',

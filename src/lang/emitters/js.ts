@@ -2169,17 +2169,15 @@ function emitDictLevel(
   parentChangedVar: string | null
 ): void {
   const keys = Object.keys(shape)
-  const declaredCount = keys.length
   const p = uid()
 
-  // Own-key census: prototype-pollution rejection + excess detection without
-  // allocating (the excess-key COLLECTION only runs on the cold strip path).
-  lines.push(`let ${p}n = 0;`)
+  // Own-key scan: prototype-pollution rejection. There is no excess-key census any
+  // more — see the rebuild below.
   const forbiddenCheck = FORBIDDEN_KEYS.map(
     (k) => `${p}k === ${JSON.stringify(k)}`
   ).join(' || ')
   lines.push(
-    `for (const ${p}k in ${access}) { if (Object.prototype.hasOwnProperty.call(${access}, ${p}k)) { if (${forbiddenCheck}) return __tjs.typeError('${displayPath}.' + ${p}k, 'safe key', ${p}k); ${p}n++; } }`
+    `for (const ${p}k in ${access}) { if (Object.prototype.hasOwnProperty.call(${access}, ${p}k)) { if (${forbiddenCheck}) return __tjs.typeError('${displayPath}.' + ${p}k, 'safe key', ${p}k); } }`
   )
   lines.push(`let ${p}f = 0;`)
   lines.push(`let ${p}c = false;`)
@@ -2226,37 +2224,27 @@ function emitDictLevel(
     }
   }
 
-  // Rebuild when anything filled/changed, or when excess keys must be
-  // stripped. Complete clean payloads fall through untouched (I3).
-  const excessExpr = `${p}n > ${declaredCount} - ${p}f`
-  const declaredMiss = keys
-    .map((k) => `${p}k3 !== ${JSON.stringify(k)}`)
-    .join(' && ')
-  const rebuild = `{ ${memberVars
+  // Rebuild ONLY when a member was filled or a nested level changed.
+  //
+  // Excess keys used to force a rebuild so they could be dropped, with a once-per-site
+  // recorder notice. They are now PASSED THROUGH (2026-08-14), which makes this both
+  // simpler and cheaper: a complete payload that merely carries extra keys is now the
+  // untouched-identity path (I3) instead of a silent copy.
+  //
+  // Stripping was WebIDL dictionary semantics, and WebIDL strips because a dictionary is
+  // a wire format. A TJS `= {…}` parameter is an options bag, and options bags in
+  // JavaScript routinely carry more than the callee declares. Dropping the caller's data
+  // on the floor is the surprising half of that trade, and it disagreed with every other
+  // structural check in the language once those were opened.
+  //
+  // The spread comes FIRST so declared members always win: a resolved member (validated,
+  // or filled from the default) overrides whatever the payload had. Forbidden keys are
+  // rejected above, and object spread creates own data properties, so `__proto__` in a
+  // payload cannot reach a prototype here.
+  const rebuild = `{ ...${access}, ${memberVars
     .map(([k, v]) => `${propKey(k)}: ${v}`)
     .join(', ')} }`
-  lines.push(`if (${p}f > 0 || ${p}c || ${excessExpr}) {`)
-  // Once-per-site excess notice — the flight-recorder discipline: record
-  // liberally, never change behavior; once per site, never per call.
-  // displayPath embeds file:line, so it is globally unique per site.
-  lines.push(
-    `  if ((${excessExpr}) && !(globalThis.__tjsDDNoticed ??= new Set()).has('${displayPath}')) {`
-  )
-  lines.push(`    const ${p}x = [];`)
-  lines.push(
-    `    for (const ${p}k3 in ${access}) if (Object.prototype.hasOwnProperty.call(${access}, ${p}k3) && ${declaredMiss}) ${p}x.push(${p}k3);`
-  )
-  // Only record (and consume the once-guard) when there are REAL excess keys.
-  // The count-based excessExpr also fires for a present-but-undefined member
-  // (counted as a payload key AND as filled), which would otherwise emit a
-  // spurious "excess key(s) [] stripped" notice with an empty list.
-  lines.push(`    if (${p}x.length > 0) {`)
-  lines.push(`      globalThis.__tjsDDNoticed.add('${displayPath}');`)
-  lines.push(
-    `      __tjs.record?.({ source: 'type', severity: 'notice', message: "excess key(s) [" + ${p}x.join(', ') + "] stripped at '${displayPath}' (dictionary defaults)", data: { path: '${displayPath}', keys: ${p}x } });`
-  )
-  lines.push(`    }`)
-  lines.push(`  }`)
+  lines.push(`if (${p}f > 0 || ${p}c) {`)
   lines.push(`  ${reassignTarget} = ${rebuild};`)
   if (parentChangedVar) lines.push(`  ${parentChangedVar} = true;`)
   lines.push(`}`)

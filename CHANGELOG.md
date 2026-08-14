@@ -15,8 +15,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### ⚠️ Upgrading — read this first
 
-Three changes alter behaviour without producing a type error, so none of them is caught
-by recompiling. The first two affect code that ran under **0.12.0**.
+Four changes alter behaviour without producing a type error, so none of them is caught by
+recompiling. All but the VM-budget one affect code that ran under **0.12.0**.
 
 - **`Timestamp` and `isValidTimestamp` now mean epoch MILLISECONDS, not an ISO 8601
   string.** Both signatures WIDENED (`(v: string)` → `(v: unknown)`), and
@@ -35,6 +35,25 @@ by recompiling. The first two affect code that ran under **0.12.0**.
 - **VM budgets:** loop bindings (`map`/`filter`/`find`/`reduce`) no longer re-account the
   loop variable, so per-iteration fuel is size-insensitive again and matches 0.12.x. If
   you tuned a `fuel` budget against a 0.13.0 beta, it buys MORE work now, not less.
+- **Excess object keys are now accepted everywhere, and dictionary defaults no longer
+  strip them.** `place({ x: 5, z: 9 })` against `place(args = { x: 0, y: 0 })` returns
+  `{ x: 5, y: 0, z: 9 }`; in 0.12.0 the `z` was silently deleted (WebIDL §5.4 semantics,
+  with a once-per-site recorder notice). A declared type with a non-empty object example
+  likewise no longer rejects an extra key.
+
+  Three reasons, in `docs/dictionary-defaults.md` → **"Where we diverge from WebIDL"**:
+  WebIDL strips because a dictionary is a _wire format_, whereas a TJS `= {…}` parameter
+  is an options bag inside one program; the notice was silent where it mattered (a log,
+  once per site); and TypeScript cannot express the closed type this enforced — its
+  excess-property check is a freshness lint on literals, not a property of the type, and
+  there is no `Exact<T>`.
+
+  Members are still validated, missing members still fill recursively, and the
+  prototype-pollution keys are still rejected — that one is a security guard, not a
+  normalisation policy. If you relied on a dictionary default to sanitise a payload,
+  destructure explicitly: `const clean = ({ x, y }) => ({ x, y })`. The
+  `dict-default-excess-key` lint still fires, now worded as the typo check it always
+  really was.
 
 Two bodies of work. **First**, the language stabilised in its own direction: the guiding
 rule became _a form that parses must mean something_, and every construct that parsed
