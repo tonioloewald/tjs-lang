@@ -3772,6 +3772,19 @@ export const memoize = defineAtom(
     }
 
     // Store
+    // A FAILED run must not be cached as a success.
+    //
+    // The body's error left `result` undefined, and the entry was written anyway — so the
+    // retry read a hit and returned `undefined` with NO error, for the whole TTL. Fuel
+    // exhaustion, atom timeout, capability denial and the heap-limit error were all
+    // laundered into a clean success, and for `cache` that success is shared across
+    // processes for 24h by default.
+    //
+    // `runCode` has had the right shape all along, a couple of hundred lines above: check
+    // `ctx.error` before propagating a result. This is that check, in the two places that
+    // PERSIST one.
+    if (ctx.error) return undefined
+
     ctx.memo.set(k, result)
     return result
   },
@@ -3835,6 +3848,19 @@ export const cache = defineAtom(
     } finally {
       releaseScope(scopedCtx)
     }
+
+    // A FAILED run must not be cached as a success.
+    //
+    // The body's error left `result` undefined, and the entry was written anyway — so the
+    // retry read a hit and returned `undefined` with NO error, for the whole TTL. Fuel
+    // exhaustion, atom timeout, capability denial and the heap-limit error were all
+    // laundered into a clean success, and for `cache` that success is shared across
+    // processes for 24h by default.
+    //
+    // `runCode` has had the right shape all along, a couple of hundred lines above: check
+    // `ctx.error` before propagating a result. This is that check, in the two places that
+    // PERSIST one.
+    if (ctx.error) return undefined
 
     // Store with TTL
     const expiry = Date.now() + (ttlMs ?? 24 * 3600 * 1000)
