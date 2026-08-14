@@ -343,6 +343,48 @@ export function isInsideComment(source: string, pos: number): boolean {
   return commentRanges(source).some(([a, b]) => pos >= a && pos < b)
 }
 
+/**
+ * Bounded memo per mask FLAVOUR, keyed by the source string.
+ *
+ * The scanner memo (`scanCache`) removed the re-SCANNING, but every caller still paid the
+ * split -> blank -> join, which is the larger half for a big file: 200 masks of the same
+ * 13KB source cost 21ms with the scan already cached. Transforms legitimately ask
+ * repeatedly — each one masks the source it was handed — so the coordination problem is
+ * the same one `scanLiterals` was memoized to remove, one layer up.
+ *
+ * Strings are immutable, so unlike the region arrays there is nothing a caller can corrupt
+ * and no need to freeze. Pure function of the input; the only cost is memory, hence the
+ * bound.
+ */
+const MASK_CACHE_MAX = 16
+const maskCaches = new Map<string, Map<string, string>>()
+
+function memoizedMask(flavour: string, source: string, compute: () => string) {
+  let cache = maskCaches.get(flavour)
+  if (!cache) {
+    cache = new Map()
+    maskCaches.set(flavour, cache)
+  }
+  const hit = cache.get(source)
+  if (hit !== undefined) {
+    cache.delete(source)
+    cache.set(source, hit)
+    return hit
+  }
+  const computed = compute()
+  if (cache.size >= MASK_CACHE_MAX) {
+    const oldest = cache.keys().next().value
+    if (oldest !== undefined) cache.delete(oldest)
+  }
+  cache.set(source, computed)
+  return computed
+}
+
+/** Drop every mask memo. Exposed alongside `clearLiteralCache` for benchmarks/hosts. */
+export function clearMaskCache(): void {
+  maskCaches.clear()
+}
+
 function blankRegions(
   source: string,
   pick: (r: LiteralRegion) => [number, number] | null
@@ -375,10 +417,12 @@ function blankRegions(
  * anyway.
  */
 export function maskLiterals(source: string): string {
-  return blankRegions(source, (r) =>
-    r.kind === 'line-comment' || r.kind === 'block-comment'
-      ? [r.start, r.end] // comments vanish entirely, delimiters included
-      : [r.innerStart, r.innerEnd]
+  return memoizedMask('literals', source, () =>
+    blankRegions(source, (r) =>
+      r.kind === 'line-comment' || r.kind === 'block-comment'
+        ? [r.start, r.end] // comments vanish entirely, delimiters included
+        : [r.innerStart, r.innerEnd]
+    )
   )
 }
 
@@ -393,10 +437,12 @@ export function maskLiterals(source: string): string {
  * negative and a false positive from the same blind spot.
  */
 export function maskLiteralsKeepComments(source: string): string {
-  return blankRegions(source, (r) =>
-    r.kind === 'line-comment' || r.kind === 'block-comment'
-      ? null
-      : [r.innerStart, r.innerEnd]
+  return memoizedMask('keep-comments', source, () =>
+    blankRegions(source, (r) =>
+      r.kind === 'line-comment' || r.kind === 'block-comment'
+        ? null
+        : [r.innerStart, r.innerEnd]
+    )
   )
 }
 

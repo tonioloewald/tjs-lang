@@ -2,6 +2,9 @@ import { describe, it, expect } from 'bun:test'
 import {
   scanLiterals,
   clearLiteralCache,
+  maskLiterals,
+  maskLiteralsKeepComments,
+  clearMaskCache,
   type LiteralRegion,
 } from './strip-comments'
 
@@ -59,5 +62,62 @@ describe('the literal scanner memo', () => {
     expect(() =>
       (regions as LiteralRegion[]).push({} as LiteralRegion)
     ).toThrow()
+  })
+})
+
+/**
+ * The mask memo is invisible too.
+ *
+ * Memoizing `scanLiterals` removed the re-SCANNING but every caller still paid the
+ * split -> blank -> join, which is the larger half on a big file. Measured: 200 masks of
+ * the same 13KB source cost 21ms with the scan already cached, and a real transpile of
+ * `src/rbac/rules.tjs` went 15.81ms -> 13.22ms once the mask itself was memoized.
+ *
+ * Strings are immutable, so unlike the region arrays there is nothing to freeze. The risks
+ * are the other two: a wrong answer for a different input, and the two FLAVOURS
+ * (`maskLiterals` erases comments, `maskLiteralsKeepComments` preserves them) colliding
+ * with each other — they take the same key and must not share a cache.
+ */
+describe('the mask memo', () => {
+  const SRC = "const a = 'x' // note\nconst r = /[}]/\n"
+
+  it('gives the same answer computed twice', () => {
+    const first = maskLiterals(SRC)
+    clearMaskCache()
+    clearLiteralCache()
+    expect(maskLiterals(SRC)).toBe(first)
+  })
+
+  it('does not confuse the two flavours for one source', () => {
+    // Same key, different answer — a single shared cache would return whichever ran first.
+    const erased = maskLiterals(SRC)
+    const kept = maskLiteralsKeepComments(SRC)
+    expect(erased).not.toBe(kept)
+    expect(kept).toContain('// note')
+    expect(erased).not.toContain('note')
+    // And again, from the cache.
+    expect(maskLiterals(SRC)).toBe(erased)
+    expect(maskLiteralsKeepComments(SRC)).toBe(kept)
+  })
+
+  it('preserves offsets, cached or not', () => {
+    // The property every caller depends on: a masked index maps straight back.
+    clearMaskCache()
+    const fresh = maskLiterals(SRC)
+    expect(fresh.length).toBe(SRC.length)
+    expect(maskLiterals(SRC).length).toBe(SRC.length)
+  })
+
+  it('survives more distinct inputs than it can hold', () => {
+    const inputs = Array.from(
+      { length: 40 },
+      (_, i) => `const v${i} = 'lit${i}' // c${i}`
+    )
+    for (const s of inputs) maskLiterals(s)
+    for (const s of inputs) {
+      const m = maskLiterals(s)
+      expect(m.length).toBe(s.length)
+      expect(m).not.toContain(`lit`)
+    }
   })
 })
