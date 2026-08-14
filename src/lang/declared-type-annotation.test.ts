@@ -360,9 +360,24 @@ function render(props: PrefixTyped) { return Object.keys(props).length }
     expect(p?.verified).toBe(true)
   })
 
-  it('a NON-empty example still closes the object', () => {
-    // The fix must not turn every example into an open bag: excess keys remain an error
-    // when the author actually described a shape.
+  it('a NON-empty example does not close the object either', () => {
+    // REVERSED 2026-08-14. This asserted that excess keys are an error once the author
+    // describes a shape. They are not, and the JavaScript world is the reason: TypeScript's
+    // excess-property check fires only on FRESH object literals assigned straight to a
+    // typed target —
+    //
+    //     const p = { x: 1, y: 2, z: 3 }
+    //     f(p)                            // fine
+    //     f({ x: 1, y: 2, z: 3 })         // error, freshness only
+    //
+    // — and TS has no `Exact<T>` to opt into. A runtime check that closes the shape is
+    // therefore stricter than anything the type system it mirrors can say, and it rejects
+    // values that work in the emitted JavaScript.
+    //
+    // The anomaly that made it untenable: the two structural checkers disagreed, so adding
+    // a `predicate` that returns `true` — no constraint at all — made a type MORE
+    // permissive. A predicate must only narrow. Both are open now. Missing keys and wrong
+    // types are still errors; only EXTRA keys are tolerated.
     const src = `Type Point {
   example: { x: 0, y: 0 }
   predicate(p) { return true }
@@ -370,6 +385,9 @@ function render(props: PrefixTyped) { return Object.keys(props).length }
 function f(p: Point) { return p.x }
 `
     expect(call(src, 'f({ x: 1, y: 2 })')).toBe(1)
-    expect(call(src, 'f({ x: 1, y: 2, z: 3 })')).toBe('Error(Point)')
+    expect(call(src, 'f({ x: 1, y: 2, z: 3 })')).toBe(1)
+    // Still closed in the directions that matter.
+    expect(call(src, 'f({ x: 1 })')).toBe('Error(Point)')
+    expect(call(src, `f({ x: 'a', y: 2 })`)).toBe('Error(Point)')
   })
 })

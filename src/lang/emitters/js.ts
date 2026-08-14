@@ -1549,15 +1549,31 @@ export function transpileToJS(
       // is worse than no validator — examples/json-schema.tjs printed
       // "Missing field: true" and looked like it worked.
       inlineParts.push(
-        // Two constraints here are derivable from the example VALUE, so the stub can
-        // enforce them without knowing anything about the source — and until it did, it
-        // disagreed with the real runtime on exactly these (see docs/type-identity.md):
-        //   - an INTEGER example narrows: `{ x: 1 }` must not accept `{ x: 1.5 }`.
-        //     (A float example stays permissive: `1.5` describes any number.)
-        //   - a NON-EMPTY object example CLOSES the shape: excess keys are a real error
-        //     when the author described a shape. `{}` still means "an object", not "the
-        //     empty object" — the distinction that bit `parametersToJsonSchema`.
-        `function __match(v,ex){if(ex===null)return v===null;if(ex===undefined)return true;const t=typeof ex;if(t==='number')return typeof v==='number'&&(Number.isInteger(ex)?Number.isInteger(v):true);if(t==='string'||t==='boolean')return typeof v===t;if(Array.isArray(ex)){if(!Array.isArray(v))return false;return ex.length?v.every(x=>__match(x,ex[0])):true}if(t==='object'){if(!v||typeof v!=='object'||Array.isArray(v))return false;const ks=Object.keys(ex);if(ks.length&&!Object.keys(v).every(k=>k in ex))return false;return ks.every(k=>k in v&&__match(v[k],ex[k]))}return v===ex}`
+        // An INTEGER example narrows: `{ x: 1 }` must not accept `{ x: 1.5 }`. (A float
+        // example stays permissive: `1.5` describes any number.) That constraint is
+        // derivable from the example VALUE, so the stub enforces it without needing
+        // source information — see docs/type-identity.md.
+        //
+        // EXCESS KEYS ARE FINE (decided 2026-08-14). An earlier version closed a
+        // non-empty object example, on the reasoning that describing a shape means
+        // describing all of it. That is stricter than anything TypeScript can express:
+        // TS's excess-property check fires only on FRESH object literals assigned
+        // directly to a typed target, so
+        //
+        //     const p = { x: 1, y: 2, z: 3 }
+        //     f(p)                              // fine in TS
+        //     f({ x: 1, y: 2, z: 3 })           // error in TS — freshness only
+        //
+        // and there is no `Exact<T>` to opt into. Closing therefore rejected values that
+        // work in the JavaScript this compiles to, which is the wrong direction for a
+        // language whose contract is that it is a superset.
+        //
+        // It also created a worse anomaly: the OTHER structural checker
+        // (`validate(infer(example))`, used whenever a Type carries a predicate) is open,
+        // so adding a `predicate` that returns `true` — adding no constraint at all —
+        // made a type MORE permissive. A predicate must only ever narrow. Both checkers
+        // are open now, so they agree.
+        `function __match(v,ex){if(ex===null)return v===null;if(ex===undefined)return true;const t=typeof ex;if(t==='number')return typeof v==='number'&&(Number.isInteger(ex)?Number.isInteger(v):true);if(t==='string'||t==='boolean')return typeof v===t;if(Array.isArray(ex)){if(!Array.isArray(v))return false;return ex.length?v.every(x=>__match(x,ex[0])):true}if(t==='object'){if(!v||typeof v!=='object'||Array.isArray(v))return false;const ks=Object.keys(ex);return ks.every(k=>k in v&&__match(v[k],ex[k]))}return v===ex}`
       )
       const typeExtras = needsExampleSchema
         ? `t.toJSONSchema=()=>t.__ex===undefined?{}:__ex2js(t.__ex);t.strip=v=>{const ex=t.__ex;if(!ex||typeof ex!=='object'||!v||typeof v!=='object')return v;const o={};for(const k of Object.keys(ex))if(k in v)o[k]=v[k];return o};`
