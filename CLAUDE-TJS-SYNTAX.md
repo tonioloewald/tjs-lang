@@ -55,7 +55,7 @@ if (DangerousLegacyEquals(input, 0)) { … }   // yes, I want '' and false to ma
 
 `LegacyDefault(value)` is the same idea for parameter defaults. An object-literal default is
 a **dictionary** in TJS — members defaulted individually, merged on a partial argument,
-validated, excess keys stripped — where JavaScript treats it as one atomic value:
+validated, excess keys passed through — where JavaScript treats it as one atomic value:
 
 ```js
 function f(args = { x: 0, y: 0 }) {}                 // f({x:5}) → {x:5, y:0}
@@ -138,7 +138,10 @@ function greet(name = 'Alice') { }       // name is optional, defaults to 'Alice
 function place(args = { x: 0, y: 0 }) { }
 // place({ x: 5 })      -> { x: 5, y: 0 }   each member defaulted individually
 // place({ x: 's' })    -> MonadicError     members are type-checked
-// place({ x: 1, z: 9 })-> { x: 1, y: 0 }   excess keys stripped (+ recorder notice)
+// place({ x: 1, z: 9 })-> { x: 1, y: 0, z: 9 }   excess keys PASS THROUGH (0.13.0;
+//                                          they were stripped in 0.12 — WebIDL strips
+//                                          because a dictionary is a wire format, but a
+//                                          TJS options bag is not a boundary)
 // Always on in .tjs; off under dialect:'js' / TjsCompat / fromTS.
 // Full spec: docs/dictionary-defaults.md.
 //

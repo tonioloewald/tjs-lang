@@ -143,9 +143,12 @@ Even % 2 === 0 }` reads as "an `Even` is a value where…". Both normalise into 
 
 - **The inline runtime and the real runtime agree.** Emitted standalone `.js` accepted
   values the real runtime rejects: an integer example accepting a float, directly and
-  through objects and arrays, and a described shape accepting excess keys. Since emitted
-  code calls `Type` **bare**, the inline stub always wins — so those were the shipped
-  semantics, not a fallback. All four disagreements are closed and the corpus is empty.
+  through objects and arrays. Since emitted code calls `Type` **bare**, the inline stub
+  always wins — so those were the shipped semantics, not a fallback. All disagreements
+  are closed and the corpus is empty. (The fourth case, excess keys, was first closed by
+  making the stub REJECT them and then resolved the other way — both checkers now ACCEPT
+  them; see "Upgrading" above. Agreement is the invariant; the excess-key POLICY is the
+  open one.)
 
 - **`fromTS` emits TypeScript parameter properties.**
   `class P { constructor(public x: number) {} }` converted to an empty constructor body,

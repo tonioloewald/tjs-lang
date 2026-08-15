@@ -464,8 +464,10 @@ Spike-first; each stage lands independently.
   deep-freeze machinery proved unnecessary: no shared template exists to
   corrupt); §5.2 undefined⇒fill and example-null⇒nullable-any; recursion;
   arrays-as-values with element checks; excess-strip with a once-per-site
-  flight-recorder notice naming the stripped keys; prototype-pollution
-  rejection; identity return on complete clean payloads.
+  flight-recorder notice naming the stripped keys (**as shipped in 0.12.0 —
+  reversed in 0.13.0, see the divergence note at the top; this list is the
+  historical record of the spike**); prototype-pollution rejection; identity
+  return on complete clean payloads.
   **Measured (same shape/harness as Spike B): complete 91 ns/op, partial 73,
   no-arg 134 — 3× faster than the careful hand-roll (276) and faster than the
   INCORRECT shallow spread (107), while validating every member.** The cost

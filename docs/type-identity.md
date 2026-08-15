@@ -57,9 +57,21 @@ They closed in two moves, and the split is the useful part:
 1. **Source-level facts** — `+0` means non-negative, and `+0 === 0`, so nothing downstream
    can recover it. The emitter writes the check into the emitted code as a predicate.
    This is the only case that genuinely needed the source.
-2. **Value-derivable facts** — everything else. `Number.isInteger(example)` and the
-   example's key set are both readable from the value the stub already holds, so `__match`
-   enforces them directly. No source information required, and no second mechanism.
+2. **Value-derivable facts** — the numeric-narrowing rows. `Number.isInteger(example)` is
+   readable from the value the stub already holds, so `__match` enforces it directly. No
+   source information required, and no second mechanism.
+
+The FOURTH row resolved in the opposite direction (2026-08-14). It was first closed by
+making the stub reject the excess key — and then the policy itself was reversed: **excess
+keys are fine, everywhere**. TypeScript's excess-property check is a freshness lint on
+object literals, not a property of the type (route the same object through a variable and
+it passes), and there is no `Exact<T>` — so a runtime check that closes the shape is
+stricter than anything the type system it mirrors can express. Both checkers now ACCEPT
+`{ x: 1, y: 1, z: 9 }` against `example: { x: 1, y: 1 }`; missing keys and wrong member
+types are still errors. The stub stays open by construction, and the real runtime re-opens
+what `s.infer` closes (`openInferredShapes` — tosijs-schema 1.5.0 began enforcing the
+`additionalProperties: false` it emits). Agreement was the invariant worth keeping; which
+way they agree was a language decision, made toward JavaScript.
 
 The first attempt at (2) was a structural walk over the example AST, on the assumption
 that narrowing through a shape needed the source the way `+0` did. It does not: an integer
