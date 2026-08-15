@@ -21,8 +21,9 @@ _Nothing yet._
 
 ### ⚠️ Upgrading — read this first
 
-Four changes alter behaviour without producing a type error, so none of them is caught by
-recompiling. All but the VM-budget one affect code that ran under **0.12.0**.
+Seven changes alter behaviour. Most produce no type error, so recompiling does not catch
+them; the last one is a hard compile error on source that used to transpile. All but the
+VM-budget change affect code that ran under **0.12.0**.
 
 - **`Timestamp` and `isValidTimestamp` now mean epoch MILLISECONDS, not an ISO 8601
   string.** Both signatures WIDENED (`(v: string)` → `(v: unknown)`), and
@@ -41,6 +42,29 @@ recompiling. All but the VM-budget one affect code that ran under **0.12.0**.
 - **VM budgets:** loop bindings (`map`/`filter`/`find`/`reduce`) no longer re-account the
   loop variable, so per-iteration fuel is size-insensitive again and matches 0.12.x. If
   you tuned a `fuel` budget against a 0.13.0 beta, it buys MORE work now, not less.
+- **A declared `Type` now CHECKS when used as an annotation.** `Type Even { example: 0
+predicate(v) { return v % 2 === 0 } }` followed by `function double(n: Even)` — before,
+  `double(3)` returned `6`; now it returns a MonadicError. The annotation always looked
+  like a contract; it now is one. Nothing to migrate if your values were already valid,
+  but a previously-silent violation becomes a visible error at the call site.
+
+- **`:?` validates the return value at runtime**, not only in the signature test. Two
+  consequences worth knowing, because the wrapper REBINDS the function:
+
+  - `f.length` becomes `0` (the wrapper takes `...args`), so anything reflecting on arity
+    sees a different number.
+  - a declared `async function` becomes a plain `Function` object — `await` still works
+    and it still returns a promise, but `fn.constructor.name` is no longer
+    `AsyncFunction`.
+
+- **A `Type` block that declares no example, predicate or default is now an ERROR.** The
+  interface spelling — `Type User { name: '' \n age: 0 }` — used to parse, silently
+  discard its members, and produce a type that accepted **every** value (`User.check(42)`
+  → `true`), while the real runtime threw at construction. Source that transpiled now
+  fails, with the fix shown as code. An EMPTY or comments-only block is still accepted:
+  that is what `fromTS` emits for a TypeScript type it cannot express, and it discards
+  nothing.
+
 - **Excess object keys are now accepted everywhere, and dictionary defaults no longer
   strip them.** `place({ x: 5, z: 9 })` against `place(args = { x: 0, y: 0 })` returns
   `{ x: 5, y: 0, z: 9 }`; in 0.12.0 the `z` was silently deleted (WebIDL §5.4 semantics,
