@@ -21,7 +21,7 @@ _Nothing yet._
 
 ### ⚠️ Upgrading — read this first
 
-Seven changes alter behaviour. Most produce no type error, so recompiling does not catch
+Eight changes alter behaviour. Most produce no type error, so recompiling does not catch
 them; the last one is a hard compile error on source that used to transpile. All but the
 VM-budget change affect code that ran under **0.12.0**.
 
@@ -64,6 +64,12 @@ predicate(v) { return v % 2 === 0 } }` followed by `function double(n: Even)` �
   fails, with the fix shown as code. An EMPTY or comments-only block is still accepted:
   that is what `fromTS` emits for a TypeScript type it cannot express, and it discards
   nothing.
+
+- **`tjs check --max-warnings` exits 2 on a fumbled argument**, where it used to exit 1.
+  A missing or non-numeric value made `Number()` produce `NaN`, and `0 > NaN` is false, so
+  a bare `--max-warnings` failed a CLEAN file with "0 warnings exceeds --max-warnings
+  NaN". Exit 2 now means "you invoked me wrong" and 1 still means "the check failed" —
+  worth knowing if a script branches on the code.
 
 - **Excess object keys are now accepted everywhere, and dictionary defaults no longer
   strip them.** `place({ x: 5, z: 9 })` against `place(args = { x: 0, y: 0 })` returns

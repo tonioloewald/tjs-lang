@@ -68,7 +68,7 @@ const INLINE_MONADIC_ERROR = `class MonadicError extends Error{constructor(m,p,e
  * try/catch is the recorder's prime directive: recording must never change the
  * behavior of the program it records.
  */
-const INLINE_TYPE_ERROR = `function typeError(p,e,v,r){const a=v===null?'null':typeof v;const m=r?'Expected '+e+" for '"+p+"': "+r:'Expected '+e+" for '"+p+"', got "+a;const err=new MonadicError(m,p,e,a,undefined,r);const g=globalThis.__tjs;const c=g?.getConfig?.();try{g?.record?.({source:'type',severity:'error',message:err.message,error:err})}catch{}if(c?.logTypeErrors)console.error('[TJS TypeError] '+err.message);if(c?.throwTypeErrors)throw err;return err}`
+const INLINE_TYPE_ERROR = `function typeError(p,e,v,r){const a=v===null?'null':Array.isArray(v)?'array':typeof v;const m=r?'Expected '+e+" for '"+p+"': "+r:'Expected '+e+" for '"+p+"', got "+a;const err=new MonadicError(m,p,e,a,undefined,r);const g=globalThis.__tjs;const c=g?.getConfig?.();try{g?.record?.({source:'type',severity:'error',message:err.message,error:err})}catch{}if(c?.logTypeErrors)console.error('[TJS TypeError] '+err.message);if(c?.throwTypeErrors)throw err;return err}`
 
 const INLINE_IS_MONADIC_ERROR = `function isMonadicError(v){return v instanceof Error&&v.name==='MonadicError'&&'path' in v}`
 import { parse, extractTDoc, preprocess, stripLineComments } from '../parser'
@@ -2344,6 +2344,14 @@ function expectedLabel(t: any): string {
   }
   if (t?.kind === 'union' && Array.isArray(t.members)) {
     return t.members.map((m: any) => expectedLabel(m)).join(' | ')
+  }
+  // An ARRAY names its element type. `sum(['a','b'])` used to report "Expected array …
+  // got object" — wrong twice over: it IS an array, and `typeof []` is 'object'. The
+  // actual side is fixed in the runtime's `describeActual`; this is the expected side,
+  // so the pair now reads "Expected array of integer …, got array", which says what is
+  // actually wrong.
+  if (t?.kind === 'array' && t.items) {
+    return `array of ${expectedLabel(t.items)}`
   }
   return t?.typeName ?? t?.kind
 }

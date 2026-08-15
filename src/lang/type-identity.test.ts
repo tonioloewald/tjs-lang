@@ -275,3 +275,62 @@ describe('Type blocks preserve source-level numeric narrowing', () => {
     ).toBe(true)
   })
 })
+
+/**
+ * An array failure says what is actually wrong — in BOTH runtimes.
+ *
+ * `sum(['a','b'])` against `xs: [0]` reported *"Expected array … got object"*, which is
+ * wrong twice: it IS an array, and `typeof []` is `'object'`. On `T[]`, a headline
+ * feature, that is the least useful possible message.
+ *
+ * Fixed on both sides — the expected label names the element type, and the actual
+ * reporter knows about arrays — and asserted in BOTH runtimes, because the first attempt
+ * fixed only the shared one and left standalone emitted code still saying "got object".
+ * That is the exact defect class the boxed-primitive consolidation was about, repeated
+ * within the hour, which is why it is pinned here rather than trusted.
+ */
+describe('array type errors are accurate in both runtimes', () => {
+  const emit = (src: string, name: string) =>
+    tjs(src, { filename: 'ae.tjs', runTests: false }).code + `\nreturn ${name}`
+
+  const SRC = 'function sum(xs: [0]): 0 { return xs.length }'
+
+  const withRuntime = (body: string) => new Function(body)()
+  const standalone = (body: string) => {
+    const saved = (globalThis as any).__tjs
+    delete (globalThis as any).__tjs
+    try {
+      return new Function(body)()
+    } finally {
+      ;(globalThis as any).__tjs = saved
+    }
+  }
+
+  it('names the ELEMENT type, not just "array"', () => {
+    const msg = String(withRuntime(emit(SRC, 'sum'))(['a', 'b']))
+    expect(msg).toContain('array of integer')
+  })
+
+  for (const [label, run] of [
+    ['shared runtime', withRuntime],
+    ['standalone (inline stub)', standalone],
+  ] as const) {
+    it(`${label}: a wrong ELEMENT reports "got array", not "got object"`, () => {
+      const msg = String(run(emit(SRC, 'sum'))(['a', 'b']))
+      expect(msg).toContain('got array')
+      expect(msg).not.toContain('got object')
+    })
+
+    it(`${label}: a NON-array still reports what it really got`, () => {
+      // The control — reporting "array" unconditionally would satisfy the test above.
+      expect(String(run(emit(SRC, 'sum'))(42))).toContain('got number')
+    })
+  }
+
+  it('nests', () => {
+    const msg = String(
+      withRuntime(emit("function g(m: [['']]): 0 { return 0 }", 'g'))([[1]])
+    )
+    expect(msg).toContain('array of array of string')
+  })
+})

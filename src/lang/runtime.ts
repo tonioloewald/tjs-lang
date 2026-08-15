@@ -226,13 +226,23 @@ export class MonadicError extends Error {
  * @param expected - Expected type, e.g., "string"
  * @param value - The actual value that failed the check
  */
+/** What a value IS, for a diagnostic — `typeof` with arrays and null told truthfully. */
+function describeActual(value: unknown): string {
+  if (value === null) return 'null'
+  if (Array.isArray(value)) return 'array'
+  return typeof value
+}
+
 export function typeError(
   path: string,
   expected: string,
   value: unknown,
   reason?: string
 ): MonadicError {
-  const actual = value === null ? 'null' : typeof value
+  // `typeof []` is 'object', which made every array failure report "got object" — least
+  // helpful exactly where arrays are a headline feature (`xs: [0]`). `Array.isArray` is
+  // the only honest answer here.
+  const actual = describeActual(value)
   // Capture call stack in debug mode (getStack returns [] if not in debug mode)
   const stack = config.callStacks || config.debug ? getStack() : undefined
   const msg = reason
@@ -1878,7 +1888,10 @@ export function createRuntime() {
     expected: string,
     value: unknown
   ): MonadicError {
-    const actual = value === null ? 'null' : typeof value
+    // `typeof []` is 'object', which made every array failure report "got object" — least
+    // helpful exactly where arrays are a headline feature (`xs: [0]`). `Array.isArray` is
+    // the only honest answer here.
+    const actual = describeActual(value)
     const stack =
       instanceConfig.callStacks || instanceConfig.debug
         ? instanceGetStack()
