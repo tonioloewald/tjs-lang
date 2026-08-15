@@ -391,3 +391,89 @@ function f(p: Point) { return p.x }
     expect(call(src, `f({ x: 'a', y: 2 })`)).toBe('Error(Point)')
   })
 })
+
+/**
+ * A `Type` block that declares nothing checkable is REJECTED, not silently permissive.
+ *
+ * `Type User { name: '' \n age: 0 }` — the interface spelling — parsed, discarded its
+ * members, and emitted `Type('User')`. The inline stub then accepted EVERY value:
+ *
+ *     User.check({ name: 'a', age: 1 })  -> true
+ *     User.check(42)                     -> true
+ *     User.check(null)                   -> true
+ *     greet(42)                          -> undefined, no error
+ *
+ * while the REAL runtime throws at construction ("requires a predicate, schema, or
+ * example"). Both are wrong, and since emitted code calls `Type` bare, the stub's
+ * wrongness is the shipped one.
+ *
+ * The interface spelling is why this matters rather than being a curiosity: it is what a
+ * TypeScript author writes first, it parses, and it produces a type that validates
+ * nothing while looking like it describes a shape. Same rule the predicate forms already
+ * follow — rejected rather than ignored, so a type that checks nothing cannot ship looking
+ * like one that does.
+ */
+describe('a Type block must declare something checkable', () => {
+  const rejects = (src: string): string => {
+    try {
+      tjs(src, { filename: 'tb.tjs', runTests: false })
+      return 'ACCEPTED'
+    } catch (e: any) {
+      return String(e.message)
+    }
+  }
+
+  it('rejects the interface spelling, and names the fix as code', () => {
+    const msg = rejects(`Type User {
+  name: ''
+  age: 0
+}
+function greet(u: User) { return u.name }
+`)
+    expect(msg).toContain('accept EVERY value')
+    // The remedy is shown as a worked example, not described — measured to repair 80%
+    // where prose repairs 50% (ASSUMPTIONS.md A1).
+    expect(msg).toContain('example: {')
+    expect(msg).toContain("name: ''")
+  })
+
+  it('ALLOWS the forms that discard nothing', () => {
+    // The boundary, and it is about lost information rather than permissiveness.
+    //
+    // An empty block, a comments-only block, and a description-only block all accept
+    // every value — but none of them threw anything away. `fromTS` emits
+    // `Type X { // TS: <original> }` for a TypeScript type it cannot express, and
+    // `generateDTS` reads that comment back to emit a real alias; rejecting it would
+    // break the TS on-ramp for exactly the types most in need of it.
+    //
+    // "We could not express this, so it accepts anything" is an honest statement.
+    // "You described a shape and it accepts anything" is not. Only the second is a bug.
+    expect(rejects(`Type Empty {}`)).toBe('ACCEPTED')
+    expect(
+      rejects(`Type Degraded {\n  // TS: Record<string, unknown> & {a: 1}\n}`)
+    ).toBe('ACCEPTED')
+    expect(rejects(`Type Thing {\n  description: 'a thing'\n}`)).toBe(
+      'ACCEPTED'
+    )
+  })
+
+  it('the message never misdiagnoses a TJS key as a member', () => {
+    // `description` is one of TJS's own keys, so a block mixing it with real members
+    // must still be diagnosed as the interface spelling — and must not suggest
+    // `example: { description: … }`.
+    const msg = rejects(`Type U {\n  description: 'u'\n  name: ''\n}`)
+    expect(msg).toContain("TypeScript's spelling")
+    expect(msg).toContain("name: ''")
+    expect(msg).not.toContain("description: 'u'")
+  })
+
+  it('still accepts every form that DOES declare something', () => {
+    // The control. Rejecting the checkless block must not reject the real forms.
+    expect(rejects(`Type A { example: { x: 0 } }`)).toBe('ACCEPTED')
+    expect(rejects(`Type B { predicate(v) { return v > 0 } }`)).toBe('ACCEPTED')
+    expect(rejects(`Type C { description: 'c'\n  example: 0 }`)).toBe(
+      'ACCEPTED'
+    )
+    expect(rejects(`Type D 'Alice'`)).toBe('ACCEPTED')
+  })
+})

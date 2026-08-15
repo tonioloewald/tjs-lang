@@ -2417,9 +2417,65 @@ export function transformTypeDeclarations(
           declaredTypes?.add(typeName)
           result += `const ${typeName} = Type('${description}', ${defaultValue})`
         } else {
-          // Empty block - error or description-only type
-          declaredTypes?.add(typeName)
-          result += `const ${typeName} = Type('${description}')`
+          // A block that declares NOTHING checkable — no example, no predicate, no
+          // default — cannot be a type. It was emitted as `Type('Name')`, where the
+          // inline stub accepts EVERY value and the real runtime throws at construction
+          // ("requires a predicate, schema, or example"). Both are wrong, and the stub's
+          // wrongness is the shipped one, silently:
+          //
+          //     Type User { name: '' \n age: 0 }   // interface style — NOT a TJS form
+          //     User.check(42)      -> true
+          //     User.check(null)    -> true
+          //     greet(42)           -> undefined, no error
+          //
+          // The interface spelling is the reason this matters: it is what a TypeScript
+          // author writes first, it parses, and it produces a type that validates
+          // nothing while looking like it describes a shape. Same rule as the predicate
+          // forms above — rejected rather than ignored, and the message carries the fix
+          // as code, since a worked example repairs measurably more than prose
+          // (ASSUMPTIONS.md A1).
+          // `description` etc are TJS's OWN keys, not member declarations — diagnosing
+          // `Type T { description: 'x' }` as "you wrote an interface" would be a
+          // confidently wrong hint, which is worse than a generic one.
+          const TJS_KEYS = /^(description|example|predicate|default)\s*:/
+          const members = blockBody
+            .split('\n')
+            .map((l) => l.trim())
+            .filter((l) => l && !l.startsWith('//') && !TJS_KEYS.test(l))
+          const looksLikeInterface = members.some((l) =>
+            /^\w+\s*:\s*\S/.test(l)
+          )
+
+          // An EMPTY or comments-only block is the converter's deliberate degradation
+          // marker, not a mistake: `fromTS` emits `Type X { // TS: <original> }` for a
+          // TypeScript type it cannot express, and `generateDTS` reads that comment back
+          // to emit a real type alias. "We could not express this, so it accepts
+          // anything" is an honest statement; "you described a shape and it accepts
+          // anything" is not. Only the second is rejected.
+          if (members.length === 0) {
+            declaredTypes?.add(typeName)
+            result += `const ${typeName} = Type('${description}')`
+            i = blockEnd
+            continue
+          }
+
+          throw new SyntaxError(
+            `\`${typeName}\` declares no example, predicate or default, so it would ` +
+              `accept EVERY value.\n\n` +
+              (looksLikeInterface
+                ? `  Member declarations are TypeScript's spelling, not TJS's. Put the ` +
+                  `shape in an \`example\` — the example IS the type:\n\n` +
+                  `    Type ${typeName} {\n` +
+                  `      example: { ${members
+                    .slice(0, 3)
+                    .map((l) => l.replace(/,$/, ''))
+                    .join(', ')} }\n` +
+                  `    }\n`
+                : `  Give it an example, or a predicate:\n\n` +
+                  `    Type ${typeName} { example: { /* … */ } }\n` +
+                  `    Type ${typeName} { predicate(v) { return /* … */ } }\n`),
+            locAt(source, i)
+          )
         }
 
         i = blockEnd
