@@ -401,6 +401,50 @@ function blankRegions(
 }
 
 /**
+ * Remove COMMENTS, keeping literal contents exactly as written.
+ *
+ * The third view, and the one that was missing. `maskLiterals` blanks literals AND
+ * comments; `maskLiteralsKeepComments` blanks literals and keeps comments. Neither serves
+ * a caller that wants comments GONE and literals INTACT — and one exists: the inline-test
+ * harness matches `expect(...)` patterns outside comments, where the strings are the test
+ * DESCRIPTIONS and blanking them erases the thing being extracted.
+ *
+ * Lacking the primitive, that caller hand-rolled it with two raw regexes, and carried a
+ * comment saying so. Hand-rolled comment scanning is what cost 90 seconds of a 116-second
+ * transpile — the module-directive detectors matched a leading comment run with an
+ * alternation whose block-comment arm used a LAZY `[\s\S]*?`, which could stretch a
+ * "comment" to any later close-marker in the file.
+ *
+ * (This doc comment originally quoted that pattern verbatim and terminated itself early,
+ * which is the joke writing itself: a comment about comment-parsing, broken by
+ * comment-parsing.)
+ * A regex cannot decide whether `//` opens a comment — that depends on not being inside a
+ * string, template or regex, which is exactly the state `scanLiterals` already tracks.
+ *
+ * Block comments become the same number of NEWLINES so line numbers survive; line comments
+ * become nothing (their newline is not part of the region). Offsets therefore shift, unlike
+ * the masking views — this returns a shorter string on purpose, for callers that only need
+ * to pattern-match, not to index back.
+ */
+export function stripComments(source: string): string {
+  const regions = scanLiterals(source).filter(
+    (r) => r.kind === 'line-comment' || r.kind === 'block-comment'
+  )
+  if (regions.length === 0) return source
+  let out = ''
+  let at = 0
+  for (const r of regions) {
+    out += source.slice(at, r.start)
+    if (r.kind === 'block-comment') {
+      const text = source.slice(r.start, r.end)
+      out += '\n'.repeat(text.split('\n').length - 1)
+    }
+    at = r.end
+  }
+  return out + source.slice(at)
+}
+
+/**
  * Blank the CONTENTS of strings, templates, regexes and comments, preserving length.
  *
  * Delimiters are kept so the result still tokenizes; only the insides become spaces. Since

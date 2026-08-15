@@ -2952,11 +2952,19 @@ rather than a clean bill of health. Re-run that lens alone before tagging.
       a big-bang rewrite — the same way `maskLiterals` absorbed fifteen sites. Grow the
       lexer where it hurts; do not stop and write one.
 
-      Related and cheap, do first: three live bypasses of `maskLiterals` that strip
-      comments with a raw regex — `parser-transforms.ts:745` (detectCaptures),
-      `parser-transforms.ts:~4310` (const! mutation check), `emitters/js-tests.ts:337`.
-      Each is the exact shape of the ASI bug fixed in c64bcd3. Add a guard test that fails
-      on any raw `//`-stripping regex outside `strip-comments.ts`.
+      Related and cheap, do first: live bypasses of `maskLiterals` that strip comments
+      with a raw regex — `parser-transforms.ts:745` (detectCaptures),
+      `parser-transforms.ts:~4310` (const! mutation check). Each is the exact shape of the
+      ASI bug fixed in c64bcd3. Add a guard test that fails on any raw `//`-stripping
+      regex outside `strip-comments.ts`.
+
+      **`emitters/js-tests.ts` is DONE (2026-08-15)**, and it needed a new primitive
+      rather than a call-site fix: it wants comments GONE and literals INTACT, which
+      neither masking view offers. `stripComments` is that third view, built on
+      `scanLiterals`. Two incidental comment-skipping regexes in `emitters/from-ts.ts`
+      (`/^(\/\*[\s\S]*?\*\/\s*)?/`, duplicated) went with it. The justification was
+      no longer theoretical: the same hand-rolled shape in the module-directive detectors
+      cost 90 seconds of a 116-second transpile.
 
 - [x] **`parser-transforms.ts` fails self-hosting graduation (94/95)** — FIXED 2026-08-11.
       Root cause: the ASI guard read a `//` inside a TEMPLATE LITERAL as a comment when

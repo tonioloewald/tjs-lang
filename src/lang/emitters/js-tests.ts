@@ -4,7 +4,10 @@
  * Handles transpile-time test execution, signature validation, and test utilities.
  */
 
-import { maskLiterals } from '../../strip-comments'
+import {
+  maskLiterals,
+  stripComments as sharedStripComments,
+} from '../../strip-comments'
 import { transformExtensionCalls } from '../parser'
 import { installRuntime } from '../runtime'
 import type { ExtractedTest, ExtractedMock } from '../tests'
@@ -326,24 +329,16 @@ function formatValueInner(
  * Used to avoid matching code patterns inside comments
  */
 function stripComments(code: string): string {
-  // Replace block comments with equivalent whitespace (preserve line numbers)
-  let result = code.replace(/\/\*[\s\S]*?\*\//g, (match) => {
-    // Replace with same number of newlines to preserve line numbers
-    const newlines = match.split('\n').length - 1
-    return '\n'.repeat(newlines)
-  })
-
-  // NOT `maskLiterals` — this site needs comments GONE but literals INTACT (the strings
-  // here are test descriptions). `maskLiterals` blanks literal bodies too, which erases
-  // them. `maskLiteralsKeepComments` is the mirror image and no help either.
+  // The shared, literal-aware stripper. This site wants comments GONE and literals INTACT
+  // — the strings here are test DESCRIPTIONS, so blanking them erases the thing being
+  // extracted — which is why neither masking view fitted and this function hand-rolled it
+  // with two raw regexes for a while.
   //
-  // So the raw regex stays for now, and it carries the ASI bug's shape: a `//` inside a
-  // template literal truncates the line. The missing primitive is a literal-aware
-  // `stripComments` that preserves literal CONTENT — filed with the other four in
-  // TODO.md, and this is the site that proves the set is incomplete.
-  result = result.replace(/\/\/[^\n]*/g, '')
-
-  return result
+  // That hand-roll carried the ASI bug's shape: a `//` inside a template literal
+  // truncated the line. The same class, in the module-directive detectors, turned out to
+  // cost 90 seconds of a 116-second transpile — which is what finally justified building
+  // the primitive instead of documenting its absence.
+  return sharedStripComments(code)
 }
 
 /**

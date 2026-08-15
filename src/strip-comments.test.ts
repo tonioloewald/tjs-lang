@@ -5,6 +5,7 @@ import {
   maskLiterals,
   maskLiteralsKeepComments,
   clearMaskCache,
+  stripComments,
   type LiteralRegion,
 } from './strip-comments'
 
@@ -119,5 +120,58 @@ describe('the mask memo', () => {
       expect(m.length).toBe(s.length)
       expect(m).not.toContain(`lit`)
     }
+  })
+})
+
+/**
+ * `stripComments` — comments GONE, literal contents INTACT.
+ *
+ * The third view, and the one that was missing. `maskLiterals` blanks literals and
+ * comments; `maskLiteralsKeepComments` blanks literals and keeps comments. A caller that
+ * wants comments removed while the strings survive had neither — so it hand-rolled the job
+ * with two raw regexes and carried a comment admitting the result was wrong for a `//`
+ * inside a template literal.
+ *
+ * That same hand-rolled shape, in the module-directive detectors, cost 90 seconds of a
+ * 116-second transpile. A regex cannot decide whether `//` opens a comment: it depends on
+ * not being inside a string, template or regex, which is precisely the state the scanner
+ * already tracks.
+ */
+describe('stripComments keeps literals and drops comments', () => {
+  it('removes line and block comments', () => {
+    expect(stripComments('const x = 1 // note')).toBe('const x = 1 ')
+    expect(stripComments('/* hi */const y = 2')).toBe('const y = 2')
+  })
+
+  it('does NOT treat a `//` inside a template as a comment', () => {
+    // The exact case the hand-rolled version truncated.
+    const src = 'const t = `a // not a comment`'
+    expect(stripComments(src)).toBe(src)
+  })
+
+  it('does not touch a `//` inside a string or a regex', () => {
+    expect(stripComments("const s = 'http://x'")).toBe("const s = 'http://x'")
+    expect(stripComments('const r = /[/]/')).toBe('const r = /[/]/')
+  })
+
+  it('preserves line numbers across a multi-line block comment', () => {
+    // Downstream matches report line numbers, so a block comment has to leave its
+    // newlines behind even though its text goes.
+    const src = 'a\n/* one\n   two */\nb'
+    expect(stripComments(src).split('\n').length).toBe(src.split('\n').length)
+  })
+
+  it('keeps string CONTENT, which is why maskLiterals could not be used here', () => {
+    // The inline-test harness matches `expect(...)` outside comments, and the strings are
+    // the test descriptions — masking them erases what is being extracted.
+    const src = "test 'a description' { expect(1).toBe(1) } // trailing"
+    const out = stripComments(src)
+    expect(out).toContain("'a description'")
+    expect(out).not.toContain('trailing')
+  })
+
+  it('returns the input unchanged when there are no comments', () => {
+    const src = "const a = 1\nconst b = 'x'\n"
+    expect(stripComments(src)).toBe(src)
   })
 })

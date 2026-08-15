@@ -2569,6 +2569,29 @@ function extractDocComments(
   return comments
 }
 
+/**
+ * Insert `export ` after an optional leading comment, without a regex that has to know
+ * what a comment is.
+ *
+ * This was `typeDecl.replace(/^(\/\*[\s\S]*?\*\/\s*)?/, '$1export ')`, twice — the
+ * same incidental comment-skipping whose lazy `[\s\S]*?` cost 90 seconds elsewhere. Here
+ * the input is one declaration rather than a whole file, so it was slow-proof by luck
+ * rather than by construction, and still wrong if the declaration's leading comment quoted
+ * a close-marker.
+ *
+ * `scanLiterals` already knows where the comment ends. Asking it is both correct and
+ * shorter than the pattern it replaces.
+ */
+function prefixExportAfterLeadingComment(decl: string): string {
+  const first = scanLiterals(decl)[0]
+  if (!first || first.kind !== 'block-comment' || first.start !== 0) {
+    return `export ${decl}`
+  }
+  let at = first.end
+  while (at < decl.length && /\s/.test(decl[at])) at++
+  return decl.slice(0, at) + 'export ' + decl.slice(at)
+}
+
 export function fromTS(
   source: string,
   options: FromTSOptions = {}
@@ -2885,7 +2908,7 @@ export function fromTS(
               )
               tjsFunctions.push(
                 isExported
-                  ? typeDecl.replace(/^(\/\*[\s\S]*?\*\/\s*)?/, '$1export ')
+                  ? prefixExportAfterLeadingComment(typeDecl)
                   : typeDecl
               )
             }
@@ -2932,7 +2955,7 @@ export function fromTS(
               )
               tjsFunctions.push(
                 isExported
-                  ? typeDecl.replace(/^(\/\*[\s\S]*?\*\/\s*)?/, '$1export ')
+                  ? prefixExportAfterLeadingComment(typeDecl)
                   : typeDecl
               )
             }
