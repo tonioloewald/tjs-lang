@@ -71,16 +71,22 @@ function flaggedPatterns(): Array<{
 }
 
 /**
- * Measured 2026-08-15. MAY ONLY GO DOWN.
+ * Measured 2026-08-15 at 6; lowered to 3 the same day. MAY ONLY GO DOWN.
  *
- * The six, for the record — all "an unbounded quantifier nested inside another":
- *   lang/parser.ts:172,178   `safety` directive detection
- *   lang/parser.ts:215       `TjsStrict`/`TjsCompat` detection
- *   lang/parser.ts:863       doc-block adjacency check in `extractTDoc`
- *   lang/docs.ts:358         class-member signature scan
- *   lang/emitters/from-ts.ts:2379  `@tjs` annotation parse
+ * The three directive-detection patterns (`safety` at parser.ts:172/178,
+ * `TjsStrict`/`TjsCompat` at :215) were rewritten to scan the MASKED view, where comments
+ * are already spaces — they were not merely risky, they were THE 90-seconds-of-116 slow
+ * path on `emitters/ast.ts`, found by CPU profile. A fourth copy built via `new RegExp`
+ * (invisible to this scan, which reads literals) went with them.
+ *
+ * The three that remain — all "an unbounded quantifier nested inside another":
+ *   lang/parser.ts:~863            doc-block adjacency check in `extractTDoc`
+ *   lang/docs.ts:~358              class-member signature scan
+ *   lang/emitters/from-ts.ts:~2379 `@tjs` annotation parse
+ * None is on a hot path today (extractTDoc measured 0.02s across 23 functions), which is
+ * why they are ratcheted rather than rushed.
  */
-const CEILING = 6
+const CEILING = 3
 
 describe('our own regexes meet the bar we set for user predicates', () => {
   const flagged = flaggedPatterns()

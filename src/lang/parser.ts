@@ -6,6 +6,7 @@
  */
 
 import {
+  maskLiterals,
   stripLineComments,
   maskUnsafe,
   stripUnsafeMarkers,
@@ -168,15 +169,33 @@ export function preprocess(
   // Handle module-level safety directive: safety none | safety inputs | safety all
   // Must be at the start of the file (possibly after comments/whitespace)
   // Explicit directive always overrides the default
-  const safetyMatch = source.match(
-    /^(\s*(?:\/\/[^\n]*\n|\/\*[\s\S]*?\*\/\s*)*)\s*safety\s+(none|inputs|all)\b/
+  //
+  // Scanned over the MASKED view, where comments are already spaces — so the regex needs
+  // no comment-matching at all and is linear. The previous pattern matched the leading
+  // comment run itself (`(?:\/\/[^\n]*\n|\/\*[\s\S]*?\*\/\s*)*`), and the lazy `[\s\S]*?`
+  // could extend a "comment" to ANY later `*/` in the file, so the prefix could absorb
+  // arbitrary amounts of source in combinatorially many ways before failing. On a
+  // converted file — which carries a `/* line N */` marker per declaration — that was
+  // **90 of the 116 seconds** it took to transpile `emitters/ast.ts` (55KB): two regexes,
+  // 47s and 43s, measured by CPU profile after every coarser probe missed them. Our own
+  // `reDoSRisk` flags the old shape; `src/self-redos.test.ts` now keeps the count falling.
+  //
+  // Masking preserves offsets, so the match indexes straight into the real source for the
+  // splice, and everything before the directive — comments included — is kept verbatim,
+  // exactly as the old `$1` replacement did.
+  const spliceDirective = (start: number, length: number): void => {
+    let end = start + length
+    while (end < source.length && /\s/.test(source[end])) end++
+    source = source.slice(0, start) + source.slice(end)
+  }
+  const safetyMatch = maskLiterals(source).match(
+    /^(\s*)safety\s+(none|inputs|all)\b/
   )
   if (safetyMatch) {
     moduleSafety = safetyMatch[2] as 'none' | 'inputs' | 'all'
-    // Remove the directive from source
-    source = source.replace(
-      /^(\s*(?:\/\/[^\n]*\n|\/\*[\s\S]*?\*\/\s*)*)\s*safety\s+(none|inputs|all)\s*/,
-      '$1'
+    spliceDirective(
+      safetyMatch[1].length,
+      safetyMatch[0].length - safetyMatch[1].length
     )
   }
 
@@ -211,11 +230,12 @@ export function preprocess(
 
   // TjsCompat disables all TJS modes (useful for native TJS opting out)
   // Individual modes: TjsEquals, TjsClass, TjsNoeval, TjsStandard
-  const directivePattern =
-    /^(\s*(?:\/\/[^\n]*\n|\/\*[\s\S]*?\*\/\s*)*)\s*(TjsStrict|TjsCompat)\b/
+  // Same masked-view scan as the safety directive above, and for the same reason — the
+  // old comment-matching prefix was the 47-second half of the pair.
+  const directivePattern = /^(\s*)(TjsStrict|TjsCompat)\b/
 
   let match
-  while ((match = source.match(directivePattern))) {
+  while ((match = maskLiterals(source).match(directivePattern))) {
     const directive = match[2]
 
     if (directive === 'TjsStrict') {
@@ -242,13 +262,10 @@ export function preprocess(
       tjsModes.tjsDictDefaults = false
     }
 
-    // Remove the directive from source
-    source = source.replace(
-      new RegExp(
-        `^(\\s*(?:\\/\\/[^\\n]*\\n|\\/\\*[\\s\\S]*?\\*\\/\\s*)*)\\s*${directive}\\s*`
-      ),
-      '$1'
-    )
+    // Remove the directive from source. (This was a FOURTH copy of the backtracking
+    // pattern, built via `new RegExp` — invisible to the self-ReDoS ratchet, which scans
+    // regex LITERALS. The splice-by-offset needs no pattern at all.)
+    spliceDirective(match[1].length, directive.length)
   }
 
   // Strip single-line comments early — they confuse brace matching,
