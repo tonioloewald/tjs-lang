@@ -179,7 +179,10 @@
     "TJS-FOR-TS.md",
     "MANIFESTO-BUILDER.md",
     "MANIFESTO-ENTERPRISE.md",
-    "benchmarks.md"
+    "benchmarks.md",
+    "!**/*.test.ts",
+    "!**/*.bench.test.ts",
+    "!**/*.demo.test.ts"
   ],
   "sideEffects": [
     "./src/schema/index.ts",

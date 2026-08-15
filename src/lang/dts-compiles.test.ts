@@ -146,3 +146,41 @@ export Type Even 'an even number' {
     expect(dts).not.toContain('export type Even = string;')
   })
 })
+
+/**
+ * An exported ARROW appears in the `.d.ts` with real parameter and return types.
+ *
+ * This is issue #4's behaviour, and it had no test — its only executable proof was
+ * `.i4-check.ts`, a scratch probe committed at the repo root with absolute
+ * `/Users/…` imports and no assertions. That file escaped CI (tsc skips dot-prefixed
+ * paths) and the tarball (the `files` allowlist), so it harmed nobody — it just wasn't a
+ * test, while being the only thing standing in for one.
+ *
+ * Before the fix an arrow got no `returns` metadata and its colon example became a JS
+ * default, so the declaration was `id(x: any): any` at best. Promoted here with relative
+ * imports and expectations, and the probe deleted.
+ */
+describe('exported arrows reach the .d.ts (issue #4)', () => {
+  const SRC = `export const id = (x: 0) => x
+export function idFn(x: 0) { return x }
+export const mk = (tag: 'div', n: 0): '' => tag + n
+`
+
+  it('an arrow gets typed parameters, like the function form', () => {
+    const dts = dtsFor(SRC)
+    expect(dts).toContain('export declare function id(x: number)')
+    // The control: the `function` spelling has always worked, so a change that broke
+    // BOTH would still satisfy an assertion about arrows alone.
+    expect(dts).toContain('export declare function idFn(x: number)')
+  })
+
+  it('an arrow return annotation reaches the declaration', () => {
+    expect(dtsFor(SRC)).toContain(
+      'export declare function mk(tag: string, n: number): string'
+    )
+  })
+
+  it('and the whole file still compiles', () => {
+    expect(diagnose(dtsFor(SRC))).toEqual([])
+  })
+})
