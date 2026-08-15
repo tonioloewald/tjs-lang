@@ -116,8 +116,23 @@ async function main() {
   // `--max-warnings N` — let CI fail on type degradation without making every warning
   // fatal, the same shape as eslint's flag so a project can adopt the checks gradually.
   const maxWarningsIdx = args.findIndex((a) => a === '--max-warnings')
-  const maxWarnings =
-    maxWarningsIdx !== -1 ? Number(args[maxWarningsIdx + 1]) : undefined
+  let maxWarnings: number | undefined
+  if (maxWarningsIdx !== -1) {
+    const raw = args[maxWarningsIdx + 1]
+    maxWarnings = Number(raw)
+    // `Number(undefined)` is NaN, and `0 > NaN` is false — so a bare `--max-warnings`,
+    // or a typo'd value, used to print "0 warnings exceeds --max-warnings NaN" and exit 1
+    // on a CLEAN file. A CI flag that fails the build when you fumble its argument is
+    // worse than no flag: the failure looks like the codebase, not the invocation.
+    if (!Number.isFinite(maxWarnings) || maxWarnings < 0) {
+      console.error(
+        `--max-warnings needs a non-negative number; got ${
+          raw === undefined ? '(nothing)' : `'${raw}'`
+        }.\n` + `  tjs check src/ --max-warnings 0`
+      )
+      process.exit(2)
+    }
+  }
 
   // Filter out flag arguments
   const filteredArgs = args.filter((a, i) => {

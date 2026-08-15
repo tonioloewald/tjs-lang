@@ -86,3 +86,68 @@ describe('the help text describes what commands actually do', () => {
     expect(testLine).toMatch(/inline|test \{ \}/)
   })
 })
+
+/**
+ * `--max-warnings` behaves, and a fumbled argument does not fail the build.
+ *
+ * The release's flagship CI ergonomic had NO behavioural test, and `Number(undefined)` is
+ * `NaN` while `0 > NaN` is `false` — so a bare `--max-warnings`, or a typo'd value,
+ * printed `0 warnings exceeds --max-warnings NaN` and exited 1 on a CLEAN file.
+ *
+ * A CI flag that fails the build when you fumble its argument is worse than no flag: the
+ * failure looks like the codebase rather than the invocation, and the message names a
+ * value nobody typed.
+ */
+describe('--max-warnings', () => {
+  const CLI = join(import.meta.dir, 'tjs.ts')
+  const tmp = join(process.env.TMPDIR ?? '/tmp', `tjs-maxwarn-${process.pid}`)
+
+  const run = async (file: string, ...flags: string[]) => {
+    const proc = Bun.spawn(['bun', CLI, 'check', file, ...flags], {
+      stdout: 'pipe',
+      stderr: 'pipe',
+    })
+    const [out, err] = await Promise.all([
+      new Response(proc.stdout).text(),
+      new Response(proc.stderr).text(),
+    ])
+    return { code: await proc.exited, text: out + err }
+  }
+
+  const clean = `${tmp}-clean.tjs`
+  const warns = `${tmp}-warns.tjs`
+  Bun.write(clean, 'function ok(n: 0): 0 { return n * 2 }\n')
+  // An unresolvable annotation degrades to unchecked WITH a warning — the exact thing the
+  // flag exists to gate on.
+  Bun.write(warns, 'function warn(x: NotAType): 0 { return 0 }\n')
+
+  it('a clean file passes at zero', async () => {
+    expect((await run(clean, '--max-warnings', '0')).code).toBe(0)
+  })
+
+  it('a warning trips the gate at zero', async () => {
+    expect((await run(warns, '--max-warnings', '0')).code).toBe(1)
+  })
+
+  it('the same warning passes under a higher ceiling', async () => {
+    // The control: exiting 1 unconditionally would satisfy the test above.
+    expect((await run(warns, '--max-warnings', '5')).code).toBe(0)
+  })
+
+  it('warnings alone do not fail the build without the flag', async () => {
+    expect((await run(warns)).code).toBe(0)
+  })
+
+  it('a MISSING value is rejected as a usage error, not a build failure', async () => {
+    const r = await run(clean, '--max-warnings')
+    expect(r.code).toBe(2) // usage error, distinct from 1 = the check failed
+    expect(r.text).toContain('non-negative number')
+    expect(r.text).not.toContain('NaN')
+  })
+
+  it('a non-numeric value is rejected the same way', async () => {
+    const r = await run(clean, '--max-warnings', 'abc')
+    expect(r.code).toBe(2)
+    expect(r.text).toContain("'abc'")
+  })
+})
