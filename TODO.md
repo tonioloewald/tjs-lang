@@ -2720,6 +2720,62 @@ the `introspection-autocomplete` memory.
 - [ ] Auto-discover and build local dependencies in module resolution
 - [ ] **Wire `ModuleLoader` into the playground's `tjs()` invocation** for transpile-time cross-file `wasm function` composition (Phase 3 of the wasm-library plan). Today the playground resolves imports at runtime via the local-module store — correct but uses the "boundary form" with a JS↔wasm crossing per call. With a ModuleLoader, imported `wasm function`s would be composed into the consumer's own `WebAssembly.Module` at transpile time, enabling wasm-to-wasm calls (single-digit nanosecond per-call cost). The `wasm-library-consumer.md` example flags this as a known gap. See `src/lang/module-loader.ts` (already shipped) and `wasm-library-plan.md` § Phase 3.
 
+## Transpiler has a CATASTROPHIC slow path (2026-08-15) — profiled, not isolated
+
+The dogfood ratchet's 180s timeout is not "a big suite". Profiled across the 97-file
+corpus:
+
+| stage                              | total      | avg    |
+| ---------------------------------- | ---------- | ------ |
+| `fromTS` (the TypeScript compiler) | **0.9s**   | 9ms    |
+| `tjs()` (our transpiler)           | **161.3s** | 1663ms |
+
+**Two files are 95% of it**: `src/lang/emitters/ast.ts` at **115.9s** and
+`src/lang/emitters/from-ts.ts` at **37.9s**. `src/vm/runtime.ts` is 2.5× LARGER than
+`ast.ts` (136KB vs 55KB) and transpiles in **0.4s** — so it is not size.
+
+The growth is not polynomial. Feeding `preprocess` complete top-level statements from the
+converted `ast.ts`:
+
+```
+ 25% (11KB)  0.03s
+ 50% (18KB)  0.03s
+ 75% (25KB)  0.15s
+100% (54KB) 42.11s      <- 2.2x the input, 280x the time
+```
+
+Every top-level part measured ALONE is ~0s, so it is an interaction with accumulated
+size, and the shape says catastrophic backtracking rather than a quadratic scan.
+
+Growing one part at a time, the explosion starts at a signature dense with unions —
+including a union inside an object return type:
+
+```
+function transformCallExpression(expr, ctx, resultVar: '' | undefined,
+  isConst: false | undefined):! { step: null, resultVar: '' | undefined }
+```
+
+**Not isolated.** A minimal repro of N union-heavy signatures does NOT reproduce (12 of
+them: 2ms), so the trigger needs the surrounding file. Checkpointing all 28 transform
+calls in `preprocess` accounted for < 0.2s total, and the validators
+(`validateNoNew`/`NoEval`/`NoVar`/`NoDate`), `maskUnsafe`, `transformBareAssignments` and
+`transformEqualityToStructural` are each ~0s on the file. `preprocess` alone is 46s of the
+116s, so roughly 70s is in the emit phase.
+
+- [ ] **Find it.** Recipe: `fromTS(readFileSync('src/lang/emitters/ast.ts'), {emitTJS:true})`
+      then `tjs()` the result, and bisect by COMPLETE top-level statements (truncation
+      bisection is invalid — an incomplete construct always fails). A CPU profile would
+      settle it in minutes and is the right next step; the by-hand narrowing above is at
+      the end of its usefulness.
+- [ ] **Why nothing caught it.** The repo has a ReDoS detector (`src/redos.ts`) that fails
+      CLOSED on user predicates, and none of the transpiler's own regexes go through it.
+      Worth pointing it at ourselves.
+- [ ] **Consequence for users, not just the suite.** This is a plain `tjs()` call on an
+      ordinary 55KB file. Anyone transpiling one like it waits two minutes, and the
+      playground would appear to hang.
+- [ ] Only once it is fixed does the dogfood timeout stop being a coin-flip (isolated
+      runs: 181,398ms FAIL / 154,740ms / 159,420ms against a 180,000ms limit).
+
 ## 0.13.0 re-review (2026-08-13) — BLOCK cleared, 3 red tests OPEN
 
 Second review, base `af46fa2`, depth full: **63 findings, 2 blockers**. Both blockers were
