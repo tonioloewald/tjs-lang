@@ -45,6 +45,7 @@ import {
   isValidLegalDate,
   openInferredShapes,
 } from '../types/Type'
+import { unwrapBoxed } from '../unwrap-boxed'
 
 // Re-export Type utilities for consumers
 export {
@@ -944,29 +945,6 @@ export function IsNot(a: unknown, b: unknown): boolean {
 export function TypeOf(value: unknown): string {
   if (value === null) return 'null'
   return typeof value
-}
-
-/**
- * The primitive inside a boxed String/Number/Boolean, read from the internal slot so an
- * overridden `valueOf` cannot intercept it, throw, or lie. Non-boxed values pass through.
- */
-function unwrapBoxed(v: unknown): unknown {
-  // Read the INTERNAL SLOT via the prototype method, never `v.valueOf()`. A subclass can
-  // override `valueOf`; the slot read cannot be intercepted, so it can neither run user
-  // code nor lie about the value.
-  //
-  // Fail-soft, because `instanceof` can still lie: a Proxy with a `Symbol.hasInstance`
-  // trap passes the guard and then makes the slot read throw a raw `TypeError` — out of
-  // `==`, in a language whose whole promise is that errors are RETURNED, not thrown.
-  // A value that will not yield a primitive slot simply is not a boxed primitive.
-  try {
-    if (v instanceof String) return String.prototype.valueOf.call(v)
-    if (v instanceof Number) return Number.prototype.valueOf.call(v)
-    if (v instanceof Boolean) return Boolean.prototype.valueOf.call(v)
-  } catch {
-    return v
-  }
-  return v
 }
 
 /**
