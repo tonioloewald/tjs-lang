@@ -572,3 +572,152 @@ describe('fuel exhaustion cannot be caught and resumed', () => {
     expect(r.fuelUsed, 'the loop must actually execute').toBeGreaterThan(5)
   })
 })
+
+/**
+ * Accumulation is LINEAR, and passing a name into a helper is free.
+ *
+ * Two independent routes to the same defect: a fresh per-scope `heapPerKey` meant a value
+ * the caller already accounted got re-walked from scratch, turning O(1) work into O(n) —
+ * and inside a loop, O(n²).
+ *
+ *   `reduce` with a growing accumulator, fuel over 1k→8k items:
+ *       1624 → 4248 → 12495 → 40989      (~3x per doubling — quadratic)
+ *       1124 → 2247 →  4493 →  8985      (exactly 2x — linear)
+ *
+ *   `callLocal` with an unchanged 20,000-element argument, 400 calls:
+ *       v0.12.0     4ms /   272 fuel
+ *       before    41ms / 8,294 fuel      (~30x, for identical work)
+ *       after     12ms /   293 fuel
+ *
+ * Fuel is the unit hosts size their budgets in, so this was not merely slow: a host that
+ * tuned `fuel` against 0.12.0 exhausted it long before the work it used to afford.
+ *
+ * Asserted on FUEL rather than wall-clock — fuel is deterministic, and it is the thing
+ * that actually broke.
+ */
+describe('re-walking what is already accounted', () => {
+  const ident = (name: string) => ({ $expr: 'ident', name })
+  const lit = (value: unknown) => ({ $expr: 'literal', value })
+
+  async function reduceFuel(n: number): Promise<number> {
+    const r = await new AgentVM().run(
+      {
+        op: 'seq',
+        steps: [
+          { op: 'varSet', key: 'src', value: new Array(n).fill(1) },
+          {
+            op: 'reduce',
+            items: ident('src'),
+            initial: [],
+            as: 'item',
+            accumulator: 'acc',
+            steps: [
+              {
+                op: 'push',
+                list: ident('acc'),
+                item: ident('item'),
+                result: 'acc',
+              },
+            ],
+          },
+          { op: 'return', value: { ok: 1 } },
+        ],
+      } as any,
+      {} as any,
+      { fuel: 1e9, maxHeapBytes: 512 * 1024 * 1024 }
+    )
+    expect(r.error?.message ?? 'ok').toBe('ok')
+    return (r as any).fuelUsed as number
+  }
+
+  it('reduce with a growing accumulator costs LINEAR fuel', async () => {
+    const a = await reduceFuel(1000)
+    const b = await reduceFuel(4000)
+    // 4x the items should cost ~4x the fuel. Quadratic would be ~16x; the measured
+    // quadratic was 7.7x at this ratio, so 6x is a wide but decisive bar.
+    expect(
+      b / a < 6 ? 'linear' : `${(b / a).toFixed(1)}x fuel for 4x items`
+    ).toBe('linear')
+  })
+
+  it('callLocal does not re-walk an unchanged argument', async () => {
+    const ast = {
+      op: 'seq',
+      helpers: {
+        noop: { paramNames: ['xs'], steps: [{ op: 'return', value: lit(1) }] },
+      },
+      steps: [
+        { op: 'varSet', key: 'big', value: new Array(20_000).fill(1) },
+        { op: 'varSet', key: 'i', value: 0 },
+        {
+          op: 'while',
+          condition: {
+            $expr: 'binary',
+            op: '<',
+            left: ident('i'),
+            right: lit(400),
+          },
+          body: [
+            {
+              op: 'callLocal',
+              name: 'noop',
+              args: [ident('big')],
+              result: 'r',
+            },
+            {
+              op: 'varSet',
+              key: 'i',
+              value: {
+                $expr: 'binary',
+                op: '+',
+                left: ident('i'),
+                right: lit(1),
+              },
+            },
+          ],
+        },
+        { op: 'return', value: { ok: 1 } },
+      ],
+    }
+    const r = await new AgentVM().run(ast as any, {} as any, {
+      fuel: 1e9,
+      maxHeapBytes: 512 * 1024 * 1024,
+    })
+    expect(r.error?.message ?? 'ok').toBe('ok')
+    const used = (r as any).fuelUsed as number
+    // 0.12.0 spent 272; the regression spent 8,294. 1,000 is far above the former and
+    // far below the latter.
+    expect(used < 1000 ? 'cheap' : `${used.toFixed(0)} fuel`).toBe('cheap')
+  })
+
+  it('a helper param that SHADOWS a caller variable is still accounted', async () => {
+    // The bypass the fresh ledger exists to prevent, and which the seeding must not
+    // reopen: seeding matches by REFERENCE, so a different value under the same name
+    // gets measured normally.
+    const big = () =>
+      new Array(300_000).fill('yyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyy')
+    const r = await new AgentVM().run(
+      {
+        op: 'seq',
+        helpers: {
+          eat: {
+            paramNames: ['big'],
+            steps: [{ op: 'return', value: lit(1) }],
+          },
+        },
+        steps: [
+          { op: 'varSet', key: 'big', value: big() },
+          { op: 'callLocal', name: 'eat', args: [lit(null)], result: 'r1' },
+          { op: 'varSet', key: 'more', value: big() },
+          { op: 'varSet', key: 'more2', value: big() },
+          { op: 'return', value: { ok: 1 } },
+        ],
+      } as any,
+      {} as any,
+      { fuel: 1e9, maxHeapBytes: 32 * 1024 * 1024 }
+    )
+    expect(r.error?.message ?? 'ACCEPTED — the bypass is open').toMatch(
+      /Heap limit exceeded/
+    )
+  })
+})

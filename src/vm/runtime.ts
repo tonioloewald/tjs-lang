@@ -1912,6 +1912,54 @@ function trackHeapWrite(
     return true
   }
 
+  // APPEND FAST PATH — the same array, longer than last time.
+  //
+  // Re-measuring the whole accumulator on every append is O(n) per step and O(n²) over a
+  // loop, which is the single most ordinary shape an agent program has: `reduce` with a
+  // growing accumulator, or `push` in a `while`. Measured fuel over 1k→8k items: 2124 →
+  // 6247 → 20493 → 72985, i.e. ~4× per doubling.
+  //
+  // Only the NEW tail is measured, and its size is added to what the entry already
+  // recorded. That makes accumulation linear again while keeping the ledger exact — the
+  // guard still sees every byte, it just stops paying to re-count the ones it already
+  // counted.
+  //
+  // The assumption is that elements before `prevEntry.witness` are unchanged. That is
+  // exactly the assumption the identity path above already makes, and it holds because
+  // `push` is the only atom that mutates an array in place: there is no atom that rewrites
+  // an existing element. A future one would have to invalidate the entry.
+  if (
+    prevEntry &&
+    prevEntry.ref === value &&
+    Array.isArray(value) &&
+    witness > prevEntry.witness
+  ) {
+    const account = (ctx.heapAccount ??= { bytes: 0 })
+    const tail = value.slice(prevEntry.witness)
+    const headroom = cap - account.bytes
+    const { bytes: added, nodes } = estimateBytes(tail, Math.max(0, headroom))
+    if (ctx.fuel) ctx.fuel.current -= nodes * HEAP_WALK_FUEL_PER_NODE
+    const total = account.bytes + added
+    ctx.heapPerKey.set(key, {
+      size: prevEntry.size + added,
+      ref: value,
+      witness,
+    })
+    account.bytes = total
+    if (total > cap) {
+      ctx.error = new AgentError(
+        `Heap limit exceeded: guest state holds ~${Math.round(
+          total / 1048576
+        )}MB, limit ${Math.round(
+          cap / 1048576
+        )}MB. Fuel bounds total work; this bounds peak memory. Raise it with the maxHeapBytes run option if the workload genuinely needs it.`,
+        op
+      )
+      return false
+    }
+    return true
+  }
+
   // Measure against the REMAINING headroom, not the absolute ceiling. `cap` was the
   // absolute 64MB, so the early exit only fired for values that would abort anyway and
   // the estimator happily walked 300k nodes to discover it was under budget.
@@ -2919,6 +2967,29 @@ export const callLocal = defineAtom(
     }
     try {
       for (let i = 0; i < helper.paramNames.length; i++) {
+        // Seed the helper's ledger from the CALLER's entry when the argument is a value
+        // the caller already accounts.
+        //
+        // Passing a name into a helper allocates nothing — it is the same object, already
+        // counted — but the fresh ledger above meant every argument was re-walked in full
+        // on every call. Measured with an unchanged 20,000-element argument over 400
+        // calls: **4ms / 272 fuel on 0.12.0 → 41ms / 8,294 fuel here**, ~30× the fuel for
+        // identical work. Fuel is the unit hosts size their budgets in, so a host that
+        // tuned `fuel` against 0.12.0 exhausts it long before the work it used to afford.
+        //
+        // Matched by REFERENCE against the caller's entries, not by name: an argument that
+        // is a freshly built value has no caller entry and is measured normally, which is
+        // right — it really is new memory. The size is added back on seeding and removed
+        // again by `releaseScope`, so the accounting is unchanged.
+        const arg = resolvedArgs[i]
+        if (arg && typeof arg === 'object' && ctx.heapPerKey) {
+          for (const entry of ctx.heapPerKey.values()) {
+            if (entry.ref !== arg) continue
+            scopedCtx.heapPerKey!.set(helper.paramNames[i], entry)
+            ;(scopedCtx.heapAccount ??= { bytes: 0 }).bytes += entry.size
+            break
+          }
+        }
         if (
           !setStateVar(
             scopedCtx,
@@ -3062,19 +3133,42 @@ export const reduce = defineAtom(
       throw new Error('reduce: items is not an array')
 
     let acc = resolvedInitial
+    /**
+     * The accumulator's ledger entry, carried ACROSS iterations.
+     *
+     * Each iteration gets a fresh child scope with an empty `heapPerKey`, so writing the
+     * accumulator into it found no prior entry and re-walked the whole thing — O(n) per
+     * step, O(n²) over the loop, on the most ordinary agent shape there is. Measured fuel
+     * over 1k→8k items: 1624 → 4248 → 12495 → 40989, ~3× per doubling.
+     *
+     * Seeding the child with last iteration's entry is O(1) and lets the identity/append
+     * paths in `trackHeapWrite` do their job: an unchanged accumulator costs nothing, and
+     * one that grew costs only its new tail. The accounting is unchanged — the size is
+     * added back when seeded and subtracted again by `releaseScope`, so the accumulator is
+     * accounted exactly as before, just without paying to re-count what was already
+     * counted.
+     */
+    let accEntry: { size: number; ref: unknown; witness: number } | undefined
     for (const item of resolvedItems) {
       // Check abort signal for clean cancellation
       if (ctx.signal?.aborted) throw new Error('Execution aborted')
       const scopedCtx = createChildScope(ctx)
       try {
-        // The ITEM aliases the source array; the ACCUMULATOR below does not — it is rebuilt
-        // each iteration and can grow without bound, so it stays fully accounted.
+        // Only when it is the SAME object — a body that rebuilds the accumulator (`map`
+        // style) gets a fresh measurement, which is correct: it is a different value.
+        if (accEntry && accEntry.ref === acc && scopedCtx.heapPerKey) {
+          scopedCtx.heapPerKey.set(accumulator, accEntry)
+          ;(scopedCtx.heapAccount ??= { bytes: 0 }).bytes += accEntry.size
+        }
+        // The ITEM aliases the source array; the ACCUMULATOR does not — it can grow
+        // without bound, so it stays fully accounted.
         if (!setStateVar(scopedCtx, as, item, 'reduce', { alias: true }))
           return undefined
         if (!setStateVar(scopedCtx, accumulator, acc, 'reduce'))
           return undefined
         await seq.exec({ op: 'seq', steps } as any, scopedCtx)
         acc = scopedCtx.state['result'] ?? acc
+        accEntry = scopedCtx.heapPerKey?.get(accumulator)
       } finally {
         releaseScope(scopedCtx)
       }
