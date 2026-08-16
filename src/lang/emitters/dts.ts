@@ -23,7 +23,7 @@
 import type { TypeDescriptor } from '../types'
 import { isDictDefaultParam } from '../types'
 import type { TJSTranspileResult, TJSTypeInfo } from './js'
-import { maskLiterals } from '../../strip-comments'
+import { maskLiterals, splitTopLevel } from '../../strip-comments'
 
 /**
  * Convert a TypeDescriptor to a TypeScript type string.
@@ -277,6 +277,13 @@ interface FunctionPredicateInfo {
   typeParams?: string[]
 }
 
+/** Top-level comma split, trimmed — see `splitTopLevel`. */
+function splitTopLevelTrimmed(paramStr: string): string[] {
+  return splitTopLevel(paramStr)
+    .map((p) => p.trim())
+    .filter(Boolean)
+}
+
 /** Detect FunctionPredicate declarations and extract their param/return specs */
 function detectFunctionPredicates(
   source: string
@@ -323,7 +330,7 @@ function detectFunctionPredicates(
     const paramsMatch = body.match(/params\s*:\s*\{([^}]*)\}/)
     if (paramsMatch) {
       const paramsStr = paramsMatch[1]
-      const paramEntries = splitParams(paramsStr)
+      const paramEntries = splitTopLevelTrimmed(paramsStr)
       for (const entry of paramEntries) {
         const kv = entry.match(/^(\w+)\s*:\s*(.+)$/)
         if (kv) {
@@ -496,29 +503,6 @@ function detectClasses(source: string): Map<string, ClassInfo> {
 }
 
 /**
- * Split a param string on commas, respecting nested braces/brackets.
- * "x: 0.0, y: { a: 1, b: 2 }" → ["x: 0.0", "y: { a: 1, b: 2 }"]
- */
-function splitParams(paramStr: string): string[] {
-  const result: string[] = []
-  let depth = 0
-  let current = ''
-  for (const ch of paramStr) {
-    if (ch === '{' || ch === '[' || ch === '(') depth++
-    else if (ch === '}' || ch === ']' || ch === ')') depth--
-
-    if (ch === ',' && depth === 0) {
-      result.push(current.trim())
-      current = ''
-    } else {
-      current += ch
-    }
-  }
-  if (current.trim()) result.push(current.trim())
-  return result
-}
-
-/**
  * Parse a TJS constructor/method param string into TS param declarations.
  * Input:  "x: 0.0, y: 0.0"  or  "name: '', age: 0"
  * Output: "x: number, y: number"  or  "name: string, age: number"
@@ -528,7 +512,7 @@ function splitParams(paramStr: string): string[] {
 function tjsParamsToTS(paramStr: string): string {
   if (!paramStr.trim()) return ''
 
-  return splitParams(paramStr)
+  return splitTopLevelTrimmed(paramStr)
     .map((trimmed) => {
       // name: value (required) or name = value (optional)
       const colonMatch = trimmed.match(/^(\w+)\s*:\s*(.+)$/)

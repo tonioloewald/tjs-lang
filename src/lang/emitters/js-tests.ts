@@ -7,6 +7,7 @@
 import {
   maskLiterals,
   stripComments as sharedStripComments,
+  splitTopLevel,
 } from '../../strip-comments'
 import { transformExtensionCalls } from '../parser'
 import { installRuntime } from '../runtime'
@@ -1159,32 +1160,11 @@ function extractParamExamples(paramsStr: string): string[] {
   return examples
 }
 
-/**
- * Split parameter string on commas, respecting nested structures
- */
+/** Top-level comma split, trimmed — see `splitTopLevel` in strip-comments. */
 function splitParams(paramsStr: string): string[] {
-  // Scans a literal-masked view and slices from the original — a comma inside a string,
-  // template or regex is not a boundary. This is the same defect the sibling splitter in
-  // `parser-params.ts` had: `{a = 'x,'}` split mid-literal. Second instance of the family
-  // in the parameter path, so both now go through `maskLiterals`.
-  const masked = maskLiterals(paramsStr)
-  const params: string[] = []
-  let depth = 0
-  let start = 0
-
-  for (let i = 0; i < masked.length; i++) {
-    const char = masked[i]
-    if (char === '(' || char === '[' || char === '{') depth++
-    else if (char === ')' || char === ']' || char === '}') depth--
-    else if (char === ',' && depth === 0) {
-      params.push(paramsStr.slice(start, i).trim())
-      start = i + 1
-    }
-  }
-
-  const tail = paramsStr.slice(start).trim()
-  if (tail) params.push(tail)
-  return params
+  return splitTopLevel(paramsStr)
+    .map((p) => p.trim())
+    .filter(Boolean)
 }
 
 /**

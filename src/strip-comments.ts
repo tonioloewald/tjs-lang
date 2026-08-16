@@ -324,6 +324,47 @@ function scanLiteralsUncached(source: string): LiteralRegion[] {
 }
 
 /**
+ * Split on top-level `,` — over the masked view, so a comma inside a literal is data.
+ *
+ * THE parameter splitter. There were three: `parser-params.ts` `splitParameters`,
+ * `js-tests.ts` `splitParams`, and `dts.ts` `splitParams`. The first two were migrated onto
+ * `maskLiterals` earlier in the 0.13.0 cycle, and the comment on the second names the first
+ * as *the* sibling — so the third was never counted, and stayed literal-blind.
+ *
+ * What that cost is worse than the usual garbled output, because it reaches consumers as
+ * BROKEN SYNTAX. `constructor(sep: ',', pad: 0)` emitted
+ *
+ *     constructor(sep: string, ': any, pad: number);
+ *
+ * — an unterminated string literal in the `.d.ts`. `tsc --noEmit` on it gives TS1002 twice
+ * plus TS1003/TS1005/TS1138: a hard failure for every TypeScript consumer of the package,
+ * from a single comma in an example value. Methods were corrupted the same way, not only
+ * constructors.
+ *
+ * Returns raw slices, UNTRIMMED — callers that want trimmed elements say so, which is what
+ * the three copies already disagreed about. A whitespace-only tail (from a trailing comma)
+ * is dropped, since that is not a parameter.
+ */
+export function splitTopLevel(source: string, sep = ','): string[] {
+  const masked = maskLiterals(source)
+  const out: string[] = []
+  let depth = 0
+  let start = 0
+  for (let i = 0; i < masked.length; i++) {
+    const c = masked[i]
+    if (c === '(' || c === '[' || c === '{') depth++
+    else if (c === ')' || c === ']' || c === '}') depth--
+    else if (c === sep && depth === 0) {
+      out.push(source.slice(start, i))
+      start = i + 1
+    }
+  }
+  const tail = source.slice(start)
+  if (tail.trim()) out.push(tail)
+  return out
+}
+
+/**
  * Index of the `}` matching the `{` at `open`, or -1.
  *
  * THE balanced-brace matcher. There were three, in `tests.ts`, `docs.ts` and

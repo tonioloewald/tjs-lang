@@ -240,3 +240,48 @@ export const mk = (tag: 'div', n: 0): '' => tag + n
     expect(diagnose(dtsFor(SRC))).toEqual([])
   })
 })
+
+/**
+ * A comma inside an example value does not corrupt the declaration.
+ *
+ * `dts.ts` had its own `splitParams`, split on every comma without masking, and it was the
+ * THIRD copy of that splitter — the other two were migrated onto `maskLiterals` earlier in
+ * this cycle, and the comment on one names the other as *the* sibling, so this one was
+ * never counted.
+ *
+ * The output was not merely wrong, it was unparseable:
+ *
+ *     constructor(sep: string, ': any, pad: number);
+ *
+ * `tsc` reports TS1002 "Unterminated string literal" twice, plus TS1003/TS1005/TS1138 — a
+ * hard failure for every TypeScript consumer, from one comma in an example. Methods were
+ * corrupted the same way.
+ *
+ * This release newly PROMISES tsc-compilability, and none of the twelve cases guarding
+ * that promise used a comma inside a class parameter example. The promise and the hole
+ * shipped together.
+ */
+describe('separators inside example values', () => {
+  const SRC = `export class Splitter {
+  constructor(sep: ',', pad: 0) { this.sep = sep; this.pad = pad }
+  join(items: [''], sep: ',') { return items.join(sep) }
+}
+export function fmt(list: [''], sep: ', ', wrap: '()') { return list.join(sep) }
+`
+
+  it('a comma example does not split the parameter list', () => {
+    const dts = dtsFor(SRC)
+    expect(dts).toContain('constructor(sep: string, pad: number)')
+    expect(dts).toContain('join(items: any[], sep: string)')
+    // The function form resolves the element type; the class-method path above degrades
+    // to `any[]` for the same `['']`. That divergence is real and is NOT what this test is
+    // about — recorded here so the next reader does not mistake it for the comma bug.
+    expect(dts).toContain('fmt(list: string[], sep: string, wrap: string)')
+  })
+
+  it('and the whole file compiles', () => {
+    // The assertion that actually mattered: the broken form was a SYNTAX error, so it
+    // fails here loudly even if nobody thought to check the parameter text above.
+    expect(diagnose(dtsFor(SRC))).toEqual([])
+  })
+})

@@ -17,6 +17,7 @@ import {
   findRegexEnd,
   isEscapedAt,
   maskLiterals,
+  splitTopLevel,
 } from '../strip-comments'
 import {
   isTypeNameAnnotation,
@@ -1233,27 +1234,9 @@ function applyTypeArguments(
   return `${name}(${resolved.join(', ')})`
 }
 
+/** Top-level comma split, untrimmed — see `splitTopLevel` in strip-comments. */
 function splitParameters(params: string): string[] {
-  const masked = maskLiterals(params)
-  const result: string[] = []
-  let depth = 0
-  let start = 0
-
-  for (let i = 0; i < masked.length; i++) {
-    const char = masked[i]
-    if (char === '(' || char === '{' || char === '[') depth++
-    else if (char === ')' || char === '}' || char === ']') depth--
-    else if (char === ',' && depth === 0) {
-      result.push(params.slice(start, i))
-      start = i + 1
-    }
-  }
-
-  // A trailing comma leaves an empty tail, which is not a parameter.
-  const tail = params.slice(start)
-  if (tail.trim()) result.push(tail)
-
-  return result
+  return splitTopLevel(params)
 }
 
 /**
