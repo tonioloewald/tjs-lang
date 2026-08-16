@@ -104,67 +104,22 @@ export function findRegexEnd(source: string, start: number): number {
 }
 
 export function stripLineComments(source: string): string {
-  let result = ''
-  let i = 0
-  while (i < source.length) {
-    const ch = source[i]
-    // String literals — skip to closing quote
-    if (ch === "'" || ch === '"' || ch === '`') {
-      const quote = ch
-      result += ch
-      i++
-      while (i < source.length && source[i] !== quote) {
-        if (source[i] === '\\') {
-          result += source[i++]
-        }
-        if (i < source.length) result += source[i++]
-      }
-      if (i < source.length) result += source[i++] // closing quote
-      continue
-    }
-    // Block comment — pass through (may contain //)
-    if (ch === '/' && source[i + 1] === '*') {
-      const end = source.indexOf('*/', i + 2)
-      const slice = end === -1 ? source.slice(i) : source.slice(i, end + 2)
-      result += slice
-      i += slice.length
-      continue
-    }
-    // Line comment — replace with spaces to preserve offsets
-    if (ch === '/' && source[i + 1] === '/') {
-      const nl = source.indexOf('\n', i)
-      const end = nl === -1 ? source.length : nl
-      result += ' '.repeat(end - i)
-      i = end // leave \n for next iteration
-      continue
-    }
-    // Regex literal — skip it whole, exactly like a string.
-    //
-    // Without this, a regex whose BODY contains a close-comment marker or `//` gets read as a comment:
-    // scanning `/\*\//` reaches the trailing `\/` + `/`, calls it a line comment, and
-    // blanks the rest of the line, leaving an unterminated regex. That broke conversion of
-    // our own parser.ts and docs.ts — any codebase that matches comment syntax hits it.
-    //
-    // `/` is only a regex start in operand position; after a value it is division. The
-    // last significant character is enough to tell the two apart in practice.
-    //
-    // ORDER MATTERS: this runs AFTER the comment checks. `//` and `/*` are ALWAYS
-    // comments in JavaScript — an empty regex must be written `/(?:)/` — so checking
-    // regexes first would read `//` as an empty regex literal and stop stripping line
-    // comments entirely.
-    if (ch === '/' && isRegexStart(result)) {
-      const end = findRegexEnd(source, i)
-      if (end !== -1) {
-        result += source.slice(i, end + 1)
-        i = end + 1
-        continue
-      }
-      // Unterminated — fall through and let the parser report it properly.
-    }
-    result += ch
-    i++
-  }
-  return result
+  // LENGTH-PRESERVING: a line comment is blanked to spaces, not removed.
+  //
+  // That is load-bearing and was nearly lost. `preprocess` runs this early and then works
+  // in OFFSETS — doc-comment adjacency, brace matching, marker positions — so deleting the
+  // text shifts everything after it. A first rewrite of this function removed the comments
+  // instead, and the output looked right in isolation while a doc block stopped attaching
+  // to the function below it, 200 lines away. The failing probe for that was itself wrong:
+  // a hand-written "old implementation" that deleted rather than blanked, so it reported
+  // agreement.
+  //
+  // Built on `blankRegions`, like the other views, because this was a fourth hand-rolled
+  // literal walker living INSIDE the module written to end them — with no regex branch, so
+  // a `//` inside `/[/]/` would have blanked the rest of the line.
+  return blankRegions(source, (r) =>
+    r.kind === 'line-comment' ? [r.start, r.end] : null
+  )
 }
 
 /** A [start, end) range in the source, and what kind of region it is. */

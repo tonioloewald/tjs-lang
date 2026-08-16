@@ -7,6 +7,7 @@ import {
   clearMaskCache,
   stripComments,
   type LiteralRegion,
+  stripLineComments,
 } from './strip-comments'
 
 /**
@@ -173,5 +174,49 @@ describe('stripComments keeps literals and drops comments', () => {
   it('returns the input unchanged when there are no comments', () => {
     const src = "const a = 1\nconst b = 'x'\n"
     expect(stripComments(src)).toBe(src)
+  })
+})
+
+/**
+ * `stripLineComments` is LENGTH-PRESERVING, and that is the part worth pinning.
+ *
+ * `preprocess` runs it early and then works in OFFSETS — doc-comment adjacency, brace
+ * matching, marker positions — so blanking to spaces rather than deleting is a contract,
+ * not an implementation detail. A rewrite that deleted instead looked correct in isolation
+ * and made a doc block stop attaching to the function below it, two hundred lines away.
+ *
+ * Nothing asserted the length, which is why that got as far as it did.
+ */
+describe('stripLineComments preserves offsets', () => {
+  const CASES: Array<[string, string]> = [
+    ['plain', 'const a = 1 // gone\nconst b = 2'],
+    ['at end of file', 'const a = 1 // gone'],
+    ['url in a string', "const s = 'http://x' // gone"],
+    ['regex containing a slash', 'const r = /[/]/ // gone'],
+    ['block comment containing //', '/* keep // this */ const a = 1 // gone'],
+    ['template containing //', 'const t = `a // b` // gone'],
+    ['consecutive comments', '// one\n// two\nconst a = 1'],
+  ]
+
+  for (const [label, src] of CASES) {
+    it(`${label}: same length, newlines intact`, () => {
+      const out = stripLineComments(src)
+      expect(out.length).toBe(src.length)
+      // Line structure must survive too — offsets are per-line as often as absolute.
+      expect(out.split('\n').length).toBe(src.split('\n').length)
+    })
+  }
+
+  it('actually removes the comment text (not vacuous)', () => {
+    // Returning the input unchanged would satisfy every length assertion above.
+    expect(stripLineComments('const a = 1 // secret')).not.toContain('secret')
+  })
+
+  it('leaves a `//` inside a literal alone', () => {
+    // The hand-rolled version this replaced had no regex branch.
+    expect(stripLineComments('const r = /[/]/ // gone')).toContain('/[/]/')
+    expect(stripLineComments("const s = 'http://x' // gone")).toContain(
+      'http://x'
+    )
   })
 })
