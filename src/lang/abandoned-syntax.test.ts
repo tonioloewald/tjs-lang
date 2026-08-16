@@ -43,6 +43,11 @@
  * the time, identical to saying nothing (ASSUMPTIONS.md A1).
  */
 import { describe, it, expect } from 'bun:test'
+import { readFileSync, readdirSync, statSync } from 'node:fs'
+import { join } from 'node:path'
+import { scanLiterals } from '../strip-comments'
+
+const REPO = join(import.meta.dir, '..', '..')
 import { tjs } from './index'
 
 /** Transpile and return the error message, or `null` if it was accepted. */
@@ -209,5 +214,67 @@ describe('every predicate form checks — and an unbuilt one still fails closed'
     expect(
       reject(`Type Even {\n  description: 'has a predicate'\n  example: 2\n}`)
     ).toBeNull()
+  })
+})
+
+/**
+ * No code of ours still LOOKS FOR syntax the language abandoned.
+ *
+ * The rest of this file proves the transpiler rejects abandoned forms. It says nothing
+ * about our own tooling continuing to detect them — and `demo/examples.test.ts`'s
+ * `isTjsExample` keyed on `) -> ` (the abandoned arrow return) plus `mock {`, matching
+ * **0 of 21** examples. Its TJS branch had never executed, so a routing decision that
+ * looked deliberate was decoration.
+ *
+ * A detector for syntax nobody can write is dead by construction, and dead in the quiet
+ * way: it returns a plausible answer forever.
+ *
+ * Deliberately narrow — it looks for a PATTERN shaped like the arrow-return detector
+ * (`)` then `->`), not for `->` anywhere, which is ordinary prose in comments and docs.
+ */
+describe('nothing still detects abandoned syntax', () => {
+  const ROOTS = ['src', 'demo', 'editors', 'scripts', 'bin']
+
+  function sourceFiles(): string[] {
+    const out: string[] = []
+    const walk = (d: string) => {
+      let entries: string[]
+      try {
+        entries = readdirSync(d)
+      } catch {
+        return
+      }
+      for (const e of entries) {
+        if (e === 'node_modules' || e.startsWith('.')) continue
+        const p = join(d, e)
+        const st = statSync(p)
+        if (st.isDirectory()) walk(p)
+        else if (/\.(ts|js|mjs)$/.test(e) && !e.endsWith('.d.ts')) out.push(p)
+      }
+    }
+    for (const r of ROOTS) walk(join(REPO, r))
+    return out
+  }
+
+  it('the sweep actually reads files (apparatus check)', () => {
+    expect(sourceFiles().length).toBeGreaterThan(100)
+  })
+
+  it('no regex hunts for the `) ->` return form', () => {
+    const offenders: string[] = []
+    for (const f of sourceFiles()) {
+      const src = readFileSync(f, 'utf8')
+      // This very file names the form in its own assertions, and legitimately so.
+      if (f.endsWith('abandoned-syntax.test.ts')) continue
+      for (const r of scanLiterals(src)) {
+        if (r.kind !== 'regex') continue
+        const pattern = src.slice(r.innerStart, r.innerEnd)
+        if (/\\\)\\s\*->/.test(pattern) || /\\\)\\s\*-[!?]/.test(pattern)) {
+          const line = src.slice(0, r.start).split('\n').length
+          offenders.push(`${f.replace(REPO + '/', '')}:${line}  /${pattern}/`)
+        }
+      }
+    }
+    expect(offenders).toEqual([])
   })
 })

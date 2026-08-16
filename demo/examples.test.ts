@@ -37,10 +37,23 @@ import { examples } from './src/examples'
 import { AgentVM, transpile, coreAtoms, batteryAtoms, tjs } from '../src'
 import { withRetry } from '../src/test-utils'
 
-// Helper to detect if example is TJS (uses TJS-specific syntax)
+/**
+ * Does this example need the TJS transpiler rather than the AJS one?
+ *
+ * This keyed on `) -> ` — the ARROW RETURN SYNTAX, abandoned before 0.13.0 — and on
+ * `mock {`, which no example uses either. Both matched **0 of 21** examples, so the TJS
+ * branch below had never run and the whole routing decision was decoration.
+ *
+ * The live marker is the colon-example parameter (`function f(x: 0)`), which is the one
+ * construct that makes a file TJS rather than JS. `test '…' { }` and `Type X { }` are
+ * included because they are equally decisive and an example may gain one.
+ */
 function isTjsExample(code: string): boolean {
-  // TJS uses -> for return types, : for required params with example values
-  return /\)\s*->\s*/.test(code) || /mock\s*\{/.test(code)
+  return (
+    /\(\s*\w+\s*:\s*['"`0-9[{+]/.test(code) ||
+    /\btest\s+['"]/.test(code) ||
+    /^\s*(?:Type|Generic|Enum|Union|FunctionPredicate)\s+[A-Z]/m.test(code)
+  )
 }
 import {
   buildLLMCapability,
