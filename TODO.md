@@ -2807,8 +2807,11 @@ along with every minor that turned out to be real on investigation.
 - **#25 (parser architecture) stays open by design.** Its pre-registered counter has been
   answered — at least fourteen literal-blindness instances this cycle — and that answer is
   input to a post-1.0 decision, not to this release.
-- **Practices write-backs are filed upstream, not applied here**
-  (tosijs-coding-practices#6, #7, #8), per `practices/cross-project.md`: file, don't fix.
+- **Practices write-backs are APPLIED upstream** (tosijs-coding-practices `6276f45`; issues
+  #6/#7/#8 closed). Filing them was a misreading on my part: `cross-project.md`'s
+  file-don't-fix rule protects CODE repos and names the practices repo _a standing
+  exception_, and `review.md` routes lens 8 to _a change_ to it. An issue there is a
+  deferral, not a write-back — its routing table now says so.
 
 **Still to do AT PUBLISH (needs npm auth — user action):**
 
