@@ -1570,13 +1570,9 @@ function transformFunctionToTJS(
     : ''
   // Use :! to skip signature tests - TS types are compile-time only,
   // the example values won't necessarily match runtime behavior
-  const returnAnnotation =
-    returnExample &&
-    returnExample !== 'undefined' &&
-    returnExample !== 'any' &&
-    !returnExample.startsWith('new ') // new Set(), new Map() etc. aren't valid TJS literals
-      ? `:! ${returnExample}`
-      : ''
+  const returnAnnotation = usableAsReturnExample(returnExample)
+    ? `:! ${returnExample}`
+    : ''
 
   // Track degraded return type
   if (node.type && (returnExample === 'any' || returnExample === 'undefined')) {
@@ -1717,10 +1713,9 @@ function emitOverloadGroup(
     const returnExample = sig.type
       ? typeToExample(sig.type, undefined, warnings)
       : ''
-    const returnAnnotation =
-      returnExample && returnExample !== 'undefined' && returnExample !== 'any'
-        ? `:! ${returnExample}`
-        : ''
+    const returnAnnotation = usableAsReturnExample(returnExample)
+      ? `:! ${returnExample}`
+      : ''
 
     const { line } = sourceFile.getLineAndCharacterOfPosition(
       sig.getStart(sourceFile)
@@ -1878,12 +1873,9 @@ function transformClassToTJS(
         ? typeToExample(member.type, undefined, warnings, resolveCtx)
         : ''
       // Use :! to skip signature tests for TS-transpiled code
-      const returnAnnotation =
-        returnExample &&
-        returnExample !== 'undefined' &&
-        returnExample !== 'any'
-          ? `:! ${returnExample}`
-          : ''
+      const returnAnnotation = usableAsReturnExample(returnExample)
+        ? `:! ${returnExample}`
+        : ''
 
       let body = '{ }'
       if (member.body) {
@@ -2590,6 +2582,35 @@ function prefixExportAfterLeadingComment(decl: string): string {
   let at = first.end
   while (at < decl.length && /\s/.test(decl[at])) at++
   return decl.slice(0, at) + 'export ' + decl.slice(at)
+}
+
+/**
+ * Can this example be used as a TJS return annotation (`:! <example>`)?
+ *
+ * Three sites emit return annotations and only ONE carried a filter — `startsWith('new ')`,
+ * with the comment "new Set(), new Map() etc. aren't valid TJS literals". That filter names
+ * a spelling rather than the property it means, so two entries in the builtin table slipped
+ * past it (`AbortSignal.abort()`, `Promise.resolve(null)`), and the other two sites — class
+ * members and overload signatures — had no filter at all. A class method returning
+ * `Response`, `URL` or `AbortSignal` therefore emitted TJS THAT DOES NOT PARSE:
+ *
+ *     make():! new Response() {                 <- `new` is abolished in TJS
+ *     make():! AbortSignal.abort() {            <- a member call is not an annotation form
+ *
+ * Emitting unparseable output is a straight converter bug — obligation 1 of the conversion
+ * contract, before equivalence is even testable (`dogfood-tests.test.ts`).
+ *
+ * What IS accepted is not "anything without parentheses": `FunctionPredicate('function', …)`
+ * is a call and parses, because the grammar knows that form. So the rule is stated as what
+ * the grammar rejects — `new`, and a member expression — rather than by guessing at the
+ * shape of a literal. `builtin-return-examples.test.ts` runs every entry in the table
+ * through the converter and demands the result parse, so a new entry cannot reopen this.
+ */
+function usableAsReturnExample(example: string): boolean {
+  if (!example || example === 'undefined' || example === 'any') return false
+  if (/^new\s/.test(example)) return false // TJS abolished `new`
+  if (/^[A-Za-z_$][\w$]*\./.test(example)) return false // `X.y(…)` member call
+  return true
 }
 
 export function fromTS(

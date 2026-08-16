@@ -78,6 +78,20 @@ jobs:
         if: always()
         run: bun run test:fast
 
+      # The dogfood ratchets, in their OWN lane because they must not be skipped.
+      #
+      # Both gate on `SKIP_BENCHMARKS`, which `test:fast` sets and this workflow inherits,
+      # so neither has ever run in CI — which is how the pre-tag gate went red for a whole
+      # round with nothing saying so, and how nine "undiagnosed" conversion failures sat on
+      # a ratchet list for weeks after one fix would have closed them. A gate nobody runs is
+      # not a gate.
+      #
+      # Kept out of `test:fast` rather than un-gated there: together they are ~50s against
+      # that lane's ~25s, and tripling the inner loop is how a fast lane stops being used.
+      - name: Dogfood ratchets
+        if: always()
+        run: bun run test:dogfood
+
       # `make` REGENERATES committed artifacts, so running it and not looking at
       # the result proves only that the build does not crash. `demo/docs.json`
       # was demonstrably stale at 0.13.0-beta.1 — twelve documents behind HEAD,
@@ -91,6 +105,7 @@ jobs:
         run: |
           if ! git diff --exit-code -- \
             demo/docs.json \
+            docs/tjs-vs-typescript.md \
             'editors/**/*.js' \
             'editors/**/*.d.ts' \
             editors/vscode/syntaxes; then

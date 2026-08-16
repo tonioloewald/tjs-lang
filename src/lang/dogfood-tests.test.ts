@@ -89,53 +89,39 @@ const KNOWN_CONVERSION_FAILURES = new Map<string, string>([
     'LITERAL BLINDNESS: the `wasm function` scanner reads a fixture inside a template literal (`const source = `wasm function dangerous(! …)`) and rejects it as real code.',
   ],
   [
-    'lang/codegen.test.ts',
-    "LITERAL BLINDNESS: the `const!` handler reads inside a string — `tjs('const! x = 42')` — and reports mutating an immutable binding that only exists in test data.",
-  ],
-  [
     'lang/runtime.test.ts',
     'SCOPE: two `function add` declarations in DIFFERENT `it()` blocks are merged as ambiguous polymorphic overloads. Same-named functions in disjoint scopes are not overloads.',
   ],
-  [
-    'types/Type.test.ts',
-    'Unexpected token at Type.test.ts:189:36 — undiagnosed.',
-  ],
-  [
-    'lang/parser.test.ts',
-    'Unexpected token at parser.test.ts:173:106 — undiagnosed.',
-  ],
-  [
-    'lang/typescript-syntax.test.ts',
-    'Unexpected token at typescript-syntax.test.ts:540:35 — undiagnosed.',
-  ],
-  [
-    'lang/function-predicate.test.ts',
-    'Unexpected token at function-predicate.test.ts:133:64 — undiagnosed.',
-  ],
-  [
-    'lang/from-ts.test.ts',
-    'Unexpected token at from-ts.test.ts:151:70 — undiagnosed.',
-  ],
-  [
-    'use-cases/bootstrap.test.ts',
-    'Unexpected token at bootstrap.test.ts:494:64 — undiagnosed.',
-  ],
-  // Added 2026-08-11. Diagnosed further than the six above, and still not solved:
-  //   - the reported LOCATION is misattributed. The construct it names compiles
-  //     standalone, so does the enclosing function, so does the whole file prefix.
-  //   - the failure needs TWO adjacent complete functions; either alone converts.
-  //   - with the pair, the error moves to a comment that also compiles alone.
-  //   - ruled out: brace-skew from comments (`maskLiterals` masks comments).
-  // Fits a scanner span opening in one function and closing in another. Recipe in TODO.md.
-  [
-    'lang/abandoned-syntax.test.ts',
-    'Unexpected token — interaction between adjacent functions; error location misattributed. See TODO.md.',
-  ],
-  [
-    'lang/type-identity.test.ts',
-    'Unexpected token — same shape as abandoned-syntax.test.ts. Both files hold TJS source as DATA, the pathological case for any scanner.',
-  ],
 ])
+
+/**
+ * ELEVEN down to TWO, on 2026-08-16. The nine that graduated, and what closed them:
+ *
+ *   - `codegen.test.ts` — the `const!` rewrite was a raw `source.replace(/\bconst!\s+/g, …)`
+ *     that edited the contents of strings, so `tjs('const! x = 42')` in test DATA was read
+ *     as a declaration. Fixed by splicing positionally over the masked view.
+ *   - `Type` / `parser` / `typescript-syntax` / `function-predicate` / `from-ts` /
+ *     `bootstrap` — six files carrying "Unexpected token … undiagnosed" for weeks. All five
+ *     declaration scanners (`Type`, `FunctionPredicate`, `Generic`, `Union`, `Enum`) were
+ *     detecting on RAW source, so a declaration quoted in a test fixture was transformed as
+ *     real code — and the single-quoted form injected unescaped quotes, which is exactly
+ *     what an "Unexpected token" at an odd column looks like. Fixed by detecting on the
+ *     masked view via `matchDeclHeader`.
+ *   - `abandoned-syntax.test.ts` / `type-identity.test.ts` — the pair diagnosed as "a
+ *     scanner span opening in one function and closing in another". That is precisely what
+ *     an unmasked declaration scanner does when a fixture's brace run is unbalanced against
+ *     real code, which is why the error location was misattributed and why either function
+ *     converted alone.
+ *
+ * All nine were ONE defect wearing nine faces, and the diagnosis note on the first
+ * ("LITERAL BLINDNESS") had named it since the file was written. The six marked
+ * "undiagnosed" were the same bug; nobody had connected them, because a ratchet that is
+ * never run cannot invite the connection — both dogfood ratchets skip under
+ * `SKIP_BENCHMARKS`, which `test:fast` sets and CI inherits.
+ *
+ * The two that remain are genuinely different: one is the `wasm function` scanner (a
+ * separate scanner, same class), the other is scope handling, not literals at all.
+ */
 
 /**
  * How far conversion currently is from self-hosting. **The 1.0 target is all zeroes.**
@@ -161,10 +147,40 @@ const KNOWN_CONVERSION_FAILURES = new Map<string, string>([
  */
 const BASELINE = {
   /** Fraction of assertions that survive conversion. 1.0 is the 1.0 gate. */
-  assertionRate: 0.93,
+  assertionRate: 0.88,
   /** Fraction of passing tests that still pass after conversion. */
-  testRate: 0.91,
+  testRate: 0.89,
 }
+
+/**
+ * Why the baseline moved DOWN on 2026-08-16, and why that is not a loosening.
+ *
+ * These rates are measured over `comparable` — the suites NOT in
+ * `KNOWN_CONVERSION_FAILURES`. That list went from eleven to two the same day, so nine
+ * files entered the denominator at once, and they are the nine hardest: `parser.test.ts`,
+ * `codegen.test.ts`, `type-identity.test.ts` and friends, files that exist to hold TJS
+ * source as DATA. Conversion loses more of their assertions than of an average suite, so
+ * the rate fell from 0.93 to 0.884 on the same day the underlying situation improved:
+ *
+ *     before   141 suites comparable,  11 that will not convert
+ *     after    150 suites comparable,   2 that will not convert
+ *
+ * **A rate is only comparable over a fixed corpus, and this corpus is defined by exactly
+ * the thing the gate is trying to improve.** `practices/testing.md` says a ratchet must
+ * measure a rate rather than a count, and that is right for a corpus that grows with new
+ * tests — but here graduating a file MOVES it from outside the measurement to inside it,
+ * so success and regression push the number the same way. The absolute counts are what
+ * distinguish them, which is why they are logged on every run and why this note exists.
+ *
+ * Do not read the drop from 0.93 as evidence of anything having got worse; the two numbers
+ * are not measurements of the same thing. If the corpus changes again, re-baseline again
+ * and record the before/after suite counts here, as above.
+ *
+ * (The old rate could not simply be re-measured for comparison: with the nine listed as
+ * failures but converting successfully, they land in `after` and not in `before`, and the
+ * harness reports a meaningless 111%. The promote-check normally fires first, so that
+ * inconsistency is unreachable in a real run.)
+ */
 
 /**
  * Improve by this much and the test asks you to lower `BASELINE`.

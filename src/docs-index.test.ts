@@ -41,6 +41,20 @@ const UNINDEXED_DOCS: Record<string, string> = {
   '.haltija.md': 'local browser-debugging tool setup, not part of the package',
 }
 
+/**
+ * Whole directories that are process artefacts rather than documentation, and why.
+ *
+ * `docs/reviews/` holds pre-release review reports: point-in-time records of what was
+ * found and what was decided, tied to one version. They are worth keeping — the reasoning
+ * behind a fix is often only written down there — but they are not something an agent
+ * should be pointed at as current documentation, and indexing them would mean llms.txt
+ * grew a stale entry every release. They stay in the repo and out of the index.
+ */
+const UNINDEXED_DIRS: Record<string, string> = {
+  'docs/reviews/':
+    'per-release review reports — process artefacts, not documentation',
+}
+
 /** Where a doc that doesn't ship in the package is linked instead. */
 const BLOB = 'https://github.com/tonioloewald/tjs-lang/blob/main/'
 
@@ -53,13 +67,21 @@ describe('llms.txt is a complete index', () => {
   it('links every top-level and docs/ markdown file', () => {
     const docs = [
       ...globSync('*.md', { cwd: ROOT }),
-      ...globSync('docs/*.md', { cwd: ROOT }),
+      // `docs/**` and not `docs/*`: the shallow glob could not see a subdirectory at all,
+      // so `docs/reviews/` accumulated three review reports that this guard was
+      // structurally incapable of noticing. A guard with a blind spot is worse than no
+      // guard, because it reports the same green either way. Anything genuinely not for
+      // the index now has to say so in UNINDEXED_DOCS.
+      ...globSync('docs/**/*.md', { cwd: ROOT }),
     ].map((p) => p.replaceAll('\\', '/'))
 
     // Indexed either way: a package-relative link (the doc ships) or an absolute
     // GitHub link (a repo-process doc that deliberately doesn't). Both are real
     // index entries; only the second survives check 4.
     const missing = docs
+      .filter(
+        (d) => !Object.keys(UNINDEXED_DIRS).some((dir) => d.startsWith(dir))
+      )
       .filter((d) => !UNINDEXED_DOCS[d])
       .filter((d) => !llms.includes(`(${d})`) && !llms.includes(`${BLOB}${d})`))
 

@@ -2753,45 +2753,37 @@ parse) are off hot paths and stay ratcheted.
 
 - [ ] Rewrite the remaining three flagged regexes when convenient; each lowers the ceiling.
 
-## 0.13.0 re-review (2026-08-13) — BLOCK cleared, 3 red tests OPEN
+## 0.13.0 re-review (2026-08-13) — CLOSED 2026-08-16
 
 Second review, base `af46fa2`, depth full: **63 findings, 2 blockers**. Both blockers were
-introduced by the FIRST round of fixes and are now closed (`fa34dfa`). Report:
-`/private/tmp/.../tasks/wto03qrmu.output` — copy it into `docs/reviews/` before it ages out.
+introduced by the FIRST round of fixes and are closed (`fa34dfa`). Report filed at
+`docs/reviews/0.13.0-review-2-af46fa2.md`.
 
-### Open — three red tests, all about EXCESS KEYS, pre-existing at `4c2a289`
+### The three red tests — RESOLVED
 
-Verified by stash: they fail without the blocker fixes, so they are not from that work.
-They are one question asked twice, and the two tests want OPPOSITE answers:
+All three pass (`type-identity`, `declared-type-annotation`, `dict-defaults`: 82 pass /
+0 fail). The excess-key question they disagreed about was a language decision, and it was
+made: **excess keys pass through**, per `04bcd20` — JavaScript expects them to, TypeScript
+has almost no way to declare otherwise, and stripping them silently was the more surprising
+behaviour. `docs/dictionary-defaults.md` carries the WebIDL-divergence note.
 
-- [ ] `type-identity.test.ts` — "inline stub and real runtime agree on Pt" and "the stub is
-      never STRICTER than the real runtime". The inline stub REJECTS `{x:1,y:1,z:9}`
-      (excess key `z`); the real `Type` runtime ACCEPTS it. Not in `KNOWN_DISAGREEMENTS`.
-- [ ] `declared-type-annotation.test.ts` — "a NON-empty example still closes the object"
-      expects `Error(Point)` and gets `1`, i.e. it wants the excess key REJECTED.
+### The structural gap — CLOSED 2026-08-16
 
-So one guard says the two mechanisms must agree (and the real one is permissive), while
-another says a non-empty example must close the shape. **Deciding which is right is a
-language decision, not a test fix**, and `docs/type-identity.md` is where the answer
-belongs once made. Do NOT widen `KNOWN_DISAGREEMENTS` to make the red go away — that
-reserves slack a future regression can occupy silently.
+- [x] **Neither `test:fast` NOR CI could see a dogfood ratchet failure.** Both gated on
+      `SKIP_BENCHMARKS`, which `test:fast` sets and CI inherits. They now run in their own
+      CI lane (`bun run test:dogfood`), kept out of `test:fast` because together they are
+      ~50s against that lane's ~25s. The cost of never running them was concrete: nine
+      conversion failures — six of them carrying "undiagnosed" for weeks — turned out to be
+      ONE defect (declaration scanners reading raw source), and the list would have invited
+      that connection years sooner if anyone had seen it move.
 
-### Structural gap the review named, still open
+### Majors from the re-review
 
-- [ ] **Neither `test:fast` NOR CI can see a dogfood ratchet failure.** Both gate on
-      `SKIP_BENCHMARKS`, which `test:fast` sets and CI inherits. That is how the pre-tag
-      gate went red for a whole round of fixes without anything saying so. Either run the
-      ratchets in their own CI lane or stop gating them on the benchmark flag.
-
-### 14 majors from the re-review, not yet worked
-
-Including: literal-union params make `tjs check` exit 1 on the CHANGELOG's own example
-(`extractParamExamples` evaluates `'yes' | 'no'` as a bitwise OR → `0`); generated `.d.ts`
-declares a call signature the runtime lacks; `--force` SIGKILLs any bun/node/deno listener
-while `--help` promises it only stops "an earlier playground"; the "⚠️ Upgrading" box
-enumerates three silent changes and omits two worse ones; `findSignatureReturn`
-reintroduces O(F×N) re-masking that three commits this release removed; issue #4 is fixed
-by this release, still open, and our most recent public comment says the opposite.
+Worked through 2026-08-14..16. Closed since: `--force` SIGKILLing any bun/node/deno
+listener (identity is now the command line — `6596ae3`); issue #4's stale public comment
+(correction posted); the five declaration transforms rewriting TJS inside string literals
+(`64c6c5d`, six sites); the two `expect` harnesses (`27f89db`). Remaining items live in
+`docs/reviews/0.13.0-review-3-full.md`, which tracks them with per-item status.
 
 ## 0.13.0 pre-release review — blockers CLEARED (2026-08-13)
 

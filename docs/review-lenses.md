@@ -29,10 +29,17 @@ is a principle rather than a preference.
 caller…" belongs in every pass, not only the security one.
 
 **It compiles itself.** A defect can hide behind itself, which is why the dogfood corpus is
-pinned at 100% on both stages rather than treated as a dashboard — while remembering that
-those stages prove the converted code BUILDS, not that it still behaves the same. (Ten out
-of ten semantics-breaking mutations pass them.) `examples.test.ts` is the one that runs
-its files.
+enforced rather than treated as a dashboard. The two stages are enforced _differently_, and
+the difference is the point: **stage 2 (converted output compiles) is pinned at 100%** — it
+is the floor the whole TS on-ramp rests on, and every point of slack there is a file
+somebody cannot convert. **Stage 3 (graduation) is a RATCHET** with a floor that may only
+rise, currently 97, because pinning an aspiration as a gate means any language change that
+outpaces the converter blocks every release until it is chased down, which is how a gate
+stops being read.
+
+Either way, remember what those stages prove: that the converted code **builds**, not that
+it still behaves the same. (Ten out of ten semantics-breaking mutations pass them.)
+`examples.test.ts` is the one that runs its files.
 
 **A published library.** A breaking change multiplies by its consumers — and the ones who
 notice last are the ones who trusted us most.
