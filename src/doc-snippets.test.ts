@@ -144,4 +144,84 @@ describe('documentation snippets are real code', () => {
     const fragments = ALL.filter((s) => s.mode === 'fragment')
     expect(fragments.length).toBeLessThan(ALL.length / 2)
   })
+
+  it('no single document is mostly fragments', () => {
+    // PER DOCUMENT, not pooled. A global ratio is exactly the wrong instrument here: one
+    // reference going 56% unchecked disappears into a corpus average near 25%, and the
+    // reader of that one document has no idea they are looking at the unchecked half.
+    // The previous review's B4 was precisely a per-document failure hidden this way.
+    //
+    // A document is only judged once it has enough snippets for a ratio to mean anything
+    // — 2 of 3 fragments in a short guide is not evidence of anything.
+    const MIN_SNIPPETS = 8
+    const MAX_RATIO = 0.4
+
+    /**
+     * Documents allowed to exceed it, with the reason and the measured value.
+     *
+     * RATIOS MAY ONLY GO DOWN — the promote-check below demands the number be lowered
+     * when it improves, so a fixed snippet cannot leave slack a regression can occupy.
+     *
+     * A single blanket threshold is the wrong instrument twice over: too low and a
+     * comparison guide is permanently red for doing its job, too high and a reference
+     * silently goes half-unchecked. Both entries below are fragment-heavy by nature, and
+     * saying so HERE is the point — an allowance nobody can see is the same failure the
+     * surrounding test exists to prevent.
+     */
+    const ALLOWED: Record<string, { ratio: number; why: string }> = {
+      'TJS-FOR-TS.md': {
+        ratio: 0.56,
+        why: 'a side-by-side migration guide: most snippets are a TS excerpt beside its TJS counterpart, neither of which is a whole program',
+      },
+      'guides/footguns.md': {
+        ratio: 0.5,
+        why: 'each entry contrasts a JS expression with its TJS result; the JS half is deliberately not TJS-compilable',
+      },
+    }
+
+    const byDoc = new Map<string, { total: number; frag: number }>()
+    for (const s of ALL) {
+      const e = byDoc.get(s.doc) ?? { total: 0, frag: 0 }
+      e.total++
+      if (s.mode === 'fragment') e.frag++
+      byDoc.set(s.doc, e)
+    }
+
+    const measured = [...byDoc.entries()]
+      .filter(([, e]) => e.total >= MIN_SNIPPETS)
+      .map(([doc, e]) => ({ doc, ratio: e.frag / e.total, ...e }))
+
+    const offenders = measured
+      .filter(({ doc, ratio }) => ratio > (ALLOWED[doc]?.ratio ?? MAX_RATIO))
+      .map(
+        ({ doc, frag, total, ratio }) =>
+          `${doc}: ${frag}/${total} fragments (${(ratio * 100).toFixed(0)}%)` +
+          (ALLOWED[doc]
+            ? ` — over its allowance of ${(ALLOWED[doc].ratio * 100).toFixed(
+                0
+              )}%`
+            : '')
+      )
+    expect(offenders).toEqual([])
+
+    // Promote-check: an allowance that is no longer needed must be lowered or deleted, or
+    // the gap between what is allowed and what is true widens in silence.
+    const improved = measured
+      .filter(
+        ({ doc, ratio }) => ALLOWED[doc] && ratio < ALLOWED[doc].ratio - 0.05
+      )
+      .map(
+        ({ doc, ratio }) =>
+          `${doc} improved to ${(ratio * 100).toFixed(
+            0
+          )}% — lower or remove its ALLOWED entry`
+      )
+    expect(improved).toEqual([])
+
+    // An allowance for a document that no longer qualifies is dead weight.
+    const stale = Object.keys(ALLOWED).filter(
+      (d) => !measured.some((m) => m.doc === d)
+    )
+    expect(stale).toEqual([])
+  })
 })

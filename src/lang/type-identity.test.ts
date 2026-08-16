@@ -76,6 +76,18 @@ const CASES: Array<{
    * emitted code being stricter is the fix working, not a violation.
    */
   sourceNarrowing?: true
+  /**
+   * An explicit `predicate(v) { … }` on the declaration.
+   *
+   * Every case here used to be `example:`-only, so the `predicate` ROUTE was never
+   * compared against the real runtime at all — `KNOWN_DISAGREEMENTS` being empty read as
+   * full parity while half the routing was unobserved. That is the same shape as an empty
+   * skip list: nothing red, nothing checked.
+   *
+   * The real `Type()` takes the predicate as its second argument, so a case carrying this
+   * exercises predicate-vs-predicate rather than infer-from-example on both sides.
+   */
+  predicate?: string
 }> = [
   { name: 'Int', example: '1', values: [2, 1.5, -1, '2', true] },
   // A count is NON-NEGATIVE, so its example is `+0` — `1` only says "integer". This
@@ -97,6 +109,20 @@ const CASES: Array<{
   },
   { name: 'Nums', example: '[1]', values: [[1, 2], [1.5], [], ['a']] },
   { name: 'Flag', example: 'true', values: [true, false, 1, 'true'] },
+  // Predicate-carrying cases — the route the corpus could not previously see.
+  {
+    name: 'Even',
+    example: '2',
+    predicate:
+      "(v) => typeof v === 'number' && Number.isInteger(v) && v % 2 === 0",
+    values: [4, 3, 2.5, -2, '2', true, null],
+  },
+  {
+    name: 'Short',
+    example: "'ab'",
+    predicate: "(v) => typeof v === 'string' && v.length <= 3",
+    values: ['a', 'abcd', '', 3, null],
+  },
 ]
 
 /**
@@ -119,18 +145,50 @@ const KNOWN_DISAGREEMENTS = new Set<string>([
 /** The `Type` an emitted standalone file actually runs — the inline stub. */
 function inlineType(
   name: string,
-  example: string
+  example: string,
+  predicate?: string
 ): { check(v: unknown): unknown } {
-  const { code } = tjs(
-    `Type ${name} { example: ${example} }\nfunction f(v: ${name}) { return 'ok' }`,
-    { filename: 'type-identity.tjs' }
-  )
+  // The predicate is written in METHOD form, which is what the parser implements — the
+  // `predicate: (v) => …` property form is rejected outright with a message saying so.
+  const body = predicate
+    ? `Type ${name} {\n  example: ${example}\n  predicate(v) { return (${predicate})(v) }\n}`
+    : `Type ${name} { example: ${example} }`
+  const { code } = tjs(`${body}\nfunction f(v: ${name}) { return 'ok' }`, {
+    filename: 'type-identity.tjs',
+  })
   return new Function(`${code}\nreturn ${name}`)() as {
     check(v: unknown): unknown
   }
 }
 
 describe('type identity: every mechanism answers the same question', () => {
+  it('the predicate cases actually exercise the predicate', () => {
+    // Both arms agreeing proves nothing if both arms IGNORE the predicate. `3` is an
+    // integer, so inference from the example `2` accepts it; only the predicate rejects
+    // it. If either side stopped honouring `predicate`, this fails while the agreement
+    // assertions below stay green — which is exactly how the route went unobserved in
+    // the first place.
+    const withPredicate = CASES.filter((c) => c.predicate)
+    expect(withPredicate.length).toBeGreaterThan(0)
+
+    const even = inlineType(
+      'Even',
+      '2',
+      "(v) => typeof v === 'number' && Number.isInteger(v) && v % 2 === 0"
+    )
+    expect(even.check(4)).toBe(true)
+    expect(even.check(3)).toBe(false) // an integer — only the predicate rejects it
+
+    const realEven = RealType(
+      'Even',
+      ((v: unknown) =>
+        typeof v === 'number' && Number.isInteger(v) && v % 2 === 0) as never,
+      2
+    ) as unknown as { check(v: unknown): unknown }
+    expect(realEven.check(4)).toBe(true)
+    expect(realEven.check(3)).toBe(false)
+  })
+
   it('the corpus is worth running', () => {
     // A corpus that emptied itself would make the agreement assertions vacuous — the
     // apparatus-fails-closed hazard this project has already been bitten by.
@@ -142,10 +200,12 @@ describe('type identity: every mechanism answers the same question', () => {
 
   for (const c of CASES) {
     it(`inline stub and real runtime agree on ${c.name}`, () => {
-      const inline = inlineType(c.name, c.example)
+      const inline = inlineType(c.name, c.example, c.predicate)
       const real = RealType(
         c.name,
-        undefined as never,
+        c.predicate
+          ? (new Function(`return (${c.predicate})`)() as never)
+          : (undefined as never),
         new Function(`return (${c.example})`)()
       ) as unknown as { check(v: unknown): unknown }
 
@@ -188,10 +248,12 @@ describe('type identity: every mechanism answers the same question', () => {
       // cannot, emitted code being stricter than a lossy `Type(value)` is the fix
       // working. The invariant still applies in full to every other case.
       if (c.sourceNarrowing) continue
-      const inline = inlineType(c.name, c.example)
+      const inline = inlineType(c.name, c.example, c.predicate)
       const real = RealType(
         c.name,
-        undefined as never,
+        c.predicate
+          ? (new Function(`return (${c.predicate})`)() as never)
+          : (undefined as never),
         new Function(`return (${c.example})`)()
       ) as unknown as { check(v: unknown): unknown }
       for (const v of c.values) {
