@@ -358,11 +358,22 @@ below, since they shipped there).
   `unsafe makeHandler({ onClick: () => { eval(src); var leaked = 1 } })` transpiled with
   zero warnings, quietly reinventing the whole-file mode that `unsafe` replaced.
 
-- **The literal-blindness class, ended.** A source-processing pass hand-rolls its own
-  literal tracking and silently mis-reads code that _mentions_ the syntax it scans for.
-  Since tjs-lang is code about code, its own source and documentation hit this constantly.
-  Five were fixed during the 0.13.0 cycle; the review found six more still live, in eight
-  files. All fifteen call sites now consume one `scanLiterals()` in `src/strip-comments.ts`.
+- **The literal-blindness class, consolidated onto one scanner — not ended.** A
+  source-processing pass hand-rolls its own literal tracking and silently mis-reads code
+  that _mentions_ the syntax it scans for. Since tjs-lang is code about code, its own
+  source, tests and documentation hit this constantly. Every scanning call site now
+  consumes one `scanLiterals()` in `src/strip-comments.ts`.
+
+  This heading previously read "ended", and that was wrong — **at least fourteen instances
+  landed in this cycle**, the last six found by review after the consolidation: a raw
+  `.replace` rewriting the contents of user strings; all five declaration scanners
+  detecting on unmasked source (the single-quoted form injected unescaped quotes and
+  _rejected legal JavaScript_); `/* unsafe */` read out of a parameter default, turning
+  validation off for the whole function; and two `.d.ts` scanners emitting a phantom
+  exported type. A further nine surfaced at once when the dogfood conversion ratchet was
+  finally given a CI lane — six of them labelled "undiagnosed" for weeks, all nine the same
+  defect. See [#25](https://github.com/tonioloewald/tjs-lang/issues/25), whose
+  pre-registered counter this answers, and `ASSUMPTIONS.md` E1.
 
   - `isInsideComment` had no notion of strings, so `const OPEN = '/*'` — or the ordinary
     glob `'**/*.ts'` — convinced it the rest of the file was one giant comment and **every
