@@ -10,6 +10,7 @@ import {
 } from '../../strip-comments'
 import { transformExtensionCalls } from '../parser'
 import { installRuntime } from '../runtime'
+import { expectFunction } from '../tests'
 import type { ExtractedTest, ExtractedMock } from '../tests'
 
 export interface TestResult {
@@ -829,60 +830,21 @@ export function runAllTests(
         if (!condition) throw new Error(message || 'Assertion failed')
       }
 
-      function expect(actual) {
-        return {
-          toBe(expected) {
-            if (!__deepEqual(actual, expected)) {
-              throw new Error('Expected ' + __format(expected) + ' but got ' + __format(actual))
-            }
-          },
-          toEqual(expected) {
-            if (!__deepEqual(actual, expected)) {
-              throw new Error('Expected ' + __format(expected) + ' but got ' + __format(actual))
-            }
-          },
-          toContain(item) {
-            if (!Array.isArray(actual) || !actual.some(function(v) { return __deepEqual(v, item) })) {
-              throw new Error('Expected ' + __format(actual) + ' to contain ' + __format(item))
-            }
-          },
-          toBeTruthy() {
-            if (!actual) {
-              throw new Error('Expected ' + __format(actual) + ' to be truthy')
-            }
-          },
-          toBeFalsy() {
-            if (actual) {
-              throw new Error('Expected ' + __format(actual) + ' to be falsy')
-            }
-          },
-          toBeNull() {
-            if (actual !== null) {
-              throw new Error('Expected null but got ' + __format(actual))
-            }
-          },
-          toBeUndefined() {
-            if (actual !== undefined) {
-              throw new Error('Expected undefined but got ' + __format(actual))
-            }
-          },
-          toBeGreaterThan(n) {
-            if (!(actual > n)) {
-              throw new Error('Expected ' + __format(actual) + ' to be greater than ' + n)
-            }
-          },
-          toBeLessThan(n) {
-            if (!(actual < n)) {
-              throw new Error('Expected ' + __format(actual) + ' to be less than ' + n)
-            }
-          },
-          toBeNaN() {
-            if (typeof actual !== 'number' || !Number.isNaN(actual)) {
-              throw new Error('Expected NaN but got ' + __format(actual))
-            }
-          }
-        }
-      }
+      // THE shared expect, injected from ../tests -- not a copy.
+      //
+      // (No backticks in this comment: it lives inside a template literal, and one would
+      // close it. The comment about literal-awareness being hard, defeated by a literal.)
+      //
+      // This used to be a near-duplicate, and the two drifted in opposite directions: that
+      // one had toThrow and no toBeNaN, this one toBeNaN and no toThrow. Which matchers a
+      // user got depended on which entry point ran their test, from source that cannot
+      // tell them apart -- "tjs test file.tjs" died with "expect(...).toThrow is not a
+      // function" on a test that passed in the playground. docs.ts documents every
+      // matcher, so both halves of the divergence were documented as working.
+      //
+      // It defines its own deepEqual/format (memoized and output-capped, #21), so the
+      // injected __deepEqual/__format below serve the signature-test path.
+      ${expectFunction}
 
       // Inject resolved imports first (they may be dependencies)
       ${importedCode}

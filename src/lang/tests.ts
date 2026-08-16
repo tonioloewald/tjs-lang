@@ -396,6 +396,25 @@ function assert(condition, message) {
  * Expect API for richer test assertions
  * Uses deep equality, handles null/undefined correctly
  */
+/**
+ * THE `expect` harness. There is exactly one, and this is it.
+ *
+ * There used to be two: this one, and a near-copy inlined into
+ * `emitters/js-tests.ts`. They drifted, in both directions at once — this one had
+ * `toThrow` and no `toBeNaN`, the copy had `toBeNaN` and no `toThrow`. Which matchers a
+ * user got therefore depended on which entry point ran their test, and the two entry points
+ * are not distinguishable from the source: `tjs test file.tjs` failed with
+ * `expect(...).toThrow is not a function` on a test that passed in the playground, and the
+ * mirror image for `toBeNaN`. `docs.ts` `prettifyTestBody` documents ALL of them, so both
+ * halves of the divergence were documented as working.
+ *
+ * It went unnoticed because `tjs test <file>` only began running inline tests at all this
+ * release (`9619d02`); before that it printed "No .test.tjs files found" and exited 0.
+ *
+ * `js-tests.ts` now injects this string. Adding a matcher here reaches every runner, and
+ * `test-harness-parity.test.ts` fails if one is documented and not implemented, or
+ * implemented and not documented.
+ */
 export const expectFunction = `
 function expect(actual) {
   // #21: pair-memoized past the same checks — without the memo, comparing
@@ -528,6 +547,11 @@ function expect(actual) {
     toBeLessThan(n) {
       if (!(actual < n)) {
         throw new Error(\`Expected \${format(actual)} to be less than \${n}\`)
+      }
+    },
+    toBeNaN() {
+      if (typeof actual !== 'number' || !Number.isNaN(actual)) {
+        throw new Error(\`Expected NaN but got \${format(actual)}\`)
       }
     }
   }
