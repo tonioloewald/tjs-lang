@@ -187,6 +187,41 @@ export class AgentVM<M extends Record<string, Atom<any, any>>> {
       }
     }
 
+    // REJECT BEFORE ACQUIRING ANYTHING.
+    //
+    // Both of these used to sit after the timer and the caller's abort listener were
+    // created but before the `try` — so neither exit cleared the timer nor aborted the
+    // controller, while the comment below claimed the `finally` "guarantees on every exit
+    // path". Measured: five input-validation failures left five live timers, five root-op
+    // throws left five more, and five ordinary runs left none. A pending timer also keeps
+    // the event loop alive, so a host that validates a batch of agents and exits does not,
+    // for up to `timeoutMs` (default `fuel × 10ms`) after the last rejection.
+    //
+    // Moving them up is better than widening the `try`: an argument that never runs should
+    // not allocate a timer and a listener only to release them. Nothing is held here yet,
+    // so nothing can leak.
+    if (ast.op !== 'seq')
+      throw new Error(
+        "Root AST must be 'seq'. Ensure you're passing a transpiled agent (use ajs`...` or transpile())."
+      )
+
+    const inputSchema = (ast as any).inputSchema
+    if (inputSchema && !validate(args, inputSchema)) {
+      const error = new AgentError(
+        `Input validation failed: args do not match expected schema`,
+        'vm.run'
+      )
+      return {
+        result: error,
+        error,
+        fuelUsed: 0,
+        // No step ran, so the trace is empty rather than absent when tracing is on —
+        // the same value `ctx.trace` carried at this point, which is now created below.
+        trace: options.trace ? [] : undefined,
+        warnings: warnings.length > 0 ? warnings : undefined,
+      }
+    }
+
     // Create abort controller for timeout enforcement
     const controller = new AbortController()
     const timeout = setTimeout(() => controller.abort(), timeoutMs)
@@ -228,27 +263,6 @@ export class AgentVM<M extends Record<string, Atom<any, any>>> {
 
     if (options.trace) {
       ctx.trace = []
-    }
-
-    if (ast.op !== 'seq')
-      throw new Error(
-        "Root AST must be 'seq'. Ensure you're passing a transpiled agent (use ajs`...` or transpile())."
-      )
-
-    // Input validation: validate args against the agent's input schema
-    const inputSchema = (ast as any).inputSchema
-    if (inputSchema && !validate(args, inputSchema)) {
-      const error = new AgentError(
-        `Input validation failed: args do not match expected schema`,
-        'vm.run'
-      )
-      return {
-        result: error,
-        error,
-        fuelUsed: 0,
-        trace: ctx.trace,
-        warnings: warnings.length > 0 ? warnings : undefined,
-      }
     }
 
     try {
