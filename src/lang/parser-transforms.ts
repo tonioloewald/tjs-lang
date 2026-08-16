@@ -2186,6 +2186,47 @@ function assertPredicateFormRecognized(
  *
  * When predicate + example: auto-generate type guard from example
  */
+/**
+ * Match a declaration header at `i` — DETECTED on the literal-masked view, CAPTURED from
+ * the real source.
+ *
+ * The five declaration scanners (`Type`, `FunctionPredicate`, `Generic`, `Union`, `Enum`)
+ * each hand-rolled `source.slice(i).match(…)` over raw text, so each read TJS syntax
+ * written inside a string as a declaration. That is not theoretical for a language whose
+ * own documentation, tests and playground examples are full of illustrative declarations:
+ *
+ *     const doc = `Type Age { example: +0 }`
+ *     // emitted: const doc = `const Age = Type('Age', (v) => typeof v === 'number' && …)`
+ *
+ * — the user's string CONTENTS rewritten, silently. The single-quoted form was worse: it
+ * injected unescaped quotes and failed to parse, so legal JavaScript was REJECTED, under
+ * `dialect: 'js'` too. That is a JS ⊆ TJS breach (`PRINCIPLES.md`), not merely a bug.
+ *
+ * Masking is length-preserving and keeps delimiters (`'abc'` → `'   '`), so the masked
+ * match's offsets and lengths are the real ones and can be used directly. Only groups that
+ * capture a string literal's CONTENTS come back blank — those go through `text(n)`, which
+ * slices the original using the match's `indices` (hence the `d` flag on the regexes that
+ * need it). Modelled on `transformExtendDeclarations`, which already worked this way.
+ */
+function matchDeclHeader(
+  masked: string,
+  source: string,
+  i: number,
+  re: RegExp
+): { m: RegExpMatchArray; text: (group: number) => string } | null {
+  const m = masked.slice(i).match(re)
+  if (!m) return null
+  const indices = (m as { indices?: Array<[number, number] | undefined> })
+    .indices
+  return {
+    m,
+    text: (group: number) => {
+      const span = indices?.[group]
+      return span ? source.slice(i + span[0], i + span[1]) : m[group]
+    },
+  }
+}
+
 export function transformTypeDeclarations(
   source: string,
   report?: PredicateVerification[],
@@ -2202,12 +2243,18 @@ export function transformTypeDeclarations(
 ): string {
   let result = ''
   let i = 0
+  // Detection on the masked view; every slice from the real source. See matchDeclHeader.
+  const masked = maskLiterals(source)
 
   while (i < source.length) {
     // Look for 'Type' keyword followed by identifier
-    const typeMatch = source
-      .slice(i)
-      .match(/^\bType\s+([A-Z_][a-zA-Z0-9_]*)\s*/)
+    const typeHeader = matchDeclHeader(
+      masked,
+      source,
+      i,
+      /^\bType\s+([A-Z_][a-zA-Z0-9_]*)\s*/
+    )
+    const typeMatch = typeHeader?.m
     if (typeMatch) {
       const typeName = typeMatch[1]
       let j = i + typeMatch[0].length
@@ -2216,7 +2263,19 @@ export function transformTypeDeclarations(
       // Only treat as description if followed by = or {
       let description = typeName
       let descriptionWasExplicit = false
-      const descStringMatch = source.slice(j).match(/^(['"`])([^]*?)\1\s*/)
+      // The description is a string LITERAL, so it is blank in the masked view — matched
+      // there for correct length (masking handles escapes; this regex does not), read
+      // from the source through `text()`.
+      const descHeader = matchDeclHeader(
+        masked,
+        source,
+        j,
+        /^(['"`])([^]*?)\1\s*/d
+      )
+      const descStringMatch = descHeader?.m ?? null
+      /** The matched text, and the quoted contents, as they appear in the SOURCE. */
+      const descWhole = descHeader ? descHeader.text(0) : ''
+      const descInner = descHeader ? descHeader.text(2) : ''
       if (descStringMatch) {
         const afterString = j + descStringMatch[0].length
         const nextChar = source[afterString]
@@ -2229,14 +2288,14 @@ export function transformTypeDeclarations(
 
         if (nextChar === '=' || nextChar === '{') {
           // It's a description followed by = or { block
-          description = descStringMatch[2]
+          description = descInner
           descriptionWasExplicit = true
           j = afterString
         } else if (isEndOfStatement) {
           // Old simple form: Type Name 'value' - value is both example and default
-          const value = descStringMatch[0].trim()
+          const value = descWhole.trim()
           // Preserve trailing whitespace (newlines) that was consumed by the regex
-          const trailingWs = descStringMatch[0].slice(value.length)
+          const trailingWs = descWhole.slice(value.length)
           declaredTypes?.add(typeName)
           result += `const ${typeName} = Type('${typeName}', ${value})${trailingWs}`
           i = afterString
@@ -2535,10 +2594,16 @@ export function transformFunctionPredicateDeclarations(source: string): string {
   let result = ''
   let i = 0
 
+  // Detection on the masked view; every slice from the real source. See matchDeclHeader.
+  const masked = maskLiterals(source)
+
   while (i < source.length) {
-    const fpMatch = source
-      .slice(i)
-      .match(/^\bFunctionPredicate\s+([A-Z_][a-zA-Z0-9_]*)\s*(?:<([^>]+)>)?\s*/)
+    const fpMatch = matchDeclHeader(
+      masked,
+      source,
+      i,
+      /^\bFunctionPredicate\s+([A-Z_][a-zA-Z0-9_]*)\s*(?:<([^>]+)>)?\s*/
+    )?.m
     if (fpMatch) {
       const fpName = fpMatch[1]
       const typeParamsStr = fpMatch[2] // undefined if no <...>
@@ -2666,6 +2731,9 @@ export function transformGenericDeclarations(
   let result = ''
   let i = 0
 
+  // Detection on the masked view; every slice from the real source. See matchDeclHeader.
+  const masked = maskLiterals(source)
+
   while (i < source.length) {
     // Look for 'Generic' keyword followed by identifier and type params
     // `Type X<T> { … }` and `Generic X<T> { … }` are the SAME declaration. TypeScript
@@ -2673,9 +2741,12 @@ export function transformGenericDeclarations(
     // a deprecated alias. Two keywords made `type` → `Type` conversion non-mechanical —
     // the converter would have to switch keyword on arity, and the downgrade switch back —
     // which is disposal tax for no information, since `<T>` already says it is parameterized.
-    const genericMatch = source
-      .slice(i)
-      .match(/^\b(Generic|Type)\s+([A-Z][a-zA-Z0-9_]*)\s*<([^>]+)>\s*\{/)
+    const genericMatch = matchDeclHeader(
+      masked,
+      source,
+      i,
+      /^\b(Generic|Type)\s+([A-Z][a-zA-Z0-9_]*)\s*<([^>]+)>\s*\{/
+    )?.m
     if (genericMatch) {
       const genericName = genericMatch[2]
       const typeParamsStr = genericMatch[3]
@@ -2860,14 +2931,22 @@ export function transformUnionDeclarations(
   let result = ''
   let i = 0
 
+  // Detection on the masked view; every slice from the real source. See matchDeclHeader.
+  const masked = maskLiterals(source)
+
   while (i < source.length) {
     // Look for 'Union' keyword followed by identifier and description
-    const unionMatch = source
-      .slice(i)
-      .match(/^\bUnion\s+([A-Z][a-zA-Z0-9_]*)\s+(['"`])([^]*?)\2\s*/)
-    if (unionMatch) {
+    const unionHeader = matchDeclHeader(
+      masked,
+      source,
+      i,
+      /^\bUnion\s+([A-Z][a-zA-Z0-9_]*)\s+(['"`])([^]*?)\2\s*/d
+    )
+    const unionMatch = unionHeader?.m
+    if (unionMatch && unionHeader) {
       const unionName = unionMatch[1]
-      const description = unionMatch[3]
+      // Blank in the masked view — read the description from the source.
+      const description = unionHeader.text(3)
       const j = i + unionMatch[0].length
 
       // Check what follows: block or inline values
@@ -2982,14 +3061,22 @@ export function transformEnumDeclarations(
   let result = ''
   let i = 0
 
+  // Detection on the masked view; every slice from the real source. See matchDeclHeader.
+  const masked = maskLiterals(source)
+
   while (i < source.length) {
     // Look for 'Enum' keyword followed by identifier and description
-    const enumMatch = source
-      .slice(i)
-      .match(/^\bEnum\s+([A-Z][a-zA-Z0-9_]*)\s+(['"`])([^]*?)\2\s*\{/)
-    if (enumMatch) {
+    const enumHeader = matchDeclHeader(
+      masked,
+      source,
+      i,
+      /^\bEnum\s+([A-Z][a-zA-Z0-9_]*)\s+(['"`])([^]*?)\2\s*\{/d
+    )
+    const enumMatch = enumHeader?.m
+    if (enumMatch && enumHeader) {
       const enumName = enumMatch[1]
-      const description = enumMatch[3]
+      // Blank in the masked view — read the description from the source.
+      const description = enumHeader.text(3)
       const blockStart = i + enumMatch[0].length - 1
       const bodyStart = blockStart + 1
       let depth = 1
@@ -4477,8 +4564,29 @@ export function transformConstBang(source: string): string {
 
   if (immutableNames.size === 0) return source
 
-  // Replace const! with const
-  source = source.replace(/\bconst!\s+/g, 'const ')
+  // Rewrite `const!` POSITIONALLY, at offsets found on the masked view.
+  //
+  // This was `source.replace(/\bconst!\s+/g, 'const ')` — a raw regex over unmasked
+  // source, so it edited the CONTENTS of string literals. A file with any real `const!`
+  // in it turned `const doc = 'write const! x = {} to declare one'` into
+  // `'write const x = {} to declare one'`, silently rewriting the user's data. It only
+  // hid because of the early return above: with no real declaration the function bails
+  // before reaching the replace, so the single-string test case looks clean.
+  //
+  // Scanned separately from the name loop, because that one requires `(\w+)` and so does
+  // not see `const! { a, b } = …`, which still has to be rewritten to be legal JS.
+  //
+  // Only the `!` is dropped; the whitespace after it is left exactly as written. The old
+  // form matched `const!\s+` and emitted `const `, which COLLAPSED that whitespace — so
+  // `const!\n  x` lost a newline and every line number after it shifted. Splicing back to
+  // front keeps the earlier offsets valid as we go.
+  const bangRe = /\bconst!(?=\s)/g
+  const at: number[] = []
+  let b
+  while ((b = bangRe.exec(masked)) !== null) at.push(b.index)
+  for (let i = at.length - 1; i >= 0; i--) {
+    source = source.slice(0, at[i]) + 'const' + source.slice(at[i] + 6)
+  }
 
   // Strip comments before checking mutations (avoid false positives
   // from code examples in TDoc comments)

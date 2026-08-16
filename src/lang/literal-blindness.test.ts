@@ -420,3 +420,79 @@ describe('no shipped file strips comments with a raw regex', () => {
     expect(offenders).toEqual([])
   })
 })
+
+/**
+ * Declaration keywords written inside a literal are DATA, and must come out byte-identical.
+ *
+ * All five declaration scanners (`Type`, `FunctionPredicate`, `Generic`, `Union`, `Enum`)
+ * hand-rolled `source.slice(i).match(…)` over raw text while ~20 sibling call sites in the
+ * same file already used `maskLiterals`. So a template literal containing
+ * `Type Age { example: +0 }` came out as
+ * `` `const Age = Type('Age', (v) => typeof v === 'number' && …)` `` — the user's string
+ * CONTENTS silently rewritten. The single-quoted form was worse: unescaped quotes were
+ * injected and the file failed to parse, so legal JavaScript was REJECTED, under
+ * `dialect: 'js'` too — a JS ⊆ TJS breach (`PRINCIPLES.md`), not merely a bug.
+ * `const!` had the same defect in `transformConstBang`'s final rewrite pass.
+ *
+ * This is a language whose own docs, tests and playground examples are full of illustrative
+ * declarations, so "a declaration inside a string" is the normal case, not an exotic one.
+ *
+ * Two properties are asserted, and the second is the one the earlier corpus lacked:
+ *
+ *   1. it does not throw, and
+ *   2. the literal survives **byte-identical**.
+ *
+ * `not.toThrow()` alone cannot see silent rewriting — the template cases all passed it
+ * while being corrupted. When you add a declaration form, add a row here.
+ */
+describe('a declaration inside a literal is data, not a declaration', () => {
+  /** Each is valid TJS on its own — pinned by the control below. */
+  const DECLARATIONS: Array<[string, string]> = [
+    ['Type', 'Type Age { example: +0 }'],
+    [
+      'FunctionPredicate',
+      "FunctionPredicate Cb { params: { x: 0 }, returns: '' }",
+    ],
+    ['Generic', 'Generic Box<T> { value: T }'],
+    ['Union', "Union Status 'task status' { 'pending' | 'done' }"],
+    ['Enum', "Enum Color 'a colour' { Red: 'red', Green: 'green' }"],
+    ['const!', 'const! cfg = { a: 1 }'],
+  ]
+
+  /**
+   * Escaping is real here, because every payload above contains quotes. A wrapper that
+   * emitted `'…returns: '' }'` would be illegal JavaScript, and the resulting parse error
+   * would look exactly like the bug — so the harness has to be correct for the test to
+   * mean anything.
+   */
+  const WRAPPERS: Array<[string, (t: string) => string]> = [
+    [
+      'single-quoted',
+      (t) => `const doc = '${t.replace(/\\/g, '\\\\').replace(/'/g, "\\'")}'`,
+    ],
+    ['double-quoted', (t) => `const doc = ${JSON.stringify(t)}`],
+    ['template', (t) => 'const doc = `' + t + '`'],
+  ]
+
+  for (const [kw, decl] of DECLARATIONS) {
+    it(`${kw} still transforms when it is real (control)`, () => {
+      // Without this, pointing every scanner at a view where nothing ever matches would
+      // pass every case below.
+      const out = tjs(decl, { filename: 'd.tjs', runTests: false }).code
+      expect(out).not.toContain(decl)
+    })
+
+    for (const [where, wrap] of WRAPPERS) {
+      it(`${kw} ${where} is left alone`, () => {
+        const literal = wrap(decl)
+        // The REAL declaration is present too. `transformConstBang` returns early when it
+        // finds no genuine declaration, so a file containing only the literal never
+        // reaches the rewrite and looks clean — the bug needs both to show itself.
+        const src = `${decl}\n${literal}\nconsole.log(1)`
+        const out = tjs(src, { filename: 'd.tjs', runTests: false }).code
+        const line = out.split('\n').find((l) => l.includes('doc ='))
+        expect(line?.trim() ?? '(the literal vanished)').toBe(literal)
+      })
+    }
+  }
+})
