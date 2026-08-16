@@ -499,11 +499,17 @@ function membraneValue(value: unknown, maxBytes: number): MembraneResult {
       // code, leaked its return into guest state, leaked a thrown host message into
       // `result.error`, and carried an unbudgeted 5MB string past a 4MB cap —
       // `structuredClone` serialises those properties even though the walk skipped them.
-      const own = readOwnData(v, 'index')
+      //
+      // Read INCREMENTALLY, with the running budget, so an oversized array is refused
+      // without first being enumerated. `Object.keys` on a 2,000,000-element array costs
+      // 371ms and 52MB by itself — so rejecting a payload that exceeds a 1,024-byte
+      // budget by four orders of magnitude cost 549ms and 103MB, all of it spent to say
+      // no. The module docstring promises rejection "BEFORE the clone allocates (the OOM
+      // guard)", and it did avoid the clone while allocating the same order of memory
+      // itself. See `membrane-budget.test.ts`.
+      const own = readArrayData(v, bytes, maxBytes, stack, depth)
       if (!own.ok) return own
-      bytes += own.bytes
-      if (bytes > maxBytes) return membraneOverBudget(maxBytes)
-      for (const value of own.values) stack.push({ v: value, depth: depth + 1 })
+      bytes = own.bytes
     } else if (v instanceof Date) {
       bytes += 32 // fixed-size builtin
       if (bytes > maxBytes) return membraneOverBudget(maxBytes)
@@ -584,6 +590,122 @@ function membraneValue(value: unknown, maxBytes: number): MembraneResult {
       }`,
     }
   }
+}
+
+/**
+ * An array's own data, read against the running budget and abandoned the moment it blows.
+ *
+ * Two scans, because the two failure modes want opposite strategies:
+ *
+ * 1. **By index, up to `v.length`.** A dense array is refused after roughly
+ *    `remaining / 8` elements — nothing is materialised, so a 2,000,000-element payload
+ *    against a small budget stops almost immediately instead of allocating 52MB of index
+ *    strings to reach the same verdict.
+ *
+ * 2. **`Object.keys` for the rest**, reached only when the index scan finished inside the
+ *    budget. That is the sparse case, and it is exactly where `Object.keys` is CHEAP —
+ *    it enumerates own properties, not the length range, so a length-1e9 array holding
+ *    three values yields three keys. Without the `PROBE_CAP` handoff, scanning such an
+ *    array by index would be a billion iterations: the naive fix for the dense DoS is a
+ *    new sparse one.
+ *
+ * `Object.keys` also finds NON-INDEX own properties (`arr.meta = …`), which
+ * `structuredClone` serialises and which therefore must be walked and charged for their
+ * names. Those are the second scan's real job; the sparse handoff comes along for free.
+ */
+/** The over-budget refusal, narrowed to the shape the readers return. */
+function overBudget(maxBytes: number): { ok: false; reason: string } {
+  return {
+    ok: false,
+    reason: `capability return exceeds the ${maxBytes}-byte membrane budget`,
+  }
+}
+
+function readArrayData(
+  v: unknown[],
+  startBytes: number,
+  maxBytes: number,
+  stack: Array<{ v: any; depth: number }>,
+  depth: number
+): { ok: true; bytes: number } | { ok: false; reason: string } {
+  let bytes = startBytes
+  /** Values queued for the walk. Each will cost at least 8 — the early-bail lower bound. */
+  let pushed = 0
+  /** Own index properties actually found; `len - this` is the number of HOLES. */
+  let indexCount = 0
+  const len = v.length
+  // How far to scan by index before concluding the array is sparse enough that
+  // `Object.keys` is the cheaper instrument. Generous, because the index scan is doing
+  // real work up to this point and only holes are wasted.
+  const probeCap = Math.max(1024, Math.floor((maxBytes - startBytes) / 8) * 4)
+  const scanned = Math.min(len, probeCap)
+
+  let i = 0
+  for (; i < scanned; i++) {
+    const d = Object.getOwnPropertyDescriptor(v, i)
+    if (!d) continue // a hole: `structuredClone` preserves it and it carries nothing
+    if (d.get || d.set) {
+      return {
+        ok: false,
+        reason: `capability return has an accessor at index ${i}; the boundary takes plain data only, because reading an accessor would execute host code`,
+      }
+    }
+    // An index is a SLOT, not a stored name — see readOwnData — so nothing is charged
+    // here. The bail uses a LOWER BOUND on what is already queued instead: every pushed
+    // value costs at least 8 when the walk pops it (8 for null/undefined and primitives,
+    // 8+ for a string, 16 for an object). Charging 8 here as well would double-count and
+    // halve every array's capacity — the same phantom this branch was just fixed for,
+    // reintroduced in the name of bailing early.
+    stack.push({ v: d.value, depth: depth + 1 })
+    pushed++
+    indexCount++
+    if (bytes + pushed * 8 > maxBytes) return overBudget(maxBytes)
+  }
+
+  // Everything the index scan did not reach, plus every non-index own property. When the
+  // index scan covered the whole array this is only the non-index ones.
+  for (const k of Object.keys(v)) {
+    const asIndex = isArrayIndex(k) ? Number(k) : -1
+    if (asIndex >= 0 && asIndex < i) continue // already handled above
+    const d = Object.getOwnPropertyDescriptor(v, k)
+    if (d && (d.get || d.set)) {
+      return {
+        ok: false,
+        reason: `capability return has an accessor ${
+          asIndex >= 0 ? `at index ${k}` : `property '${k}'`
+        }; the boundary takes plain data only, because reading an accessor would execute host code`,
+      }
+    }
+    stack.push({ v: d ? d.value : undefined, depth: depth + 1 })
+    pushed++
+    // A non-index key really is stored by name and really is serialised, so its name is
+    // charged. An index is a slot and is not.
+    if (asIndex < 0) bytes += k.length * 2 + 8
+    else indexCount++
+    if (bytes + pushed * 8 > maxBytes) return overBudget(maxBytes)
+  }
+
+  // HOLES ARE NOT FREE, because `structuredClone` reproduces `length`.
+  //
+  // Charging purely by content let an array's LENGTH cross unbudgeted, and the guard
+  // exists precisely to stop the clone allocating: a capability returning an array with
+  // `length = 1e9` and two values passed this walk on ~40 bytes, and `structuredClone`
+  // then spent **6.5 seconds** materialising a billion-slot array (measured under Bun/JSC,
+  // which densifies rather than preserving a sparse representation). Six seconds of
+  // synchronous host work that no fuel budget, no atom timeout and no `membraneMaxBytes`
+  // could see.
+  //
+  // A hole is priced at the same 8 bytes as a slot holding a primitive, since that is what
+  // the clone allocates for it. A DENSE array is unaffected — it has no holes — so this
+  // adds nothing to the ordinary case and does not re-introduce the capacity halving that
+  // billing indices by name once caused.
+  const holes = len - indexCount
+  if (holes > 0) {
+    bytes += holes * 8
+    if (bytes > maxBytes) return overBudget(maxBytes)
+  }
+
+  return { ok: true, bytes }
 }
 
 /**

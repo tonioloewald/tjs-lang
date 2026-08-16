@@ -148,3 +148,82 @@ describe('object property names are unchanged', () => {
     expect(await cross(obj, 128 * 1024)).toMatch(/membrane budget/)
   })
 })
+
+/**
+ * An oversized array is refused WITHOUT being enumerated.
+ *
+ * The walk called `Object.keys` first and checked the budget after. `Object.keys` on a
+ * 2,000,000-element array costs 371ms and 52MB by itself, so refusing a payload that
+ * exceeded a 1,024-byte budget by four orders of magnitude cost **549ms and 103MB** —
+ * all of it spent to say no. The module docstring promises rejection "BEFORE the clone
+ * allocates (the OOM guard)"; it did skip the clone, while allocating the same order of
+ * memory itself. A caller who thought a small `membraneMaxBytes` bounded their exposure
+ * was wrong in the one case it was set for.
+ *
+ * Now: 0ms and 0MB at every size below.
+ *
+ * The naive fix for that is a new denial of service in the other direction — scanning by
+ * index alone makes a length-1e9 sparse array a billion iterations. So the index scan
+ * hands off to `Object.keys` past a probe cap, which is exactly the case where
+ * `Object.keys` is cheap: it enumerates own properties, not the length range.
+ */
+describe('an oversized array is refused without being enumerated', () => {
+  const budget = 1024
+
+  for (const n of [100_000, 1_000_000, 2_000_000]) {
+    it(`${n} elements is refused promptly`, async () => {
+      const t0 = performance.now()
+      expect(await cross(floats(n), budget)).toMatch(/membrane budget/)
+      const ms = performance.now() - t0
+      // Generous by two orders of magnitude against the measured 549ms at 2M, so this
+      // fails on a return to O(N) and not on a slow machine.
+      expect(ms < 150 ? 'prompt' : `took ${ms.toFixed(0)}ms`).toBe('prompt')
+    })
+  }
+
+  it('a hugely sparse array is REFUSED, and refused promptly', async () => {
+    // Two things at once.
+    //
+    // Promptly: the probe cap hands off to `Object.keys` rather than iterating a billion
+    // indices — the denial of service the naive fix for the dense case would create.
+    //
+    // Refused: charging purely by CONTENT let an array's LENGTH cross unbudgeted. This
+    // payload holds three values and passed the walk on ~40 bytes, after which
+    // `structuredClone` spent **6.5 seconds** materialising a billion-slot array. Six
+    // seconds of synchronous host work behind the guard whose entire job is to reject
+    // before the clone allocates.
+    const sparse: any[] = []
+    sparse.length = 1_000_000_000
+    sparse[0] = 1
+    sparse[500_000_000] = 2
+    sparse[999_999_999] = 3
+    const t0 = performance.now()
+    expect(await cross(sparse)).toMatch(/membrane budget/)
+    const ms = performance.now() - t0
+    expect(ms < 1000 ? 'prompt' : `took ${ms.toFixed(0)}ms`).toBe('prompt')
+  })
+
+  it('an ordinary sparse array still crosses', async () => {
+    // Holes are priced, not banned. A few thousand slots is nothing against 4MB, so
+    // normal sparse data is unaffected — this is a ceiling on `length`, not a rule
+    // against holes.
+    const sparse: any[] = []
+    sparse.length = 10_000
+    sparse[0] = 1
+    sparse[9_999] = 2
+    expect(await cross(sparse)).toBe(null)
+  })
+
+  it('an accessor past the dense prefix is still caught', async () => {
+    // The index scan stops at the probe cap; the `Object.keys` pass covers the rest, so
+    // an accessor cannot hide behind a long run of ordinary values.
+    const arr: any[] = new Array(100).fill(1)
+    Object.defineProperty(arr, 100, {
+      enumerable: true,
+      get() {
+        return 'host code ran'
+      },
+    })
+    expect(await cross(arr)).toMatch(/accessor/)
+  })
+})
