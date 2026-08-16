@@ -8,11 +8,40 @@
  */
 
 import { watch } from 'fs'
-import { join } from 'path'
+import { homedir } from 'os'
+import { join, resolve } from 'path'
 import { $ } from 'bun'
 import { reclaimPort, validPort } from './port'
 
 const DEFAULT_PORT = 8699 // Homage to Agent-99
+
+/**
+ * Where the built playground goes.
+ *
+ * It used to go into `<rootDir>/.demo` unconditionally, and `rootDir` is
+ * `import.meta.dir/../..` — which, for a published bin, is `node_modules/tjs-lang`. So
+ * `tjs-playground` built INTO ITS OWN INSTALLED PACKAGE. Under pnpm (every platform) and
+ * bun on Linux, files in `node_modules` are HARDLINKS into the machine-wide content store,
+ * so writing through them reaches every other project on the machine sharing that version.
+ * `bin/docs.js` was the worse half: run with the package as cwd it rewrote
+ * `demo/docs.json` in place, and from a published tarball — which does not carry every
+ * markdown source — it regenerated a DEGRADED file, 95 documents against the repo's 104.
+ *
+ * So: a repo checkout still builds into `.demo` (that is the expected, gitignored place),
+ * and an installed copy builds into the OS cache, keyed by version so two installed
+ * versions cannot collide. `--out-dir` overrides either.
+ */
+function defaultOutDir(rootDir: string, version: string): string {
+  if (!rootDir.includes('node_modules')) return join(rootDir, '.demo')
+  const base =
+    process.env.XDG_CACHE_HOME ||
+    (process.platform === 'darwin'
+      ? join(homedir(), 'Library', 'Caches')
+      : process.platform === 'win32'
+      ? process.env.LOCALAPPDATA || join(homedir(), 'AppData', 'Local')
+      : join(homedir(), '.cache'))
+  return join(base, 'tjs-lang', `playground-${version}`)
+}
 
 const HELP = `
 tjs-playground - Serve the TJS playground locally
@@ -24,6 +53,10 @@ Options:
   -p, --port <port>   Port to serve on (default: ${DEFAULT_PORT})
   -h, --help          Show this help message
   --no-watch          Don't watch for file changes
+  --out-dir <dir>     Where to build. Defaults to .demo/ in a repo checkout, and
+                      an OS cache directory when tjs-lang is installed — a bin
+                      must never build into its own package directory, which
+                      under pnpm/bun is a hardlink into the shared store.
   --force             Stop an EARLIER PLAYGROUND still holding the port.
                       Without this, an occupied port is reported and nothing is
                       killed. A port held by anything that is not a JS runtime is
@@ -53,22 +86,33 @@ async function main() {
 
   const noWatch = args.includes('--no-watch')
 
-  // Find the package root (where docs/ lives)
-  // When installed via npm, this will be in node_modules/tjs-lang
-  // When running locally, it's the repo root
-  let rootDir: string
+  // The package root, whether that is a repo checkout or `node_modules/tjs-lang`. (The
+  // two branches this replaced tested `import.meta.path.includes('node_modules')` and then
+  // computed the same value either way — the distinction that matters is not WHERE the
+  // package is, it is where we are allowed to WRITE. See defaultOutDir.)
+  const rootDir = join(import.meta.dir, '..', '..')
+  const installed = rootDir.includes('node_modules')
 
-  // Check if we're in node_modules
-  const scriptPath = import.meta.path
-  if (scriptPath.includes('node_modules')) {
-    // Installed as a package - go up to find package root
-    rootDir = join(import.meta.dir, '..', '..')
-  } else {
-    // Running from repo
-    rootDir = join(import.meta.dir, '..', '..')
+  const pkgVersion =
+    (
+      (await Bun.file(join(rootDir, 'package.json'))
+        .json()
+        .catch(() => null)) as { version?: string } | null
+    )?.version ?? 'dev'
+
+  const outIdx = args.findIndex((a) => a === '--out-dir')
+  const outOverride = outIdx !== -1 ? args[outIdx + 1] : undefined
+  if (outIdx !== -1 && !outOverride) {
+    console.error('--out-dir requires a directory')
+    process.exit(1)
   }
+  const docsDir = outOverride
+    ? resolve(outOverride)
+    : defaultOutDir(rootDir, pkgVersion)
 
-  const docsDir = join(rootDir, '.demo')
+  // A receipt, on stderr so it cannot corrupt anything piping stdout. A tool that writes
+  // somewhere non-obvious has to say where.
+  console.error(`  build output: ${docsDir}`)
   const srcDir = join(rootDir, 'src')
   const demoDir = join(rootDir, 'demo')
   const editorsDir = join(rootDir, 'editors')
@@ -97,16 +141,23 @@ async function main() {
   async function buildDocs(root: string) {
     console.log('Building playground...')
     try {
-      // Generate docs.json
-      const docsScript = join(root, 'bin', 'docs.js')
-      if (await Bun.file(docsScript).exists()) {
-        await $`node ${docsScript}`.cwd(root)
+      // Regenerate docs.json ONLY from a repo checkout. `bin/docs.js` writes
+      // `demo/docs.json` relative to its cwd, so running it against an installed package
+      // rewrites a file inside `node_modules` — and from a published tarball, which does
+      // not carry every markdown source, it regenerates a DEGRADED one (95 documents
+      // against the repo's 104). The shipped `demo/docs.json` is already current; it is
+      // read at build time by `demo/src/index.ts` and needs nothing done to it.
+      if (!installed) {
+        const docsScript = join(root, 'bin', 'docs.js')
+        if (await Bun.file(docsScript).exists()) {
+          await $`node ${docsScript}`.cwd(root)
+        }
       }
 
       // Build the demo app
       const result = await Bun.build({
         entrypoints: [join(root, 'demo', 'src', 'index.ts')],
-        outdir: join(root, '.demo'),
+        outdir: docsDir,
         minify: false,
         sourcemap: 'external',
         target: 'browser',
@@ -124,7 +175,7 @@ async function main() {
       const demoStatic = join(root, 'demo', 'static')
       const demoIndex = join(root, 'demo', 'index.html')
       const logoSvg = join(root, 'tjs-lang.svg')
-      const targetDocs = join(root, '.demo')
+      const targetDocs = docsDir
 
       await $`cp ${demoIndex} ${logoSvg} ${targetDocs}/`.quiet()
       await $`cp ${join(demoStatic, 'favicon.svg')} ${targetDocs}/`.quiet()
