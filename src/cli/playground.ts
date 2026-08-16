@@ -57,10 +57,11 @@ Options:
                       an OS cache directory when tjs-lang is installed — a bin
                       must never build into its own package directory, which
                       under pnpm/bun is a hardlink into the shared store.
-  --force             Stop an EARLIER PLAYGROUND still holding the port.
-                      Without this, an occupied port is reported and nothing is
-                      killed. A port held by anything that is not a JS runtime is
-                      never touched, with or without --force.
+  --force             Stop an EARLIER PLAYGROUND still holding the port —
+                      identified by its command line, not merely by being a JS
+                      runtime. Without this, an occupied port is reported and
+                      nothing is killed. A port held by anything that is not one
+                      of our servers is never touched, with or without --force.
 
 Examples:
   tjs-playground

@@ -21,20 +21,45 @@
  * **`kill -9` skips the process's own cleanup.** SIGKILL is uncatchable: no flush, no
  * socket close, no temp-file removal. It is the last resort, not the opening move.
  *
- * So: listeners only, positively identified as a JS runtime, terminated politely first —
- * and **refusing by default**. Reclaiming a port is a destructive act on something the user
- * did not ask us to touch; the default is to explain and stop, with `--force` to proceed.
- * The old behaviour was the reverse, undocumented, with no way to opt out.
+ * So: listeners only, positively identified as one of OUR servers, terminated politely
+ * first — and **refusing by default**. Reclaiming a port is a destructive act on something
+ * the user did not ask us to touch; the default is to explain and stop, with `--force` to
+ * proceed. The old behaviour was the reverse, undocumented, with no way to opt out.
+ *
+ * ## "Ours" means our command line, not "a JS runtime"
+ *
+ * The first version of this file defined ours as `/^(bun|node|deno)$/` — the process's
+ * executable NAME. That is not an identity, it is an ecosystem: a consumer's Vite server,
+ * their Next dev server, any `node server.js` all match it. `tjs-playground` is a published
+ * bin, so `tjs-playground --port 3000 --force` would SIGTERM→SIGKILL a stranger's dev
+ * server and report it as reclaiming its own. Reproduced live in review against a plain
+ * `node` server, which was reported `ours: true` and terminated.
+ *
+ * So identity is the COMMAND LINE, matched against the entry points we actually ship
+ * (`OUR_SERVERS` below). This is what the sibling implementation in `haltija` already did
+ * — three independent copies of this logic exist across the sibling repos and this one had
+ * regressed the check that matters most (see `UPSTREAM.md`).
+ *
+ * A name check is not merely weaker, it is wrong in the one direction that costs something:
+ * over-matching kills a stranger's process, under-matching prints "choose another port".
  */
 import { $ } from 'bun'
 
-/** Runtimes our own servers can be running under. Anything else is not ours to kill. */
-const OURS = /^(bun|node|deno)$/
+/**
+ * Command-line markers for servers this package starts.
+ *
+ * Matched against the full argv of the listening process. Deliberately specific: a false
+ * positive here is a SIGKILL delivered to somebody else's work, while a false negative is
+ * a message telling the user to pick another port.
+ */
+export const OUR_SERVERS = /tjs-playground|cli\/playground|bin\/dev\.ts/
 
 export interface PortHolder {
   pid: number
   command: string
-  /** True when the process is a JS runtime, i.e. plausibly a previous run of ours. */
+  /** Full argv, which is what identity is decided on. */
+  args: string
+  /** True when the command line matches one of OUR server entry points. */
   ours: boolean
 }
 
@@ -55,13 +80,17 @@ export async function portListeners(port: number): Promise<PortHolder[]> {
     const pid = Number(raw)
     if (!Number.isInteger(pid) || pid <= 1) continue
     let command: string
+    let args: string
     try {
       command = (await $`ps -p ${pid} -o comm=`.quiet()).text().trim()
+      // The full argv, because the executable name cannot distinguish our server from
+      // anyone else's. `ps -o args=` is the portable spelling on macOS and Linux alike.
+      args = (await $`ps -p ${pid} -o args=`.quiet()).text().trim()
     } catch {
       continue // exited between lsof and ps
     }
     const base = command.split('/').pop() ?? command
-    holders.push({ pid, command: base, ours: OURS.test(base) })
+    holders.push({ pid, command: base, args, ours: OUR_SERVERS.test(args) })
   }
   return holders
 }
@@ -82,7 +111,8 @@ export interface ReclaimResult {
 /**
  * Make `port` available, or explain why we won't.
  *
- * @param force reclaim a port held by a JS runtime. Without it, an occupied port is
+ * @param force reclaim a port held by one of OUR servers (see `OUR_SERVERS` — identity is
+ *   the command line, not the executable name). Without it, an occupied port is
  *   reported and left alone — the caller should exit rather than fight over it.
  */
 export async function reclaimPort(
@@ -95,6 +125,17 @@ export async function reclaimPort(
 
   const holders = await portListeners(port)
   if (holders.length === 0) return { free: true }
+
+  // Never signal ourselves. `portListeners` deliberately reports the calling process when
+  // it is genuinely listening — that is honest, and a test pins it — but a reclaim that
+  // signals its own pid is a self-inflicted SIGKILL, and no --force can mean that.
+  const self = holders.find((h) => h.pid === process.pid)
+  if (self) {
+    return {
+      free: false,
+      message: `Port ${port} is held by this very process (pid ${self.pid}).`,
+    }
+  }
 
   const foreign = holders.filter((h) => !h.ours)
   if (foreign.length > 0) {

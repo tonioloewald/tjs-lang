@@ -1,5 +1,6 @@
 /**
- * The port helper never kills a process that is not a JS runtime, and never kills a client.
+ * The port helper never kills a process that is not one of OUR servers, and never kills a
+ * client.
  *
  * `tjs-playground` shipped `kill -9 $(lsof -ti:PORT)` — no `-sTCP:LISTEN`, no identity
  * check, no opt-out, running unconditionally at startup. `lsof -ti:PORT` matches every
@@ -12,9 +13,48 @@
  * proved nothing.
  */
 import { describe, it, expect, afterEach } from 'bun:test'
+import { mkdirSync, writeFileSync } from 'node:fs'
+import { mkdtempSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 import { portListeners, reclaimPort, validPort } from './port'
 
 const servers: Array<{ stop: () => void }> = []
+
+/**
+ * A listener in a SEPARATE process whose argv identifies it as one of ours.
+ *
+ * Identity is the command line, so the only honest way to test a positive match is to run
+ * a real process at a path that matches — here `.../bin/dev.ts`, one of the entry points
+ * `OUR_SERVERS` names. Asserting on a hand-built PortHolder object would test the shape of
+ * a literal, not the identification.
+ */
+function listenAsOurs(): { proc: Bun.Subprocess; port: number } {
+  const dir = join(mkdtempSync(join(tmpdir(), 'tjs-port-')), 'bin')
+  mkdirSync(dir, { recursive: true })
+  const script = join(dir, 'dev.ts')
+  const port = 18700 + (Math.floor(process.uptime() * 1000) % 4000)
+  writeFileSync(
+    script,
+    `Bun.serve({ port: ${port}, fetch: () => new Response('ours') })\n` +
+      `await new Promise((r) => setTimeout(r, 30000))\n`
+  )
+  const proc = Bun.spawn(['bun', script], {
+    stdout: 'ignore',
+    stderr: 'ignore',
+  })
+  return { proc, port }
+}
+
+/** Wait until something is LISTENING on `port`, or give up. */
+async function awaitListener(port: number): Promise<boolean> {
+  const deadline = Date.now() + 5000
+  while (Date.now() < deadline) {
+    if ((await portListeners(port)).length > 0) return true
+    await new Promise((r) => setTimeout(r, 50))
+  }
+  return false
+}
 
 afterEach(() => {
   for (const s of servers.splice(0)) {
@@ -34,13 +74,39 @@ function listen(): { port: number; stop: () => void } {
 }
 
 describe('finding who holds a port', () => {
-  it('finds a real listener and identifies it as ours', async () => {
+  it('finds a real listener', async () => {
     const { port } = listen()
     const holders = await portListeners(port)
     expect(holders.length).toBeGreaterThan(0)
-    // The test process IS bun, so this is genuinely one of ours.
-    expect(holders.every((h) => h.ours)).toBe(true)
     expect(holders.some((h) => h.pid === process.pid)).toBe(true)
+  })
+
+  it('does NOT call the test runner ours, even though it is bun', async () => {
+    // This assertion used to read the other way, with the comment "The test process IS
+    // bun, so this is genuinely one of ours" — which is precisely the reasoning that made
+    // `tjs-playground --port 3000 --force` able to SIGKILL a stranger's Vite server. A JS
+    // runtime is an ecosystem, not an identity. `bun test …` is not one of our servers.
+    const { port } = listen()
+    const holders = await portListeners(port)
+    expect(holders.length).toBeGreaterThan(0)
+    expect(holders.every((h) => h.ours)).toBe(false)
+  })
+
+  it('DOES identify a real server of ours, by command line', async () => {
+    // The positive control. Without it, defining `ours` as "never" would pass every other
+    // test in this file and silently disable reclaiming altogether.
+    const { proc, port } = listenAsOurs()
+    try {
+      expect(
+        await awaitListener(port),
+        'apparatus: the helper process never started listening'
+      ).toBe(true)
+      const holders = await portListeners(port)
+      const mine = holders.find((h) => h.pid === proc.pid)
+      expect(mine?.ours ?? 'not found').toBe(true)
+    } finally {
+      proc.kill()
+    }
   })
 
   it('reports nothing for a port with no listener', async () => {
@@ -107,12 +173,63 @@ describe('finding who holds a port', () => {
 
 describe('reclaiming is refused by default', () => {
   it('leaves an occupied port alone and explains', async () => {
+    // Needs a listener in ANOTHER process: reclaiming a port this very process holds is
+    // refused earlier, by the self-pid guard, so a same-process listener would exercise
+    // the wrong branch and never reach the --force message.
+    const { proc, port } = listenAsOurs()
+    try {
+      expect(await awaitListener(port), 'apparatus: helper not listening').toBe(
+        true
+      )
+      const result = await reclaimPort(port, { force: false })
+      expect(result.free).toBe(false)
+      expect(result.message).toContain('--force')
+      // Still serving: refusing must actually refuse.
+      expect(await (await fetch(`http://localhost:${port}/`)).text()).toBe(
+        'ours'
+      )
+    } finally {
+      proc.kill()
+    }
+  })
+
+  it('refuses to signal the calling process, with --force', async () => {
+    // `portListeners` reports us when we really are listening, which is honest. Acting on
+    // that would be a self-inflicted SIGKILL, and no flag can mean that.
     const { port } = listen()
-    const result = await reclaimPort(port, { force: false })
+    const result = await reclaimPort(port, { force: true })
     expect(result.free).toBe(false)
-    expect(result.message).toContain('--force')
-    // Still serving: refusing must actually refuse.
+    expect(result.message).toContain('this very process')
     expect(await (await fetch(`http://localhost:${port}/`)).text()).toBe('ok')
+  })
+
+  it('refuses a port held by a stranger, even with --force', async () => {
+    // The finding that prompted the tightening: a plain `node` server was reported
+    // `ours: true` and terminated. It is a JS runtime; it is not ours.
+    const proc = Bun.spawn(
+      [
+        'node',
+        '-e',
+        `require('http').createServer((_q, s) => s.end('stranger')).listen(18999)` +
+          `; setTimeout(() => {}, 30000)`,
+      ],
+      { stdout: 'ignore', stderr: 'ignore' }
+    )
+    try {
+      expect(
+        await awaitListener(18999),
+        'apparatus: the stranger never started listening'
+      ).toBe(true)
+      const result = await reclaimPort(18999, { force: true })
+      expect(result.free).toBe(false)
+      expect(result.message).toContain('not a server of ours')
+      expect(
+        await (await fetch('http://localhost:18999/')).text(),
+        'the stranger must still be running'
+      ).toBe('stranger')
+    } finally {
+      proc.kill()
+    }
   })
 
   it('reports a free port as free', async () => {

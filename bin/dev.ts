@@ -30,7 +30,8 @@ const PORT = 8699 // Homage to Agent-99
 // This was a byte-identical copy of the playground's `kill -9 $(lsof -ti:PORT)`, and it
 // had the same defect: no `-sTCP:LISTEN`, so a browser CLIENT connected to the dev server
 // matched and was SIGKILLed. The dev server reclaims by default (`--force` is the
-// developer's own repeated `bun run dev`), but only from a JS runtime, and politely.
+// developer's own repeated `bun run dev`), but only from one of OUR servers — identified
+// by command line, not by being a JS runtime — and politely.
 const reclaimed = await reclaimPort(PORT, { force: true, label: 'dev server' })
 if (!reclaimed.free) {
   console.error(reclaimed.message)
