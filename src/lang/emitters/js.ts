@@ -89,7 +89,7 @@ import {
   typeNameExample,
 } from '../inference'
 import { FORBIDDEN_KEYS } from '../../forbidden-keys'
-import { maskLiterals } from '../../strip-comments'
+import { maskLiterals, maskLiteralsKeepComments } from '../../strip-comments'
 import { UNWRAP_BOXED_SOURCE } from '../../unwrap-boxed'
 import { extractTests } from '../tests'
 import {
@@ -1123,9 +1123,24 @@ export function transpileToJS(
     // The transform already leaves `/* unsafe */` in the parameter list, so read that
     // rather than thread binding names back through the parser — it is the same fact,
     // recorded where both sides can see it.
+    //
+    // Scanned over `maskLiteralsKeepComments`, NOT raw text. A plain `.includes` here read
+    // the marker out of a STRING, so `function h(n: 0, s = '/* unsafe */')` emitted no
+    // validation at all for `n`, while the same function without the literal validates.
+    // Identical for a template default, and for a nested arrow's default — where it
+    // disarmed the OUTER function. This is the literal-blindness class in the one place
+    // where getting it wrong turns checks OFF rather than merely garbling output.
+    //
+    // `maskLiterals` would be wrong here, and wrong in a way that looks right: it blanks
+    // comments too, so it erases the very marker being searched for and nothing is ever
+    // unsafe. This view blanks literals and KEEPS comments, which is exactly the question
+    // being asked — is there a real `/* unsafe */` comment in this parameter list?
     const paramsSrc =
       func.params.length && func.body
-        ? preprocessed.source.slice(func.start, (func.body as any).start)
+        ? maskLiteralsKeepComments(preprocessed.source).slice(
+            func.start,
+            (func.body as any).start
+          )
         : ''
     const isUnsafe =
       preprocessed.moduleSafety === 'none' ||

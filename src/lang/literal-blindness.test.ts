@@ -496,3 +496,78 @@ describe('a declaration inside a literal is data, not a declaration', () => {
     }
   }
 })
+
+/**
+ * A `/* unsafe *''/` written inside a STRING does not turn validation off.
+ *
+ * (That marker cannot be spelled in this comment without ending it — which is itself the
+ * whole subject of the file.)
+ *
+ * The emitter decided per-function safety with a bare
+ * `preprocessed.source.slice(func.start, body.start).includes(THE_MARKER)`. A parameter
+ * DEFAULT is part of that slice, so a string containing the marker made the whole function
+ * unsafe: `__tjs.unsafe` came out `true` and **no argument was checked at all**. A nested
+ * arrow's default disarmed the OUTER function the same way.
+ *
+ * This is the one instance of the class where being literal-blind turns checks OFF rather
+ * than garbling output — the failure is silent, and its whole effect is the absence of
+ * something. It scanned raw text while ~38 call sites in the same codebase were already on
+ * the shared scanner.
+ *
+ * The right view is `maskLiteralsKeepComments`, and the near-miss is instructive:
+ * `maskLiterals` blanks comments too, so it erases the marker being searched for and
+ * nothing is ever unsafe — a "fix" that passes every hostile case here and silently
+ * disables the feature. Hence the positive controls.
+ */
+describe('the unsafe marker is a comment, not a string', () => {
+  const MARKER = ['/*', ' unsafe ', '*/'].join('')
+  const unsafeFlag = (src: string) =>
+    /"unsafe": true/.test(tjs(src, { filename: 'u.tjs', runTests: false }).code)
+
+  const HIDDEN: Array<[string, string]> = [
+    ['single-quoted default', `function h(n: 0, s = '${MARKER}') { return n }`],
+    ['double-quoted default', `function h(n: 0, s = "${MARKER}") { return n }`],
+    ['template default', 'function h(n: 0, s = `' + MARKER + '`) { return n }'],
+    [
+      'nested arrow default',
+      `function h(n: 0, cb = (x = '${MARKER}') => x) { return n }`,
+    ],
+    [
+      // DEFENSIVE, and says so: the slice ends at the body, so this one cannot fail
+      // today and passes against the unfixed emitter too. It is here because "the scan
+      // is bounded to the parameter list" is a property of the current slice, not a
+      // promise, and widening that slice is an easy accident. The other four DO fail
+      // against the unfixed code.
+      'string in the body',
+      `function h(n: 0) { const doc = '${MARKER}'; return doc && n }`,
+    ],
+  ]
+
+  for (const [label, src] of HIDDEN) {
+    it(`${label} does not disable validation`, () => {
+      expect(unsafeFlag(src)).toBe(false)
+    })
+  }
+
+  it('the `(!` marker still means unsafe', () => {
+    // Positive control. Masking comments as well as literals would pass every case above
+    // and quietly delete the feature.
+    expect(unsafeFlag('function h(! n: 0) { return n }')).toBe(true)
+  })
+
+  it('a real marker comment in the parameter list still means unsafe', () => {
+    expect(unsafeFlag(`function h(n: 0 ${MARKER}) { return n }`)).toBe(true)
+  })
+
+  it('an ordinary function is neither', () => {
+    // Guards against `unsafeFlag` matching nothing at all, which would make the hostile
+    // cases pass for the wrong reason.
+    expect(unsafeFlag('function h(n: 0) { return n }')).toBe(false)
+    expect(
+      tjs('function h(n: 0) { return n }', {
+        filename: 'u.tjs',
+        runTests: false,
+      }).code
+    ).toContain('typeError')
+  })
+})
