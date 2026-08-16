@@ -595,8 +595,13 @@ function generateInlineValidationCode(
 
     if (lines.length === 0) return null
 
-    // pushStack is a no-op unless callStacks/debug is enabled at runtime.
-    // No try/finally needed — the ring buffer tolerates missed popStack.
+    // The ring buffer tolerates a missed popStack, so no try/finally is needed — the
+    // suffix below is emitted after the `return` and does not run on the happy path.
+    //
+    // (This comment used to add "pushStack is a no-op unless callStacks/debug is enabled
+    // at runtime". True of `lang/runtime.ts`, and false of the inline stub that emitted
+    // code actually calls — which was neither gated nor, until recently, bounded. See
+    // `inline-stack.test.ts`.)
     lines.unshift(`__tjs.pushStack('${stackEntry}');`)
 
     return {
@@ -686,8 +691,9 @@ function generateInlineValidationCode(
 
   if (lines.length === 0) return null
 
-  // pushStack is a no-op unless callStacks/debug is enabled at runtime.
-  // No try/finally needed — the ring buffer tolerates missed popStack.
+  // The ring buffer tolerates a missed popStack (the suffix is emitted after the
+  // `return`), so no try/finally is needed. NOT a no-op in a standalone file: the inline
+  // stub always runs there — see `inline-stack.test.ts`.
   lines.unshift(`__tjs.pushStack('${stackEntry}');`)
 
   return {
@@ -1491,10 +1497,30 @@ export function transpileToJS(
       )
     }
 
-    // Stack tracking
+    // Stack tracking — a BOUNDED ring, like the real runtime's.
+    //
+    // This was `const __stack=[]` with a plain `push`, and the matching `popStack()` is
+    // emitted AFTER the `return`, so it never runs. Every call therefore appended one
+    // entry, forever: 201,000 calls left 201,000 entries. In a standalone emitted file —
+    // which is the shipping configuration, since emitted code calls these bare and the
+    // inline stub always wins (`docs/type-identity.md`) — that is an unbounded leak in
+    // any long-running program, growing with call count and never released.
+    //
+    // Two lines above it, the emitter's own comment says "pushStack is a no-op unless
+    // callStacks/debug is enabled at runtime" and "the ring buffer tolerates missed
+    // popStack". Both are true of `lang/runtime.ts` and neither was true here: the real
+    // one is gated off by default AND bounded to STACK_SIZE, and this one was neither. The
+    // comment described the runtime that does not run.
+    //
+    // Bounded rather than removed, because the entries are what a MonadicError's call
+    // stack is built from — the ring keeps that at a fixed cost, which is exactly the
+    // trade the real runtime already made.
     if (needsStack) {
       inlineParts.push(
-        `const __stack=[];function pushStack(n){__stack.push(n)}function popStack(){__stack.pop()}function getStack(){return[...__stack]}`
+        `const __stackSize=64,__stack=new Array(__stackSize);let __stackHead=0,__stackCount=0;` +
+          `function pushStack(n){if(!n)return;__stack[__stackHead]=n;__stackHead=(__stackHead+1)%__stackSize;if(__stackCount<__stackSize)__stackCount++}` +
+          `function popStack(){if(__stackCount>0){__stackHead=(__stackHead-1+__stackSize)%__stackSize;__stackCount--}}` +
+          `function getStack(){const o=[];for(let i=0;i<__stackCount;i++)o.push(__stack[(__stackHead-__stackCount+i+__stackSize)%__stackSize]);return o}`
       )
     }
 
