@@ -1259,12 +1259,35 @@ export function transpileToJS(
 
     // Queue insertion of __tjs after function closing brace — or, for a named arrow,
     // after the `const` statement that binds it (see `__metaEnd`).
+    //
+    // The RETURN WRAPPER goes to the top of the module for a hoisted `function`
+    // declaration, and stays put for a `const` arrow.
+    //
+    // It reassigns the binding (`name = function (...) { … }`), and that ran only when
+    // control reached the closing brace — while the declaration itself is hoisted. So a
+    // call ABOVE the declaration got the raw function and no return validation at all:
+    //
+    //     const early = bad()                       // 'BAD'          — unvalidated
+    //     function bad():? 0 { return 'BAD' }
+    //     const late  = bad()                       // MonadicError   — validated
+    //
+    // Same function, same argument, opposite answers, decided by call position. Moving the
+    // wrapper up works because every piece it emits is hoisted or captures a hoisted
+    // binding. An arrow's `const` is NOT hoisted (it would be a TDZ error), so that case
+    // keeps the old position — and an arrow cannot be called above its own declaration
+    // anyway, so it never had the hole.
+    const wrapperHoists =
+      !!returnWrapper && (func as any).__declKind !== 'const'
     insertions.push({
       position: (func as any).__metaEnd ?? func.end,
-      text: returnWrapper
-        ? `\n${returnWrapper}\n${typeMetadata}`
-        : `\n${typeMetadata}`,
+      text:
+        returnWrapper && !wrapperHoists
+          ? `\n${returnWrapper}\n${typeMetadata}`
+          : `\n${typeMetadata}`,
     })
+    if (wrapperHoists) {
+      insertions.push({ position: 0, text: `${returnWrapper}\n` })
+    }
 
     // Generate inline validation (to insert at start of function body)
     // Skip for unsafe functions and polymorphic dispatchers (they handle routing)

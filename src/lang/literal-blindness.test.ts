@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'bun:test'
 import { tjs } from './index'
+import { createRuntime } from './runtime'
 import { generateDocs } from './docs'
 import { generateDTS } from './emitters/dts'
 import { lint } from './linter'
@@ -638,5 +639,56 @@ describe('a declaration inside a literal is not a .d.ts export', () => {
         `export FunctionPredicate Ghost { params: { x: 0 }, returns: 0 }\n${REAL}`
       )
     ).toContain('(x: number) => number')
+  })
+})
+
+/**
+ * The parser's own sentinel markers are not stripped out of user strings.
+ *
+ * `extractParamMarkers` removes the `/*!tjs-req*''/`-style comments the preprocessor emits
+ * into parameter lists, and it walked RAW text — so a string that happened to contain one
+ * lost it:
+ *
+ *     function f(a: 0) { return 'x' + MARKER + 'y' }   // returned "xy"
+ *
+ * The emitted program returned a different value than the source says, silently. Same
+ * family as the `const!` rewrite that edited string contents, and the sharpest version of
+ * it: the marker is OUR syntax, so nobody writing TJS would expect it to be load-bearing
+ * inside their own data.
+ */
+describe("the parser's sentinels are not stripped from user data", () => {
+  // Built rather than written, so this file does not contain a real marker that some other
+  // pass might act on — and so the comment above can describe it without ending itself.
+  const MARKER = ['/*', '!tjs-req', '*', '/'].join('')
+
+  const run = (src: string, expr: string) => {
+    const saved = (globalThis as any).__tjs
+    ;(globalThis as any).__tjs = createRuntime()
+    try {
+      return new Function(
+        `${
+          tjs(src, { filename: 'm.tjs', runTests: false }).code
+        }\nreturn ${expr}`
+      )()
+    } finally {
+      ;(globalThis as any).__tjs = saved
+    }
+  }
+
+  it('survives in a returned string', () => {
+    const f = run(`function f(a: 0) { return 'x${MARKER}y' }`, 'f')
+    expect(f(1)).toBe(`x${MARKER}y`)
+  })
+
+  it('survives in a template literal', () => {
+    const f = run('function f(a: 0) { return `x' + MARKER + 'y` }', 'f')
+    expect(f(1)).toBe(`x${MARKER}y`)
+  })
+
+  it('required and defaulted params still work (control)', () => {
+    // Never stripping the markers would pass both cases above and break every signature.
+    const g = run(`function g(a: 0, b = 2) { return a + b }`, 'g')
+    expect(g(1)).toBe(3)
+    expect(String(g())).toContain('MonadicError')
   })
 })

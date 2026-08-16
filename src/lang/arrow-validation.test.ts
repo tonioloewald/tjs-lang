@@ -20,6 +20,7 @@
  */
 import { describe, it, expect } from 'bun:test'
 import { tjs } from './index'
+import { createRuntime } from './runtime'
 
 /** Compile and evaluate, returning the named bindings. */
 function build(src: string, names: string[]): Record<string, any> {
@@ -303,5 +304,65 @@ describe('signature anchoring', () => {
     expect(returnsOf(`export function bare(x: 0) { return x }`, 'bare')).toBe(
       null
     )
+  })
+})
+
+/**
+ * A `:?` return check applies wherever the function is CALLED, not wherever it is written.
+ *
+ * The wrapper reassigns the binding (`name = function (...) { … }`), and that statement ran
+ * only when control reached the closing brace — while the `function` declaration itself is
+ * hoisted. So a call ABOVE the declaration got the raw function and no return validation:
+ *
+ *     const early = bad()                     // 'BAD'        — unvalidated
+ *     function bad():? 0 { return 'BAD' }
+ *     const late  = bad()                     // MonadicError — validated
+ *
+ * Same function, same argument, opposite answers, decided by call position — which is
+ * exactly the kind of difference nobody thinks to test for.
+ */
+describe('return validation and hoisting', () => {
+  const run = (src: string, expr: string) => {
+    const saved = (globalThis as any).__tjs
+    ;(globalThis as any).__tjs = createRuntime()
+    try {
+      return new Function(
+        `${
+          tjs(src, { filename: 'h.tjs', runTests: false }).code
+        }\nreturn ${expr}`
+      )()
+    } finally {
+      ;(globalThis as any).__tjs = saved
+    }
+  }
+
+  it('a call ABOVE the declaration is validated', () => {
+    const out = run(
+      `const early = bad()\nfunction bad():? 0 { return 'BAD' }`,
+      'early'
+    )
+    expect(String(out)).toContain('MonadicError')
+  })
+
+  it('a call below it still is (control)', () => {
+    const out = run(
+      `function bad():? 0 { return 'BAD' }\nconst late = bad()`,
+      'late'
+    )
+    expect(String(out)).toContain('MonadicError')
+  })
+
+  it('a VALID return still passes through', () => {
+    // Wrapping everything in an error would satisfy both tests above.
+    expect(run(`function good():? 0 { return 5 }\nconst r = good()`, 'r')).toBe(
+      5
+    )
+  })
+
+  it('an arrow still validates — its wrapper cannot hoist', () => {
+    // A `const` binding is not hoisted, so the arrow's wrapper stays where it was; it
+    // never had the hole, and must not acquire a TDZ error from the fix.
+    const out = run(`const mk = (n: 0):? 0 => 'BAD'\nconst r = mk(1)`, 'r')
+    expect(String(out)).toContain('MonadicError')
   })
 })

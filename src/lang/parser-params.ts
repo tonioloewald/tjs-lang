@@ -17,6 +17,7 @@ import {
   findRegexEnd,
   isEscapedAt,
   maskLiterals,
+  scanLiterals,
   splitTopLevel,
 } from '../strip-comments'
 import {
@@ -97,11 +98,30 @@ export function extractParamMarkers(src: string): {
   ) {
     return { source: src, required, typeName }
   }
+  // Marker text inside a STRING is data, not a marker.
+  //
+  // This walked raw text, so `return 'x/*!tjs-req*/y'` came out as `'xy'` — the emitted
+  // program silently returned a different value than the source says. The markers are
+  // ours and are only ever emitted into parameter lists, so anything that looks like one
+  // inside a literal was written by the user and must survive untouched.
+  //
+  // Same family as the `const!` rewrite that edited string contents, and the reason the
+  // shared scanner exists: `scanLiterals` is memoized, so the guard costs a lookup.
+  const literalAt = (() => {
+    const regions = scanLiterals(src).filter(
+      (r) => r.kind === 'string' || r.kind === 'template' || r.kind === 'regex'
+    )
+    return (pos: number) =>
+      regions.some((r) => pos >= r.innerStart && pos < r.innerEnd)
+  })()
+
   let out = ''
   let i = 0
   while (i < src.length) {
-    const isReq = src.startsWith(PARAM_REQUIRED_MARKER, i)
-    const isOpt = !isReq && src.startsWith(PARAM_TYPENAME_MARKER, i)
+    const inLiteral = literalAt(i)
+    const isReq = !inLiteral && src.startsWith(PARAM_REQUIRED_MARKER, i)
+    const isOpt =
+      !inLiteral && !isReq && src.startsWith(PARAM_TYPENAME_MARKER, i)
     if (isReq || isOpt) {
       i += (isReq ? PARAM_REQUIRED_MARKER : PARAM_TYPENAME_MARKER).length
       // Drop the single space emitted before the marker, so the value's END lands exactly
