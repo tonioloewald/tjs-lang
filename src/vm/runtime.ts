@@ -272,7 +272,7 @@ export interface RuntimeContext {
    * bytes back when the scope is discarded — see `src/vm/heap-scope.test.ts`, which
    * asserts both directions (shadowing must not free; discarding must).
    */
-  heapPerKey?: Map<string, { size: number; ref: unknown }>
+  heapPerKey?: Map<string, { size: number; ref: unknown; witness: number }>
   runCodeDepth?: number // Track nested runCode calls to prevent infinite recursion
   localCall?: boolean // Inside a callLocal helper body — return may be a non-object scalar
   helpers?: Record<string, { steps: any[]; paramNames: string[] }> // Local helper bodies, called by name
@@ -1848,6 +1848,22 @@ function estimateBytes(
 }
 
 /**
+ * An O(1) stand-in for "have these contents changed?", used to qualify the identity fast
+ * path in `trackHeapWrite`.
+ *
+ * Only arrays get a real witness, because `push` is the only atom that mutates a value in
+ * place (the rest return fresh objects, which fail the reference check anyway). `-1` means
+ * "no witness available", which is stable — a non-array that keeps its identity keeps its
+ * fast path, exactly as before.
+ *
+ * It must stay O(1). Anything that walks the value defeats the purpose of the fast path
+ * and reintroduces the quadratic it was added to remove.
+ */
+function heapWitness(value: unknown): number {
+  return Array.isArray(value) ? value.length : -1
+}
+
+/**
  * Account a value being bound into guest scope against the run's live-heap ceiling.
  *
  * Per-key accounting (replace, don't accumulate) so overwriting a big variable frees
@@ -1870,7 +1886,29 @@ function trackHeapWrite(
   // REPLACED rather than accumulated, meaning the same unchanged object was re-walked in
   // full on every bind, forever — the dominant shape in an accumulator loop, and the
   // difference between linear and quadratic on the most ordinary AJS program there is.
-  if (prevEntry && prevEntry.ref === value && typeof value === 'object') {
+  //
+  // "Same reference" is NOT "same contents", and reference alone was a hole straight
+  // through `maxHeapBytes`. `push` mutates its operand IN PLACE and returns the same
+  // array, so an ordinary accumulate loop re-bound an identical reference every iteration,
+  // hit this path, and never re-measured — the ledger froze the array at its first-bind
+  // size (an empty array) while it grew without bound. Verified: 400 × 140KB strings were
+  // ACCEPTED under the default 64MB ceiling, and adding a single `varSet copy = list` — a
+  // fresh key, which cannot reach this path — rejected the very same run at the very same
+  // ceiling. The guard documented as the space budget for untrusted code was evaded by the
+  // most ordinary program shape there is.
+  //
+  // So the fast path also requires a cheap CHANGE WITNESS to match. `push` is the only
+  // atom that mutates in place (verified by scan), and length is O(1), so an array's
+  // length is sufficient and costs nothing. The quadratic this path exists to prevent —
+  // 500 rebinds of an unchanged 300k-element array — still takes it, because an unchanged
+  // array's length is unchanged.
+  const witness = heapWitness(value)
+  if (
+    prevEntry &&
+    prevEntry.ref === value &&
+    prevEntry.witness === witness &&
+    typeof value === 'object'
+  ) {
     return true
   }
 
@@ -1908,7 +1946,7 @@ function trackHeapWrite(
   }
 
   const total = account.bytes - prevSize + size
-  ctx.heapPerKey.set(key, { size, ref: value })
+  ctx.heapPerKey.set(key, { size, ref: value, witness })
   account.bytes = total
   if (total > cap) {
     ctx.error = new AgentError(

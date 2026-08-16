@@ -59,7 +59,22 @@ const targets: BuildTarget[] = [
   {
     name: 'tjs-batteries',
     entry: './src/batteries/index.ts',
-    external: ['tosijs-schema', 'node:readline'],
+    // Node builtins the batteries reach for behind their `isBrowser` check. They must be
+    // EXTERNAL, not bundled: esbuild cannot resolve `node:*` for this target and fails the
+    // whole bundle.
+    //
+    // Only `node:readline` was listed, and the two pre-existing `node:path` /
+    // `node:fs/promises` imports happened to sit inside `try {}` blocks, where esbuild
+    // downgrades the failure to a warning — so the omission was invisible until a THIRD
+    // import (`cacheDir`, 713e27c) was written outside one and turned it into
+    // `✖ Build failed: 1 bundle(s) did not build`. The list was wrong all along; a bare
+    // import is just what finally said so.
+    external: [
+      'tosijs-schema',
+      'node:readline',
+      'node:path',
+      'node:fs/promises',
+    ],
     description: 'LLM, vector, store ops',
   },
   {

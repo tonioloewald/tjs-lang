@@ -386,3 +386,140 @@ describe('iteration bindings alias, accumulators do not', () => {
     expect(res.error?.message ?? 'completed').toMatch(/Heap limit exceeded/)
   })
 })
+
+/**
+ * In-place mutation cannot outrun the ledger.
+ *
+ * `trackHeapWrite` gained an identity fast path — same key, same reference, skip the
+ * re-measure — to kill a real quadratic: 500 rebinds of an unchanged 300k-element array
+ * cost 28.8 SECONDS for 50.2 fuel before it existed.
+ *
+ * But "same reference" is not "same contents". `push` mutates its operand IN PLACE and
+ * returns the same array, so the most ordinary agent program there is — accumulate into a
+ * list in a loop — re-bound an identical reference every iteration, took the fast path,
+ * and was never re-measured. The ledger froze the array at its first-bind size (empty)
+ * while it grew without bound, and `maxHeapBytes`, documented as THE space budget for
+ * untrusted code, did not fire.
+ *
+ * The tell was sharp: the same run rejected immediately once a `varSet` on a FRESH key was
+ * appended, because a fresh key cannot reach the fast path. Same bytes, same ceiling,
+ * opposite verdict — which is what proved the memory was genuinely live rather than
+ * collected.
+ *
+ * Both halves are pinned below, because fixing either one alone is easy and wrong:
+ * reverting the fast path reintroduces the 28.8s quadratic, and keeping it unqualified
+ * reintroduces the bypass.
+ */
+describe('the heap ledger sees in-place mutation', () => {
+  const ident = (name: string) => ({ $expr: 'ident', name })
+  const lit = (value: unknown) => ({ $expr: 'literal', value })
+
+  /** Accumulate `n` freshly-allocated ~140KB strings into one array via `push`. */
+  const accumulate = (n: number) => ({
+    op: 'seq',
+    steps: [
+      { op: 'varSet', key: 'big', value: 'x'.repeat(140_000) },
+      { op: 'varSet', key: 'list', value: [] },
+      { op: 'varSet', key: 'i', value: 0 },
+      {
+        op: 'while',
+        condition: {
+          $expr: 'binary',
+          op: '<',
+          left: ident('i'),
+          right: lit(n),
+        },
+        body: [
+          {
+            op: 'push',
+            list: ident('list'),
+            // `big + i` allocates a FRESH string each iteration. Pushing a literal would
+            // push one interned string n times and retain almost nothing — a version of
+            // this test that did so passed against the broken code.
+            item: {
+              $expr: 'binary',
+              op: '+',
+              left: ident('big'),
+              right: ident('i'),
+            },
+            result: 'list',
+          },
+          {
+            op: 'varSet',
+            key: 'i',
+            value: {
+              $expr: 'binary',
+              op: '+',
+              left: ident('i'),
+              right: lit(1),
+            },
+          },
+        ],
+      },
+      { op: 'return', value: { ok: 1 } },
+    ],
+  })
+
+  it('a push-accumulate loop is stopped by maxHeapBytes', async () => {
+    // ~107MB of live string against the documented 64MB default.
+    const r = await new AgentVM().run(accumulate(400) as any, {} as any, {
+      fuel: 1e8,
+    })
+    expect(
+      r.error?.message ?? 'ACCEPTED — the ledger did not see the growth'
+    ).toMatch(/Heap limit exceeded/)
+  })
+
+  it('a small accumulate loop still runs (control)', async () => {
+    // Rejecting everything would satisfy the test above and break every real program.
+    const r = await new AgentVM().run(accumulate(5) as any, {} as any, {
+      fuel: 1e8,
+    })
+    expect(r.error?.message ?? 'ok').toBe('ok')
+  })
+
+  it('rebinding an UNCHANGED array stays cheap', async () => {
+    // The quadratic the fast path exists to prevent: 28.8s before it, ~10ms with it.
+    // Qualifying the fast path with a length witness must not cost this.
+    const ast = {
+      op: 'seq',
+      steps: [
+        { op: 'varSet', key: 'big', value: new Array(300_000).fill(1) },
+        { op: 'varSet', key: 'i', value: 0 },
+        {
+          op: 'while',
+          condition: {
+            $expr: 'binary',
+            op: '<',
+            left: ident('i'),
+            right: lit(500),
+          },
+          body: [
+            { op: 'varSet', key: 'big', value: ident('big') },
+            {
+              op: 'varSet',
+              key: 'i',
+              value: {
+                $expr: 'binary',
+                op: '+',
+                left: ident('i'),
+                right: lit(1),
+              },
+            },
+          ],
+        },
+        { op: 'return', value: { ok: 1 } },
+      ],
+    }
+    const t0 = performance.now()
+    const r = await new AgentVM().run(ast as any, {} as any, {
+      fuel: 1e8,
+      maxHeapBytes: 512 * 1024 * 1024,
+    })
+    const ms = performance.now() - t0
+    expect(r.error?.message ?? 'ok').toBe('ok')
+    // Generous against the measured ~10ms, so this fails on a return to O(n x rebinds)
+    // (seconds) and not on a slow machine.
+    expect(ms < 2000 ? 'fast' : `took ${ms.toFixed(0)}ms`).toBe('fast')
+  })
+})
