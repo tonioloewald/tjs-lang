@@ -1044,6 +1044,48 @@ export function extractReturnExampleFromSource(source: string): string | null {
 }
 
 /**
+ * A literal union's FIRST member, or the text unchanged.
+ *
+ * Signature-test arguments are built with `new Function(\`return ${example}\`)()`, and a
+ * literal union's source is valid JavaScript that means something else entirely:
+ * `new Function("return 'yes' | 'no'")()` is **bitwise OR**, and evaluates to `0`. So
+ * `function pick(x: 'yes' | 'no'): ''` was called as `pick(0)`, failed its own parameter
+ * check, and reported
+ *
+ *     Function signature example is inconsistent:
+ *       expected: "\"yes\" | \"no\"", actual: "number"
+ *
+ * — a hard failure of `tjs check`, and a THROW from plain `tjs(source)`, so the playground,
+ * `tjs emit` and every programmatic consumer went with it. Numeric unions are wrong the
+ * same way and more quietly: `1 | 2` evaluates to `3`.
+ *
+ * Literal unions are announced under Added in 0.13.0, and every example in
+ * `CLAUDE-TJS-SYNTAX.md` §Literal Unions omits a return annotation — which is exactly why
+ * nothing caught it. The combination is what breaks, and the docs never showed it.
+ *
+ * Any member is a valid argument, so the first one is used. Split over the MASKED view so
+ * a `|` inside a string (`'a|b' | 'c'`) is not a separator, and `||` is left alone.
+ */
+function firstUnionMember(example: string): string {
+  const masked = maskLiterals(example)
+  let depth = 0
+  for (let i = 0; i < masked.length; i++) {
+    const c = masked[i]
+    if (c === '(' || c === '[' || c === '{') depth++
+    else if (c === ')' || c === ']' || c === '}') depth--
+    else if (
+      c === '|' &&
+      depth === 0 &&
+      masked[i + 1] !== '|' &&
+      masked[i - 1] !== '|'
+    ) {
+      return example.slice(0, i).trim()
+    }
+  }
+  return example
+}
+
+/**
  * Extract parameter example values from params string
  */
 function extractParamExamples(paramsStr: string): string[] {
@@ -1106,7 +1148,8 @@ function extractParamExamples(paramsStr: string): string[] {
     // Handle: (? name: example) or (! name: example)
     const match = trimmed.match(/(?:\(\s*[?!]\s*)?(\w+)\s*[:=]\s*(.+?)(?:\))?$/)
     if (match) {
-      examples.push(match[2].trim())
+      // A literal union's source evaluates as bitwise OR — see firstUnionMember.
+      examples.push(firstUnionMember(match[2].trim()))
     } else {
       // No example value - can't run signature test
       return []

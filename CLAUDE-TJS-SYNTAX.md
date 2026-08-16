@@ -458,6 +458,28 @@ function setMode(m: 'on' | 'off') { return m }
 // setMode('maybe')  -> MonadicError: Expected "on" | "off"
 ```
 
+**With a return annotation**, the ordinary rules apply — and every example above omits one,
+which is precisely why a bug here went unnoticed until 0.13.0's fourth review. The
+signature test calls the function with the union's FIRST member, and the return example is
+a worked example compared by deep equality:
+
+<!-- prettier-ignore -->
+```typescript
+function pick(x: 'yes' | 'no'): 'yes' { return x }    // pick('yes') IS 'yes'
+function typeOnly(x: 'yes' | 'no'):! '' { return x }  // `:!` is type-only — no test runs
+```
+
+The wrong spelling fails to build, which is the point:
+
+<!-- tjs-doc: expect-error -->
+<!-- prettier-ignore -->
+```typescript
+function pick(x: 'yes' | 'no'): '' { return x }   // pick('yes') is not ''
+```
+
+That is not a union bug; it is the same rule that makes `function add(a: 2, b: 3): 0`
+fail. Use `:!` when you want the return TYPE rather than a worked result.
+
 This is the one place the examples model bends, and the line is **vacuity**. Read as
 examples, `'a' | 'b'` widens to `string | string` — which means exactly what `''` means, so
 it says nothing, and nobody writes it meaning "any string". A form that is empty under our

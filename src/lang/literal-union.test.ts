@@ -120,3 +120,61 @@ describe('what a literal union is NOT', () => {
     expect(f(1)).toBe(1)
   })
 })
+
+/**
+ * A literal union works WITH a return annotation.
+ *
+ * Signature-test arguments were built by evaluating the annotation source:
+ * `new Function("return 'yes' | 'no'")()`. That is valid JavaScript meaning something else
+ * entirely — **bitwise OR** — so it evaluated to `0`, the function was called as `pick(0)`,
+ * and it failed its own parameter check with a diagnostic that made no sense:
+ *
+ *     Function signature example is inconsistent:
+ *       expected: "\"yes\" | \"no\"", actual: "number"
+ *
+ * Numeric unions were wrong more quietly still: `1 | 2` evaluates to `3`.
+ *
+ * The blast radius was wider than `tjs check`, which merely exits 1 — plain `tjs(source)`
+ * THROWS, so the playground, `tjs emit`, `tjs test` and every programmatic consumer failed
+ * on a function using a feature this release announces under **Added**.
+ *
+ * It survived because every example in `CLAUDE-TJS-SYNTAX.md` §Literal Unions omits a
+ * return annotation. The COMBINATION is what breaks, and the documentation never showed
+ * it — so the tests written from the documentation could not have found it.
+ */
+describe('literal unions survive a return annotation', () => {
+  const ok = (src: string) =>
+    expect(() => tjs(src, { filename: 'lu.tjs' })).not.toThrow()
+
+  it('string union with a worked return example', () => {
+    ok("function pick(x: 'yes' | 'no'): 'yes' { return x }")
+  })
+
+  it('numeric union with a worked return example', () => {
+    // `1 | 2` evaluated to 3 — a valid number, so this failed with `actual: "number"`
+    // rather than anything that pointed at the union.
+    ok('function n(x: 1 | 2): 1 { return x }')
+  })
+
+  it('union with a type-only return example', () => {
+    ok("function pick(x: 'yes' | 'no'):! '' { return x }")
+  })
+
+  it('a union member containing a pipe is not split on it', () => {
+    // The separator scan runs over the masked view, so `|` inside a string is data.
+    ok("function pick(x: 'a|b' | 'c'): 'a|b' { return x }")
+  })
+
+  it('an INCONSISTENT worked example still fails — as it must', () => {
+    // The control, and the reason this is not simply "make unions never fail".
+    // `pick('yes')` returns `'yes'`, not `''`. A return example is a WORKED EXAMPLE
+    // compared by deep equality (`CLAUDE.md` → signature test canaries), exactly as
+    // `function add(a: 2, b: 3): 0` must fail. `:!` is the opt-out for a type-only
+    // example. A fix that made this pass would have deleted the feature.
+    expect(() =>
+      tjs("function pick(x: 'yes' | 'no'): '' { return x }", {
+        filename: 'lu.tjs',
+      })
+    ).toThrow(/signature example is inconsistent/)
+  })
+})
