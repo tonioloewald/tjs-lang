@@ -23,6 +23,7 @@ import {
   newExpressionPattern,
 } from './declared-classes'
 import { validateNoNew } from './parser-transforms'
+import { validateNoNew } from './parser-transforms'
 
 const rejects = (src: string): boolean => {
   try {
@@ -136,5 +137,44 @@ describe('the rewriter and the validator cannot disagree', () => {
       message = String(e.message)
     }
     expect(message).toContain('`new Point`')
+  })
+})
+
+/**
+ * `new X.Y()` is a construction of `Y`, and the checker must agree with the converter.
+ *
+ * `validateNoNew` built its own per-class regex, and `\b` after the name is satisfied by a
+ * `.` — so `new Shape.Circle(2)` matched as `new Shape`. `tjs convert` emits that line
+ * verbatim (correctly: `dropRedundantNew` exempts member access) and `tjs check` then
+ * rejected it, naming the WRONG class and offering a remedy that is runtime-fatal if
+ * followed — `Shape(…)` is not what the author wrote, and calling a class constructor
+ * without `new` throws.
+ *
+ * Converter-and-checker disagreement is precisely what this module was created to end. It
+ * shared the name list but not the match, which is the subtler half of the same mistake.
+ *
+ * The CASES array above has no member-access form, which is why nothing caught it.
+ */
+describe('member access is not a construction of the outer name', () => {
+  const SRC = `class Shape {
+  static Circle = class { constructor(r) { this.r = r } }
+}
+const c = new Shape.Circle(2)
+`
+
+  it('the checker accepts it', () => {
+    expect(() => validateNoNew(SRC)).not.toThrow()
+  })
+
+  it('the rewriter leaves it alone', () => {
+    // Both halves of the agreement, asserted together — that is the invariant.
+    expect(dropRedundantNew(SRC)).toContain('new Shape.Circle(2)')
+  })
+
+  it('a bare `new Shape(…)` is still rejected (control)', () => {
+    // Without this, exempting everything would pass both tests above and delete the rule.
+    expect(() =>
+      validateNoNew(`class Shape { constructor() {} }\nconst s = new Shape()\n`)
+    ).toThrow(/not allowed in TJS/)
   })
 })

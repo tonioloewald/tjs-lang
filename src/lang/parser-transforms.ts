@@ -12,7 +12,7 @@ import {
   scanLiterals,
   matchingBrace,
 } from '../strip-comments'
-import { declaredClassNames } from './declared-classes'
+import { declaredClassNames, newExpressionPattern } from './declared-classes'
 import { stripParamMarkers } from './parser-params'
 
 /**
@@ -4737,17 +4737,42 @@ export function validateNoNew(source: string): string {
   const declared = declaredClassNames(source, masked)
   if (declared.length === 0) return source
 
-  for (const name of declared) {
-    rejectAll(
-      source,
-      masked,
-      new RegExp(`(?<![a-zA-Z_$.])\\bnew\\s+${name}\\b`),
-      // Quote the CALL form as the fix, not as the source: the diagnostic used to say
-      // "`new Point()` is not allowed" for source that reads `new Point`, which sends the
-      // reader looking for a call site that is not there.
-      `\`new ${name}\` is not allowed in TJS — a class is CALLED, so \`${name}(…)\` does exactly what \`new ${name}(…)\` does and returns the same object. Drop the keyword. To construct deliberately: \`unsafe new ${name}(…)\`.`
-    )
+  // ONE pattern, and the SAME member-access exemption the rewriter applies.
+  //
+  // This built its own `new RegExp` per class and checked each separately, which is where
+  // it diverged from `dropRedundantNew` in two ways that compounded:
+  //
+  //   - **It disagreed with the converter.** `\b` after the name is satisfied by a `.`, so
+  //     `new Shape.Circle(2)` matched as `new Shape`. `tjs convert` emits that line
+  //     verbatim — correctly, since the rewriter exempts member access — and `tjs check`
+  //     then rejected it, naming the WRONG class and offering a remedy that is
+  //     runtime-fatal if followed (`Shape.Circle(…)` is fine; `Shape(…)` is not what the
+  //     author wrote). Converter-and-checker disagreement is exactly what
+  //     `declared-classes.ts` was created to end; this shared its name list but not its
+  //     match.
+  //   - **It was quadratic.** One regex per class over the whole source: 747ms against 6ms
+  //     for 160 classes, ~125×, on a path the browser playground runs.
+  const re = newExpressionPattern(declared)
+  const hits: Array<{ at: number; name: string }> = []
+  for (const m of masked.matchAll(re)) {
+    const after = m.index! + m[0].length
+    // `new Point.Inner()` constructs `Inner`, not `Point` — not our business.
+    if (!m[2] && source[after] === '.') continue
+    hits.push({ at: m.index!, name: m[1] })
   }
+  if (!hits.length) return source
+
+  const name = hits[0].name
+  rejectAll(
+    source,
+    masked,
+    // Re-matched narrowly for the reported location; the decision was made above.
+    new RegExp(`(?<![a-zA-Z_$.])\\bnew\\s+${name}\\b(?!\\s*\\.)`),
+    // Quote the CALL form as the fix, not as the source: the diagnostic used to say
+    // "`new Point()` is not allowed" for source that reads `new Point`, which sends the
+    // reader looking for a call site that is not there.
+    `\`new ${name}\` is not allowed in TJS — a class is CALLED, so \`${name}(…)\` does exactly what \`new ${name}(…)\` does and returns the same object. Drop the keyword. To construct deliberately: \`unsafe new ${name}(…)\`.`
+  )
   return source
 }
 
