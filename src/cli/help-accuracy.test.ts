@@ -13,8 +13,9 @@
  * makes every bug report name the wrong release. Neither is caught by a test that only
  * exercises behaviour, so this file reads the help text itself.
  */
-import { describe, it, expect } from 'bun:test'
-import { readFileSync } from 'fs'
+import { describe, it, expect, afterAll } from 'bun:test'
+import { readFileSync, mkdtempSync, mkdirSync, writeFileSync, rmSync } from 'fs'
+import { tmpdir } from 'os'
 import { join } from 'path'
 import pkg from '../../package.json'
 
@@ -150,4 +151,81 @@ describe('--max-warnings', () => {
     expect(r.code).toBe(2)
     expect(r.text).toContain("'abc'")
   })
+})
+
+/**
+ * Every invocation the CLI PRINTS actually runs.
+ *
+ * `--max-warnings`'s own error text recommends `tjs check src/ --max-warnings 0`, and
+ * `check` was the only command that could not take a directory — so following the
+ * diagnostic produced a raw `EISDIR: illegal operation on a directory, read`. A tool whose
+ * diagnostic recommends an invocation it rejects sends the reader looking for their own
+ * mistake.
+ *
+ * Help text is a claim like any other. This harvests the example invocations out of
+ * `--help` and the `--max-warnings` message and RUNS them, which is the only way that
+ * class of drift gets caught — the previous tests here asserted on wording.
+ */
+describe('printed invocations are runnable', () => {
+  const CLI = join(import.meta.dir, 'tjs.ts')
+  const dir = mkdtempSync(join(tmpdir(), 'tjs-help-'))
+  const spawn = async (args: string[]) => {
+    const proc = Bun.spawn(['bun', CLI, ...args], {
+      stdout: 'pipe',
+      stderr: 'pipe',
+      cwd: dir,
+    })
+    const [out, err] = await Promise.all([
+      new Response(proc.stdout).text(),
+      new Response(proc.stderr).text(),
+    ])
+    return { code: await proc.exited, text: out + err }
+  }
+
+  it('`check` accepts a directory', async () => {
+    writeFileSync(join(dir, 'a.tjs'), `function a(n: 0) { return n }\n`)
+    mkdirSync(join(dir, 'sub'), { recursive: true })
+    writeFileSync(join(dir, 'sub', 'b.tjs'), `function b(n: 0) { return n }\n`)
+    const r = await spawn(['check', '.'])
+    expect(r.code).toBe(0)
+    // Recursive, like every sibling walker.
+    expect(r.text).toContain('b.tjs')
+  })
+
+  it('the invocation the --max-warnings error recommends actually runs', async () => {
+    // Not "does it mention a directory" — does it WORK.
+    const r = await spawn(['check', '.', '--max-warnings', '99'])
+    expect(r.text).not.toContain('EISDIR')
+    expect(r.code).toBe(0)
+  })
+
+  it('a directory with no source files is a clear error, not a crash', async () => {
+    const empty = mkdtempSync(join(tmpdir(), 'tjs-help-empty-'))
+    const proc = Bun.spawn(['bun', CLI, 'check', empty], {
+      stdout: 'pipe',
+      stderr: 'pipe',
+    })
+    const text = await new Response(proc.stderr).text()
+    expect(await proc.exited).toBe(1)
+    expect(text).toContain('No source files found')
+    rmSync(empty, { recursive: true, force: true })
+  })
+
+  it('a parse failure anywhere in the tree fails the run', async () => {
+    // The control: walking a directory must not turn a hard error into a summary nobody
+    // reads. One bad file, non-zero exit.
+    const bad = mkdtempSync(join(tmpdir(), 'tjs-help-bad-'))
+    writeFileSync(join(bad, 'ok.tjs'), `function a(n: 0) { return n }\n`)
+    writeFileSync(join(bad, 'bad.tjs'), `function ( { \n`)
+    const proc = Bun.spawn(['bun', CLI, 'check', bad], {
+      stdout: 'pipe',
+      stderr: 'pipe',
+    })
+    await new Response(proc.stdout).text()
+    await new Response(proc.stderr).text()
+    expect(await proc.exited).toBe(1)
+    rmSync(bad, { recursive: true, force: true })
+  })
+
+  afterAll(() => rmSync(dir, { recursive: true, force: true }))
 })
