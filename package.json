@@ -158,6 +158,7 @@
     "dist",
     "src",
     "docs",
+    "!docs/reviews",
     "guides",
     "examples",
     "tjs-src",

@@ -33,7 +33,22 @@ When ending a work session that touched code, complete **all** steps below in or
    git push
    git status   # MUST show "up to date with 'origin/...'"
    ```
-5. **Clean up** — clear stale stashes, prune merged remote branches if appropriate.
+5. **Clean up** — clear stale stashes, prune merged remote branches if appropriate, and
+   **account for every scratch artifact you created**. Probes, one-off scripts, sample
+   inputs, `.bak` copies: each one either becomes a real test, or is deleted. It does not
+   get committed "for now".
+
+   This step exists because of a specific failure. `.i4-check.ts` — a probe with absolute
+   `/Users/…` imports and no assertions — sat committed at the repo root for weeks. It
+   escaped every gate by accident: `tsc` skips dot-prefixed files and the `files` allowlist
+   kept it out of the tarball, so nothing was ever red. It was also the only executable
+   proof that issue #4 was fixed, and #4's behaviour had no test. **A scratch file that is
+   worth keeping is a test that has not been written yet** — that is the tell, and the
+   remedy is to write it rather than to commit the probe.
+
+   Use the session scratchpad directory for anything genuinely temporary, so "did I leave
+   something behind?" is answerable by looking at `git status` rather than by remembering.
+
 6. **Verify** — working tree clean AND branch up to date with origin.
 7. **Hand off** — leave a brief summary so the next session can pick up cold.
 
