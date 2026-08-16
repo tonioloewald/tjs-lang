@@ -1,0 +1,36 @@
+{
+  "timestamp": 1786714902861,
+  "baseUrl": "http://localhost:1234/v1",
+  "models": [
+    {
+      "id": "google/gemma-4-e2b",
+      "type": "LLM",
+      "structuredOutput": true,
+      "vision": true,
+      "status": "OK (Schema) +Vision"
+    },
+    {
+      "id": "google/gemma-4-e4b",
+      "type": "LLM",
+      "structuredOutput": true,
+      "vision": true,
+      "status": "OK (Schema) +Vision"
+    },
+    {
+      "id": "text-embedding-nomic-embed-text-v1.5",
+      "type": "LLM",
+      "structuredOutput": false,
+      "vision": false,
+      "dimension": 768,
+      "status": "Fail: Not Supported"
+    },
+    {
+      "id": "text-embedding-nomic-embed-text-v1.5-embedding",
+      "type": "Embedding",
+      "structuredOutput": false,
+      "vision": false,
+      "dimension": 768,
+      "status": "OK (Dim: 768)"
+    }
+  ]
+}

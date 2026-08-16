@@ -2,6 +2,21 @@ const TIMEOUT_MS = 60000
 const CACHE_FILE = '.models.cache.json'
 const CACHE_TTL_MS = 24 * 60 * 60 * 1000 // 24 hours
 
+/**
+ * Bump this whenever the probe's CONCLUSIONS change.
+ *
+ * The cache was keyed on `baseUrl` + a 24h TTL, which asks "is this answer recent?" and
+ * never "is this answer still computed the same way?". 0.13.0 changed exactly that:
+ * `looksLikeVisionModel` was consolidated after being wrong in three separate copies, the
+ * survivor of which knew `gemma-3` and not `gemma-4`. An upgrader with a warm cache
+ * therefore kept `vision: false` for a multimodal model for up to a day, and the symptom —
+ * vision calls quietly unavailable — points nowhere near a stale JSON file.
+ *
+ * `probe-version.test.ts` hashes the probe functions and fails if they change without this
+ * number moving, so the rule is enforced rather than remembered.
+ */
+const PROBE_VERSION = 2
+
 export interface ModelAudit {
   id: string
   type: 'LLM' | 'Embedding' | 'Unknown'
@@ -14,8 +29,39 @@ export interface ModelAudit {
 interface CacheData {
   timestamp: number
   baseUrl: string
+  /** Absent in caches written before 0.13.0, which is why the check treats it as stale. */
+  probeVersion?: number
   models: ModelAudit[]
 }
+
+/**
+ * Where the audit cache lives OUTSIDE the consumer's project.
+ *
+ * It used to be `process.cwd()/.models.cache.json` — so importing `tjs-lang/batteries`
+ * dropped a dotfile into whatever directory the consumer happened to run from, which is
+ * their repo, and which they then have to gitignore. A cache is ours to keep, not theirs
+ * to store.
+ */
+async function cacheDir(): Promise<string> {
+  const path = await import('node:path')
+  // `process.env.HOME` rather than `os.homedir()`: this module is in the MAIN entry's
+  // graph, and `src/index-tsfree.test.ts` bundles that graph for the browser, where
+  // `node:os` is not resolvable and fails the build outright. `node:path` and
+  // `node:fs/promises` already are, which is why the existing dynamic imports work and
+  // this one did not. The env vars carry the same information on every platform we target.
+  const home = process.env.HOME || process.env.USERPROFILE || '.'
+  const base =
+    process.env.XDG_CACHE_HOME ||
+    (process.platform === 'darwin'
+      ? path.join(home, 'Library', 'Caches')
+      : process.platform === 'win32'
+      ? process.env.LOCALAPPDATA || path.join(home, 'AppData', 'Local')
+      : path.join(home, '.cache'))
+  return path.join(base, 'tjs-lang')
+}
+
+/** So the path is announced once per process, not once per audit. */
+let announcedCachePath = false
 
 const isBrowser =
   typeof window !== 'undefined' && typeof window.localStorage !== 'undefined'
@@ -26,20 +72,22 @@ async function readCache(baseUrl: string): Promise<ModelAudit[] | null> {
       const cached = window.localStorage.getItem(CACHE_FILE)
       if (!cached) return null
       const data: CacheData = JSON.parse(cached)
-      // Check TTL and baseUrl match
+      // Check TTL, baseUrl AND the probe version — see PROBE_VERSION.
       if (data.baseUrl !== baseUrl) return null
+      if (data.probeVersion !== PROBE_VERSION) return null
       if (Date.now() - data.timestamp > CACHE_TTL_MS) return null
       return data.models
     } else {
       // Node.js: read from file
       const fs = await import('node:fs/promises')
       const path = await import('node:path')
-      const cacheFile = path.join(process.cwd(), CACHE_FILE)
+      const cacheFile = path.join(await cacheDir(), CACHE_FILE)
       try {
         const content = await fs.readFile(cacheFile, 'utf-8')
         const data: CacheData = JSON.parse(content)
-        // Check TTL and baseUrl match
+        // Check TTL, baseUrl AND the probe version — see PROBE_VERSION.
         if (data.baseUrl !== baseUrl) return null
+        if (data.probeVersion !== PROBE_VERSION) return null
         if (Date.now() - data.timestamp > CACHE_TTL_MS) return null
         return data.models
       } catch {
@@ -59,17 +107,27 @@ async function writeCache(
   const data: CacheData = {
     timestamp: Date.now(),
     baseUrl,
+    probeVersion: PROBE_VERSION,
     models,
   }
   try {
     if (isBrowser) {
       window.localStorage.setItem(CACHE_FILE, JSON.stringify(data))
     } else {
-      // Node.js: write to file
+      // Node.js: write to the OS cache directory, not the consumer's cwd.
       const fs = await import('node:fs/promises')
       const path = await import('node:path')
-      const cacheFile = path.join(process.cwd(), CACHE_FILE)
+      const dir = await cacheDir()
+      await fs.mkdir(dir, { recursive: true })
+      const cacheFile = path.join(dir, CACHE_FILE)
       await fs.writeFile(cacheFile, JSON.stringify(data, null, 2))
+      // Say where, once. A tool that writes somewhere non-obvious has to announce it, and
+      // the audit already prints its findings — a silent file in a directory the user did
+      // not choose is how a stale cache becomes an unexplained behaviour change.
+      if (!announcedCachePath) {
+        announcedCachePath = true
+        console.error(`  model audit cached at ${cacheFile}`)
+      }
     }
   } catch (e) {
     console.error('❌ Error writing model cache:', e)

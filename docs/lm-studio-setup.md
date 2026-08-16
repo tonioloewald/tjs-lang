@@ -23,7 +23,7 @@ first if a model won't load or LLM tests fail fast.
 3. Developer → **Start Server** (port 1234) → **Enable CORS**.
 4. Warm a clean audit cache, then run the full suite:
    ```bash
-   rm -f .models.cache.json
+   rm -f "${XDG_CACHE_HOME:-$HOME/Library/Caches}/tjs-lang/.models.cache.json"
    bun run test:llm        # warms + writes one clean cache, in isolation
    bun test                # full suite reuses that cache (avoids the race below)
    ```
@@ -114,12 +114,16 @@ The audit classified no usable model and the result is cached. Causes:
 
 Fix: make sure both model types are loaded and inferring, then **clear the cache**:
 ```bash
-rm -f .models.cache.json
+# macOS; Linux uses ${XDG_CACHE_HOME:-~/.cache}, Windows %LOCALAPPDATA%
+rm -f ~/Library/Caches/tjs-lang/.models.cache.json
 ```
+The path is printed to stderr the first time an audit writes it, so you never have to
+guess. It moved out of the working directory in 0.13.0 — importing `tjs-lang/batteries`
+used to drop a dotfile into whatever repo you happened to run from.
 
 ### Audit misclassifies models on a parallel run
 
-`.models.cache.json` (cwd, 24h TTL) is shared, and many test files call `audit()`
+`.models.cache.json` (in the OS cache directory, 24h TTL) is shared, and many test files call `audit()`
 concurrently. Clearing the cache right before a full parallel `bun test` makes
 several audits probe **at once**, and under that load classifications come back
 scrambled (embedding models tagged `LLM`, etc.). **Work around it** by writing one

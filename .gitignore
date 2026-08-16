@@ -134,7 +134,7 @@ dist
 .yarn/build-state.yml
 .yarn/install-state.gz
 .pnp.*
-.models.cache.json
+.models.cache.json  # pre-0.13.0 location (cwd); the cache now lives in the OS cache dir
 .DS_Store
 
 # Firebase functions — bun.lock triggers Cloud Build to use bun runtime
