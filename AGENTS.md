@@ -50,6 +50,23 @@ When ending a work session that touched code, complete **all** steps below in or
    something behind?" is answerable by looking at `git status` rather than by remembering.
 
 6. **Verify** — working tree clean AND branch up to date with origin.
+
+### After a pre-release review
+
+- **File the report FIRST.** Copy the harness output to `docs/reviews/<version>-<slug>.md`
+  before acting on any finding. The second 0.13.0 review lived only at a
+  `/private/tmp/.../tasks/*.output` scratch path — 892 lines, present by luck — while the
+  durable record of fourteen unworked majors was a five-line paraphrase. `docs/reviews/`
+  is excluded from the npm tarball (`"!docs/reviews"` in `files`) and from `llms.txt`:
+  process artifacts, kept in the repo, not shipped.
+- **Say what you are NOT fixing, in one place, with the decision and the target version.**
+  An unannotated open-findings list reads identically whether it was triaged and deferred
+  or simply never reached — and it will be read as the second.
+- **A lens-8 (practices) write-back names the commit range it covers.** One landed here
+  describing a state that stopped being true two and a half hours later, with a checked
+  box in `TODO.md` claiming otherwise. Without the range, staleness is something someone
+  has to notice rather than something that can be checked.
+
 7. **Hand off** — leave a brief summary so the next session can pick up cold.
 
 ## Hard Rules

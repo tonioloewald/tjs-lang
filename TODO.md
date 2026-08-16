@@ -2782,8 +2782,39 @@ behaviour. `docs/dictionary-defaults.md` carries the WebIDL-divergence note.
 Worked through 2026-08-14..16. Closed since: `--force` SIGKILLing any bun/node/deno
 listener (identity is now the command line — `6596ae3`); issue #4's stale public comment
 (correction posted); the five declaration transforms rewriting TJS inside string literals
-(`64c6c5d`, six sites); the two `expect` harnesses (`27f89db`). Remaining items live in
-`docs/reviews/0.13.0-review-3-full.md`, which tracks them with per-item status.
+(`64c6c5d`, six sites); the two `expect` harnesses (`27f89db`).
+
+## Open findings at the 0.13.0 release — the decision
+
+_One place, per the rule now in `AGENTS.md` and filed upstream as
+tosijs-coding-practices#7: an unannotated open-findings list is indistinguishable from an
+oversight._
+
+Covering `v0.13.0-beta.1..d116494`. The third review's 56 findings are tracked per-item in
+`docs/reviews/0.13.0-review-3-full.md`; **every confirmed blocker and major is closed**,
+along with every minor that turned out to be real on investigation.
+
+**Deferred deliberately, and why:**
+
+- **#4 stays OPEN until publish.** It is fixed on `main` and the public comment now says
+  so, but `npm i tjs-lang` still gets 0.12.0, where all three failures are real. Closing
+  it before the artifact exists would be closing ahead of the thing consumers can install.
+  Close it, and post the second comment, **at publish time**.
+- **#3 (toBool hot-path tax) — deferred past 0.13.0.** Re-measured at this commit rather
+  than re-dated: ~15 B per conditional asymptotically, and 4× runtime on a
+  conditional-dense loop. The fix (skip the wrap when an operand is provably primitive) is
+  known and is a language-level change, not a release blocker.
+- **#25 (parser architecture) stays open by design.** Its pre-registered counter has been
+  answered — at least fourteen literal-blindness instances this cycle — and that answer is
+  input to a post-1.0 decision, not to this release.
+- **Practices write-backs are filed upstream, not applied here**
+  (tosijs-coding-practices#6, #7, #8), per `practices/cross-project.md`: file, don't fix.
+
+**Still to do AT PUBLISH (needs npm auth — user action):**
+
+- `npm deprecate 'tjs-lang@<0.13.0'` naming the `Output validation failed` symptom, since
+  that break fires on a consumer's fresh install with no change on their side.
+- Close #4 with a second comment.
 
 ## 0.13.0 pre-release review — blockers CLEARED (2026-08-13)
 
