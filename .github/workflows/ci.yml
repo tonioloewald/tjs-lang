@@ -51,21 +51,32 @@ jobs:
         if: always()
         run: bun run format:check
 
-      # SKIP_LLM_TESTS + SKIP_BENCHMARKS + SKIP_AUDIT — the model server and the
-      # advisory feed are both unavailable here. `bun audit` runs in the pre-tag
-      # lane instead, where the network is real.
-      - name: Test (fast lane)
-        if: always()
-        run: bun run test:fast
-
+      # BEFORE the tests, not after. Three guards are gated on `dist/` existing
+      # (`bundle-size.test.ts` x2, `resolve.test.ts`'s built-worker anti-drift
+      # smoke) and on a fresh clone they silently SKIPPED here — 25 pass / 3 skip
+      # where a local run gets 28. A guard that skips reports the same green as a
+      # guard that passes. The README bundle-size drift these exist to catch was
+      # caught by the pre-push tag hook instead, where `dist/` happens to exist.
+      #
       # The committed build artifacts (editors/*.js, the TextMate grammars,
       # demo/docs.json) are checked in so `npm publish` ships them without a
       # build — which means editing a source file without rebuilding silently
-      # ships stale output. Their guards live in the suite above; this proves the
+      # ships stale output. Their guards live in the suite below; this proves the
       # build that produces them still runs at all.
       - name: Build
         if: always()
         run: bun run make
+
+      # SKIP_LLM_TESTS + SKIP_BENCHMARKS + SKIP_AUDIT — the model server and the
+      # advisory feed are both unavailable here. `bun audit` runs in the pre-tag
+      # lane instead, where the network is real.
+      #
+      # Runs AFTER the build so the `dist/`-gated guards actually execute.
+      # `bundle-size.test.ts` asserts that they did whenever CI is set, so a
+      # future reorder fails loudly instead of going quiet.
+      - name: Test (fast lane)
+        if: always()
+        run: bun run test:fast
 
       # `make` REGENERATES committed artifacts, so running it and not looking at
       # the result proves only that the build does not crash. `demo/docs.json`

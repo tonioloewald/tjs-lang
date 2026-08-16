@@ -2,7 +2,7 @@
   "name": "tjs-lang",
   "displayName": "TJS + AsyncJS (tjs-lang)",
   "description": "Syntax highlighting for TJS (.tjs) and AsyncJS (.ajs, ajs`...` template literals)",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "publisher": "tosijs",
   "repository": {
     "type": "git",

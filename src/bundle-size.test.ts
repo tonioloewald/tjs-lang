@@ -53,6 +53,25 @@ function readmeClaims(): Array<{ file: string; raw: number; gz: number }> {
 const distBuilt = existsSync(DIST)
 
 describe('README bundle-size table matches the built bundles', () => {
+  it('CI actually built dist/ before running this', () => {
+    // These guards are `skipIf(!distBuilt)`, which is right locally — most people have
+    // not run `bun run make`, and failing them for that would be noise. In CI it is not
+    // right: the workflow used to run the tests BEFORE the build, so on a fresh clone
+    // these two and `resolve.test.ts`'s built-worker smoke silently skipped — 25 pass /
+    // 3 skip where a local run gets 28. A guard that skips reports exactly the same
+    // green as a guard that passes, which is how the README bundle-size drift reached
+    // the pre-push hook before anything noticed.
+    //
+    // The workflow was reordered. This is what makes the reorder stick: put the tests
+    // back in front of the build and this fails by name, in CI only.
+    if (!process.env.CI) return
+    expect(
+      distBuilt
+        ? 'built'
+        : `dist/ is missing in CI — run the build before test:fast`
+    ).toBe('built')
+  })
+
   it.skipIf(!distBuilt)('every claimed size is within tolerance', () => {
     const claims = readmeClaims()
     // If this fails, the table's shape changed — fix the regex or the table.

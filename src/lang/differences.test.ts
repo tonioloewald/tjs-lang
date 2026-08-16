@@ -180,13 +180,16 @@ describe('docs/tjs-vs-typescript.md is generated and current', () => {
     expect(orphans).toEqual([])
   })
 
-  it('is regenerable — running the builder changes nothing', async () => {
-    const path = resolve(import.meta.dir, '../../docs/tjs-vs-typescript.md')
-    const before = readFileSync(path, 'utf8')
-    Bun.spawnSync(
-      ['bun', resolve(import.meta.dir, '../../scripts/build-differences.ts')],
-      { cwd: resolve(import.meta.dir, '../..') }
+  it('is regenerable — the rendered page matches the committed one', async () => {
+    // COMPARES, and does not write. This used to spawn the builder and diff the file
+    // before and after, which meant that in the one case it exists to catch — a drifted
+    // doc — it failed AND repaired the tracked file on the way out. Re-running went
+    // green, `git status` showed a modification nobody made on purpose, and the finding
+    // evaporated. A freshness check that repairs what it checks reports the state it just
+    // created.
+    const { render, DIFFERENCES_DOC } = await import(
+      '../../scripts/build-differences'
     )
-    expect(readFileSync(path, 'utf8')).toBe(before)
+    expect(readFileSync(DIFFERENCES_DOC, 'utf8')).toBe(render())
   })
 })

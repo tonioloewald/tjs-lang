@@ -9,6 +9,18 @@
  * written once against a language that then moves.
  *
  * Run via `bun run docs:differences` (included in `bun run make`).
+ *
+ * ## Why `render()` is exported and the write is guarded
+ *
+ * `differences.test.ts` used to check freshness by SPAWNING this script and comparing the
+ * file before and after — which meant that in the one case the test exists to catch, a
+ * drifted doc, it failed *and rewrote the tracked file on its way out*. Re-running went
+ * green, `git status` showed a modification nobody made deliberately, and the finding
+ * evaporated. A freshness check that repairs what it is checking reports the state it just
+ * created.
+ *
+ * So the rendering is a pure function of `DIFFERENCES`, the test imports it and compares
+ * strings, and the write happens only when this file is the entry point.
  */
 import { writeFileSync } from 'node:fs'
 import { join, resolve } from 'node:path'
@@ -66,7 +78,8 @@ function section(d: Difference): string {
   return parts.join('\n')
 }
 
-const doc = `<!--{"section": "home", "order": 6, "navTitle": "TJS vs TypeScript"}-->
+export function render(): string {
+  return `<!--{"section": "home", "order": 6, "navTitle": "TJS vs TypeScript"}-->
 
 # TJS vs TypeScript vs JavaScript
 
@@ -101,11 +114,22 @@ Edit \`src/lang/differences.ts\`, then run \`bun run docs:differences\`. If
 \`differences.test.ts\` disagrees with your row, it is reporting the language as it is —
 which is the point. A row that cannot be executed does not belong on this page.
 `
+}
 
-writeFileSync(join(REPO, 'docs/tjs-vs-typescript.md'), doc)
-console.log(
-  `docs/tjs-vs-typescript.md — ${DIFFERENCES.length} rows ` +
-    `(${DIFFERENCES.filter((d) => d.status !== 'proposed').length} shipped, ` +
-    `${DIFFERENCES.filter((d) => d.status === 'proposed').length} proposed), ` +
-    `${DIFFERENCES.filter((d) => d.ts).length} verified against tsc`
-)
+/** Where the rendered page lives. Exported so the test does not restate the path. */
+export const DIFFERENCES_DOC = join(REPO, 'docs/tjs-vs-typescript.md')
+
+// Only when run as a script. Importing this module must not write to the repo.
+if (import.meta.main) {
+  writeFileSync(DIFFERENCES_DOC, render())
+  console.log(
+    `docs/tjs-vs-typescript.md — ${DIFFERENCES.length} rows ` +
+      `(${
+        DIFFERENCES.filter((d) => d.status !== 'proposed').length
+      } shipped, ` +
+      `${
+        DIFFERENCES.filter((d) => d.status === 'proposed').length
+      } proposed), ` +
+      `${DIFFERENCES.filter((d) => d.ts).length} verified against tsc`
+  )
+}
