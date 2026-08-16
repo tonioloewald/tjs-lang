@@ -20,6 +20,8 @@ upstream repo from here** — file, don't fix.
 
 ## tosijs-schema — no way to declare an OPEN object
 
+**Filed:** [tosijs-schema#5](https://github.com/tonioloewald/tosijs-schema/issues/5).
+
 `s.object()` always emits `additionalProperties: false`, and there is no `.open` /
 `.passthrough` / options argument. That is the right default, but it leaves no spelling
 for "these fields, plus whatever the other side adds" — which is what you need whenever
@@ -38,7 +40,19 @@ documentation. The named-fields-plus-open combination is not expressible today.
 on the returned builder, so the JSON Schema keeps `properties`/`required` and relaxes only
 the closure.
 
-_Filed from tjs-lang; not yet an issue on the tosijs-schema repo._
+**Companion issue** — [tosijs-schema#4](https://github.com/tonioloewald/tosijs-schema/issues/4):
+1.5.0 shipped that validation-tightening as a MINOR, so `^1.4.0` ranges pick it up on the
+next install and already-published consumers break with no change on their side. Verified in
+clean installs of each version: the exact schema `tjs-lang@0.12.0` ships validates an
+OpenAI message carrying `reasoning_content` as **true on 1.4.0 and false on 1.5.1**. Under
+0.x semver `^0.12.0` does not float to `0.13.0`, so an affected consumer cannot get the fix
+by updating either. The two compound: the correct spelling did not exist, so the accidental
+one was load-bearing.
+
+**Still to do at publish time (user action — npm auth):** `npm deprecate 'tjs-lang@<0.13.0'`
+with a message naming that exact symptom and 0.13.0 as the fix. Neither published version
+carries a `deprecated` field today, and a changelog paragraph is not a delivery mechanism
+for a break that fires on install.
 
 ## tosijs-coding-practices — one canonical safe-port-reclaim
 
