@@ -23,7 +23,11 @@
 import type { TypeDescriptor } from '../types'
 import { isDictDefaultParam } from '../types'
 import type { TJSTranspileResult, TJSTypeInfo } from './js'
-import { maskLiterals, splitTopLevel } from '../../strip-comments'
+import {
+  maskLiterals,
+  splitTopLevel,
+  matchingBrace,
+} from '../../strip-comments'
 
 /**
  * Convert a TypeDescriptor to a TypeScript type string.
@@ -381,24 +385,37 @@ interface ClassInfo {
  */
 function detectClasses(source: string): Map<string, ClassInfo> {
   const result = new Map<string, ClassInfo>()
+  // The last detector in this file still reading raw text — its five siblings were
+  // migrated, this one was not. A `}` inside a method body ended the class early and every
+  // later member vanished from the declaration:
+  //
+  //     class Fmt {
+  //       brace(s: '') { return s + '}' }   <- the class "ends" here
+  //       after(n: 0)  { return n }         <- silently absent from the .d.ts
+  //     }
+  //
+  // Silent, and it degrades a consumer's types rather than breaking their build, so
+  // nothing reports it. Detection is masked too, so a `class` written inside a template
+  // no longer emits a phantom declaration.
+  const masked = maskLiterals(source)
 
   // Find class declarations
   const classRe =
     /^[ \t]*(?:export\s+(?:default\s+)?)?class\s+(\w+)(?:\s+extends\s+\w+)?\s*\{/gm
   let m
-  while ((m = classRe.exec(source)) !== null) {
+  while ((m = classRe.exec(masked)) !== null) {
     const className = m[1]
     const classBodyStart = m.index + m[0].length - 1
 
-    // Find matching closing brace
-    let depth = 1
-    let i = classBodyStart + 1
-    while (i < source.length && depth > 0) {
-      if (source[i] === '{') depth++
-      else if (source[i] === '}') depth--
-      i++
-    }
+    // Find matching closing brace, over the masked view.
+    const close = matchingBrace(masked, classBodyStart)
+    const i = close === -1 ? masked.length : close + 1
     const classBody = source.slice(classBodyStart + 1, i - 1)
+    // The member scan below tracks brace depth to find members at depth 0, so it needs the
+    // masked view for the same reason the class scan does — a `}` inside a method body
+    // drove the depth negative and every later member was skipped. Offsets are shared,
+    // since masking is length-preserving.
+    const maskedBody = masked.slice(classBodyStart + 1, i - 1)
 
     // Extract constructor params (handle nested parens/braces in param types)
     const ctorStart = classBody.indexOf('constructor')
@@ -425,7 +442,7 @@ function detectClasses(source: string): Map<string, ClassInfo> {
       let bodyDepth = 0
 
       while (pos < classBody.length) {
-        const ch = classBody[pos]
+        const ch = maskedBody[pos]
 
         // Track brace depth — only look for methods at depth 0
         if (ch === '{') {

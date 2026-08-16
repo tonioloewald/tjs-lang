@@ -285,3 +285,46 @@ export function fmt(list: [''], sep: ', ', wrap: '()') { return list.join(sep) }
     expect(diagnose(dtsFor(SRC))).toEqual([])
   })
 })
+
+/**
+ * A `}` inside a method body does not truncate the class.
+ *
+ * `detectClasses` was the last detector in `dts.ts` still reading raw text — its five
+ * siblings were migrated to the masked view, this one was not. So a method returning a
+ * string containing `}` ended the class early, and **every later member vanished from the
+ * declaration**:
+ *
+ *     class Fmt {
+ *       brace(s: '') { return s + '}' }   // the class "ends" here
+ *       after(n: 0)  { return n }         // silently absent
+ *     }
+ *
+ * It degrades a consumer's types rather than breaking their build, so nothing reports it —
+ * they simply get a type error on a method that exists, or none on one that does not.
+ */
+describe('braces inside method bodies', () => {
+  const SRC = `export class Fmt {
+  brace(s: '') { return s + '}' }
+  regex(s: '') { return /[}]/.test(s) }
+  after(n: 0) { return n }
+}
+`
+
+  it('every member reaches the declaration', () => {
+    const dts = dtsFor(SRC)
+    expect(dts).toContain('brace(s: string)')
+    expect(dts).toContain('regex(s: string)')
+    expect(dts).toContain('after(n: number)')
+  })
+
+  it('and it compiles', () => {
+    expect(diagnose(dtsFor(SRC))).toEqual([])
+  })
+
+  it('a class inside a template is not declared at all', () => {
+    // Detection is masked too, so an illustrative class in a doc string no longer emits a
+    // phantom declaration.
+    const src = `export const doc = \`\nexport class Ghost { m(n: 0) { return n } }\n\`\nexport function real(n: 0) { return n }\n`
+    expect(dtsFor(src)).not.toContain('Ghost')
+  })
+})
