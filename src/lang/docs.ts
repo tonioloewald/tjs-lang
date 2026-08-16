@@ -11,7 +11,12 @@
  * Doc blocks are just editorial commentary when you need it.
  */
 
-import { commentRanges, isEscapedAt, maskLiterals } from '../strip-comments'
+import {
+  commentRanges,
+  isEscapedAt,
+  maskLiterals,
+  matchingBrace,
+} from '../strip-comments'
 
 import { extractTests } from './tests'
 import { typeDescriptorToTS } from './emitters/dts'
@@ -237,7 +242,7 @@ export function generateDocs(source: string): DocResult {
     const name = match[1]
     const extendsName = match[2] || undefined
     const bodyStart = match.index + match[0].length // just past `{`
-    const bodyEnd = findMatchingBrace(source, bodyStart - 1, maskedSource)
+    const bodyEnd = matchingBrace(maskedSource, bodyStart - 1)
     if (bodyEnd === -1) continue
     const body = source.slice(bodyStart, bodyEnd)
     const members = extractClassMembers(body)
@@ -306,32 +311,6 @@ function formatClassSignature(item: {
   if (item.members.length === 0) return `${head}\n}`
   const body = item.members.map((m) => `  ${m}`).join('\n')
   return `${head}\n${body}\n}`
-}
-
-/**
- * Find the index of the `}` matching the `{` at position `open`.
- * Returns -1 if no match. Aware of strings and template literals so
- * braces inside them don't confuse the count.
- */
-function findMatchingBrace(s: string, open: number, view?: string): number {
-  // Masked view: braces inside strings, templates, REGEX LITERALS and comments are not
-  // structure. The previous version knew about strings only, so `/^\}/` inside a body
-  // closed it early and truncated everything after.
-  //
-  // The view is passed in by callers that loop, because masking per iteration is
-  // quadratic — `generateDocs` on a 133KB file was 37.6ms and 538ms at 4x, scaling as the
-  // square. Masking preserves offsets, so an inherited view indexes identically.
-  const masked = view ?? maskLiterals(s)
-  let depth = 0
-  for (let i = open; i < masked.length; i++) {
-    const c = masked[i]
-    if (c === '{') depth++
-    else if (c === '}') {
-      depth--
-      if (depth === 0) return i
-    }
-  }
-  return -1
 }
 
 /**
@@ -555,7 +534,7 @@ export function prettifyTestBody(body: string): string {
 
 /** Find the index of the `)` that matches the open paren at position `open-1`. */
 function findMatchingParen(s: string, open: number, view?: string): number {
-  // See `findMatchingBrace` — callers that loop pass a hoisted view.
+  // See `matchingBrace` — the masked view is hoisted and passed in.
   const masked = view ?? maskLiterals(s)
   let depth = 1
   let i = open

@@ -40,6 +40,7 @@ import {
   maskLiteralsKeepComments,
   maskLiterals,
   commentRanges,
+  matchingBrace,
 } from '../strip-comments'
 
 // Note: parser could be used for more robust test extraction in future
@@ -237,7 +238,7 @@ export function extractTests(source: string): TestExtractionResult {
     const bodyStart = match.index + match[0].length
 
     // Find matching closing brace
-    const end = findMatchingBrace(maskedSource, bodyStart - 1)
+    const end = matchingBrace(maskedSource, bodyStart - 1)
     if (end === -1) continue
 
     const body = source.slice(bodyStart, end).trim()
@@ -258,7 +259,7 @@ export function extractTests(source: string): TestExtractionResult {
     const start = match.index
     const bodyStart = match.index + match[0].length
 
-    const end = findMatchingBrace(maskedSource, bodyStart - 1)
+    const end = matchingBrace(maskedSource, bodyStart - 1)
     if (end === -1) continue
 
     const body = source.slice(bodyStart, end).trim()
@@ -292,37 +293,6 @@ export function extractTests(source: string): TestExtractionResult {
     mocks,
     testRunner,
   }
-}
-
-/**
- * Find the matching closing brace, over a MASKED view of the source.
- *
- * This tracked strings and nothing else, while its two siblings
- * (`docs.ts:findMatchingBrace`, `parser-transforms.ts:findFunctionBodyEnd`) were migrated
- * to the shared masked scan in the same release. So a `}` in a REGEX or a COMMENT closed
- * the block early:
- *
- *   - `test 'x' { const re = /[}]/ … }` — legal TJS that would not compile.
- *   - a `}` in a comment truncated the body, and the generated runner then executed a
- *     fragment and reported **`passed: true` having run no assertion at all**. Silent, and
- *     live in `docs.ts` and the playground's module store.
- *
- * Takes the masked view as an ARGUMENT rather than computing it. `extractTests` calls this
- * once per `test` match, and re-masking the whole file per match is quadratic — measured at
- * 31% of total transpile time for a 13KB file with 35 tests. Offsets are preserved by
- * masking (content is blanked, never removed), so the caller can slice the ORIGINAL.
- */
-function findMatchingBrace(masked: string, start: number): number {
-  let depth = 0
-  for (let i = start; i < masked.length; i++) {
-    const char = masked[i]
-    if (char === '{') depth++
-    else if (char === '}') {
-      depth--
-      if (depth === 0) return i
-    }
-  }
-  return -1
 }
 
 /**

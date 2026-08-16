@@ -6,7 +6,12 @@
  */
 
 import { SyntaxError } from './types'
-import { maskLiterals, isEscapedAt, scanLiterals } from '../strip-comments'
+import {
+  maskLiterals,
+  isEscapedAt,
+  scanLiterals,
+  matchingBrace,
+} from '../strip-comments'
 import { declaredClassNames } from './declared-classes'
 import { stripParamMarkers } from './parser-params'
 
@@ -3648,22 +3653,31 @@ function parseOneParam(
  */
 export function findFunctionBodyEnd(
   source: string,
-  openBracePos: number
+  openBracePos: number,
+  /**
+   * A hoisted masked view of `source`, for callers that loop.
+   *
+   * Two of the six call sites are inside loops, and this used to re-mask on every one —
+   * the quadratic that `tests.ts` and `docs.ts` had each already been fixed for, with the
+   * measurements in their docstrings (31% of transpile time; 37.6ms → 538ms at 4× input).
+   * `maskLiterals` is memoized, which hides the cost when the same string comes back, and
+   * exposes it exactly when a loop masks a fresh substring each time.
+   */
+  masked?: string
 ): number {
   // Counted over a literal-masked view. The hand-rolled walk this replaces tracked strings
   // and comments but had NO REGEX BRANCH, so a body containing `/^\}/` — or any regex
   // holding an unbalanced brace or a lone quote — closed the function early and truncated
   // everything after it. Sixth instance of the same blind spot in this one file.
-  const masked = maskLiterals(source)
-  let depth = 1
-  let i = openBracePos + 1
-  while (i < masked.length && depth > 0) {
-    const ch = masked[i]
-    if (ch === '{') depth++
-    else if (ch === '}') depth--
-    i++
-  }
-  return i
+  //
+  // Delegates to the ONE matcher (`matchingBrace`) and converts its result. The two
+  // differed in return convention — that one gives the index OF the closing brace, this
+  // gives the index PAST it — which is precisely the kind of drift that makes reading one
+  // and calling the other an off-by-one landing inside the next construct. Kept as a named
+  // wrapper rather than changing six call sites' arithmetic.
+  const view = masked ?? maskLiterals(source)
+  const close = matchingBrace(view, openBracePos)
+  return close === -1 ? view.length : close + 1
 }
 
 /**

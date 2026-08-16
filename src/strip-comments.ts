@@ -324,6 +324,40 @@ function scanLiteralsUncached(source: string): LiteralRegion[] {
 }
 
 /**
+ * Index of the `}` matching the `{` at `open`, or -1.
+ *
+ * THE balanced-brace matcher. There were three, in `tests.ts`, `docs.ts` and
+ * `parser-transforms.ts`, and they had already drifted in the two ways copies always do:
+ *
+ *   - **Return convention.** Two returned the index OF the closing brace; the third
+ *     returned the index PAST it. Reading one and calling the other is an off-by-one that
+ *     lands in the middle of the next construct.
+ *   - **Who masks.** Two took a hoisted masked view as an argument, with docstrings citing
+ *     the measurements that forced it (31% of transpile time for a 13KB file with 35
+ *     tests; `generateDocs` on a 133KB file going 37.6ms → 538ms at 4× input, scaling as
+ *     the square). The third re-masked internally at all six of its call sites, two of
+ *     them inside loops — the exact quadratic the other two had already been fixed for.
+ *
+ * The masked view is a REQUIRED argument here, deliberately. Making it optional is what
+ * let the third copy keep re-masking while looking like it had been migrated: a default
+ * that silently does the expensive thing reads as convenience and behaves as a trap.
+ * Masking preserves offsets, so the caller slices the ORIGINAL source with what this
+ * returns.
+ */
+export function matchingBrace(masked: string, open: number): number {
+  let depth = 0
+  for (let i = open; i < masked.length; i++) {
+    const c = masked[i]
+    if (c === '{') depth++
+    else if (c === '}') {
+      depth--
+      if (depth === 0) return i
+    }
+  }
+  return -1
+}
+
+/**
  * The [start, end) ranges of every comment, string/regex-aware.
  *
  * `tests.ts` used to answer this by counting `/*` and `*\/` from the top of the file with
