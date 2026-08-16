@@ -263,6 +263,20 @@ below, since they shipped there).
 
 ### Security
 
+- **The capability membrane billed array elements for the string form of their own
+  index, cutting effective array capacity ~3.4×.** `readOwnData` charged
+  `k.length * 2 + 8` for every own key, and an array's key list is its indices — but
+  `structuredClone` copies an element as a slot and never materialises `"199999"`, so the
+  charge was for bytes that do not exist. It compounded with length: **500,000 floats are
+  3.81MB of data and were charged 13.14MB**, so an ordinary RAG return (300 documents ×
+  768 floats, ~1.84MB) came back as `Capability boundary rejected the return of
+'storeVectorSearch'` under the documented 4MB default — and the only remedy on offer was
+  to raise `membraneMaxBytes`, i.e. to weaken the OOM guard to buy back capacity that was
+  never being used. A canonical array index now costs **nothing**: the element's value is
+  already priced when the walk reaches it. Non-index own properties on an array
+  (`arr.meta`) keep their name charge, since those really are serialised by name. The guard
+  is unchanged in strength — 1M floats are 8MB and still refused.
+
 - **The capability membrane ran host code and defeated the byte budget on two of its
   three walk branches.** The object branch was hardened, then array _indices_ the next
   morning; two paths were never revisited. Affects **0.12.0 and earlier**, and both

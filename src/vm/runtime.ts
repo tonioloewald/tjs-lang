@@ -609,6 +609,18 @@ function membraneValue(value: unknown, maxBytes: number): MembraneResult {
  * without running it, and `structuredClone` would run it a second time anyway. A capability
  * hands over plain data or it hands over nothing.
  */
+/**
+ * A canonical array index — the exact spec definition, not "looks numeric".
+ *
+ * `'01'`, `'1.0'`, `' 1'` and `'4294967295'` are ordinary property names even on an array:
+ * they occupy a real named slot that `structuredClone` serialises by name, so they must
+ * keep their name charge. Only a key that round-trips through `ToUint32` is an element.
+ */
+function isArrayIndex(k: string): boolean {
+  const n = Number(k)
+  return Number.isInteger(n) && n >= 0 && n < 0xffffffff && String(n) === k
+}
+
 function readOwnData(
   v: object,
   what: 'index' | 'property'
@@ -619,15 +631,29 @@ function readOwnData(
   let bytes = 0
   for (const k of Object.keys(v)) {
     const d = Object.getOwnPropertyDescriptor(v, k)
+    // An array's key list is its INDICES plus any non-index own property, and only the
+    // latter is a name that crosses. `structuredClone` copies an element as a slot; the
+    // string `"199999"` is never materialised, so billing it is billing for a thing that
+    // does not exist. It compounds with length — 500k floats are 3.81MB of data and were
+    // charged 13.14MB — which cut effective array capacity ~3.4× under the documented 4MB
+    // default and made an ordinary RAG return look like an attack. See
+    // `membrane-budget.test.ts`.
+    //
+    // A slot costs NOTHING here, rather than a token 8: every value is charged when the
+    // walk pops it, and the floor is already 8 (null/undefined, primitive) or 16 (object).
+    // Adding a surcharge on top would be a flat 2× on numeric arrays — the same phantom
+    // in smaller print. Map/Set entries are priced the same way, by value only. The OOM
+    // guard is untouched: 1M floats are still 8MB and still refused.
+    const isSlot = what === 'index' && isArrayIndex(k)
     if (d && (d.get || d.set)) {
       return {
         ok: false,
         reason: `capability return has an accessor ${
-          what === 'index' ? `at index ${k}` : `property '${k}'`
+          isSlot ? `at index ${k}` : `property '${k}'`
         }; the boundary takes plain data only, because reading an accessor would execute host code`,
       }
     }
-    bytes += k.length * 2 + 8
+    bytes += isSlot ? 0 : k.length * 2 + 8
     values.push(d ? d.value : undefined)
   }
   return { ok: true, values, bytes }
