@@ -290,7 +290,14 @@ function detectFunctionPredicates(
   const blockRe =
     /^[ \t]*(?:export\s+)?FunctionPredicate\s+(\w+)\s*(?:<([^>]+)>)?\s*\{/gm
   let m
-  while ((m = blockRe.exec(source)) !== null) {
+  // DETECTED on the masked view too, not only brace-matched there. Scanning raw source
+  // while brace-matching the masked one is the half-fix: a documentation template
+  // containing an example declaration at column 0 emitted a PHANTOM
+  // `export type Ghost = (x: number) => any` into the consumer's .d.ts — a type that does
+  // not exist, and degraded (`any` where the real declaration gives `number`). The header
+  // captures only the name and type params, which are code and therefore identical in
+  // both views, and `body` is already sliced from `source`, so nothing is lost.
+  while ((m = blockRe.exec(masked)) !== null) {
     const name = m[1]
     const typeParamsRaw = m[2] // undefined if no <...>
     const blockStart = m.index + m[0].length - 1
@@ -628,7 +635,12 @@ function detectGenerics(source: string): Map<string, GenericInfo> {
   // back from the round trip as a syntax error.
   const masked = maskLiterals(source)
   let m
-  while ((m = re.exec(source)) !== null) {
+  // Both the DETECTION and the OUTER brace match run on `masked`. Only the inner
+  // `declaration { … }` match did, so the reasoning in the comment above was written,
+  // the masked view was computed for it, and then the outer loop three lines below went
+  // on reading raw source. Detecting on raw text also emitted a phantom `Ghost` into the
+  // .d.ts for a declaration written inside a documentation template.
+  while ((m = re.exec(masked)) !== null) {
     const name = m[1]
     const typeParams = m[2].split(',').map((tp) => {
       return tp.trim().split(/\s*=/)[0].trim()
@@ -638,9 +650,9 @@ function detectGenerics(source: string): Map<string, GenericInfo> {
     const blockStart = m.index + m[0].length - 1
     let depth = 1
     let i = blockStart + 1
-    while (i < source.length && depth > 0) {
-      if (source[i] === '{') depth++
-      else if (source[i] === '}') depth--
+    while (i < masked.length && depth > 0) {
+      if (masked[i] === '{') depth++
+      else if (masked[i] === '}') depth--
       i++
     }
     const blockBody = source.slice(blockStart + 1, i - 1)

@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'bun:test'
 import { tjs } from './index'
 import { generateDocs } from './docs'
+import { generateDTS } from './emitters/dts'
 import { lint } from './linter'
 import { fromTS } from './emitters/from-ts'
 import { maskWasmBodies, unmaskWasmBodies } from './parser-transforms'
@@ -569,5 +570,73 @@ describe('the unsafe marker is a comment, not a string', () => {
         runTests: false,
       }).code
     ).toContain('typeError')
+  })
+})
+
+/**
+ * A declaration written inside a literal does not become an exported TYPE.
+ *
+ * `dts.ts` grew five hand-rolled declaration scanners. Two of them —
+ * `detectFunctionPredicates` and `detectGenerics` — computed a literal-masked view,
+ * brace-matched on it, and then ran the DETECTION regex over raw source. Half a fix reads
+ * as a whole one: the comment explaining why masking is necessary sits three lines above
+ * the loop that ignores it.
+ *
+ * The consequence reaches consumers, which is what makes this worse than the transpiler
+ * cases. A `.tjs` file whose documentation template contains an example declaration at
+ * column 0 emitted a **phantom exported type** into its `.d.ts`:
+ *
+ *     export type Ghost = (x: number) => any;   // for a Ghost that does not exist
+ *
+ * — and degraded, too: `any` where the real declaration yields `number`. A consumer's
+ * editor autocompletes it and their build accepts it, for a symbol with no runtime.
+ *
+ * `detectGenerics` also brace-matched the OUTER block on raw source while its own comment
+ * described the template-literal truncation that motivated masking; only the inner
+ * `declaration { … }` match had been converted.
+ */
+describe('a declaration inside a literal is not a .d.ts export', () => {
+  const REAL = 'export function real(n: 0) { return n }'
+  const dtsFor = (src: string) =>
+    generateDTS(tjs(src, { filename: 'g.tjs', runTests: false }) as any, src)
+
+  const GHOSTS: Array<[string, string]> = [
+    [
+      'FunctionPredicate',
+      'export FunctionPredicate Ghost { params: { x: 0 }, returns: 0 }',
+    ],
+    ['Generic', 'export Generic Ghost<T> { value: T }'],
+  ]
+
+  for (const [kw, decl] of GHOSTS) {
+    it(`a real ${kw} IS exported (control)`, () => {
+      // Without this, scanning a view where nothing ever matches would pass every case
+      // below by emitting no declarations at all.
+      expect(dtsFor(`${decl}\n${REAL}`)).toContain('Ghost')
+    })
+
+    it(`${kw} inside a template is not exported`, () => {
+      // At column 0 inside the template, because the scanners are `^`-anchored per line —
+      // which is exactly how a documentation string is written.
+      expect(
+        dtsFor(`export const doc = \`\n${decl}\n\`\n${REAL}`)
+      ).not.toContain('Ghost')
+    })
+
+    it(`${kw} inside a string is not exported`, () => {
+      expect(dtsFor(`export const doc = '${decl}'\n${REAL}`)).not.toContain(
+        'Ghost'
+      )
+    })
+  }
+
+  it('the real declaration keeps its real types', () => {
+    // The phantom was also DEGRADED — `any` where the real one gives `number`. Pinning
+    // the real one guards the fix from being "emit less".
+    expect(
+      dtsFor(
+        `export FunctionPredicate Ghost { params: { x: 0 }, returns: 0 }\n${REAL}`
+      )
+    ).toContain('(x: number) => number')
   })
 })
