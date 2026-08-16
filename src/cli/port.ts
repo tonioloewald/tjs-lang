@@ -223,6 +223,20 @@ export async function reclaimPort(
       }
       await new Promise((r) => setTimeout(r, 50))
     }
+    // RE-VERIFY IDENTITY before escalating.
+    //
+    // `process.kill(pid, 0)` answers "does a process with this pid exist", not "is it
+    // still the one I decided to signal". Two seconds is ample for our server to exit and
+    // for the OS to hand that pid to something else — and SIGKILL is the one signal the
+    // new owner cannot decline. The window is small and the consequence is uncatchable,
+    // which is the combination that deserves the extra `ps` rather than a comment about
+    // how unlikely it is.
+    //
+    // One `ps` on a path that has already slept 2 seconds.
+    const stillOurs = (await portListeners(port)).some(
+      (h) => h.pid === pid && h.ours
+    )
+    if (!stillOurs) continue
     try {
       process.kill(pid, 0)
       process.kill(pid, 'SIGKILL')

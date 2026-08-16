@@ -49,7 +49,23 @@ async function cacheDir(): Promise<string> {
   // `node:os` is not resolvable and fails the build outright. `node:path` and
   // `node:fs/promises` already are, which is why the existing dynamic imports work and
   // this one did not. The env vars carry the same information on every platform we target.
-  const home = process.env.HOME || process.env.USERPROFILE || '.'
+  // `TJS_CACHE_DIR` wins, so a consumer can put this wherever they like.
+  if (process.env.TJS_CACHE_DIR) return process.env.TJS_CACHE_DIR
+  // No home directory (scratch containers, some CI images, systemd units) falls back to
+  // the OS temp dir — NOT to `.`, which was the original bug wearing a different hat: it
+  // would write `./.cache/tjs-lang/.models.cache.json` into the consumer's working
+  // directory, under a path `.gitignore` does not cover. A cache is ours to keep; if there
+  // is nowhere of ours to keep it, temp is still not theirs.
+  const home = process.env.HOME || process.env.USERPROFILE
+  if (!home) {
+    // `process.env.TMPDIR` rather than `os.tmpdir()`: `node:os` is not resolvable in the
+    // browser bundle this module's graph is guarded against, and reaching for it here is
+    // exactly the mistake that broke `bun run make` earlier in this release. Same
+    // information, no new import.
+    const tmp =
+      process.env.TMPDIR || process.env.TEMP || process.env.TMP || '/tmp'
+    return path.join(tmp, 'tjs-lang')
+  }
   const base =
     process.env.XDG_CACHE_HOME ||
     (process.platform === 'darwin'
