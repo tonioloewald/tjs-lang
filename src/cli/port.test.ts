@@ -13,13 +13,19 @@
  * proved nothing.
  */
 import { describe, it, expect, afterEach } from 'bun:test'
-import { mkdirSync, writeFileSync } from 'node:fs'
+import { mkdirSync, rmSync, writeFileSync } from 'node:fs'
 import { mkdtempSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { portListeners, reclaimPort, validPort } from './port'
 
 const servers: Array<{ stop: () => void }> = []
+
+/** This package's root — the anchor `isOurServer` matches against. */
+const REPO_ROOT = join(import.meta.dir, '..', '..')
+
+/** Scratch dirs created under the repo root; removed in afterEach, never committed. */
+const scratchDirs: string[] = []
 
 /**
  * A listener in a SEPARATE process whose argv identifies it as one of ours.
@@ -30,9 +36,18 @@ const servers: Array<{ stop: () => void }> = []
  * a literal, not the identification.
  */
 function listenAsOurs(): { proc: Bun.Subprocess; port: number } {
-  const dir = join(mkdtempSync(join(tmpdir(), 'tjs-port-')), 'bin')
-  mkdirSync(dir, { recursive: true })
-  const script = join(dir, 'dev.ts')
+  // UNDER THE PACKAGE ROOT, not `tmpdir()`.
+  //
+  // "Ours" is now anchored: a generic entry path like `bin/dev.ts` only counts when the
+  // argv also references this installation. The previous version of this helper wrote to
+  // `/tmp/tjs-port-*/bin/dev.ts`, so it was satisfied by a file that has nothing to do
+  // with us — which is exactly the hole being closed. A positive control that a stranger's
+  // process can satisfy is not a positive control.
+  const dir = mkdtempSync(join(REPO_ROOT, '.tmp-port-test-'))
+  scratchDirs.push(dir)
+  const binDir = join(dir, 'bin')
+  mkdirSync(binDir, { recursive: true })
+  const script = join(binDir, 'dev.ts')
   const port = 18700 + (Math.floor(process.uptime() * 1000) % 4000)
   writeFileSync(
     script,
@@ -57,6 +72,13 @@ async function awaitListener(port: number): Promise<boolean> {
 }
 
 afterEach(() => {
+  for (const d of scratchDirs.splice(0)) {
+    try {
+      rmSync(d, { recursive: true, force: true })
+    } catch {
+      /* already gone */
+    }
+  }
   for (const s of servers.splice(0)) {
     try {
       s.stop()
@@ -90,6 +112,46 @@ describe('finding who holds a port', () => {
     const holders = await portListeners(port)
     expect(holders.length).toBeGreaterThan(0)
     expect(holders.every((h) => h.ours)).toBe(false)
+  })
+
+  it("does NOT identify a stranger's bin/dev.ts as ours", async () => {
+    // The anchor. `OUR_SERVERS` matched `bin/dev.ts` anywhere on disk, which is about the
+    // least distinctive path in web tooling — reproduced live: a listener at a stranger's
+    // `bin/dev.ts` under /tmp came back `ours: true`, and `--force` would have SIGTERMed
+    // it and announced it as our own server. That also falsified the shipped `--help`.
+    const dir = mkdtempSync(join(tmpdir(), 'stranger-'))
+    try {
+      mkdirSync(join(dir, 'bin'), { recursive: true })
+      const port = 18990
+      writeFileSync(
+        join(dir, 'bin', 'dev.ts'),
+        `Bun.serve({ port: ${port}, fetch: () => new Response('stranger') })\n` +
+          `await new Promise((r) => setTimeout(r, 30000))\n`
+      )
+      const proc = Bun.spawn(['bun', join(dir, 'bin', 'dev.ts')], {
+        stdout: 'ignore',
+        stderr: 'ignore',
+      })
+      try {
+        expect(
+          await awaitListener(port),
+          'apparatus: stranger not listening'
+        ).toBe(true)
+        const holders = await portListeners(port)
+        const them = holders.find((h) => h.pid === proc.pid)
+        expect(them?.ours ?? 'not found').toBe(false)
+        // And --force must leave it running.
+        const r = await reclaimPort(port, { force: true })
+        expect(r.free).toBe(false)
+        expect(await (await fetch(`http://localhost:${port}/`)).text()).toBe(
+          'stranger'
+        )
+      } finally {
+        proc.kill()
+      }
+    } finally {
+      rmSync(dir, { recursive: true, force: true })
+    }
   })
 
   it('DOES identify a real server of ours, by command line', async () => {

@@ -44,6 +44,7 @@
  * over-matching kills a stranger's process, under-matching prints "choose another port".
  */
 import { $ } from 'bun'
+import { join } from 'node:path'
 
 /**
  * Command-line markers for servers this package starts.
@@ -53,6 +54,43 @@ import { $ } from 'bun'
  * a message telling the user to pick another port.
  */
 export const OUR_SERVERS = /tjs-playground|cli\/playground|bin\/dev\.ts/
+
+/**
+ * The package root this process was loaded from — `src/cli/port.ts` → up two.
+ *
+ * Used to ANCHOR the match below. Without it `OUR_SERVERS` is a bare substring test against
+ * the holder's full argv, and `bin/dev.ts` is about the least distinctive path in web
+ * tooling. Reproduced: a listener at a stranger's `bin/dev.ts` under /tmp was identified
+ * `ours: true`, SIGTERMed, and announced as our own server — which also falsifies the
+ * shipped `--help` ("A port held by anything that is not one of our servers is never
+ * touched, with or without --force").
+ */
+const OUR_ROOT = join(import.meta.dir, '..', '..')
+
+/**
+ * Is this command line one of OUR servers, started from THIS installation?
+ *
+ * Two ways to qualify, and both are deliberately narrow:
+ *
+ * 1. `tjs-playground` — our published bin NAME. Distinctive enough to stand alone, and it
+ *    is what a global/npx install shows in argv, where no repo path appears at all.
+ * 2. A generic entry path (`bin/dev.ts`, `cli/playground`) **only when the argv also
+ *    references this package root**. Those names belong to half the tooling in existence;
+ *    on their own they identify an ecosystem, not an instance — the same mistake as
+ *    matching the executable name, one level further in.
+ *
+ * Deleting the `bin/dev.ts` alternative is NOT the fix: `bin/dev.ts` itself calls
+ * `reclaimPort(…, { force: true })`, so the dev server must still be able to reclaim from a
+ * previous run of itself.
+ */
+export function isOurServer(args: string): boolean {
+  // No `/` inside a character class here, deliberately: an unescaped one ends the regex
+  // literal, and the resulting parse error surfaced 145 lines away as "unterminated
+  // template literal" — a literal ending early, in the file about not being fooled by
+  // literals. `\S*` covers any leading path and needs no class at all.
+  if (/(^|\s)\S*tjs-playground(\s|$)/.test(args)) return true
+  return OUR_SERVERS.test(args) && args.includes(OUR_ROOT)
+}
 
 export interface PortHolder {
   pid: number
@@ -90,7 +128,7 @@ export async function portListeners(port: number): Promise<PortHolder[]> {
       continue // exited between lsof and ps
     }
     const base = command.split('/').pop() ?? command
-    holders.push({ pid, command: base, args, ours: OUR_SERVERS.test(args) })
+    holders.push({ pid, command: base, args, ours: isOurServer(args) })
   }
   return holders
 }
