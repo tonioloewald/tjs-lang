@@ -260,3 +260,48 @@ describe('a parenthesised concise arrow body emits parseable JS', () => {
     expect(load('const box = (n: 0) => [n]', 'box')(3)).toEqual([3])
   })
 })
+
+/**
+ * The return annotation belongs to THIS function, not to whichever binding shares its name.
+ *
+ * `findSignatureReturn` name-searched the whole file and took the first anchor it found, so
+ * an unrelated same-named binding in another scope stole it:
+ *
+ *     function outer() { const helper = (a) => a; return helper }
+ *     export function helper(x: 0): 0 { return x }   // silently loses `returns`
+ *
+ * The real `helper` lost its `returns` metadata, its `:?` return wrapper and its safety
+ * marker — and `tjs check` reported the file clean, because nothing downstream knows a
+ * signature was supposed to be there. A regression from the older `function\s+NAME(`-only
+ * anchor, introduced when arrow support widened it.
+ *
+ * Non-first declarators were unreachable for the opposite reason: the pattern demanded
+ * `const` immediately before the name, so `const a = 1, mk = (x: 0): 0 => x` bound nothing.
+ */
+describe('signature anchoring', () => {
+  const returnsOf = (src: string, name: string) =>
+    (tjs(src, { filename: 'a.tjs', runTests: false }).metadata as any)?.[name]
+      ?.returns?.kind ?? null
+
+  it('a same-named binding in another scope does not steal the anchor', () => {
+    expect(
+      returnsOf(
+        `function outer() { const helper = (a) => a; return helper }\nexport function helper(x: 0): 0 { return x }`,
+        'helper'
+      )
+    ).toBe('integer')
+  })
+
+  it('a non-first declarator is still found', () => {
+    expect(returnsOf(`export const a = 1, mk = (x: 0): 0 => x`, 'mk')).toBe(
+      'integer'
+    )
+  })
+
+  it('a function with genuinely no annotation still reports none', () => {
+    // The control. "Try every anchor until one yields a signature" must not invent one.
+    expect(returnsOf(`export function bare(x: 0) { return x }`, 'bare')).toBe(
+      null
+    )
+  })
+})

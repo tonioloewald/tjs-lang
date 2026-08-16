@@ -23,7 +23,6 @@ import {
   newExpressionPattern,
 } from './declared-classes'
 import { validateNoNew } from './parser-transforms'
-import { validateNoNew } from './parser-transforms'
 
 const rejects = (src: string): boolean => {
   try {

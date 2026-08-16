@@ -766,16 +766,42 @@ function findSignatureReturn(
   const escaped = funcName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
   // `function NAME(` or `const/let/var NAME = (` — the second covers arrows and function
   // expressions alike, since both put the parameter list right after the `=`.
+  //
+  // `,` joins the declarator alternatives so a NON-FIRST declarator is reachable:
+  // `const a = 1, mk = (x: 0): 0 => x` bound nothing at all, because the pattern demanded
+  // `const` immediately before the name.
   const anchor = new RegExp(
-    `(?:function\\s+${escaped}\\s*\\(|(?:const|let|var)\\s+${escaped}\\s*=\\s*(?:async\\s*)?(?:function\\s*)?\\()`,
+    `(?:function\\s+${escaped}\\s*\\(|(?:const|let|var|,)\\s*${escaped}\\s*=\\s*(?:async\\s*)?(?:function\\s*)?\\()`,
     'g'
   )
-  const m = anchor.exec(masked)
-  if (!m) return { type: null, safety: undefined }
+  // EVERY match is tried, not just the first.
+  //
+  // A single `exec` took whichever anchor appeared earliest in the file, so an unrelated
+  // same-named binding in another scope stole it —
+  // `function outer() { const helper = (a) => a }` before `function helper(x: 0): 0`
+  // silently cost the real `helper` its `returns` metadata, its `:?` wrapper and its
+  // safety marker, with `tjs check` reporting the file clean. A thief has no signature to
+  // find, so trying the next candidate costs nothing and recovers the right one.
+  //
+  // (Anchoring on the acorn node would be more direct, but the node's offsets are relative
+  // to the PREPROCESSED source while this reads `cleanSource`, and preprocessing is not
+  // length-preserving.)
+  for (const m of masked.matchAll(anchor)) {
+    const found = readSignatureAt(source, masked, m.index! + m[0].length)
+    if (found.type !== null || found.safety !== undefined) return found
+  }
+  return { type: null, safety: undefined }
+}
 
+/** Read `): <example>` starting just past an opening paren, or report nothing. */
+function readSignatureAt(
+  source: string,
+  masked: string,
+  from: number
+): { type: string | null; safety: 'safe' | 'unsafe' | undefined } {
   // Balanced scan from the opening paren.
   let depth = 1
-  let i = m.index + m[0].length
+  let i = from
   while (i < masked.length && depth > 0) {
     const c = masked[i]
     if (c === '(') depth++
