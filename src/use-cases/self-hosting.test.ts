@@ -221,6 +221,11 @@ describe('Self-hosting', () => {
       })
 
       // Decorators require experimental TS support - skip for now
+      // The ONLY remaining skip in this file, and its reason is real: `fromTS` parses with
+      // the default TS options, and decorators need `experimentalDecorators`, so the input
+      // does not parse rather than converting badly. Its three neighbours were skipped for
+      // reasons that had become false ("TODO: class support") and are unskipped as of
+      // 2026-08-16 — an unexplained skip is indistinguishable from a forgotten one.
       it.skip('should handle complex decorator patterns (requires experimentalDecorators)', () => {
         const result = fromTS(
           `
@@ -244,7 +249,7 @@ describe('Self-hosting', () => {
       })
 
       // Module augmentation is declaration merging - no runtime code
-      it.skip('should handle module augmentation (type-only, no runtime code)', () => {
+      it('should handle module augmentation (type-only, no runtime code)', () => {
         const result = fromTS(
           `
           declare module 'express' {
@@ -277,7 +282,7 @@ describe('Self-hosting', () => {
     })
 
     // Classes not yet supported in emitTJS mode
-    it.skip('should handle class with private fields and methods (TODO: class support)', () => {
+    it('should handle class with private fields and methods', () => {
       const result = fromTS(
         `
         class Counter {
@@ -298,6 +303,14 @@ describe('Self-hosting', () => {
         { emitTJS: true }
       )
       expect(result.code).toContain('class Counter')
+      // Unskipped 2026-08-16. The reason on the skip — "TODO: class support" — was false;
+      // this release extended class handling and these have passed since. Recording what
+      // conversion ACTUALLY does, rather than leaving the assertion at "it emitted a
+      // class", so the next change to it is visible:
+      //   - `private` is dropped (TJS has no access modifiers)
+      //   - a member's type annotation is dropped, keeping the initializer
+      expect(result.code).not.toContain('private')
+      expect(result.code).toMatch(/#?count\s*=\s*0/)
     })
 
     it('should handle complex destructuring', () => {
@@ -323,7 +336,7 @@ describe('Self-hosting', () => {
     })
 
     // Classes not yet supported in emitTJS mode
-    it.skip('should handle builder pattern with method chaining (TODO: class support)', () => {
+    it('should handle builder pattern with method chaining', () => {
       const result = fromTS(
         `
         class QueryBuilder<T> {

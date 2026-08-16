@@ -103,12 +103,20 @@ jobs:
       - name: Generated artifacts are current
         if: always()
         run: |
+          # `editors` whole, not `editors/**/*.js`.
+          #
+          # A git pathspec is not a shell glob: `editors/**/*.d.ts` matched **2 of the 7**
+          # committed editor declarations (only the ones one level deep), and the `.js`
+          # line had the same hole — harmless only by luck, since the files it missed
+          # happened not to change. `editors/tjs-syntax.d.ts` grew 57 lines this release
+          # outside the pathspec, guarded by nothing.
+          #
+          # The directory covers every committed artifact under it, including
+          # `vscode/syntaxes`, and cannot silently narrow when a file moves.
           if ! git diff --exit-code -- \
             demo/docs.json \
             docs/tjs-vs-typescript.md \
-            'editors/**/*.js' \
-            'editors/**/*.d.ts' \
-            editors/vscode/syntaxes; then
+            editors; then
             echo "::error::'bun run make' changed committed artifacts. Run it locally and commit the result."
             exit 1
           fi
