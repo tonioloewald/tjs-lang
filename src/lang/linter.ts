@@ -368,12 +368,15 @@ export function lint(source: string, options: LintOptions = {}): LintResult {
     }
   }
 
+  // Computed ONCE. This ran the whole-list filter twice per `lint()` call — and
+  // `dropUnsafeGuarded` masks the source and walks every diagnostic, so the second pass
+  // was doing real work to reach a conclusion already in hand. It also meant `valid` and
+  // `diagnostics` were derived from two separate computations that merely happened to
+  // agree.
+  const kept = dropUnsafeGuarded(diagnostics, source)
   return {
-    diagnostics: dropUnsafeGuarded(diagnostics, source),
-    valid:
-      dropUnsafeGuarded(diagnostics, source).filter(
-        (d) => d.severity === 'error'
-      ).length === 0,
+    diagnostics: kept,
+    valid: kept.filter((d) => d.severity === 'error').length === 0,
   }
 }
 

@@ -338,11 +338,6 @@ export function commentRanges(source: string): Array<[number, number]> {
     .map((r) => [r.start, r.end] as [number, number])
 }
 
-/** Is `pos` inside a comment? Prefer `commentRanges` when testing many positions. */
-export function isInsideComment(source: string, pos: number): boolean {
-  return commentRanges(source).some(([a, b]) => pos >= a && pos < b)
-}
-
 /**
  * Bounded memo per mask FLAVOUR, keyed by the source string.
  *

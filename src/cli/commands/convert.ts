@@ -175,7 +175,7 @@ async function convertDirectory(
       // vanish at the recursion boundary as well as at the try/catch.
       const sub = await convertDirectory(
         inputPath,
-        subOutputDir(outputDir, entry),
+        join(outputDir, entry),
         recursive,
         verbose,
         emitTJS
@@ -206,9 +206,4 @@ async function convertDirectory(
     )
   }
   return { converted, failed, skipped }
-}
-
-/** Output directory for a recursed subdirectory. */
-function subOutputDir(outputDir: string, entry: string): string {
-  return join(outputDir, entry)
 }

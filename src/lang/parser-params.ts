@@ -53,11 +53,6 @@ import {
 export const PARAM_REQUIRED_MARKER = '/*!tjs-req*/'
 export const PARAM_TYPENAME_MARKER = '/*!tjs-opt*/'
 
-/** True when the text between a parameter's `=` and its value carries `marker`. */
-export function hasParamMarker(between: string, marker: string): boolean {
-  return between.includes(marker)
-}
-
 /** Remove markers from a fragment being read mid-transform (see `parseParamList`). */
 export function stripParamMarkers(code: string): string {
   return code

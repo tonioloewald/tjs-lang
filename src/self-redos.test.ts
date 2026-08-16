@@ -71,7 +71,8 @@ function flaggedPatterns(): Array<{
 }
 
 /**
- * Measured 2026-08-15 at 6; lowered to 3 the same day. MAY ONLY GO DOWN.
+ * Measured 2026-08-15 at 6; lowered to 3 the same day, and to 2 on 2026-08-16. MAY ONLY GO
+ * DOWN.
  *
  * The three directive-detection patterns (`safety` at parser.ts:172/178,
  * `TjsStrict`/`TjsCompat` at :215) were rewritten to scan the MASKED view, where comments
@@ -79,14 +80,17 @@ function flaggedPatterns(): Array<{
  * path on `emitters/ast.ts`, found by CPU profile. A fourth copy built via `new RegExp`
  * (invisible to this scan, which reads literals) went with them.
  *
- * The three that remain — all "an unbounded quantifier nested inside another":
- *   lang/parser.ts:~863            doc-block adjacency check in `extractTDoc`
+ * `extractTDoc`'s doc-block adjacency check went on 2026-08-16, replaced by a linear scan
+ * (`onlyGapFiller`) while the surrounding function was rewritten to locate doc comments
+ * ONCE per file instead of re-scanning the prefix per function — 128.9ms to 4.5ms over 58
+ * functions on a 176KB file, and 12% off the whole TS→TJS→JS transpile of it.
+ *
+ * The two that remain — both "an unbounded quantifier nested inside another":
  *   lang/docs.ts:~358              class-member signature scan
- *   lang/emitters/from-ts.ts:~2379 `@tjs` annotation parse
- * None is on a hot path today (extractTDoc measured 0.02s across 23 functions), which is
- * why they are ratcheted rather than rushed.
+ *   lang/emitters/from-ts.ts:~2371 `@tjs` annotation parse
+ * Neither is on a hot path today, which is why they are ratcheted rather than rushed.
  */
-const CEILING = 3
+const CEILING = 2
 
 describe('our own regexes meet the bar we set for user predicates', () => {
   const flagged = flaggedPatterns()

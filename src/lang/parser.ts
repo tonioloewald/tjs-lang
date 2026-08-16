@@ -7,6 +7,7 @@
 
 import {
   maskLiterals,
+  scanLiterals,
   stripLineComments,
   maskUnsafe,
   stripUnsafeMarkers,
@@ -841,6 +842,125 @@ export function extractFunctions(
 }
 
 /**
+ * Is this gap only whitespace and line comments?
+ *
+ * A linear scan, not `/^(?:\s|\/\/[^\n]*)*$/`. That pattern is a quantifier inside a
+ * quantifier — the shape `src/redos.ts` refuses to certify in a user predicate — and the
+ * compiler enforcing a rule on user code that it does not follow itself is exactly what
+ * `self-redos.test.ts` exists to stop. It also cost this project 90 seconds of a 116-second
+ * transpile once already, in the module-directive detectors.
+ *
+ * The gap here is short, so this was low RISK rather than harmless; a linear scan is no
+ * harder to read and cannot backtrack at all.
+ */
+function onlyGapFiller(gap: string): boolean {
+  for (let i = 0; i < gap.length; i++) {
+    const c = gap[i]
+    if (c === ' ' || c === '\t' || c === '\n' || c === '\r') continue
+    if (c === '/' && gap[i + 1] === '/') {
+      const nl = gap.indexOf('\n', i)
+      if (nl === -1) return true // trailing line comment runs to the end
+      i = nl
+      continue
+    }
+    return false
+  }
+  return true
+}
+
+/**
+ * Every doc comment in a file, scanned ONCE.
+ *
+ * `extractTDoc` used to do `source.substring(0, func.start)` and then run a global
+ * `matchAll` over that prefix — per function. Two O(N) operations inside an O(F) loop, so
+ * O(F × N): 58 functions over a 176KB file cost **89ms of a 361ms transpile**, about a
+ * quarter of it, and the JSDoc fallback below it did the same thing again for every
+ * function WITHOUT a `/*#` block, which is nearly all of them.
+ *
+ * Now the comments are located once per source (through the memoized `scanLiterals`, which
+ * the rest of the pipeline already pays for) and each function binary-searches for the
+ * comment that ends nearest before it.
+ *
+ * Going through the scanner rather than a regex also makes it literal-correct for free: a
+ * doc comment written inside a string is not a doc comment. The regex it replaces was one
+ * of the three patterns on the self-ReDoS ratchet, and both of its quantifiers are gone.
+ */
+interface DocComment {
+  /** Offset of the opening delimiter. */
+  start: number
+  /** Offset just past the closing delimiter. */
+  end: number
+  /** `'tdoc'` for a line-start `/*#`, `'jsdoc'` for `/**`. */
+  kind: 'tdoc' | 'jsdoc'
+  /** The text between the delimiters, past the `#` for a tdoc block. */
+  body: string
+}
+
+const docCommentCache = new Map<string, DocComment[]>()
+
+function docComments(source: string): DocComment[] {
+  const hit = docCommentCache.get(source)
+  if (hit) return hit
+  const out: DocComment[] = []
+  for (const r of scanLiterals(source)) {
+    if (r.kind !== 'block-comment') continue
+    const inner = source.slice(r.innerStart, r.innerEnd)
+    if (inner.startsWith('#')) {
+      // A tdoc block only counts at the start of a line — `x = 1 /*# … */` is a trailing
+      // comment, not documentation.
+      const lineStart = source.lastIndexOf('\n', r.start) + 1
+      if (!/^[ \t]*$/.test(source.slice(lineStart, r.start))) continue
+      out.push({
+        start: r.start,
+        end: r.end,
+        kind: 'tdoc',
+        body: inner.slice(1),
+      })
+    } else if (inner.startsWith('*')) {
+      out.push({
+        start: r.start,
+        end: r.end,
+        kind: 'jsdoc',
+        body: source.slice(r.start, r.end),
+      })
+    }
+  }
+  // Bounded, like the mask memo: a transpile touches a handful of sources, and holding
+  // every one seen forever would be a leak dressed as a cache.
+  if (docCommentCache.size > 24) docCommentCache.clear()
+  docCommentCache.set(source, out)
+  return out
+}
+
+/** The last doc comment ending at or before `pos`, or undefined. */
+function docCommentBefore(
+  blocks: DocComment[],
+  pos: number,
+  kind: 'tdoc' | 'jsdoc'
+): DocComment | undefined {
+  let found: DocComment | undefined
+  let lo = 0
+  let hi = blocks.length - 1
+  let idx = -1
+  while (lo <= hi) {
+    const mid = (lo + hi) >> 1
+    if (blocks[mid].end <= pos) {
+      idx = mid
+      lo = mid + 1
+    } else {
+      hi = mid - 1
+    }
+  }
+  for (let i = idx; i >= 0; i--) {
+    if (blocks[i].kind === kind) {
+      found = blocks[i]
+      break
+    }
+  }
+  return found
+}
+
+/**
  * Extract TDoc comment from before a function
  *
  * TJS doc comments use /\*# ... \*\/ syntax and preserve full markdown content.
@@ -859,31 +979,20 @@ export function extractTDoc(
 
   if (!func.loc) return result
 
-  const beforeFunc = source.substring(0, func.start)
+  const blocks = docComments(source)
 
-  // First, check for TJS doc comment: /*# ... */
-  // This preserves full markdown content
-  // Find the LAST /*# ... */ block and verify it immediately precedes the function
-  // (only whitespace and line comments allowed between)
-  // Line-start `/*#` only — a `/*#` after code (or in a string) isn't a doc
-  // comment. Lookbehind keeps match.index/length on the `/*#…*/` span.
-  const allDocBlocks = [
-    ...beforeFunc.matchAll(/(?<=^[ \t]*)\/\*#([\s\S]*?)\*\//gm),
-  ]
-  if (allDocBlocks.length > 0) {
-    const lastBlock = allDocBlocks[allDocBlocks.length - 1]
-    const afterBlock = beforeFunc.substring(
-      lastBlock.index! + lastBlock[0].length
-    )
-
-    // Only attach if nothing but whitespace and line comments between doc and function
-    if (/^(?:\s|\/\/[^\n]*)*$/.test(afterBlock)) {
-      // Extract content, trim leading/trailing whitespace, preserve internal formatting
-      let content = lastBlock[1]
+  // TJS doc comment: /*# … */ immediately above the function. Located by binary search
+  // rather than by re-scanning the file prefix — see `docComments`.
+  const tdoc = docCommentBefore(blocks, func.start, 'tdoc')
+  if (tdoc) {
+    // Only attach if nothing but whitespace and line comments sits between the doc and
+    // the function. This slice is the GAP, not the whole prefix.
+    const afterBlock = source.slice(tdoc.end, func.start)
+    if (onlyGapFiller(afterBlock)) {
+      let content = tdoc.body
 
       // Remove common leading whitespace (like dedent)
       const lines = content.split('\n')
-      // Find minimum indentation (ignoring empty lines)
       const minIndent = lines
         .filter((line) => line.trim().length > 0)
         .reduce((min, line) => {
@@ -891,7 +1000,6 @@ export function extractTDoc(
           return Math.min(min, indent)
         }, Infinity)
 
-      // Remove that indentation from all lines
       if (minIndent > 0 && minIndent < Infinity) {
         content = lines.map((line) => line.slice(minIndent)).join('\n')
       }
@@ -901,11 +1009,12 @@ export function extractTDoc(
     }
   }
 
-  // Fall back to JSDoc: /** ... */
-  const jsdocMatch = beforeFunc.match(/\/\*\*[\s\S]*?\*\/\s*$/)
-  if (!jsdocMatch) return result
+  // Fall back to JSDoc: /** … */, which must be the last thing before the function.
+  const jsdocBlock = docCommentBefore(blocks, func.start, 'jsdoc')
+  if (!jsdocBlock) return result
+  if (!/^\s*$/.test(source.slice(jsdocBlock.end, func.start))) return result
 
-  const jsdoc = jsdocMatch[0]
+  const jsdoc = jsdocBlock.body
 
   // Extract description (first non-tag content)
   const descMatch = jsdoc.match(/\/\*\*\s*\n?\s*\*?\s*([^@\n][^\n]*)/m)
