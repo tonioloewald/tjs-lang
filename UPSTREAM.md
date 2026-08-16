@@ -42,32 +42,43 @@ _Filed from tjs-lang; not yet an issue on the tosijs-schema repo._
 
 ## tosijs-coding-practices — one canonical safe-port-reclaim
 
-`src/cli/port.ts` is the **third** independent implementation of "find the process
-LISTENING on a port, decide whether it is ours, terminate it politely, then forcibly"
-across the sibling repos:
+**Filed:** [tosijs-coding-practices#5](https://github.com/tonioloewald/tosijs-coding-practices/issues/5)
+(the rule) · [tosijs-ui#77](https://github.com/tonioloewald/tosijs-ui/issues/77) (a real bug
+there) · [haltija#34](https://github.com/tonioloewald/haltija/issues/34) (no change asked —
+it is the reference implementation).
 
-- `tjs-lang/src/cli/port.ts` (this one)
-- `haltija/src/port-pid.ts`
-- `tosijs-ui/src/doc-system/site/dev-server.ts` — whose own comment reads _"We shipped
-  that reasoning in this very file … and then failed to apply it here."_
+`src/cli/port.ts` is the **third** independent implementation of "find the process LISTENING
+on a port, decide whether it is ours, terminate it politely, then forcibly". All three got
+the hard-won `-sTCP:LISTEN` half right; the identity half is the one that keeps getting
+written loose, and it is the half that can reach a stranger's machine.
 
-**The duplication has already cost a regression, in the direction that matters.** haltija
-identifies the victim by **command line** (`/haltija|tosijs-dev/i`). This repo's newer copy
-shipped identifying it by **executable name** (`/^(bun|node|deno)$/`) — which is an
-ecosystem, not an identity. A reviewer reproduced the consequence live: a plain `node`
-server was reported `ours: true` and terminated. Since `tjs-playground` is a published bin,
-`tjs-playground --port 3000 --force` would SIGTERM→SIGKILL a consumer's Vite or bun dev
-server and report it as reclaiming its own. The same copy had also dropped haltija's
-`pid !== process.pid` filter, so a `--force` reclaim could signal the caller — running the
-port tests against that version SIGTERMed the test runner itself, mid-suite.
+| repo                                          | identity check                                                           | filters own pid          |
+| --------------------------------------------- | ------------------------------------------------------------------------ | ------------------------ |
+| `haltija/src/port-pid.ts`                     | `ps -o command=` matched `/haltija\|tosijs-dev/i` — **the command line** | yes                      |
+| `tosijs-ui/src/doc-system/site/dev-server.ts` | `ps -o comm=` matched `/\b(bun\|node\|deno)\b/`                          | yes                      |
+| `tjs-lang/src/cli/port.ts`                    | was `ps -o comm=` matched `/^(bun\|node\|deno)$/`                        | **no**, until 2026-08-16 |
 
-**Fixed locally (2026-08-16):** identity is now the full argv matched against `OUR_SERVERS`
-(the entry points this package actually ships), plus an explicit refusal to signal
-`process.pid`. Tests cover both directions — a positive control that runs a real process at
-a matching path, and a stranger `node` server that must survive `--force` intact.
+**Read directly, not taken on report.** The review characterised this as three copies of one
+idea; the checkouts say something sharper. haltija is _correct_ — it matches the command line
+AND filters its own pid. tosijs-ui carries the same over-loose identity check this repo had,
+and calls `killStrayServer` unconditionally at startup with no `--force` gate, while its own
+warning text says "which is not a **dev server**" for a condition that tests "is not a JS
+**runtime**". tjs-lang's was the worst of the three: loose identity _and_ no self-pid filter.
 
-**Suggested:** one shared implementation, or at minimum a practices note stating the rule —
-_a process's executable name is never an identity; match the command line_ — since all
-three copies got the easy half right and only one got this half right.
+`/^(bun|node|deno)$/` is not an identity, it is an ecosystem. Since `tjs-playground` is a
+published bin, `tjs-playground --port 3000 --force` would SIGTERM→SIGKILL a consumer's Vite
+or bun dev server and report it as reclaiming its own — reproduced live in review against a
+plain `node` server. The missing self-pid filter was worse than it sounds: running the new
+tests against the unfixed code SIGTERMed **the test runner**, mid-suite.
 
-_Filed from tjs-lang; not yet an issue on the tosijs-coding-practices repo._
+**Fixed locally (2026-08-16, `6596ae3`):** identity is the full argv matched against
+`OUR_SERVERS` — the entry points this package actually ships — plus an explicit refusal to
+signal `process.pid`. `portListeners` still reports the caller honestly; `reclaimPort`
+refuses to act on it. Tests cover both directions: a positive control that runs a real
+process at a matching path (without it, defining `ours` as "never" passes everything else
+and silently disables reclaiming), and a stranger `node` server that must survive `--force`.
+
+**The rule, filed upstream:** _a process's executable name is never an identity; match the
+command line._ What makes it a rule rather than a preference is the asymmetry —
+**over-matching kills somebody else's work, under-matching prints "choose another port"** —
+so there is no trade-off to weigh and strictness is simply correct.
