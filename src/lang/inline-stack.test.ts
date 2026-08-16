@@ -28,6 +28,7 @@ import { describe, it, expect, afterEach } from 'bun:test'
 import { tjs } from './index'
 import {
   configure,
+  createRuntime,
   getStack as realGetStack,
   pushStack as realPushStack,
   popStack as realPopStack,
@@ -144,5 +145,72 @@ describe('the two implementations agree', () => {
     })
     expect(inline).toEqual(real)
     expect(inline).toEqual(['a'])
+  })
+})
+
+/**
+ * The two runtimes describe a bad ARRAY the same way.
+ *
+ * An array reported bare `array`, so `f([1, 'bad', 3])` against `xs: [0]` produced
+ * "Expected array of integer …, got array" — accurate, and no help: `T[]` is a headline
+ * feature and the whole question is which element is wrong. Both runtimes now summarise
+ * the element types from the value, which names the intruder next to the expectation.
+ *
+ * Differential, like the rest of this file: there are two implementations because emitted
+ * `.js` must stand alone, and the only thing that has ever kept two copies in step here is
+ * running both against one corpus.
+ */
+describe('array diagnostics agree across both runtimes', () => {
+  const message = (src: string, call: string, useGlobal: boolean) => {
+    const saved = (globalThis as any).__tjs
+    if (useGlobal) (globalThis as any).__tjs = createRuntime()
+    else delete (globalThis as any).__tjs
+    try {
+      const fn = new Function(
+        `${tjs(src, { filename: 'a.tjs', runTests: false }).code}\nreturn f`
+      )()
+
+      return String(fn(eval(call)))
+    } finally {
+      ;(globalThis as any).__tjs = saved
+    }
+  }
+
+  const CASES: Array<[string, string]> = [
+    ['mixed', `[1, 'bad', 3]`],
+    ['all wrong', `['a', 'b']`],
+    ['empty', `[]`],
+    ['nested', `[[1], 2]`],
+    ['nulls', `[null, 1]`],
+    ['not an array at all', `{ a: 1 }`],
+  ]
+
+  const SRC = `function f(xs: [0]) { return xs }`
+
+  for (const [label, call] of CASES) {
+    it(`${label}`, () => {
+      const shared = message(SRC, call, true)
+      const inline = message(SRC, call, false)
+      expect(inline).toBe(shared)
+    })
+  }
+
+  it('names the element types rather than just "array"', () => {
+    // Not vacuous: two implementations agreeing on an unhelpful message would pass every
+    // case above.
+    expect(message(SRC, `[1, 'bad', 3]`, true)).toContain(
+      'array of number | string'
+    )
+    // `[]` is deliberately NOT asserted here: an empty array satisfies `xs: [0]`
+    // vacuously, so there is no message to inspect. The `empty` row above still earns its
+    // place — it checks the two runtimes agree on an input that PASSES, which is the other
+    // half of agreeing.
+  })
+
+  it('a long array does not build a long message', () => {
+    const many = `[${Array.from({ length: 500 }, (_, i) =>
+      i % 2 ? `'s'` : 'true'
+    ).join(',')}]`
+    expect(message(SRC, many, true).length).toBeLessThan(140)
   })
 })

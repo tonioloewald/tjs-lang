@@ -124,13 +124,13 @@ bun run functions:serve     # Local functions emulator
 ### Two-Layer Design
 
 1. **Builder Layer** (`src/builder.ts`): Fluent API that constructs AST nodes. Contains no execution logic.
-2. **Runtime Layer** (`src/vm/runtime.ts`): Executes AST nodes. Contains all atom implementations (~3134 lines, security-critical).
+2. **Runtime Layer** (`src/vm/runtime.ts`): Executes AST nodes. Contains all atom implementations. **The security-critical file** — the membrane, fuel charging, the heap ceiling and the forbidden-key guards all live here.
 
 ### Key Source Files
 
 - `src/index.ts` - Main entry, re-exports everything
-- `src/vm/runtime.ts` - All atom implementations, expression evaluation, fuel charging (~3134 lines, security-critical)
-- `src/vm/vm.ts` - AgentVM class (~247 lines)
+- `src/vm/runtime.ts` - All atom implementations, expression evaluation, fuel charging (security-critical)
+- `src/vm/vm.ts` - AgentVM class
 - `src/vm/atoms/batteries.ts` - Battery atoms (vector search, LLM, store operations)
 - `src/builder.ts` - TypedBuilder fluent API (~754 lines / ~19KB)
 - `src/lang/parser.ts` - TJS parser with colon shorthand, unsafe markers, return type extraction
@@ -491,7 +491,7 @@ expectation is almost always the wrong move.
 - `src/batteries/probe-version.test.ts` — hashes the model-probe functions; changing one without bumping `PROBE_VERSION` fails, because a cached audit would otherwise serve the OLD conclusions for 24h.
 - `src/lang/dogfood-convert.test.ts`, `src/lang/dogfood-tests.test.ts` — can the toolchain convert its own source and suite? **Run via `bun run test:dogfood`, not `test:fast`** (both gate on `SKIP_BENCHMARKS`). The known-failure list is a ratchet with a promote-check: a listed file that starts converting fails the gate, so a fix cannot rot there unnoticed.
 - `src/lang/abandoned-syntax.test.ts`, `src/docs-tombstones.test.ts` — removed syntax stays removed, and the docs don't teach it.
-- `src/lang/dts-compiles.test.ts`, `src/lang/doc-snippets.test.ts`, `demo/docs-fresh.test.ts` — generated `.d.ts` actually compiles, documented snippets actually transpile, and `demo/docs.json` matches its sources. **Any CHANGELOG or markdown edit needs `bun run docs`** or the last of these goes red.
+- `src/lang/dts-compiles.test.ts`, `src/doc-snippets.test.ts`, `demo/docs-fresh.test.ts` — generated `.d.ts` actually compiles, documented snippets actually transpile, and `demo/docs.json` matches its sources. **Any CHANGELOG or markdown edit needs `bun run docs`** or the last of these goes red.
 - `src/cli/help-accuracy.test.ts` — `--help` describes what the CLI does. `--force` once promised it stopped "an earlier playground" while the code accepted any JS runtime.
 - `editors/editors-build.test.ts` — the committed `editors/**/*.js` are byte-identical to a fresh bundle of the adjacent `.ts`.
 
@@ -816,11 +816,11 @@ that isn't indexed fails the test rather than quietly going unfindable.
 - **New language mode / safety directive** → add to the TJS Syntax Reference section.
 - **New playground example** → add to `guides/examples/{tjs,ajs}/<slug>.md`, then `bun run docs` to regenerate `demo/docs.json`. See "Playground Examples" above.
 
-Skip stale-prone precision (exact line counts, file sizes) for new entries — they drift silently. The existing `~3024` etc. are kept current opportunistically, not on every commit.
+Skip stale-prone precision (exact line counts, file sizes) — they drift silently and nothing checks them. The counts that used to sit here were wrong by ~1,400 lines when they were finally read, so they were removed rather than refreshed: a number nobody verifies is worse than no number, because it reads as measured.
 
 ### Tracking Work
 
-Work is tracked in plain markdown — no external issue tracker. Open items live in `TODO.md` (organized by area). When you start a task, find or add the relevant entry; when you finish, check the box and (for substantial work) move it to the Completed section with a short note.
+Work is tracked in plain markdown: open items live in `TODO.md` (organized by area). **GitHub issues are also live, for a different job** — items filed by CONSUMERS of the package, and findings we owe an upstream repo. That distinction is the whole rule: our own work goes in markdown, someone else's report goes in an issue. Every open issue carries a dated disposition; per-release review findings are tracked in `docs/reviews/`, and `TODO.md`'s open-findings section names the deferrals rather than all of them. When you start a task, find or add the relevant entry; when you finish, check the box and (for substantial work) move it to the Completed section with a short note.
 
 ### Landing the Plane (Session Completion Checklist)
 

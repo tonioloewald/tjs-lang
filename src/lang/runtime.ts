@@ -227,9 +227,32 @@ export class MonadicError extends Error {
  * @param value - The actual value that failed the check
  */
 /** What a value IS, for a diagnostic — `typeof` with arrays and null told truthfully. */
+/**
+ * What the caller actually passed, said usefully.
+ *
+ * An array used to report bare `array`, so `f([1, 'bad', 3])` against `xs: [0]` produced
+ * "Expected array of integer …, got array" — accurate, and no help at all. `T[]` is a
+ * headline feature; the whole question is WHICH element is wrong.
+ *
+ * The element types are summarised from the value alone, so no expected-type plumbing is
+ * needed at the error site: `array of number | string`. That names the intruder next to
+ * the expectation, which is the pair a reader can act on.
+ *
+ * Bounded on purpose — a long array must not build a long message. The first few distinct
+ * types are enough to identify the problem.
+ */
 function describeActual(value: unknown): string {
   if (value === null) return 'null'
-  if (Array.isArray(value)) return 'array'
+  if (Array.isArray(value)) {
+    if (value.length === 0) return 'empty array'
+    const kinds: string[] = []
+    for (const v of value) {
+      const k = v === null ? 'null' : Array.isArray(v) ? 'array' : typeof v
+      if (!kinds.includes(k)) kinds.push(k)
+      if (kinds.length === 4) break
+    }
+    return `array of ${kinds.join(' | ')}`
+  }
   return typeof value
 }
 

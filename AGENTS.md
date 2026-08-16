@@ -1,6 +1,6 @@
 # Agent Instructions
 
-This project tracks work in plain markdown files — no external issue tracker.
+This project tracks its OWN work in plain markdown files (`TODO.md`, `PLAN.md`). GitHub issues are used, but for a different job: items filed by CONSUMERS of the package, and upstream findings we owe someone else. Both are live — `gh issue list` is not empty, and every open one carries a dated disposition.
 
 ## Where Work Lives
 

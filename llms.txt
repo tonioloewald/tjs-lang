@@ -101,7 +101,7 @@ This file is a navigation index for AI agents. It does not contain the docs them
 - `scripts/build-differences.ts` — renders that table to `docs/tjs-vs-typescript.md`; pure `render()` plus an `import.meta.main`-guarded write.
 - `src/cli/port.ts` — safe port reclaim: listeners only, identity by command line, never signals its own pid, refuses by default.
 - `src/cli/warnings.ts` — shared warning formatting for the CLI `--max-warnings` gate.
-- `src/vm/runtime.ts` — atom implementations, expression sandboxing, fuel charging, the capability-boundary structured-clone membrane (security-critical, ~3000 lines).
+- `src/vm/runtime.ts` — atom implementations, expression sandboxing, fuel charging, the capability-boundary structured-clone membrane (security-critical).
 - `src/vm/vm.ts` — `AgentVM` class.
 - `src/vm/atoms/` — individual atom definitions; `batteries.ts` has LLM/vector/store atoms.
 - `src/builder.ts` — fluent `TypedBuilder` API for constructing AST without source.

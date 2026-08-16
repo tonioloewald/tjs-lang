@@ -2790,7 +2790,9 @@ _One place, per the rule now in `AGENTS.md` and filed upstream as
 tosijs-coding-practices#7: an unannotated open-findings list is indistinguishable from an
 oversight._
 
-Covering `v0.13.0-beta.1..d116494`. The third review's 56 findings are tracked per-item in
+Covering `v0.13.0-beta.1..d116494`. Per-item status for every finding lives in
+`docs/reviews/0.13.0-review-3-full.md` and `docs/reviews/0.13.0-review-4-final.md`; the
+deferrals named below are the subset that is NOT closed. The third review's 56 findings are tracked per-item in
 `docs/reviews/0.13.0-review-3-full.md`; **every confirmed blocker and major is closed**,
 along with every minor that turned out to be real on investigation.
 

@@ -462,7 +462,7 @@ function membraneValue(value: unknown, maxBytes: number): MembraneResult {
     const { v, depth } = stack.pop()!
     if (v === null || v === undefined) {
       bytes += 8
-      if (bytes > maxBytes) return membraneOverBudget(maxBytes)
+      if (bytes > maxBytes) return overBudget(maxBytes)
       continue
     }
     const vt = typeof v
@@ -474,14 +474,14 @@ function membraneValue(value: unknown, maxBytes: number): MembraneResult {
     }
     if (vt === 'string') {
       bytes += (v as string).length * 2 + 8
-      if (bytes > maxBytes) return membraneOverBudget(maxBytes)
+      if (bytes > maxBytes) return overBudget(maxBytes)
       continue
     }
     if (vt !== 'object') {
       // number / boolean — a large array/Map/Set of primitives must still be
       // budgeted, so check here too (this branch used to `continue` unchecked).
       bytes += 8
-      if (bytes > maxBytes) return membraneOverBudget(maxBytes)
+      if (bytes > maxBytes) return overBudget(maxBytes)
       continue
     }
     if (depth > MEMBRANE_MAX_DEPTH) {
@@ -493,7 +493,7 @@ function membraneValue(value: unknown, maxBytes: number): MembraneResult {
     if (seen.has(v)) continue // cycle / shared ref — structuredClone preserves it; don't recount
     seen.add(v)
     bytes += 16
-    if (bytes > maxBytes) return membraneOverBudget(maxBytes)
+    if (bytes > maxBytes) return overBudget(maxBytes)
     if (Array.isArray(v)) {
       // `Object.keys` on an array yields its indices AND any non-index own enumerable
       // property. Both are needed: the index branch was hardened separately and the
@@ -514,15 +514,15 @@ function membraneValue(value: unknown, maxBytes: number): MembraneResult {
       bytes = own.bytes
     } else if (v instanceof Date) {
       bytes += 32 // fixed-size builtin
-      if (bytes > maxBytes) return membraneOverBudget(maxBytes)
+      if (bytes > maxBytes) return overBudget(maxBytes)
     } else if (ArrayBuffer.isView(v)) {
       // TypedArray / DataView — charge the REAL backing size, not a flat
       // estimate: a 500MB Uint8Array must not cross a small budget.
       bytes += (v as ArrayBufferView).byteLength
-      if (bytes > maxBytes) return membraneOverBudget(maxBytes)
+      if (bytes > maxBytes) return overBudget(maxBytes)
     } else if (v instanceof ArrayBuffer) {
       bytes += v.byteLength
-      if (bytes > maxBytes) return membraneOverBudget(maxBytes)
+      if (bytes > maxBytes) return overBudget(maxBytes)
     } else if (v instanceof Map || v instanceof Set) {
       // Walk entries so a large collection is both budgeted and kind-checked (a value
       // could itself be a function / host ref). structuredClone clones keys and values,
@@ -548,7 +548,7 @@ function membraneValue(value: unknown, maxBytes: number): MembraneResult {
         }
       }
       bytes += 16
-      if (bytes > maxBytes) return membraneOverBudget(maxBytes)
+      if (bytes > maxBytes) return overBudget(maxBytes)
       // `.call` on the intrinsic method, driven by hand — never `for…of`, which would
       // consult the object's own `Symbol.iterator` again.
       const it = isMap
@@ -574,10 +574,10 @@ function membraneValue(value: unknown, maxBytes: number): MembraneResult {
       // Accessors are rejected rather than evaluated: there is no way to learn what
       // one returns without running it, and structuredClone would run it again
       // anyway. A capability must hand over plain data.
-      const own = readOwnData(v, 'property')
+      const own = readOwnData(v)
       if (!own.ok) return own
       bytes += own.bytes
-      if (bytes > maxBytes) return membraneOverBudget(maxBytes)
+      if (bytes > maxBytes) return overBudget(maxBytes)
       for (const value of own.values) stack.push({ v: value, depth: depth + 1 })
     }
   }
@@ -615,7 +615,14 @@ function membraneValue(value: unknown, maxBytes: number): MembraneResult {
  * `structuredClone` serialises and which therefore must be walked and charged for their
  * names. Those are the second scan's real job; the sparse handoff comes along for free.
  */
-/** The over-budget refusal, narrowed to the shape the readers return. */
+/**
+ * THE over-budget refusal.
+ *
+ * There were two, with an identical message — `overBudget` and `membraneOverBudget` — left
+ * behind when the array walk split out of `readOwnData`. Two spellings of one sentence on
+ * the highest-stakes file in the repo is review burden for nothing, and the kind of pair
+ * that drifts the moment someone improves the wording of one.
+ */
 function overBudget(maxBytes: number): { ok: false; reason: string } {
   return {
     ok: false,
@@ -746,8 +753,7 @@ function isArrayIndex(k: string): boolean {
 }
 
 function readOwnData(
-  v: object,
-  what: 'index' | 'property'
+  v: object
 ):
   | { ok: true; values: unknown[]; bytes: number }
   | { ok: false; reason: string } {
@@ -768,26 +774,17 @@ function readOwnData(
     // Adding a surcharge on top would be a flat 2× on numeric arrays — the same phantom
     // in smaller print. Map/Set entries are priced the same way, by value only. The OOM
     // guard is untouched: 1M floats are still 8MB and still refused.
-    const isSlot = what === 'index' && isArrayIndex(k)
+
     if (d && (d.get || d.set)) {
       return {
         ok: false,
-        reason: `capability return has an accessor ${
-          isSlot ? `at index ${k}` : `property '${k}'`
-        }; the boundary takes plain data only, because reading an accessor would execute host code`,
+        reason: `capability return has an accessor property '${k}'; the boundary takes plain data only, because reading an accessor would execute host code`,
       }
     }
-    bytes += isSlot ? 0 : k.length * 2 + 8
+    bytes += k.length * 2 + 8
     values.push(d ? d.value : undefined)
   }
   return { ok: true, values, bytes }
-}
-
-function membraneOverBudget(maxBytes: number): MembraneResult {
-  return {
-    ok: false,
-    reason: `capability return exceeds the ${maxBytes}-byte membrane budget`,
-  }
 }
 
 /**
