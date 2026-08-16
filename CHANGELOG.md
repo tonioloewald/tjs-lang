@@ -152,6 +152,66 @@ Even % 2 === 0 }` reads as "an `Even` is a value where…". Both normalise into 
 
 ### Fixed
 
+- **A string containing `/* unsafe */` turned validation off for the whole function.**
+  Per-function safety was decided by a raw substring search over the parameter source, and
+  a parameter DEFAULT is part of that source — so `function h(n: 0, s = '/* unsafe */')`
+  emitted `unsafe: true` and checked nothing, while the same function without the literal
+  validated `n`. A nested arrow's default disarmed the OUTER function the same way. This
+  is the one member of the literal-blindness class that turns checks OFF rather than
+  garbling output, so its entire effect is the absence of something.
+
+- **Five declaration transforms rewrote TJS syntax inside string literals** — `Type`,
+  `FunctionPredicate`, `Generic`, `Union`, `Enum`, plus `const!`. A declaration written
+  inside a template came out as the string's CONTENTS transformed; the single-quoted form
+  injected unescaped quotes and failed to parse, **rejecting legal JavaScript** even under
+  `dialect: 'js'`. For a language whose own docs and tests are full of illustrative
+  declarations, "a declaration inside a string" is the normal case.
+
+- **A declaration inside a doc template became a phantom exported type in the `.d.ts`.**
+  Two `dts.ts` scanners detected on raw source while brace-matching a masked view, so a
+  documentation template could emit `export type Ghost = (x: number) => any` — a type with
+  no runtime, degraded as well, which a consumer's editor autocompletes and their build
+  accepts.
+
+- **The `expect` harness differed depending on which runner ran your test.** Two copies had
+  drifted in opposite directions: one had `toThrow` and no `toBeNaN`, the other the
+  reverse. `tjs test file.tjs` failed with `expect(...).toThrow is not a function` on a
+  test that passed in the playground. Both documented as working. There is now one harness.
+
+- **The converter emitted `.tjs` that does not parse for builtin return types.** Any class
+  method returning `Response`, `URL`, `AbortSignal` (and others) produced
+  `make():! new Response() {` — `new` is abolished in TJS — or `make():! AbortSignal.abort() {`.
+  Three sites emitted return annotations and only one filtered anything.
+
+- **The emitted call-stack array grew without bound.** The inline runtime's `pushStack`
+  appended one entry per call forever — 201,000 calls left 201,000 entries — because the
+  matching `popStack()` is emitted after the `return`. It is now the same bounded 64-entry
+  ring the real runtime uses. Standalone emitted files are the shipping configuration, so
+  this was a live leak in any long-running program built from them.
+
+- **`tjs-playground` built into its own installed package directory.** Under pnpm and bun
+  on Linux that is a hardlink into the machine-wide store. It now builds into an OS cache
+  directory keyed by version, announces the path on stderr, and accepts `--out-dir`. It
+  also no longer regenerates `demo/docs.json` when installed, which produced a DEGRADED
+  file from a tarball that does not carry every markdown source.
+
+- **`--force` could stop a stranger's dev server.** Port reclaim decided ownership from the
+  executable name (`bun`/`node`/`deno`), which is an ecosystem, not an identity — so
+  `tjs-playground --port 3000 --force` would `SIGTERM`→`SIGKILL` a consumer's Vite or Next
+  dev server and report it as reclaiming its own. Identity is now the full command line,
+  and reclaim refuses to signal its own process.
+
+- **The model-audit cache littered the consumer's project and never expired on logic
+  changes.** It was written to `process.cwd()/.models.cache.json` — a dotfile dropped into
+  whatever repo you ran from — and keyed only on base URL plus a 24h TTL, so when
+  `looksLikeVisionModel` was corrected this release an upgrader kept `vision: false` for a
+  multimodal model for up to a day. It now lives in the OS cache directory, announces its
+  path, and carries a probe version.
+
+- **`extractTDoc` re-scanned the whole file prefix for every function.** Doc comments are
+  now located once per source and binary-searched: 128.9ms → 4.5ms over 58 functions on a
+  176KB file, and ~12% off a full TS→TJS→JS transpile of it.
+
 - **Arrow and function-expression parameters are validated.** The same annotation was
   enforced or ignored depending purely on spelling: `function decl(n: 0)` rejected `'x'`
   while `const arrow = (n: 0) => n` accepted it. Only top-level `function` declarations
@@ -262,6 +322,25 @@ below, since they shipped there).
   on a missing path, or on a directory scan that matches nothing.
 
 ### Security
+
+- **The OOM guard allocated like the thing it was guarding against.** Rejecting an array
+  that exceeded a 1,024-byte `membraneMaxBytes` by four orders of magnitude cost 549ms and
+  103MB at 2,000,000 elements, linear in N — the walk called `Object.keys` first and
+  checked the budget after. It now scans incrementally and abandons on the first overflow:
+  **0ms and 0MB** at every size tested. A caller who set a small budget to bound their
+  exposure was wrong in the one case they set it for.
+
+- **An array's `length` was never budgeted.** A capability could return an array with
+  `length = 1e9` holding three values; it passed the membrane on ~40 bytes and
+  `structuredClone` then spent **6.5 seconds** materialising a billion-slot array —
+  synchronous host work invisible to fuel, atom timeouts and `membraneMaxBytes` alike,
+  behind the guard whose stated job is to reject before the clone allocates.
+
+- **Two `vm.run` exit paths leaked the timeout timer and the caller's abort listener.** The
+  root-op throw and the input-schema rejection both happened after the timer was created
+  and before the `try`, so neither cleared it — while the comment beside the `finally`
+  claimed it "guarantees on every exit path". A pending timer also keeps the event loop
+  alive, so a host that validates a batch of agents and then exits did not exit.
 
 - **The capability membrane billed array elements for the string form of their own
   index, cutting effective array capacity ~3.4×.** `readOwnData` charged
