@@ -94,6 +94,13 @@ This file is a navigation index for AI agents. It does not contain the docs them
 - `src/lang/linter.ts` — static analysis (unused vars, unreachable code, no-explicit-new, `dict-default-excess-key`).
 - `src/redos.ts` — shared, dependency-free ReDoS star-height detector (`reDoSRisk`); single source for the predicate verifier AND the VM's `regexMatch` (safe in the lean `tjs-lang/vm` bundle).
 - `src/forbidden-keys.ts` — canonical prototype-pollution key list (`FORBIDDEN_KEYS`); single source for the VM member/scope guards, the linter, and the dict-default emitter.
+- `src/strip-comments.ts` — the literal/comment scanner; 12 non-test consumers. `scanLiterals` (memoized) plus three derived views: `maskLiterals`, `maskLiteralsKeepComments`, `stripComments`. Also `matchingBrace`, the one balanced-brace matcher. Choosing the wrong view is a live failure mode.
+- `src/unwrap-boxed.ts` — single source for boxed-primitive unwrapping (`unwrapBoxed` + the emittable `UNWRAP_BOXED_SOURCE`), pinned by a differential test.
+- `src/lang/declared-classes.ts` — one rule for `new X` on a locally declared class, shared by converter and validator.
+- `src/lang/differences.ts` — the TJS-vs-TypeScript difference table as DATA; every row is executed against `tsc` and TJS.
+- `scripts/build-differences.ts` — renders that table to `docs/tjs-vs-typescript.md`; pure `render()` plus an `import.meta.main`-guarded write.
+- `src/cli/port.ts` — safe port reclaim: listeners only, identity by command line, never signals its own pid, refuses by default.
+- `src/cli/warnings.ts` — shared warning formatting for the CLI `--max-warnings` gate.
 - `src/vm/runtime.ts` — atom implementations, expression sandboxing, fuel charging, the capability-boundary structured-clone membrane (security-critical, ~3000 lines).
 - `src/vm/vm.ts` — `AgentVM` class.
 - `src/vm/atoms/` — individual atom definitions; `batteries.ts` has LLM/vector/store atoms.

@@ -83,12 +83,25 @@ bun src/cli/tjs.ts test <file>     # Run inline tests in a TJS file
 # Type checking & other
 bun run typecheck           # tsc --noEmit (type check without emitting)
 bun run lint                # ESLint, no --fix (format does the fixing)
+                            #   Runs with `--max-warnings 0`, so a warning fails the
+                            #   lane. Prefix an intentionally unused binding with `_`
+                            #   rather than reaching for a disable comment.
+bun run test:dogfood        # The two dogfood ratchets, in their own lane (~50s).
+                            #   NOT in test:fast: both gate on SKIP_BENCHMARKS, which
+                            #   test:fast sets — so for months neither ran in CI, and a
+                            #   known-failure list sat at eleven when nine of the
+                            #   entries were one already-fixed defect. Kept separate
+                            #   rather than un-gated because tripling the inner loop is
+                            #   how a fast lane stops being used.
 bun run test:llm            # LM Studio live smoke (audit + predict + embed)
 bun run test:grok           # AJS grokkability vs a pinned small model (advisory,
                             #   never blocks; reports a success rate). Needs
                             #   gemma-4-e2b loaded — override with GROK_MODEL.
 bun run bench               # Vector search benchmarks
 bun run docs                # Generate documentation
+bun run docs:differences    # Regenerate docs/tjs-vs-typescript.md from
+                            #   src/lang/differences.ts. Part of `make`. The page is a
+                            #   BUILD ARTIFACT — never hand-edit it.
 
 # Partial builds (all subsumed by `make`; useful when iterating on one target)
 bun run build:bundles       # esbuild only — scripts/build.ts → dist/*.js
@@ -138,6 +151,13 @@ bun run functions:serve     # Local functions emulator
 - `src/lang/linter.ts` - Static analysis (unused vars, unreachable code, no-explicit-new, dict-default-excess-key)
 - `src/redos.ts` - Shared, dependency-free ReDoS star-height detector (`reDoSRisk`); single source for the predicate verifier AND the VM's `regexMatch` (safe in the lean `tjs-lang/vm` bundle)
 - `src/forbidden-keys.ts` - Canonical prototype-pollution key list (`FORBIDDEN_KEYS`); single source for the VM member/scope guards, the linter, and the dict-default emitter
+- `src/strip-comments.ts` - **The** literal/comment scanner, and the single most-imported leaf in the repo (12 non-test consumers). `scanLiterals` (memoized) is the primitive; three views are derived from it — `maskLiterals` (literals AND comments blanked, offsets preserved), `maskLiteralsKeepComments` (literals blanked, comments INTACT — the view for finding `/* unsafe */`), `stripComments` (comments removed, literals intact). Also `matchingBrace(masked, open)`, the one balanced-brace matcher. Picking the wrong view is a live failure mode: `maskLiterals` erases the very marker an `/* unsafe */` scan is looking for. See the literal-blindness note below
+- `src/unwrap-boxed.ts` - Single source for boxed-primitive unwrapping: `unwrapBoxed()` plus `UNWRAP_BOXED_SOURCE`, the same logic as an emittable string. Two artefacts because emitted `.js` must stand alone; kept honest by a differential test rather than by care
+- `src/lang/declared-classes.ts` - One rule for `new X` on a locally declared class (`declaredClassNames`, `newExpressionPattern`, `dropRedundantNew`), shared by the converter and the validator
+- `src/lang/differences.ts` - The TJS-vs-TypeScript difference TABLE, as data. Every row is executed against `tsc --strict` and TJS by `differences.test.ts`, so a documented claim cannot drift from the language without a test going red
+- `scripts/build-differences.ts` - Renders that table to `docs/tjs-vs-typescript.md`. Exports a pure `render()`; the write is guarded by `import.meta.main`, so importing it cannot touch the repo (the freshness test used to spawn it and thereby REPAIR the file it was checking)
+- `src/cli/port.ts` - Safe port reclaim: listeners only (`-sTCP:LISTEN`), identity by COMMAND LINE (`OUR_SERVERS`) never by executable name, refuses to signal `process.pid`, SIGTERM before SIGKILL, and refuses by default without `--force`
+- `src/cli/warnings.ts` - Shared warning formatting/count for the CLI's `--max-warnings` gate
 - `src/lang/predicate.ts` - Predicate-safety verifier: certifies a cluster of pure, synchronous, composable predicates (reads the atom `effects` tag via `effectfulFromAtoms`); verified predicates compile to native JS. Also `suggest()` — mines a cluster for autocomplete completions (keyword sets → `value`s, `startsWith` guards → open-ended `stub`s like `var(--`; mined values run through the compiled predicate so they're guaranteed valid). Exported from `tjs-lang/lang`. See `experiments/predicates/` (CSS torture set + perf + suggest demo)
 - `src/lang/predicate-schema.ts` - Predicate-aware JSON-Schema: the `$predicate` keyword (computational types). `compilePredicateSchema`/`validatePredicateSchema` — structure for naive validators, `$predicate` for aware ones (progressive enhancement). The serializable-into-JSON-Schema endgame; exported from `tjs-lang/lang`
 - `src/lang/runtime.ts` - TJS runtime (monadic errors, type checking, wrapClass)
@@ -414,6 +434,32 @@ The hook refuses early with a clear message if LM Studio isn't reachable. Escape
 hatch: `git push --no-verify`, only for a tag whose suite you have already run green
 by hand — never to dodge a real failure.
 
+### What CI actually runs (`.github/workflows/ci.yml`)
+
+The pre-push hook is not the only enforcement, and this file used to imply it was —
+`ci.yml` cross-references CLAUDE.md but nothing pointed back, so "which lanes does CI
+run?" was unanswerable from the doc agents read first. In order, every step `if: always()`
+so one run reports several failures:
+
+1. **Typecheck**, **Lint** (`--max-warnings 0`), **Format** (`format:check`)
+2. **Build** (`bun run make`) — **before** the tests, deliberately. Three guards are gated
+   on `dist/` existing, and when the tests ran first they silently SKIPPED on a fresh
+   clone: 25 pass / 3 skip where a local run gets 28. A guard that skips reports exactly
+   the same green as a guard that passes. `bundle-size.test.ts` now asserts `dist/` exists
+   when `process.env.CI` is set, so putting the tests back in front fails by name.
+3. **Test (fast lane)** — `test:fast`, i.e. `SKIP_LLM_TESTS` + `SKIP_BENCHMARKS` +
+   `SKIP_AUDIT`.
+4. **Dogfood ratchets** — `bun run test:dogfood`, its own lane precisely because
+   `test:fast` sets `SKIP_BENCHMARKS` and would skip them. They had never run in CI.
+5. **Generated artifacts are current** — `git diff --exit-code` over `demo/docs.json`,
+   `docs/tjs-vs-typescript.md` and the committed `editors/**` output. `make` REGENERATES
+   these, so running it without looking at the result proves only that the build doesn't
+   crash.
+
+Not in CI: the live LLM smoke, the benchmarks, `bun audit`, and AJS grokkability. The
+first three run in the pre-tag lane above; grokkability is advisory and behind
+`RUN_GROK_TESTS`.
+
 **Bug fix rule:** Always create a reproduction test case before fixing a bug.
 
 ### Guardrail Tests (don't "fix" these by editing the test)
@@ -432,6 +478,22 @@ expectation is almost always the wrong move.
 - `editors/editors-build.test.ts` — the committed `editors/**/*.js` are byte-identical to a fresh bundle of the adjacent `.ts`. They're build artifacts that are committed (so `npm publish` ships them without a build), which means editing the `.ts` without running `bun run build:editors` would otherwise silently ship months-old code.
 - `src/lang/features.test.ts` → **"signature test canaries — exact value matching"** — a return example is a **worked example**, compared by _deep equality_, not a type pattern. `function add(a: 2, b: 3): 0` **must fail** — `add(2,3)` is 5, not 0. It is tempting to "fix" this into a type match (`''` = any string), because the colon value is an example everywhere else; don't. `:!` is the opt-out for a type-only return example (it's what `fromTS` emits for TS's `: string`), and `:?` runs the test _and_ runtime validation.
 - `src/examples.test.ts` — every file in `examples/` still type-checks (`tjs check`, signature tests on) **and** runs (`tjs run`). They're the first thing anyone tries, and five of seven were broken at once before this existed.
+- `src/lang/literal-blindness.test.ts` — the repo's **dominant defect class**, pinned. A pass that mis-reads code _mentioning_ the syntax it scans for. Rows assert the literal comes out **byte-identical**, because `not.toThrow()` cannot see silent rewriting — every template case passed it while being corrupted. Add a row when you add a source-rewriting pass.
+- `src/self-redos.test.ts` — our own regexes meet the bar we set for user predicates. A CEILING that may only go DOWN, with a promote-check. The two directive patterns it flagged turned out to be 90 seconds of a 116-second transpile.
+- `src/vm/membrane-invariant.test.ts` / `src/vm/membrane-budget.test.ts` — the capability boundary never reads a host value directly, and bills what CROSSES rather than what the walk had to name. The budget file opens with an apparatus check: if the membrane is not engaged, it fails rather than passing vacuously.
+- `src/vm/state-writes.test.ts`, `src/vm/heap-scope.test.ts`, `src/vm/cost-invariant.test.ts` — scope writes, the live-heap ceiling, and "every evaluation step charges fuel ≥ c×(work performed)". That last docstring is worth reading: _fuel that doesn't track work isn't a budget, it's decoration._
+- `src/vm/atom-effects-scan.test.ts` — the source-level twin of `atom-effects.test.ts`.
+- `src/vm/run-teardown.test.ts` — a REJECTED run cleans up as thoroughly as one that executes. Instrumenting `setTimeout` is the only way to see it: the leak has no effect on the return value, which is why it shipped.
+- `src/lang/equality-invariants.test.ts`, `src/lang/type-identity.test.ts` — the equality rules, and the map of every mechanism answering "does `v` satisfy `T`". Do NOT widen a KNOWN_DISAGREEMENTS list to make red go away; that reserves slack a future regression can occupy silently.
+- `src/unwrap-boxed.test.ts`, `src/lang/inline-stack.test.ts` — DIFFERENTIAL tests: the shared runtime and the emitted inline copy run the same corpus and must agree. This is the only thing that keeps two copies honest, and it is how the emitted call-stack leak and two ordering divergences were found. See "The inline runtime is NOT the real runtime" below.
+- `src/lang/test-harness-parity.test.ts` — every matcher `docs.ts` documents is implemented AND every implemented matcher is documented, exercised through the public transpile-and-run path. Two `expect` harnesses had drifted in opposite directions.
+- `src/lang/builtin-return-examples.test.ts` — every builtin in the `fromTS` example table produces TJS that PARSES, at all three emission sites. Adding `Foo: 'Foo.of()'` fails here instead of shipping.
+- `src/batteries/probe-version.test.ts` — hashes the model-probe functions; changing one without bumping `PROBE_VERSION` fails, because a cached audit would otherwise serve the OLD conclusions for 24h.
+- `src/lang/dogfood-convert.test.ts`, `src/lang/dogfood-tests.test.ts` — can the toolchain convert its own source and suite? **Run via `bun run test:dogfood`, not `test:fast`** (both gate on `SKIP_BENCHMARKS`). The known-failure list is a ratchet with a promote-check: a listed file that starts converting fails the gate, so a fix cannot rot there unnoticed.
+- `src/lang/abandoned-syntax.test.ts`, `src/docs-tombstones.test.ts` — removed syntax stays removed, and the docs don't teach it.
+- `src/lang/dts-compiles.test.ts`, `src/lang/doc-snippets.test.ts`, `demo/docs-fresh.test.ts` — generated `.d.ts` actually compiles, documented snippets actually transpile, and `demo/docs.json` matches its sources. **Any CHANGELOG or markdown edit needs `bun run docs`** or the last of these goes red.
+- `src/cli/help-accuracy.test.ts` — `--help` describes what the CLI does. `--force` once promised it stopped "an earlier playground" while the code accepted any JS runtime.
+- `editors/editors-build.test.ts` — the committed `editors/**/*.js` are byte-identical to a fresh bundle of the adjacent `.ts`.
 
 ### The inline runtime is NOT the real runtime
 
@@ -719,6 +781,7 @@ The CLI (`bun src/cli/tjs.ts run`) does NOT inject the test-block `expect` harne
 - `ASSUMPTIONS.md` — **the assumptions ledger**: every load-bearing belief with a verdict (supported / refuted / nuanced / untested) and a link to its evidence. Check it before relying on a claim, and add a row when you make a new bet. Several entries are refuted-and-fixed; the methodology notes at the bottom are worth reading before designing any probe.
 - `docs/type-identity.md` — **the type-identity map**: every mechanism that answers "does value `v` satisfy type `T`" (real `Type`, the inline stub, direct predicates, both `checkType`s), which is authoritative, and the four measured disagreements. The load-bearing fact: the inline stub is not a fallback — emitted code calls it bare, so it always wins and IS the shipped semantics. Measured by `src/lang/type-identity.test.ts`.
 - `docs/review-lenses.md` — **five project-specific review lenses** to run alongside the generic nine-lens pre-release review. Each is derived from a defect that actually shipped here (sibling-site, comment-vs-code, generated-artifact freshness, adversarial, "prove it"). Read before running a release review.
+- `docs/tjs-vs-typescript.md` — **GENERATED, never hand-edit.** Built from `src/lang/differences.ts` by `bun run docs:differences` (part of `make`). Every row on it is executed against `tsc --strict` and TJS by `src/lang/differences.test.ts`, so a documented difference cannot drift from the language without a test going red. A prose comparison table is the most tempting place in a project for a false claim to live undisturbed, which is why this one is data.
 - `PRINCIPLES.md` — **non-negotiable language invariants**: options-off TJS ⊇ JS, and TJS ⊇ AJS. A richer layer may do _more_ with the same source but must never make subset-legal code _illegal_ (e.g. un-runnable signature tests are inconclusive, not errors). Read before changing parser/transpiler acceptance or signature-test behavior; a subset violation is a bug. Also carries the **type-system north star** (JSON-Schema + `$predicate` as the single source of truth for types — a decision lens).
 - `docs/type-system-north-star.md` — the north-star design note: JSON-Schema + `$predicate` as the canonical type representation; the decision lens ("closer to or further from?"); and the small portable predicate-VM (serialized-AST, cross-language) that unlocks it. Strategic (possibly post-1.0).
 - `llms.txt` — agent-facing navigation index (ships in npm bundle); points to docs and source entry points
