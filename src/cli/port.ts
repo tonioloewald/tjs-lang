@@ -163,7 +163,12 @@ export async function reclaimPort(
   }
 
   for (const { pid, command } of holders) {
-    console.log(`Stopping ${command} (pid ${pid}) on port ${port}…`)
+    // stderr, not stdout. This is a receipt for a destructive act, and stdout belongs to
+    // whatever the CLI is actually producing — a `tjs ... | jq` pipeline should not have
+    // "Stopping bun (pid 1234)…" spliced into its JSON. Every other message this module
+    // emits is already a returned string the caller prints; this one fires mid-loop, so
+    // it is the one place the channel had to be chosen deliberately.
+    console.error(`Stopping ${command} (pid ${pid}) on port ${port}…`)
     try {
       process.kill(pid, 'SIGTERM')
     } catch {

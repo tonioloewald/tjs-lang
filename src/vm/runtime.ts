@@ -2405,7 +2405,14 @@ export function defineAtom<I extends Record<string, any>, O = any>(
         // Space budget: an atom result is the other way large values enter guest
         // scope (a capability return, a big parse). Fuel already charged for the
         // work; this bounds what the run HOLDS.
-        if (!trackHeapWrite(ctx, step.result, result, op)) return
+        //
+        // `setStateVar` does the tracking (it calls `trackHeapWrite` for every non-alias
+        // write), so the explicit call that used to sit on the line above was redundant.
+        // Not a double CHARGE — per-key accounting replaces rather than accumulates, so
+        // the byte total was identical, which is why nothing caught it — but it did pay
+        // the heap-walk fuel twice for a primitive, where the identity fast path does not
+        // apply. Removed rather than kept "for clarity": two calls that must agree is the
+        // shape every divergence in this codebase started as.
         if (!setStateVar(ctx, step.result, result, op)) return
         // Mark as const if resultConst is set
         if (step.resultConst) {
