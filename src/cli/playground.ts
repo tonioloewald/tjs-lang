@@ -31,8 +31,19 @@ const DEFAULT_PORT = 8699 // Homage to Agent-99
  * and an installed copy builds into the OS cache, keyed by version so two installed
  * versions cannot collide. `--out-dir` overrides either.
  */
-function defaultOutDir(rootDir: string, version: string): string {
-  if (!rootDir.includes('node_modules')) return join(rootDir, '.demo')
+export function isInstalled(rootDir: string): boolean {
+  // A path SEGMENT equal to `node_modules`, not a substring of one.
+  //
+  // `rootDir.includes('node_modules')` is true for a repo checked out at
+  // `~/src/my-node_modules-experiments/tjs-lang`, which would then build into the OS cache
+  // instead of `.demo` and quietly stop matching the docs. Segment equality is the actual
+  // question — "am I installed inside a node_modules tree?" — and it answers correctly for
+  // a plain install, a pnpm store path, and a scoped package alike.
+  return rootDir.split(/[/\\]/).includes('node_modules')
+}
+
+export function defaultOutDir(rootDir: string, version: string): string {
+  if (!isInstalled(rootDir)) return join(rootDir, '.demo')
   const base =
     process.env.XDG_CACHE_HOME ||
     (process.platform === 'darwin'
@@ -309,4 +320,7 @@ ${
   })
 }
 
-main()
+// Only when run as a script. Importing this module must not start a build and a server —
+// which is what made it structurally untestable, and is why the hardlink-corruption fix
+// shipped with 0% coverage while its sibling in the same session got a 258-line test.
+if (import.meta.main) main()
