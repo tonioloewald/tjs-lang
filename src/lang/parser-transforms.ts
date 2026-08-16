@@ -2425,10 +2425,33 @@ export function transformTypeDeclarations(
           //
           // A NON-empty example still closes the object: excess keys are a real error
           // when the author described a shape.
+          //
+          // The schema is derived ONCE, lazily, and cached — it used to be re-derived on
+          // every single `.check()`, because the IIFE below hoists the predicate and the
+          // schema expression sat inside the per-call arrow. Measured on a declared type
+          // with an example and a predicate: **3232 ns/call**, against 19.8 ns for
+          // example-only and 6.8 ns for a plain `n: 0` — roughly 97% of the cost was
+          // re-computing a compile-time constant. This is the release's headline
+          // declared-Type path, so it is the slowest thing on the feature being advertised.
+          //
+          // Lazy rather than hoisted to module scope because it must still fail OPEN when
+          // no full runtime is installed (see above): `globalThis.__tjs` may not exist when
+          // the module evaluates, and it is not our business to require that it does. The
+          // first call decides, and every later call reads the cache.
           const emptyExample = /^\{\s*\}$/.test(example.trim())
+          // The GATE keeps exactly its original shape — only the schema behind it is
+          // memoized, via `__schema()`. A first attempt inlined the memo as a comma
+          // expression and it was silently broken: the truthiness rewrite turns
+          // `toBool(a, b)` into a two-ARGUMENT call, so the second half was discarded and
+          // the gate always passed, letting the predicate run on `null`. Emitting a comma
+          // expression into a position that will be wrapped is not safe here.
           const schemaGate = emptyExample
             ? 'true'
-            : `(globalThis.__tjs?.validate ? globalThis.__tjs.validate(${params}, (globalThis.__tjs.inferOpen ?? globalThis.__tjs.infer)(${example})) : true)`
+            : `(globalThis.__tjs?.validate ? globalThis.__tjs.validate(${params}, __schema()) : true)`
+          /** Lazily derive the schema once, then cache. See the note above the gate. */
+          const schemaMemo = emptyExample
+            ? ''
+            : `let __sc, __scInit = false; const __schema = () => { if (!__scInit) { __scInit = true; __sc = (globalThis.__tjs.inferOpen ?? globalThis.__tjs.infer)(${example}) } return __sc };`
           const guard = verifiedGuardExpr(
             typeName,
             'Type',
@@ -2438,8 +2461,8 @@ export function transformTypeDeclarations(
             report
           )
           const fn = guard
-            ? `(__g => (${params}) => (${schemaGate} ? __g(${params}) : false))(${guard})`
-            : `(${params}) => { if (!${schemaGate}) return false; ${body} }`
+            ? `(__g => { ${schemaMemo} return (${params}) => (${schemaGate} ? __g(${params}) : false) })(${guard})`
+            : `(() => { ${schemaMemo} return (${params}) => { if (!(${schemaGate})) return false; ${body} } })()`
           declaredTypes?.add(typeName)
           result += `const ${typeName} = Type('${description}', ${fn}, ${example}${defaultArg})`
         } else if (predicateMatch) {

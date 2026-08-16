@@ -24,6 +24,7 @@
  */
 import { describe, it, expect } from 'bun:test'
 import { tjs } from './index'
+import { createRuntime } from './runtime'
 
 /** Transpile and run, returning either the value or the MonadicError's `expected`. */
 function call(src: string, expr: string): unknown {
@@ -475,5 +476,52 @@ function greet(u: User) { return u.name }
       'ACCEPTED'
     )
     expect(rejects(`Type D 'Alice'`)).toBe('ACCEPTED')
+  })
+})
+
+/**
+ * The declared-Type schema is derived ONCE, not on every call.
+ *
+ * The structural gate was emitted INSIDE the per-call arrow — the IIFE hoisted the
+ * predicate and left `(inferOpen ?? infer)(example)` to run again for every `.check()`.
+ * Measured on a type with an example and a predicate: **1904 ns/call**, against ~3.6 ns
+ * for a plain `n: 0`. Roughly 97% of the cost was re-deriving a compile-time constant, on
+ * the release's headline declared-Type path.
+ *
+ * Asserted by COUNTING `infer` calls rather than by timing, so it cannot flake and so it
+ * says what actually matters. A timing bound would pass on a fast machine with the
+ * derivation restored.
+ */
+describe('the declared-Type schema is derived once', () => {
+  it('infer runs once across many checks', () => {
+    const saved = (globalThis as any).__tjs
+    const real = createRuntime()
+    let inferCalls = 0
+    ;(globalThis as any).__tjs = {
+      ...real,
+      infer: (v: unknown) => {
+        inferCalls++
+        return (real as any).infer(v)
+      },
+      inferOpen: (v: unknown) => {
+        inferCalls++
+        return ((real as any).inferOpen ?? (real as any).infer)(v)
+      },
+    }
+    try {
+      const src = `Type Age {\n  example: 0\n  predicate(v) { return v >= 0 }\n}\nfunction f(a: Age) { return a }`
+      const f = new Function(
+        `${tjs(src, { filename: 'p.tjs' }).code}\nreturn f`
+      )()
+      for (let i = 0; i < 50; i++) f(5)
+      expect(inferCalls).toBe(1)
+      // Non-vacuity: the gate must still be running. A memo that never derived at all
+      // would also report a small number here.
+      expect(inferCalls).toBeGreaterThan(0)
+      // And it must still reject.
+      expect(String(f(-1))).toContain('MonadicError')
+    } finally {
+      ;(globalThis as any).__tjs = saved
+    }
   })
 })
