@@ -18,17 +18,19 @@ import { FORBIDDEN_KEYS_SET } from '../forbidden-keys'
  * function; AJS can grow an `Is` atom if/when needed — but it MUST be fuel-metered
  * per element compared, or it reintroduces the same DoS.)
  */
-/** Fail-soft boxed-primitive unwrap. See the TJS runtime's `unwrapBoxed` for the rationale. */
-function unwrapBoxedVM(v: unknown): unknown {
-  try {
-    if (v instanceof String) return String.prototype.valueOf.call(v)
-    if (v instanceof Number) return Number.prototype.valueOf.call(v)
-    if (v instanceof Boolean) return Boolean.prototype.valueOf.call(v)
-  } catch {
-    return v
-  }
-  return v
-}
+/**
+ * Fail-soft boxed-primitive unwrap — THE one, imported, not copied.
+ *
+ * This was a fourth hand-written copy, and the worst-placed of the four: `unwrap-boxed.ts`
+ * was created THIS release as "ONE definition", the commit that deduped it deduped
+ * `lang/runtime.ts` and `emitters/js.ts`, and the VM — the copy an attacker reaches first —
+ * was left behind. It was byte-identical, so nothing looked wrong; it simply was not
+ * connected to the module, nor to the differential corpus that keeps the others honest.
+ *
+ * There was no bundle reason for the copy: this file already imports the sibling leaves
+ * `../redos` and `../forbidden-keys`.
+ */
+import { unwrapBoxed as unwrapBoxedVM } from '../unwrap-boxed'
 
 function eqValue(a: unknown, b: unknown): boolean {
   // Slot reads, not `.valueOf()` — a boxed subclass must not get to run guest-supplied
