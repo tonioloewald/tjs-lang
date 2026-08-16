@@ -134,7 +134,11 @@ dist
 .yarn/build-state.yml
 .yarn/install-state.gz
 .pnp.*
-.models.cache.json  # pre-0.13.0 location (cwd); the cache now lives in the OS cache dir
+# Pre-0.13.0 location (the consumer's cwd). The cache now lives in the OS cache dir;
+# this stays so an older checkout does not start tracking one.
+# NOTE: git has no inline comments — a trailing `# …` here makes the pattern match
+# NOTHING, which is exactly how .models.cache.json came to be committed.
+.models.cache.json
 .DS_Store
 
 # Firebase functions — bun.lock triggers Cloud Build to use bun runtime

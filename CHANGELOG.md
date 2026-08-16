@@ -11,17 +11,27 @@ _Nothing yet._
 
 ## [0.13.0] — 2026-08-14
 
-> Reviewed three times before tagging. The first pass
-> ([report](docs/reviews/0.13.0-pre-release-review.md)) returned BLOCK on five blockers;
-> the second ([report](docs/reviews/0.13.0-review-2-af46fa2.md)) BLOCKed on two more that
-> the first round of fixes had introduced; the third and full-scope pass
-> ([report](docs/reviews/0.13.0-review-3-full.md)) BLOCKed on a parenthesised-arrow emit
-> bug, now fixed. Confirmed majors that remain open are itemised in `TODO.md` — none of
-> them silently changes behaviour, which is the bar that held the tag.
+> Reviewed FOUR times before tagging, each pass over the full diff since
+> `v0.13.0-beta.1`. The first ([report](https://github.com/tonioloewald/tjs-lang/blob/main/docs/reviews/0.13.0-pre-release-review.md))
+> returned BLOCK on five blockers; the second
+> ([report](https://github.com/tonioloewald/tjs-lang/blob/main/docs/reviews/0.13.0-review-2-af46fa2.md)) BLOCKed on two more that the first
+> round of fixes had introduced; the third ([report](https://github.com/tonioloewald/tjs-lang/blob/main/docs/reviews/0.13.0-review-3-full.md))
+> BLOCKed on a parenthesised-arrow emit bug; the fourth
+> ([report](https://github.com/tonioloewald/tjs-lang/blob/main/docs/reviews/0.13.0-review-4-final.md)) BLOCKed on four, **two of them
+> regressions introduced by the third round's own fixes** — a `maxHeapBytes` bypass and a
+> build failure that would have shipped a stale bundle. All are fixed, along with the ten
+> majors that pass confirmed.
+>
+> That pattern — a fix round introducing the next blocker — happened in three of the four
+> rounds, and is the honest argument for reviewing again after fixing rather than treating
+> the last green run as the answer.
+>
+> _Links are absolute because `docs/reviews/` is deliberately excluded from the npm
+> package (`"!docs/reviews"` in `files`): relative links would be dead on npm and unpkg._
 
 ### ⚠️ Upgrading — read this first
 
-Eight changes alter behaviour. Most produce no type error, so recompiling does not catch
+Ten changes alter behaviour. Most produce no type error, so recompiling does not catch
 them; the last one is a hard compile error on source that used to transpile. All but the
 VM-budget change affect code that ran under **0.12.0**.
 
@@ -90,6 +100,21 @@ predicate(v) { return v % 2 === 0 } }` followed by `function double(n: Even)` �
   destructure explicitly: `const clean = ({ x, y }) => ({ x, y })`. The
   `dict-default-excess-key` lint still fires, now worded as the typo check it always
   really was.
+
+- **Destructured `:` members are genuinely required now, and destructured params generate
+  signature tests.** `function f({ a: 2, b = 3 })` called as `f({ a: 2 })` used to return
+  `5`; a call omitting a `:` member now returns a MonadicError. Separately, a destructured
+  parameter used to produce NO signature test at all (the extractor fell through and threw,
+  and the throw was swallowed), so a previously-green build can go red on a signature that
+  was never actually being checked. Both are the same correction: the annotation always
+  looked like a contract and now is one.
+- **Emitted `Is` and `Eq` no longer run a hostile `valueOf`, and no longer throw.** A
+  boxed-primitive subclass that overrides `valueOf` used to have that method CALLED by
+  emitted comparisons (`Is(new Liar(1), 999)` was `true`), and a Proxy faking
+  `Boolean.prototype` made `==` throw a raw `TypeError` — out of an operator whose whole
+  contract is that errors are RETURNED. Both now read the internal slot and fail soft. If
+  you relied on `valueOf` being consulted by `==`, use `Is` with a
+  `[Symbol.for('tjs.equals')]` method, which is the supported seam.
 
 Two bodies of work. **First**, the language stabilised in its own direction: the guiding
 rule became _a form that parses must mean something_, and every construct that parsed
