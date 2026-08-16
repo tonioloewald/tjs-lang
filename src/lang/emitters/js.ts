@@ -1959,6 +1959,12 @@ function serializeType(t: TypeDescriptor): any {
     )
   }
   if (t.members) result.members = t.members.map(serializeType)
+  // The union's MEMBERS. Without this a literal union serialized as a bare
+  // `{"kind":"literal-union"}` — the kind survived and the whole content did not — so
+  // every downstream consumer of `__tjs` saw a type it could not act on. `values` is where
+  // the closed set lives (`types.ts`), and it is the only field that distinguishes
+  // `'yes' | 'no'` from any other union.
+  if (t.values) result.values = t.values
   return result
 }
 

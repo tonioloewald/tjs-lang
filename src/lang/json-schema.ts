@@ -87,6 +87,14 @@ export function typeDescriptorToJSONSchema(
         return { anyOf: td.members.map(typeDescriptorToJSONSchema) }
       }
       return {}
+    // A closed set of literals is exactly JSON Schema's `enum`, so this is lossless too.
+    // It had no case at all and fell through to `{}` — accept-anything — which is the
+    // worst possible rendering of the one type that knows precisely what it accepts.
+    case 'literal-union':
+      if (td.values && td.values.length > 0) {
+        return { enum: [...td.values] }
+      }
+      return {}
     default:
       return {}
   }

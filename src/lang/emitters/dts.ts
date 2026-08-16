@@ -99,6 +99,16 @@ export function typeDescriptorToTS(td: TypeDescriptor): string {
       }
       base = 'any'
       break
+    // A literal union is the ONE TJS construct with a lossless TypeScript mapping — it is
+    // literally a TS literal union — and it was emitting `any`. A consumer could call
+    // `pick(42)`, compile clean, and get a MonadicError at runtime: the declaration was
+    // strictly worse than useless, because it actively asserted that anything was fine.
+    case 'literal-union':
+      if (td.values && td.values.length > 0) {
+        return td.values.map((v) => JSON.stringify(v)).join(' | ')
+      }
+      base = 'any'
+      break
     case 'function': {
       const params = td.params ?? []
       const returns = td.returns ? typeDescriptorToTS(td.returns) : 'any'

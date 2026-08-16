@@ -28,6 +28,8 @@
  */
 import { describe, it, expect } from 'bun:test'
 import { tjs } from './index'
+import { generateDTS } from './emitters/dts'
+import { functionMetaToJSONSchema } from './json-schema'
 
 const fn = (src: string, name = 'f'): any =>
   new Function(
@@ -176,5 +178,54 @@ describe('literal unions survive a return annotation', () => {
         filename: 'lu.tjs',
       })
     ).toThrow(/signature example is inconsistent/)
+  })
+})
+
+/**
+ * A literal union survives into every downstream artifact.
+ *
+ * `serializeType` copied `items`, `shape` and `members` but not `values` — so the KIND
+ * survived and the entire content did not. `__tjs` carried a bare
+ * `{"kind":"literal-union"}`, and every consumer of that metadata saw a type it could not
+ * act on. Downstream of that:
+ *
+ *   - the `.d.ts` emitted `x: any` — for the ONE TJS construct with a lossless TypeScript
+ *     mapping, since a literal union IS a TS literal union. A consumer could call
+ *     `pick(42)`, compile clean, and get a MonadicError at runtime. That declaration is
+ *     worse than absent: it actively asserts anything is fine.
+ *   - `functionMetaToJSONSchema` emitted `{}` — accept-anything — for the one type that
+ *     knows precisely what it accepts, and which maps exactly onto `enum`.
+ *
+ * Three renderings of the same loss, one missing line each.
+ */
+describe('a literal union reaches the artifacts', () => {
+  const SRC = `export function pick(x: 'yes' | 'no'): 'yes' { return x }`
+  const result = () => tjs(SRC, { filename: 'lu.tjs' })
+
+  it('__tjs metadata carries the members', () => {
+    const code = result().code
+    expect(code).toContain('"kind": "literal-union"')
+    expect(code.replace(/\s+/g, ' ')).toContain('"values": [ "yes", "no" ]')
+  })
+
+  it('the .d.ts is a real TypeScript literal union', () => {
+    expect(generateDTS(result() as any, SRC)).toContain('pick(x: "yes" | "no")')
+  })
+
+  it('the JSON Schema is an enum', () => {
+    const meta = (result().metadata as any)?.pick
+    const schema = functionMetaToJSONSchema({
+      params: meta.params,
+      name: 'pick',
+    } as any)
+    expect((schema?.input as any)?.properties?.x?.enum).toEqual(['yes', 'no'])
+  })
+
+  it('a NUMERIC literal union too', () => {
+    // Strings are the easy case; numbers go through the same path and would be the first
+    // thing to diverge if the fix were spelled per-type.
+    const src = `export function n(x: 1 | 2): 1 { return x }`
+    const r = tjs(src, { filename: 'lu.tjs' })
+    expect(generateDTS(r as any, src)).toContain('n(x: 1 | 2)')
   })
 })
