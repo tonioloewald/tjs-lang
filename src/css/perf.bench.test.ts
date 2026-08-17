@@ -77,6 +77,15 @@ const bench = (label: string, iters: number, fn: () => void): number => {
 describe.skipIf(!!process.env.SKIP_BENCHMARKS)(
   'CSS validation perf (safe is fast)',
   () => {
+    // EXPLICIT timeout, because this `it()` does ~1.3s of nominal work (2,000 theme
+    // validations plus 700,000 per-value ones) against bun's implicit 5,000ms default.
+    // Run alongside the other benchmark files — which bun executes concurrently — the
+    // machine is saturated and the same body took 16.8s and failed on the TIMEOUT.
+    //
+    // Note what did NOT fail: the assertion. The ceiling is 8ms per theme and the
+    // contended measurement was 6.05ms (0.39–0.52ms unloaded), so the check itself is
+    // already load-tolerant by design. Only the harness's default clock was not, and a
+    // wall-clock benchmark inheriting a 5s default is a flake waiting for a busy machine.
     it('validates a theme-sized style object well under a frame', () => {
       const theme = makeTheme(50) // ~50 rules × ~12 leaves ≈ 600 values
       const leafCount = Object.keys(theme).length
@@ -104,6 +113,6 @@ describe.skipIf(!!process.env.SKIP_BENCHMARKS)(
       // Loose ceiling: a whole theme must validate far under one 16ms frame.
       // (Generous 8ms tolerates CI/load; observed is a fraction of a ms.)
       expect(themeMs).toBeLessThan(8)
-    })
+    }, 60_000)
   }
 )

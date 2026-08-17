@@ -1,7 +1,7 @@
 # TJS Benchmarks
 
-Generated: 2026-03-31
-Runtime: Bun 1.3.11
+Generated: 2026-08-17
+Runtime: Bun 1.3.14
 Platform: darwin arm64
 Iterations: 100,000 per test
 
@@ -9,24 +9,24 @@ Iterations: 100,000 per test
 
 | Benchmark                             | Baseline | Safe (default) | Unsafe (!)    |
 | ------------------------------------- | -------- | -------------- | ------------- |
-| CLI: Bun + TypeScript                 | 148.8ms  | -              | -             |
-| CLI: tjsx (execute TJS)               | 153.6ms  | -              | -             |
-| CLI: tjs emit                         | 151.8ms  | -              | -             |
-| CLI: tjs check                        | 152.0ms  | -              | -             |
-| Simple arithmetic (100K iterations)   | 0.6ms    | 1.1ms (1.9x)   | 0.5ms (0.8x)  |
-| Object manipulation (100K iterations) | 1.1ms    | 1.5ms (1.4x)   | 1.1ms (~1.0x) |
-| 3-function chain (100K iterations)    | 0.6ms    | 2.0ms (3.2x)   | 0.5ms (0.8x)  |
+| CLI: Bun + TypeScript                 | 66.4ms   | -              | -             |
+| CLI: tjsx (execute TJS)               | 67.7ms   | -              | -             |
+| CLI: tjs emit                         | 189.4ms  | -              | -             |
+| CLI: tjs check                        | 191.3ms  | -              | -             |
+| Simple arithmetic (100K iterations)   | 0.6ms    | 1.4ms (2.2x)   | 0.7ms (~1.0x) |
+| Object manipulation (100K iterations) | 1.2ms    | 1.9ms (1.5x)   | 1.2ms (~1.0x) |
+| 3-function chain (100K iterations)    | 1.2ms    | 2.4ms (2.1x)   | 0.7ms (0.6x)  |
 
 ## Key Findings
 
 ### CLI Cold Start
 
-- **Bun + TypeScript**: ~149ms (native, baseline)
-- **tjsx**: ~154ms (includes TJS transpiler load)
-- **Overhead**: 5ms for transpiler initialization
+- **Bun + TypeScript**: ~66ms (native, baseline)
+- **tjsx**: ~68ms (includes TJS transpiler load)
+- **Overhead**: none measurable — `tjsx` starts as fast as plain Bun
 
-The ~5ms overhead is from loading the acorn parser and TJS transpiler.
-A compiled binary (via `bun build --compile`) reduces this to ~20ms.
+Loading the acorn parser and the TJS transpiler costs less than the run-to-run
+spread of this measurement, so it does not show up as startup cost.
 
 ### Safe vs Unsafe Functions
 
@@ -43,9 +43,9 @@ function fastAdd(! a: 0, b: 0): 0 { return a + b }
 
 Performance comparison:
 
-- Simple arithmetic: Safe 1.9x vs Unsafe 0.8x
-- Object manipulation: Safe 1.4x vs Unsafe ~1.0x
-- 3-function chain: Safe 3.2x vs Unsafe 0.8x
+- Simple arithmetic: Safe 2.2x vs Unsafe ~1.0x
+- Object manipulation: Safe 1.5x vs Unsafe ~1.0x
+- 3-function chain: Safe 2.1x vs Unsafe 0.6x
 
 ## Recommendations
 

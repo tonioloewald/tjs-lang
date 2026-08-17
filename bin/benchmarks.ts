@@ -47,7 +47,12 @@ console.log('Running TJS benchmarks...\n')
 // CLI Cold Start
 console.log('CLI Cold Start:')
 const testFile = '/tmp/bench-test.tjs'
-writeFileSync(testFile, `function add(a: 1, b: 2) -> 3 { return a + b }`)
+// `: 3` is a WORKED return example — `add(1, 2)` really is 3 — not a type annotation.
+// This read `-> 3` until 2026-08-17, the arrow return form abolished before 0.13.0, so
+// every `bun run bench` since had died on `Unexpected token at <source>:1:26`. Nothing
+// noticed because this script is in NO gate: `test:fast` sets SKIP_BENCHMARKS, CI runs
+// `test:fast`, and `bun run bench` is a separate entry point from `bun test`.
+writeFileSync(testFile, `function add(a: 1, b: 2): 3 { return a + b }`)
 
 function measureCLI(cmd: string): number {
   const times: number[] = []
@@ -104,14 +109,14 @@ function legacyDouble(x: number): number {
 }
 
 // Safe function (default) - will have inline validation
-const safeDoubleResult = tjs(`function safeDouble(x: 0) -> 0 { return x * 2 }`)
+const safeDoubleResult = tjs(`function safeDouble(x: 0): 0 { return x * 2 }`)
 const safeDouble = new Function(
   `${safeDoubleResult.code}; return safeDouble;`
 )()
 
 // Unsafe function with (!) - no validation wrapper
 const unsafeDoubleResult = tjs(
-  `function unsafeDouble(! x: 0) -> 0 { return x * 2 }`
+  `function unsafeDouble(! x: 0): 0 { return x * 2 }`
 )
 const unsafeDouble = new Function(
   `${unsafeDoubleResult.code}; return unsafeDouble;`
@@ -150,7 +155,7 @@ function legacyTransform(x: number, y: number) {
 }
 
 const safeTransformResult = tjs(`
-  function safeTransform(x: 0, y: 0) -> { sum: 0, product: 0 } {
+  function safeTransform(x: 0, y: 0): { sum: 0, product: 0 } {
     return { sum: x + y, product: x * y }
   }
 `)
@@ -159,7 +164,7 @@ const safeTransform = new Function(
 )()
 
 const unsafeTransformResult = tjs(`
-  function unsafeTransform(! x: 0, y: 0) -> { sum: 0, product: 0 } {
+  function unsafeTransform(! x: 0, y: 0): { sum: 0, product: 0 } {
     return { sum: x + y, product: x * y }
   }
 `)
@@ -197,9 +202,9 @@ results.push({
 console.log('\n3-Function Chain:')
 
 // Create safe chain
-const safeStep1Result = tjs(`function safeStep1(x: 5) -> 10 { return x * 2 }`)
-const safeStep2Result = tjs(`function safeStep2(x: 10) -> 20 { return x + 10 }`)
-const safeStep3Result = tjs(`function safeStep3(x: 20) -> 10 { return x / 2 }`)
+const safeStep1Result = tjs(`function safeStep1(x: 5): 10 { return x * 2 }`)
+const safeStep2Result = tjs(`function safeStep2(x: 10): 20 { return x + 10 }`)
+const safeStep3Result = tjs(`function safeStep3(x: 20): 10 { return x / 2 }`)
 
 const safeStep1 = new Function(`${safeStep1Result.code}; return safeStep1;`)()
 const safeStep2 = new Function(`${safeStep2Result.code}; return safeStep2;`)()
@@ -207,13 +212,13 @@ const safeStep3 = new Function(`${safeStep3Result.code}; return safeStep3;`)()
 
 // Create unsafe chain with (!)
 const unsafeStep1Result = tjs(
-  `function unsafeStep1(! x: 5) -> 10 { return x * 2 }`
+  `function unsafeStep1(! x: 5): 10 { return x * 2 }`
 )
 const unsafeStep2Result = tjs(
-  `function unsafeStep2(! x: 10) -> 20 { return x + 10 }`
+  `function unsafeStep2(! x: 10): 20 { return x + 10 }`
 )
 const unsafeStep3Result = tjs(
-  `function unsafeStep3(! x: 20) -> 10 { return x / 2 }`
+  `function unsafeStep3(! x: 20): 10 { return x / 2 }`
 )
 
 const unsafeStep1 = new Function(
@@ -289,6 +294,25 @@ for (const r of results) {
   markdown += `| ${r.name} | ${baseline} | ${safeCol} | ${unsafeCol} |\n`
 }
 
+// A measured difference smaller than the run-to-run spread is NOT an overhead, and
+// templating it in produced "**Overhead**: -1ms for transpiler initialization" followed by
+// "The ~-1ms overhead is from loading the acorn parser" — a negative cost asserted as a
+// cause. Say parity when it is parity.
+//
+// 5ms is the threshold because the medians here move by a few ms between runs on an idle
+// machine; anything inside that is noise wearing a number.
+const overheadMs = tjsxTime - bunTsTime
+const overheadPhrase =
+  Math.abs(overheadMs) < 5
+    ? 'none measurable — `tjsx` starts as fast as plain Bun'
+    : `${overheadMs.toFixed(0)}ms for transpiler initialization`
+const overheadNote =
+  Math.abs(overheadMs) < 5
+    ? 'Loading the acorn parser and the TJS transpiler costs less than the run-to-run\nspread of this measurement, so it does not show up as startup cost.'
+    : `The ~${overheadMs.toFixed(
+        0
+      )}ms overhead is from loading the acorn parser and TJS transpiler.`
+
 markdown += `
 ## Key Findings
 
@@ -296,14 +320,9 @@ markdown += `
 
 - **Bun + TypeScript**: ~${bunTsTime.toFixed(0)}ms (native, baseline)
 - **tjsx**: ~${tjsxTime.toFixed(0)}ms (includes TJS transpiler load)
-- **Overhead**: ${(tjsxTime - bunTsTime).toFixed(
-  0
-)}ms for transpiler initialization
+- **Overhead**: ${overheadPhrase}
 
-The ~${(tjsxTime - bunTsTime).toFixed(
-  0
-)}ms overhead is from loading the acorn parser and TJS transpiler.
-A compiled binary (via \`bun build --compile\`) reduces this to ~20ms.
+${overheadNote}
 
 ### Safe vs Unsafe Functions
 
@@ -312,10 +331,10 @@ Use \`(!)\` to mark functions as unsafe for performance-critical code:
 
 \`\`\`javascript
 // Safe (default) - validates types at runtime
-function add(a: 0, b: 0) -> 0 { return a + b }
+function add(a: 0, b: 0): 0 { return a + b }
 
 // Unsafe - no validation, maximum performance
-function fastAdd(! a: 0, b: 0) -> 0 { return a + b }
+function fastAdd(! a: 0, b: 0): 0 { return a + b }
 \`\`\`
 
 Performance comparison:
