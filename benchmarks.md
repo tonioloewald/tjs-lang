@@ -1,6 +1,6 @@
 # TJS Benchmarks
 
-Generated: 2026-08-17
+Generated: 2026-08-18
 Runtime: Bun 1.3.14
 Platform: darwin arm64
 Iterations: 100,000 per test
@@ -9,20 +9,20 @@ Iterations: 100,000 per test
 
 | Benchmark                             | Baseline | Safe (default) | Unsafe (!)    |
 | ------------------------------------- | -------- | -------------- | ------------- |
-| CLI: Bun + TypeScript                 | 66.4ms   | -              | -             |
-| CLI: tjsx (execute TJS)               | 67.7ms   | -              | -             |
-| CLI: tjs emit                         | 189.4ms  | -              | -             |
-| CLI: tjs check                        | 191.3ms  | -              | -             |
-| Simple arithmetic (100K iterations)   | 0.6ms    | 1.4ms (2.2x)   | 0.7ms (~1.0x) |
-| Object manipulation (100K iterations) | 1.2ms    | 1.9ms (1.5x)   | 1.2ms (~1.0x) |
-| 3-function chain (100K iterations)    | 1.2ms    | 2.4ms (2.1x)   | 0.7ms (0.6x)  |
+| CLI: Bun + TypeScript                 | 42.0ms   | -              | -             |
+| CLI: tjsx (execute TJS)               | 41.1ms   | -              | -             |
+| CLI: tjs emit                         | 113.0ms  | -              | -             |
+| CLI: tjs check                        | 110.8ms  | -              | -             |
+| Simple arithmetic (100K iterations)   | 0.4ms    | 0.7ms (1.8x)   | 0.4ms (~1.0x) |
+| Object manipulation (100K iterations) | 0.4ms    | 0.7ms (1.6x)   | 0.4ms (~1.0x) |
+| 3-function chain (100K iterations)    | 0.4ms    | 0.8ms (2.0x)   | 0.4ms (0.9x)  |
 
 ## Key Findings
 
 ### CLI Cold Start
 
-- **Bun + TypeScript**: ~66ms (native, baseline)
-- **tjsx**: ~68ms (includes TJS transpiler load)
+- **Bun + TypeScript**: ~42ms (native, baseline)
+- **tjsx**: ~41ms (includes TJS transpiler load)
 - **Overhead**: none measurable — `tjsx` starts as fast as plain Bun
 
 Loading the acorn parser and the TJS transpiler costs less than the run-to-run
@@ -43,9 +43,9 @@ function fastAdd(! a: 0, b: 0): 0 { return a + b }
 
 Performance comparison:
 
-- Simple arithmetic: Safe 2.2x vs Unsafe ~1.0x
-- Object manipulation: Safe 1.5x vs Unsafe ~1.0x
-- 3-function chain: Safe 2.1x vs Unsafe 0.6x
+- Simple arithmetic: Safe 1.8x vs Unsafe ~1.0x
+- Object manipulation: Safe 1.6x vs Unsafe ~1.0x
+- 3-function chain: Safe 2.0x vs Unsafe 0.9x
 
 ## Recommendations
 
