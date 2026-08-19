@@ -1581,11 +1581,27 @@ export function transpileToJS(
       )
     }
 
+    // `__ub` is shared by `Eq`, `Is` and `__oneOf`, and is emitted EXACTLY ONCE.
+    //
+    // Each of the three used to prepend its own copy. Two of them in one file emitted two
+    // `function __ub` declarations at module top level — which Bun happily runs and Node
+    // REFUSES to load:
+    //
+    //     SyntaxError: Identifier '__ub' has already been declared
+    //
+    // So any emitted module using both `==` and `Is` was dead on arrival for a Node
+    // consumer while every test here stayed green. Same shape as the `typescript` import
+    // snowfox hit in production: works in our runtime, broken in theirs.
+    // `emitted-module-scope.test.ts` now parses emitted output as a MODULE, where a
+    // duplicate top-level declaration is an error rather than a shrug.
+    if (needsEq || needsIs || needsOneOf) {
+      inlineParts.push(UNWRAP_BOXED_SOURCE)
+    }
+
     // Eq/NotEq (honest equality)
     if (needsEq) {
       inlineParts.push(
-        UNWRAP_BOXED_SOURCE +
-          `function Eq(a,b){a=__ub(a);b=__ub(b);if(a===b)return true;if(typeof a==='number'&&typeof b==='number'&&isNaN(a)&&isNaN(b))return true;if((a===null||a===undefined)&&(b===null||b===undefined))return true;return false}`
+        `function Eq(a,b){a=__ub(a);b=__ub(b);if(a===b)return true;if(typeof a==='number'&&typeof b==='number'&&isNaN(a)&&isNaN(b))return true;if((a===null||a===undefined)&&(b===null||b===undefined))return true;return false}`
       )
     }
     if (needsNotEq) {
@@ -1623,8 +1639,7 @@ export function transpileToJS(
       // allocation-free. Mirrors runtime.ts goIs — the two must stay in
       // algorithmic sync (dag-safety.test.ts guards both).
       inlineParts.push(
-        UNWRAP_BOXED_SOURCE +
-          `const tjsEquals=Symbol.for('tjs.equals');function Is(a,b){return __goIs(a,b,0,null)}function __goIs(a,b,d,m){if(a!=null&&typeof a==='object'&&typeof a[tjsEquals]==='function')return a[tjsEquals](b);if(b!=null&&typeof b==='object'&&typeof b[tjsEquals]==='function')return b[tjsEquals](a);if(a!=null&&typeof a==='object'&&typeof a.Equals==='function')return a.Equals(b);if(b!=null&&typeof b==='object'&&typeof b.Equals==='function')return b.Equals(a);a=__ub(a);b=__ub(b);if(a===b)return true;if(typeof a==='number'&&typeof b==='number'&&isNaN(a)&&isNaN(b))return true;if((a==null)&&(b==null))return true;if(a==null||b==null)return false;if(typeof a!==typeof b)return false;if(typeof a!=='object')return false;if(d>=8){if(m===null)m=new WeakMap();let s=m.get(a);if(s){if(s.has(b))return true}else{s=new WeakSet();m.set(a,s)}s.add(b)}if(a instanceof Set&&b instanceof Set){if(a.size!==b.size)return false;for(const v of a)if(!b.has(v))return false;return true}if(a instanceof Map&&b instanceof Map){if(a.size!==b.size)return false;for(const[k,v]of a)if(!b.has(k)||!__goIs(v,b.get(k),d+1,m))return false;return true}if(a instanceof Date&&b instanceof Date)return a.getTime()===b.getTime();if(a instanceof RegExp&&b instanceof RegExp)return a.toString()===b.toString();if(Array.isArray(a)&&Array.isArray(b)){if(a.length!==b.length)return false;return a.every((v,i)=>__goIs(v,b[i],d+1,m))}if(Array.isArray(a)!==Array.isArray(b))return false;const ka=Object.keys(a),kb=Object.keys(b);if(ka.length!==kb.length)return false;return ka.every(k=>__goIs(a[k],b[k],d+1,m))}`
+        `const tjsEquals=Symbol.for('tjs.equals');function Is(a,b){return __goIs(a,b,0,null)}function __goIs(a,b,d,m){if(a!=null&&typeof a==='object'&&typeof a[tjsEquals]==='function')return a[tjsEquals](b);if(b!=null&&typeof b==='object'&&typeof b[tjsEquals]==='function')return b[tjsEquals](a);if(a!=null&&typeof a==='object'&&typeof a.Equals==='function')return a.Equals(b);if(b!=null&&typeof b==='object'&&typeof b.Equals==='function')return b.Equals(a);a=__ub(a);b=__ub(b);if(a===b)return true;if(typeof a==='number'&&typeof b==='number'&&isNaN(a)&&isNaN(b))return true;if((a==null)&&(b==null))return true;if(a==null||b==null)return false;if(typeof a!==typeof b)return false;if(typeof a!=='object')return false;if(d>=8){if(m===null)m=new WeakMap();let s=m.get(a);if(s){if(s.has(b))return true}else{s=new WeakSet();m.set(a,s)}s.add(b)}if(a instanceof Set&&b instanceof Set){if(a.size!==b.size)return false;for(const v of a)if(!b.has(v))return false;return true}if(a instanceof Map&&b instanceof Map){if(a.size!==b.size)return false;for(const[k,v]of a)if(!b.has(k)||!__goIs(v,b.get(k),d+1,m))return false;return true}if(a instanceof Date&&b instanceof Date)return a.getTime()===b.getTime();if(a instanceof RegExp&&b instanceof RegExp)return a.toString()===b.toString();if(Array.isArray(a)&&Array.isArray(b)){if(a.length!==b.length)return false;return a.every((v,i)=>__goIs(v,b[i],d+1,m))}if(Array.isArray(a)!==Array.isArray(b))return false;const ka=Object.keys(a),kb=Object.keys(b);if(ka.length!==kb.length)return false;return ka.every(k=>__goIs(a[k],b[k],d+1,m))}`
       )
     }
     if (needsIsNot) {
@@ -1662,12 +1677,22 @@ export function transpileToJS(
       )
     }
     if (needsOneOf) {
-      // Literal-union membership. Canonicalises the probe — unwrap boxed primitives via
-      // the PROTOTYPE method (a subclass `valueOf` must not be able to intercept a type
-      // check), fold `undefined` to `null` — then a plain `indexOf`, which is
-      // SameValueZero and therefore already right for `NaN`.
+      // Literal-union membership. Canonicalises the probe — unwrap boxed primitives, fold
+      // `undefined` to `null` — then a plain `indexOf`, which is SameValueZero and
+      // therefore already right for `NaN`.
+      //
+      // The unwrap is the SHARED `__ub`, not a hand-inlined copy. This was the fifth copy
+      // of that logic and the only one still missing the fail-soft guard, so it threw
+      // where every other copy returns:
+      //
+      //     function pick(mode: 'a' | 'b') {…}
+      //     pick(new Proxy({}, { getPrototypeOf: () => Number.prototype }))
+      //     -> TypeError: thisNumberValue called on incompatible object
+      //
+      // A raw throw out of a TYPE CHECK breaks the language's central promise that errors
+      // are returned, not thrown — and it is reachable from any hostile input.
       inlineParts.push(
-        `function __oneOf(v,ms){if(v instanceof Number)v=Number.prototype.valueOf.call(v);else if(v instanceof String)v=String.prototype.valueOf.call(v);else if(v instanceof Boolean)v=Boolean.prototype.valueOf.call(v);else if(v===undefined)v=null;return ms.indexOf(v)!==-1}`
+        `function __oneOf(v,ms){v=__ub(v);if(v===undefined)v=null;return ms.indexOf(v)!==-1}`
       )
     }
     if (needsType || needsGeneric) {
