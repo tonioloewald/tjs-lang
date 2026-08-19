@@ -7,7 +7,7 @@
 import {
   maskLiterals,
   stripComments as sharedStripComments,
-  splitTopLevel,
+  splitTopLevelTrimmed,
 } from '../../strip-comments'
 import { transformExtensionCalls } from '../parser'
 import { installRuntime } from '../runtime'
@@ -1147,7 +1147,7 @@ function extractParamExamples(paramsStr: string): string[] {
   if (!paramsStr.trim()) return []
 
   const examples: string[] = []
-  const params = splitParams(paramsStr)
+  const params = splitTopLevelTrimmed(paramsStr)
 
   for (const param of params) {
     const trimmed = param.trim()
@@ -1186,7 +1186,7 @@ function extractParamExamples(paramsStr: string): string[] {
     const objectPattern = trimmed.match(/^\{([\s\S]*)\}$/)
     if (objectPattern) {
       const supplied: string[] = []
-      for (const member of splitParams(objectPattern[1])) {
+      for (const member of splitTopLevelTrimmed(objectPattern[1])) {
         if (!member.trim()) continue
         const binding = splitMemberBinding(member)
         // Shorthand (`{a}`) or anything we can't read has no example, so there is no
@@ -1212,13 +1212,6 @@ function extractParamExamples(paramsStr: string): string[] {
   }
 
   return examples
-}
-
-/** Top-level comma split, trimmed — see `splitTopLevel` in strip-comments. */
-function splitParams(paramsStr: string): string[] {
-  return splitTopLevel(paramsStr)
-    .map((p) => p.trim())
-    .filter(Boolean)
 }
 
 /**

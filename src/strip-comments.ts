@@ -320,6 +320,25 @@ export function splitTopLevel(source: string, sep = ','): string[] {
 }
 
 /**
+ * `splitTopLevel`, trimmed, with empties dropped — which is how nearly every caller wants it.
+ *
+ * The splitter was extracted to stop a fourth copy of the depth-aware scan appearing, and
+ * then two callers immediately wrote the SAME four-line wrapper around it
+ * (`splitTopLevelTrimmed` in `dts.ts`, `splitParams` in `js-tests.ts`) — byte-equivalent
+ * apart from the name and the parameter name. A consolidation that goes three-to-one and
+ * grows two wrappers has gone three-to-three; the shared thing has to be the shape people
+ * actually reach for.
+ *
+ * `splitTopLevel` stays exported for the one caller that genuinely wants the raw spans:
+ * `parser-params.ts` splits a parameter list whose whitespace it later re-emits.
+ */
+export function splitTopLevelTrimmed(source: string, sep = ','): string[] {
+  return splitTopLevel(source, sep)
+    .map((p) => p.trim())
+    .filter(Boolean)
+}
+
+/**
  * Index of the `}` matching the `{` at `open`, or -1.
  *
  * THE balanced-brace matcher. There were three, in `tests.ts`, `docs.ts` and

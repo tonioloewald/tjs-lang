@@ -25,7 +25,7 @@ import { isDictDefaultParam } from '../types'
 import type { TJSTranspileResult, TJSTypeInfo } from './js'
 import {
   maskLiterals,
-  splitTopLevel,
+  splitTopLevelTrimmed,
   matchingBrace,
 } from '../../strip-comments'
 
@@ -297,13 +297,6 @@ interface FunctionPredicateInfo {
   params: { name: string; example: string }[]
   returns?: string
   typeParams?: string[]
-}
-
-/** Top-level comma split, trimmed — see `splitTopLevel`. */
-function splitTopLevelTrimmed(paramStr: string): string[] {
-  return splitTopLevel(paramStr)
-    .map((p) => p.trim())
-    .filter(Boolean)
 }
 
 /** Detect FunctionPredicate declarations and extract their param/return specs */
