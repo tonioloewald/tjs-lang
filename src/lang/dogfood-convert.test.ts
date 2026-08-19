@@ -130,8 +130,13 @@ const report = (label: string, st: Stage, total: number) => {
  * files that had never converted. The floor is raised because the check demanded it, which
  * is the point of having one: a ratchet that only ever protects the number it was set at
  * lets the gap between actual and asserted widen in silence.
+ *
+ * Raised to 99 on 2026-08-19 — 99/99, the whole corpus — again by the promote-check. The
+ * emit and compile stages had already reached 99/99; graduation was the last one behind,
+ * and the review round's parser fixes closed it. There is no slack left to reclaim: the
+ * floor now IS the corpus, so any regression at all fails here.
  */
-const GRADUATION_FLOOR = 97
+const GRADUATION_FLOOR = 99
 
 /** Improve by this much and the test asks for the floor to be raised. */
 const RATCHET_SLACK = 2

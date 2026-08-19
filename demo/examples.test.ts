@@ -332,6 +332,14 @@ const mockLLMBattery = {
  */
 const liveCalls = { live: 0, fallback: 0 }
 
+/**
+ * How long one live model call may take before the harness stops waiting on it.
+ *
+ * Comfortably above a healthy vision inference and comfortably below the 120s test
+ * timeout, so a slow server produces a labelled fallback instead of an unexplained red.
+ */
+const LIVE_BUDGET_MS = 45_000
+
 function withLiveFallback<T extends { predict: (...a: any[]) => Promise<any> }>(
   live: T,
   mock: { predict: (...a: any[]) => Promise<any> },
@@ -341,7 +349,27 @@ function withLiveFallback<T extends { predict: (...a: any[]) => Promise<any> }>(
     let lastErr: any
     for (let attempt = 1; attempt <= 2; attempt++) {
       try {
-        const result = await live.predict(...args)
+        // A BUDGET, not just a try/catch.
+        //
+        // This degraded to the mock when the live model ERRORED, but not when it was
+        // merely slow — so a loaded server did not fall back, it ran out the test's own
+        // 120s timeout and failed the gate. Observed in a full `bun test`: the vision
+        // examples timed out at 120s with "2 requests pending", and passed in 8s when run
+        // alone. That is exactly the "blocks on code, not LM Studio health" case this
+        // wrapper exists for; slowness just was not one of the failures it recognised.
+        //
+        // The budget is generous — vision inference on a local model is genuinely slow —
+        // but it is well inside the test timeout, so exceeding it produces a labelled
+        // fallback rather than an unexplained red.
+        const result = await Promise.race([
+          live.predict(...args),
+          new Promise((_, reject) =>
+            setTimeout(
+              () => reject(new Error(`live LLM exceeded ${LIVE_BUDGET_MS}ms`)),
+              LIVE_BUDGET_MS
+            )
+          ),
+        ])
         liveCalls.live++
         return result
       } catch (e) {
