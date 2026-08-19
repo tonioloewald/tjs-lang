@@ -2235,6 +2235,25 @@ tracked, non-blocking follow-ups.
 
 **Incoming issues to touch (comments only; don't close in code):**
 
+Dispositions as of 2026-08-19 (0.13.0 release prep). Every open issue carries one, which
+is the rule this section exists for — #27 was opened mid-window and had none anywhere, so
+"has anyone looked at this?" was unanswerable from the repo.
+
+- [ ] **#4** (`generateDTS` ignores arrow-function consts) — **FIXED in 0.13.0**, guarded by
+      `src/lang/dts-compiles.test.ts` ("exported arrows reach the .d.ts (issue #4)"). Not
+      named in the release notes; name it, then close at tag time with the version.
+- [ ] **#26** (export a tosijs-schema-compatible `createPredicateEvaluator`; specify the
+      `$predicate` source format) — three cheap halves, none landed: post the decision, write
+      the format spec into `docs/` and link it from llms.txt + CLAUDE.md, and correct the
+      version floor in llms.txt (**that last one is done** — it said `^1.4.0` where
+      package.json requires `^1.5.1`). The spec is the load-bearing one: upstream's own
+      fixtures disagree about whether a bare arrow or a named-function cluster is accepted.
+- [ ] **#27** (schema islands enforced from inside a proxy — tosijs 1.8.0 contracts one layer
+      too high) — opened 2026-08-17, mid-window. Read and understood; it is a DESIGN
+      conversation about where enforcement belongs, not a defect, and it does not block
+      0.13.0. Reply on the issue saying so rather than leaving it silent, and fold the
+      question into the `$predicate`/north-star thread (`docs/type-system-north-star.md`)
+      where it actually belongs.
 - [ ] **#11** (WASM ready/enable as `__`-prefixed globals): comment that 0.10.0's sync
       instantiation means most callers no longer need to await readiness (partial relief); the
       public non-underscore `wasmReady()` ask stands. Leave open.

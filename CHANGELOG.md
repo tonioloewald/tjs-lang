@@ -231,6 +231,12 @@ Even % 2 === 0 }` reads as "an `Even` is a value where…". Both normalise into 
 - **`tjs check <dir>` walked into `.ts` files** it cannot parse, and a shebang line broke
   offsets. It now takes the directory its own error text recommends.
 
+- **Exported arrow consts reach the `.d.ts` ([GitHub #4](https://github.com/tonioloewald/tjs-lang/issues/4)).** `export const id = (x: 0) => x`
+  emitted `id: any`, so a consumer got no types for exactly the declaration style modern TS
+  code is written in. Guarded by `src/lang/dts-compiles.test.ts` ("exported arrows reach the
+  .d.ts (issue #4)"), which compiles the emitted declarations rather than string-matching
+  them.
+
 - **Nested literal unions, and `| null` dropped from `.d.ts` output.**
 
 - **A string containing `/* unsafe */` turned validation off for the whole function.**

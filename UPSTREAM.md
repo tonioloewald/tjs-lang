@@ -96,3 +96,25 @@ and silently disables reclaiming), and a stranger `node` server that must surviv
 command line._ What makes it a rule rather than a preference is the asymmetry —
 **over-matching kills somebody else's work, under-matching prints "choose another port"** —
 so there is no trade-off to weigh and strictness is simply correct.
+
+### Two more rules learned after filing (2026-08-19) — NOT yet written back
+
+`tosijs-coding-practices#5` is still open and currently carries only the first rule. Two
+more came out of hardening `port.ts` here, and both have the same asymmetry that makes the
+first one a rule rather than a preference:
+
+1. **A generic entry path is not an identity either — anchor it to YOUR installation.**
+   `bin/dev.ts` is about the least distinctive path in web tooling. Reproduced: a listener
+   at a stranger's `bin/dev.ts` under `/tmp` was identified as ours, SIGTERMed, and
+   announced as our own server. Matching the command line is necessary and not sufficient;
+   the argv must also reference the package root. (A published BIN NAME can stand alone —
+   `tjs-playground` — and must, since a global or `npx` install shows no repo path at all.
+   The two branches rest on different guarantees and the docstring should say which.)
+
+2. **Re-verify identity before escalating to SIGKILL.** Between SIGTERM and SIGKILL the
+   process can exit and the PID be reused. The polite signal is the one you can afford to
+   get wrong; the forcible one is not, so it must re-read the command line rather than
+   trust the PortHolder it was handed.
+
+Both are implemented in `src/cli/port.ts`. Neither is upstream. **Owed to
+`tosijs-coding-practices#5`.**
