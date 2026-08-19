@@ -721,3 +721,113 @@ describe('re-walking what is already accounted', () => {
     )
   })
 })
+
+/**
+ * BOTH branches of the heap guard charge AND enforce — not one of each.
+ *
+ * `trackHeapWrite`'s append fast path deducted fuel for its walk and then carried on
+ * without checking whether that deduction had emptied the budget, while the slow path
+ * twenty lines below checked and stopped.
+ *
+ * ## What that was actually worth — measured, not assumed
+ *
+ * Nothing, behaviourally. It was filed as a minor, and I initially argued it should be
+ * promoted; that was wrong twice over. It is not a fuel bypass — the budget is still
+ * honoured — and it is not even observable: `trackHeapWrite` is only ever reached from
+ * inside an atom, and the atom wrapper's own fuel check fires immediately after, so
+ * `fuelUsed`, the error, and the attributed op all come out BYTE-IDENTICAL with the check
+ * present or absent, across every shape probed (including a final append with nothing
+ * running after it, which was the most promising candidate for a divergence).
+ *
+ * The check was added anyway, because an asymmetry between two branches of one guard is
+ * how a real bypass gets introduced later — by someone reading the permissive branch as
+ * the pattern to follow, or by a future caller that reaches `trackHeapWrite` from
+ * somewhere without a wrapper check behind it. It is defence in depth, not a bug fix.
+ *
+ * ## So what these tests pin
+ *
+ * The INVARIANTS, honestly labelled — a run that exhausts its budget while appending is
+ * stopped, blames the op that spent it, and does not overshoot. They do NOT discriminate
+ * the fix, and are not claimed to: verified by running them against the unfixed code,
+ * where they pass. A test that guards nothing is worth having only if it says so.
+ */
+describe('the heap walk charges and enforces on every path', () => {
+  const ident = (name: string) => ({ $expr: 'ident', name })
+  const lit = (value: unknown) => ({ $expr: 'literal', value })
+
+  /** Accumulate through `push` — the append fast path — on a budget too small for it. */
+  const appendProgram = (iterations: number) => ({
+    op: 'seq',
+    steps: [
+      { op: 'varSet', key: 'big', value: 'x'.repeat(50_000) },
+      { op: 'varSet', key: 'list', value: [] },
+      { op: 'varSet', key: 'i', value: 0 },
+      {
+        op: 'while',
+        condition: {
+          $expr: 'binary',
+          op: '<',
+          left: ident('i'),
+          right: lit(iterations),
+        },
+        body: [
+          {
+            op: 'push',
+            list: ident('list'),
+            item: {
+              $expr: 'binary',
+              op: '+',
+              left: ident('big'),
+              right: ident('i'),
+            },
+            result: 'list',
+          },
+          {
+            op: 'varSet',
+            key: 'i',
+            value: {
+              $expr: 'binary',
+              op: '+',
+              left: ident('i'),
+              right: lit(1),
+            },
+          },
+        ],
+      },
+      { op: 'return', value: { ok: 1 } },
+    ],
+  })
+
+  it('a run that exhausts its budget appending is stopped, and blames the append', async () => {
+    const r: any = await new AgentVM().run(
+      appendProgram(300) as any,
+      {} as any,
+      {
+        fuel: 1000,
+        // Deliberately generous, so this measures the FUEL budget and not the heap ceiling.
+        maxHeapBytes: 512 * 1024 * 1024,
+      }
+    )
+    expect(r.error).toBeDefined()
+    expect(r.error.message).toBe('Out of Fuel')
+    // The op that spent the budget, not the innocent one after it.
+    expect(r.error.op).toBe('push')
+  })
+
+  it('the budget is a ceiling, not a suggestion', async () => {
+    for (const fuel of [50, 200, 1000]) {
+      const r: any = await new AgentVM().run(
+        appendProgram(300) as any,
+        {} as any,
+        {
+          fuel,
+          maxHeapBytes: 512 * 1024 * 1024,
+        }
+      )
+      expect(r.error?.message).toBe('Out of Fuel')
+      // One step of overshoot is inherent (the charge is applied, then checked); an
+      // unenforced path would run to completion and blow far past this.
+      expect(r.fuelUsed).toBeLessThan(fuel * 1.1)
+    }
+  })
+})

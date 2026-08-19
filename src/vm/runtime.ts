@@ -204,6 +204,21 @@ export type TimeoutOverride =
   | number
   | ((input: any, ctx: RuntimeContext) => number)
 
+/**
+ * One scope's accounting for one bound name.
+ *
+ * `size` is the bytes charged for it, `ref` the value it was measured from, and `witness`
+ * a cheap change-detector (an array's length) that lets a rebind of an unchanged value skip
+ * re-measuring. The shape was spelled out longhand in three places — the context type, the
+ * `callLocal` seeding, and `reduce`'s accumulator carry — which is three chances for the
+ * three to drift apart.
+ */
+export interface HeapEntry {
+  size: number
+  ref: unknown
+  witness: number
+}
+
 export interface RuntimeContext {
   fuel: { current: number }
   args: Record<string, any>
@@ -274,7 +289,7 @@ export interface RuntimeContext {
    * bytes back when the scope is discarded — see `src/vm/heap-scope.test.ts`, which
    * asserts both directions (shadowing must not free; discarding must).
    */
-  heapPerKey?: Map<string, { size: number; ref: unknown; witness: number }>
+  heapPerKey?: Map<string, HeapEntry>
   runCodeDepth?: number // Track nested runCode calls to prevent infinite recursion
   localCall?: boolean // Inside a callLocal helper body — return may be a non-object scalar
   helpers?: Record<string, { steps: any[]; paramNames: string[] }> // Local helper bodies, called by name
@@ -1863,6 +1878,61 @@ function heapWitness(value: unknown): number {
 }
 
 /**
+ * Charge for a heap walk and STOP if that charge exhausted the budget.
+ *
+ * This is the invariant `cost-invariant.test.ts` exists to protect — every evaluation step
+ * charges fuel >= c*(work it performs). Measured before the charge existed at all: 500
+ * rebinds of a 300k-element array burned 28.8 SECONDS of pegged CPU for 50.2 fuel, versus
+ * 1ms for a benign program charged the identical 50.2.
+ *
+ * Shared because it was written once with the check and once without, in two branches of
+ * the same function.
+ */
+function chargeHeapWalk(
+  ctx: RuntimeContext,
+  nodes: number,
+  op: string
+): boolean {
+  if (!ctx.fuel) return true
+  const before = ctx.fuel.current
+  ctx.fuel.current -= nodes * HEAP_WALK_FUEL_PER_NODE
+  if (ctx.fuel.current > 0) return true
+  // Claim the failure only if OUR charge is what crossed zero. If the budget was already
+  // gone when we got here, the op that spent it owns the diagnosis — stealing the
+  // attribution would point the user at the innocent `varSet` after an expression burned
+  // the whole budget one step earlier.
+  if (before > 0 && !ctx.error) {
+    // The canonical message, not a bespoke one. Fuel exhaustion is a single condition and
+    // consumers match on it; a second wording for the same thing is a trap for anyone who
+    // wrote `err.message === 'Out of Fuel'`. The op carries the detail.
+    ctx.error = new AgentError('Out of Fuel', op)
+  }
+  return false
+}
+
+/**
+ * The heap-ceiling failure, in ONE wording.
+ *
+ * Both exits from `trackHeapWrite` built this error independently, and the two texts had
+ * already drifted apart in whitespace and line breaks — the exact duplication this release
+ * spent several commits removing elsewhere. A consumer matching on the message would have
+ * seen two different strings for one condition depending on which path tripped.
+ */
+function heapLimitError(total: number, cap: number, op: string): AgentError {
+  return new AgentError(
+    `Heap limit exceeded: guest state holds ~${Math.round(
+      total / 1048576
+    )}MB, ` +
+      `limit ${Math.round(
+        cap / 1048576
+      )}MB. Fuel bounds total work; this bounds peak ` +
+      `memory. Raise it with the maxHeapBytes run option if the workload genuinely ` +
+      `needs it.`,
+    op
+  )
+}
+
+/**
  * Account a value being bound into guest scope against the run's live-heap ceiling.
  *
  * Per-key accounting (replace, don't accumulate) so overwriting a big variable frees
@@ -1937,7 +2007,16 @@ function trackHeapWrite(
     const tail = value.slice(prevEntry.witness)
     const headroom = cap - account.bytes
     const { bytes: added, nodes } = estimateBytes(tail, Math.max(0, headroom))
-    if (ctx.fuel) ctx.fuel.current -= nodes * HEAP_WALK_FUEL_PER_NODE
+    // Charge AND enforce, exactly as the slow path below does.
+    //
+    // This charged and did not check, so the two halves of one guard sat twenty lines
+    // apart doing different things. The budget was still honoured — the interpreter's own
+    // per-step check catches it on the next op (measured: 156 fast-path hits, 0.64 fuel of
+    // overshoot on a 1000 budget) — so this was never a bypass. What it cost was the
+    // ATTRIBUTION: the run blamed whichever op ran next instead of the append that spent
+    // the budget. An asymmetry between two branches of one guard is also how a real bypass
+    // gets introduced later, by someone reading the fast path as the pattern to follow.
+    if (!chargeHeapWalk(ctx, nodes, op)) return false
     const total = account.bytes + added
     ctx.heapPerKey.set(key, {
       size: prevEntry.size + added,
@@ -1946,14 +2025,7 @@ function trackHeapWrite(
     })
     account.bytes = total
     if (total > cap) {
-      ctx.error = new AgentError(
-        `Heap limit exceeded: guest state holds ~${Math.round(
-          total / 1048576
-        )}MB, limit ${Math.round(
-          cap / 1048576
-        )}MB. Fuel bounds total work; this bounds peak memory. Raise it with the maxHeapBytes run option if the workload genuinely needs it.`,
-        op
-      )
+      ctx.error = heapLimitError(total, cap, op)
       return false
     }
     return true
@@ -1974,36 +2046,13 @@ function trackHeapWrite(
   // then a3048f4). Measured before this line existed: 500 rebinds of a 300k-element
   // array burned 28.8 SECONDS of pegged CPU for 50.2 fuel — 574 ms per fuel unit, versus
   // 1ms total for a benign program charged the identical 50.2.
-  if (ctx.fuel) {
-    const before = ctx.fuel.current
-    ctx.fuel.current -= nodes * HEAP_WALK_FUEL_PER_NODE
-    if (ctx.fuel.current <= 0) {
-      // Claim the failure only if OUR charge is what crossed zero. If the budget was
-      // already gone when we got here, the op that spent it owns the diagnosis — stealing
-      // the attribution would point the user at the innocent `varSet` after an expression
-      // burned the whole budget one step earlier.
-      if (before > 0 && !ctx.error) {
-        // The canonical message, not a bespoke one. Fuel exhaustion is a single condition
-        // and consumers match on it; a second wording for the same thing is a trap for
-        // anyone who wrote `err.message === 'Out of Fuel'`. The op carries the detail.
-        ctx.error = new AgentError('Out of Fuel', op)
-      }
-      return false
-    }
-  }
+  if (!chargeHeapWalk(ctx, nodes, op)) return false
 
   const total = account.bytes - prevSize + size
   ctx.heapPerKey.set(key, { size, ref: value, witness })
   account.bytes = total
   if (total > cap) {
-    ctx.error = new AgentError(
-      `Heap limit exceeded: guest state holds ~${Math.round(
-        total / 1048576
-      )}MB, limit ${Math.round(cap / 1048576)}MB. ` +
-        `Fuel bounds total work; this bounds peak memory. Raise it with the ` +
-        `maxHeapBytes run option if the workload genuinely needs it.`,
-      op
-    )
+    ctx.error = heapLimitError(total, cap, op)
     return false
   }
   return true
@@ -3147,7 +3196,7 @@ export const reduce = defineAtom(
      * accounted exactly as before, just without paying to re-count what was already
      * counted.
      */
-    let accEntry: { size: number; ref: unknown; witness: number } | undefined
+    let accEntry: HeapEntry | undefined
     for (const item of resolvedItems) {
       // Check abort signal for clean cancellation
       if (ctx.signal?.aborted) throw new Error('Execution aborted')
