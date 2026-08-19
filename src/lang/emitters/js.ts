@@ -1277,8 +1277,15 @@ export function transpileToJS(
     // binding. An arrow's `const` is NOT hoisted (it would be a TDZ error), so that case
     // keeps the old position — and an arrow cannot be called above its own declaration
     // anyway, so it never had the hole.
-    const wrapperHoists =
-      !!returnWrapper && (func as any).__declKind !== 'const'
+    //
+    // Gated on what ACTUALLY hoists — a real `function` declaration — not on "is not
+    // `const`". `!== 'const'` is true for `let`, so `let f = (x: 0):? 0 => x` had its
+    // wrapper inserted at position 0, emitting `const _tjsret_f = f` above `let f = …`:
+    // `ReferenceError: Cannot access 'f' before initialization` at module load, on legal
+    // TJS, with an error naming nothing near the cause. A hoisted declaration is the only
+    // binding that can be captured before its own text; every declarator form must keep
+    // the wrapper after it.
+    const wrapperHoists = !!returnWrapper && func.type === 'FunctionDeclaration'
     insertions.push({
       position: (func as any).__metaEnd ?? func.end,
       text:

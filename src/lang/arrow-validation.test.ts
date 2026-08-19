@@ -359,6 +359,23 @@ describe('return validation and hoisting', () => {
     )
   })
 
+  it('a `let` arrow LOADS — the wrapper must not hoist above it', () => {
+    // The gate was `__declKind !== 'const'`, which is true for `let`, so the wrapper went
+    // to position 0 and emitted `const _tjsret_f = f` above `let f = …`. Importing the
+    // module threw `ReferenceError: Cannot access 'f' before initialization` — a hard
+    // load crash on legal TJS, with an error naming nothing near the cause.
+    //
+    // This EVALUATES the emitted module. Asserting on the emitted text would not have
+    // caught it: the text is well-formed, it is the temporal order that is wrong.
+    expect(run(`let f = (x: 0):? 0 => x * 1.5\nconst r = f(2)`, 'r')).toBe(3)
+  })
+
+  it('a `let` function expression loads too', () => {
+    expect(
+      run(`let k = function (x: 0):? 0 { return x * 1.5 }\nconst r = k(2)`, 'r')
+    ).toBe(3)
+  })
+
   it('an arrow still validates — its wrapper cannot hoist', () => {
     // A `const` binding is not hoisted, so the arrow's wrapper stays where it was; it
     // never had the hole, and must not acquire a TDZ error from the fix.
