@@ -229,3 +229,61 @@ describe('a literal union reaches the artifacts', () => {
     expect(generateDTS(r as any, src)).toContain('n(x: 1 | 2)')
   })
 })
+
+/**
+ * A literal union works at ANY depth, and keeps its `| null`.
+ *
+ * `firstUnionMember` only scanned depth 0, so a union nested in an array or an object was
+ * left intact and still evaluated as bitwise OR — `function tag(xs: ['yes' | 'no']): 1`
+ * threw with `actual: "array of number"`. The shallow fix covered the demo case and not
+ * the ordinary one: putting a literal union inside an array or an options object is
+ * exactly what people do with the feature.
+ *
+ * Separately, `typeDescriptorToTS`'s `literal-union` case `return`ed before the trailing
+ * `if (td.nullable)`, so `'yes' | 'no' | null` declared as `"yes" | "no"`. That is the
+ * MIRROR of the bug that case was written to fix: there the declaration accepted anything,
+ * here it rejects a call TJS accepts at runtime.
+ */
+describe('literal unions nested and nullable', () => {
+  const ok = (src: string) =>
+    expect(() => tjs(src, { filename: 'lu.tjs' })).not.toThrow()
+
+  it('inside an array', () => {
+    ok(`function tag(xs: ['yes' | 'no']): 1 { return 1 }`)
+  })
+
+  it('inside an object member', () => {
+    ok(`function cfg(o: { mode: 'a' | 'b' }): 1 { return 1 }`)
+  })
+
+  it('nested two deep', () => {
+    ok(`function d(o: { a: { b: 'x' | 'y' } }): 1 { return 1 }`)
+  })
+
+  it('a pipe inside a string is still data', () => {
+    ok(`function s(x: 'a|b' | 'c'): 'a|b' { return x }`)
+  })
+
+  it('an inconsistent worked example still fails (control)', () => {
+    // Collapsing unions must not turn signature tests off.
+    expect(() =>
+      tjs(`function w(x: 'yes' | 'no'): '' { return x }`, {
+        filename: 'lu.tjs',
+      })
+    ).toThrow(/signature example is inconsistent/)
+  })
+
+  it('a nullable union keeps `| null` in the .d.ts', () => {
+    const src = `export function pick(x: 'yes' | 'no' | null): 'yes' { return x ?? 'yes' }`
+    expect(generateDTS(tjs(src, { filename: 'lu.tjs' }) as any, src)).toContain(
+      '"yes" | "no" | null'
+    )
+  })
+
+  it('a non-nullable union does NOT gain one (control)', () => {
+    const src = `export function q(x: 'yes' | 'no'): 'yes' { return x }`
+    const dts = generateDTS(tjs(src, { filename: 'lu.tjs' }) as any, src)
+    expect(dts).toContain('"yes" | "no"')
+    expect(dts).not.toContain('| null')
+  })
+})

@@ -26,8 +26,18 @@ function findSourceFiles(dir: string, files: string[] = []): string[] {
       entry !== 'node_modules'
     ) {
       findSourceFiles(full, files)
-    } else if (stats.isFile() && /\.(tjs|ts|js|mjs|cjs)$/.test(entry)) {
-      if (!entry.endsWith('.d.ts')) files.push(full)
+    } else if (stats.isFile() && /\.(tjs|js|mjs|cjs)$/.test(entry)) {
+      // `.tjs` and plain JS only — NOT `.ts`.
+      //
+      // The first version of this walker collected `.ts` too, so `tjs check src/cli`
+      // reported **15 of this project's own files as broken**: `export interface` is not
+      // TJS, and a `#!` shebang came back as `Unexpected character '!'`. That is the exact
+      // invocation `--max-warnings`'s error text recommends, so following the diagnostic
+      // produced a wall of false failures on valid TypeScript.
+      //
+      // TypeScript has its own path (`tjs convert`), and JS is checked because TJS ⊇ JS —
+      // a `.js` file is legal TJS input by design.
+      files.push(full)
     }
   }
   return files
@@ -63,7 +73,13 @@ export async function check(
 
 /** Check one file. Returns its warning count, or `null` if it failed to parse. */
 async function checkOne(file: string, _verbose = true): Promise<number | null> {
-  const source = readFileSync(file, 'utf-8')
+  // A `#!` line is legal in an executable script and is not TJS. Blanked rather than
+  // removed so every offset in a diagnostic still points at the right column.
+  const raw = readFileSync(file, 'utf-8')
+  const source = raw.startsWith('#!')
+    ? ' '.repeat(raw.indexOf('\n') === -1 ? raw.length : raw.indexOf('\n')) +
+      raw.slice(raw.indexOf('\n') === -1 ? raw.length : raw.indexOf('\n'))
+    : raw
 
   try {
     // `.js`/`.mjs` ⇒ plain-JS semantics preserved; `.tjs` ⇒ native modes.

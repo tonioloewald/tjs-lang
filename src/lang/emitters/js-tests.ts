@@ -1068,7 +1068,26 @@ export function extractReturnExampleFromSource(source: string): string | null {
  * a `|` inside a string (`'a|b' | 'c'`) is not a separator, and `||` is left alone.
  */
 function firstUnionMember(example: string): string {
+  return collapseUnions(example)
+}
+
+/**
+ * Collapse every literal union in `example` to its first member, at ANY depth.
+ *
+ * The first version only looked at depth 0, so a union nested inside an array or an object
+ * was left intact and still evaluated as bitwise OR:
+ *
+ *     function tag(xs: ['yes' | 'no']): 1   ->  actual: "array of number"
+ *     function cfg(o: { mode: 'a' | 'b' }): 1  ->  actual: "number"
+ *
+ * Literal unions are the headline 0.13.0 feature and putting one inside an array or an
+ * options object is ordinary, so the shallow fix covered the demo case and not the real
+ * one. Recursion is over the MASKED view, so a `|` inside a string stays data and `||`
+ * is never a separator.
+ */
+function collapseUnions(example: string): string {
   const masked = maskLiterals(example)
+  // Split at the OUTERMOST level first, then recurse into whatever the first member is.
   let depth = 0
   for (let i = 0; i < masked.length; i++) {
     const c = masked[i]
@@ -1080,10 +1099,45 @@ function firstUnionMember(example: string): string {
       masked[i + 1] !== '|' &&
       masked[i - 1] !== '|'
     ) {
-      return example.slice(0, i).trim()
+      return collapseUnions(example.slice(0, i).trim())
     }
   }
-  return example
+  // No top-level union: rebuild the value with each bracketed group collapsed in turn.
+  let out = ''
+  let i = 0
+  while (i < masked.length) {
+    const c = masked[i]
+    if (c === '[' || c === '{' || c === '(') {
+      const close = matchingBracket(masked, i)
+      if (close === -1) {
+        out += example.slice(i)
+        break
+      }
+      const inner = example.slice(i + 1, close)
+      out += c + collapseUnions(inner) + example[close]
+      i = close + 1
+      continue
+    }
+    out += example[i]
+    i++
+  }
+  return out
+}
+
+/** Index of the bracket closing the one at `open`, over an already-masked view. */
+function matchingBracket(masked: string, open: number): number {
+  const pairs: Record<string, string> = { '[': ']', '{': '}', '(': ')' }
+  const want = pairs[masked[open]]
+  let depth = 0
+  for (let i = open; i < masked.length; i++) {
+    const c = masked[i]
+    if (c === '[' || c === '{' || c === '(') depth++
+    else if (c === ']' || c === '}' || c === ')') {
+      depth--
+      if (depth === 0) return masked[i] === want ? i : -1
+    }
+  }
+  return -1
 }
 
 /**

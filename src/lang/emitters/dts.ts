@@ -99,7 +99,9 @@ export function typeDescriptorToTS(td: TypeDescriptor): string {
       break
     case 'union':
       if (td.members && td.members.length > 0) {
-        return td.members.map(typeDescriptorToTS).join(' | ')
+        // Same early-return hazard as `literal-union` below — kept in step deliberately.
+        base = td.members.map(typeDescriptorToTS).join(' | ')
+        break
       }
       base = 'any'
       break
@@ -109,7 +111,13 @@ export function typeDescriptorToTS(td: TypeDescriptor): string {
     // strictly worse than useless, because it actively asserted that anything was fine.
     case 'literal-union':
       if (td.values && td.values.length > 0) {
-        return td.values.map((v) => JSON.stringify(v)).join(' | ')
+        // `base` + `break`, NOT an early `return` — the trailing `if (td.nullable)` below
+        // appends `| null`, and returning here skipped it. `'yes' | 'no' | null` emitted
+        // `"yes" | "no"`, so a TS consumer calling `pick(null)` — legal TJS, accepted at
+        // runtime — got a compile error. The mirror of the bug this case was added to fix:
+        // there the declaration accepted too much, here it accepts too little.
+        base = td.values.map((v) => JSON.stringify(v)).join(' | ')
+        break
       }
       base = 'any'
       break
