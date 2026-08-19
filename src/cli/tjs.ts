@@ -59,10 +59,14 @@ Options:
                   Fail if more than n warnings (check command only). Lets CI gate
                   on type degradation without making every warning fatal — same
                   shape as eslint's flag, so a project can adopt gradually.
-  --verbose, -V   Verbose output
+  --verbose, -V   Verbose output. For 'check' over a DIRECTORY this turns the
+                  per-function signature narration back on; it is off by default
+                  there because the answer you want from a directory is "did
+                  anything fail?". A single file always narrates.
 
 Examples:
   tjs check src/utils.tjs
+  tjs check src/ --max-warnings 0
   tjs run examples/hello.tjs
   tjs types lib/api.tjs > api-types.json
   tjs emit src/utils.tjs > dist/utils.js
@@ -165,7 +169,7 @@ async function main() {
   try {
     switch (command) {
       case 'check':
-        await check(file, { maxWarnings })
+        await check(file, { maxWarnings, verbose })
         break
       case 'run':
         await run(file)

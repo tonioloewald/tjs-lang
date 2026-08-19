@@ -12,6 +12,7 @@
  * Bun's test runner only recognizes standard extensions.
  */
 
+import { findFiles } from '../walk'
 import {
   readdirSync,
   statSync,
@@ -31,26 +32,9 @@ export interface TestOptions {
   bail?: number // --bail
 }
 
-// Find all .test.tjs files recursively
-function findTestFiles(dir: string, files: string[] = []): string[] {
-  const entries = readdirSync(dir)
-
-  for (const entry of entries) {
-    const fullPath = join(dir, entry)
-    const stats = statSync(fullPath)
-
-    if (
-      stats.isDirectory() &&
-      !entry.startsWith('.') &&
-      entry !== 'node_modules'
-    ) {
-      findTestFiles(fullPath, files)
-    } else if (stats.isFile() && entry.endsWith('.test.tjs')) {
-      files.push(fullPath)
-    }
-  }
-
-  return files
+/** Every `.test.tjs` under `dir`. See `findFiles` for the two exclusions it applies. */
+function findTestFiles(dir: string): string[] {
+  return findFiles(dir, (name) => name.endsWith('.test.tjs'))
 }
 
 // Get the plugin path relative to cwd
