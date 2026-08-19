@@ -68,6 +68,36 @@ export function newExpressionPattern(names: string[]): RegExp {
  * it. Erring toward leaving code untouched is right for a rewriter — the checker will
  * still have its say.
  */
+/**
+ * Does this `new X` match actually construct `X`?
+ *
+ * THE predicate, shared with `validateNoNew`. It was written twice and the copies
+ * disagreed with each other AND with themselves, which cost two separate bugs:
+ *
+ *   - The rewriter tested `code[after] === '.'` — no whitespace allowed — so
+ *     `new Shape\n  .Circle(2)` was rewritten to `Shape()\n  .Circle(2)`, changing what
+ *     the program means. It also missed `[`, so `new Reg[key]()` became `Reg()[key]()`.
+ *   - The checker's reporter used `(?!\s*\.)` — whitespace allowed — which disagreed with
+ *     its own hit filter, so `rejectAll` matched nothing and ONE decoy `new X\n .Y()`
+ *     silenced the rule for an entire file.
+ *
+ * Whitespace and comments are skipped over the MASKED view, where a comment is already
+ * blanked, so a block comment sitting between `new Shape` and `.Circle()` reads the same as
+ * the plain whitespace form.
+ */
+export function constructsDeclaredClass(
+  masked: string,
+  matchEnd: number,
+  hadParen: boolean
+): boolean {
+  if (hadParen) return true
+  let i = matchEnd
+  while (i < masked.length && /\s/.test(masked[i])) i++
+  // `.` = member access, `[` = computed member. Either way the thing being constructed is
+  // the member, not the name we matched.
+  return masked[i] !== '.' && masked[i] !== '['
+}
+
 export function dropRedundantNew(code: string): string {
   const masked = maskLiterals(code)
   const names = declaredClassNames(code, masked)
@@ -79,8 +109,7 @@ export function dropRedundantNew(code: string): string {
   for (const m of masked.matchAll(re)) {
     const at = m.index!
     const after = at + m[0].length
-    // `new Point.Inner()` — not a construction of `Point`.
-    if (!m[2] && code[after] === '.') continue
+    if (!constructsDeclaredClass(masked, after, !!m[2])) continue
     out += code.slice(last, at) + (m[2] ? `${m[1]}(` : `${m[1]}()`)
     last = after
   }

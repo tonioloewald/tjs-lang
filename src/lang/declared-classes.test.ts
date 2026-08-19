@@ -177,3 +177,76 @@ const c = new Shape.Circle(2)
     ).toThrow(/not allowed in TJS/)
   })
 })
+
+/**
+ * The rewriter and the checker answer "does this `new X` construct X?" the SAME way.
+ *
+ * They each had their own answer, and the two disagreed with each other and with
+ * themselves — one defect apiece:
+ *
+ *   - The rewriter tested `code[after] === '.'`, no whitespace allowed, so
+ *     `new Shape\n  .Circle(2)` became `Shape()\n  .Circle(2)` — a silent change to what
+ *     the program means. It also missed `[`, turning `new Reg[key]()` into `Reg()[key]()`.
+ *   - The checker filtered the same way but REPORTED through a second regex using
+ *     `(?!\s*\.)`, which allows whitespace. The two disagreed, so `rejectAll` matched
+ *     nothing and a single exempt `new X\n  .Y()` silenced the rule for the whole file —
+ *     including genuine violations after it.
+ *
+ * Both now call `constructsDeclaredClass`, and the checker reports the offsets it already
+ * decided on rather than re-deriving them.
+ */
+describe('one predicate for `new X`', () => {
+  const REWRITE_CASES: Array<[string, string, boolean]> = [
+    [
+      'whitespace then dot',
+      'class Shape {}\nconst c = new Shape\n  .Circle(2)',
+      false,
+    ],
+    [
+      'comment then dot',
+      'class Shape {}\nconst c = new Shape /* why */ .Circle(2)',
+      false,
+    ],
+    ['computed member', 'class Reg {}\nconst r = new Reg[key]()', false],
+    ['bare new', 'class Point {}\nconst p = new Point', true],
+    ['new with parens', 'class Point {}\nconst p = new Point(1)', true],
+  ]
+
+  for (const [label, src, shouldRewrite] of REWRITE_CASES) {
+    it(`rewriter: ${label} ${
+      shouldRewrite ? 'IS' : 'is NOT'
+    } a construction`, () => {
+      const out = dropRedundantNew(src)
+      expect(out.includes('new ')).toBe(!shouldRewrite)
+    })
+
+    it(`checker agrees: ${label}`, () => {
+      // The invariant is AGREEMENT — whatever the rewriter leaves alone, the checker must
+      // accept, and whatever it rewrites, the checker must reject.
+      const check = () => validateNoNew(src)
+      if (shouldRewrite) expect(check).toThrow(/not allowed in TJS/)
+      else expect(check).not.toThrow()
+    })
+  }
+
+  it('an exempt `new X.Y()` does not silence a real violation later in the file', () => {
+    // The decoy bug: with this line present, `tjs check` passed a file containing a
+    // genuine `new Point(1)`.
+    expect(() =>
+      validateNoNew(
+        `class Shape { static Circle = class {} }\nclass Point {}\nconst c = new Shape\n  .Circle(2)\nconst p = new Point(1)\n`
+      )
+    ).toThrow(/new Point/)
+  })
+
+  it('every violation is counted, not just the first', () => {
+    try {
+      validateNoNew(
+        `class P {}\nconst a = new P()\nconst b = new P()\nconst c = new P()\n`
+      )
+      throw new Error('should have thrown')
+    } catch (e: any) {
+      expect(e.message).toContain('3 occurrences in total')
+    }
+  })
+})

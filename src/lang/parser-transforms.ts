@@ -12,7 +12,11 @@ import {
   scanLiterals,
   matchingBrace,
 } from '../strip-comments'
-import { declaredClassNames, newExpressionPattern } from './declared-classes'
+import {
+  constructsDeclaredClass,
+  declaredClassNames,
+  newExpressionPattern,
+} from './declared-classes'
 import { stripParamMarkers } from './parser-params'
 
 /**
@@ -4455,6 +4459,30 @@ export function wrapClassDeclarations(
  * remaining ones beneath it — a caret can only point at one place, but a fix list should
  * be complete.
  */
+/**
+ * Report a rejection at offsets the caller has ALREADY decided on.
+ *
+ * `rejectAll` re-matches with a second pattern, and when that pattern disagrees with the
+ * caller's own filter the rejection silently no-ops. That is not hypothetical: the
+ * `new X` checker filtered on `source[after] === '.'` and re-matched with `(?!\s*\.)`,
+ * so one `new Shape\n  .Circle()` in a file made `rejectAll` match nothing and the rule
+ * went quiet for every genuine violation after it.
+ *
+ * Deciding once and reporting the same offsets removes the disagreement by construction.
+ */
+function rejectAt(source: string, offsets: number[], message: string): void {
+  if (!offsets.length) return
+  const locs = offsets.map((at) => locAt(source, at))
+  const extra =
+    locs.length > 1
+      ? `\n\nAlso at: ${locs
+          .slice(1)
+          .map((l) => `line ${l.line}:${l.column}`)
+          .join(', ')} (${locs.length} occurrences in total)`
+      : ''
+  throw new SyntaxError(message + extra, locs[0])
+}
+
 function rejectAll(
   source: string,
   masked: string,
@@ -4756,18 +4784,21 @@ export function validateNoNew(source: string): string {
   const hits: Array<{ at: number; name: string }> = []
   for (const m of masked.matchAll(re)) {
     const after = m.index! + m[0].length
-    // `new Point.Inner()` constructs `Inner`, not `Point` — not our business.
-    if (!m[2] && source[after] === '.') continue
+    // ONE predicate, shared with the rewriter — see `constructsDeclaredClass`. Deciding
+    // here and reporting these same offsets is what stops the two from disagreeing.
+    if (!constructsDeclaredClass(masked, after, !!m[2])) continue
     hits.push({ at: m.index!, name: m[1] })
   }
   if (!hits.length) return source
 
+  // EVERY hit, not just the first. Reporting `hits[0]` alone meant a file's second and
+  // later violations were invisible until the first was fixed — and combined with the
+  // re-match disagreement above, a single exempt `new X\n  .Y()` silenced the rule
+  // outright for the whole file.
   const name = hits[0].name
-  rejectAll(
+  rejectAt(
     source,
-    masked,
-    // Re-matched narrowly for the reported location; the decision was made above.
-    new RegExp(`(?<![a-zA-Z_$.])\\bnew\\s+${name}\\b(?!\\s*\\.)`),
+    hits.map((h) => h.at),
     // Quote the CALL form as the fix, not as the source: the diagnostic used to say
     // "`new Point()` is not allowed" for source that reads `new Point`, which sends the
     // reader looking for a call site that is not there.
