@@ -240,18 +240,30 @@ export class MonadicError extends Error {
  *
  * Bounded on purpose — a long array must not build a long message. The first few distinct
  * types are enough to identify the problem.
+ *
+ * Bounded in WORK as well as in output. Stopping at four distinct kinds bounds the message
+ * but not the scan: a homogeneous `number[]` never reaches four, so a ten-million-element
+ * array was walked in full to conclude "array of number". This runs on the ERROR path,
+ * where a validation failure inside a loop pays it on every iteration — a diagnostic that
+ * becomes the performance problem. `…` marks a summary drawn from a sample, so the message
+ * never claims to have looked at more than it did.
  */
+const DESCRIBE_SCAN_LIMIT = 64
+
 function describeActual(value: unknown): string {
   if (value === null) return 'null'
   if (Array.isArray(value)) {
     if (value.length === 0) return 'empty array'
     const kinds: string[] = []
-    for (const v of value) {
+    const n = Math.min(value.length, DESCRIBE_SCAN_LIMIT)
+    for (let i = 0; i < n; i++) {
+      const v = value[i]
       const k = v === null ? 'null' : Array.isArray(v) ? 'array' : typeof v
       if (!kinds.includes(k)) kinds.push(k)
-      if (kinds.length === 4) break
+      if (kinds.length === 4) return `array of ${kinds.join(' | ')}`
     }
-    return `array of ${kinds.join(' | ')}`
+    const sampled = value.length > DESCRIBE_SCAN_LIMIT ? ' …' : ''
+    return `array of ${kinds.join(' | ')}${sampled}`
   }
   return typeof value
 }
