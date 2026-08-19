@@ -73,6 +73,9 @@ Options:
                       runtime. Without this, an occupied port is reported and
                       nothing is killed. A port held by anything that is not one
                       of our servers is never touched, with or without --force.
+                      "Ours" means a process whose COMMAND LINE names
+                      tjs-playground, or a generic entry point (bin/dev.ts) whose
+                      argv also references this installation.
 
 Examples:
   tjs-playground

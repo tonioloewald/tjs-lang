@@ -35,9 +35,13 @@ _Nothing yet._
 
 ### ⚠️ Upgrading — read this first
 
-Ten changes alter behaviour. Most produce no type error, so recompiling does not catch
-them; the last one is a hard compile error on source that used to transpile. All but the
-VM-budget change affect code that ran under **0.12.0**.
+11 changes alter behaviour. Most produce no type error, so recompiling does not catch
+them; **one of them — a `Type` block that declares no example, predicate or default — is a
+hard compile error on source that used to transpile**. All but the VM-budget change affect code that ran under **0.12.0**.
+
+(The count and the "the last one" pointer were both stale: bullets were appended to this
+list after it was written, so the positional reference had drifted off the item it named.
+Positional references into a list that grows are a standing trap; the item is named now.)
 
 - **`Timestamp` and `isValidTimestamp` now mean epoch MILLISECONDS, not an ISO 8601
   string.** Both signatures WIDENED (`(v: string)` → `(v: unknown)`), and

@@ -68,12 +68,17 @@ export const OUR_SERVERS = /tjs-playground|cli\/playground|bin\/dev\.ts/
 const OUR_ROOT = join(import.meta.dir, '..', '..')
 
 /**
- * Is this command line one of OUR servers, started from THIS installation?
+ * Is this command line one of OUR servers?
  *
- * Two ways to qualify, and both are deliberately narrow:
+ * Two ways to qualify, and they are deliberately narrow in DIFFERENT ways — which the
+ * previous summary line ("started from THIS installation") flattened into a promise only
+ * the second one keeps:
  *
- * 1. `tjs-playground` — our published bin NAME. Distinctive enough to stand alone, and it
- *    is what a global/npx install shows in argv, where no repo path appears at all.
+ * 1. `tjs-playground` — our published bin NAME, matched anywhere in argv and NOT anchored
+ *    to this checkout. It cannot be: a global or `npx` install shows no repo path at all,
+ *    so anchoring would make the tool unable to reclaim from its own previous run, which is
+ *    the entire feature. The safety here rests on the name being ours and distinctive
+ *    rather than on provenance.
  * 2. A generic entry path (`bin/dev.ts`, `cli/playground`) **only when the argv also
  *    references this package root**. Those names belong to half the tooling in existence;
  *    on their own they identify an ecosystem, not an instance — the same mistake as

@@ -216,18 +216,6 @@ export class MonadicError extends Error {
 }
 
 /**
- * Create a type error for inline validation
- *
- * Called ONLY when a type check fails - no overhead on happy path.
- * Returns a MonadicError that propagates through the call chain.
- * In debug mode, captures the TJS call stack with source locations.
- *
- * @param path - Location of the error, e.g., "src/file.ts:42:greet.name"
- * @param expected - Expected type, e.g., "string"
- * @param value - The actual value that failed the check
- */
-/** What a value IS, for a diagnostic — `typeof` with arrays and null told truthfully. */
-/**
  * What the caller actually passed, said usefully.
  *
  * An array used to report bare `array`, so `f([1, 'bad', 3])` against `xs: [0]` produced
@@ -238,11 +226,9 @@ export class MonadicError extends Error {
  * needed at the error site: `array of number | string`. That names the intruder next to
  * the expectation, which is the pair a reader can act on.
  *
- * Bounded on purpose — a long array must not build a long message. The first few distinct
- * types are enough to identify the problem.
- *
- * Bounded in WORK as well as in output. Stopping at four distinct kinds bounds the message
- * but not the scan: a homogeneous `number[]` never reaches four, so a ten-million-element
+ * Bounded on purpose, in WORK as well as in output — a long array must neither build a long
+ * message nor cost a long scan to describe. Stopping at four distinct kinds bounds only the
+ * message: a homogeneous `number[]` never reaches four, so a ten-million-element
  * array was walked in full to conclude "array of number". This runs on the ERROR path,
  * where a validation failure inside a loop pays it on every iteration — a diagnostic that
  * becomes the performance problem. `…` marks a summary drawn from a sample, so the message
@@ -268,6 +254,21 @@ function describeActual(value: unknown): string {
   return typeof value
 }
 
+/**
+ * Create a type error for inline validation.
+ *
+ * Called ONLY when a type check fails — no overhead on the happy path. Returns a
+ * MonadicError that propagates through the call chain; in debug mode it captures the TJS
+ * call stack with source locations.
+ *
+ * (This doc comment used to sit above `describeActual`, two functions up, describing
+ * parameters that function does not have. Three doc comments were stacked there, and the
+ * one nearest the code was the only one about it.)
+ *
+ * @param path - Location of the error, e.g., "src/file.ts:42:greet.name"
+ * @param expected - Expected type, e.g., "string"
+ * @param value - The actual value that failed the check
+ */
 export function typeError(
   path: string,
   expected: string,
