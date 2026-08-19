@@ -116,6 +116,13 @@ Fix: make sure both model types are loaded and inferring, then **clear the cache
 ```bash
 # macOS; Linux uses ${XDG_CACHE_HOME:-~/.cache}, Windows %LOCALAPPDATA%
 rm -f ~/Library/Caches/tjs-lang/.models.cache.json
+
+# Or put the cache somewhere you control, and delete that instead. `TJS_CACHE_DIR`
+# overrides every default above; with no home directory at all (scratch containers,
+# some CI images) the cache falls back to the OS temp dir. It is never written to the
+# working directory — that was the original bug.
+export TJS_CACHE_DIR=/tmp/my-tjs-cache
+rm -f "$TJS_CACHE_DIR/.models.cache.json"
 ```
 The path is printed to stderr the first time an audit writes it, so you never have to
 guess. It moved out of the working directory in 0.13.0 — importing `tjs-lang/batteries`

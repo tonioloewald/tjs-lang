@@ -282,8 +282,12 @@ Even % 2 === 0 }` reads as "an `Even` is a value where…". Both normalise into 
   changes.** It was written to `process.cwd()/.models.cache.json` — a dotfile dropped into
   whatever repo you ran from — and keyed only on base URL plus a 24h TTL, so when
   `looksLikeVisionModel` was corrected this release an upgrader kept `vision: false` for a
-  multimodal model for up to a day. It now lives in the OS cache directory, announces its
-  path, and carries a probe version.
+  multimodal model for up to a day. It now lives in the OS cache directory
+  (`~/Library/Caches/tjs-lang`, `$XDG_CACHE_HOME/tjs-lang`, `%LOCALAPPDATA%`), announces its
+  path, and carries a probe version. **Override it with the new `TJS_CACHE_DIR`** if you
+  want it somewhere specific; with no home directory at all (scratch containers, some CI
+  images) it falls back to the OS temp dir rather than to `.`, which would have been the
+  original bug wearing a different hat.
 
 - **`extractTDoc` re-scanned the whole file prefix for every function.** Doc comments are
   now located once per source and binary-searched: 128.9ms → 4.5ms over 58 functions on a

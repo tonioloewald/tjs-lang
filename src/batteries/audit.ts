@@ -42,38 +42,59 @@ interface CacheData {
  * their repo, and which they then have to gitignore. A cache is ours to keep, not theirs
  * to store.
  */
-async function cacheDir(): Promise<string> {
-  const path = await import('node:path')
-  // `process.env.HOME` rather than `os.homedir()`: this module is in the MAIN entry's
-  // graph, and `src/index-tsfree.test.ts` bundles that graph for the browser, where
-  // `node:os` is not resolvable and fails the build outright. `node:path` and
-  // `node:fs/promises` already are, which is why the existing dynamic imports work and
-  // this one did not. The env vars carry the same information on every platform we target.
+/**
+ * WHERE the cache goes, as a pure function of the environment.
+ *
+ * Separated from `cacheDir` so it can be table-tested. Three behaviours ship here — the
+ * `TJS_CACHE_DIR` override, the no-home fallback, and the per-platform base — and none of
+ * them could be exercised while they were welded to `process.env` and `process.platform`
+ * inside an async function that also does a dynamic import.
+ *
+ * The load-bearing property is one line: the result is ALWAYS an absolute path belonging to
+ * us, and NEVER a relative one that lands in the consumer's working directory. The original
+ * bug wrote `.models.cache.json` into whatever directory you happened to run from; the
+ * first fix reintroduced it in a different hat with a `|| '.'` fallback.
+ *
+ * `join` is a parameter because `node:path` is imported dynamically — this module is in the
+ * MAIN entry's graph, which `src/index-tsfree.test.ts` bundles for the browser.
+ */
+export function resolveCacheDir(
+  env: Record<string, string | undefined>,
+  platform: string,
+  join: (...parts: string[]) => string
+): string {
   // `TJS_CACHE_DIR` wins, so a consumer can put this wherever they like.
-  if (process.env.TJS_CACHE_DIR) return process.env.TJS_CACHE_DIR
+  if (env.TJS_CACHE_DIR) return env.TJS_CACHE_DIR
+
   // No home directory (scratch containers, some CI images, systemd units) falls back to
   // the OS temp dir — NOT to `.`, which was the original bug wearing a different hat: it
   // would write `./.cache/tjs-lang/.models.cache.json` into the consumer's working
   // directory, under a path `.gitignore` does not cover. A cache is ours to keep; if there
   // is nowhere of ours to keep it, temp is still not theirs.
-  const home = process.env.HOME || process.env.USERPROFILE
+  const home = env.HOME || env.USERPROFILE
   if (!home) {
-    // `process.env.TMPDIR` rather than `os.tmpdir()`: `node:os` is not resolvable in the
-    // browser bundle this module's graph is guarded against, and reaching for it here is
-    // exactly the mistake that broke `bun run make` earlier in this release. Same
-    // information, no new import.
-    const tmp =
-      process.env.TMPDIR || process.env.TEMP || process.env.TMP || '/tmp'
-    return path.join(tmp, 'tjs-lang')
+    // `env.TMPDIR` rather than `os.tmpdir()`: `node:os` is not resolvable in the browser
+    // bundle this module's graph is guarded against, and reaching for it here is exactly
+    // the mistake that broke `bun run make` earlier in this release. Same information, no
+    // new import.
+    const tmp = env.TMPDIR || env.TEMP || env.TMP || '/tmp'
+    return join(tmp, 'tjs-lang')
   }
+
   const base =
-    process.env.XDG_CACHE_HOME ||
-    (process.platform === 'darwin'
-      ? path.join(home, 'Library', 'Caches')
-      : process.platform === 'win32'
-      ? process.env.LOCALAPPDATA || path.join(home, 'AppData', 'Local')
-      : path.join(home, '.cache'))
-  return path.join(base, 'tjs-lang')
+    env.XDG_CACHE_HOME ||
+    (platform === 'darwin'
+      ? join(home, 'Library', 'Caches')
+      : platform === 'win32'
+      ? env.LOCALAPPDATA || join(home, 'AppData', 'Local')
+      : join(home, '.cache'))
+  return join(base, 'tjs-lang')
+}
+
+async function cacheDir(): Promise<string> {
+  // `process.env.HOME` rather than `os.homedir()`: see `resolveCacheDir`.
+  const path = await import('node:path')
+  return resolveCacheDir(process.env, process.platform, path.join)
 }
 
 /** So the path is announced once per process, not once per audit. */

@@ -73,7 +73,7 @@ grep -E "^\(fail\)" /tmp/test-results.txt             # List failures
 grep -A10 "test name" /tmp/test-results.txt           # See specific error
 
 # CLI tools
-bun src/cli/tjs.ts check <file>    # Parse and type check TJS file
+bun src/cli/tjs.ts check <path>    # Type check a TJS file, or every .tjs/.js in a dir
 bun src/cli/tjs.ts run <file>      # Transpile and execute
 bun src/cli/tjs.ts types <file>    # Output type metadata as JSON
 bun src/cli/tjs.ts emit <file>     # Output transpiled JavaScript
@@ -97,7 +97,10 @@ bun run test:llm            # LM Studio live smoke (audit + predict + embed)
 bun run test:grok           # AJS grokkability vs a pinned small model (advisory,
                             #   never blocks; reports a success rate). Needs
                             #   gemma-4-e2b loaded — override with GROK_MODEL.
-bun run bench               # Vector search benchmarks
+bun run bench               # Regenerates benchmarks.md (CLI cold start, safe-vs-unsafe,
+                            #   dictionary defaults). NOT vector search — that is
+                            #   src/linalg/vector-search.bench.test.ts. This overwrites a
+                            #   committed, npm-shipped artifact, so commit the diff.
 bun run docs                # Generate documentation
 bun run docs:differences    # Regenerate docs/tjs-vs-typescript.md from
                             #   src/lang/differences.ts. Part of `make`. The page is a
@@ -151,7 +154,7 @@ bun run functions:serve     # Local functions emulator
 - `src/lang/linter.ts` - Static analysis (unused vars, unreachable code, no-explicit-new, dict-default-excess-key)
 - `src/redos.ts` - Shared, dependency-free ReDoS star-height detector (`reDoSRisk`); single source for the predicate verifier AND the VM's `regexMatch` (safe in the lean `tjs-lang/vm` bundle)
 - `src/forbidden-keys.ts` - Canonical prototype-pollution key list (`FORBIDDEN_KEYS`); single source for the VM member/scope guards, the linter, and the dict-default emitter
-- `src/strip-comments.ts` - **The** literal/comment scanner, and the single most-imported leaf in the repo (12 non-test consumers). `scanLiterals` (memoized) is the primitive; three views are derived from it — `maskLiterals` (literals AND comments blanked, offsets preserved), `maskLiteralsKeepComments` (literals blanked, comments INTACT — the view for finding `/* unsafe */`), `stripComments` (comments removed, literals intact). Also `matchingBrace(masked, open)`, the one balanced-brace matcher. Picking the wrong view is a live failure mode: `maskLiterals` erases the very marker an `/* unsafe */` scan is looking for. See the literal-blindness note below
+- `src/strip-comments.ts` - **The** literal/comment scanner, and the single most-imported leaf in the repo (12 non-test consumers). `scanLiterals` (memoized) is the primitive; three views are derived from it — `maskLiterals` (literals AND comments blanked, offsets preserved), `maskLiteralsKeepComments` (literals blanked, comments INTACT — the view for finding `/* unsafe */`), `stripComments` (comments removed, literals intact). Also `matchingBrace(masked, open)`, the one balanced-brace matcher, and `splitTopLevel(src, sep)`, the one depth-aware splitter (added to stop a fourth copy appearing). Picking the wrong view is a live failure mode: `maskLiterals` erases the very marker an `/* unsafe */` scan is looking for. See the literal-blindness note below
 - `src/unwrap-boxed.ts` - Single source for boxed-primitive unwrapping: `unwrapBoxed()` plus `UNWRAP_BOXED_SOURCE`, the same logic as an emittable string. Two artefacts because emitted `.js` must stand alone; kept honest by a differential test rather than by care
 - `src/lang/declared-classes.ts` - One rule for `new X` on a locally declared class (`declaredClassNames`, `newExpressionPattern`, `dropRedundantNew`), shared by the converter and the validator
 - `src/lang/differences.ts` - The TJS-vs-TypeScript difference TABLE, as data. Every row is executed against `tsc --strict` and TJS by `differences.test.ts`, so a documented claim cannot drift from the language without a test going red
@@ -396,6 +399,14 @@ The rule: **test our code deterministically, use a real model only for what only
 2. **Live smoke (`bun test`, gated by `SKIP_LLM_TESTS`).** `src/batteries/models.integration.test.ts` — the irreducible "our client still works against a real LM Studio": audit once, then predict + embed. Asserts _shape_ (a string, a vector), never content. Needs a chat + embedding model loaded. In the pre-tag gate; ~4s.
 3. **AJS grokkability (`bun run test:grok`, advisory, NOT in the gate).** `src/use-cases/ajs-grokkability.test.ts` measures whether a **small pinned model** (gemma-4-e2b) can write valid AJS — a load-bearing premise of AJS, and un-mockable (a mock would just re-test the transpiler). Runs N samples/task, reports a success rate vs a bar, and **never fails on the rate** (a bad model run is variance, not a code regression). Behind `RUN_GROK_TESTS`, so a plain `bun test` never runs it. Run it deliberately when the AJS format or `guides/ajs-llm-prompt.md` changes, or on a cadence. Tunable: `GROK_MODEL`, `GROK_SAMPLES`, `GROK_THRESHOLD`.
 
+**Environment variables the batteries read.** `TJS_LLM_BASE_URL` picks the server;
+**`TJS_CACHE_DIR`** relocates the model-audit cache. The cache defaults to an OS cache
+directory (`~/Library/Caches/tjs-lang`, `$XDG_CACHE_HOME/tjs-lang`, `%LOCALAPPDATA%`), never
+the working directory — importing `tjs-lang/batteries` used to drop `.models.cache.json`
+into whatever repo you ran from. With no home directory at all it falls back to the OS temp
+dir. Resolution is a pure function (`resolveCacheDir`) table-tested in
+`src/batteries/cache-dir.test.ts`; the property it pins is _always absolute, never cwd_.
+
 **The backend is a config choice, not code.** The batteries speak plain OpenAI-compatible HTTP, so any local server works — point at one with `TJS_LLM_BASE_URL` (`src/batteries/config.ts`). **MLX (`mlx-omni-server`) is the intended backend going forward** — see [`docs/mlx-setup.md`](docs/mlx-setup.md). LM Studio setup and its hard-won gotchas (model load failures, leaked-VRAM stray `node` worker, CORS, the audit-cache parallel race) remain in [`docs/lm-studio-setup.md`](docs/lm-studio-setup.md).
 
 Coverage targets: 98% lines on `src/vm/runtime.ts` (security-critical), 80%+ overall.
@@ -494,6 +505,10 @@ expectation is almost always the wrong move.
 - `src/lang/dts-compiles.test.ts`, `src/doc-snippets.test.ts`, `demo/docs-fresh.test.ts` — generated `.d.ts` actually compiles, documented snippets actually transpile, and `demo/docs.json` matches its sources. **Any CHANGELOG or markdown edit needs `bun run docs`** or the last of these goes red.
 - `src/cli/help-accuracy.test.ts` — `--help` describes what the CLI does. `--force` once promised it stopped "an earlier playground" while the code accepted any JS runtime.
 - `editors/editors-build.test.ts` — the committed `editors/**/*.js` are byte-identical to a fresh bundle of the adjacent `.ts`.
+- `src/repo-hygiene.test.ts` — nothing tracked is also ignored, and `.gitignore` has no inline comments. Git has no inline `#` in `.gitignore`: a trailing comment makes the pattern match NOTHING, which is how `.models.cache.json` got committed.
+- `src/benchmarks-runnable.test.ts` — the benchmark fixtures still parse, and every millisecond figure in `guides/benchmarks.md` sits under a date stamp. A hand-copied table drifted an order of magnitude for seven months.
+- `src/emitted-module-scope.test.ts` — emitted output loads as an ES MODULE, where a duplicate top-level declaration is an error. Bun tolerates one; Node refuses, so `==` plus `Is` in one file shipped broken for Node consumers with a green suite.
+- `src/lang/param-markers.test.ts` — `extractParamMarkers` agrees with the pre-optimisation implementation over a corpus, and its growth stays linear.
 
 ### The inline runtime is NOT the real runtime
 

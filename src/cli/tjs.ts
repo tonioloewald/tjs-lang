@@ -33,7 +33,7 @@ Usage:
   tjs <command> [options] <file>
 
 Commands:
-  check <file>    Parse and type check a TJS file
+  check <path>    Parse and type check a TJS file, or every .tjs/.js in a directory
   run <file>      Transpile and execute a TJS file
   types <file>    Output type metadata as JSON
   emit <file>     Output transpiled JavaScript (+ docs)
