@@ -1,87 +1,96 @@
-# TJS Benchmarks
+# TJS Performance Guide
 
-Generated: 2026-01-19
-Runtime: Bun 1.3.6
-Platform: darwin arm64
-Iterations: 100,000 per test
+**Numbers live in [`benchmarks.md`](../benchmarks.md), which is generated. This page carries
+the guidance that outlives any particular measurement.**
 
-## Summary
+## Why this page has no table
 
-| Benchmark                         | Baseline | Safe (wrapped) | Unsafe (!)   |
-| --------------------------------- | -------- | -------------- | ------------ |
-| Simple arithmetic (100K calls)    | 0.5ms    | 13ms (26x)     | 0.7ms (1.3x) |
-| 3-function chain (100K calls)     | 0.7ms    | 19ms (28x)     | 0.8ms (1.2x) |
-| Loop with helper (100 elem × 10K) | 1.7ms    | 20ms (12x)     | 1.5ms (0.9x) |
+It used to have one, hand-maintained, and it drifted an order of magnitude:
 
-## Key Findings
+| Claim                           | This page (2026-01-19) | Measured (2026-08-18) |
+| ------------------------------- | ---------------------- | --------------------- |
+| Safe function vs baseline       | 17–28×                 | 1.6–2.0×              |
+| Safe helper in a loop, per call | 12×                    | 1.9× (vs unsafe)      |
 
-### Runtime Validation Overhead
+The old figures were real when written — validation went through a `wrap()` call that the
+emitter no longer produces. Nothing was wrong except that a second, hand-copied set of
+numbers existed at all: it could not be regenerated, so it could not be noticed going stale,
+and for seven months this guide told readers that safe TJS cost them 17–28× when it cost
+under 2×. That is a discouraging lie about the language's central feature.
 
-Safe TJS functions use `wrap()` for monadic type validation:
+`benchmarks.md` is written by `bun run bench` and carries its own date, runtime and platform.
+It is the only place timings belong. When you want a number, run the benchmark.
 
-- **~17-28x overhead** for simple operations
-- **~0.02µs per validation** (absolute time is small)
-- Overhead becomes negligible when actual work dominates
-
-### Safe vs Unsafe Functions
+## Safe by default, unsafe where it is measured to matter
 
 ```javascript
-// Safe (default) - validates types at runtime
+// Safe (default) — validates arguments and return at run time
 function add(a: 0, b: 0): 0 { return a + b }
 
-// Unsafe - no validation, plain JS performance
+// Unsafe — no validation, plain-JS cost
 function fastAdd(! a: 0, b: 0): 0 { return a + b }
 ```
 
-| Mode       | Overhead | Use Case                        |
-| ---------- | -------- | ------------------------------- |
-| Safe       | ~17-28x  | API boundaries, untrusted input |
-| Unsafe (!) | ~1.2x    | Hot paths, internal functions   |
+Validation cost is per CALL and proportional to the shape being checked, so it is invisible
+whenever the function does real work and visible when the function is trivial and hot.
 
-### ⚠️ Safe Helpers in Loops
+## Validation cost lives at the callee
 
-**Critical insight**: marking the OUTER function unsafe does not help if the inner helper
-is safe. Validation cost lives at the callee, so a hot loop pays for its helper:
+This is the one thing worth internalising, and it is not obvious: marking the OUTER function
+unsafe does nothing for the helper it calls in a loop.
 
 ```javascript
 function process(! arr: [0]): 0 {
   let sum = 0
   for (const x of arr) {
-    sum += double(x)  // If double() is safe, still pays 12x per call!
+    sum += double(x)   // if `double` is safe, this loop pays for it, every iteration
   }
   return sum
 }
 ```
 
-**Fix**: Mark the helper as unsafe:
+The fix is to mark the callee:
 
 ```javascript
-function double(! x: 0): 0 { return x * 2 }  // No validation overhead
+function double(! x: 0): 0 { return x * 2 }
 ```
 
-### There Is No `unsafe {}` Block
+A 100-element loop run 10,000 times — one million helper calls (2026-08-19, Bun 1.3.14,
+darwin arm64):
 
-This section used to describe one, with semantics ("wraps code in try-catch") and a
-measured overhead ("~1.3x") for a form that does not parse. `unsafe` is an expression
-PREFIX (`unsafe new Date(0)`) or a function marker (`function f(! x: 0)`) — never a block.
+| Helper                | Best of 7 | vs plain JS |
+| --------------------- | --------- | ----------- |
+| plain JS              | 0.62ms    | 1.0×        |
+| TJS, `!` unsafe       | 1.48ms    | 2.4×        |
+| TJS, safe (validated) | 2.75ms    | 4.5×        |
+
+So the safe helper is the more expensive choice by ~1.9× against the unsafe one — and still
+under 3ms for a million calls, which is why "safe by default, unsafe where you have measured
+a problem" is the right order to work in. Re-derive these with `bun run bench` rather than
+trusting them; that is the whole lesson of this page.
+
+## There is no `unsafe {}` block
+
+This section used to describe one, with semantics ("wraps code in try-catch") and a measured
+overhead for a form that does not parse. `unsafe` is an expression PREFIX
+(`unsafe new Date(0)`) or a function marker (`function f(! x: 0)`) — never a block.
 
 ## Recommendations
 
-1. **Safe by default** - Use for API boundaries and untrusted input
-2. **Unsafe (!) for helpers** - Mark hot inner functions that are called in loops
-3. **Validate once at the edge** - Check types at entry, use unsafe internally
-4. **Don't micro-optimize** - 0.02µs matters only in tight loops
+1. **Safe by default.** Use it at API boundaries and for anything touching untrusted input.
+2. **Unsafe for hot callees.** Mark the inner function, not the outer one.
+3. **Validate once at the edge.** Check at entry, then use unsafe internally.
+4. **Measure before optimising.** Run `bun run bench`; do not copy a number out of a guide.
 
-## Future: Type Flow Optimization
+## Future: type-flow optimisation
 
-Planned compile-time optimization will automatically skip redundant checks:
+Planned compile-time work will skip checks it can prove redundant — an output type that
+matches the next input, a known array element type — so hot paths stop needing the manual
+`!`.
 
-- Output type matches next input → skip validation
-- Array element type known → skip per-iteration checks
-- Target: ~1.2x overhead automatically (no manual `!` needed)
-
-## Running Benchmarks
+## Running benchmarks
 
 ```bash
-bun test src/lang/perf.test.ts
+bun run bench                    # regenerates benchmarks.md
+bun test src/lang/perf.test.ts   # the transpiler's own performance tests
 ```

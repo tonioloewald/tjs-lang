@@ -85,3 +85,44 @@ describe('the benchmark harness is runnable', () => {
     expect(arrows).toEqual([])
   })
 })
+
+/**
+ * Timings live in ONE place — the generated `benchmarks.md` — and nowhere else.
+ *
+ * `guides/benchmarks.md` carried a hand-copied table that drifted an order of magnitude and
+ * sat wrong for seven months: it told readers safe TJS cost 17–28× when it cost under 2×,
+ * because validation had moved off the `wrap()` call those figures measured. A second copy
+ * of a generated number cannot be regenerated, so it cannot be noticed going stale.
+ *
+ * The guide now explains the drift and points at the generated file. This keeps it that way:
+ * a `12x` or `13ms` reappearing in a hand-maintained guide is a number nobody will ever
+ * refresh. Historical figures are allowed where they are explicitly dated, which is what the
+ * "why this page has no table" section is.
+ */
+describe('timings live only in the generated benchmark file', () => {
+  it('every millisecond figure in guides/benchmarks.md sits under a date stamp', () => {
+    const text = readFileSync(
+      join(import.meta.dir, '..', 'guides', 'benchmarks.md'),
+      'utf8'
+    )
+    const lines = text.split('\n')
+    // A figure is DATED if a `2026-…` stamp appears within the dozen lines above it —
+    // close enough to be the same table or paragraph. That is the whole rule: a reader
+    // must be able to see how old a number is without leaving it.
+    const DATE = /\b20\d\d-\d\d-\d\d\b/
+    const TIMING = /\b\d+(\.\d+)?\s*(ms|µs|ns)\b/
+    const undated = lines.filter((l, i) => {
+      if (!TIMING.test(l)) return false
+      return !lines.slice(Math.max(0, i - 12), i + 1).some((p) => DATE.test(p))
+    })
+    expect(undated).toEqual([])
+  })
+
+  it('the rule really rejects an undated figure (apparatus check)', () => {
+    // Without this, a regex that matched nothing would read as a clean document.
+    const DATE = /\b20\d\d-\d\d-\d\d\b/
+    const TIMING = /\b\d+(\.\d+)?\s*(ms|µs|ns)\b/
+    expect(TIMING.test('safe functions cost 13ms')).toBe(true)
+    expect(DATE.test('Generated: 2026-08-18')).toBe(true)
+  })
+})

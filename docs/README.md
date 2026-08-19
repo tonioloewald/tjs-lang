@@ -51,7 +51,7 @@ Key examples:
 |----------|-------------|
 | [Roadmap](https://github.com/tonioloewald/tjs-lang/blob/main/PLAN.md) | Project roadmap and planned features |
 | [TODO](https://github.com/tonioloewald/tjs-lang/blob/main/TODO.md) | Current task list |
-| [Benchmarks](https://github.com/tonioloewald/tjs-lang/blob/main/guides/benchmarks.md) | Performance benchmarks |
+| [Performance guide](https://github.com/tonioloewald/tjs-lang/blob/main/guides/benchmarks.md) | When validation costs anything, and where to put `!` (numbers live in the generated `benchmarks.md`) |
 | [CLAUDE.md](https://github.com/tonioloewald/tjs-lang/blob/main/CLAUDE.md) | AI assistant instructions for this codebase |
 
 ## npm Package

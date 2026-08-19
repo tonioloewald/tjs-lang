@@ -800,7 +800,7 @@ The CLI (`bun src/cli/tjs.ts run`) does NOT inject the test-block `expect` harne
 - `DOCS-WASM.md` — Canonical WASM reference: inline blocks, `wasm function` declarations, memory model, cross-file composition, `tjs-lang/linalg`, current limitations
 - `wasm-library-plan.md` — Cross-file WASM library design (composable `wasm function` declarations, transpile-time module composition, linalg stdlib). **Shipped in v0.8.0** — all phases (0.5, 0.75, 1, 1.5, 2, 3, 4, 5 MVP, 6) complete. See the plan for what's deferred (linalg expansion, i32/f32/v128 return types, etc.).
 - `MANIFESTO-BUILDER.md` / `MANIFESTO-ENTERPRISE.md` — Positioning docs (audience-targeted pitches)
-- `benchmarks.md` — Top-level benchmark results (separate from `guides/benchmarks.md`)
+- `benchmarks.md` — Top-level benchmark results, **generated** by `bun run bench`. The only place timings belong: `guides/benchmarks.md` used to hand-copy a table and drifted an order of magnitude (17–28× vs a real 1.6–2.0×) for seven months. It is now the performance _guide_ — guidance, no undated numbers, enforced by `src/benchmarks-runnable.test.ts`.
 - `UPSTREAM.md` — dependency bugs filed upstream + worked around locally (the paper trail for removing each workaround once upstream lands)
 
 ### Keeping This File and `llms.txt` Current
