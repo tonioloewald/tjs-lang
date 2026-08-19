@@ -7,8 +7,10 @@
  * Usage: bun bin/benchmarks.ts
  */
 
-import { writeFileSync } from 'fs'
-import { execSync } from 'child_process'
+import { writeFileSync, mkdtempSync, rmSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
+import { execSync } from 'node:child_process'
 import { tjs } from '../src/lang'
 import { installRuntime } from '../src/lang/runtime'
 
@@ -148,7 +150,14 @@ console.log('Running TJS benchmarks...\n')
 
 // CLI Cold Start
 console.log('CLI Cold Start:')
-const testFile = '/tmp/bench-test.tjs'
+// A PRIVATE scratch directory, not a fixed `/tmp/bench-test.tjs`.
+//
+// A fixed world-writable path is both a collision (two runs, or two checkouts, fight over
+// it) and a small foothold: anything that can pre-create that path chooses what
+// `measureCLI` executes below, since the benchmark then runs `bun` on it. `mkdtemp` gives
+// a fresh 0700 directory per run, and the cleanup at the end removes it.
+const scratch = mkdtempSync(join(tmpdir(), 'tjs-bench-'))
+const testFile = join(scratch, 'bench-test.tjs')
 // `: 3` is a WORKED return example — `add(1, 2)` really is 3 — not a type annotation.
 // This read `-> 3` until 2026-08-17, the arrow return form abolished before 0.13.0, so
 // every `bun run bench` since had died on `Unexpected token at <source>:1:26`. Nothing
@@ -167,7 +176,7 @@ function measureCLI(cmd: string): number {
   return times[Math.floor(times.length / 2)]
 }
 
-const bunTsTime = measureCLI('bun /tmp/bench-test.tjs 2>/dev/null || true')
+const bunTsTime = measureCLI(`bun ${testFile} 2>/dev/null || true`)
 const tjsxTime = measureCLI(
   `bun ${import.meta.dir}/../src/cli/tjsx.ts ${testFile}`
 )
@@ -523,5 +532,13 @@ bun test src/lang/perf.test.ts
 \`\`\`
 `
 
-writeFileSync('benchmarks.md', markdown)
-console.log('Done! Written to benchmarks.md')
+// Written next to the REPO, not into whatever `process.cwd()` happens to be.
+//
+// `benchmarks.md` is a committed, npm-shipped artifact. Resolving it against the cwd meant
+// running this from a subdirectory silently created a second one there and left the real
+// file stale — the failure mode that let the published numbers rot for four and a half
+// months without anyone seeing a diff.
+const outPath = join(import.meta.dir, '..', 'benchmarks.md')
+writeFileSync(outPath, markdown)
+rmSync(scratch, { recursive: true, force: true })
+console.log(`Done! Written to ${outPath}`)

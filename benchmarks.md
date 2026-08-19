@@ -1,6 +1,6 @@
 # TJS Benchmarks
 
-Generated: 2026-08-18
+Generated: 2026-08-19
 Runtime: Bun 1.3.14
 Platform: darwin arm64
 Iterations: 100,000 per test
@@ -9,19 +9,19 @@ Iterations: 100,000 per test
 
 | Benchmark                             | Baseline | Safe (default) | Unsafe (!)    |
 | ------------------------------------- | -------- | -------------- | ------------- |
-| CLI: Bun + TypeScript                 | 42.0ms   | -              | -             |
-| CLI: tjsx (execute TJS)               | 41.1ms   | -              | -             |
-| CLI: tjs emit                         | 113.0ms  | -              | -             |
-| CLI: tjs check                        | 110.8ms  | -              | -             |
-| Simple arithmetic (100K iterations)   | 0.4ms    | 0.7ms (1.8x)   | 0.4ms (~1.0x) |
-| Object manipulation (100K iterations) | 0.4ms    | 0.7ms (1.6x)   | 0.4ms (~1.0x) |
+| CLI: Bun + TypeScript                 | 45.5ms   | -              | -             |
+| CLI: tjsx (execute TJS)               | 41.3ms   | -              | -             |
+| CLI: tjs emit                         | 42.8ms   | -              | -             |
+| CLI: tjs check                        | 43.1ms   | -              | -             |
+| Simple arithmetic (100K iterations)   | 0.4ms    | 0.6ms (1.5x)   | 0.4ms (~1.0x) |
+| Object manipulation (100K iterations) | 0.4ms    | 0.7ms (1.7x)   | 0.5ms (1.1x)  |
 | 3-function chain (100K iterations)    | 0.4ms    | 0.8ms (2.0x)   | 0.4ms (0.9x)  |
 
 ## Key Findings
 
 ### CLI Cold Start
 
-- **Bun + TypeScript**: ~42ms (native, baseline)
+- **Bun + TypeScript**: ~46ms (native, baseline)
 - **tjsx**: ~41ms (includes TJS transpiler load)
 - **Overhead**: none measurable — `tjsx` starts as fast as plain Bun
 
@@ -43,8 +43,8 @@ function fastAdd(! a: 0, b: 0): 0 { return a + b }
 
 Performance comparison:
 
-- Simple arithmetic: Safe 1.8x vs Unsafe ~1.0x
-- Object manipulation: Safe 1.6x vs Unsafe ~1.0x
+- Simple arithmetic: Safe 1.5x vs Unsafe ~1.0x
+- Object manipulation: Safe 1.7x vs Unsafe 1.1x
 - 3-function chain: Safe 2.0x vs Unsafe 0.9x
 
 ## Recommendations

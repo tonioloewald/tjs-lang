@@ -161,3 +161,9 @@ src/**/*.d.ts.map
 # hundreds of lines per release. Not source, not an artifact anyone consumes.
 .firebase/
 .dogfood-*/
+
+# Port-reclaim test scratch. It lives under the REPO ROOT deliberately: "ours" is anchored
+# to this installation, so a positive control written to /tmp would be satisfied by a file
+# that has nothing to do with us. An interrupted run leaves the directory behind, so it
+# needs a rule here or `git status` offers to commit it.
+.tmp-port-test-*/

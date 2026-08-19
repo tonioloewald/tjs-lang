@@ -103,7 +103,11 @@ async function main() {
   // computed the same value either way — the distinction that matters is not WHERE the
   // package is, it is where we are allowed to WRITE. See defaultOutDir.)
   const rootDir = join(import.meta.dir, '..', '..')
-  const installed = rootDir.includes('node_modules')
+  // The TESTED predicate, not a second answer to the same question. This line was the
+  // substring check that `isInstalled` exists to replace, sitting seventy lines below it
+  // in the same file: a repo at `~/src/my-node_modules-experiments/tjs-lang` reads as
+  // installed and silently skips the docs rebuild.
+  const installed = isInstalled(rootDir)
 
   const pkgVersion =
     (

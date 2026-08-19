@@ -24,6 +24,7 @@ import {
   symlinkSync,
   lstatSync,
   readFileSync,
+  cpSync,
 } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -52,6 +53,26 @@ function extDir(): string {
   const d = mkdtempSync(join(tmpdir(), 'tjs-ext-'))
   dirs.push(d)
   return d
+}
+
+/**
+ * A THROWAWAY copy of `editors/vscode` to aim the symlink tests at.
+ *
+ * Those tests link a directory in and then make the installer delete the link — and the
+ * property under test is precisely that it deletes the LINK and not what the link points
+ * at. Pointing them at the live working tree meant the one bug they exist to catch would
+ * destroy `editors/vscode` on the way to reporting itself, and the assertion that says
+ * "the thing that must never be deleted" runs after the deletion, not instead of it.
+ *
+ * A copy proves the same property and cannot cost anything. Read-only uses of `SOURCE`
+ * (reading the manifest) stay as they are.
+ */
+function sourceCopy(): string {
+  const d = mkdtempSync(join(tmpdir(), 'tjs-ext-src-'))
+  dirs.push(d)
+  const inner = join(d, 'vscode')
+  cpSync(SOURCE, inner, { recursive: true })
+  return inner
 }
 
 async function run(ext: string, ...flags: string[]) {
@@ -87,7 +108,8 @@ describe('installing', () => {
     // The case that motivated the rewrite: `[ -d ]` is true for a symlink-to-dir, so a
     // dev install was silently swapped for a frozen copy.
     const ext = extDir()
-    symlinkSync(SOURCE, join(ext, TARGET))
+    const src = sourceCopy()
+    symlinkSync(src, join(ext, TARGET))
     const r = await run(ext)
     expect(r.code).toBe(1)
     expect(r.text).toContain('Refusing to replace a SYMLINK')
@@ -96,12 +118,14 @@ describe('installing', () => {
 
   it('--force replaces it, and the link TARGET survives', async () => {
     const ext = extDir()
-    symlinkSync(SOURCE, join(ext, TARGET))
+    const src = sourceCopy()
+    symlinkSync(src, join(ext, TARGET))
     const r = await run(ext, '--force')
     expect(r.code).toBe(0)
     expect(lstatSync(join(ext, TARGET)).isSymbolicLink()).toBe(false)
-    // The thing that must never be deleted.
-    expect(existsSync(join(SOURCE, 'package.json'))).toBe(true)
+    // The thing that must never be deleted. It is a COPY, so a regression here reports
+    // itself instead of taking `editors/vscode` with it.
+    expect(existsSync(join(src, 'package.json'))).toBe(true)
   })
 
   it('reports an older install rather than deleting it', async () => {
@@ -126,11 +150,14 @@ describe('uninstalling', () => {
 
   it('removes only the LINK, never its target', async () => {
     const ext = extDir()
-    symlinkSync(SOURCE, join(ext, TARGET))
+    const src = sourceCopy()
+    symlinkSync(src, join(ext, TARGET))
     const r = await run(ext, '--uninstall')
     expect(r.code).toBe(0)
     expect(existsSync(join(ext, TARGET))).toBe(false)
-    expect(existsSync(join(SOURCE, 'package.json'))).toBe(true)
+    // The link target — a COPY, so a regression reports itself rather than taking
+    // `editors/vscode` with it.
+    expect(existsSync(join(src, 'package.json'))).toBe(true)
   })
 
   it('says so when there is nothing installed', async () => {
