@@ -17,7 +17,6 @@ import { check } from './commands/check'
 import { run } from './commands/run'
 import { types } from './commands/types'
 import { emit } from './commands/emit'
-import { convert } from './commands/convert'
 import { test } from './commands/test'
 
 // Read from package.json, like `bin/dev.ts` already does. Hard-coded, it drifted seven
@@ -189,9 +188,20 @@ async function main() {
       case 'test':
         await test(file, { pattern: testPattern })
         break
-      case 'convert':
+      case 'convert': {
+        // DYNAMIC, and load-bearing. `convert` reaches `emitters/from-ts`, which statically
+        // imports `typescript` — a devDependency. A static import here put the TS compiler
+        // in the CLI's entry graph, so the shipped binary died on
+        // `Cannot find package 'typescript'` for any consumer without it — including on
+        // `tjs --help` and `tjs --version`, which touch no TypeScript at all.
+        //
+        // Verbatim the bug class `src/index-tsfree.test.ts` guards for the LIBRARY entry
+        // (snowfox hit it in production); the CLI entry simply had no equivalent guard.
+        // `cli-tsfree.test.ts` is now that guard.
+        const { convert } = await import('./commands/convert')
         await convert(file, { output, verbose, emitTJS })
         break
+      }
       default:
         console.error(`Error: Unknown command '${command}'`)
         console.error(`Run 'tjs --help' for usage`)
