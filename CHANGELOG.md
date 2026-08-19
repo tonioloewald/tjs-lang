@@ -9,9 +9,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 _Nothing yet._
 
-## [0.13.0] — 2026-08-14
+## [0.13.0] — 2026-08-19
 
-> Reviewed FOUR times before tagging, each pass over the full diff since
+> Reviewed FIVE times before tagging, each pass over the full diff since
 > `v0.13.0-beta.1`. The first ([report](https://github.com/tonioloewald/tjs-lang/blob/main/docs/reviews/0.13.0-pre-release-review.md))
 > returned BLOCK on five blockers; the second
 > ([report](https://github.com/tonioloewald/tjs-lang/blob/main/docs/reviews/0.13.0-review-2-af46fa2.md)) BLOCKed on two more that the first
@@ -19,10 +19,14 @@ _Nothing yet._
 > BLOCKed on a parenthesised-arrow emit bug; the fourth
 > ([report](https://github.com/tonioloewald/tjs-lang/blob/main/docs/reviews/0.13.0-review-4-final.md)) BLOCKed on four, **two of them
 > regressions introduced by the third round's own fixes** — a `maxHeapBytes` bypass and a
-> build failure that would have shipped a stale bundle. All are fixed, along with the ten
-> majors that pass confirmed.
+> build failure that would have shipped a stale bundle; the fifth
+> ([report](https://github.com/tonioloewald/tjs-lang/blob/main/docs/reviews/0.13.0-review-5.md))
+> BLOCKed on two — a `let` arrow with `:?` that crashed at module load (a regression from
+> the fourth round's own fixes) and the shipped `tjs` binary hard-failing for anyone without
+> the TypeScript compiler. All are fixed, along with every major and most minors each pass
+> confirmed.
 >
-> That pattern — a fix round introducing the next blocker — happened in three of the four
+> That pattern — a fix round introducing the next blocker — happened in FOUR of the five
 > rounds, and is the honest argument for reviewing again after fixing rather than treating
 > the last green run as the answer.
 >
@@ -115,6 +119,13 @@ predicate(v) { return v % 2 === 0 } }` followed by `function double(n: Even)` �
   contract is that errors are RETURNED. Both now read the internal slot and fail soft. If
   you relied on `valueOf` being consulted by `==`, use `Is` with a
   `[Symbol.for('tjs.equals')]` method, which is the supported seam.
+- **`MonadicError.actual` now describes an array's ELEMENTS, not just `'array'`.** It is a
+  public field on a public error type, and the string changed: `f([1, 'bad', 3])` against
+  `xs: [0]` reports `array of number | string` where it used to report `array`. That names
+  the intruder next to the expectation, which is the pair a reader can act on — but any test
+  asserting `err.actual === 'array'`, or matching the full message, will need updating. Very
+  long arrays are summarised from the first 64 elements and marked with a trailing `…`, so
+  the value never claims to have looked at more than it did.
 
 Two bodies of work. **First**, the language stabilised in its own direction: the guiding
 rule became _a form that parses must mean something_, and every construct that parsed
@@ -176,6 +187,47 @@ Even % 2 === 0 }` reads as "an `Even` is a value where…". Both normalise into 
   already; only the annotated spelling slipped through.
 
 ### Fixed
+
+- **An emitted module using both `==` and `Is` would not load in Node.** `Eq`, `Is` and
+  `__oneOf` each prepended their own copy of the shared boxed-primitive unwrap, so a file
+  using two of them declared `function __ub` twice at module top level. Bun runs that; Node
+  refuses (`SyntaxError: Identifier '__ub' has already been declared`). Emitted modules were
+  therefore dead on arrival for Node consumers while the whole suite stayed green — the same
+  shape as the `typescript` import snowfox hit in production. Emitted output is now parsed as
+  a MODULE in the guard, where a duplicate top-level declaration is an error rather than a
+  shrug, and the helpers are driven pairwise because the defect only existed in combination.
+
+- **A literal-union type check THREW on a hostile value** instead of returning a
+  `MonadicError`. `__oneOf` carried the fifth hand-inlined copy of the boxed-primitive unwrap
+  and was the only one still missing the fail-soft guard, so
+  `pick(new Proxy({}, { getPrototypeOf: () => Number.prototype }))` produced a raw
+  `TypeError: thisNumberValue called on incompatible object`. A throw out of a type check
+  breaks the promise that errors are returned, not thrown, and it was reachable from any
+  untrusted input. It now calls the shared `__ub`.
+
+- **The shipped `tjs` binary hard-failed without the TypeScript compiler**, including
+  `--help` and `--version`, which touch no TypeScript at all. `typescript` is a
+  devDependency; the CLI entry imported `./commands/convert` statically, which reaches
+  `emitters/from-ts`. `src/index-tsfree.test.ts` had guarded the library entry against
+  exactly this since snowfox hit it in production; the CLI had no equivalent. `convert` is
+  now loaded lazily and still fails clearly, naming the missing package, when actually
+  invoked.
+
+- **One exempt `new X\n  .Y()` silenced the no-`new` rule for an entire file.** The rewriter
+  and the checker each had their own answer to "does this `new X` construct X?", and the two
+  disagreed: the rewriter tested for `.` with no whitespace allowed (so
+  `new Shape\n  .Circle(2)` became `Shape()\n  .Circle(2)`, changing what the program means,
+  and `new Reg[key]()` became `Reg()[key]()`), while the reporter re-matched with `\s*\.`
+  and so matched nothing. `tjs check` accepted files containing genuine violations. Both now
+  call one shared predicate, and every violation is reported rather than only the first.
+
+- **A `let` arrow with a `:?` return annotation crashed at module load** — a temporal
+  dead-zone error introduced by the previous review round's own fix.
+
+- **`tjs check <dir>` walked into `.ts` files** it cannot parse, and a shebang line broke
+  offsets. It now takes the directory its own error text recommends.
+
+- **Nested literal unions, and `| null` dropped from `.d.ts` output.**
 
 - **A string containing `/* unsafe */` turned validation off for the whole function.**
   Per-function safety was decided by a raw substring search over the parameter source, and
@@ -282,6 +334,22 @@ Even % 2 === 0 }` reads as "an `Even` is a value where…". Both normalise into 
   **real** return types went unhighlighted while an abandoned form was highlighted.
   Completions had the same shape: nothing for the declaration forms, the deprecated
   `isError` as the only error check, and the non-canonical `test('x')` snippet.
+
+### Performance
+
+- **`extractParamMarkers` was quadratic twice over.** A per-character `regions.some(…)`
+  literal guard made it O(n × literals), and removing that exposed a second one: `out += …`
+  built a rope while `out.endsWith(' ')` flattened it once per marker. A 622KB file took
+  152ms and its per-byte cost ROSE with file size — the failure mode nobody notices until
+  their file is big. Now 0.65ms and flat. Pinned by a differential test against the old
+  implementation plus a growth-ratio assertion.
+
+- **Array diagnostics no longer walk the whole array.** `describeActual` and the emitted
+  `__arrKinds` stopped after four distinct element types, which bounds the message but not
+  the work: a homogeneous `number[]` never reaches four, so a ten-million-element array was
+  scanned end to end to conclude "array of number" — on the ERROR path, where a failure
+  inside a loop pays it every iteration. Capped at 64 elements, with `…` marking a sampled
+  answer so the message never overclaims.
 
 ### Documentation
 
