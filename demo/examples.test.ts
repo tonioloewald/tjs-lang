@@ -37,24 +37,6 @@ import { examples } from './src/examples'
 import { AgentVM, transpile, coreAtoms, batteryAtoms, tjs } from '../src'
 import { withRetry } from '../src/test-utils'
 
-/**
- * Does this example need the TJS transpiler rather than the AJS one?
- *
- * This keyed on `) -> ` — the ARROW RETURN SYNTAX, abandoned before 0.13.0 — and on
- * `mock {`, which no example uses either. Both matched **0 of 21** examples, so the TJS
- * branch below had never run and the whole routing decision was decoration.
- *
- * The live marker is the colon-example parameter (`function f(x: 0)`), which is the one
- * construct that makes a file TJS rather than JS. `test '…' { }` and `Type X { }` are
- * included because they are equally decisive and an example may gain one.
- */
-function isTjsExample(code: string): boolean {
-  return (
-    /\(\s*\w+\s*:\s*['"`0-9[{+]/.test(code) ||
-    /\btest\s+['"]/.test(code) ||
-    /^\s*(?:Type|Generic|Enum|Union|FunctionPredicate)\s+[A-Z]/m.test(code)
-  )
-}
 import {
   buildLLMCapability,
   buildLLMBattery,
@@ -449,14 +431,27 @@ beforeAll(async () => {
 describe('Playground Examples', () => {
   const vm = new AgentVM({ ...coreAtoms, ...batteryAtoms })
 
+  it('every example declares a language this test can route (apparatus check)', () => {
+    // The routing used to be a guess, and the guess was wrong for one example — which
+    // meant it was checked by the WEAKER branch and an AJS regression in it would have
+    // gone unnoticed. If a future example declares something unroutable, fail here rather
+    // than silently falling into the AJS branch.
+    for (const e of examples) {
+      expect([undefined, 'ajs', 'tjs']).toContain(e.lang)
+    }
+    // And the file really is all AsyncJS today. If that stops being true, the person who
+    // adds a TJS example has to say so.
+    expect(examples.every((e) => (e.lang ?? 'ajs') === 'ajs')).toBe(true)
+  })
+
   for (const example of examples) {
     const isVision = example.name.startsWith('Vision:')
     const shouldFail =
       example.name === 'Fuel Exhaustion' || example.name === 'Fuel Limits'
     // Examples that generate and run code need retry due to LLM variability
     const needsRetry = example.code.includes('runCode(')
-    // TJS examples use the TJS transpiler, not AgentJS
-    const isTjs = isTjsExample(example.code)
+    // DECLARED, not sniffed — see the `lang` field on `Example`.
+    const isTjs = example.lang === 'tjs'
 
     it(`${example.name} - transpiles correctly`, () => {
       if (isTjs) {

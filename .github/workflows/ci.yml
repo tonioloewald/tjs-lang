@@ -67,6 +67,16 @@ jobs:
         if: always()
         run: bun run make
 
+      # The demo is NOT part of `make`, so `.demo/` never existed here — which made
+      # `demo-bundle.test.ts` skip itself on every pull request. That guard was written
+      # after a silent, total site outage (five nested copies of `@codemirror/state` from a
+      # drifted install tree; the build reported success and the site rendered blank), and
+      # a guard that only runs when someone happens to build the demo by hand is not a
+      # guard. It also proves the demo build itself still works.
+      - name: Build demo
+        if: always()
+        run: bun run build:demo
+
       # SKIP_LLM_TESTS + SKIP_BENCHMARKS + SKIP_AUDIT — the model server and the
       # advisory feed are both unavailable here. `bun audit` runs in the pre-tag
       # lane instead, where the network is real.

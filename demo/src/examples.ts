@@ -8,6 +8,22 @@ export interface Example {
   code: string
   requiresApi?: boolean // Needs LLM API key
   group?: 'featured' | 'basics' | 'api' | 'llm' | 'advanced' // Navigation group
+  /**
+   * Which transpiler this example is written for. Defaults to `'ajs'` — every example in
+   * this file is AsyncJS.
+   *
+   * It is DECLARED rather than sniffed. The test used to guess from the source text, and
+   * guessed wrong on 'LLM Code Generator': that example's PROMPT STRING contains
+   * `sumTo(n: 10)`, so a scan for colon-example parameters matched the prompt, not the
+   * code. The example was then run through the TJS transpiler with weaker assertions, and
+   * an AJS regression in it would not have failed anything.
+   *
+   * Same defect class as the parser bugs this release is full of: a pass that mis-reads
+   * code which merely MENTIONS the syntax it scans for. The fix there was to mask literals
+   * before scanning; here there is nothing to scan in the first place — the author knows
+   * the answer, so they state it.
+   */
+  lang?: 'ajs' | 'tjs'
 }
 
 export const examples: Example[] = [
