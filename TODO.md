@@ -2248,6 +2248,20 @@ tracked, non-blocking follow-ups.
       `npm view tjs-lang dist-tags`. The CHANGELOG makes claims about the registry; verify
       them rather than assuming the command took.
 
+**Flaky lane, seen at the 0.13.1 gate (2026-08-21) — NOT dismissed:**
+
+- [ ] The LIVE LLM lane is intermittently red under a loaded model server. One full `bun test`
+      reported **2 fail**; three subsequent full runs and three `test:fast` runs were clean,
+      and the deterministic lanes have never wavered. Evidence it is the LLM lane: that run
+      logged 2 mock fallbacks and 1 breach of the 45s live budget, and full-gate wall time
+      swings 305s → 515s with model-server load.
+      **The failures were not captured** — the run was piped through `tail`, so their names
+      are lost. That is the second time in this session; the fix is to always
+      `tee` a full-gate run before filtering.
+      Next step: re-run the full gate against a warm server, capturing everything, and either
+      name the two tests or extend the fallback so slowness cannot surface as a failure at
+      all (the 45s budget converts most of it, evidently not all).
+
 **From review 6 (post-publish, 2026-08-21) — deferred, not dropped:**
 
 - [ ] Add the **loop-with-helper** case to `bin/benchmarks.ts`, then delete the hand-measured
