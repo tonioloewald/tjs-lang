@@ -7,6 +7,7 @@
 import {
   maskLiterals,
   stripComments as sharedStripComments,
+  splitTopLevel,
   splitTopLevelTrimmed,
 } from '../../strip-comments'
 import { transformExtensionCalls } from '../parser'
@@ -1113,8 +1114,28 @@ function collapseUnions(example: string): string {
         out += example.slice(i)
         break
       }
+      // ELEMENT BY ELEMENT, not the bracket body as a whole.
+      //
+      // Passing the whole body back through `collapseUnions` meant the recursion found the
+      // first depth-0 `|` *inside the container* and returned only what was left of it —
+      // discarding every sibling after the union. Whether a file compiled depended on the
+      // ORDER of its members:
+      //
+      //     function cfg(o: { mode: 'a' | 'b', other: 1 })   THREW
+      //     function h(o:   { other: 1, mode: 'a' | 'b' })   passed
+      //
+      // and `['a' | 'b', 'c']` collapsed to a ONE-element array, so the signature test ran
+      // against a shorter argument and passed while checking less than it claimed. That
+      // silent half is the worse one, and it shipped in 0.13.0.
+      //
+      // Splitting at top level first means each element is collapsed in its own scope,
+      // where a `|` really is that element's union. `splitTopLevel` masks literals, so a
+      // comma inside a string does not split.
       const inner = example.slice(i + 1, close)
-      out += c + collapseUnions(inner) + example[close]
+      out +=
+        c +
+        splitTopLevel(inner, ',').map(collapseUnions).join(',') +
+        example[close]
       i = close + 1
       continue
     }

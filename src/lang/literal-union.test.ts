@@ -260,6 +260,47 @@ describe('literal unions nested and nullable', () => {
     ok(`function d(o: { a: { b: 'x' | 'y' } }): 1 { return 1 }`)
   })
 
+  /**
+   * SIBLINGS SURVIVE THE COLLAPSE.
+   *
+   * Every case above puts the union in a container by ITSELF, and that is why the whole
+   * multi-member class shipped broken in 0.13.0. `collapseUnions` handed the entire bracket
+   * body to itself recursively, found the first depth-0 `|`, and returned only the left of
+   * it — so everything after the union inside that bracket was discarded.
+   *
+   * The result was that whether a file compiles depended on the ORDER of members:
+   *
+   *     function cfg(o: { mode: 'a' | 'b', other: 1 })   -> THREW
+   *     function h(o:   { other: 1, mode: 'a' | 'b' })   -> passed
+   *
+   * The array case is worse than a throw, because it is silent: `['a' | 'b', 'c']` collapsed
+   * to a one-element array, so the signature test ran against a SHORTER argument and passed
+   * while checking less than it claimed.
+   *
+   * Both orders are asserted deliberately. One order alone would have gone green throughout.
+   */
+  it('an object member after the union survives', () => {
+    ok(`function cfg(o: { mode: 'a' | 'b', other: 1 }): 1 { return 1 }`)
+  })
+
+  it('an object member before the union survives', () => {
+    ok(`function h(o: { other: 1, mode: 'a' | 'b' }): 1 { return 1 }`)
+  })
+
+  it('a union between two other members survives', () => {
+    ok(`function m(o: { a: 1, mode: 'x' | 'y', b: 2 }): 1 { return 1 }`)
+  })
+
+  it('the collapse does not shorten an array', () => {
+    // `xs.length` is 2 only if the sibling survived. Before the fix this passed with a
+    // one-element argument, so the assertion is on the LENGTH, not on transpiling.
+    ok(`function tag(xs: ['yes' | 'no', 'x']): 2 { return xs.length }`)
+  })
+
+  it('two unions in one container both collapse', () => {
+    ok(`function t(o: { a: 'p' | 'q', b: 'r' | 's' }): 1 { return 1 }`)
+  })
+
   it('a pipe inside a string is still data', () => {
     ok(`function s(x: 'a|b' | 'c'): 'a|b' { return x }`)
   })
