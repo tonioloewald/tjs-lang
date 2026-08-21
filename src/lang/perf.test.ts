@@ -1,5 +1,31 @@
 /**
- * TJS Performance Benchmarks
+ * TJS performance CHARACTERISATION — not the project's performance numbers.
+ *
+ * ## Read this before quoting anything this file prints
+ *
+ * The ratios narrated below are measured IN-PROCESS, inside a long-lived `bun test` run,
+ * and they depend on what the JIT did earlier in that process far more than on the code
+ * under test. Measured on one machine, same commit, same code, one afternoon:
+ *
+ *     this file alone .............. TJS 2.18x baseline
+ *     `bun test src/lang/` ......... TJS 5.05x baseline
+ *     full `bun test` .............. TJS 116.75x baseline   <- and 3005ms, over the 5s timeout
+ *
+ * A 54x spread for identical code. The baseline is the unstable half: `legacyIntensive(1000)`
+ * is a pure function called with a constant, so the JIT can hoist it out of the timing loop
+ * entirely — measured at 3.3 Gops/s, which is not a speed, it is an absence. Adding a sink
+ * for the result does not change it (verified), because the value is still available to
+ * fold; the fix is not a sink here, it is not measuring in a shared process at all.
+ *
+ * **The authoritative numbers come from `bun run bench`**, which runs each lane in a
+ * controlled harness and writes `benchmarks.md`. Where this file and that file disagree —
+ * and they do, by roughly 10x on wrap() overhead — that file is right. This one exists to
+ * catch gross behavioural regressions and to keep the correctness assertions honest, which
+ * is what it actually asserts: every timing here is narration, and every `expect` is a
+ * correctness check.
+ *
+ * This mattered practically: `guides/benchmarks.md` published a 17-28x overhead claim for
+ * seven months, and numbers of exactly this shape are where that came from.
  *
  * Compares execution overhead between:
  * - Legacy JavaScript (baseline)
@@ -313,26 +339,44 @@ describe('TJS Performance', () => {
         `${unsafeResult.code}; return unsafeIntensive;`
       )()
 
-      // Each call does 1000 iterations internally
+      // Each call does 1000 iterations internally.
+      //
+      // BOUNDED WORK. At the file-wide 100,000 calls this is 100 MILLION inner iterations
+      // per lane, three lanes plus warmups — and in a full `bun test` the TJS lanes took
+      // 3005ms each, putting the test over bun's 5s timeout. It squeaked under on Bun
+      // 1.3.14 and stopped doing so on 1.4; the timeout was never the real budget, the
+      // work was. Nothing here asserts on a duration, so the loop count only has to be
+      // large enough to be a fair shape — 5,000 calls is 5 million iterations, still an
+      // honest workload and ~20x inside the limit.
       const INNER_LOOP = 1000
-      const legacyTime = benchmark('legacy', () => legacyIntensive(INNER_LOOP))
-      const tjsTime = benchmark('tjs', () => tjsIntensive(INNER_LOOP))
-      const unsafeTime = benchmark('unsafe', () => unsafeIntensive(INNER_LOOP))
+      const CALLS = 5_000
+      const bench = (fn: () => void) => {
+        for (let i = 0; i < 500; i++) fn()
+        const t0 = performance.now()
+        for (let i = 0; i < CALLS; i++) fn()
+        return performance.now() - t0
+      }
+      const legacyTime = bench(() => legacyIntensive(INNER_LOOP))
+      const tjsTime = bench(() => tjsIntensive(INNER_LOOP))
+      const unsafeTime = bench(() => unsafeIntensive(INNER_LOOP))
 
+      // RAW TIMES, NO RATIO — deliberately.
+      //
+      // Bounding the work stopped the timeout but did not make the comparison valid: in a
+      // full `bun test` this still reads 1.37ms vs 155ms, a "113x" that is an artifact of
+      // the baseline being folded away, not a cost TJS imposes. `bun run bench` measures
+      // the same thing at ~2x.
+      //
+      // A ratio is the quotable part, and a wrong quotable number is worse than no number:
+      // `guides/benchmarks.md` carried "17-28x overhead" for seven months, and it came from
+      // exactly this shape. So this prints what it actually observed and refuses to divide.
       console.log(
-        `\n  Intensive inner loop (${ITERATIONS.toLocaleString()} calls × ${INNER_LOOP} iterations):`
+        `\n  Intensive inner loop (${CALLS.toLocaleString()} calls × ${INNER_LOOP} iterations)` +
+          ` — in-process, JIT-history dependent; NOT a benchmark. Use \`bun run bench\`.`
       )
       console.log(`    Legacy JS:  ${legacyTime.toFixed(2)}ms`)
-      console.log(
-        `    TJS:        ${tjsTime.toFixed(2)}ms (${(
-          tjsTime / legacyTime
-        ).toFixed(2)}x)`
-      )
-      console.log(
-        `    TJS unsafe: ${unsafeTime.toFixed(2)}ms (${(
-          unsafeTime / legacyTime
-        ).toFixed(2)}x)`
-      )
+      console.log(`    TJS:        ${tjsTime.toFixed(2)}ms`)
+      console.log(`    TJS unsafe: ${unsafeTime.toFixed(2)}ms`)
 
       // Sanity check - sum of squares 0..999 = 332833500
       const expected = 332833500
