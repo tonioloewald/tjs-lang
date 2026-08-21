@@ -46,6 +46,16 @@ _Nothing yet._
   the documented production build path, so a CI step went green having produced a missing
   module. `convert` fixed exactly this in #24; its structural twin never got the same fix.
 
+- **`emit --dts` and `emit --docs` wrote THROUGH symlinks too.** The first fix for this
+  routed `emit`'s JS output through a safe boundary and left its two sibling writes on raw
+  `writeFileSync`, twenty lines below — so `emit --dts` still destroyed a symlink's target
+  and reported success. Every file the CLI writes now goes through one `writeEmitted`, and
+  `src/cli/write-boundary.test.ts` enumerates the command files and fails on any raw
+  `writeFileSync` rather than relying on anyone to remember the sweep. A companion check
+  enumerates the `result.code` contract (never starts with `#!`, always embeddable in
+  `new Function`), because that fragment has twelve consumer sites and the previous round
+  tested four.
+
 - **`emit`/`convert` wrote THROUGH symlinks in the output directory.** With `out/a.js` a
   link to `precious/keep.txt`, `tjs emit src -o out -r` overwrote the target and reported
   `1 emitted, 0 failed`, exit 0 — data loss reported as success, in the same command whose

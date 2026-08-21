@@ -4,7 +4,8 @@
  * Executes the entire file as a script, with full TJS runtime support.
  */
 
-import { readFileSync, writeFileSync, unlinkSync } from 'fs'
+import { writeEmitted } from '../walk'
+import { readFileSync, unlinkSync } from 'fs'
 import { resolve, basename, dirname, join } from 'path'
 import { pathToFileURL } from 'url'
 import { transpileToJS } from '../../lang/emitters/js'
@@ -68,7 +69,10 @@ export async function run(file: string): Promise<void> {
       dirname(absolutePath),
       `.${basename(absolutePath)}.${process.pid}.tjsrun.mjs`
     )
-    writeFileSync(tempModule, result.code, 'utf-8')
+    // Through the shared boundary even though this is a TEMP file: the path is derived
+    // from the user's own directory, so it is exactly as symlink-exposed as `emit`'s
+    // output. No hashbang — `result.code` is a fragment and this is imported as a module.
+    writeEmitted(tempModule, result.code)
     await import(pathToFileURL(tempModule).href)
   } catch (error: any) {
     if (error.name === 'SyntaxError' && error.formatWithContext) {

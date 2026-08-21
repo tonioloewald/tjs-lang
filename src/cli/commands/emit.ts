@@ -13,14 +13,8 @@
  */
 
 import { readEntries, shouldDescend, writeEmitted } from '../walk'
-import {
-  readFileSync,
-  writeFileSync,
-  statSync,
-  mkdirSync,
-  existsSync,
-} from 'fs'
-import { join, basename, dirname, extname } from 'path'
+import { readFileSync, statSync, existsSync } from 'fs'
+import { join, basename, extname } from 'path'
 import { tjs, dialectForFilename } from '../../lang'
 import { generateDocs } from '../../lang/docs'
 import { reportWarnings } from '../warnings'
@@ -179,12 +173,11 @@ async function emitFile(
           const dtsContent = generateDTS(result, source)
           const dtsPath = outputPath.replace(/\.js$/, '.d.ts')
 
-          const dtsDir = dirname(dtsPath)
-          if (dtsDir && !existsSync(dtsDir)) {
-            mkdirSync(dtsDir, { recursive: true })
-          }
-
-          writeFileSync(dtsPath, dtsContent)
+          // Through the same boundary as the JS. `emit` writes THREE files and only the
+          // first went through `writeEmitted`, so `emit --dts` still destroyed a symlink's
+          // target — the identical defect, surviving in a sibling site twenty lines below
+          // the fix for it.
+          writeEmitted(dtsPath, dtsContent)
           if (options.verbose) {
             console.log(`  ${dtsPath}`)
           }
@@ -207,12 +200,7 @@ async function emitFile(
             : outputPath.replace(/\.js$/, '.md')
 
           // Ensure docs directory exists
-          const docsDir = dirname(docsPath)
-          if (docsDir && !existsSync(docsDir)) {
-            mkdirSync(docsDir, { recursive: true })
-          }
-
-          writeFileSync(docsPath, docs.markdown)
+          writeEmitted(docsPath, docs.markdown)
           if (options.verbose) {
             console.log(`  📄 ${docsPath}`)
           }

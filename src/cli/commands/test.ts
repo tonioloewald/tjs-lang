@@ -12,15 +12,8 @@
  * Bun's test runner only recognizes standard extensions.
  */
 
-import { findFiles } from '../walk'
-import {
-  readdirSync,
-  statSync,
-  writeFileSync,
-  unlinkSync,
-  existsSync,
-  mkdirSync,
-} from 'fs'
+import { findFiles, writeEmitted } from '../walk'
+import { readdirSync, statSync, unlinkSync, existsSync, mkdirSync } from 'fs'
 import { join, dirname, resolve, relative } from 'path'
 import { spawn } from 'bun'
 
@@ -72,7 +65,9 @@ function generateWrappers(testFiles: string[], tempDir: string): string[] {
     const uniqueWrapperPath = join(tempDir, uniqueName)
 
     const wrapperContent = `// Auto-generated wrapper for TJS test\nimport '${relativePath}';\n`
-    writeFileSync(uniqueWrapperPath, wrapperContent)
+    // Shared boundary — see `writeEmitted`. Consistency over exception: a guard that
+    // allows "but this one is internal" is a guard that grows exceptions.
+    writeEmitted(uniqueWrapperPath, wrapperContent)
     wrappers.push(uniqueWrapperPath)
   }
 
