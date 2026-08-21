@@ -9,6 +9,49 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 _Nothing yet._
 
+## [0.13.2] — 2026-08-21
+
+> An eighth review pass, run after 0.13.1 shipped
+> ([report](https://github.com/tonioloewald/tjs-lang/blob/main/docs/reviews/0.13.1-review-8.md)),
+> found that 0.13.1's hashbang fix had been applied at the wrong seam — breaking `tjsx`, a
+> published bin. **Six of eight rounds have now found a defect introduced by the previous
+> round's fixes.** That is the argument for the round, not against it.
+
+### ⚠️ Upgrade from 0.13.1
+
+- **If you use `tjsx`, the playground, or `new Function(result.code)` on a file with a `#!`
+  line, 0.13.1 threw `Invalid character: '#'`.** Fixed. `result.code` is now always a clean
+  fragment and the shebang is carried separately as `result.hashbang`.
+- **`tjs emit` now exits non-zero when it fails.** If a build script relied on it exiting 0,
+  it was relying on a bug: 0.13.1 reported `2 emitted, 0 failed` with output missing.
+
+### Fixed
+
+- **The `#!` line was baked into `result.code`, breaking every embedder.** `code` is a
+  FRAGMENT — `tjsx` wraps it in `new Function`, CLAUDE.md documents that idiom, and the
+  playground evaluates it — and a hashbang is legal only at offset 0 of a whole script. All
+  three died with `Invalid character: '#'`, an error naming neither the shebang nor the
+  file. The line now travels beside the code as `result.hashbang` and is re-attached only
+  where a FILE is written.
+
+- **`tjs convert` silently stripped the `#!` line.** It never had any hashbang handling; the
+  TS→TJS→JS chain loses it at the first step, so the restore added in 0.13.1 never saw it.
+  `convert` is the command the migration docs point TypeScript users at — the one most
+  likely to meet a real bin script.
+
+- **`tjs emit` reported success and exited 0 with output missing.** `emitFile` swallowed its
+  own error whenever `-o` was given, so the directory walk's failure branch was unreachable:
+  a directory with one broken file printed `2 emitted, 0 failed`, exit 0, with that file's
+  output absent. Nested tallies were also dropped at the recursion boundary. `tjs emit` is
+  the documented production build path, so a CI step went green having produced a missing
+  module. `convert` fixed exactly this in #24; its structural twin never got the same fix.
+
+- **`emit`/`convert` wrote THROUGH symlinks in the output directory.** With `out/a.js` a
+  link to `precious/keep.txt`, `tjs emit src -o out -r` overwrote the target and reported
+  `1 emitted, 0 failed`, exit 0 — data loss reported as success, in the same command whose
+  READ half refuses that exact escape by construction. Writes now go through one
+  `writeEmitted` boundary that unlinks a symlink rather than following it.
+
 ## [0.13.1] — 2026-08-21
 
 > **0.13.0 was published by mistake.** It was meant to be a release candidate and the

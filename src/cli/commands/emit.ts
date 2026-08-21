@@ -12,7 +12,7 @@
  *   tjs emit --jfdi <file.tjs>          Emit even if tests fail (just fucking do it)
  */
 
-import { readEntries, shouldDescend } from '../walk'
+import { readEntries, shouldDescend, writeEmitted } from '../walk'
 import {
   readFileSync,
   writeFileSync,
@@ -62,25 +62,38 @@ export async function emit(
   const stats = statSync(input)
 
   if (stats.isFile()) {
-    await emitFile(input, output, options)
+    // Exit code follows the outcome. A single-file emit that failed used to exit 0 with no
+    // file written whenever `-o` was given.
+    if (!(await emitFile(input, output, options))) process.exit(1)
   } else if (stats.isDirectory()) {
     if (!output) {
       console.error('Error: Output directory required for directory emit')
       console.error('Usage: tjs emit <dir> -o <outdir>')
       process.exit(1)
     }
-    await emitDirectory(input, output, recursive, options)
+    const tally = await emitDirectory(input, output, recursive, options)
+    if (tally.failed > 0) process.exit(1)
   } else {
     console.error(`Error: ${input} is not a file or directory`)
     process.exit(1)
   }
 }
 
+/**
+ * Emit ONE file. Returns whether it actually produced output.
+ *
+ * It used to return `void` and swallow its own error whenever `outputPath` was set, so
+ * `emitDirectory`'s `catch { failed++ }` was unreachable for the entire practical surface:
+ * a directory containing one broken file reported `2 emitted, 0 failed`, exit 0, with the
+ * broken file's output ABSENT. `tjs emit` is the documented production build path, so a CI
+ * step went green having produced a missing module. `convert` fixed exactly this (issue
+ * #24) and `emit`, its structural twin, never got the same treatment.
+ */
 async function emitFile(
   inputPath: string,
   outputPath: string | undefined,
   options: EmitOptions
-): Promise<void> {
+): Promise<boolean> {
   const source = readFileSync(inputPath, 'utf-8')
   const filename = basename(inputPath)
 
@@ -140,7 +153,9 @@ async function emitFile(
         }
       }
       console.error(`  (use --jfdi to emit anyway)`)
-      return
+      // A failed signature test means NO FILE IS WRITTEN, so it is a failure and must be
+      // reported as one. A bare `return` here was counted as success.
+      return false
     }
 
     let code = result.code
@@ -151,12 +166,8 @@ async function emitFile(
     }
 
     if (outputPath) {
-      // Ensure output directory exists
-      const outDir = dirname(outputPath)
-      if (outDir && !existsSync(outDir)) {
-        mkdirSync(outDir, { recursive: true })
-      }
-      writeFileSync(outputPath, code)
+      // `writeEmitted` — re-attaches the `#!` line and refuses to write THROUGH a symlink.
+      writeEmitted(outputPath, code, result.hashbang)
       if (options.verbose) {
         const suffix = hasFailures ? ' (tests failed, --jfdi)' : ''
         console.log(`✓ ${inputPath} -> ${outputPath}${suffix}`)
@@ -216,21 +227,30 @@ async function emitFile(
       // Output to stdout
       console.log(code)
     }
+    return true
   } catch (error: any) {
     // This is a real transpilation error (syntax, parse, etc.)
     console.error(`✗ ${inputPath}: ${error.message}`)
-    if (!outputPath) {
-      process.exit(1)
-    }
+    // REPORTED, not swallowed. The caller decides the exit code — a single-file emit exits
+    // non-zero, and a directory emit counts it and exits non-zero at the end.
+    return false
   }
 }
 
+/**
+ * Emit a directory tree, RETURNING the tally so nested failures reach the exit code.
+ *
+ * This returned `void`, so a failure in a subdirectory was counted locally, printed, and
+ * then dropped at the recursion boundary — the same defect `convert` fixed in issue #24
+ * ("a nested failure used to vanish at the recursion boundary as well as at the
+ * try/catch"). `emit` is the structural twin and never got the fix.
+ */
 async function emitDirectory(
   inputDir: string,
   outputDir: string,
   recursive: boolean,
   options: EmitOptions
-): Promise<void> {
+): Promise<{ emitted: number; failed: number; skipped: number }> {
   // The SAME entry listing the other walks use — see `readEntries`. This was
   // `readdirSync` + `statSync`, which follows links: a dangling one killed the whole run
   // with a raw ENOENT and emitted zero files, a linked directory wrote output derived from
@@ -247,7 +267,15 @@ async function emitDirectory(
       // The same shared policy `convert` was missing — one definition, three walks.
       if (recursive && shouldDescend(entry)) {
         const subOutputDir = join(outputDir, entry)
-        await emitDirectory(inputPath, subOutputDir, recursive, options)
+        const sub = await emitDirectory(
+          inputPath,
+          subOutputDir,
+          recursive,
+          options
+        )
+        emitted += sub.emitted
+        failed += sub.failed
+        skipped += sub.skipped
       }
     } else if (isFile && extname(entry) === '.tjs') {
       // Skip test files for production emit
@@ -260,10 +288,14 @@ async function emitDirectory(
       }
 
       const outputPath = join(outputDir, entry.replace(/\.tjs$/, '.js'))
-      try {
+      // Count what `emitFile` REPORTS. The `try/catch` here was unreachable: `emitFile`
+      // swallowed its own error whenever an output path was set, so a broken file was
+      // tallied as emitted and the missing output went unremarked.
+      if (
         await emitFile(inputPath, outputPath, { ...options, verbose: true })
+      ) {
         emitted++
-      } catch {
+      } else {
         failed++
       }
     }
@@ -274,6 +306,7 @@ async function emitDirectory(
       `\n${inputDir}: ${emitted} emitted, ${failed} failed, ${skipped} skipped`
     )
   }
+  return { emitted, failed, skipped }
 }
 
 /**

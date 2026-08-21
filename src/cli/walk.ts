@@ -13,8 +13,16 @@
  * duplication it removes. (`check`'s docstring used to claim it walked "the way
  * emit/convert/test already walk"; three of the four never walked the same way.)
  */
-import { readdirSync, statSync } from 'node:fs'
-import { join } from 'node:path'
+import {
+  readdirSync,
+  statSync,
+  lstatSync,
+  unlinkSync,
+  writeFileSync,
+  existsSync,
+  mkdirSync,
+} from 'node:fs'
+import { join, dirname } from 'node:path'
 
 /**
  * Every file under `dir` whose BASENAME satisfies `keep`, depth-first.
@@ -105,4 +113,39 @@ export function findFiles(
  */
 export function shouldDescend(name: string): boolean {
   return !name.startsWith('.') && name !== 'node_modules'
+}
+
+/**
+ * Write an emitted FILE: re-attach the `#!` line, and never write through a symlink.
+ *
+ * Two rules that both belong at this one boundary.
+ *
+ * **The hashbang.** `preprocess` blanks it so acorn can parse the source; `result.code` is
+ * a fragment that gets embedded (`new Function`, `tjsx`, the playground), so the line must
+ * NOT live there — 0.13.1 put it there and broke all three with `Invalid character: '#'`.
+ * A file, on the other hand, needs it or it is not executable. So: fragments carry it
+ * beside the code, and the file writer puts it back.
+ *
+ * **The symlink.** The READ side refuses to descend a symlinked directory because that
+ * escapes the tree the user named — and the write side did exactly that escape, silently.
+ * Reproduced: with `out/a.js` a link to `precious/keep.txt`, `tjs emit src -o out -r`
+ * OVERWROTE `precious/keep.txt` with transpiled JS and reported `1 emitted, 0 failed`,
+ * exit 0. Data loss reported as success, in the same command whose read half forbids the
+ * same escape. The link is removed and a real file written in its place; the target is left
+ * alone.
+ */
+export function writeEmitted(
+  outputPath: string,
+  code: string,
+  hashbang?: string
+): void {
+  const dir = dirname(outputPath)
+  if (dir && !existsSync(dir)) mkdirSync(dir, { recursive: true })
+  // `lstat`, not `stat` — the question is whether the PATH is a link, not what it points at.
+  try {
+    if (lstatSync(outputPath).isSymbolicLink()) unlinkSync(outputPath)
+  } catch {
+    // Nothing there. Nothing to unlink.
+  }
+  writeFileSync(outputPath, hashbang ? `${hashbang}\n${code}` : code)
 }

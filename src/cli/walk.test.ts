@@ -20,10 +20,12 @@ import {
   symlinkSync,
   rmSync,
   existsSync,
+  readFileSync,
+  lstatSync,
 } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join, basename } from 'node:path'
-import { findFiles, shouldDescend } from './walk'
+import { findFiles, shouldDescend, writeEmitted } from './walk'
 
 const roots: string[] = []
 afterAll(() => {
@@ -194,5 +196,53 @@ describe('emit and convert survive symlinks', () => {
     const out = join(tree(), 'out')
     await run('convert', root, '-o', out, '-r')
     expect(existsSync(join(out, 'node_modules'))).toBe(false)
+  })
+})
+
+/**
+ * The FILE-WRITE boundary: the `#!` line goes back on, and nothing is written through a link.
+ *
+ * Both rules live at one seam because both are about "we are producing a file now", and
+ * both were got wrong in the release before this one:
+ *
+ *   - 0.13.1 re-attached the hashbang inside `transpileToJS`, i.e. into `result.code` — a
+ *     FRAGMENT that gets embedded. `tjsx` (a published bin), the `new Function(result.code)`
+ *     idiom CLAUDE.md documents, and the playground all died on `Invalid character: '#'`.
+ *   - The write side followed symlinks while the read side refused to, in the same command.
+ *     Reproduced: `tjs emit src -o out -r` with `out/a.js` linked to `precious/keep.txt`
+ *     OVERWROTE the target and reported `1 emitted, 0 failed`, exit 0.
+ */
+describe('writeEmitted', () => {
+  it('re-attaches the hashbang, and only when there is one', () => {
+    const root = tree()
+    const withBang = join(root, 'a.js')
+    writeEmitted(withBang, 'console.log(1)\n', '#!/usr/bin/env node')
+    expect(readFileSync(withBang, 'utf8')).toBe(
+      '#!/usr/bin/env node\nconsole.log(1)\n'
+    )
+    const without = join(root, 'b.js')
+    writeEmitted(without, 'console.log(1)\n')
+    expect(readFileSync(without, 'utf8')).toBe('console.log(1)\n')
+  })
+
+  it('does NOT write through a symlink — the target survives', () => {
+    const root = tree()
+    const target = join(root, 'precious.txt')
+    writeFileSync(target, 'DO NOT LOSE ME')
+    const link = join(root, 'out.js')
+    symlinkSync(target, link)
+
+    writeEmitted(link, 'console.log(1)\n')
+
+    expect(readFileSync(target, 'utf8')).toBe('DO NOT LOSE ME')
+    expect(readFileSync(link, 'utf8')).toBe('console.log(1)\n')
+    expect(lstatSync(link).isSymbolicLink()).toBe(false)
+  })
+
+  it('creates the output directory', () => {
+    const root = tree()
+    const deep = join(root, 'a', 'b', 'c.js')
+    writeEmitted(deep, 'x\n')
+    expect(readFileSync(deep, 'utf8')).toBe('x\n')
   })
 })

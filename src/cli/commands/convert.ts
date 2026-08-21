@@ -11,15 +11,9 @@
  *   tjs convert --emit-tjs <file.ts>   Output intermediate TJS instead of JS
  */
 
-import { readEntries, shouldDescend } from '../walk'
-import {
-  readFileSync,
-  writeFileSync,
-  statSync,
-  mkdirSync,
-  existsSync,
-} from 'fs'
-import { join, basename, dirname, extname } from 'path'
+import { readEntries, shouldDescend, writeEmitted } from '../walk'
+import { readFileSync, statSync } from 'fs'
+import { join, basename, extname } from 'path'
 import { fromTS } from '../../lang/emitters/from-ts'
 import { reportWarnings } from '../warnings'
 import { tjs } from '../../lang'
@@ -86,6 +80,18 @@ async function convertFile(
   const source = readFileSync(inputPath, 'utf-8')
   const filename = basename(inputPath)
 
+  // Captured from the ORIGINAL TypeScript, because the chain loses it at the first step:
+  // `fromTS` emits TJS without the `#!`, so by the time `tjs()` runs there is nothing left
+  // for it to report. `convert` had no hashbang handling at all — and it is the command the
+  // migration docs point TypeScript users at, i.e. the one most likely to meet a real bin
+  // script.
+  const hashbang = source.startsWith('#!')
+    ? source.slice(
+        0,
+        source.indexOf('\n') === -1 ? source.length : source.indexOf('\n')
+      )
+    : undefined
+
   try {
     const tjsResult = fromTS(source, { emitTJS: true, filename })
 
@@ -134,12 +140,12 @@ async function convertFile(
     }
 
     if (outputPath) {
-      // Ensure output directory exists
-      const outDir = dirname(outputPath)
-      if (!existsSync(outDir)) {
-        mkdirSync(outDir, { recursive: true })
-      }
-      writeFileSync(outputPath, code)
+      // Same boundary as `emit`. `convert` NEVER handled the `#!` line — the CHANGELOG
+      // claimed it was "handled in preprocess, which every path goes through", and the path
+      // that writes the file is where it has to be re-attached. `convert` is the command
+      // the migration docs point TypeScript users at, so it is the one most likely to meet
+      // a real bin script.
+      writeEmitted(outputPath, code, hashbang)
       console.log(`✓ ${inputPath} -> ${outputPath}`)
     } else {
       // Output to stdout

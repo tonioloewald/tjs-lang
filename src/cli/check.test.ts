@@ -23,6 +23,7 @@ import {
   rmSync,
   readFileSync,
   chmodSync,
+  existsSync,
 } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -116,6 +117,72 @@ describe('tjs check', () => {
     const stdout = await new Response(ran.stdout).text()
     expect(await ran.exited).toBe(0)
     expect(stdout.trim()).toBe('3')
+  })
+
+  it('the hashbang does NOT leak into result.code (it breaks every embedder)', async () => {
+    // 0.13.1 put the `#!` line into `result.code`, which is a FRAGMENT. `tjsx` is a
+    // published bin that wraps it in `new Function`, and CLAUDE.md documents that same
+    // idiom — both died with `Invalid character: '#'`, an error naming neither the
+    // shebang nor the file. The line belongs at the file-write seam, not in the fragment.
+    const { tjs } = await import('../lang/index')
+    const r = tjs('#!/usr/bin/env node\nconsole.log(1)\n', { dialect: 'js' })
+    expect(r.code.startsWith('#!')).toBe(false)
+    expect(r.hashbang).toBe('#!/usr/bin/env node')
+    expect(() => new Function(r.code)).not.toThrow()
+  })
+
+  it('tjsx RUNS a file with a hashbang', async () => {
+    const root = fixture({
+      'g.tjs': `#!/usr/bin/env bun\n${GOOD}\nconsole.log(add(1, 2))\n`,
+    })
+    const proc = Bun.spawn(
+      ['bun', join(import.meta.dir, 'tjsx.ts'), join(root, 'g.tjs')],
+      { stdout: 'pipe', stderr: 'pipe' }
+    )
+    const [out, err] = await Promise.all([
+      new Response(proc.stdout).text(),
+      new Response(proc.stderr).text(),
+    ])
+    // The property under test is that the shebang does not break the embed. `tjsx` also
+    // invokes the exported function with CLI args after running the module, so asserting
+    // on exact stdout would be asserting on that unrelated feature.
+    expect(err).not.toContain("Invalid character: '#'")
+    expect(await proc.exited).toBe(0)
+    expect(out).toContain('3')
+  })
+
+  it('emit FAILS LOUDLY when a file cannot be emitted', async () => {
+    // `2 emitted, 0 failed` + exit 0 with the output MISSING. `tjs emit` is the documented
+    // production build path, so a CI step went green having produced no module.
+    const root = fixture({
+      'src/good.tjs': GOOD,
+      'src/bad.tjs': `function bad(a: 2, b: 3): 0 { return a + b }\n`,
+    })
+    const out = join(root, 'out')
+    const proc = Bun.spawn(
+      ['bun', CLI, 'emit', join(root, 'src'), '-o', out, '-r'],
+      { stdout: 'pipe', stderr: 'pipe' }
+    )
+    const [so, se] = await Promise.all([
+      new Response(proc.stdout).text(),
+      new Response(proc.stderr).text(),
+    ])
+    expect(await proc.exited).toBe(1)
+    expect(so + se).toContain('1 failed')
+    expect(existsSync(join(out, 'good.js'))).toBe(true)
+    expect(existsSync(join(out, 'bad.js'))).toBe(false)
+  })
+
+  it('a single file that cannot be emitted exits non-zero', async () => {
+    const root = fixture({
+      'bad.tjs': `function bad(a: 2, b: 3): 0 { return a + b }\n`,
+    })
+    const proc = Bun.spawn(
+      ['bun', CLI, 'emit', join(root, 'bad.tjs'), '-o', join(root, 'bad.js')],
+      { stdout: 'pipe', stderr: 'pipe' }
+    )
+    await new Response(proc.stderr).text()
+    expect(await proc.exited).toBe(1)
   })
 
   it('a single file narrates', async () => {

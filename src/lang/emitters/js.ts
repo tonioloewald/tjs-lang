@@ -179,8 +179,26 @@ export interface TJSTranspileResult {
    * TjsDictDefaults params) know the semantics without re-deriving them.
    */
   tjsModes?: import('../parser-types').TjsModes
-  /** The transpiled JavaScript code */
+  /**
+   * The transpiled JavaScript code — a FRAGMENT, which never carries a `#!` line.
+   *
+   * `code` is designed to be embedded: `new Function(result.code + …)` is the idiom
+   * CLAUDE.md prescribes, `tjsx` wraps it, and the playground evaluates it. A hashbang is
+   * legal only at absolute offset 0 of a whole Script or Module, so prepending it here made
+   * every one of those throw `Invalid character: '#'` — including a published bin.
+   *
+   * See `hashbang`: the line is carried separately and re-attached only where a FILE is
+   * written.
+   */
   code: string
+  /**
+   * The `#!` line the source began with, if any, WITHOUT its trailing newline.
+   *
+   * Separate from `code` because the two have different destinations: `code` gets embedded,
+   * this goes at the top of an executable file. Whoever writes a file re-attaches it —
+   * `tjs emit` and `tjs convert` both do.
+   */
+  hashbang?: string
   /** Type information for the function(s) - Record of function name to type info */
   types: Record<string, TJSTypeInfo>
   /** Function metadata (alias for types, used by runtime) */
@@ -1946,17 +1964,19 @@ export function transpileToJS(
     for (const w of wasmBootstrap.warnings) warnings.push(`wasm{}: ${w}`)
   }
 
-  // PUT THE HASHBANG BACK.
+  // The `#!` line travels BESIDE the code, never inside it.
   //
-  // `preprocess` blanks a `#!` line so acorn accepts it and every later offset still points
-  // at the right column. Nothing re-prepended it, so the emitted file opened with 19 spaces
-  // and `./bin.js` died with a shell syntax error — silently, exit 0, no warning.
+  // `preprocess` blanks it so acorn accepts the source and every later offset still points
+  // at the right column. Something has to put it back, or `tjs emit` writes a file opening
+  // with 19 spaces and `./bin.js` dies with a shell syntax error.
   //
-  // That is a worse failure than the one it replaced. Before, a `#!` file was REJECTED with
-  // `Unexpected character '!'`, which is loud and obviously about the shebang. Accepting the
-  // file and quietly deleting the line that makes it executable is the trap version: this
-  // release's notes advertise hashbang support, so the first person to try it gets a broken
-  // executable and no clue why.
+  // 0.13.1 put it back HERE, and `code` is a FRAGMENT — so that broke every embedder at
+  // once: `tjsx` (a published bin), the `new Function(result.code)` idiom CLAUDE.md
+  // documents, and the playground preview, all with `Invalid character: '#'`, an error
+  // naming neither the shebang nor the file.
+  //
+  // Two seams, one of them right. Whoever writes a FILE re-attaches it; whoever embeds a
+  // fragment does not. `emit` and `convert` are the file writers.
   const hashbang = source.startsWith('#!')
     ? source.slice(
         0,
@@ -1965,7 +1985,8 @@ export function transpileToJS(
     : ''
 
   return {
-    code: hashbang ? `${hashbang}\n${code}` : code,
+    code,
+    hashbang: hashbang || undefined,
     types: allTypes,
     metadata: allTypes, // alias for runtime compatibility
     warnings: warnings.length > 0 ? warnings : undefined,
