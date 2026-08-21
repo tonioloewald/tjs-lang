@@ -11,6 +11,7 @@
  *   tjs convert --emit-tjs <file.ts>   Output intermediate TJS instead of JS
  */
 
+import { shouldDescend } from '../walk'
 import {
   readFileSync,
   writeFileSync,
@@ -170,7 +171,11 @@ async function convertDirectory(
     const inputPath = join(inputDir, entry)
     const stats = statSync(inputPath)
 
-    if (stats.isDirectory() && recursive) {
+    if (stats.isDirectory() && recursive && shouldDescend(entry)) {
+      // `shouldDescend` — SHARED with the other walks, because this one had neither
+      // exclusion. `tjs convert . -o out` mirrored `node_modules` and every dot-directory
+      // into the output: 913 real `.ts` files in this repo alone, converted and written.
+      //
       // Recurse into subdirectory — and CARRY THE TALLY UP. A nested failure used to
       // vanish at the recursion boundary as well as at the try/catch.
       const sub = await convertDirectory(

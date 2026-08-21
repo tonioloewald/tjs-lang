@@ -13,7 +13,7 @@
  * duplication it removes. (`check`'s docstring used to claim it walked "the way
  * emit/convert/test already walk"; three of the four never walked the same way.)
  */
-import { readdirSync, statSync } from 'node:fs'
+import { readdirSync } from 'node:fs'
 import { join } from 'node:path'
 
 /**
@@ -28,18 +28,39 @@ export function findFiles(
   keep: (basename: string) => boolean,
   files: string[] = []
 ): string[] {
-  for (const entry of readdirSync(dir)) {
-    const full = join(dir, entry)
-    const stats = statSync(full)
-    if (
-      stats.isDirectory() &&
-      !entry.startsWith('.') &&
-      entry !== 'node_modules'
-    ) {
+  // `withFileTypes`, not `statSync`. Three reasons, and the first is a crash:
+  //
+  //   - `statSync` FOLLOWS the link, so a DANGLING symlink threw a raw
+  //     `ENOENT: no such file or directory, stat '…'` and `tjs check <dir>` checked zero
+  //     files. A broken link in a tree is a normal thing to find, not a reason to abort.
+  //   - A symlinked DIRECTORY was descended into, so the walk escaped the tree it was
+  //     given — silently checking files outside it and double-counting their warnings into
+  //     `--max-warnings`. A cycle went 33 deep and died with `ELOOP`.
+  //   - `readdir` already knows the type. Asking again per entry doubles the syscalls.
+  //
+  // `isDirectory()`/`isFile()` on a Dirent describe the ENTRY, so a link is neither, and
+  // both hazards stop by construction rather than by a guard someone has to remember.
+  for (const entry of readdirSync(dir, { withFileTypes: true })) {
+    const full = join(dir, entry.name)
+    if (entry.isDirectory() && shouldDescend(entry.name)) {
       findFiles(full, keep, files)
-    } else if (stats.isFile() && keep(entry)) {
+    } else if (entry.isFile() && keep(entry.name)) {
       files.push(full)
     }
   }
   return files
+}
+
+/**
+ * The two exclusions every source walk in this repo must apply.
+ *
+ * Shared because `convert` had NEITHER — `tjs convert . -o out` mirrored `node_modules`
+ * and every dot-directory into the output (913 real `.ts` files in this repo alone), while
+ * `walk.ts`'s own docstring called both essential and `emit` applied both. The
+ * consolidation named `emit`/`convert` as deliberately out of scope; that was the right
+ * call for their tree-mirroring shape and the wrong one for the exclusions, which are a
+ * policy rather than a walk.
+ */
+export function shouldDescend(name: string): boolean {
+  return !name.startsWith('.') && name !== 'node_modules'
 }

@@ -64,13 +64,10 @@ export async function check(
 
 /** Check one file. Returns its warning count, or `null` if it failed to parse. */
 async function checkOne(file: string, verbose = true): Promise<number | null> {
-  // A `#!` line is legal in an executable script and is not TJS. Blanked rather than
-  // removed so every offset in a diagnostic still points at the right column.
-  const raw = readFileSync(file, 'utf-8')
-  const source = raw.startsWith('#!')
-    ? ' '.repeat(raw.indexOf('\n') === -1 ? raw.length : raw.indexOf('\n')) +
-      raw.slice(raw.indexOf('\n') === -1 ? raw.length : raw.indexOf('\n'))
-    : raw
+  // The `#!` line is handled in `preprocess`, where every command reaches it. It used to be
+  // blanked HERE, which is why `check` accepted bin scripts that `emit`/`run`/`types`/`test`
+  // rejected outright.
+  const source = readFileSync(file, 'utf-8')
 
   try {
     // `.js`/`.mjs` ⇒ plain-JS semantics preserved; `.tjs` ⇒ native modes.

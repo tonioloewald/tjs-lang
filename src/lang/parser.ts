@@ -109,6 +109,23 @@ export function preprocess(
   /** Names declared via `Type X {…}` / `Generic X<T> {…}` in this module. */
   declaredTypes: Set<string>
 } {
+  // A `#!` line is standard ECMAScript (the ES2023 hashbang grammar), and acorn already
+  // parses it. Rejecting it made `tjs(src, { dialect: 'js' })` refuse legal JavaScript —
+  // a PRINCIPLES.md TJS ⊇ JS subset violation, not a preference.
+  //
+  // It was handled in `tjs check` ALONE, so `check` green-lit a bin script that `emit`,
+  // `run`, `types` and `test` all rejected with `Unexpected character '!' at :1:1`. A guard
+  // in one command is how a whole-language rule ends up true in one place; this belongs at
+  // the entry every path goes through.
+  //
+  // BLANKED, not removed, so every offset in a later diagnostic still points at the right
+  // line and column — the same reason `check` blanked it rather than slicing.
+  if (source.startsWith('#!')) {
+    const nl = source.indexOf('\n')
+    const end = nl === -1 ? source.length : nl
+    source = ' '.repeat(end) + source.slice(end)
+  }
+
   const originalSource = source
   let moduleSafety: 'none' | 'inputs' | 'all' | undefined
   const requiredParams = new Set<string>()

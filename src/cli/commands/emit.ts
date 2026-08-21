@@ -12,6 +12,7 @@
  *   tjs emit --jfdi <file.tjs>          Emit even if tests fail (just fucking do it)
  */
 
+import { shouldDescend } from '../walk'
 import {
   readFileSync,
   writeFileSync,
@@ -241,7 +242,8 @@ async function emitDirectory(
     const stats = statSync(inputPath)
 
     if (stats.isDirectory()) {
-      if (recursive && !entry.startsWith('.') && entry !== 'node_modules') {
+      // The same shared policy `convert` was missing — one definition, three walks.
+      if (recursive && shouldDescend(entry)) {
         const subOutputDir = join(outputDir, entry)
         await emitDirectory(inputPath, subOutputDir, recursive, options)
       }
