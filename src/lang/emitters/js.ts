@@ -1484,8 +1484,16 @@ export function transpileToJS(
   // Use createRuntime() for isolated state per-module
   const needsTypeError = code.includes('__tjs.typeError(')
   const needsStack = code.includes('__tjs.pushStack(')
-  const needsIs = code.includes('Is(')
   const needsIsNot = code.includes('IsNot(')
+  // `IsNot` is implemented AS `!Is(a,b)`, so it needs `Is` emitted — and `'IsNot('` does
+  // not contain `'Is('`, so the substring test missed it. An emitted module using `IsNot`
+  // without also using `Is` threw `ReferenceError: Is is not defined` on first call, in
+  // both Node and Bun. `NotEq` escaped the same fate only by luck: `'NotEq('` DOES contain
+  // `'Eq('`.
+  //
+  // Set before the `__ub` gate below, which is keyed on `needsIs` — otherwise `Is` gets
+  // emitted referencing an undefined `__ub` and the crash just moves.
+  const needsIs = code.includes('Is(') || needsIsNot
   const needsEq = code.includes('Eq(')
   const needsNotEq = code.includes('NotEq(')
   // Legacy equality bridges — emitted only when the author reached for one, which is the
