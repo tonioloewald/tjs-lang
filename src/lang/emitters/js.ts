@@ -1946,8 +1946,26 @@ export function transpileToJS(
     for (const w of wasmBootstrap.warnings) warnings.push(`wasm{}: ${w}`)
   }
 
+  // PUT THE HASHBANG BACK.
+  //
+  // `preprocess` blanks a `#!` line so acorn accepts it and every later offset still points
+  // at the right column. Nothing re-prepended it, so the emitted file opened with 19 spaces
+  // and `./bin.js` died with a shell syntax error — silently, exit 0, no warning.
+  //
+  // That is a worse failure than the one it replaced. Before, a `#!` file was REJECTED with
+  // `Unexpected character '!'`, which is loud and obviously about the shebang. Accepting the
+  // file and quietly deleting the line that makes it executable is the trap version: this
+  // release's notes advertise hashbang support, so the first person to try it gets a broken
+  // executable and no clue why.
+  const hashbang = source.startsWith('#!')
+    ? source.slice(
+        0,
+        source.indexOf('\n') === -1 ? source.length : source.indexOf('\n')
+      )
+    : ''
+
   return {
-    code,
+    code: hashbang ? `${hashbang}\n${code}` : code,
     types: allTypes,
     metadata: allTypes, // alias for runtime compatibility
     warnings: warnings.length > 0 ? warnings : undefined,

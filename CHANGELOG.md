@@ -14,8 +14,18 @@ _Nothing yet._
 > **0.13.0 was published by mistake.** It was meant to be a release candidate and the
 > version was labelled `0.13.0`; the publish also ran from the working tree rather than a
 > pushed tag, so the full-suite gate in `.githooks/pre-push` never fired for it. `v0.13.0`
-> has since been tagged retroactively at the commit the registry actually has, and 0.13.0 is
-> **deprecated on npm** in favour of this release.
+> has since been tagged retroactively at the commit the registry actually has, and 0.13.0
+> **will be deprecated on npm** in favour of this release.
+>
+> A **seventh** pass then reviewed this patch before it shipped and blocked it on three more,
+> all introduced by the fixes below
+> ([report](https://github.com/tonioloewald/tjs-lang/blob/main/docs/reviews/0.13.1-review-7.md)):
+> `tjs check` had started silently SKIPPING symlinked source files (green because it did not
+> look), `emit`/`convert` still followed symlinks and could write output derived from outside
+> the tree they were given, and `tjs emit` silently stripped the `#!` line this release
+> advertises as newly supported. All three are fixed here. Five of seven rounds have now
+> found a defect introduced by the previous round's fixes — which is the argument for the
+> round, not against it.
 >
 > A sixth review pass, run AFTER publication
 > ([report](https://github.com/tonioloewald/tjs-lang/blob/main/docs/reviews/0.13.0-review-6-post-publish.md)),
@@ -53,11 +63,19 @@ _Nothing yet._
   that `emit`, `run`, `types` and `test` all died on. Now handled in `preprocess`, which
   every path goes through.
 
-- **The shared directory walk followed symlinks.** A dangling link aborted
-  `tjs check <dir>` with a raw `ENOENT` and checked zero files; a linked directory let the
-  walk escape the tree it was given and double-count those warnings into `--max-warnings`;
-  a cycle hit `ELOOP`. Now uses `readdirSync(withFileTypes)`, where a link is neither file
-  nor directory and both hazards stop by construction.
+- **The shared directory walk mishandled symlinks — in three ways, across three commands.**
+  A link to a real FILE is now collected (skipping it made `tjs check <dir>` print a tick and
+  exit 0 without reading a source file that was there); a link to a DIRECTORY is not
+  descended (descending escaped the tree the user named — `emit -r` wrote output derived from
+  a file outside it while reporting success — and a cycle recursed 33 levels before `ELOOP`);
+  a DANGLING link is skipped rather than fatal (it aborted the run and emitted zero files,
+  losing valid siblings). `emit` and `convert` had been left on the old `statSync` walk when
+  `check` moved, so the three disagreed; they now share one `readEntries`.
+
+- **`tjs emit` silently stripped the `#!` line.** `preprocess` blanks it for offset
+  stability and nothing put it back, so an emitted bin script opened with 19 spaces and died
+  with a shell syntax error — exit 0, no warning. Worse than the bug it replaced: 0.13.0
+  rejected such a file loudly, which at least names the problem.
 
 - **`tjs convert <dir>` mirrored `node_modules` and dot-directories into its output** — 913
   real `.ts` files in this repo alone. It applied neither exclusion while `emit` applied

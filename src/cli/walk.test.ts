@@ -19,6 +19,7 @@ import {
   writeFileSync,
   symlinkSync,
   rmSync,
+  existsSync,
 } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join, basename } from 'node:path'
@@ -87,6 +88,18 @@ describe('findFiles', () => {
     expect(names(findFiles(root, isTjs))).toEqual(['a.tjs'])
   })
 
+  it('DOES collect a symlink to a real file', () => {
+    // The half that must follow. Trusting the Dirent blindly (a symlink is neither
+    // `isFile()` nor `isDirectory()`) silently skipped it, so `tjs check <dir>` printed a
+    // tick and exited 0 without reading a source file the user had put there — green
+    // because it did not look. 0.13.0 followed the link, so this was a regression.
+    const root = tree()
+    const outside = tree()
+    writeFileSync(join(outside, 'target.tjs'), '')
+    symlinkSync(join(outside, 'target.tjs'), join(root, 'linked.tjs'))
+    expect(names(findFiles(root, isTjs))).toEqual(['linked.tjs'])
+  })
+
   it('matches on the BASENAME, not the path', () => {
     // A caller's `.tjs` test must not be satisfied by a directory component.
     const root = tree()
@@ -102,5 +115,84 @@ describe('shouldDescend', () => {
     expect(shouldDescend('node_modules')).toBe(false)
     expect(shouldDescend('.git')).toBe(false)
     expect(shouldDescend('.')).toBe(false)
+  })
+})
+
+/**
+ * `emit -r` and `convert -r` walk the same way `check` does.
+ *
+ * They were left on `readdirSync` + `statSync` when `findFiles` moved to Dirents, so the
+ * three walks disagreed about what a symlink is — and these two are the ones that WRITE:
+ *
+ *   - a dangling link killed the run with a raw ENOENT and emitted ZERO files, losing
+ *     valid siblings that had nothing to do with the link
+ *   - a linked directory was descended, so output was written derived from a file OUTSIDE
+ *     the tree the user named, while the tally still reported success
+ *   - a cycle recursed 33 levels, writing 33 nested copies, before ELOOP
+ *
+ * Driven through the CLI end-to-end, because the defect was in the command's own walk and
+ * a unit test of `findFiles` never touched it.
+ */
+describe('emit and convert survive symlinks', () => {
+  const CLI = join(import.meta.dir, 'tjs.ts')
+
+  async function run(cmd: string, ...args: string[]) {
+    const proc = Bun.spawn(['bun', CLI, cmd, ...args], {
+      stdout: 'pipe',
+      stderr: 'pipe',
+    })
+    const [out, err] = await Promise.all([
+      new Response(proc.stdout).text(),
+      new Response(proc.stderr).text(),
+    ])
+    return { code: await proc.exited, text: out + err }
+  }
+
+  const SRC = `function ok(x: 1):! 0 { return x }\n`
+
+  it('a dangling link does not abort emit, and siblings still emit', async () => {
+    const root = tree()
+    writeFileSync(join(root, 'good.tjs'), SRC)
+    symlinkSync(join(root, 'gone.tjs'), join(root, 'dangling.tjs'))
+    const out = join(tree(), 'out')
+    const r = await run('emit', root, '-o', out, '-r')
+    expect(r.text).not.toContain('ENOENT')
+    expect(existsSync(join(out, 'good.js'))).toBe(true)
+  })
+
+  it('emit does not descend a symlinked directory out of the tree', async () => {
+    const root = tree()
+    const outside = tree()
+    writeFileSync(join(root, 'good.tjs'), SRC)
+    mkdirSync(join(outside, 'secret'))
+    writeFileSync(join(outside, 'secret', 'secret.tjs'), SRC)
+    symlinkSync(join(outside, 'secret'), join(root, 'link'))
+    const out = join(tree(), 'out')
+    await run('emit', root, '-o', out, '-r')
+    expect(existsSync(join(out, 'good.js'))).toBe(true)
+    expect(existsSync(join(out, 'link', 'secret.js'))).toBe(false)
+  })
+
+  it('a symlink cycle terminates instead of writing 33 nested copies', async () => {
+    const root = tree()
+    writeFileSync(join(root, 'good.tjs'), SRC)
+    symlinkSync(root, join(root, 'cycle'))
+    const out = join(tree(), 'out')
+    const r = await run('emit', root, '-o', out, '-r')
+    expect(r.text).not.toContain('ELOOP')
+    expect(existsSync(join(out, 'cycle', 'cycle', 'good.js'))).toBe(false)
+  })
+
+  it('convert skips node_modules and dot-directories', async () => {
+    const root = tree()
+    writeFileSync(join(root, 'a.ts'), `export const x: number = 1\n`)
+    mkdirSync(join(root, 'node_modules', 'dep'), { recursive: true })
+    writeFileSync(
+      join(root, 'node_modules', 'dep', 'b.ts'),
+      `export const y = 2\n`
+    )
+    const out = join(tree(), 'out')
+    await run('convert', root, '-o', out, '-r')
+    expect(existsSync(join(out, 'node_modules'))).toBe(false)
   })
 })

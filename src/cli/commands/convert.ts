@@ -11,11 +11,10 @@
  *   tjs convert --emit-tjs <file.ts>   Output intermediate TJS instead of JS
  */
 
-import { shouldDescend } from '../walk'
+import { readEntries, shouldDescend } from '../walk'
 import {
   readFileSync,
   writeFileSync,
-  readdirSync,
   statSync,
   mkdirSync,
   existsSync,
@@ -160,18 +159,18 @@ async function convertDirectory(
   verbose: boolean,
   emitTJS: boolean
 ): Promise<{ converted: number; failed: number; skipped: number }> {
-  const entries = readdirSync(inputDir)
+  // Shared entry listing — see `readEntries`, and `emit` for the three hazards it closes.
+  const entries = readEntries(inputDir)
   let converted = 0
   let failed = 0
   let skipped = 0
 
   const outExt = emitTJS ? '.tjs' : '.js'
 
-  for (const entry of entries) {
+  for (const { name: entry, isFile, isDirectory } of entries) {
     const inputPath = join(inputDir, entry)
-    const stats = statSync(inputPath)
 
-    if (stats.isDirectory() && recursive && shouldDescend(entry)) {
+    if (isDirectory && recursive && shouldDescend(entry)) {
       // `shouldDescend` — SHARED with the other walks, because this one had neither
       // exclusion. `tjs convert . -o out` mirrored `node_modules` and every dot-directory
       // into the output: 913 real `.ts` files in this repo alone, converted and written.
@@ -188,7 +187,7 @@ async function convertDirectory(
       converted += sub.converted
       failed += sub.failed
       skipped += sub.skipped
-    } else if (stats.isFile() && extname(entry) === '.ts') {
+    } else if (isFile && extname(entry) === '.ts') {
       // Skip test files and declaration files
       if (entry.endsWith('.test.ts') || entry.endsWith('.d.ts')) {
         skipped++

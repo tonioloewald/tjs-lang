@@ -12,11 +12,10 @@
  *   tjs emit --jfdi <file.tjs>          Emit even if tests fail (just fucking do it)
  */
 
-import { shouldDescend } from '../walk'
+import { readEntries, shouldDescend } from '../walk'
 import {
   readFileSync,
   writeFileSync,
-  readdirSync,
   statSync,
   mkdirSync,
   existsSync,
@@ -232,22 +231,25 @@ async function emitDirectory(
   recursive: boolean,
   options: EmitOptions
 ): Promise<void> {
-  const entries = readdirSync(inputDir)
+  // The SAME entry listing the other walks use — see `readEntries`. This was
+  // `readdirSync` + `statSync`, which follows links: a dangling one killed the whole run
+  // with a raw ENOENT and emitted zero files, a linked directory wrote output derived from
+  // a file outside the tree the user named, and a cycle recursed 33 levels before ELOOP.
+  const entries = readEntries(inputDir)
   let emitted = 0
   let failed = 0
   let skipped = 0
 
-  for (const entry of entries) {
+  for (const { name: entry, isFile, isDirectory } of entries) {
     const inputPath = join(inputDir, entry)
-    const stats = statSync(inputPath)
 
-    if (stats.isDirectory()) {
+    if (isDirectory) {
       // The same shared policy `convert` was missing — one definition, three walks.
       if (recursive && shouldDescend(entry)) {
         const subOutputDir = join(outputDir, entry)
         await emitDirectory(inputPath, subOutputDir, recursive, options)
       }
-    } else if (stats.isFile() && extname(entry) === '.tjs') {
+    } else if (isFile && extname(entry) === '.tjs') {
       // Skip test files for production emit
       if (entry.endsWith('.test.tjs')) {
         skipped++
