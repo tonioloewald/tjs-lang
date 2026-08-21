@@ -7,6 +7,7 @@
 import {
   maskLiterals,
   stripComments as sharedStripComments,
+  matchingBrace,
   splitTopLevel,
   splitTopLevelTrimmed,
 } from '../../strip-comments'
@@ -1067,12 +1068,7 @@ export function extractReturnExampleFromSource(source: string): string | null {
  *
  * Any member is a valid argument, so the first one is used. Split over the MASKED view so
  * a `|` inside a string (`'a|b' | 'c'`) is not a separator, and `||` is left alone.
- */
-function firstUnionMember(example: string): string {
-  return collapseUnions(example)
-}
-
-/**
+ *
  * Collapse every literal union in `example` to its first member, at ANY depth.
  *
  * The first version only looked at depth 0, so a union nested inside an array or an object
@@ -1109,7 +1105,7 @@ function collapseUnions(example: string): string {
   while (i < masked.length) {
     const c = masked[i]
     if (c === '[' || c === '{' || c === '(') {
-      const close = matchingBracket(masked, i)
+      const close = matchingBrace(masked, i)
       if (close === -1) {
         out += example.slice(i)
         break
@@ -1143,22 +1139,6 @@ function collapseUnions(example: string): string {
     i++
   }
   return out
-}
-
-/** Index of the bracket closing the one at `open`, over an already-masked view. */
-function matchingBracket(masked: string, open: number): number {
-  const pairs: Record<string, string> = { '[': ']', '{': '}', '(': ')' }
-  const want = pairs[masked[open]]
-  let depth = 0
-  for (let i = open; i < masked.length; i++) {
-    const c = masked[i]
-    if (c === '[' || c === '{' || c === '(') depth++
-    else if (c === ']' || c === '}' || c === ')') {
-      depth--
-      if (depth === 0) return masked[i] === want ? i : -1
-    }
-  }
-  return -1
 }
 
 /**
@@ -1224,8 +1204,8 @@ function extractParamExamples(paramsStr: string): string[] {
     // Handle: (? name: example) or (! name: example)
     const match = trimmed.match(/(?:\(\s*[?!]\s*)?(\w+)\s*[:=]\s*(.+?)(?:\))?$/)
     if (match) {
-      // A literal union's source evaluates as bitwise OR — see firstUnionMember.
-      examples.push(firstUnionMember(match[2].trim()))
+      // A literal union's source evaluates as bitwise OR — see collapseUnions.
+      examples.push(collapseUnions(match[2].trim()))
     } else {
       // No example value - can't run signature test
       return []

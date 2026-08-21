@@ -4470,19 +4470,59 @@ export function wrapClassDeclarations(
  *
  * Deciding once and reporting the same offsets removes the disagreement by construction.
  */
+/** How many extra locations to name before falling back to a count. */
+const MAX_REPORTED_LOCATIONS = 20
+
 function rejectAt(source: string, offsets: number[], message: string): void {
   if (!offsets.length) return
-  const locs = offsets.map((at) => locAt(source, at))
-  const extra =
-    locs.length > 1
-      ? `\n\nAlso at: ${locs
-          .slice(1)
-          .map((l) => `line ${l.line}:${l.column}`)
-          .join(', ')} (${locs.length} occurrences in total)`
-      : ''
+
+  // ONE forward pass over the source, not `locAt` per hit.
+  //
+  // `locAt` scans from offset 0, so reporting N violations was O(N × filesize): 3200 hits
+  // in a 343KB file took 540ms to build a 44,498-character message it was about to throw.
+  // The offsets arrive ascending, so a running cursor gets every line/column in one pass.
+  const sorted = [...offsets].sort((a, b) => a - b)
+  const locs: Array<{ line: number; column: number }> = []
+  let line = 1
+  let lineStart = 0
+  let cursor = 0
+  for (const at of sorted) {
+    while (cursor < at && cursor < source.length) {
+      if (source[cursor] === '\n') {
+        line++
+        lineStart = cursor + 1
+      }
+      cursor++
+    }
+    locs.push({ line, column: at - lineStart })
+  }
+
+  // CAPPED. Naming 3199 further locations is not a diagnostic, it is a denial of service
+  // against the reader; the count is the part that carries information past the first few.
+  const rest = locs.slice(1)
+  const shown = rest.slice(0, MAX_REPORTED_LOCATIONS)
+  const extra = rest.length
+    ? `\n\nAlso at: ${shown
+        .map((l) => `line ${l.line}:${l.column}`)
+        .join(', ')}` +
+      (rest.length > shown.length
+        ? `, and ${rest.length - shown.length} more`
+        : '') +
+      ` (${locs.length} occurrences in total)`
+    : ''
   throw new SyntaxError(message + extra, locs[0])
 }
 
+/**
+ * Reject every match of `pattern` on the MASKED view, reporting all of their locations.
+ *
+ * The masked view is what makes it safe: a construct mentioned inside a string or comment
+ * is data, not code, and rejecting on the raw text is this repo's dominant defect class.
+ *
+ * Reporting is delegated to `rejectAt`, which is also what callers that have already
+ * decided their own offsets should use — deciding once and reporting the same offsets is
+ * what stops a filter and a reporter from disagreeing (see `validateNoNew`).
+ */
 function rejectAll(
   source: string,
   masked: string,
@@ -4500,16 +4540,8 @@ function rejectAll(
     if (m.index === re.lastIndex) re.lastIndex++ // zero-width guard
   }
   if (!hits.length) return
-
-  const locs = hits.map((at) => locAt(source, at))
-  const extra =
-    locs.length > 1
-      ? `\n\nAlso at: ${locs
-          .slice(1)
-          .map((l) => `line ${l.line}:${l.column}`)
-          .join(', ')} (${locs.length} occurrences in total)`
-      : ''
-  throw new SyntaxError(message + extra, locs[0])
+  // ONE reporter. This block was a verbatim copy of `rejectAt`'s.
+  rejectAt(source, hits, message)
 }
 
 export function validateNoDate(source: string, warnings?: string[]): string {

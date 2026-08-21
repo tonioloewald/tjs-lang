@@ -360,13 +360,27 @@ export function splitTopLevelTrimmed(source: string, sep = ','): string[] {
  * returns.
  */
 export function matchingBrace(masked: string, open: number): number {
+  // The CLOSER comes from the OPENER, so this handles `{`, `[` and `(` alike.
+  //
+  // It was `{`-only, which is why a FOURTH private bracket scanner appeared in
+  // `emitters/js-tests.ts` — in the same window that hoisted `splitTopLevelTrimmed`
+  // specifically to stop that, and right next to the one CLAUDE.md and llms.txt both call
+  // "the one balanced-brace matcher". Worse, the copy with no tests was the one the
+  // headline nested-literal-unions feature depended on.
+  //
+  // Nesting is counted across ALL bracket kinds, so a `}` inside `[...]` cannot close an
+  // outer `{`; a depth-zero closer of the wrong kind means the source is unbalanced, which
+  // is -1 rather than a confident wrong answer.
+  const CLOSERS: Record<string, string> = { '{': '}', '[': ']', '(': ')' }
+  const want = CLOSERS[masked[open]]
+  if (!want) return -1
   let depth = 0
   for (let i = open; i < masked.length; i++) {
     const c = masked[i]
-    if (c === '{') depth++
-    else if (c === '}') {
+    if (c === '{' || c === '[' || c === '(') depth++
+    else if (c === '}' || c === ']' || c === ')') {
       depth--
-      if (depth === 0) return i
+      if (depth === 0) return c === want ? i : -1
     }
   }
   return -1

@@ -61,14 +61,6 @@ export function newExpressionPattern(names: string[]): RegExp {
 }
 
 /**
- * Rewrite `new X(…)` -> `X(…)` and `new X` -> `X()` for every class declared here.
- *
- * A `new X` followed by `.` is left alone: `new Point.Inner()` constructs a DIFFERENT
- * thing (a member of `Point`), and rewriting it would change meaning rather than preserve
- * it. Erring toward leaving code untouched is right for a rewriter — the checker will
- * still have its say.
- */
-/**
  * Does this `new X` match actually construct `X`?
  *
  * THE predicate, shared with `validateNoNew`. It was written twice and the copies
@@ -98,6 +90,21 @@ export function constructsDeclaredClass(
   return masked[i] !== '.' && masked[i] !== '['
 }
 
+/**
+ * Drop `new` from every construction of a class declared in THIS module.
+ *
+ * A TJS class is CALLED — `Point(1)` does exactly what `new Point(1)` does and returns the
+ * same object — so the keyword is redundant and is removed rather than rejected. Only
+ * locally declared names are touched: `new Map()` is somebody else's constructor and must
+ * survive untouched.
+ *
+ * Whether a given `new X` is a construction at all is `constructsDeclaredClass`'s
+ * question, shared with the checker so the two cannot disagree. `new Point.Inner()`
+ * constructs a DIFFERENT thing (a member of `Point`), so it is left alone: erring toward
+ * leaving code untouched is right for a rewriter, and the checker still has its say.
+ *
+ * `new X(…)` -> `X(…)`; a paren-less `new X` -> `X()`.
+ */
 export function dropRedundantNew(code: string): string {
   const masked = maskLiterals(code)
   const names = declaredClassNames(code, masked)

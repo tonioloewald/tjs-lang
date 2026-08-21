@@ -8,6 +8,7 @@ import {
   stripComments,
   type LiteralRegion,
   stripLineComments,
+  matchingBrace,
 } from './strip-comments'
 
 /**
@@ -218,5 +219,48 @@ describe('stripLineComments preserves offsets', () => {
     expect(stripLineComments("const s = 'http://x' // gone")).toContain(
       'http://x'
     )
+  })
+})
+
+/**
+ * `matchingBrace` takes its closer from the opener.
+ *
+ * It was `{`-only, which is how a FOURTH private bracket scanner ended up in
+ * `emitters/js-tests.ts` — in the same window that hoisted `splitTopLevelTrimmed`
+ * specifically to stop that from happening, and beside the one both CLAUDE.md and llms.txt
+ * call "the one balanced-brace matcher". The untested copy was the one the headline
+ * nested-literal-unions feature ran on.
+ */
+describe('matchingBrace handles every bracket kind', () => {
+  const at = (src: string, open = 0) => matchingBrace(maskLiterals(src), open)
+
+  it('braces, brackets and parens', () => {
+    expect(at('{a}')).toBe(2)
+    expect(at('[a]')).toBe(2)
+    expect(at('(a)')).toBe(2)
+  })
+
+  it('counts nesting across KINDS, so a stray closer cannot close an outer opener', () => {
+    // `}` inside `[...]` must not close the `{`.
+    expect(at('{ a: [1, 2], b: 3 }')).toBe(18)
+    expect(at('[{ a: 1 }, { b: 2 }]')).toBe(19)
+  })
+
+  it('a depth-zero closer of the WRONG kind is -1, not a confident wrong answer', () => {
+    expect(at('{a)')).toBe(-1)
+    expect(at('[a}')).toBe(-1)
+  })
+
+  it('unbalanced is -1', () => {
+    expect(at('{a')).toBe(-1)
+  })
+
+  it('a bracket inside a literal is not structure', () => {
+    // The whole reason this takes a MASKED view.
+    expect(at(`{ s: '}' }`)).toBe(9)
+  })
+
+  it('a non-opener is -1', () => {
+    expect(at('abc')).toBe(-1)
   })
 })
