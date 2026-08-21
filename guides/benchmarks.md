@@ -66,8 +66,15 @@ darwin arm64):
 
 So the safe helper is the more expensive choice by ~1.9× against the unsafe one — and still
 under 3ms for a million calls, which is why "safe by default, unsafe where you have measured
-a problem" is the right order to work in. Re-derive these with `bun run bench` rather than
-trusting them; that is the whole lesson of this page.
+a problem" is the right order to work in.
+
+**These four numbers are hand-measured and no committed harness reproduces them.** That is
+the exact sin this page opens by describing, so they carry their date and this warning
+rather than an invitation to "re-derive with `bun run bench`", which measures something
+else. Treat them as an illustration of the SHAPE — cost lives at the callee, and it is
+small — not as figures to quote. `bun run bench` is the authority for anything you plan to
+repeat. Adding the loop-with-helper case to `bin/benchmarks.ts` would retire this table;
+that is tracked in `TODO.md`.
 
 ## There is no `unsafe {}` block
 

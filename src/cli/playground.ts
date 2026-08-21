@@ -7,8 +7,8 @@
  *   bunx tjs-playground
  */
 
+import { resolveCacheDir } from '../batteries/audit'
 import { watch } from 'fs'
-import { homedir } from 'os'
 import { join, resolve } from 'path'
 import { $ } from 'bun'
 import { reclaimPort, validPort } from './port'
@@ -44,14 +44,17 @@ export function isInstalled(rootDir: string): boolean {
 
 export function defaultOutDir(rootDir: string, version: string): string {
   if (!isInstalled(rootDir)) return join(rootDir, '.demo')
-  const base =
-    process.env.XDG_CACHE_HOME ||
-    (process.platform === 'darwin'
-      ? join(homedir(), 'Library', 'Caches')
-      : process.platform === 'win32'
-      ? process.env.LOCALAPPDATA || join(homedir(), 'AppData', 'Local')
-      : join(homedir(), '.cache'))
-  return join(base, 'tjs-lang', `playground-${version}`)
+  // `resolveCacheDir` — the SAME policy, not a second copy of it.
+  //
+  // This was an independent transcription of the OS-cache-path rules that
+  // `resolveCacheDir` was extracted this release to own, and it was the copy that writes
+  // tens of megabytes: it silently ignored `TJS_CACHE_DIR`, so a consumer who redirected
+  // the cache still got a `playground-<version>/` under `$HOME`. It also had no fallback
+  // for a missing home directory, which the shared one grew after that exact bug.
+  return join(
+    resolveCacheDir(process.env, process.platform, join),
+    `playground-${version}`
+  )
 }
 
 const HELP = `

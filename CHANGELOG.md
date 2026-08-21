@@ -20,7 +20,7 @@ _Nothing yet._
 > ([report](https://github.com/tonioloewald/tjs-lang/blob/main/docs/reviews/0.13.0-review-4-final.md)) BLOCKed on four, **two of them
 > regressions introduced by the third round's own fixes** — a `maxHeapBytes` bypass and a
 > build failure that would have shipped a stale bundle; the fifth
-> ([report](https://github.com/tonioloewald/tjs-lang/blob/main/docs/reviews/0.13.0-review-5.md))
+> ([report](https://github.com/tonioloewald/tjs-lang/blob/main/docs/reviews/0.13.0-review-5-delta.md))
 > BLOCKed on two — a `let` arrow with `:?` that crashed at module load (a regression from
 > the fourth round's own fixes) and the shipped `tjs` binary hard-failing for anyone without
 > the TypeScript compiler. All are fixed, along with every major and most minors each pass

@@ -211,3 +211,49 @@ describe('demo/docs.json is fresh and contains only our documentation', () => {
     ).toEqual([])
   })
 })
+
+/**
+ * Every test file CLAUDE.md names actually exists, and every review report the CHANGELOG
+ * links to resolves.
+ *
+ * Both had rotted, in the way paths always rot — invisibly, in documents nothing executes:
+ *
+ *   - the guardrail roster said `src/emitted-module-scope.test.ts`; the file is
+ *     `src/lang/emitted-module-scope.test.ts`
+ *   - the CHANGELOG linked `docs/reviews/0.13.0-review-5.md`; the file is
+ *     `…-review-5-delta.md`. That one SHIPS in the npm tarball, and this file's existing
+ *     link check explicitly skips absolute URLs and never reads the CHANGELOG, so four
+ *     review links were unverified.
+ *
+ * A roster naming a file that does not exist is worse than no roster: it reads as coverage.
+ */
+describe('paths named in docs resolve', () => {
+  it('every `src/**.test.ts` CLAUDE.md names exists', () => {
+    const text = readFileSync(join(ROOT, 'CLAUDE.md'), 'utf8')
+    const named = [
+      ...new Set(
+        [...text.matchAll(/`((?:src|demo|editors)\/[^`]*\.test\.ts)`/g)].map(
+          (m) => m[1]
+        )
+      ),
+    ]
+    expect(named.length).toBeGreaterThan(20) // apparatus: we really found the roster
+    const missing = named.filter((p) => !existsSync(join(ROOT, p)))
+    expect(missing).toEqual([])
+  })
+
+  it('every docs/reviews link in the CHANGELOG resolves', () => {
+    // These are absolute GitHub URLs on purpose (docs/reviews is excluded from the npm
+    // tarball, so a relative link would be dead on npm) — which is exactly why nothing
+    // checked them. Strip our own blob prefix and resolve against the tree.
+    const text = readFileSync(join(ROOT, 'CHANGELOG.md'), 'utf8')
+    const links = [
+      ...text.matchAll(
+        /https:\/\/github\.com\/tonioloewald\/tjs-lang\/blob\/main\/([^)\s]+)/g
+      ),
+    ].map((m) => m[1])
+    expect(links.length).toBeGreaterThan(3) // apparatus
+    const missing = links.filter((p) => !existsSync(join(ROOT, p)))
+    expect(missing).toEqual([])
+  })
+})

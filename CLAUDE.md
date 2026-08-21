@@ -458,11 +458,14 @@ so one run reports several failures:
    clone: 25 pass / 3 skip where a local run gets 28. A guard that skips reports exactly
    the same green as a guard that passes. `bundle-size.test.ts` now asserts `dist/` exists
    when `process.env.CI` is set, so putting the tests back in front fails by name.
-3. **Test (fast lane)** — `test:fast`, i.e. `SKIP_LLM_TESTS` + `SKIP_BENCHMARKS` +
+3. **Build demo** (`bun run build:demo`) — NOT part of `make`, so `.demo/` never existed in
+   CI and `demo-bundle.test.ts` skipped itself on every pull request. That guard exists
+   because a drifted install tree took the whole site down while the build reported success.
+4. **Test (fast lane)** — `test:fast`, i.e. `SKIP_LLM_TESTS` + `SKIP_BENCHMARKS` +
    `SKIP_AUDIT`.
-4. **Dogfood ratchets** — `bun run test:dogfood`, its own lane precisely because
+5. **Dogfood ratchets** — `bun run test:dogfood`, its own lane precisely because
    `test:fast` sets `SKIP_BENCHMARKS` and would skip them. They had never run in CI.
-5. **Generated artifacts are current** — `git diff --exit-code` over `demo/docs.json`,
+6. **Generated artifacts are current** — `git diff --exit-code` over `demo/docs.json`,
    `docs/tjs-vs-typescript.md` and the committed `editors/**` output. `make` REGENERATES
    these, so running it without looking at the result proves only that the build doesn't
    crash.
@@ -484,6 +487,9 @@ expectation is almost always the wrong move.
 - `src/lang/redos-lint.test.ts` — the predicate verifier fails _closed_ on catastrophic-backtracking regexes (a regex match is opaque to the fuel counter). Over-flagging only costs the "verified" badge; certifying a dangerous pattern is a broken promise.
 - `src/lang/browser-bundle.test.ts` — the browser bundle stays self-contained (no external imports), which is what lets it load from any CDN.
 - `src/docs-index.test.ts` — `llms.txt` indexes every top-level/`docs/` markdown file and every `package.json` entry point, and all its links resolve. Enforces the "update both" rule below. To exempt something, add it to the allowlist in that file **with a reason** — an unexplained exemption is a silent hole.
+- `src/cli/cli-tsfree.test.ts` — the shipped `tjs` BINARY runs without the TypeScript compiler, including `--help`/`--version`. The library guard below covers the library entry; the CLI had the same defect and no equivalent guard.
+- `src/cli/walk.test.ts` — the shared directory walk does not follow symlinks out of the tree, does not abort on a dangling one, and terminates on a cycle.
+- `src/cli/check.test.ts` — `tjs check`'s three shipped behaviours (`.ts` excluded, `#!` accepted, narration gating). All three shipped with no test; review 6 confirmed by mutation that reverting them left the suite green.
 - `src/index-tsfree.test.ts` — the TypeScript compiler is reachable **only** via the explicit `tjs-lang/lang/from-ts` subpath, never through the main entry. `typescript` is a devDependency, so a static re-export of `fromTS` anywhere in the main graph makes `import 'tjs-lang'` hard-fail for Node consumers who don't have it installed (it shipped that way once — snowfox found it in production).
 - `src/package-exports.test.ts` — every package the shipped files import is declared in `package.json`. A hoisted `node_modules` resolves undeclared imports fine locally and breaks in a consumer's isolated install; this reads what the published files actually import and demands it be declared (`editors/codemirror` shipped importing five `@codemirror/*` packages with no `peerDependencies` block at all — #16).
 - `editors/editors-build.test.ts` — the committed `editors/**/*.js` are byte-identical to a fresh bundle of the adjacent `.ts`. They're build artifacts that are committed (so `npm publish` ships them without a build), which means editing the `.ts` without running `bun run build:editors` would otherwise silently ship months-old code.
@@ -507,7 +513,7 @@ expectation is almost always the wrong move.
 - `editors/editors-build.test.ts` — the committed `editors/**/*.js` are byte-identical to a fresh bundle of the adjacent `.ts`.
 - `src/repo-hygiene.test.ts` — nothing tracked is also ignored, and `.gitignore` has no inline comments. Git has no inline `#` in `.gitignore`: a trailing comment makes the pattern match NOTHING, which is how `.models.cache.json` got committed.
 - `src/benchmarks-runnable.test.ts` — the benchmark fixtures still parse, and every millisecond figure in `guides/benchmarks.md` sits under a date stamp. A hand-copied table drifted an order of magnitude for seven months.
-- `src/emitted-module-scope.test.ts` — emitted output loads as an ES MODULE, where a duplicate top-level declaration is an error. Bun tolerates one; Node refuses, so `==` plus `Is` in one file shipped broken for Node consumers with a green suite.
+- `src/lang/emitted-module-scope.test.ts` — emitted output parses as an ES MODULE (where a duplicate top-level declaration is an error — Bun tolerates one, Node refuses, so `==` plus `Is` in one file shipped broken for Node consumers with a green suite), RUNS via `new Function` and is called into (a reference inside a body resolves at call time, not at parse — `IsNot` shipped emitting `ReferenceError: Is is not defined`), and for the two shapes that actually shipped broken, loads in a real `node` subprocess.
 - `src/lang/param-markers.test.ts` — `extractParamMarkers` agrees with the pre-optimisation implementation over a corpus, and its growth stays linear.
 
 ### The inline runtime is NOT the real runtime

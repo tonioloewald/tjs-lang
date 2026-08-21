@@ -118,3 +118,34 @@ first one a rule rather than a preference:
 
 Both are implemented in `src/cli/port.ts`. Neither is upstream. **Owed to
 `tosijs-coding-practices#5`.**
+
+## Bun — a directory's listing is cached on first module resolution
+
+**Not filed yet** (needs a go-ahead to post). **Not a 1.4 regression** — reproduced
+identically on 1.3.14, so it is longstanding, and labelling it as new would send someone
+bisecting for nothing.
+
+After a directory has been resolved once for a module load, a file created in that
+directory afterwards is invisible to `import()` — while `existsSync` and `realpathSync`
+both confirm it is there. The error names a path that was never passed (the realpath, not
+the URL) and an importer of `''`:
+
+    Cannot find module '/private/var/.../m1.mjs' from ''
+
+Three cases, run under both 1.3.14 and 1.4.0, identical results:
+
+| Setup                                                                   | Result       |
+| ----------------------------------------------------------------------- | ------------ |
+| All files written up front, then imported                               | all succeed  |
+| Each file in its own fresh directory, created just before import        | all succeed  |
+| Files created in a directory **after** that directory was resolved once | **all fail** |
+
+Reproduces under plain `bun run` as well as `bun test`, so it is the resolver, not the test
+runner. (A first characterisation blamed `bun:test`; a minimal repro there passes.)
+
+**Workaround:** none needed here. `src/lang/emitted-module-scope.test.ts` runs emitted code
+via `new Function` and uses a real `node` subprocess for the cases that must prove genuine
+ESM loading — a better test than the dynamic-import version anyway.
+
+**What we're waiting for:** the resolver re-stats a directory, or at least reports the
+specifier it was given.
