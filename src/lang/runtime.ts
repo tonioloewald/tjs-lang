@@ -246,7 +246,15 @@ function describeActual(value: unknown): string {
       const v = value[i]
       const k = v === null ? 'null' : Array.isArray(v) ? 'array' : typeof v
       if (!kinds.includes(k)) kinds.push(k)
-      if (kinds.length === 4) return `array of ${kinds.join(' | ')}`
+      // `…` on THIS path too. Stopping at four kinds is also stopping early, and omitting
+      // the marker here contradicted the invariant it was added to establish — the message
+      // never claims to have looked at more than it did. `[1,'a',true,null,{},Symbol()]`
+      // read as an exhaustive list after scanning 4 of 6.
+      if (kinds.length === 4) {
+        return `array of ${kinds.join(' | ')}${
+          i + 1 < value.length ? ' …' : ''
+        }`
+      }
     }
     const sampled = value.length > DESCRIBE_SCAN_LIMIT ? ' …' : ''
     return `array of ${kinds.join(' | ')}${sampled}`

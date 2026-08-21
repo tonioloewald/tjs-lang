@@ -523,3 +523,68 @@ describe('the heap ledger sees in-place mutation', () => {
     expect(ms < 2000 ? 'fast' : `took ${ms.toFixed(0)}ms`).toBe('fast')
   })
 })
+
+/**
+ * `trackHeapWrite` returning false ALWAYS leaves `ctx.error` set.
+ *
+ * That is the contract its callers document — "returns false ⇒ caller stops, and the error
+ * explains why" — and `chargeHeapWalk` had a hole in it: a `before > 0` guard meant that
+ * entering with the budget ALREADY at zero returned false while setting nothing. The caller
+ * aborted silently and the run reported success with no error.
+ *
+ * The guard existed for attribution (don't blame this op for a budget an earlier one spent),
+ * but `!ctx.error` already covers that case — an existing error is left alone. The guard
+ * only added the failure mode.
+ */
+describe('a refused heap write always explains itself', () => {
+  const ident = (name: string) => ({ $expr: 'ident', name })
+  const lit = (value: unknown) => ({ $expr: 'literal', value })
+
+  it('a run that cannot afford its own writes fails LOUDLY', async () => {
+    // Fuel small enough that the heap walk is what runs it out.
+    const r: any = await new AgentVM().run(
+      {
+        op: 'seq',
+        steps: [
+          { op: 'varSet', key: 'big', value: 'x'.repeat(200_000) },
+          { op: 'varSet', key: 'list', value: [] },
+          { op: 'varSet', key: 'i', value: 0 },
+          {
+            op: 'while',
+            condition: {
+              $expr: 'binary',
+              op: '<',
+              left: ident('i'),
+              right: lit(50),
+            },
+            body: [
+              {
+                op: 'push',
+                list: ident('list'),
+                item: ident('big'),
+                result: 'list',
+              },
+              {
+                op: 'varSet',
+                key: 'i',
+                value: {
+                  $expr: 'binary',
+                  op: '+',
+                  left: ident('i'),
+                  right: lit(1),
+                },
+              },
+            ],
+          },
+          { op: 'return', value: { ok: 1 } },
+        ],
+      } as any,
+      {} as any,
+      { fuel: 20, maxHeapBytes: 512 * 1024 * 1024 }
+    )
+    // The point: it stopped AND said why. A silent stop is the defect.
+    expect(r.error).toBeDefined()
+    expect(r.error.message).toBe('Out of Fuel')
+    expect(r.result?.ok).toBeUndefined()
+  })
+})

@@ -207,7 +207,10 @@ describe('printed invocations are runnable', () => {
     })
     const text = await new Response(proc.stderr).text()
     expect(await proc.exited).toBe(1)
-    expect(text).toContain('No source files found')
+    // Assert on the SUBSTANCE, not the wording: it must name what it wanted. "No source
+    // files found" was true and useless — it reads like the path is wrong.
+    expect(text).toContain('.tjs')
+    expect(text.toLowerCase()).toContain('no ')
     rmSync(empty, { recursive: true, force: true })
   })
 

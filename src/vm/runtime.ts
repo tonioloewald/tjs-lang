@@ -1894,17 +1894,24 @@ function chargeHeapWalk(
   op: string
 ): boolean {
   if (!ctx.fuel) return true
-  const before = ctx.fuel.current
   ctx.fuel.current -= nodes * HEAP_WALK_FUEL_PER_NODE
   if (ctx.fuel.current > 0) return true
   // Claim the failure only if OUR charge is what crossed zero. If the budget was already
   // gone when we got here, the op that spent it owns the diagnosis — stealing the
   // attribution would point the user at the innocent `varSet` after an expression burned
   // the whole budget one step earlier.
-  if (before > 0 && !ctx.error) {
+  if (!ctx.error) {
     // The canonical message, not a bespoke one. Fuel exhaustion is a single condition and
     // consumers match on it; a second wording for the same thing is a trap for anyone who
     // wrote `err.message === 'Out of Fuel'`. The op carries the detail.
+    //
+    // No `before > 0` guard. Attribution was the reason for it — don't blame this op if the
+    // budget was already gone when we arrived — but it left a hole in the CONTRACT its
+    // callers document: "returns false ⇒ caller stops, and `ctx.error` is set". Entering
+    // with `fuel <= 0` and no error yet returned false with nothing set, so the caller
+    // aborted silently and the run reported success. `!ctx.error` already preserves the
+    // attribution in the case that motivated the guard (an earlier op's error is left
+    // alone); the guard only added the failure mode.
     ctx.error = new AgentError('Out of Fuel', op)
   }
   return false

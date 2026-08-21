@@ -45,6 +45,11 @@ describe('array diagnostics: the two copies agree', () => {
     ['exactly at the cap', Array.from({ length: 64 }, () => 1)],
     ['one past the cap', Array.from({ length: 65 }, () => 1)],
     ['long and homogeneous', Array.from({ length: 5000 }, () => 'x')],
+    // Four kinds reached EARLY, with more elements behind them. The early return omitted
+    // the `…`, so a message that had seen 4 of 6 read as exhaustive — contradicting the
+    // very invariant the marker was added for.
+    ['four kinds, more behind', [1, 'a', true, null, {}, Symbol('x')]],
+    ['exactly four kinds, nothing behind', [1, 'a', true, null]],
   ]
 
   const arrKinds = inlineArrKinds()
@@ -61,6 +66,12 @@ describe('array diagnostics: the two copies agree', () => {
   }
 
   it('marks a sampled answer, so the message never overclaims', () => {
+    expect(runtimeDescribe([1, 'a', true, null, {}, Symbol('x')])).toBe(
+      'array of number | string | boolean | null …'
+    )
+    expect(runtimeDescribe([1, 'a', true, null])).toBe(
+      'array of number | string | boolean | null'
+    )
     expect(runtimeDescribe(Array.from({ length: 65 }, () => 1))).toBe(
       'array of number …'
     )

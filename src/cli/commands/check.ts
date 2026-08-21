@@ -33,7 +33,16 @@ export async function check(
   if (statSync(file).isDirectory()) {
     const files = findSourceFiles(file)
     if (files.length === 0) {
-      console.error(`No source files found in ${file}`)
+      // Name the extensions, and point at `convert` when the directory is TypeScript.
+      // "No source files found" on a directory full of `.ts` is technically true and
+      // completely unhelpful — it reads like the path is wrong.
+      const hasTS = findFiles(file, (n) => /\.tsx?$/.test(n)).length > 0
+      console.error(
+        `No .tjs/.js/.mjs/.cjs files found in ${file}` +
+          (hasTS
+            ? `\nIt contains TypeScript. \`tjs check\` does not parse .ts — convert it first: tjs convert ${file}`
+            : '')
+      )
       process.exit(1)
     }
     // The warning BUDGET is for the whole run, not per file — otherwise
@@ -54,10 +63,13 @@ export async function check(
     enforceMaxWarnings(total, options.maxWarnings)
     return
   }
-  const count = await checkOne(
-    file,
-    options.verbose === true || options.maxWarnings === undefined
-  )
+  // A single file ALWAYS narrates, which is what `--help` says.
+  //
+  // This used to be `options.maxWarnings === undefined`, so passing `--max-warnings N`
+  // silently turned the signature line off — a flag about WARNING BUDGETS quietly
+  // controlling OUTPUT VERBOSITY, while the help text asserted it could not happen.
+  // `--verbose` is the narration control; `--max-warnings` is not.
+  const count = await checkOne(file, true)
   if (count === null) process.exit(1)
   enforceMaxWarnings(count, options.maxWarnings)
 }

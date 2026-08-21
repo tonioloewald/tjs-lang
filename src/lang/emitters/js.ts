@@ -68,7 +68,7 @@ const INLINE_MONADIC_ERROR = `class MonadicError extends Error{constructor(m,p,e
  * try/catch is the recorder's prime directive: recording must never change the
  * behavior of the program it records.
  */
-const INLINE_TYPE_ERROR = `function __arrKinds(v){if(!v.length)return'empty array';const k=[],n=Math.min(v.length,64);for(let i=0;i<n;i++){const x=v[i],t=x===null?'null':Array.isArray(x)?'array':typeof x;if(!k.includes(t))k.push(t);if(k.length===4)return'array of '+k.join(' | ')}return'array of '+k.join(' | ')+(v.length>64?' …':'')}
+const INLINE_TYPE_ERROR = `function __arrKinds(v){if(!v.length)return'empty array';const k=[],n=Math.min(v.length,64);for(let i=0;i<n;i++){const x=v[i],t=x===null?'null':Array.isArray(x)?'array':typeof x;if(!k.includes(t))k.push(t);if(k.length===4)return'array of '+k.join(' | ')+(i+1<v.length?' …':'')}return'array of '+k.join(' | ')+(v.length>64?' …':'')}
 function typeError(p,e,v,r){const a=v===null?'null':Array.isArray(v)?__arrKinds(v):typeof v;const m=r?'Expected '+e+" for '"+p+"': "+r:'Expected '+e+" for '"+p+"', got "+a;const err=new MonadicError(m,p,e,a,undefined,r);const g=globalThis.__tjs;const c=g?.getConfig?.();try{g?.record?.({source:'type',severity:'error',message:err.message,error:err})}catch{}if(c?.logTypeErrors)console.error('[TJS TypeError] '+err.message);if(c?.throwTypeErrors)throw err;return err}`
 
 const INLINE_IS_MONADIC_ERROR = `function isMonadicError(v){return v instanceof Error&&v.name==='MonadicError'&&'path' in v}`

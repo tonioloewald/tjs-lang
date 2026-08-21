@@ -361,15 +361,20 @@ function withLiveFallback<T extends { predict: (...a: any[]) => Promise<any> }>(
         // The budget is generous — vision inference on a local model is genuinely slow —
         // but it is well inside the test timeout, so exceeding it produces a labelled
         // fallback rather than an unexplained red.
+        // The timer is CLEARED. `Promise.race` settles, it does not cancel the loser, so
+        // an un-cleared timeout kept a 45s handle alive per call — which both holds the
+        // process open and, in a suite making hundreds of calls, piles up handles for no
+        // reason. The budget is a guard, not a schedule.
+        let timer: ReturnType<typeof setTimeout> | undefined
         const result = await Promise.race([
           live.predict(...args),
-          new Promise((_, reject) =>
-            setTimeout(
+          new Promise((_, reject) => {
+            timer = setTimeout(
               () => reject(new Error(`live LLM exceeded ${LIVE_BUDGET_MS}ms`)),
               LIVE_BUDGET_MS
             )
-          ),
-        ])
+          }),
+        ]).finally(() => clearTimeout(timer))
         liveCalls.live++
         return result
       } catch (e) {
