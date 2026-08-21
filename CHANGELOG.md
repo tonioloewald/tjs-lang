@@ -9,6 +9,107 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 _Nothing yet._
 
+## [0.13.1] — 2026-08-21
+
+> **0.13.0 was published by mistake.** It was meant to be a release candidate and the
+> version was labelled `0.13.0`; the publish also ran from the working tree rather than a
+> pushed tag, so the full-suite gate in `.githooks/pre-push` never fired for it. `v0.13.0`
+> has since been tagged retroactively at the commit the registry actually has, and 0.13.0 is
+> **deprecated on npm** in favour of this release.
+>
+> A sixth review pass, run AFTER publication
+> ([report](https://github.com/tonioloewald/tjs-lang/blob/main/docs/reviews/0.13.0-review-6-post-publish.md)),
+> found the blocker below plus every major fixed here. Reviewing after shipping is not the
+> plan; it is what caught this.
+
+### ⚠️ Upgrade from 0.13.0
+
+- **`{ mode: 'a' | 'b', other: 1 }` did not compile in 0.13.0.** If you pinned it and hit a
+  `signature example is inconsistent` error on an options object, this is why — and the
+  workaround (reordering members) is no longer needed.
+
+### Fixed
+
+- **A nested literal union discarded every sibling after it.** `collapseUnions` handed the
+  whole bracket body back to itself, found the first depth-0 `|` inside the container, and
+  returned only what was left of it. Whether a file compiled depended on the ORDER of its
+  members: `function cfg(o: { mode: 'a' | 'b', other: 1 })` threw, while the same members
+  reversed passed. The array form was worse because it was SILENT — `['a' | 'b', 'c']`
+  collapsed to a one-element array, so the signature test ran against a shorter argument and
+  passed while checking less than it claimed. Every nested case in the test file put the
+  union in a container by itself, which is why the whole multi-member class — the ordinary
+  shape — shipped untested and green.
+
+- **`IsNot` without `Is` emitted a module that threw on first call.**
+  `needsIs = code.includes('Is(')` is false for `IsNot(`, and `IsNot` is implemented as
+  `!Is(a,b)`, so emitted code raised `ReferenceError: Is is not defined` in Node and Bun,
+  for both the call form and the `a IsNot b` infix form. `NotEq` escaped only by luck:
+  `'NotEq('` does contain `'Eq('`.
+
+- **A `#!` line was rejected everywhere except `tjs check`.** Hashbang is standard
+  ECMAScript (ES2023) and acorn already parses it, so rejecting it made
+  `tjs(src, { dialect: 'js' })` refuse legal JavaScript — a `PRINCIPLES.md` TJS ⊇ JS subset
+  violation. It was handled in the `check` command alone, so `check` green-lit bin scripts
+  that `emit`, `run`, `types` and `test` all died on. Now handled in `preprocess`, which
+  every path goes through.
+
+- **The shared directory walk followed symlinks.** A dangling link aborted
+  `tjs check <dir>` with a raw `ENOENT` and checked zero files; a linked directory let the
+  walk escape the tree it was given and double-count those warnings into `--max-warnings`;
+  a cycle hit `ELOOP`. Now uses `readdirSync(withFileTypes)`, where a link is neither file
+  nor directory and both hazards stop by construction.
+
+- **`tjs convert <dir>` mirrored `node_modules` and dot-directories into its output** — 913
+  real `.ts` files in this repo alone. It applied neither exclusion while `emit` applied
+  both. Hoisted as `shouldDescend`, now shared by all three walks.
+
+- **`--max-warnings` silently suppressed narration** for a single file, while `--help`
+  asserted "a single file always narrates". A warning-budget flag doubling as a hidden
+  verbosity switch; `--verbose` is the narration control.
+
+- **The array diagnostic's `…` marker was missing on the four-kinds path**, so
+  `[1,'a',true,null,{},Symbol()]` reported an exhaustive-looking list after scanning 4 of 6
+  elements — contradicting the invariant the marker was added to establish.
+
+- **`chargeHeapWalk` could refuse a heap write without setting `ctx.error`**, breaking the
+  contract its callers document: the caller stopped and the run reported success with no
+  explanation.
+
+- **`tjs check` on an all-TypeScript directory** said "No source files found", which is true
+  and reads like the path is wrong. It now names the extensions it wants and points at
+  `tjs convert`.
+
+- **`tjs-playground` ignored `TJS_CACHE_DIR`** — `defaultOutDir` was an independent copy of
+  the cache-path policy `resolveCacheDir` was extracted in 0.13.0 to own, and it was the
+  copy that writes tens of megabytes under `$HOME`.
+
+### Performance
+
+- **`rejectAt` was O(violations × filesize)** — `locAt` scans from offset 0, so 3200
+  violations in a 343KB file took 540ms to build a 44,498-character message it was about to
+  throw. One forward pass now, with the location list capped at 20 plus a total count.
+
+### Internal
+
+- One balanced-bracket matcher instead of four: `matchingBrace` takes its closer from its
+  opener and handles `{`/`[`/`(`. The fourth private copy had been added in the same window
+  that hoisted `splitTopLevelTrimmed` to prevent exactly that — and the untested copy was
+  the one the nested-literal-unions feature ran on.
+- `src/cli/walk.ts` and `tjs check`'s three 0.13.0 behaviours gained the tests they shipped
+  without; `emitted-module-scope.test.ts` now parses, RUNS and loads emitted output in a
+  real `node` subprocess, having previously only parsed — which is how it held `IsNot` in
+  its corpus and passed.
+- `perf.test.ts` no longer prints a ratio: measured in-process, it varied 54× for identical
+  code depending on JIT history (2.18× alone, 116.75× in a full run), because the baseline
+  folds away. `bun run bench` is the authority.
+
+### Compatibility
+
+- **Bun 1.4**: full suite green. `Bun.build()`'s native memory leak
+  ([oven-sh/bun#34053](https://github.com/oven-sh/bun/issues/34053)) is fixed upstream — 300
+  builds now cost ~15MB total rather than growing without bound. The `fetch` error-shape and
+  shared-reference-recursion issues we filed remain open; our workarounds stay.
+
 ## [0.13.0] — 2026-08-19
 
 > Reviewed FIVE times before tagging, each pass over the full diff since
