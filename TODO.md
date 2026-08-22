@@ -2255,13 +2255,18 @@ tracked, non-blocking follow-ups.
       exit 0. The hashbang half of that finding is fixed; this half is not. Route the
       narration through `console.error` and capture guest stdout during signature-test
       execution.
-- [ ] **Deliver the ten issue dispositions.** They are written in this file and not one has
-      been posted to its issue; every `updatedAt` predates them. Needs a go-ahead (posting
-      to public trackers).
-- [ ] **File the `tosijs-ui` peer-range issue.** It publishes an optional peer of
-      `tjs-lang: ^0.12.0`, which cannot float to any 0.13.x AND now points at a version we
-      deprecated. Our largest first-party downstream is pinned to a deprecated release.
-      Needs a go-ahead (other repo — file, don't fix).
+- [x] **Delivered all ten issue dispositions** (2026-08-22). #4 closed as fixed in 0.13.0
+      with the emitted `.d.ts` shown; #3, #5, #25 carry re-measured evidence rather than
+      re-dated claims (#5 still reproduces exactly as reported); #11, #26, #27 carry real
+      status; #13/#14/#18 say plainly that nothing has happened, because an open issue with
+      no comment gives a reporter no way to tell "nobody looked" from "looked and deferred".
+- [x] **Filed `tosijs-ui`#98** (2026-08-22) for the `^0.12.0` peer range that cannot reach
+      0.13.x and now points at a deprecated version. Recorded in `UPSTREAM.md`.
+- [x] **Filed `oven-sh/bun`#40105** (2026-08-22) for the resolver's cached directory listing,
+      with the three-case repro and the finding that it is NOT a 1.4 regression.
+- [x] **Practices write-back applied** — `tosijs-coding-practices@a3154cf`, covering
+      `v0.13.0-beta.1..3b56d70`: microbenchmark validity in `performance.md`, and the
+      sibling-site defect class in `code-quality.md`.
 
 **Publish-time npm steps for 0.13.1 (user; needs auth) — DO THESE, don't defer:**
 

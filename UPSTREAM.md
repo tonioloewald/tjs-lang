@@ -133,9 +133,9 @@ Both are implemented in `src/cli/port.ts`. Neither is upstream. **Owed to
 
 ## Bun — a directory's listing is cached on first module resolution
 
-**Not filed yet** (needs a go-ahead to post). **Not a 1.4 regression** — reproduced
-identically on 1.3.14, so it is longstanding, and labelling it as new would send someone
-bisecting for nothing.
+**Filed:** [oven-sh/bun#40105](https://github.com/oven-sh/bun/issues/40105) (2026-08-22).
+**Not a 1.4 regression** — reproduced identically on 1.3.14, so it is longstanding, and
+labelling it as new would send someone bisecting for nothing.
 
 After a directory has been resolved once for a module load, a file created in that
 directory afterwards is invisible to `import()` — while `existsSync` and `realpathSync`
@@ -161,3 +161,20 @@ ESM loading — a better test than the dynamic-import version anyway.
 
 **What we're waiting for:** the resolver re-stats a directory, or at least reports the
 specifier it was given.
+
+## tosijs-ui — peer range `tjs-lang: ^0.12.0` cannot reach 0.13.x
+
+**Filed:** [tosijs-ui#98](https://github.com/tonioloewald/tosijs-ui/issues/98) (2026-08-22).
+
+Under 0.x semver `^0.12.0` cannot resolve to any `0.13.x`, so our largest first-party
+downstream points consumers at 0.12.0 — which we deprecated on 2026-08-21 for an
+install-time break (`tosijs-schema >= 1.5.0` tightening `additionalProperties`, which the
+battery atoms' output schemas did not account for). Affected users cannot reach the fix by
+updating, because the range will not float past it.
+
+**Not fixed here** — different repo, file don't fix. The issue also flags honestly that
+nobody has verified `tosijs-ui` against 0.13.x yet, so widening the range without testing
+would move the problem rather than solve it.
+
+**What we're waiting for:** a peer range that can reach a supported version, ideally after
+someone checks compatibility.
