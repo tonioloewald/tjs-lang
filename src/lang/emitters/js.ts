@@ -90,7 +90,11 @@ import {
   typeNameExample,
 } from '../inference'
 import { FORBIDDEN_KEYS } from '../../forbidden-keys'
-import { maskLiterals, maskLiteralsKeepComments } from '../../strip-comments'
+import {
+  maskLiterals,
+  maskLiteralsKeepComments,
+  hashbangOf,
+} from '../../strip-comments'
 import { UNWRAP_BOXED_SOURCE } from '../../unwrap-boxed'
 import { extractTests } from '../tests'
 import {
@@ -1977,12 +1981,7 @@ export function transpileToJS(
   //
   // Two seams, one of them right. Whoever writes a FILE re-attaches it; whoever embeds a
   // fragment does not. `emit` and `convert` are the file writers.
-  const hashbang = source.startsWith('#!')
-    ? source.slice(
-        0,
-        source.indexOf('\n') === -1 ? source.length : source.indexOf('\n')
-      )
-    : ''
+  const hashbang = hashbangOf(source)
 
   return {
     code,

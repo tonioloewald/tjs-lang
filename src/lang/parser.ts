@@ -11,6 +11,7 @@ import {
   stripLineComments,
   maskUnsafe,
   stripUnsafeMarkers,
+  hashbangOf,
 } from '../strip-comments'
 export { stripLineComments } from '../strip-comments'
 import * as acorn from 'acorn'
@@ -120,11 +121,9 @@ export function preprocess(
   //
   // BLANKED, not removed, so every offset in a later diagnostic still points at the right
   // line and column — the same reason `check` blanked it rather than slicing.
-  if (source.startsWith('#!')) {
-    const nl = source.indexOf('\n')
-    const end = nl === -1 ? source.length : nl
-    source = ' '.repeat(end) + source.slice(end)
-  }
+  const shebang = hashbangOf(source)
+  if (shebang)
+    source = ' '.repeat(shebang.length) + source.slice(shebang.length)
 
   const originalSource = source
   let moduleSafety: 'none' | 'inputs' | 'all' | undefined

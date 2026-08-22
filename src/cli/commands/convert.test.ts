@@ -145,6 +145,65 @@ function getAge(): number { return 30 }
       rmSync(tmpDir, { recursive: true, force: true })
     })
 
+    /**
+     * The `#!` line survives conversion — a headline 0.13.2 fix that shipped with no test.
+     *
+     * `convert` had NO hashbang handling at all, while the CHANGELOG claimed it was
+     * "handled in `preprocess`, which every path goes through". It is not: the TS→TJS→JS
+     * chain loses the line at the first step, so it has to be captured from the ORIGINAL
+     * TypeScript. `convert` is the command the migration docs point TypeScript users at,
+     * i.e. the one most likely to meet a real bin script.
+     *
+     * Both sinks are covered, because fixing one and leaving the other is exactly what
+     * happened to `emit` one release earlier.
+     */
+    it('preserves the #! line when writing a file', async () => {
+      const inputPath = join(tmpDir, 'bin.ts')
+      const outputPath = join(tmpDir, 'bin.js')
+      writeFileSync(
+        inputPath,
+        `#!/usr/bin/env node\nexport const x: number = 1\n`
+      )
+      const proc = Bun.spawn(
+        [BUN, 'src/cli/tjs.ts', 'convert', inputPath, '-o', outputPath],
+        { cwd: REPO_ROOT, stdout: 'pipe', stderr: 'pipe' }
+      )
+      await new Response(proc.stdout).text()
+      expect(await proc.exited).toBe(0)
+      expect(
+        readFileSync(outputPath, 'utf8').startsWith('#!/usr/bin/env node\n')
+      ).toBe(true)
+    })
+
+    it('preserves the #! line on STDOUT too', async () => {
+      const inputPath = join(tmpDir, 'bin2.ts')
+      writeFileSync(
+        inputPath,
+        `#!/usr/bin/env node\nexport const x: number = 1\n`
+      )
+      const proc = Bun.spawn([BUN, 'src/cli/tjs.ts', 'convert', inputPath], {
+        cwd: REPO_ROOT,
+        stdout: 'pipe',
+        stderr: 'pipe',
+      })
+      const out = await new Response(proc.stdout).text()
+      await proc.exited
+      expect(out.startsWith('#!/usr/bin/env node\n')).toBe(true)
+    })
+
+    it('a file WITHOUT a hashbang gains none', async () => {
+      // The control: unconditionally prepending something would satisfy both tests above.
+      const inputPath = join(tmpDir, 'plain.ts')
+      const outputPath = join(tmpDir, 'plain.js')
+      writeFileSync(inputPath, `export const x: number = 1\n`)
+      const proc = Bun.spawn(
+        [BUN, 'src/cli/tjs.ts', 'convert', inputPath, '-o', outputPath],
+        { cwd: REPO_ROOT, stdout: 'pipe', stderr: 'pipe' }
+      )
+      await new Response(proc.stdout).text()
+      expect(readFileSync(outputPath, 'utf8').startsWith('#!')).toBe(false)
+    })
+
     it('converts a single TS file to JS via CLI', async () => {
       const inputPath = join(tmpDir, 'hello.ts')
       writeFileSync(inputPath, TS_SIMPLE)

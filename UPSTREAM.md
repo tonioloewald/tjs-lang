@@ -18,9 +18,21 @@ upstream repo from here** — file, don't fix.
 | [madroidmaq/mlx-omni-server#129](https://github.com/madroidmaq/mlx-omni-server/issues/129) | `MLX_VLM_ONLY_MODELS = {"gemma4"}` gates vision to **one architecture**; every other VLM falls through to `mlx_lm` and fails with `Model type <arch> not supported` — naming the model, not the routing decision that caused it.                               | None. Recorded in `docs/mlx-setup.md` as gate 2 of 3, with the full 4-combination matrix so nobody re-runs the investigation.                                                                                                                                               | Routing derives from `mlx_vlm`'s own registry, or the error names the gate. Until then, VLM choice on this backend is not free.                                                                            |
 | [cubist38/mlx-openai-server#320](https://github.com/cubist38/mlx-openai-server/issues/320) | `--model-type multimodal` starts, lists the model, then fails at generation with `BatchGenerator.__init__() got an unexpected keyword argument 'kv_bits'` — dependency skew, surfacing only after everything says the setup is correct.                        | None. This server otherwise got **furthest**: it accepts the standard OpenAI image block and its `/v1/models` actually lists the model, so it is the one to re-test first when this lands.                                                                                  | `kv_bits` skew resolved upstream. Then re-evaluate it as the vision backend ahead of mlx-omni-server.                                                                                                      |
 
-## tosijs-schema — no way to declare an OPEN object
+## tosijs-schema — no way to declare an OPEN object — ✅ FIXED UPSTREAM, workaround still in place
 
-**Filed:** [tosijs-schema#5](https://github.com/tonioloewald/tosijs-schema/issues/5).
+**Filed:** [tosijs-schema#5](https://github.com/tonioloewald/tosijs-schema/issues/5) —
+**CLOSED 2026-08-19.** The seam shipped; this section described it as unavailable long after
+that was true, which is the worse direction for a file like this to be wrong in: it teaches
+the next reader that a workaround is still necessary and stops them looking.
+
+**We have not adopted it yet, deliberately.** `package.json` pins `^1.5.1` and
+`node_modules` has 1.5.1; upstream latest is 1.7.0. Bumping is a dependency change with a
+real blast radius (the battery atoms' output validation is what broke on the 1.5.0 tightening
+in the first place), so it wants its own change and its own verification pass rather than
+riding along with a documentation sweep. Tracked in `TODO.md`.
+
+**What adopting it buys:** the local `additionalProperties` workarounds in the battery
+output schemas can be replaced by a declared-open object, which is what they were emulating.
 
 `s.object()` always emits `additionalProperties: false`, and there is no `.open` /
 `.passthrough` / options argument. That is the right default, but it leaves no spelling

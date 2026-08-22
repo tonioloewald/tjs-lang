@@ -773,15 +773,22 @@ Examples are auto-discovered by `bin/docs.js` (run via `bun run docs`), which wa
 
 The CLI (`bun src/cli/tjs.ts run`) does NOT inject the test-block `expect` harness — that's a playground-only thing. So running an extracted code block via the CLI prints "expect is not defined" for any `test { expect(...) }` blocks even though they pass in the playground. To verify an example:
 
-1. **Console-log behavior** (works via CLI): extract the `tjs` code block and run it.
+1. **Check it first, then run it.** `tjs run` **exits 0 on a broken example** — a wrong
+   signature example (`function add(a: 2, b: 3): 0`) executes and prints happily, so a
+   procedure built on `run` alone reads green on exactly the input it exists to catch.
+   `tjs check` exits 1 on the same file. Do both:
 
    ````bash
    awk '/^```tjs$/{flag=1; next} /^```$/{flag=0} flag' \
      guides/examples/tjs/<slug>.md > /tmp/example.tjs
-   bun src/cli/tjs.ts run /tmp/example.tjs
+   bun src/cli/tjs.ts check /tmp/example.tjs   # exits 1 on a bad signature example
+   bun src/cli/tjs.ts run /tmp/example.tjs     # then observe the behaviour
    ````
 
    Verify the printed output matches the expected behavior shown in the example's comments.
+   (Whether `run` _should_ enforce signature tests is a live question — it would make this
+   step redundant, and it is a behaviour change, so it is tracked in `TODO.md` rather than
+   made in passing.)
 
 2. **Test blocks**: spin up the dev server (`bun run start`) and load the example in the playground UI to confirm tests pass under the real `expect` harness.
 

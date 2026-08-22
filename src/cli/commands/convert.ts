@@ -11,6 +11,7 @@
  *   tjs convert --emit-tjs <file.ts>   Output intermediate TJS instead of JS
  */
 
+import { hashbangOf } from '../../strip-comments'
 import { readEntries, shouldDescend, writeEmitted } from '../walk'
 import { readFileSync, statSync } from 'fs'
 import { join, basename, extname } from 'path'
@@ -87,12 +88,7 @@ async function convertFile(
   // for it to report. `convert` had no hashbang handling at all — and it is the command the
   // migration docs point TypeScript users at, i.e. the one most likely to meet a real bin
   // script.
-  const hashbang = source.startsWith('#!')
-    ? source.slice(
-        0,
-        source.indexOf('\n') === -1 ? source.length : source.indexOf('\n')
-      )
-    : undefined
+  const hashbang = hashbangOf(source) || undefined
 
   try {
     const tjsResult = fromTS(source, { emitTJS: true, filename })

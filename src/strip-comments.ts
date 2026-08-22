@@ -709,3 +709,21 @@ export function stripUnsafeMarkers(source: string): string {
   }
   return out.join('')
 }
+
+/**
+ * The `#!` line a source begins with, WITHOUT its newline — or `''` if there is none.
+ *
+ * ONE scanner. There were three: `parser.ts` (which blanks it), `emitters/js.ts` (which
+ * reports it), and `cli/commands/convert.ts` (which captures it from the original
+ * TypeScript, because the TS→TJS→JS chain loses it at the first step). Two were
+ * byte-identical and the third differed only in what it did with the answer.
+ *
+ * Three copies of "where does the hashbang end" is three chances to disagree about a
+ * one-line question, in a release whose recurring defect is a rule applied at one site and
+ * not its siblings.
+ */
+export function hashbangOf(source: string): string {
+  if (!source.startsWith('#!')) return ''
+  const nl = source.indexOf('\n')
+  return source.slice(0, nl === -1 ? source.length : nl)
+}

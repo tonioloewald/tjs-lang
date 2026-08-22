@@ -198,9 +198,11 @@ _Nothing yet._
   without; `emitted-module-scope.test.ts` now parses, RUNS and loads emitted output in a
   real `node` subprocess, having previously only parsed — which is how it held `IsNot` in
   its corpus and passed.
-- `perf.test.ts` no longer prints a ratio: measured in-process, it varied 54× for identical
-  code depending on JIT history (2.18× alone, 116.75× in a full run), because the baseline
-  folds away. `bun run bench` is the authority.
+- `perf.test.ts`'s intensive-loop test no longer prints a ratio: measured in-process it
+  varied 54× for identical code depending on JIT history (2.18× alone, 116.75× in a full
+  run), because the baseline folds away. The file's other ratios are unchanged and carry the
+  same caveat, stated in its header; `bun run bench` is the authority for any number you
+  plan to quote.
 
 ### Compatibility
 
