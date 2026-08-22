@@ -411,6 +411,36 @@ dir. Resolution is a pure function (`resolveCacheDir`) table-tested in
 
 Coverage targets: 98% lines on `src/vm/runtime.ts` (security-critical), 80%+ overall.
 
+### Deprecation is for "you cannot get the fix by updating"
+
+**Not for "this version had a bug."** We have bugs; we fix them and ship. A package whose
+version list is mostly deprecations reads as a project in trouble rather than one that
+responds quickly, and every deprecation prints on install — spending that signal on marginal
+versions is how people learn to ignore it, including for the one that matters.
+
+The bar is a question about ESCAPE, not severity:
+
+- **Can a consumer reach the fix by updating?** If yes, the CHANGELOG's upgrade note is the
+  proportionate channel. `latest` moving is the fix reaching them.
+- **If no — deprecate.** The case that qualifies: `0.12.0` shipped an install-time break
+  (`tosijs-schema >= 1.5.0` tightening `additionalProperties`), and under 0.x semver
+  `^0.12.0` **cannot float past 0.13.0**. Someone on that range is stuck permanently, and
+  `npm deprecate` is the only thing that reaches them.
+
+Two mistakes made in the 0.13.x sequence, both from momentum rather than judgement:
+
+- **`<0.13.0` also caught `0.13.0-beta.1`.** A prerelease is opt-in and superseded normally;
+  it did not need a warning. Check what a RANGE sweeps up, not just the version you meant.
+- **0.13.1 was queued for deprecation without sizing the exposure.** Its defect needed a
+  `#!` line (most files have none), the feature was one release old so nobody depended on
+  it, and it was `latest` for 21 hours. Size the affected population BEFORE recommending —
+  it took two minutes and reversed the answer.
+
+**Always read the state back** (`npm view <pkg>@<version> deprecated`). Two deprecations in
+this sequence silently did not take: the `<0.13.0` one was owed at 0.13.0's publish and
+skipped, and a later one did not run at all. A deprecation you did not verify is one you did
+not do.
+
 ### Full run before tagging (project-specific gate)
 
 `test:fast` sets both `SKIP_LLM_TESTS=1` and `SKIP_BENCHMARKS=1` — fine for the
