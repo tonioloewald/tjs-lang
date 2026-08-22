@@ -77,23 +77,34 @@ imports resolve.
 Same shape as the `emit`/`convert` unification in item 1: two mechanisms doing one job,
 where only one got the capability.
 
-### One fork still open — how `--strict` stops
+### Placement: INLINE, after each definition
 
-A runner appended at the END means the program body has already run when tests report. Three
-shapes, measured:
+The assertion for each function is emitted **immediately after that function's definition**,
+not batched at the top or the end. This was the original intent and it is better than the
+three shapes considered before it — it dissolves the question rather than trading against it.
+Measured:
 
-- **A — runner at the TOP.** `function` declarations hoist, so it CAN test before the body
-  runs: true stop. Arrow consts hit TDZ (`Cannot access 'dbl' before initialization`), so
-  theirs must run after. Same semantics depending on whether you wrote `function` or
-  `const` — the inconsistency-by-declaration-form this codebase keeps getting bitten by.
-- **B — runner at the END.** Uniform: program runs, exit non-zero if a test failed. One
-  evaluation. "Stop" becomes "fail".
-- **C — pre-pass.** Check, then run only if clean. True stop for everything, two
-  evaluations, but the user opted in by typing `--strict`.
+- **No TDZ problem.** The assertion sits after the initializer, so an arrow const
+  (`const dbl = (n: 2): 4 => …`) tests exactly as well as a `function` declaration. Batching
+  at the top could only test hoisted declarations; batching at the end could not stop
+  anything.
+- **True stop, uniformly.** A failing assertion throws at its definition site: verified that
+  **zero** subsequent initialization steps run. No inconsistency by declaration form.
+- **One evaluation.** No harness, no pre-pass, no double side effects.
+- **It tests module SPIN-UP.** The assertions interleave with initialization, so a module
+  whose init depends on a function being correct fails at the point that matters — inside
+  the real module, where imports resolve. The transpile-time harness cannot do this: it
+  reported a correct signature test as failed on a file importing `./dep.mjs`.
 
-**Recommendation: B for the default (cheap, never surprising), C for `--strict`** (the only
-one that delivers the promise uniformly; `--strict` is honestly a check-then-run). A is the
-worst of both.
+The three modes are then placement plus a handler, not three architectures:
+
+| mode           | emitted                                                     |
+| -------------- | ----------------------------------------------------------- |
+| default        | inline assertion that WARNS and continues                   |
+| `--strict`     | inline assertion that THROWS — stops at the definition site |
+| `--skip-tests` | no assertion emitted                                        |
+
+Builds and the playground use the throwing form by default.
 
 ### Scope
 
