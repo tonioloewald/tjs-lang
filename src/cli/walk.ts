@@ -177,3 +177,90 @@ export function writeEmitted(
   }
   writeFileSync(outputPath, hashbang ? `${hashbang}\n${code}` : code)
 }
+
+/** What a tree walk does with one accepted file. Returns whether it produced output. */
+export interface TreeWalkOptions {
+  recursive: boolean
+  /** Does this basename get processed at all? (e.g. `.tjs` for emit, `.ts` for convert) */
+  accept: (name: string) => boolean
+  /** Accepted by extension but deliberately NOT processed — test files, `.d.ts`. */
+  skip?: (name: string) => boolean
+  /** Input basename → output basename. */
+  outputName: (name: string) => string
+  /** Do the work. `root` is the user-named `-o` directory, for `writeEmitted`. */
+  onFile: (
+    inputPath: string,
+    outputPath: string,
+    root: string
+  ) => Promise<boolean>
+  /** Narration for a skipped file. */
+  onSkip?: (inputPath: string) => void
+}
+
+/**
+ * ONE directory walk for the commands that mirror an input tree into an output tree.
+ *
+ * `emitDirectory` and `convertDirectory` were ~40-line structural duplicates differing only
+ * in an extension, a skip rule, an output name and the per-file action. Everything that
+ * actually goes wrong in a tree walk was written twice:
+ *
+ *   - **the descent policy** — `convert` applied NEITHER exclusion, so `tjs convert . -o out`
+ *     mirrored `node_modules` and every dot-directory into the output (913 real `.ts` files
+ *     in this repo alone)
+ *   - **the tally rollup** — `emit` returned `void`, so a nested failure vanished at the
+ *     recursion boundary; `convert` had been fixed for this in #24 and its twin had not
+ *   - **the exit code** — `emit` reported `2 emitted, 0 failed` at exit 0 with output missing
+ *   - **containment** — the `-o` root has to stay constant through the recursion or a nested
+ *     write escapes the tree the user named
+ *
+ * Three releases running, the same defect had to be fixed twice and only one copy was. That
+ * is what makes the duplication worth removing rather than living with: it is not two places
+ * to read, it is two places to *forget*. Fixing instances while leaving the generator is why
+ * this class produced a blocker in four consecutive review rounds.
+ *
+ * The `root` default is deliberate — it is captured ONCE at the top-level call and threaded
+ * unchanged, so `writeEmitted`'s containment check compares against the directory the user
+ * actually typed rather than the current recursion level.
+ */
+export async function walkTree(
+  inputDir: string,
+  outputDir: string,
+  opts: TreeWalkOptions,
+  root: string = outputDir
+): Promise<{ ok: number; failed: number; skipped: number }> {
+  let ok = 0
+  let failed = 0
+  let skipped = 0
+
+  for (const { name, isFile, isDirectory } of readEntries(inputDir)) {
+    const inputPath = join(inputDir, name)
+
+    if (isDirectory) {
+      if (opts.recursive && shouldDescend(name)) {
+        const sub = await walkTree(inputPath, join(outputDir, name), opts, root)
+        ok += sub.ok
+        failed += sub.failed
+        skipped += sub.skipped
+      }
+      continue
+    }
+
+    if (!isFile || !opts.accept(name)) continue
+
+    if (opts.skip?.(name)) {
+      skipped++
+      opts.onSkip?.(inputPath)
+      continue
+    }
+
+    if (
+      await opts.onFile(inputPath, join(outputDir, opts.outputName(name)), root)
+    ) {
+      ok++
+    } else {
+      failed++
+    }
+  }
+
+  return { ok, failed, skipped }
+}

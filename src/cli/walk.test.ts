@@ -25,7 +25,7 @@ import {
 } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join, basename } from 'node:path'
-import { findFiles, shouldDescend, writeEmitted } from './walk'
+import { findFiles, shouldDescend, writeEmitted, walkTree } from './walk'
 
 const roots: string[] = []
 afterAll(() => {
@@ -280,5 +280,92 @@ describe('writeEmitted', () => {
     const deep = join(root, 'a', 'b', 'c.js')
     writeEmitted(deep, 'x\n')
     expect(readFileSync(deep, 'utf8')).toBe('x\n')
+  })
+})
+
+/**
+ * `walkTree` is the ONE tree walk, and this pins what both commands inherit from it.
+ *
+ * `emitDirectory` and `convertDirectory` were ~40-line structural duplicates for three
+ * releases, and each time a defect was found only one copy got fixed:
+ *
+ *   - the descent policy — `convert` applied NEITHER exclusion, mirroring `node_modules`
+ *     and dot-directories into the output (913 real `.ts` files in this repo alone)
+ *   - the tally rollup — `emit` returned `void`, so a nested failure vanished at the
+ *     recursion boundary; `convert` had been fixed for this in #24 and its twin had not
+ *   - the exit code — `emit` reported `2 emitted, 0 failed` at exit 0 with output missing
+ *
+ * Testing the policy HERE rather than twice in the command suites is the point: this is the
+ * thing that stopped being possible to fix in only one of two places.
+ */
+describe('walkTree', () => {
+  const src = () => {
+    const root = tree()
+    writeFileSync(join(root, 'a.x'), '')
+    writeFileSync(join(root, 'skip.me.x'), '')
+    writeFileSync(join(root, 'other.y'), '')
+    mkdirSync(join(root, 'sub'))
+    writeFileSync(join(root, 'sub', 'b.x'), '')
+    for (const d of ['node_modules', '.hidden']) {
+      mkdirSync(join(root, d))
+      writeFileSync(join(root, d, 'c.x'), '')
+    }
+    return root
+  }
+
+  const opts = (seen: string[], fail: string[] = []) => ({
+    recursive: true,
+    accept: (n: string) => n.endsWith('.x'),
+    skip: (n: string) => n.endsWith('.me.x'),
+    outputName: (n: string) => n.replace(/\.x$/, '.out'),
+    onFile: async (i: string, o: string) => {
+      seen.push(basename(o))
+      return !fail.includes(basename(i))
+    },
+  })
+
+  it('accepts by extension and ignores everything else', async () => {
+    const seen: string[] = []
+    await walkTree(src(), '/out', opts(seen))
+    expect(seen.sort()).toEqual(['a.out', 'b.out'])
+  })
+
+  it('skips node_modules and dot-directories', async () => {
+    const seen: string[] = []
+    await walkTree(src(), '/out', opts(seen))
+    expect(seen).not.toContain('c.out')
+  })
+
+  it('counts a skipped file separately from a failure', async () => {
+    const t = await walkTree(src(), '/out', opts([]))
+    expect(t).toEqual({ ok: 2, failed: 0, skipped: 1 })
+  })
+
+  it('rolls a NESTED failure up to the top-level tally', async () => {
+    // `emit` returned void here, so a failure in a subdirectory was counted, printed, and
+    // then dropped at the recursion boundary — the exact defect `convert` fixed in #24.
+    const t = await walkTree(src(), '/out', opts([], ['b.x']))
+    expect(t.failed).toBe(1)
+    expect(t.ok).toBe(1)
+  })
+
+  it('does not descend without `recursive`', async () => {
+    const seen: string[] = []
+    await walkTree(src(), '/out', { ...opts(seen), recursive: false })
+    expect(seen).toEqual(['a.out'])
+  })
+
+  it('keeps `root` constant through the recursion', async () => {
+    // Containment compares against the directory the user NAMED, not the current level —
+    // otherwise a nested write can escape the tree.
+    const roots: string[] = []
+    await walkTree(src(), '/out', {
+      ...opts([]),
+      onFile: async (_i, _o, root) => {
+        roots.push(root)
+        return true
+      },
+    })
+    expect(new Set(roots)).toEqual(new Set(['/out']))
   })
 })

@@ -120,6 +120,7 @@ This file is a navigation index for AI agents. It does not contain the docs them
 - [TODO.md](https://github.com/tonioloewald/tjs-lang/blob/main/TODO.md) — the live backlog, organized by area.
 - [TODO-ARCHIVE.md](https://github.com/tonioloewald/tjs-lang/blob/main/TODO-ARCHIVE.md) — shipped/completed history moved out of TODO.md (CHANGELOG is the authoritative shipped record).
 - [PLAN.md](https://github.com/tonioloewald/tjs-lang/blob/main/PLAN.md) — roadmap (north star: the predicate-types / `$predicate` direction).
+- [PLAN-0.14.md](https://github.com/tonioloewald/tjs-lang/blob/main/PLAN-0.14.md) — the 0.14 work, ordered by value: unifying the `emit`/`convert` tree walks (the duplication that generated a recurring defect class), whether `tjs run` should enforce signature tests, adopting tosijs-schema's `.open`, and the deferred items from the 0.13.x reviews.
 - [CHANGELOG.md](CHANGELOG.md) — per-release notes (Keep a Changelog). Add an entry under a new version at release time.
 - [AGENTS.md](https://github.com/tonioloewald/tjs-lang/blob/main/AGENTS.md) — session-completion checklist (canonical). Hard rule: not done until `git push` succeeds.
 - [README.md](README.md) — public-facing pitch.

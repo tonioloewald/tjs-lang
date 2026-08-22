@@ -12,7 +12,7 @@
  *   tjs emit --jfdi <file.tjs>          Emit even if tests fail (just fucking do it)
  */
 
-import { readEntries, shouldDescend, writeEmitted } from '../walk'
+import { walkTree, writeEmitted } from '../walk'
 import { readFileSync, statSync, existsSync } from 'fs'
 import { join, basename, extname } from 'path'
 import { tjs, dialectForFilename } from '../../lang'
@@ -273,84 +273,36 @@ async function emitFile(
 }
 
 /**
- * Emit a directory tree, RETURNING the tally so nested failures reach the exit code.
+ * Emit a directory tree — the per-command policy, over the shared `walkTree`.
  *
- * This returned `void`, so a failure in a subdirectory was counted locally, printed, and
- * then dropped at the recursion boundary — the same defect `convert` fixed in issue #24
- * ("a nested failure used to vanish at the recursion boundary as well as at the
- * try/catch"). `emit` is the structural twin and never got the fix.
+ * What used to be forty lines duplicated with `convertDirectory` is now four callbacks: the
+ * extension we take, the files we deliberately skip, how the output is named, and the work
+ * itself. The descent policy, tally rollup and `-o` containment live in `walkTree`, which is
+ * where they stopped being possible to fix in only one of two places.
  */
 async function emitDirectory(
   inputDir: string,
   outputDir: string,
   recursive: boolean,
-  options: EmitOptions,
-  /** The ORIGINAL `-o` directory — constant through the recursion, so a nested write
-   * cannot escape the tree the user actually named. */
-  root: string = outputDir
+  options: EmitOptions
 ): Promise<{ emitted: number; failed: number; skipped: number }> {
-  // The SAME entry listing the other walks use — see `readEntries`. This was
-  // `readdirSync` + `statSync`, which follows links: a dangling one killed the whole run
-  // with a raw ENOENT and emitted zero files, a linked directory wrote output derived from
-  // a file outside the tree the user named, and a cycle recursed 33 levels before ELOOP.
-  const entries = readEntries(inputDir)
-  let emitted = 0
-  let failed = 0
-  let skipped = 0
+  const tally = await walkTree(inputDir, outputDir, {
+    recursive,
+    accept: (n) => extname(n) === '.tjs',
+    // Test files are not production output.
+    skip: (n) => n.endsWith('.test.tjs'),
+    onSkip: (p) => options.verbose && console.log(`- Skipping test: ${p}`),
+    outputName: (n) => n.replace(/\.tjs$/, '.js'),
+    onFile: (inputPath, outputPath, root) =>
+      emitFile(inputPath, outputPath, { ...options, verbose: true }, root),
+  })
 
-  for (const { name: entry, isFile, isDirectory } of entries) {
-    const inputPath = join(inputDir, entry)
-
-    if (isDirectory) {
-      // The same shared policy `convert` was missing — one definition, three walks.
-      if (recursive && shouldDescend(entry)) {
-        const subOutputDir = join(outputDir, entry)
-        const sub = await emitDirectory(
-          inputPath,
-          subOutputDir,
-          recursive,
-          options,
-          root
-        )
-        emitted += sub.emitted
-        failed += sub.failed
-        skipped += sub.skipped
-      }
-    } else if (isFile && extname(entry) === '.tjs') {
-      // Skip test files for production emit
-      if (entry.endsWith('.test.tjs')) {
-        skipped++
-        if (options.verbose) {
-          console.log(`- Skipping test: ${inputPath}`)
-        }
-        continue
-      }
-
-      const outputPath = join(outputDir, entry.replace(/\.tjs$/, '.js'))
-      // Count what `emitFile` REPORTS. The `try/catch` here was unreachable: `emitFile`
-      // swallowed its own error whenever an output path was set, so a broken file was
-      // tallied as emitted and the missing output went unremarked.
-      if (
-        await emitFile(
-          inputPath,
-          outputPath,
-          { ...options, verbose: true },
-          root
-        )
-      ) {
-        emitted++
-      } else {
-        failed++
-      }
-    }
-  }
-
-  if (options.verbose || emitted > 0 || failed > 0) {
+  if (options.verbose || tally.ok > 0 || tally.failed > 0) {
     console.log(
-      `\n${inputDir}: ${emitted} emitted, ${failed} failed, ${skipped} skipped`
+      `\n${inputDir}: ${tally.ok} emitted, ${tally.failed} failed, ${tally.skipped} skipped`
     )
   }
-  return { emitted, failed, skipped }
+  return { emitted: tally.ok, failed: tally.failed, skipped: tally.skipped }
 }
 
 /**

@@ -12,9 +12,9 @@
  */
 
 import { hashbangOf } from '../../strip-comments'
-import { readEntries, shouldDescend, writeEmitted } from '../walk'
+import { walkTree, writeEmitted } from '../walk'
 import { readFileSync, statSync } from 'fs'
-import { join, basename, extname } from 'path'
+import { basename, extname } from 'path'
 import { fromTS } from '../../lang/emitters/from-ts'
 import { reportWarnings } from '../warnings'
 import { tjs } from '../../lang'
@@ -157,66 +157,38 @@ async function convertFile(
   }
 }
 
+/**
+ * Convert a directory tree — the per-command policy, over the shared `walkTree`.
+ *
+ * See `emitDirectory` for the same four callbacks. These two were structural duplicates for
+ * three releases, and every time one was fixed the other was forgotten.
+ */
 async function convertDirectory(
   inputDir: string,
   outputDir: string,
   recursive: boolean,
   verbose: boolean,
-  emitTJS: boolean,
-  /** The ORIGINAL `-o` directory — constant through the recursion, so a nested write
-   * cannot escape the tree the user actually named. */
-  root: string = outputDir
+  emitTJS: boolean
 ): Promise<{ converted: number; failed: number; skipped: number }> {
-  // Shared entry listing — see `readEntries`, and `emit` for the three hazards it closes.
-  const entries = readEntries(inputDir)
-  let converted = 0
-  let failed = 0
-  let skipped = 0
-
   const outExt = emitTJS ? '.tjs' : '.js'
-
-  for (const { name: entry, isFile, isDirectory } of entries) {
-    const inputPath = join(inputDir, entry)
-
-    if (isDirectory && recursive && shouldDescend(entry)) {
-      // `shouldDescend` — SHARED with the other walks, because this one had neither
-      // exclusion. `tjs convert . -o out` mirrored `node_modules` and every dot-directory
-      // into the output: 913 real `.ts` files in this repo alone, converted and written.
-      //
-      // Recurse into subdirectory — and CARRY THE TALLY UP. A nested failure used to
-      // vanish at the recursion boundary as well as at the try/catch.
-      const sub = await convertDirectory(
-        inputPath,
-        join(outputDir, entry),
-        recursive,
-        verbose,
-        emitTJS,
-        root
-      )
-      converted += sub.converted
-      failed += sub.failed
-      skipped += sub.skipped
-    } else if (isFile && extname(entry) === '.ts') {
-      // Skip test files and declaration files
-      if (entry.endsWith('.test.ts') || entry.endsWith('.d.ts')) {
-        skipped++
-        if (verbose) {
-          console.log(`- Skipping ${inputPath}`)
-        }
-        continue
-      }
-
-      const outputPath = join(outputDir, entry.replace(/\.ts$/, outExt))
-      if (await convertFile(inputPath, outputPath, verbose, emitTJS, root))
-        converted++
-      else failed++
-    }
-  }
-
-  if (verbose || converted > 0 || failed > 0) {
+  const tally = await walkTree(inputDir, outputDir, {
+    recursive,
+    accept: (n) => extname(n) === '.ts',
+    // Test files and declaration files are not conversion inputs.
+    skip: (n) => n.endsWith('.test.ts') || n.endsWith('.d.ts'),
+    onSkip: (p) => verbose && console.log(`- Skipping ${p}`),
+    outputName: (n) => n.replace(/\.ts$/, outExt),
+    onFile: (inputPath, outputPath, root) =>
+      convertFile(inputPath, outputPath, verbose, emitTJS, root),
+  })
+  if (verbose || tally.ok > 0 || tally.failed > 0) {
     console.log(
-      `\nDirectory ${inputDir}: ${converted} converted, ${failed} failed, ${skipped} skipped`
+      `\nDirectory ${inputDir}: ${tally.ok} converted, ${tally.failed} failed, ${tally.skipped} skipped`
     )
   }
-  return { converted, failed, skipped }
+  return {
+    converted: tally.ok,
+    failed: tally.failed,
+    skipped: tally.skipped,
+  }
 }
