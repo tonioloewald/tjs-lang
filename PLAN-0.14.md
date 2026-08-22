@@ -23,15 +23,86 @@ loop they were extracted out of.
 **Risk: real.** Both commands are documented build paths. Wants its own change and its own
 review, not a slot in a batch.
 
-## 2. Should `tjs run` enforce signature tests?
+## 2. `tjs run`: warn by default, `--strict`, `--skip-tests`
 
-`tjs run` exits 0 on a file whose signature example is wrong — `function add(a: 2, b: 3): 0`
-executes and prints happily — while `tjs check` exits 1 on the same file. That asymmetry is
-why CLAUDE.md's example-verification procedure had to be corrected to run `check` first.
+**Decided (2026-08-22):** the runner should run signature tests and WARN on failure by
+default; `--strict` runs them and stops; `--skip-tests` does not run them at all. Builds and
+the playground fail hard by default.
 
-Making `run` enforce would make that step redundant and remove a footgun. It is a behaviour
-change: scripts that `tjs run` a file with a stale signature example would start failing.
-Decide deliberately.
+### What today looks like
+
+Tested against `function add(a: 2, b: 3): 0` (wrong — it is 5):
+
+| path                          | tests                                     | exit              |
+| ----------------------------- | ----------------------------------------- | ----------------- |
+| `tjs check`                   | enforced                                  | 1                 |
+| `tjs emit`                    | enforced                                  | 1                 |
+| `tjsx`                        | enforced                                  | 1                 |
+| `tjs run`                     | `runTests: false`                         | 0, silent         |
+| bun plugin (`import 'x.tjs'`) | `runTests: false`                         | 0, silent         |
+| playground                    | reports, but `valid: errors.length === 0` | **reports VALID** |
+
+`tjs convert` is **not** a gap: `fromTS` emits type-only returns, so converted TypeScript
+produces zero signature tests. There is nothing for it to fail on. (A `return false` was
+written for it and reverted — it was unreachable.)
+
+### The blocker, and why the obvious fix is wrong
+
+`runTests: false` in `run.ts` is deliberate and load-bearing. The signature harness
+**evaluates the module** to reach the functions; `run` then writes a temp module and
+evaluates it again. Turning tests on as-is means **two evaluations in one command** — the
+`hi\nhi` bug the comment there records.
+
+Two things that are NOT the objection: that a module evaluates when imported (that is JS,
+and every test runner does it), and that functions have side effects when called with their
+example arguments (if they do, you have other problems). The defect is narrower and duller:
+one command, two evaluations.
+
+The harness also **cannot resolve real imports** — given a file importing `./dep.mjs` it
+reported a CORRECT signature test as failed. So enabling tests in `run` today would also
+produce spurious failures on any file with an import.
+
+### The fix: one evaluation, tests inside it
+
+The machinery is half-built. `result.testRunner` is emitted as a string for explicit
+`test { }` blocks and appended to the module, so those already run inside the single real
+evaluation. **Signature tests are not emitted** — only `runAllTests(...)` settles them, at
+transpile time, in its own context.
+
+Extend `generateTestRunner(tests, mocks)` to take `sigTestInfos` and emit signature
+assertions too. Then `run` appends the runner and evaluates ONCE. This also fixes the
+imports problem for free, because the tests then run inside the real module where the
+imports resolve.
+
+Same shape as the `emit`/`convert` unification in item 1: two mechanisms doing one job,
+where only one got the capability.
+
+### One fork still open — how `--strict` stops
+
+A runner appended at the END means the program body has already run when tests report. Three
+shapes, measured:
+
+- **A — runner at the TOP.** `function` declarations hoist, so it CAN test before the body
+  runs: true stop. Arrow consts hit TDZ (`Cannot access 'dbl' before initialization`), so
+  theirs must run after. Same semantics depending on whether you wrote `function` or
+  `const` — the inconsistency-by-declaration-form this codebase keeps getting bitten by.
+- **B — runner at the END.** Uniform: program runs, exit non-zero if a test failed. One
+  evaluation. "Stop" becomes "fail".
+- **C — pre-pass.** Check, then run only if clean. True stop for everything, two
+  evaluations, but the user opted in by typing `--strict`.
+
+**Recommendation: B for the default (cheap, never surprising), C for `--strict`** (the only
+one that delivers the promise uniformly; `--strict` is honestly a check-then-run). A is the
+worst of both.
+
+### Scope
+
+`src/lang/tests.ts` (`generateTestRunner`), `src/lang/emitters/js.ts` (wire `sigTestInfos`),
+`src/cli/commands/run.ts` (three modes), `src/cli/tjs.ts` (flags + help), `demo/` (playground
+fail-hard: `valid` must account for failing signature tests). Plus tests for each.
+
+This touches the test-execution machinery, which is where four consecutive review rounds
+found a defect. It wants a clear head and its own review, not the tail of a long session.
 
 ## 3. Adopt `tosijs-schema` ≥1.7.0, drop the `additionalProperties` workarounds
 
