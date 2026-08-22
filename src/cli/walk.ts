@@ -21,8 +21,9 @@ import {
   writeFileSync,
   existsSync,
   mkdirSync,
+  realpathSync,
 } from 'node:fs'
-import { join, dirname } from 'node:path'
+import { join, dirname, sep } from 'node:path'
 
 /**
  * Every file under `dir` whose BASENAME satisfies `keep`, depth-first.
@@ -137,8 +138,35 @@ export function shouldDescend(name: string): boolean {
 export function writeEmitted(
   outputPath: string,
   code: string,
-  hashbang?: string
+  hashbang?: string,
+  root?: string
 ): void {
+  // CONTAINMENT, not just a leaf check.
+  //
+  // The first version only unlinked a symlinked LEAF, which left the interesting half open:
+  // with `out/sub` a link to `../precious`, `lstatSync('out/sub/b.js')` resolves `sub`
+  // THROUGH the link and sees an ordinary file, so the write went through and destroyed
+  // `precious/b.js` — reported as `1 emitted, 0 failed`, exit 0. The funnel landed; the
+  // guard behind it did not, and all three symlink tests happened to put the link at the
+  // leaf, so the suite was green over it.
+  //
+  // The rule is containment rather than "refuse any symlinked component", because
+  // `-o dist` where `dist -> /build/dist` is a legitimate and common setup travelling this
+  // exact code path. The ROOT may be a link; nothing inside it may escape it.
+  if (root) {
+    const realRoot = realpathSync(existsSync(root) ? root : dirname(root))
+    let probe = dirname(outputPath)
+    while (!existsSync(probe) && dirname(probe) !== probe)
+      probe = dirname(probe)
+    const realDir = realpathSync(probe)
+    if (realDir !== realRoot && !realDir.startsWith(realRoot + sep)) {
+      throw new Error(
+        `refusing to write outside the output directory: ${outputPath} resolves to ` +
+          `${realDir}, which is not under ${realRoot}`
+      )
+    }
+  }
+
   const dir = dirname(outputPath)
   if (dir && !existsSync(dir)) mkdirSync(dir, { recursive: true })
   // `lstat`, not `stat` — the question is whether the PATH is a link, not what it points at.

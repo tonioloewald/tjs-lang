@@ -185,6 +185,42 @@ describe('tjs check', () => {
     expect(await proc.exited).toBe(1)
   })
 
+  it('emit to STDOUT keeps the #! line too', async () => {
+    // `tjs emit bin.tjs > bin.js` is the FIRST example in --help, appears in
+    // docs/WASM-QUICKSTART.md and guides/tjs-examples.md, and is what
+    // functions/package.json's build script runs. Moving the hashbang to the file-write
+    // seam fixed `-o` and silently regressed this branch — the same sibling-site miss,
+    // inside the fix for that class. A file and a pipe are two consumers of one decision.
+    const root = fixture({ 'bin.tjs': `#!/usr/bin/env bun\n${GOOD}\n` })
+    const proc = Bun.spawn(['bun', CLI, 'emit', join(root, 'bin.tjs')], {
+      stdout: 'pipe',
+      stderr: 'pipe',
+    })
+    const out = await new Response(proc.stdout).text()
+    await proc.exited
+    expect(out.startsWith('#!/usr/bin/env bun\n')).toBe(true)
+  })
+
+  it('emit -o a.mjs does not overwrite the module with its own docs', async () => {
+    // `outputPath.replace(/\.js$/, '.md')` only matches a literal `.js`, so `-o out/a.mjs`
+    // — the normal ask for a "type": "module" package — made docsPath === outputPath and
+    // the generated MARKDOWN clobbered the module. Exit 0, and the file opened with a
+    // fenced code block.
+    const root = fixture({ 'a.tjs': GOOD })
+    const out = join(root, 'out', 'a.mjs')
+    const proc = Bun.spawn(
+      ['bun', CLI, 'emit', join(root, 'a.tjs'), '-o', out],
+      {
+        stdout: 'pipe',
+        stderr: 'pipe',
+      }
+    )
+    await new Response(proc.stdout).text()
+    expect(await proc.exited).toBe(0)
+    expect(readFileSync(out, 'utf8').startsWith('```')).toBe(false)
+    expect(existsSync(join(root, 'out', 'a.md'))).toBe(true)
+  })
+
   it('a single file narrates', async () => {
     const root = fixture({ 'a.tjs': GOOD })
     const r = await check(join(root, 'a.tjs'))

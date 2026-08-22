@@ -74,6 +74,24 @@ export async function emit(
 }
 
 /**
+ * A sibling artifact path (`.d.ts`, `.md`) derived from the emitted file's path.
+ *
+ * `outputPath.replace(/\.js$/, …)` only matches a literal `.js`, so `-o out/a.mjs` — the
+ * normal ask for a `"type": "module"` package — produced `docsPath === outputPath` and the
+ * generated MARKDOWN overwrote the module it had just written. Exit 0, `✓ a.tjs -> out/a.mjs`,
+ * and the file starts with a fenced code block. With `--dts` it happened twice.
+ *
+ * Stripping whatever extension is actually there fixes the common case; the equality check
+ * is what makes it safe in general, because a derived path equal to the artifact is a BUG,
+ * never a user's intent.
+ */
+function siblingPath(outputPath: string, suffix: string): string | null {
+  const stem = outputPath.replace(/\.[^./\\]+$/, '')
+  const candidate = `${stem}${suffix}`
+  return candidate === outputPath ? null : candidate
+}
+
+/**
  * Emit ONE file. Returns whether it actually produced output.
  *
  * It used to return `void` and swallow its own error whenever `outputPath` was set, so
@@ -86,7 +104,9 @@ export async function emit(
 async function emitFile(
   inputPath: string,
   outputPath: string | undefined,
-  options: EmitOptions
+  options: EmitOptions,
+  /** The user-named `-o` directory, if any — writes may not escape it. */
+  root?: string
 ): Promise<boolean> {
   const source = readFileSync(inputPath, 'utf-8')
   const filename = basename(inputPath)
@@ -161,7 +181,7 @@ async function emitFile(
 
     if (outputPath) {
       // `writeEmitted` — re-attaches the `#!` line and refuses to write THROUGH a symlink.
-      writeEmitted(outputPath, code, result.hashbang)
+      writeEmitted(outputPath, code, result.hashbang, root)
       if (options.verbose) {
         const suffix = hasFailures ? ' (tests failed, --jfdi)' : ''
         console.log(`✓ ${inputPath} -> ${outputPath}${suffix}`)
@@ -171,13 +191,19 @@ async function emitFile(
       if (options.dts) {
         try {
           const dtsContent = generateDTS(result, source)
-          const dtsPath = outputPath.replace(/\.js$/, '.d.ts')
+          const dtsPath = siblingPath(outputPath, '.d.ts')
+          if (!dtsPath) {
+            console.error(
+              `✗ ${inputPath}: --dts would overwrite ${outputPath}; choose a different -o`
+            )
+            return false
+          }
 
           // Through the same boundary as the JS. `emit` writes THREE files and only the
           // first went through `writeEmitted`, so `emit --dts` still destroyed a symlink's
           // target — the identical defect, surviving in a sibling site twenty lines below
           // the fix for it.
-          writeEmitted(dtsPath, dtsContent)
+          writeEmitted(dtsPath, dtsContent, undefined, root)
           if (options.verbose) {
             console.log(`  ${dtsPath}`)
           }
@@ -195,12 +221,23 @@ async function emitFile(
           const docsPath = options.docsDir
             ? join(
                 options.docsDir,
-                basename(outputPath).replace(/\.js$/, '.md')
+                `${basename(outputPath).replace(/\.[^./\\]+$/, '')}.md`
               )
-            : outputPath.replace(/\.js$/, '.md')
+            : siblingPath(outputPath, '.md')
+          if (!docsPath) {
+            console.error(
+              `✗ ${inputPath}: docs would overwrite ${outputPath}; choose a different -o`
+            )
+            return false
+          }
 
           // Ensure docs directory exists
-          writeEmitted(docsPath, docs.markdown)
+          writeEmitted(
+            docsPath,
+            docs.markdown,
+            undefined,
+            options.docsDir ?? root
+          )
           if (options.verbose) {
             console.log(`  📄 ${docsPath}`)
           }
@@ -212,8 +249,18 @@ async function emitFile(
         }
       }
     } else {
-      // Output to stdout
-      console.log(code)
+      // STDOUT is an artifact sink too — the `#!` line belongs here as well.
+      //
+      // `tjs emit bin.tjs > bin.js` is the FIRST example in `--help`, appears in
+      // `docs/WASM-QUICKSTART.md` and `guides/tjs-examples.md`, and is what
+      // `functions/package.json`'s build script actually runs. Moving the hashbang to the
+      // file-write seam fixed `-o` and silently regressed this branch — the same
+      // sibling-site miss, inside the fix for that class. A file and a pipe are two
+      // consumers of one decision; they must not be written in two places.
+      process.stdout.write(
+        result.hashbang ? `${result.hashbang}\n${code}` : code
+      )
+      if (!code.endsWith('\n')) process.stdout.write('\n')
     }
     return true
   } catch (error: any) {
@@ -237,7 +284,10 @@ async function emitDirectory(
   inputDir: string,
   outputDir: string,
   recursive: boolean,
-  options: EmitOptions
+  options: EmitOptions,
+  /** The ORIGINAL `-o` directory — constant through the recursion, so a nested write
+   * cannot escape the tree the user actually named. */
+  root: string = outputDir
 ): Promise<{ emitted: number; failed: number; skipped: number }> {
   // The SAME entry listing the other walks use — see `readEntries`. This was
   // `readdirSync` + `statSync`, which follows links: a dangling one killed the whole run
@@ -259,7 +309,8 @@ async function emitDirectory(
           inputPath,
           subOutputDir,
           recursive,
-          options
+          options,
+          root
         )
         emitted += sub.emitted
         failed += sub.failed
@@ -280,7 +331,12 @@ async function emitDirectory(
       // swallowed its own error whenever an output path was set, so a broken file was
       // tallied as emitted and the missing output went unremarked.
       if (
-        await emitFile(inputPath, outputPath, { ...options, verbose: true })
+        await emitFile(
+          inputPath,
+          outputPath,
+          { ...options, verbose: true },
+          root
+        )
       ) {
         emitted++
       } else {

@@ -75,7 +75,9 @@ async function convertFile(
   inputPath: string,
   outputPath?: string,
   verbose = false,
-  emitTJS = false
+  emitTJS = false,
+  /** The user-named `-o` directory, if any — writes may not escape it. */
+  root?: string
 ): Promise<boolean> {
   const source = readFileSync(inputPath, 'utf-8')
   const filename = basename(inputPath)
@@ -145,11 +147,12 @@ async function convertFile(
       // that writes the file is where it has to be re-attached. `convert` is the command
       // the migration docs point TypeScript users at, so it is the one most likely to meet
       // a real bin script.
-      writeEmitted(outputPath, code, hashbang)
+      writeEmitted(outputPath, code, hashbang, root)
       console.log(`✓ ${inputPath} -> ${outputPath}`)
     } else {
-      // Output to stdout
-      console.log(code)
+      // Same as `emit`: stdout is an artifact sink and carries the `#!` line too.
+      process.stdout.write(hashbang ? `${hashbang}\n${code}` : code)
+      if (!code.endsWith('\n')) process.stdout.write('\n')
     }
     return true
   } catch (error: any) {
@@ -163,7 +166,10 @@ async function convertDirectory(
   outputDir: string,
   recursive: boolean,
   verbose: boolean,
-  emitTJS: boolean
+  emitTJS: boolean,
+  /** The ORIGINAL `-o` directory — constant through the recursion, so a nested write
+   * cannot escape the tree the user actually named. */
+  root: string = outputDir
 ): Promise<{ converted: number; failed: number; skipped: number }> {
   // Shared entry listing — see `readEntries`, and `emit` for the three hazards it closes.
   const entries = readEntries(inputDir)
@@ -188,7 +194,8 @@ async function convertDirectory(
         join(outputDir, entry),
         recursive,
         verbose,
-        emitTJS
+        emitTJS,
+        root
       )
       converted += sub.converted
       failed += sub.failed
@@ -204,7 +211,7 @@ async function convertDirectory(
       }
 
       const outputPath = join(outputDir, entry.replace(/\.ts$/, outExt))
-      if (await convertFile(inputPath, outputPath, verbose, emitTJS))
+      if (await convertFile(inputPath, outputPath, verbose, emitTJS, root))
         converted++
       else failed++
     }

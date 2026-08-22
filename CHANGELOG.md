@@ -11,6 +11,17 @@ _Nothing yet._
 
 ## [0.13.2] — 2026-08-21
 
+> A **ninth** pass then blocked this one on three more
+> ([report](https://github.com/tonioloewald/tjs-lang/blob/main/docs/reviews/0.13.2-review-9.md)),
+> two of them sibling-site misses in the fixes above: the symlink guard protected only the
+> LEAF, so a symlinked output DIRECTORY still escaped and destroyed a file outside the named
+> tree; and moving the `#!` line to the file-write seam fixed `-o` while silently regressing
+> `tjs emit bin.tjs > bin.js`, which is the first example in `--help`. Both fixed here, with
+> containment (a symlinked `-o` ROOT stays legal — that is a normal setup) and with stdout
+> treated as the artifact sink it is. A fourth finding — that `port.test.ts` is red — was
+> checked and **refuted**: `isOurServer` rejects the test runner under both relative and
+> absolute argv.
+>
 > An eighth review pass, run after 0.13.1 shipped
 > ([report](https://github.com/tonioloewald/tjs-lang/blob/main/docs/reviews/0.13.1-review-8.md)),
 > found that 0.13.1's hashbang fix had been applied at the wrong seam — breaking `tjsx`, a
@@ -45,6 +56,23 @@ _Nothing yet._
   output absent. Nested tallies were also dropped at the recursion boundary. `tjs emit` is
   the documented production build path, so a CI step went green having produced a missing
   module. `convert` fixed exactly this in #24; its structural twin never got the same fix.
+
+- **A symlinked output DIRECTORY still escaped the named tree.** The first guard unlinked a
+  symlinked LEAF, but with `out/sub` a link elsewhere, `lstat` on `out/sub/b.js` resolves
+  `sub` through the link and sees an ordinary file — so the write went through and destroyed
+  the target while reporting `1 emitted, 0 failed`, exit 0. Writes are now CONTAINED: the
+  resolved destination must sit under the resolved `-o` root. A symlinked root itself stays
+  legal (`-o dist` where `dist -> /build/dist` is a normal setup).
+
+- **`tjs emit`/`convert` to STDOUT dropped the `#!` line.** Moving the hashbang to the
+  file-write seam fixed `-o` and regressed the pipe — and `tjs emit bin.tjs > bin.js` is the
+  first example in `--help`, appears in two guides, and is what `functions/`'s own build
+  script runs. A file and a pipe are two consumers of one decision.
+
+- **`tjs emit -o out/a.mjs` overwrote the module with its own generated docs.** The sibling
+  paths were derived with `replace(/\.js$/, …)`, which does not match `.mjs` — the normal
+  ask for a `"type": "module"` package — so the docs path equalled the artifact path. Now
+  derived from the stem, and a derived path equal to the output is refused as the bug it is.
 
 - **`emit --dts` and `emit --docs` wrote THROUGH symlinks too.** The first fix for this
   routed `emit`'s JS output through a safe boundary and left its two sibling writes on raw

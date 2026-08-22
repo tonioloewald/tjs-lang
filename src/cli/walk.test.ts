@@ -239,6 +239,42 @@ describe('writeEmitted', () => {
     expect(lstatSync(link).isSymbolicLink()).toBe(false)
   })
 
+  it('refuses to write outside the named root through a symlinked DIRECTORY', () => {
+    // The half the first fix missed. It unlinked a symlinked LEAF, so with `out/sub` a
+    // link to `../precious`, `lstatSync('out/sub/b.js')` resolved `sub` THROUGH the link,
+    // saw an ordinary file, and wrote — destroying `precious/b.js` while reporting
+    // `1 emitted, 0 failed`, exit 0. All three original symlink tests put the link at the
+    // LEAF, so the suite was green over it.
+    const root = tree()
+    const outside = tree()
+    const victim = join(outside, 'b.js')
+    writeFileSync(victim, 'DO NOT LOSE ME')
+    mkdirSync(join(root, 'out'))
+    symlinkSync(outside, join(root, 'out', 'sub'))
+
+    expect(() =>
+      writeEmitted(
+        join(root, 'out', 'sub', 'b.js'),
+        'transpiled\n',
+        undefined,
+        join(root, 'out')
+      )
+    ).toThrow(/refusing to write outside/)
+    expect(readFileSync(victim, 'utf8')).toBe('DO NOT LOSE ME')
+  })
+
+  it('ALLOWS a symlinked output root — that is a legitimate setup', () => {
+    // Containment, not "refuse any symlinked component". `-o dist` where
+    // `dist -> /build/dist` is common and travels this exact code path; refusing it would
+    // trade one bug for a worse one.
+    const real = tree()
+    const root = tree()
+    const link = join(root, 'dist')
+    symlinkSync(real, link)
+    writeEmitted(join(link, 'a.js'), 'x\n', undefined, link)
+    expect(readFileSync(join(real, 'a.js'), 'utf8')).toBe('x\n')
+  })
+
   it('creates the output directory', () => {
     const root = tree()
     const deep = join(root, 'a', 'b', 'c.js')
