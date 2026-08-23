@@ -1,5 +1,35 @@
 # 0.14.0 — the deferred work
 
+## The main goal: move onto the tosijs-ui dev/build system
+
+**This is the headline item, not one of the numbered ones below.** Everything else here is
+cleanup carried over from the 0.13.x reviews; this is the change that has a reason of its own.
+
+The motivating symptom, found 2026-08-23: **the deployed playground was two releases stale**
+and nothing said so. The live bundle contained zero occurrences of `collapseUnions` — the
+nested-literal-union fix from 0.13.1 — so `tjs-platform.web.app` was still failing to compile
+`{ mode: 'a' | 'b', other: 1 }` depending on member order, days after that was fixed and
+published twice over. The local `.demo/` build was stale too.
+
+Nothing detects this. `bun run make` does not build the demo; CI builds it only so that
+`demo-bundle.test.ts` stops skipping itself; and a deploy is a manual step whose success
+message says nothing about whether what it deployed is current. The staleness is invisible by
+construction — which is the same shape as every other defect this release cycle: not a wrong
+answer, an absent check.
+
+Adopting the tosijs-ui dev/build system should make deployment a consequence of releasing
+rather than a separate act someone has to remember.
+
+**Whatever it looks like, it should make these two things impossible rather than unlikely:**
+
+- a deploy that ships a bundle older than `main`
+- a green build that proves nothing about what is live (the current
+  `bun run deploy:hosting` prints "Deploy complete!" either way — the verification that
+  caught this was a manual `curl` of the live bundle and a `grep` for a marker symbol)
+
+Until it lands, verify a deploy by fetching the live bundle and grepping for a symbol
+introduced by the release. That is what found this.
+
 Branched from `v0.13.2`. Everything here was deliberately kept out of the 0.13.x patch
 line because it changes behaviour, changes a dependency, or is a refactor with real blast
 radius — the 0.13.x line is patch-only after 0.13.0 shipped by mistake.
