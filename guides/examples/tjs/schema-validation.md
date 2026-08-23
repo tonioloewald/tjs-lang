@@ -17,7 +17,7 @@ function createUser(
   name: 'anonymous',
   email: 'user@example.com',
   age: +0
-): { name: '', email: '', age: 0 } {
+): { name: 'anonymous', email: 'user@example.com', age: 0 } {
   return { name, email, age }
 }
 

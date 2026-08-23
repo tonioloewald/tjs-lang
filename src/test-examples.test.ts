@@ -47,19 +47,44 @@ describe('TJS examples transpile', () => {
 })
 
 describe('TJS examples with inline tests', () => {
-  // Examples that use imports can't run inline tests
+  // Examples that use imports can't run inline tests.
+  //
+  // EVERY entry must actually match that reason. Four of the original ten had no imports at
+  // all — and one of them, 'Schema Validation', was hiding a real signature-test failure
+  // that shipped to the live playground, where a user found it. A skip list whose stated
+  // justification does not hold for its entries is worse than no list: it reads as
+  // "checked and exempt" while meaning "unchecked".
+  //
+  // Verified by grepping each entry's code block for a top-level `import` at the time of
+  // writing. If you add one, confirm the reason applies — or say what the real reason is.
   const skipTests = new Set([
     'Date Formatting (with import)',
     'Local Module Imports',
     'Lodash Utilities (with import)',
-    'Schema Validation',
-    'React Todo (Comparison)',
     'tosijs Todo App',
     'Full-Stack Demo: Client App',
-    'Full-Stack Demo: Todo API',
-    'Full-Stack Demo: User Service',
     'The Universal Endpoint',
   ])
+
+  // The skip list must match its own stated reason.
+  //
+  // This is the check that was missing: four of ten entries had no imports, and one of
+  // those was hiding a real failure that reached the live playground. An exemption nobody
+  // re-derives becomes a place defects go to live.
+  test('every skipped example actually uses imports', () => {
+    const unjustified = [...skipTests].filter((title) => {
+      const ex = tjsExamples.find((e) => e.title === title)
+      // A stale entry naming an example that no longer exists is also worth catching.
+      if (!ex?.code) return true
+      return !/^\s*import\s/m.test(ex.code)
+    })
+    expect(
+      unjustified,
+      `these are skipped as "uses imports" but do not: ${unjustified.join(
+        ', '
+      )}. ` + `Either remove them from skipTests, or record the real reason.`
+    ).toEqual([])
+  })
 
   for (const ex of tjsExamples) {
     if (ex.language !== 'tjs') continue
