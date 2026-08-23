@@ -1228,6 +1228,9 @@ export function insertAsiProtection(
  */
 function transformTypeofKeyword(source: string): string {
   type Match = { keywordStart: number; operandEnd: number; operand: string }
+  // For `matchingBrace` when consuming a computed access or a call — a bracket inside a
+  // string is not structure. `scanLiterals` is memoized, so this is a lookup.
+  const masked = maskLiterals(source)
   const matches: Match[] = []
   let i = 0
   let state: TokenizerState = 'normal'
@@ -1372,7 +1375,25 @@ function transformTypeofKeyword(source: string): string {
           if (j < source.length && /[a-zA-Z_$]/.test(source[j])) {
             const operandStart = j
             while (j < source.length && /[\w$]/.test(source[j])) j++
-            // Optional `.name` or `?.name` chains
+            // The WHOLE member expression, including computed access and calls.
+            //
+            // This consumed only `.name` / `?.name`, so a COMPUTED access fell outside the
+            // call and `typeof` bound to the object instead of the member:
+            //
+            //   typeof obj[k] !== 'function'   ->   TypeOf(obj)[k] !== 'function'
+            //
+            // `TypeOf(obj)` is the string `'object'`, `'object'[k]` is `undefined`, and
+            // `undefined !== 'function'` is ALWAYS TRUE. Every guard of that shape silently
+            // inverted to "always pass" — no parse error, no type error, no warning, and the
+            // source reads correctly. Reported from an ecosystem sweep (#29); reproduces
+            // back to 0.8.1.
+            //
+            // Calls were wrong too, though loudly: `typeof f()` became `TypeOf(f)()`, which
+            // tries to CALL a string.
+            //
+            // Groups are matched by depth so nesting inside the subscript is safe
+            // (`x[a[b]]`, `f(g(1))`), and over the MASKED view so a bracket inside a string
+            // is not structure.
             while (j < source.length) {
               if (source[j] === '.' && /[a-zA-Z_$]/.test(source[j + 1] ?? '')) {
                 j++
@@ -1384,6 +1405,10 @@ function transformTypeofKeyword(source: string): string {
               ) {
                 j += 2
                 while (j < source.length && /[\w$]/.test(source[j])) j++
+              } else if (source[j] === '[' || source[j] === '(') {
+                const close = matchingBrace(masked, j)
+                if (close === -1) break
+                j = close + 1
               } else {
                 break
               }
