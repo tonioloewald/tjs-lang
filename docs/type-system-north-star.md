@@ -208,6 +208,47 @@ the same drift class as the five deliberate `goIs` copies.
 (3) fits this document: a type carrying membership *and* projection, both serializable, both
 portable to the predicate VM. It is also the most work. **Not yet decided.**
 
+### Two structural blockers, found on the first implementation attempt (2026-08-24)
+
+The design above is sound; the runtime it has to live in is not shaped for it yet. Both of
+these must be resolved BEFORE writing the feature, not during.
+
+**1. The comparators cannot reach the extension registry.** `Eq`, `Is` and `toBool` are
+module-level exports (`runtime.ts:805/1073/1083`). `resolveExtension` is a closure created
+*inside* `createRuntime()` (`:1943`), and `createRuntime()` returns the module-level
+comparators. So a per-instance registry is structurally unreachable from the functions that
+would consult it. Options, none free:
+
+- hoist the extension registry to module scope — but per-instance isolation is currently
+  real (`extend String` in one module does not leak into another), and that is a semantic
+  change to a shipped feature
+- make the comparators instance methods — large, and emitted code calls them **bare**
+  anyway, so it would not help there
+- a second, module-level registry just for `asCompared` — least invasive, and exactly the
+  duplication this codebase keeps paying for
+
+**2. The inline runtime has no registry at all.** Emitted `extend` blocks register
+*conditionally*:
+
+```js
+if (__tjs.toBool(__tjs?.registerExtension)) { __tjs.registerExtension('String', 'shout', …) }
+```
+
+Method calls survive without it because the transpiler rewrites known receivers to direct
+calls. `asCompared` gets no such rescue: its consumers are `Eq`/`Is`/`toBool`, which are
+runtime functions rather than call sites. So implementing this in `runtime.ts` alone would
+make `asCompared` **silently not work in emitted code** — the "inline runtime always wins"
+trap that `docs/type-identity.md` exists to warn about, and the single most expensive defect
+class in this repo.
+
+Making it work standalone means the emitter threading a projection table into the inline
+`Eq`/`Is`/`toBool` — which is where the "five deliberate copies move together" rule bites
+hardest.
+
+**Consequence for sequencing.** This is not the small additive patch it looked like. It is
+a runtime-architecture change plus an emitter change, and it should be scoped as such rather
+than slipped in behind a patch release.
+
 ### Implementation notes
 
 - Probe fail-soft, invoke strictly — the discipline `goIs` already documents. Asking a Proxy

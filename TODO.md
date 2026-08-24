@@ -2273,7 +2273,14 @@ tracked, non-blocking follow-ups.
 - [ ] **0.13.3** — the `typeof obj[k]` always-true guard (#29, silently wrong since 0.8.1)
       and the Schema Validation example that shipped a wrong worked example. Both are in
       published 0.13.2. Cut it FIRST: one bump, one tag at the final commit, no re-tagging.
-- [ ] **0.13.4 — `asCompared`.** Designed in `docs/type-system-north-star.md`. Additive and
+- [ ] **`asCompared` — NOT a patch. Rescoped 2026-08-24 after a first implementation attempt
+      hit two structural blockers** (both written up in `docs/type-system-north-star.md`):
+      the comparators are module-level and the extension registry is per-instance, so they
+      cannot reach each other; and the inline runtime has no registry at all, so a
+      runtime-only implementation would silently not work in emitted code — the exact
+      "inline runtime always wins" trap. It is a runtime-architecture change plus an emitter
+      change, not an additive hook. Decide the registry question first.
+- [ ] ~~0.13.4 — `asCompared` as a patch~~ (superseded by the line above): Designed in `docs/type-system-north-star.md`. Additive and
       non-breaking (a type that does not declare it behaves exactly as today), so it does
       not have to wait for 0.14 even though it is 0.14-shaped work. Consumed by `Eq`, `Is`
       AND `toBool` — it is the seam whose absence was the answer to "why don't Eq and toBool
