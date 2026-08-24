@@ -193,61 +193,97 @@ exactly what `unwrapBoxed` already does.
 Participation is signalled by whether the type **declares** `asCompared`, not by what it
 returns — otherwise `null`/`undefined` would be ambiguous with declining.
 
-### Open: where does it live?
+### Resolved: a registry CHAIN, rooted at the host
 
-`extend` is deliberately **file-local, no cross-module leaking**. Correct for `capitalize()`.
-For `asCompared` it means `a Is b` could give different answers in two modules — silent, and
-the same drift class as the five deliberate `goIs` copies.
+The scoping question is settled, and the answer reframes what `asCompared` is.
 
-1. **Module-local, like `extend` today** — consistent; accepts silent divergence.
-2. **Globally registered on first use**, erroring if two modules project the same type
-   differently — noisy at the right moment.
-3. **On the `Type`, not the class** — travels with the declaration and serializes into the
-   `$predicate` story rather than a per-file registry.
+**The registry chain is TJS's view of the type environment.**
 
-(3) fits this document: a type carrying membership *and* projection, both serializable, both
-portable to the predicate VM. It is also the most work. **Not yet decided.**
-
-### Two structural blockers, found on the first implementation attempt (2026-08-24)
-
-The design above is sound; the runtime it has to live in is not shaped for it yet. Both of
-these must be resolved BEFORE writing the feature, not during.
-
-**1. The comparators cannot reach the extension registry.** `Eq`, `Is` and `toBool` are
-module-level exports (`runtime.ts:805/1073/1083`). `resolveExtension` is a closure created
-*inside* `createRuntime()` (`:1943`), and `createRuntime()` returns the module-level
-comparators. So a per-instance registry is structurally unreachable from the functions that
-would consult it. Options, none free:
-
-- hoist the extension registry to module scope — but per-instance isolation is currently
-  real (`extend String` in one module does not leak into another), and that is a semantic
-  change to a shipped feature
-- make the comparators instance methods — large, and emitted code calls them **bare**
-  anyway, so it would not help there
-- a second, module-level registry just for `asCompared` — least invasive, and exactly the
-  duplication this codebase keeps paying for
-
-**2. The inline runtime has no registry at all.** Emitted `extend` blocks register
-*conditionally*:
-
-```js
-if (__tjs.toBool(__tjs?.registerExtension)) { __tjs.registerExtension('String', 'shout', …) }
+```
+module registry      ← `extend` lands here; local, does not leak
+       ↑ inherits
+globalThis.__tjs     ← the shared view, one of them, installed before anything runs
+       ↑ inherits
+host built-ins       ← String / Number / Boolean base entries
 ```
 
-Method calls survive without it because the transpiler rewrites known receivers to direct
-calls. `asCompared` gets no such rescue: its consumers are `Eq`/`Is`/`toBool`, which are
-runtime functions rather than call sites. So implementing this in `runtime.ts` alone would
-make `asCompared` **silently not work in emitted code** — the "inline runtime always wins"
-trap that `docs/type-identity.md` exists to warn about, and the single most expensive defect
-class in this repo.
+Lookup walks up; writes land locally. A module can say "a Firestore `Timestamp` compares as
+millis" without any other module seeing it, while everyone inherits the shared view of
+`String`.
 
-Making it work standalone means the emitter threading a projection table into the inline
-`Eq`/`Is`/`toBool` — which is where the "five deliberate copies move together" rule bites
-hardest.
+The emitted preamble already encodes exactly this link:
 
-**Consequence for sequencing.** This is not the small additive patch it looked like. It is
-a runtime-architecture change plus an emitter change, and it should be scoped as such rather
-than slipped in behind a patch release.
+```js
+const __tjs = globalThis.__tjs?.createRuntime?.() ?? { …inline stubs }
+```
+
+**Why the chain is only two levels deep — and must be.** A module's parent is `globalThis`,
+not its importer. Modules form a flat GRAPH, not a tree: at runtime nothing knows who
+imported it, and a module imported by two others would have two candidate parents. Which one
+it got would then depend on **evaluation order** — the same module producing different
+comparison semantics depending on who won the import race. `Is(a, b)` answering differently
+by load order is about the worst property a comparator can have: nondeterministic, invisible
+and unreproducible.
+
+So lexical inheritance is not merely hard here, it is incoherent. The flat module graph
+forces the flat chain, and each layer's determinism is then trivially statable: a module's
+own extends are its own, the global layer is whatever was installed before anything ran, and
+the base is fixed.
+
+**What this makes true, that the earlier framing missed:**
+
+- **`unwrapBoxed` is not a special case — it IS the root layer.** Its three entries are the
+  host built-ins' comparison projections. "A `String` instance compares as a string" is
+  TJS's view of a host type, which is precisely what the root is for. This feature does not
+  *generalise* three hardcoded cases; those cases were always registry contents that had
+  nowhere to be stored.
+- **The inline-runtime blocker dissolves.** A standalone emitted file does not need a full
+  registry — it needs its own local table plus the fixed base entries, which an inline stub
+  can carry. With no shared runtime the chain degrades to module → base and still works.
+- **It is the same layer as `docs/ambient-contracts.md`.** That document is about the DOM
+  being pessimistically typed (`e.target.value` failing because `EventTarget` does not
+  declare `value`) and proposes deriving contracts for ambient types. Membership contracts
+  and comparison projections are two kinds of entry in ONE table, not two mechanisms.
+- **It answers "local, or it is prototype pollution by another name."** A single flat global
+  table that every module writes to and every module reads from would be exactly that. The
+  chain gives sharing without leaking.
+
+### Prerequisite: `extend`'s runtime half is dead code
+
+**This must be fixed first, and it is not a parallel task.** Measured at 0.13.3:
+
+| receiver | emitted | works? |
+| --- | --- | --- |
+| literal — `'hello'.cap()` | `__ext_String.cap.call('hello')` | yes |
+| annotated param — `s: ''` | `s.cap()` | **no** — `s.cap is not a function` |
+| untyped param | `s.cap()` | **no** |
+
+Only a LITERAL receiver is rewritten. Even a parameter the transpiler knows is a string
+emits an unrewritten call, which needs `String.prototype.cap` — deliberately absent.
+
+The registry is **write-only**: emitted code calls `registerExtension`, and the emitter never
+emits a `resolveExtension` call anywhere. Entries go in; nothing looks them up.
+`CLAUDE-TJS-SYNTAX.md:656` claims "Runtime fallback via
+`registerExtension()`/`resolveExtension()` for unknown types" — the resolver exists, is
+exported, walks prototype chains correctly, and is never called.
+
+So `extend` is currently local by ACCIDENT rather than design: local because the only working
+mechanism is a lexical rewrite, and the mechanism that would make it non-local is unreachable.
+Wiring the resolver without deciding the chain first would turn it into the flat global table
+described above — the prototype pollution the feature exists to avoid.
+
+`asCompared` cannot ride on `extend` until that half works, and fixing it is where the chain
+model actually gets built.
+
+### Still open
+
+- **Declaration site.** `extend Timestamp { asCompared() { … } }` reuses the mechanism and
+  needs no new syntax; a slot on `Type` serializes into the `$predicate` story and travels
+  to the portable predicate VM. The chain model works for either.
+- **Whose registry answers `Is(a, b)`** when the call is in module A and the value came from
+  module B. The caller's, under this model — *you* choose how to compare, which is what
+  "as compared" says. The alternative (the value's defining module) is defensible and
+  disagrees, so it should be stated rather than left implicit.
 
 ### Implementation notes
 
