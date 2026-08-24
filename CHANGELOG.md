@@ -9,6 +9,57 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 _Nothing yet._
 
+## [0.13.3] — 2026-08-24
+
+> Found by an ecosystem security sweep and by playing with the deployed playground —
+> neither by a test here. Both defects were in published 0.13.2.
+
+### Fixed
+
+- **`typeof obj[key]` compiled to `(typeof obj)[key]`, so every guard of that shape was
+  silently always true** ([#29]). `typeof` lowered to `TypeOf(…)` consuming only `.name` /
+  `?.name` chains, so a COMPUTED access fell outside the call:
+
+  ```js
+  typeof obj[k] !== 'function'   //  ->  TypeOf(obj)[k] !== 'function'
+  ```
+
+  `TypeOf(obj)` is the string `'object'`, `'object'[k]` is `undefined`, and
+  `undefined !== 'function'` is **always true**. No parse error, no type error, no warning,
+  and the source reads correctly — the reporter's filter returned every key instead of
+  dropping the function.
+
+  The report named one form; **six** were broken. `x[k]`, `x[0]`, `x['lit']`, `x[k].foo`,
+  `x.foo[k]` and `x[k][j]` were all silently wrong, and `typeof f()` became `TypeOf(f)()` —
+  calling a string, which at least failed loudly. The operand now consumes balanced `[…]`
+  and `(…)` by depth over a masked view, so nesting is safe and a bracket inside a string is
+  not structure.
+
+  This also restores something that never worked: `typeof o[k]` where the value is `null`
+  now returns `'null'` rather than `'object'`. `TypeOf` exists to fix exactly that footgun
+  and the value was never reaching it through a computed access.
+
+  Reproduces back to 0.8.1 — not a regression, always wrong.
+
+- **The Schema Validation playground example shipped a wrong worked example.** Its return
+  annotation described a SHAPE (`{ name: '', … }`) where TJS reads a worked example and
+  compares by deep equality — the single most common mistake with this syntax, in a teaching
+  example on the public playground. The guard that should have caught it exists, but the
+  example sat on a skip list whose stated reason is "examples that use imports"; it has no
+  imports, nor did three other entries. A test now derives that justification instead of
+  trusting it.
+
+### Changed
+
+- **`demo/` is no longer published.** It shipped 30 files and ~1.9 MB of playground source
+  that no consumer of the package needs, including the Firebase web key in three of them
+  ([#31] — a public project identifier by design, not a secret, but noise that trips secret
+  scanners). Unpacked size 15.2 MB → 13.3 MB. The playground is deployed from `.demo/` and
+  is unaffected.
+
+[#29]: https://github.com/tonioloewald/tjs-lang/issues/29
+[#31]: https://github.com/tonioloewald/tjs-lang/issues/31
+
 ## [0.13.2] — 2026-08-21
 
 > A **ninth** pass then blocked this one on three more
