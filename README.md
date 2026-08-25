@@ -259,6 +259,41 @@ bun add tjs-lang
 pnpm add tjs-lang
 ```
 
+### If you re-export a tjs-lang type from your own package
+
+A trap worth knowing about before you hit it — reported from `tosijs-ui`
+([#28](https://github.com/tonioloewald/tjs-lang/issues/28)).
+
+`import type` is erased from emitted **JavaScript** but **not** from emitted **`.d.ts`**. So
+if your package does the natural thing:
+
+```ts
+import type { AutocompleteConfig } from 'tjs-lang/editors/codemirror'
+export type MyConfig = AutocompleteConfig
+```
+
+your published `.d.ts` still contains that import — and every consumer of _your_ package now
+needs `tjs-lang` installed to typecheck, even if they never touch TJS:
+
+```
+error TS2307: Cannot find module 'tjs-lang/editors/codemirror'
+```
+
+**Declaring tjs-lang as an optional peer does not help.** Optionality governs installation,
+not type resolution; `tsc` still has to find the module to check the declaration.
+
+Three ways out, roughly in order of preference:
+
+1. **Do not re-export the type.** Structurally duplicate what you need in your own
+   declaration. Verbose, but your public API stops depending on ours.
+2. **Make the dependency real** — a regular `dependency`, not an optional peer — if your
+   package genuinely requires tjs-lang at type level.
+3. **Inline the shape at the boundary** (`export type MyConfig = { … }`) so the import never
+   reaches your `.d.ts`.
+
+This is not specific to tjs-lang; it catches any package that re-exports a type from an
+optional peer. It is documented here because we ship the types that invite it.
+
 ## License
 
 Apache 2.0
