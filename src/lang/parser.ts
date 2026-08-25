@@ -236,11 +236,37 @@ export function preprocess(
   // `TjsCompat` followed by `TjsClass` was the documented ladder — so anchoring at the very
   // start missed an abolished name in any position but the first, and it fell through to a
   // bare identifier and a runtime "X is not defined". Found by examples/datetime.tjs.
+  let inBlockComment = false
   for (const rawLine of source.split('\n')) {
     const t = rawLine.trim()
-    if (!t || t.startsWith('//') || t.startsWith('/*') || t.startsWith('*'))
+
+    // Walk the leading comment/directive preamble properly, and only stop at real code.
+    //
+    // This used to `break` on the first line that was not itself `/^Tjs[A-Za-z]+$/`, which
+    // two ordinary shapes trip:
+    //
+    // A `/*# … */` doc comment ends it. Only `//`, `/*` and `*` prefixes were skipped, so a
+    // markdown line inside one (`# Title`, `- bullet`) hit the `break` at the top of the
+    // file — which is how `functions/src/index.tjs`, whose header is exactly that, slipped
+    // through. (`safety none` is NOT a cause: it is consumed upstream before this scan. I
+    // added a skip for it and then measured that removing the skip changed nothing — a
+    // guard whose comment claims a reason it does not have is the thing this file keeps
+    // being bitten by.)
+    //
+    // The consequence was silent and total: an abolished directive fell through as a bare
+    // identifier, `tjs emit` exited 0, and the emitted module threw
+    // `ReferenceError: TjsSafeEval is not defined` on load. Our own Cloud Functions shipped
+    // that way — the committed bundle only worked because it predated the abolition.
+    if (inBlockComment) {
+      if (t.includes('*/')) inBlockComment = false
       continue
-    if (!/^Tjs[A-Za-z]+$/.test(t)) break // past the directive block
+    }
+    if (t.startsWith('/*')) {
+      if (!t.includes('*/')) inBlockComment = true
+      continue
+    }
+    if (!t || t.startsWith('//')) continue
+    if (!/^Tjs[A-Za-z]+$/.test(t)) break // past the directive block: real code
     const guidance = ABOLISHED_DIRECTIVES[t]
     if (guidance) throw new Error(guidance)
   }

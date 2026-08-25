@@ -15,8 +15,9 @@
     "deploy": "npm run build && firebase deploy --only functions"
   },
   "dependencies": {
-    "firebase-admin": "^13.6.1",
-    "firebase-functions": "^7.0.5"
+    "firebase-admin": "^14.3.0",
+    "firebase-functions": "^7.3.2",
+    "tjs-lang": "^0.13.3"
   },
   "devDependencies": {
     "tjs-lang": "^0.2.8"

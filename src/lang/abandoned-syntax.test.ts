@@ -278,3 +278,65 @@ describe('nothing still detects abandoned syntax', () => {
     expect(offenders).toEqual([])
   })
 })
+
+/**
+ * The abolished-directive guard has to survive the PREAMBLE, not just the first line.
+ *
+ * It scanned from the top and `break`ed on the first line that was not itself
+ * `/^Tjs[A-Za-z]+$/`. Only line-comment and block-comment-opener prefixes were skipped — so
+ * a markdown line inside a doc comment (`# Title`, `- a bullet`) hit the `break` at the very
+ * top of the file, and the scan never reached the directive.
+ *
+ * The consequence was silent and total: the directive fell through as a bare identifier,
+ * `tjs emit` exited 0, and the emitted module threw `ReferenceError: TjsSafeEval is not
+ * defined` on load. **Our own Cloud Functions shipped that way** — `functions/src/index.tjs`
+ * and `rbac.tjs` both open with exactly that header shape, and the committed bundle only
+ * worked because it predated the abolition. Found by rebuilding `functions/` while fixing
+ * its dependency advisories.
+ *
+ * (`safety none` is NOT a cause. I added a skip for it, then measured that removing the skip
+ * changed nothing — it is consumed upstream of this scan. The skip came out again; a guard
+ * whose comment claims a reason it does not have is the defect this file exists to prevent.)
+ */
+describe('abolished directives are caught anywhere in the preamble', () => {
+  const FN = 'export function f(x: 1):! 0 { return x }\n'
+
+  // REAL newlines. A first version of this used a shell heredoc that wrote literal
+  // backslash-n into the source, so every "multi-line" preamble was one line — which
+  // `/*` and `*/` on the same line handle trivially, and the multi-line path these cases
+  // exist to cover never executed. It passed against a deliberately broken parser.
+  const PREAMBLES: Array<[string, string]> = [
+    ['bare at the top', ''],
+    ['after `safety none`', 'safety none\n'],
+    ['after a line comment', '// a note\n'],
+    ['after a one-line block comment', '/* a note */\n'],
+    ['after a MULTI-LINE doc comment', '/*#\n# Title\n- a bullet\n*/\n\n'],
+    ['after a doc comment AND safety', '/*#\n# Title\n*/\n\nsafety none\n'],
+    ['after blank lines', '\n\n'],
+  ]
+
+  for (const [label, preamble] of PREAMBLES) {
+    it(label, () => {
+      expect(() =>
+        tjs(`${preamble}TjsSafeEval\n${FN}`, { filename: 'x.tjs' })
+      ).toThrow(/no longer a mode/)
+    })
+  }
+
+  it('a preamble with NO abolished directive still transpiles (control)', () => {
+    // Without this, a guard that threw unconditionally would satisfy every case above.
+    expect(() =>
+      tjs(`/*#\n# Title\n*/\n\nsafety none\n${FN}`, { filename: 'x.tjs' })
+    ).not.toThrow()
+  })
+
+  it('a `Tjs`-looking identifier in real CODE is not a directive', () => {
+    // The scan must stop at real code, or an ordinary binding would be misread.
+    expect(() =>
+      tjs(
+        `const TjsSafeEval = 1\nexport function g():! 0 { return TjsSafeEval }\n`,
+        { filename: 'x.tjs' }
+      )
+    ).not.toThrow()
+  })
+})

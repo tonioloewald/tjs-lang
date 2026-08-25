@@ -1,5 +1,7 @@
-import { Eval, SafeFunction } from 'tjs-lang'
-const __tjs = globalThis.__tjs?.createRuntime?.() ?? globalThis.__tjs
+import { Eval } from 'tjs-lang';
+function TypeOf(v){return v===null?'null':typeof v};
+function toBool(v){try{if(v instanceof Boolean)return Boolean(Boolean.prototype.valueOf.call(v));if(v instanceof Number)return Boolean(Number.prototype.valueOf.call(v));if(v instanceof String)return Boolean(String.prototype.valueOf.call(v))}catch(e){}return Boolean(v)};
+const __tjs = globalThis.__tjs?.createRuntime?.() ?? {TypeOf,toBool};
 /*#
 # TJS Platform Cloud Functions
 
@@ -22,13 +24,11 @@ import { onCall, HttpsError } from 'firebase-functions/v2/https'
 import { initializeApp } from 'firebase-admin/app'
 import { getFirestore, FieldValue } from 'firebase-admin/firestore'
 
-// Local modules (use .js extension for bundler compatibility)
 import { decrypt } from './crypto.js'
 import { createLlmCapability } from './llm.js'
 import { createStoreCapability } from './store.js'
 import { matchUrlPattern, getStoredFunctions } from './routing.js'
 
-// Initialize Firebase Admin
 initializeApp()
 
 const db = getFirestore()
@@ -41,21 +41,21 @@ Loads and decrypts the user's API keys from Firestore.
 async function getUserApiKeys(uid) {
   const userDoc = await db.collection('users').doc(uid).get()
 
-  if (!userDoc.exists) {
+  if (__tjs.toBool(!__tjs.toBool(userDoc.exists))) {
     return {}
   }
 
   const userData = userDoc.data()
   const { encryptionKey, apiKeys } = userData
 
-  if (!encryptionKey || !apiKeys) {
+  if (__tjs.toBool(((__tjs__t)=>__tjs.toBool(__tjs__t)?__tjs__t:(!__tjs.toBool(apiKeys)))(!__tjs.toBool(encryptionKey)))) {
     return {}
   }
 
   const decrypted = {}
 
   for (const [provider, encryptedKey] of Object.entries(apiKeys)) {
-    if (encryptedKey) {
+    if (__tjs.toBool(encryptedKey)) {
       try {
         decrypted[provider] = await decrypt(encryptedKey, encryptionKey)
       } catch (e) {
@@ -67,16 +67,16 @@ async function getUserApiKeys(uid) {
   return decrypted
 }
 getUserApiKeys.__tjs = {
-  params: {
-    uid: {
-      type: {
-        kind: 'any',
+  "params": {
+    "uid": {
+      "type": {
+        "kind": "any"
       },
-      required: false,
-    },
+      "required": false
+    }
   },
-  unsafe: true,
-  source: 'index.tjs:39',
+  "unsafe": true,
+  "source": "index.tjs:37"
 }
 
 /*#
@@ -88,7 +88,7 @@ export const health = onRequest((req, res) => {
   res.json({
     status: 'ok',
     timestamp: Date.now(),
-    version: '0.4.0',
+    version: '0.4.0'
   })
 })
 
@@ -99,48 +99,42 @@ Universal AJS endpoint - accepts code, args, and fuel limit.
 Executes the code in a sandboxed VM with user's API keys as capabilities.
 */
 
-// Simple hash for payload checksum
 function hashPayload(payload) {
   const str = JSON.stringify(payload)
   let hash = 0
-  for (let i = 0; i < str.length; i++) {
+  for (let i = 0; __tjs.toBool(i < str.length); i++) {
     const char = str.charCodeAt(i)
-    hash = (hash << 5) - hash + char
+    hash = ((hash << 5) - hash) + char
     hash = hash & hash
   }
   return hash.toString(16)
 }
 hashPayload.__tjs = {
-  params: {
-    payload: {
-      type: {
-        kind: 'any',
+  "params": {
+    "payload": {
+      "type": {
+        "kind": "any"
       },
-      required: false,
-    },
+      "required": false
+    }
   },
-  description:
-    "## Agent Run Endpoint\n\nUniversal AJS endpoint - accepts code, args, and fuel limit.\nExecutes the code in a sandboxed VM with user's API keys as capabilities.",
-  unsafe: true,
-  source: 'index.tjs:89',
+  "unsafe": true,
+  "source": "index.tjs:86"
 }
 
 export const agentRun = onCall(async (request) => {
-  if (!request.auth) {
-    throw new HttpsError(
-      'unauthenticated',
-      'Must be authenticated to run agents'
-    )
+  if (__tjs.toBool(!__tjs.toBool(request.auth))) {
+    throw new HttpsError('unauthenticated', 'Must be authenticated to run agents')
   }
 
   const uid = request.auth.uid
   const { code, args = {}, fuel = 1000 } = request.data
 
-  if (!code || typeof code !== 'string') {
+  if (__tjs.toBool(((__tjs__t)=>__tjs.toBool(__tjs__t)?__tjs__t:(TypeOf(code) !== 'string'))(!__tjs.toBool(code)))) {
     throw new HttpsError('invalid-argument', 'code must be a non-empty string')
   }
 
-  if (fuel > 10000) {
+  if (__tjs.toBool(fuel > 10000)) {
     throw new HttpsError('invalid-argument', 'fuel limit cannot exceed 10000')
   }
 
@@ -158,15 +152,14 @@ export const agentRun = onCall(async (request) => {
       context: args,
       fuel,
       timeoutMs: 30000,
-      capabilities: { llm, store },
+      capabilities: { llm, store }
     })
   } catch (err) {
     console.error('Agent execution error:', err)
-    error = { message: err.message || 'Execution failed' }
+    error = { message: ((__tjs__t)=>__tjs.toBool(__tjs__t)?__tjs__t:('Execution failed'))(err.message) }
   }
 
-  // Log usage
-  const fuelUsed = result?.fuelUsed || 0
+  const fuelUsed = ((__tjs__t)=>__tjs.toBool(__tjs__t)?__tjs__t:(0))(result?.fuelUsed)
   const duration = Date.now() - startTime
   const usageLog = {
     timestamp: Date.now(),
@@ -174,36 +167,28 @@ export const agentRun = onCall(async (request) => {
     payloadHash: hashPayload({ code, args }),
     fuelRequested: fuel,
     fuelUsed,
-    hasError: !!(error || result?.error),
-    resultHash: result?.result ? hashPayload(result.result) : null,
+    hasError: !__tjs.toBool(!__tjs.toBool(((__tjs__t)=>__tjs.toBool(__tjs__t)?__tjs__t:(result?.error))(error))),
+    resultHash: __tjs.toBool(result?.result)?(hashPayload(result.result)):(null)
   }
 
   const usageRef = db.collection('users').doc(uid).collection('usage')
-  usageRef
-    .add(usageLog)
-    .catch((err) => console.error('Failed to log usage:', err))
-  usageRef
-    .doc('total')
-    .set(
-      {
-        totalCalls: FieldValue.increment(1),
-        totalFuelUsed: FieldValue.increment(fuelUsed),
-        totalDuration: FieldValue.increment(duration),
-        totalErrors: FieldValue.increment(error || result?.error ? 1 : 0),
-        lastUpdated: Date.now(),
-      },
-      { merge: true }
-    )
-    .catch((err) => console.error('Failed to update totals:', err))
+  usageRef.add(usageLog).catch(err => console.error('Failed to log usage:', err))
+  usageRef.doc('total').set({
+    totalCalls: FieldValue.increment(1),
+    totalFuelUsed: FieldValue.increment(fuelUsed),
+    totalDuration: FieldValue.increment(duration),
+    totalErrors: FieldValue.increment(__tjs.toBool(((__tjs__t)=>__tjs.toBool(__tjs__t)?__tjs__t:(result?.error))(error))?(1):(0)),
+    lastUpdated: Date.now()
+  }, { merge: true }).catch(err => console.error('Failed to update totals:', err))
 
-  if (error) {
+  if (__tjs.toBool(error)) {
     return { result: null, fuelUsed: 0, error }
   }
 
   return {
     result: result.result,
-    fuelUsed: result.fuelUsed || 0,
-    error: result.error || null,
+    fuelUsed: ((__tjs__t)=>__tjs.toBool(__tjs__t)?__tjs__t:(0))(result.fuelUsed),
+    error: ((__tjs__t)=>__tjs.toBool(__tjs__t)?__tjs__t:(null))(result.error)
   }
 })
 
@@ -214,25 +199,22 @@ Same as agentRun but as a simple POST endpoint.
 Auth via Bearer token (Firebase ID token).
 */
 export const run = onRequest(async (req, res) => {
-  // CORS
+         
   res.set('Access-Control-Allow-Origin', '*')
-  if (req.method === 'OPTIONS') {
+  if (__tjs.toBool(req.method === 'OPTIONS')) {
     res.set('Access-Control-Allow-Methods', 'POST')
     res.set('Access-Control-Allow-Headers', 'Authorization, Content-Type')
     res.set('Access-Control-Max-Age', '3600')
     return res.status(204).send('')
   }
 
-  if (req.method !== 'POST') {
+  if (__tjs.toBool(req.method !== 'POST')) {
     return res.status(405).json({ error: 'Method not allowed' })
   }
 
-  // Verify auth
   const authHeader = req.headers.authorization
-  if (!authHeader?.startsWith('Bearer ')) {
-    return res
-      .status(401)
-      .json({ error: 'Missing or invalid Authorization header' })
+  if (__tjs.toBool(!__tjs.toBool(authHeader?.startsWith('Bearer ')))) {
+    return res.status(401).json({ error: 'Missing or invalid Authorization header' })
   }
 
   const idToken = authHeader.slice(7)
@@ -247,11 +229,11 @@ export const run = onRequest(async (req, res) => {
 
   const { code, args = {}, fuel = 1000 } = req.body
 
-  if (!code || typeof code !== 'string') {
+  if (__tjs.toBool(((__tjs__t)=>__tjs.toBool(__tjs__t)?__tjs__t:(TypeOf(code) !== 'string'))(!__tjs.toBool(code)))) {
     return res.status(400).json({ error: 'code must be a non-empty string' })
   }
 
-  if (fuel > 10000) {
+  if (__tjs.toBool(fuel > 10000)) {
     return res.status(400).json({ error: 'fuel limit cannot exceed 10000' })
   }
 
@@ -269,15 +251,14 @@ export const run = onRequest(async (req, res) => {
       context: args,
       fuel,
       timeoutMs: 30000,
-      capabilities: { llm, store },
+      capabilities: { llm, store }
     })
   } catch (err) {
     console.error('Agent execution error:', err)
-    error = { message: err.message || 'Execution failed' }
+    error = { message: ((__tjs__t)=>__tjs.toBool(__tjs__t)?__tjs__t:('Execution failed'))(err.message) }
   }
 
-  // Log usage
-  const fuelUsed = result?.fuelUsed || 0
+  const fuelUsed = ((__tjs__t)=>__tjs.toBool(__tjs__t)?__tjs__t:(0))(result?.fuelUsed)
   const duration = Date.now() - startTime
   const usageLog = {
     timestamp: Date.now(),
@@ -285,36 +266,28 @@ export const run = onRequest(async (req, res) => {
     payloadHash: hashPayload({ code, args }),
     fuelRequested: fuel,
     fuelUsed,
-    hasError: !!(error || result?.error),
-    resultHash: result?.result ? hashPayload(result.result) : null,
+    hasError: !__tjs.toBool(!__tjs.toBool(((__tjs__t)=>__tjs.toBool(__tjs__t)?__tjs__t:(result?.error))(error))),
+    resultHash: __tjs.toBool(result?.result)?(hashPayload(result.result)):(null)
   }
 
   const usageRef = db.collection('users').doc(uid).collection('usage')
-  usageRef
-    .add(usageLog)
-    .catch((err) => console.error('Failed to log usage:', err))
-  usageRef
-    .doc('total')
-    .set(
-      {
-        totalCalls: FieldValue.increment(1),
-        totalFuelUsed: FieldValue.increment(fuelUsed),
-        totalDuration: FieldValue.increment(duration),
-        totalErrors: FieldValue.increment(error || result?.error ? 1 : 0),
-        lastUpdated: Date.now(),
-      },
-      { merge: true }
-    )
-    .catch((err) => console.error('Failed to update totals:', err))
+  usageRef.add(usageLog).catch(err => console.error('Failed to log usage:', err))
+  usageRef.doc('total').set({
+    totalCalls: FieldValue.increment(1),
+    totalFuelUsed: FieldValue.increment(fuelUsed),
+    totalDuration: FieldValue.increment(duration),
+    totalErrors: FieldValue.increment(__tjs.toBool(((__tjs__t)=>__tjs.toBool(__tjs__t)?__tjs__t:(result?.error))(error))?(1):(0)),
+    lastUpdated: Date.now()
+  }, { merge: true }).catch(err => console.error('Failed to update totals:', err))
 
-  if (error) {
+  if (__tjs.toBool(error)) {
     return res.status(200).json({ result: null, fuelUsed: 0, error })
   }
 
   res.json({
     result: result.result,
-    fuelUsed: result.fuelUsed || 0,
-    error: result.error || null,
+    fuelUsed: ((__tjs__t)=>__tjs.toBool(__tjs__t)?__tjs__t:(0))(result.fuelUsed),
+    error: ((__tjs__t)=>__tjs.toBool(__tjs__t)?__tjs__t:(null))(result.error)
   })
 })
 
@@ -326,44 +299,42 @@ Matches incoming path against stored function URL patterns.
 Executes matched function's AJS code and returns with appropriate content-type.
 */
 export const page = onRequest(async (req, res) => {
-  // CORS
+         
   res.set('Access-Control-Allow-Origin', '*')
-  if (req.method === 'OPTIONS') {
+  if (__tjs.toBool(req.method === 'OPTIONS')) {
     res.set('Access-Control-Allow-Methods', 'GET, POST')
     res.set('Access-Control-Allow-Headers', 'Authorization, Content-Type')
     res.set('Access-Control-Max-Age', '3600')
     return res.status(204).send('')
   }
 
-  const path = req.path || '/'
+  const path = ((__tjs__t)=>__tjs.toBool(__tjs__t)?__tjs__t:('/'))(req.path)
 
   try {
     const storedFunctions = await getStoredFunctions()
 
-    // Find matching function
     let matchedFunction = null
     let params = null
 
     for (const fn of storedFunctions) {
-      if (!fn.urlPattern || !fn.code) continue
+      if (__tjs.toBool(((__tjs__t)=>__tjs.toBool(__tjs__t)?__tjs__t:(!__tjs.toBool(fn.code)))(!__tjs.toBool(fn.urlPattern)))) continue
 
       const match = matchUrlPattern(fn.urlPattern, path)
-      if (match !== null) {
+      if (__tjs.toBool(match !== null)) {
         matchedFunction = fn
         params = match
         break
       }
     }
 
-    if (!matchedFunction) {
+    if (__tjs.toBool(!__tjs.toBool(matchedFunction))) {
       return res.status(404).json({ error: 'Not found', path })
     }
 
-    // Check auth for non-public functions
     let uid = null
-    if (!matchedFunction.public) {
+    if (__tjs.toBool(!__tjs.toBool(matchedFunction.public))) {
       const authHeader = req.headers.authorization
-      if (!authHeader?.startsWith('Bearer ')) {
+      if (__tjs.toBool(!__tjs.toBool(authHeader?.startsWith('Bearer ')))) {
         return res.status(401).json({ error: 'Authentication required' })
       }
 
@@ -377,23 +348,21 @@ export const page = onRequest(async (req, res) => {
       }
     }
 
-    // Build args from URL params, query string, and body
     const args = {
       ...params,
       ...req.query,
-      ...(req.body || {}),
+      ...(((__tjs__t)=>__tjs.toBool(__tjs__t)?__tjs__t:({}))(req.body)),
       _path: path,
       _method: req.method,
-      _uid: uid,
+      _uid: uid
     }
 
-    // Execute the stored function
     let result = null
     let error = null
 
     try {
       let llm = null
-      if (uid) {
+      if (__tjs.toBool(uid)) {
         const apiKeys = await getUserApiKeys(uid)
         llm = createLlmCapability(apiKeys)
       }
@@ -401,30 +370,29 @@ export const page = onRequest(async (req, res) => {
       result = await Eval({
         code: matchedFunction.code,
         context: args,
-        fuel: matchedFunction.fuel || 1000,
-        timeoutMs: matchedFunction.timeoutMs || 10000,
-        capabilities: llm ? { llm } : {},
+        fuel: ((__tjs__t)=>__tjs.toBool(__tjs__t)?__tjs__t:(1000))(matchedFunction.fuel),
+        timeoutMs: ((__tjs__t)=>__tjs.toBool(__tjs__t)?__tjs__t:(10000))(matchedFunction.timeoutMs),
+        capabilities: __tjs.toBool(llm)?({ llm }):({})
       })
     } catch (err) {
       console.error('Stored function execution error:', err)
-      error = { message: err.message || 'Execution failed' }
+      error = { message: ((__tjs__t)=>__tjs.toBool(__tjs__t)?__tjs__t:('Execution failed'))(err.message) }
     }
 
-    if (error || result?.error) {
-      const errorMessage =
-        error?.message || result?.error?.message || 'Unknown error'
+    if (__tjs.toBool(((__tjs__t)=>__tjs.toBool(__tjs__t)?__tjs__t:(result?.error))(error))) {
+      const errorMessage = ((__tjs__t)=>__tjs.toBool(__tjs__t)?__tjs__t:('Unknown error'))(((__tjs__t)=>__tjs.toBool(__tjs__t)?__tjs__t:(result?.error?.message))(error?.message))
       return res.status(500).json({ error: errorMessage })
     }
 
-    // Set content type and return result
-    const contentType = matchedFunction.contentType || 'application/json'
+    const contentType = ((__tjs__t)=>__tjs.toBool(__tjs__t)?__tjs__t:('application/json'))(matchedFunction.contentType)
     res.set('Content-Type', contentType)
 
-    if (contentType.includes('text/') || contentType.includes('html')) {
+    if (__tjs.toBool(((__tjs__t)=>__tjs.toBool(__tjs__t)?__tjs__t:(contentType.includes('html')))(contentType.includes('text/')))) {
       return res.send(result.result)
     } else {
       return res.json(result.result)
     }
+
   } catch (err) {
     console.error('Page endpoint error:', err)
     return res.status(500).json({ error: 'Internal server error' })

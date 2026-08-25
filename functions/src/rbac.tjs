@@ -19,7 +19,6 @@ Rules are stored in `securityRules/{collection}` and evaluated before each opera
 */
 
 safety none
-TjsSafeEval
 
 import { getFirestore } from 'firebase-admin/firestore'
 import { validateSchema } from './schema.js'

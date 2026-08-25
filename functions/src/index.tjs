@@ -16,7 +16,6 @@ Modular architecture with separate concerns:
 */
 
 safety none
-TjsSafeEval
 
 import { onRequest } from 'firebase-functions/v2/https'
 import { onCall, HttpsError } from 'firebase-functions/v2/https'
