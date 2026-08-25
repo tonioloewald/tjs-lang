@@ -94,6 +94,85 @@ export const TJS_VERSION: string = pkg.version
 export const tjsEquals: unique symbol = Symbol.for('tjs.equals')
 
 /**
+ * Comparison projections: a type's own answer to "what am I, for comparison?"
+ *
+ * `unwrapBoxed` already does this for three types — a `String` instance compares as a
+ * string, `Number` as a number, `Boolean` as a boolean. That is not a special case, it is
+ * the ROOT of a chain, and this table is the layer above it: entries a program adds for
+ * types the host does not describe.
+ *
+ *     extend Timestamp { asCompared() { return this.seconds * 1000 } }
+ *
+ * Registered by `extend`, which already emits `registerExtension(type, 'asCompared', fn)`.
+ * Read by `Eq`, `Is` and `toBool` — all three, which is the point: an errored service result
+ * that projects to `false` should make `if (result)` false, not just `result == false`.
+ *
+ * **Chain, not a flat table.** This is the GLOBAL layer. A module's own layer lives in its
+ * emitted output (the inline comparators consult a file-local table), so one module's
+ * projection cannot change another's — a single shared mutable type→behaviour table is
+ * prototype pollution by another name, which is what `extend` exists to avoid.
+ *
+ * A module's parent is `globalThis`, never its importer: modules are a flat graph, so an
+ * importer-scoped chain would make a module's semantics depend on which importer evaluated
+ * first. See `docs/type-system-north-star.md`.
+ */
+const projections = new Map<string, (this: unknown) => unknown>()
+
+/** The constructor name a projection is keyed by. */
+function typeKeyOf(value: unknown): string | undefined {
+  if (value === null || value === undefined) return undefined
+  if (typeof value !== 'object') return undefined
+  try {
+    return (value as any).constructor?.name
+  } catch {
+    // A Proxy trap can throw. An object that cannot be asked its type has no projection.
+    return undefined
+  }
+}
+
+export function registerProjection(
+  typeName: string,
+  fn: (this: unknown) => unknown
+): void {
+  projections.set(typeName, fn)
+}
+
+/**
+ * The value AS COMPARED — its projection, or the value unchanged.
+ *
+ * **Must project to a primitive, or to nothing** (number, string, boolean, null, undefined).
+ * An object projection defers the question rather than answering it. `bigint` is excluded
+ * deliberately: `1n === 1` is false, so two projections of the same type disagreeing on
+ * number-vs-bigint would compare unequal for values that are equal — and nobody needs
+ * nanosecond-exact `==`.
+ *
+ * A non-conforming projection is IGNORED, not thrown: a hook that breaks `==` for every
+ * value is worse than one that does not apply.
+ */
+function asCompared(value: unknown): unknown {
+  const key = typeKeyOf(value)
+  if (key === undefined) return value
+  const fn = projections.get(key)
+  if (!fn) return value
+  let projected: unknown
+  try {
+    projected = fn.call(value)
+  } catch {
+    // A declared hook that throws is the author's bug, but it must not throw out of `==` —
+    // this language's promise is that errors are returned, not thrown.
+    return value
+  }
+  const t = typeof projected
+  return projected === null ||
+    projected === undefined ||
+    t === 'number' ||
+    t === 'string' ||
+    t === 'boolean'
+    ? projected
+    : value
+}
+
+/**
  * Parse semver version string into components
  */
 function parseVersion(version: string): {
@@ -874,8 +953,10 @@ function goIs(
   // FIRST and is untouched. Those are opt-in hooks a type declares about itself, which is
   // categorically different from a boxed primitive intercepting a comparison it never
   // agreed to participate in.
-  a = unwrapBoxed(a)
-  b = unwrapBoxed(b)
+  // Projections apply at EVERY node, which is why `asCompared` is a projection rather
+  // than an `equals(other)` predicate: a Timestamp nested three levels down just works.
+  a = unwrapBoxed(asCompared(a))
+  b = unwrapBoxed(asCompared(b))
 
   // Identical references or primitives
   if (a === b) return true
@@ -1017,7 +1098,10 @@ export function toBool(value: unknown): boolean {
   // a throwing `valueOf` threw out of every `if`. The two disagreed outright: with a plain
   // subclass, `Eq(e, false)` was true with zero user code run while `toBool(e)` ran user
   // code and returned the opposite.
-  return Boolean(unwrapBoxed(value))
+  // `asCompared` first: a type that says it compares as `false` must be FALSY in an `if`,
+  // not merely equal to `false`. An errored service result is an object and objects are
+  // truthy, so without this the type has no way to say otherwise.
+  return Boolean(unwrapBoxed(asCompared(value)))
 }
 
 export function Eq(a: unknown, b: unknown): boolean {
@@ -1028,8 +1112,8 @@ export function Eq(a: unknown, b: unknown): boolean {
   // that hazard for every object, and `Eq` exists to be the safe path, so it must not
   // reproduce a narrower version of it. The prototype method reads the internal slot
   // directly: it cannot be intercepted and returns the true value.
-  a = unwrapBoxed(a)
-  b = unwrapBoxed(b)
+  a = unwrapBoxed(asCompared(a))
+  b = unwrapBoxed(asCompared(b))
 
   // Identical references or primitives
   if (a === b) return true
@@ -1878,6 +1962,9 @@ export function createRuntime() {
       extensionRegistry.set(typeName, new Map())
     }
     extensionRegistry.get(typeName)!.set(methodName, fn)
+    // `asCompared` is not a method anyone calls — the comparators call it — so it also
+    // lands in the projection table that `Eq`/`Is`/`toBool` read.
+    if (methodName === 'asCompared') registerProjection(typeName, fn as any)
   }
 
   function instanceResolveExtension(

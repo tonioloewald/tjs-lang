@@ -9,6 +9,65 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 _Nothing yet._
 
+## [0.13.4] — 2026-08-25
+
+### Added
+
+- **`asCompared` — a type can say what it IS, for comparison.** Declared with `extend`, so
+  you can attach one to a type you do not own without touching its prototype:
+
+  ```js
+  extend Timestamp { asCompared() { return this.seconds * 1000 + this.nanos / 1e6 } }
+
+  ts1 == ts2          // true when they project equally
+  Is({ when: ts1 }, { when: ts2 })   // composes into the deep walk
+  if (failedResult)   // false, when the type projects to false
+  ```
+
+  **Consumed by `Eq`, `Is` AND `toBool`** — that last one is the point as much as the first.
+  An errored service result is an object, objects are truthy, and until now the type had no
+  way to say otherwise: `if (result)` took the success branch on a failure.
+
+  A **projection**, not an `equals(other)` predicate, deliberately. A projection composes —
+  the deep walk normalises each node, so a projected value nested three levels inside an
+  object just works — and it generalises to ordering, neither of which a comparison
+  predicate gives you.
+
+  **Must project to a primitive, or to nothing**: `number`, `string`, `boolean`, `null`,
+  `undefined`. An object projection defers the question rather than answering it. `bigint`
+  is excluded on purpose — `1n === 1` is false, so two projections disagreeing on
+  number-vs-bigint would compare unequal for values that are equal, and nobody needs
+  nanosecond-exact `==`. A non-conforming or throwing projection is IGNORED rather than
+  thrown: a hook that breaks `==` for every value is worse than one that does not apply.
+
+  **It works in standalone emitted code**, not only under a shared runtime. Emitted files
+  declare their own comparators and call them bare, so the projection table is emitted
+  per-file — which also makes it file-local by construction. One module's projection cannot
+  reach another's comparators; a single shared mutable type→behaviour table would be
+  prototype pollution by another name, which is what `extend` exists to avoid.
+
+  This is not a new mechanism so much as an opened one: `unwrapBoxed` was already a
+  comparison-projection table with three hardcoded entries (a `String` instance compares as
+  a string, `Number` as a number, `Boolean` as a boolean). Those are the root of the chain;
+  `asCompared` is the layer above them. Design and rationale in
+  [`docs/type-system-north-star.md`](https://github.com/tonioloewald/tjs-lang/blob/main/docs/type-system-north-star.md).
+
+### Fixed
+
+- **`functions/`: 3 critical advisories cleared** ([#30]). `firebase-admin` 13→14,
+  `firebase-functions` →7.3.2, and `tjs-lang` off `^0.2.8` — a range we deprecated
+  ourselves. 3 critical / 5 high / 21 moderate → 0 / 1 / 16. The remaining `undici` high is
+  pinned transitively by `@firebase/auth`.
+
+- **An abolished mode directive emitted a bare identifier instead of erroring.** The guard
+  scanned the file preamble and stopped at the first line that was not itself a directive,
+  skipping only line comments and block-comment openers — so a markdown line inside a doc
+  comment ended the scan at the top of the file. `tjs emit` then exited 0 and wrote a module
+  that threw `ReferenceError: TjsSafeEval is not defined` on load. Our own Cloud Functions
+  shipped that way; the committed bundle worked only because it predated the abolition.
+
+[#30]: https://github.com/tonioloewald/tjs-lang/issues/30
+
 ## [0.13.3] — 2026-08-24
 
 > Found by an ecosystem security sweep and by playing with the deployed playground —

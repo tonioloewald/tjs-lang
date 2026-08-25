@@ -1624,14 +1624,33 @@ export function transpileToJS(
     // snowfox hit in production: works in our runtime, broken in theirs.
     // `emitted-module-scope.test.ts` now parses emitted output as a MODULE, where a
     // duplicate top-level declaration is an error rather than a shrug.
-    if (needsEq || needsIs || needsOneOf) {
+    if (needsEq || needsIs || needsOneOf || needsToBool) {
       inlineParts.push(UNWRAP_BOXED_SOURCE)
+      // `__ac` — the FILE-LOCAL comparison-projection layer.
+      //
+      // `extend Foo { asCompared() {…} }` in this file registers into `__ac`, and the
+      // inline `Eq`/`Is`/`toBool` consult it. Emitting it per file is what makes the
+      // chain's leaf local BY CONSTRUCTION: one module's projection cannot reach another's
+      // comparators, because they are different functions in different files. A single
+      // shared mutable type->behaviour table would be prototype pollution by another name.
+      //
+      // Must project to a primitive or to nothing (number/string/boolean/null/undefined);
+      // anything else is ignored rather than thrown, because a hook that breaks `==` for
+      // every value is worse than one that does not apply. Mirrors `asCompared` in
+      // `lang/runtime.ts` — see `docs/type-system-north-star.md`, and note the five
+      // deliberate comparator copies move together.
+      inlineParts.push(
+        `const __ac={};function __proj(v){if(v===null||v===undefined||typeof v!=='object')return v;` +
+          `let k;try{k=v.constructor&&v.constructor.name}catch{return v}` +
+          `const f=k&&__ac[k];if(!f)return v;let p;try{p=f.call(v)}catch{return v}` +
+          `const t=typeof p;return p===null||p===undefined||t==='number'||t==='string'||t==='boolean'?p:v}`
+      )
     }
 
     // Eq/NotEq (honest equality)
     if (needsEq) {
       inlineParts.push(
-        `function Eq(a,b){a=__ub(a);b=__ub(b);if(a===b)return true;if(typeof a==='number'&&typeof b==='number'&&isNaN(a)&&isNaN(b))return true;if((a===null||a===undefined)&&(b===null||b===undefined))return true;return false}`
+        `function Eq(a,b){a=__ub(__proj(a));b=__ub(__proj(b));if(a===b)return true;if(typeof a==='number'&&typeof b==='number'&&isNaN(a)&&isNaN(b))return true;if((a===null||a===undefined)&&(b===null||b===undefined))return true;return false}`
       )
     }
     if (needsNotEq) {
@@ -1669,7 +1688,7 @@ export function transpileToJS(
       // allocation-free. Mirrors runtime.ts goIs — the two must stay in
       // algorithmic sync (dag-safety.test.ts guards both).
       inlineParts.push(
-        `const tjsEquals=Symbol.for('tjs.equals');function Is(a,b){return __goIs(a,b,0,null)}function __goIs(a,b,d,m){if(a!=null&&typeof a==='object'&&typeof a[tjsEquals]==='function')return a[tjsEquals](b);if(b!=null&&typeof b==='object'&&typeof b[tjsEquals]==='function')return b[tjsEquals](a);if(a!=null&&typeof a==='object'&&typeof a.Equals==='function')return a.Equals(b);if(b!=null&&typeof b==='object'&&typeof b.Equals==='function')return b.Equals(a);a=__ub(a);b=__ub(b);if(a===b)return true;if(typeof a==='number'&&typeof b==='number'&&isNaN(a)&&isNaN(b))return true;if((a==null)&&(b==null))return true;if(a==null||b==null)return false;if(typeof a!==typeof b)return false;if(typeof a!=='object')return false;if(d>=8){if(m===null)m=new WeakMap();let s=m.get(a);if(s){if(s.has(b))return true}else{s=new WeakSet();m.set(a,s)}s.add(b)}if(a instanceof Set&&b instanceof Set){if(a.size!==b.size)return false;for(const v of a)if(!b.has(v))return false;return true}if(a instanceof Map&&b instanceof Map){if(a.size!==b.size)return false;for(const[k,v]of a)if(!b.has(k)||!__goIs(v,b.get(k),d+1,m))return false;return true}if(a instanceof Date&&b instanceof Date)return a.getTime()===b.getTime();if(a instanceof RegExp&&b instanceof RegExp)return a.toString()===b.toString();if(Array.isArray(a)&&Array.isArray(b)){if(a.length!==b.length)return false;return a.every((v,i)=>__goIs(v,b[i],d+1,m))}if(Array.isArray(a)!==Array.isArray(b))return false;const ka=Object.keys(a),kb=Object.keys(b);if(ka.length!==kb.length)return false;return ka.every(k=>__goIs(a[k],b[k],d+1,m))}`
+        `const tjsEquals=Symbol.for('tjs.equals');function Is(a,b){return __goIs(a,b,0,null)}function __goIs(a,b,d,m){if(a!=null&&typeof a==='object'&&typeof a[tjsEquals]==='function')return a[tjsEquals](b);if(b!=null&&typeof b==='object'&&typeof b[tjsEquals]==='function')return b[tjsEquals](a);if(a!=null&&typeof a==='object'&&typeof a.Equals==='function')return a.Equals(b);if(b!=null&&typeof b==='object'&&typeof b.Equals==='function')return b.Equals(a);a=__ub(__proj(a));b=__ub(__proj(b));if(a===b)return true;if(typeof a==='number'&&typeof b==='number'&&isNaN(a)&&isNaN(b))return true;if((a==null)&&(b==null))return true;if(a==null||b==null)return false;if(typeof a!==typeof b)return false;if(typeof a!=='object')return false;if(d>=8){if(m===null)m=new WeakMap();let s=m.get(a);if(s){if(s.has(b))return true}else{s=new WeakSet();m.set(a,s)}s.add(b)}if(a instanceof Set&&b instanceof Set){if(a.size!==b.size)return false;for(const v of a)if(!b.has(v))return false;return true}if(a instanceof Map&&b instanceof Map){if(a.size!==b.size)return false;for(const[k,v]of a)if(!b.has(k)||!__goIs(v,b.get(k),d+1,m))return false;return true}if(a instanceof Date&&b instanceof Date)return a.getTime()===b.getTime();if(a instanceof RegExp&&b instanceof RegExp)return a.toString()===b.toString();if(Array.isArray(a)&&Array.isArray(b)){if(a.length!==b.length)return false;return a.every((v,i)=>__goIs(v,b[i],d+1,m))}if(Array.isArray(a)!==Array.isArray(b))return false;const ka=Object.keys(a),kb=Object.keys(b);if(ka.length!==kb.length)return false;return ka.every(k=>__goIs(a[k],b[k],d+1,m))}`
       )
     }
     if (needsIsNot) {
@@ -1819,7 +1838,7 @@ export function transpileToJS(
     // toBool — honest truthiness (unwraps boxed primitives)
     if (needsToBool) {
       inlineParts.push(
-        `function toBool(v){try{if(v instanceof Boolean)return Boolean(Boolean.prototype.valueOf.call(v));if(v instanceof Number)return Boolean(Number.prototype.valueOf.call(v));if(v instanceof String)return Boolean(String.prototype.valueOf.call(v))}catch(e){}return Boolean(v)}`
+        `function toBool(v){v=__proj(v);try{if(v instanceof Boolean)return Boolean(Boolean.prototype.valueOf.call(v));if(v instanceof Number)return Boolean(Number.prototype.valueOf.call(v));if(v instanceof String)return Boolean(String.prototype.valueOf.call(v))}catch(e){}return Boolean(v)}`
       )
     }
 

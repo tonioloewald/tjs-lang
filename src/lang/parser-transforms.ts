@@ -3372,6 +3372,16 @@ export function transformExtendDeclarations(source: string): {
     // Generate registration calls
     for (const m of methods) {
       replacement += `${indent}if (__tjs?.registerExtension) { __tjs.registerExtension('${typeName}', '${m.name}', __ext_${typeName}.${m.name}) }\n`
+      // `asCompared` ALSO lands in the file-local projection table, unconditionally.
+      //
+      // The line above is gated on a shared runtime being installed; a standalone emitted
+      // file has none, and `asCompared` is read by the inline comparators in that same
+      // file. Emitting it locally is what makes the chain's leaf local by construction —
+      // and what stops this being a feature that silently only works when someone happens
+      // to have called `installRuntime()`.
+      if (m.name === 'asCompared') {
+        replacement += `${indent}if (typeof __ac !== 'undefined') { __ac['${typeName}'] = __ext_${typeName}.asCompared }\n`
+      }
     }
 
     result += replacement

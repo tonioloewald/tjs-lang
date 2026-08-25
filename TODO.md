@@ -2304,6 +2304,19 @@ tracked, non-blocking follow-ups.
       `npm view tjs-lang dist-tags`. The CHANGELOG makes claims about the registry; verify
       them rather than assuming the command took.
 
+**Flaky lanes under full-suite load — seen again at the 0.13.4 gate (2026-08-25):**
+
+- [ ] A full `bun test` reported **4 fail**, all timeout-shaped, and a re-run was clean
+      (4305 pass / 0 fail). Named this time, unlike 2026-08-21:
+      `(unnamed)` at exactly 30001ms (a 30s timeout), `docs-index.test.ts`'s
+      "no relative link that 404s" at 5017ms (it shells out to `npm pack`), and two
+      `spike B: check-then-fill` benchmark comparisons at ~7.3s each. All four pass in
+      isolation.
+      The shape is consistent: lanes that shell out or measure time, contending with the
+      rest of the suite. Fix is probably per-lane budgets that scale with load, or moving
+      the shell-out lanes out of the parallel set — not raising timeouts, which just moves
+      the threshold.
+
 **Flaky lane, seen at the 0.13.1 gate (2026-08-21) — NOT dismissed:**
 
 - [ ] The LIVE LLM lane is intermittently red under a loaded model server. One full `bun test`
