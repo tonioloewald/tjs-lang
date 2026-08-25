@@ -153,7 +153,7 @@ function asCompared(value: unknown): unknown {
   const key = typeKeyOf(value)
   if (key === undefined) return value
   const fn = projections.get(key)
-  if (!fn) return value
+  if (typeof fn !== 'function') return value
   let projected: unknown
   try {
     projected = fn.call(value)
@@ -1962,9 +1962,14 @@ export function createRuntime() {
       extensionRegistry.set(typeName, new Map())
     }
     extensionRegistry.get(typeName)!.set(methodName, fn)
-    // `asCompared` is not a method anyone calls — the comparators call it — so it also
-    // lands in the projection table that `Eq`/`Is`/`toBool` read.
-    if (methodName === 'asCompared') registerProjection(typeName, fn as any)
+    // `asCompared` deliberately does NOT feed a process-wide table.
+    //
+    // It used to, and that made projections GLOBAL: a module with no `extend` at all had
+    // its `if (x)` silently change when an unrelated module loaded. Reproduced —
+    // "B before A loads: truthy / B after A loads: FALSY". Four shipped documents claimed
+    // the opposite. The file-local table the emitter writes (`__ac`) is the whole
+    // mechanism; a shared mutable type->behaviour table is the prototype pollution this
+    // feature exists to avoid.
   }
 
   function instanceResolveExtension(

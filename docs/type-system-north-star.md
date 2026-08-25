@@ -200,7 +200,8 @@ The scoping question is settled, and the answer reframes what `asCompared` is.
 **The registry chain is TJS's view of the type environment.**
 
 ```
-module registry      ← `extend` lands here; local, does not leak
+module registry      ← `extend` lands here; local, does not leak (SHIPPED GLOBAL in
+                       0.13.4 by mistake — fixed in 0.13.5; see the CHANGELOG)
        ↑ inherits
 globalThis.__tjs     ← the shared view, one of them, installed before anything runs
        ↑ inherits

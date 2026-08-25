@@ -9,6 +9,73 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 _Nothing yet._
 
+## [0.13.5] — 2026-08-25
+
+> **Fixes two defects in 0.13.4's `asCompared`, both found by a nine-lens review run after
+> that release was published.** If you use `asCompared`, upgrade. If you do not, the second
+> one still affects you — the projection table is emitted into every file that uses `==`,
+> `Is` or truthiness, whether or not it declares a projection.
+>
+> 0.13.4 also went out without its tag being pushed, so the full-suite pre-push gate never
+> ran for it. That is how it shipped.
+
+### Fixed
+
+- **A projection declared in one module silently changed another module's `if`.** The
+  projection table was at MODULE scope rather than per-runtime, and `extend` fed it
+  unconditionally — so a module with no `extend` at all had its control flow change when an
+  unrelated module loaded:
+
+  ```
+  B before A loads: truthy
+  B after  A loads: FALSY     ← B has no `extend`
+  ```
+
+  Four shipped documents asserted the opposite, including this changelog's own 0.13.4 entry
+  ("one module's projection cannot reach another's comparators"). The global write is gone.
+
+  The structural half, which is why the first attempt got it wrong: `==` and `Is` are emitted
+  bare and read the file-local table, but truthiness went through `__tjs.toBool` — the SHARED
+  implementation, which cannot see it. So a value could be falsy without being equal to
+  `false`, inside one module. The emitted runtime binding now overrides its own `toBool` to
+  consult the file-local table, so all three comparators read one table and it is this file's.
+
+- **An attacker-controlled `constructor.name` reached `Object.prototype`.** The emitted table
+  was a bare `{}` and the lookup was `__ac[k]`, so a key from `JSON.parse` — which creates a
+  real _own_ `constructor` property — walked the prototype chain. `__ac['toString']` resolved
+  to `Object.prototype.toString`, which returns a conforming primitive for any object, so two
+  distinct objects with different contents compared **equal** under emitted `==`:
+
+  ```js
+  eq(JSON.parse('{"constructor":{"name":"toString"},"x":1}'),
+     JSON.parse('{"constructor":{"name":"toString"},"x":2}'))   // was true
+  ```
+
+  The table is now `Object.create(null)` with an own-property check, and the resolved value
+  must be a function. Verified against `toString`, `valueOf`, `hasOwnProperty`,
+  `isPrototypeOf` and `toLocaleString`.
+
+- **The dependency-audit gate did not cover `functions/`.** It ran `bun audit` with no `cwd`
+  override and there is no `workspaces` field, so the deployed Cloud Functions tree was
+  outside it — which is how an ecosystem sweep found 3 criticals there while the gate
+  reported green. Both trees are audited now.
+
+### Changed
+
+- **Dev-tree advisories cleared** ([#31]): `firebase` devDep ^10 → ^12 removes all eleven
+  `undici` advisories; root `firebase-admin`/`firebase-functions` aligned with the versions
+  `functions/` already moved to. Root audit 23 → 7, all dev-only.
+
+### Documentation
+
+- **The optional-peer re-export trap** ([#28]) is documented in the README. `import type` is
+  erased from emitted JS but not from emitted `.d.ts`, so a package re-exporting a tjs-lang
+  type makes tjs-lang a hard typecheck dependency for _its_ consumers — and declaring the
+  optional peer does not help, because optionality governs installation, not type resolution.
+
+[#28]: https://github.com/tonioloewald/tjs-lang/issues/28
+[#31]: https://github.com/tonioloewald/tjs-lang/issues/31
+
 ## [0.13.4] — 2026-08-25
 
 ### Added
@@ -45,6 +112,10 @@ _Nothing yet._
   per-file — which also makes it file-local by construction. One module's projection cannot
   reach another's comparators; a single shared mutable type→behaviour table would be
   prototype pollution by another name, which is what `extend` exists to avoid.
+  **⚠️ This claim was FALSE as shipped in 0.13.4** — the table was process-global and
+  projections did leak across modules. Fixed in 0.13.5; the note is left here rather than
+  rewritten, because a changelog that quietly corrects itself is worse than one that says
+  what happened.
 
   This is not a new mechanism so much as an opened one: `unwrapBoxed` was already a
   comparison-projection table with three hardcoded entries (a `String` instance compares as

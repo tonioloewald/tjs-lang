@@ -160,6 +160,63 @@ describe('STANDALONE emitted code honours a projection', () => {
     // MonadicError rather than a boolean. That was my test's bug, not the code's.)
   })
 
+  it('truthiness is file-local too, WITH a shared runtime installed', async () => {
+    // The case the original file-local test missed, and the one that was actually broken.
+    //
+    // It exercised only `==` — emitted bare, reading `__ac`, where the promise held — and
+    // installed no shared runtime. Meanwhile `if (x)` went through `__tjs.toBool`, which is
+    // the SHARED implementation and cannot see `__ac`. The first fix for that fed a
+    // process-GLOBAL table, which made one module's `extend` silently change an unrelated
+    // module's control flow: "B before A loads: truthy / B after A loads: FALSY", with B
+    // having no `extend` at all. Four shipped documents claimed the opposite.
+    //
+    // Both halves are asserted here, together, because fixing either one alone breaks the
+    // other.
+    const { installRuntime } = await import('./runtime')
+    installRuntime()
+    class Res {
+      constructor(public ok: boolean) {}
+    }
+
+    const declaring = run(
+      `extend Res { asCompared() { return this.ok } }\n` +
+        `export function check(r: {}):! 0 { return r ? 1 : 0 }\n`,
+      'check'
+    )
+    // The declaring module's own `if` must honour its projection.
+    expect(declaring(new Res(false))).toBe(0)
+
+    const unrelated = run(
+      `export function truthy(r: {}):! 0 { return r ? 1 : 0 }\n`,
+      'truthy'
+    )
+    // And a module that never opted in must be untouched by it.
+    expect(unrelated(new Res(false))).toBe(1)
+  })
+
+  it('an attacker-controlled `constructor.name` cannot reach Object.prototype', () => {
+    // `__ac` was a bare `{}` and the lookup was `__ac[k]`, so a key from `JSON.parse` —
+    // which creates a real OWN `constructor` property — walked the prototype chain.
+    // `__ac['toString']` resolved to `Object.prototype.toString`, which returns the
+    // conforming primitive '[object Object]' for ANY object, so two distinct objects with
+    // different contents compared EQUAL under emitted `==`.
+    const eq = run(
+      `export function eq(a: {}, b: {}):! false { return a == b }\n`,
+      'eq'
+    )
+    for (const name of [
+      'toString',
+      'valueOf',
+      'hasOwnProperty',
+      'isPrototypeOf',
+      'toLocaleString',
+    ]) {
+      const h1 = JSON.parse(JSON.stringify({ constructor: { name }, x: 1 }))
+      const h2 = JSON.parse(JSON.stringify({ constructor: { name }, x: 2 }))
+      expect(eq(h1, h2), `constructor.name = ${name}`).toBe(false)
+    }
+  })
+
   it('the projection table is FILE-LOCAL — one module cannot reach another', () => {
     // The chain's leaf is local by construction: different files, different comparators.
     // A single shared mutable type->behaviour table would be prototype pollution by

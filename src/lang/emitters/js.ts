@@ -1543,6 +1543,14 @@ export function transpileToJS(
     code.includes('__tjs.checkFnShape(') ||
     code.includes('__tjs.bang(')
   const needsToBool = code.includes('__tjs.toBool(')
+  /**
+   * Whether this file emits the `__ac` projection table and its `__proj` reader.
+   *
+   * Every comparator consumes projections, so the table is emitted whenever any of them is
+   * — including in files with no `extend` at all, where `__ac` is simply empty. That keeps
+   * `==`, `Is` and `if (x)` reading ONE table rather than disagreeing about a value.
+   */
+  const needsProjection = needsEq || needsIs || needsOneOf || needsToBool
   const needsCheckFnShape = code.includes('__tjs.checkFnShape(')
 
   const needsRuntime =
@@ -1624,7 +1632,7 @@ export function transpileToJS(
     // snowfox hit in production: works in our runtime, broken in theirs.
     // `emitted-module-scope.test.ts` now parses emitted output as a MODULE, where a
     // duplicate top-level declaration is an error rather than a shrug.
-    if (needsEq || needsIs || needsOneOf || needsToBool) {
+    if (needsProjection) {
       inlineParts.push(UNWRAP_BOXED_SOURCE)
       // `__ac` — the FILE-LOCAL comparison-projection layer.
       //
@@ -1640,9 +1648,9 @@ export function transpileToJS(
       // `lang/runtime.ts` — see `docs/type-system-north-star.md`, and note the five
       // deliberate comparator copies move together.
       inlineParts.push(
-        `const __ac={};function __proj(v){if(v===null||v===undefined||typeof v!=='object')return v;` +
+        `const __ac=Object.create(null);function __proj(v){if(v===null||v===undefined||typeof v!=='object')return v;` +
           `let k;try{k=v.constructor&&v.constructor.name}catch{return v}` +
-          `const f=k&&__ac[k];if(!f)return v;let p;try{p=f.call(v)}catch{return v}` +
+          `const f=k&&Object.prototype.hasOwnProperty.call(__ac,k)?__ac[k]:null;if(typeof f!=='function')return v;let p;try{p=f.call(v)}catch{return v}` +
           `const t=typeof p;return p===null||p===undefined||t==='number'||t==='string'||t==='boolean'?p:v}`
       )
     }
@@ -1889,7 +1897,20 @@ export function transpileToJS(
 
     const preamble =
       inlineBlock +
-      `const __tjs = globalThis.__tjs?.createRuntime?.() ?? ${fallbackObj};\n`
+      `const __tjs = globalThis.__tjs?.createRuntime?.() ?? ${fallbackObj};\n` +
+      // Bind truthiness to THIS FILE's projection table.
+      //
+      // `__tjs` is a fresh per-module runtime instance, but its `toBool` is the SHARED
+      // implementation, which cannot see `__ac`. So `==` and `Is` (emitted bare, reading
+      // `__ac`) honoured a projection while `if (x)` did not — inside one module, for one
+      // value. The first attempt at fixing that fed a process-GLOBAL table instead, which
+      // made one module's `extend` silently change an unrelated module's control flow.
+      //
+      // Overriding the instance's own method is the fix that keeps both properties: all
+      // three comparators read one table, and the table is this file's.
+      (needsProjection
+        ? `const __tjsToBool = __tjs.toBool; __tjs.toBool = function(v){ return __tjsToBool(__proj(v)) };\n`
+        : '')
 
     code = preamble + code
   }
