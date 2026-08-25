@@ -12,6 +12,7 @@
  * the suite); the pre-push gate runs online where it counts.
  */
 import { describe, it, expect } from 'bun:test'
+import { join } from 'node:path'
 import { AUDIT_EXEMPTIONS } from '../audit-exemptions'
 
 const SKIP_AUDIT = process.env.SKIP_AUDIT === '1'
@@ -42,9 +43,25 @@ function ghsaOf(a: any): string {
  *    fetch must not ground you.
  */
 const AUDIT_TIMEOUT_MS = 20_000
-function runAudit(): Record<string, any[]> | null {
+/**
+ * Trees this gate covers.
+ *
+ * `functions/` is a SEPARATE npm tree — its own `package.json`, its own
+ * `package-lock.json`, no `workspaces` field linking it — and it is DEPLOYED (it backs
+ * `tjs-platform.web.app` via `bun run functions:deploy`). Auditing only the repo root left
+ * it invisible: an ecosystem sweep found **3 critical** advisories there while this gate
+ * reported the project green, and CLAUDE.md advertised the gate as covering high+ without
+ * qualification. A gate that does not look where the code is deployed is not a gate.
+ *
+ * It is not in `package.json` `files`, so no npm consumer was ever exposed — the exposure
+ * was our own public endpoint.
+ */
+const AUDITED_TREES = ['.', 'functions'] as const
+
+function runAudit(dir: string = '.'): Record<string, any[]> | null {
   try {
     const proc = Bun.spawnSync(['bun', 'audit', '--json'], {
+      cwd: join(import.meta.dir, '..', dir),
       stdout: 'pipe',
       stderr: 'pipe',
       timeout: AUDIT_TIMEOUT_MS,
@@ -59,7 +76,19 @@ function runAudit(): Record<string, any[]> | null {
 }
 
 // Only touch the network when the gate actually runs.
-const audit = SKIP_AUDIT ? null : runAudit()
+// Every audited tree, merged. A package appearing in both keeps whichever advisories were
+// found — the exemption list is keyed by GHSA, so a duplicate is idempotent.
+const audit = SKIP_AUDIT
+  ? null
+  : AUDITED_TREES.reduce<Record<string, any[]> | null>((acc, dir) => {
+      const one = runAudit(dir)
+      if (one === null) return acc // a tree we could not audit must not ground the others
+      const merged = acc ?? {}
+      for (const [pkg, advs] of Object.entries(one)) {
+        merged[pkg] = [...(merged[pkg] ?? []), ...(advs ?? [])]
+      }
+      return merged
+    }, null)
 
 function highAdvisories(map: Record<string, any[]>): HighAdvisory[] {
   const out: HighAdvisory[] = []

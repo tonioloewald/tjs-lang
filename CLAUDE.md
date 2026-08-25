@@ -62,6 +62,11 @@ bun test --coverage         # With coverage report
 
 # Dependency-audit gate: src/dependency-audit.test.ts fails on any high/critical
 # `bun audit` advisory not covered by a live entry in `audit-exemptions.ts`.
+# Audits BOTH trees — the repo root AND `functions/`, which is a separate npm tree
+# (own package.json + package-lock.json, no `workspaces` link) and is DEPLOYED.
+# It used to audit only the root, so an ecosystem sweep found 3 criticals in
+# functions/ while this gate reported the project green. A gate that does not look
+# where the code is deployed is not a gate.
 # Exemptions are time-gated — each has a `reason` + `until` date and LAPSES on that
 # date (forcing a re-fix/renew). Runs in the full `bun test`; test:fast sets SKIP_AUDIT=1.
 # When a high+ advisory appears with no clean fix (dev/deploy-only transitive), add a
