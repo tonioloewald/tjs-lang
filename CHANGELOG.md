@@ -7,7 +7,54 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-_Nothing yet._
+### Fixed
+
+- **`convert` stripped `new` from locally-declared classes** ([#37]). Converted modules threw
+  `Class constructor X cannot be invoked without 'new'` and could not be imported at all — a
+  `static zero = new Thing(0)` field fails at module _evaluation_ time, before any of the
+  module's own code runs. Regressed in 0.13.0; 0.12.x and earlier are correct.
+
+  Dropping `new` is only safe where a class is callable, and in native `.tjs` it is (the
+  emitter Proxy-wraps it). But every `fromTS` output carries the `/* tjs <- … */`
+  annotation, and that annotation means **JS semantics** — no Proxy wrap — so the `new` being
+  removed was load-bearing. The transform now runs at _graduation_ (where the annotation is
+  stripped and the class becomes callable), which is the step whose job it is.
+
+  This was also corrupting converted **test suites**: preserved assertions 0.88 → 0.898,
+  preserved tests 0.89 → 0.912. Both dogfood ratchets raised to lock it in.
+
+### Added
+
+- **A type can declare `asCompared()` on itself** ([#33]), beneath the `extend`/global
+  registries in the projection chain. A registered projection still wins — the registries are
+  keyed by `constructor.name`, which is a third party describing a type it does not own,
+  whereas a method is the type answering for itself.
+
+  This is the layer a **Proxy** can reach, and nothing above it can be. A proxy over
+  `new Number(0)` has no internal slot (and slots are not forwarded to the target), so the
+  slot read throws while `instanceof Number` says yes; and it reports its _target's_
+  `constructor.name`, so the only registerable key is `'Number'` — which would claim that key
+  for every boxed Number in the process. A `get` trap can serve a method.
+
+  ```js
+  class Money { constructor(c) { this.cents = c }  asCompared() { return this.cents } }
+  new Money(500) == new Money(500)   // true
+  if (new Money(0))                  // falsy
+  ```
+
+  Containment is unchanged: the probe and the call are both fail-soft, and a projection that
+  is not a primitive is ignored rather than honoured.
+
+### Fixed (same change)
+
+- **A literal union disagreed with `==` about the same value.** `__oneOf` (the check emitted
+  for `mode: 'a' | 'b'`) walked `unwrapBoxed` alone while every comparator walked the
+  projection chain first — so a value could satisfy `v == 'b'` and _fail_ the check
+  `'a' | 'b'`. The emitter had listed unions as a reason to emit the projection table since
+  0.13.4; the union check just never read it.
+
+[#33]: https://github.com/tonioloewald/tjs-lang/issues/33
+[#37]: https://github.com/tonioloewald/tjs-lang/issues/37
 
 ## [0.13.5] — 2026-08-25
 

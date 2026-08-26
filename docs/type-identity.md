@@ -23,6 +23,26 @@ Several implementations of one question is not by itself a problem — #3 exists
 bare `int` needs no allocated type object, and #2 exists so an emitted file has no runtime
 dependency. Them **disagreeing** is the problem.
 
+### The unwrap contract, and proxy-shaped boxed values
+
+Every mechanism above sits downstream of one shared question — *what primitive does this
+value stand for?* — answered by `unwrapBoxed` (`src/unwrap-boxed.ts`) and, above it, by
+`asCompared` (see `type-system-north-star.md`). Two properties of that contract are worth
+stating here, because "it's a `Number`, and `instanceof` agrees" is a reasonable thing to
+believe right up until it isn't:
+
+- **The value is read from the internal slot, never by calling `valueOf`.** A subclass can
+  override `valueOf` and lie; a slot read cannot be intercepted.
+- **A `Proxy` has no internal slot, and slots are not forwarded to its target.** So a proxy
+  over `new Number(0)` passes `instanceof Number` and then makes the slot read *throw*. That
+  is why the unwrap is fail-soft: a value that will not yield a primitive slot simply is not
+  a boxed primitive, and is returned unchanged rather than throwing out of a comparison.
+
+A proxy-shaped boxed value therefore cannot participate through the slot, and cannot be
+reached through a `constructor.name`-keyed registry either (it reports its target's name).
+It participates by **declaring `asCompared()`**, which a `get` trap can serve — the layer
+added in 0.13.6 for exactly this shape (#33).
+
 ## The inline stub is not a fallback
 
 The one thing to know before reading further, because it inverts the obvious reading:

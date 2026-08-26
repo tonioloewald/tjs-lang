@@ -21,7 +21,14 @@
  * must move `runtime.ts` and the emitted inline forms together.
  */
 import { describe, it, expect } from 'bun:test'
-import { Eq, Is, IsNot, toBool, registerProjection } from './runtime'
+import {
+  Eq,
+  Is,
+  IsNot,
+  toBool,
+  registerProjection,
+  isMonadicError,
+} from './runtime'
 import { tjs } from './index'
 
 class Timestamp {
@@ -70,6 +77,123 @@ describe('the shared runtime honours a projection', () => {
     expect(toBool(new Unprojected(0))).toBe(true)
     expect(Eq(1, 1)).toBe(true)
     expect(Eq('5', 5)).toBe(false)
+  })
+})
+
+describe("the type's OWN asCompared() method (#33)", () => {
+  /**
+   * The layer beneath the registry, and the only one a Proxy can reach.
+   *
+   * The registry is keyed by `constructor.name`, and a Proxy reports its TARGET's — so the
+   * tosijs boxed scalar below keys as `'Number'`, and registering it would claim that key
+   * for every boxed Number in the process. There is no distinct key to register. A `get`
+   * trap can serve a method, which is why this layer exists.
+   */
+  const live = { n: 42, flag: false }
+  const boxed = (key: 'n' | 'flag') =>
+    new Proxy(new Number(0), {
+      get(t, k) {
+        // The live value is read per access, so it cannot live in the target's slot.
+        if (k === 'valueOf' || k === Symbol.toPrimitive) return () => live[key]
+        if (k === 'asCompared') return () => live[key]
+        return Reflect.get(t, k)
+      },
+    })
+
+  it('the shipped repro: a Proxy over a boxed primitive', () => {
+    const count = boxed('n')
+    // Two independent reasons the pre-fix path could not answer this:
+    expect((count as any).constructor.name).toBe('Number') // no distinct registry key
+    expect(() => Number.prototype.valueOf.call(count)).toThrow() // no internal slot
+    expect(Eq(count, 42)).toBe(true)
+    expect(Eq(count, 41)).toBe(false)
+  })
+
+  it('toBool honours it — the half with the widest blast radius', () => {
+    // `toBool` is injected at EVERY truthiness site in a .tjs file, so a boxed `false`
+    // reading truthy is wrong at every `if` in the program, with no diagnostic.
+    expect(toBool(boxed('flag'))).toBe(false)
+    live.flag = true
+    expect(toBool(boxed('flag'))).toBe(true)
+    live.flag = false
+  })
+
+  it('an ordinary class can declare it directly', () => {
+    class Money {
+      constructor(public cents: number) {}
+      asCompared() {
+        return this.cents
+      }
+    }
+    expect(Eq(new Money(500), new Money(500))).toBe(true)
+    expect(Eq(new Money(500), new Money(501))).toBe(false)
+    expect(Is({ p: new Money(1) }, { p: new Money(1) })).toBe(true)
+    expect(toBool(new Money(0))).toBe(false)
+  })
+
+  it('a registered projection OVERRIDES the type’s own method', () => {
+    // `extend` means local override. The registry is a third party describing a type it
+    // does not own, and that is a deliberate act by THIS module; the method is the type's
+    // default. So the registry is consulted first.
+    class Owned {
+      asCompared() {
+        return 'mine'
+      }
+    }
+    expect(Eq(new Owned(), 'mine')).toBe(true)
+    registerProjection('Owned', () => 'theirs')
+    expect(Eq(new Owned(), 'theirs')).toBe(true)
+    expect(Eq(new Owned(), 'mine')).toBe(false)
+  })
+
+  it('a hostile probe or method cannot throw out of a comparison', () => {
+    // Two distinct failure points: reading the property, and calling it.
+    const throwsOnProbe = new Proxy(
+      {},
+      {
+        get(_t, k) {
+          if (k === 'asCompared') throw new Error('hostile probe')
+          return undefined
+        },
+      }
+    )
+    const throwsOnCall = {
+      asCompared() {
+        throw new Error('hostile call')
+      },
+    }
+    for (const v of [throwsOnProbe, throwsOnCall]) {
+      expect(() => Eq(v, 1)).not.toThrow()
+      expect(() => toBool(v)).not.toThrow()
+      expect(Eq(v, v)).toBe(true) // falls back to reference equality
+      expect(toBool(v)).toBe(true)
+    }
+  })
+
+  it('a non-conforming method is ignored, like a registered one', () => {
+    const obj = {
+      asCompared() {
+        return { still: 'an object' }
+      },
+    }
+    expect(Eq(obj, obj)).toBe(true)
+    expect(
+      Eq(obj, {
+        asCompared() {
+          return { still: 'an object' }
+        },
+      })
+    ).toBe(false)
+  })
+
+  it('objects WITHOUT the method are untouched', () => {
+    // The control. `==` on plain objects is reference equality by design, and adding a
+    // duck-typed hook must not quietly make it structural.
+    expect(Eq({ a: 1 }, { a: 1 })).toBe(false)
+    expect(toBool({})).toBe(true)
+    expect(toBool(new (class {})())).toBe(true)
+    // A non-function `asCompared` is not a hook.
+    expect(Eq({ asCompared: 42 }, 42)).toBe(false)
   })
 })
 
@@ -215,6 +339,66 @@ describe('STANDALONE emitted code honours a projection', () => {
       const h2 = JSON.parse(JSON.stringify({ constructor: { name }, x: 2 }))
       expect(eq(h1, h2), `constructor.name = ${name}`).toBe(false)
     }
+  })
+
+  it('a type’s own asCompared() reaches emitted `==` and `if` (#33)', () => {
+    // The half that decides the issue. Emitted files call their OWN comparators bare, so a
+    // runtime-only fix would leave every shipped `.js` answering the old way — the exact
+    // drift that produced #33, where `Is` honoured a hook and `==` did not.
+    const f = run(
+      `export function probe(v: {}):! 0 { return (v == 42 ? 1 : 0) + (v ? 10 : 0) }\n`,
+      'probe'
+    )
+    const live = { n: 42, flag: false }
+    const boxed = (key: 'n' | 'flag') =>
+      new Proxy(new Number(0), {
+        get(t, k) {
+          if (k === 'asCompared') return () => live[key]
+          return Reflect.get(t, k)
+        },
+      })
+    expect(f(boxed('n'))).toBe(11) // == 42, and truthy
+    live.n = 1
+    live.flag = false
+    expect(f(boxed('flag'))).toBe(0) // != 42, and FALSY
+  })
+
+  it('a literal union agrees with `==` about the same value', () => {
+    // The sibling site. `__oneOf` walked `__ub` alone while the comparators walked
+    // `__proj` then `__ub`, so a value could satisfy `v == 'b'` and FAIL `'a' | 'b'` —
+    // two mechanisms disagreeing about one value, which is the thing `docs/type-identity.md`
+    // exists to keep track of.
+    const f = run(
+      `export function pick(mode: 'a' | 'b'): 0 { return mode == 'b' ? 1 : 0 }\n`,
+      'pick'
+    )
+    class Mode {
+      constructor(public m: string) {}
+      asCompared() {
+        return this.m
+      }
+    }
+    expect(f(new Mode('b'))).toBe(1) // accepted by the union AND equal to 'b'
+    expect(f(new Mode('a'))).toBe(0)
+    expect(isMonadicError(f(new Mode('z')))).toBe(true) // still rejected
+  })
+
+  it('a file-local `extend` still overrides the type’s own method', () => {
+    const body = `export function probe(v: {}):! 0 { return v ? 1 : 0 }\n`
+    const overridden = run(
+      `extend Owned { asCompared() { return 1 } }\n` + body,
+      'probe'
+    )
+    const plain = run(body, 'probe')
+    class Owned {
+      asCompared() {
+        return 0
+      }
+    }
+    // Same value, same expression, two files: the one with the `extend` sees 1 (truthy),
+    // the one without falls through to the type's own method and sees 0 (falsy).
+    expect(overridden(new Owned())).toBe(1)
+    expect(plain(new Owned())).toBe(0)
   })
 
   it('the projection table is FILE-LOCAL — one module cannot reach another', () => {

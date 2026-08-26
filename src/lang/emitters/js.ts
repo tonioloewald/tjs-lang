@@ -1642,6 +1642,10 @@ export function transpileToJS(
       // comparators, because they are different functions in different files. A single
       // shared mutable type->behaviour table would be prototype pollution by another name.
       //
+      // Beneath `__ac` sits the type's own `asCompared()` method — the layer a Proxy can
+      // reach (#33), since it has no internal slot and its `constructor.name` is its
+      // target's. `__ac` is the local override and is consulted first.
+      //
       // Must project to a primitive or to nothing (number/string/boolean/null/undefined);
       // anything else is ignored rather than thrown, because a hook that breaks `==` for
       // every value is worse than one that does not apply. Mirrors `asCompared` in
@@ -1650,7 +1654,9 @@ export function transpileToJS(
       inlineParts.push(
         `const __ac=Object.create(null);function __proj(v){if(v===null||v===undefined||typeof v!=='object')return v;` +
           `let k;try{k=v.constructor&&v.constructor.name}catch{return v}` +
-          `const f=k&&Object.prototype.hasOwnProperty.call(__ac,k)?__ac[k]:null;if(typeof f!=='function')return v;let p;try{p=f.call(v)}catch{return v}` +
+          `let f=k&&Object.prototype.hasOwnProperty.call(__ac,k)?__ac[k]:null;` +
+          `if(typeof f!=='function'){try{f=v.asCompared}catch{return v}}` +
+          `if(typeof f!=='function')return v;let p;try{p=f.call(v)}catch{return v}` +
           `const t=typeof p;return p===null||p===undefined||t==='number'||t==='string'||t==='boolean'?p:v}`
       )
     }
@@ -1749,7 +1755,13 @@ export function transpileToJS(
       // A raw throw out of a TYPE CHECK breaks the language's central promise that errors
       // are returned, not thrown — and it is reachable from any hostile input.
       inlineParts.push(
-        `function __oneOf(v,ms){v=__ub(v);if(v===undefined)v=null;return ms.indexOf(v)!==-1}`
+        // `__proj` before `__ub`, the same chain the comparators walk. `needsOneOf` has
+        // always been one of the reasons this file emits `__ac`/`__proj` (see
+        // `needsProjection`), but the union check read `__ub` alone — so a file whose only
+        // comparator was a union emitted the table and never consulted it, and a value
+        // could satisfy `v == 'a'` while FAILING the check `'a' | 'b'`. Literal-union
+        // membership is literal comparison; the two must not disagree about one value.
+        `function __oneOf(v,ms){v=__ub(__proj(v));if(v===undefined)v=null;return ms.indexOf(v)!==-1}`
       )
     }
     if (needsType || needsGeneric) {

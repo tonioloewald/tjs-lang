@@ -205,12 +205,40 @@ module registry      ← `extend` lands here; local, does not leak (SHIPPED GLOB
        ↑ inherits
 globalThis.__tjs     ← the shared view, one of them, installed before anything runs
        ↑ inherits
+the type ITSELF      ← `class Foo { asCompared() {…} }` (0.13.6)
+       ↑ inherits
 host built-ins       ← String / Number / Boolean base entries
 ```
 
 Lookup walks up; writes land locally. A module can say "a Firestore `Timestamp` compares as
 millis" without any other module seeing it, while everyone inherits the shared view of
 `String`.
+
+**The type's own method is the layer beneath the registries**, and it is the one that makes
+the chain complete rather than merely long. The registries are keyed by `constructor.name` —
+that is a *third party* describing a type it does not own, which is why a registration is an
+override and is consulted first. A method is the type answering for itself, so it is the
+default everyone inherits, exactly like the host entries below it.
+
+It is also the only layer a **Proxy** can reach (#33), and that turned out to be load-bearing
+for a real consumer. tosijs 2.0's boxed scalars are proxies over `new Number(0)` serving a
+live value from the `get` trap. Neither layer above works for them:
+
+- **The slot read can't**: a Proxy has no internal slot and slots are not forwarded to the
+  target, so `Number.prototype.valueOf.call(p)` throws while `p instanceof Number` says yes.
+- **The registries can't**: the proxy reports its *target's* `constructor.name`, so the only
+  registerable key is `'Number'` — claiming it for every boxed Number in the process.
+
+A `get` trap can serve a method. That is the whole reason this layer is a method and not
+another table.
+
+**Duck-typed on the name, deliberately.** `[tjsEquals]` and `.Equals` are dispatched the same
+way, and the line this codebase draws is the right one: *a hook a type declares about itself*
+is categorically different from *a boxed primitive intercepting a comparison it never agreed
+to join*. Nobody writes `asCompared` by accident — unlike `valueOf`, which every `Date` and
+`Number` already has, and which is precisely why `unwrapBoxed` reads the internal slot
+instead of calling it. Containment is unchanged either way: the probe and the call are both
+fail-soft, and a projection that is not a primitive is ignored rather than honoured.
 
 The emitted preamble already encodes exactly this link:
 

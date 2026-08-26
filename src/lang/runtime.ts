@@ -152,7 +152,32 @@ export function registerProjection(
 function asCompared(value: unknown): unknown {
   const key = typeKeyOf(value)
   if (key === undefined) return value
-  const fn = projections.get(key)
+  let fn = projections.get(key)
+  if (typeof fn !== 'function') {
+    // The type's OWN declaration, beneath the registry: `class Foo { asCompared() {…} }`.
+    // The registry is keyed by constructor NAME, which is a third party describing a type
+    // it does not own — so a locally registered projection is an override and wins. This
+    // layer is the type answering for itself.
+    //
+    // Duck-typed on the name, deliberately, and it lands on the right side of the line this
+    // file already draws: `[tjsEquals]` and `.Equals` are dispatched the same way, because
+    // a hook a type DECLARES ABOUT ITSELF is categorically different from a boxed primitive
+    // intercepting a comparison it never agreed to join. Nobody writes `asCompared` by
+    // accident — unlike `valueOf`, which every Date and Number already has, and which is
+    // why `unwrapBoxed` reads the internal slot instead of calling it.
+    //
+    // It is also the only layer a Proxy can reach (#33). A Proxy has no internal slot and
+    // slots are not forwarded to its target, so the slot read throws; and its
+    // `constructor.name` is its target's, so registering it means claiming the key for
+    // every value of that type in the process. A `get` trap can serve a method.
+    try {
+      const own = (value as { asCompared?: unknown }).asCompared
+      if (typeof own === 'function') fn = own as (this: unknown) => unknown
+    } catch {
+      // A trap that throws on the probe is not a type describing itself.
+      return value
+    }
+  }
   if (typeof fn !== 'function') return value
   let projected: unknown
   try {
