@@ -55,6 +55,16 @@ _Nothing yet._
   must be a function. Verified against `toString`, `valueOf`, `hasOwnProperty`,
   `isPrototypeOf` and `toLocaleString`.
 
+- **`wasm { } fallback { }` threw instead of falling back when the engine has no wasm
+  compiler** ([#36]). The async retry lived inside the `catch` of the sync attempt with
+  nothing around it — `WebAssembly.instantiate` normally rejects, so a `.catch` was assumed
+  sufficient, but under memory pressure SpiderMonkey throws `no WebAssembly compiler
+available` SYNCHRONOUSLY and that escaped, taking down the whole module. So `fallback`
+  covered "this module failed to validate" but not "this engine has no wasm compiler right
+  now" — the broader case, and the one an author cannot code around: intermittent,
+  resource-dependent, ~1 run in 6 on a loaded Firefox. Reported from tosijs-ui's Playwright
+  lane.
+
 - **The dependency-audit gate did not cover `functions/`.** It ran `bun audit` with no `cwd`
   override and there is no `workspaces` field, so the deployed Cloud Functions tree was
   outside it — which is how an ecosystem sweep found 3 criticals there while the gate
@@ -74,6 +84,7 @@ _Nothing yet._
   optional peer does not help, because optionality governs installation, not type resolution.
 
 [#28]: https://github.com/tonioloewald/tjs-lang/issues/28
+[#36]: https://github.com/tonioloewald/tjs-lang/issues/36
 [#31]: https://github.com/tonioloewald/tjs-lang/issues/31
 
 ## [0.13.4] — 2026-08-25

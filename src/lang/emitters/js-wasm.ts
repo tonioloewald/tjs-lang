@@ -144,7 +144,24 @@ try{
   __bind(new WebAssembly.Instance(new WebAssembly.Module(__b64ToBytes(__wasmModuleB64)),${imports}));
   globalThis.__tjs_wasm_pending.push(Promise.resolve());
 }catch(__syncErr){
-  globalThis.__tjs_wasm_pending.push(WebAssembly.instantiate(__b64ToBytes(__wasmModuleB64),${imports}).then(r=>__bind(r.instance)).catch(__fail));
+  // The async retry needs its OWN guard — it can throw SYNCHRONOUSLY.
+  //
+  // \`WebAssembly.instantiate\` normally returns a promise and rejects, so a \`.catch\` was
+  // assumed sufficient. Under memory pressure SpiderMonkey instead throws
+  // \`no WebAssembly compiler available\` synchronously, and that throw was inside the catch
+  // block with nothing around it — so it escaped and took down the whole module, in a file
+  // whose \`wasm{} fallback{}\` exists precisely so the program does not need WebAssembly.
+  //
+  // \`fallback\` covered "this module failed to validate" but not "this engine has no wasm
+  // compiler right now", which is the broader of the two and the one an author cannot code
+  // around: intermittent, engine-resource-dependent, ~1 run in 6 on a loaded Firefox.
+  // Reported from tosijs-ui's Playwright lane (#36).
+  try{
+    globalThis.__tjs_wasm_pending.push(WebAssembly.instantiate(__b64ToBytes(__wasmModuleB64),${imports}).then(r=>__bind(r.instance)).catch(__fail));
+  }catch(__asyncErr){
+    __fail(__asyncErr);
+    globalThis.__tjs_wasm_pending.push(Promise.resolve());
+  }
 }
 })();
 `.trim()
