@@ -19,6 +19,7 @@ safety none
 
 import { onRequest } from 'firebase-functions/v2/https'
 import { onCall, HttpsError } from 'firebase-functions/v2/https'
+import { TJS_LANG_VERSION } from './version.js'
 import { initializeApp } from 'firebase-admin/app'
 import { getFirestore, FieldValue } from 'firebase-admin/firestore'
 
@@ -73,10 +74,16 @@ async function getUserApiKeys(uid) {
 Simple endpoint to verify functions are deployed and running.
 */
 export const health = onRequest((req, res) => {
+  // `tjsLang` is the version this bundle was BUILT against, generated into `version.js` by
+  // the `build:version` step. It is here because its absence is what let a pre-0.12 VM — no
+  // capability membrane, no methodCall allowlist, no heap ceiling — sit deployed behind
+  // `run` and `agentRun` while package.json read 0.13.3 and every gate was green. There was
+  // no way to ask a running deployment what it was. Now there is.
   res.json({
     status: 'ok',
     timestamp: Date.now(),
-    version: '0.4.0'
+    version: '0.4.0',
+    tjsLang: TJS_LANG_VERSION
   })
 })
 

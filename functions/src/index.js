@@ -24,6 +24,7 @@ Modular architecture with separate concerns:
 
 import { onRequest } from 'firebase-functions/v2/https'
 import { onCall, HttpsError } from 'firebase-functions/v2/https'
+import { TJS_LANG_VERSION } from './version.js'
 import { initializeApp } from 'firebase-admin/app'
 import { getFirestore, FieldValue } from 'firebase-admin/firestore'
 
@@ -79,7 +80,7 @@ getUserApiKeys.__tjs = {
     }
   },
   "unsafe": true,
-  "source": "index.tjs:37"
+  "source": "index.tjs:38"
 }
 
 /*#
@@ -88,10 +89,12 @@ getUserApiKeys.__tjs = {
 Simple endpoint to verify functions are deployed and running.
 */
 export const health = onRequest((req, res) => {
+
   res.json({
     status: 'ok',
     timestamp: Date.now(),
-    version: '0.4.0'
+    version: '0.4.0',
+    tjsLang: TJS_LANG_VERSION
   })
 })
 
@@ -122,7 +125,7 @@ hashPayload.__tjs = {
     }
   },
   "unsafe": true,
-  "source": "index.tjs:86"
+  "source": "index.tjs:89"
 }
 
 export const agentRun = onCall(async (request) => {

@@ -16031,6 +16031,11 @@ async function Eval(options) {
 // src/index.js
 import { onRequest } from "firebase-functions/v2/https";
 import { onCall, HttpsError } from "firebase-functions/v2/https";
+
+// src/version.js
+var TJS_LANG_VERSION = "0.13.6";
+
+// src/index.js
 import { initializeApp } from "firebase-admin/app";
 import { getFirestore as getFirestore5, FieldValue } from "firebase-admin/firestore";
 
@@ -17353,13 +17358,14 @@ getUserApiKeys.__tjs = {
     }
   },
   unsafe: true,
-  source: "index.tjs:37"
+  source: "index.tjs:38"
 };
 var health = onRequest((req, res) => {
   res.json({
     status: "ok",
     timestamp: Date.now(),
-    version: "0.4.0"
+    version: "0.4.0",
+    tjsLang: TJS_LANG_VERSION
   });
 });
 function hashPayload(payload) {
@@ -17382,7 +17388,7 @@ hashPayload.__tjs = {
     }
   },
   unsafe: true,
-  source: "index.tjs:86"
+  source: "index.tjs:89"
 };
 var agentRun2 = onCall(async (request) => {
   if (__tjs7.toBool(!__tjs7.toBool(request.auth))) {

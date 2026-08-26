@@ -123,7 +123,19 @@ bun run build:cli           # Standalone binaries: tjs + tjsx → dist/
 # Deployment (Firebase)
 bun run deploy              # Build demo + deploy functions + hosting
 bun run deploy:hosting      # Hosting only (serves from .demo/)
-bun run functions:deploy    # Cloud functions only
+bun run functions:deploy    # Cloud functions only.
+                            #   FAILS with `Cannot deploy function with runtime nodejs22`
+                            #   on the globally installed firebase CLI (10.1.0, early 2022 —
+                            #   it predates the runtime). Hosting deploys fine on it, which
+                            #   is why this went unnoticed. Use a current CLI without
+                            #   touching the global install (auth carries over):
+                            #     npx --yes firebase-tools@latest deploy --only functions \
+                            #       --project tjs-platform --non-interactive
+                            #   The build runs `build:version` FIRST, generating
+                            #   `functions/src/version.js` so `/health` reports the tjs-lang
+                            #   the bundle was actually built against. Check a deploy with:
+                            #     curl https://health-ldh7npl2bq-uc.a.run.app
+                            #     → {"status":"ok",…,"tjsLang":"0.13.6"}
 bun run functions:serve     # Local functions emulator
 ```
 

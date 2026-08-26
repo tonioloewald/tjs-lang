@@ -83,6 +83,27 @@ describe('the committed functions bundle carries the hardening', () => {
     expect(bundle).toContain('AgentVM')
   })
 
+  it('reports the tjs-lang it was built against, and it is a real version', () => {
+    // `/health` now returns this, so a running deployment can be ASKED what VM it has —
+    // the question that had no answer while a pre-0.12 bundle sat in production.
+    //
+    // The "and it is a real version" half is not padding. The first implementation stamped
+    // it with `bun build --define:`, which does not substitute at all in bun 1.4.0 (filed
+    // upstream, two-line repro) — and the build still reported SUCCESS with the literal
+    // placeholder `__TJS_LANG_VERSION__` sitting in the output. A stamp that can silently
+    // fail open is worth less than no stamp, because it reads as an answer.
+    const stamped = bundle.match(/TJS_LANG_VERSION\s*=\s*"([^"]+)"/)?.[1]
+    expect(
+      stamped,
+      'functions/lib/index.js has no resolved TJS_LANG_VERSION — did build:version run?'
+    ).toMatch(/^\d+\.\d+\.\d+/)
+    const [major, minor] = String(stamped).split('.').map(Number)
+    expect(
+      major > 0 || minor >= 12,
+      `the deployed bundle was built against tjs-lang ${stamped}; the membrane landed in 0.12.0`
+    ).toBe(true)
+  })
+
   it('contains the capability membrane and its budgets', () => {
     // `Capability boundary rejected` is a user-facing error string, so it survives any
     // minification the build might later grow. The other two are run options.
