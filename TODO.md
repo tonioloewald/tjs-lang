@@ -2331,6 +2331,31 @@ tracked, non-blocking follow-ups.
       name the two tests or extend the fallback so slowness cannot surface as a failure at
       all (the 45s budget converts most of it, evidently not all).
 
+- [ ] **A MECHANISM for the LLM half, found 2026-08-26 — this is not (only) contention.**
+      The default loaded model was `qwen/qwen3.8-27b`, a **reasoning** model. It returns the
+      thinking in `reasoning_content` and leaves `content` **empty** when the token budget is
+      spent reasoning:
+
+      ```
+      curl … -d '{"messages":[…],"max_tokens":5}'
+      → "message": { "role": "assistant", "content": "",
+                     "reasoning_content": "We need to respond" }
+      ```
+
+      That is exactly the observed `JSON Parse error: Unexpected EOF` — the example parses
+      `content`, gets `''`, and dies. It reads as flakiness because whether reasoning eats
+      the budget varies per prompt, and it reads as *contention* because it worsens under
+      load (5 models were resident, so generation is slower and the budget binds sooner).
+      **N:** the same example failed 2/2 in loaded full runs and passed 3/3 in isolation;
+      `SKIP_LLM_TESTS=1` over the whole suite was 4339 pass / 0 fail.
+      Two fixes, and the first is the real one: (a) the client should treat an empty
+      `content` with a non-empty `reasoning_content` as a **reasoning-model response** and
+      either surface it or fail with that diagnosis, rather than handing `''` downstream —
+      right now a whole class of model behaviour is indistinguishable from a parse bug;
+      (b) the live lanes should pin a non-reasoning chat model rather than taking whatever
+      is default-loaded. Related: `src/batteries/llm-transport.test.ts` covers our client
+      deterministically and has no fixture for this response shape.
+
 **From review 6 (post-publish, 2026-08-21) — deferred, not dropped:**
 
 - [ ] Add the **loop-with-helper** case to `bin/benchmarks.ts`, then delete the hand-measured

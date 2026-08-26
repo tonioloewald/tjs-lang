@@ -1,6 +1,339 @@
 import { createRequire } from "node:module";
 var __require = /* @__PURE__ */ createRequire(import.meta.url);
 
+// node_modules/tjs-lang/src/strip-comments.ts
+function isEscapedAt(source, index) {
+  let backslashes = 0;
+  let k = index - 1;
+  while (k >= 0 && source[k] === "\\") {
+    backslashes++;
+    k--;
+  }
+  return backslashes % 2 === 1;
+}
+function isRegexStart(emitted) {
+  let j = emitted.length - 1;
+  while (j >= 0 && /\s/.test(emitted[j]))
+    j--;
+  if (j < 0)
+    return true;
+  const c = emitted[j];
+  if (/[)\]'"`]/.test(c))
+    return false;
+  if (/[A-Za-z0-9_$]/.test(c)) {
+    const word = (emitted.slice(0, j + 1).match(/[A-Za-z_$][A-Za-z0-9_$]*$/) || [""])[0];
+    return REGEX_PRECEDING_KEYWORDS.has(word);
+  }
+  return true;
+}
+var REGEX_PRECEDING_KEYWORDS = new Set([
+  "return",
+  "typeof",
+  "instanceof",
+  "in",
+  "of",
+  "new",
+  "delete",
+  "void",
+  "throw",
+  "case",
+  "do",
+  "else",
+  "yield",
+  "await"
+]);
+function findRegexEnd(source, start) {
+  let k = start + 1;
+  let inClass = false;
+  while (k < source.length) {
+    const c = source[k];
+    if (c === "\\") {
+      k += 2;
+      continue;
+    }
+    if (c === `
+`)
+      return -1;
+    if (inClass) {
+      if (c === "]")
+        inClass = false;
+    } else if (c === "[") {
+      inClass = true;
+    } else if (c === "/") {
+      return k;
+    }
+    k++;
+  }
+  return -1;
+}
+function stripLineComments(source) {
+  return blankRegions(source, (r) => r.kind === "line-comment" ? [r.start, r.end] : null);
+}
+var SCAN_CACHE_MAX = 24;
+var scanCache = new Map;
+function scanLiterals(source) {
+  const hit = scanCache.get(source);
+  if (hit) {
+    scanCache.delete(source);
+    scanCache.set(source, hit);
+    return hit;
+  }
+  const computed = Object.freeze(scanLiteralsUncached(source));
+  if (scanCache.size >= SCAN_CACHE_MAX) {
+    const oldest = scanCache.keys().next().value;
+    if (oldest !== undefined)
+      scanCache.delete(oldest);
+  }
+  scanCache.set(source, computed);
+  return computed;
+}
+function scanLiteralsUncached(source) {
+  const regions = [];
+  let i = 0;
+  let sigTail = "";
+  while (i < source.length) {
+    const ch = source[i];
+    if (ch === "'" || ch === '"' || ch === "`") {
+      let j = i + 1;
+      while (j < source.length) {
+        if (source[j] === "\\") {
+          j += 2;
+          continue;
+        }
+        if (source[j] === ch)
+          break;
+        j++;
+      }
+      regions.push({
+        kind: ch === "`" ? "template" : "string",
+        start: i,
+        end: Math.min(j + 1, source.length),
+        innerStart: i + 1,
+        innerEnd: j
+      });
+      i = j + 1;
+      sigTail = (sigTail + ch).slice(-24);
+      continue;
+    }
+    if (ch === "/" && source[i + 1] === "/") {
+      const nl = source.indexOf(`
+`, i);
+      const end = nl === -1 ? source.length : nl;
+      regions.push({
+        kind: "line-comment",
+        start: i,
+        end,
+        innerStart: i + 2,
+        innerEnd: end
+      });
+      i = end;
+      continue;
+    }
+    if (ch === "/" && source[i + 1] === "*") {
+      const close = source.indexOf("*/", i + 2);
+      const end = close === -1 ? source.length : close + 2;
+      regions.push({
+        kind: "block-comment",
+        start: i,
+        end,
+        innerStart: i + 2,
+        innerEnd: close === -1 ? source.length : close
+      });
+      i = end;
+      continue;
+    }
+    if (ch === "/" && isRegexStart(sigTail)) {
+      const close = findRegexEnd(source, i);
+      if (close !== -1) {
+        regions.push({
+          kind: "regex",
+          start: i,
+          end: close + 1,
+          innerStart: i + 1,
+          innerEnd: close
+        });
+        i = close + 1;
+        sigTail = "/";
+        continue;
+      }
+    }
+    if (!/\s/.test(ch))
+      sigTail = (sigTail + ch).slice(-24);
+    i++;
+  }
+  return regions;
+}
+function splitTopLevel(source, sep = ",") {
+  const masked = maskLiterals(source);
+  const out = [];
+  let depth = 0;
+  let start = 0;
+  for (let i = 0;i < masked.length; i++) {
+    const c = masked[i];
+    if (c === "(" || c === "[" || c === "{")
+      depth++;
+    else if (c === ")" || c === "]" || c === "}")
+      depth--;
+    else if (c === sep && depth === 0) {
+      out.push(source.slice(start, i));
+      start = i + 1;
+    }
+  }
+  const tail = source.slice(start);
+  if (tail.trim())
+    out.push(tail);
+  return out;
+}
+function matchingBrace(masked, open) {
+  const CLOSERS = { "{": "}", "[": "]", "(": ")" };
+  const want = CLOSERS[masked[open]];
+  if (!want)
+    return -1;
+  let depth = 0;
+  for (let i = open;i < masked.length; i++) {
+    const c = masked[i];
+    if (c === "{" || c === "[" || c === "(")
+      depth++;
+    else if (c === "}" || c === "]" || c === ")") {
+      depth--;
+      if (depth === 0)
+        return c === want ? i : -1;
+    }
+  }
+  return -1;
+}
+var MASK_CACHE_MAX = 16;
+var maskCaches = new Map;
+function memoizedMask(flavour, source, compute) {
+  let cache = maskCaches.get(flavour);
+  if (!cache) {
+    cache = new Map;
+    maskCaches.set(flavour, cache);
+  }
+  const hit = cache.get(source);
+  if (hit !== undefined) {
+    cache.delete(source);
+    cache.set(source, hit);
+    return hit;
+  }
+  const computed = compute();
+  if (cache.size >= MASK_CACHE_MAX) {
+    const oldest = cache.keys().next().value;
+    if (oldest !== undefined)
+      cache.delete(oldest);
+  }
+  cache.set(source, computed);
+  return computed;
+}
+function blankRegions(source, pick) {
+  const out = source.split("");
+  for (const r of scanLiterals(source)) {
+    const range = pick(r);
+    if (!range)
+      continue;
+    for (let k = range[0];k < range[1] && k < out.length; k++) {
+      if (out[k] !== `
+`)
+        out[k] = " ";
+    }
+  }
+  return out.join("");
+}
+function maskLiterals(source) {
+  return memoizedMask("literals", source, () => blankRegions(source, (r) => r.kind === "line-comment" || r.kind === "block-comment" ? [r.start, r.end] : [r.innerStart, r.innerEnd]));
+}
+function findUnsafeSpans(source) {
+  const spans = [];
+  const masked = maskLiterals(source);
+  const re = /\bunsafe[ \t]+(?!(?:instanceof|in|of)\b)(?=[A-Za-z_$])/g;
+  let m;
+  while ((m = re.exec(masked)) !== null) {
+    if (lastSignificantChar(masked, m.index) === ".")
+      continue;
+    if (!isRegexStart(masked.slice(0, m.index)))
+      continue;
+    const exprStart = m.index + m[0].length;
+    spans.push([m.index, unsafeExpressionEnd(masked, exprStart)]);
+  }
+  return spans;
+}
+function lastSignificantChar(masked, index) {
+  let j = index - 1;
+  while (j >= 0 && /\s/.test(masked[j]))
+    j--;
+  return j >= 0 ? masked[j] : "";
+}
+function unsafeExpressionEnd(masked, at) {
+  let i = at;
+  let depth = 0;
+  while (i < masked.length) {
+    const c = masked[i];
+    if (c === "(" || c === "[" || c === "{")
+      depth++;
+    else if (c === ")" || c === "]" || c === "}") {
+      if (depth === 0)
+        break;
+      depth--;
+    } else if (depth === 0 && (c === "," || c === ";"))
+      break;
+    else if (depth === 0 && c === `
+`)
+      break;
+    i++;
+  }
+  return i;
+}
+function maskUnsafe(source) {
+  const out = source.split("");
+  for (const [a, b] of unsafeRuleSpans(source)) {
+    for (let k = a;k < b && k < out.length; k++) {
+      if (out[k] !== `
+`)
+        out[k] = " ";
+    }
+  }
+  return out.join("");
+}
+function unsafeRuleSpans(source) {
+  const masked = maskLiterals(source);
+  return findUnsafeSpans(source).map(([a, b]) => [
+    a,
+    Math.min(b, nestedFunctionBodyStart(masked, a, b))
+  ]);
+}
+function nestedFunctionBodyStart(masked, a, b) {
+  for (let i = a;i < b; i++) {
+    if (masked[i] !== "{")
+      continue;
+    const before = masked.slice(a, i);
+    if (/=>\s*$/.test(before))
+      return i;
+    if (/\bfunction\b[\s\S]*\)\s*$/.test(before))
+      return i;
+  }
+  return b;
+}
+function stripUnsafeMarkers(source) {
+  const spans = findUnsafeSpans(source);
+  if (!spans.length)
+    return source;
+  const out = source.split("");
+  for (const [a] of spans) {
+    const kw = /^unsafe\s+/.exec(source.slice(a));
+    if (kw)
+      for (let k = a;k < a + kw[0].length; k++)
+        out[k] = " ";
+  }
+  return out.join("");
+}
+function hashbangOf(source) {
+  if (!source.startsWith("#!"))
+    return "";
+  const nl = source.indexOf(`
+`);
+  return source.slice(0, nl === -1 ? source.length : nl);
+}
+
 // node_modules/acorn/dist/acorn.mjs
 var astralIdentifierCodes = [509, 0, 227, 0, 150, 4, 294, 9, 1368, 2, 2, 1, 6, 3, 41, 2, 5, 0, 166, 1, 574, 3, 9, 9, 7, 9, 32, 4, 318, 1, 78, 5, 71, 10, 50, 3, 123, 2, 54, 14, 32, 10, 3, 1, 11, 3, 46, 10, 8, 0, 46, 9, 7, 2, 37, 13, 2, 9, 6, 1, 45, 0, 13, 2, 49, 13, 9, 3, 2, 11, 83, 11, 7, 0, 3, 0, 158, 11, 6, 9, 7, 3, 56, 1, 2, 6, 3, 1, 3, 2, 10, 0, 11, 1, 3, 6, 4, 4, 68, 8, 2, 0, 3, 0, 2, 3, 2, 4, 2, 0, 15, 1, 83, 17, 10, 9, 5, 0, 82, 19, 13, 9, 214, 6, 3, 8, 28, 1, 83, 16, 16, 9, 82, 12, 9, 9, 7, 19, 58, 14, 5, 9, 243, 14, 166, 9, 71, 5, 2, 1, 3, 3, 2, 0, 2, 1, 13, 9, 120, 6, 3, 6, 4, 0, 29, 9, 41, 6, 2, 3, 9, 0, 10, 10, 47, 15, 199, 7, 137, 9, 54, 7, 2, 7, 17, 9, 57, 21, 2, 13, 123, 5, 4, 0, 2, 1, 2, 6, 2, 0, 9, 9, 49, 4, 2, 1, 2, 4, 9, 9, 55, 9, 266, 3, 10, 1, 2, 0, 49, 6, 4, 4, 14, 10, 5350, 0, 7, 14, 11465, 27, 2343, 9, 87, 9, 39, 4, 60, 6, 26, 9, 535, 9, 470, 0, 2, 54, 8, 3, 82, 0, 12, 1, 19628, 1, 4178, 9, 519, 45, 3, 22, 543, 4, 4, 5, 9, 7, 3, 6, 31, 3, 149, 2, 1418, 49, 513, 54, 5, 49, 9, 0, 15, 0, 23, 4, 2, 14, 1361, 6, 2, 16, 3, 6, 2, 1, 2, 4, 101, 0, 161, 6, 10, 9, 357, 0, 62, 13, 499, 13, 245, 1, 2, 9, 233, 0, 3, 0, 8, 1, 6, 0, 475, 6, 110, 6, 6, 9, 4759, 9, 787719, 239];
 var astralIdentifierStartCodes = [0, 11, 2, 25, 2, 18, 2, 1, 2, 14, 3, 13, 35, 122, 70, 52, 268, 28, 4, 48, 48, 31, 14, 29, 6, 37, 11, 29, 3, 35, 5, 7, 2, 4, 43, 157, 19, 35, 5, 35, 5, 39, 9, 51, 13, 10, 2, 14, 2, 6, 2, 1, 2, 10, 2, 14, 2, 6, 2, 1, 4, 51, 13, 310, 10, 21, 11, 7, 25, 5, 2, 41, 2, 8, 70, 5, 3, 0, 2, 43, 2, 1, 4, 0, 3, 22, 11, 22, 10, 30, 66, 18, 2, 1, 11, 21, 11, 25, 7, 25, 39, 55, 7, 1, 65, 0, 16, 3, 2, 2, 2, 28, 43, 28, 4, 28, 36, 7, 2, 27, 28, 53, 11, 21, 11, 18, 14, 17, 111, 72, 56, 50, 14, 50, 14, 35, 39, 27, 10, 22, 251, 41, 7, 1, 17, 5, 57, 28, 11, 0, 9, 21, 43, 17, 47, 20, 28, 22, 13, 52, 58, 1, 3, 0, 14, 44, 33, 24, 27, 35, 30, 0, 3, 0, 9, 34, 4, 0, 13, 47, 15, 3, 22, 0, 2, 0, 36, 17, 2, 24, 20, 1, 64, 6, 2, 0, 2, 3, 2, 14, 2, 9, 8, 46, 39, 7, 3, 1, 3, 21, 2, 6, 2, 1, 2, 4, 4, 0, 19, 0, 13, 4, 31, 9, 2, 0, 3, 0, 2, 37, 2, 0, 26, 0, 2, 0, 45, 52, 19, 3, 21, 2, 31, 47, 21, 1, 2, 0, 185, 46, 42, 3, 37, 47, 21, 0, 60, 42, 14, 0, 72, 26, 38, 6, 186, 43, 117, 63, 32, 7, 3, 0, 3, 7, 2, 1, 2, 23, 16, 0, 2, 0, 95, 7, 3, 38, 17, 0, 2, 0, 29, 0, 11, 39, 8, 0, 22, 0, 12, 45, 20, 0, 19, 72, 200, 32, 32, 8, 2, 36, 18, 0, 50, 29, 113, 6, 2, 1, 2, 37, 22, 0, 26, 5, 2, 1, 2, 31, 15, 0, 24, 43, 261, 18, 16, 0, 2, 12, 2, 33, 125, 0, 80, 921, 103, 110, 18, 195, 2637, 96, 16, 1071, 18, 5, 26, 3994, 6, 582, 6842, 29, 1763, 568, 8, 30, 18, 78, 18, 29, 19, 47, 17, 3, 32, 20, 6, 18, 433, 44, 212, 63, 33, 24, 3, 24, 45, 74, 6, 0, 67, 12, 65, 1, 2, 0, 15, 4, 10, 7381, 42, 31, 98, 114, 8702, 3, 2, 6, 2, 1, 2, 290, 16, 0, 30, 2, 3, 0, 15, 3, 9, 395, 2309, 106, 6, 12, 4, 8, 8, 9, 5991, 84, 2, 70, 2, 1, 3, 0, 3, 1, 3, 3, 2, 11, 2, 0, 2, 6, 2, 64, 2, 3, 3, 7, 2, 6, 2, 27, 2, 3, 2, 4, 2, 0, 4, 6, 2, 339, 3, 24, 2, 24, 2, 30, 2, 24, 2, 30, 2, 24, 2, 30, 2, 24, 2, 30, 2, 24, 2, 7, 1845, 30, 7, 5, 262, 61, 147, 44, 11, 6, 17, 0, 322, 29, 19, 43, 485, 27, 229, 29, 3, 0, 208, 30, 2, 2, 2, 1, 2, 6, 3, 4, 10, 1, 225, 6, 2, 3, 2, 1, 2, 14, 2, 196, 60, 67, 8, 0, 1205, 3, 2, 26, 2, 1, 2, 0, 3, 0, 2, 9, 2, 3, 2, 0, 2, 0, 7, 0, 5, 0, 2, 0, 2, 0, 2, 2, 2, 1, 2, 0, 3, 0, 2, 0, 2, 0, 2, 0, 2, 0, 2, 1, 2, 0, 3, 3, 2, 6, 2, 3, 2, 3, 2, 0, 2, 9, 2, 16, 6, 2, 2, 4, 2, 16, 4421, 42719, 33, 4381, 3, 5773, 3, 7472, 16, 621, 2467, 541, 1507, 4938, 6, 8489];
@@ -5377,7 +5710,10 @@ function createChildContext(parent) {
     warnings: parent.warnings,
     source: parent.source,
     filename: parent.filename,
-    options: parent.options
+    options: parent.options,
+    helpers: parent.helpers,
+    helperSteps: parent.helperSteps,
+    helperTransforming: parent.helperTransforming
   };
 }
 function getLocation(node) {
@@ -5387,7 +5723,4277 @@ function getLocation(node) {
   return { line: 1, column: 0 };
 }
 
-// node_modules/tjs-lang/src/lang/parser.ts
+// node_modules/tjs-lang/src/lang/declared-classes.ts
+function declaredClassNames(source, masked) {
+  const view = masked ?? maskLiterals(source);
+  return [
+    ...new Set([...view.matchAll(/\bclass\s+([A-Z][A-Za-z0-9_$]*)/g)].map((m) => m[1]))
+  ];
+}
+function newExpressionPattern(names) {
+  const alt = [...names].sort((a, b) => b.length - a.length).map((n) => n.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")).join("|");
+  return new RegExp(`(?<![A-Za-z0-9_$.])\\bnew\\s+(${alt})\\b(\\s*\\()?`, "g");
+}
+function constructsDeclaredClass(masked, matchEnd, hadParen) {
+  if (hadParen)
+    return true;
+  let i2 = matchEnd;
+  while (i2 < masked.length && /\s/.test(masked[i2]))
+    i2++;
+  return masked[i2] !== "." && masked[i2] !== "[";
+}
+
+// node_modules/acorn-walk/dist/walk.mjs
+function simple(node, visitors, baseVisitor, state, override) {
+  if (!baseVisitor) {
+    baseVisitor = base;
+  }
+  (function c(node2, st, override2) {
+    var type = override2 || node2.type;
+    visitNode(baseVisitor, type, node2, st, c);
+    if (visitors[type]) {
+      visitors[type](node2, st);
+    }
+  })(node, state, override);
+}
+function skipThrough(node, st, c) {
+  c(node, st);
+}
+function ignore(_node, _st, _c) {}
+function visitNode(baseVisitor, type, node, st, c) {
+  if (baseVisitor[type] == null) {
+    throw new Error("No walker function defined for node type " + type);
+  }
+  baseVisitor[type](node, st, c);
+}
+var base = {};
+base.Program = base.BlockStatement = base.StaticBlock = function(node, st, c) {
+  for (var i2 = 0, list2 = node.body;i2 < list2.length; i2 += 1) {
+    var stmt = list2[i2];
+    c(stmt, st, "Statement");
+  }
+};
+base.Statement = skipThrough;
+base.EmptyStatement = ignore;
+base.ExpressionStatement = base.ParenthesizedExpression = base.ChainExpression = function(node, st, c) {
+  return c(node.expression, st, "Expression");
+};
+base.IfStatement = function(node, st, c) {
+  c(node.test, st, "Expression");
+  c(node.consequent, st, "Statement");
+  if (node.alternate) {
+    c(node.alternate, st, "Statement");
+  }
+};
+base.LabeledStatement = function(node, st, c) {
+  return c(node.body, st, "Statement");
+};
+base.BreakStatement = base.ContinueStatement = ignore;
+base.WithStatement = function(node, st, c) {
+  c(node.object, st, "Expression");
+  c(node.body, st, "Statement");
+};
+base.SwitchStatement = function(node, st, c) {
+  c(node.discriminant, st, "Expression");
+  for (var i2 = 0, list2 = node.cases;i2 < list2.length; i2 += 1) {
+    var cs = list2[i2];
+    c(cs, st);
+  }
+};
+base.SwitchCase = function(node, st, c) {
+  if (node.test) {
+    c(node.test, st, "Expression");
+  }
+  for (var i2 = 0, list2 = node.consequent;i2 < list2.length; i2 += 1) {
+    var cons = list2[i2];
+    c(cons, st, "Statement");
+  }
+};
+base.ReturnStatement = base.YieldExpression = base.AwaitExpression = function(node, st, c) {
+  if (node.argument) {
+    c(node.argument, st, "Expression");
+  }
+};
+base.ThrowStatement = base.SpreadElement = function(node, st, c) {
+  return c(node.argument, st, "Expression");
+};
+base.TryStatement = function(node, st, c) {
+  c(node.block, st, "Statement");
+  if (node.handler) {
+    c(node.handler, st);
+  }
+  if (node.finalizer) {
+    c(node.finalizer, st, "Statement");
+  }
+};
+base.CatchClause = function(node, st, c) {
+  if (node.param) {
+    c(node.param, st, "Pattern");
+  }
+  c(node.body, st, "Statement");
+};
+base.WhileStatement = base.DoWhileStatement = function(node, st, c) {
+  c(node.test, st, "Expression");
+  c(node.body, st, "Statement");
+};
+base.ForStatement = function(node, st, c) {
+  if (node.init) {
+    c(node.init, st, "ForInit");
+  }
+  if (node.test) {
+    c(node.test, st, "Expression");
+  }
+  if (node.update) {
+    c(node.update, st, "Expression");
+  }
+  c(node.body, st, "Statement");
+};
+base.ForInStatement = base.ForOfStatement = function(node, st, c) {
+  c(node.left, st, "ForInit");
+  c(node.right, st, "Expression");
+  c(node.body, st, "Statement");
+};
+base.ForInit = function(node, st, c) {
+  if (node.type === "VariableDeclaration") {
+    c(node, st);
+  } else {
+    c(node, st, "Expression");
+  }
+};
+base.DebuggerStatement = ignore;
+base.FunctionDeclaration = function(node, st, c) {
+  return c(node, st, "Function");
+};
+base.VariableDeclaration = function(node, st, c) {
+  for (var i2 = 0, list2 = node.declarations;i2 < list2.length; i2 += 1) {
+    var decl = list2[i2];
+    c(decl, st);
+  }
+};
+base.VariableDeclarator = function(node, st, c) {
+  c(node.id, st, "Pattern");
+  if (node.init) {
+    c(node.init, st, "Expression");
+  }
+};
+base.Function = function(node, st, c) {
+  if (node.id) {
+    c(node.id, st, "Pattern");
+  }
+  for (var i2 = 0, list2 = node.params;i2 < list2.length; i2 += 1) {
+    var param = list2[i2];
+    c(param, st, "Pattern");
+  }
+  c(node.body, st, node.expression ? "Expression" : "Statement");
+};
+base.Pattern = function(node, st, c) {
+  if (node.type === "Identifier") {
+    c(node, st, "VariablePattern");
+  } else if (node.type === "MemberExpression") {
+    c(node, st, "MemberPattern");
+  } else {
+    c(node, st);
+  }
+};
+base.VariablePattern = ignore;
+base.MemberPattern = skipThrough;
+base.RestElement = function(node, st, c) {
+  return c(node.argument, st, "Pattern");
+};
+base.ArrayPattern = function(node, st, c) {
+  for (var i2 = 0, list2 = node.elements;i2 < list2.length; i2 += 1) {
+    var elt = list2[i2];
+    if (elt) {
+      c(elt, st, "Pattern");
+    }
+  }
+};
+base.ObjectPattern = function(node, st, c) {
+  for (var i2 = 0, list2 = node.properties;i2 < list2.length; i2 += 1) {
+    var prop = list2[i2];
+    if (prop.type === "Property") {
+      if (prop.computed) {
+        c(prop.key, st, "Expression");
+      }
+      c(prop.value, st, "Pattern");
+    } else if (prop.type === "RestElement") {
+      c(prop.argument, st, "Pattern");
+    }
+  }
+};
+base.Expression = skipThrough;
+base.ThisExpression = base.Super = base.MetaProperty = ignore;
+base.ArrayExpression = function(node, st, c) {
+  for (var i2 = 0, list2 = node.elements;i2 < list2.length; i2 += 1) {
+    var elt = list2[i2];
+    if (elt) {
+      c(elt, st, "Expression");
+    }
+  }
+};
+base.ObjectExpression = function(node, st, c) {
+  for (var i2 = 0, list2 = node.properties;i2 < list2.length; i2 += 1) {
+    var prop = list2[i2];
+    c(prop, st);
+  }
+};
+base.FunctionExpression = base.ArrowFunctionExpression = base.FunctionDeclaration;
+base.SequenceExpression = function(node, st, c) {
+  for (var i2 = 0, list2 = node.expressions;i2 < list2.length; i2 += 1) {
+    var expr = list2[i2];
+    c(expr, st, "Expression");
+  }
+};
+base.TemplateLiteral = function(node, st, c) {
+  for (var i2 = 0, list2 = node.quasis;i2 < list2.length; i2 += 1) {
+    var quasi = list2[i2];
+    c(quasi, st);
+  }
+  for (var i$1 = 0, list$1 = node.expressions;i$1 < list$1.length; i$1 += 1) {
+    var expr = list$1[i$1];
+    c(expr, st, "Expression");
+  }
+};
+base.TemplateElement = ignore;
+base.UnaryExpression = base.UpdateExpression = function(node, st, c) {
+  c(node.argument, st, "Expression");
+};
+base.BinaryExpression = base.LogicalExpression = function(node, st, c) {
+  c(node.left, st, "Expression");
+  c(node.right, st, "Expression");
+};
+base.AssignmentExpression = base.AssignmentPattern = function(node, st, c) {
+  c(node.left, st, "Pattern");
+  c(node.right, st, "Expression");
+};
+base.ConditionalExpression = function(node, st, c) {
+  c(node.test, st, "Expression");
+  c(node.consequent, st, "Expression");
+  c(node.alternate, st, "Expression");
+};
+base.NewExpression = base.CallExpression = function(node, st, c) {
+  c(node.callee, st, "Expression");
+  if (node.arguments) {
+    for (var i2 = 0, list2 = node.arguments;i2 < list2.length; i2 += 1) {
+      var arg = list2[i2];
+      c(arg, st, "Expression");
+    }
+  }
+};
+base.MemberExpression = function(node, st, c) {
+  c(node.object, st, "Expression");
+  if (node.computed) {
+    c(node.property, st, "Expression");
+  }
+};
+base.ExportNamedDeclaration = base.ExportDefaultDeclaration = function(node, st, c) {
+  if (node.declaration) {
+    c(node.declaration, st, node.type === "ExportNamedDeclaration" || node.declaration.id ? "Statement" : "Expression");
+  }
+  if (node.source) {
+    c(node.source, st, "Expression");
+  }
+  if (node.attributes) {
+    for (var i2 = 0, list2 = node.attributes;i2 < list2.length; i2 += 1) {
+      var attr = list2[i2];
+      c(attr, st);
+    }
+  }
+};
+base.ExportAllDeclaration = function(node, st, c) {
+  if (node.exported) {
+    c(node.exported, st);
+  }
+  c(node.source, st, "Expression");
+  if (node.attributes) {
+    for (var i2 = 0, list2 = node.attributes;i2 < list2.length; i2 += 1) {
+      var attr = list2[i2];
+      c(attr, st);
+    }
+  }
+};
+base.ImportAttribute = function(node, st, c) {
+  c(node.value, st, "Expression");
+};
+base.ImportDeclaration = function(node, st, c) {
+  for (var i2 = 0, list2 = node.specifiers;i2 < list2.length; i2 += 1) {
+    var spec = list2[i2];
+    c(spec, st);
+  }
+  c(node.source, st, "Expression");
+  if (node.attributes) {
+    for (var i$1 = 0, list$1 = node.attributes;i$1 < list$1.length; i$1 += 1) {
+      var attr = list$1[i$1];
+      c(attr, st);
+    }
+  }
+};
+base.ImportExpression = function(node, st, c) {
+  c(node.source, st, "Expression");
+  if (node.options) {
+    c(node.options, st, "Expression");
+  }
+};
+base.ImportSpecifier = base.ImportDefaultSpecifier = base.ImportNamespaceSpecifier = base.Identifier = base.PrivateIdentifier = base.Literal = ignore;
+base.TaggedTemplateExpression = function(node, st, c) {
+  c(node.tag, st, "Expression");
+  c(node.quasi, st, "Expression");
+};
+base.ClassDeclaration = base.ClassExpression = function(node, st, c) {
+  return c(node, st, "Class");
+};
+base.Class = function(node, st, c) {
+  if (node.id) {
+    c(node.id, st, "Pattern");
+  }
+  if (node.superClass) {
+    c(node.superClass, st, "Expression");
+  }
+  c(node.body, st);
+};
+base.ClassBody = function(node, st, c) {
+  for (var i2 = 0, list2 = node.body;i2 < list2.length; i2 += 1) {
+    var elt = list2[i2];
+    c(elt, st);
+  }
+};
+base.MethodDefinition = base.PropertyDefinition = base.Property = function(node, st, c) {
+  if (node.computed) {
+    c(node.key, st, "Expression");
+  }
+  if (node.value) {
+    c(node.value, st, "Expression");
+  }
+};
+
+// node_modules/tjs-lang/src/redos.ts
+function unboundedQuantifierLen(pattern, pos) {
+  const c = pattern[pos];
+  let len = 0;
+  if (c === "*" || c === "+") {
+    len = 1;
+  } else if (c === "{") {
+    const m = pattern.slice(pos).match(/^\{\d+,\}/);
+    if (m)
+      len = m[0].length;
+  }
+  if (len === 0)
+    return 0;
+  if (pattern[pos + len] === "?")
+    len++;
+  return len;
+}
+function reDoSRisk(pattern) {
+  const stack = [];
+  let i2 = 0;
+  let inClass = false;
+  while (i2 < pattern.length) {
+    const c = pattern[i2];
+    if (c === "\\") {
+      i2 += 2;
+      continue;
+    }
+    if (inClass) {
+      if (c === "]")
+        inClass = false;
+      i2++;
+      continue;
+    }
+    if (c === "[") {
+      inClass = true;
+      i2++;
+      continue;
+    }
+    if (c === "(") {
+      stack.push({ hadUnbounded: false });
+      i2++;
+      continue;
+    }
+    if (c === ")") {
+      const frame = stack.pop() ?? { hadUnbounded: false };
+      const qlen2 = unboundedQuantifierLen(pattern, i2 + 1);
+      if (qlen2 > 0) {
+        if (frame.hadUnbounded)
+          return "an unbounded quantifier is nested inside another (e.g. `(a+)+`)";
+        if (stack.length)
+          stack[stack.length - 1].hadUnbounded = true;
+        i2 += 1 + qlen2;
+        continue;
+      }
+      if (frame.hadUnbounded && stack.length)
+        stack[stack.length - 1].hadUnbounded = true;
+      i2++;
+      continue;
+    }
+    const qlen = unboundedQuantifierLen(pattern, i2);
+    if (qlen > 0) {
+      if (stack.length)
+        stack[stack.length - 1].hadUnbounded = true;
+      i2 += qlen;
+      continue;
+    }
+    i2++;
+  }
+  return null;
+}
+function alternationOverlapRisk(pattern) {
+  return /\(([^|)]+)\|\1\)[+*]/.test(pattern);
+}
+
+// node_modules/tjs-lang/src/lang/predicate.ts
+var PURE_GLOBALS = new Set([
+  "parseInt",
+  "parseFloat",
+  "isNaN",
+  "isFinite",
+  "encodeURIComponent",
+  "decodeURIComponent",
+  "String",
+  "Number",
+  "Boolean",
+  "Array",
+  "Object",
+  "Eq",
+  "NotEq",
+  "Is",
+  "IsNot",
+  "TypeOf"
+]);
+var PURE_NAMESPACES = new Set([
+  "Math",
+  "JSON",
+  "Object",
+  "Array",
+  "String",
+  "Number"
+]);
+var EFFECTFUL_STATICS = new Set(["Math.random", "Date.now"]);
+var PURE_INSTANCE_METHODS = new Set([
+  "startsWith",
+  "endsWith",
+  "includes",
+  "indexOf",
+  "lastIndexOf",
+  "slice",
+  "substring",
+  "substr",
+  "toLowerCase",
+  "toUpperCase",
+  "trim",
+  "trimStart",
+  "trimEnd",
+  "split",
+  "replace",
+  "replaceAll",
+  "match",
+  "matchAll",
+  "charAt",
+  "charCodeAt",
+  "codePointAt",
+  "padStart",
+  "padEnd",
+  "repeat",
+  "concat",
+  "at",
+  "normalize",
+  "search",
+  "localeCompare",
+  "every",
+  "some",
+  "map",
+  "filter",
+  "reduce",
+  "reduceRight",
+  "find",
+  "findIndex",
+  "findLast",
+  "findLastIndex",
+  "flat",
+  "flatMap",
+  "join",
+  "keys",
+  "entries",
+  "values",
+  "forEach",
+  "test",
+  "exec",
+  "toFixed",
+  "toPrecision",
+  "toString",
+  "valueOf",
+  "hasOwnProperty"
+]);
+var EFFECTFUL_GLOBALS = [
+  "fetch",
+  "XMLHttpRequest",
+  "WebSocket",
+  "Date",
+  "console",
+  "setTimeout",
+  "setInterval",
+  "requestAnimationFrame",
+  "queueMicrotask",
+  "localStorage",
+  "sessionStorage",
+  "indexedDB",
+  "document",
+  "window",
+  "globalThis",
+  "self",
+  "process",
+  "require",
+  "eval",
+  "Function",
+  "import",
+  "crypto",
+  "performance",
+  "navigator"
+];
+function verifyPredicate(source, opts = {}) {
+  const effectful = opts.effectful ?? new Set(EFFECTFUL_GLOBALS);
+  let ast;
+  try {
+    ast = parse3(source, { ecmaVersion: "latest", locations: true });
+  } catch (e) {
+    return {
+      safe: false,
+      predicates: [],
+      diagnostics: [
+        {
+          predicate: "<source>",
+          message: `parse error: ${e.message}`,
+          line: e.loc?.line ?? 0,
+          column: e.loc?.column ?? 0
+        }
+      ]
+    };
+  }
+  const predicateNames = new Set(opts.knownPredicates ?? []);
+  for (const node of ast.body) {
+    if (node.type === "FunctionDeclaration" && node.id)
+      predicateNames.add(node.id.name);
+  }
+  const diagnostics = [];
+  for (const fn of ast.body) {
+    if (fn.type !== "FunctionDeclaration" || !fn.id)
+      continue;
+    const pname = fn.id.name;
+    const flag = (message, n) => diagnostics.push({
+      predicate: pname,
+      message,
+      line: n?.loc?.start?.line ?? 0,
+      column: n?.loc?.start?.column ?? 0
+    });
+    const loop = (n) => flag("loops are not allowed — iterate with recursion or array methods (every/some/map/filter/reduce) so work stays fuel-bounded", n);
+    simple(fn, {
+      AwaitExpression(n) {
+        flag("`await` not allowed — predicates must be synchronous", n);
+      },
+      NewExpression(n) {
+        flag("`new` not allowed in a predicate (non-pure construction)", n);
+      },
+      WhileStatement: loop,
+      DoWhileStatement: loop,
+      ForStatement: loop,
+      ForInStatement: loop,
+      ForOfStatement: loop,
+      Literal(n) {
+        if (n.regex && typeof n.regex.pattern === "string") {
+          const risk = reDoSRisk(n.regex.pattern);
+          if (risk)
+            flag(`regex /${n.regex.pattern}/ risks catastrophic backtracking (ReDoS): ${risk}. A single match is not fuel-bounded, so it can't be certified predicate-safe — simplify the pattern or validate without it.`, n);
+        }
+      },
+      CallExpression(n) {
+        const callee = n.callee;
+        if (callee.type === "Identifier") {
+          const name = callee.name;
+          if (effectful.has(name))
+            flag(`'${name}' is effectful — not allowed in a predicate`, callee);
+          else if (predicateNames.has(name)) {} else if (PURE_GLOBALS.has(name)) {} else {
+            flag(`unknown reference '${name}' — not a predicate or pure builtin`, callee);
+          }
+          return;
+        }
+        if (callee.type === "MemberExpression" && !callee.computed) {
+          const method = callee.property.name;
+          const recv = callee.object;
+          if (recv.type === "Identifier" && effectful.has(recv.name)) {
+            flag(`'${recv.name}.${method}' is effectful`, callee);
+          } else if (recv.type === "Identifier" && PURE_NAMESPACES.has(recv.name)) {
+            if (EFFECTFUL_STATICS.has(`${recv.name}.${method}`))
+              flag(`'${recv.name}.${method}' is nondeterministic`, callee);
+          } else if (!PURE_INSTANCE_METHODS.has(method)) {
+            flag(`method '.${method}()' is not a known pure method`, callee.property);
+          }
+          return;
+        }
+        flag("unsupported call form in a predicate", callee);
+      }
+    });
+  }
+  return {
+    safe: diagnostics.length === 0,
+    predicates: [...predicateNames],
+    diagnostics
+  };
+}
+function formatPredicateDiagnostics(d) {
+  return d.map((x) => `  ${x.predicate} (${x.line}:${x.column}): ${x.message}`).join(`
+`);
+}
+function injectFuel(source) {
+  const ast = parse3(source, { ecmaVersion: "latest" });
+  const edits = [];
+  const enterBlockBody = (n) => edits.push([n.body.start + 1, "__fuel();"]);
+  simple(ast, {
+    FunctionDeclaration: enterBlockBody,
+    FunctionExpression: enterBlockBody,
+    ArrowFunctionExpression(n) {
+      if (n.body.type === "BlockStatement") {
+        edits.push([n.body.start + 1, "__fuel();"]);
+      } else {
+        edits.push([n.body.start, "(__fuel(), "]);
+        edits.push([n.body.end, ")"]);
+      }
+    }
+  });
+  edits.sort((a, b) => b[0] - a[0]);
+  let out = source;
+  for (const [off, text] of edits)
+    out = out.slice(0, off) + text + out.slice(off);
+  return out;
+}
+function emitVerifiedPredicate(source, entryName, opts = {}) {
+  const result = verifyPredicate(source, opts);
+  if (!result.safe) {
+    return { safe: false, diagnostics: result.diagnostics };
+  }
+  if (!result.predicates.includes(entryName)) {
+    return {
+      safe: false,
+      diagnostics: [
+        {
+          predicate: entryName,
+          message: `entry predicate '${entryName}' not found in the verified cluster`,
+          line: 0,
+          column: 0
+        }
+      ]
+    };
+  }
+  const budget = opts.fuel ?? 1e6;
+  const instrumented = injectFuel(source);
+  const code = `(() => {` + `let __f = 0;` + `const __fuel = () => { if (--__f < 0) throw new RangeError('tjs:predicate-fuel'); };` + `${instrumented}` + `return (...__a) => {` + `__f = ${budget};` + `try { return !!${entryName}(...__a); }` + `catch (e) {` + `if (e instanceof RangeError && /tjs:predicate-fuel|stack/i.test(e.message)) return false;` + `throw e;` + `}` + `};` + `})()`;
+  return { safe: true, code, diagnostics: [] };
+}
+
+// node_modules/tjs-lang/src/lang/parser-transforms.ts
+function extractBalancedValue(source, startRe) {
+  const m = source.match(startRe);
+  if (!m)
+    return null;
+  const braceStart = m.index + m[0].length - 1;
+  let depth = 1;
+  let j = braceStart + 1;
+  while (j < source.length && depth > 0) {
+    if (source[j] === "{")
+      depth++;
+    else if (source[j] === "}")
+      depth--;
+    j++;
+  }
+  if (depth !== 0)
+    return null;
+  const balanced = source.slice(braceStart, j);
+  const result = [m[0].slice(0, -1) + balanced, balanced];
+  result.index = m.index;
+  return result;
+}
+function verifiedGuardExpr(name, kind, params, body, knownPredicates, report) {
+  const entry = `__pred_${name}`;
+  const fnSource = `function ${entry}(${params}) { ${body} }`;
+  const r = emitVerifiedPredicate(fnSource, entry, knownPredicates ? { knownPredicates: new Set(knownPredicates) } : {});
+  if (r.safe) {
+    report?.push({ name, kind, verified: true });
+    return r.code;
+  }
+  report?.push({
+    name,
+    kind,
+    verified: false,
+    reason: formatPredicateDiagnostics(r.diagnostics).replace(/__pred_/g, "")
+  });
+  return null;
+}
+function transformTryWithoutCatch(source) {
+  let result = "";
+  let i2 = 0;
+  const masked = maskLiterals(source);
+  const tryAt = (at2) => {
+    if (!masked.startsWith("try", at2))
+      return 0;
+    if (at2 > 0 && /[A-Za-z0-9_$]/.test(masked[at2 - 1]))
+      return 0;
+    let k = at2 + 3;
+    while (k < masked.length && /\s/.test(masked[k]))
+      k++;
+    return masked[k] === "{" ? k + 1 - at2 : 0;
+  };
+  while (i2 < source.length) {
+    const tryLen = tryAt(i2);
+    if (tryLen) {
+      const startBrace = i2 + tryLen - 1;
+      const bodyStart = startBrace + 1;
+      let depth = 1;
+      let j = bodyStart;
+      while (j < masked.length && depth > 0) {
+        const char = masked[j];
+        if (char === "{")
+          depth++;
+        else if (char === "}")
+          depth--;
+        j++;
+      }
+      if (depth !== 0) {
+        result += source[i2];
+        i2++;
+        continue;
+      }
+      const afterTry = masked.slice(j).match(/^\s*(catch|finally)\b/);
+      if (afterTry) {
+        result += source.slice(i2, j);
+        i2 = j;
+      } else {
+        const body = source.slice(bodyStart, j - 1);
+        result += `try {${body}} catch (__try_err) { return new (__tjs?.MonadicError ?? Error)(__try_err?.message || String(__try_err), 'try', undefined, undefined, __tjs?.getStack?.()) }`;
+        i2 = j;
+      }
+    } else {
+      result += source[i2];
+      i2++;
+    }
+  }
+  return result;
+}
+function moduleTag(source) {
+  let h = 2166136261;
+  for (let i2 = 0;i2 < source.length; i2++) {
+    h ^= source.charCodeAt(i2);
+    h = Math.imul(h, 16777619) >>> 0;
+  }
+  return h.toString(36);
+}
+function maskWasmBodies(source) {
+  const masks = [];
+  let result = "";
+  let i2 = 0;
+  const masked = maskLiterals(source);
+  while (i2 < source.length) {
+    const m = masked.slice(i2).match(/^\bwasm\s*\{/);
+    if (m) {
+      const bodyStart = i2 + m[0].length;
+      let depth = 1;
+      let j = bodyStart;
+      while (j < masked.length && depth > 0) {
+        const c = masked[j];
+        if (c === "{")
+          depth++;
+        else if (c === "}")
+          depth--;
+        j++;
+      }
+      if (depth === 0) {
+        const id = masks.length;
+        masks.push(source.slice(bodyStart, j - 1));
+        result += `${m[0]}/*__WASM_MASK_${id}__*/}`;
+        i2 = j;
+        continue;
+      }
+    }
+    result += source[i2];
+    i2++;
+  }
+  return { source: result, masks };
+}
+function unmaskWasmBodies(source, masks) {
+  let result = source;
+  for (let id = 0;id < masks.length; id++) {
+    result = result.replace(`/*__WASM_MASK_${id}__*/`, () => masks[id]);
+  }
+  return result;
+}
+function extractWasmBlocks(source) {
+  const blocks = [];
+  const tag = moduleTag(source);
+  let result = "";
+  let i2 = 0;
+  let blockId = 0;
+  const masked = maskLiterals(source);
+  while (i2 < source.length) {
+    const wasmMatch = masked.slice(i2).match(/^\bwasm\s*\{/);
+    if (wasmMatch) {
+      const matchStart = i2;
+      const bodyStart = i2 + wasmMatch[0].length;
+      let braceDepth = 1;
+      let j = bodyStart;
+      while (j < masked.length && braceDepth > 0) {
+        const char = masked[j];
+        if (char === "{")
+          braceDepth++;
+        else if (char === "}")
+          braceDepth--;
+        j++;
+      }
+      if (braceDepth !== 0) {
+        result += source[i2];
+        i2++;
+        continue;
+      }
+      const body = source.slice(bodyStart, j - 1);
+      let fallbackBody;
+      let matchEnd = j;
+      const fallbackMatch = source.slice(j).match(/^\s*fallback\s*\{/);
+      if (fallbackMatch) {
+        const fallbackStart = j + fallbackMatch[0].length;
+        braceDepth = 1;
+        let k = fallbackStart;
+        while (k < source.length && braceDepth > 0) {
+          const char = source[k];
+          if (char === "{")
+            braceDepth++;
+          else if (char === "}")
+            braceDepth--;
+          k++;
+        }
+        if (braceDepth === 0) {
+          fallbackBody = source.slice(fallbackStart, k - 1);
+          matchEnd = k;
+        }
+      }
+      const captureNames = detectCaptures(body);
+      const captures = captureNames.map((name) => {
+        const typeAnnotation = findParameterType(source, matchStart, name);
+        return typeAnnotation ? `${name}: ${typeAnnotation}` : name;
+      });
+      const block = {
+        id: `__tjs_wasm_${tag}_${blockId}`,
+        body,
+        fallback: fallbackBody,
+        captures,
+        start: matchStart,
+        end: matchEnd
+      };
+      blocks.push(block);
+      const fallbackCode = fallbackBody ?? body;
+      const captureArgNames = captures.map((c) => c.split(":")[0].trim());
+      const captureArgs = captureArgNames.length > 0 ? captureArgNames.join(", ") : "";
+      const wasmCall = captureArgNames.length > 0 ? `globalThis.${block.id}(${captureArgs})` : `globalThis.${block.id}()`;
+      const dispatch = `((globalThis.__tjs_wasm_enabled !== false && globalThis.${block.id}) ? ${wasmCall} : (() => {${fallbackCode}})())`;
+      result += dispatch;
+      i2 = matchEnd;
+      blockId++;
+    } else {
+      result += source[i2];
+      i2++;
+    }
+  }
+  return { source: result, blocks };
+}
+function extractWasmFunctions(source) {
+  const blocks = [];
+  let result = "";
+  let i2 = 0;
+  while (i2 < source.length) {
+    const declRe = /^\b(export\s+)?wasm\s+function\s+(\w+)\s*\(/;
+    const m = source.slice(i2).match(declRe);
+    if (!m) {
+      result += source[i2];
+      i2++;
+      continue;
+    }
+    const hasExport = !!m[1];
+    const name = m[2];
+    const matchStart = i2;
+    const parensStart = i2 + m[0].length;
+    let parenDepth = 1;
+    let j = parensStart;
+    while (j < source.length && parenDepth > 0) {
+      if (source[j] === "(")
+        parenDepth++;
+      else if (source[j] === ")")
+        parenDepth--;
+      j++;
+    }
+    if (parenDepth !== 0) {
+      result += source[i2];
+      i2++;
+      continue;
+    }
+    const paramsSource = source.slice(parensStart, j - 1);
+    const unsafeMatch = paramsSource.match(/^\s*!/);
+    if (unsafeMatch) {
+      throw new SyntaxError2(`Unsafe wasm functions (with \`!\` marker) are reserved for a ` + `future phase. Remove the bang from \`wasm function ${name}\` ` + `to declare it as a regular (pure) wasm function, or wait until ` + `the unsafe variant is implemented.`, locAt(source, matchStart));
+    }
+    let returnType;
+    let afterReturnType = j;
+    const retMatch = source.slice(j).match(/^\s*:\s*(\w+)/);
+    if (retMatch) {
+      returnType = retMatch[1];
+      afterReturnType = j + retMatch[0].length;
+    }
+    const braceMatch = source.slice(afterReturnType).match(/^\s*\{/);
+    if (!braceMatch) {
+      result += source[i2];
+      i2++;
+      continue;
+    }
+    const bodyStart = afterReturnType + braceMatch[0].length;
+    let braceDepth = 1;
+    let k = bodyStart;
+    while (k < source.length && braceDepth > 0) {
+      if (source[k] === "{")
+        braceDepth++;
+      else if (source[k] === "}")
+        braceDepth--;
+      k++;
+    }
+    if (braceDepth !== 0) {
+      result += source[i2];
+      i2++;
+      continue;
+    }
+    const body = source.slice(bodyStart, k - 1);
+    const captures = parseWasmFunctionParams(paramsSource);
+    const id = `__tjs_wasm_${name}`;
+    const block = {
+      id,
+      name,
+      returnType,
+      body,
+      captures,
+      start: matchStart,
+      end: k
+    };
+    blocks.push(block);
+    const argNames = captures.map((c) => c.split(":")[0].trim());
+    const exportKeyword = hasExport ? "export " : "";
+    const wrapper = `${exportKeyword}function ${name}(${argNames.join(", ")}) { return globalThis.${id}(${argNames.join(", ")}) }`;
+    result += wrapper;
+    i2 = k;
+  }
+  return { source: result, blocks };
+}
+function composeImportedWasmFunctions(source, options) {
+  const { loader, importerPath } = options;
+  if (!loader)
+    return { source, blocks: [] };
+  const composedBlocks = [];
+  const composedNames = new Set;
+  function pullInTransitively(block, sourceModuleFns) {
+    if (composedNames.has(block.id))
+      return;
+    composedBlocks.push(block);
+    composedNames.add(block.id);
+    for (const [name, target] of sourceModuleFns) {
+      if (name === block.name)
+        continue;
+      if (composedNames.has(target.id))
+        continue;
+      const callRe = new RegExp(`\\b${name}\\s*\\(`);
+      if (callRe.test(block.body)) {
+        pullInTransitively(target, sourceModuleFns);
+      }
+    }
+  }
+  const importRe = /^(\s*)import\s*\{([^}]*?)\}\s*from\s*(['"])([^'"]+)\3\s*;?\s*$/gm;
+  const replaced = source.replace(importRe, (match, indent, bindings, _quote, spec) => {
+    const mod = loader.load(spec, importerPath);
+    if (!mod)
+      return match;
+    const importedWasmFunctions = new Map;
+    for (const b of mod.parseResult.wasmBlocks) {
+      if (b.name)
+        importedWasmFunctions.set(b.name, b);
+    }
+    if (importedWasmFunctions.size === 0)
+      return match;
+    const parts = bindings.split(",").map((p) => p.trim()).filter((p) => p.length > 0);
+    const wrappers = [];
+    const remainingBindings = [];
+    for (const part of parts) {
+      const m = part.match(/^(\w+)(?:\s+as\s+(\w+))?$/);
+      if (!m) {
+        remainingBindings.push(part);
+        continue;
+      }
+      const imported = m[1];
+      const local = m[2] ?? m[1];
+      const wasmBlock = importedWasmFunctions.get(imported);
+      if (!wasmBlock) {
+        remainingBindings.push(part);
+        continue;
+      }
+      pullInTransitively(wasmBlock, importedWasmFunctions);
+      const argNames = wasmBlock.captures.map((c) => c.split(":")[0].trim());
+      wrappers.push(`function ${local}(${argNames.join(", ")}) { return globalThis.${wasmBlock.id}(${argNames.join(", ")}) }`);
+    }
+    const wrapperBlock = wrappers.join(`
+`);
+    if (remainingBindings.length === 0) {
+      return wrapperBlock ? `${indent}${wrapperBlock}` : `${indent}`;
+    }
+    const trimmedImport = `${indent}import { ${remainingBindings.join(", ")} } from '${spec}'`;
+    return wrapperBlock ? `${trimmedImport}
+${indent}${wrapperBlock}` : trimmedImport;
+  });
+  return { source: replaced, blocks: composedBlocks };
+}
+function parseWasmFunctionParams(paramsSource) {
+  const trimmed = paramsSource.trim();
+  if (!trimmed)
+    return [];
+  return trimmed.split(",").map((s) => s.trim()).filter((s) => s.length > 0);
+}
+function isWasmIntrinsic(name) {
+  return name.startsWith("f32x4_") || name.startsWith("v128_");
+}
+function detectCaptures(body) {
+  const bodyWithoutComments = maskLiterals(body);
+  const propertyOnly = new Set;
+  const propPattern = /\.([a-zA-Z_$][a-zA-Z0-9_$]*)\b/g;
+  let match;
+  while ((match = propPattern.exec(bodyWithoutComments)) !== null) {
+    propertyOnly.add(match[1]);
+  }
+  const identifierPattern = /(?<!\.)(\b[a-zA-Z_$][a-zA-Z0-9_$]*)\b/g;
+  const allIdentifiers = new Set;
+  while ((match = identifierPattern.exec(bodyWithoutComments)) !== null) {
+    allIdentifiers.add(match[1]);
+  }
+  for (const prop of propertyOnly) {
+    if (!allIdentifiers.has(prop))
+      continue;
+    const standalonePattern = new RegExp(`(?<!\\.)\\b${prop}\\b`, "g");
+    const dotPattern = new RegExp(`\\.${prop}\\b`, "g");
+    const standaloneMatches = bodyWithoutComments.match(standalonePattern)?.length || 0;
+    const dotMatches = bodyWithoutComments.match(dotPattern)?.length || 0;
+    if (standaloneMatches <= dotMatches) {
+      allIdentifiers.delete(prop);
+    }
+  }
+  const declared = new Set;
+  const declPattern = /\b(?:let|const|var)\s+([a-zA-Z_$][a-zA-Z0-9_$]*)/g;
+  while ((match = declPattern.exec(bodyWithoutComments)) !== null) {
+    declared.add(match[1]);
+  }
+  const forPattern = /\bfor\s*\(\s*(?:let|const|var)\s+([a-zA-Z_$][a-zA-Z0-9_$]*)/g;
+  while ((match = forPattern.exec(bodyWithoutComments)) !== null) {
+    declared.add(match[1]);
+  }
+  const reserved = new Set([
+    "if",
+    "else",
+    "for",
+    "while",
+    "do",
+    "switch",
+    "case",
+    "break",
+    "continue",
+    "return",
+    "function",
+    "let",
+    "const",
+    "var",
+    "new",
+    "this",
+    "true",
+    "false",
+    "null",
+    "undefined",
+    "typeof",
+    "instanceof",
+    "in",
+    "of",
+    "try",
+    "catch",
+    "finally",
+    "throw",
+    "async",
+    "await",
+    "class",
+    "extends",
+    "super",
+    "import",
+    "export",
+    "default",
+    "from",
+    "as",
+    "static",
+    "get",
+    "set",
+    "yield",
+    "console",
+    "Math",
+    "Array",
+    "Object",
+    "String",
+    "Number",
+    "Boolean",
+    "Date",
+    "JSON",
+    "Promise",
+    "Map",
+    "Set",
+    "WeakMap",
+    "WeakSet",
+    "Float32Array",
+    "Float64Array",
+    "Int8Array",
+    "Int16Array",
+    "Int32Array",
+    "Uint8Array",
+    "Uint16Array",
+    "Uint32Array",
+    "BigInt64Array",
+    "BigUint64Array",
+    "ArrayBuffer",
+    "DataView",
+    "Error",
+    "TypeError",
+    "RangeError",
+    "length",
+    "push",
+    "pop",
+    "shift",
+    "unshift",
+    "slice",
+    "splice",
+    "map",
+    "filter",
+    "reduce",
+    "forEach",
+    "find",
+    "findIndex",
+    "indexOf",
+    "includes",
+    "globalThis",
+    "window",
+    "document",
+    "Infinity",
+    "NaN",
+    "isNaN",
+    "isFinite",
+    "parseInt",
+    "parseFloat",
+    "encodeURI",
+    "decodeURI",
+    "eval",
+    "wasmBuffer"
+  ]);
+  const captures = [];
+  for (const id of allIdentifiers) {
+    if (!declared.has(id) && !reserved.has(id) && !isWasmIntrinsic(id)) {
+      captures.push(id);
+    }
+  }
+  return captures.sort();
+}
+function findParameterType(source, wasmBlockStart, paramName) {
+  const beforeBlock = source.slice(0, wasmBlockStart);
+  const funcPattern = /function\s+\w+\s*\(([^)]*)\)\s*(?:->.*?)?\s*\{[^}]*$/;
+  const match = beforeBlock.match(funcPattern);
+  if (!match) {
+    const arrowPattern = /(?:const|let|var)?\s*\w+\s*=\s*(?:async\s*)?\(([^)]*)\)\s*(?:=>|->)?\s*\{[^}]*$/;
+    const arrowMatch = beforeBlock.match(arrowPattern);
+    if (!arrowMatch)
+      return;
+    return extractTypeFromParams(arrowMatch[1], paramName);
+  }
+  return extractTypeFromParams(match[1], paramName);
+}
+function extractTypeFromParams(paramsStr, paramName) {
+  const params = paramsStr.split(",").map((p) => p.trim());
+  for (const param of params) {
+    const colonMatch = param.match(new RegExp(`^${paramName}\\s*:\\s*([A-Za-z][A-Za-z0-9]*)`));
+    if (colonMatch) {
+      return colonMatch[1];
+    }
+    const equalsMatch = param.match(new RegExp(`^${paramName}\\s*=\\s*(Float32Array|Float64Array|Int32Array|Uint8Array|Int8Array|Int16Array|Uint16Array|Uint32Array)`));
+    if (equalsMatch) {
+      return equalsMatch[1];
+    }
+  }
+  return;
+}
+function transformIsOperators(source) {
+  const exprPat = `([\\w][\\w.\\[\\]()]*|null|undefined|true|false|\\d+(?:\\.\\d+)?|'[^']*'|"[^"]*")`;
+  const isNotRegex = new RegExp(exprPat + "\\s+IsNot\\s+" + exprPat, "g");
+  source = source.replace(isNotRegex, "IsNot($1, $2)");
+  const isRegex = new RegExp(exprPat + "\\s+Is\\s+" + exprPat, "g");
+  source = source.replace(isRegex, "Is($1, $2)");
+  return source;
+}
+function insertAsiProtection(source, warnings) {
+  const continuationStarts = /^[\s]*[([`]/;
+  const expectsContinuation = /[{([,;:+\-*/%=&|?<>!~^]\s*$|^\s*$/;
+  const continueKeywords = /\b(return|throw|yield|await|case|default|extends|new|typeof|void|delete|in|of|instanceof)\s*$/;
+  const lines = source.split(`
+`);
+  const maskedLines = maskLiterals(source).split(`
+`);
+  const literalLines = new Set;
+  {
+    const lineOfOffset = new Array(source.length + 1);
+    let ln = 0;
+    for (let i2 = 0;i2 <= source.length; i2++) {
+      lineOfOffset[i2] = ln;
+      if (source[i2] === `
+`)
+        ln++;
+    }
+    const lineStart = [0];
+    for (let i2 = 0;i2 < source.length; i2++) {
+      if (source[i2] === `
+`)
+        lineStart.push(i2 + 1);
+    }
+    const firstNonWs = (i2) => {
+      let p = lineStart[i2];
+      const limit = i2 + 1 < lineStart.length ? lineStart[i2 + 1] : source.length;
+      while (p < limit && (source[p] === " " || source[p] === "\t"))
+        p++;
+      return p;
+    };
+    for (const region of scanLiterals(source)) {
+      const from = lineOfOffset[region.innerStart] ?? 0;
+      const to = lineOfOffset[Math.max(region.innerStart, region.end - 1)] ?? from;
+      for (let i2 = from;i2 <= to && i2 < lines.length; i2++) {
+        const p = firstNonWs(i2);
+        if (p >= region.innerStart && p < region.end)
+          literalLines.add(i2);
+      }
+    }
+  }
+  const result = [];
+  let inBlockComment = false;
+  for (let i2 = 0;i2 < lines.length; i2++) {
+    const line = lines[i2];
+    const prevLine = i2 > 0 ? lines[i2 - 1] : "";
+    if (inBlockComment) {
+      result.push(line);
+      if (line.includes("*/"))
+        inBlockComment = false;
+      continue;
+    }
+    const commentOpen = line.indexOf("/*");
+    const commentClose = line.indexOf("*/");
+    if (commentOpen !== -1 && (commentClose === -1 || commentClose < commentOpen)) {
+      inBlockComment = true;
+      result.push(line);
+      continue;
+    }
+    if (i2 > 0 && !literalLines.has(i2) && continuationStarts.test(line)) {
+      const prevNoComment = maskedLines[i2 - 1] ?? prevLine;
+      if (!expectsContinuation.test(prevNoComment) && !continueKeywords.test(prevNoComment)) {
+        warnings?.push(`Line ${i2 + 1} starts with \`${line.trim()[0]}\`, which JavaScript would join to ` + `the previous line. TJS treats them as separate statements. If you meant the ` + `continuation, put it on one line or start this line with \`;\`.`);
+        const match = line.match(/^(\s*)/);
+        const indent = match ? match[1] : "";
+        const rest = line.slice(indent.length);
+        result.push(indent + ";" + rest);
+        continue;
+      }
+    }
+    result.push(line);
+  }
+  return result.join(`
+`);
+}
+function transformTypeofKeyword(source) {
+  const masked = maskLiterals(source);
+  const matches = [];
+  let i2 = 0;
+  let state = "normal";
+  const templateStack = [];
+  while (i2 < source.length) {
+    const char = source[i2];
+    const nextChar = source[i2 + 1];
+    switch (state) {
+      case "single-string":
+        if (char === "\\" && i2 + 1 < source.length) {
+          i2 += 2;
+          continue;
+        }
+        if (char === "'")
+          state = "normal";
+        i2++;
+        continue;
+      case "double-string":
+        if (char === "\\" && i2 + 1 < source.length) {
+          i2 += 2;
+          continue;
+        }
+        if (char === '"')
+          state = "normal";
+        i2++;
+        continue;
+      case "template-string":
+        if (char === "\\" && i2 + 1 < source.length) {
+          i2 += 2;
+          continue;
+        }
+        if (char === "$" && nextChar === "{") {
+          i2 += 2;
+          templateStack.push(1);
+          state = "normal";
+          continue;
+        }
+        if (char === "`")
+          state = "normal";
+        i2++;
+        continue;
+      case "line-comment":
+        if (char === `
+`)
+          state = "normal";
+        i2++;
+        continue;
+      case "block-comment":
+        if (char === "*" && nextChar === "/") {
+          i2 += 2;
+          state = "normal";
+          continue;
+        }
+        i2++;
+        continue;
+      case "regex":
+        if (char === "\\" && i2 + 1 < source.length) {
+          i2 += 2;
+          continue;
+        }
+        if (char === "[") {
+          i2++;
+          while (i2 < source.length && source[i2] !== "]") {
+            if (source[i2] === "\\" && i2 + 1 < source.length)
+              i2 += 2;
+            else
+              i2++;
+          }
+          if (i2 < source.length)
+            i2++;
+          continue;
+        }
+        if (char === "/") {
+          i2++;
+          while (i2 < source.length && /[gimsuy]/.test(source[i2]))
+            i2++;
+          state = "normal";
+          continue;
+        }
+        i2++;
+        continue;
+      case "normal":
+        if (templateStack.length > 0) {
+          if (char === "{") {
+            templateStack[templateStack.length - 1]++;
+          } else if (char === "}") {
+            templateStack[templateStack.length - 1]--;
+            if (templateStack[templateStack.length - 1] === 0) {
+              templateStack.pop();
+              i2++;
+              state = "template-string";
+              continue;
+            }
+          }
+        }
+        if (char === "'") {
+          i2++;
+          state = "single-string";
+          continue;
+        }
+        if (char === '"') {
+          i2++;
+          state = "double-string";
+          continue;
+        }
+        if (char === "`") {
+          i2++;
+          state = "template-string";
+          continue;
+        }
+        if (char === "/" && nextChar === "/") {
+          i2 += 2;
+          state = "line-comment";
+          continue;
+        }
+        if (char === "/" && nextChar === "*") {
+          i2 += 2;
+          state = "block-comment";
+          continue;
+        }
+        if (char === "/") {
+          let j = i2 - 1;
+          while (j >= 0 && /\s/.test(source[j]))
+            j--;
+          const beforeChar = j >= 0 ? source[j] : "";
+          const isRegexContext = !beforeChar || /[=(!,;:{[&|?+\-*%<>~^]/.test(beforeChar) || j >= 5 && /\b(return|case|throw|in|of|typeof|instanceof|new|delete|void)$/.test(source.slice(Math.max(0, j - 10), j + 1));
+          if (isRegexContext) {
+            i2++;
+            state = "regex";
+            continue;
+          }
+        }
+        if (char === "t" && source.slice(i2, i2 + 6) === "typeof" && (i2 === 0 || !/[\w$]/.test(source[i2 - 1])) && /\s/.test(source[i2 + 6] ?? "")) {
+          let j = i2 + 6;
+          while (j < source.length && /\s/.test(source[j]))
+            j++;
+          if (j < source.length && /[a-zA-Z_$]/.test(source[j])) {
+            const operandStart = j;
+            while (j < source.length && /[\w$]/.test(source[j]))
+              j++;
+            while (j < source.length) {
+              if (source[j] === "." && /[a-zA-Z_$]/.test(source[j + 1] ?? "")) {
+                j++;
+                while (j < source.length && /[\w$]/.test(source[j]))
+                  j++;
+              } else if (source[j] === "?" && source[j + 1] === "." && /[a-zA-Z_$]/.test(source[j + 2] ?? "")) {
+                j += 2;
+                while (j < source.length && /[\w$]/.test(source[j]))
+                  j++;
+              } else if (source[j] === "[" || source[j] === "(") {
+                const close = matchingBrace(masked, j);
+                if (close === -1)
+                  break;
+                j = close + 1;
+              } else {
+                break;
+              }
+            }
+            matches.push({
+              keywordStart: i2,
+              operandEnd: j,
+              operand: source.slice(operandStart, j)
+            });
+            i2 = j;
+            continue;
+          }
+        }
+        break;
+    }
+    i2++;
+  }
+  if (matches.length === 0)
+    return source;
+  let result = source;
+  for (let k = matches.length - 1;k >= 0; k--) {
+    const m = matches[k];
+    result = result.slice(0, m.keywordStart) + `TypeOf(${m.operand})` + result.slice(m.operandEnd);
+  }
+  return result;
+}
+function transformEqualityToStructural(source) {
+  source = transformTypeofKeyword(source);
+  const equalityOps = [];
+  let i2 = 0;
+  let state = "normal";
+  const templateStack = [];
+  while (i2 < source.length) {
+    const char = source[i2];
+    const nextChar = source[i2 + 1];
+    switch (state) {
+      case "single-string":
+        if (char === "\\" && i2 + 1 < source.length) {
+          i2 += 2;
+          continue;
+        }
+        if (char === "'")
+          state = "normal";
+        i2++;
+        continue;
+      case "double-string":
+        if (char === "\\" && i2 + 1 < source.length) {
+          i2 += 2;
+          continue;
+        }
+        if (char === '"')
+          state = "normal";
+        i2++;
+        continue;
+      case "template-string":
+        if (char === "\\" && i2 + 1 < source.length) {
+          i2 += 2;
+          continue;
+        }
+        if (char === "$" && nextChar === "{") {
+          i2 += 2;
+          templateStack.push(1);
+          state = "normal";
+          continue;
+        }
+        if (char === "`")
+          state = "normal";
+        i2++;
+        continue;
+      case "line-comment":
+        if (char === `
+`)
+          state = "normal";
+        i2++;
+        continue;
+      case "block-comment":
+        if (char === "*" && nextChar === "/") {
+          i2 += 2;
+          state = "normal";
+          continue;
+        }
+        i2++;
+        continue;
+      case "regex":
+        if (char === "\\" && i2 + 1 < source.length) {
+          i2 += 2;
+          continue;
+        }
+        if (char === "[") {
+          i2++;
+          while (i2 < source.length && source[i2] !== "]") {
+            if (source[i2] === "\\" && i2 + 1 < source.length) {
+              i2 += 2;
+            } else {
+              i2++;
+            }
+          }
+          if (i2 < source.length)
+            i2++;
+          continue;
+        }
+        if (char === "/") {
+          i2++;
+          while (i2 < source.length && /[gimsuy]/.test(source[i2]))
+            i2++;
+          state = "normal";
+          continue;
+        }
+        i2++;
+        continue;
+      case "normal":
+        if (templateStack.length > 0) {
+          if (char === "{") {
+            templateStack[templateStack.length - 1]++;
+          } else if (char === "}") {
+            templateStack[templateStack.length - 1]--;
+            if (templateStack[templateStack.length - 1] === 0) {
+              templateStack.pop();
+              i2++;
+              state = "template-string";
+              continue;
+            }
+          }
+        }
+        if (char === "'") {
+          i2++;
+          state = "single-string";
+          continue;
+        }
+        if (char === '"') {
+          i2++;
+          state = "double-string";
+          continue;
+        }
+        if (char === "`") {
+          i2++;
+          state = "template-string";
+          continue;
+        }
+        if (char === "/" && nextChar === "/") {
+          i2 += 2;
+          state = "line-comment";
+          continue;
+        }
+        if (char === "/" && nextChar === "*") {
+          i2 += 2;
+          state = "block-comment";
+          continue;
+        }
+        if (char === "/") {
+          let j = i2 - 1;
+          while (j >= 0 && /\s/.test(source[j]))
+            j--;
+          const beforeChar = j >= 0 ? source[j] : "";
+          const isRegexContext = !beforeChar || /[=(!,;:{[&|?+\-*%<>~^]/.test(beforeChar) || j >= 5 && /\b(return|case|throw|in|of|typeof|instanceof|new|delete|void)$/.test(source.slice(Math.max(0, j - 10), j + 1));
+          if (isRegexContext) {
+            i2++;
+            state = "regex";
+            continue;
+          }
+        }
+        if (char === "=" && nextChar === "=" && source[i2 + 2] !== "=" && source[i2 - 1] !== "!") {
+          equalityOps.push({ pos: i2, op: "==" });
+          i2 += 2;
+          continue;
+        }
+        if (char === "!" && nextChar === "=" && source[i2 + 2] !== "=") {
+          equalityOps.push({ pos: i2, op: "!=" });
+          i2 += 2;
+          continue;
+        }
+        break;
+    }
+    i2++;
+  }
+  if (equalityOps.length === 0) {
+    return source;
+  }
+  let result = source;
+  for (let k = equalityOps.length - 1;k >= 0; k--) {
+    const { pos, op } = equalityOps[k];
+    const funcName = op === "==" ? "Eq" : "NotEq";
+    const leftBoundary = findLeftOperandBoundary(result, pos);
+    const rightBoundary = findRightOperandBoundary(result, pos + 2);
+    const leftExpr = result.slice(leftBoundary, pos).trim();
+    const rightExpr = result.slice(pos + 2, rightBoundary).trim();
+    if (leftExpr && rightExpr) {
+      const before = result.slice(0, leftBoundary);
+      const after = result.slice(rightBoundary);
+      const needsSpace = /[a-zA-Z0-9_$]$/.test(before);
+      const spacer = needsSpace ? " " : "";
+      result = `${before}${spacer}${funcName}(${leftExpr}, ${rightExpr})${after}`;
+    }
+  }
+  return result;
+}
+function findLeftOperandBoundary(source, opPos) {
+  let i2 = opPos - 1;
+  while (i2 >= 0 && /\s/.test(source[i2]))
+    i2--;
+  if (i2 < 0)
+    return 0;
+  let depth = 0;
+  let inString = false;
+  let stringChar = "";
+  while (i2 >= 0) {
+    const char = source[i2];
+    const prevChar = i2 > 0 ? source[i2 - 1] : "";
+    if (inString) {
+      if (char === stringChar && !isEscapedAt(source, i2)) {
+        inString = false;
+      }
+      i2--;
+      continue;
+    }
+    if ((char === '"' || char === "'" || char === "`") && !isEscapedAt(source, i2)) {
+      inString = true;
+      stringChar = char;
+      i2--;
+      continue;
+    }
+    if (char === ")" || char === "]" || char === "}") {
+      depth++;
+      i2--;
+      continue;
+    }
+    if (char === "(" || char === "[") {
+      if (depth > 0) {
+        depth--;
+        i2--;
+        continue;
+      }
+      return i2 + 1;
+    }
+    if (char === "{") {
+      if (depth > 0) {
+        depth--;
+        i2--;
+        continue;
+      }
+      return i2 + 1;
+    }
+    if (depth > 0) {
+      i2--;
+      continue;
+    }
+    if (char === ";") {
+      return i2 + 1;
+    }
+    if (/[a-z]/.test(char)) {
+      const wordEnd = i2 + 1;
+      let wordStart = i2;
+      while (wordStart > 0 && /[a-z]/i.test(source[wordStart - 1])) {
+        wordStart--;
+      }
+      const word = source.slice(wordStart, wordEnd);
+      const beforeWord = wordStart > 0 ? source[wordStart - 1] : "";
+      if (!/[a-zA-Z0-9_$]/.test(beforeWord)) {
+        if ([
+          "return",
+          "throw",
+          "case",
+          "typeof",
+          "void",
+          "delete",
+          "await",
+          "yield"
+        ].includes(word)) {
+          return wordEnd;
+        }
+        if (word === "new") {
+          return wordStart;
+        }
+      }
+    }
+    if (char === ">" && prevChar === "=") {
+      return i2 + 1;
+    }
+    if (char === "=" && prevChar !== "=" && prevChar !== "!" && prevChar !== "<" && prevChar !== ">") {
+      return i2 + 1;
+    }
+    if (char === "&" && prevChar === "&") {
+      return i2 + 1;
+    }
+    if (char === "|" && prevChar === "|") {
+      return i2 + 1;
+    }
+    if (char === "?" && source[i2 + 1] === ".") {
+      i2--;
+      continue;
+    }
+    if (char === "?" && prevChar === "?") {
+      return i2 + 1;
+    }
+    if (char === "?" && source[i2 + 1] === "?") {
+      return i2 + 2;
+    }
+    if (char === "?" || char === ":") {
+      return i2 + 1;
+    }
+    if (char === ",") {
+      return i2 + 1;
+    }
+    i2--;
+  }
+  return 0;
+}
+function findRightOperandBoundary(source, startAfterOp) {
+  let i2 = startAfterOp;
+  while (i2 < source.length && /\s/.test(source[i2]))
+    i2++;
+  if (i2 >= source.length)
+    return source.length;
+  let depth = 0;
+  let inString = false;
+  let stringChar = "";
+  while (i2 < source.length) {
+    const char = source[i2];
+    const nextChar = i2 + 1 < source.length ? source[i2 + 1] : "";
+    if (inString) {
+      if (char === stringChar && !isEscapedAt(source, i2)) {
+        inString = false;
+      }
+      i2++;
+      continue;
+    }
+    if ((char === '"' || char === "'" || char === "`") && !isEscapedAt(source, i2)) {
+      inString = true;
+      stringChar = char;
+      i2++;
+      continue;
+    }
+    if (char === "(" || char === "[" || char === "{") {
+      depth++;
+      i2++;
+      continue;
+    }
+    if (char === ")" || char === "]" || char === "}") {
+      if (depth > 0) {
+        depth--;
+        i2++;
+        continue;
+      }
+      return i2;
+    }
+    if (depth > 0) {
+      i2++;
+      continue;
+    }
+    if (char === ";") {
+      return i2;
+    }
+    if (char === "&" && nextChar === "&") {
+      return i2;
+    }
+    if (char === "|" && nextChar === "|") {
+      return i2;
+    }
+    if (char === "?") {
+      return i2;
+    }
+    if (char === ":") {
+      return i2;
+    }
+    if (char === ",") {
+      return i2;
+    }
+    if ((char === "=" || char === "!") && nextChar === "=" && source[i2 + 2] !== "=") {
+      return i2;
+    }
+    i2++;
+  }
+  return source.length;
+}
+function genericPredicateFromExample(example, typeParams) {
+  if (!typeParams.length)
+    return null;
+  const params = new Set(typeParams);
+  let usesParam = false;
+  const walk = (node, path) => {
+    if (node.type === "Identifier" && params.has(node.name)) {
+      usesParam = true;
+      return `${node.name}(${path})`;
+    }
+    if (node.type === "ObjectExpression") {
+      const parts = [
+        `${path} !== null && typeof ${path} === 'object' && !Array.isArray(${path})`
+      ];
+      const keys = [];
+      for (const p of node.properties) {
+        if (p.type !== "Property" || p.computed)
+          continue;
+        const key = p.key.type === "Identifier" ? p.key.name : String(p.key.value);
+        keys.push(key);
+        const sub = `${path}?.[${JSON.stringify(key)}]`;
+        parts.push(`${JSON.stringify(key)} in ${path}`);
+        parts.push(walk(p.value, sub));
+      }
+      if (keys.length) {
+        parts.push(`Object.keys(${path}).every((k) => ${JSON.stringify(keys)}.includes(k))`);
+      }
+      return `(${parts.filter((p) => p !== "true").join(" && ")})`;
+    }
+    if (node.type === "ArrayExpression") {
+      const first = node.elements[0];
+      if (!first)
+        return `Array.isArray(${path})`;
+      return `(Array.isArray(${path}) && ${path}.every((__e) => ${walk(first, "__e")}))`;
+    }
+    const isUnary = node.type === "UnaryExpression";
+    const lit = isUnary ? node.argument : node;
+    if (lit?.type === "Literal") {
+      const val = lit.value;
+      if (val === null)
+        return `${path} === null`;
+      if (typeof val === "number") {
+        const base2 = `typeof ${path} === 'number'`;
+        if (!Number.isInteger(val))
+          return base2;
+        const int = `${base2} && Number.isInteger(${path})`;
+        return isUnary && node.operator === "+" ? `(${int} && ${path} >= 0)` : `(${int})`;
+      }
+      return `typeof ${path} === ${JSON.stringify(typeof val)}`;
+    }
+    return "true";
+  };
+  try {
+    const parsed = parse3(`(${example})`, { ecmaVersion: 2022 });
+    const expr = parsed.body[0]?.expression;
+    if (!expr)
+      return null;
+    const body = walk(expr, "v");
+    if (!usesParam)
+      return null;
+    return `(v, ${typeParams.join(", ")}) => ${body}`;
+  } catch (e) {
+    if (!(e instanceof globalThis.SyntaxError))
+      throw e;
+    return null;
+  }
+}
+function normalizePredicateForms(body, typeName, typeParams = []) {
+  const params = [typeName, ...typeParams].join(", ");
+  let out = body;
+  for (let guard = 0;guard < 8; guard++) {
+    const masked = maskLiterals(out);
+    const start = topLevelPredicateOffsets(out).find((i2) => /^predicate\s*(=>|\{)/.test(masked.slice(i2)));
+    if (start === undefined)
+      return out;
+    const m = masked.slice(start).match(/^predicate\s*(=>|\{)/);
+    const isArrow = m[1] === "=>";
+    const after = start + m[0].length;
+    let end;
+    let inner;
+    if (isArrow) {
+      const nl = masked.indexOf(`
+`, after);
+      end = nl === -1 ? out.length : nl;
+      inner = `return ${out.slice(after, end).trim().replace(/;$/, "")}`;
+    } else {
+      let depth = 1;
+      let j = after;
+      while (j < masked.length && depth > 0) {
+        if (masked[j] === "{")
+          depth++;
+        else if (masked[j] === "}")
+          depth--;
+        j++;
+      }
+      if (depth !== 0)
+        return out;
+      end = j;
+      inner = out.slice(after, j - 1).trim();
+    }
+    out = `${out.slice(0, start)}predicate(${params}) { ${inner} }${out.slice(end)}`;
+  }
+  return out;
+}
+function numericNarrowingPredicate(example) {
+  const src = example.trim();
+  const m = src.match(/^([+-]?)(\d[\d_]*(?:\.\d[\d_]*)?(?:[eE][+-]?\d+)?)$/);
+  if (!m)
+    return null;
+  const [, sign, digits] = m;
+  if (/[.eE]/.test(digits))
+    return null;
+  const base2 = `typeof v === 'number' && Number.isInteger(v)`;
+  return sign === "+" ? `(v) => ${base2} && v >= 0` : `(v) => ${base2}`;
+}
+function topLevelPredicateOffsets(body) {
+  const masked = maskLiterals(body);
+  const out = [];
+  let depth = 0;
+  for (let i2 = 0;i2 < masked.length; i2++) {
+    const c = masked[i2];
+    if (c === "{" || c === "(" || c === "[")
+      depth++;
+    else if (c === "}" || c === ")" || c === "]")
+      depth--;
+    else if (depth === 0 && masked.startsWith("predicate", i2)) {
+      const before = masked[i2 - 1] ?? " ";
+      const after = masked[i2 + 9] ?? " ";
+      if (!/[A-Za-z0-9_$]/.test(before) && !/[A-Za-z0-9_$]/.test(after))
+        out.push(i2);
+    }
+  }
+  return out;
+}
+function assertPredicateFormRecognized(typeName, body, matched, source, offset2) {
+  if (matched)
+    return;
+  if (topLevelPredicateOffsets(body).length === 0)
+    return;
+  throw new SyntaxError2(`\`${typeName}\` declares a \`predicate\` in a form TJS does not implement yet, so it ` + `would be IGNORED and the type would accept every value.
+
+` + `  The forms that exist:
+` + `    predicate(x) { return /* … */ }   // function form
+` + `    predicate => /* … */              // one-liner; the type name IS the value
+` + `    predicate { return /* … */ }      // block; \`return\` required, as in JS
+
+` + `  Anything else is rejected rather than ignored, precisely so a type that checks ` + `nothing cannot ship looking like one that does.`, locAt(source, offset2));
+}
+function matchDeclHeader(masked, source, i2, re) {
+  const m = masked.slice(i2).match(re);
+  if (!m)
+    return null;
+  const indices = m.indices;
+  return {
+    m,
+    text: (group) => {
+      const span = indices?.[group];
+      return span ? source.slice(i2 + span[0], i2 + span[1]) : m[group];
+    }
+  };
+}
+function transformTypeDeclarations(source, report, declaredTypes) {
+  let result = "";
+  let i2 = 0;
+  const masked = maskLiterals(source);
+  while (i2 < source.length) {
+    const typeHeader = matchDeclHeader(masked, source, i2, /^\bType\s+([A-Z_][a-zA-Z0-9_]*)\s*/);
+    const typeMatch = typeHeader?.m;
+    if (typeMatch) {
+      const typeName = typeMatch[1];
+      let j = i2 + typeMatch[0].length;
+      let description = typeName;
+      let descriptionWasExplicit = false;
+      const descHeader = matchDeclHeader(masked, source, j, /^(['"`])([^]*?)\1\s*/d);
+      const descStringMatch = descHeader?.m ?? null;
+      const descWhole = descHeader ? descHeader.text(0) : "";
+      const descInner = descHeader ? descHeader.text(2) : "";
+      if (descStringMatch) {
+        const afterString = j + descStringMatch[0].length;
+        const nextChar = source[afterString];
+        const isEndOfStatement = nextChar === undefined || afterString >= source.length || nextChar !== "=" && nextChar !== "{";
+        if (nextChar === "=" || nextChar === "{") {
+          description = descInner;
+          descriptionWasExplicit = true;
+          j = afterString;
+        } else if (isEndOfStatement) {
+          const value = descWhole.trim();
+          const trailingWs = descWhole.slice(value.length);
+          declaredTypes?.add(typeName);
+          result += `const ${typeName} = Type('${typeName}', ${value})${trailingWs}`;
+          i2 = afterString;
+          continue;
+        }
+      }
+      let defaultValue;
+      let posAfterDefault = j;
+      const equalsMatch = source.slice(j).match(/^=\s*/);
+      if (equalsMatch) {
+        j += equalsMatch[0].length;
+        const valueMatch = source.slice(j).match(/^(\+?\d+(?:\.\d+)?|['"`][^'"`]*['"`]|\{[^}]*\}|\[[^\]]*\]|true|false|null)/);
+        if (valueMatch) {
+          defaultValue = valueMatch[0];
+          j += valueMatch[0].length;
+          posAfterDefault = j;
+          const wsMatch = source.slice(j).match(/^\s*/);
+          if (wsMatch)
+            j += wsMatch[0].length;
+        }
+      }
+      if (source[j] === "{") {
+        const bodyStart = j + 1;
+        let depth = 1;
+        let k = bodyStart;
+        while (k < source.length && depth > 0) {
+          const char = source[k];
+          if (char === "{")
+            depth++;
+          else if (char === "}")
+            depth--;
+          k++;
+        }
+        if (depth !== 0) {
+          result += source[i2];
+          i2++;
+          continue;
+        }
+        let blockBody = source.slice(bodyStart, k - 1).trim();
+        const blockEnd = k;
+        const descInsideMatch = blockBody.match(/description\s*:\s*(['"`])([^]*?)\1/);
+        if (descInsideMatch && !descriptionWasExplicit) {
+          description = descInsideMatch[2];
+        }
+        let example;
+        const exampleKeyword = blockBody.match(/example\s*:\s*/);
+        if (exampleKeyword) {
+          const valueStart = exampleKeyword.index + exampleKeyword[0].length;
+          const extracted = extractJSValue(blockBody, valueStart);
+          if (extracted) {
+            example = extracted.value.trim();
+          }
+        }
+        blockBody = normalizePredicateForms(blockBody, typeName);
+        const predicateMatch = blockBody.match(/predicate\s*\(([^)]*)\)\s*\{([^]*)\}/);
+        assertPredicateFormRecognized(typeName, blockBody, predicateMatch, source, i2);
+        if (predicateMatch && example) {
+          const params = predicateMatch[1].trim();
+          const body = predicateMatch[2].trim();
+          const defaultArg = defaultValue ? `, ${defaultValue}` : "";
+          const emptyExample = /^\{\s*\}$/.test(example.trim());
+          const schemaGate = emptyExample ? "true" : `(globalThis.__tjs?.validate ? globalThis.__tjs.validate(${params}, __schema()) : true)`;
+          const schemaMemo = emptyExample ? "" : `let __sc, __scInit = false; const __schema = () => { if (!__scInit) { __scInit = true; __sc = (globalThis.__tjs.inferOpen ?? globalThis.__tjs.infer)(${example}) } return __sc };`;
+          const guard = verifiedGuardExpr(typeName, "Type", params, body, undefined, report);
+          const fn = guard ? `(__g => { ${schemaMemo} return (${params}) => (${schemaGate} ? __g(${params}) : false) })(${guard})` : `(() => { ${schemaMemo} return (${params}) => { if (!(${schemaGate})) return false; ${body} } })()`;
+          declaredTypes?.add(typeName);
+          result += `const ${typeName} = Type('${description}', ${fn}, ${example}${defaultArg})`;
+        } else if (predicateMatch) {
+          const params = predicateMatch[1].trim();
+          const body = predicateMatch[2].trim();
+          const defaultArg = defaultValue ? `, undefined, ${defaultValue}` : "";
+          const guard = verifiedGuardExpr(typeName, "Type", params, body, undefined, report);
+          const fn = guard ?? `(${params}) => { ${body} }`;
+          declaredTypes?.add(typeName);
+          result += `const ${typeName} = Type('${description}', ${fn}${defaultArg})`;
+        } else if (example) {
+          const defaultArg = defaultValue ? `, ${defaultValue}` : "";
+          declaredTypes?.add(typeName);
+          const narrowing = numericNarrowingPredicate(example);
+          result += narrowing ? `const ${typeName} = Type('${description}', ${narrowing}, ${example}${defaultArg})` : `const ${typeName} = Type('${description}', undefined, ${example}${defaultArg})`;
+        } else if (defaultValue) {
+          declaredTypes?.add(typeName);
+          result += `const ${typeName} = Type('${description}', ${defaultValue})`;
+        } else {
+          const TJS_KEYS = /^(description|example|predicate|default)\s*:/;
+          const members = blockBody.split(`
+`).map((l) => l.trim()).filter((l) => l && !l.startsWith("//") && !TJS_KEYS.test(l));
+          const looksLikeInterface = members.some((l) => /^\w+\s*:\s*\S/.test(l));
+          if (members.length === 0) {
+            declaredTypes?.add(typeName);
+            result += `const ${typeName} = Type('${description}')`;
+            i2 = blockEnd;
+            continue;
+          }
+          throw new SyntaxError2(`\`${typeName}\` declares no example, predicate or default, so it would ` + `accept EVERY value.
+
+` + (looksLikeInterface ? `  Member declarations are TypeScript's spelling, not TJS's. Put the ` + `shape in an \`example\` — the example IS the type:
+
+` + `    Type ${typeName} {
+` + `      example: { ${members.slice(0, 3).map((l) => l.replace(/,$/, "")).join(", ")} }
+` + `    }
+` : `  Give it an example, or a predicate:
+
+` + `    Type ${typeName} { example: { /* … */ } }
+` + `    Type ${typeName} { predicate(v) { return /* … */ } }
+`), locAt(source, i2));
+        }
+        i2 = blockEnd;
+        continue;
+      } else if (defaultValue) {
+        declaredTypes?.add(typeName);
+        result += `const ${typeName} = Type('${description}', ${defaultValue})`;
+        i2 = posAfterDefault;
+        continue;
+      } else if (!descStringMatch) {
+        const valueMatch = source.slice(j).match(/^(['"`][^]*?['"`]|\+?\d+(?:\.\d+)?|true|false|null|\{[^]*?\}|\[[^]*?\])/);
+        if (valueMatch) {
+          const example = valueMatch[0];
+          declaredTypes?.add(typeName);
+          result += `const ${typeName} = Type('${typeName}', ${example})`;
+          i2 = j + valueMatch[0].length;
+          continue;
+        }
+      }
+    }
+    result += source[i2];
+    i2++;
+  }
+  return result;
+}
+function transformFunctionPredicateDeclarations(source) {
+  let result = "";
+  let i2 = 0;
+  const masked = maskLiterals(source);
+  while (i2 < source.length) {
+    const fpMatch = matchDeclHeader(masked, source, i2, /^\bFunctionPredicate\s+([A-Z_][a-zA-Z0-9_]*)\s*(?:<([^>]+)>)?\s*/)?.m;
+    if (fpMatch) {
+      const fpName = fpMatch[1];
+      const typeParamsStr = fpMatch[2];
+      const j = i2 + fpMatch[0].length;
+      if (source[j] === "{") {
+        let depth = 1;
+        let k = j + 1;
+        while (k < source.length && depth > 0) {
+          if (source[k] === "{")
+            depth++;
+          else if (source[k] === "}")
+            depth--;
+          k++;
+        }
+        if (depth === 0) {
+          const blockBody = source.slice(j + 1, k - 1).trim();
+          const paramsMatch = extractBalancedValue(blockBody, /params\s*:\s*\{/);
+          const returnsMatch = blockBody.match(/returns\s*:\s*(.+?)(?:\n|$)/);
+          const contractMatch = blockBody.match(/returnContract\s*:\s*['"](\w+)['"]/);
+          const descMatch = blockBody.match(/description\s*:\s*(['"])([^]*?)\1/);
+          const spec = [];
+          if (paramsMatch)
+            spec.push(`params: ${paramsMatch[1]}`);
+          if (returnsMatch)
+            spec.push(`returns: ${returnsMatch[1].trim()}`);
+          if (contractMatch) {
+            spec.push(`returnContract: '${contractMatch[1]}'`);
+          }
+          const desc = descMatch ? descMatch[2] : fpName;
+          if (typeParamsStr) {
+            const typeParams = typeParamsStr.split(",").map((p) => {
+              const parts = p.trim().split("=").map((s) => s.trim());
+              if (parts.length === 2) {
+                const defaultVal = parts[1] === "any" || parts[1] === "undefined" ? "null" : parts[1];
+                return `['${parts[0]}', ${defaultVal}]`;
+              }
+              return `'${parts[0]}'`;
+            });
+            const paramNames = typeParamsStr.split(",").map((p) => p.trim().split("=")[0].trim());
+            result += `const ${fpName} = FunctionPredicate('${desc}', [${typeParams.join(", ")}], (${paramNames.join(", ")}) => ({ ${spec.join(", ")} }))`;
+          } else {
+            result += `const ${fpName} = FunctionPredicate('${desc}', { ${spec.join(", ")} })`;
+          }
+          i2 = k;
+          continue;
+        }
+      }
+      if (source[j] === "(") {
+        let depth = 1;
+        let k = j + 1;
+        while (k < source.length && depth > 0) {
+          if (source[k] === "(")
+            depth++;
+          else if (source[k] === ")")
+            depth--;
+          k++;
+        }
+        if (depth === 0) {
+          const args = source.slice(j + 1, k - 1).trim();
+          const commaIdx = args.indexOf(",");
+          if (commaIdx !== -1) {
+            const fnRef = args.slice(0, commaIdx).trim();
+            const desc = args.slice(commaIdx + 1).trim();
+            result += `const ${fpName} = FunctionPredicate(${desc}, ${fnRef})`;
+          } else {
+            result += `const ${fpName} = FunctionPredicate('${fpName}', ${args})`;
+          }
+          i2 = k;
+          continue;
+        }
+      }
+    }
+    result += source[i2];
+    i2++;
+  }
+  return result;
+}
+function transformGenericDeclarations(source, report, declaredTypes) {
+  let result = "";
+  let i2 = 0;
+  const masked = maskLiterals(source);
+  while (i2 < source.length) {
+    const genericMatch = matchDeclHeader(masked, source, i2, /^\b(Generic|Type)\s+([A-Z][a-zA-Z0-9_]*)\s*<([^>]+)>\s*\{/)?.m;
+    if (genericMatch) {
+      const genericName = genericMatch[2];
+      const typeParamsStr = genericMatch[3];
+      declaredTypes?.add(genericName);
+      const blockStart = i2 + genericMatch[0].length - 1;
+      const bodyStart = blockStart + 1;
+      let depth = 1;
+      let k = bodyStart;
+      while (k < source.length && depth > 0) {
+        const char = source[k];
+        if (char === "{")
+          depth++;
+        else if (char === "}")
+          depth--;
+        k++;
+      }
+      if (depth !== 0) {
+        result += source[i2];
+        i2++;
+        continue;
+      }
+      const blockBody = source.slice(bodyStart, k - 1).trim();
+      const blockEnd = k;
+      const typeParams = typeParamsStr.split(",").map((p) => {
+        const parts = p.trim().split("=").map((s) => s.trim());
+        if (parts.length === 2) {
+          const defaultVal = parts[1] === "any" || parts[1] === "undefined" ? "null" : parts[1];
+          return `['${parts[0]}', ${defaultVal}]`;
+        }
+        return `'${parts[0]}'`;
+      });
+      let parsedBody = blockBody;
+      const declIdx = parsedBody.search(/\bdeclaration\s*\{/);
+      if (declIdx !== -1) {
+        const declBraceStart = parsedBody.indexOf("{", declIdx);
+        let dDepth = 1;
+        let dj = declBraceStart + 1;
+        while (dj < parsedBody.length && dDepth > 0) {
+          if (parsedBody[dj] === "{")
+            dDepth++;
+          else if (parsedBody[dj] === "}")
+            dDepth--;
+          dj++;
+        }
+        parsedBody = parsedBody.slice(0, declIdx) + parsedBody.slice(dj);
+      }
+      let genericExample;
+      const exKeyword = parsedBody.match(/example\s*:\s*/);
+      if (exKeyword) {
+        const extracted = extractJSValue(parsedBody, exKeyword.index + exKeyword[0].length);
+        if (extracted)
+          genericExample = extracted.value.trim();
+      }
+      const descMatch = parsedBody.match(/description\s*:\s*(['"`])([^]*?)\1/);
+      parsedBody = normalizePredicateForms(parsedBody, genericName, typeParamsStr.split(",").map((p) => p.trim().split("=")[0].trim()).filter(Boolean));
+      const predicateMatch = parsedBody.match(/predicate\s*\(([^)]*)\)\s*\{([^]*)\}/);
+      assertPredicateFormRecognized(genericName, parsedBody, predicateMatch, source, i2);
+      const description = descMatch ? descMatch[2] : genericName;
+      if (predicateMatch) {
+        const params = predicateMatch[1].trim().split(",").map((s) => s.trim());
+        let body = predicateMatch[2].trim();
+        const valueParam = params[0] || "x";
+        const typeParamNames = params.slice(1);
+        const typeCheckParams = typeParamNames.map((p) => `check${p}`);
+        typeParamNames.forEach((name, idx) => {
+          body = body.replace(new RegExp(`\\b${name}\\s*\\(`, "g"), `${typeCheckParams[idx]}(`);
+        });
+        const paramList = [valueParam, ...typeCheckParams].join(", ");
+        const guard = verifiedGuardExpr(genericName, "Generic", paramList, body, typeCheckParams, report);
+        const fn = guard ?? `(${paramList}) => { ${body} }`;
+        result += `const ${genericName} = Generic([${typeParams.join(", ")}], ${fn}, '${description}')`;
+      } else {
+        const derived = genericExample ? genericPredicateFromExample(genericExample, typeParamsStr.split(",").map((p) => p.trim().split("=")[0].trim()).filter(Boolean)) : null;
+        result += `const ${genericName} = Generic([${typeParams.join(", ")}], ${derived ?? "() => true"}, '${description}')`;
+      }
+      i2 = blockEnd;
+      continue;
+    }
+    result += source[i2];
+    i2++;
+  }
+  return result;
+}
+function transformUnionDeclarations(source, declaredTypes) {
+  let result = "";
+  let i2 = 0;
+  const masked = maskLiterals(source);
+  while (i2 < source.length) {
+    const unionHeader = matchDeclHeader(masked, source, i2, /^\bUnion\s+([A-Z][a-zA-Z0-9_]*)\s+(['"`])([^]*?)\2\s*/d);
+    const unionMatch = unionHeader?.m;
+    if (unionMatch && unionHeader) {
+      const unionName = unionMatch[1];
+      const description = unionHeader.text(3);
+      const j = i2 + unionMatch[0].length;
+      if (source[j] === "{") {
+        const bodyStart = j + 1;
+        let depth = 1;
+        let k = bodyStart;
+        while (k < source.length && depth > 0) {
+          const char = source[k];
+          if (char === "{")
+            depth++;
+          else if (char === "}")
+            depth--;
+          k++;
+        }
+        if (depth !== 0) {
+          result += source[i2];
+          i2++;
+          continue;
+        }
+        const blockBody = source.slice(bodyStart, k - 1).trim();
+        const blockEnd = k;
+        const values = parseUnionValues(blockBody);
+        declaredTypes?.add(unionName);
+        result += `const ${unionName} = Union('${description}', [${values.join(", ")}])`;
+        i2 = blockEnd;
+        continue;
+      } else {
+        let lineEnd = source.indexOf(`
+`, j);
+        if (lineEnd === -1)
+          lineEnd = source.length;
+        const inlineValues = source.slice(j, lineEnd).trim();
+        if (inlineValues) {
+          const values = parseUnionValues(inlineValues);
+          declaredTypes?.add(unionName);
+          result += `const ${unionName} = Union('${description}', [${values.join(", ")}])`;
+          i2 = lineEnd;
+          continue;
+        }
+      }
+    }
+    result += source[i2];
+    i2++;
+  }
+  return result;
+}
+function parseUnionValues(input) {
+  const values = [];
+  const parts = input.split("|").map((p) => p.trim());
+  for (const part of parts) {
+    if (!part)
+      continue;
+    values.push(part);
+  }
+  return values;
+}
+function transformEnumDeclarations(source, declaredTypes) {
+  let result = "";
+  let i2 = 0;
+  const masked = maskLiterals(source);
+  while (i2 < source.length) {
+    const enumHeader = matchDeclHeader(masked, source, i2, /^\bEnum\s+([A-Z][a-zA-Z0-9_]*)\s+(['"`])([^]*?)\2\s*\{/d);
+    const enumMatch = enumHeader?.m;
+    if (enumMatch && enumHeader) {
+      const enumName = enumMatch[1];
+      const description = enumHeader.text(3);
+      const blockStart = i2 + enumMatch[0].length - 1;
+      const bodyStart = blockStart + 1;
+      let depth = 1;
+      let k = bodyStart;
+      while (k < source.length && depth > 0) {
+        const char = source[k];
+        if (char === "{")
+          depth++;
+        else if (char === "}")
+          depth--;
+        k++;
+      }
+      if (depth !== 0) {
+        result += source[i2];
+        i2++;
+        continue;
+      }
+      const blockBody = source.slice(bodyStart, k - 1).trim();
+      const blockEnd = k;
+      const members = parseEnumMembers(blockBody);
+      const membersStr = members.map(([key, value]) => `${key}: ${value}`).join(", ");
+      declaredTypes?.add(enumName);
+      result += `const ${enumName} = Enum('${description}', { ${membersStr} })`;
+      i2 = blockEnd;
+      continue;
+    }
+    result += source[i2];
+    i2++;
+  }
+  return result;
+}
+function parseEnumMembers(input) {
+  const members = [];
+  let currentNumericValue = 0;
+  const lines = input.split(/[\n,]/).map((l) => l.trim()).filter((l) => l && !l.startsWith("//"));
+  for (const line of lines) {
+    const match = line.match(/^([A-Za-z_][A-Za-z0-9_]*)\s*(?:=\s*(.+))?$/);
+    if (match) {
+      const key = match[1];
+      const explicitValue = match[2]?.trim();
+      if (explicitValue !== undefined) {
+        members.push([key, explicitValue]);
+        const numVal = Number(explicitValue);
+        if (!isNaN(numVal)) {
+          currentNumericValue = numVal + 1;
+        }
+      } else {
+        members.push([key, String(currentNumericValue)]);
+        currentNumericValue++;
+      }
+    }
+  }
+  return members;
+}
+function transformExtendDeclarations(source) {
+  const extensions = new Map;
+  let result = "";
+  let i2 = 0;
+  const maskedSource = maskLiterals(source);
+  while (i2 < source.length) {
+    const remaining = maskedSource.slice(i2);
+    const extendMatch = remaining.match(/^(\s*)extend\s+([A-Z]\w*)\s*\{/);
+    if (!extendMatch) {
+      const lineStart = i2 === 0 || source[i2 - 1] === `
+` || source[i2 - 1] === ";" || source[i2 - 1] === "}";
+      if (lineStart) {
+        const afterWS = remaining.match(/^(\s*)extend\s+([A-Z]\w*)\s*\{/);
+        if (afterWS) {}
+      }
+      result += source[i2];
+      i2++;
+      continue;
+    }
+    const indent = extendMatch[1];
+    const typeName = extendMatch[2];
+    const blockStart = i2 + extendMatch[0].length - 1;
+    const blockEnd = findFunctionBodyEnd(source, blockStart);
+    const methods = [];
+    let j = 0;
+    const bodySource = source.slice(blockStart + 1, blockEnd - 1);
+    while (j < bodySource.length) {
+      const methodRemaining = bodySource.slice(j);
+      const methodMatch = methodRemaining.match(/^(\s*)(async\s+)?(\w+)\s*\(/);
+      if (!methodMatch) {
+        j++;
+        continue;
+      }
+      const isAsync = !!methodMatch[2];
+      const methodName = methodMatch[3];
+      const parenStart = j + methodMatch[0].length - 1;
+      let parenDepth = 1;
+      let k = parenStart + 1;
+      while (k < bodySource.length && parenDepth > 0) {
+        if (bodySource[k] === "(")
+          parenDepth++;
+        if (bodySource[k] === ")")
+          parenDepth--;
+        k++;
+      }
+      const paramsStr = bodySource.slice(parenStart + 1, k - 1);
+      let afterParams = k;
+      while (afterParams < bodySource.length && /\s/.test(bodySource[afterParams])) {
+        afterParams++;
+      }
+      if (bodySource[afterParams] === "=" && bodySource[afterParams + 1] === ">") {
+        const loc = locAt(source, blockStart + 1 + j);
+        throw new SyntaxError2(`Arrow functions are not allowed in extend blocks (method '${methodName}' in extend ${typeName}). ` + `Use regular function syntax instead, as extension methods need 'this' binding.`, loc);
+      }
+      if (bodySource[afterParams] !== "{") {
+        j++;
+        continue;
+      }
+      const methodBodyEnd = findFunctionBodyEnd(bodySource, afterParams);
+      const transformedParams = paramsStr.split(",").map((p) => p.trim()).filter((p) => p.length > 0).map((p) => {
+        const colonMatch = p.match(/^(\w+)\s*:\s*(.+)$/);
+        if (colonMatch)
+          return `${colonMatch[1]} = ${colonMatch[2]}`;
+        return p;
+      }).join(", ");
+      const asyncPrefix = isAsync ? "async " : "";
+      const methodBody = bodySource.slice(afterParams + 1, methodBodyEnd - 1);
+      methods.push({
+        name: methodName,
+        isAsync,
+        fullText: `${methodName}: ${asyncPrefix}function(${transformedParams}) {${methodBody}}`
+      });
+      j = methodBodyEnd;
+    }
+    const isFirstForType = !extensions.has(typeName);
+    if (isFirstForType) {
+      extensions.set(typeName, new Set);
+    }
+    const extSet = extensions.get(typeName);
+    for (const m of methods) {
+      extSet.add(m.name);
+    }
+    const methodEntries = methods.map((m) => `  ${m.fullText}`).join(`,
+`);
+    let replacement;
+    if (isFirstForType) {
+      replacement = `${indent}const __ext_${typeName} = {
+${methodEntries}
+${indent}}
+`;
+    } else {
+      replacement = `${indent}Object.assign(__ext_${typeName}, {
+${methodEntries}
+${indent}})
+`;
+    }
+    for (const m of methods) {
+      replacement += `${indent}if (__tjs?.registerExtension) { __tjs.registerExtension('${typeName}', '${m.name}', __ext_${typeName}.${m.name}) }
+`;
+      if (m.name === "asCompared") {
+        replacement += `${indent}if (typeof __ac !== 'undefined') { __ac['${typeName}'] = __ext_${typeName}.asCompared }
+`;
+      }
+    }
+    result += replacement;
+    i2 = blockEnd;
+  }
+  if (i2 <= source.length && result.length < source.length) {}
+  return { source: result, extensions };
+}
+function transformExtensionCalls(source, extensions) {
+  if (extensions.size === 0)
+    return source;
+  const methodToTypes = new Map;
+  for (const [typeName, methods] of extensions) {
+    for (const method of methods) {
+      if (!methodToTypes.has(method)) {
+        methodToTypes.set(method, []);
+      }
+      methodToTypes.get(method).push(typeName);
+    }
+  }
+  let result = source;
+  for (const [method, typeNames] of methodToTypes) {
+    if (!typeNames.includes("String"))
+      continue;
+    const singleQuotePattern = new RegExp(`('(?:[^'\\\\]|\\\\.)*')\\.(${method})\\((\\))?`, "g");
+    result = result.replace(singleQuotePattern, (_, str, meth, closeParen) => {
+      return closeParen ? `__ext_String.${meth}.call(${str})` : `__ext_String.${meth}.call(${str}, `;
+    });
+    const doubleQuotePattern = new RegExp(`("(?:[^"\\\\]|\\\\.)*")\\.(${method})\\((\\))?`, "g");
+    result = result.replace(doubleQuotePattern, (_, str, meth, closeParen) => {
+      return closeParen ? `__ext_String.${meth}.call(${str})` : `__ext_String.${meth}.call(${str}, `;
+    });
+    const templatePattern = new RegExp("(`(?:[^`\\\\]|\\\\.)*`)\\." + method + "\\((\\))?", "g");
+    result = result.replace(templatePattern, (_, str, closeParen) => {
+      return closeParen ? `__ext_String.${method}.call(${str})` : `__ext_String.${method}.call(${str}, `;
+    });
+  }
+  for (const [method, typeNames] of methodToTypes) {
+    if (!typeNames.includes("Array"))
+      continue;
+    const methodDot = `].${method}(`;
+    let searchFrom = 0;
+    let idx;
+    while ((idx = result.indexOf(methodDot, searchFrom)) !== -1) {
+      let bracketDepth = 1;
+      let k = idx - 1;
+      let inStr = false;
+      while (k >= 0 && bracketDepth > 0) {
+        const ch = result[k];
+        if (inStr) {
+          if (ch === inStr && !isEscapedAt(result, k)) {
+            inStr = false;
+          }
+        } else {
+          if (ch === "]")
+            bracketDepth++;
+          if (ch === "[")
+            bracketDepth--;
+          if (ch === "'" || ch === '"' || ch === "`")
+            inStr = ch;
+        }
+        k--;
+      }
+      if (bracketDepth === 0) {
+        const arrayLiteral = result.slice(k + 1, idx + 1);
+        const before = result.slice(0, k + 1);
+        const after = result.slice(idx + methodDot.length);
+        if (after[0] === ")") {
+          result = `${before}__ext_Array.${method}.call(${arrayLiteral})${after.slice(1)}`;
+        } else {
+          result = `${before}__ext_Array.${method}.call(${arrayLiteral}, ${after}`;
+        }
+      }
+      searchFrom = idx + 1;
+    }
+  }
+  for (const [method, typeNames] of methodToTypes) {
+    if (!typeNames.includes("Number"))
+      continue;
+    const numPattern = new RegExp(`(\\d+(?:\\.\\d+)?)\\.(${method})\\((\\))?`, "g");
+    result = result.replace(numPattern, (_, num, meth, closeParen) => {
+      return closeParen ? `__ext_Number.${meth}.call(${num})` : `__ext_Number.${meth}.call(${num}, `;
+    });
+  }
+  return result;
+}
+function locAt(source, pos) {
+  let line = 1;
+  let column = 0;
+  for (let i2 = 0;i2 < pos && i2 < source.length; i2++) {
+    if (source[i2] === `
+`) {
+      line++;
+      column = 0;
+    } else {
+      column++;
+    }
+  }
+  return { line, column };
+}
+function typeCheckForDefault(argExpr, defaultValue) {
+  const dv = defaultValue.trim();
+  if (/^['"`]/.test(dv))
+    return `typeof ${argExpr} === 'string'`;
+  if (dv === "true" || dv === "false")
+    return `typeof ${argExpr} === 'boolean'`;
+  if (dv === "null")
+    return `${argExpr} === null`;
+  if (dv === "undefined")
+    return `${argExpr} === undefined`;
+  if (dv.startsWith("["))
+    return `Array.isArray(${argExpr})`;
+  if (dv.startsWith("{"))
+    return `(typeof ${argExpr} === 'object' && ${argExpr} !== null && !Array.isArray(${argExpr}))`;
+  if (/^\+\d+/.test(dv))
+    return `(typeof ${argExpr} === 'number' && Number.isInteger(${argExpr}) && ${argExpr} >= 0)`;
+  if (/^-?\d+\.\d+/.test(dv))
+    return `typeof ${argExpr} === 'number'`;
+  if (/^-?\d+$/.test(dv))
+    return `(typeof ${argExpr} === 'number' && Number.isInteger(${argExpr}))`;
+  return "true";
+}
+function typeSignatureForDefault(defaultValue) {
+  const dv = stripParamMarkers(defaultValue).trim();
+  if (/^['"`]/.test(dv))
+    return "string";
+  if (dv === "true" || dv === "false")
+    return "boolean";
+  if (dv === "null")
+    return "null";
+  if (dv === "undefined")
+    return "undefined";
+  if (dv.startsWith("["))
+    return "array";
+  if (dv.startsWith("{"))
+    return "object";
+  if (/^\+\d+/.test(dv))
+    return "non-negative-integer";
+  if (/^-?\d+\.\d+/.test(dv))
+    return "number";
+  if (/^-?\d+$/.test(dv))
+    return "integer";
+  return "any";
+}
+function parseParamList(paramStr, requiredParams) {
+  paramStr = stripParamMarkers(paramStr);
+  const params = [];
+  let depth = 0;
+  let current2 = "";
+  let inString = false;
+  for (let i2 = 0;i2 < paramStr.length; i2++) {
+    const ch = paramStr[i2];
+    if (!inString && (ch === "'" || ch === '"' || ch === "`")) {
+      inString = ch;
+      current2 += ch;
+      continue;
+    }
+    if (inString) {
+      current2 += ch;
+      if (ch === "\\") {
+        i2++;
+        if (i2 < paramStr.length)
+          current2 += paramStr[i2];
+        continue;
+      }
+      if (ch === inString)
+        inString = false;
+      continue;
+    }
+    if (ch === "(" || ch === "[" || ch === "{") {
+      depth++;
+      current2 += ch;
+      continue;
+    }
+    if (ch === ")" || ch === "]" || ch === "}") {
+      depth--;
+      current2 += ch;
+      continue;
+    }
+    if (ch === "," && depth === 0) {
+      const param = parseOneParam(current2.trim(), requiredParams);
+      if (param)
+        params.push(param);
+      current2 = "";
+      continue;
+    }
+    current2 += ch;
+  }
+  const trimmed = current2.trim();
+  if (trimmed) {
+    const param = parseOneParam(trimmed, requiredParams);
+    if (param)
+      params.push(param);
+  }
+  return params;
+}
+function parseOneParam(paramStr, requiredParams) {
+  const str = paramStr.replace(/^\/\*\s*unsafe\s*\*\/\s*/, "");
+  if (str.startsWith("..."))
+    return null;
+  const eqIdx = str.indexOf("=");
+  if (eqIdx === -1) {
+    return { name: str.trim(), defaultValue: "", required: true };
+  }
+  const name = str.slice(0, eqIdx).trim();
+  const defaultValue = str.slice(eqIdx + 1).trim();
+  return { name, defaultValue, required: requiredParams.has(name) };
+}
+function findFunctionBodyEnd(source, openBracePos, masked) {
+  const view = masked ?? maskLiterals(source);
+  const close = matchingBrace(view, openBracePos);
+  return close === -1 ? view.length : close + 1;
+}
+function transformPolymorphicFunctions(source, requiredParams) {
+  const polymorphicNames = new Set;
+  const funcPattern = /(?:^|(?<=[\n;{}]))\s*(export\s+)?(async\s+)?function\s+(\w+)\s*\(/gm;
+  const declarations = new Map;
+  let match;
+  const allMatches = [];
+  const scanSource = maskLiterals(source);
+  while ((match = funcPattern.exec(scanSource)) !== null) {
+    const exported = !!match[1];
+    const isAsync = !!match[2];
+    const name = match[3];
+    const fullMatchStart = match.index;
+    let funcKeywordStart = fullMatchStart;
+    const prefix = match[0];
+    const funcIdx = prefix.indexOf("function");
+    if (funcIdx >= 0)
+      funcKeywordStart = fullMatchStart + funcIdx;
+    allMatches.push({
+      name,
+      fullMatchStart,
+      funcKeywordStart,
+      exported,
+      isAsync
+    });
+  }
+  for (const m of allMatches) {
+    if (!declarations.has(m.name)) {
+      declarations.set(m.name, []);
+    }
+  }
+  const nameCounts = new Map;
+  for (const m of allMatches) {
+    nameCounts.set(m.name, (nameCounts.get(m.name) || 0) + 1);
+  }
+  const polyNames = new Set;
+  for (const [name, count] of nameCounts) {
+    if (count > 1)
+      polyNames.add(name);
+  }
+  if (polyNames.size === 0) {
+    return { source, polymorphicNames };
+  }
+  for (const m of allMatches) {
+    if (!polyNames.has(m.name))
+      continue;
+    const afterFunc = source.indexOf("(", m.funcKeywordStart);
+    if (afterFunc === -1)
+      continue;
+    let parenDepth = 1;
+    let j = afterFunc + 1;
+    while (j < source.length && parenDepth > 0) {
+      if (source[j] === "(")
+        parenDepth++;
+      if (source[j] === ")")
+        parenDepth--;
+      j++;
+    }
+    const closeParen = j - 1;
+    const paramStr = source.slice(afterFunc + 1, closeParen);
+    let bodyStart = j;
+    while (bodyStart < source.length && source[bodyStart] !== "{")
+      bodyStart++;
+    if (bodyStart >= source.length)
+      continue;
+    const bodyEnd = findFunctionBodyEnd(source, bodyStart);
+    let realStart = m.fullMatchStart;
+    while (realStart > 0 && source[realStart - 1] === " ")
+      realStart--;
+    const variants = declarations.get(m.name);
+    const params = parseParamList(paramStr, requiredParams);
+    const hasRestParam = paramStr.includes("...");
+    if (hasRestParam) {
+      const loc = locAt(source, m.funcKeywordStart);
+      throw new SyntaxError2(`Rest parameters are not supported in polymorphic function '${m.name}'. ` + `Use separate function names instead.`, loc);
+    }
+    variants.push({
+      index: variants.length + 1,
+      start: realStart,
+      end: bodyEnd,
+      text: source.slice(realStart, bodyEnd),
+      exported: m.exported,
+      isAsync: m.isAsync,
+      params
+    });
+  }
+  for (const [name, variants] of declarations) {
+    if (variants.length < 2)
+      continue;
+    const asyncCount = variants.filter((v) => v.isAsync).length;
+    if (asyncCount > 0 && asyncCount < variants.length) {
+      const loc = locAt(source, variants[0].start);
+      throw new SyntaxError2(`Polymorphic function '${name}': all variants must be either sync or async, not mixed.`, loc);
+    }
+    for (let i2 = 0;i2 < variants.length; i2++) {
+      for (let j = i2 + 1;j < variants.length; j++) {
+        const a = variants[i2];
+        const b = variants[j];
+        if (a.params.length !== b.params.length)
+          continue;
+        let allSame = true;
+        for (let k = 0;k < a.params.length; k++) {
+          const sigA = a.params[k].defaultValue ? typeSignatureForDefault(a.params[k].defaultValue) : "any";
+          const sigB = b.params[k].defaultValue ? typeSignatureForDefault(b.params[k].defaultValue) : "any";
+          if (sigA !== sigB) {
+            allSame = false;
+            break;
+          }
+        }
+        if (allSame) {
+          const loc = locAt(source, b.start);
+          throw new SyntaxError2(`Polymorphic function '${name}': variants ${i2 + 1} and ${j + 1} have ambiguous signatures ` + `(same parameter types at every position). Overloads must differ by arity or parameter types.`, loc);
+        }
+      }
+    }
+  }
+  const allVariants = [];
+  for (const [name, variants] of declarations) {
+    if (variants.length < 2)
+      continue;
+    for (const v of variants) {
+      allVariants.push({ name, variant: v });
+    }
+  }
+  allVariants.sort((a, b) => b.variant.start - a.variant.start);
+  let result = source;
+  for (const { name, variant } of allVariants) {
+    const asyncPrefix = variant.isAsync ? "async " : "";
+    const renamed = variant.text.replace(new RegExp(`(?:export\\s+)?${asyncPrefix ? asyncPrefix.replace(/\s+$/, "\\s+") : ""}function\\s+${name}\\s*\\(`), `${asyncPrefix}function ${name}$$${variant.index}(`);
+    result = result.slice(0, variant.start) + renamed + result.slice(variant.end);
+  }
+  for (const [name, variants] of declarations) {
+    if (variants.length < 2)
+      continue;
+    polymorphicNames.add(name);
+    const isAsync = variants[0].isAsync;
+    const isExported = variants.some((v) => v.exported);
+    const asyncPrefix = isAsync ? "async " : "";
+    const exportPrefix = isExported ? "export " : "";
+    const sorted = [...variants].sort((a, b) => {
+      if (a.params.length !== b.params.length)
+        return 0;
+      let specA = 0;
+      let specB = 0;
+      for (const p of a.params) {
+        const sig = p.defaultValue ? typeSignatureForDefault(p.defaultValue) : "any";
+        if (sig === "non-negative-integer")
+          specA += 3;
+        else if (sig === "integer")
+          specA += 2;
+        else if (sig !== "any")
+          specA += 1;
+      }
+      for (const p of b.params) {
+        const sig = p.defaultValue ? typeSignatureForDefault(p.defaultValue) : "any";
+        if (sig === "non-negative-integer")
+          specB += 3;
+        else if (sig === "integer")
+          specB += 2;
+        else if (sig !== "any")
+          specB += 1;
+      }
+      return specB - specA;
+    });
+    const branches = [];
+    for (const v of sorted) {
+      const checks = [`__args.length === ${v.params.length}`];
+      const args = [];
+      for (let k = 0;k < v.params.length; k++) {
+        const p = v.params[k];
+        args.push(`__args[${k}]`);
+        if (p.defaultValue) {
+          const check = typeCheckForDefault(`__args[${k}]`, p.defaultValue);
+          if (check !== "true")
+            checks.push(check);
+        }
+      }
+      branches.push(`  if (${checks.join(" && ")}) return ${name}$${v.index}(${args.join(", ")})`);
+    }
+    const dispatcher = `
+${exportPrefix}${asyncPrefix}function ${name}(...__args) {
+${branches.join(`
+`)}
+  return __tjs.typeError('${name}', 'no matching overload', __args)
+}
+`;
+    result += dispatcher;
+  }
+  return { source: result, polymorphicNames };
+}
+function transformBareAssignments(source) {
+  const declared = new Set;
+  const declRe = /\b(?:let|const|var|function|class)\s+([A-Z][a-zA-Z0-9_]*)/g;
+  for (let m;m = declRe.exec(source); )
+    declared.add(m[1]);
+  return source.replace(/(?<=^|[;\n{])(\s*)([A-Z][a-zA-Z0-9_]*)\s*=(?!=)/gm, (match, _ws, name, offset2, str) => {
+    if (declared.has(name))
+      return match;
+    const rhs = str.slice(offset2 + match.length);
+    if (/^\s*[a-zA-Z_$][\w$]*\s*(?=[;\n,)}\]]|$)/.test(rhs))
+      return match;
+    return match.replace(name, `const ${name}`);
+  });
+}
+function extractAndRunTests(source, skipTests = false) {
+  const tests = [];
+  const errors = [];
+  let result = "";
+  let i2 = 0;
+  while (i2 < source.length) {
+    const testMatch = source.slice(i2).match(/^\btest\s+/);
+    if (testMatch) {
+      const start = i2;
+      let j = i2 + testMatch[0].length;
+      let description;
+      const descMatch = source.slice(j).match(/^(['"`])([^]*?)\1\s*/);
+      if (descMatch) {
+        description = descMatch[2];
+        j += descMatch[0].length;
+      }
+      if (source[j] === "{") {
+        const bodyStart = j + 1;
+        let depth = 1;
+        let k = bodyStart;
+        let inStr = null;
+        let escaped = false;
+        while (k < source.length && depth > 0) {
+          const char = source[k];
+          if (escaped) {
+            escaped = false;
+            k++;
+            continue;
+          }
+          if (char === "\\" && inStr) {
+            escaped = true;
+            k++;
+            continue;
+          }
+          if (inStr) {
+            if (char === inStr)
+              inStr = null;
+            k++;
+            continue;
+          }
+          if (char === "/" && source[k + 1] === "/") {
+            const nl = source.indexOf(`
+`, k);
+            k = nl === -1 ? source.length : nl + 1;
+            continue;
+          }
+          if (char === "/" && source[k + 1] === "*") {
+            const end = source.indexOf("*/", k + 2);
+            k = end === -1 ? source.length : end + 2;
+            continue;
+          }
+          if (char === "'" || char === '"' || char === "`") {
+            inStr = char;
+            k++;
+            continue;
+          }
+          if (char === "{")
+            depth++;
+          else if (char === "}")
+            depth--;
+          k++;
+        }
+        if (depth === 0) {
+          const body = source.slice(bodyStart, k - 1).trim();
+          const end = k;
+          const line = (source.slice(0, start).match(/\n/g) || []).length + 1;
+          tests.push({ description, body, start, end, line });
+          if (!skipTests) {
+            try {
+              const testFn = new Function(body);
+              testFn();
+            } catch (err) {
+              const desc = description || `test at line ${line}`;
+              errors.push(`Test failed: ${desc} (line ${line})
+  ${err.message || err}`);
+            }
+          }
+          const removed = source.slice(start, end);
+          const newlines = (removed.match(/\n/g) || []).length;
+          result += `
+`.repeat(newlines);
+          i2 = end;
+          continue;
+        }
+      }
+    }
+    result += source[i2];
+    i2++;
+  }
+  return { source: result, tests, errors };
+}
+function transformPolymorphicConstructors(source, requiredParams) {
+  const polyCtorClasses = new Set;
+  const maskedSource = maskLiterals(source);
+  const classRegex = /\bclass\s+(\w+)(\s+extends\s+\w+)?\s*\{/g;
+  let classMatch;
+  const classInfos = [];
+  while ((classMatch = classRegex.exec(maskedSource)) !== null) {
+    const className = classMatch[1];
+    const extendsClause = classMatch[2]?.trim() || "";
+    const bodyStart = classMatch.index + classMatch[0].length - 1;
+    const bodyEnd = findFunctionBodyEnd(source, bodyStart);
+    const body = source.slice(bodyStart, bodyEnd);
+    classInfos.push({ className, extendsClause, bodyStart, bodyEnd, body });
+  }
+  let result = source;
+  for (let ci = classInfos.length - 1;ci >= 0; ci--) {
+    const { className, extendsClause, bodyStart, bodyEnd, body } = classInfos[ci];
+    const ctorPattern = /\bconstructor\s*\(/g;
+    let ctorMatch;
+    const ctorPositions = [];
+    while ((ctorMatch = ctorPattern.exec(body)) !== null) {
+      ctorPositions.push(ctorMatch.index);
+    }
+    if (ctorPositions.length < 2)
+      continue;
+    polyCtorClasses.add(className);
+    const ctors = [];
+    for (let i2 = 0;i2 < ctorPositions.length; i2++) {
+      const pos = ctorPositions[i2];
+      const parenStart = body.indexOf("(", pos);
+      let parenDepth = 1;
+      let j = parenStart + 1;
+      while (j < body.length && parenDepth > 0) {
+        if (body[j] === "(")
+          parenDepth++;
+        if (body[j] === ")")
+          parenDepth--;
+        j++;
+      }
+      const paramStr = body.slice(parenStart + 1, j - 1);
+      let braceStart = j;
+      while (braceStart < body.length && body[braceStart] !== "{")
+        braceStart++;
+      const ctorBodyEnd = findFunctionBodyEnd(body, braceStart);
+      const bodyText = body.slice(braceStart + 1, ctorBodyEnd - 1);
+      ctors.push({
+        index: i2 + 1,
+        paramStr,
+        bodyText,
+        fullStart: pos,
+        fullEnd: ctorBodyEnd
+      });
+    }
+    let cleanBody = body;
+    for (let i2 = ctors.length - 1;i2 >= 1; i2--) {
+      const ctor = ctors[i2];
+      let start = ctor.fullStart;
+      while (start > 0 && cleanBody[start - 1] === " ")
+        start--;
+      if (start > 0 && cleanBody[start - 1] === `
+`)
+        start--;
+      cleanBody = cleanBody.slice(0, start) + cleanBody.slice(ctor.fullEnd);
+    }
+    let factories = "";
+    for (let i2 = 1;i2 < ctors.length; i2++) {
+      const ctor = ctors[i2];
+      const hasRest = ctor.paramStr.includes("...");
+      if (hasRest) {
+        const loc = locAt(source, bodyStart + ctor.fullStart);
+        throw new SyntaxError2(`Rest parameters are not supported in polymorphic constructors for '${className}'.`, loc);
+      }
+      factories += `
+function ${className}$ctor$${ctor.index}(${ctor.paramStr}) {`;
+      factories += `
+  const __obj = Object.create(${className}.prototype)`;
+      if (extendsClause) {}
+      factories += `
+  ;(function() {${ctor.bodyText}}).call(__obj)`;
+      factories += `
+  return __obj`;
+      factories += `
+}
+`;
+    }
+    const dispatchBranches = [];
+    for (let i2 = 0;i2 < ctors.length; i2++) {
+      const ctor = ctors[i2];
+      const params = parseParamList(ctor.paramStr, requiredParams);
+      const checks = [`a.length === ${params.length}`];
+      for (let k = 0;k < params.length; k++) {
+        const p = params[k];
+        if (p.defaultValue) {
+          const check = typeCheckForDefault(`a[${k}]`, p.defaultValue);
+          if (check !== "true")
+            checks.push(check);
+        }
+      }
+      if (i2 === 0) {
+        dispatchBranches.push(`    if (${checks.join(" && ")}) return Reflect.construct(t, a)`);
+      } else {
+        const args = params.map((_, k) => `a[${k}]`).join(", ");
+        dispatchBranches.push(`    if (${checks.join(" && ")}) return ${className}$ctor$${ctor.index}(${args})`);
+      }
+    }
+    factories += `
+function ${className}$dispatch(t, a) {
+`;
+    factories += dispatchBranches.join(`
+`) + `
+`;
+    factories += `    return __tjs.typeError('${className}', 'no matching constructor', a)
+`;
+    factories += `}
+`;
+    result = result.slice(0, bodyStart) + cleanBody + result.slice(bodyEnd);
+    const insertPos = bodyStart + cleanBody.length;
+    result = result.slice(0, insertPos) + factories + result.slice(insertPos);
+  }
+  return { source: result, polyCtorClasses };
+}
+function wrapClassDeclarations(source, polyCtorClasses = new Set) {
+  const maskedSource = maskLiterals(source);
+  const classRegex = /\bclass\s+(\w+)(\s+extends\s+\w+)?\s*\{/g;
+  let result = "";
+  let lastIndex = 0;
+  let match;
+  while ((match = classRegex.exec(maskedSource)) !== null) {
+    const className = match[1];
+    const extendsClause = match[2] || "";
+    const classStart = match.index;
+    const bodyStart = classStart + match[0].length - 1;
+    let depth = 1;
+    let i2 = bodyStart + 1;
+    while (i2 < source.length && depth > 0) {
+      const char = source[i2];
+      if (char === "{")
+        depth++;
+      else if (char === "}")
+        depth--;
+      i2++;
+    }
+    if (depth === 0) {
+      const classEnd = i2;
+      const classBody = source.slice(bodyStart, classEnd);
+      result += source.slice(lastIndex, classStart);
+      result += `let ${className} = class ${className}${extendsClause} ${classBody}; `;
+      if (polyCtorClasses.has(className)) {
+        result += `${className} = new Proxy(${className}, { apply(t, _, a) { return ${className}$dispatch(t, a) }, construct(t, a) { return ${className}$dispatch(t, a) } });`;
+      } else {
+        result += `${className} = new Proxy(${className}, { apply(t, _, a) { return Reflect.construct(t, a) } });`;
+      }
+      lastIndex = classEnd;
+    }
+  }
+  result += source.slice(lastIndex);
+  return result;
+}
+var MAX_REPORTED_LOCATIONS = 20;
+function rejectAt(source, offsets, message) {
+  if (!offsets.length)
+    return;
+  const sorted = [...offsets].sort((a, b) => a - b);
+  const locs = [];
+  let line = 1;
+  let lineStart = 0;
+  let cursor = 0;
+  for (const at2 of sorted) {
+    while (cursor < at2 && cursor < source.length) {
+      if (source[cursor] === `
+`) {
+        line++;
+        lineStart = cursor + 1;
+      }
+      cursor++;
+    }
+    locs.push({ line, column: at2 - lineStart });
+  }
+  const rest = locs.slice(1);
+  const shown = rest.slice(0, MAX_REPORTED_LOCATIONS);
+  const extra = rest.length ? `
+
+Also at: ${shown.map((l) => `line ${l.line}:${l.column}`).join(", ")}` + (rest.length > shown.length ? `, and ${rest.length - shown.length} more` : "") + ` (${locs.length} occurrences in total)` : "";
+  throw new SyntaxError2(message + extra, locs[0]);
+}
+function rejectAll(source, masked, pattern, message) {
+  const re = new RegExp(pattern.source, pattern.flags.includes("g") ? pattern.flags : pattern.flags + "g");
+  const hits = [];
+  let m;
+  while ((m = re.exec(masked)) !== null) {
+    hits.push(m.index);
+    if (m.index === re.lastIndex)
+      re.lastIndex++;
+  }
+  if (!hits.length)
+    return;
+  rejectAt(source, hits, message);
+}
+function validateNoDate(source, warnings) {
+  const errors = [
+    {
+      pattern: /\bnew\s+Date\b/,
+      message: "`new Date()` is not allowed in TJS — the Date object is mutable and " + `timezone-dependent.
+
+` + `  import { Timestamp } from 'tjs-lang'
+` + `  const t = Timestamp.now()          // wall-clock, epoch ms
+` + `  const t = Timestamp.from(iso)      // parse
+
+` + "Or `performance.now()` for a monotonic counter — no import needed. " + "To keep Date deliberately: `unsafe new Date(x)`."
+    }
+  ];
+  const warns = [
+    {
+      pattern: /\bDate\.now\b/,
+      message: "Date.now() is safe (it returns a number). Timestamp.now() is a drop-in with the same type and meaning; performance.now() is better for elapsed time, being monotonic and unaffected by clock changes."
+    },
+    {
+      pattern: /\bDate\.parse\b/,
+      message: "Date.parse() returns a number and is safe, but its parsing of non-ISO input is implementation-defined. Prefer Timestamp.parse() when you want a timestamp value."
+    },
+    {
+      pattern: /\bDate\.UTC\b/,
+      message: "Date.UTC() returns a number and is safe. Timestamp.from() is preferred when you want a timestamp value rather than milliseconds."
+    }
+  ];
+  const scan = maskLiterals(source);
+  for (const { pattern, message } of errors) {
+    rejectAll(source, scan, pattern, message);
+  }
+  for (const { pattern, message } of warns) {
+    if (pattern.test(scan))
+      warnings?.push(message);
+  }
+  return source;
+}
+function transformConstBang(source) {
+  const immutableNames = new Set;
+  const masked = maskLiterals(source);
+  const constBangRe = /\bconst!\s+(\w+)\b/g;
+  let m;
+  while ((m = constBangRe.exec(masked)) !== null) {
+    immutableNames.add(m[1]);
+    const after = source.slice(m.index + m[0].length);
+    const init = after.match(/^\s*=\s*(-?\+?\d[\d_]*(?:\.\d+)?|'[^']*'|"[^"]*"|true|false|null|undefined)\s*(?:[;\n]|$)/);
+    if (init) {
+      throw new SyntaxError2(`\`const! ${m[1]} = ${init[1]}\` is redundant — \`${init[1]}\` is a primitive, ` + `and a primitive cannot be mutated.
+
+` + `  const ${m[1]} = ${init[1]}
+
+` + `\`const!\` adds DEEP immutability, which only differs for objects and arrays: ` + `\`const c = { a: 1 }\` allows \`c.a = 2\`, and \`const! c = { a: 1 }\` rejects it.`, locAt(source, m.index));
+    }
+  }
+  if (immutableNames.size === 0)
+    return source;
+  const bangRe = /\bconst!(?=\s)/g;
+  const at2 = [];
+  let b;
+  while ((b = bangRe.exec(masked)) !== null)
+    at2.push(b.index);
+  for (let i2 = at2.length - 1;i2 >= 0; i2--) {
+    source = source.slice(0, at2[i2]) + "const" + source.slice(at2[i2] + 6);
+  }
+  const stripped = maskLiterals(source);
+  for (const name of immutableNames) {
+    const assignRe = new RegExp(`\\b${name}\\s*(?:\\.[\\w]+|\\[[^\\]]+\\])\\s*(?:=(?!=)|\\+\\+|--|\\+=|-=|\\*=|\\/=|%=|&&=|\\|\\|=|\\?\\?=|<<=|>>=|>>>=|\\^=|&=|\\|=)`, "g");
+    if (assignRe.test(stripped)) {
+      throw new Error(`Cannot mutate immutable binding '${name}'. ` + `const! bindings are read-only at compile time.`);
+    }
+    const prefixRe = new RegExp(`(?:\\+\\+|--)\\s*${name}\\s*(?:\\.[\\w]+|\\[[^\\]]+\\])`, "g");
+    if (prefixRe.test(stripped)) {
+      throw new Error(`Cannot mutate immutable binding '${name}'. ` + `const! bindings are read-only at compile time.`);
+    }
+    const deleteRe = new RegExp(`\\bdelete\\s+${name}\\s*(?:\\.[\\w]+|\\[[^\\]]+\\])`, "g");
+    if (deleteRe.test(stripped)) {
+      throw new Error(`Cannot mutate immutable binding '${name}'. ` + `const! bindings are read-only at compile time.`);
+    }
+    const mutatingMethods = "push|pop|splice|shift|unshift|sort|reverse|fill|copyWithin|set";
+    const methodRe = new RegExp(`\\b${name}\\s*\\.\\s*(?:${mutatingMethods})\\s*\\(`, "g");
+    if (methodRe.test(stripped)) {
+      throw new Error(`Cannot call mutating method on immutable binding '${name}'. ` + `const! bindings are read-only at compile time.`);
+    }
+  }
+  return source;
+}
+function validateNoVar(source) {
+  const varPattern = /(?<![a-zA-Z_$])\bvar\s+/;
+  rejectAll(source, maskLiterals(source), varPattern, "`var` is not allowed in TJS — use `const` or `let`. If you genuinely need function-scoped hoisting, mark it: `unsafe var x = 1`.");
+  return source;
+}
+function validateNoNew(source) {
+  const masked = maskLiterals(source);
+  const declared = declaredClassNames(source, masked);
+  if (declared.length === 0)
+    return source;
+  const re = newExpressionPattern(declared);
+  const hits = [];
+  for (const m of masked.matchAll(re)) {
+    const after = m.index + m[0].length;
+    if (!constructsDeclaredClass(masked, after, !!m[2]))
+      continue;
+    hits.push({ at: m.index, name: m[1] });
+  }
+  if (!hits.length)
+    return source;
+  const name = hits[0].name;
+  rejectAt(source, hits.map((h) => h.at), `\`new ${name}\` is not allowed in TJS — a class is CALLED, so \`${name}(…)\` does exactly what \`new ${name}(…)\` does and returns the same object. Drop the keyword. To construct deliberately: \`unsafe new ${name}(…)\`.`);
+  return source;
+}
+function validateNoEval(source, warnings) {
+  const evalPattern = /(?<![A-Za-z_$])\beval\s*\(/;
+  const scan = maskLiterals(source);
+  rejectAll(source, scan, evalPattern, "`eval()` is not allowed in TJS. Use `Eval()` from the TJS runtime for sandboxed evaluation, or mark a deliberate exception: `unsafe eval(src)`.");
+  const functionPattern = /\bnew\s+Function\s*\(/;
+  if (functionPattern.test(scan)) {
+    warnings?.push("new Function() is unsafe: it evaluates arbitrary source with full ambient authority. " + "SafeFunction() from the TJS runtime is sandboxed, but it is NOT a drop-in — it " + "cannot reach globals — so this is flagged rather than rewritten.");
+  }
+  return source;
+}
+function transformBangAccess(source) {
+  if (!source.includes("!."))
+    return source;
+  let result = "";
+  let i2 = 0;
+  let state = "normal";
+  let templateDepth = 0;
+  while (i2 < source.length) {
+    const ch = source[i2];
+    const next = source[i2 + 1];
+    if (state === "normal") {
+      if (ch === "/" && next === "/") {
+        state = "line-comment";
+        result += ch;
+        i2++;
+        continue;
+      }
+      if (ch === "/" && next === "*") {
+        state = "block-comment";
+        result += ch;
+        i2++;
+        continue;
+      }
+      if (ch === "'") {
+        state = "string-single";
+        result += ch;
+        i2++;
+        continue;
+      }
+      if (ch === '"') {
+        state = "string-double";
+        result += ch;
+        i2++;
+        continue;
+      }
+      if (ch === "`") {
+        state = "string-template";
+        templateDepth++;
+        result += ch;
+        i2++;
+        continue;
+      }
+      if (ch === "!" && next === "." && i2 + 2 < source.length && /[a-zA-Z_$]/.test(source[i2 + 2])) {
+        const exprEnd = result.length;
+        const exprStart = findExprStartBackward(result);
+        if (exprStart < exprEnd) {
+          const expr = result.slice(exprStart);
+          result = result.slice(0, exprStart);
+          let j = i2 + 2;
+          while (j < source.length && /[\w$]/.test(source[j]))
+            j++;
+          const prop = source.slice(i2 + 2, j);
+          result += `__tjs.bang(${expr},'${prop}')`;
+          i2 = j;
+          continue;
+        }
+      }
+      result += ch;
+      i2++;
+    } else if (state === "line-comment") {
+      result += ch;
+      if (ch === `
+`)
+        state = "normal";
+      i2++;
+    } else if (state === "block-comment") {
+      result += ch;
+      if (ch === "*" && next === "/") {
+        result += next;
+        state = "normal";
+        i2 += 2;
+      } else {
+        i2++;
+      }
+    } else if (state === "string-single") {
+      result += ch;
+      if (ch === "\\") {
+        result += next || "";
+        i2 += 2;
+      } else if (ch === "'") {
+        state = "normal";
+        i2++;
+      } else {
+        i2++;
+      }
+    } else if (state === "string-double") {
+      result += ch;
+      if (ch === "\\") {
+        result += next || "";
+        i2 += 2;
+      } else if (ch === '"') {
+        state = "normal";
+        i2++;
+      } else {
+        i2++;
+      }
+    } else if (state === "string-template") {
+      result += ch;
+      if (ch === "\\") {
+        result += next || "";
+        i2 += 2;
+      } else if (ch === "`") {
+        templateDepth--;
+        state = templateDepth > 0 ? "string-template" : "normal";
+        i2++;
+      } else if (ch === "$" && next === "{") {
+        result += next;
+        i2 += 2;
+        state = "normal";
+      } else {
+        i2++;
+      }
+    } else {
+      result += ch;
+      i2++;
+    }
+  }
+  return result;
+}
+function findExprStartBackward(text) {
+  let pos = text.length - 1;
+  while (pos >= 0 && /\s/.test(text[pos]))
+    pos--;
+  if (pos < 0)
+    return text.length;
+  while (pos >= 0) {
+    const ch = text[pos];
+    if (/[\w$]/.test(ch)) {
+      while (pos >= 0 && /[\w$]/.test(text[pos]))
+        pos--;
+      if (pos >= 0 && text[pos] === ".") {
+        if (pos >= 1 && text[pos - 1] === "?") {
+          pos -= 2;
+        } else {
+          pos--;
+        }
+        continue;
+      }
+      return pos + 1;
+    } else if (ch === ")") {
+      pos = findMatchingOpen(text, pos, "(", ")");
+      if (pos < 0)
+        return 0;
+      pos--;
+      if (pos >= 0 && /[\w$]/.test(text[pos]))
+        continue;
+      if (pos >= 0 && text[pos] === ".") {
+        if (pos >= 1 && text[pos - 1] === "?")
+          pos -= 2;
+        else
+          pos--;
+        continue;
+      }
+      return pos + 1;
+    } else if (ch === "]") {
+      pos = findMatchingOpen(text, pos, "[", "]");
+      if (pos < 0)
+        return 0;
+      pos--;
+      if (pos >= 0 && /[\w$]/.test(text[pos]))
+        continue;
+      if (pos >= 0 && text[pos] === ".") {
+        if (pos >= 1 && text[pos - 1] === "?")
+          pos -= 2;
+        else
+          pos--;
+        continue;
+      }
+      return pos + 1;
+    } else {
+      return pos + 1;
+    }
+  }
+  return 0;
+}
+function findMatchingOpen(text, pos, open, close) {
+  let depth = 1;
+  pos--;
+  while (pos >= 0 && depth > 0) {
+    if (text[pos] === close)
+      depth++;
+    else if (text[pos] === open)
+      depth--;
+    if (depth > 0)
+      pos--;
+  }
+  return pos;
+}
+function transformLetTypeAnnotations(source) {
+  const annotations = new Map;
+  if (!source.includes("let "))
+    return { source, annotations };
+  const replacements = [];
+  let i2 = 0;
+  let state = "normal";
+  const templateStack = [];
+  while (i2 < source.length) {
+    const char = source[i2];
+    const nextChar = source[i2 + 1];
+    switch (state) {
+      case "single-string":
+        if (char === "\\" && i2 + 1 < source.length) {
+          i2 += 2;
+          continue;
+        }
+        if (char === "'")
+          state = "normal";
+        i2++;
+        continue;
+      case "double-string":
+        if (char === "\\" && i2 + 1 < source.length) {
+          i2 += 2;
+          continue;
+        }
+        if (char === '"')
+          state = "normal";
+        i2++;
+        continue;
+      case "template-string":
+        if (char === "\\" && i2 + 1 < source.length) {
+          i2 += 2;
+          continue;
+        }
+        if (char === "$" && nextChar === "{") {
+          i2 += 2;
+          templateStack.push(1);
+          state = "normal";
+          continue;
+        }
+        if (char === "`")
+          state = "normal";
+        i2++;
+        continue;
+      case "line-comment":
+        if (char === `
+`)
+          state = "normal";
+        i2++;
+        continue;
+      case "block-comment":
+        if (char === "*" && nextChar === "/") {
+          i2 += 2;
+          state = "normal";
+          continue;
+        }
+        i2++;
+        continue;
+      case "regex":
+        if (char === "\\" && i2 + 1 < source.length) {
+          i2 += 2;
+          continue;
+        }
+        if (char === "[") {
+          i2++;
+          while (i2 < source.length && source[i2] !== "]") {
+            if (source[i2] === "\\" && i2 + 1 < source.length)
+              i2 += 2;
+            else
+              i2++;
+          }
+          if (i2 < source.length)
+            i2++;
+          continue;
+        }
+        if (char === "/") {
+          i2++;
+          while (i2 < source.length && /[gimsuy]/.test(source[i2]))
+            i2++;
+          state = "normal";
+          continue;
+        }
+        i2++;
+        continue;
+      case "normal":
+        if (templateStack.length > 0) {
+          if (char === "{") {
+            templateStack[templateStack.length - 1]++;
+          } else if (char === "}") {
+            templateStack[templateStack.length - 1]--;
+            if (templateStack[templateStack.length - 1] === 0) {
+              templateStack.pop();
+              i2++;
+              state = "template-string";
+              continue;
+            }
+          }
+        }
+        if (char === "'") {
+          i2++;
+          state = "single-string";
+          continue;
+        }
+        if (char === '"') {
+          i2++;
+          state = "double-string";
+          continue;
+        }
+        if (char === "`") {
+          i2++;
+          state = "template-string";
+          continue;
+        }
+        if (char === "/" && nextChar === "/") {
+          i2 += 2;
+          state = "line-comment";
+          continue;
+        }
+        if (char === "/" && nextChar === "*") {
+          i2 += 2;
+          state = "block-comment";
+          continue;
+        }
+        if (char === "/") {
+          let j = i2 - 1;
+          while (j >= 0 && /\s/.test(source[j]))
+            j--;
+          const beforeChar = j >= 0 ? source[j] : "";
+          const isRegexContext = !beforeChar || /[=(!,;:{[&|?+\-*%<>~^]/.test(beforeChar) || j >= 5 && /\b(return|case|throw|in|of|typeof|instanceof|new|delete|void)$/.test(source.slice(Math.max(0, j - 10), j + 1));
+          if (isRegexContext) {
+            i2++;
+            state = "regex";
+            continue;
+          }
+        }
+        if (char === "l" && source.slice(i2, i2 + 4) === "let " && (i2 === 0 || !/[\w$]/.test(source[i2 - 1]))) {
+          let j = i2 + 4;
+          while (j < source.length && /\s/.test(source[j]))
+            j++;
+          if (j < source.length && /[a-zA-Z_$]/.test(source[j])) {
+            const nameStart = j;
+            while (j < source.length && /[\w$]/.test(source[j]))
+              j++;
+            const nameEnd = j;
+            const varName = source.slice(nameStart, nameEnd);
+            let k = j;
+            while (k < source.length && /\s/.test(source[k]))
+              k++;
+            if (k < source.length && source[k] === ":" && source[k + 1] !== ":") {
+              const colonPos = k;
+              let exStart = colonPos + 1;
+              while (exStart < source.length && /[ \t]/.test(source[exStart])) {
+                exStart++;
+              }
+              const exEnd = scanExampleEnd(source, exStart);
+              if (exEnd > exStart) {
+                const example = source.slice(exStart, exEnd).trim();
+                annotations.set(varName, example);
+                replacements.push({
+                  start: nameEnd,
+                  end: exEnd,
+                  replacement: ""
+                });
+                i2 = exEnd;
+                continue;
+              }
+            }
+          }
+        }
+        break;
+    }
+    i2++;
+  }
+  if (replacements.length === 0)
+    return { source, annotations };
+  let result = source;
+  for (let k = replacements.length - 1;k >= 0; k--) {
+    const r = replacements[k];
+    result = result.slice(0, r.start) + r.replacement + result.slice(r.end);
+  }
+  return { source: result, annotations };
+}
+function scanExampleEnd(source, start) {
+  let i2 = start;
+  let parens = 0;
+  let braces = 0;
+  let brackets = 0;
+  let state = "normal";
+  const templateStack = [];
+  while (i2 < source.length) {
+    const c = source[i2];
+    if (state === "sq") {
+      if (c === "\\") {
+        i2 += 2;
+        continue;
+      }
+      if (c === "'")
+        state = "normal";
+      i2++;
+      continue;
+    }
+    if (state === "dq") {
+      if (c === "\\") {
+        i2 += 2;
+        continue;
+      }
+      if (c === '"')
+        state = "normal";
+      i2++;
+      continue;
+    }
+    if (state === "tpl") {
+      if (c === "\\") {
+        i2 += 2;
+        continue;
+      }
+      if (c === "$" && source[i2 + 1] === "{") {
+        templateStack.push(1);
+        state = "normal";
+        i2 += 2;
+        continue;
+      }
+      if (c === "`")
+        state = "normal";
+      i2++;
+      continue;
+    }
+    if (templateStack.length > 0) {
+      if (c === "{")
+        templateStack[templateStack.length - 1]++;
+      else if (c === "}") {
+        templateStack[templateStack.length - 1]--;
+        if (templateStack[templateStack.length - 1] === 0) {
+          templateStack.pop();
+          state = "tpl";
+          i2++;
+          continue;
+        }
+      }
+    }
+    if (c === "'") {
+      state = "sq";
+      i2++;
+      continue;
+    }
+    if (c === '"') {
+      state = "dq";
+      i2++;
+      continue;
+    }
+    if (c === "`") {
+      state = "tpl";
+      i2++;
+      continue;
+    }
+    if (c === "(")
+      parens++;
+    else if (c === ")")
+      parens--;
+    else if (c === "{")
+      braces++;
+    else if (c === "}")
+      braces--;
+    else if (c === "[")
+      brackets++;
+    else if (c === "]")
+      brackets--;
+    if (parens === 0 && braces === 0 && brackets === 0) {
+      if (c === "=" || c === "," || c === ";" || c === `
+`)
+        return i2;
+    }
+    i2++;
+  }
+  return i2;
+}
+
+// node_modules/tjs-lang/src/lang/inference.ts
+var TS_TYPE_NAMES = {
+  string: { kind: "string" },
+  number: { kind: "number" },
+  int: { kind: "integer" },
+  unsigned: { kind: "non-negative-integer" },
+  uint: { kind: "non-negative-integer" },
+  float: { kind: "number" },
+  boolean: { kind: "boolean" },
+  bigint: { kind: "bigint" },
+  object: { kind: "object" },
+  any: { kind: "any" },
+  unknown: { kind: "any" },
+  void: { kind: "any" },
+  never: { kind: "any" },
+  null: { kind: "null" },
+  undefined: { kind: "undefined" }
+};
+function typeNameExample(name) {
+  switch (name.trim()) {
+    case "number":
+    case "float":
+      return "0.0";
+    case "int":
+      return "0";
+    case "unsigned":
+    case "uint":
+      return "+0";
+    case "string":
+      return "''";
+    case "boolean":
+      return "false";
+    case "bigint":
+      return "0n";
+    default:
+      return null;
+  }
+}
+function typeArgumentSource(name) {
+  const d = TS_TYPE_NAMES[name.trim()];
+  if (!d)
+    return null;
+  switch (d.kind) {
+    case "string":
+    case "number":
+    case "boolean":
+    case "bigint":
+      return `((v) => typeof v === '${d.kind}')`;
+    case "integer":
+      return `(Number.isInteger)`;
+    case "non-negative-integer":
+      return `((v) => typeof v === 'number' && Number.isInteger(v) && v >= 0)`;
+    case "object":
+      return `((v) => v !== null && typeof v === 'object' && !Array.isArray(v))`;
+    case "null":
+      return `((v) => v === null)`;
+    case "undefined":
+      return `((v) => v === undefined)`;
+    case "any":
+      return `(() => true)`;
+    default:
+      return null;
+  }
+}
+function isTypeNameAnnotation(text) {
+  const t = text.trim();
+  if (!/^[A-Za-z_$][A-Za-z0-9_$]*$/.test(t))
+    return false;
+  if (t === "undefined" || t === "NaN" || t === "Infinity")
+    return false;
+  return true;
+}
+function literalUnionValues(node) {
+  const out = [];
+  const walk = (n) => {
+    if (!n)
+      return false;
+    if (n.type === "BinaryExpression" && n.operator === "|") {
+      return walk(n.left) && walk(n.right);
+    }
+    if (n.type === "Literal") {
+      out.push(n.value === undefined ? null : n.value);
+      return true;
+    }
+    if (n.type === "UnaryExpression" && (n.operator === "+" || n.operator === "-") && n.argument?.type === "Literal" && typeof n.argument.value === "number") {
+      out.push(n.operator === "-" ? -n.argument.value : n.argument.value);
+      return true;
+    }
+    if (n.type === "Identifier" && n.name === "undefined") {
+      out.push(null);
+      return true;
+    }
+    return false;
+  };
+  if (!walk(node))
+    return null;
+  if (!out.length)
+    return null;
+  const kinds = new Set(out.map((v) => typeof v));
+  if (kinds.size !== 1)
+    return null;
+  return [...new Set(out)];
+}
+function inferTypeFromValue(node) {
+  if (node.type === "CallExpression" && node.callee?.type === "Identifier" && node.callee.name === "LegacyDefault" && node.arguments?.length === 1) {
+    return inferTypeFromValue(node.arguments[0]);
+  }
+  switch (node.type) {
+    case "Literal": {
+      const value = node.value;
+      if (value === null) {
+        return { kind: "null" };
+      }
+      if (typeof value === "string") {
+        return { kind: "string" };
+      }
+      if (typeof value === "number") {
+        const raw = node.raw;
+        if (raw && raw.includes(".")) {
+          return { kind: "number" };
+        }
+        return { kind: "integer" };
+      }
+      if (typeof value === "bigint") {
+        return { kind: "bigint" };
+      }
+      if (typeof value === "boolean") {
+        return { kind: "boolean" };
+      }
+      return { kind: "any" };
+    }
+    case "ArrayExpression": {
+      const elements = node.elements;
+      if (elements.length === 0) {
+        return { kind: "array", items: { kind: "any" } };
+      }
+      const itemTypes = elements.filter((el) => el != null).map((el) => inferTypeFromValue(el));
+      if (itemTypes.length === 0) {
+        return { kind: "array", items: { kind: "any" } };
+      }
+      const seen = new Map;
+      for (const t of itemTypes) {
+        const key = JSON.stringify(t);
+        if (!seen.has(key))
+          seen.set(key, t);
+      }
+      const unique = [...seen.values()];
+      const items = unique.length === 1 ? unique[0] : { kind: "union", members: unique };
+      return { kind: "array", items };
+    }
+    case "ObjectExpression": {
+      const properties = node.properties;
+      const shape = {};
+      for (const prop of properties) {
+        if (prop.type === "Property" && prop.key.type === "Identifier") {
+          const key = prop.key.name;
+          shape[key] = inferTypeFromValue(prop.value);
+        }
+      }
+      return { kind: "object", shape };
+    }
+    case "LogicalExpression": {
+      const { operator, left, right } = node;
+      if (operator === "||") {
+        return inferTypeFromValue(left);
+      }
+      if (operator === "&&") {
+        const rightType = inferTypeFromValue(right);
+        return rightType;
+      }
+      if (operator === "??") {
+        const rightType = inferTypeFromValue(right);
+        return rightType;
+      }
+      return { kind: "any" };
+    }
+    case "BinaryExpression": {
+      const { operator, left, right } = node;
+      if (operator === "|") {
+        const leftType = inferTypeFromValue(left);
+        const rightType = inferTypeFromValue(right);
+        if (rightType.kind === "null") {
+          return { ...leftType, nullable: true };
+        }
+        if (leftType.kind === "null") {
+          return { ...rightType, nullable: true };
+        }
+        const values = literalUnionValues(node);
+        if (values)
+          return { kind: "literal-union", values };
+        return {
+          kind: "union",
+          members: [leftType, rightType]
+        };
+      }
+      return { kind: "any" };
+    }
+    case "Identifier": {
+      if (node.name === "undefined") {
+        return { kind: "undefined" };
+      }
+      const tsType = TS_TYPE_NAMES[node.name];
+      if (tsType)
+        return { ...tsType };
+      return { kind: "any", unresolved: node.name };
+    }
+    case "TSArrayType": {
+      const el = node.elementType;
+      return {
+        kind: "array",
+        items: el ? inferTypeFromValue(el) : { kind: "any" }
+      };
+    }
+    case "ArrowFunctionExpression":
+    case "FunctionExpression": {
+      const fn = node;
+      const params = fn.params.map((p) => paramShape(p));
+      let returns = { kind: "any" };
+      if (fn.type === "ArrowFunctionExpression" && fn.body && fn.body.type !== "BlockStatement") {
+        returns = inferTypeFromValue(fn.body);
+      }
+      return { kind: "function", params, returns };
+    }
+    case "UnaryExpression": {
+      const op = node.operator;
+      const arg = node.argument;
+      if (op === "+" && arg.type === "Literal") {
+        const value = arg.value;
+        if (typeof value === "number") {
+          return { kind: "non-negative-integer" };
+        }
+      }
+      if (op === "-" && arg.type === "Literal") {
+        const value = arg.value;
+        if (typeof value === "number") {
+          const raw = arg.raw;
+          if (raw && raw.includes(".")) {
+            return { kind: "number" };
+          }
+          return { kind: "integer" };
+        }
+      }
+      return { kind: "any" };
+    }
+    default:
+      return { kind: "any" };
+  }
+}
+function paramShape(p) {
+  if (p.type === "Identifier") {
+    return { name: p.name, type: { kind: "any" } };
+  }
+  if (p.type === "AssignmentPattern" && p.left?.type === "Identifier") {
+    return { name: p.left.name, type: inferTypeFromValue(p.right) };
+  }
+  if (p.type === "RestElement" && p.argument?.type === "Identifier") {
+    return {
+      name: `...${p.argument.name}`,
+      type: { kind: "array", items: { kind: "any" } }
+    };
+  }
+  return { name: "?", type: { kind: "any" } };
+}
+function parseParameter(param, requiredParams) {
+  if (param.type === "Identifier") {
+    return {
+      name: param.name,
+      type: { kind: "any" },
+      required: true
+    };
+  }
+  if (param.type === "AssignmentPattern") {
+    const { left, right } = param;
+    if (left.type !== "Identifier") {
+      throw new TranspileError("Only simple parameter names are supported", getLocation(param));
+    }
+    const name = left.name;
+    const isRequired = requiredParams?.has(name) ?? false;
+    const type = inferTypeFromValue(right);
+    const exampleValue = extractLiteralValue(right);
+    return {
+      name,
+      type,
+      required: isRequired,
+      default: isRequired ? null : exampleValue,
+      example: exampleValue,
+      loc: { start: param.start, end: param.end }
+    };
+  }
+  if (param.type === "ObjectPattern") {
+    const properties = param.properties;
+    const shape = {};
+    const destructuredParams = {};
+    for (const prop of properties) {
+      if (prop.type === "Property") {
+        const key = prop.key.type === "Identifier" ? prop.key.name : String(prop.key.value);
+        if (prop.value.type === "Identifier") {
+          shape[key] = { kind: "any" };
+          destructuredParams[key] = {
+            name: key,
+            type: { kind: "any" },
+            required: true
+          };
+        } else if (prop.value.type === "AssignmentPattern") {
+          const innerParam = parseParameter(prop.value, requiredParams);
+          const isRequired = requiredParams?.has(key) ?? false;
+          shape[key] = innerParam.type;
+          destructuredParams[key] = {
+            name: key,
+            type: innerParam.type,
+            required: isRequired,
+            default: isRequired ? null : innerParam.example,
+            example: innerParam.example
+          };
+        }
+      }
+    }
+    return {
+      name: "__destructured__",
+      type: { kind: "object", shape, destructuredParams },
+      required: true
+    };
+  }
+  throw new TranspileError(`Unsupported parameter pattern: ${param.type}`, getLocation(param));
+}
+function extractLiteralValue(node) {
+  switch (node.type) {
+    case "Literal":
+      return node.value;
+    case "ArrayExpression":
+      return node.elements.map((el) => el ? extractLiteralValue(el) : null);
+    case "ObjectExpression": {
+      const result = {};
+      for (const prop of node.properties) {
+        if (prop.type === "Property" && prop.key.type === "Identifier") {
+          result[prop.key.name] = extractLiteralValue(prop.value);
+        }
+      }
+      return result;
+    }
+    case "UnaryExpression":
+      if (node.operator === "-") {
+        const arg = extractLiteralValue(node.argument);
+        return typeof arg === "number" ? -arg : undefined;
+      }
+      if (node.operator === "+") {
+        const arg = extractLiteralValue(node.argument);
+        return typeof arg === "number" ? +arg : undefined;
+      }
+      return;
+    case "BinaryExpression": {
+      const { operator, left } = node;
+      if (operator === "|") {
+        return extractLiteralValue(left);
+      }
+      return;
+    }
+    case "LogicalExpression": {
+      const { operator, left, right } = node;
+      if (operator === "&&") {
+        if (left.type === "Literal" && left.value === null) {
+          return null;
+        }
+      }
+      if (operator === "||") {
+        const leftVal = extractLiteralValue(left);
+        return leftVal ?? extractLiteralValue(right);
+      }
+      if (operator === "??") {
+        const leftVal = extractLiteralValue(left);
+        return leftVal ?? extractLiteralValue(right);
+      }
+      return;
+    }
+    default:
+      return;
+  }
+}
+function parseReturnType(typeExpr) {
+  try {
+    const ast = parseExpressionAt2(typeExpr, 0, {
+      ecmaVersion: 2022
+    });
+    return inferTypeFromValue(ast);
+  } catch {
+    return { kind: "any" };
+  }
+}
+
+// node_modules/tjs-lang/src/lang/parser-params.ts
+var PARAM_REQUIRED_MARKER = "/*!tjs-req*/";
+var PARAM_TYPENAME_MARKER = "/*!tjs-opt*/";
+var MARKER_PREFIX = "/*!tjs-";
+function stripParamMarkers(code) {
+  return code.split(PARAM_REQUIRED_MARKER).join("").split(PARAM_TYPENAME_MARKER).join("");
+}
+function extractParamMarkers(src) {
+  const required = new Set;
+  const typeName = new Set;
+  if (!src.includes(PARAM_REQUIRED_MARKER) && !src.includes(PARAM_TYPENAME_MARKER)) {
+    return { source: src, required, typeName };
+  }
+  const regions = scanLiterals(src).filter((r) => r.kind === "string" || r.kind === "template" || r.kind === "regex");
+  let ri = 0;
+  const literalAt = (pos) => {
+    while (ri < regions.length && regions[ri].innerEnd <= pos)
+      ri++;
+    return ri < regions.length && pos >= regions[ri].innerStart;
+  };
+  const chunks = [];
+  let outLen = 0;
+  const emit = (s) => {
+    if (!s)
+      return;
+    chunks.push(s);
+    outLen += s.length;
+  };
+  let i2 = 0;
+  for (;; ) {
+    const at2 = src.indexOf(MARKER_PREFIX, i2);
+    if (at2 < 0) {
+      emit(src.slice(i2));
+      break;
+    }
+    const isReq = src.startsWith(PARAM_REQUIRED_MARKER, at2);
+    const isOpt = !isReq && src.startsWith(PARAM_TYPENAME_MARKER, at2);
+    if (!isReq && !isOpt || literalAt(at2)) {
+      emit(src.slice(i2, at2 + MARKER_PREFIX.length));
+      i2 = at2 + MARKER_PREFIX.length;
+      continue;
+    }
+    emit(src.slice(i2, at2));
+    const last = chunks[chunks.length - 1];
+    if (last && last.endsWith(" ")) {
+      chunks[chunks.length - 1] = last.slice(0, -1);
+      outLen--;
+    }
+    (isReq ? required : typeName).add(outLen);
+    i2 = at2 + (isReq ? PARAM_REQUIRED_MARKER : PARAM_TYPENAME_MARKER).length;
+  }
+  return { source: chunks.join(""), required, typeName };
+}
 function transformParenExpressions(source, ctx) {
   let result = "";
   let i2 = 0;
@@ -5584,12 +10190,13 @@ function transformParenExpressions(source, ctx) {
       contextStack.push({ type: "class-body", braceDepth });
       continue;
     }
-    const funcMatch = source.slice(i2).match(/^function\s+(\w+)\s*\(/);
+    const funcMatch = source.slice(i2).match(/^function(?:\s+(\w+))?\s*\(/);
     if (funcMatch) {
-      const funcName = funcMatch[1];
+      const declaredName = funcMatch[1];
+      const funcName = declaredName || "anonymous";
       const matchLen = funcMatch[0].length;
       const afterParen = source[i2 + matchLen];
-      let safetyMarker = null;
+      let safetyMarker;
       let paramStart = i2 + matchLen;
       if (afterParen === "?" || afterParen === "!") {
         safetyMarker = afterParen;
@@ -5600,7 +10207,7 @@ function transformParenExpressions(source, ctx) {
           ctx.safeFunctions.add(funcName);
         }
       }
-      result += `function ${funcName}(`;
+      result += declaredName ? `function ${declaredName}(` : `function (`;
       i2 = paramStart;
       const paramsResult = extractBalancedContent(source, i2, "(", ")");
       if (!paramsResult) {
@@ -5615,29 +10222,52 @@ function transformParenExpressions(source, ctx) {
       let j = i2;
       while (j < source.length && /\s/.test(source[j]))
         j++;
-      const returnArrow = source.slice(j, j + 2);
-      if (returnArrow === "->" || returnArrow === "-?" || returnArrow === "-!") {
-        j += 2;
+      if (source[j] === ":") {
+        const colonMarker = source.slice(j, j + 2);
+        let safety;
+        if (colonMarker === ":?" || colonMarker === ":!") {
+          j += 2;
+          safety = colonMarker === ":?" ? "safe" : "unsafe";
+        } else {
+          j += 1;
+        }
         while (j < source.length && /\s/.test(source[j]))
           j++;
         const typeResult = extractReturnTypeValue(source, j);
         if (typeResult) {
-          const { type, endPos: typeEnd } = typeResult;
           if (firstReturnType === undefined) {
-            firstReturnType = type;
-            if (returnArrow === "-?") {
-              firstReturnSafety = "safe";
-            } else if (returnArrow === "-!") {
-              firstReturnSafety = "unsafe";
-            }
+            firstReturnType = typeResult.type;
+            if (safety)
+              firstReturnSafety = safety;
           }
-          i2 = typeEnd;
+          i2 = typeResult.endPos;
         }
+      }
+      let arrowCheck = i2;
+      while (arrowCheck < source.length && /\s/.test(source[arrowCheck]))
+        arrowCheck++;
+      if (source[arrowCheck] === "=" && source[arrowCheck + 1] === ">") {
+        throw new SyntaxError2("Unexpected '=>' after function declaration. " + "Function declarations use `function name(params) { body }`, " + "not arrow syntax. Remove the `=>`.", locAt(ctx.originalSource, arrowCheck), ctx.originalSource);
       }
       continue;
     }
     const methodMatch = source.slice(i2).match(/^(constructor|(?:get|set)\s+\w+|async\s+\w+|\w+)\s*\(/);
-    if (methodMatch && isInClassBody()) {
+    const prevNonWs = (() => {
+      for (let k = result.length - 1;k >= 0; k--) {
+        if (!/\s/.test(result[k]))
+          return result[k];
+      }
+      return `
+`;
+    })();
+    const isMethodDecl = prevNonWs !== "=" && prevNonWs !== "," && prevNonWs !== "(" && prevNonWs !== "[" && prevNonWs !== ">";
+    if (methodMatch && isInClassBody() && !isMethodDecl) {
+      const skipLen = methodMatch[1].length;
+      result += source.slice(i2, i2 + skipLen);
+      i2 += skipLen;
+      continue;
+    }
+    if (methodMatch && isInClassBody() && isMethodDecl) {
       const methodPart = methodMatch[1];
       const matchLen = methodMatch[0].length;
       const paramStart = i2 + matchLen;
@@ -5656,23 +10286,25 @@ function transformParenExpressions(source, ctx) {
       let j = i2;
       while (j < source.length && /\s/.test(source[j]))
         j++;
-      const returnArrow = source.slice(j, j + 2);
-      if (returnArrow === "->") {
-        j += 2;
+      if (source[j] === ":") {
+        const colonMarker = source.slice(j, j + 2);
+        if (colonMarker === ":?" || colonMarker === ":!") {
+          j += 2;
+        } else {
+          j++;
+        }
         while (j < source.length && /\s/.test(source[j]))
           j++;
         const typeResult = extractReturnTypeValue(source, j);
         if (typeResult) {
           i2 = typeResult.endPos;
         }
-      } else if (source[j] === ":") {
-        j++;
-        while (j < source.length && /\s/.test(source[j]))
-          j++;
-        const typeResult = extractReturnTypeValue(source, j);
-        if (typeResult) {
-          i2 = typeResult.endPos;
-        }
+      }
+      let k = i2;
+      while (k < source.length && /\s/.test(source[k]))
+        k++;
+      if (source[k] === "=" && source[k + 1] === ">") {
+        throw new SyntaxError2("Unexpected '=>' after method declaration. " + "Methods use `name(params) { body }`, not arrow syntax. " + "Remove the `=>`.", locAt(ctx.originalSource, k), ctx.originalSource);
       }
       continue;
     }
@@ -5689,9 +10321,13 @@ function transformParenExpressions(source, ctx) {
       while (j < source.length && /\s/.test(source[j]))
         j++;
       let arrowReturnType;
-      const returnArrow = source.slice(j, j + 2);
-      if (returnArrow === "->" || returnArrow === "-?" || returnArrow === "-!") {
-        j += 2;
+      if (source[j] === ":") {
+        const colonMarker = source.slice(j, j + 2);
+        if (colonMarker === ":?" || colonMarker === ":!") {
+          j += 2;
+        } else {
+          j++;
+        }
         while (j < source.length && /\s/.test(source[j]))
           j++;
         const typeResult = extractReturnTypeValue(source, j);
@@ -5713,7 +10349,7 @@ function transformParenExpressions(source, ctx) {
           safetyMarker = "!";
           params = trimmedContent.slice(1);
         }
-        const processedParams = processParamString(params, ctx, false);
+        const processedParams = processParamString(params, ctx, true);
         const safetyComment = safetyMarker === "?" ? "/* safe */ " : safetyMarker === "!" ? "/* unsafe */ " : "";
         result += `(${safetyComment}${processedParams})`;
         i2 = endPos;
@@ -5745,18 +10381,32 @@ function extractBalancedContent(source, start, open, close) {
   let i2 = start;
   let inString = false;
   let stringChar = "";
+  let sigTail = open;
   while (i2 < source.length && depth > 0) {
     const char = source[i2];
+    if (inString && char === "\\") {
+      i2 += 2;
+      continue;
+    }
     if (!inString && (char === "'" || char === '"' || char === "`")) {
       inString = true;
       stringChar = char;
-    } else if (inString && char === stringChar && source[i2 - 1] !== "\\") {
+    } else if (inString && char === stringChar) {
       inString = false;
     } else if (!inString) {
+      if (char === "/" && isRegexStart(sigTail)) {
+        const end = findRegexEnd(source, i2);
+        if (end !== -1) {
+          i2 = end + 1;
+          sigTail = "/";
+          continue;
+        }
+      }
       if (char === open)
         depth++;
       else if (char === close)
         depth--;
+      sigTail = (sigTail + char).slice(-24);
     }
     i2++;
   }
@@ -5788,7 +10438,7 @@ function extractJSValue(source, start) {
   if (firstChar === "'" || firstChar === '"' || firstChar === "`") {
     i2++;
     while (i2 < source.length) {
-      if (source[i2] === firstChar && source[i2 - 1] !== "\\") {
+      if (source[i2] === firstChar && !isEscapedAt(source, i2)) {
         i2++;
         return { value: source.slice(valueStart, i2), endPos: i2 };
       }
@@ -5825,6 +10475,23 @@ function extractReturnTypeValue(source, start) {
   });
   while (i2 < source.length) {
     const char = source[i2];
+    if (!inString && char === "/") {
+      const end = findRegexEnd(source, i2);
+      if (end !== -1 && isRegexStart(source.slice(start, i2))) {
+        i2 = end + 1;
+        while (i2 < source.length && /[a-z]/.test(source[i2]))
+          i2++;
+        sawContent = true;
+        if (depth === 0) {
+          let j = i2;
+          while (j < source.length && /\s/.test(source[j]))
+            j++;
+          if (source[j] !== "|" && source[j] !== "&")
+            return makeResult(i2);
+        }
+        continue;
+      }
+    }
     if (!inString && (char === "'" || char === '"' || char === "`")) {
       inString = true;
       stringChar = char;
@@ -5833,7 +10500,7 @@ function extractReturnTypeValue(source, start) {
       continue;
     }
     if (inString) {
-      if (char === stringChar && source[i2 - 1] !== "\\") {
+      if (char === stringChar && !isEscapedAt(source, i2)) {
         inString = false;
         i2++;
         if (depth === 0) {
@@ -5903,18 +10570,23 @@ function extractReturnTypeValue(source, start) {
         j++;
       while (j < source.length && /\d/.test(source[j]))
         j++;
+      let isIntegral = true;
       if (j < source.length && source[j] === "." && /\d/.test(source[j + 1])) {
+        isIntegral = false;
         j++;
         while (j < source.length && /\d/.test(source[j]))
           j++;
       }
       if (j < source.length && (source[j] === "e" || source[j] === "E")) {
+        isIntegral = false;
         j++;
         if (j < source.length && (source[j] === "+" || source[j] === "-"))
           j++;
         while (j < source.length && /\d/.test(source[j]))
           j++;
       }
+      if (isIntegral && j < source.length && source[j] === "n")
+        j++;
       sawContent = true;
       i2 = j;
       while (i2 < source.length && /\s/.test(source[i2]))
@@ -5941,6 +10613,11 @@ function extractReturnTypeValue(source, start) {
       i2 = j;
       while (i2 < source.length && /\s/.test(source[i2]))
         i2++;
+      if (i2 < source.length && source[i2] === "(") {
+        depth++;
+        i2++;
+        continue;
+      }
       if (i2 < source.length && source[i2] === "{") {
         const afterBrace = source.slice(i2 + 1).match(/^\s*(\w+)\s*:/);
         if (!afterBrace) {
@@ -5968,10 +10645,112 @@ function extractReturnTypeValue(source, start) {
   }
   return null;
 }
+function rewriteTypeArguments(type, ctx) {
+  const arr = rewriteArraySuffix(type);
+  if (arr !== null)
+    return arr;
+  if (!ctx.declaredTypes || !ctx.hoistedTypeArgs)
+    return type;
+  const expr = applyTypeArguments(type, ctx.declaredTypes);
+  if (expr === null)
+    return type;
+  const base2 = type.trim().replace(/[^A-Za-z0-9_$]+/g, "_").replace(/_+$/, "");
+  let alias = base2;
+  for (let n = 2;ctx.declaredTypes.has(alias); n++)
+    alias = `${base2}_${n}`;
+  ctx.hoistedTypeArgs.push({
+    alias,
+    head: expr.slice(0, expr.indexOf("(")),
+    text: `const ${alias} = ${expr}`
+  });
+  ctx.declaredTypes.add(alias);
+  return alias;
+}
+function topLevelAssignment(src) {
+  const masked = maskLiterals(src);
+  let depth = 0;
+  for (let i2 = 0;i2 < masked.length; i2++) {
+    const c = masked[i2];
+    if (c === "(" || c === "[" || c === "{")
+      depth++;
+    else if (c === ")" || c === "]" || c === "}")
+      depth--;
+    else if (c === "=" && depth === 0) {
+      if (masked[i2 + 1] === "=" || masked[i2 + 1] === ">")
+        continue;
+      if ("=!<>".includes(masked[i2 - 1] ?? ""))
+        continue;
+      return i2;
+    }
+  }
+  return -1;
+}
+function rewriteArraySuffix(type) {
+  const t = type.trim();
+  if (!t.endsWith("[]"))
+    return null;
+  const inner = t.slice(0, -2).trim();
+  if (!inner)
+    return null;
+  const nested = rewriteArraySuffix(inner);
+  if (nested !== null)
+    return `[${nested}]`;
+  const example = typeNameExample(inner);
+  return example ? `[${example}]` : null;
+}
+function applyTypeArguments(type, declaredTypes) {
+  const m = type.trim().match(/^([A-Z][A-Za-z0-9_$]*)\s*<(.+)>$/);
+  if (!m)
+    return null;
+  const [, name, argsSrc] = m;
+  if (!declaredTypes.has(name))
+    return null;
+  const args = [];
+  let depth = 0;
+  let start = 0;
+  for (let i2 = 0;i2 < argsSrc.length; i2++) {
+    const c = argsSrc[i2];
+    if (c === "<" || c === "(" || c === "[" || c === "{")
+      depth++;
+    else if (c === ">" || c === ")" || c === "]" || c === "}")
+      depth--;
+    else if (c === "," && depth === 0) {
+      args.push(argsSrc.slice(start, i2));
+      start = i2 + 1;
+    }
+  }
+  args.push(argsSrc.slice(start));
+  const resolved = [];
+  for (const a of args) {
+    const t = a.trim();
+    if (!t)
+      return null;
+    const nested = applyTypeArguments(t, declaredTypes);
+    if (nested) {
+      resolved.push(nested);
+      continue;
+    }
+    const prim = typeArgumentSource(t);
+    if (prim) {
+      resolved.push(prim);
+      continue;
+    }
+    if (declaredTypes.has(t)) {
+      resolved.push(t);
+      continue;
+    }
+    return null;
+  }
+  return `${name}(${resolved.join(", ")})`;
+}
+function splitParameters(params) {
+  return splitTopLevel(params);
+}
 function processParamString(params, ctx, trackRequired) {
   const withArrows = transformParenExpressions(params, {
     originalSource: params,
     requiredParams: ctx.requiredParams,
+    typeNameOptionals: ctx.typeNameOptionals,
     unsafeFunctions: ctx.unsafeFunctions,
     safeFunctions: ctx.safeFunctions
   }).source;
@@ -6000,11 +10779,32 @@ function processParamString(params, ctx, trackRequired) {
       const processedInner = processDestructuredObjectParams(inner, ctx);
       return `[ ${processedInner} ]`;
     }
+    if (trimmed.startsWith("...")) {
+      const restColonPos = findTopLevelColon(trimmed);
+      if (restColonPos !== -1) {
+        const restName = trimmed.slice(0, restColonPos).trim();
+        const annotation = trimmed.slice(restColonPos + 1);
+        const eq = topLevelAssignment(annotation);
+        if (eq !== -1) {
+          throw new SyntaxError2(`A rest parameter cannot have a default. \`${restName}\` is always bound — ` + `to \`[]\` when no arguments are passed — so \`= ${annotation.slice(eq + 1).trim()}\` could never apply.
+
+` + `  Drop it:  ${restName}: ${annotation.slice(0, eq).trim()}
+
+` + `JavaScript rejects \`${restName} = …\` for the same reason; only the ` + `annotated spelling slipped through.`, locAt(trimmed, 0));
+        }
+        return restName;
+      }
+      return param;
+    }
     const optionalMatch = trimmed.match(/^(\w+)\s*\?\s*:\s*(.+)$/);
     if (optionalMatch) {
       const [, name, type] = optionalMatch;
       checkDuplicate(name);
       sawOptional = true;
+      if (isTypeNameAnnotation(type)) {
+        ctx.typeNameOptionals.add(name);
+        return `${name} = ${type} ${PARAM_TYPENAME_MARKER}`;
+      }
       return `${name} = ${type}`;
     }
     if (!hasColonNotEquals(trimmed)) {
@@ -6018,13 +10818,12 @@ function processParamString(params, ctx, trackRequired) {
     const colonPos = findTopLevelColon(trimmed);
     if (colonPos !== -1) {
       const name = trimmed.slice(0, colonPos).trim();
-      const type = trimmed.slice(colonPos + 1).trim();
+      const type = rewriteTypeArguments(trimmed.slice(colonPos + 1).trim(), ctx);
       checkDuplicate(name);
-      if (sawOptional && trackRequired && /^\w+$/.test(name)) {
-        throw new Error(`Required parameter '${name}' cannot follow optional parameter`);
-      }
+      if (sawOptional && trackRequired && /^\w+$/.test(name)) {}
       if (trackRequired && /^\w+$/.test(name)) {
         ctx.requiredParams.add(name);
+        return `${name} = ${type} ${PARAM_REQUIRED_MARKER}`;
       }
       return `${name} = ${type}`;
     }
@@ -6041,22 +10840,22 @@ function processDestructuredObjectParams(inner, ctx) {
     const nestedObjectMatch = trimmed.match(/^(\w+)\s*:\s*(\{[\s\S]*\})$/);
     if (nestedObjectMatch) {
       const [, name, objectLiteral] = nestedObjectMatch;
-      ctx.requiredParams.add(name);
       const processedLiteral = processObjectLiteralValue(objectLiteral);
-      return `${name} = ${processedLiteral}`;
+      ctx.requiredParams.add(name);
+      return `${name} = ${processedLiteral} ${PARAM_REQUIRED_MARKER}`;
     }
     const nestedArrayMatch = trimmed.match(/^(\w+)\s*:\s*(\[[\s\S]*\])$/);
     if (nestedArrayMatch) {
       const [, name, arrayLiteral] = nestedArrayMatch;
-      ctx.requiredParams.add(name);
       const processedLiteral = processArrayLiteralValue(arrayLiteral);
-      return `${name} = ${processedLiteral}`;
+      ctx.requiredParams.add(name);
+      return `${name} = ${processedLiteral} ${PARAM_REQUIRED_MARKER}`;
     }
     const colonMatch = trimmed.match(/^(\w+)\s*:\s*([\s\S]+)$/);
     if (colonMatch) {
       const [, name, value] = colonMatch;
       ctx.requiredParams.add(name);
-      return `${name} = ${value}`;
+      return `${name} = ${value} ${PARAM_REQUIRED_MARKER}`;
     }
     return part;
   });
@@ -6129,7 +10928,7 @@ function hasColonNotEquals(param) {
       continue;
     }
     if (inString) {
-      if (char === stringChar && param[i2 - 1] !== "\\")
+      if (char === stringChar && !isEscapedAt(param, i2))
         inString = false;
       continue;
     }
@@ -6158,7 +10957,7 @@ function findTopLevelColon(param) {
       continue;
     }
     if (inString) {
-      if (char === stringChar && param[i2 - 1] !== "\\")
+      if (char === stringChar && !isEscapedAt(param, i2))
         inString = false;
       continue;
     }
@@ -6172,62 +10971,149 @@ function findTopLevelColon(param) {
   }
   return -1;
 }
+
+// node_modules/tjs-lang/src/lang/parser.ts
 function preprocess(source, options = {}) {
+  const shebang = hashbangOf(source);
+  if (shebang)
+    source = " ".repeat(shebang.length) + source.slice(shebang.length);
   const originalSource = source;
   let moduleSafety;
   const requiredParams = new Set;
+  const typeNameOptionals = new Set;
+  const declaredTypes = new Set;
+  const hoistedTypeArgs = [];
   const unsafeFunctions = new Set;
   const safeFunctions = new Set;
-  const tjsModes = {
+  const isFromTS = /\/\*\s*tjs\s*<-\s*\S+\s*\*\//.test(source);
+  const isCompat = options.dialect === "js" ? true : options.dialect === "tjs" ? false : isFromTS || options.vmTarget;
+  const tjsModes = isCompat ? {
     tjsEquals: false,
     tjsClass: false,
     tjsDate: false,
     tjsNoeval: false,
     tjsStandard: false,
-    tjsSafeEval: false
+    tjsNoVar: false,
+    tjsSafeAssign: false,
+    tjsDictDefaults: false,
+    tjsStrict: false
+  } : {
+    tjsEquals: true,
+    tjsClass: true,
+    tjsDate: true,
+    tjsNoeval: true,
+    tjsStandard: true,
+    tjsNoVar: true,
+    tjsSafeAssign: true,
+    tjsDictDefaults: true,
+    tjsStrict: false
   };
-  const safetyMatch = source.match(/^(\s*(?:\/\/[^\n]*\n|\/\*[\s\S]*?\*\/\s*)*)\s*safety\s+(none|inputs|all)\b/);
+  if (isCompat) {
+    moduleSafety = "none";
+  }
+  const spliceDirective = (start, length) => {
+    let end = start + length;
+    while (end < source.length && /\s/.test(source[end]))
+      end++;
+    source = source.slice(0, start) + source.slice(end);
+  };
+  const safetyMatch = maskLiterals(source).match(/^(\s*)safety\s+(none|inputs|all)\b/);
   if (safetyMatch) {
     moduleSafety = safetyMatch[2];
-    source = source.replace(/^(\s*(?:\/\/[^\n]*\n|\/\*[\s\S]*?\*\/\s*)*)\s*safety\s+(none|inputs|all)\s*/, "$1");
+    spliceDirective(safetyMatch[1].length, safetyMatch[0].length - safetyMatch[1].length);
   }
-  const directivePattern = /^(\s*(?:\/\/[^\n]*\n|\/\*[\s\S]*?\*\/\s*)*)\s*(TjsStrict|TjsEquals|TjsClass|TjsDate|TjsNoeval|TjsStandard|TjsSafeEval)\b/;
+  const ABOLISHED_DIRECTIVES = {
+    TjsStandard: `\`TjsStandard\` is no longer a mode. .tjs always terminates statements at newlines and always uses honest truthiness (a boxed \`new Boolean(false)\` is falsy). Neither has an escape because neither has a legitimate opposite.`,
+    TjsDictDefaults: `\`TjsDictDefaults\` is no longer a mode. An object-literal parameter default is always a dictionary in .tjs — members defaulted individually, merged on a partial argument, validated. For JavaScript's atomic default, wrap it: \`args = LegacyDefault({ x: 0 })\`.`,
+    TjsEquals: `\`TjsEquals\` is no longer a mode. \`==\`/\`!=\` are always footgun-free in .tjs (no coercion, boxed primitives unwrapped, null == undefined). For JavaScript's behaviour use \`DangerousLegacyEquals(a, b)\` / \`LegacyExactly(a, b)\`.`,
+    TjsClass: `\`TjsClass\` is no longer a mode. Classes are always callable without \`new\` in .tjs — this is purely additive, \`new Point(1, 2)\` still works, so there is nothing to opt out of.`,
+    TjsSafeAssign: `\`TjsSafeAssign\` is no longer a mode. A first bare assignment to an undeclared Capitalised name becomes \`const\` in .tjs. To keep it mutable, declare it yourself: \`let Foo = …\`.`,
+    TjsNoVar: `\`TjsNoVar\` is no longer a mode. \`var\` is always rejected in .tjs — the file extension is the gate. For a deliberate exception, mark it: \`unsafe var x = 1\`.`,
+    TjsNoeval: `\`TjsNoeval\` is no longer a mode. \`eval()\` is always rejected in .tjs. For a deliberate exception, mark it: \`unsafe eval(src)\`. (\`new Function()\` is a warning, not an error.)`,
+    TjsSafeEval: `\`TjsSafeEval\` is no longer a mode. \`Eval\`/\`SafeFunction\` are imported automatically if and only if your code calls them, so there is nothing to opt into.`,
+    TjsDate: `\`TjsDate\` is no longer a mode. Raw \`Date\` is always banned in .tjs — the file extension is the gate. For a deliberate exception, mark the construct: \`const d = unsafe new Date(x)\`.`
+  };
+  let inBlockComment = false;
+  for (const rawLine of source.split(`
+`)) {
+    const t = rawLine.trim();
+    if (inBlockComment) {
+      if (t.includes("*/"))
+        inBlockComment = false;
+      continue;
+    }
+    if (t.startsWith("/*")) {
+      if (!t.includes("*/"))
+        inBlockComment = true;
+      continue;
+    }
+    if (!t || t.startsWith("//"))
+      continue;
+    if (!/^Tjs[A-Za-z]+$/.test(t))
+      break;
+    const guidance = ABOLISHED_DIRECTIVES[t];
+    if (guidance)
+      throw new Error(guidance);
+  }
+  const directivePattern = /^(\s*)(TjsStrict|TjsCompat)\b/;
   let match;
-  while (match = source.match(directivePattern)) {
+  while (match = maskLiterals(source).match(directivePattern)) {
     const directive = match[2];
     if (directive === "TjsStrict") {
       tjsModes.tjsEquals = true;
       tjsModes.tjsClass = true;
       tjsModes.tjsDate = true;
       tjsModes.tjsNoeval = true;
+      tjsModes.tjsNoVar = true;
       tjsModes.tjsStandard = true;
-    } else if (directive === "TjsEquals") {
-      tjsModes.tjsEquals = true;
-    } else if (directive === "TjsClass") {
-      tjsModes.tjsClass = true;
-    } else if (directive === "TjsDate") {
-      tjsModes.tjsDate = true;
-    } else if (directive === "TjsNoeval") {
-      tjsModes.tjsNoeval = true;
-    } else if (directive === "TjsStandard") {
-      tjsModes.tjsStandard = true;
-    } else if (directive === "TjsSafeEval") {
-      tjsModes.tjsSafeEval = true;
+      tjsModes.tjsSafeAssign = true;
+      tjsModes.tjsDictDefaults = true;
+      tjsModes.tjsStrict = true;
+    } else if (directive === "TjsCompat") {
+      tjsModes.tjsEquals = false;
+      tjsModes.tjsClass = false;
+      tjsModes.tjsDate = false;
+      tjsModes.tjsNoeval = false;
+      tjsModes.tjsNoVar = false;
+      tjsModes.tjsStandard = false;
+      tjsModes.tjsSafeAssign = false;
+      tjsModes.tjsDictDefaults = false;
     }
-    source = source.replace(new RegExp(`^(\\s*(?:\\/\\/[^\\n]*\\n|\\/\\*[\\s\\S]*?\\*\\/\\s*)*)\\s*${directive}\\s*`), "$1");
+    spliceDirective(match[1].length, directive.length);
   }
+  source = stripLineComments(source);
+  const modeWarnings = [];
   if (tjsModes.tjsStandard) {
-    source = insertAsiProtection(source);
+    source = insertAsiProtection(source, modeWarnings);
   }
+  source = transformConstBang(source);
+  source = transformBangAccess(source);
+  const letAnnoResult = transformLetTypeAnnotations(source);
+  source = letAnnoResult.source;
+  const letAnnotations = letAnnoResult.annotations;
+  const wasmFunctions = extractWasmFunctions(source);
+  source = wasmFunctions.source;
+  const wasmMask = maskWasmBodies(source);
+  source = wasmMask.source;
   source = transformIsOperators(source);
   if (tjsModes.tjsEquals && !options.vmTarget) {
     source = transformEqualityToStructural(source);
   }
-  source = transformTypeDeclarations(source);
-  source = transformGenericDeclarations(source);
-  source = transformUnionDeclarations(source);
-  source = transformEnumDeclarations(source);
-  source = transformBareAssignments(source);
+  source = unmaskWasmBodies(source, wasmMask.masks);
+  const predicates = [];
+  source = transformGenericDeclarations(source, predicates, declaredTypes);
+  source = transformTypeDeclarations(source, predicates, declaredTypes);
+  source = transformFunctionPredicateDeclarations(source);
+  source = transformUnionDeclarations(source, declaredTypes);
+  source = transformEnumDeclarations(source, declaredTypes);
+  if (tjsModes.tjsSafeAssign) {
+    source = transformBareAssignments(source);
+  }
+  const importedWasm = composeImportedWasmFunctions(source, {
+    loader: options.moduleLoader,
+    importerPath: options.filename
+  });
+  source = importedWasm.source;
   const {
     source: transformedSource,
     returnType,
@@ -6235,26 +11121,69 @@ function preprocess(source, options = {}) {
   } = transformParenExpressions(source, {
     originalSource,
     requiredParams,
+    typeNameOptionals,
+    declaredTypes,
+    hoistedTypeArgs,
     unsafeFunctions,
     safeFunctions
   });
   source = transformedSource;
+  for (const h of hoistedTypeArgs) {
+    const decl = source.indexOf(`const ${h.head} =`);
+    if (decl === -1) {
+      source = `${source}
+${h.text}`;
+      continue;
+    }
+    const eol = source.indexOf(`
+`, decl);
+    const at2 = eol === -1 ? source.length : eol;
+    source = `${source.slice(0, at2)}
+${h.text}${source.slice(at2)}`;
+  }
+  const extResult = transformExtendDeclarations(source);
+  source = extResult.source;
   source = transformTryWithoutCatch(source);
+  const polyResult = transformPolymorphicFunctions(source, requiredParams);
+  source = polyResult.source;
   const wasmBlocks = extractWasmBlocks(source);
   source = wasmBlocks.source;
+  const allWasmBlocks = [
+    ...wasmFunctions.blocks,
+    ...importedWasm.blocks,
+    ...wasmBlocks.blocks
+  ];
   const testResult = extractAndRunTests(source, options.dangerouslySkipTests);
   source = testResult.source;
-  if (tjsModes.tjsClass) {
-    source = wrapClassDeclarations(source);
+  const polyCtorResult = transformPolymorphicConstructors(source, requiredParams);
+  source = polyCtorResult.source;
+  for (const cls of polyCtorResult.polyCtorClasses) {
+    unsafeFunctions.add(`${cls}$dispatch`);
   }
+  if (tjsModes.tjsClass) {
+    source = wrapClassDeclarations(source, polyCtorResult.polyCtorClasses);
+  }
+  const ruleSource = maskUnsafe(source);
   if (tjsModes.tjsDate) {
-    source = validateNoDate(source);
+    validateNoDate(ruleSource, modeWarnings);
+    validateNoNew(maskUnsafe(originalSource));
   }
   if (tjsModes.tjsNoeval) {
-    source = validateNoEval(source);
+    validateNoEval(ruleSource, modeWarnings);
   }
+  if (tjsModes.tjsNoVar) {
+    validateNoVar(ruleSource);
+  }
+  source = stripUnsafeMarkers(source);
+  source = transformExtensionCalls(source, extResult.extensions);
+  const marked = extractParamMarkers(source);
+  source = marked.source;
   return {
     source,
+    requiredValueOffsets: marked.required,
+    typeNameValueOffsets: marked.typeName,
+    modeWarnings,
+    typeNameOptionals,
     returnType,
     returnSafety,
     moduleSafety,
@@ -6263,1003 +11192,26 @@ function preprocess(source, options = {}) {
     requiredParams,
     unsafeFunctions,
     safeFunctions,
-    wasmBlocks: wasmBlocks.blocks,
+    wasmBlocks: allWasmBlocks,
     tests: testResult.tests,
-    testErrors: testResult.errors
+    testErrors: testResult.errors,
+    polymorphicNames: polyResult.polymorphicNames,
+    extensions: extResult.extensions,
+    letAnnotations,
+    predicates,
+    declaredTypes
   };
-}
-function transformTryWithoutCatch(source) {
-  let result = "";
-  let i2 = 0;
-  while (i2 < source.length) {
-    const tryMatch = source.slice(i2).match(/^\btry\s*\{/);
-    if (tryMatch) {
-      const startBrace = i2 + tryMatch[0].length - 1;
-      const bodyStart = startBrace + 1;
-      let depth = 1;
-      let j = bodyStart;
-      while (j < source.length && depth > 0) {
-        const char = source[j];
-        if (char === "{")
-          depth++;
-        else if (char === "}")
-          depth--;
-        j++;
-      }
-      if (depth !== 0) {
-        result += source[i2];
-        i2++;
-        continue;
-      }
-      const afterTry = source.slice(j).match(/^\s*(catch|finally)\b/);
-      if (afterTry) {
-        result += source.slice(i2, j);
-        i2 = j;
-      } else {
-        const body = source.slice(bodyStart, j - 1);
-        result += `try {${body}} catch (__try_err) { return { $error: true, message: __try_err?.message || String(__try_err), op: 'try', cause: __try_err, stack: globalThis.__tjs?.getStack?.() } }`;
-        i2 = j;
-      }
-    } else {
-      result += source[i2];
-      i2++;
-    }
-  }
-  return result;
-}
-function extractWasmBlocks(source) {
-  const blocks = [];
-  let result = "";
-  let i2 = 0;
-  let blockId = 0;
-  while (i2 < source.length) {
-    const wasmMatch = source.slice(i2).match(/^\bwasm\s*\{/);
-    if (wasmMatch) {
-      const matchStart = i2;
-      const bodyStart = i2 + wasmMatch[0].length;
-      let braceDepth = 1;
-      let j = bodyStart;
-      while (j < source.length && braceDepth > 0) {
-        const char = source[j];
-        if (char === "{")
-          braceDepth++;
-        else if (char === "}")
-          braceDepth--;
-        j++;
-      }
-      if (braceDepth !== 0) {
-        result += source[i2];
-        i2++;
-        continue;
-      }
-      const body = source.slice(bodyStart, j - 1);
-      let fallbackBody;
-      let matchEnd = j;
-      const fallbackMatch = source.slice(j).match(/^\s*fallback\s*\{/);
-      if (fallbackMatch) {
-        const fallbackStart = j + fallbackMatch[0].length;
-        braceDepth = 1;
-        let k = fallbackStart;
-        while (k < source.length && braceDepth > 0) {
-          const char = source[k];
-          if (char === "{")
-            braceDepth++;
-          else if (char === "}")
-            braceDepth--;
-          k++;
-        }
-        if (braceDepth === 0) {
-          fallbackBody = source.slice(fallbackStart, k - 1);
-          matchEnd = k;
-        }
-      }
-      const captureNames = detectCaptures(body);
-      const captures = captureNames.map((name) => {
-        const typeAnnotation = findParameterType(source, matchStart, name);
-        return typeAnnotation ? `${name}: ${typeAnnotation}` : name;
-      });
-      const block = {
-        id: `__tjs_wasm_${blockId}`,
-        body,
-        fallback: fallbackBody,
-        captures,
-        start: matchStart,
-        end: matchEnd
-      };
-      blocks.push(block);
-      const fallbackCode = fallbackBody ?? body;
-      const captureArgNames = captures.map((c) => c.split(":")[0].trim());
-      const captureArgs = captureArgNames.length > 0 ? captureArgNames.join(", ") : "";
-      const wasmCall = captureArgNames.length > 0 ? `globalThis.${block.id}(${captureArgs})` : `globalThis.${block.id}()`;
-      const dispatch = `(globalThis.${block.id} ? ${wasmCall} : (() => {${fallbackCode}})())`;
-      result += dispatch;
-      i2 = matchEnd;
-      blockId++;
-    } else {
-      result += source[i2];
-      i2++;
-    }
-  }
-  return { source: result, blocks };
-}
-function detectCaptures(body) {
-  const bodyWithoutComments = body.replace(/\/\/[^\n]*/g, "").replace(/\/\*[\s\S]*?\*\//g, "");
-  const identifierPattern = /\b([a-zA-Z_$][a-zA-Z0-9_$]*)\b/g;
-  const allIdentifiers = new Set;
-  let match;
-  while ((match = identifierPattern.exec(bodyWithoutComments)) !== null) {
-    allIdentifiers.add(match[1]);
-  }
-  const declared = new Set;
-  const declPattern = /\b(?:let|const|var)\s+([a-zA-Z_$][a-zA-Z0-9_$]*)/g;
-  while ((match = declPattern.exec(bodyWithoutComments)) !== null) {
-    declared.add(match[1]);
-  }
-  const forPattern = /\bfor\s*\(\s*(?:let|const|var)\s+([a-zA-Z_$][a-zA-Z0-9_$]*)/g;
-  while ((match = forPattern.exec(bodyWithoutComments)) !== null) {
-    declared.add(match[1]);
-  }
-  const reserved = new Set([
-    "if",
-    "else",
-    "for",
-    "while",
-    "do",
-    "switch",
-    "case",
-    "break",
-    "continue",
-    "return",
-    "function",
-    "let",
-    "const",
-    "var",
-    "new",
-    "this",
-    "true",
-    "false",
-    "null",
-    "undefined",
-    "typeof",
-    "instanceof",
-    "in",
-    "of",
-    "try",
-    "catch",
-    "finally",
-    "throw",
-    "async",
-    "await",
-    "class",
-    "extends",
-    "super",
-    "import",
-    "export",
-    "default",
-    "from",
-    "as",
-    "static",
-    "get",
-    "set",
-    "yield",
-    "console",
-    "Math",
-    "Array",
-    "Object",
-    "String",
-    "Number",
-    "Boolean",
-    "Date",
-    "JSON",
-    "Promise",
-    "Map",
-    "Set",
-    "WeakMap",
-    "WeakSet",
-    "Float32Array",
-    "Float64Array",
-    "Int8Array",
-    "Int16Array",
-    "Int32Array",
-    "Uint8Array",
-    "Uint16Array",
-    "Uint32Array",
-    "BigInt64Array",
-    "BigUint64Array",
-    "ArrayBuffer",
-    "DataView",
-    "Error",
-    "TypeError",
-    "RangeError",
-    "length",
-    "push",
-    "pop",
-    "shift",
-    "unshift",
-    "slice",
-    "splice",
-    "map",
-    "filter",
-    "reduce",
-    "forEach",
-    "find",
-    "findIndex",
-    "indexOf",
-    "includes",
-    "globalThis",
-    "window",
-    "document",
-    "Infinity",
-    "NaN",
-    "isNaN",
-    "isFinite",
-    "parseInt",
-    "parseFloat",
-    "encodeURI",
-    "decodeURI",
-    "eval"
-  ]);
-  const captures = [];
-  for (const id of allIdentifiers) {
-    if (!declared.has(id) && !reserved.has(id)) {
-      captures.push(id);
-    }
-  }
-  return captures.sort();
-}
-function findParameterType(source, wasmBlockStart, paramName) {
-  const beforeBlock = source.slice(0, wasmBlockStart);
-  const funcPattern = /function\s+\w+\s*\(([^)]*)\)\s*(?:->.*?)?\s*\{[^}]*$/;
-  const match = beforeBlock.match(funcPattern);
-  if (!match) {
-    const arrowPattern = /(?:const|let|var)?\s*\w+\s*=\s*(?:async\s*)?\(([^)]*)\)\s*(?:=>|->)?\s*\{[^}]*$/;
-    const arrowMatch = beforeBlock.match(arrowPattern);
-    if (!arrowMatch)
-      return;
-    return extractTypeFromParams(arrowMatch[1], paramName);
-  }
-  return extractTypeFromParams(match[1], paramName);
-}
-function extractTypeFromParams(paramsStr, paramName) {
-  const params = paramsStr.split(",").map((p) => p.trim());
-  for (const param of params) {
-    const colonMatch = param.match(new RegExp(`^${paramName}\\s*:\\s*([A-Za-z][A-Za-z0-9]*)`));
-    if (colonMatch) {
-      return colonMatch[1];
-    }
-    const equalsMatch = param.match(new RegExp(`^${paramName}\\s*=\\s*(Float32Array|Float64Array|Int32Array|Uint8Array|Int8Array|Int16Array|Uint16Array|Uint32Array)`));
-    if (equalsMatch) {
-      return equalsMatch[1];
-    }
-  }
-  return;
-}
-function splitParameters(params) {
-  const result = [];
-  let current2 = "";
-  let depth = 0;
-  let inLineComment = false;
-  let inBlockComment = false;
-  let i2 = 0;
-  while (i2 < params.length) {
-    const char = params[i2];
-    const nextChar = params[i2 + 1];
-    if (!inBlockComment && char === "/" && nextChar === "/") {
-      inLineComment = true;
-      current2 += "//";
-      i2 += 2;
-      continue;
-    }
-    if (!inLineComment && char === "/" && nextChar === "*") {
-      inBlockComment = true;
-      current2 += "/*";
-      i2 += 2;
-      continue;
-    }
-    if (inLineComment && char === `
-`) {
-      inLineComment = false;
-      current2 += char;
-      i2++;
-      continue;
-    }
-    if (inBlockComment && char === "*" && nextChar === "/") {
-      inBlockComment = false;
-      current2 += "*/";
-      i2 += 2;
-      continue;
-    }
-    if (inLineComment || inBlockComment) {
-      current2 += char;
-      i2++;
-      continue;
-    }
-    if (char === "(" || char === "{" || char === "[") {
-      depth++;
-      current2 += char;
-    } else if (char === ")" || char === "}" || char === "]") {
-      depth--;
-      current2 += char;
-    } else if (char === "," && depth === 0) {
-      result.push(current2);
-      current2 = "";
-    } else {
-      current2 += char;
-    }
-    i2++;
-  }
-  if (current2.trim()) {
-    result.push(current2);
-  }
-  return result;
-}
-function transformIsOperators(source) {
-  const exprPat = `([\\w][\\w.\\[\\]()]*|null|undefined|true|false|\\d+(?:\\.\\d+)?|'[^']*'|"[^"]*")`;
-  const isNotRegex = new RegExp(exprPat + "\\s+IsNot\\s+" + exprPat, "g");
-  source = source.replace(isNotRegex, "IsNot($1, $2)");
-  const isRegex = new RegExp(exprPat + "\\s+Is\\s+" + exprPat, "g");
-  source = source.replace(isRegex, "Is($1, $2)");
-  return source;
-}
-function insertAsiProtection(source) {
-  const continuationStarts = /^[\s]*[([/+\-`]/;
-  const expectsContinuation = /[{([,;:+\-*/%=&|?<>!~^]\s*$|^\s*$/;
-  const continueKeywords = /\b(return|throw|yield|await|case|default|extends|new|typeof|void|delete|in|of|instanceof)\s*$/;
-  const lines = source.split(`
-`);
-  const result = [];
-  for (let i2 = 0;i2 < lines.length; i2++) {
-    const line = lines[i2];
-    const prevLine = i2 > 0 ? lines[i2 - 1] : "";
-    if (i2 > 0 && continuationStarts.test(line)) {
-      const prevNoComment = prevLine.replace(/\/\/.*$/, "").replace(/\/\*.*\*\/\s*$/, "");
-      if (!expectsContinuation.test(prevNoComment) && !continueKeywords.test(prevNoComment)) {
-        const match = line.match(/^(\s*)/);
-        const indent = match ? match[1] : "";
-        const rest = line.slice(indent.length);
-        result.push(indent + ";" + rest);
-        continue;
-      }
-    }
-    result.push(line);
-  }
-  return result.join(`
-`);
-}
-function transformEqualityToStructural(source) {
-  const equalityOps = [];
-  let i2 = 0;
-  let state = "normal";
-  const templateStack = [];
-  while (i2 < source.length) {
-    const char = source[i2];
-    const nextChar = source[i2 + 1];
-    switch (state) {
-      case "single-string":
-        if (char === "\\" && i2 + 1 < source.length) {
-          i2 += 2;
-          continue;
-        }
-        if (char === "'")
-          state = "normal";
-        i2++;
-        continue;
-      case "double-string":
-        if (char === "\\" && i2 + 1 < source.length) {
-          i2 += 2;
-          continue;
-        }
-        if (char === '"')
-          state = "normal";
-        i2++;
-        continue;
-      case "template-string":
-        if (char === "\\" && i2 + 1 < source.length) {
-          i2 += 2;
-          continue;
-        }
-        if (char === "$" && nextChar === "{") {
-          i2 += 2;
-          templateStack.push(1);
-          state = "normal";
-          continue;
-        }
-        if (char === "`")
-          state = "normal";
-        i2++;
-        continue;
-      case "line-comment":
-        if (char === `
-`)
-          state = "normal";
-        i2++;
-        continue;
-      case "block-comment":
-        if (char === "*" && nextChar === "/") {
-          i2 += 2;
-          state = "normal";
-          continue;
-        }
-        i2++;
-        continue;
-      case "regex":
-        if (char === "\\" && i2 + 1 < source.length) {
-          i2 += 2;
-          continue;
-        }
-        if (char === "[") {
-          i2++;
-          while (i2 < source.length && source[i2] !== "]") {
-            if (source[i2] === "\\" && i2 + 1 < source.length) {
-              i2 += 2;
-            } else {
-              i2++;
-            }
-          }
-          if (i2 < source.length)
-            i2++;
-          continue;
-        }
-        if (char === "/") {
-          i2++;
-          while (i2 < source.length && /[gimsuy]/.test(source[i2]))
-            i2++;
-          state = "normal";
-          continue;
-        }
-        i2++;
-        continue;
-      case "normal":
-        if (templateStack.length > 0) {
-          if (char === "{") {
-            templateStack[templateStack.length - 1]++;
-          } else if (char === "}") {
-            templateStack[templateStack.length - 1]--;
-            if (templateStack[templateStack.length - 1] === 0) {
-              templateStack.pop();
-              i2++;
-              state = "template-string";
-              continue;
-            }
-          }
-        }
-        if (char === "'") {
-          i2++;
-          state = "single-string";
-          continue;
-        }
-        if (char === '"') {
-          i2++;
-          state = "double-string";
-          continue;
-        }
-        if (char === "`") {
-          i2++;
-          state = "template-string";
-          continue;
-        }
-        if (char === "/" && nextChar === "/") {
-          i2 += 2;
-          state = "line-comment";
-          continue;
-        }
-        if (char === "/" && nextChar === "*") {
-          i2 += 2;
-          state = "block-comment";
-          continue;
-        }
-        if (char === "/") {
-          let j = i2 - 1;
-          while (j >= 0 && /\s/.test(source[j]))
-            j--;
-          const beforeChar = j >= 0 ? source[j] : "";
-          const isRegexContext = !beforeChar || /[=(!,;:{[&|?+\-*%<>~^]/.test(beforeChar) || j >= 5 && /\b(return|case|throw|in|of|typeof|instanceof|new|delete|void)$/.test(source.slice(Math.max(0, j - 10), j + 1));
-          if (isRegexContext) {
-            i2++;
-            state = "regex";
-            continue;
-          }
-        }
-        if (char === "=" && nextChar === "=" && source[i2 + 2] !== "=" && source[i2 - 1] !== "!") {
-          equalityOps.push({ pos: i2, op: "==" });
-          i2 += 2;
-          continue;
-        }
-        if (char === "!" && nextChar === "=" && source[i2 + 2] !== "=") {
-          equalityOps.push({ pos: i2, op: "!=" });
-          i2 += 2;
-          continue;
-        }
-        break;
-    }
-    i2++;
-  }
-  if (equalityOps.length === 0) {
-    return source;
-  }
-  let result = source;
-  for (let k = equalityOps.length - 1;k >= 0; k--) {
-    const { pos, op } = equalityOps[k];
-    const funcName = op === "==" ? "Is" : "IsNot";
-    const leftBoundary = findLeftOperandBoundary(result, pos);
-    const rightBoundary = findRightOperandBoundary(result, pos + 2);
-    const leftExpr = result.slice(leftBoundary, pos).trim();
-    const rightExpr = result.slice(pos + 2, rightBoundary).trim();
-    if (leftExpr && rightExpr) {
-      const before = result.slice(0, leftBoundary);
-      const after = result.slice(rightBoundary);
-      const needsSpace = /[a-zA-Z0-9_$]$/.test(before);
-      const spacer = needsSpace ? " " : "";
-      result = `${before}${spacer}${funcName}(${leftExpr}, ${rightExpr})${after}`;
-    }
-  }
-  return result;
-}
-function findLeftOperandBoundary(source, opPos) {
-  let i2 = opPos - 1;
-  while (i2 >= 0 && /\s/.test(source[i2]))
-    i2--;
-  if (i2 < 0)
-    return 0;
-  let depth = 0;
-  let inString = false;
-  let stringChar = "";
-  while (i2 >= 0) {
-    const char = source[i2];
-    const prevChar = i2 > 0 ? source[i2 - 1] : "";
-    if (inString) {
-      if (char === stringChar && prevChar !== "\\") {
-        inString = false;
-      }
-      i2--;
-      continue;
-    }
-    if ((char === '"' || char === "'" || char === "`") && prevChar !== "\\") {
-      inString = true;
-      stringChar = char;
-      i2--;
-      continue;
-    }
-    if (char === ")" || char === "]") {
-      depth++;
-      i2--;
-      continue;
-    }
-    if (char === "(" || char === "[") {
-      if (depth > 0) {
-        depth--;
-        i2--;
-        continue;
-      }
-      return i2 + 1;
-    }
-    if (depth > 0) {
-      i2--;
-      continue;
-    }
-    if (char === ";" || char === "{" || char === "}") {
-      return i2 + 1;
-    }
-    if (/[a-z]/.test(char)) {
-      const wordEnd = i2 + 1;
-      let wordStart = i2;
-      while (wordStart > 0 && /[a-z]/i.test(source[wordStart - 1])) {
-        wordStart--;
-      }
-      const word = source.slice(wordStart, wordEnd);
-      const beforeWord = wordStart > 0 ? source[wordStart - 1] : "";
-      if (!/[a-zA-Z0-9_$]/.test(beforeWord)) {
-        if ([
-          "return",
-          "throw",
-          "case",
-          "typeof",
-          "void",
-          "delete",
-          "await",
-          "yield",
-          "new"
-        ].includes(word)) {
-          return wordEnd;
-        }
-      }
-    }
-    if (char === ">" && prevChar === "=") {
-      return i2 + 1;
-    }
-    if (char === "=" && prevChar !== "=" && prevChar !== "!" && prevChar !== "<" && prevChar !== ">") {
-      return i2 + 1;
-    }
-    if (char === "&" && prevChar === "&") {
-      return i2 + 1;
-    }
-    if (char === "|" && prevChar === "|") {
-      return i2 + 1;
-    }
-    if (char === "?" || char === ":") {
-      return i2 + 1;
-    }
-    if (char === ",") {
-      return i2 + 1;
-    }
-    i2--;
-  }
-  return 0;
-}
-function findRightOperandBoundary(source, startAfterOp) {
-  let i2 = startAfterOp;
-  while (i2 < source.length && /\s/.test(source[i2]))
-    i2++;
-  if (i2 >= source.length)
-    return source.length;
-  let depth = 0;
-  let inString = false;
-  let stringChar = "";
-  while (i2 < source.length) {
-    const char = source[i2];
-    const nextChar = i2 + 1 < source.length ? source[i2 + 1] : "";
-    if (inString) {
-      if (char === stringChar && source[i2 - 1] !== "\\") {
-        inString = false;
-      }
-      i2++;
-      continue;
-    }
-    if ((char === '"' || char === "'" || char === "`") && source[i2 - 1] !== "\\") {
-      inString = true;
-      stringChar = char;
-      i2++;
-      continue;
-    }
-    if (char === "(" || char === "[" || char === "{") {
-      depth++;
-      i2++;
-      continue;
-    }
-    if (char === ")" || char === "]" || char === "}") {
-      if (depth > 0) {
-        depth--;
-        i2++;
-        continue;
-      }
-      return i2;
-    }
-    if (depth > 0) {
-      i2++;
-      continue;
-    }
-    if (char === ";") {
-      return i2;
-    }
-    if (char === "&" && nextChar === "&") {
-      return i2;
-    }
-    if (char === "|" && nextChar === "|") {
-      return i2;
-    }
-    if (char === "?") {
-      return i2;
-    }
-    if (char === ":") {
-      return i2;
-    }
-    if (char === ",") {
-      return i2;
-    }
-    if ((char === "=" || char === "!") && nextChar === "=" && source[i2 + 2] !== "=") {
-      return i2;
-    }
-    i2++;
-  }
-  return source.length;
-}
-function transformTypeDeclarations(source) {
-  let result = "";
-  let i2 = 0;
-  while (i2 < source.length) {
-    const typeMatch = source.slice(i2).match(/^\bType\s+([A-Z][a-zA-Z0-9_]*)\s*/);
-    if (typeMatch) {
-      const typeName = typeMatch[1];
-      let j = i2 + typeMatch[0].length;
-      let description = typeName;
-      let descriptionWasExplicit = false;
-      const descStringMatch = source.slice(j).match(/^(['"`])([^]*?)\1\s*/);
-      if (descStringMatch) {
-        const afterString = j + descStringMatch[0].length;
-        const nextChar = source[afterString];
-        const isEndOfStatement = nextChar === undefined || afterString >= source.length || nextChar !== "=" && nextChar !== "{";
-        if (nextChar === "=" || nextChar === "{") {
-          description = descStringMatch[2];
-          descriptionWasExplicit = true;
-          j = afterString;
-        } else if (isEndOfStatement) {
-          const value = descStringMatch[0].trim();
-          const trailingWs = descStringMatch[0].slice(value.length);
-          result += `const ${typeName} = Type('${typeName}', ${value})${trailingWs}`;
-          i2 = afterString;
-          continue;
-        }
-      }
-      let defaultValue;
-      let posAfterDefault = j;
-      const equalsMatch = source.slice(j).match(/^=\s*/);
-      if (equalsMatch) {
-        j += equalsMatch[0].length;
-        const valueMatch = source.slice(j).match(/^(\+?\d+(?:\.\d+)?|['"`][^'"`]*['"`]|\{[^}]*\}|\[[^\]]*\]|true|false|null)/);
-        if (valueMatch) {
-          defaultValue = valueMatch[0];
-          j += valueMatch[0].length;
-          posAfterDefault = j;
-          const wsMatch = source.slice(j).match(/^\s*/);
-          if (wsMatch)
-            j += wsMatch[0].length;
-        }
-      }
-      if (source[j] === "{") {
-        const bodyStart = j + 1;
-        let depth = 1;
-        let k = bodyStart;
-        while (k < source.length && depth > 0) {
-          const char = source[k];
-          if (char === "{")
-            depth++;
-          else if (char === "}")
-            depth--;
-          k++;
-        }
-        if (depth !== 0) {
-          result += source[i2];
-          i2++;
-          continue;
-        }
-        const blockBody = source.slice(bodyStart, k - 1).trim();
-        const blockEnd = k;
-        const descInsideMatch = blockBody.match(/description\s*:\s*(['"`])([^]*?)\1/);
-        if (descInsideMatch && !descriptionWasExplicit) {
-          description = descInsideMatch[2];
-        }
-        let example;
-        const exampleKeyword = blockBody.match(/example\s*:\s*/);
-        if (exampleKeyword) {
-          const valueStart = exampleKeyword.index + exampleKeyword[0].length;
-          const extracted = extractJSValue(blockBody, valueStart);
-          if (extracted) {
-            example = extracted.value.trim();
-          }
-        }
-        const predicateMatch = blockBody.match(/predicate\s*\(([^)]*)\)\s*\{([^]*)\}/);
-        if (predicateMatch && example) {
-          const params = predicateMatch[1].trim();
-          const body = predicateMatch[2].trim();
-          const defaultArg = defaultValue ? `, ${defaultValue}` : "";
-          result += `const ${typeName} = Type('${description}', (${params}) => { if (!globalThis.__tjs?.validate(${params}, globalThis.__tjs?.infer(${example}))) return false; ${body} }, ${example}${defaultArg})`;
-        } else if (predicateMatch) {
-          const params = predicateMatch[1].trim();
-          const body = predicateMatch[2].trim();
-          const defaultArg = defaultValue ? `, undefined, ${defaultValue}` : "";
-          result += `const ${typeName} = Type('${description}', (${params}) => { ${body} }${defaultArg})`;
-        } else if (example) {
-          const defaultArg = defaultValue ? `, ${defaultValue}` : "";
-          result += `const ${typeName} = Type('${description}', undefined, ${example}${defaultArg})`;
-        } else if (defaultValue) {
-          result += `const ${typeName} = Type('${description}', ${defaultValue})`;
-        } else {
-          result += `const ${typeName} = Type('${description}')`;
-        }
-        i2 = blockEnd;
-        continue;
-      } else if (defaultValue) {
-        result += `const ${typeName} = Type('${description}', ${defaultValue})`;
-        i2 = posAfterDefault;
-        continue;
-      } else if (!descStringMatch) {
-        const valueMatch = source.slice(j).match(/^(['"`][^]*?['"`]|\+?\d+(?:\.\d+)?|true|false|null|\{[^]*?\}|\[[^]*?\])/);
-        if (valueMatch) {
-          const example = valueMatch[0];
-          result += `const ${typeName} = Type('${typeName}', ${example})`;
-          i2 = j + valueMatch[0].length;
-          continue;
-        }
-      }
-    }
-    result += source[i2];
-    i2++;
-  }
-  return result;
-}
-function transformGenericDeclarations(source) {
-  let result = "";
-  let i2 = 0;
-  while (i2 < source.length) {
-    const genericMatch = source.slice(i2).match(/^\bGeneric\s+([A-Z][a-zA-Z0-9_]*)\s*<([^>]+)>\s*\{/);
-    if (genericMatch) {
-      const genericName = genericMatch[1];
-      const typeParamsStr = genericMatch[2];
-      const blockStart = i2 + genericMatch[0].length - 1;
-      const bodyStart = blockStart + 1;
-      let depth = 1;
-      let k = bodyStart;
-      while (k < source.length && depth > 0) {
-        const char = source[k];
-        if (char === "{")
-          depth++;
-        else if (char === "}")
-          depth--;
-        k++;
-      }
-      if (depth !== 0) {
-        result += source[i2];
-        i2++;
-        continue;
-      }
-      const blockBody = source.slice(bodyStart, k - 1).trim();
-      const blockEnd = k;
-      const typeParams = typeParamsStr.split(",").map((p) => {
-        const parts = p.trim().split("=").map((s) => s.trim());
-        if (parts.length === 2) {
-          return `['${parts[0]}', ${parts[1]}]`;
-        }
-        return `'${parts[0]}'`;
-      });
-      const descMatch = blockBody.match(/description\s*:\s*(['"`])([^]*?)\1/);
-      const predicateMatch = blockBody.match(/predicate\s*\(([^)]*)\)\s*\{([^]*)\}/);
-      const description = descMatch ? descMatch[2] : genericName;
-      if (predicateMatch) {
-        const params = predicateMatch[1].trim().split(",").map((s) => s.trim());
-        let body = predicateMatch[2].trim();
-        const valueParam = params[0] || "x";
-        const typeParamNames = params.slice(1);
-        const typeCheckParams = typeParamNames.map((p) => `check${p}`);
-        typeParamNames.forEach((name, idx) => {
-          body = body.replace(new RegExp(`\\b${name}\\s*\\(`, "g"), `${typeCheckParams[idx]}(`);
-        });
-        result += `const ${genericName} = Generic([${typeParams.join(", ")}], (${valueParam}, ${typeCheckParams.join(", ")}) => { ${body} }, '${description}')`;
-      } else {
-        result += `const ${genericName} = Generic([${typeParams.join(", ")}], () => true, '${description}')`;
-      }
-      i2 = blockEnd;
-      continue;
-    }
-    result += source[i2];
-    i2++;
-  }
-  return result;
-}
-function transformUnionDeclarations(source) {
-  let result = "";
-  let i2 = 0;
-  while (i2 < source.length) {
-    const unionMatch = source.slice(i2).match(/^\bUnion\s+([A-Z][a-zA-Z0-9_]*)\s+(['"`])([^]*?)\2\s*/);
-    if (unionMatch) {
-      const unionName = unionMatch[1];
-      const description = unionMatch[3];
-      const j = i2 + unionMatch[0].length;
-      if (source[j] === "{") {
-        const bodyStart = j + 1;
-        let depth = 1;
-        let k = bodyStart;
-        while (k < source.length && depth > 0) {
-          const char = source[k];
-          if (char === "{")
-            depth++;
-          else if (char === "}")
-            depth--;
-          k++;
-        }
-        if (depth !== 0) {
-          result += source[i2];
-          i2++;
-          continue;
-        }
-        const blockBody = source.slice(bodyStart, k - 1).trim();
-        const blockEnd = k;
-        const values = parseUnionValues(blockBody);
-        result += `const ${unionName} = Union('${description}', [${values.join(", ")}])`;
-        i2 = blockEnd;
-        continue;
-      } else {
-        let lineEnd = source.indexOf(`
-`, j);
-        if (lineEnd === -1)
-          lineEnd = source.length;
-        const inlineValues = source.slice(j, lineEnd).trim();
-        if (inlineValues) {
-          const values = parseUnionValues(inlineValues);
-          result += `const ${unionName} = Union('${description}', [${values.join(", ")}])`;
-          i2 = lineEnd;
-          continue;
-        }
-      }
-    }
-    result += source[i2];
-    i2++;
-  }
-  return result;
-}
-function parseUnionValues(input) {
-  const values = [];
-  const parts = input.split("|").map((p) => p.trim());
-  for (const part of parts) {
-    if (!part)
-      continue;
-    values.push(part);
-  }
-  return values;
-}
-function transformEnumDeclarations(source) {
-  let result = "";
-  let i2 = 0;
-  while (i2 < source.length) {
-    const enumMatch = source.slice(i2).match(/^\bEnum\s+([A-Z][a-zA-Z0-9_]*)\s+(['"`])([^]*?)\2\s*\{/);
-    if (enumMatch) {
-      const enumName = enumMatch[1];
-      const description = enumMatch[3];
-      const blockStart = i2 + enumMatch[0].length - 1;
-      const bodyStart = blockStart + 1;
-      let depth = 1;
-      let k = bodyStart;
-      while (k < source.length && depth > 0) {
-        const char = source[k];
-        if (char === "{")
-          depth++;
-        else if (char === "}")
-          depth--;
-        k++;
-      }
-      if (depth !== 0) {
-        result += source[i2];
-        i2++;
-        continue;
-      }
-      const blockBody = source.slice(bodyStart, k - 1).trim();
-      const blockEnd = k;
-      const members = parseEnumMembers(blockBody);
-      const membersStr = members.map(([key, value]) => `${key}: ${value}`).join(", ");
-      result += `const ${enumName} = Enum('${description}', { ${membersStr} })`;
-      i2 = blockEnd;
-      continue;
-    }
-    result += source[i2];
-    i2++;
-  }
-  return result;
-}
-function parseEnumMembers(input) {
-  const members = [];
-  let currentNumericValue = 0;
-  const lines = input.split(/[\n,]/).map((l) => l.trim()).filter((l) => l && !l.startsWith("//"));
-  for (const line of lines) {
-    const match = line.match(/^([A-Za-z_][A-Za-z0-9_]*)\s*(?:=\s*(.+))?$/);
-    if (match) {
-      const key = match[1];
-      const explicitValue = match[2]?.trim();
-      if (explicitValue !== undefined) {
-        members.push([key, explicitValue]);
-        const numVal = Number(explicitValue);
-        if (!isNaN(numVal)) {
-          currentNumericValue = numVal + 1;
-        }
-      } else {
-        members.push([key, String(currentNumericValue)]);
-        currentNumericValue++;
-      }
-    }
-  }
-  return members;
-}
-function transformBareAssignments(source) {
-  return source.replace(/(?<=^|[;\n{])\s*([A-Z][a-zA-Z0-9_]*)\s*=(?!=)/gm, (match, name) => {
-    return match.replace(name, `const ${name}`);
-  });
 }
 function parse4(source, options = {}) {
   const {
     filename = "<source>",
     colonShorthand = true,
-    vmTarget = false
+    vmTarget = false,
+    dialect
   } = options;
   const {
     source: processedSource,
+    requiredValueOffsets,
     returnType,
     returnSafety,
     moduleSafety,
@@ -7269,9 +11221,17 @@ function parse4(source, options = {}) {
     safeFunctions,
     wasmBlocks,
     tests,
-    testErrors
-  } = colonShorthand ? preprocess(source, { vmTarget }) : {
+    testErrors,
+    letAnnotations,
+    tjsModes
+  } = colonShorthand ? preprocess(source, {
+    vmTarget,
+    dialect,
+    moduleLoader: options.moduleLoader,
+    filename: options.filename
+  }) : {
     source,
+    requiredValueOffsets: new Set,
     returnType: undefined,
     returnSafety: undefined,
     moduleSafety: undefined,
@@ -7281,7 +11241,19 @@ function parse4(source, options = {}) {
     safeFunctions: new Set,
     wasmBlocks: [],
     tests: [],
-    testErrors: []
+    testErrors: [],
+    letAnnotations: new Map,
+    tjsModes: {
+      tjsEquals: false,
+      tjsClass: false,
+      tjsDate: false,
+      tjsNoeval: false,
+      tjsStandard: false,
+      tjsNoVar: false,
+      tjsSafeAssign: false,
+      tjsDictDefaults: false,
+      tjsStrict: false
+    }
   };
   try {
     const ast = parse3(processedSource, {
@@ -7292,6 +11264,8 @@ function parse4(source, options = {}) {
     });
     return {
       ast,
+      processedSource,
+      requiredValueOffsets,
       returnType,
       returnSafety,
       moduleSafety,
@@ -7301,14 +11275,16 @@ function parse4(source, options = {}) {
       safeFunctions,
       wasmBlocks,
       tests,
-      testErrors
+      testErrors,
+      letAnnotations,
+      tjsModes
     };
   } catch (e) {
     const loc = e.loc || { line: 1, column: 0 };
     throw new SyntaxError2(e.message.replace(/\s*\(\d+:\d+\)$/, ""), loc, originalSource, filename);
   }
 }
-function validateSingleFunction(ast, filename) {
+function extractFunctions(ast, filename) {
   for (const node of ast.body) {
     if (node.type === "ImportDeclaration") {
       throw new SyntaxError2("Imports are not supported. All atoms must be registered with the VM.", node.loc?.start || { line: 1, column: 0 }, undefined, filename);
@@ -7324,11 +11300,98 @@ function validateSingleFunction(ast, filename) {
   if (functions.length === 0) {
     throw new SyntaxError2("Source must contain a function declaration", { line: 1, column: 0 }, undefined, filename);
   }
-  if (functions.length > 1) {
-    const second = functions[1];
-    throw new SyntaxError2("Only a single function per agent is allowed", second.loc?.start || { line: 1, column: 0 }, undefined, filename);
+  const entry = functions[functions.length - 1];
+  const helpers = new Map;
+  for (let i2 = 0;i2 < functions.length - 1; i2++) {
+    const fn = functions[i2];
+    const name = fn.id?.name;
+    if (!name) {
+      throw new SyntaxError2("Helper function must have a name", fn.loc?.start || { line: 1, column: 0 }, undefined, filename);
+    }
+    if (helpers.has(name)) {
+      throw new SyntaxError2(`Duplicate helper function name: ${name}`, fn.loc?.start || { line: 1, column: 0 }, undefined, filename);
+    }
+    if (name === entry.id?.name) {
+      throw new SyntaxError2(`Helper function cannot share a name with the entry function: ${name}`, fn.loc?.start || { line: 1, column: 0 }, undefined, filename);
+    }
+    helpers.set(name, fn);
   }
-  return functions[0];
+  return { entry, helpers };
+}
+function onlyGapFiller(gap) {
+  for (let i2 = 0;i2 < gap.length; i2++) {
+    const c = gap[i2];
+    if (c === " " || c === "\t" || c === `
+` || c === "\r")
+      continue;
+    if (c === "/" && gap[i2 + 1] === "/") {
+      const nl = gap.indexOf(`
+`, i2);
+      if (nl === -1)
+        return true;
+      i2 = nl;
+      continue;
+    }
+    return false;
+  }
+  return true;
+}
+var docCommentCache = new Map;
+function docComments(source) {
+  const hit = docCommentCache.get(source);
+  if (hit)
+    return hit;
+  const out = [];
+  for (const r of scanLiterals(source)) {
+    if (r.kind !== "block-comment")
+      continue;
+    const inner = source.slice(r.innerStart, r.innerEnd);
+    if (inner.startsWith("#")) {
+      const lineStart = source.lastIndexOf(`
+`, r.start) + 1;
+      if (!/^[ \t]*$/.test(source.slice(lineStart, r.start)))
+        continue;
+      out.push({
+        start: r.start,
+        end: r.end,
+        kind: "tdoc",
+        body: inner.slice(1)
+      });
+    } else if (inner.startsWith("*")) {
+      out.push({
+        start: r.start,
+        end: r.end,
+        kind: "jsdoc",
+        body: source.slice(r.start, r.end)
+      });
+    }
+  }
+  if (docCommentCache.size > 24)
+    docCommentCache.clear();
+  docCommentCache.set(source, out);
+  return out;
+}
+function docCommentBefore(blocks, pos, kind) {
+  let found;
+  let lo = 0;
+  let hi = blocks.length - 1;
+  let idx = -1;
+  while (lo <= hi) {
+    const mid = lo + hi >> 1;
+    if (blocks[mid].end <= pos) {
+      idx = mid;
+      lo = mid + 1;
+    } else {
+      hi = mid - 1;
+    }
+  }
+  for (let i2 = idx;i2 >= 0; i2--) {
+    if (blocks[i2].kind === kind) {
+      found = blocks[i2];
+      break;
+    }
+  }
+  return found;
 }
 function extractTDoc(source, func) {
   const result = {
@@ -7336,13 +11399,12 @@ function extractTDoc(source, func) {
   };
   if (!func.loc)
     return result;
-  const beforeFunc = source.substring(0, func.start);
-  const allDocBlocks = [...beforeFunc.matchAll(/\/\*#([\s\S]*?)\*\//g)];
-  if (allDocBlocks.length > 0) {
-    const lastBlock = allDocBlocks[allDocBlocks.length - 1];
-    const afterBlock = beforeFunc.substring(lastBlock.index + lastBlock[0].length);
-    if (/^(?:\s|\/\/[^\n]*)*$/.test(afterBlock)) {
-      let content = lastBlock[1];
+  const blocks = docComments(source);
+  const tdoc = docCommentBefore(blocks, func.start, "tdoc");
+  if (tdoc) {
+    const afterBlock = source.slice(tdoc.end, func.start);
+    if (onlyGapFiller(afterBlock)) {
+      let content = tdoc.body;
       const lines = content.split(`
 `);
       const minIndent = lines.filter((line) => line.trim().length > 0).reduce((min, line) => {
@@ -7357,10 +11419,12 @@ function extractTDoc(source, func) {
       return result;
     }
   }
-  const jsdocMatch = beforeFunc.match(/\/\*\*[\s\S]*?\*\/\s*$/);
-  if (!jsdocMatch)
+  const jsdocBlock = docCommentBefore(blocks, func.start, "jsdoc");
+  if (!jsdocBlock)
     return result;
-  const jsdoc = jsdocMatch[0];
+  if (!/^\s*$/.test(source.slice(jsdocBlock.end, func.start)))
+    return result;
+  const jsdoc = jsdocBlock.body;
   const descMatch = jsdoc.match(/\/\*\*\s*\n?\s*\*?\s*([^@\n][^\n]*)/m);
   if (descMatch) {
     result.description = descMatch[1].trim();
@@ -7371,329 +11435,6 @@ function extractTDoc(source, func) {
     result.params[match[1]] = match[2].trim();
   }
   return result;
-}
-function extractAndRunTests(source, skipTests = false) {
-  const tests = [];
-  const errors = [];
-  let result = "";
-  let i2 = 0;
-  while (i2 < source.length) {
-    const testMatch = source.slice(i2).match(/^\btest\s+/);
-    if (testMatch) {
-      const start = i2;
-      let j = i2 + testMatch[0].length;
-      let description;
-      const descMatch = source.slice(j).match(/^(['"`])([^]*?)\1\s*/);
-      if (descMatch) {
-        description = descMatch[2];
-        j += descMatch[0].length;
-      }
-      if (source[j] === "{") {
-        const bodyStart = j + 1;
-        let depth = 1;
-        let k = bodyStart;
-        while (k < source.length && depth > 0) {
-          const char = source[k];
-          if (char === "{")
-            depth++;
-          else if (char === "}")
-            depth--;
-          k++;
-        }
-        if (depth === 0) {
-          const body = source.slice(bodyStart, k - 1).trim();
-          const end = k;
-          tests.push({ description, body, start, end });
-          if (!skipTests) {
-            try {
-              const testFn = new Function(body);
-              testFn();
-            } catch (err) {
-              const desc = description || `test at position ${start}`;
-              errors.push(`Test failed: ${desc}
-  ${err.message || err}`);
-            }
-          }
-          const removed = source.slice(start, end);
-          const newlines = (removed.match(/\n/g) || []).length;
-          result += `
-`.repeat(newlines);
-          i2 = end;
-          continue;
-        }
-      }
-    }
-    result += source[i2];
-    i2++;
-  }
-  return { source: result, tests, errors };
-}
-function wrapClassDeclarations(source) {
-  const classRegex = /\bclass\s+(\w+)(\s+extends\s+\w+)?\s*\{/g;
-  let result = "";
-  let lastIndex = 0;
-  let match;
-  while ((match = classRegex.exec(source)) !== null) {
-    const className = match[1];
-    const extendsClause = match[2] || "";
-    const classStart = match.index;
-    const bodyStart = classStart + match[0].length - 1;
-    let depth = 1;
-    let i2 = bodyStart + 1;
-    while (i2 < source.length && depth > 0) {
-      const char = source[i2];
-      if (char === "{")
-        depth++;
-      else if (char === "}")
-        depth--;
-      i2++;
-    }
-    if (depth === 0) {
-      const classEnd = i2;
-      const classBody = source.slice(bodyStart, classEnd);
-      result += source.slice(lastIndex, classStart);
-      result += `let ${className} = class ${className}${extendsClause} ${classBody}; `;
-      result += `${className} = new Proxy(${className}, { apply(t, _, a) { return Reflect.construct(t, a) } });`;
-      lastIndex = classEnd;
-    }
-  }
-  result += source.slice(lastIndex);
-  return result;
-}
-function validateNoDate(source) {
-  const datePatterns = [
-    {
-      pattern: /\bnew\s+Date\b/,
-      message: "new Date() is not allowed in TjsDate mode. Use Timestamp.now() or Timestamp.from()"
-    },
-    {
-      pattern: /\bDate\.now\b/,
-      message: "Date.now() is not allowed in TjsDate mode. Use Timestamp.now()"
-    },
-    {
-      pattern: /\bDate\.parse\b/,
-      message: "Date.parse() is not allowed in TjsDate mode. Use Timestamp.parse()"
-    },
-    {
-      pattern: /\bDate\.UTC\b/,
-      message: "Date.UTC() is not allowed in TjsDate mode. Use Timestamp.from()"
-    }
-  ];
-  for (const { pattern, message } of datePatterns) {
-    if (pattern.test(source)) {
-      throw new Error(message);
-    }
-  }
-  return source;
-}
-function validateNoEval(source) {
-  const evalPattern = /(?<![A-Za-z_$])\beval\s*\(/;
-  if (evalPattern.test(source)) {
-    throw new Error("eval() is not allowed in TjsNoeval mode. Use Eval() from TJS runtime for safe evaluation.");
-  }
-  const functionPattern = /\bnew\s+Function\s*\(/;
-  if (functionPattern.test(source)) {
-    throw new Error("new Function() is not allowed in TjsNoeval mode. Use SafeFunction() from TJS runtime.");
-  }
-  return source;
-}
-
-// node_modules/tjs-lang/src/lang/inference.ts
-function inferTypeFromValue(node) {
-  switch (node.type) {
-    case "Literal": {
-      const value = node.value;
-      if (value === null) {
-        return { kind: "null" };
-      }
-      if (typeof value === "string") {
-        return { kind: "string" };
-      }
-      if (typeof value === "number") {
-        return { kind: "number" };
-      }
-      if (typeof value === "boolean") {
-        return { kind: "boolean" };
-      }
-      return { kind: "any" };
-    }
-    case "ArrayExpression": {
-      const elements = node.elements;
-      if (elements.length === 0) {
-        return { kind: "array", items: { kind: "any" } };
-      }
-      const itemType = inferTypeFromValue(elements[0]);
-      return { kind: "array", items: itemType };
-    }
-    case "ObjectExpression": {
-      const properties = node.properties;
-      const shape = {};
-      for (const prop of properties) {
-        if (prop.type === "Property" && prop.key.type === "Identifier") {
-          const key = prop.key.name;
-          shape[key] = inferTypeFromValue(prop.value);
-        }
-      }
-      return { kind: "object", shape };
-    }
-    case "LogicalExpression": {
-      const { operator, left, right } = node;
-      if (operator === "||") {
-        const leftType = inferTypeFromValue(left);
-        const rightType = inferTypeFromValue(right);
-        if (rightType.kind === "null") {
-          return { ...leftType, nullable: true };
-        }
-        if (leftType.kind === "null") {
-          return { ...rightType, nullable: true };
-        }
-        return {
-          kind: "union",
-          members: [leftType, rightType]
-        };
-      }
-      if (operator === "&&") {
-        const rightType = inferTypeFromValue(right);
-        return rightType;
-      }
-      if (operator === "??") {
-        const rightType = inferTypeFromValue(right);
-        return rightType;
-      }
-      return { kind: "any" };
-    }
-    case "Identifier": {
-      if (node.name === "undefined") {
-        return { kind: "undefined" };
-      }
-      return { kind: "any" };
-    }
-    case "UnaryExpression": {
-      if (node.operator === "-" && node.argument.type === "Literal") {
-        const value = node.argument.value;
-        if (typeof value === "number") {
-          return { kind: "number" };
-        }
-      }
-      return { kind: "any" };
-    }
-    default:
-      return { kind: "any" };
-  }
-}
-function parseParameter(param, requiredParams) {
-  if (param.type === "Identifier") {
-    return {
-      name: param.name,
-      type: { kind: "any" },
-      required: true
-    };
-  }
-  if (param.type === "AssignmentPattern") {
-    const { left, right } = param;
-    if (left.type !== "Identifier") {
-      throw new TranspileError("Only simple parameter names are supported", getLocation(param));
-    }
-    const name = left.name;
-    const isRequired = requiredParams?.has(name) ?? false;
-    const type = inferTypeFromValue(right);
-    const exampleValue = extractLiteralValue(right);
-    return {
-      name,
-      type,
-      required: isRequired,
-      default: isRequired ? null : exampleValue,
-      example: exampleValue,
-      loc: { start: param.start, end: param.end }
-    };
-  }
-  if (param.type === "ObjectPattern") {
-    const properties = param.properties;
-    const shape = {};
-    const destructuredParams = {};
-    for (const prop of properties) {
-      if (prop.type === "Property") {
-        const key = prop.key.type === "Identifier" ? prop.key.name : String(prop.key.value);
-        if (prop.value.type === "Identifier") {
-          shape[key] = { kind: "any" };
-          destructuredParams[key] = {
-            name: key,
-            type: { kind: "any" },
-            required: true
-          };
-        } else if (prop.value.type === "AssignmentPattern") {
-          const innerParam = parseParameter(prop.value, requiredParams);
-          const isRequired = requiredParams?.has(key) ?? false;
-          shape[key] = innerParam.type;
-          destructuredParams[key] = {
-            name: key,
-            type: innerParam.type,
-            required: isRequired,
-            default: isRequired ? null : innerParam.example,
-            example: innerParam.example
-          };
-        }
-      }
-    }
-    return {
-      name: "__destructured__",
-      type: { kind: "object", shape, destructuredParams },
-      required: true
-    };
-  }
-  throw new TranspileError(`Unsupported parameter pattern: ${param.type}`, getLocation(param));
-}
-function extractLiteralValue(node) {
-  switch (node.type) {
-    case "Literal":
-      return node.value;
-    case "ArrayExpression":
-      return node.elements.map((el) => el ? extractLiteralValue(el) : null);
-    case "ObjectExpression": {
-      const result = {};
-      for (const prop of node.properties) {
-        if (prop.type === "Property" && prop.key.type === "Identifier") {
-          result[prop.key.name] = extractLiteralValue(prop.value);
-        }
-      }
-      return result;
-    }
-    case "UnaryExpression":
-      if (node.operator === "-") {
-        const arg = extractLiteralValue(node.argument);
-        return typeof arg === "number" ? -arg : undefined;
-      }
-      return;
-    case "LogicalExpression": {
-      const { operator, left, right } = node;
-      if (operator === "&&") {
-        if (left.type === "Literal" && left.value === null) {
-          return null;
-        }
-      }
-      if (operator === "||") {
-        const leftVal = extractLiteralValue(left);
-        return leftVal ?? extractLiteralValue(right);
-      }
-      if (operator === "??") {
-        const leftVal = extractLiteralValue(left);
-        return leftVal ?? extractLiteralValue(right);
-      }
-      return;
-    }
-    default:
-      return;
-  }
-}
-function parseReturnType(typeExpr) {
-  try {
-    const ast = parseExpressionAt2(typeExpr, 0, {
-      ecmaVersion: 2022
-    });
-    return inferTypeFromValue(ast);
-  } catch {
-    return { kind: "any" };
-  }
 }
 
 // node_modules/tjs-lang/src/lang/emitters/ast.ts
@@ -7751,14 +11492,27 @@ function parametersToJsonSchema(parameters) {
     type: "object",
     properties,
     required: required.length > 0 ? required : undefined,
-    additionalProperties: false
+    additionalProperties: Object.keys(properties).length === 0 ? undefined : false
   };
 }
-function transformFunction(func, source, returnTypeAnnotation, options = {}, requiredParamsFromPreprocess) {
+function transformFunction(func, source, returnTypeAnnotation, options = {}, requiredParamsFromPreprocess, helpers, requiredValueOffsets) {
   const tdoc = extractTDoc(source, func);
+  const requiredHere = new Set;
+  if (requiredValueOffsets?.size) {
+    for (const param of func.params ?? []) {
+      const p = param;
+      if (p?.type !== "AssignmentPattern" || !p.right || !p.left?.name)
+        continue;
+      if (requiredValueOffsets.has(p.right.end))
+        requiredHere.add(p.left.name);
+    }
+  } else if (requiredParamsFromPreprocess) {
+    for (const n of requiredParamsFromPreprocess)
+      requiredHere.add(n);
+  }
   const parameters = new Map;
   for (const param of func.params) {
-    const parsed = parseParameter(param, requiredParamsFromPreprocess);
+    const parsed = parseParameter(param, requiredHere);
     if (parsed.name === "__destructured__" && parsed.type.kind === "object" && parsed.type.destructuredParams) {
       for (const [key, paramDesc] of Object.entries(parsed.type.destructuredParams)) {
         parameters.set(key, {
@@ -7783,7 +11537,10 @@ function transformFunction(func, source, returnTypeAnnotation, options = {}, req
     warnings: [],
     source,
     filename: options.filename || "<source>",
-    options
+    options,
+    helpers,
+    helperSteps: helpers ? new Map : undefined,
+    helperTransforming: helpers ? new Set : undefined
   };
   const bodySteps = transformBlock(func.body, ctx);
   const steps = [];
@@ -7835,8 +11592,14 @@ function transformFunction(func, source, returnTypeAnnotation, options = {}, req
     returns: returnType
   };
   const inputSchema = parametersToJsonSchema(signatureParams);
+  const helperBodies = ctx.helperSteps && ctx.helperSteps.size > 0 ? Object.fromEntries(ctx.helperSteps) : undefined;
   return {
-    ast: { op: "seq", steps, inputSchema },
+    ast: {
+      op: "seq",
+      steps,
+      inputSchema,
+      ...helperBodies && { helpers: helperBodies }
+    },
     signature,
     warnings: ctx.warnings
   };
@@ -7881,8 +11644,39 @@ function transformStatement(stmt, ctx) {
     case "EmptyStatement":
       return null;
     default:
-      throw new TranspileError(`Unsupported statement type: ${stmt.type}`, getLocation(stmt), ctx.source, ctx.filename);
+      throw new TranspileError(`Unsupported statement type: ${stmt.type}${remedyFor(stmt.type)}`, getLocation(stmt), ctx.source, ctx.filename);
   }
+}
+var CONSTRUCT_REMEDIES = {
+  ForStatement: `AJS has no \`for\` loops. Use \`while\` with a counter:
+  let i = 0
+  while (i < items.length) {
+    // ...
+    i = i + 1
+  }`,
+  ForInStatement: `AJS has no \`for...in\`. Get the keys and walk them with \`while\`:
+  let ks = keys({ obj: data })
+  let i = 0
+  while (i < ks.length) {
+    let k = ks[i]
+    i = i + 1
+  }`,
+  SwitchStatement: `AJS has no \`switch\`. Use \`if\`/\`else if\`:
+  if (kind == 'a') {
+    // ...
+  } else if (kind == 'b') {
+    // ...
+  }`,
+  DoWhileStatement: `AJS has no \`do...while\`. Use \`while\`, running the body check first:
+  let i = 0
+  while (i < n) {
+    // ...
+    i = i + 1
+  }`
+};
+function remedyFor(type) {
+  const remedy = CONSTRUCT_REMEDIES[type];
+  return remedy ? `. ${remedy}` : "";
 }
 function transformVariableDeclaration(decl, ctx) {
   const steps = [];
@@ -8315,6 +12109,23 @@ function transformCallExpression(expr, ctx, resultVar, isConst) {
     return transformMethodCall(funcName, receiver, expr.arguments, ctx, resultVar, isConst);
   }
   if (funcName === "console" && expr.callee.type === "MemberExpression") {}
+  if (ctx.helpers?.has(funcName)) {
+    const paramNames = ensureHelperTransformed(funcName, ctx, expr);
+    const argExprs = expr.arguments.map((arg) => expressionToValue(arg, ctx));
+    if (argExprs.length !== paramNames.length) {
+      throw new TranspileError(`Helper '${funcName}' expects ${paramNames.length} argument(s), got ${argExprs.length}`, getLocation(expr), ctx.source, ctx.filename);
+    }
+    return {
+      step: {
+        op: "callLocal",
+        name: funcName,
+        args: argExprs,
+        ...resultVar && { result: resultVar },
+        ...resultVar && isConst && { resultConst: true }
+      },
+      resultVar
+    };
+  }
   const args = extractCallArguments(expr, ctx);
   return {
     step: {
@@ -8325,6 +12136,53 @@ function transformCallExpression(expr, ctx, resultVar, isConst) {
     },
     resultVar
   };
+}
+function ensureHelperTransformed(name, ctx, callSite) {
+  const fn = ctx.helpers.get(name);
+  const paramNames = [];
+  for (const param of fn.params) {
+    let id;
+    if (param.type === "Identifier") {
+      id = param;
+    } else if (param.type === "AssignmentPattern" && param.left?.type === "Identifier") {
+      id = param.left;
+    }
+    if (!id) {
+      throw new TranspileError(`Helper '${name}' parameters must be plain identifiers (optionally with an example value); destructuring is not supported`, param.loc?.start ?? getLocation(callSite), ctx.source, ctx.filename);
+    }
+    paramNames.push(id.name);
+  }
+  if (ctx.helperSteps.has(name) || ctx.helperTransforming.has(name)) {
+    return paramNames;
+  }
+  ctx.helperTransforming.add(name);
+  try {
+    const helperCtx = {
+      depth: 0,
+      locals: new Map,
+      parameters: new Map(paramNames.map((p) => [
+        p,
+        {
+          name: p,
+          type: { kind: "any" },
+          required: true
+        }
+      ])),
+      atoms: ctx.atoms,
+      warnings: ctx.warnings,
+      source: ctx.source,
+      filename: ctx.filename,
+      options: ctx.options,
+      helpers: ctx.helpers,
+      helperSteps: ctx.helperSteps,
+      helperTransforming: ctx.helperTransforming
+    };
+    const bodySteps = transformBlock(fn.body, helperCtx);
+    ctx.helperSteps.set(name, { steps: bodySteps, paramNames });
+  } finally {
+    ctx.helperTransforming.delete(name);
+  }
+  return paramNames;
 }
 function transformMethodCall(method, receiver, args, ctx, resultVar, isConst) {
   switch (method) {
@@ -8540,7 +12398,13 @@ function expressionToExprNode(expr, ctx) {
             ...isOptional && { optional: true }
           };
         }
-        throw new TranspileError("Computed member access with variables not yet supported", getLocation(expr), ctx.source, ctx.filename);
+        return {
+          $expr: "member",
+          object: obj,
+          property: expressionToExprNode(prop, ctx),
+          computed: true,
+          ...isOptional && { optional: true }
+        };
       }
       const propName = mem.property.name;
       return {
@@ -8626,6 +12490,9 @@ function expressionToExprNode(expr, ctx) {
       }
       if (call.callee.type === "Identifier") {
         const funcName = call.callee.name;
+        if (ctx.helpers?.has(funcName)) {
+          throw new TranspileError(`Helper '${funcName}' cannot be called inside an expression. ` + `Assign its result to a variable first: ` + `const result = ${funcName}(...); then use result.`, getLocation(expr), ctx.source, ctx.filename);
+        }
         return {
           $expr: "call",
           callee: funcName,
@@ -8674,7 +12541,7 @@ function expressionToValue(expr, ctx) {
         };
       }
       if (mem.computed) {
-        return `${objValue}[${expressionToValue(mem.property, ctx)}]`;
+        return expressionToExprNode(expr, ctx);
       }
       const prop = mem.property.name;
       if (typeof objValue === "string") {
@@ -8730,266 +12597,512 @@ function extractCallArguments(expr, ctx) {
     args: expr.arguments.map((arg) => expressionToValue(arg, ctx))
   };
 }
-// node_modules/tosijs-schema/dist/index.js
-var R = (n) => ({ schema: n, _type: null, validate: (i2, f) => K(i2, n, f), get optional() {
-  return R({ ...n, type: Array.isArray(n.type) ? [...n.type, "null"] : [n.type, "null"] });
-}, title: (i2) => R({ ...n, title: i2 }), describe: (i2) => R({ ...n, description: i2 }), default: (i2) => R({ ...n, default: i2 }), meta: (i2) => R({ ...i2, ...n, ...i2 }), min: (i2) => {
-  let f = n.type === "string" ? "minLength" : n.type === "array" ? "minItems" : n.type === "object" ? "minProperties" : "minimum";
-  return R({ ...n, [f]: i2 });
-}, max: (i2) => {
-  let f = n.type === "string" ? "maxLength" : n.type === "array" ? "maxItems" : n.type === "object" ? "maxProperties" : "maximum";
-  return R({ ...n, [f]: i2 });
-}, pattern: (i2) => R({ ...n, pattern: typeof i2 === "string" ? i2 : i2.source }), get email() {
-  return R({ ...n, format: "email" });
-}, get uuid() {
-  return R({ ...n, format: "uuid" });
-}, get ipv4() {
-  return R({ ...n, format: "ipv4" });
-}, get url() {
-  return R({ ...n, format: "uri" });
-}, get datetime() {
-  return R({ ...n, format: "date-time" });
-}, get emoji() {
-  return R({ ...n, pattern: "^\\p{Extended_Pictographic}+$", format: "emoji" });
-}, get int() {
-  return R({ ...n, type: "integer" });
-}, step: (i2) => R({ ...n, multipleOf: i2 }) });
-var H = { get email() {
-  return R({ type: "string", format: "email" });
-}, get uuid() {
-  return R({ type: "string", format: "uuid" });
-}, get ipv4() {
-  return R({ type: "string", format: "ipv4" });
-}, get url() {
-  return R({ type: "string", format: "uri" });
-}, get datetime() {
-  return R({ type: "string", format: "date-time" });
-}, get emoji() {
-  return R({ type: "string", pattern: "^\\p{Extended_Pictographic}+$", format: "emoji" });
-}, get null() {
-  return R({ type: "null" });
-}, get undefined() {
-  return R({ type: "null", "x-tjs-undefined": true });
-}, get any() {
-  return R({});
-}, pattern: (n) => R({ type: "string", pattern: typeof n === "string" ? n : n.source }), union: (n) => R({ anyOf: n.map((i2) => i2.schema) }), enum: (n) => R({ type: typeof n[0], enum: n }), const: (n) => R({ const: n }), array: (n) => R({ type: "array", items: n.schema }), tuple: (n) => R({ type: "array", items: n.map((i2) => i2.schema), minItems: n.length, maxItems: n.length }), object: (n) => {
-  let i2 = {}, f = [];
-  for (let O in n)
-    if (i2[O] = n[O].schema, !Array.isArray(i2[O].type) || !i2[O].type.includes("null"))
-      f.push(O);
-  return R({ type: "object", properties: i2, required: f, additionalProperties: false });
-}, record: (n) => R({ type: "object", additionalProperties: n.schema }), infer: (n) => {
-  if (n === null)
-    return R({ type: "null" });
-  if (n === undefined)
-    return R({ type: "null", "x-tjs-undefined": true });
-  let i2 = typeof n;
-  if (i2 === "string")
-    return R({ type: "string" });
-  if (i2 === "number")
-    return R({ type: Number.isInteger(n) ? "integer" : "number" });
-  if (i2 === "boolean")
-    return R({ type: "boolean" });
-  if (Array.isArray(n)) {
-    if (n.length === 0)
-      return R({ type: "array" });
-    return R({ type: "array", items: H.infer(n[0]).schema });
-  }
-  if (i2 === "object") {
-    let f = {}, O = [];
-    for (let y in n)
-      f[y] = H.infer(n[y]).schema, O.push(y);
-    return R({ type: "object", properties: f, required: O, additionalProperties: false });
-  }
-  return R({});
-} };
-var X = new Proxy(H, { get(n, i2) {
-  if (i2 in n)
-    return n[i2];
-  if (i2 === "string" || i2 === "number" || i2 === "boolean" || i2 === "integer") {
-    let f = R({ type: i2 });
-    return n[i2] = f, f;
-  }
-  return;
-} });
-var Q = { email: (n) => /^\S+@\S+\.\S+$/.test(n), uuid: (n) => /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(n), uri: (n) => {
+// node_modules/tjs-lang/src/forbidden-keys.ts
+var FORBIDDEN_KEYS = ["__proto__", "constructor", "prototype"];
+var FORBIDDEN_KEYS_SET = new Set(FORBIDDEN_KEYS);
+
+// node_modules/tjs-lang/src/unwrap-boxed.ts
+function unwrapBoxed(v) {
   try {
-    return new URL(n), true;
+    if (v instanceof String)
+      return String.prototype.valueOf.call(v);
+    if (v instanceof Number)
+      return Number.prototype.valueOf.call(v);
+    if (v instanceof Boolean)
+      return Boolean.prototype.valueOf.call(v);
+  } catch {
+    return v;
+  }
+  return v;
+}
+var UNWRAP_BOXED_SOURCE = `function __ub(v){try{` + `if(v instanceof String)return String.prototype.valueOf.call(v);` + `if(v instanceof Number)return Number.prototype.valueOf.call(v);` + `if(v instanceof Boolean)return Boolean.prototype.valueOf.call(v)` + `}catch{return v}return v}`;
+
+// node_modules/tosijs-schema/dist/index.js
+var N = "\\p{Extended_Pictographic}";
+var re = /^(\d{4})-(\d{2})-(\d{2})$/;
+var ne = [31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31];
+var V = (e) => {
+  let t = re.exec(e);
+  if (!t)
+    return false;
+  let r = +t[1], o = +t[2], i2 = +t[3];
+  if (o < 1 || o > 12 || i2 < 1)
+    return false;
+  let c = o === 2 && r % 4 === 0 && (r % 100 !== 0 || r % 400 === 0) ? 29 : ne[o - 1];
+  return i2 <= c;
+};
+var ie = /^(\d{4}-\d{2}-\d{2})[Tt](\d{2}):(\d{2}):(\d{2})(?:\.\d+)?(?:[Zz]|[+-]\d{2}:\d{2})$/;
+var S = { email: (e) => /^\S+@\S+\.\S+$/.test(e), uuid: (e) => /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(e), uri: (e) => {
+  try {
+    return new URL(e), true;
   } catch {
     return false;
   }
-}, ipv4: (n) => /^(?:(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\.){3}(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)$/.test(n), "date-time": (n) => !isNaN(Date.parse(n)), emoji: (n) => new RegExp("\\p{Extended_Pictographic}", "u").test(n) };
-function K(n, i2, f) {
-  let O = i2?.schema || i2, y = typeof f === "function" ? f : f?.onError, G = typeof f === "object" ? f?.strict ?? f?.fullScan ?? false : false, g = [], I = (w) => {
-    if (y)
-      y(g.join(".") || "root", w);
+}, ipv4: (e) => /^(?:(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\.){3}(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)$/.test(e), date: V, "date-time": (e) => {
+  let t = ie.exec(e);
+  if (!t || !V(t[1]))
     return false;
-  }, $ = (w, u) => {
-    if (u.anyOf) {
-      for (let x of u.anyOf)
-        if (K(w, x))
-          return true;
-      return I("Union mismatch");
+  let r = +t[2], o = +t[3], i2 = +t[4];
+  if (r > 23 || o > 59)
+    return false;
+  return i2 <= 59 || i2 === 60 && r === 23 && o === 59;
+}, emoji: (e) => new RegExp("\\p{Extended_Pictographic}", "u").test(e) };
+var v = new Set(Object.keys(S));
+var k = new Map;
+var P = (e, t) => {
+  let r = t ? "u" : "", o = r + "\x00" + e, i2 = k.get(o);
+  if (i2 === undefined) {
+    if (i2 = new RegExp(e, r), k.size >= 500)
+      k.clear();
+    k.set(o, i2);
+  }
+  return i2;
+};
+var m = (e, t = false) => ({ schema: e, _type: null, _optional: t, validate: (r, o) => b(r, e, o), get optional() {
+  let r = { ...e };
+  if (e.type !== undefined) {
+    let o = Array.isArray(e.type) ? e.type : [e.type];
+    r.type = o.includes("null") ? o : [...o, "null"];
+  }
+  if (r.const !== undefined) {
+    let o = r.const === null ? "null" : typeof r.const;
+    if (r.enum = [r.const, null], delete r.const, r.type === undefined && o !== "null")
+      r.type = [o, "null"];
+  }
+  if (Array.isArray(r.enum) && !r.enum.includes(null))
+    r.enum = [...r.enum, null];
+  if (r.type === undefined && r.enum === undefined && Array.isArray(r.anyOf) && !r.anyOf.some((o) => o === true || o?.type === "null" || Array.isArray(o?.type) && o.type.includes("null")))
+    r.anyOf = [...r.anyOf, { type: "null" }];
+  return m(r, true);
+}, get open() {
+  return m({ ...e, additionalProperties: true }, t);
+}, title: (r) => m({ ...e, title: r }, t), describe: (r) => m({ ...e, description: r }, t), default: (r) => m({ ...e, default: r }, t), meta: (r) => m({ ...r, ...e, ...r }, t), min: (r) => {
+  let o = e.type === "string" ? "minLength" : e.type === "array" ? "minItems" : e.type === "object" ? "minProperties" : "minimum";
+  return m({ ...e, [o]: r }, t);
+}, max: (r) => {
+  let o = e.type === "string" ? "maxLength" : e.type === "array" ? "maxItems" : e.type === "object" ? "maxProperties" : "maximum";
+  return m({ ...e, [o]: r }, t);
+}, pattern: (r) => m({ ...e, pattern: typeof r === "string" ? r : r.source }, t), get email() {
+  return m({ ...e, format: "email" }, t);
+}, get uuid() {
+  return m({ ...e, format: "uuid" }, t);
+}, get ipv4() {
+  return m({ ...e, format: "ipv4" }, t);
+}, get url() {
+  return m({ ...e, format: "uri" }, t);
+}, get datetime() {
+  return m({ ...e, format: "date-time" }, t);
+}, get date() {
+  return m({ ...e, format: "date" }, t);
+}, get emoji() {
+  return m({ ...e, pattern: `^${N}+$`, format: "emoji" }, t);
+}, get int() {
+  return m({ ...e, type: "integer" }, t);
+}, step: (r) => m({ ...e, multipleOf: r }, t) });
+var T = null;
+var _ = { get email() {
+  return m({ type: "string", format: "email" });
+}, get uuid() {
+  return m({ type: "string", format: "uuid" });
+}, get ipv4() {
+  return m({ type: "string", format: "ipv4" });
+}, get url() {
+  return m({ type: "string", format: "uri" });
+}, get datetime() {
+  return m({ type: "string", format: "date-time" });
+}, get date() {
+  return m({ type: "string", format: "date" });
+}, get emoji() {
+  return m({ type: "string", pattern: `^${N}+$`, format: "emoji" });
+}, get null() {
+  return m({ type: "null" });
+}, get undefined() {
+  return m({ type: "null", "x-tjs-undefined": true });
+}, get any() {
+  return m({});
+}, pattern: (e) => m({ type: "string", pattern: typeof e === "string" ? e : e.source }), union: (e) => m({ anyOf: e.map((t) => t.schema) }), enum: (e) => m({ type: typeof e[0], enum: e }), const: (e) => m({ const: e }), array: (e) => m({ type: "array", items: e.schema }), tuple: (e) => m({ type: "array", items: e.map((t) => t.schema), minItems: e.length, maxItems: e.length }), object: (e, t) => {
+  let r = {}, o = [];
+  for (let i2 in e) {
+    r[i2] = e[i2].schema;
+    let c = r[i2];
+    if (e[i2]._optional !== true && (!Array.isArray(c.type) || !c.type.includes("null")))
+      o.push(i2);
+  }
+  return m({ type: "object", properties: r, required: o, additionalProperties: t?.additionalProperties === true });
+}, record: (e) => {
+  if (e == null)
+    throw Error("s.record(valueSchema) requires a value schema — use s.record(s.any) for unconstrained values");
+  return m({ type: "object", additionalProperties: e.schema });
+}, infer: (e) => {
+  if (e === null)
+    return m({ type: "null" });
+  if (e === undefined)
+    return m({ type: "null", "x-tjs-undefined": true });
+  let t = typeof e;
+  if (t === "string")
+    return m({ type: "string" });
+  if (t === "number")
+    return m({ type: Number.isInteger(e) ? "integer" : "number" });
+  if (t === "boolean")
+    return m({ type: "boolean" });
+  if (Array.isArray(e)) {
+    if (e.length === 0)
+      return m({ type: "array" });
+    return m({ type: "array", items: _.infer(e[0]).schema });
+  }
+  if (t === "object") {
+    let r = {}, o = [];
+    for (let i2 in e)
+      r[i2] = _.infer(e[i2]).schema, o.push(i2);
+    return m({ type: "object", properties: r, required: o, additionalProperties: false });
+  }
+  return m({});
+} };
+var Ae = new Proxy(_, { get(e, t) {
+  if (t in e)
+    return e[t];
+  if (t === "string" || t === "number" || t === "boolean" || t === "integer") {
+    let r = m({ type: t });
+    return e[t] = r, r;
+  }
+  return;
+} });
+var O = (e, t) => Object.prototype.hasOwnProperty.call(e, t);
+var U = true;
+var M = false;
+var oe = () => {
+  if (!U || M)
+    return;
+  M = true, console.warn("[tosijs-schema] `oneOf` is validated by trying every branch (no short-circuit, unlike `anyOf`) — for a discriminated union, `anyOf` is cheaper. Silence with setWarnings(false). This warns once per process.");
+};
+var q = (e, t) => t === "integer" ? typeof e === "number" && Number.isInteger(e) : t === "array" ? Array.isArray(e) : t === "object" ? typeof e === "object" && !Array.isArray(e) : t === "number" ? typeof e === "number" : typeof e === t;
+var H = (e, t, r) => {
+  if (t === "__proto__")
+    Object.defineProperty(e, t, { value: r, enumerable: true, writable: true, configurable: true });
+  else
+    e[t] = r;
+};
+var j = 97;
+var W = new Set(["type", "properties", "required", "items", "enum", "const", "anyOf", "oneOf", "minimum", "maximum", "exclusiveMinimum", "exclusiveMaximum", "multipleOf", "minLength", "maxLength", "pattern", "format", "minItems", "maxItems", "minProperties", "maxProperties", "additionalProperties", "$predicate", "x-tjs-undefined"]);
+var G = (e) => e.properties !== undefined || e.required !== undefined || e.additionalProperties !== undefined || e.minProperties !== undefined || e.maxProperties !== undefined;
+var z = (e) => e.items !== undefined || e.minItems !== undefined || e.maxItems !== undefined;
+function b(e, t, r) {
+  let o = t?.schema || t, i2 = typeof r === "function" ? r : r?.onError, c = typeof r === "object" ? r?.strict ?? r?.fullScan ?? false : false, f = [], a = (u) => {
+    if (i2)
+      i2(f.join(".") || "root", u);
+    return false;
+  }, s = (u, n) => {
+    if (n === true)
+      return true;
+    if (n === false)
+      return a("Schema forbids value");
+    if (Array.isArray(n.anyOf)) {
+      let l = false;
+      for (let p of n.anyOf)
+        if (b(u, p, { strict: c })) {
+          l = true;
+          break;
+        }
+      if (!l)
+        return a("Union mismatch");
     }
-    if (u.const !== undefined)
-      return w === u.const || I("Const mismatch");
-    if (w === null) {
-      let x = u.type === "null" && !u["x-tjs-undefined"], F = Array.isArray(u.type) && u.type.includes("null");
-      return x || F || !u.type || I("Expected value, got null");
+    if (Array.isArray(n.oneOf)) {
+      oe();
+      let l = 0;
+      for (let p of n.oneOf)
+        if (b(u, p, { strict: c })) {
+          if (l++, l > 1)
+            break;
+        }
+      if (l !== 1)
+        return a(`oneOf: matched ${l} branches, need exactly 1`);
     }
-    if (w === undefined) {
-      let x = u.type === "null" && u["x-tjs-undefined"], F = Array.isArray(u.type) && u.type.includes("null");
-      return x || F || !u.type || I("Expected value, got undefined");
+    if (n.const !== undefined) {
+      if (u !== n.const)
+        return a("Const mismatch");
     }
-    let C = Array.isArray(u.type) ? u.type[0] : u.type;
-    if (u.enum && !u.enum.includes(w))
-      return I("Enum mismatch");
-    if (C === "integer") {
-      if (typeof w !== "number" || !Number.isInteger(w))
-        return I("Expected integer");
-    } else if (C === "array") {
-      if (!Array.isArray(w))
-        return I("Expected array");
-    } else if (C === "object") {
-      if (typeof w !== "object" || Array.isArray(w))
-        return I("Expected object");
-    } else if (C && typeof w !== C)
-      return I(`Expected ${C}`);
-    if (typeof w === "number") {
-      if (!Number.isFinite(w))
-        return I("Expected finite number");
-      if (u.minimum !== undefined && w < u.minimum)
-        return I("Value < min");
-      if (u.maximum !== undefined && w > u.maximum)
-        return I("Value > max");
-      if (u.multipleOf !== undefined) {
-        let x = Math.abs(w % u.multipleOf), F = 0.0000000001;
-        if (x > 0.0000000001 && Math.abs(x - Math.abs(u.multipleOf)) > 0.0000000001)
-          return I("Value not step");
+    if (Array.isArray(n.enum) && u !== undefined && !n.enum.includes(u))
+      return a("Enum mismatch");
+    if (u === null) {
+      let l = n.type === "null" && !n["x-tjs-undefined"], p = Array.isArray(n.type) && n.type.includes("null");
+      return l || p || !n.type || a("Expected value, got null");
+    }
+    if (u === undefined) {
+      let l = n.type === "null" && n["x-tjs-undefined"], p = Array.isArray(n.type) && n.type.includes("null");
+      return l || p || !n.type || a("Expected value, got undefined");
+    }
+    let d;
+    if (typeof n.type === "string") {
+      if (n.type === "null")
+        return a("Expected null");
+      if (!q(u, n.type))
+        return a(`Expected ${n.type}`);
+      d = n.type;
+    } else if (Array.isArray(n.type)) {
+      let l = false;
+      for (let p of n.type) {
+        if (typeof p !== "string" || p === "null")
+          continue;
+        if (l = true, q(u, p)) {
+          d = p;
+          break;
+        }
+      }
+      if (l && d === undefined)
+        return a(`Expected ${n.type.filter((p) => typeof p === "string" && p !== "null").join(" | ")}`);
+      if (!l && n.type.includes("null"))
+        return a("Expected null");
+    }
+    if (n.$predicate && T) {
+      if (!T(n.$predicate, u))
+        return a("Predicate mismatch");
+    }
+    if (typeof u === "number") {
+      if (!Number.isFinite(u))
+        return a("Expected finite number");
+      if (n.minimum !== undefined && u < n.minimum)
+        return a("Value < min");
+      if (n.maximum !== undefined && u > n.maximum)
+        return a("Value > max");
+      if (n.exclusiveMinimum !== undefined && u <= n.exclusiveMinimum)
+        return a("Value <= exclusive min");
+      if (n.exclusiveMaximum !== undefined && u >= n.exclusiveMaximum)
+        return a("Value >= exclusive max");
+      if (n.multipleOf !== undefined) {
+        let l = Math.abs(u % n.multipleOf), p = 0.0000000001;
+        if (l > 0.0000000001 && Math.abs(l - Math.abs(n.multipleOf)) > 0.0000000001)
+          return a("Value not step");
       }
     }
-    if (typeof w === "string") {
-      if (u.minLength !== undefined && w.length < u.minLength)
-        return I("Len < min");
-      if (u.maxLength !== undefined && w.length > u.maxLength)
-        return I("Len > max");
-      if (u.pattern && !new RegExp(u.pattern, u.format === "emoji" ? "u" : "").test(w))
-        return I("Pattern mismatch");
-      if (u.format && Q[u.format] && !Q[u.format](w))
-        return I("Format invalid");
+    if (typeof u === "string") {
+      if (n.minLength !== undefined && u.length < n.minLength)
+        return a("Len < min");
+      if (n.maxLength !== undefined && u.length > n.maxLength)
+        return a("Len > max");
+      if (n.pattern)
+        try {
+          if (!P(n.pattern, n.format === "emoji").test(u))
+            return a("Pattern mismatch");
+        } catch {
+          return a("Invalid pattern");
+        }
+      if (n.format && S[n.format] && !S[n.format](u))
+        return a("Format invalid");
     }
-    if (C === "object") {
-      let x = u.minProperties !== undefined, F = G && u.maxProperties !== undefined;
-      if (x || F) {
-        let o = 0;
-        for (let P in w)
-          if (Object.prototype.hasOwnProperty.call(w, P))
-            o++;
-        if (x && o < u.minProperties)
-          return I("Too few props");
-        if (F && o > u.maxProperties)
-          return I("Too many props");
+    if (d === "object" || !d && typeof u === "object" && !Array.isArray(u) && G(n)) {
+      let l = n.minProperties !== undefined, p = c && n.maxProperties !== undefined;
+      if (l || p) {
+        let y = 0;
+        for (let g in u)
+          if (O(u, g))
+            y++;
+        if (l && y < n.minProperties)
+          return a("Too few props");
+        if (p && y > n.maxProperties)
+          return a("Too many props");
       }
-      if (u.required) {
-        for (let o of u.required)
-          if (!(o in w))
-            return I(`Missing ${o}`);
+      if (n.required) {
+        for (let y of n.required)
+          if (!O(u, y))
+            return a(`Missing ${y}`);
       }
-      if (u.properties) {
-        for (let o in u.properties)
-          if (o in w) {
-            g.push(o);
-            let P = $(w[o], u.properties[o]);
-            if (g.pop(), !P)
+      if (n.additionalProperties === false)
+        for (let y in u) {
+          if (!O(u, y))
+            continue;
+          if (n.properties && O(n.properties, y))
+            continue;
+          return a(`Unexpected ${y}`);
+        }
+      if (n.properties) {
+        for (let y in n.properties)
+          if (O(u, y)) {
+            f.push(y);
+            let g = s(u[y], n.properties[y]);
+            if (f.pop(), !g)
               return false;
           }
       }
-      if (u.additionalProperties) {
-        let o = [];
-        for (let B in w) {
-          if (u.properties && B in u.properties)
+      if (n.additionalProperties) {
+        let y = [];
+        for (let h in u) {
+          if (!O(u, h))
             continue;
-          o.push(B);
+          if (n.properties && O(n.properties, h))
+            continue;
+          y.push(h);
         }
-        let P = o.length, _ = G || P <= 97 ? 1 : Math.floor(P / 97);
-        for (let B = 0;B < P; B += _) {
-          let J = _ > 1 && B > P - 1 - _ ? P - 1 : B, L = o[J];
-          g.push(L);
-          let W = $(w[L], u.additionalProperties);
-          if (g.pop(), !W)
+        let g = y.length, x = c || g <= j ? 1 : Math.floor(g / j);
+        for (let h = 0;h < g; h += x) {
+          let E = x > 1 && h > g - 1 - x ? g - 1 : h, D = y[E];
+          f.push(D);
+          let te = s(u[D], n.additionalProperties);
+          if (f.pop(), !te)
             return false;
-          if (J === P - 1)
+          if (E === g - 1)
             break;
         }
       }
       return true;
     }
-    if (C === "array" && u.items) {
-      let x = w.length;
-      if (u.minItems !== undefined && x < u.minItems)
-        return I("Array too short");
-      if (u.maxItems !== undefined && x > u.maxItems)
-        return I("Array too long");
-      if (Array.isArray(u.items)) {
-        for (let o = 0;o < u.items.length; o++) {
-          if (g.push(String(o)), !$(w[o], u.items[o]))
-            return g.pop(), false;
-          g.pop();
+    if (d === "array" || !d && Array.isArray(u) && z(n)) {
+      let l = u.length;
+      if (n.minItems !== undefined && l < n.minItems)
+        return a("Array too short");
+      if (n.maxItems !== undefined && l > n.maxItems)
+        return a("Array too long");
+      if (n.items === undefined)
+        return true;
+      if (Array.isArray(n.items)) {
+        for (let y = 0;y < n.items.length; y++) {
+          if (f.push(String(y)), !s(u[y], n.items[y]))
+            return f.pop(), false;
+          f.pop();
         }
         return true;
       }
-      let F = G || x <= 97 ? 1 : Math.floor(x / 97);
-      for (let o = 0;o < x; o += F) {
-        let P = F > 1 && o > x - 1 - F ? x - 1 : o;
-        g.push(String(P));
-        let _ = $(w[P], u.items);
-        if (g.pop(), !_)
+      let p = c || l <= j ? 1 : Math.floor(l / j);
+      for (let y = 0;y < l; y += p) {
+        let g = p > 1 && y > l - 1 - p ? l - 1 : y;
+        f.push(String(g));
+        let x = s(u[g], n.items);
+        if (f.pop(), !x)
           return false;
-        if (P === x - 1)
+        if (g === l - 1)
           break;
       }
       return true;
     }
     return true;
   };
-  return $(n, O);
+  return s(e, o);
 }
-function Y(n, i2, f) {
-  let O = i2?.schema || i2, y = typeof f === "function" ? f : f?.onError, G = typeof f === "object" ? f?.strict ?? f?.fullScan ?? false : false;
-  if (!(typeof f === "object" ? f?.skipValidation : false)) {
-    let I = "", $ = "";
-    if (!K(n, O, { onError: (C, x) => {
-      if (!I)
-        I = C, $ = x;
-      if (y)
-        y(C, x);
-    }, fullScan: G }))
-      return Error(`${I}: ${$}`);
+function Te(e, t, r) {
+  let o = t?.schema || t, i2 = typeof r === "function" ? r : r?.onError, c = typeof r === "object" ? r?.strict ?? r?.fullScan ?? false : false, f = typeof r === "object" ? r?.skipValidation : false, a = A(e, o, c);
+  if (!f) {
+    let s = "", u = "", n = (l, p) => {
+      if (!s)
+        s = l, u = p;
+      if (i2)
+        i2(l, p);
+    }, d;
+    try {
+      d = b(a, o, { onError: n, fullScan: c });
+    } catch (l) {
+      return Error(`internal validation error: ${l.message}`);
+    }
+    if (!d)
+      return Error(`${s}: ${u}`);
   }
-  return A(n, O);
+  return a;
 }
-function A(n, i2) {
-  if (n === null || n === undefined)
-    return n;
-  let f = i2.type;
-  if (f === "object" && i2.properties && typeof n === "object" && !Array.isArray(n)) {
-    let O = {};
-    for (let y of Object.keys(i2.properties))
-      if (y in n)
-        O[y] = A(n[y], i2.properties[y]);
-    return O;
+function A(e, t, r = false) {
+  if (e === null || e === undefined)
+    return e;
+  if (Array.isArray(t.anyOf)) {
+    for (let a of t.anyOf) {
+      let s = A(e, a, r);
+      try {
+        if (b(s, a, { strict: r }))
+          return s;
+      } catch {}
+    }
+    return e;
   }
-  if (f === "array" && Array.isArray(n)) {
-    if (i2.items)
-      if (Array.isArray(i2.items))
-        return n.slice(0, i2.items.length).map((O, y) => A(O, i2.items[y]));
+  if (Array.isArray(t.oneOf)) {
+    let a = [];
+    for (let l of t.oneOf) {
+      try {
+        if (b(e, l, { strict: r }))
+          a.push(l);
+      } catch {}
+      if (a.length > 1)
+        break;
+    }
+    if (a.length === 1)
+      return A(e, a[0], r);
+    if (a.length > 1)
+      return e;
+    let s = (l) => {
+      if (l === null || typeof l !== "object")
+        return 0;
+      let p = 0;
+      for (let y in l)
+        if (O(l, y))
+          p += 1 + s(l[y]);
+      return p;
+    }, u = null, n = -1, d = false;
+    for (let l of t.oneOf) {
+      let p = A(e, l, r), y = false;
+      try {
+        y = b(p, l, { strict: r });
+      } catch {}
+      if (!y)
+        continue;
+      let g = s(p);
+      if (g > n)
+        u = p, n = g, d = false;
+      else if (g === n)
+        d = true;
+    }
+    return u !== null && !d ? u : e;
+  }
+  let o = t.type, i2 = (o === "object" || !o && G(t)) && typeof e === "object" && !Array.isArray(e), c = (o === "array" || !o && z(t)) && Array.isArray(e);
+  if (i2 && !t.properties && t.additionalProperties === false)
+    return {};
+  let f = t.additionalProperties && typeof t.additionalProperties === "object" ? t.additionalProperties : t.additionalProperties === true ? {} : null;
+  if (i2 && (t.properties || f)) {
+    let a = {};
+    if (t.properties) {
+      for (let s of Object.keys(t.properties))
+        if (O(e, s))
+          H(a, s, A(e[s], t.properties[s], r));
+    }
+    if (f)
+      for (let s of Object.keys(e)) {
+        if (t.properties && O(t.properties, s))
+          continue;
+        H(a, s, A(e[s], f, r));
+      }
+    return a;
+  }
+  if (c) {
+    if (t.items)
+      if (Array.isArray(t.items))
+        return e.slice(0, t.items.length).map((a, s) => A(a, t.items[s], r));
       else
-        return n.map((O) => A(O, i2.items));
-    return n;
+        return e.map((a) => A(a, t.items, r));
+    return e;
   }
-  return n;
+  return e;
 }
+var ae = new Set(["title", "description", "default", "examples", "$counterexamples", "$inferred", "$schema", "$id", "$comment", "deprecated", "readOnly", "writeOnly"]);
+var ue = [["type", (e) => typeof e === "string" || Array.isArray(e) && e.every((t) => typeof t === "string"), "a string or array of strings"], ["anyOf", Array.isArray, "an array"], ["oneOf", Array.isArray, "an array"], ["required", (e) => Array.isArray(e) && e.every((t) => typeof t === "string"), "an array of strings"], ["enum", Array.isArray, "an array"], ["properties", (e) => e !== null && typeof e === "object" && !Array.isArray(e), "an object"], ["items", (e) => e !== null && typeof e === "object", "a schema or array"], ["additionalProperties", (e) => typeof e === "boolean" || e !== null && typeof e === "object", "a boolean or schema"], ["pattern", (e) => typeof e === "string", "a string"], ["format", (e) => typeof e === "string", "a string"], ["$predicate", (e) => typeof e === "string", "a string"], ...["minimum", "maximum", "exclusiveMinimum", "exclusiveMaximum", "multipleOf", "minLength", "maxLength", "minItems", "maxItems", "minProperties", "maxProperties"].map((e) => [e, (t) => typeof t === "number", "a number"])];
+var Z = [["minLength", ["string"]], ["maxLength", ["string"]], ["pattern", ["string"]], ["format", ["string"]], ["minimum", ["number", "integer"]], ["maximum", ["number", "integer"]], ["exclusiveMinimum", ["number", "integer"]], ["exclusiveMaximum", ["number", "integer"]], ["multipleOf", ["number", "integer"]], ["items", ["array"]], ["minItems", ["array"]], ["maxItems", ["array"]], ["properties", ["object"]], ["required", ["object"]], ["additionalProperties", ["object"]], ["minProperties", ["object"]], ["maxProperties", ["object"]]];
+var fe = [...Z.map(([e]) => e), "enum", "$predicate"];
 // node_modules/tjs-lang/src/vm/runtime.ts
+function eqValue(a, b2) {
+  a = unwrapBoxed(a);
+  b2 = unwrapBoxed(b2);
+  if (a === b2)
+    return true;
+  if (typeof a === "number" && typeof b2 === "number" && isNaN(a) && isNaN(b2)) {
+    return true;
+  }
+  if ((a === null || a === undefined) && (b2 === null || b2 === undefined)) {
+    return true;
+  }
+  return false;
+}
+function recordVmEvent(entry) {
+  const g = globalThis;
+  if (!g.__tjs || typeof g.__tjs.record !== "function")
+    return;
+  try {
+    g.__tjs.record(entry);
+  } catch {}
+}
+
 class AgentError {
   $error = true;
   message;
@@ -8999,6 +13112,12 @@ class AgentError {
     this.message = message;
     this.op = op;
     this.cause = cause;
+    recordVmEvent({
+      source: "vm",
+      severity: "error",
+      message,
+      data: { op, cause: cause?.message }
+    });
   }
   toString() {
     return `AgentError[${this.op}]: ${this.message}`;
@@ -9006,6 +13125,9 @@ class AgentError {
   toJSON() {
     return { $error: true, message: this.message, op: this.op };
   }
+}
+function isAgentError(value) {
+  return value instanceof AgentError || value && value.$error === true;
 }
 var procedureStore = new Map;
 var DEFAULT_PROCEDURE_TTL = 60 * 60 * 1000;
@@ -9031,7 +13153,210 @@ function generateProcedureToken() {
   }
   return PROCEDURE_TOKEN_PREFIX + Math.random().toString(36).slice(2) + Date.now().toString(36);
 }
-var FORBIDDEN_PROPERTIES = new Set(["__proto__", "constructor", "prototype"]);
+var FORBIDDEN_PROPERTIES = FORBIDDEN_KEYS_SET;
+var MEMBRANE_MAX_BYTES = 4 * 1024 * 1024;
+var MEMBRANE_MAX_DEPTH = 1e4;
+function membraneValue(value, maxBytes) {
+  if (value === null || value === undefined)
+    return { ok: true, value };
+  const t = typeof value;
+  if (t === "boolean" || t === "number")
+    return { ok: true, value };
+  if (t === "string") {
+    if (value.length * 2 > maxBytes) {
+      return {
+        ok: false,
+        reason: `string exceeds ${maxBytes}-byte membrane budget`
+      };
+    }
+    return { ok: true, value };
+  }
+  if (t === "function" || t === "symbol" || t === "bigint") {
+    return {
+      ok: false,
+      reason: `a ${t} cannot cross the capability boundary into guest state`
+    };
+  }
+  let bytes = 0;
+  const seen = new WeakSet;
+  const stack = [{ v: value, depth: 0 }];
+  while (stack.length) {
+    const { v: v2, depth } = stack.pop();
+    if (v2 === null || v2 === undefined) {
+      bytes += 8;
+      if (bytes > maxBytes)
+        return overBudget(maxBytes);
+      continue;
+    }
+    const vt = typeof v2;
+    if (vt === "function" || vt === "symbol" || vt === "bigint") {
+      return {
+        ok: false,
+        reason: `capability return contains a ${vt}, which cannot cross into guest state`
+      };
+    }
+    if (vt === "string") {
+      bytes += v2.length * 2 + 8;
+      if (bytes > maxBytes)
+        return overBudget(maxBytes);
+      continue;
+    }
+    if (vt !== "object") {
+      bytes += 8;
+      if (bytes > maxBytes)
+        return overBudget(maxBytes);
+      continue;
+    }
+    if (depth > MEMBRANE_MAX_DEPTH) {
+      return {
+        ok: false,
+        reason: "capability return exceeds membrane depth limit"
+      };
+    }
+    if (seen.has(v2))
+      continue;
+    seen.add(v2);
+    bytes += 16;
+    if (bytes > maxBytes)
+      return overBudget(maxBytes);
+    if (Array.isArray(v2)) {
+      const own = readArrayData(v2, bytes, maxBytes, stack, depth);
+      if (!own.ok)
+        return own;
+      bytes = own.bytes;
+    } else if (v2 instanceof Date) {
+      bytes += 32;
+      if (bytes > maxBytes)
+        return overBudget(maxBytes);
+    } else if (ArrayBuffer.isView(v2)) {
+      bytes += v2.byteLength;
+      if (bytes > maxBytes)
+        return overBudget(maxBytes);
+    } else if (v2 instanceof ArrayBuffer) {
+      bytes += v2.byteLength;
+      if (bytes > maxBytes)
+        return overBudget(maxBytes);
+    } else if (v2 instanceof Map || v2 instanceof Set) {
+      const proto = Object.getPrototypeOf(v2);
+      const isMap = v2 instanceof Map;
+      if (proto !== (isMap ? Map.prototype : Set.prototype)) {
+        return {
+          ok: false,
+          reason: `capability return contains a ${isMap ? "Map" : "Set"} subclass; the boundary takes plain data only, because a subclass can override how it is read`
+        };
+      }
+      bytes += 16;
+      if (bytes > maxBytes)
+        return overBudget(maxBytes);
+      const it = isMap ? Map.prototype.entries.call(v2) : Set.prototype.values.call(v2);
+      const next = it.next.bind(it);
+      for (let step = next();!step.done; step = next()) {
+        if (isMap) {
+          const [mk, mv] = step.value;
+          stack.push({ v: mk, depth: depth + 1 });
+          stack.push({ v: mv, depth: depth + 1 });
+        } else {
+          stack.push({ v: step.value, depth: depth + 1 });
+        }
+      }
+    } else {
+      const own = readOwnData(v2);
+      if (!own.ok)
+        return own;
+      bytes += own.bytes;
+      if (bytes > maxBytes)
+        return overBudget(maxBytes);
+      for (const value2 of own.values)
+        stack.push({ v: value2, depth: depth + 1 });
+    }
+  }
+  try {
+    return { ok: true, value: structuredClone(value) };
+  } catch (e) {
+    return {
+      ok: false,
+      reason: `capability return is not structured-cloneable: ${e?.message || e}`
+    };
+  }
+}
+function overBudget(maxBytes) {
+  return {
+    ok: false,
+    reason: `capability return exceeds the ${maxBytes}-byte membrane budget`
+  };
+}
+function readArrayData(v2, startBytes, maxBytes, stack, depth) {
+  let bytes = startBytes;
+  let pushed = 0;
+  let indexCount = 0;
+  const len = v2.length;
+  const probeCap = Math.max(1024, Math.floor((maxBytes - startBytes) / 8) * 4);
+  const scanned = Math.min(len, probeCap);
+  let i2 = 0;
+  for (;i2 < scanned; i2++) {
+    const d = Object.getOwnPropertyDescriptor(v2, i2);
+    if (!d)
+      continue;
+    if (d.get || d.set) {
+      return {
+        ok: false,
+        reason: `capability return has an accessor at index ${i2}; the boundary takes plain data only, because reading an accessor would execute host code`
+      };
+    }
+    stack.push({ v: d.value, depth: depth + 1 });
+    pushed++;
+    indexCount++;
+    if (bytes + pushed * 8 > maxBytes)
+      return overBudget(maxBytes);
+  }
+  for (const k2 of Object.keys(v2)) {
+    const asIndex = isArrayIndex(k2) ? Number(k2) : -1;
+    if (asIndex >= 0 && asIndex < i2)
+      continue;
+    const d = Object.getOwnPropertyDescriptor(v2, k2);
+    if (d && (d.get || d.set)) {
+      return {
+        ok: false,
+        reason: `capability return has an accessor ${asIndex >= 0 ? `at index ${k2}` : `property '${k2}'`}; the boundary takes plain data only, because reading an accessor would execute host code`
+      };
+    }
+    stack.push({ v: d ? d.value : undefined, depth: depth + 1 });
+    pushed++;
+    if (asIndex < 0)
+      bytes += k2.length * 2 + 8;
+    else
+      indexCount++;
+    if (bytes + pushed * 8 > maxBytes)
+      return overBudget(maxBytes);
+  }
+  const holes = len - indexCount;
+  if (holes > 0) {
+    bytes += holes * 8;
+    if (bytes > maxBytes)
+      return overBudget(maxBytes);
+  }
+  return { ok: true, bytes };
+}
+function isArrayIndex(k2) {
+  const n = Number(k2);
+  return Number.isInteger(n) && n >= 0 && n < 4294967295 && String(n) === k2;
+}
+function readOwnData(v2) {
+  const values = [];
+  let bytes = 0;
+  for (const k2 of Object.keys(v2)) {
+    const d = Object.getOwnPropertyDescriptor(v2, k2);
+    if (d && (d.get || d.set)) {
+      return {
+        ok: false,
+        reason: `capability return has an accessor property '${k2}'; the boundary takes plain data only, because reading an accessor would execute host code`
+      };
+    }
+    bytes += k2.length * 2 + 8;
+    values.push(d ? d.value : undefined);
+  }
+  return { ok: true, values, bytes };
+}
 function assertSafeProperty(prop) {
   if (FORBIDDEN_PROPERTIES.has(prop)) {
     throw new Error(`Security Error: Access to '${prop}' is forbidden`);
@@ -9044,6 +13369,36 @@ var BLOCKED_HOSTS = new Set([
   "[::1]",
   "metadata.google.internal"
 ]);
+function isBlockedIPv4(host) {
+  return /^127\./.test(host) || /^10\./.test(host) || /^192\.168\./.test(host) || /^172\.(1[6-9]|2\d|3[01])\./.test(host) || /^169\.254\./.test(host) || /^0\./.test(host);
+}
+function isBlockedIPv6(host) {
+  if (host === "::1" || host === "::")
+    return true;
+  if (/^f[cd]/.test(host))
+    return true;
+  if (/^fe[89ab]/.test(host))
+    return true;
+  const mapped = /^::(?:ffff:)?(.+)$/.exec(host);
+  if (mapped) {
+    const v4 = ipv4FromMappedTail(mapped[1]);
+    if (v4 && isBlockedIPv4(v4))
+      return true;
+  }
+  return false;
+}
+function ipv4FromMappedTail(tail) {
+  if (tail.includes("."))
+    return tail;
+  const groups = tail.split(":");
+  if (groups.length !== 2)
+    return null;
+  const hi = parseInt(groups[0], 16);
+  const lo = parseInt(groups[1], 16);
+  if (Number.isNaN(hi) || Number.isNaN(lo))
+    return null;
+  return `${hi >> 8 & 255}.${hi & 255}.${lo >> 8 & 255}.${lo & 255}`;
+}
 function isBlockedUrl(urlString) {
   try {
     const url = new URL(urlString);
@@ -9055,34 +13410,46 @@ function isBlockedUrl(urlString) {
       return true;
     if (host.endsWith(".internal") || host.endsWith(".local"))
       return true;
-    if (host === "169.254.169.254")
-      return true;
-    if (/^10\./.test(host) || /^192\.168\./.test(host) || /^172\.(1[6-9]|2\d|3[01])\./.test(host)) {
-      return true;
+    if (host.startsWith("[") && host.endsWith("]")) {
+      return isBlockedIPv6(host.slice(1, -1));
     }
-    return false;
+    return isBlockedIPv4(host);
   } catch {
     return true;
   }
 }
+var MAX_REGEX_PATTERN_LENGTH = 1000;
+var MAX_REGEX_INPUT_LENGTH = 1e5;
 function isSuspiciousRegex(pattern) {
-  if (/\([^)]*[+*][^)]*\)[+*]/.test(pattern))
-    return true;
-  if (/\(([^|)]+)\|\1\)[+*]/.test(pattern))
-    return true;
-  if (/\(\.\*\)\+/.test(pattern))
-    return true;
-  if (/\(\.\+\)\+/.test(pattern))
-    return true;
-  if (/\(\[.*\]\+\)\+/.test(pattern))
-    return true;
-  return false;
+  return reDoSRisk(pattern) !== null || alternationOverlapRisk(pattern);
 }
 function createChildScope(ctx) {
-  return {
+  const child = {
     ...ctx,
     state: Object.create(ctx.state)
   };
+  child.heapAccount = ctx.heapAccount ?? (ctx.heapAccount = { bytes: 0 });
+  child.heapPerKey = new Map;
+  Object.defineProperty(child, "error", {
+    get: () => ctx.error,
+    set: (e) => {
+      ctx.error = e;
+    },
+    enumerable: true,
+    configurable: true
+  });
+  return child;
+}
+function releaseScope(child) {
+  const account = child.heapAccount;
+  const ledger = child.heapPerKey;
+  if (!account || !ledger || ledger.size === 0)
+    return;
+  for (const { size } of ledger.values())
+    account.bytes -= size;
+  if (account.bytes < 0)
+    account.bytes = 0;
+  ledger.clear();
 }
 function diffObjects(before, after) {
   const diff = {};
@@ -9330,14 +13697,14 @@ var builtins = {
   Infinity: Infinity,
   filter: (data2, schema) => {
     const jsonSchema = convertExampleToSchema(schema);
-    const result = Y(data2, jsonSchema);
+    const result = Te(data2, jsonSchema);
     if (result instanceof Error) {
       throw result;
     }
     return result;
   },
   Schema: {
-    ...X,
+    ...Ae,
     response: (name, schemaOrExample) => {
       const jsonSchema = schemaOrExample?.schema != null ? schemaOrExample.schema : convertExampleToSchema(schemaOrExample);
       return {
@@ -9352,9 +13719,9 @@ var builtins = {
     fromExample: (example) => convertExampleToSchema(example),
     isValid: (data2, schemaOrExample) => {
       if (schemaOrExample?.schema != null) {
-        return K(data2, schemaOrExample);
+        return b(data2, schemaOrExample);
       }
-      return K(data2, convertExampleToSchema(schemaOrExample));
+      return b(data2, convertExampleToSchema(schemaOrExample));
     }
   },
   Set: (items = []) => {
@@ -9519,6 +13886,50 @@ var builtins = {
     return DateFactory;
   })()
 };
+var SAFE_METHOD_NAMES = (() => {
+  const names = new Set;
+  for (const proto of [
+    String.prototype,
+    Array.prototype,
+    Number.prototype,
+    Boolean.prototype,
+    Object.prototype,
+    Date.prototype
+  ]) {
+    for (const name of Object.getOwnPropertyNames(proto)) {
+      if (!FORBIDDEN_PROPERTIES.has(name))
+        names.add(name);
+    }
+  }
+  for (const key of Object.keys(builtins)) {
+    const b2 = builtins[key];
+    if (b2 && typeof b2 === "object") {
+      for (const name of Object.keys(b2)) {
+        if (!FORBIDDEN_PROPERTIES.has(name))
+          names.add(name);
+      }
+    }
+  }
+  const addOwn = (o) => {
+    if (!o)
+      return;
+    for (const name of Object.getOwnPropertyNames(o)) {
+      if (!FORBIDDEN_PROPERTIES.has(name))
+        names.add(name);
+    }
+  };
+  try {
+    const dateFactory = builtins.Date;
+    if (typeof dateFactory === "function") {
+      addOwn(dateFactory);
+      addOwn(dateFactory(0));
+    }
+    const setFactory = builtins.Set;
+    if (typeof setFactory === "function")
+      addOwn(setFactory([]));
+  } catch {}
+  return names;
+})();
 var unsupportedBuiltins = {
   RegExp: "RegExp is not available. Use string methods or the regexMatch atom.",
   Promise: "Promise is not needed. All operations are implicitly async.",
@@ -9544,6 +13955,152 @@ var unsupportedBuiltins = {
 var EXPR_FUEL_COST = 0.01;
 var STRING_FUEL_PER_CHAR = 0.0001;
 var ARRAY_FUEL_PER_ELEMENT = 0.001;
+function sizeHint(v2) {
+  if (typeof v2 === "string")
+    return v2.length;
+  if (Array.isArray(v2))
+    return v2.length;
+  if (v2 && typeof v2 === "object")
+    return Object.keys(v2).length;
+  return 0;
+}
+var MAX_HEAP_BYTES = 64 * 1024 * 1024;
+var HEAP_WALK_FUEL_PER_NODE = 0.001;
+function estimateBytes(value, cap) {
+  let bytes = 0;
+  let nodes = 0;
+  const seen = new WeakSet;
+  const stack = [value];
+  while (stack.length && bytes <= cap) {
+    const v2 = stack.pop();
+    nodes++;
+    if (v2 === null || v2 === undefined)
+      continue;
+    const t = typeof v2;
+    if (t === "string") {
+      bytes += v2.length * 2;
+      continue;
+    }
+    if (t !== "object") {
+      bytes += 8;
+      continue;
+    }
+    if (seen.has(v2))
+      continue;
+    seen.add(v2);
+    bytes += 16;
+    if (ArrayBuffer.isView(v2)) {
+      bytes += v2.byteLength;
+    } else if (v2 instanceof ArrayBuffer) {
+      bytes += v2.byteLength;
+    } else if (Array.isArray(v2)) {
+      for (let i2 = 0;i2 < v2.length && bytes <= cap; i2++)
+        stack.push(v2[i2]);
+    } else if (v2 instanceof Map) {
+      for (const [k2, mv] of v2) {
+        stack.push(k2);
+        stack.push(mv);
+        if (bytes > cap)
+          break;
+      }
+    } else if (v2 instanceof Set) {
+      for (const sv of v2) {
+        stack.push(sv);
+        if (bytes > cap)
+          break;
+      }
+    } else if (!(v2 instanceof Date)) {
+      for (const k2 of Object.keys(v2)) {
+        bytes += k2.length * 2;
+        stack.push(v2[k2]);
+        if (bytes > cap)
+          break;
+      }
+    }
+  }
+  return { bytes, nodes };
+}
+function heapWitness(value) {
+  return Array.isArray(value) ? value.length : -1;
+}
+function chargeHeapWalk(ctx, nodes, op) {
+  if (!ctx.fuel)
+    return true;
+  ctx.fuel.current -= nodes * HEAP_WALK_FUEL_PER_NODE;
+  if (ctx.fuel.current > 0)
+    return true;
+  if (!ctx.error) {
+    ctx.error = new AgentError("Out of Fuel", op);
+  }
+  return false;
+}
+function heapLimitError(total, cap, op) {
+  return new AgentError(`Heap limit exceeded: guest state holds ~${Math.round(total / 1048576)}MB, ` + `limit ${Math.round(cap / 1048576)}MB. Fuel bounds total work; this bounds peak ` + `memory. Raise it with the maxHeapBytes run option if the workload genuinely ` + `needs it.`, op);
+}
+function trackHeapWrite(ctx, key, value, op) {
+  const cap = ctx.maxHeapBytes ?? MAX_HEAP_BYTES;
+  if (!ctx.heapPerKey)
+    ctx.heapPerKey = new Map;
+  const prevEntry = ctx.heapPerKey.get(key);
+  const witness = heapWitness(value);
+  if (prevEntry && prevEntry.ref === value && prevEntry.witness === witness && typeof value === "object") {
+    return true;
+  }
+  if (prevEntry && prevEntry.ref === value && Array.isArray(value) && witness > prevEntry.witness) {
+    const account2 = ctx.heapAccount ??= { bytes: 0 };
+    const tail = value.slice(prevEntry.witness);
+    const headroom2 = cap - account2.bytes;
+    const { bytes: added, nodes: nodes2 } = estimateBytes(tail, Math.max(0, headroom2));
+    if (!chargeHeapWalk(ctx, nodes2, op))
+      return false;
+    const total2 = account2.bytes + added;
+    ctx.heapPerKey.set(key, {
+      size: prevEntry.size + added,
+      ref: value,
+      witness
+    });
+    account2.bytes = total2;
+    if (total2 > cap) {
+      ctx.error = heapLimitError(total2, cap, op);
+      return false;
+    }
+    return true;
+  }
+  const prevSize = prevEntry?.size ?? 0;
+  const account = ctx.heapAccount ??= { bytes: 0 };
+  const headroom = cap - (account.bytes - prevSize);
+  const { bytes: size, nodes } = estimateBytes(value, Math.max(0, headroom));
+  if (!chargeHeapWalk(ctx, nodes, op))
+    return false;
+  const total = account.bytes - prevSize + size;
+  ctx.heapPerKey.set(key, { size, ref: value, witness });
+  account.bytes = total;
+  if (total > cap) {
+    ctx.error = heapLimitError(total, cap, op);
+    return false;
+  }
+  return true;
+}
+function setStateVar(ctx, key, value, op, opts) {
+  assertSafeProperty(key);
+  if (!opts?.alias && !trackHeapWrite(ctx, key, value, op))
+    return false;
+  ctx.state[key] = value;
+  return true;
+}
+function chargeForSize(ctx, value, op) {
+  if (!ctx.fuel)
+    return true;
+  const n = sizeHint(value);
+  if (n > 0) {
+    ctx.fuel.current -= typeof value === "string" ? n * STRING_FUEL_PER_CHAR : n * ARRAY_FUEL_PER_ELEMENT;
+  }
+  if (ctx.fuel.current <= 0) {
+    ctx.error = new AgentError("Out of Fuel", op);
+    return false;
+  }
+  return true;
+}
 var ALLOCATING_METHODS = new Set([
   "concat",
   "slice",
@@ -9609,8 +14166,8 @@ function evaluateExpr(node, ctx) {
       if (node.optional && (obj === null || obj === undefined)) {
         return;
       }
-      const prop = node.property;
-      assertSafeProperty(prop);
+      const prop = typeof node.property === "object" && node.property !== null ? evaluateExpr(node.property, ctx) : node.property;
+      assertSafeProperty(String(prop));
       return obj?.[prop];
     }
     case "binary": {
@@ -9647,9 +14204,9 @@ function evaluateExpr(node, ctx) {
         case "<=":
           return left <= right;
         case "==":
-          return left == right;
+          return eqValue(left, right);
         case "!=":
-          return left != right;
+          return !eqValue(left, right);
         case "===":
           return left === right;
         case "!==":
@@ -9726,6 +14283,9 @@ function evaluateExpr(node, ctx) {
       }
       const method = node.method;
       assertSafeProperty(method);
+      if (!SAFE_METHOD_NAMES.has(method)) {
+        throw new Error(`Security Error: method '${method}' is not callable in AsyncJS`);
+      }
       if (obj === null || obj === undefined) {
         throw new Error(`Cannot call method '${method}' on ${obj}`);
       }
@@ -9761,7 +14321,8 @@ function defineAtom(op, inputSchema, outputSchema, fn, options = {}) {
   const {
     docs = "",
     timeoutMs = 1000,
-    cost = 1
+    cost = 1,
+    effects = "io"
   } = typeof options === "string" ? { docs: options } : options;
   const exec = async (step, ctx) => {
     const { op: _op, result: _res, ...inputData } = step;
@@ -9772,6 +14333,17 @@ function defineAtom(op, inputSchema, outputSchema, fn, options = {}) {
     let result;
     let error;
     try {
+      const quota = ctx.quotas?.[op];
+      if (quota !== undefined) {
+        if (!ctx.quotaUsed)
+          ctx.quotaUsed = {};
+        const used = ctx.quotaUsed[op] ?? 0;
+        if (used >= quota) {
+          ctx.error = new AgentError(`Quota exceeded for '${op}': ${quota} call${quota === 1 ? "" : "s"} allowed`, op);
+          return;
+        }
+        ctx.quotaUsed[op] = used + 1;
+      }
       const overrideCost = ctx.costOverrides?.[op];
       const baseCost = overrideCost !== undefined ? overrideCost : cost;
       const currentCost = typeof baseCost === "function" ? baseCost(inputData, ctx) : baseCost;
@@ -9779,23 +14351,36 @@ function defineAtom(op, inputSchema, outputSchema, fn, options = {}) {
         ctx.error = new AgentError("Out of Fuel", op);
         return;
       }
+      const overrideTimeout = ctx.timeoutOverrides?.[op];
+      const baseTimeout = overrideTimeout !== undefined ? overrideTimeout : timeoutMs;
+      const effectiveTimeout = typeof baseTimeout === "function" ? baseTimeout(inputData, ctx) : baseTimeout;
       let timer;
       const execute = async () => fn(step, ctx);
-      result = timeoutMs > 0 ? await Promise.race([
+      result = effectiveTimeout > 0 ? await Promise.race([
         execute(),
-        new Promise((_, reject) => {
-          timer = setTimeout(() => reject(new Error(`Atom '${op}' timed out`)), timeoutMs);
+        new Promise((_2, reject) => {
+          timer = setTimeout(() => reject(new Error(`Atom '${op}' timed out`)), effectiveTimeout);
         })
       ]).finally(() => clearTimeout(timer)) : await execute();
       if (step.result) {
+        assertSafeProperty(step.result);
         if (ctx.consts.has(step.result)) {
           throw new Error(`Cannot reassign const variable '${step.result}'`);
         }
-        if (result !== undefined && outputSchema && !K(result, outputSchema)) {
+        if (atom.effects === "io" && result !== undefined) {
+          const crossed = membraneValue(result, ctx.membraneMaxBytes ?? MEMBRANE_MAX_BYTES);
+          if (!crossed.ok) {
+            ctx.error = new AgentError(`Capability boundary rejected the return of '${op}': ${crossed.reason}`, op);
+            return;
+          }
+          result = crossed.value;
+        }
+        if (result !== undefined && outputSchema && !b(result, outputSchema)) {
           ctx.error = new AgentError(`Output validation failed for '${op}'`, op);
           return;
         }
-        ctx.state[step.result] = result;
+        if (!setStateVar(ctx, step.result, result, op))
+          return;
         if (step.resultConst) {
           ctx.consts.add(step.result);
         }
@@ -9814,12 +14399,12 @@ function defineAtom(op, inputSchema, outputSchema, fn, options = {}) {
           error,
           fuelBefore,
           fuelAfter: ctx.fuel.current,
-          timestamp: new Date().toISOString()
+          timestamp: Date.now()
         });
       }
     }
   };
-  return {
+  const atom = {
     op,
     inputSchema,
     outputSchema,
@@ -9827,10 +14412,12 @@ function defineAtom(op, inputSchema, outputSchema, fn, options = {}) {
     docs,
     timeoutMs,
     cost,
+    effects,
     create: (input) => ({ op, ...input })
   };
+  return atom;
 }
-var seq = defineAtom("seq", X.object({ steps: X.array(X.any) }), undefined, async ({ steps }, ctx) => {
+var seq = defineAtom("seq", Ae.object({ steps: Ae.array(Ae.any) }), undefined, async ({ steps }, ctx) => {
   for (const step of steps) {
     if (ctx.output !== undefined)
       return;
@@ -9842,10 +14429,10 @@ var seq = defineAtom("seq", X.object({ steps: X.array(X.any) }), undefined, asyn
     await atom.exec(step, ctx);
   }
 }, { docs: "Sequence", timeoutMs: 0, cost: 0.1 });
-var iff = defineAtom("if", X.object({
-  condition: X.any,
-  then: X.array(X.any),
-  else: X.array(X.any).optional
+var iff = defineAtom("if", Ae.object({
+  condition: Ae.any,
+  then: Ae.array(Ae.any),
+  else: Ae.array(Ae.any).optional
 }), undefined, async (step, ctx) => {
   if (evaluateExpr(step.condition, ctx)) {
     await seq.exec({ op: "seq", steps: step.then }, ctx);
@@ -9853,9 +14440,9 @@ var iff = defineAtom("if", X.object({
     await seq.exec({ op: "seq", steps: step.else }, ctx);
   }
 }, { docs: "If/Else", timeoutMs: 0, cost: 0.1 });
-var whileLoop = defineAtom("while", X.object({
-  condition: X.any,
-  body: X.array(X.any)
+var whileLoop = defineAtom("while", Ae.object({
+  condition: Ae.any,
+  body: Ae.array(Ae.any)
 }), undefined, async (step, ctx) => {
   while (evaluateExpr(step.condition, ctx)) {
     if (ctx.signal?.aborted)
@@ -9865,15 +14452,23 @@ var whileLoop = defineAtom("while", X.object({
     await seq.exec({ op: "seq", steps: step.body }, ctx);
     if (ctx.output !== undefined)
       return;
+    if (ctx.error)
+      return;
   }
 }, { docs: "While Loop", timeoutMs: 0, cost: 0.1 });
-var ret = defineAtom("return", undefined, X.any, async (step, ctx) => {
+var ret = defineAtom("return", undefined, Ae.any, async (step, ctx) => {
   if (ctx.error) {
     ctx.output = ctx.error;
     return ctx.error;
   }
   if ("value" in step) {
     const res2 = resolveValue(step.value, ctx);
+    if (!ctx.localCall && res2 !== undefined && res2 !== null && !isAgentError(res2) && (typeof res2 !== "object" || Array.isArray(res2))) {
+      const err = new AgentError(`Agent must return an object, got ${Array.isArray(res2) ? "array" : typeof res2}`, "return");
+      ctx.error = err;
+      ctx.output = err;
+      return err;
+    }
     ctx.output = res2;
     return res2;
   }
@@ -9883,7 +14478,7 @@ var ret = defineAtom("return", undefined, X.any, async (step, ctx) => {
       res[key] = ctx.state[key];
     }
     if (step.filter !== false) {
-      const filterResult = Y(res, step.schema);
+      const filterResult = Te(res, step.schema);
       if (!(filterResult instanceof Error)) {
         res = filterResult;
       }
@@ -9892,72 +14487,86 @@ var ret = defineAtom("return", undefined, X.any, async (step, ctx) => {
   ctx.output = res;
   return res;
 }, { docs: "Return", cost: 0.1 });
-var tryCatch = defineAtom("try", X.object({
-  try: X.array(X.any),
-  catch: X.array(X.any).optional,
-  catchParam: X.string.optional
+var tryCatch = defineAtom("try", Ae.object({
+  try: Ae.array(Ae.any),
+  catch: Ae.array(Ae.any).optional,
+  catchParam: Ae.string.optional
 }), undefined, async (step, ctx) => {
   await seq.exec({ op: "seq", steps: step.try }, ctx);
   if (ctx.error && step.catch) {
     const paramName = step.catchParam || "error";
-    ctx.state[paramName] = ctx.error.message;
-    ctx.state["errorOp"] = ctx.error.op;
+    if (!setStateVar(ctx, paramName, ctx.error.message, "catch"))
+      return;
+    if (!setStateVar(ctx, "errorOp", ctx.error.op, "catch"))
+      return;
     ctx.error = undefined;
     await seq.exec({ op: "seq", steps: step.catch }, ctx);
   }
 }, { docs: "Try/Catch", timeoutMs: 0, cost: 0.1 });
-var errorAtom = defineAtom("Error", X.object({ args: X.array(X.any).optional }), undefined, async (step, ctx) => {
+var errorAtom = defineAtom("Error", Ae.object({ args: Ae.array(Ae.any).optional }), undefined, async (step, ctx) => {
   const message = step.args?.[0] ?? "Error";
   ctx.error = new AgentError(String(message), "Error");
 }, { docs: "Trigger error flow", cost: 0.1 });
-var varSet = defineAtom("varSet", X.object({ key: X.string, value: X.any }), undefined, async ({ key, value }, ctx) => {
+var varSet = defineAtom("varSet", Ae.object({ key: Ae.string, value: Ae.any }), undefined, async ({ key, value }, ctx) => {
+  assertSafeProperty(key);
   if (ctx.consts.has(key)) {
     throw new Error(`Cannot reassign const variable '${key}'`);
   }
-  ctx.state[key] = resolveValue(value, ctx);
+  const v2 = resolveValue(value, ctx);
+  if (!setStateVar(ctx, key, v2, "varSet"))
+    return;
 }, { docs: "Set Variable", cost: 0.1 });
-var constSet = defineAtom("constSet", X.object({ key: X.string, value: X.any }), undefined, async ({ key, value }, ctx) => {
+var constSet = defineAtom("constSet", Ae.object({ key: Ae.string, value: Ae.any }), undefined, async ({ key, value }, ctx) => {
+  assertSafeProperty(key);
   if (ctx.consts.has(key)) {
     throw new Error(`Cannot reassign const variable '${key}'`);
   }
   if (key in ctx.state) {
     throw new Error(`Cannot redeclare variable '${key}' as const`);
   }
-  ctx.state[key] = resolveValue(value, ctx);
+  const cv = resolveValue(value, ctx);
+  if (!setStateVar(ctx, key, cv, "constSet"))
+    return;
   ctx.consts.add(key);
 }, { docs: "Set Const Variable (immutable)", cost: 0.1 });
-var varGet = defineAtom("varGet", X.object({ key: X.string }), X.any, async ({ key }, ctx) => {
+var varGet = defineAtom("varGet", Ae.object({ key: Ae.string }), Ae.any, async ({ key }, ctx) => {
   return resolveValue(key, ctx);
 }, { docs: "Get Variable", cost: 0.1 });
-var varsImport = defineAtom("varsImport", X.object({
-  keys: X.union([X.array(X.string), X.record(X.string)])
+var varsImport = defineAtom("varsImport", Ae.object({
+  keys: Ae.union([Ae.array(Ae.string), Ae.record(Ae.string)])
 }), undefined, async ({ keys }, ctx) => {
   if (Array.isArray(keys)) {
     for (const key of keys) {
-      ctx.state[key] = resolveValue({ $kind: "arg", path: key }, ctx);
+      const v2 = resolveValue({ $kind: "arg", path: key }, ctx);
+      if (!setStateVar(ctx, key, v2, "varsImport"))
+        return;
     }
   } else {
     for (const [alias, path] of Object.entries(keys)) {
-      ctx.state[alias] = resolveValue({ $kind: "arg", path }, ctx);
+      const v2 = resolveValue({ $kind: "arg", path }, ctx);
+      if (!setStateVar(ctx, alias, v2, "varsImport"))
+        return;
     }
   }
 }, {
   docs: "Import variables from args into the current scope, with optional renaming.",
   cost: 0.2
 });
-var varsLet = defineAtom("varsLet", X.record(X.any), undefined, async (step, ctx) => {
+var varsLet = defineAtom("varsLet", Ae.record(Ae.any), undefined, async (step, ctx) => {
   for (const key of Object.keys(step)) {
     if (key === "op" || key === "result")
       continue;
-    ctx.state[key] = resolveValue(step[key], ctx);
+    const v2 = resolveValue(step[key], ctx);
+    if (!setStateVar(ctx, key, v2, "varsLet"))
+      return;
   }
 }, {
   docs: "Initialize a set of variables in the current scope from the step object properties.",
   cost: 0.1
 });
-var varsExport = defineAtom("varsExport", X.object({
-  keys: X.union([X.array(X.string), X.record(X.string)])
-}), X.record(X.any), async ({ keys }, ctx) => {
+var varsExport = defineAtom("varsExport", Ae.object({
+  keys: Ae.union([Ae.array(Ae.string), Ae.record(Ae.string)])
+}), Ae.record(Ae.any), async ({ keys }, ctx) => {
   const result = {};
   if (Array.isArray(keys)) {
     for (const key of keys) {
@@ -9973,13 +14582,66 @@ var varsExport = defineAtom("varsExport", X.object({
   docs: "Export variables from the current scope, with optional renaming.",
   cost: 0.2
 });
-var scope = defineAtom("scope", X.object({ steps: X.array(X.any) }), undefined, async ({ steps }, ctx) => {
+var scope = defineAtom("scope", Ae.object({ steps: Ae.array(Ae.any) }), undefined, async ({ steps }, ctx) => {
   const scopedCtx = createChildScope(ctx);
-  await seq.exec({ op: "seq", steps }, scopedCtx);
-  if (scopedCtx.output !== undefined)
-    ctx.output = scopedCtx.output;
+  try {
+    await seq.exec({ op: "seq", steps }, scopedCtx);
+    if (scopedCtx.output !== undefined)
+      ctx.output = scopedCtx.output;
+  } finally {
+    releaseScope(scopedCtx);
+  }
 }, { docs: "Create new scope", timeoutMs: 0, cost: 0.1 });
-var map = defineAtom("map", X.object({ items: X.array(X.any), as: X.string, steps: X.array(X.any) }), X.array(X.any), async ({ items, as, steps }, ctx) => {
+var MAX_CALL_DEPTH = 256;
+var callLocal = defineAtom("callLocal", Ae.object({
+  name: Ae.string,
+  args: Ae.array(Ae.any)
+}), undefined, async ({ name, args }, ctx) => {
+  const helper = ctx.helpers?.[name];
+  if (!helper) {
+    ctx.error = new AgentError(`Unknown helper: ${name}`, "callLocal");
+    return ctx.error;
+  }
+  const depth = (ctx.callDepth ?? 0) + 1;
+  if (depth > MAX_CALL_DEPTH) {
+    ctx.error = new AgentError(`Maximum helper call depth (${MAX_CALL_DEPTH}) exceeded — likely infinite recursion in '${name}'`, "callLocal");
+    return ctx.error;
+  }
+  const resolvedArgs = args.map((arg) => resolveValue(arg, ctx));
+  const scopedCtx = {
+    ...ctx,
+    state: {},
+    consts: new Set,
+    output: undefined,
+    error: undefined,
+    localCall: true,
+    callDepth: depth,
+    heapPerKey: new Map
+  };
+  try {
+    for (let i2 = 0;i2 < helper.paramNames.length; i2++) {
+      const arg = resolvedArgs[i2];
+      if (arg && typeof arg === "object" && ctx.heapPerKey) {
+        for (const entry of ctx.heapPerKey.values()) {
+          if (entry.ref !== arg)
+            continue;
+          scopedCtx.heapPerKey.set(helper.paramNames[i2], entry);
+          (scopedCtx.heapAccount ??= { bytes: 0 }).bytes += entry.size;
+          break;
+        }
+      }
+      if (!setStateVar(scopedCtx, helper.paramNames[i2], resolvedArgs[i2], "callLocal"))
+        return;
+    }
+    await seq.exec({ op: "seq", steps: helper.steps }, scopedCtx);
+    if (scopedCtx.error)
+      ctx.error = scopedCtx.error;
+    return scopedCtx.output;
+  } finally {
+    releaseScope(scopedCtx);
+  }
+}, { docs: "Invoke a local helper function by name", timeoutMs: 0, cost: 0.1 });
+var map = defineAtom("map", Ae.object({ items: Ae.array(Ae.any), as: Ae.string, steps: Ae.array(Ae.any) }), Ae.array(Ae.any), async ({ items, as, steps }, ctx) => {
   const results = [];
   const resolvedItems = resolveValue(items, ctx);
   if (!Array.isArray(resolvedItems))
@@ -9988,17 +14650,22 @@ var map = defineAtom("map", X.object({ items: X.array(X.any), as: X.string, step
     if (ctx.signal?.aborted)
       throw new Error("Execution aborted");
     const scopedCtx = createChildScope(ctx);
-    scopedCtx.state[as] = item;
-    await seq.exec({ op: "seq", steps }, scopedCtx);
-    results.push(scopedCtx.state["result"] ?? null);
+    try {
+      if (!setStateVar(scopedCtx, as, item, "map", { alias: true }))
+        return;
+      await seq.exec({ op: "seq", steps }, scopedCtx);
+      results.push(scopedCtx.state["result"] ?? null);
+    } finally {
+      releaseScope(scopedCtx);
+    }
   }
   return results;
 }, { docs: "Map Array", timeoutMs: 0, cost: 1 });
-var filter = defineAtom("filter", X.object({
-  items: X.array(X.any),
-  as: X.string,
-  condition: X.any
-}), X.array(X.any), async ({ items, as, condition }, ctx) => {
+var filter = defineAtom("filter", Ae.object({
+  items: Ae.array(Ae.any),
+  as: Ae.string,
+  condition: Ae.any
+}), Ae.array(Ae.any), async ({ items, as, condition }, ctx) => {
   const results = [];
   const resolvedItems = resolveValue(items, ctx);
   if (!Array.isArray(resolvedItems))
@@ -10007,42 +14674,59 @@ var filter = defineAtom("filter", X.object({
     if (ctx.signal?.aborted)
       throw new Error("Execution aborted");
     const scopedCtx = createChildScope(ctx);
-    scopedCtx.state[as] = item;
-    const passes = evaluateExpr(condition, scopedCtx);
-    if (passes) {
-      results.push(item);
+    try {
+      if (!setStateVar(scopedCtx, as, item, "filter", { alias: true }))
+        return;
+      const passes = evaluateExpr(condition, scopedCtx);
+      if (passes) {
+        results.push(item);
+      }
+    } finally {
+      releaseScope(scopedCtx);
     }
   }
   return results;
 }, { docs: "Filter Array", timeoutMs: 0, cost: 1 });
-var reduce = defineAtom("reduce", X.object({
-  items: X.array(X.any),
-  as: X.string,
-  accumulator: X.string,
-  initial: X.any,
-  steps: X.array(X.any)
-}), X.any, async ({ items, as, accumulator, initial, steps }, ctx) => {
+var reduce = defineAtom("reduce", Ae.object({
+  items: Ae.array(Ae.any),
+  as: Ae.string,
+  accumulator: Ae.string,
+  initial: Ae.any,
+  steps: Ae.array(Ae.any)
+}), Ae.any, async ({ items, as, accumulator, initial, steps }, ctx) => {
   const resolvedItems = resolveValue(items, ctx);
   const resolvedInitial = resolveValue(initial, ctx);
   if (!Array.isArray(resolvedItems))
     throw new Error("reduce: items is not an array");
   let acc = resolvedInitial;
+  let accEntry;
   for (const item of resolvedItems) {
     if (ctx.signal?.aborted)
       throw new Error("Execution aborted");
     const scopedCtx = createChildScope(ctx);
-    scopedCtx.state[as] = item;
-    scopedCtx.state[accumulator] = acc;
-    await seq.exec({ op: "seq", steps }, scopedCtx);
-    acc = scopedCtx.state["result"] ?? acc;
+    try {
+      if (accEntry && accEntry.ref === acc && scopedCtx.heapPerKey) {
+        scopedCtx.heapPerKey.set(accumulator, accEntry);
+        (scopedCtx.heapAccount ??= { bytes: 0 }).bytes += accEntry.size;
+      }
+      if (!setStateVar(scopedCtx, as, item, "reduce", { alias: true }))
+        return;
+      if (!setStateVar(scopedCtx, accumulator, acc, "reduce"))
+        return;
+      await seq.exec({ op: "seq", steps }, scopedCtx);
+      acc = scopedCtx.state["result"] ?? acc;
+      accEntry = scopedCtx.heapPerKey?.get(accumulator);
+    } finally {
+      releaseScope(scopedCtx);
+    }
   }
   return acc;
 }, { docs: "Reduce Array", timeoutMs: 0, cost: 1 });
-var find = defineAtom("find", X.object({
-  items: X.array(X.any),
-  as: X.string,
-  condition: X.any
-}), X.any, async ({ items, as, condition }, ctx) => {
+var find = defineAtom("find", Ae.object({
+  items: Ae.array(Ae.any),
+  as: Ae.string,
+  condition: Ae.any
+}), Ae.any, async ({ items, as, condition }, ctx) => {
   const resolvedItems = resolveValue(items, ctx);
   if (!Array.isArray(resolvedItems))
     throw new Error("find: items is not an array");
@@ -10050,71 +14734,115 @@ var find = defineAtom("find", X.object({
     if (ctx.signal?.aborted)
       throw new Error("Execution aborted");
     const scopedCtx = createChildScope(ctx);
-    scopedCtx.state[as] = item;
-    const matches = evaluateExpr(condition, scopedCtx);
-    if (matches) {
-      return item;
+    try {
+      if (!setStateVar(scopedCtx, as, item, "find", { alias: true }))
+        return;
+      const matches = evaluateExpr(condition, scopedCtx);
+      if (matches) {
+        return item;
+      }
+    } finally {
+      releaseScope(scopedCtx);
     }
   }
   return null;
 }, { docs: "Find in Array", timeoutMs: 0, cost: 1 });
-var push = defineAtom("push", X.object({ list: X.array(X.any), item: X.any }), X.array(X.any), async ({ list: list2, item }, ctx) => {
+var push = defineAtom("push", Ae.object({ list: Ae.array(Ae.any), item: Ae.any }), Ae.array(Ae.any), async ({ list: list2, item }, ctx) => {
   const resolvedList = resolveValue(list2, ctx);
   const resolvedItem = resolveValue(item, ctx);
   if (Array.isArray(resolvedList))
     resolvedList.push(resolvedItem);
   return resolvedList;
 }, { docs: "Push to Array", cost: 1 });
-var len = defineAtom("len", X.object({ list: X.any }), X.number, async ({ list: list2 }, ctx) => {
+var len = defineAtom("len", Ae.object({ list: Ae.any }), Ae.number, async ({ list: list2 }, ctx) => {
   const val = resolveValue(list2, ctx);
   return Array.isArray(val) || typeof val === "string" ? val.length : 0;
 }, { docs: "Length", cost: 1 });
-var split = defineAtom("split", X.object({ str: X.string, sep: X.string }), X.array(X.string), async ({ str, sep }, ctx) => resolveValue(str, ctx).split(resolveValue(sep, ctx)), { docs: "Split String", cost: 1 });
-var join = defineAtom("join", X.object({ list: X.array(X.string), sep: X.string }), X.string, async ({ list: list2, sep }, ctx) => resolveValue(list2, ctx).join(resolveValue(sep, ctx)), { docs: "Join String", cost: 1 });
-var template = defineAtom("template", X.object({ tmpl: X.string, vars: X.record(X.any) }), X.string, async ({ tmpl, vars }, ctx) => {
+var split = defineAtom("split", Ae.object({ str: Ae.string, sep: Ae.string }), Ae.array(Ae.string), async ({ str, sep }, ctx) => {
+  const input = resolveValue(str, ctx);
+  if (!chargeForSize(ctx, input, "split"))
+    return;
+  const out = input.split(resolveValue(sep, ctx));
+  chargeForSize(ctx, out, "split");
+  return out;
+}, { docs: "Split String", cost: 1 });
+var join = defineAtom("join", Ae.object({ list: Ae.array(Ae.string), sep: Ae.string }), Ae.string, async ({ list: list2, sep }, ctx) => {
+  const input = resolveValue(list2, ctx);
+  if (!chargeForSize(ctx, input, "join"))
+    return;
+  const out = input.join(resolveValue(sep, ctx));
+  chargeForSize(ctx, out, "join");
+  return out;
+}, { docs: "Join String", cost: 1 });
+var template = defineAtom("template", Ae.object({ tmpl: Ae.string, vars: Ae.record(Ae.any) }), Ae.string, async ({ tmpl, vars }, ctx) => {
   const resolvedTmpl = resolveValue(tmpl, ctx);
-  return resolvedTmpl.replace(/\{\{(\w+)\}\}/g, (_, key) => String(resolveValue(vars[key], ctx) ?? ""));
+  if (!chargeForSize(ctx, resolvedTmpl, "template"))
+    return;
+  const out = resolvedTmpl.replace(/\{\{(\w+)\}\}/g, (_2, key) => String(resolveValue(vars[key], ctx) ?? ""));
+  chargeForSize(ctx, out, "template");
+  return out;
 }, { docs: "String Template", cost: 1 });
-var regexMatch = defineAtom("regexMatch", X.object({
-  pattern: X.string,
-  value: X.any
-}), X.boolean, async ({ pattern, value }, ctx) => {
+var regexMatch = defineAtom("regexMatch", Ae.object({
+  pattern: Ae.string,
+  value: Ae.any
+}), Ae.boolean, async ({ pattern, value }, ctx) => {
+  if (pattern.length > MAX_REGEX_PATTERN_LENGTH) {
+    throw new Error(`Regex pattern too long (${pattern.length} > ${MAX_REGEX_PATTERN_LENGTH})`);
+  }
   if (isSuspiciousRegex(pattern)) {
     throw new Error(`Suspicious regex pattern rejected (potential ReDoS): ${pattern}`);
   }
   const resolvedValue = resolveValue(value, ctx);
+  const input = typeof resolvedValue === "string" ? resolvedValue : String(resolvedValue);
+  if (input.length > MAX_REGEX_INPUT_LENGTH) {
+    throw new Error(`Regex input too long (${input.length} > ${MAX_REGEX_INPUT_LENGTH})`);
+  }
   const p = new RegExp(pattern);
-  return p.test(resolvedValue);
+  return p.test(input);
 }, {
   docs: "Returns true if the value matches the regex pattern.",
   cost: 2
 });
-var pick = defineAtom("pick", X.object({ obj: X.record(X.any), keys: X.array(X.string) }), X.record(X.any), async ({ obj, keys }, ctx) => {
+var pick = defineAtom("pick", Ae.object({ obj: Ae.record(Ae.any), keys: Ae.array(Ae.string) }), Ae.record(Ae.any), async ({ obj, keys }, ctx) => {
   const resolvedObj = resolveValue(obj, ctx);
   const resolvedKeys = resolveValue(keys, ctx);
+  if (!chargeForSize(ctx, resolvedKeys, "pick"))
+    return;
   const res = {};
   if (resolvedObj && Array.isArray(resolvedKeys)) {
-    resolvedKeys.forEach((k) => res[k] = resolvedObj[k]);
+    resolvedKeys.forEach((k2) => res[k2] = resolvedObj[k2]);
   }
   return res;
 }, { docs: "Pick Keys", cost: 1 });
-var omit = defineAtom("omit", X.object({ obj: X.record(X.any), keys: X.array(X.string) }), X.record(X.any), async ({ obj, keys }, ctx) => {
+var omit = defineAtom("omit", Ae.object({ obj: Ae.record(Ae.any), keys: Ae.array(Ae.string) }), Ae.record(Ae.any), async ({ obj, keys }, ctx) => {
   const resolvedObj = resolveValue(obj, ctx);
   const resolvedKeys = new Set(resolveValue(keys, ctx));
+  if (!chargeForSize(ctx, resolvedObj, "omit"))
+    return;
   const res = {};
   if (resolvedObj) {
-    Object.keys(resolvedObj).forEach((k) => {
-      if (!resolvedKeys.has(k))
-        res[k] = resolvedObj[k];
+    Object.keys(resolvedObj).forEach((k2) => {
+      if (!resolvedKeys.has(k2))
+        res[k2] = resolvedObj[k2];
     });
   }
   return res;
 }, { docs: "Omit Keys", cost: 1 });
-var merge = defineAtom("merge", X.object({ a: X.record(X.any), b: X.record(X.any) }), X.record(X.any), async ({ a, b }, ctx) => ({
-  ...resolveValue(a, ctx),
-  ...resolveValue(b, ctx)
-}), { docs: "Merge Objects", cost: 1 });
-var keys = defineAtom("keys", X.object({ obj: X.record(X.any) }), X.array(X.string), async ({ obj }, ctx) => Object.keys(resolveValue(obj, ctx) ?? {}), { docs: "Object Keys", cost: 1 });
+var merge = defineAtom("merge", Ae.object({ a: Ae.record(Ae.any), b: Ae.record(Ae.any) }), Ae.record(Ae.any), async ({ a, b: b2 }, ctx) => {
+  const ra = resolveValue(a, ctx);
+  const rb = resolveValue(b2, ctx);
+  if (!chargeForSize(ctx, ra, "merge"))
+    return;
+  if (!chargeForSize(ctx, rb, "merge"))
+    return;
+  return { ...ra, ...rb };
+}, { docs: "Merge Objects", cost: 1 });
+var keys = defineAtom("keys", Ae.object({ obj: Ae.record(Ae.any) }), Ae.array(Ae.string), async ({ obj }, ctx) => {
+  const input = resolveValue(obj, ctx) ?? {};
+  if (!chargeForSize(ctx, input, "keys"))
+    return;
+  return Object.keys(input);
+}, { docs: "Object Keys", cost: 1 });
 var MAX_AGENT_DEPTH = 10;
 var AGENT_DEPTH_HEADER = "X-Agent-Depth";
 function isDomainAllowed(urlString, allowedDomains) {
@@ -10137,13 +14865,13 @@ function isDomainAllowed(urlString, allowedDomains) {
     return false;
   }
 }
-var fetch2 = defineAtom("httpFetch", X.object({
-  url: X.string,
-  method: X.string.optional,
-  headers: X.record(X.string).optional,
-  body: X.any.optional,
-  responseType: X.string.optional
-}), X.any, async (step, ctx) => {
+var fetch2 = defineAtom("httpFetch", Ae.object({
+  url: Ae.string,
+  method: Ae.string.optional,
+  headers: Ae.record(Ae.string).optional,
+  body: Ae.any.optional,
+  responseType: Ae.string.optional
+}), Ae.any, async (step, ctx) => {
   const url = resolveValue(step.url, ctx);
   const method = resolveValue(step.method, ctx);
   const headers = resolveValue(step.headers, ctx) || {};
@@ -10183,7 +14911,7 @@ var fetch2 = defineAtom("httpFetch", X.object({
     } catch (e) {
       if (e.message.includes("allowedFetchDomains"))
         throw e;
-      throw new Error(`Invalid URL: ${url}`);
+      throw new Error(`Invalid URL: ${url}`, { cause: e });
     }
   }
   if (typeof globalThis.fetch === "function") {
@@ -10215,37 +14943,56 @@ var fetch2 = defineAtom("httpFetch", X.object({
   }
   throw new Error("Capability 'fetch' missing and no global fetch available");
 }, { docs: "HTTP Fetch", timeoutMs: 30000, cost: 5 });
-var storeGet = defineAtom("storeGet", X.object({ key: X.string }), X.any, async ({ key }, ctx) => {
-  const k = resolveValue(key, ctx);
-  return ctx.capabilities.store?.get(k);
+var storeGet = defineAtom("storeGet", Ae.object({ key: Ae.string }), Ae.any, async ({ key }, ctx) => {
+  const k2 = resolveValue(key, ctx);
+  return ctx.capabilities.store?.get(k2);
 }, { docs: "Store Get", cost: 5 });
-var storeSet = defineAtom("storeSet", X.object({ key: X.string, value: X.any }), undefined, async ({ key, value }, ctx) => {
-  const k = resolveValue(key, ctx);
-  const v = resolveValue(value, ctx);
-  return ctx.capabilities.store?.set(k, v);
+var storeSet = defineAtom("storeSet", Ae.object({ key: Ae.string, value: Ae.any }), undefined, async ({ key, value }, ctx) => {
+  const k2 = resolveValue(key, ctx);
+  const v2 = resolveValue(value, ctx);
+  return ctx.capabilities.store?.set(k2, v2);
 }, { docs: "Store Set", cost: 5 });
-var storeQuery = defineAtom("storeQuery", X.object({ query: X.any }), X.array(X.any), async ({ query }, ctx) => ctx.capabilities.store?.query?.(resolveValue(query, ctx)) ?? [], { docs: "Store Query", cost: 5 });
-var vectorSearch = defineAtom("storeVectorSearch", X.object({
-  collection: X.string.optional,
-  vector: X.array(X.number),
-  k: X.number.optional
-}), X.array(X.any), async ({ collection, vector, k }, ctx) => ctx.capabilities.store?.vectorSearch?.(resolveValue(collection, ctx), resolveValue(vector, ctx), resolveValue(k, ctx)) ?? [], {
+var storeQuery = defineAtom("storeQuery", Ae.object({ query: Ae.any }), Ae.array(Ae.any), async ({ query }, ctx) => ctx.capabilities.store?.query?.(resolveValue(query, ctx)) ?? [], { docs: "Store Query", cost: 5 });
+var storeQueryWhere = defineAtom("storeQueryWhere", Ae.object({
+  predicate: Ae.any,
+  collection: Ae.string.optional,
+  limit: Ae.number.optional
+}), Ae.array(Ae.any), async ({ predicate, collection, limit }, ctx) => {
+  const pred = resolveValue(predicate, ctx);
+  if (!pred || typeof pred !== "object" || typeof pred.canonical !== "string") {
+    throw new Error("storeQueryWhere: `predicate` must be a canonical verified predicate " + "({ key, canonical, ast, entry }) — build one with canonicalizePredicate() " + "from tjs-lang/lang.");
+  }
+  const store = ctx.capabilities.store;
+  if (!store?.queryPredicate) {
+    throw new Error("Capability 'store.queryPredicate' missing — this store can't evaluate " + "predicates. Use storeQuery + filter, or provide queryPredicate.");
+  }
+  return await store.queryPredicate({
+    collection: resolveValue(collection, ctx),
+    predicate: pred,
+    limit: resolveValue(limit, ctx)
+  }) ?? [];
+}, { docs: "Store Query (predicate pushdown)", cost: 5 });
+var vectorSearch = defineAtom("storeVectorSearch", Ae.object({
+  collection: Ae.string.optional,
+  vector: Ae.array(Ae.number),
+  k: Ae.number.optional
+}), Ae.array(Ae.any), async ({ collection, vector, k: k2 }, ctx) => ctx.capabilities.store?.vectorSearch?.(resolveValue(collection, ctx), resolveValue(vector, ctx), resolveValue(k2, ctx)) ?? [], {
   docs: "Vector Search",
   cost: (input, ctx) => 5 + (resolveValue(input.k, ctx) ?? 5)
 });
-var llmPredict = defineAtom("llmPredict", X.object({ prompt: X.string, options: X.any.optional }), X.string, async ({ prompt, options }, ctx) => {
+var llmPredict = defineAtom("llmPredict", Ae.object({ prompt: Ae.string, options: Ae.any.optional }), Ae.string, async ({ prompt, options }, ctx) => {
   if (!ctx.capabilities.llm?.predict)
     throw new Error("Capability 'llm.predict' missing");
   return ctx.capabilities.llm.predict(resolveValue(prompt, ctx), resolveValue(options, ctx));
 }, { docs: "LLM Predict", timeoutMs: 120000, cost: 100 });
-var agentRun = defineAtom("agentRun", X.object({ agentId: X.any, input: X.any }), X.any, async ({ agentId, input }, ctx) => {
+var agentRun = defineAtom("agentRun", Ae.object({ agentId: Ae.any, input: Ae.any }), Ae.any, async ({ agentId, input }, ctx) => {
   const resolvedId = resolveValue(agentId, ctx);
   const rawInput = resolveValue(input, ctx);
   let resolvedInput = rawInput;
   if (rawInput && typeof rawInput === "object" && !Array.isArray(rawInput)) {
     resolvedInput = {};
-    for (const k in rawInput) {
-      resolvedInput[k] = resolveValue(rawInput[k], ctx);
+    for (const k2 in rawInput) {
+      resolvedInput[k2] = resolveValue(rawInput[k2], ctx);
     }
   }
   if (isProcedureToken(resolvedId)) {
@@ -10256,16 +15003,21 @@ var agentRun = defineAtom("agentRun", X.object({ agentId: X.any, input: X.any })
       state: {},
       consts: new Set,
       output: undefined,
-      error: undefined
+      error: undefined,
+      heapPerKey: new Map
     };
-    const seqAtom = ctx.resolver("seq");
-    if (!seqAtom)
-      throw new Error("seq atom not found");
-    await seqAtom.exec(ast, childCtx);
-    if (childCtx.error) {
-      throw new Error(childCtx.error.message || "Sub-agent failed");
+    try {
+      const seqAtom = ctx.resolver("seq");
+      if (!seqAtom)
+        throw new Error("seq atom not found");
+      await seqAtom.exec(ast, childCtx);
+      if (childCtx.error) {
+        throw new Error(childCtx.error.message || "Sub-agent failed");
+      }
+      return childCtx.output;
+    } finally {
+      releaseScope(childCtx);
     }
-    return childCtx.output;
   }
   if (resolvedId && typeof resolvedId === "object" && "op" in resolvedId) {
     const childCtx = {
@@ -10274,16 +15026,21 @@ var agentRun = defineAtom("agentRun", X.object({ agentId: X.any, input: X.any })
       state: {},
       consts: new Set,
       output: undefined,
-      error: undefined
+      error: undefined,
+      heapPerKey: new Map
     };
-    const seqAtom = ctx.resolver("seq");
-    if (!seqAtom)
-      throw new Error("seq atom not found");
-    await seqAtom.exec(resolvedId, childCtx);
-    if (childCtx.error) {
-      throw new Error(childCtx.error.message || "Sub-agent failed");
+    try {
+      const seqAtom = ctx.resolver("seq");
+      if (!seqAtom)
+        throw new Error("seq atom not found");
+      await seqAtom.exec(resolvedId, childCtx);
+      if (childCtx.error) {
+        throw new Error(childCtx.error.message || "Sub-agent failed");
+      }
+      return childCtx.output;
+    } finally {
+      releaseScope(childCtx);
     }
-    return childCtx.output;
   }
   if (!ctx.capabilities.agent?.run)
     throw new Error("Capability 'agent.run' missing");
@@ -10296,9 +15053,9 @@ var agentRun = defineAtom("agentRun", X.object({ agentId: X.any, input: X.any })
   }
   return result;
 }, { docs: "Run Sub-Agent (accepts procedure token, AST, or agent ID)", cost: 1 });
-var transpileCode = defineAtom("transpileCode", X.object({
-  code: X.string
-}), X.any, async ({ code }, ctx) => {
+var transpileCode = defineAtom("transpileCode", Ae.object({
+  code: Ae.string
+}), Ae.any, async ({ code }, ctx) => {
   if (!ctx.capabilities.code?.transpile) {
     throw new Error("Capability 'code.transpile' missing. Enable code transpilation by providing the code capability.");
   }
@@ -10306,14 +15063,14 @@ var transpileCode = defineAtom("transpileCode", X.object({
   try {
     return ctx.capabilities.code.transpile(resolvedCode);
   } catch (e) {
-    throw new Error(`Code transpilation failed: ${e.message}`);
+    throw new Error(`Code transpilation failed: ${e.message}`, { cause: e });
   }
 }, { docs: "Transpile AsyncJS code to AST", cost: 1 });
 var MAX_RUNCODE_DEPTH = 10;
-var runCode = defineAtom("runCode", X.object({
-  code: X.string,
-  args: X.record(X.any).optional
-}), X.any, async ({ code, args }, ctx) => {
+var runCode = defineAtom("runCode", Ae.object({
+  code: Ae.string,
+  args: Ae.record(Ae.any).optional
+}), Ae.any, async ({ code, args }, ctx) => {
   const currentDepth = ctx.runCodeDepth ?? 0;
   if (currentDepth >= MAX_RUNCODE_DEPTH) {
     throw new Error(`runCode recursion limit exceeded (max ${MAX_RUNCODE_DEPTH}). ` + "This prevents infinite loops from dynamically generated code calling runCode.");
@@ -10327,51 +15084,76 @@ var runCode = defineAtom("runCode", X.object({
   try {
     ast = ctx.capabilities.code.transpile(resolvedCode);
   } catch (e) {
-    throw new Error(`Code transpilation failed: ${e.message}`);
+    throw new Error(`Code transpilation failed: ${e.message}`, { cause: e });
   }
   if (ast.op !== "seq") {
     throw new Error("Transpiled code must be a seq node");
   }
   const childCtx = createChildScope(ctx);
-  childCtx.args = resolvedArgs;
-  childCtx.output = undefined;
-  childCtx.runCodeDepth = currentDepth + 1;
-  await seq.exec(ast, childCtx);
-  if (childCtx.error) {
-    ctx.error = childCtx.error;
-    return;
+  try {
+    childCtx.args = resolvedArgs;
+    childCtx.output = undefined;
+    childCtx.runCodeDepth = currentDepth + 1;
+    await seq.exec(ast, childCtx);
+    if (childCtx.error) {
+      ctx.error = childCtx.error;
+      return;
+    }
+    return childCtx.output;
+  } finally {
+    releaseScope(childCtx);
   }
-  return childCtx.output;
 }, { docs: "Run dynamically generated AsyncJS code", cost: 1 });
-var jsonParse = defineAtom("jsonParse", X.object({ str: X.string }), X.any, async ({ str }, ctx) => JSON.parse(resolveValue(str, ctx)), { docs: "Parse JSON", cost: 1 });
-var jsonStringify = defineAtom("jsonStringify", X.object({ value: X.any }), X.string, async ({ value }, ctx) => JSON.stringify(resolveValue(value, ctx)), { docs: "Stringify JSON", cost: 1 });
-var xmlParse = defineAtom("xmlParse", X.object({ str: X.string }), X.any, async ({ str }, ctx) => {
+var jsonParse = defineAtom("jsonParse", Ae.object({ str: Ae.string }), Ae.any, async ({ str }, ctx) => {
+  const input = resolveValue(str, ctx);
+  if (!chargeForSize(ctx, input, "jsonParse"))
+    return;
+  const out = JSON.parse(input);
+  chargeForSize(ctx, out, "jsonParse");
+  return out;
+}, { docs: "Parse JSON", cost: 1 });
+var jsonStringify = defineAtom("jsonStringify", Ae.object({ value: Ae.any }), Ae.string, async ({ value }, ctx) => {
+  const input = resolveValue(value, ctx);
+  if (!chargeForSize(ctx, input, "jsonStringify"))
+    return;
+  const out = JSON.stringify(input);
+  chargeForSize(ctx, out, "jsonStringify");
+  return out;
+}, { docs: "Stringify JSON", cost: 1 });
+var xmlParse = defineAtom("xmlParse", Ae.object({ str: Ae.string }), Ae.any, async ({ str }, ctx) => {
   if (!ctx.capabilities.xml?.parse)
     throw new Error("Capability 'xml.parse' missing");
   return ctx.capabilities.xml.parse(resolveValue(str, ctx));
 }, { docs: "Parse XML", cost: 1 });
-var memoize = defineAtom("memoize", X.object({ key: X.string.optional, steps: X.array(X.any) }), X.any, async ({ key, steps }, ctx) => {
+var memoize = defineAtom("memoize", Ae.object({ key: Ae.string.optional, steps: Ae.array(Ae.any) }), Ae.any, async ({ key, steps }, ctx) => {
   if (!ctx.memo)
     ctx.memo = new Map;
-  const k = resolveValue(key, ctx) ?? await hash.exec({ value: steps, algorithm: "SHA-256" }, ctx);
-  if (ctx.memo.has(k)) {
-    return ctx.memo.get(k);
+  const k2 = resolveValue(key, ctx) ?? await hash.exec({ value: steps, algorithm: "SHA-256" }, ctx);
+  if (ctx.memo.has(k2)) {
+    return ctx.memo.get(k2);
   }
   const scopedCtx = createChildScope(ctx);
-  await seq.exec({ op: "seq", steps }, scopedCtx);
-  const result = scopedCtx.output ?? scopedCtx.state["result"];
-  ctx.memo.set(k, result);
+  let result;
+  try {
+    await seq.exec({ op: "seq", steps }, scopedCtx);
+    result = scopedCtx.output ?? scopedCtx.state["result"];
+  } finally {
+    releaseScope(scopedCtx);
+  }
+  if (ctx.error)
+    return;
+  ctx.memo.set(k2, result);
   return result;
 }, { docs: "Memoize steps result in memory", cost: 1 });
-var cache = defineAtom("cache", X.object({
-  key: X.string.optional,
-  steps: X.array(X.any),
-  ttlMs: X.number.optional
-}), X.any, async ({ key, steps, ttlMs }, ctx) => {
+var cache = defineAtom("cache", Ae.object({
+  key: Ae.string.optional,
+  steps: Ae.array(Ae.any),
+  ttlMs: Ae.number.optional
+}), Ae.any, async ({ key, steps, ttlMs }, ctx) => {
   if (!ctx.capabilities.store)
     throw new Error("Capability 'store' missing for caching");
-  const k = resolveValue(key, ctx) ?? await hash.exec({ value: steps, algorithm: "SHA-256" }, ctx);
-  const cacheKey = `cache:${k}`;
+  const k2 = resolveValue(key, ctx) ?? await hash.exec({ value: steps, algorithm: "SHA-256" }, ctx);
+  const cacheKey = `cache:${k2}`;
   const cached = await ctx.capabilities.store.get(cacheKey);
   if (cached) {
     if (typeof cached === "object" && cached._exp) {
@@ -10382,20 +15164,27 @@ var cache = defineAtom("cache", X.object({
     }
   }
   const scopedCtx = createChildScope(ctx);
-  await seq.exec({ op: "seq", steps }, scopedCtx);
-  const result = scopedCtx.output ?? scopedCtx.state["result"];
+  let result;
+  try {
+    await seq.exec({ op: "seq", steps }, scopedCtx);
+    result = scopedCtx.output ?? scopedCtx.state["result"];
+  } finally {
+    releaseScope(scopedCtx);
+  }
+  if (ctx.error)
+    return;
   const expiry = Date.now() + (ttlMs ?? 24 * 3600 * 1000);
   if ((ctx.fuel.current -= 5) <= 0)
     throw new Error("Out of Fuel");
   await ctx.capabilities.store.set(cacheKey, { val: result, _exp: expiry });
   return result;
 }, { docs: "Cache steps result in store with TTL", cost: 5 });
-var random = defineAtom("random", X.object({
-  min: X.number.optional,
-  max: X.number.optional,
-  format: X.string.optional,
-  length: X.number.optional
-}), X.any, async ({ min, max, format, length }, ctx) => {
+var random = defineAtom("random", Ae.object({
+  min: Ae.number.optional,
+  max: Ae.number.optional,
+  format: Ae.string.optional,
+  length: Ae.number.optional
+}), Ae.any, async ({ min, max, format, length }, ctx) => {
   const f = resolveValue(format, ctx) ?? "float";
   const len2 = resolveValue(length, ctx) ?? 10;
   const mn = resolveValue(min, ctx) ?? 0;
@@ -10431,7 +15220,7 @@ var random = defineAtom("random", X.object({
   }
   return result;
 }, { docs: "Generate Random", cost: 1 });
-var uuid = defineAtom("uuid", undefined, X.string, async () => {
+var uuid = defineAtom("uuid", undefined, Ae.string, async () => {
   if (typeof crypto !== "undefined" && crypto.randomUUID) {
     return crypto.randomUUID();
   }
@@ -10440,27 +15229,29 @@ var uuid = defineAtom("uuid", undefined, X.string, async () => {
     crypto.getRandomValues(bytes);
     bytes[6] = bytes[6] & 15 | 64;
     bytes[8] = bytes[8] & 63 | 128;
-    const hex = Array.from(bytes, (b) => b.toString(16).padStart(2, "0")).join("");
+    const hex = Array.from(bytes, (b2) => b2.toString(16).padStart(2, "0")).join("");
     return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`;
   }
   return "xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx".replace(/[xy]/g, (c) => {
     const r = Math.random() * 16 | 0;
-    const v = c === "x" ? r : r & 3 | 8;
-    return v.toString(16);
+    const v2 = c === "x" ? r : r & 3 | 8;
+    return v2.toString(16);
   });
 }, { docs: "Generate UUID", cost: 1 });
-var hash = defineAtom("hash", X.object({
-  value: X.any,
-  algorithm: X.string.optional
-}), X.string, async ({ value, algorithm }, ctx) => {
+var hash = defineAtom("hash", Ae.object({
+  value: Ae.any,
+  algorithm: Ae.string.optional
+}), Ae.string, async ({ value, algorithm }, ctx) => {
   const str = typeof value === "string" ? value : JSON.stringify(resolveValue(value, ctx));
+  if (!chargeForSize(ctx, str, "hash"))
+    return;
   const algo = resolveValue(algorithm, ctx) || "SHA-256";
   if (typeof crypto !== "undefined" && crypto.subtle) {
     const encoder = new TextEncoder;
     const data2 = encoder.encode(str);
     const hashBuffer = await crypto.subtle.digest(algo, data2);
     const hashArray = Array.from(new Uint8Array(hashBuffer));
-    return hashArray.map((b) => b.toString(16).padStart(2, "0")).join("");
+    return hashArray.map((b2) => b2.toString(16).padStart(2, "0")).join("");
   }
   let hash2 = 0;
   for (let i2 = 0;i2 < str.length; i2++) {
@@ -10470,7 +15261,7 @@ var hash = defineAtom("hash", X.object({
   }
   return String(hash2);
 }, { docs: "Hash a value", cost: 1 });
-var consoleLog = defineAtom("consoleLog", X.object({ message: X.any }), undefined, async ({ message }, ctx) => {
+var consoleLog = defineAtom("consoleLog", Ae.object({ message: Ae.any }), undefined, async ({ message }, ctx) => {
   const msg = resolveValue(message, ctx);
   if (ctx.trace) {
     ctx.trace.push({
@@ -10480,11 +15271,11 @@ var consoleLog = defineAtom("consoleLog", X.object({ message: X.any }), undefine
       result: msg,
       fuelBefore: ctx.fuel.current,
       fuelAfter: ctx.fuel.current,
-      timestamp: new Date().toISOString()
+      timestamp: Date.now()
     });
   }
 }, { docs: "Log to trace", cost: 0.1 });
-var consoleWarn = defineAtom("consoleWarn", X.object({ message: X.any }), undefined, async ({ message }, ctx) => {
+var consoleWarn = defineAtom("consoleWarn", Ae.object({ message: Ae.any }), undefined, async ({ message }, ctx) => {
   const msg = resolveValue(message, ctx);
   const msgStr = typeof msg === "string" ? msg : JSON.stringify(msg);
   if (!ctx.warnings)
@@ -10498,20 +15289,20 @@ var consoleWarn = defineAtom("consoleWarn", X.object({ message: X.any }), undefi
       result: msg,
       fuelBefore: ctx.fuel.current,
       fuelAfter: ctx.fuel.current,
-      timestamp: new Date().toISOString()
+      timestamp: Date.now()
     });
   }
 }, { docs: "Add warning", cost: 0.1 });
-var consoleError = defineAtom("consoleError", X.object({ message: X.any }), undefined, async ({ message }, ctx) => {
+var consoleError = defineAtom("consoleError", Ae.object({ message: Ae.any }), undefined, async ({ message }, ctx) => {
   const msg = resolveValue(message, ctx);
   const msgStr = typeof msg === "string" ? msg : JSON.stringify(msg);
   ctx.error = new AgentError(msgStr, "console.error");
 }, { docs: "Emit error and stop", cost: 0.1 });
-var storeProcedure = defineAtom("storeProcedure", X.object({
-  ast: X.any,
-  ttl: X.number.optional,
-  maxSize: X.number.optional
-}), X.string, async ({ ast, ttl, maxSize }, ctx) => {
+var storeProcedure = defineAtom("storeProcedure", Ae.object({
+  ast: Ae.any,
+  ttl: Ae.number.optional,
+  maxSize: Ae.number.optional
+}), Ae.string, async ({ ast, ttl, maxSize }, ctx) => {
   const resolvedAst = resolveValue(ast, ctx);
   const resolvedTtl = ttl ? resolveValue(ttl, ctx) : DEFAULT_PROCEDURE_TTL;
   const resolvedMaxSize = maxSize ? resolveValue(maxSize, ctx) : DEFAULT_MAX_AST_SIZE;
@@ -10531,11 +15322,11 @@ var storeProcedure = defineAtom("storeProcedure", X.object({
   });
   return token;
 }, { docs: "Store an AST and return a token for later execution", cost: 1 });
-var releaseProcedure = defineAtom("releaseProcedure", X.object({ token: X.string }), X.boolean, async ({ token }, ctx) => {
+var releaseProcedure = defineAtom("releaseProcedure", Ae.object({ token: Ae.string }), Ae.boolean, async ({ token }, ctx) => {
   const resolvedToken = resolveValue(token, ctx);
   return procedureStore.delete(resolvedToken);
 }, { docs: "Release a stored procedure by token", cost: 0.1 });
-var clearExpiredProcedures = defineAtom("clearExpiredProcedures", undefined, X.number, async () => {
+var clearExpiredProcedures = defineAtom("clearExpiredProcedures", undefined, Ae.number, async () => {
   const now = Date.now();
   let cleared = 0;
   for (const [token, entry] of procedureStore) {
@@ -10560,6 +15351,7 @@ var coreAtoms = {
   varsLet,
   varsExport,
   scope,
+  callLocal,
   map,
   filter,
   reduce,
@@ -10578,6 +15370,7 @@ var coreAtoms = {
   storeGet,
   storeSet,
   storeQuery,
+  storeQueryWhere,
   storeVectorSearch: vectorSearch,
   llmPredict,
   agentRun,
@@ -10598,6 +15391,33 @@ var coreAtoms = {
   releaseProcedure,
   clearExpiredProcedures
 };
+var EFFECTFUL_CORE_OPS = [
+  "httpFetch",
+  "storeGet",
+  "storeSet",
+  "storeQuery",
+  "storeQueryWhere",
+  "storeVectorSearch",
+  "llmPredict",
+  "agentRun",
+  "transpileCode",
+  "runCode",
+  "random",
+  "uuid",
+  "consoleLog",
+  "consoleWarn",
+  "consoleError",
+  "storeProcedure",
+  "releaseProcedure",
+  "clearExpiredProcedures",
+  "cache",
+  "memoize",
+  "xmlParse"
+];
+var EFFECTFUL_SET = new Set(EFFECTFUL_CORE_OPS);
+for (const [op, atom] of Object.entries(coreAtoms)) {
+  atom.effects = EFFECTFUL_SET.has(op) ? "io" : "pure";
+}
 
 // node_modules/tjs-lang/src/builder.ts
 var RESERVED_WORDS = new Set([
@@ -10957,14 +15777,15 @@ function transpile(source, options = {}) {
     ast: program,
     returnType,
     originalSource,
+    requiredValueOffsets,
     requiredParams
   } = parse4(source, {
     filename: options.filename,
     colonShorthand: true,
     vmTarget: true
   });
-  const func = validateSingleFunction(program, options.filename);
-  const { ast, signature, warnings } = transformFunction(func, originalSource, returnType, options, requiredParams);
+  const { entry, helpers } = extractFunctions(program, options.filename);
+  const { ast, signature, warnings } = transformFunction(entry, originalSource, returnType, options, requiredParams, helpers.size > 0 ? helpers : undefined, requiredValueOffsets);
   return {
     ast,
     signature,
@@ -10973,12 +15794,25 @@ function transpile(source, options = {}) {
 }
 
 // node_modules/tjs-lang/src/vm/vm.ts
-var FUEL_TO_MS = 10;
+var MIN_DEFAULT_RUN_TIMEOUT_MS = 60000;
 
 class AgentVM {
   atoms;
+  _defaultRunTimeout;
   constructor(customAtoms = {}) {
     this.atoms = { ...coreAtoms, ...customAtoms };
+  }
+  get defaultRunTimeout() {
+    if (this._defaultRunTimeout === undefined) {
+      let slowest = 0;
+      for (const atom of Object.values(this.atoms)) {
+        const t = atom.timeoutMs ?? 1000;
+        if (t > 0 && t > slowest)
+          slowest = t;
+      }
+      this._defaultRunTimeout = Math.max(MIN_DEFAULT_RUN_TIMEOUT_MS, slowest * 2);
+    }
+    return this._defaultRunTimeout;
   }
   get builder() {
     return new TypedBuilder(this.atoms);
@@ -11027,14 +15861,16 @@ class AgentVM {
         try {
           ast = transpile(astOrToken).ast;
         } catch (e) {
-          throw new Error(`AJS transpilation failed: ${e.message}`);
+          throw new Error(`AJS transpilation failed: ${e.message}`, {
+            cause: e
+          });
         }
       }
     } else {
       ast = astOrToken;
     }
     const startFuel = options.fuel ?? 1000;
-    const timeoutMs = options.timeoutMs ?? startFuel * FUEL_TO_MS;
+    const timeoutMs = options.timeoutMs ?? this.defaultRunTimeout;
     const capabilities = options.capabilities ?? {};
     const warnings = [];
     if (!capabilities.store) {
@@ -11057,10 +15893,25 @@ class AgentVM {
         }
       };
     }
+    if (ast.op !== "seq")
+      throw new Error("Root AST must be 'seq'. Ensure you're passing a transpiled agent (use ajs`...` or transpile()).");
+    const inputSchema = ast.inputSchema;
+    if (inputSchema && !b(args, inputSchema)) {
+      const error = new AgentError(`Input validation failed: args do not match expected schema`, "vm.run");
+      return {
+        result: error,
+        error,
+        fuelUsed: 0,
+        trace: options.trace ? [] : undefined,
+        warnings: warnings.length > 0 ? warnings : undefined
+      };
+    }
     const controller = new AbortController;
     const timeout = setTimeout(() => controller.abort(), timeoutMs);
     if (options.signal) {
-      options.signal.addEventListener("abort", () => controller.abort());
+      options.signal.addEventListener("abort", () => controller.abort(), {
+        signal: controller.signal
+      });
     }
     const ctx = {
       fuel: { current: startFuel },
@@ -11072,45 +15923,39 @@ class AgentVM {
       output: undefined,
       signal: controller.signal,
       costOverrides: options.costOverrides,
+      quotas: options.quotas,
+      quotaUsed: options.quotaUsed ?? {},
+      timeoutOverrides: options.timeoutOverrides,
       context: options.context,
-      warnings
+      membraneMaxBytes: options.membraneMaxBytes,
+      maxHeapBytes: options.maxHeapBytes,
+      warnings,
+      helpers: ast.helpers
     };
     if (options.trace) {
       ctx.trace = [];
     }
-    if (ast.op !== "seq")
-      throw new Error("Root AST must be 'seq'. Ensure you're passing a transpiled agent (use ajs`...` or transpile()).");
-    const inputSchema = ast.inputSchema;
-    if (inputSchema && !K(args, inputSchema)) {
-      const error = new AgentError(`Input validation failed: args do not match expected schema`, "vm.run");
-      return {
-        result: error,
-        error,
-        fuelUsed: 0,
-        trace: ctx.trace,
-        warnings: warnings.length > 0 ? warnings : undefined
-      };
-    }
     try {
       await Promise.race([
         this.resolve("seq")?.exec(ast, ctx),
-        new Promise((_, reject) => {
+        new Promise((_2, reject) => {
           controller.signal.addEventListener("abort", () => {
-            reject(new Error(`Execution timeout after ${timeoutMs}ms (fuel: ${startFuel}). Consider increasing fuel or optimizing your agent.`));
+            reject(new Error(`Execution timeout after ${timeoutMs}ms. Pass a higher \`timeoutMs\` to vm.run() or set per-atom \`timeoutOverrides\` for slow IO atoms.`));
           });
           if (controller.signal.aborted) {
-            reject(new Error(`Execution timeout after ${timeoutMs}ms (fuel: ${startFuel}). Consider increasing fuel or optimizing your agent.`));
+            reject(new Error(`Execution timeout after ${timeoutMs}ms. Pass a higher \`timeoutMs\` to vm.run() or set per-atom \`timeoutOverrides\` for slow IO atoms.`));
           }
         })
       ]);
     } catch (e) {
       if (e.message?.includes("timeout") || e.message?.includes("aborted") || controller.signal.aborted) {
-        ctx.error = new AgentError(`Execution timeout after ${timeoutMs}ms (fuel: ${startFuel}). Consider increasing fuel or optimizing your agent.`, "vm.run");
+        ctx.error = new AgentError(`Execution timeout after ${timeoutMs}ms. Pass a higher \`timeoutMs\` to vm.run() or set per-atom \`timeoutOverrides\` for slow IO atoms.`, "vm.run");
       } else {
         throw e;
       }
     } finally {
       clearTimeout(timeout);
+      controller.abort();
     }
     if (ctx.error && ctx.output === undefined) {
       ctx.output = ctx.error;
@@ -11129,6 +15974,26 @@ class AgentVM {
 // node_modules/tjs-lang/src/lang/eval.ts
 var _vm = null;
 var getVM = () => _vm ??= new AgentVM;
+function wrapReturnValues(node) {
+  if (!node || typeof node !== "object")
+    return;
+  if (Array.isArray(node)) {
+    for (const child of node)
+      wrapReturnValues(child);
+    return;
+  }
+  if (node.op === "return" && "value" in node) {
+    node.value = { __result: node.value };
+  }
+  if (node.steps)
+    wrapReturnValues(node.steps);
+  if (node.then)
+    wrapReturnValues(node.then);
+  if (node.else)
+    wrapReturnValues(node.else);
+  if (node.body)
+    wrapReturnValues(node.body);
+}
 async function Eval(options) {
   const {
     code,
@@ -11142,13 +16007,16 @@ async function Eval(options) {
   const wrappedCode = hasReturn ? `function __eval() { ${code} }` : `function __eval() { return (${code}) }`;
   try {
     const { ast } = transpile(wrappedCode);
+    wrapReturnValues(ast);
     const vmResult = await vm.run(ast, context, {
       fuel,
       timeoutMs,
       capabilities
     });
+    const raw = vmResult.result;
+    const result = raw && typeof raw === "object" && "__result" in raw ? raw.__result : raw;
     return {
-      result: vmResult.result,
+      result,
       fuelUsed: vmResult.fuelUsed,
       error: vmResult.error ? { message: vmResult.error.message || String(vmResult.error) } : undefined
     };
@@ -11216,21 +16084,55 @@ decrypt.__tjs = {
 };
 
 // src/llm.js
-function TypeOf(v) {
-  return v === null ? "null" : typeof v;
-}
-function toBool(v) {
+var __ac = Object.create(null);
+function __proj(v2) {
+  if (v2 === null || v2 === undefined || typeof v2 !== "object")
+    return v2;
+  let k2;
   try {
-    if (v instanceof Boolean)
-      return Boolean(Boolean.prototype.valueOf.call(v));
-    if (v instanceof Number)
-      return Boolean(Number.prototype.valueOf.call(v));
-    if (v instanceof String)
-      return Boolean(String.prototype.valueOf.call(v));
+    k2 = v2.constructor && v2.constructor.name;
+  } catch {
+    return v2;
+  }
+  let f = k2 && Object.prototype.hasOwnProperty.call(__ac, k2) ? __ac[k2] : null;
+  if (typeof f !== "function") {
+    try {
+      f = v2.asCompared;
+    } catch {
+      return v2;
+    }
+  }
+  if (typeof f !== "function")
+    return v2;
+  let p;
+  try {
+    p = f.call(v2);
+  } catch {
+    return v2;
+  }
+  const t = typeof p;
+  return p === null || p === undefined || t === "number" || t === "string" || t === "boolean" ? p : v2;
+}
+function TypeOf(v2) {
+  return v2 === null ? "null" : typeof v2;
+}
+function toBool(v2) {
+  v2 = __proj(v2);
+  try {
+    if (v2 instanceof Boolean)
+      return Boolean(Boolean.prototype.valueOf.call(v2));
+    if (v2 instanceof Number)
+      return Boolean(Number.prototype.valueOf.call(v2));
+    if (v2 instanceof String)
+      return Boolean(String.prototype.valueOf.call(v2));
   } catch (e) {}
-  return Boolean(v);
+  return Boolean(v2);
 }
 var __tjs = globalThis.__tjs?.createRuntime?.() ?? { TypeOf, toBool };
+var __tjsToBool = __tjs.toBool;
+__tjs.toBool = function(v2) {
+  return __tjsToBool(__proj(v2));
+};
 function createLlmCapability(apiKeys) {
   return {
     async predict(prompt, options = {}) {
@@ -11326,21 +16228,55 @@ import { getFirestore as getFirestore3 } from "firebase-admin/firestore";
 import { getFirestore } from "firebase-admin/firestore";
 
 // src/schema.js
-function TypeOf2(v) {
-  return v === null ? "null" : typeof v;
-}
-function toBool2(v) {
+var __ac2 = Object.create(null);
+function __proj2(v2) {
+  if (v2 === null || v2 === undefined || typeof v2 !== "object")
+    return v2;
+  let k2;
   try {
-    if (v instanceof Boolean)
-      return Boolean(Boolean.prototype.valueOf.call(v));
-    if (v instanceof Number)
-      return Boolean(Number.prototype.valueOf.call(v));
-    if (v instanceof String)
-      return Boolean(String.prototype.valueOf.call(v));
+    k2 = v2.constructor && v2.constructor.name;
+  } catch {
+    return v2;
+  }
+  let f = k2 && Object.prototype.hasOwnProperty.call(__ac2, k2) ? __ac2[k2] : null;
+  if (typeof f !== "function") {
+    try {
+      f = v2.asCompared;
+    } catch {
+      return v2;
+    }
+  }
+  if (typeof f !== "function")
+    return v2;
+  let p;
+  try {
+    p = f.call(v2);
+  } catch {
+    return v2;
+  }
+  const t = typeof p;
+  return p === null || p === undefined || t === "number" || t === "string" || t === "boolean" ? p : v2;
+}
+function TypeOf2(v2) {
+  return v2 === null ? "null" : typeof v2;
+}
+function toBool2(v2) {
+  v2 = __proj2(v2);
+  try {
+    if (v2 instanceof Boolean)
+      return Boolean(Boolean.prototype.valueOf.call(v2));
+    if (v2 instanceof Number)
+      return Boolean(Number.prototype.valueOf.call(v2));
+    if (v2 instanceof String)
+      return Boolean(String.prototype.valueOf.call(v2));
   } catch (e) {}
-  return Boolean(v);
+  return Boolean(v2);
 }
 var __tjs2 = globalThis.__tjs?.createRuntime?.() ?? { TypeOf: TypeOf2, toBool: toBool2 };
+var __tjsToBool2 = __tjs2.toBool;
+__tjs2.toBool = function(v2) {
+  return __tjsToBool2(__proj2(v2));
+};
 function validateSchema(schema, data2) {
   if (__tjs2.toBool(((__tjs__t) => __tjs2.toBool(__tjs__t) ? __tjs__t : !__tjs2.toBool(data2))(!__tjs2.toBool(schema))))
     return { valid: true };
@@ -11430,21 +16366,55 @@ validateSchema.__tjs = {
 };
 
 // src/rbac.js
-function TypeOf3(v) {
-  return v === null ? "null" : typeof v;
-}
-function toBool3(v) {
+var __ac3 = Object.create(null);
+function __proj3(v2) {
+  if (v2 === null || v2 === undefined || typeof v2 !== "object")
+    return v2;
+  let k2;
   try {
-    if (v instanceof Boolean)
-      return Boolean(Boolean.prototype.valueOf.call(v));
-    if (v instanceof Number)
-      return Boolean(Number.prototype.valueOf.call(v));
-    if (v instanceof String)
-      return Boolean(String.prototype.valueOf.call(v));
+    k2 = v2.constructor && v2.constructor.name;
+  } catch {
+    return v2;
+  }
+  let f = k2 && Object.prototype.hasOwnProperty.call(__ac3, k2) ? __ac3[k2] : null;
+  if (typeof f !== "function") {
+    try {
+      f = v2.asCompared;
+    } catch {
+      return v2;
+    }
+  }
+  if (typeof f !== "function")
+    return v2;
+  let p;
+  try {
+    p = f.call(v2);
+  } catch {
+    return v2;
+  }
+  const t = typeof p;
+  return p === null || p === undefined || t === "number" || t === "string" || t === "boolean" ? p : v2;
+}
+function TypeOf3(v2) {
+  return v2 === null ? "null" : typeof v2;
+}
+function toBool3(v2) {
+  v2 = __proj3(v2);
+  try {
+    if (v2 instanceof Boolean)
+      return Boolean(Boolean.prototype.valueOf.call(v2));
+    if (v2 instanceof Number)
+      return Boolean(Number.prototype.valueOf.call(v2));
+    if (v2 instanceof String)
+      return Boolean(String.prototype.valueOf.call(v2));
   } catch (e) {}
-  return Boolean(v);
+  return Boolean(v2);
 }
 var __tjs3 = globalThis.__tjs?.createRuntime?.() ?? { TypeOf: TypeOf3, toBool: toBool3 };
+var __tjsToBool3 = __tjs3.toBool;
+__tjs3.toBool = function(v2) {
+  return __tjsToBool3(__proj3(v2));
+};
 var _db = null;
 function db() {
   if (__tjs3.toBool(!__tjs3.toBool(_db)))
@@ -11661,18 +16631,52 @@ loadUserRoles.__tjs = {
 
 // src/indexes.js
 import { getFirestore as getFirestore2 } from "firebase-admin/firestore";
-function toBool4(v) {
+var __ac4 = Object.create(null);
+function __proj4(v2) {
+  if (v2 === null || v2 === undefined || typeof v2 !== "object")
+    return v2;
+  let k2;
   try {
-    if (v instanceof Boolean)
-      return Boolean(Boolean.prototype.valueOf.call(v));
-    if (v instanceof Number)
-      return Boolean(Number.prototype.valueOf.call(v));
-    if (v instanceof String)
-      return Boolean(String.prototype.valueOf.call(v));
+    k2 = v2.constructor && v2.constructor.name;
+  } catch {
+    return v2;
+  }
+  let f = k2 && Object.prototype.hasOwnProperty.call(__ac4, k2) ? __ac4[k2] : null;
+  if (typeof f !== "function") {
+    try {
+      f = v2.asCompared;
+    } catch {
+      return v2;
+    }
+  }
+  if (typeof f !== "function")
+    return v2;
+  let p;
+  try {
+    p = f.call(v2);
+  } catch {
+    return v2;
+  }
+  const t = typeof p;
+  return p === null || p === undefined || t === "number" || t === "string" || t === "boolean" ? p : v2;
+}
+function toBool4(v2) {
+  v2 = __proj4(v2);
+  try {
+    if (v2 instanceof Boolean)
+      return Boolean(Boolean.prototype.valueOf.call(v2));
+    if (v2 instanceof Number)
+      return Boolean(Number.prototype.valueOf.call(v2));
+    if (v2 instanceof String)
+      return Boolean(String.prototype.valueOf.call(v2));
   } catch (e) {}
-  return Boolean(v);
+  return Boolean(v2);
 }
 var __tjs4 = globalThis.__tjs?.createRuntime?.() ?? { toBool: toBool4 };
+var __tjsToBool4 = __tjs4.toBool;
+__tjs4.toBool = function(v2) {
+  return __tjsToBool4(__proj4(v2));
+};
 var _db2 = null;
 function db2() {
   if (__tjs4.toBool(!__tjs4.toBool(_db2)))
@@ -11748,11 +16752,11 @@ extractFields.__tjs = {
   source: "indexes.tjs:47"
 };
 function getIndexPath(collection, indexName, partitionKey = null) {
-  const base = `${collection}_indexes`;
+  const base2 = `${collection}_indexes`;
   if (__tjs4.toBool(partitionKey)) {
-    return `${base}/${indexName}_${partitionKey}`;
+    return `${base2}/${indexName}_${partitionKey}`;
   }
-  return `${base}/${indexName}`;
+  return `${base2}/${indexName}`;
 }
 getIndexPath.__tjs = {
   params: {
@@ -11933,18 +16937,52 @@ removeFromIndexes.__tjs = {
 };
 
 // src/store.js
-function toBool5(v) {
+var __ac5 = Object.create(null);
+function __proj5(v2) {
+  if (v2 === null || v2 === undefined || typeof v2 !== "object")
+    return v2;
+  let k2;
   try {
-    if (v instanceof Boolean)
-      return Boolean(Boolean.prototype.valueOf.call(v));
-    if (v instanceof Number)
-      return Boolean(Number.prototype.valueOf.call(v));
-    if (v instanceof String)
-      return Boolean(String.prototype.valueOf.call(v));
+    k2 = v2.constructor && v2.constructor.name;
+  } catch {
+    return v2;
+  }
+  let f = k2 && Object.prototype.hasOwnProperty.call(__ac5, k2) ? __ac5[k2] : null;
+  if (typeof f !== "function") {
+    try {
+      f = v2.asCompared;
+    } catch {
+      return v2;
+    }
+  }
+  if (typeof f !== "function")
+    return v2;
+  let p;
+  try {
+    p = f.call(v2);
+  } catch {
+    return v2;
+  }
+  const t = typeof p;
+  return p === null || p === undefined || t === "number" || t === "string" || t === "boolean" ? p : v2;
+}
+function toBool5(v2) {
+  v2 = __proj5(v2);
+  try {
+    if (v2 instanceof Boolean)
+      return Boolean(Boolean.prototype.valueOf.call(v2));
+    if (v2 instanceof Number)
+      return Boolean(Number.prototype.valueOf.call(v2));
+    if (v2 instanceof String)
+      return Boolean(String.prototype.valueOf.call(v2));
   } catch (e) {}
-  return Boolean(v);
+  return Boolean(v2);
 }
 var __tjs5 = globalThis.__tjs?.createRuntime?.() ?? { toBool: toBool5 };
+var __tjsToBool5 = __tjs5.toBool;
+__tjs5.toBool = function(v2) {
+  return __tjsToBool5(__proj5(v2));
+};
 var _db3 = null;
 function db3() {
   if (__tjs5.toBool(!__tjs5.toBool(_db3)))
@@ -12110,18 +17148,52 @@ createStoreCapability.__tjs = {
 
 // src/routing.js
 import { getFirestore as getFirestore4 } from "firebase-admin/firestore";
-function toBool6(v) {
+var __ac6 = Object.create(null);
+function __proj6(v2) {
+  if (v2 === null || v2 === undefined || typeof v2 !== "object")
+    return v2;
+  let k2;
   try {
-    if (v instanceof Boolean)
-      return Boolean(Boolean.prototype.valueOf.call(v));
-    if (v instanceof Number)
-      return Boolean(Number.prototype.valueOf.call(v));
-    if (v instanceof String)
-      return Boolean(String.prototype.valueOf.call(v));
+    k2 = v2.constructor && v2.constructor.name;
+  } catch {
+    return v2;
+  }
+  let f = k2 && Object.prototype.hasOwnProperty.call(__ac6, k2) ? __ac6[k2] : null;
+  if (typeof f !== "function") {
+    try {
+      f = v2.asCompared;
+    } catch {
+      return v2;
+    }
+  }
+  if (typeof f !== "function")
+    return v2;
+  let p;
+  try {
+    p = f.call(v2);
+  } catch {
+    return v2;
+  }
+  const t = typeof p;
+  return p === null || p === undefined || t === "number" || t === "string" || t === "boolean" ? p : v2;
+}
+function toBool6(v2) {
+  v2 = __proj6(v2);
+  try {
+    if (v2 instanceof Boolean)
+      return Boolean(Boolean.prototype.valueOf.call(v2));
+    if (v2 instanceof Number)
+      return Boolean(Number.prototype.valueOf.call(v2));
+    if (v2 instanceof String)
+      return Boolean(String.prototype.valueOf.call(v2));
   } catch (e) {}
-  return Boolean(v);
+  return Boolean(v2);
 }
 var __tjs6 = globalThis.__tjs?.createRuntime?.() ?? { toBool: toBool6 };
+var __tjsToBool6 = __tjs6.toBool;
+__tjs6.toBool = function(v2) {
+  return __tjsToBool6(__proj6(v2));
+};
 var _db4 = null;
 function db4() {
   if (__tjs6.toBool(!__tjs6.toBool(_db4)))
@@ -12198,21 +17270,55 @@ getStoredFunctions.__tjs = {
 };
 
 // src/index.js
-function TypeOf4(v) {
-  return v === null ? "null" : typeof v;
-}
-function toBool7(v) {
+var __ac7 = Object.create(null);
+function __proj7(v2) {
+  if (v2 === null || v2 === undefined || typeof v2 !== "object")
+    return v2;
+  let k2;
   try {
-    if (v instanceof Boolean)
-      return Boolean(Boolean.prototype.valueOf.call(v));
-    if (v instanceof Number)
-      return Boolean(Number.prototype.valueOf.call(v));
-    if (v instanceof String)
-      return Boolean(String.prototype.valueOf.call(v));
+    k2 = v2.constructor && v2.constructor.name;
+  } catch {
+    return v2;
+  }
+  let f = k2 && Object.prototype.hasOwnProperty.call(__ac7, k2) ? __ac7[k2] : null;
+  if (typeof f !== "function") {
+    try {
+      f = v2.asCompared;
+    } catch {
+      return v2;
+    }
+  }
+  if (typeof f !== "function")
+    return v2;
+  let p;
+  try {
+    p = f.call(v2);
+  } catch {
+    return v2;
+  }
+  const t = typeof p;
+  return p === null || p === undefined || t === "number" || t === "string" || t === "boolean" ? p : v2;
+}
+function TypeOf4(v2) {
+  return v2 === null ? "null" : typeof v2;
+}
+function toBool7(v2) {
+  v2 = __proj7(v2);
+  try {
+    if (v2 instanceof Boolean)
+      return Boolean(Boolean.prototype.valueOf.call(v2));
+    if (v2 instanceof Number)
+      return Boolean(Number.prototype.valueOf.call(v2));
+    if (v2 instanceof String)
+      return Boolean(String.prototype.valueOf.call(v2));
   } catch (e) {}
-  return Boolean(v);
+  return Boolean(v2);
 }
 var __tjs7 = globalThis.__tjs?.createRuntime?.() ?? { TypeOf: TypeOf4, toBool: toBool7 };
+var __tjsToBool7 = __tjs7.toBool;
+__tjs7.toBool = function(v2) {
+  return __tjsToBool7(__proj7(v2));
+};
 initializeApp();
 var db5 = getFirestore5();
 async function getUserApiKeys(uid) {
