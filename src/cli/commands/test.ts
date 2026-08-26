@@ -16,6 +16,7 @@ import { findFiles, writeEmitted } from '../walk'
 import { readdirSync, statSync, unlinkSync, existsSync, mkdirSync } from 'fs'
 import { join, dirname, resolve, relative } from 'path'
 import { spawn } from 'bun'
+import { tallyTestResults, testLabel } from '../test-report'
 
 export interface TestOptions {
   pattern?: string // -t, --test-name-pattern
@@ -130,23 +131,26 @@ async function runInlineTests(file: string): Promise<void> {
     return
   }
 
-  let failed = 0
+  // Classified by the SHARED tally, which `convert` also uses. These two commands had
+  // drifted — `convert` folded inconclusive into failed — and the divergence is what #40
+  // reported. One rule, one place, one test.
+  const { passed, inconclusive, failed } = tallyTestResults(results)
+
   for (const r of results) {
-    const name = r.isSignatureTest ? `${r.description}` : `'${r.description}'`
-    const where = r.line ? `:${r.line}` : ''
-    if (r.passed) {
-      console.log(`  ✓ ${name}`)
-    } else if (r.inconclusive) {
-      console.log(`  ? ${name}${where} — inconclusive: ${r.error ?? ''}`)
-    } else {
-      failed++
-      console.error(`  ✗ ${name}${where} — ${r.error ?? 'failed'}`)
-    }
+    if (r.passed) console.log(`  ✓ ${testLabel(r)}`)
+  }
+  for (const r of inconclusive) {
+    console.log(`  ? ${testLabel(r)} — inconclusive: ${r.error ?? ''}`)
+  }
+  for (const r of failed) {
+    console.error(`  ✗ ${testLabel(r)} — ${r.error ?? 'failed'}`)
   }
 
-  const passed = results.filter((r) => r.passed).length
-  console.log(`\n${file}: ${passed} passed, ${failed} failed`)
-  if (failed > 0) process.exit(1)
+  console.log(
+    `\n${file}: ${passed} passed, ${failed.length} failed` +
+      (inconclusive.length ? `, ${inconclusive.length} inconclusive` : '')
+  )
+  if (failed.length > 0) process.exit(1)
 }
 
 export async function test(

@@ -18,6 +18,7 @@ import { join, basename, extname } from 'path'
 import { fromTS } from '../../lang/emitters/from-ts'
 import { reportWarnings } from '../warnings'
 import { tjs } from '../../lang'
+import { tallyTestResults, testLabel } from '../test-report'
 
 export interface ConvertOptions {
   output?: string
@@ -112,24 +113,43 @@ async function convertFile(
         runTests: 'report',
       })
 
-      // Report test results
+      // Report test results.
+      //
+      // Three-way, matching `tjs test`: passed / INCONCLUSIVE / failed. `inconclusive` is
+      // already set by the runner for a test it could not *execute* — an unresolved
+      // cross-module import, a module-level throw — and this reporter used to filter on
+      // `!r.passed`, which swallowed the distinction and printed every one as `✗ … failed`.
+      //
+      // A runner that could not construct its harness has not observed a failing test, and
+      // saying otherwise is not a cosmetic problem. tosijs saw **13 failures on every
+      // build** from two files, in a build that exits 0, and learned to scroll past them —
+      // which is exactly the ambient-noise condition that hides a real failure the day one
+      // appears. It did: the #37 `new`-stripping regression initially read as "more of the
+      // usual convert noise" (#40).
       const testResults = jsResult.testResults || []
       if (testResults.length > 0) {
-        const passed = testResults.filter((r) => r.passed).length
-        const failures = testResults.filter((r) => !r.passed)
+        const { passed, inconclusive, failed } = tallyTestResults(testResults)
 
-        if (failures.length > 0) {
+        if (failed.length > 0) {
           console.error(
-            `${inputPath}: ${passed} passed, ${failures.length} failed`
+            `${inputPath}: ${passed} passed, ${failed.length} failed`
           )
-          for (const f of failures) {
-            if (f.isSignatureTest) {
-              console.error(`  ✗ Signature: ${f.error}`)
-            } else {
-              console.error(`  ✗ ${f.description}: ${f.error}`)
-            }
+          for (const f of failed)
+            console.error(`  ✗ ${testLabel(f)}: ${f.error}`)
+        }
+        // On stdout and never counted as a failure — visible, but not alarming, so the `✗`
+        // lines above stay worth reading. Detail only when it is likely to be wanted.
+        if (inconclusive.length > 0) {
+          console.log(
+            `${inputPath}: ${passed} passed, ${inconclusive.length} inconclusive` +
+              ` (not run — the harness could not execute them` +
+              (verbose || failed.length > 0 ? ')' : '; --verbose for detail)')
+          )
+          if (verbose || failed.length > 0) {
+            for (const s of inconclusive)
+              console.log(`  ? ${testLabel(s)}: ${s.error}`)
           }
-        } else if (verbose) {
+        } else if (failed.length === 0 && verbose) {
           console.error(`  ✓ ${testResults.length} tests passed`)
         }
       }
