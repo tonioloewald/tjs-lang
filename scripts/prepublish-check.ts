@@ -70,6 +70,29 @@ if (unpushed.ok && unpushed.out !== '0') {
   problems.push(`${unpushed.out} commit(s) not pushed — push before publishing`)
 }
 
+// The TAG must be on the remote too, not merely local.
+//
+// This check was missing, and 0.13.4 shipped because of it: the tag existed locally, the
+// branch was pushed, this guard passed — and `git push origin v0.13.4` had not landed. The
+// pre-push hook that runs the full suite fires on a TAG PUSH, so an unpushed tag means the
+// release gate never ran at all. That is the whole point of tagging before publishing, and
+// the guard was checking the half that was not load-bearing.
+//
+// Cheap to get wrong by hand, too: `git tag && git push origin <tag>` in one compound
+// command reports the branch push and the hook output, and a failure in the tag push itself
+// is easy to read past.
+const remoteTag = git('ls-remote', '--tags', 'origin', `refs/tags/${tag}`)
+if (!remoteTag.ok) {
+  problems.push(
+    `could not reach origin to confirm ${tag} was pushed — check your network, or publish deliberately with --ignore-scripts`
+  )
+} else if (!remoteTag.out.includes(`refs/tags/${tag}`)) {
+  problems.push(
+    `${tag} exists locally but is NOT on origin — push it (\`git push origin ${tag}\`), ` +
+      `which is also what runs the full-suite gate`
+  )
+}
+
 if (problems.length) {
   console.error(`\nRefusing to publish ${version}:\n`)
   for (const p of problems) console.error(`  ✗ ${p}`)
