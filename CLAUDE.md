@@ -539,7 +539,7 @@ Emitted JS declares its own `Type`/`Generic`/`Enum`/`Union`/`FunctionPredicate` 
 - `cost` can be static number or dynamic: `(input, ctx) => number`
 - `timeoutMs` defaults to 1000ms; use `0` for no timeout (e.g., `seq`)
 - Atoms are always async; fuel deduction is automatic in the `exec` wrapper
-- **`effects` defaults to `'io'` (0.14.0; was `'pure'` — BREAKING).** So a new atom is membraned and predicate-ineligible until you say otherwise, and **`'pure'` is the thing you opt into**: deterministic, no `ctx.capabilities`, no side effects. This drives predicate-safety (a predicate may only call pure atoms — see `experiments/predicates/`).
+- **`effects` defaults to `'io'` (0.13.6; was `'pure'` — BREAKING, shipped as a patch on purpose).** So a new atom is membraned and predicate-ineligible until you say otherwise, and **`'pure'` is the thing you opt into**: deterministic, no `ctx.capabilities`, no side effects. This drives predicate-safety (a predicate may only call pure atoms — see `experiments/predicates/`).
 
   The old default was one setting serving two populations with opposite needs. Core atoms operate on data already inside the VM, so `'pure'` is right for them; atoms defined through the public `defineAtom` exist to bring **host** data in, which is exactly what the membrane is for. It served the first and silently disabled the boundary for the second — `membraneValue` has one call site, inside `if (atom.effects === 'io')`, so an untagged embedder atom didn't get a weaker guarantee, it got none. snowfox-app upgraded specifically for the prototype-strip and still had all four of its custom atoms untagged (#38): when the people who read the release note and acted on it don't get the protection, documentation isn't a control.
 

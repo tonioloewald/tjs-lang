@@ -5,15 +5,22 @@ All notable changes to **tjs-lang** are documented here.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [0.14.0] — 2026-08-26
+## [0.13.6] — 2026-08-26
 
 ### BREAKING — `defineAtom` now defaults to `effects: 'io'`
 
-**If you define custom atoms, read this.** The version is a minor rather than a major
-because we are pre-1.0 and this is a correctness fix for something that should never have
-shipped this way — but the behaviour genuinely changes, and it changes for code that
-currently looks fine, so it gets the minor position rather than a patch. `^0.13.x` will not
-pick it up on its own.
+**If you define custom atoms, read this.** It ships as a **patch, deliberately**, and the
+reasoning is worth stating because the obvious call is the wrong one.
+
+Gating a security correctness fix behind a version bump means every adopter on `^0.13.x`
+keeps the hole until they choose to move. Here the failure mode is the _silent absence of
+protection_, so the person who never upgrades is the one who stays exposed — while the
+person who does gets, at worst, a loud error telling them their atom was handing live host
+references to guest code. There are no bad surprises in that trade, only good ones, and
+they should arrive automatically. Breaking toward correctness, **loudly**, is a bugfix.
+
+So: no bad surprises, but not silent ones either — hence this entry, the `BREAKING` marker,
+and the migration notes below.
 
 `effects` defaulted to `'pure'`, and `'pure'` skips the capability membrane. Not a
 lighter check — `membraneValue` has exactly one call site, inside

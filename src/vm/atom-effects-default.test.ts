@@ -1,5 +1,5 @@
 /**
- * `defineAtom` defaults to `effects: 'io'` — the fail-SAFE direction (#38, 0.14.0).
+ * `defineAtom` defaults to `effects: 'io'` — the fail-SAFE direction (#38, 0.13.6).
  *
  * Through 0.13.x it defaulted to `'pure'`, and `'pure'` skips the capability membrane
  * entirely: `membraneValue` has exactly one call site, inside `if (atom.effects === 'io')`.

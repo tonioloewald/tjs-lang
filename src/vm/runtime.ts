@@ -306,9 +306,16 @@ export type AtomExec = (step: any, ctx: RuntimeContext) => Promise<void>
  *   nondeterministic (random/uuid), or has side effects (console). Not allowed
  *   in a predicate. Its return crosses the structuredClone membrane.
  *
- * ## `defineAtom` defaults to `'io'` (BREAKING, 0.14.0)
+ * ## `defineAtom` defaults to `'io'` (BREAKING, shipped as a PATCH in 0.13.6)
  *
- * It defaulted to `'pure'` through 0.13.x, and that one default was serving two
+ * A breaking change in a patch is deliberate, not an oversight. Gating a security
+ * correctness fix behind a version bump leaves every adopter on `^0.13.x` holding the hole
+ * until they choose to move — and since the failure mode here is the *silent absence of
+ * protection*, the one who never upgrades is the one who stays exposed. The one who does
+ * gets, at worst, a loud error naming an atom that was handing live host references to
+ * guest code. Only good surprises, so they should arrive automatically.
+ *
+ * It defaulted to `'pure'` through 0.13.5, and that one default was serving two
  * populations with opposite needs:
  *
  * - **Core atoms** (`len`, `jsonStringify`, `map`) operate on data already inside the VM.
@@ -356,7 +363,7 @@ export interface AtomOptions {
   timeoutMs?: number
   cost?: number | ((input: any, ctx: RuntimeContext) => number)
   /**
-   * Effect class — defaults to **`'io'`** (0.14.0; was `'pure'`). Set `'pure'` only for an
+   * Effect class — defaults to **`'io'`** (0.13.6; was `'pure'`). Set `'pure'` only for an
    * atom that touches no capability, is deterministic, and has no side effects; doing so
    * opts its return OUT of the structuredClone membrane and makes it callable from a
    * verified predicate. See {@link AtomEffects}.
@@ -4624,7 +4631,7 @@ export const EFFECTFUL_CORE_OPS = [
 /**
  * Core atoms are classified HERE, not by `defineAtom`'s default.
  *
- * Since 0.14.0 that default is `'io'`, because the public API's callers are embedders
+ * Since 0.13.6 that default is `'io'`, because the public API's callers are embedders
  * bringing host data in (#38 — see `AtomEffects`). Core atoms are the opposite population:
  * they operate on data already inside the VM, so membraning them would deep-clone values
  * that never left. This sweep restores that, and keeps the audit surface a single list of
