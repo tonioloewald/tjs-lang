@@ -131,6 +131,34 @@ first one a rule rather than a preference:
 Both are implemented in `src/cli/port.ts`. Neither is upstream. **Owed to
 `tosijs-coding-practices#5`.**
 
+## Bun — `bun build --define:` silently does not substitute
+
+**Filed:** [oven-sh/bun#40558](https://github.com/oven-sh/bun/issues/40558) (2026-08-26).
+Reproduced on 1.4.0 with a two-line file, with and without `--target=node`, and with the
+value quoted both ways.
+
+```console
+$ echo 'export const x = { v: __FOO__ }' > a.js
+$ bun build a.js --outfile=b.js --define:__FOO__='"1.2.3"'
+$ cat b.js
+var x = { v: __FOO__ };     # unchanged
+```
+
+**The failure mode is the point, not the flag.** The build exits 0 with no warning, so the
+placeholder ships looking exactly like a value that was substituted. We hit it stamping the
+tjs-lang version into `functions/lib/index.js` so `/health` could report which VM a running
+deployment actually has — a field whose entire job is to be trustworthy, which would have
+answered `"tjsLang": "__TJS_LANG_VERSION__"`. Caught only because the guard asserts the
+stamp MATCHES a version rather than merely existing.
+
+**Workaround, in place:** a generated `functions/src/version.js`
+(`export const TJS_LANG_VERSION = "…"`), written by the `build:version` script and imported
+normally. Boring, and it bundles correctly everywhere.
+
+**Remove the workaround when:** `--define` substitutes, _or_ an unresolved key becomes a
+warning — the issue argues for the latter regardless, since a build flag that quietly does
+nothing is worse than one that is unsupported.
+
 ## Bun — a directory's listing is cached on first module resolution
 
 **Filed:** [oven-sh/bun#40105](https://github.com/oven-sh/bun/issues/40105) (2026-08-22).
