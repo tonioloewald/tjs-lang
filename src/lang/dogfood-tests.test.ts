@@ -147,10 +147,20 @@ const KNOWN_CONVERSION_FAILURES = new Map<string, string>([
  */
 const BASELINE = {
   /** Fraction of assertions that survive conversion. 1.0 is the 1.0 gate. */
-  assertionRate: 0.88,
+  assertionRate: 0.897,
   /** Fraction of passing tests that still pass after conversion. */
-  testRate: 0.89,
+  testRate: 0.911,
 }
+
+/**
+ * Raised 2026-08-26 by the promote-check, as a side effect of fixing #37.
+ *
+ * `dropRedundantNew` used to run inside `fromTS`, so converted modules lost the `new` that
+ * plain-JS classes require and threw on import. Moving it to the graduation step — where it
+ * belongs, since that is what makes a file native TJS — also stopped it corrupting converted
+ * TEST suites, and the preserved rates went up: 0.88 -> 0.898 assertions, 0.89 -> 0.912
+ * tests. Locked in so the improvement cannot silently rot back.
+ */
 
 /**
  * Why the baseline moved DOWN on 2026-08-16, and why that is not a loosening.

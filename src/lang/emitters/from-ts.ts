@@ -32,7 +32,6 @@
 
 import ts from 'typescript'
 import { maskLiteralsKeepComments, scanLiterals } from '../../strip-comments'
-import { dropRedundantNew } from '../declared-classes'
 import { emitClassWrapper } from '../runtime'
 
 export interface FromTSOptions {
@@ -3126,13 +3125,22 @@ export function fromTS(
       embeddedTests.length > 0 ? '\n\n' + embeddedTests.join('\n\n') : ''
 
     return {
-      // `new X()` -> `X()` for classes declared here — see `dropRedundantNew`. This is
-      // the TJS-emitting return; the JS one below must NOT be rewritten, because plain
-      // JavaScript classes genuinely require `new`.
-      code: dropRedundantNew(
-        applyUnsafeAnnotations(
-          header + tjsFunctions.join('\n\n') + testsSection
-        )
+      // `new` is PRESERVED here, and the comment that used to sit in its place had the
+      // right rule and the wrong scope.
+      //
+      // Dropping `new` is only safe where a class is callable, and in native `.tjs` it is:
+      // `class X {}` emits `let X = class X {}; X = new Proxy(X, { apply … })`. But every
+      // `fromTS` output carries the `/* tjs <- file */` annotation, and that annotation
+      // means JS SEMANTICS — so the Proxy wrap never happens and the class genuinely
+      // requires `new`.
+      //
+      // So this was never the "TJS-emitting return" in the sense the old comment assumed.
+      // Rewriting it produced converted modules that could not even be IMPORTED: a
+      // `static zero = new Thing(0)` field throws at module-evaluation time. Regressed in
+      // 0.13.0, reported from tosijs against 0.13.4 (#37), and the `--emit-tjs` path is
+      // affected identically because the annotation travels with it.
+      code: applyUnsafeAnnotations(
+        header + tjsFunctions.join('\n\n') + testsSection
       ),
       warnings: warnings.length > 0 ? warnings : undefined,
     }

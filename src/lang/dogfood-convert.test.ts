@@ -23,6 +23,7 @@
  * Ratchets: each stage has a floor it may not fall below. Raise the floor when you improve
  * a stage — that is how a measurement becomes a guarantee instead of a dashboard.
  */
+import { dropRedundantNew } from './declared-classes'
 import { describe, it, expect } from 'bun:test'
 import { readFileSync, readdirSync, statSync } from 'node:fs'
 import { join } from 'node:path'
@@ -89,7 +90,19 @@ function measure() {
     }
 
     try {
-      tjs(converted.replace(/\/\* tjs <- [^*]*\*\/\n?/, ''), {
+      // GRADUATION drops `new` on locally-declared classes; conversion does not.
+      //
+      // These are genuinely different outputs, not a workaround. A converted `.js` file
+      // carries the `/* tjs <- … */` annotation and therefore JS SEMANTICS, where a class
+      // is not callable and `new` is load-bearing. Graduating strips that annotation and
+      // makes the file native TJS, where `class X {}` emits a Proxy-wrapped callable and
+      // `new X` is rejected outright.
+      //
+      // `dropRedundantNew` used to run inside `fromTS`, which made this stage pass and
+      // shipped converted modules that could not be IMPORTED — a `static zero = new Thing(0)`
+      // field throws at module-evaluation time (#37, regressed in 0.13.0). Moving it here
+      // puts it at the step whose job it actually is.
+      tjs(dropRedundantNew(converted.replace(/\/\* tjs <- [^*]*\*\/\n?/, '')), {
         runTests: false,
       })
       graduates.ok++
