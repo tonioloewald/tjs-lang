@@ -539,7 +539,11 @@ Emitted JS declares its own `Type`/`Generic`/`Enum`/`Union`/`FunctionPredicate` 
 - `cost` can be static number or dynamic: `(input, ctx) => number`
 - `timeoutMs` defaults to 1000ms; use `0` for no timeout (e.g., `seq`)
 - Atoms are always async; fuel deduction is automatic in the `exec` wrapper
-- `effects` defaults to `'pure'`; **set `'io'` for any atom that touches `ctx.capabilities` (fetch/store/llm/agent/code), is nondeterministic (random/uuid), or has side effects (console)**. This drives predicate-safety (a predicate may only call pure atoms — see `experiments/predicates/`). Core IO atoms are tagged centrally via `EFFECTFUL_CORE_OPS` in `runtime.ts`; the invariant is guarded by `src/vm/atom-effects.test.ts`.
+- **`effects` defaults to `'io'` (0.14.0; was `'pure'` — BREAKING).** So a new atom is membraned and predicate-ineligible until you say otherwise, and **`'pure'` is the thing you opt into**: deterministic, no `ctx.capabilities`, no side effects. This drives predicate-safety (a predicate may only call pure atoms — see `experiments/predicates/`).
+
+  The old default was one setting serving two populations with opposite needs. Core atoms operate on data already inside the VM, so `'pure'` is right for them; atoms defined through the public `defineAtom` exist to bring **host** data in, which is exactly what the membrane is for. It served the first and silently disabled the boundary for the second — `membraneValue` has one call site, inside `if (atom.effects === 'io')`, so an untagged embedder atom didn't get a weaker guarantee, it got none. snowfox-app upgraded specifically for the prototype-strip and still had all four of its custom atoms untagged (#38): when the people who read the release note and acted on it don't get the protection, documentation isn't a control.
+
+  Core atoms are classified in `runtime.ts` beside `EFFECTFUL_CORE_OPS`, which sweeps **both** directions — so a core atom's class never depends on which default is in force. Guarded by `src/vm/atom-effects-default.test.ts` (which asserts the default's _consequence_ at the boundary, not just its value) and `src/vm/atom-effects-scan.test.ts` (which reads what atom bodies actually do — the list can only prove it agrees with itself, which is how `xmlParse` stayed mis-tagged for two releases).
 
 ### Debugging Agents
 

@@ -5,7 +5,58 @@ All notable changes to **tjs-lang** are documented here.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [0.14.0] — 2026-08-26
+
+### BREAKING — `defineAtom` now defaults to `effects: 'io'`
+
+**If you define custom atoms, read this.** The version is a minor rather than a major
+because we are pre-1.0 and this is a correctness fix for something that should never have
+shipped this way — but the behaviour genuinely changes, and it changes for code that
+currently looks fine, so it gets the minor position rather than a patch. `^0.13.x` will not
+pick it up on its own.
+
+`effects` defaulted to `'pure'`, and `'pure'` skips the capability membrane. Not a
+lighter check — `membraneValue` has exactly one call site, inside
+`if (atom.effects === 'io')`, so an atom that didn't opt in bypassed the boundary
+**entirely**: host objects reached guest scope by reference, getters intact, with
+`methodCall` standing right there.
+
+One default was serving two populations with opposite needs. Core atoms (`len`,
+`jsonStringify`, `map`) work on data already inside the VM, so `'pure'` is right for them.
+Atoms defined through the public `defineAtom` exist to bring **host** data in — Firestore
+snapshots, Elasticsearch hits, SDK responses — which is precisely the data the membrane
+exists to sanitise, and precisely the shape that carries accessors. The default served the
+first and silently disabled the boundary for the second, whose authors are outside our audit
+surface.
+
+It failed quietly, which is what settles it: nothing warned, nothing broke, the atom worked
+and the hardening was absent. snowfox-app upgraded _specifically_ for the 0.12.0
+prototype-strip and later found all four of its custom atoms untagged ([#38]). When the
+people who read the release note and acted on it still don't get the protection,
+documentation is not a control.
+
+**What changes for you.** An atom you define without `effects` now has its return
+deep-copied through `structuredClone` before it reaches guest state. Three consequences:
+
+- **Identity is not preserved.** The guest gets a copy. If you relied on handing through a
+  live reference, that stops working — deliberately.
+- **Non-cloneable returns are now rejected** with a `MonadicError`
+  (`Capability boundary rejected the return of '<op>'`) instead of silently succeeding.
+  Functions and **accessor properties** are refused; build the object literally, naming each
+  field. `{ ...someResponse }` is not the fix and fails silently — a `Response` keeps
+  `ok`/`status` on its _prototype_, so the spread is `{}`.
+- **The atom is no longer callable from a verified predicate**, since predicates may only
+  call pure atoms.
+
+**If your atom really is pure**, say so and nothing changes:
+
+```js
+defineAtom('slugify', inSchema, outSchema, fn, { effects: 'pure' })
+```
+
+That is the honest fix, not a workaround — and it is now an explicit claim rather than
+something you get by forgetting. Core atoms are classified the same way, by an explicit
+sweep in both directions, so their class no longer depends on which default is in force.
 
 ### Fixed
 
@@ -54,6 +105,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   0.13.4; the union check just never read it.
 
 [#33]: https://github.com/tonioloewald/tjs-lang/issues/33
+[#38]: https://github.com/tonioloewald/tjs-lang/issues/38
 [#37]: https://github.com/tonioloewald/tjs-lang/issues/37
 
 ## [0.13.5] — 2026-08-25

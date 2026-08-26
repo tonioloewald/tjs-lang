@@ -304,9 +304,34 @@ export type AtomExec = (step: any, ctx: RuntimeContext) => Promise<void>
  *   effects — safe inside a synchronous predicate (see the predicate verifier).
  * - `'io'`: touches `ctx.capabilities` (fetch/store/llm/agent/code), or is
  *   nondeterministic (random/uuid), or has side effects (console). Not allowed
- *   in a predicate.
- * Defaults to `'pure'`; effectful atoms must opt into `'io'`. The invariant
- * "anything touching ctx.capabilities is tagged 'io'" is guarded by a test.
+ *   in a predicate. Its return crosses the structuredClone membrane.
+ *
+ * ## `defineAtom` defaults to `'io'` (BREAKING, 0.14.0)
+ *
+ * It defaulted to `'pure'` through 0.13.x, and that one default was serving two
+ * populations with opposite needs:
+ *
+ * - **Core atoms** (`len`, `jsonStringify`, `map`) operate on data already inside the VM.
+ *   Membraning them would deep-clone values that never left. `'pure'` is right.
+ * - **Atoms defined through the public `defineAtom`** exist to bring HOST data *in* —
+ *   Firestore snapshots, Elasticsearch hits, SDK responses. That is precisely the data the
+ *   membrane exists to sanitise, and precisely the shape that carries accessors. `'io'` is
+ *   right.
+ *
+ * The default served the first and silently disabled the boundary for the second, whose
+ * authors are outside our audit surface. And it failed *quietly*: nothing warned, nothing
+ * broke, the atom worked and the hardening was absent. snowfox-app upgraded specifically
+ * for the prototype-strip and later found all four of its custom atoms untagged — people
+ * who read the release note and acted on it still did not get the protection, which is what
+ * settles it: documentation was not a control here (#38).
+ *
+ * So the default now fails SAFE. Core atoms are restored to `'pure'` by an explicit sweep
+ * beside `EFFECTFUL_CORE_OPS`, which keeps one audit surface rather than 31 declarations.
+ *
+ * The invariant "anything touching ctx.capabilities is tagged 'io'" is guarded by
+ * `atom-effects-scan.test.ts`, which reads what atom BODIES do — not by the list, which can
+ * only prove it agrees with itself (that is how `xmlParse` stayed mis-tagged for two
+ * releases).
  */
 export type AtomEffects = 'pure' | 'io'
 
@@ -330,7 +355,12 @@ export interface AtomOptions {
   docs?: string
   timeoutMs?: number
   cost?: number | ((input: any, ctx: RuntimeContext) => number)
-  /** Effect class — defaults to `'pure'`; effectful atoms set `'io'`. */
+  /**
+   * Effect class — defaults to **`'io'`** (0.14.0; was `'pure'`). Set `'pure'` only for an
+   * atom that touches no capability, is deterministic, and has no side effects; doing so
+   * opts its return OUT of the structuredClone membrane and makes it callable from a
+   * verified predicate. See {@link AtomEffects}.
+   */
   effects?: AtomEffects
 }
 
@@ -2439,7 +2469,12 @@ export function defineAtom<I extends Record<string, any>, O = any>(
     docs = '',
     timeoutMs = 1000,
     cost = 1,
-    effects = 'pure',
+    // Defaults to 'io' — see AtomEffects. An atom defined through this function is, by
+    // overwhelming default, an embedder bringing HOST data in, which is exactly the data
+    // the membrane exists to sanitise. Core atoms are swept back to 'pure' after
+    // construction (PURE by absence from EFFECTFUL_CORE_OPS), because for them the
+    // opposite is true.
+    effects = 'io',
   } = typeof options === 'string' ? { docs: options } : options
 
   const exec: AtomExec = async (step: any, ctx: RuntimeContext) => {
@@ -4586,7 +4621,19 @@ export const EFFECTFUL_CORE_OPS = [
   'xmlParse',
 ] as const
 
-for (const op of EFFECTFUL_CORE_OPS) {
-  const atom = (coreAtoms as Record<string, AtomDef>)[op]
-  if (atom) atom.effects = 'io'
+/**
+ * Core atoms are classified HERE, not by `defineAtom`'s default.
+ *
+ * Since 0.14.0 that default is `'io'`, because the public API's callers are embedders
+ * bringing host data in (#38 — see `AtomEffects`). Core atoms are the opposite population:
+ * they operate on data already inside the VM, so membraning them would deep-clone values
+ * that never left. This sweep restores that, and keeps the audit surface a single list of
+ * 21 rather than 31 scattered `effects: 'pure'` declarations.
+ *
+ * Both directions are set explicitly, so a core atom's class never depends on which default
+ * happens to be in force — the thing that made the old arrangement fragile.
+ */
+const EFFECTFUL_SET: ReadonlySet<string> = new Set(EFFECTFUL_CORE_OPS)
+for (const [op, atom] of Object.entries(coreAtoms as Record<string, AtomDef>)) {
+  atom.effects = EFFECTFUL_SET.has(op) ? 'io' : 'pure'
 }
