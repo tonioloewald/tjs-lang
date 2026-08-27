@@ -109,6 +109,7 @@ import {
   rewriteBoolCoercionInSource,
 } from '../bool-coercion'
 import { rewriteSwitch } from '../switch-transform'
+import { applyEdits } from '../source-edits'
 
 /** A key safe to emit as `base.key` (else it must be bracket-accessed). */
 const IDENT_RE = /^[A-Za-z_$][A-Za-z0-9_$]*$/
@@ -1474,7 +1475,28 @@ export function transpileToJS(
   // and `Boolean(x)` calls) to call `__tjs.toBool` so boxed primitives
   // unwrap before coercion. See src/lang/bool-coercion.ts.
   if (preprocessed.tjsModes.tjsStandard) {
-    const boolPatches = rewriteBoolCoercion(program, preprocessed.source)
+    /**
+     * A span already claimed as a TYPE ANNOTATION is not an expression, so no expression
+     * rewrite may touch it.
+     *
+     * `function f(code = '' || null)` is a parameter whose default is `''` and whose type is
+     * `string | null`. The union suffix is stripped by the deletions above — but acorn sees a
+     * `LogicalExpression`, so `bool-coercion` also rewrites it as a logical OR. Two passes,
+     * one span, incompatible readings.
+     *
+     * That conflict is not new; it was invisible. The old two-phase application deleted both
+     * spans against shifting offsets and emitted whatever fell out, and the only reason it
+     * was never noticed is that the result happened to stay syntactically valid.
+     * `applyEdits` reports it instead, which is how it surfaced.
+     */
+    const claimed = deletions.map((d) => ({ ...d }))
+    const overlapsAnnotation = (start: number, end: number) =>
+      claimed.some((d) => start < d.end && d.start < end)
+
+    const boolPatches = rewriteBoolCoercion(
+      program,
+      preprocessed.source
+    ).filter((p) => !overlapsAnnotation(p.start, p.end))
     for (const p of boolPatches) {
       deletions.push({ start: p.start, end: p.end })
       insertions.push({ position: p.start, text: p.newText })
@@ -1485,6 +1507,7 @@ export function transpileToJS(
     // `==` compares. Gated on the SAME flag as bool-coercion, which is what keeps converted
     // and `dialect: 'js'` sources on C semantics — the boundary #37 taught us to respect.
     const sw = rewriteSwitch(program, preprocessed.source)
+    sw.patches = sw.patches.filter((p) => !overlapsAnnotation(p.start, p.end))
     for (const p of sw.patches) {
       deletions.push({ start: p.start, end: p.end })
       insertions.push({ position: p.start, text: p.newText })
@@ -1494,30 +1517,27 @@ export function transpileToJS(
     }
   }
 
-  // Apply deletions first (reverse order to maintain offsets), then insertions.
-  // Deletions strip | union suffixes from param defaults in the output JS.
-  deletions.sort((a, b) => b.start - a.start)
-  let code = preprocessed.source
-  for (const { start, end } of deletions) {
-    code = code.slice(0, start) + code.slice(end)
-  }
-
-  // Adjust insertion positions for any deletions that shifted offsets
-  for (const ins of insertions) {
-    let shift = 0
-    for (const del of deletions) {
-      if (del.start < ins.position) {
-        shift += del.end - del.start
-      }
-    }
-    ins.position -= shift
-  }
-
-  // Apply insertions in reverse position order
-  insertions.sort((a, b) => b.position - a.position)
-  for (const { position, text } of insertions) {
-    code = code.slice(0, position) + text + code.slice(position)
-  }
+  // Deletions and insertions are ONE ordered edit list, applied left to right.
+  //
+  // They used to be two phases — delete every span, then insert every fragment with each
+  // position adjusted by the deletions before it. That arithmetic cannot express an
+  // insertion sitting exactly ON a deleted span's END, which is indistinguishable from one
+  // inside it: the full span length is subtracted and the text lands BEFORE the region it
+  // was meant to follow. Silently. See `source-edits.ts` for the case that shipped.
+  //
+  // `applyEdits` has no offsets to adjust, and throws on a genuine overlap rather than
+  // emitting something.
+  let code = applyEdits(preprocessed.source, [
+    // A deletion is a replacement with no text; an insertion is a zero-width one. The
+    // long-standing "delete a span and insert at its start" idiom still means replace,
+    // because the sort puts the zero-width edit first.
+    ...deletions.map((d) => ({ start: d.start, end: d.end, text: '' })),
+    ...insertions.map((i) => ({
+      start: i.position,
+      end: i.position,
+      text: i.text,
+    })),
+  ])
 
   // Add __tjs reference for monadic error handling and structural equality
   // Use createRuntime() for isolated state per-module
