@@ -1129,6 +1129,36 @@ export function toBool(value: unknown): boolean {
   return Boolean(unwrapBoxed(asCompared(value)))
 }
 
+/**
+ * The sentinel `NaN` maps to, so `case NaN:` can match under `===`.
+ *
+ * `Eq(NaN, NaN)` is true — one of the footguns TJS fixes — but `switch` still dispatches
+ * with `===` underneath, and `NaN === NaN` is false. Mapping both sides to one symbol makes
+ * the two agree without giving up the jump table.
+ */
+export const swNaN: unique symbol = Symbol.for('tjs.switch.NaN')
+
+/**
+ * The comparison KEY of a value, for `switch` in native `.tjs` (#43).
+ *
+ * `switch` is an equality construct, and it was the only one still using `===` — the one
+ * TJS exists to fix — with no alternative spelling to reach for. With `==` you can at least
+ * write `===`; with `switch` the options were "restructure into an if-chain" or "coerce the
+ * discriminant by hand", both of which are the ceremony `Eq` removes.
+ *
+ * This normalises the DISCRIMINANT (and any non-literal case) rather than comparing each arm
+ * with `Eq`, so literal cases stay literal and the engine's jump table survives — see
+ * `switch-transform.ts` for why that trade decides the design. The result agrees with `Eq`
+ * exactly: same `asCompared` → `unwrapBoxed` chain, plus the two clauses `===` cannot
+ * express on its own (`undefined` and `null` are one key; `NaN` matches itself).
+ */
+export function swKey(value: unknown): unknown {
+  const v = unwrapBoxed(asCompared(value))
+  if (v === undefined) return null
+  if (typeof v === 'number' && v !== v) return swNaN
+  return v
+}
+
 export function Eq(a: unknown, b: unknown): boolean {
   // Unwrap boxed primitives via the PROTOTYPE method, not `a.valueOf()`.
   //
@@ -2229,6 +2259,8 @@ export function createRuntime() {
     TypeOf,
     // Honest truthiness (unwraps boxed primitives)
     toBool,
+    // switch comparison keys (native .tjs) — see swKey
+    swKey,
     tjsEquals,
     // Extensions
     registerExtension: instanceRegisterExtension,
@@ -2330,6 +2362,8 @@ export const runtime = {
   TypeOf,
   // Honest truthiness (used in TjsStandard for boxed-primitive coercion)
   toBool,
+  // switch comparison keys (native .tjs)
+  swKey,
 }
 
 /**

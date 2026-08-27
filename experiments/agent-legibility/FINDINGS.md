@@ -338,3 +338,71 @@ solves it outright but teaches nothing transferable, and a bad message may waste
 budget. **The iterated version is the more honest experiment**, and it's the same shape as
 the `harness.ts` repair loop — wire the message variants into that loop and measure
 _iterations-to-green_ rather than one-shot repair rate.
+
+---
+
+# `switch` semantics probe — can a model READ native-TJS `switch`? (2026-08-27)
+
+`switch-probe.ts`, `qwen/qwen3.8-27b` via LM Studio, N=5 per arm, temp 0.3. Run while
+implementing #43, to decide whether making `break` implicit is safe to ship.
+
+| arm           | expects | result         | notes                                                        |
+| ------------- | ------- | -------------- | ------------------------------------------------------------ |
+| `c_control`   | `1`     | **5/5 = 100%** | explicit `break`, read as `.js`. Positive control.           |
+| `c_fallthru`  | `1,2`   | **5/5 = 100%** | no `break`, read as `.js`.                                   |
+| `tjs_bare`    | `1`     | **0/5 = 0%**   | no `break`, read as `.tjs`. **All 5 applied C fallthrough.** |
+| `tjs_rule`    | `1`     | **5/5 = 100%** | + a one-line prose comment stating the rule.                 |
+| `tjs_example` | `1`     | **5/5 = 100%** | + the same fact as a worked example.                         |
+| `tjs_multi`   | `1`     | —              | unmeasured; see §3.                                          |
+
+## 1. The file extension communicates nothing. Zero, not "poorly"
+
+`tjs_bare` did not score badly — it scored the **worst possible number**, and not from
+uncertainty: both controls are 100%, so the model traces `switch` perfectly when it knows
+which language it is in. Shown the identical text as `.tjs`, it applied C fallthrough 5
+times out of 5, confidently.
+
+The reasoning transcript says why, and it is worth quoting because no rate captures it:
+
+> _"…maybe has 'case' with comma to group multiple cases? There is a language 'TJS' by 'TJS'
+> (maybe 'TJS: A TypeScript-like language')…"_
+
+**There is no prior for `.tjs`.** The extension is our out-of-band mode marker — the thing
+that makes TJS able to fix `==` where `"use strict"` could not — and to a reader it carries
+no information at all. That is a real cost of the design, and it had not been measured.
+
+## 2. A one-line comment takes it from 0% to 100% — and the plain rule is enough
+
+Both comment arms hit the ceiling. **The prose rule is sufficient; the worked-example form
+buys nothing here.** So `convert` should emit the short comment.
+
+Note the instrument is saturated at the ceiling, so this run **cannot** rank rule vs example
+— it can only say both clear the bar on this task at this model size. Ranking them needs a
+harder task or a weaker model. (A2/A3 rank worked examples above prose rules for _repair_;
+this is comprehension, and the question stays open.)
+
+**Correction to an earlier reading of our own findings:** the first draft of this probe
+predicted the comment would fail, citing A3. That misreads A3. Guidance helps enormously
+(`none` = 0%, cheatsheet = 67%); what A3 refutes is narrower — prose _rules_ underperform
+_worked examples_. "Comments do not help" was never a finding here.
+
+## 3. The apparatus trap, again, in a new costume
+
+`tjs_multi` (`case 'a', 'b':`) returned five nulls. Not a failure — **no answer**: the model
+emitted 7,277 characters of `reasoning_content` and never filled `content`, exhausting a
+2,000-token budget. Scoring those as wrong would have produced "models cannot read
+multi-value cases", a confident finding from an instrument that never ran.
+
+Same root cause as the live-LLM flakiness diagnosed the day before (see `TODO.md`): a
+reasoning model puts the answer in `reasoning_content` and leaves `content` empty. Nulls are
+now counted in their own column. Raising the budget to 12,000 made the _call_ time out
+instead, so this arm is still unmeasured and is the open question — it is the one construct
+with no JS analogue at all.
+
+## What this changed
+
+- The explanatory comment is **load-bearing**, not decoration: it is the difference between
+  0% and 100% agent comprehension. `convert` must emit it.
+- A hand-written `.tjs` file carries no such comment, so the docs and cheat sheet have to.
+- Every future `.tjs`-only semantic change should be probed this way before shipping. The
+  extension will not carry it.

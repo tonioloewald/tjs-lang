@@ -542,6 +542,10 @@ describe('Bootstrap Canary', () => {
         'predicate.ts':
           'acorn-backed engine module; its one needed function, emitVerifiedPredicate, ' +
           'is injected natively above',
+        'switch-transform.ts':
+          "acorn-loose-backed, and reachable only from `parse`'s repair path (#43 " +
+          'item 4). This bundle exercises `preprocess`, which never calls `parse`, so ' +
+          'the import is not on any path it runs.',
       }
       const langDir = path.join(import.meta.dir, '../lang')
       const listed = [

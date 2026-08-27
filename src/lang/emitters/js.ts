@@ -108,6 +108,7 @@ import {
   rewriteBoolCoercion,
   rewriteBoolCoercionInSource,
 } from '../bool-coercion'
+import { rewriteSwitch } from '../switch-transform'
 
 /** A key safe to emit as `base.key` (else it must be bracket-accessed). */
 const IDENT_RE = /^[A-Za-z_$][A-Za-z0-9_$]*$/
@@ -933,6 +934,7 @@ export function transpileToJS(
     originalSource,
     requiredParams,
     unsafeFunctions,
+    repairedSource,
   } = parse(cleanSource, {
     filename,
     colonShorthand: true,
@@ -946,7 +948,9 @@ export function transpileToJS(
   // Preprocess source (handles TJS syntax transformations)
   // Pass through the moduleLoader so Phase 3 cross-file wasm composition
   // sees imported `wasm function` declarations.
-  const preprocessed = preprocess(cleanSource, {
+  // `repairedSource` when `parse` had to brace `switch` arms to parse at all (#43 item 4):
+  // the AST indexes into the braced source, so the patch base must be braced too.
+  const preprocessed = preprocess(repairedSource ?? cleanSource, {
     dialect: options.dialect,
     moduleLoader: options.moduleLoader,
     filename,
@@ -1475,6 +1479,19 @@ export function transpileToJS(
       deletions.push({ start: p.start, end: p.end })
       insertions.push({ position: p.start, text: p.newText })
     }
+
+    // `switch` is Swift's, not C's, in native .tjs (#43): implicit `break`, per-arm scope,
+    // multi-value `case a, b:`, opt-in `fallthrough`, and a discriminant keyed the same way
+    // `==` compares. Gated on the SAME flag as bool-coercion, which is what keeps converted
+    // and `dialect: 'js'` sources on C semantics — the boundary #37 taught us to respect.
+    const sw = rewriteSwitch(program, preprocessed.source)
+    for (const p of sw.patches) {
+      deletions.push({ start: p.start, end: p.end })
+      insertions.push({ position: p.start, text: p.newText })
+    }
+    for (const w of sw.warnings) {
+      warnings.push(w.message)
+    }
   }
 
   // Apply deletions first (reverse order to maintain offsets), then insertions.
@@ -1543,6 +1560,8 @@ export function transpileToJS(
     code.includes('__tjs.checkFnShape(') ||
     code.includes('__tjs.bang(')
   const needsToBool = code.includes('__tjs.toBool(')
+  /** `switch` in native .tjs keys its discriminant — see swKey / switch-transform.ts. */
+  const needsSwKey = code.includes('__tjs.swKey(')
   /**
    * Whether this file emits the `__ac` projection table and its `__proj` reader.
    *
@@ -1550,7 +1569,8 @@ export function transpileToJS(
    * — including in files with no `extend` at all, where `__ac` is simply empty. That keeps
    * `==`, `Is` and `if (x)` reading ONE table rather than disagreeing about a value.
    */
-  const needsProjection = needsEq || needsIs || needsOneOf || needsToBool
+  const needsProjection =
+    needsEq || needsIs || needsOneOf || needsToBool || needsSwKey
   const needsCheckFnShape = code.includes('__tjs.checkFnShape(')
 
   const needsRuntime =
@@ -1862,6 +1882,16 @@ export function transpileToJS(
       )
     }
 
+    // swKey — the comparison key `switch` dispatches on (native .tjs, #43).
+    // Same chain as Eq (`__proj` then `__ub`), plus the two clauses `===` cannot express:
+    // undefined and null are ONE key, and NaN gets a sentinel so `case NaN:` matches.
+    // Literal cases stay literal, so the engine can still build a jump table.
+    if (needsSwKey) {
+      inlineParts.push(
+        `const __swNaN=Symbol.for('tjs.switch.NaN');function swKey(v){v=__ub(__proj(v));if(v===undefined)return null;if(typeof v==='number'&&v!==v)return __swNaN;return v}`
+      )
+    }
+
     // checkFnShape — pass-time shape check for function-typed params
     // (MonadicError/typeError already inlined above via needsMonadicCore)
     if (needsCheckFnShape) {
@@ -1899,6 +1929,7 @@ export function transpileToJS(
     if (needsEnum) fallbackEntries.push('Enum')
     if (needsUnion) fallbackEntries.push('Union')
     if (needsToBool) fallbackEntries.push('toBool')
+    if (needsSwKey) fallbackEntries.push('swKey')
     if (needsCheckFnShape) fallbackEntries.push('checkFnShape')
     if (needsBang) fallbackEntries.push('bang')
 
@@ -1922,6 +1953,11 @@ export function transpileToJS(
       // three comparators read one table, and the table is this file's.
       (needsProjection
         ? `const __tjsToBool = __tjs.toBool; __tjs.toBool = function(v){ return __tjsToBool(__proj(v)) };\n`
+        : '') +
+      // Same rebinding, same reason: a shared `swKey` cannot see this file's `__ac`, so a
+      // `switch` would dispatch on an unprojected value while `==` in the same file did not.
+      (needsSwKey
+        ? `const __tjsSwKey = __tjs.swKey; __tjs.swKey = function(v){ return __tjsSwKey(__proj(v)) };\n`
         : '')
 
     code = preamble + code
