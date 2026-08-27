@@ -52,6 +52,10 @@
 const BASE = process.env.TJS_LLM_BASE_URL ?? 'http://localhost:1234/v1'
 const MODEL = process.env.TJS_LLM_MODEL ?? 'qwen/qwen3.8-27b'
 const SAMPLES = Number(process.env.PROBE_SAMPLES ?? 5)
+/** Per-call ceiling. A 27B reasoning model can exceed a minute on a cold cache. */
+const CALL_TIMEOUT_MS = Number(process.env.PROBE_TIMEOUT_MS ?? 180_000)
+/** Runs append here so results accumulate and can be compared across models/dates. */
+const RESULTS = new URL('./switch-probe-results.md', import.meta.url).pathname
 
 /**
  * One program per arm. Every arm is the same shape, and `f('a')` discriminates the two
@@ -64,6 +68,8 @@ const SAMPLES = Number(process.env.PROBE_SAMPLES ?? 5)
  */
 interface Arm {
   code: string
+  /** The argument to trace. Multi-value arms use 'b' — see MULTI. */
+  call: string
   /** The correct answer under the semantics this arm is read with. */
   answer: string
   /** The answer that means "applied the other language's rule". */
@@ -79,58 +85,84 @@ ${cases}
   return out.join(',')
 }`
 
+const HEADER =
+  '// tjs is a new JS-family language — see https://tjs-platform.web.app\n'
+
+/**
+ * The multi-value arm asks about `f('b')`, not `f('a')`, and that is not arbitrary.
+ *
+ * `case 'a', 'b':` IS valid JavaScript — a SequenceExpression evaluating to `'b'` — so a JS
+ * reading is a real, checkable answer rather than a parse error:
+ *
+ *     f('a') -> ''      JS: the case value is 'b', so nothing matches
+ *     f('b') -> '1,2'   JS: matches, then falls through
+ *     TJS:   f('b') -> '1'
+ *
+ * The first version asked about `f('a')`, where the JS answer is the EMPTY STRING — which
+ * this harness cannot distinguish from "no answer", and whose `confusion` value was
+ * mis-specified as '1,2' on top of that. Asking about `f('b')` makes both readings non-empty
+ * and distinct, so the applied-other-rule column means something.
+ */
+const MULTI = `    case 'a', 'b':\n      out.push(1)\n    case 'c':\n      out.push(2)`
+const PLAIN = `    case 'a':\n      out.push(1)\n    case 'b':\n      out.push(2)`
+const RULE = `    // in .tjs, break is implicit — an arm never falls through unless it says \`fallthrough\`\n`
+const MULTI_RULE = `    // in .tjs, \`case 'a', 'b':\` is ONE arm matching either value, and break is implicit\n`
+
 const ARMS: Record<string, Arm> = {
   c_control: {
     lang: 'js',
+    call: 'a',
     code: body(
       `    case 'a':\n      out.push(1)\n      break\n    case 'b':\n      out.push(2)\n      break`
     ),
     answer: '1',
     confusion: '1,2',
   },
-  c_fallthru: {
-    lang: 'js',
-    code: body(
-      `    case 'a':\n      out.push(1)\n    case 'b':\n      out.push(2)`
-    ),
-    answer: '1,2',
-    confusion: '1',
-  },
   tjs_bare: {
     lang: 'tjs',
-    code: body(
-      `    case 'a':\n      out.push(1)\n    case 'b':\n      out.push(2)`
-    ),
+    call: 'a',
+    code: body(PLAIN),
     answer: '1',
     confusion: '1,2',
   },
-  // The RULE, stated as prose. What you reach for by default.
   tjs_rule: {
     lang: 'tjs',
-    code: body(
-      `    // in .tjs, break is implicit — an arm never falls through unless it says \`fallthrough\`\n` +
-        `    case 'a':\n      out.push(1)\n    case 'b':\n      out.push(2)`
-    ),
+    call: 'a',
+    code: body(RULE + PLAIN),
     answer: '1',
     confusion: '1,2',
   },
-  // The same fact as a WORKED EXAMPLE, which is the form A3 says models actually use.
-  tjs_example: {
+  // Does merely NAMING the language help? The model has no training data for TJS, so this
+  // cannot retrieve knowledge — it can only stop the model assuming JS. It might equally
+  // make it guess. That is the experiment, and it came straight from the last run's
+  // reasoning transcript ("there is a language 'TJS'… maybe").
+  tjs_header: {
     lang: 'tjs',
-    code: body(
-      `    // break is implicit in .tjs:\n` +
-        `    //   f('a') -> '1'      arm ends here\n` +
-        `    //   to cascade, write \`fallthrough\` as the arm's last statement\n` +
-        `    case 'a':\n      out.push(1)\n    case 'b':\n      out.push(2)`
-    ),
+    call: 'a',
+    code: HEADER + body(PLAIN),
     answer: '1',
     confusion: '1,2',
   },
+  // What `convert` would actually emit: name the language AND state the rule.
+  tjs_header_rule: {
+    lang: 'tjs',
+    call: 'a',
+    code: HEADER + body(RULE + PLAIN),
+    answer: '1',
+    confusion: '1,2',
+  },
+  // The construct with NO JS precedent, finally measurable.
   tjs_multi: {
     lang: 'tjs',
-    code: body(
-      `    case 'a', 'b':\n      out.push(1)\n    case 'c':\n      out.push(2)`
-    ),
+    call: 'b',
+    code: body(MULTI),
+    answer: '1',
+    confusion: '1,2',
+  },
+  tjs_multi_rule: {
+    lang: 'tjs',
+    call: 'b',
+    code: body(MULTI_RULE + MULTI),
     answer: '1',
     confusion: '1,2',
   },
@@ -144,44 +176,53 @@ const ARMS: Record<string, Arm> = {
  */
 async function ask(arm: Arm): Promise<string | null> {
   const file = arm.lang === 'tjs' ? 'demo.tjs' : 'demo.js'
-  const res = await fetch(`${BASE}/chat/completions`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      model: MODEL,
-      messages: [
-        {
-          role: 'system',
-          content:
-            'You trace code precisely. Reply with ONLY the returned string, no quotes, no explanation.',
-        },
-        {
-          role: 'user',
-          content: `This is ${file}. What does f('a') return?\n\n${arm.code}`,
-        },
-      ],
-      temperature: 0.3,
-      // Generous, because the instrument is a REASONING model: the first run gave five
-      // nulls on `tjs_multi` where 7,277 characters of reasoning exhausted a 2,000-token
-      // budget before any `content` was emitted. That is not a wrong answer, it is no
-      // answer, and scoring it as wrong would have read as 'models cannot parse
-      // multi-value cases'. Nulls stay in their own column for the same reason.
-      max_tokens: 12000,
-    }),
-  })
-  if (!res.ok) return null
-  const msg = (await res.json()).choices?.[0]?.message ?? {}
-  // A reasoning model puts its answer in `reasoning_content` and leaves `content` EMPTY —
-  // which arrives downstream as an unexplained parse failure. See the TODO entry; this is
-  // the same trap, named here so a null is never silently read as a wrong answer.
-  const text: string = msg.content || ''
-  if (!text.trim()) return null
-  const m = text.trim().match(/[\d,]+/)
-  return m ? m[0] : null
+  // A transport failure must cost ONE sample, not the whole sweep. Two earlier runs died
+  // partway and lost every arm after the failure — which reads as "we never measured it"
+  // rather than "one call timed out", and is how `tjs_multi` went unmeasured twice.
+  try {
+    const res = await fetch(`${BASE}/chat/completions`, {
+      signal: AbortSignal.timeout(CALL_TIMEOUT_MS),
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        model: MODEL,
+        messages: [
+          {
+            role: 'system',
+            content:
+              'You trace code precisely. Reply with ONLY the returned string, no quotes, ' +
+              'no explanation. /no_think',
+          },
+          {
+            role: 'user',
+            content: `This is ${file}. What does f('${arm.call}') return?\n\n${arm.code}`,
+          },
+        ],
+        temperature: 0.3,
+        // Generous, because the instrument is a REASONING model: the first run gave five
+        // nulls on `tjs_multi` where 7,277 characters of reasoning exhausted a 2,000-token
+        // budget before any `content` was emitted. That is not a wrong answer, it is no
+        // answer, and scoring it as wrong would have read as 'models cannot parse
+        // multi-value cases'. Nulls stay in their own column for the same reason.
+        max_tokens: 12000,
+      }),
+    })
+    if (!res.ok) return null
+    const msg = (await res.json()).choices?.[0]?.message ?? {}
+    // A reasoning model puts its answer in `reasoning_content` and leaves `content` EMPTY —
+    // which arrives downstream as an unexplained parse failure. See the TODO entry; this is
+    // the same trap, named here so a null is never silently read as a wrong answer.
+    const text: string = msg.content || ''
+    if (!text.trim()) return null
+    const m = text.trim().match(/[\d,]+/)
+    return m ? m[0] : null
+  } catch {
+    return null
+  }
 }
 
 async function main() {
-  console.log(`model=${MODEL}  samples=${SAMPLES}\n`)
+  console.log(`model=${MODEL}  samples=${SAMPLES}  /no_think\n`)
   const rows: Array<[string, number, number, number, string[]]> = []
 
   for (const [name, arm] of Object.entries(ARMS)) {
@@ -197,18 +238,18 @@ async function main() {
       else others.push(got)
     }
     rows.push([name, ok, confused, nulls, others])
-    const pct = Math.round((ok / SAMPLES) * 100)
     console.log(
-      `${name.padEnd(13)} expect ${arm.answer.padEnd(4)} ` +
-        `${String(ok).padStart(2)}/${SAMPLES} = ${String(pct).padStart(3)}%  ` +
-        `applied-other-rule: ${confused}` +
+      `${name.padEnd(16)} f('${arm.call}') expect ${arm.answer.padEnd(4)} ` +
+        `${String(ok).padStart(2)}/${SAMPLES} = ${String(
+          Math.round((ok / SAMPLES) * 100)
+        ).padStart(3)}%  applied-other-rule: ${confused}` +
         (nulls ? `  no-answer: ${nulls}` : '') +
         (others.length ? `  other: ${others.join(' ')}` : '')
     )
   }
 
-  const get = (n: string) => rows.find((r) => r[0] === n)!
-  const control = get('c_control')
+  const get = (n: string) => rows.find((r) => r[0] === n)?.[1] ?? 0
+  const control = rows.find((r) => r[0] === 'c_control')!
   console.log()
   if (control[1] < SAMPLES * 0.8) {
     console.log(
@@ -218,23 +259,55 @@ async function main() {
     return
   }
   console.log(
-    'apparatus check: c_control passed — the instrument can read `switch`.'
+    'apparatus: c_control passed — the instrument can read `switch`.\n'
   )
-  const bare = get('tjs_bare')[1]
-  const rule = get('tjs_rule')[1]
-  const example = get('tjs_example')[1]
+  for (const [what, bare, guided] of [
+    ['implicit break', 'tjs_bare', 'tjs_rule'],
+    ['multi-value case', 'tjs_multi', 'tjs_multi_rule'],
+  ] as const) {
+    console.log(
+      `${what.padEnd(18)} no comment ${get(
+        bare
+      )}/${SAMPLES}   with comment ${get(guided)}/${SAMPLES}`
+    )
+  }
   console.log(
-    `comment A/B (this decides what \`convert\` emits):\n` +
-      `  none ${bare}/${SAMPLES}   prose-rule ${rule}/${SAMPLES}   worked-example ${example}/${SAMPLES}\n` +
-      `  Prior: guidance helps a lot (none=0%, cheatsheet=67%); RULES underperform EXAMPLES\n` +
-      `  (0/5 vs 5/5, and 50% vs 80%). If that holds here, emit the example form.`
+    `\nfile header alone  ${get('tjs_header')}/${SAMPLES}   ` +
+      `header + rule ${get('tjs_header_rule')}/${SAMPLES}   (bare ${get(
+        'tjs_bare'
+      )}/${SAMPLES})\n` +
+      `  The header only NAMES the language; no TJS exists in any training corpus, so it\n` +
+      `  cannot retrieve knowledge — it can only stop the model assuming JS, or make it guess.`
   )
   console.log(
-    `NOTE: N=${SAMPLES} per arm. This is a spike, not a study — treat a difference under\n` +
-      `about ${Math.ceil(
+    `\nNOTE: N=${SAMPLES} per arm, ONE model, \`/no_think\`. A spike, not a study — treat a\n` +
+      `difference under about ${Math.ceil(
         SAMPLES * 0.4
-      )} as noise, and re-run with PROBE_SAMPLES higher before believing it.`
+      )} as noise and raise PROBE_SAMPLES first.`
   )
+
+  // Append rather than overwrite: the value of this file is the SERIES. A single run is a
+  // spike; several across models and dates is evidence.
+  const stamp = process.env.PROBE_STAMP ?? 'unstamped'
+  const lines = [
+    ``,
+    `## ${stamp} — ${MODEL}, N=${SAMPLES}`,
+    ``,
+    `| arm | call | expects | correct | applied-other-rule | no-answer | other |`,
+    `| --- | --- | --- | --- | --- | --- | --- |`,
+    ...rows.map(
+      ([n, ok, conf, nulls, other]) =>
+        `| \`${n}\` | \`f('${ARMS[n].call}')\` | \`${
+          ARMS[n].answer
+        }\` | **${ok}/${SAMPLES}** | ${conf} | ${nulls} | ${
+          other.join(' ') || '—'
+        } |`
+    ),
+    ``,
+  ]
+  const { appendFileSync } = await import('node:fs')
+  appendFileSync(RESULTS, lines.join('\n'))
+  console.log(`\nappended to ${RESULTS}`)
 }
 
 main()

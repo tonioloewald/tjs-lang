@@ -406,3 +406,73 @@ with no JS analogue at all.
 - A hand-written `.tjs` file carries no such comment, so the docs and cheat sheet have to.
 - Every future `.tjs`-only semantic change should be probed this way before shipping. The
   extension will not carry it.
+
+---
+
+# `switch` probe, round 2 — two models, the header hypothesis, and multi-value (2026-08-27)
+
+`switch-probe.ts`, `/no_think`, N=5. Full tables in `switch-probe-results.md`, which is
+append-only so the series accumulates.
+
+| arm                               | qwen3.8-27b         | gemma-4-e4b |
+| --------------------------------- | ------------------- | ----------- |
+| `c_control` (apparatus)           | 5/5                 | 5/5         |
+| `tjs_bare`                        | **0/5**             | **0/5**     |
+| `tjs_rule` (one-line comment)     | **5/5**             | **0/5**     |
+| `tjs_header` (names tjs, no rule) | 0/5 — _5 no-answer_ | 0/5         |
+| `tjs_header_rule`                 | **5/5**             | 0/5         |
+| `tjs_multi` (`case 'a','b':`)     | 0/5 — _5 no-answer_ | **0/5**     |
+| `tjs_multi_rule`                  | **5/5**             | 0/5         |
+
+## 1. `tjs_bare` = 0/5 replicated across two models and three runs
+
+The extension carries nothing, and this is now robust rather than a single spike. Both
+controls are 100% in both models, so it is not an instrument problem: shown identical text
+as `.js` a model traces it perfectly, and as `.tjs` it applies C fallthrough every time.
+
+## 2. Guidance works — above a capability threshold. This QUALIFIES the round-1 finding
+
+Round 1 concluded "a one-line comment takes it from 0% to 100%". True at 27B. At 4B the
+same comment does **nothing**: every TJS arm 0/5, the JS prior unmoved by anything in the
+file. So the honest claim is _guidance-in-code works for models capable of acting on it_,
+which extends A7 (small models cannot WRITE TJS) to reading.
+
+Practical consequence: the comment is worth emitting, and it is not a substitute for the
+extension carrying meaning to small models — nothing in the file achieves that.
+
+## 3. Naming the language WITHOUT stating the rule is worse than saying nothing
+
+`tjs_header` scored 0/5 with **five no-answers** on the 27B — not wrong answers, _no_
+answers. Naming a language with no training-corpus presence sends the model into the
+"wtf is tjs" spiral we saw verbatim in round 1, and it never reaches a conclusion.
+
+`tjs_header_rule` is 5/5. **The rule does the work; the header alone is a liability.**
+
+So the proposed `// tjs is a new js-family language, see …` file header should NOT ship on
+its own. Either pair it with the specific rules a reader needs, or omit it. A pointer to
+documentation the model cannot read is an invitation to speculate.
+
+## 4. Multi-value `case 'a', 'b':` needs the comment MORE than implicit break does
+
+Finally measured, after two apparatus failures. Bare: 0/5 on both models (no-answers on the
+27B — it will not commit). With a one-line comment: 5/5 on the 27B.
+
+This is the construct with no JS precedent, so there is no prior to correct — only a gap to
+fill — and the gap is fillable. Note the 4B stays 0/5 even with the comment.
+
+## 5. Apparatus notes, since two runs were lost to them
+
+- **Reasoning models need `/no_think`** (or an equivalent). Without it `content` comes back
+  empty while the answer sits in `reasoning_content`, which this harness reads as no answer.
+- **A transport failure must cost one sample, not the sweep.** Two runs died partway and
+  lost every arm after the failure, which is why `tjs_multi` was unmeasured twice.
+- **`tjs_multi` must ask about `f('b')`, not `f('a')`.** `case 'a', 'b':` is valid JS (a
+  SequenceExpression evaluating to `'b'`), so the JS reading of `f('a')` is the empty
+  string — indistinguishable from "no answer". Its `confusion` value was mis-specified too.
+
+## What to do with this
+
+- `convert` should emit the one-line rule comment on rewritten switches, and on multi-value
+  cases especially. **Not** a bare "this is tjs" header.
+- Re-run when a new model lands; the threshold between 4B and 27B is the interesting
+  unknown, and nothing here locates it.
