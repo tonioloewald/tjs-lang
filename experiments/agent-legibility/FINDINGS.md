@@ -540,5 +540,11 @@ Still a reason to annotate exhaustively if such a header ever ships.
   intervention; nothing else measured moves the number.
 - A file header is optional and buys nothing measurable here. If one ships for human
   readers, it must not be relied on for comprehension.
-- Untested and still open: whether a header helps an agent **with fetch tools**, which is
-  the real deployment and which this harness cannot simulate.
+- **Untested, and it is the real deployment: does a header help an agent that can FETCH the
+  link?** Every header result here comes from a model with no tools, so "a pointer invites
+  speculation" is a property of THIS HARNESS, not of the header. A coding agent in an IDE
+  resolves the URL and reads the page — which is the whole premise of `llms.txt` and of
+  shipping documentation at all. Testing it needs a tool-using agent rather than a raw
+  completions endpoint, so it is a different rig, not a bigger N. Until then the honest
+  scope is: _within a file, a link buys nothing; the inline rule is what works._ Nothing
+  here says a link is useless to an agent that can follow it.

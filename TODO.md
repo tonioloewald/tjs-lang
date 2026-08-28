@@ -207,6 +207,22 @@ the recording instead.
 - [ ] Report: aggregate the recording into "here is every type violation in your codebase",
       grouped by site — the deliverable that makes this worth turning on.
 
+## Agent legibility — the open probes (2026-08-28)
+
+- [ ] **Does a file-header link help an agent that can FETCH it?** Every header arm measured
+      so far ran against a raw completions endpoint with no tools, so the finding "a pointer
+      invites speculation, the inline rule is what works" is scoped to a model that cannot
+      resolve the pointer. The real deployment is a coding agent in an IDE, which can — and
+      that is the premise `llms.txt` rests on. Needs a **tool-using rig**, not a larger N;
+      the current harness structurally cannot answer it. Until it is run, do not generalise
+      the header result beyond "within a single file".
+- [ ] **Where is the capability threshold?** A one-line rule comment takes comprehension from
+      0/5 to 5/5 on a 27B and does nothing at all on a 4B (`ASSUMPTIONS.md` A15). Nothing
+      locates the boundary between them, and it decides who our in-code guidance is for.
+- [ ] **Rank comment WORDINGS.** Every "with comment" arm hits 5/5, so the instrument is
+      saturated and cannot compare phrasings. Needs a harder task or a mid-size model before
+      any micro-optimisation of the text is meaningful.
+
 ## Adoption-intent harness — "would you switch?" (assumption testing)
 
 The legibility harness measures whether a model can _write_ TJS. This measures something we
