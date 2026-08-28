@@ -548,3 +548,58 @@ Still a reason to annotate exhaustively if such a header ever ships.
   completions endpoint, so it is a different rig, not a bigger N. Until then the honest
   scope is: _within a file, a link buys nothing; the inline rule is what works._ Nothing
   here says a link is useless to an agent that can follow it.
+
+---
+
+# Naming vs. contradiction: when guidance is actually needed (2026-08-28)
+
+`exactly-probe.ts`, qwen3.8-27b, N=5, `/no_think`. Asked "is `f('z')` valid?" — validity
+rather than return value, because a model cannot be expected to know TJS returns a
+`MonadicError`. Exact reading -> no; example reading -> yes.
+
+| arm               | expects | result                         |                                      |
+| ----------------- | ------- | ------------------------------ | ------------------------------------ |
+| `ts_control`      | no      | **5/5**                        | apparatus                            |
+| `exactly_bare`    | no      | **4/5** (0 wrong, 1 no-answer) | `Exactly('a','b')`, no comment       |
+| `exactly_comment` | no      | **5/5**                        | + the one-line rule                  |
+| `pipe_bare`       | no      | **5/5**                        | `'a' \| 'b'` read as TypeScript      |
+| `example_bare`    | yes     | **0/5** (5 wrong)              | `x: 'a'` — the example rule, unaided |
+
+## 1. A good name does the work of a comment — where there is no prior to fight
+
+`Exactly` scores 4/5 cold with **zero wrong answers**; the miss was a no-answer. Compare
+`switch`, which was 0/5 with **five confident errors**.
+
+The difference is not difficulty, it is direction. `switch` CONTRADICTS a prior every model
+holds; `Exactly` fills a gap with a self-describing word. So the rule is cheaper than
+"comment everything":
+
+> **Guidance is needed where we contradict an existing habit, not where we add a well-named
+> novelty.**
+
+That is worth applying to `convert`: annotate the constructs whose meaning CHANGED, not
+every construct that is unfamiliar.
+
+## 2. The example rule is not inferable. At all
+
+`example_bare` — plain `x: 'a'` in a `.tjs` file — scored **0/5, wrong every time**. Models
+read it as TypeScript's literal type: _exactly_ `'a'`. That is the precise opposite of what
+TJS means, and it is the language's most central idea.
+
+This is a floor measurement nobody had taken. Types-as-examples is not merely unfamiliar; on
+first contact it is read as its own inverse.
+
+## 3. A measured cost for proposal B
+
+Under B (`|` never closes; `Exactly` required), `'a' | 'b'` would mean "any string".
+
+The probe says a model reads `'a' | 'b'` as a closed set **5/5** — which today is also what
+TJS means, so they agree. B would make that construct mean the opposite, converting an arm
+models currently get RIGHT into one they would get WRONG, with the same confident-error shape
+as `switch`.
+
+So the diagnostic B needs is not a migration aid that can later be retired — the misreading
+would be permanent, because the prior is permanent. That does not settle the design question
+(B's consistency argument stands on its own, and the transition surprise it removes is real),
+but the trade is now measured rather than assumed: **B buys internal consistency and pays a
+permanent legibility cost on the most familiar spelling in TypeScript.**
