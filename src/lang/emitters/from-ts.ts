@@ -618,18 +618,27 @@ function typeToExample(
     }
 
     case ts.SyntaxKind.LiteralType: {
+      // A TS literal type is EXACT, and TJS's example rule cannot say that on its own.
+      //
+      // `x: 1` in TypeScript means "x must BE 1". Emitted as bare `1` it becomes a TJS
+      // EXAMPLE, i.e. "an integer, for instance 1" — so `one(2)` was accepted where TS
+      // admits only `1`. Silent widening, no warning, in the converter whose whole job is
+      // to preserve what the annotation meant. Same for `'go'` and `true`.
+      //
+      // `Exactly(…)` is the faithful spelling (#45). It costs nothing when the value really
+      // was an example, because a TS author who meant "a number" wrote `number`.
       const literalType = type as ts.LiteralTypeNode
       if (ts.isStringLiteral(literalType.literal)) {
-        return `'${literalType.literal.text}'`
+        return `Exactly('${literalType.literal.text}')`
       }
       if (ts.isNumericLiteral(literalType.literal)) {
-        return literalType.literal.text
+        return `Exactly(${literalType.literal.text})`
       }
       if (literalType.literal.kind === ts.SyntaxKind.TrueKeyword) {
-        return 'true'
+        return 'Exactly(true)'
       }
       if (literalType.literal.kind === ts.SyntaxKind.FalseKeyword) {
-        return 'false'
+        return 'Exactly(false)'
       }
       if (literalType.literal.kind === ts.SyntaxKind.NullKeyword) {
         return 'null'

@@ -234,6 +234,42 @@ export function inferTypeFromValue(node: Expression): TypeDescriptor {
     return inferTypeFromValue((node as any).arguments[0])
   }
 
+  // `Exactly(...)` — the value is EXACTLY one of these, not "an example of their type".
+  //
+  // The example rule is the right default and it has one blind spot: it cannot express a
+  // literal. `x: 1` means "an integer, for instance 1", so TypeScript's `x: 1` (the literal
+  // type — x must BE 1) has no faithful spelling, and `fromTS` was silently widening it.
+  //
+  // It matters far beyond TS interop, because a DISCRIMINANT is a literal:
+  //
+  //     Type Circle { example: { kind: Exactly('circle'), r: 0.0 } }
+  //
+  // Under plain widening `kind: 'circle'` means "a string", so `Circle` and `Rect` present
+  // as the same shape and nothing can tell them apart — which is exactly why polymorphic
+  // dispatch rejected them as ambiguous and why unions could not be discriminated (#45).
+  // Exactness is the missing primitive under both.
+  //
+  // It reuses `literal-union` rather than introducing a kind: `Exactly(1)` IS a one-member
+  // closed set, membership is already the language's `==` (so `new String('a')` satisfies
+  // `Exactly('a')`, consistently with `'a' | 'b'`), and every consumer — the check emitter,
+  // JSON Schema's `enum`, the .d.ts writer — already handles it.
+  if (
+    node.type === 'CallExpression' &&
+    (node as any).callee?.type === 'Identifier' &&
+    (node as any).callee.name === 'Exactly'
+  ) {
+    const args = (node as any).arguments ?? []
+    const values: unknown[] = []
+    for (const a of args) {
+      // Same reading as a literal union's members, so the two spellings cannot diverge.
+      const v = literalUnionValues(a)
+      if (!v) return { kind: 'any', unresolved: 'Exactly' }
+      values.push(...v)
+    }
+    if (values.length === 0) return { kind: 'any', unresolved: 'Exactly' }
+    return { kind: 'literal-union', values }
+  }
+
   switch (node.type) {
     case 'Literal': {
       const value = (node as any).value
