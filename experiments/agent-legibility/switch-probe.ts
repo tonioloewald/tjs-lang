@@ -89,6 +89,25 @@ const HEADER =
   '// tjs is a new JS-family language — see https://tjs-platform.web.app\n'
 
 /**
+ * A SELF-CONTAINED header: it references nothing outside the file, and instead of pointing
+ * at documentation it makes a promise — *anything that differs is explained where it
+ * happens, so you do not need to know what tjs is to read this.*
+ *
+ * The mechanism is different from `HEADER`'s. That one is a REFERENCE, and its failure mode
+ * in this harness (five no-answers, the model speculating about what tjs is) is partly an
+ * artefact: a model here cannot fetch a URL, whereas a real coding agent can. This one is
+ * REASSURANCE, and needs no tools to act on.
+ *
+ * It carries a risk worth measuring rather than assuming: "changes are explained inline" is
+ * a promise, so an UNannotated construct now positively implies "unchanged". If we ship this
+ * header and then fail to annotate something that did change, we have not merely omitted a
+ * hint — we have asserted the wrong thing. `tjs_selfcontained` is exactly that case.
+ */
+const SELF_CONTAINED =
+  '// ts converted to tjs (a new JavaScript)\n' +
+  '// changes from ts are explained inline\n'
+
+/**
  * The multi-value arm asks about `f('b')`, not `f('a')`, and that is not arbitrary.
  *
  * `case 'a', 'b':` IS valid JavaScript — a SequenceExpression evaluating to `'b'` — so a JS
@@ -148,6 +167,24 @@ const ARMS: Record<string, Arm> = {
     lang: 'tjs',
     call: 'a',
     code: HEADER + body(RULE + PLAIN),
+    answer: '1',
+    confusion: '1,2',
+  },
+  // Reassurance, with NOTHING explained inline — the case where the header's promise is
+  // unmet. Does it stop the spiral (a wrong answer beats no answer), or does the unmet
+  // promise actively assert "this switch is unchanged"?
+  tjs_selfcontained: {
+    lang: 'tjs',
+    call: 'a',
+    code: SELF_CONTAINED + body(PLAIN),
+    answer: '1',
+    confusion: '1,2',
+  },
+  // The promise KEPT — what `convert` would actually emit.
+  tjs_selfcontained_rule: {
+    lang: 'tjs',
+    call: 'a',
+    code: SELF_CONTAINED + body(RULE + PLAIN),
     answer: '1',
     confusion: '1,2',
   },
@@ -225,7 +262,11 @@ async function main() {
   console.log(`model=${MODEL}  samples=${SAMPLES}  /no_think\n`)
   const rows: Array<[string, number, number, number, string[]]> = []
 
+  // PROBE_ARMS=a,b runs a subset — a full sweep is ~20 minutes on a 27B, which is too slow
+  // to iterate on one hypothesis.
+  const only = process.env.PROBE_ARMS?.split(',').map((x) => x.trim())
   for (const [name, arm] of Object.entries(ARMS)) {
+    if (only && !only.includes(name)) continue
     let ok = 0
     let confused = 0
     let nulls = 0
@@ -248,7 +289,13 @@ async function main() {
     )
   }
 
-  const get = (n: string) => rows.find((r) => r[0] === n)?.[1] ?? 0
+  // `—` for an arm this run did not include. Returning 0 would print "with comment 0/5"
+  // for an arm that never ran, which is a FALSE RECORD in an append-only results log — the
+  // one place a wrong number would outlive the session that produced it.
+  const get = (n: string) => {
+    const row = rows.find((r) => r[0] === n)
+    return row ? `${row[1]}/${SAMPLES}` : '—'
+  }
   const control = rows.find((r) => r[0] === 'c_control')!
   console.log()
   if (control[1] < SAMPLES * 0.8) {

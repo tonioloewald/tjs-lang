@@ -476,3 +476,69 @@ fill — and the gap is fillable. Note the 4B stays 0/5 even with the comment.
   cases especially. **Not** a bare "this is tjs" header.
 - Re-run when a new model lands; the threshold between 4B and 27B is the interesting
   unknown, and nothing here locates it.
+
+---
+
+# Header form does not matter; the inline rule does (2026-08-28)
+
+Follow-up testing a **self-contained** header — reassurance rather than reference:
+
+```
+// ts converted to tjs (a new JavaScript)
+// changes from ts are explained inline
+```
+
+The idea being _"don't worry, we'll tell you what you need to know"_, which needs no tools
+to act on. qwen3.8-27b, N=5.
+
+| arm                      | correct | applied-other-rule | no-answer |
+| ------------------------ | ------- | ------------------ | --------- |
+| `c_control`              | 5/5     | 0                  | 0         |
+| `tjs_bare`               | 0/5     | 5                  | 0         |
+| `tjs_selfcontained`      | **0/5** | 1                  | **4**     |
+| `tjs_selfcontained_rule` | **5/5** | 0                  | 0         |
+
+## The result
+
+Reassurance behaves essentially like the link version: header alone still fails, still
+mostly by NOT ANSWERING. Collecting every header run:
+
+|                       | alone                      | with the inline rule |
+| --------------------- | -------------------------- | -------------------- |
+| link header           | 0/5 (5 no-answer)          | 5/5                  |
+| self-contained header | 0/5 (4 no-answer, 1 wrong) | 5/5                  |
+| _no header at all_    | 0/5 (5 wrong)              | **5/5**              |
+
+**The inline rule is necessary and sufficient. The header is neither.** Every arm carrying
+the rule scores 5/5 whether or not a header is present, and no header rescues an arm without
+it. That is a cleaner result than either hypothesis predicted.
+
+## A confound in the previous round, corrected
+
+Round 2 concluded a header is "worse than silence" because it points at documentation the
+model cannot read. **That reasoning was partly an artefact of this harness** — a model here
+has no fetch tool, whereas a real coding agent does. The self-contained arm removes the
+confound entirely, and the header still does not help, so the conclusion survives while its
+stated _reason_ does not. Worth keeping visible: the finding was right for the wrong reason,
+and only testing the mechanism separated them.
+
+## What the failure mode actually is
+
+Both header-alone arms fail by **not committing** rather than by answering wrongly, while
+bare `.tjs` fails by answering wrongly 5/5. So naming the language does change behaviour —
+it converts confident error into paralysis. That is arguably an improvement in honesty and
+is certainly not an improvement in usefulness.
+
+The risk flagged before running — that "changes are explained inline" makes an *un*annotated
+construct positively imply "unchanged" — did **not** dominate: only 1 of 5 committed to the
+JS reading. The promise did not produce confident wrong answers, it produced no answers.
+Still a reason to annotate exhaustively if such a header ever ships.
+
+## Actionable
+
+- `convert` emits the **inline rule** at each changed construct. That is the whole
+  intervention; nothing else measured moves the number.
+- A file header is optional and buys nothing measurable here. If one ships for human
+  readers, it must not be relied on for comprehension.
+- Untested and still open: whether a header helps an agent **with fetch tools**, which is
+  the real deployment and which this harness cannot simulate.

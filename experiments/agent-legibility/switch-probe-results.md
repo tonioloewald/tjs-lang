@@ -75,3 +75,12 @@ example both saturate, so this run cannot rank them.
 | `tjs_header_rule` | `f('a')` | `1`     | **5/5** | 0                  | 0         | —     |
 | `tjs_multi`       | `f('b')` | `1`     | **0/5** | 0                  | 5         | —     |
 | `tjs_multi_rule`  | `f('b')` | `1`     | **5/5** | 0                  | 0         | —     |
+
+## 2026-08-28 self-contained header — qwen/qwen3.8-27b, N=5
+
+| arm                      | call     | expects | correct | applied-other-rule | no-answer | other |
+| ------------------------ | -------- | ------- | ------- | ------------------ | --------- | ----- |
+| `c_control`              | `f('a')` | `1`     | **5/5** | 0                  | 0         | —     |
+| `tjs_bare`               | `f('a')` | `1`     | **0/5** | 5                  | 0         | —     |
+| `tjs_selfcontained`      | `f('a')` | `1`     | **0/5** | 1                  | 4         | —     |
+| `tjs_selfcontained_rule` | `f('a')` | `1`     | **5/5** | 0                  | 0         | —     |
