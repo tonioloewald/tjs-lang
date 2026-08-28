@@ -535,6 +535,57 @@ function extractFunctionTypeInfo(
       descriptor.type = { kind: 'declared', typeName: String(annotated) }
       continue
     }
+    // The same promotion, for the MEMBERS of a union.
+    //
+    // `s: Circle | Rect` degraded to a union of two `any`s and emitted NO check and NO
+    // warning: `unresolved` is set on each member, but this loop only ever read the
+    // top-level annotation, so neither branch above fired. A bare `s: Circle` validated
+    // correctly the whole time, which is what made it invisible — the feature looked
+    // present and was absent exactly where discriminated unions need it (#45).
+    //
+    // Recursive because `A | B | C` nests as `union(A, union(B, C))`.
+    const promoteUnion = (t: any): { ok: boolean; unresolved: string[] } => {
+      if (t?.kind !== 'union' || !Array.isArray(t.members)) {
+        if (t?.unresolved) {
+          if (declaredTypes?.has(String(t.unresolved))) {
+            return { ok: true, unresolved: [] }
+          }
+          return { ok: false, unresolved: [String(t.unresolved)] }
+        }
+        return { ok: true, unresolved: [] }
+      }
+      const missing: string[] = []
+      t.members = t.members.map((m: any) => {
+        if (m?.kind === 'union') {
+          const r = promoteUnion(m)
+          missing.push(...r.unresolved)
+          return m
+        }
+        if (m?.unresolved && declaredTypes?.has(String(m.unresolved))) {
+          return { kind: 'declared', typeName: String(m.unresolved) }
+        }
+        if (m?.unresolved) missing.push(String(m.unresolved))
+        return m
+      })
+      return { ok: missing.length === 0, unresolved: missing }
+    }
+    if (descriptor.type?.kind === 'union') {
+      const { ok, unresolved } = promoteUnion(descriptor.type)
+      if (!ok) {
+        warnings.push(
+          `'${name}: ${unresolved.join(
+            ' | '
+          )}' — a union member could not be resolved to ` +
+            `a runtime type, so the WHOLE union is unchecked (best effort). Checking only ` +
+            `the members we know would reject valid values of the ones we do not. Declare ` +
+            `the missing type in this module:\n` +
+            `  Type ${
+              unresolved[0].replace(/\W/g, '') || 'Thing'
+            } { example: { kind: '', value: 0 } }`
+        )
+      }
+      continue
+    }
     if (annotated) {
       warnings.push(
         `'${name}: ${annotated}' could not be resolved to a runtime type, so it is ` +
@@ -2714,10 +2765,14 @@ function generateTypeCheckExpr(
       break
     }
     case 'union': {
-      const checks = (type as any).members
-        .map((m: TypeDescriptor) => generateTypeCheckExpr(fieldPath, m))
-        .filter((c: string | null) => c !== null)
-      if (checks.length === 0) return null
+      const members = (type as any).members as TypeDescriptor[]
+      const checks = members.map((m) => generateTypeCheckExpr(fieldPath, m))
+      // ALL OR NOTHING. These are FAILURE conditions ANDed together, so the value is
+      // rejected only when it fails every member — and dropping an uncheckable member
+      // therefore makes the union STRICTER, rejecting values that member would have
+      // allowed. Silently narrowing a type is worse than not checking it, and it breaks
+      // TJS ⊇ JS: legal code would start returning errors.
+      if (checks.length === 0 || checks.some((c) => c === null)) return null
       check = `(${checks.join(' && ')})`
       break
     }
