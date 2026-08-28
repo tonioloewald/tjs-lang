@@ -118,7 +118,20 @@ bun run build:demo          # Playground/demo → .demo/ (Firebase hosting root)
 bun run build:cli           # Standalone binaries: tjs + tjsx → dist/
                             #   NOT part of `make` — the binaries aren't published.
 
-# Compatibility testing — see scripts/compat-*.ts (zod, effect, radash, superstruct, ts-pattern, kysely)
+bun run test:compat         # REAL TypeScript projects through the converter: clones zod,
+                            #   effect, kysely, radash, superstruct and ts-pattern, transpiles
+                            #   each with `fromTS`, and runs THAT PROJECT'S OWN test suite
+                            #   against the result. The most honest evidence the converter
+                            #   works that this repo has — nobody wrote those tests to make us
+                            #   look good.
+                            #   Network + several minutes, so it is a deliberate lane rather
+                            #   than part of `test:fast`; clones are cached under
+                            #   `.compat-tests/` and each script takes `--clean`.
+                            #   Run it when `fromTS` or the emitters change, and before a
+                            #   minor release. `src/compat-lane.test.ts` guards MEMBERSHIP —
+                            #   a seventh compat script that nobody wires in fails there —
+                            #   because these six previously sat in no script, no CI lane and
+                            #   no gate, which is how the dogfood ratchets rotted unseen.
 
 # Deployment (Firebase)
 bun run deploy              # Build demo + deploy functions + hosting
