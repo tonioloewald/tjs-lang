@@ -74,6 +74,31 @@ buildSync({
 
 // Copy static files
 await $`cp demo/index.html demo/static/favicon.svg demo/static/photo-*.jpg demo/static/tosi-platform.json tjs-lang.svg .demo/`
+
+/**
+ * Stamp the entry-point URL with the build's content hash.
+ *
+ * `index.js` is not content-hashed, and it was served `immutable` with a one-year max-age.
+ * A browser never revalidates an immutable response, so every visitor who loaded the site
+ * during that period is PINNED to a stale bundle — one that imports chunk hashes later
+ * deploys no longer have, so `import()` 404s into the SPA rewrite, gets HTML, and the app
+ * never boots. The loading shell spins forever.
+ *
+ * Fixing the header stops that happening again, but it CANNOT reach a browser already
+ * holding an immutable entry: nothing will ask the server. `index.html` does revalidate, so
+ * changing the URL inside it is the one lever that reaches them — a new URL is a different
+ * cache key, so the pinned entry is bypassed and the site self-heals on next visit.
+ */
+{
+  const hash = (await $`shasum -a 256 .demo/index.js`.text()).slice(0, 12)
+  const htmlPath = '.demo/index.html'
+  const html = await Bun.file(htmlPath).text()
+  await Bun.write(
+    htmlPath,
+    html.replace(/(href|src)="\/index\.js"/g, `$1="/index.js?v=${hash}"`)
+  )
+  console.log(`Stamped entry URL: /index.js?v=${hash}`)
+}
 await $`cp -r demo/static/texts .demo/`
 await $`mkdir -p .demo/docs && cp -r docs/diagrams .demo/docs/ 2>/dev/null || true`
 

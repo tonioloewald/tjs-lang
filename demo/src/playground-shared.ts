@@ -82,9 +82,41 @@ function introspectionBridgeScript(): string {
  * Includes TJS runtime stub, console capture, DOM content detection,
  * execution timing, and error boundary.
  */
+/**
+ * Neutralise `localStorage` inside the sandbox, before anything else runs.
+ *
+ * The playground's iframe is sandboxed WITHOUT `allow-same-origin`, so touching
+ * `localStorage` throws `SecurityError` — and the guard that shipped in a dependency is
+ * `typeof localStorage === 'undefined'`, which checks for ABSENCE. In a sandbox the property
+ * is very much present; it just throws when read. Wrong guard for the actual failure mode,
+ * so the whole document died with:
+ *
+ *     Uncaught SecurityError: Failed to read the 'localStorage' property from 'Window':
+ *     The document is sandboxed and lacks the 'allow-same-origin' flag.
+ *
+ * Granting `allow-same-origin` would "fix" it by removing the sandbox that exists precisely
+ * because this frame runs code a stranger typed. Shimming is the opposite trade: the frame
+ * keeps its isolation and storage silently does nothing, which is the correct semantics for
+ * a scratch frame anyway — nothing in a disposable preview should persist.
+ *
+ * Must be the FIRST script in the document, and classic (not a module), so it runs before
+ * any import is evaluated.
+ */
+const STORAGE_SHIM = `<script>
+(function () {
+  var noop = { getItem: function () { return null }, setItem: function () {},
+    removeItem: function () {}, clear: function () {}, key: function () { return null },
+    length: 0 }
+  try { window.localStorage.getItem('__probe__') } catch (e) {
+    try { Object.defineProperty(window, 'localStorage', { configurable: true, value: noop }) } catch (e2) {}
+    try { Object.defineProperty(window, 'sessionStorage', { configurable: true, value: noop }) } catch (e3) {}
+  }
+})()
+</script>`
+
 export function buildIframeDoc(options: IframeDocOptions): string {
   // Build absolute URL for the runtime script (blob iframes have no origin)
-  const runtimeScriptTag = `<script src="${location.origin}/tjs-runtime.js"></script>`
+  const runtimeScriptTag = `${STORAGE_SHIM}<script src="${location.origin}/tjs-runtime.js"></script>`
 
   const {
     cssContent,

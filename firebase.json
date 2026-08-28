@@ -14,25 +14,7 @@
     ],
     "headers": [
       {
-        "source": "**/chunk-*.js",
-        "headers": [
-          {
-            "key": "Cache-Control",
-            "value": "public, max-age=31536000, immutable"
-          }
-        ]
-      },
-      {
-        "source": "**/chunk-*.map",
-        "headers": [
-          {
-            "key": "Cache-Control",
-            "value": "public, max-age=31536000, immutable"
-          }
-        ]
-      },
-      {
-        "source": "**/*.js",
+        "source": "**",
         "headers": [
           {
             "key": "Cache-Control",
@@ -41,11 +23,28 @@
         ]
       },
       {
-        "source": "/index.html",
+        "source": "**/*.@(js|map)",
         "headers": [
           {
             "key": "Cache-Control",
             "value": "no-cache, must-revalidate"
+          },
+          {
+            "key": "Access-Control-Allow-Origin",
+            "value": "*"
+          }
+        ]
+      },
+      {
+        "source": "/chunk-*.@(js|map)",
+        "headers": [
+          {
+            "key": "Cache-Control",
+            "value": "public, max-age=31536000, immutable"
+          },
+          {
+            "key": "Access-Control-Allow-Origin",
+            "value": "*"
           }
         ]
       }

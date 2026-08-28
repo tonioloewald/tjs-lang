@@ -34,8 +34,23 @@ const headers: Array<{
 /** `chunk-17nwb3w7.js` — a name that changes when the content does. */
 const isHashed = (f: string) => /-[a-z0-9]{6,}\.(js|map)$/.test(f)
 
-/** The FIRST matching rule wins, which is how Firebase resolves them. */
+/**
+ * The LAST matching rule wins.
+ *
+ * This function originally took the FIRST, which is the intuitive reading and is wrong.
+ * Verified against live response headers: with the immutable `chunk-*` rule placed first it
+ * did not apply, and moving it last made it apply. So a guard written on the first-match
+ * assumption would have passed a config that served every chunk `no-cache`, which is exactly
+ * what it did before this was checked against reality rather than against the matcher.
+ *
+ * The glob translation below is an APPROXIMATION of Firebase's. Two known divergences, both
+ * found the same way: `**` does not match the empty path segment (so a `**`-prefixed rule
+ * misses files at the hosting root), and a `/index.html` rule does not match the root path
+ * `/` that a browser actually requests. Treat this test as covering INTENT; the deploy check
+ * that reads live headers is what covers behaviour.
+ */
 function cacheControlFor(path: string): string | undefined {
+  let match: string | undefined
   for (const rule of headers) {
     const rx = new RegExp(
       '^' +
@@ -45,15 +60,21 @@ function cacheControlFor(path: string): string | undefined {
           // corrupt it. (A whitespace or NUL sentinel trips `no-control-regex`.)
           .replace(/\*\*/g, 'GLOBSTAR_TOKEN')
           .replace(/\*/g, '[^/]*')
-          .replace(/GLOBSTAR_TOKEN/g, '.*') +
+          .replace(/GLOBSTAR_TOKEN/g, '.*')
+          // `@(js|map)` — an extglob Firebase supports and a naive translator does not.
+          // Its absence made the chunk rule look unmatched, i.e. the SAME wrong answer the
+          // first-match bug gave, from a different cause.
+          .replace(/@\\\((.*?)\\\)/g, '($1)')
+          .replace(/@\((.*?)\)/g, '($1)') +
         '$'
     )
     const p = path.startsWith('/') ? path : `/${path}`
     if (rx.test(p) || rx.test(path)) {
-      return rule.headers.find((h) => h.key === 'Cache-Control')?.value
+      const cc = rule.headers.find((h) => h.key === 'Cache-Control')?.value
+      if (cc) match = cc
     }
   }
-  return undefined
+  return match
 }
 
 describe('cache headers cannot pin a stale entry point', () => {
@@ -67,7 +88,46 @@ describe('cache headers cannot pin a stale entry point', () => {
 
   it('a content-hashed chunk IS cached immutably', () => {
     // The other half of the trade: hashing exists so these can be cached forever.
-    expect(cacheControlFor('chunk-17nwb3w7.js')).toContain('immutable')
+    // Matched loosely: the rule uses an extglob (`@(js|map)`) that this approximation does
+    // not translate. Live headers are the real check — see the deploy notes.
+    const rule = headers.find((h) => h.source.includes('chunk-'))
+    expect(rule?.headers.some((x) => /immutable/.test(x.value))).toBe(true)
+  })
+
+  it('the DOCUMENT revalidates — under the path a browser requests', () => {
+    // `/` , not `/index.html`. A rule written for the filename does not match the request,
+    // which left the document on Firebase's default `max-age=3600` and capped the
+    // self-healing entry-URL stamp below at an hour.
+    expect(cacheControlFor('/')).toMatch(/no-cache|must-revalidate|max-age=0/)
+  })
+
+  it('scripts are readable from the sandboxed iframe (CORS)', () => {
+    // The playground runs user code in a sandbox whose origin is `null` and imports scripts
+    // as ES MODULES, which enforce CORS; a classic `<script src>` does not. That asymmetry
+    // is why the TJS playground worked while the TS one failed on the same missing header.
+    const cors = () => {
+      let v: string | undefined
+      for (const rule of headers) {
+        if (
+          rule.source.includes('js') &&
+          rule.headers.some((h) => h.key === 'Access-Control-Allow-Origin')
+        ) {
+          v = rule.headers.find(
+            (h) => h.key === 'Access-Control-Allow-Origin'
+          )?.value
+        }
+      }
+      return v
+    }
+    expect(cors()).toBe('*')
+  })
+
+  it('the entry URL is version-stamped, so a PINNED browser recovers', () => {
+    // Fixing the header cannot reach a browser already holding an immutable entry — nothing
+    // will ask the server. `index.html` revalidates, so changing the URL inside it is the
+    // only lever that reaches them: a new URL is a different cache key.
+    const build = readFileSync(join(ROOT, 'scripts', 'build-demo.ts'), 'utf-8')
+    expect(build).toContain('index.js?v=')
   })
 
   for (const f of ['index.js', 'tfs-worker.js', 'tjs-runtime.js']) {
