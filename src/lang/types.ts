@@ -50,9 +50,16 @@ export interface TypeDescriptor {
     | 'union'
     | 'function'
     | 'declared'
+    /**
+     * A Type IMPORTED from another module (#46). Distinct from `declared` because it is
+     * checked at RUNTIME — `declaredTypes` is per-module, so the name cannot be resolved
+     * statically, and the alternative to paying for a runtime check is degrading to `any`.
+     */
+    | 'declared-import'
     | 'any'
   /**
    * For `kind: 'declared'` — the name of a `Type`/`Generic` declared in this module.
+   * For `kind: 'declared-import'` — the imported binding's local name.
    * The check is `<name>.check(v)`, which already composes example-inferred structure
    * with the declared predicate (and gets `null` right, unlike raw `typeof`).
    */

@@ -329,7 +329,9 @@ function extractFunctionTypeInfo(
   returnTypeStr: string | null,
   inputSource?: string,
   declaredTypes?: Set<string>,
-  requiredValueOffsets?: Set<number>
+  requiredValueOffsets?: Set<number>,
+  /** Bindings imported into this module — checkable at runtime, not statically. See #46. */
+  importedNames?: Set<string>
 ): { types: TJSTypeInfo; warnings: string[] } {
   const warnings: string[] = []
 
@@ -583,6 +585,14 @@ function extractFunctionTypeInfo(
               unresolved[0].replace(/\W/g, '') || 'Thing'
             } { example: { kind: '', value: 0 } }`
         )
+      }
+      continue
+    }
+    // A name IMPORTED into this module is checked at runtime rather than degraded.
+    if (annotated && importedNames?.has(String(annotated))) {
+      descriptor.type = {
+        kind: 'declared-import',
+        typeName: String(annotated),
       }
       continue
     }
@@ -1062,6 +1072,25 @@ export function transpileToJS(
     }
   }
 
+  /**
+   * Bindings imported into this module, taken from the AST rather than a scanner.
+   *
+   * `ImportDeclaration.specifiers[].local.name` covers default, named and namespace imports
+   * exactly, so a `from './x'` inside a string or comment cannot be mistaken for one — the
+   * repo's dominant defect class simply has no foothold here.
+   */
+  const importedNames = new Set<string>()
+  for (const node of (program as unknown as { body: unknown[] }).body) {
+    const n = node as {
+      type?: string
+      specifiers?: Array<{ local?: { name?: string } }>
+    }
+    if (n.type !== 'ImportDeclaration') continue
+    for (const spec of n.specifiers ?? []) {
+      if (spec.local?.name) importedNames.add(spec.local.name)
+    }
+  }
+
   // Build types map for all functions
   const allTypes: Record<string, TJSTypeInfo> = {}
 
@@ -1104,7 +1133,8 @@ export function transpileToJS(
       returnTypeStr,
       cleanSource,
       preprocessed.declaredTypes,
-      preprocessed.requiredValueOffsets
+      preprocessed.requiredValueOffsets,
+      importedNames
     )
     warnings.push(...funcWarnings)
     allTypes[funcName] = types
@@ -2817,6 +2847,30 @@ function generateTypeCheckExpr(
           }.check(${fieldPath}))`
         : null
       break
+    case 'declared-import': {
+      // A Type IMPORTED from another module (#46).
+      //
+      // `declaredTypes` is populated per-module, so an imported name was not promotable and
+      // the annotation degraded to `any` — an imported predicate could be CALLED but not
+      // used as a type. That is the difference between publishing predicate helpers and
+      // publishing a type LIBRARY, and it capped `Matches`/`Range`/`Within` at being
+      // built-ins nobody else could write.
+      //
+      // Checked at RUNTIME rather than resolved statically, deliberately: knowing the type
+      // at build time would need cross-module analysis, and the alternative to paying for a
+      // runtime check is degrading to `any`, which is how this got missed in the first
+      // place.
+      //
+      // No sentinel here — those are emitted per declared type in THIS module. An import
+      // binding is initialised before any function in the module body can run, so reading
+      // it inside a call is safe; the shape guard covers a binding that turns out not to be
+      // a runtime type at all (a plain function, a value) rather than throwing on it.
+      const n = (type as { typeName?: string }).typeName
+      check = n
+        ? `(${n} && typeof ${n}.check === 'function' && ${n}.check(${fieldPath}) !== true)`
+        : null
+      break
+    }
     case 'any':
       return null // No check needed
     default:
