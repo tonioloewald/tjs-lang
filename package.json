@@ -254,7 +254,7 @@
     "deploy": "bun run build:demo && bun run functions:deploy && firebase deploy --only hosting",
     "start": "bun run build:demo && bun run dev",
     "docs:differences": "bun scripts/build-differences.ts",
-    "test:compat": "bun scripts/compat-zod.ts && bun scripts/compat-effect.ts && bun scripts/compat-kysely.ts && bun scripts/compat-radash.ts && bun scripts/compat-superstruct.ts && bun scripts/compat-ts-pattern.ts"
+    "test:compat": "bun scripts/compat-all.ts"
   },
   "dependencies": {
     "acorn": "^8.15.0",

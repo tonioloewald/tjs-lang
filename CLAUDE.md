@@ -132,6 +132,15 @@ bun run test:compat         # REAL TypeScript projects through the converter: cl
                             #   a seventh compat script that nobody wires in fails there —
                             #   because these six previously sat in no script, no CI lane and
                             #   no gate, which is how the dogfood ratchets rotted unseen.
+                            #   Runs via `scripts/compat-all.ts`, which runs ALL of them and
+                            #   prints a table. It used to be `&&`-chained, so the first
+                            #   attempt ever made died on zod needing `pnpm` and five healthy
+                            #   suites reported nothing. An unmet PREREQUISITE is a skip, not
+                            #   a failure — it says nothing about the converter. zod needs
+                            #   `corepack enable pnpm`.
+                            #   Last full run 2026-08-28 (after `Exactly` changed `fromTS`):
+                            #     ts-pattern 453/453, superstruct 225/225, radash 340/340,
+                            #     kysely 303/303 files, effect 363/363 files, zod skipped.
 
 # Deployment (Firebase)
 bun run deploy              # Build demo + deploy functions + hosting

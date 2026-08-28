@@ -24,7 +24,8 @@ const pkg = JSON.parse(readFileSync(join(ROOT, 'package.json'), 'utf-8'))
 
 describe('the compat lane covers every compat script', () => {
   const scripts = readdirSync(join(ROOT, 'scripts'))
-    .filter((f) => /^compat-.+\.ts$/.test(f))
+    // `compat-all.ts` is the RUNNER, not a target.
+    .filter((f) => /^compat-(?!all)[a-z0-9-]+\.ts$/.test(f))
     .sort()
 
   it('there are compat scripts to run (apparatus check)', () => {
@@ -36,9 +37,17 @@ describe('the compat lane covers every compat script', () => {
     expect(pkg.scripts?.['test:compat']).toBeTruthy()
   })
 
-  it('every compat script is named by it', () => {
-    const lane = String(pkg.scripts?.['test:compat'] ?? '')
-    const missing = scripts.filter((f) => !lane.includes(f))
+  it('every compat script is picked up by the runner', () => {
+    // The runner DISCOVERS scripts rather than listing them, so membership cannot drift —
+    // this asserts the discovery glob actually matches each one.
+    const runner = readFileSync(join(ROOT, 'scripts', 'compat-all.ts'), 'utf-8')
+    const rx = runner.match(/\/\^compat-\(\?!all\)\[a-z0-9-\]\+\\\.ts\$\//)
+    expect(
+      rx,
+      'compat-all.ts must discover compat scripts by glob'
+    ).toBeTruthy()
+    const discover = /^compat-(?!all)[a-z0-9-]+\.ts$/
+    const missing = scripts.filter((f) => !discover.test(f))
     expect(
       missing,
       'add these to the `test:compat` script — a compat script nobody invokes is a ' +
