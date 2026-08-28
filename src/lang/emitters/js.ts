@@ -1633,6 +1633,8 @@ export function transpileToJS(
   const needsToBool = code.includes('__tjs.toBool(')
   /** `switch` in native .tjs keys its discriminant — see swKey / switch-transform.ts. */
   const needsSwKey = code.includes('__tjs.swKey(')
+  /** `Exactly(…)` used as a value — a nested discriminant inside a Type example (#45). */
+  const needsExactly = /\bExactly\s*\(/.test(code)
   /**
    * Whether this file emits the `__ac` projection table and its `__proj` reader.
    *
@@ -1657,6 +1659,7 @@ export function transpileToJS(
     needsFunctionPredicate ||
     needsEnum ||
     needsUnion ||
+    needsExactly ||
     needsBang ||
     needsToBool ||
     needsCheckFnShape
@@ -1888,7 +1891,7 @@ export function transpileToJS(
         // so adding a `predicate` that returns `true` — adding no constraint at all —
         // made a type MORE permissive. A predicate must only ever narrow. Both checkers
         // are open now, so they agree.
-        `function __match(v,ex){if(ex===null)return v===null;if(ex===undefined)return true;const t=typeof ex;if(t==='number')return typeof v==='number'&&(Number.isInteger(ex)?Number.isInteger(v):true);if(t==='string'||t==='boolean')return typeof v===t;if(Array.isArray(ex)){if(!Array.isArray(v))return false;return ex.length?v.every(x=>__match(x,ex[0])):true}if(t==='object'){if(!v||typeof v!=='object'||Array.isArray(v))return false;const ks=Object.keys(ex);return ks.every(k=>k in v&&__match(v[k],ex[k]))}return v===ex}`
+        `function __match(v,ex){if(ex===null)return v===null;if(ex===undefined)return true;if(ex&&typeof ex==='object'&&ex.__runtimeType&&typeof ex.check==='function')return ex.check(v)===true;const t=typeof ex;if(t==='number')return typeof v==='number'&&(Number.isInteger(ex)?Number.isInteger(v):true);if(t==='string'||t==='boolean')return typeof v===t;if(Array.isArray(ex)){if(!Array.isArray(v))return false;return ex.length?v.every(x=>__match(x,ex[0])):true}if(t==='object'){if(!v||typeof v!=='object'||Array.isArray(v))return false;const ks=Object.keys(ex);return ks.every(k=>k in v&&__match(v[k],ex[k]))}return v===ex}`
       )
       const typeExtras = needsExampleSchema
         ? `t.toJSONSchema=()=>t.__ex===undefined?{}:__ex2js(t.__ex);t.strip=v=>{const ex=t.__ex;if(!ex||typeof ex!=='object'||!v||typeof v!=='object')return v;const o={};for(const k of Object.keys(ex))if(k in v)o[k]=v[k];return o};`
@@ -1944,6 +1947,14 @@ export function transpileToJS(
     if (needsUnion) {
       inlineParts.push(
         `function Union(d,...v){const vals=v.flat();return{description:d,check:x=>vals.includes(x),values:vals,__runtimeType:true${setSchema}}}`
+      )
+    }
+    // Exactly — a closed set of VALUES, for literals and discriminants. Emitted as a value
+    // (not just a type annotation) because it appears INSIDE a Type's example object, which
+    // is evaluated at runtime.
+    if (needsExactly) {
+      inlineParts.push(
+        `function Exactly(...v){const vals=v.flat();return{description:'exactly '+vals.map(x=>JSON.stringify(x)).join(' | '),check:x=>vals.includes(x),values:vals,__runtimeType:true${setSchema}}}`
       )
     }
     // toBool — honest truthiness (unwraps boxed primitives)

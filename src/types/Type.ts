@@ -147,6 +147,71 @@ function isJSONSchema(value: unknown): value is JSONSchema {
   )
 }
 
+/**
+ * A RuntimeType nested INSIDE an example — the thing that makes a discriminant possible.
+ *
+ *     Type Circle { example: { kind: Exactly('circle'), r: 0.0 } }
+ *
+ * Without this, `s.infer` treats `Exactly('circle')` as a plain object and demands ITS
+ * shape (`{description, check, values, …}`), so `Circle.check({kind:'circle', r:1})` was
+ * `false` — and so was everything else, which is the tell: a type that rejects its own
+ * example is not narrow, it is broken.
+ *
+ * The example is split in two: a SKELETON with each nested type replaced by a representative
+ * value (so structural inference still works), plus the (path, type) pairs to check
+ * afterwards. Structure first, then the declared constraints — the same order `Type` already
+ * uses for schema-then-predicate, so a nested type may assume the shape rather than defend
+ * against it.
+ */
+interface NestedTypeEntry {
+  path: Array<string | number>
+  type: RuntimeType
+}
+
+/** A stand-in that infers to the right SHAPE; the real constraint is applied by path. */
+function representativeOf(t: RuntimeType): unknown {
+  const vals = (t as { values?: unknown[] }).values
+  if (Array.isArray(vals) && vals.length > 0) return vals[0]
+  if ((t as { example?: unknown }).example !== undefined) {
+    return (t as { example?: unknown }).example
+  }
+  // Nothing to go on: `null` infers as permissively as anything else, and the per-path
+  // check below is what actually decides.
+  return null
+}
+
+function splitNestedTypes(example: unknown): {
+  skeleton: unknown
+  entries: NestedTypeEntry[]
+} {
+  const entries: NestedTypeEntry[] = []
+  const walk = (v: unknown, path: Array<string | number>): unknown => {
+    if (isRuntimeType(v)) {
+      entries.push({ path, type: v as RuntimeType })
+      return representativeOf(v as RuntimeType)
+    }
+    if (Array.isArray(v)) return v.map((x, i) => walk(x, [...path, i]))
+    if (v && typeof v === 'object' && (v as object).constructor === Object) {
+      const out: Record<string, unknown> = {}
+      for (const [k, val] of Object.entries(v as Record<string, unknown>)) {
+        out[k] = walk(val, [...path, k])
+      }
+      return out
+    }
+    return v
+  }
+  return { skeleton: walk(example, []), entries }
+}
+
+function valueAtPath(v: unknown, path: Array<string | number>): unknown {
+  let cur = v
+  for (const k of path) {
+    if (cur === null || cur === undefined) return undefined
+    cur = (cur as Record<string | number, unknown>)[k]
+  }
+  return cur
+}
+
 export function Type<T = unknown>(
   descriptionOrSchema: string | Schema,
   predicateOrSchemaOrExample?:
@@ -165,6 +230,8 @@ export function Type<T = unknown>(
   let closedSchema: Schema | undefined
   let example: T | undefined = exampleArg
   let defaultValue: T | undefined = defaultArg
+  /** RuntimeTypes found INSIDE the example, checked by path after the structural check. */
+  let nestedTypes: NestedTypeEntry[] = []
 
   if (typeof descriptionOrSchema === 'string') {
     // Form: Type(description, predicate/schema/example, example?, default?)
@@ -177,7 +244,9 @@ export function Type<T = unknown>(
       ) => boolean | string
       // If we have example, infer schema from it for the type guard in predicate
       if (example !== undefined) {
-        closedSchema = s.infer(example)
+        const split = splitNestedTypes(example)
+        nestedTypes = split.entries
+        closedSchema = s.infer(split.skeleton)
         schema = openInferredShapes(closedSchema)
       }
     } else if (
@@ -185,7 +254,9 @@ export function Type<T = unknown>(
       example !== undefined
     ) {
       // Type(description, undefined, example, default?) - example provides schema
-      closedSchema = s.infer(example)
+      const split = splitNestedTypes(example)
+      nestedTypes = split.entries
+      closedSchema = s.infer(split.skeleton)
       schema = openInferredShapes(closedSchema)
     } else if (isSchemaBuilder(predicateOrSchemaOrExample)) {
       // Type(description, schemaBuilder)
@@ -240,7 +311,21 @@ export function Type<T = unknown>(
       return predicate(value)
     }
     if (schema) {
-      return validate(value, schema)
+      const structural = validate(value, schema)
+      if (structural !== true) return structural
+      // Structure held, so a nested type may assume the shape. First failure wins, and it
+      // names the path — `kind: expected exactly 'circle'` beats a bare `false`.
+      for (const { path, type } of nestedTypes) {
+        const at = valueAtPath(value, path)
+        const r = type.check(at)
+        if (r !== true) {
+          const where = path.length ? path.join('.') : 'value'
+          return typeof r === 'string'
+            ? `${where}: ${r}`
+            : `${where}: expected ${type.description}`
+        }
+      }
+      return true
     }
     return false
   }
@@ -594,6 +679,25 @@ export function Union<T extends unknown[]>(
   return Type(description, (v: unknown) =>
     types.some((t) => t.check(v) === true)
   )
+}
+
+/**
+ * `Exactly(...values)` — the value IS one of these, not an example of their type.
+ *
+ * A one-member closed set is the whole point: the example rule cannot express a literal, so
+ * `x: 1` means "an integer, for instance 1" and TypeScript's `x: 1` had no faithful
+ * spelling. It matters most nested, where a DISCRIMINANT lives — `kind: Exactly('circle')`
+ * is what stops `Circle` and `Rect` looking like the same shape.
+ *
+ * Built on `Union(description, values)` so membership is the language's `==` and every
+ * consumer (checks, JSON-Schema `enum`, `.d.ts`) already handles it.
+ */
+export function Exactly<const T extends unknown[]>(...values: T): RuntimeType {
+  const desc =
+    values.length === 1
+      ? `exactly ${JSON.stringify(values[0])}`
+      : `exactly ${values.map((v) => JSON.stringify(v)).join(' | ')}`
+  return Union(desc, values as unknown[])
 }
 
 /** Create an array type */

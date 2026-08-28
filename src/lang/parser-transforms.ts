@@ -3586,6 +3586,20 @@ function typeCheckForDefault(argExpr: string, defaultValue: string): string {
   if (/^-?\d+$/.test(dv))
     return `(typeof ${argExpr} === 'number' && Number.isInteger(${argExpr}))`
 
+  // A DECLARED TYPE NAME dispatches on the type itself (#45).
+  //
+  // `Circle` and `Rect` both fell through to `'true'` here, so every object overload was
+  // indistinguishable and the pair was rejected as ambiguous — the mechanism TJS offers
+  // INSTEAD of TypeScript's hand-written `switch (s.kind)` could not express the thing
+  // discriminated unions are for.
+  //
+  // Guarded on the binding being initialised, for the same reason the emitted `declared`
+  // check is: a Type declared after the function that names it is in TDZ during module
+  // evaluation, and a legal JS ordering must not become a crash (TJS ⊇ JS).
+  if (/^[A-Z][A-Za-z0-9_$]*$/.test(dv)) {
+    return `(typeof ${dv} !== 'undefined' && ${dv} && typeof ${dv}.check === 'function' && ${dv}.check(${argExpr}) === true)`
+  }
+
   // Fallback: any
   return 'true'
 }
@@ -3605,6 +3619,10 @@ function typeSignatureForDefault(defaultValue: string): string {
   if (/^\+\d+/.test(dv)) return 'non-negative-integer'
   if (/^-?\d+\.\d+/.test(dv)) return 'number'
   if (/^-?\d+$/.test(dv)) return 'integer'
+  // A declared type name is its OWN signature. Two different names are two different types,
+  // which is precisely what makes `f(s: Circle)` / `f(s: Rect)` a legal pair rather than an
+  // ambiguous one — and what `typeCheckForDefault` can now discriminate at runtime.
+  if (/^[A-Z][A-Za-z0-9_$]*$/.test(dv)) return `declared:${dv}`
   return 'any'
 }
 
