@@ -150,7 +150,14 @@ const report = (label: string, st: Stage, total: number) => {
  * TJS mode. `from-ts.ts` emits that annotation from a template, so the converter's own
  * source was the first casualty.
  */
-const GRADUATION_FLOOR = 105
+/*
+ * Raised to 106 on 2026-08-29 — the whole corpus again. The two holdouts both failed on
+ * shapes `fromTS` emits and the TJS parser could not read: an annotated generator
+ * (`function* f():! 0.0`) and a destructured parameter with an inline type. Neither was
+ * visible while `fromTS` emitted JavaScript through `ts.transpileModule` — nothing ran our
+ * parser over the converter's output. See `src/no-ts-emitter.test.ts`.
+ */
+const GRADUATION_FLOOR = 106
 
 /** Improve by this much and the test asks for the floor to be raised. */
 const RATCHET_SLACK = 2

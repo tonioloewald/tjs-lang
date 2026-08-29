@@ -6,8 +6,7 @@
  * and runs Superstruct's own test suite to verify compatibility.
  *
  * Usage:
- *   bun scripts/compat-superstruct.ts           # Direct mode (fromTS → JS)
- *   bun scripts/compat-superstruct.ts --full     # Full pipeline (fromTS → TJS → JS)
+ *   bun scripts/compat-superstruct.ts           # TS → TJS → JS
  *   bun scripts/compat-superstruct.ts --clean    # Remove clone and start fresh
  */
 
@@ -69,13 +68,9 @@ function findSourceFiles(dir: string): string[] {
 
 async function main() {
   const args = process.argv.slice(2)
-  const fullPipeline = args.includes('--full')
   const clean = args.includes('--clean')
 
-  const mode = fullPipeline
-    ? 'full pipeline (TS → TJS → JS)'
-    : 'direct (TS → JS)'
-  console.log(`\n  Superstruct Compatibility Test — ${mode}\n`)
+  console.log(`\n  Superstruct Compatibility Test — TS → TJS → JS\n`)
 
   // ── Step 0: Clean if requested ──
   if (clean && existsSync(REPO_DIR)) {
@@ -128,17 +123,18 @@ async function main() {
     const source = readFileSync(filePath, 'utf-8')
 
     try {
-      let jsCode: string
-
-      if (fullPipeline) {
-        const { tjs } = await import('../src/lang')
-        const tjsResult = fromTS(source, { emitTJS: true, filename: relPath })
-        const jsResult = tjs(tjsResult.code)
-        jsCode = jsResult.code
-      } else {
-        const result = fromTS(source, { filename: relPath })
-        jsCode = result.code
-      }
+      // TS -> TJS -> JS: fromTS emits TJS, tjs emits JavaScript.
+      //
+      // This lane used to default to `fromTS(source)` alone, which emitted JS via
+      // `ts.transpileModule`. So the suite that CLAUDE.md calls "the most honest evidence the
+      // converter works that this repo has" was, in the main, evidence that the TypeScript
+      // compiler works. Three of the six scripts had a `--full` flag for the real path,
+      // defaulted off; three never had one; and `compat-all.ts` spawns every script with no
+      // arguments. There is now one path and no flag. See `src/no-ts-emitter.test.ts`.
+      const { tjs } = await import('../src/lang')
+      const jsCode = tjs(fromTS(source, { filename: relPath }).code, {
+        runTests: false,
+      }).code
 
       writeFileSync(filePath, jsCode)
       transpileResults.ok++

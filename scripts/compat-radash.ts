@@ -6,8 +6,7 @@
  * and runs Radash's own test suite to verify compatibility.
  *
  * Usage:
- *   bun scripts/compat-radash.ts              # Direct mode (fromTS → JS)
- *   bun scripts/compat-radash.ts --full       # Full pipeline (fromTS → TJS → JS)
+ *   bun scripts/compat-radash.ts              # TS → TJS → JS
  *   bun scripts/compat-radash.ts --clean      # Remove clone and start fresh
  */
 
@@ -70,13 +69,9 @@ function findSourceFiles(dir: string): string[] {
 
 async function main() {
   const args = process.argv.slice(2)
-  const fullPipeline = args.includes('--full')
   const clean = args.includes('--clean')
 
-  const mode = fullPipeline
-    ? 'full pipeline (TS → TJS → JS)'
-    : 'direct (TS → JS)'
-  console.log(`\n  Radash Compatibility Test — ${mode}\n`)
+  console.log(`\n  Radash Compatibility Test — TS → TJS → JS\n`)
 
   // ── Step 0: Clean if requested ──
   if (clean && existsSync(RADASH_DIR)) {
@@ -130,19 +125,18 @@ async function main() {
     const source = readFileSync(filePath, 'utf-8')
 
     try {
-      let jsCode: string
-
-      if (fullPipeline) {
-        // Full pipeline: TS → TJS → JS
-        const { tjs } = await import('../src/lang')
-        const tjsResult = fromTS(source, { emitTJS: true, filename: relPath })
-        const jsResult = tjs(tjsResult.code)
-        jsCode = jsResult.code
-      } else {
-        // Direct: TS → JS (uses TypeScript's own transpiler internally)
-        const result = fromTS(source, { filename: relPath })
-        jsCode = result.code
-      }
+      // TS -> TJS -> JS: fromTS emits TJS, tjs emits JavaScript.
+      //
+      // This lane used to default to `fromTS(source)` alone, which emitted JS via
+      // `ts.transpileModule`. So the suite that CLAUDE.md calls "the most honest evidence the
+      // converter works that this repo has" was, in the main, evidence that the TypeScript
+      // compiler works. Three of the six scripts had a `--full` flag for the real path,
+      // defaulted off; three never had one; and `compat-all.ts` spawns every script with no
+      // arguments. There is now one path and no flag. See `src/no-ts-emitter.test.ts`.
+      const { tjs } = await import('../src/lang')
+      const jsCode = tjs(fromTS(source, { filename: relPath }).code, {
+        runTests: false,
+      }).code
 
       // Overwrite the .ts file with transpiled JS
       // ts-jest handles plain JS in .ts files fine

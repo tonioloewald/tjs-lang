@@ -1152,3 +1152,70 @@ test 'always fails' { throw new Error('intentional') }
     })
   })
 })
+
+/**
+ * Shapes `fromTS` emits that the TJS parser could not read.
+ *
+ * Both were invisible for as long as `fromTS` produced JavaScript via `ts.transpileModule`:
+ * the converter's TJS output was never fed to our own parser, so "the converter works" was
+ * measured without ever checking that what it produced was TJS. See
+ * `src/no-ts-emitter.test.ts` for the lanes that were affected.
+ *
+ * Neither is a subset violation — the plain-JS forms always parsed. TJS simply had no way to
+ * ANNOTATE them.
+ */
+describe('the converter emits TJS the parser can read', () => {
+  const run = (src: string, name: string) =>
+    new Function(tjs(src, { runTests: false }).code + `\nreturn ${name}`)()
+
+  describe('generators', () => {
+    it('parses an annotated generator, and it still yields', () => {
+      // `function(?:\s+(\w+))?\s*\(` did not admit the `*`, so the annotations were never
+      // rewritten and the file did not parse. Then the `*` was dropped while rebuilding the
+      // header, which turned the generator into an ordinary function and made every `yield`
+      // in the body a reserved word.
+      const g = run('function* g(n: 0):! 0 { yield n; yield n + 1 }', 'g')
+      expect([...g(5)]).toEqual([5, 6])
+    })
+
+    it('a plain JS generator still parses (control)', () => {
+      expect([...run('function* g(n) { yield n }', 'g')(1)]).toEqual([1])
+    })
+  })
+
+  describe('destructured parameters', () => {
+    it('parses a TS-style pattern with an inline type', () => {
+      // `{ a, b }: { a: 0, b: 0 }` ends with `}`, so it matched as ONE destructuring pattern
+      // and the colon-shorthand rewrite ran inside the TYPE — emitting
+      // `{ a, b }: { a: 0, b = 0 }`, which is not JavaScript, with the annotation still in
+      // the output.
+      const f = run(
+        'function f({ a, b }: { a: 0, b: 0 }):! 0 { return a + b }',
+        'f'
+      )
+      expect(f({ a: 2, b: 3 })).toBe(5)
+    })
+
+    it('parses an array pattern with an inline type', () => {
+      const f = run('function f([x, y]: [0, 0]):! 0 { return x + y }', 'f')
+      expect(f([4, 5])).toBe(9)
+    })
+
+    it('keeps the TJS example form working (control)', () => {
+      // The other spelling, where members carry EXAMPLES rather than a type. The fix must
+      // not trade one form for the other.
+      const f = run('function f({ a: 0, b = 2 }):! 0 { return a + b }', 'f')
+      expect(f({ a: 1 })).toBe(3)
+    })
+
+    it('a real default after a pattern is still a default (control)', () => {
+      // `= v` is kept; only `: T` is erased. Without this the fix could silently drop
+      // defaults, which is a TJS-superset-of-JS violation.
+      const f = run(
+        'function f({ a, b } = { a: 1, b: 2 }):! 0 { return a + b }',
+        'f'
+      )
+      expect(f()).toBe(3)
+    })
+  })
+})

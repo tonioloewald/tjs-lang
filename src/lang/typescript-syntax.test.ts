@@ -15,7 +15,6 @@
 import { describe, test, expect } from 'bun:test'
 import { transpileToJS, tjs } from './index'
 import { fromTS as fromTSToTJS } from './emitters/from-ts'
-import { tjs } from './index'
 
 /**
  * The composed path: TS -> TJS -> JS.

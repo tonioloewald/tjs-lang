@@ -130,6 +130,25 @@ One gap is named rather than closed:
       completions guard is driven off `TJS_STATEMENT_KEYWORDS` for exactly this reason; when
       contextual completion lands, `TJS_BLOCK_MEMBERS` gets the same treatment.
 
+## The compat lane, now that it measures our own converter (2026-08-29)
+
+The lane defaulted to `fromTS(source)`, which emitted JS through `ts.transpileModule`. Its
+`--full` flag (TS → TJS → JS) defaulted OFF, three of the six scripts never had one, and
+`compat-all.ts` spawns every script with no arguments — so the numbers CLAUDE.md cites as
+"the most honest evidence the converter works" were largely evidence that the TypeScript
+compiler works. There is now one path and no flag; `src/no-ts-emitter.test.ts` keeps it that
+way.
+
+First honest run (radash): **8/10 files transpile**, where the old lane reported 340/340
+tests passing. Both failures are the same real limitation, with a precise message:
+
+- [ ] **TS overloads that our polymorphic dispatcher reads as ambiguous.** `src/array.ts`
+      (`max`) and `src/async.ts` (`all`): _"variants 1 and 2 have ambiguous signatures (same
+      parameter types at every position)"_. TypeScript distinguishes them by type-parameter
+      constraints, which the converter erases before dispatch sees them.
+- [ ] **Re-baseline every compat target through the real path** and record the numbers, so
+      CLAUDE.md stops quoting the old ones. Expect them to be worse and to mean something.
+
 ## Value for the TS coder who NEVER switches (the wedge, 2026-08-01)
 
 **The strategic question:** how much can we deliver to someone who keeps writing `.ts` and

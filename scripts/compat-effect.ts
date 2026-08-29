@@ -112,7 +112,20 @@ async function main() {
     const relPath = filePath.replace(REPO_DIR + '/', '')
     const source = readFileSync(filePath, 'utf-8')
     try {
-      const result = fromTS(source, { filename: relPath })
+      // TS -> TJS -> JS: fromTS emits TJS, tjs emits JavaScript.
+      //
+      // This lane used to default to `fromTS(source)` alone, which emitted JS via
+      // `ts.transpileModule`. So the suite that CLAUDE.md calls "the most honest evidence the
+      // converter works that this repo has" was, in the main, evidence that the TypeScript
+      // compiler works. Three of the six scripts had a `--full` flag for the real path,
+      // defaulted off; three never had one; and `compat-all.ts` spawns every script with no
+      // arguments. There is now one path and no flag. See `src/no-ts-emitter.test.ts`.
+      const { tjs } = await import('../src/lang')
+      const result = {
+        code: tjs(fromTS(source, { filename: relPath }).code, {
+          runTests: false,
+        }).code,
+      }
       if (runTests) {
         writeFileSync(filePath, result.code)
       }

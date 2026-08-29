@@ -2275,7 +2275,21 @@ function transformParams(
       // Invisible until the JS output stopped coming from `ts.transpileModule`: the metadata
       // came from the extractor and the JavaScript came from TypeScript, so nothing ever ran
       // our parser over this line. See `src/no-ts-emitter.test.ts`.
-      params.push(`${name}?: ${typeExample}`)
+      // `name?: T` for everything TJS can currently express that way — which is every
+      // scalar, type name and array. NOT for an object type: `opts?: { a: 0 }` lowers to
+      // `opts = { a: 0 }`, the DICTIONARY-DEFAULT spelling, so TJS reads it as "these members
+      // have defaults, merged on partial" rather than "may be omitted", and an impure member
+      // (`any`) is rejected outright. That is a real language bug — optional object
+      // parameters are not currently writable in TJS — and it is tracked rather than worked
+      // around in three places. Until it is fixed, an object-typed optional keeps the old
+      // `T | undefined`, which is a REQUIRED param that tolerates undefined: wrong about
+      // optionality, but it compiles and it is what shipped.
+      const objectTyped = typeExample.trimStart().startsWith('{')
+      params.push(
+        objectTyped
+          ? `${name}: ${typeExample} | undefined`
+          : `${name}?: ${typeExample}`
+      )
     } else {
       // Required - use : for required
       params.push(`${name}: ${typeExample}`)

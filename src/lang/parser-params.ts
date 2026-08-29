@@ -457,12 +457,22 @@ export function transformParenExpressions(
     // `\s+name` OR straight to `(`. Writing this as `\s*(\w*)\s*\(` instead matched
     // `functionMetaToJSONSchema(` as the keyword plus a name of `MetaToJSONSchema` —
     // an identifier that merely STARTS with the keyword. Caught by examples/json-schema.tjs.
-    const funcMatch = source.slice(i).match(/^function(?:\s+(\w+))?\s*\(/)
+    // The `*` is OPTIONAL for the same reason the name is: `function* gen(): 0 {}` is a
+    // generator declaration, and not matching it here meant its annotations never reached the
+    // colon-shorthand rewrite, so `function* count():! 0.0 { yield 1 }` did not parse at all
+    // — while the identical non-generator did. `fromTS` EMITS that form, so the converter was
+    // producing TJS that TJS could not read. Invisible while the JS output came from
+    // `ts.transpileModule`, because nothing ran our parser over it (`no-ts-emitter.test.ts`).
+    const funcMatch = source.slice(i).match(/^function\s*\*?(?:\s+(\w+))?\s*\(/)
     if (funcMatch) {
       // Keep the ORIGINAL spelling in the output — a function expression may genuinely
       // have no name, and inventing one both changes the emitted code and creates an
       // identifier the metadata then references but nothing declares.
       const declaredName = funcMatch[1]
+      // The `*` is part of the DECLARATION, not decoration: dropping it while rebuilding the
+      // header turns a generator into an ordinary function, and every `yield` in the body
+      // then fails to parse as a reserved word.
+      const star = funcMatch[0].includes('*') ? '*' : ''
       const funcName = declaredName || 'anonymous'
       const matchLen = funcMatch[0].length
 
@@ -481,7 +491,9 @@ export function transformParenExpressions(
         }
       }
 
-      result += declaredName ? `function ${declaredName}(` : `function (`
+      result += declaredName
+        ? `function${star} ${declaredName}(`
+        : `function${star} (`
       i = paramStart
 
       // Find matching ) using balanced counting
@@ -1340,22 +1352,47 @@ function processParamString(
     const trimmed = param.trim()
     if (!trimmed) return param
 
-    // Handle destructured object parameters: { name: 'Clara', age = 30 }
-    // Transform colons to equals inside the braces (recursive)
-    // Order doesn't matter for objects, so don't enforce required-before-optional
-    // ONLY do this when trackRequired is true - i.e., actual function parameters
-    if (trackRequired && trimmed.startsWith('{') && trimmed.endsWith('}')) {
-      const inner = trimmed.slice(1, -1)
-      const processedInner = processDestructuredObjectParams(inner, ctx)
-      return `{ ${processedInner} }`
-    }
-
-    // Handle destructured array parameters: [first: '', second: 0]
-    // ONLY do this when trackRequired is true - i.e., actual function parameters
-    if (trackRequired && trimmed.startsWith('[') && trimmed.endsWith(']')) {
-      const inner = trimmed.slice(1, -1)
-      const processedInner = processDestructuredObjectParams(inner, ctx)
-      return `[ ${processedInner} ]`
+    // Destructured parameters, in both spellings the language accepts:
+    //
+    //   TJS:  { name: 'Clara', age = 30 }            — members carry EXAMPLES
+    //   TS:   { name, age }: { name: '', age: 0 }    — a plain pattern, then a type
+    //
+    // The second form must have its annotation SPLIT OFF rather than descended into. Testing
+    // `startsWith('{') && endsWith('}')` matched the whole of `{ a, b }: { a: 0, b: 0 }` as
+    // one pattern, so the colon-shorthand rewrite ran inside the TYPE — emitting
+    // `{ a, b }: { a: 0, b = 0 }`, which is not JavaScript, and leaving the annotation in the
+    // output. `fromTS` emits exactly this shape for a destructured TS parameter, so the
+    // converter was producing TJS that TJS could not read. Invisible while the JS output came
+    // from `ts.transpileModule` — nothing ran our parser over it (`no-ts-emitter.test.ts`).
+    //
+    // The annotation is dropped here and captured separately for `__tjs` metadata, exactly as
+    // it is for a rest parameter below.
+    if (trackRequired && (trimmed.startsWith('{') || trimmed.startsWith('['))) {
+      const open = trimmed[0]
+      const masked = maskLiterals(trimmed)
+      let depth = 0
+      let end = -1
+      for (let i = 0; i < masked.length; i++) {
+        const c = masked[i]
+        if (c === '{' || c === '[') depth++
+        else if (c === '}' || c === ']') {
+          depth--
+          if (depth === 0) {
+            end = i
+            break
+          }
+        }
+      }
+      if (end !== -1) {
+        const inner = trimmed.slice(1, end)
+        const rest = trimmed.slice(end + 1).trim()
+        const processedInner = processDestructuredObjectParams(inner, ctx)
+        const pattern =
+          open === '{' ? `{ ${processedInner} }` : `[ ${processedInner} ]`
+        // `: T` is a type annotation and is erased; `= v` is a real default and is kept.
+        if (rest.startsWith(':')) return pattern
+        return rest ? `${pattern} ${rest}` : pattern
+      }
     }
 
     // Handle rest parameters: ...args: [0] -> ...args (strip type, JS forbids defaults on rest)
