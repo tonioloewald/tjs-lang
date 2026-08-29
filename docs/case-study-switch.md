@@ -7,8 +7,9 @@ misled us and the ones that held. Written down because the *process* turned out 
 interesting than the conclusion, and because several of the wrong turns are the kind nobody
 writes up.
 
-Status at time of writing: **the keyword is undecided and the data does not decide it.** That
-is the honest headline.
+Outcome: **`given` shipped, `switch` reverted to C semantics with a warning.** The keyword was
+chosen on structural argument, because the measurement that appeared to rank the candidates
+turned out to be noise — which is the most useful thing in this document.
 
 ---
 
@@ -28,7 +29,7 @@ The ecosystem decided the defaults were wrong long ago and has been hand-patchin
 because the language cannot change. That is the observation the whole project rests on: *a
 pattern that needs a heavy-handed lint rule is a language defect, not a user error.*
 
-## 2. What we built first
+## 2. What we built first — and later reversed
 
 Swift's answer: make `break` implicit, and 2/3/4 collapse into one decision. Add `Eq` for 1.
 
@@ -188,7 +189,42 @@ way is obvious: it can excuse any result. The check is that the argument was mad
 the re-run collapsed the ranking, and that the ranking collapsed on its own evidence rather
 than being argued away.
 
-## 9. Open
+## 9. The fallback block: a measurement that legitimately abstains
+
+Three spellings, same program, asking what an unmatched value returns:
+
+| | correct | wrong |
+| --- | --- | --- |
+| `given x { … } else { … }` | 5/5 | 0 |
+| `given x { … default { … } }` | 5/5 | 0 |
+| `given x { … } otherwise { … }` | 5/5 | 0 |
+
+**All three, perfectly.** Unlike the keyword ranking this is not noise — it is a real
+negative result, and the reason is structural: the fallback block's meaning is carried by its
+POSITION, not its name. A reader who has understood the arms understands the leftover block
+whatever it is called.
+
+So the choice is design, and the argument that decides it is the same one that drove the
+rename:
+
+- **`default` re-imports the prior we just escaped.** A reader who sees `default` inside
+  `given` has been handed a piece of `switch`, and may reasonably reach for the rest of it —
+  `case`, `break`, fallthrough. Renaming to shed a prior and then keeping one of its keywords
+  gives back part of what the rename bought.
+- **`otherwise` is not a reserved word**, so it carries the same collision problem `given`
+  does, for no gain over a word that is.
+- **`else` is reserved, and already means exactly this.** It parallels `if`/`else`, which
+  every JavaScript reader knows, and it sits outside the arm list where it visually separates
+  "the cases" from "everything else".
+
+`else` it is. Worth recording that this was decided on argument with the measurement
+explicitly abstaining, rather than the measurement being ignored.
+
+**A possible extension, not taken:** if `else` reads as `if`/`else`, then `else if (cond) { }`
+is the obvious next step. That would mix value dispatch with condition dispatch in one
+construct, which is a bigger change than it looks and is not needed for anything today.
+
+## 10. Open
 
 - **The keyword.** Undecided. The data abstains; the structural case favours `given`.
 - **`switch` in `.tjs`.** Currently ships with implicit `break` (#43) — which is the one
