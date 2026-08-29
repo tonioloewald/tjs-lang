@@ -703,6 +703,15 @@ guard. `match` names the thing Rust, Python and Scala do, which is pattern match
 over-promises: a reader arriving with that prior expects capabilities we do not have. `given`
 promises what we deliver.
 
-So the measurement favours `match`, and the two structural arguments favour `given`. **The
-score should be re-taken once a cheat sheet exists**, because the no-answer mode is exactly
+**RETRACTED 2026-08-29 — the ranking above is noise.** The identical `given` arm re-ran at
+**4/5** having scored **1/5**: a swing of three in a sample of five, same model, same prompt.
+
+What the re-run establishes is a property of the INSTRUMENT rather than of the keywords:
+**correctness is stable, willingness to commit is not.** Every candidate produced zero wrong
+answers in every run; only the no-answer count moved, and it moved a lot. A probe scored as
+"correct out of N" therefore mixes a stable signal with a noisy one, and the two columns must
+be read separately — the no-answer column needs a far larger N before it means anything.
+
+No ranking among `match` / `when` / `given` survives, so the keyword decision falls to the
+structural arguments below. **The score should be re-taken once a cheat sheet exists**, because the no-answer mode is exactly
 what guidance fixes — and the collision and over-promise problems are not fixable at all.
