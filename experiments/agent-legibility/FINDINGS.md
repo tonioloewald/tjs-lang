@@ -658,3 +658,51 @@ instrument is noisier here than on the original switch probe — treat the 4/5 a
 produce confident errors" rather than as a precise rate. What is robust across both probes,
 now nine arms, is the direction: **the C shape reliably produces confident wrong answers in
 `.tjs`, and changing the shape reliably stops that.**
+
+## Keyword candidates, and why the score is not the whole decision (2026-08-29)
+
+Same program, same question, only the keyword varying. qwen3.8-27b, N=5.
+
+| keyword                            | correct | **wrong** | no-answer |
+| ---------------------------------- | ------- | --------- | --------- |
+| `match`                            | 4/5     | **0**     | 1         |
+| `when`                             | 3/5     | **0**     | 2         |
+| `given`                            | 1/5     | **0**     | 4         |
+| `switch` (C syntax, for reference) | 0/5     | **5**     | 0         |
+
+**Every new keyword produced ZERO wrong answers.** They differ only in willingness to commit.
+So the ranking measures how much prior a word recruits, not whether the construct is
+legible — and the two failure modes are not equivalent:
+
+- A **wrong** answer is a model writing broken code with confidence. It does not self-correct.
+- A **no answer** is a model declining to guess about a word it has never seen. That resolves
+  the moment documentation, a cheat sheet, or one example exists — and A2 already measured
+  that guidance takes comprehension from 0% to 67%.
+
+Read that way, `given`'s 1/5 is _hesitation about an unfamiliar word_, which is the correct
+response to an unfamiliar word, while `switch`'s 0/5 is _confident error_, which is the only
+outcome that ships bugs. This probe measures COLD reading with zero context, which is the
+worst case for a novel keyword and the best case for a familiar one.
+
+## Two arguments that do not depend on the score
+
+**Collision risk, counted in our own source:**
+
+| keyword  | occurrences | as a METHOD call     |
+| -------- | ----------- | -------------------- |
+| `match`  | 417         | **33** (`.match(…)`) |
+| `when`   | 423         | 0                    |
+| `given`  | 21          | 0                    |
+| `select` | 7           | 0                    |
+
+None are reserved words, so detection must exclude every other use. `match` is by far the
+worst, and specifically in the dangerous way — 33 method calls in one codebase.
+
+**Semantics.** This construct compares VALUES with `Eq`. It does not destructure, bind, or
+guard. `match` names the thing Rust, Python and Scala do, which is pattern matching, so it
+over-promises: a reader arriving with that prior expects capabilities we do not have. `given`
+promises what we deliver.
+
+So the measurement favours `match`, and the two structural arguments favour `given`. **The
+score should be re-taken once a cheat sheet exists**, because the no-answer mode is exactly
+what guidance fixes — and the collision and over-promise problems are not fixable at all.
