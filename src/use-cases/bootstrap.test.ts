@@ -35,6 +35,48 @@ import * as fs from 'fs'
 import * as path from 'path'
 
 /**
+ * Flatten several emitted modules into ONE scope, the way this canary needs them.
+ *
+ * Every emitted file carries an inline runtime preamble — `const Type`, `const __match`,
+ * `const __tjs` — because emitted JS is required to stand alone. In ESM, a bundler, or a
+ * `<script type=module>`, each module has its own scope and that is exactly right. This test
+ * strips the imports and concatenates the text so the modules can call each other, which
+ * collapses seven scopes into one and declares `const __tjs` seven times.
+ *
+ * So the preamble is emitted ONCE, which is what a bundler does with shared helpers. Wrapping
+ * each module in an IIFE would be the other obvious fix and does not work here: the canary
+ * concatenates precisely so `parser.ts` can see `parser-transforms.ts`.
+ *
+ * This is a harness concern, not an emission one — nothing that ships concatenates raw module
+ * text into a single scope. It only became visible when the canary stopped transpiling with
+ * `ts.transpileModule`, whose output had no inline runtime to duplicate.
+ */
+const ANNOTATION = /\/\* tjs <- [^*]*\*\//
+
+function flattenModules(files: string[], langDir: string): string {
+  let combined = ''
+  files.forEach((file, i) => {
+    const src = fs.readFileSync(path.join(langDir, file), 'utf-8')
+    // fromTSToTJS, NOT the composing `fromTS` shim below — that one already runs `tjs()`,
+    // so going through it here transpiled twice and emitted a second runtime preamble.
+    let code = tjs(fromTSToTJS(src, { filename: file }).code, {
+      runTests: false,
+    }).code
+    if (i > 0) {
+      // Drop this module's copy of the shared runtime preamble.
+      const m = ANNOTATION.exec(code)
+      if (m) code = code.slice(m.index + m[0].length)
+    }
+    combined +=
+      code
+        .replace(/^import\s+.*$/gm, '')
+        .replace(/^export\s+\{[^}]*\}\s+from\s+.*$/gm, '')
+        .replace(/^export\s+/gm, '') + '\n'
+  })
+  return combined
+}
+
+/**
  * The composed path: TS -> TJS -> JS.
  *
  * `fromTS` emits TJS and stops; `tjs` takes it the rest of the way. These tests assert on
@@ -607,16 +649,7 @@ describe('Bootstrap Canary', () => {
       ]
 
       const transpileStart = performance.now()
-      let combinedCode = ''
-      for (const file of moduleFiles) {
-        const src = fs.readFileSync(path.join(langDir, file), 'utf-8')
-        const result = fromTS(src)
-        const stripped = result.code
-          .replace(/^import\s+.*$/gm, '')
-          .replace(/^export\s+\{[^}]*\}\s+from\s+.*$/gm, '')
-          .replace(/^export\s+/gm, '')
-        combinedCode += stripped + '\n'
-      }
+      const combinedCode = flattenModules(moduleFiles, langDir)
       const transpileTime = performance.now() - transpileStart
 
       expect(combinedCode).toBeTruthy()
@@ -742,16 +775,7 @@ describe('Bootstrap Canary', () => {
         'parser.ts',
       ]
 
-      let combinedCode = ''
-      for (const file of moduleFiles) {
-        const src = fs.readFileSync(path.join(langDir, file), 'utf-8')
-        const result = fromTS(src)
-        const stripped = result.code
-          .replace(/^import\s+.*$/gm, '')
-          .replace(/^export\s+\{[^}]*\}\s+from\s+.*$/gm, '')
-          .replace(/^export\s+/gm, '')
-        combinedCode += stripped + '\n'
-      }
+      const combinedCode = flattenModules(moduleFiles, langDir)
 
       const bootstrappedParser = new Function(
         'emitVerifiedPredicate',
