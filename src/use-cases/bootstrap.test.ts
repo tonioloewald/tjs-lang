@@ -28,11 +28,26 @@ const STRIP_COMMENTS_EXPORTS = Object.keys(stripComments).filter(
 const STRIP_COMMENTS_VALUES = STRIP_COMMENTS_EXPORTS.map(
   (k) => (stripComments as Record<string, unknown>)[k]
 )
-import { fromTS } from '../lang/emitters/from-ts'
+import { fromTS as fromTSToTJS } from '../lang/emitters/from-ts'
 import { tjs } from '../lang'
 import { emitVerifiedPredicate } from '../lang/predicate'
 import * as fs from 'fs'
 import * as path from 'path'
+
+/**
+ * The composed path: TS -> TJS -> JS.
+ *
+ * `fromTS` emits TJS and stops; `tjs` takes it the rest of the way. These tests assert on
+ * JavaScript, so they compose the two — which is now the ONLY route to JS. It used to be one
+ * call, because `fromTS` also emitted JS via `ts.transpileModule`; that meant these
+ * assertions were checking the TypeScript compiler's output, not ours. See
+ * `src/no-ts-emitter.test.ts`.
+ */
+const fromTS = (source: string, options: any = {}) => {
+  const t = fromTSToTJS(source, options)
+  if (options.emitTJS) return t
+  return { ...t, code: tjs(t.code, { runTests: false }).code }
+}
 
 describe('Bootstrap Canary', () => {
   describe('TJS transpiles and executes its own modules', () => {

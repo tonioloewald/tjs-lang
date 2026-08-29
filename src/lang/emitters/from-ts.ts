@@ -2754,7 +2754,33 @@ export function fromTS(
   source: string,
   options: FromTSOptions = {}
 ): FromTSResult {
-  const { emitTJS = false, filename = 'input.ts' } = options
+  // `fromTS` does ONE job: TypeScript -> TJS. Getting to JavaScript is `tjs()`'s job, and
+  // composing them at the call site is what makes the path visible:
+  //
+  //     const js = tjs(fromTS(src).code).code
+  //
+  // It used to emit JS too, via `ts.transpileModule` — a SECOND JavaScript emitter, next to
+  // our own. The maintenance cost was the smaller half. The damage was to the evidence: the
+  // compat lane ran that branch by default (`--full` defaulted off, and three of the six
+  // scripts never had the flag), and the Bootstrap Canary called it under a comment reading
+  // `// Transpile with TJS`. The two lanes cited as proof that the converter works and that
+  // TJS can host itself were largely exercising the TypeScript compiler. A green result from
+  // someone else's emitter says nothing about ours, and no lane should ever have been able to
+  // reach one — enforced now by `src/no-ts-emitter.test.ts`.
+  //
+  // TypeScript is used to READ TypeScript and never to write JavaScript.
+  if (options.emitTJS === false) {
+    throw new Error(
+      'fromTS no longer emits JavaScript — it emits TJS. Compose the two steps:\n' +
+        "  import { tjs } from 'tjs-lang/lang'\n" +
+        "  import { fromTS } from 'tjs-lang/lang/from-ts'\n" +
+        '  const js = tjs(fromTS(source).code).code\n' +
+        'This is loud on purpose: the old JS output came from `ts.transpileModule`, so it ' +
+        "was TypeScript's emitter, not ours."
+    )
+  }
+  const emitTJS = true
+  const { filename = 'input.ts' } = options
   const warnings: string[] = []
 
   // Extract embedded test comments before TS parsing (they need to be preserved)
@@ -2912,58 +2938,54 @@ export function fromTS(
           // Skip bodyless signatures — handled when we encounter the implementation
         } else {
           // Implementation: emit the entire overload group
-          if (emitTJS) {
-            tjsFunctions.push(
-              ...emitOverloadGroup(
-                overloadGroup.signatures,
-                statement,
-                sourceFile,
-                warnings
-              )
-            )
-          } else {
-            const overloads: FunctionTypeInfo[] = []
-            for (const sig of overloadGroup.signatures) {
-              overloads.push(
-                extractFunctionMetadata(
-                  sig,
-                  sourceFile,
-                  warnings,
-                  resolutionCtx
-                )
-              )
-            }
-            const implInfo = extractFunctionMetadata(
-              statement,
-              sourceFile,
-              warnings,
-              resolutionCtx
-            )
-            implInfo.overloads = overloads
-            metadata[funcName] = implInfo
-          }
-        }
-      } else {
-        // Normal (non-overloaded) function
-        if (emitTJS) {
           tjsFunctions.push(
-            transformFunctionToTJS(
+            ...emitOverloadGroup(
+              overloadGroup.signatures,
               statement,
               sourceFile,
-              undefined,
-              warnings,
-              true,
-              resolutionCtx
+              warnings
             )
           )
-        } else {
-          metadata[funcName] = extractFunctionMetadata(
+          const overloads: FunctionTypeInfo[] = []
+          for (const sig of overloadGroup.signatures) {
+            overloads.push(
+              extractFunctionMetadata(sig, sourceFile, warnings, resolutionCtx)
+            )
+          }
+          const implInfo = extractFunctionMetadata(
             statement,
             sourceFile,
             warnings,
             resolutionCtx
           )
+          implInfo.overloads = overloads
+          metadata[funcName] = implInfo
         }
+      } else {
+        // Normal (non-overloaded) function.
+        //
+        // Metadata extraction and TJS emission both run. They used to be the two halves of an
+        // `if (emitTJS) … else …`, which meant the two "modes" of this function were not two
+        // renderings of one analysis — they were separate programs that never both ran. The
+        // TJS path returned no `types` at all, so anything wanting types AND a transpile had
+        // to take the `ts.transpileModule` branch. That is a large part of why the dead path
+        // stayed alive.
+        metadata[funcName] = extractFunctionMetadata(
+          statement,
+          sourceFile,
+          warnings,
+          resolutionCtx
+        )
+        tjsFunctions.push(
+          transformFunctionToTJS(
+            statement,
+            sourceFile,
+            undefined,
+            warnings,
+            true,
+            resolutionCtx
+          )
+        )
       }
     }
 
@@ -3011,7 +3033,6 @@ export function fromTS(
               }
             }
             tjsFunctions.push(tjsFunc)
-          } else {
             const info = extractFunctionMetadata(
               funcNode,
               sourceFile,
@@ -3155,6 +3176,12 @@ export function fromTS(
           hasTjsClass
         )
         tjsFunctions.push(classDecl)
+        classMetadata[className] = extractClassMetadata(
+          statement,
+          sourceFile,
+          warnings,
+          resolutionCtx
+        )
       } else {
         classMetadata[className] = extractClassMetadata(
           statement,
@@ -3280,112 +3307,18 @@ export function fromTS(
       code: applyUnsafeAnnotations(
         header + tjsFunctions.join('\n\n') + testsSection
       ),
+      // The extracted type metadata travels with the TJS too. It used to be returned only by
+      // the JS branch, so anything that wanted BOTH the types and a real transpile had to go
+      // through `ts.transpileModule` — the surviving path was missing half its output, which
+      // is part of why the dead one stayed alive.
+      types: metadata,
+      classes:
+        Object.keys(classMetadata).length > 0 ? classMetadata : undefined,
       warnings: warnings.length > 0 ? warnings : undefined,
     }
   }
 
-  // For JS output, strip types and add metadata
-  const jsOutput = ts.transpileModule(source, {
-    compilerOptions: {
-      target: ts.ScriptTarget.ESNext,
-      module: ts.ModuleKind.ESNext,
-      removeComments: false,
-    },
-  })
-
-  // Append __tjs metadata for each function
-  let code = jsOutput.outputText
-  for (const [funcName, info] of Object.entries(metadata)) {
-    const metadataObj: Record<string, any> = {
-      params: Object.fromEntries(
-        Object.entries(info.params).map(([k, v]) => [
-          k,
-          { type: v.type.kind, required: v.required, default: v.default },
-        ])
-      ),
-      returns: info.returns ? { type: info.returns.kind } : undefined,
-    }
-
-    // Include type parameters (generics) if present
-    if (info.typeParams) {
-      metadataObj.typeParams = info.typeParams
-    }
-
-    const metadataStr = JSON.stringify(metadataObj, null, 2)
-    code += `\n${funcName}.__tjs = ${metadataStr};\n`
-  }
-
-  // Append __tjs metadata for each class
-  for (const [className, info] of Object.entries(classMetadata)) {
-    const metadataObj: Record<string, any> = {
-      constructor: info.constructor
-        ? {
-            params: Object.fromEntries(
-              Object.entries(info.constructor.params ?? {}).map(([k, v]) => [
-                k,
-                { type: v.type.kind, required: v.required, default: v.default },
-              ])
-            ),
-          }
-        : undefined,
-      methods: Object.fromEntries(
-        Object.entries(info.methods ?? {}).map(([name, m]) => [
-          name,
-          {
-            params: Object.fromEntries(
-              Object.entries(m.params ?? {}).map(([k, v]) => [
-                k,
-                { type: v.type.kind, required: v.required },
-              ])
-            ),
-            returns: m.returns ? { type: m.returns.kind } : undefined,
-          },
-        ])
-      ),
-      staticMethods: Object.fromEntries(
-        Object.entries(info.staticMethods ?? {}).map(([name, m]) => [
-          name,
-          {
-            params: Object.fromEntries(
-              Object.entries(m.params ?? {}).map(([k, v]) => [
-                k,
-                { type: v.type.kind, required: v.required },
-              ])
-            ),
-            returns: m.returns ? { type: m.returns.kind } : undefined,
-          },
-        ])
-      ),
-    }
-
-    if (info.typeParams) {
-      metadataObj.typeParams = info.typeParams
-    }
-
-    const metadataStr = JSON.stringify(metadataObj, null, 2)
-    code += `\n${className}.__tjs = ${metadataStr};\n`
-
-    // Wrap class to make it callable without `new`
-    code += `\n${emitClassWrapper(className)}\n`
-  }
-
-  // `new X()` -> `X()` for a class declared in THIS file.
-  //
-  // A TJS class is called, so the two forms produce identical objects and `new` on a
-  // locally-declared class is an error. Without this rewrite every converted TypeScript
-  // file that constructs its own classes fails to compile — our own source lost 7 of 95
-  // files to it — and the on-ramp asks the user to fix by hand something the converter
-  // can prove is safe. "Upgrade where it is free" is the conversion contract's second
-  // obligation; this is the clearest instance of it in the language.
-  //
-  // Scoped to locally-declared classes for the same reason the rule is: for a built-in,
-  // `new` is MANDATORY. (Applied at the TJS return above; the JS path below keeps `new`,
-  // since plain JavaScript classes really do require it.)
-
-  return {
-    code,
-    types: metadata,
-    classes: Object.keys(classMetadata).length > 0 ? classMetadata : undefined,
-    warnings: warnings.length > 0 ? warnings : undefined,
-  }
+  // Unreachable: every path above returns TJS. Kept as a hard failure rather than a silent
+  // fall-through, because "returns undefined" is how an emitter regression would hide.
+  throw new Error('unreachable: fromTS always emits TJS')
 }

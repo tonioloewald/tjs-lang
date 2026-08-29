@@ -14,7 +14,23 @@
 
 import { describe, test, expect } from 'bun:test'
 import { transpileToJS, tjs } from './index'
-import { fromTS } from './emitters/from-ts'
+import { fromTS as fromTSToTJS } from './emitters/from-ts'
+import { tjs } from './index'
+
+/**
+ * The composed path: TS -> TJS -> JS.
+ *
+ * `fromTS` emits TJS and stops; `tjs` takes it the rest of the way. These tests assert on
+ * JavaScript, so they compose the two — which is now the ONLY route to JS. It used to be one
+ * call, because `fromTS` also emitted JS via `ts.transpileModule`; that meant these
+ * assertions were checking the TypeScript compiler's output, not ours. See
+ * `src/no-ts-emitter.test.ts`.
+ */
+const fromTS = (source: string, options: any = {}) => {
+  const t = fromTSToTJS(source, options)
+  if (options.emitTJS) return t
+  return { ...t, code: tjs(t.code, { runTests: false }).code }
+}
 
 // Helper to get the first function's metadata from the Record
 function getFirstFunc(metadata: Record<string, any>) {
