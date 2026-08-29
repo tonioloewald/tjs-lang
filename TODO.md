@@ -113,6 +113,23 @@ Plus `ts-compat.test.ts` acceptance **12/25** and `ts-tightness.test.ts` **7/12*
 - [ ] **Exemplify our own claims**: self-hosted for real, literate programming demonstrated,
       transparent, consistent
 
+## Editor vocabulary — the remaining gap (2026-08-29)
+
+`given` shipped with no highlighting and no completion, which is the language lying about
+itself in the first place anyone looks. That is now hard to miss: `src/lang/keywords.ts` is
+the registry, and `editors/vocabulary.test.ts` fails by name if a registered construct has no
+proof snippet, is absent from an editor list, is missing from the BUILT grammar, or has no
+completion — plus a source scan that catches a construct which never reached the registry at
+all. All four guards mutation-checked.
+
+One gap is named rather than closed:
+
+- [ ] **Contextual completion inside `Type` / `Generic` blocks.** `predicate`, `example`,
+      `description` and `declaration` are legal only inside one, so they correctly have no
+      top-level completion — but inside a block the editor offers nothing at all. The
+      completions guard is driven off `TJS_STATEMENT_KEYWORDS` for exactly this reason; when
+      contextual completion lands, `TJS_BLOCK_MEMBERS` gets the same treatment.
+
 ## Value for the TS coder who NEVER switches (the wedge, 2026-08-01)
 
 **The strategic question:** how much can we deliver to someone who keeps writing `.ts` and

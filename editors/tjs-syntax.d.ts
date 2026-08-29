@@ -9,11 +9,11 @@
 /**
  * TJS-specific keywords (in addition to AJS)
  */
-export declare const TJS_KEYWORDS: readonly ["Type", "Generic", "Enum", "Union", "FunctionPredicate", "predicate", "example", "description", "declaration", "extend", "wasm", "test", "mock", "unsafe", "async", "await", "throw", "import", "export", "class", "extends", "super", "this", "new", "static", "typeof", "instanceof", "delete"];
+export declare const TJS_KEYWORDS: readonly ["Type", "Generic", "Enum", "Union", "FunctionPredicate", "predicate", "example", "description", "declaration", "extend", "wasm", "test", "mock", "unsafe", "given", "async", "await", "throw", "import", "export", "class", "extends", "super", "this", "new", "static", "typeof", "instanceof", "delete"];
 /**
  * All TJS keywords
  */
-export declare const KEYWORDS: readonly ["function", "return", "if", "else", "while", "for", "of", "in", "try", "catch", "finally", "let", "const", "true", "false", "null", "undefined", "Type", "Generic", "Enum", "Union", "FunctionPredicate", "predicate", "example", "description", "declaration", "extend", "wasm", "test", "mock", "unsafe", "async", "await", "throw", "import", "export", "class", "extends", "super", "this", "new", "static", "typeof", "instanceof", "delete"];
+export declare const KEYWORDS: readonly ["function", "return", "if", "else", "while", "for", "of", "in", "try", "catch", "finally", "let", "const", "true", "false", "null", "undefined", "Type", "Generic", "Enum", "Union", "FunctionPredicate", "predicate", "example", "description", "declaration", "extend", "wasm", "test", "mock", "unsafe", "given", "async", "await", "throw", "import", "export", "class", "extends", "super", "this", "new", "static", "typeof", "instanceof", "delete"];
 /**
  * Constructs a `.tjs` file actually REJECTS.
  *
@@ -37,7 +37,7 @@ export declare const FORBIDDEN_KEYWORDS: readonly ["var", "eval"];
 /**
  * Type constructors (same as AJS plus TJS-specific)
  */
-export declare const TYPE_CONSTRUCTORS: readonly ["Date", "Set", "Map", "Array", "Object", "String", "Number", "Boolean", "RegExp", "Error", "JSON", "Math", "Schema", "expect", "assert", "Timestamp", "Is", "IsNot", "Eq", "NotEq", "TypeOf"];
+export declare const TYPE_CONSTRUCTORS: readonly ["Date", "Set", "Map", "Array", "Object", "String", "Number", "Boolean", "RegExp", "Error", "JSON", "Math", "Schema", "expect", "assert", "Timestamp", "Exactly", "Is", "IsNot", "Eq", "NotEq", "TypeOf"];
 /**
  * Type NAMES usable in an annotation (`n: int`).
  *

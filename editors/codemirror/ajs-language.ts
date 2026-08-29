@@ -435,6 +435,14 @@ const TJS_COMPLETIONS: CMCompletion[] = [
     type: 'keyword',
     detail: 'Local class extension — no prototype pollution',
   }),
+  snippetCompletion(
+    "given ${value} {\n\t${'a'}, ${'b'} {\n\t\t${}\n\t}\n} else {\n\t\n}",
+    {
+      label: 'given',
+      type: 'keyword',
+      detail: 'Value dispatch — no fallthrough, no break, per-arm scope',
+    }
+  ),
   snippetCompletion('wasm function ${name}(${n}: 0): 0 {\n\t${}\n}', {
     label: 'wasm',
     type: 'keyword',

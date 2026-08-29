@@ -553,6 +553,7 @@ describe('Bootstrap Canary', () => {
         'declared-classes.ts',
         'parser-params.ts',
         'parser-transforms.ts',
+        'keywords.ts',
         'given-transform.ts',
         'parser.ts',
       ]
@@ -585,6 +586,7 @@ describe('Bootstrap Canary', () => {
         'declared-classes.ts',
         'parser-params.ts',
         'parser-transforms.ts',
+        'keywords.ts',
         'given-transform.ts',
         'parser.ts',
       ]
@@ -720,6 +722,7 @@ describe('Bootstrap Canary', () => {
         'declared-classes.ts',
         'parser-params.ts',
         'parser-transforms.ts',
+        'keywords.ts',
         'given-transform.ts',
         'parser.ts',
       ]

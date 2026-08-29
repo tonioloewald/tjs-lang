@@ -30,9 +30,14 @@
  */
 import { describe, it, expect } from 'bun:test'
 import { readFileSync, existsSync } from 'fs'
+import { execSync } from 'child_process'
 import { join } from 'path'
 import { tjs } from '../src/lang'
 import { ALL_COMPLETIONS } from './codemirror/ajs-language'
+import {
+  TJS_CONSTRUCT_KEYWORDS,
+  TJS_STATEMENT_KEYWORDS,
+} from '../src/lang/keywords'
 import {
   KEYWORDS,
   TYPE_CONSTRUCTORS,
@@ -68,6 +73,13 @@ const VOCABULARY: Array<{ token: string; list: List; snippet: string }> = [
   },
   { token: 'example', list: 'keyword', snippet: `Type E { example: 2 }` },
   {
+    // `.d.ts` metadata, stripped before parsing — so it is invisible at runtime and was
+    // invisible in the editor too.
+    token: 'declaration',
+    list: 'keyword',
+    snippet: `Generic U<T> {\n  predicate(x, T) { return true }\n  declaration {\n    // TS: T extends Promise<infer V> ? V : T\n  }\n}`,
+  },
+  {
     token: 'description',
     list: 'keyword',
     snippet: `Type E { description: 'd'\n  example: 2 }`,
@@ -86,6 +98,12 @@ const VOCABULARY: Array<{ token: string; list: List; snippet: string }> = [
   },
   { token: 'test', list: 'keyword', snippet: `test 'x' { expect(1).toBe(1) }` },
   { token: 'unsafe', list: 'keyword', snippet: `const d = unsafe new Date(0)` },
+  {
+    token: 'given',
+    list: 'keyword',
+    snippet: `function f(x: 0):! 0 {\n  given x {\n    1 { return 2 }\n  } else {\n    return 0\n  }\n}`,
+  },
+  { token: 'mock', list: 'keyword', snippet: `mock { const x = 1 }` },
 
   // --- runtime functions ---
   {
@@ -95,6 +113,13 @@ const VOCABULARY: Array<{ token: string; list: List; snippet: string }> = [
   },
   { token: 'Is', list: 'constructor', snippet: `const r = Is([1], [1])` },
   { token: 'IsNot', list: 'constructor', snippet: `const r = IsNot([1], [2])` },
+  {
+    // `fromTS` EMITS this into converted TJS for every TS literal type, so it is on screen in
+    // files nobody hand-wrote — and it was in no editor list.
+    token: 'Exactly',
+    list: 'constructor',
+    snippet: `Type L { example: Exactly(1) }`,
+  },
 
   // --- type names (the numeric-narrowing story, none of it highlighted before) ---
   {
@@ -148,11 +173,85 @@ describe('every token the editors claim is real', () => {
     })
   }
 
+  it('EVERY construct the language defines has a row here', () => {
+    // The converse direction, and the one that was missing. The corpus above is
+    // hand-written, so "every token the editors claim is real" could stay green while a new
+    // construct shipped with no highlighting and no proof — which is exactly what `given`
+    // did. Registering a keyword now FORCES a snippet the compiler accepts.
+    const proven = new Set(VOCABULARY.map((v) => v.token))
+    for (const kw of TJS_CONSTRUCT_KEYWORDS) {
+      expect(`${kw}:${proven.has(kw)}`).toBe(`${kw}:true`)
+    }
+  })
+
   it('the corpus covers the distinctive surface, not just a sample', () => {
     // A corpus that shrank to two rows would make every assertion above vacuous.
     expect(VOCABULARY.length).toBeGreaterThan(15)
     for (const l of ['keyword', 'constructor', 'typeName'] as List[]) {
       expect(VOCABULARY.some((v) => v.list === l)).toBe(true)
+    }
+  })
+})
+
+/**
+ * The hole a registry cannot close by itself: a construct that never reached the registry.
+ *
+ * Statement-keyword detection has a distinctive shape — a word-boundary or
+ * start-of-statement match on a bare word followed by required whitespace — because the
+ * keyword has to be told apart from an identifier that merely starts the same way. Scanning
+ * the language's own source for that shape finds the constructs, and every word it finds must
+ * be one the editors know. Measured over `src/lang`: ten words, nine of them expected. The
+ * tenth was `given`.
+ */
+describe('no construct reaches the language without reaching the editors', () => {
+  /** Words matched this way that are NOT TJS constructs, each with why. */
+  const NOT_CONSTRUCTS: Record<string, string> = {
+    class: 'JavaScript keyword — the base grammar paints it',
+    for: 'JavaScript keyword',
+    function: 'JavaScript keyword',
+    new: 'JavaScript keyword',
+    constructor:
+      'a forbidden PROPERTY name, not a construct (forbidden-keys.ts)',
+    type: 'an ordinary identifier in TJS — measured, and painting it red gave a shipped example three false squiggles',
+  }
+
+  const words = (() => {
+    const files = execSync('git ls-files src/lang')
+      .toString()
+      .trim()
+      .split('\n')
+      .filter((f) => f.endsWith('.ts') && !f.includes('.test.'))
+    const RX = /\/(?:\^|\\b|\(\^\|\[[^\]]*\]\))([a-zA-Z][a-zA-Z]{1,20})\\s/g
+    const found = new Set<string>()
+    for (const f of files) {
+      const src = readFileSync(join(import.meta.dir, '..', f), 'utf-8')
+      let m: RegExpExecArray | null
+      while ((m = RX.exec(src))) found.add(m[1])
+    }
+    return [...found].sort()
+  })()
+
+  it('the scan finds something — apparatus check', () => {
+    // A regex that matched nothing would make the assertion below vacuously green, which is
+    // the failure mode this whole file exists to catch.
+    expect(words.length).toBeGreaterThan(5)
+    expect(words).toContain('given')
+  })
+
+  it('every keyword-shaped word in the language is known to the editors', () => {
+    const known = new Set<string>([
+      ...KEYWORDS,
+      ...TYPE_CONSTRUCTORS,
+      ...TYPE_NAMES,
+      ...Object.keys(NOT_CONSTRUCTS),
+    ])
+    for (const w of words) {
+      expect(
+        `${w}:${known.has(w)}`,
+        `\`${w}\` is detected as a keyword in src/lang but no editor list carries it. ` +
+          `Register it in src/lang/keywords.ts (which highlights it AND demands a proof ` +
+          `row), or add it to NOT_CONSTRUCTS here with a reason.`
+      ).toBe(`${w}:true`)
     }
   })
 })
@@ -263,19 +362,17 @@ describe('completions do not suggest what the compiler rejects', () => {
   it('offers the distinctive TJS vocabulary, not just JS keywords', () => {
     // The silent-omission direction. `Type`/`Generic`/`Enum` had no completion, so the
     // constructs that make this a different language were undiscoverable in its own editor.
+    //
+    // Driven off the REGISTRY rather than a second hand-written list, so a new construct is
+    // undiscoverable-by-default for exactly as long as it takes this to go red. Highlighting
+    // and completion fail together or not at all — the earlier hardcoded list would have let
+    // `given` be painted correctly and still be unofferable.
     const labels = new Set(ALL_COMPLETIONS.map((c: any) => String(c.label)))
-    for (const t of [
-      'Type',
-      'Generic',
-      'Enum',
-      'Union',
-      'FunctionPredicate',
-      'extend',
-      'wasm',
-      'int',
-      'unsigned',
-      'float',
-    ]) {
+    // STATEMENT keywords only. The block members (`example`, `predicate`, …) are legal only
+    // inside a `Type`/`Generic` block, so a top-level completion for them would be the same
+    // kind of false claim as an unpainted keyword, pointing the other way. They get no
+    // contextual completion today — a real gap, named in `keywords.ts` rather than hidden.
+    for (const t of [...TJS_STATEMENT_KEYWORDS, 'int', 'unsigned', 'float']) {
       expect(`${t}:${labels.has(t)}`).toBe(`${t}:true`)
     }
   })

@@ -46,6 +46,7 @@
  * to it — the repo's dominant defect class, headed off rather than discovered later.
  */
 import { maskLiterals, matchingBrace } from '../strip-comments'
+import { GIVEN } from './keywords'
 
 export interface GivenWarning {
   message: string
@@ -103,7 +104,7 @@ function lowerOnce(source: string, warnings: GivenWarning[]): string {
 
     // Discriminant runs to the `{` that opens the body, at bracket depth 0.
     let depth = 0
-    let j = kw + 'given'.length
+    let j = kw + GIVEN.length
     while (j < masked.length) {
       const c = masked[j]
       if (c === '(' || c === '[') depth++
@@ -113,7 +114,7 @@ function lowerOnce(source: string, warnings: GivenWarning[]): string {
     }
     if (j >= masked.length) continue
 
-    const disc = source.slice(kw + 'given'.length, j).trim()
+    const disc = source.slice(kw + GIVEN.length, j).trim()
     if (!plausibleDiscriminant(disc)) continue
 
     const bodyEnd = matchingBrace(masked, j)

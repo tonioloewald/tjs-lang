@@ -18,24 +18,35 @@ import {
  * TJS-specific keywords (in addition to AJS)
  */
 export const TJS_KEYWORDS = [
-  // The DECLARATION forms. Their absence meant a `.tjs` file got no highlighting for the
-  // constructs that make it TJS — the lists described AJS plus a handful of JS keywords.
+  // These MIRROR `src/lang/keywords.ts` (TJS_CONSTRUCT_KEYWORDS), and the mirror is enforced
+  // rather than trusted: `vocabulary.test.ts` requires every registered construct to have a
+  // proof row, and every row asserts both that the compiler accepts it and that this list
+  // carries it. So a keyword added to the language and not to this list fails by name.
+  //
+  // Not imported directly because `tsconfig.editors.json` roots declaration emit at
+  // `editors/`, and reaching into `src/` would scatter a stray `.d.ts` into the source tree
+  // to save a line. The test chain gives the same guarantee without that.
+  //
+  // Their absence meant a `.tjs` file got no highlighting for the constructs that make it
+  // TJS — the lists described AJS plus a handful of JS keywords. That was fixed once, and
+  // then `given` shipped unhighlighted a release later, because a hand-written list is only
+  // as current as the last person who remembered it. Now it fails.
   'Type',
   'Generic',
   'Enum',
   'Union',
   'FunctionPredicate',
-  // Members of a `Type`/`Generic` block.
   'predicate',
   'example',
   'description',
   'declaration',
-  // Other TJS-only constructs.
   'extend', // local class extensions
   'wasm', // inline WebAssembly
   'test', // inline tests
   'mock', // test setup blocks
   'unsafe', // exception-catching blocks
+  'given', // value dispatch without fallthrough
+  // JavaScript keywords TJS also wants painted (AJS, being a sandbox, omits them).
   'async', // TJS allows async (unlike sandboxed AJS)
   'await',
   'throw',
@@ -97,6 +108,9 @@ export const TYPE_CONSTRUCTORS = [
   // TJS runtime functions. `Is`/`IsNot` have an INFIX spelling too (`a Is b`), which the
   // compiler rewrites to the call form — both are real.
   'Timestamp', // the `Date` replacement: epoch ms, immutable
+  // `fromTS` EMITS this for every TS literal type, so it appears in converted files nobody
+  // hand-wrote — the most-read TJS there is, and it was in no list.
+  'Exactly',
   'Is',
   'IsNot',
   'Eq',
