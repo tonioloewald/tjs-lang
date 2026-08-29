@@ -553,3 +553,10 @@ export function getToolDefinitions(
     }
   })
 }
+
+// Graduation: converted file -> native TJS. Exported because it is the documented second
+// half of `tjs convert`, and a consumer upgrading a codebase needs it as much as we do.
+export { graduate } from './graduate'
+export type { GraduateResult } from './graduate'
+export { switchToGiven } from './switch-to-given'
+export type { SwitchToGivenResult } from './switch-to-given'

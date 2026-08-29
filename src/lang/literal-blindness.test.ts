@@ -692,3 +692,31 @@ describe("the parser's sentinels are not stripped from user data", () => {
     expect(String(g())).toContain('MonadicError')
   })
 })
+
+describe('the fromTS provenance annotation is a comment, not a string', () => {
+  // `/* tjs <- file */` in the output of `fromTS` means JS SEMANTICS — every TJS mode off.
+  // The detector scanned RAW source, so any file that merely MENTIONED the annotation in a
+  // string literal was misread as TS-originated and silently lost the whole language: `==`
+  // stopped being `Eq`, `given` never lowered, dictionary defaults went atomic. `from-ts.ts`
+  // itself is such a file — it emits the annotation from a template — so the converter's own
+  // source was the first casualty, and nothing failed loudly enough to notice.
+  const mention = String.raw`const BANNER = '/* tjs <- ${'${name}'} */'` + '\n'
+
+  // `==` reports the mode directly: TJS's `Eq` does not coerce across types, JS's does. So
+  // `1 == '1'` is FALSE in native TJS and TRUE under the annotation. (A boxed primitive is
+  // the wrong probe here — JS `==` unboxes too, so both sides agree.)
+  const coerces = (src: string) =>
+    new Function(
+      tjs(src + `\nfunction f(a: 0) { return a == '1' }`, { runTests: false })
+        .code + '\nreturn f'
+    )()(1)
+
+  it('a mention in a string does not turn off TJS semantics', () => {
+    expect(coerces(mention)).toBe(false)
+  })
+
+  it('a REAL annotation still turns them off (control)', () => {
+    // Without this, deleting the detector entirely would pass the test above.
+    expect(coerces('/* tjs <- x.ts */')).toBe(true)
+  })
+})

@@ -7,9 +7,10 @@ misled us and the ones that held. Written down because the *process* turned out 
 interesting than the conclusion, and because several of the wrong turns are the kind nobody
 writes up.
 
-Outcome: **`given` shipped, `switch` reverted to C semantics with a warning.** The keyword was
-chosen on structural argument, because the measurement that appeared to rank the candidates
-turned out to be noise — which is the most useful thing in this document.
+Outcome: **`given` shipped, `switch` reverted to C semantics with a warning, and existing
+code is upgraded automatically where that is provably safe.** The keyword was chosen on
+structural argument, because the measurement that appeared to rank the candidates turned out
+to be noise — which is the most useful thing in this document.
 
 ---
 
@@ -118,14 +119,47 @@ inside a string literal.
 
 ## 6. Rewriting existing code, which is the actual job
 
-Adding a better alternative is not fixing the language. `switchToMatch` rewrites a C `switch`
+Adding a better alternative is not fixing the language. `switchToGiven` rewrites a C `switch`
 **only where it provably means the same thing**: every non-empty arm leaves
 (`return`/`throw`/`break`/`continue`), so implicit-versus-explicit break is unobservable.
 Stacked empty arms become multi-value; trailing `break` is dropped as dead code; `default`
-becomes `else`.
+becomes `else`. Where an arm genuinely runs into the next it is **not** rewritten and says why
+at the site — a converter that is occasionally wrong is worse than one that is honest.
 
-Where an arm genuinely runs into the next, it is **not** rewritten and says why at the site.
-A converter that is occasionally wrong is worse than one that is honest.
+It runs at **graduation**, not conversion, and the distinction is load-bearing. `fromTS` output
+carries `/* tjs <- source */`, which means JS semantics; `given` is lowered only for native
+TJS. Emitting it at conversion time would produce files that do not parse — which is exactly
+the shape of [#37], where dropping `new` at conversion time shipped modules that could not be
+imported. Graduation strips the annotation and then applies both rewrites, and it is now one
+function (`graduate.ts`) rather than three lines inlined in a test.
+
+On our own source: **44 switches upgraded across 19 files, 0 declined** — consistent with
+`no-fallthrough` being an error in our lint. Graduation went from 104/105 to **105/105**.
+
+### Three defects the rewrite found, none of them in the rewrite
+
+Worth recording because all three were **silent**, and two predate this work entirely:
+
+1. **It deleted every comment.** Arm text is sliced from the first statement to the last, so
+   anything sitting *between* arms simply vanished — including a twenty-line rationale block in
+   our own converter. Every test stayed green, because no test asserted that comments survive.
+   The comments are usually the part of a file you cannot reconstruct; a converter that drops
+   them is worse than one that declines.
+2. **`given` did not nest.** Lowering slices an arm's body as *text* rather than re-scanning
+   it, so one pass reached only the outermost construct and the inner one arrived at the parser
+   as `given b {`, which is not JavaScript. The transform now runs to a fixpoint. This shipped
+   with `given` and no test had nested one.
+3. **`isFromTS` was literal-blind.** The annotation that means "JS semantics" was detected by
+   scanning **raw** source, so any file that merely *mentioned* `/* tjs <- … */` in a string was
+   read as TS-originated and silently lost the entire language — `==` stopped being `Eq`,
+   dictionary defaults went atomic, `given` never lowered. `from-ts.ts` emits that annotation
+   from a template, so **the converter's own source was the first casualty**, and had been for
+   as long as the check existed.
+
+The pattern is the same one this whole document keeps running into: the failures that matter
+here do not throw. They produce plausible output. #3 in particular is the repo's dominant
+defect class (`literal-blindness.test.ts`) appearing in the one place nobody had thought to
+look — the check that decides *which language the file is written in*.
 
 ## 7. The keyword, and how the data failed us
 
@@ -224,16 +258,35 @@ explicitly abstaining, rather than the measurement being ignored.
 is the obvious next step. That would mix value dispatch with condition dispatch in one
 construct, which is a bigger change than it looks and is not needed for anything today.
 
-## 10. Open
+## 10. Where it landed, and what is still open
 
-- **The keyword.** Undecided. The data abstains; the structural case favours `given`.
-- **`switch` in `.tjs`.** Currently ships with implicit `break` (#43) — which is the one
-  construct the probe reads wrong 5/5. If a new keyword lands, `switch` should revert to C
-  semantics so nothing is silently changed. Converted code is already unaffected
-  (`dialect: 'js'` keeps C semantics; verified).
+**Decided and shipped.** `given` is the construct; `else` is the fallback; `switch` keeps C
+semantics exactly and gets a warning pointing at the replacement, so nothing silently changes
+meaning. Existing code is upgraded at graduation where that is provably safe.
+
+**Still open:**
+
 - **Re-measure with a cheat sheet.** The no-answer mode is exactly what guidance fixes
   (measured elsewhere: none 0% → cheatsheet 67%), and cold reading is the worst case for a
-  novel word and the best case for a familiar one.
+  novel word and the best case for a familiar one. The keyword ranking should be re-taken under
+  those conditions, with a much larger N on the no-answer column specifically.
+- **`else if (cond) { }`.** If `else` reads as `if`/`else`, that is the obvious next step. It
+  would mix value dispatch with condition dispatch in one construct, which is a bigger change
+  than it looks, and nothing needs it today.
+
+## 11. What generalises
+
+Three things, none of them about `switch`:
+
+1. **A pattern that needs a heavy-handed lint rule is a language defect.** That is what
+   started this, and it held up.
+2. **Correctness is stable; willingness to commit is not.** A probe scored "correct out of N"
+   silently mixes a stable signal with a noisy one. Read the columns separately, and treat a
+   ranking built on the noisy one as unmeasured until it replicates. We wrote one up as a
+   finding before it did.
+3. **If it behaves differently, it should look different.** The out-of-band signal — the file
+   extension — carries nothing to a reader. This is the single most transferable result here,
+   and it applies to every remaining place TJS changes a JavaScript meaning in place.
 
 [#43]: https://github.com/tonioloewald/tjs-lang/issues/43
 [#48]: https://github.com/tonioloewald/tjs-lang/issues/48

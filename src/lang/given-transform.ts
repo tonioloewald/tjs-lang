@@ -72,7 +72,22 @@ function plausibleDiscriminant(text: string): boolean {
  */
 export function transformGiven(source: string): GivenResult {
   const warnings: GivenWarning[] = []
-  if (!/\bgiven\s/.test(source)) return { source, warnings }
+  // To a FIXPOINT, because a `given` nested in another one's arm is copied through as raw
+  // text by the pass that lowers its parent — the arm body is sliced, not re-scanned. One
+  // pass therefore lowers only the outermost, and the inner one reaches the parser as
+  // `given b {`, which is not JavaScript. A pass that produces no change ends the loop, so a
+  // `given` correctly rejected as a false positive cannot spin.
+  let out = source
+  for (let i = 0; i < 16; i++) {
+    const pass = lowerOnce(out, warnings)
+    if (pass === out) break
+    out = pass
+  }
+  return { source: out, warnings }
+}
+
+function lowerOnce(source: string, warnings: GivenWarning[]): string {
+  if (!/\bgiven\s/.test(source)) return source
 
   const masked = maskLiterals(source)
   const RX = /(^|[\s;{}()])given\s+(?!\()/g
@@ -175,7 +190,7 @@ export function transformGiven(source: string): GivenResult {
   }
 
   out += source.slice(cursor)
-  return { source: out, warnings }
+  return out
 }
 
 /**

@@ -23,7 +23,7 @@
  * Ratchets: each stage has a floor it may not fall below. Raise the floor when you improve
  * a stage — that is how a measurement becomes a guarantee instead of a dashboard.
  */
-import { dropRedundantNew } from './declared-classes'
+import { graduate } from './graduate'
 import { describe, it, expect } from 'bun:test'
 import { readFileSync, readdirSync, statSync } from 'node:fs'
 import { join } from 'node:path'
@@ -90,21 +90,12 @@ function measure() {
     }
 
     try {
-      // GRADUATION drops `new` on locally-declared classes; conversion does not.
-      //
-      // These are genuinely different outputs, not a workaround. A converted `.js` file
-      // carries the `/* tjs <- … */` annotation and therefore JS SEMANTICS, where a class
-      // is not callable and `new` is load-bearing. Graduating strips that annotation and
-      // makes the file native TJS, where `class X {}` emits a Proxy-wrapped callable and
-      // `new X` is rejected outright.
-      //
-      // `dropRedundantNew` used to run inside `fromTS`, which made this stage pass and
-      // shipped converted modules that could not be IMPORTED — a `static zero = new Thing(0)`
-      // field throws at module-evaluation time (#37, regressed in 0.13.0). Moving it here
-      // puts it at the step whose job it actually is.
-      tjs(dropRedundantNew(converted.replace(/\/\* tjs <- [^*]*\*\/\n?/, '')), {
-        runTests: false,
-      })
+      // GRADUATION is a real operation now (`graduate.ts`), not three lines inlined here.
+      // It strips the `/* tjs <- … */` annotation — whose presence means JS SEMANTICS — and
+      // then applies the rewrites that only become correct once it is gone: dropping `new`
+      // on locally-declared classes, and `switch` → `given`. Doing either at CONVERSION time
+      // ships files that cannot be imported or cannot be parsed (#37).
+      tjs(graduate(converted).code, { runTests: false })
       graduates.ok++
     } catch (e) {
       graduates.fails.push({ file: rel, why: why(e) })
@@ -148,8 +139,18 @@ const report = (label: string, st: Stage, total: number) => {
  * emit and compile stages had already reached 99/99; graduation was the last one behind,
  * and the review round's parser fixes closed it. There is no slack left to reclaim: the
  * floor now IS the corpus, so any regression at all fails here.
+ *
+ * Raised to 105 on 2026-08-29 — 105/105, the whole corpus again, and again by the
+ * promote-check. The two holdouts were `predicate-canonical.ts` and `runtime.ts`, both
+ * failing on `new X` for a locally-declared class; graduation drops that `new`, and it was
+ * the `switch` -> `given` work that put graduation in one place (`graduate.ts`) instead of
+ * three lines inlined in this file, which is what let the drop actually run. The other half
+ * came from a literal-blindness fix in `isFromTS`: it scanned RAW source for the
+ * `tjs <- …` provenance comment, so any file MENTIONING it in a string silently lost every
+ * TJS mode. `from-ts.ts` emits that annotation from a template, so the converter's own
+ * source was the first casualty.
  */
-const GRADUATION_FLOOR = 103
+const GRADUATION_FLOOR = 105
 
 /** Improve by this much and the test asks for the floor to be raised. */
 const RATCHET_SLACK = 2

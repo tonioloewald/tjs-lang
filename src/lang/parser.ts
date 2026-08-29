@@ -7,6 +7,7 @@
 
 import {
   maskLiterals,
+  maskLiteralsKeepComments,
   scanLiterals,
   stripLineComments,
   maskUnsafe,
@@ -136,9 +137,17 @@ export function preprocess(
   const unsafeFunctions = new Set<string>()
   const safeFunctions = new Set<string>()
 
-  // Detect whether this source was emitted by fromTS (TS-originated)
-  // The /* tjs <- filename */ annotation is the signal
-  const isFromTS = /\/\*\s*tjs\s*<-\s*\S+\s*\*\//.test(source)
+  // Detect whether this source was emitted by fromTS (TS-originated).
+  // The /* tjs <- filename */ annotation is the signal — and it is a COMMENT, so the scan
+  // runs over a view with string literals blanked and comments intact. Scanning raw source
+  // meant any file that merely MENTIONED the annotation in a string was read as
+  // TS-originated and silently lost every TJS mode: `==` stopped being `Eq`, `given` never
+  // lowered. `from-ts.ts` itself is such a file — it emits the annotation from a template —
+  // so the converter's own source was the first casualty. Literal blindness, the repo's
+  // dominant defect class; see src/lang/literal-blindness.test.ts.
+  const isFromTS = /\/\*\s*tjs\s*<-\s*\S+\s*\*\//.test(
+    maskLiteralsKeepComments(source)
+  )
 
   // Native TJS: all modes ON by default (TJS is its own language).
   // Plain JS (dialect: 'js'), TS-originated, or VM target: all modes OFF +
