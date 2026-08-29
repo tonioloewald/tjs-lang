@@ -130,6 +130,24 @@ One gap is named rather than closed:
       completions guard is driven off `TJS_STATEMENT_KEYWORDS` for exactly this reason; when
       contextual completion lands, `TJS_BLOCK_MEMBERS` gets the same treatment.
 
+## Optional object params — RESOLVED, was my misreading (2026-08-29)
+
+I recorded "optional object parameters are not writable in TJS" as a language bug. That was
+wrong, and the record is corrected here rather than quietly deleted. `docs/dictionary-defaults.md`
+§5.1 already resolved it (2026-07-18, OQ1): required-ness lives at the PARAM level, `:`
+required and `=` defaulted, and an optional options-bag is the motivating case for the whole
+feature. Per-member defaults live in the DESTRUCTURE (`function f({ a = 3, b: 4 })`); the
+`opts = {…}` param form exists because JS/TS destructuring defaults do not behave the way you
+would want. Verified against the spec: fresh clone on absence (§5.5), merge-on-partial (§5.2),
+identity when complete — and atomic JS defaults until graduation (§3).
+
+Every failure I saw was the CONVERTER emitting things a dictionary default cannot hold, and
+§6.1 rejecting them correctly. All three fixed: interface members of unresolvable type now map
+to `null` (the inline-object path always did), object examples are taken in VALUE position so
+members are values rather than type names (`{ a: number }` is `number is not defined` at
+runtime), and an example that cannot be a pure literal at all falls back to the colon form
+with a warning naming §6.1.
+
 ## The compat lane, now that it measures our own converter (2026-08-29)
 
 The lane defaulted to `fromTS(source)`, which emitted JS through `ts.transpileModule`. Its

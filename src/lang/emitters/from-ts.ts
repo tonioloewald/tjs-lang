@@ -546,10 +546,24 @@ function typeToExample(
         for (const member of iface.members) {
           if (ts.isPropertySignature(member) && member.name) {
             const propName = member.name.getText(ctx.sourceFile)
-            const propExample = typeToExample(member.type, checker, warnings, {
+            let propExample = typeToExample(member.type, checker, warnings, {
               ...ctx,
               visited,
             })
+            // `any` is not a valid literal value — use null for object properties.
+            //
+            // The INLINE object path has done this for a long time; the interface path did
+            // not, so a resolved interface emitted `{ source: any }`. That is not merely
+            // untidy: an optional object param is a DICTIONARY DEFAULT
+            // (`docs/dictionary-defaults.md` §5.1 — `:` required, `=` defaulted), and §6.1
+            // requires every member of one to be a pure literal. `any` is not, so the whole
+            // parameter was rejected at graduation with "must be a pure literal". Two files
+            // in our own dogfood corpus failed on exactly this.
+            //
+            // `null` is also the RIGHT default here rather than a placeholder: §5.2 says a
+            // member admits null iff its default example is null, which is what an optional
+            // member of unknown type should accept.
+            if (propExample === 'any') propExample = 'null'
             // Always use : for object shape properties — = is only valid
             // in destructuring patterns, not in object literal examples
             props.push(`${propName}: ${propExample}`)
@@ -2275,21 +2289,55 @@ function transformParams(
       // Invisible until the JS output stopped coming from `ts.transpileModule`: the metadata
       // came from the extractor and the JavaScript came from TypeScript, so nothing ever ran
       // our parser over this line. See `src/no-ts-emitter.test.ts`.
-      // `name?: T` for everything TJS can currently express that way — which is every
-      // scalar, type name and array. NOT for an object type: `opts?: { a: 0 }` lowers to
-      // `opts = { a: 0 }`, the DICTIONARY-DEFAULT spelling, so TJS reads it as "these members
-      // have defaults, merged on partial" rather than "may be omitted", and an impure member
-      // (`any`) is rejected outright. That is a real language bug — optional object
-      // parameters are not currently writable in TJS — and it is tracked rather than worked
-      // around in three places. Until it is fixed, an object-typed optional keeps the old
-      // `T | undefined`, which is a REQUIRED param that tolerates undefined: wrong about
-      // optionality, but it compiles and it is what shipped.
-      const objectTyped = typeExample.trimStart().startsWith('{')
-      params.push(
-        objectTyped
-          ? `${name}: ${typeExample} | undefined`
-          : `${name}?: ${typeExample}`
-      )
+      // Optional without default. TJS spells this `name?: T` — the SAME syntax TypeScript
+      // uses, so the author's own annotation survives the conversion.
+      //
+      // For an OBJECT type this lands on the dictionary-default path, and that is correct
+      // rather than incidental: `docs/dictionary-defaults.md` §5.1 resolves required-ness at
+      // the PARAM level (`:` required, `=` defaulted), and an optional options-bag is the
+      // motivating case for the whole feature — the spec's own precedent is
+      // `addEventListener(type, listener, options)`. So `f()` yields a fresh clone of the
+      // full default (§5.5) and `f({a: 1})` merges on partial (§5.2).
+      //
+      // It used to emit `name: T | undefined`, which preserves the TYPE but is a REQUIRED
+      // param: the emitted `__tjs` said `required: true` while `fromTS`'s own metadata said
+      // `required: false`. Invisible while the JS output came from `ts.transpileModule` —
+      // nothing ran our parser over that line (`src/no-ts-emitter.test.ts`).
+      // ...UNLESS the object's members are not pure literals. A dictionary default is cloned
+      // per call, so §6.1 requires every member to be a clonable literal — and `typeToExample`
+      // legitimately produces `new Map()`, `new Set()` and the like for builtin types. Those
+      // are fine as a TYPE example on a required param and impossible as a default.
+      //
+      // §6.1's own error names the remedy ("use a colon-form (required) parameter"), so that
+      // is what we emit, with a warning rather than silently: the parameter is optional in
+      // the TypeScript and this is the one case where conversion cannot preserve that.
+      // A dictionary default is lowered to a real JS default expression, so its members must
+      // be VALUES. `position: 'annotation'` yields type NAMES — `{ a: number }` — which are
+      // bare identifiers at runtime and throw `number is not defined` on the first call. This
+      // is the exact hazard the `position` parameter was introduced for; a dictionary default
+      // is a value position, so ask for one.
+      // Only an OBJECT example becomes a dictionary default; `title?: string` stays a type
+      // name, which is what the author wrote and reads far better than `title?: ''`.
+      const isObject = typeExample.trimStart().startsWith('{')
+      const valueExample = isObject
+        ? typeToExample(param.type, undefined, warnings, ctx, 'value')
+        : typeExample
+      // Even in value position some examples cannot be pure literals: `typeToExample`
+      // legitimately produces `new Map()` for a builtin. Fine as a TYPE example on a required
+      // param, impossible as a per-call clone (§6.1). Its own error names the remedy — a
+      // colon-form parameter — so that is what we emit, with a warning rather than silently,
+      // since this is the one case where conversion cannot preserve optionality.
+      const impure = /\bnew\s+[A-Z]/.test(valueExample)
+      if (impure) {
+        warnings?.push(
+          `${name}: optional object parameter kept as \`${name}: T | undefined\` (required, ` +
+            `accepts undefined). Its example contains a constructed value, and a dictionary ` +
+            `default must be a pure literal — see docs/dictionary-defaults.md §6.1.`
+        )
+        params.push(`${name}: ${typeExample} | undefined`)
+      } else {
+        params.push(`${name}?: ${valueExample}`)
+      }
     } else {
       // Required - use : for required
       params.push(`${name}: ${typeExample}`)

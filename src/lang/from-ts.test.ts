@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'bun:test'
 import { fromTS as fromTSToTJS } from './emitters/from-ts'
 import { tjs } from './index'
+import { graduate } from './graduate'
 
 /**
  * The composed path: TS -> TJS -> JS.
@@ -497,5 +498,83 @@ class D extends B { constructor(public x: number) { super(x) } }`,
       tjs(tjsSrc, { filename: 'pp.tjs' }).code + '\nreturn P'
     )() as any
     expect(P(7).x).toBe(7)
+  })
+})
+
+/**
+ * An optional object parameter IS a dictionary default — that is the resolved design, not an
+ * accident of lowering.
+ *
+ * `docs/dictionary-defaults.md` §5.1 puts required-ness at the PARAM level (`:` required,
+ * `=` defaulted), and the motivating case for the whole feature is an optional options-bag —
+ * the spec's own precedent is `addEventListener(type, listener, options)`. Per-member
+ * defaults live in the DESTRUCTURE (`function f({ a = 3, b: 4 })`); the `opts = {…}` param
+ * form exists because JS/TS destructuring defaults do not behave the way you would want.
+ *
+ * `fromTS` used to emit `opts: T | undefined`, which preserves the type but is a REQUIRED
+ * parameter. Nothing caught it because the JS output came from `ts.transpileModule`, so our
+ * own parser never saw the line (`src/no-ts-emitter.test.ts`).
+ */
+describe('an optional object param converts to a dictionary default', () => {
+  const run = (tjsSource: string, name: string) =>
+    new Function(
+      tjs(tjsSource, { runTests: false }).code.replace(/^export /gm, '') +
+        `\nreturn ${name}`
+    )()
+
+  const SRC = `export function f(opts?: { a: number, b: number }): number {
+       return opts.a + opts.b
+     }`
+
+  it('gets merge-on-partial once GRADUATED to native TJS', () => {
+    // §5.5 fresh clone of the full default; §5.2 merge-on-partial; identity when complete.
+    const f = run(graduate(fromTS(SRC, { emitTJS: true }).code).code, 'f')
+    expect([f(), f({ a: 10 }), f({ a: 10, b: 20 })]).toEqual([0, 10, 30])
+  })
+
+  it('but keeps an ATOMIC JS default while converted (§3 mode gating)', () => {
+    // The converted file carries the `tjs <- …` provenance comment, which means JS
+    // semantics — so the default applies only when the argument is wholly absent, exactly as
+    // JavaScript does it. Dictionary defaults are native-only; graduation is the opt-in.
+    // Asserted because the difference is invisible until a partial payload arrives, and
+    // getting it backwards would silently change what converted code does.
+    const f = run(fromTS(SRC, { emitTJS: true }).code, 'f')
+    expect(f()).toBe(0)
+    expect(Number.isNaN(f({ a: 10 }))).toBe(true)
+  })
+
+  it('members are VALUES, not type names', () => {
+    // A dictionary default lowers to a real JS default expression, so `{ a: number }` is a
+    // bare identifier at runtime — `number is not defined` on the first call. This is what
+    // `typeToExample`'s `position` parameter exists for; a default is a value position.
+    const { code } = fromTS(SRC, { emitTJS: true })
+    expect(code).toContain('a: 0.0')
+    expect(code).not.toContain('a: number')
+  })
+
+  it('an interface member of unresolvable type becomes null, not `any`', () => {
+    // `any` is not a clonable literal, so a dictionary default containing one is rejected by
+    // §6.1. The INLINE object path mapped `any` -> `null` already; the interface path did
+    // not, and two files in our own dogfood corpus failed graduation on exactly that.
+    const { code } = fromTS(
+      `interface F { source?: RecordSource }\nexport function f(filter?: F): void {}`,
+      { emitTJS: true }
+    )
+    expect(code).toContain('source: null')
+    expect(code).not.toContain('source: any')
+  })
+
+  it('falls back — with a warning — when members cannot be pure literals', () => {
+    // `typeToExample` legitimately produces `new Map()` for a builtin. That is a fine TYPE
+    // example on a required param and impossible as a default, so conversion cannot preserve
+    // optionality here. §6.1 names this remedy; the warning is what stops it being silent.
+    const { code, warnings } = fromTS(
+      `export function f(ctx?: { cache: Map<string, number> }): void {}`,
+      { emitTJS: true }
+    )
+    expect(code).toContain('| undefined')
+    expect(warnings?.join('\n')).toContain(
+      'dictionary default must be a pure literal'
+    )
   })
 })
