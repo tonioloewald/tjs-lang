@@ -603,3 +603,58 @@ would be permanent, because the prior is permanent. That does not settle the des
 (B's consistency argument stands on its own, and the transition surprise it removes is real),
 but the trade is now measured rather than assumed: **B buys internal consistency and pays a
 permanent legibility cost on the most familiar spelling in TypeScript.**
+
+---
+
+# `match` vs `switch`: the keyword and the shape have to agree (2026-08-29)
+
+Testing #48's rename against a fixed-`switch`, with a syntax that drops `case`, colons and
+implicit blocks: `match x { 'a' { … } 'b' { … } } else { … }`. qwen3.8-27b, N=5, `/no_think`,
+same question as the switch probe (_what does `f('a')` return?_ — `1` if arms do not fall
+through, `1,2` if they do).
+
+| arm                             | correct | **wrong** | no-answer |
+| ------------------------------- | ------- | --------- | --------- |
+| `switch`, C syntax, in `.tjs`   | 0/5     | **5**     | 0         |
+| `switch`, NEW syntax, in `.tjs` | 0/5     | 0         | **5**     |
+| `match`, NEW syntax, in `.tjs`  | **4/5** | **0**     | 1         |
+
+## 1. "If it behaves differently it should look different" is confirmed
+
+Changing the SHAPE eliminated every confident wrong answer — 5 to 0 — in both arms that used
+it. That is the failure mode worth caring about: a reader who answers wrongly and is sure.
+The familiar C shape produced five of those, every time, because the shape is a promise the
+semantics no longer keep.
+
+## 2. But the keyword must agree with the shape
+
+`switch` with the new syntax scored 0/5 by NOT ANSWERING, five times out of five. The model
+cannot reconcile "this is `switch`" with "this does not look like `switch`", and stalls. That
+is the same paralysis the `tjs_header` arm produced when a language was named but not
+explained — a conflict it cannot resolve rather than a gap it can fill.
+
+So the two available honest options are **keep C's shape and C's meaning**, or **change both
+the shape and the name**. Keeping the name while changing the shape is the worst of the three
+measured — it does not even produce an answer to be wrong about.
+
+## 3. The regex worry did not materialise
+
+The concern that `match` reads as string-matching to a JavaScript developer is reasonable and
+is not visible here: **zero wrong answers** on that arm, and nothing in the responses
+suggested `String.prototype.match`. N=5 on one model, so this is weak evidence of absence —
+but it is not the confident misreading `switch` produces, which is strong evidence of presence.
+
+## 4. The two reading situations are not symmetric, and only one is at risk
+
+- **Code you transpiled.** Under #48 `convert` emits `switch` UNCHANGED with C semantics, so
+  transpiled output is never misread. The rename removes this case entirely.
+- **`.tjs` handed to you.** This is the case measured above, and the only one where the
+  reader must know which language they are in.
+
+## Caveats
+
+N=5, one model, one program shape. The no-answer counts are high across every arm, so the
+instrument is noisier here than on the original switch probe — treat the 4/5 as "does not
+produce confident errors" rather than as a precise rate. What is robust across both probes,
+now nine arms, is the direction: **the C shape reliably produces confident wrong answers in
+`.tjs`, and changing the shape reliably stops that.**
