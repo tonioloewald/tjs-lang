@@ -109,14 +109,14 @@ function getAge(): number { return 30 }
     it('produces TJS source with colon syntax', () => {
       const result = fromTS(TS_SIMPLE, { emitTJS: true })
 
-      expect(result.code).toContain("name: ''")
-      expect(result.code).not.toContain('name: string')
+      expect(result.code).toContain('name: string')
+      expect(result.code).not.toContain("name: ''")
     })
 
     it('produces TJS with return type annotations', () => {
       const result = fromTS(TS_SIMPLE, { emitTJS: true })
 
-      expect(result.code).toContain(":! ''")
+      expect(result.code).toContain(':! string')
     })
 
     it('preserves inline test comments', () => {
@@ -130,7 +130,7 @@ function getAge(): number { return 30 }
       const ts = `function calc(rate: number): number { return rate * 2 }`
       const result = fromTS(ts, { emitTJS: true })
 
-      expect(result.code).toContain('rate: 0.0')
+      expect(result.code).toContain('rate: number')
     })
   })
 
@@ -233,8 +233,8 @@ function getAge(): number { return 30 }
       const stdout = await new Response(proc.stdout).text()
       await proc.exited
 
-      expect(stdout).toContain("name: ''")
-      expect(stdout).toContain(":! ''")
+      expect(stdout).toContain('name: string')
+      expect(stdout).toContain(':! string')
       expect(stdout).not.toContain('__tjs')
     })
 

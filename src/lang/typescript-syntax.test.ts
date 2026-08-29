@@ -855,7 +855,7 @@ describe('Real-World Patterns', () => {
       emitTJS: true,
     }).code
     // TJS should have union annotation
-    expect(tjsCode).toContain('excited: false | undefined')
+    expect(tjsCode).toContain('excited: boolean | undefined')
     // TS-originated code defaults to safety none — add safety inputs to test validation
     const jsResult = tjs('safety inputs\n' + tjsCode)
     // JS should not have default or bitwise OR — `:` means required
@@ -939,8 +939,10 @@ describe('fromTS function overloads', () => {
     )
     // Should have the impl renamed and two wrapper functions
     expect(result.code).toContain('function _greet_impl(')
-    expect(result.code).toMatch(/function greet\(name: ''\)/)
-    expect(result.code).toMatch(/function greet\(name: '', greeting: ''\)/)
+    expect(result.code).toMatch(/function greet\(name: string\)/)
+    expect(result.code).toMatch(
+      /function greet\(name: string, greeting: string\)/
+    )
     // Wrappers delegate to impl
     expect(result.code).toContain('return _greet_impl(name)')
     expect(result.code).toContain('return _greet_impl(name, greeting)')
@@ -955,8 +957,8 @@ describe('fromTS function overloads', () => {
       `,
       { emitTJS: true }
     )
-    expect(result.code).toContain("process(x: '')")
-    expect(result.code).toContain('process(x: 0.0)')
+    expect(result.code).toContain('process(x: string)')
+    expect(result.code).toContain('process(x: number)')
   })
 
   test('overload metadata captured in JS mode', () => {
@@ -1220,7 +1222,7 @@ describe('TS compile-time types - graceful degradation', () => {
       { emitTJS: true }
     )
     expect(result.code).not.toContain('TODO: TS types degraded')
-    expect(result.code).toContain('function add(a: 0.0, b: 0.0)')
+    expect(result.code).toContain('function add(a: number, b: number)')
   })
 })
 
@@ -1664,8 +1666,8 @@ describe('DOM Types', () => {
       { emitTJS: true }
     )
     expect(result.code).toContain('el: {}')
-    expect(result.code).toContain("attr: ''")
-    expect(result.code).toContain('value: 0.0')
+    expect(result.code).toContain('attr: string')
+    expect(result.code).toContain('value: number')
   })
 
   test('DOM types in metadata mode', () => {

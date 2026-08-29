@@ -101,7 +101,7 @@ describe('builtin return examples always produce parseable TJS', () => {
     const fn = fromTS('export function f(): number[] { return [1] }', {
       emitTJS: true,
     })
-    expect(fn.code).toContain(':! [0.0]')
+    expect(fn.code).toContain(':! [number]')
 
     // `FunctionPredicate(…)` is a CALL and it parses, which is why the filter cannot
     // simply reject anything containing parentheses.

@@ -3586,6 +3586,15 @@ function typeCheckForDefault(argExpr: string, defaultValue: string): string {
   if (/^-?\d+$/.test(dv))
     return `(typeof ${argExpr} === 'number' && Number.isInteger(${argExpr}))`
 
+  // SOUND TS TYPE NAMES. `fromTS` now keeps TypeScript's own spelling (`number` stays
+  // `number`), so these arrive here where `0.0` and `''` used to. Without them both
+  // `f(x: string)` and `f(x: number)` fell through to `'any'`, scored identical signatures,
+  // and a legal overload pair was rejected as ambiguous — a regression created by two
+  // correct changes meeting.
+  if (dv === 'string') return `typeof ${argExpr} === 'string'`
+  if (dv === 'number') return `typeof ${argExpr} === 'number'`
+  if (dv === 'boolean') return `typeof ${argExpr} === 'boolean'`
+
   // A DECLARED TYPE NAME dispatches on the type itself (#45).
   //
   // `Circle` and `Rect` both fell through to `'true'` here, so every object overload was
@@ -3619,6 +3628,11 @@ function typeSignatureForDefault(defaultValue: string): string {
   if (/^\+\d+/.test(dv)) return 'non-negative-integer'
   if (/^-?\d+\.\d+/.test(dv)) return 'number'
   if (/^-?\d+$/.test(dv)) return 'integer'
+  // Sound TS type names carry the same signature their example spelling did, so a
+  // conversion cannot turn a legal overload pair into an ambiguous one.
+  if (dv === 'string') return 'string'
+  if (dv === 'number') return 'number'
+  if (dv === 'boolean') return 'boolean'
   // A declared type name is its OWN signature. Two different names are two different types,
   // which is precisely what makes `f(s: Circle)` / `f(s: Rect)` a legal pair rather than an
   // ambiguous one — and what `typeCheckForDefault` can now discriminate at runtime.

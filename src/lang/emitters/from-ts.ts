@@ -326,17 +326,57 @@ function typeToExample(
   type: ts.TypeNode | undefined,
   checker?: ts.TypeChecker,
   warnings?: string[],
-  ctx?: TypeResolutionContext
+  ctx?: TypeResolutionContext,
+  /**
+   * Where the result will be written.
+   *
+   * `'annotation'` — a parameter or return type. TJS parses this with its type machinery,
+   * so a sound TS name (`string`) is honoured directly and is the clearer spelling.
+   *
+   * `'value'` (the DEFAULT) — inside an `example: { … }` object, which is EVALUATED at
+   * runtime. A type name there is an undefined identifier:
+   *
+   *     Type User { example: { name: string } }
+   *     -> ReferenceError: string is not defined
+   *
+   * Defaulting to `'value'` makes the safe form the one you get by not thinking about it.
+   * Emitting a type name where a value belongs crashes the module at load; emitting a value
+   * where a name would do is merely less legible. When one of 39 call sites has to be wrong,
+   * it should be wrong in the direction that still runs. Found by two tosijs regression
+   * tests, which is exactly what they are for.
+   */
+  position: 'annotation' | 'value' = 'value'
 ): string {
   if (!type) return 'undefined'
 
   switch (type.kind) {
+    // A sound TS primitive keeps its own SPELLING.
+    //
+    // These used to become examples — `number` -> `0.0`, `string` -> `''`,
+    // `boolean` -> `false` — and the rewrite bought nothing: measured, `x: number` and
+    // `x: 0.0` produce the identical descriptor (`kind: 'number'`) and identical runtime
+    // behaviour. Same for the other two, for `number[]` vs `[0.0]`, and for
+    // `string | null` vs `'' | null`.
+    //
+    // So it was pure churn that made a TS author's own annotation unrecognisable in the
+    // output of a tool whose job is to preserve meaning. ASSUMPTIONS A10 already settled
+    // the principle — TJS accepts type NAMES or examples with equal standing, and the
+    // on-ramp is "keep writing TypeScript" — but the converter was rewriting away the very
+    // spelling that principle exists to honour.
+    //
+    // It also costs legibility, which is measured rather than assumed: the example rule
+    // scored **0/5** in the comprehension probe, models reading `x: ''` as *exactly* the
+    // empty string (A15). Emitting examples where a sound type name would do makes
+    // converted code harder to read for the audience most likely to read it.
+    //
+    // Examples remain the right output where TS has no name for what it means — a literal
+    // type becomes `Exactly(…)`, an object type becomes a shape.
     case ts.SyntaxKind.StringKeyword:
-      return "''"
+      return position === 'annotation' ? 'string' : "''"
     case ts.SyntaxKind.NumberKeyword:
-      return '0.0'
+      return position === 'annotation' ? 'number' : '0.0'
     case ts.SyntaxKind.BooleanKeyword:
-      return 'false'
+      return position === 'annotation' ? 'boolean' : 'false'
     case ts.SyntaxKind.NullKeyword:
       return 'null'
     case ts.SyntaxKind.UndefinedKeyword:
@@ -359,7 +399,15 @@ function typeToExample(
 
     case ts.SyntaxKind.ArrayType: {
       const arrayType = type as ts.ArrayTypeNode
-      let itemExample = typeToExample(arrayType.elementType, checker)
+      // Position PROPAGATES: `[number]` is legal in an annotation and a ReferenceError in a
+      // value, exactly like the scalar it wraps.
+      let itemExample = typeToExample(
+        arrayType.elementType,
+        checker,
+        warnings,
+        ctx,
+        position
+      )
       // 'any' is not a valid literal value - use null for array items
       if (itemExample === 'any') itemExample = 'null'
       return `[${itemExample}]`
@@ -382,7 +430,13 @@ function typeToExample(
       if (typeName === 'Promise') {
         // Unwrap Promise type
         if (typeRef.typeArguments?.length) {
-          return typeToExample(typeRef.typeArguments[0], checker, warnings, ctx)
+          return typeToExample(
+            typeRef.typeArguments[0],
+            checker,
+            warnings,
+            ctx,
+            position
+          )
         }
         return 'undefined'
       }
@@ -548,7 +602,15 @@ function typeToExample(
       for (const member of typeLiteral.members) {
         if (ts.isPropertySignature(member) && member.name) {
           const propName = member.name.getText()
-          let propType = typeToExample(member.type, checker)
+          // Position propagates into members: an object ANNOTATION may name types
+          // (`{ name: string }`), an object VALUE may not.
+          let propType = typeToExample(
+            member.type,
+            checker,
+            warnings,
+            ctx,
+            position
+          )
           // 'any' is not a valid literal value - use null for object properties
           if (propType === 'any') propType = 'null'
           // In object literals, always use : syntax (= is for function params only)
@@ -590,7 +652,8 @@ function typeToExample(
           nonNullTypes[0],
           checker,
           warnings,
-          ctx
+          ctx,
+          position
         )
         // any | null/undefined is just any — don't emit 'any | null'
         if (baseExample === 'any') return 'any'
@@ -601,7 +664,7 @@ function typeToExample(
       // General union: if any member can't be expressed (any), degrade
       // the whole union to any — don't silently drop members
       const examples = unionType.types
-        .map((t) => typeToExample(t, checker, warnings, ctx))
+        .map((t) => typeToExample(t, checker, warnings, ctx, position))
         .filter((e, i, arr) => arr.indexOf(e) === i) // deduplicate
       if (examples.some((e) => e === 'any')) return 'any'
       if (examples.length === 1) return examples[0]
@@ -1574,7 +1637,7 @@ function transformFunctionToTJS(
       ? node.name.getText(sourceFile)
       : '')
   const returnExample = node.type
-    ? typeToExample(node.type, undefined, warnings, resolveCtx)
+    ? typeToExample(node.type, undefined, warnings, resolveCtx, 'annotation')
     : ''
   // Use :! to skip signature tests - TS types are compile-time only,
   // the example values won't necessarily match runtime behavior
@@ -1683,6 +1746,36 @@ function emitOverloadGroup(
     ]
   }
 
+  /**
+   * Does the implementation discriminate by hand?
+   *
+   * In TypeScript it HAS to: overload signatures are erased, there is one implementation
+   * typed `any`, and it must sort out which case it got. After conversion the wrappers
+   * dispatch for real, so that branching is redundant — the author is now paying for
+   * dispatch twice, with the inner copy untyped.
+   *
+   * We do NOT unroll it. Splitting a hand-written `if` chain into variants is the kind of
+   * rewrite that would be right most of the time and silently wrong occasionally, and a
+   * converter that is occasionally wrong is worse than one that is honest. So: recognise
+   * it, and say so at the site.
+   *
+   * An `if`/`switch` anywhere in the body is the signal. A false positive costs one comment
+   * and points at a simplification that is available anyway; a false negative costs nothing.
+   */
+  const implDiscriminates = (() => {
+    let found = false
+    const visit = (n: ts.Node): void => {
+      if (found) return
+      if (ts.isIfStatement(n) || ts.isSwitchStatement(n)) {
+        found = true
+        return
+      }
+      ts.forEachChild(n, visit)
+    }
+    if (implementation.body) visit(implementation.body)
+    return found
+  })()
+
   // Emit the implementation as a renamed private function
   const implParams = transformParams(
     implementation.parameters,
@@ -1708,8 +1801,26 @@ function emitOverloadGroup(
   const asyncPrefix = isAsync ? 'async ' : ''
   const funcKeyword = isGenerator ? 'function* ' : 'function '
 
+  // Guidance, not a rewrite. The comment sits ON the redundant implementation because a
+  // remedy shown at the site is what gets acted on — measured: a remedy in code repaired
+  // 80% where the same advice as prose repaired 50% and a bare diagnostic 0% (A1).
+  const guidance = implDiscriminates
+    ? `/* TJS: \`${funcName}\` now dispatches for REAL — each signature above is a variant
+` +
+      `   selected at runtime, not just checked at compile time. TypeScript erased them, so
+` +
+      `   this implementation had to sort out which case it got by hand; that branching is
+` +
+      `   now redundant.
+` +
+      `   To simplify: move each branch into its own \`${funcName}\` variant and delete
+` +
+      `   \`${implName}\`. Each variant gets its parameters typed, instead of one \`any\`. */
+`
+    : ''
+
   results.push(
-    `${asyncPrefix}${funcKeyword}${implName}(${implParams.join(
+    `${guidance}${asyncPrefix}${funcKeyword}${implName}(${implParams.join(
       ', '
     )}) ${implBody}`
   )
@@ -1719,7 +1830,7 @@ function emitOverloadGroup(
     const params = transformParams(sig.parameters, sourceFile, warnings)
     const paramNames = sig.parameters.map((p) => p.name.getText(sourceFile))
     const returnExample = sig.type
-      ? typeToExample(sig.type, undefined, warnings)
+      ? typeToExample(sig.type, undefined, warnings, undefined, 'annotation')
       : ''
     const returnAnnotation = usableAsReturnExample(returnExample)
       ? `:! ${returnExample}`
@@ -1878,7 +1989,13 @@ function transformClassToTJS(
         resolveCtx
       )
       const returnExample = member.type
-        ? typeToExample(member.type, undefined, warnings, resolveCtx)
+        ? typeToExample(
+            member.type,
+            undefined,
+            warnings,
+            resolveCtx,
+            'annotation'
+          )
         : ''
       // Use :! to skip signature tests for TS-transpiled code
       const returnAnnotation = usableAsReturnExample(returnExample)
@@ -1916,7 +2033,13 @@ function transformClassToTJS(
       )
       const staticPrefix = isStatic ? 'static ' : ''
       const returnExample = member.type
-        ? typeToExample(member.type, undefined, warnings, resolveCtx)
+        ? typeToExample(
+            member.type,
+            undefined,
+            warnings,
+            resolveCtx,
+            'annotation'
+          )
         : ''
       const returnAnnotation =
         returnExample &&
@@ -2109,7 +2232,13 @@ function transformParams(
     if (name === 'this') continue
     const isRest = !!param.dotDotDotToken
     const isOptional = !!param.questionToken || !!param.initializer
-    const typeExample = typeToExample(param.type, undefined, warnings, ctx)
+    const typeExample = typeToExample(
+      param.type,
+      undefined,
+      warnings,
+      ctx,
+      'annotation'
+    )
 
     if (isRest) {
       // Rest parameter: ...args: T[] → ...args: [example]

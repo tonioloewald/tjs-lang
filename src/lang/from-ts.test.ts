@@ -8,7 +8,7 @@ describe('TypeScript to TJS Transpiler', () => {
       const result = fromTS(`function greet(name: string) { return name }`, {
         emitTJS: true,
       })
-      expect(result.code).toContain("name: ''")
+      expect(result.code).toContain('name: string')
     })
 
     it('should convert number type to 0 example', () => {
@@ -16,8 +16,8 @@ describe('TypeScript to TJS Transpiler', () => {
         `function add(a: number, b: number) { return a + b }`,
         { emitTJS: true }
       )
-      expect(result.code).toContain('a: 0')
-      expect(result.code).toContain('b: 0')
+      expect(result.code).toContain('a: number')
+      expect(result.code).toContain('b: number')
     })
 
     it('should convert optional params to union with undefined', () => {
@@ -25,8 +25,8 @@ describe('TypeScript to TJS Transpiler', () => {
         `function greet(name: string, title?: string) { return name }`,
         { emitTJS: true }
       )
-      expect(result.code).toContain("name: ''")
-      expect(result.code).toContain("title: '' | undefined")
+      expect(result.code).toContain('name: string')
+      expect(result.code).toContain('title: string | undefined')
     })
 
     it('should convert return type to -! annotation (skip signature test)', () => {
@@ -34,7 +34,7 @@ describe('TypeScript to TJS Transpiler', () => {
         `function greet(name: string): string { return name }`,
         { emitTJS: true }
       )
-      expect(result.code).toContain(":! ''") // :! skips signature test for TS-transpiled code
+      expect(result.code).toContain(':! string') // :! skips signature test for TS-transpiled code
     })
 
     it('should handle array types', () => {
@@ -42,7 +42,7 @@ describe('TypeScript to TJS Transpiler', () => {
         `function sum(nums: number[]): number { return 0 }`,
         { emitTJS: true }
       )
-      expect(result.code).toContain('nums: [0.0]')
+      expect(result.code).toContain('nums: [number]')
     })
 
     it('should handle object literal types', () => {
@@ -50,7 +50,7 @@ describe('TypeScript to TJS Transpiler', () => {
         `function getUser(): { name: string, age: number } { return { name: '', age: 0 } }`,
         { emitTJS: true }
       )
-      expect(result.code).toContain(":! { name: '', age: 0.0 }") // :! for TS-transpiled
+      expect(result.code).toContain(':! { name: string, age: number }') // :! for TS-transpiled
     })
 
     it('should handle nullable types', () => {
@@ -58,7 +58,7 @@ describe('TypeScript to TJS Transpiler', () => {
         `function find(id: string): string | null { return null }`,
         { emitTJS: true }
       )
-      expect(result.code).toContain(":! '' | null") // :! for TS-transpiled
+      expect(result.code).toContain(':! string | null') // :! for TS-transpiled
     })
 
     it('should preserve default values', () => {

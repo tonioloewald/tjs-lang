@@ -153,6 +153,24 @@ const BASELINE = {
 }
 
 /**
+ * NOT raised on 2026-08-28, and the reason is worth keeping.
+ *
+ * Mid-way through the `number` -> `number` conversion change this gate read 94.2% / 95.5%,
+ * against 89.5% / 91.0% before — apparently a five-point jump from one change, and it was
+ * briefly written up as one. It was an artefact. The corpus was in flux: several test files
+ * had been reverted or were carrying half-applied edits, so the suite being converted was
+ * smaller and easier. With the corpus repaired the number is 89.5% / 91.0% again — exactly
+ * where it started.
+ *
+ * The change is neutral for self-hosting. It was argued on legibility and that is the only
+ * ground it stands on.
+ *
+ * The general trap: this ratchet measures a RATIO over a corpus, so anything that changes
+ * the corpus moves it for reasons that have nothing to do with the converter. Never read it
+ * while the suite is mid-edit — which is precisely when a large change makes you want to.
+ */
+
+/**
  * Why the baseline moved DOWN again on 2026-08-26 (0.898 -> 0.895, 0.912 -> 0.910), hours
  * after the entry below raised it — and why this is the 2026-08-16 case again, not a
  * loosening.

@@ -16,23 +16,23 @@ describe('TS → TJS conversion quality', () => {
       const ts = `function greet(name: string): string { return name }`
       const { code } = fromTS(ts, { emitTJS: true })
 
-      expect(code).toContain("name: ''")
-      expect(code).not.toContain('name: string')
+      expect(code).toContain('name: string')
+      expect(code).not.toContain("name: ''")
     })
 
     it('converts required number param to colon syntax', () => {
       const ts = `function double(x: number): number { return x * 2 }`
       const { code } = fromTS(ts, { emitTJS: true })
 
-      expect(code).toContain('x: 0')
-      expect(code).not.toContain('x: number')
+      expect(code).toContain('x: number')
+      expect(code).not.toContain('x: 0.0')
     })
 
     it('converts optional param to union with undefined', () => {
       const ts = `function greet(name?: string): string { return name || 'World' }`
       const { code } = fromTS(ts, { emitTJS: true })
 
-      expect(code).toContain("name: '' | undefined")
+      expect(code).toContain('name: string | undefined')
       expect(code).not.toContain('name?')
     })
 
@@ -47,29 +47,29 @@ describe('TS → TJS conversion quality', () => {
       const ts = `function toggle(flag: boolean): boolean { return !flag }`
       const { code } = fromTS(ts, { emitTJS: true })
 
-      expect(code).toContain('flag: false')
+      expect(code).toContain('flag: boolean')
     })
 
     it('converts optional boolean param to union with undefined', () => {
       const ts = `function greet(name: string, excited?: boolean): string { return excited ? name + '!' : name }`
       const { code } = fromTS(ts, { emitTJS: true })
 
-      expect(code).toContain('excited: false | undefined')
+      expect(code).toContain('excited: boolean | undefined')
     })
 
     it('converts array param correctly', () => {
       const ts = `function sum(nums: number[]): number { return nums.reduce((a, b) => a + b, 0) }`
       const { code } = fromTS(ts, { emitTJS: true })
 
-      expect(code).toContain('nums: [0.0]')
+      expect(code).toContain('nums: [number]')
     })
 
     it('converts object param correctly', () => {
       const ts = `function getAge(user: { name: string; age: number }): number { return user.age }`
       const { code } = fromTS(ts, { emitTJS: true })
 
-      expect(code).toContain("name: ''")
-      expect(code).toContain('age: 0.0')
+      expect(code).toContain('name: string')
+      expect(code).toContain('age: number')
     })
 
     it('handles multiple params in order', () => {
@@ -77,15 +77,15 @@ describe('TS → TJS conversion quality', () => {
       const { code } = fromTS(ts, { emitTJS: true })
 
       // Should have both params with colon syntax
-      expect(code).toMatch(/add\(a: 0\.0, b: 0\.0\)/)
+      expect(code).toMatch(/add\(a: number, b: number\)/)
     })
 
     it('handles mixed required and optional params', () => {
       const ts = `function fetch(url: string, timeout?: number): void { }`
       const { code } = fromTS(ts, { emitTJS: true })
 
-      expect(code).toContain("url: ''")
-      expect(code).toContain('timeout: 0.0 | undefined')
+      expect(code).toContain('url: string')
+      expect(code).toContain('timeout: number | undefined')
     })
   })
 
@@ -94,21 +94,21 @@ describe('TS → TJS conversion quality', () => {
       const ts = `function getName(): string { return 'test' }`
       const { code } = fromTS(ts, { emitTJS: true })
 
-      expect(code).toContain(":! ''")
+      expect(code).toContain(':! string')
     })
 
     it('converts number return type to -! syntax', () => {
       const ts = `function getCount(): number { return 42 }`
       const { code } = fromTS(ts, { emitTJS: true })
 
-      expect(code).toContain(':! 0')
+      expect(code).toContain(':! number')
     })
 
     it('converts boolean return type to -! syntax', () => {
       const ts = `function isValid(): boolean { return true }`
       const { code } = fromTS(ts, { emitTJS: true })
 
-      expect(code).toContain(':! false')
+      expect(code).toContain(':! boolean')
     })
 
     it('converts object return type to -! syntax', () => {
@@ -116,15 +116,15 @@ describe('TS → TJS conversion quality', () => {
       const { code } = fromTS(ts, { emitTJS: true })
 
       expect(code).toContain(':!')
-      expect(code).toContain("name: ''")
-      expect(code).toContain('age: 0')
+      expect(code).toContain('name: string')
+      expect(code).toContain('age: number')
     })
 
     it('converts array return type to -! syntax', () => {
       const ts = `function getItems(): string[] { return [] }`
       const { code } = fromTS(ts, { emitTJS: true })
 
-      expect(code).toContain(":! ['']")
+      expect(code).toContain(':! [string]')
     })
 
     it('omits void return type', () => {
@@ -139,7 +139,7 @@ describe('TS → TJS conversion quality', () => {
       const ts = `async function fetchData(): Promise<string> { return 'data' }`
       const { code } = fromTS(ts, { emitTJS: true })
 
-      expect(code).toContain(":! ''")
+      expect(code).toContain(':! string')
       expect(code).not.toContain('Promise')
     })
   })
@@ -151,7 +151,7 @@ describe('TS → TJS conversion quality', () => {
 
       expect(code).toContain('Type User')
       expect(code).toContain("name: ''")
-      expect(code).toContain('age: 0')
+      expect(code).toContain('age: 0.0')
     })
 
     it('converts type alias to Type', () => {
@@ -159,8 +159,8 @@ describe('TS → TJS conversion quality', () => {
       const { code } = fromTS(ts, { emitTJS: true })
 
       expect(code).toContain('Type Point')
-      expect(code).toContain('x: 0')
-      expect(code).toContain('y: 0')
+      expect(code).toContain('x: 0.0')
+      expect(code).toContain('y: 0.0')
     })
 
     it('converts string literal union to Union', () => {
@@ -208,7 +208,7 @@ class User {
       const { code } = fromTS(ts, { emitTJS: true })
 
       expect(code).toContain('class User')
-      expect(code).toContain("constructor(name: '')")
+      expect(code).toContain('constructor(name: string)')
     })
 
     it('strips private keyword without converting to # syntax', () => {
@@ -236,7 +236,7 @@ class Calculator {
 `
       const { code } = fromTS(ts, { emitTJS: true })
 
-      expect(code).toContain('add(a: 0.0, b: 0.0):! 0.0')
+      expect(code).toContain('add(a: number, b: number):! number')
     })
 
     it('converts getters and setters', () => {
@@ -277,7 +277,7 @@ class MathUtils {
 `
       const { code } = fromTS(ts, { emitTJS: true })
 
-      expect(code).toContain('static double(x: 0.0):! 0.0')
+      expect(code).toContain('static double(x: number):! number')
     })
 
     it('converts async methods', () => {
@@ -291,7 +291,7 @@ class Api {
       const { code } = fromTS(ts, { emitTJS: true })
 
       expect(code).toContain('async fetch')
-      expect(code).toContain(":! ''")
+      expect(code).toContain(':! string')
     })
   })
 
@@ -300,14 +300,14 @@ class Api {
       const ts = `function maybe(x: string | null): string | null { return x }`
       const { code } = fromTS(ts, { emitTJS: true })
 
-      expect(code).toContain("'' | null")
+      expect(code).toContain('string | null')
     })
 
     it('converts T | undefined to T | undefined', () => {
       const ts = `function maybe(x: number | undefined): number | undefined { return x }`
       const { code } = fromTS(ts, { emitTJS: true })
 
-      expect(code).toContain('0 | undefined')
+      expect(code).toContain('number | undefined')
     })
   })
 
@@ -343,8 +343,8 @@ class Api {
       const { code } = fromTS(ts, { emitTJS: true })
 
       expect(code).toContain('function double')
-      expect(code).toContain('x: 0')
-      expect(code).toContain(':! 0')
+      expect(code).toContain('x: number')
+      expect(code).toContain(':! number')
     })
 
     it('converts arrow function with block body', () => {
@@ -578,13 +578,13 @@ function greet(name: string): string {
       const { code } = fromTS(ts, { emitTJS: true })
 
       // All functions should be present (TS transpiler uses :! to skip signature tests)
-      expect(code).toContain('function add(a: 0.0, b: 0.0):! 0.0')
-      expect(code).toContain('function multiply(a: 0.0, b: 0.0):! 0.0')
-      expect(code).toContain("function greet(name: ''):! ''")
+      expect(code).toContain('function add(a: number, b: number):! number')
+      expect(code).toContain('function multiply(a: number, b: number):! number')
+      expect(code).toContain('function greet(name: string):! string')
 
       // Should be valid TJS (no TypeScript syntax remaining)
-      expect(code).not.toContain(': number')
-      expect(code).not.toContain(': string')
+      expect(code).not.toContain(': 0.0')
+      expect(code).not.toContain(": ''")
     })
 
     it('preserves function order', () => {
@@ -635,26 +635,26 @@ console.log(second())
       const { code } = fromTS(ts, { emitTJS: true })
 
       // TJS uses example values, not type names
-      expect(code).toContain('x: 0')
-      expect(code).toContain("y: ''")
-      expect(code).not.toContain('x: number')
-      expect(code).not.toContain('y: string')
+      expect(code).toContain('x: number')
+      expect(code).toContain('y: string')
+      expect(code).not.toContain('x: 0.0')
+      expect(code).not.toContain("y: ''")
     })
 
     it('uses union with undefined for optional params', () => {
       const ts = `function test(x?: number, y?: string): void { }`
       const { code } = fromTS(ts, { emitTJS: true })
 
-      expect(code).toContain('x: 0.0 | undefined')
-      expect(code).toContain("y: '' | undefined")
+      expect(code).toContain('x: number | undefined')
+      expect(code).toContain('y: string | undefined')
     })
 
     it('uses -! syntax for return types (skip signature test)', () => {
       const ts = `function test(): number { return 42 }`
       const { code } = fromTS(ts, { emitTJS: true })
 
-      expect(code).toContain(':! 0')
-      expect(code).not.toContain(': number')
+      expect(code).toContain(':! number')
+      expect(code).not.toContain(': 0.0')
     })
 
     it('no TypeScript syntax remains in output', () => {
@@ -684,9 +684,9 @@ function getAddress(user: { name: string; address: { street: string; city: strin
 `
       const { code } = fromTS(ts, { emitTJS: true })
 
-      expect(code).toContain("name: ''")
-      expect(code).toContain("street: ''")
-      expect(code).toContain("city: ''")
+      expect(code).toContain('name: string')
+      expect(code).toContain('street: string')
+      expect(code).toContain('city: string')
     })
 
     it('handles array of objects', () => {
@@ -698,8 +698,8 @@ function getNames(users: { name: string; age: number }[]): string[] {
       const { code } = fromTS(ts, { emitTJS: true })
 
       expect(code).toContain('[{')
-      expect(code).toContain("name: ''")
-      expect(code).toContain('age: 0')
+      expect(code).toContain('name: string')
+      expect(code).toContain('age: number')
     })
   })
 })
@@ -1120,10 +1120,10 @@ function calculate(a: number, b: number, operation: string): number {
 `
       // Step 2: TS → TJS
       const { code: tjsCode } = fromTS(ts, { emitTJS: true })
-      expect(tjsCode).toContain('a: 0')
-      expect(tjsCode).toContain('b: 0')
-      expect(tjsCode).toContain("operation: ''")
-      expect(tjsCode).toContain(':! 0') // TS transpiler uses :! to skip signature tests
+      expect(tjsCode).toContain('a: number')
+      expect(tjsCode).toContain('b: number')
+      expect(tjsCode).toContain('operation: string')
+      expect(tjsCode).toContain(':! number') // TS transpiler uses :! to skip signature tests
 
       // Step 3: TJS → JS (already has -! from TS transpiler)
       const { code: jsCode, types } = tjs(tjsCode)
@@ -1186,8 +1186,8 @@ function processUser(user: { name: string; age: number }): string {
 `
       // TS → TJS
       const { code: tjsCode } = fromTS(ts, { emitTJS: true })
-      expect(tjsCode).toContain("name: ''")
-      expect(tjsCode).toContain('age: 0.0')
+      expect(tjsCode).toContain('name: string')
+      expect(tjsCode).toContain('age: number')
 
       // TJS → JS (already has -! from TS transpiler)
       const { code: jsCode, types } = tjs(tjsCode)
