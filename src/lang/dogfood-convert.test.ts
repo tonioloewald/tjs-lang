@@ -149,7 +149,7 @@ const report = (label: string, st: Stage, total: number) => {
  * and the review round's parser fixes closed it. There is no slack left to reclaim: the
  * floor now IS the corpus, so any regression at all fails here.
  */
-const GRADUATION_FLOOR = 101
+const GRADUATION_FLOOR = 103
 
 /** Improve by this much and the test asks for the floor to be raised. */
 const RATCHET_SLACK = 2

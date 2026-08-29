@@ -15,7 +15,7 @@ import {
 } from '../strip-comments'
 export { stripLineComments } from '../strip-comments'
 import * as acorn from 'acorn'
-import { braceSwitchArms } from './switch-transform'
+import { transformGiven } from './given-transform'
 import type { Program, FunctionDeclaration } from 'acorn'
 import { SyntaxError } from './types'
 import type { PredicateVerification } from './types'
@@ -395,6 +395,16 @@ export function preprocess(
   source = transformUnionDeclarations(source, declaredTypes)
   source = transformEnumDeclarations(source, declaredTypes)
 
+  // `given` lowers to a C `switch` with explicit breaks, BEFORE acorn sees the source —
+  // its syntax is not valid JavaScript, unlike #43's additions which happened to be.
+  // Native `.tjs` only: `given` is a TJS construct, and plain JS must keep meaning what it
+  // means (PRINCIPLES.md).
+  if (tjsModes.tjsStandard) {
+    const lowered = transformGiven(source)
+    source = lowered.source
+    for (const w of lowered.warnings) modeWarnings.push(w.message)
+  }
+
   // Transform bare assignments to const declarations (native-TJS convenience):
   // Foo = ... -> const Foo = ...  Gated by TjsSafeAssign — OFF for plain JS
   // (dialect: 'js'), TS-originated, and VM targets, so a JS reassignment like
@@ -599,9 +609,7 @@ export function preprocess(
  */
 export function parse(
   source: string,
-  options: ParseOptions = {},
-  /** Internal: set on the one `braceSwitchArms` retry, so it cannot recurse. */
-  retrying = false
+  options: ParseOptions = {}
 ): {
   ast: Program
   /**
@@ -610,14 +618,6 @@ export function parse(
    * value, say) were slicing `originalSource` or re-running `preprocess`; both drift.
    */
   processedSource: string
-  /**
-   * The RAW source after a `switch`-scope repair, when one happened (see
-   * `braceSwitchArms`). Callers that re-run `preprocess` themselves must feed it THIS,
-   * not the source they passed in — otherwise the AST indexes into a braced string while
-   * their patch base is unbraced, and every position after the first arm is wrong. That is
-   * the drift this type's `processedSource` note already warns about, in a new costume.
-   */
-  repairedSource?: string
   /** Offsets in `processedSource` where a required parameter's value begins. */
   requiredValueOffsets: Set<number>
   returnType?: string
@@ -716,35 +716,6 @@ export function parse(
       tjsModes,
     }
   } catch (e: any) {
-    // ONE retry, for the one thing a `.tjs` file may legally contain that JavaScript
-    // rejects outright: per-arm `switch` scope (#43, item 4).
-    //
-    //     case 'a': const y = 1 …
-    //     case 'b': const y = 2 …    SyntaxError: Identifier 'y' has already been declared
-    //
-    // A switch body is ONE block scope in JS, so that is a spec early error and acorn is
-    // right to refuse it. TJS scopes arms individually, so the source has to be braced
-    // before acorn sees it — see `braceSwitchArms`, which locates the arms with
-    // `acorn-loose` precisely because strict acorn will not parse this.
-    //
-    // The retry re-runs the WHOLE pipeline on the repaired source rather than patching
-    // offsets. `preprocess` computes several position-indexed structures
-    // (`requiredValueOffsets`, `typeNameValueOffsets`, wasm blocks, test blocks) and
-    // inserting braces would invalidate every one of them; recomputing is slower and
-    // cannot be got subtly wrong. It costs nothing on the normal path, because this only
-    // runs where the alternative was a hard failure.
-    if (!retrying && tjsModes.tjsStandard) {
-      const braced = braceSwitchArms(source)
-      // If the repair still will not parse, the original error is the true one. A repair
-      // that masks a real syntax error with a confusing one is worse than no repair.
-      if (braced && braced !== source) {
-        try {
-          return { ...parse(braced, options, true), repairedSource: braced }
-        } catch {
-          /* fall through to the original error */
-        }
-      }
-    }
     // Convert Acorn error to our error type
     const loc = e.loc || { line: 1, column: 0 }
     throw new SyntaxError(

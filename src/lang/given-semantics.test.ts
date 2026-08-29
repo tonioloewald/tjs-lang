@@ -1,13 +1,20 @@
 /**
- * `switch` in native `.tjs` is Swift's, not C's (#43) — all four items, behaviourally.
+ * `given` — the fixed dispatch construct, all four properties, behaviourally (#43, #48).
  *
  * These assert what the emitted code DOES, not what it looks like. The transform's output
  * shape is an implementation detail; "does an arm fall through" is the promise.
  *
+ * These properties first shipped as a fixed `switch`. The probe then measured that fix and
+ * found it worse than the defect for a reader — identical text traced 5/5 as `.js` and 0/5
+ * as `.tjs`, applying C fallthrough confidently every time, because the extension carries
+ * nothing and the shape still said "C switch". So the semantics moved to a construct that
+ * LOOKS different, and `switch` was left exactly as JavaScript defines it.
+ *
  * The four:
- *   1. `case` compares with `Eq` semantics, so `switch` agrees with `==` in the same file
+ *   1. arms compare with `Eq` semantics, so dispatch agrees with `==` in the same file
  *   2. `case 'a', 'b':` — multiple values without fallthrough
- *   3. `break` is implicit; `fallthrough` is the opt-in keyword
+ *   3. arms never fall through — there is no cascade and no keyword for one. `switch`
+ *      remains available, unchanged, for the rare case that genuinely wants C's behaviour
  *   4. each arm has its own scope
  *
  * Item 1 is the one that gets left behind, per the issue's own implementation note: implicit
@@ -29,17 +36,11 @@ const boxed = (value: unknown) =>
 
 const DISPATCH = `export function f(x: any):! '' {
   const out = []
-  switch (x) {
-    case 'a', 'b':
-      out.push('ab')
-    case 'c':
-      out.push('c')
-      fallthrough
-    case 'd':
-      out.push('d')
-    case 'e':
-      out.push('e')
-      return out.join(',')
+  given x {
+    'a', 'b' { out.push('ab') }
+    'c' { out.push('c') }
+    'd' { out.push('d') }
+    'e' { out.push('e'); return out.join(',') }
   }
   return out.join(',') + '|end'
 }
@@ -49,12 +50,12 @@ describe('1. case compares the way `==` does', () => {
   it('a value-like object matches a literal case (#42, the original report)', () => {
     // The whole reason #42 was filed: `x == 'c'` was true while `switch (x) case 'c'` was
     // not, in the same file, with no operator to reach for instead.
-    expect(load(DISPATCH, 'f')(boxed('c'))).toBe('c,d|end')
+    expect(load(DISPATCH, 'f')(boxed('c'))).toBe('c|end')
   })
 
   it('`undefined` and `null` are one key, as Eq says', () => {
     const f = load(
-      `export function f(x: any):! 0 { switch (x) { case null: return 1 } return 0 }`,
+      `export function f(x: any):! 0 { given x { null { return 1 } } return 0 }`,
       'f'
     )
     expect(f(null)).toBe(1)
@@ -64,7 +65,7 @@ describe('1. case compares the way `==` does', () => {
   it('NaN matches itself — which `===` cannot express', () => {
     // `Eq(NaN, NaN)` is true; a plain `switch` uses `===`, where NaN matches nothing.
     const f = load(
-      `export function f(x: any):! 0 { switch (x) { case NaN: return 1 } return 0 }`,
+      `export function f(x: any):! 0 { given x { NaN { return 1 } } return 0 }`,
       'f'
     )
     expect(f(NaN)).toBe(1)
@@ -75,7 +76,7 @@ describe('1. case compares the way `==` does', () => {
     // The control. TJS `==` is footgun-free `===`, not `==`; `switch` must inherit exactly
     // that and no more, or this change would have smuggled in the coercion TJS removed.
     const f = load(
-      `export function f(x: any):! 0 { switch (x) { case 5: return 1 } return 0 }`,
+      `export function f(x: any):! 0 { given x { 5 { return 1 } } return 0 }`,
       'f'
     )
     expect(f(5)).toBe(1)
@@ -99,48 +100,12 @@ describe('3. break is implicit, fallthrough is opt-in', () => {
     expect(f('d')).toBe('d|end')
   })
 
-  it('`fallthrough` still cascades — and only as far as the next arm', () => {
-    // 'c' says fallthrough, so 'd' runs; 'd' does NOT, so 'e' must not.
-    expect(f('c')).toBe('c,d|end')
-  })
-
   it('an arm that returns still returns', () => {
     expect(f('e')).toBe('e')
   })
 
   it('no match runs nothing', () => {
     expect(f('z')).toBe('|end')
-  })
-
-  it('warns at exactly the arms whose meaning changed', () => {
-    // The one compatibility surface, and the reason it warns rather than silently changing:
-    // 'ab' and 'd' previously fell through and no longer do. 'c' says `fallthrough`, 'e'
-    // returns, and the final arm has nothing to fall into — none of those changed meaning.
-    const w = (tjs(DISPATCH).warnings ?? []).filter((m) =>
-      String(m).includes('falls through implicitly')
-    )
-    expect(w).toHaveLength(2)
-  })
-
-  it('does not warn about a `break` inside a loop inside an arm', () => {
-    // Arm-level analysis: a `break` in a nested loop means "exit the loop" and must keep
-    // meaning that, so the arm still needs its implicit one — but the arm genuinely did
-    // fall through before, so the warning is correct here and the test pins the COUNT.
-    const src = `export function f(x: any):! 0 {
-  let n = 0
-  switch (x) {
-    case 'a':
-      for (;;) { n = 1; break }
-    case 'b':
-      n = n + 10
-  }
-  return n
-}`
-    expect(load(src, 'f')('a')).toBe(1) // 1, not 11 — the arm ended
-    const w = (tjs(src).warnings ?? []).filter((m) =>
-      String(m).includes('falls through implicitly')
-    )
-    expect(w).toHaveLength(1)
   })
 
   it('an if/else where both branches return is not a fallthrough', () => {
@@ -190,29 +155,22 @@ describe('4. each arm has its own scope', () => {
     // spec early error. Reaching this at all required bracing the arms before acorn sees
     // the source (`braceSwitchArms`).
     const src = `export function f(x: any):! 0 {
-  switch (x) {
-    case 'a':
-      const y = 1
-      return y
-    case 'b':
-      const y = 2
-      return y
-    default:
-      const y = 3
-      return y
-  }
+  given x {
+    'a' { const y = 1; return y }
+    'b' { const y = 2; return y }
+  } else { const y = 3; return y }
 }`
     const f = load(src, 'f')
     expect([f('a'), f('b'), f('z')]).toEqual([1, 2, 3])
   })
 
-  it('a hand-braced arm keeps working', () => {
+  it('an explicitly braced arm body still works', () => {
     // People have been writing these for years because `no-case-declarations` made them.
     // The change must not punish the workaround it obsoletes.
     const src = `export function f(x: any):! 0 {
-  switch (x) {
-    case 'a': { const y = 1; return y }
-    case 'b': { const y = 2; return y }
+  given x {
+    'a' { { const y = 1; return y } }
+    'b' { { const y = 2; return y } }
   }
   return 0
 }`
@@ -280,8 +238,9 @@ describe('nesting and other things that must not break', () => {
   }
   return hits
 }`
-    // i=0 -> +1 (arm ends), i=1 -> +10, i=2 -> no match. Loop runs all three times.
-    expect(load(src, 'f')(0)).toBe(11)
+    // C semantics, unchanged: i=0 matches and FALLS THROUGH (+1 then +10), i=1 matches
+    // (+10), i=2 no match. 21. `given` is where fallthrough does not happen.
+    expect(load(src, 'f')(0)).toBe(21)
   })
 
   it('`case` and `fallthrough` inside string literals are not code', () => {
@@ -321,5 +280,53 @@ describe('plain JS is untouched — the subset invariant', () => {
     const f = new Function(js.replace(/^export /gm, '') + '\nreturn f')()
     expect(f('a')).toBe('1,2') // still falls through
     expect(js).not.toContain('swKey')
+  })
+})
+
+describe('`switch` is left exactly as JavaScript defines it', () => {
+  // The deliberate NON-change. #43 fixed `switch` in place; the probe then measured that fix
+  // and found it worse than the defect for a reader — identical text traced 5/5 as `.js` and
+  // 0/5 as `.tjs`, applying C fallthrough confidently every time. A fix nobody can see is a
+  // hazard, so it was reverted and the semantics moved to `given`.
+  const FALLS = `export function f(x: any):! '' {
+  const out = []
+  switch (x) {
+    case 'a':
+      out.push(1)
+    case 'b':
+      out.push(2)
+  }
+  return out.join(',')
+}`
+
+  it('still falls through, in native .tjs', () => {
+    expect(load(FALLS, 'f')('a')).toBe('1,2')
+  })
+
+  it('and identically under `dialect: js` — no divergence to explain', () => {
+    const js = tjs(FALLS, { dialect: 'js' }).code
+    const f = new Function(js.replace(/^export /gm, '') + '\nreturn f')()
+    expect(f('a')).toBe('1,2')
+  })
+
+  it('warns, and the warning shows `given` as code rather than describing it', () => {
+    // A remedy shown as code repaired 80% where the same advice as prose repaired 50% and a
+    // bare diagnostic 0% (ASSUMPTIONS A1). The warning is the only thing a reader of a
+    // `switch` will see, so it carries the replacement.
+    const w = (tjs(FALLS).warnings ?? []).filter((m) =>
+      String(m).includes('given')
+    )
+    expect(w).toHaveLength(1)
+    expect(w[0]).toContain('given x {')
+    expect(w[0]).toContain('fall through')
+  })
+
+  it('does not warn about a `switch` in plain JS', () => {
+    // `dialect: 'js'` is not being offered a TJS construct — TJS ⊇ JS means plain JS is
+    // never nagged about syntax it cannot use.
+    const w = (tjs(FALLS, { dialect: 'js' }).warnings ?? []).filter((m) =>
+      String(m).includes('given')
+    )
+    expect(w).toEqual([])
   })
 })

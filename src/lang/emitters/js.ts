@@ -108,7 +108,7 @@ import {
   rewriteBoolCoercion,
   rewriteBoolCoercionInSource,
 } from '../bool-coercion'
-import { rewriteSwitch } from '../switch-transform'
+import { switchAdvice } from '../switch-transform'
 import { applyEdits } from '../source-edits'
 
 /** A key safe to emit as `base.key` (else it must be bracket-accessed). */
@@ -996,7 +996,6 @@ export function transpileToJS(
     originalSource,
     requiredParams,
     unsafeFunctions,
-    repairedSource,
   } = parse(cleanSource, {
     filename,
     colonShorthand: true,
@@ -1010,9 +1009,7 @@ export function transpileToJS(
   // Preprocess source (handles TJS syntax transformations)
   // Pass through the moduleLoader so Phase 3 cross-file wasm composition
   // sees imported `wasm function` declarations.
-  // `repairedSource` when `parse` had to brace `switch` arms to parse at all (#43 item 4):
-  // the AST indexes into the braced source, so the patch base must be braced too.
-  const preprocessed = preprocess(repairedSource ?? cleanSource, {
+  const preprocessed = preprocess(cleanSource, {
     dialect: options.dialect,
     moduleLoader: options.moduleLoader,
     filename,
@@ -1583,18 +1580,18 @@ export function transpileToJS(
       insertions.push({ position: p.start, text: p.newText })
     }
 
-    // `switch` is Swift's, not C's, in native .tjs (#43): implicit `break`, per-arm scope,
-    // multi-value `case a, b:`, opt-in `fallthrough`, and a discriminant keyed the same way
-    // `==` compares. Gated on the SAME flag as bool-coercion, which is what keeps converted
-    // and `dialect: 'js'` sources on C semantics — the boundary #37 taught us to respect.
-    const sw = rewriteSwitch(program, preprocessed.source)
-    sw.patches = sw.patches.filter((p) => !overlapsAnnotation(p.start, p.end))
-    for (const p of sw.patches) {
-      deletions.push({ start: p.start, end: p.end })
-      insertions.push({ position: p.start, text: p.newText })
-    }
-    for (const w of sw.warnings) {
-      warnings.push(w.message)
+    // `switch` KEEPS C SEMANTICS, deliberately. #43 fixed it in place; then the probe
+    // measured the result and found the fix was worse than the defect for a reader: shown
+    // the identical program as `.js` a model traced it 5/5, shown it as `.tjs` it applied C
+    // fallthrough 5/5 CONFIDENTLY. The extension carries nothing, so the only signal is the
+    // shape — and the shape was still C's.
+    //
+    // The fix therefore moved to a construct that LOOKS different, `given` (lowered in
+    // `given-transform.ts`), which measures with zero wrong answers. `switch` is left exactly
+    // as JavaScript defines it, so nothing silently changes meaning, and instead gets a
+    // warning pointing at the replacement. See `docs/case-study-switch.md`.
+    for (const w of switchAdvice(program, preprocessed.source)) {
+      warnings.push(w)
     }
   }
 

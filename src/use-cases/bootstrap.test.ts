@@ -553,6 +553,7 @@ describe('Bootstrap Canary', () => {
         'declared-classes.ts',
         'parser-params.ts',
         'parser-transforms.ts',
+        'given-transform.ts',
         'parser.ts',
       ]
       const missing: string[] = []
@@ -584,6 +585,7 @@ describe('Bootstrap Canary', () => {
         'declared-classes.ts',
         'parser-params.ts',
         'parser-transforms.ts',
+        'given-transform.ts',
         'parser.ts',
       ]
 
@@ -718,6 +720,7 @@ describe('Bootstrap Canary', () => {
         'declared-classes.ts',
         'parser-params.ts',
         'parser-transforms.ts',
+        'given-transform.ts',
         'parser.ts',
       ]
 
