@@ -35,13 +35,26 @@ describe('TypeScript to TJS Transpiler', () => {
       expect(result.code).toContain('b: number')
     })
 
-    it('should convert optional params to union with undefined', () => {
+    it("keeps an optional param optional, in TypeScript's own spelling", () => {
+      // This asserted `title: string | undefined` — the union preserves the TYPE, but
+      // `name: T` is REQUIRED in TJS whatever T is, so the parameter came out mandatory.
+      // The emitted `__tjs` then said `required: true` while `fromTS`'s own metadata said
+      // `required: false`: the text and the metadata disagreed about the same parameter.
+      //
+      // `title?: string` is valid TJS and identical to the TypeScript source, so the
+      // author's annotation survives conversion intact.
       const result = fromTS(
         `function greet(name: string, title?: string) { return name }`,
         { emitTJS: true }
       )
       expect(result.code).toContain('name: string')
-      expect(result.code).toContain('title: string | undefined')
+      expect(result.code).toContain('title?: string')
+      // The property that was actually broken — asserted through the emitted metadata,
+      // because that is what a consumer reads.
+      const js = tjs(result.code, { runTests: false }).code
+      const meta = new Function(`${js}; return greet.__tjs;`)()
+      expect(meta.params.title.required).toBe(false)
+      expect(meta.params.title.type.kind).toBe('string')
     })
 
     it('should convert return type to -! annotation (skip signature test)', () => {
@@ -169,10 +182,15 @@ describe('TypeScript to TJS Transpiler', () => {
       // Also verify metadata is attached
       const metaFn = new Function(`${result.code}; return greet.__tjs;`)
       const meta = metaFn()
-      expect(meta.params.name.type).toBe('string')
+      // The CANONICAL descriptor shape — `{ kind: 'string' }`, exactly what a hand-written
+      // `.tjs` file emits. These used to assert the flat `type: 'string'`, which only the
+      // deleted `ts.transpileModule` branch ever produced (`{ type: v.type.kind }`). Keeping
+      // it would mean emitting two different metadata shapes depending on where the source
+      // came from, which is the disease rather than the cure.
+      expect(meta.params.name.type.kind).toBe('string')
       expect(meta.params.name.required).toBe(true)
       expect(meta.params.excited.required).toBe(false)
-      expect(meta.returns.type).toBe('string')
+      expect(meta.returns.type.kind).toBe('string')
     })
 
     it('should handle arrow functions end-to-end', () => {
@@ -188,8 +206,8 @@ describe('TypeScript to TJS Transpiler', () => {
       // Check metadata
       const metaFn = new Function(`${result.code}; return multiply.__tjs;`)
       const meta = metaFn()
-      expect(meta.params.a.type).toBe('number')
-      expect(meta.params.b.type).toBe('number')
+      expect(meta.params.a.type.kind).toBe('number')
+      expect(meta.params.b.type.kind).toBe('number')
     })
 
     it('should handle complex types end-to-end', () => {

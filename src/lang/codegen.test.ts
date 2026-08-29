@@ -28,12 +28,15 @@ describe('TS → TJS conversion quality', () => {
       expect(code).not.toContain('x: 0.0')
     })
 
-    it('converts optional param to union with undefined', () => {
+    it('keeps an optional param optional', () => {
       const ts = `function greet(name?: string): string { return name || 'World' }`
       const { code } = fromTS(ts, { emitTJS: true })
 
-      expect(code).toContain('name: string | undefined')
-      expect(code).not.toContain('name?')
+      // `name?: string` is TypeScript's spelling and valid TJS, so the annotation survives.
+      // This asserted `name: string | undefined`, which preserved the type but made the
+      // parameter REQUIRED — `name: T` is required in TJS whatever T is.
+      expect(code).toContain('name?: string')
+      expect(code).not.toContain('| undefined')
     })
 
     it('preserves explicit default values', () => {
@@ -54,7 +57,7 @@ describe('TS → TJS conversion quality', () => {
       const ts = `function greet(name: string, excited?: boolean): string { return excited ? name + '!' : name }`
       const { code } = fromTS(ts, { emitTJS: true })
 
-      expect(code).toContain('excited: boolean | undefined')
+      expect(code).toContain('excited?: boolean')
     })
 
     it('converts array param correctly', () => {
@@ -85,7 +88,7 @@ describe('TS → TJS conversion quality', () => {
       const { code } = fromTS(ts, { emitTJS: true })
 
       expect(code).toContain('url: string')
-      expect(code).toContain('timeout: number | undefined')
+      expect(code).toContain('timeout?: number')
     })
   })
 
@@ -645,8 +648,8 @@ console.log(second())
       const ts = `function test(x?: number, y?: string): void { }`
       const { code } = fromTS(ts, { emitTJS: true })
 
-      expect(code).toContain('x: number | undefined')
-      expect(code).toContain('y: string | undefined')
+      expect(code).toContain('x?: number')
+      expect(code).toContain('y?: string')
     })
 
     it('uses -! syntax for return types (skip signature test)', () => {
@@ -1292,9 +1295,11 @@ function test(required: string, optional?: number): void { }
       const { types } = tjs(tjsCode)
 
       expect(types?.test?.params?.required?.required).toBe(true)
-      // TS optional becomes TJS union with undefined (required param that accepts undefined)
-      expect(types?.test?.params?.optional?.required).toBe(true)
-      expect(types?.test?.params?.optional?.type?.kind).toBe('union')
+      // A TS optional stays optional through the pipeline, and keeps its type. It used to
+      // become `optional: number | undefined` — a REQUIRED param that tolerates undefined —
+      // so this pair of assertions was the defect written down as the specification.
+      expect(types?.test?.params?.optional?.required).toBe(false)
+      expect(types?.test?.params?.optional?.type?.kind).toBe('number')
     })
   })
 })

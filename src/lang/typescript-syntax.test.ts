@@ -866,12 +866,19 @@ describe('Real-World Patterns', () => {
     expect(types?.chunk.params.array.type.kind).toBe('array')
   })
 
-  test('?: boolean transpiles to required union param with no JS default', () => {
+  test('?: boolean stays optional, and invents no JS default', () => {
     const tjsCode = fromTS('function f(excited?: boolean) { return excited }', {
       emitTJS: true,
     }).code
-    // TJS should have union annotation
-    expect(tjsCode).toContain('excited: boolean | undefined')
+    // `excited?: boolean` — TypeScript's own spelling, which is also valid TJS.
+    //
+    // This asserted `excited: boolean | undefined`, and the test was NAMED for the
+    // consequence: "transpiles to REQUIRED union param". The union preserved the type but
+    // `name: T` is required in TJS whatever T is, so an optional parameter came out
+    // mandatory and the emitted metadata said `required: true` while `fromTS`'s own said
+    // `required: false`. The property this test actually protects — that no JS default is
+    // invented — still holds, and now the parameter is optional too.
+    expect(tjsCode).toContain('excited?: boolean')
     // TS-originated code defaults to safety none — add safety inputs to test validation
     const jsResult = tjs('safety inputs\n' + tjsCode)
     // JS should not have default or bitwise OR — `:` means required

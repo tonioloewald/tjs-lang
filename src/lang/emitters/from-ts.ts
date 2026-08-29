@@ -32,7 +32,6 @@
 
 import ts from 'typescript'
 import { maskLiteralsKeepComments, scanLiterals } from '../../strip-comments'
-import { emitClassWrapper } from '../runtime'
 
 export interface FromTSOptions {
   /** Emit TJS intermediate instead of JS + metadata */
@@ -2263,9 +2262,20 @@ function transformParams(
         }
       }
     } else if (isOptional) {
-      // Optional without default - use union with undefined to preserve
-      // three-state semantics (e.g. TS `flag?: boolean` can be true/false/undefined)
-      params.push(`${name}: ${typeExample} | undefined`)
+      // Optional without default. TJS spells this `name?: T` — the SAME syntax TypeScript
+      // uses, so the author's own annotation survives the conversion.
+      //
+      // It used to emit `name: T | undefined`, reasoning that the union preserved the
+      // three-state semantics of `flag?: boolean`. It does preserve the TYPE, but `name: T`
+      // is REQUIRED in TJS whatever T is, so the parameter came out mandatory — and the
+      // emitted `__tjs` then said `required: true` while `fromTS`'s own returned metadata
+      // said `required: false`. The text and the metadata disagreed about the same
+      // parameter.
+      //
+      // Invisible until the JS output stopped coming from `ts.transpileModule`: the metadata
+      // came from the extractor and the JavaScript came from TypeScript, so nothing ever ran
+      // our parser over this line. See `src/no-ts-emitter.test.ts`.
+      params.push(`${name}?: ${typeExample}`)
     } else {
       // Required - use : for required
       params.push(`${name}: ${typeExample}`)
