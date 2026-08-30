@@ -139,6 +139,14 @@ export async function getLocalModels(customLlmUrl?: string): Promise<string[]> {
 // LLM provider type
 export type LLMProvider =
   | 'auto'
+  /**
+   * The hosted demo model — our key, their sign-in, a server-enforced daily cap.
+   *
+   * Deliberately LAST in auto-mode priority: a visitor who configured their own provider
+   * means it, and should not silently spend our quota instead. It is what makes the
+   * playground work with no configuration at all, which is the whole point of a demo.
+   */
+  | 'demo'
   | 'custom'
   | 'openai'
   | 'anthropic'
@@ -153,6 +161,8 @@ export interface LLMSettings {
   deepseekKey: string
   customLlmUrl: string
 }
+
+import { canUseDemoModel } from './demo-model'
 
 // Get settings from localStorage
 export function getSettings(): LLMSettings {
@@ -223,6 +233,19 @@ export function buildLLMCapability(settings: LLMSettings) {
       }
     })()
     return chatModelPromise
+  }
+
+  /*
+   * The hosted demo model.
+   *
+   * No API key here, by design — the key lives in the Cloud Function and never reaches the
+   * browser. A key in a public bundle is a key you have given away; "minified" is not a
+   * control. Sign-in is what makes the per-user cap enforceable, and the cap itself is
+   * enforced server-side because a client-side limit is a suggestion.
+   */
+  const callDemo = async (prompt: string, _options?: any): Promise<string> => {
+    const { callDemoModel } = await import('./demo-model')
+    return callDemoModel(prompt)
   }
 
   // Provider implementations
@@ -403,6 +426,7 @@ export function buildLLMCapability(settings: LLMSettings) {
   return {
     async predict(prompt: string, options?: any): Promise<string> {
       // If a specific provider is selected, use it
+      if (preferredProvider === 'demo') return callDemo(prompt, options)
       if (preferredProvider === 'custom' && hasCustomUrl)
         return callCustom(prompt, options)
       if (preferredProvider === 'openai' && hasOpenAI)
@@ -417,6 +441,7 @@ export function buildLLMCapability(settings: LLMSettings) {
       // If preferred provider not available, show helpful error
       if (preferredProvider !== 'auto') {
         const providerNames: Record<string, string> = {
+          demo: 'Demo Model',
           custom: 'Custom Endpoint',
           openai: 'OpenAI',
           anthropic: 'Anthropic',
@@ -428,14 +453,20 @@ export function buildLLMCapability(settings: LLMSettings) {
         )
       }
 
-      // Auto mode: use first available in priority order
+      // Auto mode: use first available in priority order. The hosted demo model is LAST —
+      // a visitor who configured their own provider meant it, and must not silently spend
+      // our quota instead.
       if (hasCustomUrl) return callCustom(prompt, options)
       if (hasOpenAI) return callOpenAI(prompt, options)
       if (hasAnthropic) return callAnthropic(prompt, options)
       if (hasGemini) return callGemini(prompt, options)
       if (hasDeepseek) return callDeepseek(prompt, options)
+      if (await canUseDemoModel()) return callDemo(prompt, options)
 
-      throw new Error('No LLM provider configured')
+      throw new Error(
+        'No LLM provider configured. Sign in to use the demo model, or add your own API ' +
+          'key in Settings.'
+      )
     },
   }
 }
@@ -541,6 +572,37 @@ export function buildLLMBattery(settings: LLMSettings) {
 
     verifiedVisionModels.set(cacheKey, null)
     return null
+  }
+
+  /*
+   * The hosted demo model.
+   *
+   * No API key here, by design — the key lives in the Cloud Function and never reaches the
+   * browser. A key in a public bundle is a key you have given away; "minified" is not a
+   * control. Sign-in is what makes the per-user cap enforceable, and the cap itself is
+   * enforced server-side because a client-side limit is a suggestion.
+   */
+  const callDemo = async (
+    system: string,
+    user: UserContent,
+    _tools?: any[],
+    _responseFormat?: any
+  ): Promise<BatteryResult> => {
+    // The demo model takes a single prompt: it is a tyre-kicking path, not the full battery.
+    // Tools and structured output are NOT silently dropped — they are refused, because
+    // returning prose where the caller asked for a schema is the kind of quiet wrong answer
+    // that costs an afternoon.
+    if (_tools?.length || _responseFormat) {
+      throw new Error(
+        'The demo model does not support tools or structured output. Add your own API key ' +
+          'in Settings for those.'
+      )
+    }
+    const text = typeof user === 'string' ? user : user.text
+    const { callDemoModel } = await import('./demo-model')
+    return {
+      content: await callDemoModel(system ? `${system}\n\n${text}` : text),
+    }
   }
 
   // Provider implementations
@@ -857,6 +919,8 @@ export function buildLLMBattery(settings: LLMSettings) {
       responseFormat?: any
     ): Promise<BatteryResult> {
       // If a specific provider is selected, use it
+      if (preferredProvider === 'demo')
+        return callDemo(system, user, tools, responseFormat)
       if (preferredProvider === 'custom' && hasCustomUrl)
         return callCustom(system, user, tools, responseFormat)
       if (preferredProvider === 'openai' && hasOpenAI)
@@ -871,6 +935,7 @@ export function buildLLMBattery(settings: LLMSettings) {
       // If preferred provider not available, show helpful error
       if (preferredProvider !== 'auto') {
         const providerNames: Record<string, string> = {
+          demo: 'Demo Model',
           custom: 'Custom Endpoint',
           openai: 'OpenAI',
           anthropic: 'Anthropic',
@@ -889,8 +954,14 @@ export function buildLLMBattery(settings: LLMSettings) {
         return callAnthropic(system, user, tools, responseFormat)
       if (hasGemini) return callGemini(system, user, tools, responseFormat)
       if (hasDeepseek) return callDeepseek(system, user, tools, responseFormat)
+      // Last, so a configured provider always wins over our quota.
+      if (!tools?.length && !responseFormat && (await canUseDemoModel()))
+        return callDemo(system, user, tools, responseFormat)
 
-      throw new Error('No LLM provider configured')
+      throw new Error(
+        'No LLM provider configured. Sign in to use the demo model, or add your own API ' +
+          'key in Settings.'
+      )
     },
 
     async embed(text: string): Promise<number[]> {

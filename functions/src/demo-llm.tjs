@@ -1,0 +1,193 @@
+/*#
+# Demo LLM — our key, their sign-in, a daily cap
+
+The playground used to need the visitor to paste their own API key, or to be running LM Studio
+locally. Both are a wall in front of "click run and see what TJS does", and keeping the local
+path healthy has cost far more engineering time than a few thousand Flash Lite calls ever
+will.
+
+So the demo calls a cheap hosted model on OUR key. Three things make that safe to do:
+
+1. **The key never leaves the server.** It is a Firebase secret, read inside the function. A
+   key shipped to the browser is a key you have given away — the bundle is public, and
+   "obfuscated" is not a control.
+2. **Sign-in is required**, so usage attaches to an identity and an abuser can be cut off.
+3. **The cap is enforced HERE, in a transaction.** A client-side limit is a suggestion; a
+   read-then-write limit is a race that hands out extra calls under concurrency, which is
+   exactly when you least want it to.
+
+## The cap has two levels, deliberately
+
+Per user per day, and a GLOBAL daily ceiling. Per-user alone is unbounded spend: it costs
+nothing to create accounts, so `100 × unlimited users` is not a budget. The global cap is what
+makes the worst case a number you can look at rather than a surprise on a card.
+
+Both are conservative and meant to be raised once there is evidence about real usage. Neither
+is a security boundary on its own — set a billing alert too.
+*/
+
+safety none
+
+import { onCall, HttpsError } from 'firebase-functions/v2/https'
+import { defineSecret } from 'firebase-functions/params'
+import { getFirestore, FieldValue } from 'firebase-admin/firestore'
+
+/*#
+## Configuration
+
+Kept together and named so they can be changed without reading the logic.
+*/
+
+/** The key, read from Secret Manager at call time. Never bundled, never logged. */
+const GEMINI_API_KEY = defineSecret('GEMINI_API_KEY')
+
+/** Cheapest useful model. The demo runs short prompts; nothing here needs a large model. */
+const MODEL = 'gemini-2.0-flash-lite'
+
+/** Calls per signed-in user per UTC day. */
+const DAILY_PER_USER = 100
+
+/**
+ * Calls across ALL users per UTC day.
+ *
+ * Accounts are free to create, so the per-user cap bounds one person and nothing else. This
+ * is the number that bounds the bill.
+ */
+const DAILY_GLOBAL = 5000
+
+/** Refuse a prompt longer than this outright — a demo does not need an essay. */
+const MAX_PROMPT_CHARS = 8000
+
+/** UTC so the reset is the same instant for everyone, and testable without a timezone. */
+function utcDay(now) {
+  return new Date(now).toISOString().slice(0, 10)
+}
+
+/*#
+## Quota
+
+One transaction, two counters. Returns the user's remaining allowance so the UI can show it
+before the visitor runs out rather than after.
+
+Exported for tests: the counting is the part worth testing, and it should be testable without
+a network or a model.
+*/
+export async function claimQuota(db, uid, now, limits = {}) {
+  const perUser = limits.perUser || DAILY_PER_USER
+  const global = limits.global || DAILY_GLOBAL
+  const day = utcDay(now)
+  const userRef = db.collection('users').doc(uid).collection('usage').doc(`demo-${day}`)
+  const globalRef = db.collection('demoUsage').doc(day)
+
+  return db.runTransaction(async (tx) => {
+    // Both reads before either write — Firestore requires it, and it is also the only way
+    // the two counters can be decided against the same snapshot.
+    const userSnap = await tx.get(userRef)
+    const globalSnap = await tx.get(globalRef)
+    const used = (userSnap.exists && userSnap.data().count) || 0
+    const globalUsed = (globalSnap.exists && globalSnap.data().count) || 0
+
+    if (used >= perUser) {
+      return { ok: false, reason: 'per-user', used, remaining: 0 }
+    }
+    if (globalUsed >= global) {
+      // Deliberately distinguished from the per-user case: "you have used your calls" and
+      // "the demo is busy today" are different messages and only one is the visitor's fault.
+      return { ok: false, reason: 'global', used, remaining: perUser - used }
+    }
+
+    tx.set(
+      userRef,
+      { count: FieldValue.increment(1), day, updated: FieldValue.serverTimestamp() },
+      { merge: true }
+    )
+    tx.set(globalRef, { count: FieldValue.increment(1) }, { merge: true })
+    return { ok: true, used: used + 1, remaining: perUser - used - 1 }
+  })
+}
+
+/*#
+## The callable
+
+`demoPredict({ prompt })` -> `{ text, remaining }`.
+
+Errors are the standard callable codes so the client can tell them apart:
+`unauthenticated` (sign in), `resource-exhausted` (cap reached), `invalid-argument` (bad
+prompt), `internal` (upstream trouble).
+*/
+export const demoPredict = onCall(
+  { secrets: [GEMINI_API_KEY], cors: true },
+  async (request) => {
+    if (!request.auth) {
+      throw new HttpsError(
+        'unauthenticated',
+        'Sign in to use the demo model. This keeps usage attributable and the cap enforceable.'
+      )
+    }
+    const uid = request.auth.uid
+    const prompt = request.data && request.data.prompt
+
+    if (!prompt || typeof prompt !== 'string') {
+      throw new HttpsError('invalid-argument', 'prompt must be a non-empty string')
+    }
+    if (prompt.length > MAX_PROMPT_CHARS) {
+      throw new HttpsError(
+        'invalid-argument',
+        `prompt is ${prompt.length} characters; the demo model accepts up to ${MAX_PROMPT_CHARS}`
+      )
+    }
+
+    const db = getFirestore()
+    // Claimed BEFORE the upstream call, so a failure upstream cannot be retried for free.
+    // The cost of that choice is that a failed call still consumes an allowance; the cost of
+    // the other choice is an unbounded retry loop, which is worse.
+    const quota = await claimQuota(db, uid, Date.now())
+
+    if (!quota.ok) {
+      throw new HttpsError(
+        'resource-exhausted',
+        quota.reason === 'per-user'
+          ? `Daily limit reached (${DAILY_PER_USER} calls). It resets at 00:00 UTC. Add your own API key in settings to keep going.`
+          : 'The demo model has hit its daily limit across all users. Try again tomorrow, or add your own API key in settings.'
+      )
+    }
+
+    const res = await fetch(
+      `https://generativelanguage.googleapis.com/v1beta/models/${MODEL}:generateContent`,
+      {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'x-goog-api-key': GEMINI_API_KEY.value(),
+        },
+        body: JSON.stringify({
+          contents: [{ parts: [{ text: prompt }] }],
+          generationConfig: { maxOutputTokens: 1024 },
+        }),
+      }
+    )
+
+    if (!res.ok) {
+      // The upstream explanation, not our guess about it — a 400 means the API is reachable
+      // and is telling us why it refused. Truncated because it reaches a browser.
+      const detail = await res.text().catch(() => '')
+      console.error('demoPredict upstream error', res.status, detail.slice(0, 500))
+      throw new HttpsError(
+        'internal',
+        `The demo model returned ${res.status}. ${detail.slice(0, 200)}`
+      )
+    }
+
+    const data = await res.json()
+    const text =
+      (data.candidates &&
+        data.candidates[0] &&
+        data.candidates[0].content &&
+        data.candidates[0].content.parts &&
+        data.candidates[0].content.parts[0] &&
+        data.candidates[0].content.parts[0].text) ||
+      ''
+
+    return { text, remaining: quota.remaining, model: MODEL }
+  }
+)
