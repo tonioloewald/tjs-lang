@@ -176,6 +176,29 @@ useful part: fixing two things fixes nearly all of it.
 - [ ] **`superstruct src/utils.ts:188` — `Unexpected token`.** One-off parse failure, not yet
       diagnosed.
 
+### The remaining 16 (2026-08-30) — corpus 618/634, 97%
+
+Measured on restored sources. No cluster larger than 2; each needs its own diagnosis. Use
+the PREPROCESSED source to locate a failure — acorn's offsets are into that, not the TJS, and
+reading the TJS line at that number sends you after ghosts (cost several wrong turns).
+
+- [ ] **The converter emits invalid JavaScript in two shapes** (4 files). Not language gaps —
+      `acorn` rejects them too. `const f = (a)\n  => a` puts `=>` on its own line, which is a
+      SyntaxError in JS (`ArrowParameters [no LineTerminator here] =>`), and
+      `const registered: Array = []` leaves a TypeScript annotation on a variable. Both
+      convert CORRECTLY in isolation, so it is context — most likely a statement reaching a
+      path that copies source text rather than transforming it. Highest value of what is
+      left, because emitting invalid JS is worse than declining.
+- [ ] **`FunctionPredicate(…)` inline as a parameter example** (2 files: zod `$constructor`,
+      radash `objectify`). The converter emits it; the parser will not read it there.
+- [ ] **`add(schema, ..._meta: [null])`** — rest parameter with an annotation in a METHOD.
+      The same shape in a plain function is fine.
+- [ ] **`defaultValue: (): boolean | "client" | "server" => false`** — arrow with a union
+      return type inside an object literal.
+- [ ] **2 remaining ambiguous overloads** (`onError` in two effect files) and **2
+      already-declared** (kysely `Database`, effect `EntityRegistered`) — the guards land, but
+      these two shapes still slip past.
+
 - [ ] **The compat clones are left DIRTY after every run, poisoning the next measurement.**
       Each script resets with `git checkout .` at the START and never at the end, so the
       `.ts` files keep the transpiled output written over them. Measuring between runs then
