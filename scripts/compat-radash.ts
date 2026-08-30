@@ -300,6 +300,10 @@ async function main() {
       )
       console.log(`  (broken fake timers in: ${upstreamFailures.join(', ')})`)
       const actualFailed = numFailedTests - upstreamCount
+      // Upstream breakage is NOT a converter failure — radash's own suite has broken fake
+      // timers — so the lane is judged on what is left after subtracting it. A suite that
+      // ran nothing fails too: "nothing ran" and "everything passed" must not look alike.
+      if (actualFailed > 0 || numTotalTests === 0) process.exitCode = 1
       if (actualFailed === 0) {
         console.log(
           `\n  TJS transpilation: ${numPassedTests}/${numPassedTests} tests passed!\n`

@@ -259,6 +259,14 @@ async function main() {
     const passed = json.numPassedTests ?? 0
     const failed = json.numFailedTests ?? 0
     const total = json.numTotalTests ?? passed + failed
+    // A red suite, or a suite that never ran, is a lane failure.
+    //
+    // Only TRANSPILE failures set the exit code before this, so a target whose source
+    // converted cleanly and then failed its own tests still reported green — and a target
+    // that ran ZERO tests reported greenest of all. superstruct printed
+    // `Passed: 0, Failed: 0` in exactly that state. "Nothing ran" and "everything passed"
+    // must not look the same.
+    if (failed > 0 || total === 0) process.exitCode = 1
     const suitesFailed = json.numFailedTestSuites ?? 0
 
     console.log('━'.repeat(50))
