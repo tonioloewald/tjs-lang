@@ -2667,6 +2667,51 @@ export function transformTypeDeclarations(
  *   FunctionPredicate Handler(existingFn, 'description')
  *   → const Handler = FunctionPredicate('description', existingFn)
  */
+
+/**
+ * A block member's value, found only at the TOP level of the block body.
+ *
+ * `blockBody.match(/returns\s*:\s*(.+?)/)` takes the first occurrence anywhere, and a
+ * `FunctionPredicate` value nests the same key names:
+ *
+ *     FunctionPredicate Cb {
+ *       params: { cte: FunctionPredicate('f', { params: { n: null }, returns: null }) }
+ *       returns: null
+ *     }
+ *
+ * so `returns` matched the INNER one, captured `null }) }`, and the lowering came out with
+ * stray braces. kysely's `cte-builder.ts` is exactly this shape.
+ *
+ * The value runs to the end of its line, but only counting a newline that is itself at depth
+ * zero — a member written across lines stays whole. Literals are masked so a brace inside a
+ * string cannot move the depth.
+ */
+function topLevelMemberValue(body: string, key: string): string | null {
+  const masked = maskLiterals(body)
+  let depth = 0
+  for (let i = 0; i < masked.length; i++) {
+    const c = masked[i]
+    if (c === '{' || c === '(' || c === '[') depth++
+    else if (c === '}' || c === ')' || c === ']') depth--
+    else if (depth === 0 && masked.startsWith(key, i)) {
+      if (i > 0 && /[A-Za-z0-9_$]/.test(masked[i - 1])) continue
+      const after = /^\s*:/.exec(masked.slice(i + key.length))
+      if (!after) continue
+      const start = i + key.length + after[0].length
+      let d = 0
+      let j = start
+      for (; j < masked.length; j++) {
+        const ch = masked[j]
+        if (ch === '{' || ch === '(' || ch === '[') d++
+        else if (ch === '}' || ch === ')' || ch === ']') d--
+        else if (ch === '\n' && d === 0) break
+      }
+      return body.slice(start, j).trim()
+    }
+  }
+  return null
+}
+
 export function transformFunctionPredicateDeclarations(source: string): string {
   let result = ''
   let i = 0
@@ -2702,18 +2747,22 @@ export function transformFunctionPredicateDeclarations(source: string): string {
 
           // Extract params: { ... } (brace-balanced for nested objects like { el: {} })
           const paramsMatch = extractBalancedValue(blockBody, /params\s*:\s*\{/)
-          // Extract returns value
-          const returnsMatch = blockBody.match(/returns\s*:\s*(.+?)(?:\n|$)/)
-          // Extract returnContract
-          const contractMatch = blockBody.match(
-            /returnContract\s*:\s*['"](\w+)['"]/
-          )
-          // Extract description
-          const descMatch = blockBody.match(/description\s*:\s*(['"])([^]*?)\1/)
+          // Members are read at the TOP LEVEL only — a `FunctionPredicate` value nests the
+          // same key names, and matching anywhere grabbed the inner one. See
+          // `topLevelMemberValue`.
+          const returnsValue = topLevelMemberValue(blockBody, 'returns')
+          const contractValue = topLevelMemberValue(blockBody, 'returnContract')
+          const contractMatch = contractValue
+            ? /^['"](\w+)['"]/.exec(contractValue)
+            : null
+          const descValue = topLevelMemberValue(blockBody, 'description')
+          const descMatch = descValue
+            ? /^(['"])([^]*?)\1/.exec(descValue)
+            : null
 
           const spec: string[] = []
           if (paramsMatch) spec.push(`params: ${paramsMatch[1]}`)
-          if (returnsMatch) spec.push(`returns: ${returnsMatch[1].trim()}`)
+          if (returnsValue) spec.push(`returns: ${returnsValue}`)
           if (contractMatch) {
             spec.push(`returnContract: '${contractMatch[1]}'`)
           }

@@ -1219,3 +1219,34 @@ describe('the converter emits TJS the parser can read', () => {
     })
   })
 })
+
+describe('a block member is read at the top level only', () => {
+  // `blockBody.match(/returns\s*:\s*(.+?)/)` takes the first occurrence ANYWHERE, and a
+  // `FunctionPredicate` value nests the same key names — so `returns` matched the INNER one,
+  // captured `null }) }`, and the lowering came out with stray braces. kysely's
+  // `cte-builder.ts` is exactly this shape and was its last conversion failure.
+  const NESTED = `FunctionPredicate Cb {
+  params: { cte: FunctionPredicate('f', { params: { n: null }, returns: null }) }
+  returns: null
+}`
+
+  it('a nested params/returns does not capture the outer member', () => {
+    expect(() => tjs(NESTED, { runTests: false })).not.toThrow()
+  })
+
+  it('the outer returns is the one that lands', () => {
+    // Not just "it parses" — the WRONG member would also parse in some shapes, so assert
+    // which value was taken.
+    const { code } = tjs(NESTED, { runTests: false })
+    expect(code).toContain('returns: null }')
+    expect(code).not.toContain('} })')
+  })
+
+  it('a plain block still works (control)', () => {
+    expect(() =>
+      tjs('FunctionPredicate P {\n  params: { x: 0 }\n  returns: 0\n}', {
+        runTests: false,
+      })
+    ).not.toThrow()
+  })
+})
