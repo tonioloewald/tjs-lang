@@ -18,7 +18,9 @@ const CACHE_TTL_MS = 24 * 60 * 60 * 1000 // 24 hours
 // 3 (2026-08-30): `checkLLM` now rejects a SUBSTITUTED answer — a server that serves any
 // requested id with whatever is loaded made every model look like an LLM. Caches written by
 // version 2 carry that misclassification and must be discarded.
-const PROBE_VERSION = 3
+// 4 (2026-08-30): probes read the answer from `reasoning_content` when `content` is empty.
+// Version 3 caches recorded `structuredOutput: false` for reasoning models that support it.
+const PROBE_VERSION = 4
 
 export interface ModelAudit {
   id: string
@@ -188,6 +190,35 @@ const fetchWithTimeout = async (url: string, options: RequestInit) => {
   }
 }
 
+/**
+ * The assistant's answer, wherever the server put it.
+ *
+ * A REASONING model routes its output through `reasoning_content`, and with
+ * `response_format` some of them leave `content` empty entirely — verified against
+ * `qwen/qwen3.8-27b`, which returns `content: ''` and the requested JSON in
+ * `reasoning_content`. Reading only `content` therefore recorded `structuredOutput: false`
+ * for a model that supports it perfectly well, and cached that for 24 hours.
+ *
+ * The same class of mistake the vision probe already made: a thinking model's empty `content`
+ * was read as "cannot do this" (see `findVisionModel` in the demo). Ask where the answer is,
+ * not where you expected it.
+ *
+ * `content` wins when both are present — it is the real channel, and the reasoning trace is
+ * only a fallback for models that misroute.
+ */
+export function messageText(message: any): string {
+  if (!message) return ''
+  const content = typeof message.content === 'string' ? message.content : ''
+  if (content.trim()) return content
+  const reasoning =
+    typeof message.reasoning_content === 'string'
+      ? message.reasoning_content
+      : typeof message.reasoning === 'string'
+      ? message.reasoning
+      : ''
+  return reasoning
+}
+
 async function checkStructured(
   baseUrl: string,
   modelId: string
@@ -224,7 +255,7 @@ async function checkStructured(
       return { ok: false, msg: `HTTP ${res.status}` }
     }
     const data = await res.json()
-    JSON.parse(data.choices[0].message.content)
+    JSON.parse(messageText(data.choices[0].message))
     return { ok: true, msg: 'OK (Schema)' }
   } catch (e: any) {
     return { ok: false, msg: e.message || 'Error' }

@@ -1,4 +1,5 @@
 import { LocalModels } from './models'
+import { messageText } from './audit'
 import { LLM_BASE_URL } from './config'
 
 /**
@@ -137,7 +138,18 @@ export function getLLMCapability(
         }
 
         const data = await response.json()
-        return data.choices[0]?.message ?? { content: '' }
+        const message = data.choices[0]?.message
+        if (!message) return { content: '' }
+        // A REASONING model can leave `content` empty and put its answer in
+        // `reasoning_content` — verified with `qwen/qwen3.8-27b` under `response_format`,
+        // which returns `content: ''` and the requested JSON in the reasoning channel.
+        // Returning the message untouched then hands every caller an empty string.
+        // `messageText` prefers `content` and falls back; the raw fields are left in place
+        // for anything that wants them.
+        const text = messageText(message)
+        return text && !message.content
+          ? { ...message, content: text }
+          : message
       } catch (e: any) {
         if (isConnectionRefused(e)) {
           throw new Error(

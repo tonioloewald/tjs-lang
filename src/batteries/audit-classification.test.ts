@@ -86,3 +86,38 @@ describe('a substituted answer does not make a model an LLM', () => {
     expect(models.find((m) => m.id === CHAT)!.type).toBe('LLM')
   })
 })
+
+/**
+ * A reasoning model's answer can arrive in `reasoning_content`.
+ *
+ * `qwen/qwen3.8-27b` under `response_format` returns `content: ''` and the requested JSON in
+ * `reasoning_content` — verified against a live instance. Reading only `content` recorded
+ * `structuredOutput: false` for a model that supports it perfectly well, and cached that for
+ * 24 hours.
+ *
+ * Same class as the vision probe's old bug, where a thinking model's empty `content` was read
+ * as "cannot do this". Ask where the answer IS, not where you expected it.
+ */
+describe('the answer is read from whichever channel holds it', () => {
+  it('falls back to reasoning_content when content is empty', async () => {
+    const { messageText } = await import('./audit')
+    expect(messageText({ content: '', reasoning_content: '{"n":1}' })).toBe(
+      '{"n":1}'
+    )
+  })
+
+  it('prefers content when both are present', async () => {
+    // `content` is the real channel; reasoning is only a fallback for models that misroute.
+    // Preferring reasoning would hand callers a model's private deliberation as its answer.
+    const { messageText } = await import('./audit')
+    expect(
+      messageText({ content: 'ok', reasoning_content: 'let me think…' })
+    ).toBe('ok')
+  })
+
+  it('is empty when there is nothing anywhere (control)', async () => {
+    const { messageText } = await import('./audit')
+    expect(messageText({ content: '' })).toBe('')
+    expect(messageText(undefined)).toBe('')
+  })
+})

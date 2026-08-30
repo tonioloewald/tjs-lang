@@ -74,8 +74,8 @@ function probeHash(): string {
   return h.digest('hex').slice(0, 16)
 }
 
-/** Recorded 2026-08-30 against PROBE_VERSION 3. */
-const PROBE_HASH = '51abaaa32ec2eec6'
+/** Recorded 2026-08-30 against PROBE_VERSION 4. */
+const PROBE_HASH = '738894d8926ef53d'
 
 describe('the probe version tracks the probe', () => {
   it('finds every probe function it claims to hash', () => {
