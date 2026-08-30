@@ -2048,8 +2048,17 @@ function stripTypeArguments(
   }
   visit(expr)
 
+  // Only the OUTERMOST lists. A type argument may itself contain generics —
+  // `Ctx.Tag("x")<R, { readonly f: () => Effect.Effect<void, E> }>` has an inner
+  // `<void, E>` — and removing an inner span first invalidates the offsets of the outer one
+  // that encloses it, so the outer removal then cut the wrong region or was skipped by the
+  // bounds guard. Dropping the enclosing span removes the inner ones with it anyway.
+  const outermost = spans.filter(
+    ([a, b]) => !spans.some(([c, d]) => c < a && b < d)
+  )
+
   let out = text
-  for (const [a, b] of spans.sort((x, y) => y[0] - x[0])) {
+  for (const [a, b] of outermost.sort((x, y) => y[0] - x[0])) {
     if (a >= 0 && b <= out.length && a < b) out = out.slice(0, a) + out.slice(b)
   }
   return out
