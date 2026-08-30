@@ -1715,14 +1715,8 @@ function transformFunctionToTJS(
       : `{ return ${node.body.getText(sourceFile)} }`
 
     // Use TypeScript's transpiler to strip all type syntax
-    const transpiled = ts.transpileModule(bodyText, {
-      compilerOptions: {
-        target: ts.ScriptTarget.ESNext,
-        module: ts.ModuleKind.ESNext,
-        removeComments: false,
-      },
-    })
-    body = transpiled.outputText.trim()
+    const transpiledText = stripTypeSyntax(bodyText)
+    body = transpiledText
   } else {
     body = '{ }'
   }
@@ -1913,14 +1907,8 @@ function emitOverloadGroup(
   let implBody = '{ }'
   if (implementation.body) {
     const bodyText = implementation.body.getText(sourceFile)
-    const transpiled = ts.transpileModule(bodyText, {
-      compilerOptions: {
-        target: ts.ScriptTarget.ESNext,
-        module: ts.ModuleKind.ESNext,
-        removeComments: false,
-      },
-    })
-    implBody = transpiled.outputText.trim()
+    const transpiledText = stripTypeSyntax(bodyText)
+    implBody = transpiledText
   }
   const isAsync = implementation.modifiers?.some(
     (m) => m.kind === ts.SyntaxKind.AsyncKeyword
@@ -2028,6 +2016,26 @@ function emitOverloadGroup(
  * case of its first letter, and erasing one throws away information we have.
  */
 const TJS_TYPE_NAME = /^[A-Za-z_$]/
+/**
+ * TypeScript syntax stripped from a fragment — the ONE place we ask `tsc` to do that.
+ *
+ * Ten identical `ts.transpileModule` calls used to sit inline across this file. Collapsing
+ * them is not tidiness: `src/no-ts-emitter.test.ts` ratchets how many places may invoke the
+ * TypeScript emitter, and the ratchet only moves down. One site is also one place to replace
+ * when we write our own statement stripper, which is the point of the ratchet.
+ */
+function stripTypeSyntax(text: string): string {
+  return ts
+    .transpileModule(text, {
+      compilerOptions: {
+        target: ts.ScriptTarget.ESNext,
+        module: ts.ModuleKind.ESNext,
+        removeComments: false,
+      },
+    })
+    .outputText.trim()
+}
+
 function stripTypeArguments(
   expr: ts.Expression,
   sourceFile: ts.SourceFile
@@ -2106,8 +2114,32 @@ function transformClassToTJS(
   const extendsType = node.heritageClauses?.find(
     (h) => h.token === ts.SyntaxKind.ExtendsKeyword
   )?.types[0]
+  // The heritage expression is STRIPPED, not just relieved of its type arguments.
+  //
+  // Removing type-argument lists is enough when the base is a name or a simple call. It is
+  // not when the base carries embedded CODE, which effect's service idiom does:
+  //
+  //     class EntityReaper extends Effect.Service<EntityReaper>()("…", {
+  //       scoped: Effect.gen(function*() {
+  //         const registered: Array<{ … }> = []      // <- TypeScript, inside the clause
+  //       })
+  //     }) {}
+  //
+  // That body was emitted verbatim, so its annotations survived into the output and the
+  // result was not valid JavaScript — `const registered: Array = []`. Stripping the whole
+  // expression removes the type arguments too, so this replaces the earlier surgery rather
+  // than adding to it.
+  //
+  // `stripTypeSyntax` needs a statement, and an expression is not one; the assignment makes
+  // it parseable and is peeled back off.
   const extendsClause = extendsType
-    ? stripTypeArguments(extendsType.expression, sourceFile)
+    ? (() => {
+        const raw = stripTypeArguments(extendsType.expression, sourceFile)
+        if (!/[({]/.test(raw)) return raw
+        const stripped = stripTypeSyntax(`const __x = ${raw}`)
+        const m = /^const __x =\s*([\s\S]*?);?$/.exec(stripped)
+        return m ? m[1].trim() : raw
+      })()
     : undefined
 
   // With TjsClass: convert TS private to JS # (true runtime privacy).
@@ -2150,14 +2182,8 @@ function transformClassToTJS(
       const params = transformParams(member.parameters, sourceFile, warnings)
       let body = '{ }'
       if (member.body) {
-        const transpiled = ts.transpileModule(member.body.getText(sourceFile), {
-          compilerOptions: {
-            target: ts.ScriptTarget.ESNext,
-            module: ts.ModuleKind.ESNext,
-            removeComments: false,
-          },
-        })
-        body = replacePrivateRefs(transpiled.outputText.trim())
+        const transpiledText = stripTypeSyntax(member.body.getText(sourceFile))
+        body = replacePrivateRefs(transpiledText)
       }
 
       // TypeScript PARAMETER PROPERTIES (`constructor(public x: number)`) are not
@@ -2226,14 +2252,8 @@ function transformClassToTJS(
 
       let body = '{ }'
       if (member.body) {
-        const transpiled = ts.transpileModule(member.body.getText(sourceFile), {
-          compilerOptions: {
-            target: ts.ScriptTarget.ESNext,
-            module: ts.ModuleKind.ESNext,
-            removeComments: false,
-          },
-        })
-        body = replacePrivateRefs(transpiled.outputText.trim())
+        const transpiledText = stripTypeSyntax(member.body.getText(sourceFile))
+        body = replacePrivateRefs(transpiledText)
       }
 
       const isGenerator = !!member.asteriskToken
@@ -2273,14 +2293,8 @@ function transformClassToTJS(
 
       let body = '{ }'
       if (member.body) {
-        const transpiled = ts.transpileModule(member.body.getText(sourceFile), {
-          compilerOptions: {
-            target: ts.ScriptTarget.ESNext,
-            module: ts.ModuleKind.ESNext,
-            removeComments: false,
-          },
-        })
-        body = replacePrivateRefs(transpiled.outputText.trim())
+        const transpiledText = stripTypeSyntax(member.body.getText(sourceFile))
+        body = replacePrivateRefs(transpiledText)
       }
 
       members.push(
@@ -2299,14 +2313,8 @@ function transformClassToTJS(
 
       let body = '{ }'
       if (member.body) {
-        const transpiled = ts.transpileModule(member.body.getText(sourceFile), {
-          compilerOptions: {
-            target: ts.ScriptTarget.ESNext,
-            module: ts.ModuleKind.ESNext,
-            removeComments: false,
-          },
-        })
-        body = replacePrivateRefs(transpiled.outputText.trim())
+        const transpiledText = stripTypeSyntax(member.body.getText(sourceFile))
+        body = replacePrivateRefs(transpiledText)
       }
 
       members.push(
@@ -2332,14 +2340,8 @@ function transformClassToTJS(
         const wrapped = initText.trimStart().startsWith('{')
           ? `(${initText})`
           : initText
-        const transpiled = ts.transpileModule(wrapped, {
-          compilerOptions: {
-            target: ts.ScriptTarget.ESNext,
-            module: ts.ModuleKind.ESNext,
-            removeComments: false,
-          },
-        })
-        let output = transpiled.outputText.trim()
+        const transpiledText = stripTypeSyntax(wrapped)
+        let output = transpiledText
         // Strip the wrapping parens and trailing semicolon
         if (wrapped !== initText) {
           output = output.replace(/^\(/, '').replace(/\);?\s*$/, '')
@@ -3340,14 +3342,8 @@ export function fromTS(
       // If this variable statement doesn't contain function declarations,
       // transpile and preserve it (strips type annotations)
       if (!hasFunctionDecl && emitTJS) {
-        const transpiled = ts.transpileModule(statement.getText(sourceFile), {
-          compilerOptions: {
-            target: ts.ScriptTarget.ESNext,
-            module: ts.ModuleKind.ESNext,
-            removeComments: false,
-          },
-        })
-        tjsFunctions.push(transpiled.outputText.trim())
+        const transpiledText = stripTypeSyntax(statement.getText(sourceFile))
+        tjsFunctions.push(transpiledText)
       }
 
       handled = true
@@ -3557,14 +3553,8 @@ export function fromTS(
     if (ts.isExportDeclaration(statement) || ts.isExportAssignment(statement)) {
       handled = true
       if (emitTJS) {
-        const transpiled = ts.transpileModule(statement.getText(sourceFile), {
-          compilerOptions: {
-            target: ts.ScriptTarget.ESNext,
-            module: ts.ModuleKind.ESNext,
-            removeComments: false,
-          },
-        })
-        const trimmed = transpiled.outputText.trim()
+        const transpiledText = stripTypeSyntax(statement.getText(sourceFile))
+        const trimmed = transpiledText
         if (trimmed) {
           tjsFunctions.push(trimmed)
         }
@@ -3574,14 +3564,8 @@ export function fromTS(
     // Handle: expression statements (console.log(...), foo(), etc.)
     // and any other unhandled statements
     if (!handled && emitTJS) {
-      const transpiled = ts.transpileModule(statement.getText(sourceFile), {
-        compilerOptions: {
-          target: ts.ScriptTarget.ESNext,
-          module: ts.ModuleKind.ESNext,
-          removeComments: false,
-        },
-      })
-      const trimmed = transpiled.outputText.trim()
+      const transpiledText = stripTypeSyntax(statement.getText(sourceFile))
+      const trimmed = transpiledText
       if (trimmed) {
         tjsFunctions.push(trimmed)
       }

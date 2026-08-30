@@ -73,14 +73,22 @@ describe('no lane can reach the TypeScript emitter for OUTPUT', () => {
  */
 describe('the remaining TypeScript-emitter dependency only shrinks', () => {
   /** Sites where `ts.transpileModule` strips types from a fragment. Lower is better. */
-  const CEILING = 10
+  //
+  // 10 -> 1 on 2026-08-30: the ten identical inline calls became one `stripTypeSyntax`
+  // helper. The remaining site is the only place we ask `tsc` to strip type syntax from a
+  // fragment, and the one place to replace when we write our own statement stripper.
+  const CEILING = 1
 
   const count = () => {
     let n = 0
     for (const f of sourceFiles()) {
       const src = readFileSync(join(ROOT, f), 'utf-8')
       // Call sites only — the prose explaining why they are here must not inflate the count.
-      n += (src.match(/\bts\.transpileModule\s*\(/g) ?? []).length
+      //
+      // Whitespace-tolerant because Prettier reformats a long call to `ts\n  .transpileModule(`,
+      // and the tighter pattern then counted ZERO while a live site remained. A counter that
+      // under-reports reads as progress, which is the worst direction for a ratchet to fail in.
+      n += (src.match(/\bts\s*\.\s*transpileModule\s*\(/g) ?? []).length
     }
     return n
   }
