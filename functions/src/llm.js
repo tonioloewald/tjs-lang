@@ -46,7 +46,7 @@ export function createLlmCapability(apiKeys) {
           messages: [{ role: 'user', content: prompt }]
         }
       } else if (__tjs.toBool(apiKeys.gemini)) {
-        const model = ((__tjs__t)=>__tjs.toBool(__tjs__t)?__tjs__t:('gemini-2.0-flash'))(options.model)
+        const model = ((__tjs__t)=>__tjs.toBool(__tjs__t)?__tjs__t:('gemini-3.5-flash-lite'))(options.model)
         endpoint = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKeys.gemini}`
         headers = { 'Content-Type': 'application/json' }
         body = {
