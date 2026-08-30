@@ -1762,8 +1762,14 @@ function transformFunctionToTJS(
       ? node.body.getText(sourceFile)
       : `{ return ${node.body.getText(sourceFile)} }`
 
-    // Use TypeScript's transpiler to strip all type syntax
-    const transpiledText = stripTypeSyntax(bodyText)
+    // Use TypeScript's transpiler to strip all type syntax, with the function's own context
+    // preserved — see `stripFunctionBody`. Without it a generator's `yield` is transpiled as
+    // a bare identifier.
+    const transpiledText = stripFunctionBody(
+      bodyText,
+      !!node.modifiers?.some((m) => m.kind === ts.SyntaxKind.AsyncKeyword),
+      !!(node as ts.FunctionDeclaration).asteriskToken
+    )
     body = transpiledText
   } else {
     body = '{ }'
@@ -1955,8 +1961,13 @@ function emitOverloadGroup(
   let implBody = '{ }'
   if (implementation.body) {
     const bodyText = implementation.body.getText(sourceFile)
-    const transpiledText = stripTypeSyntax(bodyText)
-    implBody = transpiledText
+    implBody = stripFunctionBody(
+      bodyText,
+      !!implementation.modifiers?.some(
+        (m) => m.kind === ts.SyntaxKind.AsyncKeyword
+      ),
+      !!implementation.asteriskToken
+    )
   }
   const isAsync = implementation.modifiers?.some(
     (m) => m.kind === ts.SyntaxKind.AsyncKeyword
@@ -2103,6 +2114,42 @@ function stripTypeSyntax(text: string): string {
     .outputText.trim()
 }
 
+/**
+ * Strip type syntax from a FUNCTION BODY, keeping the body's own context.
+ *
+ * `stripTypeSyntax` transpiles its argument as a standalone module, and a body ripped out of
+ * its function loses what made its keywords keywords. Outside a generator `yield` is an
+ * ordinary identifier, so
+ *
+ *     yield {
+ *       rows: [row],
+ *     }
+ *
+ * came back as `yield; { rows: [row], ; }` — an expression statement followed by a block with
+ * a stray label. Valid-looking, completely wrong, and it took kysely's sqlite driver to
+ * notice. `await` outside an async function has the same problem.
+ *
+ * So the body is wrapped in a function with the SAME modifiers, transpiled, and unwrapped.
+ * The same wrap-and-peel trick already used for object initializers below.
+ */
+function stripFunctionBody(
+  body: string,
+  isAsync: boolean,
+  isGenerator: boolean
+): string {
+  if (!isAsync && !isGenerator) return stripTypeSyntax(body)
+  const out = stripTypeSyntax(
+    `${isAsync ? 'async ' : ''}function${isGenerator ? '*' : ''} __w() ${body}`
+  )
+  const open = out.indexOf('{')
+  const close = out.lastIndexOf('}')
+  // If the shape is not what we wrapped, keep the plain strip rather than return a slice of
+  // something unrecognised.
+  return open === -1 || close <= open
+    ? stripTypeSyntax(body)
+    : out.slice(open, close + 1)
+}
+
 function stripTypeArguments(
   expr: ts.Expression,
   sourceFile: ts.SourceFile
@@ -2246,6 +2293,17 @@ function transformClassToTJS(
   for (const member of node.members) {
     // Constructor
     if (ts.isConstructorDeclaration(member)) {
+      // A bodyless constructor is an OVERLOAD SIGNATURE, and TypeScript erases it.
+      //
+      // Emitting it produced `constructor(args) { }` — an empty constructor — once per
+      // signature, and then the implementation as another. kysely declares two signatures
+      // plus an implementation, so the class came out with three constructors, the first two
+      // empty; the real body was detached and its `super(…)` landed outside any method.
+      //
+      // Only the implementation exists at runtime, which is the same reasoning that governs
+      // function overloads (`emitOverloadGroup`) — the signatures are types, and this is a
+      // value position.
+      if (!member.body) continue
       const params = transformParams(member.parameters, sourceFile, warnings)
       let body = '{ }'
       if (member.body) {
@@ -2317,13 +2375,17 @@ function transformClassToTJS(
         ? `:! ${returnExample}`
         : ''
 
+      const isGenerator = !!member.asteriskToken
       let body = '{ }'
       if (member.body) {
-        const transpiledText = stripTypeSyntax(member.body.getText(sourceFile))
+        const transpiledText = stripFunctionBody(
+          member.body.getText(sourceFile),
+          !!isAsync,
+          isGenerator
+        )
         body = replacePrivateRefs(transpiledText)
       }
 
-      const isGenerator = !!member.asteriskToken
       const staticPrefix = isStatic ? 'static ' : ''
       const asyncPrefix = isAsync ? 'async ' : ''
       const generatorStar = isGenerator ? '*' : ''

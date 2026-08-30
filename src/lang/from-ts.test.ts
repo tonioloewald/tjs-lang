@@ -719,3 +719,68 @@ describe('`any` never reaches a value position', () => {
     expect(() => new Function(js.replace(/^export /gm, ''))()).not.toThrow()
   })
 })
+
+/**
+ * Two ways a class body was emitted wrong, both found by kysely.
+ *
+ * Neither is visible to a parse-rate metric in isolation — the first produced a file that
+ * would not parse only because the pieces landed in the wrong order, and the second produced
+ * something that parses and means something else entirely.
+ */
+describe('class bodies keep their shape', () => {
+  it('a bodyless constructor overload is erased, not emitted empty', () => {
+    // TypeScript erases overload SIGNATURES; only the implementation exists at runtime.
+    // Emitting them gave `constructor(args) { }` once per signature — kysely declares two —
+    // so the class had three constructors, the first two empty, and the real body was
+    // detached with its `super(…)` outside any method.
+    const { code } = fromTS(
+      `export class K extends B {
+  constructor(a: number)
+  constructor(a: string)
+  constructor(a: any) { super({ a }) }
+}`,
+      { emitTJS: true }
+    )
+    expect(code.match(/constructor\(/g) ?? []).toHaveLength(1)
+    expect(code).toContain('super({ a })')
+  })
+
+  it('a generator body keeps `yield` as a keyword', () => {
+    // The body is stripped by transpiling it, and a body ripped out of its function loses
+    // what made its keywords keywords: outside a generator `yield` is an ordinary
+    // identifier, so `yield {\n rows: [r],\n}` came back as `yield; { rows: [r], ; }` —
+    // an expression statement plus a block with a stray label. Parses, means nothing like
+    // the original.
+    const { code } = fromTS(
+      `export function* rows(): Generator<any> {
+  yield {
+    a: 1,
+  }
+}`,
+      { emitTJS: true }
+    )
+    expect(code).not.toContain('yield;')
+    expect(code).toContain('yield {')
+  })
+
+  it('and an async body keeps `await`', () => {
+    const { code } = fromTS(
+      `export async function go(): Promise<number> { const x = await f(); return x }`,
+      { emitTJS: true }
+    )
+    expect(code).not.toContain('await;')
+    expect(code).toContain('await f()')
+  })
+
+  it('a plain function body is untouched by the wrapper (control)', () => {
+    // The wrap-and-peel only runs for async/generator bodies; a plain one must come through
+    // the ordinary path unchanged.
+    const { code } = fromTS(
+      `export function add(a: number): number { return a + 1 }`,
+      {
+        emitTJS: true,
+      }
+    )
+    expect(code).toContain('return a + 1')
+  })
+})
