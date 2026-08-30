@@ -2041,8 +2041,22 @@ function stripTypeArguments(
       | ts.NodeArray<ts.Node>
       | undefined
     if (args && args.length > 0) {
-      // `pos` sits just after `<` and `end` just before `>`, so widen by one each way.
-      spans.push([args.pos - 1 - base, args.end + 1 - base])
+      // `pos`/`end` bound the ARGUMENTS, not the brackets, and either side may carry
+      // trivia — effect writes them across lines:
+      //
+      //     class RedisContainer extends Context.Tag("test/RedisContainer")<
+      //       RedisContainer,
+      //       StartedRedisContainer
+      //     >() {}
+      //
+      // so `end + 1` landed on the newline and left the `>` behind, emitting `)>(`. Assuming
+      // the brackets sit adjacent held only for the single-line form, which is what the
+      // first test happened to use. Scan out to the real ones.
+      let a = args.pos - base
+      while (a > 0 && text[a] !== '<') a--
+      let b = args.end - base
+      while (b < text.length && text[b] !== '>') b++
+      if (text[a] === '<' && text[b] === '>') spans.push([a, b + 1])
     }
     node.forEachChild(visit)
   }
