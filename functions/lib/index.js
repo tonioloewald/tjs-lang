@@ -17327,7 +17327,7 @@ var __tjsToBool7 = __tjs7.toBool;
 __tjs7.toBool = function(v2) {
   return __tjsToBool7(__proj7(v2));
 };
-var GEMINI_API_KEY = defineSecret("GEMINIA_API_SECRET");
+var GEMINI_API_KEY = defineSecret("GEMINI_API_KEY");
 var MODEL = "gemini-2.0-flash-lite";
 var DAILY_PER_USER = 100;
 var DAILY_GLOBAL = 5000;
@@ -17345,7 +17345,7 @@ utcDay.__tjs = {
     }
   },
   unsafe: true,
-  source: "demo-llm.tjs:74"
+  source: "demo-llm.tjs:72"
 };
 async function claimQuota(db5, uid, now, limits = {}) {
   const perUser = ((__tjs__t) => __tjs7.toBool(__tjs__t) ? __tjs__t : DAILY_PER_USER)(limits.perUser);
@@ -17399,7 +17399,7 @@ claimQuota.__tjs = {
     }
   },
   unsafe: true,
-  source: "demo-llm.tjs:87"
+  source: "demo-llm.tjs:85"
 };
 var demoPredict = onCall({ secrets: [GEMINI_API_KEY], cors: true }, async (request) => {
   if (__tjs7.toBool(!__tjs7.toBool(request.auth))) {

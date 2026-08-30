@@ -45,12 +45,10 @@ Kept together and named so they can be changed without reading the logic.
 /**
  * The key, read from Secret Manager at call time. Never bundled, never logged.
  *
- * NAME IS EXACT and must match the secret in the project — a mismatch fails the deploy with
- * `Secret … does not exist`, which is at least loud. Spelled `GEMINIA_…` deliberately,
- * because that is the secret that exists; it reads like a typo for `GEMINI_…` and is worth
- * a second look before this ships, but guessing the "corrected" name would break the deploy.
+ * The name must match the secret in the project exactly; a mismatch fails the deploy with
+ * `Secret … does not exist`, which is at least loud rather than silent.
  */
-const GEMINI_API_KEY = defineSecret('GEMINIA_API_SECRET')
+const GEMINI_API_KEY = defineSecret('GEMINI_API_KEY')
 
 /** Cheapest useful model. The demo runs short prompts; nothing here needs a large model. */
 const MODEL = 'gemini-2.0-flash-lite'
@@ -90,7 +88,7 @@ utcDay.__tjs = {
     }
   },
   "unsafe": true,
-  "source": "demo-llm.tjs:74"
+  "source": "demo-llm.tjs:72"
 }
 
 /*#
@@ -163,7 +161,7 @@ claimQuota.__tjs = {
     }
   },
   "unsafe": true,
-  "source": "demo-llm.tjs:87"
+  "source": "demo-llm.tjs:85"
 }
 
 /*#
