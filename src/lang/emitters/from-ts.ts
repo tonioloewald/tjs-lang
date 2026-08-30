@@ -472,12 +472,21 @@ function typeToExample(
 
       // Handle common generic types
       if (typeName === 'Array' && typeRef.typeArguments?.length) {
-        const itemExample = typeToExample(
+        let itemExample = typeToExample(
           typeRef.typeArguments[0],
           checker,
           warnings,
           ctx
         )
+        // `any` is a TYPE, not a value — `[any]` is a bare identifier at runtime.
+        //
+        // The `T[]` spelling normalised this already; `Array<T>` did not, and the two are the
+        // same type. `Array<any>` inside a `Type` example emitted
+        // `Type Failure { example: { branch: [any] } }`, which threw
+        // `ReferenceError: any is not defined` on import — superstruct's whole suite failed
+        // to collect on it (7 files, "no tests"), so the target reported zero tests rather
+        // than a failure.
+        if (itemExample === 'any') itemExample = 'null'
         return `[${itemExample}]`
       }
       if (typeName === 'Promise') {

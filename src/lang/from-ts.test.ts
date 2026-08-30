@@ -682,3 +682,40 @@ describe('parameter properties and a late super()', () => {
     expect(new Lead(7).code).toBe(7)
   })
 })
+
+/**
+ * `any` is a TYPE, not a value — it must never reach a position that is evaluated.
+ *
+ * `T[]` normalised this already; `Array<T>` did not, and the two are the same type. So
+ * `Array<any>` inside a type alias emitted
+ *
+ *     export Type Failure { example: { branch: [any] } }
+ *
+ * which throws `ReferenceError: any is not defined` the moment the module is imported.
+ * superstruct's entire suite failed to COLLECT on it — 7 files, "no tests" — so the target
+ * reported `Total: 0, Passed: 0, Failed: 0` and, until the lane learned to fail, counted as
+ * a pass. With this fixed the suite is 225/225.
+ */
+describe('`any` never reaches a value position', () => {
+  it('Array<any> becomes [null], like any[] already did', () => {
+    const { code } = fromTS(
+      'export type F = { branch: Array<any>, path: any[], n: Array<number> }',
+      { emitTJS: true }
+    )
+    expect(code).toContain('branch: [null]')
+    expect(code).toContain('path: [null]')
+    // The control: a real element type is untouched, so this is not "replace everything".
+    expect(code).toContain('n: [0.0]')
+  })
+
+  it('and the emitted module actually imports', () => {
+    // The assertion above is about text; this is the property that failed. A `Type` holding
+    // a bare `any` throws at module-evaluation time, which no string check would catch if
+    // the shape drifted.
+    const js = tjs(
+      fromTS('export type F = { branch: Array<any> }', { emitTJS: true }).code,
+      { runTests: false }
+    ).code
+    expect(() => new Function(js.replace(/^export /gm, ''))()).not.toThrow()
+  })
+})
