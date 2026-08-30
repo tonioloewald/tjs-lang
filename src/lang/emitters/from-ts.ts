@@ -1722,7 +1722,14 @@ function emitOverloadGroup(
   signatures: ts.FunctionDeclaration[],
   implementation: ts.FunctionDeclaration,
   sourceFile: ts.SourceFile,
-  warnings?: string[]
+  warnings?: string[],
+  // The SAME resolution context the non-overloaded path uses. Without it a parameter typed
+  // by an alias or interface (`x: A`) cannot be resolved and degrades to a bare `x` — so two
+  // overloads that are perfectly distinguishable at runtime (`{kind:'a'}` vs `{kind:'b'}`)
+  // both emitted `g(x)`, and TJS then rejected the pair as ambiguous. The dispatch was not
+  // undecidable; we had thrown away what decides it. Every `ambiguous signatures` failure in
+  // the compat corpus traces here.
+  resolutionCtx?: TypeResolutionContext
 ): string[] {
   const funcName = implementation.name?.getText(sourceFile) || ''
   const implName = `_${funcName}_impl`
@@ -1793,7 +1800,9 @@ function emitOverloadGroup(
   const implParams = transformParams(
     implementation.parameters,
     sourceFile,
-    warnings
+    warnings,
+    undefined,
+    resolutionCtx
   )
   let implBody = '{ }'
   if (implementation.body) {
@@ -1840,10 +1849,22 @@ function emitOverloadGroup(
 
   // Emit each overload signature as a wrapper that delegates to the implementation
   for (const sig of signatures) {
-    const params = transformParams(sig.parameters, sourceFile, warnings)
+    const params = transformParams(
+      sig.parameters,
+      sourceFile,
+      warnings,
+      undefined,
+      resolutionCtx
+    )
     const paramNames = sig.parameters.map((p) => p.name.getText(sourceFile))
     const returnExample = sig.type
-      ? typeToExample(sig.type, undefined, warnings, undefined, 'annotation')
+      ? typeToExample(
+          sig.type,
+          undefined,
+          warnings,
+          resolutionCtx,
+          'annotation'
+        )
       : ''
     const returnAnnotation = usableAsReturnExample(returnExample)
       ? `:! ${returnExample}`
@@ -3073,7 +3094,8 @@ export function fromTS(
               overloadGroup.signatures,
               statement,
               sourceFile,
-              warnings
+              warnings,
+              resolutionCtx
             )
           )
           const overloads: FunctionTypeInfo[] = []
