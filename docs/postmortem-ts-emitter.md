@@ -143,7 +143,73 @@ Ordered by how transferable they are.
 - **All six compat scripts** run the real path, with no flag to get it wrong.
 - The Bootstrap Canary genuinely self-hosts, and its comment is true.
 
-## 8. Still open
+## 8. Remediation
+
+Recorded as it happened, because "we fixed it" is the part that rots first.
+
+### 8.1 The pipeline had multiplied, not just drifted
+
+The regression was not only wrong, it was **more work to be more wrong**. Three duplicated
+paths, each a place for the two halves to disagree:
+
+| duplicate | resolution |
+| --- | --- |
+| two JavaScript emitters (`ts.transpileModule` beside ours) | deleted; `fromTS` does TS → TJS, `tjs` does TJS → JS, callers compose |
+| two metadata stories (only the tsc branch returned `types`) | metadata extraction is unconditional; the TJS path returns `types` and `classes` |
+| two model-selection implementations (`demo/src/capabilities.ts` beside the batteries' audit) | **still duplicated** — see §9 |
+
+The principle that keeps falling out: *we do not convert TS to JS. We convert TS to TJS.*
+Everything downstream of that is one path. The browser entry (`browser-from-ts.ts`) needed no
+change — it delegates to `fromTS`, so it inherited TS → TJS and can no longer emit JS even by
+accident. The TS playground (`demo/src/ts-playground.ts`) already composed correctly.
+
+### 8.2 What the honest lanes then found
+
+Each of these is the same shape — **valid input the converter produces and the language could
+not read** — and each was invisible while `tsc` did the emitting:
+
+| defect | why it hid |
+| --- | --- |
+| annotated generators (`function* f():! 0.0`) unparseable | our parser never saw converter output |
+| destructured param with an inline type unparseable | ditto |
+| optional param converted to a *required* one | metadata came from the extractor, JS came from tsc — they never had to agree |
+| interface members of unresolvable type emitted `any` | rejected only at graduation, which nothing ran |
+| `$` rejected in every declaration name | zod names its internals `$ZodType`; the whole target was unmeasurable |
+| interface + const of the same name collided | the guard existed for type *aliases* and was never applied to interfaces |
+
+The last two are worth separating: they are not new rules, they are **existing rules that were
+never applied to the neighbouring case**. Look for the sibling site.
+
+### 8.3 The corpus, measured honestly
+
+Files that convert **and** parse, across six real TypeScript projects:
+
+| | files |
+| --- | --- |
+| effect | 97/150 (65%) |
+| kysely | 148/150 (99%) |
+| radash | 8/10 (80%) |
+| superstruct | 150/150 (100%) |
+| ts-pattern | 22/24 (92%) |
+| **zod** | **138/150 (92%)** — previously unmeasurable |
+| **total** | **563/634 (89%)** |
+
+Remaining causes: 57 parse, 10 ambiguous-overload, 3 already-declared. `effect` is the
+laggard, dominated by `class X extends Schema.Class<X>("X")({…})` — a class extending a call
+expression with type arguments.
+
+**Do not compare these to the old numbers.** ts-pattern 453/453 and kysely 303/303 measured
+`tsc`. 89% is the first figure this project has published about its own converter.
+
+### 8.4 A probe that failed open, again
+
+The first version of the corpus probe printed `0/0 files (100%)` for every target — its `find`
+excluded `*test*`, which matched the `.compat-tests` directory itself. It read as a clean pass.
+Fixed by making an empty file list print `NO FILES — probe broken, not a pass`. Third instance
+in this document of a measurement that fails silently in the passing direction; assume it of
+every new probe until shown otherwise.
+
+## 9. Still open
 
 - The lane verdict (lesson 5) — `compat-all` cannot currently fail.
 - The two compat failure classes, and the `superstruct src/utils.ts:188` parse error.

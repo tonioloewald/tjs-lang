@@ -3144,6 +3144,26 @@ export function fromTS(
           // @tjs-skip — omit this declaration entirely
           if (annotations?.some((a) => a.kind === 'skip')) {
             // Skip — do not emit
+          } else if (valueNames.has(typeName)) {
+            // A TYPE and a VALUE may share a name in TypeScript, and for an INTERFACE this
+            // is not a corner case — it is the standard companion-object idiom:
+            //
+            //     export interface DropTableNode { … }
+            //     export const DropTableNode = freeze({ … })
+            //
+            // The interface is erased at runtime, so the names never collide in TS.
+            // Promoting it to a runtime `Type DropTableNode` makes them collide and the file
+            // stops compiling. The type-ALIAS branch below has had this guard for a while;
+            // the interface branch never got it, and interfaces are where the idiom actually
+            // lives — it was the single largest cause of conversion failure across the
+            // compat corpus (9 of 15 failures: effect ×4, kysely ×5).
+            //
+            // Erase it, exactly as TypeScript does, and say what we could not do.
+            tjsFunctions.push(
+              `/* TJS: interface \`${typeName}\` not promoted to a runtime Type — a value ` +
+                `of the same name is declared in this file. TypeScript erases the ` +
+                `interface, so behavior is unchanged. */`
+            )
           } else {
             // Use merged interface (handles declaration merging)
             const merged = interfaces.get(typeName) || statement

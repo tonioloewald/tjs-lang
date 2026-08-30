@@ -2286,7 +2286,13 @@ export function transformTypeDeclarations(
       masked,
       source,
       i,
-      /^\bType\s+([A-Z_][a-zA-Z0-9_]*)\s*/
+      // `$` is a valid JavaScript identifier character, and every declaration form here
+      // rejected it — `\w` and `[a-zA-Z0-9_]` cover `_` but not `$`. zod names most of its
+      // internals `$ZodType`, `$ZodConfig`, `$replace`, so the converter emitted
+      // `export Type $ZodErrorClass { … }` and our own parser refused to read it. The same
+      // class as the generator and destructuring gaps: valid input the converter produces and
+      // the language cannot parse. Applied to Type, FunctionPredicate, Generic, Union, Enum.
+      /^\bType\s+([A-Z_$][a-zA-Z0-9_$]*)\s*/
     )
     const typeMatch = typeHeader?.m
     if (typeMatch) {
@@ -2659,7 +2665,7 @@ export function transformFunctionPredicateDeclarations(source: string): string {
       masked,
       source,
       i,
-      /^\bFunctionPredicate\s+([A-Z_][a-zA-Z0-9_]*)\s*(?:<([^>]+)>)?\s*/
+      /^\bFunctionPredicate\s+([A-Z_$][a-zA-Z0-9_$]*)\s*(?:<([^>]+)>)?\s*/
     )?.m
     if (fpMatch) {
       const fpName = fpMatch[1]
@@ -2802,7 +2808,7 @@ export function transformGenericDeclarations(
       masked,
       source,
       i,
-      /^\b(Generic|Type)\s+([A-Z][a-zA-Z0-9_]*)\s*<([^>]+)>\s*\{/
+      /^\b(Generic|Type)\s+([A-Z$][a-zA-Z0-9_$]*)\s*<([^>]+)>\s*\{/
     )?.m
     if (genericMatch) {
       const genericName = genericMatch[2]
@@ -2997,7 +3003,7 @@ export function transformUnionDeclarations(
       masked,
       source,
       i,
-      /^\bUnion\s+([A-Z][a-zA-Z0-9_]*)\s+(['"`])([^]*?)\2\s*/d
+      /^\bUnion\s+([A-Z$][a-zA-Z0-9_$]*)\s+(['"`])([^]*?)\2\s*/d
     )
     const unionMatch = unionHeader?.m
     if (unionMatch && unionHeader) {
@@ -3127,7 +3133,7 @@ export function transformEnumDeclarations(
       masked,
       source,
       i,
-      /^\bEnum\s+([A-Z][a-zA-Z0-9_]*)\s+(['"`])([^]*?)\2\s*\{/d
+      /^\bEnum\s+([A-Z$][a-zA-Z0-9_$]*)\s+(['"`])([^]*?)\2\s*\{/d
     )
     const enumMatch = enumHeader?.m
     if (enumMatch && enumHeader) {
