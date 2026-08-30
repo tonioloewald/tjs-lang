@@ -304,21 +304,60 @@ const domInterfaceTypes = new Set([
  * @param warnings - Optional array to collect warnings about generic types
  */
 /**
- * Length of a leading `super(...)` call, matched on BALANCED parens — or 0.
+ * Index just past the `super(...)` call in a constructor body — or 0 if there is none.
  *
- * A non-greedy `\([\s\S]*?\)` stops at the first `)`, which inside a multi-line
- * ``super(`…${xs.join('\n')}`)`` is the one belonging to `join(...)`. The
- * parameter-property assignment was then spliced into the middle of a template literal and
- * the emitted class came out structurally scrambled — silently, since the converter
- * reported success and only the downstream compile failed.
+ * Parens are matched BALANCED. A non-greedy `\([\s\S]*?\)` stops at the first `)`, which
+ * inside a multi-line ``super(`…${xs.join('\n')}`)`` is the one belonging to `join(...)`.
+ * The parameter-property assignment was then spliced into the middle of a template literal
+ * and the emitted class came out structurally scrambled — silently, since the converter
+ * reported success and only the downstream compile failed. (Found by the full gate's
+ * converter stage, on our own `predicate-canonical.ts`.)
  *
- * Found by the full gate's converter stage, on our own `predicate-canonical.ts`.
+ * It also used to require `super(...)` to LEAD the body, and TypeScript does not:
+ *
+ *     constructor(public input: unknown) {
+ *       let displayed
+ *       try { displayed = JSON.stringify(input) } catch { displayed = input }
+ *       super(`… ${displayed}`)          // <- last, and legal
+ *     }
+ *
+ * With a leading-only search this returned 0, so `this.input = input` was emitted FIRST —
+ * and touching `this` before `super()` is a ReferenceError. ts-pattern's `NonExhaustiveError`
+ * is exactly that shape, and it was the last failure in its suite.
+ *
+ * Only a top-level `super(` counts: one inside a nested function belongs to that function,
+ * and `super.method()` is a member access, not the constructor call.
  */
 function leadingSuperCallLength(body: string): number {
-  const m = body.match(/^\s*super\s*\(/)
+  // Find `super(` at brace depth 0, skipping quoted text.
+  let start = -1
+  {
+    let braces = 0
+    let q: string | null = null
+    for (let k = 0; k < body.length; k++) {
+      const c = body[k]
+      if (q) {
+        if (c === '\\') k++
+        else if (c === q) q = null
+        continue
+      }
+      if (c === "'" || c === '"' || c === '`') q = c
+      else if (c === '{') braces++
+      else if (c === '}') braces--
+      else if (c === 's' && braces === 0 && /^super\s*\(/.test(body.slice(k))) {
+        // Not part of a longer identifier (`mysuper(`), and not `super.x()`.
+        if (k === 0 || !/[A-Za-z0-9_$.]/.test(body[k - 1])) {
+          start = k
+          break
+        }
+      }
+    }
+  }
+  if (start === -1) return 0
+  const m = body.slice(start).match(/^super\s*\(/)
   if (!m) return 0
   let depth = 1
-  let i = m[0].length
+  let i = start + m[0].length
   let quote: string | null = null
   for (; i < body.length && depth > 0; i++) {
     const c = body[i]

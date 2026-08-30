@@ -623,3 +623,62 @@ function hidden(a: any, b?: any): number { return 1 }`,
     expect(code).not.toContain('export function hidden(')
   })
 })
+
+/**
+ * A parameter property is assigned AFTER `super()`, wherever `super()` happens to be.
+ *
+ * TypeScript does not require `super()` to lead a derived constructor:
+ *
+ *     constructor(public input: unknown) {
+ *       let displayed
+ *       try { displayed = JSON.stringify(input) } catch { displayed = input }
+ *       super(`… ${displayed}`)          // last, and legal
+ *     }
+ *
+ * The splice looked only for a LEADING `super(`, found none, and emitted
+ * `this.input = input` first — and touching `this` before `super()` is a ReferenceError.
+ * ts-pattern's `NonExhaustiveError` is exactly this shape, and it was the last failure in
+ * its suite; with this fixed the suite is 453/453.
+ */
+describe('parameter properties and a late super()', () => {
+  const LATE_SUPER = `export class Boom extends Error {
+  constructor(public input: unknown) {
+    let displayed
+    try { displayed = JSON.stringify(input) } catch (e) { displayed = input }
+    super(\`no match: \${displayed}\`)
+  }
+}`
+
+  it('assigns the property after the super() call', () => {
+    const { code } = fromTS(LATE_SUPER, { emitTJS: true })
+    expect(code.indexOf('super(')).toBeLessThan(code.indexOf('this.input'))
+  })
+
+  it('and the class actually constructs', () => {
+    // The assertion above is about ordering; this is about it working. A `this` touched
+    // before `super()` throws at construction, which no ordering check would notice if the
+    // emitted text drifted in some other way.
+    const js = tjs(fromTS(LATE_SUPER, { emitTJS: true }).code, {
+      runTests: false,
+    }).code
+    const Boom = new Function(js.replace(/^export /gm, '') + '\nreturn Boom')()
+    const e = new Boom({ a: 1 })
+    expect(e.input).toEqual({ a: 1 })
+    expect(e.message).toContain('no match')
+    expect(e instanceof Error).toBe(true)
+  })
+
+  it('a LEADING super() still works (control)', () => {
+    const js = tjs(
+      fromTS(
+        `export class Lead extends Error {
+  constructor(public code: number) { super('x'); }
+}`,
+        { emitTJS: true }
+      ).code,
+      { runTests: false }
+    ).code
+    const Lead = new Function(js.replace(/^export /gm, '') + '\nreturn Lead')()
+    expect(new Lead(7).code).toBe(7)
+  })
+})
