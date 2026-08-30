@@ -2808,7 +2808,7 @@ export function transformGenericDeclarations(
       masked,
       source,
       i,
-      /^\b(Generic|Type)\s+([A-Z$][a-zA-Z0-9_$]*)\s*<([^>]+)>\s*\{/
+      /^\b(Generic|Type)\s+([A-Z_$][a-zA-Z0-9_$]*)\s*<([^>]+)>\s*\{/
     )?.m
     if (genericMatch) {
       const genericName = genericMatch[2]
@@ -3003,7 +3003,7 @@ export function transformUnionDeclarations(
       masked,
       source,
       i,
-      /^\bUnion\s+([A-Z$][a-zA-Z0-9_$]*)\s+(['"`])([^]*?)\2\s*/d
+      /^\bUnion\s+([A-Z_$][a-zA-Z0-9_$]*)\s+(['"`])([^]*?)\2\s*/d
     )
     const unionMatch = unionHeader?.m
     if (unionMatch && unionHeader) {
@@ -3133,7 +3133,7 @@ export function transformEnumDeclarations(
       masked,
       source,
       i,
-      /^\bEnum\s+([A-Z$][a-zA-Z0-9_$]*)\s+(['"`])([^]*?)\2\s*\{/d
+      /^\bEnum\s+([A-Z_$][a-zA-Z0-9_$]*)\s+(['"`])([^]*?)\2\s*\{/d
     )
     const enumMatch = enumHeader?.m
     if (enumMatch && enumHeader) {
