@@ -487,7 +487,11 @@ export function preprocess(
 
   // Transform polymorphic functions: multiple declarations with same name -> dispatcher
   // Must happen after param transformation but before class wrapping and test extraction
-  const polyResult = transformPolymorphicFunctions(source, requiredParams)
+  const polyResult = transformPolymorphicFunctions(
+    source,
+    requiredParams,
+    declaredTypes
+  )
   source = polyResult.source
 
   // Extract WASM blocks: wasm(args) { ... } fallback { ... }

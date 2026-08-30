@@ -11,7 +11,10 @@
  * whole parser into `tjs-browser-from-ts`, which exists to be a small CDN drop-in, and
  * `browser-bundle.test.ts` caught it. Dependency-free so it stays inlinable.
  */
-export function typeSignatureFor(dv: string): string {
+export function typeSignatureFor(
+  dv: string,
+  declaredTypes?: ReadonlySet<string>
+): string {
   if (/^['"`]/.test(dv)) return 'string'
   if (dv === 'true' || dv === 'false') return 'boolean'
   if (dv === 'null') return 'null'
@@ -29,6 +32,18 @@ export function typeSignatureFor(dv: string): string {
   // A declared type name is its OWN signature. Two different names are two different types,
   // which is precisely what makes `f(s: Circle)` / `f(s: Rect)` a legal pair rather than an
   // ambiguous one — and what `typeCheckForDefault` can now discriminate at runtime.
-  if (/^[A-Z][A-Za-z0-9_$]*$/.test(dv)) return `declared:${dv}`
+  // A declared type is its OWN signature — two names are two types, which is what makes
+  // `f(s: Circle)` / `f(s: Rect)` a legal pair rather than an ambiguous one.
+  //
+  // Identified by LOOKUP first, capitalisation only as the fallback. There is no reason a
+  // lowercase type should behave differently: TypeScript allows `type allKeys<T> = …`,
+  // JavaScript identifiers do not care, and `isTypeNameAnnotation` already treats any bare
+  // identifier in an annotation as a type name. Capitalisation was a heuristic standing in
+  // for a lookup we can actually do — it survives only for a type declared in ANOTHER file,
+  // which the local registry cannot know about.
+  if (/^[A-Za-z_$][A-Za-z0-9_$]*$/.test(dv)) {
+    if (declaredTypes?.has(dv)) return `declared:${dv}`
+    if (/^[A-Z]/.test(dv)) return `declared:${dv}`
+  }
   return 'any'
 }

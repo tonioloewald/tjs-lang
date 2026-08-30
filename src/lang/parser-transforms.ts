@@ -2293,7 +2293,7 @@ export function transformTypeDeclarations(
       // `export Type $ZodErrorClass { … }` and our own parser refused to read it. The same
       // class as the generator and destructuring gaps: valid input the converter produces and
       // the language cannot parse. Applied to Type, FunctionPredicate, Generic, Union, Enum.
-      /^\bType\s+([A-Z_$][a-zA-Z0-9_$]*)\s*/
+      /^\bType\s+([A-Za-z_$][a-zA-Z0-9_$]*)\s*/
     )
     const typeMatch = typeHeader?.m
     if (typeMatch) {
@@ -2666,7 +2666,7 @@ export function transformFunctionPredicateDeclarations(source: string): string {
       masked,
       source,
       i,
-      /^\bFunctionPredicate\s+([A-Z_$][a-zA-Z0-9_$]*)\s*(?:<([^>]+)>)?\s*/
+      /^\bFunctionPredicate\s+([A-Za-z_$][a-zA-Z0-9_$]*)\s*(?:<([^>]+)>)?\s*/
     )?.m
     if (fpMatch) {
       const fpName = fpMatch[1]
@@ -2809,7 +2809,7 @@ export function transformGenericDeclarations(
       masked,
       source,
       i,
-      /^\b(Generic|Type)\s+([A-Z_$][a-zA-Z0-9_$]*)\s*<([^>]+)>\s*\{/
+      /^\b(Generic|Type)\s+([A-Za-z_$][a-zA-Z0-9_$]*)\s*<([^>]+)>\s*\{/
     )?.m
     if (genericMatch) {
       const genericName = genericMatch[2]
@@ -3004,7 +3004,7 @@ export function transformUnionDeclarations(
       masked,
       source,
       i,
-      /^\bUnion\s+([A-Z_$][a-zA-Z0-9_$]*)\s+(['"`])([^]*?)\2\s*/d
+      /^\bUnion\s+([A-Za-z_$][a-zA-Z0-9_$]*)\s+(['"`])([^]*?)\2\s*/d
     )
     const unionMatch = unionHeader?.m
     if (unionMatch && unionHeader) {
@@ -3134,7 +3134,7 @@ export function transformEnumDeclarations(
       masked,
       source,
       i,
-      /^\bEnum\s+([A-Z_$][a-zA-Z0-9_$]*)\s+(['"`])([^]*?)\2\s*\{/d
+      /^\bEnum\s+([A-Za-z_$][a-zA-Z0-9_$]*)\s+(['"`])([^]*?)\2\s*\{/d
     )
     const enumMatch = enumHeader?.m
     if (enumMatch && enumHeader) {
@@ -3560,7 +3560,11 @@ export function locAt(
  * Info about a single function variant for polymorphic dispatch
  */
 
-function typeCheckForDefault(argExpr: string, defaultValue: string): string {
+function typeCheckForDefault(
+  argExpr: string,
+  defaultValue: string,
+  declaredTypes?: ReadonlySet<string>
+): string {
   const dv = defaultValue.trim()
 
   // String literal
@@ -3612,7 +3616,13 @@ function typeCheckForDefault(argExpr: string, defaultValue: string): string {
   // Guarded on the binding being initialised, for the same reason the emitted `declared`
   // check is: a Type declared after the function that names it is in TDZ during module
   // evaluation, and a legal JS ordering must not become a crash (TJS ⊇ JS).
-  if (/^[A-Z][A-Za-z0-9_$]*$/.test(dv)) {
+  // Registry first, capitalisation as the cross-file fallback — same rule as
+  // `typeSignatureFor`, and for the same reason: nothing about a type's behaviour should
+  // depend on the case of its first letter.
+  if (
+    /^[A-Za-z_$][A-Za-z0-9_$]*$/.test(dv) &&
+    (declaredTypes?.has(dv) || /^[A-Z]/.test(dv))
+  ) {
     return `(typeof ${dv} !== 'undefined' && ${dv} && typeof ${dv}.check === 'function' && ${dv}.check(${argExpr}) === true)`
   }
 
@@ -3631,8 +3641,11 @@ function typeCheckForDefault(argExpr: string, defaultValue: string): string {
  * emits one, so it can fall back to the implementation instead of emitting a group the
  * parser will reject. Two copies of this rule would diverge; there is one.
  */
-export function typeSignatureForDefault(defaultValue: string): string {
-  return typeSignatureFor(stripParamMarkers(defaultValue).trim())
+export function typeSignatureForDefault(
+  defaultValue: string,
+  declaredTypes?: ReadonlySet<string>
+): string {
+  return typeSignatureFor(stripParamMarkers(defaultValue).trim(), declaredTypes)
 }
 
 /**
@@ -3791,7 +3804,9 @@ export function findFunctionBodyEnd(
  */
 export function transformPolymorphicFunctions(
   source: string,
-  requiredParams: Set<string>
+  requiredParams: Set<string>,
+  /** Types declared in THIS file — see `typeSignatureFor` for why a lookup beats a heuristic. */
+  declaredTypes?: ReadonlySet<string>
 ): { source: string; polymorphicNames: Set<string> } {
   const polymorphicNames = new Set<string>()
 
@@ -3942,10 +3957,10 @@ export function transformPolymorphicFunctions(
         let allSame = true
         for (let k = 0; k < a.params.length; k++) {
           const sigA = a.params[k].defaultValue
-            ? typeSignatureForDefault(a.params[k].defaultValue)
+            ? typeSignatureForDefault(a.params[k].defaultValue, declaredTypes)
             : 'any'
           const sigB = b.params[k].defaultValue
-            ? typeSignatureForDefault(b.params[k].defaultValue)
+            ? typeSignatureForDefault(b.params[k].defaultValue, declaredTypes)
             : 'any'
           if (sigA !== sigB) {
             allSame = false
@@ -4019,7 +4034,7 @@ export function transformPolymorphicFunctions(
       let specB = 0
       for (const p of a.params) {
         const sig = p.defaultValue
-          ? typeSignatureForDefault(p.defaultValue)
+          ? typeSignatureForDefault(p.defaultValue, declaredTypes)
           : 'any'
         if (sig === 'non-negative-integer') specA += 3
         else if (sig === 'integer') specA += 2
@@ -4027,7 +4042,7 @@ export function transformPolymorphicFunctions(
       }
       for (const p of b.params) {
         const sig = p.defaultValue
-          ? typeSignatureForDefault(p.defaultValue)
+          ? typeSignatureForDefault(p.defaultValue, declaredTypes)
           : 'any'
         if (sig === 'non-negative-integer') specB += 3
         else if (sig === 'integer') specB += 2
@@ -4046,7 +4061,11 @@ export function transformPolymorphicFunctions(
         const p = v.params[k]
         args.push(`__args[${k}]`)
         if (p.defaultValue) {
-          const check = typeCheckForDefault(`__args[${k}]`, p.defaultValue)
+          const check = typeCheckForDefault(
+            `__args[${k}]`,
+            p.defaultValue,
+            declaredTypes
+          )
           if (check !== 'true') checks.push(check)
         }
       }

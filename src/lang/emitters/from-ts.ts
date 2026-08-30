@@ -2017,16 +2017,17 @@ function emitOverloadGroup(
  * regex that cannot tell them apart is the literal-blindness defect this repo keeps finding.
  */
 /**
- * A TJS declared type must be capitalised (a leading `_` or `$` is fine — `_FlattenedError`,
- * `$ZodType`). TypeScript has no such rule: `type allKeys<T> = …` is ordinary, and zod uses
- * lowercase aliases throughout.
+ * A TJS declared-type name — now any JavaScript identifier.
  *
- * Emitting `Generic allKeys<T> { … }` produces TJS that does not parse, and simply widening
- * the parser would be worse: capitalisation is how an annotation like `x: allKeys` is told
- * apart from a value, so a lowercase declared type would be unreferenceable anyway. Erase it,
- * exactly as TypeScript does, and say so.
+ * This briefly required a capital, and lowercase TypeScript aliases (`type allKeys<T> = …`,
+ * which zod uses throughout) were ERASED on the reasoning that capitalisation is how
+ * `x: allKeys` is told apart from a value. That reasoning was wrong twice over:
+ * `isTypeNameAnnotation` already treats any bare identifier in an annotation as a type name,
+ * and the parser keeps a `declaredTypes` registry — so capitalisation was a heuristic
+ * standing in for a lookup we can actually do. Nothing about a type should depend on the
+ * case of its first letter, and erasing one throws away information we have.
  */
-const TJS_TYPE_NAME = /^[A-Z_$]/
+const TJS_TYPE_NAME = /^[A-Za-z_$]/
 function stripTypeArguments(
   expr: ts.Expression,
   sourceFile: ts.SourceFile
@@ -3340,12 +3341,6 @@ export function fromTS(
           // @tjs-skip — omit this declaration entirely
           if (annotations?.some((a) => a.kind === 'skip')) {
             // Skip — do not emit
-          } else if (!TJS_TYPE_NAME.test(typeName)) {
-            tjsFunctions.push(
-              `/* TJS: interface \`${typeName}\` not promoted to a runtime Type — a TJS ` +
-                `declared type must be capitalised. TypeScript erases the interface, so ` +
-                `behavior is unchanged. */`
-            )
           } else if (valueNames.has(typeName)) {
             // A TYPE and a VALUE may share a name in TypeScript, and for an INTERFACE this
             // is not a corner case — it is the standard companion-object idiom:
@@ -3401,12 +3396,6 @@ export function fromTS(
           // @tjs-skip — omit this declaration entirely
           if (annotations?.some((a) => a.kind === 'skip')) {
             // Skip — do not emit
-          } else if (!TJS_TYPE_NAME.test(typeName)) {
-            tjsFunctions.push(
-              `/* TJS: type alias \`${typeName}\` not promoted to a runtime Type — a TJS ` +
-                `declared type must be capitalised. TypeScript erases the alias, so ` +
-                `behavior is unchanged. */`
-            )
           } else if (valueNames.has(typeName)) {
             // A TYPE and a VALUE may share a name in TypeScript — `type Foo = …` plus
             // `const Foo = { … }` is an everyday pattern (Date itself is declared that
