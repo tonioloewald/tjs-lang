@@ -176,6 +176,12 @@ useful part: fixing two things fixes nearly all of it.
 - [ ] **`superstruct src/utils.ts:188` — `Unexpected token`.** One-off parse failure, not yet
       diagnosed.
 
+- [ ] **The compat clones are left DIRTY after every run, poisoning the next measurement.**
+      Each script resets with `git checkout .` at the START and never at the end, so the
+      `.ts` files keep the transpiled output written over them. Measuring between runs then
+      re-converts OUR OWN OUTPUT and calls it TypeScript — ts-pattern read 23/24 that way and
+      is 24/24 on restored sources. Restore at the end (or in a `finally`), and have anything
+      that reads the corpus refuse to measure a dirty clone.
 - [ ] **The lane's verdict is still meaningless.** It printed `5 passed, 0 failed` for the run
       above — while superstruct ran **zero** tests (`Passed: 0, Failed: 0`) and ts-pattern
       failed with `isMatching is not a function` because its source never transpiled. Each
