@@ -195,10 +195,40 @@ export function buildLLMCapability(settings: LLMSettings) {
     return null
   }
 
+  /**
+   * The first usable chat model on the server, resolved once.
+   *
+   * `'local-model'` is not a model; it is a placeholder, and an OpenAI-compatible server
+   * rejects it: `Invalid model identifier "local-model"`. The vision path already learned
+   * this (see `findVisionModel` — discovery failing there fell through to the same
+   * placeholder and 400'd); the plain chat path kept it. Every `llm` example in the release
+   * gate failed on it, and the failure was reported as LM Studio being down.
+   */
+  let chatModelPromise: Promise<string> | null = null
+  const resolveChatModel = (): Promise<string> => {
+    chatModelPromise ??= (async () => {
+      try {
+        const res = await fetch(`${customLlmUrl}/models`)
+        if (!res.ok) return 'local-model'
+        const ids: string[] = ((await res.json())?.data ?? []).map(
+          (m: any) => m?.id
+        )
+        // Embedding models answer /v1/models too and cannot serve a chat completion.
+        return (
+          ids.find((id) => id && !/embed/i.test(id)) ?? ids[0] ?? 'local-model'
+        )
+      } catch {
+        // Unreachable server is a different failure, reported by the caller.
+        return 'local-model'
+      }
+    })()
+    return chatModelPromise
+  }
+
   // Provider implementations
   const callCustom = async (prompt: string, options?: any): Promise<string> => {
     const body: any = {
-      model: options?.model || 'local-model',
+      model: options?.model || (await resolveChatModel()),
       messages: [{ role: 'user', content: prompt }],
       temperature: options?.temperature ?? 0.7,
     }
@@ -219,8 +249,22 @@ export function buildLLMCapability(settings: LLMSettings) {
       const elapsed = Date.now() - startTime
 
       if (!response.ok) {
+        // The SERVER'S explanation, not ours. This said "Check that LM Studio is running",
+        // which is wrong exactly when it matters: a 400 means the server is running and is
+        // telling you why it refused. Here it was saying `Invalid model identifier
+        // "local-model"` — the whole diagnosis, discarded and replaced with a guess that
+        // sent debugging at LM Studio's health for a bug in our request.
+        const detail = await response.text().catch(() => '')
+        let message = detail
+        try {
+          const j = JSON.parse(detail)
+          message = j?.error?.message ?? j?.error ?? detail
+        } catch {
+          // Not JSON — the raw body is still better than nothing.
+        }
         throw new Error(
-          `LLM Error: ${response.status} - Check that LM Studio is running at ${customLlmUrl}`
+          `LLM Error: ${response.status} ${response.statusText} — ` +
+            `${String(message).trim().slice(0, 500)} (at ${customLlmUrl})`
         )
       }
       console.log(`✅ LM Studio response in ${elapsed}ms`)

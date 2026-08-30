@@ -64,6 +64,39 @@ function isConnectionRefused(e: any): boolean {
   return e?.cause?.code === 'ECONNREFUSED' || e?.code === 'ConnectionRefused'
 }
 
+/**
+ * An HTTP failure, with the SERVER'S explanation in it.
+ *
+ * This used to be `LLM Error: ${status} ${statusText}` — the body was never read, so an
+ * OpenAI-compatible server that says exactly what is wrong ("model X is not a chat model",
+ * "invalid grammar", a bad field name) had its answer thrown away and replaced with our
+ * guess: "Check that LM Studio is running". That guess is wrong precisely when it matters
+ * most — a 400 means the server IS running and is telling you why it refused.
+ *
+ * Cost a debugging session: a full-suite failure reported as LM Studio health when LM Studio
+ * was healthy and the request shape was ours.
+ */
+async function httpError(label: string, response: Response): Promise<string> {
+  let detail = ''
+  try {
+    const text = await response.text()
+    // Both shapes seen in the wild: `{error: {message}}` and `{error: "..."}`.
+    try {
+      const j = JSON.parse(text)
+      detail = j?.error?.message ?? j?.error ?? j?.message ?? text
+    } catch {
+      detail = text
+    }
+  } catch {
+    // A body we cannot read is not a reason to lose the status.
+  }
+  detail = String(detail).trim().slice(0, 500)
+  return (
+    `${label} Error: ${response.status} ${response.statusText}` +
+    (detail ? ` — ${detail}` : '')
+  )
+}
+
 export function getLLMCapability(
   models: LocalModels,
   baseUrl = DEFAULT_BASE_URL
@@ -100,9 +133,7 @@ export function getLLMCapability(
         })
 
         if (!response.ok) {
-          throw new Error(
-            `LLM Error: ${response.status} ${response.statusText}`
-          )
+          throw new Error(await httpError('LLM', response))
         }
 
         const data = await response.json()
@@ -133,7 +164,7 @@ export function getLLMCapability(
         })
 
         if (!response.ok) {
-          throw new Error(`Embedding Error: ${response.status}`)
+          throw new Error(await httpError('Embedding', response))
         }
 
         const data = await response.json()
