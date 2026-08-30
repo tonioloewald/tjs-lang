@@ -15,7 +15,10 @@ const CACHE_TTL_MS = 24 * 60 * 60 * 1000 // 24 hours
  * `probe-version.test.ts` hashes the probe functions and fails if they change without this
  * number moving, so the rule is enforced rather than remembered.
  */
-const PROBE_VERSION = 2
+// 3 (2026-08-30): `checkLLM` now rejects a SUBSTITUTED answer — a server that serves any
+// requested id with whatever is loaded made every model look like an LLM. Caches written by
+// version 2 carry that misclassification and must be discarded.
+const PROBE_VERSION = 3
 
 export interface ModelAudit {
   id: string
@@ -261,7 +264,23 @@ async function checkLLM(baseUrl: string, modelId: string): Promise<boolean> {
         max_tokens: 1,
       }),
     })
-    return res.ok
+    if (!res.ok) return false
+
+    // Did THIS model answer, or did the server substitute the loaded one?
+    //
+    // LM Studio serves a chat request with whatever is loaded, whatever `model` you asked
+    // for — verified: requesting `text-embedding-nomic-embed-text-v1.5-embedding` returns 200
+    // with `"model": "qwen/qwen3.8-27b"` in the body. So `res.ok` alone made checkLLM true
+    // for EVERY id, an embedding model was typed `"LLM"` (and `vision: true`), and
+    // `find(m => m.type === 'LLM')` could hand chat completions to an embedding model. It
+    // did not bite only because a real chat model happened to sort first.
+    //
+    // A server that omits `model` from the response is taken at its word — absence is not
+    // evidence of substitution.
+    const body = await res.json().catch(() => null)
+    const answered = body?.model
+    if (typeof answered === 'string' && answered !== modelId) return false
+    return true
   } catch {
     return false
   }

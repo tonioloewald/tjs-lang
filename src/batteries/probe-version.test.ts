@@ -37,6 +37,7 @@ const AUDIT_CODE = stripComments(AUDIT)
  */
 const PROBE_FUNCTIONS = [
   'looksLikeVisionModel',
+  'checkLLM',
   'checkVision',
   'checkStructured',
   'checkStructuredLegacy',
@@ -73,8 +74,8 @@ function probeHash(): string {
   return h.digest('hex').slice(0, 16)
 }
 
-/** Recorded 2026-08-16 against PROBE_VERSION 2. */
-const PROBE_HASH = 'f625e48a30b770f7'
+/** Recorded 2026-08-30 against PROBE_VERSION 3. */
+const PROBE_HASH = '51abaaa32ec2eec6'
 
 describe('the probe version tracks the probe', () => {
   it('finds every probe function it claims to hash', () => {
@@ -82,6 +83,26 @@ describe('the probe version tracks the probe', () => {
     // notice a change to the function it was named for.
     const missing = PROBE_FUNCTIONS.filter((n) => functionSource(n) === '')
     expect(missing).toEqual([])
+  })
+
+  it('claims every probe function that EXISTS', () => {
+    // The converse, and the direction that was missing. The list above checked only the
+    // names it already had, so `checkLLM` — which decides whether a model is an LLM at all —
+    // was never hashed. Changing it did not trip this guard, and a 24h cache would have gone
+    // on serving the old classification. Same asymmetry as the editor vocabulary: verifying
+    // every claim is not the same as verifying there are no unclaimed things.
+    const src = readFileSync(join(import.meta.dir, 'audit.ts'), 'utf-8')
+    const declared = [
+      ...src.matchAll(
+        /^(?:async )?function (check[A-Z]\w*|looksLike\w+|isEmbedding\w*)\(/gm
+      ),
+    ].map((m) => m[1])
+    const unclaimed = declared.filter((n) => !PROBE_FUNCTIONS.includes(n))
+    expect(
+      unclaimed,
+      `These probe functions are not hashed, so changing one would not force a ` +
+        `PROBE_VERSION bump and a stale cache would serve the old conclusions.`
+    ).toEqual([])
   })
 
   it('the probe logic is unchanged, or PROBE_VERSION was bumped', () => {
