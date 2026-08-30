@@ -32,6 +32,7 @@
 
 import ts from 'typescript'
 import { maskLiteralsKeepComments, scanLiterals } from '../../strip-comments'
+import { typeSignatureFor } from '../type-signature'
 
 export interface FromTSOptions {
   /** Emit TJS intermediate instead of JS + metadata */
@@ -126,6 +127,20 @@ interface TypeResolutionContext {
   resolvedCache?: Map<string, TypeInfo>
   /** Current resolution depth — bail to 'any' when too deep */
   depth?: number
+  /**
+   * Names this conversion actually emits as a runtime `Type`/`Generic`.
+   *
+   * A reference to one of these is left AS THE NAME rather than expanded into its shape.
+   * That retains the author's own spelling (the same principle that keeps `x: number`
+   * instead of `x: 0.0`), produces a better error — `Expected A` beats a shape dump — and
+   * is what makes polymorphic dispatch work: TJS discriminates variants by declared type
+   * NAME (`declared:A` vs `declared:B`), while two inline object shapes both reduce to
+   * `object` and are rejected as ambiguous.
+   *
+   * Only names we really declare go in here; a type we erase (lowercase, or colliding with
+   * a value) must still be expanded, or the annotation would reference nothing.
+   */
+  declaredTypeNames?: Set<string>
 }
 
 /** Maximum type resolution depth before degrading to 'any' */
@@ -513,6 +528,28 @@ function typeToExample(
 
       if (typeName in builtinExamples) {
         return builtinExamples[typeName]
+      }
+
+      // A type we DECLARE is referenced by name, not expanded.
+      //
+      // Three things follow from it, and the third is why it matters most:
+      //   1. the author's own spelling survives (`x: A`, not a shape dump) — the same
+      //      principle that keeps `x: number` instead of `x: 0.0`;
+      //   2. the runtime error reads `Expected A for …` rather than a page of structure;
+      //   3. POLYMORPHIC DISPATCH WORKS. TJS discriminates variants by declared type name
+      //      (`declared:A` vs `declared:B`), whereas two inline object shapes both reduce to
+      //      `object` and the pair is rejected as ambiguous. Expanding the reference threw
+      //      away the only thing that could tell the overloads apart.
+      //
+      // Only in ANNOTATION position: a value position needs a real value, and a bare `A`
+      // there is an identifier, not an example. Only for names we really declare — an erased
+      // type must still be expanded or the annotation would reference nothing.
+      if (
+        position === 'annotation' &&
+        ctx?.declaredTypeNames?.has(typeName) &&
+        (ctx.typeAliases?.has(typeName) || ctx.interfaces?.has(typeName))
+      ) {
+        return typeName
       }
 
       // Resolve type aliases
@@ -1747,6 +1784,75 @@ function emitOverloadGroup(
   const restInSignature = signatures.some((sig) =>
     sig.parameters.some((p) => !!p.dotDotDotToken)
   )
+
+  /**
+   * Are two signatures indistinguishable at RUNTIME?
+   *
+   * TypeScript routinely overloads on types that do not exist at runtime — radash's `max`
+   * takes `readonly [number, ...number[]]` in one variant and `readonly number[]` in
+   * another, and a non-empty tuple is just an array once the compiler has gone. TS resolves
+   * that statically; TJS dispatches on values and genuinely cannot.
+   *
+   * Emitting the group anyway makes the TJS parser throw and the whole file fails to
+   * convert — for a construct TypeScript itself erases. So detect it here and do what the
+   * rest-parameter case above already does: emit the implementation, which is the only thing
+   * that exists at runtime in TS either, and say what was skipped.
+   *
+   * The rule comes from `type-signature.ts`, the same leaf the parser uses, so the two cannot
+   * disagree about what "distinguishable" means.
+   */
+  const ambiguousPair = (() => {
+    const sigs = signatures.map((sig) =>
+      transformParams(
+        sig.parameters,
+        sourceFile,
+        undefined,
+        undefined,
+        resolutionCtx
+      ).map((p) => {
+        const eq = p.indexOf(':')
+        return eq === -1
+          ? 'any'
+          : typeSignatureFor(
+              p
+                .slice(eq + 1)
+                .replace(/^!/, '')
+                .trim()
+            )
+      })
+    )
+    for (let i = 0; i < sigs.length; i++) {
+      for (let j = i + 1; j < sigs.length; j++) {
+        if (sigs[i].length !== sigs[j].length) continue
+        if (sigs[i].every((t, k) => t === sigs[j][k])) return [i + 1, j + 1]
+      }
+    }
+    return null
+  })()
+
+  if (ambiguousPair) {
+    warnings?.push(
+      `Overloads ${ambiguousPair[0]} and ${ambiguousPair[1]} for '${funcName}' are not ` +
+        `distinguishable at runtime (TypeScript separates them by types that are erased). ` +
+        `Emitted the implementation only — behavior is unchanged, but the overload ` +
+        `signatures are not enforced at runtime.`
+    )
+    const only = transformFunctionToTJS(
+      implementation,
+      sourceFile,
+      undefined,
+      warnings,
+      true,
+      resolutionCtx
+    )
+    return [
+      `/* TJS: ${signatures.length} overload signature(s) for \`${funcName}\` not converted ` +
+        `to polymorphic dispatch — variants ${ambiguousPair[0]} and ${ambiguousPair[1]} are ` +
+        `indistinguishable at runtime. TypeScript erases these signatures, so behavior is ` +
+        `unchanged. */\n${only}`,
+    ]
+  }
+
   if (restInSignature) {
     warnings?.push(
       `Overloads for '${funcName}' use rest parameters, which TJS polymorphic dispatch ` +
@@ -3029,12 +3135,22 @@ export function fromTS(
   collectTypes(sourceFile)
 
   // Create resolution context
+  // Which types will actually be DECLARED — computed before the walk, because a function
+  // may reference a type declared later in the file (verified: forward references resolve).
+  // The conditions mirror the emission guards exactly: capitalised, and not colliding with a
+  // value of the same name.
+  const declaredTypeNames = new Set<string>()
+  for (const n of [...interfaces.keys(), ...typeAliases.keys()]) {
+    if (TJS_TYPE_NAME.test(n) && !valueNames.has(n)) declaredTypeNames.add(n)
+  }
+
   const resolutionCtx: TypeResolutionContext = {
     typeAliases,
     interfaces,
     sourceFile,
     warnings,
     resolvedCache: new Map(),
+    declaredTypeNames,
   }
 
   // Pre-scan: detect function overload groups

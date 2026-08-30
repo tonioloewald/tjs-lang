@@ -56,6 +56,7 @@ import { parse } from 'acorn'
 import { extractJSValue } from './parser-params'
 import { emitVerifiedPredicate, formatPredicateDiagnostics } from './predicate'
 import type { PredicateVerification } from './types'
+import { typeSignatureFor } from './type-signature'
 
 /**
  * If a `Type`/`FunctionPredicate` predicate body verifies as predicate-safe
@@ -3623,27 +3624,15 @@ function typeCheckForDefault(argExpr: string, defaultValue: string): string {
  * Get a type "signature" string from a default value for ambiguity checking.
  * Two params with the same signature at the same position are ambiguous.
  */
-function typeSignatureForDefault(defaultValue: string): string {
-  const dv = stripParamMarkers(defaultValue).trim()
-  if (/^['"`]/.test(dv)) return 'string'
-  if (dv === 'true' || dv === 'false') return 'boolean'
-  if (dv === 'null') return 'null'
-  if (dv === 'undefined') return 'undefined'
-  if (dv.startsWith('[')) return 'array'
-  if (dv.startsWith('{')) return 'object'
-  if (/^\+\d+/.test(dv)) return 'non-negative-integer'
-  if (/^-?\d+\.\d+/.test(dv)) return 'number'
-  if (/^-?\d+$/.test(dv)) return 'integer'
-  // Sound TS type names carry the same signature their example spelling did, so a
-  // conversion cannot turn a legal overload pair into an ambiguous one.
-  if (dv === 'string') return 'string'
-  if (dv === 'number') return 'number'
-  if (dv === 'boolean') return 'boolean'
-  // A declared type name is its OWN signature. Two different names are two different types,
-  // which is precisely what makes `f(s: Circle)` / `f(s: Rect)` a legal pair rather than an
-  // ambiguous one — and what `typeCheckForDefault` can now discriminate at runtime.
-  if (/^[A-Z][A-Za-z0-9_$]*$/.test(dv)) return `declared:${dv}`
-  return 'any'
+/**
+ * Exported so the CONVERTER can ask the same question the parser asks.
+ *
+ * `from-ts` needs to know whether an overload group is runtime-distinguishable BEFORE it
+ * emits one, so it can fall back to the implementation instead of emitting a group the
+ * parser will reject. Two copies of this rule would diverge; there is one.
+ */
+export function typeSignatureForDefault(defaultValue: string): string {
+  return typeSignatureFor(stripParamMarkers(defaultValue).trim())
 }
 
 /**

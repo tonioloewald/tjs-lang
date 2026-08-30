@@ -1069,8 +1069,23 @@ describe('fromTS interface merging', () => {
 // TS Compile-Time Types — Graceful Degradation
 // =============================================================================
 
-describe('TS compile-time types - graceful degradation', () => {
-  test('conditional types (T extends X ? Y : Z) → any with migration comment', () => {
+/**
+ * A type TJS cannot enforce is still a type TJS should REMEMBER.
+ *
+ * These two asserted the older, lossier behaviour: the parameter lost its annotation
+ * entirely and a `TODO: TS types degraded` comment was left in its place. The type is now
+ * DECLARED — carrying the original TypeScript as `// TS: …` for the `.d.ts` emitter — and the
+ * parameter references it by name.
+ *
+ * Runtime behaviour is unchanged (a `Type` with no example accepts anything, exactly as the
+ * dropped annotation did), so nothing was traded for it. What is gained: the name survives
+ * into the signature and the error (`Expected EventName for …`), the original TS text
+ * survives into the declaration, and — the reason this matters beyond tidiness — polymorphic
+ * dispatch can tell two such parameters apart, because TJS discriminates by declared type
+ * NAME while two expanded shapes both reduce to `object`.
+ */
+describe('TS compile-time types keep their name and their TS text', () => {
+  test('a conditional type is declared and referenced, not dropped', () => {
     const result = fromTS(
       `
       type IsString<T> = T extends string ? true : false;
@@ -1079,12 +1094,11 @@ describe('TS compile-time types - graceful degradation', () => {
       { emitTJS: true }
     )
     expect(result.code).toContain('function check(')
-    // Should have a migration comment showing the original TS type
-    expect(result.code).toContain('TODO: TS types degraded')
-    expect(result.code).toContain('x: IsString<number>')
+    // The original TypeScript survives as metadata on the declaration.
+    expect(result.code).toContain('T extends string ? true : false')
   })
 
-  test('template literal types → any with migration comment', () => {
+  test('a template literal type is declared and referenced, not dropped', () => {
     const result = fromTS(
       `
       type EventName = \`on\${'Click' | 'Hover'}\`;
@@ -1092,8 +1106,8 @@ describe('TS compile-time types - graceful degradation', () => {
       `,
       { emitTJS: true }
     )
-    expect(result.code).toContain('function handle(')
-    expect(result.code).toContain('TODO: TS types degraded')
+    expect(result.code).toContain('Type EventName')
+    expect(result.code).toContain('event: EventName')
   })
 
   test('infer keyword → any', () => {
