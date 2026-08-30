@@ -145,6 +145,11 @@ async function main() {
       console.log(`  ✓ ${relPath}`)
     } catch (e: any) {
       transpileResults.fail++
+      // A transpile failure is a CONVERTER failure. Without this the script exits 0 and
+      // `compat-all` reports the target as passing — it printed `5 passed, 0 failed` while
+      // superstruct ran zero tests and ts-pattern failed on source that never transpiled.
+      // A green that cannot go red is not a signal.
+      process.exitCode = 1
       transpileResults.errors.push({ file: relPath, error: e.message })
       console.error(`  ✗ ${relPath}: ${e.message}`)
     }
@@ -311,7 +316,26 @@ async function main() {
   }
 }
 
-main().catch((e) => {
-  console.error(e)
-  process.exit(1)
-})
+/**
+ * Restore the clone on the way out, however we leave.
+ *
+ * Each script overwrites the checked-out `.ts` files with transpiled output and used to
+ * reset only at the START of the next run. So between runs the clone held OUR OWN OUTPUT
+ * under a `.ts` name, and anything measuring the corpus was re-converting that and calling
+ * it TypeScript. Three of six clones were dirty when this was found; ts-pattern read 23/24
+ * contaminated and is 24/24 clean.
+ */
+async function restore() {
+  try {
+    await run(['git', 'checkout', '.'], { cwd: RADASH_DIR })
+  } catch {
+    // Best effort — a failed restore must not mask the run's own verdict.
+  }
+}
+
+main()
+  .catch((e) => {
+    console.error(e)
+    process.exitCode = 1
+  })
+  .finally(restore)

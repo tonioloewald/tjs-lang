@@ -199,19 +199,16 @@ reading the TJS line at that number sends you after ghosts (cost several wrong t
       already-declared** (kysely `Database`, effect `EntityRegistered`) — the guards land, but
       these two shapes still slip past.
 
-- [ ] **The compat clones are left DIRTY after every run, poisoning the next measurement.**
-      Each script resets with `git checkout .` at the START and never at the end, so the
-      `.ts` files keep the transpiled output written over them. Measuring between runs then
-      re-converts OUR OWN OUTPUT and calls it TypeScript — ts-pattern read 23/24 that way and
-      is 24/24 on restored sources. Restore at the end (or in a `finally`), and have anything
-      that reads the corpus refuse to measure a dirty clone.
-- [ ] **The lane's verdict is still meaningless.** It printed `5 passed, 0 failed` for the run
-      above — while superstruct ran **zero** tests (`Passed: 0, Failed: 0`) and ts-pattern
-      failed with `isMatching is not a function` because its source never transpiled. Each
-      script exits 0 regardless of transpile or test outcome, so `compat-all` is reporting
-      "the script ran", not "the converter worked". This is the same defect that hid the tsc
-      path, one layer up: a green that cannot go red. Fix before quoting any compat number
-      again.
+- [x] **The compat clones are left DIRTY after every run, poisoning the next measurement.**
+      DONE 2026-08-30 — every script now restores in a `finally`, so an interrupted or failed
+      run cannot leave our own output sitting under a `.ts` name. (Three of six were dirty
+      when this was found; ts-pattern read 23/24 contaminated, 24/24 clean.)
+- [x] **The lane's verdict was meaningless.** DONE 2026-08-30 — a transpile failure now sets
+      `process.exitCode = 1`, so `compat-all` reports the target as failed. It used to print
+      `5 passed, 0 failed` while superstruct ran zero tests and ts-pattern failed on source
+      that never transpiled. Verified: radash exits 1 with its one remaining failure.
+- [ ] **Test failures still do not fail the lane** — only transpile failures do. A target
+      whose suite goes red after converting cleanly still reports green.
 
 ## Value for the TS coder who NEVER switches (the wedge, 2026-08-01)
 
