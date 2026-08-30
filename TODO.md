@@ -148,6 +148,30 @@ members are values rather than type names (`{ a: number }` is `number is not def
 runtime), and an example that cannot be a pure literal at all falls back to the colon form
 with a warning naming §6.1.
 
+## Demo model — DEPLOYED 2026-08-30, partly verified
+
+`demoPredict` is live in `tjs-platform` (us-central1), on `gemini-3.5-flash-lite`, with the
+`GEMINI_API_KEY` secret bound automatically at deploy. `health`, `agentRun`, `run` and `page`
+were updated in the same deploy and all report success.
+
+Verified against the live endpoint:
+
+- `/health` -> `{"status":"ok", "tjsLang":"0.13.6"}`
+- `demoPredict` unauthenticated -> **HTTP 401 UNAUTHENTICATED**, with the sign-in message
+
+NOT yet verified, because it needs a signed-in user and the demo client is not deployed:
+
+- [ ] **The Gemini call itself** — key, model ID and response shape. A wrong model ID returns
+      the upstream message verbatim, so a failure here will name itself rather than look like
+      an outage. This is the last unproven link.
+- [ ] **The quota against real Firestore.** The counting logic has seven tests against an
+      in-memory fake (`functions/src/demo-llm.test.ts`), but the fake cannot prove the
+      transaction is atomic under contention — that is Firestore's job.
+- [ ] **A billing alert.** The caps bound CALLS (100/user/day, 5000/day global). Worst case is
+      single-digit dollars a day; the alert is what bounds the surprise, not the cap.
+- [ ] Firestore at the global cap: 2 reads + 2 writes per call = 10k/10k per day, inside the
+      free tier (50k/20k) but within 2x on writes. Check before raising `DAILY_GLOBAL`.
+
 ## The compat lane, now that it measures our own converter (2026-08-30)
 
 The lane defaulted to `fromTS(source)`, which emitted JS through `ts.transpileModule`. Its
