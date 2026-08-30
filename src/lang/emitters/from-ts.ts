@@ -2435,8 +2435,25 @@ function initializerSource(
   sourceFile: ts.SourceFile
 ): string {
   const { text, erased } = initializerText(init, sourceFile)
-  if (!erased.length) return text
-  return `${text} /* TJS: dropped \`${erased.join(
+
+  // The unwrap loop above peels casts that wrap the WHOLE initializer. It cannot reach one
+  // nested inside — and a default value is often a function:
+  //
+  //     getValue = item => item as unknown as Value
+  //
+  // which was emitted verbatim, TypeScript and all. Strip the remainder when it still looks
+  // like it holds type syntax; the test is a cheap pre-filter because most initializers hold
+  // none and this runs for every parameter.
+  const stripped = /\bas\b|\bsatisfies\b|<[A-Za-z_$]/.test(text)
+    ? (() => {
+        const out = stripTypeSyntax(`const __i = ${text}`)
+        const m = /^const __i =\s*([\s\S]*?);?$/.exec(out)
+        return m ? m[1].trim() : text
+      })()
+    : text
+
+  if (!erased.length) return stripped
+  return `${stripped} /* TJS: dropped \`${erased.join(
     ' '
   )}\` — type-only, no runtime effect */`
 }

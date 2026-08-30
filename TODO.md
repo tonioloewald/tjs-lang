@@ -207,8 +207,23 @@ reading the TJS line at that number sends you after ghosts (cost several wrong t
       `process.exitCode = 1`, so `compat-all` reports the target as failed. It used to print
       `5 passed, 0 failed` while superstruct ran zero tests and ts-pattern failed on source
       that never transpiled. Verified: radash exits 1 with its one remaining failure.
-- [ ] **Test failures still do not fail the lane** — only transpile failures do. A target
-      whose suite goes red after converting cleanly still reports green.
+- [x] **Test failures now fail the lane.** DONE 2026-08-30. A red suite, or one that ran
+      ZERO tests, sets a non-zero exit.
+
+**First honest verdict (2026-08-30): 0 passed, 5 failed, 1 skipped** — where the same lane
+reported `5 passed, 0 failed` the day before. It did not get worse; it started telling the
+truth. What each is actually failing on:
+
+- [ ] **ts-pattern — converts cleanly, then BREAKS AT RUNTIME.** 24/24 files transpile, and
+      the suite fails with `P.array is not a function or its return value is not iterable`.
+      This is the most valuable failure in the lane: a fidelity defect that a parse-rate
+      metric cannot see, and the clearest evidence that "100% parse" and "100% correct" are
+      different targets. Chase this before chasing parse-rate.
+- [ ] **superstruct — 8/8 files transpile and ZERO tests run.** A harness problem, not a
+      converter one, but it made the target report green for months.
+- [ ] **kysely — 5 transpile failures**, including `'super' keyword outside a method`, which
+      suggests a class body is being emitted detached from its class.
+- [ ] **effect — 3**, **radash — 1** (`src/array.ts`, partly fixed since this run).
 
 ## Value for the TS coder who NEVER switches (the wedge, 2026-08-01)
 
