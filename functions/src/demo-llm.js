@@ -207,12 +207,11 @@ export const demoPredict = onCall(
     }
 
     const res = await fetch(
-      `https://generativelanguage.googleapis.com/v1beta/models/${MODEL}:generateContent`,
+      `https://generativelanguage.googleapis.com/v1beta/models/${MODEL}:generateContent?key=${GEMINI_API_KEY.value()}`,
       {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          'x-goog-api-key': GEMINI_API_KEY.value(),
         },
         body: JSON.stringify({
           contents: [{ parts: [{ text: prompt }] }],

@@ -17418,11 +17418,10 @@ var demoPredict = onCall({ secrets: [GEMINI_API_KEY], cors: true }, async (reque
   if (__tjs7.toBool(!__tjs7.toBool(quota.ok))) {
     throw new HttpsError("resource-exhausted", __tjs7.toBool(quota.reason === "per-user") ? `Daily limit reached (${DAILY_PER_USER} calls). It resets at 00:00 UTC. Add your own API key in settings to keep going.` : "The demo model has hit its daily limit across all users. Try again tomorrow, or add your own API key in settings.");
   }
-  const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${MODEL}:generateContent`, {
+  const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${MODEL}:generateContent?key=${GEMINI_API_KEY.value()}`, {
     method: "POST",
     headers: {
-      "Content-Type": "application/json",
-      "x-goog-api-key": GEMINI_API_KEY.value()
+      "Content-Type": "application/json"
     },
     body: JSON.stringify({
       contents: [{ parts: [{ text: prompt }] }],

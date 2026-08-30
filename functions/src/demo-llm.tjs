@@ -164,13 +164,15 @@ export const demoPredict = onCall(
       )
     }
 
+    // Key as a QUERY PARAMETER, matching `llm.tjs` — the Gemini call in this project that is
+    // known to work. `x-goog-api-key` is also valid for this API, but there is no reason to
+    // debug an unproven variant on a path that cannot be exercised without the secret.
     const res = await fetch(
-      `https://generativelanguage.googleapis.com/v1beta/models/${MODEL}:generateContent`,
+      `https://generativelanguage.googleapis.com/v1beta/models/${MODEL}:generateContent?key=${GEMINI_API_KEY.value()}`,
       {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          'x-goog-api-key': GEMINI_API_KEY.value(),
         },
         body: JSON.stringify({
           contents: [{ parts: [{ text: prompt }] }],
