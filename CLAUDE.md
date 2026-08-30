@@ -98,6 +98,14 @@ bun run test:dogfood        # The two dogfood ratchets, in their own lane (~50s)
                             #   entries were one already-fixed defect. Kept separate
                             #   rather than un-gated because tripling the inner loop is
                             #   how a fast lane stops being used.
+bun run test:functions      # Cloud Functions lane (`functions/**/*.test.ts`).
+                            #   Also runs inside `test:fast` — the root runner globs it and
+                            #   it costs <1s — so this script is for running it alone.
+                            #   Tests import the `.tjs` SOURCE, not the built `.js`: the
+                            #   transpile step used to fail silently (`>` truncates the
+                            #   target before the command runs), so a stale or EMPTY module
+                            #   could be what shipped. The build now exits non-zero on a
+                            #   failed transpile; the tests avoid the artifact entirely.
 bun run test:llm            # LM Studio live smoke (audit + predict + embed)
 bun run test:grok           # AJS grokkability vs a pinned small model (advisory,
                             #   never blocks; reports a success rate). Needs
