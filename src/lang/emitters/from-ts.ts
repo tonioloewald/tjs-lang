@@ -1871,6 +1871,51 @@ function emitOverloadGroup(
  * Transform TypeScript class to TJS class
  * Converts TS type annotations to TJS example-based annotations
  */
+
+/**
+ * An expression's source text with every type-argument list removed.
+ *
+ * `extendsType.expression` already drops the heritage clause's OWN type arguments
+ * (`extends Component<T>` -> `Component`), which is why that was all this needed for a long
+ * time. It is not enough when the base is a CALL:
+ *
+ *     class User extends Schema.Class<User>("User")({ id: 1 }) {}
+ *
+ * There the `<User>` belongs to an inner call expression, so `getText()` returns it verbatim
+ * and the emitted class does not parse. That is effect's standard idiom and the single
+ * largest cause of conversion failure in that codebase.
+ *
+ * Spans are removed right-to-left so earlier offsets stay valid, and they are taken from the
+ * AST rather than matched textually — `<` and `>` are also comparison operators, and a
+ * regex that cannot tell them apart is the literal-blindness defect this repo keeps finding.
+ */
+function stripTypeArguments(
+  expr: ts.Expression,
+  sourceFile: ts.SourceFile
+): string {
+  const text = expr.getText(sourceFile)
+  const base = expr.getStart(sourceFile)
+  const spans: Array<[number, number]> = []
+
+  const visit = (node: ts.Node): void => {
+    const args = (node as any).typeArguments as
+      | ts.NodeArray<ts.Node>
+      | undefined
+    if (args && args.length > 0) {
+      // `pos` sits just after `<` and `end` just before `>`, so widen by one each way.
+      spans.push([args.pos - 1 - base, args.end + 1 - base])
+    }
+    node.forEachChild(visit)
+  }
+  visit(expr)
+
+  let out = text
+  for (const [a, b] of spans.sort((x, y) => y[0] - x[0])) {
+    if (a >= 0 && b <= out.length && a < b) out = out.slice(0, a) + out.slice(b)
+  }
+  return out
+}
+
 function transformClassToTJS(
   node: ts.ClassDeclaration,
   sourceFile: ts.SourceFile,
@@ -1899,7 +1944,9 @@ function transformClassToTJS(
   const extendsType = node.heritageClauses?.find(
     (h) => h.token === ts.SyntaxKind.ExtendsKeyword
   )?.types[0]
-  const extendsClause = extendsType?.expression?.getText(sourceFile)
+  const extendsClause = extendsType
+    ? stripTypeArguments(extendsType.expression, sourceFile)
+    : undefined
 
   // With TjsClass: convert TS private to JS # (true runtime privacy).
   // Without TjsClass: strip the keyword, keep the name (TS private is compile-time only).

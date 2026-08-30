@@ -434,13 +434,52 @@ export function transformParenExpressions(
       continue
     }
 
-    // Look for class declarations: class Name { or class Name extends Base {
-    const classMatch = source
-      .slice(i)
-      .match(/^class\s+\w+(?:\s+extends\s+\w+)?\s*\{/)
-    if (classMatch) {
+    // Look for class declarations: `class Name`, with any heritage clause.
+    //
+    // The base used to have to be a bare `\w+` (`extends\s+\w+`), so a class extending
+    // anything else was not recognised as a class at all — no class-body context was pushed,
+    // so no method inside it had its parameters or return annotation transformed, and the
+    // file did not parse. That covers a great deal of real TypeScript:
+    //
+    //     class C extends Data.Class { … }              // qualified name
+    //     class C extends Effect.Service<C>()("t", …) { … }
+    //     class C extends mixin(Base) { … }
+    //
+    // The heritage clause is now scanned rather than matched: from after the name, walk to
+    // the `{` that opens the BODY — the first one at bracket depth zero, so a brace inside
+    // `({ … })` is skipped, and quoted text is stepped over because `extends Tag("a{b")` is
+    // ordinary. A class declaration always has a body, so this terminates on real input.
+    const nameMatch = source.slice(i).match(/^class\s+\w+/)
+    let classHeaderLen = -1
+    if (nameMatch) {
+      let d = 0
+      let j = i + nameMatch[0].length
+      for (; j < source.length; j++) {
+        const c = source[j]
+        if (c === '"' || c === "'" || c === '`') {
+          const quote = c
+          j++
+          while (j < source.length && source[j] !== quote) {
+            if (source[j] === '\\') j++
+            j++
+          }
+          continue
+        }
+        if (c === '(' || c === '[') d++
+        else if (c === ')' || c === ']') d--
+        else if (c === '{' && d === 0) break
+        // A `;` or `}` at depth 0 before any `{` means this was not a declaration we can
+        // read; bail rather than swallow the rest of the file.
+        else if ((c === ';' || c === '}') && d === 0) {
+          j = -1
+          break
+        }
+      }
+      if (j > 0 && j < source.length) classHeaderLen = j - i
+    }
+    if (classHeaderLen > 0) {
       // Output everything up to but not including the {
-      const classHeader = classMatch[0].slice(0, -1)
+      const classHeader = source.slice(i, i + classHeaderLen)
       result += classHeader
       i += classHeader.length
       // Push class-body context (will be entered when we see the {)
@@ -560,9 +599,16 @@ export function transformParenExpressions(
     // These appear inside class bodies and need param transformation
     // Only match if we're actually in a class body (proper context tracking)
     // Must NOT match function calls in expressions (div(), span(), etc.)
+    // A COMPUTED name (`[Equal.symbol](…)`) is a method declaration too. Without the
+    // `\[[^\]]+\]` alternatives the scanner skipped the `[`, then matched `symbol(` — the
+    // tail of the computed name — as if it were the method's own name, and the emitted class
+    // did not parse. effect declares `[Equal.symbol]` and `[Hash.symbol]` on most of its
+    // types, so this was its second-largest conversion failure.
     const methodMatch = source
       .slice(i)
-      .match(/^(constructor|(?:get|set)\s+\w+|async\s+\w+|\w+)\s*\(/)
+      .match(
+        /^(constructor|(?:get|set)\s+(?:\w+|\[[^\]]+\])|async\s+(?:\w+|\[[^\]]+\])|\w+|\[[^\]]+\])\s*\(/
+      )
     // Check that the preceding non-whitespace character indicates this is a
     // declaration, not a function call in an expression.
     // Method declarations follow: newline, {, ;, or start of file
@@ -580,6 +626,9 @@ export function transformParenExpressions(
       prevNonWs !== ',' &&
       prevNonWs !== '(' &&
       prevNonWs !== '[' &&
+      // A method name cannot follow a dot — `Equal.symbol(` is a member call, never a
+      // declaration. Without this the tail of a computed name read as a method name.
+      prevNonWs !== '.' &&
       prevNonWs !== '>' // catches =>
     if (methodMatch && isInClassBody() && !isMethodDecl) {
       // Not a method declaration (it's a function call in an expression).
