@@ -148,7 +148,7 @@ members are values rather than type names (`{ a: number }` is `number is not def
 runtime), and an example that cannot be a pure literal at all falls back to the colon form
 with a warning naming §6.1.
 
-## The compat lane, now that it measures our own converter (2026-08-29)
+## The compat lane, now that it measures our own converter (2026-08-30)
 
 The lane defaulted to `fromTS(source)`, which emitted JS through `ts.transpileModule`. Its
 `--full` flag (TS → TJS → JS) defaulted OFF, three of the six scripts never had one, and
@@ -157,15 +157,32 @@ The lane defaulted to `fromTS(source)`, which emitted JS through `ts.transpileMo
 compiler works. There is now one path and no flag; `src/no-ts-emitter.test.ts` keeps it that
 way.
 
-First honest run (radash): **8/10 files transpile**, where the old lane reported 340/340
-tests passing. Both failures are the same real limitation, with a precise message:
+**First honest re-baseline, all six targets.** 15 transpile failures across five codebases
+(zod skipped — needs `corepack enable pnpm`). They collapse into two causes, which is the
+useful part: fixing two things fixes nearly all of it.
 
-- [ ] **TS overloads that our polymorphic dispatcher reads as ambiguous.** `src/array.ts`
-      (`max`) and `src/async.ts` (`all`): _"variants 1 and 2 have ambiguous signatures (same
-      parameter types at every position)"_. TypeScript distinguishes them by type-parameter
-      constraints, which the converter erases before dispatch sees them.
-- [ ] **Re-baseline every compat target through the real path** and record the numbers, so
-      CLAUDE.md stops quoting the old ones. Expect them to be worse and to mean something.
+- [ ] **`Identifier 'X' has already been declared` (9 failures — effect ×4, kysely ×5+).**
+      TypeScript's declaration-merging idiom: `export const Console = …` beside
+      `export interface Console`. The type is erased at runtime in TS, so the names never
+      collide; converting the interface to a runtime `Type Console` makes them collide.
+      `from-ts.ts` already has a guard for exactly this (`valueNames.has(typeName)` — "A TYPE
+      and a VALUE may share a name in TypeScript"), so this is a gap in an existing rule
+      rather than a missing one. Highest value: it is the single biggest blocker on the two
+      largest corpora.
+- [ ] **`Polymorphic function 'X': variants 1 and 2 have ambiguous signatures` (5 failures —
+      radash `max`/`all`, superstruct `enums`, ts-pattern `when`, effect `next`).** TS
+      overloads distinguished by type-parameter constraints, which the converter erases before
+      dispatch sees them. Needs either constraint-aware dispatch or an honest decline.
+- [ ] **`superstruct src/utils.ts:188` — `Unexpected token`.** One-off parse failure, not yet
+      diagnosed.
+
+- [ ] **The lane's verdict is still meaningless.** It printed `5 passed, 0 failed` for the run
+      above — while superstruct ran **zero** tests (`Passed: 0, Failed: 0`) and ts-pattern
+      failed with `isMatching is not a function` because its source never transpiled. Each
+      script exits 0 regardless of transpile or test outcome, so `compat-all` is reporting
+      "the script ran", not "the converter worked". This is the same defect that hid the tsc
+      path, one layer up: a green that cannot go red. Fix before quoting any compat number
+      again.
 
 ## Value for the TS coder who NEVER switches (the wedge, 2026-08-01)
 
