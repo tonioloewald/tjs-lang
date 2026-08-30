@@ -578,3 +578,48 @@ describe('an optional object param converts to a dictionary default', () => {
     )
   })
 })
+
+/**
+ * An exported overloaded function must stay exported.
+ *
+ * TJS merges same-named declarations into a dispatcher and exports it if they were exported.
+ * `emitOverloadGroup` emitted the variants BARE, so every exported overloaded function became
+ * a private one and simply vanished from the module's public API.
+ *
+ * ts-pattern is the case that found it: `export function array(…)` became `function array(…)`,
+ * and its own suite failed with `P.array is not a function or its return value is not
+ * iterable`. Nothing in a parse-rate metric can see this — the file converts and parses
+ * perfectly, and the API is gone. It took running a real project's tests against our output.
+ */
+describe('overload groups keep their export', () => {
+  const OVERLOADS = `export function pick(a: string): number
+export function pick(a: number, b: number): number
+export function pick(a: any, b?: any): number { return b === undefined ? 1 : 2 }`
+
+  it('the emitted TJS exports each variant', () => {
+    const { code } = fromTS(OVERLOADS, { emitTJS: true })
+    expect(code).toContain('export function pick(')
+  })
+
+  it('and the dispatcher is exported and callable', () => {
+    const js = tjs(fromTS(OVERLOADS, { emitTJS: true }).code, {
+      runTests: false,
+    }).code
+    expect(js).toMatch(/export function pick\(/)
+    // Exported AND still dispatching — a fix that exported a broken dispatcher would pass
+    // the assertion above alone.
+    const pick = new Function(js.replace(/^export /gm, '') + '\nreturn pick')()
+    expect([pick('a'), pick(1, 2)]).toEqual([1, 2])
+  })
+
+  it('an UNexported group stays private (control)', () => {
+    // Without this, unconditionally prefixing `export` would pass both assertions above.
+    const { code } = fromTS(
+      `function hidden(a: string): number
+function hidden(a: number, b: number): number
+function hidden(a: any, b?: any): number { return 1 }`,
+      { emitTJS: true }
+    )
+    expect(code).not.toContain('export function hidden(')
+  })
+})

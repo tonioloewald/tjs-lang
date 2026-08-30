@@ -1917,6 +1917,25 @@ function emitOverloadGroup(
   const asyncPrefix = isAsync ? 'async ' : ''
   const funcKeyword = isGenerator ? 'function* ' : 'function '
 
+  // The variants carry the EXPORT, or the function leaves the module's public API entirely.
+  //
+  // TJS merges same-named declarations into a dispatcher and exports it if they were
+  // exported (verified). Emitting them bare therefore turned every exported overloaded
+  // function into a private one: `export function array(…)` in ts-pattern became
+  // `function array(…)`, and its own suite failed with
+  // `P.array is not a function or its return value is not iterable`.
+  //
+  // Invisible to a parse-rate metric — the file converts and parses perfectly, and the API
+  // is simply gone. It took running a real project's tests against the output to see it.
+  //
+  // Read from the IMPLEMENTATION: TypeScript requires the modifiers to agree across a group,
+  // and the implementation is the declaration that survives to runtime.
+  const exportPrefix = implementation.modifiers?.some(
+    (m) => m.kind === ts.SyntaxKind.ExportKeyword
+  )
+    ? 'export '
+    : ''
+
   // Guidance, not a rewrite. The comment sits ON the redundant implementation because a
   // remedy shown at the site is what gets acted on — measured: a remedy in code repaired
   // 80% where the same advice as prose repaired 50% and a bare diagnostic 0% (A1).
@@ -1971,7 +1990,7 @@ function emitOverloadGroup(
     const returnKw = isGenerator ? 'yield* ' : 'return '
 
     results.push(
-      `${lineComment}${asyncPrefix}${funcKeyword}${funcName}(${params.join(
+      `${lineComment}${exportPrefix}${asyncPrefix}${funcKeyword}${funcName}(${params.join(
         ', '
       )})${returnAnnotation} { ${returnKw}${implName}(${paramNames.join(
         ', '
