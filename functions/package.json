@@ -8,7 +8,7 @@
     "node": "22"
   },
   "scripts": {
-    "build:transpile": "cd .. && for f in functions/src/*.tjs; do bun src/cli/tjs.ts emit \"$f\" > \"${f%.tjs}.js\"; done",
+    "build:transpile": "cd .. && for f in functions/src/*.tjs; do bun src/cli/tjs.ts emit \"$f\" > \"${f%.tjs}.js\" || { echo \"transpile FAILED: $f\" >&2; rm -f \"${f%.tjs}.js\"; exit 1; }; done",
     "build:bundle": "bun build src/index.js --outfile=lib/index.js --target=node --conditions=bun --external=firebase-functions --external=firebase-admin --external=firebase-functions/* --external=firebase-admin/*",
     "build": "npm run build:version && npm run build:transpile && npm run build:bundle",
     "serve": "firebase emulators:start --only functions",

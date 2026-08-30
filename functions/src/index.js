@@ -33,6 +33,15 @@ import { createLlmCapability } from './llm.js'
 import { createStoreCapability } from './store.js'
 import { matchUrlPattern, getStoredFunctions } from './routing.js'
 
+/*#
+## Re-exported entry points
+
+Firebase deploys the EXPORTS of the bundled entry, so a callable that is not re-exported here
+is not deployed at all — it builds cleanly and simply never exists. `demoPredict` lives in
+`demo-llm.tjs`; this is what puts it on the wire.
+*/
+export { demoPredict } from './demo-llm.js'
+
 initializeApp()
 
 const db = getFirestore()
@@ -80,7 +89,7 @@ getUserApiKeys.__tjs = {
     }
   },
   "unsafe": true,
-  "source": "index.tjs:38"
+  "source": "index.tjs:47"
 }
 
 /*#
@@ -125,7 +134,7 @@ hashPayload.__tjs = {
     }
   },
   "unsafe": true,
-  "source": "index.tjs:89"
+  "source": "index.tjs:98"
 }
 
 export const agentRun = onCall(async (request) => {

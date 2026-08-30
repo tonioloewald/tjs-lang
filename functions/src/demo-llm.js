@@ -1,3 +1,9 @@
+function __ub(v){try{if(v instanceof String)return String.prototype.valueOf.call(v);if(v instanceof Number)return Number.prototype.valueOf.call(v);if(v instanceof Boolean)return Boolean.prototype.valueOf.call(v)}catch{return v}return v};
+const __ac=Object.create(null);function __proj(v){if(v===null||v===undefined||typeof v!=='object')return v;let k;try{k=v.constructor&&v.constructor.name}catch{return v}let f=k&&Object.prototype.hasOwnProperty.call(__ac,k)?__ac[k]:null;if(typeof f!=='function'){try{f=v.asCompared}catch{return v}}if(typeof f!=='function')return v;let p;try{p=f.call(v)}catch{return v}const t=typeof p;return p===null||p===undefined||t==='number'||t==='string'||t==='boolean'?p:v};
+function TypeOf(v){return v===null?'null':typeof v};
+function toBool(v){v=__proj(v);try{if(v instanceof Boolean)return Boolean(Boolean.prototype.valueOf.call(v));if(v instanceof Number)return Boolean(Number.prototype.valueOf.call(v));if(v instanceof String)return Boolean(String.prototype.valueOf.call(v))}catch(e){}return Boolean(v)};
+const __tjs = globalThis.__tjs?.createRuntime?.() ?? {TypeOf,toBool};
+const __tjsToBool = __tjs.toBool; __tjs.toBool = function(v){ return __tjsToBool(__proj(v)) };
 /*#
 # Demo LLM — our key, their sign-in, a daily cap
 
@@ -25,8 +31,6 @@ makes the worst case a number you can look at rather than a surprise on a card.
 Both are conservative and meant to be raised once there is evidence about real usage. Neither
 is a security boundary on its own — set a billing alert too.
 */
-
-safety none
 
 import { onCall, HttpsError } from 'firebase-functions/v2/https'
 import { defineSecret } from 'firebase-functions/params'
@@ -74,7 +78,19 @@ const MAX_PROMPT_CHARS = 8000
  * this stays a pure function of its argument and is testable without freezing a clock.
  */
 function utcDay(now) {
-  return unsafe new Date(now).toISOString().slice(0, 10)
+  return        new Date(now).toISOString().slice(0, 10)
+}
+utcDay.__tjs = {
+  "params": {
+    "now": {
+      "type": {
+        "kind": "any"
+      },
+      "required": false
+    }
+  },
+  "unsafe": true,
+  "source": "demo-llm.tjs:74"
 }
 
 /*#
@@ -87,26 +103,24 @@ Exported for tests: the counting is the part worth testing, and it should be tes
 a network or a model.
 */
 export async function claimQuota(db, uid, now, limits = {}) {
-  const perUser = limits.perUser || DAILY_PER_USER
-  const global = limits.global || DAILY_GLOBAL
+  const perUser = ((__tjs__t)=>__tjs.toBool(__tjs__t)?__tjs__t:(DAILY_PER_USER))(limits.perUser)
+  const global = ((__tjs__t)=>__tjs.toBool(__tjs__t)?__tjs__t:(DAILY_GLOBAL))(limits.global)
   const day = utcDay(now)
   const userRef = db.collection('users').doc(uid).collection('usage').doc(`demo-${day}`)
   const globalRef = db.collection('demoUsage').doc(day)
 
   return db.runTransaction(async (tx) => {
-    // Both reads before either write — Firestore requires it, and it is also the only way
-    // the two counters can be decided against the same snapshot.
+
     const userSnap = await tx.get(userRef)
     const globalSnap = await tx.get(globalRef)
-    const used = (userSnap.exists && userSnap.data().count) || 0
-    const globalUsed = (globalSnap.exists && globalSnap.data().count) || 0
+    const used = ((__tjs__t)=>__tjs.toBool(__tjs__t)?__tjs__t:(0))(((__tjs__t)=>__tjs.toBool(__tjs__t)?(userSnap.data().count):__tjs__t)(userSnap.exists))
+    const globalUsed = ((__tjs__t)=>__tjs.toBool(__tjs__t)?__tjs__t:(0))(((__tjs__t)=>__tjs.toBool(__tjs__t)?(globalSnap.data().count):__tjs__t)(globalSnap.exists))
 
-    if (used >= perUser) {
+    if (__tjs.toBool(used >= perUser)) {
       return { ok: false, reason: 'per-user', used, remaining: 0 }
     }
-    if (globalUsed >= global) {
-      // Deliberately distinguished from the per-user case: "you have used your calls" and
-      // "the demo is busy today" are different messages and only one is the visitor's fault.
+    if (__tjs.toBool(globalUsed >= global)) {
+
       return { ok: false, reason: 'global', used, remaining: perUser - used }
     }
 
@@ -118,6 +132,38 @@ export async function claimQuota(db, uid, now, limits = {}) {
     tx.set(globalRef, { count: FieldValue.increment(1) }, { merge: true })
     return { ok: true, used: used + 1, remaining: perUser - used - 1 }
   })
+}
+claimQuota.__tjs = {
+  "params": {
+    "db": {
+      "type": {
+        "kind": "any"
+      },
+      "required": false
+    },
+    "uid": {
+      "type": {
+        "kind": "any"
+      },
+      "required": false
+    },
+    "now": {
+      "type": {
+        "kind": "any"
+      },
+      "required": false
+    },
+    "limits": {
+      "type": {
+        "kind": "object",
+        "shape": {}
+      },
+      "required": false,
+      "default": {}
+    }
+  },
+  "unsafe": true,
+  "source": "demo-llm.tjs:87"
 }
 
 /*#
@@ -132,19 +178,19 @@ prompt), `internal` (upstream trouble).
 export const demoPredict = onCall(
   { secrets: [GEMINI_API_KEY], cors: true },
   async (request) => {
-    if (!request.auth) {
+    if (__tjs.toBool(!__tjs.toBool(request.auth))) {
       throw new HttpsError(
         'unauthenticated',
         'Sign in to use the demo model. This keeps usage attributable and the cap enforceable.'
       )
     }
     const uid = request.auth.uid
-    const prompt = request.data && request.data.prompt
+    const prompt = ((__tjs__t)=>__tjs.toBool(__tjs__t)?(request.data.prompt):__tjs__t)(request.data)
 
-    if (!prompt || typeof prompt !== 'string') {
+    if (__tjs.toBool(((__tjs__t)=>__tjs.toBool(__tjs__t)?__tjs__t:(TypeOf(prompt) !== 'string'))(!__tjs.toBool(prompt)))) {
       throw new HttpsError('invalid-argument', 'prompt must be a non-empty string')
     }
-    if (prompt.length > MAX_PROMPT_CHARS) {
+    if (__tjs.toBool(prompt.length > MAX_PROMPT_CHARS)) {
       throw new HttpsError(
         'invalid-argument',
         `prompt is ${prompt.length} characters; the demo model accepts up to ${MAX_PROMPT_CHARS}`
@@ -152,17 +198,13 @@ export const demoPredict = onCall(
     }
 
     const db = getFirestore()
-    // Claimed BEFORE the upstream call, so a failure upstream cannot be retried for free.
-    // The cost of that choice is that a failed call still consumes an allowance; the cost of
-    // the other choice is an unbounded retry loop, which is worse.
+
     const quota = await claimQuota(db, uid, Date.now())
 
-    if (!quota.ok) {
+    if (__tjs.toBool(!__tjs.toBool(quota.ok))) {
       throw new HttpsError(
         'resource-exhausted',
-        quota.reason === 'per-user'
-          ? `Daily limit reached (${DAILY_PER_USER} calls). It resets at 00:00 UTC. Add your own API key in settings to keep going.`
-          : 'The demo model has hit its daily limit across all users. Try again tomorrow, or add your own API key in settings.'
+        __tjs.toBool(quota.reason === 'per-user')?(`Daily limit reached (${DAILY_PER_USER} calls). It resets at 00:00 UTC. Add your own API key in settings to keep going.`):('The demo model has hit its daily limit across all users. Try again tomorrow, or add your own API key in settings.')
       )
     }
 
@@ -181,9 +223,8 @@ export const demoPredict = onCall(
       }
     )
 
-    if (!res.ok) {
-      // The upstream explanation, not our guess about it — a 400 means the API is reachable
-      // and is telling us why it refused. Truncated because it reaches a browser.
+    if (__tjs.toBool(!__tjs.toBool(res.ok))) {
+
       const detail = await res.text().catch(() => '')
       console.error('demoPredict upstream error', res.status, detail.slice(0, 500))
       throw new HttpsError(
@@ -194,13 +235,7 @@ export const demoPredict = onCall(
 
     const data = await res.json()
     const text =
-      (data.candidates &&
-        data.candidates[0] &&
-        data.candidates[0].content &&
-        data.candidates[0].content.parts &&
-        data.candidates[0].content.parts[0] &&
-        data.candidates[0].content.parts[0].text) ||
-      ''
+      ((__tjs__t)=>__tjs.toBool(__tjs__t)?__tjs__t:(''))(((__tjs__t)=>__tjs.toBool(__tjs__t)?(data.candidates[0].content.parts[0].text):__tjs__t)(((__tjs__t)=>__tjs.toBool(__tjs__t)?(data.candidates[0].content.parts[0]):__tjs__t)(((__tjs__t)=>__tjs.toBool(__tjs__t)?(data.candidates[0].content.parts):__tjs__t)(((__tjs__t)=>__tjs.toBool(__tjs__t)?(data.candidates[0].content):__tjs__t)(((__tjs__t)=>__tjs.toBool(__tjs__t)?(data.candidates[0]):__tjs__t)(data.candidates))))))
 
     return { text, remaining: quota.remaining, model: MODEL }
   }

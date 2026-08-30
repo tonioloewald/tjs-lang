@@ -16030,14 +16030,14 @@ async function Eval(options) {
 }
 // src/index.js
 import { onRequest } from "firebase-functions/v2/https";
-import { onCall, HttpsError } from "firebase-functions/v2/https";
+import { onCall as onCall2, HttpsError as HttpsError2 } from "firebase-functions/v2/https";
 
 // src/version.js
 var TJS_LANG_VERSION = "0.13.6";
 
 // src/index.js
 import { initializeApp } from "firebase-admin/app";
-import { getFirestore as getFirestore5, FieldValue } from "firebase-admin/firestore";
+import { getFirestore as getFirestore6, FieldValue as FieldValue2 } from "firebase-admin/firestore";
 
 // src/crypto.js
 import * as crypto2 from "crypto";
@@ -17274,7 +17274,10 @@ getStoredFunctions.__tjs = {
   source: "routing.tjs:64"
 };
 
-// src/index.js
+// src/demo-llm.js
+import { onCall, HttpsError } from "firebase-functions/v2/https";
+import { defineSecret } from "firebase-functions/params";
+import { getFirestore as getFirestore5, FieldValue } from "firebase-admin/firestore";
 var __ac7 = Object.create(null);
 function __proj7(v2) {
   if (v2 === null || v2 === undefined || typeof v2 !== "object")
@@ -17324,21 +17327,182 @@ var __tjsToBool7 = __tjs7.toBool;
 __tjs7.toBool = function(v2) {
   return __tjsToBool7(__proj7(v2));
 };
+var GEMINI_API_KEY = defineSecret("GEMINIA_API_SECRET");
+var MODEL = "gemini-2.0-flash-lite";
+var DAILY_PER_USER = 100;
+var DAILY_GLOBAL = 5000;
+var MAX_PROMPT_CHARS = 8000;
+function utcDay(now) {
+  return new Date(now).toISOString().slice(0, 10);
+}
+utcDay.__tjs = {
+  params: {
+    now: {
+      type: {
+        kind: "any"
+      },
+      required: false
+    }
+  },
+  unsafe: true,
+  source: "demo-llm.tjs:74"
+};
+async function claimQuota(db5, uid, now, limits = {}) {
+  const perUser = ((__tjs__t) => __tjs7.toBool(__tjs__t) ? __tjs__t : DAILY_PER_USER)(limits.perUser);
+  const global = ((__tjs__t) => __tjs7.toBool(__tjs__t) ? __tjs__t : DAILY_GLOBAL)(limits.global);
+  const day = utcDay(now);
+  const userRef = db5.collection("users").doc(uid).collection("usage").doc(`demo-${day}`);
+  const globalRef = db5.collection("demoUsage").doc(day);
+  return db5.runTransaction(async (tx) => {
+    const userSnap = await tx.get(userRef);
+    const globalSnap = await tx.get(globalRef);
+    const used = ((__tjs__t) => __tjs7.toBool(__tjs__t) ? __tjs__t : 0)(((__tjs__t) => __tjs7.toBool(__tjs__t) ? userSnap.data().count : __tjs__t)(userSnap.exists));
+    const globalUsed = ((__tjs__t) => __tjs7.toBool(__tjs__t) ? __tjs__t : 0)(((__tjs__t) => __tjs7.toBool(__tjs__t) ? globalSnap.data().count : __tjs__t)(globalSnap.exists));
+    if (__tjs7.toBool(used >= perUser)) {
+      return { ok: false, reason: "per-user", used, remaining: 0 };
+    }
+    if (__tjs7.toBool(globalUsed >= global)) {
+      return { ok: false, reason: "global", used, remaining: perUser - used };
+    }
+    tx.set(userRef, { count: FieldValue.increment(1), day, updated: FieldValue.serverTimestamp() }, { merge: true });
+    tx.set(globalRef, { count: FieldValue.increment(1) }, { merge: true });
+    return { ok: true, used: used + 1, remaining: perUser - used - 1 };
+  });
+}
+claimQuota.__tjs = {
+  params: {
+    db: {
+      type: {
+        kind: "any"
+      },
+      required: false
+    },
+    uid: {
+      type: {
+        kind: "any"
+      },
+      required: false
+    },
+    now: {
+      type: {
+        kind: "any"
+      },
+      required: false
+    },
+    limits: {
+      type: {
+        kind: "object",
+        shape: {}
+      },
+      required: false,
+      default: {}
+    }
+  },
+  unsafe: true,
+  source: "demo-llm.tjs:87"
+};
+var demoPredict = onCall({ secrets: [GEMINI_API_KEY], cors: true }, async (request) => {
+  if (__tjs7.toBool(!__tjs7.toBool(request.auth))) {
+    throw new HttpsError("unauthenticated", "Sign in to use the demo model. This keeps usage attributable and the cap enforceable.");
+  }
+  const uid = request.auth.uid;
+  const prompt = ((__tjs__t) => __tjs7.toBool(__tjs__t) ? request.data.prompt : __tjs__t)(request.data);
+  if (__tjs7.toBool(((__tjs__t) => __tjs7.toBool(__tjs__t) ? __tjs__t : TypeOf4(prompt) !== "string")(!__tjs7.toBool(prompt)))) {
+    throw new HttpsError("invalid-argument", "prompt must be a non-empty string");
+  }
+  if (__tjs7.toBool(prompt.length > MAX_PROMPT_CHARS)) {
+    throw new HttpsError("invalid-argument", `prompt is ${prompt.length} characters; the demo model accepts up to ${MAX_PROMPT_CHARS}`);
+  }
+  const db5 = getFirestore5();
+  const quota = await claimQuota(db5, uid, Date.now());
+  if (__tjs7.toBool(!__tjs7.toBool(quota.ok))) {
+    throw new HttpsError("resource-exhausted", __tjs7.toBool(quota.reason === "per-user") ? `Daily limit reached (${DAILY_PER_USER} calls). It resets at 00:00 UTC. Add your own API key in settings to keep going.` : "The demo model has hit its daily limit across all users. Try again tomorrow, or add your own API key in settings.");
+  }
+  const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${MODEL}:generateContent`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      "x-goog-api-key": GEMINI_API_KEY.value()
+    },
+    body: JSON.stringify({
+      contents: [{ parts: [{ text: prompt }] }],
+      generationConfig: { maxOutputTokens: 1024 }
+    })
+  });
+  if (__tjs7.toBool(!__tjs7.toBool(res.ok))) {
+    const detail = await res.text().catch(() => "");
+    console.error("demoPredict upstream error", res.status, detail.slice(0, 500));
+    throw new HttpsError("internal", `The demo model returned ${res.status}. ${detail.slice(0, 200)}`);
+  }
+  const data2 = await res.json();
+  const text = ((__tjs__t) => __tjs7.toBool(__tjs__t) ? __tjs__t : "")(((__tjs__t) => __tjs7.toBool(__tjs__t) ? data2.candidates[0].content.parts[0].text : __tjs__t)(((__tjs__t) => __tjs7.toBool(__tjs__t) ? data2.candidates[0].content.parts[0] : __tjs__t)(((__tjs__t) => __tjs7.toBool(__tjs__t) ? data2.candidates[0].content.parts : __tjs__t)(((__tjs__t) => __tjs7.toBool(__tjs__t) ? data2.candidates[0].content : __tjs__t)(((__tjs__t) => __tjs7.toBool(__tjs__t) ? data2.candidates[0] : __tjs__t)(data2.candidates))))));
+  return { text, remaining: quota.remaining, model: MODEL };
+});
+// src/index.js
+var __ac8 = Object.create(null);
+function __proj8(v2) {
+  if (v2 === null || v2 === undefined || typeof v2 !== "object")
+    return v2;
+  let k2;
+  try {
+    k2 = v2.constructor && v2.constructor.name;
+  } catch {
+    return v2;
+  }
+  let f = k2 && Object.prototype.hasOwnProperty.call(__ac8, k2) ? __ac8[k2] : null;
+  if (typeof f !== "function") {
+    try {
+      f = v2.asCompared;
+    } catch {
+      return v2;
+    }
+  }
+  if (typeof f !== "function")
+    return v2;
+  let p;
+  try {
+    p = f.call(v2);
+  } catch {
+    return v2;
+  }
+  const t = typeof p;
+  return p === null || p === undefined || t === "number" || t === "string" || t === "boolean" ? p : v2;
+}
+function TypeOf5(v2) {
+  return v2 === null ? "null" : typeof v2;
+}
+function toBool8(v2) {
+  v2 = __proj8(v2);
+  try {
+    if (v2 instanceof Boolean)
+      return Boolean(Boolean.prototype.valueOf.call(v2));
+    if (v2 instanceof Number)
+      return Boolean(Number.prototype.valueOf.call(v2));
+    if (v2 instanceof String)
+      return Boolean(String.prototype.valueOf.call(v2));
+  } catch (e) {}
+  return Boolean(v2);
+}
+var __tjs8 = globalThis.__tjs?.createRuntime?.() ?? { TypeOf: TypeOf5, toBool: toBool8 };
+var __tjsToBool8 = __tjs8.toBool;
+__tjs8.toBool = function(v2) {
+  return __tjsToBool8(__proj8(v2));
+};
 initializeApp();
-var db5 = getFirestore5();
+var db5 = getFirestore6();
 async function getUserApiKeys(uid) {
   const userDoc = await db5.collection("users").doc(uid).get();
-  if (__tjs7.toBool(!__tjs7.toBool(userDoc.exists))) {
+  if (__tjs8.toBool(!__tjs8.toBool(userDoc.exists))) {
     return {};
   }
   const userData = userDoc.data();
   const { encryptionKey, apiKeys } = userData;
-  if (__tjs7.toBool(((__tjs__t) => __tjs7.toBool(__tjs__t) ? __tjs__t : !__tjs7.toBool(apiKeys))(!__tjs7.toBool(encryptionKey)))) {
+  if (__tjs8.toBool(((__tjs__t) => __tjs8.toBool(__tjs__t) ? __tjs__t : !__tjs8.toBool(apiKeys))(!__tjs8.toBool(encryptionKey)))) {
     return {};
   }
   const decrypted = {};
   for (const [provider, encryptedKey] of Object.entries(apiKeys)) {
-    if (__tjs7.toBool(encryptedKey)) {
+    if (__tjs8.toBool(encryptedKey)) {
       try {
         decrypted[provider] = await decrypt(encryptedKey, encryptionKey);
       } catch (e) {
@@ -17358,7 +17522,7 @@ getUserApiKeys.__tjs = {
     }
   },
   unsafe: true,
-  source: "index.tjs:38"
+  source: "index.tjs:47"
 };
 var health = onRequest((req, res) => {
   res.json({
@@ -17371,7 +17535,7 @@ var health = onRequest((req, res) => {
 function hashPayload(payload) {
   const str = JSON.stringify(payload);
   let hash2 = 0;
-  for (let i2 = 0;__tjs7.toBool(i2 < str.length); i2++) {
+  for (let i2 = 0;__tjs8.toBool(i2 < str.length); i2++) {
     const char = str.charCodeAt(i2);
     hash2 = (hash2 << 5) - hash2 + char;
     hash2 = hash2 & hash2;
@@ -17388,19 +17552,19 @@ hashPayload.__tjs = {
     }
   },
   unsafe: true,
-  source: "index.tjs:89"
+  source: "index.tjs:98"
 };
-var agentRun2 = onCall(async (request) => {
-  if (__tjs7.toBool(!__tjs7.toBool(request.auth))) {
-    throw new HttpsError("unauthenticated", "Must be authenticated to run agents");
+var agentRun2 = onCall2(async (request) => {
+  if (__tjs8.toBool(!__tjs8.toBool(request.auth))) {
+    throw new HttpsError2("unauthenticated", "Must be authenticated to run agents");
   }
   const uid = request.auth.uid;
   const { code, args = {}, fuel = 1000 } = request.data;
-  if (__tjs7.toBool(((__tjs__t) => __tjs7.toBool(__tjs__t) ? __tjs__t : TypeOf4(code) !== "string")(!__tjs7.toBool(code)))) {
-    throw new HttpsError("invalid-argument", "code must be a non-empty string");
+  if (__tjs8.toBool(((__tjs__t) => __tjs8.toBool(__tjs__t) ? __tjs__t : TypeOf5(code) !== "string")(!__tjs8.toBool(code)))) {
+    throw new HttpsError2("invalid-argument", "code must be a non-empty string");
   }
-  if (__tjs7.toBool(fuel > 1e4)) {
-    throw new HttpsError("invalid-argument", "fuel limit cannot exceed 10000");
+  if (__tjs8.toBool(fuel > 1e4)) {
+    throw new HttpsError2("invalid-argument", "fuel limit cannot exceed 10000");
   }
   const startTime = Date.now();
   let result = null;
@@ -17418,9 +17582,9 @@ var agentRun2 = onCall(async (request) => {
     });
   } catch (err) {
     console.error("Agent execution error:", err);
-    error = { message: ((__tjs__t) => __tjs7.toBool(__tjs__t) ? __tjs__t : "Execution failed")(err.message) };
+    error = { message: ((__tjs__t) => __tjs8.toBool(__tjs__t) ? __tjs__t : "Execution failed")(err.message) };
   }
-  const fuelUsed = ((__tjs__t) => __tjs7.toBool(__tjs__t) ? __tjs__t : 0)(result?.fuelUsed);
+  const fuelUsed = ((__tjs__t) => __tjs8.toBool(__tjs__t) ? __tjs__t : 0)(result?.fuelUsed);
   const duration = Date.now() - startTime;
   const usageLog = {
     timestamp: Date.now(),
@@ -17428,40 +17592,40 @@ var agentRun2 = onCall(async (request) => {
     payloadHash: hashPayload({ code, args }),
     fuelRequested: fuel,
     fuelUsed,
-    hasError: !__tjs7.toBool(!__tjs7.toBool(((__tjs__t) => __tjs7.toBool(__tjs__t) ? __tjs__t : result?.error)(error))),
-    resultHash: __tjs7.toBool(result?.result) ? hashPayload(result.result) : null
+    hasError: !__tjs8.toBool(!__tjs8.toBool(((__tjs__t) => __tjs8.toBool(__tjs__t) ? __tjs__t : result?.error)(error))),
+    resultHash: __tjs8.toBool(result?.result) ? hashPayload(result.result) : null
   };
   const usageRef = db5.collection("users").doc(uid).collection("usage");
   usageRef.add(usageLog).catch((err) => console.error("Failed to log usage:", err));
   usageRef.doc("total").set({
-    totalCalls: FieldValue.increment(1),
-    totalFuelUsed: FieldValue.increment(fuelUsed),
-    totalDuration: FieldValue.increment(duration),
-    totalErrors: FieldValue.increment(__tjs7.toBool(((__tjs__t) => __tjs7.toBool(__tjs__t) ? __tjs__t : result?.error)(error)) ? 1 : 0),
+    totalCalls: FieldValue2.increment(1),
+    totalFuelUsed: FieldValue2.increment(fuelUsed),
+    totalDuration: FieldValue2.increment(duration),
+    totalErrors: FieldValue2.increment(__tjs8.toBool(((__tjs__t) => __tjs8.toBool(__tjs__t) ? __tjs__t : result?.error)(error)) ? 1 : 0),
     lastUpdated: Date.now()
   }, { merge: true }).catch((err) => console.error("Failed to update totals:", err));
-  if (__tjs7.toBool(error)) {
+  if (__tjs8.toBool(error)) {
     return { result: null, fuelUsed: 0, error };
   }
   return {
     result: result.result,
-    fuelUsed: ((__tjs__t) => __tjs7.toBool(__tjs__t) ? __tjs__t : 0)(result.fuelUsed),
-    error: ((__tjs__t) => __tjs7.toBool(__tjs__t) ? __tjs__t : null)(result.error)
+    fuelUsed: ((__tjs__t) => __tjs8.toBool(__tjs__t) ? __tjs__t : 0)(result.fuelUsed),
+    error: ((__tjs__t) => __tjs8.toBool(__tjs__t) ? __tjs__t : null)(result.error)
   };
 });
 var run = onRequest(async (req, res) => {
   res.set("Access-Control-Allow-Origin", "*");
-  if (__tjs7.toBool(req.method === "OPTIONS")) {
+  if (__tjs8.toBool(req.method === "OPTIONS")) {
     res.set("Access-Control-Allow-Methods", "POST");
     res.set("Access-Control-Allow-Headers", "Authorization, Content-Type");
     res.set("Access-Control-Max-Age", "3600");
     return res.status(204).send("");
   }
-  if (__tjs7.toBool(req.method !== "POST")) {
+  if (__tjs8.toBool(req.method !== "POST")) {
     return res.status(405).json({ error: "Method not allowed" });
   }
   const authHeader = req.headers.authorization;
-  if (__tjs7.toBool(!__tjs7.toBool(authHeader?.startsWith("Bearer ")))) {
+  if (__tjs8.toBool(!__tjs8.toBool(authHeader?.startsWith("Bearer ")))) {
     return res.status(401).json({ error: "Missing or invalid Authorization header" });
   }
   const idToken = authHeader.slice(7);
@@ -17474,10 +17638,10 @@ var run = onRequest(async (req, res) => {
     return res.status(401).json({ error: "Invalid token" });
   }
   const { code, args = {}, fuel = 1000 } = req.body;
-  if (__tjs7.toBool(((__tjs__t) => __tjs7.toBool(__tjs__t) ? __tjs__t : TypeOf4(code) !== "string")(!__tjs7.toBool(code)))) {
+  if (__tjs8.toBool(((__tjs__t) => __tjs8.toBool(__tjs__t) ? __tjs__t : TypeOf5(code) !== "string")(!__tjs8.toBool(code)))) {
     return res.status(400).json({ error: "code must be a non-empty string" });
   }
-  if (__tjs7.toBool(fuel > 1e4)) {
+  if (__tjs8.toBool(fuel > 1e4)) {
     return res.status(400).json({ error: "fuel limit cannot exceed 10000" });
   }
   const startTime = Date.now();
@@ -17496,9 +17660,9 @@ var run = onRequest(async (req, res) => {
     });
   } catch (err) {
     console.error("Agent execution error:", err);
-    error = { message: ((__tjs__t) => __tjs7.toBool(__tjs__t) ? __tjs__t : "Execution failed")(err.message) };
+    error = { message: ((__tjs__t) => __tjs8.toBool(__tjs__t) ? __tjs__t : "Execution failed")(err.message) };
   }
-  const fuelUsed = ((__tjs__t) => __tjs7.toBool(__tjs__t) ? __tjs__t : 0)(result?.fuelUsed);
+  const fuelUsed = ((__tjs__t) => __tjs8.toBool(__tjs__t) ? __tjs__t : 0)(result?.fuelUsed);
   const duration = Date.now() - startTime;
   const usageLog = {
     timestamp: Date.now(),
@@ -17506,57 +17670,57 @@ var run = onRequest(async (req, res) => {
     payloadHash: hashPayload({ code, args }),
     fuelRequested: fuel,
     fuelUsed,
-    hasError: !__tjs7.toBool(!__tjs7.toBool(((__tjs__t) => __tjs7.toBool(__tjs__t) ? __tjs__t : result?.error)(error))),
-    resultHash: __tjs7.toBool(result?.result) ? hashPayload(result.result) : null
+    hasError: !__tjs8.toBool(!__tjs8.toBool(((__tjs__t) => __tjs8.toBool(__tjs__t) ? __tjs__t : result?.error)(error))),
+    resultHash: __tjs8.toBool(result?.result) ? hashPayload(result.result) : null
   };
   const usageRef = db5.collection("users").doc(uid).collection("usage");
   usageRef.add(usageLog).catch((err) => console.error("Failed to log usage:", err));
   usageRef.doc("total").set({
-    totalCalls: FieldValue.increment(1),
-    totalFuelUsed: FieldValue.increment(fuelUsed),
-    totalDuration: FieldValue.increment(duration),
-    totalErrors: FieldValue.increment(__tjs7.toBool(((__tjs__t) => __tjs7.toBool(__tjs__t) ? __tjs__t : result?.error)(error)) ? 1 : 0),
+    totalCalls: FieldValue2.increment(1),
+    totalFuelUsed: FieldValue2.increment(fuelUsed),
+    totalDuration: FieldValue2.increment(duration),
+    totalErrors: FieldValue2.increment(__tjs8.toBool(((__tjs__t) => __tjs8.toBool(__tjs__t) ? __tjs__t : result?.error)(error)) ? 1 : 0),
     lastUpdated: Date.now()
   }, { merge: true }).catch((err) => console.error("Failed to update totals:", err));
-  if (__tjs7.toBool(error)) {
+  if (__tjs8.toBool(error)) {
     return res.status(200).json({ result: null, fuelUsed: 0, error });
   }
   res.json({
     result: result.result,
-    fuelUsed: ((__tjs__t) => __tjs7.toBool(__tjs__t) ? __tjs__t : 0)(result.fuelUsed),
-    error: ((__tjs__t) => __tjs7.toBool(__tjs__t) ? __tjs__t : null)(result.error)
+    fuelUsed: ((__tjs__t) => __tjs8.toBool(__tjs__t) ? __tjs__t : 0)(result.fuelUsed),
+    error: ((__tjs__t) => __tjs8.toBool(__tjs__t) ? __tjs__t : null)(result.error)
   });
 });
 var page = onRequest(async (req, res) => {
   res.set("Access-Control-Allow-Origin", "*");
-  if (__tjs7.toBool(req.method === "OPTIONS")) {
+  if (__tjs8.toBool(req.method === "OPTIONS")) {
     res.set("Access-Control-Allow-Methods", "GET, POST");
     res.set("Access-Control-Allow-Headers", "Authorization, Content-Type");
     res.set("Access-Control-Max-Age", "3600");
     return res.status(204).send("");
   }
-  const path = ((__tjs__t) => __tjs7.toBool(__tjs__t) ? __tjs__t : "/")(req.path);
+  const path = ((__tjs__t) => __tjs8.toBool(__tjs__t) ? __tjs__t : "/")(req.path);
   try {
     const storedFunctions = await getStoredFunctions();
     let matchedFunction = null;
     let params = null;
     for (const fn of storedFunctions) {
-      if (__tjs7.toBool(((__tjs__t) => __tjs7.toBool(__tjs__t) ? __tjs__t : !__tjs7.toBool(fn.code))(!__tjs7.toBool(fn.urlPattern))))
+      if (__tjs8.toBool(((__tjs__t) => __tjs8.toBool(__tjs__t) ? __tjs__t : !__tjs8.toBool(fn.code))(!__tjs8.toBool(fn.urlPattern))))
         continue;
       const match = matchUrlPattern(fn.urlPattern, path);
-      if (__tjs7.toBool(match !== null)) {
+      if (__tjs8.toBool(match !== null)) {
         matchedFunction = fn;
         params = match;
         break;
       }
     }
-    if (__tjs7.toBool(!__tjs7.toBool(matchedFunction))) {
+    if (__tjs8.toBool(!__tjs8.toBool(matchedFunction))) {
       return res.status(404).json({ error: "Not found", path });
     }
     let uid = null;
-    if (__tjs7.toBool(!__tjs7.toBool(matchedFunction.public))) {
+    if (__tjs8.toBool(!__tjs8.toBool(matchedFunction.public))) {
       const authHeader = req.headers.authorization;
-      if (__tjs7.toBool(!__tjs7.toBool(authHeader?.startsWith("Bearer ")))) {
+      if (__tjs8.toBool(!__tjs8.toBool(authHeader?.startsWith("Bearer ")))) {
         return res.status(401).json({ error: "Authentication required" });
       }
       const idToken = authHeader.slice(7);
@@ -17571,7 +17735,7 @@ var page = onRequest(async (req, res) => {
     const args = {
       ...params,
       ...req.query,
-      ...((__tjs__t) => __tjs7.toBool(__tjs__t) ? __tjs__t : {})(req.body),
+      ...((__tjs__t) => __tjs8.toBool(__tjs__t) ? __tjs__t : {})(req.body),
       _path: path,
       _method: req.method,
       _uid: uid
@@ -17580,28 +17744,28 @@ var page = onRequest(async (req, res) => {
     let error = null;
     try {
       let llm = null;
-      if (__tjs7.toBool(uid)) {
+      if (__tjs8.toBool(uid)) {
         const apiKeys = await getUserApiKeys(uid);
         llm = createLlmCapability(apiKeys);
       }
       result = await Eval({
         code: matchedFunction.code,
         context: args,
-        fuel: ((__tjs__t) => __tjs7.toBool(__tjs__t) ? __tjs__t : 1000)(matchedFunction.fuel),
-        timeoutMs: ((__tjs__t) => __tjs7.toBool(__tjs__t) ? __tjs__t : 1e4)(matchedFunction.timeoutMs),
-        capabilities: __tjs7.toBool(llm) ? { llm } : {}
+        fuel: ((__tjs__t) => __tjs8.toBool(__tjs__t) ? __tjs__t : 1000)(matchedFunction.fuel),
+        timeoutMs: ((__tjs__t) => __tjs8.toBool(__tjs__t) ? __tjs__t : 1e4)(matchedFunction.timeoutMs),
+        capabilities: __tjs8.toBool(llm) ? { llm } : {}
       });
     } catch (err) {
       console.error("Stored function execution error:", err);
-      error = { message: ((__tjs__t) => __tjs7.toBool(__tjs__t) ? __tjs__t : "Execution failed")(err.message) };
+      error = { message: ((__tjs__t) => __tjs8.toBool(__tjs__t) ? __tjs__t : "Execution failed")(err.message) };
     }
-    if (__tjs7.toBool(((__tjs__t) => __tjs7.toBool(__tjs__t) ? __tjs__t : result?.error)(error))) {
-      const errorMessage = ((__tjs__t) => __tjs7.toBool(__tjs__t) ? __tjs__t : "Unknown error")(((__tjs__t) => __tjs7.toBool(__tjs__t) ? __tjs__t : result?.error?.message)(error?.message));
+    if (__tjs8.toBool(((__tjs__t) => __tjs8.toBool(__tjs__t) ? __tjs__t : result?.error)(error))) {
+      const errorMessage = ((__tjs__t) => __tjs8.toBool(__tjs__t) ? __tjs__t : "Unknown error")(((__tjs__t) => __tjs8.toBool(__tjs__t) ? __tjs__t : result?.error?.message)(error?.message));
       return res.status(500).json({ error: errorMessage });
     }
-    const contentType = ((__tjs__t) => __tjs7.toBool(__tjs__t) ? __tjs__t : "application/json")(matchedFunction.contentType);
+    const contentType = ((__tjs__t) => __tjs8.toBool(__tjs__t) ? __tjs__t : "application/json")(matchedFunction.contentType);
     res.set("Content-Type", contentType);
-    if (__tjs7.toBool(((__tjs__t) => __tjs7.toBool(__tjs__t) ? __tjs__t : contentType.includes("html"))(contentType.includes("text/")))) {
+    if (__tjs8.toBool(((__tjs__t) => __tjs8.toBool(__tjs__t) ? __tjs__t : contentType.includes("html"))(contentType.includes("text/")))) {
       return res.send(result.result);
     } else {
       return res.json(result.result);
@@ -17613,6 +17777,7 @@ var page = onRequest(async (req, res) => {
 });
 export {
   agentRun2 as agentRun,
+  demoPredict,
   health,
   page,
   run
