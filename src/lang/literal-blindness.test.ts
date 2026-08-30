@@ -720,3 +720,42 @@ describe('the fromTS provenance annotation is a comment, not a string', () => {
     expect(coerces('/* tjs <- x.ts */')).toBe(true)
   })
 })
+
+describe('a declaration keyword must start at a word boundary', () => {
+  // `^\bType…` applied to `source.slice(i)` — where `\b` is VACUOUS, because position 0 of a
+  // slice has no preceding character to compare against. So the scan matched the `Type`
+  // inside `EntityType` and rewrote around it. The result was not a parse error, it was
+  // SILENT CORRUPTION:
+  //
+  //   export * as EntityType from "./EntityType.js"
+  //     ->  export * as Entityconst from = Type('from', "./EntityType.js")
+  //
+  // Unreachable while declaration names had to be capitalised (`from` is lowercase), and
+  // reachable the moment they didn't. Rows assert byte-identical output, because
+  // `not.toThrow()` cannot see a rewrite that still parses.
+  const identical = [
+    [
+      're-export whose name ends in Type',
+      'export * as EntityType from "./x.js"',
+    ],
+    ['…in Union', 'export * as MyUnion from "./u.js"'],
+    ['…in Enum', 'export * as ColorEnum from "./c.js"'],
+    ['…in Generic', 'export * as MyGeneric from "./g.js"'],
+    ['identifier containing a keyword', 'const prototypeEnum = 1'],
+    ['property names', 'const t = { myType: 1, aUnion: 2, anEnum: 3 }'],
+  ] as const
+
+  for (const [name, src] of identical) {
+    it(`${name} survives byte-identical`, () => {
+      const out = tjs(src, { runTests: false }).code.trim()
+      expect(out).toBe(src)
+    })
+  }
+
+  it('a REAL declaration still transforms (control)', () => {
+    // Without this, refusing to match anything would pass every row above.
+    const out = tjs('Type Foo { example: 0 }', { runTests: false }).code
+    expect(out).toContain('Foo')
+    expect(out).not.toContain('Type Foo {')
+  })
+})

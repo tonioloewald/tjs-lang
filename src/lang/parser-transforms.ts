@@ -2249,6 +2249,19 @@ function matchDeclHeader(
   i: number,
   re: RegExp
 ): { m: RegExpMatchArray; text: (group: number) => string } | null {
+  // The keyword must start at a real word boundary.
+  //
+  // Every pattern here is anchored `^\bType…` and applied to `masked.slice(i)` — where `\b`
+  // is VACUOUS, because position 0 of a slice has no preceding character to compare against.
+  // So the scan matched the `Type` inside `EntityType`, and
+  //
+  //     export * as EntityType from "./EntityType.js"
+  //
+  // became `export * as Entityconst from = Type('from', "./EntityType.js")`. Silent
+  // corruption, not a parse error. It was unreachable while declaration names had to be
+  // capitalised (`from` is lowercase); allowing any identifier — correct in itself — made it
+  // reachable. The slice hides the context the pattern is asking about; supply it.
+  if (i > 0 && /[A-Za-z0-9_$]/.test(masked[i - 1])) return null
   const m = masked.slice(i).match(re)
   if (!m) return null
   const indices = (m as { indices?: Array<[number, number] | undefined> })
