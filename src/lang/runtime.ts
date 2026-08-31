@@ -526,6 +526,28 @@ let config: TJSConfig = { ...DEFAULT_CONFIG }
 let modulesCaptured = false
 let warnedLateConfigure = false
 
+/**
+ * The `createRuntime` reachable through an INSTALLED `globalThis.__tjs`.
+ *
+ * An emitted module captures its runtime with `globalThis.__tjs.createRuntime()` at
+ * module-eval time, so every route to that property must record the capture — otherwise a
+ * later `configure()` stays silent about not reaching the module, which is the exact silent
+ * no-op #23 exists to make audible.
+ *
+ * It used to be an inline arrow on the object returned by `createRuntime()`, so the flag was
+ * set only when the global was installed as `globalThis.__tjs = createRuntime()`. The other
+ * documented form — `installRuntime()`, and the primary one — installs the `runtime` singleton
+ * below, which carried the BARE `createRuntime`. So on the main path the guard never fired and
+ * the warning it exists to produce was unreachable. Measured against two emitted modules
+ * loaded in Node: form two warned, `installRuntime()` said nothing.
+ *
+ * One function, referenced by both, so the two paths cannot drift again.
+ */
+const capturingCreateRuntime = () => {
+  modulesCaptured = true
+  return createRuntime()
+}
+
 function warnLateConfigureOnce(): void {
   if (warnedLateConfigure || !modulesCaptured) return
   warnedLateConfigure = true
@@ -2190,10 +2212,7 @@ export function createRuntime() {
     // time — whereas the top-level install calls the bare module-level
     // `createRuntime()`. Flag the former so a later configure() knows a module
     // already snapshotted its config and can warn it won't reach it (#23).
-    createRuntime: () => {
-      modulesCaptured = true
-      return createRuntime()
-    },
+    createRuntime: capturingCreateRuntime,
     // Debug mode (instance-specific)
     configure: instanceConfigure,
     getConfig: instanceGetConfig,
@@ -2320,7 +2339,7 @@ export const runtime = {
   exitUnsafe,
   isUnsafeMode,
   // Factory for isolated instances
-  createRuntime,
+  createRuntime: capturingCreateRuntime,
   // Type system (used by transpiled Type declarations)
   validate,
   infer: s.infer.bind(s),

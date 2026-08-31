@@ -8,6 +8,14 @@ test**, with numbers instead of opinions.
 
 ## Formalise the AJS AST (decision 2026-08-02)
 
+- [ ] **Bootstrap canary is timing-fragile under subprocess load.** `src/use-cases/bootstrap.test.ts` > "should transpile all TJS lang modules" timed out once at 6.2s during a `test:fast` run,
+      immediately after `src/lang/multi-module.test.ts` was added (that file runs one `bun build`
+      plus nine `node` spawns). It passed in isolation both with and without SKIP_BENCHMARKS, and
+      two subsequent full `test:fast` runs were clean — so it is contention, not a regression.
+      Recorded rather than ignored because an intermittent red that nobody wrote down becomes
+      "the suite is just flaky". Fix by giving the canary a load-independent budget, or by having
+      multi-module.test.ts reuse a prebuilt runtime bundle instead of building one.
+
 - [ ] **Stable declaration IDs with a metadata side-table** (user's proposal). Give each
       declaration an identity independent of its name, resolved through a table carrying the
       human-readable name and source location — so emitted bindings can be renamed freely
