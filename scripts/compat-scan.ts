@@ -47,7 +47,7 @@ const MAX_BYTES = 400 * 1024
  * Files that do not convert-and-parse today, with WHY.
  *
  * A cause, not just an error string — "known failure" with no diagnosis is how a ratchet
- * becomes a graveyard. Recorded 2026-08-31 at 1956/1973 (99.14%).
+ * becomes a graveyard. Recorded 2026-08-31 at 1958/1973 (99.24%).
  */
 const KNOWN = new Map<string, string>([
   // --- ambiguous polymorphic overloads (5) -----------------------------------------------
@@ -63,15 +63,9 @@ const KNOWN = new Map<string, string>([
     "overloads for 'onError'",
   ],
 
-  // --- a declaration collides with a value of the same name (2) ---------------------------
-  // The `valueNames` guard exists and covers the common shape; these are the ones it misses.
-  // Two more lived here, plus one from the cluster below, until destructuring renames stopped
-  // being rewritten as dictionary members — the collision was a SYMPTOM of the rename.
-  [
-    'effect/packages/cluster/src/ShardingRegistrationEvent.ts',
-    "'EntityRegistered' already declared",
-  ],
-  ['kysely/test/node/src/test-setup.ts', "'Database' already declared"],
+  // (The whole "already declared" cluster is gone: three were symptoms of destructuring
+  // renames being rewritten as dictionary members, and two were `valueNames` not recognising
+  // imports or destructured declarations as value bindings.)
 
   // --- emitted shape acorn rejects (2) ----------------------------------------------------
   // Not parse GAPS — these are constructs we emit that are not valid JavaScript, which is

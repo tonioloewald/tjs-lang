@@ -759,3 +759,59 @@ describe('class bodies keep their shape', () => {
     expect(code).toContain('return a + 1')
   })
 })
+
+describe('a value binding of any shape blocks promoting a same-named type', () => {
+  // TypeScript has two declaration spaces; TJS has one. So an interface that shares a name
+  // with a VALUE cannot become a runtime `Type` — the emitted file would declare the
+  // identifier twice. The guard for this existed; what it could not see was most of the ways
+  // a value gets bound. Both shapes below are ordinary idiom, not corner cases.
+  const converts = (src: string) => {
+    const out = fromTS(src, { emitTJS: true, filename: 'a.ts' }).code
+    expect(() => tjs(out, { runTests: false })).not.toThrow()
+    return out
+  }
+
+  it('an import is a value binding', () => {
+    // kysely's test-setup.ts: the class is imported and used as `new Database(...)`, the
+    // interface is a schema used as `Kysely<Database>`. Legal TS, one name in each space.
+    const out = converts(
+      `import Database from 'better-sqlite3'\n` +
+        `export interface Database { person: unknown }\n` +
+        `export const open = () => new Database(':memory:')\n`
+    )
+    expect(out).not.toMatch(/\bType\s+Database\b/)
+  })
+
+  it('a destructured declaration binds every name in the pattern', () => {
+    // effect's ShardingRegistrationEvent.ts. `d.name` here is an ObjectBindingPattern, so
+    // reading it as an Identifier saw nothing at all.
+    const out = converts(
+      `declare const taggedEnum: any\n` +
+        `export const { $match: match, EntityRegistered } = taggedEnum()\n` +
+        `export interface EntityRegistered { readonly _tag: "EntityRegistered" }\n`
+    )
+    expect(out).not.toMatch(/\bType\s+EntityRegistered\b/)
+  })
+
+  it('the RENAMED name is the binding, not the key', () => {
+    // `{ $match: match }` binds `match`. Collecting the key instead would both miss a real
+    // collision on `match` and invent one on `$match`. Third instance of this distinction in
+    // the converter — see the destructured-parameter rename and inference.ts.
+    const out = converts(
+      `declare const e: any\n` +
+        `export const { $match: match } = e()\n` +
+        `export interface match { a: number }\n`
+    )
+    expect(out).not.toMatch(/\bType\s+match\b/)
+  })
+
+  it('a type-only import is erased, so it does NOT block promotion', () => {
+    // The guard must not be so broad it suppresses Types that are perfectly safe.
+    const out = converts(
+      `import type { Other } from './other'\n` +
+        `export interface Thing { a: number }\n` +
+        `export const use = (x: Other) => x\n`
+    )
+    expect(out).toMatch(/\bType\s+Thing\b/)
+  })
+})

@@ -3265,11 +3265,32 @@ export function fromTS(
   // Names that exist as VALUES at runtime. A type alias sharing one of these must not be
   // promoted to a runtime `Type`, or the emitted file declares the identifier twice.
   const valueNames = new Set<string>()
+  /**
+   * Every name a binding introduces, including through destructuring.
+   *
+   * `d.name` is an Identifier only for the simple case; for `const { a, b: c } = …` it is an
+   * ObjectBindingPattern and reading it as an identifier sees NOTHING, so every name bound by
+   * destructuring was missing from the set. effect's ShardingRegistrationEvent.ts declares
+   * `export const { $match: match, EntityRegistered, … } = Data.taggedEnum()` next to
+   * `export interface EntityRegistered` — the companion-object idiom, just spelled with a
+   * destructure.
+   *
+   * `propertyName` is deliberately not collected: in `{ $match: match }` the binding is
+   * `match`, and `$match` is only a key on the right-hand side. Same distinction as the
+   * destructured-parameter rename — the name a caller uses is not the name that gets bound.
+   */
+  const addBoundNames = (name: ts.BindingName) => {
+    if (ts.isIdentifier(name)) {
+      valueNames.add(name.text)
+    } else {
+      for (const el of name.elements) {
+        if (ts.isBindingElement(el)) addBoundNames(el.name)
+      }
+    }
+  }
   for (const stmt of sourceFile.statements) {
     if (ts.isVariableStatement(stmt)) {
-      for (const d of stmt.declarationList.declarations) {
-        if (ts.isIdentifier(d.name)) valueNames.add(d.name.text)
-      }
+      for (const d of stmt.declarationList.declarations) addBoundNames(d.name)
     } else if (
       (ts.isFunctionDeclaration(stmt) || ts.isClassDeclaration(stmt)) &&
       stmt.name
@@ -3277,6 +3298,21 @@ export function fromTS(
       valueNames.add(stmt.name.text)
     } else if (ts.isEnumDeclaration(stmt)) {
       valueNames.add(stmt.name.text)
+    } else if (ts.isImportDeclaration(stmt)) {
+      // An IMPORT is a value binding too, and was the one shape this set missed. kysely's
+      // test-setup.ts has `import Database from 'better-sqlite3'` alongside
+      // `export interface Database` — legal TypeScript, because the two live in different
+      // declaration spaces, and a collision only once the interface is lowered to a runtime
+      // binding. A type-only import is erased, so it is NOT a value and is skipped.
+      const c = stmt.importClause
+      if (c && !c.isTypeOnly) {
+        if (c.name) valueNames.add(c.name.text)
+        const b = c.namedBindings
+        if (b && ts.isNamespaceImport(b)) valueNames.add(b.name.text)
+        else if (b && ts.isNamedImports(b))
+          for (const el of b.elements)
+            if (!el.isTypeOnly) valueNames.add(el.name.text)
+      }
     }
   }
   const metadata: Record<string, FunctionTypeInfo> = {}
