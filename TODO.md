@@ -175,6 +175,27 @@ needs documenting.
 Caveat recorded rather than buried: the control is 4/5, not 5/5, so magnitudes are soft. The
 direction is what carries.
 
+### Second probe: is the JS baseline itself clear? (2026-08-31)
+
+Treating JavaScript as an ARM rather than a control changed the reading.
+`destructured-baseline-probe.ts`, two questions:
+
+| arm                     | arity correct | **arity wrong** | fill correct |
+| ----------------------- | ------------- | --------------- | ------------ |
+| js-plain                | 4/5           | 0               | 5/5          |
+| **js-default** (`= {}`) | 3/5           | **2**           | 5/5          |
+| ts-plain                | 3/5           | 0               | 5/5          |
+| **tjs-marked** (`{…}?`) | 0/5           | **0**           | 5/5          |
+
+- **Nobody is confused about the fill.** 5/5 on every arm, every language, including TJS.
+  `f({a: 5})` giving `b === 2` is understood everywhere. The whole difficulty is arity.
+- **JavaScript's own idiom is the worst arm.** Textbook `{ a = 1, b = 2 } = {}` drew the only
+  confident wrong answers in the study. `= {}` reads as decoration, not as a signal.
+- **The explicit mark never misleads** — zero wrong across both questions.
+
+So the objection "TJS would diverge from a clear baseline" does not survive: the baseline is
+not clear. On the column that ships bugs, `{…}?` (0 wrong) beats `= {}` (2 wrong).
+
 ### Decision
 
 - [ ] **If built, spell it `f({ a = 1, b = 2 }?)`.** Do not infer it.
