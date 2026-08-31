@@ -126,6 +126,14 @@ bun run build:demo          # Playground/demo → .demo/ (Firebase hosting root)
 bun run build:cli           # Standalone binaries: tjs + tjsx → dist/
                             #   NOT part of `make` — the binaries aren't published.
 
+bun run test:compat-scan    # RATCHET over the whole compat corpus: does every file convert
+                            #   AND parse. Names the exact failing files with causes, and
+                            #   fails BOTH ways — a new failure, or a listed one that starts
+                            #   passing. Complements `test:compat`, which runs each project's
+                            #   own suite (behaviour) but only reports pass/fail per target.
+                            #   Skips files >400KB and SAYS SO: `preprocess` is quadratic in
+                            #   file size, so a 2MB generated file hangs rather than fails.
+                            #   `--list` prints a ready-to-paste KNOWN block.
 bun run test:compat         # REAL TypeScript projects through the converter: clones zod,
                             #   effect, kysely, radash, superstruct and ts-pattern, transpiles
                             #   each with `fromTS`, and runs THAT PROJECT'S OWN test suite

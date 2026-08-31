@@ -449,7 +449,7 @@ export function transformParenExpressions(
     // the `{` that opens the BODY — the first one at bracket depth zero, so a brace inside
     // `({ … })` is skipped, and quoted text is stepped over because `extends Tag("a{b")` is
     // ordinary. A class declaration always has a body, so this terminates on real input.
-    const nameMatch = source.slice(i).match(/^class\s+\w+/)
+    const nameMatch = matchAt(RE_CLASS_NAME, source, i)
     let classHeaderLen = -1
     if (nameMatch) {
       let d = 0
@@ -502,7 +502,7 @@ export function transformParenExpressions(
     // — while the identical non-generator did. `fromTS` EMITS that form, so the converter was
     // producing TJS that TJS could not read. Invisible while the JS output came from
     // `ts.transpileModule`, because nothing ran our parser over it (`no-ts-emitter.test.ts`).
-    const funcMatch = source.slice(i).match(/^function\s*\*?(?:\s+(\w+))?\s*\(/)
+    const funcMatch = matchAt(RE_FUNCTION_HEAD, source, i)
     if (funcMatch) {
       // Keep the ORIGINAL spelling in the output — a function expression may genuinely
       // have no name, and inventing one both changes the emitted code and creates an
@@ -604,11 +604,7 @@ export function transformParenExpressions(
     // tail of the computed name — as if it were the method's own name, and the emitted class
     // did not parse. effect declares `[Equal.symbol]` and `[Hash.symbol]` on most of its
     // types, so this was its second-largest conversion failure.
-    const methodMatch = source
-      .slice(i)
-      .match(
-        /^(constructor|(?:get|set)\s+(?:\w+|\[[^\]]+\])|async\s+(?:\w+|\[[^\]]+\])|\w+|\[[^\]]+\])\s*\(/
-      )
+    const methodMatch = matchAt(RE_METHOD_HEAD, source, i)
     // Check that the preceding non-whitespace character indicates this is a
     // declaration, not a function call in an expression.
     // Method declarations follow: newline, {, ;, or start of file
@@ -946,7 +942,7 @@ export function extractJSValue(
   }
 
   // Handle keywords: true, false, null, undefined
-  const keywordMatch = source.slice(i).match(/^(true|false|null|undefined)\b/)
+  const keywordMatch = matchAt(RE_KEYWORD_VALUE, source, i)
   if (keywordMatch) {
     return {
       value: keywordMatch[1],
@@ -971,6 +967,36 @@ function normalizeUnionSyntax(type: string): string {
  * Extract a return type value starting at the given position
  * Handles: simple types ('', 0, null), objects ({ }), arrays ([ ]), unions (| or ||)
  */
+/**
+ * Sticky patterns for the character scan below.
+ *
+ * `source.slice(i).match(/^…/)` allocates a copy of the REMAINING SOURCE at every character,
+ * which makes the scan quadratic in file size. Measured on effect's generated
+ * `httpApiSwagger.ts` (1.96 MB): 16KB took 182ms, 32KB 642ms, 64KB 2.5s, 128KB 10.2s,
+ * 256KB 39.4s — a clean 4x per doubling, extrapolating to ~37 minutes for the whole file.
+ * The converter did not fail on it, it HUNG, which is worse: a corpus scan sat at 100% CPU
+ * for 51 minutes with no output.
+ *
+ * A sticky regex (`/y`) anchors the match at `lastIndex` and reads the string in place, so
+ * the same scan is linear. `parser-transforms.ts` already fixed its own copy of this defect
+ * with index-based checks; these are the remaining hot ones.
+ */
+const RE_CLASS_NAME = /class\s+\w+/y
+const RE_FUNCTION_HEAD = /function\s*\*?(?:\s+(\w+))?\s*\(/y
+const RE_METHOD_HEAD =
+  /(constructor|(?:get|set)\s+(?:\w+|\[[^\]]+\])|async\s+(?:\w+|\[[^\]]+\])|\w+|\[[^\]]+\])\s*\(/y
+const RE_KEYWORD_VALUE = /(true|false|null|undefined)\b/y
+
+/** Match `re` AT `at` without copying the tail. */
+function matchAt(
+  re: RegExp,
+  source: string,
+  at: number
+): RegExpExecArray | null {
+  re.lastIndex = at
+  return re.exec(source)
+}
+
 function extractReturnTypeValue(
   source: string,
   start: number

@@ -255,7 +255,8 @@
     "deploy": "bun run build:demo && bun run functions:deploy && firebase deploy --only hosting",
     "start": "bun run build:demo && bun run dev",
     "docs:differences": "bun scripts/build-differences.ts",
-    "test:compat": "bun scripts/compat-all.ts"
+    "test:compat": "bun scripts/compat-all.ts",
+    "test:compat-scan": "bun scripts/compat-scan.ts"
   },
   "dependencies": {
     "acorn": "^8.15.0",
