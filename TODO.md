@@ -148,47 +148,45 @@ members are values rather than type names (`{ a: number }` is `number is not def
 runtime), and an example that cannot be a pure literal at all falls back to the colon form
 with a warning naming §6.1.
 
-## `f({ a = 1, b = 2 })` called with nothing — FILED, not built (2026-08-31)
+## `f({ a = 1, b = 2 })` called with nothing — MEASURED 2026-08-31, decided
 
-**Today it throws, exactly as JavaScript does** (`Cannot destructure property 'a' from null
-or undefined`). You still need `= {}` on the pattern. Per-member defaults DO work for partial
-payloads — `f({a: 9})` gives `{a: 9, b: 2}` — matching the dictionary-default param form.
-Undocumented either way: `docs/dictionary-defaults.md` mentions destructured params only to
-defer them ("Deferred from Stage 1: … destructured-param dictionary defaults").
+**Today it throws, exactly as JavaScript does.** `= {}` on the pattern is what makes it
+omittable. Per-member defaults DO work for partial payloads — `f({a: 9})` gives `{a: 9, b: 2}`,
+matching the dictionary-default param form. Pinned by three tests in `parser.test.ts` so it
+cannot change by accident.
 
-### The proposal
+### The measurement
 
-In native `.tjs` only: `f()` is legal **iff every member is defaulted**. Any required member
-(`{ a: 0, b = 2 }`) still throws, because `a` genuinely has no value.
+`experiments/agent-legibility/destructured-optional-probe.ts`, results beside it. On
+qwen3.8-27b, five samples, controls included:
 
-The case for it is the one TJS keeps making: `= {}` is ceremony that exists only because JS
-destructuring cannot say "the whole thing is optional". Every member already declares its
-fallback; the pattern-level `= {}` adds no information, and forgetting it yields a runtime
-`TypeError` rather than anything useful. Same shape as `switch` fallthrough and `==` coercion.
+| arm                         | correct | **wrong** | no-answer |
+| --------------------------- | ------- | --------- | --------- |
+| js-plain _(control)_        | 4/5     | 1         | 0         |
+| **inferred rule** (no mark) | 0/5     | **4**     | 1         |
+| **explicit `{…}?`**         | 0/5     | **0**     | 5         |
 
-### Why it is not built
+The inferred rule reads **confidently wrong**, because its shape is JavaScript's and the
+reader applies JavaScript's rule. The explicit mark produces **no wrong answers at all** —
+only refusals to commit. That is the `switch` → `given` result replicated on a second
+construct: familiar shape with changed meaning ships bugs; a novel mark does not, it just
+needs documenting.
 
-**Converted code and `dialect: 'js'` must keep throwing** — agreed with Tonio 2026-08-31.
-Making `f()` work for TypeScript that passes through TJS is a behaviour change, and behaviour
-changes belong at graduation, not conversion. That constraint is not the blocker though; it is
-easy.
+Caveat recorded rather than buried: the control is 4/5, not 5/5, so magnitudes are soft. The
+direction is what carries.
 
-The blocker is `docs/case-study-switch.md`: **"if it behaves differently, it should look
-different."** Here it cannot. The signal would be the ABSENCE of `= {}` — shape identical to
-JavaScript. That is precisely the condition the switch probe measured at **0/5 correct, 5/5
-confidently wrong**: readers assume JS semantics when the shape is JS's. Shipping this on a
-structural argument would repeat the mistake that case study exists to record.
+### Decision
 
-### What would settle it
-
-- [ ] Run the grokkability harness on `function f({ a = 1, b = 2 }) { … }` + a call `f()`,
-      as `.js` and as `.tjs`, asking what `a` is. The switch work's method: read the
-      **wrong-answer** column, not the correct one, and treat no-answer separately.
-- [ ] If it reads wrong the way `switch` did, either drop it or find a visible spelling — the
-      switch precedent says the shape must move with the meaning.
-- [ ] If it reads cleanly, build it behind the native-only gate, as ONE rule with the
-      dictionary-default param form (they already agree on partial payloads; they should agree
-      on the no-arg case).
+- [ ] **If built, spell it `f({ a = 1, b = 2 }?)`.** Do not infer it.
+- **`?`, not `!`.** `!` already means _skip validation_ at the head of a parameter list
+  (`function f(! a: 0)`), so `f({…}!)` would give one character near-opposite meanings inside
+  a single parameter list. `?` already means _optional_ on `name?:`. No second marker is
+  needed — absence means required, which is both today's behaviour and JavaScript's.
+- **Converted code and `dialect: 'js'` keep throwing** regardless. Making `f()` work for
+  TypeScript passing through TJS is a behaviour change, and those belong at graduation.
+- Worth noting the risk here is milder than `switch`'s: a misread predicts a throw that does
+  not happen, so the failure mode is code that used to crash now working. That is why this was
+  worth measuring rather than refusing outright.
 
 ## Demo model — DEPLOYED 2026-08-30, partly verified
 
