@@ -366,7 +366,7 @@ export function buildLLMCapability(settings: LLMSettings) {
   }
 
   const callGemini = async (prompt: string, options?: any): Promise<string> => {
-    const model = options?.model || 'gemini-3.5-flash-lite'
+    const model = options?.model || 'gemini-2.5-flash-lite'
     const response = await fetch(
       `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${geminiKey}`,
       {
@@ -864,7 +864,7 @@ export function buildLLMBattery(settings: LLMSettings) {
     _tools?: any[],
     _responseFormat?: any
   ): Promise<BatteryResult> => {
-    const model = 'gemini-3.5-flash-lite'
+    const model = 'gemini-2.5-flash-lite'
     const userText = typeof user === 'string' ? user : user.text
     const contents: any[] = []
     if (system) {

@@ -54,11 +54,13 @@ const GEMINI_API_KEY = defineSecret('GEMINI_API_KEY')
  * The cheapest useful model — the one Google describes as high-throughput and
  * cost-sensitive. The demo runs short prompts; nothing here needs a large model.
  *
+ * 2.5 rather than 3.5: still offered, cheaper, and far more than a demo needs.
+ *
  * Model IDs go stale. `gemini-2.0-flash-lite` was written here from memory and the whole 2.0
  * series is no longer offered, so the first call would have 404'd. If this 404s again, that
  * is what happened; the upstream message is passed through verbatim and will say so.
  */
-const MODEL = 'gemini-3.5-flash-lite'
+const MODEL = 'gemini-2.5-flash-lite'
 
 /** Calls per signed-in user per UTC day. */
 const DAILY_PER_USER = 100
@@ -95,7 +97,7 @@ utcDay.__tjs = {
     }
   },
   "unsafe": true,
-  "source": "demo-llm.tjs:79"
+  "source": "demo-llm.tjs:81"
 }
 
 /*#
@@ -168,7 +170,7 @@ claimQuota.__tjs = {
     }
   },
   "unsafe": true,
-  "source": "demo-llm.tjs:92"
+  "source": "demo-llm.tjs:94"
 }
 
 /*#

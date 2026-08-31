@@ -16170,7 +16170,7 @@ function createLlmCapability(apiKeys) {
           messages: [{ role: "user", content: prompt }]
         };
       } else if (__tjs.toBool(apiKeys.gemini)) {
-        const model = ((__tjs__t) => __tjs.toBool(__tjs__t) ? __tjs__t : "gemini-3.5-flash-lite")(options.model);
+        const model = ((__tjs__t) => __tjs.toBool(__tjs__t) ? __tjs__t : "gemini-2.5-flash-lite")(options.model);
         endpoint = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKeys.gemini}`;
         headers = { "Content-Type": "application/json" };
         body = {
@@ -17328,7 +17328,7 @@ __tjs7.toBool = function(v2) {
   return __tjsToBool7(__proj7(v2));
 };
 var GEMINI_API_KEY = defineSecret("GEMINI_API_KEY");
-var MODEL = "gemini-3.5-flash-lite";
+var MODEL = "gemini-2.5-flash-lite";
 var DAILY_PER_USER = 100;
 var DAILY_GLOBAL = 5000;
 var MAX_PROMPT_CHARS = 8000;
@@ -17345,7 +17345,7 @@ utcDay.__tjs = {
     }
   },
   unsafe: true,
-  source: "demo-llm.tjs:79"
+  source: "demo-llm.tjs:81"
 };
 async function claimQuota(db5, uid, now, limits = {}) {
   const perUser = ((__tjs__t) => __tjs7.toBool(__tjs__t) ? __tjs__t : DAILY_PER_USER)(limits.perUser);
@@ -17399,7 +17399,7 @@ claimQuota.__tjs = {
     }
   },
   unsafe: true,
-  source: "demo-llm.tjs:92"
+  source: "demo-llm.tjs:94"
 };
 var demoPredict = onCall({ secrets: [GEMINI_API_KEY], cors: true }, async (request) => {
   if (__tjs7.toBool(!__tjs7.toBool(request.auth))) {
