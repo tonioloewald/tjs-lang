@@ -167,8 +167,8 @@ NOT yet verified, because it needs a signed-in user and the demo client is not d
 - [ ] **The quota against real Firestore.** The counting logic has seven tests against an
       in-memory fake (`functions/src/demo-llm.test.ts`), but the fake cannot prove the
       transaction is atomic under contention — that is Firestore's job.
-- [ ] **A billing alert.** The caps bound CALLS (100/user/day, 5000/day global). Worst case is
-      single-digit dollars a day; the alert is what bounds the surprise, not the cap.
+- [x] **Billing alerts** — already in place (confirmed 2026-08-31). The caps bound CALLS
+      (100/user/day, 5000/day global); the alert is what bounds the surprise.
 - [ ] Firestore at the global cap: 2 reads + 2 writes per call = 10k/10k per day, inside the
       free tier (50k/20k) but within 2x on writes. Check before raising `DAILY_GLOBAL`.
 
