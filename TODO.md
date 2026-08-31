@@ -8,9 +8,19 @@ test**, with numbers instead of opinions.
 
 ## Formalise the AJS AST (decision 2026-08-02)
 
-**Decision: the formal AST contract is AJS's, not TJS's** — see PRINCIPLES.md for why
-(TJS has no tree to specify; the ecosystem has four JS ASTs already; TS's real gap is type
-erasure, which the type-representation north star addresses instead).
+- [ ] **Validate destructured members that are RENAMED** (`{ size: size_ = 8 }`). Today a
+      rename is treated as plain JavaScript destructuring and gets no dictionary-member
+      validation, because the payload key (`size`) and the bound name (`size_`) are different
+      names going to two different places: the key belongs in the metadata a caller reads, the
+      binding is the only variable a runtime check can reference. Conflating them emitted
+      `typeof size !== 'number'` into a body where `size` does not exist. Skipping is correct
+      today (TJS ⊇ JS — plain destructuring must keep plain behaviour) but it is a gap: a
+      renamed member is unvalidated where a shorthand one is not. Fix needs a `binding` field
+      on `ParameterDescriptor`, distinct from the metadata key. See `inference.ts`'s
+      `!prop.shorthand` guard and the tests in `dict-defaults.test.ts`.
+      **Decision: the formal AST contract is AJS's, not TJS's** — see PRINCIPLES.md for why
+      (TJS has no tree to specify; the ecosystem has four JS ASTs already; TS's real gap is type
+      erasure, which the type-representation north star addresses instead).
 
 **Binding consequence:** AJS's surface syntax may only grow into its AST — sugar that
 desugars into existing nodes, or a deliberate, versioned, ADDITIVE extension. Anything else

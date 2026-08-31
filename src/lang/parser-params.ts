@@ -1636,6 +1636,34 @@ function processParamString(
 }
 
 /**
+ * Is the value after a `:` in a destructuring pattern a RENAME rather than a member example?
+ *
+ * `{ a: b }` and `{ a: b = 1 }` rebind `a` as `b` — plain JavaScript, and the only reading
+ * available: a dictionary member's value must be a pure literal (`docs/dictionary-defaults.md`
+ * §6.1), which an identifier is not.
+ *
+ * The keyword literals are the trap. `null`, `true`, `false` and `undefined` are lexically
+ * identifiers or identifier-shaped, but they are values, so `{ x: null }` IS a member. So are
+ * `NaN` and `Infinity`, which are genuinely bindings on the global object but are used as
+ * literals everywhere and would read as renames without being named here.
+ */
+const LITERAL_KEYWORDS = new Set([
+  'null',
+  'true',
+  'false',
+  'undefined',
+  'NaN',
+  'Infinity',
+])
+
+function isDestructuringRename(value: string): boolean {
+  // `ident`, or `ident = <default>` — but not `ident.foo`, `ident(…)`, `ident ? …`, which
+  // are expressions and therefore not valid on either reading.
+  const m = /^([A-Za-z_$][\w$]*)\s*(=(?!=)[\s\S]*)?$/.exec(value.trim())
+  return !!m && !LITERAL_KEYWORDS.has(m[1])
+}
+
+/**
  * Process destructured object/array parameters
  *
  * In TJS destructuring patterns:
@@ -1688,6 +1716,22 @@ function processDestructuredObjectParams(
 
     // Handle simple colon syntax: name: 'value' -> name = 'value' (required)
     const colonMatch = trimmed.match(/^(\w+)\s*:\s*([\s\S]+)$/)
+    if (colonMatch && isDestructuringRename(colonMatch[2])) {
+      // `{ message: message_ }` is a destructuring RENAME, not a dictionary member, and
+      // rewriting it to `{ message = message_ }` changes what the function binds: it declares
+      // `message` (defaulted from a name that no longer exists) instead of `message_`.
+      //
+      // The distinction is not a heuristic — `docs/dictionary-defaults.md` §6.1 requires a
+      // member's value to be a pure literal, and excludes "identifiers referencing live
+      // objects" by name. So an identifier after the colon can only ever be a rename.
+      //
+      // Worth stating how this presented, because the loud half was the lucky half. Two effect
+      // files failed to parse, because the renamed binding collided with a `const` of the
+      // original name in the body. Where there is no collision the rewrite still happens and
+      // the emitted code PARSES — `{ size: size_ = 8 }` became `{ size = size_ = 8 }`, which
+      // binds `size` and assigns to an undeclared `size_`. Silent, and in converted output.
+      return part
+    }
     if (colonMatch) {
       const [, name, value] = colonMatch
       ctx.requiredParams.add(name)

@@ -47,7 +47,7 @@ const MAX_BYTES = 400 * 1024
  * Files that do not convert-and-parse today, with WHY.
  *
  * A cause, not just an error string — "known failure" with no diagnosis is how a ratchet
- * becomes a graveyard. Recorded 2026-08-31 at 1953/1973 (98.99%).
+ * becomes a graveyard. Recorded 2026-08-31 at 1956/1973 (99.14%).
  */
 const KNOWN = new Map<string, string>([
   // --- ambiguous polymorphic overloads (5) -----------------------------------------------
@@ -63,33 +63,23 @@ const KNOWN = new Map<string, string>([
     "overloads for 'onError'",
   ],
 
-  // --- a declaration collides with a value of the same name (4) ---------------------------
+  // --- a declaration collides with a value of the same name (2) ---------------------------
   // The `valueNames` guard exists and covers the common shape; these are the ones it misses.
-  [
-    'effect/packages/effect/src/internal/logger.ts',
-    "'message' already declared",
-  ],
-  [
-    'effect/packages/platform/src/internal/fileSystem.ts',
-    "'bytesToRead' already declared",
-  ],
+  // Two more lived here, plus one from the cluster below, until destructuring renames stopped
+  // being rewritten as dictionary members — the collision was a SYMPTOM of the rename.
   [
     'effect/packages/cluster/src/ShardingRegistrationEvent.ts',
     "'EntityRegistered' already declared",
   ],
   ['kysely/test/node/src/test-setup.ts', "'Database' already declared"],
 
-  // --- emitted shape acorn rejects (3) ----------------------------------------------------
+  // --- emitted shape acorn rejects (2) ----------------------------------------------------
   // Not parse GAPS — these are constructs we emit that are not valid JavaScript, which is
   // the more serious kind. See the export/super/generator fixes for the same class.
   // Two more lived here until the method-head guard learned about `new` (see below).
   [
     'effect/packages/effect/src/internal/ref.ts',
     'getter emitted with parameters',
-  ],
-  [
-    'effect/packages/ai/ai/src/McpServer.ts',
-    'binding `arguments` in strict mode',
   ],
   ['effect/packages/rpc/src/RpcServer.ts', 'parenthesized binding pattern'],
 

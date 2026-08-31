@@ -583,6 +583,20 @@ export function parseParameter(
 
     for (const prop of properties) {
       if (prop.type === 'Property') {
+        // A RENAME (`{ size: size_ }`) is plain JavaScript destructuring, and TJS ⊇ JS
+        // (PRINCIPLES.md) says it keeps plain JavaScript behaviour. It is also not expressible
+        // as a dictionary member: §6.1 requires a member value to be a pure literal.
+        //
+        // The distinction matters because the two names go to two different places. The
+        // payload key (`size`) is what a caller passes and belongs in the metadata; the bound
+        // name (`size_`) is the only variable in scope and is what a runtime check must
+        // reference. Keying both by the pattern key emitted `typeof size !== 'number'` into a
+        // body where `size` does not exist — a ReferenceError on the happy path.
+        //
+        // Acorn's `shorthand` is the exact test: true for `{ a }` and `{ a = 1 }`, false for
+        // `{ a: b }`. Validating renamed members is a coherent future feature; emitting a
+        // check against an unbound name is not, so this skips rather than guesses.
+        if (!prop.shorthand) continue
         const key =
           prop.key.type === 'Identifier'
             ? prop.key.name

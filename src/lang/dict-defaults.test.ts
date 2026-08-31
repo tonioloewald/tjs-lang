@@ -17,6 +17,7 @@
 import { describe, it, expect, beforeAll, afterAll } from 'bun:test'
 import { tjs } from './index'
 import { createRuntime, isMonadicError } from './runtime'
+import { preprocess } from './parser'
 
 let savedTjs: any
 beforeAll(() => {
@@ -333,5 +334,69 @@ describe('deep-partial .d.ts for dictionary-default params (Stage 3)', () => {
     expect(dts).toContain(
       'args?: { pos: { x: number; y: number }; label: string }'
     )
+  })
+})
+
+describe('a destructuring RENAME is not a dictionary member', () => {
+  // `{ a: b }` rebinds `a` as `b`. It cannot be a dictionary member: §6.1 requires a member's
+  // value to be a pure literal and excludes "identifiers referencing live objects" by name.
+  //
+  // The rewrite that got this wrong is worth understanding, because the half that failed
+  // loudly was the lucky half. `{ message: message_ }` became `{ message = message_ }`, which
+  // binds the WRONG NAME; in the two effect files that surfaced it, the body then declared
+  // `const message` and acorn refused the duplicate. With no such collision the same rewrite
+  // produces code that parses and runs and is simply wrong — so these assert BEHAVIOUR, not
+  // just that the source parses.
+  const run = (src: string, args: unknown) => {
+    const prev = globalThis.__tjs
+    globalThis.__tjs = createRuntime()
+    try {
+      return new Function(tjs(src, { runTests: false }).code + '\nreturn f')()(
+        args
+      )
+    } finally {
+      globalThis.__tjs = prev
+    }
+  }
+
+  it('binds the renamed name, not the key', () => {
+    expect(
+      run('function f({ message: message_ }) { return message_ }', {
+        message: 'hi',
+      })
+    ).toBe('hi')
+  })
+
+  it('a rename with a default still defaults', () => {
+    const src = 'function f({ size: size_ = 8 }) { return size_ }'
+    expect(run(src, {})).toBe(8)
+    expect(run(src, { size: 3 })).toBe(3)
+  })
+
+  it('does not leak an assignment to the renamed target', () => {
+    // The broken rewrite produced `{ size = size_ = 8 }` — binding `size` and ASSIGNING to an
+    // undeclared `size_`. That is a strict-mode ReferenceError, not a silent global, but only
+    // when the default is actually taken.
+    expect(() =>
+      run('function f({ size: size_ = 8 }) { return size_ }', {})
+    ).not.toThrow()
+  })
+
+  it('`arguments` as a rename target is legal; as a binding it is not', () => {
+    // effect/ai's McpServer.ts. `{ arguments: args }` reads `arguments` and binds `args`;
+    // rewriting it to `{ arguments = args }` binds `arguments`, which strict mode forbids.
+    expect(
+      run('function f({ arguments: args }) { return args }', { arguments: 7 })
+    ).toBe(7)
+  })
+
+  it('literal-keyword values are still members, not renames', () => {
+    // `null`/`undefined`/`true`/`false`/`NaN`/`Infinity` are identifier-SHAPED but are values.
+    for (const kw of ['null', 'undefined', 'true', 'false']) {
+      const out = preprocess(`function f({ x: ${kw} }) { return x }`, {
+        filename: 'a.tjs',
+      }).source
+      expect(out).toContain(`x = ${kw}`)
+    }
   })
 })
