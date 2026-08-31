@@ -57,6 +57,28 @@ export const PARAM_TYPENAME_MARKER = '/*!tjs-opt*/'
 /** Shared by both markers — lets the walk `indexOf` between candidates. */
 const MARKER_PREFIX = '/*!tjs-'
 
+/**
+ * Keywords after which an identifier-then-paren is a CALL, never a declaration.
+ *
+ * Each introduces an expression, so `<kw> name(` cannot be a method head. `new` is the one
+ * that reaches a class body in practice (a field initializer is the only expression that
+ * appears there directly); the others are here so the guard is a rule rather than a patch.
+ */
+const EXPRESSION_PREFIX_KEYWORDS = new Set([
+  'new',
+  'return',
+  'typeof',
+  'await',
+  'yield',
+  'void',
+  'delete',
+  'throw',
+  'case',
+  'in',
+  'of',
+  'instanceof',
+])
+
 /** Remove markers from a fragment being read mid-transform (see `parseParamList`). */
 export function stripParamMarkers(code: string): string {
   return code
@@ -609,15 +631,39 @@ export function transformParenExpressions(
     // declaration, not a function call in an expression.
     // Method declarations follow: newline, {, ;, or start of file
     // Function calls follow: = => , [ ( . operators etc.
-    const prevNonWs = (() => {
-      for (let k = result.length - 1; k >= 0; k--) {
-        if (!/\s/.test(result[k])) return result[k]
+    // Index of that character too, so the preceding WORD can be read without copying
+    // `result`. A `result.trimEnd()` here was O(len(result)) per candidate and turned the
+    // scan quadratic — the dogfood ratchet went from ~90s to 223s and timed out. In a pass
+    // that already has one unlocated quadratic, a look-back must not allocate.
+    let prevIdx = -1
+    for (let k = result.length - 1; k >= 0; k--) {
+      if (!/\s/.test(result[k])) {
+        prevIdx = k
+        break
       }
-      return '\n' // start of input
-    })()
+    }
+    const prevNonWs = prevIdx < 0 ? '\n' : result[prevIdx] // '\n' = start of input
+    // The preceding WORD, when the preceding character is an identifier character. A
+    // single-character look-back cannot tell `new E(` from a method named `E`: the character
+    // before `E` is `w`, which is in none of the exclusions below, so `new E({ x: 1 })` in a
+    // static field initializer read as a method declaration and its ARGUMENT was rewritten as
+    // a parameter list — `{ x: 1 }` became `{ x = 1 }`, a shorthand-assignment pattern outside
+    // a pattern position, which acorn rejects. Two effect files failed on exactly this.
+    //
+    // Every keyword here introduces an EXPRESSION, so what follows is a call, never a
+    // declaration. `new` is the one that occurs in a class body directly (field initializers
+    // are the only expressions there); the rest cost nothing and remove a whole shape of bug
+    // rather than the one instance of it.
+    let prevWord = ''
+    if (prevIdx >= 0 && /[A-Za-z0-9_$]/.test(prevNonWs)) {
+      let w = prevIdx
+      while (w >= 0 && /[A-Za-z0-9_$]/.test(result[w])) w--
+      prevWord = result.slice(w + 1, prevIdx + 1)
+    }
     // Method declarations can follow almost anything (property, }, ;, etc.)
     // Function CALLS in expressions specifically follow: = => , [ (
     const isMethodDecl =
+      !EXPRESSION_PREFIX_KEYWORDS.has(prevWord) &&
       prevNonWs !== '=' &&
       prevNonWs !== ',' &&
       prevNonWs !== '(' &&

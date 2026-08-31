@@ -759,3 +759,39 @@ describe('a declaration keyword must start at a word boundary', () => {
     expect(out).not.toContain('Type Foo {')
   })
 })
+
+describe('a method head must not be preceded by an expression keyword', () => {
+  // Same family as the word-boundary block above, one level up: there the scan misread a
+  // SUBSTRING as a keyword, here it misreads a CALL as a declaration. `new E({ x: 1 })` in a
+  // class-field initializer has an identifier followed by `(` in a class body, which is the
+  // shape of a method head — and the guard looked only at the preceding CHARACTER, which for
+  // `new E` is `w`. So the argument was rewritten as a parameter list and `{ x: 1 }` became
+  // `{ x = 1 }`: a shorthand assignment outside a pattern, which acorn rejects.
+  //
+  // Assert the object literal survives BYTE-IDENTICAL rather than merely that parsing
+  // succeeds — a rewrite that happened to stay valid would pass a not-.toThrow() check while
+  // silently changing the emitted object, which is how this class of defect ships.
+  const cases: Array<[string, string]> = [
+    ['static field', 'class C { static x = new E({ message: "hi" }) }'],
+    ['instance field', 'class C { x = new E({ message: "hi" }) }'],
+    ['nested new', 'class C { x = new A(new B({ message: "hi" })) }'],
+    ['throw', 'class C { x = (() => { throw E({ message: "hi" }) })() }'],
+  ].map((c) => [c[0], c[1]] as [string, string])
+
+  for (const [name, src] of cases) {
+    it(`${name}: the object literal is not rewritten as a parameter list`, () => {
+      const out = preprocess(src, { filename: 'a.tjs' }).source
+      expect(out).toContain('message: "hi"')
+      expect(out).not.toContain('message = "hi"')
+      expect(() => tjs(src, { runTests: false })).not.toThrow()
+    })
+  }
+
+  it('a real method still has its parameters transformed', () => {
+    // The guard must not be so broad it disables the transform it is protecting.
+    expect(
+      preprocess('class C { m(a: 1) { return a } }', { filename: 'a.tjs' })
+        .source
+    ).toContain('a = 1')
+  })
+})

@@ -47,7 +47,7 @@ const MAX_BYTES = 400 * 1024
  * Files that do not convert-and-parse today, with WHY.
  *
  * A cause, not just an error string — "known failure" with no diagnosis is how a ratchet
- * becomes a graveyard. Recorded 2026-08-31 at 1950/1973 (98.83%).
+ * becomes a graveyard. Recorded 2026-08-31 at 1953/1973 (98.99%).
  */
 const KNOWN = new Map<string, string>([
   // --- ambiguous polymorphic overloads (5) -----------------------------------------------
@@ -79,20 +79,13 @@ const KNOWN = new Map<string, string>([
   ],
   ['kysely/test/node/src/test-setup.ts', "'Database' already declared"],
 
-  // --- emitted shape acorn rejects (5) ----------------------------------------------------
+  // --- emitted shape acorn rejects (3) ----------------------------------------------------
   // Not parse GAPS — these are constructs we emit that are not valid JavaScript, which is
   // the more serious kind. See the export/super/generator fixes for the same class.
+  // Two more lived here until the method-head guard learned about `new` (see below).
   [
     'effect/packages/effect/src/internal/ref.ts',
     'getter emitted with parameters',
-  ],
-  [
-    'effect/packages/cli/examples/naval-fate/domain.ts',
-    'shorthand property outside a pattern',
-  ],
-  [
-    'effect/packages/ai/ai/src/McpSchema.ts',
-    'shorthand property outside a pattern',
   ],
   [
     'effect/packages/ai/ai/src/McpServer.ts',
