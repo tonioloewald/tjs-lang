@@ -2673,27 +2673,38 @@ function transformParams(
       // bare identifiers at runtime and throw `number is not defined` on the first call. This
       // is the exact hazard the `position` parameter was introduced for; a dictionary default
       // is a value position, so ask for one.
-      // Only an OBJECT example becomes a dictionary default; `title?: string` stays a type
-      // name, which is what the author wrote and reads far better than `title?: ''`.
+      // An OBJECT-typed optional is PASSED THROUGH, not upgraded.
+      //
+      // `opts?: { splitOnNumber?: boolean }` means "undefined when omitted" in TypeScript.
+      // TJS's `?:` currently lowers to `= value`, which is the dictionary-default spelling —
+      // so the parameter arrives FILLED, and real code can tell:
+      //
+      //     radash `snake('hello-world12_19-bye')`
+      //       TypeScript  -> 'hello_world_12_19_bye'
+      //       filled      -> 'hello_world12_19_bye'
+      //
+      // because the body branches on `options?.splitOnNumber === false`, and a default of
+      // `false` is not the same as absent. A dictionary default is very likely what the
+      // author WANTED — cleaner and less buggy than hand-rolled fallbacks — but we cannot
+      // prove the two are equivalent, and this code is bespoke: a "failure mode" may be
+      // deliberate. Conversion preserves behaviour; graduation is where upgrades belong.
+      //
+      // The type is not thrown away — it rides along as a comment, so the information
+      // survives for a reader and for the `.d.ts` emitter — and the hint names the upgrade
+      // and where it is documented.
+      //
+      // A SCALAR optional (`title?: string`) needs none of this: it carries no members to
+      // fill, and `?:` already means what TypeScript means.
       const isObject = typeExample.trimStart().startsWith('{')
-      const valueExample = isObject
-        ? typeToExample(param.type, undefined, warnings, ctx, 'value')
-        : typeExample
-      // Even in value position some examples cannot be pure literals: `typeToExample`
-      // legitimately produces `new Map()` for a builtin. Fine as a TYPE example on a required
-      // param, impossible as a per-call clone (§6.1). Its own error names the remedy — a
-      // colon-form parameter — so that is what we emit, with a warning rather than silently,
-      // since this is the one case where conversion cannot preserve optionality.
-      const impure = /\bnew\s+[A-Z]/.test(valueExample)
-      if (impure) {
-        warnings?.push(
-          `${name}: optional object parameter kept as \`${name}: T | undefined\` (required, ` +
-            `accepts undefined). Its example contains a constructed value, and a dictionary ` +
-            `default must be a pure literal — see docs/dictionary-defaults.md §6.1.`
+      if (isObject) {
+        params.push(
+          `${name} /* TJS: was \`${name}?: ${typeExample}\` — left optional so it is ` +
+            `\`undefined\` when omitted, as in TypeScript. A dictionary default ` +
+            `(\`${name} = ${typeExample}\`) would fill it per call and merge partial ` +
+            `payloads; see docs/dictionary-defaults.md. */`
         )
-        params.push(`${name}: ${typeExample} | undefined`)
       } else {
-        params.push(`${name}?: ${valueExample}`)
+        params.push(`${name}?: ${typeExample}`)
       }
     } else {
       // Required - use : for required

@@ -502,95 +502,69 @@ class D extends B { constructor(public x: number) { super(x) } }`,
 })
 
 /**
- * An optional object parameter IS a dictionary default — that is the resolved design, not an
- * accident of lowering.
+ * An optional object parameter is PASSED THROUGH, not upgraded.
  *
- * `docs/dictionary-defaults.md` §5.1 puts required-ness at the PARAM level (`:` required,
- * `=` defaulted), and the motivating case for the whole feature is an optional options-bag —
- * the spec's own precedent is `addEventListener(type, listener, options)`. Per-member
- * defaults live in the DESTRUCTURE (`function f({ a = 3, b: 4 })`); the `opts = {…}` param
- * form exists because JS/TS destructuring defaults do not behave the way you would want.
+ * `opts?: { splitOnNumber?: boolean }` means "undefined when omitted" in TypeScript. TJS's
+ * `?:` lowers to `= value`, which is the dictionary-default spelling, so the parameter would
+ * arrive FILLED — and real code can tell the difference:
  *
- * `fromTS` used to emit `opts: T | undefined`, which preserves the type but is a REQUIRED
- * parameter. Nothing caught it because the JS output came from `ts.transpileModule`, so our
- * own parser never saw the line (`src/no-ts-emitter.test.ts`).
+ *     radash `snake('hello-world12_19-bye')`
+ *       TypeScript -> 'hello_world_12_19_bye'
+ *       filled     -> 'hello_world12_19_bye'
+ *
+ * because the body branches on `options?.splitOnNumber === false`, and a default of `false`
+ * is not absence.
+ *
+ * A dictionary default is very likely what the author WANTED — cleaner and less buggy than a
+ * hand-rolled fallback. But we cannot prove the two equivalent, and this code is bespoke: a
+ * thing that looks like a failure mode may be deliberate. So conversion preserves behaviour
+ * and HINTS at the upgrade; graduation is where upgrades belong.
+ *
+ * These tests previously asserted the opposite, when the conversion did upgrade.
  */
-describe('an optional object param converts to a dictionary default', () => {
-  const run = (tjsSource: string, name: string) =>
-    new Function(
-      tjs(tjsSource, { runTests: false }).code.replace(/^export /gm, '') +
-        `\nreturn ${name}`
-    )()
-
-  const SRC = `export function f(opts?: { a: number, b: number }): number {
-       return opts.a + opts.b
+describe('an optional object param is passed through, with a hint', () => {
+  const SRC = `export function pick(opts?: { a: number, b: number }): string {
+       return opts === undefined ? 'ABSENT' : JSON.stringify(opts)
      }`
 
-  it('gets merge-on-partial once GRADUATED to native TJS', () => {
-    // §5.5 fresh clone of the full default; §5.2 merge-on-partial; identity when complete.
-    const f = run(graduate(fromTS(SRC, { emitTJS: true }).code).code, 'f')
-    expect([f(), f({ a: 10 }), f({ a: 10, b: 20 })]).toEqual([0, 10, 30])
+  const run = (tjsSource: string) =>
+    new Function(
+      tjs(tjsSource, { runTests: false }).code.replace(/^export /gm, '') +
+        '\nreturn pick'
+    )()
+
+  it('is undefined when omitted, exactly as in TypeScript', () => {
+    // The property that radash's `snake` depends on, and the whole reason for the decision.
+    expect(run(fromTS(SRC, { emitTJS: true }).code)()).toBe('ABSENT')
   })
 
-  it('but keeps an ATOMIC JS default while converted (§3 mode gating)', () => {
-    // The converted file carries the `tjs <- …` provenance comment, which means JS
-    // semantics — so the default applies only when the argument is wholly absent, exactly as
-    // JavaScript does it. Dictionary defaults are native-only; graduation is the opt-in.
-    // Asserted because the difference is invisible until a partial payload arrives, and
-    // getting it backwards would silently change what converted code does.
-    const f = run(fromTS(SRC, { emitTJS: true }).code, 'f')
-    expect(f()).toBe(0)
-    expect(Number.isNaN(f({ a: 10 }))).toBe(true)
+  it('still receives what the caller passes', () => {
+    // Preserving absence must not cost the argument itself.
+    expect(run(fromTS(SRC, { emitTJS: true }).code)({ a: 1, b: 2 })).toBe(
+      '{"a":1,"b":2}'
+    )
   })
 
-  it('members are VALUES, not type names', () => {
-    // A dictionary default lowers to a real JS default expression, so `{ a: number }` is a
-    // bare identifier at runtime — `number is not defined` on the first call. This is what
-    // `typeToExample`'s `position` parameter exists for; a default is a value position.
+  it('keeps the type as a comment, and names the upgrade', () => {
+    // Behaviour is preserved, but the type is not thrown away — it rides along for a reader
+    // and for the `.d.ts` emitter — and the hint says what TJS would do instead.
     const { code } = fromTS(SRC, { emitTJS: true })
-    expect(code).toContain('a: 0.0')
-    expect(code).not.toContain('a: number')
+    // The AUTHOR'S spelling, not the value form — this is for a human to read.
+    expect(code).toContain('opts?: { a: number, b: number }')
+    expect(code).toContain('docs/dictionary-defaults.md')
   })
 
-  it('an interface member of unresolvable type becomes null, not `any`', () => {
-    // `any` is not a clonable literal, so a dictionary default containing one is rejected by
-    // §6.1. The INLINE object path mapped `any` -> `null` already; the interface path did
-    // not, and two files in our own dogfood corpus failed graduation on exactly that.
+  it('a SCALAR optional still uses `?:` (control)', () => {
+    // Scalars carry no members to fill, so `?:` already means what TypeScript means. Passing
+    // those through as comments too would be a pointless loss of annotation.
     const { code } = fromTS(
-      `interface F { source?: RecordSource }\nexport function f(filter?: F): void {}`,
+      `export function f(title?: string): string { return title ?? '' }`,
       { emitTJS: true }
     )
-    expect(code).toContain('source: null')
-    expect(code).not.toContain('source: any')
-  })
-
-  it('falls back — with a warning — when members cannot be pure literals', () => {
-    // `typeToExample` legitimately produces `new Map()` for a builtin. That is a fine TYPE
-    // example on a required param and impossible as a default, so conversion cannot preserve
-    // optionality here. §6.1 names this remedy; the warning is what stops it being silent.
-    const { code, warnings } = fromTS(
-      `export function f(ctx?: { cache: Map<string, number> }): void {}`,
-      { emitTJS: true }
-    )
-    expect(code).toContain('| undefined')
-    expect(warnings?.join('\n')).toContain(
-      'dictionary default must be a pure literal'
-    )
+    expect(code).toContain('title?: string')
   })
 })
 
-/**
- * An exported overloaded function must stay exported.
- *
- * TJS merges same-named declarations into a dispatcher and exports it if they were exported.
- * `emitOverloadGroup` emitted the variants BARE, so every exported overloaded function became
- * a private one and simply vanished from the module's public API.
- *
- * ts-pattern is the case that found it: `export function array(…)` became `function array(…)`,
- * and its own suite failed with `P.array is not a function or its return value is not
- * iterable`. Nothing in a parse-rate metric can see this — the file converts and parses
- * perfectly, and the API is gone. It took running a real project's tests against our output.
- */
 describe('overload groups keep their export', () => {
   const OVERLOADS = `export function pick(a: string): number
 export function pick(a: number, b: number): number
