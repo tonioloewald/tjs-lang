@@ -699,7 +699,29 @@ export function transformParenExpressions(
 
     // Look for arrow function params: (params) =>
     // We need to be careful to only transform when followed by =>
-    if (source[i] === '(') {
+    //
+    // A CALL's argument list is not a parameter list. Without this check the scan read
+    //
+    //     const m = k
+    //       ? (x, i) => f(a)
+    //       : (x) => x
+    //
+    // as `(a): (x) => …` — an arrow whose parameters are `a` and whose RETURN TYPE is `(x)` —
+    // and stripped the annotation, deleting the ternary's `: (x)` and leaving `=> x` dangling
+    // at the start of a line. Silent corruption; radash and two effect files hit it.
+    //
+    // A call's `(` follows its callee, so an identifier, `)` or `]` immediately before means
+    // this is an argument list. `async` is the one identifier that legitimately precedes a
+    // parameter list.
+    const prevTok = (() => {
+      let k = i - 1
+      while (k >= 0 && /\s/.test(source[k])) k--
+      return k < 0 ? '' : source[k]
+    })()
+    const isCallArgs =
+      /[A-Za-z0-9_$)\]]/.test(prevTok) &&
+      !/(^|[^A-Za-z0-9_$])async\s*$/.test(source.slice(Math.max(0, i - 12), i))
+    if (source[i] === '(' && !isCallArgs) {
       // First, find the matching ) without consuming any safety marker
       // We'll check for safety marker only if this is actually an arrow function
       const fullParamsResult = extractBalancedContent(source, i + 1, '(', ')')

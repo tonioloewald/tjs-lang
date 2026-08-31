@@ -1250,3 +1250,43 @@ describe('a block member is read at the top level only', () => {
     ).not.toThrow()
   })
 })
+
+describe("a call's arguments are not an arrow's parameters", () => {
+  // The arrow scan treated any `(…)` followed by `: type =>` as an arrow with a return
+  // annotation. In a ternary whose true branch ends in a CALL:
+  //
+  //     const m = k
+  //       ? (x, i) => f(a)
+  //       : (x) => x
+  //
+  // it read `f`'s arguments as the parameter list and `: (x)` as the return type, stripped
+  // the annotation, and left `=> x` dangling at the start of a line. Silent corruption —
+  // radash and two effect files hit it.
+  const run = (src: string) => {
+    const r = preprocess(src)
+    return typeof r === 'string' ? r : r.source
+  }
+
+  it('keeps the ternary alternate when the consequent ends in a call', () => {
+    const out = run('const m = k\n  ? (x, i) => f(a)\n  : (x) => x;')
+    expect(out).toContain(': (x)')
+    // `=>` must never begin a line — that is a SyntaxError in JavaScript, not just in TJS
+    // (`ArrowParameters [no LineTerminator here] =>`).
+    expect(out).not.toMatch(/^\s*=>/m)
+  })
+
+  it('still transforms a real arrow', () => {
+    // Without this, refusing every `(` would pass the assertion above.
+    expect(run('const f = (a) => a')).toContain('(a) =>')
+  })
+
+  it('an async arrow is still a parameter list', () => {
+    // `async` is the one identifier that legitimately precedes a parameter list, so the
+    // call-detection must not swallow it.
+    expect(run('const f = async (a) => a')).toContain('(a) =>')
+  })
+
+  it('an arrow passed as a call argument still works', () => {
+    expect(run('xs.map((x) => x)')).toContain('(x) =>')
+  })
+})
