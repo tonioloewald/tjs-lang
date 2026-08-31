@@ -2697,12 +2697,21 @@ function transformParams(
       // fill, and `?:` already means what TypeScript means.
       const isObject = typeExample.trimStart().startsWith('{')
       if (isObject) {
-        params.push(
-          `${name} /* TJS: was \`${name}?: ${typeExample}\` — left optional so it is ` +
-            `\`undefined\` when omitted, as in TypeScript. A dictionary default ` +
+        // The hint goes to WARNINGS, not into the parameter list.
+        //
+        // It was an inline `/* … */` beside the parameter, which reads well and put the type
+        // where the reader is. But a block comment in a parameter list breaks return-type
+        // stripping when the return example is a REGEX — `function f(a /* c */):! /example/`
+        // keeps its annotation and does not parse. zod's `regexes.ts` is exactly that shape.
+        // The parser bug is pre-existing and narrow; emitting code that does not parse to
+        // carry a comment is not a trade worth making. Filed in TODO.md with the repro.
+        warnings?.push(
+          `${name}: left optional (\`undefined\` when omitted, as in TypeScript). Its type ` +
+            `was \`${name}?: ${typeExample}\`. A dictionary default ` +
             `(\`${name} = ${typeExample}\`) would fill it per call and merge partial ` +
-            `payloads; see docs/dictionary-defaults.md. */`
+            `payloads — see docs/dictionary-defaults.md.`
         )
+        params.push(name)
       } else {
         params.push(`${name}?: ${typeExample}`)
       }

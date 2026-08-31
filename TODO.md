@@ -209,6 +209,23 @@ not clear. On the column that ships bugs, `{…}?` (0 wrong) beats `= {}` (2 wro
   not happen, so the failure mode is code that used to crash now working. That is why this was
   worth measuring rather than refusing outright.
 
+## A comment in a parameter list breaks a REGEX return type (2026-08-31)
+
+```js
+function f(a /* c */):! /example/ { return /x/ }   // annotation NOT stripped -> does not parse
+function f(a):! /example/ { return /x/ }           // fine
+function f(a /* c */):! '' { return '' }           // fine — only the regex example breaks
+```
+
+Pre-existing and narrow, and nothing emitted comments into parameter lists until the optional
+object-param hint tried to. It does not any more — the hint goes to `warnings` instead —
+because emitting code that does not parse in order to carry a comment is not a trade worth
+making. zod's `packages/zod/src/v4/core/regexes.ts` is the file that found it.
+
+- [ ] Fix the interaction, then reconsider putting the hint back inline where the reader is.
+      `extractReturnTypeValue` handles a regex example correctly on its own; something about a
+      preceding comment in the parameter list stops the annotation being reached at all.
+
 ## Demo model — DEPLOYED 2026-08-30, partly verified
 
 `demoPredict` is live in `tjs-platform` (us-central1), on `gemini-3.5-flash-lite`, with the

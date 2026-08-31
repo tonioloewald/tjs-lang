@@ -544,13 +544,15 @@ describe('an optional object param is passed through, with a hint', () => {
     )
   })
 
-  it('keeps the type as a comment, and names the upgrade', () => {
-    // Behaviour is preserved, but the type is not thrown away — it rides along for a reader
-    // and for the `.d.ts` emitter — and the hint says what TJS would do instead.
-    const { code } = fromTS(SRC, { emitTJS: true })
-    // The AUTHOR'S spelling, not the value form — this is for a human to read.
-    expect(code).toContain('opts?: { a: number, b: number }')
-    expect(code).toContain('docs/dictionary-defaults.md')
+  it('keeps the type in a warning, and names the upgrade', () => {
+    // Behaviour is preserved and the type is not thrown away — it goes to `warnings`, in the
+    // AUTHOR'S spelling, with the upgrade named. It was an inline `/* … */` beside the
+    // parameter, which read better, until a block comment in a parameter list turned out to
+    // break return-type stripping for a REGEX return example (see TODO.md).
+    const { warnings } = fromTS(SRC, { emitTJS: true })
+    const hint = (warnings ?? []).join('\n')
+    expect(hint).toContain('opts?: { a: number, b: number }')
+    expect(hint).toContain('docs/dictionary-defaults.md')
   })
 
   it('a SCALAR optional still uses `?:` (control)', () => {
