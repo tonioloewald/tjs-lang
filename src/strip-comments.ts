@@ -727,3 +727,34 @@ export function hashbangOf(source: string): string {
   const nl = source.indexOf('\n')
   return source.slice(0, nl === -1 ? source.length : nl)
 }
+
+/**
+ * Make arbitrary text safe to embed inside a generated block comment.
+ *
+ * JavaScript block comments do not nest: the first terminator ends the comment, whatever was
+ * intended. So interpolating source text into a diagnostic comment is only safe if that text
+ * cannot itself contain a terminator — and TypeScript type text routinely does, because a
+ * member can carry its own doc comment:
+ *
+ *     params: Omit<Extract<Part, { type: Type }>, ...> & {
+ *       [doc comment here]
+ *       readonly options?: ...
+ *     }
+ *
+ * Embedded verbatim, that inner terminator closed the diagnostic early and the remainder of
+ * the type became stray code. effect's Prompt.ts and Response.ts both failed to parse on it,
+ * and the irony is the point: a comment whose purpose is to EXPLAIN a degraded conversion is
+ * what broke the file.
+ *
+ * Same family as the literal-blindness defects this module exists for, one level out — there a
+ * pass misreads code that mentions its syntax, here a pass emits code that terminates its own.
+ * (Writing this docstring hit it a third way: spelling the terminator out to illustrate it
+ * would have ended this comment, and spelling it with a zero-width space tripped ESLint's
+ * no-irregular-whitespace. Hence the placeholder above.)
+ *
+ * The replacement inserts a space rather than an escape or an invisible character, because the
+ * result is read by humans and must stay legible.
+ */
+export function commentSafe(text: string): string {
+  return text.replace(/\*\//g, '* /')
+}

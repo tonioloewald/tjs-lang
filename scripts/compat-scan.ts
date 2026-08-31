@@ -47,7 +47,7 @@ const MAX_BYTES = 400 * 1024
  * Files that do not convert-and-parse today, with WHY.
  *
  * A cause, not just an error string — "known failure" with no diagnosis is how a ratchet
- * becomes a graveyard. Recorded 2026-08-31 at 1958/1973 (99.24%).
+ * becomes a graveyard. Recorded 2026-08-31 at 1960/1973 (99.34%).
  */
 const KNOWN = new Map<string, string>([
   // --- ambiguous polymorphic overloads (5) -----------------------------------------------
@@ -77,7 +77,7 @@ const KNOWN = new Map<string, string>([
   ],
   ['effect/packages/rpc/src/RpcServer.ts', 'parenthesized binding pattern'],
 
-  // --- parse failures needing individual diagnosis (8) ------------------------------------
+  // --- parse failures needing individual diagnosis (6) ------------------------------------
   // Locate these in the PREPROCESSED source, not the emitted TJS: acorn's offsets are into
   // the former, and reading the TJS line at that number produces innocent-looking lines and
   // several wrong turns.
@@ -91,8 +91,6 @@ const KNOWN = new Map<string, string>([
     'Unexpected token',
   ],
   ['effect/packages/ai/ai/src/Tool.ts', 'Unexpected token'],
-  ['effect/packages/ai/ai/src/Prompt.ts', 'Unexpected token'],
-  ['effect/packages/ai/ai/src/Response.ts', 'Unexpected token'],
   [
     'zod/packages/zod/src/v4/core/registries.ts',
     'rest param with a type annotation, in a method',

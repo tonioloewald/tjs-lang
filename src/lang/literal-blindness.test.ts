@@ -7,6 +7,7 @@ import { lint } from './linter'
 import { fromTS } from './emitters/from-ts'
 import { maskWasmBodies, unmaskWasmBodies } from './parser-transforms'
 import { preprocess } from './parser'
+import { commentSafe } from '../strip-comments'
 import { readFileSync, readdirSync, statSync } from 'node:fs'
 import { join, resolve } from 'node:path'
 
@@ -793,5 +794,41 @@ describe('a method head must not be preceded by an expression keyword', () => {
       preprocess('class C { m(a: 1) { return a } }', { filename: 'a.tjs' })
         .source
     ).toContain('a = 1')
+  })
+})
+
+describe('a generated comment cannot be terminated by the text it quotes', () => {
+  // The mirror image of the defects above. There, a pass MISREADS code that mentions its own
+  // syntax; here, a pass EMITS code that terminates its own. Block comments do not nest, so
+  // the first `*/` wins — and TypeScript type text routinely carries one, because a member can
+  // have a doc comment.
+  //
+  // effect's Prompt.ts and Response.ts both failed to parse on this, and the irony is the
+  // point: the comment that broke them exists to EXPLAIN a degraded conversion.
+  it('a doc comment inside a degraded type does not end the diagnostic', () => {
+    const src = `export const f = (
+  params: Omit<Part, 'type'> & {
+    /** Optional provider-specific options. */
+    readonly options?: Part['options'] | undefined
+  }
+): Part => params
+`
+    const out = fromTS(src, { emitTJS: true, filename: 'a.ts' }).code
+    // The whole diagnostic must survive as ONE comment: the tail of the quoted type must not
+    // reappear as code. Asserting it parses is not enough on its own — assert the terminator
+    // was neutralized, since a future change could drop the type text entirely and still pass.
+    expect(out).toContain('TS types degraded')
+    // Between the start of the diagnostic and the tail of the type it quotes there must be no
+    // terminator — anchor to the diagnostic, not to the file, or the `/* tjs <- … */`
+    // provenance annotation above satisfies the match and the test passes vacuously.
+    const body = out.slice(out.indexOf('TS types degraded'))
+    expect(body).toContain('readonly options')
+    expect(body.slice(0, body.indexOf('readonly options'))).not.toContain('*/')
+    expect(() => tjs(out, { runTests: false })).not.toThrow()
+  })
+
+  it('commentSafe neutralizes every terminator, not just the first', () => {
+    expect(commentSafe('a */ b */ c')).toBe('a * / b * / c')
+    expect(commentSafe('no terminator')).toBe('no terminator')
   })
 })

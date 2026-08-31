@@ -31,7 +31,11 @@
  */
 
 import ts from 'typescript'
-import { maskLiteralsKeepComments, scanLiterals } from '../../strip-comments'
+import {
+  maskLiteralsKeepComments,
+  scanLiterals,
+  commentSafe,
+} from '../../strip-comments'
 import { typeSignatureFor } from '../type-signature'
 
 export interface FromTSOptions {
@@ -1790,7 +1794,7 @@ function transformFunctionToTJS(
   // Emit migration comment if any types were degraded
   const degradedComment =
     degraded.length > 0
-      ? `/* TODO: TS types degraded — ${degraded.join(', ')} */\n`
+      ? `/* TODO: TS types degraded — ${commentSafe(degraded.join(', '))} */\n`
       : ''
 
   return `${lineComment}${degradedComment}${exportPrefix}${asyncPrefix}${funcKeyword}${funcName}(${params.join(

@@ -8,6 +8,22 @@ test**, with numbers instead of opinions.
 
 ## Formalise the AJS AST (decision 2026-08-02)
 
+- [ ] **Stable declaration IDs with a metadata side-table** (user's proposal). Give each
+      declaration an identity independent of its name, resolved through a table carrying the
+      human-readable name and source location — so emitted bindings can be renamed freely
+      (hygiene) while errors, `.d.ts` and docs still show the real name. The motivating case
+      (type/value name collisions) turned out NOT to need it — the guard was simply blind to
+      imports and destructured declarations — but the underlying distinction it encodes,
+      _the name a caller writes is not the name that gets bound_, was the root of three
+      separate defects on 2026-08-31 (destructured parameter renames, the checks emitted for
+      them, and the value-binding scan). An identity layer makes that structural instead of
+      something every pass has to remember. Feeds `docs/type-system-north-star.md` directly:
+      canonical type representation wants exactly this addressability for `.d.ts` <-> runtime
+      correlation. Assign IDs from content (name + kind + scope), NOT a counter — a counter
+      shifts every downstream ID when a line is inserted, churning emitted output, `.d.ts` and
+      the IndexedDB metadata cache on an unrelated edit. Does NOT help the overload cluster
+      (type erasure) or renamed dictionary members (both names are load-bearing strings).
+
 - [ ] **Validate destructured members that are RENAMED** (`{ size: size_ = 8 }`). Today a
       rename is treated as plain JavaScript destructuring and gets no dictionary-member
       validation, because the payload key (`size`) and the bound name (`size_`) are different
