@@ -1,7 +1,6 @@
 import { describe, it, expect } from 'bun:test'
 import { fromTS as fromTSToTJS } from './emitters/from-ts'
 import { tjs } from './index'
-import { graduate } from './graduate'
 
 /**
  * The composed path: TS -> TJS -> JS.

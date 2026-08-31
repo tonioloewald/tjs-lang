@@ -1290,3 +1290,37 @@ describe("a call's arguments are not an arrow's parameters", () => {
     expect(run('xs.map((x) => x)')).toContain('(x) =>')
   })
 })
+
+describe('a destructured parameter is not optional by itself', () => {
+  // Pins TODAY's behaviour, which is JavaScript's: `f({ a = 1 })` still requires an argument,
+  // and `= {}` on the pattern is what makes it omittable. Whether TJS should relax that when
+  // every member is defaulted is FILED, not decided — see TODO.md. This test is here so the
+  // change cannot happen by accident: it is a semantic divergence from JS with no visible
+  // signal, which `docs/case-study-switch.md` says must be measured before it ships.
+  const call = (src: string, args: unknown[]) => {
+    const f = new Function(tjs(src, { runTests: false }).code + '\nreturn f')()
+    return f(...args)
+  }
+
+  it('throws when omitted, as JavaScript does', () => {
+    expect(() =>
+      call('function f({ a = 1, b = 2 }) { return { a, b } }', [])
+    ).toThrow(/destructure/)
+  })
+
+  it('fills members from a partial payload', () => {
+    // The half that DOES work, and the reason the no-arg case looks inconsistent.
+    expect(
+      call('function f({ a = 1, b = 2 }) { return { a, b } }', [{ a: 9 }])
+    ).toEqual({
+      a: 9,
+      b: 2,
+    })
+  })
+
+  it('`= {}` on the pattern makes it omittable (the JS spelling)', () => {
+    expect(
+      call('function f({ a = 1, b = 2 } = {}) { return { a, b } }', [])
+    ).toEqual({ a: 1, b: 2 })
+  })
+})
