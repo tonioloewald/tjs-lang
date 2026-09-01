@@ -50,10 +50,13 @@ const MAX_BYTES = 400 * 1024
  * becomes a graveyard. Recorded 2026-08-31 at 1960/1973 (99.34%).
  */
 const KNOWN = new Map<string, string>([
-  // --- ambiguous polymorphic overloads (5) -----------------------------------------------
-  // TypeScript separates these by types that do not exist at runtime, so TJS dispatch
-  // genuinely cannot. `emitOverloadGroup` already falls back to the implementation when it
-  // can SEE the ambiguity; these reach the parser instead, so the detection is incomplete.
+  // --- reported as "ambiguous polymorphic overloads" — but that is NOT the cause (5) ------
+  // Recorded wrong, and worth the correction. Converted TS no longer emits dispatch variants
+  // at all (overload signatures are erased, as TypeScript erases them), so a message about
+  // ambiguous VARIANTS cannot be about overloads any more. effectable.ts turns out to emit
+  // `function Base() { }` TWICE inside one IIFE — a duplication bug — and TJS then reads the
+  // pair as a polymorphic group and rejects it as ambiguous. The error names the symptom.
+  // Diagnose each before assuming they share a cause.
   ['effect/packages/platform/src/HttpApi.ts', "overloads for 'process'"],
   ['effect/packages/effect/src/internal/effectable.ts', "overloads for 'Base'"],
   ['effect/packages/effect/src/Iterable.ts', "overloads for 'next'"],

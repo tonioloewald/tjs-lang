@@ -1821,7 +1821,6 @@ function emitOverloadGroup(
   resolutionCtx?: TypeResolutionContext
 ): string[] {
   const funcName = implementation.name?.getText(sourceFile) || ''
-  const implName = `_${funcName}_impl`
   const results: string[] = []
 
   // TS overloads map onto TJS polymorphic dispatch — an UPGRADE, since TS erases the
@@ -1970,112 +1969,83 @@ function emitOverloadGroup(
     return found
   })()
 
-  // Emit the implementation as a renamed private function
-  const implParams = transformParams(
-    implementation.parameters,
-    sourceFile,
-    warnings,
-    undefined,
-    resolutionCtx
-  )
-  let implBody = '{ }'
-  if (implementation.body) {
-    const bodyText = implementation.body.getText(sourceFile)
-    implBody = stripFunctionBody(
-      bodyText,
-      !!implementation.modifiers?.some(
-        (m) => m.kind === ts.SyntaxKind.AsyncKeyword
-      ),
-      !!implementation.asteriskToken
-    )
-  }
-  const isAsync = implementation.modifiers?.some(
-    (m) => m.kind === ts.SyntaxKind.AsyncKeyword
-  )
-  const isGenerator = !!implementation.asteriskToken
-  const asyncPrefix = isAsync ? 'async ' : ''
-  const funcKeyword = isGenerator ? 'function* ' : 'function '
-
-  // The variants carry the EXPORT, or the function leaves the module's public API entirely.
+  // Everything that once built dispatch VARIANTS is gone from here: the private `_x_impl`
+  // name, a hand-rolled parameter/body/async/generator assembly, and an export prefix read
+  // off the implementation so the variants would carry it. `transformFunctionToTJS` already
+  // does all of that correctly for a single function, and this group now emits exactly one.
   //
-  // TJS merges same-named declarations into a dispatcher and exports it if they were
-  // exported (verified). Emitting them bare therefore turned every exported overloaded
-  // function into a private one: `export function array(…)` in ts-pattern became
-  // `function array(…)`, and its own suite failed with
-  // `P.array is not a function or its return value is not iterable`.
+  // Worth recording what that export prefix was for, because it cost a real bug to learn:
+  // TJS merges same-named declarations into a dispatcher and exports it only if the
+  // declarations were exported. Emitting the variants bare turned every exported overloaded
+  // function private — ts-pattern's `export function array(…)` became `function array(…)`,
+  // and its suite failed with `P.array is not a function`. Invisible to a parse-rate metric:
+  // the file converted and parsed perfectly and the API was simply gone. That whole class of
+  // failure cannot recur, because there are no variants to lose the modifier.
+
+  // A converted overload group emits the IMPLEMENTATION ONLY — never dispatch variants.
   //
-  // Invisible to a parse-rate metric — the file converts and parses perfectly, and the API
-  // is simply gone. It took running a real project's tests against the output to see it.
+  // TypeScript erases overload signatures: at runtime there is one function, and it receives
+  // every call, including ones matching no signature. Library authors rely on that. radash's
+  // `inRange` declares two overloads and then type-checks its own arguments, returning `false`
+  // for nullish input. Emitting dispatch made that unreachable — `inRange(null, 0, 20)`
+  // returned `no matching overload` where TypeScript returns `false`, and two of radash's
+  // tests failed on it.
   //
-  // Read from the IMPLEMENTATION: TypeScript requires the modifiers to agree across a group,
-  // and the implementation is the declaration that survives to runtime.
-  const exportPrefix = implementation.modifiers?.some(
-    (m) => m.kind === ts.SyntaxKind.ExportKeyword
+  // The variants could never have earned that cost. TypeScript hands us ONE body, so every
+  // variant was a pass-through:
+  //
+  //     function inRange$1(number, end)        { return _inRange_impl(number, end) }
+  //     function inRange$2(number, start, end) { return _inRange_impl(number, start, end) }
+  //
+  // Dispatch routed nothing. Its only observable effect was a `typeof` gate that either
+  // forwarded or errored — a runtime type-checker wearing dispatch's clothes, rejecting calls
+  // TypeScript accepts. It also leaked the dispatcher's `...__args` into the generated `.d.ts`
+  // (`inRange(__args: any[])`), losing every type and producing a declaration you cannot
+  // legally call.
+  //
+  // Polymorphic dispatch is a real feature — for TJS source, where variants have DIFFERENT
+  // bodies. Reaching it from converted TypeScript means moving each branch of the hand-rolled
+  // implementation into its own variant, and whether a branch corresponds to a signature is a
+  // judgement about intent that a converter cannot prove. This module already refused to
+  // unroll such chains, for exactly that reason. So we suggest; the author decides.
+  //
+  // This is the same rule that keeps `dropRedundantNew` and `switchToGiven` out of conversion
+  // (see `graduate.ts`): conversion preserves behaviour, graduation is where upgrades belong.
+  // Graduation cannot do it either — graduating to forwarding-variants would rebuild the same
+  // contraption and reintroduce the rejection.
+  const plural = signatures.length === 1 ? 'signature' : 'signatures'
+  const suggestion =
+    `/* TJS: \`${funcName}\` had ${signatures.length} TypeScript overload ${plural}. They are\n` +
+    `   erased at runtime, so this is the implementation — exactly what TypeScript runs.\n` +
+    (implDiscriminates
+      ? `   It sorts out by hand which case it got, because TypeScript gave it no choice.\n` +
+        `   TJS can dispatch for real: give each case its own \`${funcName}\` declaration with\n` +
+        `   typed parameters, and the branching goes away. Only you can do that safely —\n` +
+        `   which branch answers which signature is a judgement about intent, not something\n` +
+        `   a converter can prove. See DOCS-TJS.md on polymorphic functions. */\n`
+      : `   TJS can dispatch on them for real: give each signature its own \`${funcName}\`\n` +
+        `   declaration with typed parameters. See DOCS-TJS.md on polymorphic functions. */\n`)
+
+  warnings?.push(
+    `${signatures.length} overload ${plural} for '${funcName}' were erased, as TypeScript ` +
+      `erases them. Behaviour is unchanged. TJS can dispatch on them for real — see the ` +
+      `note at the declaration.`
   )
-    ? 'export '
-    : ''
 
-  // Guidance, not a rewrite. The comment sits ON the redundant implementation because a
-  // remedy shown at the site is what gets acted on — measured: a remedy in code repaired
-  // 80% where the same advice as prose repaired 50% and a bare diagnostic 0% (A1).
-  const guidance = implDiscriminates
-    ? `/* TJS: \`${funcName}\` now dispatches for REAL — each signature above is a variant
-` +
-      `   selected at runtime, not just checked at compile time. TypeScript erased them, so
-` +
-      `   this implementation had to sort out which case it got by hand; that branching is
-` +
-      `   now redundant.
-` +
-      `   To simplify: move each branch into its own \`${funcName}\` variant and delete
-` +
-      `   \`${implName}\`. Each variant gets its parameters typed, instead of one \`any\`. */
-`
-    : ''
-
+  // Emitted through `transformFunctionToTJS`, the same call the two earlier fallbacks use,
+  // rather than assembled by hand. Hand-assembly dropped the implementation's RETURN
+  // annotation, so the `.d.ts` said `: any` where the signatures had said `: boolean` — a
+  // detail invisible in the emitted JS and visible to every consumer.
   results.push(
-    `${guidance}${asyncPrefix}${funcKeyword}${implName}(${implParams.join(
-      ', '
-    )}) ${implBody}`
-  )
-
-  // Emit each overload signature as a wrapper that delegates to the implementation
-  for (const sig of signatures) {
-    const params = transformParams(
-      sig.parameters,
+    `${suggestion}${transformFunctionToTJS(
+      implementation,
       sourceFile,
-      warnings,
       undefined,
+      warnings,
+      true,
       resolutionCtx
-    )
-    const paramNames = sig.parameters.map((p) => p.name.getText(sourceFile))
-    const returnExample = sig.type
-      ? typeToExample(
-          sig.type,
-          undefined,
-          warnings,
-          resolutionCtx,
-          'annotation'
-        )
-      : ''
-    const returnAnnotation = usableAsReturnExample(returnExample)
-      ? `:! ${returnExample}`
-      : ''
-
-    const { line } = sourceFile.getLineAndCharacterOfPosition(
-      sig.getStart(sourceFile)
-    )
-    const lineComment = `/* line ${line + 1} */\n`
-    const returnKw = isGenerator ? 'yield* ' : 'return '
-
-    results.push(
-      `${lineComment}${exportPrefix}${asyncPrefix}${funcKeyword}${funcName}(${params.join(
-        ', '
-      )})${returnAnnotation} { ${returnKw}${implName}(${paramNames.join(
-        ', '
-      )}) }`
-    )
-  }
+    )}`
+  )
 
   return results
 }

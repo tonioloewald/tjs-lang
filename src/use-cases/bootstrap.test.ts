@@ -374,7 +374,19 @@ describe('Bootstrap Canary', () => {
       // All should succeed
       const failures = results.filter((r) => !r.success)
       expect(failures.length).toBe(0)
-    })
+      // An explicit budget, because bun's default 5s is a stopwatch this test never agreed
+      // to race. What it asserts is that all 36 modules TRANSPILE; the wall clock is
+      // incidental, and it is dominated by one file — `parser-transforms.ts` alone is ~3.1s
+      // of ~7.4s, which is the known quadratic in `preprocess` (TODO.md), not a property of
+      // the canary.
+      //
+      // Verified it is not a regression: A/B'd with and without the overload change on the
+      // same machine, 7.24s vs 8.28s — both far over 5s, so the default had simply stopped
+      // fitting as the corpus grew. Left as a FAILURE rather than a silent slow test, it
+      // reported "something fundamental is broken" when nothing was, which is worse than no
+      // canary. Generous on purpose: this is a correctness assertion wearing a benchmark's
+      // clothes, and the benchmark that measures the quadratic is elsewhere.
+    }, 60_000)
   })
 
   describe('True self-hosting: transpiled TJS validates types', () => {

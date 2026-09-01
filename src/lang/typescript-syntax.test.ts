@@ -959,15 +959,17 @@ describe('fromTS function overloads', () => {
       `,
       { emitTJS: true }
     )
-    // Should have the impl renamed and two wrapper functions
-    expect(result.code).toContain('function _greet_impl(')
-    expect(result.code).toMatch(/function greet\(name: string\)/)
-    expect(result.code).toMatch(
-      /function greet\(name: string, greeting: string\)/
-    )
-    // Wrappers delegate to impl
-    expect(result.code).toContain('return _greet_impl(name)')
-    expect(result.code).toContain('return _greet_impl(name, greeting)')
+    // Overload signatures are ERASED, exactly as TypeScript erases them: one function, the
+    // implementation, which is the only thing that exists at runtime. We used to emit
+    // dispatch variants, and they could never have worked — TypeScript hands us one body, so
+    // every variant was a pass-through and dispatch routed nothing. Its only observable
+    // effect was a `typeof` gate that REJECTED calls TypeScript accepts (radash's
+    // `inRange(null, 0, 20)` returned `no matching overload` where TS returns `false`).
+    // The upgrade is suggested at the declaration instead — see the `suggests` test below.
+    expect(result.code).not.toContain('_greet_impl')
+    // Exactly one `greet`, and it is the implementation.
+    expect(result.code.match(/function greet\b/g)?.length).toBe(1)
+    expect(result.code).toContain('TypeScript overload signatures')
   })
 
   test('different-type overloads at same arity', () => {
@@ -979,8 +981,27 @@ describe('fromTS function overloads', () => {
       `,
       { emitTJS: true }
     )
-    expect(result.code).toContain('process(x: string)')
-    expect(result.code).toContain('process(x: number)')
+    // Same rule: one function. These two signatures are also indistinguishable at runtime
+    // once erased, which is the case that ALWAYS fell back even before this change.
+    expect(result.code.match(/function process\b/g)?.length).toBe(1)
+    expect(result.code).not.toContain('_process_impl')
+  })
+
+  test('suggests the upgrade it cannot safely perform', () => {
+    // The whole deliverable of the change: converting cannot turn a hand-rolled `if` chain
+    // into real variants — which branch answers which signature is a judgement about intent,
+    // not something a converter can prove — so it names the upgrade at the site.
+    const result = fromTS(
+      `
+      function pick(x: string): string;
+      function pick(x: number): number;
+      function pick(x: any): any { if (typeof x === 'string') return x; return x + 1 }
+      `,
+      { emitTJS: true }
+    )
+    expect(result.code).toContain('TJS can dispatch')
+    expect(result.code).toContain('judgement about intent')
+    expect((result.warnings ?? []).join('\n')).toContain('overload')
   })
 
   test('overload metadata captured in JS mode', () => {

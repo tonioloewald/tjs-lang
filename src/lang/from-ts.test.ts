@@ -870,14 +870,19 @@ export function zip<T>(...arrays: T[][]): T[][] {
     expect((result.warnings ?? []).join('\n')).toContain('rest parameters')
   })
 
-  it('a group with NO rest parameter anywhere still gets real dispatch', () => {
-    // The fallback must not swallow the groups that convert correctly — that would be a
-    // silent loss of the feature this whole path exists to provide.
+  it('a group with NO rest parameter is treated the same way — one function', () => {
+    // This asserted the opposite ("still gets real dispatch") and was correct when written,
+    // hours before the rule changed. Recording the reversal rather than quietly editing it:
+    // dispatch variants could never route anything, because TypeScript hands the converter a
+    // single body. They only rejected calls TypeScript accepts. So EVERY overload group now
+    // emits the implementation, and the rest-parameter check that used to select this path
+    // is no longer a special case — it is the rule.
     const fixed = `
 export function pick(a: string): string
 export function pick(a: string, b: number): string
 export function pick(a: string, b?: number): string { return b === undefined ? a : a + b }`
     const out = fromTS(fixed, { emitTJS: true, filename: 'a.ts' }).code
-    expect(out.match(/function pick\b/g)?.length).toBeGreaterThan(1)
+    expect(out.match(/function pick\b/g)?.length).toBe(1)
+    expect(out).not.toContain('_pick_impl')
   })
 })
