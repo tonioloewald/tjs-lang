@@ -6,8 +6,9 @@
  * loaded together, which is what happens the moment somebody imports two packages built with
  * this toolchain. The invariants below are load-bearing and several are non-obvious:
  *
- *   - each module carries its OWN `MonadicError` class, so anything crossing a module
- *     boundary must be duck-typed. `isMonadicError` is; `instanceof` would silently be false.
+ *   - `MonadicError` is FUSED across modules through a shape-versioned global slot, so
+ *     `instanceof` works across a boundary. Duck-typing remains the contract regardless, since
+ *     a module built against a future slot version would hold a different class.
  *   - each module declares its own inline helpers at module top level, which is only safe
  *     because ES module scope is per-module.
  *   - two libraries may declare the same `Type` name with different shapes. There is no
@@ -97,23 +98,57 @@ console.log('B ok:', checkB({ id: 1, label: 'x' })?.name !== 'MonadicError')
     expect(out).toContain('B ok: true')
   })
 
-  it('each module has its OWN MonadicError class, so identity must be duck-typed', () => {
-    // Not a defect — separate module scopes are the whole reason the emitted output is safe
-    // to load N times. It is recorded because it is exactly why `isMonadicError` checks
-    // `name` and `'path' in v` instead of `instanceof`: an `instanceof` check would be
-    // silently false for an error that crossed a module boundary, and the failure would look
-    // like "the error vanished" rather than like a type-identity problem.
+  it('every module resolves the SAME MonadicError, so instanceof works too', () => {
+    // This used to assert the opposite — that each module had its own class — and that WAS the
+    // behaviour: a bundler cannot merge separate top-level declarations, so even inside one
+    // bundle two errors had different prototypes. `isMonadicError` is duck-typed and coped,
+    // but `instanceof` was silently false across a module boundary, which is the first thing a
+    // consumer reaches for and the last place they would look for the cause.
+    //
+    // The class is now claimed through a shape-versioned global slot (docs/runtime-fusion.md).
+    // Duck-typing stays the contract for anything crossing a boundary — a module built against
+    // a future slot version would legitimately hold a different class — so both are asserted.
     const out = node(
       'ident.mjs',
       `import { numA } from './libA.mjs'
 import { numB } from './libB.mjs'
 const a = numA('x'), b = numB('x')
 console.log('same class:', Object.getPrototypeOf(a) === Object.getPrototypeOf(b))
-console.log('both named MonadicError:', a.name === 'MonadicError' && b.name === 'MonadicError')
+console.log('cross instanceof:', a instanceof b.constructor)
+console.log('duck-typing still holds:', a.name === 'MonadicError' && 'path' in a)
 `
     )
-    expect(out).toContain('same class: false')
-    expect(out).toContain('both named MonadicError: true')
+    expect(out).toContain('same class: true')
+    expect(out).toContain('cross instanceof: true')
+    expect(out).toContain('duck-typing still holds: true')
+  })
+
+  it('fusion survives bundling, where the duplication was worst', () => {
+    // Scope hoisting renamed the second copy to `MonadicError2`; there is now one to rename.
+    writeFileSync(
+      join(dir, 'entry.mjs'),
+      `import { numA } from './libA.mjs'\nimport { numB } from './libB.mjs'\nexport const run = () => [numA('x'), numB('x')]\n`
+    )
+    spawnSync(
+      'bunx',
+      [
+        'esbuild',
+        join(dir, 'entry.mjs'),
+        '--bundle',
+        '--format=esm',
+        '--outfile=' + join(dir, 'bundled.mjs'),
+        '--log-level=error',
+      ],
+      { encoding: 'utf8' }
+    )
+    const out = node(
+      'runbundle.mjs',
+      `import { run } from './bundled.mjs'
+const [a, b] = run()
+console.log('bundled same class:', Object.getPrototypeOf(a) === Object.getPrototypeOf(b))
+`
+    )
+    expect(out).toContain('bundled same class: true')
   })
 
   it('the shared runtime recognises errors from every module', () => {

@@ -287,7 +287,7 @@ export function versionsCompatible(a: string, b: string): boolean {
  *
  * NOT exported to user code - they just see Error instances.
  */
-export class MonadicError extends Error {
+class MonadicErrorImpl extends Error {
   /** Path where the error occurred, e.g., "src/file.ts:42:greet.name" */
   readonly path: string
   /** Expected type */
@@ -316,10 +316,46 @@ export class MonadicError extends Error {
     this.reason = reason
     // Maintains proper stack trace in V8 environments
     if (Error.captureStackTrace) {
-      Error.captureStackTrace(this, MonadicError)
+      Error.captureStackTrace(this, MonadicErrorImpl)
     }
   }
 }
+
+/**
+ * The shape-versioned global slot every TJS module resolves `MonadicError` through.
+ *
+ * Each emitted `.js` carries its own inline runtime so it works with no setup, which means N
+ * modules previously declared N distinct `MonadicError` classes — a bundler cannot merge them
+ * (they are separate top-level declarations, so scope hoisting renames rather than fuses), so
+ * even inside ONE bundle `Object.getPrototypeOf(a) === Object.getPrototypeOf(b)` was false.
+ *
+ * Nothing was broken by that: `isMonadicError` is duck-typed precisely so identity survives a
+ * module boundary. But `instanceof` was silently false across one, which is the first thing a
+ * consumer reaches for and the last place they would look for the cause.
+ *
+ * `MonadicError` is the ONLY prelude member eligible for this. It is a plain data class — same
+ * six constructor params, same order, same fields, same `name` as the inline copy — so
+ * whichever module wins the slot is observationally identical to any other. `Type`,
+ * `FunctionPredicate` and `typeError` are NOT identical to their inline stubs (see
+ * `docs/runtime-fusion.md` §3), and sharing those would be a behaviour change wearing a size
+ * optimisation as a costume.
+ *
+ * The canonical runtime resolves through the slot rather than always using its own class —
+ * otherwise a module that loaded BEFORE the runtime would keep a different class and
+ * `instanceof` would still be false, which is the idiomatic order (ES imports are hoisted).
+ *
+ * The key is versioned by SHAPE, not by package version: keying on the release would mint a
+ * new slot every version and share nothing. Fields have only ever been added, so older code
+ * reading a newer class simply ignores what it does not know. Bump `_1` only if a field is
+ * removed or repurposed — then old and new libraries get separate slots instead of the newer
+ * silently winning over code that cannot cope with it.
+ */
+const MONADIC_ERROR_SLOT = '__tjs_MonadicError_1'
+const g = globalThis as any
+export const MonadicError: typeof MonadicErrorImpl = (g[MONADIC_ERROR_SLOT] ??=
+  MonadicErrorImpl)
+/** The instance type, so `MonadicError` still works in type position. */
+export type MonadicError = MonadicErrorImpl
 
 /**
  * What the caller actually passed, said usefully.

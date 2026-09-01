@@ -55,7 +55,25 @@ import * as walk from 'acorn-walk'
 // installed. Single definitions — these were once copy-pasted three times.
 // ---------------------------------------------------------------------------
 
-const INLINE_MONADIC_ERROR = `class MonadicError extends Error{constructor(m,p,e,a,c,r){super(m);this.name='MonadicError';this.path=p;this.expected=e;this.actual=a;this.callStack=c;this.reason=r}}`
+/**
+ * `MonadicError`, resolved through a shape-versioned global slot rather than declared outright.
+ *
+ * Every emitted file carries its own inline runtime so it works with no setup — which meant N
+ * modules declared N distinct `MonadicError` classes. A bundler cannot merge them (separate
+ * top-level declarations in separate modules; scope hoisting renames to `MonadicError2`), so
+ * even inside ONE bundle two errors had different prototypes.
+ *
+ * `??=` keeps the output standalone: with nothing installed the first module to load defines
+ * the class and the rest reuse it. Load order does not matter because every candidate is
+ * identical, and `runtime.ts` resolves through the same slot so the canonical class
+ * participates too.
+ *
+ * This is the ONLY prelude member that may be shared — it is a plain data class, identical to
+ * the canonical one, kept so by a differential test. `typeError`, `Type` and `FunctionPredicate`
+ * are NOT identical to their canonical versions, and fusing them would change behaviour.
+ * See `docs/runtime-fusion.md`.
+ */
+const INLINE_MONADIC_ERROR = `const MonadicError=(globalThis.__tjs_MonadicError_1??=class MonadicError extends Error{constructor(m,p,e,a,c,r){super(m);this.name='MonadicError';this.path=p;this.expected=e;this.actual=a;this.callStack=c;this.reason=r}})`
 
 /**
  * The inline typeError also reports to the flight recorder when a shared
