@@ -8,20 +8,18 @@ test**, with numbers instead of opinions.
 
 ## Formalise the AJS AST (decision 2026-08-02)
 
-- [ ] **The pre-tag gate is not green, and the failures are in `demo/examples.test.ts`.**
-      Full `bun test` on 2026-09-01: 4559 pass / 7 skip / **5 fail**, all in that one file.
-      Four LLM playground examples fail with `JSON Parse error: Unexpected EOF` — an EMPTY
-      completion parsed as JSON. The loaded chat model is `qwen/qwen3.8-27b`, a reasoning
-      model: a direct probe returns good `content`, but it also fills `reasoning_content`, so
-      a modest `max_tokens` can be exhausted before any content is emitted. Suspected
-      environmental (model choice) rather than a code regression — nothing in this session
-      touches the LLM examples — but that is a HYPOTHESIS, not a verified cause, and it must
-      be settled before tagging rather than waved through.
-      The fifth failure is the file's own poison pill (`maxConcurrentTests <= 1`). It fires on
-      a plain `bun test`, which parallelises files — but it ALSO fired under
-      `--max-concurrency 1`, so either the flag does not constrain what the counter measures
-      or the counter is wrong. Worth settling: CLAUDE.md documents the gate as plain
-      `bun test`, green = 0 fail, and as written that gate cannot pass.
+- [ ] **`demo/examples.test.ts` needs its own lane — plain `bun test` cannot pass.**
+      The four "Unexpected EOF" failures were a REAL BUG and are fixed (a reasoning model puts
+      the answer in `reasoning_content`; six sites in `demo/src/capabilities.ts` read
+      `content` directly). What remains is harness, not code: run alone the file is 51/51, but
+      in a parallel full run the multi-call "Multi-Agent Pipeline" example exceeds its 120s
+      timeout against a 27B reasoning model, and a timed-out test lets the runner proceed
+      while it is still running — which is what trips the file's own concurrency poison pill.
+      So the poison-pill failure is a SYMPTOM of the timeout, not a second problem.
+      Fix by giving these examples a dedicated lane (`test:dogfood` is the precedent — it
+      exists for exactly this reason) rather than by raising the timeout, which would paper
+      over contention and still be luck-dependent. Until then CLAUDE.md's "plain `bun test`,
+      green = 0 fail" is not achievable and should say so.
 
 - [ ] **Converting TS overloads to runtime dispatch changes behaviour for non-matching input.**
       In TypeScript the signatures are ERASED, so every call reaches the implementation —

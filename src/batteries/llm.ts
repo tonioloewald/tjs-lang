@@ -1,5 +1,5 @@
 import { LocalModels } from './models'
-import { messageText } from './audit'
+import { withAnswerContent } from '../message-text'
 import { LLM_BASE_URL } from './config'
 
 /**
@@ -146,10 +146,7 @@ export function getLLMCapability(
         // Returning the message untouched then hands every caller an empty string.
         // `messageText` prefers `content` and falls back; the raw fields are left in place
         // for anything that wants them.
-        const text = messageText(message)
-        return text && !message.content
-          ? { ...message, content: text }
-          : message
+        return withAnswerContent(message)
       } catch (e: any) {
         if (isConnectionRefused(e)) {
           throw new Error(

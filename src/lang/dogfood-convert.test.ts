@@ -157,7 +157,17 @@ const report = (label: string, st: Stage, total: number) => {
  * visible while `fromTS` emitted JavaScript through `ts.transpileModule` — nothing ran our
  * parser over the converter's output. See `src/no-ts-emitter.test.ts`.
  */
-const GRADUATION_FLOOR = 106
+/*
+ * Raised to 108 on 2026-09-01 — the WHOLE corpus converts, compiles and graduates. The last
+ * two came from fixes driven by other projects' test suites rather than by this one: an
+ * optional parameter no longer acquires its type example as a default (TJS's `?:` means
+ * "same as `= value`", so it was the wrong spelling for a TypeScript optional), and a type
+ * annotation on a class-method parameter is no longer left as a runtime default.
+ *
+ * 108/108 is a ceiling, not a finish line — the corpus grows, and this floor exists so a
+ * regression on any file already converting fails by name.
+ */
+const GRADUATION_FLOOR = 108
 
 /** Improve by this much and the test asks for the floor to be raised. */
 const RATCHET_SLACK = 2

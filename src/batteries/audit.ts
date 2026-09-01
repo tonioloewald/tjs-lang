@@ -206,18 +206,8 @@ const fetchWithTimeout = async (url: string, options: RequestInit) => {
  * `content` wins when both are present — it is the real channel, and the reasoning trace is
  * only a fallback for models that misroute.
  */
-export function messageText(message: any): string {
-  if (!message) return ''
-  const content = typeof message.content === 'string' ? message.content : ''
-  if (content.trim()) return content
-  const reasoning =
-    typeof message.reasoning_content === 'string'
-      ? message.reasoning_content
-      : typeof message.reasoning === 'string'
-      ? message.reasoning
-      : ''
-  return reasoning
-}
+export { messageText } from '../message-text'
+import { messageText } from '../message-text'
 
 async function checkStructured(
   baseUrl: string,

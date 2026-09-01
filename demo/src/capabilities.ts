@@ -10,6 +10,10 @@ import {
   looksLikeVisionModel,
 } from '../../src/batteries/audit'
 import { VISION_MODEL } from '../../src/batteries/config'
+// A reasoning model can put the whole answer in `reasoning_content` and leave `content`
+// empty — the NORMAL case for qwen3.8-27b under `response_format`. Reading `content`
+// directly is what made four LLM examples fail with "Unexpected EOF".
+import { messageText, withAnswerContent } from '../../src/message-text'
 
 // Module-level cache for LM Studio models, keyed by endpoint URL
 let cachedLocalModels: Map<string, string[]> = new Map()
@@ -292,7 +296,7 @@ export function buildLLMCapability(settings: LLMSettings) {
       }
       console.log(`✅ LM Studio response in ${elapsed}ms`)
       const data = await response.json()
-      return data.choices?.[0]?.message?.content ?? ''
+      return messageText(data.choices?.[0]?.message)
     } catch (e: any) {
       if (e.message?.includes('Failed to fetch') || e.name === 'TypeError') {
         throw new Error(
@@ -330,7 +334,7 @@ export function buildLLMCapability(settings: LLMSettings) {
       )
     }
     const data = await response.json()
-    return data.choices?.[0]?.message?.content ?? ''
+    return messageText(data.choices?.[0]?.message)
   }
 
   const callAnthropic = async (
@@ -420,7 +424,7 @@ export function buildLLMCapability(settings: LLMSettings) {
       )
     }
     const data = await response.json()
-    return data.choices?.[0]?.message?.content ?? ''
+    return messageText(data.choices?.[0]?.message)
   }
 
   return {
@@ -712,7 +716,7 @@ export function buildLLMBattery(settings: LLMSettings) {
 
       console.log(`✅ LM Studio response in ${elapsed}ms`)
       const data = await response.json()
-      return data.choices?.[0]?.message ?? { content: '' }
+      return withAnswerContent(data.choices?.[0]?.message)
     } catch (e: any) {
       if (e.message?.includes('Failed to fetch') || e.name === 'TypeError') {
         throw new Error(
@@ -760,7 +764,7 @@ export function buildLLMBattery(settings: LLMSettings) {
       )
     }
     const data = await response.json()
-    return data.choices?.[0]?.message ?? { content: '' }
+    return withAnswerContent(data.choices?.[0]?.message)
   }
 
   const callAnthropic = async (
@@ -855,7 +859,7 @@ export function buildLLMBattery(settings: LLMSettings) {
       )
     }
     const data = await response.json()
-    return data.choices?.[0]?.message ?? { content: '' }
+    return withAnswerContent(data.choices?.[0]?.message)
   }
 
   const callGemini = async (
