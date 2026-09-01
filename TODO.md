@@ -8,6 +8,37 @@ test**, with numbers instead of opinions.
 
 ## Formalise the AJS AST (decision 2026-08-02)
 
+- [ ] **The pre-tag gate is not green, and the failures are in `demo/examples.test.ts`.**
+      Full `bun test` on 2026-09-01: 4559 pass / 7 skip / **5 fail**, all in that one file.
+      Four LLM playground examples fail with `JSON Parse error: Unexpected EOF` — an EMPTY
+      completion parsed as JSON. The loaded chat model is `qwen/qwen3.8-27b`, a reasoning
+      model: a direct probe returns good `content`, but it also fills `reasoning_content`, so
+      a modest `max_tokens` can be exhausted before any content is emitted. Suspected
+      environmental (model choice) rather than a code regression — nothing in this session
+      touches the LLM examples — but that is a HYPOTHESIS, not a verified cause, and it must
+      be settled before tagging rather than waved through.
+      The fifth failure is the file's own poison pill (`maxConcurrentTests <= 1`). It fires on
+      a plain `bun test`, which parallelises files — but it ALSO fired under
+      `--max-concurrency 1`, so either the flag does not constrain what the counter measures
+      or the counter is wrong. Worth settling: CLAUDE.md documents the gate as plain
+      `bun test`, green = 0 fail, and as written that gate cannot pass.
+
+- [ ] **Converting TS overloads to runtime dispatch changes behaviour for non-matching input.**
+      In TypeScript the signatures are ERASED, so every call reaches the implementation —
+      which is why radash's `inRange` type-checks its own arguments and returns `false` for
+      nullish or bad input. Converted, the dispatcher rejects those before the implementation
+      sees them: `inRange(null, 0, 20)` returns a MonadicError with
+      `expected: 'no matching overload'`. Two of radash's tests fail on exactly this.
+      This is not a bug in dispatch; it is that making overloads REAL is an upgrade, and the
+      converter's own stated rule is "conversion preserves behaviour; graduation is where
+      upgrades belong" (see `graduate.ts` and the `switch`/`given` case study). It applies to
+      EVERY converted overload group with typed parameters, not just this one.
+      Options, in rough order of honesty: (a) emit implementation-only at conversion time and
+      move dispatch into `graduate`; (b) keep dispatch but fall through to the implementation
+      when no variant matches; (c) leave it and document the divergence. (a) matches the
+      stated principle but removes a headline conversion feature, so it needs a decision
+      rather than a patch.
+
 - [ ] **Bootstrap canary is timing-fragile under subprocess load.** `src/use-cases/bootstrap.test.ts` > "should transpile all TJS lang modules" timed out once at 6.2s during a `test:fast` run,
       immediately after `src/lang/multi-module.test.ts` was added (that file runs one `bun build`
       plus nine `node` spawns). It passed in isolation both with and without SKIP_BENCHMARKS, and
