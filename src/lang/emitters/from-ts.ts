@@ -1833,9 +1833,25 @@ function emitOverloadGroup(
   // Fall back to what TypeScript actually runs — the IMPLEMENTATION — and say what we
   // could not do. Obligation 1 (behavior preserved: the implementation is the only thing
   // that exists at runtime in TS) plus obligation 3 (name the upgrade we skipped).
-  const restInSignature = signatures.some((sig) =>
-    sig.parameters.some((p) => !!p.dotDotDotToken)
-  )
+  // The IMPLEMENTATION counts too, and used not to. A variadic implementation accepts
+  // arities the enumerated overloads do not mention, and those arities are legal calls:
+  //
+  //     function zip<T1,T2>(a: T1[], b: T2[]): [T1,T2][]      // …and 3, 4, 5
+  //     function zip<T>(...arrays: T[][]): T[][] { … }        // the only runtime function
+  //
+  // Splitting that into fixed-arity variants for 2..5 silently DROPS every other arity, so
+  // radash's `zip()` — which its own suite asserts returns `[]` — matched no variant at all.
+  // TypeScript erases the signatures; the implementation is the whole runtime contract, and
+  // a variadic one cannot be enumerated.
+  //
+  // Scanning only the signatures was the same defect shape as the `valueNames` guard two
+  // commits ago: the fallback existed and was correct, and simply did not look at one of its
+  // inputs. Worth noticing as a pattern — a guard that reads a subset of what it guards.
+  const hasRest = (params: ts.NodeArray<ts.ParameterDeclaration>) =>
+    params.some((p) => !!p.dotDotDotToken)
+  const restInSignature =
+    signatures.some((sig) => hasRest(sig.parameters)) ||
+    hasRest(implementation.parameters)
 
   /**
    * Are two signatures indistinguishable at RUNTIME?

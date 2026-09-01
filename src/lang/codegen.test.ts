@@ -9,6 +9,7 @@ import { describe, it, expect } from 'bun:test'
 import { fromTS } from './emitters/from-ts'
 import { generateDocs } from './docs'
 import { tjs } from './index'
+import { createRuntime } from './runtime'
 
 describe('TS → TJS conversion quality', () => {
   describe('function parameters', () => {
@@ -2376,5 +2377,67 @@ describe('rest parameter metadata', () => {
         tjs('const! frozen = { x: 1 }\nconst mutable = { y: 2 }\nfrozen.x = 3')
       ).toThrow("Cannot mutate immutable binding 'frozen'")
     })
+  })
+})
+
+describe('a type annotation on a CLASS METHOD parameter is not a default', () => {
+  // The function path and the method path strip annotations independently, and the method
+  // one tested the AST SHAPE (`right.type === 'Identifier'`) rather than the recorded offset.
+  // A bare `T` matched; `T | undefined` is a BinaryExpression and did not — so the annotation
+  // survived as a runtime default and the type name was EVALUATED:
+  //
+  //     assert(value, message = string | undefined)  ->  ReferenceError: string is not defined
+  //
+  // That is superstruct's `Struct.assert`, and it made `string().assert(42)` throw a
+  // ReferenceError instead of a StructError. Its own suite caught it; nothing here did,
+  // because every existing case used a bare type name.
+  //
+  // Third instance in this area of one shape being covered by two mechanisms: the emitted JS
+  // had been correct only because these params were recorded as REQUIRED, and that branch
+  // stripped the whole default. Fixing the metadata removed the accidental cover.
+  const method = (src: string) =>
+    tjs(src, { runTests: false })
+      .code.split('\n')
+      .find((l) => /\bm\(/.test(l)) ?? ''
+
+  it('strips a union annotation, so the type name is never evaluated', () => {
+    const out = method(
+      'class C { m(v: 0, msg: string | undefined) { return msg } }'
+    )
+    expect(out).toContain('m(v,msg)')
+    expect(out).not.toContain('string | undefined')
+  })
+
+  it('strips a bare type-name annotation (the case that already worked)', () => {
+    expect(method('class C { m(msg: string) { return msg } }')).toContain(
+      'm(msg)'
+    )
+  })
+
+  it('keeps a GENUINE default, which is the same AST shape', () => {
+    // `m(x = a | b)` is a real JS expression and must survive. Only the parser's recorded
+    // offset distinguishes it from an annotation — the nodes are identical.
+    expect(
+      method('class C { m(msg = false | undefined) { return msg } }')
+    ).toContain('msg = false | undefined')
+  })
+
+  it('the method is callable with the argument omitted', () => {
+    const prev = (globalThis as any).__tjs
+    ;(globalThis as any).__tjs = createRuntime()
+    try {
+      const C: any = new Function(
+        tjs(
+          'class C { m(v: 0, msg: string | undefined) { return msg ?? "none" } }',
+          {
+            runTests: false,
+          }
+        ).code + '\nreturn C'
+      )()
+      expect(new C().m(1)).toBe('none')
+      expect(new C().m(1, 'hi')).toBe('hi')
+    } finally {
+      ;(globalThis as any).__tjs = prev
+    }
   })
 })

@@ -1569,12 +1569,23 @@ export function transpileToJS(
       const name = param.left?.name
       const right = param.right
       if (!name || !right || typeof right.start !== 'number') continue
-      // `x: 0` — required, so the example is a type and never a default.
-      // `x?: T` — optional, and `T` is a dangling identifier.
+      // `x: 0`             — required, so the example is a type and never a default.
+      // `x: T | undefined`  — optional, and the whole annotation is a dangling expression.
+      //
+      // Keyed on the recorded OFFSET alone, with no test of the node's SHAPE. The shape test
+      // was `right.type === 'Identifier'`, which covered a bare `T` and silently skipped
+      // `T | undefined` — a BinaryExpression — so a method parameter kept it as a runtime
+      // default and `string` was evaluated as a value:
+      //
+      //     assert(value, message = string | undefined)   ->  ReferenceError: string is not defined
+      //
+      // That is superstruct's `Struct.assert`, and it is why `string().assert(42)` threw the
+      // wrong error entirely. The offset is the only reliable signal anyway: `f(x = a | b)`
+      // is a genuine default and `f(x: a | b)` is an annotation, and they are the same AST.
+      // Only the parser knows which was written, and it says so by recording the offset.
       if (
         preprocessed.requiredValueOffsets.has(right.end) ||
-        (right.type === 'Identifier' &&
-          preprocessed.typeNameValueOffsets.has(right.end))
+        preprocessed.typeNameValueOffsets.has(right.end)
       ) {
         deletions.push({ start: param.left.end, end: right.end })
       }

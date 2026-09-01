@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'bun:test'
 import { fromTS as fromTSToTJS } from './emitters/from-ts'
 import { tjs } from './index'
+import { createRuntime } from './runtime'
 
 /**
  * The composed path: TS -> TJS -> JS.
@@ -817,5 +818,66 @@ describe('a value binding of any shape blocks promoting a same-named type', () =
         `export const use = (x: Other) => x\n`
     )
     expect(out).toMatch(/\bType\s+Thing\b/)
+  })
+})
+
+describe('a variadic implementation cannot be split into fixed-arity variants', () => {
+  // TypeScript overloads are compile-time only: the IMPLEMENTATION is the whole runtime
+  // contract. When it is variadic it accepts arities the enumerated signatures never mention,
+  // and those are legal calls — so turning the group into fixed-arity dispatch variants
+  // silently drops them.
+  //
+  // radash's `zip` declares overloads for 2, 3, 4 and 5 arrays plus
+  // `zip<T>(...arrays: T[][])`. We emitted variants for 2..5, so `zip()` matched nothing —
+  // and radash's own suite asserts it returns `[]`. The fallback for this already existed and
+  // was correct; it just never looked at the implementation, only at the signatures.
+  const src = `
+export function zip<T1, T2>(a: T1[], b: T2[]): [T1, T2][]
+export function zip<T1, T2, T3>(a: T1[], b: T2[], c: T3[]): [T1, T2, T3][]
+export function zip<T>(...arrays: T[][]): T[][] {
+  if (!arrays || !arrays.length) return []
+  return arrays[0].map((_, i) => arrays.map((a) => a[i]))
+}`
+
+  it('falls back to the implementation, keeping every arity callable', () => {
+    const tjsCode = fromTS(src, { emitTJS: true, filename: 'a.ts' }).code
+    // One variadic function, not a dispatch group.
+    expect(tjsCode).toContain('function zip(...arrays')
+    expect(tjsCode.match(/function zip\b/g)?.length).toBe(1)
+
+    const prev = (globalThis as any).__tjs
+    ;(globalThis as any).__tjs = createRuntime()
+    try {
+      const zip: any = new Function(
+        tjs(tjsCode, { runTests: false }).code.replace(/^export /gm, '') +
+          '\nreturn zip'
+      )()
+      // The arity the overloads never mention — the one that was unreachable.
+      expect(zip()).toEqual([])
+      expect(zip([1, 2], ['a', 'b'])).toEqual([
+        [1, 'a'],
+        [2, 'b'],
+      ])
+      expect(zip([1], ['a'], [true])).toEqual([[1, 'a', true]])
+    } finally {
+      ;(globalThis as any).__tjs = prev
+    }
+  })
+
+  it('says what it could not do, rather than dropping the signatures silently', () => {
+    const result = fromTS(src, { emitTJS: true, filename: 'a.ts' })
+    expect(result.code).toContain('rest parameters are unsupported')
+    expect((result.warnings ?? []).join('\n')).toContain('rest parameters')
+  })
+
+  it('a group with NO rest parameter anywhere still gets real dispatch', () => {
+    // The fallback must not swallow the groups that convert correctly — that would be a
+    // silent loss of the feature this whole path exists to provide.
+    const fixed = `
+export function pick(a: string): string
+export function pick(a: string, b: number): string
+export function pick(a: string, b?: number): string { return b === undefined ? a : a + b }`
+    const out = fromTS(fixed, { emitTJS: true, filename: 'a.ts' }).code
+    expect(out.match(/function pick\b/g)?.length).toBeGreaterThan(1)
   })
 })
