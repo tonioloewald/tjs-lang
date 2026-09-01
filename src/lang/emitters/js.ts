@@ -1237,8 +1237,37 @@ export function transpileToJS(
         } else {
           const right = (param as any).right
           // Optional param with union — strip just the `| suffix`
-          if (right.type === 'BinaryExpression' && right.operator === '|') {
+          if (
+            right.type === 'BinaryExpression' &&
+            right.operator === '|' &&
+            !preprocessed.typeNameValueOffsets.has(right.end)
+          ) {
+            // A genuine DEFAULT whose type is a union: `f(x = false | undefined)`. Keep the
+            // default, shed the type suffix -> `f(x = false)`.
             deletions.push({ start: right.left.end, end: right.end })
+          } else if (
+            right.type === 'BinaryExpression' &&
+            right.operator === '|'
+          ) {
+            // Delete the WHOLE annotation, not just the `| undefined` suffix. `x: T |
+            // undefined` is a type that spells "or absent"; leaving `x = T` behind turns the
+            // type into a DEFAULT, which is a different function.
+            //
+            // This only showed up once the parameter stopped being recorded as required —
+            // before that the required branch above stripped the whole default and hid it.
+            // Two mechanisms produced the right output for one shape, so fixing the metadata
+            // uncovered the second.
+            //
+            // Gated on the OFFSET, because two shapes look identical in the AST and mean
+            // opposite things:
+            //
+            //     f(x: false | undefined)   annotation -> f(x)          no default
+            //     f(x = false | undefined)  DEFAULT    -> f(x = false)  keeps it
+            //
+            // Only the parser knows which was written, and it says so by recording the
+            // annotation's end offset. Deleting on the AST shape alone destroyed explicit
+            // defaults whose type happened to be a union.
+            deletions.push({ start: (param as any).left.end, end: right.end })
           } else if (
             right.type === 'Identifier' &&
             preprocessed.typeNameValueOffsets.has(right.end)

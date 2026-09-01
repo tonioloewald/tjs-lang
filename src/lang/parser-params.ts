@@ -19,6 +19,7 @@ import {
   maskLiterals,
   scanLiterals,
   splitTopLevel,
+  splitTopLevelTrimmed,
 } from '../strip-comments'
 import {
   isTypeNameAnnotation,
@@ -1622,7 +1623,26 @@ function processParamString(
         // Allow it — JavaScript handles this fine (caller passes undefined)
       }
 
+      // `x: T | undefined` is OPTIONAL. The union spells "or absent", which is what the
+      // converter emits for a TypeScript optional — `?:` cannot be used there because it
+      // means "defaults to this example" (CLAUDE-TJS-SYNTAX.md).
+      //
+      // It used to be recorded as REQUIRED, so the emitted metadata said `required: true`
+      // for a parameter the converter had just described as optional. That disagreement is
+      // what motivated switching the converter to `?:`, which fixed the metadata by
+      // introducing a behaviour bug — a bad trade. Fixed here instead, at the one place that
+      // knows the annotation contained `undefined`.
+      //
+      // The emitted JS is unaffected: the param still carries the marker, so the whole
+      // dangling `= T | undefined` is stripped and the parameter is genuinely optional.
       if (trackRequired && /^\w+$/.test(name)) {
+        if (isOptionalUnion(type)) {
+          // The OPTIONAL marker, not the required one. `required` in the emitted metadata is
+          // driven by which marker is recorded here, not by `requiredParams` — so marking it
+          // required is what made the metadata contradict the converter.
+          ctx.typeNameOptionals.add(name)
+          return `${name} = ${type} ${PARAM_TYPENAME_MARKER}`
+        }
         ctx.requiredParams.add(name)
         return `${name} = ${type} ${PARAM_REQUIRED_MARKER}`
       }
@@ -1633,6 +1653,16 @@ function processParamString(
   })
 
   return processed.join(',')
+}
+
+/**
+ * Does a type annotation spell "or absent" as a top-level union with `undefined`?
+ *
+ * `fromTS` emits `name: T | undefined` for a TypeScript optional. Depth-aware so a nested
+ * `Foo<A | undefined>` — where the parameter itself is required — is not misread.
+ */
+function isOptionalUnion(type: string): boolean {
+  return splitTopLevelTrimmed(type, '|').some((p) => p === 'undefined')
 }
 
 /**

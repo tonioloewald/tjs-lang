@@ -877,7 +877,7 @@ describe('Real-World Patterns', () => {
     // mandatory and the emitted metadata said `required: true` while `fromTS`'s own said
     // `required: false`. The property this test actually protects — that no JS default is
     // invented — still holds, and now the parameter is optional too.
-    expect(tjsCode).toContain('excited?: boolean')
+    expect(tjsCode).toContain('excited: boolean | undefined')
     // TS-originated code defaults to safety none — add safety inputs to test validation
     const jsResult = tjs('safety inputs\n' + tjsCode)
     // JS should not have default or bitwise OR — `:` means required

@@ -32,11 +32,17 @@ describe('TS → TJS conversion quality', () => {
       const ts = `function greet(name?: string): string { return name || 'World' }`
       const { code } = fromTS(ts, { emitTJS: true })
 
-      // `name?: string` is TypeScript's spelling and valid TJS, so the annotation survives.
-      // This asserted `name: string | undefined`, which preserved the type but made the
-      // parameter REQUIRED — `name: T` is required in TJS whatever T is.
-      expect(code).toContain('name?: string')
-      expect(code).not.toContain('| undefined')
+      // `T | undefined`, NOT `?:`. TJS's `?:` is documented as "same as `name = value`"
+      // (CLAUDE-TJS-SYNTAX.md), so it is precisely the wrong spelling for a TypeScript
+      // optional, which means "undefined when omitted" and never "defaults to an example".
+      //
+      // This briefly asserted `?:`, to fix the emitted metadata saying `required: true` for a
+      // parameter the converter had just called optional. That traded a metadata bug for a
+      // BEHAVIOUR bug: every optional gained its type example as a default, and radash's
+      // `toKey ? toKey(item) : item` then called a truthy FunctionPredicate object. Only
+      // radash's own suite caught it — the output was valid JavaScript doing the wrong thing.
+      // The metadata is now fixed at its source, so the union is right on both axes.
+      expect(code).toContain('name: string | undefined')
     })
 
     it('preserves explicit default values', () => {
@@ -57,7 +63,7 @@ describe('TS → TJS conversion quality', () => {
       const ts = `function greet(name: string, excited?: boolean): string { return excited ? name + '!' : name }`
       const { code } = fromTS(ts, { emitTJS: true })
 
-      expect(code).toContain('excited?: boolean')
+      expect(code).toContain('excited: boolean | undefined')
     })
 
     it('converts array param correctly', () => {
@@ -88,7 +94,7 @@ describe('TS → TJS conversion quality', () => {
       const { code } = fromTS(ts, { emitTJS: true })
 
       expect(code).toContain('url: string')
-      expect(code).toContain('timeout?: number')
+      expect(code).toContain('timeout: number | undefined')
     })
   })
 
@@ -648,8 +654,8 @@ console.log(second())
       const ts = `function test(x?: number, y?: string): void { }`
       const { code } = fromTS(ts, { emitTJS: true })
 
-      expect(code).toContain('x?: number')
-      expect(code).toContain('y?: string')
+      expect(code).toContain('x: number | undefined')
+      expect(code).toContain('y: string | undefined')
     })
 
     it('uses -! syntax for return types (skip signature test)', () => {
@@ -1299,7 +1305,12 @@ function test(required: string, optional?: number): void { }
       // become `optional: number | undefined` — a REQUIRED param that tolerates undefined —
       // so this pair of assertions was the defect written down as the specification.
       expect(types?.test?.params?.optional?.required).toBe(false)
-      expect(types?.test?.params?.optional?.type?.kind).toBe('number')
+      // `union`, because the annotation genuinely IS `number | undefined`. `required: false`
+      // is the part that was wrong and is fixed at its source; the descriptor kind is
+      // unchanged from v0.13.6. Collapsing `T | undefined` to `T` + optional would be a
+      // better descriptor for a consumer — filed in TODO.md rather than done in passing,
+      // since it changes a published metadata shape.
+      expect(types?.test?.params?.optional?.type?.kind).toBe('union')
     })
   })
 })

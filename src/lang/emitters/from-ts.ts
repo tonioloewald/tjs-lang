@@ -2697,8 +2697,29 @@ function transformParams(
       // survives for a reader and for the `.d.ts` emitter — and the hint names the upgrade
       // and where it is documented.
       //
-      // A SCALAR optional (`title?: string`) needs none of this: it carries no members to
-      // fill, and `?:` already means what TypeScript means.
+      // A SCALAR optional does NOT get `?:` either — and the reason is the sentence three
+      // paragraphs up, which this code previously wrote down and then contradicted:
+      // TJS's `?:` lowers to `= value`. That is not a quirk, it is the documented semantic
+      // (`CLAUDE-TJS-SYNTAX.md`: `function greet(name?: '')` is "same as name = ''"). So
+      // `?:` is exactly the wrong spelling for a TypeScript optional, which means "undefined
+      // when omitted" and never "defaults to an example of the type".
+      //
+      //     TS   unique(a)   ->  toKey === undefined
+      //     `?:` unique(a)   ->  toKey = FunctionPredicate(…)  — a truthy OBJECT
+      //
+      // radash's `unique` does `toKey ? toKey(item) : item`, so the truthy non-function took
+      // the wrong branch: `TypeError: toKey is not a function` in radash's own suite. The
+      // output was valid JavaScript doing the wrong thing, so every parse-level lane stayed
+      // green — the compat lane caught it and nothing else could have.
+      //
+      // The test that covered this used `excited?: boolean`. `boolean` is a bare TYPE NAME,
+      // which takes a different path in the lowering and correctly emits no default, so it
+      // passed while every literal or call-expression example silently gained one.
+      //
+      // `T | undefined` is the released spelling (v0.13.6). It carries the type, produces no
+      // default, and now also reports `required: false` — the metadata bug that motivated
+      // reaching for `?:` in the first place is fixed below rather than traded for a
+      // behaviour bug.
       const isObject = typeExample.trimStart().startsWith('{')
       if (isObject) {
         // The hint goes to WARNINGS, not into the parameter list.
@@ -2717,7 +2738,7 @@ function transformParams(
         )
         params.push(name)
       } else {
-        params.push(`${name}?: ${typeExample}`)
+        params.push(`${name}: ${typeExample} | undefined`)
       }
     } else {
       // Required - use : for required

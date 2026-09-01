@@ -36,25 +36,29 @@ describe('TypeScript to TJS Transpiler', () => {
     })
 
     it("keeps an optional param optional, in TypeScript's own spelling", () => {
-      // This asserted `title: string | undefined` — the union preserves the TYPE, but
-      // `name: T` is REQUIRED in TJS whatever T is, so the parameter came out mandatory.
-      // The emitted `__tjs` then said `required: true` while `fromTS`'s own metadata said
-      // `required: false`: the text and the metadata disagreed about the same parameter.
+      // `T | undefined`, NOT `?:`. TJS's `?:` is documented as "same as `name = value`"
+      // (CLAUDE-TJS-SYNTAX.md), so it is precisely the wrong spelling for a TypeScript
+      // optional, which means "undefined when omitted" and never "defaults to an example".
       //
-      // `title?: string` is valid TJS and identical to the TypeScript source, so the
-      // author's annotation survives conversion intact.
+      // This briefly asserted `?:`, to fix the emitted metadata saying `required: true` for a
+      // parameter the converter had just called optional. That traded a metadata bug for a
+      // BEHAVIOUR bug: every optional gained its type example as a default, and radash's
+      // `toKey ? toKey(item) : item` then called a truthy FunctionPredicate object. Only
+      // radash's own suite caught it — the output was valid JavaScript doing the wrong thing.
+      // The metadata is now fixed at its source, so the union is right on both axes.
       const result = fromTS(
         `function greet(name: string, title?: string) { return name }`,
         { emitTJS: true }
       )
       expect(result.code).toContain('name: string')
-      expect(result.code).toContain('title?: string')
+      expect(result.code).toContain('title: string | undefined')
       // The property that was actually broken — asserted through the emitted metadata,
       // because that is what a consumer reads.
       const js = tjs(result.code, { runTests: false }).code
       const meta = new Function(`${js}; return greet.__tjs;`)()
       expect(meta.params.title.required).toBe(false)
-      expect(meta.params.title.type.kind).toBe('string')
+      // `union` — the annotation is `string | undefined`. See the note in codegen.test.ts.
+      expect(meta.params.title.type.kind).toBe('union')
     })
 
     it('should convert return type to -! annotation (skip signature test)', () => {
@@ -562,7 +566,7 @@ describe('an optional object param is passed through, with a hint', () => {
       `export function f(title?: string): string { return title ?? '' }`,
       { emitTJS: true }
     )
-    expect(code).toContain('title?: string')
+    expect(code).toContain('title: string | undefined')
   })
 })
 
