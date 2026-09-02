@@ -1,5 +1,13 @@
 # TJS Roadmap
 
+## Parser architecture — reassessment triggered (2026-09-02)
+
+The standing note was "reassess a real lexer/CST if edge cases increase". They have. Seven
+remaining compat-corpus failures reduce to ~6 bugs, essentially all one class: a scanner that
+knows characters but not grammar. The proposal is NOT a rewrite — see
+[`docs/parser-primitives.md`](docs/parser-primitives.md) for the evidence, the two primitives
+that cover most of it, and the sequencing.
+
 ## Philosophy
 
 TJS is a practical language that targets multiple runtimes. The type system is _descriptive_ rather than _prescriptive_ - types explain what they are, validate at runtime, and degrade gracefully. No TypeScript gymnastics.
