@@ -47,7 +47,7 @@ const MAX_BYTES = 400 * 1024
  * Files that do not convert-and-parse today, with WHY.
  *
  * A cause, not just an error string — "known failure" with no diagnosis is how a ratchet
- * becomes a graveyard. Recorded 2026-09-02 at 1965/1973 (99.59%).
+ * becomes a graveyard. Recorded 2026-09-02 at 1966/1973 (99.65%).
  */
 const KNOWN = new Map<string, string>([
   // (The scope-blind polymorphic merge is FIXED — it grouped same-named functions across the
@@ -77,7 +77,6 @@ const KNOWN = new Map<string, string>([
     'effect/packages/platform-node-shared/src/internal/commandExecutor.ts',
     'Unexpected token',
   ],
-  ['effect/packages/ai/ai/src/Tool.ts', 'Unexpected token'],
   [
     'zod/packages/zod/src/v4/core/registries.ts',
     'rest param with a type annotation, in a method',

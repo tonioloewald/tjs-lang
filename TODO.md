@@ -8,6 +8,13 @@ test**, with numbers instead of opinions.
 
 ## Formalise the AJS AST (decision 2026-08-02)
 
+- [ ] **A generic type-param default containing `=>` is not parseable.** `Generic Bar<T = () => 0>`
+      fails with "Unexpected token". The `<…>` extraction treats the `>` of `=>` as the closing
+      angle bracket, so the list is cut short — upstream of `parseGenericTypeParams`, which
+      handles the arrow correctly once it receives the whole string. Verified PRE-EXISTING by
+      A/B (fails identically with and without the depth-aware split), so it is a gap rather
+      than a regression. Same fix shape as the comma split: the scan needs to skip `=>`.
+
 - [ ] **Bootstrap canary is timing-fragile under subprocess load.** `src/use-cases/bootstrap.test.ts` > "should transpile all TJS lang modules" timed out once at 6.2s during a `test:fast` run,
       immediately after `src/lang/multi-module.test.ts` was added (that file runs one `bun build`
       plus nine `node` spawns). It passed in isolation both with and without SKIP_BENCHMARKS, and

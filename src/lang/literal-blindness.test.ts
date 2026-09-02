@@ -832,3 +832,31 @@ describe('a generated comment cannot be terminated by the text it quotes', () =>
     expect(commentSafe('no terminator')).toBe('no terminator')
   })
 })
+
+describe('a generic type-parameter list is split depth-aware', () => {
+  // `<Name, Config = { args: X, parameters: Y }>` — the list is comma-separated and its
+  // members CONTAIN commas, so a plain `.split(',')` cut inside the braces and produced a
+  // brace closed by a bracket:
+  //
+  //     Generic(['Name', ['Config', { args: null], 'parameters: null', …
+  //
+  // Not a parse gap — invalid JavaScript that we emitted. effect's `Tool.ts` failed on it.
+  it('an object-typed default survives with its commas intact', () => {
+    const out = preprocess(
+      `Generic Foo<Name, Config = { a: 0, b: 0 }> {\n  description: 'f'\n  predicate(x, Name, Config) { return true }\n}`,
+      { filename: 'a.tjs' }
+    ).source
+    // Byte-level: the members stay inside one object, and no bracket closes a brace.
+    expect(out).toContain("['Config', { a: 0, b: 0 }]")
+    expect(out).not.toMatch(/\{[^}]*\]/)
+  })
+
+  it('two type params still split into two entries', () => {
+    const out = preprocess(
+      `Generic Foo<A, B = 0> {\n  description: 'f'\n  predicate(x, A, B) { return true }\n}`,
+      { filename: 'a.tjs' }
+    ).source
+    expect(out).toContain("'A'")
+    expect(out).toContain("['B', 0]")
+  })
+})

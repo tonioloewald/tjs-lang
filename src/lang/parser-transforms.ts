@@ -11,6 +11,7 @@ import {
   isEscapedAt,
   scanLiterals,
   matchingBrace,
+  splitTopLevelTrimmed,
 } from '../strip-comments'
 import {
   constructsDeclaredClass,
@@ -2771,20 +2772,7 @@ export function transformFunctionPredicateDeclarations(source: string): string {
 
           if (typeParamsStr) {
             // Generic form — emit factory with type params
-            const typeParams = typeParamsStr.split(',').map((p) => {
-              const parts = p
-                .trim()
-                .split('=')
-                .map((s) => s.trim())
-              if (parts.length === 2) {
-                const defaultVal =
-                  parts[1] === 'any' || parts[1] === 'undefined'
-                    ? 'null'
-                    : parts[1]
-                return `['${parts[0]}', ${defaultVal}]`
-              }
-              return `'${parts[0]}'`
-            })
+            const typeParams = parseGenericTypeParams(typeParamsStr).entries
             const paramNames = typeParamsStr
               .split(',')
               .map((p) => p.trim().split('=')[0].trim())
@@ -2901,19 +2889,7 @@ export function transformGenericDeclarations(
       const blockEnd = k
 
       // Parse type params: T, U = Default
-      const typeParams = typeParamsStr.split(',').map((p) => {
-        const parts = p
-          .trim()
-          .split('=')
-          .map((s) => s.trim())
-        if (parts.length === 2) {
-          // 'any' and 'undefined' aren't valid JS values — use null
-          const defaultVal =
-            parts[1] === 'any' || parts[1] === 'undefined' ? 'null' : parts[1]
-          return `['${parts[0]}', ${defaultVal}]`
-        }
-        return `'${parts[0]}'`
-      })
+      const typeParams = parseGenericTypeParams(typeParamsStr).entries
 
       // Parse the block body
       // Strip declaration { ... } block before parsing (it's .d.ts metadata, not runtime)
@@ -3864,6 +3840,65 @@ export function findFunctionBodyEnd(
  *   return __tjs.typeError('greet', 'no matching overload', __args)
  * }
  */
+/**
+ * Parse a generic type-parameter list into the `Generic([...])` argument form.
+ *
+ * `<Name, Config = { args: X, parameters: Y }>` — the list is comma-separated and the members
+ * may CONTAIN commas, so splitting on `,` cut inside the braces:
+ *
+ *     Generic(['Name', ['Config', { args: null], 'parameters: null', …
+ *                                            ^ a brace closed by a bracket
+ *
+ * which is not valid JavaScript at all. effect's `Tool.ts` failed on exactly that. Uses
+ * `splitTopLevelTrimmed`, the repo's one depth-aware splitter, rather than a fourth private
+ * copy of the scan.
+ *
+ * The `=` split had the same defect and a quieter symptom: `T = () => 0` splits into three
+ * parts on a plain `.split('=')`, and the old code fell through to the no-default branch, so
+ * the DEFAULT WAS SILENTLY DROPPED and the parameter degraded to untyped. Splitting at the
+ * first top-level `=` that is not part of `=>`, `==`, `<=`, `>=` or `!=` keeps it.
+ */
+function parseGenericTypeParams(typeParamsStr: string): {
+  entries: string[]
+  names: string[]
+} {
+  const entries: string[] = []
+  const names: string[] = []
+  for (const part of splitTopLevelTrimmed(typeParamsStr, ',')) {
+    const at = topLevelDefaultEq(part)
+    const name = (at === -1 ? part : part.slice(0, at)).trim()
+    const def = at === -1 ? '' : part.slice(at + 1).trim()
+    names.push(name)
+    if (def) {
+      // `any`/`undefined` are not values a default can hold.
+      entries.push(
+        `['${name}', ${def === 'any' || def === 'undefined' ? 'null' : def}]`
+      )
+    } else {
+      entries.push(`'${name}'`)
+    }
+  }
+  return { entries, names }
+}
+
+/** Index of the first top-level `=` that introduces a DEFAULT, or -1. */
+function topLevelDefaultEq(src: string): number {
+  const masked = maskLiterals(src)
+  let depth = 0
+  for (let i = 0; i < masked.length; i++) {
+    const c = masked[i]
+    if (c === '(' || c === '[' || c === '{' || c === '<') depth++
+    else if (c === ')' || c === ']' || c === '}' || c === '>') depth--
+    else if (c === '=' && depth === 0) {
+      // Not `=>`, `==`, and not the tail of `<=`, `>=`, `!=`.
+      if (masked[i + 1] === '>' || masked[i + 1] === '=') continue
+      if ('<>!='.includes(masked[i - 1] ?? '')) continue
+      return i
+    }
+  }
+  return -1
+}
+
 export function transformPolymorphicFunctions(
   source: string,
   requiredParams: Set<string>,
