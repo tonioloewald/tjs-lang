@@ -620,6 +620,7 @@ describe('Bootstrap Canary', () => {
       const listed = [
         'parser-types.ts',
         'declared-classes.ts',
+        'expression-context.ts',
         'parser-params.ts',
         'parser-transforms.ts',
         'type-signature.ts',
@@ -654,6 +655,7 @@ describe('Bootstrap Canary', () => {
       const moduleFiles = [
         'parser-types.ts',
         'declared-classes.ts',
+        'expression-context.ts',
         'parser-params.ts',
         'parser-transforms.ts',
         'type-signature.ts',
@@ -782,6 +784,7 @@ describe('Bootstrap Canary', () => {
       const moduleFiles = [
         'parser-types.ts',
         'declared-classes.ts',
+        'expression-context.ts',
         'parser-params.ts',
         'parser-transforms.ts',
         'type-signature.ts',

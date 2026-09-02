@@ -12,6 +12,7 @@ import type {
   ContextFrame,
 } from './parser-types'
 import { locAt } from './parser-transforms'
+import { isTernaryColon } from './expression-context'
 import {
   isRegexStart,
   findRegexEnd,
@@ -784,8 +785,15 @@ export function transformParenExpressions(
       while (j < source.length && /\s/.test(source[j])) j++
 
       // Check for return type annotation on arrow function: ): type =>
+      //
+      // Unless a ternary is still waiting for its alternative, in which case this `:` is
+      // that alternative and consuming it as a type deletes a branch of the program. The
+      // `isCallArgs` guard above catches the sibling shape by noticing that a call's `(`
+      // follows its callee — true, but a proxy: here the `(` follows `?`, because the
+      // consequent is a PARENTHESIZED EXPRESSION rather than a call. `isTernaryColon` asks
+      // the question directly instead of inferring it from the neighbouring token.
       let arrowReturnType: string | undefined
-      if (source[j] === ':') {
+      if (source[j] === ':' && !isTernaryColon(source, j)) {
         const colonMarker = source.slice(j, j + 2)
         if (colonMarker === ':?' || colonMarker === ':!') {
           j += 2
