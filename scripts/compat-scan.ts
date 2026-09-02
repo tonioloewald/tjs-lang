@@ -47,42 +47,13 @@ const MAX_BYTES = 400 * 1024
  * Files that do not convert-and-parse today, with WHY.
  *
  * A cause, not just an error string — "known failure" with no diagnosis is how a ratchet
- * becomes a graveyard. Recorded 2026-08-31 at 1960/1973 (99.34%).
+ * becomes a graveyard. Recorded 2026-09-02 at 1965/1973 (99.59%).
  */
 const KNOWN = new Map<string, string>([
-  // --- ONE BUG: the polymorphic merge is scope-blind (5) ----------------------------------
-  // Filed for weeks as "ambiguous overloads". It is not about overloads at all — converted
-  // TypeScript no longer emits dispatch variants, and these still fail. They are independent
-  // LOCAL functions that happen to share a name in DIFFERENT scopes, merged into one bogus
-  // dispatch group and then rejected as ambiguous:
-  //
-  //     PgClient.ts    function onError(cause)  +  function onError(cause_)
-  //     HttpApi.ts     function process(type)   +  function process(ast)
-  //     httpClient.ts  function onError(cause)  +  function onError(cause)   <- identical
-  //     Iterable.ts    function next() + let next = … + const next = …       <- 7 bindings
-  //
-  // Reproduces in five lines with no TypeScript involved:
-  //
-  //     function a() { function f(x) { return x } return f(1) }
-  //     function b() { function f(x) { return x } return f(2) }
-  //
-  // So this is a LANGUAGE bug, not a converter bug, and it is a SUBSET VIOLATION — that is
-  // legal JavaScript that TJS refuses, which `PRINCIPLES.md` says cannot happen and
-  // `subset-invariant.test.ts` exists to prevent. Worth asking why that guard did not catch
-  // it before fixing the merge.
-  ['effect/packages/platform/src/HttpApi.ts', "overloads for 'process'"],
-  ['effect/packages/effect/src/internal/effectable.ts', "overloads for 'Base'"],
-  ['effect/packages/effect/src/Iterable.ts', "overloads for 'next'"],
-  ['effect/packages/sql-pg/src/PgClient.ts', "overloads for 'onError'"],
-  [
-    'effect/packages/platform-node/src/internal/httpClient.ts',
-    "overloads for 'onError'",
-  ],
-
-  // (The whole "already declared" cluster is gone: three were symptoms of destructuring
-  // renames being rewritten as dictionary members, and two were `valueNames` not recognising
-  // imports or destructured declarations as value bindings.)
-
+  // (The scope-blind polymorphic merge is FIXED — it grouped same-named functions across the
+  // whole file with no notion of scope, so two ordinary local helpers were rejected as
+  // ambiguous variants. Five entries lived here. It was a SUBSET VIOLATION, not a dispatch
+  // limitation, and `subset-invariant.test.ts` now carries the shape plus four neighbours.)
   // --- emitted shape acorn rejects (2) ----------------------------------------------------
   // Not parse GAPS — these are constructs we emit that are not valid JavaScript, which is
   // the more serious kind. See the export/super/generator fixes for the same class.

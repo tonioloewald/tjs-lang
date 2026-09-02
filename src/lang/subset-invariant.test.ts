@@ -72,6 +72,33 @@ describe('Language subset invariants (PRINCIPLES.md)', () => {
     // Plain JavaScript under options-off TJS (TjsCompat disables all modes).
     const jsSnippets: Array<[string, string]> = [
       ['arithmetic fn', `function f(x) { return x + 1 }`],
+      // Two ordinary local helpers that happen to share a name. The polymorphic merge
+      // grouped by NAME across the whole file, with no notion of scope, so this was rejected
+      // as "variants 1 and 2 have ambiguous signatures" — legal JavaScript that TJS refused.
+      //
+      // Five of the thirteen known compat-corpus failures were this, all filed under the
+      // wrong cause because the error described the merge's internal state rather than the
+      // merge being wrong to have formed a group at all.
+      //
+      // This corpus did not catch it because it was three snippets. That is the real lesson:
+      // "JS ⊆ TJS" cannot be spot-checked, and a guard this cheap should be fed every
+      // ordinary shape somebody thinks of. The rows below are the adjacent ones.
+      [
+        'same-named locals in sibling scopes',
+        `function a() { function f(x) { return x } return f(1) }\nfunction b() { function f(x) { return x } return f(2) }`,
+      ],
+      [
+        'a local shadowing a top-level function',
+        `function f(x) { return x }\nfunction g() { function f(y) { return y * 2 } return f(2) }`,
+      ],
+      [
+        'a name reused as function, let and const in different scopes',
+        `function a() { function n() { return 1 } return n() }\nfunction b() { let n = 2; return n }\nfunction c() { const n = 3; return n }`,
+      ],
+      [
+        'same-named helpers nested two levels deep',
+        `function a() { function m() { function h() { return 1 } return h() } return m() }\nfunction b() { function m() { function h() { return 2 } return h() } return m() }`,
+      ],
       [
         'control flow + array methods',
         `function f(xs) {\n  let total = 0\n  for (const x of xs) { total += x }\n  return xs.map(v => v * 2).filter(v => v > total)\n}`,

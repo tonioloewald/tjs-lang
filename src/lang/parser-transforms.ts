@@ -3913,22 +3913,79 @@ export function transformPolymorphicFunctions(
     })
   }
 
-  // Group by name
+  // Which SCOPE each declaration sits in, so two same-named functions in different scopes
+  // are not merged into one dispatch group.
+  //
+  // Grouping by name alone treated these as variants of each other:
+  //
+  //     function a() { function f(x) { return x } return f(1) }
+  //     function b() { function f(x) { return x } return f(2) }
+  //
+  // — two ordinary local helpers, rejected with "variants 1 and 2 have ambiguous
+  // signatures". That is plain JavaScript TJS refused to accept, so it was a SUBSET
+  // VIOLATION (PRINCIPLES.md), not a dispatch limitation. It accounted for five of the
+  // thirteen known compat-corpus failures, all of them filed under the wrong cause because
+  // the error message described the merge's internal state rather than the merge being
+  // wrong to have formed a group at all.
+  //
+  // Depth alone is not enough: effect's `httpClient.ts` has two IDENTICAL `function
+  // onError(cause)` declarations nested one level inside DIFFERENT parents, so they share a
+  // depth and must still not merge. The key is the offset of the innermost enclosing brace.
+  //
+  // One pass, consuming matches in order as it goes, rather than a per-match rescan — this
+  // transform already runs over every file in a quadratic-sensitive pass.
+  const scopeOfMatch = new Map<number, number>()
+  {
+    const stack: number[] = []
+    let mi = 0
+    for (let i = 0; i < scanSource.length && mi < allMatches.length; i++) {
+      while (mi < allMatches.length && allMatches[mi].fullMatchStart === i) {
+        scopeOfMatch.set(
+          allMatches[mi].fullMatchStart,
+          stack.length ? stack[stack.length - 1] : -1
+        )
+        mi++
+      }
+      const c = scanSource[i]
+      if (c === '{') stack.push(i)
+      else if (c === '}') stack.pop()
+    }
+    // Any match at or past the final scan position is top level by construction.
+    for (; mi < allMatches.length; mi++) {
+      scopeOfMatch.set(allMatches[mi].fullMatchStart, -1)
+    }
+  }
+  /** Group key: a name is only polymorphic WITHIN one scope. */
+  const keyOf = (m: { name: string; fullMatchStart: number }) =>
+    `${m.name}@${scopeOfMatch.get(m.fullMatchStart) ?? -1}`
+
+  /**
+   * The real function name for each scoped key.
+   *
+   * The key (`name@scopeOffset`) is INTERNAL. It is a Map key and nothing else — it must
+   * never reach emitted code or a diagnostic. It did, briefly, both ways: the dispatcher was
+   * named from it and a user saw `Polymorphic function 'f@-1'`.
+   */
+  const nameOfKey = new Map<string, string>()
+
+  // Group by name-within-scope
   for (const m of allMatches) {
-    if (!declarations.has(m.name)) {
-      declarations.set(m.name, [])
+    if (!declarations.has(keyOf(m))) {
+      declarations.set(keyOf(m), [])
+      nameOfKey.set(keyOf(m), m.name)
     }
   }
 
   // Count occurrences — only process names that appear more than once
   const nameCounts = new Map<string, number>()
   for (const m of allMatches) {
-    nameCounts.set(m.name, (nameCounts.get(m.name) || 0) + 1)
+    nameCounts.set(keyOf(m), (nameCounts.get(keyOf(m)) || 0) + 1)
   }
 
+  // Keyed by name-WITHIN-SCOPE, so a name repeated across sibling scopes is not a group.
   const polyNames = new Set<string>()
-  for (const [name, count] of nameCounts) {
-    if (count > 1) polyNames.add(name)
+  for (const [key, count] of nameCounts) {
+    if (count > 1) polyNames.add(key)
   }
 
   if (polyNames.size === 0) {
@@ -3937,7 +3994,7 @@ export function transformPolymorphicFunctions(
 
   // Phase 2: For each polymorphic function, extract full details
   for (const m of allMatches) {
-    if (!polyNames.has(m.name)) continue
+    if (!polyNames.has(keyOf(m))) continue
 
     // Find the opening paren
     const afterFunc = source.indexOf('(', m.funcKeywordStart)
@@ -3967,7 +4024,7 @@ export function transformPolymorphicFunctions(
     // Include leading whitespace on the same line
     while (realStart > 0 && source[realStart - 1] === ' ') realStart--
 
-    const variants = declarations.get(m.name)!
+    const variants = declarations.get(keyOf(m))!
     const params = parseParamList(paramStr, requiredParams)
 
     // Check for rest params
@@ -3993,7 +4050,8 @@ export function transformPolymorphicFunctions(
   }
 
   // Phase 3: Validate — check for ambiguous variants
-  for (const [name, variants] of declarations) {
+  for (const [key, variants] of declarations) {
+    const name = nameOfKey.get(key)!
     if (variants.length < 2) continue
 
     // Check async consistency
@@ -4047,7 +4105,8 @@ export function transformPolymorphicFunctions(
   // Phase 4: Build the transformed source
   // Sort all variants by position (reverse order for safe replacement)
   const allVariants: { name: string; variant: PolyVariant }[] = []
-  for (const [name, variants] of declarations) {
+  for (const [key, variants] of declarations) {
+    const name = nameOfKey.get(key)!
     if (variants.length < 2) continue
     for (const v of variants) {
       allVariants.push({ name, variant: v })
@@ -4075,7 +4134,8 @@ export function transformPolymorphicFunctions(
   }
 
   // Phase 5: Append dispatcher functions
-  for (const [name, variants] of declarations) {
+  for (const [key, variants] of declarations) {
+    const name = nameOfKey.get(key)!
     if (variants.length < 2) continue
     polymorphicNames.add(name)
 

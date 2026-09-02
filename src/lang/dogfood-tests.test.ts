@@ -88,10 +88,6 @@ const KNOWN_CONVERSION_FAILURES = new Map<string, string>([
     'lang/wasm.test.ts',
     'LITERAL BLINDNESS: the `wasm function` scanner reads a fixture inside a template literal (`const source = `wasm function dangerous(! …)`) and rejects it as real code.',
   ],
-  [
-    'lang/runtime.test.ts',
-    'SCOPE: two `function add` declarations in DIFFERENT `it()` blocks are merged as ambiguous polymorphic overloads. Same-named functions in disjoint scopes are not overloads.',
-  ],
 ])
 
 /**
@@ -145,11 +141,27 @@ const KNOWN_CONVERSION_FAILURES = new Map<string, string>([
  * Asserting parity today would leave the gate permanently red, and a permanently red
  * gate is one nobody reads. So this is a floor that may only improve.
  */
+/*
+ * Rebaselined 2026-09-02, DOWNWARD, and that needs justifying because lowering a ratchet is
+ * normally how a regression gets hidden.
+ *
+ * The corpus grew: fixing the scope-blind polymorphic merge made `lang/runtime.test.ts`
+ * convertible, so it left KNOWN_CONVERSION_FAILURES and joined the measured set — 183 suites
+ * to 184. It preserves fewer than 89.4% of its own assertions, so it pulled the RATIO down
+ * while the absolute count of preserved assertions went UP. Nothing got worse; the
+ * denominator got bigger.
+ *
+ * Worth recording as a property of the metric, not just this incident: a RATIO floor can fall
+ * when you fix a conversion bug, because the reward for converting a hard file is that its
+ * unconverted assertions start counting against you. Absolute numbers are logged beside the
+ * rate for exactly this reason — 7866 of 9058 preserved across 184 suites today. Check those
+ * before believing a rate movement means what it looks like.
+ */
 const BASELINE = {
   /** Fraction of assertions that survive conversion. 1.0 is the 1.0 gate. */
-  assertionRate: 0.894,
+  assertionRate: 0.868,
   /** Fraction of passing tests that still pass after conversion. */
-  testRate: 0.909,
+  testRate: 0.885,
 }
 
 /**
