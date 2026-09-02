@@ -330,3 +330,42 @@ describe('`switch` is left exactly as JavaScript defines it', () => {
     expect(w).toEqual([])
   })
 })
+
+describe('a lowered `given` is not advised to become a `given`', () => {
+  // `given` lowers to a C `switch` BEFORE acorn, so by the time `switchAdvice` walks the AST
+  // the two are indistinguishable — and every `given` was told to use `given`. The advice
+  // quoted the lowering back at the author:
+  //
+  //     given __tjs.swKey(x) {
+  //
+  // which nobody can write, and which leaks an internal helper into a user-facing message.
+  // It also failed `tjs check --max-warnings 0`, so adopting the construct the advice
+  // recommends broke the build — the worst possible shape for a nudge toward a new feature.
+  const advice = (src: string) =>
+    tjs(src, { runTests: false, filename: 'a.tjs' }).warnings ?? []
+
+  it('a `given` produces no switch advice', () => {
+    const out = advice(
+      `function f(x) {\n  given x {\n    'a' { return 1 }\n  } else {\n    return 0\n  }\n}`
+    )
+    expect(out.join('\n')).not.toContain('`given` is the .tjs form')
+  })
+
+  it('the internal lowering never appears in a message', () => {
+    // Independent of whether advice fires at all — `__tjs.swKey` must never reach a user.
+    const out = advice(
+      `function f(x) {\n  given x {\n    'a' { return 1 }\n  } else {\n    return 0\n  }\n}`
+    )
+    expect(out.join('\n')).not.toContain('swKey')
+  })
+
+  it('an author-written `switch` is STILL advised', () => {
+    // The guard must not silence the advice it was protecting. Without this, skipping every
+    // switch would satisfy both assertions above.
+    const out = advice(
+      `function f(x) {\n  switch (x) {\n    case 1: return 1\n    default: return 0\n  }\n}`
+    )
+    expect(out.join('\n')).toContain('`given` is the .tjs form')
+    expect(out.join('\n')).toContain('given x {')
+  })
+})

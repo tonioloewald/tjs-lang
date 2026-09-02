@@ -56,6 +56,21 @@ export function switchAdvice(ast: Program, source: string): string[] {
     if (node.type === 'SwitchStatement' && !seen.has(node.start)) {
       seen.add(node.start)
       const disc = source.slice(node.discriminant.start, node.discriminant.end)
+      // A `given` LOWERS to a switch before acorn sees the source, so by the time this walk
+      // runs the two are indistinguishable as AST — and every `given` was being told to use
+      // `given`. Worse, the advice quoted the lowering back at the author:
+      //
+      //     given __tjs.swKey(x) {
+      //
+      // which is not something anyone can write, and which leaks an internal helper into a
+      // user-facing message. It also failed `tjs check --max-warnings 0`, so adopting the
+      // construct the advice recommends broke the build.
+      //
+      // `__tjs.swKey` is emitted ONLY by the lowering, so the discriminant identifies the
+      // source construct exactly. Checked on the discriminant rather than by threading
+      // offsets through, because it cannot drift: if the lowering stops emitting `swKey`,
+      // this stops matching, and the lowering owns both.
+      if (/^__tjs\s*\.\s*swKey\s*\(/.test(disc)) return
       const arms = (node.cases as any[]).filter(
         (c) => c.consequent.length > 0
       ).length

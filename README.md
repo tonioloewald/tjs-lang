@@ -227,10 +227,10 @@ a standalone entry point, not an increment (import only what you need):
 
 | Entry point                   | Bundle           | Size   | Gzipped   |
 | ----------------------------- | ---------------- | ------ | --------- |
-| `tjs-lang/vm` (VM only)       | tjs-vm.js        | 272 KB | **83 KB** |
-| `tjs-lang/batteries`          | tjs-batteries.js | 10 KB  | 4 KB      |
-| `tjs-lang/lang` (transpiler)  | tjs-lang.js      | 239 KB | 76 KB     |
-| `tjs-lang` (full, TS support) | index.js         | 326 KB | 104 KB    |
+| `tjs-lang/vm` (VM only)       | tjs-vm.js        | 283 KB | **87 KB** |
+| `tjs-lang/batteries`          | tjs-batteries.js | 11 KB  | 4 KB      |
+| `tjs-lang/lang` (transpiler)  | tjs-lang.js      | 293 KB | 92 KB     |
+| `tjs-lang` (full, TS support) | index.js         | 383 KB | 121 KB    |
 
 > These numbers are **verified by `src/bundle-size.test.ts`**, which re-measures the built
 > bundles and fails if this table drifts — so they can go stale by at most one release.
