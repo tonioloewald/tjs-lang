@@ -67,6 +67,13 @@ const MARKER_PREFIX = '/*!tjs-'
  * appears there directly); the others are here so the guard is a rule rather than a patch.
  */
 const EXPRESSION_PREFIX_KEYWORDS = new Set([
+  // `default`, `else`, `do`, `try` and `case` are here for the CALL-ARGS guard rather than
+  // the method-head one: `export default (x: 0) => x` is an arrow whose `(` follows a
+  // keyword, and reading that keyword's last character as a callee is what broke it.
+  'default',
+  'else',
+  'do',
+  'try',
   'new',
   'return',
   'typeof',
@@ -757,13 +764,38 @@ export function transformParenExpressions(
     // A call's `(` follows its callee, so an identifier, `)` or `]` immediately before means
     // this is an argument list. `async` is the one identifier that legitimately precedes a
     // parameter list.
-    const prevTok = (() => {
-      let k = i - 1
-      while (k >= 0 && /\s/.test(source[k])) k--
-      return k < 0 ? '' : source[k]
-    })()
+    // Named apart from the method-head guard's `prevWord` above, deliberately: that one looks
+    // back in `result` (what has been EMITTED), this one in `source` at the scan position.
+    // They answer the same question about different strings, and collapsing them would be a
+    // subtle change to whichever guard lost its own look-back.
+    let argPrevIdx = i - 1
+    while (argPrevIdx >= 0 && /\s/.test(source[argPrevIdx])) argPrevIdx--
+    const prevTok = argPrevIdx < 0 ? '' : source[argPrevIdx]
+    // The preceding WORD, when the preceding character is part of one. Reading only the
+    // CHARACTER cannot tell a callee from a keyword, so the `n` of `return` and the `t` of
+    // `default` both read as a callee and the arrow's parameters were never transformed:
+    //
+    //     return (x: 0) => x          -> Unexpected token
+    //     export default (x: 0) => x  -> Unexpected token
+    //     throw (x: 0) => x           -> Unexpected token
+    //     const f = (a: 0) => { return (b: 0) => a + b }   -> Unexpected token
+    //
+    // A regression I introduced in this cycle, fixing the ternary shape below. The compat
+    // corpus structurally cannot catch it: `fromTS` emits `return (x) => x + 1`, because
+    // `tsc` has already stripped the inner annotation before our parser sees it.
+    //
+    // This is the SECOND guard in this file to need the same word-awareness — the method-head
+    // guard learned it earlier, and grew `EXPRESSION_PREFIX_KEYWORDS` for the purpose. Both
+    // now consult the one set, so the next keyword only has to be added once.
+    let argPrevWord = ''
+    if (/[A-Za-z0-9_$]/.test(prevTok)) {
+      let w = argPrevIdx
+      while (w >= 0 && /[A-Za-z0-9_$]/.test(source[w])) w--
+      argPrevWord = source.slice(w + 1, argPrevIdx + 1)
+    }
     const isCallArgs =
       /[A-Za-z0-9_$)\]]/.test(prevTok) &&
+      !EXPRESSION_PREFIX_KEYWORDS.has(argPrevWord) &&
       !/(^|[^A-Za-z0-9_$])async\s*$/.test(source.slice(Math.max(0, i - 12), i))
     if (source[i] === '(' && !isCallArgs) {
       // First, find the matching ) without consuming any safety marker

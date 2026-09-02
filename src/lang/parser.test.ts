@@ -1324,3 +1324,49 @@ describe('a destructured parameter is not optional by itself', () => {
     ).toEqual({ a: 1, b: 2 })
   })
 })
+
+describe('an annotated arrow after a keyword', () => {
+  // `isCallArgs` decided "this `(` opens a call's arguments" from the single preceding
+  // CHARACTER, so the `n` of `return` and the `t` of `default` read as a callee. The arrow's
+  // parameters were never transformed and `: 0` reached acorn:
+  //
+  //     return (x: 0) => x   ->  Unexpected token
+  //
+  // A regression from fixing the ternary shape in the same guard. Nothing caught it: no test
+  // had an annotated arrow after a keyword, and the compat corpus structurally cannot —
+  // `fromTS` emits `return (x) => x + 1`, because tsc strips the inner annotation first.
+  const shapes: Array<[string, string]> = [
+    ['return', 'function f() {\n  return (x: 0) => x\n}'],
+    ['return with a return type', 'function f() {\n  return (x: 0): 0 => x\n}'],
+    ['export default', 'export default (x: 0) => x'],
+    ['throw', 'function f() { throw (x: 0) => x }'],
+    ['curried', 'const f = (a: 0) => { return (b: 0) => a + b }'],
+    [
+      'else',
+      'function f(c) { if (c) { return 1 } else { return (x: 0) => x } }',
+    ],
+  ]
+  for (const [label, src] of shapes) {
+    it(`after \`${label}\`, the parameters are still transformed`, () => {
+      expect(() => tjs(src, { runTests: false })).not.toThrow()
+      // Not just "it parses" — the annotation must have been rewritten, or a transform that
+      // skipped the arrow entirely would also pass.
+      expect(preprocess(src, { filename: 'a.tjs' }).source).toMatch(/[xab] = 0/)
+    })
+  }
+
+  // The guard exists to stop a CALL's arguments being read as parameters. Both directions.
+  const stillCalls: Array<[string, string]> = [
+    ['a call argument', 'run((x: 0) => x)'],
+    [
+      'a ternary alternative',
+      'const o = { w: k ? ((r) => f(r)) : (r) => g(r) }',
+    ],
+    ['a plain arrow', 'const f = (x: 0) => x'],
+  ]
+  for (const [label, src] of stillCalls) {
+    it(`${label} still behaves`, () => {
+      expect(() => tjs(src, { runTests: false })).not.toThrow()
+    })
+  }
+})
