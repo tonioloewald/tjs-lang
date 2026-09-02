@@ -5,6 +5,111 @@ All notable changes to **tjs-lang** are documented here.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.13.7] — 2026-09-02
+
+### SECURITY — a VM-target transpile no longer executes the code it is transpiling
+
+**If you call `Eval`, `SafeFunction`, or expose either over a network, upgrade.**
+
+`parse()` ran every `test '…' { … }` block with `new Function(body)()`. `Eval` and
+`SafeFunction` transpile the _submitted_ string before `vm.run`, so the payload executed
+with full ambient authority **before** fuel, timeout, capabilities and the membrane existed:
+
+```js
+Eval({ code: "test 'x' { globalThis.__PWNED__ = true } return 1", fuel: 10, timeoutMs: 1 })
+// -> { result: 1, fuelUsed: 0.2 }     and __PWNED__ === true
+```
+
+`timeoutMs: 1` was irrelevant and 0.2 fuel was charged, because the whole sandbox is
+downstream of transpilation.
+
+It was a category error before it was a vulnerability. **AJS has never had test blocks** —
+they are a TJS feature, and the AJS path inherited them only by sharing `parse()`, where
+every other TJS-only transform is gated on `vmTarget` and this one was not. An agent
+language whose premise is that code travels as _data_ and runs with no ambient authority
+was calling `new Function` on submitted source.
+
+**What changed:** a VM-target transpile rejects `test` blocks as the syntax error they are.
+**TJS inline tests are unaffected** — no `.tjs` behaviour changed, and the global
+`runTests` default was deliberately _not_ touched, because that would have altered
+documented TJS behaviour to fix a bug that only ever existed on the other path.
+
+Verified two ways: every TJS construct a VM-target transpile still accepts was probed for
+transpile-time execution (none executes), and a source-level test asserts that test
+extraction is the **only** dynamic-execution site in the entire parse path.
+
+Still open and tracked: a VM-target transpile _accepts_ seven TJS constructs AJS does not
+have (inert, ratcheted). The structural fix — an AJS core that TJS wraps, rather than one
+shared function with flags — is planned. A gate fails open; layering fails closed.
+
+### Fixed
+
+- **An annotated arrow after a keyword failed to parse.** `return (x: 0) => x`,
+  `export default (x: 0) => x`, `throw (x: 0) => x` and curried
+  `(a: 0) => { return (b: 0) => a + b }` all raised `Unexpected token`. A guard read the
+  single preceding _character_, so the `n` of `return` read as a callee. Introduced in this
+  cycle; not present in 0.13.6.
+- **A TypeScript optional parameter no longer acquires a runtime default.** `fromTS` emitted
+  `name?: T`, and TJS's `?:` is documented as "same as `name = value`" — so every optional
+  gained its type example as a default. For a predicate type that meant a truthy object
+  where TypeScript gives `undefined`, and radash's `unique` threw
+  `TypeError: toKey is not a function`. Optionals convert to `T | undefined` again, and
+  `required: false` is reported correctly.
+- **Converted TypeScript overloads no longer change behaviour for unmatched input.**
+  TypeScript erases overload signatures, so the implementation receives every call. We
+  emitted runtime dispatch variants that _rejected_ input matching no signature —
+  `inRange(null, 0, 20)` returned an error where TypeScript returns `false`. Conversion now
+  emits the implementation and suggests the upgrade instead of performing it. The variants
+  could never have earned their cost: with one body, every variant was a pass-through, so
+  dispatch routed nothing and only gated. It also leaked `...__args` into the generated
+  `.d.ts`, producing a declaration you could not legally call.
+- **Same-named functions in different scopes are no longer merged.** The polymorphic merge
+  grouped by name across the whole file, so two ordinary local helpers were rejected as
+  "ambiguous variants" — legal JavaScript that TJS refused, a subset violation.
+- **A type-only class field no longer absorbs the next member.** `readonly get: T` above
+  `modify(f) {…}` emitted a bare `get`, producing a getter named `modify`. Private (`#x`)
+  fields are still emitted — they are load-bearing, not type-level.
+- **`$` is a legal identifier character.** `function $constructor(…)` and `Array$` were not
+  recognised as declarations at all, so their parameters were never transformed. Also fixed
+  in type-name position (`: Record$`).
+- **A ternary's `:` is no longer read as an arrow's return type.**
+  `flag ? ((r) => f(r)) : (r) => {…}` had its alternative deleted.
+- **A generic type-parameter list is split depth-aware.** `<Config = { a: X, b: Y }>` was cut
+  inside its own braces, emitting a brace closed by a bracket. A default containing `=>` was
+  silently dropped.
+- **A generated diagnostic can no longer be terminated by the code it quotes.** TypeScript
+  type text often contains `*/`, which closed the comment early and turned the remainder into
+  stray code.
+- **`convert --emit-tjs` no longer reports success for output it cannot read.** It now
+  validates its own result, exits non-zero, names the file, and does not write the artifact.
+- **`given` no longer warns you to use `given`.** It lowers to a `switch` before parsing, so
+  the advice fired on it — quoting the internal lowering back at the author, and failing
+  `--max-warnings 0`.
+- **A reasoning model's answer is read from whichever channel holds it.** Asking for
+  structured output can leave `content` empty with the answer in `reasoning_content`; six
+  call sites read `content` directly.
+
+### Changed
+
+- **`MonadicError` is shared across modules** via a shape-versioned global slot, so
+  `instanceof` now works across a module boundary. `isMonadicError` remains the contract for
+  anything crossing one. See `docs/runtime-fusion.md` for the rule this establishes: code
+  fuses, data unions.
+- **README bundle sizes remeasured** — they had drifted 17–23%.
+
+### Added
+
+- `tjs-lang/lang` exports `isTernaryColon` (`src/lang/expression-context.ts`), the first
+  syntactic primitive above the lexical layer. See `docs/parser-primitives.md`.
+- `docs/parser-primitives.md`, `docs/runtime-fusion.md`.
+- `bun run test:compat-scan` — a ratchet over the whole compatibility corpus.
+
+### Compatibility
+
+Every file in zod, effect, kysely, radash, superstruct and ts-pattern now converts and
+parses — **1973/1973**, up from 1951. All six projects' own test suites pass against our
+output.
+
 ## [0.13.6] — 2026-08-26
 
 ### BREAKING — `defineAtom` now defaults to `effects: 'io'`
