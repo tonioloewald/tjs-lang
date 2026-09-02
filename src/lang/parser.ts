@@ -515,8 +515,32 @@ export function preprocess(
   ]
 
   // Extract and run test blocks: test 'desc'? { body }
-  // Tests run at transpile time and are stripped from output
-  const testResult = extractAndRunTests(source, options.dangerouslySkipTests)
+  // Tests run at transpile time and are stripped from output.
+  //
+  // NEVER for a VM target. `test '…' { … }` is a TJS feature; AJS has never had it. The AJS
+  // path inherited it only by sharing `parse()`, and every other TJS-only transform here is
+  // gated on `!options.vmTarget` — this one was not.
+  //
+  // The consequence was a category error before it was a vulnerability. AJS exists so code can
+  // travel as DATA and execute under fuel with no ambient authority; running `new Function(
+  // body)()` over submitted source, at transpile time, is the precise opposite. It happened
+  // BEFORE `vm.run`, so fuel, timeout, capabilities and the membrane were all downstream of it:
+  //
+  //     Eval({ code: "test 'x' { globalThis.__PWNED__ = true } return 1",
+  //            fuel: 10, timeoutMs: 1 })
+  //     -> { result: 1, fuelUsed: 0.2 }   and __PWNED__ === true
+  //
+  // `Eval` and `SafeFunction` transpile the submitted string, and `functions/src/index.tjs`
+  // passes user-supplied code to `Eval` from two public endpoints, so this was reachable by
+  // anyone who could sign in. The repo's own linter rejects a user's `new Function()` for
+  // "evaluates arbitrary source with full ambient authority" and points them at `Eval()` as
+  // the sandboxed alternative.
+  //
+  // Gated here rather than by flipping the global `runTests` default, which would change
+  // documented TJS behaviour to fix a bug that only ever existed on the AJS path.
+  const testResult: ReturnType<typeof extractAndRunTests> = options.vmTarget
+    ? { source, tests: [], errors: [] }
+    : extractAndRunTests(source, options.dangerouslySkipTests)
   source = testResult.source
 
   // Transform polymorphic constructors: multiple constructor() -> factory functions
