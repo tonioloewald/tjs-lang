@@ -625,41 +625,61 @@ describe('Playground Examples', () => {
         }
       }, 10000)
     } else {
-      it(`${example.name} - runs successfully`, async () => {
-        trackTestStart()
-        try {
-          const result = transpile(example.code)
+      it(
+        `${example.name} - runs successfully`,
+        async () => {
+          trackTestStart()
+          try {
+            const result = transpile(example.code)
 
-          const args: Record<string, any> = {}
-          if (result.signature?.parameters) {
-            for (const [key, param] of Object.entries(
-              result.signature.parameters
-            )) {
-              if ('default' in param) {
-                args[key] = param.default
+            const args: Record<string, any> = {}
+            if (result.signature?.parameters) {
+              for (const [key, param] of Object.entries(
+                result.signature.parameters
+              )) {
+                if ('default' in param) {
+                  args[key] = param.default
+                }
               }
             }
-          }
 
-          // Use the SAME capabilities as the playground
-          const runResult = await vm.run(result.ast, args, {
-            fuel: 100000, // High fuel for real LLM calls
-            capabilities: {
-              fetch: httpFetch,
-              llm: activeLLM,
-              llmBattery: activeBattery,
-              code: {
-                transpile: (source: string) => transpile(source).ast,
+            // Use the SAME capabilities as the playground
+            const runResult = await vm.run(result.ast, args, {
+              fuel: 100000, // High fuel for real LLM calls
+              capabilities: {
+                fetch: httpFetch,
+                llm: activeLLM,
+                llmBattery: activeBattery,
+                code: {
+                  transpile: (source: string) => transpile(source).ast,
+                },
               },
-            },
-          })
+            })
 
-          expect(runResult.error).toBeUndefined()
-          expect(runResult.result).toBeDefined()
-        } finally {
-          trackTestEnd()
-        }
-      }, 120000) // Long timeout for LM Studio
+            expect(runResult.error).toBeUndefined()
+            expect(runResult.result).toBeDefined()
+          } finally {
+            trackTestEnd()
+          }
+          // Sized to the RETRY ARITHMETIC, not to a guess — the same reasoning as the vision
+          // block above (`3 attempts * 120s each`).
+          //
+          // `withLiveFallback` budgets each live call at LIVE_BUDGET_MS and retries once, so a
+          // single `predict` can cost ~90s before it degrades to the mock. An example making
+          // several calls therefore could not fit in 120s however healthy the fallback was:
+          // the Multi-Agent Pipeline example spent its whole budget on the first call and was
+          // killed during the second. That kill then let the runner start the next test while
+          // this one was still running, which tripped the file's concurrency poison pill — two
+          // reds, one cause, and neither named it.
+          //
+          // Deliberately NOT fixed by latching "this channel is unhealthy, use the mock from
+          // now on". That would bound the run, but it converts one transient blip into a
+          // mostly-mocked run, which is precisely what the `did not silently degrade to mocks`
+          // guard below exists to catch. Waiting is cheaper than losing coverage in a pre-tag
+          // gate.
+        },
+        4 * (2 * LIVE_BUDGET_MS + 1000)
+      ) // 4 live calls, worst case, with headroom
     }
   }
 
