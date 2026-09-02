@@ -1028,10 +1028,31 @@ function normalizeUnionSyntax(type: string): string {
  * the same scan is linear. `parser-transforms.ts` already fixed its own copy of this defect
  * with index-based checks; these are the remaining hot ones.
  */
-const RE_CLASS_NAME = /class\s+\w+/y
-const RE_FUNCTION_HEAD = /function\s*\*?(?:\s+(\w+))?\s*\(/y
-const RE_METHOD_HEAD =
-  /(constructor|(?:get|set)\s+(?:\w+|\[[^\]]+\])|async\s+(?:\w+|\[[^\]]+\])|\w+|\[[^\]]+\])\s*\(/y
+/**
+ * A JavaScript identifier, as the language actually defines it — not `\w+`.
+ *
+ * `\w` is `[A-Za-z0-9_]`. It excludes `$`, which is legal in an identifier and common in
+ * real code: zod declares `function $constructor(...)`, effect declares `function Array$(...)`.
+ * Neither was recognised as a function at all, so their parameters were never transformed and
+ * `name: string` reached acorn verbatim as a syntax error — the file failed to convert with a
+ * message pointing at the parameter rather than at the name.
+ *
+ * A worked example of the wider problem (`docs/parser-primitives.md`): a regex standing in for
+ * a lexer gets the common case right and is silently wrong on the rest of the grammar.
+ * Unicode identifiers are still unsupported; this closes the character that occurs in
+ * practice, and does not pretend to be a tokenizer.
+ */
+const ID = '[A-Za-z_$][A-Za-z0-9_$]*'
+
+const RE_CLASS_NAME = new RegExp(`class\\s+${ID}`, 'y')
+const RE_FUNCTION_HEAD = new RegExp(
+  `function\\s*\\*?(?:\\s+(${ID}))?\\s*\\(`,
+  'y'
+)
+const RE_METHOD_HEAD = new RegExp(
+  `(constructor|(?:get|set)\\s+(?:${ID}|\\[[^\\]]+\\])|async\\s+(?:${ID}|\\[[^\\]]+\\])|${ID}|\\[[^\\]]+\\])\\s*\\(`,
+  'y'
+)
 const RE_KEYWORD_VALUE = /(true|false|null|undefined)\b/y
 
 /** Match `re` AT `at` without copying the tail. */

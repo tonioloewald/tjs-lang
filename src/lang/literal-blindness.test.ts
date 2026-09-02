@@ -860,3 +860,35 @@ describe('a generic type-parameter list is split depth-aware', () => {
     expect(out).toContain("['B', 0]")
   })
 })
+
+describe('a `$` in a name does not defeat the transforms', () => {
+  // `\w` is `[A-Za-z0-9_]` and excludes `$`, which is legal in a JavaScript identifier and
+  // common in real code — zod declares `function $constructor(...)`, effect declares
+  // `function Array$(...)`. Neither was recognised as a function at all, so its parameters
+  // were never transformed and `name: string` reached acorn verbatim. The error pointed at
+  // the parameter; the cause was the NAME.
+  //
+  // Same family as the rest of this file one level down: a regex standing in for a lexer,
+  // right on the common case and silently wrong on the rest of the grammar. Two of zod's
+  // corpus failures were this single character.
+  const shapes: Array<[string, string]> = [
+    ['leading $', 'function $foo(name: 0) { return name }'],
+    ['trailing $', 'function foo$(name: 0) { return name }'],
+    ['interior $', 'function fo$o(name: 0) { return name }'],
+    ['only $', 'function $(name: 0) { return name }'],
+    ['leading underscore', 'function _foo(name: 0) { return name }'],
+    ['method', 'class C { $m(a: 0) { return a } }'],
+    ['getter', 'class C { get $x() { return 1 } }'],
+    ['async method', 'class C { async $go(a: 0) { return a } }'],
+    ['class name', 'class $C { m(a: 0) { return a } }'],
+  ]
+  for (const [label, src] of shapes) {
+    it(`${label}: the parameter annotation is still transformed`, () => {
+      expect(() => tjs(src, { runTests: false })).not.toThrow()
+      // Not just "it parses" — the annotation must actually have been rewritten, or this
+      // would pass for a file the transform skipped entirely.
+      const out = preprocess(src, { filename: 'a.tjs' }).source
+      if (src.includes(': 0')) expect(out).toContain('= 0')
+    })
+  }
+})
