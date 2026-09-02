@@ -104,7 +104,36 @@ async function convertFile(
     let code: string
 
     if (emitTJS) {
-      // Output intermediate TJS
+      // Output intermediate TJS — after checking WE CAN READ IT.
+      //
+      // `--emit-tjs` used to write whatever `fromTS` produced and exit 0. Every one of the
+      // seven remaining compat-corpus failures is a file that converts happily and then
+      // cannot be compiled, so the user got a `.tjs` labelled success that `tjs check`
+      // rejects with exit 1. A converter reporting success for output it never looked at is
+      // the same failure `docs/postmortem-ts-emitter.md` is about, one command along.
+      //
+      // The check is free in the sense that matters: we own both halves. `fromTS` produces
+      // TJS and `tjs()` is the parser that has to read it, so asking is a function call.
+      // It costs a second parse on the `--emit-tjs` path, which is the right trade against
+      // handing someone a broken file and calling it done.
+      //
+      // `runTests: false` deliberately — this is a syntax check, not a test run. Executing
+      // a converted file's inline tests as a side effect of converting it would be a
+      // surprise, and the non-emitTJS branch below already reports them where it is expected.
+      //
+      // Thrown, not returned: the surrounding catch already prints `✗ <file>: <message>` and
+      // returns false, which propagates to `process.exit(1)`. That path was built for
+      // exactly this and only the emitTJS branch was routing around it.
+      try {
+        tjs(tjsResult.code, { filename, runTests: false })
+      } catch (e: any) {
+        throw new Error(
+          `converted, but the result is not valid TJS — ${e.message}\n` +
+            `  This is a converter bug, not a problem with your source. The .tjs was NOT ` +
+            `written.\n  Please report it: https://github.com/tonioloewald/tjs-lang/issues`,
+          { cause: e }
+        )
+      }
       code = tjsResult.code
     } else {
       // Chain through tjs() for full JS with runtime checks
