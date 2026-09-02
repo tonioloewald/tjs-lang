@@ -2467,8 +2467,41 @@ function transformClassToTJS(
         }
         members.push(`  ${staticPrefix}${propName} = ${output}`)
       } else {
-        // Property without initializer - just declare it
-        members.push(`  ${staticPrefix}${propName}`)
+        // A field DECLARATION with no initializer — `readonly get: Effect.Effect<A>`.
+        //
+        // Emitted as a bare name, it is not a declaration at all: it is an identifier on a
+        // line, and the next member absorbs it. effect's `ref.ts` declares `readonly get: T`
+        // immediately above `modify(f) { … }`, so the class body became
+        //
+        //     get
+        //     modify(f) { … }
+        //
+        // — a GETTER named `modify`, which then failed with "getter should have no params".
+        // The error named the method; the cause was the field two lines up. Its sibling
+        // `subscriptionRef.ts` produced `get` immediately above a real `get changes()`, and
+        // failed differently for the same reason.
+        //
+        // ERASED, not emitted as `${propName};`. TypeScript erases a declaration-only field
+        // when `useDefineForClassFields` is off, and when it is ON the emitted field is
+        // initialised to `undefined` AFTER `super()` returns — which would clobber a value a
+        // base constructor had already assigned. `ref.ts` is exactly that shape: the
+        // constructor assigns `this.get`. Erasing cannot break code that runs today;
+        // emitting can.
+        //
+        // The type is not lost — it is already carried in the class metadata.
+        //
+        // EXCEPT a private field. `#props` is not a type-level declaration at all: JavaScript
+        // requires `#name` to be declared in the class body, and `this.#props` is a SYNTAX
+        // ERROR without it. The first version of this erasure said "erasing cannot break code
+        // that runs today", which was wrong in the one case where the declaration is
+        // load-bearing — and the compat ratchet said so in one run: 1968 -> 1888, eighty-five
+        // kysely files, every one of them `Private field '#props' must be declared in an
+        // enclosing class`.
+        if (propName.startsWith('#')) {
+          members.push(`  ${staticPrefix}${propName}`)
+          continue
+        }
+        continue
       }
     }
   }

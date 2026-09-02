@@ -47,7 +47,7 @@ const MAX_BYTES = 400 * 1024
  * Files that do not convert-and-parse today, with WHY.
  *
  * A cause, not just an error string — "known failure" with no diagnosis is how a ratchet
- * becomes a graveyard. Recorded 2026-09-02 at 1968/1973 (99.75%).
+ * becomes a graveyard. Recorded 2026-09-02 at 1970/1973 (99.85%).
  */
 const KNOWN = new Map<string, string>([
   // (The scope-blind polymorphic merge is FIXED — it grouped same-named functions across the
@@ -58,10 +58,6 @@ const KNOWN = new Map<string, string>([
   // Not parse GAPS — these are constructs we emit that are not valid JavaScript, which is
   // the more serious kind. See the export/super/generator fixes for the same class.
   // Two more lived here until the method-head guard learned about `new` (see below).
-  [
-    'effect/packages/effect/src/internal/ref.ts',
-    'getter emitted with parameters',
-  ],
   ['effect/packages/rpc/src/RpcServer.ts', 'parenthesized binding pattern'],
 
   // --- parse failures needing individual diagnosis (6) ------------------------------------
@@ -69,10 +65,6 @@ const KNOWN = new Map<string, string>([
   // the former, and reading the TJS line at that number produces innocent-looking lines and
   // several wrong turns.
   ['effect/packages/effect/src/Schema.ts', 'Unexpected token'],
-  [
-    'effect/packages/effect/src/internal/subscriptionRef.ts',
-    'Unexpected token',
-  ],
   [
     'effect/packages/platform-node-shared/src/internal/commandExecutor.ts',
     'Unexpected token',

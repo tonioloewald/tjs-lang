@@ -886,3 +886,79 @@ export function pick(a: string, b?: number): string { return b === undefined ? a
     expect(out).not.toContain('_pick_impl')
   })
 })
+
+describe('a class field DECLARATION with no initializer is erased', () => {
+  // `readonly get: Effect.Effect<A>` declares a field's type and nothing else. Emitted as a
+  // bare name it is not a declaration at all — it is an identifier on a line, and the next
+  // member absorbs it:
+  //
+  //     get
+  //     modify(f) { … }        ->  a GETTER named `modify`, with a parameter
+  //
+  // effect's `ref.ts` failed with "getter should have no params", naming the method while
+  // the cause sat two lines above it. `subscriptionRef.ts` produced `get` directly above a
+  // real `get changes()` and failed differently for the same reason.
+  const convert = (src: string) =>
+    fromTS(src, { emitTJS: true, filename: 'a.ts' }).code
+
+  it('does not leave a bare identifier that the next member absorbs', () => {
+    const out = convert(
+      `export class R {\n` +
+        `  readonly get: number\n` +
+        `  modify(f: (a: number) => number): number { return f(1) }\n` +
+        `}\n`
+    )
+    expect(out).not.toMatch(/^\s*get\s*$/m)
+    expect(() => tjs(out, { runTests: false })).not.toThrow()
+  })
+
+  it('a declaration directly above a real getter does not double it', () => {
+    const out = convert(
+      `export class R {\n` +
+        `  readonly get: number\n` +
+        `  get changes(): number { return 1 }\n` +
+        `}\n`
+    )
+    expect(out.match(/\bget\b/g)?.length).toBe(1)
+    expect(() => tjs(out, { runTests: false })).not.toThrow()
+  })
+
+  it('a field WITH an initializer is still emitted', () => {
+    // The erasure must not swallow real fields — that would be a silent data loss, and
+    // nothing else in the pipeline would notice.
+    const out = convert(`export class R {\n  count: number = 3\n}\n`)
+    expect(out).toMatch(/count\s*=\s*3/)
+  })
+
+  it('a PRIVATE field declaration is NOT erased — it is load-bearing', () => {
+    // The exception, and it cost a regression to learn. `#props` is not a type-level
+    // declaration: JavaScript requires `#name` in the class body, and `this.#props` is a
+    // SYNTAX ERROR without it. The first version of the erasure claimed "erasing cannot
+    // break code that runs today"; the compat ratchet answered in one run — 1968 -> 1888,
+    // eighty-five kysely files, all `Private field '#props' must be declared`.
+    const out = convert(
+      `export class R {\n` +
+        `  #props: number\n` +
+        `  constructor(p: number) { this.#props = p }\n` +
+        `  get(): number { return this.#props }\n` +
+        `}\n`
+    )
+    expect(out).toMatch(/#props\s*$/m)
+    expect(() => tjs(out, { runTests: false })).not.toThrow()
+  })
+
+  it('erasing is chosen over emitting `name;` on purpose', () => {
+    // Under `useDefineForClassFields` an emitted field initialises to `undefined` AFTER
+    // super() returns, clobbering anything a base constructor assigned. `ref.ts` is exactly
+    // that shape — its constructor assigns `this.get`. So the erased form is the one that
+    // cannot break working code.
+    const out = convert(
+      `export class R extends Base {\n` +
+        `  readonly get: number\n` +
+        `  constructor() { super(); this.get = 1 }\n` +
+        `}\n`
+    )
+    expect(out).not.toMatch(/^\s*get;?\s*$/m)
+    expect(out).toContain('this.get = 1')
+  })
+})
