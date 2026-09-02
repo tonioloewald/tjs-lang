@@ -175,3 +175,84 @@ describe('the AJS path runs AJS and nothing else', () => {
     ])
   })
 })
+
+/**
+ * The AJS surface, as a RATCHET.
+ *
+ * `parse()` applies ~30 transforms and exactly TWO consult `options.vmTarget`. Everything else
+ * runs for AJS whether or not AJS has the construct — which is not a policy, it is the absence
+ * of one. `test` blocks were in this list until an hour ago, and they were the one that
+ * happened to call `new Function`.
+ *
+ * The structural fix is inversion: an AJS core that does only AJS things, with TJS as a wrapper
+ * that adds its own transforms. A gate fails OPEN — seventeen transforms, one missing guard,
+ * months unnoticed. Layering fails CLOSED: a new TJS transform cannot leak into AJS because it
+ * does not live there. Filed in TODO.md; too large to do under release pressure, which is how
+ * the last one of these got introduced.
+ *
+ * Until then this bounds the damage. The list below is what leaks TODAY. An eighth entry fails
+ * this test, and whoever adds it has to decide deliberately rather than inherit it.
+ */
+describe('TJS constructs the AJS path still accepts (ratchet)', () => {
+  // Accepted today. Inert — every one is exercised for transpile-time execution above — but
+  // accepted syntax the language does not have is exactly how the last vulnerability arrived.
+  const KNOWN_LEAKS = [
+    'bang access',
+    'Is operator',
+    'inline wasm fn',
+    'Type block',
+    'Generic block',
+    'extend',
+    'FunctionPredicate',
+  ]
+
+  const CONSTRUCTS: Array<[string, string]> = [
+    ['const!', 'function f() { const! x = 1\n return x }'],
+    ['bang access', 'function f(o) { return o!.a }'],
+    ['Is operator', 'function f(a, b) { return a Is b }'],
+    ['try without catch', 'function f() { try { return 1 } return 2 }'],
+    [
+      'inline wasm fn',
+      'wasm function w(a: 0): 0 { return a }\nfunction f() { return 1 }',
+    ],
+    ['Type block', 'Type T { example: { a: 0 } }\nfunction f() { return 1 }'],
+    [
+      'Generic block',
+      "Generic G<A> { description: 'g'\n predicate(x, A) { return true } }\nfunction f() { return 1 }",
+    ],
+    ['Union', 'Union U { a: 0 }\nfunction f() { return 1 }'],
+    ['Enum', 'Enum E { A, B }\nfunction f() { return 1 }'],
+    [
+      'extend',
+      'extend Array { last() { return this[0] } }\nfunction f() { return 1 }',
+    ],
+    [
+      'FunctionPredicate',
+      "FunctionPredicate P { description: 'p'\n predicate(x) { return true } }\nfunction f() { return 1 }",
+    ],
+    ['test block', "function f() { test 'x' { return 1 } return 1 }"],
+    ['given', "function f(x) { given x { 'a' { return 1 } } return 0 }"],
+    ['class', 'class C { m() { return 1 } }\nfunction f() { return 1 }'],
+  ]
+
+  it('accepts exactly the known leaks, and nothing more', () => {
+    const accepted: string[] = []
+    for (const [label, src] of CONSTRUCTS) {
+      try {
+        transpile(src)
+        accepted.push(label)
+      } catch {
+        /* rejected — the correct outcome for a construct AJS does not have */
+      }
+    }
+    // Both directions. A NEW leak is a regression; a leak that closes must be delisted, so a
+    // fix cannot rot here unnoticed — the same rule as the compat and dogfood ratchets.
+    expect(accepted.sort()).toEqual([...KNOWN_LEAKS].sort())
+  })
+
+  it('AJS itself still transpiles', () => {
+    // The floor. A change that made `transpile` reject everything would satisfy every
+    // assertion above.
+    expect(() => transpile('function f(n: 0) { return n * 2 }')).not.toThrow()
+  })
+})

@@ -8,6 +8,25 @@ test**, with numbers instead of opinions.
 
 ## Formalise the AJS AST (decision 2026-08-02)
 
+- [ ] **Invert `parse()`: an AJS core that TJS wraps, not one shared function with gates.**
+      `parse()` applies ~30 transforms and exactly TWO consult `options.vmTarget`. Seven
+      TJS-only constructs are therefore accepted on the AJS path today — bang access, `Is`,
+      inline `wasm function`, `Type`, `Generic`, `extend`, `FunctionPredicate` — and `test`
+      blocks were an eighth until 2026-09-02, when one of them turned out to call
+      `new Function(body)()` on submitted source and became a live RCE on two public Cloud
+      Functions endpoints.
+      **A gate fails OPEN**: seventeen transforms, one missing guard, months unnoticed, found
+      by a security review rather than by any test. **Layering fails CLOSED**: if AJS is the
+      core and TJS is a wrapper that adds its own transforms, a new TJS transform cannot leak
+      into AJS because it does not live there. Tonio's framing, and it is right — the property
+      should be structural, not maintained by remembering to add a flag.
+      Shape: extract the AJS-legal transform set into an `parseAgentSource()` core; `parse()`
+      becomes that core plus the TJS-only steps. The classification is the work — ~30 steps to
+      sort, and PRINCIPLES.md's TJS ⊇ AJS is the spec for which side each belongs on.
+      NOT to be done under release pressure; that is how the vulnerability was introduced.
+      `src/lang/eval-no-transpile-execution.test.ts` ratchets the current leak surface in the
+      meantime: an eighth leak fails, and a closed one must be delisted.
+
 - [ ] **A generic type-param default containing `=>` is not parseable.** `Generic Bar<T = () => 0>`
       fails with "Unexpected token". The `<…>` extraction treats the `>` of `=>` as the closing
       angle bracket, so the list is cut short — upstream of `parseGenericTypeParams`, which
