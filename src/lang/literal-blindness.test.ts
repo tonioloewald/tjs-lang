@@ -882,6 +882,28 @@ describe('a `$` in a name does not defeat the transforms', () => {
     ['async method', 'class C { async $go(a: 0) { return a } }'],
     ['class name', 'class $C { m(a: 0) { return a } }'],
   ]
+  // A TYPE NAME may end in `$` too, and that is a separate scan from the ones above — the
+  // third site where `$` had to be added. `Record$` had `Record` consumed and the `$` left
+  // between the parameter list and the body:
+  //
+  //     function makeRecordClass(key, value, ast):! Record$ {
+  //     ->  function makeRecordClass(key, value, ast)$ {
+  //
+  // effect's `Schema.ts`, and the last file in the compat corpus that did not convert.
+  const typePositions: Array<[string, string]> = [
+    ['return type', 'function f(a: 0):! Record$ { return 1 }'],
+    ['return type, leading $', 'function f(a: 0):! $Rec { return 1 }'],
+    ['param type', 'function f(a: Record$) { return a }'],
+    ['both', 'function f$(a: Rec$):! Out$ { return a }'],
+  ]
+  for (const [label, src] of typePositions) {
+    it(`${label}: no stray character survives the annotation`, () => {
+      const out = preprocess(src, { filename: 'a.tjs' }).source
+      // The specific corruption: a bare `$` adrift between `)` and `{`.
+      expect(out).not.toMatch(/\)\s*\$/)
+      expect(() => tjs(src, { runTests: false })).not.toThrow()
+    })
+  }
   for (const [label, src] of shapes) {
     it(`${label}: the parameter annotation is still transformed`, () => {
       expect(() => tjs(src, { runTests: false })).not.toThrow()

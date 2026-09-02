@@ -47,24 +47,24 @@ const MAX_BYTES = 400 * 1024
  * Files that do not convert-and-parse today, with WHY.
  *
  * A cause, not just an error string — "known failure" with no diagnosis is how a ratchet
- * becomes a graveyard. Recorded 2026-09-02 at 1972/1973 (99.95%).
+ * becomes a graveyard. Recorded 2026-09-02 at 1973/1973 (100%).
  */
-const KNOWN = new Map<string, string>([
-  // (The scope-blind polymorphic merge is FIXED — it grouped same-named functions across the
-  // whole file with no notion of scope, so two ordinary local helpers were rejected as
-  // ambiguous variants. Five entries lived here. It was a SUBSET VIOLATION, not a dispatch
-  // limitation, and `subset-invariant.test.ts` now carries the shape plus four neighbours.)
-  // --- emitted shape acorn rejects (2) ----------------------------------------------------
-  // Not parse GAPS — these are constructs we emit that are not valid JavaScript, which is
-  // the more serious kind. See the export/super/generator fixes for the same class.
-  // Two more lived here until the method-head guard learned about `new` (see below).
-
-  // --- parse failures needing individual diagnosis (6) ------------------------------------
-  // Locate these in the PREPROCESSED source, not the emitted TJS: acorn's offsets are into
-  // the former, and reading the TJS line at that number produces innocent-looking lines and
-  // several wrong turns.
-  ['effect/packages/effect/src/Schema.ts', 'Unexpected token'],
-])
+/**
+ * Files that do not convert-and-parse today.
+ *
+ * EMPTY, as of 2026-09-02 — 1973/1973. Every file in six real TypeScript projects converts
+ * and parses. Keep it that way: an entry appearing here is a regression, and the scan fails
+ * on it by name. It is deliberately not deleted, because "no known failures" is a state to
+ * defend rather than a milestone to celebrate — the corpus grows, and the next `bun run
+ * test:compat` clone may add files nobody here has seen.
+ *
+ * If you add an entry, record the CAUSE and not the error text. Three entries in this map
+ * were filed under the wrong cause because the message described where the parser stopped
+ * rather than what was wrong: "ambiguous overloads" was a scope-blind merge, "rest param in a
+ * method" was a `$` in a function name, and "getter emitted with parameters" was a type-only
+ * class field two lines above absorbing the next member.
+ */
+const KNOWN = new Map<string, string>([])
 
 interface Failure {
   file: string

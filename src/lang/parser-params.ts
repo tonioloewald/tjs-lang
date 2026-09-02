@@ -1051,6 +1051,10 @@ function normalizeUnionSyntax(type: string): string {
  * practice, and does not pretend to be a tokenizer.
  */
 const ID = '[A-Za-z_$][A-Za-z0-9_$]*'
+/** First character of an identifier. `$` is legal; `[a-zA-Z_]` omits it. */
+const ID_START = /[A-Za-z_$]/
+/** Subsequent character of an identifier. `\w` omits `$`. */
+const ID_CHAR = /[A-Za-z0-9_$]/
 
 const RE_CLASS_NAME = new RegExp(`class\\s+${ID}`, 'y')
 const RE_FUNCTION_HEAD = new RegExp(
@@ -1247,9 +1251,20 @@ function extractReturnTypeValue(
     }
 
     // Handle identifiers (null, undefined, true, false, type names)
-    if (depth === 0 && /[a-zA-Z_]/.test(char)) {
+    //
+    // `ID_START`/`ID_CHAR`, not `[a-zA-Z_]` and `\w` — both omit `$`. A return type named
+    // `Record$` had `Record` consumed and the `$` left behind, so the annotation was
+    // stripped down to a stray character sitting between the parameter list and the body:
+    //
+    //     function makeRecordClass(key, value, ast):! Record$ {
+    //     ->  function makeRecordClass(key, value, ast)$ {
+    //
+    // effect's `Schema.ts`. This is the THIRD site where `$` had to be added — the function
+    // head, the method head, and now the type-name scan — which is the argument for these
+    // being named constants rather than a character class re-typed at each site.
+    if (depth === 0 && ID_START.test(char)) {
       let j = i
-      while (j < source.length && /\w/.test(source[j])) j++
+      while (j < source.length && ID_CHAR.test(source[j])) j++
       sawContent = true
       i = j
       // Check what's next
