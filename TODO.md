@@ -3256,9 +3256,31 @@ remember, not the individual bugs.
       `^0.13.3` pin. So the affected population is **our own projects plus snowfox-app**, not
       a distributed public one.
 
-      **Do — and this is the whole list (maintainer decision, 2026-09-03: "happy to do the
-      deprecation but let's not get crazy"):**
-      1. `npm deprecate 'tjs-lang@<=0.13.8'` with a security message.
+      **SEQUENCING (maintainer, 2026-09-04): PUBLISH 0.13.10 FIRST, then deprecate in favour
+      of it.** The review filed B-1 as a pre-tag blocker while its own remediation points the
+      deprecation at 0.13.10 — a deadlock, since you cannot direct users to a version that
+      does not exist. B-1 is a **post-publish distribution action**. The 0.13.8 review labelled
+      it exactly that and then filed it as a pre-tag blocker anyway; same mistake twice.
+      **The BLOCK verdict does not hold up on this item** — nothing about it needs to precede
+      the tag.
+
+      **AFFECTED RANGE — measured 2026-09-04, not assumed.** Probed published tarballs from
+      Node with the test-block payload:
+      - **0.2.0 – 0.7.3: both entry points fail to import at all** (the broken subpath exports
+        that `f2ea1bc` fixed). Not exploitable from Node because the package does not load.
+        Caveat: **Bun resolves `src/`**, so a Bun consumer of these may still be exposed.
+      - **0.7.4 (2026-04-14): first PWNED** via `tjs-lang/eval`.
+      - **0.13.7: still PWNED** — this is the "fix shipped in `src/` but not `dist/`" release,
+        and Node consumers get `dist`.
+      - **0.13.8: safe** for the test-block path (still carries the separate annotation escape,
+        fixed in 0.13.9).
+
+      **Do — and this is the whole list (maintainer, 2026-09-03: "happy to do the deprecation
+      but let's not get crazy"):**
+      1. `npm deprecate 'tjs-lang@<=0.13.8'` with a security message pointing at 0.13.10.
+         Simplest correct range. The genuinely exploitable window is 0.7.4–0.13.7; everything
+         below 0.7.4 is unloadable-on-Node anyway, so sweeping it in costs no real signal and
+         saves fiddling with two ranges.
       2. Fix the five strings that point at vulnerable versions — wrong at any audience size.
       3. Read state back with `npm view tjs-lang@<v> deprecated` (two past deprecations
          silently did not take).
