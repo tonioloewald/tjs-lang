@@ -26,6 +26,23 @@ test**, with numbers instead of opinions.
       NOT to be done under release pressure; that is how the vulnerability was introduced.
       `src/lang/eval-no-transpile-execution.test.ts` ratchets the current leak surface in the
       meantime: an eighth leak fails, and a closed one must be delisted.
+      **Starting material — measured 2026-09-03, so a fresh session need not re-derive it:** - `parse()` in `src/lang/parser.ts` applies ~30 `source = transform(source)` steps.
+      Exactly TWO consult `options.vmTarget`: the `tjsEquals` gate (~line 381) and the
+      test-block gate (~line 519). Everything else runs for AJS unconditionally. - Seven TJS-only constructs are ACCEPTED on the AJS path today: bang access, `Is`,
+      inline `wasm function`, `Type`, `Generic`, `extend`, `FunctionPredicate`. All inert
+      — each was probed with a body that writes a host global and none executes. - Correctly REJECTED already: `const!`, `try` without `catch`, `Union`, `Enum`,
+      `given`, `class`, and (since the fix) `test` blocks. - The probe that produced both lists is the CONSTRUCTS table in
+      `eval-no-transpile-execution.test.ts` — extend it rather than writing a new one. - `src/lang/core.ts:49` is where `vmTarget: true` is set, i.e. the AJS entry.
+      **Suggested shape:** classify each of the ~30 steps as AJS-legal or TJS-only, using
+      `PRINCIPLES.md` (TJS ⊇ AJS) as the spec; extract the AJS-legal set as
+      `parseAgentSource()`; make `parse()` = that core + the TJS-only steps. The
+      classification IS the work — the refactor is mechanical once it exists.
+      **Safety net:** the ratchet above fails by name if a construct's acceptance changes in
+      either direction, so the refactor has a test telling it what it moved.
+      **Do this in a fresh session.** The two worst defects of the 0.13.7-0.13.9 cycle (a
+      parse regression introduced while fixing an adjacent guard, and a stale `dist/`
+      published) both came from moving fast on a long context under release pressure. Parser
+      surgery punishes that specifically.
 
 - [ ] **A generic type-param default containing `=>` is not parseable.** `Generic Bar<T = () => 0>`
       fails with "Unexpected token". The `<…>` extraction treats the `>` of `=>` as the closing
