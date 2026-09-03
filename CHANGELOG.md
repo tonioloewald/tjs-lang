@@ -5,7 +5,7 @@ All notable changes to **tjs-lang** are documented here.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [0.13.10] — 2026-09-03
 
 ### Changed — AJS parses through its own core, not `parse()` with a flag
 
@@ -36,6 +36,26 @@ Guarded two ways in `src/lang/eval-no-transpile-execution.test.ts`: a source-lev
 the AJS pipeline's exact import set, so a new transform fails at the import rather than waiting
 for someone to think of a construct that exercises it; and the existing behavioural ratchet,
 whose known-leak list is now empty.
+
+**Shipped as a patch, with the breakage named.** Two things could in principle bite:
+
+- **If you passed `vmTarget` to `parse()` or `preprocess()`**, TypeScript will now reject it.
+  Delete it — if you were compiling agent source, call `parseAgentSource()` (exported from
+  `tjs-lang/lang`) instead; if you were compiling TJS, the flag was doing nothing you wanted.
+- **If AJS source you ship contains one of the seven constructs**, it now fails at transpile
+  instead of parsing. All seven compiled to calls the VM has no atom for, so they could not
+  have been working — but they failed later and less clearly, and a transpile error is a
+  louder failure than a runtime one.
+
+Neither is a documented API, which is why this is a patch rather than a minor.
+
+### Fixed
+
+- **`tjs-lang/vm` is 23% smaller and `tjs-lang/eval` is 40% smaller** (283→218 KB and
+  164→99 KB raw; 88→66 KB and 54→32 KB gzipped). Not an optimisation — the VM had been
+  bundling ~26 TJS-only source transforms it never legitimately ran, and giving AJS its own
+  parser dropped them. Less code on the path that compiles untrusted input is a security
+  property before it is a size one. The README table is updated and re-measured.
 
 ## [0.13.9] — 2026-09-03
 
