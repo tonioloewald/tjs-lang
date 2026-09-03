@@ -776,7 +776,11 @@ describe('Bootstrap Canary', () => {
       console.log(
         `    Status:              ✓ Transpiled preprocess transforms TJS correctly`
       )
-    })
+      // Explicit budget. These transpile ~275KB of parser modules at ~79% of bun's 5s
+      // default, so they had been RED on main for five CI runs. A known-red baseline masks
+      // every real failure behind it, which is worse than the flake it looks like. The
+      // sibling above already carries `}, 60_000)` for the same reason.
+    }, 60_000)
 
     it('should produce identical preprocess results vs native', () => {
       // Transpile and execute all parser modules
@@ -842,6 +846,10 @@ describe('Bootstrap Canary', () => {
       console.log(`\n  Bootstrapped vs Native preprocess:`)
       console.log(`    ${passed}/${testCases.length} test cases ✓`)
       console.log(`    All outputs match native implementation`)
-    })
+      // Explicit budget. These transpile ~275KB of parser modules at ~79% of bun's 5s
+      // default, so they had been RED on main for five CI runs. A known-red baseline masks
+      // every real failure behind it, which is worse than the flake it looks like. The
+      // sibling above already carries `}, 60_000)` for the same reason.
+    }, 60_000)
   })
 })

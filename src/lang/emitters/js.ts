@@ -195,6 +195,21 @@ export interface TJSTranspileOptions {
 /** Result of running tests at transpile time */
 export type { TestResult } from './js-tests'
 import type { TestResult } from './js-tests'
+import { parseLiteralValue } from '../literal-value'
+
+/**
+ * A TJS example value, PARSED rather than executed.
+ *
+ * These sites used `new Function(\`return ${text}\`)()`, which ran the annotation with full
+ * ambient authority at transpile time — `tjs check` on an untrusted `.tjs` executed it. See
+ * `literal-value.ts` for the accepted grammar. Throws on refusal so the callers' existing
+ * `catch` blocks, which already skipped an unreadable example, behave exactly as before.
+ */
+function __lit(text: string): any {
+  const r = parseLiteralValue(text)
+  if (!r.ok) throw new Error(`not a literal example: ${r.reason}`)
+  return r.value
+}
 
 export interface TJSTranspileResult {
   /**
@@ -1128,7 +1143,7 @@ export function transpileToJS(
       try {
         const defaultsMatch = returnTypeStr.matchAll(/(\w+)\s*=\s*/g)
         const transformed = transformReturnDefaults(returnTypeStr)
-        const parsed = new Function(`return ${transformed}`)()
+        const parsed = __lit(transformed)
         const defaults: Record<string, unknown> = {}
         for (const m of defaultsMatch) {
           const key = m[1]

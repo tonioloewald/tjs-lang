@@ -5,6 +5,54 @@ All notable changes to **tjs-lang** are documented here.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.13.9] — 2026-09-03
+
+### SECURITY — a TJS example value is parsed, never executed
+
+**Second transpile-time escape, and a different path from 0.13.7's.** A return-type annotation
+containing `=` was **evaluated** rather than parsed:
+
+```js
+function f(a: 0): { x = (globalThis.PWNED = 1) } { return { x: a } }
+```
+
+`tjs check` on that file ran it. So did `tjs emit`, the bun `.tjs` plugin, the module loader
+and the playground — anything that transpiles source it did not write. Eight emitter sites
+used `new Function(\`return ${text}\`)()` to turn an example into a value.
+
+This is the **ordinary `tjs()` path**, so 0.13.7's `vmTarget` gate did not touch it. The AJS
+path rejects the carrier, so the VM and the hosted endpoints were not affected — the blast
+radius is developer and CI machines transpiling untrusted `.tjs`.
+
+**Fix:** `src/lang/literal-value.ts` parses examples with acorn and accepts only literals —
+strings, numbers, booleans, `null`, regex, arrays, plain objects, signed numbers, and
+non-interpolated templates. No allowlist of dangerous names and no sanitising of source text:
+anything that can compute is not an example, and that is decidable from the AST. Ordinary
+return defaults are unaffected.
+
+Found by the post-remediation review (`reviews/0.13.8-post-remediation-review.md`).
+
+### Fixed
+
+- **Two self-hosting canaries had been red on `main` for five CI runs.** They transpile ~275KB
+  of parser modules at ~79% of bun's 5s default and carried no explicit budget. A known-red
+  baseline hides every real failure behind it.
+
+### Changed
+
+- The structural guard in `eval-no-transpile-execution.test.ts` now scans the **emitters** and
+  `predicate.ts`, not only the four parser files. It had asserted that test extraction was
+  "the only dynamic-execution site in the entire parse path" — a claim broader than what it
+  checked, which is the failure that test exists to prevent. Widening it surfaced the eight
+  emitter sites above plus two legitimate ones, each now named with its justification.
+
+### Known
+
+`tjs-lang <= 0.13.8` all carry at least one transpile-time execution path. No GitHub advisory
+has been filed and prior versions are not deprecated: this project has no known consumers, so
+the automated-notification machinery would be ceremony rather than protection. Revisit if that
+changes.
+
 ## [0.13.8] — 2026-09-03
 
 ### SECURITY — 0.13.7 shipped the fix in `src/` but not in `dist/`

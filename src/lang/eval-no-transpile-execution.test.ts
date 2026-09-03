@@ -149,17 +149,27 @@ describe('the AJS path runs AJS and nothing else', () => {
     })
   }
 
-  it('test extraction is the only dynamic-execution site in the parse path', () => {
+  it('every dynamic-execution site in the transpile path is accounted for', () => {
     // The structural claim behind all of the above, asserted against the SOURCE rather than
     // inferred from behaviour — the same technique as `atom-effects-scan.test.ts`, and for
     // the same reason: a behavioural probe only covers the constructs somebody thought to
     // probe. If a second `new Function` appears in a transform, this fails and whoever added
     // it has to say why a vmTarget caller cannot reach it.
+    // The EMITTERS too. This list was parser-only while the test's name claimed "the entire
+    // parse path" — a claim broader than what it checked, which is the exact failure this
+    // file exists to prevent, committed in this file. Eight
+    // `new Function(\`return ${…}\`)` sites sat in the emitters evaluating TJS example
+    // values, so `tjs check` on an untrusted `.tjs` executed it; the 0.13.8 re-review found
+    // them and `literal-value.ts` replaced them with parsing.
     const files = [
       'parser.ts',
       'parser-transforms.ts',
       'parser-params.ts',
       'core.ts',
+      'predicate.ts',
+      'literal-value.ts',
+      'emitters/js.ts',
+      'emitters/js-tests.ts',
     ]
     const sites: string[] = []
     for (const f of files) {
@@ -170,9 +180,19 @@ describe('the AJS path runs AJS and nothing else', () => {
           sites.push(`${f}: ${line.trim().slice(0, 60)}`)
       }
     }
-    expect(sites).toEqual([
-      'parser-transforms.ts: const testFn = new Function(body)',
-    ])
+    // Three sites, each deliberate and each named. The two in the test path — extraction and
+    // the runner — are TJS inline tests, a headline feature, and both sit downstream of the
+    // `vmTarget` gate, so a VM-target transpile reaches neither. `predicate.ts` compiles only
+    // VERIFIED-SAFE predicates with effectful globals shadowed and fuel injected — a
+    // hardened path, not an oversight. A third entry needs the same justification in
+    // writing before this list grows.
+    expect(sites.sort()).toEqual(
+      [
+        'parser-transforms.ts: const testFn = new Function(body)',
+        'predicate.ts: const factory = new Function(',
+        'emitters/js-tests.ts: const fn = new Function(',
+      ].sort()
+    )
   })
 })
 
@@ -254,5 +274,53 @@ describe('TJS constructs the AJS path still accepts (ratchet)', () => {
     // The floor. A change that made `transpile` reject everything would satisfy every
     // assertion above.
     expect(() => transpile('function f(n: 0) { return n * 2 }')).not.toThrow()
+  })
+})
+
+describe('a TJS example value is parsed, never executed', () => {
+  // The SECOND transpile-time escape, and it is not on the VM path — this is the ordinary
+  // `tjs()` path, so `tjs check`, `tjs emit`, the bun `.tjs` plugin, the module loader and
+  // the playground all ran it. The `vmTarget` gate does not touch it.
+  //
+  // Eight emitter sites did `new Function(`return ${text}`)()` to turn a TJS example into a
+  // value. An example is DATA; anything that can compute is not an example. They now parse.
+  const payloads: Array<[string, string]> = [
+    [
+      'return-type default',
+      'function f(a: 0): { x = (globalThis.SENT = 42) } { return { x: a } }',
+    ],
+    [
+      'nested in an object example',
+      'function f(a: 0): { o = { k: (globalThis.SENT = 42) } } { return { o: {} } }',
+    ],
+    [
+      'array example',
+      'function f(a: 0): { xs = [(globalThis.SENT = 42)] } { return { xs: [] } }',
+    ],
+  ]
+  for (const [label, template] of payloads) {
+    it(`${label}: does not execute`, () => {
+      const sentinel = '__TJS_ANN__'
+      const src = template.replace(/SENT/g, sentinel)
+      delete (globalThis as any)[sentinel]
+      try {
+        tjs(src, { runTests: false })
+      } catch {
+        /* refusing the file is a fine outcome; executing it is not */
+      }
+      expect((globalThis as any)[sentinel]).toBeUndefined()
+      delete (globalThis as any)[sentinel]
+    })
+  }
+
+  it('ordinary return defaults still work', () => {
+    // The floor. Refusing every example would satisfy all of the above.
+    const r = tjs(
+      "function g(a: 0): { value: 0, error = '' } { return { value: a } }",
+      {
+        runTests: false,
+      }
+    )
+    expect(r.code).toContain('error')
   })
 })

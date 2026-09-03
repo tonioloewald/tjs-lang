@@ -15,6 +15,21 @@ import { transformExtensionCalls } from '../parser'
 import { installRuntime } from '../runtime'
 import { expectFunction } from '../tests'
 import type { ExtractedTest, ExtractedMock } from '../tests'
+import { parseLiteralValue } from '../literal-value'
+
+/**
+ * A TJS example value, PARSED rather than executed.
+ *
+ * These sites used `new Function(\`return ${text}\`)()`, which ran the annotation with full
+ * ambient authority at transpile time — `tjs check` on an untrusted `.tjs` executed it. See
+ * `literal-value.ts` for the accepted grammar. Throws on refusal so the callers' existing
+ * `catch` blocks, which already skipped an unreadable example, behave exactly as before.
+ */
+function __lit(text: string): any {
+  const r = parseLiteralValue(text)
+  if (!r.ok) throw new Error(`not a literal example: ${r.reason}`)
+  return r.value
+}
 
 export interface TestResult {
   /** Test description */
@@ -440,7 +455,7 @@ function parseReturnExample(
   const trimmed = str.trim()
   if (!trimmed.startsWith('{') || !trimmed.includes('=')) {
     try {
-      return { pattern: new Function(`return ${str}`)(), defaults }
+      return { pattern: __lit(str), defaults }
     } catch {
       return null
     }
@@ -502,7 +517,7 @@ function parseReturnExample(
         }
 
         try {
-          defaults[keyMatch[1]] = new Function(`return ${valStr.trim()}`)()
+          defaults[keyMatch[1]] = __lit(valStr.trim())
         } catch {
           // Can't parse default, skip
         }
@@ -521,7 +536,7 @@ function parseReturnExample(
   }
 
   try {
-    return { pattern: new Function(`return ${transformed}`)(), defaults }
+    return { pattern: __lit(transformed), defaults }
   } catch {
     return null
   }
@@ -590,7 +605,7 @@ export function extractSignatureTestInfos(
       const parsed = parseReturnExample(returnExample)
       if (!parsed) continue
 
-      const args = paramExamples.map((p) => new Function(`return ${p}`)())
+      const args = paramExamples.map((p) => __lit(p))
 
       infos.push({
         funcName,
@@ -641,7 +656,7 @@ export function extractSignatureTestInfos(
 
     let ctorArgs: unknown[]
     try {
-      ctorArgs = ctorParamExamples.map((p) => new Function(`return ${p}`)())
+      ctorArgs = ctorParamExamples.map((p) => __lit(p))
     } catch {
       continue
     }
@@ -679,7 +694,7 @@ export function extractSignatureTestInfos(
         const parsed = parseReturnExample(returnExample)
         if (!parsed) continue
 
-        const args = paramExamples.map((p) => new Function(`return ${p}`)())
+        const args = paramExamples.map((p) => __lit(p))
 
         infos.push({
           funcName: methodName,
@@ -1157,7 +1172,7 @@ function extractParamExamples(paramsStr: string): string[] {
     const restMatch = trimmed.match(/^\.\.\.(\w+)\s*[:=]\s*(\[.+\])$/)
     if (restMatch) {
       try {
-        const arr = new Function(`return ${restMatch[2]}`)()
+        const arr = __lit(restMatch[2])
         if (Array.isArray(arr)) {
           for (const el of arr) {
             examples.push(JSON.stringify(el))
