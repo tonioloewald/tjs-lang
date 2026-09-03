@@ -6,6 +6,16 @@
  * strip line comments, transform parameter/return annotations, hand the result to acorn.
  * Four steps, all of them things AJS actually has.
  *
+ * **One shared surface, named rather than glossed.** `transformParenExpressions` and
+ * `extractParamMarkers` live in `parser-params.ts` and are shared with TJS's parser. The
+ * 0.13.10 review (m-1) found the consequence: TJS safety markers (`!`/`?` on params, `:!`/`:?`
+ * on returns) are still *accepted* here and silently discarded, so an author writing
+ * `function main(!apiKey: '')` gets the opposite of what the marker documents. Nothing
+ * executes and no capability leaks, but the list below is a list of TRANSFORMS, not a
+ * guarantee about every byte of behaviour reachable through them — and the fix is to make the
+ * shared function reject markers when the caller supplies no unsafe/safe sets, which is
+ * tracked in TODO.md rather than done in passing.
+ *
  * ## Why this is a separate function rather than a `vmTarget` gate
  *
  * `parse()` applies ~30 source transforms. Exactly TWO consulted `options.vmTarget`, so the
@@ -59,8 +69,13 @@ export interface AgentPreprocessResult {
 /**
  * Apply the AJS-legal source transforms. Everything TJS adds on top of JavaScript —
  * modes, directives, `Type`/`Generic`/`Union`/`Enum`/`extend`/`FunctionPredicate`, `given`,
- * `const!`, bang access, `Is`, wasm, inline tests, `unsafe` markers — is absent by
+ * `const!`, bang access, `Is`, wasm, inline tests, `unsafe` statements — is absent by
  * construction, not disabled by a flag.
+ *
+ * EXCEPT param/return SAFETY MARKERS, which this listed as absent and which are not: they ride
+ * in on the shared `transformParenExpressions` and are stripped-and-dropped (review m-1, see
+ * the header). Corrected here rather than left to read as a guarantee — a doc comment claiming
+ * a property the code does not have is the failure mode this whole file was written to end.
  */
 export function preprocessAgentSource(
   source: string,

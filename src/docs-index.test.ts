@@ -119,7 +119,13 @@ describe('llms.txt is a complete index', () => {
 
     const missing = RELATIVE_LINKS.filter((l) => !isShipped(l))
     expect(missing).toEqual([])
-  })
+    // Explicit budget: this shells out to `npm pack --dry-run`, which is ~0.9s idle but
+    // spawns node and walks the tree, so it does not fit bun's 5000ms default under test
+    // load — it timed out at 5010ms during the 0.13.10 review while passing in isolation.
+    // The probe is worth keeping (it asks npm what ships rather than re-implementing
+    // `files` precedence); it just needs a budget sized to a subprocess, not to an
+    // in-memory assertion.
+  }, 30_000)
 })
 
 const RELATIVE_LINKS = [

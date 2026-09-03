@@ -46,6 +46,10 @@ import { tjs } from './index'
 import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { maskLiterals } from '../strip-comments'
+// Error-tolerant, because the file under inspection is TypeScript and acorn proper dies on
+// the first `interface`. The imports are plain ES either way, and this is the same dependency
+// the editor scope-extraction uses for half-typed buffers.
+import * as acornLoose from 'acorn-loose'
 
 const SENTINELS = ['__TJS_PWNED__', '__TJS_PWNED_2__', '__TJS_PWNED_3__']
 afterEach(() => {
@@ -204,6 +208,36 @@ describe('the AJS path runs AJS and nothing else', () => {
     )
   })
 
+  it('a removed `vmTarget` is REFUSED, never silently ignored', async () => {
+    // The 0.13.10 review's M-1, pinned. Removing the flag without refusing it was a fail-open
+    // of exactly the kind the split exists to end: before the split
+    // `parse(src, { vmTarget: true })` SUPPRESSED test extraction, and afterwards the same
+    // call silently ran `new Function(body)()` on the caller's source. TypeScript objects only
+    // to an inline object literal, so a JS consumer or an `as any` got no signal at all.
+    //
+    // Asserted through BOTH entries and with `colonShorthand: false`, because `parse` skips
+    // `preprocess` in that configuration and a guard in one place would miss it.
+    const { parse, preprocess } = await import('./parser')
+    const sentinel = '__TJS_VMTARGET__'
+    // Same shape as the payloads above — a `test` block INSIDE a function. Written this way
+    // rather than as a top-level block plus a second declaration because the latter form made
+    // this file stop converting in the dogfood ratchet, an interaction bug filed in TODO.md.
+    const payload = `function main(n) { test 'x' { globalThis.${sentinel} = true } return n }`
+    delete (globalThis as any)[sentinel]
+
+    for (const call of [
+      () => parse(payload, { vmTarget: true } as any),
+      () => parse(payload, { vmTarget: true, colonShorthand: false } as any),
+      () => preprocess(payload, { vmTarget: true } as any),
+      () => parse(payload, { ...{ vmTarget: false } } as any), // present-but-false still refuses
+    ]) {
+      expect(call).toThrow(/vmTarget/)
+    }
+    // The property that actually matters: nothing ran on the way to the refusal.
+    expect((globalThis as any)[sentinel]).toBeUndefined()
+    delete (globalThis as any)[sentinel]
+  })
+
   it('the AJS parse pipeline is exactly the steps AJS has', () => {
     // The behavioural ratchet below can only cover constructs somebody thought to list. This
     // is the structural claim underneath it, asserted against the SOURCE — the same technique
@@ -213,19 +247,52 @@ describe('the AJS path runs AJS and nothing else', () => {
     // that import set means a new step cannot arrive quietly: adding one turns this red, and
     // whoever added it has to answer the only question that matters — does AJS *have* this
     // construct? Inertness is not an answer; all seven historical leaks were inert.
+    // PARSED with acorn, not matched with a regex.
+    //
+    // The first version of this guard was a line-anchored regex matching `import` followed by
+    // a BRACED name list and a quoted specifier. It therefore saw only brace-form named
+    // imports: a namespace import (`import * as T from …`) and a default import both yielded
+    // zero matches — so the evasion was one keystroke wide, and a namespace import could have
+    // brought the entire TJS transform module in with the guard still green.
+    //
+    // (That pattern is described rather than quoted here on purpose: written out as a literal
+    // it contains a regex delimiter and nested quotes, which our own converter mis-scans —
+    // the literal-blindness class, see src/lang/literal-blindness.test.ts. Filed in TODO.md;
+    // a comment should not be the thing that breaks the dogfood ratchet.)
+    //
+    // It was not hypothetical. `import * as acorn from 'acorn'` is the FIRST import in
+    // parser-agent.ts and the pin could not see it, so the expected list below never contained
+    // it and the comment introducing it had slid onto the next entry. The one import the author
+    // narrated was the one the guard was blind to — a guard whose own subject matter is that a
+    // comment is not a control.
+    //
+    // Parsing makes the shape irrelevant: every import form lands in `ImportDeclaration`, so
+    // named, namespace, default and side-effect-only all get pinned. Type-only imports are
+    // excluded properly here (`importKind`), where the old dead `/^import\s+type/` test could
+    // never fire because the outer regex already excluded those lines.
     const src = readFileSync(join(import.meta.dir, 'parser-agent.ts'), 'utf8')
+    const ast = acornLoose.parse(src.replace(/^import type[^\n]*\n/gm, ''), {
+      ecmaVersion: 2022,
+      sourceType: 'module',
+    }) as any
     const imported = new Set<string>()
-    for (const m of src.matchAll(
-      /^import\s*\{([^}]+)\}\s*from\s*'([^']+)'/gm
-    )) {
-      // Type-only imports describe shapes; they cannot transform source.
-      if (/^import\s+type/.test(m[0])) continue
-      for (const name of m[1].split(','))
-        if (name.trim()) imported.add(`${m[2]}:${name.trim()}`)
+    for (const node of ast.body) {
+      if (node.type !== 'ImportDeclaration') continue
+      const from = node.source.value
+      if (!node.specifiers.length) imported.add(`${from}:<side-effect>`)
+      for (const s of node.specifiers) {
+        if (s.type === 'ImportNamespaceSpecifier')
+          imported.add(`${from}:* as ${s.local.name}`)
+        else if (s.type === 'ImportDefaultSpecifier')
+          imported.add(`${from}:default`)
+        else imported.add(`${from}:${s.imported.name}`)
+      }
     }
     expect([...imported].sort()).toEqual(
       [
         // acorn — the parse itself. AJS is a JavaScript subset, so acorn IS its grammar.
+        // Now actually pinned, and on its own entry rather than commenting the one below it.
+        'acorn:* as acorn',
         './types:SyntaxError',
         // A hashbang is ES2023, therefore inside the subset. Blanked, not sliced, so
         // diagnostic offsets survive.
@@ -234,6 +301,10 @@ describe('the AJS path runs AJS and nothing else', () => {
         '../strip-comments:stripLineComments',
         // Colon shorthand — the one thing AJS has that JavaScript does not, and load-bearing:
         // the entry function's parameter examples are the agent's input contract.
+        // NOTE: `parser-params.ts` is SHARED with TJS's parser. It is the one shared source
+        // surface, and m-1 of the 0.13.10 review found TJS safety markers leaking across it —
+        // so "absent by construction" is true of the transform LIST, not of every byte of
+        // behaviour reachable through it. Tightening that is tracked in TODO.md.
         './parser-params:transformParenExpressions',
         './parser-params:extractParamMarkers',
       ].sort()

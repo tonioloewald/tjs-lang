@@ -123,6 +123,29 @@ export function preprocess(
   //
   // BLANKED, not removed, so every offset in a later diagnostic still points at the right
   // line and column — the same reason `check` blanked it rather than slicing.
+  // `vmTarget` was REMOVED, and removing it silently was a fail-open — the exact defect this
+  // whole split exists to eliminate, reintroduced by the fix for it.
+  //
+  // Before the split, `parse(src, { vmTarget: true })` SUPPRESSED `extractAndRunTests` (and the
+  // `==`→`Eq` rewrite). Afterwards the option was simply destructured away, so the same call
+  // silently began running `new Function(body)()` on the caller's source. TypeScript objects
+  // only to an inline object literal: a JavaScript consumer, a spread, or an `as any` got no
+  // signal at all. A removed safety flag that is ignored rather than refused is worse than the
+  // flag, because the caller is still asking for the protection.
+  //
+  // So refuse, loudly, and name the replacement. Callers of the AJS path want
+  // `parseAgentSource()` (parser-agent.ts); callers who were compiling TJS want nothing.
+  if (options && 'vmTarget' in options) {
+    throw new Error(
+      '`vmTarget` was removed in 0.13.10 and is no longer honoured. It used to suppress ' +
+        'TJS-only transforms (inline `test` blocks, `==`→`Eq`) when compiling AJS. ' +
+        'To compile agent source, call `parseAgentSource()` / `preprocessAgentSource()` ' +
+        'from `tjs-lang/lang` — AJS now has its own parser. To compile TJS, drop the option. ' +
+        'This throws rather than being ignored because silently dropping a safety flag ' +
+        'would re-enable transpile-time execution for a caller who explicitly asked for it.'
+    )
+  }
+
   const shebang = hashbangOf(source)
   if (shebang)
     source = ' '.repeat(shebang.length) + source.slice(shebang.length)
@@ -674,6 +697,16 @@ export function parse(
   letAnnotations: Map<string, string>
   tjsModes: TjsModes
 } {
+  // Also checked here, not only in `preprocess`: with `colonShorthand: false` this function
+  // never calls it, so a guard living solely there would let exactly that call through.
+  if (options && 'vmTarget' in options) {
+    throw new Error(
+      '`vmTarget` was removed in 0.13.10 and is no longer honoured. ' +
+        'To compile agent source, call `parseAgentSource()` from `tjs-lang/lang` — ' +
+        'AJS now has its own parser. To compile TJS, drop the option.'
+    )
+  }
+
   const { filename = '<source>', colonShorthand = true, dialect } = options
 
   // Preprocess for custom syntax

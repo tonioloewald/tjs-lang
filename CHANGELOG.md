@@ -32,22 +32,33 @@ by acorn (`Identifier 'x' has already been declared`) rather than by TJS's polym
 pass (`ambiguous signatures`). Same rejection, from the JavaScript rule that actually governs
 a JavaScript subset.
 
-Guarded two ways in `src/lang/eval-no-transpile-execution.test.ts`: a source-level scan pinning
-the AJS pipeline's exact import set, so a new transform fails at the import rather than waiting
-for someone to think of a construct that exercises it; and the existing behavioural ratchet,
-whose known-leak list is now empty.
+Guarded two ways in `src/lang/eval-no-transpile-execution.test.ts`: an **acorn-parsed** pin on
+the AJS pipeline's import set, so a new transform fails at the import rather than waiting for
+someone to think of a construct that exercises it; and the existing behavioural ratchet, whose
+known-leak list is empty.
 
-**Shipped as a patch, with the breakage named.** Two things could in principle bite:
+**Scope of that claim, stated honestly.** `parser-params.ts` is shared with TJS's parser, so
+"absent by construction" is true of the transform _list_, not of every behaviour reachable
+through it: TJS safety markers (`!`/`?` on params, `:!`/`:?` on returns) are still accepted and
+silently discarded on the AJS path. No execution, no capability, no fuel bypass — but an author
+writing `function main(!apiKey: '')` gets the opposite of what the marker documents. Tracked in
+`TODO.md`.
 
-- **If you passed `vmTarget` to `parse()` or `preprocess()`**, TypeScript will now reject it.
-  Delete it — if you were compiling agent source, call `parseAgentSource()` (exported from
-  `tjs-lang/lang`) instead; if you were compiling TJS, the flag was doing nothing you wanted.
+**Shipped as a patch, with the breakage named.** Three things could bite:
+
+- **If you passed `vmTarget` to `parse()` or `preprocess()`**, it now **throws**, naming
+  `parseAgentSource()` as the replacement. It is not ignored: the flag used to _suppress_
+  transpile-time `new Function()`, so silently dropping it would have re-enabled execution for
+  a caller who had explicitly asked for the protection. TypeScript only ever caught the inline
+  object-literal case, so a JS consumer or an `as any` needed a runtime refusal.
 - **If AJS source you ship contains one of the seven constructs**, it now fails at transpile
-  instead of parsing. All seven compiled to calls the VM has no atom for, so they could not
-  have been working — but they failed later and less clearly, and a transpile error is a
-  louder failure than a runtime one.
+  instead of parsing. They failed later and less clearly before; a transpile error is louder.
+- **Two further acceptance narrowings**, found by the pre-release review and not by the seven-
+  construct list: a typed `let` (`let x: 0 = n`) and a leading `safety none` directive now fail
+  with an acorn `Unexpected token` on the AJS path. Neither is documented AJS.
 
-Neither is a documented API, which is why this is a patch rather than a minor.
+Neither the flag nor the constructs are a documented API, which is why this is a patch rather
+than a minor.
 
 ### Fixed
 

@@ -222,11 +222,7 @@ if (x > 5) {
   return { size: 'small' }
 }
 
-// Loops
-for (let i = 0; i < 10; i++) {
-  total = total + i
-}
-
+// Loops — `for...of` and `while`. There is NO C-style `for (;;)`.
 for (let item of items) {
   results.push(item.name)
 }
@@ -248,10 +244,6 @@ let message = `Hello, ${name}!`
 // Object/array literals
 let obj = { a: 1, b: 2 }
 let arr = [1, 2, 3]
-
-// Destructuring
-let { name, age } = user
-let [first, second] = items
 
 // Spread
 let merged = { ...defaults, ...overrides }
@@ -315,16 +307,18 @@ times (or in a loop) doesn't bloat the agent's AST.
 
 ### What's Forbidden
 
-| Feature                    | Why Forbidden                                     |
-| -------------------------- | ------------------------------------------------- |
-| `class`                    | Too complex for LLMs, enables prototype pollution |
-| `new`                      | Arbitrary object construction                     |
-| `this`                     | Implicit context, hard to sandbox                 |
-| Closures                   | State escapes the sandbox                         |
-| `async`/`await`            | VM handles async internally                       |
-| `eval`, `Function`         | Code injection                                    |
-| `__proto__`, `constructor` | Prototype pollution                               |
-| `import`/`export`          | Module system handled by host                     |
+| Feature                      | Why Forbidden                                                                                                                                                                      |
+| ---------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| C-style `for (;;)`           | Use `for...of`, or `while` with a counter                                                                                                                                          |
+| Destructuring _declarations_ | `let { a } = o` / `let [a] = xs`. Read members instead (`const a = o.a`). Destructured **parameters** — `function agent({ apiKey })` — are fine and are the documented entry shape |
+| `class`                      | Too complex for LLMs, enables prototype pollution                                                                                                                                  |
+| `new`                        | Arbitrary object construction                                                                                                                                                      |
+| `this`                       | Implicit context, hard to sandbox                                                                                                                                                  |
+| Closures                     | State escapes the sandbox                                                                                                                                                          |
+| `async`/`await`              | VM handles async internally                                                                                                                                                        |
+| `eval`, `Function`           | Code injection                                                                                                                                                                     |
+| `__proto__`, `constructor`   | Prototype pollution                                                                                                                                                                |
+| `import`/`export`            | Module system handled by host                                                                                                                                                      |
 
 AJS is intentionally simple—simple enough for 4B parameter LLMs to generate correctly.
 

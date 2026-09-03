@@ -13,8 +13,15 @@
 // Core transpiler functions - imported directly to avoid TS compiler
 export { transpile, ajs, tjs, createAgent, getToolDefinitions } from './core'
 
-// Parser
+// Parser — TJS's.
 export { parse, preprocess, extractTDoc } from './parser'
+
+// Parser — AJS's. Exported beside TJS's because the pair IS the split, and because the
+// 0.13.10 CHANGELOG tells `vmTarget` callers to migrate to `parseAgentSource()` "from
+// `tjs-lang/lang`" — which was false in all three export conditions until this line existed.
+// A migration instruction naming an export that is not there sends the caller to the main
+// entry instead (~91 KB raw more), landing the cost on exactly the people the release broke.
+export { parseAgentSource, preprocessAgentSource } from './parser-agent'
 
 // Dialect resolution for file-based tooling (extension → dialect)
 export {

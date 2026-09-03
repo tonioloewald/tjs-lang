@@ -181,6 +181,13 @@ describe('devDependencies cover what the repo imports', () => {
       'ajs',
       'preprocess',
       'parse',
+      // AJS's parser (0.13.10). Added because the CHANGELOG documents it as a
+      // `tjs-lang/lang` import — which is the trigger this list's comment above names, and
+      // which was missed on the release that introduced it. That made this the SECOND time
+      // the guard passed vacuously: it can only check names somebody remembered to add, so
+      // the entry is part of the change, not a follow-up to it.
+      'parseAgentSource',
+      'preprocessAgentSource',
       'Schema',
       'lint',
       'dialectForFilename',

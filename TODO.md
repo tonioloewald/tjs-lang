@@ -3226,6 +3226,169 @@ listener (identity is now the command line — `6596ae3`); issue #4's stale publ
 (correction posted); the five declaration transforms rewriting TJS inside string literals
 (`64c6c5d`, six sites); the two `expect` harnesses (`27f89db`).
 
+## Open findings — 0.13.10 pre-release review (BLOCK, 2026-09-03)
+
+Full report: [`docs/reviews/0.13.10-pre-release-review.md`](docs/reviews/0.13.10-pre-release-review.md).
+20 findings, 1 blocker, 7 verified majors. **The tag is held** until B-1 clears. Items already
+remediated in the review commit are listed in the report, not here.
+
+**Three of the majors were defects in this release's own diff** — a fail-open where a removed
+safety flag was ignored rather than refused, a structural guard evadable by a namespace import,
+and a CHANGELOG migration naming a non-existent export. All three are fixed; they are recorded
+here because the pattern (a release that fixes fail-open introducing fail-open) is the thing to
+remember, not the individual bugs.
+
+### Blocked on the maintainer (npm auth / registry state)
+
+- [ ] **[B-1, BLOCKER] npm distribution metadata routes users onto vulnerable versions.** Only
+      0.13.7 is deprecated; 0.13.1/0.13.5/0.13.6/0.13.8 are not, though all carry a
+      transpile-time execution path. **Five** deprecation strings point AT vulnerable targets
+      (0.13.7 → "Upgrade to 0.13.8"; 0.10/0.11/0.12/0.13.0 → "0.13.1"; 0.13.4 → "0.13.5"). No
+      advisory exists in GitHub, the npm feed, or OSV, so `npm audit` and Dependabot report zero
+      for every pinned vulnerable version. The premise used to justify inaction — "no known
+      consumers" (`CHANGELOG.md`) — is refuted by **6,658 downloads/month** and by five places
+      in this repo naming a consumer, and it SHIPS in the tarball.
+      Steps: `npm deprecate 'tjs-lang@<=0.13.8' "SECURITY: transpiling untrusted source can
+execute it at transpile time — upgrade to 0.13.10"`; amend the five misdirecting strings;
+      file a GHSA (affected from 0.10.0, fixed in 0.13.9/0.13.10) — the only channel that
+      reaches `npm audit`; then correct or delete the false premise in `CHANGELOG.md`. Read
+      state back with `npm view tjs-lang@<v> deprecated`.
+      Unremediated from the 0.13.8 review's B-2, whose checkbox is still unticked.
+
+- [ ] **[M-7] The public endpoints run 0.13.8 and nothing gates it.** `/health` confirms live.
+      `functions/package-lock.json` pins 0.13.8, so `npm ci` (what a Firebase deploy runs)
+      reproduces it regardless of what ships. Not a live exposure — the deployed build was
+      probed with both payloads and rejects them — but the code-execution endpoints are two
+      security-motivated releases behind, including the one that closes seven leaks on the exact
+      path they run. Do after publishing: bump `functions/` to `^0.13.10`, refresh the lockfile,
+      redeploy (`npx firebase-tools@latest`, the global CLI is too old), confirm `/health`.
+      Second instance — `cac3c62` records the same failure with a pre-0.12 VM.
+
+### Security / correctness (fresh session — parser and VM surgery, not end-of-day work)
+
+- [ ] **[M-2] VM builtin allowlist and atom registry resolve through the prototype chain.**
+      `builtins` and `AgentVM.atoms` are plain object literals looked up with `in`/bracket
+      access on an attacker-controlled key. Reproduced live via `Eval` with no capabilities:
+      `return { v: constructor('abc') }` → `{"v":"abc"}` — the host `Object` called with guest
+      arguments past the allowlist. 11 inherited names resolve; the `ident` path
+      (`runtime.ts:2240-2250`) leaks one gate earlier. No escalation to `Function`, no prototype
+      pollution. Pre-existing (`81ef0dc`), untouched by this diff.
+      Fix: `Object.create(null)` for both maps, or `hasOwnProperty.call` at the three lookup
+      sites, **including the `ident` path**. Add a hostile-input row to
+      `malicious-actor.test.ts` covering all 11 names.
+
+- [ ] **[M-3] `Eval` fuel/timeout apply only AFTER transpilation, which is quadratic and
+      byte-uncapped.** Measured: 109KB → 2.0s, 905KB → 35.8s, 1.8MB → **144.6s**, `fuelUsed`
+      0.2 at every size. Both public endpoints validate only `typeof code === 'string'` and cap
+      fuel, not bytes; no `timeoutSeconds`/`maxInstances` anywhere, so Firebase v2's 60s default
+      applies. One request from any free signed-in account pins an instance at zero metered
+      fuel. The `page` endpoint re-transpiles per request with no compile cache, so a large
+      stored function pays it every hit with no attacker at all.
+      Fix: `maxSourceBytes` on `EvalOptions`/`SafeFunctionOptions` (~64KB default), refused
+      before `transpile()`; explicit `code.length` cap at both endpoints; set
+      `timeoutSeconds`/`maxInstances`; compile cache for `page`. Regression test: 1MB returns
+      in well under a second.
+
+- [ ] **[M-4] The two `transpile()` copies have drifted; the AJS entry signature gets OPPOSITE
+      input contracts depending on entry point.** `core.ts` forwards `requiredValueOffsets`;
+      `index.ts` omits it. `emitters/ast.ts:158` only inspects top-level `AssignmentPattern`, so
+      a destructured `ObjectPattern` — _the_ documented AJS entry shape — matches nothing and
+      the name-based fallback is skipped. For `function agent({ apiKey: 'sk-example' })`:
+      `dist/index.js` → `required: ['apiKey']`, validation fails correctly; `dist/tjs-lang.js` →
+      no `required`, and `vm.run(ast, {})` returns `{"apiKey":"sk-example"}` — **the example
+      value, frequently credential-shaped, silently substituted for a missing required input**.
+      Crosses the entry boundary: `vm/vm.ts:15` imports from `core`, so `vm.run(sourceString)`
+      in the main bundle is affected too. `emitters/js.ts:1229` handles this correctly; `ast.ts`
+      is the gap. Pre-existing, but both copies were touched here and the drift is one line wide.
+      Fix: collapse the two copies; make `ast.ts` descend into `ObjectPattern` properties (or
+      treat an empty `requiredHere` against a non-empty offset set as "could not index", not
+      "nothing required"). Assert both entries agree, and cover `vm.run(sourceString)`.
+
+- [ ] **[M-5, partly done] The structural guards are weaker than claimed.** The import pin is
+      fixed (acorn-parsed, all import forms, mutation-tested against the namespace evasion) and
+      the overstated claims in `CLAUDE.md`/`CHANGELOG.md`/`parser-agent.ts` are corrected.
+      **Still open:** the dynamic-execution scan's `files` list is hand-maintained — a transitive
+      walk from `core.ts` finds 35 reachable files, **26 outside the list**, including
+      `emitters/ast.ts` (called on every piece of untrusted agent source), `inference.ts`,
+      `tests.ts`, `given-transform.ts`, `wasm.ts`. A `new Function` in any of them runs upstream
+      of fuel/timeout/capabilities/membrane — the shape of both the 0.13.7 RCE and the eight
+      0.13.8 emitter sites. Latent today (only comment hits). Fix: replace the hand-written list
+      with the computed transitive closure of `parser-agent.ts` + `core.ts`.
+
+- [ ] **[m-1] TJS safety markers leak onto the AJS path via the shared `parser-params.ts`.**
+      `function f(!a: 1)`, `f(? a: 1)` and the `:!`/`:?` return forms are accepted and silently
+      discarded; the arrow form `(! x) => x` even injects a `/* unsafe */` comment into AJS
+      source. Per `CLAUDE-TJS-SYNTAX.md` a leading `!` disables all validation, so an author
+      writing `function main(!apiKey: '')` gets the opposite of what the marker documents, with
+      no diagnostic. No execution, no capability, no fuel bypass. Docs corrected already; the
+      code fix is to make `transformParenExpressions` REJECT markers when the caller supplies no
+      unsafe/safe sets. Add safety-marker rows to the ratchet's `CONSTRUCTS`.
+
+- [ ] **[m-2] `parseLiteralValue` never checks it consumed the whole input.**
+      `parseLiteralValue("0; globalThis.__X__ = 1")` → `{ ok: true, value: 0 }`. Nothing
+      executes, but 0.13.9's stated rule is that the listed node types are the _entire_ accepted
+      grammar. Fix: `if (node.end !== trimmed.length) return { ok: false, ... }`; rows for
+      `0; anything` and `[] , 1`.
+
+- [ ] **[m-3] `literal-value.ts` lets an example choose the reconstructed object's prototype.**
+      `parseLiteralValue('{ __proto__: { polluted: 1 } }')` → `ok: true`, `Object.keys` empty,
+      `value.polluted === 1`. `Object.prototype` untouched, so not global pollution — the cost
+      is an example meaning one thing to `Object.keys` and another to `in`/`for…in`. This is the
+      one new file rebuilding objects from untrusted text and the one place that does not
+      consult `src/forbidden-keys.ts`, the canonical list for exactly this key.
+
+### Test hygiene
+
+- [x] **[flake-1] `membrane-budget.test.ts` hard `ms < 1000`** — FIXED. Reproduced here at
+      1265ms. Raised to 5000ms with the reasoning recorded at the site: the bound has to
+      discriminate between `Object.keys` hand-off (milliseconds) and `structuredClone`
+      materialising a billion slots (6.5s, measured) — 1000ms was not that gap, it was the gap
+      between an idle and a loaded machine.
+- [x] **[flake-2] `docs-index.test.ts` `npm pack --dry-run` inside bun's 5000ms default** —
+      FIXED. Given an explicit 30s budget, sized to a subprocess rather than an in-memory
+      assertion.
+
+### Converter bug found while remediating (new, not from the review)
+
+- [ ] **`lang/eval-no-transpile-execution.test.ts` stopped converting** and had to be added to
+      `KNOWN_CONVERSION_FAILURES` — the dogfood ratchet went from one known failure to two,
+      which is the wrong direction and should not be left.
+      **What is known:** it converted cleanly at `v0.13.9` and stopped when the 0.13.10
+      `vmTarget`-refusal test was added; bisection confirms removing that block restores
+      conversion. **Every component reproduced in isolation converts fine** — the `test`-block
+      payload in a template literal, the arrow array with `as any`, the `/vmTarget/` regex, the
+      destructured `await import`, and backtick-quoted `import` mentions in comments were each
+      tested separately and all pass. So it is an interaction across the whole file, not a
+      construct.
+      **The diagnostic is actively misleading:** the reported position (`199:62`) lands
+      mid-word inside an ordinary prose comment, which is why isolation kept coming back clean
+      and why this cost more time than it should have. Almost certainly the literal-blindness
+      family — this file is unusually dense with TJS syntax quoted as test data, which is
+      exactly the `wasm.test.ts` entry's shape.
+      Fix the converter, then DELETE the known-failure entry (the ratchet's promote-check will
+      fail if you fix it and leave the entry, which is the point). Feeds issue #25 /
+      `docs/parser-primitives.md`: "where does this expression end" and "what does this `:`
+      mean here" are the two questions no amount of literal-masking answers.
+
+### Coverage gaps named by the review
+
+- [ ] Extend `src/bundle-size.test.ts` to assert the `**Measured at vX.Y.Z**` stamp equals
+      `package.json`'s version. It re-measures the numbers but only checks that _some_ version
+      stamp exists, so the stamp is the one part of the table that can rot silently — which it
+      did (README credited the 0.13.10 win to 0.13.9).
+- [ ] Fix the 2 broken AJS playground examples (`llm-code-solver.md:13`,
+      `llm-code-generator.md:22` — `Unterminated regular expression` on a regex containing a
+      markdown fence). 19 ok / 2 fail; not a regression (identical at v0.13.9) but they ship in
+      `demo/docs.json` and are broken in the playground.
+- [ ] Add a test lane for `guides/examples/ajs/` — `src/examples.test.ts` covers only
+      `examples/*.tjs`, and this release rewrote the AJS parse path wholesale.
+- [ ] `AgentParseOptions.filename` is accepted but ignored (the parameter is `_options`), so a
+      filename never reaches a diagnostic from `preprocessAgentSource`. Wire it or drop it.
+- [ ] Gate `dist/` freshness at the PUBLISH boundary. `dist` is gitignored, so
+      `prepublish-check.ts`'s tree-clean test is structurally blind to it — the exact
+      0.13.7→0.13.8 "fixed in src, not in dist" failure, still ungated. Verified by hand this
+      cycle; a human step is not a gate.
+
 ## Open findings at the 0.13.0 release — the decision
 
 _One place, per the rule now in `AGENTS.md` and filed upstream as

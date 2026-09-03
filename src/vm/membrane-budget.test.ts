@@ -200,7 +200,17 @@ describe('an oversized array is refused without being enumerated', () => {
     const t0 = performance.now()
     expect(await cross(sparse)).toMatch(/membrane budget/)
     const ms = performance.now() - t0
-    expect(ms < 1000 ? 'prompt' : `took ${ms.toFixed(0)}ms`).toBe('prompt')
+    // The bound discriminates between two outcomes that differ by ORDERS OF MAGNITUDE:
+    // handing off to `Object.keys` (milliseconds) versus iterating a billion indices or
+    // letting `structuredClone` materialise the array (6.5 SECONDS, measured, which is the
+    // regression this row exists to catch). It was `< 1000`, which is not the gap between
+    // those two — it is a gap between "idle machine" and "machine under test load", and it
+    // duly went red at 1265 ms during the 0.13.10 review while passing in isolation.
+    //
+    // 5000 ms still separates the two cases by a wide margin and cannot be reached by the
+    // passing path. A guard that reddens on load trains people to re-run rather than read,
+    // which costs more than the regression it would have caught.
+    expect(ms < 5000 ? 'prompt' : `took ${ms.toFixed(0)}ms`).toBe('prompt')
   })
 
   it('an ordinary sparse array still crosses', async () => {

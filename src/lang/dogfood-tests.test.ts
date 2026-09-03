@@ -88,6 +88,10 @@ const KNOWN_CONVERSION_FAILURES = new Map<string, string>([
     'lang/wasm.test.ts',
     'LITERAL BLINDNESS: the `wasm function` scanner reads a fixture inside a template literal (`const source = `wasm function dangerous(! …)`) and rejects it as real code.',
   ],
+  [
+    'lang/eval-no-transpile-execution.test.ts',
+    'UNDIAGNOSED, added 2026-09-03 (0.13.10). Converted cleanly until this release added a `vmTarget`-refusal test to it; bisection confirms that block is the trigger, but every component reproduced in isolation converts FINE (the `test`-block payload, the arrow array with `as any`, the `/vmTarget/` regex, the destructured dynamic import, backtick-quoted `import` mentions in comments). So it is an INTERACTION across the file, not a construct — and the reported position is bogus (it lands mid-word in a plain prose comment), which is why isolation kept coming back clean. Almost certainly the same literal-blindness family as the `wasm.test.ts` entry above: this file is dense with TJS syntax quoted as test DATA. Listed deliberately rather than fixed at the end of a long session, because parser surgery under release pressure is what produced the defects of the 0.13.7-0.13.9 cycle. Tracked in TODO.md.',
+  ],
 ])
 
 /**

@@ -222,6 +222,17 @@ const ignore = [
   'node_modules',
   'dist',
   'docs',
+  // Review reports are internal. They name adopters, carry "Verdict: BLOCK", and describe
+  // vulnerabilities with reproduction steps — all of which this walker would sweep into
+  // `demo/docs.json` and thence into the PUBLISHED playground bundle. Two reports briefly
+  // lived in a top-level `reviews/` and were committed into `demo/docs.json` exactly that
+  // way; the live site never served them, but only because no hosting deploy happened in
+  // between. They now live in `docs/reviews/`, which the `'docs'` entry above already
+  // covers — this entry is the belt to that braces, because the failure was precisely that
+  // this list is an ALLOWLIST over a growing set (the same lesson the dot-directory rule
+  // below records) and the next person to write a report somewhere sensible should not have
+  // to know that.
+  'reviews',
   'third-party',
   '.git',
   '.archive',

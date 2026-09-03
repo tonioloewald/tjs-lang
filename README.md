@@ -222,7 +222,7 @@ Since TJS compiles itself, the playground is the full engine running entirely in
 
 ## Bundle Size
 
-The cost of "safe eval"—compare to a 200MB Docker image. **Measured at v0.13.9**; each row is
+The cost of "safe eval"—compare to a 200MB Docker image. **Measured at v0.13.10**; each row is
 a standalone entry point, not an increment (import only what you need):
 
 | Entry point                   | Bundle           | Size   | Gzipped   |
@@ -233,7 +233,7 @@ a standalone entry point, not an increment (import only what you need):
 | `tjs-lang/lang` (transpiler)  | tjs-lang.js      | 295 KB | 94 KB     |
 | `tjs-lang` (full, TS support) | index.js         | 386 KB | 123 KB    |
 
-The VM and eval bundles got **23%** and **40%** smaller in 0.13.9, and not by optimising
+The VM and eval bundles got **23%** and **40%** smaller in 0.13.10, and not by optimising
 anything: giving AJS its own parser (`parseAgentSource`, see the CHANGELOG) meant the VM
 stopped bundling ~26 TJS-only source transforms it had no business running. Less code on the
 path that compiles untrusted input is a security property before it is a size one.
