@@ -5,6 +5,29 @@ All notable changes to **tjs-lang** are documented here.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.13.8] — 2026-09-03
+
+### SECURITY — 0.13.7 shipped the fix in `src/` but not in `dist/`
+
+**If you installed 0.13.7 from npm and use it under Node, upgrade.** 0.13.7's security fix
+(a VM-target transpile no longer executes the code it is transpiling) was real in source and
+absent from the published bundles: `dist/` had been built 35 minutes before the fix landed.
+
+Bun resolves this package to `src/`, so every local check passed. Node resolves it to
+`dist/`, so **every Node consumer of 0.13.7 got the vulnerable build** — including anyone
+importing `tjs-lang/eval`. Verified by fresh-installing the published tarball and running
+the exploit against it, which is the only check that would have caught it.
+
+No source change from 0.13.7. This release is the same code, correctly built.
+
+### Added
+
+- `src/dist-freshness.test.ts` — the committed `dist/` bundles must not be older than the
+  source they are built from. `editors/**` has had this guard for months; `dist/` is larger,
+  is published, and had none. The mechanical release check had already reported
+  `artifact freshness — no build script` as a SKIP, on a tool whose summary says "skips are
+  NOT passes"; it was read as a pass anyway.
+
 ## [0.13.7] — 2026-09-02
 
 ### SECURITY — a VM-target transpile no longer executes the code it is transpiling
