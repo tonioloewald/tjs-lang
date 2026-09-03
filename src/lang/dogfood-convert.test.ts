@@ -167,7 +167,13 @@ const report = (label: string, st: Stage, total: number) => {
  * 108/108 is a ceiling, not a finish line — the corpus grows, and this floor exists so a
  * regression on any file already converting fails by name.
  */
-const GRADUATION_FLOOR = 108
+/*
+ * Raised to 110 on 2026-09-03 — the corpus grew by two files (`literal-value.ts` and
+ * `expression-context.ts`), both convert, and the whole corpus still graduates. The floor
+ * tracks the corpus rather than a fixed target, which is why the promote-check exists: a gain
+ * that is not locked in is slack a regression can occupy silently.
+ */
+const GRADUATION_FLOOR = 110
 
 /** Improve by this much and the test asks for the floor to be raised. */
 const RATCHET_SLACK = 2
