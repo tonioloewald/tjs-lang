@@ -3240,20 +3240,39 @@ remember, not the individual bugs.
 
 ### Blocked on the maintainer (npm auth / registry state)
 
-- [ ] **[B-1, BLOCKER] npm distribution metadata routes users onto vulnerable versions.** Only
-      0.13.7 is deprecated; 0.13.1/0.13.5/0.13.6/0.13.8 are not, though all carry a
-      transpile-time execution path. **Five** deprecation strings point AT vulnerable targets
-      (0.13.7 → "Upgrade to 0.13.8"; 0.10/0.11/0.12/0.13.0 → "0.13.1"; 0.13.4 → "0.13.5"). No
-      advisory exists in GitHub, the npm feed, or OSV, so `npm audit` and Dependabot report zero
-      for every pinned vulnerable version. The premise used to justify inaction — "no known
-      consumers" (`CHANGELOG.md`) — is refuted by **6,658 downloads/month** and by five places
-      in this repo naming a consumer, and it SHIPS in the tarball.
-      Steps: `npm deprecate 'tjs-lang@<=0.13.8' "SECURITY: transpiling untrusted source can
-execute it at transpile time — upgrade to 0.13.10"`; amend the five misdirecting strings;
-      file a GHSA (affected from 0.10.0, fixed in 0.13.9/0.13.10) — the only channel that
-      reaches `npm audit`; then correct or delete the false premise in `CHANGELOG.md`. Read
-      state back with `npm view tjs-lang@<v> deprecated`.
-      Unremediated from the 0.13.8 review's B-2, whose checkbox is still unticked.
+- [ ] **[B-1, re-scoped 2026-09-03 — see the correction below] npm deprecation metadata points
+      at vulnerable versions.** Only 0.13.7 is deprecated; 0.13.1/0.13.5/0.13.6/0.13.8 are not,
+      though all carry a transpile-time execution path. **Five** deprecation strings point AT
+      vulnerable targets (0.13.7 → "Upgrade to 0.13.8"; 0.10/0.11/0.12/0.13.0 → "0.13.1";
+      0.13.4 → "0.13.5").
+
+      **The review's severity rested on 6,658 downloads/month, and that number is our own CI.**
+      Checked per-version: `latest` (0.13.9) has **zero** downloads, while traffic spreads
+      across nine old versions each matching a lockfile in one of our own repos (tosijs,
+      tosijs-ui, tosijs-3d, tosijs-product, loewald-dot-com, falling-forward, lukko,
+      ajs-clawbot, ngx-tosijs) — tosijs-ui's live-example pulls tjs-lang, so every one of
+      those projects' CI runs downloads it. Per-day confirms it: a **zero-download day**
+      (08-14), and the biggest spike (08-25, 1111) lands exactly when `functions/` gained its
+      `^0.13.3` pin. So the affected population is **our own projects plus snowfox-app**, not
+      a distributed public one.
+
+      **Do — and this is the whole list (maintainer decision, 2026-09-03: "happy to do the
+      deprecation but let's not get crazy"):**
+      1. `npm deprecate 'tjs-lang@<=0.13.8'` with a security message.
+      2. Fix the five strings that point at vulnerable versions — wrong at any audience size.
+      3. Read state back with `npm view tjs-lang@<v> deprecated` (two past deprecations
+         silently did not take).
+      4. Correct the "no known consumers" line in `CHANGELOG.md` — the honest wording is "one
+         named consumer plus our own ecosystem", NOT "6,658 downloads", which is our CI.
+
+      **Explicitly NOT doing** — decided, do not reopen without new evidence:
+      - **No GHSA.** The measured population is our own CI plus one consumer we can message.
+        Filing an advisory for that is cosplay (`releasing.md`, "Responsibility scales with the
+        MEASURED user base"). The review called it mandatory on the strength of the download
+        number that turned out to be ours.
+      - **No sweep of the nine sibling repos.** They update when touched; several are on
+        0.2.8/0.3.0/0.8.x and have been fine. Mention it to snowfox-app in passing if
+        convenient — it is a named production consumer — but a campaign is not warranted.
 
 - [ ] **[M-7] The public endpoints run 0.13.8 and nothing gates it.** `/health` confirms live.
       `functions/package-lock.json` pins 0.13.8, so `npm ci` (what a Firebase deploy runs)
