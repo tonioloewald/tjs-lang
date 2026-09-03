@@ -8,41 +8,14 @@ test**, with numbers instead of opinions.
 
 ## Formalise the AJS AST (decision 2026-08-02)
 
-- [ ] **Invert `parse()`: an AJS core that TJS wraps, not one shared function with gates.**
-      `parse()` applies ~30 transforms and exactly TWO consult `options.vmTarget`. Seven
-      TJS-only constructs are therefore accepted on the AJS path today — bang access, `Is`,
-      inline `wasm function`, `Type`, `Generic`, `extend`, `FunctionPredicate` — and `test`
-      blocks were an eighth until 2026-09-02, when one of them turned out to call
-      `new Function(body)()` on submitted source and became a live RCE on two public Cloud
-      Functions endpoints.
-      **A gate fails OPEN**: seventeen transforms, one missing guard, months unnoticed, found
-      by a security review rather than by any test. **Layering fails CLOSED**: if AJS is the
-      core and TJS is a wrapper that adds its own transforms, a new TJS transform cannot leak
-      into AJS because it does not live there. Tonio's framing, and it is right — the property
-      should be structural, not maintained by remembering to add a flag.
-      Shape: extract the AJS-legal transform set into an `parseAgentSource()` core; `parse()`
-      becomes that core plus the TJS-only steps. The classification is the work — ~30 steps to
-      sort, and PRINCIPLES.md's TJS ⊇ AJS is the spec for which side each belongs on.
-      NOT to be done under release pressure; that is how the vulnerability was introduced.
-      `src/lang/eval-no-transpile-execution.test.ts` ratchets the current leak surface in the
-      meantime: an eighth leak fails, and a closed one must be delisted.
-      **Starting material — measured 2026-09-03, so a fresh session need not re-derive it:** - `parse()` in `src/lang/parser.ts` applies ~30 `source = transform(source)` steps.
-      Exactly TWO consult `options.vmTarget`: the `tjsEquals` gate (~line 381) and the
-      test-block gate (~line 519). Everything else runs for AJS unconditionally. - Seven TJS-only constructs are ACCEPTED on the AJS path today: bang access, `Is`,
-      inline `wasm function`, `Type`, `Generic`, `extend`, `FunctionPredicate`. All inert
-      — each was probed with a body that writes a host global and none executes. - Correctly REJECTED already: `const!`, `try` without `catch`, `Union`, `Enum`,
-      `given`, `class`, and (since the fix) `test` blocks. - The probe that produced both lists is the CONSTRUCTS table in
-      `eval-no-transpile-execution.test.ts` — extend it rather than writing a new one. - `src/lang/core.ts:49` is where `vmTarget: true` is set, i.e. the AJS entry.
-      **Suggested shape:** classify each of the ~30 steps as AJS-legal or TJS-only, using
-      `PRINCIPLES.md` (TJS ⊇ AJS) as the spec; extract the AJS-legal set as
-      `parseAgentSource()`; make `parse()` = that core + the TJS-only steps. The
-      classification IS the work — the refactor is mechanical once it exists.
-      **Safety net:** the ratchet above fails by name if a construct's acceptance changes in
-      either direction, so the refactor has a test telling it what it moved.
-      **Do this in a fresh session.** The two worst defects of the 0.13.7-0.13.9 cycle (a
-      parse regression introduced while fixing an adjacent guard, and a stale `dist/`
-      published) both came from moving fast on a long context under release pressure. Parser
-      surgery punishes that specifically.
+- [x] **Invert `parse()`: an AJS core that TJS wraps, not one shared function with gates.**
+      **DONE 2026-09-03** — `src/lang/parser-agent.ts`. See TODO-ARCHIVE.md for the full
+      record; the short version is that the classification came out far more lopsided than
+      expected. The AJS-legal set is **four steps** (hashbang, line comments,
+      `transformParenExpressions`, `extractParamMarkers`) — everything else in `preprocess`
+      is TJS-only. `vmTarget` is deleted from `ParseOptions`/`PreprocessOptions` and from
+      `parse()`, so there is no flag left to forget. All seven known leaks closed at once,
+      none of them individually.
 
 - [ ] **A generic type-param default containing `=>` is not parseable.** `Generic Bar<T = () => 0>`
       fails with "Unexpected token". The `<…>` extraction treats the `>` of `=>` as the closing

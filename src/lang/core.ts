@@ -12,7 +12,8 @@ import type {
   FunctionSignature,
   TypeDescriptor,
 } from './types'
-import { parse, extractFunctions } from './parser'
+import { extractFunctions } from './parser'
+import { parseAgentSource } from './parser-agent'
 import { transformFunction } from './emitters/ast'
 import {
   transpileToJS,
@@ -28,6 +29,7 @@ export {
   validateSingleFunction,
   extractFunctions,
 } from './parser'
+export { parseAgentSource, preprocessAgentSource } from './parser-agent'
 export { transformFunction } from './emitters/ast'
 
 /**
@@ -43,11 +45,7 @@ export function transpile(
     originalSource,
     requiredValueOffsets,
     requiredParams,
-  } = parse(source, {
-    filename: options.filename,
-    colonShorthand: true,
-    vmTarget: true,
-  })
+  } = parseAgentSource(source, { filename: options.filename })
 
   const { entry, helpers } = extractFunctions(program, options.filename)
 

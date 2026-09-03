@@ -15,8 +15,10 @@
  * `tjs check` on that file runs it. So did `tjs emit`, the bun `.tjs` plugin, the module
  * loader and the playground — anything that transpiles source it did not write. Found by the
  * 0.13.8 re-review, and distinct from the `test`-block escape fixed in 0.13.7: that one was
- * reachable from the VM path and is gated on `vmTarget`; this one is the ordinary TJS path
- * and the gate does not touch it.
+ * reachable from the VM path, which now has its own parser and never reaches these emitters
+ * (`parser-agent.ts`); this one is the ordinary TJS path, where the separation is no help at
+ * all — the caller transpiling a stranger's `.tjs` file is still exposed, so this had to be
+ * fixed by parsing rather than by layering.
  *
  * ## The rule
  *

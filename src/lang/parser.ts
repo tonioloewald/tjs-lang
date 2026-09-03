@@ -150,16 +150,19 @@ export function preprocess(
   )
 
   // Native TJS: all modes ON by default (TJS is its own language).
-  // Plain JS (dialect: 'js'), TS-originated, or VM target: all modes OFF +
-  // safety none, so the source's own semantics are preserved (JS-compatible).
-  // An explicit `dialect` is authoritative; otherwise infer from the fromTS
-  // annotation / vmTarget. See PRINCIPLES.md (TJS ⊇ JS).
+  // Plain JS (dialect: 'js') or TS-originated: all modes OFF + safety none, so the
+  // source's own semantics are preserved (JS-compatible). An explicit `dialect` is
+  // authoritative; otherwise infer from the fromTS annotation.
+  // See PRINCIPLES.md (TJS ⊇ JS).
+  //
+  // AJS is no longer one of the cases here — it does not reach this function at all.
+  // See `parser-agent.ts`.
   const isCompat =
     options.dialect === 'js'
       ? true
       : options.dialect === 'tjs'
       ? false
-      : isFromTS || options.vmTarget
+      : isFromTS
   const tjsModes: TjsModes = isCompat
     ? {
         tjsEquals: false,
@@ -376,9 +379,10 @@ export function preprocess(
   source = transformIsOperators(source)
 
   // Transform == and != to structural equality (Is/IsNot)
-  // Only when TjsEquals mode is enabled and not for VM targets
-  // VM targets already handle == correctly at runtime
-  if (tjsModes.tjsEquals && !options.vmTarget) {
+  // Only when TjsEquals mode is enabled.
+  // (This used to also check `!options.vmTarget`. It was one of exactly two transforms
+  // that did — the AJS path now has its own parser and never gets here.)
+  if (tjsModes.tjsEquals) {
     source = transformEqualityToStructural(source)
   }
 
@@ -517,30 +521,24 @@ export function preprocess(
   // Extract and run test blocks: test 'desc'? { body }
   // Tests run at transpile time and are stripped from output.
   //
-  // NEVER for a VM target. `test '…' { … }` is a TJS feature; AJS has never had it. The AJS
-  // path inherited it only by sharing `parse()`, and every other TJS-only transform here is
-  // gated on `!options.vmTarget` — this one was not.
-  //
-  // The consequence was a category error before it was a vulnerability. AJS exists so code can
-  // travel as DATA and execute under fuel with no ambient authority; running `new Function(
-  // body)()` over submitted source, at transpile time, is the precise opposite. It happened
-  // BEFORE `vm.run`, so fuel, timeout, capabilities and the membrane were all downstream of it:
+  // This calls `new Function(body)()` on the source being transpiled — safe for TJS (you are
+  // compiling your own file), and a remote-code-execution hole for AJS (you are compiling a
+  // stranger's). AJS has never had `test` blocks; it inherited them purely by sharing this
+  // function, where every other TJS-only transform was gated on `!options.vmTarget` and this
+  // one was not:
   //
   //     Eval({ code: "test 'x' { globalThis.__PWNED__ = true } return 1",
   //            fuel: 10, timeoutMs: 1 })
   //     -> { result: 1, fuelUsed: 0.2 }   and __PWNED__ === true
   //
-  // `Eval` and `SafeFunction` transpile the submitted string, and `functions/src/index.tjs`
-  // passes user-supplied code to `Eval` from two public endpoints, so this was reachable by
-  // anyone who could sign in. The repo's own linter rejects a user's `new Function()` for
-  // "evaluates arbitrary source with full ambient authority" and points them at `Eval()` as
-  // the sandboxed alternative.
+  // It ran BEFORE `vm.run`, so fuel, timeout, capabilities and the membrane were all
+  // downstream of the breach, and `functions/src/index.tjs` fed two public endpoints into it.
   //
-  // Gated here rather than by flipping the global `runTests` default, which would change
-  // documented TJS behaviour to fix a bug that only ever existed on the AJS path.
-  const testResult: ReturnType<typeof extractAndRunTests> = options.vmTarget
-    ? { source, tests: [], errors: [] }
-    : extractAndRunTests(source, options.dangerouslySkipTests)
+  // The 0.13.7 fix was a third `vmTarget` gate right here. The structural fix is that there is
+  // no AJS caller any more: `parseAgentSource()` (parser-agent.ts) does not include this step,
+  // because AJS does not have the construct. Guarded by
+  // `eval-no-transpile-execution.test.ts`.
+  const testResult = extractAndRunTests(source, options.dangerouslySkipTests)
   source = testResult.source
 
   // Transform polymorphic constructors: multiple constructor() -> factory functions
@@ -642,7 +640,13 @@ export function preprocess(
 }
 
 /**
- * Parse source code into an Acorn AST
+ * Parse TJS source code into an Acorn AST.
+ *
+ * **TJS only.** AJS has its own parser — `parseAgentSource()` in `parser-agent.ts` — and does
+ * not reach this function. Every transform in `preprocess` above is therefore a TJS transform,
+ * which is what makes adding one safe: there is no AJS caller to leak to and no flag to
+ * remember. See `parser-agent.ts` for the history that made that worth guaranteeing
+ * structurally.
  */
 export function parse(
   source: string,
@@ -670,12 +674,7 @@ export function parse(
   letAnnotations: Map<string, string>
   tjsModes: TjsModes
 } {
-  const {
-    filename = '<source>',
-    colonShorthand = true,
-    vmTarget = false,
-    dialect,
-  } = options
+  const { filename = '<source>', colonShorthand = true, dialect } = options
 
   // Preprocess for custom syntax
   const {
@@ -695,7 +694,6 @@ export function parse(
     tjsModes,
   } = colonShorthand
     ? preprocess(source, {
-        vmTarget,
         dialect,
         moduleLoader: options.moduleLoader,
         filename: options.filename,

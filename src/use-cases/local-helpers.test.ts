@@ -125,7 +125,7 @@ describe('Local helper functions', () => {
   // --- transpile-time guards -------------------------------------------------
 
   const expectTranspileError = (src: string, match: RegExp) =>
-    expect(() => transpile(src, { vmTarget: true })).toThrow(match)
+    expect(() => transpile(src)).toThrow(match)
 
   it('rejects helper calls nested inside expressions', () => {
     expectTranspileError(
@@ -200,15 +200,17 @@ describe('Local helper functions', () => {
   })
 
   it('rejects same-name same-arity functions (collision)', () => {
-    // Two identical-signature `dup` declarations collide. The polymorphic-merge
-    // pass (which runs during parse, before helper extraction) catches this
-    // first — either way it's a clear, deterministic rejection.
+    // Two identical-signature `dup` declarations collide. Since the AJS core stopped
+    // running TJS's polymorphic-merge pass (see `parser-agent.ts`), the rejection comes
+    // from acorn instead: a duplicate top-level declaration is a module-scope error in
+    // JavaScript, and AJS is a JavaScript subset. Same outcome, from the rule that
+    // actually governs the language rather than from a TJS transform that leaked in.
     expectTranspileError(
       `
       function dup(x) { return x }
       function dup(x) { return x }
       function main(n) { const v = dup(n); return { v } }`,
-      /ambiguous signatures|Duplicate helper/
+      /ambiguous signatures|Duplicate helper|already been declared/
     )
   })
 

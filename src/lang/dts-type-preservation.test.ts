@@ -133,9 +133,7 @@ describe('an empty parameter list does not forbid arguments', () => {
     // The fix must not turn every agent into an open bag — a declared parameter list is
     // a contract the author wrote, and excess keys should still be rejected.
     const { transpile } = await import('./index')
-    const ast: any = transpile(`function add({ a, b }) { return a + b }`, {
-      vmTarget: true,
-    }).ast
+    const ast: any = transpile(`function add({ a, b }) { return a + b }`).ast
     expect(ast?.inputSchema?.additionalProperties).toBe(false)
   })
 })

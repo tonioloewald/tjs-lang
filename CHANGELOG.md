@@ -5,6 +5,38 @@ All notable changes to **tjs-lang** are documented here.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Changed — AJS parses through its own core, not `parse()` with a flag
+
+**The structural fix behind 0.13.7's `test`-block RCE.** That vulnerability was one missing
+`!options.vmTarget` among ~30 source transforms of which exactly two checked the flag, so ~28
+TJS transforms ran when compiling AJS. A gate fails open, and this one had for months.
+
+AJS now parses through `parseAgentSource()` in the new `src/lang/parser-agent.ts` — four steps
+(hashbang, line comments, colon shorthand, param markers), because that is what AJS is: a
+JavaScript subset plus typed signatures. Adding a TJS transform means editing `parser.ts`,
+which AJS does not call, so there is nothing left to remember.
+
+All seven previously-leaking TJS constructs — bang access, `Is`, inline `wasm function`,
+`Type`, `Generic`, `extend`, `FunctionPredicate` — are rejected on the AJS path now, closed as
+a group rather than one at a time. They were inert, but accepting syntax the language does not
+have is how the last one arrived.
+
+**`vmTarget` is removed** from `ParseOptions` and `PreprocessOptions`. It was internal (both
+AJS entry points set it themselves) and is not part of the documented API, so no supported
+usage changes. `parse()` is TJS's parser and says so.
+
+One visible behaviour change: two same-name top-level functions in AJS source are now rejected
+by acorn (`Identifier 'x' has already been declared`) rather than by TJS's polymorphic-merge
+pass (`ambiguous signatures`). Same rejection, from the JavaScript rule that actually governs
+a JavaScript subset.
+
+Guarded two ways in `src/lang/eval-no-transpile-execution.test.ts`: a source-level scan pinning
+the AJS pipeline's exact import set, so a new transform fails at the import rather than waiting
+for someone to think of a construct that exercises it; and the existing behavioural ratchet,
+whose known-leak list is now empty.
+
 ## [0.13.9] — 2026-09-03
 
 ### SECURITY — a TJS example value is parsed, never executed

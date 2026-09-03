@@ -27,7 +27,8 @@ import type {
   TranspileResult,
   FunctionSignature,
 } from './types'
-import { parse, extractFunctions } from './parser'
+import { extractFunctions } from './parser'
+import { parseAgentSource } from './parser-agent'
 import { transformFunction } from './emitters/ast'
 
 export * from './types'
@@ -38,6 +39,9 @@ export {
   validateSingleFunction,
   extractFunctions,
 } from './parser'
+// AJS's parser. Exported next to `parse` deliberately: the pair is the visible form of the
+// split, and a caller compiling agent source should reach for this one. See `parser-agent.ts`.
+export { parseAgentSource, preprocessAgentSource } from './parser-agent'
 export {
   dialectForFilename,
   sourceKindForFilename,
@@ -212,18 +216,14 @@ export function transpile(
   source: string,
   options: TranspileOptions = {}
 ): TranspileResult {
-  // Parse the source
-  // vmTarget: true because AJS runs in the VM which handles == correctly
+  // Parse the source through the AJS core — NOT `parse()`, which is TJS's.
+  // See `parser-agent.ts` for why this is a separate function rather than a flag.
   const {
     ast: program,
     returnType,
     originalSource,
     requiredParams,
-  } = parse(source, {
-    filename: options.filename,
-    colonShorthand: true,
-    vmTarget: true,
-  })
+  } = parseAgentSource(source, { filename: options.filename })
 
   // Validate structure
   const { entry, helpers } = extractFunctions(program, options.filename)

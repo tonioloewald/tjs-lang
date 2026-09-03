@@ -364,7 +364,9 @@ null == undefined        // true (nullish equality)
 [1, 2] === [1, 2]       // false (strict identity)
 ```
 
-Structural (deep) comparison is an explicit operation, never `==` — consistent with TJS, where it's the `Is`/`IsNot` function.
+Structural (deep) comparison is an explicit operation, never `==`. In TJS that operation is the `Is`/`IsNot` function; **AJS does not have it** — it is one of the TJS constructs the AJS parser rejects. Compare the fields you care about, or do the comparison in the host.
+
+`a Is b` used to parse on the AJS path, because AJS and TJS shared one parser and the `Is` transform never checked which language it was compiling. It transformed to a call to a function AJS has no atom for, so it never worked; it merely failed later and less clearly. AJS now has its own parser and says so up front. See `src/lang/parser-agent.ts`.
 
 ---
 

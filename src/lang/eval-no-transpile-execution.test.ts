@@ -18,19 +18,26 @@
  * ## Why it was a category error before it was a vulnerability
  *
  * AJS has never had test blocks. They are a TJS feature, and the AJS path inherited them only
- * by sharing `parse()` — where every other TJS-only transform is gated on `!options.vmTarget`
+ * by sharing `parse()` — where every other TJS-only transform was gated on `!options.vmTarget`
  * and this one was not. An agent language whose premise is that code travels as DATA and runs
  * with no ambient authority was calling `new Function(body)()` on the submitted string.
  *
- * So the fix is a gate, not a policy change: AJS rejects `test` blocks as the syntax error they
- * are. Flipping the global `runTests` default would have changed documented TJS behaviour to
- * fix a bug that only ever existed on the other path.
+ * The immediate fix (0.13.7) was a third gate. The real one (2026-09-03) is that AJS no longer
+ * shares `parse()` at all: it has its own parser, `parseAgentSource()` in `parser-agent.ts`,
+ * containing only the four transforms AJS actually has. `vmTarget` is gone. A gate fails OPEN
+ * — it has to be remembered, once per transform, forever. Layering fails CLOSED.
  *
  * ## What this file is for
  *
  * The same job as `membrane-invariant.test.ts`: assert the boundary holds, by trying to cross
- * it. Add a row whenever a new construct can run at transpile time — the question to ask of
- * any such feature is "can a `vmTarget` caller reach it", and the answer must be no.
+ * it. Two kinds of assertion live here, and they cover different failures:
+ *
+ * - **Behavioural** — transpile a construct, check nothing ran and nothing was accepted. Only
+ *   ever covers constructs somebody thought to list.
+ *   Add a row whenever a new construct can run at transpile time.
+ * - **Structural** — read the source and pin what the AJS pipeline imports, and where dynamic
+ *   execution is allowed to exist at all. Catches the ones nobody thought of, which is the
+ *   category the original vulnerability was in.
  */
 import { describe, it, expect, afterEach } from 'bun:test'
 import { Eval, SafeFunction } from './eval'
@@ -108,10 +115,11 @@ describe('TJS keeps its inline tests', () => {
 describe('the AJS path runs AJS and nothing else', () => {
   // "Does the VM only run AJS?" asked structurally rather than one construct at a time.
   //
-  // Several TJS-only constructs are still ACCEPTED by a vmTarget transpile — they are inert,
-  // but accepting syntax the language does not have is how `test` blocks got there in the
-  // first place. Recorded as a table so the answer is visible rather than assumed, and so a
-  // new construct that starts EXECUTING fails here instead of on a public endpoint.
+  // These are all REJECTED now that AJS parses through its own core (`parser-agent.ts`), but
+  // the rows stay: rejection is the mechanism today, and this table asserts the weaker,
+  // longer-lived property underneath it — that nothing RUNS during a VM-target transpile, even
+  // if some future change makes one of these parse again. A construct that is merely inert is
+  // not safe; all seven leaks were inert right up until one of them wasn't.
   const constructs: Array<[string, string, string]> = [
     [
       'test block',
@@ -163,6 +171,7 @@ describe('the AJS path runs AJS and nothing else', () => {
     // them and `literal-value.ts` replaced them with parsing.
     const files = [
       'parser.ts',
+      'parser-agent.ts',
       'parser-transforms.ts',
       'parser-params.ts',
       'core.ts',
@@ -194,37 +203,67 @@ describe('the AJS path runs AJS and nothing else', () => {
       ].sort()
     )
   })
+
+  it('the AJS parse pipeline is exactly the steps AJS has', () => {
+    // The behavioural ratchet below can only cover constructs somebody thought to list. This
+    // is the structural claim underneath it, asserted against the SOURCE — the same technique
+    // as `atom-effects-scan.test.ts`, and for the same reason.
+    //
+    // A source transform reaches AJS only by being imported into `parser-agent.ts`. Pinning
+    // that import set means a new step cannot arrive quietly: adding one turns this red, and
+    // whoever added it has to answer the only question that matters — does AJS *have* this
+    // construct? Inertness is not an answer; all seven historical leaks were inert.
+    const src = readFileSync(join(import.meta.dir, 'parser-agent.ts'), 'utf8')
+    const imported = new Set<string>()
+    for (const m of src.matchAll(
+      /^import\s*\{([^}]+)\}\s*from\s*'([^']+)'/gm
+    )) {
+      // Type-only imports describe shapes; they cannot transform source.
+      if (/^import\s+type/.test(m[0])) continue
+      for (const name of m[1].split(','))
+        if (name.trim()) imported.add(`${m[2]}:${name.trim()}`)
+    }
+    expect([...imported].sort()).toEqual(
+      [
+        // acorn — the parse itself. AJS is a JavaScript subset, so acorn IS its grammar.
+        './types:SyntaxError',
+        // A hashbang is ES2023, therefore inside the subset. Blanked, not sliced, so
+        // diagnostic offsets survive.
+        '../strip-comments:hashbangOf',
+        // Comments are comments in every language here.
+        '../strip-comments:stripLineComments',
+        // Colon shorthand — the one thing AJS has that JavaScript does not, and load-bearing:
+        // the entry function's parameter examples are the agent's input contract.
+        './parser-params:transformParenExpressions',
+        './parser-params:extractParamMarkers',
+      ].sort()
+    )
+  })
 })
 
 /**
- * The AJS surface, as a RATCHET.
+ * The AJS surface, as a RATCHET. **The list is empty, and that is the assertion.**
  *
- * `parse()` applies ~30 transforms and exactly TWO consult `options.vmTarget`. Everything else
- * runs for AJS whether or not AJS has the construct — which is not a policy, it is the absence
- * of one. `test` blocks were in this list until an hour ago, and they were the one that
- * happened to call `new Function`.
+ * History, because the empty list is only meaningful next to it: `parse()` applied ~30 source
+ * transforms and exactly TWO consulted `options.vmTarget`, so the other ~28 ran for AJS whether
+ * or not AJS had the construct. Seven TJS-only constructs were accepted that way, and an eighth
+ * — `test` blocks — was the one that happened to call `new Function(body)()` on submitted
+ * source. A gate fails OPEN: seventeen transforms, one missing guard, months unnoticed.
  *
- * The structural fix is inversion: an AJS core that does only AJS things, with TJS as a wrapper
- * that adds its own transforms. A gate fails OPEN — seventeen transforms, one missing guard,
- * months unnoticed. Layering fails CLOSED: a new TJS transform cannot leak into AJS because it
- * does not live there. Filed in TODO.md; too large to do under release pressure, which is how
- * the last one of these got introduced.
+ * The structural fix landed (`parser-agent.ts`): AJS parses through `parseAgentSource()`, a
+ * four-step pipeline containing only transforms AJS has. `vmTarget` is gone — there is no flag
+ * left to forget. Layering fails CLOSED, so all seven leaks closed at once, without any of them
+ * being fixed individually.
  *
- * Until then this bounds the damage. The list below is what leaks TODAY. An eighth entry fails
- * this test, and whoever adds it has to decide deliberately rather than inherit it.
+ * This still ratchets in BOTH directions, and the empty list is what makes the first direction
+ * sharp: any construct below that starts being accepted means a TJS transform has found its way
+ * onto the AJS path again, and it fails here by name.
  */
-describe('TJS constructs the AJS path still accepts (ratchet)', () => {
-  // Accepted today. Inert — every one is exercised for transpile-time execution above — but
-  // accepted syntax the language does not have is exactly how the last vulnerability arrived.
-  const KNOWN_LEAKS = [
-    'bang access',
-    'Is operator',
-    'inline wasm fn',
-    'Type block',
-    'Generic block',
-    'extend',
-    'FunctionPredicate',
-  ]
+describe('TJS constructs the AJS path does not accept (ratchet)', () => {
+  // Empty since the AJS core was split out (`parser-agent.ts`). Kept as a named constant
+  // rather than inlined, so a re-leak reads as a list gaining an entry — the same shape the
+  // seven-entry version had, which is what makes the two states comparable at a glance.
+  const KNOWN_LEAKS: string[] = []
 
   const CONSTRUCTS: Array<[string, string]> = [
     ['const!', 'function f() { const! x = 1\n return x }'],

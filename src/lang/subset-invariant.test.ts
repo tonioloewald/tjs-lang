@@ -44,7 +44,7 @@ describe('Language subset invariants (PRINCIPLES.md)', () => {
     for (const [label, src] of ajsSnippets) {
       it(`valid as both AJS and TJS: ${label}`, () => {
         // Valid AJS (produces a VM AST)…
-        expect(() => transpile(src, { vmTarget: true })).not.toThrow()
+        expect(() => transpile(src)).not.toThrow()
         // …and therefore must be valid TJS (never rejected).
         expect(() => tjs(src)).not.toThrow()
       })

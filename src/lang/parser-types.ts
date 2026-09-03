@@ -11,19 +11,19 @@ export interface ParseOptions {
   /** Enable colon shorthand syntax preprocessing */
   colonShorthand?: boolean
   /**
-   * Target is the VM (AJS code).
-   * When true, skips == to Is() transformation since the VM handles == correctly.
-   */
-  vmTarget?: boolean
-  /**
    * Source dialect — tells the transpiler what kind of source this string is:
    * - `'tjs'`: native TJS, all footgun-removal modes ON (structural `==`,
    *   `TjsStandard`, etc.). This is the default for a bare string.
    * - `'js'`: plain JavaScript — modes OFF and `safety: 'none'`, so the source's
    *   own semantics are preserved (no `==`→`Eq`, no truthiness rewrite, etc.).
    *
-   * Authoritative when set; otherwise the dialect is inferred (the fromTS
-   * annotation and `vmTarget` ⇒ JS-compatible). See PRINCIPLES.md (TJS ⊇ JS).
+   * Authoritative when set; otherwise the dialect is inferred from the fromTS
+   * annotation. See PRINCIPLES.md (TJS ⊇ JS).
+   *
+   * There is no AJS setting here on purpose. AJS is not a dialect of the TJS parser;
+   * it has its own — `parseAgentSource()` in `parser-agent.ts`. It used to be a
+   * `vmTarget` flag on this interface, which meant ~28 TJS transforms ran for AJS
+   * because only two of them remembered to check it.
    */
   dialect?: 'js' | 'tjs'
   /**
@@ -115,15 +115,9 @@ export interface PreprocessOptions {
   /** Skip test execution (tests still stripped from output) */
   dangerouslySkipTests?: boolean
   /**
-   * Skip == to Is() transformation.
-   * Set to true for AJS code that runs in the VM, which already handles == correctly.
-   * Default: false (transform == to Is() for TJS code running in regular JS)
-   */
-  vmTarget?: boolean
-  /**
    * Source dialect: `'js'` ⇒ modes OFF / `safety: 'none'` (preserve plain-JS
    * semantics); `'tjs'` ⇒ native modes ON. Authoritative when set; otherwise
-   * inferred from the fromTS annotation / `vmTarget`. See ParseOptions.dialect.
+   * inferred from the fromTS annotation. See ParseOptions.dialect.
    */
   dialect?: 'js' | 'tjs'
   /**

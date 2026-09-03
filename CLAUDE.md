@@ -191,7 +191,8 @@ bun run functions:serve     # Local functions emulator
 - `src/vm/vm.ts` - AgentVM class
 - `src/vm/atoms/batteries.ts` - Battery atoms (vector search, LLM, store operations)
 - `src/builder.ts` - TypedBuilder fluent API (~754 lines / ~19KB)
-- `src/lang/parser.ts` - TJS parser with colon shorthand, unsafe markers, return type extraction
+- `src/lang/parser.ts` - **TJS's** parser: colon shorthand, unsafe markers, return type extraction, and ~30 source transforms. AJS does not come here
+- `src/lang/parser-agent.ts` - **AJS's** parser (`parseAgentSource` / `preprocessAgentSource`). Four steps — hashbang, line comments, colon shorthand, param markers — because that is what AJS is: a JavaScript subset plus typed signatures. It exists as a separate function rather than a `vmTarget` flag on `parse()` because a flag failed OPEN: ~28 of the ~30 transforms never checked it, seven TJS constructs leaked onto the AJS path, and one of them (`test` blocks) called `new Function(body)()` on submitted source upstream of fuel, timeout, capabilities and the membrane. **Adding a TJS transform means editing `parser.ts`; nothing there can reach AJS, so there is nothing to remember.** The bar for adding a step _here_ is "does AJS have this construct" — never "is it harmless", which is what all seven leaks were until one wasn't. Pinned in both directions by `eval-no-transpile-execution.test.ts` (a source-level scan of this file's imports, plus a behavioural ratchet whose known-leak list is now empty)
 - `src/lang/parser-transforms.ts` - Type, Generic, and FunctionPredicate block/function form transforms
 - `src/lang/transpiler.ts` - The `tjs-lang/lang` entry point. Imports the source files directly (never `./index`, which reaches `from-ts` and drags in the TS compiler)
 - `src/lang/core.ts` - Transpiler core **without** the TypeScript dependency; import from here (not `./index`) to avoid pulling in the TS compiler

@@ -7,6 +7,53 @@ design notes that don't belong in the changelog.
 
 ---
 
+## AJS parsing structurally isolated from TJS parsing (DONE 2026-09-03)
+
+`src/lang/parser-agent.ts`. The inversion filed on 2026-08-02 after the `test`-block RCE.
+
+**The classification was the work, and it came out lopsided.** The expectation was ~30
+transforms to sort into two piles. The AJS-legal pile is **four steps**: blank a hashbang
+(ES2023, so inside the JS subset AJS is), strip line comments, `transformParenExpressions`
+(colon shorthand — the one thing AJS has that JavaScript does not, and load-bearing, since the
+entry function's parameter examples _are_ the agent's input contract), and
+`extractParamMarkers`. Everything else in `preprocess` is TJS-only. That is the finding: AJS
+was running ~26 transforms for constructs it does not have, and the two `vmTarget` checks were
+never going to be the right number because the flag was answering the wrong question.
+
+**What shipped:**
+
+- `preprocessAgentSource()` / `parseAgentSource()` in a **separate file**, not a branch in
+  `parser.ts`. The two AJS entry points (`core.ts`, `lang/index.ts` `transpile`) call it
+  directly.
+- **`vmTarget` deleted** — from `ParseOptions`, `PreprocessOptions`, `parse()`, and the three
+  places in `preprocess` that consulted it. Not deprecated, removed. A flag nobody passes is a
+  flag nobody has to check, and the four dead `{ vmTarget: true }` call sites left in tests
+  were removed with it so nothing suggests the option still does something.
+- All seven leaks (bang access, `Is`, inline `wasm function`, `Type`, `Generic`, `extend`,
+  `FunctionPredicate`) closed **at once, none of them individually** — which is the whole
+  argument for layering over gating, demonstrated rather than asserted.
+
+**Two guards, because the behavioural one alone repeats the original mistake.**
+`eval-no-transpile-execution.test.ts` gained a source-level scan pinning the exact import set
+of `parser-agent.ts` (the `atom-effects-scan.test.ts` technique): a new transform reaching AJS
+turns it red at the import, before anyone has to think of a construct that exercises it. The
+existing behavioural ratchet stays, with `KNOWN_LEAKS` now **empty** — and an empty list is the
+sharpest version of that assertion. Both were mutation-tested by re-adding `transformBangAccess`
+to the AJS pipeline; both fail, at different layers.
+
+**One behaviour change beyond the leak list.** Duplicate same-name top-level functions used to
+be caught by TJS's polymorphic-merge pass leaking onto the AJS path ("ambiguous signatures");
+they are now caught by acorn ("Identifier 'dup' has already been declared"). Same rejection,
+now from the rule that actually governs the language — a duplicate top-level declaration is a
+module-scope error in JavaScript, and AJS is a JavaScript subset. `local-helpers.test.ts`
+updated.
+
+**The rule going forward, recorded in `parser-agent.ts`'s header:** the bar for adding a step
+to the AJS pipeline is _does AJS have this construct_. Not "is it harmless" — inertness is
+exactly what all seven leaks had, right up until one of them called `new Function`.
+
+---
+
 ## ▶ Resume here — 0.9.1 SHIPPED (npm `latest` = 0.9.1, tag `v0.9.1` pushed)
 
 **0.9.1 is published** — npm `latest` = 0.9.1, git tag `v0.9.1` on the remote,

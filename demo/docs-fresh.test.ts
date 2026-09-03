@@ -40,7 +40,7 @@ describe('every shipped playground example is usable', () => {
       // A truncated example fails with "Unterminated regular expression" — the symptom
       // both shipped ones had, in the live playground and in the npm package.
       if (ex.section === 'ajs') {
-        expect(() => transpile(ex.code, { vmTarget: true })).not.toThrow()
+        expect(() => transpile(ex.code)).not.toThrow()
       } else {
         expect(() => tjs(ex.code, { runTests: false })).not.toThrow()
       }
