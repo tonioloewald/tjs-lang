@@ -184,6 +184,9 @@ function splitTopLevel(source, sep = ",") {
     out.push(tail);
   return out;
 }
+function splitTopLevelTrimmed(source, sep = ",") {
+  return splitTopLevel(source, sep).map((p) => p.trim()).filter(Boolean);
+}
 function matchingBrace(masked, open) {
   const CLOSERS = { "{": "}", "[": "]", "(": ")" };
   const want = CLOSERS[masked[open]];
@@ -241,6 +244,9 @@ function blankRegions(source, pick) {
 }
 function maskLiterals(source) {
   return memoizedMask("literals", source, () => blankRegions(source, (r) => r.kind === "line-comment" || r.kind === "block-comment" ? [r.start, r.end] : [r.innerStart, r.innerEnd]));
+}
+function maskLiteralsKeepComments(source) {
+  return memoizedMask("keep-comments", source, () => blankRegions(source, (r) => r.kind === "line-comment" || r.kind === "block-comment" ? null : [r.innerStart, r.innerEnd]));
 }
 function findUnsafeSpans(source) {
   const spans = [];
@@ -5655,6 +5661,176 @@ function parseExpressionAt2(input, pos, options) {
   return Parser.parseExpressionAt(input, pos, options);
 }
 
+// node_modules/tjs-lang/src/lang/keywords.ts
+var GIVEN = "given";
+var TJS_STATEMENT_KEYWORDS = [
+  "Type",
+  "Generic",
+  "Enum",
+  "Union",
+  "FunctionPredicate",
+  "extend",
+  "wasm",
+  "test",
+  "mock",
+  "unsafe",
+  GIVEN
+];
+var TJS_BLOCK_MEMBERS = [
+  "predicate",
+  "example",
+  "description",
+  "declaration"
+];
+var TJS_CONSTRUCT_KEYWORDS = [
+  ...TJS_STATEMENT_KEYWORDS,
+  ...TJS_BLOCK_MEMBERS
+];
+
+// node_modules/tjs-lang/src/lang/given-transform.ts
+var NOT_A_STATEMENT = /(?:^|[\s;{}()])(?:const|let|var|function|class|new|return)\s*$/;
+function plausibleDiscriminant(text) {
+  const t = text.trim();
+  return !!t && !/[;]/.test(t) && !/^[=<>!+\-*/%&|^?:,]/.test(t);
+}
+function transformGiven(source) {
+  const warnings = [];
+  let out = source;
+  for (let i2 = 0;i2 < 16; i2++) {
+    const pass = lowerOnce(out, warnings);
+    if (pass === out)
+      break;
+    out = pass;
+  }
+  return { source: out, warnings };
+}
+function lowerOnce(source, warnings) {
+  if (!/\bgiven\s/.test(source))
+    return source;
+  const masked = maskLiterals(source);
+  const RX = /(^|[\s;{}()])given\s+(?!\()/g;
+  let out = "";
+  let cursor = 0;
+  let m;
+  while (m = RX.exec(masked)) {
+    const kw2 = m.index + m[1].length;
+    if (kw2 < cursor)
+      continue;
+    if (masked[kw2 - 1] === ".")
+      continue;
+    if (NOT_A_STATEMENT.test(masked.slice(Math.max(0, kw2 - 12), kw2)))
+      continue;
+    let depth = 0;
+    let j = kw2 + GIVEN.length;
+    while (j < masked.length) {
+      const c = masked[j];
+      if (c === "(" || c === "[")
+        depth++;
+      else if (c === ")" || c === "]")
+        depth--;
+      else if (c === "{" && depth === 0)
+        break;
+      j++;
+    }
+    if (j >= masked.length)
+      continue;
+    const disc = source.slice(kw2 + GIVEN.length, j).trim();
+    if (!plausibleDiscriminant(disc))
+      continue;
+    const bodyEnd = matchingBrace(masked, j);
+    if (bodyEnd === -1)
+      continue;
+    const body = source.slice(j + 1, bodyEnd);
+    const bodyMasked = masked.slice(j + 1, bodyEnd);
+    const arms = [];
+    let k = 0;
+    let armCount = 0;
+    while (k < body.length) {
+      let d = 0;
+      let b = k;
+      while (b < body.length) {
+        const c = bodyMasked[b];
+        if (c === "(" || c === "[")
+          d++;
+        else if (c === ")" || c === "]")
+          d--;
+        else if (c === "{" && d === 0)
+          break;
+        b++;
+      }
+      if (b >= body.length)
+        break;
+      const values = body.slice(k, b).trim();
+      const armEnd = matchingBrace(bodyMasked, b);
+      if (armEnd === -1)
+        break;
+      const armBody = body.slice(b + 1, armEnd);
+      if (values) {
+        const cases = splitTopLevelCommas(values, maskLiterals(values)).map((v) => {
+          const t = v.trim();
+          return selfKeying(t) ? `case ${t}:` : `case __tjs.swKey(${t}):`;
+        }).join(" ");
+        arms.push(`${cases} { ${armBody}
+break }`);
+        armCount++;
+      }
+      k = armEnd + 1;
+    }
+    if (armCount === 0) {
+      warnings.push({
+        message: `\`given ${disc}\` has no arms, so it can never do anything. An arm is ` + `\`value { … }\` — or \`value, other { … }\` for several values.`
+      });
+    }
+    let end = bodyEnd + 1;
+    let dflt = "";
+    const after = masked.slice(end);
+    const om = /^\s*else\s*\{/.exec(after);
+    if (om) {
+      const ob = end + om[0].length - 1;
+      const oe = matchingBrace(masked, ob);
+      if (oe !== -1) {
+        dflt = `default: { ${source.slice(ob + 1, oe)} }`;
+        end = oe + 1;
+      }
+    }
+    out += source.slice(cursor, kw2) + `switch (__tjs.swKey(${disc})) {
+${arms.join(`
+`)}${dflt ? `
+` + dflt : ""}
+}`;
+    cursor = end;
+  }
+  out += source.slice(cursor);
+  return out;
+}
+function selfKeying(text) {
+  if (/^-?\d+(\.\d+)?$/.test(text))
+    return true;
+  if (/^(['"`]).*\1$/.test(text))
+    return true;
+  if (text === "true" || text === "false" || text === "null")
+    return true;
+  return false;
+}
+function splitTopLevelCommas(text, masked) {
+  const parts = [];
+  let depth = 0;
+  let start = 0;
+  for (let i2 = 0;i2 < text.length; i2++) {
+    const c = masked[i2];
+    if (c === "(" || c === "[" || c === "{")
+      depth++;
+    else if (c === ")" || c === "]" || c === "}")
+      depth--;
+    else if (c === "," && depth === 0) {
+      parts.push(text.slice(start, i2));
+      start = i2 + 1;
+    }
+  }
+  parts.push(text.slice(start));
+  return parts.filter((p) => p.trim());
+}
+
 // node_modules/tjs-lang/src/lang/types.ts
 class TranspileError extends Error {
   line;
@@ -6386,6 +6562,41 @@ function emitVerifiedPredicate(source, entryName, opts = {}) {
   const instrumented = injectFuel(source);
   const code = `(() => {` + `let __f = 0;` + `const __fuel = () => { if (--__f < 0) throw new RangeError('tjs:predicate-fuel'); };` + `${instrumented}` + `return (...__a) => {` + `__f = ${budget};` + `try { return !!${entryName}(...__a); }` + `catch (e) {` + `if (e instanceof RangeError && /tjs:predicate-fuel|stack/i.test(e.message)) return false;` + `throw e;` + `}` + `};` + `})()`;
   return { safe: true, code, diagnostics: [] };
+}
+
+// node_modules/tjs-lang/src/lang/type-signature.ts
+function typeSignatureFor(dv, declaredTypes) {
+  if (/^['"`]/.test(dv))
+    return "string";
+  if (dv === "true" || dv === "false")
+    return "boolean";
+  if (dv === "null")
+    return "null";
+  if (dv === "undefined")
+    return "undefined";
+  if (dv.startsWith("["))
+    return "array";
+  if (dv.startsWith("{"))
+    return "object";
+  if (/^\+\d+/.test(dv))
+    return "non-negative-integer";
+  if (/^-?\d+\.\d+/.test(dv))
+    return "number";
+  if (/^-?\d+$/.test(dv))
+    return "integer";
+  if (dv === "string")
+    return "string";
+  if (dv === "number")
+    return "number";
+  if (dv === "boolean")
+    return "boolean";
+  if (/^[A-Za-z_$][A-Za-z0-9_$]*$/.test(dv)) {
+    if (declaredTypes?.has(dv))
+      return `declared:${dv}`;
+    if (/^[A-Z]/.test(dv))
+      return `declared:${dv}`;
+  }
+  return "any";
 }
 
 // node_modules/tjs-lang/src/lang/parser-transforms.ts
@@ -7689,6 +7900,8 @@ function assertPredicateFormRecognized(typeName, body, matched, source, offset2)
 ` + `  Anything else is rejected rather than ignored, precisely so a type that checks ` + `nothing cannot ship looking like one that does.`, locAt(source, offset2));
 }
 function matchDeclHeader(masked, source, i2, re) {
+  if (i2 > 0 && /[A-Za-z0-9_$]/.test(masked[i2 - 1]))
+    return null;
   const m = masked.slice(i2).match(re);
   if (!m)
     return null;
@@ -7706,7 +7919,7 @@ function transformTypeDeclarations(source, report, declaredTypes) {
   let i2 = 0;
   const masked = maskLiterals(source);
   while (i2 < source.length) {
-    const typeHeader = matchDeclHeader(masked, source, i2, /^\bType\s+([A-Z_][a-zA-Z0-9_]*)\s*/);
+    const typeHeader = matchDeclHeader(masked, source, i2, /^\bType\s+([A-Za-z_$][a-zA-Z0-9_$]*)\s*/);
     const typeMatch = typeHeader?.m;
     if (typeMatch) {
       const typeName = typeMatch[1];
@@ -7858,12 +8071,45 @@ function transformTypeDeclarations(source, report, declaredTypes) {
   }
   return result;
 }
+function topLevelMemberValue(body, key) {
+  const masked = maskLiterals(body);
+  let depth = 0;
+  for (let i2 = 0;i2 < masked.length; i2++) {
+    const c = masked[i2];
+    if (c === "{" || c === "(" || c === "[")
+      depth++;
+    else if (c === "}" || c === ")" || c === "]")
+      depth--;
+    else if (depth === 0 && masked.startsWith(key, i2)) {
+      if (i2 > 0 && /[A-Za-z0-9_$]/.test(masked[i2 - 1]))
+        continue;
+      const after = /^\s*:/.exec(masked.slice(i2 + key.length));
+      if (!after)
+        continue;
+      const start = i2 + key.length + after[0].length;
+      let d = 0;
+      let j = start;
+      for (;j < masked.length; j++) {
+        const ch = masked[j];
+        if (ch === "{" || ch === "(" || ch === "[")
+          d++;
+        else if (ch === "}" || ch === ")" || ch === "]")
+          d--;
+        else if (ch === `
+` && d === 0)
+          break;
+      }
+      return body.slice(start, j).trim();
+    }
+  }
+  return null;
+}
 function transformFunctionPredicateDeclarations(source) {
   let result = "";
   let i2 = 0;
   const masked = maskLiterals(source);
   while (i2 < source.length) {
-    const fpMatch = matchDeclHeader(masked, source, i2, /^\bFunctionPredicate\s+([A-Z_][a-zA-Z0-9_]*)\s*(?:<([^>]+)>)?\s*/)?.m;
+    const fpMatch = matchDeclHeader(masked, source, i2, /^\bFunctionPredicate\s+([A-Za-z_$][a-zA-Z0-9_$]*)\s*(?:<([^>]+)>)?\s*/)?.m;
     if (fpMatch) {
       const fpName = fpMatch[1];
       const typeParamsStr = fpMatch[2];
@@ -7881,27 +8127,22 @@ function transformFunctionPredicateDeclarations(source) {
         if (depth === 0) {
           const blockBody = source.slice(j + 1, k - 1).trim();
           const paramsMatch = extractBalancedValue(blockBody, /params\s*:\s*\{/);
-          const returnsMatch = blockBody.match(/returns\s*:\s*(.+?)(?:\n|$)/);
-          const contractMatch = blockBody.match(/returnContract\s*:\s*['"](\w+)['"]/);
-          const descMatch = blockBody.match(/description\s*:\s*(['"])([^]*?)\1/);
+          const returnsValue = topLevelMemberValue(blockBody, "returns");
+          const contractValue = topLevelMemberValue(blockBody, "returnContract");
+          const contractMatch = contractValue ? /^['"](\w+)['"]/.exec(contractValue) : null;
+          const descValue = topLevelMemberValue(blockBody, "description");
+          const descMatch = descValue ? /^(['"])([^]*?)\1/.exec(descValue) : null;
           const spec = [];
           if (paramsMatch)
             spec.push(`params: ${paramsMatch[1]}`);
-          if (returnsMatch)
-            spec.push(`returns: ${returnsMatch[1].trim()}`);
+          if (returnsValue)
+            spec.push(`returns: ${returnsValue}`);
           if (contractMatch) {
             spec.push(`returnContract: '${contractMatch[1]}'`);
           }
           const desc = descMatch ? descMatch[2] : fpName;
           if (typeParamsStr) {
-            const typeParams = typeParamsStr.split(",").map((p) => {
-              const parts = p.trim().split("=").map((s) => s.trim());
-              if (parts.length === 2) {
-                const defaultVal = parts[1] === "any" || parts[1] === "undefined" ? "null" : parts[1];
-                return `['${parts[0]}', ${defaultVal}]`;
-              }
-              return `'${parts[0]}'`;
-            });
+            const typeParams = parseGenericTypeParams(typeParamsStr).entries;
             const paramNames = typeParamsStr.split(",").map((p) => p.trim().split("=")[0].trim());
             result += `const ${fpName} = FunctionPredicate('${desc}', [${typeParams.join(", ")}], (${paramNames.join(", ")}) => ({ ${spec.join(", ")} }))`;
           } else {
@@ -7946,7 +8187,7 @@ function transformGenericDeclarations(source, report, declaredTypes) {
   let i2 = 0;
   const masked = maskLiterals(source);
   while (i2 < source.length) {
-    const genericMatch = matchDeclHeader(masked, source, i2, /^\b(Generic|Type)\s+([A-Z][a-zA-Z0-9_]*)\s*<([^>]+)>\s*\{/)?.m;
+    const genericMatch = matchDeclHeader(masked, source, i2, /^\b(Generic|Type)\s+([A-Za-z_$][a-zA-Z0-9_$]*)\s*<([^>]+)>\s*\{/)?.m;
     if (genericMatch) {
       const genericName = genericMatch[2];
       const typeParamsStr = genericMatch[3];
@@ -7970,14 +8211,7 @@ function transformGenericDeclarations(source, report, declaredTypes) {
       }
       const blockBody = source.slice(bodyStart, k - 1).trim();
       const blockEnd = k;
-      const typeParams = typeParamsStr.split(",").map((p) => {
-        const parts = p.trim().split("=").map((s) => s.trim());
-        if (parts.length === 2) {
-          const defaultVal = parts[1] === "any" || parts[1] === "undefined" ? "null" : parts[1];
-          return `['${parts[0]}', ${defaultVal}]`;
-        }
-        return `'${parts[0]}'`;
-      });
+      const typeParams = parseGenericTypeParams(typeParamsStr).entries;
       let parsedBody = blockBody;
       const declIdx = parsedBody.search(/\bdeclaration\s*\{/);
       if (declIdx !== -1) {
@@ -8035,7 +8269,7 @@ function transformUnionDeclarations(source, declaredTypes) {
   let i2 = 0;
   const masked = maskLiterals(source);
   while (i2 < source.length) {
-    const unionHeader = matchDeclHeader(masked, source, i2, /^\bUnion\s+([A-Z][a-zA-Z0-9_]*)\s+(['"`])([^]*?)\2\s*/d);
+    const unionHeader = matchDeclHeader(masked, source, i2, /^\bUnion\s+([A-Za-z_$][a-zA-Z0-9_$]*)\s+(['"`])([^]*?)\2\s*/d);
     const unionMatch = unionHeader?.m;
     if (unionMatch && unionHeader) {
       const unionName = unionMatch[1];
@@ -8100,7 +8334,7 @@ function transformEnumDeclarations(source, declaredTypes) {
   let i2 = 0;
   const masked = maskLiterals(source);
   while (i2 < source.length) {
-    const enumHeader = matchDeclHeader(masked, source, i2, /^\bEnum\s+([A-Z][a-zA-Z0-9_]*)\s+(['"`])([^]*?)\2\s*\{/d);
+    const enumHeader = matchDeclHeader(masked, source, i2, /^\bEnum\s+([A-Za-z_$][a-zA-Z0-9_$]*)\s+(['"`])([^]*?)\2\s*\{/d);
     const enumMatch = enumHeader?.m;
     if (enumMatch && enumHeader) {
       const enumName = enumMatch[1];
@@ -8361,7 +8595,7 @@ function locAt(source, pos) {
   }
   return { line, column };
 }
-function typeCheckForDefault(argExpr, defaultValue) {
+function typeCheckForDefault(argExpr, defaultValue, declaredTypes) {
   const dv = defaultValue.trim();
   if (/^['"`]/.test(dv))
     return `typeof ${argExpr} === 'string'`;
@@ -8381,29 +8615,19 @@ function typeCheckForDefault(argExpr, defaultValue) {
     return `typeof ${argExpr} === 'number'`;
   if (/^-?\d+$/.test(dv))
     return `(typeof ${argExpr} === 'number' && Number.isInteger(${argExpr}))`;
+  if (dv === "string")
+    return `typeof ${argExpr} === 'string'`;
+  if (dv === "number")
+    return `typeof ${argExpr} === 'number'`;
+  if (dv === "boolean")
+    return `typeof ${argExpr} === 'boolean'`;
+  if (/^[A-Za-z_$][A-Za-z0-9_$]*$/.test(dv) && (declaredTypes?.has(dv) || /^[A-Z]/.test(dv))) {
+    return `(typeof ${dv} !== 'undefined' && ${dv} && typeof ${dv}.check === 'function' && ${dv}.check(${argExpr}) === true)`;
+  }
   return "true";
 }
-function typeSignatureForDefault(defaultValue) {
-  const dv = stripParamMarkers(defaultValue).trim();
-  if (/^['"`]/.test(dv))
-    return "string";
-  if (dv === "true" || dv === "false")
-    return "boolean";
-  if (dv === "null")
-    return "null";
-  if (dv === "undefined")
-    return "undefined";
-  if (dv.startsWith("["))
-    return "array";
-  if (dv.startsWith("{"))
-    return "object";
-  if (/^\+\d+/.test(dv))
-    return "non-negative-integer";
-  if (/^-?\d+\.\d+/.test(dv))
-    return "number";
-  if (/^-?\d+$/.test(dv))
-    return "integer";
-  return "any";
+function typeSignatureForDefault(defaultValue, declaredTypes) {
+  return typeSignatureFor(stripParamMarkers(defaultValue).trim(), declaredTypes);
 }
 function parseParamList(paramStr, requiredParams) {
   paramStr = stripParamMarkers(paramStr);
@@ -8474,7 +8698,42 @@ function findFunctionBodyEnd(source, openBracePos, masked) {
   const close = matchingBrace(view, openBracePos);
   return close === -1 ? view.length : close + 1;
 }
-function transformPolymorphicFunctions(source, requiredParams) {
+function parseGenericTypeParams(typeParamsStr) {
+  const entries = [];
+  const names = [];
+  for (const part of splitTopLevelTrimmed(typeParamsStr, ",")) {
+    const at2 = topLevelDefaultEq(part);
+    const name = (at2 === -1 ? part : part.slice(0, at2)).trim();
+    const def = at2 === -1 ? "" : part.slice(at2 + 1).trim();
+    names.push(name);
+    if (def) {
+      entries.push(`['${name}', ${def === "any" || def === "undefined" ? "null" : def}]`);
+    } else {
+      entries.push(`'${name}'`);
+    }
+  }
+  return { entries, names };
+}
+function topLevelDefaultEq(src) {
+  const masked = maskLiterals(src);
+  let depth = 0;
+  for (let i2 = 0;i2 < masked.length; i2++) {
+    const c = masked[i2];
+    if (c === "(" || c === "[" || c === "{" || c === "<")
+      depth++;
+    else if (c === ")" || c === "]" || c === "}" || c === ">")
+      depth--;
+    else if (c === "=" && depth === 0) {
+      if (masked[i2 + 1] === ">" || masked[i2 + 1] === "=")
+        continue;
+      if ("<>!=".includes(masked[i2 - 1] ?? ""))
+        continue;
+      return i2;
+    }
+  }
+  return -1;
+}
+function transformPolymorphicFunctions(source, requiredParams, declaredTypes) {
   const polymorphicNames = new Set;
   const funcPattern = /(?:^|(?<=[\n;{}]))\s*(export\s+)?(async\s+)?function\s+(\w+)\s*\(/gm;
   const declarations = new Map;
@@ -8499,25 +8758,47 @@ function transformPolymorphicFunctions(source, requiredParams) {
       isAsync
     });
   }
+  const scopeOfMatch = new Map;
+  {
+    const stack = [];
+    let mi = 0;
+    for (let i2 = 0;i2 < scanSource.length && mi < allMatches.length; i2++) {
+      while (mi < allMatches.length && allMatches[mi].fullMatchStart === i2) {
+        scopeOfMatch.set(allMatches[mi].fullMatchStart, stack.length ? stack[stack.length - 1] : -1);
+        mi++;
+      }
+      const c = scanSource[i2];
+      if (c === "{")
+        stack.push(i2);
+      else if (c === "}")
+        stack.pop();
+    }
+    for (;mi < allMatches.length; mi++) {
+      scopeOfMatch.set(allMatches[mi].fullMatchStart, -1);
+    }
+  }
+  const keyOf = (m) => `${m.name}@${scopeOfMatch.get(m.fullMatchStart) ?? -1}`;
+  const nameOfKey = new Map;
   for (const m of allMatches) {
-    if (!declarations.has(m.name)) {
-      declarations.set(m.name, []);
+    if (!declarations.has(keyOf(m))) {
+      declarations.set(keyOf(m), []);
+      nameOfKey.set(keyOf(m), m.name);
     }
   }
   const nameCounts = new Map;
   for (const m of allMatches) {
-    nameCounts.set(m.name, (nameCounts.get(m.name) || 0) + 1);
+    nameCounts.set(keyOf(m), (nameCounts.get(keyOf(m)) || 0) + 1);
   }
   const polyNames = new Set;
-  for (const [name, count] of nameCounts) {
+  for (const [key, count] of nameCounts) {
     if (count > 1)
-      polyNames.add(name);
+      polyNames.add(key);
   }
   if (polyNames.size === 0) {
     return { source, polymorphicNames };
   }
   for (const m of allMatches) {
-    if (!polyNames.has(m.name))
+    if (!polyNames.has(keyOf(m)))
       continue;
     const afterFunc = source.indexOf("(", m.funcKeywordStart);
     if (afterFunc === -1)
@@ -8542,7 +8823,7 @@ function transformPolymorphicFunctions(source, requiredParams) {
     let realStart = m.fullMatchStart;
     while (realStart > 0 && source[realStart - 1] === " ")
       realStart--;
-    const variants = declarations.get(m.name);
+    const variants = declarations.get(keyOf(m));
     const params = parseParamList(paramStr, requiredParams);
     const hasRestParam = paramStr.includes("...");
     if (hasRestParam) {
@@ -8559,7 +8840,8 @@ function transformPolymorphicFunctions(source, requiredParams) {
       params
     });
   }
-  for (const [name, variants] of declarations) {
+  for (const [key, variants] of declarations) {
+    const name = nameOfKey.get(key);
     if (variants.length < 2)
       continue;
     const asyncCount = variants.filter((v) => v.isAsync).length;
@@ -8575,8 +8857,8 @@ function transformPolymorphicFunctions(source, requiredParams) {
           continue;
         let allSame = true;
         for (let k = 0;k < a.params.length; k++) {
-          const sigA = a.params[k].defaultValue ? typeSignatureForDefault(a.params[k].defaultValue) : "any";
-          const sigB = b.params[k].defaultValue ? typeSignatureForDefault(b.params[k].defaultValue) : "any";
+          const sigA = a.params[k].defaultValue ? typeSignatureForDefault(a.params[k].defaultValue, declaredTypes) : "any";
+          const sigB = b.params[k].defaultValue ? typeSignatureForDefault(b.params[k].defaultValue, declaredTypes) : "any";
           if (sigA !== sigB) {
             allSame = false;
             break;
@@ -8590,7 +8872,8 @@ function transformPolymorphicFunctions(source, requiredParams) {
     }
   }
   const allVariants = [];
-  for (const [name, variants] of declarations) {
+  for (const [key, variants] of declarations) {
+    const name = nameOfKey.get(key);
     if (variants.length < 2)
       continue;
     for (const v of variants) {
@@ -8604,7 +8887,8 @@ function transformPolymorphicFunctions(source, requiredParams) {
     const renamed = variant.text.replace(new RegExp(`(?:export\\s+)?${asyncPrefix ? asyncPrefix.replace(/\s+$/, "\\s+") : ""}function\\s+${name}\\s*\\(`), `${asyncPrefix}function ${name}$$${variant.index}(`);
     result = result.slice(0, variant.start) + renamed + result.slice(variant.end);
   }
-  for (const [name, variants] of declarations) {
+  for (const [key, variants] of declarations) {
+    const name = nameOfKey.get(key);
     if (variants.length < 2)
       continue;
     polymorphicNames.add(name);
@@ -8618,7 +8902,7 @@ function transformPolymorphicFunctions(source, requiredParams) {
       let specA = 0;
       let specB = 0;
       for (const p of a.params) {
-        const sig = p.defaultValue ? typeSignatureForDefault(p.defaultValue) : "any";
+        const sig = p.defaultValue ? typeSignatureForDefault(p.defaultValue, declaredTypes) : "any";
         if (sig === "non-negative-integer")
           specA += 3;
         else if (sig === "integer")
@@ -8627,7 +8911,7 @@ function transformPolymorphicFunctions(source, requiredParams) {
           specA += 1;
       }
       for (const p of b.params) {
-        const sig = p.defaultValue ? typeSignatureForDefault(p.defaultValue) : "any";
+        const sig = p.defaultValue ? typeSignatureForDefault(p.defaultValue, declaredTypes) : "any";
         if (sig === "non-negative-integer")
           specB += 3;
         else if (sig === "integer")
@@ -8645,7 +8929,7 @@ function transformPolymorphicFunctions(source, requiredParams) {
         const p = v.params[k];
         args.push(`__args[${k}]`);
         if (p.defaultValue) {
-          const check = typeCheckForDefault(`__args[${k}]`, p.defaultValue);
+          const check = typeCheckForDefault(`__args[${k}]`, p.defaultValue, declaredTypes);
           if (check !== "true")
             checks.push(check);
         }
@@ -9552,6 +9836,57 @@ function scanExampleEnd(source, start) {
   return i2;
 }
 
+// node_modules/tjs-lang/src/lang/expression-context.ts
+function isTernaryColon(source, colonIndex) {
+  const masked = maskLiterals(source);
+  if (masked[colonIndex] !== ":")
+    return false;
+  let depth = 0;
+  let owed = 0;
+  for (let i2 = colonIndex - 1;i2 >= 0; i2--) {
+    const c = masked[i2];
+    if (c === ")" || c === "]" || c === "}") {
+      depth++;
+      continue;
+    }
+    if (c === "(" || c === "[" || c === "{") {
+      if (depth === 0)
+        return false;
+      depth--;
+      continue;
+    }
+    if (depth !== 0)
+      continue;
+    if (c === ";" || c === ",")
+      return false;
+    if (c === "?") {
+      if (masked[i2 - 1] === "?") {
+        i2--;
+        continue;
+      }
+      if (masked[i2 + 1] === "?" || masked[i2 + 1] === ".")
+        continue;
+      if (masked[i2 + 1] === ":" || masked[i2 + 1] === "!")
+        continue;
+      let k = i2 - 1;
+      while (k >= 0 && /\s/.test(masked[k]))
+        k--;
+      if (k < 0 || masked[k] === "(" || masked[k] === ",")
+        return false;
+      if (owed === 0)
+        return true;
+      owed--;
+      continue;
+    }
+    if (c === ":") {
+      if (masked[i2 - 1] === ":" || masked[i2 + 1] === ":")
+        continue;
+      owed++;
+    }
+  }
+  return false;
+}
+
 // node_modules/tjs-lang/src/lang/inference.ts
 var TS_TYPE_NAMES = {
   string: { kind: "string" },
@@ -9658,6 +9993,19 @@ function literalUnionValues(node) {
 function inferTypeFromValue(node) {
   if (node.type === "CallExpression" && node.callee?.type === "Identifier" && node.callee.name === "LegacyDefault" && node.arguments?.length === 1) {
     return inferTypeFromValue(node.arguments[0]);
+  }
+  if (node.type === "CallExpression" && node.callee?.type === "Identifier" && node.callee.name === "Exactly") {
+    const args = node.arguments ?? [];
+    const values = [];
+    for (const a of args) {
+      const v = literalUnionValues(a);
+      if (!v)
+        return { kind: "any", unresolved: "Exactly" };
+      values.push(...v);
+    }
+    if (values.length === 0)
+      return { kind: "any", unresolved: "Exactly" };
+    return { kind: "literal-union", values };
   }
   switch (node.type) {
     case "Literal": {
@@ -9847,6 +10195,8 @@ function parseParameter(param, requiredParams) {
     const destructuredParams = {};
     for (const prop of properties) {
       if (prop.type === "Property") {
+        if (!prop.shorthand)
+          continue;
         const key = prop.key.type === "Identifier" ? prop.key.name : String(prop.key.value);
         if (prop.value.type === "Identifier") {
           shape[key] = { kind: "any" };
@@ -9945,6 +10295,24 @@ function parseReturnType(typeExpr) {
 var PARAM_REQUIRED_MARKER = "/*!tjs-req*/";
 var PARAM_TYPENAME_MARKER = "/*!tjs-opt*/";
 var MARKER_PREFIX = "/*!tjs-";
+var EXPRESSION_PREFIX_KEYWORDS = new Set([
+  "default",
+  "else",
+  "do",
+  "try",
+  "new",
+  "return",
+  "typeof",
+  "await",
+  "yield",
+  "void",
+  "delete",
+  "throw",
+  "case",
+  "in",
+  "of",
+  "instanceof"
+]);
 function stripParamMarkers(code) {
   return code.split(PARAM_REQUIRED_MARKER).join("").split(PARAM_TYPENAME_MARKER).join("");
 }
@@ -10182,17 +10550,48 @@ function transformParenExpressions(source, ctx) {
       i2++;
       continue;
     }
-    const classMatch = source.slice(i2).match(/^class\s+\w+(?:\s+extends\s+\w+)?\s*\{/);
-    if (classMatch) {
-      const classHeader = classMatch[0].slice(0, -1);
+    const nameMatch = matchAt(RE_CLASS_NAME, source, i2);
+    let classHeaderLen = -1;
+    if (nameMatch) {
+      let d = 0;
+      let j = i2 + nameMatch[0].length;
+      for (;j < source.length; j++) {
+        const c = source[j];
+        if (c === '"' || c === "'" || c === "`") {
+          const quote = c;
+          j++;
+          while (j < source.length && source[j] !== quote) {
+            if (source[j] === "\\")
+              j++;
+            j++;
+          }
+          continue;
+        }
+        if (c === "(" || c === "[")
+          d++;
+        else if (c === ")" || c === "]")
+          d--;
+        else if (c === "{" && d === 0)
+          break;
+        else if ((c === ";" || c === "}") && d === 0) {
+          j = -1;
+          break;
+        }
+      }
+      if (j > 0 && j < source.length)
+        classHeaderLen = j - i2;
+    }
+    if (classHeaderLen > 0) {
+      const classHeader = source.slice(i2, i2 + classHeaderLen);
       result += classHeader;
       i2 += classHeader.length;
       contextStack.push({ type: "class-body", braceDepth });
       continue;
     }
-    const funcMatch = source.slice(i2).match(/^function(?:\s+(\w+))?\s*\(/);
+    const funcMatch = matchAt(RE_FUNCTION_HEAD, source, i2);
     if (funcMatch) {
       const declaredName = funcMatch[1];
+      const star = funcMatch[0].includes("*") ? "*" : "";
       const funcName = declaredName || "anonymous";
       const matchLen = funcMatch[0].length;
       const afterParen = source[i2 + matchLen];
@@ -10207,7 +10606,7 @@ function transformParenExpressions(source, ctx) {
           ctx.safeFunctions.add(funcName);
         }
       }
-      result += declaredName ? `function ${declaredName}(` : `function (`;
+      result += declaredName ? `function${star} ${declaredName}(` : `function${star} (`;
       i2 = paramStart;
       const paramsResult = extractBalancedContent(source, i2, "(", ")");
       if (!paramsResult) {
@@ -10251,16 +10650,24 @@ function transformParenExpressions(source, ctx) {
       }
       continue;
     }
-    const methodMatch = source.slice(i2).match(/^(constructor|(?:get|set)\s+\w+|async\s+\w+|\w+)\s*\(/);
-    const prevNonWs = (() => {
-      for (let k = result.length - 1;k >= 0; k--) {
-        if (!/\s/.test(result[k]))
-          return result[k];
+    const methodMatch = matchAt(RE_METHOD_HEAD, source, i2);
+    let prevIdx = -1;
+    for (let k = result.length - 1;k >= 0; k--) {
+      if (!/\s/.test(result[k])) {
+        prevIdx = k;
+        break;
       }
-      return `
-`;
-    })();
-    const isMethodDecl = prevNonWs !== "=" && prevNonWs !== "," && prevNonWs !== "(" && prevNonWs !== "[" && prevNonWs !== ">";
+    }
+    const prevNonWs = prevIdx < 0 ? `
+` : result[prevIdx];
+    let prevWord = "";
+    if (prevIdx >= 0 && /[A-Za-z0-9_$]/.test(prevNonWs)) {
+      let w = prevIdx;
+      while (w >= 0 && /[A-Za-z0-9_$]/.test(result[w]))
+        w--;
+      prevWord = result.slice(w + 1, prevIdx + 1);
+    }
+    const isMethodDecl = !EXPRESSION_PREFIX_KEYWORDS.has(prevWord) && prevNonWs !== "=" && prevNonWs !== "," && prevNonWs !== "(" && prevNonWs !== "[" && prevNonWs !== "." && prevNonWs !== ">";
     if (methodMatch && isInClassBody() && !isMethodDecl) {
       const skipLen = methodMatch[1].length;
       result += source.slice(i2, i2 + skipLen);
@@ -10308,7 +10715,19 @@ function transformParenExpressions(source, ctx) {
       }
       continue;
     }
-    if (source[i2] === "(") {
+    let argPrevIdx = i2 - 1;
+    while (argPrevIdx >= 0 && /\s/.test(source[argPrevIdx]))
+      argPrevIdx--;
+    const prevTok = argPrevIdx < 0 ? "" : source[argPrevIdx];
+    let argPrevWord = "";
+    if (/[A-Za-z0-9_$]/.test(prevTok)) {
+      let w = argPrevIdx;
+      while (w >= 0 && /[A-Za-z0-9_$]/.test(source[w]))
+        w--;
+      argPrevWord = source.slice(w + 1, argPrevIdx + 1);
+    }
+    const isCallArgs = /[A-Za-z0-9_$)\]]/.test(prevTok) && !EXPRESSION_PREFIX_KEYWORDS.has(argPrevWord) && !/(^|[^A-Za-z0-9_$])async\s*$/.test(source.slice(Math.max(0, i2 - 12), i2));
+    if (source[i2] === "(" && !isCallArgs) {
       const fullParamsResult = extractBalancedContent(source, i2 + 1, "(", ")");
       if (!fullParamsResult) {
         result += source[i2];
@@ -10321,7 +10740,7 @@ function transformParenExpressions(source, ctx) {
       while (j < source.length && /\s/.test(source[j]))
         j++;
       let arrowReturnType;
-      if (source[j] === ":") {
+      if (source[j] === ":" && !isTernaryColon(source, j)) {
         const colonMarker = source.slice(j, j + 2);
         if (colonMarker === ":?" || colonMarker === ":!") {
           j += 2;
@@ -10451,7 +10870,7 @@ function extractJSValue(source, start) {
       i2++;
     return { value: source.slice(valueStart, i2), endPos: i2 };
   }
-  const keywordMatch = source.slice(i2).match(/^(true|false|null|undefined)\b/);
+  const keywordMatch = matchAt(RE_KEYWORD_VALUE, source, i2);
   if (keywordMatch) {
     return {
       value: keywordMatch[1],
@@ -10462,6 +10881,17 @@ function extractJSValue(source, start) {
 }
 function normalizeUnionSyntax(type) {
   return type.replace(/(?<!\|)\|(?!\|)/g, " || ");
+}
+var ID = "[A-Za-z_$][A-Za-z0-9_$]*";
+var ID_START = /[A-Za-z_$]/;
+var ID_CHAR = /[A-Za-z0-9_$]/;
+var RE_CLASS_NAME = new RegExp(`class\\s+${ID}`, "y");
+var RE_FUNCTION_HEAD = new RegExp(`function\\s*\\*?(?:\\s+(${ID}))?\\s*\\(`, "y");
+var RE_METHOD_HEAD = new RegExp(`(constructor|(?:get|set)\\s+(?:${ID}|\\[[^\\]]+\\])|async\\s+(?:${ID}|\\[[^\\]]+\\])|${ID}|\\[[^\\]]+\\])\\s*\\(`, "y");
+var RE_KEYWORD_VALUE = /(true|false|null|undefined)\b/y;
+function matchAt(re, source, at2) {
+  re.lastIndex = at2;
+  return re.exec(source);
 }
 function extractReturnTypeValue(source, start) {
   let i2 = start;
@@ -10605,9 +11035,9 @@ function extractReturnTypeValue(source, start) {
       }
       continue;
     }
-    if (depth === 0 && /[a-zA-Z_]/.test(char)) {
+    if (depth === 0 && ID_START.test(char)) {
       let j = i2;
-      while (j < source.length && /\w/.test(source[j]))
+      while (j < source.length && ID_CHAR.test(source[j]))
         j++;
       sawContent = true;
       i2 = j;
@@ -10769,15 +11199,32 @@ function processParamString(params, ctx, trackRequired) {
     const trimmed = param.trim();
     if (!trimmed)
       return param;
-    if (trackRequired && trimmed.startsWith("{") && trimmed.endsWith("}")) {
-      const inner = trimmed.slice(1, -1);
-      const processedInner = processDestructuredObjectParams(inner, ctx);
-      return `{ ${processedInner} }`;
-    }
-    if (trackRequired && trimmed.startsWith("[") && trimmed.endsWith("]")) {
-      const inner = trimmed.slice(1, -1);
-      const processedInner = processDestructuredObjectParams(inner, ctx);
-      return `[ ${processedInner} ]`;
+    if (trackRequired && (trimmed.startsWith("{") || trimmed.startsWith("["))) {
+      const open = trimmed[0];
+      const masked = maskLiterals(trimmed);
+      let depth = 0;
+      let end = -1;
+      for (let i2 = 0;i2 < masked.length; i2++) {
+        const c = masked[i2];
+        if (c === "{" || c === "[")
+          depth++;
+        else if (c === "}" || c === "]") {
+          depth--;
+          if (depth === 0) {
+            end = i2;
+            break;
+          }
+        }
+      }
+      if (end !== -1) {
+        const inner = trimmed.slice(1, end);
+        const rest = trimmed.slice(end + 1).trim();
+        const processedInner = processDestructuredObjectParams(inner, ctx);
+        const pattern = open === "{" ? `{ ${processedInner} }` : `[ ${processedInner} ]`;
+        if (rest.startsWith(":"))
+          return pattern;
+        return rest ? `${pattern} ${rest}` : pattern;
+      }
     }
     if (trimmed.startsWith("...")) {
       const restColonPos = findTopLevelColon(trimmed);
@@ -10822,6 +11269,10 @@ function processParamString(params, ctx, trackRequired) {
       checkDuplicate(name);
       if (sawOptional && trackRequired && /^\w+$/.test(name)) {}
       if (trackRequired && /^\w+$/.test(name)) {
+        if (isOptionalUnion(type)) {
+          ctx.typeNameOptionals.add(name);
+          return `${name} = ${type} ${PARAM_TYPENAME_MARKER}`;
+        }
         ctx.requiredParams.add(name);
         return `${name} = ${type} ${PARAM_REQUIRED_MARKER}`;
       }
@@ -10830,6 +11281,21 @@ function processParamString(params, ctx, trackRequired) {
     return param;
   });
   return processed.join(",");
+}
+function isOptionalUnion(type) {
+  return splitTopLevelTrimmed(type, "|").some((p) => p === "undefined");
+}
+var LITERAL_KEYWORDS = new Set([
+  "null",
+  "true",
+  "false",
+  "undefined",
+  "NaN",
+  "Infinity"
+]);
+function isDestructuringRename(value) {
+  const m = /^([A-Za-z_$][\w$]*)\s*(=(?!=)[\s\S]*)?$/.exec(value.trim());
+  return !!m && !LITERAL_KEYWORDS.has(m[1]);
 }
 function processDestructuredObjectParams(inner, ctx) {
   const parts = splitParameters(inner);
@@ -10852,6 +11318,9 @@ function processDestructuredObjectParams(inner, ctx) {
       return `${name} = ${processedLiteral} ${PARAM_REQUIRED_MARKER}`;
     }
     const colonMatch = trimmed.match(/^(\w+)\s*:\s*([\s\S]+)$/);
+    if (colonMatch && isDestructuringRename(colonMatch[2])) {
+      return part;
+    }
     if (colonMatch) {
       const [, name, value] = colonMatch;
       ctx.requiredParams.add(name);
@@ -10985,7 +11454,7 @@ function preprocess(source, options = {}) {
   const hoistedTypeArgs = [];
   const unsafeFunctions = new Set;
   const safeFunctions = new Set;
-  const isFromTS = /\/\*\s*tjs\s*<-\s*\S+\s*\*\//.test(source);
+  const isFromTS = /\/\*\s*tjs\s*<-\s*\S+\s*\*\//.test(maskLiteralsKeepComments(source));
   const isCompat = options.dialect === "js" ? true : options.dialect === "tjs" ? false : isFromTS || options.vmTarget;
   const tjsModes = isCompat ? {
     tjsEquals: false,
@@ -11106,6 +11575,12 @@ function preprocess(source, options = {}) {
   source = transformFunctionPredicateDeclarations(source);
   source = transformUnionDeclarations(source, declaredTypes);
   source = transformEnumDeclarations(source, declaredTypes);
+  if (tjsModes.tjsStandard) {
+    const lowered = transformGiven(source);
+    source = lowered.source;
+    for (const w of lowered.warnings)
+      modeWarnings.push(w.message);
+  }
   if (tjsModes.tjsSafeAssign) {
     source = transformBareAssignments(source);
   }
@@ -11144,7 +11619,7 @@ ${h.text}${source.slice(at2)}`;
   const extResult = transformExtendDeclarations(source);
   source = extResult.source;
   source = transformTryWithoutCatch(source);
-  const polyResult = transformPolymorphicFunctions(source, requiredParams);
+  const polyResult = transformPolymorphicFunctions(source, requiredParams, declaredTypes);
   source = polyResult.source;
   const wasmBlocks = extractWasmBlocks(source);
   source = wasmBlocks.source;
@@ -11153,7 +11628,7 @@ ${h.text}${source.slice(at2)}`;
     ...importedWasm.blocks,
     ...wasmBlocks.blocks
   ];
-  const testResult = extractAndRunTests(source, options.dangerouslySkipTests);
+  const testResult = options.vmTarget ? { source, tests: [], errors: [] } : extractAndRunTests(source, options.dangerouslySkipTests);
   source = testResult.source;
   const polyCtorResult = transformPolymorphicConstructors(source, requiredParams);
   source = polyCtorResult.source;
@@ -16033,7 +16508,7 @@ import { onRequest } from "firebase-functions/v2/https";
 import { onCall as onCall2, HttpsError as HttpsError2 } from "firebase-functions/v2/https";
 
 // src/version.js
-var TJS_LANG_VERSION = "0.13.6";
+var TJS_LANG_VERSION = "0.13.8";
 
 // src/index.js
 import { initializeApp } from "firebase-admin/app";
