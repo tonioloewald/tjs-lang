@@ -52,8 +52,20 @@ import { join } from 'node:path'
  * Matched against the full argv of the listening process. Deliberately specific: a false
  * positive here is a SIGKILL delivered to somebody else's work, while a false negative is
  * a message telling the user to pick another port.
+ *
+ * The generic entries END AT A TOKEN BOUNDARY, and that is load-bearing. `cli/playground`
+ * as a bare substring also matches `src/cli/playground.test.ts`, so any process whose argv
+ * merely NAMES that file inside this checkout was identified as our server — including
+ * `bun test src/cli/…`, which genuinely holds ports (several suites call `Bun.serve`). A
+ * developer running `tjs-playground --port N --force` while a test run held N would have
+ * signalled it and announced it as their own server. Found by the dogfood harness, which
+ * spawns `bun test <every suite path>` and so builds exactly that argv.
+ *
+ * This is the same defect as the `OUR_ROOT` anchor one level in: a marker that identifies
+ * a FILE THAT EXISTS rather than a PROCESS THAT IS RUNNING.
  */
-export const OUR_SERVERS = /tjs-playground|cli\/playground|bin\/dev\.ts/
+export const OUR_SERVERS =
+  /tjs-playground|(?:cli\/playground|bin\/dev)\.[jt]s(?=\s|$)/
 
 /**
  * The package root this process was loaded from — `src/cli/port.ts` → up two.

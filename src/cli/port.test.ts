@@ -17,7 +17,7 @@ import { mkdirSync, rmSync, writeFileSync } from 'node:fs'
 import { mkdtempSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { portListeners, reclaimPort, validPort } from './port'
+import { portListeners, reclaimPort, validPort, isOurServer } from './port'
 
 const servers: Array<{ stop: () => void }> = []
 
@@ -112,6 +112,35 @@ describe('finding who holds a port', () => {
     const holders = await portListeners(port)
     expect(holders.length).toBeGreaterThan(0)
     expect(holders.every((h) => h.ours)).toBe(false)
+  })
+
+  it('does not call a test runner ours just because it NAMES one of our entry points', () => {
+    // The test above asserts this, but only when the running process's OWN argv happens to
+    // mention a playground path — so it passed under `bun test src/cli/port.test.ts` and
+    // failed under `bun test <every suite>`, which is how the dogfood harness invokes it.
+    // A guard whose coverage depends on how it was launched is not a guard, so the argv is
+    // supplied explicitly here.
+    //
+    // `cli/playground` as a bare substring matched `src/cli/playground.test.ts`. Test runs
+    // genuinely hold ports (several suites call `Bun.serve`), so `--force` would have
+    // signalled a developer's test run and announced it as their own server.
+    const argv = `bun test ${join(
+      REPO_ROOT,
+      'src/cli/playground.test.ts'
+    )} ${join(REPO_ROOT, 'src/cli/port.test.ts')}`
+    expect(isOurServer(argv)).toBe(false)
+  })
+
+  it('still identifies the real entry points (control)', () => {
+    // Every assertion above is satisfied by an `isOurServer` that always returns false.
+    for (const argv of [
+      `bun ${join(REPO_ROOT, 'bin/dev.ts')}`,
+      `bun ${join(REPO_ROOT, 'src/cli/playground.ts')} --port 3000`,
+      `node ${join(REPO_ROOT, 'dist/cli/playground.js')}`,
+      'node /usr/local/bin/tjs-playground --port 3000', // published bin, not anchored
+    ]) {
+      expect({ argv, ours: isOurServer(argv) }).toEqual({ argv, ours: true })
+    }
   })
 
   it("does NOT identify a stranger's bin/dev.ts as ours", async () => {

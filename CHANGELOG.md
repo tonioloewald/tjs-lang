@@ -9,6 +9,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **`tjs-playground --port N --force` could have signalled a developer's test run.**
+  `OUR_SERVERS` matched `cli/playground` as a bare substring, so it also matched
+  `src/cli/playground.test.ts` — and since the second identity rule only additionally requires
+  the argv to reference this checkout, any process whose command line merely NAMED that file
+  was identified as our server. Test runs genuinely hold ports (several suites call
+  `Bun.serve`). The generic entry markers now have to end at a token boundary, so a path that
+  merely contains one no longer qualifies. Same defect as the `OUR_ROOT` anchor one level in:
+  a marker identifying a file that exists rather than a process that is running.
+
+  Found sitting in the dogfood gate's baseline, which spawns `bun test <every suite path>` and
+  so is the only invocation that builds that argv. The gate printed `1 fail` on the
+  **unconverted** corpus and neither named it nor failed on it; it now does both, and the
+  conversion-damage figures are no longer measured against a baseline that is allowed to be
+  red.
+
 - **A template literal's first `${ … }` desynchronised the bang-access transform for the rest
   of the file.** `transformBangAccess` hand-rolled its own literal tracking, and its `${` arm
   switched to code and never switched back. From the first substitution onward the remainder

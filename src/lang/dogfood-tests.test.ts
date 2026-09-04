@@ -397,6 +397,31 @@ describe('dogfood: our own test suites survive conversion', () => {
           `\n  converted: ${after.pass} pass, ${after.fail} fail, ${after.asserts} assertions`
       )
 
+      // THE BASELINE MUST BE GREEN, and it must say what failed when it is not.
+      //
+      // For an unknown length of time this printed `1 fail` on the ORIGINAL corpus and
+      // stopped there — a number with no name attached, in the middle of a wall of
+      // conversion statistics, so nobody read it as a defect. It was one: `isOurServer`
+      // matched `cli/playground` inside `src/cli/playground.test.ts`, and this harness
+      // spawns `bun test <every suite path>`, which is the only invocation that builds
+      // that argv. The suite passes standalone and in `test:fast`; only here did it fail,
+      // and only here was the evidence discarded.
+      //
+      // Two things were wrong and both are fixed here: the failure was not NAMED, and it
+      // was not FAILED ON. A gate that measures conversion damage against a baseline it
+      // does not require to be clean is also mis-measuring — `testsBroken` below counts
+      // every pre-existing failure as damage conversion did.
+      if (before.fail > 0) {
+        const named = before.out
+          .split('\n')
+          .filter((l) => l.startsWith('(fail)'))
+          .join('\n    ')
+        console.log(
+          `\n  BASELINE IS NOT GREEN — before conversion:\n    ${named}`
+        )
+      }
+      expect({ baselineFailures: before.fail }).toEqual({ baselineFailures: 0 })
+
       // A BASELINE THAT MUST IMPROVE. Parity is the 1.0 target — `after` equal to
       // `before` on all three — and today conversion loses about a quarter of the
       // assertions outright. Asserting parity now would just leave a red gate, and a
