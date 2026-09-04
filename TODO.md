@@ -1,5 +1,23 @@
 # TJS-Lang TODO
 
+# RELEASE STATE — read this first (2026-09-04)
+
+**`v0.13.12` is TAGGED and PUSHED but was never PUBLISHED.** npm is still on 0.13.11, and
+four commits now sit on top of the tag — including `bc6497e`, a real shipped fix (a `test`
+block quoted as data was executed and deleted). `package.json` already says `0.13.12`.
+
+So the tag no longer names the code that would ship, and `scripts/prepublish-check.ts` will
+refuse — correctly — with "the tag does not name this code".
+
+**Recommended:** move the tag forward to HEAD and publish 0.13.12 including today's fixes.
+Nothing ever consumed `v0.13.12` (it was never on npm), so the tag is free to move; this is
+the same call made earlier in the cycle and for the same reason. Fold the `[Unreleased]`
+CHANGELOG section into `[0.13.12]` first. The alternative — bumping to 0.13.13 — leaves a
+published-version gap for no benefit.
+
+Then: `bun test` (full, nothing skipped, LM Studio up) → move tag → `npm publish` (plain, no
+`--otp`) → tell tosijs-ui, which pins 0.13.4 (see UPSTREAM.md, tosijs-ui#135).
+
 # PLAN: verified-working language, then the tosijs-ui build system (2026-09-04)
 
 Agreed direction: get as close to a **verified working state as a language** as possible,
@@ -33,10 +51,30 @@ dashboard number into this list.
       exact trap that file already records for the `os.tmpdir()` incident, recurring in a
       second form. Either relocate them properly or classify them out; do NOT leave them
       inflating the gap.
-- [ ] **A3 — `"Eq"/"Type" has already been declared` (6 failures).** Converted modules emit a
-      duplicate top-level declaration. There is already a guardrail for this shape
-      (`emitted-module-scope.test.ts`), so this is either a gap in it or a second route to the
-      same defect. Real, and it makes a converted module unloadable in Node.
+- [ ] **A3 — emitted preamble names collide with user imports. NEXT, and sized 2026-09-04.**
+      Filed as [#39], which understates it: #39 names five (`Eq`/`Is`/`IsNot`/`NotEq`/`toBool`)
+      and the gate shows **thirteen** — add `Type`, `Generic`, `Union`, `Exactly`,
+      `FunctionPredicate`, `TypeOf`, `tjsEquals` and the `Legacy*` family.
+      **Ten suites fail to LOAD AT ALL** — a `SyntaxError` before any code runs, which is why
+      they clustered as only "6 failures": most of their tests never ran to be counted. Any
+      consumer who does `import { Eq } from 'tjs-lang/runtime'` in a file that also uses `==`
+      gets a module that does not evaluate.
+      **APPROACH DECIDED, not yet implemented.** Do NOT do the name-by-name prefixing #39
+      implies. Emit the inline preamble as ONE object and have generated code call
+      `__tjs_rt.Eq(…)`: - closes the collision for EVERY user name, not the thirteen we happen to know about; - keeps CLAUDE.md's rule intact — the inline stub still always wins for
+      compiler-generated code — while letting an explicit `import { Eq }` coexist, which
+      is what the user asked for by importing it; - the thing CLAUDE.md forbids is making the stub DEFER to a loaded runtime. This does
+      not do that.
+      **Scale:** ~95 generation sites across `src/lang/emitters/*.ts` and `parser-transforms.ts`
+      (`Type` 23, `FunctionPredicate` 15, `Eq` 8, `Generic` 8, `Exactly` 8, `TypeOf` 8, `Is` 7,
+      `NotEq`/`IsNot` 6, `Union` 4, `toBool` 2 — counts are grep-level, expect false positives).
+      The rename must happen at GENERATION time: after emission a compiler-generated `Eq(` and
+      a user's own `Eq(` are indistinguishable, so a post-pass would rewrite the user's too.
+      **Wants the compat lane and a full run behind it** — this is a wide mechanical change to
+      the emitter, not a tail-of-session edit. Deliberately not started half-done.
+
+      [#39]: https://github.com/tonioloewald/tjs-lang/issues/39
+
 - [ ] **A4 — re-cluster after A2/A3 and repeat.** The remaining ~43 have not been read yet.
       Cluster by SUITE, not by error text: the error text was assertion noise, the suite
       distribution was the signal (4 suites held 63% of failures).
