@@ -1,0 +1,371 @@
+/* tjs <- input.ts */
+
+import { describe, it, expect, beforeAll, afterAll } from 'bun:test'
+
+import { tjs } from '/Users/tonioloewald/tjs-lang/src/lang/index'
+
+import {
+  createRuntime,
+  isMonadicError,
+} from '/Users/tonioloewald/tjs-lang/src/lang/runtime'
+
+import { preprocess } from '/Users/tonioloewald/tjs-lang/src/lang/parser'
+
+let savedTjs
+
+beforeAll(() => {
+  savedTjs = globalThis.__tjs
+  globalThis.__tjs = createRuntime()
+})
+
+afterAll(() => {
+  globalThis.__tjs = savedTjs
+})
+
+/* line 31 */
+function compile(src, name, opts) {
+  const { code } = tjs(src, opts)
+  return new Function(code + `\nreturn ${name}`)()
+}
+compile.__tjs = {
+  params: {
+    src: {
+      type: {
+        kind: 'string',
+      },
+      required: true,
+      default: null,
+    },
+    name: {
+      type: {
+        kind: 'string',
+      },
+      required: true,
+      default: null,
+    },
+    opts: {
+      type: {
+        kind: 'any',
+      },
+      required: false,
+    },
+  },
+  unsafe: true,
+  source: 'input.ts:31',
+}
+
+const FLAT = `function place(args = {x: 0, y: 0}) { return args }`
+
+const NESTED = `function move(args = {pos: {x: 0, y: 0}, label: ''}) { return args }`
+
+describe('dictionary defaults — the TjsDictDefaults mode (Stage 1)', () => {
+  describe('merge-on-partial (native tjs)', () => {
+    it('partial payload merges per member (the headline)', () => {
+      const place = compile(FLAT, 'place')
+      expect(place({ x: 5 })).toEqual({ x: 5, y: 0 })
+      expect(place({ y: 7 })).toEqual({ x: 0, y: 7 })
+    })
+    it('no-arg and explicit-undefined get the full default, fresh per call', () => {
+      const place = compile(FLAT, 'place')
+      const a = place()
+      const b = place(undefined)
+      expect(a).toEqual({ x: 0, y: 0 })
+      expect(b).toEqual({ x: 0, y: 0 })
+      expect(a).not.toBe(b)
+    })
+    it('present-undefined member fills (treated as absent)', () => {
+      const place = compile(FLAT, 'place')
+      expect(place({ x: undefined, y: 3 })).toEqual({ x: 0, y: 3 })
+    })
+    it('falsy present members win over defaults', () => {
+      const f = compile(
+        `function f(args = {n: 5, s: 'hi', b: true}) { return args }`,
+        'f'
+      )
+      expect(f({ n: 0, s: '', b: false })).toEqual({ n: 0, s: '', b: false })
+    })
+    it('complete payload returns BY REFERENCE (I3 — zero allocation)', () => {
+      const place = compile(FLAT, 'place')
+      const full = { x: 1, y: 2 }
+      expect(place(full)).toBe(full)
+    })
+    it('wrong member type is a MonadicError with a precise path', () => {
+      const place = compile(FLAT, 'place')
+      const r = place({ x: 'five' })
+      expect(isMonadicError(r)).toBe(true)
+      expect(r.path).toContain('place.args.x')
+    })
+    it('non-object payload errors at the param path', () => {
+      const place = compile(FLAT, 'place')
+      expect(isMonadicError(place(5))).toBe(true)
+      expect(isMonadicError(place([1, 2]))).toBe(true)
+      expect(isMonadicError(place(null))).toBe(true)
+    })
+    it('example-null member: fills null when absent, admits any value', () => {
+      const f = compile(
+        `function f(args = {parent: null, n: 1}) { return args }`,
+        'f'
+      )
+      expect(f({ n: 2 })).toEqual({ parent: null, n: 2 })
+      expect(f({ parent: { id: 1 }, n: 2 })).toEqual({
+        parent: { id: 1 },
+        n: 2,
+      })
+      expect(f({ parent: null, n: 2 })).toEqual({ parent: null, n: 2 })
+    })
+  })
+  describe('multiple dict-default params (uid collision regression)', () => {
+    it('two object-default params both transpile AND execute (no duplicate let)', () => {
+      const f = compile(
+        `function place(a = {x: 0, y: 0}, b = {w: 1, h: 1}) { return [a, b] }`,
+        'place'
+      )
+      expect(f({ x: 5 }, { h: 9 })).toEqual([
+        { x: 5, y: 0 },
+        { w: 1, h: 9 },
+      ])
+    })
+    it('nested + flat object-default params in one function', () => {
+      const f = compile(
+        `function f(a = {pos: {x: 0, y: 0}}, b = {w: 1, h: 1}) { return [a, b] }`,
+        'f'
+      )
+      expect(f({ pos: { x: 3 } }, { w: 7 })).toEqual([
+        { pos: { x: 3, y: 0 } },
+        { w: 7, h: 1 },
+      ])
+    })
+  })
+  describe('recursion', () => {
+    it('nested partial merges per key, per level', () => {
+      const move = compile(NESTED, 'move')
+      expect(move({ pos: { x: 5 } })).toEqual({
+        pos: { x: 5, y: 0 },
+        label: '',
+      })
+    })
+    it('nested wrong type errors with the nested path', () => {
+      const move = compile(NESTED, 'move')
+      const r = move({ pos: { x: 'five' } })
+      expect(isMonadicError(r)).toBe(true)
+      expect(r.path).toContain('move.args.pos.x')
+    })
+    it('nested non-object errors at the member path', () => {
+      const move = compile(NESTED, 'move')
+      for (const pos of [5, null, [1]]) {
+        const r = move({ pos })
+        expect(isMonadicError(r)).toBe(true)
+        expect(r.path).toContain('move.args.pos')
+      }
+    })
+    it('complete nested payload stays by-reference', () => {
+      const move = compile(NESTED, 'move')
+      const full = { pos: { x: 1, y: 2 }, label: 'go' }
+      expect(move(full)).toBe(full)
+    })
+    it('filled nested defaults are FRESH per call (no cross-call aliasing)', () => {
+      const move = compile(NESTED, 'move')
+      const first = move({ label: 'a' })
+      first.pos.x = 999
+      const second = move({ label: 'b' })
+      expect(second.pos.x).toBe(0)
+    })
+  })
+  describe('arrays are values', () => {
+    const SRC = `function tag(args = {tags: [''], n: 0}) { return args }`
+    it('payload array replaces the default wholesale; absent fills fresh', () => {
+      const tag = compile(SRC, 'tag')
+      expect(tag({ n: 1, tags: ['x', 'y'] })).toEqual({
+        n: 1,
+        tags: ['x', 'y'],
+      })
+      const filled = tag({ n: 1 })
+      expect(filled.tags).toEqual([''])
+      filled.tags.push('mutated')
+      expect(tag({ n: 2 }).tags).toEqual([''])
+    })
+    it('array elements are checked against the example element', () => {
+      const tag = compile(SRC, 'tag')
+      const r = tag({ tags: ['ok', 42], n: 1 })
+      expect(isMonadicError(r)).toBe(true)
+    })
+  })
+  /**
+   * Excess keys PASS THROUGH — a deliberate divergence from WebIDL §5.4, which strips.
+   *
+   * WebIDL strips because a dictionary is a WIRE FORMAT: the point is to normalise an
+   * untrusted bag into exactly the declared shape before it crosses a boundary. A TJS
+   * `= {…}` parameter is not that. It is an options bag inside one program, and options
+   * bags in JavaScript routinely carry more than the callee declares — a caller forwards
+   * its own options, or passes one object to two functions.
+   *
+   * Stripping silently deleted the caller's data. The recorder notice made it visible in
+   * a log, not at the call site, and only once per site. And it disagreed with every
+   * other structural check in the language once those were opened: nothing else in TJS
+   * rejects or removes an excess key, and TypeScript cannot even express a closed object
+   * type (its excess-property check is a freshness lint on literals, not a property of
+   * the type).
+   *
+   * Decided 2026-08-14. See `docs/dictionary-defaults.md` → "Where we diverge from WebIDL".
+   */
+  describe('excess keys pass through (diverges from WebIDL §5.4)', () => {
+    it('excess keys survive into the merged result', () => {
+      const place = compile(FLAT, 'place')
+      const out = place({ x: 1, y: 2, treshold: 0.5 })
+      expect(isMonadicError(out)).toBe(false)
+      expect(out).toEqual({ x: 1, y: 2, treshold: 0.5 })
+    })
+    it('excess keys survive alongside a FILLED member', () => {
+      const place = compile(FLAT, 'place')
+      expect(place({ x: 1, extra: 'kept' })).toEqual({
+        x: 1,
+        y: 0,
+        extra: 'kept',
+      })
+    })
+    it('a declared member always wins over the payload', () => {
+      const place = compile(FLAT, 'place')
+      const out = place({ x: 5, y: 6, extra: 1 })
+      expect(out.x).toBe(5)
+      expect(out.y).toBe(6)
+    })
+    it('nothing is recorded — passing data through is not an event', () => {
+      const rt = globalThis.__tjs
+      rt.clearRecords?.()
+      const place = compile(FLAT, 'place')
+      place({ x: 1, y: 2, extra: 1 })
+      const notices = (rt.records?.({ severity: 'notice' }) ?? []).filter((r) =>
+        String(r.message).includes('excess')
+      )
+      expect(notices.length).toBe(0)
+    })
+    it('prototype-pollution keys are rejected outright', () => {
+      const place = compile(FLAT, 'place')
+      const payload = JSON.parse('{"x":1,"y":2,"__proto__":{"polluted":1}}')
+      const r = place(payload)
+      expect(isMonadicError(r)).toBe(true)
+      expect({}.polluted).toBeUndefined()
+    })
+  })
+  describe('invariants', () => {
+    it('I1: never writes the payload (deep-frozen payload works)', () => {
+      const move = compile(NESTED, 'move')
+      const frozen = Object.freeze({ pos: Object.freeze({ x: 5 }), label: 'a' })
+      const out = move(frozen)
+      expect(out).toEqual({ pos: { x: 5, y: 0 }, label: 'a' })
+      expect(frozen.pos.y).toBeUndefined()
+    })
+  })
+  describe('purity restriction (spec §6.1)', () => {
+    it('an impure member in an object-literal default is a COMPILE error', () => {
+      expect(() =>
+        tjs(`function f(args = {x: mkX(), y: 0}) { return args }`)
+      ).toThrow(/pure literal|dictionary default/i)
+    })
+    it('a non-literal default is NOT claimed by the feature (OQ4)', () => {
+      const f = compile(
+        `const live = { a: 1 }
+function g(args = live) { return args }`,
+        'g'
+      )
+      expect(f()).toEqual({ a: 1 })
+      expect(f({ b: 2 })).toEqual({ b: 2 })
+    })
+    it('non-dictionary defaults keep JS semantics (OQ4)', () => {
+      const f = compile(
+        `function h(x = 0, list = []) { return { x, list } }`,
+        'h'
+      )
+      expect(f()).toEqual({ x: 0, list: [] })
+      expect(f(5)).toEqual({ x: 5, list: [] })
+    })
+  })
+  describe('MODE GATE — dialect js / TjsCompat keep plain-JS semantics', () => {
+    it("dialect: 'js' — atomic defaults, no merge, no member checks, no purity error", () => {
+      const f = compile(FLAT, 'place', { dialect: 'js' })
+      expect(f({ x: 5 })).toEqual({ x: 5 })
+      expect(f({ x: 's' })).toEqual({ x: 's' })
+      expect(f()).toEqual({ x: 0, y: 0 })
+
+      expect(() =>
+        tjs(`function f2(args = {x: Date.now()}) { return args }`, {
+          dialect: 'js',
+        })
+      ).not.toThrow()
+    })
+    it('TjsCompat directive disables the mode', () => {
+      const f = compile(`TjsCompat\n${FLAT}`, 'place')
+      expect(f({ x: 5 })).toEqual({ x: 5 })
+    })
+  })
+})
+
+describe('deep-partial .d.ts for dictionary-default params (Stage 3)', () => {
+  it('native: caller-facing type is deep-partial (members optional, recursively)', async () => {
+    const { generateDTS } = await import(
+      '/Users/tonioloewald/tjs-lang/src/lang/index'
+    )
+    const src = `export function place(args = {pos: {x: 0, y: 0}, label: ''}) { return args }`
+    const result = tjs(src)
+    const dts = generateDTS(result, src)
+
+    expect(dts).toContain(
+      'args?: { pos?: { x?: number; y?: number }; label?: string }'
+    )
+  })
+  it("dialect 'js': members stay required (atomic JS default — partial is NOT valid)", async () => {
+    const { generateDTS } = await import(
+      '/Users/tonioloewald/tjs-lang/src/lang/index'
+    )
+    const src = `export function place(args = {pos: {x: 0, y: 0}, label: ''}) { return args }`
+    const result = tjs(src, { dialect: 'js' })
+    const dts = generateDTS(result, src)
+    expect(dts).toContain(
+      'args?: { pos: { x: number; y: number }; label: string }'
+    )
+  })
+})
+
+describe('a destructuring RENAME is not a dictionary member', () => {
+  const run = (src, args) => {
+    const prev = globalThis.__tjs
+    globalThis.__tjs = createRuntime()
+    try {
+      return new Function(tjs(src, { runTests: false }).code + '\nreturn f')()(
+        args
+      )
+    } finally {
+      globalThis.__tjs = prev
+    }
+  }
+  it('binds the renamed name, not the key', () => {
+    expect(
+      run('function f({ message: message_ }) { return message_ }', {
+        message: 'hi',
+      })
+    ).toBe('hi')
+  })
+  it('a rename with a default still defaults', () => {
+    const src = 'function f({ size: size_ = 8 }) { return size_ }'
+    expect(run(src, {})).toBe(8)
+    expect(run(src, { size: 3 })).toBe(3)
+  })
+  it('does not leak an assignment to the renamed target', () => {
+    expect(() =>
+      run('function f({ size: size_ = 8 }) { return size_ }', {})
+    ).not.toThrow()
+  })
+  it('`arguments` as a rename target is legal; as a binding it is not', () => {
+    expect(
+      run('function f({ arguments: args }) { return args }', { arguments: 7 })
+    ).toBe(7)
+  })
+  it('literal-keyword values are still members, not renames', () => {
+    for (const kw of ['null', 'undefined', 'true', 'false']) {
+      const out = preprocess(`function f({ x: ${kw} }) { return x }`, {
+        filename: 'a.tjs',
+      }).source
+      expect(out).toContain(`x = ${kw}`)
+    }
+  })
+})

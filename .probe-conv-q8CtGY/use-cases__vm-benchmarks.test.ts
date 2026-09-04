@@ -1,0 +1,327 @@
+/* tjs <- input.ts */
+
+import { describe, it, expect } from 'bun:test'
+
+import { Agent } from '/Users/tonioloewald/tjs-lang/src/builder'
+
+import { AgentVM } from '/Users/tonioloewald/tjs-lang/src/vm'
+
+import { s } from 'tosijs-schema'
+
+import { ajs } from '/Users/tonioloewald/tjs-lang/src/transpiler'
+
+const benchmarks = describe.each([{ run: !process.env.SKIP_BENCHMARKS }])
+
+/* line 10 */
+function generatePrimes(n) {
+  const primes = []
+  const isPrime = new Array(n + 1).fill(true)
+  isPrime[0] = isPrime[1] = false
+  for (let p = 2; p * p <= n; p++) {
+    if (isPrime[p]) {
+      for (let i = p * p; i <= n; i += p) isPrime[i] = false
+    }
+  }
+  for (let p = 2; p <= n; p++) {
+    if (isPrime[p]) primes.push(p)
+  }
+  return primes
+}
+generatePrimes.__tjs = {
+  params: {
+    n: {
+      type: {
+        kind: 'number',
+      },
+      required: true,
+      default: null,
+    },
+  },
+  returns: {
+    type: {
+      kind: 'array',
+      items: {
+        kind: 'number',
+      },
+    },
+  },
+  unsafeReturn: true,
+  unsafe: true,
+  source: 'input.ts:10',
+}
+
+/* line 25 */
+function generateRecords(n) {
+  const records = []
+  for (let i = 0; i < n; i++) {
+    const record = { id: i }
+    for (let j = 0; j < 50; j++) {
+      record[`s${j}`] = `record-${i}-prop-${j}`
+      record[`n${j}`] = i * 100 + j
+    }
+    records.push(record)
+  }
+  return records
+}
+generateRecords.__tjs = {
+  params: {
+    n: {
+      type: {
+        kind: 'number',
+      },
+      required: true,
+      default: null,
+    },
+  },
+  unsafe: true,
+  source: 'input.ts:25',
+}
+
+benchmarks('VM Benchmarks ($run)', ({ run }) => {
+  const benchmark = run ? it : it.skip
+  const VM = new AgentVM()
+  it('should have a basic test runner working', async () => {
+    const ast = ajs(`
+      function add({ a, b }) {
+        let result = a + b
+        return { result }
+      }
+    `)
+    const { result } = await VM.run(ast, { a: 2, b: 3 })
+    expect(result.result).toBe(5)
+  })
+  benchmark(
+    'benchmark: first n primes (using .ajs)',
+    async () => {
+      const n = 1000
+      const expectedPrimes = generatePrimes(n)
+      const ast = ajs(`
+        function findPrimes(args) {
+          let n = args.n
+          let primes = []
+          let i = 2
+
+          while (i <= n) {
+            let isPrime = true
+            let j = 2
+
+            while (j * j <= i) {
+              if (i % j == 0) {
+                isPrime = false
+              }
+              j = j + 1
+            }
+
+            if (isPrime) {
+              push({ list: primes, item: i })
+            }
+            i = i + 1
+          }
+
+          return { primes: primes }
+        }
+      `)
+      const { result } = await VM.run(ast, { args: { n } }, { fuel: 1_000_000 })
+      expect(result.primes).toEqual(expectedPrimes)
+    },
+    { timeout: 20000 }
+  )
+  benchmark(
+    'benchmark: filter and remap large dataset',
+    async () => {
+      const n = 1000
+      const records = generateRecords(n)
+      const expectedCount = records.filter((r) =>
+        r.s10.includes('record-5')
+      ).length
+      const ast = VM.Agent.varSet({ key: 'data', value: Agent.args('records') })
+        .map('data', 'item', (b) =>
+          b
+            .regexMatch({ pattern: 'record-5', value: 'item.s10' })
+            .as('match')
+            .if('match == true', { match: 'match' }, (b) =>
+              b
+                .pick({
+                  obj: 'item',
+                  keys: [
+                    's0',
+                    's5',
+                    's10',
+                    's15',
+                    's20',
+                    's25',
+                    's30',
+                    's35',
+                    's40',
+                    's45',
+                    'n0',
+                    'n5',
+                    'n10',
+                    'n15',
+                    'n20',
+                    'n25',
+                    'n30',
+                    'n35',
+                    'n40',
+                    'n45',
+                  ],
+                })
+                .as('result')
+            )
+        )
+        .as('mapped')
+
+        .varSet({ key: 'filtered', value: [] })
+        .map('mapped', 'item', (b) =>
+          b.if('item != null', { item: 'item' }, (b) =>
+            b.push({ list: 'filtered', item: 'item' })
+          )
+        )
+        .return(s.object({ filtered: s.array(s.any) }))
+        .toJSON()
+      const { result } = await VM.run(ast, { records }, { fuel: 5_000_000 })
+      const finalResult = result.filtered
+      expect(finalResult.length).toBe(expectedCount)
+      expect(Object.keys(finalResult[0]).length).toBe(20)
+    },
+    { timeout: 60000 }
+  )
+  benchmark(
+    'benchmark: filter large dataset',
+    async () => {
+      const n = 1000
+      const records = generateRecords(n)
+      const expectedCount = records.filter((r) =>
+        r.s10.includes('record-5')
+      ).length
+      const ast = VM.Agent.varSet({ key: 'data', value: Agent.args('records') })
+        .varSet({ key: 'filtered', value: [] })
+        .map('data', 'item', (b) =>
+          b
+            .regexMatch({ pattern: 'record-5', value: 'item.s10' })
+            .as('match')
+            .if('match == true', { match: 'match' }, (b) =>
+              b.push({ list: 'filtered', item: 'item' })
+            )
+        )
+        .return(s.object({ filtered: s.array(s.any) }))
+        .toJSON()
+      const { result } = await VM.run(ast, { records }, { fuel: 5_000_000 })
+      const finalResult = result.filtered
+      expect(finalResult.length).toBe(expectedCount)
+    },
+    { timeout: 60000 }
+  )
+  benchmark(
+    'benchmark: remap large dataset',
+    async () => {
+      const n = 1000
+      const records = generateRecords(n)
+      const ast = VM.Agent.varSet({ key: 'data', value: Agent.args('records') })
+        .map('data', 'item', (b) =>
+          b
+            .pick({
+              obj: 'item',
+              keys: [
+                's0',
+                's5',
+                's10',
+                's15',
+                's20',
+                's25',
+                's30',
+                's35',
+                's40',
+                's45',
+                'n0',
+                'n5',
+                'n10',
+                'n15',
+                'n20',
+                'n25',
+                'n30',
+                'n35',
+                'n40',
+                'n45',
+              ],
+            })
+            .as('result')
+        )
+        .as('remapped')
+        .return(s.object({ remapped: s.array(s.any) }))
+        .toJSON()
+      const { result } = await VM.run(ast, { records }, { fuel: 5_000_000 })
+      const finalResult = result.remapped
+      expect(finalResult.length).toBe(n)
+      expect(Object.keys(finalResult[0]).length).toBe(20)
+    },
+    { timeout: 60000 }
+  )
+  benchmark(
+    'benchmark: torture test for filter and remap (concurrent)',
+    async () => {
+      const n = 1000
+      const records = generateRecords(n)
+      const keysToPick = [
+        'id',
+        's0',
+        's5',
+        's10',
+        's15',
+        's20',
+        'n0',
+        'n5',
+        'n10',
+        'n15',
+        'n20',
+      ]
+
+      const expectedRecords = records
+        .filter((r) => r.s10.includes('record-5'))
+        .map((r) => {
+          const newR = {}
+          for (const key of keysToPick) {
+            newR[key] = r[key]
+          }
+          return newR
+        })
+      const expectedCount = expectedRecords.length
+      const ast = VM.Agent.varSet({ key: 'data', value: Agent.args('records') })
+        .map('data', 'item', (b) =>
+          b
+            .regexMatch({ pattern: 'record-5', value: 'item.s10' })
+            .as('match')
+            .if('match == true', { match: 'match' }, (b) =>
+              b.pick({ obj: 'item', keys: keysToPick }).as('result')
+            )
+        )
+        .as('mapped')
+
+        .varSet({ key: 'filtered', value: [] })
+        .map('mapped', 'item', (b) =>
+          b.if('item != null', { item: 'item' }, (b) =>
+            b.push({ list: 'filtered', item: 'item' })
+          )
+        )
+        .return(s.object({ filtered: s.array(s.any) }))
+        .toJSON()
+      const promises = Array.from({ length: 10 }).map(() =>
+        new AgentVM().run(
+          JSON.parse(JSON.stringify(ast)),
+          { records },
+          { fuel: 5_000_000 }
+        )
+      )
+      const results = await Promise.all(promises)
+      for (const { result } of results) {
+        const finalResult = result.filtered
+        expect(finalResult.length).toBe(expectedCount)
+        if (finalResult.length > 0) {
+          expect(Object.keys(finalResult[0]).length).toBe(keysToPick.length)
+          expect(finalResult).toEqual(expectedRecords)
+        }
+      }
+    },
+    { timeout: 120000 }
+  )
+})

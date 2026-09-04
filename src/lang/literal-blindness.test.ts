@@ -1081,3 +1081,78 @@ describe('a comment mentioning `export` does not consume the real one', () => {
     expect(code).not.toContain('export export')
   })
 })
+
+describe('a `test` block inside a literal is DATA — not extracted, not run', () => {
+  /**
+   * The inverse of the first block in this file, and the direction it did not cover.
+   *
+   * Those rows hide a TRIGGER in a literal and check a real `test` block outside it still
+   * runs. This hides the TEST BLOCK ITSELF. `extractAndRunTests` scanned raw source, so a
+   * `test '…' { … }` quoted as data was taken for a real one: its body was EXECUTED at
+   * transpile time via `new Function`, and the text was DELETED from the emitted output.
+   *
+   *     tjs(`test 'uses toBe' {\n  expect(1).toBe(1)\n}`)   ->   tjs(``)
+   *
+   * A language whose own test fixtures are source code held in strings cannot survive that,
+   * and it did not: 52 of the 99 failures in the dogfood behaviour gate were this, read for
+   * months as "conversion loses assertions" when the assertions were being deleted on the
+   * way through. Fixing it recovered 49 of them.
+   */
+  // The ANONYMOUS form (`test { … }`, also valid TJS), so the block carries no quote of its
+  // own and can be embedded in all three literal kinds without escaping. A described block
+  // is covered by the `test 'uses …'` row in the transpile-path test below.
+  const BLOCK = ['test', ' { globalThis.__TJS_LEAK__ = true }'].join('')
+
+  const hidden: Array<[string, string]> = [
+    ['single-quoted string', `const fixture = '${BLOCK}'`],
+    ['double-quoted string', `const fixture = "${BLOCK}"`],
+    ['template literal', `const fixture = \`${BLOCK}\``],
+    [
+      'template with a substitution before it',
+      `const n = 'x'\nconst fixture = \`\${n}: ${BLOCK}\``,
+    ],
+  ]
+
+  for (const [where, decl] of hidden) {
+    it(`${where}: survives byte-identical and does not run`, () => {
+      const src = `${decl}\nfunction f(a: 0) { return a }`
+      delete (globalThis as any).__TJS_LEAK__
+      const out = tjs(src, { filename: 'a.tjs' })
+      // Byte-identical, because `not.toThrow()` cannot see silent deletion — and silent
+      // deletion is exactly what happened.
+      expect(out.code).toContain(decl)
+      expect((globalThis as any).__TJS_LEAK__).toBeUndefined()
+      expect(out.testResults?.length ?? 0).toBe(0)
+    })
+  }
+
+  it('a REAL test block is still extracted and still runs (control)', () => {
+    // Every assertion above is satisfied by an extractor that does nothing at all.
+    const src = `function f(a: 0) { return a }\ntest 'real' { expect(1).toBe(1) }`
+    const out = tjs(src, { filename: 'a.tjs' })
+    expect(out.testResults?.length ?? 0).toBe(1)
+    expect(out.testResults?.[0]?.passed).toBe(true)
+    expect(out.code).not.toContain('expect(1).toBe(1)')
+  })
+
+  it('a DESCRIBED block quoted as data survives too — the shape that shipped', () => {
+    // Verbatim the shape from `test-harness-parity.test.ts`, which lost its entire fixture.
+    const src = [
+      'const cases = [',
+      "  `test 'uses toBe' {\\n  expect(1).toBe(1)\\n}`,",
+      ']',
+      'function f(a: 0) { return a }',
+    ].join('\n')
+    const out = tjs(src, { filename: 'a.tjs' })
+    expect(out.code).toContain("test 'uses toBe'")
+    expect(out.code).toContain('expect(1).toBe(1)')
+    expect(out.testResults?.length ?? 0).toBe(0)
+  })
+
+  it('`test` must be a whole word', () => {
+    // `source.slice(i).match(/^\btest\s+/)` puts `\b` at the start of the sliced string,
+    // where it is always satisfied — so the word boundary was never actually checked.
+    const src = `const mytest = 1\nfunction mytest2(a: 0) { return a }`
+    expect(tjs(src, { filename: 'a.tjs' }).code).toContain('mytest')
+  })
+})

@@ -8,6 +8,7 @@
 import { SyntaxError } from './types'
 import {
   maskLiterals,
+  maskLiteralsKeepComments,
   isEscapedAt,
   scanLiterals,
   matchingBrace,
@@ -4297,75 +4298,69 @@ export function extractAndRunTests(
 } {
   const tests: TestBlock[] = []
   const errors: string[] = []
+
+  /**
+   * Detection runs over a view with LITERALS blanked and COMMENTS INTACT.
+   *
+   * It used to scan RAW source, so a `test '…' { … }` written inside a template literal or
+   * a double-quoted string was taken for a real test block: its body was EXECUTED at
+   * transpile time via `new Function`, and the text was deleted from the emitted output.
+   * Silent on both counts. A file that merely QUOTES a test block — every fixture in this
+   * repo's own language tests, and any doc example — lost the quoted text:
+   *
+   *     tjs(`test 'uses toBe' {\n  expect(1).toBe(1)\n}`)   ->   tjs(``)
+   *
+   * That accounted for 52 of the 99 failures in the dogfood behaviour gate, in three
+   * suites, all of which were being read as "conversion loses assertions" when the
+   * assertions were being deleted by this function on the way through.
+   *
+   * Comments stay INTACT because `/*test 'x' { … }*\/` is a deliberate TS-compat spelling
+   * — a test written inside a comment so TypeScript tooling ignores it. That is exactly the
+   * case `maskLiteralsKeepComments` exists for.
+   */
+  const masked = maskLiteralsKeepComments(source)
+
+  /** `test` as a whole word at `at`, followed by whitespace. */
+  const testKeywordAt = (at: number): boolean => {
+    if (!masked.startsWith('test', at)) return false
+    // The previous spelling was `source.slice(at).match(/^\btest\s+/)`, where `\b` sits at
+    // the START of the sliced string and is therefore ALWAYS satisfied — so the word
+    // boundary it was written to enforce was never checked, and `mytest 'x' { }` matched.
+    if (at > 0 && /[\w$]/.test(source[at - 1]!)) return false
+    return /\s/.test(masked[at + 4] ?? '')
+  }
+
   let result = ''
   let i = 0
 
   while (i < source.length) {
-    // Look for 'test' keyword followed by optional string then {
-    const testMatch = source.slice(i).match(/^\btest\s+/)
-    if (testMatch) {
+    if (testKeywordAt(i)) {
       const start = i
-      let j = i + testMatch[0].length
+      let j = i + 4
+      while (j < masked.length && /\s/.test(masked[j]!)) j++
 
-      // Check for optional description string
+      // Optional description. Read the EXTENT from the masked view (which knows where a
+      // literal really ends, escapes included) and the TEXT from the original.
       let description: string | undefined
-      const descMatch = source.slice(j).match(/^(['"`])([^]*?)\1\s*/)
-      if (descMatch) {
-        description = descMatch[2]
-        j += descMatch[0].length
+      const quote = masked[j]
+      if (quote === "'" || quote === '"' || quote === '`') {
+        const close = masked.indexOf(quote, j + 1)
+        if (close !== -1) {
+          description = source.slice(j + 1, close)
+          j = close + 1
+          while (j < masked.length && /\s/.test(masked[j]!)) j++
+        }
       }
 
-      // Must have opening brace
-      if (source[j] === '{') {
-        const bodyStart = j + 1
-        let depth = 1
-        let k = bodyStart
-
-        // Find matching closing brace (skip strings and comments)
-        let inStr: string | null = null
-        let escaped = false
-        while (k < source.length && depth > 0) {
-          const char = source[k]
-          if (escaped) {
-            escaped = false
-            k++
-            continue
-          }
-          if (char === '\\' && inStr) {
-            escaped = true
-            k++
-            continue
-          }
-          if (inStr) {
-            if (char === inStr) inStr = null
-            k++
-            continue
-          }
-          // Line comment — skip to end of line
-          if (char === '/' && source[k + 1] === '/') {
-            const nl = source.indexOf('\n', k)
-            k = nl === -1 ? source.length : nl + 1
-            continue
-          }
-          // Block comment — skip to */
-          if (char === '/' && source[k + 1] === '*') {
-            const end = source.indexOf('*/', k + 2)
-            k = end === -1 ? source.length : end + 2
-            continue
-          }
-          if (char === "'" || char === '"' || char === '`') {
-            inStr = char
-            k++
-            continue
-          }
-          if (char === '{') depth++
-          else if (char === '}') depth--
-          k++
-        }
-
-        if (depth === 0) {
-          const body = source.slice(bodyStart, k - 1).trim()
-          const end = k
+      if (masked[j] === '{') {
+        // THE balanced-brace matcher, over the masked view. This function used to carry its
+        // own — a fifth hand-rolled literal scanner, with the same missing `${ … }` handling
+        // that broke the bang-access transform.
+        const close = matchingBrace(masked, j)
+        if (close !== -1) {
+          const bodyStart = j + 1
+          const body = source.slice(bodyStart, close).trim()
+          const end = close + 1 // one PAST the brace, the convention callers expect
 
           const line = (source.slice(0, start).match(/\n/g) || []).length + 1
           tests.push({ description, body, start, end, line })

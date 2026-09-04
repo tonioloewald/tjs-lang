@@ -159,10 +159,30 @@ const KNOWN_CONVERSION_FAILURES = new Map<string, string>([
  */
 const BASELINE = {
   /** Fraction of assertions that survive conversion. 1.0 is the 1.0 gate. */
-  assertionRate: 0.868,
+  assertionRate: 0.876,
   /** Fraction of passing tests that still pass after conversion. */
-  testRate: 0.885,
+  testRate: 0.898,
 }
+
+/*
+ * Ratcheted down on 2026-09-04, from 0.868/0.885, after ONE fix took the gate from 108
+ * broken tests to 59.
+ *
+ * `extractAndRunTests` scanned RAW source, so a `test '…' { … }` quoted as DATA was taken
+ * for a real test block: executed at transpile time and deleted from the output. Three of
+ * the four worst-affected suites here are language tests whose fixtures are TJS source held
+ * in strings, so the gate had been reporting their deleted fixtures as "conversion loses
+ * assertions" — 52 of 99 failures were this one defect, and nothing about conversion.
+ *
+ * The promote-check did NOT fire (the gain is 1.1 and 1.6 points, under the 2-point slack),
+ * and the baseline is being lowered anyway. That is deliberate: slack you leave on the table
+ * is slack a regression can occupy without turning the gate red, which is the failure mode
+ * RATCHET_SLACK exists to prevent — it is a trigger for "you MUST lower this", not a licence
+ * to skip lowering it when the gain is smaller.
+ *
+ * Read the caution above before believing the next movement: a rate can fall when you fix a
+ * conversion bug, because a newly-convertible file brings its unconverted assertions with it.
+ */
 
 /**
  * NOT raised on 2026-08-28, and the reason is worth keeping.

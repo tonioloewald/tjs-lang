@@ -1,0 +1,334 @@
+/* tjs <- input.ts */
+
+import { describe, it, expect } from 'bun:test'
+
+import { parse as acornParse } from 'acorn'
+
+import { tjs } from '/Users/tonioloewald/tjs-lang/src/lang/index'
+
+import {
+  stripUnsafeMarkers,
+  maskUnsafe,
+} from '/Users/tonioloewald/tjs-lang/src/strip-comments'
+
+import { fromTS } from '/Users/tonioloewald/tjs-lang/src/lang/emitters/from-ts'
+
+/* line 19 */
+function compile(src) {
+  return tjs(src, { runTests: false })
+}
+compile.__tjs = {
+  params: {
+    src: {
+      type: {
+        kind: 'string',
+      },
+      required: true,
+      default: null,
+    },
+  },
+  unsafe: true,
+  source: 'input.ts:19',
+}
+
+describe('unsafe exempts one construct', () => {
+  it('permits a construct the rule would reject', () => {
+    expect(() =>
+      compile(
+        `function f(x: 0) { const d = unsafe new Date(x)\n return d.getTime() }`
+      )
+    ).not.toThrow()
+  })
+  it('the rule still applies everywhere else — that is the whole point', () => {
+    expect(() =>
+      compile(`function f(x: 0) { return new Date(x).getTime() }`)
+    ).toThrow(/`?new Date\(\)`? is not allowed/)
+  })
+  it('works for the other flagged constructs', () => {
+    expect(() =>
+      compile(`function f() { return unsafe Date.now() }`)
+    ).not.toThrow()
+    expect(() =>
+      compile(`function f(s: '') { return unsafe new Function(s) }`)
+    ).not.toThrow()
+  })
+  it('works in argument position, not just at statement level', () => {
+    expect(() =>
+      compile(`function f() { return [unsafe Date.now(), 1] }`)
+    ).not.toThrow()
+  })
+  it('leaves no trace in the output — zero runtime cost', () => {
+    const code = compile(
+      `function f(x: 0) { const d = unsafe new Date(x)\n return d.getTime() }`
+    ).code
+    expect(code).not.toContain('unsafe')
+    expect(code).toContain('new Date(')
+  })
+})
+
+describe('unsafe does not break legal JavaScript (TJS ⊇ JS)', () => {
+  it('a variable named `unsafe` still works', () => {
+    expect(() =>
+      compile(`function f() { const unsafe = 1\n return unsafe }`)
+    ).not.toThrow()
+  })
+  it('ASI hazard: `unsafe` at end of line does NOT swallow the next statement', () => {
+    const src = `const unsafe = 1\nlet r = unsafe\nfoo()\n`
+    expect(stripUnsafeMarkers(src)).toBe(src)
+  })
+  it('a same-line marker IS recognised', () => {
+    expect(stripUnsafeMarkers(`let d = unsafe new Date(1)\n`)).toBe(
+      `let d =        new Date(1)\n`
+    )
+  })
+  it('offsets are preserved so reported positions stay accurate', () => {
+    const src = `let d = unsafe new Date(1)\n`
+    expect(stripUnsafeMarkers(src)).toHaveLength(src.length)
+    expect(maskUnsafe(src)).toHaveLength(src.length)
+  })
+  it('`unsafe` inside a string or comment is not a marker', () => {
+    const src = `const s = 'unsafe new Date(1)'\n// unsafe new Date(2)\n`
+    expect(maskUnsafe(src)).toBe(src)
+  })
+})
+
+describe('abolishing a mode (TjsDate was the first)', () => {
+  it('the rule cannot be dialed off in native TJS', () => {
+    const src = `function f(x: 0) { return new Date(x).getTime() }`
+    expect(() => compile(src)).toThrow(/`?new Date\(\)`? is not allowed/)
+
+    expect(() => compile(`TjsStrict\n${src}`)).toThrow(
+      /`?new Date\(\)`? is not allowed/
+    )
+  })
+  it('an abolished directive TEACHES instead of becoming a ReferenceError', () => {
+    expect(() => compile(`TjsDate\nfunction f(x: 0) { return x }`)).toThrow(
+      /no longer a mode.*unsafe new Date/s
+    )
+  })
+  it('plain JS keeps raw Date — abolishing a mode must not break TJS ⊇ JS', () => {
+    expect(() =>
+      tjs(`function f(x) { return new Date(x).getTime() }`, {
+        runTests: false,
+        dialect: 'js',
+      })
+    ).not.toThrow()
+  })
+})
+
+describe('unsafe — the bridge for TypeScript source', () => {
+  it('converts to the real marker and satisfies the rule', () => {
+    const ts = `export function f(x: number): number {\n  const d = unsafe new Date(x)\n  return d.getTime()\n}\n`
+    const converted = fromTS(ts, { emitTJS: true }).code
+    expect(converted).toContain('unsafe new Date(')
+    expect(converted).not.toContain('@tjs-unsafe')
+
+    expect(() =>
+      compile(converted.replace(/\/\* tjs <- [^*]*\*\/\n?/, ''))
+    ).not.toThrow()
+  })
+  it('an UNannotated new Date() in the same file is still caught', () => {
+    const ts = `export function f(x: number): number {\n  return new Date(x).getTime()\n}\n`
+    const converted = fromTS(ts, { emitTJS: true }).code
+    expect(() =>
+      compile(converted.replace(/\/\* tjs <- [^*]*\*\/\n?/, ''))
+    ).toThrow(/`?new Date\(\)`? is not allowed/)
+  })
+})
+
+describe('TjsSafeEval abolished — usage detection replaced it', () => {
+  const importsOf = (src) =>
+    (
+      tjs(src, { runTests: false }).code.match(
+        /^import \{([^}]*)\} from 'tjs-lang';/m
+      )?.[1] ?? ''
+    )
+      .split(',')
+      .map((s) => s.trim())
+      .filter(Boolean)
+  it('imports only what the code actually calls', () => {
+    expect(importsOf(`function f(s: '') { return Eval(s) }`)).toEqual(['Eval'])
+    expect(importsOf(`function f(s: '') { return SafeFunction(s) }`)).toEqual([
+      'SafeFunction',
+    ])
+    expect(
+      importsOf(`function f(s: '') { return Eval(s) + SafeFunction(s) }`)
+    ).toEqual(['Eval', 'SafeFunction'])
+  })
+  it('adds nothing when unused — the whole point of the old mode', () => {
+    expect(importsOf(`function f(a: 0) { return a + 1 }`)).toEqual([])
+  })
+  it('a mention inside a string does not pull in an import', () => {
+    expect(importsOf(`function f() { return 'Eval(x)' }`)).toEqual([])
+  })
+  it('the directive now teaches instead of silently doing nothing', () => {
+    expect(() =>
+      tjs(`TjsSafeEval\nfunction f(a: 0) { return a }`, { runTests: false })
+    ).toThrow(/no longer a mode.*nothing to opt into/s)
+  })
+  /**
+   * The injected import must never make the output un-loadable.
+   *
+   * The original detection was `\bEval\s*\(` over a literal-masked copy, which cannot see
+   * an existing binding and matches after a `.`. It shipped emitting JavaScript that does
+   * not parse — including for the DOCUMENTED import form, which `fromTS` faithfully
+   * preserves from any TypeScript file that uses `Eval` (it must import it to typecheck).
+   * There was no correct way to author the feature.
+   *
+   * These assert on the OUTPUT PARSING, which is the property that actually matters and
+   * the one the previous tests never checked — they only covered cases where injecting was
+   * the right answer, so every case where it was the wrong answer went unnoticed.
+   */
+  describe('never emits a module that cannot be parsed', () => {
+    const parses = (code) => {
+      try {
+        acornParse(code, { ecmaVersion: 'latest', sourceType: 'module' })
+        return true
+      } catch {
+        return false
+      }
+    }
+    const cases = [
+      [
+        'the documented import form is not duplicated',
+        `import { Eval } from 'tjs-lang/eval'\nfunction f(src: '') { return Eval(src) }`,
+        0,
+      ],
+      [
+        'a user-declared function named Eval wins',
+        `function Eval(src: '') { return src }\nfunction f(s: '') { return Eval(s) }`,
+        0,
+      ],
+      [
+        'a user-declared const named Eval wins',
+        `const Eval = (s) => s\nfunction f(s: '') { return Eval(s) }`,
+        0,
+      ],
+      [
+        'a method named Eval is not a free call',
+        `const o = { Eval(s) { return s } }\nfunction f(s: '') { return o.Eval(s) }`,
+        0,
+      ],
+      [
+        'the bare word Eval is not a call',
+        `function f(s: '') { return 'Eval' + s }`,
+        0,
+      ],
+      [
+        'a genuine free call still gets its import',
+        `function f(src: '') { return Eval(src) }`,
+        1,
+      ],
+    ]
+    for (const [label, src, injected] of cases) {
+      for (const dialect of ['tjs', 'js']) {
+        it(`${label} (dialect: '${dialect}')`, () => {
+          const code = tjs(src, { runTests: false, dialect }).code
+          expect(
+            (code.match(/^import \{[^}]*\} from 'tjs-lang';$/gm) ?? []).length
+          ).toBe(injected)
+          expect(parses(code), 'emitted module must parse as ESM').toBe(true)
+        })
+      }
+    }
+  })
+})
+
+describe('all nine modes abolished — the extension is the gate', () => {
+  const ABOLISHED = [
+    'TjsDate',
+    'TjsSafeEval',
+    'TjsNoVar',
+    'TjsNoeval',
+    'TjsEquals',
+    'TjsClass',
+    'TjsSafeAssign',
+    'TjsStandard',
+    'TjsDictDefaults',
+  ]
+  for (const name of ABOLISHED) {
+    it(`${name} is gone, and says so`, () => {
+      expect(() => compile(`${name}\nfunction f(a: 0) { return a }`)).toThrow(
+        /no longer a mode/
+      )
+    })
+  }
+  it('is caught anywhere in the directive block, not just first', () => {
+    expect(() =>
+      compile(`TjsCompat\nTjsClass\nfunction f(a: 0) { return a }`)
+    ).toThrow(/`TjsClass` is no longer a mode/)
+  })
+  it('TjsCompat survives — it is DIALECT, not a mode', () => {
+    expect(() =>
+      compile(`TjsCompat\nfunction f(a, b) { return a == b }`)
+    ).not.toThrow()
+  })
+})
+
+describe('ASI: the one place TJS and JS disagree about statement boundaries', () => {
+  it('warns at the site rather than silently changing meaning', () => {
+    const r = tjs(
+      `function f(a: 0) {\n  const g = () => 1\n  const x = g\n  (a)\n  return x\n}`,
+      { runTests: false }
+    )
+    const w = (r.warnings ?? []).join('\n')
+    expect(w).toMatch(/JavaScript would join to the previous line/)
+    expect(w, 'points at the offending line').toMatch(/Line 4/)
+  })
+  it('says nothing about ordinary code', () => {
+    const r = tjs(`function f(a: 0) { return a + 1 }`, { runTests: false })
+    expect(r.warnings ?? []).toEqual([])
+  })
+  it('says nothing when the previous line expects a continuation', () => {
+    const r = tjs(`function f(a: 0) {\n  const x = a +\n    1\n  return x\n}`, {
+      runTests: false,
+    })
+    expect(r.warnings ?? []).toEqual([])
+  })
+})
+
+describe('unsafe covers the construct, not everything nested inside it', () => {
+  it('does NOT exempt a `var` inside an arrow body in the guarded expression', () => {
+    expect(() =>
+      tjs(
+        `function f() {\n  return unsafe makeHandler({ onClick: () => { var leaked = 1; return leaked } })\n}`,
+        { runTests: false }
+      )
+    ).toThrow(/var/)
+  })
+  it('does NOT exempt a `new Date` inside a nested function expression', () => {
+    expect(() =>
+      tjs(
+        `function f() {\n  return unsafe wrap(function () { return new Date() })\n}`,
+        { runTests: false }
+      )
+    ).toThrow(/Date/)
+  })
+  it('DOES still exempt the guarded construct itself', () => {
+    expect(() =>
+      tjs(`function f(x: 0) { return unsafe new Date(x) }`, { runTests: false })
+    ).not.toThrow()
+  })
+  it('DOES still exempt a construct whose arguments span lines', () => {
+    expect(() =>
+      tjs(`function f(x: 0) {\n  return unsafe new Date(\n    x\n  )\n}`, {
+        runTests: false,
+      })
+    ).not.toThrow()
+  })
+  it('DOES still exempt a violation inside a plain object-literal argument', () => {
+    expect(() =>
+      tjs(`function f(x: 0) { return mk(unsafe new Date(x), x) }`, {
+        runTests: false,
+      })
+    ).not.toThrow()
+  })
+  it('a nested body can carry its own marker — the intended ergonomics', () => {
+    expect(() =>
+      tjs(
+        `function f() {\n  return unsafe wrap(() => { return unsafe new Date() })\n}`,
+        { runTests: false }
+      )
+    ).not.toThrow()
+  })
+})

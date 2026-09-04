@@ -5,6 +5,45 @@ All notable changes to **tjs-lang** are documented here.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Fixed
+
+- **A `test '…' { … }` quoted as DATA was executed and deleted.** `extractAndRunTests`
+  detected on RAW source, so a test block written inside a template literal or a
+  double-quoted string was taken for a real one: its body ran at transpile time via
+  `new Function`, and the text was removed from the emitted output. Both silent.
+
+  ```
+  tjs(`test 'uses toBe' {\n  expect(1).toBe(1)\n}`)   ->   tjs(``)
+  ```
+
+  Any `.tjs` file that quotes a test block — every fixture in this repo's language tests,
+  and any documentation example — lost the quoted text. Detection now runs over
+  `maskLiteralsKeepComments`: literals blanked, comments INTACT, because `/*test … */` is a
+  deliberate TS-compat spelling. Body extents come from `matchingBrace`, retiring the fifth
+  hand-rolled literal scanner in this codebase.
+
+  **Measured effect on the dogfood behaviour gate: 108 broken tests to 59.** Three of the
+  four worst-affected suites are language tests whose fixtures are TJS source held in
+  strings, so the gate had been reporting their deleted fixtures as "conversion loses
+  assertions" — 52 of 99 failures were this defect and nothing to do with conversion.
+  Assertion preservation 87.2% → 88.0%, tests 88.9% → 90.2%; baseline ratcheted down.
+
+- **`test` was not actually required to be a whole word.** The check was
+  `source.slice(i).match(/^\btest\s+/)`, where `\b` sits at the start of the sliced string
+  and is therefore always satisfied, so `mytest 'x' { }` matched.
+
+### Changed
+
+- `extractAndRunTests` no longer calls `source.slice(i)` once per character, and no longer
+  carries its own literal scanner. Both are cleanups, **not** a speed-up: measured against the
+  previous implementation on a 459KB file the two are indistinguishable (2926ms vs 2940ms),
+  because JS engines represent `str.slice(i)` as an O(1) view rather than a copy. Recorded
+  because the opposite was the obvious guess, and the compat scan's four
+  `preprocess is quadratic` skips still stand — whatever makes `preprocess` blow up past ~1MB
+  is somewhere else and is still unidentified.
+
 ## [0.13.12] — 2026-09-04
 
 Four defects of one class: a pass that misreads code which merely MENTIONS the syntax it is

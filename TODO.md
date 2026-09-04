@@ -1,5 +1,77 @@
 # TJS-Lang TODO
 
+# PLAN: verified-working language, then the tosijs-ui build system (2026-09-04)
+
+Agreed direction: get as close to a **verified working state as a language** as possible,
+then migrate off the bespoke build/doc system onto tosijs-ui's. Phase A first on purpose —
+migrating the build while a silent-data-loss bug is live means debugging two things at once,
+and the site migration changes exactly the surfaces that would tell you the language broke.
+
+## Phase A — verified working as a language
+
+The measure already exists and nobody had read it as a work list: `test:dogfood`'s behaviour
+gate converts our 191 test suites, runs them, and compares assertion counts. It said
+**108 broken tests / 1195 assertions lost**. Enumerating and clustering those is what turned a
+dashboard number into this list.
+
+- [x] **A1 — `test` blocks quoted as data were executed and deleted.** DONE 2026-09-04.
+      52 of 99 clustered failures, in three suites, all of them language tests whose fixtures
+      are TJS source held in strings. **108 → 59 broken tests from one fix.** See CHANGELOG.
+- [ ] **A2 — the ~10 harness artifacts scored as language failures.** `Cannot find module
+'.../c.js'`, `libA.mjs`, `__tjs_wasm_triple`: suites that write sibling files or spawn
+      `node` with paths relative to the ORIGINAL directory, which `relocate()` does not
+      rewrite. These are the harness failing and being scored as the language failing — the
+      exact trap that file already records for the `os.tmpdir()` incident, recurring in a
+      second form. Either relocate them properly or classify them out; do NOT leave them
+      inflating the gap.
+- [ ] **A3 — `"Eq"/"Type" has already been declared` (6 failures).** Converted modules emit a
+      duplicate top-level declaration. There is already a guardrail for this shape
+      (`emitted-module-scope.test.ts`), so this is either a gap in it or a second route to the
+      same defect. Real, and it makes a converted module unloadable in Node.
+- [ ] **A4 — re-cluster after A2/A3 and repeat.** The remaining ~43 have not been read yet.
+      Cluster by SUITE, not by error text: the error text was assertion noise, the suite
+      distribution was the signal (4 suites held 63% of failures).
+- [ ] **A5 — get the compat lanes into CI.** `test:compat-scan` is the lane most likely to
+      catch this defect class and it runs only when someone invokes it. It needs clones, so
+      either cache them or run it on a schedule — but "not in CI" is how the dogfood ratchets
+      rotted for months, and this is the same shape.
+- [ ] **A6 — find the REAL quadratic in `preprocess`.** Four compat-scan files >400KB are
+      skipped for it. The obvious suspect (`source.slice(i)` per character in
+      `extractAndRunTests`) was measured and is NOT it — engines make `slice` an O(1) view.
+      459KB takes ~2.9s and 791KB ~5.9s (linear between them), but ~2MB does not finish in ten
+      minutes, so something else is superlinear. Unidentified; measure before guessing again.
+
+## Phase B — migrate to the tosijs-ui build/doc system
+
+Target shape is what `tosijs` already does: a `*-site.config.ts` via `defineSiteConfig`, and a
+thin `bin/site.ts` calling `buildSite`/`devServer` from `tosijs-ui/site`, with the library
+bundling wired alongside. Sized honestly, this repo has **~1,000 lines of bespoke build/doc
+tooling** and **~10,500 lines of demo**, and only the first group is a like-for-like swap.
+
+- [ ] **B1 — adopt `tosijs-ui/site`.** Replaces `bin/dev.ts` (295), `bin/docs.js` (280),
+      `scripts/build-demo.ts` (105), `demo/index.html`, `demo-nav.ts`, `style.ts`. `docPaths`
+      subsumes the hand-rolled markdown walk that produces `demo/docs.json`.
+- [ ] **B2 — the playgrounds are NOT docs, and this is the real work.** `tjs-playground.ts`
+      (1570), `ts-playground.ts` (945), `playground.ts` (962), `playground-shared.ts` (760) —
+      an in-browser transpiler with split-window output, an iframe runtime, a service-worker
+      import resolver and a module store. tosijs-ui offers `code-editor` and `live-example`,
+      which are the right primitives, but this is a port, not a swap. Decide whether the
+      playground becomes a live-example variant or stays a custom element the site hosts.
+- [ ] **B3 — decide the fate of Firebase.** The site system targets `host: 'github-pages'`.
+      Hosting moves cleanly; the Cloud Functions, `firebase-auth.ts`, `user-store.ts` and
+      `module-store.ts` are app features a doc site does not provide. Keep, port, or drop is a
+      product decision, not a build one — and it gates B1.
+- [ ] **B4 — keep `scripts/build.ts`.** Library bundling stays ours; `tosijs` does the same,
+      wiring its own bundles inside `bin/site.ts` rather than delegating them.
+
+**Reflection, recorded because it changed the order.** The instinct was to start with B — it
+is the visible, satisfying change. Two things argued against it. First, A1 was found by reading
+a number this repo has been printing for a month; there was no reason to believe the language
+was in a verified state, and it was not. Second, B3 is a decision only Tonio can make, so
+starting with B means blocking on it after the easy part is done. The risk in this ordering is
+that Phase A has no natural end — the honest stopping rule is **the dogfood gate reaching
+parity, or the remaining failures each having a named cause**, not "it feels done".
+
 # CRITICAL PATH: correctly handling TypeScript (2026-08-01)
 
 **This is now front and centre.** It unlocks everything else and is the only route to

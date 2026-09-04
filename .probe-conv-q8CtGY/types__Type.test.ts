@@ -1,0 +1,726 @@
+function __match(v, ex) {
+  if (ex === null) return v === null
+  if (ex === undefined) return true
+  if (
+    ex &&
+    typeof ex === 'object' &&
+    ex.__runtimeType &&
+    typeof ex.check === 'function'
+  )
+    return ex.check(v) === true
+  const t = typeof ex
+  if (t === 'number')
+    return (
+      typeof v === 'number' &&
+      (Number.isInteger(ex) ? Number.isInteger(v) : true)
+    )
+  if (t === 'string' || t === 'boolean') return typeof v === t
+  if (Array.isArray(ex)) {
+    if (!Array.isArray(v)) return false
+    return ex.length ? v.every((x) => __match(x, ex[0])) : true
+  }
+  if (t === 'object') {
+    if (!v || typeof v !== 'object' || Array.isArray(v)) return false
+    const ks = Object.keys(ex)
+    return ks.every((k) => k in v && __match(v[k], ex[k]))
+  }
+  return v === ex
+}
+function Type(d, p, e) {
+  const t = { description: d, __runtimeType: true }
+  if (typeof p === 'function') {
+    t.check = p
+    t.default = e ?? null
+  } else {
+    const ex = e ?? p
+    t.default = ex
+    t.__ex = ex
+    t.check = (v) => __match(v, ex)
+  }
+  return t
+}
+function Generic(tp, pred, d) {
+  const c = (a) => {
+    if (a === null || a === undefined) return () => true
+    if (a.__runtimeType && typeof a.check === 'function')
+      return (v) => a.check(v) === true
+    if (typeof a === 'function') return (v) => a(v) === true
+    return (v) => __match(v, a)
+  }
+  const f = (...args) => {
+    const ck = args.map(c)
+    const t = {
+      description: d || 'generic',
+      __runtimeType: true,
+      check: (v) => pred(v, ...ck),
+    }
+    return t
+  }
+  f.__runtimeType = true
+  f.description = d
+  return f
+}
+function Enum(d, m) {
+  const mm = typeof m === 'object' && m ? m : {}
+  const vals = Object.values(mm)
+  const names = {}
+  for (const k of Object.keys(mm)) names[mm[k]] = k
+  return {
+    description: d,
+    check: (v) => vals.includes(v),
+    values: vals,
+    members: mm,
+    names,
+    keys: Object.keys(mm),
+    __runtimeType: true,
+  }
+}
+function Union(d, ...v) {
+  const vals = v.flat()
+  return {
+    description: d,
+    check: (x) => vals.includes(x),
+    values: vals,
+    __runtimeType: true,
+  }
+}
+const __tjs = globalThis.__tjs?.createRuntime?.() ?? {
+  Type,
+  Generic,
+  Enum,
+  Union,
+}
+/* tjs <- input.ts */
+
+import { describe, it, expect } from 'bun:test'
+
+import { s } from 'tosijs-schema'
+
+import {
+  Type,
+  isRuntimeType,
+  TString,
+  TNumber,
+  TBoolean,
+  TInteger,
+  TPositiveInt,
+  TNonEmptyString,
+  TEmail,
+  TUrl,
+  TUuid,
+  Nullable,
+  Optional,
+  Union,
+  TArray,
+  Generic,
+  TPair,
+  TRecord,
+} from '/Users/tonioloewald/tjs-lang/src/types/Type'
+
+import {
+  checkType,
+  validateArgs,
+  isError,
+} from '/Users/tonioloewald/tjs-lang/src/lang/runtime'
+
+describe('Type()', () => {
+  describe('Type(description, predicate)', () => {
+    it('creates a type with custom predicate', () => {
+      const ZipCode = Type(
+        '5-digit US zip code',
+        (s) => typeof s === 'string' && /^\d{5}$/.test(s)
+      )
+      expect(ZipCode.description).toBe('5-digit US zip code')
+      expect(ZipCode.check('12345')).toBe(true)
+      expect(ZipCode.check('1234')).toBe(false)
+      expect(ZipCode.check('123456')).toBe(false)
+      expect(ZipCode.check('abcde')).toBe(false)
+      expect(ZipCode.check(12345)).toBe(false)
+    })
+    it('creates a type with complex predicate', () => {
+      const EvenNumber = Type(
+        'even number',
+        (n) => typeof n === 'number' && n % 2 === 0
+      )
+      expect(EvenNumber.check(2)).toBe(true)
+      expect(EvenNumber.check(4)).toBe(true)
+      expect(EvenNumber.check(3)).toBe(false)
+      expect(EvenNumber.check('2')).toBe(false)
+    })
+  })
+  describe('Type(description, schema)', () => {
+    it('creates a type with schema validation', () => {
+      const Age = Type('age in years', s.number.min(0).max(150))
+      expect(Age.description).toBe('age in years')
+      expect(Age.check(25)).toBe(true)
+      expect(Age.check(0)).toBe(true)
+      expect(Age.check(150)).toBe(true)
+      expect(Age.check(-1)).toBe(false)
+      expect(Age.check(151)).toBe(false)
+      expect(Age.check('25')).toBe(false)
+    })
+    it('works with object schemas', () => {
+      const Person = Type(
+        'person with name and age',
+        s.object({
+          name: s.string,
+          age: s.number,
+        })
+      )
+      expect(Person.check({ name: 'Alice', age: 30 })).toBe(true)
+      expect(Person.check({ name: 'Bob' })).toBe(false)
+      expect(Person.check({ name: 123, age: 30 })).toBe(false)
+    })
+  })
+  describe('Type(schema)', () => {
+    it('creates a type from schema with auto-description', () => {
+      const StringType = Type(s.string)
+      expect(StringType.description).toBe('string')
+      expect(StringType.check('hello')).toBe(true)
+      expect(StringType.check(123)).toBe(false)
+    })
+    it('generates description for number with constraints', () => {
+      const BoundedNum = Type(s.number.min(0).max(100))
+      expect(BoundedNum.description).toBe('number (0-100)')
+    })
+  })
+  describe('isRuntimeType()', () => {
+    it('identifies RuntimeType instances', () => {
+      const MyType = Type('test', () => true)
+      expect(isRuntimeType(MyType)).toBe(true)
+    })
+    it('rejects non-RuntimeType values', () => {
+      expect(isRuntimeType(null)).toBe(false)
+      expect(isRuntimeType(undefined)).toBe(false)
+      expect(isRuntimeType('string')).toBe(false)
+      expect(isRuntimeType(123)).toBe(false)
+      expect(isRuntimeType({})).toBe(false)
+      expect(isRuntimeType({ description: 'fake', check: () => true })).toBe(
+        false
+      )
+    })
+  })
+  describe('Type(description, predicate, example)', () => {
+    it('stores example value for introspection', () => {
+      const User = Type(
+        'a registered user',
+        (x) => x && typeof x.name === 'string' && typeof x.age === 'number',
+        { name: 'Alice', age: 30 }
+      )
+      expect(User.description).toBe('a registered user')
+      expect(User.example).toEqual({ name: 'Alice', age: 30 })
+      expect(User.check({ name: 'Bob', age: 25 })).toBe(true)
+      expect(User.check({ name: 'Bob' })).toBe(false)
+    })
+    it('example can be used for implicit testing', () => {
+      const Email = Type(
+        'valid email address',
+        (x) => typeof x === 'string' && x.includes('@'),
+        'test@example.com'
+      )
+
+      expect(Email.check(Email.example)).toBe(true)
+    })
+  })
+  describe('Schema examples support', () => {
+    it('extracts examples from schema metadata', () => {
+      const Username = Type(
+        'username',
+        s.string.meta({ examples: ['alice', 'bob', 'charlie'] })
+      )
+      expect(Username.examples).toEqual(['alice', 'bob', 'charlie'])
+    })
+    it('sets example to first schema example when no explicit example given', () => {
+      const Username = Type(
+        'username',
+        s.string.meta({ examples: ['alice', 'bob'] })
+      )
+      expect(Username.example).toBe('alice')
+    })
+    it('preserves explicit example over schema examples', () => {
+      const Username = Type(
+        'username',
+        s.string.meta({ examples: ['alice', 'bob'] }),
+        'explicit_user'
+      )
+      expect(Username.example).toBe('explicit_user')
+      expect(Username.examples).toEqual(['alice', 'bob'])
+    })
+    it('has no examples when schema lacks metadata', () => {
+      const Name = Type('name', s.string)
+      expect(Name.examples).toBeUndefined()
+    })
+    it('has no examples for predicate-based types', () => {
+      const Even = Type(
+        'even number',
+        (n) => typeof n === 'number' && n % 2 === 0
+      )
+      expect(Even.examples).toBeUndefined()
+    })
+    it('has no examples for simple form', () => {
+      const Name = Type('name', 'Alice')
+      expect(Name.examples).toBeUndefined()
+      expect(Name.example).toBe('Alice')
+    })
+    it('validates using schema even with examples', () => {
+      const ShortString = Type(
+        'short string',
+        s.string.max(5).meta({ examples: ['hi', 'hey'] })
+      )
+      expect(ShortString.check('hi')).toBe(true)
+      expect(ShortString.check('toolong')).toBe(false)
+      expect(ShortString.examples).toEqual(['hi', 'hey'])
+    })
+  })
+})
+
+describe('Built-in Types', () => {
+  it('TString validates strings', () => {
+    expect(TString.check('hello')).toBe(true)
+    expect(TString.check('')).toBe(true)
+    expect(TString.check(123)).toBe('expected string, got number')
+    expect(TString.check(null)).toBe('expected string, got null')
+  })
+  it('TNumber validates numbers', () => {
+    expect(TNumber.check(123)).toBe(true)
+    expect(TNumber.check(0)).toBe(true)
+    expect(TNumber.check(-1.5)).toBe(true)
+    expect(TNumber.check(NaN)).toBe(true)
+    expect(TNumber.check('123')).toBe('expected number, got string')
+  })
+  it('TBoolean validates booleans', () => {
+    expect(TBoolean.check(true)).toBe(true)
+    expect(TBoolean.check(false)).toBe(true)
+    expect(TBoolean.check(1)).toBe('expected boolean, got number')
+    expect(TBoolean.check('true')).toBe('expected boolean, got string')
+  })
+  it('TInteger validates integers', () => {
+    expect(TInteger.check(1)).toBe(true)
+    expect(TInteger.check(0)).toBe(true)
+    expect(TInteger.check(-5)).toBe(true)
+    expect(TInteger.check(1.5)).toBe('1.5 is not an integer')
+    expect(TInteger.check('1')).toBe('expected integer, got string')
+  })
+  it('TPositiveInt validates positive integers', () => {
+    expect(TPositiveInt.check(1)).toBe(true)
+    expect(TPositiveInt.check(100)).toBe(true)
+    expect(TPositiveInt.check(0)).toBe('0 is not positive')
+    expect(TPositiveInt.check(-1)).toBe('-1 is not positive')
+    expect(TPositiveInt.check(1.5)).toBe('1.5 is not an integer')
+  })
+  it('TNonEmptyString validates non-empty strings', () => {
+    expect(TNonEmptyString.check('hello')).toBe(true)
+    expect(TNonEmptyString.check('a')).toBe(true)
+    expect(TNonEmptyString.check('')).toBe('string is empty')
+    expect(TNonEmptyString.check(123)).toBe('expected string, got number')
+  })
+  it('TEmail validates email addresses', () => {
+    expect(TEmail.check('user@example.com')).toBe(true)
+    expect(TEmail.check('a@b.c')).toBe(true)
+    expect(TEmail.check('invalid')).toBe('"invalid" is not a valid email')
+    expect(TEmail.check('no@domain')).toBe('"no@domain" is not a valid email')
+    expect(TEmail.check('@example.com')).toBe(
+      '"@example.com" is not a valid email'
+    )
+  })
+  it('TUrl validates URLs', () => {
+    expect(TUrl.check('https://example.com')).toBe(true)
+    expect(TUrl.check('http://localhost:3000')).toBe(true)
+    expect(TUrl.check('ftp://files.example.com')).toBe(true)
+    expect(TUrl.check('not-a-url')).toBe('"not-a-url" is not a valid URL')
+    expect(TUrl.check('example.com')).toBe('"example.com" is not a valid URL')
+  })
+  it('TUuid validates UUIDs', () => {
+    expect(TUuid.check('550e8400-e29b-41d4-a716-446655440000')).toBe(true)
+    expect(TUuid.check('550E8400-E29B-41D4-A716-446655440000')).toBe(true)
+    expect(TUuid.check('not-a-uuid')).toBe('"not-a-uuid" is not a valid UUID')
+    expect(TUuid.check('550e8400-e29b-41d4-a716')).toBe(
+      '"550e8400-e29b-41d4-a716" is not a valid UUID'
+    )
+  })
+})
+
+describe('Type Combinators', () => {
+  it('Nullable() allows null', () => {
+    const NullableString = Nullable(TString)
+    expect(NullableString.check('hello')).toBe(true)
+    expect(NullableString.check(null)).toBe(true)
+    expect(NullableString.check(undefined)).toBe(false)
+    expect(NullableString.check(123)).toBe(false)
+    expect(NullableString.description).toBe('string or null')
+  })
+  it('Optional() allows null and undefined', () => {
+    const OptionalNumber = Optional(TNumber)
+    expect(OptionalNumber.check(123)).toBe(true)
+    expect(OptionalNumber.check(null)).toBe(true)
+    expect(OptionalNumber.check(undefined)).toBe(true)
+    expect(OptionalNumber.check('123')).toBe(false)
+    expect(OptionalNumber.description).toBe('number (optional)')
+  })
+  it('Union() combines types', () => {
+    const StringOrNumber = Union(TString, TNumber)
+    expect(StringOrNumber.check('hello')).toBe(true)
+    expect(StringOrNumber.check(123)).toBe(true)
+    expect(StringOrNumber.check(true)).toBe(false)
+    expect(StringOrNumber.check(null)).toBe(false)
+    expect(StringOrNumber.description).toBe('string | number')
+  })
+  it('TArray() validates arrays', () => {
+    const StringArray = TArray(TString)
+    expect(StringArray.check(['a', 'b', 'c'])).toBe(true)
+    expect(StringArray.check([])).toBe(true)
+    expect(StringArray.check(['a', 1, 'c'])).toBe(false)
+    expect(StringArray.check('not array')).toBe(false)
+    expect(StringArray.description).toBe('array of string')
+  })
+  it('combinators can be nested', () => {
+    const OptionalStringArray = Optional(TArray(TNonEmptyString))
+    expect(OptionalStringArray.check(['hello', 'world'])).toBe(true)
+    expect(OptionalStringArray.check(null)).toBe(true)
+    expect(OptionalStringArray.check(undefined)).toBe(true)
+    expect(OptionalStringArray.check(['hello', ''])).toBe(false)
+  })
+})
+
+describe('Runtime Integration', () => {
+  describe('checkType() with RuntimeType', () => {
+    it('validates with RuntimeType', () => {
+      const ZipCode = Type(
+        '5-digit zip',
+        (s) => typeof s === 'string' && /^\d{5}$/.test(s)
+      )
+      expect(checkType('12345', ZipCode)).toBe(null)
+      expect(checkType('1234', ZipCode)).not.toBe(null)
+      expect(checkType(12345, ZipCode)).not.toBe(null)
+    })
+    it('returns descriptive error for RuntimeType', () => {
+      const ZipCode = Type(
+        '5-digit zip',
+        (s) => typeof s === 'string' && /^\d{5}$/.test(s)
+      )
+      const err = checkType('bad', ZipCode, 'address.zip')
+      expect(isError(err)).toBe(true)
+      expect(err?.message).toContain('5-digit zip')
+      expect(err?.path).toBe('address.zip')
+    })
+    it('works with built-in types', () => {
+      expect(checkType('hello', TString)).toBe(null)
+      expect(checkType(123, TString)).not.toBe(null)
+      expect(checkType(42, TPositiveInt)).toBe(null)
+      expect(checkType(-1, TPositiveInt)).not.toBe(null)
+      expect(checkType(1.5, TPositiveInt)).not.toBe(null)
+    })
+  })
+  describe('validateArgs() with RuntimeType', () => {
+    it('validates args with RuntimeType params', () => {
+      const ZipCode = Type(
+        '5-digit zip',
+        (s) => typeof s === 'string' && /^\d{5}$/.test(s)
+      )
+      const meta = {
+        params: {
+          zip: { type: ZipCode, required: true },
+          count: { type: 'number', required: false },
+        },
+      }
+      expect(validateArgs({ zip: '12345' }, meta)).toBe(null)
+      expect(validateArgs({ zip: '12345', count: 5 }, meta)).toBe(null)
+      const err = validateArgs({ zip: 'bad' }, meta, 'ship')
+      expect(isError(err)).toBe(true)
+      expect(err?.message).toContain('5-digit zip')
+      expect(err?.path).toBe('ship.zip')
+    })
+    it('reports missing required RuntimeType param', () => {
+      const Email = Type(
+        'email',
+        (s) => typeof s === 'string' && s.includes('@')
+      )
+      const meta = {
+        params: {
+          email: { type: Email, required: true },
+        },
+      }
+      const err = validateArgs({}, meta, 'sendEmail')
+      expect(isError(err)).toBe(true)
+      expect(err?.message).toContain("Missing required parameter 'email'")
+      expect(err?.expected).toBe('email')
+    })
+    it('mixes string types and RuntimeTypes', () => {
+      const PositiveAmount = Type(
+        'positive amount',
+        (n) => typeof n === 'number' && n > 0
+      )
+      const meta = {
+        params: {
+          name: { type: 'string', required: true },
+          amount: { type: PositiveAmount, required: true },
+          note: { type: 'string', required: false },
+        },
+      }
+      expect(validateArgs({ name: 'Test', amount: 100 }, meta)).toBe(null)
+      expect(validateArgs({ name: 'Test', amount: -5 }, meta)).not.toBe(null)
+      expect(validateArgs({ name: 123, amount: 100 }, meta)).not.toBe(null)
+    })
+  })
+})
+
+describe('Generic Types', () => {
+  describe('Generic()', () => {
+    it('creates a parameterized type', () => {
+      const Box = Generic(
+        ['T'],
+        (x, checkT) =>
+          typeof x === 'object' &&
+          x !== null &&
+          'value' in x &&
+          checkT(x.value),
+        'Box<T>'
+      )
+      const StringBox = Box(TString)
+      expect(StringBox.check({ value: 'hello' })).toBe(true)
+      expect(StringBox.check({ value: 123 })).toBe(false)
+      expect(StringBox.check(null)).toBe(false)
+    })
+    it('accepts example values as type args', () => {
+      const Box = Generic(
+        ['T'],
+        (x, checkT) =>
+          typeof x === 'object' &&
+          x !== null &&
+          'value' in x &&
+          checkT(x.value),
+        'Box<T>'
+      )
+
+      const StringBox = Box('')
+      expect(StringBox.check({ value: 'hello' })).toBe(true)
+      expect(StringBox.check({ value: 123 })).toBe(false)
+
+      const NumberBox = Box(0)
+      expect(NumberBox.check({ value: 42 })).toBe(true)
+      expect(NumberBox.check({ value: 'hello' })).toBe(false)
+    })
+    it('supports default type parameters', () => {
+      const Container = Generic(
+        ['T', ['U', '']],
+        (x, checkT, checkU) =>
+          typeof x === 'object' &&
+          x !== null &&
+          checkT(x.item) &&
+          checkU(x.label),
+        'Container<T, U>'
+      )
+
+      const NumberContainer = Container(0)
+      expect(NumberContainer.check({ item: 42, label: 'test' })).toBe(true)
+      expect(NumberContainer.check({ item: 42, label: 123 })).toBe(false)
+
+      const FullContainer = Container(0, true)
+      expect(FullContainer.check({ item: 42, label: true })).toBe(true)
+      expect(FullContainer.check({ item: 42, label: 'test' })).toBe(false)
+    })
+    it('substitutes type params in description', () => {
+      const Wrapper = Generic(['T'], () => true, 'Wrapper<T>')
+      const StringWrapper = Wrapper(TString)
+      expect(StringWrapper.description).toContain('string')
+    })
+  })
+  describe('TPair', () => {
+    it('validates 2-element tuples', () => {
+      const StringNumberPair = TPair(TString, TNumber)
+      expect(StringNumberPair.check(['hello', 42])).toBe(true)
+      expect(StringNumberPair.check([42, 'hello'])).toBe(false)
+      expect(StringNumberPair.check(['hello'])).toBe(false)
+      expect(StringNumberPair.check(['hello', 42, 'extra'])).toBe(false)
+    })
+    it('works with example values', () => {
+      const Pair = TPair('', 0)
+      expect(Pair.check(['a', 1])).toBe(true)
+      expect(Pair.check([1, 'a'])).toBe(false)
+    })
+  })
+  describe('TRecord', () => {
+    it('validates objects with typed values', () => {
+      const NumberRecord = TRecord(TNumber)
+      expect(NumberRecord.check({ a: 1, b: 2 })).toBe(true)
+      expect(NumberRecord.check({ a: 1, b: 'two' })).toBe(false)
+      expect(NumberRecord.check({})).toBe(true)
+      expect(NumberRecord.check(null)).toBe(false)
+    })
+    it('works with example values', () => {
+      const StringRecord = TRecord('')
+      expect(StringRecord.check({ name: 'Alice', city: 'NYC' })).toBe(true)
+      expect(StringRecord.check({ name: 'Alice', age: 30 })).toBe(false)
+    })
+  })
+})
+
+describe('Real-world Types', () => {
+  it('US Zip Code', () => {
+    const ZipCode = Type(
+      '5 or 9 digit US zip code',
+      (s) => typeof s === 'string' && /^\d{5}(-\d{4})?$/.test(s)
+    )
+    expect(ZipCode.check('12345')).toBe(true)
+    expect(ZipCode.check('12345-6789')).toBe(true)
+    expect(ZipCode.check('1234')).toBe(false)
+    expect(ZipCode.check('12345-678')).toBe(false)
+  })
+  it('Phone Number', () => {
+    const PhoneNumber = Type(
+      'US phone number',
+      (s) => typeof s === 'string' && /^\d{3}-\d{3}-\d{4}$/.test(s)
+    )
+    expect(PhoneNumber.check('555-123-4567')).toBe(true)
+    expect(PhoneNumber.check('5551234567')).toBe(false)
+  })
+  it('Password (with rules)', () => {
+    const Password = Type(
+      'password (8+ chars, uppercase, lowercase, number)',
+      (s) =>
+        typeof s === 'string' &&
+        s.length >= 8 &&
+        /[A-Z]/.test(s) &&
+        /[a-z]/.test(s) &&
+        /[0-9]/.test(s)
+    )
+    expect(Password.check('Secret123')).toBe(true)
+    expect(Password.check('secret123')).toBe(false)
+    expect(Password.check('SECRET123')).toBe(false)
+    expect(Password.check('Secretabc')).toBe(false)
+    expect(Password.check('Sec1')).toBe(false)
+  })
+})
+
+describe('Union with literal values', () => {
+  it('creates union from string literals', () => {
+    const Direction = Union('cardinal direction', [
+      'up',
+      'down',
+      'left',
+      'right',
+    ])
+    expect(Direction.check('up')).toBe(true)
+    expect(Direction.check('down')).toBe(true)
+    expect(Direction.check('diagonal')).toBe(false)
+    expect(Direction.description).toBe('cardinal direction')
+  })
+  it('creates union from mixed literals', () => {
+    const Mixed = Union('mixed values', ['string', 42, true, null])
+    expect(Mixed.check('string')).toBe(true)
+    expect(Mixed.check(42)).toBe(true)
+    expect(Mixed.check(true)).toBe(true)
+    expect(Mixed.check(null)).toBe(true)
+    expect(Mixed.check('other')).toBe(false)
+    expect(Mixed.check(43)).toBe(false)
+    expect(Mixed.check(false)).toBe(false)
+  })
+  it('exposes values for introspection', () => {
+    const Status = Union('status', ['pending', 'active', 'done'])
+    expect(Status.values).toEqual(['pending', 'active', 'done'])
+  })
+  it('backward compatible with RuntimeType union', () => {
+    const StringOrNumber = Union(TString, TNumber)
+    expect(StringOrNumber.check('hello')).toBe(true)
+    expect(StringOrNumber.check(123)).toBe(true)
+    expect(StringOrNumber.check(true)).toBe(false)
+  })
+})
+
+describe('Enum', () => {
+  const { Enum } = require('./Type')
+  it('creates numeric enum with auto-incrementing values', () => {
+    const Status = Enum('task status', { Pending: 0, Active: 1, Done: 2 })
+    expect(Status.check(0)).toBe(true)
+    expect(Status.check(1)).toBe(true)
+    expect(Status.check(2)).toBe(true)
+    expect(Status.check(3)).toBe(false)
+    expect(Status.check('Pending')).toBe(false)
+    expect(Status.description).toBe('task status')
+  })
+  it('creates string enum', () => {
+    const Color = Enum('CSS color', {
+      Red: 'red',
+      Green: 'green',
+      Blue: 'blue',
+    })
+    expect(Color.check('red')).toBe(true)
+    expect(Color.check('green')).toBe(true)
+    expect(Color.check('blue')).toBe(true)
+    expect(Color.check('yellow')).toBe(false)
+    expect(Color.check('Red')).toBe(false)
+  })
+  it('provides member access', () => {
+    const Status = Enum('status', { Pending: 0, Active: 1, Done: 2 })
+    expect(Status.members.Pending).toBe(0)
+    expect(Status.members.Active).toBe(1)
+    expect(Status.members.Done).toBe(2)
+  })
+  it('provides reverse lookup', () => {
+    const Status = Enum('status', { Pending: 0, Active: 1, Done: 2 })
+    expect(Status.names[0]).toBe('Pending')
+    expect(Status.names[1]).toBe('Active')
+    expect(Status.names[2]).toBe('Done')
+  })
+  it('provides values array', () => {
+    const Status = Enum('status', { Pending: 0, Active: 1, Done: 2 })
+    expect(Status.values).toEqual([0, 1, 2])
+  })
+  it('provides keys array', () => {
+    const Status = Enum('status', { Pending: 0, Active: 1, Done: 2 })
+    expect(Status.keys).toEqual(['Pending', 'Active', 'Done'])
+  })
+  it('works with HTTP status codes', () => {
+    const HttpStatus = Enum('HTTP status', {
+      OK: 200,
+      Created: 201,
+      BadRequest: 400,
+      NotFound: 404,
+      InternalError: 500,
+    })
+    expect(HttpStatus.check(200)).toBe(true)
+    expect(HttpStatus.check(404)).toBe(true)
+    expect(HttpStatus.check(418)).toBe(false)
+    expect(HttpStatus.names[200]).toBe('OK')
+    expect(HttpStatus.members.NotFound).toBe(404)
+  })
+})
+
+describe('predicate reason strings', () => {
+  it('Type() passes through reason strings from predicates', () => {
+    const EvenNumber = Type('even number', (v) => {
+      if (typeof v !== 'number') return 'not a number'
+      if (v % 2 !== 0) return `${v} is odd`
+      return true
+    })
+    expect(EvenNumber.check(4)).toBe(true)
+    expect(EvenNumber.check(3)).toBe('3 is odd')
+    expect(EvenNumber.check('x')).toBe('not a number')
+  })
+  it('schema-based types still return boolean', () => {
+    const StringType = Type('a string', s.string)
+    expect(StringType.check('hello')).toBe(true)
+    expect(StringType.check(42)).toBe(false)
+  })
+  it('Nullable correctly handles reason-returning predicates', () => {
+    const EvenNumber = Type('even number', (v) => {
+      if (typeof v !== 'number') return 'not a number'
+      if (v % 2 !== 0) return `${v} is odd`
+      return true
+    })
+    const NullableEven = Nullable(EvenNumber)
+    expect(NullableEven.check(null)).toBe(true)
+    expect(NullableEven.check(4)).toBe(true)
+    expect(NullableEven.check(3)).toBe(false)
+  })
+  it('TArray correctly handles reason-returning predicates', () => {
+    const Positive = Type('positive', (v) => {
+      if (typeof v !== 'number') return 'not a number'
+      if (v <= 0) return `${v} is not positive`
+      return true
+    })
+    const PositiveArray = TArray(Positive)
+    expect(PositiveArray.check([1, 2, 3])).toBe(true)
+    expect(PositiveArray.check([1, -1, 3])).toBe(false)
+  })
+})
