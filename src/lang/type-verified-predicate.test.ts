@@ -42,7 +42,7 @@ describe('multiple verified predicates in one module (no name collision)', () =>
 describe('Type predicate → verified fuel-bounded guard', () => {
   it('compiles a safe predicate-only Type to a fuel-bounded guard', () => {
     const out = src(`Type Pos 'positive' { predicate(x) { return x > 0 } }`)
-    expect(out).toContain(`const Pos = Type('positive'`)
+    expect(out).toContain(`const Pos = __tjs_rt.Type('positive'`)
     expect(out).toContain('__fuel') // verified + fuel-injected
     expect(out).toContain('x > 0') // original body preserved inside the guard
   })
@@ -51,7 +51,7 @@ describe('Type predicate → verified fuel-bounded guard', () => {
     const out = src(
       `Type EvenNum 'even' { example: 2, predicate(x) { return x % 2 === 0 } }`
     )
-    expect(out).toContain(`const EvenNum = Type('even'`)
+    expect(out).toContain(`const EvenNum = __tjs_rt.Type('even'`)
     expect(out).toContain('__fuel') // verified
     expect(out).toContain('__tjs?.validate') // example schema still gates
     expect(out).toContain('x % 2 === 0')

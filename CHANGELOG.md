@@ -7,6 +7,46 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **The emitted runtime no longer declares its helpers in your namespace (#39).** The
+  preamble declared `Eq`, `Is`, `IsNot`, `NotEq`, `TypeOf`, `Type`, `Generic`, `Enum`,
+  `Union`, `FunctionPredicate`, `MonadicError`, `tjsEquals` and the `Legacy*` family at
+  **module scope**. Those are ordinary JavaScript bindings in the author's own module, so a
+  file that imported one and also used the syntax that generates it declared the name twice:
+
+  ```
+  import { Eq } from 'tjs-lang/runtime'
+  export function same(a: 0, b: 0): true { return a == b }
+  -> SyntaxError: Identifier 'Eq' has already been declared
+  ```
+
+  Node refuses to LOAD such a module, so nothing in it runs — no error from your code,
+  because your code never started. #39 named five of these; the dogfood gate found thirteen.
+
+  The inline runtime now lives inside one `__tjs_rt` IIFE and generated code calls
+  `__tjs_rt.Eq(…)`. The bodies are untouched: they still call each other by bare name inside
+  the IIFE, so this is a scoping change, not a rewrite of the semantics.
+
+  **The rename has to happen at generation time**, which is the whole reason this was not a
+  one-line fix. Once the preamble and your code are one string, a compiler-generated `Eq(`
+  and a hand-written one are the same five characters — no later pass can separate them.
+
+  **The ambient surface is preserved.** `Is(a, b)`, `DangerousLegacyEquals(a, b)`,
+  `LegacyDefault({…})`, `Exactly('a')` and the type constructors are documented as simply
+  available, and they were available _because_ of those module-scope declarations. Emitted
+  files still bind them — but only when you have not bound the name yourself, which is a
+  question about your AST and therefore decidable, unlike the one above.
+
+  **Measured on the dogfood behaviour gate: 1076 assertions lost → 313, and 38 broken tests
+  → 30.** The disparity between those two numbers is the interesting part: ten suites were
+  failing at LOAD time, so the gate had been reporting six "broken tests" for what was really
+  ~760 lost assertions. A load-time failure is under-reported by any metric denominated in
+  tests, by roughly the size of the file.
+
+  Guarded by `src/lang/rt-namespace.test.ts`, which pins all three properties — no collision,
+  ambient names still work, and nothing inside the IIFE is unreachable.
+
 ## [0.13.12] — 2026-09-04
 
 Five defects of one class: a pass that misreads code which merely MENTIONS the syntax it is

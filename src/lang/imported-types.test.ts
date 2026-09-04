@@ -19,6 +19,32 @@
 import { describe, it, expect } from 'bun:test'
 import { tjs } from './index'
 
+/**
+ * Make a second module's emitted output safe to concatenate into one scope.
+ *
+ * Each emitted module carries its own preamble, so two of them in one scope declare
+ * everything twice. Rather than DELETE the library's — which would leave it reaching for a
+ * `__tjs_rt` that the other module populated for its own needs, and `__tjs_rt.Type` really
+ * is absent from a module that declares no types — its runtime object is RENAMED, and only
+ * the genuinely-shared bindings (`__tjs` and the ambient aliases) are dropped. That is much
+ * closer to what two real modules get: two preambles, one per file.
+ *
+ * The predecessor was `libJs.replace(/^const __tjs[\s\S]*?;\n/m, '')`, which worked only
+ * while the preamble's first statement was single-line. Once it became an IIFE the lazy
+ * `;\n` matched a semicolon INSIDE the block, truncating it and producing output that could
+ * not parse — reported as a `SyntaxError` at `new Function`, tens of lines from the cause.
+ */
+function isolateLib(js: string): string {
+  const kept = js.split('\n').filter(
+    (l) =>
+      !l.startsWith('const __tjs = globalThis.__tjs') &&
+      !/^const __tjs(ToBool|SwKey) =/.test(l) &&
+      // the ambient-alias line, which would duplicate the other module's
+      !/^const \w+ = __tjs_rt\.\w+;/.test(l)
+  )
+  return kept.join('\n').replace(/\b__tjs_rt\b/g, '__tjs_rt_lib')
+}
+
 /** Transpile two modules and link them by hand — no filesystem, no import resolution. */
 function link(lib: string, use: string, name: string) {
   const libJs = tjs(lib).code.replace(/^export /gm, '')
@@ -27,8 +53,7 @@ function link(lib: string, use: string, name: string) {
   const useJs = tjs(use)
     .code.replace(/^import[^\n]*\n/gm, '')
     .replace(/^export /gm, '')
-  const libDecls = libJs.replace(/^const __tjs[\s\S]*?;\n/m, '')
-  return new Function(`${useJs}\n${libDecls}\nreturn ${name}`)()
+  return new Function(`${useJs}\n${isolateLib(libJs)}\nreturn ${name}`)()
 }
 
 const LIB = `export Type Within100 {

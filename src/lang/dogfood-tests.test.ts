@@ -160,10 +160,26 @@ const KNOWN_CONVERSION_FAILURES = new Map<string, string>([
  */
 const BASELINE = {
   /** Fraction of assertions that survive conversion. 1.0 is the 1.0 gate. */
-  assertionRate: 0.881,
+  assertionRate: 0.966,
   /** Fraction of passing tests that still pass after conversion. */
-  testRate: 0.904,
+  testRate: 0.977,
 }
+
+/*
+ * Ratcheted on 2026-09-05, from 0.881/0.904, after the emitted preamble stopped declaring
+ * its helpers at module scope (#39; `src/lang/rt-namespace.ts`).
+ *
+ * The size of this movement is the point. Ten suites had been failing to LOAD — a
+ * duplicate-declaration `SyntaxError` before any of their code ran — so their assertions
+ * were counted as lost in full while the gate reported only six "broken tests", because
+ * tests that never run are not tests that fail. 313 assertions lost, down from 1076; 30
+ * broken tests, down from 38.
+ *
+ * The lesson generalises past this fix: a failure that happens at LOAD time is
+ * under-reported by any metric denominated in tests, and it is under-reported by roughly
+ * the size of the file. Read the assertion count, not the test count, when deciding where
+ * the remaining gap actually is.
+ */
 
 /*
  * Ratcheted down on 2026-09-04, from 0.868/0.885, after ONE fix took the gate from 108

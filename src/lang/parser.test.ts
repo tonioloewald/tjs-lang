@@ -83,7 +83,7 @@ describe('Transpiler', () => {
 
     it('should transform Type declaration with simple example', () => {
       const result = preprocess(`Type Name 'Alice'`)
-      expect(result.source).toBe(`const Name = Type('Name', 'Alice')`)
+      expect(result.source).toBe(`const Name = __tjs_rt.Type('Name', 'Alice')`)
     })
 
     it('should transform Type declaration with block (old syntax)', () => {
@@ -92,7 +92,9 @@ describe('Transpiler', () => {
   example: { name: '', age: 0 }
 }`)
       // Example-only blocks emit: Type(desc, undefined, example)
-      expect(result.source).toContain(`const User = Type('a user', undefined,`)
+      expect(result.source).toContain(
+        `const User = __tjs_rt.Type('a user', undefined,`
+      )
       expect(result.source).toContain(`{ name: '', age: 0 }`)
     })
 
@@ -101,7 +103,9 @@ describe('Transpiler', () => {
   example: { name: '', age: 0 }
 }`)
       // Example-only blocks emit: Type(desc, undefined, example)
-      expect(result.source).toContain(`const User = Type('a user', undefined,`)
+      expect(result.source).toContain(
+        `const User = __tjs_rt.Type('a user', undefined,`
+      )
       expect(result.source).toContain(`{ name: '', age: 0 }`)
     })
 
@@ -111,7 +115,9 @@ describe('Transpiler', () => {
   example: 2
   predicate(x) { return x % 2 === 0 }
 }`)
-      expect(result.source).toContain(`const EvenNum = Type('even number'`)
+      expect(result.source).toContain(
+        `const EvenNum = __tjs_rt.Type('even number'`
+      )
       expect(result.source).toContain(`__tjs?.validate`)
       expect(result.source).toContain(`x % 2 === 0`)
     })
@@ -121,7 +127,9 @@ describe('Transpiler', () => {
   example: 2
   predicate(x) { return x % 2 === 0 }
 }`)
-      expect(result.source).toContain(`const EvenNum = Type('even number'`)
+      expect(result.source).toContain(
+        `const EvenNum = __tjs_rt.Type('even number'`
+      )
       expect(result.source).toContain(`__tjs?.validate`)
       expect(result.source).toContain(`x % 2 === 0`)
     })
@@ -129,29 +137,33 @@ describe('Transpiler', () => {
     // New = default syntax tests
     it('should transform Type with = default (string)', () => {
       const result = preprocess(`Type Name = 'Alice'`)
-      expect(result.source).toBe(`const Name = Type('Name', 'Alice')`)
+      expect(result.source).toBe(`const Name = __tjs_rt.Type('Name', 'Alice')`)
     })
 
     it('should transform Type with = default (number)', () => {
       const result = preprocess(`Type Count = 0`)
-      expect(result.source).toBe(`const Count = Type('Count', 0)`)
+      expect(result.source).toBe(`const Count = __tjs_rt.Type('Count', 0)`)
     })
 
     it('should transform Type with = default (positive number)', () => {
       const result = preprocess(`Type Age = +18`)
-      expect(result.source).toBe(`const Age = Type('Age', +18)`)
+      expect(result.source).toBe(`const Age = __tjs_rt.Type('Age', +18)`)
     })
 
     it('should transform Type with description and = default', () => {
       const result = preprocess(`Type Name 'a person name' = 'Alice'`)
-      expect(result.source).toBe(`const Name = Type('a person name', 'Alice')`)
+      expect(result.source).toBe(
+        `const Name = __tjs_rt.Type('a person name', 'Alice')`
+      )
     })
 
     it('should transform Type with = default and block with example', () => {
       const result = preprocess(`Type PositiveAge = +1 {
   example: 30
 }`)
-      expect(result.source).toContain(`const PositiveAge = Type('PositiveAge'`)
+      expect(result.source).toContain(
+        `const PositiveAge = __tjs_rt.Type('PositiveAge'`
+      )
       expect(result.source).toContain(`, 30`)
       expect(result.source).toContain(`, +1)`)
     })
@@ -160,7 +172,7 @@ describe('Transpiler', () => {
       const result = preprocess(
         `Type Config = { host: 'localhost', port: 8080 }`
       )
-      expect(result.source).toContain(`const Config = Type('Config'`)
+      expect(result.source).toContain(`const Config = __tjs_rt.Type('Config'`)
       expect(result.source).toContain(`host: 'localhost'`)
       expect(result.source).toContain(`port: 8080`)
     })
@@ -211,7 +223,9 @@ test 'always fails' { throw new Error('intentional') }
   description: 'a pair'
   predicate(x, T, U) { return T(x[0]) && U(x[1]) }
 }`)
-      expect(result.source).toContain(`const Pair = Generic(['T', 'U']`)
+      expect(result.source).toContain(
+        `const Pair = __tjs_rt.Generic(['T', 'U']`
+      )
       expect(result.source).toContain(`checkT(x[0]) && checkU(x[1])`)
     })
 
@@ -233,7 +247,7 @@ test 'always fails' { throw new Error('intentional') }
   'up' | 'down' | 'left' | 'right'
 }`)
       expect(result.source).toBe(
-        `const Direction = Union('cardinal direction', ['up', 'down', 'left', 'right'])`
+        `const Direction = __tjs_rt.Union('cardinal direction', ['up', 'down', 'left', 'right'])`
       )
     })
 
@@ -242,7 +256,7 @@ test 'always fails' { throw new Error('intentional') }
         `Union Status 'task status' 'pending' | 'active' | 'done'`
       )
       expect(result.source).toBe(
-        `const Status = Union('task status', ['pending', 'active', 'done'])`
+        `const Status = __tjs_rt.Union('task status', ['pending', 'active', 'done'])`
       )
     })
 
@@ -251,7 +265,7 @@ test 'always fails' { throw new Error('intentional') }
   'string' | 42 | true | null
 }`)
       expect(result.source).toBe(
-        `const Mixed = Union('mixed values', ['string', 42, true, null])`
+        `const Mixed = __tjs_rt.Union('mixed values', ['string', 42, true, null])`
       )
     })
 
@@ -262,7 +276,7 @@ test 'always fails' { throw new Error('intentional') }
   Done
 }`)
       expect(result.source).toBe(
-        `const Status = Enum('task status', { Pending: 0, Active: 1, Done: 2 })`
+        `const Status = __tjs_rt.Enum('task status', { Pending: 0, Active: 1, Done: 2 })`
       )
     })
 
@@ -273,7 +287,7 @@ test 'always fails' { throw new Error('intentional') }
   Blue = 'blue'
 }`)
       expect(result.source).toBe(
-        `const Color = Enum('CSS color', { Red: 'red', Green: 'green', Blue: 'blue' })`
+        `const Color = __tjs_rt.Enum('CSS color', { Red: 'red', Green: 'green', Blue: 'blue' })`
       )
     })
 
@@ -285,7 +299,7 @@ test 'always fails' { throw new Error('intentional') }
   NotFound = 404
 }`)
       expect(result.source).toBe(
-        `const HttpStatus = Enum('HTTP status code', { OK: 200, Created: 201, BadRequest: 400, NotFound: 404 })`
+        `const HttpStatus = __tjs_rt.Enum('HTTP status code', { OK: 200, Created: 201, BadRequest: 400, NotFound: 404 })`
       )
     })
 
@@ -297,7 +311,7 @@ test 'always fails' { throw new Error('intentional') }
   Eleven
 }`)
       expect(result.source).toBe(
-        `const Mixed = Enum('mixed enum', { Zero: 0, One: 1, Ten: 10, Eleven: 11 })`
+        `const Mixed = __tjs_rt.Enum('mixed enum', { Zero: 0, One: 1, Ten: 10, Eleven: 11 })`
       )
     })
   })

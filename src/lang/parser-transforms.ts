@@ -22,6 +22,7 @@ import {
   newExpressionPattern,
 } from './declared-classes'
 import { stripParamMarkers } from './parser-params'
+import { rt, RT_NS } from './rt-namespace'
 
 /**
  * Extract a brace-balanced value from source after a regex match.
@@ -1038,11 +1039,11 @@ export function transformIsOperators(source: string): string {
 
   // Transform IsNot first (longer keyword)
   const isNotRegex = new RegExp(exprPat + '\\s+IsNot\\s+' + exprPat, 'g')
-  source = source.replace(isNotRegex, 'IsNot($1, $2)')
+  source = source.replace(isNotRegex, `${rt('IsNot')}($1, $2)`)
 
   // Transform Is
   const isRegex = new RegExp(exprPat + '\\s+Is\\s+' + exprPat, 'g')
-  source = source.replace(isRegex, 'Is($1, $2)')
+  source = source.replace(isRegex, `${rt('Is')}($1, $2)`)
 
   return source
 }
@@ -1440,7 +1441,7 @@ function transformTypeofKeyword(source: string): string {
     const m = matches[k]
     result =
       result.slice(0, m.keywordStart) +
-      `TypeOf(${m.operand})` +
+      `${rt('TypeOf')}(${m.operand})` +
       result.slice(m.operandEnd)
   }
   return result
@@ -1648,7 +1649,7 @@ export function transformEqualityToStructural(source: string): string {
   let result = source
   for (let k = equalityOps.length - 1; k >= 0; k--) {
     const { pos, op } = equalityOps[k]
-    const funcName = op === '==' ? 'Eq' : 'NotEq'
+    const funcName = op === '==' ? rt('Eq') : rt('NotEq')
 
     // Find left operand boundary
     const leftBoundary = findLeftOperandBoundary(result, pos)
@@ -2355,7 +2356,9 @@ export function transformTypeDeclarations(
           // Preserve trailing whitespace (newlines) that was consumed by the regex
           const trailingWs = descWhole.slice(value.length)
           declaredTypes?.add(typeName)
-          result += `const ${typeName} = Type('${typeName}', ${value})${trailingWs}`
+          result += `const ${typeName} = ${rt(
+            'Type'
+          )}('${typeName}', ${value})${trailingWs}`
           i = afterString
           continue
         }
@@ -2517,7 +2520,9 @@ export function transformTypeDeclarations(
             ? `(__g => { ${schemaMemo} return (${params}) => (${schemaGate} ? __g(${params}) : false) })(${guard})`
             : `(() => { ${schemaMemo} return (${params}) => { if (!(${schemaGate})) return false; ${body} } })()`
           declaredTypes?.add(typeName)
-          result += `const ${typeName} = Type('${description}', ${fn}, ${example}${defaultArg})`
+          result += `const ${typeName} = ${rt(
+            'Type'
+          )}('${description}', ${fn}, ${example}${defaultArg})`
         } else if (predicateMatch) {
           // Predicate only: verify → fuel-bounded native guard, else raw arrow.
           const params = predicateMatch[1].trim()
@@ -2533,7 +2538,9 @@ export function transformTypeDeclarations(
           )
           const fn = guard ?? `(${params}) => { ${body} }`
           declaredTypes?.add(typeName)
-          result += `const ${typeName} = Type('${description}', ${fn}${defaultArg})`
+          result += `const ${typeName} = ${rt(
+            'Type'
+          )}('${description}', ${fn}${defaultArg})`
         } else if (example) {
           // Example only (becomes validation schema)
           const defaultArg = defaultValue ? `, ${defaultValue}` : ''
@@ -2550,12 +2557,18 @@ export function transformTypeDeclarations(
           // the emitted code makes the answer identical in both runtimes by construction.
           const narrowing = numericNarrowingPredicate(example)
           result += narrowing
-            ? `const ${typeName} = Type('${description}', ${narrowing}, ${example}${defaultArg})`
-            : `const ${typeName} = Type('${description}', undefined, ${example}${defaultArg})`
+            ? `const ${typeName} = ${rt(
+                'Type'
+              )}('${description}', ${narrowing}, ${example}${defaultArg})`
+            : `const ${typeName} = ${rt(
+                'Type'
+              )}('${description}', undefined, ${example}${defaultArg})`
         } else if (defaultValue) {
           // Default only (infer schema from default)
           declaredTypes?.add(typeName)
-          result += `const ${typeName} = Type('${description}', ${defaultValue})`
+          result += `const ${typeName} = ${rt(
+            'Type'
+          )}('${description}', ${defaultValue})`
         } else {
           // A block that declares NOTHING checkable — no example, no predicate, no
           // default — cannot be a type. It was emitted as `Type('Name')`, where the
@@ -2594,7 +2607,7 @@ export function transformTypeDeclarations(
           // anything" is not. Only the second is rejected.
           if (members.length === 0) {
             declaredTypes?.add(typeName)
-            result += `const ${typeName} = Type('${description}')`
+            result += `const ${typeName} = ${rt('Type')}('${description}')`
             i = blockEnd
             continue
           }
@@ -2623,7 +2636,9 @@ export function transformTypeDeclarations(
       } else if (defaultValue) {
         // Simple form with default: Type Foo = 'value' or Type Foo 'desc' = 'value'
         declaredTypes?.add(typeName)
-        result += `const ${typeName} = Type('${description}', ${defaultValue})`
+        result += `const ${typeName} = ${rt(
+          'Type'
+        )}('${description}', ${defaultValue})`
         i = posAfterDefault // Use position before whitespace was consumed
         continue
       } else if (!descStringMatch) {
@@ -2636,7 +2651,9 @@ export function transformTypeDeclarations(
         if (valueMatch) {
           const example = valueMatch[0]
           declaredTypes?.add(typeName)
-          result += `const ${typeName} = Type('${typeName}', ${example})`
+          result += `const ${typeName} = ${rt(
+            'Type'
+          )}('${typeName}', ${example})`
           i = j + valueMatch[0].length
           continue
         }
@@ -2779,14 +2796,16 @@ export function transformFunctionPredicateDeclarations(source: string): string {
             const paramNames = typeParamsStr
               .split(',')
               .map((p) => p.trim().split('=')[0].trim())
-            result += `const ${fpName} = FunctionPredicate('${desc}', [${typeParams.join(
+            result += `const ${fpName} = ${rt(
+              'FunctionPredicate'
+            )}('${desc}', [${typeParams.join(', ')}], (${paramNames.join(
               ', '
-            )}], (${paramNames.join(', ')}) => ({ ${spec.join(', ')} }))`
+            )}) => ({ ${spec.join(', ')} }))`
           } else {
             // Non-generic form
-            result += `const ${fpName} = FunctionPredicate('${desc}', { ${spec.join(
-              ', '
-            )} })`
+            result += `const ${fpName} = ${rt(
+              'FunctionPredicate'
+            )}('${desc}', { ${spec.join(', ')} })`
           }
           i = k
           continue
@@ -2811,10 +2830,14 @@ export function transformFunctionPredicateDeclarations(source: string): string {
           if (commaIdx !== -1) {
             const fnRef = args.slice(0, commaIdx).trim()
             const desc = args.slice(commaIdx + 1).trim()
-            result += `const ${fpName} = FunctionPredicate(${desc}, ${fnRef})`
+            result += `const ${fpName} = ${rt(
+              'FunctionPredicate'
+            )}(${desc}, ${fnRef})`
           } else {
             // Just a function reference, name as description
-            result += `const ${fpName} = FunctionPredicate('${fpName}', ${args})`
+            result += `const ${fpName} = ${rt(
+              'FunctionPredicate'
+            )}('${fpName}', ${args})`
           }
           i = k
           continue
@@ -2981,7 +3004,7 @@ export function transformGenericDeclarations(
           report
         )
         const fn = guard ?? `(${paramList}) => { ${body} }`
-        result += `const ${genericName} = Generic([${typeParams.join(
+        result += `const ${genericName} = ${rt('Generic')}([${typeParams.join(
           ', '
         )}], ${fn}, '${description}')`
       } else {
@@ -2998,9 +3021,9 @@ export function transformGenericDeclarations(
                 .filter(Boolean)
             )
           : null
-        result += `const ${genericName} = Generic([${typeParams.join(', ')}], ${
-          derived ?? '() => true'
-        }, '${description}')`
+        result += `const ${genericName} = ${rt('Generic')}([${typeParams.join(
+          ', '
+        )}], ${derived ?? '() => true'}, '${description}')`
       }
 
       i = blockEnd
@@ -3081,9 +3104,9 @@ export function transformUnionDeclarations(
         // Parse values: 'a' | 'b' | 'c' or "a" | "b" or mixed
         const values = parseUnionValues(blockBody)
         declaredTypes?.add(unionName)
-        result += `const ${unionName} = Union('${description}', [${values.join(
-          ', '
-        )}])`
+        result += `const ${unionName} = ${rt(
+          'Union'
+        )}('${description}', [${values.join(', ')}])`
         i = blockEnd
         continue
       } else {
@@ -3096,9 +3119,9 @@ export function transformUnionDeclarations(
         if (inlineValues) {
           const values = parseUnionValues(inlineValues)
           declaredTypes?.add(unionName)
-          result += `const ${unionName} = Union('${description}', [${values.join(
-            ', '
-          )}])`
+          result += `const ${unionName} = ${rt(
+            'Union'
+          )}('${description}', [${values.join(', ')}])`
           i = lineEnd
           continue
         }
@@ -3211,7 +3234,9 @@ export function transformEnumDeclarations(
         .join(', ')
 
       declaredTypes?.add(enumName)
-      result += `const ${enumName} = Enum('${description}', { ${membersStr} })`
+      result += `const ${enumName} = ${rt(
+        'Enum'
+      )}('${description}', { ${membersStr} })`
       i = blockEnd
       continue
     }
@@ -3428,7 +3453,7 @@ export function transformExtendDeclarations(source: string): {
       // and what stops this being a feature that silently only works when someone happens
       // to have called `installRuntime()`.
       if (m.name === 'asCompared') {
-        replacement += `${indent}if (typeof __ac !== 'undefined') { __ac['${typeName}'] = __ext_${typeName}.asCompared }\n`
+        replacement += `${indent}if (typeof ${RT_NS} !== 'undefined' && ${RT_NS}.__ac) { ${RT_NS}.__ac['${typeName}'] = __ext_${typeName}.asCompared }\n`
       }
     }
 

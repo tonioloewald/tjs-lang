@@ -114,6 +114,7 @@ import {
   hashbangOf,
 } from '../../strip-comments'
 import { UNWRAP_BOXED_SOURCE } from '../../unwrap-boxed'
+import { RT_NS } from '../rt-namespace'
 import { extractTests } from '../tests'
 import {
   runAllTests,
@@ -2090,8 +2091,21 @@ export function transpileToJS(
       )
     }
 
-    // Build preamble: inline functions are declared at module scope,
-    // then __tjs either uses the shared runtime or references the inlined ones.
+    // Build preamble: the inline runtime is declared inside ONE IIFE bound to `__tjs_rt`,
+    // and generated code reaches it through that name.
+    //
+    // These declarations used to sit at MODULE scope under their plain names, which put
+    // `Eq`, `Is`, `Type`, `MonadicError` and a dozen more into the user's own namespace. A
+    // file that imported any of them and also used the corresponding syntax got two
+    // top-level bindings of one name — a `SyntaxError` at LOAD time in Node, before a line
+    // of it runs (#39; the dogfood gate counted thirteen such names and ten suites that
+    // failed to load at all). Wrapping them changes nothing about the bodies: they call
+    // each other by bare name inside the IIFE exactly as before, so `NotEq` still reaches
+    // `Eq` and `Eq` still reaches `__ub`/`__proj`.
+    //
+    // See `../rt-namespace.ts` for why this cannot be a rename applied afterwards, and why
+    // the namespace is NOT `__tjs` (which is the shared runtime when one is installed —
+    // routing through it would silently change which implementation runs).
     const inlineBlock =
       inlineParts.length > 0 ? inlineParts.join(';\n') + ';\n' : ''
 
@@ -2115,13 +2129,85 @@ export function transpileToJS(
     if (needsCheckFnShape) fallbackEntries.push('checkFnShape')
     if (needsBang) fallbackEntries.push('bang')
 
+    // What the IIFE hands back. Mirrors the `needs*` flags above one-for-one, exactly as
+    // `fallbackEntries` does — and is kept honest by `rt-namespace.test.ts`, which parses
+    // the emitted preamble and fails if anything declared inside is not reachable through
+    // `__tjs_rt`. A silently-unexported helper would be a `ReferenceError` at first call,
+    // which is the failure mode this whole change exists to remove.
+    const rtExports: string[] = []
+    if (needsMonadicCore)
+      rtExports.push('MonadicError', 'typeError', 'isMonadicError')
+    if (needsStack) rtExports.push('pushStack', 'popStack', 'getStack')
+    // `__proj` is reached from OUTSIDE the IIFE by the two `__tjs` rebindings below.
+    if (needsProjection) rtExports.push('__ub', '__proj', '__ac')
+    if (needsEq) rtExports.push('Eq')
+    if (needsNotEq) rtExports.push('NotEq')
+    if (needsLegacyEquals) rtExports.push('DangerousLegacyEquals')
+    if (needsLegacyNot) rtExports.push('DangerousLegacyNot')
+    if (needsLegacyExactly) rtExports.push('LegacyExactly')
+    if (needsLegacyNotExactly) rtExports.push('LegacyNotExactly')
+    if (needsLegacyDefault) rtExports.push('LegacyDefault')
+    if (needsTypeOf) rtExports.push('TypeOf')
+    if (needsIs) rtExports.push('Is', 'tjsEquals')
+    if (needsIsNot) rtExports.push('IsNot')
+    if (needsExampleSchema) rtExports.push('__ex2js')
+    if (needsOneOf) rtExports.push('__oneOf')
+    if (needsType || needsGeneric) rtExports.push('__match')
+    if (needsType) rtExports.push('Type')
+    if (needsGeneric) rtExports.push('Generic')
+    if (needsFunctionPredicate) rtExports.push('FunctionPredicate')
+    if (needsEnum) rtExports.push('Enum')
+    if (needsUnion) rtExports.push('Union')
+    if (needsExactly) rtExports.push('Exactly')
+    if (needsToBool) rtExports.push('toBool')
+    if (needsSwKey) rtExports.push('swKey')
+    if (needsCheckFnShape) rtExports.push('checkFnShape')
+    if (needsBang) rtExports.push('bang')
+
+    const rtBlock = `const ${RT_NS} = (() => {\n${inlineBlock}return {${rtExports.join(
+      ','
+    )}};\n})();\n`
+
+    // Bare aliases for the ambient surface — emitted ONLY for names this module does not
+    // already bind at top level.
+    //
+    // TJS's user-facing surface includes callables the author never imports: `Is(a, b)` and
+    // `IsNot(a, b)`, `DangerousLegacyEquals(a, b)`, `LegacyDefault({…})`, `Exactly('a')`,
+    // and the `Type`/`Generic`/`Enum`/`Union`/`FunctionPredicate` family are all documented
+    // as simply available (`CLAUDE-TJS-SYNTAX.md`). They were available precisely BECAUSE
+    // the preamble declared them at module scope, so moving the declarations inside the
+    // IIFE would have silently deleted a documented part of the language. The aliases put
+    // it back — for every file except the ones where it would collide.
+    //
+    // The `!topBound` gate is the whole fix, and it works because it asks a decidable
+    // question. "Is this `Eq(` ours or the author's?" is undecidable once preamble and user
+    // code are one string; "did the author bind `Eq` at top level?" is a fact about their
+    // AST. Generated call sites go through `__tjs_rt` either way, so declining an alias
+    // never changes what compiled code does — it only stops offering a binding the author
+    // has already taken.
+    //
+    // `__`-prefixed helpers get no alias: those are the emitter's own namespace, never part
+    // of the surface, and nothing outside the preamble referred to them by bare name.
+    //
+    // On a parse failure `collectNames` returns null and every alias is emitted, which is
+    // exactly what this code did before there was a gate. Output that does not parse is
+    // already broken; this is not the pass that should start editing it.
+    const userTopBound = collectNames(code)?.topBound ?? new Set<string>()
+    const aliased = rtExports.filter(
+      (n) => !n.startsWith('__') && !userTopBound.has(n)
+    )
+    const aliasBlock = aliased.length
+      ? aliased.map((n) => `const ${n} = ${RT_NS}.${n};`).join('') + '\n'
+      : ''
+
     const fallbackObj =
       fallbackEntries.length > 0
-        ? `{${fallbackEntries.join(',')}}`
+        ? `{${fallbackEntries.map((n) => `${n}:${RT_NS}.${n}`).join(',')}}`
         : 'undefined'
 
     const preamble =
-      inlineBlock +
+      rtBlock +
+      aliasBlock +
       `const __tjs = globalThis.__tjs?.createRuntime?.() ?? ${fallbackObj};\n` +
       // Bind truthiness to THIS FILE's projection table.
       //
@@ -2134,12 +2220,12 @@ export function transpileToJS(
       // Overriding the instance's own method is the fix that keeps both properties: all
       // three comparators read one table, and the table is this file's.
       (needsProjection
-        ? `const __tjsToBool = __tjs.toBool; __tjs.toBool = function(v){ return __tjsToBool(__proj(v)) };\n`
+        ? `const __tjsToBool = __tjs.toBool; __tjs.toBool = function(v){ return __tjsToBool(${RT_NS}.__proj(v)) };\n`
         : '') +
       // Same rebinding, same reason: a shared `swKey` cannot see this file's `__ac`, so a
       // `switch` would dispatch on an unprojected value while `==` in the same file did not.
       (needsSwKey
-        ? `const __tjsSwKey = __tjs.swKey; __tjs.swKey = function(v){ return __tjsSwKey(__proj(v)) };\n`
+        ? `const __tjsSwKey = __tjs.swKey; __tjs.swKey = function(v){ return __tjsSwKey(${RT_NS}.__proj(v)) };\n`
         : '')
 
     code = preamble + code
@@ -2872,7 +2958,7 @@ function generateTypeCheckExpr(
       // both are SameValueZero and would reject `new String('yes')` for `'yes' | 'no'`,
       // and `undefined` for a union containing `null`. `__oneOf` canonicalises the probe
       // the same way the members were canonicalised at inference time.
-      check = `!__oneOf(${fieldPath}, ${JSON.stringify(vals)})`
+      check = `!${RT_NS}.__oneOf(${fieldPath}, ${JSON.stringify(vals)})`
       break
     }
     case 'union': {
@@ -3219,12 +3305,25 @@ function generatePositionalValidation(
  * If the code cannot be parsed we inject nothing. It is about to fail to parse for the
  * caller too, and adding an import to broken output only obscures where the break is.
  */
-function addSafeEvalImports(code: string): string {
-  const CANDIDATES = ['Eval', 'SafeFunction'] as const
-
-  // Cheap pre-filter: skip the parse entirely for the overwhelming majority of modules.
-  if (!CANDIDATES.some((n) => code.includes(n))) return code
-
+/**
+ * Every name the module BINDS, and every name it CALLS as a bare identifier.
+ *
+ * Returns `null` when the source cannot be parsed — which callers must treat as "I do not
+ * know", never as "nothing is bound". The distinction matters: this drives two decisions
+ * (whether to inject an import, whether to emit a runtime alias) and both must decline
+ * rather than guess, because guessing produces a module that does not load.
+ *
+ * `bound` is scope-INSENSITIVE (a name bound anywhere counts) and drives the import
+ * decision. `topBound` is only the module's own top-level bindings, and drives the runtime
+ * aliases — because a module-scope `const Is = …` collides with a top-level binding and
+ * nothing else. A nested `function f(Type) {…}` shadows harmlessly inside `f` and must not
+ * cost the file its ambient `Type`, which is what the coarser set would have done.
+ */
+function collectNames(code: string): {
+  bound: Set<string>
+  called: Set<string>
+  topBound: Set<string>
+} | null {
   let program: Program
   try {
     program = acornParse(code, {
@@ -3233,7 +3332,7 @@ function addSafeEvalImports(code: string): string {
       allowReturnOutsideFunction: true,
     }) as unknown as Program
   } catch {
-    return code
+    return null
   }
 
   const bound = new Set<string>()
@@ -3287,7 +3386,67 @@ function addSafeEvalImports(code: string): string {
     }
   })
 
-  const needed = CANDIDATES.filter((n) => called.has(n) && !bound.has(n))
+  // Top-level bindings only — the set a module-scope `const` can actually collide with.
+  const topBound = new Set<string>()
+  const bindTop = (node: any): void => {
+    if (!node) return
+    const seen = new Set<string>()
+    const collect = (p: any): void => {
+      if (!p) return
+      switch (p.type) {
+        case 'Identifier':
+          seen.add(p.name)
+          break
+        case 'ObjectPattern':
+          for (const q of p.properties)
+            collect(q.type === 'RestElement' ? q.argument : q.value)
+          break
+        case 'ArrayPattern':
+          for (const el of p.elements) collect(el)
+          break
+        case 'AssignmentPattern':
+          collect(p.left)
+          break
+        case 'RestElement':
+          collect(p.argument)
+          break
+      }
+    }
+    switch (node.type) {
+      case 'ImportDeclaration':
+        for (const s of node.specifiers) topBound.add(s.local.name)
+        return
+      case 'FunctionDeclaration':
+      case 'ClassDeclaration':
+        if (node.id) topBound.add(node.id.name)
+        return
+      case 'VariableDeclaration':
+        for (const d of node.declarations) collect(d.id)
+        break
+      case 'ExportNamedDeclaration':
+      case 'ExportDefaultDeclaration':
+        bindTop(node.declaration)
+        return
+    }
+    for (const n of seen) topBound.add(n)
+  }
+  for (const stmt of (program as any).body ?? []) bindTop(stmt)
+
+  return { bound, called, topBound }
+}
+
+function addSafeEvalImports(code: string): string {
+  const CANDIDATES = ['Eval', 'SafeFunction'] as const
+
+  // Cheap pre-filter: skip the parse entirely for the overwhelming majority of modules.
+  if (!CANDIDATES.some((n) => code.includes(n))) return code
+
+  const names = collectNames(code)
+  if (!names) return code
+
+  const needed = CANDIDATES.filter(
+    (n) => names.called.has(n) && !names.bound.has(n)
+  )
   return needed.length
     ? `import { ${needed.join(', ')} } from 'tjs-lang';\n` + code
     : code

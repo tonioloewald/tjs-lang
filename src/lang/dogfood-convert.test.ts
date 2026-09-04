@@ -246,7 +246,12 @@ const report = (label: string, st: Stage, total: number) => {
  * tracks the corpus rather than a fixed target, which is why the promote-check exists: a gain
  * that is not locked in is slack a regression can occupy silently.
  */
-const GRADUATION_FLOOR = 110
+/*
+ * Raised to 112 on 2026-09-05 — the corpus grew by two more files (`rt-namespace.ts` and
+ * its sibling from the same change), and the whole corpus still converts, compiles,
+ * graduates AND keeps every export.
+ */
+const GRADUATION_FLOOR = 112
 
 /** Improve by this much and the test asks for the floor to be raised. */
 const RATCHET_SLACK = 2

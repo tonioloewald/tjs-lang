@@ -28,8 +28,13 @@ function inlineInstance(args: unknown[]): any {
   const emitted = tjs('export function f(v: 0): 0 { return v }', {
     runTests: false,
   }).code
-  const preludeLine = emitted.split('\n')[0]
-  expect(preludeLine).toContain('MonadicError')
+  // The declaration is inside the `__tjs_rt` IIFE now, so find it by name rather than by
+  // position. It used to be line 1; asserting a LINE NUMBER made this test a hostage of the
+  // preamble's layout, which is not what it is here to check.
+  const preludeLine = emitted
+    .split('\n')
+    .find((l) => l.includes('class MonadicError extends Error'))
+  expect(preludeLine).toBeDefined()
   const fn = new Function(
     'globalThis',
     `${preludeLine};return (...a) => new MonadicError(...a)`

@@ -14,7 +14,7 @@ describe('Generic predicate → verified fuel-bounded guard', () => {
     const out = src(
       `Generic Box<T> {\n  description: 'a boxed value'\n  predicate(x, T) { return typeof x === 'object' && x !== null && T(x.value) }\n}`
     )
-    expect(out).toContain('const Box = Generic(')
+    expect(out).toContain('const Box = __tjs_rt.Generic(')
     expect(out).toContain('__fuel') // verified as safe
     expect(out).toContain('checkT(') // type-param composition preserved
   })

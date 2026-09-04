@@ -14,9 +14,21 @@ a gap. Done as part of that:
 - Full `bun test` run with nothing skipped, LM Studio up.
 - Tag moved to HEAD and force-pushed; `scripts/prepublish-check.ts` passes.
 
-**Remaining, for Tonio:** plain `npm publish` (never `--otp`). Then tell tosijs-ui, which is
-still pinned to 0.13.4 in two places (UPSTREAM.md, tosijs-ui#135), and name the version when
-closing tjs-lang#51 — a fix is only reportable once it is installable.
+**Remaining, for Tonio:** publish 0.13.12 **from its tag**, because A3 has since landed on
+top of it and `main` is no longer 0.13.12's code:
+
+```
+git checkout v0.13.12 && npm publish && git checkout main    # plain publish, never --otp
+```
+
+`prepublish-check` passes in that detached HEAD (tag == HEAD, tree clean, pushed). Then tell
+tosijs-ui, which is still pinned to 0.13.4 in two places (UPSTREAM.md, tosijs-ui#135), and
+name the version when closing tjs-lang#51 — a fix is only reportable once it is installable.
+
+**And the next one is a MINOR, not a patch.** A3 changed the shape of every emitted file
+(the inline runtime moved into `__tjs_rt`), which is exactly the kind of thing a version
+number should announce even though no documented behaviour was removed. Recommend **0.14.0**;
+the `[Unreleased]` CHANGELOG entry is written and waiting for the number.
 
 # PLAN: verified-working language, then the tosijs-ui build system (2026-09-04)
 
@@ -51,27 +63,27 @@ dashboard number into this list.
       exact trap that file already records for the `os.tmpdir()` incident, recurring in a
       second form. Either relocate them properly or classify them out; do NOT leave them
       inflating the gap.
-- [ ] **A3 — emitted preamble names collide with user imports. NEXT, and sized 2026-09-04.**
-      Filed as [#39], which understates it: #39 names five (`Eq`/`Is`/`IsNot`/`NotEq`/`toBool`)
-      and the gate shows **thirteen** — add `Type`, `Generic`, `Union`, `Exactly`,
-      `FunctionPredicate`, `TypeOf`, `tjsEquals` and the `Legacy*` family.
-      **Ten suites fail to LOAD AT ALL** — a `SyntaxError` before any code runs, which is why
-      they clustered as only "6 failures": most of their tests never ran to be counted. Any
-      consumer who does `import { Eq } from 'tjs-lang/runtime'` in a file that also uses `==`
-      gets a module that does not evaluate.
-      **APPROACH DECIDED, not yet implemented.** Do NOT do the name-by-name prefixing #39
-      implies. Emit the inline preamble as ONE object and have generated code call
-      `__tjs_rt.Eq(…)`: - closes the collision for EVERY user name, not the thirteen we happen to know about; - keeps CLAUDE.md's rule intact — the inline stub still always wins for
-      compiler-generated code — while letting an explicit `import { Eq }` coexist, which
-      is what the user asked for by importing it; - the thing CLAUDE.md forbids is making the stub DEFER to a loaded runtime. This does
-      not do that.
-      **Scale:** ~95 generation sites across `src/lang/emitters/*.ts` and `parser-transforms.ts`
-      (`Type` 23, `FunctionPredicate` 15, `Eq` 8, `Generic` 8, `Exactly` 8, `TypeOf` 8, `Is` 7,
-      `NotEq`/`IsNot` 6, `Union` 4, `toBool` 2 — counts are grep-level, expect false positives).
-      The rename must happen at GENERATION time: after emission a compiler-generated `Eq(` and
-      a user's own `Eq(` are indistinguishable, so a post-pass would rewrite the user's too.
-      **Wants the compat lane and a full run behind it** — this is a wide mechanical change to
-      the emitter, not a tail-of-session edit. Deliberately not started half-done.
+- [x] **A3 — emitted preamble names collide with user imports. DONE 2026-09-05.**
+      Filed as [#39], which understated it: #39 named five and the gate showed thirteen.
+      **Ten suites failed to LOAD AT ALL** — a `SyntaxError` before any code runs — which is
+      why they clustered as only "6 failures": most of their tests never ran to be counted.
+      Fixed as planned: the inline runtime is one `__tjs_rt` IIFE and generated code calls
+      `__tjs_rt.Eq(…)`. Bodies untouched (they still call each other by bare name inside the
+      IIFE), so it is a scoping change, not a rewrite.
+      **One thing the sizing missed, and it changed the design.** These names are not purely
+      compiler-generated — `Is(a, b)`, `DangerousLegacyEquals(a, b)`, `LegacyDefault({…})`,
+      `Exactly('a')` and the type constructors are DOCUMENTED as ambient
+      (`CLAUDE-TJS-SYNTAX.md`), and they were ambient precisely because the preamble declared
+      them at module scope. Namespacing alone would have silently deleted a documented part
+      of the language. So emitted files still bind them — but only when the author has not
+      bound the name themselves, read off their AST. That question is decidable where "is
+      this `Eq(` ours or theirs?" is not, which is the entire trick.
+      **Result: 1076 assertions lost → 313, 38 broken tests → 30.** The gap between those
+      two numbers is worth keeping: a LOAD-time failure is under-reported by any metric
+      denominated in tests, by roughly the size of the file. Read assertions, not tests, when
+      deciding where the remaining gap is.
+      Guarded by `src/lang/rt-namespace.test.ts` (no collision / ambient names still work /
+      nothing inside the IIFE unreachable, with an apparatus check).
 
       [#39]: https://github.com/tonioloewald/tjs-lang/issues/39
 

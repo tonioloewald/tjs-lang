@@ -47,13 +47,21 @@ added in 0.13.6 for exactly this shape (#33).
 
 The one thing to know before reading further, because it inverts the obvious reading:
 
-> Emitted JS declares its own `Type`/`Generic`/`Enum`/`Union`/`FunctionPredicate` and calls
-> them **bare**, so the inline stub always wins — even when a full runtime is installed.
+> Emitted JS declares its own `Type`/`Generic`/`Enum`/`Union`/`FunctionPredicate` inside a
+> per-file `__tjs_rt` object and calls them **through it**, so the inline stub always wins —
+> even when a full runtime is installed.
 
 So #2 is not a degraded path taken when `globalThis.__tjs` is missing. **It is the shipped
 semantics of every emitted file**, and #1's stricter answer is unreachable from emitted
 code. `CLAUDE.md` states this under "The inline runtime is NOT the real runtime"; it is
 repeated here because it is the fact that makes the disagreements below matter.
+
+The namespace changed when the preamble moved into `__tjs_rt` (#39); the property did not. These were module-scope
+declarations called by bare name, which made them collide with any identically-named import
+the author wrote (#39, `src/lang/rt-namespace.ts`). They are now scoped to the file's own
+runtime object — which is deliberately NOT `__tjs`, since `__tjs` resolves to the shared
+runtime when one is installed and routing through it is precisely the "improvement" that
+would swap the semantics this page exists to document.
 
 It also makes them easy to mis-measure. Probing an emitted function with and without
 `globalThis.__tjs` returns the same answer both times — which reads as agreement and is

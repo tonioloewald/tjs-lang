@@ -204,12 +204,12 @@ describe('Type X<T> subsumes Generic X<T>', () => {
 
   it('accepts the Type spelling', () => {
     const code = tjs(`Type Box<T> ${BODY}`, { runTests: false }).code
-    expect(code).toContain('const Box = Generic(')
+    expect(code).toContain('const Box = __tjs_rt.Generic(')
   })
 
   it('still accepts the deprecated Generic spelling', () => {
     const code = tjs(`Generic Box<T> ${BODY}`, { runTests: false }).code
-    expect(code).toContain('const Box = Generic(')
+    expect(code).toContain('const Box = __tjs_rt.Generic(')
   })
 
   it('emits identical code for both spellings', () => {
@@ -226,8 +226,8 @@ describe('Type X<T> subsumes Generic X<T>', () => {
       `Type Even {\n  example: 2\n  predicate(x) { return x % 2 === 0 }\n}`,
       { runTests: false }
     ).code
-    expect(code).toContain('const Even = Type(')
-    expect(code).not.toContain('const Even = Generic(')
+    expect(code).toContain('const Even = __tjs_rt.Type(')
+    expect(code).not.toContain('const Even = __tjs_rt.Generic(')
   })
 
   it('registers a parameterized type name for annotation resolution', () => {

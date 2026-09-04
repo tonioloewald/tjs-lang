@@ -619,6 +619,7 @@ describe('Bootstrap Canary', () => {
       const langDir = path.join(import.meta.dir, '../lang')
       const listed = [
         'parser-types.ts',
+        'rt-namespace.ts',
         'declared-classes.ts',
         'expression-context.ts',
         'parser-params.ts',
@@ -654,6 +655,7 @@ describe('Bootstrap Canary', () => {
       const langDir = path.join(import.meta.dir, '../lang')
       const moduleFiles = [
         'parser-types.ts',
+        'rt-namespace.ts',
         'declared-classes.ts',
         'expression-context.ts',
         'parser-params.ts',
@@ -742,7 +744,7 @@ describe('Bootstrap Canary', () => {
           example: { name: '', age: 0 }
         }
       `)
-      expect(result5.source).toContain('const User = Type(')
+      expect(result5.source).toContain('const User = __tjs_rt.Type(')
 
       // Test Generic declaration transformation
       const result6 = parserModule.preprocess(`
@@ -751,7 +753,7 @@ describe('Bootstrap Canary', () => {
           predicate(x, T) { return T(x.value) }
         }
       `)
-      expect(result6.source).toContain('const Box = Generic(')
+      expect(result6.source).toContain('const Box = __tjs_rt.Generic(')
 
       // Test Is/IsNot operators
       const result7 = parserModule.preprocess(`
@@ -787,6 +789,7 @@ describe('Bootstrap Canary', () => {
       const langDir = path.join(import.meta.dir, '../lang')
       const moduleFiles = [
         'parser-types.ts',
+        'rt-namespace.ts',
         'declared-classes.ts',
         'expression-context.ts',
         'parser-params.ts',

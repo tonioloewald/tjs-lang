@@ -16,11 +16,21 @@ import { describe, it, expect } from 'bun:test'
 import { tjs } from './index'
 import { createRuntime } from './runtime'
 
-/** Pull the emitted `__arrKinds` out of real transpiler output and make it callable. */
+/**
+ * Pull the emitted `__arrKinds` out of real transpiler output and make it callable.
+ *
+ * Lifted out by its declaration rather than by appending `return __arrKinds` to the whole
+ * module: the inline runtime lives inside the `__tjs_rt` IIFE now (see `rt-namespace.ts`),
+ * so its internals are no longer module-scope bindings. `__arrKinds` is deliberately not
+ * part of the `__tjs_rt` surface — it is an implementation detail of `typeError`, and
+ * exporting it to satisfy a test would widen the runtime's API for no runtime reason. Same
+ * approach as `monadic-error-fusion.test.ts`.
+ */
 function inlineArrKinds(): (v: unknown[]) => string {
   const code = tjs(`function f(xs: [0]):! 0 { return xs.length }\n`).code
-  expect(code).toContain('function __arrKinds')
-  return new Function(code + '\nreturn __arrKinds')() as any
+  const decl = code.split('\n').find((l) => l.includes('function __arrKinds'))
+  expect(decl).toBeDefined()
+  return new Function(`${decl}\nreturn __arrKinds`)() as any
 }
 
 /** The runtime's answer, reached through a real validation failure. */

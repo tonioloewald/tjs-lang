@@ -25,6 +25,7 @@ import * as walk from 'acorn-walk'
 // ReDoS star-height detection lives in the shared, dependency-free `src/redos.ts`
 // so the predicate verifier and the VM's regexMatch reject the same shapes.
 import { reDoSRisk } from '../redos'
+import { RT_NS } from './rt-namespace'
 
 export interface PredicateDiagnostic {
   /** Name of the predicate the problem is in. */
@@ -94,6 +95,30 @@ const PURE_NAMESPACES = new Set([
 
 /** Static members that are NOT pure even on a pure namespace. */
 const EFFECTFUL_STATICS = new Set(['Math.random', 'Date.now'])
+
+/**
+ * The inline-runtime helpers a native-TJS predicate body can legitimately contain.
+ *
+ * The rewrites listed above (`==` → `Eq`, `typeof` → `TypeOf`, …) emit `__tjs_rt.Eq(…)`
+ * rather than a bare `Eq(…)`, because a bare name would collide with the author's own
+ * bindings (see `rt-namespace.ts`). The verifier has to recognise the namespaced form or it
+ * fails CLOSED on the most ordinary predicate there is — one that uses `==` — and quietly
+ * downgrades it from verified to unverified.
+ *
+ * Deliberately NOT the whole namespace: `__tjs_rt` also carries `typeError` (which writes
+ * to the flight recorder) and `bang`. Allowlisted by name, so adding a helper to the
+ * runtime cannot widen what counts as pure by accident.
+ */
+const PURE_RT_HELPERS = new Set([
+  'Eq',
+  'NotEq',
+  'Is',
+  'IsNot',
+  'TypeOf',
+  'toBool',
+  '__oneOf',
+  '__match',
+])
 
 /**
  * Instance methods known to be pure regardless of receiver type. A method call
@@ -309,6 +334,10 @@ export function verifyPredicate(
           const recv = callee.object
           if (recv.type === 'Identifier' && effectful.has(recv.name)) {
             flag(`'${recv.name}.${method}' is effectful`, callee)
+          } else if (recv.type === 'Identifier' && recv.name === RT_NS) {
+            if (!PURE_RT_HELPERS.has(method))
+              flag(`'${RT_NS}.${method}' is not a verified-pure helper`, callee)
+            // else a TJS-injected pure helper — OK
           } else if (
             recv.type === 'Identifier' &&
             PURE_NAMESPACES.has(recv.name)

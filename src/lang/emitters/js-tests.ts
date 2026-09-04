@@ -762,7 +762,20 @@ export function runAllTests(
   // == / != / typeof source-level transforms applied to test bodies in js.ts.
   // The module's own destructuring may not include them (if the module never
   // uses ==), so each test block re-destructures into its own block scope.
-  const testRuntimeImports = `const { Is, IsNot, Eq, NotEq, TypeOf } = globalThis.__tjs ?? {};`
+  //
+  // `__tjs_rt` is bound to the same object for the same reason: those transforms now emit
+  // `__tjs_rt.Eq(…)` rather than a bare `Eq(…)` (see `../rt-namespace.ts`), and a test body
+  // is executed HERE, not inside the emitted module, so it never sees the module's
+  // preamble. Without this every `==` inside a `test` block died with
+  // `__tjs_rt is not defined` — which is what the three footgun examples reported.
+  //
+  // Pointing it at the shared runtime keeps the existing behaviour exactly: test bodies
+  // have always resolved these off `globalThis.__tjs` while the module body used the inline
+  // stubs. That divergence is real and documented (`docs/type-identity.md`); this change is
+  // not the place to close it.
+  const testRuntimeImports =
+    `const { Is, IsNot, Eq, NotEq, TypeOf } = globalThis.__tjs ?? {};` +
+    `const __tjs_rt = globalThis.__tjs ?? {};`
 
   // Build test execution code that runs all tests in sequence
   const testBodies = tests
