@@ -5,7 +5,13 @@ All notable changes to **tjs-lang** are documented here.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [0.13.12] — 2026-09-04
+
+Four defects of one class: a pass that misreads code which merely MENTIONS the syntax it is
+scanning for. Three of them changed emitted output with no error and no warning, and each was
+found somewhere other than where it did its damage. Two came from the dogfood lanes, one from a
+consumer's build failing to link, and one from asking whether the shared scanner had the same
+bug as the copy that had just been fixed. It did.
 
 ### Fixed
 
