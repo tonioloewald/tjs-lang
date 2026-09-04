@@ -5,7 +5,11 @@ import { generateDocs } from './docs'
 import { generateDTS } from './emitters/dts'
 import { lint } from './linter'
 import { fromTS } from './emitters/from-ts'
-import { maskWasmBodies, unmaskWasmBodies } from './parser-transforms'
+import {
+  maskWasmBodies,
+  unmaskWasmBodies,
+  transformBangAccess,
+} from './parser-transforms'
 import { preprocess } from './parser'
 import { commentSafe } from '../strip-comments'
 import { readFileSync, readdirSync, statSync } from 'node:fs'
@@ -913,4 +917,100 @@ describe('a `$` in a name does not defeat the transforms', () => {
       if (src.includes(': 0')) expect(out).toContain('= 0')
     })
   }
+})
+
+describe('bang access is code, not text — and `${}` must not desync the scan', () => {
+  // `transformBangAccess` hand-rolled its own literal state machine, and the `${ … }` arm
+  // set state to 'normal' with nothing to set it back. From a template's FIRST substitution
+  // onward the rest of that template was scanned as code, so its closing backtick was read
+  // as an opening one and every literal after it in the file carried inverted parity.
+  //
+  // The damage is the worst shape this class produces: not a wrong answer at the offending
+  // line, but a rewrite tens of lines away that injects UNESCAPED QUOTES into a string —
+  //
+  //     ['bang access', 'function f(o) { return o!.a }']
+  //  -> ['bang access', 'function f(o) { return __tjs.bang(o,'a') }']
+  //
+  // — so the parse dies at a position that has nothing to do with the cause. This cost a
+  // session of bisection because every construct converted fine in isolation: the trigger
+  // was a template literal 33 lines earlier.
+  const BANG = ['o', '!', '.a'].join('')
+
+  for (const [where, hide] of HIDING_PLACES) {
+    it(`${where}: the bang comes out byte-identical`, () => {
+      const src = hide(`function f(o) { return ${BANG} }`)
+      expect(transformBangAccess(src)).toBe(src)
+    })
+
+    it(`${where}: still byte-identical after a template with a substitution`, () => {
+      // The regression that actually shipped. The row above passes even with the bug,
+      // because nothing has desynced the scanner yet.
+      const src = `const t = \`a\${x}b\`\n${hide(
+        `function f(o) { return ${BANG} }`
+      )}`
+      expect(transformBangAccess(src)).toBe(src)
+    })
+  }
+
+  it('a regex containing a quote does not open a phantom string', () => {
+    const src = `const r = /['\`]/\nconst s = 'return ${BANG}'`
+    expect(transformBangAccess(src)).toBe(src)
+  })
+
+  it('a division after a value is not read as a regex (control)', () => {
+    // The regex guard must not swallow real code: over-eager, `a / b … /` would consume
+    // the span between two divisions and hide any bang inside it.
+    const out = transformBangAccess('const q = a / b\nconst c = x!.foo')
+    expect(out).toContain(`__tjs.bang(x,'foo')`)
+  })
+
+  // Controls. Every assertion above is satisfied by a transform that does nothing at all.
+  const REAL: Array<[string, string, string]> = [
+    ['a bare bang', 'const a = x!.foo', `__tjs.bang(x,'foo')`],
+    [
+      'a chained bang',
+      'const a = x!.foo!.bar',
+      `__tjs.bang(__tjs.bang(x,'foo'),'bar')`,
+    ],
+    [
+      'inside a template substitution',
+      'const s = `v=${o!.a}`',
+      `\`v=\${__tjs.bang(o,'a')}\``,
+    ],
+    [
+      'inside a NESTED template substitution',
+      'const s = `a${ `b${ c!.d }e` }f`',
+      `__tjs.bang(c,'d')`,
+    ],
+    [
+      'after a template that closed',
+      'const s = `a${b}c`\nconst d = x!.foo',
+      `__tjs.bang(x,'foo')`,
+    ],
+    [
+      'after an object literal inside a substitution',
+      'const s = `${ {a:1}.a }`\nconst z = x!.foo',
+      `__tjs.bang(x,'foo')`,
+    ],
+  ]
+  for (const [label, src, expected] of REAL) {
+    it(`${label}: is still transformed`, () => {
+      expect(transformBangAccess(src)).toContain(expected)
+    })
+  }
+
+  it('the whole thing through the public path', () => {
+    // A template with a substitution, then a bang quoted as data, then a real bang — the
+    // file shape that broke. Through `tjs()`, because that is what a consumer runs.
+    const src = [
+      'function f(o: 0) {',
+      '  const label = `n=${o}`',
+      `  const quoted = 'return ${BANG}'`,
+      '  return label.length + quoted.length',
+      '}',
+    ].join('\n')
+    const out = tjs(src, { filename: 'a.tjs', runTests: false }).code
+    expect(out).toContain(`'return ${BANG}'`)
+    expect(out).not.toContain('__tjs.bang')
+  })
 })

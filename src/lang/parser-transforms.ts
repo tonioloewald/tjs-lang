@@ -12,6 +12,8 @@ import {
   scanLiterals,
   matchingBrace,
   splitTopLevelTrimmed,
+  isRegexStart,
+  findRegexEnd,
 } from '../strip-comments'
 import {
   constructsDeclaredClass,
@@ -5134,7 +5136,20 @@ export function transformBangAccess(source: string): string {
     | 'line-comment'
     | 'block-comment'
   let state: State = 'normal'
-  let templateDepth = 0
+  /**
+   * One frame per template literal we are currently inside, innermost last, each holding
+   * the brace depth reached within its ACTIVE `${ … }` substitution.
+   *
+   * A bare depth counter is not enough, and the bug it produced is worth recording. Entering
+   * `${` switched the scanner to 'normal' and **nothing ever switched it back**, so from the
+   * first substitution onward the rest of that template was scanned as code — and its
+   * CLOSING backtick was then read as an OPENING one. Every literal after that point in the
+   * file carried inverted parity. In `eval-no-transpile-execution.test.ts` that turned
+   * `'function f(o) { return o!.a }'` — a bang quoted as test DATA — into
+   * `'function f(o) { return __tjs.bang(o,'a') }'`, injecting bare quotes into a
+   * single-quoted string and failing the parse ~75 lines from the desync that caused it.
+   */
+  const templates: Array<{ braces: number }> = []
 
   while (i < source.length) {
     const ch = source[i]
@@ -5168,10 +5183,39 @@ export function transformBangAccess(source: string): string {
       }
       if (ch === '`') {
         state = 'string-template'
-        templateDepth++
+        templates.push({ braces: 0 })
         result += ch
         i++
         continue
+      }
+
+      // A regex literal is not code either, and `/['"`]/` would otherwise open a phantom
+      // string that swallows the rest of the file. Checked AFTER `//` and `/*` above,
+      // because those are always comments in JavaScript.
+      if (ch === '/' && isRegexStart(result)) {
+        const close = findRegexEnd(source, i)
+        if (close !== -1) {
+          result += source.slice(i, close + 1)
+          i = close + 1
+          continue
+        }
+      }
+
+      // Inside a `${ … }` substitution the matching `}` ends it and returns us to the
+      // template body. Depth is tracked per template, so a nested template's substitutions
+      // resolve against their own frame rather than a shared counter.
+      if (templates.length > 0) {
+        const top = templates[templates.length - 1]!
+        if (ch === '{') top.braces++
+        else if (ch === '}') {
+          if (top.braces === 0) {
+            state = 'string-template'
+            result += ch
+            i++
+            continue
+          }
+          top.braces--
+        }
       }
 
       // Detect bang access: ! followed by . followed by a word char (not digit)
@@ -5243,12 +5287,15 @@ export function transformBangAccess(source: string): string {
         result += next || ''
         i += 2
       } else if (ch === '`') {
-        templateDepth--
-        state = templateDepth > 0 ? 'string-template' : 'normal'
+        templates.pop()
+        // Closing a template always lands in code — either at the top level, or back inside
+        // the `${ … }` of an enclosing template, which is code too.
+        state = 'normal'
         i++
       } else if (ch === '$' && next === '{') {
         result += next
         i += 2
+        if (templates.length > 0) templates[templates.length - 1]!.braces = 0
         state = 'normal'
       } else {
         i++

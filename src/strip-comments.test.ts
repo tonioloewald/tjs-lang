@@ -264,3 +264,52 @@ describe('matchingBrace handles every bracket kind', () => {
     expect(at('abc')).toBe(-1)
   })
 })
+
+describe('a template ends past its own substitutions', () => {
+  /**
+   * The interior of `${ … }` is code, and code can contain backticks. Scanning for the next
+   * bare backtick ended the template at the wrong one, and the damage is not local: from
+   * there on, code was masked and later literals were exposed as code, so any pass consuming
+   * this scanner acted on inverted parity for the rest of the file.
+   *
+   * The assertion is on the MASK rather than the region list, because that is what the twelve
+   * consumers actually read, and because a wrong end shows up there as the tail of the file
+   * flipping — visible, where an off-by-one on `end` is not.
+   */
+  const T = '`'
+
+  const cases: Array<[string, string]> = [
+    ['a backtick in a double-quoted string', `const s = \`a\${ "${T}" }b\``],
+    ['a backtick in a single-quoted string', `const s = \`a\${ '${T}' }b\``],
+    ['a backtick in a line comment', `const s = \`a\${ x // ${T}\n }b\``],
+    ['a backtick in a block comment', `const s = \`a\${ /* ${T} */ x }b\``],
+    ['a nested template', 'const s = `a${ `inner${ y }` }b`'],
+    ['a brace inside the substitution', 'const s = `a${ {k:1}.k }b`'],
+    ['two substitutions', 'const s = `a${ x }m${ y }b`'],
+  ]
+
+  for (const [label, prefix] of cases) {
+    it(`${label}: the literal AFTER it is still seen as a literal`, () => {
+      const src = `${prefix}\nconst t = "after"`
+      const masked = maskLiterals(src)
+      // The trailing string is masked (so it is still data) and its delimiters survive
+      // (so the mask preserved offsets rather than eating the line).
+      expect(masked.endsWith('const t = "     "')).toBe(true)
+      // And the code between them was NOT swallowed.
+      expect(masked).toContain('const t = ')
+    })
+  }
+
+  it('an unterminated template still terminates the scan', () => {
+    // No closing backtick at all: the region must run to end-of-source, not loop.
+    const masked = maskLiterals('const s = `a${ x }b')
+    expect(masked.startsWith('const s = `')).toBe(true)
+    expect(masked).not.toContain('x')
+  })
+
+  it('the substitution interior is still masked (unchanged contract)', () => {
+    // This fix moved where a template ENDS. It deliberately did not make `${ … }` visible
+    // to consumers — that would be a much larger behaviour change.
+    expect(maskLiterals('const s = `a${ ident }b`')).not.toContain('ident')
+  })
+})

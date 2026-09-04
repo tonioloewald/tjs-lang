@@ -5,6 +5,41 @@ All notable changes to **tjs-lang** are documented here.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Fixed
+
+- **A template literal's first `${ … }` desynchronised the bang-access transform for the rest
+  of the file.** `transformBangAccess` hand-rolled its own literal tracking, and its `${` arm
+  switched to code and never switched back. From the first substitution onward the remainder
+  of that template was scanned as code, so its closing backtick was read as an _opening_ one
+  and every literal after it carried inverted parity — a `!.` quoted as data was then rewritten
+  in place:
+
+  ```
+  ['bang access', 'function f(o) { return o!.a }']
+  ->  ['bang access', 'function f(o) { return __tjs.bang(o,'a') }']
+  ```
+
+  which injects bare quotes into a single-quoted string and fails the parse tens of lines from
+  the cause. The scanner now keeps one frame per template, so `${ … }` returns to the template
+  body at its matching `}` (correct through nesting), and it skips regex literals, which could
+  open a phantom string the same way. Bang access inside a substitution — `` `${o!.a}` `` —
+  still transforms, now including nested templates, where previously only the first
+  substitution behaved.
+
+  This is the literal-blindness class (`docs`: `src/lang/literal-blindness.test.ts`), and it is
+  the last entry but one on the dogfood conversion ratchet: `lang/eval-no-transpile-execution.test.ts`
+  now converts, taking `KNOWN_CONVERSION_FAILURES` from two back to one.
+
+- **The shared literal scanner had the same defect, with twelve consumers.** `scanLiterals`
+  ended a template at the next bare backtick, so `` `${ x === "`" ? a : b }` `` ended at the
+  quoted one — and from there the mask inverted: code masked, later literals exposed. Template
+  ends are now found past their own `${ … }` substitutions, through nesting, strings and
+  comments. What consumers see masked is unchanged: a substitution's interior stays blanked,
+  which is a separate and much wider decision. Regex literals inside a substitution remain
+  untracked, and the limitation is now stated at the function rather than left implicit.
+
 ## [0.13.11] — 2026-09-04
 
 Three findings from the 0.13.10 pre-release review, all pre-existing, none introduced by

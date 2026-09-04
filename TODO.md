@@ -3414,25 +3414,45 @@ remember, not the individual bugs.
 
 ### Converter bug found while remediating (new, not from the review)
 
-- [ ] **`lang/eval-no-transpile-execution.test.ts` stopped converting** and had to be added to
-      `KNOWN_CONVERSION_FAILURES` — the dogfood ratchet went from one known failure to two,
-      which is the wrong direction and should not be left.
-      **What is known:** it converted cleanly at `v0.13.9` and stopped when the 0.13.10
-      `vmTarget`-refusal test was added; bisection confirms removing that block restores
-      conversion. **Every component reproduced in isolation converts fine** — the `test`-block
-      payload in a template literal, the arrow array with `as any`, the `/vmTarget/` regex, the
-      destructured `await import`, and backtick-quoted `import` mentions in comments were each
-      tested separately and all pass. So it is an interaction across the whole file, not a
-      construct.
-      **The diagnostic is actively misleading:** the reported position (`199:62`) lands
-      mid-word inside an ordinary prose comment, which is why isolation kept coming back clean
-      and why this cost more time than it should have. Almost certainly the literal-blindness
-      family — this file is unusually dense with TJS syntax quoted as test data, which is
-      exactly the `wasm.test.ts` entry's shape.
-      Fix the converter, then DELETE the known-failure entry (the ratchet's promote-check will
-      fail if you fix it and leave the entry, which is the point). Feeds issue #25 /
-      `docs/parser-primitives.md`: "where does this expression end" and "what does this `:`
-      mean here" are the two questions no amount of literal-masking answers.
+- [x] **`lang/eval-no-transpile-execution.test.ts` stopped converting** — FIXED 2026-09-04.
+      `transformBangAccess` hand-rolled its own literal state machine, and its `${ … }` arm set
+      the state to code with nothing to set it back. From a template's FIRST substitution
+      onward the rest of that template was scanned as code, its closing backtick was read as an
+      _opening_ one, and every literal after it in the file carried inverted parity — so
+      `'function f(o) { return o!.a }'`, a bang quoted as test DATA, was rewritten in place to
+      `'function f(o) { return __tjs.bang(o,'a') }'`: unescaped quotes inside a single-quoted
+      string, killing the parse ~75 lines from the cause.
+      **Every hypothesis in the original note was wrong, and instructively so.** The
+      `vmTarget`-refusal block was not the trigger, it was merely the last template literal
+      added to a file that already had the vulnerable shape; bisection "confirmed" it because
+      removing the last desync source happened to restore parity. Isolation kept coming back
+      clean because the cause and the symptom are different constructs 33 lines apart —
+      isolating either one repairs the pairing. The lesson for the next one of these: when a
+      failure position lands somewhere impossible, bisect for the point at which the SCANNER
+      diverges, not for the construct at the reported position. Two runs of a
+      "does the state machine still agree with the source here" probe would have found this
+      immediately; a week of per-construct isolation did not.
+      Fixed by tracking one frame per template (correct through nesting) and skipping regex
+      literals, which could open a phantom string the same way. Bang access inside a
+      substitution still transforms, and now does so in nested templates too. Known-failure
+      entry deleted; ratchet back to one. Pinned by a new block in
+      `src/lang/literal-blindness.test.ts` whose rows assert BYTE-IDENTICAL output and place
+      the trigger after a template-with-substitution, because the naive row passes with the bug
+      present.
+
+- [x] **`scanLiterals` had the same defect, and it is THE scanner** — FIXED 2026-09-04, found
+      by asking the obvious follow-up question rather than by a test. A template ended at the
+      next bare backtick, so a backtick inside a string inside a `${ … }` ended it early and
+      inverted the mask for the rest of the file. Twelve consumers inherit that.
+      The fix moves only where a template ENDS; a substitution's interior stays masked, because
+      exposing it would make every transform start acting inside `${ … }` — a different
+      decision with a much wider blast radius, and one that should be taken deliberately if it
+      is ever taken. Regex literals inside a substitution are still untracked (deciding
+      regex-vs-division needs a preceding-significant-character the scan does not carry); that
+      limit is now written at the function instead of being discovered.
+      **Worth generalising:** the fix to a hand-rolled copy of a shared primitive is not
+      finished until the shared primitive has been checked for the same bug. The copy is
+      usually a descendant of the original.
 
 ### Coverage gaps named by the review
 

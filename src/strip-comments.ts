@@ -202,6 +202,83 @@ export function scanLiterals(source: string): LiteralRegion[] {
   return computed
 }
 
+/**
+ * Index of the backtick that closes the template opening at `start`, or -1 if unterminated.
+ *
+ * The interior of a `${ … }` is CODE, and code can contain backticks — in a string, in a
+ * comment, or as a nested template of its own. Finding the end therefore means tracking
+ * substitution nesting, which is the one thing a "scan to the next delimiter" loop cannot do.
+ *
+ * This only changes where a template region ENDS. The region still spans the whole literal,
+ * substitutions included, so what callers see masked is unchanged — a substitution's interior
+ * stays blanked. Making it visible would be a different decision with a much wider blast
+ * radius (every transform would start acting inside `${ … }`), and is not this.
+ *
+ * Regex literals inside a substitution are not tracked: deciding regex-vs-division needs the
+ * preceding significant character, which this scan does not carry, and a regex containing a
+ * backtick inside a template substitution is a long way down the tail. Named rather than
+ * silently omitted, because an unstated limit is how the last one of these survived.
+ */
+function templateEnd(source: string, start: number): number {
+  let k = start + 1
+  let inSubstitution = false
+  let braces = 0
+  while (k < source.length) {
+    const c = source[k]
+    if (c === '\\') {
+      k += 2
+      continue
+    }
+    if (!inSubstitution) {
+      if (c === '`') return k
+      if (c === '$' && source[k + 1] === '{') {
+        inSubstitution = true
+        braces = 0
+        k += 2
+        continue
+      }
+      k++
+      continue
+    }
+    // Inside `${ … }`: ordinary code, so skip anything that can hide a brace or a backtick.
+    if (c === "'" || c === '"') {
+      let j = k + 1
+      while (j < source.length) {
+        if (source[j] === '\\') {
+          j += 2
+          continue
+        }
+        if (source[j] === c) break
+        j++
+      }
+      k = j + 1
+      continue
+    }
+    if (c === '`') {
+      const nested = templateEnd(source, k)
+      k = nested === -1 ? source.length : nested + 1
+      continue
+    }
+    if (c === '/' && source[k + 1] === '/') {
+      const nl = source.indexOf('\n', k)
+      k = nl === -1 ? source.length : nl
+      continue
+    }
+    if (c === '/' && source[k + 1] === '*') {
+      const close = source.indexOf('*/', k + 2)
+      k = close === -1 ? source.length : close + 2
+      continue
+    }
+    if (c === '{') braces++
+    else if (c === '}') {
+      if (braces === 0) inSubstitution = false
+      else braces--
+    }
+    k++
+  }
+  return -1
+}
+
 function scanLiteralsUncached(source: string): LiteralRegion[] {
   const regions: LiteralRegion[] = []
   let i = 0
@@ -209,14 +286,26 @@ function scanLiteralsUncached(source: string): LiteralRegion[] {
   while (i < source.length) {
     const ch = source[i]!
     if (ch === "'" || ch === '"' || ch === '`') {
-      let j = i + 1
-      while (j < source.length) {
-        if (source[j] === '\\') {
-          j += 2
-          continue
+      let j: number
+      if (ch === '`') {
+        // A template does NOT end at the next backtick — it ends at the next backtick that
+        // is not inside one of its own `${ … }` substitutions. Scanning for a bare backtick
+        // ended `` `${ x === "`" ? a : b }` `` at the quoted one, and the desync then
+        // propagated: the code after it was masked and the literals after THAT were exposed
+        // as code. Same defect as the bang-access transform's `${` arm, but in the shared
+        // scanner, so every consumer inherited it.
+        const close = templateEnd(source, i)
+        j = close === -1 ? source.length : close
+      } else {
+        j = i + 1
+        while (j < source.length) {
+          if (source[j] === '\\') {
+            j += 2
+            continue
+          }
+          if (source[j] === ch) break
+          j++
         }
-        if (source[j] === ch) break
-        j++
       }
       regions.push({
         kind: ch === '`' ? 'template' : 'string',
