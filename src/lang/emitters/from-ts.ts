@@ -3561,7 +3561,24 @@ export function fromTS(
             )
             // Arrow/const functions: export is on the VariableStatement
             // Insert after any line comment or degraded comment
-            if (varIsExported && !tjsFunc.includes('export ')) {
+            //
+            // "Is it already exported?" is a property of the DECLARATION, not of the text.
+            // This was `tjsFunc.includes('export ')` — a substring test over the whole
+            // rendered function, leading comments included — so a function whose comment
+            // merely MENTIONED an export lost its own:
+            //
+            //     // The one-liner is `export interface Sub extends
+            //     // ComponentAttrs<typeof Sub.initAttributes> {}`; see Migration.md.
+            //     export const withAttributes = <A …>(…) => { … }
+            //
+            // emitted `function withAttributes(…)` with no `export`, no warning, and a
+            // module that a bundler then refused to link (tosijs, tjs-lang#51). Reworded
+            // the comment, and the export came back — which is what "comment text changes
+            // the emitted code" looks like from the outside.
+            const declaredExported = /^export\s+(async\s+)?function[\s*]/m.test(
+              tjsFunc
+            )
+            if (varIsExported && !declaredExported) {
               const firstFuncLine = tjsFunc.search(/^(async\s+)?function[\s*]/m)
               if (firstFuncLine > 0) {
                 tjsFunc =

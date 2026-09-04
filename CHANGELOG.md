@@ -9,6 +9,33 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **A comment mentioning `export` consumed the real one (#51, reported by tosijs).**
+  `fromTS` decided whether an arrow-function const was already exported with
+  `tjsFunc.includes('export ')` — a substring test over the whole rendered function, leading
+  comments included. So a body comment quoting `` `export interface Sub extends …` `` satisfied
+  the guard and the declaration's own `export` was never added:
+
+  ```
+  export const withAttributes = <A …>(…) => { … }   ->   function withAttributes(…) { … }
+  ```
+
+  No error, no warning; the failure surfaces at LINK time in a consumer's bundler, and only if
+  something imports that name. Rewording the comment brought the export back, which is what
+  "comment text changes the emitted code" looks like from outside. Now decided from the
+  declaration.
+
+  The report says it could not be reduced to a small file. It reduces fine — the reduction was
+  measured by looking for the FUNCTION, which is still emitted. Only the `export` is lost.
+
+### Added
+
+- **The dogfood converter gate now checks that every exported value survives conversion**, as
+  the #51 report suggested. A dropped export passes conversion, compilation and graduation, so
+  none of the three existing stages could see it. Validated across the compat corpus first
+  (2,085 real files, zero violations once ambient `export declare const` is excluded), so the
+  bar is not one this codebase happens to clear. Pinned at 100%, not ratcheted — unlike
+  graduation, there is no legitimate reason for it to be below.
+
 - **`tjs-playground --port N --force` could have signalled a developer's test run.**
   `OUR_SERVERS` matched `cli/playground` as a bare substring, so it also matched
   `src/cli/playground.test.ts` — and since the second identity rule only additionally requires

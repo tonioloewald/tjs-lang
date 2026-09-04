@@ -23,6 +23,7 @@
  * Ratchets: each stage has a floor it may not fall below. Raise the floor when you improve
  * a stage — that is how a measurement becomes a guarantee instead of a dashboard.
  */
+import ts from 'typescript'
 import { graduate } from './graduate'
 import { describe, it, expect } from 'bun:test'
 import { readFileSync, readdirSync, statSync } from 'node:fs'
@@ -63,10 +64,60 @@ const SKIP = !!process.env.SKIP_BENCHMARKS
 type Stage = { ok: number; fails: Array<{ file: string; why: string }> }
 const blank = (): Stage => ({ ok: 0, fails: [] })
 
+/**
+ * Names a file exports as VALUES — what must still be exported after conversion.
+ *
+ * `export declare const X` is excluded: an ambient declaration is a type-level promise
+ * about something defined elsewhere, so it has no runtime value and its absence from the
+ * output is correct, not a drop. Across the compat corpus that exclusion is the entire
+ * difference between 12 false alarms and none.
+ */
+function exportedValueNames(src: string): string[] {
+  const sf = ts.createSourceFile(
+    'x.ts',
+    src,
+    ts.ScriptTarget.Latest,
+    /* setParentNodes */ true
+  )
+  const exported = (n: ts.Node) => {
+    const mods = (n as any).modifiers as ts.Modifier[] | undefined
+    return (
+      !!mods?.some((m) => m.kind === ts.SyntaxKind.ExportKeyword) &&
+      !mods.some((m) => m.kind === ts.SyntaxKind.DeclareKeyword)
+    )
+  }
+  const names: string[] = []
+  for (const st of sf.statements) {
+    if (!exported(st)) continue
+    if (
+      (ts.isFunctionDeclaration(st) || ts.isClassDeclaration(st)) &&
+      st.name
+    ) {
+      names.push(st.name.text)
+    } else if (ts.isVariableStatement(st)) {
+      for (const d of st.declarationList.declarations) {
+        if (ts.isIdentifier(d.name)) names.push(d.name.text)
+      }
+    }
+  }
+  return names
+}
+
+/** Is `name` exported by this converted source? */
+function stillExported(code: string, name: string): boolean {
+  const q = name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+  return new RegExp(
+    `^export\\s+(async\\s+)?(function\\*?|class|const|let|var)\\s+${q}(?![\\w$])` +
+      `|^export\\s*\\{[^}]*${q}(?![\\w$])`,
+    'm'
+  ).test(code)
+}
+
 function measure() {
   const emit = blank()
   const compiles = blank()
   const graduates = blank()
+  const exportsKept = blank()
   const why = (e: any) => String(e.message).split('\n')[0].slice(0, 70)
 
   for (const f of FILES) {
@@ -81,6 +132,28 @@ function measure() {
       emit.fails.push({ file: rel, why: why(e) })
       continue // later stages are unreachable for this file
     }
+
+    // EVERY EXPORTED VALUE IN MUST BE AN EXPORTED VALUE OUT.
+    //
+    // Suggested by the tosijs report (tjs-lang#51) and adopted because it costs nothing
+    // here — this loop already has both texts in hand. The defect it generalises is worth
+    // stating: `fromTS` decided "already exported?" with `includes('export ')` over the
+    // rendered function, comments included, so a comment quoting `export interface …`
+    // consumed the real export. Silent, and unreachable by any test that exercises the
+    // SOURCE rather than the converted output — which is every unit test tosijs has.
+    //
+    // A dropped export does not fail conversion, does not fail compilation, and does not
+    // fail graduation. It fails at LINK time, in someone else's bundler, and only if
+    // something happens to import that name.
+    const missing = exportedValueNames(src).filter(
+      (n) => !stillExported(converted, n)
+    )
+    if (missing.length === 0) exportsKept.ok++
+    else
+      exportsKept.fails.push({
+        file: rel,
+        why: `dropped export(s): ${missing.slice(0, 4).join(', ')}`,
+      })
 
     try {
       tjs(converted, { runTests: false })
@@ -101,7 +174,7 @@ function measure() {
       graduates.fails.push({ file: rel, why: why(e) })
     }
   }
-  return { emit, compiles, graduates, total: FILES.length }
+  return { emit, compiles, graduates, exportsKept, total: FILES.length }
 }
 
 const report = (label: string, st: Stage, total: number) => {
@@ -192,6 +265,7 @@ describe.skipIf(SKIP)(
         report('stage 1 emit      ', r.emit, r.total)
         report('stage 2 compiles  ', r.compiles, r.total)
         report('stage 3 graduation', r.graduates, r.total)
+        report('exports preserved ', r.exportsKept, r.total)
 
         // Stage 1 — the converter must be able to READ all of our TypeScript.
         expect(
@@ -207,6 +281,16 @@ describe.skipIf(SKIP)(
         expect(
           r.compiles.ok / r.total,
           'we are emitting TJS that does not build'
+        ).toBe(1)
+
+        // Every exported VALUE in must be an exported value out. Pinned at 1, not
+        // ratcheted: unlike graduation there is no legitimate reason for this to be below
+        // 100%, and a dropped export is invisible until someone else's bundler refuses to
+        // link. Measured across the compat corpus as well (2,085 files, zero violations),
+        // so the bar is not one this codebase happens to clear.
+        expect(
+          r.exportsKept.ok / r.total,
+          'conversion is dropping exports — the module ships with a hole in it'
         ).toBe(1)
 
         // Stage 3 — a RATCHET (see GRADUATION_FLOOR). It reached 100% on 2026-08-02;

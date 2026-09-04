@@ -1014,3 +1014,70 @@ describe('bang access is code, not text — and `${}` must not desync the scan',
     expect(out).not.toContain('__tjs.bang')
   })
 })
+
+describe('a comment mentioning `export` does not consume the real one', () => {
+  /**
+   * tjs-lang#51, reported by tosijs: `tjs convert` emitted a module with no
+   * `export withAttributes`, a bundler refused to link it, and rewording a COMMENT inside
+   * the function brought the export back.
+   *
+   * `fromTS` decided whether an arrow-function const was already exported with
+   * `tjsFunc.includes('export ')` — a substring test over the whole rendered function,
+   * leading comments included. So a comment quoting `` `export interface Sub extends …` ``
+   * satisfied the guard and the real `export` was never added. Silent, and invisible to
+   * unit tests that exercise the source rather than the converted output.
+   *
+   * The report says it could not be reduced. It reduces fine — the reduction was measured
+   * by looking for the FUNCTION, which is still there. Only the `export` is lost.
+   */
+  const MENTION = '`' + 'export interface Sub extends ComponentAttrs' + '`'
+
+  const shapes: Array<[string, string]> = [
+    [
+      'line comment in an arrow body',
+      `export const f = (x: number): number => {\n  // see ${MENTION} for the shape\n  return x\n}`,
+    ],
+    [
+      'generic arrow, as reported',
+      `export const g = <A extends Record<string, any>>(a: A): A => {\n  // see ${MENTION}\n  return a\n}`,
+    ],
+    [
+      'block comment in the body',
+      `export const h = (x: number): number => {\n  /* see ${MENTION} */\n  return x\n}`,
+    ],
+    [
+      'leading comment above the declaration',
+      `// see ${MENTION}\nexport const i = (x: number): number => {\n  return x\n}`,
+    ],
+    [
+      'the word alone, no backticks',
+      `export const j = (x: number): number => {\n  // this is not an export interface\n  return x\n}`,
+    ],
+    [
+      'async arrow',
+      `export const k = async (x: number): Promise<number> => {\n  // see ${MENTION}\n  return x\n}`,
+    ],
+  ]
+
+  for (const [label, src] of shapes) {
+    it(`${label}: the export survives`, () => {
+      const code = fromTS(src, { emitTJS: true }).code
+      expect(/^export\s+(async\s+)?function/m.test(code)).toBe(true)
+    })
+  }
+
+  it('a function that is NOT exported does not become exported (control)', () => {
+    // The guard must still do its job in the other direction: every assertion above is
+    // satisfied by unconditionally prefixing `export `.
+    const src = `const priv = (x: number): number => {\n  // see ${MENTION}\n  return x\n}\nexport const pub = (y: number): number => y`
+    const code = fromTS(src, { emitTJS: true }).code
+    expect(code).not.toMatch(/^export\s+(async\s+)?function priv/m)
+    expect(code).toMatch(/^export\s+(async\s+)?function pub/m)
+  })
+
+  it('the export is not doubled when it is already there', () => {
+    const src = `export const m = (x: number): number => {\n  return x\n}`
+    const code = fromTS(src, { emitTJS: true }).code
+    expect(code).not.toContain('export export')
+  })
+})

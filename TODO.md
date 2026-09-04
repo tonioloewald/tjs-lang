@@ -3412,6 +3412,30 @@ remember, not the individual bugs.
       FIXED. Given an explicit 30s budget, sized to a subprocess rather than an in-memory
       assertion.
 
+### Converter bugs of the literal-blindness class (2026-09-04)
+
+- [x] **#51 — a comment mentioning `export` consumed the real one.** Reported by tosijs after a
+      build failed to link: `fromTS` decided "already exported?" with
+      `tjsFunc.includes('export ')`, a substring test over the rendered function with its
+      leading comments, so a body comment quoting `` `export interface Sub extends …` ``
+      satisfied the guard and the declaration lost its own `export`. Decided from the
+      declaration now.
+      **The report's "could not reduce" was a measurement error worth remembering**: the
+      reduction DOES reproduce, but they checked for the FUNCTION, which is still emitted —
+      only the `export` is missing. When a reduction "passes", check that it is being measured
+      for the same symptom as the original.
+      Follow-up adopted from the report: the dogfood converter gate now asserts every exported
+      VALUE in is an exported value out. Validated over the compat corpus (2,085 files, zero
+      violations) before being pinned, because a gate that fires on legitimate output gets
+      disabled. `export declare const` is excluded — ambient, no runtime value.
+- [ ] **Consider making the export post-condition a RUNTIME refusal in `fromTS`, not only a
+      test.** The reporter asked for exactly that ("an internal error the converter can detect
+      cheaply and should refuse on, rather than emitting a partial module"), and the evidence
+      supports it — zero violations across 2,085 real files. Not done in the same pass because
+      it changes shipped behaviour for arbitrary user code on the strength of a six-project
+      sample, and a false refusal breaks a consumer's build where a false test failure only
+      breaks ours. Decide deliberately.
+
 ### Converter bug found while remediating (new, not from the review)
 
 - [x] **`lang/eval-no-transpile-execution.test.ts` stopped converting** — FIXED 2026-09-04.
