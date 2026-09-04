@@ -2,21 +2,21 @@
 
 # RELEASE STATE — read this first (2026-09-04)
 
-**`v0.13.12` is TAGGED and PUSHED but was never PUBLISHED.** npm is still on 0.13.11, and
-four commits now sit on top of the tag — including `bc6497e`, a real shipped fix (a `test`
-block quoted as data was executed and deleted). `package.json` already says `0.13.12`.
+**0.13.12 is prepared and waiting on `npm publish`, which is a user-only action.**
 
-So the tag no longer names the code that would ship, and `scripts/prepublish-check.ts` will
-refuse — correctly — with "the tag does not name this code".
+What happened: `v0.13.12` was tagged and pushed but never published, and five commits then
+landed on top of it — including two real fixes. Since nothing ever consumed the tag (it was
+never on npm), the tag was **moved forward to HEAD** rather than burning a version number on
+a gap. Done as part of that:
 
-**Recommended:** move the tag forward to HEAD and publish 0.13.12 including today's fixes.
-Nothing ever consumed `v0.13.12` (it was never on npm), so the tag is free to move; this is
-the same call made earlier in the cycle and for the same reason. Fold the `[Unreleased]`
-CHANGELOG section into `[0.13.12]` first. The alternative — bumping to 0.13.13 — leaves a
-published-version gap for no benefit.
+- `[Unreleased]` folded into `[0.13.12]`; the release now reads as five defects of one class,
+  which is what it is.
+- Full `bun test` run with nothing skipped, LM Studio up.
+- Tag moved to HEAD and force-pushed; `scripts/prepublish-check.ts` passes.
 
-Then: `bun test` (full, nothing skipped, LM Studio up) → move tag → `npm publish` (plain, no
-`--otp`) → tell tosijs-ui, which pins 0.13.4 (see UPSTREAM.md, tosijs-ui#135).
+**Remaining, for Tonio:** plain `npm publish` (never `--otp`). Then tell tosijs-ui, which is
+still pinned to 0.13.4 in two places (UPSTREAM.md, tosijs-ui#135), and name the version when
+closing tjs-lang#51 — a fix is only reportable once it is installable.
 
 # PLAN: verified-working language, then the tosijs-ui build system (2026-09-04)
 

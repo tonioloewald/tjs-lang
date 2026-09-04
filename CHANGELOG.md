@@ -7,7 +7,39 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.13.12] — 2026-09-04
+
+Five defects of one class: a pass that misreads code which merely MENTIONS the syntax it is
+scanning for. Four of them changed emitted output with no error and no warning; the fifth was in
+the gate that measures conversion damage, which had therefore been reporting its own defects as
+the language's. Each was found somewhere other than where it did its damage — three from the
+dogfood lanes, one from a consumer's build failing to link, and one from asking whether the
+shared scanner had the same bug as the copy that had just been fixed. It did.
+
+**The dogfood behaviour gate went from 108 broken tests to 38 across this release**, and two of
+those three movements were defects in the gate rather than in conversion. Nothing about that
+second kind changes what ships; what changes is that the number is now measuring what it claims
+to.
+
 ### Fixed
+
+- **A comment mentioning `export` consumed the real one (#51, reported by tosijs).**
+  `fromTS` decided whether an arrow-function const was already exported with
+  `tjsFunc.includes('export ')` — a substring test over the whole rendered function, leading
+  comments included. So a body comment quoting `` `export interface Sub extends …` `` satisfied
+  the guard and the declaration's own `export` was never added:
+
+  ```
+  export const withAttributes = <A …>(…) => { … }   ->   function withAttributes(…) { … }
+  ```
+
+  No error, no warning; the failure surfaces at LINK time in a consumer's bundler, and only if
+  something imports that name. Rewording the comment brought the export back, which is what
+  "comment text changes the emitted code" looks like from outside. Now decided from the
+  declaration.
+
+  The report says it could not be reduced to a small file. It reduces fine — the reduction was
+  measured by looking for the FUNCTION, which is still emitted. Only the `export` is lost.
 
 - **A `test '…' { … }` quoted as DATA was executed and deleted.** `extractAndRunTests`
   detected on RAW source, so a test block written inside a template literal or a
@@ -33,68 +65,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **`test` was not actually required to be a whole word.** The check was
   `source.slice(i).match(/^\btest\s+/)`, where `\b` sits at the start of the sliced string
   and is therefore always satisfied, so `mytest 'x' { }` matched.
-
-### Fixed (test infrastructure, not shipped code)
-
-- **The dogfood behaviour gate's own relocation step was literal-blind.** `relocate()`
-  rewrote import specifiers with a regex over raw text, so it also rewrote the ones inside
-  TEMPLATE LITERALS that suites write out as fixture modules at runtime — repointing them at
-  a source directory where no such file exists. Those suites then failed and were scored as
-  _conversion_ losing tests. It now asks acorn which string literals are import sources,
-  because masking cannot help here: an import specifier IS a string literal, so blanking
-  literals blanks the very text to rewrite.
-
-  **59 broken tests → 38.** Combined with the `test`-block fix above, the gate went from 108
-  to 38 in one day, and **two of those three movements were defects in the gate rather than
-  in conversion**. Nothing shipped changes; what changes is that the number is now measuring
-  what it claims to.
-
-### Changed
-
-- `extractAndRunTests` no longer calls `source.slice(i)` once per character, and no longer
-  carries its own literal scanner. Both are cleanups, **not** a speed-up: measured against the
-  previous implementation on a 459KB file the two are indistinguishable (2926ms vs 2940ms),
-  because JS engines represent `str.slice(i)` as an O(1) view rather than a copy. Recorded
-  because the opposite was the obvious guess, and the compat scan's four
-  `preprocess is quadratic` skips still stand — whatever makes `preprocess` blow up past ~1MB
-  is somewhere else and is still unidentified.
-
-## [0.13.12] — 2026-09-04
-
-Four defects of one class: a pass that misreads code which merely MENTIONS the syntax it is
-scanning for. Three of them changed emitted output with no error and no warning, and each was
-found somewhere other than where it did its damage. Two came from the dogfood lanes, one from a
-consumer's build failing to link, and one from asking whether the shared scanner had the same
-bug as the copy that had just been fixed. It did.
-
-### Fixed
-
-- **A comment mentioning `export` consumed the real one (#51, reported by tosijs).**
-  `fromTS` decided whether an arrow-function const was already exported with
-  `tjsFunc.includes('export ')` — a substring test over the whole rendered function, leading
-  comments included. So a body comment quoting `` `export interface Sub extends …` `` satisfied
-  the guard and the declaration's own `export` was never added:
-
-  ```
-  export const withAttributes = <A …>(…) => { … }   ->   function withAttributes(…) { … }
-  ```
-
-  No error, no warning; the failure surfaces at LINK time in a consumer's bundler, and only if
-  something imports that name. Rewording the comment brought the export back, which is what
-  "comment text changes the emitted code" looks like from outside. Now decided from the
-  declaration.
-
-  The report says it could not be reduced to a small file. It reduces fine — the reduction was
-  measured by looking for the FUNCTION, which is still emitted. Only the `export` is lost.
-
-### Added
-
-- **The dogfood converter gate now checks that every exported value survives conversion**, as
-  the #51 report suggested. A dropped export passes conversion, compilation and graduation, so
-  none of the three existing stages could see it. Validated across the compat corpus first
-  (2,085 real files, zero violations once ambient `export declare const` is excluded), so the
-  bar is not one this codebase happens to clear. Pinned at 100%, not ratcheted — unlike
-  graduation, there is no legitimate reason for it to be below.
 
 - **`tjs-playground --port N --force` could have signalled a developer's test run.**
   `OUR_SERVERS` matched `cli/playground` as a bare substring, so it also matched
@@ -141,6 +111,39 @@ bug as the copy that had just been fixed. It did.
   comments. What consumers see masked is unchanged: a substitution's interior stays blanked,
   which is a separate and much wider decision. Regex literals inside a substitution remain
   untracked, and the limitation is now stated at the function rather than left implicit.
+
+### Added
+
+- **The dogfood converter gate now checks that every exported value survives conversion**, as
+  the #51 report suggested. A dropped export passes conversion, compilation and graduation, so
+  none of the three existing stages could see it. Validated across the compat corpus first
+  (2,085 real files, zero violations once ambient `export declare const` is excluded), so the
+  bar is not one this codebase happens to clear. Pinned at 100%, not ratcheted — unlike
+  graduation, there is no legitimate reason for it to be below.
+
+### Fixed (test infrastructure, not shipped code)
+
+- **The dogfood behaviour gate's own relocation step was literal-blind.** `relocate()`
+  rewrote import specifiers with a regex over raw text, so it also rewrote the ones inside
+  TEMPLATE LITERALS that suites write out as fixture modules at runtime — repointing them at
+  a source directory where no such file exists. Those suites then failed and were scored as
+  _conversion_ losing tests. It now asks acorn which string literals are import sources,
+  because masking cannot help here: an import specifier IS a string literal, so blanking
+  literals blanks the very text to rewrite.
+
+  **59 broken tests → 38.** Combined with the `test`-block fix above, the gate went from 108
+  to 38 in one day, and **two of those three movements were defects in the gate rather than
+  in conversion**.
+
+### Changed
+
+- `extractAndRunTests` no longer calls `source.slice(i)` once per character, and no longer
+  carries its own literal scanner. Both are cleanups, **not** a speed-up: measured against the
+  previous implementation on a 459KB file the two are indistinguishable (2926ms vs 2940ms),
+  because JS engines represent `str.slice(i)` as an O(1) view rather than a copy. Recorded
+  because the opposite was the obvious guess, and the compat scan's four
+  `preprocess is quadratic` skips still stand — whatever makes `preprocess` blow up past ~1MB
+  is somewhere else and is still unidentified.
 
 ## [0.13.11] — 2026-09-04
 
