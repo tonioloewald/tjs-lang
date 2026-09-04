@@ -161,19 +161,26 @@ bun run test:compat         # REAL TypeScript projects through the converter: cl
 # Deployment (Firebase)
 bun run deploy              # Build demo + deploy functions + hosting
 bun run deploy:hosting      # Hosting only (serves from .demo/)
-bun run functions:deploy    # Cloud functions only.
-                            #   FAILS with `Cannot deploy function with runtime nodejs22`
-                            #   on the globally installed firebase CLI (10.1.0, early 2022 —
-                            #   it predates the runtime). Hosting deploys fine on it, which
-                            #   is why this went unnoticed. Use a current CLI without
-                            #   touching the global install (auth carries over):
-                            #     npx --yes firebase-tools@latest deploy --only functions \
-                            #       --project tjs-platform --non-interactive
+bun run functions:deploy    # Cloud functions only. WORKS on the global firebase CLI as of
+                            #   2026-09-04 (15.28.2) — verified by a real deploy of all five
+                            #   functions. This entry used to prescribe
+                            #   `npx --yes firebase-tools@latest …` because the global CLI was
+                            #   10.1.0 (early 2022) and failed with `Cannot deploy function
+                            #   with runtime nodejs22`. That is fixed; the npx workaround is
+                            #   no longer needed, and the note is kept only so the next person
+                            #   who hits a runtime error knows what it looked like and that a
+                            #   stale global CLI is the likely cause.
                             #   The build runs `build:version` FIRST, generating
                             #   `functions/src/version.js` so `/health` reports the tjs-lang
-                            #   the bundle was actually built against. Check a deploy with:
+                            #   the bundle was actually built against. ALWAYS read it back —
+                            #   publishing and deploying are separate acts and a deploy runs
+                            #   `npm ci` against the lockfile, so the running service can stay
+                            #   on an old version while the registry has a new one:
                             #     curl https://health-ldh7npl2bq-uc.a.run.app
-                            #     → {"status":"ok",…,"tjsLang":"0.13.6"}
+                            #     → {"status":"ok",…,"tjsLang":"0.13.11"}
+                            #   Bumping tjs-lang here is a LOCKFILE refresh (`npm install` in
+                            #   functions/), not just a package.json edit — the caret range
+                            #   already permits newer patches.
 bun run functions:serve     # Local functions emulator
 ```
 

@@ -163,6 +163,8 @@ export const agentRun = onCall(async (request) => {
     const store = createStoreCapability(uid)
 
     result = await Eval({
+
+      maxSourceBytes: 64 * 1024,
       code,
       context: args,
       fuel,
@@ -262,6 +264,8 @@ export const run = onRequest(async (req, res) => {
     const store = createStoreCapability(uid)
 
     result = await Eval({
+
+      maxSourceBytes: 64 * 1024,
       code,
       context: args,
       fuel,

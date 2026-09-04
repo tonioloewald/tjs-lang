@@ -3296,7 +3296,14 @@ remember, not the individual bugs.
         0.2.8/0.3.0/0.8.x and have been fine. Mention it to snowfox-app in passing if
         convenient — it is a named production consumer — but a campaign is not warranted.
 
-- [ ] **[M-7] The public endpoints run 0.13.8 and nothing gates it.** `/health` confirms live.
+- [x] **[M-7 — DONE 2026-09-04] The public endpoints ran 0.13.8; now on 0.13.11.**
+      Deployed all five functions and read `/health` back: `{"tjsLang":"0.13.11"}`. Bumped the
+      declared floor to `^0.13.11` (the endpoints pass `maxSourceBytes`, a silent no-op below
+      that) and refreshed the lockfile — the caret already permitted it, so the LOCKFILE was
+      the real pin. Also disproved CLAUDE.md's claim that the global firebase CLI is too old:
+      it is 15.28.2 and the plain `firebase deploy` worked; the npx workaround is gone.
+      Still open: no `timeoutSeconds`/`maxInstances` config, and no compile cache on `page`.
+      ORIGINAL: `/health` confirms live.
       `functions/package-lock.json` pins 0.13.8, so `npm ci` (what a Firebase deploy runs)
       reproduces it regardless of what ships. Not a live exposure — the deployed build was
       probed with both payloads and rejects them — but the code-execution endpoints are two
