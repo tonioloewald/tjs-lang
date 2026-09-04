@@ -57,6 +57,44 @@ export interface EvalOptions {
   timeoutMs?: number
   /** Capabilities to inject (fetch, console, etc.) */
   capabilities?: SafeCapabilities
+  /**
+   * Maximum bytes of source accepted, refused BEFORE transpilation (default 64 KB).
+   *
+   * `fuel` and `timeoutMs` are properties of `vm.run`, and transpilation happens before it —
+   * so neither bounds the compile. `preprocess` is super-linear in source length, and the
+   * measured cost with `fuel: 10, timeoutMs: 1` was 0.1s at 50 KB, 0.8s at 200 KB, 3.9s at
+   * 500 KB and ~145s at 1.8 MB, charging 0.2 fuel throughout. One request pins a core for
+   * minutes at zero metered cost, which on a hosted endpoint is a denial-of-wallet as much as
+   * a denial-of-service.
+   *
+   * The cap is on BYTES because that is the input the caller controls and the only quantity
+   * knowable before the expensive step. Set `0` to disable — meaningful only when the source
+   * is trusted, e.g. compiled from your own repository at build time.
+   */
+  maxSourceBytes?: number
+}
+
+/** Default source-length cap. 64 KB is far above any hand-written agent and transpiles in
+ * well under a tenth of a second; the smallest payload that showed material cost was ~10×
+ * this. */
+export const DEFAULT_MAX_SOURCE_BYTES = 64 * 1024
+
+/**
+ * Refuse oversized source before it reaches the transpiler.
+ *
+ * Byte length, not `String.length`: the attacker supplies bytes, and a multi-byte payload
+ * would otherwise buy several times the intended budget.
+ */
+function checkSourceSize(code: string, max: number, what: string): void {
+  if (max <= 0) return
+  const bytes = Buffer.byteLength(code, 'utf8')
+  if (bytes > max) {
+    throw new Error(
+      `${what} is ${bytes} bytes, over the ${max}-byte limit. Transpilation runs BEFORE ` +
+        `fuel and timeout apply, so oversized source is refused rather than metered. ` +
+        `Raise or disable it with maxSourceBytes if the source is trusted.`
+    )
+  }
 }
 
 /**
@@ -73,6 +111,7 @@ export async function Eval(options: EvalOptions): Promise<{
     fuel = 1000,
     timeoutMs,
     capabilities = {},
+    maxSourceBytes = DEFAULT_MAX_SOURCE_BYTES,
   } = options
 
   const vm = getVM()
@@ -84,6 +123,13 @@ export async function Eval(options: EvalOptions): Promise<{
     : `function __eval() { return (${code}) }`
 
   try {
+    // Inside the try, so an oversized payload comes back as `{ error }` like every other
+    // rejection from this function. `Eval` does not throw — the hosted endpoints call it and
+    // return `result.error` to the client — so a size check that threw would turn a refusal
+    // into a 500 and, worse, into an unhandled rejection for anyone who never wrote a catch.
+    // Deliberate asymmetry with `SafeFunction`, which throws on bad input already.
+    checkSourceSize(code, maxSourceBytes, 'Eval source')
+
     const { ast } = transpile(wrappedCode)
 
     // Box return values in objects for VM strict-return compliance.
@@ -130,6 +176,8 @@ export interface SafeFunctionOptions {
   timeoutMs?: number
   /** Capabilities to inject (fetch, console, etc.) */
   capabilities?: SafeCapabilities
+  /** Max bytes of `body` accepted, refused before transpilation. See EvalOptions. */
+  maxSourceBytes?: number
 }
 
 /**
@@ -148,9 +196,12 @@ export async function SafeFunction(options: SafeFunctionOptions): Promise<
     fuel = 1000,
     timeoutMs,
     capabilities = {},
+    maxSourceBytes = DEFAULT_MAX_SOURCE_BYTES,
   } = options
 
   const vm = getVM()
+
+  checkSourceSize(body, maxSourceBytes, 'SafeFunction body')
 
   // Build function source with parameters
   const paramList = params.join(', ')

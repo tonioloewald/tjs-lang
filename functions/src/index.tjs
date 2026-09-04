@@ -141,6 +141,13 @@ export const agentRun = onCall(async (request) => {
     const store = createStoreCapability(uid)
 
     result = await Eval({
+      // Explicit, not inherited. Transpilation runs BEFORE fuel and timeoutMs apply and is
+      // super-linear in source length, so `fuel` bounds nothing about the compile: measured
+      // 3.9s at 500KB and ~145s at 1.8MB while charging 0.2 fuel. One request from any
+      // signed-in account could pin an instance for minutes at no metered cost. tjs-lang
+      // defaults this to 64KB now; naming it here keeps the endpoint's limit visible and
+      // tunable without a library upgrade.
+      maxSourceBytes: 64 * 1024,
       code,
       context: args,
       fuel,
@@ -242,6 +249,13 @@ export const run = onRequest(async (req, res) => {
     const store = createStoreCapability(uid)
 
     result = await Eval({
+      // Explicit, not inherited. Transpilation runs BEFORE fuel and timeoutMs apply and is
+      // super-linear in source length, so `fuel` bounds nothing about the compile: measured
+      // 3.9s at 500KB and ~145s at 1.8MB while charging 0.2 fuel. One request from any
+      // signed-in account could pin an instance for minutes at no metered cost. tjs-lang
+      // defaults this to 64KB now; naming it here keeps the endpoint's limit visible and
+      // tunable without a library upgrade.
+      maxSourceBytes: 64 * 1024,
       code,
       context: args,
       fuel,

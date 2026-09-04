@@ -452,6 +452,48 @@ function generateProcedureToken(): string {
 const FORBIDDEN_PROPERTIES = FORBIDDEN_KEYS_SET
 
 /**
+ * Own-property test for a GUEST-CONTROLLED key.
+ *
+ * Use this — never `key in obj` and never a bare truthiness check on `obj[key]` — anywhere a
+ * name the guest chose indexes a host object. `in` walks the prototype chain, so on a plain
+ * object literal it answers `true` for `constructor`, `toString`, `valueOf`,
+ * `hasOwnProperty` and the rest of `Object.prototype`, and the subsequent read returns a real
+ * host function. That is not a theoretical concern here: it made `builtins.constructor`
+ * reachable and CALLABLE from guest code with guest arguments, past an allowlist that only
+ * ever enumerated own keys.
+ *
+ * Called through `Object.prototype.hasOwnProperty` rather than `obj.hasOwnProperty(key)`,
+ * because the object under test may legitimately be `Object.create(null)` (which has no such
+ * method) or may have `hasOwnProperty` shadowed by data that crossed the membrane.
+ */
+const own = (obj: unknown, key: string): boolean =>
+  obj != null && Object.prototype.hasOwnProperty.call(obj, key)
+
+/**
+ * Scope-chain lookup for a GUEST-CONTROLLED key: walks the prototype chain, but stops
+ * BEFORE `Object.prototype`.
+ *
+ * Guest scopes are deliberately prototype-linked — `state: Object.create(ctx.state)`, so a
+ * child write shadows rather than clobbers (see the comment on `acquireScope`). So plain
+ * `own()` is WRONG here: it severs lexical scoping, and a helper reading an outer variable
+ * stops finding it. That is not hypothetical either — replacing `in` with `own()` on
+ * `ctx.state` broke three stored-procedure tests immediately, which is the only reason this
+ * distinction got written down instead of shipped.
+ *
+ * But plain `in` is equally wrong, because the chain ENDS at `Object.prototype`, so the
+ * guest reaches `constructor`, `toString` and friends. The scope chain is legitimate; the
+ * one link past it is not. Walk it, and stop at the boundary.
+ */
+const scopeHas = (obj: unknown, key: string): boolean => {
+  let o: any = obj
+  while (o != null && o !== Object.prototype) {
+    if (Object.prototype.hasOwnProperty.call(o, key)) return true
+    o = Object.getPrototypeOf(o)
+  }
+  return false
+}
+
+/**
  * Capability-boundary membrane.
  *
  * Every value a capability (`fetch`, `store`, `llm`, `agent`, `code`, …) hands
@@ -1080,7 +1122,19 @@ export function resolveValue(val: any, ctx: RuntimeContext): any {
     }
     // Simple state lookup (not an expression, just key)
     // Check if the key exists in state (even if value is undefined)
-    if (val in ctx.state) {
+    //
+    // `own`, not `in` — the THIRD site of the same defect, and the one that survived fixing
+    // the other two. `ctx.state` is a plain object literal, so `'toString' in ctx.state` is
+    // true and this handed the guest `Object.prototype.toString` itself. Verified after the
+    // `evaluateExpr` fix: a bare `hasOwnProperty` / `valueOf` / `constructor` still came back
+    // `typeof === 'function'`, because a bare identifier reaches state through HERE, not
+    // through `evaluateExpr`'s `ident` case.
+    //
+    // Worth noting why the earlier fix looked complete: the exploitable shape
+    // (`constructor('abc')`, a CALL) does route through `evaluateExpr`, so the dangerous
+    // case went away and the merely-leaking case did not. Fixing what reproduces is not the
+    // same as fixing the class.
+    if (scopeHas(ctx.state, val)) {
       return ctx.state[val]
     }
     // Key doesn't exist in state - return the literal string
@@ -1258,421 +1312,424 @@ function convertExampleToSchema(example: any): any {
  * Built-in objects available in expressions.
  * These are Proxy objects that provide JS-like APIs mapped to safe implementations.
  */
-export const builtins: Record<string, any> = {
-  // Math - most methods are safe pure functions
-  Math: createBuiltinProxy('Math', {
-    // Constants
-    PI: Math.PI,
-    E: Math.E,
-    LN2: Math.LN2,
-    LN10: Math.LN10,
-    LOG2E: Math.LOG2E,
-    LOG10E: Math.LOG10E,
-    SQRT2: Math.SQRT2,
-    SQRT1_2: Math.SQRT1_2,
+export const builtins: Record<string, any> = Object.assign(
+  Object.create(null),
+  {
+    // Math - most methods are safe pure functions
+    Math: createBuiltinProxy('Math', {
+      // Constants
+      PI: Math.PI,
+      E: Math.E,
+      LN2: Math.LN2,
+      LN10: Math.LN10,
+      LOG2E: Math.LOG2E,
+      LOG10E: Math.LOG10E,
+      SQRT2: Math.SQRT2,
+      SQRT1_2: Math.SQRT1_2,
 
-    // Safe pure functions
-    abs: Math.abs,
-    ceil: Math.ceil,
-    floor: Math.floor,
-    round: Math.round,
-    trunc: Math.trunc,
-    sign: Math.sign,
-    sqrt: Math.sqrt,
-    cbrt: Math.cbrt,
-    pow: Math.pow,
-    exp: Math.exp,
-    expm1: Math.expm1,
-    log: Math.log,
-    log2: Math.log2,
-    log10: Math.log10,
-    log1p: Math.log1p,
-    sin: Math.sin,
-    cos: Math.cos,
-    tan: Math.tan,
-    asin: Math.asin,
-    acos: Math.acos,
-    atan: Math.atan,
-    atan2: Math.atan2,
-    sinh: Math.sinh,
-    cosh: Math.cosh,
-    tanh: Math.tanh,
-    asinh: Math.asinh,
-    acosh: Math.acosh,
-    atanh: Math.atanh,
-    hypot: Math.hypot,
-    min: Math.min,
-    max: Math.max,
-    clz32: Math.clz32,
-    imul: Math.imul,
-    fround: Math.fround,
+      // Safe pure functions
+      abs: Math.abs,
+      ceil: Math.ceil,
+      floor: Math.floor,
+      round: Math.round,
+      trunc: Math.trunc,
+      sign: Math.sign,
+      sqrt: Math.sqrt,
+      cbrt: Math.cbrt,
+      pow: Math.pow,
+      exp: Math.exp,
+      expm1: Math.expm1,
+      log: Math.log,
+      log2: Math.log2,
+      log10: Math.log10,
+      log1p: Math.log1p,
+      sin: Math.sin,
+      cos: Math.cos,
+      tan: Math.tan,
+      asin: Math.asin,
+      acos: Math.acos,
+      atan: Math.atan,
+      atan2: Math.atan2,
+      sinh: Math.sinh,
+      cosh: Math.cosh,
+      tanh: Math.tanh,
+      asinh: Math.asinh,
+      acosh: Math.acosh,
+      atanh: Math.atanh,
+      hypot: Math.hypot,
+      min: Math.min,
+      max: Math.max,
+      clz32: Math.clz32,
+      imul: Math.imul,
+      fround: Math.fround,
 
-    // Random - use crypto when available
-    random: () => {
-      if (typeof crypto !== 'undefined' && crypto.getRandomValues) {
-        const arr = new Uint32Array(1)
-        crypto.getRandomValues(arr)
-        return arr[0] / (0xffffffff + 1)
-      }
-      return Math.random()
-    },
-  }),
-
-  // JSON - parse and stringify
-  JSON: createBuiltinProxy('JSON', {
-    parse: (text: string) => JSON.parse(text),
-    stringify: (value: any, replacer?: any, space?: number) =>
-      JSON.stringify(value, replacer, space),
-  }),
-
-  // console - maps to trace/logging
-  console: createBuiltinProxy(
-    'console',
-    {
-      log: (..._args: any[]) => {
-        // In expression context, we can't access trace easily
-        // This is a no-op in expressions, but works in atom context
-        // The transpiler should lift console.log to a trace atom call
-        return undefined
+      // Random - use crypto when available
+      random: () => {
+        if (typeof crypto !== 'undefined' && crypto.getRandomValues) {
+          const arr = new Uint32Array(1)
+          crypto.getRandomValues(arr)
+          return arr[0] / (0xffffffff + 1)
+        }
+        return Math.random()
       },
-      warn: (..._args: any[]) => undefined,
-      error: (..._args: any[]) => undefined,
-      info: (..._args: any[]) => undefined,
-    },
-    {
-      table: 'Use console.log with JSON.stringify for structured data.',
-      dir: 'Use console.log instead.',
-      trace: 'Stack traces are not available in AsyncJS.',
-    }
-  ),
+    }),
 
-  // Array static methods
-  Array: createBuiltinProxy(
-    'Array',
-    {
-      isArray: (value: any) => Array.isArray(value),
-      from: (iterable: any, mapFn?: any, thisArg?: any) =>
-        Array.from(iterable, mapFn, thisArg),
-      of: (...items: any[]) => Array.of(...items),
-    },
-    {
-      prototype: 'Prototype access is not allowed.',
-    }
-  ),
+    // JSON - parse and stringify
+    JSON: createBuiltinProxy('JSON', {
+      parse: (text: string) => JSON.parse(text),
+      stringify: (value: any, replacer?: any, space?: number) =>
+        JSON.stringify(value, replacer, space),
+    }),
 
-  // Object static methods
-  Object: createBuiltinProxy(
-    'Object',
-    {
-      keys: (obj: any) => Object.keys(obj),
-      values: (obj: any) => Object.values(obj),
-      entries: (obj: any) => Object.entries(obj),
-      fromEntries: (entries: any) => Object.fromEntries(entries),
-      assign: (target: any, ...sources: any[]) =>
-        Object.assign({}, target, ...sources),
-      hasOwn: (obj: any, prop: string) => Object.hasOwn(obj, prop),
-    },
-    {
-      prototype: 'Prototype access is not allowed.',
-      create: 'Use object literals instead.',
-      defineProperty: 'Property descriptors are not supported.',
-      getPrototypeOf: 'Prototype access is not allowed.',
-      setPrototypeOf: 'Prototype modification is not allowed.',
-    }
-  ),
+    // console - maps to trace/logging
+    console: createBuiltinProxy(
+      'console',
+      {
+        log: (..._args: any[]) => {
+          // In expression context, we can't access trace easily
+          // This is a no-op in expressions, but works in atom context
+          // The transpiler should lift console.log to a trace atom call
+          return undefined
+        },
+        warn: (..._args: any[]) => undefined,
+        error: (..._args: any[]) => undefined,
+        info: (..._args: any[]) => undefined,
+      },
+      {
+        table: 'Use console.log with JSON.stringify for structured data.',
+        dir: 'Use console.log instead.',
+        trace: 'Stack traces are not available in AsyncJS.',
+      }
+    ),
 
-  // String static methods
-  String: createBuiltinProxy('String', {
-    fromCharCode: (...codes: number[]) => String.fromCharCode(...codes),
-    fromCodePoint: (...codePoints: number[]) =>
-      String.fromCodePoint(...codePoints),
-  }),
+    // Array static methods
+    Array: createBuiltinProxy(
+      'Array',
+      {
+        isArray: (value: any) => Array.isArray(value),
+        from: (iterable: any, mapFn?: any, thisArg?: any) =>
+          Array.from(iterable, mapFn, thisArg),
+        of: (...items: any[]) => Array.of(...items),
+      },
+      {
+        prototype: 'Prototype access is not allowed.',
+      }
+    ),
 
-  // Number static methods and constants
-  Number: createBuiltinProxy('Number', {
-    isNaN: Number.isNaN,
-    isFinite: Number.isFinite,
-    isInteger: Number.isInteger,
-    isSafeInteger: Number.isSafeInteger,
-    parseFloat: parseFloat,
+    // Object static methods
+    Object: createBuiltinProxy(
+      'Object',
+      {
+        keys: (obj: any) => Object.keys(obj),
+        values: (obj: any) => Object.values(obj),
+        entries: (obj: any) => Object.entries(obj),
+        fromEntries: (entries: any) => Object.fromEntries(entries),
+        assign: (target: any, ...sources: any[]) =>
+          Object.assign({}, target, ...sources),
+        hasOwn: (obj: any, prop: string) => Object.hasOwn(obj, prop),
+      },
+      {
+        prototype: 'Prototype access is not allowed.',
+        create: 'Use object literals instead.',
+        defineProperty: 'Property descriptors are not supported.',
+        getPrototypeOf: 'Prototype access is not allowed.',
+        setPrototypeOf: 'Prototype modification is not allowed.',
+      }
+    ),
+
+    // String static methods
+    String: createBuiltinProxy('String', {
+      fromCharCode: (...codes: number[]) => String.fromCharCode(...codes),
+      fromCodePoint: (...codePoints: number[]) =>
+        String.fromCodePoint(...codePoints),
+    }),
+
+    // Number static methods and constants
+    Number: createBuiltinProxy('Number', {
+      isNaN: Number.isNaN,
+      isFinite: Number.isFinite,
+      isInteger: Number.isInteger,
+      isSafeInteger: Number.isSafeInteger,
+      parseFloat: parseFloat,
+      parseInt: parseInt,
+      MAX_VALUE: Number.MAX_VALUE,
+      MIN_VALUE: Number.MIN_VALUE,
+      MAX_SAFE_INTEGER: Number.MAX_SAFE_INTEGER,
+      MIN_SAFE_INTEGER: Number.MIN_SAFE_INTEGER,
+      POSITIVE_INFINITY: Number.POSITIVE_INFINITY,
+      NEGATIVE_INFINITY: Number.NEGATIVE_INFINITY,
+      NaN: Number.NaN,
+      EPSILON: Number.EPSILON,
+    }),
+
+    // Global functions
     parseInt: parseInt,
-    MAX_VALUE: Number.MAX_VALUE,
-    MIN_VALUE: Number.MIN_VALUE,
-    MAX_SAFE_INTEGER: Number.MAX_SAFE_INTEGER,
-    MIN_SAFE_INTEGER: Number.MIN_SAFE_INTEGER,
-    POSITIVE_INFINITY: Number.POSITIVE_INFINITY,
-    NEGATIVE_INFINITY: Number.NEGATIVE_INFINITY,
-    NaN: Number.NaN,
-    EPSILON: Number.EPSILON,
-  }),
+    parseFloat: parseFloat,
+    isNaN: isNaN,
+    isFinite: isFinite,
+    encodeURI: encodeURI,
+    decodeURI: decodeURI,
+    encodeURIComponent: encodeURIComponent,
+    decodeURIComponent: decodeURIComponent,
 
-  // Global functions
-  parseInt: parseInt,
-  parseFloat: parseFloat,
-  isNaN: isNaN,
-  isFinite: isFinite,
-  encodeURI: encodeURI,
-  decodeURI: decodeURI,
-  encodeURIComponent: encodeURIComponent,
-  decodeURIComponent: decodeURIComponent,
+    // Constants
+    undefined: undefined,
+    null: null,
+    NaN: NaN,
+    Infinity: Infinity,
 
-  // Constants
-  undefined: undefined,
-  null: null,
-  NaN: NaN,
-  Infinity: Infinity,
+    // Schema-based filtering - strips extra properties, validates structure
+    // Returns filtered data or throws on validation failure
+    filter: (data: any, schema: any): any => {
+      // Convert example-value schema to JSON Schema if needed
+      const jsonSchema = convertExampleToSchema(schema)
+      const result = schemaFilter(data, jsonSchema)
+      if (result instanceof Error) {
+        throw result
+      }
+      return result
+    },
 
-  // Schema-based filtering - strips extra properties, validates structure
-  // Returns filtered data or throws on validation failure
-  filter: (data: any, schema: any): any => {
-    // Convert example-value schema to JSON Schema if needed
-    const jsonSchema = convertExampleToSchema(schema)
-    const result = schemaFilter(data, jsonSchema)
-    if (result instanceof Error) {
-      throw result
-    }
-    return result
-  },
+    // Schema builder - exposes tosijs-schema's fluent API for building JSON Schemas
+    // Usage: Schema.object({ name: Schema.string, age: Schema.number.int.min(0) })
+    // Usage: Schema.response('my_schema', Schema.object({ ... })) for LLM responseFormat
+    Schema: {
+      // Re-export all of tosijs-schema's `s` object
+      ...s,
 
-  // Schema builder - exposes tosijs-schema's fluent API for building JSON Schemas
-  // Usage: Schema.object({ name: Schema.string, age: Schema.number.int.min(0) })
-  // Usage: Schema.response('my_schema', Schema.object({ ... })) for LLM responseFormat
-  Schema: {
-    // Re-export all of tosijs-schema's `s` object
-    ...s,
+      // Convenience: wrap schema in OpenAI responseFormat structure
+      // Accepts either a tosijs-schema builder or a plain example object
+      response: (name: string, schemaOrExample: any) => {
+        const jsonSchema =
+          schemaOrExample?.schema != null
+            ? schemaOrExample.schema
+            : convertExampleToSchema(schemaOrExample)
 
-    // Convenience: wrap schema in OpenAI responseFormat structure
-    // Accepts either a tosijs-schema builder or a plain example object
-    response: (name: string, schemaOrExample: any) => {
-      const jsonSchema =
-        schemaOrExample?.schema != null
-          ? schemaOrExample.schema
-          : convertExampleToSchema(schemaOrExample)
+        return {
+          type: 'json_schema',
+          json_schema: {
+            name,
+            strict: true,
+            schema: jsonSchema,
+          },
+        }
+      },
 
+      // Convert example value to JSON Schema (for simple cases)
+      fromExample: (example: any) => convertExampleToSchema(example),
+
+      // Validation: returns boolean
+      isValid: (data: any, schemaOrExample: any): boolean => {
+        if (schemaOrExample?.schema != null) {
+          return validate(data, schemaOrExample)
+        }
+        return validate(data, convertExampleToSchema(schemaOrExample))
+      },
+    },
+
+    // Set factory - creates a set-like object backed by an array
+    Set: (items: any[] = []) => {
+      const data = [...new globalThis.Set(items)] // dedupe initial items
       return {
-        type: 'json_schema',
-        json_schema: {
-          name,
-          strict: true,
-          schema: jsonSchema,
+        // Mutable operations
+        add(item: any) {
+          if (!data.includes(item)) {
+            data.push(item)
+          }
+          return this
+        },
+        remove(item: any) {
+          const idx = data.indexOf(item)
+          if (idx !== -1) {
+            data.splice(idx, 1)
+          }
+          return this
+        },
+        clear() {
+          data.length = 0
+          return this
+        },
+        // Query operations
+        has(item: any) {
+          return data.includes(item)
+        },
+        get size() {
+          return data.length
+        },
+        toArray() {
+          return [...data]
+        },
+        // Set operations - return new sets
+        union(other: any) {
+          const otherItems = other?.toArray?.() ?? other ?? []
+          return builtins.Set([...data, ...otherItems])
+        },
+        intersection(other: any) {
+          const otherItems = other?.toArray?.() ?? other ?? []
+          return builtins.Set(data.filter((x: any) => otherItems.includes(x)))
+        },
+        diff(other: any) {
+          const otherItems = other?.toArray?.() ?? other ?? []
+          return builtins.Set(data.filter((x: any) => !otherItems.includes(x)))
+        },
+        // Iteration
+        forEach(fn: (item: any) => void) {
+          data.forEach(fn)
+        },
+        map(fn: (item: any) => any) {
+          return builtins.Set(data.map(fn))
+        },
+        filter(fn: (item: any) => boolean) {
+          return builtins.Set(data.filter(fn))
+        },
+        // Serialization - Sets serialize to arrays
+        toJSON() {
+          return [...data]
         },
       }
     },
 
-    // Convert example value to JSON Schema (for simple cases)
-    fromExample: (example: any) => convertExampleToSchema(example),
+    // Date factory - creates a date-like object
+    // Also supports Date.now() for compatibility
+    Date: (() => {
+      const createDate = (d: globalThis.Date): any => ({
+        // Get the underlying value
+        get value() {
+          return d.toISOString()
+        },
+        get timestamp() {
+          return d.getTime()
+        },
+        // Components
+        get year() {
+          return d.getFullYear()
+        },
+        get month() {
+          return d.getMonth() + 1 // 1-indexed
+        },
+        get day() {
+          return d.getDate()
+        },
+        get hours() {
+          return d.getHours()
+        },
+        get minutes() {
+          return d.getMinutes()
+        },
+        get seconds() {
+          return d.getSeconds()
+        },
+        get dayOfWeek() {
+          return d.getDay()
+        },
+        // Arithmetic - returns new Date
+        add({
+          years = 0,
+          months = 0,
+          days = 0,
+          hours = 0,
+          minutes = 0,
+          seconds = 0,
+          ms = 0,
+        }: {
+          years?: number
+          months?: number
+          days?: number
+          hours?: number
+          minutes?: number
+          seconds?: number
+          ms?: number
+        } = {}) {
+          const newDate = new globalThis.Date(d.getTime())
+          if (years) newDate.setFullYear(newDate.getFullYear() + years)
+          if (months) newDate.setMonth(newDate.getMonth() + months)
+          if (days) newDate.setDate(newDate.getDate() + days)
+          if (hours) newDate.setHours(newDate.getHours() + hours)
+          if (minutes) newDate.setMinutes(newDate.getMinutes() + minutes)
+          if (seconds) newDate.setSeconds(newDate.getSeconds() + seconds)
+          if (ms) newDate.setMilliseconds(newDate.getMilliseconds() + ms)
+          return createDate(newDate)
+        },
+        // Difference
+        diff(
+          other: any,
+          unit: 'ms' | 'seconds' | 'minutes' | 'hours' | 'days' = 'ms'
+        ) {
+          const otherTime =
+            typeof other === 'object' && other.timestamp
+              ? other.timestamp
+              : new globalThis.Date(other).getTime()
+          const diffMs = d.getTime() - otherTime
+          switch (unit) {
+            case 'seconds':
+              return diffMs / 1000
+            case 'minutes':
+              return diffMs / (1000 * 60)
+            case 'hours':
+              return diffMs / (1000 * 60 * 60)
+            case 'days':
+              return diffMs / (1000 * 60 * 60 * 24)
+            default:
+              return diffMs
+          }
+        },
+        // Formatting
+        format(fmt = 'ISO') {
+          if (fmt === 'ISO') return d.toISOString()
+          if (fmt === 'date') return d.toISOString().split('T')[0]
+          if (fmt === 'time') return d.toISOString().split('T')[1].split('.')[0]
+          // Simple format substitution
+          return fmt
+            .replace('YYYY', String(d.getFullYear()))
+            .replace('MM', String(d.getMonth() + 1).padStart(2, '0'))
+            .replace('DD', String(d.getDate()).padStart(2, '0'))
+            .replace('HH', String(d.getHours()).padStart(2, '0'))
+            .replace('mm', String(d.getMinutes()).padStart(2, '0'))
+            .replace('ss', String(d.getSeconds()).padStart(2, '0'))
+        },
+        // Comparison
+        isBefore(other: any) {
+          const otherTime =
+            typeof other === 'object' && other.timestamp
+              ? other.timestamp
+              : new globalThis.Date(other).getTime()
+          return d.getTime() < otherTime
+        },
+        isAfter(other: any) {
+          const otherTime =
+            typeof other === 'object' && other.timestamp
+              ? other.timestamp
+              : new globalThis.Date(other).getTime()
+          return d.getTime() > otherTime
+        },
+        // String representation
+        toString() {
+          return d.toISOString()
+        },
+        // Serialization - Dates serialize to ISO strings
+        toJSON() {
+          return d.toISOString()
+        },
+      })
 
-    // Validation: returns boolean
-    isValid: (data: any, schemaOrExample: any): boolean => {
-      if (schemaOrExample?.schema != null) {
-        return validate(data, schemaOrExample)
+      // The Date factory function
+      const DateFactory = (init?: string | number) => {
+        const date =
+          init !== undefined ? new globalThis.Date(init) : new globalThis.Date()
+        if (isNaN(date.getTime())) {
+          throw new Error(`Invalid date: ${init}`)
+        }
+        return createDate(date)
       }
-      return validate(data, convertExampleToSchema(schemaOrExample))
-    },
-  },
 
-  // Set factory - creates a set-like object backed by an array
-  Set: (items: any[] = []) => {
-    const data = [...new globalThis.Set(items)] // dedupe initial items
-    return {
-      // Mutable operations
-      add(item: any) {
-        if (!data.includes(item)) {
-          data.push(item)
-        }
-        return this
-      },
-      remove(item: any) {
-        const idx = data.indexOf(item)
-        if (idx !== -1) {
-          data.splice(idx, 1)
-        }
-        return this
-      },
-      clear() {
-        data.length = 0
-        return this
-      },
-      // Query operations
-      has(item: any) {
-        return data.includes(item)
-      },
-      get size() {
-        return data.length
-      },
-      toArray() {
-        return [...data]
-      },
-      // Set operations - return new sets
-      union(other: any) {
-        const otherItems = other?.toArray?.() ?? other ?? []
-        return builtins.Set([...data, ...otherItems])
-      },
-      intersection(other: any) {
-        const otherItems = other?.toArray?.() ?? other ?? []
-        return builtins.Set(data.filter((x: any) => otherItems.includes(x)))
-      },
-      diff(other: any) {
-        const otherItems = other?.toArray?.() ?? other ?? []
-        return builtins.Set(data.filter((x: any) => !otherItems.includes(x)))
-      },
-      // Iteration
-      forEach(fn: (item: any) => void) {
-        data.forEach(fn)
-      },
-      map(fn: (item: any) => any) {
-        return builtins.Set(data.map(fn))
-      },
-      filter(fn: (item: any) => boolean) {
-        return builtins.Set(data.filter(fn))
-      },
-      // Serialization - Sets serialize to arrays
-      toJSON() {
-        return [...data]
-      },
-    }
-  },
+      // Static methods (for Date.now() compatibility)
+      DateFactory.now = () => globalThis.Date.now()
+      DateFactory.parse = (str: string) => createDate(new globalThis.Date(str))
 
-  // Date factory - creates a date-like object
-  // Also supports Date.now() for compatibility
-  Date: (() => {
-    const createDate = (d: globalThis.Date): any => ({
-      // Get the underlying value
-      get value() {
-        return d.toISOString()
-      },
-      get timestamp() {
-        return d.getTime()
-      },
-      // Components
-      get year() {
-        return d.getFullYear()
-      },
-      get month() {
-        return d.getMonth() + 1 // 1-indexed
-      },
-      get day() {
-        return d.getDate()
-      },
-      get hours() {
-        return d.getHours()
-      },
-      get minutes() {
-        return d.getMinutes()
-      },
-      get seconds() {
-        return d.getSeconds()
-      },
-      get dayOfWeek() {
-        return d.getDay()
-      },
-      // Arithmetic - returns new Date
-      add({
-        years = 0,
-        months = 0,
-        days = 0,
-        hours = 0,
-        minutes = 0,
-        seconds = 0,
-        ms = 0,
-      }: {
-        years?: number
-        months?: number
-        days?: number
-        hours?: number
-        minutes?: number
-        seconds?: number
-        ms?: number
-      } = {}) {
-        const newDate = new globalThis.Date(d.getTime())
-        if (years) newDate.setFullYear(newDate.getFullYear() + years)
-        if (months) newDate.setMonth(newDate.getMonth() + months)
-        if (days) newDate.setDate(newDate.getDate() + days)
-        if (hours) newDate.setHours(newDate.getHours() + hours)
-        if (minutes) newDate.setMinutes(newDate.getMinutes() + minutes)
-        if (seconds) newDate.setSeconds(newDate.getSeconds() + seconds)
-        if (ms) newDate.setMilliseconds(newDate.getMilliseconds() + ms)
-        return createDate(newDate)
-      },
-      // Difference
-      diff(
-        other: any,
-        unit: 'ms' | 'seconds' | 'minutes' | 'hours' | 'days' = 'ms'
-      ) {
-        const otherTime =
-          typeof other === 'object' && other.timestamp
-            ? other.timestamp
-            : new globalThis.Date(other).getTime()
-        const diffMs = d.getTime() - otherTime
-        switch (unit) {
-          case 'seconds':
-            return diffMs / 1000
-          case 'minutes':
-            return diffMs / (1000 * 60)
-          case 'hours':
-            return diffMs / (1000 * 60 * 60)
-          case 'days':
-            return diffMs / (1000 * 60 * 60 * 24)
-          default:
-            return diffMs
-        }
-      },
-      // Formatting
-      format(fmt = 'ISO') {
-        if (fmt === 'ISO') return d.toISOString()
-        if (fmt === 'date') return d.toISOString().split('T')[0]
-        if (fmt === 'time') return d.toISOString().split('T')[1].split('.')[0]
-        // Simple format substitution
-        return fmt
-          .replace('YYYY', String(d.getFullYear()))
-          .replace('MM', String(d.getMonth() + 1).padStart(2, '0'))
-          .replace('DD', String(d.getDate()).padStart(2, '0'))
-          .replace('HH', String(d.getHours()).padStart(2, '0'))
-          .replace('mm', String(d.getMinutes()).padStart(2, '0'))
-          .replace('ss', String(d.getSeconds()).padStart(2, '0'))
-      },
-      // Comparison
-      isBefore(other: any) {
-        const otherTime =
-          typeof other === 'object' && other.timestamp
-            ? other.timestamp
-            : new globalThis.Date(other).getTime()
-        return d.getTime() < otherTime
-      },
-      isAfter(other: any) {
-        const otherTime =
-          typeof other === 'object' && other.timestamp
-            ? other.timestamp
-            : new globalThis.Date(other).getTime()
-        return d.getTime() > otherTime
-      },
-      // String representation
-      toString() {
-        return d.toISOString()
-      },
-      // Serialization - Dates serialize to ISO strings
-      toJSON() {
-        return d.toISOString()
-      },
-    })
-
-    // The Date factory function
-    const DateFactory = (init?: string | number) => {
-      const date =
-        init !== undefined ? new globalThis.Date(init) : new globalThis.Date()
-      if (isNaN(date.getTime())) {
-        throw new Error(`Invalid date: ${init}`)
-      }
-      return createDate(date)
-    }
-
-    // Static methods (for Date.now() compatibility)
-    DateFactory.now = () => globalThis.Date.now()
-    DateFactory.parse = (str: string) => createDate(new globalThis.Date(str))
-
-    return DateFactory
-  })(),
-}
+      return DateFactory
+    })(),
+  }
+)
 
 /**
  * Allowlist of method names `methodCall` may invoke — defense in depth behind
@@ -1739,29 +1796,35 @@ const SAFE_METHOD_NAMES: Set<string> = (() => {
 })()
 
 // Built-ins that are NOT available with helpful messages
-const unsupportedBuiltins: Record<string, string> = {
-  RegExp: 'RegExp is not available. Use string methods or the regexMatch atom.',
-  Promise: 'Promise is not needed. All operations are implicitly async.',
-  Map: 'Map is not available. Use plain objects instead.',
-  WeakSet: 'WeakSet is not available.',
-  WeakMap: 'WeakMap is not available.',
-  Symbol: 'Symbol is not available.',
-  Proxy: 'Proxy is not available.',
-  Reflect: 'Reflect is not available.',
-  Function: 'Function constructor is not available. Define functions normally.',
-  eval: 'eval is not available. Code is compiled, not evaluated.',
-  setTimeout: 'setTimeout is not available. Use the delay atom.',
-  setInterval: 'setInterval is not available. Use while loops with delay.',
-  fetch: 'fetch is not available. Use the httpFetch atom.',
-  require: 'require is not available. Atoms must be registered with the VM.',
-  import: 'import is not available. Atoms must be registered with the VM.',
-  process: 'process is not available. AsyncJS runs in a sandboxed environment.',
-  window: 'window is not available. AsyncJS runs in a sandboxed environment.',
-  document:
-    'document is not available. AsyncJS runs in a sandboxed environment.',
-  global: 'global is not available. AsyncJS runs in a sandboxed environment.',
-  globalThis: 'globalThis is not available. Use builtins directly.',
-}
+const unsupportedBuiltins: Record<string, string> = Object.assign(
+  Object.create(null),
+  {
+    RegExp:
+      'RegExp is not available. Use string methods or the regexMatch atom.',
+    Promise: 'Promise is not needed. All operations are implicitly async.',
+    Map: 'Map is not available. Use plain objects instead.',
+    WeakSet: 'WeakSet is not available.',
+    WeakMap: 'WeakMap is not available.',
+    Symbol: 'Symbol is not available.',
+    Proxy: 'Proxy is not available.',
+    Reflect: 'Reflect is not available.',
+    Function:
+      'Function constructor is not available. Define functions normally.',
+    eval: 'eval is not available. Code is compiled, not evaluated.',
+    setTimeout: 'setTimeout is not available. Use the delay atom.',
+    setInterval: 'setInterval is not available. Use while loops with delay.',
+    fetch: 'fetch is not available. Use the httpFetch atom.',
+    require: 'require is not available. Atoms must be registered with the VM.',
+    import: 'import is not available. Atoms must be registered with the VM.',
+    process:
+      'process is not available. AsyncJS runs in a sandboxed environment.',
+    window: 'window is not available. AsyncJS runs in a sandboxed environment.',
+    document:
+      'document is not available. AsyncJS runs in a sandboxed environment.',
+    global: 'global is not available. AsyncJS runs in a sandboxed environment.',
+    globalThis: 'globalThis is not available. Use builtins directly.',
+  }
+)
 
 /** Fuel cost per expression node evaluation */
 const EXPR_FUEL_COST = 0.01
@@ -2237,19 +2300,29 @@ export function evaluateExpr(node: ExprNode, ctx: RuntimeContext): any {
       return node.value
 
     case 'ident': {
-      // Look up in state first, then args, then builtins
-      if (node.name in ctx.state) {
+      // Look up in state first, then args, then builtins.
+      //
+      // `own`, never `in`: `in` walks the PROTOTYPE CHAIN, and the key is guest-controlled.
+      // `ctx.state` and `ctx.args` are ordinary object literals, so a guest naming
+      // `constructor`, `toString`, `valueOf`, `hasOwnProperty` and seven other inherited
+      // members resolved to real host functions here — past the allowlist, which only ever
+      // described `builtins`' OWN keys. Reproduced before the fix (fuel 400, no capabilities):
+      //   `return { v: constructor('abc') }`  ->  {"v":"abc"}   (host Object, guest args)
+      //   `return { v: toString() }`          ->  "[object Undefined]"
+      // The maps are `Object.create(null)` now too, so this is belt and braces — but `state`
+      // and `args` are built elsewhere and cannot be fixed at their declaration.
+      if (scopeHas(ctx.state, node.name)) {
         return ctx.state[node.name]
       }
-      if (node.name in ctx.args) {
+      if (scopeHas(ctx.args, node.name)) {
         return ctx.args[node.name]
       }
       // Check builtins (Math, JSON, Array, etc.)
-      if (node.name in builtins) {
+      if (own(builtins, node.name)) {
         return builtins[node.name]
       }
       // Check for unsupported builtins and give helpful error
-      if (node.name in unsupportedBuiltins) {
+      if (own(unsupportedBuiltins, node.name)) {
         throw new Error(unsupportedBuiltins[node.name])
       }
       return undefined
@@ -2379,7 +2452,10 @@ export function evaluateExpr(node: ExprNode, ctx: RuntimeContext): any {
       }
 
       // Check if this is a builtin global function (parseInt, parseFloat, etc.)
-      if (node.callee in builtins) {
+      // Own-property only — see the `ident` case above. This is the site where the leak
+      // was actually exploitable: an inherited value that happened to be callable got
+      // INVOKED with guest arguments.
+      if (own(builtins, node.callee)) {
         const fn = builtins[node.callee]
         if (typeof fn === 'function') {
           const args = node.arguments.map((arg) => evaluateExpr(arg, ctx))
@@ -2390,7 +2466,7 @@ export function evaluateExpr(node: ExprNode, ctx: RuntimeContext): any {
       const atom = ctx.resolver(node.callee)
       if (!atom) {
         // Check unsupported builtins
-        if (node.callee in unsupportedBuiltins) {
+        if (own(unsupportedBuiltins, node.callee)) {
           throw new Error(unsupportedBuiltins[node.callee])
         }
         throw new Error(`Unknown function: ${node.callee}`)

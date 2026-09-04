@@ -5,6 +5,55 @@ All notable changes to **tjs-lang** are documented here.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.13.11] — 2026-09-04
+
+Three findings from the 0.13.10 pre-release review, all pre-existing, none introduced by
+0.13.10. Each was reproduced before being fixed and is pinned by a test.
+
+### Security
+
+- **The VM resolved inherited names to host values.** Every lookup keyed by a
+  guest-controlled name used `in` / bare bracket access on a plain object, and `in` walks the
+  prototype chain — so `constructor`, `toString`, `valueOf`, `hasOwnProperty` and seven other
+  `Object.prototype` members resolved to real host functions, past an allowlist that only ever
+  enumerated own keys. With no capabilities and 400 fuel:
+
+  ```
+  return { v: constructor('abc') }   ->  { "v": "abc" }   // the host Object, CALLED
+  return { v: toString() }           ->  "[object Undefined]"
+  ```
+
+  No escalation to `Function` (`assertSafeProperty` and `SAFE_METHOD_NAMES` hold) and no
+  prototype pollution, so this was not an escape — but host functions crossing into guest
+  scope is the wrong side of the boundary. Fixed at all three lookup sites; `builtins` and
+  `unsupportedBuiltins` are `Object.create(null)` as well.
+
+  **Guest scopes are prototype-linked on purpose** (`Object.create(parentState)`, so a child
+  write shadows), so the fix walks the scope chain and stops at `Object.prototype` rather than
+  demanding own properties — a plain own-property check severs lexical scoping, which is how
+  the first attempt at this failed.
+
+- **`Eval`/`SafeFunction` now cap source length** (`maxSourceBytes`, default 64 KB), refused
+  before transpiling. `fuel` and `timeoutMs` are properties of `vm.run`, and transpilation
+  happens first, so neither bounded it: with `{ fuel: 10, timeoutMs: 1 }`, 500 KB took 3.9s
+  and 1.8 MB took ~145s, charging 0.2 fuel throughout. Measured in bytes, not string length.
+  Set `0` to opt out for trusted source. The hosted endpoints name the limit explicitly.
+
+### Fixed
+
+- **The two `transpile()` entry points gave OPPOSITE input contracts for the documented AJS
+  entry shape.** For `function agent({ apiKey: 'sk-example' })`, `tjs-lang` produced
+  `required: ['apiKey']` and rejected a missing input, while `tjs-lang/lang` produced no
+  `required` and `vm.run(ast, {})` returned `{ apiKey: 'sk-example' }` — the example value,
+  credential-shaped for a parameter called `apiKey`, silently substituted for an input the
+  caller never supplied.
+
+  The emitter's required-parameter scan inspected only top-level `AssignmentPattern` params,
+  so a destructured `ObjectPattern` — _the_ documented AJS entry shape — matched nothing; and
+  because that branch was an `else if`, the name-based fallback was skipped too. It now
+  descends into destructured members, and falls back whenever the scan yields nothing, since
+  an empty result means "could not index this shape", not "nothing is required".
+
 ## [0.13.10] — 2026-09-03
 
 ### Changed — AJS parses through its own core, not `parse()` with a flag

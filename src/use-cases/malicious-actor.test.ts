@@ -2,6 +2,7 @@ import { describe, it, expect, mock } from 'bun:test'
 import { Agent } from '../builder'
 import { defineAtom } from '../runtime'
 import { AgentVM } from '../vm'
+import { Eval } from '../lang/eval'
 import { s } from 'tosijs-schema'
 
 describe('Use Case: Malicious Actor', () => {
@@ -693,6 +694,85 @@ describe('Use Case: Malicious Actor', () => {
       const result = await VM.run(readAgent(), {}, { capabilities: { store } })
       expect(result.error).toBeDefined()
       expect(result.error?.message).toMatch(/depth limit/)
+    })
+  })
+
+  describe('inherited names never resolve to host values (prototype-chain lookup)', () => {
+    // Every lookup keyed by a GUEST-CONTROLLED name must be own-property only. `in` and bare
+    // bracket access walk the prototype chain, so on a plain object literal they answer for
+    // `constructor`, `toString`, `valueOf` and the rest of `Object.prototype` — and the read
+    // returns a real host function, past an allowlist that only ever enumerated own keys.
+    //
+    // This was live until 2026-09-04 and reproducible with no capabilities at all:
+    //   `return { v: constructor('abc') }`  ->  {"v":"abc"}  — the host `Object`, CALLED
+    //                                                          with guest arguments
+    //   `return { v: toString() }`          ->  "[object Undefined]"
+    //
+    // Three sites had it. Fixing the two in `evaluateExpr` made the exploitable shape (a
+    // CALL) go away while a bare reference still returned `typeof 'function'`, because a bare
+    // identifier reaches state through `resolveValue`, not `evaluateExpr`. Hence a table over
+    // every inherited name rather than a row for the one that reproduced: fixing what
+    // reproduces is not the same as fixing the class.
+    const INHERITED = [
+      'constructor',
+      'toString',
+      'valueOf',
+      'hasOwnProperty',
+      'isPrototypeOf',
+      'propertyIsEnumerable',
+      'toLocaleString',
+      '__defineGetter__',
+      '__defineSetter__',
+      '__lookupGetter__',
+      '__lookupSetter__',
+    ]
+
+    for (const name of INHERITED) {
+      it(`\`${name}\` does not resolve to a host value`, async () => {
+        const result = await Eval({ code: `return { v: ${name} }`, fuel: 400 })
+        const v: any = result.result && (result.result as any).v
+        expect(typeof v).not.toBe('function')
+        expect(typeof v).not.toBe('object')
+      })
+    }
+
+    it('an inherited name cannot be CALLED with guest arguments', async () => {
+      // The severe form: not merely reading a host function but invoking it.
+      const result: any = await Eval({
+        code: `return { v: constructor('abc') }`,
+        fuel: 400,
+      })
+      expect(result.result?.v).not.toBe('abc')
+      expect(result.error).toBeDefined()
+    })
+
+    it('the guard does not sever the SCOPE chain', async () => {
+      // The trap, recorded because the first fix fell into it. Guest scopes are deliberately
+      // prototype-linked (`state: Object.create(ctx.state)`) so a child write shadows rather
+      // than clobbers. Replacing `in` with a plain own-property check therefore severs
+      // lexical scoping — three stored-procedure tests went red immediately.
+      //
+      // The chain is legitimate; only the last link, `Object.prototype`, is not. So the
+      // lookup walks the chain and stops at that boundary, and this asserts the half that a
+      // narrower guard silently breaks.
+      const result: any = await Eval({
+        code: `let outer = 7\nif (true) { outer = outer + 1 }\nreturn { outer }`,
+        fuel: 400,
+      })
+      expect(result.result).toEqual({ outer: 8 })
+    })
+
+    it('ordinary builtins and state still resolve', async () => {
+      // The floor. A VM that resolved nothing would satisfy every assertion above.
+      expect(
+        (await Eval({ code: 'return { v: Math.max(1, 2) }', fuel: 400 })).result
+      ).toEqual({ v: 2 })
+      expect(
+        (await Eval({ code: "return { v: parseInt('42') }", fuel: 400 })).result
+      ).toEqual({ v: 42 })
+      expect(
+        (await Eval({ code: 'let x = 5\nreturn { x }', fuel: 400 })).result
+      ).toEqual({ x: 5 })
     })
   })
 })

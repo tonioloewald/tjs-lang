@@ -156,12 +156,49 @@ export function transformFunction(
   // since `factor: 1` and `factor = 1` in one module are the same key.
   const requiredHere = new Set<string>()
   if (requiredValueOffsets?.size) {
-    for (const param of func.params ?? []) {
-      const p = param as any
-      if (p?.type !== 'AssignmentPattern' || !p.right || !p.left?.name) continue
-      if (requiredValueOffsets.has(p.right.end)) requiredHere.add(p.left.name)
+    // Walk DESTRUCTURED members too, not only top-level `name = value` params.
+    //
+    // `function agent({ apiKey: 'sk-example' })` is *the* documented AJS entry shape
+    // (DOCS-AJS.md § Input/Output: "functions take a single destructured object
+    // parameter"), and it is an ObjectPattern — which this loop skipped entirely. So
+    // `requiredHere` came out empty, the name-based fallback below was skipped because the
+    // offsets branch had already been taken, and the entry lost its `required` list.
+    //
+    // The consequence was not a missing warning. `vm.run(ast, {})` returned
+    // `{"apiKey":"sk-example"}` — the EXAMPLE VALUE, which for a parameter named `apiKey` is
+    // credential-shaped, silently substituted for an input the caller never supplied. And it
+    // differed by entry point: `tjs-lang/lang` (via core.ts, which forwards the offsets) was
+    // broken while `tjs-lang` (which does not) was correct, so two consumers of the same
+    // source got opposite contracts.
+    const collect = (p: any): void => {
+      if (!p) return
+      if (p.type === 'AssignmentPattern' && p.right && p.left?.name) {
+        if (requiredValueOffsets.has(p.right.end)) requiredHere.add(p.left.name)
+        return
+      }
+      // `{ a: 1, b = 2 }` — properties whose value is the annotation carrying the marker.
+      if (p.type === 'ObjectPattern') {
+        for (const prop of p.properties ?? []) {
+          if (prop?.type === 'RestElement') continue
+          collect(prop.value)
+          // A shorthand-with-default (`{ a = 1 }`) parses as a Property whose value IS the
+          // AssignmentPattern, handled above. A non-shorthand (`{ a: b = 1 }`) binds `b`,
+          // which `collect` also reaches through `prop.value`.
+        }
+        return
+      }
+      if (p.type === 'ArrayPattern') {
+        for (const el of p.elements ?? []) collect(el)
+      }
     }
-  } else if (requiredParamsFromPreprocess) {
+    for (const param of func.params ?? []) collect(param)
+  }
+  // Fall back whenever the offsets produced NOTHING — an empty result means "could not index
+  // this shape", not "nothing is required". Previously this was an `else if`, so taking the
+  // offsets branch at all suppressed the fallback even when it yielded no names; that is what
+  // turned an emitter gap into a dropped contract. A lost `required` converts a checked
+  // parameter into an unchecked one, which is strictly worse than an over-broad one.
+  if (requiredHere.size === 0 && requiredParamsFromPreprocess) {
     // No source to index into — fall back to the module-wide names rather than dropping
     // every marker, since a lost `required` turns a checked parameter into an unchecked
     // one, which is worse than an over-broad one.
