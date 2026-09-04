@@ -17,7 +17,16 @@ dashboard number into this list.
 - [x] **A1 — `test` blocks quoted as data were executed and deleted.** DONE 2026-09-04.
       52 of 99 clustered failures, in three suites, all of them language tests whose fixtures
       are TJS source held in strings. **108 → 59 broken tests from one fix.** See CHANGELOG.
-- [ ] **A2 — the ~10 harness artifacts scored as language failures.** `Cannot find module
+- [x] **A2 — the harness artifacts scored as language failures.** DONE 2026-09-04, and the
+      cause was one line. `relocate()` rewrote import specifiers with a REGEX over raw text,
+      so it also rewrote the ones inside template literals that tests write out as fixture
+      modules at runtime — `multi-module.test.ts` builds `import { numA } from './libA.mjs'`
+      as a string, writes it next to a real `libA.mjs` in its own temp dir, and spawns node on
+      it; relocation repointed that string at `src/lang/`, where no such file exists.
+      Masking cannot fix it, because an import specifier IS a string literal — blank the
+      literals and you blank the text to rewrite. The distinction is syntactic, so it now asks
+      acorn which string literals are import sources. **59 broken tests -> 38.**
+      ORIGINAL NOTE, kept because the estimate was wrong in an instructive way: `Cannot find module
 '.../c.js'`, `libA.mjs`, `__tjs_wasm_triple`: suites that write sibling files or spawn
       `node` with paths relative to the ORIGINAL directory, which `relocate()` does not
       rewrite. These are the harness failing and being scored as the language failing — the

@@ -34,6 +34,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `source.slice(i).match(/^\btest\s+/)`, where `\b` sits at the start of the sliced string
   and is therefore always satisfied, so `mytest 'x' { }` matched.
 
+### Fixed (test infrastructure, not shipped code)
+
+- **The dogfood behaviour gate's own relocation step was literal-blind.** `relocate()`
+  rewrote import specifiers with a regex over raw text, so it also rewrote the ones inside
+  TEMPLATE LITERALS that suites write out as fixture modules at runtime — repointing them at
+  a source directory where no such file exists. Those suites then failed and were scored as
+  _conversion_ losing tests. It now asks acorn which string literals are import sources,
+  because masking cannot help here: an import specifier IS a string literal, so blanking
+  literals blanks the very text to rewrite.
+
+  **59 broken tests → 38.** Combined with the `test`-block fix above, the gate went from 108
+  to 38 in one day, and **two of those three movements were defects in the gate rather than
+  in conversion**. Nothing shipped changes; what changes is that the number is now measuring
+  what it claims to.
+
 ### Changed
 
 - `extractAndRunTests` no longer calls `source.slice(i)` once per character, and no longer

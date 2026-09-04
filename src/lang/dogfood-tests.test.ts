@@ -36,6 +36,7 @@ import {
   mkdirSync,
 } from 'node:fs'
 import { join, resolve, dirname, relative } from 'node:path'
+import * as acorn from 'acorn'
 
 const REPO = resolve(import.meta.dir, '../..')
 const SRC = join(REPO, 'src')
@@ -159,9 +160,9 @@ const KNOWN_CONVERSION_FAILURES = new Map<string, string>([
  */
 const BASELINE = {
   /** Fraction of assertions that survive conversion. 1.0 is the 1.0 gate. */
-  assertionRate: 0.876,
+  assertionRate: 0.881,
   /** Fraction of passing tests that still pass after conversion. */
-  testRate: 0.898,
+  testRate: 0.904,
 }
 
 /*
@@ -182,6 +183,14 @@ const BASELINE = {
  *
  * Read the caution above before believing the next movement: a rate can fall when you fix a
  * conversion bug, because a newly-convertible file brings its unconverted assertions with it.
+ *
+ * Ratcheted again the same day, 0.876/0.898 -> 0.881/0.904, after `relocate()` stopped
+ * rewriting import paths inside template literals. 59 broken tests -> 38. That one was the
+ * HARNESS failing and being scored as the language failing, which makes it the second
+ * instance of the trap recorded above for `os.tmpdir()` — and it arrived through the same
+ * literal-blindness class as the fix before it. Two of the three biggest movements in this
+ * gate's history have been defects in the gate, not in conversion. Read a bad number here as
+ * a question, not a verdict.
  */
 
 /**
@@ -304,11 +313,66 @@ function testSuites(): string[] {
  */
 function relocate(code: string, originalPath: string): string {
   const dir = dirname(originalPath)
-  return code
-    .replace(
-      /(\bfrom\s*|\bimport\s*\(\s*)(['"])(\.[^'"]*)\2/g,
-      (_m, lead, q, rel) => `${lead}${q}${resolve(dir, rel)}${q}`
-    )
+
+  // PARSED, not pattern-matched, and that distinction was worth ~10 failures.
+  //
+  // This was a regex over raw text, so it rewrote any `from './x'` it could see — including
+  // the ones inside TEMPLATE LITERALS that a test writes out as a fixture module at runtime.
+  // `multi-module.test.ts` builds `import { numA } from './libA.mjs'` as a string, writes it
+  // to its own temp directory beside a real `libA.mjs`, and spawns node on it. Relocation
+  // rewrote that string to an absolute path under `src/lang/`, where no such file exists, so
+  // the fixture failed to resolve and the suite was scored as CONVERSION losing tests.
+  //
+  // The harness failing and being counted as the language failing is the exact trap this
+  // file already records for the `os.tmpdir()` incident. It recurred in a second form,
+  // through the defect class this repo names as its dominant one — a scanner reading a
+  // string that merely LOOKS like the syntax it wants.
+  //
+  // Masking cannot fix it, because an import specifier IS a string literal: blank the
+  // literals and you blank the very text to rewrite. The distinction is syntactic, not
+  // lexical, so ask the parser which string literals are import sources.
+  const edits: Array<[number, number, string]> = []
+  try {
+    const ast = acorn.parse(code, {
+      ecmaVersion: 2022,
+      sourceType: 'module',
+      allowAwaitOutsideFunction: true,
+    }) as any
+    const sources: any[] = []
+    const visit = (n: any): void => {
+      if (!n || typeof n !== 'object') return
+      if (Array.isArray(n)) return n.forEach(visit)
+      if (
+        (n.type === 'ImportDeclaration' ||
+          n.type === 'ExportNamedDeclaration' ||
+          n.type === 'ExportAllDeclaration' ||
+          n.type === 'ImportExpression') &&
+        n.source?.type === 'Literal' &&
+        typeof n.source.value === 'string'
+      ) {
+        sources.push(n.source)
+      }
+      for (const k of Object.keys(n)) if (k !== 'type') visit(n[k])
+    }
+    visit(ast)
+    for (const lit of sources) {
+      if (!String(lit.value).startsWith('.')) continue
+      edits.push([lit.start, lit.end, JSON.stringify(resolve(dir, lit.value))])
+    }
+  } catch {
+    // Unparseable converted output is the OTHER ratchet's finding, not this one's. Leaving
+    // the code untouched keeps the two measurements from contaminating each other.
+    return code
+  }
+
+  let out = code
+  for (const [start, end, text] of edits.sort((a, b) => b[0] - a[0])) {
+    out = out.slice(0, start) + text + out.slice(end)
+  }
+  // `import.meta` is a MetaProperty, not a string, so a fixture that MENTIONS it in a
+  // template literal is still rewritten here. Left as-is deliberately: no suite in the
+  // corpus does that today, and inventing a guard for it would be untested code.
+  return out
     .replace(/import\.meta\.dir/g, JSON.stringify(dir))
     .replace(/import\.meta\.path/g, JSON.stringify(originalPath))
 }
