@@ -3307,7 +3307,13 @@ remember, not the individual bugs.
 
 ### Security / correctness (fresh session — parser and VM surgery, not end-of-day work)
 
-- [ ] **[M-2] VM builtin allowlist and atom registry resolve through the prototype chain.**
+- [x] **[M-2 — FIXED in 0.13.11]** VM builtin allowlist and atom registry resolved through the prototype chain.
+      Fixed at all THREE sites (two in `evaluateExpr`, one in `resolveValue` — the third only
+      surfaced after the first two, because a bare identifier reaches state through a different
+      path than a call). Scope chain preserved via `scopeHas`, which walks it and stops at
+      `Object.prototype`; a plain own-check severs lexical scoping. 11 inherited names pinned in
+      `malicious-actor.test.ts`, plus a row asserting the scope chain still works.
+      ORIGINAL:
       `builtins` and `AgentVM.atoms` are plain object literals looked up with `in`/bracket
       access on an attacker-controlled key. Reproduced live via `Eval` with no capabilities:
       `return { v: constructor('abc') }` → `{"v":"abc"}` — the host `Object` called with guest
@@ -3318,8 +3324,12 @@ remember, not the individual bugs.
       sites, **including the `ident` path**. Add a hostile-input row to
       `malicious-actor.test.ts` covering all 11 names.
 
-- [ ] **[M-3] `Eval` fuel/timeout apply only AFTER transpilation, which is quadratic and
-      byte-uncapped.** Measured: 109KB → 2.0s, 905KB → 35.8s, 1.8MB → **144.6s**, `fuelUsed`
+- [x] **[M-3 — FIXED in 0.13.11]** `maxSourceBytes` (default 64KB) refuses oversized source
+      before transpiling, measured in bytes; monadic refusal, `0` opts out; the two hosted
+      endpoints name the limit explicitly. Pinned by `src/lang/eval-source-cap.test.ts`.
+      NOT done: the `page` endpoint compile cache, and `timeoutSeconds`/`maxInstances` config.
+      ORIGINAL: `Eval` fuel/timeout apply only AFTER transpilation, which is quadratic and
+      byte-uncapped.** Measured: 109KB → 2.0s, 905KB → 35.8s, 1.8MB → **144.6s\*\*, `fuelUsed`
       0.2 at every size. Both public endpoints validate only `typeof code === 'string'` and cap
       fuel, not bytes; no `timeoutSeconds`/`maxInstances` anywhere, so Firebase v2's 60s default
       applies. One request from any free signed-in account pins an instance at zero metered
@@ -3330,20 +3340,26 @@ remember, not the individual bugs.
       `timeoutSeconds`/`maxInstances`; compile cache for `page`. Regression test: 1MB returns
       in well under a second.
 
-- [ ] **[M-4] The two `transpile()` copies have drifted; the AJS entry signature gets OPPOSITE
-      input contracts depending on entry point.** `core.ts` forwards `requiredValueOffsets`;
-      `index.ts` omits it. `emitters/ast.ts:158` only inspects top-level `AssignmentPattern`, so
-      a destructured `ObjectPattern` — _the_ documented AJS entry shape — matches nothing and
-      the name-based fallback is skipped. For `function agent({ apiKey: 'sk-example' })`:
-      `dist/index.js` → `required: ['apiKey']`, validation fails correctly; `dist/tjs-lang.js` →
-      no `required`, and `vm.run(ast, {})` returns `{"apiKey":"sk-example"}` — **the example
-      value, frequently credential-shaped, silently substituted for a missing required input**.
-      Crosses the entry boundary: `vm/vm.ts:15` imports from `core`, so `vm.run(sourceString)`
-      in the main bundle is affected too. `emitters/js.ts:1229` handles this correctly; `ast.ts`
-      is the gap. Pre-existing, but both copies were touched here and the drift is one line wide.
-      Fix: collapse the two copies; make `ast.ts` descend into `ObjectPattern` properties (or
-      treat an empty `requiredHere` against a non-empty offset set as "could not index", not
-      "nothing required"). Assert both entries agree, and cover `vm.run(sourceString)`.
+- [~] **[M-4 — CONTRACT FIXED in 0.13.11, DUPLICATION REMAINS]** The emitter now descends into
+  destructured members and falls back when the offsets scan yields nothing, so both entry
+  points agree and a missing required input is never filled from the example. Pinned by
+  `src/lang/transpile-parity.test.ts`, which asserts the PROPERTY (they agree) so it keeps
+  holding if the copies are merged. STILL OPEN: collapsing the two `transpile()` copies into
+  one — the parity test makes the drift visible, it does not remove the second copy.
+  ORIGINAL: The two `transpile()` copies have drifted; the AJS entry signature gets OPPOSITE
+  input contracts depending on entry point.** `core.ts` forwards `requiredValueOffsets`;
+  `index.ts` omits it. `emitters/ast.ts:158` only inspects top-level `AssignmentPattern`, so
+  a destructured `ObjectPattern` — _the_ documented AJS entry shape — matches nothing and
+  the name-based fallback is skipped. For `function agent({ apiKey: 'sk-example' })`:
+  `dist/index.js` → `required: ['apiKey']`, validation fails correctly; `dist/tjs-lang.js` →
+  no `required`, and `vm.run(ast, {})` returns `{"apiKey":"sk-example"}` — **the example
+  value, frequently credential-shaped, silently substituted for a missing required input\*\*.
+  Crosses the entry boundary: `vm/vm.ts:15` imports from `core`, so `vm.run(sourceString)`
+  in the main bundle is affected too. `emitters/js.ts:1229` handles this correctly; `ast.ts`
+  is the gap. Pre-existing, but both copies were touched here and the drift is one line wide.
+  Fix: collapse the two copies; make `ast.ts` descend into `ObjectPattern` properties (or
+  treat an empty `requiredHere` against a non-empty offset set as "could not index", not
+  "nothing required"). Assert both entries agree, and cover `vm.run(sourceString)`.
 
 - [ ] **[M-5, partly done] The structural guards are weaker than claimed.** The import pin is
       fixed (acorn-parsed, all import forms, mutation-tested against the namespace evasion) and
