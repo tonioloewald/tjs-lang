@@ -190,6 +190,32 @@ ESM loading — a better test than the dynamic-import version anyway.
 **What we're waiting for:** the resolver re-stats a directory, or at least reports the
 specifier it was given.
 
+## tosijs-ui — `live-example` pins tjs-lang 0.13.4 (deprecated)
+
+**Filed:** [tosijs-ui#135](https://github.com/tonioloewald/tosijs-ui/issues/135) (2026-09-04).
+**Blocks:** nothing of ours. **Ours to fix:** no — but it is OUR package they are pinning.
+
+`src/live-example/code-transform.ts` has `const TJS_VERSION = '0.13.4'` and `package.json`
+pins the same as an exact devDependency, so the version lives in two places and one is a
+string constant in source. 0.13.4 is deprecated with a SECURITY string.
+
+**The deprecation's threat model does NOT apply to live-example, and the issue says so.** It
+describes a _server_ transpiling submitted source — our Cloud Functions were the real victim.
+In live-example the source is the user's own or the site's own, and `remote-sync` is
+same-origin by construction. Overstating this would have been easy and wrong.
+
+The reachable consequence is correctness. `transform()` runs in the HOST page and its output
+is then injected into the iframe, so anything tjs-lang executes at transpile time runs outside
+the sandbox. On ≤0.13.11 a `test '…' { … }` quoted inside a template literal or double-quoted
+string was taken for a real test block — executed, and deleted from the output. For a doc site
+that is the bad case: documentation about a language quotes the language.
+
+Also asked, for the eventual playground port: whether a dialect selector (TJS/TS/AJS) belongs
+in the component, and whether `tjs-lang/import-resolver` is worth merging with the existing
+module-cache service worker. Offered implementation for both.
+
+**When this lands:** nothing to remove here; re-check the pin before starting Phase B2.
+
 ## tosijs-ui — an existing `firebase.json` is never checked against `outputDir`
 
 **Filed:** [tosijs-ui#134](https://github.com/tonioloewald/tosijs-ui/issues/134) (2026-09-04).

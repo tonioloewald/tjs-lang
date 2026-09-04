@@ -51,12 +51,29 @@ tooling** and **~10,500 lines of demo**, and only the first group is a like-for-
 - [ ] **B1 — adopt `tosijs-ui/site`.** Replaces `bin/dev.ts` (295), `bin/docs.js` (280),
       `scripts/build-demo.ts` (105), `demo/index.html`, `demo-nav.ts`, `style.ts`. `docPaths`
       subsumes the hand-rolled markdown walk that produces `demo/docs.json`.
-- [ ] **B2 — the playgrounds are NOT docs, and this is the real work.** `tjs-playground.ts`
-      (1570), `ts-playground.ts` (945), `playground.ts` (962), `playground-shared.ts` (760) —
-      an in-browser transpiler with split-window output, an iframe runtime, a service-worker
-      import resolver and a module store. tosijs-ui offers `code-editor` and `live-example`,
-      which are the right primitives, but this is a port, not a swap. Decide whether the
-      playground becomes a live-example variant or stays a custom element the site hosts.
+- [ ] **B2 — the playground port, RESIZED DOWN 2026-09-04 after actually reading
+      `live-example`.** The first estimate ("~3,500 lines, a port not a swap") was made from
+      our side only and was too pessimistic. `tosijs-ui/src/live-example` is ~5,500 lines and
+      already has: **iframe-isolated execution** (`execution.ts`), **split-window output over
+      BroadcastChannel with a localStorage fallback** (`remote-sync.ts`), a **test harness**,
+      **scope autocomplete**, `save-to-source`, and an `example-store`. It already transpiles
+      **TJS and TS**, loading `tjs-lang/browser` same-origin-first with a jsdelivr→unpkg→esm.sh
+      fallback chain.
+      So the capabilities we assumed we would have to contribute — iframe isolation, the
+      documentation/output pane — are already there. **Read the component before budgeting the
+      port**; the lesson is that both the "we must build it" and the "we must ask for it"
+      instincts were wrong, and one afternoon of reading settled it.
+      Genuinely open, asked in [tosijs-ui#135]: (a) does a **dialect selector** (TJS/TS/AJS)
+      belong in the component, or is dialect a per-example authoring choice? (b) is
+      `tjs-lang/import-resolver` worth merging with their module-cache service worker? We
+      offered implementation for both. (c) the **user module store + auth** is probably ours to
+      keep — an app feature, not a doc-site one.
+      **Blocked until the pin moves:** they are on tjs-lang 0.13.4, which mis-parses quoted
+      test blocks in the host page. Porting our examples onto it would silently delete every
+      example that shows a `test` block.
+
+      [tosijs-ui#135]: https://github.com/tonioloewald/tosijs-ui/issues/135
+
 - [x] **B3 — the fate of Firebase: DECIDED 2026-09-04, we stay on it.** Cloud Functions stay
       on Firebase, and hosting stays with them. That is not just inertia: `firebase.json`
       rewrites `/run` to the `run` function, so hosting and functions are coupled — splitting
