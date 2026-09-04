@@ -57,10 +57,25 @@ tooling** and **~10,500 lines of demo**, and only the first group is a like-for-
       import resolver and a module store. tosijs-ui offers `code-editor` and `live-example`,
       which are the right primitives, but this is a port, not a swap. Decide whether the
       playground becomes a live-example variant or stays a custom element the site hosts.
-- [ ] **B3 — decide the fate of Firebase.** The site system targets `host: 'github-pages'`.
-      Hosting moves cleanly; the Cloud Functions, `firebase-auth.ts`, `user-store.ts` and
-      `module-store.ts` are app features a doc site does not provide. Keep, port, or drop is a
-      product decision, not a build one — and it gates B1.
+- [x] **B3 — the fate of Firebase: DECIDED 2026-09-04, we stay on it.** Cloud Functions stay
+      on Firebase, and hosting stays with them. That is not just inertia: `firebase.json`
+      rewrites `/run` to the `run` function, so hosting and functions are coupled — splitting
+      them would mean re-pointing the demo at an absolute function URL and taking on CORS we
+      currently do not have. `firebase-auth.ts`, `user-store.ts` and `module-store.ts` all stay.
+      **`host: 'firebase'` already exists upstream** (`SiteHost` is
+      `'github-pages' | 'firebase' | 'static'`) — the assumption that we would have to ask for
+      it was wrong, and checking took two greps. Its `!existsSync('firebase.json')` guard means
+      it will not touch our config, which carries the function rewrite and three `headers`
+      blocks a scaffold would not reproduce.
+      **One manual check at migration time, until [tosijs-ui#134] lands:** `hosting.public` is
+      `.demo` and `outputDir` defaults to `docs`. Nothing upstream compares them, so a mismatch
+      means `buildSite` writes one directory while `firebase deploy` serves another, both
+      reporting success. Set one to match the other and confirm by fetching the deployed page,
+      not by reading the build log.
+      Cloudflare asked for in the same issue; not needed by us, filed because the seam is there.
+
+      [tosijs-ui#134]: https://github.com/tonioloewald/tosijs-ui/issues/134
+
 - [ ] **B4 — keep `scripts/build.ts`.** Library bundling stays ours; `tosijs` does the same,
       wiring its own bundles inside `bin/site.ts` rather than delegating them.
 

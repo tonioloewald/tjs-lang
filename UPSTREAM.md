@@ -190,6 +190,32 @@ ESM loading — a better test than the dynamic-import version anyway.
 **What we're waiting for:** the resolver re-stats a directory, or at least reports the
 specifier it was given.
 
+## tosijs-ui — an existing `firebase.json` is never checked against `outputDir`
+
+**Filed:** [tosijs-ui#134](https://github.com/tonioloewald/tosijs-ui/issues/134) (2026-09-04).
+**Blocks:** nothing. **Workaround:** verify by hand, once, at migration time.
+
+tjs-lang keeps its Cloud Functions on Firebase — hosting and functions are coupled by a
+`/run` rewrite — so hosting stays there too, and `host: 'firebase'` is the target. That
+already works, and its `!existsSync('firebase.json')` guard is right: it scaffolds for a
+fresh project and leaves an existing config alone (ours carries the function rewrite plus
+three `headers` blocks a minimal scaffold would not reproduce).
+
+The gap is what happens NEXT. When `firebase.json` exists, nothing compares its
+`hosting.public` with the site's `outputDir`. Ours says `.demo`; `outputDir` defaults to
+`docs`. `buildSite` would write one directory and `firebase deploy` would serve the other,
+both reporting success — the build is not what goes live, silently.
+
+That is the same shape as the defect that put our Cloud Functions eight releases behind for
+months: publishing and deploying are separate acts and nothing compared them. Our fix was to
+read `/health` back every time. Upstream the check is cheaper than the symptom.
+
+Also asked for in the same issue: a `cloudflare` preset (`SiteHost` is
+`'github-pages' | 'firebase' | 'static'`), since Cloudflare Pages needs `_headers`/`_redirects`
+in the same place the other two write their preset files.
+
+**When this lands:** delete the manual check from the Phase B migration notes in `TODO.md`.
+
 ## tosijs-ui — peer range `tjs-lang: ^0.12.0` cannot reach 0.13.x
 
 **Filed:** [tosijs-ui#98](https://github.com/tonioloewald/tosijs-ui/issues/98) (2026-08-22).
