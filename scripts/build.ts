@@ -15,7 +15,7 @@
 
 import { buildSync } from 'esbuild'
 import { gzipSync } from 'zlib'
-import { readFileSync, mkdirSync, existsSync } from 'fs'
+import { readFileSync, writeFileSync, mkdirSync, existsSync } from 'fs'
 import { join } from 'path'
 
 const distDir = join(import.meta.dir, '../dist')
@@ -212,6 +212,59 @@ function main() {
     ).padStart(12)}`
   )
   console.log('')
+
+  // `tjs-lang/linalg` cannot join targets[] either, for a different reason: its entry is
+  // `src/linalg/index.tjs` — TJS SOURCE, with `wasm function` declarations compiled at
+  // transpile time. esbuild has no idea what a `.tjs` file is, which is why this subpath was
+  // never a build target at all.
+  //
+  // The consequence shipped: `package.json` exports `./linalg` as
+  // `{ bun: './src/linalg/index.tjs', default: './dist/tjs-linalg.js' }`, and the `default`
+  // file HAS NEVER EXISTED — not in this tree, not in the published 0.13.9 tarball. Bun
+  // resolves the `bun` condition and works; Node resolves `default` and gets
+  // ERR_MODULE_NOT_FOUND. Exactly the Bun-works/Node-breaks asymmetry that shipped the
+  // 0.13.7 security fix into `src/` but not `dist/`, and invisible for the same reason:
+  // everything here is developed and tested under Bun.
+  //
+  // Found by the `exports`-coverage check added to `scripts/prepublish-check.ts` (2026-09-04)
+  // within seconds of that check existing.
+  //
+  // Emitted through our own transpiler rather than bundled. Output is self-contained (the
+  // emitter inlines the runtime it needs and the wasm bootstrap), so there is nothing to
+  // bundle — verified: zero import statements, and `dot`/`norm_sq` return correct values
+  // under `node`.
+  try {
+    const linalgOut = join(distDir, 'tjs-linalg.js')
+    const p = Bun.spawnSync(
+      ['bun', 'src/cli/tjs.ts', 'emit', 'src/linalg/index.tjs'],
+      { stdout: 'pipe', stderr: 'pipe' }
+    )
+    const code = new TextDecoder().decode(p.stdout)
+    // A failed transpile must not leave a truncated or empty file behind: writing the
+    // command's output unconditionally is how this repo shipped an EMPTY module once before
+    // (the functions build used `>`, which truncates the target before the command runs).
+    if (p.exitCode !== 0 || code.trim().length === 0) {
+      failures.push('tjs-linalg')
+      console.log(
+        `${'tjs-linalg'.padEnd(20)} ${'FAILED'.padStart(12)}   ${
+          new TextDecoder().decode(p.stderr).split('\n')[0] || 'empty output'
+        }`
+      )
+    } else {
+      writeFileSync(linalgOut, code)
+      const gz = gzipSync(Buffer.from(code))
+      console.log(
+        `${'tjs-linalg'.padEnd(20)} ${formatSize(code.length).padStart(
+          12
+        )} ${formatSize(gz.length).padStart(12)}   SIMD linear-algebra kernels`
+      )
+    }
+  } catch (e: any) {
+    failures.push('tjs-linalg')
+    console.log(
+      `${'tjs-linalg'.padEnd(20)} ${'FAILED'.padStart(12)}   ${e.message}`
+    )
+  }
 
   // The import-resolver SERVICE WORKER cannot join targets[]: those build
   // format:'esm'/platform:'neutral', and a classic worker (which is how
