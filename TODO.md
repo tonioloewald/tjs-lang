@@ -128,49 +128,64 @@ dashboard number into this list.
       `docs/parser-primitives.md` rather than an eighth fix: every one was a pass answering
       "where does this construct end" with an ad-hoc scan.
 
-- [ ] **A4c — promote `:!` to a MEASURED worked example (a graduation step).**
-      Proposed by Tonio 2026-09-05: _"we aren't changing the lies into truth, but the
-      programmer can manually delete the asserts — or we could provide a conversion shortcut
-      for doing it automatically."_
+- [ ] **A4c — convert TS functions into functions with real signature tests.** Reframed by
+      Tonio 2026-09-05, and the reframing is the design:
 
-      **Why it is worth doing, measured over our own `src/lang` converted by `fromTS`:**
-      **83% of return annotations are `:!`** — 271 of 326 across 41 files. Converted code
-      carries TypeScript's assertions forward *as assertions*, honestly marked and never
-      checked by anything. That is correct behaviour for conversion (see PRINCIPLES.md — we
-      preserve the lies rather than laundering them) but it means graduation currently stops
-      one step short of the thing that makes TJS worth having.
+      > If a function is pure (not accessing outer state) then we could actually randomly
+      > assign legal values to its parameters and compute a result and make that the
+      > signature test. So instead of turning `string` into `''`, pick one of a set of common
+      > test values (`'baz'`) and see what happens. Don't use purely random values because
+      > that looks like noise and also doesn't compress as well.
 
-      **It is NOT a textual deletion, and this is the whole design problem.** Dropping the
-      `!` from `:! ''` gives `: ''` — a worked example compared by DEEP EQUALITY — which
-      fails unless the function genuinely returns `''`. So the tool cannot remove a
-      character; it has to supply a **true value**. The only honest way to get one is to
-      **run the function and record what it actually returned**, which is the principle
-      applied to our own tooling: do not ask the programmer to assert, go measure.
+      **Why it is worth doing:** 83% of return annotations in converted code are `:!` — 271
+      of 326 across our own 41 `src/lang` files. Conversion honestly preserves TypeScript's
+      assertions *as* assertions (PRINCIPLES.md), and nothing ever checks them.
 
-      **Belongs in `graduate.ts`**, beside `dropRedundantNew` and `switchToGiven` — it is
-      only correct once the provenance annotation is gone, exactly like those two (#37).
+      **Both sides of the signature improve, and in TJS they are the same artifact.** A
+      parameter example IS the test input, so `x: ''` → `x: 'baz'` is a better *example* at
+      identical type (`'baz'` widens to `string` exactly as `''` does) AND a better test
+      input. The return then becomes a genuine worked example rather than a claim. The whole
+      declaration turns into `f('baz') === <result>` — documentation and test in one, which
+      is the TJS thesis stated in one line.
 
-      **Ceiling, measured:** 256 of 266 converted return annotations sit on top-level
-      `function` declarations, where the signature-test harness runs today. 10 are class
-      methods, which have no mechanism at all (see A4d).
+      **Not a textual deletion.** Dropping `!` from `:! ''` yields `: ''`, compared by DEEP
+      EQUALITY, which fails unless the function really returns `''`. The tool must supply a
+      TRUE value, and the only honest source is execution.
 
-      **Guards, all of which have existing machinery:**
-      - only where the signature test is **conclusive** — PRINCIPLES.md defines it, and it
-        is narrower than that file used to claim (a function that *uses* an unresolvable
-        name; multiple top-level functions are fine, measured);
-      - only where the function is **pure** — `Date.now()`/`Math.random()`/IO would bake a
-        timestamp into source. The predicate verifier already computes this
-        (`EFFECTFUL_STATICS`, `effectfulFromAtoms`);
-      - a **size and serializability filter** — a measured return that is a large object is
-        noise, not a test, and cannot round-trip to a literal.
+      **Canonical values, not random — three reasons, and only the first was obvious:**
+      1. **Legibility.** `f('baz', 3)` reads as "the tool chose these"; `f('x7Kq2', 8813)`
+         reads as noise a reader cannot distinguish from significant input.
+      2. **Compression.** One repeated token across 256 functions, not 256 distinct strings.
+      3. **Idempotence.** Re-running produces byte-identical output. Unseeded random churns
+         every file on every run, which makes the tool unusable in a build.
 
-      **The caveat that decides how to present it:** a measured example is a
-      **characterization test, not a specification**. It pins what the code does today,
-      including today's bugs. That is a ratchet — this repo's favourite instrument — but it
-      is NOT the programmer stating intent, so the promotion must be **reviewable and never
-      silent**: show what it derived, write nothing the author has not seen. A tool that
-      quietly turns "unverified" into "verified" would be manufacturing exactly the
-      confidence the principle exists to refuse.
+      **If a PRNG is used anyway** (Tonio: you can seed it) — seed it **per site**, from
+      something stable like `hash(functionName + paramName)`, NEVER once per run. A single
+      generator consumed in file order means inserting one function reshuffles the values of
+      every function below it, turning a one-line change into a whole-file diff.
+
+      **A use for the PRNG beyond fallback: differential purity.** Run the same function
+      twice with identical inputs — differing results prove nondeterminism. Vary the seed and
+      you probe its shape. That is a *dynamic* purity check, and it is worth having precisely
+      because the static one is currently broken (see the verifier defect below).
+
+      **The purity gate cannot reuse `verifyPredicate`** — measured 2026-09-05, it is wrong in
+      both directions. Too strict: it rejects `for` loops and `.push()` on a LOCAL array, both
+      perfectly pure. Too loose: it certifies outer-state access (see below). A4c needs its
+      own analysis, and it is the straightforward one — walk the function, resolve every
+      identifier against its own scope chain, and treat anything unresolved that is not a
+      known-pure global as outer state. `collectScopeSymbols` (`tjs-lang/editors`) already
+      does AST scope extraction.
+
+      **Ceiling, measured:** 256 of 266 converted return annotations are on top-level
+      functions where the harness runs; 10 are class methods with no mechanism (A4d).
+
+      **The one decision still open:** a measured example is a **characterization test, not a
+      specification** — it pins today's behaviour including today's bugs, so *fixing* a bug
+      later fails the test. Recommend **promote-with-review**: the tool measures and shows
+      each value, a human accepts. Review is precisely what converts an observation into an
+      intent, and it needs no new syntax (the language has been shedding markers, not adding
+      them). Silent promotion would manufacture the confidence the principle refuses.
 
 - [ ] **A4d — class methods and arrow consts get NO signature test.** Found while sizing
       A4c, and it is a coverage gap rather than an inconclusive result — nothing is reported,
@@ -179,6 +194,37 @@ dashboard number into this list.
       and `const m = (a: 2): 4 => …` get nothing at all. Matters beyond A4c, because it
       means "signature tests cover this file" is not a claim anyone can currently make about
       a class-heavy or arrow-heavy module.
+
+- [ ] **DEFECT: `verifyPredicate` certifies impure functions as pure.** Found 2026-09-05
+      while sizing A4c's purity gate. All of these are reported **safe**:
+
+      ```
+      function f(a) { globalThis.hit = a; return true }   // writes a global
+      function f(a) { window.hit = a; return true }       // writes a global
+      let count = 0
+      function f(a) { count += 1; return count > 0 }      // mutates outer scope
+      const seen = []
+      function f(a) { seen[0] = a; return true }          // mutates outer scope
+      ```
+
+      The verifier checks CALLS (effectful globals, unknown methods, ReDoS) and never checks
+      **assignments** or **outer-scope references** at all. So "verified pure" currently means
+      "calls nothing effectful", which is a much weaker claim than the one the badge makes.
+
+      **Why this matters more than it looks.** `redos-lint.test.ts` states the doctrine for
+      this file: *"Over-flagging only costs the 'verified' badge; certifying a dangerous
+      pattern is a broken promise."* This is that, in a dimension nobody checked. A verified
+      predicate compiles to native JS and is trusted; the north star has predicates
+      travelling as serialized ASTs to other runtimes, where "pure" is the entire contract
+      that makes them portable. An impure predicate does not port, and nothing today says so.
+
+      Blast radius is currently small — predicates come from source the developer wrote, not
+      from untrusted input — which is why this is a defect to fix properly rather than a
+      security incident. The fix is the same scope analysis A4c needs, so the two should be
+      done together, with the reproduction above as the test.
+
+      **Check `src/css/` still verifies after tightening** — that library is the main
+      consumer of verified predicates, and over-flagging would cost it the badge.
 
 - [ ] **A5 — get the compat lanes into CI.** `test:compat-scan` is the lane most likely to
       catch this defect class and it runs only when someone invokes it. It needs clones, so
