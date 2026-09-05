@@ -4,6 +4,110 @@ Foundational, non-negotiable invariants for the tjs-lang language stack. Every
 feature and tool must preserve these. A violation is a **bug**, not a feature
 gap — fix the tool, don't ask the user to work around it.
 
+## The type system is not the source of truth. Reality is.
+
+**A type system is documentation, autocomplete and lint assistance. It is never
+evidence about what a program does.** If the type system says A and the running
+program does B, **the type system is wrong** — not the program. TJS is the
+attempt to take that seriously rather than merely admit it.
+
+TypeScript inverts this in practice, not by design but by erasure: its
+annotations make claims that are never checked against anything, so a wrong
+annotation is indistinguishable from a right one until a consumer's runtime
+disagrees. `as`, `!`, `any` and a stale `.d.ts` are all the same failure — a
+claim outranking the thing it describes.
+
+**A TJS type is an example: a real value that exists at runtime.** An example is
+not a claim about a value, it _is_ a value, so there is nothing for it to be
+wrong about. That is the whole design, and everything below follows from it.
+
+### Why the drift is structural, not carelessness
+
+There is a second and stronger reason the annotation loses, and it holds even for
+a type system with perfect checking and no erasure:
+
+**TypeScript's types are declarative. The code they describe is imperative.** So
+a programmer documenting what imperative code does is forced to re-express it in
+a _different language_ — one with different semantics, different expressiveness
+and different failure modes — and then keep two artifacts in two paradigms
+agreeing by hand. That translation will tend to fail. Not through carelessness:
+it is a hand translation between paradigms, performed continuously, by someone
+whose actual job is the other one.
+
+**Which is why the code is the more trustworthy artifact.** The code is the
+thing. The types are a second description of it, written in a foreign language,
+maintained manually.
+
+The tell is what happens when a constraint gets hard. Expressing it drags you
+into conditional types, mapped types and template-literal types — a
+Turing-complete metalanguage with **no debugger, no runtime, and no way to
+execute a case and look at it.** You cannot `console.log` a type. The tools for
+testing types are themselves written in the type language, so a bug in your
+description and a bug in your description-of-the-description are the same
+activity. At that point the annotation is a program nobody can run, asserting
+things about a program everybody runs.
+
+**TJS's answer is to delete the translation, not to improve it.** A type is
+written in the language it describes:
+
+- **An example is a value.** `function greet(name: 'Alice')` — `'Alice'` is
+  JavaScript, evaluated by JavaScript, present at runtime. There is no second
+  language and therefore no translation step to drift.
+- **A predicate is code.** `predicate(x) { return typeof x === 'number' && x > 0 }`
+  is imperative code describing imperative code, in the same paradigm, and it
+  runs, and you can debug it, and it can have tests.
+
+That is also the honest reading of the north star below: JSON-Schema is the
+declarative half and cannot express computation, so `$predicate` is not an
+extension bolted on — it is the imperative half, without which the same
+translation problem reappears inside our own type system.
+
+And it is why `fromTS` degrades the way it does. Converting a declarative TS
+annotation into a TJS example is translating _back_, and often the information
+simply is not there — `: string` names a set, not a worked example. `:!` records
+that loss explicitly instead of inventing a value and pretending.
+
+### It adjudicates. That is what makes it a principle rather than a mood.
+
+When two mechanisms disagree, this rule says which one is the bug — and it
+already decides three live cases that were each carrying their own local rule:
+
+- **A signature example that does not hold is an error, not a type pattern.**
+  `function add(a: 2, b: 3): 0` **must fail**, because `add(2,3)` is 5. It is
+  perennially tempting to "fix" that canary into a type match; the temptation is
+  exactly the inversion this principle forbids. `:!` exists to say _"I have only
+  a claim here, not a worked example"_ — which is also what `fromTS` must emit
+  for TypeScript's `: string`, and the marker records the loss honestly.
+  (`src/lang/features.test.ts`, "signature test canaries".)
+- **Where the inline stub and the real `Type` disagree, the stub is right.**
+  Not because it is better, but because emitted code calls it, so it is what
+  runs. `docs/type-identity.md` measures four such disagreements; CLAUDE.md's
+  instruction — _"the stubs are the contract for emitted code; fix them"_ —
+  is this principle, and now has a reason attached rather than standing on
+  authority.
+- **Do not widen a known-disagreement list to make red go away.** A disagreement
+  is a fact about the system. Recording it as permitted does not make it stop
+  being one; it just reserves slack for a future regression to occupy silently.
+  (`src/lang/equality-invariants.test.ts`.)
+
+### Applied to our own documentation
+
+The same rule binds what we say about the language. `docs/tjs-vs-typescript.md`
+is **generated from data that is executed** — every row runs against `tsc
+--strict` and against TJS (`src/lang/differences.ts`,
+`src/lang/differences.test.ts`), so a documented claim cannot drift from the
+language without a test going red. A comparison table is the most inviting place
+in a project for a false claim to live undisturbed, which is why that one is
+data rather than prose.
+
+### The direction it points
+
+Probe reality, then derive the contract — never the reverse. This is what
+`docs/ambient-contracts.md` is for: TypeScript's `e.target.value` pessimism is a
+claim, and a measured, verified predicate over the real object is a fact. When
+the two conflict the annotation loses, and the useful artifact is the one you can
+execute.
+
 ## Language subset relationships
 
 ```
