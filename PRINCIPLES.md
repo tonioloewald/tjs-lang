@@ -47,6 +47,44 @@ description and a bug in your description-of-the-description are the same
 activity. At that point the annotation is a program nobody can run, asserting
 things about a program everybody runs.
 
+### The sharper form: the incentive, not the entropy
+
+> **TypeScript is the set of lies you tell `tsc` to get your code to lint.**
+
+Saying the translation "tends to fail" is too kind, because it sounds like decay.
+It does not drift randomly — it drifts in a **direction**, and the direction is
+whatever makes the checker stop complaining. At the moment of writing an
+annotation the programmer's objective is not _"describe this accurately"_, it is
+_"clear the error."_ Those are different goals and only one of them is being
+optimized.
+
+That is the same defect this project already knows in another costume: **a gate
+that alters the thing it measures.** `tosijs-ui` changed its semver policy after
+finding versions were being chosen to dodge a review, so the number stopped
+describing the change. A type checker is a gate, and the annotations are authored
+to satisfy it. `as`, `any`, `!`, `@ts-ignore`, and an over-broad type that
+"works" are not failures of the system — they are its **equilibrium**.
+
+**You cannot lie to a worked example.** There is no `as` that makes `add(2, 3)`
+equal `0`. An example is not a claim you can weaken until it passes; it holds or
+it does not, and the checker is the program itself.
+
+**So the difference is not that TJS has no escape hatches — it is that ours are
+confessions.** `unsafe`, `!`, `:!`, `DangerousLegacyEquals`, `LegacyDefault`,
+`/* @tjs-unsafe */`: each is named, greppable, and deliberately ugly (see _"Make
+stupid stuff stand out"_ below). `as Foo` looks like ordinary code, which is
+precisely what makes it dangerous — the lie and the truth are visually
+indistinguishable, so nothing accumulates as evidence and no reviewer can grep
+for the debt.
+
+The uncomfortable corollary, and it is the right behaviour: **`fromTS` preserves
+the lies rather than laundering them.** A TypeScript `: string` becomes `:!`,
+because a set is not a worked example and inventing one would be manufacturing a
+truth we do not have. Converted code is therefore honest about how much of it is
+still assertion — which is the point of the conversion contract below, where TJS
+is _equivalent-or-better_ and tells you where to improve rather than pretending
+the improvement already happened.
+
 **TJS's answer is to delete the translation, not to improve it.** A type is
 written in the language it describes:
 
