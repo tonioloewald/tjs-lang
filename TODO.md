@@ -195,36 +195,19 @@ dashboard number into this list.
       means "signature tests cover this file" is not a claim anyone can currently make about
       a class-heavy or arrow-heavy module.
 
-- [ ] **DEFECT: `verifyPredicate` certifies impure functions as pure.** Found 2026-09-05
-      while sizing A4c's purity gate. All of these are reported **safe**:
-
-      ```
-      function f(a) { globalThis.hit = a; return true }   // writes a global
-      function f(a) { window.hit = a; return true }       // writes a global
-      let count = 0
-      function f(a) { count += 1; return count > 0 }      // mutates outer scope
-      const seen = []
-      function f(a) { seen[0] = a; return true }          // mutates outer scope
-      ```
-
-      The verifier checks CALLS (effectful globals, unknown methods, ReDoS) and never checks
-      **assignments** or **outer-scope references** at all. So "verified pure" currently means
-      "calls nothing effectful", which is a much weaker claim than the one the badge makes.
-
-      **Why this matters more than it looks.** `redos-lint.test.ts` states the doctrine for
-      this file: *"Over-flagging only costs the 'verified' badge; certifying a dangerous
-      pattern is a broken promise."* This is that, in a dimension nobody checked. A verified
-      predicate compiles to native JS and is trusted; the north star has predicates
-      travelling as serialized ASTs to other runtimes, where "pure" is the entire contract
-      that makes them portable. An impure predicate does not port, and nothing today says so.
-
-      Blast radius is currently small — predicates come from source the developer wrote, not
-      from untrusted input — which is why this is a defect to fix properly rather than a
-      security incident. The fix is the same scope analysis A4c needs, so the two should be
-      done together, with the reproduction above as the test.
-
-      **Check `src/css/` still verifies after tightening** — that library is the main
-      consumer of verified predicates, and over-flagging would cost it the badge.
+- [x] **DEFECT: `verifyPredicate` certified impure functions as pure. FIXED 2026-09-05.**
+      The verifier checked CALLS and never looked at assignments or outer-scope references,
+      so `globalThis.hit = a`, `count += 1` on a module-level `let`, and `seen[0] = a` were
+      all `safe: true`. "Verified pure" meant "calls nothing effectful".
+      Fixed with a scope-correct analysis (a param shadowing an outer name stays local; a
+      nested arrow's binding does not make an outer one writable). **Mutability is keyed on
+      whether a binding is WRITTEN, not on its declaration keyword** — the first
+      implementation used `kind !== 'const'` and rejected 115 tests in `src/css/`, whose
+      keyword tables ship as `var` and are never touched. The keyword is wrong both ways.
+      Pinned by `src/lang/predicate-purity.test.ts` in both directions.
+      **Still open on the other axis:** the verifier remains too STRICT for A4c's purposes —
+      it rejects `for` loops and `.push()` on a LOCAL array, both perfectly pure. A4c needs
+      its own looser analysis; this fix makes the strict one _correct_, not _sufficient_.
 
 - [ ] **A5 — get the compat lanes into CI.** `test:compat-scan` is the lane most likely to
       catch this defect class and it runs only when someone invokes it. It needs clones, so

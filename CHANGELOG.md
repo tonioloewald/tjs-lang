@@ -7,6 +7,52 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Security
+
+- **`verifyPredicate` certified impure functions as pure.** The verifier checked **calls** —
+  effectful globals, unknown methods, ReDoS — and never looked at **assignments** or at
+  references to bindings outside the function. All of these were reported `safe: true`:
+
+  ```js
+  function f(a) { globalThis.hit = a; return true }   // writes a global
+  function f(a) { window.hit = a; return true }       // writes a global
+  let count = 0
+  function f(a) { count += 1; return count > 0 }      // mutates outer scope
+  const seen = []
+  function f(a) { seen[0] = a; return true }          // mutates outer scope
+  ```
+
+  So "verified pure" actually meant _"calls nothing effectful"_ — a far weaker claim than the
+  badge makes. `redos-lint.test.ts` states this file's doctrine and it applies unchanged:
+  **over-flagging only costs the badge; certifying a dangerous pattern is a broken promise.**
+  This was that, in a dimension nobody had checked.
+
+  Purity is the entire contract behind the badge: a verified predicate compiles to native JS
+  and is trusted without further checking, and `docs/type-system-north-star.md` has
+  predicates travelling to other runtimes as serialized ASTs, where being pure is precisely
+  what makes them portable. An impure predicate does not port, and nothing said so.
+
+  Not rated a vulnerability, because predicates come from source the developer wrote rather
+  than from untrusted input — but it is a promise this project makes and did not keep.
+
+  The check is **scope-correct**, not name-based, because the cheap version fails both ways:
+  a parameter named `count` shadowing a module-level `count` is local and must keep the
+  badge, while a nested arrow's own binding must not make an outer one writable.
+
+  Mutability is keyed on whether a module-level binding is ever **written**, not on its
+  declaration keyword. The first implementation used `kind !== 'const'` and **rejected 115
+  tests in `src/css/`** — the library that is the main consumer of the badge — because its
+  keyword tables ship as `var CSS_NAMED_COLORS = [...]` and are never touched again. The
+  keyword is wrong in both directions: that `var` is constant in every sense that matters,
+  while `const rows = []` followed by `rows.push(…)` is a `const` that mutates.
+
+  Found while sizing the purity gate for the `:!` promotion (`TODO.md` A4c), which needs the
+  same analysis — and which cannot use this verifier for a second reason recorded there: it
+  is also too STRICT, rejecting `for` loops and `.push()` on a local array.
+
+  Guarded by `src/lang/predicate-purity.test.ts`, which pins both directions — the seven
+  impure shapes above, and eleven ordinary pure ones that must keep the badge.
+
 ### Fixed
 
 - **The emitted runtime no longer declares its helpers in your namespace (#39).** The

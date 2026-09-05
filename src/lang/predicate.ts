@@ -228,6 +228,29 @@ export function effectfulFromAtoms(
   return set
 }
 
+/** Collect every name a binding pattern introduces (destructuring, defaults, rest). */
+function collectPattern(node: any, into: Set<string>): void {
+  if (!node) return
+  switch (node.type) {
+    case 'Identifier':
+      into.add(node.name)
+      break
+    case 'ObjectPattern':
+      for (const p of node.properties)
+        collectPattern(p.type === 'RestElement' ? p.argument : p.value, into)
+      break
+    case 'ArrayPattern':
+      for (const el of node.elements) collectPattern(el, into)
+      break
+    case 'AssignmentPattern':
+      collectPattern(node.left, into)
+      break
+    case 'RestElement':
+      collectPattern(node.argument, into)
+      break
+  }
+}
+
 // --- the verifier -----------------------------------------------------------
 
 /**
@@ -258,9 +281,45 @@ export function verifyPredicate(
   }
 
   const predicateNames = new Set<string>(opts.knownPredicates ?? [])
+  /**
+   * Module-level bindings that are actually WRITTEN somewhere. Reading one makes a
+   * predicate's answer depend on when it was called, which is exactly what "pure" promises
+   * it does not.
+   *
+   * Keyed on whether the binding is assigned, NOT on its declaration keyword, because the
+   * keyword is wrong in both directions. `src/css/` emits its keyword tables as
+   * `var CSS_NAMED_COLORS = [...]` and never touches them again — constant in every sense
+   * that matters, and rejecting those would cost the badge to the library that is the main
+   * consumer of it. Meanwhile `const rows = []` followed by `rows.push(...)` is a `const`
+   * that mutates. What matters is whether anything writes it.
+   *
+   * Deliberately conservative: a write ANYWHERE in the source marks the name, without
+   * checking whether that write is to a shadowing local. Over-flagging costs the "verified"
+   * badge; under-flagging is a broken promise, and this file's doctrine says which way to
+   * fail (`redos-lint.test.ts`).
+   */
+  const moduleBindings = new Set<string>()
   for (const node of ast.body) {
     if (node.type === 'FunctionDeclaration' && node.id)
       predicateNames.add(node.id.name)
+    if (node.type === 'VariableDeclaration')
+      for (const d of node.declarations) collectPattern(d.id, moduleBindings)
+  }
+  const moduleMutable = new Set<string>()
+  {
+    const rootOf = (t: any): any => {
+      let n = t
+      while (n && n.type === 'MemberExpression') n = n.object
+      return n && n.type === 'Identifier' ? n : null
+    }
+    const mark = (t: any) => {
+      const r = rootOf(t)
+      if (r && moduleBindings.has(r.name)) moduleMutable.add(r.name)
+    }
+    walk.simple(ast, {
+      AssignmentExpression: (n: any) => mark(n.left),
+      UpdateExpression: (n: any) => mark(n.argument),
+    })
   }
 
   const diagnostics: PredicateDiagnostic[] = []
@@ -355,6 +414,103 @@ export function verifyPredicate(
         }
         // Anything else (computed member, call-of-call, etc.) — be conservative.
         flag('unsupported call form in a predicate', callee)
+      },
+    })
+
+    // --- reaching outside the predicate ------------------------------------
+    //
+    // The walk above checks CALLS. It never looked at ASSIGNMENTS or at references to
+    // outer bindings at all, so `globalThis.hit = a`, `count += 1` on a module-level
+    // `let`, and `seen[0] = a` on a module-level array were all certified pure. "Verified
+    // pure" therefore meant "calls nothing effectful", which is not the claim the badge
+    // makes — and purity is the entire contract that lets a `$predicate` travel to another
+    // runtime (docs/type-system-north-star.md).
+    //
+    // Scope-CORRECT rather than name-based, because the cheap version fails in both
+    // directions: a parameter named `count` shadowing a module-level `count` is local and
+    // must keep the badge, while a nested arrow's own `t` must not make an outer `t`
+    // writable. So every function gets its own declared set and lookup walks the real
+    // ancestor chain.
+    const declared = new Map<any, Set<string>>()
+    const own = (node: any): Set<string> => {
+      let set = declared.get(node)
+      if (!set) declared.set(node, (set = new Set<string>()))
+      return set
+    }
+    const isFn = (n: any) =>
+      n.type === 'FunctionDeclaration' ||
+      n.type === 'FunctionExpression' ||
+      n.type === 'ArrowFunctionExpression'
+    const enclosingFn = (anc: any[]): any => {
+      for (let i = anc.length - 1; i >= 0; i--) if (isFn(anc[i])) return anc[i]
+      return fn
+    }
+    // Params belong to their own function; a declaration belongs to the function enclosing
+    // it, and a function DECLARATION's name belongs to the scope around it (hence the
+    // dropped last ancestor, which is the node itself).
+    walk.full(fn, (n: any) => {
+      if (isFn(n)) for (const p of n.params) collectPattern(p, own(n))
+    })
+    walk.ancestor(fn, {
+      VariableDeclarator(n: any, _s: any, anc: any[]) {
+        collectPattern(n.id, own(enclosingFn(anc)))
+      },
+      FunctionDeclaration(n: any, _s: any, anc: any[]) {
+        if (n.id) own(enclosingFn(anc.slice(0, -1))).add(n.id.name)
+      },
+      ClassDeclaration(n: any, _s: any, anc: any[]) {
+        if (n.id) own(enclosingFn(anc.slice(0, -1))).add(n.id.name)
+      },
+    })
+    const isLocal = (name: string, anc: any[]): boolean => {
+      for (let i = anc.length - 1; i >= 0; i--) {
+        const n = anc[i]
+        if (isFn(n) && declared.get(n)?.has(name)) return true
+      }
+      return false
+    }
+    /** The identifier a write actually lands on: `a.b[c] = x` writes through `a`. */
+    const writeRoot = (target: any): any => {
+      let t = target
+      while (t && t.type === 'MemberExpression') t = t.object
+      return t && t.type === 'Identifier' ? t : null
+    }
+    const checkWrite = (target: any, anc: any[], verb: string) => {
+      const root = writeRoot(target)
+      if (!root) return
+      if (isLocal(root.name, anc)) return
+      flag(
+        `'${root.name}' is not declared inside this predicate — ${verb} it is a side effect, ` +
+          `and a predicate must be pure`,
+        root
+      )
+    }
+    walk.ancestor(fn, {
+      AssignmentExpression(n: any, _s: any, anc: any[]) {
+        checkWrite(n.left, anc, 'assigning to')
+      },
+      UpdateExpression(n: any, _s: any, anc: any[]) {
+        checkWrite(n.argument, anc, 'updating')
+      },
+      Identifier(n: any, _s: any, anc: any[]) {
+        // Only module-level mutable bindings: reading one makes the answer depend on WHEN
+        // it was asked. Property keys and non-computed member properties are not
+        // references and never reach here as a bare name we care about.
+        if (!moduleMutable.has(n.name) || isLocal(n.name, anc)) return
+        const parent = anc[anc.length - 2]
+        if (
+          parent?.type === 'MemberExpression' &&
+          parent.property === n &&
+          !parent.computed
+        )
+          return
+        if (parent?.type === 'Property' && parent.key === n && !parent.computed)
+          return
+        flag(
+          `'${n.name}' is mutable state declared outside this predicate — reading it makes ` +
+            `the result depend on when it is called`,
+          n
+        )
       },
     })
   }
