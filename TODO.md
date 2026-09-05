@@ -6,6 +6,15 @@
 project there will be something needing more work for a while, so cutting tags on the way
 past is churn. Work accumulates in `[Unreleased]`.
 
+**When 0.14.0 ships, every consumer on a caret range is silently excluded.** `^0.13.x` does
+not admit `0.14.0` — caret pins the MINOR below 1.0 — and a package manager will not say so
+(measured on bun 1.4.0 in tosijs-ui#131: an unsatisfied peer produced no warning at all, in a
+run that warned about a different one). So the bump has to be pushed, not waited for.
+tosijs-ui is safe from that mechanism by accident: it uses an EXACT pin (`"tjs-lang":
+"0.13.4"`), plus `TJS_VERSION = '0.13.4'` as a string constant in
+`src/live-example/code-transform.ts` — which no resolver, peer check or release script can
+see at all. Both need moving by hand (tosijs-ui#135).
+
 **0.14.0 is the tosijs-ui-hosted release** — Phase B below, not a wrapper for whatever
 happens to be finished. A3 (the `__tjs_rt` namespace) is part of it, not its own release.
 This corrects an earlier note here that recommended cutting 0.14.0 for A3 alone.
