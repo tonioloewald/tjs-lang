@@ -128,6 +128,58 @@ dashboard number into this list.
       `docs/parser-primitives.md` rather than an eighth fix: every one was a pass answering
       "where does this construct end" with an ad-hoc scan.
 
+- [ ] **A4c — promote `:!` to a MEASURED worked example (a graduation step).**
+      Proposed by Tonio 2026-09-05: _"we aren't changing the lies into truth, but the
+      programmer can manually delete the asserts — or we could provide a conversion shortcut
+      for doing it automatically."_
+
+      **Why it is worth doing, measured over our own `src/lang` converted by `fromTS`:**
+      **83% of return annotations are `:!`** — 271 of 326 across 41 files. Converted code
+      carries TypeScript's assertions forward *as assertions*, honestly marked and never
+      checked by anything. That is correct behaviour for conversion (see PRINCIPLES.md — we
+      preserve the lies rather than laundering them) but it means graduation currently stops
+      one step short of the thing that makes TJS worth having.
+
+      **It is NOT a textual deletion, and this is the whole design problem.** Dropping the
+      `!` from `:! ''` gives `: ''` — a worked example compared by DEEP EQUALITY — which
+      fails unless the function genuinely returns `''`. So the tool cannot remove a
+      character; it has to supply a **true value**. The only honest way to get one is to
+      **run the function and record what it actually returned**, which is the principle
+      applied to our own tooling: do not ask the programmer to assert, go measure.
+
+      **Belongs in `graduate.ts`**, beside `dropRedundantNew` and `switchToGiven` — it is
+      only correct once the provenance annotation is gone, exactly like those two (#37).
+
+      **Ceiling, measured:** 256 of 266 converted return annotations sit on top-level
+      `function` declarations, where the signature-test harness runs today. 10 are class
+      methods, which have no mechanism at all (see A4d).
+
+      **Guards, all of which have existing machinery:**
+      - only where the signature test is **conclusive** — PRINCIPLES.md defines it, and it
+        is narrower than that file used to claim (a function that *uses* an unresolvable
+        name; multiple top-level functions are fine, measured);
+      - only where the function is **pure** — `Date.now()`/`Math.random()`/IO would bake a
+        timestamp into source. The predicate verifier already computes this
+        (`EFFECTFUL_STATICS`, `effectfulFromAtoms`);
+      - a **size and serializability filter** — a measured return that is a large object is
+        noise, not a test, and cannot round-trip to a literal.
+
+      **The caveat that decides how to present it:** a measured example is a
+      **characterization test, not a specification**. It pins what the code does today,
+      including today's bugs. That is a ratchet — this repo's favourite instrument — but it
+      is NOT the programmer stating intent, so the promotion must be **reviewable and never
+      silent**: show what it derived, write nothing the author has not seen. A tool that
+      quietly turns "unverified" into "verified" would be manufacturing exactly the
+      confidence the principle exists to refuse.
+
+- [ ] **A4d — class methods and arrow consts get NO signature test.** Found while sizing
+      A4c, and it is a coverage gap rather than an inconclusive result — nothing is reported,
+      so it reads identically to "checked and fine". Measured: a top-level `function` (even
+      exported, even several per module) gets a test that runs; `class C { m(a: 2): 4 {} }`
+      and `const m = (a: 2): 4 => …` get nothing at all. Matters beyond A4c, because it
+      means "signature tests cover this file" is not a claim anyone can currently make about
+      a class-heavy or arrow-heavy module.
+
 - [ ] **A5 — get the compat lanes into CI.** `test:compat-scan` is the lane most likely to
       catch this defect class and it runs only when someone invokes it. It needs clones, so
       either cache them or run it on a schedule — but "not in CI" is how the dogfood ratchets

@@ -197,10 +197,23 @@ Very Good Thing™ — but it must obey the rule above:
 
 - Self-contained, executable, self-consistent function → test runs; mismatch is
   a hard error. ✅
-- Function references names TJS can't resolve at build time — e.g. AJS atoms
-  (`httpFetch`, `llm`, `store`) — or the harness can't execute the module (e.g.
-  multiple top-level functions) → the test is **inconclusive**, surfaced as a
-  warning (including in the playground), **never** a transpile error.
+- Function **uses** a name TJS can't resolve at build time — an AJS atom
+  (`httpFetch`, `llm`, `store`), or an imported binding it actually calls → the
+  test is **inconclusive**, surfaced as a warning (including in the playground),
+  **never** a transpile error.
+
+Measured 2026-09-05, because this list previously also said "the harness can't
+execute the module (e.g. multiple top-level functions)" and **that is not true**:
+several top-level functions each get their own test and all of them run, as do
+exported ones, and an `import` the function does not use costs nothing. What is
+actually inconclusive is _using_ an unresolvable name. Corrected here rather than
+softened, per the principle at the top of this file — a claim about the system
+that the system contradicts is the claim's bug.
+
+Two shapes get **no signature test at all**, which is a coverage gap rather than
+an inconclusive result: **class methods** and **arrow-function consts**. Worth
+knowing before relying on signature tests as a guarantee, and tracked in
+`TODO.md`.
 
 Without this, AJS agents (which call atoms and may declare return types) and
 multi-function helper sources would be illegal TJS — breaking invariant 2.
