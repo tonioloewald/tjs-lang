@@ -1199,3 +1199,69 @@ describe('a quoted `@tjs-unsafe` annotation is DATA, not an annotation', () => {
     expect(out).not.toContain('@tjs-unsafe')
   })
 })
+
+describe('a quoted `wasm function` is DATA — not compiled', () => {
+  // `extractWasmFunctions` detected on RAW source, so a `wasm function` written inside a
+  // template literal was COMPILED as if it were real code and replaced by the JS wrapper it
+  // was supposed to produce. Four of this repo's own suites were being corrupted that way,
+  // and only one of them showed up as a conversion failure — when a scanner mangles a
+  // fixture into something that still parses, the file converts cleanly and lies at runtime
+  // instead.
+  const CASES = [
+    [
+      'template literal',
+      'const SRC = `wasm function total(a: Float32Array, n: i32): f64 { return 1.0 }`',
+    ],
+    [
+      'double-quoted',
+      'const SRC = "wasm function total(a: Float32Array, n: i32): f64 { return 1.0 }"',
+    ],
+  ] as const
+
+  for (const [label, decl] of CASES) {
+    it(`leaves it byte-identical — ${label}`, () => {
+      const src = `${decl}\nfunction f(a: 0) { return a }`
+      const out = tjs(src, { filename: 'a.tjs' })
+      // Byte-identical: `not.toThrow()` cannot see a fixture silently rewritten, and a
+      // rewritten fixture is exactly what shipped.
+      expect(out.code).toContain(decl)
+      expect(out.code).not.toContain('__tjs_wasm_total')
+    })
+  }
+
+  it('`wasm` must be a whole word', () => {
+    // The regex opened with `^\b` against a SLICED string, where `\b` is satisfied by the
+    // first character being a word character — so it never looked at what preceded the
+    // match, and the comment claiming it stopped `mywasm` was wrong.
+    const src = `const mywasm = 1\nfunction f(a: 0) { return a }`
+    expect(tjs(src, { filename: 'a.tjs' }).code).toContain('mywasm')
+  })
+})
+
+describe('a quoted `Is` operator is DATA — not an operator', () => {
+  // `transformIsOperators` was two plain `source.replace(...)` calls, so `a Is b` inside a
+  // string became `__tjs_rt.Is(a, b)`. It was the last failure standing on the dogfood
+  // behaviour gate, in the suite whose entire job is to hold TJS constructs as data.
+  const CASES = [
+    ['single quotes', "const c = 'a Is b'"],
+    ['double quotes', 'const c = "a IsNot b"'],
+    ['template literal', 'const c = `x Is y`'],
+  ] as const
+
+  for (const [label, decl] of CASES) {
+    it(`leaves it byte-identical — ${label}`, () => {
+      const src = `${decl}\nfunction f(a: 0) { return a }`
+      expect(tjs(src, { filename: 'a.tjs' }).code).toContain(decl)
+    })
+  }
+
+  it('a REAL Is comparison still transforms, including against a literal (control)', () => {
+    // The masking must not blind the transform to its own operands: `maskLiterals` blanks a
+    // literal's interior but keeps the quotes, so this still matches.
+    const out = tjs(`function f(a: [0]): false { return a Is 'lit' }`, {
+      filename: 'a.tjs',
+    })
+    expect(out.code).toContain('.Is(')
+    expect(out.code).toContain("'lit'")
+  })
+})

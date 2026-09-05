@@ -84,12 +84,23 @@ const SKIP: Record<string, string> = {
  * Two are the literal-blindness class again (E1 in ASSUMPTIONS.md), arriving where it is
  * most predictable: a LANGUAGE's own test suite is mostly source code held in strings.
  */
-const KNOWN_CONVERSION_FAILURES = new Map<string, string>([
-  [
-    'lang/wasm.test.ts',
-    'LITERAL BLINDNESS: the `wasm function` scanner reads a fixture inside a template literal (`const source = `wasm function dangerous(! …)`) and rejects it as real code.',
-  ],
-])
+const KNOWN_CONVERSION_FAILURES = new Map<string, string>([])
+
+/*
+ * EMPTY as of 2026-09-05 — every suite we ship converts. One of the three 1.0 gates in the
+ * `GAP TO SELF-HOSTING` line is closed.
+ *
+ * The last entry out was `lang/wasm.test.ts`, and its recorded cause had been right all
+ * along: `extractWasmFunctions` detected on RAW source, so a `wasm function` written inside
+ * a template literal was compiled as if it were real code. It was listed as one suite that
+ * "will not convert", which undersold it — the same defect was silently corrupting FOUR
+ * other suites that converted fine and then failed at runtime, because their fixtures had
+ * been compiled away and replaced by the wrappers those fixtures were supposed to produce.
+ *
+ * Worth keeping: a scanner that mangles a fixture shows up as a CONVERSION failure only when
+ * the mangling happens to break the parse. When it produces valid code — as it did here,
+ * four times over — it converts cleanly and lies at runtime instead.
+ */
 
 /**
  * ELEVEN down to TWO, on 2026-08-16. The nine that graduated, and what closed them:
@@ -160,10 +171,36 @@ const KNOWN_CONVERSION_FAILURES = new Map<string, string>([
  */
 const BASELINE = {
   /** Fraction of assertions that survive conversion. 1.0 is the 1.0 gate. */
-  assertionRate: 0.998,
+  assertionRate: 1.0,
   /** Fraction of passing tests that still pass after conversion. */
-  testRate: 0.998,
+  testRate: 1.0,
 }
+
+/*
+ * 2026-09-05, and the assertion rate is now AT the 1.0 gate:
+ *
+ *     original : 4251 pass, 0 fail, 9703 assertions
+ *     converted: 4250 pass, 1 fail, 9703 assertions
+ *
+ * ...and then the last one closed too:
+ *
+ *     original : 4251 pass, 0 fail, 9703 assertions
+ *     converted: 4251 pass, 0 fail, 9703 assertions
+ *
+ * **All three gates are at zero.** Every suite converts, every test still passes, not one
+ * assertion is lost. `KNOWN_CONVERSION_FAILURES` is empty.
+ *
+ * Both rates are pinned at exactly 1.0, deliberately: there is no slack left to give back,
+ * so any regression at all fails here. If one of these has to be lowered, that is a finding
+ * to write down, not a number to adjust.
+ *
+ * Getting here took 108 -> 0 broken tests over two days, and the honest accounting is that
+ * roughly two thirds of that distance was defects in THIS FILE rather than in the language:
+ * a `test` block quoted as data being executed and deleted, `relocate()` rewriting import
+ * paths inside template literals, `relocate()` not rewriting `require` at all. The language
+ * defects were real too — the `__tjs_rt` namespace collision and the `wasm function` scanner
+ * reading fixtures as code — but the measurement was the bigger liar.
+ */
 
 /*
  * Ratcheted again on 2026-09-05, from 0.966/0.977, and this movement was ENTIRELY the

@@ -95,12 +95,29 @@ dashboard number into this list.
       `/* @tjs-unsafe */` quoted inside a template literal (literal blindness, fixed, rows
       added to `literal-blindness.test.ts`).
 
-- [ ] **A4b — the last 5.** Genuinely the language now, not the apparatus. Four are WASM
-      (`flight-recorder-wasm` x2, `wasm-ready`, `linalg/vector-search.bench`) and one is the
-      AJS-leak ratchet in `eval-no-transpile-execution`. The wasm cluster is worth taking as
-      one item — `lang/wasm.test.ts` is also the single entry left in
-      `KNOWN_CONVERSION_FAILURES`, so wasm is now the whole remaining gap on both dogfood
-      ratchets at once.
+- [x] **A4b — the last 5. DONE 2026-09-05. ALL THREE GATES AT ZERO.**
+
+      ```
+      original : 4251 pass, 0 fail, 9703 assertions
+      converted: 4251 pass, 0 fail, 9703 assertions
+      ```
+
+      Every suite converts, every test passes, not one assertion lost,
+      `KNOWN_CONVERSION_FAILURES` empty. Both ratchets pinned at exactly 1.0.
+
+      The five were TWO defects, both literal blindness, both in scanners:
+      - `extractWasmFunctions` COMPILED a `wasm function` quoted inside a string, replacing
+        the fixture with the wrapper it was meant to produce. Four suites affected; only one
+        showed as a conversion failure. **A scanner that mangles a fixture is visible only
+        when the mangling breaks the parse** — when it emits valid code the file converts
+        cleanly and lies at runtime instead. Also had the `^\b`-on-a-sliced-string
+        non-boundary, exactly like `extractAndRunTests`.
+      - `transformIsOperators` rewrote `a Is b` inside strings, in the suite whose whole job
+        is holding TJS constructs as data.
+
+      That makes **seven sites of this one class fixed this week**, which is the argument for
+      `docs/parser-primitives.md` rather than an eighth fix: every one was a pass answering
+      "where does this construct end" with an ad-hoc scan.
 
 - [ ] **A5 — get the compat lanes into CI.** `test:compat-scan` is the lane most likely to
       catch this defect class and it runs only when someone invokes it. It needs clones, so

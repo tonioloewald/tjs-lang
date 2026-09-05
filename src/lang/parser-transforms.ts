@@ -456,6 +456,21 @@ export function extractWasmBlocks(source: string): {
  * This runs BEFORE `extractWasmBlocks` so its output (a regular JS function
  * wrapper) isn't disturbed by the inline-block scanner.
  *
+ * DETECTED over `maskLiterals`, bodies sliced from the real source. Scanning raw text meant
+ * a `wasm function` written inside a STRING was compiled as if it were real code — and a
+ * language's own test suite is mostly source held in strings, so this hit four of its own
+ * suites at once. `flight-recorder-wasm.test.ts` had its entire fixture replaced by the
+ * wrapper the fixture was supposed to produce; `vector-search.bench.test.ts` lost all three
+ * of its fixtures; `wasm-ready.test.ts` got a real compiled WebAssembly module emitted into
+ * the test file itself. The damage is invisible at the site: the file still parses, still
+ * runs, and asserts against a fixture that is no longer the fixture.
+ *
+ * Same class, and the same pair of defects, as `extractAndRunTests`: an unmasked scan, plus
+ * a `^\b` word-boundary check that is not one. `\b` at the START of a sliced string is
+ * satisfied whenever the next character is a word character, so it never looked at what
+ * PRECEDED the match and `mywasm function f()` matched — which is precisely what the comment
+ * claiming otherwise said it prevented.
+ *
  * Return-type note: the underlying wasm bytecode builder currently emits f64
  * or void return types only. The declared `: RetType` annotation is parsed
  * and preserved on the block, but not yet validated against the backend's
@@ -471,12 +486,17 @@ export function extractWasmFunctions(source: string): {
   let result = ''
   let i = 0
 
+  // Literals AND comments blanked, offsets preserved. Detection and every brace/paren scan
+  // below run over this; text is always sliced from `source`.
+  const masked = maskLiterals(source)
+
   while (i < source.length) {
     // Match: `(export )?wasm function NAME(` (with leading whitespace allowed)
-    // The leading `\b` ensures we don't match inside identifiers like `mywasm`.
-    const declRe = /^\b(export\s+)?wasm\s+function\s+(\w+)\s*\(/
-    const m = source.slice(i).match(declRe)
-    if (!m) {
+    const declRe = /^(export\s+)?wasm\s+function\s+(\w+)\s*\(/
+    const m = masked.slice(i).match(declRe)
+    // The word-boundary check the `^\b` in this regex never actually performed: look at the
+    // character BEFORE the match, in the real source.
+    if (!m || (i > 0 && /[\w$]/.test(source[i - 1]!))) {
       result += source[i]
       i++
       continue
@@ -490,9 +510,9 @@ export function extractWasmFunctions(source: string): {
     const parensStart = i + m[0].length
     let parenDepth = 1
     let j = parensStart
-    while (j < source.length && parenDepth > 0) {
-      if (source[j] === '(') parenDepth++
-      else if (source[j] === ')') parenDepth--
+    while (j < masked.length && parenDepth > 0) {
+      if (masked[j] === '(') parenDepth++
+      else if (masked[j] === ')') parenDepth--
       j++
     }
     if (parenDepth !== 0) {
@@ -523,14 +543,14 @@ export function extractWasmFunctions(source: string): {
     // Pointer-style annotations like `Ptr<f32>` are reserved for a follow-up.
     let returnType: string | undefined
     let afterReturnType = j
-    const retMatch = source.slice(j).match(/^\s*:\s*(\w+)/)
+    const retMatch = masked.slice(j).match(/^\s*:\s*(\w+)/)
     if (retMatch) {
       returnType = retMatch[1]
       afterReturnType = j + retMatch[0].length
     }
 
     // Expect `{` next (with leading whitespace)
-    const braceMatch = source.slice(afterReturnType).match(/^\s*\{/)
+    const braceMatch = masked.slice(afterReturnType).match(/^\s*\{/)
     if (!braceMatch) {
       // Not a wasm function decl after all — pass through
       result += source[i]
@@ -542,9 +562,9 @@ export function extractWasmFunctions(source: string): {
     const bodyStart = afterReturnType + braceMatch[0].length
     let braceDepth = 1
     let k = bodyStart
-    while (k < source.length && braceDepth > 0) {
-      if (source[k] === '{') braceDepth++
-      else if (source[k] === '}') braceDepth--
+    while (k < masked.length && braceDepth > 0) {
+      if (masked[k] === '{') braceDepth++
+      else if (masked[k] === '}') braceDepth--
       k++
     }
     if (braceDepth !== 0) {
@@ -1030,6 +1050,18 @@ function extractTypeFromParams(
  *   a IsNot b   -> IsNot(a, b)
  *
  * This enables structural equality with a clean syntax.
+ *
+ * MATCHED over `maskLiterals`, spliced into the real source. These were plain
+ * `source.replace(...)` calls, so `a Is b` written INSIDE a string was rewritten as if it
+ * were code — the last failure standing on the dogfood behaviour gate, in
+ * `eval-no-transpile-execution.test.ts`, whose whole job is to hold TJS constructs as data
+ * and check which ones reach the AJS path. A scanner that edits its fixtures makes that
+ * suite measure itself.
+ *
+ * Masking is safe for the operands even though the pattern accepts string literals:
+ * `maskLiterals` blanks a literal's INTERIOR and keeps its quotes, so `c Is 'lit'` still
+ * matches (as `c Is '   '`) while `'x Is y'` no longer does. The matched TEXT always comes
+ * from `source` via the match indices, never from the mask.
  */
 export function transformIsOperators(source: string): string {
   // Match: (simpleExpr) IsNot (simpleExpr) - must check IsNot first (longer match)
@@ -1037,13 +1069,35 @@ export function transformIsOperators(source: string): string {
   const exprPat =
     '([\\w][\\w.\\[\\]()]*|null|undefined|true|false|\\d+(?:\\.\\d+)?|\'[^\']*\'|"[^"]*")'
 
+  /** Rewrite every match of `pat` found in the MASKED view, using text from `source`. */
+  const spliceOver = (src: string, pat: RegExp, fn: string): string => {
+    const masked = maskLiterals(src)
+    const edits: Array<[number, number, string]> = []
+    let m: RegExpExecArray | null
+    pat.lastIndex = 0
+    while ((m = pat.exec(masked)) !== null) {
+      const d = (m as any).indices as Array<[number, number]>
+      const [ls, le] = d[1]!
+      const [rs, re] = d[2]!
+      edits.push([
+        m.index,
+        m.index + m[0].length,
+        `${fn}(${src.slice(ls, le)}, ${src.slice(rs, re)})`,
+      ])
+    }
+    let out = src
+    for (const [start, end, text] of edits.reverse())
+      out = out.slice(0, start) + text + out.slice(end)
+    return out
+  }
+
   // Transform IsNot first (longer keyword)
-  const isNotRegex = new RegExp(exprPat + '\\s+IsNot\\s+' + exprPat, 'g')
-  source = source.replace(isNotRegex, `${rt('IsNot')}($1, $2)`)
+  const isNotRegex = new RegExp(exprPat + '\\s+IsNot\\s+' + exprPat, 'gd')
+  source = spliceOver(source, isNotRegex, rt('IsNot'))
 
   // Transform Is
-  const isRegex = new RegExp(exprPat + '\\s+Is\\s+' + exprPat, 'g')
-  source = source.replace(isRegex, `${rt('Is')}($1, $2)`)
+  const isRegex = new RegExp(exprPat + '\\s+Is\\s+' + exprPat, 'gd')
+  source = spliceOver(source, isRegex, rt('Is'))
 
   return source
 }

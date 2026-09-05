@@ -47,6 +47,38 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   Guarded by `src/lang/rt-namespace.test.ts`, which pins all three properties — no collision,
   ambient names still work, and nothing inside the IIFE is unreachable.
 
+- **A quoted `wasm function` declaration was COMPILED.** `extractWasmFunctions` detected on
+  raw source, so a `wasm function` written inside a string was compiled to WebAssembly and
+  the fixture replaced by the JS wrapper it was supposed to produce:
+
+  ```
+  const SRC = `wasm function total(a: Float32Array, n: i32): f64 { … }`
+  ->  const SRC = `function total(a, n) { return globalThis.__tjs_wasm_total(a, n) }`
+  ```
+
+  Four suites were being corrupted this way, and only ONE of them showed up as a conversion
+  failure. That is the part worth keeping: a scanner that mangles a fixture is visible only
+  when the mangling breaks the parse. When it produces valid code — as it did here, four
+  times — the file converts cleanly and lies at runtime instead, asserting against a fixture
+  that is no longer the fixture. One had a real compiled WebAssembly module emitted into the
+  test file itself.
+
+  Its regex also opened with `^\b` against a SLICED string, where `\b` is satisfied by the
+  first character being a word character — so it never looked at what preceded the match, and
+  the comment claiming it stopped `mywasm` was wrong. Same pair of defects, in the same
+  order, as `extractAndRunTests`.
+
+- **A quoted `Is` / `IsNot` operator was transformed.** `transformIsOperators` was two plain
+  `source.replace(…)` calls, so `a Is b` inside a string became `__tjs_rt.Is(a, b)`. It was
+  the last failure standing on the dogfood behaviour gate — in
+  `eval-no-transpile-execution.test.ts`, whose entire job is to hold TJS constructs as data
+  and check which ones reach the AJS path. A scanner that edits its own fixtures makes that
+  suite measure itself.
+
+  Masking is safe for the operands even though the pattern accepts string literals:
+  `maskLiterals` blanks a literal's interior and keeps its quotes, so `c Is 'lit'` still
+  matches while `'x Is y'` no longer does.
+
 - **A quoted `/* @tjs-unsafe */` annotation was applied as a real one.**
   `applyUnsafeAnnotations` was a `code.replace(…)` over raw source, so it rewrote the
   annotation wherever it appeared — including inside a string that merely quotes it. The
@@ -63,6 +95,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   feature was the file it broke. Matched over `maskLiteralsKeepComments` now — comments
   intact (the annotation IS a comment), literals blanked. Rows added to
   `literal-blindness.test.ts`.
+
+### Self-hosting
+
+- **The dogfood behaviour gate reached zero on all three of its 1.0 gates.**
+
+  ```
+  original : 4251 pass, 0 fail, 9703 assertions
+  converted: 4251 pass, 0 fail, 9703 assertions
+  ```
+
+  Every test suite we ship converts to TJS, runs, and preserves every assertion.
+  `KNOWN_CONVERSION_FAILURES` is empty. Both ratchet rates are now pinned at exactly 1.0 —
+  there is no slack left to give back, so any regression fails immediately.
+
+  It read **108 broken tests** two days ago. The honest accounting of that distance: roughly
+  two thirds of it was defects in the GATE, not the language — a `test` block quoted as data
+  being executed and deleted, `relocate()` rewriting import paths inside template literals,
+  `relocate()` not rewriting `require` at all. The language defects were real (the
+  `__tjs_rt` namespace collision, and three scanners reading fixtures as code) but the
+  measurement was the bigger liar. Recorded at the baseline so the next person reads a bad
+  number here as a question about the apparatus first.
 
 ### Changed (test infrastructure, not shipped code)
 
