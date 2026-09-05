@@ -1,34 +1,29 @@
 # TJS-Lang TODO
 
-# RELEASE STATE — read this first (2026-09-04)
+# RELEASE STATE — read this first (updated 2026-09-05)
 
-**0.13.12 is prepared and waiting on `npm publish`, which is a user-only action.**
+**DO NOT TAG. Tonio's standing instruction while he is away.** Given the scope of this
+project there will be something needing more work for a while, so cutting tags on the way
+past is churn. Work accumulates in `[Unreleased]`.
 
-What happened: `v0.13.12` was tagged and pushed but never published, and five commits then
-landed on top of it — including two real fixes. Since nothing ever consumed the tag (it was
-never on npm), the tag was **moved forward to HEAD** rather than burning a version number on
-a gap. Done as part of that:
+**0.14.0 is the tosijs-ui-hosted release** — Phase B below, not a wrapper for whatever
+happens to be finished. A3 (the `__tjs_rt` namespace) is part of it, not its own release.
+This corrects an earlier note here that recommended cutting 0.14.0 for A3 alone.
 
-- `[Unreleased]` folded into `[0.13.12]`; the release now reads as five defects of one class,
-  which is what it is.
-- Full `bun test` run with nothing skipped, LM Studio up.
-- Tag moved to HEAD and force-pushed; `scripts/prepublish-check.ts` passes.
+The one standing exception: **a discovered defect in the language that genuinely needs a
+patch release.** That is a tactical judgement, not a schedule — and even then, tagging waits.
 
-**Remaining, for Tonio:** publish 0.13.12 **from its tag**, because A3 has since landed on
-top of it and `main` is no longer 0.13.12's code:
+**`v0.13.12` is tagged and unpublished, and that is now a settled state, not a pending task.**
+`main` has moved past it (A3), so if it ever does ship it ships from the tag:
 
 ```
 git checkout v0.13.12 && npm publish && git checkout main    # plain publish, never --otp
 ```
 
-`prepublish-check` passes in that detached HEAD (tag == HEAD, tree clean, pushed). Then tell
-tosijs-ui, which is still pinned to 0.13.4 in two places (UPSTREAM.md, tosijs-ui#135), and
-name the version when closing tjs-lang#51 — a fix is only reportable once it is installable.
-
-**And the next one is a MINOR, not a patch.** A3 changed the shape of every emitted file
-(the inline runtime moved into `__tjs_rt`), which is exactly the kind of thing a version
-number should announce even though no documented behaviour was removed. Recommend **0.14.0**;
-the `[Unreleased]` CHANGELOG entry is written and waiting for the number.
+`prepublish-check` passes in that detached HEAD. Two follow-ons are parked behind whatever
+gets published, because a fix is only reportable once it is installable: telling tosijs-ui
+(still pinned to 0.13.4 in two places — UPSTREAM.md, tosijs-ui#135) and closing tjs-lang#51
+naming the version.
 
 # PLAN: verified-working language, then the tosijs-ui build system (2026-09-04)
 
@@ -87,9 +82,26 @@ dashboard number into this list.
 
       [#39]: https://github.com/tonioloewald/tjs-lang/issues/39
 
-- [ ] **A4 — re-cluster after A2/A3 and repeat.** The remaining ~43 have not been read yet.
-      Cluster by SUITE, not by error text: the error text was assertion noise, the suite
-      distribution was the signal (4 suites held 63% of failures).
+- [x] **A4 — re-cluster after A2/A3 and repeat. DONE 2026-09-05, and it was the harness
+      AGAIN.** 15 of the 30 remaining failures sat in one suite, and every one was
+      `Cannot find module './parser'`: `relocate()` rewrote `import` sources but not
+      `require('./x')`, and `features.test.ts` reaches for un-exported helpers through
+      `require` in 15 test bodies. **313 assertions lost -> 16; 30 broken tests -> 5;
+      preservation 96.6% -> 99.8%.**
+      Third time the gate's own defects dominated its output, and they are now the majority
+      of every movement it has recorded. The gate no longer discards the evidence: it prints
+      failures clustered BY SUITE, and `DOGFOOD_KEEP=1` keeps the converted tree.
+      One REAL defect fell out of the same pass — `applyUnsafeAnnotations` rewriting a
+      `/* @tjs-unsafe */` quoted inside a template literal (literal blindness, fixed, rows
+      added to `literal-blindness.test.ts`).
+
+- [ ] **A4b — the last 5.** Genuinely the language now, not the apparatus. Four are WASM
+      (`flight-recorder-wasm` x2, `wasm-ready`, `linalg/vector-search.bench`) and one is the
+      AJS-leak ratchet in `eval-no-transpile-execution`. The wasm cluster is worth taking as
+      one item — `lang/wasm.test.ts` is also the single entry left in
+      `KNOWN_CONVERSION_FAILURES`, so wasm is now the whole remaining gap on both dogfood
+      ratchets at once.
+
 - [ ] **A5 — get the compat lanes into CI.** `test:compat-scan` is the lane most likely to
       catch this defect class and it runs only when someone invokes it. It needs clones, so
       either cache them or run it on a schedule — but "not in CI" is how the dogfood ratchets

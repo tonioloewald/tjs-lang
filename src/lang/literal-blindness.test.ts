@@ -1156,3 +1156,46 @@ describe('a `test` block inside a literal is DATA — not extracted, not run', (
     expect(tjs(src, { filename: 'a.tjs' }).code).toContain('mytest')
   })
 })
+
+describe('a quoted `@tjs-unsafe` annotation is DATA, not an annotation', () => {
+  // `applyUnsafeAnnotations` was `code.replace(/\/\*\s*@tjs-unsafe\s*\*\//g, 'unsafe ')` over
+  // raw source, so it rewrote the annotation wherever it appeared — including inside a
+  // string that merely quotes it.
+  //
+  // The damage is delayed and therefore invisible at the site: `unsafe` is TJS-only syntax,
+  // so once it is inside a TypeScript fixture that a test feeds back to `tsc`, the parser
+  // reads it as a bare expression statement and ASI splits it from the expression it was
+  // meant to mark — `unsafe new Date(x)` becomes `unsafe;` then `new Date(x);`. The
+  // annotation's own test suite carries exactly that fixture, so the file documenting the
+  // feature was the file that broke.
+  const QUOTED = [
+    [
+      'template literal',
+      'const ts = `const d = /* @tjs-unsafe */ new Date(x)`',
+    ],
+    ['single quotes', "const ts = 'const d = /* @tjs-unsafe */ new Date(x)'"],
+    ['double quotes', 'const ts = "const d = /* @tjs-unsafe */ new Date(x)"'],
+  ] as const
+
+  for (const [label, decl] of QUOTED) {
+    it(`leaves a quoted annotation byte-identical — ${label}`, async () => {
+      const { fromTS } = await import('./emitters/from-ts')
+      const out = fromTS(`${decl}\nexport const x = 1\n`, {
+        emitTJS: true,
+      }).code
+      expect(out).toContain('/* @tjs-unsafe */')
+      expect(out).not.toContain('unsafe new Date(')
+    })
+  }
+
+  it('a REAL annotation is still converted (control)', async () => {
+    // Every assertion above is satisfied by a pass that does nothing at all.
+    const { fromTS } = await import('./emitters/from-ts')
+    const out = fromTS(
+      `export function f(x: number): number {\n  const d = /* @tjs-unsafe */ new Date(x)\n  return d.getTime()\n}\n`,
+      { emitTJS: true }
+    ).code
+    expect(out).toContain('unsafe new Date(')
+    expect(out).not.toContain('@tjs-unsafe')
+  })
+})

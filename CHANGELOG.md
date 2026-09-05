@@ -47,6 +47,45 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   Guarded by `src/lang/rt-namespace.test.ts`, which pins all three properties — no collision,
   ambient names still work, and nothing inside the IIFE is unreachable.
 
+- **A quoted `/* @tjs-unsafe */` annotation was applied as a real one.**
+  `applyUnsafeAnnotations` was a `code.replace(…)` over raw source, so it rewrote the
+  annotation wherever it appeared — including inside a string that merely quotes it. The
+  damage is delayed and lands nowhere near the cause: `unsafe` is TJS-only syntax, so once
+  it is inside a TypeScript fixture that a test feeds back to `tsc`, the parser reads it as
+  a bare expression statement and ASI splits it from the expression it was meant to mark.
+
+  ```
+  `const d = /* @tjs-unsafe */ new Date(x)`   ->   `const d = unsafe new Date(x)`
+                                             ->   const d = unsafe; new Date(x);
+  ```
+
+  The annotation's own test suite carries exactly that fixture, so the file documenting the
+  feature was the file it broke. Matched over `maskLiteralsKeepComments` now — comments
+  intact (the annotation IS a comment), literals blanked. Rows added to
+  `literal-blindness.test.ts`.
+
+### Changed (test infrastructure, not shipped code)
+
+- **The dogfood behaviour gate stopped throwing away its own work list.** Three things, all
+  of which had cost real time every session the gate was worked:
+
+  - `relocate()` did not rewrite `require('./x')`, only `import`. All 15 failures in
+    `lang/features.test.ts` — the largest remaining cluster by a factor of seven — were
+    `Cannot find module './parser'` from test bodies reaching for un-exported helpers.
+    **313 assertions lost → 16, and 30 broken tests → 5.**
+  - `testsBroken` was printed as a bare integer, which is the defect the block above it had
+    already fixed for the baseline ("a number with no name attached"). It now prints the
+    failures clustered **by suite**, which is the axis that has carried the signal every
+    time.
+  - `DOGFOOD_KEEP=1` leaves the converted tree in place, and the temp directory is created
+    inside the test rather than in the `describe` body — a describe body runs at collection
+    time, so merely loading the file made a directory that any filtered run then left
+    behind. Twenty-two empty `.dogfood-*` directories had accumulated in the repo.
+
+  That `relocate()` gap is the **third** time this gate's own defects dominated its output,
+  and they are now the majority of every movement it has ever recorded. A bad number here is
+  a question about the apparatus first.
+
 ## [0.13.12] — 2026-09-04
 
 Five defects of one class: a pass that misreads code which merely MENTIONS the syntax it is

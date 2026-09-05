@@ -3144,9 +3144,30 @@ function extractEmbeddedTestComments(source: string): string[] {
  * Replaced in place (not stripped-then-inserted) so the marker lands exactly where the
  * annotation was — same line, immediately before its expression, which is what `unsafe`
  * requires.
+ *
+ * MATCHED over `maskLiteralsKeepComments`, not raw source. This was a plain
+ * `code.replace(…)`, which rewrote the annotation wherever it appeared — including inside a
+ * string or template literal that merely QUOTES it. That is not hypothetical: the
+ * annotation's own test suite holds `` `const d = /* @tjs-unsafe *\/ new Date(x)` `` as a
+ * fixture, so converting that file produced `const d = unsafe new Date(x)` inside the
+ * fixture, and `tsc` then read `unsafe` as a bare expression statement and ASI split it from
+ * the `new Date(x)` after it. The dogfood behaviour gate caught it; nothing else could,
+ * because the damage is to a string a test later feeds back in.
+ *
+ * The mask keeps comments INTACT (the annotation IS a comment — blanking them would erase
+ * the thing being matched) and blanks literals, which is the exact view this needs. Same
+ * pairing as the `/* unsafe *\/` scan and the `test` block detector.
  */
 function applyUnsafeAnnotations(code: string): string {
-  return code.replace(/\/\*\s*@tjs-unsafe\s*\*\/\s*/g, 'unsafe ')
+  const masked = maskLiteralsKeepComments(code)
+  const re = /\/\*\s*@tjs-unsafe\s*\*\/\s*/g
+  const edits: Array<[number, number]> = []
+  let m: RegExpExecArray | null
+  while ((m = re.exec(masked)) !== null) edits.push([m.index, re.lastIndex])
+  let out = code
+  for (const [start, end] of edits.reverse())
+    out = out.slice(0, start) + 'unsafe ' + out.slice(end)
+  return out
 }
 
 /**

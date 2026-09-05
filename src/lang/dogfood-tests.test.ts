@@ -160,10 +160,23 @@ const KNOWN_CONVERSION_FAILURES = new Map<string, string>([
  */
 const BASELINE = {
   /** Fraction of assertions that survive conversion. 1.0 is the 1.0 gate. */
-  assertionRate: 0.966,
+  assertionRate: 0.998,
   /** Fraction of passing tests that still pass after conversion. */
-  testRate: 0.977,
+  testRate: 0.998,
 }
+
+/*
+ * Ratcheted again on 2026-09-05, from 0.966/0.977, and this movement was ENTIRELY the
+ * harness: `relocate()` did not rewrite `require('./x')`, only `import`. All 15 failures in
+ * `lang/features.test.ts` — the largest remaining cluster by a factor of seven — were
+ * `Cannot find module './parser'`, from test bodies that reach for an un-exported helper
+ * through `require`. 313 assertions lost -> 18; 30 broken tests -> 6.
+ *
+ * That is the THIRD time this gate's own defects dominated its output (see the `os.tmpdir()`
+ * note above and the template-literal one below), and it is now the majority of every
+ * movement this file has ever recorded. Treat a bad number here as a question about the
+ * apparatus first and the language second — the base rate says so.
+ */
 
 /*
  * Ratcheted on 2026-09-05, from 0.881/0.904, after the emitted preamble stopped declaring
@@ -368,6 +381,29 @@ function relocate(code: string, originalPath: string): string {
       ) {
         sources.push(n.source)
       }
+      // `require('./x')` too — a module specifier that is not an `import`.
+      //
+      // Missing this accounted for the single largest remaining cluster in the gate: all 15
+      // failures in `lang/features.test.ts`, which reaches for `require('./parser')` and
+      // `require('./runtime')` INSIDE test bodies to get at an un-exported helper. Relocated
+      // imports resolved, these did not, and 15 suites' worth of "Cannot find module" was
+      // scored as conversion losing tests.
+      //
+      // Same shape as the template-literal defect this function was already rewritten for,
+      // and the same lesson one level up: the fix there was "ask the parser which literals
+      // are import sources", and the gap was that `require` is one and does not look like
+      // one. Callee checked as a bare identifier with exactly one string argument, so
+      // `obj.require('./x')` and `require(dynamic)` are left alone.
+      if (
+        n.type === 'CallExpression' &&
+        n.callee?.type === 'Identifier' &&
+        n.callee.name === 'require' &&
+        n.arguments?.length === 1 &&
+        n.arguments[0]?.type === 'Literal' &&
+        typeof n.arguments[0].value === 'string'
+      ) {
+        sources.push(n.arguments[0])
+      }
       for (const k of Object.keys(n)) if (k !== 'type') visit(n[k])
     }
     visit(ast)
@@ -423,12 +459,6 @@ describe('dogfood: our own test suites survive conversion', () => {
   }
 
   const suites = testSuites()
-  // INSIDE the repo, not os.tmpdir(). A converted suite still imports bare packages
-  // (`acorn`, `tosijs-schema`), and module resolution walks UP from the file — so from
-  // /tmp it never reaches our node_modules and 26 suites failed with "Cannot find
-  // package". That is the harness failing, scored as the language failing: it inflated
-  // the measured gap by about a quarter before anyone looked at what the errors said.
-  const tmp = mkdtempSync(join(REPO, '.dogfood-'))
 
   it('has a corpus worth measuring', () => {
     // A skip list that swallowed the corpus would make everything below vacuous.
@@ -436,6 +466,21 @@ describe('dogfood: our own test suites survive conversion', () => {
   })
 
   it('converts, runs, and preserves every assertion', async () => {
+    // INSIDE the repo, not os.tmpdir(). A converted suite still imports bare packages
+    // (`acorn`, `tosijs-schema`), and module resolution walks UP from the file — so from
+    // /tmp it never reaches our node_modules and 26 suites failed with "Cannot find
+    // package". That is the harness failing, scored as the language failing: it inflated
+    // the measured gap by about a quarter before anyone looked at what the errors said.
+    //
+    // Created HERE rather than in the `describe` body, which is where it used to be. A
+    // describe body runs at COLLECTION time — so merely loading this file made the
+    // directory, and any run that then filtered the test out (`--test-name-pattern`, a
+    // failure elsewhere) never reached the `finally` that removes it. Twenty-two empty
+    // `.dogfood-*` directories had accumulated in the repo over a week that way. Gitignored,
+    // so invisible to `git status` and to `repo-hygiene.test.ts`, which is the only reason
+    // it lasted: setup that happens whether or not the test runs is not setup, it is a side
+    // effect of importing a file.
+    const tmp = mkdtempSync(join(REPO, '.dogfood-'))
     const { fromTS } = await import('./emitters/from-ts')
     const { tjs } = await import('./index')
 
@@ -544,6 +589,38 @@ describe('dogfood: our own test suites survive conversion', () => {
           `that will not convert. All three must reach 0 for 1.0.`
       )
 
+      // NAME what broke, clustered BY SUITE.
+      //
+      // The block above already learned this lesson for the baseline: "a number with no
+      // name attached, in the middle of a wall of conversion statistics, so nobody read it
+      // as a defect". `testsBroken` was the same number one line over — the work list this
+      // gate exists to produce, printed as a single integer. Each of the three times it has
+      // been worked, the first step was a bespoke script to recover the names the gate had
+      // just thrown away.
+      //
+      // Clustered by SUITE rather than listed flat, because that is the axis that has
+      // actually carried the signal every time: the error text is assertion noise
+      // (`expect(received).toBe(expected)` thirty-odd times over), while four suites once
+      // held 63% of the failures and two of those were one defect. Flat is also what makes
+      // it unreadable at 30+ lines and therefore skipped.
+      if (after.fail > 0) {
+        const perSuite = new Map<string, number>()
+        let suite = '(unattributed)'
+        for (const line of after.out.split('\n')) {
+          const header = line.match(/^(\S+\.test\.[jt]s):/)
+          if (header) suite = header[1]!
+          else if (line.startsWith('(fail)'))
+            perSuite.set(suite, (perSuite.get(suite) ?? 0) + 1)
+        }
+        const ranked = [...perSuite].sort((a, b) => b[1] - a[1])
+        console.log(
+          `  BROKEN BY SUITE (cluster here, not on the error text):\n` +
+            ranked
+              .map(([s, n]) => `    ${String(n).padStart(3)}  ${s}`)
+              .join('\n')
+        )
+      }
+
       // RATES, not counts. An absolute floor is not a ratchet over a growing corpus:
       // adding five test files this session pushed `assertionsLost` from 287 to 336 while
       // the language got strictly better, and a count-based floor would have read that as
@@ -570,7 +647,19 @@ describe('dogfood: our own test suites survive conversion', () => {
           : 'ok'
       ).toBe('ok')
     } finally {
-      rmSync(tmp, { recursive: true, force: true })
+      // `DOGFOOD_KEEP=1` leaves the converted tree in place so the failures above can be
+      // read, re-run and bisected. Every time this gate has been worked, the first step was
+      // reconstructing the converted suites by hand because the run that just produced them
+      // deleted them — the evidence is generated and discarded in the same breath. Off by
+      // default: it writes ~190 files into the repo, which `.gitignore` covers but a stray
+      // directory is still a surprise.
+      if (process.env.DOGFOOD_KEEP) {
+        console.log(
+          `  DOGFOOD_KEEP: converted suites left in ${relative(REPO, tmp)}`
+        )
+      } else {
+        rmSync(tmp, { recursive: true, force: true })
+      }
     }
   }, 900_000)
 })
