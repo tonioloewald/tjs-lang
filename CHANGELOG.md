@@ -7,7 +7,30 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-### Fixed
+## [0.13.12] — 2026-09-06
+
+**Two security-relevant fixes against published 0.13.11, and the end of a defect class.**
+
+`Eval`/`SafeFunction` returned plausible wrong values (#52) — spread was silently dropped and a
+dotted read came back as its own source text — and in the reference RBAC layer that inverted
+into a **grant** (#54). Both were reported by a consumer running against a known-good oracle,
+which is the only way either could have been seen: every wrong value had the right _shape_, so
+structural checks, `typeof` and length checks all passed. Separately, `verifyPredicate` was
+certifying impure functions as pure, so "verified" meant less than the badge claimed.
+
+The rest is one class of defect, finally closed. **Eight scanners that misread code merely
+MENTIONING the syntax they scan for** — a `test` block quoted as data being executed and
+deleted, a comment containing `export` consuming the real one, a template's `${…}`
+desynchronising the shared literal scanner, a quoted `wasm function` being compiled, a quoted
+`Is` operator being transformed. Each was found somewhere other than where it did its damage.
+
+**The dogfood behaviour gate went from 108 broken tests to zero.** Every test suite we ship now
+converts to TJS, runs, and preserves every assertion — all three 1.0 self-hosting gates at
+zero, both ratchets pinned at 1.0. Roughly two thirds of that distance was defects in the gate
+rather than in the language, which is recorded at the baseline so the next bad number there is
+read as a question about the apparatus first.
+
+### Fixed — silent wrong values in `Eval`/`SafeFunction`
 
 - **`Eval`/`SafeFunction` returned plausible wrong values (#52).** Two defects, both silent,
   both shipped in 0.13.11. Neither was a runtime bug — the AST emitter built an AST that did
@@ -136,7 +159,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   Guarded by `src/lang/predicate-purity.test.ts`, which pins both directions — the seven
   impure shapes above, and eleven ordinary pure ones that must keep the badge.
 
-### Fixed
+### Fixed — the emitted runtime and the TypeScript bridge
 
 - **The emitted runtime no longer declares its helpers in your namespace (#39).** The
   preamble declared `Eq`, `Is`, `IsNot`, `NotEq`, `TypeOf`, `Type`, `Generic`, `Enum`,
@@ -246,7 +269,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   measurement was the bigger liar. Recorded at the baseline so the next person reads a bad
   number here as a question about the apparatus first.
 
-### Changed (test infrastructure, not shipped code)
+### Changed — the dogfood gate stopped discarding its own evidence
 
 - **The dogfood behaviour gate stopped throwing away its own work list.** Three things, all
   of which had cost real time every session the gate was worked:
@@ -268,21 +291,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   and they are now the majority of every movement it has ever recorded. A bad number here is
   a question about the apparatus first.
 
-## [0.13.12] — 2026-09-04
-
-Five defects of one class: a pass that misreads code which merely MENTIONS the syntax it is
-scanning for. Four of them changed emitted output with no error and no warning; the fifth was in
-the gate that measures conversion damage, which had therefore been reporting its own defects as
-the language's. Each was found somewhere other than where it did its damage — three from the
-dogfood lanes, one from a consumer's build failing to link, and one from asking whether the
-shared scanner had the same bug as the copy that had just been fixed. It did.
-
-**The dogfood behaviour gate went from 108 broken tests to 38 across this release**, and two of
-those three movements were defects in the gate rather than in conversion. Nothing about that
-second kind changes what ships; what changes is that the number is now measuring what it claims
-to.
-
-### Fixed
+### Fixed — the literal-blindness class
 
 - **A comment mentioning `export` consumed the real one (#51, reported by tosijs).**
   `fromTS` decided whether an arrow-function const was already exported with
@@ -382,7 +391,7 @@ to.
   bar is not one this codebase happens to clear. Pinned at 100%, not ratcheted — unlike
   graduation, there is no legitimate reason for it to be below.
 
-### Fixed (test infrastructure, not shipped code)
+### Fixed — the dogfood gate itself (not shipped code)
 
 - **The dogfood behaviour gate's own relocation step was literal-blind.** `relocate()`
   rewrote import specifiers with a regex over raw text, so it also rewrote the ones inside
@@ -396,7 +405,7 @@ to.
   to 38 in one day, and **two of those three movements were defects in the gate rather than
   in conversion**.
 
-### Changed
+### Changed — cleanups
 
 - `extractAndRunTests` no longer calls `source.slice(i)` once per character, and no longer
   carries its own literal scanner. Both are cleanups, **not** a speed-up: measured against the
