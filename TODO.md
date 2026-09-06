@@ -34,6 +34,51 @@ gets published, because a fix is only reportable once it is installable: telling
 (still pinned to 0.13.4 in two places — UPSTREAM.md, tosijs-ui#135) and closing tjs-lang#51
 naming the version.
 
+# CODE RED — silent wrong values in published 0.13.11 (#52, #54)
+
+**Diagnosed 2026-09-06, not yet fixed.** Both reported by tosijs-platform against a known-good
+oracle. Full analysis posted on [#52]; three sites, all in `src/lang/emitters/ast.ts`.
+
+```
+return data.a      ->  {"op":"return","value":"data.a"}                <- a bare STRING
+return data["a"]   ->  {"op":"return","value":{"$expr":"member",...}}  <- correct
+return { ...d }    ->  {"op":"return","value":{}}                      <- spread DROPPED
+```
+
+Neither is a runtime bug: the emitter builds an AST that does not represent the source.
+
+- **B — dot access in VALUE position emits a path string** (`expressionToValue`, `case
+'MemberExpression'`, ~L1917). The COMPUTED branch twelve lines above already emits a proper
+  node and says why — _"so the runtime evaluates the index rather than treating it as a string
+  path"_ — the same reasoning simply was not applied to the non-computed case. The string then
+  reaches `resolveValue` (`src/vm/runtime.ts` L1091), fails to resolve (the root came from
+  `context`, not `state`), and hits `// Key doesn't exist in state - return the literal
+string`. **That fallback is the silent-wrong-value engine and deserves its own fix**: a
+  failed lookup is indistinguishable from a string literal containing dots.
+- **A — `SpreadElement` is skipped without a word** (both `ObjectExpression` handlers, ~L1748
+  and ~L1941: `if (prop.type === 'Property')` with no else). Arrays map it to `null`, so
+  `[...a]` is `[null]` and `.length` reads 1 — the hole presents as a value.
+
+**Fix plan, and the two differ in kind:**
+
+1. **A: fail loudly NOW.** Real spread support needs a runtime op — that is a feature. Silently
+   dropping it is what causes data loss. Reject `SpreadElement` with a message naming the
+   `Object.assign` workaround. This also breaks #54's chain at the first link: a rule that
+   cannot compile never reaches the `!!result` coercion that fails OPEN.
+2. **B: fix properly, with the full suite behind it.** Emit a member node for non-computed
+   access. RISK: dot-path strings are an AJS convention (`{ $kind: 'arg', path: 'a.b' }`, and
+   `resolveValue`'s traversal exists to consume them), so this can affect agents relying on
+   the string form. Wants `bun test` + the compat lanes, not a quick patch.
+3. **`resolveValue`'s literal fallback** — separately, so a future emitter slip produces an
+   error rather than plausible data.
+
+**The methodological finding, worth keeping:** both bugs produce values of the right SHAPE — an
+object, an array, a string — so every structural check passes. Only comparison against a
+known-good implementation could see them. Argues for the differential-oracle pattern wherever a
+second implementation exists.
+
+[#52]: https://github.com/tonioloewald/tjs-lang/issues/52
+
 # PLAN: verified-working language, then the tosijs-ui build system (2026-09-04)
 
 Agreed direction: get as close to a **verified working state as a language** as possible,
