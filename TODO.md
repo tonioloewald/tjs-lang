@@ -209,6 +209,54 @@ dashboard number into this list.
       it rejects `for` loops and `.push()` on a LOCAL array, both perfectly pure. A4c needs
       its own looser analysis; this fix makes the strict one _correct_, not _sufficient_.
 
+- [ ] **Expunge the `unsafe` marker — replace one vague marker with named confessions.**
+      Tonio's direction (the `LegacyDate` idea). **This entry corrects an analysis I gave in
+      conversation and got wrong**, which is why it is written down.
+
+      **Wrong version:** "`unsafe` exempts exactly one rule (`no-explicit-new`), so
+      `new Date(x)` is a FALSE POSITIVE, and narrowing the rule deletes the feature." That
+      came from reading `UNSAFE_EXEMPT_RULES` in the LINTER and stopping there.
+
+      **Measured:**
+
+      ```
+      raw new Date(x)      -> REJECTED: `new Date()` is not allowed in TJS — the Date object is mutable
+      unsafe new Date(x)   -> OK
+      var                  -> REJECTED: use `const` or `let`
+      eval                 -> REJECTED: use `Eval()` from the TJS runtime
+      new Map()            -> OK          <- no-explicit-new does NOT fire
+      ```
+
+      So `unsafe` gates **three deliberate bans in the PARSER** — `Date`, `var`, `eval` — not
+      one lint rule, and there is no builtin false-positive problem to fix. The bans are by
+      design, each with a stated reason.
+
+      **Which makes `LegacyDate` right, and my objection to it wrong.** It matches a pattern
+      the language already has — `DangerousLegacyEquals`, `LegacyExactly`, `LegacyDefault`:
+      named, greppable confessions (see *"Make stupid stuff stand out"* in PRINCIPLES.md).
+      `unsafe` is the odd one out, a GENERIC marker that says "some rule does not apply here"
+      without saying which.
+
+      | banned | today | replacement |
+      | --- | --- | --- |
+      | `new Date(x)` | `unsafe new Date(x)` | `LegacyDate(x)` |
+      | `eval(s)` | `unsafe eval(s)` | `Eval()` — already exists, the error already says so |
+      | `var x` | `unsafe var x` | **no obvious callable form** — a declaration, not an expression |
+
+      `var` is the open design question and the reason this is not purely mechanical: there is
+      no expression form to name. Either it keeps a marker of its own, or `var` is refused
+      outright with no escape.
+
+      **It also removes `/* @tjs-unsafe */`** — the TS-side bridge that exists only to carry
+      `unsafe` through a file `tsc` must accept — which is one of the three comment channels
+      gone. 5 uses in the repo. Same campaign as [#53]: stop expressing language semantics in
+      comments.
+
+      Removing the `unsafe` KEYWORD is a breaking change and a separate call from adding the
+      named forms; the two can ship in either order, with a deprecation window between.
+
+      [#53]: https://github.com/tonioloewald/tjs-lang/issues/53
+
 - [ ] **A5 — get the compat lanes into CI.** `test:compat-scan` is the lane most likely to
       catch this defect class and it runs only when someone invokes it. It needs clones, so
       either cache them or run it on a schedule — but "not in CI" is how the dogfood ratchets
