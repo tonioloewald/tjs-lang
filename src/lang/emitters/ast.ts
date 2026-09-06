@@ -1637,6 +1637,150 @@ function transformTemplateLiteral(
  * Convert an Acorn expression to an ExprNode for direct VM evaluation.
  * This replaces the string-based condition system.
  */
+/**
+ * Refuse a construct the emitter cannot compile, instead of skipping it.
+ *
+ * Spread was matched by no branch in the object and array literal handlers, so it was
+ * silently dropped and the literal was built from whatever else was recognised (#52):
+ *
+ *     return { ...doc, rev: 1 }   ->   { rev: 1 }        every original field gone
+ *     return [...a]               ->   [null]            length 1, the hole reads as a value
+ *
+ * Nothing downstream could tell — both results have the right SHAPE, so structural checks,
+ * `typeof` and length checks all pass. An embedder persisting the first one has lost the
+ * document and has a plausible payload to show for it.
+ *
+ * Supporting spread properly needs a runtime op and is a feature. Refusing it is not: an
+ * emitter that cannot compile a construct must say so, because the alternative is not "less
+ * functionality", it is wrong answers. This is the same rule the predicate verifier states —
+ * over-refusing costs a feature; miscompiling costs your data.
+ */
+/**
+ * Is the ROOT of a dot path a binding the emitted program declares?
+ *
+ * Only then does `resolveValue`'s state traversal find it. A name that arrives through
+ * `context` (i.e. `ctx.args`) is not in state, so a path rooted on it resolves to nothing and
+ * the string falls through to being returned as a literal — which is #52 exactly.
+ *
+ * Walks the scope chain, since a local in an enclosing scope is still in state.
+ */
+function isDeclaredRoot(path: string, ctx: TransformContext): boolean {
+  const root = path.split('.')[0]!
+  for (
+    let scope: TransformContext | undefined = ctx;
+    scope;
+    scope = scope.parent
+  ) {
+    if (scope.locals?.has(root) || scope.parameters?.has(root)) return true
+  }
+  return false
+}
+
+/**
+ * Rewrite spread into the call it means, then let the ordinary emitter handle it.
+ *
+ *     { ...d, c: 3 }   ->   Object.assign({}, d, { c: 3 })
+ *     [ ...a, 3 ]      ->   [].concat(a, [3])
+ *
+ * Spread matched no branch in the literal handlers and was silently DROPPED (#52) — the
+ * object was built from whatever else was recognised, so `{ ...doc, rev: 1 }` returned
+ * `{ rev: 1 }` and lost the document, with no error. `DOCS-AJS.md` documents spread under
+ * "What's Allowed", so refusing it would have made the doc wrong; the honest fix is to make
+ * the documented thing work.
+ *
+ * Desugaring rather than adding a runtime op, because the targets already exist and already
+ * pass: `Object.assign({}, d, { c: 3 })` and `a.concat(b)` both evaluate correctly in the VM
+ * today. Building the equivalent acorn node and recursing means the whole path — member
+ * access, method dispatch, fuel — is the one that is already tested, and there is no second
+ * implementation to drift.
+ *
+ * SOURCE ORDER IS PRESERVED, which is the whole semantics: `{ a: 1, ...d }` must let `d`
+ * override, and `{ ...d, a: 1 }` must not. Consecutive non-spread properties are grouped into
+ * one literal so the argument list stays short.
+ */
+function desugarSpread(expr: ObjectExpression | ArrayExpression): Expression {
+  const loc = { start: (expr as any).start, end: (expr as any).end }
+  const id = (name: string): any => ({ type: 'Identifier', name, ...loc })
+  const args: any[] = []
+  let group: any[] = []
+
+  const isObject = expr.type === 'ObjectExpression'
+  const flush = () => {
+    if (!group.length) return
+    args.push(
+      isObject
+        ? { type: 'ObjectExpression', properties: group, ...loc }
+        : { type: 'ArrayExpression', elements: group, ...loc }
+    )
+    group = []
+  }
+
+  const items: any[] = isObject
+    ? (expr as ObjectExpression).properties
+    : (expr as ArrayExpression).elements
+  for (const item of items) {
+    if (item && item.type === 'SpreadElement') {
+      flush()
+      args.push(item.argument)
+    } else {
+      group.push(item)
+    }
+  }
+  flush()
+
+  // `Object.assign({}, …)` / `[].concat(…)` — the empty first receiver keeps both
+  // non-mutating, so a spread source is never written through.
+  const receiver: any = isObject
+    ? { type: 'ObjectExpression', properties: [], ...loc }
+    : { type: 'ArrayExpression', elements: [], ...loc }
+  const callee: any = isObject
+    ? {
+        type: 'MemberExpression',
+        object: id('Object'),
+        property: id('assign'),
+        computed: false,
+        optional: false,
+        ...loc,
+      }
+    : {
+        type: 'MemberExpression',
+        object: receiver,
+        property: id('concat'),
+        computed: false,
+        optional: false,
+        ...loc,
+      }
+
+  return {
+    type: 'CallExpression',
+    callee,
+    arguments: isObject ? [receiver, ...args] : args,
+    optional: false,
+    ...loc,
+  } as unknown as Expression
+}
+
+/** Does this literal contain a spread that has to be desugared? */
+function hasSpread(expr: ObjectExpression | ArrayExpression): boolean {
+  const items: any[] =
+    expr.type === 'ObjectExpression'
+      ? (expr as ObjectExpression).properties
+      : (expr as ArrayExpression).elements
+  return items.some((i) => i && i.type === 'SpreadElement')
+}
+
+function rejectSpread(node: { type: string }): never {
+  throw new Error(
+    node.type === 'SpreadElement'
+      ? 'Spread (`...`) is not supported in AJS yet, and was silently DROPPED before ' +
+        '0.13.13 (#52) — `{ ...doc, rev: 1 }` became `{ rev: 1 }`, losing every original ' +
+        'field with no error. Use `Object.assign({}, a, b)` for objects, or `a.concat(b)` ' +
+        'for arrays.'
+      : `\`${node.type}\` is not supported in an AJS object or array literal. It was ` +
+        `previously ignored, which produced a literal missing the part you wrote.`
+  )
+}
+
 function expressionToExprNode(
   expr: Expression,
   ctx: TransformContext
@@ -1747,9 +1891,14 @@ function expressionToExprNode(
 
     case 'ObjectExpression': {
       const obj = expr as ObjectExpression
+      if (hasSpread(obj)) return expressionToExprNode(desugarSpread(obj), ctx)
       const properties: { key: string; value: ExprNode }[] = []
 
       for (const prop of obj.properties) {
+        // REFUSE what we cannot compile. This used to be `if (Property)` with no else, so a
+        // `SpreadElement` matched nothing and fell off — the object was built from the
+        // properties that happened to be recognised, with no error (#52).
+        if (prop.type !== 'Property') rejectSpread(prop)
         if (prop.type === 'Property') {
           const key =
             prop.key.type === 'Identifier'
@@ -1914,17 +2063,45 @@ function expressionToValue(expr: Expression, ctx: TransformContext): any {
 
       const prop = (mem.property as Identifier).name
 
-      // If objValue is a string path, extend it
-      if (typeof objValue === 'string') {
-        return `${objValue}.${prop}`
-      }
-
-      // If objValue is an arg ref, extend the path
+      // An arg ref extends as a path — the BUILDER surface, untouched.
+      //
+      // `{ $kind: 'arg', path: 'a.b' }` is a first-class hand-authored form (35 uses), and
+      // `resolveValue` keeps understanding it. Only what the EMITTER produces changes below.
       if (objValue && objValue.$kind === 'arg') {
         return { $kind: 'arg', path: `${objValue.path}.${prop}` }
       }
 
-      return `${objValue}.${prop}`
+      // A string path is kept ONLY when the root is provably in VM state.
+      //
+      // The dot-path form is a deliberate optimisation with a test to its name ("should use
+      // string path optimization for regular member access"), and it is CORRECT whenever the
+      // root is a local or a parameter: those land in `ctx.state`, where `resolveValue`'s
+      // traversal looks. It is silently WRONG when the root came from `context`/args, because
+      // the traversal never checks there and the string falls through to "return the literal"
+      // (#52). The emitter can tell the two apart — `TransformContext` carries `locals` and
+      // `parameters` up a scope chain — so it now asks instead of assuming.
+      if (typeof objValue === 'string' && isDeclaredRoot(objValue, ctx)) {
+        return `${objValue}.${prop}`
+      }
+
+      // Everything else emits a member NODE, not a dot-path string.
+      //
+      // This used to `return \`${objValue}.${prop}\``, and the computed branch a few lines
+      // above already says why that is wrong — "always emit as $expr node so the runtime
+      // evaluates the index rather than treating it as a string path". The same reasoning
+      // applies here and simply had not been applied, so `return data.a` compiled to the
+      // STRING "data.a" while `return data["a"]` compiled correctly (#52).
+      //
+      // What the string then did: `resolveValue` tried it as a path against `ctx.state`,
+      // found no root (the value came from `context`, i.e. args), and fell through to
+      // "key doesn't exist in state — return the literal string". So the caller got back the
+      // source text they had written, as data, with no error. Every asymmetry in the report
+      // follows from this one line: `typeof data.a`, `data.a * 2` and `data.a.valueOf()` were
+      // all correct because they build real nodes, and only the bare return substituted.
+      //
+      // Deliberately NOT changing `resolveValue`'s tolerance of dot-path strings: hand-built
+      // ASTs and the builder API depend on it. Emitting and accepting are separate surfaces.
+      return expressionToExprNode(expr, ctx)
     }
 
     case 'ChainExpression': {
@@ -1934,13 +2111,24 @@ function expressionToValue(expr: Expression, ctx: TransformContext): any {
     }
 
     case 'ArrayExpression':
-      return (expr as ArrayExpression).elements.map((el) =>
-        el ? expressionToValue(el as Expression, ctx) : null
-      )
+      if (hasSpread(expr as ArrayExpression))
+        return expressionToExprNode(desugarSpread(expr as ArrayExpression), ctx)
+      return (expr as ArrayExpression).elements.map((el) => {
+        // A SpreadElement is truthy, so it used to reach `expressionToValue` and come back
+        // `null` — `[...a]` was `[null]`, length 1, the hole presenting as a value (#52).
+        if (el && el.type === 'SpreadElement') rejectSpread(el)
+        return el ? expressionToValue(el as Expression, ctx) : null
+      })
 
     case 'ObjectExpression': {
+      if (hasSpread(expr as ObjectExpression))
+        return expressionToExprNode(
+          desugarSpread(expr as ObjectExpression),
+          ctx
+        )
       const result: Record<string, any> = {}
       for (const prop of (expr as ObjectExpression).properties) {
+        if (prop.type !== 'Property') rejectSpread(prop)
         if (prop.type === 'Property') {
           const key =
             prop.key.type === 'Identifier'

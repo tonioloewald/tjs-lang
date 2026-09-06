@@ -1137,7 +1137,35 @@ export function resolveValue(val: any, ctx: RuntimeContext): any {
     if (scopeHas(ctx.state, val)) {
       return ctx.state[val]
     }
-    // Key doesn't exist in state - return the literal string
+    // Key doesn't exist in state — return the literal string.
+    //
+    // RECORDED, not changed. This fallback is what turned a failed lookup into data in #52:
+    // the emitter handed `resolveValue` the string "data.a", the root was not in state (it
+    // came from args), and the caller got back the source text they had written, silently.
+    //
+    // The emitter no longer produces dot-path strings, so compiled code cannot reach this.
+    // But the behaviour itself cannot simply become an error, because the ambiguity is real
+    // and load-bearing: a hand-built AST legitimately says `value: 'obj.prop'` (the builder
+    // API, 35+ call sites), and a program just as legitimately says `value: 'not.a.path'`
+    // meaning a string. Once both are `typeof val === 'string'` they are indistinguishable —
+    // which is exactly why the emitter must never add to the pile.
+    //
+    // So: leave the semantics alone and make the near-miss VISIBLE. This is the flight
+    // recorder's stated purpose — record liberally, never change behaviour — and a
+    // dotted string whose root is absent from scope is the highest-value thing it can
+    // report, because the alternative is a plausible wrong value nobody can trace.
+    if (val.includes('.')) {
+      recordVmEvent({
+        source: 'vm',
+        severity: 'warning',
+        message:
+          `'${val}' looks like a path but its root '${
+            val.split('.')[0]
+          }' is not in scope — ` +
+          `returning it as a literal string. If you meant a value, this is silently wrong.`,
+        data: { value: val, root: val.split('.')[0] },
+      })
+    }
     return val
   }
   // Recursively resolve plain object values (but not arrays or special objects)

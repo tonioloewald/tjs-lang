@@ -7,6 +7,56 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **`Eval`/`SafeFunction` returned plausible wrong values (#52).** Two defects, both silent,
+  both shipped in 0.13.11. Neither was a runtime bug — the AST emitter built an AST that did
+  not represent the source:
+
+  ```
+  return data.a      ->  {"op":"return","value":"data.a"}                <- a bare STRING
+  return data["a"]   ->  {"op":"return","value":{"$expr":"member",...}}  <- correct
+  return { ...d }    ->  {"op":"return","value":{}}                      <- spread DROPPED
+  ```
+
+  **Spread is now compiled instead of skipped.** Both object/array literal handlers matched
+  `Property` only, so a `SpreadElement` fell off with no error: `{ ...doc, rev: 1 }` returned
+  `{ rev: 1 }` and lost every original field, and `[...a]` returned `[null]` — length 1, the
+  hole presenting as a value. It now desugars to the call it means (`Object.assign({}, …)`,
+  `[].concat(…)`) and recurses, so the whole path is the one already tested and there is no
+  second implementation to drift. Source order is preserved, which is the semantics:
+  `{ a: 1, ...d }` lets `d` win and `{ ...d, a: 1 }` does not. `DOCS-AJS.md` documents spread
+  under "What's Allowed", so refusing it would have made the doc wrong — the doc was right and
+  the emitter was not.
+
+  **A dotted read returns the value, not its source text.** Non-computed member access in
+  value position emitted a dot-path string; the computed branch a few lines above already
+  emitted a proper node _and said why_ — "so the runtime evaluates the index rather than
+  treating it as a string path" — the same reasoning simply had not been applied. The string
+  reached `resolveValue`, failed to resolve (the root came from `context`, i.e. args, and the
+  traversal only checks state), and fell through to "return the literal string". So the caller
+  got back the characters they had written, as data.
+
+  That one line explains every asymmetry in the report: `typeof data.a`, `data.a * 2` and
+  `data.a.valueOf()` were all correct because they build real nodes; only the bare return
+  substituted. Pure boolean predicates were unaffected, which is why a permissions layer
+  looked fine.
+
+  **The string-path optimisation survives where it is provably safe.** It is deliberate and
+  has a test to its name, and it is correct whenever the root is a local or a parameter —
+  those land in state, where the traversal looks. The emitter now asks (`TransformContext`
+  carries `locals`/`parameters` up a scope chain) instead of assuming.
+
+  **`resolveValue`'s literal fallback is recorded, not changed.** It cannot simply become an
+  error: a hand-built AST legitimately says `value: 'obj.prop'` (the builder API, 35+ call
+  sites) and a program just as legitimately says `'not.a.path'` meaning a string — once both
+  are strings they are indistinguishable. So the semantics stand and the near-miss is now
+  reported to the flight recorder, which is what it is for.
+
+  Guarded by `src/lang/eval-value-fidelity.test.ts`. Found by tosijs-platform against a
+  known-good oracle — worth recording, because both bugs returned values of the right SHAPE,
+  so every structural check passed and only a differential comparison could see them.
+
 ### Security
 
 - **`verifyPredicate` certified impure functions as pure.** The verifier checked **calls** —
