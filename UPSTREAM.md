@@ -258,3 +258,39 @@ would move the problem rather than solve it.
 
 **What we're waiting for:** a peer range that can reach a supported version, ideally after
 someone checks compatibility.
+
+---
+
+## `@codemirror/state` duplicates when adopting `tosijs-ui/site` (tosijs-ui#131)
+
+**Filed:** [tosijs-ui#131](https://github.com/tonioloewald/tosijs-ui/issues/131) — reported by
+tosijs, reproduced here 2026-09-06 while attempting the B1 site migration.
+
+Upgrading `tosijs-ui` 1.5.23 → 1.13.0 (needed for the `./site` export) nests a second copy:
+`tosijs-ui` declares `@codemirror/state: ^6.7.1` as a hard dependency, our tree had 6.5.4, and
+`bun add` silently installed 6.7.4 under `node_modules/tosijs-ui/node_modules/`. CodeMirror
+keys facets and gutters by object IDENTITY, so two copies mean extensions built from one are
+silently ignored by an editor built from the other.
+
+Measured in our demo bundle: **1 copy before the bump, 2 after.** `overrides` forcing a single
+physical copy got the disk to one and the bundle from four to two — **not to one**, because
+`splitting: true` can still emit a shared module into more than one chunk.
+
+**Worked around by NOT bumping.** `tosijs-ui` stays at 1.5.23 and B1 is parked; see `TODO.md`.
+
+**The real fix is upstream and already shipped**: import `@codemirror/*` from their
+`tosijs-ui/codemirror` re-export rather than directly, so there is only ever one instance and
+it is the one the editor uses. Applying it here touches `demo/src/*`, which is B2, and B2 is
+blocked on them moving off `tjs-lang@0.13.4` (#135).
+
+**What we're waiting for:** #135 to unblock B2, at which point the demo's CodeMirror imports
+move to `tosijs-ui/codemirror` and the bump becomes safe.
+
+**Delete this entry when** the demo imports CodeMirror through `tosijs-ui/codemirror` and
+`bun run build:demo` reports one copy with `tosijs-ui` ≥ 1.13.0.
+
+**Also worth keeping:** neither mechanism reported the duplication. Peer ranges do not warn
+(their measurement, bun 1.4.0) and `bun add` nested a copy of a package we already had without
+a word. The only thing that caught it was `src/demo-bundle.test.ts` counting copies in the
+built artifact — and that guard was itself blind until 2026-09-06, because it read
+`.demo/index.js` while the bundle is split.
