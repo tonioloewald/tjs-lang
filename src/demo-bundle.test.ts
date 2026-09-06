@@ -35,11 +35,32 @@
  * name instead of going quiet. Same pattern as `bundle-size.test.ts`.
  */
 import { describe, it, expect } from 'bun:test'
-import { existsSync, readFileSync } from 'node:fs'
+import { existsSync, readFileSync, readdirSync } from 'node:fs'
 import { join } from 'node:path'
 
 const ROOT = join(import.meta.dir, '..')
-const BUNDLE = join(ROOT, '.demo', 'index.js')
+const DEMO = join(ROOT, '.demo')
+const BUNDLE = join(DEMO, 'index.js')
+
+/**
+ * EVERY emitted script, not just the entry.
+ *
+ * This used to read `.demo/index.js` alone, and the demo is built with `splitting: true` —
+ * so the moment CodeMirror landed in a chunk instead of the entry, the guard counted zero.
+ * It did not silently pass (the apparatus check below refuses to), but a guard that can only
+ * report "I cannot see anything" is not measuring the invariant either, and the arrangement
+ * it exists to catch is EXACTLY the one that moves code into chunks. Found when bumping
+ * tosijs-ui to 1.13.0 put two copies in a chunk while the entry read clean.
+ *
+ * Sourcemaps are excluded deliberately: a `.js.map` embeds the original sources, so the
+ * marker appears there for reasons that say nothing about how many copies execute.
+ */
+const bundleFiles = (): string[] =>
+  existsSync(DEMO)
+    ? readdirSync(DEMO)
+        .filter((f) => f.endsWith('.js'))
+        .map((f) => join(DEMO, f))
+    : []
 
 /** The literal `@codemirror/state` throws when `instanceof` fails — one per copy. */
 const MARKER = 'Unrecognized extension value in extension set'
@@ -60,8 +81,18 @@ describe('the demo bundle has a single CodeMirror state instance', () => {
   })
 
   it.skipIf(!built)('exactly one copy of @codemirror/state is bundled', () => {
-    const code = readFileSync(BUNDLE, 'utf8')
-    const copies = code.split(MARKER).length - 1
+    // One occurrence per copy holds for what actually gets BUNDLED: the marker appears once
+    // in `@codemirror/state`'s ESM entry (`dist/index.js`, the `import` condition), which is
+    // the only build a bundler pulls in. `dist/index.cjs` carries it too, but nothing here
+    // resolves to CommonJS.
+    const perFile = bundleFiles().map(
+      (f) => [f, readFileSync(f, 'utf8').split(MARKER).length - 1] as const
+    )
+    const copies = perFile.reduce((n, [, c]) => n + c, 0)
+    const where = perFile
+      .filter(([, c]) => c > 0)
+      .map(([f, c]) => `${c}x ${f.split('/').pop()}`)
+      .join(', ')
 
     // Apparatus: zero would mean the marker moved and the count is meaningless, not that
     // the bundle is clean. Fail loudly rather than pass vacuously.
@@ -73,10 +104,13 @@ describe('the demo bundle has a single CodeMirror state instance', () => {
 
     expect(
       copies,
-      `${copies} copies of @codemirror/state in the demo bundle. Every CodeMirror ` +
-        `editor will fail with "Unrecognized extension value" and the site will render ` +
-        `blank. Fix the install tree, not the code: rm -rf node_modules && bun install ` +
-        `(the lockfile should not change).`
+      `${copies} copies of @codemirror/state in the demo bundle (${where}). Every ` +
+        `CodeMirror editor will fail with "Unrecognized extension value" and the site will ` +
+        `render blank. Usually the install tree: rm -rf node_modules && bun install (the ` +
+        `lockfile should not change). If a dependency nests its own copy, an \`overrides\` ` +
+        `entry forces one — and if a copy survives that, the remaining fix is to stop ` +
+        `importing @codemirror/* directly and use the dependency's own re-export ` +
+        `(tosijs-ui#131).`
     ).toBe(1)
   })
 })

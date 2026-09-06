@@ -264,14 +264,21 @@ tooling** and **~10,500 lines of demo**, and only the first group is a like-for-
       the doc corpus.** Reverted to the clean baseline (tosijs-ui 1.5.23, 1 copy) rather than
       leave a known bundle regression on `main` to chase later.
 
-      **`demo-bundle.test.ts` needs fixing regardless, and this is the sharpest finding.**
-      It scans only `.demo/index.js`, but the demo is built with `splitting: true`, so once
-      CodeMirror moved into a chunk the guard read zero and — correctly — refused to pass
-      vacuously. It caught its own blindness, which is the design working. But its premise
-      is also wrong: the comment says the marker is "one per copy", and
-      `@codemirror/state/dist` contains it 4 times across its build formats. **Fix it to scan
-      every emitted `.js`, and to count something that is actually one-per-copy.** Do this
-      BEFORE retrying the bump, or the retry has no instrument.
+      **`demo-bundle.test.ts` was blind to this, and is FIXED (2026-09-06).** It scanned
+      only `.demo/index.js`, but the demo builds with `splitting: true` — so the moment
+      CodeMirror landed in a chunk the guard counted zero and refused to pass vacuously. It
+      caught its own blindness, which is the design working; but a guard that can only report
+      "I cannot see anything" is not measuring the invariant either, and the arrangement it
+      exists to catch is exactly the one that moves code into chunks. It now scans every
+      emitted `.js` (excluding sourcemaps, which embed the sources) and names the offending
+      file. Verified by planting a duplicate in a chunk — the version before this change
+      passes that.
+
+      CORRECTION to an earlier note here, which claimed the guard's "one marker per copy"
+      premise was also wrong because `@codemirror/state/dist` contains the marker four times.
+      That count included SOURCEMAPS. Per file: `dist/index.js` 1, `dist/index.cjs` 1, the
+      `.d.ts` 0 — and only the ESM entry is ever bundled, so one marker really is one copy.
+      The premise was sound; only the single-file scan was broken.
 
       [tosijs-ui#131]: https://github.com/tonioloewald/tosijs-ui/issues/131
 
