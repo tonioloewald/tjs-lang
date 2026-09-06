@@ -330,8 +330,26 @@ test('validateSchema - array type check') {
 /*#
 ## Evaluate Rule Result
 
-Interprets the result of a rule evaluation (boolean, object, etc.)
-into a standardized { allowed, reason } format.
+Interprets a rule's return value as { allowed, reason }.
+
+**A non-boolean result DENIES. It is never coerced.** This ended with
+`allowed: !!result`, so every truthy non-boolean granted — and combined with a
+transpiler defect that returned a dotted read as its own source text (#52), the
+obvious rule inverted: `return doc.published` on an unpublished document yielded
+the string `'doc.published'`, and `!!'doc.published'` is `true`. The rule granted
+access, with no error and no warning.
+
+#52 is fixed, so that input cannot arrive any more. This is fixed separately
+because **a security property must not depend on the language never having a
+bug**: any future defect, or a rule that simply returns something unexpected — a
+nullish-coalescing chain, an accidental object, a forgotten `await` — has to fail
+closed. It also restores a claim the surrounding design already made and this
+function was the one place not to honour: *fuel exhaustion, a thrown error, or a
+non-boolean return all evaluate as `false`*.
+
+The reason string distinguishes "the rule said no" from "the rule did not
+answer" — a denial that reads like an ordinary policy decision hides a broken
+rule.
 */
 export function interpretRuleResult(result) {
   if (typeof result === 'boolean') {
@@ -339,14 +357,42 @@ export function interpretRuleResult(result) {
   }
 
   if (typeof result === 'object' && result !== null) {
+    if (typeof result.allow !== 'boolean') {
+      return {
+        allowed: false,
+        reason: 'rule returned an object whose `allow` is not a boolean — denying'
+      }
+    }
     return {
-      allowed: !!result.allow,
+      allowed: result.allow,
       reason: result.reason || (result.allow ? null : 'Access denied')
     }
   }
 
-  // Truthy/falsy fallback
-  return { allowed: !!result, reason: result ? null : 'Access denied' }
+  return {
+    allowed: false,
+    reason: 'rule returned a non-boolean — denying'
+  }
+}
+
+test('interpretRuleResult - a non-boolean DENIES, never coerces (#54)') {
+  // Each of these GRANTED before the fix, because each is truthy. The first is the exact
+  // shape #52 produced: a dotted read returned as its own source text.
+  expect(interpretRuleResult('doc.published').allowed).toBe(false)
+  expect(interpretRuleResult('yes').allowed).toBe(false)
+  expect(interpretRuleResult(1).allowed).toBe(false)
+  expect(interpretRuleResult({ allow: 'yes' }).allowed).toBe(false)
+  expect(interpretRuleResult({ reason: 'no allow key' }).allowed).toBe(false)
+}
+
+test('interpretRuleResult - the reason names a broken rule, not a policy decision') {
+  expect(interpretRuleResult('doc.published').reason.includes('boolean')).toBe(true)
+}
+
+test('interpretRuleResult - real booleans are untouched (control)') {
+  // Every assertion above is satisfied by an implementation that denies everything.
+  expect(interpretRuleResult(true).allowed).toBe(true)
+  expect(interpretRuleResult({ allow: true }).allowed).toBe(true)
 }
 
 test('interpretRuleResult - true') {

@@ -59,6 +59,39 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Security
 
+- **A rule returning a non-boolean granted access (#54).** `interpretRuleResult` in the
+  reference RBAC layer ended with `allowed: !!result`, so every truthy non-boolean was coerced
+  to a **grant**. Combined with #52 — a dotted read returning its own source text — the most
+  obvious rule anyone would write inverted:
+
+  ```
+  return doc.published        // doc.published === false
+  ->  'doc.published'         // a non-empty string (#52)
+  ->  !!'doc.published'       // true
+  ->  ACCESS GRANTED          // no error, no warning
+  ```
+
+  Bracket access, `!doc.published`, `doc.published === true` and `if (doc.published)` were all
+  unaffected, which is exactly why a test suite can miss it — every case in the reporter's own
+  baseline happened to use a surviving shape.
+
+  A non-boolean result now **denies**, and the object form requires `allow` to be a boolean
+  rather than coercing it. The reason string distinguishes _"the rule said no"_ from _"the rule
+  did not answer"_, because a denial that reads like an ordinary policy decision hides a broken
+  rule.
+
+  Fixed **separately from #52 and on its own terms**, even though #52's fix means that
+  particular input can no longer arrive: _"the input cannot be corrupted any more"_ is not the
+  same as _"the interpretation is correct"_. A security property must not depend on the
+  language never having a bug — a nullish-coalescing chain, an accidental object or a
+  forgotten `await` must all fail closed. This also restores a claim the surrounding design
+  already made, and which this function was the one place not to honour: _fuel exhaustion, a
+  thrown error, or a non-boolean return all evaluate as `false`_.
+
+  No known exposure: reported by tosijs-platform with no ajs-backed endpoint exported yet.
+  Guarded by `src/rbac/fail-closed.test.ts` and by inline `test` blocks in `rules.tjs`, so the
+  guarantee travels with the code.
+
 - **`verifyPredicate` certified impure functions as pure.** The verifier checked **calls** —
   effectful globals, unknown methods, ReDoS — and never looked at **assignments** or at
   references to bindings outside the function. All of these were reported `safe: true`:

@@ -41,9 +41,11 @@ holds. Spread is **compiled**, not refused: `DOCS-AJS.md` documents it under "Wh
 so the doc was right and the emitter was wrong. Desugars to `Object.assign({}, …)` /
 `[].concat(…)` and recurses, so there is no second implementation to drift.
 
-Still open: **#54** — rule results coerced with `!!result` fail OPEN. #52 was its upstream
-cause, so a corrupted rule can no longer reach the coercion, but the coercion itself is a
-separate defect and should be fixed on its own terms rather than left to a fixed input.
+**#54 fixed too** — `interpretRuleResult` coerced with `!!result`, so every truthy non-boolean
+GRANTED. Fixed on its own terms rather than left to #52's fix: "the input cannot be corrupted
+any more" is not "the interpretation is correct", and a security property must not depend on
+the language never having a bug. Non-boolean now denies; the object form requires `allow` to
+be a boolean; the reason distinguishes a broken rule from a policy decision.
 
 # PLAN: verified-working language, then the tosijs-ui build system (2026-09-04)
 
