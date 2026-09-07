@@ -250,6 +250,37 @@ dashboard number into this list.
       459KB takes ~2.9s and 791KB ~5.9s (linear between them), but ~2MB does not finish in ten
       minutes, so something else is superlinear. Unidentified; measure before guessing again.
 
+## loewald-dot-com is the service layer — leverage it, do not merge it
+
+Direction confirmed 2026-09-07: **loewald-dot-com becomes the universal back end.** Any app
+deploys its own instance and gets zero-deploy endpoints — features added as _data_ (stored
+`ajs` procedures + collection configs + client code) rather than as function deployments. Their
+`UNIVERSAL-ENDPOINT.md` states the shift precisely: **trusted TypeScript → untrusted-but-safe
+`ajs` evaluated by the VM with injected capabilities.** That is our VM's whole thesis, load
+bearing for a real product.
+
+**Leverage, do not merge.** Separate repos, separate cadences, file-don't-fix has been working.
+What changes is that they should be treated as the **named primary integration test for the AJS
+VM**, because informally they already are:
+
+- `functions/src/collections/tjs-lang.baseline.test.ts` is a **differential oracle against
+  tjs-lang**, and it found #52 AND #54 — the two worst defects of this cycle. Nothing in our
+  suite could have: every wrong value had the right SHAPE, so structural checks, `typeof` and
+  length checks all passed.
+- It carries `describe('tripwire: tjs-lang#52 still broken (failure here = upstream fixed)')` —
+  a consumer-side ratchet pointed at us. Better practice than anything we have in that
+  direction. It fires on 0.13.12; told them in loewald-dot-com#4.
+
+**The gap this exposes, and it is ours:** we have differential tests for two implementations of
+the same helper (`unwrap-boxed`, `MonadicError`), but **nothing comparing the VM against a
+reference implementation**. That is precisely what let #52 ship. Steal the pattern.
+
+**Things to check are actually reaching them**, since they are the newest and least-documented
+parts of the VM surface their gap analysis assumes: per-atom `quotas` + shared `quotaUsed`
+across nested runs, `membraneMaxBytes`, and `maxHeapBytes`. Their spec needs per-call capability
+sets and fuel metering; the quota/membrane story is what stops one stored procedure from
+spending another's budget.
+
 ## Phase B — migrate to the tosijs-ui build/doc system
 
 Target shape is what `tosijs` already does: a `*-site.config.ts` via `defineSiteConfig`, and a
