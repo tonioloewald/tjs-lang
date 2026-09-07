@@ -1,51 +1,21 @@
 # TJS-Lang TODO
 
-# RELEASE STATE — read this first (updated 2026-09-05)
+# RELEASE STATE (2026-09-07)
 
-**DO NOT TAG. Tonio's standing instruction while he is away.** Given the scope of this
-project there will be something needing more work for a while, so cutting tags on the way
-past is churn. Work accumulates in `[Unreleased]`.
+**0.13.12 is PUBLISHED and `latest`.** Verified against the published tarball under **Node**,
+not Bun — Bun resolves `src/` and would hide a packaging bug, which is how 0.13.7 once shipped
+a fix in `src/` but not `dist/`. Spread, dotted reads and spread ORDER all correct from the
+installed package; the RBAC reference source is in the tarball carrying the fail-closed fix.
 
-**When 0.14.0 ships, every consumer on a caret range is silently excluded.** `^0.13.x` does
-not admit `0.14.0` — caret pins the MINOR below 1.0 — and a package manager will not say so
-(measured on bun 1.4.0 in tosijs-ui#131: an unsatisfied peer produced no warning at all, in a
-run that warned about a different one). So the bump has to be pushed, not waited for.
-tosijs-ui is safe from that mechanism by accident: it uses an EXACT pin (`"tjs-lang":
-"0.13.4"`), plus `TJS_VERSION = '0.13.4'` as a string constant in
-`src/live-example/code-transform.ts` — which no resolver, peer check or release script can
-see at all. Both need moving by hand (tosijs-ui#135).
+Follow-ups done: #51, #52, #54 closed naming the version; tosijs-ui#135 told, which unblocks
+their pin bump and therefore our B2.
 
-**0.14.0 is the tosijs-ui-hosted release** — Phase B below, not a wrapper for whatever
-happens to be finished. A3 (the `__tjs_rt` namespace) is part of it, not its own release.
-This corrects an earlier note here that recommended cutting 0.14.0 for A3 alone.
+**Standing instruction still applies: DO NOT TAG** without Tonio. 0.14.0 remains reserved for
+the tosijs-ui-hosted release; work accumulates in `[Unreleased]`.
 
-The one standing exception: **a discovered defect in the language that genuinely needs a
-patch release.** That is a tactical judgement, not a schedule — and even then, tagging waits.
-
-**`v0.13.12` is tagged and unpublished, and that is now a settled state, not a pending task.**
-`main` has moved past it (A3), so if it ever does ship it ships from the tag:
-
-```
-git checkout v0.13.12 && npm publish && git checkout main    # plain publish, never --otp
-```
-
-`prepublish-check` passes in that detached HEAD. Two follow-ons are parked behind whatever
-gets published, because a fix is only reportable once it is installable: telling tosijs-ui
-(still pinned to 0.13.4 in two places — UPSTREAM.md, tosijs-ui#135) and closing tjs-lang#51
-naming the version.
-
-# FIXED 2026-09-06 — #52's silent wrong values (was CODE RED)
-
-All three landed; full suite green (4806 pass / 0 fail), dogfood still 0/0/0, compat scan
-holds. Spread is **compiled**, not refused: `DOCS-AJS.md` documents it under "What's Allowed",
-so the doc was right and the emitter was wrong. Desugars to `Object.assign({}, …)` /
-`[].concat(…)` and recurses, so there is no second implementation to drift.
-
-**#54 fixed too** — `interpretRuleResult` coerced with `!!result`, so every truthy non-boolean
-GRANTED. Fixed on its own terms rather than left to #52's fix: "the input cannot be corrupted
-any more" is not "the interpretation is correct", and a security property must not depend on
-the language never having a bug. Non-boolean now denies; the object form requires `allow` to
-be a boolean; the reason distinguishes a broken rule from a policy decision.
+**One packaging nit found while verifying, not fixed:** `./package.json` is not in `exports`,
+so `require('tjs-lang/package.json')` fails under Node. Harmless for normal use, but several
+tools read it (bundler plugins, version probes). Worth adding `"./package.json": "./package.json"`.
 
 # PLAN: verified-working language, then the tosijs-ui build system (2026-09-04)
 
