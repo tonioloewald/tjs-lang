@@ -7,8 +7,21 @@ import type { XinStyleSheet } from 'tosijs'
 
 import { icons } from 'tosijs-ui'
 
-import { EditorView, basicSetup } from 'codemirror'
-import { EditorState, Compartment } from '@codemirror/state'
+// The identity-critical imports come from tosijs-ui's OWN copy.
+//
+// CodeMirror keys facets, StateFields and gutters by object IDENTITY, so an extension built
+// from one copy is silently ignored by an editor built from another — no error, it just does
+// nothing (tosijs-ui#131). Importing `@codemirror/*` directly while also depending on
+// tosijs-ui is exactly the arrangement that produces two copies: measured here, bumping
+// tosijs-ui to 1.13.0 took the demo bundle from 1 copy of `@codemirror/state` to 2, and
+// `overrides` alone did not get it back to 1.
+//
+// `basicSetup` and `oneDark` are not on their re-export and are not identity-critical
+// (they are extension *bundles* consumed by the view, not types compared against it), so they
+// stay where they are. `src/demo-bundle.test.ts` counts copies in every emitted chunk and
+// fails if that reasoning turns out to be wrong.
+import { EditorView, EditorState, Compartment } from 'tosijs-ui/codemirror'
+import { basicSetup } from 'codemirror'
 // syntaxHighlighting and defaultHighlightStyle are included in basicSetup
 import { oneDark } from '@codemirror/theme-one-dark'
 import { ajsEditorExtension } from '../../editors/codemirror/ajs-language'

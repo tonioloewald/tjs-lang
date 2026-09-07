@@ -81,17 +81,41 @@ describe('the demo bundle has a single CodeMirror state instance', () => {
   })
 
   it.skipIf(!built)('exactly one copy of @codemirror/state is bundled', () => {
-    // One occurrence per copy holds for what actually gets BUNDLED: the marker appears once
-    // in `@codemirror/state`'s ESM entry (`dist/index.js`, the `import` condition), which is
-    // the only build a bundler pulls in. `dist/index.cjs` carries it too, but nothing here
-    // resolves to CommonJS.
+    // SELF-CALIBRATING: how many times does the marker appear in ONE copy?
+    //
+    // This used to assume "one occurrence per copy", which was true of `@codemirror/state`
+    // 6.5.4 and is FALSE of 6.7.4 — where it appears twice. Upgrading the dependency silently
+    // doubled every reading, and I mis-reported a clean bundle as still-duplicated because of
+    // it. The apparatus check below catches the marker VANISHING; nothing caught it being
+    // RESCALED, which is the quieter failure: the guard keeps returning numbers, they are just
+    // in different units.
+    //
+    // So ask the installed package rather than hard-coding the ratio. `dist/index.js` is the
+    // `import` condition and the only build a bundler pulls in.
+    const source = join(
+      ROOT,
+      'node_modules',
+      '@codemirror',
+      'state',
+      'dist',
+      'index.js'
+    )
+    const perCopy = existsSync(source)
+      ? readFileSync(source, 'utf8').split(MARKER).length - 1
+      : 0
+    expect(
+      perCopy,
+      `cannot calibrate: '${MARKER}' does not appear in @codemirror/state's ESM build, so ` +
+        `the marker moved and every count below is meaningless`
+    ).toBeGreaterThan(0)
+
     const perFile = bundleFiles().map(
       (f) => [f, readFileSync(f, 'utf8').split(MARKER).length - 1] as const
     )
-    const copies = perFile.reduce((n, [, c]) => n + c, 0)
+    const copies = perFile.reduce((n, [, c]) => n + c, 0) / perCopy
     const where = perFile
       .filter(([, c]) => c > 0)
-      .map(([f, c]) => `${c}x ${f.split('/').pop()}`)
+      .map(([f, c]) => `${c / perCopy}x ${f.split('/').pop()}`)
       .join(', ')
 
     // Apparatus: zero would mean the marker moved and the count is meaningless, not that

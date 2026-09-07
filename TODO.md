@@ -257,61 +257,39 @@ thin `bin/site.ts` calling `buildSite`/`devServer` from `tosijs-ui/site`, with t
 bundling wired alongside. Sized honestly, this repo has **~1,000 lines of bespoke build/doc
 tooling** and **~10,500 lines of demo**, and only the first group is a like-for-like swap.
 
-- [ ] **B1 — adopt `tosijs-ui/site`. ATTEMPTED 2026-09-06, reverted, and the sizing above
-      was wrong in an instructive way.** Replaces `bin/dev.ts` (295), `bin/docs.js` (280),
-      `scripts/build-demo.ts` (105), `demo/index.html`, `demo-nav.ts`, `style.ts`.
+- [ ] **B1 — adopt `tosijs-ui/site`. UNBLOCKED 2026-09-07; the CodeMirror half is DONE.**
 
-      **The good news, measured rather than assumed.** `bin/docs.js` says "Adapted from
-      tosijs-ui's docs.js" — it is a FORK, so this is a re-convergence, not a port. Their
-      `extractDocs({ paths })` reads the same `<!--{ … }-->` JSON metadata blocks our files
-      already use, and over `guides/examples/tjs` it produced 38 docs carrying
-      `section`, `group`, `type`, `order`, `title`, `path`, `filename`, `text` — our
-      frontmatter passes through intact. It drops only the DERIVED fields: `code`,
-      `language`, `description`, `navTitle`, `requiresApi`. The first two are what the
-      playground consumes (`element.setCode(example.code)`), so the gap is a ~40-line
-      post-process reusing our existing fence-aware `extractCodeBlock`, not a corpus rewrite.
-      **I read the type declarations first and concluded the corpora were incompatible; the
-      runtime said otherwise.** Check by running it.
+      **The dependency blocker is cleared.** tosijs-ui 1.14.0 ships the `tosijs-ui/codemirror`
+      re-export (their fix for #131), and it is a genuine thin re-export — 2.3 KB, nothing
+      inlined. `demo/src/playground.ts` now takes `EditorView`/`EditorState`/`Compartment`
+      from it; `basicSetup` and `oneDark` stay where they were, since they are extension
+      bundles rather than identity-compared types. With an `overrides` entry forcing one
+      physical copy, the demo bundle is back to **one copy of `@codemirror/state`**.
 
-      **What actually blocks it, and it is not the docs.** `./site` needs tosijs-ui ≥1.13.0
-      (we were on 1.5.23; the export does not exist there). Bumping breaks three ways:
+      **A correction, and it is the interesting part.** I previously reported that `overrides`
+      got the bundle "4 → 2, not to 1" and that the duplication survived. That was wrong, and
+      the reason is worth keeping: **the marker the guard counts appears ONCE in
+      `@codemirror/state` 6.5.4 and TWICE in 6.7.4.** Bumping the dependency silently doubled
+      every reading, so a clean bundle measured as two copies. Re-derived honestly:
 
-      1. `live-example/code-transform.js` dynamic-imports `tjs-lang/browser`, which cannot
-         resolve in OUR repo: `bunfig.toml` aliases the bare specifier `tjs-lang` to
-         `./src/index.ts`, a FILE, so every subpath under it fails. Fixed by marking it
-         `external` in the demo build — correct anyway, since they lazy-load it behind a
-         same-origin→jsdelivr→unpkg→esm.sh chain and bundling it would defeat that.
-      2. **It doubles `@codemirror/state` in the shipped demo bundle — 1 copy → 2** — which
-         is exactly the identity hazard of [tosijs-ui#131]. `bun add` silently nested a
-         second copy (6.7.4 under `tosijs-ui/node_modules`, 6.5.4 at the root, our peer being
-         `^6.0.0`); NOTHING warned, confirming that issue's "peers are a declaration, not a
-         detector" finding from the dependency side. `overrides` got the disk back to one
-         copy and the bundle from 4 to 2, but not to 1.
-      3. Resolving the last copy properly means moving the demo's CodeMirror imports onto
-         their `tosijs-ui/codemirror` re-export — which is the fix #131 shipped, and which
-         touches `demo/src/*`. **That is B2, and B2 is blocked.**
+      | state | markers | actual copies |
+      | --- | ---: | ---: |
+      | baseline (tosijs-ui 1.5.23, state 6.5.4) | 1 | 1 |
+      | after bumping to 1.13.0 (6.5.4 + nested 6.7.4) | 3 | 2 |
+      | `overrides`, two dirs at 6.7.4 | 4 | 2 |
+      | now — re-export + `overrides`, one dir | 2 | **1** |
 
-      **So B1 and B2 are coupled after all, through the dependency graph rather than through
-      the doc corpus.** Reverted to the clean baseline (tosijs-ui 1.5.23, 1 copy) rather than
-      leave a known bundle regression on `main` to chase later.
+      `demo-bundle.test.ts` is now **self-calibrating**: it reads how many times the marker
+      occurs in the installed package and divides. Its apparatus check caught the marker
+      VANISHING; nothing caught it being RESCALED, which is the quieter failure — the guard
+      keeps returning numbers, they are just in different units. Mutation-verified.
 
-      **`demo-bundle.test.ts` was blind to this, and is FIXED (2026-09-06).** It scanned
-      only `.demo/index.js`, but the demo builds with `splitting: true` — so the moment
-      CodeMirror landed in a chunk the guard counted zero and refused to pass vacuously. It
-      caught its own blindness, which is the design working; but a guard that can only report
-      "I cannot see anything" is not measuring the invariant either, and the arrangement it
-      exists to catch is exactly the one that moves code into chunks. It now scans every
-      emitted `.js` (excluding sourcemaps, which embed the sources) and names the offending
-      file. Verified by planting a duplicate in a chunk — the version before this change
-      passes that.
-
-      CORRECTION to an earlier note here, which claimed the guard's "one marker per copy"
-      premise was also wrong because `@codemirror/state/dist` contains the marker four times.
-      That count included SOURCEMAPS. Per file: `dist/index.js` 1, `dist/index.cjs` 1, the
-      `.d.ts` 0 — and only the ESM entry is ever bundled, so one marker really is one copy.
-      The premise was sound; only the single-file scan was broken.
-
-      [tosijs-ui#131]: https://github.com/tonioloewald/tosijs-ui/issues/131
+      **What remains for B1 proper:** the site adoption itself (`defineSiteConfig` +
+      `buildSite`/`devServer` replacing `bin/dev.ts`, `bin/docs.js`, `scripts/build-demo.ts`).
+      Their `extractDocs` reads the same `<!--{ … }-->` metadata blocks we already use and
+      drops only the DERIVED fields (`code`, `language`, `description`, `navTitle`,
+      `requiresApi`) — a ~40-line post-process, not a corpus rewrite. #53 (first-class
+      `example` blocks) would remove even that.
 
 - [ ] **B2 — the playground port, RESIZED DOWN 2026-09-04 after actually reading
       `live-example`.** The first estimate ("~3,500 lines, a port not a swap") was made from
