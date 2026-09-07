@@ -61,6 +61,10 @@ const BLOB = 'https://github.com/tonioloewald/tjs-lang/blob/main/'
 /** Entry points deliberately absent from the agent index, and why. */
 const UNINDEXED_EXPORTS: Record<string, string> = {
   './src': 'raw-source escape hatch, not a supported import',
+  './package.json':
+    'the manifest itself, exported only because Node refuses `require("tjs-lang/package.json")` ' +
+    'without it and several tools read it (bundler plugins, version probes). Mechanical, not ' +
+    'an API surface — documenting it in llms.txt would tell an agent it is something to import.',
 }
 
 describe('llms.txt is a complete index', () => {

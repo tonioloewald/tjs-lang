@@ -305,6 +305,13 @@ import { batteryAtoms } from 'tjs-lang/batteries' // LM Studio batteries
 import { dot, norm_sq } from 'tjs-lang/linalg' // SIMD linear-algebra kernels
 import { isColor, suggestColor } from 'tjs-lang/css' // CSS validators (verified predicates)
 import { s, validate } from 'tjs-lang/schema' // tosijs-schema pre-wired with $predicate support
+// RBAC rule primitives — `interpretRuleResult` and the role/shortcut helpers. The RULE layer
+// only: `src/rbac/index.ts` imports `tosijs/rbac` + `tosijs/store` (a devDependency here) and
+// is deliberately NOT exported. `rules.tjs` is self-contained, so it is publishable — and it
+// had no built output at all until 0.13.13, which is how #54 arrived as a defect in a
+// reference implementation nobody could import (and so nobody could receive the fix by
+// upgrading). A non-boolean rule result DENIES; it is never coerced.
+import { interpretRuleResult } from 'tjs-lang/rbac'
 // Bundler-free bare imports in the browser (#20) — rewrite specifiers to a
 // same-origin prefix; a service worker resolves them to a CDN and caches.
 // The worker ships as the raw asset 'tjs-lang/import-resolver/worker'

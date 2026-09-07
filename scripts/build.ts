@@ -14,9 +14,11 @@
  */
 
 import { buildSync } from 'esbuild'
+
 import { gzipSync } from 'zlib'
-import { readFileSync, writeFileSync, mkdirSync, existsSync } from 'fs'
-import { join } from 'path'
+import { readFileSync, writeFileSync, mkdirSync, existsSync, rmSync } from 'fs'
+import { join, basename } from 'path'
+import { tjs } from '../src/lang/index'
 
 const distDir = join(import.meta.dir, '../dist')
 
@@ -109,6 +111,22 @@ const targets: BuildTarget[] = [
     description: 'TJS runtime (Eq/Is/checkType/createRuntime)',
   },
   {
+    name: 'tjs-rbac',
+    entry: './src/rbac/rules.tjs',
+    // The RULE PRIMITIVES only — `interpretRuleResult`, the role/shortcut helpers, schema
+    // validation. Deliberately NOT `src/rbac/index.ts`, which imports `tosijs/rbac` and
+    // `tosijs/store`: `tosijs` is a devDependency here, so exporting that entry would ship a
+    // subpath that cannot resolve in a consumer's install.
+    //
+    // `rules.tjs` is self-contained (no imports at all), which is what makes it publishable.
+    // It had no built output whatsoever — `dist/src/rbac/` carried a lone `.d.ts` — so
+    // `interpretRuleResult` was reachable only by reading the `.tjs` source out of the
+    // tarball. That is how #54 was reported: as a defect in a *reference implementation*
+    // nobody could import, which means nobody could receive the fix by upgrading either.
+    external: [],
+    description: 'RBAC rule primitives (fail-closed rule interpretation)',
+  },
+  {
     name: 'tjs-schema',
     entry: './src/schema/index.ts',
     // tosijs-schema MUST be external: it holds the single global $predicate
@@ -154,8 +172,33 @@ function formatSize(bytes: number): string {
 function buildTarget(target: BuildTarget): { raw: number; gzip: number } {
   const outfile = join(distDir, `${target.name}.js`)
 
+  // `.tjs` entries are transpiled IN-PROCESS to a scratch `.js` first.
+  //
+  // esbuild has no `.tjs` loader, and `buildSync` refuses plugins ("Cannot use plugins in
+  // synchronous API calls"), so the file is compiled here and the bundler is pointed at the
+  // result. Deliberately NOT the shell form `tjs emit "$f" > "${f%.tjs}.js"` that
+  // `functions/` uses: `>` truncates the target BEFORE the command runs, so a failed
+  // transpile there left an EMPTY module that bundled and shipped (CLAUDE.md records it).
+  // Writing only after a successful transpile means this cannot half-succeed.
+  //
+  // Dogfooding, incidentally: the build of `tjs-lang` compiles `.tjs` with `tjs-lang`.
+  let entry = target.entry
+  let scratch: string | undefined
+  if (entry.endsWith('.tjs')) {
+    // `runTests: false` — a build must not execute the inline `test` blocks of the file it
+    // is compiling. Those run in the test lane, where a failure reads as a test failure
+    // rather than as a mysteriously broken bundle.
+    const out = tjs(readFileSync(entry, 'utf8'), {
+      filename: entry,
+      runTests: false,
+    })
+    scratch = join(distDir, `.${basename(entry, '.tjs')}.tjs.js`)
+    writeFileSync(scratch, out.code)
+    entry = scratch
+  }
+
   buildSync({
-    entryPoints: [target.entry],
+    entryPoints: [entry],
     outfile,
     bundle: true,
     minify: true,
@@ -165,6 +208,8 @@ function buildTarget(target: BuildTarget): { raw: number; gzip: number } {
     external: target.external,
     alias: target.alias,
   })
+
+  if (scratch) rmSync(scratch, { force: true })
 
   const content = readFileSync(outfile)
   const gzipped = gzipSync(content)

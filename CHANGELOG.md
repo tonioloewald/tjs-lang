@@ -7,6 +7,35 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **`tjs-lang/rbac` — the RBAC rule primitives are now importable.** `interpretRuleResult` and
+  the role/shortcut helpers had **no built output at all** (`dist/src/rbac/` carried a lone
+  `.d.ts`), so they were reachable only by reading `rules.tjs` out of the tarball. That is how
+  #54 arrived: as a fail-open in a _reference implementation nobody could import_ — which also
+  meant nobody could receive the fix by upgrading. They now ship as `dist/tjs-rbac.js`,
+  verified from a Node consumer.
+
+  Scope is the RULE layer only. `src/rbac/index.ts` imports `tosijs/rbac` and `tosijs/store`,
+  and `tosijs` is a **devDependency** here, so exporting that entry would ship a subpath that
+  cannot resolve in a consumer's install. `rules.tjs` is self-contained, which is what makes
+  it publishable.
+
+- **`./package.json` is exported.** Node refuses `require('tjs-lang/package.json')` without it,
+  and several tools read the manifest (bundler plugins, version probes). Found while verifying
+  the 0.13.12 tarball, when my own check hit it.
+
+### Changed
+
+- **The build compiles `.tjs` entry points in-process.** esbuild has no `.tjs` loader and
+  `buildSync` refuses plugins, so a `.tjs` entry is transpiled and written to a scratch file
+  the bundler then reads. Deliberately NOT the shell form `functions/` uses
+  (`tjs emit "$f" > "${f%.tjs}.js"`), because `>` truncates the target _before_ the command
+  runs — a failed transpile there once left an EMPTY module that bundled and shipped. Writing
+  only after a successful transpile means this cannot half-succeed.
+
+  Incidentally now dogfooding: the build of `tjs-lang` compiles `.tjs` with `tjs-lang`.
+
 ## [0.13.12] — 2026-09-06
 
 **Two security-relevant fixes against published 0.13.11, and the end of a defect class.**

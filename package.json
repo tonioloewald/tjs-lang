@@ -129,6 +129,11 @@
       "types": "./dist/src/lang/runtime.d.ts",
       "default": "./dist/tjs-runtime.js"
     },
+    "./rbac": {
+      "bun": "./src/rbac/rules.tjs",
+      "types": "./dist/src/rbac/rules.tjs.d.ts",
+      "default": "./dist/tjs-rbac.js"
+    },
     "./bun-plugin": {
       "bun": "./src/bun-plugin/tjs-plugin.ts"
     },
@@ -143,7 +148,8 @@
       "default": "./editors/codemirror/ajs-language.js"
     },
     "./editors/monaco": "./editors/monaco/ajs-monarch.js",
-    "./editors/ace": "./editors/ace/ajs-mode.js"
+    "./editors/ace": "./editors/ace/ajs-mode.js",
+    "./package.json": "./package.json"
   },
   "bin": {
     "tjs": "./src/cli/tjs.ts",
