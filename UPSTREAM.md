@@ -294,3 +294,33 @@ move to `tosijs-ui/codemirror` and the bump becomes safe.
 a word. The only thing that caught it was `src/demo-bundle.test.ts` counting copies in the
 built artifact — and that guard was itself blind until 2026-09-06, because it read
 `.demo/index.js` while the bundle is split.
+
+---
+
+## `tosijs-ui/site` — three findings from the B1 adoption (tosijs-ui#153, #154, #155)
+
+**Filed 2026-09-09** while adopting the doc system. All three are theirs to fix; worked around
+here so B1 can proceed.
+
+**[#153] `SiteConfig` has no `ignore` for `docPaths`.** Listing `'docs'` published **13
+pre-release review reports** as public pages — including BLOCK verdicts naming an adopter.
+`extractDocs` already takes an `ignore`; the config does not surface it.
+_Worked around:_ `tjs-site.config.ts` enumerates `docs/*.md` and filters, reason attached.
+_Delete the workaround when:_ `SiteConfig.ignore` exists.
+
+**[#154] Two containment problems.** `outputDir` does not contain the build — pointing it at a
+scratch dir still overwrote `llms.txt` and `demo/docs.json`, because `docsJson` defaults to
+`demo/docs.json`, the path our playground reads. And `checkExamples` falls back to parsing TJS
+as raw JavaScript when it cannot resolve `tjs-lang/browser` from inside `node_modules`,
+reporting ~30 syntax errors **in our documents** for code that is correct.
+_Worked around:_ self-link in `prepare` (`ln -sfn .. node_modules/tjs-lang`), because a
+self-documenting library must be resolvable as a PACKAGE from inside `node_modules` and
+`bunfig`'s `[resolve]` alias does not cover that direction.
+_Delete the workaround when:_ they skip un-transpilable dialects instead of falling back.
+
+**[#155] TJS support for Prism — announced, and a design ask.** Prism is being wired in and
+will bake into printed/ePub output. **238 of our fences are tagged `typescript`**, and in
+`CLAUDE-TJS-SYNTAX.md` 12 of 31 of those contain a TJS colon-example — which TypeScript's token
+model would colour as a TYPE, visually asserting the exact confusion that document exists to
+correct, permanently, in print. Asked that **display-only be orthogonal to language**, so a
+block can be `tjs` for highlighting without being executed.
