@@ -288,47 +288,35 @@ thin `bin/site.ts` calling `buildSite`/`devServer` from `tosijs-ui/site`, with t
 bundling wired alongside. Sized honestly, this repo has **~1,000 lines of bespoke build/doc
 tooling** and **~10,500 lines of demo**, and only the first group is a like-for-like swap.
 
-- [ ] **B1 — adopt `tosijs-ui/site`. IN PROGRESS. It BUILDS (106 pages); three findings, one
-      of them a live hazard.** `tjs-site.config.ts` exists and `buildSite` completes.
+- [ ] **B1 — adopt `tosijs-ui/site`. `bin/docs.js` IS REPLACED (2026-09-09). Site generation
+      still to come.**
 
-      **HAZARD, found and fixed in the config: listing `'docs'` publishes our pre-release
-      review reports.** The first successful build emitted **13 review pages** — including
-      verdict-BLOCK reports that name an adopter. `package.json`'s `files` already excludes
-      them from the npm tarball (`!docs/reviews`); the site had no equivalent, and
-      `SiteConfig` exposes **no `ignore`** even though `extractDocs` itself takes one. The
-      config now enumerates `docs/*.md` with the reason attached so nobody simplifies it back.
-      Asked upstream.
+      **Done: `bin/site.ts` replaces `bin/docs.js` (280 lines, deleted).** It calls their
+      `extractDocs` and derives the three fields they do not: `code`/`language` (the first
+      fence, which the playground lifts into a live editor) and `description`. Verified by
+      diffing the corpus field-by-field against the old generator:
 
-      **`buildSite` is NOT contained by `outputDir`.** I pointed it at a scratch directory
-      specifically to evaluate without touching anything, and it still overwrote **`llms.txt`
-      and `demo/docs.json`** — because `docsJson` defaults to `demo/docs.json`, the exact path
-      our playground reads. Restored from git. Anyone evaluating this needs to know that a
-      scratch `outputDir` does not make the build read-only.
+      ```
+      differing code 0 · description 0 · section 0 · type 0 · group 0 · order 0
+      onlyOLD 0 · onlyNEW 2
+      ```
 
-      **Their `checkExamples` needs `tjs-lang` resolvable FROM INSIDE `node_modules`.** It
-      imports `tjs-lang/browser` from its own dist to transpile TJS blocks. `bunfig.toml`'s
-      `[resolve]` alias covers OUR code, not a dependency resolving upward, and we do not
-      self-install — so the import failed, their loader fell back to treating TJS as raw
-      JavaScript, and every TJS example was reported as a syntax error **in our documents**.
-      The one-line warning is printed far from the ~30 errors it causes, and those errors say
-      "Fix the code" about code that is correct. A self-link in `prepare` fixes it here.
+      Byte parity on every shared entry, nothing lost, and the two extras are `.tjs` files of
+      our own (`src/linalg/index.tjs`, `src/rbac/rules.tjs`) that the old walker skipped
+      because it only scanned `.ts`/`.js`. Strictly better.
 
-      **`checkExamples` is OFF for now**, and it is a decision to revisit rather than a shrug:
-      51 blocks fail because it requires every `js`/`ts`/`tjs` fence to be EXECUTABLE (wrapped
-      in `new AsyncFunction`), and ours are often illustrative — elisions, module-level
-      `export`, TJS syntax in `js`-tagged fences. **14 are in `docs/tjs-vs-typescript.md`,
-      which is GENERATED and whose every row is already executed against `tsc --strict` AND
-      TJS**, so the checker reports our most rigorously verified file as broken. Turning it on
-      later is still an upgrade (it EXECUTES); the work is retagging the illustrative blocks.
+      **Three of their defects had to be worked around to get there**, all filed:
+      #153 (no `ignore` on `docPaths`), #154 (`outputDir` does not contain the build;
+      `checkExamples` blames the document when it cannot load the transform), **#156** —
+      `extractDocs` matches frontmatter ANYWHERE, so `CLAUDE.md`, which documents the format,
+      was filed into the playground's example nav at order 16 with a `bash` block as its code.
+      That last one is the literal-blindness class in a doc system, and our own generator
+      already carried the anchored fix with a comment naming CLAUDE.md.
 
-      **The corpus gap is smaller than estimated.** Their `extractDocs` produces
-      `filename group navTitle order path pin requiresApi section text title type` — it
-      already carries `navTitle` and `requiresApi`, which I had listed as missing. Only
-      **`code`, `language`, `description`** are absent, and #53 would remove even those.
-
-      **What remains:** wire `devServer`/`buildSite` into the `dev`/`docs`/`build:demo`
-      scripts, add the derive step for the three fields, and reconcile their generated
-      nav/layout with `demo/src/index.ts` — which is where B1 meets B2.
+      **Still to do:** `devServer`/`buildSite` replacing `bin/dev.ts` and
+      `scripts/build-demo.ts`, and reconciling their generated nav/layout with
+      `demo/src/index.ts` — which is where B1 meets B2 and where the remaining 49
+      `checkExamples` failures live (blocked on their live-examples opt-in).
 
 - [ ] **B2 — the playground port, RESIZED DOWN 2026-09-04 after actually reading
       `live-example`.** The first estimate ("~3,500 lines, a port not a swap") was made from

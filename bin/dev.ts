@@ -50,7 +50,7 @@ async function buildDemo() {
 
   try {
     // Generate docs.json
-    await $`node bin/docs.js`
+    await $`bun bin/site.ts`
 
     // Build the demo app (bundle everything for browser)
     const result = await Bun.build({

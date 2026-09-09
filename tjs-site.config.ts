@@ -1,28 +1,58 @@
-/**
- * Site configuration for `tosijs-ui/site` (Phase B1).
- *
- * Replaces the bespoke `bin/dev.ts` / `bin/docs.js` / `scripts/build-demo.ts` trio. Library
- * bundling stays ours (`scripts/build.ts`) — that is B4, decided: the published bundles are a
- * different artifact from the doc site and `tosijs` splits them the same way.
- */
-import { readdirSync } from 'node:fs'
+import { readdirSync, statSync } from 'node:fs'
+import { join } from 'node:path'
 import { defineSiteConfig } from 'tosijs-ui/site'
 
 /**
- * `docs/` MINUS `docs/reviews/`, enumerated rather than globbed.
+ * Directories the doc corpus must never sweep in.
  *
- * Listing `'docs'` wholesale publishes the pre-release review reports as public pages — 13 of
- * them, including ones whose verdict is BLOCK and which name an adopter. `package.json`'s
- * `files` already excludes them from the npm tarball (`!docs/reviews`); the site had no
- * equivalent, and `SiteConfig` exposes no `ignore` even though `extractDocs` itself takes one
- * (asked upstream).
+ * Carried over verbatim from `bin/docs.js`, comment and all, because the list is load-bearing
+ * and one entry records an incident: review reports name adopters, carry "Verdict: BLOCK" and
+ * describe vulnerabilities with reproduction steps, and two of them were once committed into
+ * `demo/docs.json` — and thence into the PUBLISHED playground bundle. The live site never
+ * served them only because no hosting deploy happened in between.
  *
- * Enumerated with a reason attached so nobody "simplifies" this back to `'docs'`: the failure
- * is silent, and the thing it leaks is exactly what you would least want indexed.
+ * `docs` is here for a second reason worth stating: the playground corpus has never included
+ * it. `docs/` is hand-written reference material rendered elsewhere, not playground examples.
+ *
+ * This exists as OUR walk rather than a config option because `SiteConfig` exposes no
+ * `ignore`, even though `extractDocs` takes one (tosijs-ui#153). When that lands, this
+ * collapses to `docPaths: ['.']` plus `ignore: IGNORE`.
  */
-const DOC_FILES = readdirSync('docs')
-  .filter((f) => f.endsWith('.md'))
-  .map((f) => `docs/${f}`)
+const IGNORE = new Set([
+  'node_modules',
+  'dist',
+  'docs',
+  'reviews',
+  'third-party',
+  '.git',
+  '.archive',
+  '.demo',
+  '.b1-scratch',
+  'editors',
+  'demo',
+  'bin',
+  'functions',
+])
+
+/** Every markdown file the corpus should contain, walked the way `bin/docs.js` walks it. */
+function markdownFiles(dir = '.', out: string[] = []): string[] {
+  for (const name of readdirSync(dir)) {
+    if (IGNORE.has(name) || name.startsWith('.')) continue
+    const full = dir === '.' ? name : join(dir, name)
+    if (statSync(full).isDirectory()) markdownFiles(full, out)
+    else if (name.endsWith('.md')) out.push(full)
+  }
+  return out
+}
+
+/**
+ * Markdown files, plus `src` so inline `/*# … *\/` doc-comment blocks are picked up.
+ *
+ * `bin/docs.js` walked source files for those too — eleven of them are in the corpus today
+ * (`src/vm/runtime.ts`, the store implementations, several test files). Passing the directory
+ * lets `extractDocs` do its own scan rather than us re-implementing the comment parser.
+ */
+const DOC_FILES = [...markdownFiles(), 'src']
 
 export default defineSiteConfig({
   name: 'tjs-lang',
@@ -40,19 +70,7 @@ export default defineSiteConfig({
   host: 'firebase',
 
   // The markdown corpus. Mirrors what `bin/docs.js` walks today.
-  docPaths: [
-    'README.md',
-    'guides',
-    ...DOC_FILES,
-    'CLAUDE-TJS-SYNTAX.md',
-    'DOCS-TJS.md',
-    'DOCS-AJS.md',
-    'DOCS-WASM.md',
-    'TJS-FOR-JS.md',
-    'TJS-FOR-TS.md',
-    'PRINCIPLES.md',
-    'CHANGELOG.md',
-  ],
+  docPaths: DOC_FILES,
 
   // OFF for now, and this is a decision to revisit rather than a shrug.
   //

@@ -250,7 +250,7 @@
     "build:bundles": "bun scripts/build.ts",
     "typecheck": "tsc --noEmit",
     "latest": "rm -rf node_modules && bun install",
-    "docs": "node bin/docs.js",
+    "docs": "bun bin/site.ts",
     "dev": "bun run bin/dev.ts",
     "build:demo": "bun scripts/build-demo.ts",
     "build:cli": "bun build src/cli/tjs.ts --compile --outfile=dist/tjs && bun build src/cli/tjsx.ts --compile --outfile=dist/tjsx",

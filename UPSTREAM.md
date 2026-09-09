@@ -324,3 +324,13 @@ will bake into printed/ePub output. **238 of our fences are tagged `typescript`*
 model would colour as a TYPE, visually asserting the exact confusion that document exists to
 correct, permanently, in print. Asked that **display-only be orthogonal to language**, so a
 block can be `tjs` for highlighting without being executed.
+
+**[#156] `extractDocs` matches `<!--{ … }-->` anywhere in the file.** A document that DOCUMENTS
+the frontmatter format gets classified by its own illustration: `CLAUDE.md` shows the format on
+line 815 and was filed into the playground's TJS examples nav, in "basics", at order 16, with a
+`bash` block as its code. Our own `bin/docs.js` already carried the anchored match and a comment
+naming CLAUDE.md specifically — the literal-blindness class, in a doc system, where it is
+structurally most likely.
+_Worked around:_ `bin/site.ts` strips `section`/`type`/`group`/`order`/`pin` from any doc whose
+first non-blank line is not a metadata block.
+_Delete the workaround when:_ the match is anchored to the first non-blank line.
