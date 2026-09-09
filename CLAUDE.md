@@ -322,6 +322,12 @@ import { createRuntime, Eq, isMonadicError } from 'tjs-lang/runtime' // TJS runt
 // Bun: enable native .tjs imports — `preload = ["tjs-lang/bun-plugin"]` in bunfig.toml, or:
 import 'tjs-lang/bun-plugin' // registers the .tjs onLoad plugin + installs __tjs (bun-only)
 // Editor integrations: 'tjs-lang/editors/monaco', '/codemirror', '/ace'
+// Prism language definitions (GENERATED from editors/tjs-syntax.ts by
+// `bun run build:grammars`): 'tjs-lang/editors/prism/tjs', '/prism/ajs'. These render
+// non-executable fences in doc systems and bake into printed/ePub output — which is why a
+// colon example gets its own `example-value` token aliased to `string`, NOT a type colour:
+// in `greet(name: 'Alice')` the `'Alice'` is a value, and colouring it as a type argues in
+// print for the exact misreading the docs correct.
 // Framework-free editor primitives (acorn only — no CodeMirror/Monaco/Ace):
 import {
   collectScopeSymbols, // AST scope extraction (destructuring included; carries `origin`)
