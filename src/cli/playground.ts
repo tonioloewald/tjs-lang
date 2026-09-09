@@ -261,7 +261,7 @@ async function main() {
   // Serve the docs directory
   const server = Bun.serve({
     port,
-    async fetch(req) {
+    async fetch(req: Request) {
       const url = new URL(req.url)
       let pathname = url.pathname
 

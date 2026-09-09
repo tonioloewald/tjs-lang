@@ -174,7 +174,7 @@ const mdWatcher = watch(ROOT_DIR, { recursive: false }, (event, filename) => {
 // Serve the docs directory
 const server = Bun.serve({
   port: PORT,
-  async fetch(req) {
+  async fetch(req: Request) {
     const url = new URL(req.url)
     let pathname = url.pathname
 

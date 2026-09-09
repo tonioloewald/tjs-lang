@@ -167,3 +167,4 @@ src/**/*.d.ts.map
 # that has nothing to do with us. An interrupted run leaves the directory behind, so it
 # needs a rule here or `git status` offers to commit it.
 .tmp-port-test-*/
+.b1-scratch/

@@ -288,39 +288,47 @@ thin `bin/site.ts` calling `buildSite`/`devServer` from `tosijs-ui/site`, with t
 bundling wired alongside. Sized honestly, this repo has **~1,000 lines of bespoke build/doc
 tooling** and **~10,500 lines of demo**, and only the first group is a like-for-like swap.
 
-- [ ] **B1 — adopt `tosijs-ui/site`. UNBLOCKED 2026-09-07; the CodeMirror half is DONE.**
+- [ ] **B1 — adopt `tosijs-ui/site`. IN PROGRESS. It BUILDS (106 pages); three findings, one
+      of them a live hazard.** `tjs-site.config.ts` exists and `buildSite` completes.
 
-      **The dependency blocker is cleared.** tosijs-ui 1.14.0 ships the `tosijs-ui/codemirror`
-      re-export (their fix for #131), and it is a genuine thin re-export — 2.3 KB, nothing
-      inlined. `demo/src/playground.ts` now takes `EditorView`/`EditorState`/`Compartment`
-      from it; `basicSetup` and `oneDark` stay where they were, since they are extension
-      bundles rather than identity-compared types. With an `overrides` entry forcing one
-      physical copy, the demo bundle is back to **one copy of `@codemirror/state`**.
+      **HAZARD, found and fixed in the config: listing `'docs'` publishes our pre-release
+      review reports.** The first successful build emitted **13 review pages** — including
+      verdict-BLOCK reports that name an adopter. `package.json`'s `files` already excludes
+      them from the npm tarball (`!docs/reviews`); the site had no equivalent, and
+      `SiteConfig` exposes **no `ignore`** even though `extractDocs` itself takes one. The
+      config now enumerates `docs/*.md` with the reason attached so nobody simplifies it back.
+      Asked upstream.
 
-      **A correction, and it is the interesting part.** I previously reported that `overrides`
-      got the bundle "4 → 2, not to 1" and that the duplication survived. That was wrong, and
-      the reason is worth keeping: **the marker the guard counts appears ONCE in
-      `@codemirror/state` 6.5.4 and TWICE in 6.7.4.** Bumping the dependency silently doubled
-      every reading, so a clean bundle measured as two copies. Re-derived honestly:
+      **`buildSite` is NOT contained by `outputDir`.** I pointed it at a scratch directory
+      specifically to evaluate without touching anything, and it still overwrote **`llms.txt`
+      and `demo/docs.json`** — because `docsJson` defaults to `demo/docs.json`, the exact path
+      our playground reads. Restored from git. Anyone evaluating this needs to know that a
+      scratch `outputDir` does not make the build read-only.
 
-      | state | markers | actual copies |
-      | --- | ---: | ---: |
-      | baseline (tosijs-ui 1.5.23, state 6.5.4) | 1 | 1 |
-      | after bumping to 1.13.0 (6.5.4 + nested 6.7.4) | 3 | 2 |
-      | `overrides`, two dirs at 6.7.4 | 4 | 2 |
-      | now — re-export + `overrides`, one dir | 2 | **1** |
+      **Their `checkExamples` needs `tjs-lang` resolvable FROM INSIDE `node_modules`.** It
+      imports `tjs-lang/browser` from its own dist to transpile TJS blocks. `bunfig.toml`'s
+      `[resolve]` alias covers OUR code, not a dependency resolving upward, and we do not
+      self-install — so the import failed, their loader fell back to treating TJS as raw
+      JavaScript, and every TJS example was reported as a syntax error **in our documents**.
+      The one-line warning is printed far from the ~30 errors it causes, and those errors say
+      "Fix the code" about code that is correct. A self-link in `prepare` fixes it here.
 
-      `demo-bundle.test.ts` is now **self-calibrating**: it reads how many times the marker
-      occurs in the installed package and divides. Its apparatus check caught the marker
-      VANISHING; nothing caught it being RESCALED, which is the quieter failure — the guard
-      keeps returning numbers, they are just in different units. Mutation-verified.
+      **`checkExamples` is OFF for now**, and it is a decision to revisit rather than a shrug:
+      51 blocks fail because it requires every `js`/`ts`/`tjs` fence to be EXECUTABLE (wrapped
+      in `new AsyncFunction`), and ours are often illustrative — elisions, module-level
+      `export`, TJS syntax in `js`-tagged fences. **14 are in `docs/tjs-vs-typescript.md`,
+      which is GENERATED and whose every row is already executed against `tsc --strict` AND
+      TJS**, so the checker reports our most rigorously verified file as broken. Turning it on
+      later is still an upgrade (it EXECUTES); the work is retagging the illustrative blocks.
 
-      **What remains for B1 proper:** the site adoption itself (`defineSiteConfig` +
-      `buildSite`/`devServer` replacing `bin/dev.ts`, `bin/docs.js`, `scripts/build-demo.ts`).
-      Their `extractDocs` reads the same `<!--{ … }-->` metadata blocks we already use and
-      drops only the DERIVED fields (`code`, `language`, `description`, `navTitle`,
-      `requiresApi`) — a ~40-line post-process, not a corpus rewrite. #53 (first-class
-      `example` blocks) would remove even that.
+      **The corpus gap is smaller than estimated.** Their `extractDocs` produces
+      `filename group navTitle order path pin requiresApi section text title type` — it
+      already carries `navTitle` and `requiresApi`, which I had listed as missing. Only
+      **`code`, `language`, `description`** are absent, and #53 would remove even those.
+
+      **What remains:** wire `devServer`/`buildSite` into the `dev`/`docs`/`build:demo`
+      scripts, add the derive step for the three fields, and reconcile their generated
+      nav/layout with `demo/src/index.ts` — which is where B1 meets B2.
 
 - [ ] **B2 — the playground port, RESIZED DOWN 2026-09-04 after actually reading
       `live-example`.** The first estimate ("~3,500 lines, a port not a swap") was made from
