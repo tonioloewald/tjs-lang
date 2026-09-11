@@ -291,22 +291,39 @@ documentation lives in `/*# … */` inside it. Not markdown prose beside a fence
 whole TJS position — doc comments are language syntax — and it is why the page and the runnable
 artifact are the same file rather than two that drift.
 
-**Which makes one upstream bug load-bearing rather than cosmetic.** `extractDocs` matches a
-`/*# … */` block **non-greedily to the first `*/`**, so a doc comment that MENTIONS a block
-comment truncates there, silently:
+**The constraint that follows is a LANGUAGE one, not a tooling one — corrected 2026-09-11
+after I filed it upstream as a bug and had to retract.** A TJS doc comment cannot contain a
+block comment, because no JavaScript block comment can: they do not nest. Acorn rejects the
+whole file, not just the comment:
 
 ```
 /*#
 Write the marker like this: /* unsafe */ before an expression.
 THIS LINE MUST SURVIVE.
 */
+const a = 1
 ```
 
-→ `"Write the marker like this: /* unsafe"`
+→ `Unexpected token (2:48)`
 
-If docs live inside code, TJS cannot document its own comment syntax until this is fixed.
-Reported (tosijs-ui#156, second instance) — and our own `bin/docs.js` had the identical bug, so
-we inherited rather than introduced it.
+The comment ends at the inner `*/` and everything after is code. I reported `extractDocs` as
+truncating; it was doing the only correct thing, and our own `bin/docs.js` was right too.
+**Lesson: run the fixture through a parser before calling the behaviour a bug** — it took one
+command, and I ran it after filing rather than before.
+
+The standard escape works and is what this repo's own sources already use:
+
+```
+/*#
+Write it like this: /* unsafe *\/ before an expression.
+THIS LINE SURVIVES.
+*/
+```
+
+So for "examples are code with docs inside", the constraint is real and ours to DOCUMENT —
+authors writing about comment syntax must escape the inner `*/`. Worth a line in the example
+authoring guide, and worth a lint that catches the unescaped form, since the failure is a
+parse error some distance from the cause.
 
 ### Inventory: 59 examples (tjs 38, ajs 21)
 
