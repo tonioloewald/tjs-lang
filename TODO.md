@@ -278,6 +278,81 @@ across nested runs, `membraneMaxBytes`, and `maxHeapBytes`. Their spec needs per
 sets and fuel metering; the quota/membrane story is what stops one stored procedure from
 spending another's budget.
 
+## THE BOOK — examples become documentation pages, executed by the build (2026-09-11)
+
+**Direction:** pull every example out of the old demo pages and make each one a documentation
+page carrying a live example, run by the tosijs-ui build (which executes live examples, fails
+on ones that explode, and can run attached in-browser tests). Organise the result into a K&R
+book structure and fill the gaps. TypeScript material folds into its own volume —
+_TypeScript: the good, the bad and the ugly_ or similar.
+
+**The format stays "code with docs inside."** Tonio, decisively: an example is CODE, and its
+documentation lives in `/*# … */` inside it. Not markdown prose beside a fence. That is the
+whole TJS position — doc comments are language syntax — and it is why the page and the runnable
+artifact are the same file rather than two that drift.
+
+**Which makes one upstream bug load-bearing rather than cosmetic.** `extractDocs` matches a
+`/*# … */` block **non-greedily to the first `*/`**, so a doc comment that MENTIONS a block
+comment truncates there, silently:
+
+```
+/*#
+Write the marker like this: /* unsafe */ before an expression.
+THIS LINE MUST SURVIVE.
+*/
+```
+
+→ `"Write the marker like this: /* unsafe"`
+
+If docs live inside code, TJS cannot document its own comment syntax until this is fixed.
+Reported (tosijs-ui#156, second instance) — and our own `bin/docs.js` had the identical bug, so
+we inherited rather than introduced it.
+
+### Inventory: 59 examples (tjs 38, ajs 21)
+
+AJS is coherent — `basics` 0–6, `api` 7–9, `llm` 10–12, `advanced` 14–20. TJS is not: `basics`
+runs 1–4 then jumps to 15–18, and `patterns` runs 5–11 then 20, 25–28.
+
+**Defect found while inventorying: 5 nav slots hold 11 examples.** Duplicate `order` values
+within a group, so their order is arbitrary — and tosijs-ui#24 records that nav `order` sorts
+lexically, which makes it arbitrary in a way nobody can predict:
+
+```
+[tjs]/basics   order=15  honest-equality, polymorphic-functions
+[tjs]/basics   order=16  js-footgun-fixes, polymorphic-constructors, safety-validation
+[tjs]/basics   order=17  better-classes, local-extensions
+[tjs]/featured order=0   tjs-grammar-demo, wasm-starfield
+[tjs]/patterns order=8   error-history, schema-validation
+```
+
+### Gaps against a K&R progression
+
+K&R opens with a tutorial, then types/operators/expressions, control flow, functions and
+program structure, then the harder material. Measured against that, what is MISSING is mostly
+the beginning:
+
+- **A tutorial introduction.** "Hello TJS" exists; a guided first chapter does not.
+- **Control flow** — nothing for `given`, our flagship fixed-dispatch construct, nor the
+  `switch` advice that pairs with it.
+- **Declarations as a chapter** — `Type`/`Generic`/`Enum`/`Union`/`FunctionPredicate` have one
+  example ("Type Declarations"), buried at `patterns` order 20.
+- **Dictionary defaults** — a documented flagship with no example.
+- **`const!`**, **bang access (`x!.foo`)** — no examples.
+- **Predicates / `$predicate`** — the north-star feature, no example.
+- **`tjs-lang/css`** — a shipped subpath with no example.
+
+Most of the missing material is basic tutorial content, which is the expected shape: the
+examples grew from whatever was being built, so they are strongest where the work was hardest
+and thinnest where a newcomer starts.
+
+### Sequencing
+
+The CONTENT work (reordering, gap-filling, book structure) is entirely ours and unblocked. The
+TESTING half needs tosijs-ui#156 (truncation) so docs-inside-code survive, and #155 (display-only
+orthogonal to language) so illustrative blocks keep TJS highlighting without being executed.
+`BookManifest` / `selectBookDocs` / `buildEpub` already exist upstream, so the book structure is
+supported today.
+
 ## THE ENDGAME (stated 2026-09-11) — read before planning any Phase B work
 
 **tjs-lang becomes a clean language implementation. tosijs-ui's doc system becomes a clean
