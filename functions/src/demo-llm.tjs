@@ -81,7 +81,7 @@ const MAX_PROMPT_CHARS = 8000
  * this stays a pure function of its argument and is testable without freezing a clock.
  */
 function utcDay(now) {
-  return unsafe new Date(now).toISOString().slice(0, 10)
+  return LegacyDate(now).toISOString().slice(0, 10)
 }
 
 /*#

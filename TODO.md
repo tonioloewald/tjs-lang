@@ -221,13 +221,21 @@ dashboard number into this list.
         (measured), so nothing floods,
       - sweep `examples/datetime.tjs`, the only real `.tjs` source using it.
 
-      **`LegacyDate` is a transition, not a resting place.** By the principle above, a
-      confession earns its place by being on a path to deletion, and the test is whether anyone
-      can say what would have to be true to remove it. Here: an interop story for code that
-      genuinely needs a `Date` INSTANCE rather than an epoch-ms `Timestamp`. Until that exists
-      it stays; once it does, `LegacyDate` goes the same way as `unsafe` — and unlike `unsafe`
-      it can, because it is one named thing rather than three unrelated ones behind a vague
-      marker. That is what naming bought.
+      **`LegacyDate` stays. It is the honest exception, not a transition** — corrected after
+      Tonio sharpened the test to TWO parts: a confession must be *irreplaceable* AND
+      *actually needed*.
+
+      `eval` is what shows why both are required. It IS irreplaceable — direct `eval` reads the
+      caller's scope and no wrapper reproduces that — and it is refused anyway, because
+      measured, **zero** real `.tjs` sources use it. An irreplaceable capability nobody reaches
+      for is not a capability, it is surface area. `LegacyDate` passes both: a `Date` INSTANCE
+      cannot be produced any other way (`Timestamp` is epoch-ms), and real source needed it —
+      four uses, now swept.
+
+      **The marker is gone from all real `.tjs` source** (`examples/datetime.tjs` ×5,
+      `functions/src/demo-llm.tjs` ×1 → `LegacyDate`). The only remaining hit is
+      `__tjs.unsafe`, a metadata property name. So stage 2 is close to free: nothing in the
+      repo depends on the keyword any more.
 
 - [ ] **A5 — get the compat lanes into CI.** `test:compat-scan` is the lane most likely to
       catch this defect class and it runs only when someone invokes it. It needs clones, so

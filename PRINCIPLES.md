@@ -178,15 +178,30 @@ not already cover — if you truly need the legacy behaviour, you are describing
 should not have graduated yet.
 
 The **named-confession** family (`DangerousLegacyEquals`, `LegacyDefault`, `LegacyDate`, …) is
-the exception, and it is only defensible as a **transition**, never as a resting place. Its job
-is to make an abolition _possible_: `unsafe` gated three unrelated things behind one vague
-marker and could not be removed in one step, because "what breaks if this goes?" had no
-answer. Naming each part makes each part individually greppable, individually measurable and
-therefore individually abolishable.
+the exception, and a confession earns its place by passing **both** of two tests:
 
-So a confession earns its place by being **on a path to deletion**, and the test is whether
-anyone can say what would have to be true to remove it. If the answer is "nothing, it is just
-there now", it has become a crater.
+1. **The functionality is genuinely irreplaceable.** Not "inconvenient to do otherwise" —
+   impossible. `var` fails this: `let`/`const` cover it, minus the hoisting footgun it is
+   banned for.
+2. **Someone actually needs it.** Irreplaceability alone is not enough, and this is the test
+   that does the real work.
+
+`eval` is the case that shows why both are required. It passes the first — direct `eval` is a
+syntactic form that reads the CALLER's scope, and no wrapper can reproduce that, so the
+capability is strictly unavailable once refused. It is refused anyway, because nothing uses it:
+measured, zero occurrences in real `.tjs` source. **An irreplaceable capability nobody reaches
+for is not a capability, it is surface area.**
+
+`LegacyDate` passes both. A `Date` INSTANCE cannot be produced any other way — `Timestamp` is
+epoch-ms, and an API that wants a `Date` wants the object — and real source needs it. So it
+stays, and it is not on a deletion schedule. It is the honest exception rather than a
+transition.
+
+Naming still matters independently of that: `unsafe` gated three unrelated things behind one
+vague marker and could not be removed in one step, because "what breaks if this goes?" had no
+answer. Naming each part makes each individually greppable, individually measurable and
+therefore individually **decidable** — which is how two of the three came to be refused and one
+kept.
 
 ## Language subset relationships
 
