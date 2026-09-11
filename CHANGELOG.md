@@ -9,6 +9,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **`unsafe` is deprecated.** Every remaining use now warns, naming its replacement. The
+  marker is the only escape in this language that does not say WHICH rule it suspends, and it
+  is what drags `/* @tjs-unsafe */` along as a comment channel.
+
+  `var` and `eval` are now refused outright rather than offered an escape, and their
+  diagnostics say so and say why. `eval` in particular **could not** have been given a named
+  replacement: direct `eval` is a syntactic form that sees the CALLER's scope, so any wrapper
+  would silently be a different operation — reaching the caller's scope is precisely the part
+  that is dangerous.
+
+  The reasoning is now a principle (`PRINCIPLES.md`, _"An on-ramp and an off-ramp. No
+  craters."_): TJS provides a total file-level on-ramp and a total off-ramp, and a
+  per-construct hole in an otherwise-native file is a third kind of thing that relieves the
+  pressure to graduate properly. Strict mode and ESM set the precedent — measured, they still
+  permit `var` and `eval`, so the lesson is not which constructs went but that **where
+  something was removed it was removed outright**.
+
 - **`LegacyDate(x)` — a named confession replacing `unsafe new Date(x)`.** Raw `Date` is banned
   in native TJS (mutable, timezone-dependent) and `Timestamp` is the remedy, but a deliberate
   exception has to be expressible. Until now the only way to say it was the generic marker

@@ -7,6 +7,7 @@
 
 import { SyntaxError } from './types'
 import {
+  findUnsafeSpans,
   maskLiterals,
   maskLiteralsKeepComments,
   isEscapedAt,
@@ -4858,6 +4859,41 @@ function rejectAll(
   rejectAt(source, hits, message)
 }
 
+/**
+ * Warn on every remaining use of the `unsafe` marker.
+ *
+ * `unsafe` is being retired. It is the only escape in this language that does not say WHICH
+ * rule it suspends — every other one is a named, greppable callable (`LegacyDate`,
+ * `DangerousLegacyEquals`, `LegacyDefault`) — and it is what drags `/* @tjs-unsafe *\/` along
+ * as a comment channel for smuggling the marker through files `tsc` must accept.
+ *
+ * Of the three things it gated, `new Date()` now has `LegacyDate(x)`; `var` and `eval` are
+ * refused outright, which is the precedent strict mode and ESM set. They removed legacy
+ * behaviour without a trapdoor — there is no `unstrict` block and no way back to `with` — and
+ * a language that takes something away and then hands you a way back has not taken it away.
+ *
+ * A WARNING rather than an error, for now: this ships before the removal so existing uses
+ * surface in the release that still accepts them, rather than breaking on the one that does
+ * not. Publish, then deprecate, then remove.
+ */
+export function warnOnUnsafeMarker(
+  source: string,
+  warnings?: string[]
+): string {
+  if (!warnings) return source
+  const spans = findUnsafeSpans(source)
+  if (spans.length) {
+    warnings.push(
+      `\`unsafe\` is deprecated (${spans.length} use${
+        spans.length === 1 ? '' : 's'
+      }) and will be removed. ` +
+        'For `new Date(x)` use `LegacyDate(x)`. `var` and `eval` will simply be refused: ' +
+        'use `let`/`const`, and `Eval()` for sandboxed evaluation.'
+    )
+  }
+  return source
+}
+
 export function validateNoDate(source: string, warnings?: string[]): string {
   // The footgun is the Date OBJECT — mutable, timezone-dependent, and the source of most
   // date bugs. The numeric statics are not: `Date.now()`, `Date.parse()` and `Date.UTC()`
@@ -5073,7 +5109,13 @@ export function validateNoVar(source: string): string {
     source,
     maskLiterals(source),
     varPattern,
-    '`var` is not allowed in TJS — use `const` or `let`. If you genuinely need function-scoped hoisting, mark it: `unsafe var x = 1`.'
+    '`var` is not allowed in TJS — use `const` or `let`.\n\n' +
+      'There is no escape for this one, deliberately. `let` and `const` cover every\n' +
+      'legitimate use; what they do not cover is function-scoped HOISTING, which is the\n' +
+      'footgun `var` is banned for. Strict mode and ESM set the precedent: where they\n' +
+      'removed a legacy behaviour they removed it outright — there is no `unstrict` block\n' +
+      'and no way back to `with`. A language that takes something away and then hands you\n' +
+      'a trapdoor has not taken it away.'
   )
   return source
 }
@@ -5163,7 +5205,12 @@ export function validateNoEval(source: string, warnings?: string[]): string {
     source,
     scan,
     evalPattern,
-    '`eval()` is not allowed in TJS. Use `Eval()` from the TJS runtime for sandboxed evaluation, or mark a deliberate exception: `unsafe eval(src)`.'
+    '`eval()` is not allowed in TJS. Use `Eval()` from the TJS runtime for sandboxed\n' +
+      'evaluation — fuel-metered, capability-injected, and unable to reach this scope.\n\n' +
+      'There is no escape for this one, deliberately, and it could not be given one:\n' +
+      "direct `eval` is a syntactic form that sees the CALLER's scope, so any named\n" +
+      "wrapper would silently be a different operation. Reaching the caller's scope is\n" +
+      'precisely the part that is dangerous.'
   )
   // Match new Function() - but not SafeFunction or other *Function names
   // `new Function` is NOT abolished — it is simply unsafe, and there is no meaning-

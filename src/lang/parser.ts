@@ -73,6 +73,7 @@ import {
   transformBangAccess,
   transformExtensionCalls,
   transformLetTypeAnnotations,
+  warnOnUnsafeMarker,
 } from './parser-transforms'
 
 // Re-exported for the test emitter (`emitters/js-tests.ts`), which transforms
@@ -602,6 +603,9 @@ export function preprocess(
   // source must keep raw Date, or TJS would stop being a superset of JS.
   if (tjsModes.tjsDate) {
     validateNoDate(ruleSource, modeWarnings)
+    // RAW source, not `ruleSource` — `maskUnsafe` blanks exactly the spans this is looking
+    // for, which is its whole job for every other rule here.
+    warnOnUnsafeMarker(source, modeWarnings)
     // Same gate as raw Date: this is the "is this native TJS?" dialect flag, so plain JS
     // and TS-originated source keep `new` and TJS stays a superset.
     // Against the ORIGINAL source, not `ruleSource`. By this point the class transform

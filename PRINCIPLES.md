@@ -146,6 +146,48 @@ claim, and a measured, verified predicate over the real object is a fact. When
 the two conflict the annotation loses, and the useful artifact is the one you can
 execute.
 
+## An on-ramp and an off-ramp. No craters.
+
+**TJS provides two sanctioned paths and should not accumulate a third kind of thing.**
+
+- **The on-ramp** — `fromTS` / `dialect: 'js'`. Converted source keeps JavaScript semantics
+  _wholesale_, marked by the provenance annotation. You are not in TJS yet, and the file says so.
+- **The off-ramp** — graduation. Remove the annotation and opt into every rule at once
+  (`src/lang/graduate.ts`).
+
+Both are **file-level and total**. A file is either playing by JS rules or by TJS rules, and
+which one is legible at a glance.
+
+**A crater is a third thing: a per-construct hole in an otherwise-native file** — a way to keep
+one legacy behaviour without admitting the file is not ready. Craters are individually
+reasonable and collectively corrosive. Each one adds permanent surface area, and each one
+relieves exactly the pressure that would otherwise get the file graduated properly.
+
+The precedent is the one JavaScript itself set: **strict mode and ESM removed legacy behaviour
+without a trapdoor.** There is no `unstrict` block, no `/* @allow-with */`, no way back to
+`with` or to sloppy-mode `arguments` aliasing. Measured, `"use strict"` still permits `var` and
+`eval` — so the lesson is not _which_ constructs were removed, it is that **where something was
+removed, it was removed outright**. A language that takes something away and then hands you a
+way back has not taken it away; it has added a feature and a caveat.
+
+### The consequence, and the one honest exception
+
+Prefer refusing a construct to providing an escape for it. `var` has `let`/`const`; `eval()`
+has `Eval()`; both are refused outright, and neither loses functionality that the on-ramp does
+not already cover — if you truly need the legacy behaviour, you are describing a file that
+should not have graduated yet.
+
+The **named-confession** family (`DangerousLegacyEquals`, `LegacyDefault`, `LegacyDate`, …) is
+the exception, and it is only defensible as a **transition**, never as a resting place. Its job
+is to make an abolition _possible_: `unsafe` gated three unrelated things behind one vague
+marker and could not be removed in one step, because "what breaks if this goes?" had no
+answer. Naming each part makes each part individually greppable, individually measurable and
+therefore individually abolishable.
+
+So a confession earns its place by being **on a path to deletion**, and the test is whether
+anyone can say what would have to be true to remove it. If the answer is "nothing, it is just
+there now", it has become a crater.
+
 ## Language subset relationships
 
 ```

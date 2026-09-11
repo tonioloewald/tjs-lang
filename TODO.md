@@ -192,49 +192,42 @@ dashboard number into this list.
       it rejects `for` loops and `.push()` on a LOCAL array, both perfectly pure. A4c needs
       its own looser analysis; this fix makes the strict one _correct_, not _sufficient_.
 
-- [~] **Expunge the `unsafe` marker. `LegacyDate` DONE 2026-09-11; the other two cannot be
-  done the same way, and that is a finding.**
+- [~] **Abolish `unsafe`. Stage 1 SHIPPED 2026-09-11 (non-breaking); stage 2 is the removal.**
 
-      **Done:** `LegacyDate(x)` replaces `unsafe new Date(x)` — a named, greppable confession
-      beside `DangerousLegacyEquals` / `LegacyExactly` / `LegacyDefault`, rather than a generic
-      marker that says only "some rule does not apply here". The diagnostic now teaches it,
-      still pointing at `Timestamp` FIRST (the escape is not the advice). Guarded by
-      `src/lang/legacy-date.test.ts`, which pins the ordering of that message too, because the
-      diagnostic is the teaching moment.
+      Framing that decided the shape, and it is now in PRINCIPLES.md as
+      *"An on-ramp and an off-ramp. No craters."*: we provide a total, file-level on-ramp
+      (`dialect: 'js'` / the `fromTS` annotation) and a total off-ramp (graduation). A
+      per-construct hole in an otherwise-native file is a **crater** — individually reasonable,
+      collectively corrosive, and it relieves exactly the pressure that would get the file
+      graduated properly. Strict mode and ESM set the precedent: measured, they still permit
+      `var` and `eval`, so the lesson is not which constructs went but that **where something
+      was removed it was removed outright** — no `unstrict`, no way back to `with`.
 
-      **The other two are syntactically irreducible, measured not assumed:**
+      **Stage 1, done:**
+      - `LegacyDate(x)` replaces `unsafe new Date(x)` (named, greppable, in the `Legacy*`
+        family).
+      - `var` and `eval` diagnostics no longer advertise an escape, and say plainly that there
+        is not one and why.
+      - Every remaining `unsafe` use now emits a deprecation warning naming the replacements.
+        (It reads RAW source: `ruleSource` is `maskUnsafe(source)`, which blanks exactly the
+        spans this is looking for — that is its job for every other rule there.)
 
-      ```
-      function LegacyEval(s) { return eval(s) }
-      function caller() { const secret = 42
-        eval('secret')            -> 42
-        LegacyEval('secret')      -> ReferenceError: secret is not defined }
-      ```
+      **Stage 2 — the removal**, once a release carrying stage 1 has shipped (publish, then
+      deprecate, then remove):
+      - delete the `unsafe` keyword and its scanner (`findUnsafeSpans`, `maskUnsafe`),
+      - delete `/* @tjs-unsafe */` — one of the three comment channels gone, which is the
+        "we are not a preprocessor" goal,
+      - `UNSAFE_EXEMPT_RULES` goes with it; `no-explicit-new` does not fire during transpilation
+        (measured), so nothing floods,
+      - sweep `examples/datetime.tjs`, the only real `.tjs` source using it.
 
-      **`eval` cannot become a callable** — direct `eval` is a syntactic form that sees the
-      CALLER's scope, and any wrapper sees its own. `LegacyEval` would silently be a different
-      operation. **`var` cannot either** — it is a declaration, not an expression, so there is
-      no call to name.
-
-      So the confession route retires exactly one of three escapes. `unsafe` cannot be fully
-      expunged this way, and the remaining question is a product decision rather than a
-      technical one:
-
-      1. **Refuse both outright, delete `unsafe`.** `let`/`const` cover every legitimate `var`
-         except function-scoped hoisting (a footgun), and `Eval()` is the sanctioned sandboxed
-         path — reaching the caller's scope is precisely the dangerous part of direct `eval`.
-         Cleanest, and breaking for anyone relying on those two escapes.
-      2. **Keep `unsafe`, narrowed to exactly `var` and `eval`.** It stops meaning "some rule
-         does not apply" and starts meaning "I need a syntactic form the language refuses" —
-         which addresses the actual complaint (a marker that never says which rule it suspends)
-         without breaking anyone.
-
-      Either way `/* @tjs-unsafe */` survives only as long as `unsafe` does, so option 1 also
-      retires one of the three comment channels (the "we are not a preprocessor" goal).
-
-      Usage today: `unsafe new Date` 69 mentions, `unsafe var` 19, `unsafe eval` 9 — mostly
-      docs and fixtures; the only real `.tjs` source use is `examples/datetime.tjs`, which
-      should move to `LegacyDate` regardless.
+      **`LegacyDate` is a transition, not a resting place.** By the principle above, a
+      confession earns its place by being on a path to deletion, and the test is whether anyone
+      can say what would have to be true to remove it. Here: an interop story for code that
+      genuinely needs a `Date` INSTANCE rather than an epoch-ms `Timestamp`. Until that exists
+      it stays; once it does, `LegacyDate` goes the same way as `unsafe` — and unlike `unsafe`
+      it can, because it is one named thing rather than three unrelated ones behind a vague
+      marker. That is what naming bought.
 
 - [ ] **A5 — get the compat lanes into CI.** `test:compat-scan` is the lane most likely to
       catch this defect class and it runs only when someone invokes it. It needs clones, so
