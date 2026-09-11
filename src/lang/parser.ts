@@ -12,6 +12,8 @@ import {
   stripLineComments,
   maskUnsafe,
   stripUnsafeMarkers,
+  blankDocComments,
+  findDocCommentSpans,
   hashbangOf,
 } from '../strip-comments'
 export { stripLineComments } from '../strip-comments'
@@ -150,6 +152,27 @@ export function preprocess(
   const shebang = hashbangOf(source)
   if (shebang)
     source = ' '.repeat(shebang.length) + source.slice(shebang.length)
+
+  // TJS doc comments (`/# … #/`) are blanked FIRST, beside the hashbang, and for the same
+  // reason: neither is valid JavaScript, so acorn must never see either one.
+  //
+  // They are blanked rather than deleted so every later pass — and every diagnostic — still
+  // reports the right line and column. That is the same trick the hashbang line above uses.
+  //
+  // Order matters more than it looks. This runs before ANY other transform, because a doc
+  // comment exists to quote syntax: one containing `test '…' {` or `wasm function` or an
+  // `unsafe` marker would otherwise be read as the construct it is describing. Blanking them
+  // up front means the ~30 passes downstream cannot see into them at all, which is a
+  // structural fix for this project's dominant defect class rather than another scanner that
+  // has to remember.
+  //
+  // `.tjs` ONLY, deliberately. `/# … #/` is TJS syntax; a `.ts` file cannot contain it, and
+  // TS-originated source keeps `/*# … */` — which remains an ordinary, perfectly good block
+  // comment here, just not a doc comment any more.
+  const docComments = findDocCommentSpans(source).map(
+    ([a, b]) => [a, b, source.slice(a, b)] as const
+  )
+  if (docComments.length) source = blankDocComments(source)
 
   const originalSource = source
   let moduleSafety: 'none' | 'inputs' | 'all' | undefined

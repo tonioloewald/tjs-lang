@@ -114,6 +114,7 @@ import {
   hashbangOf,
 } from '../../strip-comments'
 import { UNWRAP_BOXED_SOURCE } from '../../unwrap-boxed'
+import { blankDocComments } from '../../strip-comments'
 import { RT_NS } from '../rt-namespace'
 import { extractTests } from '../tests'
 import {
@@ -1020,6 +1021,21 @@ export function transpileToJS(
   // Extract source file annotation if present (from TS transpilation)
   const sourceFileAnnotation = extractSourceFileAnnotation(source)
   const effectiveFilename = sourceFileAnnotation || filename
+
+  // Blank TJS doc comments BEFORE anything else reads the source.
+  //
+  // `preprocess` does this too, but it runs later — and `extractTests` below is earlier, so a
+  // `test '…' { … }` written INSIDE a doc comment was extracted and run. A doc comment exists
+  // to quote syntax, so it is the one place in a file most likely to contain the constructs
+  // every scanner is hunting for; blanking it at the first point any pass touches the source
+  // is what makes the other ~30 passes structurally unable to see into it.
+  //
+  // Idempotent: blanked spans no longer contain `/#`, so `preprocess` doing it again is a
+  // no-op rather than a second edit.
+  // `dialect: 'js'` keeps plain-JS semantics, and in plain JS `/#…#/` is a regex. Blanking it
+  // there would make legal JavaScript illegal — the subset invariant this syntax was
+  // designed around (PRINCIPLES.md invariant 1).
+  if (options.dialect !== 'js') source = blankDocComments(source)
 
   // Extract test/mock blocks before parsing (they're not valid JS)
   const { code: cleanSource, tests, mocks, testRunner } = extractTests(source)

@@ -9,6 +9,39 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **`/# … #/` — a doc comment TJS actually owns.** Multi-line, nestable, and able to quote any
+  syntax without escaping.
+
+  `/*# … */` is an ordinary JavaScript block comment, so it inherits the rule that block
+  comments do not nest and ends at the first `*/` inside it. A doc comment that cannot contain
+  `*/` cannot document comment syntax — which is exactly what a language's own documentation
+  must do. Escaping works and is what this repo did; an escape you must remember is a trap that
+  fails as a parse error some distance from the cause.
+
+  **Claiming this syntax takes nothing away from anyone**, and that is measured rather than
+  estimated:
+
+  ```
+  const re = /# comment #/       parses — a regex matching #comment#
+  const re = /# one
+               two #/            SyntaxError: Unterminated regular expression
+  ```
+
+  A regex literal cannot contain a raw newline, so the multi-line form is _already_ illegal
+  JavaScript. The newline requirement is not a style rule — it is the whole
+  subset-preservation argument (`PRINCIPLES.md` invariant 1), and single-line `/#…#/` stays a
+  regex forever. Under `dialect: 'js'` the syntax is left entirely alone.
+
+  **Doc comments are blanked at the first point any pass touches the source**, which is the
+  structural payoff: a doc comment exists to QUOTE syntax, so it is the place in a file most
+  likely to contain the constructs every scanner is hunting for. Blanking it up front means the
+  ~30 downstream passes cannot see into it at all — a structural fix for this project's
+  dominant defect class rather than one more scanner that has to remember. A `test '…' { … }`,
+  a `wasm function`, an `unsafe` marker or a `Type` declaration written inside one is inert.
+
+  `/*# … */` is **retired as a doc comment** but remains a perfectly good block comment, and
+  stays the convention in `.ts` sources, where `/# … #/` cannot parse.
+
 - **`unsafe` is deprecated.** Every remaining use now warns, naming its replacement. The
   marker is the only escape in this language that does not say WHICH rule it suspends, and it
   is what drags `/* @tjs-unsafe */` along as a comment channel.

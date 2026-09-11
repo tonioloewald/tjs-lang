@@ -20,6 +20,7 @@
 import { describe, it, expect } from 'bun:test'
 import { parse } from 'acorn'
 import { findDocCommentSpans, blankDocComments } from '../strip-comments'
+import { tjs } from './index'
 
 const spans = (src: string) => findDocCommentSpans(src)
 const isValidJs = (src: string) => {
@@ -119,5 +120,59 @@ describe('blanking preserves offsets and line numbers', () => {
   it('leaves a single-line regex alone (control)', () => {
     const src = `const re = /# x #/\nconst a = 1`
     expect(blankDocComments(src)).toBe(src)
+  })
+})
+
+describe('a doc comment is INERT — no downstream pass sees into it', () => {
+  // The structural payoff, and the reason blanking happens at the first point any pass
+  // touches the source rather than inside `preprocess`. A doc comment exists to QUOTE syntax,
+  // so it is the single place in a file most likely to contain the constructs every scanner
+  // is hunting for. Blanking it up front makes the ~30 downstream passes unable to see into
+  // it at all — a structural fix for this project's dominant defect class, rather than one
+  // more scanner that has to remember.
+  //
+  // Found by this test: `transpileToJS` calls `extractTests` on RAW source, BEFORE
+  // `preprocess` runs, so a `test '…' { … }` written inside a doc comment was extracted and
+  // executed. Blanking in `preprocess` alone was too late.
+  const QUOTING = [
+    "Use a test block: test 'adds' { expect(1).toBe(1) }",
+    'Mark legacy code: unsafe new Date(x)',
+    'Declare a type: Type Age 0',
+    'Compile natively: wasm function dot(a: Float32Array, n: i32): f64 { }',
+    'Compare deeply: a Is b',
+  ]
+
+  const source = `/# ## Documenting TJS\n${QUOTING.join(
+    '\n'
+  )}\n#/\nfunction f(a: 0): 0 { return a }`
+
+  it('no test block is extracted from inside it', () => {
+    const r = tjs(source, { filename: 'a.tjs', runTests: 'report' }) as any
+    // The signature test for `f` is legitimate and expected; nothing else should appear.
+    const fromDoc = (r.testResults ?? []).filter(
+      (t: any) =>
+        !t.isSignatureTest && !String(t.description).includes('signature')
+    )
+    expect(fromDoc).toEqual([])
+  })
+
+  it('no warning is raised by the constructs it quotes', () => {
+    const r = tjs(source, { filename: 'a.tjs', runTests: false }) as any
+    expect(r.warnings ?? []).toEqual([])
+  })
+
+  it('and the code around it still compiles and runs', () => {
+    const r = tjs(source, { filename: 'a.tjs', runTests: false })
+    const f = new Function(`${r.code}\nreturn f`)() as any
+    expect(f(7)).toBe(7)
+  })
+
+  it('under dialect js it is left alone — there it is a regex', () => {
+    // PRINCIPLES.md invariant 1: plain-JS semantics must be preserved, and in plain JS
+    // `/#…#/` is a regex literal. Blanking it there would make legal JavaScript illegal.
+    const js = `const re = /# x #/\nexport const a = 1`
+    expect(tjs(js, { dialect: 'js', runTests: false }).code).toContain(
+      '/# x #/'
+    )
   })
 })
