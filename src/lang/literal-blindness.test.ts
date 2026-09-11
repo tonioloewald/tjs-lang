@@ -1265,3 +1265,32 @@ describe('a quoted `Is` operator is DATA — not an operator', () => {
     expect(out.code).toContain("'lit'")
   })
 })
+
+describe('a `/# … #/` doc comment quoted as data is DATA', () => {
+  // The newest source-rewriting construct, pinned on arrival rather than after it ships
+  // broken — "add a row when you add a source-rewriting pass" is the rule this file states.
+  //
+  // Two directions matter here, and they pull opposite ways. The scan must ignore a doc
+  // comment written inside a literal; and it must NOT lex the doc comment's own CONTENT,
+  // because a doc comment exists to quote `*/`, `/*` and `//`, and masking those as comments
+  // eats its terminator.
+  const QUOTED = [
+    ['double quotes', 'const doc = "/# quoted\\n #/"'],
+    ['template literal', 'const doc = `/# quoted\n #/`'],
+  ] as const
+
+  for (const [label, decl] of QUOTED) {
+    it(`is left byte-identical — ${label}`, () => {
+      const src = `${decl}\nfunction f(a: 0) { return a }`
+      expect(tjs(src, { filename: 'a.tjs' }).code).toContain(decl)
+    })
+  }
+
+  it('a single-line /#…#/ stays a REGEX, because it is legal JavaScript', () => {
+    // The subset-preservation rule: a regex literal cannot contain a newline, so only the
+    // multi-line form is ours to claim. Claiming the single-line form would make legal JS
+    // illegal (PRINCIPLES.md invariant 1).
+    const src = `const re = /# x #/\nfunction f(a: 0) { return a }`
+    expect(tjs(src, { filename: 'a.tjs' }).code).toContain('/# x #/')
+  })
+})

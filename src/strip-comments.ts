@@ -607,6 +607,117 @@ export function stripComments(source: string): string {
  * `${...}` is vanishingly rare, and treating one as a dispatch variant would be wrong
  * anyway.
  */
+/**
+ * Find TJS doc-comment spans: `/# … #/`, multi-line, nestable.
+ *
+ * ## Why TJS has its own doc comment at all
+ *
+ * `/*# … *\/` is an ordinary JavaScript block comment, which means it inherits JavaScript's
+ * rule that block comments **do not nest** — so it terminates at the first `*\/` inside it.
+ * A doc comment that cannot contain `*\/` cannot document comment syntax, which is precisely
+ * what a language's own documentation needs to do. Escaping (`*\\/`) works and is what this
+ * repo did, but an escape you must remember is a trap, and the failure is a parse error some
+ * distance from the cause.
+ *
+ * ## Why `/# … #/` is safe to claim
+ *
+ * Single-line `/# x #/` is **valid JavaScript today** — a regex literal matching `#x#` — so
+ * claiming it outright would make legal JS illegal and violate `PRINCIPLES.md` invariant 1.
+ *
+ * A regex literal cannot contain a raw newline. So a `/# … #/` span **containing a newline**
+ * is already `Unterminated regular expression` — not legal JavaScript by any reading — and
+ * claiming it takes nothing away from anyone. Measured, not estimated:
+ *
+ *     const re = /# comment #/          -> parses (regex)
+ *     const re = /# one\n two #/         -> SyntaxError: Unterminated regular expression
+ *
+ * Hence the newline requirement below. It is not a style rule; it is the entire
+ * subset-preservation argument, and a single-line `/#…#/` stays a regex forever.
+ *
+ * ## Why this scans the MASKED view
+ *
+ * Naively scanning raw text walks straight into this project's dominant defect class:
+ *
+ *     const a = /#/        // a legitimate single-line regex
+ *     const s = "#/"       // a string that happens to contain #/
+ *
+ * A raw scan spans from the regex into the string and calls the result a doc comment. Over
+ * `maskLiterals` it finds nothing, correctly.
+ *
+ * Nesting is depth-counted because we own the delimiter and nothing inside competes for it —
+ * which is the whole point: a TJS doc comment can quote `/*`, `*\/`, `/*# … *\/`, and other
+ * doc comments, with no escaping at all.
+ */
+export function findDocCommentSpans(source: string): Array<[number, number]> {
+  // Scanned on RAW text, with only the OPENING position validated against the lexer.
+  //
+  // A doc comment is lexically outermost — it is a comment — so its CONTENT must not be
+  // lexed. Masking first looks right and is not: in
+  //
+  //     /# docs
+  //     write */ here #/
+  //
+  // the masker reads the `/` of that stray `*/` as a regex start and blanks ` here #`,
+  // destroying the doc comment's own terminator. To know the `*/` is inside a doc comment you
+  // must already know where the doc comment is, which is the thing being computed. So the
+  // only lexing that happens here is on the OPENER: a `/#` that sits inside a string,
+  // template or comment is not an opener.
+  const regions = scanLiterals(source)
+  const insideLiteral = (offset: number): boolean =>
+    regions.some((r) => offset >= r.start && offset < r.end)
+
+  const spans: Array<[number, number]> = []
+  let i = 0
+  while (i < source.length - 1) {
+    if (source[i] !== '/' || source[i + 1] !== '#' || insideLiteral(i)) {
+      i++
+      continue
+    }
+    let depth = 1
+    let j = i + 2
+    let sawNewline = false
+    let firstCloseWasSingleLine = false
+    while (j < source.length - 1 && depth > 0) {
+      if (source[j] === '\n') sawNewline = true
+      if (source[j] === '/' && source[j + 1] === '#') {
+        depth++
+        j += 2
+        continue
+      }
+      if (source[j] === '#' && source[j + 1] === '/') {
+        // A close reached without ever crossing a newline means this was a single-line
+        // `/#…#/` — a REGEX LITERAL, valid JavaScript, and not ours to claim. That rule is
+        // the whole subset-preservation argument (a regex cannot contain a raw newline), so
+        // it is checked at the first close rather than over the whole span.
+        if (!sawNewline) firstCloseWasSingleLine = true
+        depth--
+        j += 2
+        continue
+      }
+      j++
+    }
+    if (depth !== 0 || !sawNewline || firstCloseWasSingleLine) {
+      i++
+      continue
+    }
+    spans.push([i, j])
+    i = j
+  }
+  return spans
+}
+
+/** Replace every TJS doc comment with equivalent whitespace, preserving offsets. */
+export function blankDocComments(source: string): string {
+  const spans = findDocCommentSpans(source)
+  if (!spans.length) return source
+  let out = source
+  for (const [start, end] of spans.reverse()) {
+    const blanked = source.slice(start, end).replace(/[^\n]/g, ' ')
+    out = out.slice(0, start) + blanked + out.slice(end)
+  }
+  return out
+}
+
 export function maskLiterals(source: string): string {
   return memoizedMask('literals', source, () =>
     blankRegions(source, (r) =>
