@@ -281,6 +281,28 @@ across nested runs, `membraneMaxBytes`, and `maxHeapBytes`. Their spec needs per
 sets and fuel metering; the quota/membrane story is what stops one stored procedure from
 spending another's budget.
 
+## THE ENDGAME (stated 2026-09-11) — read before planning any Phase B work
+
+**tjs-lang becomes a clean language implementation. tosijs-ui's doc system becomes a clean
+build/hosting platform. The playground disappears between them.**
+
+After 0.14.0 the demo site is just a tosijs-ui hosted site, and the playground falls out of
+`live-example` — possibly joined by a `tosi-ide`-style unbundled development tool built from
+the same components. We are not porting a playground; we are **retiring** one.
+
+**Verified, and it is the fact that makes this safe:** `demo/` is not published at all. Not in
+`files`, zero entries in the tarball, no export points into it. So the ~10,500 lines of
+`demo/src` are invisible to every consumer, and:
+
+- **Anything that improves or does not break the LANGUAGE side cannot hurt consumers before
+  0.14.0.** Patch releases in this window carry no playground risk by construction.
+- **Do not invest in reconciling their generated nav/layout with `demo/src/index.ts`.** That
+  file is going away. Work that only exists to keep the bespoke playground shell alive is work
+  we are about to delete.
+- The useful Phase B work is therefore the part that survives: the doc CORPUS (done —
+  `bin/site.ts`), the site build, and anything the language side needs to be a good citizen of
+  their doc system (Prism definitions — done).
+
 ## Phase B — migrate to the tosijs-ui build/doc system
 
 Target shape is what `tosijs` already does: a `*-site.config.ts` via `defineSiteConfig`, and a
@@ -318,28 +340,18 @@ tooling** and **~10,500 lines of demo**, and only the first group is a like-for-
       `demo/src/index.ts` — which is where B1 meets B2 and where the remaining 49
       `checkExamples` failures live (blocked on their live-examples opt-in).
 
-- [ ] **B2 — the playground port, RESIZED DOWN 2026-09-04 after actually reading
-      `live-example`.** The first estimate ("~3,500 lines, a port not a swap") was made from
-      our side only and was too pessimistic. `tosijs-ui/src/live-example` is ~5,500 lines and
-      already has: **iframe-isolated execution** (`execution.ts`), **split-window output over
-      BroadcastChannel with a localStorage fallback** (`remote-sync.ts`), a **test harness**,
-      **scope autocomplete**, `save-to-source`, and an `example-store`. It already transpiles
-      **TJS and TS**, loading `tjs-lang/browser` same-origin-first with a jsdelivr→unpkg→esm.sh
-      fallback chain.
-      So the capabilities we assumed we would have to contribute — iframe isolation, the
-      documentation/output pane — are already there. **Read the component before budgeting the
-      port**; the lesson is that both the "we must build it" and the "we must ask for it"
-      instincts were wrong, and one afternoon of reading settled it.
-      Genuinely open, asked in [tosijs-ui#135]: (a) does a **dialect selector** (TJS/TS/AJS)
-      belong in the component, or is dialect a per-example authoring choice? (b) is
-      `tjs-lang/import-resolver` worth merging with their module-cache service worker? We
-      offered implementation for both. (c) the **user module store + auth** is probably ours to
-      keep — an app feature, not a doc-site one.
-      **Blocked until the pin moves:** they are on tjs-lang 0.13.4, which mis-parses quoted
-      test blocks in the host page. Porting our examples onto it would silently delete every
-      example that shows a `test` block.
-
-      [tosijs-ui#135]: https://github.com/tonioloewald/tosijs-ui/issues/135
+- [ ] **B2 — RETIRE the playground (was: "the playground port").** Renamed 2026-09-11 after
+      the endgame above was stated, because "port" implied moving ~10,500 lines that are
+      instead going to be deleted. `live-example` already has iframe isolation, split-window
+      output over BroadcastChannel, a test harness and scope autocomplete, and it transpiles
+      TJS and TS. What we keep is what is genuinely ours: the user module store and auth (an
+      app feature, not a doc-site one).
+      **Blocked until they move off `tjs-lang@0.13.11`** (tosijs-ui#135 — 0.13.12 has been
+      published since 2026-09-07, so this is purely their bump now). Porting examples onto
+      `live-example` before that would silently delete every example showing a `test` block.
+      Open questions asked upstream: does a dialect selector belong in the component, and is
+      `tjs-lang/import-resolver` worth merging with their module-cache worker? (They answered
+      the second: they already ship OURS.)
 
 - [x] **B3 — the fate of Firebase: DECIDED 2026-09-04, we stay on it.** Cloud Functions stay
       on Firebase, and hosting stays with them. That is not just inertia: `firebase.json`
