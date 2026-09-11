@@ -4881,7 +4881,8 @@ export function validateNoDate(source: string, warnings?: string[]): string {
         '  const t = Timestamp.now()          // wall-clock, epoch ms\n' +
         '  const t = Timestamp.from(iso)      // parse\n\n' +
         'Or `performance.now()` for a monotonic counter — no import needed. ' +
-        'To keep Date deliberately: `unsafe new Date(x)`.',
+        'To keep Date deliberately: `LegacyDate(x)` — named and greppable, ' +
+        'like every other escape in this language.',
     },
   ]
   const warns = [

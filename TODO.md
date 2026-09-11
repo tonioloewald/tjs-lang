@@ -192,53 +192,49 @@ dashboard number into this list.
       it rejects `for` loops and `.push()` on a LOCAL array, both perfectly pure. A4c needs
       its own looser analysis; this fix makes the strict one _correct_, not _sufficient_.
 
-- [ ] **Expunge the `unsafe` marker — replace one vague marker with named confessions.**
-      Tonio's direction (the `LegacyDate` idea). **This entry corrects an analysis I gave in
-      conversation and got wrong**, which is why it is written down.
+- [~] **Expunge the `unsafe` marker. `LegacyDate` DONE 2026-09-11; the other two cannot be
+  done the same way, and that is a finding.**
 
-      **Wrong version:** "`unsafe` exempts exactly one rule (`no-explicit-new`), so
-      `new Date(x)` is a FALSE POSITIVE, and narrowing the rule deletes the feature." That
-      came from reading `UNSAFE_EXEMPT_RULES` in the LINTER and stopping there.
+      **Done:** `LegacyDate(x)` replaces `unsafe new Date(x)` — a named, greppable confession
+      beside `DangerousLegacyEquals` / `LegacyExactly` / `LegacyDefault`, rather than a generic
+      marker that says only "some rule does not apply here". The diagnostic now teaches it,
+      still pointing at `Timestamp` FIRST (the escape is not the advice). Guarded by
+      `src/lang/legacy-date.test.ts`, which pins the ordering of that message too, because the
+      diagnostic is the teaching moment.
 
-      **Measured:**
+      **The other two are syntactically irreducible, measured not assumed:**
 
       ```
-      raw new Date(x)      -> REJECTED: `new Date()` is not allowed in TJS — the Date object is mutable
-      unsafe new Date(x)   -> OK
-      var                  -> REJECTED: use `const` or `let`
-      eval                 -> REJECTED: use `Eval()` from the TJS runtime
-      new Map()            -> OK          <- no-explicit-new does NOT fire
+      function LegacyEval(s) { return eval(s) }
+      function caller() { const secret = 42
+        eval('secret')            -> 42
+        LegacyEval('secret')      -> ReferenceError: secret is not defined }
       ```
 
-      So `unsafe` gates **three deliberate bans in the PARSER** — `Date`, `var`, `eval` — not
-      one lint rule, and there is no builtin false-positive problem to fix. The bans are by
-      design, each with a stated reason.
+      **`eval` cannot become a callable** — direct `eval` is a syntactic form that sees the
+      CALLER's scope, and any wrapper sees its own. `LegacyEval` would silently be a different
+      operation. **`var` cannot either** — it is a declaration, not an expression, so there is
+      no call to name.
 
-      **Which makes `LegacyDate` right, and my objection to it wrong.** It matches a pattern
-      the language already has — `DangerousLegacyEquals`, `LegacyExactly`, `LegacyDefault`:
-      named, greppable confessions (see *"Make stupid stuff stand out"* in PRINCIPLES.md).
-      `unsafe` is the odd one out, a GENERIC marker that says "some rule does not apply here"
-      without saying which.
+      So the confession route retires exactly one of three escapes. `unsafe` cannot be fully
+      expunged this way, and the remaining question is a product decision rather than a
+      technical one:
 
-      | banned | today | replacement |
-      | --- | --- | --- |
-      | `new Date(x)` | `unsafe new Date(x)` | `LegacyDate(x)` |
-      | `eval(s)` | `unsafe eval(s)` | `Eval()` — already exists, the error already says so |
-      | `var x` | `unsafe var x` | **no obvious callable form** — a declaration, not an expression |
+      1. **Refuse both outright, delete `unsafe`.** `let`/`const` cover every legitimate `var`
+         except function-scoped hoisting (a footgun), and `Eval()` is the sanctioned sandboxed
+         path — reaching the caller's scope is precisely the dangerous part of direct `eval`.
+         Cleanest, and breaking for anyone relying on those two escapes.
+      2. **Keep `unsafe`, narrowed to exactly `var` and `eval`.** It stops meaning "some rule
+         does not apply" and starts meaning "I need a syntactic form the language refuses" —
+         which addresses the actual complaint (a marker that never says which rule it suspends)
+         without breaking anyone.
 
-      `var` is the open design question and the reason this is not purely mechanical: there is
-      no expression form to name. Either it keeps a marker of its own, or `var` is refused
-      outright with no escape.
+      Either way `/* @tjs-unsafe */` survives only as long as `unsafe` does, so option 1 also
+      retires one of the three comment channels (the "we are not a preprocessor" goal).
 
-      **It also removes `/* @tjs-unsafe */`** — the TS-side bridge that exists only to carry
-      `unsafe` through a file `tsc` must accept — which is one of the three comment channels
-      gone. 5 uses in the repo. Same campaign as [#53]: stop expressing language semantics in
-      comments.
-
-      Removing the `unsafe` KEYWORD is a breaking change and a separate call from adding the
-      named forms; the two can ship in either order, with a deprecation window between.
-
-      [#53]: https://github.com/tonioloewald/tjs-lang/issues/53
+      Usage today: `unsafe new Date` 69 mentions, `unsafe var` 19, `unsafe eval` 9 — mostly
+      docs and fixtures; the only real `.tjs` source use is `examples/datetime.tjs`, which
+      should move to `LegacyDate` regardless.
 
 - [ ] **A5 — get the compat lanes into CI.** `test:compat-scan` is the lane most likely to
       catch this defect class and it runs only when someone invokes it. It needs clones, so

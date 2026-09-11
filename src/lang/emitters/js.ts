@@ -1714,6 +1714,7 @@ export function transpileToJS(
   const needsLegacyExactly = code.includes('LegacyExactly(')
   const needsLegacyNotExactly = code.includes('LegacyNotExactly(')
   const needsLegacyDefault = code.includes('LegacyDefault(')
+  const needsLegacyDate = code.includes('LegacyDate(')
   const needsTypeOf = code.includes('TypeOf(')
   const needsOneOf = code.includes('__oneOf(')
   // Type system constructors (from Type/Generic/FunctionPredicate/Enum/Union declarations)
@@ -1748,6 +1749,7 @@ export function transpileToJS(
   const needsCheckFnShape = code.includes('__tjs.checkFnShape(')
 
   const needsRuntime =
+    needsLegacyDate ||
     needsTypeError ||
     needsStack ||
     needsIs ||
@@ -1881,6 +1883,13 @@ export function transpileToJS(
     }
     if (needsLegacyDefault) {
       inlineParts.push(`function LegacyDefault(v){return v}`)
+    }
+    // `new Date()` is banned in native TJS — mutable, timezone-dependent — and `Timestamp` is
+    // the remedy. This is the deliberate exception, given a NAME instead of the generic
+    // `unsafe` marker: named, greppable, and ugly enough to notice in review, like every other
+    // escape in the language. See PRINCIPLES.md, "Make stupid stuff stand out".
+    if (needsLegacyDate) {
+      inlineParts.push(`function LegacyDate(...a){return new Date(...a)}`)
     }
 
     // TypeOf (honest typeof)
@@ -2147,6 +2156,7 @@ export function transpileToJS(
     if (needsLegacyExactly) rtExports.push('LegacyExactly')
     if (needsLegacyNotExactly) rtExports.push('LegacyNotExactly')
     if (needsLegacyDefault) rtExports.push('LegacyDefault')
+    if (needsLegacyDate) rtExports.push('LegacyDate')
     if (needsTypeOf) rtExports.push('TypeOf')
     if (needsIs) rtExports.push('Is', 'tjsEquals')
     if (needsIsNot) rtExports.push('IsNot')

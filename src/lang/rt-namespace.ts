@@ -81,6 +81,7 @@ export const RT_NAMES = [
   'LegacyExactly',
   'LegacyNotExactly',
   'LegacyDefault',
+  'LegacyDate',
 ] as const
 
 export type RtName = (typeof RT_NAMES)[number]

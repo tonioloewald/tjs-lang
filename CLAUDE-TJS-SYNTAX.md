@@ -43,6 +43,7 @@ construct to mark — it is still spelled the same — so `unsafe` cannot help. 
 | function                      | is exactly JavaScript's…                                          |
 | ----------------------------- | ----------------------------------------------------------------- |
 | `DangerousLegacyEquals(a, b)` | `a == b` (coercion and all)                                       |
+| `LegacyDate(x)`               | `new Date(x)` — raw `Date` is banned; `Timestamp` is the remedy   |
 | `DangerousLegacyNot(a, b)`    | `a != b`                                                          |
 | `LegacyExactly(a, b)`         | `a === b` (NaN is not itself; a boxed primitive is not its value) |
 | `LegacyNotExactly(a, b)`      | `a !== b`                                                         |
