@@ -461,7 +461,7 @@ AJS expressions behave differently from JavaScript in several important ways:
 - **Null member access is safe by default**: `null.foo.bar` returns `undefined` silently (uses `?.` semantics internally). This differs from JavaScript which would throw `TypeError`.
 - **No computed member access with variables**: `items[i]` fails at transpile time with "Computed member access with variables not yet supported". Literal indices work (`items[0]`, `obj["key"]`). Workaround: use `.map`/`.reduce` atoms instead.
 - **Unknown atom errors**: When an atom doesn't exist, the error is `"Unknown Atom: <name>"` with no listing of available atoms.
-- **TJS parameter syntax is NOT TypeScript**: `function foo(x: 'default')` means "required param, example value 'default'" — not a TypeScript string literal type. LLMs consistently generate `function foo(x: string)` which is wrong. The colon value is an _example_, not a _type annotation_.
+- **TJS parameter syntax is NOT TypeScript**: `function foo(x: 'default')` means "required param, example value 'default'" — not a TypeScript string literal type. The colon value is an _example_, not a _type annotation_. **But `function foo(x: string)` is NOT an error** — bare type names (`string`, `number`, `boolean`, …) resolve through `TYPE_NAMES` (`src/lang/inference.ts`) and validate correctly, on the TJS _and_ AJS paths. This entry used to say that spelling "is wrong", and it was stale: the language absorbed the most common LLM mistake instead of diagnosing it. Pinned by `src/lang/ajs-type-annotations.test.ts`, which exists because the only record of this behaviour used to be two silent regex repairs in the grokkability harness — so the fix never showed up in the number meant to measure it.
 
 ## Testing Strategy
 

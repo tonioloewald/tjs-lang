@@ -48,14 +48,44 @@ function stripCodeFences(code: string): string {
     .trim()
 }
 
-function fixCommonMistakes(code: string): string {
-  code = code.replace(
-    /template\(\s*\{\s*tmpl:\s*`([^`$]*)`/g,
-    "template({ tmpl: '$1'"
-  )
-  code = code.replace(/:\s*string\b(?!\s*[=)])/g, ": ''")
-  code = code.replace(/:\s*number\b(?!\s*[=)])/g, ': 0')
-  return code
+/**
+ * Repairs applied to model output — NAMED, and scored separately from the rate.
+ *
+ * These used to be applied silently before measuring, which made the reported number a
+ * post-repair rate wearing a raw rate's label. That hid two different things at once:
+ *
+ *   - Two of the three repairs were DEAD. They rewrote `: string` -> `: ''` and
+ *     `: number` -> `: 0`, the mistake CLAUDE.md calls "the single most common LLM
+ *     mistake" — but the language grew bare type-name support (`TYPE_NAMES`, see
+ *     `src/lang/inference.ts`) and both spellings now work on the AJS path unchanged.
+ *     The harness had been repairing something we had already fixed, so the improvement
+ *     never showed up in the number it was supposed to improve. Deleted; pinned
+ *     deterministically by `ajs-type-annotations.test.ts` so they cannot come back.
+ *   - One is LIVE but NARROWER than it reads. `[^`$]*` excludes `$`, so it matches only a
+ *     backtick string with NO interpolation — a gratuitous backtick, which it rewrites to
+ *     a quoted string. The mistake that actually matters, an INTERPOLATED template
+ *     (`` `Hi ${name}` ``, where the model wanted AJS's `vars`), does not match and has
+ *     always been counted as a miss. Worth stating because the name alone suggests it
+ *     covers template literals generally, and a reader trusting that would conclude the
+ *     interesting case was being papered over when it was not.
+ *
+ * So: the reported rate is now the RAW rate, and each repair reports what it would have
+ * recovered. A repair that recovers nothing is dead and should be deleted; one that
+ * recovers a lot is a language gap with a measured price tag.
+ */
+const REPAIRS: Array<{ name: string; apply: (code: string) => string }> = [
+  {
+    name: 'gratuitous backticks -> quoted string (non-interpolated tmpl only)',
+    apply: (code) =>
+      code.replace(
+        /template\(\s*\{\s*tmpl:\s*`([^`$]*)`/g,
+        "template({ tmpl: '$1'"
+      ),
+  },
+]
+
+function applyRepairs(code: string): string {
+  return REPAIRS.reduce((c, r) => r.apply(c), code)
 }
 
 // The exact prompt users get — tests must measure real usage, not a private prompt.
@@ -207,21 +237,40 @@ describe.skipIf(!RUN)(
         if (!pinAvailable || !predict) return
 
         let ok = 0
+        let recovered = 0
         const misses: string[] = []
-        for (let i = 0; i < SAMPLES; i++) {
+
+        /** Run one candidate end to end. Returns null on success, else the miss reason. */
+        const attempt = async (code: string): Promise<string | null> => {
           try {
-            const resp = await predict(
-              'You are a code generator. Output only valid AJS code.',
-              task.prompt
-            )
-            const code = fixCommonMistakes(stripCodeFences(resp.content))
             const ast = ajs(code)
             const exec = await new AgentVM(task.atoms || {}).run(ast, task.args)
-            if (task.check(exec)) ok++
-            else misses.push('wrong result')
+            return task.check(exec) ? null : 'wrong result'
           } catch (e: any) {
-            misses.push((e?.message || String(e)).split('\n')[0].slice(0, 80))
+            return (e?.message || String(e)).split('\n')[0].slice(0, 80)
           }
+        }
+
+        for (let i = 0; i < SAMPLES; i++) {
+          const resp = await predict(
+            'You are a code generator. Output only valid AJS code.',
+            task.prompt
+          )
+          const raw = stripCodeFences(resp.content)
+
+          // The measured number is what the model produced, unassisted.
+          const rawMiss = await attempt(raw)
+          if (rawMiss === null) {
+            ok++
+            continue
+          }
+          misses.push(rawMiss)
+
+          // Repairs do not change the score. They price the gap they paper over: a
+          // sample only the repairs can save is one our language could have accepted.
+          const repaired = applyRepairs(raw)
+          if (repaired !== raw && (await attempt(repaired)) === null)
+            recovered++
         }
 
         const rate = ok / SAMPLES
@@ -232,6 +281,13 @@ describe.skipIf(!RUN)(
             rate * 100
           )}% ` + `[${label}] (bar ${Math.round(THRESHOLD * 100)}%)`
         )
+        if (recovered) {
+          console.log(
+            `  [gap] ${recovered}/${SAMPLES} more would pass if AJS accepted what the ` +
+              `repairs rewrite — a language gap, not model error. Repairs: ` +
+              REPAIRS.map((r) => r.name).join('; ')
+          )
+        }
         if (misses.length) {
           const counts = misses.reduce<Record<string, number>>((a, m) => {
             a[m] = (a[m] || 0) + 1

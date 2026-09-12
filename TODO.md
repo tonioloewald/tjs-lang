@@ -977,6 +977,40 @@ the recording instead.
       saturated and cannot compare phrasings. Needs a harder task or a mid-size model before
       any micro-optimisation of the text is meaningful.
 
+### The grokkability harness was repairing model output before measuring it (found 2026-09-12)
+
+Flagged by tosijs reading the grokkability findings and noticing improvements that were
+never made. They were right, and the reason is worth keeping: `fixCommonMistakes` silently
+rewrote model output before scoring, so the reported rate was a **post-repair rate wearing a
+raw rate's label** — and two of its three repairs had been DEAD for an unknown period.
+
+- [x] **Deleted the two dead repairs.** They rewrote `: string` -> `: ''` and `: number` ->
+      `: 0`. Bare type names now work unchanged on both the TJS and AJS paths — so the
+      harness was repairing something we had already fixed, and the fix could never appear
+      in the number meant to measure it. Pinned deterministically in
+      `src/lang/ajs-type-annotations.test.ts` (asserting the validator actually REJECTS the
+      wrong type, not merely that the annotation parses — accepting it and inferring `any`
+      would satisfy a parses-without-throwing test while validating nothing).
+- [x] **The score is now the RAW rate**; repairs are named and report separately what they
+      would have recovered, so a papered-over gap carries a price tag instead of vanishing.
+- [x] **Corrected CLAUDE.md**, which still told every agent that `function foo(x: string)`
+      "is wrong".
+- [ ] **Should AJS accept interpolated template literals?** The one surviving repair is
+      narrower than its name suggested: `[^`$]*` excludes `$` , so it only rescues a
+*non-interpolated* backtick. ``  `Hi ${name}` `` — the mistake that actually matters,
+where the model wanted AJS's `vars`— never matched and has always scored as a miss.
+So this is a genuine, already-visible model-vs-language mismatch, not something the
+harness was hiding. Decide deliberately: teach it via the prompt guide, diagnose it
+with a message naming`vars`, or support it. **A diagnostic is the cheapest of the
+      three** and fits errors-as-curriculum — the current message ("Template literals inside
+      expressions are not supported") states the ban without teaching the replacement.
+- [ ] **Re-run `bun run test:grok` against the pin** to get the first honest number. Could
+      not be done at the time of the change: `gemma-4-e2b` is in the LM Studio catalogue but
+      not loaded, and the audit times out cold-loading it. Whatever it reports is the first
+      rate this lane has produced that is not quietly inflated — expect it to be LOWER than
+      previously reported numbers, and that drop is the instrument getting honest, not a
+      regression.
+
 ## Adoption-intent harness — "would you switch?" (assumption testing)
 
 The legibility harness measures whether a model can _write_ TJS. This measures something we
