@@ -168,3 +168,12 @@ src/**/*.d.ts.map
 # needs a rule here or `git status` offers to commit it.
 .tmp-port-test-*/
 .b1-scratch/
+
+# Scratch trees from the dogfood CONVERT probe. Same reason as the port-test rule above:
+# an interrupted run leaves the directory behind. `.probe-conv-q8CtGY/` — 191 flattened
+# copies of the test suite — was committed in bc6497e and sat tracked in the repo, which
+# `repo-hygiene.test.ts` could not catch: that test asserts nothing TRACKED is also
+# IGNORED, and this was tracked and NOT ignored, so it was invisible to the guard from
+# both directions. Never reached npm (the `files` allowlist excluded it), so the cost was
+# repo noise rather than a shipped artifact.
+.probe-conv-*/
