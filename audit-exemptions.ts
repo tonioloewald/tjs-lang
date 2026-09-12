@@ -26,69 +26,36 @@ export interface AuditExemption {
   until: string
 }
 
-export const AUDIT_EXEMPTIONS: AuditExemption[] = [
-  // --- eslint tooling chain (dev-only; not in any shipped bundle) --------------
-  //
-  // The three brace-expansion advisories (GHSA-3jxr-9vmj-r5cp, GHSA-mh99-v99m-4gvg,
-  // GHSA-rgw5-rvv9-x895) are GONE as of 2026-08-07, resolved rather than re-exempted:
-  // an `overrides` entry in package.json pins the transitive resolution to ^5.0.9,
-  // past the `<5.0.8` affected range. An override rather than a dependency, because we
-  // never import it — `bun update brace-expansion` puts it in runtime `dependencies`
-  // beside acorn, which would declare a dependency the package does not have.
-  //
-  // Worth recording that the exemptions were dated 2026-10-27 and the fix landed
-  // months early: the two live ones only surfaced as removable because a THIRD
-  // advisory appeared with no exemption and failed the gate. Without that, the gate
-  // would have stayed quietly green on a fixable advisory until October.
-  {
-    ghsa: 'GHSA-25h7-pfq9-p65f',
-    package: 'flatted',
-    reason:
-      'Unbounded-recursion DoS in flatted parse(). Transitive under eslint → file-entry-cache → flat-cache → flatted (the lint result cache). Dev-only; input is our own cache file, not attacker-controlled.',
-    until: '2026-10-27',
-  },
-  {
-    ghsa: 'GHSA-rf6f-7fwh-wjgh',
-    package: 'flatted',
-    reason:
-      'Prototype-pollution in flatted parse(); same dev-only eslint-cache chain as above.',
-    until: '2026-10-27',
-  },
-
-  // --- firebase deploy chain (dev/deploy-only; not in the npm package) ---------
-  {
-    ghsa: 'GHSA-hmw2-7cc7-3qxx',
-    package: 'form-data',
-    reason:
-      'CRLF injection in form-data. Transitive under firebase-admin → @google-cloud/storage → retry-request → @types/request → form-data. Used only by `bun run deploy` tooling, not shipped. Waiting on a firebase-admin dependency bump.',
-    until: '2026-10-27',
-  },
-  {
-    ghsa: 'GHSA-f269-vfmq-vjvj',
-    package: 'undici',
-    reason:
-      'WebSocket 64-bit length overflow. Transitive under firebase → @firebase/storage → undici. Deploy-only; we do not open undici WebSockets. Waiting on a firebase dependency bump.',
-    until: '2026-10-27',
-  },
-  {
-    ghsa: 'GHSA-vrm6-8vpv-qv8q',
-    package: 'undici',
-    reason:
-      'undici permessage-deflate memory DoS; same deploy-only firebase chain as above.',
-    until: '2026-10-27',
-  },
-  {
-    ghsa: 'GHSA-v9p9-hfj2-hcw8',
-    package: 'undici',
-    reason:
-      'undici server_max_window_bits validation; same deploy-only firebase chain as above.',
-    until: '2026-10-27',
-  },
-  {
-    ghsa: 'GHSA-vxpw-j846-p89q',
-    package: 'undici',
-    reason:
-      'undici WebSocket fragment-count DoS; same deploy-only firebase chain as above.',
-    until: '2026-10-27',
-  },
-]
+/**
+ * EMPTY as of 2026-09-12, and that is the interesting part.
+ *
+ * This list held seven entries, all dated `2026-10-27`, all justified as dev/deploy-only.
+ * Every one of them turned out to be FIXABLE the day it was checked:
+ *
+ *   flatted    x2  a published 3.4.4 was already past both affected ranges
+ *   form-data  x1  2.5.6 was a PATCH within the same 2.x line
+ *   undici     x4  upstream had shipped; the advisories were simply gone
+ *   (also cleared without ever needing an exemption: qs x2, uuid, protobufjs x2,
+ *    esbuild — the last because `^0.28.0` already permitted the fixed 0.28.2 and
+ *    only the lockfile was stale)
+ *
+ * So the standing lesson, which the brace-expansion note below already recorded once
+ * and which repeated verbatim: **an exemption's `until` date is when we agreed to look
+ * again, not when a fix becomes available.** Six of these seven could have been closed
+ * months earlier by anyone running `npm view <pkg> version`. Nothing was watching,
+ * because a dated exemption reads as "handled" — the gate stays green, and green is
+ * indistinguishable from fixed.
+ *
+ * Prefer an `overrides` entry (both `package.json` files carry one now, with the GHSA
+ * ids and reasoning inline). An override FIXES the advisory; an exemption only agrees
+ * to ignore it. Reach for an exemption when there is genuinely no published fix.
+ *
+ * Prior art, preserved because it is the same story: the three brace-expansion
+ * advisories (GHSA-3jxr-9vmj-r5cp, GHSA-mh99-v99m-4gvg, GHSA-rgw5-rvv9-x895) were
+ * dated 2026-10-27 and resolved by an override months early — and they only surfaced
+ * as removable because a FOURTH advisory appeared with no exemption and failed the
+ * gate. Without that accident the gate would have stayed quietly green on a fixable
+ * advisory until October. That is exactly what happened again here, and the trigger was
+ * again external: Dependabot being switched on.
+ */
+export const AUDIT_EXEMPTIONS: AuditExemption[] = []

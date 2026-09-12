@@ -1,9 +1,13 @@
+const __tjs_rt = (() => {
 function __ub(v){try{if(v instanceof String)return String.prototype.valueOf.call(v);if(v instanceof Number)return Number.prototype.valueOf.call(v);if(v instanceof Boolean)return Boolean.prototype.valueOf.call(v)}catch{return v}return v};
 const __ac=Object.create(null);function __proj(v){if(v===null||v===undefined||typeof v!=='object')return v;let k;try{k=v.constructor&&v.constructor.name}catch{return v}let f=k&&Object.prototype.hasOwnProperty.call(__ac,k)?__ac[k]:null;if(typeof f!=='function'){try{f=v.asCompared}catch{return v}}if(typeof f!=='function')return v;let p;try{p=f.call(v)}catch{return v}const t=typeof p;return p===null||p===undefined||t==='number'||t==='string'||t==='boolean'?p:v};
 function TypeOf(v){return v===null?'null':typeof v};
 function toBool(v){v=__proj(v);try{if(v instanceof Boolean)return Boolean(Boolean.prototype.valueOf.call(v));if(v instanceof Number)return Boolean(Number.prototype.valueOf.call(v));if(v instanceof String)return Boolean(String.prototype.valueOf.call(v))}catch(e){}return Boolean(v)};
-const __tjs = globalThis.__tjs?.createRuntime?.() ?? {TypeOf,toBool};
-const __tjsToBool = __tjs.toBool; __tjs.toBool = function(v){ return __tjsToBool(__proj(v)) };
+return {__ub,__proj,__ac,TypeOf,toBool};
+})();
+const TypeOf = __tjs_rt.TypeOf;const toBool = __tjs_rt.toBool;
+const __tjs = globalThis.__tjs?.createRuntime?.() ?? {TypeOf:__tjs_rt.TypeOf,toBool:__tjs_rt.toBool};
+const __tjsToBool = __tjs.toBool; __tjs.toBool = function(v){ return __tjsToBool(__tjs_rt.__proj(v)) };
 /*#
 # Schema Validation
 
@@ -17,13 +21,13 @@ export function validateSchema(schema, data) {
   const errors = []
 
   if (__tjs.toBool(schema.type)) {
-    const actualType = __tjs.toBool(Array.isArray(data))?('array'):(TypeOf(data))
+    const actualType = __tjs.toBool(Array.isArray(data))?('array'):(__tjs_rt.TypeOf(data))
     if (__tjs.toBool(schema.type !== actualType)) {
       errors.push(`Expected type ${schema.type}, got ${actualType}`)
     }
   }
 
-  if (__tjs.toBool(((__tjs__t)=>__tjs.toBool(__tjs__t)?(data !== null):__tjs__t)(((__tjs__t)=>__tjs.toBool(__tjs__t)?(TypeOf(data) === 'object'):__tjs__t)(schema.type === 'object')))) {
+  if (__tjs.toBool(((__tjs__t)=>__tjs.toBool(__tjs__t)?(data !== null):__tjs__t)(((__tjs__t)=>__tjs.toBool(__tjs__t)?(__tjs_rt.TypeOf(data) === 'object'):__tjs__t)(schema.type === 'object')))) {
                       
     if (__tjs.toBool(schema.required)) {
       for (const field of schema.required) {
@@ -45,7 +49,7 @@ export function validateSchema(schema, data) {
     }
   }
 
-  if (__tjs.toBool(((__tjs__t)=>__tjs.toBool(__tjs__t)?(TypeOf(data) === 'string'):__tjs__t)(schema.type === 'string'))) {
+  if (__tjs.toBool(((__tjs__t)=>__tjs.toBool(__tjs__t)?(__tjs_rt.TypeOf(data) === 'string'):__tjs__t)(schema.type === 'string'))) {
     if (__tjs.toBool(((__tjs__t)=>__tjs.toBool(__tjs__t)?(data.length < schema.minLength):__tjs__t)(schema.minLength))) {
       errors.push(`String too short (min ${schema.minLength})`)
     }
@@ -57,7 +61,7 @@ export function validateSchema(schema, data) {
     }
   }
 
-  if (__tjs.toBool(((__tjs__t)=>__tjs.toBool(__tjs__t)?(TypeOf(data) === 'number'):__tjs__t)(schema.type === 'number'))) {
+  if (__tjs.toBool(((__tjs__t)=>__tjs.toBool(__tjs__t)?(__tjs_rt.TypeOf(data) === 'number'):__tjs__t)(schema.type === 'number'))) {
     if (__tjs.toBool(((__tjs__t)=>__tjs.toBool(__tjs__t)?(data < schema.minimum):__tjs__t)(schema.minimum !== undefined))) {
       errors.push(`Number below minimum (${schema.minimum})`)
     }

@@ -1,10 +1,14 @@
 import { Eval } from 'tjs-lang';
+const __tjs_rt = (() => {
 function __ub(v){try{if(v instanceof String)return String.prototype.valueOf.call(v);if(v instanceof Number)return Number.prototype.valueOf.call(v);if(v instanceof Boolean)return Boolean.prototype.valueOf.call(v)}catch{return v}return v};
 const __ac=Object.create(null);function __proj(v){if(v===null||v===undefined||typeof v!=='object')return v;let k;try{k=v.constructor&&v.constructor.name}catch{return v}let f=k&&Object.prototype.hasOwnProperty.call(__ac,k)?__ac[k]:null;if(typeof f!=='function'){try{f=v.asCompared}catch{return v}}if(typeof f!=='function')return v;let p;try{p=f.call(v)}catch{return v}const t=typeof p;return p===null||p===undefined||t==='number'||t==='string'||t==='boolean'?p:v};
 function TypeOf(v){return v===null?'null':typeof v};
 function toBool(v){v=__proj(v);try{if(v instanceof Boolean)return Boolean(Boolean.prototype.valueOf.call(v));if(v instanceof Number)return Boolean(Number.prototype.valueOf.call(v));if(v instanceof String)return Boolean(String.prototype.valueOf.call(v))}catch(e){}return Boolean(v)};
-const __tjs = globalThis.__tjs?.createRuntime?.() ?? {TypeOf,toBool};
-const __tjsToBool = __tjs.toBool; __tjs.toBool = function(v){ return __tjsToBool(__proj(v)) };
+return {__ub,__proj,__ac,TypeOf,toBool};
+})();
+const TypeOf = __tjs_rt.TypeOf;const toBool = __tjs_rt.toBool;
+const __tjs = globalThis.__tjs?.createRuntime?.() ?? {TypeOf:__tjs_rt.TypeOf,toBool:__tjs_rt.toBool};
+const __tjsToBool = __tjs.toBool; __tjs.toBool = function(v){ return __tjsToBool(__tjs_rt.__proj(v)) };
 /*#
 # RBAC Security Rules
 
@@ -92,7 +96,7 @@ Shortcuts:
 - 'role:roleName' - _roles.includes(roleName)
 */
 export function evaluateAccessShortcut(accessRule, context) {
-  if (__tjs.toBool(TypeOf(accessRule) !== 'string')) return null
+  if (__tjs.toBool(__tjs_rt.TypeOf(accessRule) !== 'string')) return null
 
   const { _uid, _roles, doc, newData } = context
 
@@ -190,7 +194,7 @@ export async function evaluateSecurityRule(rule, context) {
       accessRule = rule.delete
     }
 
-    if (__tjs.toBool(TypeOf(accessRule) === 'string')) {
+    if (__tjs.toBool(__tjs_rt.TypeOf(accessRule) === 'string')) {
       const shortcutResult = evaluateAccessShortcut(accessRule, context)
       if (__tjs.toBool(shortcutResult)) {
         const evalTimeMs = performance.now() - startTime
@@ -212,11 +216,11 @@ export async function evaluateSecurityRule(rule, context) {
       }
     }
 
-    const codeToRun = __tjs.toBool(((__tjs__t)=>__tjs.toBool(__tjs__t)?(accessRule?.code):__tjs__t)(TypeOf(accessRule) === 'object'))?(accessRule.code):(rule.code)
+    const codeToRun = __tjs.toBool(((__tjs__t)=>__tjs.toBool(__tjs__t)?(accessRule?.code):__tjs__t)(__tjs_rt.TypeOf(accessRule) === 'object'))?(accessRule.code):(rule.code)
 
     if (__tjs.toBool(codeToRun)) {
-      const fuel = ((__tjs__t)=>__tjs.toBool(__tjs__t)?__tjs__t:(100))(((__tjs__t)=>__tjs.toBool(__tjs__t)?__tjs__t:(rule.fuel))(((__tjs__t)=>__tjs.toBool(__tjs__t)?(accessRule?.fuel):__tjs__t)(TypeOf(accessRule) === 'object')))
-      const timeoutMs = ((__tjs__t)=>__tjs.toBool(__tjs__t)?__tjs__t:(1000))(((__tjs__t)=>__tjs.toBool(__tjs__t)?__tjs__t:(rule.timeoutMs))(((__tjs__t)=>__tjs.toBool(__tjs__t)?(accessRule?.timeoutMs):__tjs__t)(TypeOf(accessRule) === 'object')))
+      const fuel = ((__tjs__t)=>__tjs.toBool(__tjs__t)?__tjs__t:(100))(((__tjs__t)=>__tjs.toBool(__tjs__t)?__tjs__t:(rule.fuel))(((__tjs__t)=>__tjs.toBool(__tjs__t)?(accessRule?.fuel):__tjs__t)(__tjs_rt.TypeOf(accessRule) === 'object')))
+      const timeoutMs = ((__tjs__t)=>__tjs.toBool(__tjs__t)?__tjs__t:(1000))(((__tjs__t)=>__tjs.toBool(__tjs__t)?__tjs__t:(rule.timeoutMs))(((__tjs__t)=>__tjs.toBool(__tjs__t)?(accessRule?.timeoutMs):__tjs__t)(__tjs_rt.TypeOf(accessRule) === 'object')))
 
       const result = await Eval({
         code: codeToRun,
@@ -231,9 +235,9 @@ export async function evaluateSecurityRule(rule, context) {
       let allowed = false
       let reason = null
 
-      if (__tjs.toBool(TypeOf(result.result) === 'boolean')) {
+      if (__tjs.toBool(__tjs_rt.TypeOf(result.result) === 'boolean')) {
         allowed = result.result
-      } else if (__tjs.toBool(((__tjs__t)=>__tjs.toBool(__tjs__t)?(result.result !== null):__tjs__t)(TypeOf(result.result) === 'object'))) {
+      } else if (__tjs.toBool(((__tjs__t)=>__tjs.toBool(__tjs__t)?(result.result !== null):__tjs__t)(__tjs_rt.TypeOf(result.result) === 'object'))) {
         allowed = !__tjs.toBool(!__tjs.toBool(result.result.allow))
         reason = result.result.reason
       }

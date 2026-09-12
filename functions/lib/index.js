@@ -12155,54 +12155,72 @@ decrypt.__tjs = {
 };
 
 // src/llm.js
-var __ac = Object.create(null);
-function __proj(v2) {
-  if (v2 === null || v2 === undefined || typeof v2 !== "object")
-    return v2;
-  let k2;
-  try {
-    k2 = v2.constructor && v2.constructor.name;
-  } catch {
-    return v2;
-  }
-  let f = k2 && Object.prototype.hasOwnProperty.call(__ac, k2) ? __ac[k2] : null;
-  if (typeof f !== "function") {
+var __tjs_rt = (() => {
+  function __ub(v2) {
     try {
-      f = v2.asCompared;
+      if (v2 instanceof String)
+        return String.prototype.valueOf.call(v2);
+      if (v2 instanceof Number)
+        return Number.prototype.valueOf.call(v2);
+      if (v2 instanceof Boolean)
+        return Boolean.prototype.valueOf.call(v2);
     } catch {
       return v2;
     }
-  }
-  if (typeof f !== "function")
-    return v2;
-  let p;
-  try {
-    p = f.call(v2);
-  } catch {
     return v2;
   }
-  const t = typeof p;
-  return p === null || p === undefined || t === "number" || t === "string" || t === "boolean" ? p : v2;
-}
-function TypeOf(v2) {
-  return v2 === null ? "null" : typeof v2;
-}
-function toBool(v2) {
-  v2 = __proj(v2);
-  try {
-    if (v2 instanceof Boolean)
-      return Boolean(Boolean.prototype.valueOf.call(v2));
-    if (v2 instanceof Number)
-      return Boolean(Number.prototype.valueOf.call(v2));
-    if (v2 instanceof String)
-      return Boolean(String.prototype.valueOf.call(v2));
-  } catch (e) {}
-  return Boolean(v2);
-}
-var __tjs = globalThis.__tjs?.createRuntime?.() ?? { TypeOf, toBool };
+  const __ac = Object.create(null);
+  function __proj(v2) {
+    if (v2 === null || v2 === undefined || typeof v2 !== "object")
+      return v2;
+    let k2;
+    try {
+      k2 = v2.constructor && v2.constructor.name;
+    } catch {
+      return v2;
+    }
+    let f = k2 && Object.prototype.hasOwnProperty.call(__ac, k2) ? __ac[k2] : null;
+    if (typeof f !== "function") {
+      try {
+        f = v2.asCompared;
+      } catch {
+        return v2;
+      }
+    }
+    if (typeof f !== "function")
+      return v2;
+    let p;
+    try {
+      p = f.call(v2);
+    } catch {
+      return v2;
+    }
+    const t = typeof p;
+    return p === null || p === undefined || t === "number" || t === "string" || t === "boolean" ? p : v2;
+  }
+  function TypeOf(v2) {
+    return v2 === null ? "null" : typeof v2;
+  }
+  function toBool(v2) {
+    v2 = __proj(v2);
+    try {
+      if (v2 instanceof Boolean)
+        return Boolean(Boolean.prototype.valueOf.call(v2));
+      if (v2 instanceof Number)
+        return Boolean(Number.prototype.valueOf.call(v2));
+      if (v2 instanceof String)
+        return Boolean(String.prototype.valueOf.call(v2));
+    } catch (e) {}
+    return Boolean(v2);
+  }
+  return { __ub, __proj, __ac, TypeOf, toBool };
+})();
+var TypeOf = __tjs_rt.TypeOf;
+var toBool = __tjs_rt.toBool;
+var __tjs = globalThis.__tjs?.createRuntime?.() ?? { TypeOf: __tjs_rt.TypeOf, toBool: __tjs_rt.toBool };
 var __tjsToBool = __tjs.toBool;
 __tjs.toBool = function(v2) {
-  return __tjsToBool(__proj(v2));
+  return __tjsToBool(__tjs_rt.__proj(v2));
 };
 function createLlmCapability(apiKeys) {
   return {
@@ -12269,7 +12287,7 @@ function createLlmCapability(apiKeys) {
         } else {
           text = data2.choices?.[0]?.message?.content;
         }
-        if (__tjs.toBool(TypeOf(text) !== "string")) {
+        if (__tjs.toBool(__tjs_rt.TypeOf(text) !== "string")) {
           throw new Error("LLM returned unexpected format: " + JSON.stringify(data2));
         }
         return text;
@@ -12299,66 +12317,84 @@ import { getFirestore as getFirestore3 } from "firebase-admin/firestore";
 import { getFirestore } from "firebase-admin/firestore";
 
 // src/schema.js
-var __ac2 = Object.create(null);
-function __proj2(v2) {
-  if (v2 === null || v2 === undefined || typeof v2 !== "object")
-    return v2;
-  let k2;
-  try {
-    k2 = v2.constructor && v2.constructor.name;
-  } catch {
-    return v2;
-  }
-  let f = k2 && Object.prototype.hasOwnProperty.call(__ac2, k2) ? __ac2[k2] : null;
-  if (typeof f !== "function") {
+var __tjs_rt2 = (() => {
+  function __ub(v2) {
     try {
-      f = v2.asCompared;
+      if (v2 instanceof String)
+        return String.prototype.valueOf.call(v2);
+      if (v2 instanceof Number)
+        return Number.prototype.valueOf.call(v2);
+      if (v2 instanceof Boolean)
+        return Boolean.prototype.valueOf.call(v2);
     } catch {
       return v2;
     }
-  }
-  if (typeof f !== "function")
-    return v2;
-  let p;
-  try {
-    p = f.call(v2);
-  } catch {
     return v2;
   }
-  const t = typeof p;
-  return p === null || p === undefined || t === "number" || t === "string" || t === "boolean" ? p : v2;
-}
-function TypeOf2(v2) {
-  return v2 === null ? "null" : typeof v2;
-}
-function toBool2(v2) {
-  v2 = __proj2(v2);
-  try {
-    if (v2 instanceof Boolean)
-      return Boolean(Boolean.prototype.valueOf.call(v2));
-    if (v2 instanceof Number)
-      return Boolean(Number.prototype.valueOf.call(v2));
-    if (v2 instanceof String)
-      return Boolean(String.prototype.valueOf.call(v2));
-  } catch (e) {}
-  return Boolean(v2);
-}
-var __tjs2 = globalThis.__tjs?.createRuntime?.() ?? { TypeOf: TypeOf2, toBool: toBool2 };
+  const __ac = Object.create(null);
+  function __proj(v2) {
+    if (v2 === null || v2 === undefined || typeof v2 !== "object")
+      return v2;
+    let k2;
+    try {
+      k2 = v2.constructor && v2.constructor.name;
+    } catch {
+      return v2;
+    }
+    let f = k2 && Object.prototype.hasOwnProperty.call(__ac, k2) ? __ac[k2] : null;
+    if (typeof f !== "function") {
+      try {
+        f = v2.asCompared;
+      } catch {
+        return v2;
+      }
+    }
+    if (typeof f !== "function")
+      return v2;
+    let p;
+    try {
+      p = f.call(v2);
+    } catch {
+      return v2;
+    }
+    const t = typeof p;
+    return p === null || p === undefined || t === "number" || t === "string" || t === "boolean" ? p : v2;
+  }
+  function TypeOf2(v2) {
+    return v2 === null ? "null" : typeof v2;
+  }
+  function toBool2(v2) {
+    v2 = __proj(v2);
+    try {
+      if (v2 instanceof Boolean)
+        return Boolean(Boolean.prototype.valueOf.call(v2));
+      if (v2 instanceof Number)
+        return Boolean(Number.prototype.valueOf.call(v2));
+      if (v2 instanceof String)
+        return Boolean(String.prototype.valueOf.call(v2));
+    } catch (e) {}
+    return Boolean(v2);
+  }
+  return { __ub, __proj, __ac, TypeOf: TypeOf2, toBool: toBool2 };
+})();
+var TypeOf2 = __tjs_rt2.TypeOf;
+var toBool2 = __tjs_rt2.toBool;
+var __tjs2 = globalThis.__tjs?.createRuntime?.() ?? { TypeOf: __tjs_rt2.TypeOf, toBool: __tjs_rt2.toBool };
 var __tjsToBool2 = __tjs2.toBool;
 __tjs2.toBool = function(v2) {
-  return __tjsToBool2(__proj2(v2));
+  return __tjsToBool2(__tjs_rt2.__proj(v2));
 };
 function validateSchema(schema, data2) {
   if (__tjs2.toBool(((__tjs__t) => __tjs2.toBool(__tjs__t) ? __tjs__t : !__tjs2.toBool(data2))(!__tjs2.toBool(schema))))
     return { valid: true };
   const errors = [];
   if (__tjs2.toBool(schema.type)) {
-    const actualType = __tjs2.toBool(Array.isArray(data2)) ? "array" : TypeOf2(data2);
+    const actualType = __tjs2.toBool(Array.isArray(data2)) ? "array" : __tjs_rt2.TypeOf(data2);
     if (__tjs2.toBool(schema.type !== actualType)) {
       errors.push(`Expected type ${schema.type}, got ${actualType}`);
     }
   }
-  if (__tjs2.toBool(((__tjs__t) => __tjs2.toBool(__tjs__t) ? data2 !== null : __tjs__t)(((__tjs__t) => __tjs2.toBool(__tjs__t) ? TypeOf2(data2) === "object" : __tjs__t)(schema.type === "object")))) {
+  if (__tjs2.toBool(((__tjs__t) => __tjs2.toBool(__tjs__t) ? data2 !== null : __tjs__t)(((__tjs__t) => __tjs2.toBool(__tjs__t) ? __tjs_rt2.TypeOf(data2) === "object" : __tjs__t)(schema.type === "object")))) {
     if (__tjs2.toBool(schema.required)) {
       for (const field of schema.required) {
         if (__tjs2.toBool(!__tjs2.toBool(field in data2))) {
@@ -12377,7 +12413,7 @@ function validateSchema(schema, data2) {
       }
     }
   }
-  if (__tjs2.toBool(((__tjs__t) => __tjs2.toBool(__tjs__t) ? TypeOf2(data2) === "string" : __tjs__t)(schema.type === "string"))) {
+  if (__tjs2.toBool(((__tjs__t) => __tjs2.toBool(__tjs__t) ? __tjs_rt2.TypeOf(data2) === "string" : __tjs__t)(schema.type === "string"))) {
     if (__tjs2.toBool(((__tjs__t) => __tjs2.toBool(__tjs__t) ? data2.length < schema.minLength : __tjs__t)(schema.minLength))) {
       errors.push(`String too short (min ${schema.minLength})`);
     }
@@ -12388,7 +12424,7 @@ function validateSchema(schema, data2) {
       errors.push(`String does not match pattern`);
     }
   }
-  if (__tjs2.toBool(((__tjs__t) => __tjs2.toBool(__tjs__t) ? TypeOf2(data2) === "number" : __tjs__t)(schema.type === "number"))) {
+  if (__tjs2.toBool(((__tjs__t) => __tjs2.toBool(__tjs__t) ? __tjs_rt2.TypeOf(data2) === "number" : __tjs__t)(schema.type === "number"))) {
     if (__tjs2.toBool(((__tjs__t) => __tjs2.toBool(__tjs__t) ? data2 < schema.minimum : __tjs__t)(schema.minimum !== undefined))) {
       errors.push(`Number below minimum (${schema.minimum})`);
     }
@@ -12437,54 +12473,72 @@ validateSchema.__tjs = {
 };
 
 // src/rbac.js
-var __ac3 = Object.create(null);
-function __proj3(v2) {
-  if (v2 === null || v2 === undefined || typeof v2 !== "object")
-    return v2;
-  let k2;
-  try {
-    k2 = v2.constructor && v2.constructor.name;
-  } catch {
-    return v2;
-  }
-  let f = k2 && Object.prototype.hasOwnProperty.call(__ac3, k2) ? __ac3[k2] : null;
-  if (typeof f !== "function") {
+var __tjs_rt3 = (() => {
+  function __ub(v2) {
     try {
-      f = v2.asCompared;
+      if (v2 instanceof String)
+        return String.prototype.valueOf.call(v2);
+      if (v2 instanceof Number)
+        return Number.prototype.valueOf.call(v2);
+      if (v2 instanceof Boolean)
+        return Boolean.prototype.valueOf.call(v2);
     } catch {
       return v2;
     }
-  }
-  if (typeof f !== "function")
-    return v2;
-  let p;
-  try {
-    p = f.call(v2);
-  } catch {
     return v2;
   }
-  const t = typeof p;
-  return p === null || p === undefined || t === "number" || t === "string" || t === "boolean" ? p : v2;
-}
-function TypeOf3(v2) {
-  return v2 === null ? "null" : typeof v2;
-}
-function toBool3(v2) {
-  v2 = __proj3(v2);
-  try {
-    if (v2 instanceof Boolean)
-      return Boolean(Boolean.prototype.valueOf.call(v2));
-    if (v2 instanceof Number)
-      return Boolean(Number.prototype.valueOf.call(v2));
-    if (v2 instanceof String)
-      return Boolean(String.prototype.valueOf.call(v2));
-  } catch (e) {}
-  return Boolean(v2);
-}
-var __tjs3 = globalThis.__tjs?.createRuntime?.() ?? { TypeOf: TypeOf3, toBool: toBool3 };
+  const __ac = Object.create(null);
+  function __proj(v2) {
+    if (v2 === null || v2 === undefined || typeof v2 !== "object")
+      return v2;
+    let k2;
+    try {
+      k2 = v2.constructor && v2.constructor.name;
+    } catch {
+      return v2;
+    }
+    let f = k2 && Object.prototype.hasOwnProperty.call(__ac, k2) ? __ac[k2] : null;
+    if (typeof f !== "function") {
+      try {
+        f = v2.asCompared;
+      } catch {
+        return v2;
+      }
+    }
+    if (typeof f !== "function")
+      return v2;
+    let p;
+    try {
+      p = f.call(v2);
+    } catch {
+      return v2;
+    }
+    const t = typeof p;
+    return p === null || p === undefined || t === "number" || t === "string" || t === "boolean" ? p : v2;
+  }
+  function TypeOf3(v2) {
+    return v2 === null ? "null" : typeof v2;
+  }
+  function toBool3(v2) {
+    v2 = __proj(v2);
+    try {
+      if (v2 instanceof Boolean)
+        return Boolean(Boolean.prototype.valueOf.call(v2));
+      if (v2 instanceof Number)
+        return Boolean(Number.prototype.valueOf.call(v2));
+      if (v2 instanceof String)
+        return Boolean(String.prototype.valueOf.call(v2));
+    } catch (e) {}
+    return Boolean(v2);
+  }
+  return { __ub, __proj, __ac, TypeOf: TypeOf3, toBool: toBool3 };
+})();
+var TypeOf3 = __tjs_rt3.TypeOf;
+var toBool3 = __tjs_rt3.toBool;
+var __tjs3 = globalThis.__tjs?.createRuntime?.() ?? { TypeOf: __tjs_rt3.TypeOf, toBool: __tjs_rt3.toBool };
 var __tjsToBool3 = __tjs3.toBool;
 __tjs3.toBool = function(v2) {
-  return __tjsToBool3(__proj3(v2));
+  return __tjsToBool3(__tjs_rt3.__proj(v2));
 };
 var _db = null;
 function db() {
@@ -12529,7 +12583,7 @@ getSecurityRule.__tjs = {
   source: "rbac.tjs:36"
 };
 function evaluateAccessShortcut(accessRule, context) {
-  if (__tjs3.toBool(TypeOf3(accessRule) !== "string"))
+  if (__tjs3.toBool(__tjs_rt3.TypeOf(accessRule) !== "string"))
     return null;
   const { _uid, _roles, doc, newData } = context;
   switch (accessRule) {
@@ -12601,7 +12655,7 @@ async function evaluateSecurityRule(rule, context) {
     } else if (__tjs3.toBool(((__tjs__t) => __tjs3.toBool(__tjs__t) ? rule.delete !== undefined : __tjs__t)(_method === "delete"))) {
       accessRule = rule.delete;
     }
-    if (__tjs3.toBool(TypeOf3(accessRule) === "string")) {
+    if (__tjs3.toBool(__tjs_rt3.TypeOf(accessRule) === "string")) {
       const shortcutResult = evaluateAccessShortcut(accessRule, context);
       if (__tjs3.toBool(shortcutResult)) {
         const evalTimeMs2 = performance.now() - startTime;
@@ -12621,10 +12675,10 @@ async function evaluateSecurityRule(rule, context) {
         };
       }
     }
-    const codeToRun = __tjs3.toBool(((__tjs__t) => __tjs3.toBool(__tjs__t) ? accessRule?.code : __tjs__t)(TypeOf3(accessRule) === "object")) ? accessRule.code : rule.code;
+    const codeToRun = __tjs3.toBool(((__tjs__t) => __tjs3.toBool(__tjs__t) ? accessRule?.code : __tjs__t)(__tjs_rt3.TypeOf(accessRule) === "object")) ? accessRule.code : rule.code;
     if (__tjs3.toBool(codeToRun)) {
-      const fuel = ((__tjs__t) => __tjs3.toBool(__tjs__t) ? __tjs__t : 100)(((__tjs__t) => __tjs3.toBool(__tjs__t) ? __tjs__t : rule.fuel)(((__tjs__t) => __tjs3.toBool(__tjs__t) ? accessRule?.fuel : __tjs__t)(TypeOf3(accessRule) === "object")));
-      const timeoutMs = ((__tjs__t) => __tjs3.toBool(__tjs__t) ? __tjs__t : 1000)(((__tjs__t) => __tjs3.toBool(__tjs__t) ? __tjs__t : rule.timeoutMs)(((__tjs__t) => __tjs3.toBool(__tjs__t) ? accessRule?.timeoutMs : __tjs__t)(TypeOf3(accessRule) === "object")));
+      const fuel = ((__tjs__t) => __tjs3.toBool(__tjs__t) ? __tjs__t : 100)(((__tjs__t) => __tjs3.toBool(__tjs__t) ? __tjs__t : rule.fuel)(((__tjs__t) => __tjs3.toBool(__tjs__t) ? accessRule?.fuel : __tjs__t)(__tjs_rt3.TypeOf(accessRule) === "object")));
+      const timeoutMs = ((__tjs__t) => __tjs3.toBool(__tjs__t) ? __tjs__t : 1000)(((__tjs__t) => __tjs3.toBool(__tjs__t) ? __tjs__t : rule.timeoutMs)(((__tjs__t) => __tjs3.toBool(__tjs__t) ? accessRule?.timeoutMs : __tjs__t)(__tjs_rt3.TypeOf(accessRule) === "object")));
       const result = await Eval({
         code: codeToRun,
         context,
@@ -12635,9 +12689,9 @@ async function evaluateSecurityRule(rule, context) {
       const evalTimeMs2 = performance.now() - startTime;
       let allowed = false;
       let reason = null;
-      if (__tjs3.toBool(TypeOf3(result.result) === "boolean")) {
+      if (__tjs3.toBool(__tjs_rt3.TypeOf(result.result) === "boolean")) {
         allowed = result.result;
-      } else if (__tjs3.toBool(((__tjs__t) => __tjs3.toBool(__tjs__t) ? result.result !== null : __tjs__t)(TypeOf3(result.result) === "object"))) {
+      } else if (__tjs3.toBool(((__tjs__t) => __tjs3.toBool(__tjs__t) ? result.result !== null : __tjs__t)(__tjs_rt3.TypeOf(result.result) === "object"))) {
         allowed = !__tjs3.toBool(!__tjs3.toBool(result.result.allow));
         reason = result.result.reason;
       }
@@ -12702,51 +12756,68 @@ loadUserRoles.__tjs = {
 
 // src/indexes.js
 import { getFirestore as getFirestore2 } from "firebase-admin/firestore";
-var __ac4 = Object.create(null);
-function __proj4(v2) {
-  if (v2 === null || v2 === undefined || typeof v2 !== "object")
-    return v2;
-  let k2;
-  try {
-    k2 = v2.constructor && v2.constructor.name;
-  } catch {
-    return v2;
-  }
-  let f = k2 && Object.prototype.hasOwnProperty.call(__ac4, k2) ? __ac4[k2] : null;
-  if (typeof f !== "function") {
+var __tjs_rt4 = (() => {
+  function __ub(v2) {
     try {
-      f = v2.asCompared;
+      if (v2 instanceof String)
+        return String.prototype.valueOf.call(v2);
+      if (v2 instanceof Number)
+        return Number.prototype.valueOf.call(v2);
+      if (v2 instanceof Boolean)
+        return Boolean.prototype.valueOf.call(v2);
     } catch {
       return v2;
     }
-  }
-  if (typeof f !== "function")
-    return v2;
-  let p;
-  try {
-    p = f.call(v2);
-  } catch {
     return v2;
   }
-  const t = typeof p;
-  return p === null || p === undefined || t === "number" || t === "string" || t === "boolean" ? p : v2;
-}
-function toBool4(v2) {
-  v2 = __proj4(v2);
-  try {
-    if (v2 instanceof Boolean)
-      return Boolean(Boolean.prototype.valueOf.call(v2));
-    if (v2 instanceof Number)
-      return Boolean(Number.prototype.valueOf.call(v2));
-    if (v2 instanceof String)
-      return Boolean(String.prototype.valueOf.call(v2));
-  } catch (e) {}
-  return Boolean(v2);
-}
-var __tjs4 = globalThis.__tjs?.createRuntime?.() ?? { toBool: toBool4 };
+  const __ac = Object.create(null);
+  function __proj(v2) {
+    if (v2 === null || v2 === undefined || typeof v2 !== "object")
+      return v2;
+    let k2;
+    try {
+      k2 = v2.constructor && v2.constructor.name;
+    } catch {
+      return v2;
+    }
+    let f = k2 && Object.prototype.hasOwnProperty.call(__ac, k2) ? __ac[k2] : null;
+    if (typeof f !== "function") {
+      try {
+        f = v2.asCompared;
+      } catch {
+        return v2;
+      }
+    }
+    if (typeof f !== "function")
+      return v2;
+    let p;
+    try {
+      p = f.call(v2);
+    } catch {
+      return v2;
+    }
+    const t = typeof p;
+    return p === null || p === undefined || t === "number" || t === "string" || t === "boolean" ? p : v2;
+  }
+  function toBool4(v2) {
+    v2 = __proj(v2);
+    try {
+      if (v2 instanceof Boolean)
+        return Boolean(Boolean.prototype.valueOf.call(v2));
+      if (v2 instanceof Number)
+        return Boolean(Number.prototype.valueOf.call(v2));
+      if (v2 instanceof String)
+        return Boolean(String.prototype.valueOf.call(v2));
+    } catch (e) {}
+    return Boolean(v2);
+  }
+  return { __ub, __proj, __ac, toBool: toBool4 };
+})();
+var toBool4 = __tjs_rt4.toBool;
+var __tjs4 = globalThis.__tjs?.createRuntime?.() ?? { toBool: __tjs_rt4.toBool };
 var __tjsToBool4 = __tjs4.toBool;
 __tjs4.toBool = function(v2) {
-  return __tjsToBool4(__proj4(v2));
+  return __tjsToBool4(__tjs_rt4.__proj(v2));
 };
 var _db2 = null;
 function db2() {
@@ -13008,51 +13079,68 @@ removeFromIndexes.__tjs = {
 };
 
 // src/store.js
-var __ac5 = Object.create(null);
-function __proj5(v2) {
-  if (v2 === null || v2 === undefined || typeof v2 !== "object")
-    return v2;
-  let k2;
-  try {
-    k2 = v2.constructor && v2.constructor.name;
-  } catch {
-    return v2;
-  }
-  let f = k2 && Object.prototype.hasOwnProperty.call(__ac5, k2) ? __ac5[k2] : null;
-  if (typeof f !== "function") {
+var __tjs_rt5 = (() => {
+  function __ub(v2) {
     try {
-      f = v2.asCompared;
+      if (v2 instanceof String)
+        return String.prototype.valueOf.call(v2);
+      if (v2 instanceof Number)
+        return Number.prototype.valueOf.call(v2);
+      if (v2 instanceof Boolean)
+        return Boolean.prototype.valueOf.call(v2);
     } catch {
       return v2;
     }
-  }
-  if (typeof f !== "function")
-    return v2;
-  let p;
-  try {
-    p = f.call(v2);
-  } catch {
     return v2;
   }
-  const t = typeof p;
-  return p === null || p === undefined || t === "number" || t === "string" || t === "boolean" ? p : v2;
-}
-function toBool5(v2) {
-  v2 = __proj5(v2);
-  try {
-    if (v2 instanceof Boolean)
-      return Boolean(Boolean.prototype.valueOf.call(v2));
-    if (v2 instanceof Number)
-      return Boolean(Number.prototype.valueOf.call(v2));
-    if (v2 instanceof String)
-      return Boolean(String.prototype.valueOf.call(v2));
-  } catch (e) {}
-  return Boolean(v2);
-}
-var __tjs5 = globalThis.__tjs?.createRuntime?.() ?? { toBool: toBool5 };
+  const __ac = Object.create(null);
+  function __proj(v2) {
+    if (v2 === null || v2 === undefined || typeof v2 !== "object")
+      return v2;
+    let k2;
+    try {
+      k2 = v2.constructor && v2.constructor.name;
+    } catch {
+      return v2;
+    }
+    let f = k2 && Object.prototype.hasOwnProperty.call(__ac, k2) ? __ac[k2] : null;
+    if (typeof f !== "function") {
+      try {
+        f = v2.asCompared;
+      } catch {
+        return v2;
+      }
+    }
+    if (typeof f !== "function")
+      return v2;
+    let p;
+    try {
+      p = f.call(v2);
+    } catch {
+      return v2;
+    }
+    const t = typeof p;
+    return p === null || p === undefined || t === "number" || t === "string" || t === "boolean" ? p : v2;
+  }
+  function toBool5(v2) {
+    v2 = __proj(v2);
+    try {
+      if (v2 instanceof Boolean)
+        return Boolean(Boolean.prototype.valueOf.call(v2));
+      if (v2 instanceof Number)
+        return Boolean(Number.prototype.valueOf.call(v2));
+      if (v2 instanceof String)
+        return Boolean(String.prototype.valueOf.call(v2));
+    } catch (e) {}
+    return Boolean(v2);
+  }
+  return { __ub, __proj, __ac, toBool: toBool5 };
+})();
+var toBool5 = __tjs_rt5.toBool;
+var __tjs5 = globalThis.__tjs?.createRuntime?.() ?? { toBool: __tjs_rt5.toBool };
 var __tjsToBool5 = __tjs5.toBool;
 __tjs5.toBool = function(v2) {
-  return __tjsToBool5(__proj5(v2));
+  return __tjsToBool5(__tjs_rt5.__proj(v2));
 };
 var _db3 = null;
 function db3() {
@@ -13219,51 +13307,68 @@ createStoreCapability.__tjs = {
 
 // src/routing.js
 import { getFirestore as getFirestore4 } from "firebase-admin/firestore";
-var __ac6 = Object.create(null);
-function __proj6(v2) {
-  if (v2 === null || v2 === undefined || typeof v2 !== "object")
-    return v2;
-  let k2;
-  try {
-    k2 = v2.constructor && v2.constructor.name;
-  } catch {
-    return v2;
-  }
-  let f = k2 && Object.prototype.hasOwnProperty.call(__ac6, k2) ? __ac6[k2] : null;
-  if (typeof f !== "function") {
+var __tjs_rt6 = (() => {
+  function __ub(v2) {
     try {
-      f = v2.asCompared;
+      if (v2 instanceof String)
+        return String.prototype.valueOf.call(v2);
+      if (v2 instanceof Number)
+        return Number.prototype.valueOf.call(v2);
+      if (v2 instanceof Boolean)
+        return Boolean.prototype.valueOf.call(v2);
     } catch {
       return v2;
     }
-  }
-  if (typeof f !== "function")
-    return v2;
-  let p;
-  try {
-    p = f.call(v2);
-  } catch {
     return v2;
   }
-  const t = typeof p;
-  return p === null || p === undefined || t === "number" || t === "string" || t === "boolean" ? p : v2;
-}
-function toBool6(v2) {
-  v2 = __proj6(v2);
-  try {
-    if (v2 instanceof Boolean)
-      return Boolean(Boolean.prototype.valueOf.call(v2));
-    if (v2 instanceof Number)
-      return Boolean(Number.prototype.valueOf.call(v2));
-    if (v2 instanceof String)
-      return Boolean(String.prototype.valueOf.call(v2));
-  } catch (e) {}
-  return Boolean(v2);
-}
-var __tjs6 = globalThis.__tjs?.createRuntime?.() ?? { toBool: toBool6 };
+  const __ac = Object.create(null);
+  function __proj(v2) {
+    if (v2 === null || v2 === undefined || typeof v2 !== "object")
+      return v2;
+    let k2;
+    try {
+      k2 = v2.constructor && v2.constructor.name;
+    } catch {
+      return v2;
+    }
+    let f = k2 && Object.prototype.hasOwnProperty.call(__ac, k2) ? __ac[k2] : null;
+    if (typeof f !== "function") {
+      try {
+        f = v2.asCompared;
+      } catch {
+        return v2;
+      }
+    }
+    if (typeof f !== "function")
+      return v2;
+    let p;
+    try {
+      p = f.call(v2);
+    } catch {
+      return v2;
+    }
+    const t = typeof p;
+    return p === null || p === undefined || t === "number" || t === "string" || t === "boolean" ? p : v2;
+  }
+  function toBool6(v2) {
+    v2 = __proj(v2);
+    try {
+      if (v2 instanceof Boolean)
+        return Boolean(Boolean.prototype.valueOf.call(v2));
+      if (v2 instanceof Number)
+        return Boolean(Number.prototype.valueOf.call(v2));
+      if (v2 instanceof String)
+        return Boolean(String.prototype.valueOf.call(v2));
+    } catch (e) {}
+    return Boolean(v2);
+  }
+  return { __ub, __proj, __ac, toBool: toBool6 };
+})();
+var toBool6 = __tjs_rt6.toBool;
+var __tjs6 = globalThis.__tjs?.createRuntime?.() ?? { toBool: __tjs_rt6.toBool };
 var __tjsToBool6 = __tjs6.toBool;
 __tjs6.toBool = function(v2) {
-  return __tjsToBool6(__proj6(v2));
+  return __tjsToBool6(__tjs_rt6.__proj(v2));
 };
 var _db4 = null;
 function db4() {
@@ -13344,54 +13449,76 @@ getStoredFunctions.__tjs = {
 import { onCall, HttpsError } from "firebase-functions/v2/https";
 import { defineSecret } from "firebase-functions/params";
 import { getFirestore as getFirestore5, FieldValue } from "firebase-admin/firestore";
-var __ac7 = Object.create(null);
-function __proj7(v2) {
-  if (v2 === null || v2 === undefined || typeof v2 !== "object")
-    return v2;
-  let k2;
-  try {
-    k2 = v2.constructor && v2.constructor.name;
-  } catch {
-    return v2;
-  }
-  let f = k2 && Object.prototype.hasOwnProperty.call(__ac7, k2) ? __ac7[k2] : null;
-  if (typeof f !== "function") {
+var __tjs_rt7 = (() => {
+  function __ub(v2) {
     try {
-      f = v2.asCompared;
+      if (v2 instanceof String)
+        return String.prototype.valueOf.call(v2);
+      if (v2 instanceof Number)
+        return Number.prototype.valueOf.call(v2);
+      if (v2 instanceof Boolean)
+        return Boolean.prototype.valueOf.call(v2);
     } catch {
       return v2;
     }
-  }
-  if (typeof f !== "function")
-    return v2;
-  let p;
-  try {
-    p = f.call(v2);
-  } catch {
     return v2;
   }
-  const t = typeof p;
-  return p === null || p === undefined || t === "number" || t === "string" || t === "boolean" ? p : v2;
-}
-function TypeOf4(v2) {
-  return v2 === null ? "null" : typeof v2;
-}
-function toBool7(v2) {
-  v2 = __proj7(v2);
-  try {
-    if (v2 instanceof Boolean)
-      return Boolean(Boolean.prototype.valueOf.call(v2));
-    if (v2 instanceof Number)
-      return Boolean(Number.prototype.valueOf.call(v2));
-    if (v2 instanceof String)
-      return Boolean(String.prototype.valueOf.call(v2));
-  } catch (e) {}
-  return Boolean(v2);
-}
-var __tjs7 = globalThis.__tjs?.createRuntime?.() ?? { TypeOf: TypeOf4, toBool: toBool7 };
+  const __ac = Object.create(null);
+  function __proj(v2) {
+    if (v2 === null || v2 === undefined || typeof v2 !== "object")
+      return v2;
+    let k2;
+    try {
+      k2 = v2.constructor && v2.constructor.name;
+    } catch {
+      return v2;
+    }
+    let f = k2 && Object.prototype.hasOwnProperty.call(__ac, k2) ? __ac[k2] : null;
+    if (typeof f !== "function") {
+      try {
+        f = v2.asCompared;
+      } catch {
+        return v2;
+      }
+    }
+    if (typeof f !== "function")
+      return v2;
+    let p;
+    try {
+      p = f.call(v2);
+    } catch {
+      return v2;
+    }
+    const t = typeof p;
+    return p === null || p === undefined || t === "number" || t === "string" || t === "boolean" ? p : v2;
+  }
+  function LegacyDate(...a) {
+    return new Date(...a);
+  }
+  function TypeOf4(v2) {
+    return v2 === null ? "null" : typeof v2;
+  }
+  function toBool7(v2) {
+    v2 = __proj(v2);
+    try {
+      if (v2 instanceof Boolean)
+        return Boolean(Boolean.prototype.valueOf.call(v2));
+      if (v2 instanceof Number)
+        return Boolean(Number.prototype.valueOf.call(v2));
+      if (v2 instanceof String)
+        return Boolean(String.prototype.valueOf.call(v2));
+    } catch (e) {}
+    return Boolean(v2);
+  }
+  return { __ub, __proj, __ac, LegacyDate, TypeOf: TypeOf4, toBool: toBool7 };
+})();
+var LegacyDate = __tjs_rt7.LegacyDate;
+var TypeOf4 = __tjs_rt7.TypeOf;
+var toBool7 = __tjs_rt7.toBool;
+var __tjs7 = globalThis.__tjs?.createRuntime?.() ?? { TypeOf: __tjs_rt7.TypeOf, toBool: __tjs_rt7.toBool };
 var __tjsToBool7 = __tjs7.toBool;
 __tjs7.toBool = function(v2) {
-  return __tjsToBool7(__proj7(v2));
+  return __tjsToBool7(__tjs_rt7.__proj(v2));
 };
 var GEMINI_API_KEY = defineSecret("GEMINI_API_KEY");
 var MODEL = "gemini-2.5-flash-lite";
@@ -13399,7 +13526,7 @@ var DAILY_PER_USER = 100;
 var DAILY_GLOBAL = 5000;
 var MAX_PROMPT_CHARS = 8000;
 function utcDay(now) {
-  return new Date(now).toISOString().slice(0, 10);
+  return LegacyDate(now).toISOString().slice(0, 10);
 }
 utcDay.__tjs = {
   params: {
@@ -13473,7 +13600,7 @@ var demoPredict = onCall({ secrets: [GEMINI_API_KEY], cors: true }, async (reque
   }
   const uid = request.auth.uid;
   const prompt = ((__tjs__t) => __tjs7.toBool(__tjs__t) ? request.data.prompt : __tjs__t)(request.data);
-  if (__tjs7.toBool(((__tjs__t) => __tjs7.toBool(__tjs__t) ? __tjs__t : TypeOf4(prompt) !== "string")(!__tjs7.toBool(prompt)))) {
+  if (__tjs7.toBool(((__tjs__t) => __tjs7.toBool(__tjs__t) ? __tjs__t : __tjs_rt7.TypeOf(prompt) !== "string")(!__tjs7.toBool(prompt)))) {
     throw new HttpsError("invalid-argument", "prompt must be a non-empty string");
   }
   if (__tjs7.toBool(prompt.length > MAX_PROMPT_CHARS)) {
@@ -13503,55 +13630,74 @@ var demoPredict = onCall({ secrets: [GEMINI_API_KEY], cors: true }, async (reque
   const text = ((__tjs__t) => __tjs7.toBool(__tjs__t) ? __tjs__t : "")(((__tjs__t) => __tjs7.toBool(__tjs__t) ? data2.candidates[0].content.parts[0].text : __tjs__t)(((__tjs__t) => __tjs7.toBool(__tjs__t) ? data2.candidates[0].content.parts[0] : __tjs__t)(((__tjs__t) => __tjs7.toBool(__tjs__t) ? data2.candidates[0].content.parts : __tjs__t)(((__tjs__t) => __tjs7.toBool(__tjs__t) ? data2.candidates[0].content : __tjs__t)(((__tjs__t) => __tjs7.toBool(__tjs__t) ? data2.candidates[0] : __tjs__t)(data2.candidates))))));
   return { text, remaining: quota.remaining, model: MODEL };
 });
+
 // src/index.js
-var __ac8 = Object.create(null);
-function __proj8(v2) {
-  if (v2 === null || v2 === undefined || typeof v2 !== "object")
-    return v2;
-  let k2;
-  try {
-    k2 = v2.constructor && v2.constructor.name;
-  } catch {
-    return v2;
-  }
-  let f = k2 && Object.prototype.hasOwnProperty.call(__ac8, k2) ? __ac8[k2] : null;
-  if (typeof f !== "function") {
+var __tjs_rt8 = (() => {
+  function __ub(v2) {
     try {
-      f = v2.asCompared;
+      if (v2 instanceof String)
+        return String.prototype.valueOf.call(v2);
+      if (v2 instanceof Number)
+        return Number.prototype.valueOf.call(v2);
+      if (v2 instanceof Boolean)
+        return Boolean.prototype.valueOf.call(v2);
     } catch {
       return v2;
     }
-  }
-  if (typeof f !== "function")
-    return v2;
-  let p;
-  try {
-    p = f.call(v2);
-  } catch {
     return v2;
   }
-  const t = typeof p;
-  return p === null || p === undefined || t === "number" || t === "string" || t === "boolean" ? p : v2;
-}
-function TypeOf5(v2) {
-  return v2 === null ? "null" : typeof v2;
-}
-function toBool8(v2) {
-  v2 = __proj8(v2);
-  try {
-    if (v2 instanceof Boolean)
-      return Boolean(Boolean.prototype.valueOf.call(v2));
-    if (v2 instanceof Number)
-      return Boolean(Number.prototype.valueOf.call(v2));
-    if (v2 instanceof String)
-      return Boolean(String.prototype.valueOf.call(v2));
-  } catch (e) {}
-  return Boolean(v2);
-}
-var __tjs8 = globalThis.__tjs?.createRuntime?.() ?? { TypeOf: TypeOf5, toBool: toBool8 };
+  const __ac = Object.create(null);
+  function __proj(v2) {
+    if (v2 === null || v2 === undefined || typeof v2 !== "object")
+      return v2;
+    let k2;
+    try {
+      k2 = v2.constructor && v2.constructor.name;
+    } catch {
+      return v2;
+    }
+    let f = k2 && Object.prototype.hasOwnProperty.call(__ac, k2) ? __ac[k2] : null;
+    if (typeof f !== "function") {
+      try {
+        f = v2.asCompared;
+      } catch {
+        return v2;
+      }
+    }
+    if (typeof f !== "function")
+      return v2;
+    let p;
+    try {
+      p = f.call(v2);
+    } catch {
+      return v2;
+    }
+    const t = typeof p;
+    return p === null || p === undefined || t === "number" || t === "string" || t === "boolean" ? p : v2;
+  }
+  function TypeOf5(v2) {
+    return v2 === null ? "null" : typeof v2;
+  }
+  function toBool8(v2) {
+    v2 = __proj(v2);
+    try {
+      if (v2 instanceof Boolean)
+        return Boolean(Boolean.prototype.valueOf.call(v2));
+      if (v2 instanceof Number)
+        return Boolean(Number.prototype.valueOf.call(v2));
+      if (v2 instanceof String)
+        return Boolean(String.prototype.valueOf.call(v2));
+    } catch (e) {}
+    return Boolean(v2);
+  }
+  return { __ub, __proj, __ac, TypeOf: TypeOf5, toBool: toBool8 };
+})();
+var TypeOf5 = __tjs_rt8.TypeOf;
+var toBool8 = __tjs_rt8.toBool;
+var __tjs8 = globalThis.__tjs?.createRuntime?.() ?? { TypeOf: __tjs_rt8.TypeOf, toBool: __tjs_rt8.toBool };
 var __tjsToBool8 = __tjs8.toBool;
 __tjs8.toBool = function(v2) {
-  return __tjsToBool8(__proj8(v2));
+  return __tjsToBool8(__tjs_rt8.__proj(v2));
 };
 initializeApp();
 var db5 = getFirestore6();
@@ -13625,7 +13771,7 @@ var agentRun2 = onCall2(async (request) => {
   }
   const uid = request.auth.uid;
   const { code, args = {}, fuel = 1000 } = request.data;
-  if (__tjs8.toBool(((__tjs__t) => __tjs8.toBool(__tjs__t) ? __tjs__t : TypeOf5(code) !== "string")(!__tjs8.toBool(code)))) {
+  if (__tjs8.toBool(((__tjs__t) => __tjs8.toBool(__tjs__t) ? __tjs__t : __tjs_rt8.TypeOf(code) !== "string")(!__tjs8.toBool(code)))) {
     throw new HttpsError2("invalid-argument", "code must be a non-empty string");
   }
   if (__tjs8.toBool(fuel > 1e4)) {
@@ -13704,7 +13850,7 @@ var run = onRequest(async (req, res) => {
     return res.status(401).json({ error: "Invalid token" });
   }
   const { code, args = {}, fuel = 1000 } = req.body;
-  if (__tjs8.toBool(((__tjs__t) => __tjs8.toBool(__tjs__t) ? __tjs__t : TypeOf5(code) !== "string")(!__tjs8.toBool(code)))) {
+  if (__tjs8.toBool(((__tjs__t) => __tjs8.toBool(__tjs__t) ? __tjs__t : __tjs_rt8.TypeOf(code) !== "string")(!__tjs8.toBool(code)))) {
     return res.status(400).json({ error: "code must be a non-empty string" });
   }
   if (__tjs8.toBool(fuel > 1e4)) {

@@ -1,10 +1,14 @@
 import { Eval } from 'tjs-lang';
+const __tjs_rt = (() => {
 function __ub(v){try{if(v instanceof String)return String.prototype.valueOf.call(v);if(v instanceof Number)return Number.prototype.valueOf.call(v);if(v instanceof Boolean)return Boolean.prototype.valueOf.call(v)}catch{return v}return v};
 const __ac=Object.create(null);function __proj(v){if(v===null||v===undefined||typeof v!=='object')return v;let k;try{k=v.constructor&&v.constructor.name}catch{return v}let f=k&&Object.prototype.hasOwnProperty.call(__ac,k)?__ac[k]:null;if(typeof f!=='function'){try{f=v.asCompared}catch{return v}}if(typeof f!=='function')return v;let p;try{p=f.call(v)}catch{return v}const t=typeof p;return p===null||p===undefined||t==='number'||t==='string'||t==='boolean'?p:v};
 function TypeOf(v){return v===null?'null':typeof v};
 function toBool(v){v=__proj(v);try{if(v instanceof Boolean)return Boolean(Boolean.prototype.valueOf.call(v));if(v instanceof Number)return Boolean(Number.prototype.valueOf.call(v));if(v instanceof String)return Boolean(String.prototype.valueOf.call(v))}catch(e){}return Boolean(v)};
-const __tjs = globalThis.__tjs?.createRuntime?.() ?? {TypeOf,toBool};
-const __tjsToBool = __tjs.toBool; __tjs.toBool = function(v){ return __tjsToBool(__proj(v)) };
+return {__ub,__proj,__ac,TypeOf,toBool};
+})();
+const TypeOf = __tjs_rt.TypeOf;const toBool = __tjs_rt.toBool;
+const __tjs = globalThis.__tjs?.createRuntime?.() ?? {TypeOf:__tjs_rt.TypeOf,toBool:__tjs_rt.toBool};
+const __tjsToBool = __tjs.toBool; __tjs.toBool = function(v){ return __tjsToBool(__tjs_rt.__proj(v)) };
 /*#
 # TJS Platform Cloud Functions
 
@@ -145,7 +149,7 @@ export const agentRun = onCall(async (request) => {
   const uid = request.auth.uid
   const { code, args = {}, fuel = 1000 } = request.data
 
-  if (__tjs.toBool(((__tjs__t)=>__tjs.toBool(__tjs__t)?__tjs__t:(TypeOf(code) !== 'string'))(!__tjs.toBool(code)))) {
+  if (__tjs.toBool(((__tjs__t)=>__tjs.toBool(__tjs__t)?__tjs__t:(__tjs_rt.TypeOf(code) !== 'string'))(!__tjs.toBool(code)))) {
     throw new HttpsError('invalid-argument', 'code must be a non-empty string')
   }
 
@@ -246,7 +250,7 @@ export const run = onRequest(async (req, res) => {
 
   const { code, args = {}, fuel = 1000 } = req.body
 
-  if (__tjs.toBool(((__tjs__t)=>__tjs.toBool(__tjs__t)?__tjs__t:(TypeOf(code) !== 'string'))(!__tjs.toBool(code)))) {
+  if (__tjs.toBool(((__tjs__t)=>__tjs.toBool(__tjs__t)?__tjs__t:(__tjs_rt.TypeOf(code) !== 'string'))(!__tjs.toBool(code)))) {
     return res.status(400).json({ error: 'code must be a non-empty string' })
   }
 

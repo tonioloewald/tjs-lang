@@ -19,5 +19,26 @@
     "firebase-admin": "^14.3.0",
     "firebase-functions": "^7.3.2",
     "tjs-lang": "^0.13.11"
+  },
+  "comment:overrides": [
+    "Transitive advisories in the DEPLOYED tree, pinned past their affected ranges.",
+    "These are runtime-scope, unlike the root tree's dev/deploy-only exemptions:",
+    "this code answers requests, so `not shipped to consumers` is not a mitigation.",
+    "",
+    "qs      GHSA-x5fp-wj9c-mxmx (array-limit bypass) + GHSA-4mjr-xmp4-gh2g (isBuffer",
+    "        DoS). Reached via firebase-functions > express > qs, i.e. it parses OUR",
+    "        query strings. express wants ^6.14.0 and body-parser ^6.15.2, so 6.16.0",
+    "        satisfies both declared ranges — a pin forward, not a fork.",
+    "uuid    GHSA-w5hq-g745-h8pq (missing buffer bounds check in v3/v5/v6). Reached via",
+    "        firebase-admin > @google-cloud/storage > gaxios > uuid. The advisory has",
+    "        THREE ranges (<11.1.1, >=12.0.0 <12.0.1, >=13.0.0 <13.0.1); ours is 9.0.1,",
+    "        so only the first applies and the lowest safe version is 11.1.1.",
+    "",
+    "Drop an entry once the parent ships a bump that already satisfies it — an override",
+    "that is no longer doing anything is a pin nobody is checking."
+  ],
+  "overrides": {
+    "qs": "^6.16.0",
+    "uuid": "^11.1.1"
   }
 }

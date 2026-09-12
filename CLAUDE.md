@@ -544,14 +544,26 @@ so one run reports several failures:
    `SKIP_AUDIT`.
 5. **Dogfood ratchets** — `bun run test:dogfood`, its own lane precisely because
    `test:fast` sets `SKIP_BENCHMARKS` and would skip them. They had never run in CI.
-6. **Generated artifacts are current** — `git diff --exit-code` over `demo/docs.json`,
+6. **Dependency audit** — `bun test src/dependency-audit.test.ts`. In CI since 2026-09-12
+   because **Dependabot structurally cannot cover the main tree**: the root has `bun.lock`
+   and no `package-lock.json`, so GitHub's dependency graph is built entirely from
+   `functions/` (measured — 307 packages, and not one of the root's own devDependencies).
+   At that moment `bun audit` found 9 root advisories, 3 high, that Dependabot reported as 0. Previously reachable only via the pre-tag lane, since `test:fast` sets `SKIP_AUDIT=1`
+   — so between tags nothing checked.
+7. **Generated artifacts are current** — `git diff --exit-code` over `demo/docs.json`,
    `docs/tjs-vs-typescript.md` and the committed `editors/**` output. `make` REGENERATES
    these, so running it without looking at the result proves only that the build doesn't
    crash.
 
-Not in CI: the live LLM smoke, the benchmarks, `bun audit`, and AJS grokkability. The
-first three run in the pre-tag lane above; grokkability is advisory and behind
-`RUN_GROK_TESTS`.
+Not in CI: the live LLM smoke, the benchmarks, and AJS grokkability. The first two run in
+the pre-tag lane above; grokkability is advisory and behind `RUN_GROK_TESTS`.
+
+**Prefer an `overrides` entry to an exemption.** An override FIXES an advisory; an
+exemption only agrees to ignore it until a date. `AUDIT_EXEMPTIONS` is currently **empty**:
+all seven entries were cleared on 2026-09-12 and six had had a published fix available for
+months, because a dated exemption reads as "handled" and the gate stays green. Both
+`package.json` files now carry an annotated `overrides` block instead. Reach for an
+exemption only when no published fix exists.
 
 **Bug fix rule:** Always create a reproduction test case before fixing a bug.
 

@@ -222,7 +222,7 @@
     "acorn-walk": "^8.3.4",
     "chokidar": "^4.0.3",
     "codemirror": "^6.0.2",
-    "esbuild": "^0.28.0",
+    "esbuild": "^0.28.2",
     "eslint": "^10.4.1",
     "firebase": "^12.18.0",
     "firebase-admin": "^14.3.0",
@@ -298,8 +298,40 @@
       "optional": true
     }
   },
+  "comment:overrides": [
+    "Two kinds of entry live here.",
+    "",
+    "1. The @codemirror/* pins keep the peer-dep singletons single.",
+    "2. The rest pin TRANSITIVE advisories past their affected range. Each one",
+    "   replaced a dated entry in audit-exemptions.ts, so prefer this: an override",
+    "   fixes the advisory, an exemption only agrees to ignore it until a date.",
+    "",
+    "   flatted     ^3.4.4  GHSA-25h7-pfq9-p65f (<3.4.0) + GHSA-rf6f-7fwh-wjgh",
+    "                       (<=3.4.1). eslint > file-entry-cache > flat-cache.",
+    "   form-data   ^2.5.6  GHSA-hmw2-7cc7-3qxx (<2.5.6). firebase-admin >",
+    "                       @google-cloud/storage > retry-request > @types/request.",
+    "                       A patch within 2.x, NOT the 4.x line.",
+    "   qs          ^6.16.0 GHSA-x5fp-wj9c-mxmx + GHSA-4mjr-xmp4-gh2g.",
+    "   uuid        ^11.1.1 GHSA-w5hq-g745-h8pq. The advisory lists three ranges;",
+    "                       ours was 9.0.1, so the lowest safe version is 11.1.1.",
+    "   protobufjs  ^7.6.5  GHSA-f38q-mgvj-vph7 (<=7.6.2) + GHSA-j3f2-48v5-ccww",
+    "                       (<=7.6.4). Stays on 7.x; latest is 8.x and we do not",
+    "                       need the major.",
+    "",
+    "   A blanket override is safe for each ONLY because the tree resolves exactly",
+    "   one version of each today (checked with `bun pm ls --all`). If a second",
+    "   consumer ever needs a different major, narrow the entry to a nested path",
+    "   rather than dragging that consumer backwards.",
+    "",
+    "   Delete an entry once the parent ships a bump that satisfies it on its own."
+  ],
   "overrides": {
     "@codemirror/state": "$@codemirror/state",
-    "@codemirror/view": "$@codemirror/view"
+    "@codemirror/view": "$@codemirror/view",
+    "flatted": "^3.4.4",
+    "form-data": "^2.5.6",
+    "qs": "^6.16.0",
+    "uuid": "^11.1.1",
+    "protobufjs": "^7.6.5"
   }
 }

@@ -102,6 +102,35 @@ jobs:
         if: always()
         run: bun run test:dogfood
 
+      # Dependency advisories. In CI because **Dependabot structurally cannot cover this
+      # repo's main tree**, which was measured on 2026-09-12 rather than assumed:
+      #
+      #   - Dependabot had produced alerts for exactly one manifest, ever:
+      #     `functions/package-lock.json`. There is no `.github/dependabot.yml`, so
+      #     nothing was scoping it.
+      #   - GitHub's dependency graph held 307 packages and NONE of the root's own
+      #     devDependencies (eslint, prismjs, chokidar, marked). The graph is built
+      #     entirely from `functions/`.
+      #   - The root has `bun.lock` and no `package-lock.json`, and is therefore invisible.
+      #
+      # At that moment `bun audit` found 9 advisories at the root (3 high) that Dependabot
+      # reported as 0. Turning Dependabot on is what prompted the check, and the honest
+      # reading is that it covers the SMALLER, deployed tree while the tree that builds the
+      # published package went unwatched. `bun audit` reads the actual installed tree, so it
+      # does not care which lockfile format GitHub can parse.
+      #
+      # This runs the same gate as the full suite (`src/dependency-audit.test.ts`: fails on
+      # high/critical not covered by a live, dated entry in `audit-exemptions.ts`, and warns
+      # when an entry is dead). It was previously reachable ONLY via the pre-tag lane —
+      # `test:fast` sets SKIP_AUDIT=1 — so between tags nothing checked at all. Six of the
+      # seven exemptions cleared that day had had a published fix available for months.
+      #
+      # Needs network; `continue-on-error` is deliberately NOT set — a gate that cannot fail
+      # is the thing this repo keeps learning not to ship.
+      - name: Dependency audit
+        if: always()
+        run: bun test src/dependency-audit.test.ts
+
       # `make` REGENERATES committed artifacts, so running it and not looking at
       # the result proves only that the build does not crash. `demo/docs.json`
       # was demonstrably stale at 0.13.0-beta.1 — twelve documents behind HEAD,
