@@ -1004,12 +1004,40 @@ harness was hiding. Decide deliberately: teach it via the prompt guide, diagnose
 with a message naming`vars`, or support it. **A diagnostic is the cheapest of the
       three** and fits errors-as-curriculum — the current message ("Template literals inside
       expressions are not supported") states the ban without teaching the replacement.
-- [ ] **Re-run `bun run test:grok` against the pin** to get the first honest number. Could
-      not be done at the time of the change: `gemma-4-e2b` is in the LM Studio catalogue but
-      not loaded, and the audit times out cold-loading it. Whatever it reports is the first
-      rate this lane has produced that is not quietly inflated — expect it to be LOWER than
-      previously reported numbers, and that drop is the instrument getting honest, not a
-      regression.
+- [x] **Fixed: the lane could never run COLD.** `beforeAll` calls `models.audit()`, which
+      probes every downloaded model in turn, against bun's default **5s** hook timeout. It
+      died in the hook before measuring anything, and the failure presented as "pin not
+      loaded" — the harness blaming the environment for never getting to ask. Now
+      `600_000`. The audit caches 24h, so only a cold run pays it.
+
+- [x] **MEASURED 2026-09-12 against the pin: 20/20 = 100%, raw, no repairs.**
+      `google/gemma-4-e2b`, 5 samples × 4 tasks, bar 60%:
+
+      | task | raw |
+      | --- | --- |
+      | factorial (while loop + arithmetic) | 5/5 |
+      | greeting (optional param + template) | 5/5 |
+      | volume (multi-param arithmetic) | 5/5 |
+      | weatherReport (tool orchestration) | 5/5 |
+
+      **I predicted this would come in LOWER once the repairs stopped propping it up. It
+      did not — it is perfect.** Worth recording as a wrong prediction rather than quietly
+      dropping it: the repairs were not holding the number up, they were holding a *stale
+      belief* up. A 2B model writes valid AJS unassisted, including tool orchestration,
+      which is direct support for AJS's load-bearing premise (`ASSUMPTIONS.md`).
+
+- [ ] **The instrument is now saturated at the bar.** 100% against a 60% bar detects
+      regressions but cannot detect improvement, and cannot rank prompt-guide wordings —
+      the same ceiling already recorded above for the legibility harness. If this lane is
+      to answer "did that change help?", it needs harder tasks. Not urgent: as a _guard_
+      against AJS getting harder for small models, saturated-and-green is exactly right.
+
+- [ ] **The surviving repair recovered 0 in that run** — no `[gap]` line printed, because
+      no sample failed. By the rule stated in its own comment ("a repair that recovers
+      nothing is dead and should be deleted") it is a deletion candidate, but one run at
+      N=5 is not enough to conclude the model never emits a gratuitous backtick. Leave it;
+      the `[gap]` reporting now makes the evidence accumulate on its own. Delete it if two
+      or three more runs also recover nothing.
 
 ## Adoption-intent harness — "would you switch?" (assumption testing)
 

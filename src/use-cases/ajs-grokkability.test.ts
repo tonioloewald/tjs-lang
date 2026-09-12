@@ -228,7 +228,12 @@ describe.skipIf(!RUN)(
             `grokkability cannot be measured. Load it (or set GROK_MODEL) and re-run. Skipping.`
         )
       }
-    })
+      // `audit()` PROBES EVERY DOWNLOADED MODEL, loading each in turn, so a cold run takes
+      // minutes — against bun's default 5s hook timeout. The lane could therefore never run
+      // cold: it died in the hook before measuring anything, and the failure looked like the
+      // pin being unavailable rather than the harness never getting to ask. The audit caches
+      // for 24h, so only the first run pays this.
+    }, 600_000)
 
     for (const task of TASKS) {
       it(`grok: ${task.name}`, async () => {
