@@ -706,6 +706,23 @@ export function findDocCommentSpans(source: string): Array<[number, number]> {
   return spans
 }
 
+/**
+ * The markdown inside each TJS doc comment, delimiters removed.
+ *
+ * This is what makes a `.tjs` file a literate program on its own terms: the documentation is
+ * IN the language, so a doc system renders documentation it does not define. Nothing about
+ * publishing a `.tjs` file's docs requires a particular build tool.
+ *
+ * Nested doc comments are returned as part of their parent's text rather than separately —
+ * a `/# … #/` inside another is being QUOTED (that is the entire reason nesting exists), so
+ * lifting it out would publish an example as though it were a document.
+ */
+export function extractDocComments(source: string): string[] {
+  return findDocCommentSpans(source).map((span) =>
+    source.slice(span[0] + 2, span[1] - 2).trim()
+  )
+}
+
 /** Replace every TJS doc comment with equivalent whitespace, preserving offsets. */
 export function blankDocComments(source: string): string {
   const spans = findDocCommentSpans(source)

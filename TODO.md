@@ -278,6 +278,24 @@ across nested runs, `membraneMaxBytes`, and `maxHeapBytes`. Their spec needs per
 sets and fuel metering; the quota/membrane story is what stops one stored procedure from
 spending another's budget.
 
+## `tjs doc` — a self-hosted graphical REPL (proposed 2026-09-12)
+
+Tonio's idea: **a doc-runner binary that gives you a self-hosted environment** — summon a
+graphical REPL from the command line. Plausibly a thin wrapper around `haltija` +
+`live-example` rather than anything new.
+
+**Why it belongs here rather than in the doc site.** With `/# … #/`, a `.tjs` file is a
+literate program on its own terms: the documentation is in the language, so publishing it
+does not depend on anyone's build system. That property is only half-real while the ONLY way
+to see a `.tjs` file's docs rendered is to build the whole site. `tjs doc somefile.tjs`
+closes it — the language ships with a way to read itself.
+
+It also serves the retirement (B2): the playground disappears into `live-example`, and a
+command-line summon is what replaces "open the playground and paste". Same components, no
+site.
+
+Sequenced after the doc-extraction work above, since it renders what that produces.
+
 ## THE BOOK — examples become documentation pages, executed by the build (2026-09-11)
 
 **Direction:** pull every example out of the old demo pages and make each one a documentation

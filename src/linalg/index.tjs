@@ -1,4 +1,4 @@
-/*#
+/#
 # tjs-lang/linalg
 
 Linear algebra primitives implemented as WebAssembly SIMD kernels.
@@ -17,7 +17,7 @@ allocate; they read from caller-supplied buffers and return scalars.
 **Length precondition.** `n` must be a multiple of 4 (the SIMD lane
 width). Callers that have non-multiple-of-4 vectors should pad with
 zeros (cheap, doesn't affect dot product or sum-of-squares results).
-*/
+#/
 
 /**
  * Dot product of two f32 vectors. Returns the sum of element-wise products.

@@ -1,4 +1,4 @@
-/*#
+/#
 # RBAC Security Rules (Pure Logic)
 
 Pure security rule evaluation logic, independent of storage backend.
@@ -17,11 +17,11 @@ This module contains no I/O - it only evaluates rules against contexts.
 - Return `true` to allow
 - Return `false` to deny
 - Return `{ allow: true/false, reason: string }` for detailed response
-*/
+#/
 
 safety none
 
-/*#
+/#
 ## Access Rule Shortcuts
 
 Evaluates simple access rule strings without AJS overhead.
@@ -35,7 +35,7 @@ Shortcuts:
 - 'author' - must have author role
 - 'owner:fieldName' - doc[fieldName] === _uid
 - 'role:roleName' - _roles.includes(roleName)
-*/
+#/
 export function evaluateAccessShortcut(accessRule, context) {
   if (typeof accessRule !== 'string') return null
 
@@ -170,12 +170,12 @@ test('evaluateAccessShortcut - non-string returns null') {
   expect(result).toBe(null)
 }
 
-/*#
+/#
 ## Select Access Rule
 
 Determines which access rule to use based on the operation method.
 Supports granular rules (read/create/update/delete) with fallbacks.
-*/
+#/
 export function selectAccessRule(rule, context) {
   const { _method, doc } = context
 
@@ -241,12 +241,12 @@ test('selectAccessRule - falls back to code') {
   expect(result).toBe('return _uid !== null')
 }
 
-/*#
+/#
 ## Validate Schema
 
 Simple schema validation for write operations.
 Checks required fields and basic types.
-*/
+#/
 export function validateSchema(schema, data) {
   const errors = []
 
@@ -327,7 +327,7 @@ test('validateSchema - array type check') {
   expect(result.valid).toBe(true)
 }
 
-/*#
+/#
 ## Evaluate Rule Result
 
 Interprets a rule's return value as { allowed, reason }.
@@ -350,7 +350,7 @@ non-boolean return all evaluate as `false`*.
 The reason string distinguishes "the rule said no" from "the rule did not
 answer" — a denial that reads like an ordinary policy decision hides a broken
 rule.
-*/
+#/
 export function interpretRuleResult(result) {
   if (typeof result === 'boolean') {
     return { allowed: result, reason: result ? null : 'Access denied' }
@@ -416,12 +416,12 @@ test('interpretRuleResult - object with allow: false and reason') {
   expect(result.reason).toBe('Custom reason')
 }
 
-/*#
+/#
 ## Check Role Hierarchy
 
 Evaluates if a user has sufficient role level.
 Role hierarchy: admin > author > user > guest
-*/
+#/
 const ROLE_LEVELS = {
   admin: 100,
   author: 50,
@@ -465,11 +465,11 @@ test('hasRoleLevel - null roles fail') {
   expect(hasRoleLevel(null, 'user')).toBe(false)
 }
 
-/*#
+/#
 ## Build Rule Context
 
 Creates the evaluation context for a security rule.
-*/
+#/
 export function buildRuleContext(options) {
   const { uid, roles, method, collection, docId, doc, newData } = options
 

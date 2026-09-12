@@ -16,7 +16,10 @@
  * (first-class `example` blocks) would remove this step entirely — the code would come from
  * the language rather than from re-parsing markdown.
  */
+import { readFileSync, readdirSync, statSync, existsSync } from 'node:fs'
+import { join, basename } from 'node:path'
 import { extractDocs, saveDocsJSON } from 'tosijs-ui/site'
+import { extractDocComments } from '../src/strip-comments'
 import config from '../tjs-site.config'
 
 /**
@@ -82,7 +85,62 @@ function stripMisreadFrontmatter(doc: any): void {
     delete doc[key]
 }
 
-const docs = extractDocs({ paths: config.docPaths as string[] })
+/**
+ * `.tjs` files contribute their own doc comments.
+ *
+ * `extractDocs` reads `/*# … *\/` from `.ts`/`.js` — tosijs-ui's convention, and it stays
+ * that
+ * (note the escape: this file is `.ts`, so it cannot use `/# … #/` and must escape the
+ * terminator it is quoting — which is the whole argument for the new syntax, demonstrated
+ * accidentally while writing this comment)
+ * for TypeScript sources. But `.tjs` files use TJS's own doc
+ * comment, which no external tool knows about, and that is the point: the documentation is in
+ * the LANGUAGE, so publishing it does not depend on anyone's build system.
+ *
+ * Mirrors the shape `extractDocs` produces for inline source docs — blocks joined with a
+ * rule, titled by filename — so the two corpora merge without a consumer noticing which
+ * extractor produced an entry.
+ */
+function tjsDocs(paths: string[]): any[] {
+  const out: any[] = []
+  const walk = (dir: string): void => {
+    for (const name of readdirSync(dir)) {
+      if (name.startsWith('.') || name === 'node_modules') continue
+      const full = join(dir, name)
+      if (statSync(full).isDirectory()) walk(full)
+      else if (name.endsWith('.tjs')) {
+        const blocks = extractDocComments(readFileSync(full, 'utf8'))
+        if (!blocks.length) continue
+        out.push({
+          text: blocks.join('\n\n---\n\n'),
+          title: `${basename(full, '.tjs')} (inline docs)`,
+          filename: basename(full),
+          path: full,
+        })
+      }
+    }
+  }
+  for (const p of paths) {
+    if (!existsSync(p)) continue
+    if (statSync(p).isDirectory()) walk(p)
+    else if (p.endsWith('.tjs')) {
+      const blocks = extractDocComments(readFileSync(p, 'utf8'))
+      if (blocks.length)
+        out.push({
+          text: blocks.join('\n\n---\n\n'),
+          title: `${basename(p, '.tjs')} (inline docs)`,
+          filename: basename(p),
+          path: p,
+        })
+    }
+  }
+  return out
+}
+
+const docs = [
+  ...extractDocs({ paths: config.docPaths as string[] }),
+  ...tjsDocs(config.docPaths as string[]),
+]
 
 for (const doc of docs as any[]) {
   stripMisreadFrontmatter(doc)
