@@ -7,6 +7,29 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.13.13] — 2026-09-13
+
+### Read this first if you use `unsafe`
+
+**A patch release normally cannot take anything away. This one can, so it is named here
+rather than left for you to discover.** `var` and `eval` were reachable in a `.tjs` file
+behind the `unsafe` marker; they are now refused outright, so source that compiled under
+0.13.12 can fail under 0.13.13:
+
+```
+unsafe var x = 1      // 0.13.12: compiled     0.13.13: refused
+unsafe eval(src)      // 0.13.12: compiled     0.13.13: refused
+```
+
+The full reasoning is under **Changed** below; briefly, `eval` could not be given a named
+replacement even in principle, because direct `eval` reads the CALLER's scope and any wrapper
+would silently be a different operation. `unsafe` itself is only **deprecated** — it warns and
+keeps working.
+
+It is a patch deliberately: the version line stays on 0.13.x until the tosijs-ui migration and
+`tjs doc` land, and 0.14.0 is reserved for that release. Pinning `~0.13.12` will not protect
+you from this; pin exactly if you rely on either escape.
+
 ### Added
 
 - **`/# … #/` — a doc comment TJS actually owns.** Multi-line, nestable, and able to quote any
@@ -111,8 +134,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   (the class names are what a theme styles against), and pins that every keyword in the source
   of truth reaches the generated definition.
 
-### Added
-
 - **`tjs-lang/rbac` — the RBAC rule primitives are now importable.** `interpretRuleResult` and
   the role/shortcut helpers had **no built output at all** (`dist/src/rbac/` carried a lone
   `.d.ts`), so they were reachable only by reading `rules.tjs` out of the tarball. That is how
@@ -139,6 +160,70 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   only after a successful transpile means this cannot half-succeed.
 
   Incidentally now dogfooding: the build of `tjs-lang` compiles `.tjs` with `tjs-lang`.
+
+- **`marked` moved 9 → 18** (a devDependency; it does not affect your install). tosijs-ui
+  peer-requires `^16 || ^17 || ^18` and we had 9.1.6, so the renderer behind our doc system was
+  a version tosijs-ui does not claim to support — and the doc system is what the next release
+  migrates onto.
+
+  Nine majors is a big jump, so it was measured rather than assumed: all 109 docs were rendered
+  through both versions. 31 byte-identical, 75 differing only in whitespace between block
+  elements, and **3 substantive — two of which were marked 9 getting our prose wrong.** It
+  treated a pair of single tildes on one line as strikethrough, so `~0.13 ms (~8K themes/s)`
+  rendered as `<del>0.13 ms (</del>8K themes/s)`. Our performance docs use `~` for
+  "approximately" throughout. Real `~~strikethrough~~` is unaffected in both.
+
+### Fixed
+
+- **`demo/docs.json` was ordered by the filesystem, not by its inputs.** The `.tjs` doc walk
+  used bare `readdirSync`, which returns APFS order locally and ext4 order in CI, so two
+  entries could trade places with no content change. That made the committed-artifact check
+  fail for anyone whose filesystem enumerated differently, reporting a stale artifact that was
+  perfectly current. Sorted at both levels; verified by generating twice and comparing.
+
+- **The AJS grokkability lane could never run cold, and was scoring repaired output.** Two
+  problems in the one harness:
+
+  Its `beforeAll` probes every downloaded model against bun's default **5s** hook timeout, so a
+  cold run died before measuring anything — and presented as "pin model not loaded", the
+  harness blaming the environment for a question it never got to ask.
+
+  It also ran `fixCommonMistakes` over model output **before** scoring, making every published
+  rate a post-repair rate wearing a raw rate's label. Two of its three repairs were rewriting
+  `: string` → `: ''` and `: number` → `: 0` — spellings the language has accepted for some
+  time via `TYPE_NAMES`. So the harness had been repairing something already fixed, which is
+  exactly why the fix could never appear in the number meant to measure it. The rate is now the
+  RAW rate; repairs are named and report separately what they would have recovered. First
+  honest run against the pin: **20/20**.
+
+  Bare type names are now pinned deterministically by `src/lang/ajs-type-annotations.test.ts`,
+  asserting the validator REJECTS the wrong type — accepting the annotation and inferring `any`
+  would pass a parses-without-throwing test while validating nothing.
+
+### Security
+
+- **All 11 dependency advisories cleared; both trees report clean.** In the DEPLOYED Cloud
+  Functions tree, `qs` (6.15.3 → 6.16.0) and `uuid` (9.0.1 → 11.1.1) were **runtime** scope, so
+  "dev-only, not shipped" was never a mitigation for them. At the root: `flatted` → 3.4.4,
+  `form-data` → 2.5.6, `protobufjs` → 7.6.6, `esbuild` → 0.28.2. None of these reach a
+  consumer's install — the published runtime dependencies (`acorn`, `acorn-loose`,
+  `acorn-walk`, `tosijs-schema`) carry no advisories and are unchanged.
+
+- **`bun audit` now runs in CI**, because Dependabot structurally cannot cover this repo's main
+  tree. Measured, not assumed: Dependabot had produced alerts for exactly one manifest ever
+  (`functions/package-lock.json`), and GitHub's dependency graph held 307 packages with **none
+  of the root's own devDependencies** — the root has `bun.lock` and no `package-lock.json`, so
+  it is invisible to the graph. At that moment `bun audit` found 9 root advisories (3 high)
+  that Dependabot reported as 0. The gate was previously reachable only from the pre-tag lane,
+  since `test:fast` sets `SKIP_AUDIT=1`, so between tags nothing checked.
+
+- **`AUDIT_EXEMPTIONS` is now empty**, and the reason is worth recording: all seven entries
+  were dated `2026-10-27` and **every one was already fixable**, six with a published fix
+  available for months. A dated exemption reads as "handled" — the gate stays green, and green
+  is indistinguishable from fixed. The file had already recorded this exact lesson about
+  `brace-expansion` and it repeated verbatim; both times the trigger was accidental. The
+  guidance now prefers an `overrides` entry, which _fixes_ an advisory, over an exemption,
+  which only agrees to ignore it.
 
 ## [0.13.12] — 2026-09-06
 
@@ -2903,7 +2988,11 @@ playground + editor integrations (Monaco / CodeMirror / Ace, linter, autocomplet
   intermediate wrapping. This is the VM-return-flattening change; it landed in **0.2.0**
   (before 0.7.8) and was only recorded in the git log until this backfill.
 
-[Unreleased]: https://github.com/tonioloewald/tjs-lang/compare/v0.12.0...HEAD
+[Unreleased]: https://github.com/tonioloewald/tjs-lang/compare/v0.13.13...HEAD
+[0.13.13]: https://github.com/tonioloewald/tjs-lang/compare/v0.13.12...v0.13.13
+[0.13.12]: https://github.com/tonioloewald/tjs-lang/compare/v0.13.11...v0.13.12
+[0.13.11]: https://github.com/tonioloewald/tjs-lang/compare/v0.13.10...v0.13.11
+[0.13.10]: https://github.com/tonioloewald/tjs-lang/compare/v0.13.9...v0.13.10
 [0.12.0]: https://github.com/tonioloewald/tjs-lang/compare/v0.11.0...v0.12.0
 [0.11.0]: https://github.com/tonioloewald/tjs-lang/compare/v0.10.1...v0.11.0
 [0.10.1]: https://github.com/tonioloewald/tjs-lang/compare/v0.10.0...v0.10.1
