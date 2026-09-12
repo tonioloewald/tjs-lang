@@ -294,6 +294,19 @@ describe('the AJS path runs AJS and nothing else', () => {
         // Now actually pinned, and on its own entry rather than commenting the one below it.
         'acorn:* as acorn',
         './types:SyntaxError',
+        // TJS doc comments. Added 2026-09-12, and it had to clear the bar this list exists
+        // to enforce — "does AJS HAVE this construct", never "is it harmless", which is what
+        // all seven historical leaks were until one executed submitted source.
+        //
+        // It clears it: AJS source deserves to carry its own documentation exactly as TJS
+        // source does, so this is AJS gaining a construct rather than a TJS transform leaking
+        // in. And it is LEXICAL — blank a comment — not a semantic rewrite, which is the same
+        // class as the two entries below it.
+        //
+        // Subset direction is the safe one: `PRINCIPLES.md` requires TJS ⊇ AJS, and giving
+        // AJS something TJS already has cannot violate that. Withholding it would have — a
+        // documented `.ajs` file would be legal TJS and illegal AJS.
+        '../strip-comments:blankDocComments',
         // A hashbang is ES2023, therefore inside the subset. Blanked, not sliced, so
         // diagnostic offsets survive.
         '../strip-comments:hashbangOf',

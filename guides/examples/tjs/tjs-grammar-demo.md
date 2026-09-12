@@ -35,7 +35,7 @@ safety inputs
 // Honest equality, callable-without-new classes and the `var` ban are simply how
 // `.tjs` behaves — there are no mode directives to enable them.
 
-/*#
+/#
 # TJS Grammar Reference
 
 A runnable reference for TJS syntax. Each section demonstrates a
@@ -59,19 +59,19 @@ feature with a test proving it works.
 | Try without catch | Monadic error conversion |
 | Inline tests | Test blocks |
 | TDoc comments | Slash-star-hash markdown blocks |
-*/
+#/
 
 // ═══════════════════════════════════════════════════════════
 // 2. PARAMETER SYNTAX
 // ═══════════════════════════════════════════════════════════
 
-/*#
+/#
 ## Parameters
 
 Colon `:` = required (example value infers type).
 Equals `=` = optional (default value).
 Question mark `?:` = optional (TS-style).
-*/
+#/
 
 // Required params (colon shorthand)
 function greet(name: 'Alice'): 'Hello, Alice' {
@@ -104,13 +104,13 @@ test 'parameter syntax' {
 // 3. RETURN TYPES
 // ═══════════════════════════════════════════════════════════
 
-/*#
+/#
 ## Return Types
 
 `:` signature test at transpile time.
 `:?` signature test + runtime output validation.
 `:!` skip signature test entirely.
-*/
+#/
 
 // : transpile-time check (double(5) must equal 10)
 function double(x: 5): 10 {
@@ -132,12 +132,12 @@ test 'return types' {
 // 4. SAFETY MARKERS
 // ═══════════════════════════════════════════════════════════
 
-/*#
+/#
 ## Safety Markers
 
 `!` = unsafe (skip input validation). Fast path for trusted callers.
 `?` = safe (force validation even inside `unsafe` blocks).
-*/
+#/
 
 function fastAdd(! a: 0, b: 0): 0 {
   return a + b
@@ -156,7 +156,7 @@ test 'safety markers' {
 // 5. BARE ASSIGNMENTS
 // ═══════════════════════════════════════════════════════════
 
-/*#
+/#
 ## Bare Assignments
 
 Uppercase identifiers auto-get `const` — a native-TJS convenience (off for plain
@@ -164,7 +164,7 @@ JS / TS / VM). It fires only on the **first** assignment of an undeclared name;
 a reassignment of an already-declared binding (`let B = null; B = 2`) is left
 alone. Since the first assignment becomes `const`, use `let` if you need it to
 change later.
-*/
+#/
 
 Greeting = 'Hello'
 MaxRetries = 3
@@ -178,11 +178,11 @@ test 'bare assignments' {
 // 7. CLASSES (callable without new)
 // ═══════════════════════════════════════════════════════════
 
-/*#
+/#
 ## Classes
 
 Classes are callable without `new` by default in native TJS.
-*/
+#/
 
 class Point {
   constructor(x: 0.0, y: 0.0) {
@@ -205,12 +205,12 @@ test 'classes callable without new' {
 // 8. POLYMORPHIC FUNCTIONS
 // ═══════════════════════════════════════════════════════════
 
-/*#
+/#
 ## Polymorphic Functions
 
 Same name, different signatures. Dispatched by arity/type.
 See the **Polymorphic Functions** example for more.
-*/
+#/
 
 function describe(value: 0) {
   return 'number: ' + value
@@ -229,12 +229,12 @@ test 'polymorphic dispatch by arity' {
 // 9. POLYMORPHIC CONSTRUCTORS
 // ═══════════════════════════════════════════════════════════
 
-/*#
+/#
 ## Polymorphic Constructors
 
 Multiple `constructor()` declarations in a class.
 See the **Polymorphic Constructors** example for more.
-*/
+#/
 
 class Vec2 {
   constructor(x: 0.0, y: 0.0) {
@@ -259,7 +259,7 @@ test 'polymorphic constructors' {
 // 10. LOCAL EXTENSIONS
 // ═══════════════════════════════════════════════════════════
 
-/*#
+/#
 ## Local Extensions
 
 Add methods to built-in types without prototype pollution.
@@ -276,13 +276,13 @@ See the **Local Extensions** example for a runnable demo.
 
     'hello'.capitalize()  // 'Hello'
     [1, 2, 3].last()      // 3
-*/
+#/
 
 // ═══════════════════════════════════════════════════════════
 // 11. EQUALITY OPERATORS
 // ═══════════════════════════════════════════════════════════
 
-/*#
+/#
 ## Equality
 
 Honest equality is on by default in native TJS:
@@ -296,17 +296,17 @@ Honest equality is on by default in native TJS:
     a === b      // false (identity: different objects)
     a Is b       // true  (explicit structural)
     a IsNot b    // false
-*/
+#/
 
 // ═══════════════════════════════════════════════════════════
 // 12. TRY WITHOUT CATCH
 // ═══════════════════════════════════════════════════════════
 
-/*#
+/#
 ## Try Without Catch
 
 A bare `try` block auto-converts exceptions to monadic errors.
-*/
+#/
 
 function parseJSON(s: '{"a":1}'):! { a: 1 } {
   try {
@@ -324,13 +324,13 @@ test 'try without catch' {
 // 13. INLINE TESTS
 // ═══════════════════════════════════════════════════════════
 
-/*#
+/#
 ## Inline Tests
 
 Test blocks run at transpile time and are stripped from
 output. They have full access to the module scope, so you
 can test private functions without exporting them.
-*/
+#/
 
 function _private(x: 0): 0 {
   return x * x
@@ -344,12 +344,12 @@ test 'inline tests can reach private functions' {
 // 14. MODULE EXPORTS
 // ═══════════════════════════════════════════════════════════
 
-/*#
+/#
 ## Module Exports
 
 Standard ES module syntax works. Functions and values
 can be exported for use by other modules.
-*/
+#/
 
 export function publicHelper(x: 0): 1 {
   return x + 1
@@ -359,13 +359,13 @@ export function publicHelper(x: 0): 1 {
 // 15. TDOC COMMENTS
 // ═══════════════════════════════════════════════════════════
 
-/*#
+/#
 ## TDoc Comments
 
 These comment blocks (opened with slash-star-hash) contain
 markdown that becomes rich documentation in the playground
 and API docs. Every such block you've seen above is a TDoc.
-*/
+#/
 
 // ═══════════════════════════════════════════════════════════
 // OUTPUT

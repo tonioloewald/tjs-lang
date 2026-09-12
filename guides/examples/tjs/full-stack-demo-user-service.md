@@ -6,7 +6,7 @@ A complete backend service with typed endpoints - save this first!
 
 ```tjs
 TjsCompat
-/*#
+/#
 ## User Service
 
 A complete backend service running in the browser.
@@ -16,7 +16,7 @@ Features:
 - Type-safe endpoints with validation
 - In-memory data store
 - Full CRUD operations
-*/
+#/
 
 // In-memory store (would be a real DB in production)
 const users = new Map()

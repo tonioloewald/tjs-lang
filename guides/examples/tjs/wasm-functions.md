@@ -5,7 +5,7 @@
 Top-level `wasm function` declarations — the building block for cross-file WASM libraries.
 
 ```tjs
-/*#
+/#
 ## `wasm function` — reusable WebAssembly kernels
 
 Inline `wasm { ... }` blocks live inside a specific JS function. They're
@@ -22,7 +22,7 @@ convenient for one-off accelerations but they're not reusable.
 
 Parameters use WASM type names (`i32`, `f64`, `Float32Array`, etc.), not
 TJS example-based syntax. Return types must be `f64` or omitted in v1.
-*/
+#/
 
 // A scalar dot product — for educational reference.
 // Real production code would use the SIMD version below.

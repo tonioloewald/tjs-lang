@@ -5,7 +5,7 @@
 Ban var, enforce immutability. Zero runtime cost.
 
 ```tjs
-/*#
+/#
 ## var Is Dead
 
 JavaScript's `var` is a footgun:
@@ -32,7 +32,7 @@ the check happens at transpile time. The output is plain `const`.
 
 When runtimes support records/tuples, `const!` can emit those.
 Until then, the semantics are locked in with zero overhead.
-*/
+#/
 
 // --- const and let work fine ---
 const greeting = 'Hello'

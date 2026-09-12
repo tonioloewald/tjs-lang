@@ -7,7 +7,7 @@
 WASM SIMD vs scalar JavaScript cosine similarity
 
 ```tjs
-/*#
+/#
 # WASM SIMD Vector Search Benchmark
 
 Compares **WASM SIMD** (f32x4) cosine similarity against **scalar JavaScript**
@@ -36,7 +36,7 @@ imported form works fine. A `cosine_search` kernel in `tjs-lang/linalg` would
 combine both wins — that's the natural next step. See
 [`wasm-library-plan.md`](https://github.com/tonioloewald/tjs-lang/blob/main/wasm-library-plan.md)
 § "Canonical end-to-end demo" for the full story.
-*/
+#/
 
 // SIMD corpus search — single WASM call over entire corpus
 // corpus is a flat Float32Array of count*dim elements

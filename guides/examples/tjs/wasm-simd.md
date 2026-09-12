@@ -7,7 +7,7 @@
 Process 4 floats per instruction. No setup, no toolchain.
 
 ```tjs
-/*#
+/#
 ## SIMD: Single Instruction, Multiple Data
 
 SIMD processes 4 float values per instruction — a 4x throughput
@@ -29,7 +29,7 @@ intrinsics that compile directly to WASM SIMD opcodes.
 | `f32x4_sqrt(a)` | Square root of 4 values |
 | `f32x4_extract_lane(vec, lane)` | Get one float (0-3) |
 | `f32x4_replace_lane(vec, lane, val)` | Set one float |
-*/
+#/
 
 // --- Scale an array by a constant (SIMD: 4 elements per step) ---
 

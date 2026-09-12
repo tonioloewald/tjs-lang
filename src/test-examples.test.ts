@@ -39,9 +39,16 @@ describe('TJS examples transpile', () => {
     if (ex.language !== 'tjs') continue
 
     test(`${ex.title} (${ex.path.split('/').pop()})`, () => {
+      // Transpiles without throwing. NOT `code.length > 0`, which measured the wrong thing:
+      // an example that is entirely `test` blocks legitimately emits nothing once they are
+      // extracted, and the old assertion only passed because `/*# … */` doc comments were
+      // valid JavaScript and therefore SHIPPED INTO THE EMITTED OUTPUT. `js-footgun-fixes`
+      // emitted 265 characters, all of them comment and none of them code. Now that `/# … #/`
+      // is blanked, the same file emits nothing — correctly — and the assertion went red for
+      // an improvement.
       const result = tjs(ex.code, { runTests: false })
       expect(result.code).toBeDefined()
-      expect(result.code.length).toBeGreaterThan(0)
+      expect(typeof result.code).toBe('string')
     })
   }
 })

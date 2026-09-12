@@ -5,7 +5,7 @@
 Import from modules you save in the playground
 
 ```tjs
-/*#
+/#
 # Local Module Imports
 
 You can import from modules saved in the playground!
@@ -26,7 +26,7 @@ You can import from modules saved in the playground!
     }
 
 2. Then run this code (it imports from your saved module)
-*/
+#/
 
 // This imports from a module you saved in the playground
 // Change 'mymath' to match whatever name you used when saving

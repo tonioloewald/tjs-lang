@@ -46,7 +46,11 @@
 
 import * as acorn from 'acorn'
 import type { Program } from 'acorn'
-import { hashbangOf, stripLineComments } from '../strip-comments'
+import {
+  blankDocComments,
+  hashbangOf,
+  stripLineComments,
+} from '../strip-comments'
 import { SyntaxError } from './types'
 import { transformParenExpressions, extractParamMarkers } from './parser-params'
 
@@ -86,6 +90,21 @@ export function preprocessAgentSource(
   const shebang = hashbangOf(source)
   if (shebang)
     source = ' '.repeat(shebang.length) + source.slice(shebang.length)
+
+  // TJS doc comments (`/# … #/`) — blanked beside the hashbang, and for the same reason:
+  // neither is valid JavaScript, so nothing downstream may see either.
+  //
+  // The bar for adding a step to THIS file is "does AJS have this construct", never "is it
+  // harmless" — that distinction is why this parser exists separately at all, after seven TJS
+  // constructs leaked onto the AJS path and one of them executed submitted source. A doc
+  // comment passes that bar: AJS source deserves to carry its own documentation exactly as
+  // TJS source does, and this is a LEXICAL step (blank a comment) rather than a semantic
+  // transform — the same class as the hashbang and line-comment steps already here.
+  //
+  // It also keeps the subset honest in the useful direction. `PRINCIPLES.md` requires
+  // TJS ⊇ AJS; giving AJS a construct TJS already has cannot break that, whereas leaving it
+  // out would mean a documented `.ajs` file is not valid AJS while being valid TJS.
+  source = blankDocComments(source)
 
   const originalSource = source
 

@@ -5,7 +5,7 @@
 Types-by-example: the value IS the type annotation
 
 ```tjs
-/*#
+/#
 ## Types by Example
 
 In TJS, the example value after `:` IS the type:
@@ -21,7 +21,7 @@ In TJS, the example value after `:` IS the type:
 | `...nums: [0]` | rest param, array of integers |
 
 Incidentally, you're looking at inline markdown docs...
-*/
+#/
 
 /**
  * But **jsDoc** is also supported.

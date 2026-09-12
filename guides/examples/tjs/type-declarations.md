@@ -5,7 +5,7 @@
 Named types with runtime validation. Type, Generic, FunctionPredicate, Enum, Union.
 
 ```tjs
-/*#
+/#
 ## Runtime Types
 
 TypeScript types vanish at runtime. TJS types survive as
@@ -19,7 +19,7 @@ default example value.
 | `FunctionPredicate` | Function signature type | Callback contracts |
 | `Enum` | String/number enum | Finite value sets |
 | `Union` | Literal union | Status codes, directions |
-*/
+#/
 
 // --- Type: runtime type from example value ---
 

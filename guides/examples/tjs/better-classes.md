@@ -5,7 +5,7 @@
 Classes you can call like functions. Multiple constructors.
 
 ```tjs
-/*#
+/#
 ## The Problem
 
 JavaScript requires `new` for classes, but it's easy to forget:
@@ -21,7 +21,7 @@ And you can't have multiple constructors:
 
 In native TJS, classes are callable without `new` by default — no directive needed.
 Multiple `constructor()` declarations dispatch by signature.
-*/
+#/
 
 // --- Classes are callable without new ---
 

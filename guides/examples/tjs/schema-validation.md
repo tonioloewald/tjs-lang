@@ -5,13 +5,13 @@
 Types persist into runtime — inspect, validate, and document at zero extra cost
 
 ```tjs
-/*#
+/#
 ## Runtime Types
 
 Every TJS function carries `__tjs` metadata with full type information.
 This enables runtime validation, auto-generated docs, and introspection
 — all from the same type annotations you already write.
-*/
+#/
 
 function createUser(
   name: 'anonymous',

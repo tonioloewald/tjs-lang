@@ -7,7 +7,7 @@ Three levels of runtime validation. Choose per-file or per-function.
 ```tjs
 safety inputs
 
-/*#
+/#
 ## The Problem
 
 JavaScript functions silently accept wrong types:
@@ -31,7 +31,7 @@ The `safety` directive sets the default for the whole file:
 Per-function overrides:
 - `!` = unsafe (skip validation): `function fast(! x: 0) { }`
 - `?` = safe (force validation): `function careful(? x: 0) { }`
-*/
+#/
 
 // --- Input validation catches bad callers ---
 

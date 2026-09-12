@@ -5,7 +5,7 @@
 Classes with multiple constructor signatures, dispatched automatically
 
 ```tjs
-/*#
+/#
 ## Polymorphic Constructors
 
 Classes can have multiple constructor declarations. The first becomes the
@@ -14,7 +14,7 @@ correct `instanceof` results.
 
 Classes are callable without `new` by default in native TJS, giving you
 clean, expressive object creation with no directive needed.
-*/
+#/
 
 class Point {
   constructor(x: 0.0, y: 0.0) {

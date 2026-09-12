@@ -7,7 +7,7 @@
 Write WebAssembly inline — compiled at transpile time, embedded in the output.
 
 ```tjs
-/*#
+/#
 ## The Problem
 
 Using WebAssembly in JavaScript requires:
@@ -40,7 +40,7 @@ syntax, it compiles at transpile time and embeds as base64.
     }
 
 Param types: `i32` (integer), `f32`/`f64` (float), `Float32Array`, etc.
-*/
+#/
 
 // --- Basic: integer math in WASM ---
 

@@ -5,7 +5,7 @@
 Monadic error propagation and type-safe error patterns
 
 ```tjs
-/*#
+/#
 ## Monadic Error Propagation
 
 Type errors are values (MonadicError), not exceptions. They propagate
@@ -13,7 +13,7 @@ automatically through function chains — if any function receives an
 error as input, it short-circuits and returns the error immediately.
 
 No try/catch needed. No manual error checking between calls.
-*/
+#/
 
 // --- Error propagation through a pipeline ---
 

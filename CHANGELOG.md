@@ -42,6 +42,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `/*# … */` is **retired as a doc comment** but remains a perfectly good block comment, and
   stays the convention in `.ts` sources, where `/# … #/` cannot parse.
 
+  **AJS has them too.** The bar for adding a step to AJS's parser is _"does AJS have this
+  construct"_, never _"is it harmless"_ — that distinction exists because seven TJS constructs
+  once leaked onto the AJS path and one executed submitted source. A doc comment clears it:
+  AJS source deserves to carry its own documentation exactly as TJS source does, and blanking
+  a comment is lexical rather than semantic. Withholding it would have broken the subset in
+  the awkward direction — a documented `.ajs` file would be legal TJS and illegal AJS.
+
+  All 34 TJS examples are migrated (47 doc comments), and `src/rbac/rules.tjs` /
+  `src/linalg/index.tjs` are the first real sources to use it. `.tjs` files now publish their
+  own doc comments into the corpus, so a `.tjs` file is a literate program on its own terms —
+  the documentation is in the language, and rendering it does not depend on anyone's build
+  system.
+
+  One thing the migration exposed: `/*# … */` doc comments were **shipping into emitted
+  JavaScript**, because they are valid JS. `js-footgun-fixes` emitted 265 characters, all of
+  them comment and none of them code — and a test asserting `code.length > 0` had been passing
+  on that padding. It now emits nothing, correctly, and the assertion tests what it meant to.
+
 - **`unsafe` is deprecated.** Every remaining use now warns, naming its replacement. The
   marker is the only escape in this language that does not say WHICH rule it suspends, and it
   is what drags `/* @tjs-unsafe */` along as a comment channel.

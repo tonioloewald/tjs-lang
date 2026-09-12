@@ -9,7 +9,7 @@ the spec with a CDN hint.
 
 ```tjs
 TjsCompat
-/*#
+/#
 ## Per-import CDN hints
 
 The first path segment of the import spec selects the CDN:
@@ -25,7 +25,7 @@ No hint = default routing (JSDelivr, with esm.sh allowlist for React).
 
 For full URLs (your own host, raw.githubusercontent.com, etc.) just
 write the URL — it's left untouched.
-*/
+#/
 
 // Default routing: JSDelivr
 import { tosi, elements } from 'tosijs'

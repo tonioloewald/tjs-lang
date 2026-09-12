@@ -5,7 +5,7 @@
 Multiple function declarations with the same name, automatically dispatched by argument types
 
 ```tjs
-/*#
+/#
 ## Polymorphic Functions
 
 Define multiple versions of a function with the same name but different
@@ -13,7 +13,7 @@ parameter signatures. TJS automatically dispatches to the right one based
 on the number and types of arguments.
 
 Like Swift/Obj-C method overloading, but at the source level.
-*/
+#/
 
 // Same name, different arities
 function describe(value: 0) {

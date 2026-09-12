@@ -5,7 +5,7 @@
 JavaScript `==` is broken. TJS fixes it without breaking anything.
 
 ```tjs
-/*#
+/#
 ## The Problem with JavaScript ==
 
 JavaScript's `==` does type coercion, producing surprises:
@@ -29,7 +29,7 @@ boxed primitives. Fast O(1) — no deep comparison.
 for when you explicitly need it. O(n) cost is visible.
 
 Honest equality is on by default in native TJS — no directive needed.
-*/
+#/
 
 // --- Honest equality (==) fixes coercion ---
 console.log('== fixes JS coercion:')

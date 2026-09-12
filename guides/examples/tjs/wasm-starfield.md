@@ -7,7 +7,7 @@
 Interactive space flythrough with parallax stars and nebula clouds. Uses `wasmBuffer()` for zero-copy WASM memory and SIMD-accelerated particle movement.
 
 ```tjs
-/*#
+/#
 # Space Flythrough Demo
 
 A Star Trek-style starfield with parallax depth and nebula clouds.
@@ -19,7 +19,7 @@ no copy-in/copy-out overhead. SIMD processes 4 particles per instruction.
 - Move mouse **up/down** to steer vertically
 - **Scroll wheel** to control speed
 - **Click** to pause/resume
-*/
+#/
 
 // Configuration
 const NUM_STARS = 50000

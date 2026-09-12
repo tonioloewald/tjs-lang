@@ -8,14 +8,14 @@ language level — always on in `.tjs`
 files. Each test below names the footgun TJS quietly fixes.
 
 ```tjs
-/*#
+/#
 ## What this demonstrates
 
 Each test below names a JavaScript footgun that native TJS quietly
 fixes. The test body is the proof: in raw JS the assertion would
 fail, in TJS it passes. The "Test Cases" section under this paragraph
 shows them in plain language.
-*/
+#/
 
 test 'Boolean(new Boolean(false)) is false' {
   expect(Boolean(new Boolean(false))).toBe(false)

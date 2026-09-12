@@ -40,13 +40,43 @@ TJS's `==` and `===` are fixed (see Equality Operators). A fixed **operator** ha
 construct to mark — it is still spelled the same — so `unsafe` cannot help. The escape is a
 **name**:
 
-| function                      | is exactly JavaScript's…                                          |
-| ----------------------------- | ----------------------------------------------------------------- |
-| `DangerousLegacyEquals(a, b)` | `a == b` (coercion and all)                                       |
-| `LegacyDate(x)`               | `new Date(x)` — raw `Date` is banned; `Timestamp` is the remedy   |
-| `DangerousLegacyNot(a, b)`    | `a != b`                                                          |
-| `LegacyExactly(a, b)`         | `a === b` (NaN is not itself; a boxed primitive is not its value) |
-| `LegacyNotExactly(a, b)`      | `a !== b`                                                         |
+| function | is exactly JavaScript's… |
+| -------- | ------------------------ |
+
+## Doc comments: `/# … #/`
+
+TJS's own doc comment. Multi-line, **nestable**, and able to quote any syntax without escaping:
+
+```
+/#
+## Using the unsafe marker
+
+Write it like this: /* unsafe */ before an expression.
+A nested doc comment works too: /# inner #/ — no escaping.
+#/
+function f(a: 0): 0 { return a }
+```
+
+**Why not `/*# … */`?** That is an ordinary JavaScript block comment, and JavaScript block
+comments do not nest — it ends at the first `*/` inside it. A doc comment that cannot contain
+`*/` cannot document comment syntax, which is exactly what a language's own documentation must
+do. `/*# … */` still works as an ordinary comment and remains the convention in `.ts` sources,
+where `/# … #/` cannot parse.
+
+**The newline is required, and it is not a style rule.** Single-line `/# x #/` is a valid
+JavaScript regex literal, so it stays a regex — claiming it would make legal JS illegal
+(`PRINCIPLES.md` invariant 1). A regex cannot contain a raw newline, so only the multi-line
+form is TJS's to claim.
+
+Doc comments are blanked before any other pass reads the source, so a `test '…' { … }`, a
+`wasm function`, an `unsafe` marker or a `Type` declaration written inside one is **inert** —
+you can document the language in the language. Both `.tjs` and `.ajs` have them.
+
+| `DangerousLegacyEquals(a, b)` | `a == b` (coercion and all) |
+| `LegacyDate(x)` | `new Date(x)` — raw `Date` is banned; `Timestamp` is the remedy |
+| `DangerousLegacyNot(a, b)` | `a != b` |
+| `LegacyExactly(a, b)` | `a === b` (NaN is not itself; a boxed primitive is not its value) |
+| `LegacyNotExactly(a, b)` | `a !== b` |
 
 <!-- tjs-doc: fragment -->
 

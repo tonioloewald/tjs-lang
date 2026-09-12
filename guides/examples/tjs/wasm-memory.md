@@ -7,7 +7,7 @@
 Zero-copy arrays and automatic data marshaling between JS and WASM.
 
 ```tjs
-/*#
+/#
 ## How Data Moves Between JS and WASM
 
 The #1 WebAssembly question: "How do I get my data into WASM?"
@@ -38,7 +38,7 @@ All WASM blocks in a file share one `WebAssembly.Memory` (64MB).
 `wasmBuffer` is a bump allocator — it hands out slices of this memory.
 When a typed array argument's `.buffer === wasmMemory.buffer`, the
 wrapper skips the copy and passes the byte offset directly.
-*/
+#/
 
 // --- Regular arrays: transparent copy ---
 

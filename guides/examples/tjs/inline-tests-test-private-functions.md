@@ -5,7 +5,7 @@
 Test internals without exporting them - the killer feature
 
 ```tjs
-/*#
+/#
 ## Testing Private Functions
 
 This is the killer feature of inline tests:
@@ -18,7 +18,7 @@ Traditional testing requires you to either:
 
 TJS inline tests have full access to the module scope.
 Test everything. Export only what you need.
-*/
+#/
 
 // ============================================================
 // PRIVATE HELPERS (not exported, but fully testable!)

@@ -5,7 +5,7 @@
 A reusable WASM library exporting f32x4 SIMD vector kernels. Save this as `mylinalg`, then run the "Using a WASM Library" example.
 
 ```tjs
-/*#
+/#
 ## A reusable WASM library
 
 This file is the **library half** of a two-example demo. Save it in the
@@ -20,7 +20,7 @@ regular JS function that the consumer can call.
 **Note:** TJS ships a fuller version of these (and more) in
 `tjs-lang/linalg`. This example mirrors the source so you can read
 exactly what a wasm library looks like.
-*/
+#/
 
 /**
  * Dot product of two f32 vectors of length `n`.

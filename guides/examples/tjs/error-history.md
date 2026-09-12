@@ -5,7 +5,7 @@
 The runtime records what it noticed — errors, and the near-misses that aren't errors yet
 
 ```tjs
-/*#
+/#
 ## The Problem with Monadic Errors
 
 Monadic errors don't throw — they return error values. Your program
@@ -44,7 +44,7 @@ recorder is for.
 The trade is deliberately asymmetric: **a false alarm costs one slot in a
 ring buffer; a missing entry costs a debugging session with no evidence.**
 So the runtime records liberally, and recording never changes behavior.
-*/
+#/
 
 // --- errors(): the assertion surface -----------------------------------
 

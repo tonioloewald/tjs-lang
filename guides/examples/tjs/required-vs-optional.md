@@ -5,7 +5,7 @@
 Difference between : and = in parameters
 
 ```tjs
-/*#
+/#
 ## Required vs Optional Parameters
 
 In TJS, the punctuation tells you everything:
@@ -16,7 +16,7 @@ In TJS, the punctuation tells you everything:
 | `param = 'value'` | **Optional** - defaults to value |
 
 The example value after `:` or `=` defines the type.
-*/
+#/
 test 'requires name and email' {
   const user = createUser('Alice', 'alice@test.com')
   expect(user.name).toBe('Alice')

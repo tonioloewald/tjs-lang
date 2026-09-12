@@ -5,7 +5,7 @@
 Frontend that calls the User Service - run after saving user-service!
 
 ```tjs
-/*#
+/#
 ## Client Application
 
 A frontend that calls the User Service.
@@ -17,7 +17,7 @@ This demonstrates:
 - Importing local TJS modules
 - Type-safe service calls
 - Error handling
-*/
+#/
 
 // Import from local module (saved in playground)
 import { createUser, getUser, listUsers, searchUsers } from 'user-service'

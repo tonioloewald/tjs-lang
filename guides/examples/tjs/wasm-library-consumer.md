@@ -5,7 +5,7 @@
 Imports `dot` and `norm_sq` from `mylinalg` and computes cosine similarity. Run **after** saving the "WASM Library: SIMD Linalg" example as `mylinalg`.
 
 ```tjs
-/*#
+/#
 ## Using a WASM library
 
 This file is the **consumer half** of the wasm-library demo. It imports
@@ -34,7 +34,7 @@ of the plan). Correctness is identical; only the per-call cost differs.
 
 Wiring the playground's `tjs()` invocation with a `ModuleLoader` is
 tracked in `TODO.md` under "Playground - Module Management."
-*/
+#/
 
 import { dot, norm_sq } from 'mylinalg'
 

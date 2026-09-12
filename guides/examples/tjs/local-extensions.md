@@ -5,7 +5,7 @@
 Add methods to built-in types without polluting prototypes
 
 ```tjs
-/*#
+/#
 ## Local Class Extensions
 
 `extend TypeName { ... }` adds methods to existing types like String,
@@ -13,7 +13,7 @@ Array, and Number. Methods are rewritten to `.call()` at transpile time
 for known types — zero runtime overhead, no prototype pollution.
 
 Think jQuery-like convenience that feels native but can't break anything.
-*/
+#/
 
 extend String {
   capitalize() {
