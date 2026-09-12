@@ -104,7 +104,13 @@ function stripMisreadFrontmatter(doc: any): void {
 function tjsDocs(paths: string[]): any[] {
   const out: any[] = []
   const walk = (dir: string): void => {
-    for (const name of readdirSync(dir)) {
+    // SORTED. `readdirSync` returns filesystem order, which differs by filesystem: APFS
+    // locally, ext4 in CI. `demo/docs.json` is a COMMITTED artifact checked with
+    // `git diff --exit-code`, so an unsorted walk made that gate fail on a diff with no
+    // content change at all — `src/rbac/rules.tjs` and `src/linalg/index.tjs` simply
+    // traded places. A generated artifact has to be a pure function of its inputs, or the
+    // check that it is current cannot tell "stale" from "built on a different machine".
+    for (const name of readdirSync(dir).sort()) {
       if (name.startsWith('.') || name === 'node_modules') continue
       const full = join(dir, name)
       if (statSync(full).isDirectory()) walk(full)
@@ -134,7 +140,10 @@ function tjsDocs(paths: string[]): any[] {
         })
     }
   }
-  return out
+  // Sorted by path as well as by walk order: `paths` may mix files and directories, so the
+  // walk alone does not fix the interleaving between them. Belt and braces, because the
+  // failure this prevents is invisible on the machine that generates the file.
+  return out.sort((a, b) => String(a.path).localeCompare(String(b.path)))
 }
 
 const docs = [
