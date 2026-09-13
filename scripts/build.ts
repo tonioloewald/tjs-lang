@@ -19,8 +19,10 @@ import { gzipSync } from 'zlib'
 import { readFileSync, writeFileSync, mkdirSync, existsSync, rmSync } from 'fs'
 import { join, basename } from 'path'
 import { tjs } from '../src/lang/index'
+import { generateDTS } from '../src/lang/emitters/dts'
 
 const distDir = join(import.meta.dir, '../dist')
+const ROOT = join(import.meta.dir, '..')
 
 // Ensure dist exists
 if (!existsSync(distDir)) {
@@ -357,6 +359,65 @@ function main() {
   console.log(
     'tjs-lang/import-resolver → Bundler-free bare imports (+ /worker asset)'
   )
+
+  // Declarations for `.tjs` entry points.
+  //
+  // `tsc -p tsconfig.build.json` is what produces `dist/**/*.d.ts`, and it only sees `.ts` —
+  // a `.tjs` source is not a TypeScript file, so nothing generated declarations for one. A
+  // `types` condition pointing at `dist/src/**/*.tjs.d.ts` was therefore a promise with no
+  // producer: `tjs-lang/rbac` shipped exactly that in 0.13.13, so a TypeScript consumer of a
+  // brand-new export got no types at all. Caught by `scripts/prepublish-check.ts`, which
+  // resolves every path `exports` names — the build itself reported success.
+  //
+  // Driven off the exports map rather than a hand-written list, for the reason that list
+  // would exist: adding the next `.tjs` subpath must not require remembering this step.
+  // `./linalg` has no `types` condition today and so is untouched; give it one and it is
+  // generated from then on.
+  const dtsFailures: string[] = []
+  const typePaths = new Set<string>()
+  const collectTypes = (node: unknown): void => {
+    if (node && typeof node === 'object') {
+      for (const [k, v] of Object.entries(node as Record<string, unknown>)) {
+        if (k === 'types' && typeof v === 'string') typePaths.add(v)
+        else collectTypes(v)
+      }
+    }
+  }
+  collectTypes(
+    JSON.parse(readFileSync(join(ROOT, 'package.json'), 'utf8')).exports
+  )
+
+  for (const rel of [...typePaths].sort()) {
+    const m = rel.match(/^\.\/dist\/(src\/.*\.tjs)\.d\.ts$/)
+    if (!m) continue
+    const srcPath = join(ROOT, m[1]!)
+    const outPath = join(ROOT, rel.slice(2))
+    if (!existsSync(srcPath)) {
+      dtsFailures.push(`${rel} — source ${m[1]} does not exist`)
+      continue
+    }
+    try {
+      const source = readFileSync(srcPath, 'utf8')
+      const result = tjs(source, { filename: srcPath, runTests: false })
+      const dts = generateDTS(result as any, source)
+      if (!dts.trim()) {
+        dtsFailures.push(`${rel} — generator produced nothing`)
+        continue
+      }
+      mkdirSync(join(outPath, '..'), { recursive: true })
+      writeFileSync(outPath, dts)
+      console.log(`  .d.ts  ${m[1]} → ${rel.slice(2)}`)
+    } catch (e: any) {
+      dtsFailures.push(`${rel} — ${e?.message ?? e}`)
+    }
+  }
+  if (dtsFailures.length > 0) {
+    console.error(
+      `\n✖ Build failed: could not generate declarations for ${dtsFailures.length} ` +
+        `.tjs entry point(s):\n   ${dtsFailures.join('\n   ')}`
+    )
+    process.exit(1)
+  }
 
   // Fail noisily: a failed bundle is a broken package entry point. Exiting
   // non-zero stops `bun run make`, CI, and release scripts so it can't ship

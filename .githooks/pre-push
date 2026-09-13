@@ -43,6 +43,31 @@ done
 
 [ "$pushing_tag" -eq 0 ] && exit 0
 
+# ORDER CHANGED 2026-09-13: the release is PUBLISH, then tag.
+#
+# That makes this hook a BACKSTOP rather than the primary gate. The primary gate is
+# `scripts/release-gate.ts`, which runs the same full suite inside `prepublishOnly` — before
+# `npm publish`, which is the step that cannot be undone. Gating the tag alone would fire
+# after the release was already public.
+#
+# This hook still matters for the case the new order does not cover: a tag pushed by someone
+# who has NOT just published — a retroactive tag, a tag from another machine, a tag for a
+# version published with --ignore-scripts.
+#
+# The stamp keeps it from being pure waste. `release-gate.ts` writes `.release-gate` naming
+# the SHA it verified; if that names the commit being tagged, the suite has already run on
+# exactly this code and re-running it would cost ~3.5 minutes to learn nothing. A hook that
+# wastes your time gets --no-verify'd, and then it protects nobody.
+#
+# Deliberately strict: same SHA or run it. Not "recent", not "same version" — the only thing
+# that makes a re-run redundant is that the identical code was tested.
+STAMP="$(git rev-parse --show-toplevel)/.release-gate"
+HEAD_SHA="$(git rev-parse HEAD)"
+if [ -f "$STAMP" ] && [ "$(head -n1 "$STAMP")" = "$HEAD_SHA" ]; then
+  echo "pre-push: full suite already green for $(echo "$HEAD_SHA" | cut -c1-7) (release-gate stamp) — not re-running."
+  exit 0
+fi
+
 echo "pre-push: tag detected — running the FULL suite before it ships (~3 min)."
 
 # The full suite includes LLM integration tests, which need an OpenAI-compatible

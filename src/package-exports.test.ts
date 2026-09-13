@@ -95,6 +95,64 @@ describe('package.json exports', () => {
     expect(missing).toEqual([])
   })
 
+  it('points every `types` condition at a file that exists', () => {
+    // `targets` above EXCLUDES the `types` condition (see its filter), so until this test no
+    // guard in the repo had ever looked at one. Combined with the `./dist/` exclusion in the
+    // test above, a `types` path pointing into `dist/` was invisible twice over — which is
+    // how `tjs-lang/rbac` shipped in 0.13.13 promising `dist/src/rbac/rules.tjs.d.ts`, a file
+    // no build step produced. `tsc -p tsconfig.build.json` only sees `.ts`, and a `.tjs`
+    // source is not a TypeScript file, so the condition was a promise with no producer. A TS
+    // consumer of a brand-new export got no types at all, and the build reported success.
+    //
+    // `scripts/prepublish-check.ts` does resolve these, but only at publish time — by which
+    // point the fix is a new release rather than a red test.
+    //
+    // Its own list, deliberately: reusing `targets` would inherit the exact blindness this
+    // exists to remove. (Verified by mutation — deleting the generated `.d.ts` turns this
+    // red; when it was written against `targets` it stayed green.)
+    const typePaths = Object.entries(pkg.exports as Record<string, any>)
+      .filter(([, v]) => v && typeof v === 'object')
+      .flatMap(([subpath, v]) =>
+        typeof (v as any).types === 'string'
+          ? [{ subpath, file: (v as any).types as string }]
+          : []
+      )
+    // Apparatus check: if this finds nothing, the assertion below passes vacuously.
+    expect(typePaths.length).toBeGreaterThan(0)
+
+    if (!existsSync(join(ROOT, 'dist'))) {
+      expect(process.env.CI).toBeFalsy()
+      return
+    }
+    const missing = typePaths
+      .filter(({ file }) => !existsSync(join(ROOT, file)))
+      .map(({ subpath, file }) => `${subpath} → ${file}`)
+    expect(missing).toEqual([])
+  })
+
+  it('points every BUILT export at a file that exists, too', () => {
+    // The test above deliberately skips `./dist/`, and that exclusion is why
+    // `tjs-lang/rbac` shipped in 0.13.13 promising `dist/src/rbac/rules.tjs.d.ts` — a file
+    // no build step produced. `tsc -p tsconfig.build.json` only sees `.ts`, and a `.tjs`
+    // source is not a TypeScript file, so the `types` condition was a promise with no
+    // producer. The one guard that would have caught it filtered out the entire class of
+    // path it needed to look at, and `scripts/prepublish-check.ts` — which does check — only
+    // runs at publish time, by which point the fix is a new release.
+    //
+    // CI builds BEFORE it tests (ci.yml step 2, added for exactly this failure mode), so
+    // `dist/` is present there and this is not allowed to skip. Locally it skips when you
+    // have not built, which is the honest thing: absent is unknown, not passing.
+    if (!existsSync(join(ROOT, 'dist'))) {
+      expect(process.env.CI).toBeFalsy()
+      return
+    }
+    const missing = targets
+      .filter(({ file }) => file.startsWith('./dist/'))
+      .filter(({ file }) => !existsSync(join(ROOT, file)))
+      .map(({ subpath, file }) => `${subpath} → ${file}`)
+    expect(missing).toEqual([])
+  })
+
   it('ships types for every editors subpath that has them, and they exist', () => {
     // #12: `./editors/codemirror` shipped with no `.d.ts` and no `types`
     // condition, so consumers re-declared AutocompleteConfig by hand. The

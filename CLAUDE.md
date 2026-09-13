@@ -515,14 +515,37 @@ pre-push hook.)
   model-behavior measurement out of a hard blocker is deliberate: a small model's
   bad run must never block a release.
 
-**This gate is enforced, not just documented.** `.githooks/pre-push` (wired by the
-`prepare` script, same as pre-commit) runs the full suite whenever a push carries a
-tag ref, and blocks the push if it fails. Git has no `git tag` hook, so this fires
-on tag _push_ — you can create a local tag freely, you just can't ship one (publish
-is done from the pushed tag) with a red suite. Branch/`main` pushes are untouched.
-The hook refuses early with a clear message if LM Studio isn't reachable. Escape
-hatch: `git push --no-verify`, only for a tag whose suite you have already run green
-by hand — never to dodge a real failure.
+**The order is PUBLISH, then tag** (2026-09-13), and that decides where the gate lives.
+
+**This gate is enforced, not just documented.** `scripts/release-gate.ts` runs the full
+suite inside `prepublishOnly`, so it fires **before `npm publish`** — the one step that
+cannot be taken back. It refuses early with a clear message if no LLM server is reachable
+(`TJS_LLM_BASE_URL`, not a hardcoded port), and on success stamps `.release-gate` with the
+verified SHA.
+
+It used to live **only** in `.githooks/pre-push`, firing on a tag ref. That was right while
+the order was tag-then-publish: the tag was a prerequisite, so gating the tag gated the
+release. Under the new order the same hook fires _after_ the release is already public — a
+gate downstream of the irreversible act is decoration, not a gate. Moving it was not
+optional once the order changed.
+
+`.githooks/pre-push` is now a **backstop** for the case the new order does not cover: a tag
+pushed by someone who did not just publish (a retroactive tag, another machine, a version
+published with `--ignore-scripts`). It skips its run when `.release-gate` names the exact
+SHA being tagged — same SHA or it runs, since only identical code makes a re-run redundant.
+Without that the suite would run twice per release, and a hook that wastes your time gets
+`--no-verify`d.
+
+The order flip opens one hole and `scripts/prepublish-check.ts` closes it: publish-then-tag
+makes "published but untagged" merely a step you might not reach, and nothing fails if you
+stop there. So before publishing N it asserts **N-1 got tagged** — one release late, which
+is the only place it can be checked without being the thing it checks, and still cheap to
+fix. That file no longer requires a tag at HEAD (under this order it cannot exist yet); it
+requires the tree clean, the history pushed, no _conflicting_ tag, and every path `exports`
+names to resolve.
+
+Escape hatch: `npm publish --ignore-scripts`, or `git push --no-verify` for a tag whose
+suite you have already run green by hand — never to dodge a real failure.
 
 ### What CI actually runs (`.github/workflows/ci.yml`)
 

@@ -177,3 +177,8 @@ src/**/*.d.ts.map
 # both directions. Never reached npm (the `files` allowlist excluded it), so the cost was
 # repo noise rather than a shipped artifact.
 .probe-conv-*/
+
+# Written by scripts/release-gate.ts: the SHA whose full suite passed before a publish.
+# Local and machine-specific by design — committing it would let one machine's claim clear
+# another machine's pre-push gate, which is the opposite of what the stamp is for.
+.release-gate

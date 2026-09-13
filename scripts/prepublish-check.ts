@@ -7,15 +7,31 @@
  * result sat on `latest` carrying a blocker that a later review found. Recovering cost a
  * retroactive tag, two deprecations and three patch releases.
  *
- * Every check here is about the SHAPE of the publish, not the quality of the code — the
- * test gate lives in the pre-push hook and running it again here would just make publishing
- * slow enough to be bypassed. What this asserts is that the artifact you are about to send
- * is the artifact that was reviewed:
+ * ## The order changed: PUBLISH, then tag (2026-09-13)
+ *
+ * This file used to require a tag at HEAD, because the release gate lived in
+ * `.githooks/pre-push` and fired on a TAG PUSH — so tagging first was what made the suite
+ * run. Under publish-then-tag that arrangement inverts into a trap: the gate would fire
+ * *after* `npm publish`, which is the one step that cannot be taken back. A gate downstream
+ * of the irreversible act is decoration.
+ *
+ * So the full suite moved INTO `prepublishOnly`, ahead of this check. The comment that used
+ * to sit here — "the test gate lives in the pre-push hook and running it again here would
+ * just make publishing slow enough to be bypassed" — was right about the cost and wrong
+ * about where the gate belongs; the answer to slowness is the stamp in the pre-push hook
+ * (which skips a re-run it can prove is redundant), not moving the gate somewhere cheaper
+ * than it is useful.
+ *
+ * What this file asserts is that the artifact you are about to send is the artifact that was
+ * reviewed:
  *
  *   1. the working tree is clean            (you are not publishing uncommitted work)
- *   2. a tag `v<version>` exists            (there is a named thing to point at)
- *   3. that tag is at HEAD                  (the tag names THIS code)
- *   4. HEAD is pushed                       (the code is somewhere other than this laptop)
+ *   2. HEAD is pushed                       (the code is somewhere other than this laptop)
+ *   3. no CONFLICTING tag `v<version>`      (the name is not already spoken for)
+ *   4. the PREVIOUS published version is tagged
+ *                                           (the step after publish actually happens —
+ *                                            see the block below for why this is the only
+ *                                            place it can be enforced)
  *
  * `npm publish --ignore-scripts` bypasses this, which is fine: the point is to make the
  * accident hard, not to make the deliberate act impossible.
@@ -56,9 +72,18 @@ function git(...args: string[]): { ok: boolean; out: string } {
   }
 }
 
+/** `npm view`, which needs the network. A failure is "unknown", never "absent". */
+function npm(...args: string[]): { ok: boolean; out: string } {
+  const p = Bun.spawnSync(['npm', ...args], { stdout: 'pipe', stderr: 'pipe' })
+  return {
+    ok: p.exitCode === 0,
+    out: new TextDecoder().decode(p.stdout).trim(),
+  }
+}
+
 const problems: string[] = []
-const version = JSON.parse(readFileSync(join(ROOT, 'package.json'), 'utf8'))
-  .version as string
+const pkg0 = JSON.parse(readFileSync(join(ROOT, 'package.json'), 'utf8'))
+const version = pkg0.version as string
 const tag = `v${version}`
 
 if (git('status', '--porcelain').out) {
@@ -67,20 +92,48 @@ if (git('status', '--porcelain').out) {
   )
 }
 
+// The tag for THIS version is not required to exist — under publish-then-tag it cannot.
+//
+// It is, however, required not to CONTRADICT us: a tag that already exists and points
+// somewhere other than HEAD means the name is spoken for by different code.
 const tagCommit = git('rev-parse', `${tag}^{commit}`)
-if (!tagCommit.ok) {
+if (tagCommit.ok && tagCommit.out !== git('rev-parse', 'HEAD').out) {
   problems.push(
-    `no tag ${tag} — tag the release so there is a named commit to point at ` +
-      `(and so the pre-push full-suite gate runs)`
-  )
-} else if (tagCommit.out !== git('rev-parse', 'HEAD').out) {
-  problems.push(
-    `${tag} is at ${tagCommit.out.slice(0, 7)} but HEAD is at ` +
+    `${tag} already exists at ${tagCommit.out.slice(0, 7)} but HEAD is at ` +
       `${git('rev-parse', 'HEAD').out.slice(
         0,
         7
-      )} — the tag does not name this code`
+      )} — that tag names different code. ` +
+      `Either you are republishing a version, or the tag is wrong.`
   )
+}
+
+// THE HOLE THE ORDER FLIP OPENS, and the reason this block exists.
+//
+// Tag-before-publish made "published but untagged" impossible: the tag was a PREREQUISITE.
+// Publish-then-tag makes it merely a step you might not get to — and the moment `npm
+// publish` returns, the release is irreversible while the tag is still hypothetical. Nothing
+// fails if you stop there. You would find out months later, from a `git describe` that skips
+// a version.
+//
+// So the discipline is enforced one release LATE, which is the only place it can be checked
+// without being the thing it is checking: before publishing N, assert that N-1 got tagged.
+// Still cheap to fix at that point (`git tag v<prev> <sha> && git push origin v<prev>`), and
+// it cannot rot, because the next publish always runs it.
+//
+// 0.13.0 is the precedent for why this matters: it shipped from an untagged tree, and
+// recovering cost a retroactive tag, two deprecations and three patch releases.
+const published = npm('view', pkg0.name, 'version')
+if (published.ok && published.out && published.out !== version) {
+  const prevTag = `v${published.out}`
+  if (!git('rev-parse', `${prevTag}^{commit}`).ok) {
+    problems.push(
+      `${published.out} is on npm but has NO tag ${prevTag} — the previous release was ` +
+        `published and never tagged. Tag it before shipping another (find the commit with ` +
+        `\`git log --oneline --grep "${published.out}"\`), or the history loses the name ` +
+        `for a version that is permanently public.`
+    )
+  }
 }
 
 // `@{u}` is the upstream of the current branch; unpushed commits mean the reviewed history
@@ -90,22 +143,9 @@ if (unpushed.ok && unpushed.out !== '0') {
   problems.push(`${unpushed.out} commit(s) not pushed — push before publishing`)
 }
 
-// The TAG must be on the remote too, not merely local.
-//
-// This check was missing, and 0.13.4 shipped because of it: the tag existed locally, the
-// branch was pushed, this guard passed — and `git push origin v0.13.4` had not landed. The
-// pre-push hook that runs the full suite fires on a TAG PUSH, so an unpushed tag means the
-// release gate never ran at all. That is the whole point of tagging before publishing, and
-// the guard was checking the half that was not load-bearing.
-//
-// Cheap to get wrong by hand, too: `git tag && git push origin <tag>` in one compound
-// command reports the branch push and the hook output, and a failure in the tag push itself
-// is easy to read past.
-//
-// Only meaningful when the tag EXISTS locally. Ungated, this branch fired alongside "no tag
-// v0.13.10" and claimed the tag "exists locally but is NOT on origin" — two contradictory
-// diagnostics for one cause, in the file whose entire job is telling you precisely what is
-// wrong with a publish. Reported by a real run on 2026-09-04.
+// An existing tag for THIS version must be on the remote if it exists locally — same
+// reasoning as 0.13.4, which shipped because the tag was local-only. Under the new order
+// this is the republish case rather than the normal one, so it is gated on existence.
 if (tagCommit.ok) {
   const remoteTag = git('ls-remote', '--tags', 'origin', `refs/tags/${tag}`)
   if (!remoteTag.ok) {
@@ -114,8 +154,7 @@ if (tagCommit.ok) {
     )
   } else if (!remoteTag.out.includes(`refs/tags/${tag}`)) {
     problems.push(
-      `${tag} exists locally but is NOT on origin — push it (\`git push origin ${tag}\`), ` +
-        `which is also what runs the full-suite gate`
+      `${tag} exists locally but is NOT on origin — push it (\`git push origin ${tag}\`)`
     )
   }
 }
@@ -166,4 +205,10 @@ if (problems.length) {
   process.exit(1)
 }
 
-console.log(`prepublish: ${tag} is at HEAD, tree clean, history pushed.`)
+console.log(
+  `prepublish: tree clean, history pushed, ${tag} unclaimed, previous release tagged.`
+)
+console.log(
+  `prepublish: REMEMBER — publish, then \`git tag ${tag} && git push origin ${tag}\`. ` +
+    `The next publish refuses to run until you do.`
+)

@@ -175,6 +175,21 @@ you from this; pin exactly if you rely on either escape.
 
 ### Fixed
 
+- **`tjs-lang/rbac` promised TypeScript declarations that no build step produced.** The new
+  export's `types` condition pointed at `dist/src/rbac/rules.tjs.d.ts`, and nothing generated
+  it: `tsc -p tsconfig.build.json` only sees `.ts`, and `rules.tjs` is not a TypeScript file.
+  A TS consumer of a brand-new export got no types at all, while the build reported success.
+
+  Caught by `scripts/prepublish-check.ts`, which resolves every path `exports` names — but
+  only at publish time. The reason no _test_ caught it is worth recording: the guard in
+  `package-exports.test.ts` excluded `types` conditions **and** excluded `./dist/` paths, so
+  a `types` path pointing into `dist/` was invisible twice over. Both exclusions are now
+  covered by tests that were mutation-checked (delete the file, watch them go red).
+
+  The build now generates declarations for any `.tjs` entry point whose `types` condition
+  names one, driven off the exports map rather than a list, so the next `.tjs` subpath is
+  handled without anyone remembering.
+
 - **`demo/docs.json` was ordered by the filesystem, not by its inputs.** The `.tjs` doc walk
   used bare `readdirSync`, which returns APFS order locally and ext4 order in CI, so two
   entries could trade places with no content change. That made the committed-artifact check
