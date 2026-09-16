@@ -86,6 +86,44 @@ function stripMisreadFrontmatter(doc: any): void {
 }
 
 /**
+ * A doc that DECLARES frontmatter must have frontmatter that parses.
+ *
+ * `extractDocs` prints `bad metadata in doc <path>` and carries on with `{}`. For the case
+ * that warning usually fires on here it is right to carry on — it matches `<!--{ … }-->`
+ * ANYWHERE in the file (upstream #156), so `UPSTREAM.md` trips it on the inline code span in
+ * the sentence *describing that very bug*: the scanner extracts the literal `{ … }`,
+ * `JSON.parse` throws, and nothing is wrong. Our own doc system misreading the document that
+ * documents the misreading is the house defect class, in the place it is most likely.
+ *
+ * But the SAME warning is all you get when a doc's real frontmatter is genuinely malformed —
+ * a trailing comma, a smart quote — and there the consequence is silent: metadata falls back
+ * to `{}`, so the page loses its `section`/`group`/`order` and lands in the wrong nav or
+ * nowhere at all, with the build reporting success. A false alarm and a real failure that
+ * look identical train you to ignore both.
+ *
+ * So: use the ANCHORED rule `stripMisreadFrontmatter` already relies on — frontmatter is a
+ * metadata comment on the FIRST non-blank line, which is the rule upstream should be applying
+ * — and fail hard when one is present and does not parse. Mid-file illustrations are not
+ * anchored, so #156's false positives cannot reach this.
+ */
+function declaredFrontmatterProblem(doc: any): string | null {
+  const first = String(doc.text ?? '')
+    .split('\n')
+    .find((l: string) => l.trim())
+  if (!first) return null
+  const m = first.match(/^\s*<!--(\{.*\})-->\s*$/)
+  if (!m) return null
+  try {
+    JSON.parse(m[1]!)
+    return null
+  } catch (e: any) {
+    return `${doc.path ?? doc.filename ?? '(unknown)'}: ${
+      e?.message ?? e
+    }\n      ${first.trim().slice(0, 120)}`
+  }
+}
+
+/**
  * `.tjs` files contribute their own doc comments.
  *
  * `extractDocs` reads `/*# … *\/` from `.ts`/`.js` — tosijs-ui's convention, and it stays
@@ -151,7 +189,11 @@ const docs = [
   ...tjsDocs(config.docPaths as string[]),
 ]
 
+const frontmatterProblems: string[] = []
+
 for (const doc of docs as any[]) {
+  const problem = declaredFrontmatterProblem(doc)
+  if (problem) frontmatterProblems.push(problem)
   stripMisreadFrontmatter(doc)
   // ONLY for `type: 'example'`, matching `bin/docs.js`. A doc page renders its fences in
   // place; only a playground example is lifted into a live editor, and deriving `code` for
@@ -165,6 +207,21 @@ for (const doc of docs as any[]) {
   }
   const description = firstParagraph(doc.text)
   if (description) doc.description = description
+}
+
+// Fail rather than warn. `extractDocs` prints `bad metadata in doc <path>` and continues
+// with `{}`, which is right for its own false positives (see `declaredFrontmatterProblem`)
+// but wrong for a doc that DECLARED frontmatter and got it wrong: that page silently loses
+// its section/group/order and lands in the wrong nav or none, with the build reporting
+// success. Writing a corpus we know is mis-keyed is worse than not writing one.
+if (frontmatterProblems.length) {
+  console.error(
+    `\n✖ ${frontmatterProblems.length} doc(s) declare frontmatter that is not valid JSON:\n` +
+      frontmatterProblems.map((p) => `    ${p}`).join('\n') +
+      `\n\n  The first non-blank line of a doc may be a <!--{…}--> metadata block; if it is,\n` +
+      `  it must parse. Fix the JSON, or move the illustration off line 1 so it is prose.\n`
+  )
+  process.exit(1)
 }
 
 saveDocsJSON(docs as any, config.docsJson ?? 'demo/docs.json')

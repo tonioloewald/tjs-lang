@@ -334,3 +334,16 @@ structurally most likely.
 _Worked around:_ `bin/site.ts` strips `section`/`type`/`group`/`order`/`pin` from any doc whose
 first non-blank line is not a metadata block.
 _Delete the workaround when:_ the match is anchored to the first non-blank line.
+
+> **`bad metadata in doc UPSTREAM.md` on every `bun run docs` is THIS BUG, and is expected.**
+> The unanchored scan reaches the inline code span two paragraphs above and extracts the
+> literal `{ … }`, which is not JSON. Nothing is wrong: no metadata was declared, and the
+> fallback to `{}` is correct. The file documenting the misreading is misread by it.
+>
+> The warning is left alone rather than silenced, because silencing it here would mean
+> teaching the build to ignore a diagnostic that is load-bearing elsewhere. Instead
+> `bin/site.ts` adds its own **anchored** check and _fails_ the build when a doc's real
+> frontmatter does not parse — the case where upstream's warn-and-continue is genuinely
+> dangerous, since the page then loses its `section`/`group`/`order` silently and lands in
+> the wrong nav with the build reporting success. A false alarm and a real failure that look
+> identical train you to ignore both; now only one of them can reach you.
