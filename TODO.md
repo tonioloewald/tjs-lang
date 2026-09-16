@@ -412,6 +412,39 @@ the same components. We are not porting a playground; we are **retiring** one.
 
 ## Phase B — migrate to the tosijs-ui build/doc system
 
+> **SCOPE DECISION 2026-09-16: 0.14.0 ships the FRONT END on the EXISTING backend.**
+> Swapping the backend for tosijs-services is explicitly **not** in 0.14.0, which decouples
+> tosijs-services progress from the front-end migration: neither waits on the other, and
+> 0.14.0 stops being hostage to a service layer that is still being built.
+>
+> B3 already decided Firebase stays, so this mostly makes an assumption explicit — but it
+> changes what "blocked" means. Every remaining 0.14.0 blocker is now an **upstream
+> tosijs-ui** item (list below), and none of them is a backend concern. The
+> "loewald-dot-com is the service layer" work continues on its own schedule and lands whenever it
+> lands; see that section.
+>
+> **What this does NOT change:** the endgame is still that the playground is retired rather
+> than ported, and the examples-as-documentation work stands on its own.
+>
+> **Live blocker list for 0.14.0** (all upstream, all filed — verified against the installed
+> package on 2026-09-16, not inferred from issue state):
+>
+> | issue | what it blocks                                                      | status in installed 1.14.1                                                                                                            |
+> | ----- | ------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------- |
+> | #135  | B2 — porting examples onto `live-example`                           | OPEN. Their pin is `tjs-lang@0.13.4`; **0.13.13** is out. Until they bump, porting silently deletes every example with a `test` block |
+> | #154  | B1 — `buildSite`/`devServer` adoption                               | closed upstream, **NOT in any release**                                                                                               |
+> | #155  | Prism `display-only` orthogonality, before it bakes into print/ePub | OPEN                                                                                                                                  |
+> | #153  | B1 cleanup (drops our `DOC_FILES` walker)                           | closed upstream, **NOT in any release** — `SiteConfig` still has no `ignore`                                                          |
+> | #156  | B1 cleanup (drops `stripMisreadFrontmatter`)                        | closed upstream, **NOT in any release** — the match is still unanchored, which is why `bun run docs` still warns on `UPSTREAM.md`     |
+>
+> **The binding constraint is a tosijs-ui RELEASE, not the fixes.** 1.14.1 shipped
+> 2026-09-09T13:55Z; #153/#154/#156 closed 2026-09-10T04:49Z — about fifteen hours later —
+> and nothing has shipped since. A `1.14.2` publish appeared to run green on 2026-09-16 but
+> **is not on the registry** (`npm view tosijs-ui versions` ends at 1.14.1), so if that
+> release was meant to carry these, the failed publish is the whole blockage. Three of the
+> five are already worked around here, so they are cleanup rather than blockers; #135 and
+> #154 are the ones that actually gate work.
+
 Target shape is what `tosijs` already does: a `*-site.config.ts` via `defineSiteConfig`, and a
 thin `bin/site.ts` calling `buildSite`/`devServer` from `tosijs-ui/site`, with the library
 bundling wired alongside. Sized honestly, this repo has **~1,000 lines of bespoke build/doc
@@ -453,8 +486,9 @@ tooling** and **~10,500 lines of demo**, and only the first group is a like-for-
       output over BroadcastChannel, a test harness and scope autocomplete, and it transpiles
       TJS and TS. What we keep is what is genuinely ours: the user module store and auth (an
       app feature, not a doc-site one).
-      **Blocked until they move off `tjs-lang@0.13.11`** (tosijs-ui#135 — 0.13.12 has been
-      published since 2026-09-07, so this is purely their bump now). Porting examples onto
+      **Blocked until they move off `tjs-lang@0.13.4`** (tosijs-ui#135 — **0.13.13** is
+      published as of 2026-09-16, so their pin is nine patches stale and this is purely their
+      bump now). Porting examples onto
       `live-example` before that would silently delete every example showing a `test` block.
       Open questions asked upstream: does a dialect selector belong in the component, and is
       `tjs-lang/import-resolver` worth merging with their module-cache worker? (They answered
@@ -479,8 +513,34 @@ tooling** and **~10,500 lines of demo**, and only the first group is a like-for-
 
       [tosijs-ui#134]: https://github.com/tonioloewald/tosijs-ui/issues/134
 
-- [ ] **B4 — keep `scripts/build.ts`.** Library bundling stays ours; `tosijs` does the same,
-      wiring its own bundles inside `bin/site.ts` rather than delegating them.
+- [x] **B4 — keep `scripts/build.ts`. CONFIRMED 2026-09-16 by reading their surface, not by
+      assuming.** Library bundling stays ours; `tosijs` does the same, wiring its own bundles
+      inside `bin/site.ts` rather than delegating them.
+
+      `tosijs-ui/site` bundles **the site**: an IIFE script and an optional ESM hydration
+      bundle for pages (`generate-site.d.ts`). `bundle-guard` is narrower still — it decides
+      whether to externalize `tjs-lang/editors/codemirror` so the editor keeps a single
+      CodeMirror instance. Nothing in that surface builds a library, so there is nothing to
+      fold into.
+
+      Three jobs `scripts/build.ts` does that have no counterpart there, and would have to be
+      taught to one:
+
+      - **Per-entry `external` policy.** `tosijs-schema` must be EXTERNAL in `tjs-schema`
+        (it holds the single global `$predicate` evaluator, so a bundled duplicate registers
+        on the wrong instance) and **inlined** in `tjs-browser` (self-contained, which is what
+        lets it load from any CDN). Opposite answers for the same dependency in one build,
+        guarded by `browser-bundle.test.ts`.
+      - **`.tjs` entry points.** `tjs-rbac` and `tjs-linalg` are compiled in-process, because
+        esbuild has no `.tjs` loader and `buildSync` refuses plugins.
+      - **`.d.ts` for those entries** (added 0.13.13). `tsc` only sees `.ts`, so a `.tjs`
+        entry's declarations can only come from our own emitter — which is why
+        `tjs-lang/rbac` shipped promising a declaration file nothing produced.
+
+      That last point is the whole argument in miniature: **we are the only project whose
+      source language needs its own compiler to produce a type declaration.** Delegating the
+      library build would mean teaching a generic site builder about TJS. Keeping it is a
+      boundary, not a holdout.
 
 **Reflection, recorded because it changed the order.** The instinct was to start with B — it
 is the visible, satisfying change. Two things argued against it. First, A1 was found by reading
