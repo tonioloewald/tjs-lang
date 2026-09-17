@@ -673,6 +673,11 @@ So a socket needs budget dimensions that do not exist: **bytes over a connection
 **concurrent open connections**, and **connection duration**. That is the actual design work —
 not the plumbing.
 
+> **Revised by the deadman-switch section below:** metering liveness makes _duration_
+> expressible in fuel after all, so the honest count of missing dimensions is **two**, not
+> three. Left as written because the reasoning that got to three is what the fix has to
+> answer.
+
 Two properties of the existing model make this sharper. Fuel is described in CLAUDE.md as
 _the time budget_ because "fuel meters work, so it is the time budget" — a socket breaks that
 identity, since idle time costs nothing in fuel. And a quota "counts calls within ONE run": a
@@ -717,6 +722,54 @@ refuses — live host code wearing a data costume — so:
 need to outlive a run at all? If not — if each run opens, exchanges and closes — then
 `timeoutMs` already bounds duration, and only the byte budget is genuinely new. That is a much
 smaller change, and it should be ruled out before building the larger one.
+
+### DEFAULT-DEAD: a deadman switch, and it closes the budget gap (Tonio, 2026-09-17)
+
+The design above treats duration as a dimension fuel cannot express. **A deadman switch makes
+that false**, which is why this belongs at the top of the design rather than as a refinement.
+
+- [ ] **A socket server must be given self-teardown conditions and must be TICKLED to stay
+      alive.** The default state is dead; liveness is earned continuously rather than
+      teardown being remembered. This inverts the usual leak: every resource that ever leaked
+      here leaked because cleanup was an action someone had to take, and this repo's standing
+      line is that _a check you have to remember is not a control_. Make **survival** the
+      thing requiring action and the failure mode becomes "it died", which is recoverable,
+      instead of "it is still open", which is not noticed.
+
+- [ ] **The tickle is an atom call, so it costs fuel — and that is the whole trick.** Idle
+      time consumes no fuel, which is exactly why the table above says a socket escapes the
+      fuel budget. But if staying alive requires a periodic call, **duration becomes
+      expressible in fuel after all**: a socket held for an hour costs an hour of tickles. No
+      new budget dimension is needed for duration. The byte budget is still genuinely new;
+      duration is not, once liveness is metered rather than assumed.
+
+- [ ] **The TTL per tickle needs a CEILING, not just a floor.** A guest that could set an
+      arbitrarily long TTL would tickle once and escape the meter, which is the whole scheme
+      defeated by its own parameter. Cap the extension the host grants, and let the run
+      option set something lower — the same shape as `timeoutOverrides`, where the atom's own
+      budget is a maximum rather than a promise.
+
+- [ ] **Cheap restart is what makes aggressive teardown acceptable**, and the machinery is
+      already here. `procedureStore` (`runtime.ts`) maps `proc_<uuid>` tokens to stored
+      procedures **with `expiresAt`, deleting on expiry** — a TTL-bounded store with a deadman
+      switch already in it. Store the procedure that stands the socket up, and losing the
+      socket costs a re-run: _a little spin latency_, not lost work. That is the argument for
+      being ruthless about teardown rather than lenient, and it removes the usual pressure to
+      keep a connection alive "just in case".
+
+- [ ] **The capability must be AUTH-LIMITED.** A socket server is categorically more dangerous
+      than `fetch`: it accepts inbound connections, so it is reachable by parties the guest
+      never contacted, and it is a listening port on the host. Injection alone is not enough —
+      "the embedder chose to pass it" is how every capability is justified, and this one needs
+      a second gate. The VM already carries request-scoped `context` for auth and permissions,
+      and `src/rbac/` has the rule primitives; wire the check there rather than inventing a
+      third mechanism. Decide explicitly whether a denied socket is an error or a silent
+      no-capability (the rest of the VM treats absent capabilities as the latter).
+
+**What is left genuinely new after this:** bytes over a connection's lifetime, and the count of
+concurrent connections. Duration and teardown are solved by the deadman switch. Worth stating
+plainly, because the section above claimed three missing dimensions and the honest number is
+two.
 
 ## Formalise the AJS AST (decision 2026-08-02)
 
