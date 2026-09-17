@@ -556,6 +556,71 @@ parity, or the remaining failures each having a named cause**, not "it feels don
 adopting TJS completely for our own projects — which makes **our own codebase the acceptance
 test**, with numbers instead of opinions.
 
+## Split the VM: an AST-only runtime, and a caller-side parser (proposed 2026-09-17)
+
+**Ship two VMs. The small one cannot parse, because it has no parser.** The complement is a
+client-side calling library that transpiles on the CALLER's side and sends the AST. This
+shrinks the VM and removes a class of vulnerability rather than defending against it.
+
+This is the natural conclusion of the AJS parser split below. That work proved the AJS-legal
+transform set is four steps and removed seven leaks at once by construction. The same move
+one level up: if the VM never parses, no parser defect can be reached through it.
+
+### The current shape, measured (not assumed)
+
+`AgentVM.run()` accepts a **string** and transpiles it in-process:
+
+```ts
+// src/vm/vm.ts:138
+// AJS source code - transpile to AST
+ast = transpile(astOrToken).ast as BaseNode
+```
+
+so `src/vm/vm.ts:15` imports `transpile` from `../lang/core`, and the whole transpiler —
+acorn included — is inside `tjs-lang/vm`. Two consequences:
+
+| build (minified, `tosijs-schema` external) | size                                                      |
+| ------------------------------------------ | --------------------------------------------------------- |
+| `tjs-lang/vm` today                        | **221.5 KB**                                              |
+| runtime + atoms, no transpiler             | **48.0 KB**                                               |
+| **difference**                             | **173.5 KB — 78% of the bundle**, and acorn wholly absent |
+
+_Honest caveat on that 48 KB:_ it is `runtime.ts` + `atoms/` only, because `vm.ts` cannot be
+included without dragging the transpiler in. A real AST-only VM keeps the `AgentVM` shell
+minus the string branch, so it lands somewhat above 48 KB. The 173.5 KB of transpiler+acorn
+is the real, removable figure.
+
+And the security half, which matters more than the bytes: **the parser is reachable from
+untrusted input, inside the trust boundary.** Anything handing `vm.run()` a string is running
+our transpiler on it — upstream of fuel, timeouts, capabilities and the membrane, exactly as
+the `test`-block leak was (0.13.10, `eval-no-transpile-execution.test.ts`). That leak was
+caught; the _shape_ that allowed it is still here.
+
+### The proposal
+
+- [ ] **`tjs-lang/vm` becomes AST-only.** `run(ast, args, opts)` — no string branch, no
+      `transpile` import, no acorn. Feeding it a string is a type error and a runtime
+      rejection, not a convenience.
+- [ ] **A caller-side library does source → AST.** Parsing belongs where the source is
+      _yours_: the caller transpiles its own code and ships the AST. That is what "code
+      travels to data" already claims, made true — the **AST is the wire format**, and the
+      string never crosses the boundary.
+- [ ] **Keep a batteries-included entry for the current ergonomics** (parse-then-run in one
+      call) so existing users are not forced to restructure. It is the same relationship as
+      `tjs-lang` vs `tjs-lang/vm` today: convenience by default, a smaller and stricter
+      artifact when you want the guarantee.
+- [ ] **Guard it the way the AJS split is guarded** — an acorn-parsed pin asserting the
+      AST-only entry imports nothing from `lang/`, in both directions, so the property is
+      structural rather than remembered.
+
+### Why this is worth doing even though no defect is open against it
+
+The argument is not "there is a bug" — it is that a parser inside a sandbox is **attack
+surface that does not need to exist**, and the repo has already paid for one instance of it.
+An AST-only VM makes a whole category unreachable by construction, and hands embedders a
+48 KB artifact instead of a 221 KB one. Deferred deliberately: it is a breaking change to the
+`vm` subpath's accepted input, so it wants a minor, and 0.14.0 is spoken for.
+
 ## Formalise the AJS AST (decision 2026-08-02)
 
 - [x] **Invert `parse()`: an AJS core that TJS wraps, not one shared function with gates.**
