@@ -12,7 +12,42 @@ import {
 } from './runtime'
 import { TypedBuilder, type BaseNode, type BuilderType } from '../builder'
 import { validate } from 'tosijs-schema'
-import { transpile } from '../lang/core'
+
+/**
+ * The transpiler, INJECTED rather than imported.
+ *
+ * `run()` accepts AJS source as well as an AST, and resolving that string used to mean a
+ * static `import { transpile } from '../lang/core'` — which put the entire transpiler, acorn
+ * included, inside `tjs-lang/vm`. Two costs:
+ *
+ *   - **Size.** 221.5 KB against 56.3 KB for the same `AgentVM` without it (minified,
+ *     `tosijs-schema` external). 75% of the VM bundle was a parser.
+ *   - **Attack surface.** A sandbox that parses is a sandbox whose parser is reachable from
+ *     untrusted input, upstream of fuel, timeouts, capabilities and the membrane — the exact
+ *     position the `test`-block leak occupied (0.13.10,
+ *     `eval-no-transpile-execution.test.ts`). That leak was closed; the shape that permitted
+ *     it should not survive it.
+ *
+ * So the dependency is now supplied by the ENTRY POINT. `tjs-lang/vm` calls
+ * `setTranspiler(transpile)` and behaves exactly as before; `tjs-lang/vm-ast` does not, and
+ * is therefore a VM that cannot parse because it contains no parser.
+ *
+ * **What this guarantees, stated precisely:** *no parser is present in this bundle* — not
+ * *this object refuses source even when a parser is loaded*. The binding is module-level, so
+ * importing both entries into one bundle shares it. That is the guarantee worth having: a
+ * consumer who imported `tjs-lang/vm` already has the parser, so a per-instance refusal would
+ * protect nothing it does not already have. If a per-instance guard is ever wanted, a
+ * constructor option is the shape — do not quietly reinterpret this one.
+ */
+let transpileImpl: ((source: string) => { ast: unknown }) | null = null
+
+/**
+ * Supply the AJS source → AST transpiler. Called by `tjs-lang/vm`'s entry point; deliberately
+ * NOT called by the AST-only entry.
+ */
+export function setTranspiler(fn: (source: string) => { ast: unknown }): void {
+  transpileImpl = fn
+}
 
 /**
  * Floor for the run-level default timeout. The actual default is derived from
@@ -136,8 +171,19 @@ export class AgentVM<M extends Record<string, Atom<any, any>>> {
         ast = resolveProcedureToken(astOrToken) as BaseNode
       } else {
         // AJS source code - transpile to AST
+        if (!transpileImpl)
+          throw new Error(
+            `This VM accepts an AST, not source: no transpiler is wired in. ` +
+              `That is the point of the 'tjs-lang/vm-ast' build — it contains no parser, so ` +
+              `no parser defect is reachable through it. Transpile on the CALLER's side, ` +
+              `where the source is your own, and send the AST:\n\n` +
+              `    import { transpile } from 'tjs-lang/lang'\n` +
+              `    const { ast } = transpile(source)\n` +
+              `    await vm.run(ast, args)\n\n` +
+              `If you want the VM to parse for you, import 'tjs-lang/vm' instead.`
+          )
         try {
-          ast = transpile(astOrToken).ast as BaseNode
+          ast = transpileImpl(astOrToken).ast as BaseNode
         } catch (e: any) {
           throw new Error(`AJS transpilation failed: ${e.message}`, {
             cause: e,

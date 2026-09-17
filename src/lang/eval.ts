@@ -7,8 +7,16 @@
  * For static code (pre-transpiled), use the lite runtime instead.
  */
 
-import { AgentVM } from '../vm/vm'
+import { AgentVM, setTranspiler } from '../vm/vm'
 import { transpile } from './core'
+
+// This entry exists to execute SOURCE, so it must supply the transpiler the VM no longer
+// imports for itself (see `setTranspiler` in `../vm/vm` — injected so `tjs-lang/vm-ast` can
+// ship without a parser). Done explicitly, and at module scope, rather than leaning on some
+// other module having been evaluated first: `src/index.ts` learned that lesson the hard way.
+// `Eval`/`SafeFunction` already transpile before calling `run()`, so this is belt-and-braces
+// for any path here that hands the VM a string.
+setTranspiler(transpile as (source: string) => { ast: unknown })
 
 // Singleton VM instance (lazy)
 let _vm: AgentVM<Record<string, never>> | null = null

@@ -7,6 +7,39 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **`tjs-lang/vm-ast` — the VM with no parser in the bundle.** The same `AgentVM`, built
+  without the transpiler wiring: **56 KB against 221 KB**, and no acorn. It takes an **AST**;
+  transpile on the caller's side with `tjs-lang/lang` and send the AST.
+
+  ```ts
+  import { transpile } from 'tjs-lang/lang' // where the source is YOURS
+  import { AgentVM } from 'tjs-lang/vm-ast' // where the guest code runs
+
+  const { ast } = transpile(source)
+  await new AgentVM().run(ast, args)
+  ```
+
+  The size is the smaller half of the argument. `AgentVM.run()` accepts source, and resolving
+  it meant a static import of the transpiler — so **a sandbox shipped a parser, reachable from
+  untrusted input, upstream of fuel, timeouts, capabilities and the membrane.** That is the
+  position the `test`-block leak occupied in 0.13.10; the leak was closed, but the shape that
+  permitted it survived. This removes the shape, by not shipping the code.
+
+  It also makes good on what "code travels to data" already claimed: if the AST is the wire
+  format, the string never crosses the boundary and the far side has no reason to read one.
+
+  **Purely additive — `tjs-lang/vm` is untouched** and still accepts source. The transpiler is
+  now injected (`setTranspiler`), and every batteries-included entry supplies it explicitly.
+
+  **The guarantee, stated precisely:** _no parser is present in this bundle_ — **not** "this
+  object refuses source even when a parser is loaded". The binding is module-level, so an app
+  importing both entries shares it. That is the guarantee worth having (anyone importing
+  `tjs-lang/vm` already has the parser), but it is not the stronger one, and the difference is
+  load-bearing: the test asserting refusal has to run in its own process, because it passed
+  alone and failed under `bun test` once another file imported the main entry.
+
 ## [0.13.13] — 2026-09-13
 
 ### Read this first if you use `unsafe`

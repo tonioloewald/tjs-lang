@@ -42,6 +42,9 @@
       "vm": [
         "./dist/src/vm/index.d.ts"
       ],
+      "vm-ast": [
+        "./dist/src/vm/ast.d.ts"
+      ],
       "batteries": [
         "./dist/src/batteries/index.d.ts"
       ],
@@ -98,6 +101,11 @@
       "bun": "./src/vm/index.ts",
       "types": "./dist/src/vm/index.d.ts",
       "default": "./dist/tjs-vm.js"
+    },
+    "./vm-ast": {
+      "bun": "./src/vm/ast.ts",
+      "types": "./dist/src/vm/ast.d.ts",
+      "default": "./dist/tjs-vm-ast.js"
     },
     "./batteries": {
       "bun": "./src/batteries/index.ts",

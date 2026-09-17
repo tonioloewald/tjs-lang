@@ -61,6 +61,15 @@ const targets: BuildTarget[] = [
     description: 'VM runtime only',
   },
   {
+    name: 'tjs-vm-ast',
+    entry: './src/vm/ast.ts',
+    // Same AgentVM as `tjs-vm`, minus the one `setTranspiler(transpile)` call — so the
+    // transpiler and acorn are absent rather than tree-shaken, and `run()` takes an AST.
+    // 75% smaller, and no parser is reachable from guest input. See src/vm/ast.ts.
+    external: ['tosijs-schema'],
+    description: 'VM, AST-only (no parser)',
+  },
+  {
     name: 'tjs-batteries',
     entry: './src/batteries/index.ts',
     // Node builtins the batteries reach for behind their `isBrowser` check. They must be
