@@ -1,4 +1,4 @@
-<!--{"section":"tjs","type":"example","group":"basics","order":17}-->
+<!--{"section":"tjs","type":"example","group":"basics","order":20}-->
 
 # Better Classes
 

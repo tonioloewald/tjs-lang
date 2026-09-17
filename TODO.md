@@ -360,6 +360,23 @@ lexically, which makes it arbitrary in a way nobody can predict:
 [tjs]/patterns order=8   error-history, schema-validation
 ```
 
+### Nav-order collisions — FIXED 2026-09-17
+
+Seven examples in `tjs/basics` contended for three slots (15, 16, 17), plus pairs in
+`tjs/featured` and `tjs/patterns` — **3 of 12 groups**. A duplicate `order` is not a cosmetic
+tie: the sidebar falls back to the order entries occupy in `demo/docs.json`, which comes from a
+directory walk, so **nav order was decided by the filesystem** — the same defect as the
+unsorted `.tjs` walk fixed on 2026-09-12, but invisible, because nothing downstream changes.
+
+De-collided by cascading within each group, **preserving relative order** rather than
+redesigning the sequence (that is the K&R work below, and it is a separate decision). Gaps were
+kept — `tjs/basics` runs 1-4 then 15-22 — because a gap is harmless and closing them would have
+been a content change wearing a bug fix as a disguise.
+
+Guarded by `src/example-order.test.ts`, which asserts uniqueness (not contiguity — demanding
+0..n-1 would fail on every insertion and recreate the friction that caused this). Mutation-
+tested: restoring one collision turns it red and names both examples.
+
 ### Gaps against a K&R progression
 
 K&R opens with a tutorial, then types/operators/expressions, control flow, functions and

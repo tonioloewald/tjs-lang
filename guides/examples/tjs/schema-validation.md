@@ -1,4 +1,4 @@
-<!--{"section":"tjs","type":"example","group":"patterns","order":8}-->
+<!--{"section":"tjs","type":"example","group":"patterns","order":9}-->
 
 # Schema Validation
 

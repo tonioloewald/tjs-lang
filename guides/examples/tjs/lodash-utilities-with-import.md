@@ -1,4 +1,4 @@
-<!--{"section":"tjs","type":"example","group":"patterns","order":11}-->
+<!--{"section":"tjs","type":"example","group":"patterns","order":12}-->
 
 # Lodash Utilities (with import)
 

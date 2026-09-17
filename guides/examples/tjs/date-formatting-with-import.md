@@ -1,4 +1,4 @@
-<!--{"section":"tjs","type":"example","group":"patterns","order":9}-->
+<!--{"section":"tjs","type":"example","group":"patterns","order":10}-->
 
 # Date Formatting (with import)
 

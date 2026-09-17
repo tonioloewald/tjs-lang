@@ -1,4 +1,4 @@
-<!--{"section":"tjs","type":"example","group":"featured","order":1}-->
+<!--{"section":"tjs","type":"example","group":"featured","order":2}-->
 
 # Vector Search Benchmark
 

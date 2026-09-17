@@ -1,4 +1,4 @@
-<!--{"section":"tjs","type":"example","group":"featured","order":0}-->
+<!--{"section":"tjs","type":"example","group":"featured","order":1}-->
 
 # TJS Grammar Reference
 
