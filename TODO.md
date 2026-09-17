@@ -649,6 +649,75 @@ that does not need to exist**, and this repo has already paid for one instance o
 AST-only VM makes a whole category unreachable by construction, and hands embedders a **56 KB**
 artifact instead of a 221 KB one.
 
+## Socket-based services as a capability — and what "gas" means for one (proposed 2026-09-17)
+
+**NOT for 0.14.0.** Prototype it as a **battery** first, so the design can be exercised
+without committing the VM to anything.
+
+A socket is the first capability that does not fit the shape every existing one has: call in,
+get data back, done. It stays open, it pushes, and it consumes while idle. That makes it a
+good forcing function for the budget model — and a bad thing to design directly into the VM
+before the shape is known.
+
+### The budget model has five dimensions, and a socket fits none of them
+
+| dimension          | what it bounds            | why a socket escapes it                                                    |
+| ------------------ | ------------------------- | -------------------------------------------------------------------------- |
+| `fuel`             | VM work                   | A held-open connection performs no VM work while consuming a real resource |
+| `timeoutMs`        | wall clock for the RUN    | A socket worth having may outlive the run that opened it                   |
+| `maxHeapBytes`     | bytes live in guest scope | Bounds what the guest _keeps_, not what arrives                            |
+| `membraneMaxBytes` | one capability return     | Per-payload. A socket delivers many; 10 000 × 1 KB passes every check      |
+| `quotas`           | calls per op, per run     | Counts _calls_. A socket's cost is bytes and duration, not call count      |
+
+So a socket needs budget dimensions that do not exist: **bytes over a connection's lifetime**,
+**concurrent open connections**, and **connection duration**. That is the actual design work —
+not the plumbing.
+
+Two properties of the existing model make this sharper. Fuel is described in CLAUDE.md as
+_the time budget_ because "fuel meters work, so it is the time budget" — a socket breaks that
+identity, since idle time costs nothing in fuel. And a quota "counts calls within ONE run": a
+socket that survives a run is a resource that escaped the budget entirely, which is the same
+re-entrancy hole `quotaUsed` exists to close, in a form `quotaUsed` cannot express.
+
+### The membrane decides the API shape, before anyone gets a preference
+
+Every `effects: 'io'` return crosses `structuredClone`, and the pre-walk **rejects functions
+and accessors outright** (`membraneValue`, `runtime.ts`). A socket object is exactly what it
+refuses — live host code wearing a data costume — so:
+
+- [ ] The capability **cannot hand the guest a socket.** It returns an opaque **handle**
+      (a string token, like `procedureToken`), the host keeps the real socket in a side table,
+      and atoms operate on the handle: `socketOpen → handle`, `socketSend(handle, data)`,
+      `socketRecv(handle)`, `socketClose(handle)`. This is forced, not chosen.
+- [ ] **Push has to become pull.** Atoms are called; sockets arrive. Either the guest polls
+      (`socketRecv` blocking up to n ms — which spends the run's _time_ budget and needs its
+      own per-atom timeout), or inbound frames queue host-side against a bounded buffer and
+      `socketRecv` drains it. **The buffer bound is a security control, not a tuning knob:**
+      unbounded, a chatty peer is a host OOM the guest never touched. Decide what happens on
+      overflow — drop, close, or error — and write it down before implementing.
+- [ ] **Teardown on every exit path.** `run-teardown.test.ts` exists because a REJECTED run
+      must clean up as thoroughly as one that executes, and the leak it found had no effect on
+      the return value. A socket surviving its run is that failure with a port attached. Fuel
+      exhaustion, timeout, capability denial and membrane rejection all have to close it.
+
+### Why a battery, and why that is the right venue
+
+- [ ] Build it in `src/batteries/` against a **local echo server** — no network, no external
+      dependency, testable deterministically the way `llm-transport.test.ts` tests our HTTP
+      client against an in-process fixture.
+- [ ] Batteries are already the place where "bring host data in" lives, and since 0.13.6
+      `defineAtom` defaults to `effects: 'io'`, a new socket atom is **membraned by default**.
+      The default that exists to protect embedders protects the prototype too.
+- [ ] Only promote to a core capability once the budget dimensions are settled and the
+      teardown story is pinned. A socket in the VM before then would be a resource the
+      security model cannot describe — and the model's credibility rests on every resource
+      being accounted for.
+
+**Open question worth answering first, because it may collapse the design:** does a socket
+need to outlive a run at all? If not — if each run opens, exchanges and closes — then
+`timeoutMs` already bounds duration, and only the byte budget is genuinely new. That is a much
+smaller change, and it should be ruled out before building the larger one.
+
 ## Formalise the AJS AST (decision 2026-08-02)
 
 - [x] **Invert `parse()`: an AJS core that TJS wraps, not one shared function with gates.**
