@@ -579,16 +579,19 @@ ast = transpile(astOrToken).ast as BaseNode
 so `src/vm/vm.ts:15` imports `transpile` from `../lang/core`, and the whole transpiler —
 acorn included — is inside `tjs-lang/vm`. Two consequences:
 
-| build (minified, `tosijs-schema` external) | size                                                      |
-| ------------------------------------------ | --------------------------------------------------------- |
-| `tjs-lang/vm` today                        | **221.5 KB**                                              |
-| runtime + atoms, no transpiler             | **48.0 KB**                                               |
-| **difference**                             | **173.5 KB — 78% of the bundle**, and acorn wholly absent |
+| build (minified, `tosijs-schema` external) | size                             | acorn   |
+| ------------------------------------------ | -------------------------------- | ------- |
+| `tjs-lang/vm` today                        | **221.5 KB**                     | bundled |
+| AST-only, **`AgentVM` included**           | **56.3 KB**                      | absent  |
+| **difference**                             | **165.2 KB — 75% of the bundle** |         |
 
-_Honest caveat on that 48 KB:_ it is `runtime.ts` + `atoms/` only, because `vm.ts` cannot be
-included without dragging the transpiler in. A real AST-only VM keeps the `AgentVM` shell
-minus the string branch, so it lands somewhat above 48 KB. The 173.5 KB of transpiler+acorn
-is the real, removable figure.
+That 56.3 KB is **prototyped and built**, not estimated: swap the static import for an
+injectable and the entire `AgentVM` class comes along for 8.3 KB over runtime+atoms alone.
+
+> **Correction (2026-09-17).** This entry first said `vm.ts` "cannot be built without dragging
+> the transpiler in", and separately that the split "wants a minor". **Both were wrong, in the
+> same way** — describing the current arrangement as though it were a constraint. `vm.ts` has
+> **one** import and **one** call site, six lines apart. Nothing structural requires either.
 
 And the security half, which matters more than the bytes: **the parser is reachable from
 untrusted input, inside the trust boundary.** Anything handing `vm.run()` a string is running
@@ -598,9 +601,12 @@ caught; the _shape_ that allowed it is still here.
 
 ### The proposal
 
-- [ ] **`tjs-lang/vm` becomes AST-only.** `run(ast, args, opts)` — no string branch, no
-      `transpile` import, no acorn. Feeding it a string is a type error and a runtime
-      rejection, not a convenience.
+- [ ] **A NEW subpath is AST-only** (`tjs-lang/vm-core`, name to settle) — the same `AgentVM`,
+      built without the `transpile` wiring, so no acorn and no parser. Passing it source is a
+      rejection with a teaching error, not a convenience. **`tjs-lang/vm` is left exactly as
+      it is**: changing it would break every existing importer for no gain, since anyone who
+      wants the guarantee can take the new entry. Retiring the string branch from `vm` is a
+      separate, later, opt-in conversation.
 - [ ] **A caller-side library does source → AST.** Parsing belongs where the source is
       _yours_: the caller transpiles its own code and ships the AST. That is what "code
       travels to data" already claims, made true — the **AST is the wire format**, and the
@@ -613,13 +619,35 @@ caught; the _shape_ that allowed it is still here.
       AST-only entry imports nothing from `lang/`, in both directions, so the property is
       structural rather than remembered.
 
-### Why this is worth doing even though no defect is open against it
+### It is PURELY ADDITIVE, so it can land in 0.14.0
 
-The argument is not "there is a bug" — it is that a parser inside a sandbox is **attack
-surface that does not need to exist**, and the repo has already paid for one instance of it.
-An AST-only VM makes a whole category unreachable by construction, and hands embedders a
-48 KB artifact instead of a 221 KB one. Deferred deliberately: it is a breaking change to the
-`vm` subpath's accepted input, so it wants a minor, and 0.14.0 is spoken for.
+Nothing has to break. `tjs-lang/vm` keeps its static wiring — it calls `setTranspiler(transpile)`
+at entry, so string input behaves exactly as today — and a **new** subpath ships the same
+`AgentVM` without that line. Existing importers are untouched; the only surface added is one
+setter and one entry point.
+
+Sized honestly, the whole change is:
+
+1. `vm.ts` — swap the static `transpile` import for a module-level injectable (~8 lines),
+   with a clear error when source is passed to a build that has no transpiler.
+2. `src/vm/index.ts` — one `setTranspiler(transpile)` call, preserving today's behaviour.
+3. A new entry + `exports` map subpath + a `scripts/build.ts` target.
+4. The import pin, and a test that the new entry rejects a string with the teaching error.
+
+**One property to state precisely, because it is easy to oversell.** The injectable is
+module-level, so if a consumer imports BOTH entries into one bundle the wiring is shared. The
+guarantee is therefore _"no parser is present in this bundle"_, not _"this object refuses
+strings even when a parser is loaded"_ — which is the guarantee that actually matters, since a
+consumer who imported `tjs-lang/vm` already has the parser. Worth writing on the tin in those
+words rather than implying a per-instance guard. If a per-instance guarantee is wanted later, a
+constructor option is the shape.
+
+### Why it is worth doing even though no defect is open against it
+
+The argument is not "there is a bug" — it is that a parser inside a sandbox is **attack surface
+that does not need to exist**, and this repo has already paid for one instance of it. An
+AST-only VM makes a whole category unreachable by construction, and hands embedders a **56 KB**
+artifact instead of a 221 KB one.
 
 ## Formalise the AJS AST (decision 2026-08-02)
 
