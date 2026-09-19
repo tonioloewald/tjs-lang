@@ -74,17 +74,44 @@ excellent. TypeScript won, deservedly, and it is genuinely better than what came
 
 But look at what they are. Flow was written in OCaml — a type system from a different
 tradition, bolted to a language that does not share its assumptions. TypeScript is written in
-JavaScript, but it **describes a different language**: a static one, which is erased before
-anything runs.
+JavaScript, but it **describes a different language**: a static one, erased before anything
+runs.
 
-That erasure is the crux. A TypeScript type is a claim checked at compile time and gone at
-runtime. It cannot validate the JSON that just arrived. It cannot document itself to a caller
-who has only the built artifact. It cannot be a test. And because it is only a claim, the
-compiler can be argued with — `any`, `as`, `@ts-ignore` — and the argument leaves no trace in
-the running program.
+**TypeScript treats JavaScript as a dumb CPU.** The types are the real program; JavaScript is
+the target it compiles down to, and the relationship is the one a compiler has with assembly.
+It is a superset in roughly the sense that C is a superset of assembler — you _can_ drop to
+the underlying thing, and when you do, the type system stops helping and mostly stops
+watching.
 
-**Left on the table:** the runtime. The types describe a program that does not exist by the
-time the program runs.
+That would be a reasonable trade if JavaScript were a dumb CPU. It is not, and here is the
+part that gets missed:
+
+> **JavaScript is genuinely type-safe. TypeScript is not.**
+
+Every JavaScript value carries its type at runtime, operations check it, and nothing lets you
+reinterpret a string's bits as a number. That is real, enforced, and always present. A
+TypeScript type is a _claim_, unsound by design and erased before execution — `as` lets you
+assert something false, and nothing at compile time or runtime will contradict you. One of
+these systems can be lied to. It is not the one without a type checker.
+
+So JavaScript already has the thing TypeScript is emulating. Its problem is not the absence
+of runtime types, it is that **a few of them behave bizarrely**:
+
+    typeof null                 // 'object'          — a bug from 1995, never fixed
+    typeof NaN                  // 'number'          — a Number that is Not a Number
+    new Boolean(false)          // truthy!           — an object, and objects are truthy
+    new String('')              // truthy!           — likewise
+
+The set is also thin: `number` covers integers, floats and `NaN` alike, and there is no way to
+say "a non-negative integer" or "a valid CSS colour" in it.
+
+Which reframes the whole problem. The job is not to bolt a second, static, erasable type
+system on top. It is to **fix the handful of broken runtime types and widen the vocabulary** —
+staying in the system that actually enforces something. In TJS, `TypeOf(null)` is `'null'`,
+and `new Boolean(false) == false` is `true`.
+
+**Left on the table:** the runtime — and the recognition that the runtime already had a type
+system worth repairing.
 
 ### ESM (ES6, 2015)
 
@@ -132,9 +159,9 @@ Line them up and the pattern is hard to miss:
 | JSLint           | no — a scold                       | n/a                  | yes, but advisory only |
 | `use strict`     | **yes**                            | **yes**              | no — one fixed list    |
 | Flow             | no — OCaml, other tradition        | no                   | yes                    |
-| TypeScript       | describes another language         | **no** — erased      | yes                    |
+| TypeScript       | treats JS as a compile target      | **no** — erased      | yes                    |
 | ESM              | **yes**                            | **yes**              | no — one problem       |
-| **TJS**          | **yes**                            | **yes**              | **yes**                |
+| **TJS**          | **yes** — repairs JS's own types   | **yes**              | **yes**                |
 
 Nobody has occupied the bottom row, and it is not because it is a bad idea. It is because
 each project had a good reason to stop: a committee cannot ship twenty semantic changes, a
