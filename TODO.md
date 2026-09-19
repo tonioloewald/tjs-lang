@@ -573,6 +573,33 @@ parity, or the remaining failures each having a named cause**, not "it feels don
 adopting TJS completely for our own projects — which makes **our own codebase the acceptance
 test**, with numbers instead of opinions.
 
+## AJS VM as Rust → wasm (post-1.0) — the four constraints that are cheap NOW
+
+Full design note: **`docs/ajs-native-vm.md`**. Not critical path, nothing here blocks 1.0. What
+belongs in this list is only the part with a deadline.
+
+- [ ] **Version the AST root (`"$ajs": 1` or equivalent). THE ONE WITH A WINDOW.** Today the
+      root is `{"op":"seq","steps":[…],"inputSchema":{…}}` — unversioned. Adding the field is a
+      few lines now, and stops being cheap the moment an AST is persisted. **They already are**:
+      `procedureStore` maps `proc_…` tokens to stored ASTs, and any consumer serialising an agent
+      has them on disk. Retrofit later and "absent means 1" becomes permanent — precisely the
+      ambiguity a version field exists to prevent.
+- [ ] **Golden AST fixtures.** Every #52-class fix gets an AST-in / expected-out fixture under
+      `test-data/` rather than a JS-only test. That IS the conformance suite, accumulated for
+      free, and it is what a Rust spike would be driven by. Not started — `test-data/` currently
+      holds only vision-test JPEGs.
+- [x] **Custom atoms opaque to the guest.** Satisfied structurally rather than by convention:
+      every `effects: 'io'` return crosses `structuredClone` and the pre-walk rejects functions
+      and accessors, so nothing can leak a reference assuming a shared heap. Cannot rot.
+- [x] **Do not document JS builtin behaviour as AJS behaviour.** Audited 2026-09-19: `DOCS-AJS.md`
+      promises almost nothing — the only `.length` is inside an example, and regex is described by
+      intent rather than flavour. Keep it that way; anything promised about `.length`, Date
+      formatting, regex flavour or number-to-string becomes a conformance obligation.
+
+`tjs-lang/vm-ast` (below) turns out to be step one of this taken for independent reasons: it
+already establishes "the VM accepts an AST, not source" as a supported contract with real
+consumers, so a Rust VM would implement an existing contract rather than ask callers to change.
+
 ## Split the VM: an AST-only runtime, and a caller-side parser (proposed 2026-09-17)
 
 **Ship two VMs. The small one cannot parse, because it has no parser.** The complement is a
