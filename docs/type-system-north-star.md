@@ -384,19 +384,78 @@ subject happens to be a function, distinguished by richer introspection** — it
 `params` and `returns`, not merely "yes, that is a function". The specialisation is in what it
 knows, not in what kind of thing it is.
 
+### The concrete difference: a `Type` is a `Predicate` that carries a WITNESS
+
+**Decided 2026-09-20.** The relationship between `Type` and `Predicate` is not a hierarchy. It
+is *what the predicate additionally carries*, which makes it an **instances** story rather than
+a subclass one.
+
+A **`Predicate` can decide** — `check(v) -> boolean`, and that is the entire contract. `n % 2
+=== 0` has nothing else to offer; you cannot ask it for an even number.
+
+A **`Type` is built from an example**, so it carries a **witness value** — and every other
+capability it has follows from that one fact:
+
+    Type('age', 0).check(5)   -> true      it decides, like any predicate
+    Type('age', 0).example    -> 0         it carries a witness
+    Type('age', 0).default    -> 0         ...so it can GENERATE
+                                           ...so it can STRIP (it knows the shape)
+                                           ...so it can describe STRUCTURE in JSON Schema
+
+Generalised, the four existing forms differ only in what they carry:
+
+| carries | can additionally |
+| --- | --- |
+| `Predicate` — nothing | — |
+| `Type` — one example | generate, strip, describe structure |
+| `Enum` / `Union` — the whole finite domain | generate, **enumerate → autocomplete for free** |
+| `FunctionPredicate` — a signature | describe `params`/`returns`, check arity |
+
+Capabilities are **properties present or absent**, not subclasses. `instanceof Predicate` via
+`Symbol.hasInstance` on the brand (verified: it spans both a plain object like `Type(…)` and an
+ordinary callable like `isColor`, without touching prototypes, so a predicate stays a function).
+
+### Autocomplete is NOT in the minimum, and that is load-bearing
+
+A predicate drives autocomplete **iff it carries values**. `Enum` does, for free. A bare
+predicate does not — and `suggest()` already covers that case by **mining the source** (keyword
+sets, `startsWith` guards) rather than asking the predicate for something it cannot know.
+
+Suggestion is therefore a capability some predicates *have* and others have *recovered by
+analysis*. Requiring it of the minimum would force every predicate to answer a question most
+cannot.
+
+### Sensible defaults: the minimum is ONE member
+
+| member | default |
+| --- | --- |
+| `check` | **required** — it *is* the function |
+| `description` | `fn.name` |
+| `toJSONSchema` | `{ $predicate: … }` — claims no structure, which is exactly the progressive-enhancement story |
+| `strip` | identity — you cannot strip what you cannot describe |
+| `example` / `values` | **absent**; presence *is* the capability |
+
+This also resolves the `strip`-on-a-`FunctionPredicate` smell noted above: it is identity there,
+and should be **inherited by default** rather than separately implemented on each form. The five
+observed members stop being an accidental intersection and become one required member plus four
+defaults.
+
 ### Open, and genuinely undecided
 
 - **Is there a `Predicate` declaration keyword, or is the umbrella type-level only?** A keyword
   (`Predicate isEven(n: 0) { … }`) makes the concept first-class but competes with "it is just a
   function" — arguably a crater. The alternative is that `verifyPredicate` *lifts* a plain
   function into a `Predicate` and nothing new appears in the grammar.
-- **What is the minimal interface?** The five shared members are the observed intersection, not
-  a designed contract. Some may be incidental (`strip` on a `FunctionPredicate` is doing what,
-  exactly?).
-- **Does `Type` become a constructor of `Predicate`, or stay parallel to it?** This decides
-  whether the relationship is inheritance or merely a shared shape, and `docs/type-identity.md`
-  already records that these mechanisms disagree in four measured places — so unifying them is a
-  behaviour change, not a refactor.
+- ~~**What is the minimal interface?**~~ **Answered above:** one required member (`check`) plus
+  four defaults. `strip` on a `FunctionPredicate` was indeed incidental — identity, inherited.
+- **Does `Type` become a constructor of `Predicate`, or stay parallel to it?** The *conceptual*
+  answer is settled (a `Type` is a `Predicate` carrying a witness), but the *implementation* is
+  not: `docs/type-identity.md` records four measured disagreements between these mechanisms —
+  the real `Type` throws where the inline stub is permissive, `FunctionPredicate.check()`
+  returns a message where the stub returns `false`. Unifying the implementations means picking a
+  winner in four places, and emitted code calls the stubs, so the stub's behaviour is the shipped
+  semantics. Branding via `Symbol.hasInstance` is deliberately orthogonal to this: `instanceof
+  Predicate` can land without resolving any of the four.
 
 ## Open questions
 
