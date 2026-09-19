@@ -383,19 +383,41 @@ K&R opens with a tutorial, then types/operators/expressions, control flow, funct
 program structure, then the harder material. Measured against that, what is MISSING is mostly
 the beginning:
 
-- **A tutorial introduction.** "Hello TJS" exists; a guided first chapter does not.
-- **Control flow** — nothing for `given`, our flagship fixed-dispatch construct, nor the
-  `switch` advice that pairs with it.
-- **Declarations as a chapter** — `Type`/`Generic`/`Enum`/`Union`/`FunctionPredicate` have one
-  example ("Type Declarations"), buried at `patterns` order 20.
-- **Dictionary defaults** — a documented flagship with no example.
-- **`const!`**, **bang access (`x!.foo`)** — no examples.
-- **Predicates / `$predicate`** — the north-star feature, no example.
-- **`tjs-lang/css`** — a shipped subpath with no example.
-
-Most of the missing material is basic tutorial content, which is the expected shape: the
-examples grew from whatever was being built, so they are strongest where the work was hardest
+Most of the missing material was basic tutorial content, which is the expected shape: the
+examples grew from whatever was being built, so they were strongest where the work was hardest
 and thinnest where a newcomer starts.
+
+**Status 2026-09-19 — six of seven closed.** Corpus 59 → 63 examples (tjs 38 → 42).
+
+- [x] **A tutorial introduction.** → **`guides/why-tjs.md`** (nav order −10, sorts first). Not a
+      feature tour but the lineage argument: what Crockford's doctrine, JSLint, `use strict`,
+      Flow, TypeScript and ESM/`.mjs` each got right and where each stopped, and why the bottom
+      row of that table is empty. Carries the two framings that make the case — _TypeScript
+      treats JS as a dumb CPU_ (and unlike C buys no expressiveness, portability or concision
+      for its leakiness), and **JavaScript is genuinely type-safe while TypeScript is not**, so
+      the job is repairing four broken runtime types rather than bolting on an erasable system.
+- [x] **Control flow.** → `given-dispatch.md`, `tjs/basics` 5. All three `switch` footguns, the
+      measured reason a new word beat redefining it (5 confident-wrong → 0), five test blocks.
+- [x] **Dictionary defaults.** → `dictionary-defaults.md`, `tjs/basics` 6.
+- [x] **`const!` and bang access.** → `const-and-bang.md`, `tjs/basics` 7. The "zero runtime
+      cost" claim checked by reading the emitted JS: a plain `const`, no `Object.freeze`.
+- [x] **Predicates / `$predicate`.** → `predicate-types.md`, `tjs/advanced` 30.
+- [x] **`tjs-lang/css`.** Covered by the predicates example, which uses it as the concrete
+      demonstration rather than describing predicates abstractly.
+- [ ] **Declarations as a chapter — THE ONE REMAINING.** `Type`/`Generic`/`Enum`/`Union`/
+      `FunctionPredicate` still have exactly one example ("Type Declarations"), buried at
+      `patterns` order 20. Note `FunctionPredicate` is a **function-type** declaration
+      (`params`/`returns` block form), NOT a value predicate — easy to conflate with the
+      predicate-types material, and worth separating explicitly in the chapter.
+
+**Two defects the examples found while being written**, both fixed and guarded — which is the
+argument for examples being executed rather than illustrative:
+
+- `expect(…).toContain(…)` was **array-only**, so a string could never pass however plainly it
+  contained the argument, and it reported a content mismatch for what was a type refusal.
+- An example with an **unclosed fence** registered with `code: ''` — a blank editor in the
+  playground, no error anywhere — and passed `tjs check`, because the `awk` snippet our own
+  authoring guide recommends runs to EOF when it finds no closing fence.
 
 ### Sequencing
 
