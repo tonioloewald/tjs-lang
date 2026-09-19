@@ -7,6 +7,29 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **The AJS AST carries a format version** — `{"$ajs": 1, "op": "seq", …}` — and the VM acts on
+  it: an AST declaring a version this build does not understand is **refused**, not executed.
+
+  This landed before anything needed it, because the window for it is closing. An AST is a
+  **persisted artifact**: `procedureStore` maps `proc_…` tokens to stored ASTs, and consumers
+  serialise agents. Adding the field costs a few lines today; retrofit it after ASTs are widely
+  stored and the best you can say is "absent means 1" — exactly the ambiguity a version field
+  exists to prevent, permanently.
+
+  It does not eliminate unversioned ASTs — already-persisted ones have no field and keep
+  working. What it does is **stop the population growing**, turning an unbounded set into a
+  finite, shrinking one.
+
+  The refusal is the part that makes the field real rather than decorative: running an AST whose
+  format we cannot read means guessing at the meaning of untrusted code. The version is checked
+  **before** the root shape, so a newer AST reports its version rather than "Root AST must be
+  `'seq'`" — a diagnosis that would send the reader to entirely the wrong problem.
+
+  Groundwork for `docs/ajs-native-vm.md` (a Rust → wasm VM), where a second implementation
+  reading the same ASTs makes versioning load-bearing rather than merely prudent.
+
 ### Fixed
 
 - **`expect(…).toContain(…)` now does substring on strings.** It was array-only — the guard

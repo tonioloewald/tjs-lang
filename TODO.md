@@ -578,12 +578,20 @@ test**, with numbers instead of opinions.
 Full design note: **`docs/ajs-native-vm.md`**. Not critical path, nothing here blocks 1.0. What
 belongs in this list is only the part with a deadline.
 
-- [ ] **Version the AST root (`"$ajs": 1` or equivalent). THE ONE WITH A WINDOW.** Today the
+- [x] **Version the AST root — DONE 2026-09-19.** `{"$ajs": 1, "op": "seq", …}`, emitted first
+      so a truncated dump still shows it, with `src/vm/ast-version.ts` as the single source and
+      the VM **refusing** a version it does not understand (checked BEFORE the root shape, so a
+      newer AST reports its version rather than "Root AST must be `'seq'`"). Unversioned ASTs
+      still run — the point was never to eliminate them, it was to stop the population growing.
+      Pinned by `src/vm/ast-version.test.ts`.
+
+      ~~**Version the AST root (`"$ajs": 1` or equivalent). THE ONE WITH A WINDOW.**~~ Today the
       root is `{"op":"seq","steps":[…],"inputSchema":{…}}` — unversioned. Adding the field is a
       few lines now, and stops being cheap the moment an AST is persisted. **They already are**:
       `procedureStore` maps `proc_…` tokens to stored ASTs, and any consumer serialising an agent
       has them on disk. Retrofit later and "absent means 1" becomes permanent — precisely the
       ambiguity a version field exists to prevent.
+
 - [ ] **Golden AST fixtures.** Every #52-class fix gets an AST-in / expected-out fixture under
       `test-data/` rather than a JS-only test. That IS the conformance suite, accumulated for
       free, and it is what a Rust spike would be driven by. Not started — `test-data/` currently

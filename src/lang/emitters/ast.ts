@@ -27,6 +27,7 @@ import type {
   ArrayExpression,
   ObjectExpression,
 } from 'acorn'
+import { AST_VERSION, AST_VERSION_KEY } from '../../vm/ast-version'
 import type { BaseNode } from '../../builder'
 import type { ExprNode } from '../../runtime'
 import type {
@@ -329,6 +330,10 @@ export function transformFunction(
 
   return {
     ast: {
+      // Format version FIRST, so it is visible in a truncated dump and in a diff.
+      // See src/vm/ast-version.ts: an AST is a persisted artifact (procedureStore holds
+      // them), so data written today is read by code written later.
+      [AST_VERSION_KEY]: AST_VERSION,
       op: 'seq',
       steps,
       inputSchema,

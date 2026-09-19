@@ -250,8 +250,13 @@ const report = (label: string, st: Stage, total: number) => {
  * Raised to 112 on 2026-09-05 — the corpus grew by two more files (`rt-namespace.ts` and
  * its sibling from the same change), and the whole corpus still converts, compiles,
  * graduates AND keeps every export.
+ *
+ * Raised to 114 on 2026-09-19 — the corpus grew by `vm/ast-version.ts` and its test, both of
+ * which convert, compile, graduate and keep their exports. Promoted because the ratchet asked:
+ * the whole point of the promote-check is that an unclaimed gain is slack a future regression
+ * can occupy without turning anything red.
  */
-const GRADUATION_FLOOR = 112
+const GRADUATION_FLOOR = 114
 
 /** Improve by this much and the test asks for the floor to be raised. */
 const RATCHET_SLACK = 2

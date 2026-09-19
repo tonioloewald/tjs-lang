@@ -12,6 +12,7 @@ import {
 } from './runtime'
 import { TypedBuilder, type BaseNode, type BuilderType } from '../builder'
 import { validate } from 'tosijs-schema'
+import { astVersionProblem } from './ast-version'
 
 /**
  * The transpiler, INJECTED rather than imported.
@@ -246,6 +247,16 @@ export class AgentVM<M extends Record<string, Atom<any, any>>> {
     // Moving them up is better than widening the `try`: an argument that never runs should
     // not allocate a timer and a listener only to release them. Nothing is held here yet,
     // so nothing can leak.
+    // Refuse a format this build cannot read, BEFORE inspecting its shape.
+    //
+    // Checked first because a future AST may legitimately have a different root: judging it by
+    // today's rules would report "must be 'seq'" for something that is simply newer. And a
+    // version field nobody acts on is decoration — running an AST whose format we do not
+    // understand means guessing at the meaning of untrusted code, which is the one thing a
+    // sandbox must not do. See src/vm/ast-version.ts.
+    const versionProblem = astVersionProblem(ast)
+    if (versionProblem) throw new Error(versionProblem)
+
     if (ast.op !== 'seq')
       throw new Error(
         "Root AST must be 'seq'. Ensure you're passing a transpiled agent (use ajs`...` or transpile())."
