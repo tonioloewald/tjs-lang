@@ -98,16 +98,26 @@ ordering of that matters more than the list:
 | # | constraint | status |
 | - | ---------- | ------ |
 | 1 | Do not document JS builtin behaviour as AJS behaviour | **largely satisfied.** `DOCS-AJS.md` promises almost nothing about builtins — the only `.length` is inside an example, and regex is described by intent ("suspicious patterns are rejected") rather than by flavour. Keep it that way; anything promised about `.length`, Date formatting, regex flavour or number-to-string becomes a conformance obligation. |
-| 2 | **Version the AST** | ❌ **NOT DONE, and this is the one with a deadline.** The root today is `{"op":"seq","steps":[…],"inputSchema":{…}}` — no version field. |
+| 2 | **Version the AST** | ✅ **done 0.14.0.** Root is `{"$ajs":1,"op":"seq",…}`; `src/vm/ast-version.ts` is the single source and the VM refuses a version it cannot read. See the correction below on when this would have become expensive. |
 | 3 | Keep custom atoms opaque to the guest | **satisfied structurally.** Every `effects: 'io'` return crosses `structuredClone` and the pre-walk rejects functions and accessors, so nothing can leak a reference that assumes a shared heap. This is a membrane property, not a convention, so it cannot rot. |
 | 4 | Accumulate golden fixtures | ❌ **not started.** `test-data/` holds only vision-test JPEGs. Every #52-class fix should get an AST-in / expected-out fixture there rather than a JS-only test; that **is** the conformance suite, built for free. |
 
-**Why #2 is urgent and the others are not.** Adding `"$ajs": 1` to the root is a few lines today.
-It stops being cheap the moment an AST is *persisted* — and they already are: `procedureStore`
-maps `proc_…` tokens to stored ASTs, and any consumer serialising an agent has ASTs on disk or in
-a database. Retrofitting a version field then means "absent means 1", which is exactly the
-ambiguity a version field exists to prevent, and it is permanent. The window is open while nobody
-has meaningful stored ASTs.
+**When #2 actually becomes expensive — corrected 2026-09-19.** This note first argued that a
+retrofit "can only say absent means 1, which is exactly the ambiguity a version field exists to
+prevent". That was wrong, and the correction matters because it relocates the deadline.
+
+**"Absent means 1" is a total, unambiguous rule.** It maps every AST to exactly one version and
+is no worse than an explicit field. Adding the field late is perfectly sound — *provided the
+format has not changed in the meantime.*
+
+The real hazard is narrow: ship a v2 format **without** having introduced the field, and ASTs
+written under v2 also lack it. Only then is absent genuinely ambiguous — v1 or v2, unknowable —
+and only then is it permanent.
+
+So the window is **before the format first changes**, not before the first AST is stored, and
+`$ajs: 1` landed comfortably inside it (0.14.0). Cheap insurance bought early, not a catastrophe
+narrowly averted. The obligation this leaves is simply: *never change the AST format without
+bumping the version.*
 
 ## Phases
 

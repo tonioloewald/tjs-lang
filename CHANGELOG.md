@@ -12,11 +12,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **The AJS AST carries a format version** — `{"$ajs": 1, "op": "seq", …}` — and the VM acts on
   it: an AST declaring a version this build does not understand is **refused**, not executed.
 
-  This landed before anything needed it, because the window for it is closing. An AST is a
-  **persisted artifact**: `procedureStore` maps `proc_…` tokens to stored ASTs, and consumers
-  serialise agents. Adding the field costs a few lines today; retrofit it after ASTs are widely
-  stored and the best you can say is "absent means 1" — exactly the ambiguity a version field
-  exists to prevent, permanently.
+  An AST is a **persisted artifact** — `procedureStore` maps `proc_…` tokens to stored ASTs, and
+  consumers serialise agents — so data written today is read by code written later.
+
+  To be precise about the deadline, since an earlier draft of this entry overstated it:
+  **"absent means 1" is a total, unambiguous rule**, so adding the field late would have been
+  perfectly sound _provided the format had not changed first_. The real hazard is shipping a v2
+  format without the field, at which point absent becomes genuinely ambiguous and permanently
+  so. The window is "before the format first changes", and this is comfortably inside it — cheap
+  insurance bought early, not a catastrophe averted. The standing obligation: **never change the
+  AST format without bumping the version.**
 
   It does not eliminate unversioned ASTs — already-persisted ones have no field and keep
   working. What it does is **stop the population growing**, turning an unbounded set into a

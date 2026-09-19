@@ -585,7 +585,12 @@ belongs in this list is only the part with a deadline.
       still run — the point was never to eliminate them, it was to stop the population growing.
       Pinned by `src/vm/ast-version.test.ts`.
 
-      ~~**Version the AST root (`"$ajs": 1` or equivalent). THE ONE WITH A WINDOW.**~~ Today the
+      **On the urgency I claimed:** I argued a retrofit could "only say absent means 1 — exactly
+      the ambiguity a version field exists to prevent". Tonio pointed out that absent-means-1 is
+      a *total, unambiguous rule*, and he is right. The deadline is **before the format first
+      changes**, not before the first AST is stored: ship a v2 format without the field and only
+      *then* is absent ambiguous. We were well inside the window. Standing obligation now:
+      **never change the AST format without bumping the version.** Today the
       root is `{"op":"seq","steps":[…],"inputSchema":{…}}` — unversioned. Adding the field is a
       few lines now, and stops being cheap the moment an AST is persisted. **They already are**:
       `procedureStore` maps `proc_…` tokens to stored ASTs, and any consumer serialising an agent

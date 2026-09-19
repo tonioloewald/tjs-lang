@@ -5,20 +5,34 @@
  *
  * An AST is a **persisted artifact**, not just an intermediate value. `procedureStore` maps
  * `proc_…` tokens to stored ASTs, and any consumer serialising an agent has them on disk or in
- * a database. So the format has the property that makes versioning urgent rather than tidy:
- * data written today is read by code written later.
+ * a database. Data written today is read by code written later, which is the property that
+ * makes versioning worth doing at all.
  *
- * Adding the field costs a few lines now. It stops being cheap the moment ASTs are persisted
- * at scale, because a retrofit can only say "absent means 1" — which is exactly the ambiguity
- * a version field exists to prevent, and it is permanent.
+ * ## The deadline is the first FORMAT CHANGE, not the first stored AST
+ *
+ * An earlier version of this note claimed a retrofit "can only say absent means 1 — exactly
+ * the ambiguity a version field exists to prevent". **That was wrong, and the correction is
+ * worth keeping**, because it is the thing that decides when this becomes expensive.
+ *
+ * "Absent means 1" is a *total, unambiguous rule*. It maps every AST to exactly one version
+ * and it is no worse than an explicit field. Adding the field late is fine — **provided the
+ * format has not changed in the meantime.**
+ *
+ * The real hazard is narrow and specific: ship a v2 format *without* having introduced the
+ * field, and ASTs written under v2 also lack it. Only then does absent become genuinely
+ * ambiguous — v1 or v2, unknowable — and only then is it permanent.
+ *
+ * So the window is "before the format first changes", and this landed comfortably inside it.
+ * The field is cheap insurance bought early rather than a catastrophe narrowly averted.
  *
  * ## What this does and does not achieve
  *
  * It does **not** eliminate unversioned ASTs: ones already persisted have no field and must
- * keep working, so {@link astVersionOf} treats absent as {@link AST_VERSION_LEGACY}. What it
- * achieves is that **the population of unversioned ASTs stops growing.** It becomes a finite,
- * shrinking set with a known upper bound in time, rather than an unbounded one. That is the
- * whole win, and it is only available before the format is widely stored.
+ * keep working, so {@link astVersionOf} treats absent as {@link AST_VERSION_LEGACY} — soundly,
+ * per the rule above. What it achieves is that **the population of unversioned ASTs stops
+ * growing**, and that every AST from here on can be *refused* by a future reader that does not
+ * understand it. An unversioned AST can never be refused as too new, because absent means 1 —
+ * which is correct, since it is old by construction.
  *
  * ## The rule, and why rejection matters
  *
