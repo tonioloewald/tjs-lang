@@ -352,7 +352,13 @@ if (main) {
           },
           onClick() {
             const nav = document.querySelector(SideNav.tagName!) as SideNav
-            nav.contentVisible = !nav.contentVisible
+            // `navVisible`, not `contentVisible`. The latter is a static initAttribute — it
+            // worked because tosijs's Component used to permit arbitrary property access, and
+            // 1.10.3 tightened that. `navVisible` is the intended control, and its own doc
+            // comment names this exact failure: "no caller should have to know that hiding the
+            // nav on a wide screen means forcing compact mode while on a narrow one it only
+            // means showing the content". We were that caller.
+            nav.navVisible = !nav.navVisible
           },
         },
         icons.menu()
@@ -637,7 +643,12 @@ if (main) {
         },
         onChange() {
           const nav = document.querySelector(SideNav.tagName!) as SideNav
-          app.compact = nav.compact
+          // `value` is the declared state (`'normal' | 'compact/nav' | 'compact/content'`),
+          // so compactness is a property of it rather than a separate attribute to read.
+          // `.value` is the write path on a boxed scalar. Assigning the raw boolean used to
+          // typecheck only because `nav.compact` was `any`; tosijs 1.10.3 types the box
+          // properly, and `BoxedScalarAPI.value` is how you set one.
+          app.compact.value = nav.value !== 'normal'
         },
       },
 
