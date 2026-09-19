@@ -913,6 +913,14 @@ The CLI (`bun src/cli/tjs.ts run`) does NOT inject the test-block `expect` harne
    step redundant, and it is a behaviour change, so it is tracked in `TODO.md` rather than
    made in passing.)
 
+   ⚠️ **That `awk` is LENIENT where the doc builder is strict, so it can green-light a file
+   the playground will show as an empty editor.** With no closing fence it simply runs to
+   EOF, while `firstCodeBlock` (which requires a matching close) returns null and the example
+   registers with `code: ''` — no error, no warning, a blank editor. An unclosed ` ```tjs `
+   therefore passes `tjs check` and ships broken. Always run `bun run docs` and confirm the
+   entry has non-empty `code`; `src/example-order.test.ts` now fails on an empty one, which
+   is the real check.
+
 2. **Test blocks**: spin up the dev server (`bun run start`) and load the example in the playground UI to confirm tests pass under the real `expect` harness.
 
 3. **Frontmatter / registration**: after `bun run docs`, grep `demo/docs.json` for the slug to confirm it was picked up with the right `section`/`group`/`order`.

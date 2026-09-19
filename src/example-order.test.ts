@@ -66,6 +66,23 @@ describe('playground example nav slots', () => {
     expect(collisions.sort()).toEqual([])
   })
 
+  it('every example actually yields code for the editor', () => {
+    // The playground lifts `code` into a live editor (`element.setCode(example.code)`), so an
+    // example with none is a blank editor with a title — and NOTHING reports it. Extraction
+    // returning null is indistinguishable from an example that legitimately has no fence.
+    //
+    // Not hypothetical: `given-dispatch.md` was written with an unclosed ```tjs fence and
+    // registered perfectly happily with `code: ''`. It even passed `tjs check`, because the
+    // awk snippet the authoring guide recommends has no closing fence to find and runs to
+    // EOF — which happened to be exactly the code. Two extractors disagreeing, with the
+    // wrong one silent.
+    const empty = examples
+      .filter((d) => !((d as any).code ?? '').trim())
+      .map((d) => d.path ?? d.title ?? '(unknown)')
+      .sort()
+    expect(empty).toEqual([])
+  })
+
   it('every example declares an order at all', () => {
     // An absent `order` sorts as -1 above, so a missing one would collide with any other
     // missing one and be reported as a slot clash — a confusing way to learn it is absent.
