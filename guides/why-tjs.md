@@ -79,11 +79,34 @@ runs.
 
 **TypeScript treats JavaScript as a dumb CPU.** The types are the real program; JavaScript is
 the target it compiles down to, and the relationship is the one a compiler has with assembly.
-It is a superset in roughly the sense that C is a superset of assembler — you _can_ drop to
-the underlying thing, and when you do, the type system stops helping and mostly stops
-watching.
+It is a superset of JavaScript in exactly the sense that **C is a superset of assembler** —
+which is to say, only because it supports the inline form. You _can_ drop to the underlying
+thing, and when you do, the abstraction stops helping and mostly stops watching.
 
-That would be a reasonable trade if JavaScript were a dumb CPU. It is not, and here is the
+Push that comparison one step further and it stops flattering. **Ask what C buys for its
+leakiness:**
+
+|                      | C over assembler                | TypeScript over JavaScript                                                |
+| -------------------- | ------------------------------- | ------------------------------------------------------------------------- |
+| more **expressive**? | yes — structured control, types | no — the runtime semantics are identical, because they _are_ JavaScript's |
+| more **portable**?   | yes — one source, many targets  | no — it targets JavaScript, which is where you already were               |
+| more **compact**?    | yes — dramatically              | **no — strictly longer.** Annotations are added text                      |
+
+C earns its leaks. It abstracts over a real machine and hands back expressiveness,
+portability and concision so large that inline assembly is a rare escape most programmers
+never write. TypeScript leaks in the same places — `any`, `as`, `@ts-ignore`, ambient
+declarations, `.d.ts` files that drift from the code they describe — and the ledger on the
+other side is comparatively thin, because it is not abstracting over anything. **It is
+annotating.**
+
+(The one portability claim TypeScript can make — downlevelling to older JavaScript — belongs
+to the transpiler, not to the type system. Babel does it without types.)
+
+None of which makes TypeScript a bad tool. Its value is real and it is **developer-experience**
+value: editor intelligence, safe refactoring, errors caught before you run. What it is not is
+an _abstraction layer_, and calling it one invites the comparison above, which it cannot win.
+
+That would all be a reasonable trade if JavaScript were a dumb CPU. It is not, and here is the
 part that gets missed:
 
 > **JavaScript is genuinely type-safe. TypeScript is not.**
