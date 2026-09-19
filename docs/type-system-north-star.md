@@ -449,13 +449,25 @@ defaults.
 - ~~**What is the minimal interface?**~~ **Answered above:** one required member (`check`) plus
   four defaults. `strip` on a `FunctionPredicate` was indeed incidental — identity, inherited.
 - **Does `Type` become a constructor of `Predicate`, or stay parallel to it?** The *conceptual*
-  answer is settled (a `Type` is a `Predicate` carrying a witness), but the *implementation* is
-  not: `docs/type-identity.md` records four measured disagreements between these mechanisms —
-  the real `Type` throws where the inline stub is permissive, `FunctionPredicate.check()`
-  returns a message where the stub returns `false`. Unifying the implementations means picking a
-  winner in four places, and emitted code calls the stubs, so the stub's behaviour is the shipped
-  semantics. Branding via `Symbol.hasInstance` is deliberately orthogonal to this: `instanceof
-  Predicate` can land without resolving any of the four.
+  answer is settled (a `Type` is a `Predicate` carrying a witness). The implementation question
+  is **smaller than it was recorded as being here**, and the correction is worth keeping.
+
+  An earlier draft of this section claimed `docs/type-identity.md` "records four measured
+  disagreements", so unification would mean picking a winner in four places. **That was a stale
+  reading.** Those four cases are *historical*: the page's live section says "Where they
+  disagree today: **Nowhere in the corpus.**" They were closed in 2026-08 — two by deriving
+  numeric narrowing from the example value the stub already holds, one by emitting a
+  source-level predicate for `+0`, and the fourth in the opposite direction by reversing the
+  policy so both checkers accept excess keys.
+
+  Confirmed by running `src/lang/type-identity.test.ts` (24 pass) rather than re-reading the
+  prose — which is precisely the failure that page warns about in its own opening line: "a page
+  like this is exactly where a stale claim survives longest."
+
+  So the mechanisms already **agree** across the corpus. Unifying them is therefore closer to a
+  refactor than to a behaviour change, and the remaining question is design (should `Type` be
+  constructed *through* `Predicate`, or merely satisfy it?) rather than "which semantics win".
+  Branding via `Symbol.hasInstance` stays orthogonal either way.
 
 ## Open questions
 
