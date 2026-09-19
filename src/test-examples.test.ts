@@ -71,6 +71,7 @@ describe('TJS examples with inline tests', () => {
     'tosijs Todo App',
     'Full-Stack Demo: Client App',
     'The Universal Endpoint',
+    'Predicate Types',
   ])
 
   // The skip list must match its own stated reason.

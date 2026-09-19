@@ -38,6 +38,7 @@ describe('TJS Playground Examples with tests', () => {
     'tosijs Todo App', // requires tosijs runtime
     'Full-Stack Demo: Client App', // requires saved module
     'CDN Hints (overriding the default)', // imports tosijs and date-fns
+    'Predicate Types', // imports tjs-lang/css
   ])
 
   for (const example of tjsExamples) {
@@ -90,6 +91,8 @@ describe('TJS Playground Examples actually run', () => {
       'requires a saved module from another example',
     'The Universal Endpoint': 'top-level import of a sibling module',
     'Using a WASM Library': 'top-level import of a sibling wasm module',
+    'Predicate Types':
+      'bare import of tjs-lang/css, unresolvable in this harness',
   }
 
   /** Examples whose OUTPUT legitimately contains undefined/NaN, and why. */
