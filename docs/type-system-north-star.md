@@ -325,6 +325,79 @@ model actually gets built.
 - The hot path must stay allocation-free. `Eq` is ~29ns; a lookup on every comparison is the
   main risk to watch.
 
+## `Predicate` is the umbrella — and it already exists, unnamed
+
+**Design position (Tonio, 2026-09-19):** *predicates stay plain functions under the hood, but
+within TJS they are instances of `Predicate`.* Everything that answers **"does `v` satisfy X"**
+is a predicate; the declaration forms differ only in how they are constructed and how much they
+can tell you about themselves.
+
+This started as an argument for renaming `FunctionPredicate` to `FunctionType`, on the grounds
+that it declares a function *type*. That argument proves too much: `Type Age 0` also produces a
+runtime checker, so if producing a check disqualifies something from being a predicate, nothing
+in the language is one. The taxonomy was wrong at the root, and the rename was abandoned
+mid-flight.
+
+### The finding: the interface is already implemented
+
+Every declaration form returns an object sharing **exactly five members**:
+
+    __runtimeType   check   description   strip   toJSONSchema
+
+and each adds its own introspection on top:
+
+| form | adds |
+| --- | --- |
+| `Type Age 0` | `example`, `examples`, `default`, `schema`, `predicate` |
+| `Enum Colour ['red','green']` | `values`, `keys`, `names`, `members` |
+| `Union U [0, '']` | `values` |
+| `FunctionPredicate Cb {…}` | `params`, `returns`, `returnContract` |
+
+So the common concept is not hypothetical — it is built, consistent across four constructs, and
+branded (`__runtimeType: true`). **It has no name.** That is the gap.
+
+### Why naming it is not cosmetic
+
+A named umbrella gives one answer where there are currently four parallel ones:
+
+- **One thing to serialise.** `$predicate` needs a subject; today each form implements
+  `toJSONSchema` separately and nothing says they are the same kind of thing.
+- **One thing to compose.** `verifyPredicate` certifies clusters of plain functions, and there
+  is currently no expressible relationship between a verified `isColor` and a `Type` — though
+  both answer the same question.
+- **One thing to introspect.** Editor tooling, `suggest()`, and `.d.ts` generation all want
+  "give me the check and whatever else you know", which is precisely this interface.
+- **One thing to document.** The book currently needs a declarations chapter that explains four
+  constructs and then separately explains predicates, when it should explain one idea with four
+  constructions.
+
+### What "plain functions under the hood" buys, and must not cost
+
+The constraint that keeps this honest: a `Predicate` must remain **an ordinary JavaScript
+function** underneath. Not a class instance requiring a runtime, not a wrapper that has to be
+unwrapped at a boundary. That is what lets a verified predicate compile to native JS, travel as
+`$predicate`, and be called by code that has never heard of TJS — and it is the same
+"inside JavaScript" commitment the rest of the language rests on (`guides/why-tjs.md`).
+
+`FunctionPredicate` then stops looking like an outlier and reads correctly: **a `Predicate` whose
+subject happens to be a function, distinguished by richer introspection** — it can report
+`params` and `returns`, not merely "yes, that is a function". The specialisation is in what it
+knows, not in what kind of thing it is.
+
+### Open, and genuinely undecided
+
+- **Is there a `Predicate` declaration keyword, or is the umbrella type-level only?** A keyword
+  (`Predicate isEven(n: 0) { … }`) makes the concept first-class but competes with "it is just a
+  function" — arguably a crater. The alternative is that `verifyPredicate` *lifts* a plain
+  function into a `Predicate` and nothing new appears in the grammar.
+- **What is the minimal interface?** The five shared members are the observed intersection, not
+  a designed contract. Some may be incidental (`strip` on a `FunctionPredicate` is doing what,
+  exactly?).
+- **Does `Type` become a constructor of `Predicate`, or stay parallel to it?** This decides
+  whether the relationship is inheritance or merely a shared shape, and `docs/type-identity.md`
+  already records that these mechanisms disagree in four measured places — so unifying them is a
+  behaviour change, not a refactor.
+
 ## Open questions
 
 - **`TypeDescriptor`'s fate:** keep it as a cached projection of JSON-Schema +
