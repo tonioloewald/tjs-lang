@@ -16,21 +16,39 @@ cost them.
 
 ## What each attempt got right, and where it stopped
 
-### Crockford — _JavaScript: The Good Parts_ and JSLint (2001–2008)
+### The doctrine: _JavaScript: The Good Parts_ (2008)
 
-The foundational insight, and it still holds: **a language can have a good language inside
-it**, and you get there by subtraction. Crockford identified the parts that produce bugs —
-`==`, `with`, implied globals, `new` without `new`, semicolon insertion — and said: don't use
-them.
+The foundational insight, and it still holds: **there is a good language inside JavaScript,
+and you get to it by subtraction.** Crockford named the parts that produce bugs — `==`, `with`,
+implied globals, `new` without `new`, semicolon insertion, `typeof null` — and said: use the
+rest.
 
-JSLint made the advice executable, which was the real contribution. But a linter can only
-**scold**. The bad parts remained in the language, remained legal, remained what you got by
-default. Every project re-litigated which rules to enable. The knowledge lived in a
-configuration file and a community argument, not in the language, so it had to be re-acquired
-by every team and every newcomer.
+That was a genuinely radical claim. Not "JavaScript is bad" and not "JavaScript is fine", but
+that the language contains a smaller, coherent, better language, and that a disciplined
+programmer can simply decline the rest. Every attempt since, including this one, is a variation
+on that sentence.
 
-**Left on the table:** the bad parts themselves. Being told `==` is wrong, forever, is worse
-than `==` being right.
+**What it could not do is be anywhere except in your head.** A doctrine is enforced by memory
+and code review, and it has to be re-transmitted to every newcomer on every team, forever. The
+book sold well and the bad parts remained in the language, remained legal, and remained what
+you got by default.
+
+### The enforcement: JSLint (2002)
+
+Making the doctrine executable was the real contribution — and note the date, because it is
+the more interesting fact: **the enforcer shipped six years before the book explained it.**
+JSLint encoded a doctrine that had not yet been written down, which is part of why it landed
+as it did. Crockford's own framing — "JSLint will hurt your feelings" — is the tell. It was
+right, and it had no room to say why.
+
+That is the structural limit of the whole category: **a linter can only scold.** It cannot
+change what `==` does; it can only object, every time, forever, in a tone nobody enjoys. So
+the rules became a config file, the config file became a per-project argument, and the
+knowledge ended up living in `.eslintrc` and team convention rather than in the language. Turn
+a rule off and the footgun is simply back.
+
+**Left on the table:** the bad parts themselves. Being told `==` is wrong, forever, in every
+project, by a tool that cannot fix it, is worse than `==` being right.
 
 ### `use strict` (ES5, 2009)
 
@@ -82,20 +100,41 @@ better, and it won by being better.
 **That is the model.** Not a lint rule, not a superset that erases, not a committee-sized
 list of removals — a real alternative inside the language, chosen file by file.
 
+#### And `.mjs` is the mechanism we borrowed outright
+
+Node had to run two incompatible module systems in one toolchain, and the answer was not a
+pragma. It was **the file extension**: `.mjs` means ESM, `.cjs` means CommonJS, and
+`"type": "module"` flips what a bare `.js` means. The unit of choice is the file, and the
+switch lives in its name.
+
+That looks like a packaging detail and is actually a deep constraint. **You cannot put "this
+is a module" inside the file, because you have to know it before you can parse the file.**
+`import` hoists, bindings are live, the whole body is strict — all decided before the first
+token is read. A directive like `'use strict'` can sit in the source precisely because it
+changes so little; module-ness changes too much to be announced from within.
+
+TJS has exactly that constraint, for exactly that reason: the dialect changes what the parser
+does, so it cannot be discovered inside the parse. Hence `.tjs`, and hence the fact that this
+project **abolished all nine of its mode directives** in favour of the extension. That was not
+a style preference — it was arriving, later and the hard way, at the answer Node had already
+found. Per-construct opt-outs (`LegacyDate`, `DangerousLegacyEquals`) remain, because those
+are local and do not change how the file is read.
+
 ---
 
 ## Where that leaves the gap
 
 Line them up and the pattern is hard to miss:
 
-|              | inside JS?                  | survives to runtime? | unlimited scope?       |
-| ------------ | --------------------------- | -------------------- | ---------------------- |
-| JSLint       | no — a scold                | n/a                  | yes, but advisory only |
-| `use strict` | **yes**                     | **yes**              | no — one fixed list    |
-| Flow         | no — OCaml, other tradition | no                   | yes                    |
-| TypeScript   | describes another language  | **no** — erased      | yes                    |
-| ESM          | **yes**                     | **yes**              | no — one problem       |
-| **TJS**      | **yes**                     | **yes**              | **yes**                |
+|                  | inside JS?                         | survives to runtime? | unlimited scope?       |
+| ---------------- | ---------------------------------- | -------------------- | ---------------------- |
+| _The Good Parts_ | doctrine only — lives in your head | n/a                  | yes, but unenforced    |
+| JSLint           | no — a scold                       | n/a                  | yes, but advisory only |
+| `use strict`     | **yes**                            | **yes**              | no — one fixed list    |
+| Flow             | no — OCaml, other tradition        | no                   | yes                    |
+| TypeScript       | describes another language         | **no** — erased      | yes                    |
+| ESM              | **yes**                            | **yes**              | no — one problem       |
+| **TJS**          | **yes**                            | **yes**              | **yes**                |
 
 Nobody has occupied the bottom row, and it is not because it is a bad idea. It is because
 each project had a good reason to stop: a committee cannot ship twenty semantic changes, a
@@ -113,10 +152,12 @@ never removed — is the size of the opportunity.
 
 Three commitments, and they are testable rather than aspirational.
 
-**1. TJS ⊇ JS.** Any JavaScript file is a legal TJS file with plain JavaScript semantics. The
-extension is the gate: a `.js` file gets JS semantics, a `.tjs` file opts into the better
-language. This is a guarded invariant, not a promise — `src/lang/subset-invariant.test.ts`
-fails if a richer layer ever makes subset-legal code illegal.
+**1. TJS ⊇ JS.** Any JavaScript file is a legal TJS file with plain JavaScript semantics.
+**The extension is the gate**, borrowed from `.mjs`: a `.js` file gets JS semantics, a `.tjs`
+file opts into the better language, and nothing inside the file has to be remembered or
+configured. This is a guarded invariant rather than a promise —
+`src/lang/subset-invariant.test.ts` fails if a richer layer ever makes subset-legal code
+illegal.
 
 **2. Types are examples that survive.** Instead of a separate type language that is erased,
 a type is a **value**:
