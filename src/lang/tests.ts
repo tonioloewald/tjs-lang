@@ -469,7 +469,25 @@ function expect(actual) {
       }
     },
     toContain(item) {
-      if (!Array.isArray(actual) || !actual.some(v => deepEqual(v, item))) {
+      // Strings do SUBSTRING, arrays do membership — matching bun:test and jest.
+      //
+      // This used to be \`!Array.isArray(actual) || …\`, so a string could never pass: the
+      // guard rejected it before looking at the content, and then reported
+      // "Expected X to contain Y" — a CONTENT message for a TYPE refusal. Writing
+      // \`expect(err.path).toContain('opts.x')\` in an example is what found it, against a
+      // path that plainly did contain it.
+      if (typeof actual === 'string') {
+        if (typeof item !== 'string' || actual.indexOf(item) === -1) {
+          throw new Error(\`Expected \${format(actual)} to contain \${format(item)}\`)
+        }
+        return
+      }
+      if (!Array.isArray(actual)) {
+        throw new Error(
+          \`toContain expects a string or an array, got \${typeof actual} (\${format(actual)})\`
+        )
+      }
+      if (!actual.some(v => deepEqual(v, item))) {
         throw new Error(\`Expected \${format(actual)} to contain \${format(item)}\`)
       }
     },

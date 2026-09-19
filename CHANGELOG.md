@@ -7,6 +7,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **`expect(…).toContain(…)` now does substring on strings.** It was array-only — the guard
+  read `!Array.isArray(actual) || …`, so a string could never pass however plainly it
+  contained the argument, and the failure was reported as
+  `Expected "a.tjs:17:sized.opts.x" to contain "opts.x"`: a **content** message for what was
+  really a **type** refusal. Every comparable harness (bun:test, jest) does substring, so the
+  spelling that works everywhere else failed here and misdescribed why.
+
+  A non-string, non-array haystack now says `toContain expects a string or an array`, rather
+  than describing a comparison that never happened.
+
+  Found by writing a documentation example, not by a test — which is the argument for
+  examples being executed rather than illustrative.
+
 ### Added
 
 - **`tjs-lang/vm-ast` — the VM with no parser in the bundle.** The same `AgentVM`, built
