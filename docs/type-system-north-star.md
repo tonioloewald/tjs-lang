@@ -454,25 +454,45 @@ merely satisfy it" question does not need an answer; it dissolves.
 | **`Enum` / `Union`** | a `Predicate` with a **finite domain** attached |
 | **`FunctionPredicate`** | a `Predicate` with a **signature** attached |
 
-**The one thing that would force real work is making Predicates CALLABLE**, and the cost is
-specific enough to record so nobody rediscovers it:
+**Predicates are FUNCTIONS WITH PROPERTIES, not objects with a callable test.** That was the
+original conception and it is the right one; an earlier draft of this section argued against it
+and was wrong on every count. The objections, and what measuring them showed:
 
-    // src/lang/runtime.ts
-    typeof expected === 'object' && expected !== null && 'check' in expected
+| objection raised | measured reality |
+| --- | --- |
+| Two guards branch on `typeof === 'object'` (`runtime.ts`, and the inline `__match` stub) | a **two-line widening** (`\|\| typeof ex === 'function'`), backward compatible — object-shaped types still match |
+| `Object.setPrototypeOf` is expensive | **2.7ms vs 0.7ms per 20,000 declarations** (~0.1µs each), at module-init only. Non-issue |
+| Old emitted files would not recognise a callable type | **no exposure.** Emitted types are file-local `const`s, never exported, and the param check calls `.check()` directly rather than going through `__match`. A file only ever checks against types its own stub built |
 
-    // src/lang/emitters/js.ts — the inline `__match` stub, i.e. SHIPPED semantics
-    if (ex && typeof ex === 'object' && ex.__runtimeType && typeof ex.check === 'function') …
+The shape, which needs no `eval` and no `new Function`:
 
-Both branch on `typeof === 'object'`. A function is `'function'`, so a callable `Type(…)` would
-make **both guards stop recognising it** — and the second lives in every emitted file, so
-already-emitted code would not recognise new-style types. Keeping `Predicate` object-shaped
-avoids the only real compatibility edge in the design. "Plain function under the hood" is
-satisfied by `check` *being* that function, not by the wrapper being callable.
+    const fn = (v) => /* the test */
+    Object.setPrototypeOf(fn, Type.prototype)      // real prototype chain
+    Object.assign(fn, { description, example, check: fn, __runtimeType: true })
 
-**The remaining loose end runs the other way.** A verified plain function like `isColor` carries
-none of the five members, so it is not yet a `Predicate` in this sense. It needs either lifting
-(wrap it) or branding (`Symbol.hasInstance` over a `__predicate` mark) — a small self-contained
-decision, not a structural one.
+    Age(5)                  // true        — callable, the natural JS idiom
+    Age.check(5)            // true        — same function, cannot drift
+    Age instanceof Type     // true        — real instanceof, no Symbol.hasInstance
+    Age instanceof Predicate // true
+
+**Why this is better than the object-shaped alternative**, beyond taste:
+
+- A verified plain function like `isColor` becomes a `Predicate` by **attaching properties** —
+  no wrapping, no lifting, no two populations to reconcile. The "remaining loose end" an earlier
+  draft recorded simply does not arise.
+- `check` **is** the function, so there is one implementation that cannot drift from itself.
+  This repo has paid for two copies of one runtime before (`docs/runtime-fusion.md`).
+- `instanceof` comes from a real prototype chain rather than `Symbol.hasInstance` standing in
+  for one.
+
+**The one genuine finding**, which is worth fixing on its own merits: a callable `Type` satisfies
+`FunctionPredicate.check`, because that check is literally `v => typeof v === 'function'` and so
+already accepts **any** function regardless of signature. Callable predicates add one more
+category to a check that is already too permissive. The defect is the weak `check`, and it
+exists today.
+
+Minor and known: functions carry `name` and `length` as own properties. Both are configurable
+and no declaration form uses `.name` today, but a property named `name` would need care.
 
 ### Open, and genuinely undecided
 
