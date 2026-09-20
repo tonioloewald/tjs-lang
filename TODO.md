@@ -768,23 +768,45 @@ serializable artifact derived from reality, shippable to environments with no br
 - [ ] **Named colours / units** — `CSS.supports('color', name)`, or set-and-read-back on a
       detached element.
 
-### The asymmetry that limits this: properties ENUMERATE, values do not
+### What is actually irreducible: about 200 string literals. The rest is derivable.
 
-`getComputedStyle(document.body)` is **iterable** — the browser hands you the property list.
-But there is no reflection API for value grammars. `CSS.supports(prop, value)` is a **point-wise
-oracle**: you can ask _"is `rebeccapurple` a colour?"_ and get an answer, but you cannot ask
-_"what are the colours?"_
+A first pass at this note claimed probing "can only CONFIRM a candidate list, not generate one",
+and concluded the tables mostly stay. **That understated it, and the correction is the useful
+part** (Tonio): the names are all you need, because the values and the structure can both be
+computed from them when a DOM is available.
 
-So the probe cannot GENERATE a candidate list, only CONFIRM one — which means the
-hand-maintained tables do not go away. What changes is their status: they stop being the source
-of truth and become a **candidate set that the browser verifies and prunes**. That is still
-worth having (it catches drift, and drift is otherwise invisible), but it is a different and
-smaller claim than "builds its data from the browser".
+**Irreducible seed** — no enumeration API exists, but each is small and effectively frozen:
 
-Properties are the exception, and there the win is real: `isCssProperty` could be genuinely
-derived rather than maintained.
+|                 | size |
+| --------------- | ---- |
+| named colours   | 150  |
+| length units    | 49   |
+| global keywords | 5    |
 
-### Fundamentally, the DOM should provide this
+**Derivable, and this is the part that actually drifts:**
+
+- **Colour VALUES from names.** Set `el.style.color = name`, read back the computed
+  `rgb(…)`. The name list is the seed; the mapping is free.
+- **Which properties accept a colour.** One line:
+
+      Array.from(getComputedStyle(document.body)).filter(p => CSS.supports(p, 'red'))
+
+  Compare what we ship — `CSS_COLOR_PROPS` in `src/css/style.ts`, **17 entries,
+  hand-maintained, and already drifted**: the whole logical-property family is missing
+  (`border-block-start-color`, `border-inline-end-color`, …), along with
+  `text-emphasis-color`, `scrollbar-color` and `-webkit-text-fill-color`. That list is the
+  concrete argument for the whole idea.
+
+- **Which properties accept lengths / percentages / etc.** Same shape —
+  `CSS.supports(prop, '1px')`, `CSS.supports(prop, '50%')` — so every property can be
+  classified by what it accepts, which is most of what a style validator needs and is
+  currently the largest hand-maintained surface.
+
+So the honest split is not "tables stay, browser prunes them". It is: **a small frozen seed of
+names stays; everything structural becomes derived.** The structural half is both the bigger
+half and the one that rots, which is what makes this worth doing rather than merely tidy.
+
+### Fundamentally, the DOM should provide this### Fundamentally, the DOM should provide this
 
 Worth stating as the framing rather than a grumble, because it explains the whole shape of the
 work. **The browser knows all of it** — the property list, the value grammars, the named
