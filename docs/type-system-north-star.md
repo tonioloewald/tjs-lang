@@ -440,6 +440,40 @@ and should be **inherited by default** rather than separately implemented on eac
 observed members stop being an accidental intersection and become one required member plus four
 defaults.
 
+### `Type` is already a `Predicate` with more attached — so nothing needs restructuring
+
+**Settled 2026-09-20 (Tonio).** *"Can't `Type` just be a predicate with more information
+attached?"* — it can, and it already is. The extra information is **properties on the object**,
+so there is nothing to construct *through*. The "is `Type` built on `Predicate` or does it
+merely satisfy it" question does not need an answer; it dissolves.
+
+| | |
+| --- | --- |
+| **`Predicate`** | an object with `check` — the *function* does the work under the hood |
+| **`Type`** | a `Predicate` with an **example** attached |
+| **`Enum` / `Union`** | a `Predicate` with a **finite domain** attached |
+| **`FunctionPredicate`** | a `Predicate` with a **signature** attached |
+
+**The one thing that would force real work is making Predicates CALLABLE**, and the cost is
+specific enough to record so nobody rediscovers it:
+
+    // src/lang/runtime.ts
+    typeof expected === 'object' && expected !== null && 'check' in expected
+
+    // src/lang/emitters/js.ts — the inline `__match` stub, i.e. SHIPPED semantics
+    if (ex && typeof ex === 'object' && ex.__runtimeType && typeof ex.check === 'function') …
+
+Both branch on `typeof === 'object'`. A function is `'function'`, so a callable `Type(…)` would
+make **both guards stop recognising it** — and the second lives in every emitted file, so
+already-emitted code would not recognise new-style types. Keeping `Predicate` object-shaped
+avoids the only real compatibility edge in the design. "Plain function under the hood" is
+satisfied by `check` *being* that function, not by the wrapper being callable.
+
+**The remaining loose end runs the other way.** A verified plain function like `isColor` carries
+none of the five members, so it is not yet a `Predicate` in this sense. It needs either lifting
+(wrap it) or branding (`Symbol.hasInstance` over a `__predicate` mark) — a small self-contained
+decision, not a structural one.
+
 ### Open, and genuinely undecided
 
 - **Is there a `Predicate` declaration keyword, or is the umbrella type-level only?** A keyword
