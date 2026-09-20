@@ -114,3 +114,52 @@ describe('EMITTED code agrees — the stub is the shipped semantics', () => {
     }
   })
 })
+
+describe('a verified predicate IS a Predicate — no wrapping needed', () => {
+  // The payoff of predicates being functions. `isColor` was already an ordinary function;
+  // becoming a `Predicate` meant ATTACHING facts, not lifting it into a different shape. So
+  // `isColor` and `Type('age', 0)` are the same kind of thing, which is what lets one concept
+  // cover both in `$predicate`, in the docs, and in editor introspection.
+  it('compiled CSS predicates carry the brand', async () => {
+    const css: any = await import('../css/index')
+    expect(css.isColor instanceof Predicate).toBe(true)
+    expect(css.isColor.check).toBe(css.isColor)
+    expect(css.isColor.name).toBe('isColor')
+  })
+
+  it('and still decide correctly', async () => {
+    const css: any = await import('../css/index')
+    expect(css.isColor('#ff0000')).toBe(true)
+    expect(css.isColor('notacolour')).toBe(false)
+  })
+
+  it('defaults to claiming NO structure — the progressive-enhancement story', async () => {
+    // A bare predicate knows how to decide, not how to describe a shape. A naive JSON-Schema
+    // validator sees "anything"; an aware one runs the predicate.
+    const css: any = await import('../css/index')
+    expect(css.isColor.toJSONSchema()).toEqual({
+      $predicate: { name: 'isColor' },
+    })
+    // And it carries neither a witness nor a domain, because it has neither.
+    expect('example' in css.isColor).toBe(false)
+    expect('values' in css.isColor).toBe(false)
+  })
+
+  it('EVERY unary css predicate is branded — no partial adoption', async () => {
+    const css: any = await import('../css/index')
+    const unary = Object.keys(css).filter(
+      (k) => k.startsWith('is') && k !== 'isStyleValueFor'
+    )
+    expect(unary.length).toBeGreaterThan(10)
+    expect(unary.filter((n) => !(css[n] instanceof Predicate))).toEqual([])
+  })
+
+  it('but a BINARY relation is not a Predicate', async () => {
+    // `isStyleValueFor(prop, val)` asks whether a value is valid FOR a property. A predicate's
+    // contract is `check(v)` over one value; branding this would degrade `instanceof Predicate`
+    // to "callable and boolean-ish".
+    const css: any = await import('../css/index')
+    expect(css.isStyleValueFor instanceof Predicate).toBe(false)
+    expect(css.isStyleValueFor('color', 'red')).toBe(true)
+  })
+})

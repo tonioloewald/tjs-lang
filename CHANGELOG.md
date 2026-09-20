@@ -36,6 +36,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   well as on decisions. Pinned by `src/lang/predicate-callable.test.ts`, which asserts the
   differential rather than trusting it.
 
+- **Verified predicates are `Predicate`s too** — `isColor instanceof Predicate` is `true`, and
+  `tjs-lang/css`'s nineteen unary validators all carry the brand.
+
+  This is the payoff of predicates being functions rather than objects: `isColor` was already
+  an ordinary function, so becoming a `Predicate` meant **attaching facts**, not lifting it
+  into a different shape. `isColor` and `Type('age', 0)` are now the same kind of thing, which
+  is what lets one concept cover both in `$predicate`, in the documentation, and in editor
+  introspection.
+
+  A bare predicate takes the defaults and claims **no structure** — `toJSONSchema()` returns
+  `{ $predicate: … }`, and it carries neither `example` nor `values`, because it has neither.
+  That is the progressive-enhancement story exactly: a naive validator sees "anything", an
+  aware one runs the predicate.
+
+  `isStyleValueFor(prop, val)` is deliberately **not** branded: it is a binary relation, and a
+  predicate's contract is `check(v)` over one value. Branding it would degrade `instanceof
+Predicate` to "callable and boolean-ish".
+
 ### Added
 
 - **The AJS AST carries a format version** — `{"$ajs": 1, "op": "seq", …}` — and the VM acts on

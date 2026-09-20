@@ -82,8 +82,8 @@ export interface RuntimeType<T = unknown> {
  * never cross a module boundary, so nothing downstream had to change beyond widening the two
  * `typeof === 'object'` guards.
  */
-export class Predicate {}
-Object.setPrototypeOf(Predicate.prototype, Function.prototype)
+export { Predicate } from './predicate-brand'
+import { Predicate } from './predicate-brand'
 
 /**
  * Turn a runtime-type spec into a callable predicate carrying the same facts.

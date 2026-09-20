@@ -26,6 +26,7 @@ import * as walk from 'acorn-walk'
 // so the predicate verifier and the VM's regexMatch reject the same shapes.
 import { reDoSRisk } from '../redos'
 import { RT_NS } from './rt-namespace'
+import { brandPredicate } from '../types/predicate-brand'
 
 export interface PredicateDiagnostic {
   /** Name of the predicate the problem is in. */
@@ -749,7 +750,11 @@ export function compilePredicate(
   const wrapped: Record<string, (...args: any[]) => any> = {}
   for (const name of exportNames) {
     const fn = raw[name]
-    wrapped[name] = (...args: any[]) => {
+    // Branded as a `Predicate`: a verified function IS one, it just needed the facts
+    // attached. That is the whole payoff of predicates being functions — no wrapping into a
+    // different shape, so `isColor` and `Type('age', 0)` are the same kind of thing and
+    // `isColor instanceof Predicate` is true. See src/types/predicate-brand.ts.
+    wrapped[name] = brandPredicate((...args: any[]) => {
       fuel = budget
       try {
         return fn(...args)
@@ -758,7 +763,7 @@ export function compilePredicate(
           throw new PredicateFuelExhausted(budget)
         throw e
       }
-    }
+    }, name)
   }
   return wrapped
 }

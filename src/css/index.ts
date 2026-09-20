@@ -12,6 +12,7 @@
  * and the open functional stubs (`var(--`, `color-mix(`, …), validating mined
  * values through the compiled predicate so completions are guaranteed valid.
  */
+import { brandPredicate } from '../types/predicate-brand'
 import {
   compilePredicate,
   verifyPredicate,
@@ -120,41 +121,68 @@ function shorthandValidators(): ShorthandValidators {
 }
 
 /** Is `v` a valid CSS color (named, hex, rgb/hsl, modern fn, or `var(--…)`)? */
-export const isColor = (v: unknown): boolean => colorValidators().isColor(v)
+export const isColor = brandPredicate(
+  (v: unknown): boolean => colorValidators().isColor(v),
+  'isColor'
+)
 /** Like {@link isColor}, but tolerates a trailing `!important`. */
-export const isColorValue = (v: unknown): boolean =>
-  colorValidators().isColorValue(v)
+export const isColorValue = brandPredicate(
+  (v: unknown): boolean => colorValidators().isColorValue(v),
+  'isColorValue'
+)
 /** Is `v` a CSS named color (incl. `transparent`/`currentcolor`)? */
-export const isNamedColor = (v: unknown): boolean =>
-  colorValidators().isNamedColor(v)
+export const isNamedColor = brandPredicate(
+  (v: unknown): boolean => colorValidators().isNamedColor(v),
+  'isNamedColor'
+)
 /** Is `v` a CSS hex color (`#rgb`, `#rgba`, `#rrggbb`, `#rrggbbaa`)? */
-export const isHexColor = (v: unknown): boolean =>
-  colorValidators().isHexColor(v)
+export const isHexColor = brandPredicate(
+  (v: unknown): boolean => colorValidators().isHexColor(v),
+  'isHexColor'
+)
 
 // --- dimensions / numbers / keywords (phase 2) ------------------------------
 
 /** Is `v` a CSS `<length>` (unit'd, unitless `0`, or `var()`/`calc()`)? */
-export const isLength = (v: unknown): boolean =>
-  dimensionValidators().isLength(v)
+export const isLength = brandPredicate(
+  (v: unknown): boolean => dimensionValidators().isLength(v),
+  'isLength'
+)
 /** Is `v` a CSS `<percentage>` (`50%`)? */
-export const isPercentage = (v: unknown): boolean =>
-  dimensionValidators().isPercentage(v)
+export const isPercentage = brandPredicate(
+  (v: unknown): boolean => dimensionValidators().isPercentage(v),
+  'isPercentage'
+)
 /** Is `v` a CSS `<number>` (numeric, or a numeric string)? */
-export const isNumber = (v: unknown): boolean =>
-  dimensionValidators().isNumber(v)
+export const isNumber = brandPredicate(
+  (v: unknown): boolean => dimensionValidators().isNumber(v),
+  'isNumber'
+)
 /** Is `v` a CSS `<integer>`? */
-export const isInteger = (v: unknown): boolean =>
-  dimensionValidators().isInteger(v)
+export const isInteger = brandPredicate(
+  (v: unknown): boolean => dimensionValidators().isInteger(v),
+  'isInteger'
+)
 /** Is `v` a CSS `<angle>` (`45deg`, `1turn`, `1.5rad`, `100grad`)? */
-export const isAngle = (v: unknown): boolean => dimensionValidators().isAngle(v)
+export const isAngle = brandPredicate(
+  (v: unknown): boolean => dimensionValidators().isAngle(v),
+  'isAngle'
+)
 /** Is `v` a CSS `<time>` (`200ms`, `1s`)? */
-export const isTime = (v: unknown): boolean => dimensionValidators().isTime(v)
+export const isTime = brandPredicate(
+  (v: unknown): boolean => dimensionValidators().isTime(v),
+  'isTime'
+)
 /** Is `v` any CSS dimension/number (length, %, angle, time, resolution, number)? */
-export const isDimension = (v: unknown): boolean =>
-  dimensionValidators().isDimension(v)
+export const isDimension = brandPredicate(
+  (v: unknown): boolean => dimensionValidators().isDimension(v),
+  'isDimension'
+)
 /** Is `v` a CSS-wide keyword (`inherit`/`initial`/`unset`/`revert`/`revert-layer`)? */
-export const isGlobalKeyword = (v: unknown): boolean =>
-  dimensionValidators().isGlobalKeyword(v)
+export const isGlobalKeyword = brandPredicate(
+  (v: unknown): boolean => dimensionValidators().isGlobalKeyword(v),
+  'isGlobalKeyword'
+)
 
 // --- recursive style-object structure (phase 4) -----------------------------
 
@@ -165,40 +193,57 @@ export const isGlobalKeyword = (v: unknown): boolean =>
  * selector values are nested rules), recursively and fuel-bounded. This is the
  * shape TS/JSON-Schema can't express.
  */
-export const isStyleObject = (v: unknown): boolean =>
-  styleValidators().isStyleObject(v)
+export const isStyleObject = brandPredicate(
+  (v: unknown): boolean => styleValidators().isStyleObject(v),
+  'isStyleObject'
+)
 /** Is `v` a valid leaf CSS value (a known color/dimension/keyword, else a non-empty string / finite number)? */
-export const isStyleValue = (v: unknown): boolean =>
-  styleValidators().isStyleValue(v)
+export const isStyleValue = brandPredicate(
+  (v: unknown): boolean => styleValidators().isStyleValue(v),
+  'isStyleValue'
+)
 /**
  * Property-AWARE leaf check: given the property name, tightens the closed value
  * grammars (color/animation/transition) so `isStyleValueFor('color', 'notacolor')`
  * is `false` while `isStyleValueFor('padding', 'anything')` stays permissive.
  * This is what makes {@link isStyleObject} catch real value errors.
  */
+// NOT a `Predicate`, deliberately: this is a BINARY relation (is `val` valid *for* `prop`),
+// and a predicate's contract is `check(v) -> boolean` over one value. Branding it would make
+// `instanceof Predicate` mean "callable and boolean-ish" rather than "decides about a value".
 export const isStyleValueFor = (prop: unknown, val: unknown): boolean =>
   (styleValidators().isStyleValueFor as (p: unknown, v: unknown) => boolean)(
     prop,
     val
   )
 /** Is `k` a CSS property name (`color`, `--custom`, `-webkit-foo`)? */
-export const isCssProperty = (k: unknown): boolean =>
-  styleValidators().isCssProperty(k)
+export const isCssProperty = brandPredicate(
+  (k: unknown): boolean => styleValidators().isCssProperty(k),
+  'isCssProperty'
+)
 /** Is `k` a selector or at-rule key (nests a rule) rather than a property? */
-export const isSelectorOrAtRule = (k: unknown): boolean =>
-  styleValidators().isSelectorOrAtRule(k)
+export const isSelectorOrAtRule = brandPredicate(
+  (k: unknown): boolean => styleValidators().isSelectorOrAtRule(k),
+  'isSelectorOrAtRule'
+)
 
 // --- order-flexible shorthands (phase 3) ------------------------------------
 
 /** Is `v` a valid CSS `animation` shorthand (comma-separated, order-free tokens)? */
-export const isAnimation = (v: unknown): boolean =>
-  shorthandValidators().isAnimation(v)
+export const isAnimation = brandPredicate(
+  (v: unknown): boolean => shorthandValidators().isAnimation(v),
+  'isAnimation'
+)
 /** Is `v` a valid CSS `transition` shorthand (comma-separated layers)? */
-export const isTransition = (v: unknown): boolean =>
-  shorthandValidators().isTransition(v)
+export const isTransition = brandPredicate(
+  (v: unknown): boolean => shorthandValidators().isTransition(v),
+  'isTransition'
+)
 /** Is `v` a CSS `<easing-function>` (keyword, `cubic-bezier(…)`, `steps(…)`, `linear(…)`)? */
-export const isTimingFunction = (v: unknown): boolean =>
-  shorthandValidators().isTimingFunction(v)
+export const isTimingFunction = brandPredicate(
+  (v: unknown): boolean => shorthandValidators().isTimingFunction(v),
+  'isTimingFunction'
+)
 
 /**
  * Verify every CSS predicate-source cluster is predicate-safe (pure,
