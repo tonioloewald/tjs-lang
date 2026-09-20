@@ -136,6 +136,8 @@ describe('the emitted runtime never lands in the author’s namespace', () => {
       __goIs: 'the recursive worker behind Is',
       __ex2js: 'example -> JSON Schema, reached via a Type’s .toJSONSchema()',
       __match: 'structural matcher, reached via Type/Generic .check()',
+      __pred:
+        'wraps a runtime type into a callable predicate; reached via Type()',
       __stack: 'the call-stack ring buffer itself',
       __stackSize: 'ring capacity',
       __stackHead: 'ring cursor',

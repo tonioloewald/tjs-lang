@@ -2017,13 +2017,19 @@ export function transpileToJS(
         // so adding a `predicate` that returns `true` — adding no constraint at all —
         // made a type MORE permissive. A predicate must only ever narrow. Both checkers
         // are open now, so they agree.
-        `function __match(v,ex){if(ex===null)return v===null;if(ex===undefined)return true;if(ex&&typeof ex==='object'&&ex.__runtimeType&&typeof ex.check==='function')return ex.check(v)===true;const t=typeof ex;if(t==='number')return typeof v==='number'&&(Number.isInteger(ex)?Number.isInteger(v):true);if(t==='string'||t==='boolean')return typeof v===t;if(Array.isArray(ex)){if(!Array.isArray(v))return false;return ex.length?v.every(x=>__match(x,ex[0])):true}if(t==='object'){if(!v||typeof v!=='object'||Array.isArray(v))return false;const ks=Object.keys(ex);return ks.every(k=>k in v&&__match(v[k],ex[k]))}return v===ex}`
+        // A runtime type is a FUNCTION with properties, matching the real runtime
+        // (`asPredicate`, src/types/Type.ts). `check` IS the function, so the two cannot
+        // drift; `name` is set because it is real introspection (autocomplete, messages)
+        // where `length` is not. No prototype chain here — the stub has no `Predicate` to
+        // point at, and callability plus the brand is what emitted code can observe.
+        `function __pred(t,n){const f=v=>t.check(v);Object.assign(f,t);f.check=f;if(n)Object.defineProperty(f,'name',{value:n,configurable:true});return f}`,
+        `function __match(v,ex){if(ex===null)return v===null;if(ex===undefined)return true;if(ex&&(typeof ex==='object'||typeof ex==='function')&&ex.__runtimeType&&typeof ex.check==='function')return ex.check(v)===true;const t=typeof ex;if(t==='number')return typeof v==='number'&&(Number.isInteger(ex)?Number.isInteger(v):true);if(t==='string'||t==='boolean')return typeof v===t;if(Array.isArray(ex)){if(!Array.isArray(v))return false;return ex.length?v.every(x=>__match(x,ex[0])):true}if(t==='object'){if(!v||typeof v!=='object'||Array.isArray(v))return false;const ks=Object.keys(ex);return ks.every(k=>k in v&&__match(v[k],ex[k]))}return v===ex}`
       )
       const typeExtras = needsExampleSchema
         ? `t.toJSONSchema=()=>t.__ex===undefined?{}:__ex2js(t.__ex);t.strip=v=>{const ex=t.__ex;if(!ex||typeof ex!=='object'||!v||typeof v!=='object')return v;const o={};for(const k of Object.keys(ex))if(k in v)o[k]=v[k];return o};`
         : ''
       inlineParts.push(
-        `function Type(d,p,e){const t={description:d,__runtimeType:true};if(typeof p==='function'){t.check=p;t.default=e??null}else{const ex=e??p;t.default=ex;t.__ex=ex;t.check=v=>__match(v,ex)}${typeExtras}return t}`
+        `function Type(d,p,e){const t={description:d,__runtimeType:true};if(typeof p==='function'){t.check=p;t.default=e??null}else{const ex=e??p;t.default=ex;t.__ex=ex;t.check=v=>__match(v,ex)}${typeExtras}return __pred(t,d)}`
       )
     }
     if (needsGeneric) {

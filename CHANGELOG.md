@@ -7,6 +7,35 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- **Runtime types are now FUNCTIONS with properties, not objects with a callable `check`.**
+  `Type`, `Enum`, `Union` and `FunctionPredicate` all return callables:
+
+  ```js
+  const Age = Type('Age', 0)
+  Age(5)                    // true      — callable, the natural JS idiom
+  Age.check(5)              // true      — the SAME function; one implementation
+  Age instanceof Predicate  // true      — a real prototype chain, no Symbol.hasInstance
+  Age.name                  // 'Age'     — introspection, for autocomplete and messages
+  Age.example               // 0         — a Type is a Predicate carrying a witness
+  ```
+
+  **Additive in practice.** `.check()` still works, `isRuntimeType()` still recognises them,
+  and object-shaped types from older emitted output still match — the two `typeof === 'object'`
+  guards were widened rather than replaced. Emitted types are file-local `const`s that never
+  cross a module boundary, so there is no old-stub/new-shape skew to migrate.
+
+  The point is not ergonomics. A verified plain function becomes a predicate by **attaching
+  properties** — no wrapping, no lifting, no two populations to reconcile — and `check` _being_
+  the function means one implementation that cannot drift from itself. `name` is set
+  deliberately because it is real introspection; `length` is inherited from `Function` and says
+  nothing.
+
+  The inline stub emits callables too, so emitted code and the real runtime agree on shape as
+  well as on decisions. Pinned by `src/lang/predicate-callable.test.ts`, which asserts the
+  differential rather than trusting it.
+
 ### Added
 
 - **The AJS AST carries a format version** — `{"$ajs": 1, "op": "seq", …}` — and the VM acts on

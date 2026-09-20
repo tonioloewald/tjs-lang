@@ -1485,10 +1485,14 @@ export function checkType(
   if (isError(value)) return value
 
   // Handle RuntimeType instances (Type() results)
+  //
+  // A runtime type is a FUNCTION with properties (`asPredicate` in src/types/Type.ts), so
+  // `typeof` is 'function', not 'object'. Object-shaped types still match, which is what makes
+  // the widening backward compatible with already-emitted output rather than a migration.
   if (
-    typeof expected === 'object' &&
+    (typeof expected === 'object' || typeof expected === 'function') &&
     expected !== null &&
-    'check' in expected
+    'check' in (expected as object)
   ) {
     const result = expected.check(value)
     if (result === true) return null
@@ -1527,7 +1531,9 @@ export function checkType(
 
   return error(`Expected ${expected} but got ${actual}`, {
     path,
-    expected,
+    // `expected` is narrowed to a string by every branch above, but widening the
+    // RuntimeType guard to accept functions left TS unable to see that. It is a string here.
+    expected: expected as string,
     actual,
   })
 }

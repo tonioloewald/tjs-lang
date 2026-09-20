@@ -59,12 +59,63 @@ export interface RuntimeType<T = unknown> {
   readonly __runtimeType: true
 }
 
+/**
+ * The brand every runtime type and predicate carries — and the reason they are FUNCTIONS.
+ *
+ * A predicate is a function with properties, not an object with a callable `check`. That was
+ * the original conception and it is the right one:
+ *
+ *   - **A verified plain function becomes a predicate by ATTACHING properties.** No wrapping,
+ *     no lifting, no two populations to reconcile — `isColor` and `Type('age', 0)` are the
+ *     same kind of thing.
+ *   - **`check` IS the function**, so there is one implementation that cannot drift from
+ *     itself. This repo has paid for two copies of one runtime before (`docs/runtime-fusion.md`).
+ *   - **`instanceof` comes from a real prototype chain**, via `Object.setPrototypeOf` — no
+ *     `eval`, no `new Function`, and no `Symbol.hasInstance` standing in for a chain that can
+ *     simply exist.
+ *
+ * `Predicate.prototype` is linked to `Function.prototype` so predicates keep `call`/`apply`/
+ * `bind` and read as ordinary functions to everything that does not know better.
+ *
+ * Measured before committing to it (`docs/type-system-north-star.md`): `setPrototypeOf` costs
+ * ~0.1µs per declaration at module-init only, and emitted types are file-local `const`s that
+ * never cross a module boundary, so nothing downstream had to change beyond widening the two
+ * `typeof === 'object'` guards.
+ */
+export class Predicate {}
+Object.setPrototypeOf(Predicate.prototype, Function.prototype)
+
+/**
+ * Turn a runtime-type spec into a callable predicate carrying the same facts.
+ *
+ * `name` is set deliberately rather than left as the closure's name: a predicate's name is
+ * real introspection — it is what autocomplete, documentation and error messages have to show —
+ * unlike `length`, which a predicate inherits from `Function` and which says nothing useful.
+ */
+function asPredicate<T extends { check: (value: unknown) => boolean | string }>(
+  spec: T,
+  name?: string
+): T & ((value: unknown) => boolean | string) {
+  const test = spec.check
+  const fn = ((value: unknown) => test(value)) as any
+  Object.setPrototypeOf(fn, Predicate.prototype)
+  Object.assign(fn, spec)
+  // `check` is the function itself — the single implementation.
+  fn.check = fn
+  if (name)
+    Object.defineProperty(fn, 'name', { value: name, configurable: true })
+  return fn
+}
+
 /** Check if a value is a RuntimeType */
 export function isRuntimeType(value: unknown): value is RuntimeType {
+  // A runtime type is a FUNCTION with properties (see `asPredicate`), so this must accept
+  // both — `typeof fn === 'function'`. Object-shaped types from older emitted output still
+  // match, which is why the widening is backward compatible rather than a migration.
   return (
     value !== null &&
-    typeof value === 'object' &&
-    '__runtimeType' in value &&
+    (typeof value === 'object' || typeof value === 'function') &&
+    '__runtimeType' in (value as object) &&
     (value as any).__runtimeType === true
   )
 }
@@ -330,42 +381,45 @@ export function Type<T = unknown>(
     return false
   }
 
-  return {
-    description,
-    check,
-    schema,
-    predicate,
-    example,
-    examples,
-    default: defaultValue,
-    toJSONSchema(): JSONSchemaObject {
-      // If we have an underlying JSON Schema or builder, extract it
-      if (schema) {
-        const raw = (schema as any)?.schema ?? schema
-        if (raw && typeof raw === 'object' && 'type' in raw) {
-          return raw as JSONSchemaObject
+  return asPredicate(
+    {
+      description,
+      check,
+      schema,
+      predicate,
+      example,
+      examples,
+      default: defaultValue,
+      toJSONSchema(): JSONSchemaObject {
+        // If we have an underlying JSON Schema or builder, extract it
+        if (schema) {
+          const raw = (schema as any)?.schema ?? schema
+          if (raw && typeof raw === 'object' && 'type' in raw) {
+            return raw as JSONSchemaObject
+          }
         }
-      }
-      // Fall back to inferring from example
-      if (example !== undefined) {
-        return exampleToJSONSchema(example)
-      }
-      // Predicate-only types: best-effort from description
-      return { description }
+        // Fall back to inferring from example
+        if (example !== undefined) {
+          return exampleToJSONSchema(example)
+        }
+        // Predicate-only types: best-effort from description
+        return { description }
+      },
+      strip(value: unknown): unknown {
+        // The CLOSED schema, deliberately. `check()` tolerates extra keys (they are fine in
+        // TJS); `strip()` is the caller explicitly asking for them to be removed, and it
+        // cannot do that against a schema that permits them.
+        const stripSchema = closedSchema ?? schema
+        if (stripSchema) {
+          return schemaFilter(value, stripSchema)
+        }
+        // No schema — can't strip, return as-is
+        return value
+      },
+      __runtimeType: true as const,
     },
-    strip(value: unknown): unknown {
-      // The CLOSED schema, deliberately. `check()` tolerates extra keys (they are fine in
-      // TJS); `strip()` is the caller explicitly asking for them to be removed, and it
-      // cannot do that against a schema that permits them.
-      const stripSchema = closedSchema ?? schema
-      if (stripSchema) {
-        return schemaFilter(value, stripSchema)
-      }
-      // No schema — can't strip, return as-is
-      return value
-    },
-    __runtimeType: true as const,
-  }
+    description
+  )
 }
 
 /**
@@ -662,7 +716,7 @@ export function Union<T extends unknown[]>(
       __runtimeType: true as const,
       values, // Expose values for introspection
     }
-    return result
+    return asPredicate(result, description)
   }
 
   // Old form: Union(...types: RuntimeType[])
@@ -905,7 +959,7 @@ export function Enum<T extends Record<string, string | number>>(
     keys,
   }
 
-  return enumType
+  return asPredicate(enumType, description)
 }
 
 // =============================================================================
@@ -1126,5 +1180,5 @@ function _createFunctionPredicate(
     __runtimeType: true as const,
   }
 
-  return fpType
+  return asPredicate(fpType, fpType.description)
 }
