@@ -68,6 +68,30 @@ export function brandPredicate<F extends (...args: any[]) => any>(
   p.toJSONSchema ??=
     facts.toJSONSchema ?? (() => ({ $predicate: { name: p.name } }))
   p.strip ??= facts.strip ?? ((value: unknown) => value)
+  // `toJSON` because a predicate is a FUNCTION, and `JSON.stringify` drops functions —
+  // silently, returning `undefined`. Without this, making runtime types callable would have
+  // been a quiet data-loss break for anyone persisting or transmitting a type, which is the
+  // worst kind: no error, just a missing value somewhere downstream. Serialises the
+  // enumerable facts, which is what an object-shaped type serialised to before.
+  p.toJSON ??= () => {
+    // Serialise the FACTS, not the implementation. Excluded, each for a reason:
+    //   check      — the function itself; spreading it recurses through this method
+    //   toJSON     — likewise
+    //   schema     — a tosijs-schema object with internal cycles; it is why
+    //                `JSON.stringify(Type(…))` THREW before types were callable, so a
+    //                serialisable type is new capability rather than restored behaviour
+    //   functions  — `toJSONSchema`/`strip`/`predicate` are behaviour, and JSON drops
+    //                functions anyway; omitting them keeps the output clean
+
+    const out: Record<string, unknown> = {}
+    for (const [k, v] of Object.entries(p)) {
+      if (k === 'check' || k === 'toJSON' || k === 'schema') continue
+      if (typeof v === 'function') continue
+      out[k] = v
+    }
+    return out
+  }
+
   for (const [k, v] of Object.entries(facts)) if (!(k in p)) (p as any)[k] = v
   return p
 }

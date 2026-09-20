@@ -163,3 +163,47 @@ describe('a verified predicate IS a Predicate — no wrapping needed', () => {
     expect(css.isStyleValueFor('color', 'red')).toBe(true)
   })
 })
+
+describe('predicates SERIALISE — new capability, not restored behaviour', () => {
+  // Worth stating precisely, because it looks like a regression fix and is not.
+  //
+  // Before runtime types were callable, `JSON.stringify(Type('Age', 0))` THREW —
+  // "Maximum call stack size exceeded" — because a Type carries a `schema` object with
+  // internal cycles. Making types functions changed that throw into a silent `undefined`
+  // (JSON drops functions), which is how the gap was noticed. `toJSON` closes it properly:
+  // a type now serialises to its FACTS for the first time.
+  it('a Type serialises to its facts', () => {
+    expect(JSON.parse(JSON.stringify(Type('Age', 0)))).toEqual({
+      description: 'Age',
+      example: 0,
+      default: 0,
+      __runtimeType: true,
+    })
+  })
+
+  it('a verified predicate serialises too', () => {
+    const css: any = require('../css/index')
+    expect(JSON.parse(JSON.stringify(css.isColor))).toEqual({
+      __runtimeType: true,
+      description: 'isColor',
+    })
+  })
+
+  it('nested in an object, which is the case that actually matters', () => {
+    // A type is far more likely to be serialised as part of a payload than on its own.
+    const out = JSON.parse(JSON.stringify({ field: Type('Age', 0) }))
+    expect(out.field.example).toBe(0)
+  })
+
+  it('and does not recurse, whatever it carries', () => {
+    // `check` is the function itself and `schema` holds cycles; both are excluded. The test
+    // is that this terminates at all — the first two attempts at `toJSON` did not.
+    for (const p of [
+      Type('Age', 0),
+      Enum('C', ['a', 'b']),
+      Union('U', [0, '']),
+    ]) {
+      expect(() => JSON.stringify(p)).not.toThrow()
+    }
+  })
+})

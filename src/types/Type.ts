@@ -102,6 +102,21 @@ function asPredicate<T extends { check: (value: unknown) => boolean | string }>(
   Object.assign(fn, spec)
   // `check` is the function itself — the single implementation.
   fn.check = fn
+  // See the note in predicate-brand.ts: `JSON.stringify` drops functions silently, so a
+  // callable type would otherwise serialise to `undefined`.
+  if (!('toJSON' in fn))
+    fn.toJSON = () => {
+      // See predicate-brand.ts: serialise the facts, not the implementation. `schema` carries
+      // cycles (it is why stringifying a Type threw before), `check` is the function itself.
+      const out: Record<string, unknown> = {}
+      for (const [k, v] of Object.entries(fn)) {
+        if (k === 'check' || k === 'toJSON' || k === 'schema') continue
+        if (typeof v === 'function') continue
+        out[k] = v
+      }
+      return out
+    }
+
   if (name)
     Object.defineProperty(fn, 'name', { value: name, configurable: true })
   return fn

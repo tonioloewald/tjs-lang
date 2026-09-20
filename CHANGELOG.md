@@ -32,6 +32,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   deliberately because it is real introspection; `length` is inherited from `Function` and says
   nothing.
 
+  **Runtime types now serialise**, which they never did. `JSON.stringify(Type('Age', 0))`
+  previously **threw** — "Maximum call stack size exceeded", because a Type carries a `schema`
+  object with internal cycles. Making types callable turned that throw into a silent
+  `undefined` (JSON drops functions), which is how the gap was noticed; a `toJSON` now emits
+  the type's FACTS:
+
+  ```js
+  JSON.stringify(Type('Age', 0))
+  // {"description":"Age","example":0,"default":0,"__runtimeType":true}
+  ```
+
+  New capability rather than restored behaviour — worth stating precisely, because it looks
+  like a regression fix and is not.
+
+  **The one genuine break** is `typeof`: a runtime type reports `'function'` where it used to
+  report `'object'`. Everything else a consumer is likely to touch is unchanged — `.check()`,
+  `isRuntimeType()`, `Object.keys()`, spread — and serialisation improved from throwing.
+
   The inline stub emits callables too, so emitted code and the real runtime agree on shape as
   well as on decisions. Pinned by `src/lang/predicate-callable.test.ts`, which asserts the
   differential rather than trusting it.
